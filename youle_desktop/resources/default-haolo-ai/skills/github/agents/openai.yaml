@@ -1,0 +1,14 @@
+interface:
+  display_name: "GitHub"
+  short_description: "以当前用户身份安全访问和操作自己的 GitHub 仓库"
+  default_prompt: "使用 $github 以我的 GitHub 身份检查仓库并汇总当前问题。"
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "github"
+      description: "Haolo GitHub relay MCP server"
+      transport: "stdio"
+
+policy:
+  allow_implicit_invocation: true

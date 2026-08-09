@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Haolo</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand-mark" aria-hidden="true">H</div>
+        <div>
+          <h1>Haolo</h1>
+          <p>在当前 Chrome 中继续任务</p>
+        </div>
+        <span id="statusDot" class="status-dot" data-state="connecting" aria-hidden="true"></span>
+      </header>
+
+      <section class="status-card" aria-live="polite">
+        <div>
+          <strong id="statusTitle">正在连接 Haolo</strong>
+          <p id="statusMessage">正在检查桌面端和安全连接。</p>
+        </div>
+        <button id="retryButton" class="secondary" type="button" hidden>重新连接</button>
+      </section>
+
+      <section class="hero">
+        <span class="eyebrow">Chrome 工作区</span>
+        <h2>让 Codex 使用你已经登录的网站</h2>
+        <p>读取当前页面、引用选中文本，并在获得授权后完成浏览器任务。</p>
+      </section>
+
+      <section id="siteCard" class="site-card" aria-live="polite">
+        <div class="site-heading">
+          <div class="site-icon" aria-hidden="true">◎</div>
+          <div class="site-copy">
+            <strong id="siteTitle">正在识别当前网站</strong>
+            <span id="siteOrigin">请稍候</span>
+          </div>
+          <span id="siteBadge" class="badge" data-state="loading">检查中</span>
+        </div>
+        <p id="siteMessage">Haolo 只会在你明确授权后读取当前页面。</p>
+        <div id="permissionActions" class="permission-actions" hidden>
+          <button id="allowOnceButton" class="secondary" type="button">仅本次允许</button>
+          <button id="allowSiteButton" class="primary" type="button">始终允许此网站</button>
+          <button id="declineButton" class="ghost" type="button">暂不允许</button>
+        </div>
+        <button id="previewButton" class="preview-button secondary" type="button" hidden>预览 Haolo 可读取的内容</button>
+        <div id="previewPanel" class="preview-panel" hidden>
+          <div class="preview-heading">
+            <strong>页面读取预览</strong>
+            <span id="previewMeta"></span>
+          </div>
+          <p id="previewText"></p>
+        </div>
+      </section>
+
+      <section class="capability-card" aria-labelledby="capabilityTitle">
+        <div class="capability-heading">
+          <div>
+            <span class="eyebrow">一次性高级权限</span>
+            <h2 id="capabilityTitle">只在你确认的动作中启用</h2>
+          </div>
+        </div>
+        <p>下载、文件上传和历史记录权限在使用后自动撤销，不会静默长期保留。</p>
+        <div class="capability-list">
+          <div class="capability-row" data-capability-row="downloads">
+            <div><strong>下载文件</strong><span data-capability-status="downloads">未启用</span></div>
+            <button class="secondary capability-button" type="button" data-capability="downloads">启用一次</button>
+          </div>
+          <div class="capability-row" data-capability-row="debugger">
+            <div><strong>上传本地文件</strong><span data-capability-status="debugger">未启用</span></div>
+            <button class="secondary capability-button" type="button" data-capability="debugger">启用一次</button>
+          </div>
+          <div class="capability-row" data-capability-row="history">
+            <div><strong>搜索历史记录</strong><span data-capability-status="history">未启用</span></div>
+            <button class="secondary capability-button" type="button" data-capability="history">启用一次</button>
+          </div>
+        </div>
+        <p id="capabilityFeedback" class="capability-feedback" role="status" hidden></p>
+      </section>
+
+      <form id="promptForm" class="composer">
+        <label for="promptInput">给 Haolo 一个任务</label>
+        <textarea id="promptInput" rows="4" placeholder="例如：总结当前页面，并把关键结论整理到 Haolo 任务里" disabled></textarea>
+        <div class="composer-footer">
+          <span id="profileLabel">等待连接</span>
+          <button id="sendButton" class="primary" type="submit" disabled>发送</button>
+        </div>
+        <p id="taskFeedback" class="task-feedback" role="status" hidden></p>
+      </form>
+
+      <section class="privacy-note">
+        <strong>权限由你控制</strong>
+        <p>Haolo 默认不会读取当前站点；每个网站和敏感动作都需要单独授权。</p>
+      </section>
+    </main>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

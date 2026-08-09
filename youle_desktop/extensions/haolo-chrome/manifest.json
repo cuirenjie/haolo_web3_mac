@@ -1,0 +1,64 @@
+{
+  "manifest_version": 3,
+  "name": "Haolo for Chrome",
+  "short_name": "Haolo",
+  "version": "0.1.0",
+  "version_name": "0.1.0-dev",
+  "description": "Use Haolo and Codex with the Chrome profile you are already signed in to.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsTgB/KXMKl5y9Rz5tIMB6mSVenwrIiepbO36FEL8EfVarHlLpRSzBOCgGucS4ujJYBTEwCy1vR5vFLA5CSyp85e4BnqTszlGnUFpBA7XnLbdjqS81fFxO1w2SSalA3PE5BX0XBmXX9RbQcG0WlTzaGbFQIYy+3s4iXUQ2wQuLulM6tiGrAVhdCdp4NEpnjkHwe7YGtqL81Z4EBwmGL2ibYHL15nrE1JF17LaKP7OImYj6ybZEorqsQ/kqcyVrnp+cZjm7/57xYh8C3ABI3B432hOee/XZmv/3b682Nyd38gGK1K/BhKf4gAO8BwgMererHAW0XTa0xemJJ+YjTuQVwIDAQAB",
+  "minimum_chrome_version": "121",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Open Haolo",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "page-agent.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "nativeMessaging",
+    "scripting",
+    "sidePanel",
+    "storage",
+    "tabGroups",
+    "tabs",
+    "webNavigation"
+  ],
+  "optional_permissions": [
+    "debugger",
+    "downloads",
+    "history"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
+}

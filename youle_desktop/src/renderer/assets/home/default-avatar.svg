@@ -1,0 +1,24 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<linearGradient id="avatarBg" x1="3.8" y1="4.1" x2="27.5" y2="29.5" gradientUnits="userSpaceOnUse">
+<stop stop-color="#B8D8FF"/>
+<stop offset="0.52" stop-color="#F9E2D6"/>
+<stop offset="1" stop-color="#7A8A95"/>
+</linearGradient>
+<radialGradient id="softShade" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(17.2 24.2) rotate(122) scale(19 21)">
+<stop offset="0.05" stop-color="#F5EFEA" stop-opacity="0.78"/>
+<stop offset="0.65" stop-color="#D3D6D7" stop-opacity="0.62"/>
+<stop offset="1" stop-color="#8B949A" stop-opacity="0.8"/>
+</radialGradient>
+<clipPath id="clipAvatar">
+<rect width="32" height="32" rx="16" fill="white"/>
+</clipPath>
+</defs>
+<g clip-path="url(#clipAvatar)">
+<rect width="32" height="32" fill="url(#avatarBg)"/>
+<path d="M5 32C5.55 24.35 9.9 19.3 16 19.3C22.1 19.3 26.45 24.35 27 32H5Z" fill="url(#softShade)"/>
+<path d="M9.65 12.25C9.65 7.45 12.15 4.4 16.05 4.4C19.75 4.4 22.2 7.05 22.35 11.45C20.6 10.25 18.6 9.7 16.45 9.7C13.75 9.7 11.45 10.55 9.65 12.25Z" fill="#4F3D37"/>
+<circle cx="16" cy="13.3" r="5.5" fill="#F2C7B1"/>
+<path d="M10.45 13.55C10.25 10.05 12.5 7.7 16.1 7.7C19.2 7.7 21.1 9.6 21.55 12.3C19.35 11 17.35 10.65 15.35 11.05C13.45 11.45 11.95 12.25 10.45 13.55Z" fill="#4F3D37"/>
+</g>
+</svg>

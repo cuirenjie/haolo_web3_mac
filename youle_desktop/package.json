@@ -1,0 +1,148 @@
+{
+  "name": "haolo_desktop",
+  "version": "0.1.164",
+  "private": true,
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
+  "description": "Local desktop shell for the Haolo desktop app.",
+  "author": "haolo_desktop",
+  "type": "module",
+  "main": "src/main/main.mjs",
+  "scripts": {
+    "dev": "node ./scripts/dev.mjs",
+    "typecheck": "node ./scripts/typecheck.mjs",
+    "build": "vite build",
+    "build:chrome-host": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-chrome-native-host.ps1",
+    "chrome:package": "node ./scripts/package-chrome-extension.mjs",
+    "chrome:package:store": "node ./scripts/package-chrome-extension.mjs --store",
+    "chrome:assets": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/generate-chrome-store-assets.ps1",
+    "chrome:release:check": "node ./scripts/check-chrome-release-readiness.mjs --strict",
+    "chrome:smoke": "node ./scripts/chrome-extension-smoke.mjs",
+    "test": "node --test",
+    "wechat:backend": "node ./scripts/wechat-external-channel-server.mjs",
+    "bump:patch": "node ./scripts/bump-version.mjs patch",
+    "start": "electron .",
+    "smoke": "node ./scripts/smoke-app-server.mjs",
+    "pack:win": "pnpm run bump:patch && pnpm run build:chrome-host && pnpm run build && electron-builder --win --x64 --dir",
+    "dist:win": "pnpm run bump:patch && pnpm run build:chrome-host && pnpm run build && electron-builder --win nsis --x64 && pnpm run chrome:package"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "1.67.0",
+    "call-bind-apply-helpers": "1.0.2",
+    "dunder-proto": "1.0.1",
+    "es-define-property": "1.0.1",
+    "es-object-atoms": "1.1.1",
+    "function-bind": "1.1.2",
+    "get-proto": "1.0.1",
+    "gopd": "1.2.0",
+    "lightweight-charts": "5.1.0",
+    "math-intrinsics": "1.1.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "electron": "39.8.10",
+    "electron-builder": "^26.11.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.7"
+  },
+  "build": {
+    "appId": "local.haolo.desktop",
+    "productName": "haolo_desktop",
+    "electronVersion": "39.8.10",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/renderer/**/*",
+      "src/main/**/*",
+      "resources/haolo-logo.ico",
+      "resources/haolo-runtime-icon.ico",
+      "resources/haolo-logo.svg",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/haolo-logo.ico",
+        "to": "haolo-logo.ico"
+      },
+      {
+        "from": "resources/haolo-runtime-icon.ico",
+        "to": "haolo-runtime-icon.ico"
+      },
+      {
+        "from": "src/renderer/assets/haolo-app-avatar.png",
+        "to": "haolo-app-avatar.png"
+      },
+      {
+        "from": "resources/bin/haolo_ai.exe",
+        "to": "bin/haolo_ai.exe"
+      },
+      {
+        "from": "resources/bin/codex-command-runner.exe",
+        "to": "bin/codex-command-runner.exe"
+      },
+      {
+        "from": "resources/bin/codex-windows-sandbox-setup.exe",
+        "to": "bin/codex-windows-sandbox-setup.exe"
+      },
+      {
+        "from": "resources/bin/codex-runtime.json",
+        "to": "bin/codex-runtime.json"
+      },
+      {
+        "from": "resources/bin/haolo-chrome-native-host.exe",
+        "to": "bin/haolo-chrome-native-host.exe"
+      },
+      {
+        "from": "resources/default-haolo-ai",
+        "to": "default-haolo-ai"
+      },
+      {
+        "from": "resources/mcp",
+        "to": "mcp"
+      },
+      {
+        "from": "extensions/haolo-chrome",
+        "to": "chrome-extension"
+      },
+      {
+        "from": "resources/chrome-release-policy.json",
+        "to": "chrome-release-policy.json"
+      },
+      {
+        "from": "scripts/clean-haolo-user-config.cmd",
+        "to": "clean-haolo-user-config.cmd"
+      }
+    ],
+    "asar": true,
+    "afterPack": "scripts/restore-windows-icon.cjs",
+    "win": {
+      "icon": "resources/haolo-logo.ico",
+      "signAndEditExecutable": false,
+      "signExts": [
+        "!.exe"
+      ],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "installerIcon": "resources/haolo-logo.ico",
+      "uninstallerIcon": "resources/haolo-logo.ico",
+      "installerHeaderIcon": "resources/haolo-logo.ico",
+      "include": "resources/installer.nsh",
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "好咯"
+    }
+  }
+}
