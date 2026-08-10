@@ -12,18 +12,17 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("search controls clearly identify global and current-conversation scope", async () => {
+test("the removed global search leaves only the current-conversation search", async () => {
   const source = await mainSource;
-  const globalSearch = sourceBlock(source, "function renderChatList", "function isHaoloContact");
+  const chatList = sourceBlock(source, "function renderChatList", "function isHaoloContact");
   const conversationSearch = sourceBlock(
     source,
     "function renderThreadHistoryPopover",
     "function renderThreadHistoryOptions",
   );
 
-  assert.match(globalSearch, /aria-label="搜索全局记录"/);
-  assert.match(globalSearch, /placeholder="搜索全局记录"/);
-  assert.match(conversationSearch, /aria-label="搜索此对话，全局至顶部搜"/);
-  assert.match(conversationSearch, /placeholder="搜索此对话，全局至顶部搜"/);
-  assert.doesNotMatch(conversationSearch, /搜索历史消息/);
+  assert.doesNotMatch(chatList, /type="search"|搜索全局记录|chat-search-box/);
+  assert.match(conversationSearch, /aria-label="搜索此对话"/);
+  assert.match(conversationSearch, /placeholder="搜索此对话"/);
+  assert.doesNotMatch(source, /搜索全局记录|codex:searchThreads|searchThreads/);
 });

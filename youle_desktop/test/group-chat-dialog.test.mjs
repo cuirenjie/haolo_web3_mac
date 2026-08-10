@@ -13,66 +13,47 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("quick menu opens the group chat picker instead of the removed group submenu", async () => {
+test("the sidebar and renderer no longer expose group-chat creation", async () => {
   const source = await rendererSource;
-  const chatList = sourceBlock(source, "function renderChatList", "function isHaoloContact");
+  const actions = sourceBlock(source, "function renderConversationListActions", "function renderChatList");
+  const titlebarActions = sourceBlock(source, "function renderTitlebarPrimaryActions", "function renderWindowControls");
 
-  assert.match(chatList, /data-action="create-workflow-canvas"/);
-  assert.match(chatList, /renderChatNewMenuIcon\("canvas"\)/);
-  assert.match(chatList, /<strong>创建画布<\/strong>/);
-  assert.match(chatList, /data-action="open-group-chat-dialog"/);
-  assert.match(chatList, /<strong>发起群聊<\/strong>/);
-  assert.match(chatList, /renderChatNewMenuIcon\("group-chat"\)/);
-  assert.doesNotMatch(chatList, /renderThreadGroupAddMenuItem/);
+  assert.doesNotMatch(actions, /data-action="open-group-chat-dialog"/);
+  assert.doesNotMatch(actions, /renderConversationListIcon\("group-chat"\)/);
+  assert.doesNotMatch(actions, /<span>创建群聊<\/span>/);
+  assert.doesNotMatch(actions, /create-workflow-canvas|创建画布|renderThreadGroupAddMenuItem/);
   assert.doesNotMatch(source, /renderThreadGroupAddMenuItem\("thread-group"/);
   assert.doesNotMatch(source, /\|\s*"thread-group"\s*\n\s*\|/);
-  assert.ok(
-    chatList.indexOf('data-action="create-workflow-canvas"')
-      < chatList.indexOf('data-action="open-group-chat-dialog"'),
-    "创建画布 should be the first quick-menu option",
-  );
+  assert.doesNotMatch(source, /function openGroupChatDialog/);
+  assert.doesNotMatch(source, /local-group-chat:\$\{crypto\.randomUUID/);
+  assert.ok(titlebarActions.indexOf("连接") < titlebarActions.indexOf("设置"));
 });
 
-test("quick menu represents group chat with layered conversation bubbles", async () => {
-  const source = await rendererSource;
+test("direct sidebar actions avoid blue click feedback in both themes", async () => {
   const styles = await stylesSource;
-  const iconRenderer = sourceBlock(source, "function renderChatNewMenuIcon", "function renderChatList");
-  const groupChatIcon = sourceBlock(iconRenderer, 'icon === "group-chat"', ': icon === "auto-task"');
-
-  assert.match(groupChatIcon, /chat-bubble-layer--back/);
-  assert.match(groupChatIcon, /chat-bubble-layer--front/);
-  assert.match(groupChatIcon, /chat-bubble-dot/);
-  assert.doesNotMatch(groupChatIcon, /C3\.3 12\.9 4\.7 11\.6 7\.2 11\.6/);
-  assert.match(iconRenderer, /viewBox="0 0 24 24"/);
-  assert.match(
-    styles,
-    /\.chat-new-menu-icon\s*\{[\s\S]*width:\s*19px;[\s\S]*height:\s*19px;[\s\S]*stroke-width:\s*1\.7;/,
-  );
-  assert.match(
-    styles,
-    /\.chat-new-menu-icon \.chat-bubble-dot\s*\{[\s\S]*fill:\s*currentColor;[\s\S]*stroke:\s*none;/,
-  );
-});
-
-test("quick menu interaction colors work in light and dark themes", async () => {
-  const styles = await stylesSource;
+  const lightTokens = sourceBlock(styles, ":root {", 'html[data-font-size="small"]');
+  const darkTokens = sourceBlock(styles, 'html[data-theme="dark"] {', "* {");
 
   assert.match(
     styles,
-    /\.chat-new-menu button:hover,\s*\.chat-new-menu button:focus-visible\s*\{[\s\S]*background:\s*var\(--surface-hover\);/,
+    /\.conversation-list-action:is\(:hover, :focus-visible\)\s*\{[\s\S]*background:\s*var\(--conversation-action-hover\);/,
   );
   assert.match(
     styles,
-    /\.chat-new-menu button:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--brand-blue\);/,
+    /\.conversation-list-action\.active,[\s\S]*background:\s*var\(--conversation-action-hover\);/,
+  );
+  assert.doesNotMatch(styles, /\.conversation-list-action\.active,[\s\S]*?background:\s*var\(--conversation-action-selected\);/);
+  assert.match(
+    styles,
+    /\.conversation-list-action:focus-visible\s*\{[\s\S]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/,
   );
   assert.match(
     styles,
-    /\.chat-new-menu button:active\s*\{[\s\S]*background:\s*var\(--surface-active-translucent\);/,
+    /\.conversation-list-action:disabled\s*\{[\s\S]*color:\s*var\(--text-muted\);/,
   );
-  assert.match(
-    styles,
-    /html\[data-theme="dark"\]\s*\{[\s\S]*--surface-hover:\s*#222428;[\s\S]*--surface-active-translucent:\s*rgba\(255,\s*255,\s*255,\s*0\.11\);/,
-  );
+  assert.match(lightTokens, /--conversation-action-hover: rgba\(17, 24, 39, 0\.035\)/);
+  assert.match(darkTokens, /--conversation-action-hover: rgba\(255, 255, 255, 0\.045\)/);
+  assert.doesNotMatch(styles, /html\[data-theme="dark"\] \.conversation-list-action\.active/);
 });
 
 test("group chat dialog includes Haolo first, filters unsupported profiles, and mirrors selections on the right", async () => {
@@ -98,12 +79,12 @@ test("group chat dialog includes Haolo first, filters unsupported profiles, and 
   assert.match(dialog, /data-action="close-group-chat-dialog"/);
 });
 
-test("group chat choices stay in UI state while complete creates a local group conversation", async () => {
+test("group member choices stay in UI state without a group-creation path", async () => {
   const source = await rendererSource;
-  const stateActions = sourceBlock(source, "function openGroupChatDialog", "function openChannelDialog");
+  const stateActions = sourceBlock(source, "function openAddGroupMembersDialog", "function openChannelDialog");
   const bindings = sourceBlock(
     source.slice(source.indexOf("function bindEvents")),
-    "'[data-action=\"open-group-chat-dialog\"]'",
+    "'[data-action=\"open-add-group-members-dialog\"]'",
     "'[data-action=\"toggle-new-thread-group-picker\"]'",
   );
 
@@ -123,9 +104,8 @@ test("group chat choices stay in UI state while complete creates a local group c
   assert.match(bindings, /complete-group-chat-dialog/);
   assert.match(bindings, /completeGroupChatDialog\(\)/);
   assert.match(stateActions, /function completeGroupChatDialog\(\)/);
-  assert.match(stateActions, /const threadId = `local-group-chat:\$\{crypto\.randomUUID\(\)\}`/);
-  assert.match(stateActions, /threadGroupByThreadId\[threadId\] = DEFAULT_THREAD_GROUP_ID/);
-  assert.match(stateActions, /state\.rightCollapsed = false/);
+  assert.doesNotMatch(stateActions, /mode:\s*"create"|crypto\.randomUUID|DEFAULT_THREAD_GROUP_ID/);
+  assert.doesNotMatch(source, /open-group-chat-dialog|function openGroupChatDialog/);
   assert.doesNotMatch(bindings, /createChannel|sendProviderChat|startWorkflowRun/);
 });
 
@@ -138,22 +118,22 @@ test("an existing local group reuses the picker to add only new members", async 
   );
   const stateActions = sourceBlock(
     source,
-    "function openGroupChatDialog",
+    "function openAddGroupMembersDialog",
     "function openChannelDialog",
   );
   const bindings = sourceBlock(
     source.slice(source.indexOf("function bindEvents")),
-    "'[data-action=\"open-group-chat-dialog\"]'",
+    "'[data-action=\"open-add-group-members-dialog\"]'",
     "'[data-action=\"toggle-new-thread-group-picker\"]'",
   );
 
   assert.match(
     source,
-    /type GroupChatDialogMode = "create" \| "add-members" \| "remove-members"/,
+    /type GroupChatDialogMode = "add-members" \| "remove-members"/,
   );
   assert.match(
     dialog,
-    /const dialogTitle = addingMembers[\s\S]*\? "添加群成员"[\s\S]*: removingMembers[\s\S]*\? "移出群成员"[\s\S]*: "发起群聊"/,
+    /const dialogTitle = addingMembers \? "添加群成员" : "移出群成员"/,
   );
   assert.match(dialog, /groupChatOptionAlreadyInGroup\(selectionId\)/);
   assert.match(dialog, /const disabled = existing \|\| unavailable/);
@@ -178,18 +158,18 @@ test("remove-member mode lists current members and applies a persistent batch re
   );
   const stateActions = sourceBlock(
     source,
-    "function openGroupChatDialog",
+    "function openAddGroupMembersDialog",
     "function openChannelDialog",
   );
   const bindings = sourceBlock(
     source.slice(source.indexOf("function bindEvents")),
-    "'[data-action=\"open-group-chat-dialog\"]'",
+    "'[data-action=\"open-add-group-members-dialog\"]'",
     "'[data-action=\"toggle-new-thread-group-picker\"]'",
   );
 
   assert.match(dialog, /state\.groupChatDialog\.mode !== "remove-members"/);
   assert.match(dialog, /localGroupChatUniqueMembers\(record\)\.map/);
-  assert.match(dialog, /removingMembers\s*\?\s*"移出群成员"/);
+  assert.match(dialog, /const dialogTitle = addingMembers \? "添加群成员" : "移出群成员"/);
   assert.match(dialog, /class="group-chat-remove"/);
   assert.match(dialog, />移出<\/button>/);
   assert.match(
@@ -205,7 +185,7 @@ test("remove-member mode lists current members and applies a persistent batch re
   assert.match(bindings, /openRemoveGroupMembersDialog\(threadId\)/);
 });
 
-test("standby agents are directly disabled when creating or adding group members", async () => {
+test("standby agents are directly disabled when adding group members", async () => {
   const source = await rendererSource;
   const styles = await stylesSource;
   const dialog = sourceBlock(
@@ -215,7 +195,7 @@ test("standby agents are directly disabled when creating or adding group members
   );
   const stateActions = sourceBlock(
     source,
-    "function openGroupChatDialog",
+    "function openAddGroupMembersDialog",
     "function openChannelDialog",
   );
 
@@ -259,7 +239,7 @@ test("standby agents are directly disabled when creating or adding group members
 test("every group chat option supports quantities 1 through 10 and updates the selected-member total", async () => {
   const source = await rendererSource;
   const dialog = sourceBlock(source, "function groupChatSelectableProfiles", "function contactSearchExecutedForCurrentQuery");
-  const stateActions = sourceBlock(source, "function openGroupChatDialog", "function openChannelDialog");
+  const stateActions = sourceBlock(source, "function openAddGroupMembersDialog", "function openChannelDialog");
 
   assert.match(source, /const GROUP_CHAT_QUANTITY_MIN = 1;/);
   assert.match(source, /const GROUP_CHAT_QUANTITY_MAX = 10;/);
@@ -286,7 +266,7 @@ test("every group chat option supports quantities 1 through 10 and updates the s
 
 test("selecting a member preserves both group chat list scroll positions", async () => {
   const source = await rendererSource;
-  const stateActions = sourceBlock(source, "function openGroupChatDialog", "function openChannelDialog");
+  const stateActions = sourceBlock(source, "function openAddGroupMembersDialog", "function openChannelDialog");
   const selectionStart = stateActions.indexOf("function toggleGroupChatSelection");
   assert.notEqual(selectionStart, -1);
   const selectionAction = stateActions.slice(selectionStart);
@@ -306,7 +286,7 @@ test("agent, model, and contact sections expose independent accessible collapse 
   const source = await rendererSource;
   const styles = await stylesSource;
   const dialog = sourceBlock(source, "function groupChatSelectableProfiles", "function contactSearchExecutedForCurrentQuery");
-  const stateActions = sourceBlock(source, "function openGroupChatDialog", "function openChannelDialog");
+  const stateActions = sourceBlock(source, "function openAddGroupMembersDialog", "function openChannelDialog");
 
   assert.match(dialog, /data-group-chat-section-toggle="\$\{section\}"/);
   assert.match(dialog, /aria-expanded="\$\{collapsed \? "false" : "true"\}"/);

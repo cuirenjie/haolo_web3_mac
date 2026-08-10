@@ -121,7 +121,7 @@ test("plan draft links drive row selection and are cleared when the draft is con
   assert.match(hideThread, /unlinkProviderDraftFromBlankThread\(threadId\)/);
 });
 
-test("an inactive plan draft appears on its visible new-task row in both themes", async () => {
+test("inactive draft text is retained without adding a preview line to the sticky new-conversation action", async () => {
   const [source, styles] = await Promise.all([rendererSource, stylesSource]);
   const row = sourceBlock(
     source,
@@ -131,12 +131,17 @@ test("an inactive plan draft appears on its visible new-task row in both themes"
   const draftPreview = sourceBlock(
     source,
     "function threadComposerDraftPreview",
-    "function renderThreadComposerDraftPreview",
+    "function renderThreadHistoryPopover",
+  );
+  const actions = sourceBlock(
+    source,
+    "function renderConversationListActions",
+    "function renderChatList",
   );
 
   assert.match(
     row,
-    /const draftPreview = searchMatch \? null : active \? null : threadComposerDraftPreview\(thread\.id\)/,
+    /const draftPreview = active \? null : threadComposerDraftPreview\(thread\.id\)/,
   );
   assert.match(
     draftPreview,
@@ -144,13 +149,7 @@ test("an inactive plan draft appears on its visible new-task row in both themes"
   );
   assert.match(draftPreview, /state\.composerDrafts\[draftThreadId\]/);
   assert.match(draftPreview, /const plain = `\[草稿\]\$\{text\}\$\{attachmentLabel\}`/);
-  assert.match(
-    styles,
-    /\.row-preview-draft-label\s*\{[^}]*color:\s*var\(--brand-blue\);/s,
-  );
-  assert.match(styles, /:root\s*\{[^}]*--brand-blue:\s*#1677ff;/s);
-  assert.match(
-    styles,
-    /html\[data-theme="dark"\]\s*\{[^}]*--brand-blue:\s*#5b9dff;/s,
-  );
+  assert.match(actions, /<span>新对话<\/span>/);
+  assert.doesNotMatch(actions, /draftPreview|row-preview|草稿/);
+  assert.doesNotMatch(styles, /row-preview-draft-label/);
 });

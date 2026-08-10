@@ -43,7 +43,6 @@ test("round renderer close buttons use the shared geometric SVG", () => {
     ['data-action="clear-add-friend-search"', 1],
     ['data-action="clear-contacts-search"', 1],
     ['data-action="close-skill-detail"', 2],
-    ['data-action="clear-conversation-search"', 1],
     ['data-action="close-external-channel-login"', 2],
   ];
 
@@ -75,7 +74,7 @@ test("round renderer close buttons use the shared geometric SVG", () => {
 test("round renderer close button boxes center a zero-line-height icon", () => {
   for (const selector of [
     ".add-friend-search-box button",
-    ".chat-search-clear",
+    ".contacts-search-clear",
     ".skill-detail-dialog-close",
     ".dialog-icon-button",
   ]) {

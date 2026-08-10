@@ -322,8 +322,9 @@ test("manual markers override automatic avatar anchors and use semantic colors",
   assert.match(source, /const CASCADE_MENU_CLOSE_DELAY_MS = 180;/);
   assert.match(
     hoverEvents,
-    /\.thread-group-add-menu-item, \.external-channel-cascade-item, \.thread-marker-menu-item/,
+    /\.thread-group-add-menu-item, \.thread-marker-menu-item, \.thread-group-move-menu-item/,
   );
+  assert.doesNotMatch(hoverEvents, /external-channel-cascade-item/);
   assert.match(
     hoverEvents,
     /item\.addEventListener\("pointerenter", keepOpen\)/,

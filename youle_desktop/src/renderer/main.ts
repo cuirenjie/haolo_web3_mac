@@ -42,6 +42,8 @@ import {
 import {
   TRADING_EXPERT_DEFAULT_MODEL_VALUE,
   TRADING_EXPERT_REASONING_EFFORT,
+  isTradingExpertModelValue,
+  tradingExpertReasoningEffort,
   tradingExpertModelOptions,
 } from "./trading-expert-models";
 import {
@@ -389,7 +391,6 @@ const SETTINGS_GENERAL_ICON_URL = new URL("./assets/images/settings-general.svg"
 const SETTINGS_ABOUT_ICON_URL = new URL("./assets/images/settings-about.svg", import.meta.url).href;
 const SETTINGS_CLOSE_ICON_URL = new URL("./assets/images/settings-close.svg", import.meta.url).href;
 const SETTINGS_CHEVRON_RIGHT_ICON_URL = new URL("./assets/images/settings-chevron-right.svg", import.meta.url).href;
-const CHAT_NEW_PLUS_ICON_URL = new URL("./assets/images/chat-new-plus.svg", import.meta.url).href;
 const MESSAGE_SCROLL_BOTTOM_ICON_URL = new URL("./assets/images/message-scroll-bottom.png", import.meta.url).href;
 const CONTACT_REQUEST_DELETE_ICON_URL = new URL("./assets/images/contact-request-delete.png", import.meta.url).href;
 const INSERT_CONVERSATION_QUOTE_ICON_URL = new URL("./assets/images/insert-conversation-quote-imagegen.png", import.meta.url).href;
@@ -1206,7 +1207,7 @@ type DesktopApi = {
   getWorkflowRun?(params: { runId: string }): Promise<WorkflowCanvasRun | null>;
   getLatestWorkflowRunForThread?(params: { threadId: string }): Promise<WorkflowCanvasRun | null>;
   cancelWorkflowRun?(params: { runId: string }): Promise<WorkflowCanvasRun | null>;
-  createWorkflowRevisionDraft?(params: { runId?: string; threadId?: string; seedRun?: WorkflowCanvasRun; forceNew?: boolean; entryBindings?: Array<{ source: "workflow_input"; targetNodeId: string }>; layout?: Record<string, unknown> }): Promise<WorkflowRevisionDraftEnvelope>;
+  createWorkflowRevisionDraft?(params: { runId?: string; threadId?: string; forceNew?: boolean; entryBindings?: Array<{ source: "workflow_input"; targetNodeId: string }>; layout?: Record<string, unknown> }): Promise<WorkflowRevisionDraftEnvelope>;
   getWorkflowRevisionDraft?(params: { draftId?: string; threadId?: string }): Promise<WorkflowRevisionDraftEnvelope | null>;
   applyWorkflowRevisionCommand?(params: { draftId: string; command: WorkflowRevisionCommand; layout?: Record<string, unknown> }): Promise<WorkflowRevisionDraftEnvelope>;
   compileWorkflowRevisionNode?(params: { draftId: string; baseRevision: number; nodeId: string; prompt: string; patch?: Record<string, unknown>; definition?: { nodes: Array<Record<string, unknown>>; resources: Record<string, unknown>; entryBindings: Array<{ source: "workflow_input"; targetNodeId: string }> }; layout?: Record<string, unknown>; cwd?: string; model?: string; reasoningEffort?: string; commandId?: string }): Promise<WorkflowRevisionDraftEnvelope & { contract?: Record<string, unknown> }>;
@@ -1500,7 +1501,6 @@ type DesktopApi = {
   annotateImage?(params: { name: string; mime?: string | null; base64: string; theme?: AppTheme;
   }): Promise<{ cancelled?: boolean }>;
   listThreads(params?: any): Promise<any>;
-  searchThreads?(params?: any): Promise<any>;
   modelList(): Promise<any>;
   configRead(): Promise<any>;
   skillsList(params?: { cwd?: string; forceReload?: boolean; reason?: string;
@@ -1724,8 +1724,6 @@ type TradingExpertThinkingState = {
   message: string;
   startedAtMs: number;
 };
-
-type TradingExpertPanelTab = "chat" | "account" | "alerts" | "knowledge";
 
 type LocalFileInfoState = {
   status: "loading" | "ready" | "error";
@@ -2545,7 +2543,7 @@ type AddFriendDialogState = ContactsSearchState & {
 
 type GroupChatSection = ContactSectionId;
 
-type GroupChatDialogMode = "create" | "add-members" | "remove-members";
+type GroupChatDialogMode = "add-members" | "remove-members";
 
 type GroupChatDialogState = {
   open: boolean;
@@ -2744,24 +2742,6 @@ type ThreadMenuState = {
   anchorBottom?: number;
 };
 
-type ThreadSearchMatchSummary = {
-  count: number;
-  match: ThreadSearchMatch;
-};
-
-type ThreadSearchMatch = {
-  messageId: string | null;
-  snippet: string;
-};
-
-type ServerConversationSearchStatus = "handled" | "fallback" | "stale";
-
-type ConversationSearchIndexedDocument = {
-  messageId: string | null;
-  text: string;
-  quoteText: string;
-};
-
 type ThreadHistoryEntry = {
   messageId: string;
   label: string;
@@ -2777,7 +2757,6 @@ type ThreadHistoryPopoverState = {
   threadId: string;
   entries: ThreadHistoryEntry[];
   query: string;
-  globalSearchMode: boolean;
   anchorRight: number;
   anchorTop: number;
   anchorCenterY: number;
@@ -2790,7 +2769,6 @@ type PendingThreadHistoryJump = {
   threadId: string;
   messageId: string;
   keyword: string;
-  globalSearchMode: boolean;
   fallbackSearchableIndex: number;
   fallbackSignature: string;
   fallbackTurnId: string;
@@ -2803,7 +2781,6 @@ type ThreadHistoryJumpHighlight = {
   threadId: string;
   messageId: string;
   keyword: string;
-  globalSearchMode: boolean;
   expiresAt: number;
 };
 
@@ -3485,7 +3462,6 @@ type UiState = {
   providerTouchedAt: Record<string, string>;
   loggingOut: boolean;
   loading: boolean;
-  search: string;
   contactsSearch: string;
   contactsSearchState: ContactsSearchState;
   addFriendDialog: AddFriendDialogState;
@@ -3498,7 +3474,6 @@ type UiState = {
   contactAddDialog: ContactAddDialogState | null;
   contactRequestSent: ContactRequestSentState | null;
   groupChatDialog: GroupChatDialogState;
-  newChatMenuOpen: boolean;
   activeNewThreadGroupId: string;
   newThreadGroupPickerOpen: boolean;
   newThreadGroupPickerAnchor: "composer" | "hero";
@@ -3600,8 +3575,7 @@ type UiState = {
   approvalRequest: JsonRpcMessage | null;
   leftCollapsed: boolean;
   rightCollapsed: boolean;
-  tradingExpertPanelTab: TradingExpertPanelTab;
-  tradingExpertTaskRefreshing: boolean;
+  tradingExpertChartCollapsed: boolean;
   windowMaximized: boolean;
   windowNativeMaximized: boolean;
   windowPinned: boolean;
@@ -3617,9 +3591,9 @@ declare global {
 
 function loadAppTheme(): AppTheme {
   try {
-    return localStorage.getItem(APP_THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+    return localStorage.getItem(APP_THEME_STORAGE_KEY) === "light" ? "light" : "dark";
   } catch {
-    return "light";
+    return "dark";
   }
 }
 
@@ -3862,6 +3836,7 @@ const EXTERNAL_CHANNEL_FALLBACKS: ExternalChannelSummary[] = [
 ];
 const DEFAULT_THREAD_GROUP_NAME = "默认分组";
 const DEFAULT_THREAD_GROUP_CONVERSATION_LABEL = "历史任务";
+const CONVERSATION_PROJECT_PREVIEW_LIMIT = 5;
 const AUTO_TASK_FAILURE_PREFIX = "失败原因";
 const AUTO_TASK_FAILED_PREFIX = "执行失败：";
 const DESKTOP_AGENT_HANDLED_MESSAGES_STORAGE_KEY = "youle-desktop-agent-handled-messages";
@@ -3894,6 +3869,7 @@ const threadModelSelectionsByThreadId: Record<string, ThreadModelSettings> = { .
 const threadContinuationByOperationId: Record<string, ThreadContinuationRecord> = { ...threadPreferences.threadContinuations };
 const threadGroupWorkspaceById: Record<string, string> = {};
 const collapsedThreadGroupIds = new Set<string>(threadPreferences.collapsedGroups);
+const expandedConversationProjectIds = new Set<string>();
 ensureDefaultThreadGroup();
 const initialNewThreadGroupId = threadGroupById(threadPreferences.newThreadGroupId) ? threadPreferences.newThreadGroupId : DEFAULT_THREAD_GROUP_ID;
 const threadHistoryClearedBefore = { ...threadPreferences.clearedBefore };
@@ -3976,16 +3952,6 @@ const channelReadOverrides = loadChannelReadOverrides();
 const pendingAssistantPreviewHydrations = new Set<string>();
 const activeAssistantPreviewHydrations = new Set<string>();
 const completedAssistantPreviewHydrations = new Set<string>();
-const pendingConversationSearchHydrations = new Set<string>();
-const activeConversationSearchHydrations = new Set<string>();
-const hydratedConversationSearchThreadIds = new Set<string>();
-const conversationSearchIndexByThreadId = new Map<string, ConversationSearchIndexedDocument[]>();
-const serverConversationSearchMatchesByThreadId = new Map<string, ThreadSearchMatch[]>();
-const conversationSearchThreadHydrationGenerations = new Map<string, number>();
-const conversationSearchHydrationRetries = new Map<
-  string,
-  { session: number; query: string; threadId: string; attempts: number; timer: number | null }
->();
 const backgroundThreadResumeRequests = new Map<string, Promise<any>>();
 const threadHistoryEntriesByThreadId = new Map<string, ThreadHistoryEntry[]>();
 const composerThreadReferenceHistoryByThreadId = new Map<string, ComposerThreadReferenceHistoryEntry[]>();
@@ -4095,7 +4061,6 @@ const threadHistoryHydrationRequests = new Map<
   string,
   { generation: number; request: Promise<ThreadHistoryEntry[]> }
 >();
-const CONVERSATION_SEARCH_HYDRATION_CONCURRENCY = 2;
 const PROVIDER_AGENT_MAP: Record<string, { provider: ProviderChatProvider; name: string; role: RoleKey }> = {
   "agent-claude": { provider: "claude", name: "Claude", role: "ceo_assistant" },
   "agent-gpt": { provider: "codex", name: "GPT", role: "ceo_assistant" },
@@ -4500,7 +4465,6 @@ const state: UiState = {
   providerTouchedAt: {},
   loggingOut: false,
   loading: true,
-  search: "",
   contactsSearch: "",
   contactsSearchState: {
     query: "",
@@ -4549,14 +4513,13 @@ const state: UiState = {
   contactRequestSent: null,
   groupChatDialog: {
     open: false,
-    mode: "create",
+    mode: "add-members",
     threadId: null,
     query: "",
     selectedIds: [],
     quantities: {},
     collapsedSections: { agents: false, models: false, contacts: false },
   },
-  newChatMenuOpen: false,
   activeNewThreadGroupId: initialNewThreadGroupId,
   newThreadGroupPickerOpen: false,
   newThreadGroupPickerAnchor: "composer",
@@ -4876,8 +4839,7 @@ const state: UiState = {
   approvalRequest: null,
   leftCollapsed: false,
   rightCollapsed: true,
-  tradingExpertPanelTab: "chat",
-  tradingExpertTaskRefreshing: false,
+  tradingExpertChartCollapsed: false,
   windowMaximized: false,
   windowNativeMaximized: false,
   windowPinned: false,
@@ -4931,18 +4893,7 @@ let pluginListRequestSeq = 0;
 const pluginTogglePendingIds = new Set<string>();
 let threadAssistantPreviewSaveTimer: number | null = null;
 let threadAssistantPreviewHydrationTimer: number | null = null;
-let conversationSearchHydrationTimer: number | null = null;
-let conversationSearchHydrationRenderTimer: number | null = null;
-let conversationSearchHydrationSession = 0;
-let preparedConversationSearchQuery = "";
-let syncedConversationSearchQuery = "";
-let serverConversationSearchQuery = "";
-let pendingServerConversationSearchQuery = "";
-let serverConversationSearchSupported: boolean | null = null;
-let serverConversationSearchRequestSequence = 0;
-let conversationSearchAutoSelectionQuery = "";
-let conversationSearchAutoSelectedThreadId: string | null = null;
-let conversationSearchUserSelectedQuery = "";
+let backgroundHydrationSession = 0;
 let threadHistoryPopover: ThreadHistoryPopoverState | null = null;
 let hoveredThreadHistoryThreadId: string | null = null;
 let threadHistoryOpenTimer: number | null = null;
@@ -5061,7 +5012,6 @@ let voiceLiveTranscript: VoiceLiveTranscriptState | null = null;
 let voiceInputOperationToken = 0;
 let composerFocusRestoreToken = 0;
 let formFieldFocusRestoreToken = 0;
-let conversationSearchFocusRestoreToken = 0;
 let skillsSearchFocusRestoreToken = 0;
 let contactsSearchFocusRestoreToken = 0;
 let librarySearchFocusRestoreToken = 0;
@@ -8151,13 +8101,9 @@ async function loadThreads() {
   }
   ensureTopLevelBlankThreadForList({ activateIfMissingSelection: true });
   ensureInitialBlankChatThread();
-  pruneConversationSearchThreadState(new Set(state.threads.map((thread) => thread.id)));
+  pruneThreadAuxiliaryState(new Set(state.threads.map((thread) => thread.id)));
   scheduleMissingAssistantPreviewHydration();
   scheduleRecentThreadDetailPrefetch();
-  if (state.activeView === "chat" && state.search.trim()) {
-    queueConversationSearchHydrations();
-    flushConversationSearchHydrations();
-  }
   return true;
 }
 
@@ -8555,7 +8501,6 @@ function startTelegramChannelLogin() {
   stopExternalChannelLoginPolling();
   stopExternalChannelQrRefreshTimer();
   state.externalChannels.menuOpen = false;
-  state.newChatMenuOpen = false;
   state.externalChannels.login = createExternalChannelLoginState({
     open: true,
     channelId: "telegram",
@@ -8628,7 +8573,6 @@ async function startWechatChannelLogin(options: { openDialog?: boolean; renderAf
   stopExternalChannelLoginPolling();
   if (openDialog) {
     state.externalChannels.menuOpen = false;
-    state.newChatMenuOpen = false;
   }
   state.externalChannels.login = createExternalChannelLoginState({
     open: openDialog,
@@ -8763,7 +8707,6 @@ async function startFeishuChannelLogin(options: { openDialog?: boolean; renderAf
   stopExternalChannelLoginPolling();
   if (openDialog) {
     state.externalChannels.menuOpen = false;
-    state.newChatMenuOpen = false;
   }
   state.externalChannels.login = createExternalChannelLoginState({
     open: openDialog,
@@ -8873,7 +8816,6 @@ function shouldKeepExternalChannelQrWaiting(login: ExternalChannelLoginState, st
 function openPreparedWechatChannelLogin() {
   stopExternalChannelLoginPolling();
   state.externalChannels.menuOpen = false;
-  state.newChatMenuOpen = false;
   const shouldPoll = Boolean(
     state.externalChannels.login.sessionKey &&
       state.externalChannels.login.status !== "expired" &&
@@ -8897,7 +8839,6 @@ function openPreparedFeishuChannelLogin() {
   stopExternalChannelLoginPolling();
   wechatChannelLoginRequestId += 1;
   state.externalChannels.menuOpen = false;
-  state.newChatMenuOpen = false;
   const shouldPoll = Boolean(prepared.sessionKey && prepared.status !== "expired" && prepared.status !== "error" && !prepared.loading);
   state.externalChannels.login = {
     ...prepared,
@@ -9032,7 +8973,6 @@ function pollExternalChannelLogin() {
 async function openConnectedWechatChannel(channel?: ExternalChannelSummary) {
   stopExternalChannelLoginPolling();
   state.externalChannels.menuOpen = false;
-  state.newChatMenuOpen = false;
   state.externalChannels.login = createExternalChannelLoginState();
   const wechat = channel || externalChannelItems().find((item) => item.id === "wechat");
   if (!wechat?.connected) {
@@ -9257,7 +9197,6 @@ async function finalizeWechatChannelConnected(result: any, options: { directOnly
 async function openConnectedFeishuChannel(channel?: ExternalChannelSummary) {
   stopExternalChannelLoginPolling();
   state.externalChannels.menuOpen = false;
-  state.newChatMenuOpen = false;
   state.externalChannels.login = createExternalChannelLoginState();
   const feishu = channel || externalChannelItems().find((item) => item.id === "feishu");
   if (!feishu?.connected) {
@@ -9317,7 +9256,6 @@ async function finalizeFeishuChannelConnected(result: any) {
 async function openConnectedTelegramChannel(channel?: ExternalChannelSummary) {
   stopExternalChannelLoginPolling();
   state.externalChannels.menuOpen = false;
-  state.newChatMenuOpen = false;
   state.externalChannels.login = createExternalChannelLoginState();
   const telegram = channel || externalChannelItems().find((item) => item.id === "telegram");
   if (!telegram?.connected) {
@@ -13879,7 +13817,7 @@ function isOwnedThreadSwitchSelection(threadId: string, token: number, workspace
   return Boolean(
     ownsThreadSwitchTransition(threadId, token) &&
       switchingThreadId === threadId &&
-      workspaceSession === conversationSearchHydrationSession &&
+      workspaceSession === backgroundHydrationSession &&
       state.serverReady &&
       state.activeView === "chat" &&
       state.currentThreadId === threadId,
@@ -14158,7 +14096,6 @@ function rememberThreadMessageSurface(threadId: string | null | undefined, node:
     !hasFullyLoadedThreadDetailCache(threadId) ||
     !isHeavyThreadSwitchContent(threadId) ||
     isThreadBusy(threadId) ||
-    state.search.trim() ||
     pendingThreadHistoryJump ||
     activeThreadHistoryJumpHighlight ||
     node.hasAttribute("data-thread-loading")
@@ -14366,7 +14303,7 @@ async function refreshCachedThreadAfterSelection(
   }
   try {
     const result = await resumeThreadForBackgroundHydration(threadId, workspaceSession, { displayCache: true });
-    if (workspaceSession !== conversationSearchHydrationSession) return;
+    if (workspaceSession !== backgroundHydrationSession) return;
     const incomingThread = result?.thread;
     if (!incomingThread) return;
     rememberThreadDetailRefresh(threadId);
@@ -14408,7 +14345,6 @@ function activateLocalGroupChatThread(threadId: string) {
 async function selectThread(
   threadId: string,
   options: {
-    conversationSearchAutoSelection?: boolean;
     threadHistoryJumpToken?: number;
   } = {},
 ) {
@@ -14433,15 +14369,9 @@ async function selectThread(
   if ((pendingThreadHistoryJump || activeThreadHistoryJumpHighlight) && !ownsThreadHistoryJump) {
     cancelThreadHistoryJumpNavigation();
   }
-  const workspaceSession = conversationSearchHydrationSession;
+  const workspaceSession = backgroundHydrationSession;
   pendingAssistantPreviewHydrations.delete(threadId);
   pendingThreadDetailPrefetches.delete(threadId);
-  const removedPendingSearchHydration = pendingConversationSearchHydrations.delete(threadId);
-  if (removedPendingSearchHydration || isConversationSearchThreadHydrating(threadId)) {
-    invalidateConversationSearchThreadHydration(threadId);
-  }
-  const searchQuery = normalizedConversationSearchText(state.search);
-  if (searchQuery && !options.conversationSearchAutoSelection) conversationSearchUserSelectedQuery = searchQuery;
   const clearedFinalResultDot = clearUnviewedFinalResult(threadId);
   const shouldRetryCurrentThreadModelResume = Boolean(
     isLocalCodexThread(threadId) &&
@@ -14457,12 +14387,6 @@ async function selectThread(
       markChannelReadLocally(channelId, { forceRead: true });
       void markCurrentChannelRead(channelId).catch(() => {});
       render();
-    }
-    if (state.search.trim()) {
-      state.chatPreview = null;
-      state.closingPreviewSource = null;
-      render();
-      return;
     }
     if (!state.chatPreview && !state.closingPreviewSource) {
       if (clearedFinalResultDot) render();
@@ -14594,7 +14518,7 @@ async function selectThread(
   try {
     const result = await resumeRequest;
     if (!isOwnedThreadSwitchSelection(threadId, threadSwitchToken, workspaceSession)) return;
-    if (workspaceSession !== conversationSearchHydrationSession) return;
+    if (workspaceSession !== backgroundHydrationSession) return;
     if (!ownsThreadSwitchTransition(threadId, threadSwitchToken)) return;
     if (state.currentThreadId === threadId && state.activeView === "chat") {
       const heavySnapshot = await prepareThreadSwitchSnapshotForLoad(
@@ -14610,30 +14534,15 @@ async function selectThread(
       loadThreadInBackground(result.thread, { preserveListOrder: true });
     }
   } catch (error) {
-    if (workspaceSession !== conversationSearchHydrationSession) return;
+    if (workspaceSession !== backgroundHydrationSession) return;
     const message = errorMessage(error);
     if (isMissingRolloutError(message)) {
       const stillOwnsSelection =
         ownsThreadSwitchTransition(threadId, threadSwitchToken) &&
         state.activeView === "chat" &&
         state.currentThreadId === threadId;
-      const stillOwnsSearchAutoSelection =
-        !options.conversationSearchAutoSelection ||
-        (Boolean(searchQuery) &&
-          normalizedConversationSearchText(state.search) === searchQuery &&
-          conversationSearchUserSelectedQuery !== searchQuery &&
-          conversationSearchAutoSelectedThreadId === threadId);
-      if (!stillOwnsSelection || !stillOwnsSearchAutoSelection) return;
+      if (!stillOwnsSelection) return;
       scheduleThreadListRefresh(250);
-      const fallback = options.conversationSearchAutoSelection
-        ? firstGroupedConversationSearchResult(threadId)
-        : null;
-      if (fallback) {
-        conversationSearchAutoSelectedThreadId = fallback.id;
-        await selectThread(fallback.id, {
-          conversationSearchAutoSelection: options.conversationSearchAutoSelection,
-        });
-      }
       return;
     }
     if (ownsThreadSwitchTransition(threadId, threadSwitchToken) && state.currentThreadId === threadId) {
@@ -14641,13 +14550,9 @@ async function selectThread(
     }
   } finally {
     if (
-      workspaceSession === conversationSearchHydrationSession &&
+      workspaceSession === backgroundHydrationSession &&
       ownsThreadSwitchTransition(threadId, threadSwitchToken)
     ) {
-      if (state.activeView === "chat" && state.search.trim() && preparedConversationSearchQuery === normalizedConversationSearchText(state.search)) {
-        queueConversationSearchHydrations();
-        flushConversationSearchHydrations();
-      }
       await finishThreadSwitchAfterLoad(threadId, threadSwitchToken, revealHeavyContent);
     } else if (ownsThreadSwitchTransition(threadId, threadSwitchToken)) {
       invalidateThreadSwitchTransition(threadId, threadSwitchToken);
@@ -14677,7 +14582,7 @@ function selectAutoTaskThread(threadId: string) {
   render();
 }
 
-async function selectChannelThread(threadId: string, workspaceSession = conversationSearchHydrationSession) {
+async function selectChannelThread(threadId: string, workspaceSession = backgroundHydrationSession) {
   const channelId = channelIdFromThreadId(threadId);
   if (!channelId) return;
   if (!CHANNELS_ENABLED) {
@@ -14700,13 +14605,13 @@ async function selectChannelThread(threadId: string, workspaceSession = conversa
       loadChannelMessages(channelId, { force: !state.channelMessagesLoaded[channelId], renderAfter: false, workspaceSession }),
       loadChannelParticipants(channelId, { renderAfter: false, workspaceSession }),
     ]);
-    if (workspaceSession !== conversationSearchHydrationSession) return;
+    if (workspaceSession !== backgroundHydrationSession) return;
     await markCurrentChannelRead(channelId);
   } catch (error) {
-    if (workspaceSession !== conversationSearchHydrationSession) return;
+    if (workspaceSession !== backgroundHydrationSession) return;
     addSystemItem(threadId, `频道加载失败：${errorMessage(error)}`);
   } finally {
-    if (workspaceSession === conversationSearchHydrationSession) render();
+    if (workspaceSession === backgroundHydrationSession) render();
   }
 }
 
@@ -14722,7 +14627,7 @@ async function loadChannelMessages(
     .map((id) => state.items[threadId]?.[id])
     .filter((item) => item?.type === "channelMessage" && firstString((item as any).optimistic) === "true");
   const result = await api.listChannelMessages({ channelId, limit: 80 });
-  if (options.workspaceSession != null && options.workspaceSession !== conversationSearchHydrationSession) return;
+  if (options.workspaceSession != null && options.workspaceSession !== backgroundHydrationSession) return;
   const messages = arrayFromResponse<ChannelMessage>(result).filter((message) => isChannelMessageVisibleAfterHistoryClear(channelId, message));
   const existingOptimistic = new Map(
     optimisticItems.map((item) => [firstString((item as any).client_message_id, (item as any).clientMessageId), item]).filter((entry): entry is [string, CodexItem] => Boolean(entry[0])),
@@ -14756,7 +14661,7 @@ async function loadChannelParticipants(
   if (!CHANNELS_ENABLED) return;
   if (!api.listChannelParticipants) return;
   const result = await api.listChannelParticipants({ channelId });
-  if (options.workspaceSession != null && options.workspaceSession !== conversationSearchHydrationSession) return;
+  if (options.workspaceSession != null && options.workspaceSession !== backgroundHydrationSession) return;
   state.channelParticipants[channelId] = arrayFromResponse<ChannelParticipant>(result);
   syncChannelMembers(channelId);
   if (state.channels[channelId] && shouldShowChannelInMainThreads(state.channels[channelId])) {
@@ -14969,10 +14874,11 @@ function hideUnavailableThread(threadId: string, persist = false) {
     hideUnavailableThread(linkedProviderDraftId);
   }
   unlinkProviderDraftFromBlankThread(threadId);
-  dropConversationSearchThreadState(threadId);
+  dropThreadAuxiliaryState(threadId);
   const wasBlankThread = state.blankThreadId === threadId;
   groupBlankThreadIds.delete(threadId);
   providerDraftThreadIds.delete(threadId);
+  tradingExpertThreadIds.delete(threadId);
   newThreadModeByThreadId.delete(threadId);
   clusterModeByThreadId.delete(threadId);
   if (persist) hiddenThreadIds.add(threadId);
@@ -15065,9 +14971,6 @@ async function startNewThread() {
   state.chatPreview = null;
   state.closingPreviewSource = null;
   const currentThreadId = state.currentThreadId;
-  if (currentThreadId && tradingExpertThreadIds.has(currentThreadId)) {
-    tradingExpertThreadIds.delete(currentThreadId);
-  }
   if (currentThreadId && providerDraftThreadIds.has(currentThreadId)) {
     hideUnavailableThread(currentThreadId);
   }
@@ -15096,76 +14999,13 @@ async function startNewThread() {
 async function exitWorkflowCanvas() {
   const threadId = state.currentThreadId;
   if (!threadId || !workflowCanvasRunWithDraft(threadId)) return;
-  const blankCanvas = isBlankWorkflowCanvasThread(threadId);
-  if (blankCanvas) {
-    forgetWorkflowCanvasThreadState(threadId);
-    newThreadModeByThreadId.delete(threadId);
-    clusterModeByThreadId.delete(threadId);
-  }
   state.workflowNodeDialog = null;
-  state.newChatMenuOpen = false;
   state.externalChannels.menuOpen = false;
   state.newThreadGroupPickerOpen = false;
   state.leftCollapsed = false;
   state.rightCollapsed = true;
   saveThreadPreferences();
-  if (blankCanvas) {
-    render();
-    focusFormFieldAfterRender("#composerInput");
-    return;
-  }
   await startNewThread();
-  focusFormFieldAfterRender("#composerInput");
-}
-
-async function exitTradingExpertWorkspace() {
-  const threadId = state.currentThreadId;
-  if (!threadId || !isTradingExpertThreadId(threadId)) return;
-  state.selectedContactId = null;
-  state.contactChat.open = false;
-  state.leftCollapsed = false;
-  state.rightCollapsed = true;
-  state.tradingExpertPanelTab = "chat";
-  saveThreadPreferences();
-  await startNewThread();
-  focusFormFieldAfterRender("#composerInput");
-}
-
-async function createBlankWorkflowCanvas() {
-  state.newChatMenuOpen = false;
-  state.externalChannels.menuOpen = false;
-  state.profileMenuOpen = false;
-  state.chatPreview = null;
-  state.closingPreviewSource = null;
-  const threadId = await startNewThread();
-  if (!threadId) {
-    showToast("暂时无法创建画布", 2600);
-    return;
-  }
-  newThreadModeByThreadId.set(threadId, "multi-agent");
-  clusterModeByThreadId.set(threadId, "multi-model");
-  if (!ensureNativeMultiAgentModelSelection(threadId)) {
-    newThreadModeByThreadId.delete(threadId);
-    clusterModeByThreadId.delete(threadId);
-    showToast("创建画布需要可用的 GPT 执行模型，请先联系管理员配置模型池。", 4200);
-    render();
-    focusFormFieldAfterRender("#composerInput");
-    return;
-  }
-  const existingRun = workflowRunsByThreadId.get(threadId);
-  const run = isBlankWorkflowCanvasRun(existingRun)
-    ? existingRun!
-    : blankWorkflowCanvasRun(threadId);
-  workflowRunsByThreadId.set(threadId, run);
-  workflowHydratedThreadIds.add(threadId);
-  workflowChatPanelWidthsByThreadId.set(
-    threadId,
-    WORKFLOW_CHAT_PANEL_MIN_WIDTH,
-  );
-  state.leftCollapsed = true;
-  state.rightCollapsed = false;
-  saveThreadPreferences();
-  render();
   focusFormFieldAfterRender("#composerInput");
 }
 
@@ -15202,6 +15042,7 @@ async function createBlankThreadForList(
     threadGroupByThreadId[threadId] = DEFAULT_THREAD_GROUP_ID;
     rememberThreadWorkspace(threadId, workspaceForGroupId(DEFAULT_THREAD_GROUP_ID));
     ensureThreadState(threadId);
+    initializeTradingExpertTaskThread(threadId, { expandPanel: options.activate === true });
     upsertItem(
       threadId,
       {
@@ -15249,6 +15090,22 @@ function ensureTopLevelBlankThreadForList(options: { activateIfMissingSelection?
   }
 
   const threadId = blankThread.id;
+  const shouldActivateBlankThread = Boolean(
+    options.activateIfMissingSelection
+      && state.activeView === "chat"
+      && (!state.currentThreadId || !threadById(state.currentThreadId)),
+  );
+  if (shouldActivateBlankThread) {
+    state.currentThreadId = threadId;
+    state.activeTurnId = state.activeTurnIds[threadId] ?? null;
+    restoreComposerDraftForThread(threadId);
+    rememberChatThreadSelection(threadId);
+  }
+  const shouldExpandTradingExpert =
+    state.currentThreadId === threadId && !tradingExpertThreadIds.has(threadId);
+  initializeTradingExpertTaskThread(threadId, {
+    expandPanel: shouldExpandTradingExpert,
+  });
   if (hiddenThreadIds.delete(threadId)) changed = true;
   if (groupBlankThreadIds.delete(threadId)) changed = true;
   if (threadGroupByThreadId[threadId] !== DEFAULT_THREAD_GROUP_ID) {
@@ -15263,13 +15120,6 @@ function ensureTopLevelBlankThreadForList(options: { activateIfMissingSelection?
   if (existingIndex !== 0) {
     state.threads = [summary, ...state.threads.filter((thread) => thread.id !== threadId)];
     changed = true;
-  }
-
-  if (options.activateIfMissingSelection && state.activeView === "chat" && (!state.currentThreadId || !threadById(state.currentThreadId))) {
-    state.currentThreadId = threadId;
-    state.activeTurnId = state.activeTurnIds[threadId] ?? null;
-    restoreComposerDraftForThread(threadId);
-    rememberChatThreadSelection(threadId);
   }
 
   if (changed) saveThreadPreferences();
@@ -15329,7 +15179,7 @@ function groupBlankThreadCandidateRank(threadId: string) {
 }
 
 function removeDuplicateGroupBlankThread(threadId: string) {
-  dropConversationSearchThreadState(threadId);
+  dropThreadAuxiliaryState(threadId);
   groupBlankThreadIds.delete(threadId);
   hiddenThreadIds.delete(threadId);
   pinnedThreadIds.delete(threadId);
@@ -15452,6 +15302,7 @@ function activateBlankThread(threadId: string) {
   state.profileMenuOpen = false;
   state.activeView = "chat";
   state.currentThreadId = threadId;
+  initializeTradingExpertTaskThread(threadId, { expandPanel: true });
   restoreComposerDraftForThread(threadId);
   state.activeNewThreadGroupId = groupIdForThreadContext(threadId);
   state.activeTurnId = state.activeTurnIds[threadId] ?? null;
@@ -15841,43 +15692,16 @@ function firstFiniteNumber(values: Array<number | null>) {
   );
 }
 
-function conversationSearchThreadHydrationGeneration(threadId: string) {
-  return conversationSearchThreadHydrationGenerations.get(threadId) || 0;
-}
-
-function invalidateConversationSearchThreadHydration(threadId: string) {
-  conversationSearchThreadHydrationGenerations.set(threadId, conversationSearchThreadHydrationGeneration(threadId) + 1);
-}
-
-function hasActiveConversationSearchHydrationForThread(threadId: string) {
-  for (const key of activeConversationSearchHydrations) {
-    if (key.slice(key.indexOf(":") + 1) === threadId) return true;
-  }
-  return false;
-}
-
-function dropConversationSearchThreadState(threadId: string) {
-  invalidateConversationSearchThreadHydration(threadId);
+function dropThreadAuxiliaryState(threadId: string) {
   invalidateThreadHistoryEntries(threadId, { dropLoaded: true });
-  clearConversationSearchHydrationRetriesForThread(threadId);
-  pendingConversationSearchHydrations.delete(threadId);
-  hydratedConversationSearchThreadIds.delete(threadId);
-  conversationSearchIndexByThreadId.delete(threadId);
-  serverConversationSearchMatchesByThreadId.delete(threadId);
   composerThreadReferenceHistoryByThreadId.delete(threadId);
   composerThreadReferenceHistoryRequests.delete(threadId);
   if (threadHistoryPopover?.threadId === threadId) closeThreadHistoryPopover();
-  if (!hasActiveConversationSearchHydrationForThread(threadId)) conversationSearchThreadHydrationGenerations.delete(threadId);
   if (!threadHistoryHydrationRequests.has(threadId)) threadHistoryGenerations.delete(threadId);
 }
 
-function pruneConversationSearchThreadState(visibleThreadIds: Set<string>) {
+function pruneThreadAuxiliaryState(visibleThreadIds: Set<string>) {
   const indexedThreadIds = new Set<string>([
-    ...pendingConversationSearchHydrations,
-    ...hydratedConversationSearchThreadIds,
-    ...conversationSearchIndexByThreadId.keys(),
-    ...serverConversationSearchMatchesByThreadId.keys(),
-    ...conversationSearchThreadHydrationGenerations.keys(),
     ...threadHistoryEntriesByThreadId.keys(),
     ...composerThreadReferenceHistoryByThreadId.keys(),
     ...composerThreadReferenceHistoryRequests.keys(),
@@ -15886,7 +15710,7 @@ function pruneConversationSearchThreadState(visibleThreadIds: Set<string>) {
     ...threadHistoryHydrationRequests.keys(),
   ]);
   for (const threadId of indexedThreadIds) {
-    if (!visibleThreadIds.has(threadId)) dropConversationSearchThreadState(threadId);
+    if (!visibleThreadIds.has(threadId)) dropThreadAuxiliaryState(threadId);
   }
 }
 
@@ -15903,11 +15727,6 @@ function loadThread(thread: any, options: { activate?: boolean; preserveListOrde
     discardCachedThreadMessageSurface(threadId);
   }
   invalidateThreadHistoryEntries(threadId);
-  if (hasActiveConversationSearchHydrationForThread(threadId)) invalidateConversationSearchThreadHydration(threadId);
-  else conversationSearchThreadHydrationGenerations.delete(threadId);
-  hydratedConversationSearchThreadIds.add(threadId);
-  conversationSearchIndexByThreadId.delete(threadId);
-  pendingConversationSearchHydrations.delete(threadId);
   pendingAssistantPreviewHydrations.delete(threadId);
   completedAssistantPreviewHydrations.add(threadId);
   if (options.activate !== false) {
@@ -16040,7 +15859,7 @@ function loadThreadInBackground(thread: any, options: { preserveListOrder?: bool
 
 function backgroundThreadResumeRequestKey(
   threadId: string,
-  session = conversationSearchHydrationSession,
+  session = backgroundHydrationSession,
   options: { displayCache?: boolean } = {},
 ) {
   return `${session}:${options.displayCache ? "display" : "summary"}:${threadId}`;
@@ -16048,7 +15867,7 @@ function backgroundThreadResumeRequestKey(
 
 function resumeThreadForBackgroundHydration(
   threadId: string,
-  session = conversationSearchHydrationSession,
+  session = backgroundHydrationSession,
   options: { displayCache?: boolean } = {},
 ) {
   const key = backgroundThreadResumeRequestKey(threadId, session, options);
@@ -16099,7 +15918,6 @@ function shouldDelayThreadDetailPrefetch() {
       hasActiveCodexTask() ||
       activeAssistantPreviewHydrationCount() > 0 ||
       state.queuedSends.length ||
-      Boolean(state.search.trim()) ||
       deferredThreadResumeThreadId ||
       threadSwitchTransition ||
       switchingThreadId,
@@ -16139,13 +15957,13 @@ async function flushRecentThreadDetailPrefetches() {
 }
 
 async function prefetchThreadDetail(threadId: string) {
-  const hydrationSession = conversationSearchHydrationSession;
+  const hydrationSession = backgroundHydrationSession;
   activeThreadDetailPrefetches.add(threadId);
   let retryAfterForegroundWork = false;
   try {
     const result = await resumeThreadForBackgroundHydration(threadId, hydrationSession, { displayCache: true });
     if (
-      hydrationSession !== conversationSearchHydrationSession ||
+      hydrationSession !== backgroundHydrationSession ||
       !threadById(threadId) ||
       state.currentThreadId === threadId
     ) return;
@@ -16159,7 +15977,7 @@ async function prefetchThreadDetail(threadId: string) {
     // Detail prefetch is best effort; foreground selection remains authoritative.
   } finally {
     activeThreadDetailPrefetches.delete(threadId);
-    if (hydrationSession === conversationSearchHydrationSession) {
+    if (hydrationSession === backgroundHydrationSession) {
       if (hasFullyLoadedThreadDetailCache(threadId)) completedThreadDetailPrefetches.add(threadId);
       else if (retryAfterForegroundWork && threadById(threadId) && state.currentThreadId !== threadId) {
         pendingThreadDetailPrefetches.add(threadId);
@@ -16179,15 +15997,15 @@ function resetRecentThreadDetailPrefetch() {
   completedThreadDetailPrefetches.clear();
 }
 
-function assistantPreviewHydrationActiveKey(threadId: string, session = conversationSearchHydrationSession) {
+function assistantPreviewHydrationActiveKey(threadId: string, session = backgroundHydrationSession) {
   return `${session}:${threadId}`;
 }
 
-function isAssistantPreviewThreadHydrating(threadId: string, session = conversationSearchHydrationSession) {
+function isAssistantPreviewThreadHydrating(threadId: string, session = backgroundHydrationSession) {
   return activeAssistantPreviewHydrations.has(assistantPreviewHydrationActiveKey(threadId, session));
 }
 
-function activeAssistantPreviewHydrationCount(session = conversationSearchHydrationSession) {
+function activeAssistantPreviewHydrationCount(session = backgroundHydrationSession) {
   const prefix = `${session}:`;
   let count = 0;
   for (const key of activeAssistantPreviewHydrations) {
@@ -16253,13 +16071,13 @@ async function hydrateAssistantPreviewForThread(threadId: string) {
     pendingAssistantPreviewHydrations.add(threadId);
     return;
   }
-  const hydrationSession = conversationSearchHydrationSession;
+  const hydrationSession = backgroundHydrationSession;
   const activeKey = assistantPreviewHydrationActiveKey(threadId, hydrationSession);
   activeAssistantPreviewHydrations.add(activeKey);
   try {
     const result = await resumeThreadForBackgroundHydration(threadId, hydrationSession);
     if (
-      hydrationSession === conversationSearchHydrationSession &&
+      hydrationSession === backgroundHydrationSession &&
       state.currentThreadId !== threadId &&
       threadById(threadId)
     ) {
@@ -16269,7 +16087,7 @@ async function hydrateAssistantPreviewForThread(threadId: string) {
     // Missing or unavailable history should not break the chat list.
   } finally {
     activeAssistantPreviewHydrations.delete(activeKey);
-    if (hydrationSession === conversationSearchHydrationSession) {
+    if (hydrationSession === backgroundHydrationSession) {
       completedAssistantPreviewHydrations.add(threadId);
       resumeDeferredCodexWork();
       if (pendingAssistantPreviewHydrations.size) {
@@ -16802,6 +16620,33 @@ function isTradingExpertThreadId(threadId: string | null | undefined) {
   if (tradingExpertThreadIds.has(threadId)) return true;
   const groupId = threadGroupByThreadId[threadId];
   return Boolean(groupId && threadGroupById(groupId)?.name.trim() === TRADING_EXPERT_NAME);
+}
+
+function initializeTradingExpertTaskThread(
+  threadId: string,
+  options: { expandPanel?: boolean } = {},
+) {
+  tradingExpertThreadIds.add(threadId);
+  newThreadModeByThreadId.set(threadId, "execution");
+  const existingModel =
+    threadModelSelection(threadId)?.model || threadModelSettings(threadId)?.model;
+  if (!isTradingExpertModelValue(existingModel)) {
+    rememberThreadModelSelection(
+      threadId,
+      {
+        modelProvider: DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
+        model: TRADING_EXPERT_DEFAULT_MODEL_VALUE,
+        reasoningEffort: TRADING_EXPERT_REASONING_EFFORT,
+        serviceTier: null,
+      },
+      { persist: false },
+    );
+  }
+  if (options.expandPanel) {
+    state.leftCollapsed = false;
+    state.rightCollapsed = false;
+    state.tradingExpertChartCollapsed = false;
+  }
 }
 
 function providerFromThreadId(threadId: string | null | undefined): ProviderChatProvider | null {
@@ -17496,7 +17341,6 @@ async function selectAutomationNotificationThread(threadId: string) {
 function closeTransientUiForNotificationOpen() {
   state.chatPreview = null;
   state.closingPreviewSource = null;
-  state.newChatMenuOpen = false;
   state.externalChannels.menuOpen = false;
   state.threadMenu = null;
   state.threadGroupMenu = null;
@@ -17522,7 +17366,7 @@ function scheduleDeferredThreadResume(threadId: string | null | undefined = defe
 async function flushDeferredThreadResume() {
   const threadId = deferredThreadResumeThreadId;
   if (!threadId || !state.serverReady) return;
-  const workspaceSession = conversationSearchHydrationSession;
+  const workspaceSession = backgroundHydrationSession;
   if (hasPendingCodexWork()) return;
   if (state.currentThreadId !== threadId || state.activeView !== "chat") {
     deferredThreadResumeThreadId = null;
@@ -17553,7 +17397,7 @@ async function flushDeferredThreadResume() {
     const result = await resumeRequest;
     if (!isOwnedThreadSwitchSelection(threadId, threadSwitchToken, workspaceSession)) return;
     if (
-      workspaceSession !== conversationSearchHydrationSession ||
+      workspaceSession !== backgroundHydrationSession ||
       !ownsThreadSwitchTransition(threadId, threadSwitchToken)
     ) return;
     if (state.currentThreadId === threadId && state.activeView === "chat") {
@@ -17575,7 +17419,7 @@ async function flushDeferredThreadResume() {
     }
   } finally {
     if (
-      workspaceSession === conversationSearchHydrationSession &&
+      workspaceSession === backgroundHydrationSession &&
       ownsThreadSwitchTransition(threadId, threadSwitchToken)
     ) {
       await finishThreadSwitchAfterLoad(threadId, threadSwitchToken, revealHeavyContent);
@@ -18057,10 +17901,6 @@ function setCodexThreadBusy(threadId: string | null | undefined, busy: boolean, 
   syncGlobalCodexBusy();
   syncThinkingElapsedTimer();
   syncConversationRowWorkingState(threadId);
-  if (!busy && state.activeView === "chat" && state.search.trim()) {
-    queueConversationSearchHydrations();
-    flushConversationSearchHydrations();
-  }
 }
 
 function attachTurnIdToLatestOptimisticUserItem(threadId: string, turnId: string) {
@@ -18481,7 +18321,7 @@ function patchChannelThreadFromLatestMessage(channelId: string) {
 }
 
 function clearThreadHistoryLocally(threadId: string) {
-  dropConversationSearchThreadState(threadId);
+  dropThreadAuxiliaryState(threadId);
   threadHistoryClearedBefore[threadId] = new Date().toISOString();
   forgetThreadContextUsage(threadId);
   delete state.itemOrder[threadId];
@@ -19257,7 +19097,6 @@ async function useSkillInNewThread(skillId: string) {
   state.marketplace.detailDialogOpen = false;
   state.chatPreview = null;
   state.closingPreviewSource = null;
-  state.newChatMenuOpen = false;
   state.externalChannels.menuOpen = false;
   const threadId = await startNewThread();
   if (!threadId) {
@@ -19865,7 +19704,7 @@ function threadContinuationHistoryMessages(threadId: string): ThreadContinuation
     if (isThinkingMessage(message) || isContextCompactionMessage(message) || isMediaGenerationMessage(message) || message.kind === "agent_card") continue;
     const role: ThreadContinuationMessage["role"] | null = isRenderedUserSideMessage(message)
       ? "user"
-      : isFinalAgentConversationSearchMessage(threadId, message, visibleMessages)
+      : isFinalAgentTurnResultMessage(threadId, message, visibleMessages)
         ? "assistant"
         : null;
     if (!role) continue;
@@ -19980,7 +19819,7 @@ function threadContinuationAnswerMessageId(threadId: string, turnId: string | nu
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
       const item = state.items[threadId]?.[message.id];
-      if (itemTurnId(item) === expectedTurnId && isFinalAgentConversationSearchMessage(threadId, message, messages)) {
+      if (itemTurnId(item) === expectedTurnId && isFinalAgentTurnResultMessage(threadId, message, messages)) {
         return message.id;
       }
     }
@@ -19993,7 +19832,7 @@ function threadContinuationAnchorMessageId(threadId: string, turnId: string | nu
   if (exactAnswerMessageId) return exactAnswerMessageId;
   const messages = messagesForThread(threadId);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (isFinalAgentConversationSearchMessage(threadId, messages[index], messages)) return messages[index].id;
+    if (isFinalAgentTurnResultMessage(threadId, messages[index], messages)) return messages[index].id;
   }
   return null;
 }
@@ -20629,7 +20468,7 @@ function recentlyCompletedFinalAnswerTurnId(threadId: string, maxAgeMs = 5_000) 
   const messages = messagesForThread(threadId);
   let latest: { turnId: string; completedAtMs: number } | null = null;
   for (const message of messages) {
-    if (!isFinalAgentConversationSearchMessage(threadId, message, messages)) continue;
+    if (!isFinalAgentTurnResultMessage(threadId, message, messages)) continue;
     const turnId = itemTurnId(state.items[threadId]?.[message.id]);
     if (!turnId) continue;
     const completedAtMs = turnTiming(threadId, turnId)?.completedAtMs;
@@ -21996,7 +21835,7 @@ function finishLeakedSubagentTopLevelTurnTracking(threadId: string, message: Jso
 
 async function hydrateInternalSubagentThreadSnapshot(threadId: string) {
   const workspaceGeneration = authenticatedWorkspaceGeneration;
-  const hydrationSession = conversationSearchHydrationSession;
+  const hydrationSession = backgroundHydrationSession;
   try {
     const result = await resumeThreadForBackgroundHydration(threadId, hydrationSession, { displayCache: true });
     if (workspaceGeneration !== authenticatedWorkspaceGeneration) return;
@@ -22334,8 +22173,7 @@ function upsertItem(threadId: string, item: CodexItem, options: { updateThreadPr
   if (savedItem.type === "agentMessage" && completedWorkflow?.status === "succeeded") {
     bindWorkflowSuccessDelivery(completedWorkflow);
   }
-  const refreshGlobalSearchHistory = Boolean(state.search.trim() && savedItem.type === "agentMessage");
-  if ((isUserSideThreadItem(savedItem) || refreshGlobalSearchHistory) && !suppressCreatedAtStamp) {
+  if (isUserSideThreadItem(savedItem) && !suppressCreatedAtStamp) {
     invalidateThreadHistoryEntries(threadId);
     window.queueMicrotask(() => refreshOpenThreadHistoryEntries(threadId));
   }
@@ -24671,7 +24509,7 @@ async function ensureLocalGroupChatHaoloThread(
   });
   const internalThreadId = firstString(result?.thread?.id);
   if (!internalThreadId) {
-    throw new Error("无法创建群聊 Haolo Agent 会话");
+    throw new Error("无法初始化群聊 Haolo Agent 会话");
   }
   rememberDesktopAgentThread(key, internalThreadId);
   hideDesktopAgentInternalThread(internalThreadId);
@@ -27715,7 +27553,7 @@ function adoptReplacementCodexThread(previousThreadId: string, replacementThread
   }
   hiddenThreadIds.add(previousThreadId);
   hiddenThreadIds.delete(nextThreadId);
-  dropConversationSearchThreadState(previousThreadId);
+  dropThreadAuxiliaryState(previousThreadId);
   state.threads = state.threads.filter((thread) => thread.id !== previousThreadId);
   if (oldGroupId && !wasWechatChannelThread && !wasFeishuChannelThread) threadGroupByThreadId[nextThreadId] = oldGroupId;
   delete threadGroupByThreadId[previousThreadId];
@@ -31262,7 +31100,7 @@ function loadComposerThreadReferenceHistory(threadId: string) {
   }
   const existing = composerThreadReferenceHistoryRequests.get(threadId);
   if (existing) return existing;
-  const session = threadHistoryBackgroundSession(conversationSearchHydrationSession, threadHistoryGeneration(threadId));
+  const session = threadHistoryBackgroundSession(backgroundHydrationSession, threadHistoryGeneration(threadId));
   let request: Promise<ComposerThreadReferenceHistoryEntry[]>;
   request = resumeThreadForBackgroundHydration(threadId, session)
     .then((result) => {
@@ -31358,9 +31196,9 @@ function showComposerThreadReferenceDetail(index: number) {
 }
 
 function filteredComposerThreadReferenceHistory(detail: ComposerThreadReferenceDetailState) {
-  const query = normalizedConversationSearchText(detail.query);
+  const query = normalizedSearchText(detail.query);
   return query
-    ? detail.entries.filter((entry) => conversationSearchIncludes(entry.searchableText, query))
+    ? detail.entries.filter((entry) => normalizedSearchText(entry.searchableText).includes(query))
     : detail.entries;
 }
 
@@ -32111,31 +31949,6 @@ function restoreThreadHistorySearchFocus(snapshot: FormFieldFocusSnapshot | null
   });
 }
 
-function captureConversationSearchFocus(): FormFieldFocusSnapshot | null {
-  if (state.activeView !== "chat") return null;
-  return captureFormFieldFocus("#conversationSearch");
-}
-
-function restoreConversationSearchFocus(snapshot: FormFieldFocusSnapshot | null) {
-  const token = ++conversationSearchFocusRestoreToken;
-  if (!snapshot || state.activeView !== "chat") return;
-  const restore = () => {
-    if (token !== conversationSearchFocusRestoreToken || state.activeView !== "chat") return;
-    const active = document.activeElement;
-    if (active && active !== document.body && active !== root && active.id !== "conversationSearch") return;
-    const input = root.querySelector<HTMLInputElement>(snapshot.selector);
-    if (!input || input.value !== state.search) return;
-    const selectionStart = Math.min(snapshot.selectionStart, input.value.length);
-    const selectionEnd = Math.min(snapshot.selectionEnd, input.value.length);
-    input.focus({ preventScroll: true });
-    input.setSelectionRange(selectionStart, selectionEnd);
-    input.scrollTop = snapshot.scrollTop;
-  };
-  restore();
-  window.requestAnimationFrame(restore);
-  window.setTimeout(restore, 40);
-}
-
 function captureSkillsSearchFocus(): SkillsSearchFocusSnapshot | null {
   if (state.activeView !== "skillsPlaza") return null;
   const input = root.querySelector<HTMLInputElement>("#skillsSearch");
@@ -32430,7 +32243,6 @@ function render() {
   const threadGroupEditorFocus = captureThreadGroupEditorFocus();
   const threadRenameFocus = captureThreadRenameDialogFocus();
   const threadHistorySearchFocus = captureThreadHistorySearchFocus();
-  const conversationSearchFocus = captureConversationSearchFocus();
   const skillsSearchFocus = captureSkillsSearchFocus();
   const contactsSearchFocus = captureContactsSearchFocus();
   const librarySearchFocus = captureLibrarySearchFocus();
@@ -32494,10 +32306,11 @@ function render() {
                   ? renderConsumptionPage()
                   : renderMaterialsPage();
   const isChatLeftCollapsed =
-    state.activeView === "chat" && state.leftCollapsed && !tradingExpertLayout;
+    state.activeView === "chat" && state.leftCollapsed;
   const shellClasses = [
     "desktop-shell",
     isChatLeftCollapsed ? "left-panel-collapsed" : "",
+    tradingExpertLayout ? "trading-expert-shell" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -32515,6 +32328,9 @@ function render() {
       ? "right-panel-collapsed"
       : "",
     tradingExpertLayout ? "trading-expert-layout" : "",
+    tradingExpertLayout && state.tradingExpertChartCollapsed
+      ? "trading-expert-chart-collapsed"
+      : "",
     multiModelClusterLayout ? "multi-model-cluster-layout" : "",
     workflowChatPanelWidth !== undefined ? "workflow-chat-panel-resized" : "",
   ]
@@ -32535,9 +32351,8 @@ function render() {
   root.innerHTML = `
     <div class="${shellClasses}">
       ${renderWindowControls()}
-      ${state.activeView === "chat" && !isBlankWorkflowCanvasThread(thread?.id) ? renderLeftPanelToggle() : ""}
       <div class="${bodyClasses}"${bodyStyle}>
-        ${tradingExpertLayout ? "" : renderAppSidebar()}
+        ${tradingExpertLayout ? renderTradingExpertCollapseControls() : ""}
         ${mainContent}
       </div>
     </div>
@@ -32638,7 +32453,6 @@ function render() {
   restoreThreadGroupEditorFocus(threadGroupEditorFocus);
   restoreThreadRenameDialogFocus(threadRenameFocus);
   restoreThreadHistorySearchFocus(threadHistorySearchFocus);
-  restoreConversationSearchFocus(conversationSearchFocus);
   restoreSkillsSearchFocus(skillsSearchFocus);
   restoreContactsSearchFocus(contactsSearchFocus);
   restoreLibrarySearchFocus(librarySearchFocus);
@@ -32814,7 +32628,6 @@ function openMyConfigPage() {
   state.contactChat.open = false;
   state.profileMenuOpen = false;
   resetProfileSubscriptionDetails();
-  state.newChatMenuOpen = false;
   state.externalChannels.menuOpen = false;
   state.skillSortMenuOpen = false;
   state.autoTaskMenuTaskId = null;
@@ -33507,11 +33320,26 @@ function loginWindowMode(): WindowMode {
   return "login";
 }
 
+function renderTitlebarPrimaryActions() {
+  const channelMenuOpen = state.externalChannels.menuOpen;
+  return `
+    <nav class="titlebar-primary-actions" aria-label="应用快捷操作">
+      <button type="button" class="titlebar-primary-action ${state.autoTaskDialogOpen ? "active" : ""}" data-action="open-auto-tasks">自动化</button>
+      <div class="titlebar-channel-action ${channelMenuOpen ? "menu-open" : ""}">
+        <button type="button" class="titlebar-primary-action ${channelMenuOpen ? "active" : ""}" data-action="toggle-external-channel-menu" aria-haspopup="menu" aria-expanded="${channelMenuOpen ? "true" : "false"}">连接</button>
+        <div class="titlebar-channel-menu-overlay">${renderExternalChannelMenu()}</div>
+      </div>
+      <button type="button" class="titlebar-primary-action ${state.settingsOpen ? "active" : ""}" data-action="open-settings" aria-haspopup="dialog">设置</button>
+    </nav>
+  `;
+}
+
 function renderWindowControls() {
   const maximized = state.windowMaximized;
   const avatarUrl = currentProfileAvatar();
   return `
     <header class="app-titlebar" aria-label="应用标题栏">
+      ${state.activeView === "chat" ? renderLeftPanelToggle() : ""}
       <button class="titlebar-profile" data-action="toggle-profile" aria-label="打开个人资料">
         <span class="titlebar-profile-avatar">
           <img${builtInAvatarEdgeCropClassAttribute(avatarUrl)} src="${escapeAttr(avatarUrl)}" alt="" />
@@ -33519,6 +33347,7 @@ function renderWindowControls() {
         </span>
         <span class="titlebar-profile-name">${escapeHtml(currentProfileName())}</span>
       </button>
+      ${renderTitlebarPrimaryActions()}
       <div class="titlebar-drag-region" aria-hidden="true"></div>
       <div class="window-controls" aria-label="窗口控制">
         <button type="button" class="window-control" data-window-action="minimize" title="最小化" aria-label="最小化">
@@ -33536,7 +33365,6 @@ function renderWindowControls() {
 }
 
 function renderLeftPanelToggle() {
-  if (isTradingExpertThreadId(state.currentThreadId)) return "";
   const collapsed = state.leftCollapsed;
   const label = collapsed ? "展开左侧栏" : "收起左侧栏";
   return `
@@ -33577,7 +33405,6 @@ function toggleLeftPanelCollapsed() {
   if (state.activeView !== "chat") return;
   state.leftCollapsed = !state.leftCollapsed;
   state.profileMenuOpen = false;
-  state.newChatMenuOpen = false;
   state.externalChannels.menuOpen = false;
   state.newThreadGroupPickerOpen = false;
   state.threadMenu = null;
@@ -33862,27 +33689,12 @@ function renderLoginAgreement() {
   `;
 }
 
-function renderAppSidebar() {
+function renderPageHomeButton(className = "") {
+  const classes = ["page-home-button", className].filter(Boolean).join(" ");
   return `
-    <nav class="app-sidebar">
-      <div class="nav-stack">
-        ${renderNavIcon("chat", "消息", HOME_ICON_URL.message, HOME_ICON_URL.messageActive, state.activeView === "chat")}
-        ${renderNavIcon("contacts", "通讯录", HOME_ICON_URL.contacts, HOME_ICON_URL.contactsActive, state.activeView === "contacts")}
-        ${renderNavIcon("results", "成果库", HOME_ICON_URL.library, HOME_ICON_URL.libraryActive, state.activeView === "results")}
-        ${false ? renderNavIcon("materials", "知识库", HOME_ICON_URL.resources, HOME_ICON_URL.resourcesActive, state.activeView === "materials") : ""}
-      </div>
-      <div class="sidebar-spacer"></div>
-      <button class="nav-icon settings-sidebar-button" data-action="open-settings" aria-label="设置" title="设置">
-        <img src="${escapeAttr(HOME_ICON_URL.settings)}" alt="" />
-      </button>
-    </nav>
-  `;
-}
-
-function renderNavIcon(id: string, label: string, inactiveIcon: string, activeIcon: string, active: boolean) {
-  return `
-    <button class="nav-icon ${active ? "active" : ""}" data-nav="${escapeAttr(id)}" aria-label="${escapeAttr(label)}">
-      <img src="${escapeAttr(active ? activeIcon : inactiveIcon)}" alt="" />
+    <button type="button" class="${classes}" data-action="return-home" aria-label="返回主页" title="返回主页">
+      <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m10.5 4.5-4.5 4.5 4.5 4.5"/><path d="M6.5 9H14"/></svg>
+      <span>返回</span>
     </button>
   `;
 }
@@ -33896,6 +33708,9 @@ function renderContactsPage() {
   const hasSearchText = Boolean(state.contactsSearch.trim());
   return `
     <aside class="contacts-list">
+      <div class="page-home-nav-row">
+        ${renderPageHomeButton()}
+      </div>
       <header class="contacts-toolbar">
         <label class="contacts-search-box ${hasSearchText ? "has-value" : ""}">
           <button class="contacts-search-submit" type="button" data-action="search-contacts" aria-label="搜索联系人">
@@ -33904,7 +33719,7 @@ function renderContactsPage() {
           <input id="contactsSearch" value="${escapeAttr(state.contactsSearch)}" placeholder="搜索" autocomplete="off" />
           ${
             hasSearchText
-              ? `<button class="chat-search-clear contacts-search-clear" type="button" data-action="clear-contacts-search" aria-label="清空联系人搜索">
+              ? `<button class="contacts-search-clear" type="button" data-action="clear-contacts-search" aria-label="清空联系人搜索">
                   <img class="button-close-icon" src="${escapeAttr(HOME_ICON_URL.close)}" alt="" />
                 </button>`
               : ""
@@ -33956,9 +33771,7 @@ function groupChatSelectableProfiles() {
 }
 
 function groupChatDialogTargetRecord() {
-  return state.groupChatDialog.mode === "create"
-    ? null
-    : localGroupChatRecord(state.groupChatDialog.threadId);
+  return localGroupChatRecord(state.groupChatDialog.threadId);
 }
 
 function groupChatExistingSelectionIds() {
@@ -34283,11 +34096,7 @@ function renderGroupChatDialog() {
   const query = state.groupChatDialog.query.trim();
   const addingMembers = state.groupChatDialog.mode === "add-members";
   const removingMembers = state.groupChatDialog.mode === "remove-members";
-  const dialogTitle = addingMembers
-    ? "添加群成员"
-    : removingMembers
-      ? "移出群成员"
-      : "发起群聊";
+  const dialogTitle = addingMembers ? "添加群成员" : "移出群成员";
   return `
     <div class="modal-backdrop group-chat-backdrop" data-action="close-group-chat-dialog"></div>
     <dialog class="group-chat-dialog" open aria-modal="true" aria-labelledby="groupChatDialogTitle">
@@ -34302,7 +34111,7 @@ function renderGroupChatDialog() {
             aria-label="${removingMembers ? "搜索群成员" : "搜索智能体、大模型或联系人"}"
           />
         </label>
-        <div class="group-chat-options" role="listbox" aria-label="${addingMembers ? "可添加的群聊成员" : removingMembers ? "可移出的群聊成员" : "可选择的群聊成员"}" aria-multiselectable="true">
+        <div class="group-chat-options" role="listbox" aria-label="${addingMembers ? "可添加的群聊成员" : "可移出的群聊成员"}" aria-multiselectable="true">
           ${renderGroupChatOptionSection("agents", "智能体", agents)}
           ${renderGroupChatOptionSection("models", "大模型", models)}
           ${renderGroupChatOptionSection("contacts", "联系人", contacts)}
@@ -34330,7 +34139,7 @@ function renderGroupChatDialog() {
               : `<div class="group-chat-empty-selection">${
                   removingMembers
                     ? "从左侧选择要移出的群成员"
-                    : `从左侧选择要${addingMembers ? "添加的" : ""}智能体、大模型或联系人`
+                    : "从左侧选择要添加的智能体、大模型或联系人"
                 }</div>`
           }
         </div>
@@ -34557,6 +34366,7 @@ function contactDirectoryProfiles() {
 }
 
 function shouldShowContactInDirectory(contact: ContactProfile) {
+  if (contact.id === TRADING_EXPERT_CONTACT_ID) return false;
   if (contact.id === VIDEO_EXPERT_CONTACT_ID) return false;
   if (contact.id === PROVIDER_CHAT_META.perplexity.id) return false;
   if (contact.section === "contacts") return true;
@@ -35223,6 +35033,9 @@ function currentInstalledPluginItems() {
 function renderResultsNavigation(allRows: ResultRow[]) {
   return `
     <aside class="library-nav-pane">
+      <div class="page-home-nav-row">
+        ${renderPageHomeButton()}
+      </div>
       <label class="library-search-box ${state.resultsSearch ? "has-value" : ""}">
         <img src="${escapeAttr(HOME_ICON_URL.search)}" alt="" />
         <input id="resultsSearch" value="${escapeAttr(state.resultsSearch)}" placeholder="搜索" autocomplete="off" />
@@ -35381,7 +35194,10 @@ function renderMaterialsPage() {
   return `
     <main class="library-page library-workspace">
       <aside class="library-nav-pane">
-        <div class="library-pane-title">知识库</div>
+        <div class="page-home-nav-row library-home-nav-row">
+          ${renderPageHomeButton()}
+          <span class="library-pane-title">知识库</span>
+        </div>
         <label class="library-search-box ${state.materialsSearch ? "has-value" : ""}">
           <img src="${escapeAttr(HOME_ICON_URL.search)}" alt="" />
           <input id="materialsSearch" value="${escapeAttr(state.materialsSearch)}" placeholder="搜索" autocomplete="off" />
@@ -35432,9 +35248,7 @@ function renderAutoTasksPage() {
     <main class="auto-task-page">
       <header class="simple-page-header">
         <div class="simple-page-title">
-          <button class="simple-page-back" type="button" data-action="back-auto-tasks-to-chat" aria-label="返回">
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 4L6 8l4 4" /></svg>
-          </button>
+          ${renderPageHomeButton()}
           <h1>自动任务</h1>
         </div>
         <button class="simple-page-fold" type="button" aria-label="收起">
@@ -35677,11 +35491,7 @@ function renderSkillsPlazaTabs() {
 function renderSkillsPlazaHeader() {
   return `
       <header class="skills-plaza-header">
-        <button type="button" class="my-skills-back-title" data-action="back-from-my-skills" aria-label="返回我的技能上一页">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>
-          <span>我的技能</span>
-        </button>
-        <span class="skills-plaza-title-spacer" aria-hidden="true"></span>
+        ${renderPageHomeButton()}
         <label class="skills-plaza-search">
           <img src="${escapeAttr(HOME_ICON_URL.search)}" alt="" />
           <input id="skillsSearch" value="${escapeAttr(state.skillSearch)}" placeholder="搜索" autocomplete="off" />
@@ -38805,28 +38615,49 @@ function renderLibraryEmpty(title: string, detail?: string) {
   `;
 }
 
-function renderChatNewMenuIcon(icon: "canvas" | "group-chat" | "auto-task" | "external-channel") {
+function renderConversationListIcon(icon: "new-chat" | "account" | "alerts" | "knowledge" | "folder") {
   const paths =
-    icon === "canvas"
-      ? `<rect x="4" y="4" width="16" height="16" rx="2.5" />
-         <path d="M8 9.5H16M8 13H13.5M8 16.5H11" />`
-      : icon === "group-chat"
-      ? `<path class="chat-bubble-layer chat-bubble-layer--back" d="M16 6.7H17.1C19.3 6.7 21 8.4 21 10.5V11.3C21 13.1 19.8 14.5 18.1 14.9L19 18L15 15H13.7" />
-         <path class="chat-bubble-layer chat-bubble-layer--front" d="M7 4.5H12C14.2 4.5 16 6.2 16 8.3V9.1C16 11.2 14.2 12.9 12 12.9H9.2L5.1 15.9L6 12.8C4.2 12.4 3 10.9 3 9.1V8.3C3 6.2 4.8 4.5 7 4.5Z" />
-         <circle class="chat-bubble-dot" cx="8" cy="8.7" r="0.8" />
-         <circle class="chat-bubble-dot" cx="11.3" cy="8.7" r="0.8" />`
-      : icon === "auto-task"
-        ? `<path d="M6.2 4.6L3.8 7" />
-           <path d="M17.8 4.6L20.2 7" />
-           <circle cx="12" cy="12.2" r="6.7" />
-           <path d="M12 8.7V12.3L14.6 14" />
-           <path d="M8.4 18L7.3 20" />
-           <path d="M15.6 18L16.7 20" />`
-        : `<path d="M9 3V8.8" />
-           <path d="M15 3V8.8" />
-           <path d="M6.5 8.8H17.5V12.3C17.5 15.4 15 18 12 18C9 18 6.5 15.4 6.5 12.3V8.8Z" />
-           <path d="M12 18V21" />`;
-  return `<svg class="chat-new-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths}</svg>`;
+    icon === "new-chat"
+      ? `<path d="M13.8 4.3H6.2A2.2 2.2 0 0 0 4 6.5v11.3A2.2 2.2 0 0 0 6.2 20h11.3a2.2 2.2 0 0 0 2.2-2.2v-7.6" />
+         <path d="m11 13 1.1-3.2L18.4 3.5a1.5 1.5 0 0 1 2.1 2.1l-6.3 6.3L11 13Z" />`
+      : icon === "account"
+        ? `<circle cx="12" cy="8" r="3.2" />
+           <path d="M5.4 20a6.6 6.6 0 0 1 13.2 0" />`
+        : icon === "alerts"
+          ? `<path d="M18 9.5a6 6 0 0 0-12 0v3.8L4.2 17h15.6L18 13.3V9.5Z" />
+             <path d="M9.6 20h4.8" />`
+          : icon === "knowledge"
+            ? `<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+               <path d="m4.2 7.6 7.8 4.5 7.8-4.5M12 12.1V21" />`
+            : `<path d="M3.5 7.2h6l1.8 2h9.2v8.3a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7.2Z" />
+               <path d="M3.5 9.2h17" />`;
+  return `<svg class="conversation-list-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths}</svg>`;
+}
+
+function renderConversationListActions() {
+  const newConversationActive = isBlankNewThread(state.currentThreadId);
+  return `
+    <div class="conversation-list-new-sticky">
+      <button type="button" class="conversation-list-action conversation-list-new-action ${newConversationActive ? "active" : ""}" data-action="new-chat" ${newConversationActive ? 'aria-current="page"' : ""}>
+        ${renderConversationListIcon("new-chat")}
+        <span>新对话</span>
+      </button>
+    </div>
+    <section class="conversation-list-secondary-actions" aria-label="任务分类">
+      <button type="button" class="conversation-list-action" data-conversation-static-action="account">
+        ${renderConversationListIcon("account")}
+        <span>账户</span>
+      </button>
+      <button type="button" class="conversation-list-action" data-conversation-static-action="alerts">
+        ${renderConversationListIcon("alerts")}
+        <span>预警</span>
+      </button>
+      <button type="button" class="conversation-list-action" data-conversation-static-action="knowledge">
+        ${renderConversationListIcon("knowledge")}
+        <span>知识库</span>
+      </button>
+    </section>
+  `;
 }
 
 function renderChatList() {
@@ -38834,61 +38665,11 @@ function renderChatList() {
   const localThreads = visibleConversationThreadsForChatList(threads);
   const channelThreads = threads.filter((thread) => isChannelThread(thread) && thread.channel_type !== "direct");
   return `
-    <aside class="chat-list">
-      <header class="chat-list-toolbar">
-        <label class="chat-search-box ${state.search ? "has-value" : ""}">
-          <img class="chat-search-icon" src="${escapeAttr(HOME_ICON_URL.search)}" alt="" />
-          <input
-            id="conversationSearch"
-            value="${escapeAttr(state.search)}"
-            aria-label="搜索全局记录"
-            placeholder="搜索全局记录"
-            autocomplete="off"
-          />
-          ${
-            state.search
-              ? `<button class="chat-search-clear" type="button" data-action="clear-conversation-search" aria-label="清空全局记录搜索">
-                  <img class="button-close-icon" src="${escapeAttr(HOME_ICON_URL.close)}" alt="" />
-                </button>`
-              : ""
-          }
-        </label>
-        <div class="chat-new-menu-wrap ${state.newChatMenuOpen || state.externalChannels.menuOpen ? "open" : ""}">
-          <button class="chat-new-toggle" type="button" data-action="toggle-new-chat-menu" aria-label="打开快捷菜单" aria-expanded="${state.newChatMenuOpen || state.externalChannels.menuOpen ? "true" : "false"}">
-            <img class="chat-new-plus" src="${escapeAttr(CHAT_NEW_PLUS_ICON_URL)}" alt="" />
-          </button>
-          ${
-            state.externalChannels.menuOpen
-              ? renderExternalChannelMenu()
-              : state.newChatMenuOpen
-                ? `<div class="chat-new-menu" role="menu">
-                  <button type="button" data-action="create-workflow-canvas" role="menuitem">
-                    ${renderChatNewMenuIcon("canvas")}
-                    <span class="chat-new-menu-copy">
-                      <strong>创建画布</strong>
-                    </span>
-                  </button>
-                  <button type="button" data-action="open-group-chat-dialog" role="menuitem">
-                    ${renderChatNewMenuIcon("group-chat")}
-                    <span class="chat-new-menu-copy">
-                      <strong>发起群聊</strong>
-                    </span>
-                  </button>
-                  <button type="button" data-action="open-auto-tasks" role="menuitem">
-                    ${renderChatNewMenuIcon("auto-task")}
-                    <span class="chat-new-menu-copy">
-                      <strong>自动任务</strong>
-                    </span>
-                  </button>
-                  ${renderExternalChannelCascadeMenuItem()}
-                </div>`
-              : ""
-          }
-        </div>
-      </header>
+    <aside class="chat-list trading-expert-task-list">
       <div class="conversation-list-body">
         <div class="conversation-rows">
-        ${renderThreadSection("", localThreads, state.loading ? "正在加载会话..." : "暂无会话")}
+          ${renderConversationListActions()}
+          ${renderThreadSection("", localThreads, state.loading ? "正在加载会话..." : "暂无会话")}
           ${SHOW_CHANNEL_SECTION_IN_CHAT_LIST ? renderChannelSection(channelThreads) : ""}
         </div>
         <div class="conversation-scrollbar" data-conversation-scrollbar aria-hidden="true">
@@ -38904,26 +38685,10 @@ function isHaoloContact(contact: ContactProfile | null | undefined) {
   return contact?.id === HAOLO_CONTACT_ID;
 }
 
-function renderExternalChannelCascadeMenuItem() {
-  return `
-    <div class="external-channel-cascade-item" role="none">
-      <button type="button" class="external-channel-trigger external-channel-trigger-quick" data-action="prime-external-channel-menu" aria-haspopup="menu" aria-expanded="false" role="menuitem">
-        ${renderChatNewMenuIcon("external-channel")}
-        <span class="chat-new-menu-copy">
-          <strong>连接渠道</strong>
-        </span>
-        ${renderThreadGroupAddMenuIcon("chevron")}
-      </button>
-      ${renderExternalChannelMenu({ submenu: true })}
-    </div>
-  `;
-}
-
-function renderExternalChannelMenu(options: { submenu?: boolean } = {}) {
+function renderExternalChannelMenu() {
   const channels = externalChannelMenuItems();
-  const menuClass = options.submenu ? "external-channel-menu external-channel-submenu" : "external-channel-menu";
   return `
-    <div class="${menuClass}" role="menu">
+    <div class="external-channel-menu" role="menu">
       ${channels.map(renderExternalChannelRow).join("")}
       ${state.externalChannels.error ? `<div class="external-channel-error">${escapeHtml(state.externalChannels.error)}</div>` : ""}
     </div>
@@ -39225,20 +38990,25 @@ function isExternalChannelId(value: unknown): value is ExternalChannelId {
 
 function renderThreadSections(threads: ConversationSummary[], emptyText: string) {
   ensureDefaultThreadGroup();
+  const conversations = threads.filter((thread) => !isBlankNewThread(thread.id));
+  const pinnedThreads = conversations.filter((thread) => Boolean(thread.pinned));
+  const projectThreads = conversations.filter((thread) => !thread.pinned);
   const visibleGroups = conversationListThreadGroups();
-  const showEmptyGroups = !state.search.trim() && visibleGroups.length > 0 && !isThreadGroupOnboardingEmptyForThreads(threads);
-  if (!threads.length && !showEmptyGroups) return renderPlainThreadSection("", [], emptyText);
-  const grouped = groupedThreadsForList(threads, showEmptyGroups);
-  const topLevelThreads = grouped.ungrouped.filter(isTopLevelConversationThread).sort(compareTopLevelConversationThreads);
-  const otherUngroupedThreads = grouped.ungrouped.filter((thread) => !topLevelThreads.includes(thread));
+  const showEmptyGroups = visibleGroups.length > 0 && !isThreadGroupOnboardingEmptyForThreads(projectThreads);
+  const grouped = groupedThreadsForList(projectThreads, showEmptyGroups);
   const defaultGroup = ensureDefaultThreadGroup();
   const groupSections = conversationGroupSectionsForList(grouped, defaultGroup);
-  const sections = [
-    topLevelThreads.length ? renderPlainThreadSection("", topLevelThreads, emptyText) : "",
-    ...groupSections.map((section) => renderThreadGroupSection(section.group, section.threads, { history: section.history })),
-    otherUngroupedThreads.length ? renderPlainThreadSection("", otherUngroupedThreads, emptyText) : "",
+  const projectSections = [
+    ...groupSections.map((section) => renderThreadGroupSection(section.group, section.threads)),
+    grouped.ungrouped.length ? renderUngroupedConversationProject(grouped.ungrouped) : "",
   ].filter(Boolean);
-  return sections.length ? sections.join("") : renderPlainThreadSection("", [], emptyText);
+  return `
+    ${pinnedThreads.length ? renderPinnedThreadSection(pinnedThreads) : ""}
+    <section class="conversation-projects-section" aria-label="项目">
+      <div class="conversation-list-heading">项目</div>
+      ${projectSections.length ? projectSections.join("") : `<div class="empty-list compact">${escapeHtml(emptyText)}</div>`}
+    </section>
+  `;
 }
 
 function conversationGroupSectionsForList(
@@ -39248,37 +39018,21 @@ function conversationGroupSectionsForList(
   },
   defaultGroup: ThreadGroup,
 ) {
-  const byGroupId = new Map<string, { group: ThreadGroup; threads: ConversationSummary[]; history?: boolean }>();
+  const byGroupId = new Map<string, { group: ThreadGroup; threads: ConversationSummary[] }>();
   if (grouped.defaultThreads.length) {
-    byGroupId.set(defaultGroup.id, { group: defaultGroup, threads: grouped.defaultThreads, history: true });
+    byGroupId.set(defaultGroup.id, { group: defaultGroup, threads: grouped.defaultThreads });
   }
   for (const item of grouped.groups) {
+    if (isDefaultThreadGroup(item.group.id)) continue;
     byGroupId.set(item.group.id, { group: item.group, threads: item.threads });
   }
   return sortedThreadGroups()
     .map((group) => byGroupId.get(group.id))
-    .filter((section): section is { group: ThreadGroup; threads: ConversationSummary[]; history?: boolean } => Boolean(section));
+    .filter((section): section is { group: ThreadGroup; threads: ConversationSummary[] } => Boolean(section));
 }
 
 function isTopLevelConversationThread(thread: ConversationSummary) {
-  return (
-    isBlankNewThread(thread.id) || isExternalChannelConnectionThread(thread)
-  );
-}
-
-function compareTopLevelConversationThreads(a: ConversationSummary, b: ConversationSummary) {
-  const rankDelta = topLevelConversationThreadRank(a) - topLevelConversationThreadRank(b);
-  if (rankDelta) return rankDelta;
-  const timeDelta = threadSortTime(b) - threadSortTime(a);
-  if (timeDelta) return timeDelta;
-  return 0;
-}
-
-function topLevelConversationThreadRank(thread: ConversationSummary) {
-  if (isBlankNewThread(thread.id)) return 0;
-  const channelRank = externalChannelConnectionThreadRank(thread);
-  if (channelRank != null) return channelRank + 1;
-  return 1000;
+  return isBlankNewThread(thread.id) || isExternalChannelConnectionThread(thread);
 }
 
 function renderThreadSection(title: string, threads: ConversationSummary[], emptyText: string) {
@@ -39295,8 +39049,17 @@ function renderPlainThreadSection(title: string, threads: ConversationSummary[],
   `;
 }
 
-function renderThreadGroupSection(group: ThreadGroup, threads: ConversationSummary[], options: { history?: boolean } = {}) {
-  const collapsed = !state.search.trim() && collapsedThreadGroupIds.has(group.id);
+function renderPinnedThreadSection(threads: ConversationSummary[]) {
+  return `
+    <section class="conversation-pinned-section" aria-label="置顶">
+      <div class="conversation-list-heading">置顶</div>
+      ${threads.map(renderThreadRow).join("")}
+    </section>
+  `;
+}
+
+function renderThreadGroupSection(group: ThreadGroup, threads: ConversationSummary[]) {
+  const collapsed = collapsedThreadGroupIds.has(group.id);
   const working = collapsed && threads.some((thread) => isConversationThreadWorking(thread.id));
   const hasUnviewed = threads.some((thread) => hasUnviewedFinalResult(thread.id));
   const menuOpen = state.threadGroupMenu?.groupId === group.id;
@@ -39318,26 +39081,53 @@ function renderThreadGroupSection(group: ThreadGroup, threads: ConversationSumma
     </button>
   `;
   return `
-    <section class="conversation-section conversation-group-section ${options.history ? "conversation-history-section" : ""} ${collapsed ? "collapsed" : ""}" data-thread-group-section="${escapeAttr(group.id)}">
+    <section class="conversation-section conversation-group-section conversation-project-section ${collapsed ? "collapsed" : ""}" data-thread-group-section="${escapeAttr(group.id)}">
       <div class="conversation-group-title ${working ? "is-working" : ""} ${hasUnviewed ? "has-unviewed" : ""} ${menuOpen ? "menu-open" : ""}" data-thread-group-row="${escapeAttr(group.id)}">
         <button
           type="button"
           class="conversation-group-toggle"
           data-thread-group-toggle="${escapeAttr(group.id)}"
           aria-expanded="${collapsed ? "false" : "true"}"
-          title="${collapsed ? "展开分组" : "收起分组"}"
+          title="${collapsed ? "展开项目" : "收起项目"}"
         >
-          <svg class="conversation-group-chevron" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M5.5 3.5 10 8l-4.5 4.5" />
-          </svg>
+          ${renderConversationListIcon("folder")}
           <span>${escapeHtml(displayName)}</span>
         </button>
         ${moreButton}
         ${hasUnviewed ? `<span class="thread-group-unviewed-dot" title="分组内有未读消息" aria-label="分组内有未读消息"></span>` : ""}
         ${working ? `<span class="thread-group-working-spinner" title="分组内有 AI 正在工作" aria-label="分组内有 AI 正在工作"></span>` : ""}
       </div>
-      ${collapsed ? "" : threads.map(renderThreadRow).join("")}
+      ${collapsed ? "" : renderConversationProjectThreads(group.id, threads)}
     </section>
+  `;
+}
+
+function renderUngroupedConversationProject(threads: ConversationSummary[]) {
+  const projectId = "__conversation_other_project__";
+  return `
+    <section class="conversation-section conversation-group-section conversation-project-section conversation-project-other">
+      <div class="conversation-group-title conversation-group-title-static">
+        <div class="conversation-group-toggle conversation-group-toggle-static">
+          ${renderConversationListIcon("folder")}
+          <span>其他</span>
+        </div>
+      </div>
+      ${renderConversationProjectThreads(projectId, threads)}
+    </section>
+  `;
+}
+
+function renderConversationProjectThreads(projectId: string, threads: ConversationSummary[]) {
+  const expanded = expandedConversationProjectIds.has(projectId);
+  const visibleThreads = expanded
+    ? threads
+    : threads.slice(0, CONVERSATION_PROJECT_PREVIEW_LIMIT);
+  const hasMore = !expanded && threads.length > visibleThreads.length;
+  return `
+    <div class="conversation-project-thread-list">
+      ${visibleThreads.map(renderThreadRow).join("")}
+      ${hasMore ? `<button type="button" class="conversation-project-expand" data-conversation-project-expand="${escapeAttr(projectId)}">展开显示</button>` : ""}
+    </div>
   `;
 }
 
@@ -39420,32 +39210,14 @@ function renderThreadRow(thread: ConversationSummary) {
   const active = isActiveThreadRow(thread.id);
   const pinned = Boolean(thread.pinned);
   const blankNewThread = isBlankNewThread(thread.id);
-  const groupBlankNewThread = groupBlankThreadIds.has(thread.id);
-  const topLevelBlankNewThread = isTopLevelBlankTaskPlaceholder({ blank: blankNewThread, groupBlank: groupBlankNewThread });
-  const wechatConnectionThread = isWechatConnectionThread(thread);
   const wechatLinkedThread = isWechatLinkedThread(thread);
   const feishuConnectionThread = isFeishuConnectionThread(thread);
   const telegramConnectionThread = isTelegramConnectionThread(thread);
-  const videoExpertThread = isVideoExpertThread(thread);
   const menuOpen = !blankNewThread && state.threadMenu?.threadId === thread.id;
-  const attachmentOnlyTitle = attachmentOnlyDisplayTitle(thread.id, thread);
-  const renamedTitle = threadNameOverride(thread.id);
-  const attachmentOnly = !wechatLinkedThread && !feishuConnectionThread && !telegramConnectionThread && isAttachmentOnlyThreadRow(thread) && !attachmentOnlyTitle && !renamedTitle;
-  const channel = isChannelThread(thread);
   const working = isConversationThreadWorking(thread.id);
-  const time = blankNewThread || working ? "" : thread.preview_time;
-  const searchKeyword = state.search.trim();
-  const searchMatch = searchKeyword ? threadSearchMatchSummary(thread, searchKeyword) : null;
-  const draftPreview = searchMatch ? null : active ? null : threadComposerDraftPreview(thread.id);
+  const finalResultUnviewed = hasUnviewedFinalResult(thread.id);
+  const draftPreview = active ? null : threadComposerDraftPreview(thread.id);
   const preview = draftPreview?.plain ?? threadListPreviewText(thread);
-  const previewHtml = draftPreview
-    ? renderThreadComposerDraftPreview(draftPreview)
-    : searchMatch
-      ? renderThreadSearchPreview(searchMatch.match, searchKeyword)
-      : escapeHtml(preview);
-  const videoExpertCenteredTitle = videoExpertThread && !draftPreview && !searchMatch && !preview.trim();
-  const separateVideoExpertTime = videoExpertCenteredTitle && Boolean(time);
-  const timeHtml = time ? `<time${separateVideoExpertTime ? ` class="video-expert-row-time"` : ""}>${escapeHtml(time)}</time>` : "";
   const rawRowName = wechatLinkedThread
     ? WECHAT_CHANNEL_THREAD_NAME
     : feishuConnectionThread
@@ -39457,28 +39229,22 @@ function renderThreadRow(thread: ConversationSummary) {
       : blankNewThread
         ? NEW_THREAD_TITLE
         : threadListDisplayName(thread);
-  const rowNameHtml = searchKeyword
-    ? renderHighlightedConversationSearchText(rawRowName, searchKeyword)
-    : escapeHtml(rawRowName);
-  const rowNameContent = `<span class="row-name">${pinned ? `<i class="thread-pin-mark" aria-hidden="true"></i>` : ""}${rowNameHtml}</span>`;
+  const minimalTitle = rawRowName.trim() || preview.trim() || NEW_THREAD_TITLE;
+  const minimalAriaLabel = [
+    pinned ? "已置顶" : "",
+    minimalTitle,
+    working ? "AI 正在工作" : "",
+    thread.unread ? `${thread.unread > 99 ? "99 条以上" : thread.unread}未读` : "",
+  ].filter(Boolean).join("，");
   return `
-    <div class="conversation-row-wrap ${active ? "active" : ""} ${topLevelBlankNewThread ? "blank-new-thread" : ""} ${menuOpen ? "menu-open" : ""} ${attachmentOnly ? "attachment-only" : ""} ${wechatConnectionThread ? "wechat-channel-row-wrap" : ""} ${videoExpertThread ? "video-expert-row-wrap" : ""} ${videoExpertCenteredTitle ? "video-expert-centered-title" : ""} ${channel ? "channel-row-wrap" : ""} ${thread.unread ? "has-unread" : ""} ${working ? "is-working" : ""} ${searchMatch ? "search-result" : ""}" data-thread-row="${escapeAttr(thread.id)}">
-      <button class="conversation-row" data-thread-id="${escapeAttr(thread.id)}">
-          ${renderThreadRowAvatar(thread)}
-          <span class="conversation-copy">
-            <span class="row-title">
-            ${rowNameContent}
-            ${separateVideoExpertTime ? "" : timeHtml}
-          </span>
-          <span class="row-preview ${draftPreview ? "draft-preview" : ""} ${searchMatch ? "search-preview" : ""}">${previewHtml}</span>
-          ${searchMatch ? renderThreadSearchCount(searchMatch) : ""}
-        </span>
-        ${separateVideoExpertTime ? timeHtml : ""}
+    <div class="conversation-row-wrap conversation-row-minimal ${active ? "active" : ""} ${menuOpen ? "menu-open" : ""} ${thread.unread ? "has-unread" : ""} ${working ? "is-working" : ""} ${finalResultUnviewed ? "has-final-result-unviewed" : ""}" data-thread-row="${escapeAttr(thread.id)}">
+      <button class="conversation-row" data-thread-id="${escapeAttr(thread.id)}" aria-label="${escapeAttr(minimalAriaLabel)}">
+        <span class="conversation-copy conversation-copy-minimal"><span class="row-title"><span class="row-name" title="${escapeAttr(minimalTitle)}">${escapeHtml(minimalTitle)}</span></span></span>
         ${thread.unread ? `<span class="unread-dot">${escapeHtml(thread.unread > 99 ? "99+" : thread.unread)}</span>` : ""}
         ${working ? `<span class="conversation-row-spinner" title="AI 正在工作" aria-label="AI 正在工作"></span>` : ""}
       </button>
       ${
-        blankNewThread || searchMatch
+        blankNewThread
           ? ""
           : `<button class="thread-more-button ${menuOpen ? "active" : ""}" type="button" data-thread-more="${escapeAttr(thread.id)}" aria-label="更多">
               <span></span><span></span><span></span>
@@ -39499,27 +39265,14 @@ function threadComposerDraftPreview(threadId: string) {
   return { text, attachmentLabel, plain };
 }
 
-function renderThreadComposerDraftPreview(preview: { text: string; attachmentLabel: string }) {
-  return `<span class="row-preview-draft-label">[草稿]</span>${escapeHtml(preview.text)}${escapeHtml(preview.attachmentLabel)}`;
-}
-
-function renderThreadSearchPreview(match: ThreadSearchMatch, keyword: string) {
-  return renderHighlightedConversationSearchText(match.snippet, keyword);
-}
-
-function renderThreadSearchCount(match: ThreadSearchMatchSummary) {
-  return `<span class="row-search-count">共 <strong>${escapeHtml(match.count)}</strong> 条相关聊天记录</span>`;
-}
-
 function renderThreadHistoryPopover() {
   const popover = threadHistoryPopover;
   if (!popover || state.activeView !== "chat") return "";
-  const globalSearchMode = syncThreadHistoryPopoverGlobalSearchMode(popover);
-  if (!hasThreadHistoryPopoverEntries(popover.entries, globalSearchMode)) return "";
+  if (!hasThreadHistoryPopoverEntries(popover.entries)) return "";
   const query = popover.query.trim();
   return `
     <section
-      class="thread-history-popover ${globalSearchMode ? "global-search-mode" : ""}"
+      class="thread-history-popover"
       data-thread-history-popover="${escapeAttr(popover.threadId)}"
       style="left:${Math.round(popover.x)}px;top:${Math.round(popover.y)}px;"
       aria-label="此对话消息快捷定位"
@@ -39531,8 +39284,8 @@ function renderThreadHistoryPopover() {
           type="search"
           data-thread-history-search
           value="${escapeAttr(popover.query)}"
-          aria-label="搜索此对话，全局至顶部搜"
-          placeholder="搜索此对话，全局至顶部搜"
+          aria-label="搜索此对话"
+          placeholder="搜索此对话"
           autocomplete="off"
           spellcheck="false"
         />
@@ -39554,46 +39307,14 @@ function renderThreadHistoryPopover() {
 }
 
 function renderThreadHistoryOptions(popover: ThreadHistoryPopoverState) {
-  if (!syncThreadHistoryPopoverGlobalSearchMode(popover)) return renderOriginalThreadHistoryOptions(popover);
-  const keyword = popover.query.trim();
-  if (!keyword) {
-    return `<div class="thread-history-empty" role="status" aria-live="polite">输入关键词搜索当前对话</div>`;
-  }
-  const matches = threadHistoryKeywordMatches(popover.entries, keyword);
-  if (!matches.length) {
-    return `<div class="thread-history-empty" role="status" aria-live="polite">未找到相关内容</div>`;
-  }
-  return matches
-    .map(
-      ({ entry, snippet }) => `
-        <button
-          type="button"
-          class="thread-history-option"
-          data-thread-history-message="${escapeAttr(entry.messageId)}"
-          data-thread-history-thread="${escapeAttr(popover.threadId)}"
-          title="${escapeAttr(snippet)}"
-        >
-          <span class="thread-history-option-text">${renderHighlightedConversationSearchText(snippet, keyword)}</span>
-          <time class="thread-history-option-time bubble-time">${escapeHtml(entry.time)}</time>
-        </button>
-      `,
-    )
-    .join("");
-}
-
-function syncThreadHistoryPopoverGlobalSearchMode(popover: ThreadHistoryPopoverState) {
-  const globalSearchMode = Boolean(state.search.trim());
-  if (popover.globalSearchMode === globalSearchMode) return globalSearchMode;
-  popover.globalSearchMode = globalSearchMode;
-  popover.query = globalSearchMode ? state.search.trim() : "";
-  return globalSearchMode;
+  return renderOriginalThreadHistoryOptions(popover);
 }
 
 function renderOriginalThreadHistoryOptions(popover: ThreadHistoryPopoverState) {
   const query = popover.query.trim();
   const userEntries = popover.entries.filter((entry) => entry.fromUser);
   const entries = query
-    ? userEntries.filter((entry) => conversationSearchIncludes(entry.label, query))
+    ? userEntries.filter((entry) => normalizedSearchText(entry.label).includes(normalizedSearchText(query)))
     : userEntries;
   if (!entries.length) {
     return `<div class="thread-history-empty" role="status" aria-live="polite">未找到相关内容</div>`;
@@ -39608,7 +39329,7 @@ function renderOriginalThreadHistoryOptions(popover: ThreadHistoryPopoverState) 
           data-thread-history-thread="${escapeAttr(popover.threadId)}"
           title="${escapeAttr(entry.label)}"
         >
-          <span class="thread-history-option-text">${query ? renderHighlightedConversationSearchText(entry.label, query) : escapeHtml(entry.label)}</span>
+          <span class="thread-history-option-text">${query ? renderHighlightedSearchText(entry.label, query) : escapeHtml(entry.label)}</span>
           <time class="thread-history-option-time bubble-time">${escapeHtml(entry.time)}</time>
         </button>
       `,
@@ -39616,18 +39337,8 @@ function renderOriginalThreadHistoryOptions(popover: ThreadHistoryPopoverState) 
     .join("");
 }
 
-function threadHistoryKeywordMatches(entries: ThreadHistoryEntry[], keyword: string) {
-  return entries
-    .map((entry) => {
-      const snippet =
-        conversationSearchSnippetFromText(entry.text, keyword) || conversationSearchSnippetFromText(entry.quoteText, keyword);
-      return snippet ? { entry, snippet } : null;
-    })
-    .filter((match): match is { entry: ThreadHistoryEntry; snippet: string } => Boolean(match));
-}
-
-function hasThreadHistoryPopoverEntries(entries: ThreadHistoryEntry[], globalSearchMode: boolean) {
-  return globalSearchMode ? entries.length > 0 : entries.filter((entry) => entry.fromUser).length > 1;
+function hasThreadHistoryPopoverEntries(entries: ThreadHistoryEntry[]) {
+  return entries.filter((entry) => entry.fromUser).length > 1;
 }
 
 function threadHistoryEntryTime(message: Message) {
@@ -39662,7 +39373,7 @@ function threadHistoryEntriesFromMessages(threadId: string, messages = messagesF
 }
 
 function threadHistorySearchableMessages(threadId: string, messages: Message[]) {
-  return messages.filter((message) => isConversationSearchMatchMessage(threadId, message, messages));
+  return messages.filter(isRenderedUserSideMessage);
 }
 
 function threadHistoryEntriesFromSnapshot(thread: any) {
@@ -39678,19 +39389,13 @@ function threadHistoryEntriesFromSnapshot(thread: any) {
       })
       .filter((message): message is Message => message !== null && hasRenderableMessageContent(message)),
   );
-  const documentsByMessageId = new Map(
-    conversationSearchDocumentsFromSnapshot(thread)
-      .filter((document): document is ConversationSearchIndexedDocument & { messageId: string } => Boolean(document.messageId))
-      .map((document) => [document.messageId, document]),
-  );
   return messages
-    .filter((message) => isRenderedUserSideMessage(message) || documentsByMessageId.has(message.id))
+    .filter(isRenderedUserSideMessage)
     .map((message, searchableIndex): ThreadHistoryEntry | null => {
       const fromUser = isRenderedUserSideMessage(message);
       const content = messageDisplayContent(message, message.text || "");
-      const document = documentsByMessageId.get(message.id);
-      const text = searchableConversationMessageText(document?.text ?? content.text);
-      const quoteText = document?.quoteText || (content.quote ? `${content.quote.sender}: ${content.quote.text}` : "");
+      const text = searchableConversationMessageText(content.text);
+      const quoteText = content.quote ? `${content.quote.sender}: ${content.quote.text}` : "";
       const label = threadHistoryEntryLabel(content.text, content.attachments);
       if (!fromUser && !text && !quoteText) return null;
       return {
@@ -39796,13 +39501,13 @@ function hydrateThreadHistoryEntries(threadId: string) {
   const generation = threadHistoryGeneration(threadId);
   const existing = threadHistoryHydrationRequests.get(threadId);
   if (existing?.generation === generation) return existing.request;
-  const workspaceSession = conversationSearchHydrationSession;
+  const workspaceSession = backgroundHydrationSession;
   const backgroundSession = threadHistoryBackgroundSession(workspaceSession, generation);
   let request: Promise<ThreadHistoryEntry[]>;
   request = resumeThreadForBackgroundHydration(threadId, backgroundSession)
     .then((result) => {
       if (
-        workspaceSession !== conversationSearchHydrationSession ||
+        workspaceSession !== backgroundHydrationSession ||
         generation !== threadHistoryGeneration(threadId) ||
         String(result?.thread?.id || "") !== threadId ||
         !threadById(threadId)
@@ -39847,7 +39552,7 @@ function beginThreadHistoryHover(row: HTMLElement) {
   }
   const knownEntries = knownThreadHistoryEntries(threadId);
   if (knownEntries) {
-    if (hasThreadHistoryPopoverEntries(knownEntries, Boolean(state.search.trim()))) {
+    if (hasThreadHistoryPopoverEntries(knownEntries)) {
       showThreadHistoryPopover(row, threadId, knownEntries);
     }
     return;
@@ -39860,7 +39565,7 @@ function beginThreadHistoryHover(row: HTMLElement) {
         if (
           requestSequence !== threadHistoryRequestSequence ||
           hoveredThreadHistoryThreadId !== threadId ||
-          !hasThreadHistoryPopoverEntries(entries, Boolean(state.search.trim()))
+          !hasThreadHistoryPopoverEntries(entries)
         ) return;
         const currentRow = root.querySelector<HTMLElement>(`[data-thread-row="${cssAttrSelectorValue(threadId)}"]`,
         );
@@ -39879,16 +39584,14 @@ function endThreadHistoryHover(threadId: string, nextTarget: EventTarget | null 
 }
 
 function showThreadHistoryPopover(row: HTMLElement, threadId: string, entries: ThreadHistoryEntry[]) {
-  const globalSearchMode = Boolean(state.search.trim());
-  if (!hasThreadHistoryPopoverEntries(entries, globalSearchMode) || hoveredThreadHistoryThreadId !== threadId) return;
+  if (!hasThreadHistoryPopoverEntries(entries) || hoveredThreadHistoryThreadId !== threadId) return;
   const chatListRect = row.closest<HTMLElement>(".chat-list")?.getBoundingClientRect();
   const rowRect = row.getBoundingClientRect();
   const anchorRight = chatListRect?.right ?? rowRect.right;
   threadHistoryPopover = {
     threadId,
     entries,
-    query: globalSearchMode ? state.search.trim() : "",
-    globalSearchMode,
+    query: "",
     anchorRight,
     anchorTop: rowRect.top,
     anchorCenterY: threadHistoryPopoverAnchorCenterY(row, rowRect),
@@ -39988,15 +39691,11 @@ function bindThreadHistoryPopoverEvents() {
     const messageId = option?.dataset.threadHistoryMessage;
     if (threadId && messageId) {
       const popoverState = threadHistoryPopover?.threadId === threadId ? threadHistoryPopover : null;
-      const globalSearchMode = popoverState ? syncThreadHistoryPopoverGlobalSearchMode(popoverState) : false;
-      const keyword = globalSearchMode && popoverState ? popoverState.query.trim() : "";
       const entry =
         popoverState
           ? popoverState.entries.find((candidate) => candidate.messageId === messageId) || null
           : null;
-      if (!globalSearchMode || keyword) {
-        requestThreadHistoryJump(threadId, messageId, keyword, globalSearchMode, entry);
-      }
+      requestThreadHistoryJump(threadId, messageId, "", entry);
     }
   });
   const input = popover.querySelector<HTMLInputElement>("[data-thread-history-search]");
@@ -40032,7 +39731,7 @@ function refreshOpenThreadHistoryEntries(threadId: string) {
   }
   const entries = threadHistoryEntriesFromMessages(threadId);
   threadHistoryEntriesByThreadId.set(threadId, entries);
-  if (!hasThreadHistoryPopoverEntries(entries, syncThreadHistoryPopoverGlobalSearchMode(popover))) {
+  if (!hasThreadHistoryPopoverEntries(entries)) {
     closeThreadHistoryPopover();
     return;
   }
@@ -40067,7 +39766,6 @@ function requestThreadHistoryJump(
   threadId: string,
   messageId: string,
   keyword: string,
-  globalSearchMode: boolean,
   entry: ThreadHistoryEntry | null = null,
   fallback: { turnId?: string; question?: string; startedAt?: string } = {},
 ) {
@@ -40078,7 +39776,6 @@ function requestThreadHistoryJump(
     threadId,
     messageId,
     keyword,
-    globalSearchMode,
     fallbackSearchableIndex: entry?.searchableIndex ?? -1,
     fallbackSignature: entry?.signature || "",
     fallbackTurnId: fallback.turnId || "",
@@ -40140,7 +39837,7 @@ function scrollThreadHistoryJumpIntoView() {
   suppressScrollDetection(1900);
   setMessageStreamFollow(target.threadId, false);
   clearPendingThreadHistoryJump();
-  activateThreadHistoryJumpHighlight(target.threadId, target.messageId, target.keyword, target.globalSearchMode);
+  activateThreadHistoryJumpHighlight(target.threadId, target.messageId, target.keyword);
   const refreshedScroller = root.querySelector<HTMLDivElement>("#messageScroller");
   const refreshedRow = refreshedScroller?.querySelector<HTMLElement>(
     `.message-row[data-message-id="${cssAttrSelectorValue(target.messageId)}"]`,
@@ -40192,10 +39889,10 @@ function bestConsumptionRecordQuestionMatch(
   target: PendingThreadHistoryJump,
   requireQuestionMatch: boolean,
 ) {
-  const targetQuestion = normalizedConversationSearchText(target.fallbackQuestion);
+  const targetQuestion = normalizedSearchText(target.fallbackQuestion);
   const matches = messages
     .map((message) => {
-      const messageQuestion = normalizedConversationSearchText(
+      const messageQuestion = normalizedSearchText(
         consumptionVisibleQuestion(message.text || "", message.attachments || []),
       );
       const score = !targetQuestion
@@ -40228,9 +39925,9 @@ function threadHistoryMessageSignature(message: Message) {
   return threadHistorySearchEntrySignature(content.text, quoteText);
 }
 
-function activateThreadHistoryJumpHighlight(threadId: string, messageId: string, keyword: string, globalSearchMode: boolean) {
+function activateThreadHistoryJumpHighlight(threadId: string, messageId: string, keyword: string) {
   clearThreadHistoryJumpHighlight({ refreshMessages: false });
-  activeThreadHistoryJumpHighlight = { threadId, messageId, keyword, globalSearchMode, expiresAt: Date.now() + 1800 };
+  activeThreadHistoryJumpHighlight = { threadId, messageId, keyword, expiresAt: Date.now() + 1800 };
   updateActiveMessageScroller();
   const row = root.querySelector<HTMLElement>(`.message-row[data-message-id="${cssAttrSelectorValue(messageId)}"]`);
   if (row) {
@@ -40312,12 +40009,22 @@ function resetThreadHistoryNavigation() {
   threadHistoryHydrationRequests.clear();
 }
 
+function resetBackgroundHydration() {
+  backgroundHydrationSession += 1;
+  resetRecentThreadDetailPrefetch();
+  if (threadAssistantPreviewHydrationTimer != null) {
+    window.clearTimeout(threadAssistantPreviewHydrationTimer);
+    threadAssistantPreviewHydrationTimer = null;
+  }
+  pendingAssistantPreviewHydrations.clear();
+  completedAssistantPreviewHydrations.clear();
+}
+
 function cleanThreadDisplayTitle(value: string | null | undefined) {
   return String(value || "").replace(/\s*\[群\]\s*/g, "").trim();
 }
 
 function threadListDisplayName(thread: ConversationSummary) {
-  if (isBlankWorkflowCanvasRun(workflowRunsByThreadId.get(thread.id))) return "创建画布";
   if (isWechatLinkedThread(thread)) return WECHAT_CHANNEL_THREAD_NAME;
   if (isFeishuConnectionThread(thread)) return FEISHU_CHANNEL_THREAD_NAME;
   if (isTelegramConnectionThread(thread)) return TELEGRAM_CHANNEL_THREAD_NAME;
@@ -42424,9 +42131,7 @@ function renderChatPanel(thread: ConversationSummary | null) {
   if (isTradingExpertThreadId(thread.id)) {
     return `
       <main class="chat-panel trading-expert-chat-panel" aria-label="交易专家行情工作区">
-        ${renderTradingExpertPanelToggle()}
         ${renderTradingExpertMarketWorkspace()}
-        ${state.tradingExpertPanelTab === "chat" ? renderComposer(thread) : ""}
       </main>
     `;
   }
@@ -42446,7 +42151,6 @@ function renderChatPanel(thread: ConversationSummary | null) {
   }
   const messages = currentMessages();
   const blankNewThread = !isThreadBusy(thread.id) && isBlankNewThread(thread.id);
-  const blankWorkflowCanvas = isBlankWorkflowCanvasThread(thread.id);
   const blankThreadHero = blankNewThread &&
     !isTradingExpertThreadId(thread.id) &&
     shouldRenderBlankThreadHero(thread.id)
@@ -42454,11 +42158,9 @@ function renderChatPanel(thread: ConversationSummary | null) {
     : "";
   const emptyContent = shouldHideEmptyChatStateDuringSwitch(thread.id)
     ? ""
-    : blankWorkflowCanvas
-      ? ""
-      : blankThreadHero
-        ? blankThreadHero
-        : `<div class="center-note">还没有消息</div>`;
+    : blankThreadHero
+      ? blankThreadHero
+      : `<div class="center-note">还没有消息</div>`;
   const deferredEmptyState = renderDeferredThreadResumeEmptyState(thread.id);
   const displayedEmptyContent = deferredEmptyState || emptyContent;
   const scrollerClass = !messages.length && blankThreadHero ? "message-scroller new-thread-scroller" : "message-scroller";
@@ -42491,161 +42193,117 @@ function renderChatPanel(thread: ConversationSummary | null) {
 }
 
 function tradingExpertPanelToggleLabel(collapsed: boolean) {
-  return collapsed ? "展开功能栏" : "收起功能栏";
+  return collapsed ? "展开会话" : "收起会话";
 }
 
-const TRADING_EXPERT_PANEL_TABS: ReadonlyArray<{
-  id: TradingExpertPanelTab;
-  label: string;
-  emptyText: string;
-}> = [
-  { id: "chat", label: "任务", emptyText: "" },
-  { id: "account", label: "账户", emptyText: "暂无账户内容" },
-  { id: "alerts", label: "预警", emptyText: "暂无预警内容" },
-  { id: "knowledge", label: "知识库", emptyText: "暂无知识库内容" },
-];
-
-function isTradingExpertPanelTab(value: unknown): value is TradingExpertPanelTab {
-  return TRADING_EXPERT_PANEL_TABS.some((tab) => tab.id === value);
-}
-
-function renderTradingExpertPanelTabs() {
-  return `
-    <nav class="trading-expert-panel-tabs" role="tablist" aria-label="交易专家功能分类">
-      ${TRADING_EXPERT_PANEL_TABS.map((tab) => {
-        const selected = state.tradingExpertPanelTab === tab.id;
-        return `
-          <div class="trading-expert-panel-tab-cell${selected ? " active" : ""}" role="presentation">
-            <button
-              type="button"
-              id="trading-expert-tab-${tab.id}"
-              class="trading-expert-panel-tab${selected ? " active" : ""}"
-              data-trading-expert-panel-tab="${tab.id}"
-              role="tab"
-              aria-selected="${selected}"
-              aria-controls="trading-expert-panel-${tab.id}"
-              tabindex="${selected ? "0" : "-1"}"
-            >${tab.label}</button>
-            ${tab.id === "chat"
-              ? `<button
-                  type="button"
-                  class="trading-expert-task-refresh${state.tradingExpertTaskRefreshing ? " refreshing" : ""}"
-                  data-trading-expert-task-refresh
-                  title="开启新任务"
-                  aria-label="${state.tradingExpertTaskRefreshing ? "正在开启新任务" : "开启新任务"}"
-                  ${state.tradingExpertTaskRefreshing ? "disabled aria-busy=\"true\"" : ""}
-                >
-                  <svg viewBox="0 0 20 20" aria-hidden="true">
-                    <path d="M16.4 6.8A7 7 0 1 0 17 10"></path>
-                    <path d="M16.4 2.9v4h-4"></path>
-                  </svg>
-                </button>`
-              : ""}
-          </div>
-        `;
-      }).join("")}
-    </nav>
-  `;
-}
-
-function renderTradingExpertPanelViews(thread: ConversationSummary) {
-  return TRADING_EXPERT_PANEL_TABS.map((tab) => {
-    const selected = state.tradingExpertPanelTab === tab.id;
-    return `
-      <section
-        id="trading-expert-panel-${tab.id}"
-        class="trading-expert-dashboard ${tab.id === "chat" ? "chat" : "empty"}"
-        role="tabpanel"
-        aria-labelledby="trading-expert-tab-${tab.id}"
-        ${selected ? "" : "hidden"}
-      >
-        ${tab.id === "chat"
-          ? renderTradingExpertConversation(thread)
-          : `<div class="trading-expert-panel-empty" role="status">${tab.emptyText}</div>`}
-      </section>
+function renderTradingExpertConversationHeader(thread: ConversationSummary) {
+  const collapsed = state.rightCollapsed;
+  const label = tradingExpertPanelToggleLabel(collapsed);
+  const disabled = state.tradingExpertChartCollapsed && !collapsed;
+  const chartCollapsed = state.tradingExpertChartCollapsed;
+  const chartLabel = tradingExpertChartToggleLabel(chartCollapsed);
+  const title = chatHeaderTitle(thread) || NEW_THREAD_TITLE;
+  const panelToggle = disabled
+    ? ""
+    : `
+      <button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle ${collapsed ? "collapsed" : "expanded"}" data-action="toggle-right-panel" title="${label}" aria-label="${label}" aria-expanded="${collapsed ? "false" : "true"}">
+        ${renderPanelLayoutIcon("right")}
+      </button>
     `;
-  }).join("");
-}
-
-function activateTradingExpertPanelTab(tab: TradingExpertPanelTab, focusTab = false) {
-  if (!isTradingExpertThreadId(state.currentThreadId)) return;
-  if (state.tradingExpertPanelTab !== tab) {
-    state.tradingExpertPanelTab = tab;
-    render();
-  }
-  if (focusTab) {
-    queueMicrotask(() => {
-      root.querySelector<HTMLButtonElement>(`[data-trading-expert-panel-tab="${tab}"]`)?.focus();
-    });
-  }
-}
-
-function bindTradingExpertPanelTabEvents() {
-  const tabs = Array.from(
-    root.querySelectorAll<HTMLButtonElement>("[data-trading-expert-panel-tab]"),
-  );
-  tabs.forEach((button, index) => {
-    button.addEventListener("click", () => {
-      const tab = button.dataset.tradingExpertPanelTab;
-      if (isTradingExpertPanelTab(tab)) activateTradingExpertPanelTab(tab);
-    });
-    button.addEventListener("keydown", (event) => {
-      let nextIndex = index;
-      if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
-      else if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
-      else if (event.key === "Home") nextIndex = 0;
-      else if (event.key === "End") nextIndex = tabs.length - 1;
-      else return;
-      event.preventDefault();
-      const tab = tabs[nextIndex]?.dataset.tradingExpertPanelTab;
-      if (isTradingExpertPanelTab(tab)) activateTradingExpertPanelTab(tab, true);
-    });
-  });
-  root.querySelector<HTMLButtonElement>("[data-trading-expert-task-refresh]")
-    ?.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      void refreshTradingExpertTask();
-    });
-}
-
-async function refreshTradingExpertTask() {
-  const currentThreadId = state.currentThreadId;
-  if (
-    state.tradingExpertTaskRefreshing
-    || !currentThreadId
-    || !isTradingExpertThreadId(currentThreadId)
-  ) return;
-  state.tradingExpertTaskRefreshing = true;
-  render();
-  try {
-    if (isBlankNewThread(currentThreadId) && threadIsEmpty(currentThreadId)) {
-      tradingExpertThreadIds.delete(currentThreadId);
-      hideUnavailableThread(currentThreadId);
-    } else {
-      const group = await ensureTradingExpertThreadGroup();
-      assignThreadToGroup(currentThreadId, group.id);
-    }
-    await openTradingExpertWorkspace();
-  } catch (error) {
-    showToast(`开启新任务失败：${errorMessage(error)}`, 4000);
-  } finally {
-    state.tradingExpertTaskRefreshing = false;
-    if (isTradingExpertThreadId(state.currentThreadId)) {
-      render();
-      focusFormFieldAfterRender("#composerInput");
-    }
-  }
-}
-
-function renderTradingExpertPanelToggle() {
-  const panelExpanded = !state.rightCollapsed;
-  const label = tradingExpertPanelToggleLabel(state.rightCollapsed);
   return `
-    <button type="button" class="small-icon-button panel-toggle trading-expert-panel-toggle ${panelExpanded ? "expanded" : ""}" data-action="toggle-right-panel" title="${label}" aria-label="${label}" aria-expanded="${panelExpanded ? "true" : "false"}">
-      ${renderPanelLayoutIcon("right")}
-    </button>
+    <header class="trading-expert-panel-header">
+      <div class="trading-expert-panel-heading">
+        <strong class="trading-expert-panel-title" title="${escapeAttr(title)}">${escapeHtml(title)}</strong>
+      </div>
+      ${chartCollapsed ? `
+        <button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle trading-expert-chart-header-toggle collapsed" data-action="toggle-trading-expert-chart" title="${chartLabel}" aria-label="${chartLabel}" aria-expanded="false">
+          ${renderPanelLayoutIcon("left")}
+        </button>
+      ` : panelToggle}
+    </header>
   `;
+}
+
+function renderTradingExpertConversationPanel(thread: ConversationSummary) {
+  return `
+    <section
+      id="trading-expert-panel-chat"
+      class="trading-expert-dashboard chat"
+      aria-label="任务会话"
+    >
+      ${renderTradingExpertConversation(thread)}
+    </section>
+  `;
+}
+
+function tradingExpertChartToggleLabel(collapsed: boolean) {
+  return collapsed ? "展开K线画布" : "收起K线画布";
+}
+
+function renderTradingExpertCollapseControls() {
+  const chartCollapsed = state.tradingExpertChartCollapsed;
+  const panelCollapsed = state.rightCollapsed;
+  const chartLabel = tradingExpertChartToggleLabel(chartCollapsed);
+  const panelLabel = tradingExpertPanelToggleLabel(panelCollapsed);
+  const chartDisabled = panelCollapsed && !chartCollapsed;
+  const panelDisabled = chartCollapsed && !panelCollapsed;
+  const chartTitle = chartDisabled ? "会话已收起，请先展开会话" : chartLabel;
+  const panelTitle = panelDisabled ? "K线画布已收起，请先展开K线画布" : panelLabel;
+  return `
+    <div class="trading-expert-collapse-controls" role="group" aria-label="K线与会话显示控制">
+      <button type="button" class="small-icon-button panel-toggle trading-expert-collapse-button trading-expert-chart-toggle ${chartCollapsed ? "collapsed" : "expanded"}" data-action="toggle-trading-expert-chart" title="${chartTitle}" aria-label="${chartLabel}" aria-expanded="${chartCollapsed ? "false" : "true"}"${chartDisabled ? " disabled" : ""}>
+        ${renderPanelLayoutIcon("left")}
+      </button>
+      <button type="button" class="small-icon-button panel-toggle trading-expert-collapse-button trading-expert-panel-toggle ${panelCollapsed ? "collapsed" : "expanded"}" data-action="toggle-right-panel" title="${panelTitle}" aria-label="${panelLabel}" aria-expanded="${panelCollapsed ? "false" : "true"}"${panelDisabled ? " disabled" : ""}>
+        ${renderPanelLayoutIcon("right")}
+      </button>
+    </div>
+  `;
+}
+
+function syncTradingExpertCollapseControlsState() {
+  if (!isTradingExpertThreadId(state.currentThreadId)) return;
+  const chartCollapsed = state.tradingExpertChartCollapsed;
+  const panelCollapsed = state.rightCollapsed;
+  const chartButtons = root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-trading-expert-chart"]');
+  const panelButtons = root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-right-panel"]');
+  const syncButton = (
+    button: HTMLButtonElement | null,
+    collapsed: boolean,
+    disabled: boolean,
+    label: string,
+    disabledTitle: string,
+    side: "left" | "right",
+  ) => {
+    if (!button) return;
+    button.classList.toggle("collapsed", collapsed);
+    button.classList.toggle("expanded", !collapsed);
+    button.disabled = disabled;
+    button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    button.setAttribute("aria-label", label);
+    button.setAttribute("title", disabled ? disabledTitle : label);
+    button.innerHTML = renderPanelLayoutIcon(side);
+  };
+  chartButtons.forEach((chartButton) => {
+    syncButton(
+      chartButton,
+      chartCollapsed,
+      panelCollapsed && !chartCollapsed,
+      tradingExpertChartToggleLabel(chartCollapsed),
+      "会话已收起，请先展开会话",
+      "left",
+    );
+  });
+  panelButtons.forEach((panelButton) => {
+    syncButton(
+      panelButton,
+      panelCollapsed,
+      chartCollapsed && !panelCollapsed,
+      tradingExpertPanelToggleLabel(panelCollapsed),
+      "K线画布已收起，请先展开K线画布",
+      "right",
+    );
+  });
 }
 
 function renderTradingExpertConversation(thread: ConversationSummary) {
@@ -42791,7 +42449,6 @@ async function ensurePersistedWorkflowRevisionDraft(threadId: string) {
     const envelope = await api.createWorkflowRevisionDraft!({
       runId: currentRun.id,
       threadId,
-      seedRun: isBlankWorkflowCanvasRun(currentRun) ? currentRun : undefined,
       entryBindings: workflowRevisionEntryBindings(localDraft, layout),
       layout: layout as unknown as Record<string, unknown>,
     });
@@ -46236,7 +45893,6 @@ function renderMessageScrollerContent(thread: ConversationSummary) {
   if (isThreadSwitchLoadingState(thread.id)) return renderThreadSwitchLoadingPlaceholder();
   const messages = messagesForThread(thread.id);
   const blankNewThread = !isThreadBusy(thread.id) && isBlankNewThread(thread.id);
-  const blankWorkflowCanvas = isBlankWorkflowCanvasThread(thread.id);
   const blankThreadHero = blankNewThread &&
     !isTradingExpertThreadId(thread.id) &&
     shouldRenderBlankThreadHero(thread.id)
@@ -46246,11 +45902,9 @@ function renderMessageScrollerContent(thread: ConversationSummary) {
     ? ""
     : shouldHideEmptyChatStateDuringSwitch(thread.id)
     ? ""
-    : blankWorkflowCanvas
-      ? ""
-      : blankThreadHero
-        ? blankThreadHero
-        : `<div class="center-note">还没有消息</div>`;
+    : blankThreadHero
+      ? blankThreadHero
+      : `<div class="center-note">还没有消息</div>`;
   const deferredEmptyState = renderDeferredThreadResumeEmptyState(thread.id);
   const displayedEmptyContent = deferredEmptyState || emptyContent;
   const messageSearchHighlight = threadHistoryJumpHighlightTargetForMessages(thread.id);
@@ -46469,12 +46123,11 @@ function appendNewMessageRowsBeforeThinkingRow(
 function renderChatHeader(thread: ConversationSummary) {
   const panelExpanded = !state.rightCollapsed;
   const localGroupChat = isLocalGroupChatThread(thread);
-  const blankWorkflowCanvas = isBlankWorkflowCanvasThread(thread.id);
   const title = chatHeaderTitle(thread);
   const showPanelToggle = !state.contactChat.open && !isBlankNewThread(thread.id);
-  const titleContent = isBlankNewThread(thread.id) && !blankWorkflowCanvas
+  const titleContent = isBlankNewThread(thread.id)
     ? ""
-    : `<span class="chat-title-text${blankWorkflowCanvas ? " blank-workflow-canvas-title" : ""}">${escapeHtml(title)}</span>`;
+    : `<span class="chat-title-text">${escapeHtml(title)}</span>`;
   return `
     <header class="chat-header">
       <div class="chat-title">
@@ -46540,7 +46193,6 @@ function contextUsageProgressState(threadId: string) {
 }
 
 function chatHeaderTitle(thread: ConversationSummary) {
-  if (isBlankWorkflowCanvasThread(thread.id)) return "新建画布";
   if (isBlankNewThread(thread.id)) return NEW_THREAD_TITLE;
   if (isWechatLinkedThread(thread)) return WECHAT_CHANNEL_THREAD_NAME;
   if (isFeishuConnectionThread(thread)) return FEISHU_CHANNEL_THREAD_NAME;
@@ -46660,38 +46312,8 @@ function isMultiModelClusterThread(threadId: string | null | undefined) {
   return newThreadModeForThread(threadId) === "multi-agent" && clusterModeForThread(threadId) === "multi-model";
 }
 
-function isBlankWorkflowCanvasRun(run: WorkflowCanvasRun | null | undefined) {
-  return run?.metadata?.blankCanvas === true;
-}
-
-function isBlankWorkflowCanvasThread(threadId: string | null | undefined) {
-  return Boolean(
-    threadId
-    && isBlankNewThread(threadId)
-    && isBlankWorkflowCanvasRun(workflowRunsByThreadId.get(threadId)),
-  );
-}
-
 function shouldRenderBlankThreadHero(threadId: string) {
-  return isBlankNewThread(threadId) && !isBlankWorkflowCanvasThread(threadId);
-}
-
-function blankWorkflowCanvasRun(threadId: string): WorkflowCanvasRun {
-  const now = new Date().toISOString();
-  return {
-    id: `blank-workflow-canvas-${threadId}`,
-    threadId,
-    mode: "multi-model-cluster",
-    status: "succeeded",
-    sequence: 0,
-    createdAt: now,
-    updatedAt: now,
-    completedAt: now,
-    prompt: "",
-    rationale: "",
-    metadata: { blankCanvas: true, attachments: [], uploadManifest: [] },
-    nodes: [],
-  };
+  return isBlankNewThread(threadId);
 }
 
 function codexConversationModeForThread(threadId: string | null | undefined) {
@@ -46704,10 +46326,7 @@ function isActiveMultiModelClusterConversation(threadId: string | null | undefin
   return Boolean(
     threadId
     && isMultiModelClusterThread(threadId)
-    && (
-      !isBlankNewThread(threadId)
-      || isBlankWorkflowCanvasRun(workflowRunsByThreadId.get(threadId))
-    )
+    && !isBlankNewThread(threadId)
   );
 }
 
@@ -46715,7 +46334,6 @@ function selectClusterModeForThread(threadId: string | null | undefined, value: 
   if (
     !threadId
     || !isBlankNewThread(threadId)
-    || isBlankWorkflowCanvasThread(threadId)
     || newThreadModeForThread(threadId) !== "multi-agent"
   ) return;
   const nextMode = normalizeClusterModeVariant(value);
@@ -46865,10 +46483,7 @@ function applyCachedQuestionAnswerDefaultToDraft(threadId: string) {
 async function switchNewThreadMode(mode: NewThreadMode) {
   const sourceThreadId = currentComposerThreadId();
   if (!sourceThreadId || !isBlankNewThread(sourceThreadId)) return;
-  if (isBlankWorkflowCanvasThread(sourceThreadId)) {
-    state.composerModeMenuOpen = false;
-    return;
-  }
+  if (mode !== "execution") tradingExpertThreadIds.delete(sourceThreadId);
   dismissComposerSkillMentionPopover();
   const currentMode = newThreadModeForThread(sourceThreadId);
   state.composerModeMenuOpen = false;
@@ -47096,14 +46711,13 @@ function renderMessage(message: Message, conversationMessages: Message[] = [mess
     activeThreadHistoryJumpHighlight?.threadId === message.conversation_id &&
     activeThreadHistoryJumpHighlight.messageId === message.id &&
     activeThreadHistoryJumpHighlight.expiresAt > Date.now();
-  const globalSearchJumpTarget = threadHistoryJumpTarget && activeThreadHistoryJumpHighlight?.globalSearchMode;
   const signature = messageRenderSignature(message, { streaming, searchHighlightKeyword });
   const thinkingStage = thinkingStagePresentationFromMessage(message);
   const thinkingAriaLabel = thinking
     ? `${displayName} ${thinkingStage?.label || "正在思考"}`
     : "";
   return `
-    <article class="message-row ${alignRight ? "from-user" : "from-agent"} ${thinking ? "thinking-row" : ""} ${localGroupThinkingMemberId ? "local-group-thinking-row" : ""} ${subagents.length ? "subagent-status-row" : ""} ${contextCompaction ? "context-compaction-row" : ""} ${workflowRelay ? "workflow-relay-row" : ""} ${streaming ? "streaming-row" : ""} ${threadHistoryJumpTarget ? "thread-history-jump-target" : ""} ${globalSearchJumpTarget ? "global-search-jump-target" : ""}" data-message-id="${escapeAttr(message.id)}" data-message-signature="${escapeAttr(signature)}"${thinking ? ` aria-live="polite" aria-label="${escapeAttr(thinkingAriaLabel)}"` : ""}>
+    <article class="message-row ${alignRight ? "from-user" : "from-agent"} ${thinking ? "thinking-row" : ""} ${localGroupThinkingMemberId ? "local-group-thinking-row" : ""} ${subagents.length ? "subagent-status-row" : ""} ${contextCompaction ? "context-compaction-row" : ""} ${workflowRelay ? "workflow-relay-row" : ""} ${streaming ? "streaming-row" : ""} ${threadHistoryJumpTarget ? "thread-history-jump-target" : ""}" data-message-id="${escapeAttr(message.id)}" data-message-signature="${escapeAttr(signature)}"${thinking ? ` aria-live="polite" aria-label="${escapeAttr(thinkingAriaLabel)}"` : ""}>
       ${alignRight || !showAvatar ? "" : renderMessageAvatar(message, role)}
       <div class="message-stack">
         <div class="message-meta">${escapeHtml(displayName)}</div>
@@ -47213,7 +46827,7 @@ function messageRenderSignature(message: Message, options: { streaming?: boolean
       meta.localGroupMemberId || meta.localGroupThinkingMemberId || "",
       localSendStatus,
       localSendError,
-      options.searchHighlightKeyword ? normalizedConversationSearchText(options.searchHighlightKeyword) : "",
+      options.searchHighlightKeyword ? normalizedSearchText(options.searchHighlightKeyword) : "",
       options.streaming ? "streaming" : "settled",
     ].join("\u001f"),
   );
@@ -49039,6 +48653,7 @@ function lockedExecutionModelForThread(
   const id = firstString(threadId);
   if (
     !id ||
+    isTradingExpertThreadId(id) ||
     isBlankNewThread(id) ||
     isLocalBlankThreadId(id) ||
     providerFromThreadId(id)
@@ -49889,11 +49504,31 @@ function selectedChatModelValue(threadId: string | null | undefined = currentCom
   return selectedChatModelOption(threadId).value;
 }
 
-function tradingExpertFixedModelRequestOptions(): ChatModelRequestOptions {
+function tradingExpertSelectedModelRequestOptions(
+  threadId: string | null | undefined,
+): ChatModelRequestOptions {
+  const selectedSettings = threadModelSelection(threadId);
+  const knownSettings = threadModelSettings(threadId);
+  const selected = selectedChatModelOption(threadId);
+  const model = firstString(
+    selectedSettings?.model,
+    knownSettings?.model,
+    selected.value,
+    TRADING_EXPERT_DEFAULT_MODEL_VALUE,
+  ) || TRADING_EXPERT_DEFAULT_MODEL_VALUE;
+  const selectedModelProvider = executionModelProviderId(
+    selectedSettings?.modelProvider,
+    knownSettings?.modelProvider,
+    selected.providerId,
+    DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
+  );
+  const modelProvider = model.toLowerCase() === DEEPSEEK_EXECUTION_MODEL_VALUE
+    ? DEEPSEEK_EXECUTION_PROVIDER_ID
+    : selectedModelProvider;
   return {
-    modelProvider: DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
-    model: TRADING_EXPERT_DEFAULT_MODEL_VALUE,
-    reasoningEffort: TRADING_EXPERT_REASONING_EFFORT,
+    modelProvider,
+    model,
+    reasoningEffort: tradingExpertReasoningEffort(model),
     reasoningEffortPolicy: "fixed",
     serviceTier: null,
   };
@@ -49902,7 +49537,9 @@ function tradingExpertFixedModelRequestOptions(): ChatModelRequestOptions {
 function selectedChatModelRequestOptions(
   threadId: string | null | undefined = currentComposerThreadId(),
 ): ChatModelRequestOptions {
-  if (isTradingExpertThreadId(threadId)) return tradingExpertFixedModelRequestOptions();
+  if (isTradingExpertThreadId(threadId)) {
+    return tradingExpertSelectedModelRequestOptions(threadId);
+  }
   const configuredSelected = selectedChatModelOption(threadId);
   const conversationMode = newThreadModeForThread(threadId);
   const requireNativeMultiAgentModel = conversationMode === "multi-agent";
@@ -49942,7 +49579,9 @@ function selectedChatModelRequestOptions(
 function selectedChatModelReasoningEffortsForRequest(
   threadId: string | null | undefined,
 ) {
-  if (isTradingExpertThreadId(threadId)) return [TRADING_EXPERT_REASONING_EFFORT];
+  if (isTradingExpertThreadId(threadId)) {
+    return [tradingExpertSelectedModelRequestOptions(threadId).reasoningEffort || TRADING_EXPERT_REASONING_EFFORT];
+  }
   const request = selectedChatModelRequestOptions(threadId);
   const selected = chatModelOptions.find(
     (option) =>
@@ -50149,6 +49788,16 @@ function selectChatModelForThread(threadId: string | null | undefined, selected:
     reasoningEffort: reasoningEffort || null,
     serviceTier: null,
   };
+
+  if (id && isTradingExpertThreadId(id)) {
+    rememberThreadModelSelection(id, desiredSettings, {
+      persist: !isBlankNewThread(id) && !isLocalBlankThreadId(id),
+    });
+    state.composerModelMenuOpen = false;
+    render();
+    focusFormFieldAfterRender("#composerInput");
+    return true;
+  }
 
   if (id && providerFromThreadId(id)) {
     rememberThreadModelSelection(id, desiredSettings);
@@ -51364,7 +51013,7 @@ function renderComposer(thread: ConversationSummary) {
   const multiAgentMode =
     newThreadModeForThread(thread.id) === "multi-agent" ||
     Boolean(localGroupChatRecord(thread.id));
-  const composerModePicker = blankNewThread && !isBlankWorkflowCanvasThread(thread.id)
+  const composerModePicker = blankNewThread
     ? renderComposerModePicker(thread.id)
     : "";
   const imageGenerationMode =
@@ -51398,7 +51047,7 @@ function renderComposer(thread: ConversationSummary) {
       : selectedInputCapabilities?.image
         ? "上传文件或图片"
         : "上传文件资料";
-  const composerTrailingPicker = multiAgentMode || isTradingExpertThreadId(thread.id)
+  const composerTrailingPicker = multiAgentMode
     ? ""
     : renderComposerModelPicker(thread.id);
   const workflowComposerPort = isMultiModelClusterThread(thread.id)
@@ -52698,11 +52347,12 @@ function renderAgentPanel(thread: ConversationSummary | null) {
   if (thread && isTradingExpertThreadId(threadId)) {
     const collapsed = state.rightCollapsed;
     return `
-      <aside class="agent-panel ${collapsed ? "collapsed" : "expanded"} trading-expert-panel" aria-hidden="${collapsed ? "true" : "false"}" aria-label="交易专家功能栏">
+      <aside class="agent-panel ${collapsed ? "collapsed" : "expanded"} trading-expert-panel" aria-hidden="${collapsed ? "true" : "false"}" aria-label="交易专家任务会话">
         <div class="agent-panel-inner">
-          ${renderTradingExpertPanelTabs()}
-          ${renderTradingExpertPanelViews(thread)}
+          ${renderTradingExpertConversationHeader(thread)}
+          ${renderTradingExpertConversationPanel(thread)}
         </div>
+        ${renderComposer(thread)}
       </aside>
     `;
   }
@@ -52880,7 +52530,7 @@ function renderComposerThreadReferenceDetail(detail: ComposerThreadReferenceDeta
             return `
               <button type="button" class="composer-thread-detail-option ${checked ? "selected" : ""}" data-thread-reference-turn-id="${escapeAttr(entry.turnId)}" role="checkbox" aria-checked="${checked ? "true" : "false"}" title="${escapeAttr(entry.label)}">
                 <span class="composer-thread-detail-checkbox" aria-hidden="true">${checked ? "✓" : ""}</span>
-                <span class="composer-thread-detail-option-text">${query ? renderHighlightedConversationSearchText(entry.label, query) : escapeHtml(entry.label)}</span>
+                <span class="composer-thread-detail-option-text">${query ? renderHighlightedSearchText(entry.label, query) : escapeHtml(entry.label)}</span>
                 <time class="composer-thread-detail-option-time bubble-time">${escapeHtml(entry.time)}</time>
               </button>
             `;
@@ -53695,6 +53345,7 @@ function renderRechargePage() {
             <h1>选择适合你的订阅</h1>
           </div>
           <div class="recharge-page-balances">
+            ${renderPageHomeButton()}
             <div class="recharge-page-balance" title="当前积分余额">
               <span>积分余额</span>
               <strong>${escapeHtml(currentProfileBalance())}</strong>
@@ -53940,6 +53591,7 @@ function renderConsumptionPage(): string {
       <div class="consumption-page-scroll">
         <header class="consumption-header">
           <div class="consumption-header-balances">
+            ${renderPageHomeButton()}
             <div class="recharge-page-balance" title="当前积分余额">
               <span>积分余额</span>
               <strong>${showSkeleton ? renderConsumptionSkeleton("consumption-skeleton-balance") : escapeHtml(currentProfileBalance())}</strong>
@@ -54030,16 +53682,10 @@ function openConsumptionRecord(item: any) {
     showToast("该条消费记录缺少原会话定位信息", 2600);
     return;
   }
-  if (state.search) {
-    state.search = "";
-    syncConversationSearchQuery();
-    scheduleConversationSearchHydration();
-  }
   requestThreadHistoryJump(
     target.threadId,
     target.messageId || `consumption-record-${target.turnId || stableUiHash(`${target.question}\n${target.startedAt}`)}`,
     "",
-    false,
     null,
     {
       turnId: target.turnId,
@@ -55698,7 +55344,7 @@ function formatContactRequestTime(value: unknown) {
 function bindCascadeMenuHoverEvents() {
   root
     .querySelectorAll<HTMLElement>(
-      ".thread-group-add-menu-item, .external-channel-cascade-item, .thread-marker-menu-item, .thread-group-move-menu-item, .trading-expert-mention-group, .workflow-canvas-history-menu-item",
+      ".thread-group-add-menu-item, .thread-marker-menu-item, .thread-group-move-menu-item, .trading-expert-mention-group, .workflow-canvas-history-menu-item",
     )
     .forEach((item) => {
       const trigger = item.querySelector<HTMLButtonElement>(
@@ -55743,7 +55389,6 @@ function bindEvents() {
   bindWindowControls();
   bindLoginWeComQrEvents(false);
   bindCascadeMenuHoverEvents();
-  bindTradingExpertPanelTabEvents();
   root.querySelector<HTMLElement>(".desktop-shell")?.addEventListener("click", (event) => {
     const target = event.target;
     let shouldRender = false;
@@ -55769,8 +55414,10 @@ function bindEvents() {
       state.skillSortMenuOpen = false;
       shouldRender = true;
     }
-    if ((state.newChatMenuOpen || state.externalChannels.menuOpen) && !(target instanceof Element && target.closest(".chat-new-menu-wrap"))) {
-      state.newChatMenuOpen = false;
+    if (
+      state.externalChannels.menuOpen &&
+      !(target instanceof Element && target.closest(".titlebar-channel-action, .titlebar-channel-menu-overlay"))
+    ) {
       state.externalChannels.menuOpen = false;
       shouldRender = true;
     }
@@ -56184,65 +55831,6 @@ function bindEvents() {
     event.preventDefault();
     void submitChannelDialog();
   });
-  root.querySelectorAll<HTMLButtonElement>("[data-nav]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const view = button.dataset.nav as ViewId | undefined;
-      if (
-        view === "chat" ||
-        view === "contacts" ||
-        view === "results" ||
-        view === "materials" ||
-        view === "autoTasks" ||
-        view === "skillsPlaza"
-      ) {
-        const previousView = state.activeView;
-        if (previousView === "chat" && view !== "chat") rememberCurrentChatThreadSelection();
-        state.activeView = view;
-        state.contactChat.open = false;
-        state.profileMenuOpen = false;
-        state.newChatMenuOpen = false;
-        state.externalChannels.menuOpen = false;
-        state.skillSortMenuOpen = false;
-        state.autoTaskMenuTaskId = null;
-        if (view === "chat") {
-          if (!state.serverReady) {
-            render();
-            return;
-          }
-          if (state.search.trim()) scheduleConversationSearchHydration();
-          if (restoreRememberedChatThreadSelection()) {
-            render();
-            return;
-          }
-          void startNewThread();
-          return;
-        }
-        if (view === "contacts") {
-          if (!state.selectedContactId) state.selectedContactId = defaultContactsSelection();
-          void loadContacts({ renderAfter: false });
-          void loadContactRequests({ renderAfter: false });
-        }
-        if (view === "autoTasks") state.selectedAutoTaskId = null;
-        if (view === "results") {
-          render();
-          void loadArtifacts({ force: true });
-          void refreshSkills({ forceReload: true, reason: "results-library" });
-          void loadLocalPlugins({ force: true });
-        } else if (view === "materials") {
-          void loadMaterials(true);
-        } else {
-          render();
-        }
-        if (view === "autoTasks") void refreshAutoTasks();
-        if (view === "skillsPlaza" && state.skillsPlazaTab === "plugins") void loadLocalPlugins({ force: true });
-        if (view === "skillsPlaza" && state.skillsPlazaTab === "skills") void loadMarketplaceSkills();
-        if (view === "skillsPlaza" && state.skillsPlazaTab === "mySkills") {
-          void refreshSkills({ forceReload: true, reason: "my-skills", renderAfter: false });
-          void loadMyMarketplaceSkills();
-        }
-      }
-    });
-  });
   root.querySelector<HTMLButtonElement>('[data-action="toggle-profile"]')?.addEventListener("click", () => {
     if (state.profileMenuOpen) {
       state.profileMenuOpen = false;
@@ -56411,15 +55999,23 @@ function bindEvents() {
       openSettingsDialog();
     });
   });
-  root.querySelectorAll<HTMLElement>('[data-action="open-auto-task-dialog"]').forEach((element) => {
-    element.addEventListener("click", () => {
-      state.autoTaskDraft = createAutoTaskDraft(state.activeNewThreadGroupId);
-      state.autoTaskPicker = null;
-      state.autoTaskCalendarMonth = state.autoTaskDraft.date;
-      state.autoTaskDialogOpen = true;
-      render();
+  root
+    .querySelectorAll<HTMLElement>(
+      '[data-action="open-auto-task-dialog"], [data-action="open-auto-tasks"]',
+    )
+    .forEach((element) => {
+      element.addEventListener("click", () => {
+        state.autoTaskDraft = createAutoTaskDraft(state.activeNewThreadGroupId);
+        state.autoTaskPicker = null;
+        state.autoTaskCalendarMonth = state.autoTaskDraft.date;
+        state.autoTaskDialogOpen = true;
+        state.externalChannels.menuOpen = false;
+        state.profileMenuOpen = false;
+        state.skillSortMenuOpen = false;
+        state.autoTaskMenuTaskId = null;
+        render();
+      });
     });
-  });
   root.querySelectorAll<HTMLButtonElement>('[data-action="view-auto-task"]').forEach((button) => {
     button.addEventListener("click", () => {
       const taskId = button.dataset.taskId;
@@ -56435,13 +56031,8 @@ function bindEvents() {
       render();
     });
   });
-  root.querySelector<HTMLButtonElement>('[data-action="back-auto-tasks-to-chat"]')?.addEventListener("click", () => {
-    state.activeView = "chat";
-    state.selectedAutoTaskId = null;
-    state.autoTaskMenuTaskId = null;
-    state.newChatMenuOpen = false;
-    state.externalChannels.menuOpen = false;
-    render();
+  root.querySelectorAll<HTMLButtonElement>('[data-action="return-home"]').forEach((button) => {
+    button.addEventListener("click", returnToHomePage);
   });
   root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-auto-task-menu"]').forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -56839,49 +56430,15 @@ function bindEvents() {
     .forEach((element) => {
       element.addEventListener("click", () => {
         state.contactChat.open = false;
-        state.newChatMenuOpen = false;
         state.externalChannels.menuOpen = false;
         void startNewThread();
       });
-    });
-  root
-    .querySelector<HTMLButtonElement>('[data-action="exit-trading-expert"]')
-    ?.addEventListener("click", () => {
-      void exitTradingExpertWorkspace();
-    });
-  root
-    .querySelector<HTMLButtonElement>('[data-action="toggle-new-chat-menu"]')
-    ?.addEventListener("click", (event) => {
-      event.stopPropagation();
-      const shouldOpen =
-        !state.newChatMenuOpen && !state.externalChannels.menuOpen;
-      state.newChatMenuOpen = shouldOpen;
-      state.externalChannels.menuOpen = false;
-      state.profileMenuOpen = false;
-      state.skillSortMenuOpen = false;
-      state.autoTaskMenuTaskId = null;
-      render();
-      if (shouldOpen) void ensureExternalChannelsBackend();
-    });
-  root
-    .querySelector<HTMLButtonElement>('[data-action="create-workflow-canvas"]')
-    ?.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      void createBlankWorkflowCanvas();
     });
   root
     .querySelector<HTMLButtonElement>('[data-action="exit-workflow-canvas"]')
     ?.addEventListener("click", (event) => {
       event.preventDefault();
       void exitWorkflowCanvas();
-    });
-  root
-    .querySelectorAll<HTMLButtonElement>('[data-action="open-group-chat-dialog"]')
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        openGroupChatDialog();
-      });
     });
   root
     .querySelector<HTMLButtonElement>(
@@ -56971,7 +56528,6 @@ function bindEvents() {
           state.newThreadGroupPickerOpen && state.newThreadGroupPickerAnchor === anchor;
         state.newThreadGroupPickerOpen = !closingCurrentAnchor;
         state.newThreadGroupPickerAnchor = anchor;
-        state.newChatMenuOpen = false;
         state.externalChannels.menuOpen = false;
         state.profileMenuOpen = false;
         state.skillSortMenuOpen = false;
@@ -57167,20 +56723,6 @@ function bindEvents() {
       });
     });
   root
-    .querySelector<HTMLButtonElement>('[data-action="open-auto-tasks"]')
-    ?.addEventListener("click", () => {
-      state.autoTaskDraft = createAutoTaskDraft(state.activeNewThreadGroupId);
-      state.autoTaskPicker = null;
-      state.autoTaskCalendarMonth = state.autoTaskDraft.date;
-      state.autoTaskDialogOpen = true;
-      state.newChatMenuOpen = false;
-      state.externalChannels.menuOpen = false;
-      state.profileMenuOpen = false;
-      state.skillSortMenuOpen = false;
-      state.autoTaskMenuTaskId = null;
-      render();
-    });
-  root
     .querySelectorAll<HTMLButtonElement>(
       '[data-action="open-add-friend-search"]',
     )
@@ -57191,22 +56733,23 @@ function bindEvents() {
       });
     });
   root
-    .querySelectorAll<HTMLButtonElement>(
-      '[data-action="prime-external-channel-menu"]',
-    )
-    .forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        primeExternalChannelMenu();
-      });
-      button.addEventListener("mouseenter", () => {
-        primeExternalChannelMenu();
-      });
-      button.addEventListener("focus", () => {
-        primeExternalChannelMenu();
-      });
+    .querySelector<HTMLButtonElement>('[data-action="toggle-external-channel-menu"]')
+    ?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      state.externalChannels.menuOpen = !state.externalChannels.menuOpen;
+      state.profileMenuOpen = false;
+      state.skillSortMenuOpen = false;
+      state.autoTaskMenuTaskId = null;
+      render();
+      if (state.externalChannels.menuOpen) primeExternalChannelMenu();
     });
+  root
+    .querySelector<HTMLButtonElement>('[data-action="toggle-external-channel-menu"]')
+    ?.addEventListener("mouseenter", primeExternalChannelMenu);
+  root
+    .querySelector<HTMLButtonElement>('[data-action="toggle-external-channel-menu"]')
+    ?.addEventListener("focus", primeExternalChannelMenu);
   root
     .querySelectorAll<HTMLButtonElement>("[data-external-channel-id]")
     .forEach((button) => {
@@ -57428,6 +56971,13 @@ function bindEvents() {
   });
   conversationRows?.addEventListener("scroll", () => {
     closeThreadHistoryPopover();
+    if (state.externalChannels.menuOpen) {
+      state.externalChannels.menuOpen = false;
+      root.querySelector(".titlebar-channel-menu-overlay")?.remove();
+      root
+        .querySelector<HTMLButtonElement>('[data-action="toggle-external-channel-menu"]')
+        ?.setAttribute("aria-expanded", "false");
+    }
   });
   bindConversationScrollbarEvents();
   root
@@ -57437,6 +56987,18 @@ function bindEvents() {
         event.stopPropagation();
         const groupId = button.dataset.threadGroupToggle;
         if (groupId) toggleThreadGroupCollapsed(groupId);
+      });
+    });
+  root
+    .querySelectorAll<HTMLButtonElement>("[data-conversation-project-expand]")
+    .forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const projectId = button.dataset.conversationProjectExpand;
+        if (!projectId) return;
+        expandedConversationProjectIds.add(projectId);
+        render();
       });
     });
   root
@@ -57833,51 +57395,6 @@ function bindEvents() {
       const id = (event.currentTarget as HTMLButtonElement).dataset
         .deleteContactId;
       if (id) void deleteContact(id);
-    });
-  root
-    .querySelector<HTMLInputElement>("#conversationSearch")
-    ?.addEventListener("input", (event) => {
-      const input = event.target as HTMLInputElement;
-      const nextSearch = input.value;
-      const selectionStart = input.selectionStart ?? nextSearch.length;
-      const selectionEnd = input.selectionEnd ?? selectionStart;
-      state.search = nextSearch;
-      closeThreadHistoryPopover();
-      syncConversationSearchQuery();
-      scheduleConversationSearchHydration();
-      render();
-      const nextInput = root.querySelector<HTMLInputElement>(
-        "#conversationSearch",
-      );
-      nextInput?.focus({ preventScroll: true });
-      nextInput?.setSelectionRange(selectionStart, selectionEnd);
-    });
-  root
-    .querySelector<HTMLInputElement>("#conversationSearch")
-    ?.addEventListener("focus", () => {
-      if (!state.newChatMenuOpen && !state.externalChannels.menuOpen) return;
-      state.newChatMenuOpen = false;
-      state.externalChannels.menuOpen = false;
-      render();
-      root
-        .querySelector<HTMLInputElement>("#conversationSearch")
-        ?.focus({ preventScroll: true });
-    });
-  root
-    .querySelector<HTMLButtonElement>(
-      '[data-action="clear-conversation-search"]',
-    )
-    ?.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      state.search = "";
-      closeThreadHistoryPopover();
-      syncConversationSearchQuery();
-      scheduleConversationSearchHydration();
-      render();
-      root
-        .querySelector<HTMLInputElement>("#conversationSearch")
-        ?.focus({ preventScroll: true });
     });
   root
     .querySelector<HTMLInputElement>("#skillsSearch")
@@ -58467,8 +57984,8 @@ function bindEvents() {
       });
     });
   root
-    .querySelector<HTMLButtonElement>('[data-action="toggle-right-panel"]')
-    ?.addEventListener("click", () => {
+    .querySelectorAll<HTMLButtonElement>('[data-action="toggle-right-panel"]')
+    .forEach((button) => button.addEventListener("click", () => {
       if (localGroupChatRecord(state.currentThreadId)) {
         toggleLocalGroupChatMembersPanel();
         return;
@@ -58477,10 +57994,21 @@ function bindEvents() {
         closePreviewPanel("chat");
         return;
       }
+      if (isTradingExpertThreadId(state.currentThreadId) && state.tradingExpertChartCollapsed && !state.rightCollapsed) {
+        return;
+      }
       state.rightCollapsed = !state.rightCollapsed;
       syncAgentPanelState();
       scrollWorkflowToLatestStep();
-    });
+    }));
+  root
+    .querySelectorAll<HTMLButtonElement>('[data-action="toggle-trading-expert-chart"]')
+    .forEach((button) => button.addEventListener("click", () => {
+      if (!isTradingExpertThreadId(state.currentThreadId)) return;
+      if (state.rightCollapsed && !state.tradingExpertChartCollapsed) return;
+      state.tradingExpertChartCollapsed = !state.tradingExpertChartCollapsed;
+      render();
+    }));
   root
     .querySelector<HTMLInputElement>("#localGroupChatMemberSearch")
     ?.addEventListener("input", (event) => {
@@ -59626,6 +59154,7 @@ function syncAgentPanelState() {
   button?.setAttribute("aria-expanded", collapsed ? "false" : "true");
   button?.setAttribute("title", label);
   button?.setAttribute("aria-label", label);
+  syncTradingExpertCollapseControlsState();
   scheduleWorkflowComposerConnector();
 }
 
@@ -61068,31 +60597,13 @@ let contactsSearchTimer: number | null = null;
 function emptyGroupChatDialogState(): GroupChatDialogState {
   return {
     open: false,
-    mode: "create",
+    mode: "add-members",
     threadId: null,
     query: "",
     selectedIds: [],
     quantities: {},
     collapsedSections: { agents: false, models: false, contacts: false },
   };
-}
-
-function openGroupChatDialog() {
-  state.groupChatDialog = {
-    ...emptyGroupChatDialogState(),
-    open: true,
-  };
-  state.newChatMenuOpen = false;
-  state.externalChannels.menuOpen = false;
-  state.profileMenuOpen = false;
-  state.composerModeMenuOpen = false;
-  render();
-  const focusSearch = () =>
-    window.requestAnimationFrame(() =>
-      root.querySelector<HTMLInputElement>("#groupChatSearchInput")?.focus(),
-    );
-  focusSearch();
-  void loadContacts().finally(focusSearch);
 }
 
 function openAddGroupMembersDialog(threadId: string) {
@@ -61142,14 +60653,6 @@ function closeGroupChatDialog() {
 function completeGroupChatDialog() {
   const selected = groupChatSelectedProfiles();
   if (!selected.length) return;
-  const members = selected.flatMap((contact) => {
-    const member = localGroupChatMemberFromProfile(contact);
-    return Array.from(
-      { length: groupChatQuantity(contactStableId(contact)) },
-      () => ({ ...member }),
-    );
-  });
-  const uniqueMembers = selected.map(localGroupChatMemberFromProfile);
   if (state.groupChatDialog.mode === "remove-members") {
     const record = groupChatDialogTargetRecord();
     if (!record) {
@@ -61184,85 +60687,43 @@ function completeGroupChatDialog() {
     });
     return;
   }
-  if (state.groupChatDialog.mode === "add-members") {
-    const record = groupChatDialogTargetRecord();
-    if (!record) {
-      closeGroupChatDialog();
-      return;
-    }
-    const existingSelectionIds = new Set(
-      record.members.map((member) => member.selectionId),
-    );
-    const addedMembers = members.filter(
-      (member) => !existingSelectionIds.has(member.selectionId),
-    );
-    const addedUniqueMembers = uniqueMembers.filter(
-      (member) => !existingSelectionIds.has(member.selectionId),
-    );
-    if (!addedMembers.length) return;
-    record.members = [...record.members, ...addedMembers];
-    state.members[record.id] = record.members.map((member) => ({
-      id: "ceo_assistant",
-      status: "idle",
-      name: member.name,
-      avatar_url: member.avatarUrl,
-      avatar_text: member.avatarLabel,
-    }));
-    state.groupChatDialog = emptyGroupChatDialogState();
-    addedUniqueMembers.forEach((member, index) => {
-      appendLocalGroupChatMemberEvent(record, member, "added", {
-        finalize: index === addedUniqueMembers.length - 1,
-      });
-    });
+  const record = groupChatDialogTargetRecord();
+  if (!record) {
+    closeGroupChatDialog();
     return;
   }
-  const createdAt = new Date().toISOString();
-  const threadId = `local-group-chat:${crypto.randomUUID()}`;
-  const record: LocalGroupChatRecord = {
-    id: threadId,
-    name: localGroupChatName(uniqueMembers),
-    createdAt,
-    updatedAt: createdAt,
-    members,
-    panelExpanded: true,
-    announcement: "欢迎加入智能体协作群聊，成员可以在这里共同讨论并推进任务。",
-    note: "群聊成员信息展示数据，后续可继续补充和调整。",
-    nickname: currentProfileName(),
-    preview: `${members.length}个成员加入群聊`,
-    messages: [],
-  };
-  localGroupChatRecords[threadId] = record;
-  localGroupChatMemberQueries.delete(threadId);
-  state.groupChatDialog = emptyGroupChatDialogState();
-  state.newChatMenuOpen = false;
-  state.externalChannels.menuOpen = false;
-  state.contactChat.open = false;
-  state.chatPreview = null;
-  state.closingPreviewSource = null;
-  state.search = "";
-  state.activeView = "chat";
-  state.currentThreadId = threadId;
-  state.activeTurnId = null;
-  state.activeNewThreadGroupId = DEFAULT_THREAD_GROUP_ID;
-  state.rightCollapsed = false;
-  threadGroupByThreadId[threadId] = DEFAULT_THREAD_GROUP_ID;
-  collapsedThreadGroupIds.delete(DEFAULT_THREAD_GROUP_ID);
-  state.threads = sortThreadsForList(
-    mergeThreadsWithoutSorting(state.threads, [localGroupChatSummary(record)]),
+  const members = selected.flatMap((contact) => {
+    const member = localGroupChatMemberFromProfile(contact);
+    return Array.from(
+      { length: groupChatQuantity(contactStableId(contact)) },
+      () => ({ ...member }),
+    );
+  });
+  const uniqueMembers = selected.map(localGroupChatMemberFromProfile);
+  const existingSelectionIds = new Set(
+    record.members.map((member) => member.selectionId),
   );
-  ensureThreadState(threadId);
-  state.members[threadId] = members.map((member) => ({
+  const addedMembers = members.filter(
+    (member) => !existingSelectionIds.has(member.selectionId),
+  );
+  const addedUniqueMembers = uniqueMembers.filter(
+    (member) => !existingSelectionIds.has(member.selectionId),
+  );
+  if (!addedMembers.length) return;
+  record.members = [...record.members, ...addedMembers];
+  state.members[record.id] = record.members.map((member) => ({
     id: "ceo_assistant",
     status: "idle",
     name: member.name,
     avatar_url: member.avatarUrl,
     avatar_text: member.avatarLabel,
   }));
-  restoreComposerDraftForThread(threadId);
-  rememberChatThreadSelection(threadId);
-  saveLocalGroupChatRecords();
-  saveThreadPreferences();
-  render();
+  state.groupChatDialog = emptyGroupChatDialogState();
+  addedUniqueMembers.forEach((member, index) => {
+    appendLocalGroupChatMemberEvent(record, member, "added", {
+      finalize: index === addedUniqueMembers.length - 1,
+    });
+  });
 }
 
 function toggleLocalGroupChatMembersPanel() {
@@ -61574,7 +61035,6 @@ function resetContactsRemoteSearch(query = "") {
 function openAddFriendDialog() {
   resetAddFriendDialogSearch();
   state.addFriendDialog.open = true;
-  state.newChatMenuOpen = false;
   state.externalChannels.menuOpen = false;
   state.profileMenuOpen = false;
   state.skillSortMenuOpen = false;
@@ -62067,22 +61527,9 @@ async function openTradingExpertWorkspace() {
     showToast("暂时无法打开交易专家", 3000);
     return;
   }
-  tradingExpertThreadIds.add(threadId);
-  newThreadModeByThreadId.set(threadId, "execution");
-  rememberThreadModelSelection(
-    threadId,
-    {
-      modelProvider: DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
-      model: TRADING_EXPERT_DEFAULT_MODEL_VALUE,
-      reasoningEffort: TRADING_EXPERT_REASONING_EFFORT,
-      serviceTier: null,
-    },
-    { persist: false },
-  );
+  initializeTradingExpertTaskThread(threadId, { expandPanel: true });
   state.activeView = "chat";
-  state.selectedContactId = TRADING_EXPERT_CONTACT_ID;
-  state.rightCollapsed = false;
-  state.tradingExpertPanelTab = "chat";
+  state.selectedContactId = null;
   state.chatPreview = null;
   state.closingPreviewSource = null;
   render();
@@ -63030,8 +62477,7 @@ function resetAuthenticatedWorkspace() {
   state.threads = [];
   state.currentThreadId = null;
   state.lastChatThreadId = null;
-  state.tradingExpertPanelTab = "chat";
-  state.tradingExpertTaskRefreshing = false;
+  state.tradingExpertChartCollapsed = false;
   workflowCanvasDraftsByThreadId.clear();
   workflowComposerNamedTextValuesByThreadId.clear();
   workflowCanvasDirtyNodeIdsByThreadId.clear();
@@ -63078,8 +62524,7 @@ function resetAuthenticatedWorkspace() {
   state.providerBusy = {};
   state.itemOrder = {};
   state.items = {};
-  state.search = "";
-  resetConversationSearchHydration();
+  resetBackgroundHydration();
   resetThreadHistoryNavigation();
   state.composerText = "";
   state.composerQuote = null;
@@ -63660,8 +63105,7 @@ function shouldAvoidFullRenderDuringStream() {
 
 function hasOpenTransientUi() {
   return Boolean(
-    state.newChatMenuOpen ||
-      state.groupChatDialog.open ||
+    state.groupChatDialog.open ||
       state.externalChannels.menuOpen ||
       state.externalChannels.login.open ||
       state.newThreadGroupPickerOpen ||
@@ -63709,7 +63153,6 @@ function isPointerOverStreamSensitiveUi() {
         ".thread-group-dialog",
         ".contact-context-menu",
         ".profile-menu",
-        ".chat-new-menu",
         ".group-chat-dialog",
         ".external-channel-menu",
         ".external-channel-login-dialog",
@@ -65680,15 +65123,11 @@ function collectMaterialRows(): MaterialRow[] {
 }
 
 function filteredThreads() {
-  syncConversationSearchQuery();
   ensureTopLevelBlankThreadForList();
-  const keyword = state.search.trim();
   const sorted = sortThreadsForList(mergeThreadsWithoutSorting(state.threads, autoTaskThreadSummaries()))
     .filter((thread) => !internalSubagentThreadIds.has(thread.id));
   const blankThread = currentBlankThread();
-  const ordered = blankThread ? [blankThread, ...sorted.filter((thread) => thread.id !== blankThread.id)] : sorted;
-  if (!keyword) return ordered;
-  return ordered.filter((thread) => conversationSearchIncludes(threadListDisplayName(thread), keyword) || Boolean(threadSearchMatchSummary(thread, keyword)));
+  return blankThread ? [blankThread, ...sorted.filter((thread) => thread.id !== blankThread.id)] : sorted;
 }
 
 function threadById(threadId: string | null | undefined) {
@@ -65733,6 +65172,20 @@ function restoreRememberedChatThreadSelection() {
   restoreComposerDraftForThread(savedThreadId);
   state.activeTurnId = state.activeTurnIds[savedThreadId] ?? null;
   return true;
+}
+
+function returnToHomePage() {
+  state.activeView = "chat";
+  if (!restoreRememberedChatThreadSelection()) {
+    ensureTopLevelBlankThreadForList({ activateIfMissingSelection: true });
+  }
+  state.selectedAutoTaskId = null;
+  state.autoTaskMenuTaskId = null;
+  state.externalChannels.menuOpen = false;
+  state.profileMenuOpen = false;
+  state.skillSortMenuOpen = false;
+  state.resultsGroupMenuOpen = false;
+  render();
 }
 
 function threadGroupById(groupId: string | null | undefined) {
@@ -66266,7 +65719,7 @@ function deleteThreadGroup(groupId: string) {
 }
 
 function discardDeletedThreadGroupBlankThread(threadId: string) {
-  dropConversationSearchThreadState(threadId);
+  dropThreadAuxiliaryState(threadId);
   const shouldActivateTopLevelBlank = shouldActivateTopLevelBlankAfterDiscard(threadId, state.currentThreadId);
   groupBlankThreadIds.delete(threadId);
   if (state.blankThreadId === threadId) state.blankThreadId = null;
@@ -66632,7 +66085,6 @@ function pinThreadGroup(groupId: string) {
 }
 
 function toggleThreadGroupCollapsed(groupId: string) {
-  if (state.search.trim()) return;
   if (!threadGroupById(groupId)) return;
   if (collapsedThreadGroupIds.has(groupId)) collapsedThreadGroupIds.delete(groupId);
   else collapsedThreadGroupIds.add(groupId);
@@ -66935,106 +66387,7 @@ function messagesForThread(threadId: string) {
   return withThinkingMessage(threadId, collapsedMessages);
 }
 
-function threadSearchMatchSummary(thread: ConversationSummary, keyword: string): ThreadSearchMatchSummary | null {
-  const normalizedKeyword = normalizedConversationSearchText(keyword);
-  if (!normalizedKeyword) return null;
-  const matches = threadSearchMatches(thread, keyword);
-  if (matches.length) return threadSearchMatchSummaryFromMatches(thread.id, normalizedKeyword, matches);
-  return null;
-}
-
-function threadSearchMatches(thread: ConversationSummary, keyword: string): ThreadSearchMatch[] {
-  const normalizedKeyword = normalizedConversationSearchText(keyword);
-  const indexedMatches = serverConversationSearchQuery === normalizedKeyword
-    ? serverConversationSearchMatchesByThreadId.get(thread.id) || []
-    : threadSearchMatchesFromIndex(thread.id, keyword);
-  const liveMatches = state.itemOrder[thread.id]?.length
-    ? threadSearchMatchesFromMessages(thread.id, messagesForThread(thread.id), keyword)
-    : [];
-  return mergeThreadSearchMatches(indexedMatches, liveMatches);
-}
-
-function threadSearchMatchesFromIndex(threadId: string, keyword: string) {
-  const documents = conversationSearchIndexByThreadId.get(threadId) || [];
-  return documents
-    .map((document): ThreadSearchMatch | null => {
-      const snippet = conversationSearchSnippetFromText(document.text, keyword) || conversationSearchSnippetFromText(document.quoteText, keyword);
-      return snippet ? { messageId: document.messageId, snippet } : null;
-    })
-    .filter((match): match is ThreadSearchMatch => Boolean(match));
-}
-
-function mergeThreadSearchMatches(indexedMatches: ThreadSearchMatch[], liveMatches: ThreadSearchMatch[]) {
-  if (!indexedMatches.length) return liveMatches;
-  if (!liveMatches.length) return indexedMatches;
-  const seenMessageIds = new Set<string>();
-  const merged: ThreadSearchMatch[] = [];
-  for (const match of [...indexedMatches, ...liveMatches]) {
-    if (match.messageId) {
-      if (seenMessageIds.has(match.messageId)) continue;
-      seenMessageIds.add(match.messageId);
-    }
-    merged.push(match);
-  }
-  return merged;
-}
-
-function indexConversationSearchThreadSnapshot(threadId: string, thread: any) {
-  const documents = conversationSearchDocumentsFromSnapshot(thread);
-  conversationSearchIndexByThreadId.set(threadId, documents);
-  hydratedConversationSearchThreadIds.add(threadId);
-  pendingConversationSearchHydrations.delete(threadId);
-}
-
-function conversationSearchDocumentsFromSnapshot(thread: any) {
-  const documents: ConversationSearchIndexedDocument[] = [];
-  for (const turn of thread?.turns || []) {
-    const turnItems = Array.isArray(turn?.items) ? (turn.items as CodexItem[]) : [];
-    let finalAgentDocument: ConversationSearchIndexedDocument | null = null;
-    for (const item of turnItems) {
-      if (!item || shouldHideChatItem(item)) continue;
-      const messageId = itemStableId(item);
-      if (isUserSideThreadItem(item)) {
-        const display = userMessageDisplayParts(item);
-        const quoteText = display.quote ? `${display.quote.sender}: ${display.quote.text}` : "";
-        if (display.text.trim() || quoteText) {
-          documents.push({ messageId, text: display.text, quoteText });
-        }
-        continue;
-      }
-      if (item.type !== "agentMessage") continue;
-      const text = assistantVisibleText(itemText(item));
-      if (text.trim()) finalAgentDocument = { messageId, text, quoteText: "" };
-    }
-    if (finalAgentDocument) documents.push(finalAgentDocument);
-  }
-  return documents;
-}
-
-function threadSearchMatchesFromMessages(threadId: string, messages: Message[], keyword: string): ThreadSearchMatch[] {
-  return messages
-    .filter((message) => isConversationSearchMatchMessage(threadId, message, messages))
-    .map((message): ThreadSearchMatch | null => {
-      const snippet = conversationSearchSnippetFromMessage(message, keyword);
-      return snippet ? { messageId: message.id, snippet } : null;
-    })
-    .filter((match): match is ThreadSearchMatch => Boolean(match));
-}
-
-function conversationSearchSnippetFromMessage(message: Message, keyword: string) {
-  const content = messageDisplayContent(message, message.text || "");
-  const bodySnippet = conversationSearchSnippetFromText(content.text, keyword);
-  if (bodySnippet) return bodySnippet;
-  const quoteText = content.quote ? `${content.quote.sender}: ${content.quote.text}` : "";
-  return quoteText ? conversationSearchSnippetFromText(quoteText, keyword) : "";
-}
-
-function isConversationSearchMatchMessage(threadId: string, message: Message, messages: Message[]) {
-  if (isRenderedUserSideMessage(message)) return true;
-  return isFinalAgentConversationSearchMessage(threadId, message, messages);
-}
-
-function isFinalAgentConversationSearchMessage(threadId: string, message: Message, messages: Message[]) {
+function isFinalAgentTurnResultMessage(threadId: string, message: Message, messages: Message[]) {
   if (isRenderedUserSideMessage(message) || isThinkingMessage(message) || isMediaGenerationMessage(message)) return false;
   if (message.kind !== "agent_text") return false;
   const item = state.items[threadId]?.[message.id];
@@ -67053,27 +66406,11 @@ function isSearchableChannelAgentMessage(message: Message, item: CodexItem) {
   return Boolean((message.text || "").trim() || message.attachments?.length);
 }
 
-function threadSearchMatchSummaryFromMatches(threadId: string, normalizedKeyword: string, matches: ThreadSearchMatch[]): ThreadSearchMatchSummary {
-  const match = matches.at(-1);
-  if (!match) throw new Error(`Conversation search summary requires matches for ${threadId}:${normalizedKeyword}`);
-  return {
-    count: matches.length,
-    match,
-  };
-}
-
 function threadHistoryJumpHighlightTargetForMessages(threadId: string): MessageSearchHighlightTarget | null {
   if (state.activeView !== "chat" || state.currentThreadId !== threadId) return null;
   const target = activeThreadHistoryJumpHighlight;
   if (!target || target.threadId !== threadId || target.expiresAt <= Date.now() || !target.keyword.trim()) return null;
   return { messageId: target.messageId, keyword: target.keyword };
-}
-
-function conversationSearchSnippetFromText(text: string, keyword: string) {
-  const cleanText = searchableConversationMessageText(text);
-  if (!conversationSearchIncludes(cleanText, keyword)) return "";
-  const sentence = conversationSearchSentence(cleanText, keyword);
-  return boundedConversationSearchSnippet(sentence || cleanText, keyword);
 }
 
 function searchableConversationMessageText(text: string) {
@@ -67083,31 +66420,10 @@ function searchableConversationMessageText(text: string) {
     .trim();
 }
 
-function conversationSearchSentence(text: string, keyword: string) {
-  const parts = text.match(/[^。！？!?；;\n\r]+[。！？!?；;]?/gu) || [text];
-  return (
-    parts.map((part) => part.trim()).find((part) => conversationSearchIncludes(part, keyword)) || ""
-  );
-}
-
-function boundedConversationSearchSnippet(text: string, keyword: string) {
-  const normalizedText = text.replace(/\s+/g, " ").trim();
-  const matchIndex = conversationSearchIndexOf(normalizedText, keyword);
-  const maxLength = 28;
-  if (matchIndex < 0) return normalizedText.length <= maxLength ? normalizedText : normalizedText.slice(0, maxLength).trimEnd() + "...";
-  const keywordLength = keyword.length;
-  // The conversation list is narrow, so keep the keyword near the front of the visible preview.
-  const contextBefore = 2;
-  const contextAfter = Math.max(16, maxLength - contextBefore - keywordLength);
-  const start = Math.max(0, matchIndex - contextBefore);
-  const end = Math.min(normalizedText.length, Math.max(start + maxLength, matchIndex + keywordLength + contextAfter));
-  return `${start > 0 ? "..." : ""}${normalizedText.slice(start, end).trim()}${end < normalizedText.length ? "..." : ""}`;
-}
-
-function renderHighlightedConversationSearchText(text: string, keyword: string) {
-  const normalizedKeyword = normalizedConversationSearchText(keyword);
+function renderHighlightedSearchText(text: string, keyword: string) {
+  const normalizedKeyword = normalizedSearchText(keyword);
   if (!normalizedKeyword) return escapeHtml(text);
-  const normalizedText = normalizedConversationSearchText(text);
+  const normalizedText = normalizedSearchText(text);
   let cursor = 0;
   let output = "";
   while (cursor < text.length) {
@@ -67115,448 +66431,14 @@ function renderHighlightedConversationSearchText(text: string, keyword: string) 
     if (index < 0) break;
     output += escapeHtml(text.slice(cursor, index));
     const end = index + keyword.length;
-    output += `<strong class="conversation-search-highlight">${escapeHtml(text.slice(index, end))}</strong>`;
+    output += `<strong class="search-highlight">${escapeHtml(text.slice(index, end))}</strong>`;
     cursor = end;
   }
   return output + escapeHtml(text.slice(cursor));
 }
 
-function conversationSearchIncludes(text: unknown, keyword: string) {
-  const normalizedKeyword = normalizedConversationSearchText(keyword);
-  return Boolean(normalizedKeyword && normalizedConversationSearchText(text).includes(normalizedKeyword));
-}
-
-function conversationSearchIndexOf(text: string, keyword: string) {
-  const normalizedKeyword = normalizedConversationSearchText(keyword);
-  if (!normalizedKeyword) return -1;
-  return normalizedConversationSearchText(text).indexOf(normalizedKeyword);
-}
-
-function normalizedConversationSearchText(value: unknown) {
+function normalizedSearchText(value: unknown) {
   return String(value ?? "").trim().toLocaleLowerCase();
-}
-
-function scheduleConversationSearchHydration() {
-  const query = normalizedConversationSearchText(state.search);
-  if (conversationSearchHydrationTimer != null) {
-    window.clearTimeout(conversationSearchHydrationTimer);
-    conversationSearchHydrationTimer = null;
-  }
-  if (!query) {
-    serverConversationSearchRequestSequence += 1;
-    pendingServerConversationSearchQuery = "";
-    serverConversationSearchQuery = "";
-    serverConversationSearchMatchesByThreadId.clear();
-    pendingConversationSearchHydrations.clear();
-    preparedConversationSearchQuery = "";
-    if (conversationSearchHydrationRenderTimer != null) {
-      window.clearTimeout(conversationSearchHydrationRenderTimer);
-      conversationSearchHydrationRenderTimer = null;
-    }
-    conversationSearchAutoSelectionQuery = "";
-    conversationSearchAutoSelectedThreadId = null;
-    conversationSearchUserSelectedQuery = "";
-    return;
-  }
-  conversationSearchHydrationTimer = window.setTimeout(() => {
-    conversationSearchHydrationTimer = null;
-    if (normalizedConversationSearchText(state.search) !== query) return;
-    void prepareConversationSearchResults(query);
-  }, 180);
-}
-
-async function prepareConversationSearchResults(query: string) {
-  if (normalizedConversationSearchText(state.search) !== query) return;
-  preparedConversationSearchQuery = query;
-  const serverSearchStatus = await prepareServerConversationSearchResults(query);
-  if (serverSearchStatus === "stale" || normalizedConversationSearchText(state.search) !== query) return;
-  if (serverSearchStatus === "handled") {
-    pendingConversationSearchHydrations.clear();
-    clearConversationSearchHydrationRetries();
-    scheduleConversationSearchHydrationRender();
-    await maybeAutoSelectFirstConversationSearchResult(query, true);
-    return;
-  }
-  const autoSelection = maybeAutoSelectFirstConversationSearchResult(query, false);
-  queueConversationSearchHydrations();
-  flushConversationSearchHydrations(query);
-  await autoSelection;
-  if (normalizedConversationSearchText(state.search) !== query) return;
-  queueConversationSearchHydrations();
-  flushConversationSearchHydrations(query);
-}
-
-async function prepareServerConversationSearchResults(query: string): Promise<ServerConversationSearchStatus> {
-  if (serverConversationSearchSupported === false || !state.serverReady || typeof api.searchThreads !== "function") {
-    if (typeof api.searchThreads !== "function") serverConversationSearchSupported = false;
-    return "fallback";
-  }
-
-  const requestSequence = ++serverConversationSearchRequestSequence;
-  const workspaceSession = conversationSearchHydrationSession;
-  pendingServerConversationSearchQuery = query;
-  serverConversationSearchQuery = "";
-  serverConversationSearchMatchesByThreadId.clear();
-  const requestIsCurrent = () =>
-    requestSequence === serverConversationSearchRequestSequence &&
-    workspaceSession === conversationSearchHydrationSession &&
-    preparedConversationSearchQuery === query &&
-    normalizedConversationSearchText(state.search) === query;
-
-  try {
-    await syncThreadGroupWorkspaces({ renderAfter: false });
-    if (!requestIsCurrent()) return "stale";
-    const groupResults = await Promise.all(
-      sortedThreadGroups().map(async (group) => {
-        const groupCwd = workspaceForGroupId(group.id);
-        const result = await api.searchThreads!({
-          cwd: groupCwd,
-          searchTerm: query,
-          limit: 100,
-          sortKey: "updated_at",
-          sortDirection: "desc",
-          archived: false,
-        });
-        return { group, groupCwd, result };
-      }),
-    );
-    if (!requestIsCurrent()) return "stale";
-    if (groupResults.some(({ result }) => threadSearchResponseRequiresFallback(result))) {
-      serverConversationSearchSupported = false;
-      return "fallback";
-    }
-
-    const matchesByThreadId = new Map<string, ThreadSearchMatch[]>();
-    const discoveredThreads: ConversationSummary[] = [];
-    let groupMappingChanged = false;
-    for (const { group, groupCwd, result } of groupResults) {
-      const hits = Array.isArray(result?.data) ? result.data : Array.isArray(result?.items) ? result.items : [];
-      for (const hit of hits) {
-        const record = hit?.thread || hit?.record || hit;
-        const recordThreadId = firstString(record?.id, record?.threadId, record?.thread_id);
-        const recordIsInternalSubagent = Boolean(recordThreadId && confirmInternalSubagentThreadRecord(record));
-        if (recordThreadId && (recordIsInternalSubagent || internalSubagentThreadIds.has(recordThreadId))) {
-          continue;
-        }
-        const thread = mapThread(record);
-        if (!thread || hiddenThreadIds.has(thread.id) || isSparseBlankThreadListRecord(record, thread)) continue;
-        if (isDesktopAgentInternalThread(thread) || isAutoTaskOwnedThreadId(thread.id)) continue;
-        if (rememberThreadWorkspace(thread.id, groupCwd)) groupMappingChanged = true;
-        if (!threadGroupById(threadGroupByThreadId[thread.id])) {
-          threadGroupByThreadId[thread.id] = group.id;
-          groupMappingChanged = true;
-        }
-        discoveredThreads.push(thread);
-        const snippet = firstString(hit?.snippet, hit?.match?.snippet, thread.preview, thread.name, query) || query;
-        const matches = matchesByThreadId.get(thread.id) || [];
-        if (!matches.some((match) => normalizedConversationSearchText(match.snippet) === normalizedConversationSearchText(snippet))) {
-          matches.push({ messageId: null, snippet });
-          matchesByThreadId.set(thread.id, matches);
-        }
-      }
-    }
-    if (!requestIsCurrent()) return "stale";
-
-    state.threads = sortThreadsForList(mergeThreadsWithoutSorting(state.threads, discoveredThreads));
-    serverConversationSearchMatchesByThreadId.clear();
-    for (const [threadId, matches] of matchesByThreadId) {
-      serverConversationSearchMatchesByThreadId.set(threadId, matches);
-    }
-    serverConversationSearchQuery = query;
-    serverConversationSearchSupported = true;
-    pendingConversationSearchHydrations.clear();
-    if (groupMappingChanged) saveThreadPreferences();
-    return "handled";
-  } catch (error) {
-    if (!requestIsCurrent()) return "stale";
-    console.warn("Server conversation search failed; falling back to local history search", error);
-    return "fallback";
-  } finally {
-    if (requestSequence === serverConversationSearchRequestSequence && pendingServerConversationSearchQuery === query) {
-      pendingServerConversationSearchQuery = "";
-    }
-  }
-}
-
-function threadSearchResponseRequiresFallback(result: any) {
-  return Boolean(result?.fallback?.required || result?.fallbackRequired || result?.unsupported);
-}
-
-function queueConversationSearchHydrations() {
-  pendingConversationSearchHydrations.clear();
-  const query = normalizedConversationSearchText(state.search);
-  if (!query || pendingServerConversationSearchQuery === query || serverConversationSearchQuery === query) return;
-  for (const thread of state.threads) {
-    if (!canHydrateConversationSearchThread(thread)) continue;
-    if (thread.id === switchingThreadId) continue;
-    if (query && conversationSearchHydrationRetryState(thread.id, query)) continue;
-    if (hydratedConversationSearchThreadIds.has(thread.id) || isConversationSearchThreadHydrating(thread.id)) continue;
-    pendingConversationSearchHydrations.add(thread.id);
-  }
-}
-
-function canHydrateConversationSearchThread(thread: ConversationSummary) {
-  if (!state.serverReady || thread.thread_kind !== "local_codex") return false;
-  if (hiddenThreadIds.has(thread.id) || isBlankNewThread(thread.id)) return false;
-  return !isThreadBusy(thread.id);
-}
-
-function conversationSearchHydrationActiveKey(threadId: string, session = conversationSearchHydrationSession) {
-  return `${session}:${threadId}`;
-}
-
-function isConversationSearchThreadHydrating(threadId: string, session = conversationSearchHydrationSession) {
-  return activeConversationSearchHydrations.has(conversationSearchHydrationActiveKey(threadId, session));
-}
-
-function activeConversationSearchHydrationCount(session = conversationSearchHydrationSession) {
-  const prefix = `${session}:`;
-  let count = 0;
-  for (const key of activeConversationSearchHydrations) {
-    if (key.startsWith(prefix)) count += 1;
-  }
-  return count;
-}
-
-function conversationSearchHydrationRetryKey(threadId: string, query: string, session = conversationSearchHydrationSession) {
-  return JSON.stringify([session, query, threadId]);
-}
-
-function conversationSearchHydrationRetryState(threadId: string, query: string, session = conversationSearchHydrationSession) {
-  return conversationSearchHydrationRetries.get(conversationSearchHydrationRetryKey(threadId, query, session));
-}
-
-function clearConversationSearchHydrationRetry(threadId: string, query: string, session = conversationSearchHydrationSession) {
-  const key = conversationSearchHydrationRetryKey(threadId, query, session);
-  const retry = conversationSearchHydrationRetries.get(key);
-  if (retry?.timer != null) window.clearTimeout(retry.timer);
-  conversationSearchHydrationRetries.delete(key);
-}
-
-function hasPendingConversationSearchHydrationRetry(query: string, session = conversationSearchHydrationSession) {
-  return [...conversationSearchHydrationRetries.values()].some(
-    (retry) => retry.session === session && retry.query === query && retry.timer != null,
-  );
-}
-
-function clearConversationSearchHydrationRetries() {
-  for (const retry of conversationSearchHydrationRetries.values()) {
-    if (retry.timer != null) window.clearTimeout(retry.timer);
-  }
-  conversationSearchHydrationRetries.clear();
-}
-
-function clearConversationSearchHydrationRetriesForThread(threadId: string) {
-  for (const [key, retry] of conversationSearchHydrationRetries) {
-    if (retry.threadId !== threadId) continue;
-    if (retry.timer != null) window.clearTimeout(retry.timer);
-    conversationSearchHydrationRetries.delete(key);
-  }
-}
-
-function scheduleConversationSearchHydrationRetry(threadId: string, query: string, session: number) {
-  const key = conversationSearchHydrationRetryKey(threadId, query, session);
-  const existing = conversationSearchHydrationRetries.get(key);
-  if (existing?.attempts) return false;
-  const retry = { session, query, threadId, attempts: 1, timer: null as number | null };
-  retry.timer = window.setTimeout(() => {
-    retry.timer = null;
-    const retryThread = threadById(threadId);
-    if (
-      session !== conversationSearchHydrationSession ||
-      preparedConversationSearchQuery !== query ||
-      normalizedConversationSearchText(state.search) !== query ||
-      !retryThread ||
-      hydratedConversationSearchThreadIds.has(threadId) ||
-      threadId === switchingThreadId ||
-      !canHydrateConversationSearchThread(retryThread)
-    ) {
-      clearConversationSearchHydrationRetry(threadId, query, session);
-      return;
-    }
-    pendingConversationSearchHydrations.add(threadId);
-    flushConversationSearchHydrations(query);
-  }, 240);
-  conversationSearchHydrationRetries.set(key, retry);
-  return true;
-}
-
-function flushConversationSearchHydrations(query = normalizedConversationSearchText(state.search)) {
-  if (!query || preparedConversationSearchQuery !== query || normalizedConversationSearchText(state.search) !== query) return;
-  if (pendingServerConversationSearchQuery === query || serverConversationSearchQuery === query) return;
-  while (
-    activeConversationSearchHydrationCount() < CONVERSATION_SEARCH_HYDRATION_CONCURRENCY &&
-    pendingConversationSearchHydrations.size
-  ) {
-    const threadId = pendingConversationSearchHydrations.values().next().value as string | undefined;
-    if (!threadId) break;
-    pendingConversationSearchHydrations.delete(threadId);
-    void hydrateConversationSearchThread(threadId, query);
-  }
-  if (
-    !pendingConversationSearchHydrations.size &&
-    !activeConversationSearchHydrationCount() &&
-    !hasPendingConversationSearchHydrationRetry(query)
-  ) {
-    scheduleConversationSearchHydrationRender();
-    void maybeAutoSelectFirstConversationSearchResult(query, true);
-  }
-}
-
-async function hydrateConversationSearchThread(threadId: string, query: string) {
-  const hydrationSession = conversationSearchHydrationSession;
-  const clearRetry = () => clearConversationSearchHydrationRetry(threadId, query, hydrationSession);
-  if (threadId === switchingThreadId) {
-    clearRetry();
-    return;
-  }
-  const activeKey = conversationSearchHydrationActiveKey(threadId, hydrationSession);
-  if (activeConversationSearchHydrations.has(activeKey) || hydratedConversationSearchThreadIds.has(threadId)) {
-    clearRetry();
-    return;
-  }
-  const thread = threadById(threadId);
-  if (!thread || !canHydrateConversationSearchThread(thread)) {
-    clearRetry();
-    return;
-  }
-  const hydrationGeneration = conversationSearchThreadHydrationGeneration(threadId);
-  activeConversationSearchHydrations.add(activeKey);
-  try {
-    const result = await resumeThreadForBackgroundHydration(threadId, hydrationSession);
-    if (!result?.thread?.id) throw new Error("Conversation search history is unavailable.");
-    if (
-      hydrationSession === conversationSearchHydrationSession &&
-      hydrationGeneration === conversationSearchThreadHydrationGeneration(threadId) &&
-      !hydratedConversationSearchThreadIds.has(threadId) &&
-      threadById(threadId)
-    ) {
-      indexConversationSearchThreadSnapshot(threadId, result.thread);
-      applyAssistantPreviewHydration(threadId, result.thread, { renderAfter: false });
-      pendingAssistantPreviewHydrations.delete(threadId);
-      completedAssistantPreviewHydrations.add(threadId);
-      clearConversationSearchHydrationRetry(threadId, query, hydrationSession);
-    }
-  } catch (error) {
-    console.warn("Failed to hydrate conversation search history", threadId, error);
-    if (
-      hydrationSession === conversationSearchHydrationSession &&
-      preparedConversationSearchQuery === query &&
-      normalizedConversationSearchText(state.search) === query
-    ) {
-      scheduleConversationSearchHydrationRetry(threadId, query, hydrationSession);
-    }
-  } finally {
-    activeConversationSearchHydrations.delete(activeKey);
-    const currentQuery = normalizedConversationSearchText(state.search);
-    const currentThread = threadById(threadId);
-    if (
-      currentQuery &&
-      currentThread &&
-      canHydrateConversationSearchThread(currentThread) &&
-      !hydratedConversationSearchThreadIds.has(threadId) &&
-      (hydrationSession !== conversationSearchHydrationSession ||
-        hydrationGeneration !== conversationSearchThreadHydrationGeneration(threadId) ||
-        currentQuery !== query)
-    ) {
-      pendingConversationSearchHydrations.add(threadId);
-    }
-    if (currentQuery && currentQuery === query && preparedConversationSearchQuery === currentQuery) {
-      scheduleConversationSearchHydrationRender();
-      void maybeAutoSelectFirstConversationSearchResult(currentQuery, false);
-    }
-    if (currentQuery && preparedConversationSearchQuery === currentQuery) flushConversationSearchHydrations(currentQuery);
-    if (
-      !hasActiveConversationSearchHydrationForThread(threadId) &&
-      (!currentThread || hydratedConversationSearchThreadIds.has(threadId))
-    ) {
-      conversationSearchThreadHydrationGenerations.delete(threadId);
-    }
-  }
-}
-
-function resetConversationSearchHydration() {
-  conversationSearchHydrationSession += 1;
-  serverConversationSearchRequestSequence += 1;
-  resetRecentThreadDetailPrefetch();
-  clearConversationSearchHydrationRetries();
-  if (threadAssistantPreviewHydrationTimer != null) {
-    window.clearTimeout(threadAssistantPreviewHydrationTimer);
-    threadAssistantPreviewHydrationTimer = null;
-  }
-  if (conversationSearchHydrationTimer != null) {
-    window.clearTimeout(conversationSearchHydrationTimer);
-    conversationSearchHydrationTimer = null;
-  }
-  if (conversationSearchHydrationRenderTimer != null) {
-    window.clearTimeout(conversationSearchHydrationRenderTimer);
-    conversationSearchHydrationRenderTimer = null;
-  }
-  pendingConversationSearchHydrations.clear();
-  pendingAssistantPreviewHydrations.clear();
-  completedAssistantPreviewHydrations.clear();
-  hydratedConversationSearchThreadIds.clear();
-  conversationSearchIndexByThreadId.clear();
-  serverConversationSearchMatchesByThreadId.clear();
-  conversationSearchThreadHydrationGenerations.clear();
-  preparedConversationSearchQuery = "";
-  syncedConversationSearchQuery = "";
-  serverConversationSearchQuery = "";
-  pendingServerConversationSearchQuery = "";
-  conversationSearchAutoSelectionQuery = "";
-  conversationSearchAutoSelectedThreadId = null;
-  conversationSearchUserSelectedQuery = "";
-}
-
-function scheduleConversationSearchHydrationRender() {
-  if (conversationSearchHydrationRenderTimer != null) return;
-  conversationSearchHydrationRenderTimer = window.setTimeout(() => {
-    conversationSearchHydrationRenderTimer = null;
-    if (!state.search.trim() || state.activeView !== "chat") return;
-    render();
-  }, 60);
-}
-
-async function maybeAutoSelectFirstConversationSearchResult(query: string, final: boolean) {
-  if (state.activeView !== "chat" || !query || normalizedConversationSearchText(state.search) !== query) return false;
-  if (conversationSearchUserSelectedQuery === query) return false;
-  const alreadySelectedForQuery = conversationSearchAutoSelectionQuery === query && Boolean(conversationSearchAutoSelectedThreadId);
-  if (alreadySelectedForQuery && !final) return false;
-  const firstThread = firstGroupedConversationSearchResult();
-  if (!firstThread || (alreadySelectedForQuery && conversationSearchAutoSelectedThreadId === firstThread.id)) return false;
-  conversationSearchAutoSelectionQuery = query;
-  conversationSearchAutoSelectedThreadId = firstThread.id;
-  await selectThread(firstThread.id, { conversationSearchAutoSelection: true });
-  return (
-    state.activeView === "chat" && normalizedConversationSearchText(state.search) === query
-  );
-}
-
-function firstGroupedConversationSearchResult(excludedThreadId?: string | null) {
-  const threads = visibleConversationThreadsForChatList().filter((thread) => thread.id !== excludedThreadId);
-  if (!threads.length) return null;
-  const grouped = groupedThreadsForList(threads);
-  const groupSections = conversationGroupSectionsForList(grouped, ensureDefaultThreadGroup());
-  const firstGroupedThread = groupSections.find((section) => section.threads.length)?.threads[0];
-  if (firstGroupedThread) return firstGroupedThread;
-  const topLevelThread = grouped.ungrouped.filter(isTopLevelConversationThread).sort(compareTopLevelConversationThreads)[0];
-  return topLevelThread || grouped.ungrouped[0] || null;
-}
-
-function syncConversationSearchQuery() {
-  const query = normalizedConversationSearchText(state.search);
-  if (syncedConversationSearchQuery === query) return;
-  serverConversationSearchRequestSequence += 1;
-  pendingServerConversationSearchQuery = "";
-  serverConversationSearchQuery = "";
-  serverConversationSearchMatchesByThreadId.clear();
-  clearConversationSearchHydrationRetries();
-  threadHistoryEntriesByThreadId.clear();
-  syncedConversationSearchQuery = query;
-  conversationSearchAutoSelectionQuery = query;
-  conversationSearchAutoSelectedThreadId = null;
-  conversationSearchUserSelectedQuery = "";
-  preparedConversationSearchQuery = "";
 }
 
 function dedupeExternalChannelInternalPromptEchoes(threadId: string, messages: Message[]) {
@@ -69319,7 +68201,7 @@ function isDesktopAgentThreadId(threadId: string | null | undefined) {
 
 function hideDesktopAgentInternalThread(threadId: string | null | undefined) {
   if (!threadId) return;
-  dropConversationSearchThreadState(threadId);
+  dropThreadAuxiliaryState(threadId);
   hiddenThreadIds.add(threadId);
   groupBlankThreadIds.delete(threadId);
   pinnedThreadIds.delete(threadId);
@@ -71657,7 +70539,7 @@ function formatInlineMessageText(text: string, options: FormatMessageTextOptions
 
 function applyMessageSearchKeywordHighlight(html: string, keyword: string | null | undefined) {
   const rawKeyword = String(keyword ?? "").trim();
-  const normalizedKeyword = normalizedConversationSearchText(rawKeyword);
+  const normalizedKeyword = normalizedSearchText(rawKeyword);
   if (!normalizedKeyword || !html) return html;
   let output = "";
   let cursor = 0;
@@ -71675,7 +70557,7 @@ function applyMessageSearchKeywordHighlight(html: string, keyword: string | null
 
 function renderMessageSearchKeywordText(text: string, normalizedKeyword: string, keyword: string) {
   if (!text || !normalizedKeyword) return text;
-  const normalizedText = normalizedConversationSearchText(text);
+  const normalizedText = normalizedSearchText(text);
   let cursor = 0;
   let output = "";
   while (cursor < text.length) {
@@ -72707,7 +71589,7 @@ function libraryScrollKey() {
 }
 
 function conversationListScrollKey() {
-  return `chat:${state.search.trim()}`;
+  return "chat";
 }
 
 function contactsListScrollKey() {

@@ -90,9 +90,7 @@ test("cancel terminalizes a persisted-only active run instead of returning it un
   assert.equal(store.get(storedRun.id).status, "cancelled");
 });
 
-test("a blank canvas can seed its first persisted revision without a historical run", () => {
-  let savedDraft = null;
-  let savedLayout = null;
+test("a revision draft requires an existing historical run", () => {
   const store = {
     nonTerminalRuns() {
       return [];
@@ -106,43 +104,12 @@ test("a blank canvas can seed its first persisted revision without a historical 
     latestDraftForThread() {
       return null;
     },
-    saveDraft(draft) {
-      savedDraft = structuredClone(draft);
-    },
-    saveDraftWithLayout(draft, layout) {
-      savedDraft = structuredClone(draft);
-      savedLayout = structuredClone(layout);
-      return { draft: savedDraft, layout: savedLayout };
-    },
-    saveLayout(_kind, _id, layout) {
-      savedLayout = structuredClone(layout);
-      return savedLayout;
-    },
-    getLayout() {
-      return savedLayout;
-    },
   };
   const runtime = new ClusterWorkflowRuntime({ store });
-  const seedRun = {
-    id: "blank-workflow-canvas-thread-seed",
-    threadId: "thread-seed",
-    status: "succeeded",
-    metadata: { blankCanvas: true },
-    nodes: [],
-  };
-  const envelope = runtime.createRevisionDraft({
-    runId: seedRun.id,
-    threadId: seedRun.threadId,
-    seedRun,
-    entryBindings: [],
-    layout: { width: 338, height: 360, nodePositions: {}, edges: [] },
-  });
-
-  assert.equal(savedDraft.threadId, seedRun.threadId);
-  assert.equal(savedDraft.sourceRunId, seedRun.id);
-  assert.deepEqual(savedDraft.nodes, []);
-  assert.equal(envelope.draft.id, savedDraft.id);
-  assert.deepEqual(envelope.layout, savedLayout);
+  assert.throws(
+    () => runtime.createRevisionDraft({ runId: "missing-run", threadId: "thread-missing" }),
+    /找不到可修改的历史工作流/,
+  );
 });
 
 test("a late root-final completion cannot overwrite a cancelled workflow", async () => {

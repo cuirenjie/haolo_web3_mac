@@ -347,13 +347,14 @@ test("composer mode picker exposes cluster as a direct parallel subagent mode", 
   assert.doesNotMatch(picker, /<span>并行<\/span>|<span>画布<\/span>|<span>群聊<\/span>/);
   assert.match(
     composer,
-    /const composerModePicker = blankNewThread && !isBlankWorkflowCanvasThread\(thread\.id\)/,
+    /const composerModePicker = blankNewThread\s*\? renderComposerModePicker\(thread\.id\)/,
   );
   assert.match(composer, /renderComposerModePicker\(thread\.id\)/);
   assert.match(
     composer,
-    /const composerTrailingPicker = multiAgentMode \|\| isTradingExpertThreadId\(thread\.id\)[\s\S]*\? ""[\s\S]*: renderComposerModelPicker\(thread\.id\)/,
+    /const composerTrailingPicker = multiAgentMode[\s\S]*\? ""[\s\S]*: renderComposerModelPicker\(thread\.id\)/,
   );
+  assert.doesNotMatch(composer, /multiAgentMode \|\| isTradingExpertThreadId\(thread\.id\)/);
   assert.match(composer, /const groupPicker = showEditableGroupPicker/);
   assert.match(
     composer,
@@ -402,30 +403,18 @@ test("parallel subagent mode cannot inherit a DeepSeek root model", async () => 
   assert.match(requestOptions, /selectedChatModelReasoningEffortsForRequest/);
 });
 
-test("composer cluster option omits legacy variants while the separate group chat flow remains", async () => {
+test("composer cluster option and sidebar both omit group-chat creation", async () => {
   const source = await rendererSource;
   const picker = sourceBlock(
     source,
     "function renderComposerModePicker",
     "function activeComposerDraftSnapshot",
   );
-  const groupChatActions = sourceBlock(
-    source,
-    "function openGroupChatDialog",
-    "function openAddGroupMembersDialog",
-  );
-  const bindings = sourceBlock(
-    source.slice(source.indexOf("function bindEvents")),
-    ".querySelectorAll<HTMLButtonElement>('[data-action=\"open-group-chat-dialog\"]')",
-    "'[data-action=\"open-add-group-members-dialog\"]'",
-  );
 
   assert.doesNotMatch(picker, /data-action="open-group-chat-dialog"|<span>群聊<\/span>/);
-  assert.match(bindings, /querySelectorAll<HTMLButtonElement>/);
-  assert.match(bindings, /openGroupChatDialog\(\)/);
-  assert.match(groupChatActions, /state\.composerModeMenuOpen = false;/);
-  assert.match(groupChatActions, /open:\s*true/);
-  assert.match(groupChatActions, /void loadContacts\(\)\.finally\(focusSearch\)/);
+  assert.doesNotMatch(source, /data-action="open-group-chat-dialog"|function openGroupChatDialog/);
+  assert.doesNotMatch(source, /local-group-chat:\$\{crypto\.randomUUID/);
+  assert.match(source, /function openAddGroupMembersDialog/);
 });
 
 test("composer mode picker keeps a two-column direct menu beside the upload plus", async () => {
@@ -526,62 +515,12 @@ test("multi-model cluster keeps the conversation list open until the dashboard h
   assert.match(styles, /\.desktop-body\.multi-model-cluster-layout:not\(\.right-panel-collapsed\) > \.agent-panel\s*\{[^}]*width:\s*var\(--workflow-panel-width, 360px\);[^}]*flex:\s*0 1 var\(--workflow-panel-width, 360px\);/s);
 });
 
-test("canvas exit stays available after execution and returns to a new task", async () => {
+test("executed canvas exit stays available while the blank-canvas shortcut is fully removed", async () => {
   const [source, styles] = await Promise.all([rendererSource, stylesSource]);
-  const creation = sourceBlock(
-    source,
-    "async function createBlankWorkflowCanvas",
-    "async function createBlankThreadForList",
-  );
   const exit = sourceBlock(
     source,
     "async function exitWorkflowCanvas",
-    "async function createBlankWorkflowCanvas",
-  );
-  const activeLayout = sourceBlock(
-    source,
-    "function isActiveMultiModelClusterConversation",
-    "function selectClusterModeForThread",
-  );
-  const chatHeader = sourceBlock(
-    source,
-    "function renderChatHeader",
-    "function formatContextTokens",
-  );
-  const chatPanel = sourceBlock(
-    source,
-    "function renderChatPanel",
-    "function workflowRevisionNodePayload",
-  );
-  const messageScroller = sourceBlock(
-    source,
-    "function renderMessageScrollerContent",
-    "function updateActiveMessageScroller",
-  );
-  const chatTitle = sourceBlock(
-    source,
-    "function chatHeaderTitle",
-    "function renderNewThreadGroupPicker",
-  );
-  const blankCanvasIdentity = sourceBlock(
-    source,
-    "function isBlankWorkflowCanvasRun",
-    "function blankWorkflowCanvasRun",
-  );
-  const clusterModeSelection = sourceBlock(
-    source,
-    "function selectClusterModeForThread",
-    "type ComposerModeIcon",
-  );
-  const modeSwitch = sourceBlock(
-    source,
-    "async function switchNewThreadMode",
-    "async function switchComposerClusterMode",
-  );
-  const composer = sourceBlock(
-    source,
-    "function renderComposer(thread",
-    "function renderVideoExpertComposer",
+    "async function createBlankThreadForList",
   );
   const toolbar = sourceBlock(
     await readFile(new URL("../src/renderer/workflow-canvas.ts", import.meta.url), "utf8"),
@@ -589,52 +528,22 @@ test("canvas exit stays available after execution and returns to a new task", as
     "export function workflowCanvasPreferredPanelWidth",
   );
 
-  assert.match(source, /data-action="create-workflow-canvas"/);
-  assert.match(source, /void createBlankWorkflowCanvas\(\)/);
-  assert.match(creation, /newThreadModeByThreadId\.set\(threadId, "multi-agent"\)/);
-  assert.match(creation, /clusterModeByThreadId\.set\(threadId, "multi-model"\)/);
-  assert.match(creation, /ensureNativeMultiAgentModelSelection\(threadId\)/);
-  assert.match(creation, /blankWorkflowCanvasRun\(threadId\)/);
-  assert.match(creation, /workflowChatPanelWidthsByThreadId\.set\([\s\S]*WORKFLOW_CHAT_PANEL_MIN_WIDTH/);
-  assert.match(creation, /state\.leftCollapsed = true/);
-  assert.match(creation, /state\.rightCollapsed = false/);
-  assert.match(
-    source,
-    /state\.activeView === "chat" && !isBlankWorkflowCanvasThread\(thread\?\.id\) \? renderLeftPanelToggle\(\) : ""/,
-  );
-  assert.match(activeLayout, /isBlankWorkflowCanvasRun\(workflowRunsByThreadId\.get\(threadId\)\)/);
-  assert.match(chatHeader, /const blankWorkflowCanvas = isBlankWorkflowCanvasThread/);
-  assert.match(chatHeader, /isBlankNewThread\(thread\.id\) && !blankWorkflowCanvas/);
-  assert.match(chatHeader, /chat-title-text\$\{blankWorkflowCanvas \? " blank-workflow-canvas-title" : ""\}/);
-  assert.match(chatPanel, /: blankWorkflowCanvas\s*\? ""\s*: blankThreadHero/);
-  assert.match(messageScroller, /: blankWorkflowCanvas\s*\? ""\s*: blankThreadHero/);
-  assert.match(chatTitle, /isBlankWorkflowCanvasThread[\s\S]*return "新建画布"/);
-  assert.match(blankCanvasIdentity, /function shouldRenderBlankThreadHero/);
-  assert.match(blankCanvasIdentity, /isBlankNewThread\(threadId\) && !isBlankWorkflowCanvasThread\(threadId\)/);
-  assert.doesNotMatch(source, /isBlankNewThread\(threadId\) \? renderBlankThreadHero/);
-  assert.match(clusterModeSelection, /isBlankWorkflowCanvasThread\(threadId\)/);
-  assert.match(modeSwitch, /if \(isBlankWorkflowCanvasThread\(sourceThreadId\)\)/);
-  assert.match(
-    composer,
-    /const composerModePicker = blankNewThread && !isBlankWorkflowCanvasThread\(thread\.id\)/,
-  );
+  assert.doesNotMatch(source, /createBlankWorkflowCanvas|create-workflow-canvas|blankWorkflowCanvas|isBlankWorkflowCanvas/);
+  assert.match(source, /state\.activeView === "chat" \? renderLeftPanelToggle\(\) : ""/);
+  assert.match(source, /function shouldRenderBlankThreadHero\(threadId: string\)[\s\S]*return isBlankNewThread\(threadId\);/);
   assert.match(toolbar, /<div class="cluster-workflow-toolbar">/);
   assert.match(toolbar, /class="cluster-workflow-toolbar-title" role="heading" aria-level="2">画布<\/span>/);
   assert.match(toolbar, /options\.showExit[\s\S]*data-action="exit-workflow-canvas"[\s\S]*退出画布/);
   assert.match(source, /renderWorkflowToolbar\(workflowRun, \{[\s\S]*showExit: Boolean\(threadId\)/);
   assert.match(source, /data-action="exit-workflow-canvas"[\s\S]*void exitWorkflowCanvas\(\)/);
   assert.match(exit, /if \(!threadId \|\| !workflowCanvasRunWithDraft\(threadId\)\) return/);
-  assert.match(exit, /const blankCanvas = isBlankWorkflowCanvasThread\(threadId\)/);
-  assert.match(exit, /forgetWorkflowCanvasThreadState\(threadId\)/);
-  assert.match(exit, /newThreadModeByThreadId\.delete\(threadId\)/);
-  assert.match(exit, /clusterModeByThreadId\.delete\(threadId\)/);
-  assert.match(exit, /if \(blankCanvas\)[\s\S]*return;[\s\S]*await startNewThread\(\)/);
+  assert.match(exit, /await startNewThread\(\)/);
   assert.match(exit, /state\.leftCollapsed = false/);
   assert.match(exit, /state\.rightCollapsed = true/);
   assert.doesNotMatch(toolbar, /<h2|<header/);
   assert.doesNotMatch(toolbar, /执行未达成|cluster-workflow-progress|cluster-workflow-run-state/);
   assert.match(styles, /\.chat-header\s*\{[^}]*height:\s*46px;/s);
-  assert.match(styles, /\.chat-title-text\.blank-workflow-canvas-title\s*\{[^}]*transform:\s*translateX\(-16px\);/s);
+  assert.doesNotMatch(styles, /blank-workflow-canvas-title/);
   assert.match(styles, /\.cluster-workflow-toolbar\s*\{[^}]*height:\s*46px;/s);
   assert.match(styles, /\.cluster-workflow-toolbar-title\s*\{[^}]*font-size:\s*calc\(13px \+ var\(--app-font-size-offset\)\);/s);
   assert.match(styles, /\.cluster-workflow-toolbar-title\s*\{[^}]*font-weight:\s*400;/s);
@@ -732,7 +641,7 @@ test("multi-model thinking is replaced by the live workflow relay after invited 
 
 test("completed cluster turns fold planning prompts and every workflow bubble with the final result", async () => {
   const source = await rendererSource;
-  const messages = sourceBlock(source, "function messagesForThread", "function threadSearchMatchSummary");
+  const messages = sourceBlock(source, "function messagesForThread", "function isFinalAgentTurnResultMessage");
   const folding = sourceBlock(source, "function withCollapsedTurnResults", "function isTurnResultGroupComplete");
   const prelude = sourceBlock(source, "function multiModelClusterPreludeCollapsed", "function patchMultiModelClusterPlanningProgress");
   const scrollerPatch = sourceBlock(source, "function patchMessageScrollerContent", "function patchStreamingAssistantMessageRow");

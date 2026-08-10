@@ -102,7 +102,7 @@ test("new task group picker opens the group option list before folder import", a
   const optionSelectionBlock = sourceBlock(
     eventBindings,
     '.querySelectorAll<HTMLButtonElement>("[data-new-thread-group-option]")',
-    "'[data-action=\"open-auto-tasks\"]'",
+    "'[data-action=\"open-add-friend-search\"]'",
   );
   assert.match(
     optionSelectionBlock,
@@ -153,13 +153,12 @@ test("group add entries use a cascading create-or-existing folder menu", async (
 
   const chatListBlock = sourceBlock(
     source,
+    "function renderConversationListActions",
     "function renderChatList",
-    "function renderExternalChannelMenu",
   );
-  assert.match(chatListBlock, /data-action="open-group-chat-dialog"/);
-  assert.match(chatListBlock, /<strong>发起群聊<\/strong>/);
+  assert.doesNotMatch(chatListBlock, /open-group-chat-dialog|创建群聊|renderConversationListIcon\("group-chat"\)/);
   assert.doesNotMatch(chatListBlock, /renderThreadGroupAddMenuItem/);
-  assert.match(chatListBlock, /renderExternalChannelCascadeMenuItem\(\)/);
+  assert.doesNotMatch(chatListBlock, /data-action="toggle-external-channel-menu"/);
   assert.doesNotMatch(chatListBlock, />导入分组</);
 
   const autoTaskBlock = sourceBlock(
@@ -181,10 +180,7 @@ test("group add entries use a cascading create-or-existing folder menu", async (
   assert.doesNotMatch(dropdownBlock, />导入分组</);
 
   const styles = await stylesSource;
-  assert.match(
-    styles,
-    /\.chat-new-menu\s*\{[\s\S]*--chat-new-menu-padding: 10px;[\s\S]*--chat-new-menu-submenu-gap: 2px;[\s\S]*--chat-new-menu-submenu-offset: calc\([\s\S]*var\(--chat-new-menu-padding\) \+ 1px \+ var\(--chat-new-menu-submenu-gap\)/,
-  );
+  assert.doesNotMatch(styles, /chat-new-menu/);
   assert.match(
     styles,
     /\.thread-group-add-menu-item\s*\{[\s\S]*--thread-group-add-submenu-offset: 9px;/,
@@ -199,7 +195,11 @@ test("group add entries use a cascading create-or-existing folder menu", async (
   );
   assert.match(
     styles,
-    /\.composer-group-picker \.thread-group-add-submenu\s*\{[\s\S]*transform: translateY\(-50px\);/,
+    /\.composer-group-picker \.thread-group-add-submenu\s*\{[\s\S]*right: calc\(100% \+ var\(--thread-group-add-submenu-offset\)\);[\s\S]*left: auto;[\s\S]*transform: translateY\(-50px\);/,
+  );
+  assert.match(
+    styles,
+    /\.composer-group-picker \.thread-group-add-icon-chevron\s*\{[\s\S]*transform: rotate\(180deg\);/,
   );
   assert.match(
     styles,
@@ -214,6 +214,10 @@ test("group add entries use a cascading create-or-existing folder menu", async (
   assert.match(
     styles,
     /\.thread-group-add-submenu::before\s*\{[\s\S]*right: 100%;[\s\S]*width: var\(--thread-group-add-submenu-offset\);/,
+  );
+  assert.match(
+    styles,
+    /\.composer-group-picker \.thread-group-add-submenu::before\s*\{[\s\S]*right: auto;[\s\S]*left: 100%;/,
   );
   assert.match(
     styles,
@@ -232,7 +236,7 @@ test("group add entries use a cascading create-or-existing folder menu", async (
   );
   assert.match(
     styles,
-    /\.desktop-body > aside:not\(\.app-sidebar\):not\(\.agent-panel\):not\(\.chat-list\)/,
+    /\.desktop-body > aside:not\(\.agent-panel\):not\(\.chat-list\)/,
   );
   assert.match(
     styles,
@@ -242,63 +246,68 @@ test("group add entries use a cascading create-or-existing folder menu", async (
     styles,
     /\.desktop-body > \.chat-panel:has\(\.composer-context-group-picker\.open\)\s*\{[\s\S]*z-index: 5;[\s\S]*overflow: visible;/,
   );
+  assert.match(
+    styles,
+    /\.desktop-body\.trading-expert-layout[\s\S]*?> \.trading-expert-panel:has\([\s\S]*?> \.composer \.composer-context-group-picker\.open[\s\S]*?\)\s*\{[^}]*z-index: 70;[^}]*overflow: visible;/,
+  );
 });
 
-test("external channel entry opens as a cascading submenu", async () => {
+test("external channel entry opens from the titlebar text action", async () => {
   const source = await mainSource;
-  const cascadeBlock = sourceBlock(
+  const actionBlock = sourceBlock(
     source,
-    "function renderExternalChannelCascadeMenuItem",
-    "function renderExternalChannelMenu",
+    "function renderTitlebarPrimaryActions",
+    "function renderWindowControls",
   );
 
-  assert.match(cascadeBlock, /external-channel-cascade-item/);
-  assert.match(cascadeBlock, /data-action="prime-external-channel-menu"/);
-  assert.match(
-    cascadeBlock,
-    /renderExternalChannelMenu\(\{ submenu: true \}\)/,
-  );
-  assert.match(cascadeBlock, /renderThreadGroupAddMenuIcon\("chevron"\)/);
+  assert.match(actionBlock, /data-action="toggle-external-channel-menu"/);
+  assert.match(actionBlock, /aria-haspopup="menu"/);
+  assert.match(actionBlock, />连接<\/button>/);
+  assert.match(actionBlock, /titlebar-channel-menu-overlay[\s\S]*renderExternalChannelMenu\(\)/);
+  assert.doesNotMatch(actionBlock, /renderConversationListIcon|<svg/);
 
   const menuBlock = sourceBlock(
     source,
     "function renderExternalChannelMenu",
     "function renderExternalChannelRow",
   );
-  assert.match(menuBlock, /options: \{ submenu\?: boolean \} = \{\}/);
-  assert.match(menuBlock, /external-channel-submenu/);
+  assert.match(menuBlock, /class="external-channel-menu" role="menu"/);
+  assert.doesNotMatch(menuBlock, /submenu/);
   assert.doesNotMatch(menuBlock, /external-channel-menu-title/);
   assert.doesNotMatch(menuBlock, />连接渠道</);
+
+  const menuItemsBlock = sourceBlock(
+    source,
+    "function externalChannelMenuItems",
+    "function externalChannelSubtitle",
+  );
+  assert.match(menuItemsBlock, /\["wechat", "feishu", "telegram"\]/);
 
   const eventBindings = source.slice(source.indexOf("function bindEvents"));
   const bindBlock = sourceBlock(
     eventBindings,
-    "'[data-action=\"prime-external-channel-menu\"]'",
+    "'[data-action=\"toggle-external-channel-menu\"]'",
     '"[data-external-channel-id]"',
   );
   assert.match(bindBlock, /mouseenter/);
   assert.match(bindBlock, /focus/);
   assert.match(bindBlock, /primeExternalChannelMenu\(\)/);
-  assert.doesNotMatch(source, /data-action="open-external-channel-menu"/);
+  assert.doesNotMatch(source, /external-channel-cascade-item|external-channel-submenu/);
 
   const styles = await stylesSource;
   assert.match(
     styles,
-    /\.external-channel-menu\.external-channel-submenu\s*\{[\s\S]*top: auto;[\s\S]*bottom: calc\(-1 \* \(var\(--chat-new-menu-padding\) \+ 1px\)\);[\s\S]*left: calc\(100% \+ var\(--chat-new-menu-submenu-offset\)\);[\s\S]*display: none;[\s\S]*border-radius: 10px;/,
-  );
-  assert.doesNotMatch(styles, /--chat-new-menu-row-height/);
-  assert.match(
-    styles,
-    /\.external-channel-menu\.external-channel-submenu::before\s*\{[\s\S]*right: 100%;[\s\S]*width: var\(--chat-new-menu-submenu-offset\);/,
+    /\.titlebar-channel-menu-overlay\s*\{[\s\S]*position:\s*absolute;[\s\S]*top:\s*100%;[\s\S]*z-index:\s*90;[\s\S]*display:\s*none;[\s\S]*width:\s*208px;[\s\S]*padding-top:\s*5px;/,
   );
   assert.match(
     styles,
-    /\.external-channel-cascade-item:hover > \.external-channel-submenu/,
+    /\.titlebar-channel-action:is\(:hover, \.menu-open\) > \.titlebar-channel-menu-overlay\s*\{[^}]*display:\s*block;/,
   );
-  assert.match(
-    styles,
-    /\.chat-new-menu \.external-channel-menu \.external-channel-row\s*\{[\s\S]*display: grid;[\s\S]*grid-template-columns: 24px minmax\(0, 1fr\);/,
-  );
+  assert.match(styles, /\.external-channel-row:is\(:hover, :focus-visible\)\s*\{[^}]*background:\s*var\(--surface-hover\);/);
+  assert.match(styles, /\.external-channel-row:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/);
+  assert.match(styles, /\.external-channel-row:active\s*\{[^}]*background:\s*var\(--surface-interactive-hover\);/);
+  assert.match(styles, /html\[data-theme="dark"\] \.external-channel-menu[\s\S]*background:\s*#1b1e23;/);
+  assert.doesNotMatch(styles, /chat-new-menu|external-channel-submenu|external-channel-cascade-item/);
 });
 
 test("new group folder dialog creates a real folder before importing it", async () => {
@@ -431,7 +440,7 @@ test("composer creates an empty folder group immediately and assigns the convers
     listBlock,
     /const showEmptyGroups = [\s\S]*visibleGroups\.length > 0/,
   );
-  assert.match(listBlock, /groupedThreadsForList\(threads, showEmptyGroups\)/);
+  assert.match(listBlock, /groupedThreadsForList\(projectThreads, showEmptyGroups\)/);
 });
 
 test("conversation-list group menus open beside the list with the same small gap as thread menus", async () => {
@@ -935,27 +944,20 @@ test("only the top-level new task composer renders the group picker", async () =
   );
 });
 
-test("thread rows reserve the blank background class for top-level blank tasks", async () => {
+test("new conversation is a sticky standalone action instead of a decorated thread row", async () => {
   const source = await mainSource;
-  const rowBlock = sourceBlock(
+  const actions = sourceBlock(
     source,
-    "function renderThreadRow(thread: ConversationSummary)",
-    "function threadComposerDraftPreview",
+    "function renderConversationListActions",
+    "function renderChatList",
   );
 
-  assert.match(rowBlock, /isTopLevelBlankTaskPlaceholder/);
-  assert.match(
-    rowBlock,
-    /groupBlankNewThread\s*=\s*groupBlankThreadIds\.has\(thread\.id\)/,
-  );
-  assert.match(
-    rowBlock,
-    /\$\{topLevelBlankNewThread \? "blank-new-thread" : ""\}/,
-  );
-  assert.doesNotMatch(
-    rowBlock,
-    /\$\{blankNewThread \? "blank-new-thread" : ""\}/,
-  );
+  assert.match(actions, /class="conversation-list-new-sticky"/);
+  assert.match(actions, /class="conversation-list-action conversation-list-new-action/);
+  assert.match(actions, /data-action="new-chat"/);
+  assert.doesNotMatch(source, /renderChatNewMenuToggle|new-task-chat-new-menu-wrap|chat-new-menu-overlay/);
+  const styles = await stylesSource;
+  assert.match(styles, /\.conversation-list-new-sticky\s*\{[^}]*position: sticky;[^}]*top: 0;[^}]*z-index: 12;/s);
 });
 
 test("conversation group sections are ordered through group sorting instead of forcing history first", async () => {
@@ -979,7 +981,8 @@ test("conversation group sections are ordered through group sorting instead of f
   );
 
   assert.match(orderingBlock, /sortedThreadGroups\(\)/);
-  assert.match(orderingBlock, /history:\s*true/);
+  assert.match(orderingBlock, /byGroupId\.set\(defaultGroup\.id, \{ group: defaultGroup, threads: grouped\.defaultThreads \}\)/);
+  assert.doesNotMatch(orderingBlock, /history:/);
 });
 
 test("all provider tasks enter groups and provider drafts stay out of the conversation list", async () => {
@@ -987,18 +990,10 @@ test("all provider tasks enter groups and provider drafts stay out of the conver
   const topLevelBlock = sourceBlock(
     source,
     "function isTopLevelConversationThread",
-    "function compareTopLevelConversationThreads",
+    "function renderThreadSection",
   );
   assert.doesNotMatch(topLevelBlock, /isVideoExpertThread\(thread\)/);
   assert.doesNotMatch(topLevelBlock, /isProviderThread\(thread\)/);
-
-  const rankBlock = sourceBlock(
-    source,
-    "function topLevelConversationThreadRank",
-    "function renderThreadSection",
-  );
-  assert.match(rankBlock, /externalChannelConnectionThreadRank\(thread\)/);
-  assert.doesNotMatch(rankBlock, /isVideoExpertThread\(thread\)/);
 
   const groupingBlock = sourceBlock(
     source,
@@ -1080,7 +1075,7 @@ test("video-generation drafts reuse the new-task group picker above the composer
   );
 });
 
-test("adjacent conversation rows have a uniform 3px top gap", async () => {
+test("existing conversations use a compact 2px gap while legacy rows keep their 3px fallback", async () => {
   const source = await stylesSource;
 
   assert.match(
@@ -1090,6 +1085,10 @@ test("adjacent conversation rows have a uniform 3px top gap", async () => {
   assert.match(
     source,
     /\.conversation-row-wrap\.wechat-channel-row-wrap\s*\{\s*margin-top: 3px;\s*\}/s,
+  );
+  assert.match(
+    source,
+    /\.conversation-section\s*> \.conversation-row-minimal\s*\+ \.conversation-row-minimal\s*\{\s*margin-top: 2px;\s*\}/s,
   );
 });
 
@@ -1102,7 +1101,7 @@ test("agent and contact rows have a uniform 3px gap", async () => {
   );
 });
 
-test("only the video expert row keeps empty preview height for time alignment", async () => {
+test("all conversation types share the same minimal one-line row", async () => {
   const source = await mainSource;
   const rowBlock = sourceBlock(
     source,
@@ -1110,22 +1109,12 @@ test("only the video expert row keeps empty preview height for time alignment", 
     "function threadComposerDraftPreview",
   );
 
-  assert.match(
-    rowBlock,
-    /const videoExpertThread = isVideoExpertThread\(thread\)/,
-  );
-  assert.match(
-    rowBlock,
-    /\$\{videoExpertThread \? "video-expert-row-wrap" : ""\}/,
-  );
-  assert.doesNotMatch(rowBlock, /hasThreadMenu/);
+  assert.match(rowBlock, /conversation-row-wrap conversation-row-minimal/);
+  assert.match(rowBlock, /conversation-copy conversation-copy-minimal/);
+  assert.doesNotMatch(rowBlock, /videoExpertThread|row-preview|video-expert-row-wrap|hasThreadMenu/);
 
   const styles = await stylesSource;
-  assert.match(
-    styles,
-    /\.conversation-row-wrap\.video-expert-row-wrap \.row-preview:empty\s*\{\s*min-height: 16px;\s*\}/s,
-  );
-  assert.doesNotMatch(styles, /\.conversation-row-wrap\.has-thread-menu/);
+  assert.doesNotMatch(styles, /video-expert-row-wrap|video-expert-centered-title|\.conversation-row-wrap\.has-thread-menu/);
 });
 
 test("top-level new task placeholder is repaired after thread loading", async () => {
@@ -1159,7 +1148,7 @@ test("top-level new task placeholder is repaired after thread loading", async ()
   assert.match(ensureBlock, /state\.currentThreadId\s*=\s*threadId/);
 });
 
-test("left panel collapse control stays on chat pages except the blank new canvas", async () => {
+test("left panel collapse control stays on every chat page", async () => {
   const source = await mainSource;
   const renderBlock = sourceBlock(
     source,
@@ -1174,11 +1163,16 @@ test("left panel collapse control stays on chat pages except the blank new canva
     renderBlock,
     /isChatLeftCollapsed \? "left-panel-collapsed" : ""/,
   );
-  assert.match(
-    renderBlock,
-    /state\.activeView === "chat" && !isBlankWorkflowCanvasThread\(thread\?\.id\) \? renderLeftPanelToggle\(\) : ""/,
+  const titlebarBlock = sourceBlock(
+    source,
+    "function renderWindowControls",
+    "function renderLeftPanelToggle",
   );
-  assert.match(renderBlock, /renderAppSidebar\(\)/);
+  assert.match(
+    titlebarBlock,
+    /state\.activeView === "chat" \? renderLeftPanelToggle\(\) : ""[\s\S]*class="titlebar-profile"/,
+  );
+  assert.doesNotMatch(renderBlock, /renderAppSidebar\(\)/);
   assert.match(renderBlock, /renderChatList\(\)/);
 
   const toggleBlock = sourceBlock(
@@ -1188,6 +1182,7 @@ test("left panel collapse control stays on chat pages except the blank new canva
   );
   assert.match(toggleBlock, /data-action="toggle-left-panel"/);
   assert.match(toggleBlock, /renderPanelLayoutIcon\("left"\)/);
+  assert.doesNotMatch(toggleBlock, /renderCollapseChevronIcon|collapse-chevron-icon/);
   assert.match(
     toggleBlock,
     /class="panel-layout-icon panel-layout-icon-\$\{side\}"/,
@@ -1228,15 +1223,18 @@ test("left panel collapse control stays on chat pages except the blank new canva
   const styles = await stylesSource;
   assert.match(
     styles,
-    /\.left-panel-toggle\s*\{[\s\S]*left: calc\(52px \+ 240px \+ 6px\);[\s\S]*transition: color 0\.18s ease, background-color 0\.18s ease, left 0\.24s ease;/,
+    /\.left-panel-toggle\s*\{[^}]*top: 6px;[^}]*left: 0;[^}]*z-index: 110;[^}]*transition: color 0\.18s ease, background-color 0\.18s ease;/s,
   );
+  assert.match(styles, /\.app-titlebar\s*\{[^}]*padding: 0 0 0 27px;/s);
+  assert.match(styles, /\.profile-menu\s*\{[^}]*left: 27px;/s);
+  assert.match(styles, /\.titlebar-channel-menu-overlay\s*\{[^}]*position: absolute;[^}]*left: 50%;[^}]*transform: translateX\(-50%\);/s);
   assert.match(
     styles,
     /\.desktop-shell\.left-panel-collapsed \.left-panel-toggle/,
   );
   assert.match(
     styles,
-    /\.panel-toggle:is\(\.left-panel-toggle, \[data-action="toggle-right-panel"\]\)\s*\{[\s\S]*color: var\(--text-placeholder\);/,
+    /\.panel-toggle:is\([\s\S]*?\.left-panel-toggle,[\s\S]*?\[data-action="toggle-right-panel"\],[\s\S]*?\[data-action="toggle-trading-expert-chart"\][\s\S]*?\)\s*\{[\s\S]*?color: var\(--text-placeholder\);/,
   );
   assert.match(
     styles,
@@ -1244,7 +1242,7 @@ test("left panel collapse control stays on chat pages except the blank new canva
   );
   assert.match(
     styles,
-    /\.panel-toggle:is\(\.left-panel-toggle, \[data-action="toggle-right-panel"\]\)\[aria-expanded="true"\]\s*\{[\s\S]*color: var\(--text-tertiary\);/,
+    /\.panel-toggle:is\([\s\S]*?\.left-panel-toggle,[\s\S]*?\[data-action="toggle-right-panel"\],[\s\S]*?\[data-action="toggle-trading-expert-chart"\][\s\S]*?\)\[aria-expanded="true"\]\s*\{[\s\S]*?color: var\(--text-tertiary\);/,
   );
   assert.match(
     styles,
@@ -1252,9 +1250,9 @@ test("left panel collapse control stays on chat pages except the blank new canva
   );
   assert.match(
     styles,
-    /\.desktop-body > \.app-sidebar,\s*\.desktop-body > \.chat-list\s*\{[\s\S]*width 0\.24s ease,[\s\S]*max-width 0\.24s ease,[\s\S]*border-color 0\.24s ease;/,
+    /\.desktop-body > \.chat-list\s*\{[\s\S]*width 0\.24s ease,[\s\S]*max-width 0\.24s ease,[\s\S]*border-color 0\.24s ease;/,
   );
-  assert.match(styles, /\.desktop-body\.left-panel-collapsed > \.app-sidebar/);
+  assert.doesNotMatch(styles, /\.desktop-body\.left-panel-collapsed > \.app-sidebar/);
   assert.match(styles, /\.desktop-body\.left-panel-collapsed > \.chat-list/);
   assert.match(
     styles,
@@ -1298,7 +1296,7 @@ test("clicking a new task row collapses the expanded system dashboard", async ()
   );
 });
 
-test("new task header hides its dashboard toggle while preserving a canvas title", async () => {
+test("new task header hides its dashboard toggle and title", async () => {
   const source = await mainSource;
   const headerBlock = sourceBlock(
     source,
@@ -1308,11 +1306,7 @@ test("new task header hides its dashboard toggle while preserving a canvas title
 
   assert.match(
     headerBlock,
-    /const blankWorkflowCanvas = isBlankWorkflowCanvasThread\(thread\.id\)/,
-  );
-  assert.match(
-    headerBlock,
-    /const titleContent = isBlankNewThread\(thread\.id\) && !blankWorkflowCanvas\s*\?\s*""\s*:\s*`<span class="chat-title-text\$\{blankWorkflowCanvas \? " blank-workflow-canvas-title" : ""\}">/,
+    /const titleContent = isBlankNewThread\(thread\.id\)\s*\? ""\s*:\s*`<span class="chat-title-text">/,
   );
   assert.match(
     headerBlock,

@@ -118,13 +118,8 @@ test("Haolo group members use persistent full Agent threads with tool access", a
   assert.match(memberRequest, /groupChatThreadId:\s*record\.id/);
 });
 
-test("creating a group and routing its Haolo member cannot inherit DeepSeek", async () => {
+test("routing an existing group's Haolo member cannot inherit DeepSeek", async () => {
   const source = await rendererSource;
-  const creation = sourceBlock(
-    source,
-    "function completeGroupChatDialog",
-    "function captureGroupChatDialogScroll",
-  );
   const target = sourceBlock(
     source,
     "function localGroupChatContextTarget",
@@ -136,9 +131,6 @@ test("creating a group and routing its Haolo member cannot inherit DeepSeek", as
     "function hydrateSelectedChatModel",
   );
 
-  assert.match(creation, /`local-group-chat:\$\{crypto\.randomUUID\(\)\}`/);
-  assert.match(creation, /restoreComposerDraftForThread\(threadId\)/);
-  assert.doesNotMatch(creation, /selectedChatModelRequestOptions/);
   assert.match(target, /provider === "codex"[\s\S]*codexToolExecutionModelOption/);
   assert.doesNotMatch(target, /selectedChatModelValue\(null\)/);
   assert.match(toolOptions, /supportsCodexToolExecutionModel\(option\)/);
@@ -335,7 +327,8 @@ test("group @ cascade exposes favorites, session references, and members", async
   assert.match(source, /localGroupChatMentionTokens\(/);
   assert.match(source, /localGroupChatQuotedMemberId\(record, quote\)/);
   assert.match(composer, /Boolean\(localGroupChatRecord\(thread\.id\)\)/);
-  assert.match(composer, /const composerTrailingPicker = multiAgentMode \|\| isTradingExpertThreadId\(thread\.id\)/);
+  assert.match(composer, /const composerTrailingPicker = multiAgentMode/);
+  assert.doesNotMatch(composer, /multiAgentMode \|\| isTradingExpertThreadId\(thread\.id\)/);
   assert.match(source, /发送消息，输入 @ 可指定一个或多个群成员回复/);
 });
 
@@ -447,7 +440,7 @@ test("member moderation uses avatar notices without a mute text badge", async ()
   assert.match(providerHistory, /groupChatMemberName:/);
 });
 
-test("new group controls cover light and dark interaction states", async () => {
+test("group member controls cover light and dark interaction states", async () => {
   const styles = await stylesSource;
   for (const selector of [
     ".local-group-chat-member-cell:hover",
@@ -483,7 +476,7 @@ test("local groups bypass handled-time decoration and result collapsing after wo
   const messages = sourceBlock(
     source,
     "function messagesForThread",
-    "function threadSearchMatchSummary",
+    "function isFinalAgentTurnResultMessage",
   );
 
   assert.match(

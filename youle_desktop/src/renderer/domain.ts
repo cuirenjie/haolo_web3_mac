@@ -260,14 +260,7 @@ export const ROLE_AVATAR_URL: Partial<Record<RoleKey, string>> = {
 export const TEAM_AVATAR_URL = new URL("./assets/haolo-app-avatar.png", import.meta.url).href;
 
 export const HOME_ICON_URL = {
-  message: new URL("./assets/nav/message.svg", import.meta.url).href,
   messageActive: new URL("./assets/nav/message-active.svg", import.meta.url).href,
-  contacts: new URL("./assets/nav/contacts.svg", import.meta.url).href,
-  contactsActive: new URL("./assets/nav/contacts-active.svg", import.meta.url).href,
-  library: new URL("./assets/nav/cube-library.svg", import.meta.url).href,
-  libraryActive: new URL("./assets/nav/cube-library-active.svg", import.meta.url).href,
-  resources: new URL("./assets/nav/resources.svg", import.meta.url).href,
-  resourcesActive: new URL("./assets/nav/resources-active.svg", import.meta.url).href,
   autoTask: new URL("./assets/nav/auto-task.svg", import.meta.url).href,
   autoTaskActive: new URL("./assets/nav/auto-task-active.svg", import.meta.url).href,
   autoTaskChat: new URL("./assets/home/auto-task-zidong.png", import.meta.url).href,
@@ -287,7 +280,6 @@ export const HOME_ICON_URL = {
   loginLogo: new URL("./assets/haolo-login-logo.png", import.meta.url).href,
   search: new URL("./assets/home/icon-search.svg", import.meta.url).href,
   upload: new URL("./assets/home/icon-upload.svg", import.meta.url).href,
-  settings: new URL("./assets/nav/settings.svg", import.meta.url).href,
   newChat: new URL("./assets/home/icon-new-chat.svg", import.meta.url).href,
   menuAutoTask: new URL("./assets/images/menu-auto-task.svg", import.meta.url).href,
   menuAddFriend: new URL("./assets/images/menu-add-friend.svg", import.meta.url).href,

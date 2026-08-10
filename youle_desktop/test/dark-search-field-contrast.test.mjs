@@ -12,14 +12,14 @@ test("dark primary search fields stay visible against their surrounding surfaces
 
   assert.match(
     styles,
-    /html\[data-theme="dark"\] \.chat-search-box,\s*html\[data-theme="dark"\] \.contacts-search-box,\s*html\[data-theme="dark"\] \.skills-plaza-search\s*\{\s*background: var\(--surface-hover-strong\);/s,
+    /html\[data-theme="dark"\] \.contacts-search-box,\s*html\[data-theme="dark"\] \.skills-plaza-search\s*\{\s*background: var\(--surface-hover-strong\);/s,
   );
   assert.match(
     styles,
-    /html\[data-theme="dark"\] \.chat-search-box:hover,\s*html\[data-theme="dark"\] \.contacts-search-box:hover,\s*html\[data-theme="dark"\] \.skills-plaza-search:hover\s*\{\s*background: var\(--surface-interactive-hover\);/s,
+    /html\[data-theme="dark"\] \.contacts-search-box:hover,\s*html\[data-theme="dark"\] \.skills-plaza-search:hover\s*\{\s*background: var\(--surface-interactive-hover\);/s,
   );
   assert.match(
     styles,
-    /html\[data-theme="dark"\] \.chat-search-box:focus-within,[\s\S]*html\[data-theme="dark"\] \.contacts-search-box\.has-value,[\s\S]*html\[data-theme="dark"\] \.skills-plaza-search:focus-within\s*\{[\s\S]*background: var\(--surface-interactive-hover\);[\s\S]*box-shadow: 0 0 0 1px rgba\(255, 255, 255, 0\.08\);/,
+    /html\[data-theme="dark"\] \.contacts-search-box:focus-within,[\s\S]*html\[data-theme="dark"\] \.contacts-search-box\.has-value,[\s\S]*html\[data-theme="dark"\] \.skills-plaza-search:focus-within\s*\{[\s\S]*background: var\(--surface-interactive-hover\);[\s\S]*box-shadow: 0 0 0 1px rgba\(255, 255, 255, 0\.08\);/,
   );
 });

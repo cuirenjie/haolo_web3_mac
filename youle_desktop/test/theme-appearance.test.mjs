@@ -4,6 +4,7 @@ import test from "node:test";
 
 const rendererSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
+const desktopMainSource = readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 
 function sourceBlock(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -13,18 +14,32 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("appearance preference initializes before desktop boot and safely defaults to light", async () => {
-  const source = await rendererSource;
+test("appearance preference initializes before desktop boot and safely defaults to dark", async () => {
+  const [source, desktopMain] = await Promise.all([rendererSource, desktopMainSource]);
   const initialization = sourceBlock(source, "function loadAppTheme", "ensureBrowserDesktopApi();");
 
   assert.match(source, /const APP_THEME_STORAGE_KEY = "haolo\.appearance\.theme"/);
-  assert.match(initialization, /localStorage\.getItem\(APP_THEME_STORAGE_KEY\) === "dark" \? "dark" : "light"/);
-  assert.match(initialization, /catch \{\s*return "light";/s);
+  assert.match(initialization, /localStorage\.getItem\(APP_THEME_STORAGE_KEY\) === "light" \? "light" : "dark"/);
+  assert.match(initialization, /catch \{\s*return "dark";/s);
   assert.match(initialization, /const INITIAL_APP_THEME = loadAppTheme\(\);\s*applyAppTheme\(INITIAL_APP_THEME\);/s);
   assert.match(source, /setAppTheme\?\(params: \{ theme: AppTheme \}\): Promise<\{ theme\?: AppTheme \}>/);
   assert.match(source, /syncAppThemePreference\(INITIAL_APP_THEME\);/);
+  assert.match(desktopMain, /DEFAULT_APP_PREFERENCES = Object\.freeze\(\{\s*theme: "dark"/s);
+  assert.match(desktopMain, /function normalizeAppTheme\(value\) \{\s*return value === "light" \? "light" : "dark";/s);
+  assert.match(desktopMain, /backgroundColor: appTheme\(\) === "dark" \? "#101216" : "#f6f8fa"/);
   assert.ok(source.indexOf("applyAppTheme(INITIAL_APP_THEME);") < source.indexOf("void boot();"));
   assert.ok(source.indexOf("syncAppThemePreference(INITIAL_APP_THEME);") < source.indexOf("void boot();"));
+});
+
+test("login and desktop windows share 16px outer corners", async () => {
+  const styles = await stylesSource;
+  const lightTokens = sourceBlock(styles, ":root {", 'html[data-font-size="small"]');
+
+  assert.match(lightTokens, /--window-radius: 16px;/);
+  assert.match(styles, /\.login-shell\s*\{[^}]*border-radius: var\(--window-radius\);[^}]*clip-path: inset\(0 round var\(--window-radius\)\);/s);
+  assert.match(styles, /\.login-card\s*\{[^}]*border-radius: var\(--window-radius\);[^}]*clip-path: inset\(0 round var\(--window-radius\)\);/s);
+  assert.match(styles, /\.desktop-shell\s*\{[^}]*border-radius: var\(--window-radius\);[^}]*clip-path: inset\(0 round var\(--window-radius\)\);/s);
+  assert.match(styles, /\.window-maximized \.desktop-shell\s*\{[^}]*border-radius: 0;[^}]*clip-path: none;/s);
 });
 
 test("theme application updates the root color scheme and persists an explicit selection", async () => {
@@ -212,7 +227,7 @@ test("night mode separates option hover and selected blue highlights", async () 
   assert.match(highlightRules, /background: var\(--selection-soft\)/);
   assert.match(highlightRules, /background: var\(--selection-strong\)/);
   assert.match(highlightRules, /\.thread-group-add-menu-item:is\(:hover, :focus-within, \.submenu-open\)/);
-  assert.match(highlightRules, /\.external-channel-cascade-item:is\(:hover, :focus-within, \.submenu-open\)/);
+  assert.match(styles, /\.titlebar-channel-action\.menu-open > \.titlebar-primary-action/);
   assert.match(highlightRules, /\.thread-marker-menu-item:is\(:hover, :focus-within, \.submenu-open\)/);
   assert.match(highlightRules, /\.conversation-row-wrap/);
   assert.match(highlightRules, /\.contact-row-wrap/);

@@ -92,6 +92,10 @@ test("profile menu keeps recharge beside the balance and omits My Config", async
   );
   assert.match(
     styles,
+    /\.profile-menu\s*\{[^}]*position:\s*fixed;[^}]*left:\s*27px;/s,
+  );
+  assert.match(
+    styles,
     /\.profile-recharge-button\s*\{[^}]*min-width:\s*52px;[^}]*height:\s*26px;[^}]*border:\s*1px solid rgba\(17, 24, 39, 0\.2\);[^}]*background:\s*transparent;/s,
   );
 });

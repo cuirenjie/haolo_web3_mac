@@ -194,13 +194,13 @@ test("completion, failure, fallback, and deferred resume keep token ownership", 
   const resumeBlock = sourceBlock(source, "async function resumeThreadWithModelLock", "async function resumeThreadForSelectionWithRolloutRetry");
 
   assert.match(selectBlock, /if \(!ownsThreadSwitchTransition\(threadId, threadSwitchToken\)\) return;/);
-  assert.match(selectBlock, /if \(!stillOwnsSelection \|\| !stillOwnsSearchAutoSelection\) return;[\s\S]*scheduleThreadListRefresh\(250\)/);
+  assert.match(selectBlock, /if \(!stillOwnsSelection\) return;[\s\S]*scheduleThreadListRefresh\(250\)/);
   assert.doesNotMatch(selectBlock, /hideUnavailableThread\(threadId\)/);
   assert.match(retryBlock, /const retryDelaysMs = \[200, 700\]/);
   assert.match(retryBlock, /isMissingRolloutError\(errorMessage\(error\)\)[\s\S]*stillOwnsSelection\(\)[\s\S]*await waitMs/);
   assert.match(resumeBlock, /returnedThreadId !== threadId[\s\S]*THREAD_RESUME_ID_MISMATCH/);
   assert.match(selectBlock, /finally[\s\S]*ownsThreadSwitchTransition\(threadId, threadSwitchToken\)[\s\S]*finishThreadSwitchAfterLoad\(threadId, threadSwitchToken, revealHeavyContent\)/);
-  assert.match(deferredBlock, /const workspaceSession = conversationSearchHydrationSession/);
+  assert.match(deferredBlock, /const workspaceSession = backgroundHydrationSession/);
   assert.match(deferredBlock, /resumeThreadForSelectionWithRolloutRetry\([\s\S]*isOwnedThreadSwitchSelection\(threadId, threadSwitchToken, workspaceSession\)/);
   assert.match(deferredBlock, /isOwnedThreadSwitchSelection\(threadId, threadSwitchToken, workspaceSession\)/);
   assert.match(deferredBlock, /finishThreadSwitchAfterLoad\(threadId, threadSwitchToken, revealHeavyContent\)/);

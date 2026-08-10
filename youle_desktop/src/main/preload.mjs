@@ -211,7 +211,6 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   getPathForFile: (file) => webUtils.getPathForFile(file),
   annotateImage: (params) => ipcRenderer.invoke("youle:annotateImage", params),
   listThreads: (params) => ipcRenderer.invoke("codex:listThreads", params),
-  searchThreads: (params) => ipcRenderer.invoke("codex:searchThreads", params),
   modelList: () => ipcRenderer.invoke("codex:modelList"),
   configRead: () => ipcRenderer.invoke("codex:configRead"),
   skillsList: (params) => ipcRenderer.invoke("codex:skillsList", params),

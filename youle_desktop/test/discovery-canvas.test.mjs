@@ -15,26 +15,20 @@ const stylesSource = readFile(
   "utf8",
 );
 
-test("the standalone discovery canvas page and planet navigation entry are removed", async () => {
+test("the standalone discovery canvas page and legacy vertical navigation are removed", async () => {
   const [source, styles] = await Promise.all([rendererSource, stylesSource]);
 
   assert.doesNotMatch(source, /discovery.?canvas/i);
   assert.doesNotMatch(styles, /discovery.?canvas/i);
   assert.doesNotMatch(source, /HOME_ICON_URL\.skillsPlaza(?:Active)?/);
-  assert.match(source, /renderNavIcon\("chat", "消息"/);
-  assert.match(source, /renderNavIcon\("contacts", "通讯录"/);
-  assert.match(source, /renderNavIcon\("results", "成果库"/);
+  assert.doesNotMatch(source, /renderAppSidebar|renderNavIcon|data-nav=/);
+  assert.doesNotMatch(styles, /\.app-sidebar|\.nav-icon|\.nav-stack/);
 });
 
-test("canvas creation, editing, revision, and rendering workflows stay available", async () => {
+test("the blank-canvas shortcut is removed while executed canvas editing, revision, and rendering stay available", async () => {
   const [source, canvas] = await Promise.all([rendererSource, workflowCanvasSource]);
 
-  assert.match(source, /async function createBlankWorkflowCanvas\(\)/);
-  assert.match(source, /data-action="create-workflow-canvas"/);
-  assert.match(
-    source,
-    /querySelector<HTMLButtonElement>\('\[data-action="create-workflow-canvas"\]'\)[\s\S]*createBlankWorkflowCanvas\(\)/,
-  );
+  assert.doesNotMatch(source, /createBlankWorkflowCanvas|create-workflow-canvas|blankWorkflowCanvas|isBlankWorkflowCanvas/);
   assert.match(source, /function createWorkflowCanvasRevisionDraft\(/);
   assert.match(source, /async function updateWorkflowNodeRevisionDraft\(/);
   assert.match(source, /api\.createWorkflowRevisionDraft/);

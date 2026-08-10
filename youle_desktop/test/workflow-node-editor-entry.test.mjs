@@ -101,7 +101,7 @@ test("group-chat workflow node clicks open the editable revision draft directly"
   assert.match(draftUpdate, /api\.compileWorkflowRevisionNode\([\s\S]*definition:[\s\S]*layout:/);
 });
 
-test("a blank canvas persists its first revision before compiling the first node", async () => {
+test("a terminal canvas persists its revision before compiling a node", async () => {
   const renderer = await rendererSource;
   const persistence = sourceBlock(
     renderer,
@@ -118,10 +118,9 @@ test("a blank canvas persists its first revision before compiling the first node
     persistence,
     /isLocalBlankThreadId\(threadId\)[\s\S]*return null/,
   );
-  assert.match(
-    persistence,
-    /seedRun:\s*isBlankWorkflowCanvasRun\(currentRun\)\s*\?\s*currentRun\s*:\s*undefined/,
-  );
+  assert.match(persistence, /runId: currentRun\.id/);
+  assert.match(persistence, /entryBindings: workflowRevisionEntryBindings\(localDraft, layout\)/);
+  assert.doesNotMatch(persistence, /seedRun|BlankWorkflowCanvas/);
   assert.match(
     draftUpdate,
     /await ensurePersistedWorkflowRevisionDraft\(threadId\)[\s\S]*api\.compileWorkflowRevisionNode/,

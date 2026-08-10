@@ -13,7 +13,7 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("thread history keeps legacy user-only entries while global search includes user and AI matches", async () => {
+test("thread history remains a local user-message index after global search removal", async () => {
   const source = await mainSource;
   const historyBlock = sourceBlock(source, "function renderThreadHistoryPopover", "function threadListDisplayName");
   const entryBlock = sourceBlock(source, "function threadHistoryEntriesFromMessages", "function threadHistoryEntriesFromSnapshot");
@@ -21,23 +21,21 @@ test("thread history keeps legacy user-only entries while global search includes
   const hoverBlock = sourceBlock(source, "function beginThreadHistoryHover", "function endThreadHistoryHover");
   const showBlock = sourceBlock(source, "function showThreadHistoryPopover", "function threadHistoryPopoverAnchorCenterY");
 
-  assert.match(source, /type ThreadHistoryEntry = \{[\s\S]*label\??: string;[\s\S]*text: string;[\s\S]*quoteText: string;/);
-  assert.match(entryBlock, /isRenderedUserSideMessage/);
+  assert.match(source, /type ThreadHistoryEntry = \{[\s\S]*label: string;[\s\S]*fromUser: boolean;/);
+  assert.match(entryBlock, /threadHistorySearchableMessages\(threadId, messages\)/);
   assert.match(entryBlock, /threadHistoryEntryLabel/);
-  assert.match(entryBlock, /isConversationSearchMatchMessage\(threadId, message, messages\)/);
-  assert.match(snapshotBlock, /conversationSearchDocumentsFromSnapshot\(thread\)/);
   assert.match(snapshotBlock, /sanitizeIncomingThreadItem\(item, threadId\)/);
   assert.match(snapshotBlock, /dedupeRenderedOptimisticUserMessages\([\s\S]*orderedThreadItems\(thread\)/);
-  assert.match(snapshotBlock, /isRenderedUserSideMessage\(message\) \|\| documentsByMessageId\.has\(message\.id\)/);
+  assert.match(snapshotBlock, /\.filter\(isRenderedUserSideMessage\)/);
   assert.match(historyBlock, /thread\.thread_kind !== "local_codex"/);
   assert.match(historyBlock, /resumeThreadForBackgroundHydration\(threadId, backgroundSession\)/);
   assert.match(historyBlock, /generation !== threadHistoryGeneration\(threadId\)/);
   assert.match(historyBlock, /threadHistoryEntriesByThreadId\.set\(threadId, entries\)/);
   assert.doesNotMatch(historyBlock, /loadThreadInBackground/);
-  assert.match(hoverBlock, /hasThreadHistoryPopoverEntries\(knownEntries, Boolean\(state\.search\.trim\(\)\)\)/);
-  assert.match(historyBlock, /return globalSearchMode \? entries\.length > 0 : entries\.filter\(\(entry\) => entry\.fromUser\)\.length > 1/);
-  assert.match(showBlock, /state\.search\.trim\(\)/);
-  assert.match(showBlock, /query: globalSearchMode \? state\.search\.trim\(\) : ""/);
+  assert.match(hoverBlock, /hasThreadHistoryPopoverEntries\(knownEntries\)/);
+  assert.match(historyBlock, /return entries\.filter\(\(entry\) => entry\.fromUser\)\.length > 1/);
+  assert.match(showBlock, /query: ""/);
+  assert.doesNotMatch(historyBlock, /globalSearchMode|state\.search|conversationSearch/);
   assert.match(historyBlock, /window\.setTimeout\([\s\S]*120\)/);
 });
 
@@ -54,37 +52,27 @@ test("legacy history labels still use the first sentence and attachment placehol
   assert.match(historyBlock, /return "文件"/);
 });
 
-test("popover search uses the current top search state and resets stale global mode before rendering legacy options", async () => {
+test("popover search is local, filters user entries, and highlights matching labels", async () => {
   const source = await mainSource;
   const styles = await stylesSource;
   const renderBlock = sourceBlock(source, "function renderThreadHistoryPopover", "function threadHistoryEntriesFromMessages");
-  const originalBlock = sourceBlock(source, "function renderOriginalThreadHistoryOptions", "function threadHistoryKeywordMatches");
+  const originalBlock = sourceBlock(source, "function renderOriginalThreadHistoryOptions", "function hasThreadHistoryPopoverEntries");
   const showBlock = sourceBlock(source, "function showThreadHistoryPopover", "function threadHistoryPopoverAnchorCenterY");
-  const snippetBlock = sourceBlock(source, "function boundedConversationSearchSnippet", "function renderHighlightedConversationSearchText");
 
   assert.match(renderBlock, /data-thread-history-search/);
-  assert.match(renderBlock, /const globalSearchMode = syncThreadHistoryPopoverGlobalSearchMode\(popover\)/);
-  assert.match(renderBlock, /class="thread-history-popover \$\{globalSearchMode \? "global-search-mode" : ""\}"/);
-  assert.match(renderBlock, /if \(!syncThreadHistoryPopoverGlobalSearchMode\(popover\)\) return renderOriginalThreadHistoryOptions\(popover\)/);
-  assert.match(renderBlock, /const globalSearchMode = Boolean\(state\.search\.trim\(\)\)/);
-  assert.match(renderBlock, /if \(popover\.globalSearchMode === globalSearchMode\) return globalSearchMode/);
-  assert.match(renderBlock, /popover\.query = globalSearchMode \? state\.search\.trim\(\) : ""/);
+  assert.match(renderBlock, /aria-label="搜索此对话"/);
+  assert.match(renderBlock, /return renderOriginalThreadHistoryOptions\(popover\)/);
   assert.match(originalBlock, /const userEntries = popover\.entries\.filter\(\(entry\) => entry\.fromUser\)/);
-  assert.match(originalBlock, /userEntries\.filter\(\(entry\) => conversationSearchIncludes\(entry\.label, query\)\)/);
-  assert.match(originalBlock, /query \? renderHighlightedConversationSearchText\(entry\.label, query\) : escapeHtml\(entry\.label\)/);
-  assert.match(renderBlock, /conversationSearchSnippetFromText\(entry\.text, keyword\)/);
-  assert.match(renderBlock, /conversationSearchSnippetFromText\(entry\.quoteText, keyword\)/);
-  assert.match(renderBlock, /renderHighlightedConversationSearchText\(snippet, keyword\)/);
-  assert.match(showBlock, /query: globalSearchMode \? state\.search\.trim\(\) : ""/);
+  assert.match(originalBlock, /normalizedSearchText\(entry\.label\)\.includes\(normalizedSearchText\(query\)\)/);
+  assert.match(originalBlock, /query \? renderHighlightedSearchText\(entry\.label, query\) : escapeHtml\(entry\.label\)/);
+  assert.match(showBlock, /query: ""/);
   assert.match(renderBlock, /未找到相关内容/);
-  assert.doesNotMatch(originalBlock, /输入关键词搜索当前对话/);
-  assert.match(snippetBlock, /"\.\.\."/);
+  assert.doesNotMatch(renderBlock, /globalSearchMode|state\.search|conversationSearch/);
   assert.match(styles, /\.thread-history-popover\s*\{[\s\S]*width: min\(336px, calc\(100vw - 24px\)\);[\s\S]*max-height: min\(392px, calc\(100vh - 24px\)\)/);
-  assert.doesNotMatch(styles, /\.thread-history-popover\.global-search-mode\s*\{[^}]*width:/);
   assert.match(styles, /\.thread-history-search\s*\{[\s\S]*flex: 0 0 44px/);
   assert.match(styles, /\.thread-history-options\s*\{[\s\S]*max-height: 348px;[\s\S]*overflow-y: auto/);
   assert.match(styles, /\.thread-history-option-text\s*\{[\s\S]*text-overflow: ellipsis;[\s\S]*white-space: nowrap/);
-  assert.match(styles, /\.thread-history-popover\.global-search-mode \.thread-history-option-text\s*\{[\s\S]*text-overflow: clip/);
+  assert.doesNotMatch(styles, /global-search-mode/);
   assert.doesNotMatch(styles, /\.thread-search-nav-button/);
   assert.doesNotMatch(styles, /message-search-highlight-(?:line|table-row)/);
 });
@@ -95,37 +83,33 @@ test("every history popover option keeps its message time aligned at the right",
   const timeBlock = sourceBlock(source, "function threadHistoryEntryTime", "function threadHistoryEntriesFromMessages");
   const entryBlock = sourceBlock(source, "function threadHistoryEntriesFromMessages", "function threadHistoryEntriesFromSnapshot");
   const snapshotBlock = sourceBlock(source, "function threadHistoryEntriesFromSnapshot", "function threadHistoryGeneration");
-  const globalOptionsBlock = sourceBlock(source, "function renderThreadHistoryOptions", "function syncThreadHistoryPopoverGlobalSearchMode");
-  const originalOptionsBlock = sourceBlock(source, "function renderOriginalThreadHistoryOptions", "function threadHistoryKeywordMatches");
+  const optionsBlock = sourceBlock(source, "function renderOriginalThreadHistoryOptions", "function hasThreadHistoryPopoverEntries");
 
   assert.match(source, /type ThreadHistoryEntry = \{[\s\S]*time: string;/);
   assert.match(timeBlock, /firstString\(message\.time\) \|\| formatThreadTime\(firstString\(message\.created_at, createdAt\)\)/);
   assert.match(entryBlock, /time: threadHistoryEntryTime\(message\)/);
   assert.match(snapshotBlock, /time: threadHistoryEntryTime\(message\)/);
-  assert.match(globalOptionsBlock, /<time class="thread-history-option-time bubble-time">\$\{escapeHtml\(entry\.time\)\}<\/time>/);
-  assert.match(originalOptionsBlock, /<time class="thread-history-option-time bubble-time">\$\{escapeHtml\(entry\.time\)\}<\/time>/);
+  assert.match(optionsBlock, /<time class="thread-history-option-time bubble-time">\$\{escapeHtml\(entry\.time\)\}<\/time>/);
   assert.match(styles, /\.thread-history-option\s*\{[\s\S]*display: flex;[\s\S]*align-items: center;[\s\S]*gap: 10px/);
   assert.match(styles, /\.thread-history-option-text\s*\{[\s\S]*flex: 1 1 auto/);
   assert.match(styles, /\.thread-history-option-time\s*\{[\s\S]*flex: 0 0 auto;[\s\S]*margin-left: auto;[\s\S]*color: #b6bcc6/);
   assert.match(styles, /\.bubble-time\s*\{[\s\S]*font-size: calc\(11px \+ var\(--app-font-size-offset\)\);[\s\S]*font-weight: 400;[\s\S]*line-height: 1\.4/);
 });
 
-test("global keyword jumps highlight the whole bubble and keyword while legacy jumps keep their outline", async () => {
+test("local history jumps select the message and keep the outline highlight", async () => {
   const source = await mainSource;
   const styles = await stylesSource;
   const jumpBlock = sourceBlock(source, "function requestThreadHistoryJump", "function resetThreadHistoryNavigation");
   const resolverBlock = sourceBlock(source, "function resolveThreadHistoryJumpMessageId", "function resolveConsumptionRecordJumpMessageId");
   const renderBlock = sourceBlock(source, "function render()", "function scheduleRender");
   const eventBlock = sourceBlock(source, "function bindThreadHistoryPopoverEvents", "function refreshThreadHistoryOptions");
-  const targetBlock = sourceBlock(source, "function threadHistoryJumpHighlightTargetForMessages", "function conversationSearchSnippetFromText");
+  const targetBlock = sourceBlock(source, "function threadHistoryJumpHighlightTargetForMessages", "function searchableConversationMessageText");
   const messageBlock = sourceBlock(source, "function renderMessage(message: Message", "function messageRenderSignature");
 
   assert.ok(jumpBlock.indexOf("pendingThreadHistoryJump =") < jumpBlock.indexOf("selectThread(threadId"));
-  assert.match(eventBlock, /const globalSearchMode = popoverState \? syncThreadHistoryPopoverGlobalSearchMode\(popoverState\) : false/);
-  assert.match(eventBlock, /const keyword = globalSearchMode && popoverState \? popoverState\.query\.trim\(\) : ""/);
-  assert.match(eventBlock, /requestThreadHistoryJump\(threadId, messageId, keyword, globalSearchMode, entry\)/);
-  assert.match(jumpBlock, /function requestThreadHistoryJump\([\s\S]*keyword: string,[\s\S]*globalSearchMode: boolean/);
-  assert.match(jumpBlock, /keyword,[\s\S]*globalSearchMode,[\s\S]*fallbackSearchableIndex/);
+  assert.match(eventBlock, /requestThreadHistoryJump\(threadId, messageId, "", entry\)/);
+  assert.match(jumpBlock, /function requestThreadHistoryJump\([\s\S]*keyword: string,[\s\S]*entry: ThreadHistoryEntry/);
+  assert.match(jumpBlock, /keyword,[\s\S]*fallbackSearchableIndex/);
   assert.match(jumpBlock, /selectThread\(threadId, \{ threadHistoryJumpToken: token \}\)/);
   assert.match(jumpBlock, /\.message-row\[data-message-id=/);
   assert.match(jumpBlock, /setMessageStreamFollow\(target\.threadId, false\)/);
@@ -133,26 +117,21 @@ test("global keyword jumps highlight the whole bubble and keyword while legacy j
   assert.match(jumpBlock, /threadHistorySearchableMessages\(target\.threadId, messagesForThread\(target\.threadId\)\)/);
   assert.match(jumpBlock, /fallbackSearchableIndex/);
   assert.doesNotMatch(resolverBlock, /fallbackUserIndex|const userMessages/);
-  assert.match(jumpBlock, /activeThreadHistoryJumpHighlight = \{ threadId, messageId, keyword, globalSearchMode, expiresAt: Date\.now\(\) \+ 1800 \}/);
+  assert.match(jumpBlock, /activeThreadHistoryJumpHighlight = \{ threadId, messageId, keyword, expiresAt: Date\.now\(\) \+ 1800 \}/);
   assert.match(jumpBlock, /updateActiveMessageScroller\(\)/);
   assert.match(jumpBlock, /classList\.add\("thread-history-jump-target"\)/);
   assert.match(jumpBlock, /window\.setTimeout\(\(\) => clearThreadHistoryJumpHighlight\(\), 1800\)/);
   assert.match(jumpBlock, /const previous = activeThreadHistoryJumpHighlight/);
   assert.match(jumpBlock, /options\.refreshMessages !== false[\s\S]*updateActiveMessageScroller\(\)/);
   assert.match(targetBlock, /return \{ messageId: target\.messageId, keyword: target\.keyword \}/);
-  assert.match(messageBlock, /const globalSearchJumpTarget = threadHistoryJumpTarget && activeThreadHistoryJumpHighlight\?\.globalSearchMode/);
-  assert.match(messageBlock, /globalSearchJumpTarget \? "global-search-jump-target" : ""/);
+  assert.match(messageBlock, /threadHistoryJumpTarget \? "thread-history-jump-target" : ""/);
   assert.match(renderBlock, /const hasPendingThreadHistoryJump/);
   assert.match(renderBlock, /const hasActiveThreadHistoryHighlight/);
   assert.match(renderBlock, /!hasPendingThreadHistoryJump &&[\s\S]*!hasActiveThreadHistoryHighlight/);
   assert.doesNotMatch(renderBlock, /hasPendingConversationSearchScroll|scheduleConversationSearchMatchScroll/);
-  assert.match(styles, /\.message-row\.thread-history-jump-target:not\(\.global-search-jump-target\) \.message-bubble\s*\{[\s\S]*thread-history-jump-outline-pulse 1\.8s/);
-  assert.match(styles, /\.message-row\.thread-history-jump-target\.global-search-jump-target \.message-bubble::before/);
-  assert.match(styles, /\.message-search-keyword-highlight\s*\{[\s\S]*color: #0088ff/);
-  assert.doesNotMatch(styles, /\.thread-history-option \.conversation-search-highlight\s*\{[^}]*background/);
+  assert.match(styles, /\.message-row\.thread-history-jump-target \.message-bubble\s*\{[\s\S]*thread-history-jump-outline-pulse 1\.8s/);
+  assert.doesNotMatch(styles, /global-search-jump-target|thread-history-global-jump-pulse/);
   assert.match(styles, /@keyframes thread-history-jump-outline-pulse/);
-  assert.match(styles, /@keyframes thread-history-global-jump-pulse/);
-  assert.match(styles, /animation: thread-history-global-jump-pulse 1\.8s ease-out both/);
 });
 
 test("conversation rows delegate mouse hover and render the fixed popover outside the scrolling list", async () => {

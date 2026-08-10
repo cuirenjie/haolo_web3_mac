@@ -156,17 +156,15 @@ test("main learns hidden thread ids from thread records and direct parent activi
   assert.match(childNotificationBranch, /return;/);
 });
 
-test("main list and search visibility depends only on authoritative thread records", async () => {
+test("main list visibility depends only on authoritative thread records", async () => {
   const source = await mainSource;
-  const listHandler = sourceBlock(source, 'ipcMain.handle("codex:listThreads"', 'ipcMain.handle("codex:searchThreads"');
-  const searchHandler = sourceBlock(source, 'ipcMain.handle("codex:searchThreads"', 'ipcMain.handle("codex:modelList"');
+  const listHandler = sourceBlock(source, 'ipcMain.handle("codex:listThreads"', 'ipcMain.handle("codex:modelList"');
 
-  for (const handler of [listHandler, searchHandler]) {
-    assert.match(handler, /isInternalSubagentThreadRecord\(thread\)/);
-    assert.match(handler, /internalSubagentThreads\.has\(serverClient, threadId\)/);
-    assert.doesNotMatch(handler, /internalSubagentThreadIdsFromProcessItem/);
-    assert.doesNotMatch(handler, /internalSubagentThreadIds\.has\(/);
-  }
+  assert.match(listHandler, /isInternalSubagentThreadRecord\(thread\)/);
+  assert.match(listHandler, /internalSubagentThreads\.has\(serverClient, threadId\)/);
+  assert.doesNotMatch(listHandler, /internalSubagentThreadIdsFromProcessItem/);
+  assert.doesNotMatch(listHandler, /internalSubagentThreadIds\.has\(/);
+  assert.doesNotMatch(source, /codex:searchThreads/);
 });
 
 test("renderer trusts only direct child activity while keeping parent and peer conversations visible", async () => {
@@ -253,14 +251,9 @@ test("renderer has final sidebar and preference defenses for confirmed children"
 test("renderer keeps confirmed children hidden across completion snapshots", async () => {
   const source = await rendererSource;
   const loadThreads = sourceBlock(source, "async function loadThreads", "async function reconcilePersistedThreadContinuations");
-  const searchThreads = sourceBlock(
-    source,
-    "async function prepareServerConversationSearchResults",
-    "function queueConversationSearchHydrations",
-  );
 
   assert.match(loadThreads, /recordIsInternalSubagent \|\| internalSubagentThreadIds\.has\(recordThreadId\)/);
-  assert.match(searchThreads, /recordIsInternalSubagent \|\| internalSubagentThreadIds\.has\(recordThreadId\)/);
+  assert.doesNotMatch(source, /prepareServerConversationSearchResults|queueConversationSearchHydrations/);
   assert.doesNotMatch(source, /internalSubagentThreadIds\.delete\(/);
 });
 

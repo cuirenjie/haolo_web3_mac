@@ -424,7 +424,7 @@ test("floating drawing toolbar stays inside the chart while moving independently
   );
 });
 
-test("drawing toolbar replaces the app sidebar and binds to chart coordinates", async () => {
+test("drawing toolbar stays in the chart after removing the legacy vertical navigation", async () => {
   const [main, market, drawing, styles] = await Promise.all([
     mainSource,
     marketSource,
@@ -432,7 +432,7 @@ test("drawing toolbar replaces the app sidebar and binds to chart coordinates", 
     stylesSource,
   ]);
 
-  assert.match(main, /\$\{tradingExpertLayout \? "" : renderAppSidebar\(\)\}/);
+  assert.doesNotMatch(main, /renderAppSidebar/);
   assert.match(market, /renderTradingDrawingToolbar\(\)/);
   assert.match(market, /renderTradingDrawingLayer\(\)/);
   assert.match(market, /new TradingDrawingController\(\{/);
@@ -872,7 +872,7 @@ test("drawing group affordances match the compact TradingView-style toolbar", as
   assert.match(drawing, /trash: '<path d="M5 7h14M9 7V4h6v3M7 9v11h10V9M10\.5 11v6M13\.5 11v6"\/>',/);
 });
 
-test("drawing toolbar header aligns with the market bar and exits to a normal new task", async () => {
+test("drawing toolbar header removes the exit divider and aligns the symbol to its old edge", async () => {
   const [main, drawing, styles] = await Promise.all([
     mainSource,
     drawingSource,
@@ -882,32 +882,31 @@ test("drawing toolbar header aligns with the market bar and exits to a normal ne
   assert.doesNotMatch(drawing, /TEAM_AVATAR_URL/);
   assert.match(
     drawing,
-    /class="trading-drawing-toolbar-head"[\s\S]*data-action="exit-trading-expert"[\s\S]*<span>退出<\/span>[\s\S]*class="trading-drawing-toolbar-scroll"/,
+    /class="trading-drawing-toolbar-head" aria-hidden="true"><\/div>[\s\S]*class="trading-drawing-toolbar-scroll"/,
   );
-  assert.doesNotMatch(drawing, /class="trading-drawing-exit"[\s\S]*?<img/);
+  assert.doesNotMatch(drawing, /trading-drawing-exit|exit-trading-expert|<span>退出<\/span>/);
   assert.match(
     styles,
     /\.trading-drawing-toolbar-head\s*\{[^}]*height: 36\.4px;[^}]*flex: 0 0 36\.4px;[^}]*border-bottom: 1px solid var\(--trading-market-border\);/s,
   );
   assert.match(
     styles,
-    /\.trading-drawing-exit:hover\s*\{[^}]*background: var\(--trading-market-control\);[^}]*color: #000000;/s,
+    /\.trading-drawing-toolbar\s*\{[^}]*z-index: auto;[^}]*width: 41\.6px;[^}]*border-right: 0;/s,
+  );
+  assert.match(styles, /\.trading-drawing-toolbar-scroll\s*\{[^}]*position: relative;[^}]*z-index: 40;/s);
+  assert.match(styles, /\.trading-drawing-tool-menu\s*\{[^}]*position: absolute;[^}]*z-index: 110;/s);
+  assert.match(
+    styles,
+    /\.desktop-body\.trading-expert-layout \.trading-market-overview\s*\{[^}]*padding-right: 64px;/s,
   );
   assert.match(
     styles,
-    /\.trading-drawing-exit\s*\{[^}]*color: #000000;[^}]*font: inherit;/s,
+    /\.desktop-body\.trading-expert-layout \.trading-market-overview\s*\{[^}]*padding-right: 64px;[^}]*padding-left: 0;/s,
   );
   assert.match(
     styles,
-    /\.trading-drawing-exit > span\s*\{[^}]*font-size: calc\(12px \+ var\(--app-font-size-offset\)\);[^}]*font-weight: 400;/s,
+    /\.desktop-body\.trading-expert-layout\.left-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?\.trading-market-overview\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding-left: 5px;/s,
   );
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-drawing-exit\s*\{[^}]*color: #f4f6f8;/s);
-  assert.match(
-    main,
-    /async function exitTradingExpertWorkspace\(\)[\s\S]*isTradingExpertThreadId\(threadId\)[\s\S]*state\.leftCollapsed = false;[\s\S]*state\.rightCollapsed = true;[\s\S]*await startNewThread\(\);/,
-  );
-  assert.match(
-    main,
-    /querySelector<HTMLButtonElement>\('\[data-action="exit-trading-expert"\]'\)[\s\S]*void exitTradingExpertWorkspace\(\);/,
-  );
+  assert.doesNotMatch(styles, /trading-drawing-exit/);
+  assert.doesNotMatch(main, /exitTradingExpertWorkspace|exit-trading-expert/);
 });

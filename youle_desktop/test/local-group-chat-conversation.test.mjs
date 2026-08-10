@@ -14,19 +14,13 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("completing the picker creates and persists a default-group conversation ahead of ordinary history", async () => {
+test("stored group conversations remain supported without a new-group creation path", async () => {
   const source = await rendererSource;
-  const actions = sourceBlock(source, "function completeGroupChatDialog", "function toggleGroupChatSection");
   const sorting = sourceBlock(source, "function sortThreadsForList", "function comparePinnedThreadContinuationOrder");
 
   assert.match(await domainSource, /thread_kind\?:[^;]*"group_chat"/);
-  assert.match(actions, /const threadId = `local-group-chat:\$\{crypto\.randomUUID\(\)\}`/);
-  assert.match(actions, /panelExpanded:\s*true/);
-  assert.match(actions, /threadGroupByThreadId\[threadId\] = DEFAULT_THREAD_GROUP_ID/);
-  assert.match(actions, /collapsedThreadGroupIds\.delete\(DEFAULT_THREAD_GROUP_ID\)/);
-  assert.match(actions, /mergeThreadsWithoutSorting\(state\.threads, \[localGroupChatSummary\(record\)\]\)/);
-  assert.match(actions, /saveLocalGroupChatRecords\(\)/);
-  assert.match(actions, /saveThreadPreferences\(\)/);
+  assert.doesNotMatch(source, /local-group-chat:\$\{crypto\.randomUUID|function openGroupChatDialog/);
+  assert.doesNotMatch(source, /type GroupChatDialogMode[^;]*"create"/);
   assert.match(
     sorting,
     /const pinnedDelta = Number\(Boolean\(b\.pinned\)\) - Number\(Boolean\(a\.pinned\)\);[\s\S]*const timeDelta = threadSortTime\(b\) - threadSortTime\(a\)/,
@@ -124,13 +118,7 @@ test("group name and my group nickname persist and update their linked conversat
     "function visibleMessageSenderLabel",
     "function isWechatChannelMessageContext",
   );
-  const creation = sourceBlock(
-    source,
-    "function completeGroupChatDialog",
-    "function toggleGroupChatSection",
-  );
 
-  assert.match(creation, /nickname:\s*currentProfileName\(\)/);
   assert.match(source, /nickname:\s*typeof source\.nickname === "string" \? source\.nickname : ""/);
   assert.match(submit, /record\[editor\.field\] = value/);
   assert.match(submit, /threadNameOverrides\[record\.id\] = value/);
@@ -210,7 +198,7 @@ test("local group details cover light and dark interaction states without a cust
   assert.match(styles, /\.local-group-chat-members-inner\s*\{[^}]*width:\s*270px;[^}]*min-width:\s*270px;/s);
   assert.match(styles, /\.local-group-chat-member-search\s*\{[^}]*width:\s*100%;[^}]*height:\s*32px;/s);
   assert.doesNotMatch(styles, /\.local-group-chat-more/);
-  assert.match(styles, /\.panel-toggle:is\(\.left-panel-toggle, \[data-action="toggle-right-panel"\]\)/);
+  assert.match(styles, /\.panel-toggle:is\([\s\S]*?\.left-panel-toggle,[\s\S]*?\[data-action="toggle-right-panel"\],[\s\S]*?\[data-action="toggle-trading-expert-chart"\]/);
   assert.match(styles, /\.local-group-chat-member-search:hover\s*\{/);
   assert.match(styles, /\.local-group-chat-member-search:focus-within\s*\{/);
   assert.match(styles, /\.local-group-chat-member-search:has\(input:disabled\)\s*\{/);

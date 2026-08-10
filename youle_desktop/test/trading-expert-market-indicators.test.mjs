@@ -208,6 +208,119 @@ test("duplicate crypto search results prefer Binance over Finnhub", async () => 
   );
 });
 
+test("favorite market resolution preserves live prices over persisted metadata", async () => {
+  const {
+    resolveTradingFavoriteMarkets,
+    tradingMarketsPreferBinance,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const liveMarket = {
+    id: "BINANCE:FUTURES:ETHUSDT",
+    provider: "binance",
+    symbol: "ETHUSDT",
+    baseAsset: "ETH",
+    quoteAsset: "USDT",
+    displaySymbol: "ETH/USDT",
+    description: "ETH/USDT 币安永续合约",
+    venue: "币安",
+    assetClass: "crypto",
+    marketType: "perpetual",
+    tag: "永续",
+    markPrice: 1_917.24,
+    changePercent: -0.14,
+    volume24h: 1_000,
+    quoteAvailable: true,
+  };
+  const favoriteRecord = Object.fromEntries(
+    Object.entries(liveMarket).filter(([key]) => ![
+      "markPrice",
+      "changePercent",
+      "volume24h",
+      "quoteAvailable",
+    ].includes(key)),
+  );
+  const websocketMarket = {
+    ...liveMarket,
+    markPrice: 1_920.5,
+    changePercent: 0.35,
+  };
+  const staleFavorite = {
+    ...liveMarket,
+    markPrice: 0,
+    changePercent: 0,
+    volume24h: 0,
+    quoteAvailable: false,
+  };
+
+  assert.equal(resolveTradingFavoriteMarkets([favoriteRecord], [])[0].quoteAvailable, false);
+  assert.strictEqual(resolveTradingFavoriteMarkets([favoriteRecord], [liveMarket])[0], liveMarket);
+  assert.strictEqual(
+    resolveTradingFavoriteMarkets([favoriteRecord], [liveMarket, websocketMarket])[0],
+    websocketMarket,
+  );
+  assert.strictEqual(tradingMarketsPreferBinance([liveMarket, staleFavorite])[0], liveMarket);
+});
+
+test("favorite ticker quotes update continuously and use direct combined streams", async () => {
+  const {
+    applyTradingMarketTickerQuote,
+    formatTradingMarketTickerPrice,
+    tradingFavoriteTickerStreamUrl,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const liveMarket = {
+    id: "BINANCE:FUTURES:ETHUSDT",
+    provider: "binance",
+    symbol: "ETHUSDT",
+    baseAsset: "ETH",
+    quoteAsset: "USDT",
+    displaySymbol: "ETH/USDT",
+    description: "ETH/USDT 币安永续合约",
+    venue: "币安",
+    assetClass: "crypto",
+    marketType: "perpetual",
+    tag: "永续",
+    markPrice: 0,
+    changePercent: 0,
+    volume24h: 0,
+    quoteAvailable: false,
+  };
+
+  assert.equal(
+    tradingFavoriteTickerStreamUrl("perpetual", ["ETHUSDT", "SOLUSDT", "ETHUSDT"]),
+    "wss://fstream.binance.com/stream?streams=ethusdt@ticker/solusdt@ticker",
+  );
+  assert.equal(
+    tradingFavoriteTickerStreamUrl("spot", ["BTCUSDT"]),
+    "wss://stream.binance.com:9443/stream?streams=btcusdt@ticker",
+  );
+  assert.equal(formatTradingMarketTickerPrice(1_916.9), "1,916.90");
+  assert.equal(formatTradingMarketTickerPrice(76.81), "76.81");
+  assert.equal(formatTradingMarketTickerPrice(0.14031), "0.14031");
+  assert.equal(formatTradingMarketTickerPrice(0.029876), "0.02988");
+
+  const first = applyTradingMarketTickerQuote(liveMarket, {
+    lastPrice: "1916.90",
+    openPrice: "1900",
+    changePercent: "0.88",
+  });
+  assert.equal(first.updated, true);
+  assert.equal(first.openPrice, 1900);
+  assert.equal(liveMarket.markPrice, 1916.9);
+  assert.equal(liveMarket.quoteAvailable, true);
+  assert.ok(Math.abs(liveMarket.changePercent - ((16.9 / 1900) * 100)) < 1e-10);
+
+  const second = applyTradingMarketTickerQuote(
+    liveMarket,
+    { lastPrice: "1921.40", changePercent: "1.12" },
+    first.openPrice,
+  );
+  assert.equal(second.updated, true);
+  assert.equal(liveMarket.markPrice, 1921.4);
+  assert.ok(Math.abs(liveMarket.changePercent - ((21.4 / 1900) * 100)) < 1e-10);
+
+  assert.equal(applyTradingMarketTickerQuote(liveMarket, { lastPrice: "invalid" }).updated, false);
+  assert.equal(liveMarket.markPrice, 1921.4);
+});
+
 test("Binance search catalog combines USDT spot and perpetual markets", async () => {
   const { fetchTradingMarkets } = await import("../src/renderer/trading-expert-market.ts");
   const originalFetch = globalThis.fetch;
@@ -496,7 +609,7 @@ test("volume and MACD return aligned multi-series pane data", async () => {
     open: 100 + index,
     high: 103 + index,
     low: 98 + index,
-    close: 101 + index + Math.sin(index / 3),
+    close: index === 0 ? 99 : 101 + index + Math.sin(index / 3),
     volume: 1_000 + index * 17,
   }));
 
@@ -505,11 +618,67 @@ test("volume and MACD return aligned multi-series pane data", async () => {
 
   assert.deepEqual(volume.series.map((series) => series.label), ["VOL", "MA5", "MA10"]);
   assert.deepEqual(macd.series.map((series) => series.label), ["DIF", "DEA", "MACD"]);
+  assert.equal(volume.series[0].colors[0], "#F6465D");
+  assert.equal(volume.series[0].colors[1], "#2EBD85");
+  assert.ok(volume.series[0].colors.every((color) => ["#2EBD85", "#F6465D"].includes(color)));
+  assert.ok(macd.series[2].colors.every((color) => ["#2EBD85", "#F6465D"].includes(color)));
   assert.ok(volume.series.every((series) => series.values.length === candles.length));
   assert.ok(macd.series.every((series) => series.values.length === candles.length));
   assert.ok(Number.isFinite(macd.series[0].values.at(-1)));
   assert.ok(Number.isFinite(macd.series[1].values.at(-1)));
   assert.ok(Number.isFinite(macd.series[2].values.at(-1)));
+});
+
+test("volume reference style uses thin defaults and migrates legacy widths once", async () => {
+  const {
+    migrateTradingVolumeReferenceStyle,
+    normalizeTradingIndicatorSettings,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const defaults = normalizeTradingIndicatorSettings(null);
+  assert.equal(defaults["sub:volume"].series.ma5.lineWidth, 1);
+  assert.equal(defaults["sub:volume"].series.ma10.lineWidth, 1);
+
+  const legacy = normalizeTradingIndicatorSettings({
+    "sub:volume": {
+      enabled: true,
+      parameters: [5, 10],
+      series: {
+        volume: { visible: true, color: "#16a873", lineWidth: 2 },
+        ma5: { visible: true, color: "#22b8cf", lineWidth: 2 },
+        ma10: { visible: true, color: "#e5ad25", lineWidth: 3 },
+      },
+    },
+  });
+  const migrated = migrateTradingVolumeReferenceStyle(legacy);
+
+  assert.notStrictEqual(migrated, legacy);
+  assert.equal(migrated["sub:volume"].series.ma5.lineWidth, 1);
+  assert.equal(migrated["sub:volume"].series.ma10.lineWidth, 3);
+  assert.equal(legacy["sub:volume"].series.ma5.lineWidth, 2);
+});
+
+test("Binance bar palette migrates legacy volume and MACD defaults", async () => {
+  const {
+    migrateTradingBarColors,
+    normalizeTradingIndicatorSettings,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const defaults = normalizeTradingIndicatorSettings(null);
+  assert.equal(defaults["sub:volume"].series.volume.color, "#2EBD85");
+  assert.equal(defaults["sub:macd"].series.histogram.color, "#2EBD85");
+
+  const legacy = normalizeTradingIndicatorSettings({
+    "sub:volume": {
+      series: { volume: { visible: true, color: "#16a873", lineWidth: 2 } },
+    },
+    "sub:macd": {
+      series: { histogram: { visible: true, color: "#16a873", lineWidth: 2 } },
+    },
+  });
+  const migrated = migrateTradingBarColors(legacy);
+
+  assert.equal(migrated["sub:volume"].series.volume.color, "#2EBD85");
+  assert.equal(migrated["sub:macd"].series.histogram.color, "#2EBD85");
+  assert.equal(legacy["sub:volume"].series.volume.color, "#16a873");
 });
 
 test("bounded oscillators and volatility studies calculate finite values", async () => {

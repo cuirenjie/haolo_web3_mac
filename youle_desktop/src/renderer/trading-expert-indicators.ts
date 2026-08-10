@@ -62,14 +62,17 @@ export const TRADING_INDICATORS: readonly TradingIndicatorDefinition[] = [
   { id: "willr", label: "W%R", name: "威廉指标", parameters: "14" },
 ] as const;
 
+export const TRADING_RISING_BAR_COLOR = "#2EBD85";
+export const TRADING_FALLING_BAR_COLOR = "#F6465D";
+
 const LINE_COLORS = {
   cyan: "#22b8cf",
   amber: "#e5ad25",
   purple: "#8b5cf6",
   blue: "#3b82f6",
   pink: "#ec4899",
-  green: "#16a873",
-  red: "#ef5350",
+  green: TRADING_RISING_BAR_COLOR,
+  red: TRADING_FALLING_BAR_COLOR,
 };
 
 const nanValues = (length: number) => new Array<number>(length).fill(Number.NaN);
@@ -363,8 +366,8 @@ export function calculateTradingIndicator(
           type: "histogram",
           values,
           colors: candles.map((item) => item.close >= item.open
-            ? "rgba(22, 168, 115, 0.72)"
-            : "rgba(239, 83, 80, 0.72)"),
+            ? TRADING_RISING_BAR_COLOR
+            : TRADING_FALLING_BAR_COLOR),
           priceFormat: "volume",
         },
         line("ma5", `MA${fastPeriod}`, LINE_COLORS.cyan, indicatorSma(values, fastPeriod)),
@@ -389,8 +392,8 @@ export function calculateTradingIndicator(
           type: "histogram",
           values: result.histogram,
           colors: result.histogram.map((value) => value >= 0
-            ? "rgba(22, 168, 115, 0.78)"
-            : "rgba(239, 83, 80, 0.78)"),
+            ? TRADING_RISING_BAR_COLOR
+            : TRADING_FALLING_BAR_COLOR),
           priceFormat: "price",
         },
       ],

@@ -734,17 +734,7 @@ function toolbarAction(
 export function renderTradingDrawingToolbar() {
   return `
     <aside class="trading-drawing-toolbar" data-drawing-toolbar aria-label="K线绘图工具">
-      <div class="trading-drawing-toolbar-head">
-        <button
-          type="button"
-          class="trading-drawing-exit"
-          data-action="exit-trading-expert"
-          aria-label="退出交易专家并返回新任务"
-          title="退出交易专家"
-        >
-          <span>退出</span>
-        </button>
-      </div>
+      <div class="trading-drawing-toolbar-head" aria-hidden="true"></div>
       <div class="trading-drawing-toolbar-scroll">
         ${TRADING_DRAWING_GROUPS.map((group) => `
           <div class="trading-drawing-group" data-drawing-group="${group.id}">

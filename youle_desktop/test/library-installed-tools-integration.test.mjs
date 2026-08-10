@@ -58,14 +58,11 @@ test("the results search field filters both embedded original interfaces without
   assert.doesNotMatch(results, /id="skillsSearch"|class="skills-plaza-search"/);
 });
 
-test("opening results and its installed-tool categories refreshes their counts and content", async () => {
+test("installed-tool categories refresh their counts and content without the removed vertical nav", async () => {
   const source = await rendererSource;
   const bindings = sourceBlock(source, "function bindEvents", "function openChannelDialog");
 
-  assert.match(
-    bindings,
-    /if \(view === "results"\)[\s\S]*?refreshSkills\(\{ forceReload: true, reason: "results-library" \}\);[\s\S]*?loadLocalPlugins\(\{ force: true \}\);/,
-  );
+  assert.doesNotMatch(bindings, /button\.dataset\.nav|if \(view === "results"\)/);
   assert.match(
     bindings,
     /category === "skill"[\s\S]*?refreshSkills\(\{ forceReload: true, reason: "results-library" \}\);[\s\S]*?category === "plugin"[\s\S]*?loadLocalPlugins\(\{ force: true \}\);/,

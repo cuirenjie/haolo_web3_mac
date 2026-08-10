@@ -52,7 +52,6 @@ import {
   normalizeVideoGenerationOptions,
   VIDEO_GENERATION_CONVERSATION_MODE,
 } from "./conversation-mode.mjs";
-import { searchThreadsWithFallback } from "./codex-thread-search.mjs";
 import { interruptTurnWithActiveMismatchRetry } from "./turn-interrupt-recovery.mjs";
 import {
   buildAutomaticTurnRecoveryPrompt,
@@ -481,7 +480,7 @@ const APP_PREFERENCES_FILE_NAME = "app-preferences.json";
 const CONTINUATION_TRANSACTIONS_FILE_NAME = "thread-continuation-transactions.json";
 const CONTINUATION_LATE_START_RESPONSE_GRACE_MS = 30_000;
 const DEFAULT_APP_PREFERENCES = Object.freeze({
-  theme: "light",
+  theme: "dark",
   taskCompletionPopupEnabled: true,
 });
 const LOCAL_FILE_DRAG_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -764,7 +763,7 @@ const APP_RESIZE_GUTTER_SIZE = APP_RESIZE_GUTTER * 2;
 const APP_WINDOW_SCREEN_MARGIN = 24;
 const APP_RIGHT_PANEL_HIDE_BREAKPOINT = 1100;
 const APP_NAV_SIDEBAR_WIDTH = 52;
-const APP_CHAT_LIST_WIDTH = 240;
+const APP_CHAT_LIST_WIDTH = 192;
 const APP_CHAT_PANEL_MIN_EXPANDED_WIDTH = 560;
 const APP_AGENT_PANEL_WIDTH = 300;
 const APP_COLLAPSED_RIGHT_PANEL_MIN_WIDTH =
@@ -2630,7 +2629,7 @@ function createWindow() {
     height: LOGIN_WINDOW_BOUNDS.height,
     minWidth: LOGIN_WINDOW_BOUNDS.minWidth,
     minHeight: LOGIN_WINDOW_BOUNDS.minHeight,
-    backgroundColor: "#f6f8fa",
+    backgroundColor: appTheme() === "dark" ? "#101216" : "#f6f8fa",
     frame: false,
     transparent: false,
     thickFrame: true,
@@ -8559,7 +8558,7 @@ function readJsonFileSafe(filePath) {
 }
 
 function normalizeAppTheme(value) {
-  return value === "dark" ? "dark" : "light";
+  return value === "light" ? "light" : "dark";
 }
 
 function normalizeAppPreferences(value = {}) {
@@ -14323,35 +14322,6 @@ ipcMain.handle("codex:listThreads", async (_event, params = {}) => {
   });
   const threads = Array.isArray(result?.data) ? result.data : [];
   for (const thread of threads) {
-    const threadId = thread?.id || thread?.threadId || thread?.thread_id;
-    rememberThreadClient(threadId, serverClient);
-  }
-  return result;
-});
-
-ipcMain.handle("codex:searchThreads", async (_event, params = {}) => {
-  const cwd = params.cwd || desktopWorkspace();
-  const serverClient = getClientForCwd(cwd);
-  loadContinuationTransactions();
-  const result = await collectVisibleThreadPage({
-    params,
-    requestPage: (requestParams) => searchThreadsWithFallback({
-      params: requestParams,
-      request: (method, normalizedParams) => requestAppServer(serverClient, method, normalizedParams),
-    }),
-    threadFromEntry: (entry) => entry?.thread || entry,
-    onThread: (thread) => internalSubagentThreads.remember(serverClient, thread),
-    includeEntry: (_entry, thread) => {
-      const threadId = String(thread?.id || thread?.threadId || thread?.thread_id || "");
-      if (isInternalSubagentThreadRecord(thread) || internalSubagentThreads.has(serverClient, threadId)) return false;
-      return !bufferedContinuationStartThreadIds.has(threadId) &&
-        !initializingContinuationThreadIds.has(threadId) &&
-        !discardedContinuationThreadIds.has(threadId);
-    },
-  });
-  const entries = Array.isArray(result?.data) ? result.data : [];
-  for (const entry of entries) {
-    const thread = entry?.thread || entry;
     const threadId = thread?.id || thread?.threadId || thread?.thread_id;
     rememberThreadClient(threadId, serverClient);
   }

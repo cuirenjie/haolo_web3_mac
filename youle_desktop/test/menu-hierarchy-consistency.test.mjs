@@ -18,7 +18,8 @@ test("all CSS cascade menus share the same hover grace behavior", async () => {
   const bindings = sourceBlock(source, "function bindCascadeMenuHoverEvents", "function bindEvents");
 
   assert.match(source, /const CASCADE_MENU_CLOSE_DELAY_MS = 180;/);
-  assert.match(bindings, /\.thread-group-add-menu-item, \.external-channel-cascade-item, \.thread-marker-menu-item/);
+  assert.match(bindings, /\.thread-group-add-menu-item, \.thread-marker-menu-item, \.thread-group-move-menu-item/);
+  assert.doesNotMatch(bindings, /external-channel-cascade-item/);
   assert.match(bindings, /\.trading-expert-mention-group/);
   assert.match(bindings, /:scope > button\[aria-haspopup='menu'\]/);
   assert.match(bindings, /:scope > \[role='menu'\]/);
@@ -29,7 +30,7 @@ test("all CSS cascade menus share the same hover grace behavior", async () => {
   assert.match(bindings, /trigger\.setAttribute\("aria-expanded", "true"\)/);
   assert.match(bindings, /trigger\.setAttribute\("aria-expanded", "false"\)/);
 
-  assert.match(source, /external-channel-trigger-quick[\s\S]*?aria-haspopup="menu" aria-expanded="false"/);
+  assert.match(source, /data-action="toggle-external-channel-menu" aria-haspopup="menu"/);
   assert.match(source, /class="create thread-group-add-trigger"[\s\S]*?aria-haspopup="menu"/);
   assert.doesNotMatch(source, /thread-group-add-trigger-quick/);
   assert.match(source, /thread-marker-menu-trigger[\s\S]*?aria-haspopup="menu" aria-expanded="false"/);
@@ -41,7 +42,6 @@ test("second- and third-level menus expose forgiving pointer bridges", async () 
 
   for (const selector of [
     ".thread-group-add-submenu::before",
-    ".external-channel-menu.external-channel-submenu::before",
     ".thread-marker-submenu::before",
     ".composer-mention-submenu::before",
   ]) {
@@ -64,23 +64,15 @@ test("second- and third-level menus expose forgiving pointer bridges", async () 
   assert.match(detailBridge, /pointer-events:\s*auto/);
 
   assert.match(styles, /\.thread-group-add-menu-item\.submenu-open > \.thread-group-add-submenu[\s\S]*?display:\s*grid/);
-  assert.match(styles, /\.external-channel-cascade-item\.submenu-open > \.external-channel-submenu[\s\S]*?display:\s*block/);
+  assert.doesNotMatch(styles, /external-channel-cascade-item|external-channel-submenu/);
   assert.match(styles, /\.thread-marker-menu-item\.submenu-open \.thread-marker-submenu[\s\S]*?display:\s*grid/);
   assert.match(styles, /\.trading-expert-mention-group\.submenu-open[\s\S]*?> \.trading-expert-mention-submenu[\s\S]*?display:\s*block/);
   assert.doesNotMatch(styles, /\.thread-group-add-menu-item\.quick/);
   assert.match(
     styles,
-    /\.external-channel-menu\.external-channel-submenu\s*\{[\s\S]*?left:\s*calc\(100% \+ var\(--chat-new-menu-submenu-offset\)\)/,
-  );
-  assert.match(
-    styles,
     /\.thread-group-add-submenu::before\s*\{[\s\S]*?width:\s*var\(--thread-group-add-submenu-offset\)/,
   );
-  assert.match(
-    styles,
-    /\.external-channel-menu\.external-channel-submenu::before\s*\{[\s\S]*?width:\s*var\(--chat-new-menu-submenu-offset\)/,
-  );
-  assert.doesNotMatch(styles, /\.chat-new-menu:has\(/);
+  assert.doesNotMatch(styles, /external-channel-submenu|chat-new-menu/);
 });
 
 test("compact option menus use one shared surface treatment", async () => {
@@ -88,7 +80,6 @@ test("compact option menus use one shared surface treatment", async () => {
   const shared = styles.slice(styles.indexOf("/* Shared surface treatment for compact first-, second-, and third-level option menus. */"));
 
   for (const className of [
-    "chat-new-menu",
     "thread-group-add-submenu",
     "thread-marker-submenu",
     "external-channel-menu",
@@ -106,6 +97,6 @@ test("compact option menus use one shared surface treatment", async () => {
   assert.match(shared, /box-shadow:\s*0 16px 42px rgba\(17, 24, 39, 0\.14\)/);
   assert.match(shared, /html\[data-theme="dark"\][\s\S]*?background:\s*#1b1e23/);
   assert.match(shared, /html:not\(\[data-theme="dark"\]\)[\s\S]*?background:\s*var\(--surface-hover\)/);
-  assert.match(styles, /\.external-channel-menu\.external-channel-submenu\s*\{[\s\S]*?border-radius:\s*10px/);
+  assert.match(styles, /\.external-channel-menu\s*\{[\s\S]*?border-radius:\s*10px/);
   assert.doesNotMatch(styles, /\.thread-group-add-menu-item\.quick/);
 });

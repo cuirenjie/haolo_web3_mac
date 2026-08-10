@@ -41,6 +41,7 @@ test("specialized providers stay available to existing flows but are hidden from
   );
 
   assert.match(visibilityBlock, /contact\.id === VIDEO_EXPERT_CONTACT_ID\) return false/);
+  assert.match(visibilityBlock, /contact\.id === TRADING_EXPERT_CONTACT_ID\) return false/);
   assert.match(visibilityBlock, /contact\.id === PROVIDER_CHAT_META\.perplexity\.id\) return false/);
   assert.match(source, /selectedContactId: HAOLO_CONTACT_ID/);
   assert.match(source, /\[VIDEO_EXPERT_PROVIDER\]: \{ id: VIDEO_EXPERT_CONTACT_ID/);
@@ -96,7 +97,7 @@ test("contact search renders the shared clear button and restores the directory"
   const pageBlock = sourceBlock(source, "function renderContactsPage", "function contactSearchExecutedForCurrentQuery");
   const eventsBlock = sourceBlock(source, "function bindEvents", "function openChannelDialog");
 
-  assert.match(pageBlock, /hasSearchText[\s\S]*class="chat-search-clear contacts-search-clear"/);
+  assert.match(pageBlock, /hasSearchText[\s\S]*class="contacts-search-clear"/);
   assert.match(pageBlock, /data-action="clear-contacts-search"/);
   assert.match(pageBlock, /<img class="button-close-icon" src="\$\{escapeAttr\(HOME_ICON_URL\.close\)\}" alt="" \/>/);
   assert.match(eventsBlock, /\[data-action="clear-contacts-search"\][\s\S]*state\.contactsSearch = "";/);

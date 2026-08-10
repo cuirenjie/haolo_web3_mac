@@ -54,7 +54,7 @@ test("blank-thread mode shortcuts move from the hero into the composer toolbar",
   assert.doesNotMatch(hero, /new-thread-mode-switch|data-new-thread-mode/);
   assert.match(
     composer,
-    /const composerModePicker = blankNewThread && !isBlankWorkflowCanvasThread\(thread\.id\)/,
+    /const composerModePicker = blankNewThread\s*\? renderComposerModePicker\(thread\.id\)/,
   );
   assert.match(
     composer,

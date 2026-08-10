@@ -36,7 +36,8 @@ test("consumption detail is a standalone API-backed view below profile settings"
   assert.ok(settings.indexOf('data-action="open-consumption"') < settings.indexOf('data-settings-tab="general"'));
   assert.match(opener, /state\.settingsOpen = false/);
   assert.match(opener, /state\.activeView = "consumption"/);
-  assert.doesNotMatch(page, /data-action="(?:back|go-back)|history\.back/);
+  assert.match(page, /renderPageHomeButton\(\)/);
+  assert.doesNotMatch(page, /history\.back/);
   assert.match(page, /data-action="export-consumption"/);
   assert.match(page, /state\.consumption\.exporting \|\| !api\.exportConsumptionReport/);
   assert.match(renderer, /consumption:\s*\{\s*unit:\s*"points"/);

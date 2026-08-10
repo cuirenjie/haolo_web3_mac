@@ -467,17 +467,7 @@ export class ClusterWorkflowRuntime extends EventEmitter {
   }
 
   createRevisionDraft(params = {}) {
-    const storedRun = this.getRun(params.runId) || this.latestForThread(params.threadId);
-    const seedRun = params.seedRun && typeof params.seedRun === "object"
-      ? params.seedRun
-      : null;
-    const run = storedRun || (
-      seedRun?.id
-      && seedRun?.threadId
-      && String(seedRun.threadId) === String(params.threadId || seedRun.threadId)
-        ? seedRun
-        : null
-    );
+    const run = this.getRun(params.runId) || this.latestForThread(params.threadId);
     if (!run?.id) throw workflowRuntimeError("WORKFLOW_RUN_NOT_FOUND", "找不到可修改的历史工作流。");
     const existing = this.store?.latestDraftForThread?.(run.threadId);
     if (existing?.sourceRunId === run.id && params.forceNew !== true) {
