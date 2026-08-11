@@ -5,6 +5,7 @@ import test from "node:test";
 const mainSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const marketSource = readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
 const drawingSource = readFile(new URL("../src/renderer/trading-expert-drawing.ts", import.meta.url), "utf8");
+const splitPaneSource = readFile(new URL("../src/renderer/trading-expert-split-pane.ts", import.meta.url), "utf8");
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 
 test("Trading Expert exposes a complete grouped TradingView-style drawing catalog", async () => {
@@ -91,9 +92,125 @@ test("AI drawings are isolated and replaced by market plus interval context", as
   );
 });
 
+test("manual drawings keep every market-period context while legacy records remain compatible", async () => {
+  const { tradingManualDrawingMatchesContext } = await import(
+    "../src/renderer/trading-expert-drawing.ts"
+  );
+  const btc15m = { symbol: "BINANCE:FUTURES:BTCUSDT", interval: "15" };
+  const btc4h = { symbol: "BINANCE:FUTURES:BTCUSDT", interval: "240" };
+  const legacyBtc = { symbol: "BINANCE:FUTURES:BTCUSDT" };
+
+  assert.equal(tradingManualDrawingMatchesContext(btc15m, btc15m.symbol, "15"), true);
+  assert.equal(tradingManualDrawingMatchesContext(btc15m, btc15m.symbol, "240"), false);
+  assert.equal(tradingManualDrawingMatchesContext(btc4h, btc15m.symbol, "15"), false);
+  assert.equal(tradingManualDrawingMatchesContext(btc15m, "BINANCE:FUTURES:ETHUSDT", "15"), false);
+  assert.equal(tradingManualDrawingMatchesContext(legacyBtc, btc15m.symbol, "15"), true);
+});
+
+test("the last successful drawing workspace restores its own layout without dropping other contexts", async () => {
+  const {
+    loadTradingLastDrawingWorkspace,
+    tradingLastDrawingWorkspaceStorageKey,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.has(key) ? values.get(key) : null,
+    setItem: (key, value) => values.set(key, String(value)),
+  };
+  const market = (id, symbol, baseAsset) => ({
+    id,
+    provider: "binance",
+    symbol,
+    baseAsset,
+    quoteAsset: "USDT",
+    displaySymbol: `${baseAsset}/USDT`,
+    description: `${baseAsset}/USDT perpetual`,
+    venue: "币安",
+    assetClass: "crypto",
+    marketType: "perpetual",
+    tag: "永续",
+  });
+  const splitWorkspace = {
+    schemaVersion: 1,
+    layoutId: "3-rows",
+    updatedAt: 1_786_403_400_000,
+    panes: [
+      { paneIndex: 0, market: market("BINANCE:FUTURES:ETHUSDT", "ETHUSDT", "ETH"), interval: "15" },
+      {
+        paneIndex: 1,
+        market: market("BINANCE:FUTURES:BTCUSDT", "BTCUSDT", "BTC"),
+        interval: "240",
+        indicators: { main: ["ema"], sub: ["volume"] },
+      },
+      { paneIndex: 2, market: market("BINANCE:FUTURES:SOLUSDT", "SOLUSDT", "SOL"), interval: "60" },
+    ],
+  };
+  storage.setItem(
+    tradingLastDrawingWorkspaceStorageKey("thread-history"),
+    JSON.stringify(splitWorkspace),
+  );
+  assert.deepEqual(loadTradingLastDrawingWorkspace(storage, "thread-history"), splitWorkspace);
+
+  const finalSingleWorkspace = {
+    ...splitWorkspace,
+    layoutId: "1-single",
+    updatedAt: splitWorkspace.updatedAt + 1,
+    panes: [
+      { paneIndex: 0, market: market("BINANCE:FUTURES:BTCUSDT", "BTCUSDT", "BTC"), interval: "60" },
+    ],
+  };
+  storage.setItem(
+    tradingLastDrawingWorkspaceStorageKey("thread-history"),
+    JSON.stringify(finalSingleWorkspace),
+  );
+  assert.deepEqual(loadTradingLastDrawingWorkspace(storage, "thread-history"), finalSingleWorkspace);
+  assert.equal(loadTradingLastDrawingWorkspace(storage, "another-thread"), null);
+});
+
+test("the latest persisted AI canvas supplies one compact market-period label", async () => {
+  const {
+    loadTradingLastAnalysisContext,
+    tradingAnalysisContextLabel,
+    tradingAnalysisIntervalLabel,
+    tradingLastAnalysisContextStorageKey,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const { tradingDrawingSessionStorageKey } = await import("../src/renderer/trading-expert-drawing.ts");
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.has(key) ? values.get(key) : null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+  storage.setItem(tradingDrawingSessionStorageKey("ai", "thread-a"), JSON.stringify([
+    { source: "ai", symbol: "BINANCE:FUTURES:BTCUSDT", interval: "60" },
+    { source: "ai", symbol: "BINANCE:FUTURES:ETHUSDT", interval: "1D" },
+  ]));
+
+  const inferred = loadTradingLastAnalysisContext(storage, "thread-a");
+  assert.equal(tradingAnalysisContextLabel(inferred), "ETH1D");
+  assert.equal(tradingAnalysisIntervalLabel("15"), "15M");
+  assert.equal(tradingAnalysisIntervalLabel("240"), "4H");
+  assert.ok(storage.getItem(tradingLastAnalysisContextStorageKey("thread-a")));
+
+  storage.setItem(tradingLastAnalysisContextStorageKey("thread-a"), JSON.stringify({
+    schemaVersion: 1,
+    marketId: "BINANCE:FUTURES:BTCUSDT",
+    interval: "60",
+    updatedAt: 123,
+  }));
+  assert.equal(
+    tradingAnalysisContextLabel(loadTradingLastAnalysisContext(storage, "thread-a")),
+    "BTC1H",
+  );
+});
+
 test("manual and AI drawings persist in isolated conversation storage", async () => {
   const [drawing, market, main] = await Promise.all([drawingSource, marketSource, mainSource]);
   const { tradingDrawingSessionStorageKey } = await import("../src/renderer/trading-expert-drawing.ts");
+  const restoreLastAnalysis = market.slice(
+    market.indexOf("private restoreLastAnalysisSelection"),
+    market.indexOf("private updateSymbolUi"),
+  );
 
   assert.notEqual(
     tradingDrawingSessionStorageKey("manual", "thread-a"),
@@ -106,7 +223,7 @@ test("manual and AI drawings persist in isolated conversation storage", async ()
   assert.match(drawing, /haolo\.trading-market\.ai-drawings\.v2\./);
   assert.match(drawing, /private aiDrawings: TradingDrawingModel\[\] = \[\]/);
   assert.match(drawing, /this\.aiDrawings = loadStoredAiDrawings\(this\.storageSessionId\)/);
-  assert.match(drawing, /private persistAiDrawings\(\)/);
+  assert.match(drawing, /private persistAiDrawings\(notify = true\)/);
   assert.match(drawing, /tradingDrawingSessionStorageKey\("ai", this\.storageSessionId\)/);
   assert.match(drawing, /switchStorageSession\([\s\S]*loadStoredDrawings\(this\.storageSessionId\)[\s\S]*loadStoredAiDrawings\(this\.storageSessionId\)/);
   assert.match(drawing, /LEGACY_TRADING_AI_DRAWINGS_STORAGE_KEY[\s\S]*window\.localStorage\.removeItem\(legacyStorageKey\)/);
@@ -114,21 +231,34 @@ test("manual and AI drawings persist in isolated conversation storage", async ()
   assert.match(drawing, /interval: patch\.interval/);
   assert.match(drawing, /tradingAiDrawingMatchesContext\(drawing, symbol, interval\)/);
   assert.match(drawing, /playAiDrawingPatch[\s\S]*?cancelAiPlayback\(\{ clear: true \}\)/);
+  assert.match(drawing, /await this\.aiPlayback\.play\(drawings, options\)[\s\S]*?this\.storeAiDrawingPatch\(patch\)/);
   assert.match(market, /getInterval: \(\) => this\.activeInterval/);
   assert.match(market, /storageSessionId: this\.drawingStorageSessionId/);
   assert.match(market, /syncDrawingStorageSession\([\s\S]*switchStorageSession\(drawingStorageSessionId/);
-  assert.match(main, /syncTradingExpertMarketWorkspace\([\s\S]*targetThreadId \|\| preserved\.threadId,[\s\S]*replacementThreadId === targetThreadId \? preserved\.threadId : ""/);
+  assert.match(market, /this\.restoreLastAnalysisSelection\(\)/);
+  assert.match(market, /loadTradingLastAnalysisContext\([\s\S]*this\.drawingStorageSessionId/);
+  assert.match(restoreLastAnalysis, /context\.market[\s\S]*this\.favoriteMarketRecords[\s\S]*binanceMarketFromAnalysisContext\(context\)/);
+  assert.match(restoreLastAnalysis, /this\.activeInterval = context\.interval;[\s\S]*this\.selectMarket\(market\);[\s\S]*this\.updateSymbolUi\(\);/);
+  assert.match(market, /migrateTradingLastAnalysisContext\([\s\S]*migrateFromSessionId,[\s\S]*drawingStorageSessionId/);
+  assert.equal((market.match(/rememberTradingAnalysisJobContext\(job\)/g) || []).length, 5);
+  assert.match(drawing, /onAiDrawingContextsChanged\(null\)/);
+  assert.match(main, /const storageSessionId = tradingExpertMarketWorkspaceStorageSessionId\(\) \|\| threadId/);
+  assert.match(main, /syncTradingExpertMarketWorkspace\([\s\S]*targetThreadId \|\| preserved\.threadId,[\s\S]*sourceStorageSessionId && sourceStorageSessionId !== targetStorageSessionId[\s\S]*?sourceStorageSessionId/);
+  assert.match(main, /migrateTradingExpertMarketWorkspaceStorageSession\(previousThreadId, nextThreadId\)/);
   assert.match(main, /syncTradingExpertMarketWorkspace\([\s\S]*freshHost,[\s\S]*targetThreadId \|\| ""/);
 
   const restartBlock = market.slice(
     market.indexOf("private async restartMarketData"),
     market.indexOf("private async refreshSnapshot"),
   );
-  const destroyBlock = market.slice(market.indexOf("destroy() {"));
-  assert.match(restartBlock, /cancelChanAnalysis\(\{ clear: false, notifyMain: true \}\)/);
-  assert.doesNotMatch(restartBlock, /cancelChanAnalysis\(\{ clear: true/);
-  assert.match(destroyBlock, /cancelChanAnalysis\(\{ clear: false, notifyMain: true \}\)/);
-  assert.ok((market.match(/cancelAiPlayback\(\{ clear: false \}\)/g) || []).length >= 4);
+  const destroyBlock = market.slice(
+    market.indexOf("destroy() {"),
+    market.indexOf("function formatMarketPrice"),
+  );
+  assert.doesNotMatch(restartBlock, /cancelTradingAnalysis|cancelChanAnalysis/);
+  assert.doesNotMatch(destroyBlock, /cancelTradingAnalysis|cancelChanAnalysis/);
+  assert.equal((market.match(/const job = tradingAnalysisJobs\.start\(\{/g) || []).length, 5);
+  assert.match(market, /persistTradingAiDrawingPatch\(storageSessionId, patch\)/);
 });
 
 test("drawing coordinate conversion rejects missing chart values instead of teleporting endpoints", async () => {
@@ -897,16 +1027,119 @@ test("drawing toolbar header removes the exit divider and aligns the symbol to i
   assert.match(styles, /\.trading-drawing-tool-menu\s*\{[^}]*position: absolute;[^}]*z-index: 110;/s);
   assert.match(
     styles,
-    /\.desktop-body\.trading-expert-layout \.trading-market-overview\s*\{[^}]*padding-right: 64px;/s,
+    /\.desktop-body\.trading-expert-layout \.trading-market-content > \.trading-market-overview\s*\{[^}]*padding-right: 64px;/s,
   );
   assert.match(
     styles,
-    /\.desktop-body\.trading-expert-layout \.trading-market-overview\s*\{[^}]*padding-right: 64px;[^}]*padding-left: 0;/s,
+    /\.desktop-body\.trading-expert-layout \.trading-market-content > \.trading-market-overview\s*\{[^}]*padding-right: 64px;[^}]*padding-left: 0;/s,
   );
   assert.match(
     styles,
-    /\.desktop-body\.trading-expert-layout\.left-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?\.trading-market-overview\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding-left: 5px;/s,
+    /\.desktop-body\.trading-expert-layout\.left-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?\.trading-market-content > \.trading-market-overview\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding-left: 5px;/s,
   );
   assert.doesNotMatch(styles, /trading-drawing-exit/);
   assert.doesNotMatch(main, /exitTradingExpertWorkspace|exit-trading-expert/);
+});
+
+test("the shared drawing toolbar targets every split pane with isolated drawing state", async () => {
+  const [drawing, market, splitPane, styles] = await Promise.all([
+    drawingSource,
+    marketSource,
+    splitPaneSource,
+    stylesSource,
+  ]);
+  const { tradingSplitPaneDrawingStorageSessionId } = await import(
+    "../src/renderer/trading-expert-market.ts"
+  );
+
+  assert.equal(
+    tradingSplitPaneDrawingStorageSessionId("thread/alpha", 1),
+    "thread/alpha::split-pane:1",
+  );
+  assert.equal(
+    tradingSplitPaneDrawingStorageSessionId("", 2),
+    "trading-expert-unassigned::split-pane:2",
+  );
+  assert.match(splitPane, /renderTradingDrawingLayer\(\)/);
+  assert.match(splitPane, /new TradingDrawingController\(\{[\s\S]*?controlsHost: options\.drawing\.controlsHost/);
+  assert.match(splitPane, /bindControlEvents: false,[\s\S]*?controlActive: false/);
+  assert.match(splitPane, /getChart: \(\) => this\.chart,[\s\S]*?getCandleSeries: \(\) => this\.series/);
+  assert.match(splitPane, /getSymbol: \(\) => this\.market\.id,[\s\S]*?getInterval: \(\) => this\.interval/);
+  assert.match(splitPane, /getDrawingController\(\)[\s\S]*?updateDrawingStorageSession\(/);
+  assert.match(drawing, /export interface TradingDrawingSharedToolState/);
+  assert.match(drawing, /private controlTarget\(\)[\s\S]*?this\.resolveControlTarget\?\.\(\)/);
+  assert.match(drawing, /handleToolbarClick[\s\S]*?controlTarget\.handleToolbarClick\(event\)/);
+  assert.match(drawing, /handlePointerDown[\s\S]*?this\.onSurfaceFocus\?\.\(this\)/);
+  assert.match(drawing, /if \(!this\.controlActive \|\| !this\.userDrawingEnabled\) return/);
+  assert.match(market, /private activeDrawingController: TradingDrawingController \| null = null/);
+  assert.match(market, /private syncDrawingSharedToolState\([\s\S]*?controller\.applySharedToolState\(state\)/);
+  assert.match(market, /private activateDrawingController\([\s\S]*?controller\.setControlActive\(true\)/);
+  assert.match(market, /tradingSplitPaneDrawingStorageSessionId\(this\.drawingStorageSessionId, index\)/);
+  assert.match(market, /this\.splitPanes\.forEach\(\(pane\) => pane\.getDrawingController\(\)\?\.setUserDrawingEnabled\(enabled\)\)/);
+  assert.match(styles, /\.trading-market-split-viewport\s*\{[^}]*position: relative;[^}]*overflow: hidden;[^}]*background: var\(--trading-market-panel\);/s);
+  assert.match(styles, /\.trading-market-split-chart\s*\{[^}]*width: 100%;[^}]*height: 100%;/s);
+  const splitViewportStyles = styles.slice(
+    styles.indexOf(".trading-market-split-viewport"),
+    styles.indexOf(".trading-market-split-loading[hidden]"),
+  );
+  assert.doesNotMatch(splitViewportStyles, /#[0-9a-f]{3,8}|rgba?\(/i);
+});
+
+test("every visible split pane runs the requested analysis and plays its own drawing patch", async () => {
+  const [market, splitPane] = await Promise.all([marketSource, splitPaneSource]);
+
+  assert.match(splitPane, /async analysisSnapshot\(lookbackMs: number \| null\)/);
+  assert.match(splitPane, /await this\.reload\(true\)/);
+  assert.match(splitPane, /paneIndex: this\.paneIndex,[\s\S]*?market: \{ \.\.\.this\.market \},[\s\S]*?interval: this\.interval/);
+  assert.match(splitPane, /playAiDrawingPatch\([\s\S]*?this\.drawingController\?\.playAiDrawingPatch\(patch, options\)/);
+  assert.match(market, /private captureSplitPaneAnalysisSnapshots\([\s\S]*?const panes = \[\.\.\.this\.splitPanes\][\s\S]*?panes\.map\(\(pane\) => pane\.analysisSnapshot\(lookbackMs\)\)/);
+  assert.match(market, /snapshotFailures\.push\([\s\S]*?行情快照读取失败/);
+  assert.match(market, /private async runSplitPaneAnalyses\([\s\S]*?const snapshots = \[\.\.\.options\.snapshots\]/);
+  assert.match(market, /const failures: TradingSplitPaneAnalysisFailure\[\] = \[\.\.\.options\.snapshotFailures\]/);
+  assert.match(market, /Array\.from\(\{ length: Math\.min\(2, snapshots\.length\) \}, \(\) => worker\(\)\)/);
+  assert.match(market, /const snapshot = snapshots\[cursor\]/);
+  assert.match(market, /const response = await options\.analyze\(snapshot\)/);
+  assert.match(market, /await commitTradingAnalysisDrawingPatch\([\s\S]*?snapshot\.paneIndex/);
+  assert.match(market, /失败原因会写入最终报告/);
+  assert.match(market, /analysisProgressPhase: string;[\s\S]*?drawingProgressPhase: string;/);
+  assert.match(market, /分析完成，正在逐笔落图/);
+  assert.equal((market.match(/await this\.runSplitPaneAnalyses\(\{/g) || []).length, 5);
+  assert.equal((market.match(/report: combineTradingAnalysisReports\(/g) || []).length, 5);
+  assert.equal((market.match(/narrative: combineTradingAnalysisNarratives\(/g) || []).length, 5);
+  for (const api of [
+    "runTradingGeneralAnalysis",
+    "runTradingChanTest",
+    "runTradingWaveAnalysis",
+    "runTradingWyckoffAnalysis",
+    "runTradingOrderFlowAnalysis",
+  ]) {
+    assert.match(market, new RegExp(`const api = window\\.codexDesktop\\.${api}`));
+  }
+});
+
+test("successful manual or AI persistence records the active layout and all pane selections", async () => {
+  const [drawing, market, splitPane] = await Promise.all([
+    drawingSource,
+    marketSource,
+    splitPaneSource,
+  ]);
+
+  assert.match(drawing, /onDrawingStateChanged\?: \(source: TradingDrawingController\) => void/);
+  assert.match(
+    drawing,
+    /private persistDrawings\(notify = true\)[\s\S]*?window\.localStorage\.setItem\([\s\S]*?if \(notify\) this\.onDrawingStateChanged\?\.\(this\)/,
+  );
+  assert.match(
+    drawing,
+    /private persistAiDrawings\(notify = true\)[\s\S]*?window\.localStorage\.setItem\([\s\S]*?if \(notify\) this\.onDrawingStateChanged\?\.\(this\)/,
+  );
+  assert.match(drawing, /switchStorageSession\([\s\S]*?this\.persistDrawings\(false\)[\s\S]*?this\.persistAiDrawings\(false\)/);
+  assert.match(drawing, /cancelAiPlayback\([\s\S]*?this\.persistAiDrawings\(false\)/);
+  assert.match(splitPane, /onDrawingStateChanged: options\.drawing\.onDrawingStateChanged/);
+  assert.match(market, /onDrawingStateChanged: \(\) => this\.recordLastDrawingWorkspace\(\)/);
+  assert.match(market, /private recordLastDrawingWorkspace\(\)[\s\S]*?layoutId: layout\.id,[\s\S]*?panes/);
+  assert.match(market, /loadTradingLastDrawingWorkspace\([\s\S]*?this\.drawingStorageSessionId/);
+  assert.match(market, /if \(lastDrawingWorkspace\) this\.splitLayoutId = lastDrawingWorkspace\.layoutId/);
+  assert.match(market, /restoreLastDrawingWorkspace\([\s\S]*?this\.splitPaneSelections\.set\(pane\.paneIndex/);
+  assert.match(market, /migrateTradingLastDrawingWorkspace\(/);
 });

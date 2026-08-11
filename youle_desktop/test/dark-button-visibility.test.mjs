@@ -75,7 +75,6 @@ test("dark secondary and toolbar controls no longer blend into their panels", as
     ".contact-secondary-action",
     ".contact-request-secondary",
     ".auto-task-view-button",
-    ".recharge-amount-presets button:not(.selected)",
     ".telegram-channel-login-secondary",
     ".thread-dialog-secondary",
     ".secondary-button",

@@ -90,6 +90,24 @@ export function stripTradingOrderFlowMentionLiteral(text) {
   return source.trim();
 }
 
+export function deterministicOrderFlowChartRequest(userText, context = {}) {
+  if (context.hasImageAttachment === true) return null;
+  const instruction = stripTradingOrderFlowMentionLiteral(userText)
+    .replace(/\s+/gu, " ")
+    .trim();
+  const shortCanvasAction = /^(?:(?:请|麻烦|帮我)\s*)?(?:分析(?:下|一下|看看)?|看盘|看(?:下|一下|看)(?:盘)?|画(?:下|一下)?图|绘图|重新分析|刷新(?:下|一下)?|更新(?:下|一下)?)(?:\s*(?:当前|现在)?(?:盘面|行情|走势|图表|K\s*线)?)?(?:吧|呗|谢谢)?[。！!]*$/u;
+  if (instruction && !shortCanvasAction.test(instruction)) return null;
+  return {
+    mode: "chart-analysis",
+    instruction,
+    symbol: null,
+    interval: null,
+    lookbackMs: null,
+    lookbackLabel: null,
+    drawingRequested: true,
+  };
+}
+
 export function buildOrderFlowRequestRoutingPrompt(params = {}) {
   const payload = {
     text: String(params.text || "").slice(0, 12_000),
@@ -113,11 +131,12 @@ export function buildOrderFlowRequestRoutingPrompt(params = {}) {
     "1. 用户明确要求首次订单流/ICT/SMC 分析、重新分析、刷新实时数据、切换行情或重新绘制结构时，mode=chart-analysis；需要绘图时 intent=chart-drawing，否则 intent=chart-analysis。",
     "2. hasCurrentAnalysis=true 表示当前品种与周期已有订单流分析和画线。对上一轮 OB/FVG/流动性/目标/风险/结论依据，或能否按既有条件买卖的追问，应 mode=conversation、intent=expert-question，复用既有分析直接回答；只有明确更新/重画、参数变化或必须读取新成交/盘口时才 chart-analysis。",
     "3. 只有订单流或 ICT/SMC 概念、方法、数据字段问答（包括 OB、FVG、BOS、CHoCH、MSS、EQ、BSL/SSL、Sweep、Breaker、OTE），或只解读用户上传截图时，mode=conversation；截图解读 intent=screenshot-question，其他问答 intent=expert-question。",
-    "4. 用户只发送 @策略:订单流 标记且没有其他文字时，视为对当前画布执行订单流分析与绘图，mode=chart-analysis、intent=chart-drawing。",
+    "4. 用户只发送 @策略:订单流 标记，或附加‘分析下/看下/看盘/画图/刷新下’这类无其他参数的简短执行词时，视为对当前画布执行订单流分析与绘图，mode=chart-analysis、intent=chart-drawing。",
     "5. hasImageAttachment=true 时仍以用户真实意图为准；仅询问截图内容不得切换或改动画布。",
     "6. symbol、interval、lookbackMs 只提取用户消息中明确出现的参数。不得根据常见默认值、上下文猜测或补全 BTC、日线、时间范围。",
     "7. 未指定的参数一律输出 null，以便桌面端继承用户当前打开的品种、K 线周期和可见范围。",
     "示例：用户说“@策略:订单流”，应输出 chart-analysis、chart-drawing，且 symbol、interval、lookbackMs、lookbackLabel 全部为 null。",
+    "示例：用户说“@策略:订单流 分析下”，应输出 chart-analysis、chart-drawing，并继承当前画布参数，不得输出 conversation。",
     "示例：用户说“@策略:订单流 看下 ETH 最近24小时的15分钟K线并画图”，应输出 chart-analysis、chart-drawing、ETHUSDT、15、86400000、24小时。",
     "示例：用户上传图片并问“这里是买方吸收吗”，应输出 conversation、screenshot-question，所有行情参数为 null。",
     "示例：hasCurrentAnalysis=true，用户问“为什么第一目标在那里”或“按刚才的订单流现在能做多吗”，应输出 conversation、expert-question，所有行情参数为 null。",

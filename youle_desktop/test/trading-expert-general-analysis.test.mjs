@@ -227,7 +227,7 @@ test("renderer route inherits the selected symbol, interval and visible candle r
   assert.match(marketSource, /request\.interval \|\| this\.activeInterval/);
   assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles, visibleRange\)/);
   assert.match(marketSource, /canvasCandles\.length\s*\? canvasCandles/);
-  assert.match(marketSource, /if \(request\.drawingRequested !== false\)[\s\S]*?playAiDrawingPatch/);
+  assert.match(marketSource, /if \(request\.drawingRequested !== false\)[\s\S]*?commitTradingAnalysisDrawingPatch/);
   assert.match(marketSource, /request\.drawingRequested === false[\s\S]*?response\.analysisPlan\.narrative/);
   assert.match(marketSource, /左侧原画线保持不变/);
   assert.match(marketSource, /hasCurrentAnalysis\([\s\S]*?hasAiAnalysisForCurrentContext\(theory\)/);

@@ -210,8 +210,8 @@ test("background hydration is wired through read-only thread/read IPC", async ()
 
   assert.match(handler, /"thread\/read"/);
   assert.match(handler, /\{ threadId, includeTurns: true \}/);
-  assert.match(handler, /params\.displayCache === true[\s\S]*compactActiveThreadReadResultWithContextUsage\(result\)[\s\S]*compactBackgroundThreadReadResult\(result\)/);
-  assert.match(handler, /readLatestThreadContextUsage\(result\?\.thread\)[\s\S]*contextUsage/);
+  assert.match(handler, /params\.displayCache === true[\s\S]*compactActiveThreadReadResultWithContextUsage\(result, cwd\)[\s\S]*withTradingTranscriptHistory\(result, \{[\s\S]*compactBackgroundThreadReadResult\(hydrated\)/);
+  assert.match(handler, /readLatestThreadContextUsage\(hydrated\?\.thread\)[\s\S]*contextUsage/);
   assert.doesNotMatch(handler, /thread\/resume|refreshSkillsDeveloperInstructions|snapshotThreadArtifacts/);
   assert.match(preload, /readThreadForBackgroundHydration: \(params\) => ipcRenderer\.invoke\("codex:readThreadForBackgroundHydration", params\)/);
   assert.match(broker, /api\.readThreadForBackgroundHydration\(\{[\s\S]*threadId,[\s\S]*cwd: threadWorkspaceCwd\(threadId\)[\s\S]*displayCache: true/);
@@ -276,11 +276,11 @@ test("foreground resume consumes one captured start notification and uses it onl
   const suppressionHelpers = sourceBlock(main, "function beginRendererThreadResumeNotificationSuppression", "function handleClientNotification");
 
   assert.match(handler, /beginRendererThreadResumeNotificationSuppression\(threadId\)/);
-  assert.match(handler, /compactActiveThreadReadResultWithContextUsage\(result\)/);
-  assert.match(compactWithUsage, /compactActiveThreadReadResult\(result\)[\s\S]*readLatestThreadContextUsage\(result\?\.thread\)[\s\S]*contextUsage/);
+  assert.match(handler, /compactActiveThreadReadResultWithContextUsage\(result, cwd\)/);
+  assert.match(compactWithUsage, /withTradingTranscriptHistory\(result, \{[\s\S]*compactActiveThreadReadResult\(hydrated\)[\s\S]*readLatestThreadContextUsage\(hydrated\?\.thread\)[\s\S]*contextUsage/);
   assert.match(rendererResume, /api\.resumeThread\(params\)[\s\S]*applyThreadContextUsageSnapshot\(resumedThreadId, result\?\.contextUsage\)/);
   assert.match(handler, /finally[\s\S]*finishRendererThreadResumeNotificationSuppression\(threadId, suppressionToken\)/);
-  assert.match(handler, /catch \(error\)[\s\S]*capturedStart[\s\S]*fallbackThread[\s\S]*if \(!fallbackThread\) throw error;[\s\S]*compactActiveThreadReadResultWithContextUsage\(withThreadRuntimeSettings\(\{ thread: fallbackThread \}\)\)/);
+  assert.match(handler, /catch \(error\)[\s\S]*capturedStart[\s\S]*fallbackThread[\s\S]*if \(!fallbackThread\) throw error;[\s\S]*compactActiveThreadReadResultWithContextUsage\([\s\S]*withThreadRuntimeSettings\(\{ thread: fallbackThread \}\),[\s\S]*cwd/);
   assert.match(notificationHandler, /captureRendererThreadStarted\(message, threadId\)\) return;[\s\S]*sendToRenderer\("codex:notification"/);
   assert.match(main, /function captureRendererThreadStarted[\s\S]*if \(!suppression\.notification\) suppression\.notification = message;/);
   assert.doesNotMatch(suppressionHelpers, /GRACE_MS|expiresAt|setTimeout/);

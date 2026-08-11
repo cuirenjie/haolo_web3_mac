@@ -319,7 +319,7 @@ test("each provider question is persisted by conversation id and grouped on its 
   assert.ok(groupCaptureIndex >= 0 && groupCaptureIndex < pendingBubbleIndex);
   assert.match(
     composerSendBlock,
-    /const composerGroupIdForSend = isTradingExpertThreadId\(threadId\)[\s\S]*?: groupIdForThreadContext\(threadId\)/,
+    /const composerGroupIdForSend = groupIdForThreadContext\(threadId\);/,
   );
   assert.match(composerSendBlock, /commitSelectedNewThreadGroupForSend\(threadId, composerGroupIdForSend\)/);
 

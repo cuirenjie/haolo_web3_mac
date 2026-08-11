@@ -764,7 +764,9 @@ test("thread titles remove every legacy group mark and trim surrounding whitespa
   const listTitle = sourceBlock(source, "function threadListDisplayName", "function withFixedConnectionThreadName");
   const chatTitle = sourceBlock(source, "function chatHeaderTitle", "function renderNewThreadGroupPicker");
 
-  assert.match(cleaner, /\.replace\(\/\\s\*\\\[群\\\]\\s\*\/g, ""\)\.trim\(\)/);
+  assert.match(cleaner, /stripConversationTitleMentionTokens\(/);
+  assert.match(cleaner, /\.replace\(\/\\s\*\\\[群\\\]\\s\*\/g, ""\)/);
+  assert.match(cleaner, /TRADING_EXPERT_TITLE_MENTION_TOKENS/);
   assert.match(listTitle, /cleanThreadDisplayTitle\(/);
   assert.match(chatTitle, /cleanThreadDisplayTitle\(/);
   assert.doesNotMatch(styles, /multi-model-cluster-title-mark/);

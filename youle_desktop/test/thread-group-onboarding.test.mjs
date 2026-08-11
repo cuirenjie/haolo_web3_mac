@@ -105,11 +105,40 @@ test("hides only the default group title from the conversation list", async () =
   assert.equal(shouldRenderThreadGroupInConversationList("study", defaultGroupId), true);
 });
 
-test("labels the default conversation list group as history tasks", async () => {
+test("labels the default conversation list group as recent", async () => {
   const { threadGroupConversationListDisplayName } = await onboardingModule;
 
-  assert.equal(threadGroupConversationListDisplayName(defaultGroupId, "默认分组", defaultGroupId, "历史任务"), "历史任务");
-  assert.equal(threadGroupConversationListDisplayName("study", "Study", defaultGroupId, "历史任务"), "Study");
+  assert.equal(threadGroupConversationListDisplayName(defaultGroupId, "默认分组", defaultGroupId, "最近"), "最近");
+  assert.equal(threadGroupConversationListDisplayName("study", "Study", defaultGroupId, "最近"), "Study");
+});
+
+test("migrates the legacy Trading Expert project into recent without changing explicit user groups", async () => {
+  const { migrateLegacyRecentThreadGroupPreferences } = await onboardingModule;
+  const migration = migrateLegacyRecentThreadGroupPreferences(
+    [
+      { id: defaultGroupId, name: "默认分组" },
+      { id: "legacy-trading", name: "交易专家" },
+      { id: "study", name: "Study" },
+    ],
+    {
+      "trading-thread": "legacy-trading",
+      "study-thread": "study",
+      "local-blank": "legacy-trading",
+    },
+    { "study-thread": "multi-agent" },
+    {
+      defaultGroupId,
+      defaultGroupName: "默认分组",
+      legacyTradingGroupName: "交易专家",
+      isVolatileThreadId: (threadId) => threadId === "local-blank",
+    },
+  );
+
+  assert.deepEqual([...migration.recentAliasIds].sort(), [defaultGroupId, "legacy-trading"].sort());
+  assert.deepEqual([...migration.legacyTradingGroupIds], ["legacy-trading"]);
+  assert.equal(migration.threadModes["trading-thread"], "execution");
+  assert.equal(migration.threadModes["study-thread"], "multi-agent");
+  assert.equal(migration.threadModes["local-blank"], undefined);
 });
 
 test("shows the composer group picker only for the top-level blank task", async () => {

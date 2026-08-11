@@ -19,7 +19,7 @@ test("question-answer current directory is bound only by the existing group pick
   assert.doesNotMatch(renderer, /分组资料|toggle-current-group-access|composer-current-group-access/);
   assert.match(
     renderer,
-    /const composerGroupIdForSend = isTradingExpertThreadId\(threadId\)[\s\S]*?: groupIdForThreadContext\(threadId\);[\s\S]*?const currentGroupIdForSend = isDefaultThreadGroup\(composerGroupIdForSend\)[\s\S]*?\? null[\s\S]*?: composerGroupIdForSend/,
+    /const composerGroupIdForSend = groupIdForThreadContext\(threadId\);[\s\S]*?const currentGroupIdForSend = isDefaultThreadGroup\(composerGroupIdForSend\)[\s\S]*?\? null[\s\S]*?: composerGroupIdForSend/,
   );
   assert.match(
     renderer,

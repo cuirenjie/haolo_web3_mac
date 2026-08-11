@@ -16,6 +16,8 @@ test("interrupted turn result headers reuse the pending consumption status and h
   const renderer = await rendererSource;
   const decorator = sourceBlock(renderer, "function withCollapsedTurnResults", "function isTurnResultGroupComplete");
   const status = sourceBlock(renderer, "function cachedConsumptionStatusForTurn", "function turnResultElapsedLabel");
+  const elapsed = sourceBlock(renderer, "function turnResultElapsedLabel", "function activeThinkingElapsedLabel");
+  const formatter = sourceBlock(renderer, "function formatElapsedDuration", "function formatClockMinute");
   const toggle = sourceBlock(renderer, "function renderTurnResultToggle", "function renderConversationSupplementHeader");
 
   assert.match(decorator, /status: turnResultDisplayStatus\(threadId, group\.turnKey, group\.outputIndexes, messages\)/);
@@ -33,6 +35,9 @@ test("interrupted turn result headers reuse the pending consumption status and h
   assert.match(toggle, /\? "待完成"/);
   assert.match(toggle, /: `\$\{HANDLED_STATUS_LABEL\} \$\{meta\.elapsedLabel\}`/);
   assert.match(toggle, /<span>\$\{escapeHtml\(statusLabel\)\}<\/span>/);
+  assert.match(elapsed, /turnResultProcessIndexes\(messages, finalIndex\)/);
+  assert.match(elapsed, /previousTurnResultUserStartMs\(threadId, messages, finalIndex\)/);
+  assert.match(formatter, /safeMilliseconds < 1000\) return "<1s"/);
 });
 
 test("thread snapshots retain turn status for pending-result recovery after restart", async () => {

@@ -326,23 +326,6 @@
     .feature-list li { display: flex; align-items: flex-start; gap: 9px; color: var(--text-soft); font-size: 12px; line-height: 1.55; }
     .feature-list svg { flex: 0 0 auto; margin-top: 1px; color: var(--brand); }
 
-    .primary-button,
-    .secondary-button {
-      width: 100%;
-      height: 44px;
-      margin-top: auto;
-      border-radius: 12px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 720;
-      transition: .2s ease;
-    }
-
-    .primary-button { border: 1px solid var(--brand); background: var(--brand); color: var(--button-text); box-shadow: 0 8px 20px rgba(49, 155, 255, .2); }
-    .primary-button:hover { transform: translateY(-1px); background: #188ff0; box-shadow: 0 11px 24px rgba(49, 155, 255, .26); }
-    .secondary-button { border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); box-shadow: none; }
-    .secondary-button:hover { border-color: color-mix(in srgb, var(--brand) 45%, var(--line-strong)); background: var(--surface-3); transform: translateY(-1px); }
-
     .boost-shell {
       position: relative;
       overflow: hidden;
@@ -362,8 +345,6 @@
     .boost-bonus { min-height: 20px; margin-top: 7px; color: var(--green); font-size: 11px; font-weight: 650; }
     .boost-price { display: flex; margin: 16px 0; align-items: baseline; justify-content: space-between; color: var(--muted); font-size: 11px; }
     .boost-price b { color: var(--text); font-size: 17px; }
-    .boost-card .primary-button,
-    .boost-card .secondary-button { height: 42px; }
 
     .notice {
       display: grid;
@@ -384,50 +365,6 @@
     footer { border-top: 1px solid var(--line); color: var(--muted); }
     .footer-inner { display: flex; width: min(1180px, calc(100% - 40px)); min-height: 74px; margin: 0 auto; align-items: center; justify-content: space-between; gap: 20px; font-size: 11px; }
     .footer-links { display: flex; gap: 18px; }
-
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      z-index: 70;
-      display: grid;
-      place-items: center;
-      visibility: hidden;
-      background: rgba(15, 23, 42, .34);
-      padding: 20px;
-      opacity: 0;
-      backdrop-filter: blur(10px);
-      transition: .22s ease;
-    }
-
-    .modal-backdrop.open { visibility: visible; opacity: 1; }
-    .modal {
-      width: min(440px, 100%);
-      border: 1px solid var(--line-strong);
-      border-radius: 22px;
-      background: var(--surface);
-      padding: 24px;
-      box-shadow: var(--shadow);
-      transform: translateY(12px) scale(.98);
-      transition: .22s ease;
-    }
-    .modal-backdrop.open .modal { transform: none; }
-    .modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
-    .modal-head h3 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
-    .modal-head p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
-    .close-button { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); cursor: pointer; }
-    .order-card { display: flex; margin: 22px 0 18px; align-items: center; gap: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); padding: 16px; }
-    .order-icon { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 12px; background: var(--brand-soft); color: var(--brand); }
-    .order-info { min-width: 0; }
-    .order-info strong { display: block; font-size: 13px; }
-    .order-info span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
-    .order-price { margin-left: auto; font-size: 20px; font-weight: 750; }
-    .pay-label { margin-bottom: 9px; color: var(--muted); font-size: 11px; }
-    .pay-methods { display: grid; grid-template-columns: 1fr; gap: 9px; }
-    .pay-method { display: flex; height: 46px; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 11px; background: transparent; padding: 0 12px; cursor: pointer; font-size: 12px; font-weight: 650; }
-    .pay-method.selected { border-color: rgba(76, 154, 255, .6); background: var(--brand-soft); }
-    .pay-method svg { color: var(--green); }
-    .modal .primary-button { margin-top: 18px; }
-    .modal-note { margin: 12px 0 0; color: var(--muted-2); font-size: 10px; line-height: 1.6; text-align: center; }
 
     .toast {
       position: fixed;
@@ -550,7 +487,6 @@
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>支持全部基础 AI 能力</li>
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>额度按月自动刷新</li>
           </ul>
-          <button class="secondary-button buy-plan" type="button" data-name="基础版订阅" data-detail="600 Token / 月" data-price="139">选择基础版</button>
         </article>
 
         <article class="plan-card featured">
@@ -567,7 +503,6 @@
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>解锁更高频模型调用</li>
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>比基础版每 Token 更划算</li>
           </ul>
-          <button class="primary-button buy-plan" type="button" data-name="专业版订阅" data-detail="1,200 Token / 月" data-price="239">升级专业版</button>
         </article>
 
         <article class="plan-card">
@@ -584,7 +519,6 @@
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>满足高频专业任务</li>
             <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>三档中单位额度最优</li>
           </ul>
-          <button class="secondary-button buy-plan" type="button" data-name="旗舰版订阅" data-detail="4,000 Token / 30天" data-price="599">选择旗舰版</button>
         </article>
       </div>
     </section>
@@ -608,7 +542,6 @@
               <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 18.20美元的 Token · 成本倍率 1:0.055</p>
             </div>
             <div class="boost-price"><span>一次性购买</span><b>¥20</b></div>
-            <button class="secondary-button buy-boost" type="button" data-name="Token 加油包" data-detail="52 Token" data-price="20">购买加油包</button>
           </article>
           <article class="boost-card">
             <span class="boost-label">灵活补充</span>
@@ -619,7 +552,6 @@
               <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 19.60美元的 Token · 成本倍率 1:0.051</p>
             </div>
             <div class="boost-price"><span>一次性购买</span><b>¥50</b></div>
-            <button class="secondary-button buy-boost" type="button" data-name="Token 加油包" data-detail="140 Token · 含 10 Token 赠送" data-price="50">购买加油包</button>
           </article>
           <article class="boost-card featured">
             <span class="boost-label">高频补充 · 推荐</span>
@@ -630,7 +562,6 @@
               <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 21.70美元的 Token · 成本倍率 1:0.046</p>
             </div>
             <div class="boost-price"><span>一次性购买</span><b>¥100</b></div>
-            <button class="primary-button buy-boost" type="button" data-name="Token 加油包" data-detail="310 Token · 含 50 Token 赠送" data-price="100">立即购买</button>
           </article>
           <article class="boost-card">
             <span class="boost-label">超值补充</span>
@@ -641,7 +572,6 @@
               <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 24.50美元的 Token · 成本倍率 1:0.041</p>
             </div>
             <div class="boost-price"><span>一次性购买</span><b>¥200</b></div>
-            <button class="secondary-button buy-boost" type="button" data-name="Token 加油包" data-detail="700 Token · 含 180 Token 赠送" data-price="200">购买加油包</button>
           </article>
         </div>
       </div>
@@ -670,35 +600,11 @@
     </div>
   </footer>
 
-  <div class="modal-backdrop" id="paymentModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="modal">
-      <div class="modal-head">
-        <div><h3 id="modalTitle">确认购买</h3><p>核对方案后选择支付方式</p></div>
-        <button class="close-button" type="button" id="closeModal" aria-label="关闭">
-          <svg width="17" height="17" viewBox="0 0 17 17" fill="none"><path d="m4.5 4.5 8 8m0-8-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        </button>
-      </div>
-      <div class="order-card">
-        <span class="order-icon"><svg class="svg-icon" viewBox="0 0 24 24" fill="none"><path d="m13.2 2.8-7.7 10h6.2l-.9 8.4 7.7-10h-6.2l.9-8.4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg></span>
-        <div class="order-info"><strong id="orderName">专业版订阅</strong><span id="orderDetail">1,200 Token / 月</span></div>
-        <div class="order-price" id="orderPrice">¥239</div>
-      </div>
-      <div class="pay-label">支付方式</div>
-      <div class="pay-methods">
-        <button class="pay-method selected" type="button"><svg class="svg-icon" viewBox="0 0 24 24" fill="none"><path d="M9.2 5.2c-3.7 0-6.7 2.5-6.7 5.7 0 1.8 1 3.4 2.6 4.4l-.7 2.3 2.7-1.2c.7.2 1.4.3 2.1.3 3.7 0 6.7-2.6 6.7-5.8s-3-5.7-6.7-5.7Z" stroke="currentColor" stroke-width="1.5"/><path d="M14.6 9.3c3.8 0 6.9 2.5 6.9 5.6 0 1.7-1 3.3-2.6 4.3l.6 2-2.4-1.1c-.8.3-1.6.4-2.5.4-3.8 0-6.9-2.5-6.9-5.6" stroke="currentColor" stroke-width="1.5"/></svg>微信支付</button>
-      </div>
-      <button class="primary-button" id="confirmPayment" type="button">确认并生成付款码</button>
-      <p class="modal-note">当前为 HTML 交互原型，不会发起真实付款。接入项目接口后可直接替换确认按钮逻辑。</p>
-    </div>
-  </div>
-
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
     const root = document.documentElement;
     const themeToggle = document.getElementById('themeToggle');
-    const modal = document.getElementById('paymentModal');
-    const closeModalButton = document.getElementById('closeModal');
     const toast = document.getElementById('toast');
     let toastTimer;
 
@@ -717,44 +623,6 @@
 
     document.querySelectorAll('[data-coming-soon]').forEach((button) => {
       button.addEventListener('click', () => showToast('团队版正在准备中，敬请期待'));
-    });
-
-    function openPayment(name, detail, price) {
-      document.getElementById('orderName').textContent = name;
-      document.getElementById('orderDetail').textContent = detail;
-      document.getElementById('orderPrice').textContent = `¥${price}`;
-      modal.classList.add('open');
-      document.body.style.overflow = 'hidden';
-      closeModalButton.focus();
-    }
-
-    function closePayment() {
-      modal.classList.remove('open');
-      document.body.style.overflow = '';
-    }
-
-    document.querySelectorAll('.buy-plan').forEach((button) => {
-      button.addEventListener('click', () => openPayment(button.dataset.name, button.dataset.detail, button.dataset.price));
-    });
-
-    document.querySelectorAll('.buy-boost').forEach((button) => {
-      button.addEventListener('click', () => openPayment(button.dataset.name, button.dataset.detail, button.dataset.price));
-    });
-
-    closeModalButton.addEventListener('click', closePayment);
-    modal.addEventListener('click', (event) => { if (event.target === modal) closePayment(); });
-    document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && modal.classList.contains('open')) closePayment(); });
-
-    document.querySelectorAll('.pay-method').forEach((button) => {
-      button.addEventListener('click', () => {
-        document.querySelectorAll('.pay-method').forEach((item) => item.classList.remove('selected'));
-        button.classList.add('selected');
-      });
-    });
-
-    document.getElementById('confirmPayment').addEventListener('click', () => {
-      closePayment();
-      showToast('原型演示：已准备生成付款码');
     });
 
     const sections = [...document.querySelectorAll('main section[id]')];

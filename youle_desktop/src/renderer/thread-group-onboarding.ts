@@ -27,6 +27,53 @@ export type ComposerGroupPickerThread = {
   groupBlank?: boolean;
 };
 
+export type RecentThreadGroupMigrationGroup = {
+  id: string;
+  name: string;
+};
+
+export function migrateLegacyRecentThreadGroupPreferences<TMode extends string>(
+  groups: RecentThreadGroupMigrationGroup[],
+  persistedThreadGroups: unknown,
+  persistedThreadModes: Record<string, TMode>,
+  options: {
+    defaultGroupId: string;
+    defaultGroupName: string;
+    legacyTradingGroupName: string;
+    isVolatileThreadId?: (threadId: string) => boolean;
+  },
+) {
+  const legacyTradingGroupIds = new Set(
+    groups
+      .filter((group) => group.name.trim() === options.legacyTradingGroupName)
+      .map((group) => group.id),
+  );
+  const recentAliasIds = new Set(
+    groups
+      .filter(
+        (group) =>
+          group.id === options.defaultGroupId
+          || group.name === options.defaultGroupName
+          || legacyTradingGroupIds.has(group.id),
+      )
+      .map((group) => group.id),
+  );
+  const threadModes: Record<string, TMode | "execution"> = { ...persistedThreadModes };
+  if (persistedThreadGroups && typeof persistedThreadGroups === "object") {
+    for (const [threadId, groupId] of Object.entries(persistedThreadGroups)) {
+      if (
+        threadId
+        && !options.isVolatileThreadId?.(threadId)
+        && typeof groupId === "string"
+        && legacyTradingGroupIds.has(groupId)
+      ) {
+        threadModes[threadId] = "execution";
+      }
+    }
+  }
+  return { legacyTradingGroupIds, recentAliasIds, threadModes };
+}
+
 export function isTopLevelBlankTaskPlaceholder(thread: ComposerGroupPickerThread) {
   return Boolean(thread.blank && !thread.groupBlank);
 }

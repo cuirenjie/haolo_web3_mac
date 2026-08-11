@@ -2,6 +2,8 @@ import "./styles.css";
 import { ensureBrowserDesktopApi } from "./browser_mock";
 import {
   applyTradingExpertCustomIndicatorMentions,
+  cancelTradingExpertAnalysis,
+  migrateTradingExpertMarketWorkspaceStorageSession,
   renderTradingExpertMarketWorkspace,
   runTradingExpertChanConversation,
   runTradingExpertGeneralConversation,
@@ -10,7 +12,13 @@ import {
   runTradingExpertWaveConversation,
   runTradingExpertWyckoffConversation,
   syncTradingExpertMarketWorkspace,
+  tradingLastAnalysisLabelForThread,
+  tradingExpertMarketWorkspaceStorageSessionId,
 } from "./trading-expert-market";
+import {
+  bindTradingExpertPanelResize,
+  renderTradingExpertPanelResizeHandles,
+} from "./trading-expert-panel-resize";
 import {
   buildTradingChanExpertPrompt,
   stripTradingChanMention,
@@ -51,6 +59,7 @@ import {
   renderExternalModelSettingsPanel,
   type ExternalModelProviderStatus,
 } from "./external-model-settings";
+import { stripConversationTitleMentionTokens } from "./conversation-title";
 import {
   authChannelLabel,
   detectAuthIdentifier,
@@ -257,6 +266,7 @@ import {
 import {
   isTopLevelBlankTaskPlaceholder,
   isThreadGroupOnboardingEmptyState,
+  migrateLegacyRecentThreadGroupPreferences,
   shouldActivateTopLevelBlankAfterDiscard,
   shouldDiscardDeletedThreadGroupBlankThread,
   shouldRenderComposerGroupPicker,
@@ -445,18 +455,6 @@ const HAOLO_INTERNAL_MESSAGE_BLOCKS = [
 const CHANNELS_ENABLED = false;
 const CHANNEL_EVENTS_ENABLED = false;
 const HANDLED_STATUS_LABEL = "\u5df2\u5904\u7406";
-const RECHARGE_DEFAULT_AMOUNT_FEN = 2000;
-const RECHARGE_AMOUNT_PRESETS_FEN = [2000, 5000, 10000, 20000];
-const RECHARGE_MIN_AMOUNT_FEN = 500;
-const RECHARGE_MAX_AMOUNT_FEN = 1_000_000;
-const RECHARGE_TOKEN_RATE = 3;
-const RECHARGE_TOKEN_BONUS_BY_AMOUNT_FEN = new Map<number, number>([
-  [5000, 50],
-  [10000, 130],
-  [20000, 400],
-]);
-const RECHARGE_ORDER_POLL_INTERVAL_MS = 3000;
-const RECHARGE_ORDER_FINAL_STATUSES = new Set(["approved", "paid", "succeeded", "success", "completed", "cancelled", "expired", "rejected"]);
 const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
   {
     id: "subscription_basic",
@@ -471,7 +469,6 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     weeklyTokenAmount: 150,
     unitValue: "42.42",
     multiplier: "1:0.023",
-    cta: "选择基础版",
     features: ["每周额度上限 150 积分", "支持全部基础 AI 能力", "等级升级加速权益"],
   },
   {
@@ -488,7 +485,6 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     unitValue: "49.7",
     multiplier: "1:0.02",
     featured: true,
-    cta: "选择专业版",
     features: ["每周额度上限 300 积分", "解锁更多功能", "比基础版更划算"],
   },
   {
@@ -504,7 +500,6 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     weeklyTokenAmount: 1000,
     unitValue: "56.1",
     multiplier: "1:0.017",
-    cta: "选择旗舰版",
     features: ["每周额度上限 1,000 积分", "满足高频专业任务", "三档中单位额度最优"],
   },
 ];
@@ -521,8 +516,7 @@ const RECHARGE_ADDON_PRODUCTS: readonly RechargeProductDefinition[] = [
     tokenAmount: 60,
     unitValue: "21",
     multiplier: "1:0.047",
-    cta: "立即购买",
-    features: ["支付成功后即时到账", "进入积分余额", "永久有效"],
+    features: ["进入积分余额", "永久有效"],
   },
   {
     id: "addon_50",
@@ -537,8 +531,7 @@ const RECHARGE_ADDON_PRODUCTS: readonly RechargeProductDefinition[] = [
     unitValue: "28",
     multiplier: "1:0.035",
     bonus: 50,
-    cta: "立即购买",
-    features: ["支付成功后即时到账", "进入积分余额", "永久有效"],
+    features: ["进入积分余额", "永久有效"],
   },
   {
     id: "addon_100",
@@ -554,8 +547,7 @@ const RECHARGE_ADDON_PRODUCTS: readonly RechargeProductDefinition[] = [
     multiplier: "1:0.033",
     bonus: 130,
     featured: true,
-    cta: "立即购买",
-    features: ["支付成功后即时到账", "进入积分余额", "永久有效"],
+    features: ["进入积分余额", "永久有效"],
   },
   {
     id: "addon_200",
@@ -570,8 +562,7 @@ const RECHARGE_ADDON_PRODUCTS: readonly RechargeProductDefinition[] = [
     unitValue: "35",
     multiplier: "1:0.028",
     bonus: 400,
-    cta: "立即购买",
-    features: ["支付成功后即时到账", "进入积分余额", "永久有效"],
+    features: ["进入积分余额", "永久有效"],
   },
 ];
 const VOICE_INPUT_MAX_DURATION_MS = 2 * 60 * 1000;
@@ -618,6 +609,11 @@ const TRADING_EXPERT_MENTION_CATALOG = [
   { label: "知识库", options: [] },
   { label: "自定义指标", options: ["趋势带"] },
 ] as const;
+const TRADING_EXPERT_TITLE_MENTION_TOKENS = TRADING_EXPERT_MENTION_CATALOG.flatMap((item) => (
+  item.options.length
+    ? item.options.flatMap((option) => [`@${item.label}:${option}`, `@${item.label}：${option}`])
+    : [`@${item.label}`]
+));
 const GROUP_CHAT_QUANTITY_MIN = 1;
 const GROUP_CHAT_QUANTITY_MAX = 10;
 const VIDEO_EXPERT_CONTACT_ID = "agent-video-expert";
@@ -1225,6 +1221,7 @@ type DesktopApi = {
   removeExternalModelProvider?(params: { provider: string }): Promise<any>;
   testExternalModelConnection?(params: { provider: string }): Promise<any>;
   runTradingChanTest?(params: {
+    analysisJobId?: string;
     marketId: string;
     interval: string;
     snapshotTime: number;
@@ -1251,6 +1248,7 @@ type DesktopApi = {
     hasCurrentAnalysis?: boolean;
   }): Promise<any>;
   runTradingOrderFlowAnalysis?(params: {
+    analysisJobId?: string;
     marketId: string;
     interval: string;
     snapshotTime: number;
@@ -1284,6 +1282,7 @@ type DesktopApi = {
     hasCurrentAnalysis?: boolean;
   }): Promise<any>;
   runTradingWaveAnalysis?(params: {
+    analysisJobId?: string;
     marketId: string;
     interval: string;
     snapshotTime: number;
@@ -1305,6 +1304,7 @@ type DesktopApi = {
     hasCurrentAnalysis?: boolean;
   }): Promise<any>;
   runTradingWyckoffAnalysis?(params: {
+    analysisJobId?: string;
     marketId: string;
     interval: string;
     snapshotTime: number;
@@ -1326,6 +1326,7 @@ type DesktopApi = {
     hasCurrentAnalysis?: boolean;
   }): Promise<any>;
   runTradingGeneralAnalysis?(params: {
+    analysisJobId?: string;
     marketId: string;
     interval: string;
     snapshotTime: number;
@@ -1341,7 +1342,7 @@ type DesktopApi = {
       volume?: number;
     }>;
   }): Promise<any>;
-  cancelTradingAnalysis?(): Promise<{ cancelled?: boolean }>;
+  cancelTradingAnalysis?(params?: { analysisJobId?: string }): Promise<{ cancelled?: boolean }>;
   getFinnhubMarketDataStatus?(): Promise<any>;
   searchFinnhubMarkets?(params: { query: string; limit?: number }): Promise<any>;
   getFinnhubMarketQuotes?(params: { symbols: string[] }): Promise<any>;
@@ -1415,16 +1416,6 @@ type DesktopApi = {
   cancelContactRequest?(params: { requestId: string }): Promise<any>;
   archiveContactRequest?(params: { requestId: string }): Promise<any>;
   archiveHandledContactRequests?(params?: { status?: string }): Promise<any>;
-  fetchRechargeQrcode?(params?: { amount_fen?: number; amountFen?: number; note?: string; payment_method?: string; paymentMethod?: string;
-  }): Promise<RechargeOrderPayload>;
-  createRechargeOrder?(params: { amount_fen?: number; amountFen?: number; note?: string; payment_method?: string; paymentMethod?: string;
-  }): Promise<RechargeOrderPayload>;
-  getRechargeOrder?(params: { order_no?: string; orderNo?: string;
-  }): Promise<RechargeOrderPayload>;
-  createTokenProductOrder?(params: { product_id?: string; productId?: string; payment_method?: string; paymentMethod?: string;
-  }): Promise<RechargeOrderPayload>;
-  getTokenProductOrder?(params: { order_no?: string; orderNo?: string;
-  }): Promise<RechargeOrderPayload>;
   fetchSupportQrcode?(): Promise<{ qrcode_url?: string; qrcodeUrl?: string; object_key?: string | null; content_type?: string | null;
   }>;
   ensureExternalChannelsBackend?(): Promise<any>;
@@ -1520,6 +1511,20 @@ type DesktopApi = {
   setTaskbarUnreadCount?(params: { count: number;
   }): Promise<{ ok?: boolean; count?: number }>;
   startThread(params?: any): Promise<any>;
+  persistTradingTranscript?(params: {
+    threadId: string;
+    cwd: string;
+    title?: string;
+    items: Array<{
+      id: string;
+      role: "user" | "assistant";
+      text: string;
+      createdAt: string;
+      phase?: string;
+      startedAt?: string;
+      completedAt?: string;
+    }>;
+  }): Promise<any>;
   stageContinuationPrompt?(params: any): Promise<any>;
   discardSupersededContinuations?(params: any): Promise<any>;
   createContinuationThread?(params: any): Promise<any>;
@@ -1717,6 +1722,7 @@ type PreservedPreviewVideo = {
 type PreservedTradingExpertMarketWorkspace = {
   host: HTMLElement;
   threadId: string;
+  storageSessionId: string;
 };
 
 type TradingExpertThinkingState = {
@@ -2275,36 +2281,6 @@ type ProfileSubscriptionDetailsState = {
   error: string | null;
 };
 
-type RechargeOrderPayload = {
-  order_no?: string | null;
-  orderNo?: string | null;
-  amount_fen?: number | null;
-  amountFen?: number | null;
-  status?: string | null;
-  qrcode_url?: string | null;
-  qrcodeUrl?: string | null;
-  code_url?: string | null;
-  codeUrl?: string | null;
-  qrcode_data_url?: string | null;
-  qrcodeDataUrl?: string | null;
-  payment_method?: string | null;
-  paymentMethod?: string | null;
-  alipay_payment_url?: string | null;
-  alipayPaymentUrl?: string | null;
-  payment_url?: string | null;
-  paymentUrl?: string | null;
-  transaction_id?: string | null;
-  transactionId?: string | null;
-  product_kind?: string | null;
-  productKind?: string | null;
-  product_id?: string | null;
-  productId?: string | null;
-  fulfillment_status?: string | null;
-  fulfillmentStatus?: string | null;
-  expires_at?: string | null;
-  expiresAt?: string | null;
-};
-
 type RechargeProductKind = "subscription" | "addon";
 
 type RechargeProductDefinition = {
@@ -2320,29 +2296,10 @@ type RechargeProductDefinition = {
   weeklyTokenAmount?: number;
   unitValue: string;
   multiplier: string;
-  cta: string;
   features: readonly string[];
   badge?: string;
   bonus?: number;
   featured?: boolean;
-};
-
-type RechargeQrcodeState = {
-  open: boolean;
-  kind: RechargeProductKind;
-  loading: boolean;
-  polling: boolean;
-  amountFen: number;
-  productId: string | null;
-  productName: string | null;
-  productDetail: string | null;
-  orderNo: string | null;
-  status: string | null;
-  transactionId: string | null;
-  message: string | null;
-  qrcodeUrl: string | null;
-  alipayPaymentUrl: string | null;
-  error: string | null;
 };
 
 type AutoTaskDraftState = {
@@ -3557,7 +3514,6 @@ type UiState = {
   login: LoginState;
   profileEdit: ProfileEditState;
   profileSubscriptionDetails: ProfileSubscriptionDetailsState;
-  rechargeQrcode: RechargeQrcodeState;
   autoTaskDraft: AutoTaskDraftState;
   autoTaskItems: AutoTaskItem[];
   selectedAutoTaskId: string | null;
@@ -3769,10 +3725,6 @@ if (!windowResizeRoot) {
 
 const root: HTMLDivElement = appRoot;
 const resizeRoot: HTMLDivElement = windowResizeRoot;
-const rechargePaymentPortal = document.createElement("div");
-rechargePaymentPortal.id = "rechargePaymentPortal";
-document.body.appendChild(rechargePaymentPortal);
-let rechargePaymentPortalSignature = "";
 const MARKETPLACE_PAGE_SIZE = 15;
 const NEW_THREAD_TITLE = "新任务";
 const NEW_THREAD_WELCOME = "小咯已经就位，有什么任务，你尽管吩咐~";
@@ -3835,7 +3787,7 @@ const EXTERNAL_CHANNEL_FALLBACKS: ExternalChannelSummary[] = [
   { id: "feishu", name: "飞书", description: "通过AppID+Secret连接飞书", status: "frontend_only", connected: false },
 ];
 const DEFAULT_THREAD_GROUP_NAME = "默认分组";
-const DEFAULT_THREAD_GROUP_CONVERSATION_LABEL = "历史任务";
+const DEFAULT_THREAD_GROUP_CONVERSATION_LABEL = "最近";
 const CONVERSATION_PROJECT_PREVIEW_LIMIT = 5;
 const AUTO_TASK_FAILURE_PREFIX = "失败原因";
 const AUTO_TASK_FAILED_PREFIX = "执行失败：";
@@ -3933,7 +3885,10 @@ const appliedSupplementResolutionKeys = new Set<string>();
 const providerDraftThreadIds = new Set<string>();
 const tradingExpertThreadIds = new Set<string>();
 const tradingExpertWorkspaceThreadReplacements = new Map<string, string>();
+const TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY = "haolo.trading-market.workspace-session-aliases.v1";
 const tradingExpertThinkingStateByThreadId = new Map<string, TradingExpertThinkingState>();
+const tradingExpertAnalysisJobIdsByThreadId = new Map<string, Set<string>>();
+const tradingExpertAnalysisThreadAliases = new Map<string, string>();
 const providerDraftThreadIdByBlankThreadId = new Map<string, string>();
 const blankThreadIdByProviderDraftThreadId = new Map<string, string>();
 const newThreadModeByThreadId = new Map<string, NewThreadMode>(Object.entries(threadPreferences.threadModes));
@@ -4821,7 +4776,6 @@ const state: UiState = {
     data: null,
     error: null,
   },
-  rechargeQrcode: createRechargeQrcodeState(),
   autoTaskDraft: createAutoTaskDraft(),
   autoTaskItems: loadAutoTaskItems(),
   selectedAutoTaskId: null,
@@ -4873,8 +4827,6 @@ let backgroundNotificationRenderTimer: number | null = null;
 let toastTimer: number | null = null;
 let githubAuthorizationPollTimer: number | null = null;
 let lowBalanceProfileRefreshTimer: number | null = null;
-let rechargeOrderPollTimer: number | null = null;
-let rechargePaymentRequestSeq = 0;
 let consumptionRequestSeq = 0;
 let consumptionRefreshTimer: number | null = null;
 let consumptionPrefetchPromise: Promise<void> | null = null;
@@ -4993,6 +4945,9 @@ const QUESTION_ANSWER_STREAM_UI_INPUT_INTERVAL_MS = 120;
 let composerModePointerActive = false;
 let composerModePointerRenderPending = false;
 let composerModePointerReleaseTimer: number | null = null;
+let tradingExpertLayoutControlPointerActive = false;
+let tradingExpertLayoutControlRenderPending = false;
+let tradingExpertLayoutControlPointerReleaseTimer: number | null = null;
 let lastPointerClientX = -1;
 let lastPointerClientY = -1;
 let pendingMessageScrollAnchor: MessageScrollState | null = null;
@@ -6160,17 +6115,24 @@ function wirePointerTracking() {
   root.addEventListener(
     "pointerdown",
     (event) => {
-      if (
-        event.isPrimary &&
-        event.button === 0 &&
-        event.target instanceof Element &&
-        event.target.closest(".composer-mode-picker")
-      ) {
+      if (!event.isPrimary || event.button !== 0 || !(event.target instanceof Element)) return;
+      if (event.target.closest(".composer-mode-picker")) {
         if (composerModePointerReleaseTimer !== null) {
           window.clearTimeout(composerModePointerReleaseTimer);
           composerModePointerReleaseTimer = null;
         }
         composerModePointerActive = true;
+      }
+      if (
+        event.target.closest(
+          '.trading-expert-layout [data-action="toggle-right-panel"], .trading-expert-layout [data-action="toggle-trading-expert-chart"]',
+        )
+      ) {
+        if (tradingExpertLayoutControlPointerReleaseTimer !== null) {
+          window.clearTimeout(tradingExpertLayoutControlPointerReleaseTimer);
+          tradingExpertLayoutControlPointerReleaseTimer = null;
+        }
+        tradingExpertLayoutControlPointerActive = true;
       }
     },
     { capture: true, passive: true },
@@ -6178,16 +6140,28 @@ function wirePointerTracking() {
   window.addEventListener(
     "pointerup",
     () => {
-      if (!composerModePointerActive) return;
-      if (composerModePointerReleaseTimer !== null) {
-        window.clearTimeout(composerModePointerReleaseTimer);
+      if (composerModePointerActive) {
+        if (composerModePointerReleaseTimer !== null) {
+          window.clearTimeout(composerModePointerReleaseTimer);
+        }
+        // Keep the rendered menu stable through the native click dispatched
+        // immediately after pointerup. The click handler releases the guard
+        // synchronously; this timer only handles drags that produce no click.
+        composerModePointerReleaseTimer = window.setTimeout(() => {
+          composerModePointerReleaseTimer = null;
+          finishComposerModePointerInteraction();
+        }, 0);
       }
-      // Keep the rendered menu stable through the native click dispatched
-      // immediately after pointerup. The click handler releases the guard
-      // synchronously; this timer only handles drags that produce no click.
-      composerModePointerReleaseTimer = window.setTimeout(() => {
-        composerModePointerReleaseTimer = null;
-        finishComposerModePointerInteraction();
+
+      if (!tradingExpertLayoutControlPointerActive) return;
+      if (tradingExpertLayoutControlPointerReleaseTimer !== null) {
+        window.clearTimeout(tradingExpertLayoutControlPointerReleaseTimer);
+      }
+      // A click is dispatched after pointerup. Keep the original button mounted
+      // until that click has reached its handler, even if progress arrives now.
+      tradingExpertLayoutControlPointerReleaseTimer = window.setTimeout(() => {
+        tradingExpertLayoutControlPointerReleaseTimer = null;
+        finishTradingExpertLayoutControlPointerInteraction();
       }, 0);
     },
     { capture: true, passive: true },
@@ -6196,8 +6170,17 @@ function wirePointerTracking() {
     "pointercancel",
     () => {
       finishComposerModePointerInteraction();
+      finishTradingExpertLayoutControlPointerInteraction();
     },
     { capture: true, passive: true },
+  );
+  window.addEventListener(
+    "blur",
+    () => {
+      finishComposerModePointerInteraction();
+      finishTradingExpertLayoutControlPointerInteraction();
+    },
+    { passive: true },
   );
   window.addEventListener(
     "pointermove",
@@ -6232,6 +6215,17 @@ function finishComposerModePointerInteraction(flushPendingRender = true) {
   const shouldFlush = flushPendingRender && composerModePointerRenderPending;
   composerModePointerRenderPending = false;
   if (shouldFlush) scheduleProtectedRender();
+}
+
+function finishTradingExpertLayoutControlPointerInteraction(flushPendingRender = true) {
+  if (tradingExpertLayoutControlPointerReleaseTimer !== null) {
+    window.clearTimeout(tradingExpertLayoutControlPointerReleaseTimer);
+    tradingExpertLayoutControlPointerReleaseTimer = null;
+  }
+  tradingExpertLayoutControlPointerActive = false;
+  const shouldFlush = flushPendingRender && tradingExpertLayoutControlRenderPending;
+  tradingExpertLayoutControlRenderPending = false;
+  if (shouldFlush) scheduleProtectedRender({ sourceThreadId: state.currentThreadId });
 }
 
 function wireComposerFileDrop() {
@@ -16618,6 +16612,7 @@ function isVideoExpertThread(thread: ConversationSummary | null | undefined) {
 function isTradingExpertThreadId(threadId: string | null | undefined) {
   if (!threadId) return false;
   if (tradingExpertThreadIds.has(threadId)) return true;
+  if (newThreadModeByThreadId.get(threadId) === "execution") return true;
   const groupId = threadGroupByThreadId[threadId];
   return Boolean(groupId && threadGroupById(groupId)?.name.trim() === TRADING_EXPERT_NAME);
 }
@@ -16832,6 +16827,18 @@ function isThreadBusy(threadId: string | null | undefined) {
       (
         activeCodexThreadIds.has(threadId) ||
         activeWorkflowRunForThread(threadId)
+      ),
+  );
+}
+
+function isTradingExpertConversationCollapseLocked(threadId: string | null | undefined) {
+  return Boolean(
+    threadId
+      && isTradingExpertThreadId(threadId)
+      && (
+        submittingComposerThreadIds.has(threadId)
+        || tradingExpertThinkingStateByThreadId.has(threadId)
+        || isThreadBusy(threadId)
       ),
   );
 }
@@ -17237,10 +17244,13 @@ function patchActiveChatSurfaces(
   options: { patchThreadRow?: boolean } = {},
 ) {
   if (!threadId || threadId !== state.currentThreadId || state.activeView !== "chat") return false;
-  let patched = false;
-  if (updateActiveMessageScroller()) patched = true;
-  if (patchActiveAgentPanel(threadId)) patched = true;
-  if (patchComposerDynamicState(threadId)) patched = true;
+  const bufferCollapsedTradingExpertConversation = canBufferCollapsedTradingExpertConversation(threadId);
+  let patched = bufferCollapsedTradingExpertConversation;
+  if (!bufferCollapsedTradingExpertConversation) {
+    if (updateActiveMessageScroller()) patched = true;
+    if (patchActiveAgentPanel(threadId)) patched = true;
+    if (patchComposerDynamicState(threadId)) patched = true;
+  }
   if (options.patchThreadRow) {
     if (patchConversationRow(threadId)) patched = true;
     else syncConversationRowWorkingState(threadId);
@@ -17248,18 +17258,31 @@ function patchActiveChatSurfaces(
     syncConversationRowWorkingState(threadId);
   }
   syncComposerSendButton();
-  if (patched && lastRenderedThreadId === threadId) {
-    for (const [previousThreadId, nextThreadId] of tradingExpertWorkspaceThreadReplacements) {
-      if (nextThreadId === threadId) tradingExpertWorkspaceThreadReplacements.delete(previousThreadId);
-    }
-  }
   return patched;
+}
+
+function canBufferCollapsedTradingExpertConversation(threadId: string | null | undefined) {
+  if (
+    !threadId
+    || !state.rightCollapsed
+    || !isTradingExpertThreadId(threadId)
+    || threadId !== state.currentThreadId
+    || state.activeView !== "chat"
+    || state.chatPreview
+  ) return false;
+  const body = root.querySelector<HTMLElement>(".desktop-body.trading-expert-layout");
+  const panel = body?.querySelector<HTMLElement>(":scope > .trading-expert-panel");
+  const scroller = panel?.querySelector<HTMLElement>("#messageScroller");
+  const expandButton = body?.querySelector<HTMLButtonElement>('[data-action="toggle-right-panel"]');
+  return Boolean(panel && scroller?.dataset.threadId === threadId && expandButton);
 }
 
 function shouldKeepChatSurfaceUpdateLocal(threadId: string | null | undefined = state.currentThreadId) {
   if (!threadId || threadId !== state.currentThreadId || state.activeView !== "chat" || state.chatPreview) return false;
   return (
-    !state.rightCollapsed || Boolean(state.threadMenu || state.threadGroupMenu)
+    isTradingExpertThreadId(threadId)
+    || !state.rightCollapsed
+    || Boolean(state.threadMenu || state.threadGroupMenu)
   );
 }
 
@@ -17267,6 +17290,9 @@ function canInterruptThread(threadId: string | null | undefined) {
   if (threadId && localGroupChatBusyThreadIds.has(threadId)) {
     const run = localGroupChatRunsByThreadId.get(threadId);
     return Boolean(run && !run.stopRequested);
+  }
+  if (activeTradingExpertAnalysisJobIds(threadId).length) {
+    return true;
   }
   if (threadId && providerFromThreadId(threadId) && isProviderThreadBusy(threadId)) {
     const interactionId = firstString(
@@ -17901,6 +17927,9 @@ function setCodexThreadBusy(threadId: string | null | undefined, busy: boolean, 
   syncGlobalCodexBusy();
   syncThinkingElapsedTimer();
   syncConversationRowWorkingState(threadId);
+  if (threadId === state.currentThreadId && isTradingExpertThreadId(threadId)) {
+    syncTradingExpertCollapseControlsState();
+  }
 }
 
 function attachTurnIdToLatestOptimisticUserItem(threadId: string, turnId: string) {
@@ -23023,7 +23052,10 @@ function itemHasAnyUserAttachment(item: CodexItem) {
 }
 
 function conversationTitleFromText(text: string) {
-  const normalized = cleanVisibleMessageText(text)
+  const normalized = stripConversationTitleMentionTokens(
+    cleanVisibleMessageText(text),
+    TRADING_EXPERT_TITLE_MENTION_TOKENS,
+  )
     .replace(/["'`*_#>\[\](){}<>]/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -25289,9 +25321,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     const supplementDisposition = await sendConversationSupplementFromComposer(threadId, input, text);
     if (supplementDisposition !== "send-as-follow-up") return;
   }
-  const composerGroupIdForSend = isTradingExpertThreadId(threadId)
-    ? (await ensureTradingExpertThreadGroup()).id
-    : groupIdForThreadContext(threadId);
+  const composerGroupIdForSend = groupIdForThreadContext(threadId);
   const originalThreadId = threadId;
   const currentGroupIdForSend = isDefaultThreadGroup(composerGroupIdForSend)
     ? null
@@ -25624,10 +25654,12 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       }
     }
 
+    let submittedUserItem: CodexItem | null = null;
     if (pendingSend) {
       setPendingComposerSendStatus(threadId, pendingSend.itemId, "sending", { attachments: readyAttachments });
+      submittedUserItem = state.items[threadId]?.[pendingSend.itemId] || null;
     } else {
-      upsertItem(threadId, {
+      submittedUserItem = {
         id: `local-user-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         type: "userMessage",
         createdAt: new Date().toISOString(),
@@ -25636,7 +25668,8 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         attachments: userAttachments,
         quote_context: composerQuoteContextRecord(composerQuote),
         __youleThreadReferences: cloneComposerThreadReferences(composerThreadReferences),
-      });
+      };
+      upsertItem(threadId, submittedUserItem);
     }
     setMessageStreamFollow(threadId, true);
 
@@ -25651,6 +25684,30 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       syncComposerMentionHighlights();
     }
     state.error = null;
+    const isTradingChartAnalysisSend = Boolean(
+      tradingChanRequestAtSend?.mode === "chart-analysis"
+      || tradingOrderFlowRequestAtSend?.mode === "chart-analysis"
+      || tradingWaveRequestAtSend?.mode === "chart-analysis"
+      || tradingWyckoffRequestAtSend?.mode === "chart-analysis"
+      || tradingGeneralRequestAtSend?.mode === "chart-analysis",
+    );
+    if (isTradingChartAnalysisSend) {
+      try {
+        if (!submittedUserItem) throw new Error("找不到待保存的用户消息");
+        await persistTradingExpertTranscriptItems(threadId, [submittedUserItem], {
+          title: conversationTitleFromText(userMessageDisplayText(submittedUserItem)),
+        });
+        scheduleThreadListRefresh(0);
+      } catch (error) {
+        const message = `任务未执行：顶层会话保存失败：${errorMessage(error)}`;
+        state.error = message;
+        if (pendingSend) failPendingComposerSend(threadId, pendingSend.itemId, message);
+        else failLatestOptimisticUserItem(threadId, message);
+        showToast(message, 7000);
+        refreshTradingExpertConversationSurface(threadId);
+        return;
+      }
+    }
     if (tradingChanRequestAtSend?.mode === "chart-analysis") {
       localHistoryAheadThreadIds.add(threadId);
       if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
@@ -25816,6 +25873,12 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     submittingComposerThreadIds.delete(originalThreadId);
     submittingComposerThreadIds.delete(threadId);
     syncComposerSendButton();
+    if (
+      isTradingExpertThreadId(state.currentThreadId)
+      && (state.currentThreadId === originalThreadId || state.currentThreadId === threadId)
+    ) {
+      syncTradingExpertCollapseControlsState();
+    }
   }
 }
 
@@ -27523,9 +27586,70 @@ function applyThreadContextUsageSnapshot(threadId: string, value: any) {
   return true;
 }
 
+function tradingExpertWorkspaceSessionAliases() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY) || "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {} as Record<string, string>;
+    return Object.fromEntries(
+      Object.entries(parsed).flatMap(([source, target]) => (
+        source && typeof target === "string" && target ? [[source, target]] : []
+      )),
+    ) as Record<string, string>;
+  } catch {
+    return {} as Record<string, string>;
+  }
+}
+
+function rememberTradingExpertWorkspaceSessionAlias(sourceSessionId: string, targetSessionId: string) {
+  if (!sourceSessionId || !targetSessionId || sourceSessionId === targetSessionId) return;
+  try {
+    const aliases = tradingExpertWorkspaceSessionAliases();
+    aliases[sourceSessionId] = targetSessionId;
+    window.localStorage.setItem(TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY, JSON.stringify(aliases));
+  } catch {
+    // The in-memory replacement map still preserves the active renderer session.
+  }
+}
+
+function forgetTradingExpertWorkspaceSessionAlias(sourceSessionId: string) {
+  if (!sourceSessionId) return;
+  try {
+    const aliases = tradingExpertWorkspaceSessionAliases();
+    if (!(sourceSessionId in aliases)) return;
+    delete aliases[sourceSessionId];
+    if (Object.keys(aliases).length) {
+      window.localStorage.setItem(TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY, JSON.stringify(aliases));
+    } else {
+      window.localStorage.removeItem(TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY);
+    }
+  } catch {
+    // A later workspace restore can retry the same idempotent migration.
+  }
+}
+
+function tradingExpertWorkspaceSessionMigrationSource(targetSessionId: string) {
+  if (!targetSessionId) return "";
+  const aliases = tradingExpertWorkspaceSessionAliases();
+  return Object.entries(aliases).find(([, target]) => target === targetSessionId)?.[0] || "";
+}
+
 function adoptReplacementCodexThread(previousThreadId: string, replacementThread: any, sendSequence: number) {
   const nextThreadId = firstString(replacementThread?.id);
   if (!nextThreadId || nextThreadId === previousThreadId) return previousThreadId;
+
+  tradingExpertAnalysisThreadAliases.set(previousThreadId, nextThreadId);
+  const activeTradingJobs = tradingExpertAnalysisJobIdsByThreadId.get(previousThreadId);
+  if (activeTradingJobs?.size) {
+    const nextTradingJobs = tradingExpertAnalysisJobIdsByThreadId.get(nextThreadId) || new Set<string>();
+    activeTradingJobs.forEach((analysisId) => nextTradingJobs.add(analysisId));
+    tradingExpertAnalysisJobIdsByThreadId.set(nextThreadId, nextTradingJobs);
+    tradingExpertAnalysisJobIdsByThreadId.delete(previousThreadId);
+  }
+  const tradingThinkingState = tradingExpertThinkingStateByThreadId.get(previousThreadId);
+  if (tradingThinkingState) {
+    tradingExpertThinkingStateByThreadId.set(nextThreadId, tradingThinkingState);
+    tradingExpertThinkingStateByThreadId.delete(previousThreadId);
+  }
 
   const wasTradingExpertThread = tradingExpertThreadIds.delete(previousThreadId);
   const oldItems = (state.itemOrder[previousThreadId] || [])
@@ -27550,6 +27674,10 @@ function adoptReplacementCodexThread(previousThreadId: string, replacementThread
   if (wasTradingExpertThread) {
     tradingExpertThreadIds.add(nextThreadId);
     tradingExpertWorkspaceThreadReplacements.set(previousThreadId, nextThreadId);
+    rememberTradingExpertWorkspaceSessionAlias(previousThreadId, nextThreadId);
+    if (migrateTradingExpertMarketWorkspaceStorageSession(previousThreadId, nextThreadId)) {
+      forgetTradingExpertWorkspaceSessionAlias(previousThreadId);
+    }
   }
   hiddenThreadIds.add(previousThreadId);
   hiddenThreadIds.delete(nextThreadId);
@@ -27957,6 +28085,25 @@ async function interruptCurrentTurn(threadIdOverride?: string | null, source: In
     stopLocalGroupChatRun(threadId);
     return;
   }
+  const tradingAnalysisIds = activeTradingExpertAnalysisJobIds(threadId);
+  if (threadId && tradingAnalysisIds.length) {
+    const interruptKey = `trading-analysis:${resolveTradingExpertAnalysisThreadId(threadId)}`;
+    if (interruptingTurnId === interruptKey) return;
+    interruptingTurnId = interruptKey;
+    syncComposerSendButton();
+    try {
+      await Promise.all(tradingAnalysisIds.map((analysisId) => (
+        cancelTradingExpertAnalysis(analysisId)
+      )));
+    } catch (error) {
+      appendAgentNotice(threadId, `中断失败：${errorMessage(error)}`);
+      scheduleProtectedRender({ sourceThreadId: threadId });
+    } finally {
+      if (interruptingTurnId === interruptKey) interruptingTurnId = null;
+      syncComposerSendButton();
+    }
+    return;
+  }
   const turnId = activeTurnIdForThread(threadId);
   const providerProgress = latestQuestionAnswerProgressForThread(threadId);
   const providerInteractionId =
@@ -28164,7 +28311,7 @@ function appendAgentNotice(threadId: string, text: string) {
 }
 
 function refreshTradingExpertConversationSurface(threadId: string) {
-  if (patchActiveChatSurfaces(threadId)) return;
+  if (patchActiveChatSurfaces(threadId, { patchThreadRow: true })) return;
   scheduleProtectedRender({ sourceThreadId: threadId, delayMs: 0 });
 }
 
@@ -28259,6 +28406,51 @@ function clearTradingExpertThinkingState(threadId: string) {
   return removed;
 }
 
+function resolveTradingExpertAnalysisThreadId(threadId: string) {
+  let resolved = threadId;
+  const visited = new Set<string>();
+  while (resolved && !visited.has(resolved)) {
+    visited.add(resolved);
+    const next = tradingExpertAnalysisThreadAliases.get(resolved);
+    if (!next) break;
+    resolved = next;
+  }
+  return resolved;
+}
+
+function beginTradingExpertAnalysisJob(threadId: string, theory: string) {
+  const resolvedThreadId = resolveTradingExpertAnalysisThreadId(threadId);
+  const randomId = globalThis.crypto?.randomUUID?.()
+    || `${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
+  const analysisId = `trading-${theory}-${randomId}`;
+  const jobs = tradingExpertAnalysisJobIdsByThreadId.get(resolvedThreadId) || new Set<string>();
+  jobs.add(analysisId);
+  tradingExpertAnalysisJobIdsByThreadId.set(resolvedThreadId, jobs);
+  return analysisId;
+}
+
+function finishTradingExpertAnalysisJob(threadId: string, analysisId: string) {
+  const resolvedThreadId = resolveTradingExpertAnalysisThreadId(threadId);
+  const jobs = tradingExpertAnalysisJobIdsByThreadId.get(resolvedThreadId);
+  if (!jobs) return;
+  jobs.delete(analysisId);
+  if (!jobs.size) {
+    tradingExpertAnalysisJobIdsByThreadId.delete(resolvedThreadId);
+    for (const previousThreadId of tradingExpertAnalysisThreadAliases.keys()) {
+      if (resolveTradingExpertAnalysisThreadId(previousThreadId) === resolvedThreadId) {
+        tradingExpertAnalysisThreadAliases.delete(previousThreadId);
+      }
+    }
+  }
+}
+
+function activeTradingExpertAnalysisJobIds(threadId: string | null | undefined) {
+  if (!threadId) return [];
+  return [...(tradingExpertAnalysisJobIdsByThreadId.get(
+    resolveTradingExpertAnalysisThreadId(threadId),
+  ) || [])];
+}
+
 function appendTradingExpertProgress(
   threadId: string,
   itemId: string,
@@ -28266,49 +28458,173 @@ function appendTradingExpertProgress(
   text: string,
 ) {
   localHistoryAheadThreadIds.add(threadId);
-  upsertItem(threadId, {
+  const item: CodexItem = {
     id: itemId,
     type: "agentMessage",
     phase: phase === "error" ? "final_answer" : "commentary",
     text,
     createdAt: new Date().toISOString(),
-  });
+  };
+  upsertItem(threadId, item);
   setMessageStreamFollow(threadId, true);
   refreshTradingExpertConversationSurface(threadId);
+  return item;
 }
 
 function appendTradingExpertReport(threadId: string, text: string) {
   localHistoryAheadThreadIds.add(threadId);
-  upsertItem(threadId, {
-    id: `trading-chan-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  const item: CodexItem = {
+    id: `trading-expert-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type: "agentMessage",
     phase: "final_answer",
     text,
     createdAt: new Date().toISOString(),
-  });
+  };
+  upsertItem(threadId, item);
   setMessageStreamFollow(threadId, true);
+  patchConversationRow(threadId);
   refreshTradingExpertConversationSurface(threadId);
+  return item;
+}
+
+function tradingTranscriptPayloadFromItem(item: CodexItem) {
+  const role = isUserSideThreadItem(item) ? "user" : "assistant";
+  const text = role === "user"
+    ? userMessageDisplayText(item).trim()
+    : assistantVisibleText(itemText(item)).trim();
+  const id = itemStableId(item);
+  if (!id || !text) return null;
+  const startedAt = firstString((item as any).__youleTurnStartedAt);
+  const completedAt = firstString((item as any).__youleTurnCompletedAt);
+  return {
+    id,
+    role,
+    text,
+    createdAt: firstString((item as any).createdAt, (item as any).created_at) || new Date().toISOString(),
+    ...(role === "assistant" ? { phase: firstString((item as any).phase) || "final_answer" } : {}),
+    ...(startedAt ? { startedAt } : {}),
+    ...(completedAt ? { completedAt } : {}),
+  } as const;
+}
+
+async function persistTradingExpertTranscriptItems(
+  threadId: string,
+  items: CodexItem[],
+  options: { title?: string } = {},
+) {
+  if (typeof api.persistTradingTranscript !== "function") {
+    throw new Error("当前客户端不支持交易会话持久化，请升级后重试");
+  }
+  const payload = items
+    .map(tradingTranscriptPayloadFromItem)
+    .filter((item): item is NonNullable<ReturnType<typeof tradingTranscriptPayloadFromItem>> => Boolean(item));
+  if (!payload.length) throw new Error("没有可保存的交易会话消息");
+  const payloadChunks = Array.from(
+    { length: Math.ceil(payload.length / 32) },
+    (_, index) => payload.slice(index * 32, index * 32 + 32),
+  );
+  const persistedItemIds: string[] = [];
+  const injectedItemIds: string[] = [];
+  let lastResult: any = null;
+  for (const [chunkIndex, payloadChunk] of payloadChunks.entries()) {
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        const result = await api.persistTradingTranscript({
+          threadId,
+          cwd: threadWorkspaceCwd(threadId),
+          title: chunkIndex === 0 ? options.title : undefined,
+          items: payloadChunk,
+        });
+        const chunkPersistedIds = new Set(
+          Array.isArray(result?.persistedItemIds) ? result.persistedItemIds.map(String) : [],
+        );
+        if (!payloadChunk.every((item) => chunkPersistedIds.has(item.id))) {
+          throw new Error("交易会话持久化结果不完整");
+        }
+        persistedItemIds.push(...payloadChunk.map((item) => item.id));
+        if (Array.isArray(result?.injectedItemIds)) {
+          injectedItemIds.push(...result.injectedItemIds.map(String));
+        }
+        lastResult = result;
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await waitMs(attempt * 300);
+      }
+    }
+    if (lastError) throw lastError;
+  }
+  return {
+    ...(lastResult || {}),
+    persistedItemIds,
+    injectedItemIds,
+  };
+}
+
+async function persistCompletedTradingExpertTranscript(threadId: string, items: CodexItem[]) {
+  try {
+    stampCompletedTradingExpertTranscriptTiming(items);
+    await persistTradingExpertTranscriptItems(threadId, items);
+    scheduleThreadListRefresh(0);
+    return true;
+  } catch (error) {
+    const message = `交易会话记录保存失败：${errorMessage(error)}`;
+    state.error = message;
+    showToast(message, 7000);
+    return false;
+  }
+}
+
+function stampCompletedTradingExpertTranscriptTiming(items: CodexItem[]) {
+  if (!items.length) return;
+  const createdTimes = items
+    .map((item) => sortTimeFromValues((item as any).createdAt, (item as any).created_at))
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  const explicitStarts = items
+    .map((item) => sortTimeFromValues((item as any).__youleTurnStartedAt))
+    .filter((value): value is number => value != null && Number.isFinite(value));
+  const startedAtMs = explicitStarts.length
+    ? Math.min(...explicitStarts)
+    : createdTimes.length
+      ? Math.min(...createdTimes)
+      : Date.now();
+  const completedAtMs = Math.max(
+    startedAtMs,
+    createdTimes.length ? Math.max(...createdTimes) : Date.now(),
+  );
+  const startedAt = new Date(startedAtMs).toISOString();
+  const completedAt = new Date(completedAtMs).toISOString();
+  items.forEach((item) => {
+    (item as any).__youleTurnStartedAt = startedAt;
+    (item as any).__youleTurnCompletedAt = completedAt;
+  });
 }
 
 async function runTradingGeneralChartRequest(
   threadId: string,
   request: TradingGeneralRequest,
 ) {
+  const analysisId = beginTradingExpertAnalysisJob(threadId, "general");
+  const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
   const progressIdPrefix = `trading-general-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   let progressSequence = 0;
   let latestProgress = "";
+  const transcriptItems: CodexItem[] = [];
   const updateProgress = (phase: string, message: string) => {
     if (!message || message === latestProgress) return;
     latestProgress = message;
-    if (phase === "error") clearTradingExpertThinkingState(threadId);
-    else updateTradingExpertThinkingState(threadId, phase, message);
+    if (phase === "error") clearTradingExpertThinkingState(targetThreadId());
+    else updateTradingExpertThinkingState(targetThreadId(), phase, message);
     progressSequence += 1;
-    appendTradingExpertProgress(
-      threadId,
+    const progressItem = appendTradingExpertProgress(
+      targetThreadId(),
       `${progressIdPrefix}-${progressSequence}`,
       phase,
       message,
     );
+    transcriptItems.push(progressItem);
   };
   updateProgress(
     "preparing",
@@ -28316,6 +28632,7 @@ async function runTradingGeneralChartRequest(
   );
   try {
     const result = await runTradingExpertGeneralConversation({
+      analysisId,
       instruction: request.instruction,
       symbol: request.symbol,
       interval: request.interval,
@@ -28328,16 +28645,19 @@ async function runTradingGeneralChartRequest(
       "complete",
       `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的通用盘面分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
-    clearTradingExpertThinkingState(threadId);
-    appendTradingExpertReport(threadId, result.report);
+    clearTradingExpertThinkingState(targetThreadId());
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
     updateProgress("error", `盘面分析未完成：${message}`);
     state.error = message;
     showToast(message, 5000);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
   } finally {
-    if (clearTradingExpertThinkingState(threadId)) {
-      refreshTradingExpertConversationSurface(threadId);
+    finishTradingExpertAnalysisJob(threadId, analysisId);
+    if (clearTradingExpertThinkingState(targetThreadId())) {
+      refreshTradingExpertConversationSurface(targetThreadId());
     }
   }
 }
@@ -28346,21 +28666,25 @@ async function runTradingChanChartRequest(
   threadId: string,
   request: TradingChanRequest,
 ) {
+  const analysisId = beginTradingExpertAnalysisJob(threadId, "chan");
+  const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
   const progressIdPrefix = `trading-chan-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   let progressSequence = 0;
   let latestProgress = "";
+  const transcriptItems: CodexItem[] = [];
   const updateProgress = (phase: string, message: string) => {
     if (!message || message === latestProgress) return;
     latestProgress = message;
-    if (phase === "error") clearTradingExpertThinkingState(threadId);
-    else updateTradingExpertThinkingState(threadId, phase, message);
+    if (phase === "error") clearTradingExpertThinkingState(targetThreadId());
+    else updateTradingExpertThinkingState(targetThreadId(), phase, message);
     progressSequence += 1;
-    appendTradingExpertProgress(
-      threadId,
+    const progressItem = appendTradingExpertProgress(
+      targetThreadId(),
       `${progressIdPrefix}-${progressSequence}`,
       phase,
       message,
     );
+    transcriptItems.push(progressItem);
   };
   updateProgress(
     "preparing",
@@ -28368,6 +28692,7 @@ async function runTradingChanChartRequest(
   );
   try {
     const result = await runTradingExpertChanConversation({
+      analysisId,
       instruction: request.instruction,
       symbol: request.symbol,
       interval: request.interval,
@@ -28380,16 +28705,19 @@ async function runTradingChanChartRequest(
       "complete",
       `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的缠论分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
-    clearTradingExpertThinkingState(threadId);
-    appendTradingExpertReport(threadId, result.report);
+    clearTradingExpertThinkingState(targetThreadId());
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
     updateProgress("error", `缠论盘面分析未完成：${message}`);
     state.error = message;
     showToast(message, 5000);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
   } finally {
-    if (clearTradingExpertThinkingState(threadId)) {
-      refreshTradingExpertConversationSurface(threadId);
+    finishTradingExpertAnalysisJob(threadId, analysisId);
+    if (clearTradingExpertThinkingState(targetThreadId())) {
+      refreshTradingExpertConversationSurface(targetThreadId());
     }
   }
 }
@@ -28398,21 +28726,25 @@ async function runTradingOrderFlowChartRequest(
   threadId: string,
   request: TradingOrderFlowRequest,
 ) {
+  const analysisId = beginTradingExpertAnalysisJob(threadId, "order-flow");
+  const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
   const progressIdPrefix = `trading-order-flow-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   let progressSequence = 0;
   let latestProgress = "";
+  const transcriptItems: CodexItem[] = [];
   const updateProgress = (phase: string, message: string) => {
     if (!message || message === latestProgress) return;
     latestProgress = message;
-    if (phase === "error") clearTradingExpertThinkingState(threadId);
-    else updateTradingExpertThinkingState(threadId, phase, message);
+    if (phase === "error") clearTradingExpertThinkingState(targetThreadId());
+    else updateTradingExpertThinkingState(targetThreadId(), phase, message);
     progressSequence += 1;
-    appendTradingExpertProgress(
-      threadId,
+    const progressItem = appendTradingExpertProgress(
+      targetThreadId(),
       `${progressIdPrefix}-${progressSequence}`,
       phase,
       message,
     );
+    transcriptItems.push(progressItem);
   };
   updateProgress(
     "preparing",
@@ -28420,6 +28752,7 @@ async function runTradingOrderFlowChartRequest(
   );
   try {
     const result = await runTradingExpertOrderFlowConversation({
+      analysisId,
       instruction: request.instruction,
       symbol: request.symbol,
       interval: request.interval,
@@ -28432,16 +28765,19 @@ async function runTradingOrderFlowChartRequest(
       "complete",
       `${result.modelName} 已完成 ${result.symbol} ${result.tradeCount} 笔真实成交的订单流分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
-    clearTradingExpertThinkingState(threadId);
-    appendTradingExpertReport(threadId, result.report);
+    clearTradingExpertThinkingState(targetThreadId());
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
     updateProgress("error", `订单流盘面分析未完成：${message}`);
     state.error = message;
     showToast(message, 5000);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
   } finally {
-    if (clearTradingExpertThinkingState(threadId)) {
-      refreshTradingExpertConversationSurface(threadId);
+    finishTradingExpertAnalysisJob(threadId, analysisId);
+    if (clearTradingExpertThinkingState(targetThreadId())) {
+      refreshTradingExpertConversationSurface(targetThreadId());
     }
   }
 }
@@ -28450,21 +28786,25 @@ async function runTradingWaveChartRequest(
   threadId: string,
   request: TradingWaveRequest,
 ) {
+  const analysisId = beginTradingExpertAnalysisJob(threadId, "wave");
+  const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
   const progressIdPrefix = `trading-wave-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   let progressSequence = 0;
   let latestProgress = "";
+  const transcriptItems: CodexItem[] = [];
   const updateProgress = (phase: string, message: string) => {
     if (!message || message === latestProgress) return;
     latestProgress = message;
-    if (phase === "error") clearTradingExpertThinkingState(threadId);
-    else updateTradingExpertThinkingState(threadId, phase, message);
+    if (phase === "error") clearTradingExpertThinkingState(targetThreadId());
+    else updateTradingExpertThinkingState(targetThreadId(), phase, message);
     progressSequence += 1;
-    appendTradingExpertProgress(
-      threadId,
+    const progressItem = appendTradingExpertProgress(
+      targetThreadId(),
       `${progressIdPrefix}-${progressSequence}`,
       phase,
       message,
     );
+    transcriptItems.push(progressItem);
   };
   updateProgress(
     "preparing",
@@ -28472,6 +28812,7 @@ async function runTradingWaveChartRequest(
   );
   try {
     const result = await runTradingExpertWaveConversation({
+      analysisId,
       instruction: request.instruction,
       symbol: request.symbol,
       interval: request.interval,
@@ -28484,16 +28825,19 @@ async function runTradingWaveChartRequest(
       "wave-complete",
       `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的波浪理论分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
-    clearTradingExpertThinkingState(threadId);
-    appendTradingExpertReport(threadId, result.report);
+    clearTradingExpertThinkingState(targetThreadId());
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
     updateProgress("error", `波浪理论盘面分析未完成：${message}`);
     state.error = message;
     showToast(message, 5000);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
   } finally {
-    if (clearTradingExpertThinkingState(threadId)) {
-      refreshTradingExpertConversationSurface(threadId);
+    finishTradingExpertAnalysisJob(threadId, analysisId);
+    if (clearTradingExpertThinkingState(targetThreadId())) {
+      refreshTradingExpertConversationSurface(targetThreadId());
     }
   }
 }
@@ -28502,21 +28846,25 @@ async function runTradingWyckoffChartRequest(
   threadId: string,
   request: TradingWyckoffRequest,
 ) {
+  const analysisId = beginTradingExpertAnalysisJob(threadId, "wyckoff");
+  const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
   const progressIdPrefix = `trading-wyckoff-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   let progressSequence = 0;
   let latestProgress = "";
+  const transcriptItems: CodexItem[] = [];
   const updateProgress = (phase: string, message: string) => {
     if (!message || message === latestProgress) return;
     latestProgress = message;
-    if (phase === "error") clearTradingExpertThinkingState(threadId);
-    else updateTradingExpertThinkingState(threadId, phase, message);
+    if (phase === "error") clearTradingExpertThinkingState(targetThreadId());
+    else updateTradingExpertThinkingState(targetThreadId(), phase, message);
     progressSequence += 1;
-    appendTradingExpertProgress(
-      threadId,
+    const progressItem = appendTradingExpertProgress(
+      targetThreadId(),
       `${progressIdPrefix}-${progressSequence}`,
       phase,
       message,
     );
+    transcriptItems.push(progressItem);
   };
   updateProgress(
     "preparing",
@@ -28524,6 +28872,7 @@ async function runTradingWyckoffChartRequest(
   );
   try {
     const result = await runTradingExpertWyckoffConversation({
+      analysisId,
       instruction: request.instruction,
       symbol: request.symbol,
       interval: request.interval,
@@ -28536,16 +28885,19 @@ async function runTradingWyckoffChartRequest(
       "wyckoff-complete",
       `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的威科夫分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
-    clearTradingExpertThinkingState(threadId);
-    appendTradingExpertReport(threadId, result.report);
+    clearTradingExpertThinkingState(targetThreadId());
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
     updateProgress("error", `威科夫盘面分析未完成：${message}`);
     state.error = message;
     showToast(message, 5000);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
   } finally {
-    if (clearTradingExpertThinkingState(threadId)) {
-      refreshTradingExpertConversationSurface(threadId);
+    finishTradingExpertAnalysisJob(threadId, analysisId);
+    if (clearTradingExpertThinkingState(targetThreadId())) {
+      refreshTradingExpertConversationSurface(targetThreadId());
     }
   }
 }
@@ -32117,8 +32469,9 @@ function preserveTradingExpertMarketWorkspace(): PreservedTradingExpertMarketWor
   const host = root.querySelector<HTMLElement>("[data-trading-market-workspace]");
   const threadId = lastRenderedThreadId ?? state.currentThreadId;
   if (!host || !host.parentElement || !threadId || !isTradingExpertThreadId(threadId)) return null;
+  const storageSessionId = tradingExpertMarketWorkspaceStorageSessionId() || threadId;
   host.remove();
-  return { host, threadId };
+  return { host, threadId, storageSessionId };
 }
 
 function tradingExpertFavoriteStorageAccountIdentity() {
@@ -32137,23 +32490,40 @@ function restorePreservedTradingExpertMarketWorkspace(
   targetThreadId: string | null | undefined,
 ) {
   const freshHost = root.querySelector<HTMLElement>("[data-trading-market-workspace]");
+  const targetStorageSessionId = targetThreadId || preserved?.threadId || "";
+  const pendingStorageMigrationSource = tradingExpertWorkspaceSessionMigrationSource(
+    targetStorageSessionId,
+  );
+  const preservedStorageSessionId = preserved?.storageSessionId || preserved?.threadId || "";
+  const persistedReplacementThreadId = preservedStorageSessionId
+    ? tradingExpertWorkspaceSessionAliases()[preservedStorageSessionId] || null
+    : null;
   const replacementThreadId = preserved
-    ? tradingExpertWorkspaceThreadReplacements.get(preserved.threadId)
+    ? tradingExpertWorkspaceThreadReplacements.get(preservedStorageSessionId)
+      || tradingExpertWorkspaceThreadReplacements.get(preserved.threadId)
+      || persistedReplacementThreadId
     : null;
   if (
     preserved
     && freshHost
     && (targetThreadId === preserved.threadId || targetThreadId === replacementThreadId)
   ) {
+    const sourceStorageSessionId = pendingStorageMigrationSource || preservedStorageSessionId;
     freshHost.replaceWith(preserved.host);
     syncTradingExpertMarketWorkspace(
       preserved.host,
       tradingExpertFavoriteStorageAccountIdentity(),
       targetThreadId || preserved.threadId,
-      replacementThreadId === targetThreadId ? preserved.threadId : "",
+      sourceStorageSessionId && sourceStorageSessionId !== targetStorageSessionId
+        ? sourceStorageSessionId
+        : "",
     );
-    if (replacementThreadId === targetThreadId) {
+    if (replacementThreadId === targetThreadId && sourceStorageSessionId) {
+      tradingExpertWorkspaceThreadReplacements.delete(sourceStorageSessionId);
       tradingExpertWorkspaceThreadReplacements.delete(preserved.threadId);
+    }
+    if (sourceStorageSessionId !== targetStorageSessionId) {
+      forgetTradingExpertWorkspaceSessionAlias(sourceStorageSessionId);
     }
     applyTradingExpertCustomIndicatorMentions(state.composerText);
     return;
@@ -32162,7 +32532,11 @@ function restorePreservedTradingExpertMarketWorkspace(
     freshHost,
     tradingExpertFavoriteStorageAccountIdentity(),
     targetThreadId || "",
+    pendingStorageMigrationSource,
   );
+  if (pendingStorageMigrationSource) {
+    forgetTradingExpertWorkspaceSessionAlias(pendingStorageMigrationSource);
+  }
   if (targetThreadId && isTradingExpertThreadId(targetThreadId)) {
     applyTradingExpertCustomIndicatorMentions(state.composerText);
   }
@@ -32219,6 +32593,10 @@ function render() {
     composerModePointerRenderPending = true;
     return;
   }
+  if (tradingExpertLayoutControlPointerActive) {
+    tradingExpertLayoutControlRenderPending = true;
+    return;
+  }
   if (renderFrame !== null) {
     window.cancelAnimationFrame(renderFrame);
     renderFrame = null;
@@ -32269,7 +32647,6 @@ function render() {
       ${state.login.wecomQrOpen ? renderLoginWeComDialog() : ""}
       ${state.error ? `<div class="toast">${escapeHtml(state.error)}</div>` : ""}
     `;
-    syncRechargePaymentPortal();
     bindLoginEvents();
     bindWindowResizeHandles();
     syncExternalChannelQrRefreshTimer();
@@ -32353,6 +32730,7 @@ function render() {
       ${renderWindowControls()}
       <div class="${bodyClasses}"${bodyStyle}>
         ${tradingExpertLayout ? renderTradingExpertCollapseControls() : ""}
+        ${tradingExpertLayout ? renderTradingExpertPanelResizeHandles() : ""}
         ${mainContent}
       </div>
     </div>
@@ -32395,11 +32773,11 @@ function render() {
     ${renderContactRequestSentToast()}
     ${state.error ? `<div class="toast">${escapeHtml(state.error)}</div>` : ""}
   `;
+  bindTradingExpertPanelResize(root);
   restorePreservedTradingExpertMarketWorkspace(
     preservedTradingExpertMarketWorkspace,
     tradingExpertLayout ? thread?.id : null,
   );
-  syncRechargePaymentPortal();
   restoreActiveWorkflowNodeFormSnapshot(workflowNodeFormSnapshot);
   if (threadHistoryPopover) {
     const anchorRow = root.querySelector<HTMLElement>(
@@ -33348,7 +33726,9 @@ function renderWindowControls() {
         <span class="titlebar-profile-name">${escapeHtml(currentProfileName())}</span>
       </button>
       ${renderTitlebarPrimaryActions()}
-      <div class="titlebar-drag-region" aria-hidden="true"></div>
+      <div class="titlebar-drag-region">
+        <div class="titlebar-market-favorites-host" data-titlebar-market-favorites-host></div>
+      </div>
       <div class="window-controls" aria-label="窗口控制">
         <button type="button" class="window-control" data-window-action="minimize" title="最小化" aria-label="最小化">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg>
@@ -38640,7 +39020,7 @@ function renderConversationListActions() {
     <div class="conversation-list-new-sticky">
       <button type="button" class="conversation-list-action conversation-list-new-action ${newConversationActive ? "active" : ""}" data-action="new-chat" ${newConversationActive ? 'aria-current="page"' : ""}>
         ${renderConversationListIcon("new-chat")}
-        <span>新对话</span>
+        <span>新任务</span>
       </button>
     </div>
     <section class="conversation-list-secondary-actions" aria-label="任务分类">
@@ -39063,12 +39443,13 @@ function renderThreadGroupSection(group: ThreadGroup, threads: ConversationSumma
   const working = collapsed && threads.some((thread) => isConversationThreadWorking(thread.id));
   const hasUnviewed = threads.some((thread) => hasUnviewedFinalResult(thread.id));
   const menuOpen = state.threadGroupMenu?.groupId === group.id;
-  const displayName = threadGroupConversationListDisplayName(
+  const storedDisplayName = threadGroupConversationListDisplayName(
     group.id,
     group.name,
     DEFAULT_THREAD_GROUP_ID,
     DEFAULT_THREAD_GROUP_CONVERSATION_LABEL,
   );
+  const displayName = storedDisplayName;
   const moreButton = `
     <button
       type="button"
@@ -39230,8 +39611,10 @@ function renderThreadRow(thread: ConversationSummary) {
         ? NEW_THREAD_TITLE
         : threadListDisplayName(thread);
   const minimalTitle = rawRowName.trim() || preview.trim() || NEW_THREAD_TITLE;
+  const analysisContextLabel = tradingLastAnalysisLabelForThread(thread.id);
   const minimalAriaLabel = [
     pinned ? "已置顶" : "",
+    analysisContextLabel ? `最后分析画布 ${analysisContextLabel}` : "",
     minimalTitle,
     working ? "AI 正在工作" : "",
     thread.unread ? `${thread.unread > 99 ? "99 条以上" : thread.unread}未读` : "",
@@ -39239,7 +39622,7 @@ function renderThreadRow(thread: ConversationSummary) {
   return `
     <div class="conversation-row-wrap conversation-row-minimal ${active ? "active" : ""} ${menuOpen ? "menu-open" : ""} ${thread.unread ? "has-unread" : ""} ${working ? "is-working" : ""} ${finalResultUnviewed ? "has-final-result-unviewed" : ""}" data-thread-row="${escapeAttr(thread.id)}">
       <button class="conversation-row" data-thread-id="${escapeAttr(thread.id)}" aria-label="${escapeAttr(minimalAriaLabel)}">
-        <span class="conversation-copy conversation-copy-minimal"><span class="row-title"><span class="row-name" title="${escapeAttr(minimalTitle)}">${escapeHtml(minimalTitle)}</span></span></span>
+        <span class="conversation-copy conversation-copy-minimal"><span class="row-title">${analysisContextLabel ? `<span class="conversation-analysis-context" title="最后分析画布 ${escapeAttr(analysisContextLabel)}">${escapeHtml(analysisContextLabel)}</span>` : ""}<span class="row-name" title="${escapeAttr(minimalTitle)}">${escapeHtml(minimalTitle)}</span></span></span>
         ${thread.unread ? `<span class="unread-dot">${escapeHtml(thread.unread > 99 ? "99+" : thread.unread)}</span>` : ""}
         ${working ? `<span class="conversation-row-spinner" title="AI 正在工作" aria-label="AI 正在工作"></span>` : ""}
       </button>
@@ -40021,7 +40404,10 @@ function resetBackgroundHydration() {
 }
 
 function cleanThreadDisplayTitle(value: string | null | undefined) {
-  return String(value || "").replace(/\s*\[群\]\s*/g, "").trim();
+  return stripConversationTitleMentionTokens(
+    String(value || "").replace(/\s*\[群\]\s*/g, ""),
+    TRADING_EXPERT_TITLE_MENTION_TOKENS,
+  );
 }
 
 function threadListDisplayName(thread: ConversationSummary) {
@@ -42200,13 +42586,14 @@ function renderTradingExpertConversationHeader(thread: ConversationSummary) {
   const collapsed = state.rightCollapsed;
   const label = tradingExpertPanelToggleLabel(collapsed);
   const disabled = state.tradingExpertChartCollapsed && !collapsed;
+  const collapseLocked = !collapsed && isTradingExpertConversationCollapseLocked(thread.id);
   const chartCollapsed = state.tradingExpertChartCollapsed;
   const chartLabel = tradingExpertChartToggleLabel(chartCollapsed);
   const title = chatHeaderTitle(thread) || NEW_THREAD_TITLE;
   const panelToggle = disabled
     ? ""
     : `
-      <button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle ${collapsed ? "collapsed" : "expanded"}" data-action="toggle-right-panel" title="${label}" aria-label="${label}" aria-expanded="${collapsed ? "false" : "true"}">
+      <button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle ${collapsed ? "collapsed" : "expanded"}" data-action="toggle-right-panel" title="${label}" aria-label="${label}" aria-expanded="${collapsed ? "false" : "true"}"${collapseLocked ? ' hidden aria-hidden="true" disabled' : ""}>
         ${renderPanelLayoutIcon("right")}
       </button>
     `;
@@ -42247,6 +42634,7 @@ function renderTradingExpertCollapseControls() {
   const panelLabel = tradingExpertPanelToggleLabel(panelCollapsed);
   const chartDisabled = panelCollapsed && !chartCollapsed;
   const panelDisabled = chartCollapsed && !panelCollapsed;
+  const panelCollapseLocked = !panelCollapsed && isTradingExpertConversationCollapseLocked(state.currentThreadId);
   const chartTitle = chartDisabled ? "会话已收起，请先展开会话" : chartLabel;
   const panelTitle = panelDisabled ? "K线画布已收起，请先展开K线画布" : panelLabel;
   return `
@@ -42254,7 +42642,7 @@ function renderTradingExpertCollapseControls() {
       <button type="button" class="small-icon-button panel-toggle trading-expert-collapse-button trading-expert-chart-toggle ${chartCollapsed ? "collapsed" : "expanded"}" data-action="toggle-trading-expert-chart" title="${chartTitle}" aria-label="${chartLabel}" aria-expanded="${chartCollapsed ? "false" : "true"}"${chartDisabled ? " disabled" : ""}>
         ${renderPanelLayoutIcon("left")}
       </button>
-      <button type="button" class="small-icon-button panel-toggle trading-expert-collapse-button trading-expert-panel-toggle ${panelCollapsed ? "collapsed" : "expanded"}" data-action="toggle-right-panel" title="${panelTitle}" aria-label="${panelLabel}" aria-expanded="${panelCollapsed ? "false" : "true"}"${panelDisabled ? " disabled" : ""}>
+      <button type="button" class="small-icon-button panel-toggle trading-expert-collapse-button trading-expert-panel-toggle ${panelCollapsed ? "collapsed" : "expanded"}" data-action="toggle-right-panel" title="${panelTitle}" aria-label="${panelLabel}" aria-expanded="${panelCollapsed ? "false" : "true"}"${panelDisabled || panelCollapseLocked ? " disabled" : ""}${panelCollapseLocked ? ' hidden aria-hidden="true"' : ""}>
         ${renderPanelLayoutIcon("right")}
       </button>
     </div>
@@ -42265,6 +42653,7 @@ function syncTradingExpertCollapseControlsState() {
   if (!isTradingExpertThreadId(state.currentThreadId)) return;
   const chartCollapsed = state.tradingExpertChartCollapsed;
   const panelCollapsed = state.rightCollapsed;
+  const panelCollapseLocked = !panelCollapsed && isTradingExpertConversationCollapseLocked(state.currentThreadId);
   const chartButtons = root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-trading-expert-chart"]');
   const panelButtons = root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-right-panel"]');
   const syncButton = (
@@ -42298,11 +42687,14 @@ function syncTradingExpertCollapseControlsState() {
     syncButton(
       panelButton,
       panelCollapsed,
-      chartCollapsed && !panelCollapsed,
+      (chartCollapsed && !panelCollapsed) || panelCollapseLocked,
       tradingExpertPanelToggleLabel(panelCollapsed),
       "K线画布已收起，请先展开K线画布",
       "right",
     );
+    panelButton.hidden = panelCollapseLocked;
+    if (panelCollapseLocked) panelButton.setAttribute("aria-hidden", "true");
+    else panelButton.removeAttribute("aria-hidden");
   });
 }
 
@@ -52999,7 +53391,14 @@ function patchActiveAgentPanel(threadId: string | null | undefined = state.curre
   if (!thread || !panel) return false;
   if (isTradingExpertThreadId(threadId)) {
     const scroller = panel.querySelector<HTMLElement>("#messageScroller");
-    if (scroller?.dataset.threadId === threadId) return true;
+    if (scroller?.dataset.threadId === threadId) {
+      const title = panel.querySelector<HTMLElement>(".trading-expert-panel-title");
+      const nextTitle = chatHeaderTitle(thread) || NEW_THREAD_TITLE;
+      if (title && title.textContent !== nextTitle) title.textContent = nextTitle;
+      title?.setAttribute("title", nextTitle);
+      syncTradingExpertCollapseControlsState();
+      return true;
+    }
   }
   const subagents = activeSubagentUiEntries(threadId);
   if (!isMultiModelClusterThread(threadId) && subagents.length && patchActiveSubagentBoardInPlace(panel, threadId, subagents)) return true;
@@ -53927,10 +54326,6 @@ function renderRechargeSubscriptionBalance() {
 
 function renderRechargeProductCard(product: RechargeProductDefinition) {
   const isSubscription = product.kind === "subscription";
-  const action = isSubscription ? "buy-recharge-subscription" : "buy-recharge-addon";
-  const amountAttribute = isSubscription
-    ? `data-product-id="${escapeAttr(product.id)}"`
-    : `data-amount-fen="${product.amountFen}"`;
   const period = isSubscription ? "/ 月" : "";
   const bonus = product.bonus ? `<span class="recharge-product-bonus">+ ${product.bonus} 积分</span>` : "";
   const ratioLabel = `换算比率 1美元 = ${product.unitValue} 积分`;
@@ -53964,177 +54359,8 @@ function renderRechargeProductCard(product: RechargeProductDefinition) {
         <div class="recharge-product-token"><strong>${product.tokenAmount.toLocaleString("zh-CN")} 积分</strong></div>
       </div>
       <ul>${product.features.map((feature) => `<li><span>✓</span>${escapeHtml(feature)}</li>`).join("")}</ul>
-      <button type="button" class="recharge-product-buy ${product.featured ? "primary" : ""}" data-action="${action}" ${amountAttribute}>${escapeHtml(product.cta)}</button>
     </article>
   `;
-}
-
-function renderRechargeQrcodeDialog() {
-  const amountYuan = rechargeAmountYuanValue(state.rechargeQrcode.amountFen);
-  const product = rechargeProductForState();
-  const productName = state.rechargeQrcode.productName || product?.orderName || "积分加油包";
-  const productDetail = state.rechargeQrcode.productDetail || product?.detail || renderRechargeTokenEstimate(state.rechargeQrcode.amountFen);
-  const statusText = rechargeOrderStatusText(state.rechargeQrcode.status, state.rechargeQrcode.message);
-  const content = state.rechargeQrcode.loading
-    ? `<div class="recharge-payment-options is-loading">
-        ${renderRechargePaymentLoadingOption("微信支付")}
-        ${renderRechargePaymentLoadingOption("支付宝支付")}
-      </div>`
-    : state.rechargeQrcode.error
-      ? `<div class="recharge-qrcode-error"><strong>${escapeHtml(state.rechargeQrcode.error)}</strong><button type="button" data-action="retry-recharge-payment">重新生成</button></div>`
-      : state.rechargeQrcode.qrcodeUrl && state.rechargeQrcode.alipayPaymentUrl
-        ? `
-          <div class="recharge-payment-options">
-            <article class="recharge-payment-option is-wechat">
-              <div class="recharge-payment-option-title"><span class="recharge-payment-option-icon wechat" aria-hidden="true">微</span><strong>微信支付</strong></div>
-              <div class="recharge-payment-code-frame">
-                <img class="recharge-qrcode-image" src="${escapeAttr(state.rechargeQrcode.qrcodeUrl)}" alt="微信支付二维码" />
-              </div>
-              <small>请使用微信扫一扫</small>
-            </article>
-            <article class="recharge-payment-option is-alipay">
-              <div class="recharge-payment-option-title"><span class="recharge-payment-option-icon alipay" aria-hidden="true">支</span><strong>支付宝支付</strong></div>
-              <div class="recharge-payment-code-frame is-alipay-frame" data-alipay-frame-shell>
-                <iframe
-                  class="recharge-alipay-frame"
-                  src="${escapeAttr(state.rechargeQrcode.alipayPaymentUrl)}"
-                  title="支付宝支付二维码"
-                  scrolling="no"
-                  referrerpolicy="no-referrer"
-                  sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                ></iframe>
-                <div class="recharge-alipay-loading" aria-live="polite">
-                  <span class="recharge-payment-spinner" aria-hidden="true"></span>
-                  <strong>正在加载支付宝付款码…</strong>
-                </div>
-              </div>
-              <small>请使用支付宝扫一扫</small>
-            </article>
-          </div>
-          <div class="recharge-qrcode-meta">
-            <span class="${rechargeOrderStatusClass(state.rechargeQrcode.status)}">${escapeHtml(statusText)}</span>
-            ${state.rechargeQrcode.orderNo ? `<small>订单号：${escapeHtml(state.rechargeQrcode.orderNo)}</small>` : ""}
-          </div>
-        `
-        : `<div class="recharge-qrcode-placeholder">暂无可用付款码</div>`;
-  return `
-    <div class="modal-backdrop recharge-qrcode-backdrop" data-action="close-recharge-qrcode"></div>
-    <dialog class="recharge-qrcode-dialog" open aria-labelledby="rechargeQrcodeTitle">
-      <header>
-        <div><h2 id="rechargeQrcodeTitle">扫码支付</h2><p>微信或支付宝任选一种，支付后自动到账</p></div>
-        <button type="button" class="dialog-icon-button" data-action="close-recharge-qrcode" aria-label="关闭">
-          <img class="button-close-icon" src="${escapeAttr(HOME_ICON_URL.close)}" alt="" />
-        </button>
-      </header>
-      <div class="recharge-payment-order">
-        <span class="recharge-payment-order-icon">⚡</span>
-        <div><strong>${escapeHtml(productName)}</strong><span>${escapeHtml(productDetail)}</span></div>
-        <b>¥${escapeHtml(amountYuan)}</b>
-      </div>
-      <section>
-        ${content}
-      </section>
-    </dialog>
-  `;
-}
-
-function renderRechargePaymentLoadingOption(name: string) {
-  const isAlipay = name.includes("支付宝");
-  const providerClass = isAlipay ? "alipay" : "wechat";
-  const providerMark = isAlipay ? "支" : "微";
-  return `
-    <article class="recharge-payment-option is-loading">
-      <div class="recharge-payment-option-title"><span class="recharge-payment-option-icon ${providerClass}" aria-hidden="true">${providerMark}</span><strong>${escapeHtml(name)}</strong></div>
-      <div class="recharge-payment-code-frame">
-        <div class="recharge-payment-loading">
-        <span class="recharge-payment-spinner"></span>
-        <strong>正在生成付款码…</strong>
-        </div>
-      </div>
-    </article>
-  `;
-}
-
-function rechargePaymentPortalStructureSignature() {
-  const payment = state.rechargeQrcode;
-  if (!payment.open) return "closed";
-  return JSON.stringify({
-    kind: payment.kind,
-    loading: payment.loading,
-    error: payment.error,
-    amountFen: payment.amountFen,
-    productId: payment.productId,
-    productName: payment.productName,
-    productDetail: payment.productDetail,
-    orderNo: payment.orderNo,
-    qrcodeUrl: payment.qrcodeUrl,
-    alipayPaymentUrl: payment.alipayPaymentUrl,
-  });
-}
-
-function syncRechargePaymentStatusView() {
-  const statusNode = rechargePaymentPortal.querySelector<HTMLElement>(
-    ".recharge-qrcode-meta > span",
-  );
-  if (!statusNode) return;
-  statusNode.className = rechargeOrderStatusClass(state.rechargeQrcode.status);
-  statusNode.textContent = rechargeOrderStatusText(
-    state.rechargeQrcode.status,
-    state.rechargeQrcode.message,
-  );
-}
-
-function retryRechargePayment() {
-  state.rechargeQrcode.error = null;
-  state.rechargeQrcode.loading = true;
-  render();
-  if (state.rechargeQrcode.kind === "subscription") {
-    const product = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
-      (item) => item.id === state.rechargeQrcode.productId,
-    );
-    if (product) {
-      const requestSeq = ++rechargePaymentRequestSeq;
-      void createSubscriptionOrder(product, 0, requestSeq);
-    }
-    return;
-  }
-  void createRechargeOrderForCurrentAmount();
-}
-
-function bindRechargePaymentPortalEvents() {
-  rechargePaymentPortal
-    .querySelectorAll<HTMLElement>('[data-action="close-recharge-qrcode"]')
-    .forEach((element) => {
-      element.addEventListener("click", closeRechargeQrcodeDialog);
-    });
-  rechargePaymentPortal
-    .querySelector<HTMLButtonElement>('[data-action="retry-recharge-payment"]')
-    ?.addEventListener("click", retryRechargePayment);
-
-  const frame = rechargePaymentPortal.querySelector<HTMLIFrameElement>(
-    ".recharge-alipay-frame",
-  );
-  const shell = rechargePaymentPortal.querySelector<HTMLElement>(
-    "[data-alipay-frame-shell]",
-  );
-  if (!frame || !shell) return;
-  frame.addEventListener("load", () => {
-    window.setTimeout(() => {
-      if (frame.isConnected && shell.contains(frame)) shell.classList.add("is-loaded");
-    }, 450);
-  });
-}
-
-function syncRechargePaymentPortal() {
-  const signature = rechargePaymentPortalStructureSignature();
-  if (signature !== rechargePaymentPortalSignature) {
-    rechargePaymentPortalSignature = signature;
-    rechargePaymentPortal.innerHTML = state.rechargeQrcode.open
-      ? renderRechargeQrcodeDialog()
-      : "";
-    bindRechargePaymentPortalEvents();
-  }
-  syncRechargePaymentStatusView();
 }
 
 function openRechargePage() {
@@ -54144,393 +54370,6 @@ function openRechargePage() {
   state.activeView = "recharge";
   render();
   void refreshProfileFromApi({ renderAfter: true, reportError: false, showRefreshing: false });
-}
-
-async function openRechargeQrcodeDialog(amountFen: number = RECHARGE_DEFAULT_AMOUNT_FEN) {
-  const normalizedAmountFen = sanitizeRechargeAmountFen(amountFen);
-  const product = RECHARGE_ADDON_PRODUCTS.find((item) => item.amountFen === normalizedAmountFen) || null;
-  rechargePaymentRequestSeq += 1;
-  state.rechargeQrcode = createRechargeQrcodeState({
-    open: true,
-    kind: "addon",
-    amountFen: normalizedAmountFen,
-    productId: product?.id || null,
-    productName: product?.orderName || "积分加油包",
-    productDetail: product?.detail || null,
-  });
-  render();
-  triggerLowBalanceProfileRefresh("recharge-qrcode-opened");
-  await createRechargeOrderForCurrentAmount();
-}
-
-async function openSubscriptionPayment(productId: string) {
-  const product = RECHARGE_SUBSCRIPTION_PRODUCTS.find((item) => item.id === productId);
-  if (!product) {
-    showToast("订阅套餐不存在", 3000);
-    return;
-  }
-  if (typeof api.createTokenProductOrder !== "function") {
-    showToast("订阅支付接口不可用", 4000);
-    return;
-  }
-  const requestSeq = ++rechargePaymentRequestSeq;
-  state.rechargeQrcode = createRechargeQrcodeState({
-    open: true,
-    kind: "subscription",
-    loading: true,
-    amountFen: product.amountFen,
-    productId: product.id,
-    productName: product.orderName,
-    productDetail: product.detail,
-    message: "正在生成微信和支付宝付款码…",
-  });
-  clearRechargeOrderPolling();
-  render();
-  await createSubscriptionOrder(product, 0, requestSeq);
-}
-
-async function createSubscriptionOrder(product: RechargeProductDefinition, retryCount: number, requestSeq: number) {
-  if (!state.rechargeQrcode.open || state.rechargeQrcode.kind !== "subscription" || requestSeq !== rechargePaymentRequestSeq) return;
-  let retryScheduled = false;
-  try {
-    const payload = await api.createTokenProductOrder?.({
-      product_id: product.id,
-      payment_method: "online_dual",
-    });
-    if (!payload) throw new Error("订阅支付接口未返回订单");
-    if (!state.rechargeQrcode.open || state.rechargeQrcode.productId !== product.id || requestSeq !== rechargePaymentRequestSeq) return;
-    const qrcodeUrl = firstString(payload.qrcode_data_url, payload.qrcodeDataUrl, payload.qrcode_url, payload.qrcodeUrl);
-    const alipayPaymentUrl = firstString(
-      payload.alipay_payment_url,
-      payload.alipayPaymentUrl,
-      payload.payment_url,
-      payload.paymentUrl,
-    );
-    if (!qrcodeUrl || !alipayPaymentUrl) throw new Error("支付服务未返回完整的双通道付款码");
-    state.rechargeQrcode.orderNo = firstString(payload.order_no, payload.orderNo);
-    state.rechargeQrcode.status = firstString(payload.status) || "pending_payment";
-    state.rechargeQrcode.transactionId = firstString(payload.transaction_id, payload.transactionId);
-    state.rechargeQrcode.qrcodeUrl = qrcodeUrl;
-    state.rechargeQrcode.alipayPaymentUrl = alipayPaymentUrl;
-    state.rechargeQrcode.message = "使用微信或支付宝扫码均可完成支付";
-    state.rechargeQrcode.error = null;
-    state.rechargeQrcode.polling = Boolean(state.rechargeQrcode.orderNo);
-    scheduleRechargeOrderPolling(800);
-  } catch (error) {
-    if (!state.rechargeQrcode.open || state.rechargeQrcode.productId !== product.id || requestSeq !== rechargePaymentRequestSeq) return;
-    const message = subscriptionPaymentErrorMessage(error);
-    if (message === "付款码正在准备中，请稍候" && retryCount < 3) {
-      retryScheduled = true;
-      state.rechargeQrcode.loading = true;
-      state.rechargeQrcode.message = "付款码正在准备中，请稍候…";
-      window.setTimeout(() => {
-        if (state.rechargeQrcode.open && state.rechargeQrcode.productId === product.id && requestSeq === rechargePaymentRequestSeq) {
-          void createSubscriptionOrder(product, retryCount + 1, requestSeq);
-        }
-      }, 800);
-    } else {
-      state.rechargeQrcode.error = message || "生成付款码失败";
-      state.rechargeQrcode.message = null;
-      showToast(state.rechargeQrcode.error, 4000);
-    }
-  } finally {
-    if (state.rechargeQrcode.open && state.rechargeQrcode.productId === product.id && requestSeq === rechargePaymentRequestSeq) {
-      state.rechargeQrcode.loading = retryScheduled;
-      render();
-    }
-  }
-}
-
-async function createRechargeOrderForCurrentAmount() {
-  if (!state.rechargeQrcode.open || state.rechargeQrcode.kind !== "addon") return;
-  const amountFen = sanitizeRechargeAmountFen(state.rechargeQrcode.amountFen);
-  const product = RECHARGE_ADDON_PRODUCTS.find(
-    (item) => item.id === state.rechargeQrcode.productId && item.amountFen === amountFen,
-  );
-  if (amountFen < RECHARGE_MIN_AMOUNT_FEN) {
-    state.rechargeQrcode.amountFen = amountFen;
-    showToast("最低起充5元", 2200);
-    return;
-  }
-  const requestSeq = ++rechargePaymentRequestSeq;
-  state.rechargeQrcode.amountFen = amountFen;
-  state.rechargeQrcode.loading = true;
-  state.rechargeQrcode.polling = false;
-  state.rechargeQrcode.orderNo = null;
-  state.rechargeQrcode.status = null;
-  state.rechargeQrcode.message = null;
-  state.rechargeQrcode.qrcodeUrl = null;
-  state.rechargeQrcode.alipayPaymentUrl = null;
-  state.rechargeQrcode.error = null;
-  clearRechargeOrderPolling();
-  render();
-
-  const createOrder = product
-    ? api.createTokenProductOrder
-    : api.createRechargeOrder || api.fetchRechargeQrcode;
-  if (!createOrder) {
-    state.rechargeQrcode.loading = false;
-    state.rechargeQrcode.error = "充值接口不可用";
-    render();
-    return;
-  }
-  try {
-    const payload = product
-      ? await createOrder({ product_id: product.id, payment_method: "online_dual" })
-      : await createOrder({ amount_fen: amountFen, payment_method: "online_dual" });
-    if (
-      !state.rechargeQrcode.open ||
-      state.rechargeQrcode.kind !== "addon" ||
-      state.rechargeQrcode.amountFen !== amountFen ||
-      requestSeq !== rechargePaymentRequestSeq
-    ) return;
-    const qrcodeUrl = firstString(
-      payload?.qrcode_data_url,
-      payload?.qrcodeDataUrl,
-      payload?.qrcode_url,
-      payload?.qrcodeUrl,
-    );
-    const alipayPaymentUrl = firstString(
-      payload?.alipay_payment_url,
-      payload?.alipayPaymentUrl,
-      payload?.payment_url,
-      payload?.paymentUrl,
-    );
-    if (!qrcodeUrl || !alipayPaymentUrl) {
-      throw new Error("双通道付款码不完整");
-    }
-    state.rechargeQrcode.orderNo = firstString(payload?.order_no, payload?.orderNo);
-    state.rechargeQrcode.status = firstString(payload?.status) || "pending_payment";
-    state.rechargeQrcode.qrcodeUrl = qrcodeUrl;
-    state.rechargeQrcode.alipayPaymentUrl = alipayPaymentUrl;
-    state.rechargeQrcode.message = "微信或支付宝扫码支付，积分自动到账";
-    state.rechargeQrcode.error = null;
-    state.rechargeQrcode.polling = Boolean(state.rechargeQrcode.orderNo);
-    scheduleRechargeOrderPolling();
-  } catch (error) {
-    if (
-      !state.rechargeQrcode.open ||
-      state.rechargeQrcode.kind !== "addon" ||
-      state.rechargeQrcode.amountFen !== amountFen ||
-      requestSeq !== rechargePaymentRequestSeq
-    ) return;
-    state.rechargeQrcode.error = `生成失败：${errorMessage(error)}`;
-  } finally {
-    if (
-      state.rechargeQrcode.open &&
-      state.rechargeQrcode.kind === "addon" &&
-      state.rechargeQrcode.amountFen === amountFen &&
-      requestSeq === rechargePaymentRequestSeq
-    ) {
-      state.rechargeQrcode.loading = false;
-      render();
-    }
-  }
-}
-
-function closeRechargeQrcodeDialog() {
-  rechargePaymentRequestSeq += 1;
-  clearRechargeOrderPolling();
-  state.rechargeQrcode = createRechargeQrcodeState();
-  syncLowBalanceProfileRefresh("recharge-qrcode-closed");
-  render();
-}
-
-function createRechargeQrcodeState(overrides: Partial<RechargeQrcodeState> = {}): RechargeQrcodeState {
-  return {
-    open: false,
-    kind: "addon",
-    loading: false,
-    polling: false,
-    amountFen: RECHARGE_DEFAULT_AMOUNT_FEN,
-    productId: null,
-    productName: null,
-    productDetail: null,
-    orderNo: null,
-    status: null,
-    transactionId: null,
-    message: null,
-    qrcodeUrl: null,
-    alipayPaymentUrl: null,
-    error: null,
-    ...overrides,
-  };
-}
-
-function rechargeProductForState() {
-  const products = state.rechargeQrcode.kind === "subscription" ? RECHARGE_SUBSCRIPTION_PRODUCTS : RECHARGE_ADDON_PRODUCTS;
-  return (
-    products.find((product) => product.id === state.rechargeQrcode.productId || product.amountFen === state.rechargeQrcode.amountFen) || null
-  );
-}
-
-function subscriptionPaymentErrorMessage(error: unknown) {
-  const message = errorMessage(error);
-  const localized = [
-    ["a next-term subscription is already pending", "已有下期订阅套餐，暂时不能重复续费"],
-    ["another subscription payment order is already pending", "已有其他套餐的待支付订单，请完成支付或等待付款码过期后再选择"],
-    ["subscription payment order is still being prepared", "付款码正在准备中，请稍候"],
-  ] as const;
-  return localized.find(([raw]) => message.includes(raw))?.[1] || message;
-}
-
-function rechargeOrderStatusClass(status: string | null) {
-  const normalized = String(status || "").toLowerCase();
-  if (normalized === "approved") return "is-success";
-  if (["cancelled", "expired", "rejected"].includes(normalized)) return "is-error";
-  return "";
-}
-
-function rechargeAmountYuanValue(amountFen: number) {
-  const value = Math.max(1, Math.round(amountFen || RECHARGE_DEFAULT_AMOUNT_FEN)) / 100;
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
-}
-
-function rechargeTokenEstimate(amountFen: number) {
-  const yuan = Math.max(0, sanitizeRechargeAmountFen(amountFen)) / 100;
-  return Math.round(yuan * RECHARGE_TOKEN_RATE) + rechargeTokenBonus(amountFen);
-}
-
-function renderRechargeTokenEstimate(amountFen: number) {
-  const bonus = rechargeTokenBonus(amountFen);
-  const bonusText = bonus > 0 ? `(<span class="recharge-dollar">+${bonus}</span>)` : "";
-  return `=<span class="recharge-dollar">${rechargeTokenEstimate(amountFen)}</span> 积分${bonusText}`;
-}
-
-function rechargeTokenBonus(amountFen: number) {
-  return (
-    RECHARGE_TOKEN_BONUS_BY_AMOUNT_FEN.get(sanitizeRechargeAmountFen(amountFen)) || 0
-  );
-}
-
-function renderRechargeAmountPresetLabel(amountFen: number) {
-  const bonus = rechargeTokenBonus(amountFen);
-  const bonusText = bonus > 0 ? `(<span class="recharge-dollar">+${bonus}</span>)` : "";
-  return `¥${escapeHtml(rechargeAmountYuanValue(amountFen))}${bonusText}`;
-}
-
-function rechargeOrderPaidAmountFen(payload: RechargeOrderPayload | null | undefined, fallbackFen: number) {
-  const numeric = Number(payload?.amount_fen ?? payload?.amountFen);
-  if (Number.isFinite(numeric) && numeric > 0) return sanitizeRechargeAmountFen(numeric);
-  return sanitizeRechargeAmountFen(fallbackFen);
-}
-
-function sanitizeRechargeAmountFen(value: unknown) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return RECHARGE_DEFAULT_AMOUNT_FEN;
-  return Math.max(1, Math.min(RECHARGE_MAX_AMOUNT_FEN, Math.round(numeric)));
-}
-
-function rechargeOrderStatusText(status: string | null, message: string | null) {
-  if (message) return message;
-  const normalized = String(status || "").trim().toLowerCase();
-  if (!normalized || normalized === "pending_payment") return "等待支付";
-  if (["approved", "paid", "succeeded", "success", "completed"].includes(normalized)) return "支付成功，已入账";
-  if (normalized === "cancelled") return "订单已取消";
-  if (normalized === "expired") return "订单已过期";
-  if (normalized === "rejected") return "订单未通过";
-  return "正在确认支付";
-}
-
-function clearRechargeOrderPolling() {
-  if (rechargeOrderPollTimer !== null) {
-    window.clearTimeout(rechargeOrderPollTimer);
-    rechargeOrderPollTimer = null;
-  }
-}
-
-function rechargeOrderIsFinal(kind: RechargeProductKind, status: string) {
-  if (kind === "subscription") return ["approved", "cancelled", "expired", "rejected"].includes(status);
-  return RECHARGE_ORDER_FINAL_STATUSES.has(status);
-}
-
-function scheduleRechargeOrderPolling(delayMs: number = RECHARGE_ORDER_POLL_INTERVAL_MS) {
-  clearRechargeOrderPolling();
-  const orderNo = state.rechargeQrcode.orderNo;
-  const status = String(state.rechargeQrcode.status || "").toLowerCase();
-  if (!state.rechargeQrcode.open || !orderNo || rechargeOrderIsFinal(state.rechargeQrcode.kind, status)) return;
-  rechargeOrderPollTimer = window.setTimeout(() => {
-    rechargeOrderPollTimer = null;
-    void pollRechargeOrder();
-  }, delayMs);
-}
-
-async function pollRechargeOrder() {
-  const orderNo = state.rechargeQrcode.orderNo;
-  const paymentKind = state.rechargeQrcode.kind;
-  const productId = state.rechargeQrcode.productId;
-  const getOrder = productId ? api.getTokenProductOrder : api.getRechargeOrder;
-  if (!state.rechargeQrcode.open || !orderNo || typeof getOrder !== "function") {
-    state.rechargeQrcode.polling = false;
-    return;
-  }
-  try {
-    const payload = await getOrder({ order_no: orderNo });
-    if (
-      !state.rechargeQrcode.open ||
-      state.rechargeQrcode.orderNo !== orderNo ||
-      state.rechargeQrcode.kind !== paymentKind ||
-      state.rechargeQrcode.productId !== productId
-    ) return;
-    const status = firstString(payload?.status) || state.rechargeQrcode.status || "pending_payment";
-    state.rechargeQrcode.status = status;
-    state.rechargeQrcode.transactionId = firstString(payload?.transaction_id, payload?.transactionId) || state.rechargeQrcode.transactionId;
-    const normalized = status.toLowerCase();
-    const paymentSucceeded = paymentKind === "subscription"
-      ? normalized === "approved"
-      : ["approved", "paid", "succeeded", "success", "completed"].includes(normalized);
-    if (paymentSucceeded) {
-      if (paymentKind === "subscription") {
-        const productId = state.rechargeQrcode.productId;
-        closeRechargeQrcodeDialog();
-        const profileRefreshed = await refreshMembershipProfileAfterPayment();
-        if (profileRefreshed) {
-          const activationAt = pendingMembershipActivationAt(productId);
-          showToast(
-            activationAt
-              ? `支付成功！订阅会员会在${formatSubscriptionActivationDate(activationAt)}生效`
-              : "支付成功！订阅会员已生效",
-            5000,
-          );
-        } else {
-          showToast("支付成功，但订阅会员信息刷新失败，请稍后重试", 5000);
-        }
-        render();
-        return;
-      }
-      const paidAmountFen = rechargeOrderPaidAmountFen(payload, state.rechargeQrcode.amountFen);
-      closeRechargeQrcodeDialog();
-      showToast(`付款${rechargeAmountYuanValue(paidAmountFen)}元成功！`, 3000);
-      await refreshProfileFromApi({ renderAfter: false, reportError: false, showRefreshing: false });
-      render();
-      return;
-    }
-    if (rechargeOrderIsFinal(paymentKind, normalized)) {
-      state.rechargeQrcode.polling = false;
-      state.rechargeQrcode.message = rechargeOrderStatusText(normalized, null);
-      clearRechargeOrderPolling();
-      render();
-      return;
-    }
-    state.rechargeQrcode.polling = true;
-    state.rechargeQrcode.message = paymentKind === "subscription" && state.rechargeQrcode.transactionId
-      ? "支付已确认，权益正在到账，请稍候"
-      : "等待支付完成";
-    scheduleRechargeOrderPolling();
-  } catch (error) {
-    if (
-      !state.rechargeQrcode.open ||
-      state.rechargeQrcode.orderNo !== orderNo ||
-      state.rechargeQrcode.kind !== paymentKind ||
-      state.rechargeQrcode.productId !== productId
-    ) return;
-    state.rechargeQrcode.polling = true;
-    state.rechargeQrcode.error = null;
-    state.rechargeQrcode.message = `查询暂时失败，正在重试：${errorMessage(error)}`;
-    scheduleRechargeOrderPolling();
-  } finally {
-    syncRechargePaymentPortal();
-  }
 }
 
 function renderSettingsDialog() {
@@ -56153,25 +55992,6 @@ function bindEvents() {
       event.preventDefault();
       event.stopPropagation();
       toggleProfileSubscriptionDetails("balance");
-    });
-  root
-    .querySelectorAll<HTMLButtonElement>('[data-action="buy-recharge-addon"]')
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        void openRechargeQrcodeDialog(
-          sanitizeRechargeAmountFen(button.dataset.amountFen),
-        );
-      });
-    });
-  root
-    .querySelectorAll<HTMLButtonElement>(
-      '[data-action="buy-recharge-subscription"]',
-    )
-    .forEach((button) => {
-      button.addEventListener("click", () => {
-        const productId = button.dataset.productId;
-        if (productId) void openSubscriptionPayment(productId);
-      });
     });
   root
     .querySelectorAll<HTMLElement>('[data-action="profile-help"]')
@@ -57986,6 +57806,7 @@ function bindEvents() {
   root
     .querySelectorAll<HTMLButtonElement>('[data-action="toggle-right-panel"]')
     .forEach((button) => button.addEventListener("click", () => {
+      finishTradingExpertLayoutControlPointerInteraction(false);
       if (localGroupChatRecord(state.currentThreadId)) {
         toggleLocalGroupChatMembersPanel();
         return;
@@ -57997,13 +57818,28 @@ function bindEvents() {
       if (isTradingExpertThreadId(state.currentThreadId) && state.tradingExpertChartCollapsed && !state.rightCollapsed) {
         return;
       }
+      if (
+        isTradingExpertThreadId(state.currentThreadId)
+        && !state.rightCollapsed
+        && isTradingExpertConversationCollapseLocked(state.currentThreadId)
+      ) {
+        syncTradingExpertCollapseControlsState();
+        return;
+      }
       state.rightCollapsed = !state.rightCollapsed;
       syncAgentPanelState();
+      if (
+        !state.rightCollapsed
+        && isTradingExpertThreadId(state.currentThreadId)
+      ) {
+        patchActiveChatSurfaces(state.currentThreadId, { patchThreadRow: true });
+      }
       scrollWorkflowToLatestStep();
     }));
   root
     .querySelectorAll<HTMLButtonElement>('[data-action="toggle-trading-expert-chart"]')
     .forEach((button) => button.addEventListener("click", () => {
+      finishTradingExpertLayoutControlPointerInteraction(false);
       if (!isTradingExpertThreadId(state.currentThreadId)) return;
       if (state.rightCollapsed && !state.tradingExpertChartCollapsed) return;
       state.tradingExpertChartCollapsed = !state.tradingExpertChartCollapsed;
@@ -62565,9 +62401,6 @@ function resetAuthenticatedWorkspace() {
     data: null,
     error: null,
   };
-  clearRechargeOrderPolling();
-  rechargePaymentRequestSeq += 1;
-  state.rechargeQrcode = createRechargeQrcodeState();
   state.approvalRequest = null;
   state.configOutput = null;
   resetRemoteLibraries();
@@ -63164,6 +62997,8 @@ function isPointerOverStreamSensitiveUi() {
         ".bubble-hover-bar",
         ".library-preview-panel",
         ".chat-preview-panel",
+        '.trading-expert-layout [data-action="toggle-right-panel"]',
+        '.trading-expert-layout [data-action="toggle-trading-expert-chart"]',
       ].join(","),
     ),
   );
@@ -65391,25 +65226,6 @@ function ensureDefaultThreadGroup(): ThreadGroup {
   return group;
 }
 
-async function ensureTradingExpertThreadGroup(): Promise<ThreadGroup> {
-  const existing = threadGroups.find((group) => group.name.trim() === TRADING_EXPERT_NAME);
-  if (existing) return existing;
-  const now = new Date().toISOString();
-  const groupId = safeId("thread-group");
-  const group: ThreadGroup = {
-    id: groupId,
-    name: TRADING_EXPERT_NAME,
-    createdAt: now,
-    updatedAt: now,
-    workspaceSlug: groupId,
-    externalPath: null,
-  };
-  threadGroups.unshift(group);
-  saveThreadPreferences();
-  await syncThreadGroupWorkspaces({ renderAfter: false });
-  return group;
-}
-
 function isDefaultThreadGroup(groupId: string | null | undefined) {
   return groupId === DEFAULT_THREAD_GROUP_ID;
 }
@@ -66653,15 +66469,35 @@ function turnResultDisplayStatus(threadId: string, turnKey: string, indexes: num
 function turnResultElapsedLabel(threadId: string, turnKey: string, indexes: number[], messages: Message[]) {
   const turnId = turnIdFromResultKey(turnKey);
   const timing = turnId ? turnTiming(threadId, turnId) : null;
-  const items = indexes.map((index) => state.items[threadId]?.[messages[index].id]).filter((item): item is CodexItem => Boolean(item));
+  const elapsedIndexes = new Set(indexes);
+  const finalIndex = indexes.length ? Math.max(...indexes) : -1;
+  if (finalIndex >= 0) {
+    turnResultProcessIndexes(messages, finalIndex).forEach((index) => elapsedIndexes.add(index));
+  }
+  const items = [...elapsedIndexes]
+    .map((index) => state.items[threadId]?.[messages[index]?.id])
+    .filter((item): item is CodexItem => Boolean(item));
   const itemStart = minFinite(items.map(turnItemStartMs));
   const itemEnd = maxFinite(items.map(turnItemEndMs));
   const sortStart = minFinite(items.map(itemSortTime));
   const sortEnd = maxFinite(items.map(itemSortTime));
   const running = Boolean(turnId && activeTurnIdForThread(threadId) === turnId && isThreadBusy(threadId));
-  const startMs = timing?.startedAtMs ?? itemStart ?? sortStart ?? (running ? Date.now() : null);
+  let startMs = timing?.startedAtMs ?? itemStart ?? sortStart ?? (running ? Date.now() : null);
   const endMs = running ? Date.now() : (timing?.completedAtMs ?? itemEnd ?? sortEnd ?? startMs ?? Date.now());
+  if (!running && finalIndex >= 0 && (startMs == null || endMs <= startMs)) {
+    const previousUserStart = previousTurnResultUserStartMs(threadId, messages, finalIndex);
+    if (previousUserStart != null && previousUserStart < endMs) startMs = previousUserStart;
+  }
   return formatElapsedDuration(startMs == null ? 0 : Math.max(0, endMs - startMs));
+}
+
+function previousTurnResultUserStartMs(threadId: string, messages: Message[], beforeIndex: number) {
+  for (let index = beforeIndex - 1; index >= 0; index -= 1) {
+    if (!isRenderedUserSideMessage(messages[index])) continue;
+    const item = state.items[threadId]?.[messages[index].id];
+    return item ? (turnItemStartMs(item) ?? itemSortTime(item)) : null;
+  }
+  return null;
 }
 
 function activeThinkingElapsedLabel(threadId: string) {
@@ -68600,8 +68436,19 @@ function loadThreadPreferences(): ThreadPreferences {
           .map(normalizeThreadGroup)
           .filter((group): group is ThreadGroup => Boolean(group))
       : [];
-    const defaultAliasIds = new Set(groups.filter((group) => group.id === DEFAULT_THREAD_GROUP_ID || group.name === DEFAULT_THREAD_GROUP_NAME).map((group) => group.id));
-    const defaultGroupPreference = groups.find((group) => defaultAliasIds.has(group.id));
+    const recentMigration = migrateLegacyRecentThreadGroupPreferences(
+      groups,
+      parsed.threadGroups,
+      normalizePersistedThreadModes(parsed.threadModes),
+      {
+        defaultGroupId: DEFAULT_THREAD_GROUP_ID,
+        defaultGroupName: DEFAULT_THREAD_GROUP_NAME,
+        legacyTradingGroupName: TRADING_EXPERT_NAME,
+        isVolatileThreadId: isLocalBlankThreadId,
+      },
+    );
+    const { recentAliasIds, threadModes: normalizedThreadModes } = recentMigration;
+    const defaultGroupPreference = groups.find((group) => recentAliasIds.has(group.id));
     const normalizedGroups = [
       {
         id: DEFAULT_THREAD_GROUP_ID,
@@ -68613,7 +68460,7 @@ function loadThreadPreferences(): ThreadPreferences {
         workspaceSlug: DEFAULT_THREAD_GROUP_WORKSPACE_SLUG,
         externalPath: null,
       },
-      ...groups.filter((group) => !defaultAliasIds.has(group.id)),
+      ...groups.filter((group) => !recentAliasIds.has(group.id)),
     ];
     const knownGroupIds = new Set(normalizedGroups.map((group) => group.id));
     return {
@@ -68675,8 +68522,8 @@ function loadThreadPreferences(): ThreadPreferences {
                 (entry): entry is [string, string] =>
                   typeof entry[0] === "string" &&
                   typeof entry[1] === "string" &&
-                  Boolean(entry[0] && !isLocalBlankThreadId(entry[0]) && (knownGroupIds.has(entry[1]) || defaultAliasIds.has(entry[1]))),
-              ).map(([threadId, groupId]) => [threadId, defaultAliasIds.has(groupId) ? DEFAULT_THREAD_GROUP_ID : groupId]),
+                  Boolean(entry[0] && !isLocalBlankThreadId(entry[0]) && (knownGroupIds.has(entry[1]) || recentAliasIds.has(entry[1]))),
+              ).map(([threadId, groupId]) => [threadId, recentAliasIds.has(groupId) ? DEFAULT_THREAD_GROUP_ID : groupId]),
             )
           : {},
       threadWorkspaces:
@@ -68692,7 +68539,7 @@ function loadThreadPreferences(): ThreadPreferences {
       threadModelSelections: normalizePersistedThreadModels(parsed.threadModelSelections),
       threadImageModels: normalizePersistedThreadImageModels(parsed.threadImageModels),
       threadImageSizes: normalizePersistedThreadImageSizes(parsed.threadImageSizes),
-      threadModes: normalizePersistedThreadModes(parsed.threadModes),
+      threadModes: normalizedThreadModes,
       clusterModes: normalizePersistedClusterModes(parsed.clusterModes),
       threadLastAssistantProviders: normalizePersistedThreadLastAssistantProviders(parsed.threadLastAssistantProviders),
       threadContinuations: normalizePersistedThreadContinuations(parsed.threadContinuations),
@@ -69023,22 +68870,6 @@ function saveThreadPreferences() {
   } catch {
     return false;
   }
-}
-
-async function refreshMembershipProfileAfterPayment(maxAttempts = 3) {
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const refreshed = await refreshProfileFromApi({
-      renderAfter: false,
-      reportError: attempt === maxAttempts - 1,
-      showRefreshing: false,
-    });
-    if (refreshed) return true;
-    if (!state.auth.authenticated) return false;
-    if (attempt < maxAttempts - 1) {
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 800 * (attempt + 1)));
-    }
-  }
-  return false;
 }
 
 function shouldPersistThreadPreferenceId(threadId: string | null | undefined) {
@@ -69598,48 +69429,6 @@ function currentMembershipPlan(): MembershipPlanDisplay {
     return { id: "flagship", label: "旗舰版", subscribed: true };
   }
   return { id: "experience", label: "体验版", subscribed: false };
-}
-
-function subscriptionPlanIdForProduct(productId: string | null): MembershipPlanId | null {
-  const normalized = String(productId || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^subscription[_-]/, "");
-  if (normalized === "basic" || normalized === "pro" || normalized === "flagship") return normalized;
-  return null;
-}
-
-function pendingMembershipActivationAt(productId: string | null) {
-  const profile = state.auth.profile as Record<string, unknown> | null;
-  const pendingMembership = plainRecord(profile?.pending_membership ?? profile?.pendingMembership);
-  if (!pendingMembership) return null;
-  const purchasedPlan = subscriptionPlanIdForProduct(productId);
-  const pendingPlan = firstString(
-    pendingMembership.plan_id,
-    pendingMembership.planId,
-    pendingMembership.product_id,
-    pendingMembership.productId,
-  )
-    ?.trim()
-    .toLowerCase()
-    .replace(/^subscription[_-]/, "");
-  if (!purchasedPlan || pendingPlan !== purchasedPlan) return null;
-  const startsAt = firstString(
-    pendingMembership.starts_at,
-    pendingMembership.startsAt,
-    pendingMembership.effective_at,
-    pendingMembership.effectiveAt,
-  );
-  if (!startsAt) return null;
-  const timestamp = new Date(startsAt).getTime();
-  if (!Number.isFinite(timestamp) || timestamp <= Date.now()) return null;
-  return startsAt;
-}
-
-function formatSubscriptionActivationDate(value: string) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  return `${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
 function renderMembershipBadge(context: "titlebar" | "profile" | "consumption", plan = currentMembershipPlan()) {
@@ -71146,7 +70935,9 @@ function formatThreadTime(value: unknown) {
 }
 
 function formatElapsedDuration(milliseconds: number) {
-  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const safeMilliseconds = Math.max(0, milliseconds);
+  if (safeMilliseconds < 1000) return "<1s";
+  const totalSeconds = Math.floor(safeMilliseconds / 1000);
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const seconds = totalSeconds % 60;
   const totalMinutes = Math.floor(totalSeconds / 60);

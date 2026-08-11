@@ -256,6 +256,10 @@ test("only GPT plan mode renders public process segments and auto-folds them aft
   assert.match(styles, /\.agent-bubble\s*\{[^}]*background:\s*var\(--bubble-agent\)/);
   assert.match(
     styles,
+    /\.turn-result-toggle\s*\{[^}]*color:\s*var\(--text-tertiary\)/,
+  );
+  assert.match(
+    styles,
     /html\[data-theme="dark"\][\s\S]*\.turn-result-toggle[\s\S]*color:\s*var\(--text-primary-soft\)/,
   );
   assert.match(

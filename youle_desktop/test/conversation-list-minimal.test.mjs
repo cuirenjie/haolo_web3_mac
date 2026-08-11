@@ -25,6 +25,8 @@ test("history conversations render as one-line titles and the blank thread is no
   assert.match(rowBlock, /const minimalTitle = rawRowName\.trim\(\) \|\| preview\.trim\(\) \|\| NEW_THREAD_TITLE;/);
   assert.match(rowBlock, /conversation-row-wrap conversation-row-minimal/);
   assert.match(rowBlock, /conversation-copy conversation-copy-minimal/);
+  assert.match(rowBlock, /const analysisContextLabel = tradingLastAnalysisLabelForThread\(thread\.id\);/);
+  assert.match(rowBlock, /class="conversation-analysis-context" title="最后分析画布/);
   assert.match(rowBlock, /class="row-name" title="\$\{escapeAttr\(minimalTitle\)\}"/);
   assert.doesNotMatch(rowBlock, /renderThreadRowAvatar|row-preview|<time/);
 
@@ -36,7 +38,7 @@ test("sidebar actions follow Codex order and remove the old plus and blank-canva
   const source = await rendererSource;
   const actions = sourceBlock(source, "function renderConversationListActions", "function renderChatList");
   const titlebarActions = sourceBlock(source, "function renderTitlebarPrimaryActions", "function renderWindowControls");
-  const labels = ["新对话", "账户", "预警", "知识库"];
+  const labels = ["新任务", "账户", "预警", "知识库"];
   let cursor = -1;
   for (const label of labels) {
     const index = actions.indexOf(`<span>${label}</span>`);
@@ -77,12 +79,16 @@ test("the direct auto-task action restores the original create-dialog flow", asy
 test("pinned conversations are global and projects use folders with a five-row preview", async () => {
   const source = await rendererSource;
   const sections = sourceBlock(source, "function renderThreadSections", "function conversationGroupSectionsForList");
+  const projectSection = sourceBlock(source, "function renderThreadGroupSection", "function renderUngroupedConversationProject");
   const projectRows = sourceBlock(source, "function renderConversationProjectThreads", "function groupedThreadsForList");
 
   assert.match(sections, /const pinnedThreads = conversations\.filter\(\(thread\) => Boolean\(thread\.pinned\)\)/);
   assert.match(sections, /const projectThreads = conversations\.filter\(\(thread\) => !thread\.pinned\)/);
   assert.ok(sections.indexOf("renderPinnedThreadSection") < sections.indexOf("conversation-projects-section"));
   assert.match(source, /renderConversationListIcon\("folder"\)/);
+  assert.match(source, /const DEFAULT_THREAD_GROUP_CONVERSATION_LABEL = "最近";/);
+  assert.doesNotMatch(source, /TRADING_EXPERT_GROUP_DISPLAY_NAME|历史任务/);
+  assert.match(projectSection, /const displayName = storedDisplayName;/);
   assert.match(projectRows, /threads\.slice\(0, CONVERSATION_PROJECT_PREVIEW_LIMIT\)/);
   assert.match(projectRows, /data-conversation-project-expand/);
   assert.match(projectRows, />展开显示<\/button>/);
@@ -104,6 +110,12 @@ test("minimal rows retain accessible status, unread, working, and overflow-menu 
   assert.match(rowBlock, /thread\.unread \? `<span class="unread-dot">/);
   assert.match(rowBlock, /working \? `<span class="conversation-row-spinner"/);
   assert.match(rowBlock, /data-thread-more="\$\{escapeAttr\(thread\.id\)\}"/);
+  const reportBlock = sourceBlock(
+    source,
+    "function appendTradingExpertReport",
+    "async function runTradingGeneralChartRequest",
+  );
+  assert.match(reportBlock, /patchConversationRow\(threadId\);/);
 });
 
 test("minimal conversation rows use compact single-line geometry and trailing actions", async () => {
@@ -156,7 +168,7 @@ test("minimal conversation rows use compact single-line geometry and trailing ac
   );
   assert.match(
     minimalStyles,
-    /\.conversation-project-thread-list > \.conversation-row-wrap\.conversation-row-minimal\s*\{[^}]*width:\s*calc\(100% - 39px\);[^}]*margin-right:\s*6px;[^}]*margin-left:\s*33px;/s,
+    /\.conversation-project-thread-list > \.conversation-row-wrap\.conversation-row-minimal\s*\{[^}]*width:\s*calc\(100% - 24px\);[^}]*margin-right:\s*6px;[^}]*margin-left:\s*18px;/s,
   );
   assert.match(
     minimalStyles,
@@ -185,7 +197,10 @@ test("minimal row hover, selected, focus, menu, and status states share light-da
   assert.match(darkTokens, /--surface-hover-translucent:/);
   assert.match(darkTokens, /--surface-active-translucent:/);
   assert.match(darkTokens, /--conversation-row-selected:\s*rgba\(130, 159, 194, 0\.11\)/);
+  assert.match(lightTokens, /--conversation-analysis-context:\s*#9a6700/);
+  assert.match(darkTokens, /--conversation-analysis-context:\s*#ffd43b/);
   assert.match(darkTokens, /--border-translucent:/);
+  assert.match(minimalStyles, /\.conversation-analysis-context\s*\{[^}]*color:\s*var\(--conversation-analysis-context\);[^}]*font-weight:\s*650;/s);
   assert.match(minimalStyles, /:hover,[\s\S]*:focus-within,[\s\S]*\.menu-open[\s\S]*background:\s*var\(--surface-hover-translucent\);/);
   assert.match(minimalStyles, /\.conversation-row-wrap\.conversation-row-minimal\.active\s*\{[^}]*background:\s*var\(--conversation-row-selected\);[^}]*box-shadow:\s*none;/s);
   assert.match(minimalStyles, /html\[data-theme="dark"\] \.conversation-row-wrap\.conversation-row-minimal\.active\s*\{[^}]*background:\s*var\(--conversation-row-selected\);/s);

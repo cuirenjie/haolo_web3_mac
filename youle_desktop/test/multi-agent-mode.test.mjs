@@ -317,7 +317,7 @@ test("renderer preserves the selected mode across thread creation, sends, contin
   const threadParams = sourceBlock(source, "function threadParams", "async function refreshSkills");
   const replacement = sourceBlock(source, "function adoptReplacementCodexThread", "async function sendAgentText");
   const send = sourceBlock(source, "async function sendAgentText", "async function flushQueuedSend");
-  const preferences = sourceBlock(source, "function loadThreadPreferences", "async function refreshMembershipProfileAfterPayment");
+  const preferences = sourceBlock(source, "function loadThreadPreferences", "function shouldPersistThreadPreferenceId");
 
   assert.match(threadParams, /conversationMode: codexConversationModeForThread\(threadId\)/);
   assert.match(threadParams, /imageGenerationModelRequestParams\(threadId\)/);
@@ -331,7 +331,8 @@ test("renderer preserves the selected mode across thread creation, sends, contin
   assert.match(send, /sourceType:[\s\S]*"video"/);
   assert.match(source, /conversationMode: codexConversationModeForThread\(sourceThreadId\)/);
   assert.match(source, /videoGenerationModelRequestParams\(sourceThreadId\)/);
-  assert.match(preferences, /threadModes: normalizePersistedThreadModes\(parsed\.threadModes\)/);
+  assert.match(preferences, /normalizePersistedThreadModes\(parsed\.threadModes\)/);
+  assert.match(preferences, /threadModes: normalizedThreadModes/);
   assert.match(preferences, /threadImageModels: normalizePersistedThreadImageModels\(parsed\.threadImageModels\)/);
   assert.match(preferences, /threadImageSizes: normalizePersistedThreadImageSizes\(parsed\.threadImageSizes\)/);
   assert.match(preferences, /threadModes: Object\.fromEntries/);

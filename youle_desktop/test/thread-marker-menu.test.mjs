@@ -214,7 +214,7 @@ test("custom markers require exactly two characters and persist per thread", asy
   const save = sourceBlock(
     source,
     "function saveThreadPreferences",
-    "async function refreshMembershipProfileAfterPayment",
+    "function shouldPersistThreadPreferenceId",
   );
 
   assert.match(normalize, /characters\.length === 2/);

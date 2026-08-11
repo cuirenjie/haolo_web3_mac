@@ -598,7 +598,7 @@ test("the last composer group selection remains the default until the user chang
   const savePreferencesBlock = sourceBlock(
     source,
     "function saveThreadPreferences",
-    "async function refreshMembershipProfileAfterPayment",
+    "function shouldPersistThreadPreferenceId",
   );
   assert.match(
     savePreferencesBlock,
@@ -655,7 +655,7 @@ test("new-task folder creation and import still target the active question-answe
   );
   assert.match(
     sendBlock,
-    /const composerGroupIdForSend = isTradingExpertThreadId\(threadId\)[\s\S]*?: groupIdForThreadContext\(threadId\)/,
+    /const composerGroupIdForSend = groupIdForThreadContext\(threadId\);/,
   );
   assert.match(
     sendBlock,

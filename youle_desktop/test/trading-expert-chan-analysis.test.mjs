@@ -319,7 +319,7 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
   assert.match(progressBlock, /querySelectorAll<HTMLFormElement>\("#composerForm"\)[\s\S]*?form\.dataset\.threadId !== threadId[\s\S]*?input\.value = ""/);
   assert.match(progressBlock, /const highlight = form\.querySelector<HTMLElement>\("\.composer-highlight"\)[\s\S]*?highlight\.innerHTML = ""/);
   assert.match(progressBlock, /syncComposerMentionPopovers\(\)/);
-  assert.match(progressBlock, /if \(patchActiveChatSurfaces\(threadId\)\) return/);
+  assert.match(progressBlock, /if \(patchActiveChatSurfaces\(threadId, \{ patchThreadRow: true \}\)\) return/);
   assert.match(progressBlock, /tradingExpertThinkingStateByThreadId\.set\(threadId/);
   assert.match(progressBlock, /label: "正在准备行情"/);
   assert.match(progressBlock, /label: "正在分析盘面"/);

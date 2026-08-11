@@ -149,7 +149,7 @@ test("inactive draft text is retained without adding a preview line to the stick
   );
   assert.match(draftPreview, /state\.composerDrafts\[draftThreadId\]/);
   assert.match(draftPreview, /const plain = `\[草稿\]\$\{text\}\$\{attachmentLabel\}`/);
-  assert.match(actions, /<span>新对话<\/span>/);
+  assert.match(actions, /<span>新任务<\/span>/);
   assert.doesNotMatch(actions, /draftPreview|row-preview|草稿/);
   assert.doesNotMatch(styles, /row-preview-draft-label/);
 });

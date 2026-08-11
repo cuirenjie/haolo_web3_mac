@@ -169,6 +169,16 @@ import {
   DEFAULT_TRADING_ANALYSIS_MODEL_ID,
   DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
 } from "./trading-analysis/app-server-provider.mjs";
+import {
+  indexedTradingTranscriptThreads,
+  mergeIndexedTradingTranscriptThreads,
+  normalizeTradingTranscriptItems,
+  removeTradingTranscriptIndexThread,
+  tradingTranscriptInjectionItems,
+  tradingTranscriptItemsFromThreadResult,
+  updateTradingTranscriptIndex,
+  withTradingTranscriptHistory,
+} from "./trading-expert-transcript.mjs";
 import { runTradingChanAnalysisPipeline } from "./trading-analysis/chan-pipeline.mjs";
 import {
   buildChanRequestRoutingPrompt,
@@ -177,6 +187,7 @@ import {
 import { runTradingOrderFlowAnalysisPipeline } from "./trading-analysis/order-flow-pipeline.mjs";
 import {
   buildOrderFlowRequestRoutingPrompt,
+  deterministicOrderFlowChartRequest,
   normalizeOrderFlowRequestRoutingModelResponse,
 } from "./trading-analysis/order-flow-request-router.mjs";
 import { runTradingWaveAnalysisPipeline } from "./trading-analysis/wave-pipeline.mjs";
@@ -12222,6 +12233,30 @@ const activeTradingAnalysisControllers = new Map();
 const activeTradingRoutingControllers = new Map();
 let tradingAnalysisModelRegistry = null;
 
+function normalizeTradingAnalysisJobId(params = {}) {
+  return String(params?.analysisJobId || "").trim().slice(0, 200);
+}
+
+function tradingAnalysisControllerKey(ownerId, params = {}) {
+  return `${ownerId}\u0000${normalizeTradingAnalysisJobId(params) || "legacy"}`;
+}
+
+function beginTradingAnalysisRequest(event, params, replacementMessage) {
+  const controllerKey = tradingAnalysisControllerKey(event.sender.id, params);
+  activeTradingAnalysisControllers.get(controllerKey)?.abort(
+    tradingAnalysisAbortError(replacementMessage),
+  );
+  const controller = new AbortController();
+  activeTradingAnalysisControllers.set(controllerKey, controller);
+  return { controller, controllerKey };
+}
+
+function finishTradingAnalysisRequest(controllerKey, controller) {
+  if (activeTradingAnalysisControllers.get(controllerKey) === controller) {
+    activeTradingAnalysisControllers.delete(controllerKey);
+  }
+}
+
 function tradingAnalysisAbortError(message = "Trading analysis was cancelled") {
   const error = new Error(message);
   error.name = "AbortError";
@@ -12524,6 +12559,23 @@ ipcMain.handle("tradingAnalysis:classifyOrderFlowRequest", async (event, params 
   const requestId = `order-flow-route-${crypto.randomUUID()}`;
   const text = String(params?.text || "").slice(0, 12_000);
   try {
+    const deterministicRequest = deterministicOrderFlowChartRequest(text, {
+      hasImageAttachment: params?.hasImageAttachment === true,
+    });
+    if (deterministicRequest) {
+      return {
+        ok: true,
+        request: deterministicRequest,
+        classification: {
+          schemaVersion: 1,
+          mode: "chart-analysis",
+          intent: "chart-drawing",
+          confidence: 1,
+          source: "deterministic-short-action",
+        },
+        model: null,
+      };
+    }
     const model = await getTradingAnalysisModelRegistry().analyze(
       DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
       {
@@ -12698,12 +12750,11 @@ ipcMain.handle("tradingAnalysis:classifyWyckoffRequest", async (event, params = 
 
 ipcMain.handle("tradingAnalysis:runChanTest", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingAnalysisControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer Chan analysis replaced this request"),
+  const { controller, controllerKey } = beginTradingAnalysisRequest(
+    event,
+    params,
+    "A newer Chan analysis replaced this request",
   );
-  const controller = new AbortController();
-  activeTradingAnalysisControllers.set(ownerId, controller);
   try {
     return await runTradingChanAnalysisPipeline(params, {
       modelRegistry: getTradingAnalysisModelRegistry(),
@@ -12725,20 +12776,17 @@ ipcMain.handle("tradingAnalysis:runChanTest", async (event, params = {}) => {
       },
     };
   } finally {
-    if (activeTradingAnalysisControllers.get(ownerId) === controller) {
-      activeTradingAnalysisControllers.delete(ownerId);
-    }
+    finishTradingAnalysisRequest(controllerKey, controller);
   }
 });
 
 ipcMain.handle("tradingAnalysis:runOrderFlow", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingAnalysisControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer order-flow analysis replaced this request"),
+  const { controller, controllerKey } = beginTradingAnalysisRequest(
+    event,
+    params,
+    "A newer order-flow analysis replaced this request",
   );
-  const controller = new AbortController();
-  activeTradingAnalysisControllers.set(ownerId, controller);
   try {
     return await runTradingOrderFlowAnalysisPipeline(params, {
       modelRegistry: getTradingAnalysisModelRegistry(),
@@ -12760,20 +12808,17 @@ ipcMain.handle("tradingAnalysis:runOrderFlow", async (event, params = {}) => {
       },
     };
   } finally {
-    if (activeTradingAnalysisControllers.get(ownerId) === controller) {
-      activeTradingAnalysisControllers.delete(ownerId);
-    }
+    finishTradingAnalysisRequest(controllerKey, controller);
   }
 });
 
 ipcMain.handle("tradingAnalysis:runWave", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingAnalysisControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer wave analysis replaced this request"),
+  const { controller, controllerKey } = beginTradingAnalysisRequest(
+    event,
+    params,
+    "A newer wave analysis replaced this request",
   );
-  const controller = new AbortController();
-  activeTradingAnalysisControllers.set(ownerId, controller);
   try {
     return await runTradingWaveAnalysisPipeline(params, {
       modelRegistry: getTradingAnalysisModelRegistry(),
@@ -12795,20 +12840,17 @@ ipcMain.handle("tradingAnalysis:runWave", async (event, params = {}) => {
       },
     };
   } finally {
-    if (activeTradingAnalysisControllers.get(ownerId) === controller) {
-      activeTradingAnalysisControllers.delete(ownerId);
-    }
+    finishTradingAnalysisRequest(controllerKey, controller);
   }
 });
 
 ipcMain.handle("tradingAnalysis:runWyckoff", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingAnalysisControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer Wyckoff analysis replaced this request"),
+  const { controller, controllerKey } = beginTradingAnalysisRequest(
+    event,
+    params,
+    "A newer Wyckoff analysis replaced this request",
   );
-  const controller = new AbortController();
-  activeTradingAnalysisControllers.set(ownerId, controller);
   try {
     return await runTradingWyckoffAnalysisPipeline(params, {
       modelRegistry: getTradingAnalysisModelRegistry(),
@@ -12830,20 +12872,17 @@ ipcMain.handle("tradingAnalysis:runWyckoff", async (event, params = {}) => {
       },
     };
   } finally {
-    if (activeTradingAnalysisControllers.get(ownerId) === controller) {
-      activeTradingAnalysisControllers.delete(ownerId);
-    }
+    finishTradingAnalysisRequest(controllerKey, controller);
   }
 });
 
 ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingAnalysisControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer general market analysis replaced this request"),
+  const { controller, controllerKey } = beginTradingAnalysisRequest(
+    event,
+    params,
+    "A newer general market analysis replaced this request",
   );
-  const controller = new AbortController();
-  activeTradingAnalysisControllers.set(ownerId, controller);
   try {
     return await runTradingPriceActionAnalysisPipeline(params, {
       modelRegistry: getTradingAnalysisModelRegistry(),
@@ -12865,23 +12904,28 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
       },
     };
   } finally {
-    if (activeTradingAnalysisControllers.get(ownerId) === controller) {
-      activeTradingAnalysisControllers.delete(ownerId);
-    }
+    finishTradingAnalysisRequest(controllerKey, controller);
   }
 });
 
-ipcMain.handle("tradingAnalysis:cancel", async (event) => {
+ipcMain.handle("tradingAnalysis:cancel", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   const ownerId = event.sender.id;
-  const controllers = [
-    activeTradingRoutingControllers.get(ownerId),
-    activeTradingAnalysisControllers.get(ownerId),
-  ].filter(Boolean);
+  const analysisJobId = normalizeTradingAnalysisJobId(params);
+  const ownerPrefix = `${ownerId}\u0000`;
+  const matchingAnalysisEntries = [...activeTradingAnalysisControllers.entries()].filter(([key]) => {
+    if (!key.startsWith(ownerPrefix)) return false;
+    if (!analysisJobId) return true;
+    const candidateJobId = key.slice(ownerPrefix.length);
+    return candidateJobId === analysisJobId || candidateJobId.startsWith(`${analysisJobId}:pane:`);
+  });
+  const routingController = analysisJobId ? null : activeTradingRoutingControllers.get(ownerId);
+  const controllers = [routingController, ...matchingAnalysisEntries.map(([, controller]) => controller)]
+    .filter(Boolean);
   if (!controllers.length) return { cancelled: false };
   controllers.forEach((controller) => controller.abort(tradingAnalysisAbortError()));
-  activeTradingRoutingControllers.delete(ownerId);
-  activeTradingAnalysisControllers.delete(ownerId);
+  if (!analysisJobId) activeTradingRoutingControllers.delete(ownerId);
+  matchingAnalysisEntries.forEach(([key]) => activeTradingAnalysisControllers.delete(key));
   return { cancelled: true };
 });
 
@@ -13087,26 +13131,6 @@ ipcMain.handle("youle:archiveContactRequest", async (_event, params = {}) => {
 
 ipcMain.handle("youle:archiveHandledContactRequests", async (_event, params = {}) => {
   return getYouleApiClient().archiveHandledContactRequests(params);
-});
-
-ipcMain.handle("youle:fetchRechargeQrcode", async (_event, params = {}) => {
-  return getYouleApiClient().fetchRechargeQrcode(params);
-});
-
-ipcMain.handle("youle:createRechargeOrder", async (_event, params = {}) => {
-  return getYouleApiClient().createRechargeOrder(params);
-});
-
-ipcMain.handle("youle:getRechargeOrder", async (_event, params = {}) => {
-  return getYouleApiClient().getRechargeOrder(params);
-});
-
-ipcMain.handle("youle:createTokenProductOrder", async (_event, params = {}) => {
-  return getYouleApiClient().createTokenProductOrder(params);
-});
-
-ipcMain.handle("youle:getTokenProductOrder", async (_event, params = {}) => {
-  return getYouleApiClient().getTokenProductOrder(params);
 });
 
 ipcMain.handle("youle:fetchSupportQrcode", async () => {
@@ -14320,12 +14344,24 @@ ipcMain.handle("codex:listThreads", async (_event, params = {}) => {
         !discardedContinuationThreadIds.has(threadId);
     },
   });
-  const threads = Array.isArray(result?.data) ? result.data : [];
+  let mergedResult = result;
+  try {
+    mergedResult = mergeIndexedTradingTranscriptThreads(
+      result,
+      indexedTradingTranscriptThreads(workspaceCodexHome(cwd), cwd),
+    );
+  } catch (error) {
+    console.warn("[trading-transcript] indexed thread discovery failed", {
+      cwdHash: diagnosticsHash(cwd),
+      error: safeLogToken(error?.message || error),
+    });
+  }
+  const threads = Array.isArray(mergedResult?.data) ? mergedResult.data : [];
   for (const thread of threads) {
     const threadId = thread?.id || thread?.threadId || thread?.thread_id;
     rememberThreadClient(threadId, serverClient);
   }
-  return result;
+  return mergedResult;
 });
 
 ipcMain.handle("codex:modelList", async () => {
@@ -14383,6 +14419,110 @@ ipcMain.handle("codex:startThread", async (_event, params = {}) => {
   await injectLatestSkillsInstructions(currentThreadId, developerInstructions);
   await snapshotThreadArtifacts(currentThreadId, cwd);
   return result;
+});
+
+ipcMain.handle("codex:persistTradingTranscript", async (_event, params = {}) => {
+  const threadId = String(params.threadId || "").trim();
+  if (!threadId) throw new Error("threadId is required");
+  const items = normalizeTradingTranscriptItems(params.items);
+  const title = String(params.title || "")
+    .replace(/[\u0000-\u001f]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 200);
+  return runSerializedThreadSettingsOperation(threadId, async () => {
+    const fallbackCwd = params.cwd || currentSkillsCwd || desktopWorkspace();
+    const serverClient = getClientForThread(threadId, fallbackCwd);
+    const cwd = serverClient.__youleWorkspaceCwd || fallbackCwd;
+    ensureThreadGroupWorkspaceDirectory(cwd);
+    const readThread = () => requestAppServer(
+      serverClient,
+      "thread/read",
+      { threadId, includeTurns: true },
+      30_000,
+    );
+
+    let threadResult = null;
+    try {
+      threadResult = await readThread();
+    } catch (error) {
+      if (!isMissingRolloutErrorMessage(error?.message)) throw error;
+    }
+    const existingItems = threadResult
+      ? await tradingTranscriptItemsFromThreadResult(threadResult)
+      : [];
+    const existingIds = new Set(existingItems.map((item) => item.id));
+    const missingItems = items.filter((item) => !existingIds.has(item.id));
+
+    if (missingItems.length) {
+      let injectionError = null;
+      try {
+        await requestAppServer(serverClient, "thread/inject_items", {
+          threadId,
+          items: tradingTranscriptInjectionItems(missingItems),
+        }, 30_000);
+      } catch (error) {
+        injectionError = error;
+      }
+      try {
+        threadResult = await readThread();
+      } catch (readError) {
+        if (injectionError) throw injectionError;
+        throw readError;
+      }
+      const verifiedItems = await tradingTranscriptItemsFromThreadResult(threadResult);
+      const verifiedIds = new Set(verifiedItems.map((item) => item.id));
+      const missingVerifiedIds = missingItems
+        .map((item) => item.id)
+        .filter((itemId) => !verifiedIds.has(itemId));
+      if (missingVerifiedIds.length) {
+        if (injectionError) throw injectionError;
+        throw new Error("trading transcript persistence could not be verified");
+      }
+    }
+
+    let titleUpdated = false;
+    let titleError = null;
+    if (title && items.some((item) => item.role === "user")) {
+      try {
+        await requestAppServer(serverClient, "thread/name/set", { threadId, name: title }, 30_000);
+        titleUpdated = true;
+      } catch (error) {
+        titleError = error?.message || String(error);
+        console.warn("[trading-transcript] thread title update failed", {
+          threadHash: diagnosticsHash(threadId),
+          error: safeLogToken(titleError),
+        });
+      }
+    }
+    if (!threadResult) threadResult = await readThread();
+    const updatedAt = items.reduce((latest, item) => (
+      Date.parse(item.createdAt) > Date.parse(latest) ? item.createdAt : latest
+    ), items[0].createdAt);
+    const indexedRecord = updateTradingTranscriptIndex(workspaceCodexHome(cwd), {
+      threadId,
+      cwd,
+      rolloutPath: threadResult?.thread?.path,
+      title,
+      preview: items.at(-1)?.text || "",
+      createdAt: items[0].createdAt,
+      updatedAt,
+    });
+    rememberThreadClient(threadResult?.thread?.id || threadId, serverClient);
+    const hydrated = await withTradingTranscriptHistory(threadResult, {
+      codexHome: workspaceCodexHome(cwd),
+    });
+    return {
+      ok: true,
+      thread: hydrated?.thread
+        ? { ...hydrated.thread, name: indexedRecord.title }
+        : hydrated?.thread,
+      persistedItemIds: items.map((item) => item.id),
+      injectedItemIds: missingItems.map((item) => item.id),
+      titleUpdated,
+      titleError,
+    };
+  });
 });
 
 ipcMain.handle("codex:stageContinuationPrompt", async (_event, params = {}) => {
@@ -15072,9 +15212,20 @@ ipcMain.handle("codex:prepareThreadReferences", async (_event, params = {}) => {
     : inspectThreadReferencesForSend(params);
 });
 
-async function compactActiveThreadReadResultWithContextUsage(result) {
-  const compacted = compactActiveThreadReadResult(result);
-  const contextUsage = await readLatestThreadContextUsage(result?.thread);
+async function compactActiveThreadReadResultWithContextUsage(result, cwd = "") {
+  let hydrated = result;
+  try {
+    hydrated = await withTradingTranscriptHistory(result, {
+      codexHome: workspaceCodexHome(cwd || currentSkillsCwd || desktopWorkspace()),
+    });
+  } catch (error) {
+    console.warn("[trading-transcript] history hydration failed", {
+      threadHash: diagnosticsHash(result?.thread?.id || ""),
+      error: safeLogToken(error?.message || error),
+    });
+  }
+  const compacted = compactActiveThreadReadResult(hydrated);
+  const contextUsage = await readLatestThreadContextUsage(hydrated?.thread);
   return contextUsage ? { ...compacted, contextUsage } : compacted;
 }
 
@@ -15093,10 +15244,21 @@ ipcMain.handle("codex:readThreadForBackgroundHydration", async (_event, params =
   );
   rememberThreadClient(result?.thread?.id || threadId, serverClient);
   if (params.displayCache === true) {
-    return compactActiveThreadReadResultWithContextUsage(result);
+    return compactActiveThreadReadResultWithContextUsage(result, cwd);
   }
-  const compacted = compactBackgroundThreadReadResult(result);
-  const contextUsage = await readLatestThreadContextUsage(result?.thread);
+  let hydrated = result;
+  try {
+    hydrated = await withTradingTranscriptHistory(result, {
+      codexHome: workspaceCodexHome(cwd),
+    });
+  } catch (error) {
+    console.warn("[trading-transcript] background history hydration failed", {
+      threadHash: diagnosticsHash(threadId),
+      error: safeLogToken(error?.message || error),
+    });
+  }
+  const compacted = compactBackgroundThreadReadResult(hydrated);
+  const contextUsage = await readLatestThreadContextUsage(hydrated?.thread);
   return contextUsage ? { ...compacted, contextUsage } : compacted;
 });
 
@@ -15134,12 +15296,12 @@ ipcMain.handle("codex:resumeThread", async (_event, params = {}) => {
       }));
       rememberThreadClient(result?.thread?.id || threadId, serverClient);
       if (params.activate === false) {
-        return compactActiveThreadReadResultWithContextUsage(result);
+        return compactActiveThreadReadResultWithContextUsage(result, cwd);
       }
       currentThreadId = result.thread.id;
       await injectLatestSkillsInstructions(currentThreadId, developerInstructions);
       await snapshotThreadArtifacts(currentThreadId, cwd);
-      return compactActiveThreadReadResultWithContextUsage(result);
+      return compactActiveThreadReadResultWithContextUsage(result, cwd);
     } catch (error) {
       const capturedStart = suppressionToken == null
         ? null
@@ -15148,7 +15310,10 @@ ipcMain.handle("codex:resumeThread", async (_event, params = {}) => {
       if (!fallbackThread) throw error;
       rememberThreadClient(fallbackThread.id || threadId, serverClient);
       if (params.activate !== false) currentThreadId = fallbackThread.id || threadId;
-      return compactActiveThreadReadResultWithContextUsage(withThreadRuntimeSettings({ thread: fallbackThread }));
+      return compactActiveThreadReadResultWithContextUsage(
+        withThreadRuntimeSettings({ thread: fallbackThread }),
+        cwd,
+      );
     } finally {
       if (suppressionToken != null) finishRendererThreadResumeNotificationSuppression(threadId, suppressionToken);
     }
@@ -15316,6 +15481,18 @@ ipcMain.handle("codex:archiveThread", async (_event, params = {}) => {
           }
         }
         throw error;
+      }
+      try {
+        const archiveCwd = serverClient.__youleWorkspaceCwd
+          || params.cwd
+          || currentSkillsCwd
+          || desktopWorkspace();
+        removeTradingTranscriptIndexThread(workspaceCodexHome(archiveCwd), threadId);
+      } catch (error) {
+        console.warn("[trading-transcript] archived thread index cleanup failed", {
+          threadHash: diagnosticsHash(threadId),
+          error: safeLogToken(error?.message || error),
+        });
       }
       if (continuationRecord) {
         persistContinuationTransaction(continuationRecord.sourceThreadId, {

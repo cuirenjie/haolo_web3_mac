@@ -55,9 +55,6 @@ const DEFAULT_MEMBER_LEVEL_PATH = "/api/level/me";
 const DEFAULT_TASK_COMPLETED_PATH = "/api/internal/activity/task-completed";
 const DEFAULT_CONSUMPTION_PATH = "/api/consumption/me";
 const CONSUMPTION_EXPORT_TIMEOUT_MS = 10 * 60_000;
-const DEFAULT_RECHARGE_QRCODE_PATH = "/api/finance/recharge/qrcode";
-const DEFAULT_RECHARGE_ORDERS_PATH = "/api/finance/recharge/orders";
-const DEFAULT_TOKEN_PRODUCT_ORDERS_PATH = "/api/finance/token-products/orders";
 const DEFAULT_CONVERSATIONS_PATH = "/api/conversations";
 const DEFAULT_PROMPT_FAVORITES_PATH = "/api/prompt-favorites";
 const DEFAULT_CHANNELS_PATH = "/api/channels";
@@ -97,14 +94,14 @@ const DEFAULT_WECHAT_ILINK_BASE_URL = "https://ilinkai.weixin.qq.com";
 const DEFAULT_WECHAT_ILINK_BOT_TYPE = "3";
 const DEFAULT_WECHAT_OPENCLAW_VERSION = "2.4.6";
 const DIRECT_WECHAT_SESSION_PREFIX = "direct-wechat:";
-const BUNDLED_RECHARGE_QRCODE_CONTENT_TYPE = "image/jpeg";
-const BUNDLED_RECHARGE_QRCODE_PATH = fileURLToPath(new URL("./assets/recharge-qrcode.jpg", import.meta.url));
+const BUNDLED_SUPPORT_QRCODE_CONTENT_TYPE = "image/jpeg";
+const BUNDLED_SUPPORT_QRCODE_PATH = fileURLToPath(new URL("./assets/support-qrcode.jpg", import.meta.url));
 const YOULE_API_DEBUG = /^(1|true|yes)$/i.test(process.env.YOULE_API_DEBUG || "");
 const LOW_BALANCE_THRESHOLD_YUAN = 5;
 const EXTERNAL_CHANNEL_REPLY_ATTACHMENT_LIMIT = 20;
 const EXTERNAL_CHANNEL_REPLY_ATTACHMENT_UPLOAD_PURPOSE = "external_channel_reply";
 const EXTERNAL_CHANNEL_REPLY_ATTACHMENT_LINK_FALLBACK_MIN_BYTES = 20 * 1024 * 1024;
-let bundledRechargeQrcodeDataUrlPromise = null;
+let bundledSupportQrcodeDataUrlPromise = null;
 const YOULE_AUTH_RETRY = Symbol("youleAuthRetry");
 const EXTERNAL_CHANNEL_FALLBACK_ITEMS = [
   { id: "wechat", name: "微信", description: "扫码授权后开始通信", status: "disconnected", connected: false },
@@ -167,9 +164,6 @@ export class YouleApiClient {
     this.memberLevelPath = process.env.YOULE_API_MEMBER_LEVEL_PATH || DEFAULT_MEMBER_LEVEL_PATH;
     this.taskCompletedPath = process.env.YOULE_API_TASK_COMPLETED_PATH || DEFAULT_TASK_COMPLETED_PATH;
     this.consumptionPath = process.env.YOULE_API_CONSUMPTION_PATH || DEFAULT_CONSUMPTION_PATH;
-    this.rechargeQrcodePath = process.env.YOULE_API_RECHARGE_QRCODE_PATH || DEFAULT_RECHARGE_QRCODE_PATH;
-    this.rechargeOrdersPath = process.env.YOULE_API_RECHARGE_ORDERS_PATH || DEFAULT_RECHARGE_ORDERS_PATH;
-    this.tokenProductOrdersPath = process.env.YOULE_API_TOKEN_PRODUCT_ORDERS_PATH || DEFAULT_TOKEN_PRODUCT_ORDERS_PATH;
     this.conversationsPath = process.env.YOULE_API_CONVERSATIONS_PATH || DEFAULT_CONVERSATIONS_PATH;
     this.conversationsMethod = (process.env.YOULE_API_CONVERSATIONS_METHOD || "GET").toUpperCase();
     this.promptFavoritesPath = process.env.YOULE_API_PROMPT_FAVORITES_PATH || DEFAULT_PROMPT_FAVORITES_PATH;
@@ -1712,36 +1706,6 @@ export class YouleApiClient {
     });
   }
 
-  async createRechargeOrder(params = {}) {
-    await this.load();
-    this.requireAuth();
-    const amountFen = normalizeRechargeAmountFen(params);
-    const note = firstProfileString(params.note, params.user_note, params.userNote);
-    const paymentMethod = firstProfileString(params.payment_method, params.paymentMethod);
-    const payload = await requestJson(joinUrl(this.baseUrl, this.rechargeOrdersPath), {
-      method: "POST",
-      headers: this.clientHeaders({ auth: true, json: true }),
-      body: JSON.stringify(compactObject({
-        amount_fen: amountFen,
-        note,
-        payment_method: paymentMethod,
-      })),
-    });
-    return normalizeRechargeOrderPayload(payload, { includeQrcodeImage: true });
-  }
-
-  async getRechargeOrder(params = {}) {
-    await this.load();
-    this.requireAuth();
-    const orderNo = firstProfileString(params.order_no, params.orderNo, params.id);
-    if (!orderNo) throw new Error("充值订单号为空");
-    const payload = await requestJson(joinUrl(this.baseUrl, `${this.rechargeOrdersPath.replace(/\/+$/, "")}/${encodeURIComponent(orderNo)}`), {
-      method: "GET",
-      headers: this.clientHeaders({ auth: true }),
-    });
-    return normalizeRechargeOrderPayload(payload);
-  }
-
   async reportConsumptionAppEntry() {
     await this.load();
     this.requireAuth();
@@ -1882,46 +1846,8 @@ export class YouleApiClient {
     };
   }
 
-  async createTokenProductOrder(params = {}) {
-    await this.load();
-    this.requireAuth();
-    const productId = firstProfileString(params.product_id, params.productId, params.id);
-    const paymentMethod = firstProfileString(params.payment_method, params.paymentMethod);
-    if (!productId) throw new Error("订阅商品为空");
-    const payload = await requestJson(joinUrl(this.baseUrl, this.tokenProductOrdersPath), {
-      method: "POST",
-      headers: this.clientHeaders({ auth: true, json: true }),
-      body: JSON.stringify(compactObject({
-        product_id: productId,
-        payment_method: paymentMethod,
-      })),
-    });
-    return normalizeRechargeOrderPayload(payload, { includeQrcodeImage: true });
-  }
-
-  async getTokenProductOrder(params = {}) {
-    await this.load();
-    this.requireAuth();
-    const orderNo = firstProfileString(params.order_no, params.orderNo, params.id);
-    if (!orderNo) throw new Error("订阅订单号为空");
-    const payload = await requestJson(joinUrl(this.baseUrl, `${this.tokenProductOrdersPath.replace(/\/+$/, "")}/${encodeURIComponent(orderNo)}`), {
-      method: "GET",
-      headers: this.clientHeaders({ auth: true }),
-    });
-    return normalizeRechargeOrderPayload(payload);
-  }
-
-  async fetchRechargeQrcode(params = {}) {
-    if (params && Object.keys(params).length > 0) {
-      return this.createRechargeOrder(params);
-    }
-    await this.load();
-    this.requireAuth();
-    return bundledRechargeQrcodePayload();
-  }
-
   async fetchSupportQrcode() {
-    return bundledRechargeQrcodePayload();
+    return bundledSupportQrcodePayload();
   }
 
   async listExternalChannels() {
@@ -7531,118 +7457,26 @@ function extractObject(payload) {
   return candidates.find((value) => value && typeof value === "object" && !Array.isArray(value)) || {};
 }
 
-function extractRechargeQrcode(payload) {
-  const source = extractObject(payload);
-  const qrcodeUrl = firstProfileString(source.qrcode_url, source.qrcodeUrl, source.url, payload?.qrcode_url, payload?.data?.qrcode_url, payload?.result?.qrcode_url);
-  if (!qrcodeUrl) {
-    throw new Error("充值二维码地址为空");
-  }
-  return {
-    qrcode_url: qrcodeUrl,
-    qrcodeUrl,
-    object_key: firstProfileString(source.object_key, source.objectKey, payload?.object_key, payload?.data?.object_key, payload?.result?.object_key) || null,
-    content_type: firstProfileString(source.content_type, source.contentType, payload?.content_type, payload?.data?.content_type, payload?.result?.content_type) || null,
-  };
-}
-
-function normalizeRechargeAmountFen(params = {}) {
-  const direct = firstProfileNumber(params.amount_fen, params.amountFen);
-  if (direct != null) {
-    const amountFen = Math.round(direct);
-    if (amountFen > 0) return amountFen;
-  }
-  const amountYuan = firstProfileNumber(params.amount_yuan, params.amountYuan, params.amount);
-  if (amountYuan != null) {
-    const amountFen = Math.round(amountYuan * 100);
-    if (amountFen > 0) return amountFen;
-  }
-  throw new Error("充值金额无效");
-}
-
-async function normalizeRechargeOrderPayload(payload, options = {}) {
-  const source = extractObject(payload);
-  const codeUrl = firstProfileString(
-    source.code_url,
-    source.codeUrl,
-    source.wechatpay_code_url,
-    source.wechatpayCodeUrl,
-    source.qrcode_url,
-    source.qrcodeUrl,
-    payload?.code_url,
-    payload?.data?.code_url,
-    payload?.result?.code_url,
-  );
-  const imageUrl = firstProfileString(
-    source.qrcode_data_url,
-    source.qrcodeDataUrl,
-    source.qrcode_image_url,
-    source.qrcodeImageUrl,
-    source.image_url,
-    source.imageUrl,
-    payload?.qrcode_data_url,
-    payload?.data?.qrcode_data_url,
-    payload?.result?.qrcode_data_url,
-  );
-  const qrcodeUrl = imageUrl || (options.includeQrcodeImage && codeUrl
-    ? await QRCode.toDataURL(codeUrl, {
-        margin: 1,
-        width: 280,
-        color: { dark: "#111827", light: "#ffffff" },
-      })
-    : codeUrl || null);
-  const alipayPaymentUrl = firstProfileString(
-    source.alipay_payment_url,
-    source.alipayPaymentUrl,
-    source.payment_url,
-    source.paymentUrl,
-    payload?.alipay_payment_url,
-    payload?.data?.alipay_payment_url,
-    payload?.result?.alipay_payment_url,
-  );
-  return {
-    ...source,
-    order_no: firstProfileString(source.order_no, source.orderNo, payload?.order_no, payload?.data?.order_no, payload?.result?.order_no) || null,
-    orderNo: firstProfileString(source.orderNo, source.order_no, payload?.orderNo, payload?.data?.orderNo, payload?.result?.orderNo) || null,
-    amount_fen: firstProfileNumber(source.amount_fen, source.amountFen, payload?.amount_fen, payload?.data?.amount_fen, payload?.result?.amount_fen) ?? null,
-    amountFen: firstProfileNumber(source.amountFen, source.amount_fen, payload?.amountFen, payload?.data?.amountFen, payload?.result?.amountFen) ?? null,
-    status: firstProfileString(source.status, payload?.status, payload?.data?.status, payload?.result?.status) || null,
-    code_url: codeUrl,
-    codeUrl,
-    qrcode_url: qrcodeUrl,
-    qrcodeUrl,
-    payment_method: firstProfileString(source.payment_method, source.paymentMethod) || null,
-    paymentMethod: firstProfileString(source.paymentMethod, source.payment_method) || null,
-    alipay_payment_url: alipayPaymentUrl || null,
-    alipayPaymentUrl: alipayPaymentUrl || null,
-    payment_url: alipayPaymentUrl || null,
-    paymentUrl: alipayPaymentUrl || null,
-    raw_code_url: codeUrl,
-    rawCodeUrl: codeUrl,
-    expires_at: firstProfileString(source.expires_at, source.expiresAt, payload?.expires_at, payload?.data?.expires_at, payload?.result?.expires_at) || null,
-    expiresAt: firstProfileString(source.expiresAt, source.expires_at, payload?.expiresAt, payload?.data?.expiresAt, payload?.result?.expiresAt) || null,
-  };
-}
-
-async function bundledRechargeQrcodeDataUrl() {
-  if (!bundledRechargeQrcodeDataUrlPromise) {
-    bundledRechargeQrcodeDataUrlPromise = fs
-      .readFile(BUNDLED_RECHARGE_QRCODE_PATH)
-      .then((buffer) => `data:${BUNDLED_RECHARGE_QRCODE_CONTENT_TYPE};base64,${buffer.toString("base64")}`)
+async function bundledSupportQrcodeDataUrl() {
+  if (!bundledSupportQrcodeDataUrlPromise) {
+    bundledSupportQrcodeDataUrlPromise = fs
+      .readFile(BUNDLED_SUPPORT_QRCODE_PATH)
+      .then((buffer) => `data:${BUNDLED_SUPPORT_QRCODE_CONTENT_TYPE};base64,${buffer.toString("base64")}`)
       .catch((error) => {
-        bundledRechargeQrcodeDataUrlPromise = null;
+        bundledSupportQrcodeDataUrlPromise = null;
         throw error;
       });
   }
-  return bundledRechargeQrcodeDataUrlPromise;
+  return bundledSupportQrcodeDataUrlPromise;
 }
 
-async function bundledRechargeQrcodePayload() {
-  const qrcodeUrl = await bundledRechargeQrcodeDataUrl();
+async function bundledSupportQrcodePayload() {
+  const qrcodeUrl = await bundledSupportQrcodeDataUrl();
   return {
     qrcode_url: qrcodeUrl,
     qrcodeUrl,
-    object_key: "bundled-recharge-qrcode",
-    content_type: BUNDLED_RECHARGE_QRCODE_CONTENT_TYPE,
+    object_key: "bundled-support-qrcode",
+    content_type: BUNDLED_SUPPORT_QRCODE_CONTENT_TYPE,
   };
 }
 

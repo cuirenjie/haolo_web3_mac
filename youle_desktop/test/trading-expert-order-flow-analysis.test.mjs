@@ -14,6 +14,7 @@ import {
 } from "../src/main/trading-analysis/order-flow-pipeline.mjs";
 import {
   buildOrderFlowRequestRoutingPrompt,
+  deterministicOrderFlowChartRequest,
   normalizeOrderFlowRequestRoutingModelResponse,
 } from "../src/main/trading-analysis/order-flow-request-router.mjs";
 import {
@@ -382,6 +383,23 @@ test("Drawing Gateway isolates order-flow styles from Chan styles", () => {
 });
 
 test("order-flow request routing preserves the current canvas unless fields are explicit", () => {
+  assert.deepEqual(deterministicOrderFlowChartRequest("@策略:订单流 分析下"), {
+    mode: "chart-analysis",
+    instruction: "分析下",
+    symbol: null,
+    interval: null,
+    lookbackMs: null,
+    lookbackLabel: null,
+    drawingRequested: true,
+  });
+  assert.equal(
+    deterministicOrderFlowChartRequest("@策略:订单流 什么是买方吸收？"),
+    null,
+  );
+  assert.equal(
+    deterministicOrderFlowChartRequest("@策略:订单流 分析下", { hasImageAttachment: true }),
+    null,
+  );
   const bare = normalizeOrderFlowRequestRoutingModelResponse(JSON.stringify({
     schemaVersion: 1,
     mode: "chart-analysis",
@@ -441,6 +459,7 @@ test("Trading Expert wires @策略:订单流 through IPC, real Binance inputs, p
   ]);
 
   assert.match(mainSource, /tradingAnalysis:classifyOrderFlowRequest/);
+  assert.match(mainSource, /deterministicOrderFlowChartRequest\(text/);
   assert.match(mainSource, /tradingAnalysis:runOrderFlow/);
   assert.match(preloadSource, /classifyTradingOrderFlowRequest/);
   assert.match(preloadSource, /runTradingOrderFlowAnalysis/);
