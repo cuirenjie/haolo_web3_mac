@@ -11,10 +11,18 @@ test("titlebar profile shows an online indicator and keeps the nickname styling 
   const renderStart = renderer.indexOf("function renderWindowControls()");
   const renderEnd = renderer.indexOf("\nfunction ", renderStart + 1);
   const renderBlock = renderer.slice(renderStart, renderEnd);
+  const displayNameStart = renderer.indexOf("function titlebarProfileDisplayName(");
+  const displayNameEnd = renderer.indexOf("\nfunction ", displayNameStart + 1);
+  const displayNameBlock = renderer.slice(displayNameStart, displayNameEnd);
 
   assert.match(renderBlock, /class="titlebar-profile-avatar"/);
   assert.match(renderBlock, /class="titlebar-profile-online-dot" aria-hidden="true"/);
   assert.match(renderBlock, /class="titlebar-profile-name"/);
+  assert.match(displayNameBlock, /Array\.from\(String\(name \|\| ""\)\)/);
+  assert.match(displayNameBlock, /characters\.length > 5 \? `\$\{characters\.slice\(0, 5\)\.join\(""\)\}\.\.\.`/);
+  assert.match(renderBlock, /const profileName = currentProfileName\(\)/);
+  assert.match(renderBlock, /title="\$\{escapeAttr\(profileName\)\}" aria-label="打开个人资料：\$\{escapeAttr\(profileName\)\}"/);
+  assert.match(renderBlock, /escapeHtml\(titlebarProfileDisplayName\(profileName\)\)/);
   assert.doesNotMatch(renderBlock, /renderMembershipBadge\("titlebar"\)/);
   assert.match(styles, /\.titlebar-profile\s*\{[^}]*font-weight:\s*400;/s);
   assert.match(

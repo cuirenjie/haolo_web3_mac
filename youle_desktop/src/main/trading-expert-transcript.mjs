@@ -31,6 +31,24 @@ function normalizedOptionalTimestamp(value, fieldName) {
   return new Date(timestamp).toISOString();
 }
 
+function normalizeTradingTranscriptActions(value, role) {
+  if (role !== "assistant" || !Array.isArray(value)) return [];
+  return value.slice(0, 4).flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const destination = firstString(candidate.destination);
+    const label = firstString(candidate.label).slice(0, 80);
+    const alertId = firstString(candidate.alert_id, candidate.alertId).slice(0, 160);
+    if (destination !== "trading-alerts" || !label || !alertId) return [];
+    return [{
+      id: firstString(candidate.id).slice(0, 120) || "open-trading-alerts",
+      kind: "navigate",
+      label,
+      destination,
+      alert_id: alertId,
+    }];
+  });
+}
+
 function normalizeTradingTranscriptItem(value) {
   if (!value || typeof value !== "object") {
     throw new Error("trading transcript item must be an object");
@@ -60,6 +78,7 @@ function normalizeTradingTranscriptItem(value) {
   if (startedAt && completedAt && Date.parse(completedAt) < Date.parse(startedAt)) {
     throw new Error("trading transcript completedAt cannot precede startedAt");
   }
+  const actions = normalizeTradingTranscriptActions(value.actions, role);
   return {
     version: 1,
     id,
@@ -69,6 +88,7 @@ function normalizeTradingTranscriptItem(value) {
     ...(phase ? { phase } : {}),
     ...(startedAt ? { startedAt } : {}),
     ...(completedAt ? { completedAt } : {}),
+    ...(actions.length ? { actions } : {}),
   };
 }
 
@@ -175,24 +195,59 @@ export async function readTradingTranscriptItemsFromRollout(rolloutPath) {
   return [...byId.values()];
 }
 
+async function findTradingTranscriptRolloutPath(codexHome, threadId) {
+  const root = path.join(path.resolve(codexHome), "sessions");
+  const expectedSuffix = `-${threadId}.jsonl`.toLowerCase();
+  const stack = [root];
+  let visitedDirectories = 0;
+  while (stack.length && visitedDirectories < 512) {
+    const directory = stack.pop();
+    visitedDirectories += 1;
+    let entries;
+    try {
+      entries = await fs.promises.readdir(directory, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(entryPath);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(expectedSuffix)) {
+        return entryPath;
+      }
+    }
+  }
+  return "";
+}
+
 export async function tradingTranscriptItemsFromThreadResult(result, options = {}) {
   const byId = new Map();
   collectTradingTranscriptItems(result?.thread || result, byId);
   const codexHome = firstString(options.codexHome, options.codex_home);
+  const scanUnindexed = options.scanUnindexed === true || options.scan_unindexed === true;
   const threadId = firstString(
     result?.thread?.id,
     result?.thread?.threadId,
     result?.thread?.thread_id,
   );
+  const indexRecord = codexHome && threadId
+    ? loadTradingTranscriptIndex(codexHome).threads[threadId]
+    : null;
   if (
     !byId.size
+    && !scanUnindexed
     && codexHome
     && threadId
-    && !loadTradingTranscriptIndex(codexHome).threads[threadId]
+    && !indexRecord
   ) {
     return [];
   }
-  const rolloutItems = await readTradingTranscriptItemsFromRollout(threadRolloutPath(result));
+  let rolloutPath = threadRolloutPath(result) || indexRecord?.rolloutPath || "";
+  if (!rolloutPath && scanUnindexed && codexHome && threadId) {
+    rolloutPath = await findTradingTranscriptRolloutPath(codexHome, threadId);
+  }
+  const rolloutItems = await readTradingTranscriptItemsFromRollout(rolloutPath);
   for (const item of rolloutItems) {
     if (!byId.has(item.id)) byId.set(item.id, item);
   }
@@ -223,6 +278,7 @@ function visibleThreadItem(item, transcriptItem) {
     ...(transcriptItem.phase ? { phase: transcriptItem.phase } : {}),
     ...(transcriptItem.startedAt ? { __youleTurnStartedAt: transcriptItem.startedAt } : {}),
     ...(transcriptItem.completedAt ? { __youleTurnCompletedAt: transcriptItem.completedAt } : {}),
+    ...(transcriptItem.actions?.length ? { actions: transcriptItem.actions } : {}),
     __haoloTradingTranscript: true,
   };
 }
@@ -318,7 +374,7 @@ export async function withTradingTranscriptHistory(result, options = {}) {
 }
 
 function emptyTradingTranscriptIndex() {
-  return { version: 1, threads: {} };
+  return { version: 1, threads: {}, aliases: {} };
 }
 
 function normalizedIndexRecord(value) {
@@ -374,7 +430,31 @@ export function loadTradingTranscriptIndex(codexHome) {
     const record = normalizedIndexRecord(value);
     if (record) threads[record.threadId] = record;
   }
-  return { version: 1, threads };
+  const aliases = {};
+  if (parsed.aliases && typeof parsed.aliases === "object" && !Array.isArray(parsed.aliases)) {
+    for (const [sourceValue, targetValue] of Object.entries(parsed.aliases)) {
+      const source = firstString(sourceValue);
+      const target = firstString(targetValue);
+      if (source && target && source !== target) aliases[source] = target;
+    }
+  }
+  return { version: 1, threads, aliases };
+}
+
+function resolveTradingTranscriptIndexAlias(index, threadId) {
+  let current = firstString(threadId);
+  if (!current) return "";
+  const visited = new Set();
+  while (index?.aliases?.[current] && !visited.has(current)) {
+    visited.add(current);
+    current = firstString(index.aliases[current]);
+    if (!current) return "";
+  }
+  return current;
+}
+
+export function resolveTradingTranscriptIndexThreadAlias(codexHome, threadId) {
+  return resolveTradingTranscriptIndexAlias(loadTradingTranscriptIndex(codexHome), threadId);
 }
 
 function writeTradingTranscriptIndex(codexHome, index) {
@@ -415,12 +495,52 @@ export function updateTradingTranscriptIndex(codexHome, value) {
   return record;
 }
 
+export function replaceTradingTranscriptIndexThread(codexHome, previousThreadId, value) {
+  const previousId = firstString(previousThreadId);
+  const incoming = normalizedIndexRecord(value);
+  if (!previousId || !incoming) throw new Error("trading transcript replacement record is invalid");
+  const index = loadTradingTranscriptIndex(codexHome);
+  const canonicalPreviousId = resolveTradingTranscriptIndexAlias(index, previousId) || previousId;
+  const previous = index.threads[canonicalPreviousId] || index.threads[previousId];
+  const existing = index.threads[incoming.threadId];
+  const record = {
+    ...incoming,
+    title: incoming.title || previous?.title || existing?.title || "æ–°ä»»åŠ¡",
+    preview: incoming.preview || previous?.preview || existing?.preview || "",
+    createdAt: previous?.createdAt || existing?.createdAt || incoming.createdAt,
+  };
+
+  if (canonicalPreviousId !== record.threadId) delete index.threads[canonicalPreviousId];
+  if (previousId !== record.threadId) delete index.threads[previousId];
+  index.threads[record.threadId] = record;
+
+  for (const [source, target] of Object.entries(index.aliases)) {
+    if (target === previousId || target === canonicalPreviousId) {
+      index.aliases[source] = record.threadId;
+    }
+  }
+  if (previousId !== record.threadId) index.aliases[previousId] = record.threadId;
+  if (canonicalPreviousId !== record.threadId) index.aliases[canonicalPreviousId] = record.threadId;
+  delete index.aliases[record.threadId];
+  writeTradingTranscriptIndex(codexHome, index);
+  return record;
+}
+
 export function removeTradingTranscriptIndexThread(codexHome, threadId) {
   const id = firstString(threadId);
   if (!id) return false;
   const index = loadTradingTranscriptIndex(codexHome);
-  if (!index.threads[id]) return false;
+  const canonicalId = resolveTradingTranscriptIndexAlias(index, id) || id;
+  const hadRecord = Boolean(index.threads[id] || index.threads[canonicalId]);
+  const aliasesToRemove = Object.keys(index.aliases).filter((source) => (
+    source === id
+    || source === canonicalId
+    || resolveTradingTranscriptIndexAlias(index, source) === canonicalId
+  ));
+  if (!hadRecord && !aliasesToRemove.length) return false;
   delete index.threads[id];
+  delete index.threads[canonicalId];
+  aliasesToRemove.forEach((source) => delete index.aliases[source]);
   writeTradingTranscriptIndex(codexHome, index);
   return true;
 }

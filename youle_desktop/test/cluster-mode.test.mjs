@@ -529,7 +529,7 @@ test("executed canvas exit stays available while the blank-canvas shortcut is fu
   );
 
   assert.doesNotMatch(source, /createBlankWorkflowCanvas|create-workflow-canvas|blankWorkflowCanvas|isBlankWorkflowCanvas/);
-  assert.match(source, /state\.activeView === "chat" \? renderLeftPanelToggle\(\) : ""/);
+  assert.match(source, /state\.activeView === "chat" \|\| state\.activeView === "autoTasks" \|\| state\.activeView === "alerts" \|\| state\.activeView === "skillsPlaza" \? renderLeftPanelToggle\(\) : ""/);
   assert.match(source, /function shouldRenderBlankThreadHero\(threadId: string\)[\s\S]*return isBlankNewThread\(threadId\);/);
   assert.match(toolbar, /<div class="cluster-workflow-toolbar">/);
   assert.match(toolbar, /class="cluster-workflow-toolbar-title" role="heading" aria-level="2">画布<\/span>/);

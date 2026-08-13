@@ -10,6 +10,7 @@ import {
   PriceScaleMode,
   createChart,
   createSeriesMarkers,
+  type UTCTimestamp,
 } from "lightweight-charts";
 import {
   TRADING_FALLING_BAR_COLOR,
@@ -24,6 +25,7 @@ import {
   persistTradingAiDrawingPatch,
   renderTradingDrawingLayer,
   renderTradingDrawingToolbar,
+  tradingDrawingLogicalIndexAtTime,
   tradingDrawingSessionStorageKey,
   type TradingDrawingSharedToolState,
 } from "./trading-expert-drawing.ts";
@@ -86,6 +88,7 @@ const TRADING_FAVORITES_STORAGE_KEY = "haolo.trading-market.favorites.v1";
 const TRADING_FAVORITE_MARKETS_STORAGE_KEY = "haolo.trading-market.favorite-records.v1";
 const TRADING_LAST_ANALYSIS_CONTEXT_STORAGE_KEY_PREFIX = "haolo.trading-market.last-analysis-context.v1.";
 const TRADING_LAST_DRAWING_WORKSPACE_STORAGE_KEY_PREFIX = "haolo.trading-market.last-drawing-workspace.v1.";
+const TRADING_ALERT_SIMULATION_STORAGE_KEY_PREFIX = "haolo.trading-market.alert-simulation.v1.";
 const TRADING_INDICATOR_SETTINGS_STORAGE_KEY = "haolo.trading-market.indicator-settings.v3";
 const LEGACY_TRADING_INDICATOR_SETTINGS_STORAGE_KEY = "haolo.trading-market.indicator-settings.v2";
 const OLDEST_TRADING_INDICATOR_SETTINGS_STORAGE_KEY = "haolo.trading-market.indicator-settings.v1";
@@ -98,10 +101,16 @@ export const TRADING_EXPERT_TREND_BAND_MENTION = "@自定义指标:趋势带";
 const MAX_TRADING_PERIODS = 10;
 const MAX_TRADING_FAVORITES = 500;
 export const MAX_TRADING_FAVORITE_TICKERS = 12;
-const FAVORITE_TICKER_FALLBACK_INTERVAL_MS = 4_000;
+const MARKET_LIVE_PAINT_INTERVAL_MS = 100;
+const MARKET_BACKGROUND_PAINT_INTERVAL_MS = 1_000;
+const MARKET_LIVE_FULL_REFRESH_INTERVAL_MS = 1_000;
+const MARKET_SOCKET_STALE_MS = 2_500;
+const MARKET_SOCKET_WATCHDOG_MS = 8_000;
+const MARKET_SOCKET_FALLBACK_INTERVAL_MS = 1_000;
+const FAVORITE_TICKER_FALLBACK_INTERVAL_MS = 1_000;
 const FAVORITE_TICKER_FALLBACK_TIMEOUT_MS = 8_000;
-const FAVORITE_TICKER_SOCKET_STALE_MS = 5_000;
-const FAVORITE_TICKER_SOCKET_WATCHDOG_MS = 12_000;
+const FAVORITE_TICKER_SOCKET_STALE_MS = 2_500;
+const FAVORITE_TICKER_SOCKET_WATCHDOG_MS = 8_000;
 const FINNHUB_SEARCH_DEBOUNCE_MS = 480;
 const GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE = "目前版本此交易对数据还未接入";
 
@@ -485,7 +494,7 @@ function defaultTradingIndicatorSettings(): TradingIndicatorSettings {
   return Object.fromEntries(TRADING_MARKET_INDICATOR_CATALOG.map((indicator) => [
     tradingIndicatorSettingKey(indicator.scope, indicator.id),
     {
-      enabled: false,
+      enabled: indicator.scope === "sub" && indicator.id === "volume",
       parameters: indicator.parameters.map((parameter) => parameter.defaultValue),
       series: Object.fromEntries(indicator.display.map((series) => [series.key, {
         visible: true,
@@ -632,6 +641,34 @@ export function tradingPeriodFromResolution(resolution: string): TradingPeriod |
   return amount % 60 === 0
     ? { amount: amount / 60, unit: "h" }
     : { amount, unit: "m" };
+}
+
+export function tradingAlertIntervalFromResolution(resolution: string) {
+  const period = tradingPeriodFromResolution(resolution);
+  return period ? `${period.amount}${period.unit}` : String(resolution || "").trim().toLowerCase();
+}
+
+export function tradingResolutionFromAlertInterval(interval: string) {
+  const match = /^(\d+)(s|m|h|d|w)$/i.exec(String(interval || "").trim());
+  if (!match) return String(interval || "").trim().toUpperCase();
+  return tradingViewResolution({ amount: Number(match[1]), unit: match[2].toLowerCase() as TradingPeriodUnit });
+}
+
+export function tradingCandleSeriesMatchesResolution(
+  candles: ReadonlyArray<{ time: number }>,
+  resolution: string,
+) {
+  const expectedStepSeconds = (tradingViewResolutionDurationMs(resolution) || 0) / 1_000;
+  if (!expectedStepSeconds || candles.length < 2) return false;
+  const orderedTimes = [...new Set(candles
+    .map((candle) => Number(candle.time))
+    .filter((time) => Number.isFinite(time) && time > 0))]
+    .sort((first, second) => first - second);
+  const recentTimes = orderedTimes.slice(-32);
+  const steps = recentTimes.slice(1).map((time, index) => time - recentTimes[index]);
+  if (!steps.length) return false;
+  const exactSteps = steps.filter((step) => step === expectedStepSeconds).length;
+  return exactSteps >= Math.ceil(steps.length * 0.8);
 }
 
 export function ifindSupportsTradingResolution(resolution: string) {
@@ -811,6 +848,7 @@ function marketFromFavoriteRecord(record: TradingFavoriteMarketRecord): TradingM
 
 type TradingLastAnalysisContextStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 type TradingLastDrawingWorkspaceStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+type TradingAlertSimulationStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 function normalizeTradingAnalysisStorageSessionId(value: unknown) {
   return String(value ?? "").trim() || "trading-expert-unassigned";
@@ -822,6 +860,534 @@ export function tradingLastAnalysisContextStorageKey(storageSessionId: string) {
 
 export function tradingLastDrawingWorkspaceStorageKey(storageSessionId: string) {
   return `${TRADING_LAST_DRAWING_WORKSPACE_STORAGE_KEY_PREFIX}${encodeURIComponent(normalizeTradingAnalysisStorageSessionId(storageSessionId))}`;
+}
+
+export function tradingAlertSimulationStorageKey(storageSessionId: string) {
+  return `${TRADING_ALERT_SIMULATION_STORAGE_KEY_PREFIX}${encodeURIComponent(normalizeTradingAnalysisStorageSessionId(storageSessionId))}`;
+}
+
+const TRADING_ALERT_SIMULATION_PANE_INDICATORS = new Set([
+  "volume", "macd", "rsi", "kdj", "atr", "cci", "adx", "momentum", "roc",
+]);
+
+function positiveSimulationIndicatorParameter(value: unknown, fallback: number, integer = true) {
+  const numeric = Number(value);
+  const bounded = Number.isFinite(numeric) && numeric > 0 ? Math.min(numeric, 100_000) : fallback;
+  return integer ? Math.max(1, Math.round(bounded)) : bounded;
+}
+
+function simulationIndicatorParameters(expression: any) {
+  const name = String(expression?.name || "").toLowerCase();
+  const params = expression?.params || {};
+  if (["sma", "ma", "ema"].includes(name)) {
+    return [positiveSimulationIndicatorParameter(params.period, 5)];
+  }
+  if (name === "boll") {
+    return [
+      positiveSimulationIndicatorParameter(params.period, 20),
+      positiveSimulationIndicatorParameter(params.multiplier, 2, false),
+    ];
+  }
+  if (name === "macd") {
+    return [
+      positiveSimulationIndicatorParameter(params.fast, 12),
+      positiveSimulationIndicatorParameter(params.slow, 26),
+      positiveSimulationIndicatorParameter(params.signal, 9),
+    ];
+  }
+  if (name === "kdj") {
+    return [
+      positiveSimulationIndicatorParameter(params.period, 9),
+      positiveSimulationIndicatorParameter(params.smoothK, 3),
+      positiveSimulationIndicatorParameter(params.smoothD, 3),
+    ];
+  }
+  const fallback = name === "cci" ? 20 : name === "momentum" ? 10 : name === "roc" ? 12 : 14;
+  return [positiveSimulationIndicatorParameter(params.period, fallback)];
+}
+
+function simulationIndicatorExpressionLabel(expression: any): string {
+  if (expression?.type === "constant") {
+    return Number(expression.value) === 0 ? "0轴" : String(expression.value);
+  }
+  if (expression?.type === "field") {
+    return expression.field === "volume" ? "VOLUME" : String(expression.field || "条件").toUpperCase();
+  }
+  if (expression?.type === "lag") {
+    return `${positiveSimulationIndicatorParameter(expression.bars, 1)}根前${simulationIndicatorExpressionLabel(expression.expr)}`;
+  }
+  if (expression?.type === "rolling") {
+    const period = positiveSimulationIndicatorParameter(expression.period, 1);
+    const offset = Math.max(0, Math.round(Number(expression.offset) || 0));
+    const source: string = simulationIndicatorExpressionLabel(expression.expr);
+    const operation = { min: "最小", max: "最大", avg: "平均", sum: "合计" }[String(expression.op)] || "滚动";
+    return `${offset === 1 ? "前" : offset > 1 ? `${offset}根前起` : "最近"}${period}根${operation}${source === "VOLUME" ? "量" : source}`;
+  }
+  if (expression?.type === "math") {
+    const labels = (Array.isArray(expression.args) ? expression.args : []).map(simulationIndicatorExpressionLabel);
+    if (expression.op === "mul") return labels.join("×");
+    if (expression.op === "div") return labels.join("÷");
+    if (expression.op === "add") return labels.join("+");
+    if (expression.op === "sub") return labels.join("-");
+    if (expression.op === "max") return `最大值(${labels.join("、")})`;
+    if (expression.op === "min") return `最小值(${labels.join("、")})`;
+    return labels.length ? labels.join("、") : "条件";
+  }
+  if (expression?.type !== "indicator") return "条件";
+  const name = String(expression.name || "").toLowerCase();
+  const parameters = simulationIndicatorParameters(expression);
+  if (["sma", "ma"].includes(name)) return `MA${parameters[0]}`;
+  if (name === "ema") return `EMA${parameters[0]}`;
+  if (name === "boll") {
+    const output = { upper: "上轨", middle: "中轨", lower: "下轨" }[String(expression.output || "middle")];
+    return `BOLL${parameters[0]}${output || ""}`;
+  }
+  const output = String(expression.output || "").toUpperCase();
+  return `${name.toUpperCase()}${output && !["VALUE", name.toUpperCase()].includes(output) ? ` ${output}` : ""}`;
+}
+
+function simulationIndicatorTriggerLabel(condition: any) {
+  const left = simulationIndicatorExpressionLabel(condition?.left);
+  const right = simulationIndicatorExpressionLabel(condition?.right);
+  if (
+    condition?.operator === "cross_under"
+    && /^MA\d+/i.test(left)
+    && /^MA\d+/i.test(right)
+  ) return `${left}/${right}死叉`;
+  if (
+    condition?.operator === "cross_over"
+    && /^MA\d+/i.test(left)
+    && /^MA\d+/i.test(right)
+  ) return `${left}/${right}金叉`;
+  const operatorLabel: Record<string, string> = {
+    cross_under: "下穿",
+    cross_over: "上穿",
+    break_below: "跌破",
+    break_above: "突破",
+    lt: "低于",
+    lte: "不高于",
+    gt: "高于",
+    gte: "不低于",
+    eq: "等于",
+    neq: "不等于",
+    touch: "触碰",
+  };
+  return `${left}${operatorLabel[String(condition?.operator)] || "满足"}${right}`;
+}
+
+/**
+ * Extracts the exact indicator families and parameters from the normalized
+ * alert rule. The chart never guesses these values from conversation text;
+ * they are the same expressions that the deterministic Evaluator verified.
+ */
+function tradingAlertSimulationLeafConditions(node: any, result: any[] = []) {
+  if (!node || typeof node !== "object") return result;
+  if (node.type === "condition" && node.condition) result.push(node.condition);
+  if (node.child) tradingAlertSimulationLeafConditions(node.child, result);
+  (Array.isArray(node.children) ? node.children : []).forEach((child: any) => tradingAlertSimulationLeafConditions(child, result));
+  (Array.isArray(node.steps) ? node.steps : []).forEach((step: any) => tradingAlertSimulationLeafConditions(step, result));
+  return result;
+}
+
+function tradingAlertSimulationContextsShareChart(rule: any, firstContextId: string, secondContextId: string) {
+  if (firstContextId === secondContextId) return true;
+  const contexts = new Map<string, any>((Array.isArray(rule?.contexts) ? rule.contexts : [])
+    .map((context: any) => [String(context?.contextId || ""), context]));
+  const first = contexts.get(firstContextId);
+  const second = contexts.get(secondContextId);
+  if (!first || !second) return false;
+  const firstInterval = String(first.intervals?.[0] || "").toLowerCase();
+  const secondInterval = String(second.intervals?.[0] || "").toLowerCase();
+  if (!firstInterval || firstInterval !== secondInterval) return false;
+  const marketId = (context: any) => String(
+    context?.drawingBinding?.marketId
+      || context?.marketSelector?.marketIds?.[0]
+      || (context?.marketSelector?.kind === "current" ? "current" : ""),
+  ).toUpperCase();
+  const firstMarket = marketId(first);
+  const secondMarket = marketId(second);
+  return firstMarket === secondMarket || firstMarket === "CURRENT" || secondMarket === "CURRENT";
+}
+
+function tradingAlertSimulationDrawingLabel(conditions: any[]) {
+  const operators = new Set(conditions.map((condition) => String(condition?.operator || "")));
+  const priceFields = conditions.flatMap((condition) => [condition?.left, condition?.right])
+    .filter((expression) => expression?.type === "field")
+    .map((expression) => expression.field);
+  if (operators.has("touch") || (
+    priceFields.includes("high")
+    && priceFields.includes("low")
+  )) return "K线触碰趋势线";
+  if (operators.has("break_above") || operators.has("cross_over")) return "K线向上突破趋势线";
+  if (operators.has("break_below") || operators.has("cross_under")) return "K线向下突破趋势线";
+  return "K线趋势线条件满足";
+}
+
+function tradingAlertSimulationActiveConditionIds(rule: any, proof: any): string[] {
+  const traces = new Map<string, any>((Array.isArray(proof?.trace) ? proof.trace : [])
+    .map((entry: any) => [String(entry?.conditionId || ""), entry]));
+  const visit = (node: any): string[] | null => {
+    if (!node || typeof node !== "object") return null;
+    if (node.type === "condition") {
+      const conditionId = String(node.condition?.conditionId || "");
+      return traces.get(conditionId)?.value === true ? [conditionId] : null;
+    }
+    if (node.type === "all") {
+      const children: Array<string[] | null> = (node.children || []).map(visit);
+      return children.every(Boolean) ? children.flatMap((entry) => entry || []) : null;
+    }
+    if (node.type === "any") {
+      const children = (node.children || []).map(visit).filter(Boolean) as string[][];
+      return children.length ? children.flat() : null;
+    }
+    if (node.type === "not") return null;
+    if (node.type === "sequence") {
+      const steps = (node.steps || []).map(visit).filter(Boolean) as string[][];
+      return steps.length ? steps.flat() : null;
+    }
+    return visit(node.child);
+  };
+  return [...new Set(visit(rule?.root) || [])];
+}
+
+function tradingAlertSimulationLegacyDrawingPoints(rule: any, simulation: any, anchorContextId: string) {
+  const conditionMap = new Map<string, any>(tradingAlertSimulationLeafConditions(rule?.root)
+    .map((condition: any) => [String(condition?.conditionId || ""), condition]));
+  const traceMap = new Map<string, any>((Array.isArray(simulation?.proof?.trace) ? simulation.proof.trace : [])
+    .map((entry: any) => [String(entry?.conditionId || ""), entry]));
+  const grouped = new Map<string, any>();
+  tradingAlertSimulationActiveConditionIds(rule, simulation?.proof).forEach((conditionId) => {
+    const condition = conditionMap.get(conditionId);
+    const trace = traceMap.get(conditionId);
+    const drawing = condition?.left?.type === "drawing"
+      ? condition.left
+      : condition?.right?.type === "drawing" ? condition.right : null;
+    if (!drawing || !trace) return;
+    const price = Number(condition.left?.type === "drawing" ? trace.left : trace.right);
+    const contextId = String(condition.contextId || anchorContextId);
+    const generated = Array.isArray(simulation?.generated?.[contextId])
+      ? simulation.generated[contextId]
+      : simulation?.generated?.[anchorContextId];
+    const candle = generated?.[Math.max(0, Math.trunc(Number(simulation?.triggerBarIndex || 0)))];
+    const time = Number(candle?.time);
+    if (!Number.isFinite(time) || time <= 0 || !Number.isFinite(price) || price <= 0) return;
+    const key = `${contextId}|${drawing.drawingId}|${time}|${price}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.conditionIds.push(conditionId);
+      return;
+    }
+    grouped.set(key, {
+      kind: "drawing",
+      contextId,
+      drawingId: drawing.drawingId,
+      conditionId,
+      conditionIds: [conditionId],
+      time,
+      price,
+    });
+  });
+  return [...grouped.values()];
+}
+
+export function collectTradingAlertSimulationConditionAnnotations(rule: any, simulation: any, anchorContextId: string) {
+  const conditions = new Map<string, any>(tradingAlertSimulationLeafConditions(rule?.root)
+    .map((condition: any) => [String(condition.conditionId || ""), condition]));
+  const rawPoints: any[] = Array.isArray(simulation?.triggerPoints) && simulation.triggerPoints.length
+    ? simulation.triggerPoints
+    : simulation?.triggerPoint
+      ? [simulation.triggerPoint]
+      : tradingAlertSimulationLegacyDrawingPoints(rule, simulation, anchorContextId);
+  const collected: TradingAlertSimulationConditionAnnotationSpec[] = rawPoints.slice(0, 64).flatMap((point: any, index: number): TradingAlertSimulationConditionAnnotationSpec[] => {
+    const contextId = String(point?.contextId || anchorContextId);
+    if (!tradingAlertSimulationContextsShareChart(rule, contextId, anchorContextId)) return [];
+    const conditionIds: string[] = [...new Set<string>((Array.isArray(point?.conditionIds)
+      ? point.conditionIds
+      : [point?.conditionId])
+      .map((entry: unknown) => String(entry || "").trim())
+      .filter(Boolean))];
+    const groupedConditions = conditionIds.map((conditionId) => conditions.get(conditionId)).filter(Boolean);
+    const time = Number(point?.time);
+    const price = Number(point?.price);
+    if (!conditionIds.length || !Number.isFinite(time) || time <= 0 || !Number.isFinite(price) || price <= 0) return [];
+    const isDrawing = point?.kind === "drawing" || groupedConditions.some((condition) => (
+      condition?.left?.type === "drawing" || condition?.right?.type === "drawing"
+    ));
+    const triggerLabel = isDrawing
+      ? tradingAlertSimulationDrawingLabel(groupedConditions)
+      : simulationIndicatorTriggerLabel(groupedConditions[0]);
+    return [{
+      annotationId: `condition:${String(point?.drawingId || point?.conditionId || index)}`.slice(0, 180),
+      label: `模拟触发 · ${triggerLabel}`.slice(0, 140),
+      conditionIds,
+      time: time / 1_000 + CHINA_TIME_OFFSET_SECONDS,
+      price,
+    }];
+  });
+  const counts = new Map<string, number>();
+  collected.forEach((entry) => counts.set(entry.label, (counts.get(entry.label) || 0) + 1));
+  const indexes = new Map<string, number>();
+  return collected.map((entry) => {
+    if ((counts.get(entry.label) || 0) < 2) return entry;
+    const next = (indexes.get(entry.label) || 0) + 1;
+    indexes.set(entry.label, next);
+    return { ...entry, label: `${entry.label} ${next}` };
+  });
+}
+
+export function collectTradingAlertSimulationIndicators(
+  rule: any,
+  anchorContextId: string,
+  activeConditionIds?: Iterable<string>,
+) {
+  const collected = new Map<string, TradingAlertSimulationIndicatorSpec>();
+  const active = activeConditionIds ? new Set([...activeConditionIds].map(String)) : null;
+  const visitExpression = (expression: any, condition: any) => {
+    if (!expression || typeof expression !== "object") return;
+    if (expression.type === "math") {
+      (Array.isArray(expression.args) ? expression.args : []).forEach((argument: any) => visitExpression(argument, condition));
+      return;
+    }
+    if (["lag", "rolling"].includes(expression.type)) {
+      visitExpression(expression.expr, condition);
+      return;
+    }
+    const isVolumeField = expression.type === "field" && expression.field === "volume";
+    if (expression.type !== "indicator" && !isVolumeField) return;
+    const sourceName = isVolumeField ? "volume" : String(expression.name || "").toLowerCase();
+    const name = sourceName === "sma" ? "ma" : sourceName;
+    const placement: TradingAlertSimulationIndicatorPlacement = ["ma", "ema", "boll"].includes(name)
+      ? "main"
+      : TRADING_ALERT_SIMULATION_PANE_INDICATORS.has(name) ? "pane" : "main";
+    if (!["ma", "ema", "boll"].includes(name) && !TRADING_ALERT_SIMULATION_PANE_INDICATORS.has(name)) return;
+    const parameters = name === "volume" ? [5, 10] : simulationIndicatorParameters({ ...expression, name });
+    const specId = `${placement}:${name}:${parameters.join(":")}`;
+    const conditionId = String(condition?.conditionId || "").trim();
+    const trigger = { label: simulationIndicatorTriggerLabel(condition), conditionIds: conditionId ? [conditionId] : [] };
+    const existing = collected.get(specId);
+    if (existing) {
+      if (conditionId && !existing.conditionIds.includes(conditionId)) existing.conditionIds.push(conditionId);
+      existing.triggers ||= [{ label: existing.triggerLabel, conditionIds: existing.conditionIds.slice(0, 1) }];
+      if (conditionId && !existing.triggers.some((entry) => entry.conditionIds.includes(conditionId))) existing.triggers.push(trigger);
+      return;
+    }
+    const familyLabel = name === "ma" ? "MA" : name === "ema" ? "EMA" : name.toUpperCase();
+    collected.set(specId, {
+      specId,
+      name,
+      label: familyLabel,
+      placement,
+      parameters,
+      conditionIds: conditionId ? [conditionId] : [],
+      triggerLabel: trigger.label,
+      triggers: [trigger],
+    });
+  };
+  const visitNode = (node: any) => {
+    if (!node || typeof node !== "object") return;
+    if (
+      node.type === "condition"
+      && (!active || active.has(String(node.condition?.conditionId || "")))
+      && tradingAlertSimulationContextsShareChart(rule, String(node.condition?.contextId || ""), anchorContextId)
+    ) {
+      visitExpression(node.condition.left, node.condition);
+      visitExpression(node.condition.right, node.condition);
+    }
+    if (node.child) visitNode(node.child);
+    (Array.isArray(node.children) ? node.children : []).forEach(visitNode);
+    (Array.isArray(node.steps) ? node.steps : []).forEach(visitNode);
+  };
+  visitNode(rule?.root);
+  return [...collected.values()]
+    .sort((first, second) => first.placement.localeCompare(second.placement)
+      || first.name.localeCompare(second.name)
+      || first.parameters[0] - second.parameters[0]);
+}
+
+function normalizeTradingAlertSimulationIndicatorSpecs(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 32).flatMap<TradingAlertSimulationIndicatorSpec>((raw) => {
+    if (!raw || typeof raw !== "object") return [];
+    const candidate = raw as Partial<TradingAlertSimulationIndicatorSpec>;
+    const name = String(candidate.name || "").trim().toLowerCase();
+    const placement = candidate.placement === "main" || candidate.placement === "pane"
+      ? candidate.placement
+      : null;
+    const parameters = Array.isArray(candidate.parameters)
+      ? candidate.parameters.slice(0, 8).map(Number)
+      : [];
+    if (
+      !placement
+      || !["ma", "ema", "boll", ...TRADING_ALERT_SIMULATION_PANE_INDICATORS].includes(name)
+      || !parameters.length
+      || parameters.some((parameter) => !Number.isFinite(parameter) || parameter <= 0)
+    ) return [];
+    const specId = String(candidate.specId || `${placement}:${name}:${parameters.join(":")}`).slice(0, 180);
+    const conditionIds = Array.isArray(candidate.conditionIds)
+      ? [...new Set(candidate.conditionIds.map((entry) => String(entry || "").trim()).filter(Boolean))].slice(0, 16)
+      : [];
+    const triggerLabel = String(candidate.triggerLabel || "指标模拟触发").slice(0, 120);
+    const triggers = Array.isArray(candidate.triggers)
+      ? candidate.triggers.slice(0, 32).flatMap((rawTrigger) => {
+          const label = String(rawTrigger?.label || "").trim().slice(0, 120);
+          const ids = Array.isArray(rawTrigger?.conditionIds)
+            ? [...new Set(rawTrigger.conditionIds.map((entry) => String(entry || "").trim()).filter(Boolean))].slice(0, 16)
+            : [];
+          return label && ids.length ? [{ label, conditionIds: ids }] : [];
+        })
+      : [];
+    return [{
+      specId,
+      name,
+      label: String(candidate.label || name.toUpperCase()).slice(0, 40),
+      placement,
+      parameters,
+      conditionIds,
+      triggerLabel,
+      triggers: triggers.length ? triggers : [{ label: triggerLabel, conditionIds }],
+    }];
+  });
+}
+
+function normalizeTradingAlertSimulationConditionAnnotations(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 64).flatMap<TradingAlertSimulationConditionAnnotationSpec>((raw) => {
+    if (!raw || typeof raw !== "object") return [];
+    const candidate = raw as Partial<TradingAlertSimulationConditionAnnotationSpec>;
+    const annotationId = String(candidate.annotationId || "").trim().slice(0, 180);
+    const label = String(candidate.label || "").trim().slice(0, 140);
+    const conditionIds = Array.isArray(candidate.conditionIds)
+      ? [...new Set(candidate.conditionIds.map((entry) => String(entry || "").trim()).filter(Boolean))].slice(0, 16)
+      : [];
+    const time = Number(candidate.time);
+    const price = Number(candidate.price);
+    if (!annotationId || !label || !conditionIds.length || !Number.isFinite(time) || time <= 0 || !Number.isFinite(price) || price <= 0) return [];
+    return [{ annotationId, label, conditionIds, time, price }];
+  });
+}
+
+function normalizeTradingAlertSimulationState(value: unknown): TradingAlertSimulationState | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<TradingAlertSimulationState>;
+  const simulationId = String(candidate.simulationId || "").trim();
+  const marketId = String(candidate.marketId || "").trim().toUpperCase();
+  const interval = String(candidate.interval || "").trim().toUpperCase();
+  const market = normalizeTradingFavoriteMarketRecords(candidate.market ? [candidate.market] : [])[0] || null;
+  if (
+    Number(candidate.schemaVersion) !== 1
+    || !simulationId
+    || simulationId.length > 160
+    || !/^(?:BINANCE|FINNHUB|IFIND):[A-Z0-9^][A-Z0-9^:._\/\-=]{0,96}$/.test(marketId)
+    || !tradingViewResolutionDurationMs(interval)
+    || (market && market.id !== marketId)
+    || !Array.isArray(candidate.display)
+    || candidate.display.length < 1
+    || candidate.display.length > 500
+  ) return null;
+  const display = candidate.display.map((rawCandle) => {
+    const candle = rawCandle as Partial<TradingAlertSimulationCandle>;
+    return {
+      time: Math.trunc(Number(candle?.time)) as UTCTimestamp,
+      open: Number(candle?.open),
+      high: Number(candle?.high),
+      low: Number(candle?.low),
+      close: Number(candle?.close),
+      ...(Number.isFinite(Number(candle?.volume)) && Number(candle?.volume) >= 0
+        ? { volume: Number(candle?.volume) }
+        : {}),
+    };
+  });
+  if (display.some((candle, index) => (
+    !Number.isFinite(Number(candle.time))
+    || Number(candle.time) <= 0
+    || [candle.open, candle.high, candle.low, candle.close].some((price) => !Number.isFinite(price) || price <= 0)
+    || candle.high < Math.max(candle.open, candle.close)
+    || candle.low > Math.min(candle.open, candle.close)
+    || (index > 0 && Number(candle.time) <= Number(display[index - 1].time))
+  ))) return null;
+  const triggerIndex = Number(candidate.triggerIndex);
+  const triggerTime = candidate.triggerTime === null ? null : Number(candidate.triggerTime);
+  const triggerPrice = candidate.triggerPrice === null ? null : Number(candidate.triggerPrice);
+  const stepSeconds = Number(candidate.stepSeconds);
+  const updatedAt = Number(candidate.updatedAt);
+  if (
+    !Number.isInteger(triggerIndex)
+    || triggerIndex < 0
+    || triggerIndex >= display.length
+    || (triggerTime !== null && (!Number.isFinite(triggerTime) || triggerTime <= 0))
+    || (triggerPrice !== null && (!Number.isFinite(triggerPrice) || triggerPrice <= 0))
+    || !Number.isFinite(stepSeconds)
+    || stepSeconds <= 0
+  ) return null;
+  return {
+    schemaVersion: 1,
+    simulationId,
+    marketId,
+    interval,
+    display,
+    triggerIndex,
+    triggerTime,
+    triggerPrice,
+    stepSeconds,
+    updatedAt: Number.isFinite(updatedAt) && updatedAt > 0 ? Math.trunc(updatedAt) : 0,
+    ...(normalizeTradingAlertSimulationIndicatorSpecs(candidate.indicators).length
+      ? { indicators: normalizeTradingAlertSimulationIndicatorSpecs(candidate.indicators) }
+      : {}),
+    ...(normalizeTradingAlertSimulationConditionAnnotations(candidate.conditionAnnotations).length
+      ? { conditionAnnotations: normalizeTradingAlertSimulationConditionAnnotations(candidate.conditionAnnotations) }
+      : {}),
+    ...(market ? { market } : {}),
+  };
+}
+
+export function loadTradingAlertSimulationState(
+  storage: Pick<TradingAlertSimulationStorage, "getItem">,
+  storageSessionId: string,
+) {
+  try {
+    const serialized = storage.getItem(tradingAlertSimulationStorageKey(storageSessionId));
+    return serialized ? normalizeTradingAlertSimulationState(JSON.parse(serialized)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveTradingAlertSimulationState(
+  storage: Pick<TradingAlertSimulationStorage, "setItem">,
+  storageSessionId: string,
+  state: TradingAlertSimulationState,
+) {
+  const normalized = normalizeTradingAlertSimulationState(state);
+  if (!normalized) return false;
+  try {
+    storage.setItem(tradingAlertSimulationStorageKey(storageSessionId), JSON.stringify(normalized));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function clearTradingAlertSimulationState(
+  storage: Pick<TradingAlertSimulationStorage, "removeItem">,
+  storageSessionId: string,
+) {
+  try {
+    storage.removeItem(tradingAlertSimulationStorageKey(storageSessionId));
+  } catch {
+    // Clearing the visible layer still succeeds when local persistence is unavailable.
+  }
+}
+
+function migrateTradingAlertSimulationState(
+  storage: TradingAlertSimulationStorage,
+  previousStorageSessionId: string,
+  nextStorageSessionId: string,
+) {
+  const previous = loadTradingAlertSimulationState(storage, previousStorageSessionId);
+  if (
+    previous
+    && saveTradingAlertSimulationState(storage, nextStorageSessionId, previous)
+  ) clearTradingAlertSimulationState(storage, previousStorageSessionId);
 }
 
 function normalizeTradingLastDrawingWorkspace(value: unknown): TradingLastDrawingWorkspace | null {
@@ -1358,6 +1924,25 @@ interface TradingMarketStats {
   volume24h: number;
 }
 
+export function tradingMarketStatsFromCandles(
+  symbol: string,
+  candles: ReadonlyArray<{ close: number }>,
+) {
+  const latestPrice = Number(candles.at(-1)?.close || 0);
+  const markPrice = Number.isFinite(latestPrice) && latestPrice > 0 ? latestPrice : 0;
+  return {
+    symbol,
+    markPrice,
+    midPrice: markPrice,
+    oraclePrice: 0,
+    openInterest: 0,
+    fundingRate: 0,
+    nextFundingTime: 0,
+    prevDayPrice: markPrice,
+    volume24h: 0,
+  };
+}
+
 export interface TradingMarket {
   id: string;
   provider: TradingMarketProvider;
@@ -1474,6 +2059,52 @@ export interface TradingLastDrawingWorkspace {
   layoutId: string;
   updatedAt: number;
   panes: TradingLastDrawingPaneState[];
+}
+
+export interface TradingAlertSimulationCandle {
+  time: UTCTimestamp;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+}
+
+export type TradingAlertSimulationIndicatorPlacement = "main" | "pane";
+
+export interface TradingAlertSimulationIndicatorSpec {
+  specId: string;
+  name: string;
+  label: string;
+  placement: TradingAlertSimulationIndicatorPlacement;
+  parameters: number[];
+  conditionIds: string[];
+  triggerLabel: string;
+  triggers?: Array<{ label: string; conditionIds: string[] }>;
+}
+
+export interface TradingAlertSimulationConditionAnnotationSpec {
+  annotationId: string;
+  label: string;
+  conditionIds: string[];
+  time: number;
+  price: number;
+}
+
+export interface TradingAlertSimulationState {
+  schemaVersion: 1;
+  simulationId: string;
+  marketId: string;
+  interval: string;
+  display: TradingAlertSimulationCandle[];
+  triggerIndex: number;
+  triggerTime: number | null;
+  triggerPrice: number | null;
+  stepSeconds: number;
+  updatedAt: number;
+  indicators?: TradingAlertSimulationIndicatorSpec[];
+  conditionAnnotations?: TradingAlertSimulationConditionAnnotationSpec[];
+  market?: TradingFavoriteMarketRecord;
 }
 
 export interface TradingFavoritesStorageSnapshot {
@@ -1621,6 +2252,26 @@ interface IndicatorPaneRuntime {
   series: IndicatorSeriesRuntime[];
 }
 
+interface TradingAlertSimulationIndicatorSeriesRuntime {
+  key: string;
+  type: "line" | "histogram";
+  api: any;
+  label: string;
+  color: string;
+  data: Array<Record<string, unknown> & { time: UTCTimestamp; value?: number }>;
+  annotation: HTMLElement | null;
+  additionalAnnotations: HTMLElement[];
+  latestValue: number;
+}
+
+interface TradingAlertSimulationIndicatorRuntime {
+  spec: TradingAlertSimulationIndicatorSpec;
+  pane: any | null;
+  legend: HTMLElement | null;
+  series: TradingAlertSimulationIndicatorSeriesRuntime[];
+  historicalDisplayEnd: number;
+}
+
 export interface TdSequentialSignal {
   index: number;
   direction: "buy" | "sell";
@@ -1658,6 +2309,10 @@ const mainIndicatorPalette = (dark: boolean) => ({
   tdSell: dark ? "#ff4f75" : "#d9365d",
 });
 
+const alertSimulationIndicatorPalette = (dark: boolean) => dark
+  ? ["#f6c453", "#49d3bd", "#df6be4", "#67a8ff", "#ff7a96", "#a78bfa"]
+  : ["#916400", "#007f73", "#98279d", "#1d4ed8", "#b42345", "#6d28d9"];
+
 export const marketTheme = (dark: boolean) => dark
   ? {
       background: "#0f1014",
@@ -1670,6 +2325,7 @@ export const marketTheme = (dark: boolean) => dark
       bandLine: "rgba(135, 206, 250, 0.45)",
       paneSeparator: "#1a2437",
       paneSeparatorHover: "rgba(65, 211, 124, 0.28)",
+      alertMarker: "#fbbf24",
     }
   : {
       background: "#ffffff",
@@ -1682,6 +2338,7 @@ export const marketTheme = (dark: boolean) => dark
       bandLine: "rgba(70, 155, 221, 0.4)",
       paneSeparator: "#e1e7ef",
       paneSeparatorHover: "rgba(45, 166, 247, 0.2)",
+      alertMarker: "#b45309",
     };
 
 const marketCrosshairOptions = (theme: ReturnType<typeof marketTheme>) => ({
@@ -1744,6 +2401,157 @@ function fetchBinanceMarket<T>(
   return marketType === "spot"
     ? fetchBinanceSpot<T>(spotPath, parameters, signal)
     : fetchBinanceFutures<T>(futuresPath, parameters, signal);
+}
+
+export interface TradingAlertAnnotationRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface TradingAlertAnnotationPlacementInput {
+  anchorX: number;
+  anchorY: number;
+  labelWidth: number;
+  labelHeight: number;
+  paneLeft: number;
+  paneTop: number;
+  paneRight: number;
+  paneBottom: number;
+  dataRightX: number;
+  dataTopY: number;
+  occupied?: TradingAlertAnnotationRect[];
+}
+
+export interface TradingAlertAnnotationPlacement extends TradingAlertAnnotationRect {
+  mode: "right-rail" | "top-lane" | "fallback";
+  lineEndX: number;
+  lineEndY: number;
+}
+
+const tradingAlertAnnotationRectsOverlap = (
+  first: TradingAlertAnnotationRect,
+  second: TradingAlertAnnotationRect,
+  gap = 7,
+) => !(
+  first.left + first.width + gap <= second.left
+  || second.left + second.width + gap <= first.left
+  || first.top + first.height + gap <= second.top
+  || second.top + second.height + gap <= first.top
+);
+
+const clampTradingAlertAnnotationCoordinate = (value: number, minimum: number, maximum: number) => (
+  Math.min(Math.max(value, minimum), Math.max(minimum, maximum))
+);
+
+/**
+ * Keeps alert callouts in either the empty future-time rail or the unused band
+ * above the pane data. The returned rectangle never intersects an earlier
+ * callout, which lets the renderer apply the same layout to the main chart and
+ * every generated indicator pane.
+ */
+export function resolveTradingAlertAnnotationPlacement(
+  input: TradingAlertAnnotationPlacementInput,
+): TradingAlertAnnotationPlacement {
+  const margin = 9;
+  const connectorGap = 18;
+  const collisionGap = 7;
+  const occupied = input.occupied || [];
+  const minimumLeft = input.paneLeft + margin;
+  const maximumLeft = input.paneRight - input.labelWidth - margin;
+  const minimumTop = input.paneTop + margin;
+  const maximumTop = input.paneBottom - input.labelHeight - margin;
+  const fits = (rect: TradingAlertAnnotationRect) => (
+    rect.left >= minimumLeft
+    && rect.left <= maximumLeft
+    && rect.top >= minimumTop
+    && rect.top <= maximumTop
+    && occupied.every((candidate) => !tradingAlertAnnotationRectsOverlap(rect, candidate, collisionGap))
+  );
+  const placement = (
+    left: number,
+    top: number,
+    mode: TradingAlertAnnotationPlacement["mode"],
+  ): TradingAlertAnnotationPlacement => {
+    const labelIsRightOfAnchor = left >= input.anchorX;
+    const labelIsAboveAnchor = top + input.labelHeight / 2 < input.anchorY;
+    return {
+      left,
+      top,
+      width: input.labelWidth,
+      height: input.labelHeight,
+      mode,
+      lineEndX: labelIsRightOfAnchor ? left : left + input.labelWidth,
+      lineEndY: labelIsAboveAnchor ? top + input.labelHeight - 2 : top + 2,
+    };
+  };
+
+  const railLeft = Math.max(input.anchorX + connectorGap, input.dataRightX + 12);
+  if (railLeft <= maximumLeft) {
+    const preferredTop = clampTradingAlertAnnotationCoordinate(
+      input.anchorY - input.labelHeight - 24,
+      minimumTop,
+      maximumTop,
+    );
+    const verticalCandidates = [
+      preferredTop,
+      ...occupied.flatMap((rect) => [rect.top + rect.height + collisionGap, rect.top - input.labelHeight - collisionGap]),
+    ].sort((first, second) => Math.abs(first - preferredTop) - Math.abs(second - preferredTop));
+    for (const top of verticalCandidates) {
+      const rect = { left: railLeft, top, width: input.labelWidth, height: input.labelHeight };
+      if (fits(rect)) return placement(railLeft, top, "right-rail");
+    }
+  }
+
+  const laneTop = Math.min(
+    input.dataTopY - input.labelHeight - 12,
+    input.anchorY - input.labelHeight - 20,
+  );
+  if (laneTop >= minimumTop) {
+    const preferredLeft = clampTradingAlertAnnotationCoordinate(
+      input.anchorX + connectorGap,
+      minimumLeft,
+      maximumLeft,
+    );
+    const horizontalCandidates = [
+      preferredLeft,
+      ...occupied.flatMap((rect) => [rect.left + rect.width + collisionGap, rect.left - input.labelWidth - collisionGap]),
+    ].sort((first, second) => Math.abs(first - preferredLeft) - Math.abs(second - preferredLeft));
+    for (const left of horizontalCandidates) {
+      const rect = { left, top: laneTop, width: input.labelWidth, height: input.labelHeight };
+      if (fits(rect)) return placement(left, laneTop, "top-lane");
+    }
+  }
+
+  // Extremely small panes can have no fully empty lane. Keep the text within
+  // the pane and away from existing labels; its opaque themed surface remains
+  // legible while the diagonal leader still identifies the exact data point.
+  const fallbackLeft = clampTradingAlertAnnotationCoordinate(
+    Math.max(input.anchorX + connectorGap, input.dataRightX + 12),
+    minimumLeft,
+    maximumLeft,
+  );
+  const fallbackTop = clampTradingAlertAnnotationCoordinate(
+    input.anchorY - input.labelHeight - 24,
+    minimumTop,
+    maximumTop,
+  );
+  return placement(fallbackLeft, fallbackTop, "fallback");
+}
+
+export function tradingAlertAnnotationRightPaddingBars(
+  plotWidth: number,
+  visibleDataBars: number,
+  longestLabelLength: number,
+) {
+  const safeWidth = Math.max(240, Number(plotWidth) || 0);
+  const labelWidth = Math.min(230, Math.max(96, longestLabelLength * 10 + 20));
+  const desiredRailWidth = Math.min(safeWidth * 0.42, labelWidth + 34);
+  const remainingWidth = Math.max(80, safeWidth - desiredRailWidth);
+  return Math.max(8, Math.min(30, Math.ceil(
+    Math.max(1, visibleDataBars) * desiredRailWidth / remainingWidth,
+  )));
 }
 
 export async function fetchTradingMarkets() {
@@ -2667,27 +3475,31 @@ function renderIndicatorEditorShell() {
   `;
 }
 
-function renderMarketMoreControls() {
+function renderMarketChartActions() {
   return `
-    <div class="trading-market-more-wrap">
+    <div class="trading-market-chart-actions" role="group" aria-label="图表操作">
       <button
         type="button"
-        class="trading-market-more-trigger"
-        data-market-action="toggle-more-menu"
-        aria-label="更多图表功能"
-        aria-haspopup="menu"
+        class="trading-market-chart-action"
+        data-market-action="open-chart-settings"
+        aria-label="图表设置"
+        aria-haspopup="dialog"
         aria-expanded="false"
-      ><span aria-hidden="true">•••</span></button>
-      <div class="trading-market-more-menu" data-market-more-menu role="menu" hidden>
-        <button type="button" data-market-action="open-chart-settings" role="menuitem">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3"/><path d="M10 2.2v2M10 15.8v2M2.2 10h2M15.8 10h2M4.5 4.5l1.4 1.4M14.1 14.1l1.4 1.4M15.5 4.5l-1.4 1.4M5.9 14.1l-1.4 1.4"/></svg>
-          设置
-        </button>
-        <button type="button" data-market-action="open-split-layouts" role="menuitem">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M10 3v14"/></svg>
-          分屏
-        </button>
-      </div>
+        title="设置"
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3"/><path d="M10 2.2v2M10 15.8v2M2.2 10h2M15.8 10h2M4.5 4.5l1.4 1.4M14.1 14.1l1.4 1.4M15.5 4.5l-1.4 1.4M5.9 14.1l-1.4 1.4"/></svg>
+      </button>
+      <button
+        type="button"
+        class="trading-market-chart-action"
+        data-market-action="open-split-layouts"
+        aria-label="选择分屏布局"
+        aria-haspopup="dialog"
+        aria-expanded="false"
+        title="分屏"
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M10 3v14"/></svg>
+      </button>
       ${renderTradingSplitLayoutPicker()}
     </div>
   `;
@@ -2725,7 +3537,7 @@ export function renderTradingExpertMarketWorkspace() {
             <div class="trading-market-list" data-market-list role="list" aria-label="永续合约币种"></div>
           </div>
         </div>
-        ${renderMarketMoreControls()}
+        ${renderMarketChartActions()}
         <div
           class="trading-market-favorite-tickers"
           data-market-favorite-tickers
@@ -2753,11 +3565,11 @@ export function renderTradingExpertMarketWorkspace() {
           <div class="trading-market-times" data-market-times aria-label="K线周期">${renderTimeButtons()}</div>
           <button
             type="button"
-            class="small-icon-button panel-toggle trading-market-split-panel-restore collapsed"
+            class="small-icon-button panel-toggle trading-market-split-panel-restore expanded"
             data-action="toggle-right-panel"
-            title="展开会话"
-            aria-label="展开会话"
-            aria-expanded="false"
+            title="收起K线画布"
+            aria-label="收起K线画布"
+            aria-expanded="true"
           >
             <svg class="panel-layout-icon panel-layout-icon-right" viewBox="0 0 24 16" preserveAspectRatio="none" aria-hidden="true">
               <rect x="3" y="2" width="18" height="12" rx="2"></rect>
@@ -2772,6 +3584,9 @@ export function renderTradingExpertMarketWorkspace() {
           <div class="trading-market-chart-viewport" data-market-chart-viewport>
             <div class="trading-market-chart" data-market-chart></div>
             ${renderTradingDrawingLayer()}
+            <div class="trading-alert-simulation-annotations" data-alert-simulation-annotations>
+              <div class="trading-alert-simulation-point" data-alert-simulation-point hidden aria-label="模拟触发"><span>模拟触发</span></div>
+            </div>
             <time class="trading-market-crosshair-time" data-market-crosshair-time hidden></time>
             <div class="trading-market-focus-price crosshair" data-market-crosshair-price hidden></div>
             <div class="trading-market-focus-price current" data-market-current-price hidden></div>
@@ -2837,13 +3652,29 @@ class TradingExpertMarketWorkspace {
   private readonly marketOverview: HTMLElement;
   private readonly chartGrid: HTMLElement;
   private readonly primaryChartPane: HTMLElement;
-  private moreMenu: HTMLElement;
+  private readonly alertSimulationAnnotationLayer: HTMLElement;
+  private readonly alertSimulationPointElement: HTMLElement;
   private layoutPicker: HTMLElement;
   private readonly layoutPickerHome: Comment;
   private layoutPickerAnchor: HTMLElement | null = null;
   private chartSettingsBackdrop: HTMLElement;
+  private chartSettingsAnchor: HTMLElement | null = null;
   private chart: ReturnType<typeof createChart> | null = null;
   private candleSeries: any = null;
+  private alertSimulationSeries: any = null;
+  private alertEvidenceAnnotation: HTMLElement | null = null;
+  private alertEvidencePoint: { time: number; price: number } | null = null;
+  private alertSimulationId = "";
+  private alertSimulationState: TradingAlertSimulationState | null = null;
+  private alertSimulationIndicatorRuntimes: TradingAlertSimulationIndicatorRuntime[] = [];
+  private readonly alertSimulationConditionAnnotations = new Map<string, HTMLElement>();
+  private alertSimulationTimer: number | null = null;
+  private alertSimulationMarkerPaintFrame: number | null = null;
+  private alertSimulationMarkerPaintRetries = 0;
+  private alertSimulationMarkerVisible = false;
+  private alertSimulationViewportFocusFrame: number | null = null;
+  private alertSimulationViewportFocusRetries = 0;
+  private alertSimulationPreviousLogicalRange: { from: number; to: number } | null = null;
   private bandUpperSeries: any = null;
   private bandLowerSeries: any = null;
   private priceLine: any = null;
@@ -2867,6 +3698,11 @@ class TradingExpertMarketWorkspace {
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
   private socket: WebSocket | null = null;
+  private marketSocketLastActivityAt = 0;
+  private liveChartPaintTimer: number | null = null;
+  private liveChartPaintFrame: number | null = null;
+  private lastLiveChartFullRefreshAt = 0;
+  private alertDrawingSyncTimer: number | null = null;
   private reconnectTimer: number | null = null;
   private favoriteTickerSockets: WebSocket[] = [];
   private favoriteTickerReconnectTimer: number | null = null;
@@ -2886,6 +3722,7 @@ class TradingExpertMarketWorkspace {
   private countdownTimer: number | null = null;
   private pollTimer: number | null = null;
   private candlePollTimer: number | null = null;
+  private refreshingSnapshotGeneration: number | null = null;
   private refreshingLiveCandleGeneration: number | null = null;
   private loadGeneration = 0;
   private loadingHistory = false;
@@ -3005,7 +3842,8 @@ class TradingExpertMarketWorkspace {
     this.marketOverview = this.requireElement(".trading-market-overview");
     this.chartGrid = this.requireElement("[data-market-chart-grid]");
     this.primaryChartPane = this.requireElement("[data-market-primary-pane]");
-    this.moreMenu = this.requireElement("[data-market-more-menu]");
+    this.alertSimulationAnnotationLayer = this.requireElement("[data-alert-simulation-annotations]");
+    this.alertSimulationPointElement = this.requireElement("[data-alert-simulation-point]");
     this.layoutPicker = this.requireElement("[data-market-layout-picker]");
     this.layoutPickerHome = document.createComment("trading-market-layout-picker-home");
     this.layoutPicker.before(this.layoutPickerHome);
@@ -3028,6 +3866,8 @@ class TradingExpertMarketWorkspace {
     if (!lastDrawingWorkspace || !this.restoreLastDrawingWorkspace(lastDrawingWorkspace)) {
       this.restoreLastAnalysisSelection();
     }
+    this.loadPersistedAlertSimulation();
+    this.restoreAlertSimulationSelection();
     this.favoriteStorageMigratedFromLegacy = storedFavorites.migratedFromLegacy;
     if (this.favoriteStorageMigratedFromLegacy) this.saveFavoriteSymbols();
     this.renderFavoriteTickerBar();
@@ -3119,14 +3959,9 @@ class TradingExpertMarketWorkspace {
       this.periodScrollSuppressClick = false;
       return;
     }
-    if (action === "toggle-more-menu") {
-      this.setMoreMenuOpen(this.moreMenu.hidden);
-      return;
-    }
     if (action === "open-chart-settings") {
-      this.setMoreMenuOpen(false);
       this.setLayoutPickerOpen(false);
-      this.setChartSettingsOpen(true);
+      this.setChartSettingsOpen(true, target);
       return;
     }
     if (action === "close-chart-settings") {
@@ -3146,10 +3981,7 @@ class TradingExpertMarketWorkspace {
       return;
     }
     if (action === "open-split-layouts") {
-      const anchor = target.closest<HTMLElement>(".trading-market-more-wrap")
-        ?.querySelector<HTMLElement>(".trading-market-more-trigger") ?? null;
-      this.setMoreMenuOpen(false);
-      this.setLayoutPickerOpen(true, anchor);
+      this.setLayoutPickerOpen(this.layoutPicker.hidden, target);
       return;
     }
     if (action === "select-split-layout") {
@@ -3633,9 +4465,28 @@ class TradingExpertMarketWorkspace {
     });
   }
 
-  private setChartSettingsOpen(open: boolean) {
+  private setChartSettingsOpen(open: boolean, anchor: HTMLElement | null = null) {
     this.chartSettingsBackdrop.hidden = !open;
     this.chartSettingsBackdrop.classList.toggle("open", open);
+    const primaryTrigger = this.host.querySelector<HTMLElement>('[data-market-action="open-chart-settings"]');
+    if (!open) {
+      this.chartSettingsAnchor?.setAttribute("aria-expanded", "false");
+      this.chartSettingsAnchor?.classList.remove("active");
+      primaryTrigger?.setAttribute("aria-expanded", "false");
+      primaryTrigger?.classList.remove("active");
+      this.chartSettingsAnchor = null;
+      return;
+    }
+    this.chartSettingsAnchor = anchor?.isConnected
+      ? anchor
+      : this.chartSettingsAnchor?.isConnected
+        ? this.chartSettingsAnchor
+        : primaryTrigger;
+    const primaryOpen = this.chartSettingsAnchor === primaryTrigger;
+    primaryTrigger?.setAttribute("aria-expanded", String(primaryOpen));
+    primaryTrigger?.classList.toggle("active", primaryOpen);
+    this.chartSettingsAnchor?.setAttribute("aria-expanded", "true");
+    this.chartSettingsAnchor?.classList.add("active");
     if (open) {
       this.setPrimaryPeriodMenuOpen(false);
       this.setPickerOpen(false);
@@ -3644,19 +4495,6 @@ class TradingExpertMarketWorkspace {
       window.requestAnimationFrame(() => {
         this.chartSettingsBackdrop.querySelector<HTMLButtonElement>("[data-market-settings-tab].selected")?.focus();
       });
-    }
-  }
-
-  private setMoreMenuOpen(open: boolean) {
-    this.moreMenu.hidden = !open;
-    const trigger = this.host.querySelector<HTMLElement>('[data-market-action="toggle-more-menu"]');
-    trigger?.setAttribute("aria-expanded", String(open));
-    trigger?.classList.toggle("active", open);
-    if (open) {
-      this.setPrimaryPeriodMenuOpen(false);
-      this.setLayoutPickerOpen(false);
-      this.setPickerOpen(false);
-      this.setPeriodEditorOpen(false);
     }
   }
 
@@ -3674,7 +4512,12 @@ class TradingExpertMarketWorkspace {
   }
 
   private setLayoutPickerOpen(open: boolean, anchor: HTMLElement | null = null) {
+    const primaryTrigger = this.host.querySelector<HTMLElement>('[data-market-action="open-split-layouts"]');
     if (!open) {
+      this.layoutPickerAnchor?.setAttribute("aria-expanded", "false");
+      this.layoutPickerAnchor?.classList.remove("active");
+      primaryTrigger?.setAttribute("aria-expanded", "false");
+      primaryTrigger?.classList.remove("active");
       this.layoutPicker.hidden = true;
       this.layoutPicker.classList.remove("open", "floating");
       this.layoutPickerHome.parentNode?.insertBefore(
@@ -3687,9 +4530,13 @@ class TradingExpertMarketWorkspace {
     }
     this.layoutPickerAnchor = anchor?.isConnected
       ? anchor
-      : this.host.querySelector<HTMLElement>('[data-market-action="toggle-more-menu"]');
+      : primaryTrigger;
+    const primaryOpen = this.layoutPickerAnchor === primaryTrigger;
+    primaryTrigger?.setAttribute("aria-expanded", String(primaryOpen));
+    primaryTrigger?.classList.toggle("active", primaryOpen);
+    this.layoutPickerAnchor?.setAttribute("aria-expanded", "true");
+    this.layoutPickerAnchor?.classList.add("active");
     this.setPrimaryPeriodMenuOpen(false);
-    this.setMoreMenuOpen(false);
     this.host.append(this.layoutPicker);
     this.layoutPicker.hidden = false;
     this.layoutPicker.classList.add("open", "floating");
@@ -3703,7 +4550,7 @@ class TradingExpertMarketWorkspace {
   private positionLayoutPicker() {
     if (this.layoutPicker.hidden) return;
     const hostRect = this.host.getBoundingClientRect();
-    const fallbackAnchor = this.host.querySelector<HTMLElement>('[data-market-action="toggle-more-menu"]');
+    const fallbackAnchor = this.host.querySelector<HTMLElement>('[data-market-action="open-split-layouts"]');
     const anchor = this.layoutPickerAnchor?.isConnected ? this.layoutPickerAnchor : fallbackAnchor;
     const anchorRect = anchor?.getBoundingClientRect() ?? hostRect;
     const placement = tradingFloatingOverlayPlacement({
@@ -3874,17 +4721,14 @@ class TradingExpertMarketWorkspace {
         },
         onOpenIndicatorEditor: () => {
           this.indicatorEditorSplitPane = pane;
-          this.setMoreMenuOpen(false);
           this.setLayoutPickerOpen(false);
           this.setIndicatorEditorOpen(true);
         },
-        onOpenGlobalSettings: () => {
-          this.setMoreMenuOpen(false);
+        onOpenGlobalSettings: (anchor) => {
           this.setLayoutPickerOpen(false);
-          this.setChartSettingsOpen(true);
+          this.setChartSettingsOpen(true, anchor);
         },
         onOpenSplitLayouts: (anchor) => {
-          this.setMoreMenuOpen(false);
           this.setLayoutPickerOpen(true, anchor);
         },
       });
@@ -3927,6 +4771,9 @@ class TradingExpertMarketWorkspace {
         undefined,
         market.marketType === "spot" ? "spot" : "perpetual",
       );
+      if (!tradingCandleSeriesMatchesResolution(result.candles, interval)) {
+        throw new Error(`分屏行情周期校验失败：${interval}`);
+      }
       return result.candles;
     }
     const api = market.provider === "ifind"
@@ -4000,16 +4847,10 @@ class TradingExpertMarketWorkspace {
       return;
     }
     if (
-      !this.moreMenu.hidden
-      && event.target instanceof Node
-      && !this.moreMenu.parentElement?.contains(event.target)
-    ) {
-      this.setMoreMenuOpen(false);
-    }
-    if (
       !this.layoutPicker.hidden
       && event.target instanceof Node
       && !this.layoutPicker.contains(event.target)
+      && !this.layoutPickerAnchor?.contains(event.target)
     ) {
       this.setLayoutPickerOpen(false);
     }
@@ -4051,18 +4892,19 @@ class TradingExpertMarketWorkspace {
   };
   private readonly handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && !this.chartSettingsBackdrop.hidden) {
+      const trigger = this.chartSettingsAnchor;
       this.setChartSettingsOpen(false);
-      this.host.querySelector<HTMLElement>('[data-market-action="toggle-more-menu"]')?.focus();
+      (trigger?.isConnected
+        ? trigger
+        : this.host.querySelector<HTMLElement>('[data-market-action="open-chart-settings"]'))?.focus();
       return;
     }
     if (event.key === "Escape" && !this.layoutPicker.hidden) {
+      const trigger = this.layoutPickerAnchor;
       this.setLayoutPickerOpen(false);
-      this.host.querySelector<HTMLElement>('[data-market-action="toggle-more-menu"]')?.focus();
-      return;
-    }
-    if (event.key === "Escape" && !this.moreMenu.hidden) {
-      this.setMoreMenuOpen(false);
-      this.host.querySelector<HTMLElement>('[data-market-action="toggle-more-menu"]')?.focus();
+      (trigger?.isConnected
+        ? trigger
+        : this.host.querySelector<HTMLElement>('[data-market-action="open-split-layouts"]'))?.focus();
       return;
     }
     if (event.key === "Escape" && this.openIndicatorWidthMenuKey) {
@@ -4498,8 +5340,27 @@ class TradingExpertMarketWorkspace {
           `切换至 ${market.displaySymbol}${market.tag}，价格 ${priceText}，24小时涨幅 ${changeText}`,
         );
       });
-      if (!this.picker.hidden) this.renderMarkets();
+      if (!this.picker.hidden) this.paintVisibleMarketQuotes();
     });
+  }
+
+  private paintVisibleMarketQuotes() {
+    this.marketList.querySelectorAll<HTMLButtonElement>('[data-market-action="symbol"][data-market-id]')
+      .forEach((button) => {
+        const market = this.renderedMarkets.get(String(button.dataset.marketId || ""));
+        const row = button.closest<HTMLElement>(".trading-market-row");
+        if (!market || !row) return;
+        const price = row.querySelector<HTMLElement>("[data-market-row-price]");
+        const change = row.querySelector<HTMLElement>("[data-market-row-change]");
+        if (price) price.textContent = market.quoteAvailable ? formatMarketPrice(market.markPrice) : "--";
+        if (change) {
+          change.textContent = market.quoteAvailable
+            ? `${market.changePercent >= 0 ? "+" : ""}${market.changePercent.toFixed(2)}%`
+            : "--";
+          change.classList.toggle("positive", market.quoteAvailable && market.changePercent >= 0);
+          change.classList.toggle("negative", market.quoteAvailable && market.changePercent < 0);
+        }
+      });
   }
 
   private armFavoriteTickerSocketWatchdog(socket: WebSocket, generation: number) {
@@ -5165,7 +6026,6 @@ class TradingExpertMarketWorkspace {
       this.setPeriodEditorOpen(false);
       this.setPickerOpen(false);
       this.setIndicatorEditorOpen(false);
-      this.setMoreMenuOpen(false);
       this.setLayoutPickerOpen(false);
     }
     this.primaryPeriodMenu.hidden = !nextOpen;
@@ -5590,8 +6450,8 @@ class TradingExpertMarketWorkspace {
             <span class="trading-market-contract-tag">${escapeHtml(market.tag)}</span>
           </span>
           <span class="trading-market-row-venue" title="${escapeAttribute(market.venue)}">${escapeHtml(market.venue)}</span>
-          <b>${escapeHtml(priceText)}</b>
-          <em class="${market.quoteAvailable ? changeClass : ""}">${escapeHtml(changeText)}</em>
+          <b data-market-row-price>${escapeHtml(priceText)}</b>
+          <em class="${market.quoteAvailable ? changeClass : ""}" data-market-row-change>${escapeHtml(changeText)}</em>
           <button
             type="button"
             class="trading-market-favorite${favorite ? " active" : ""}"
@@ -5655,6 +6515,11 @@ class TradingExpertMarketWorkspace {
         migrateFromSessionId,
         drawingStorageSessionId,
       );
+      migrateTradingAlertSimulationState(
+        window.localStorage,
+        migrateFromSessionId,
+        drawingStorageSessionId,
+      );
     }
     this.drawingStorageSessionId = drawingStorageSessionId;
     this.drawingController?.switchStorageSession(drawingStorageSessionId, {
@@ -5663,12 +6528,15 @@ class TradingExpertMarketWorkspace {
     const switchingHistorySession = previousStorageSessionId !== drawingStorageSessionId
       && !migrateFromSessionId;
     if (switchingHistorySession) {
+      this.detachAlertSimulation();
+      this.loadPersistedAlertSimulation();
       const workspace = loadTradingLastDrawingWorkspace(window.localStorage, drawingStorageSessionId);
       this.splitPaneSelections.clear();
       this.splitPaneIndicatorSelections.clear();
       this.splitLayoutId = workspace?.layoutId || loadTradingSplitLayoutId(window.localStorage);
       if (workspace) this.restoreLastDrawingWorkspace(workspace);
       else this.restoreLastAnalysisSelection();
+      this.restoreAlertSimulationSelection();
       this.applySplitLayout();
       this.refreshSplitLayoutPicker();
       void this.restartMarketData({ preserveChart: true });
@@ -6042,6 +6910,1201 @@ class TradingExpertMarketWorkspace {
     theory?: "chan" | "order-flow" | "wave" | "wyckoff" | "price-action",
   ) {
     return this.drawingController?.hasAiAnalysisForCurrentContext(theory) === true;
+  }
+
+  alertContextSnapshot() {
+    const market = this.selectedMarketMeta
+      || this.markets.find((candidate) => candidate.id === this.selectedMarketId)
+      || this.favoriteMarketFromId(this.selectedMarketId);
+    return Object.freeze({
+      marketId: this.selectedMarketId,
+      symbol: this.selectedSymbol,
+      interval: tradingAlertIntervalFromResolution(this.activeInterval),
+      resolution: this.activeInterval,
+      provider: market?.provider || this.selectedProvider,
+      venue: market?.venue || MARKET_VENUE,
+      marketType: market?.marketType || this.selectedMarketType,
+      drawings: this.drawingController?.alertDrawingSnapshots() || [],
+    });
+  }
+
+  private queueAlertDrawingSync() {
+    if (this.alertDrawingSyncTimer !== null) window.clearTimeout(this.alertDrawingSyncTimer);
+    this.alertDrawingSyncTimer = window.setTimeout(() => {
+      this.alertDrawingSyncTimer = null;
+      const context = this.alertContextSnapshot();
+      void window.codexDesktop.tradingAlertsSyncDrawings?.({ marketId: context.marketId, interval: context.interval, drawings: context.drawings });
+    }, 180);
+  }
+
+  async prepareAlertContext(marketId?: string | null, interval?: string | null) {
+    if (!this.markets.length) await this.loadMarkets();
+    const normalizedMarketId = String(marketId || this.selectedMarketId).trim().toUpperCase();
+    const targetMarket = this.markets.find((market) => market.id.toUpperCase() === normalizedMarketId)
+      || this.favoriteMarketFromId(normalizedMarketId)
+      || this.markets.find((market) => market.symbol.toUpperCase() === normalizedMarketId.replace(/^.*:/, ""));
+    if (!targetMarket) throw new Error(`未找到可用的行情：${normalizedMarketId}`);
+    const targetInterval = tradingResolutionFromAlertInterval(interval || tradingAlertIntervalFromResolution(this.activeInterval));
+    if (!tradingViewResolutionDurationMs(targetInterval)) throw new Error(`暂不支持 ${interval || targetInterval} K 线周期`);
+    const shouldReload = targetMarket.id !== this.loadedMarketId
+      || targetInterval !== this.loadedInterval
+      || this.candles.length < 2
+      || this.marketLoading;
+    if (shouldReload) {
+      this.clearAlertSimulation();
+      this.selectMarket(targetMarket);
+      this.activeInterval = targetInterval;
+      this.updateSymbolUi();
+      this.updateIntervalPressedButtons(targetInterval);
+      this.renderMarkets();
+      this.drawingController?.redraw();
+      this.setPickerOpen(false);
+      await this.restartMarketData();
+    }
+    if (this.loadedMarketId !== targetMarket.id || this.loadedInterval !== targetInterval || this.candles.length < 2) {
+      throw new Error(`${targetMarket.displaySymbol || targetMarket.symbol} ${targetInterval} 行情加载失败`);
+    }
+    return this.alertContextSnapshot();
+  }
+
+  focusAlertEvidence(triggeredAt: number) {
+    if (!this.chart || !this.candleSeries || !this.candles.length) throw new Error("触发 K 线尚未加载");
+    const target = Math.floor(Number(triggeredAt) / 1_000);
+    const nearest = this.candles.reduce((best, candle) => Math.abs(candle.time - target) < Math.abs(best.time - target) ? candle : best, this.candles[0]);
+    const step = Number(tradingViewResolutionDurationMs(this.activeInterval) || 3_600_000) / 1_000;
+    const displayTime = nearest.time + CHINA_TIME_OFFSET_SECONDS;
+    this.chart.timeScale().setVisibleRange({ from: (displayTime - step * 20) as any, to: (displayTime + step * 8) as any });
+    this.alertEvidenceAnnotation ||= this.createAlertSimulationAnnotation("预警真实触发", "alert-evidence");
+    this.alertEvidencePoint = { time: displayTime, price: nearest.high };
+    window.requestAnimationFrame(() => this.paintAlertSimulationMarker());
+    return true;
+  }
+
+  async alertSimulationFrames(rule: any) {
+    const frames: Record<string, any> = {};
+    for (const context of Array.isArray(rule?.contexts) ? rule.contexts : []) {
+      const selector = context?.marketSelector || {};
+      const marketId = selector.kind === "fixed"
+        ? String(selector.marketIds?.[0] || "")
+        : selector.kind === "universe"
+          ? String(selector.frozenMarketIds?.[0] || this.selectedMarketId)
+          : this.selectedMarketId;
+      const interval = String(context?.intervals?.[0] || tradingAlertIntervalFromResolution(this.activeInterval)).toLowerCase();
+      const resolution = tradingResolutionFromAlertInterval(interval);
+      const market = this.markets.find((candidate) => candidate.id.toUpperCase() === marketId.toUpperCase())
+        || this.favoriteMarketFromId(marketId)
+        || (marketId === this.selectedMarketId ? this.selectedMarketMeta : null);
+      if (!market) throw new Error(`模拟所需行情尚未接入：${marketId}`);
+      let candles = market.id === this.loadedMarketId && resolution === this.loadedInterval
+        ? this.candles.slice(-500)
+        : (await this.fetchHistoricalCandleBatch({
+            symbol: market.symbol,
+            provider: market.provider,
+            assetClass: market.assetClass,
+            marketType: market.marketType,
+            interval: resolution,
+            count: 500,
+            endTime: Date.now(),
+          })).candles;
+      const durationMs = tradingViewResolutionDurationMs(resolution) || 60_000;
+      frames[String(context.contextId)] = {
+        marketId: market.id,
+        interval,
+        coverage: "available",
+        closed: true,
+        receivedAt: Date.now(),
+        drawings: Object.fromEntries((this.drawingController?.alertDrawingSnapshots() || [])
+          .filter((drawing: any) => drawing.marketId === market.id && tradingResolutionFromAlertInterval(drawing.interval) === resolution)
+          .map((drawing: any) => [drawing.drawingId, drawing])),
+        candles: candles.map((candle) => ({
+          time: candle.time * 1_000,
+          closeTime: candle.time * 1_000 + durationMs,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          volume: Number(candle.volume || 0),
+        })),
+      };
+    }
+    return frames;
+  }
+
+  showAlertSimulation(simulation: any, anchorContextId: string, rule?: any) {
+    if (!this.chart) throw new Error("K 线画布尚未就绪");
+    const generated = Array.isArray(simulation?.generated?.[anchorContextId])
+      ? simulation.generated[anchorContextId]
+      : [];
+    if (!generated.length) throw new Error("模拟结果没有可绘制的 K 线");
+    const display = generated.map((candle: any) => ({
+      // The primary chart stores market timestamps in UTC seconds and applies
+      // the fixed China display offset to every plotted series. Simulation
+      // candles use UTC milliseconds, so they must receive the same display
+      // transform or they appear eight hours inside the historical range.
+      time: (Math.floor(Number(candle.time) / 1_000) + CHINA_TIME_OFFSET_SECONDS) as UTCTimestamp,
+      open: Number(candle.open), high: Number(candle.high), low: Number(candle.low), close: Number(candle.close),
+      ...(Number.isFinite(Number(candle.volume)) && Number(candle.volume) >= 0
+        ? { volume: Number(candle.volume) }
+        : {}),
+    }));
+    const latestRealDisplayTime = Number(this.chartCandles.at(-1)?.time || 0) + CHINA_TIME_OFFSET_SECONDS;
+    if (Number(display[0]?.time || 0) <= latestRealDisplayTime) {
+      throw new Error("模拟 K 线时间锚点已过期，请基于最新行情重新模拟");
+    }
+    const triggerIndex = Math.max(0, Math.min(display.length - 1, Number(simulation.triggerBarIndex ?? display.length - 1)));
+    const triggerTimeValue = Number(simulation?.triggerPoint?.time);
+    const triggerTime = Number.isFinite(triggerTimeValue) && triggerTimeValue > 0
+      ? triggerTimeValue / 1_000 + CHINA_TIME_OFFSET_SECONDS
+      : null;
+    const triggerPriceValue = Number(simulation?.triggerPoint?.price);
+    const triggerPrice = Number.isFinite(triggerPriceValue) && triggerPriceValue > 0
+      ? triggerPriceValue
+      : null;
+    const generatedStepSeconds = Math.max(
+      1,
+      Math.floor(Number(generated[0]?.closeTime) / 1_000) - Math.floor(Number(generated[0]?.time) / 1_000),
+    );
+    const stepSeconds = display.length > 1
+      ? Math.max(1, Number(display[1].time) - Number(display[0].time))
+      : generatedStepSeconds;
+    const normalLogicalRange = this.alertSimulationPreviousLogicalRange
+      || this.chart.timeScale().getVisibleLogicalRange();
+    this.clearAlertSimulation({ restoreViewport: false });
+    this.alertSimulationPreviousLogicalRange = normalLogicalRange
+      ? { from: Number(normalLogicalRange.from), to: Number(normalLogicalRange.to) }
+      : null;
+    this.alertSimulationId = String(simulation.simulationId || "simulation");
+    const simulationMarket = this.loadedMarketMeta
+      || this.selectedMarketMeta
+      || this.markets.find((market) => market.id === this.loadedMarketId)
+      || this.favoriteMarketFromId(this.loadedMarketId);
+    const derivedActiveConditionIds = tradingAlertSimulationActiveConditionIds(rule, simulation?.proof);
+    const activeConditionIds = Array.isArray(simulation?.activeConditionIds)
+      ? simulation.activeConditionIds.map(String)
+      : derivedActiveConditionIds.length ? derivedActiveConditionIds : undefined;
+    const indicators = collectTradingAlertSimulationIndicators(rule, anchorContextId, activeConditionIds);
+    const conditionAnnotations = collectTradingAlertSimulationConditionAnnotations(rule, simulation, anchorContextId);
+    this.alertSimulationState = {
+      schemaVersion: 1,
+      simulationId: this.alertSimulationId,
+      marketId: this.loadedMarketId,
+      interval: this.loadedInterval,
+      display,
+      triggerIndex,
+      triggerTime,
+      triggerPrice,
+      stepSeconds,
+      updatedAt: Date.now(),
+      ...(indicators.length ? { indicators } : {}),
+      ...(conditionAnnotations.length ? { conditionAnnotations } : {}),
+      ...(simulationMarket ? { market: tradingFavoriteRecord(simulationMarket) } : {}),
+    };
+    saveTradingAlertSimulationState(
+      window.localStorage,
+      this.drawingStorageSessionId,
+      this.alertSimulationState,
+    );
+    try {
+      this.attachAlertSimulation({ animate: true, focus: true });
+    } catch (error) {
+      // The simulation overlay is transactional: a partially attached series
+      // must never replace the real historical candles after a render failure.
+      this.clearAlertSimulation();
+      throw error;
+    }
+    return true;
+  }
+
+  private alertSimulationMatchesCurrentContext() {
+    const state = this.alertSimulationState;
+    return Boolean(
+      state
+      && state.marketId === this.selectedMarketId
+      && state.interval === this.activeInterval
+      && state.marketId === this.loadedMarketId
+      && state.interval === this.loadedInterval
+      && this.chartCandles.length,
+    );
+  }
+
+  private focusAlertSimulationViewport(state: TradingAlertSimulationState) {
+    if (!this.chart || !state.display.length) return;
+    const lookbackBars = Math.max(36, Math.min(80, state.display.length * 6));
+    const longestLabelLength = Math.max(
+      "模拟触发".length,
+      ...(state.indicators || []).map((indicator) => `模拟触发 · ${indicator.triggerLabel}`.length),
+      ...(state.conditionAnnotations || []).map((annotation) => annotation.label.length),
+    );
+    const mainPaneBounds = this.chart.panes()[0]?.getHTMLElement?.()?.getBoundingClientRect?.();
+    const chartWidth = Math.max(1, Number(mainPaneBounds?.width || this.viewport.clientWidth || 1));
+    const rightPaddingBars = tradingAlertAnnotationRightPaddingBars(
+      chartWidth,
+      lookbackBars + Math.max(0, state.display.length - 1),
+      longestLabelLength,
+    );
+    const timeScale = this.chart.timeScale();
+    const firstLogical = timeScale.timeToIndex(state.display[0].time, true);
+    const lastLogical = timeScale.timeToIndex(state.display.at(-1)?.time as UTCTimestamp, true);
+    const before = timeScale.getVisibleLogicalRange();
+    if (typeof firstLogical === "number" && typeof lastLogical === "number") {
+      const currentRightOffset = Number(timeScale.scrollPosition() || 0);
+      // Lightweight-charts keeps its base index anchored to the historical
+      // series even when an isolated overlay contributes later timestamps.
+      // Account for that index gap explicitly; using only label padding leaves
+      // every generated candle after the historical base outside the viewport.
+      const baseLogical = before
+        ? Number(before.to) - currentRightOffset
+        : firstLogical;
+      const simulationRightOffset = Math.max(
+        rightPaddingBars,
+        lastLogical - baseLogical + rightPaddingBars,
+      );
+      timeScale.applyOptions({ rightBarStaysOnScroll: false });
+      timeScale.scrollToPosition(simulationRightOffset, false);
+      return;
+    }
+    timeScale.setVisibleRange({
+      from: (Number(state.display[0].time) - state.stepSeconds * lookbackBars) as any,
+      to: (Number(state.display.at(-1)?.time) + state.stepSeconds * rightPaddingBars) as any,
+    });
+  }
+
+  private queueAlertSimulationViewportFocus(
+    state: TradingAlertSimulationState,
+    series: any,
+  ) {
+    if (
+      !this.chart
+      || this.alertSimulationViewportFocusFrame !== null
+      || this.alertSimulationViewportFocusRetries >= 12
+    ) return;
+    this.alertSimulationViewportFocusRetries += 1;
+    this.alertSimulationViewportFocusFrame = window.requestAnimationFrame(() => {
+      this.alertSimulationViewportFocusFrame = null;
+      if (this.alertSimulationSeries !== series || this.alertSimulationState !== state || !this.chart) {
+        this.alertSimulationViewportFocusRetries = 0;
+        return;
+      }
+      const geometry = this.alertSimulationPaneGeometry(null);
+      const triggerX = state.triggerTime === null
+        ? null
+        : this.chart.timeScale().timeToCoordinate(state.triggerTime as UTCTimestamp);
+      const indicatorPanesReady = this.alertSimulationIndicatorRuntimes.every((runtime) => (
+        !runtime.pane || this.alertSimulationPaneGeometry(runtime.pane) !== null
+      ));
+      if (
+        geometry
+        && typeof triggerX === "number"
+        && Number.isFinite(triggerX)
+        && triggerX >= 0
+        && triggerX <= geometry.width - 12
+        && indicatorPanesReady
+      ) {
+        this.alertSimulationViewportFocusRetries = 0;
+        this.paintAlertSimulationMarker();
+        return;
+      }
+      this.focusAlertSimulationViewport(state);
+      this.paintAlertSimulationMarker();
+      this.queueAlertSimulationViewportFocus(state, series);
+    });
+  }
+
+  private attachAlertSimulation(options: { animate?: boolean; focus?: boolean } = {}) {
+    const state = this.alertSimulationState;
+    if (!this.chart || !state || !this.alertSimulationMatchesCurrentContext()) return false;
+    if (this.alertSimulationSeries) return true;
+    const simulationColors = isDarkTheme()
+      ? { up: "rgba(91, 156, 255, 0.72)", down: "rgba(255, 173, 66, 0.74)", upBorder: "#7eb2ff", downBorder: "#ffc06b" }
+      : { up: "rgba(29, 78, 216, 0.62)", down: "rgba(180, 83, 9, 0.66)", upBorder: "#1d4ed8", downBorder: "#b45309" };
+    const series = this.chart.addSeries(CandlestickSeries, {
+      priceLineVisible: false,
+      lastValueVisible: false,
+      upColor: simulationColors.up,
+      downColor: simulationColors.down,
+      borderUpColor: simulationColors.upBorder,
+      borderDownColor: simulationColors.downBorder,
+      wickUpColor: simulationColors.upBorder,
+      wickDownColor: simulationColors.downBorder,
+    });
+    this.alertSimulationMarkerVisible = false;
+    this.alertSimulationMarkerPaintRetries = 0;
+    this.alertSimulationViewportFocusRetries = 0;
+    this.alertSimulationPointElement.hidden = true;
+    this.alertSimulationSeries = series;
+    this.attachAlertSimulationConditionAnnotations();
+    try {
+      this.attachAlertSimulationIndicators();
+    } catch (error) {
+      // A supplementary indicator pane must never prevent the simulated
+      // candles and their trigger annotation from rendering on the main pane.
+      console.error("[trading-alert] simulation indicator attach failed", error);
+      this.detachAlertSimulationIndicators();
+    }
+    const stagedDisplay = (visibleCount: number) => state.display.map((candle, index) => (
+      index < visibleCount ? candle : { time: candle.time }
+    ));
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    const animate = options.animate === true && !reducedMotion && state.display.length > 1;
+    series.setData(stagedDisplay(animate ? 1 : state.display.length));
+    this.updateAlertSimulationIndicatorsSafely(animate ? 1 : state.display.length);
+    if (options.focus === true) this.focusAlertSimulationViewport(state);
+    const finish = () => {
+      if (this.alertSimulationSeries !== series || this.alertSimulationState !== state) return;
+      this.alertSimulationMarkerVisible = true;
+      // Trailing whitespace is ignored by lightweight-charts, so the initial
+      // focus is clamped to the first generated candle during animation. Once
+      // every generated candle has real data, re-focus to keep the trigger and
+      // its annotation inside the chart instead of just beyond the right edge.
+      this.paintAlertSimulationMarker();
+      if (options.focus === true) this.queueAlertSimulationViewportFocus(state, series);
+      this.queueAlertSimulationMarkerPaint();
+    };
+    if (!animate) finish();
+    else {
+      let count = 1;
+      const paintNext = () => {
+        if (this.alertSimulationSeries !== series || this.alertSimulationState !== state) return;
+        count += 1;
+        try {
+          series.setData(stagedDisplay(count));
+        } catch (error) {
+          console.error("[trading-alert] simulation animation failed", error);
+          this.clearAlertSimulation();
+          return;
+        }
+        this.updateAlertSimulationIndicatorsSafely(count);
+        if (count >= state.display.length) { this.alertSimulationTimer = null; finish(); return; }
+        this.alertSimulationTimer = window.setTimeout(paintNext, 90);
+      };
+      this.alertSimulationTimer = window.setTimeout(paintNext, 90);
+    }
+    return true;
+  }
+
+  private alertSimulationCombinedCandles(state: TradingAlertSimulationState) {
+    return [
+      ...this.chartCandles,
+      ...state.display.map((candle) => ({
+        time: Number(candle.time) - CHINA_TIME_OFFSET_SECONDS,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: Number(candle.volume || 0),
+      })),
+    ];
+  }
+
+  private calculateAlertSimulationIndicator(
+    spec: TradingAlertSimulationIndicatorSpec,
+    candles: TradingCandle[],
+    colorOffset: number,
+  ): TradingIndicatorResult {
+    const palette = alertSimulationIndicatorPalette(isDarkTheme());
+    const color = (index = 0) => palette[(colorOffset + index) % palette.length];
+    const line = (key: string, label: string, values: number[], index = 0) => ({
+      key,
+      label,
+      color: color(index),
+      type: "line" as const,
+      values,
+      priceFormat: "price" as const,
+    });
+    const closes = candles.map((candle) => candle.close);
+    if (spec.name === "ma") {
+      const period = spec.parameters[0];
+      return {
+        definition: { id: "rsi", label: "MA", name: "MA", parameters: String(period) },
+        series: [line(`ma-${period}`, `MA(${period})`, computeSma(closes, period))],
+      };
+    }
+    if (spec.name === "ema") {
+      const period = spec.parameters[0];
+      return {
+        definition: { id: "rsi", label: "EMA", name: "EMA", parameters: String(period) },
+        series: [line(`ema-${period}`, `EMA(${period})`, computeEma(closes, period))],
+      };
+    }
+    if (spec.name === "boll") {
+      const bands = computeBollingerBands(closes, spec.parameters[0], spec.parameters[1]);
+      return {
+        definition: { id: "rsi", label: "BOLL", name: "BOLL", parameters: spec.parameters.join(",") },
+        series: [
+          line("upper", "上轨", bands.upper, 0),
+          line("middle", "中轨", bands.middle, 1),
+          line("lower", "下轨", bands.lower, 2),
+        ],
+      };
+    }
+    const result = calculateTradingIndicator(spec.name as TradingIndicatorId, candles, spec.parameters);
+    return {
+      ...result,
+      series: result.series.map((series, index) => ({
+        ...series,
+        color: series.type === "histogram" ? series.color : color(index),
+      })),
+    };
+  }
+
+  private attachAlertSimulationIndicators() {
+    const state = this.alertSimulationState;
+    if (!this.chart || !state?.indicators?.length || this.alertSimulationIndicatorRuntimes.length) return;
+    const candles = this.alertSimulationCombinedCandles(state);
+    const realCandleCount = this.chartCandles.length;
+    const historicalDisplayEnd = Number(this.chartCandles.at(-1)?.time || 0) + CHINA_TIME_OFFSET_SECONDS;
+    const markerLabels = new Set<string>();
+    state.indicators.forEach((spec, specIndex) => {
+      const result = this.calculateAlertSimulationIndicator(spec, candles, specIndex * 2);
+      const largestPeriod = Math.max(...spec.parameters.filter(Number.isFinite), 20);
+      const historyStart = Math.max(0, realCandleCount - Math.min(240, Math.max(48, Math.ceil(largestPeriod * 3))));
+      let pane: any | null = null;
+      if (spec.placement === "pane") {
+        // Keep the pane alive while its series are constructed and removed.
+        // With preserveEmptyPane=false lightweight-charts can auto-delete it
+        // between lifecycle calls, leaving a stale pane/series handle whose
+        // next operation throws the opaque "Value is undefined" error.
+        pane = this.chart?.addPane(true) || null;
+      }
+      const runtime: TradingAlertSimulationIndicatorRuntime = {
+        spec,
+        pane,
+        legend: null,
+        series: [],
+        historicalDisplayEnd,
+      };
+      // Register ownership before adding the first series so a partial attach
+      // can always be rolled back by detachAlertSimulationIndicators().
+      this.alertSimulationIndicatorRuntimes.push(runtime);
+      if (pane) {
+        pane.setStretchFactor(1);
+        this.chart?.panes()[0]?.setStretchFactor(3);
+      }
+      result.series.forEach((descriptor, seriesIndex) => {
+        const commonOptions = {
+          priceLineVisible: false,
+          lastValueVisible: false,
+          title: "",
+          priceFormat: descriptor.priceFormat === "volume"
+            ? { type: "volume" as const }
+            : { type: "price" as const, precision: 2, minMove: 0.01 },
+        };
+        const api = descriptor.type === "histogram"
+          ? (pane || this.chart)?.addSeries(HistogramSeries, {
+              ...commonOptions,
+              color: descriptor.color,
+              base: descriptor.baseValue ?? 0,
+            })
+          : (pane || this.chart)?.addSeries(LineSeries, {
+              ...commonOptions,
+              color: descriptor.color,
+              lineWidth: spec.placement === "main" ? 2 : 2,
+              crosshairMarkerVisible: false,
+            });
+        if (!api) return;
+        const data = descriptor.values.flatMap<Array<Record<string, unknown> & { time: UTCTimestamp; value?: number }>[number]>((value, index) => {
+          if (index < historyStart || !Number.isFinite(value) || !candles[index]) return [];
+          return [{
+            time: (candles[index].time + CHINA_TIME_OFFSET_SECONDS) as UTCTimestamp,
+            value,
+            ...(descriptor.colors?.[index] ? { color: descriptor.colors[index] } : {}),
+          }];
+        });
+        const triggerSpecs = spec.triggers?.length
+          ? spec.triggers
+          : [{ label: spec.triggerLabel, conditionIds: spec.conditionIds }];
+        const ownedTriggers = seriesIndex === 0
+          ? triggerSpecs.filter((trigger) => {
+              const key = trigger.conditionIds.length
+                ? trigger.conditionIds.slice().sort().join("|")
+                : trigger.label;
+              if (markerLabels.has(key)) return false;
+              markerLabels.add(key);
+              return true;
+            })
+          : [];
+        runtime.series.push({
+          key: descriptor.key,
+          type: descriptor.type,
+          api,
+          label: descriptor.label,
+          color: descriptor.color,
+          data,
+          annotation: ownedTriggers[0]
+            ? this.createAlertSimulationAnnotation(
+                `模拟触发 · ${ownedTriggers[0].label}`,
+                `${spec.specId}:${ownedTriggers[0].conditionIds.join("+")}`,
+              )
+            : null,
+          additionalAnnotations: ownedTriggers.slice(1).map((trigger) => this.createAlertSimulationAnnotation(
+            `模拟触发 · ${trigger.label}`,
+            `${spec.specId}:${trigger.conditionIds.join("+")}`,
+          )),
+          latestValue: Number.NaN,
+        });
+      });
+      if (!runtime.series.length) {
+        throw new Error(`模拟指标 ${spec.label} 没有可绘制序列`);
+      }
+      runtime.series[0]?.api?.priceScale()?.applyOptions({
+        autoScale: true,
+        borderColor: marketTheme(isDarkTheme()).border,
+        textColor: marketTheme(isDarkTheme()).text,
+        ...(spec.placement === "pane" ? { scaleMargins: { top: 0.22, bottom: 0.12 } } : {}),
+      });
+      if (pane) {
+        result.referenceLines?.forEach((reference) => runtime.series[0]?.api?.createPriceLine({
+          price: reference.value,
+          color: reference.color,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: false,
+          title: "",
+        }));
+        runtime.legend = this.createAlertSimulationIndicatorLegend(runtime);
+      }
+    });
+    if (this.alertSimulationIndicatorRuntimes.some((runtime) => runtime.pane)) {
+      // addPane() updates the model before lightweight-charts creates the pane
+      // widget. Force one synchronized layout now so paneSize/DOM geometry and
+      // the first indicator annotation cannot observe a zero-sized ghost pane.
+      this.chart.resize(
+        Math.max(this.chartElement.clientWidth, 1),
+        Math.max(this.chartElement.clientHeight, 1),
+        true,
+      );
+    }
+    this.positionIndicatorLegends();
+    this.renderAlertSimulationMainIndicatorLegends();
+  }
+
+  private createAlertSimulationAnnotation(label: string, id: string) {
+    const annotation = document.createElement("div");
+    annotation.className = "trading-alert-simulation-point";
+    annotation.dataset.alertSimulationAnnotation = id;
+    annotation.hidden = true;
+    annotation.setAttribute("aria-label", label);
+    const text = document.createElement("span");
+    text.textContent = label;
+    annotation.append(text);
+    this.alertSimulationAnnotationLayer.append(annotation);
+    return annotation;
+  }
+
+  private attachAlertSimulationConditionAnnotations() {
+    const specs = this.alertSimulationState?.conditionAnnotations || [];
+    if (this.alertSimulationConditionAnnotations.size || !specs.length) return;
+    specs.forEach((spec) => {
+      this.alertSimulationConditionAnnotations.set(
+        spec.annotationId,
+        this.createAlertSimulationAnnotation(spec.label, spec.annotationId),
+      );
+    });
+  }
+
+  private detachAlertSimulationConditionAnnotations() {
+    this.alertSimulationConditionAnnotations.forEach((element) => element.remove());
+    this.alertSimulationConditionAnnotations.clear();
+  }
+
+  private createAlertSimulationIndicatorLegend(runtime: TradingAlertSimulationIndicatorRuntime) {
+    const legend = document.createElement("div");
+    legend.className = "trading-market-indicator-legend is-alert-simulation";
+    legend.dataset.alertSimulationIndicator = runtime.spec.specId;
+    const title = document.createElement("strong");
+    title.textContent = `${runtime.spec.label} (${runtime.spec.parameters.join(",")}) · 模拟`;
+    legend.append(title);
+    runtime.series.forEach((series) => {
+      const value = document.createElement("span");
+      value.dataset.indicatorSeries = series.key;
+      value.style.setProperty("--indicator-series-color", series.color);
+      value.textContent = `${series.label}: --`;
+      legend.append(value);
+    });
+    this.indicatorLegendLayer.append(legend);
+    return legend;
+  }
+
+  private renderAlertSimulationMainIndicatorLegends() {
+    this.mainIndicatorLegendElement.querySelectorAll("[data-alert-simulation-indicator]").forEach((element) => element.remove());
+    const mainRuntimes = this.alertSimulationIndicatorRuntimes.filter((runtime) => runtime.spec.placement === "main");
+    const groups = new Map<string, TradingAlertSimulationIndicatorRuntime[]>();
+    mainRuntimes.forEach((runtime) => groups.set(runtime.spec.label, [...(groups.get(runtime.spec.label) || []), runtime]));
+    groups.forEach((runtimes, label) => {
+      const row = document.createElement("div");
+      row.className = "trading-market-main-indicator-legend is-alert-simulation";
+      row.dataset.alertSimulationIndicator = label;
+      const title = document.createElement("strong");
+      title.textContent = `${label} · 模拟`;
+      row.append(title);
+      runtimes.flatMap((runtime) => runtime.series).forEach((series) => {
+        const value = document.createElement("span");
+        value.style.setProperty("--main-indicator-series-color", series.color);
+        value.textContent = `${series.label}:${Number.isFinite(series.latestValue) ? formatOhlcPrice(series.latestValue) : "--"}`;
+        row.append(value);
+      });
+      this.mainIndicatorLegendElement.append(row);
+    });
+  }
+
+  private setAlertSimulationIndicatorVisibleCount(visibleCount: number) {
+    const state = this.alertSimulationState;
+    if (!state) return;
+    const boundedCount = Math.max(0, Math.min(state.display.length, Math.trunc(visibleCount)));
+    const futureDisplayEnd = Number(state.display[Math.max(0, boundedCount - 1)]?.time || 0);
+    this.alertSimulationIndicatorRuntimes.forEach((runtime) => {
+      runtime.series.forEach((series, seriesIndex) => {
+        const visibleData = series.data.filter((entry) => (
+          Number(entry.time) <= runtime.historicalDisplayEnd
+          || (boundedCount > 0 && Number(entry.time) <= futureDisplayEnd)
+        ));
+        series.api.setData(visibleData);
+        const latest = visibleData.at(-1)?.value;
+        series.latestValue = Number.isFinite(Number(latest)) ? Number(latest) : Number.NaN;
+        const legendValue = runtime.legend?.querySelectorAll<HTMLElement>("span")[seriesIndex];
+        if (legendValue) legendValue.textContent = `${series.label}: ${Number.isFinite(series.latestValue)
+          ? this.formatIndicatorValue(series.latestValue, runtime.spec.name as TradingIndicatorId)
+          : "--"}`;
+      });
+      runtime.series[0]?.api?.priceScale()?.setAutoScale(true);
+    });
+    this.renderAlertSimulationMainIndicatorLegends();
+    this.paintAlertSimulationMarker();
+  }
+
+  private updateAlertSimulationIndicatorsSafely(visibleCount: number) {
+    if (!this.alertSimulationIndicatorRuntimes.length) return;
+    try {
+      this.setAlertSimulationIndicatorVisibleCount(visibleCount);
+    } catch (error) {
+      console.error("[trading-alert] simulation indicator update failed", error);
+      this.detachAlertSimulationIndicators();
+    }
+  }
+
+  private detachAlertSimulationIndicators() {
+    if (!this.alertSimulationIndicatorRuntimes.length) return;
+    const runtimes = this.alertSimulationIndicatorRuntimes.splice(0);
+    const panes = [...new Set(runtimes.flatMap((runtime) => runtime.pane ? [runtime.pane] : []))];
+    runtimes.forEach((runtime) => {
+      runtime.series.forEach((series) => {
+        series.annotation?.remove();
+        series.additionalAnnotations.forEach((annotation) => annotation.remove());
+        if (this.chart) {
+          try {
+            this.removeAlertSimulationSeries(series.api);
+          } catch (error) {
+            console.error("[trading-alert] simulation indicator series cleanup failed", error);
+          }
+        }
+      });
+      runtime.legend?.remove();
+    });
+    // Resolve each live index only after its series have been removed. The
+    // preserved panes remain stable, and descending order avoids index shifts.
+    panes
+      .map((pane) => ({ pane, index: this.chart?.panes().indexOf(pane) ?? -1 }))
+      .filter(({ index }) => index > 0)
+      .sort((first, second) => second.index - first.index)
+      .forEach(({ pane }) => this.removeAlertSimulationPane(pane));
+    this.mainIndicatorLegendElement.querySelectorAll("[data-alert-simulation-indicator]").forEach((element) => element.remove());
+    const hasVisibleIndicators = this.activeIndicators.some((id) => {
+      const setting = this.indicatorSettings[tradingIndicatorSettingKey("sub", id)];
+      return Object.values(setting.series).some((series) => series.visible);
+    });
+    this.chart?.panes()[0]?.setStretchFactor(hasVisibleIndicators ? 3 : 1);
+    this.positionIndicatorLegends();
+  }
+
+  private removeAlertSimulationPane(pane: any) {
+    if (!this.chart || !pane) return;
+    const paneIndex = this.chart.panes().indexOf(pane);
+    if (paneIndex <= 0) return;
+    try {
+      this.chart.removePane(paneIndex);
+    } catch (error) {
+      // Pane cleanup is best-effort during chart reload. It must not tear down
+      // the real candlestick series or suppress the main simulation marker.
+      console.error("[trading-alert] simulation indicator pane cleanup failed", error);
+    }
+  }
+
+  private applyAlertSimulationIndicatorTheme() {
+    const palette = alertSimulationIndicatorPalette(isDarkTheme());
+    const theme = marketTheme(isDarkTheme());
+    let lineIndex = 0;
+    this.alertSimulationIndicatorRuntimes.forEach((runtime) => {
+      runtime.series.forEach((series, seriesIndex) => {
+        if (series.type === "line") {
+          const color = palette[lineIndex % palette.length];
+          lineIndex += 1;
+          series.color = color;
+          series.api.applyOptions({ color });
+          runtime.legend?.querySelectorAll<HTMLElement>("span")[seriesIndex]
+            ?.style.setProperty("--indicator-series-color", color);
+        }
+      });
+      runtime.series[0]?.api?.priceScale()?.applyOptions({
+        borderColor: theme.border,
+        textColor: theme.text,
+      });
+    });
+    this.renderAlertSimulationMainIndicatorLegends();
+    this.paintAlertSimulationMarker();
+  }
+
+  private hideAlertSimulationAnnotations() {
+    this.alertSimulationPointElement.hidden = true;
+    if (this.alertEvidenceAnnotation) this.alertEvidenceAnnotation.hidden = true;
+    this.alertSimulationIndicatorRuntimes.forEach((runtime) => {
+      runtime.series.forEach((series) => {
+        if (series.annotation) series.annotation.hidden = true;
+        series.additionalAnnotations.forEach((annotation) => { annotation.hidden = true; });
+      });
+    });
+    this.alertSimulationConditionAnnotations.forEach((annotation) => { annotation.hidden = true; });
+  }
+
+  private alertSimulationPaneGeometry(pane: any | null) {
+    if (!this.chart) return null;
+    const panes = this.chart.panes();
+    const resolvedPane = pane || panes[0];
+    const paneIndex = panes.indexOf(resolvedPane);
+    if (!resolvedPane || paneIndex < 0) return null;
+    const viewportBounds = this.viewport.getBoundingClientRect();
+    const paneBounds = resolvedPane.getHTMLElement?.()?.getBoundingClientRect?.();
+    const paneLeft = paneBounds ? paneBounds.left - viewportBounds.left : 0;
+    const paneTop = paneBounds ? paneBounds.top - viewportBounds.top : 0;
+    // During addPane/removePane and setVisibleRange, lightweight-charts can
+    // expose a model pane one frame before its pane widget exists. paneSize()
+    // throws "Value is undefined" in that transient state, even though the
+    // main series and simulation data are valid. Prefer the mounted DOM pane
+    // and only use paneSize as a guarded fallback.
+    let paneWidth = Number(paneBounds?.width || 0);
+    if (paneWidth <= 0) {
+      try {
+        paneWidth = Number(this.chart.paneSize(paneIndex)?.width || 0);
+      } catch {
+        paneWidth = pane ? 0 : this.viewport.clientWidth;
+      }
+    }
+    let paneHeight = Number(paneBounds?.height || 0);
+    if (paneHeight <= 0) {
+      try {
+        paneHeight = Number(resolvedPane.getHeight?.() || 0);
+      } catch {
+        paneHeight = pane ? 0 : this.viewport.clientHeight;
+      }
+    }
+    const width = Math.min(
+      paneWidth,
+      Math.max(0, this.viewport.clientWidth - paneLeft),
+    );
+    const height = Math.min(
+      paneHeight,
+      Math.max(0, this.viewport.clientHeight - paneTop),
+    );
+    if (width <= 0 || height <= 0) return null;
+    return {
+      pane: resolvedPane,
+      paneIndex,
+      left: paneLeft,
+      top: paneTop,
+      right: paneLeft + width,
+      bottom: paneTop + height,
+      width,
+      height,
+    };
+  }
+
+  private alertSimulationPaneDataTop(
+    pane: any | null,
+    geometry: NonNullable<ReturnType<TradingExpertMarketWorkspace["alertSimulationPaneGeometry"]>>,
+  ) {
+    const state = this.alertSimulationState;
+    if (!this.chart) return geometry.bottom;
+    let dataTop = Number.POSITIVE_INFINITY;
+    const include = (time: number, value: number, series: any) => {
+      if (!Number.isFinite(time) || !Number.isFinite(value)) return;
+      const x = this.chart?.timeScale().timeToCoordinate(time as UTCTimestamp);
+      const paneX = typeof x === "number" ? geometry.left + x : Number.NaN;
+      if (!Number.isFinite(paneX) || paneX < geometry.left || paneX > geometry.right) return;
+      const y = series?.priceToCoordinate?.(value);
+      if (typeof y !== "number" || !Number.isFinite(y) || y < 0 || y > geometry.height) return;
+      dataTop = Math.min(dataTop, geometry.top + y);
+    };
+    if (!pane) {
+      this.chartCandles.forEach((candle) => {
+        const time = candle.time + CHINA_TIME_OFFSET_SECONDS;
+        include(time, candle.high, this.candleSeries);
+        include(time, candle.low, this.candleSeries);
+      });
+      state?.display.forEach((candle) => {
+        include(Number(candle.time), candle.high, this.alertSimulationSeries);
+        include(Number(candle.time), candle.low, this.alertSimulationSeries);
+      });
+    }
+    this.alertSimulationIndicatorRuntimes
+      .filter((runtime) => runtime.pane === pane)
+      .forEach((runtime) => runtime.series.forEach((series) => {
+        series.data.forEach((entry) => include(Number(entry.time), Number(entry.value), series.api));
+      }));
+    return Number.isFinite(dataTop) ? dataTop : geometry.bottom;
+  }
+
+  private alertSimulationDataRightX(geometry: NonNullable<ReturnType<TradingExpertMarketWorkspace["alertSimulationPaneGeometry"]>>) {
+    if (!this.chart) return geometry.right;
+    const times = [
+      ...this.chartCandles.map((candle) => candle.time + CHINA_TIME_OFFSET_SECONDS),
+      ...(this.alertSimulationMarkerVisible ? this.alertSimulationState?.display.map((candle) => Number(candle.time)) || [] : []),
+    ];
+    const coordinates = times.flatMap((time) => {
+      const coordinate = this.chart?.timeScale().timeToCoordinate(time as UTCTimestamp);
+      const paneX = typeof coordinate === "number" ? geometry.left + coordinate : Number.NaN;
+      return Number.isFinite(paneX) && paneX >= geometry.left && paneX <= geometry.right
+        ? [paneX]
+        : [];
+    });
+    return coordinates.length ? Math.max(...coordinates) : geometry.right;
+  }
+
+  private queueAlertSimulationMarkerPaint() {
+    if (
+      this.disposed
+      || !this.chart
+      || this.alertSimulationMarkerPaintFrame !== null
+      || this.alertSimulationMarkerPaintRetries >= 4
+    ) return;
+    this.alertSimulationMarkerPaintRetries += 1;
+    this.alertSimulationMarkerPaintFrame = window.requestAnimationFrame(() => {
+      this.alertSimulationMarkerPaintFrame = null;
+      this.paintAlertSimulationMarker();
+    });
+  }
+
+  private paintAlertSimulationMarker() {
+    try {
+      this.paintAlertSimulationMarkerNow();
+      this.alertSimulationMarkerPaintRetries = 0;
+    } catch (error) {
+      // Annotation measurement is cosmetic and may race the chart library's
+      // internal pane-widget commit. It must never abort simulation display.
+      console.error("[trading-alert] simulation annotation paint failed", error);
+      this.hideAlertSimulationAnnotations();
+      this.queueAlertSimulationMarkerPaint();
+    }
+  }
+
+  private paintAlertSimulationMarkerNow() {
+    const state = this.alertSimulationState;
+    const markerColor = marketTheme(isDarkTheme()).alertMarker;
+    if (!this.chart) {
+      this.hideAlertSimulationAnnotations();
+      return;
+    }
+    const hasEvidenceTarget = Boolean(this.alertEvidencePoint && this.alertEvidenceAnnotation);
+    const hasSimulationTarget = Boolean(
+      this.alertSimulationMarkerVisible
+      && this.alertSimulationSeries
+      && state
+      && !state.conditionAnnotations?.length
+      && state.triggerTime !== null
+      && state.triggerPrice !== null,
+    );
+    const hasConditionTarget = Boolean(
+      this.alertSimulationMarkerVisible
+      && this.alertSimulationSeries
+      && state?.conditionAnnotations?.length
+      && this.alertSimulationConditionAnnotations.size,
+    );
+    const hasIndicatorTarget = this.alertSimulationMarkerVisible
+      && this.alertSimulationIndicatorRuntimes.some((runtime) => runtime.series.some((series) => (
+        series.annotation || series.additionalAnnotations.length
+      )));
+    if (!hasEvidenceTarget && !hasSimulationTarget && !hasConditionTarget && !hasIndicatorTarget) {
+      this.hideAlertSimulationAnnotations();
+      return;
+    }
+
+    const targets: Array<{
+      element: HTMLElement;
+      pane: any | null;
+      x: number;
+      y: number;
+    }> = [];
+    const mainGeometry = this.alertSimulationPaneGeometry(null);
+    if (mainGeometry && this.alertEvidencePoint && this.alertEvidenceAnnotation) {
+      const x = this.chart.timeScale().timeToCoordinate(this.alertEvidencePoint.time as UTCTimestamp);
+      const y = this.candleSeries?.priceToCoordinate?.(this.alertEvidencePoint.price);
+      if (
+        typeof x === "number" && Number.isFinite(x)
+        && typeof y === "number" && Number.isFinite(y)
+        && x >= 0 && x <= mainGeometry.width
+        && y >= 0 && y <= mainGeometry.height
+      ) {
+        targets.push({
+          element: this.alertEvidenceAnnotation,
+          pane: null,
+          x: mainGeometry.left + x,
+          y: mainGeometry.top + y,
+        });
+      }
+    }
+    if (
+      mainGeometry
+      && this.alertSimulationMarkerVisible
+      && this.alertSimulationSeries
+      && state
+      && !state.conditionAnnotations?.length
+      && state.triggerTime !== null
+      && state.triggerPrice !== null
+    ) {
+      const x = this.chart.timeScale().timeToCoordinate(state.triggerTime as UTCTimestamp);
+      const y = this.alertSimulationSeries.priceToCoordinate(state.triggerPrice);
+      const anchoredX = typeof x === "number" && Number.isFinite(x)
+        ? Math.max(12, Math.min(mainGeometry.width - 12, x))
+        : null;
+      if (
+        typeof anchoredX === "number" && Number.isFinite(anchoredX)
+        && typeof y === "number" && Number.isFinite(y)
+        && y >= 0 && y <= mainGeometry.height
+      ) {
+        targets.push({
+          element: this.alertSimulationPointElement,
+          pane: null,
+          x: mainGeometry.left + anchoredX,
+          y: mainGeometry.top + y,
+        });
+      }
+      if (
+        typeof x !== "number"
+        || !Number.isFinite(x)
+        || x < 0
+        || x > mainGeometry.width
+      ) {
+        // A live-data refresh or pane rebuild can restore the historical
+        // viewport after the simulation has already focused successfully.
+        // Re-assert the isolated overlay range whenever its real trigger
+        // coordinate falls outside the pane.
+        this.queueAlertSimulationViewportFocus(state, this.alertSimulationSeries);
+      }
+    }
+
+    if (mainGeometry && this.alertSimulationMarkerVisible && this.alertSimulationSeries && state?.conditionAnnotations?.length) {
+      state.conditionAnnotations.forEach((spec) => {
+        const element = this.alertSimulationConditionAnnotations.get(spec.annotationId);
+        if (!element) return;
+        const x = this.chart?.timeScale().timeToCoordinate(spec.time as UTCTimestamp);
+        const y = this.alertSimulationSeries?.priceToCoordinate(spec.price);
+        const anchoredX = typeof x === "number" && Number.isFinite(x)
+          ? Math.max(12, Math.min(mainGeometry.width - 12, x))
+          : null;
+        if (
+          typeof anchoredX === "number" && Number.isFinite(anchoredX)
+          && typeof y === "number" && Number.isFinite(y)
+          && y >= 0 && y <= mainGeometry.height
+        ) {
+          targets.push({
+            element,
+            pane: null,
+            x: mainGeometry.left + anchoredX,
+            y: mainGeometry.top + y,
+          });
+        }
+        if (typeof x !== "number" || !Number.isFinite(x) || x < 0 || x > mainGeometry.width) {
+          this.queueAlertSimulationViewportFocus(state, this.alertSimulationSeries);
+        }
+      });
+    }
+
+    const triggerTime = this.alertSimulationMarkerVisible
+      ? state?.display[state.triggerIndex]?.time
+      : null;
+    this.alertSimulationIndicatorRuntimes.forEach((runtime) => {
+      const geometry = this.alertSimulationPaneGeometry(runtime.pane);
+      if (!triggerTime) return;
+      if (!geometry) {
+        if (state && this.alertSimulationSeries) {
+          this.queueAlertSimulationViewportFocus(state, this.alertSimulationSeries);
+        }
+        return;
+      }
+      runtime.series.forEach((series) => {
+        const annotations = [series.annotation, ...series.additionalAnnotations].filter(Boolean) as HTMLElement[];
+        if (!annotations.length) return;
+        const triggerValue = series.data.find((entry) => Number(entry.time) === Number(triggerTime))?.value;
+        const x = this.chart?.timeScale().timeToCoordinate(triggerTime);
+        const y = Number.isFinite(Number(triggerValue))
+          ? series.api.priceToCoordinate(Number(triggerValue))
+          : null;
+        const anchoredX = typeof x === "number" && Number.isFinite(x)
+          ? Math.max(12, Math.min(geometry.width - 12, x))
+          : null;
+        if (
+          typeof anchoredX === "number" && Number.isFinite(anchoredX)
+          && typeof y === "number" && Number.isFinite(y)
+          && y >= 0 && y <= geometry.height
+        ) {
+          annotations.forEach((element) => targets.push({
+            element,
+            pane: runtime.pane,
+            x: geometry.left + anchoredX,
+            y: geometry.top + y,
+          }));
+        }
+      });
+    });
+
+    const visibleElements = new Set(targets.map((target) => target.element));
+    this.alertSimulationAnnotationLayer.querySelectorAll<HTMLElement>(".trading-alert-simulation-point").forEach((element) => {
+      element.hidden = !visibleElements.has(element);
+      if (!element.hidden) element.style.visibility = "hidden";
+    });
+
+    const occupiedByPane = new Map<any, TradingAlertAnnotationRect[]>();
+    const dataTopByPane = new Map<any, number>();
+    targets.forEach((target) => {
+      const geometry = this.alertSimulationPaneGeometry(target.pane);
+      const text = target.element.firstElementChild as HTMLElement | null;
+      if (!geometry || !text) {
+        target.element.hidden = true;
+        return;
+      }
+      text.style.maxWidth = `${Math.max(96, Math.min(230, geometry.width * 0.34))}px`;
+      const labelBounds = text.getBoundingClientRect();
+      const labelWidth = Math.max(1, Math.ceil(labelBounds.width));
+      const labelHeight = Math.max(1, Math.ceil(labelBounds.height));
+      const paneKey = geometry.pane;
+      const occupied = occupiedByPane.get(paneKey) || [];
+      const dataTop = dataTopByPane.get(paneKey)
+        ?? this.alertSimulationPaneDataTop(target.pane, geometry);
+      dataTopByPane.set(paneKey, dataTop);
+      const position = resolveTradingAlertAnnotationPlacement({
+        anchorX: target.x,
+        anchorY: target.y,
+        labelWidth,
+        labelHeight,
+        paneLeft: geometry.left,
+        paneTop: geometry.top,
+        paneRight: geometry.right,
+        paneBottom: geometry.bottom,
+        dataRightX: this.alertSimulationDataRightX(geometry),
+        dataTopY: dataTop,
+        occupied,
+      });
+      occupied.push(position);
+      occupiedByPane.set(paneKey, occupied);
+      const lineX = position.lineEndX - target.x;
+      const lineY = position.lineEndY - target.y;
+      target.element.style.left = `${target.x}px`;
+      target.element.style.top = `${target.y}px`;
+      target.element.style.color = markerColor;
+      target.element.style.setProperty("--alert-annotation-line-length", `${Math.hypot(lineX, lineY)}px`);
+      target.element.style.setProperty("--alert-annotation-line-angle", `${Math.atan2(lineY, lineX)}rad`);
+      target.element.dataset.placement = position.mode;
+      text.style.left = `${position.left - target.x}px`;
+      text.style.top = `${position.top - target.y}px`;
+      target.element.style.visibility = "visible";
+    });
+  }
+
+  private detachAlertSimulation() {
+    if (this.alertSimulationTimer !== null) window.clearTimeout(this.alertSimulationTimer);
+    this.alertSimulationTimer = null;
+    if (this.alertSimulationMarkerPaintFrame !== null) {
+      window.cancelAnimationFrame(this.alertSimulationMarkerPaintFrame);
+      this.alertSimulationMarkerPaintFrame = null;
+    }
+    if (this.alertSimulationViewportFocusFrame !== null) {
+      window.cancelAnimationFrame(this.alertSimulationViewportFocusFrame);
+      this.alertSimulationViewportFocusFrame = null;
+    }
+    this.alertSimulationMarkerPaintRetries = 0;
+    this.alertSimulationViewportFocusRetries = 0;
+    this.chart?.timeScale().applyOptions({
+      rightBarStaysOnScroll: this.chartSettings.scaleAnchor === "cursor",
+    });
+    this.detachAlertSimulationIndicators();
+    this.detachAlertSimulationConditionAnnotations();
+    if (this.chart && this.alertSimulationSeries) this.removeAlertSimulationSeries(this.alertSimulationSeries);
+    this.alertSimulationSeries = null;
+    this.alertSimulationMarkerVisible = false;
+    this.alertSimulationPointElement.hidden = true;
+  }
+
+  private removeAlertSimulationSeries(series: any) {
+    if (!this.chart || !series) return;
+    try {
+      this.chart.removeSeries(series);
+    } catch (error) {
+      // A chart reload can detach an overlay before the alert cleanup path runs.
+      // lightweight-charts reports that harmless lifecycle race as the opaque
+      // "Value is undefined". Treat only that already-detached case as removed.
+      if (!/^Value is (?:undefined|null)$/i.test(String((error as Error)?.message || error))) throw error;
+      console.warn("[trading-alert] skipped an already-detached simulation series");
+    }
+  }
+
+  private syncAlertSimulationForCurrentContext() {
+    if (!this.alertSimulationState) return;
+    if (!this.alertSimulationMatchesCurrentContext()) {
+      this.detachAlertSimulation();
+      return;
+    }
+    this.attachAlertSimulation({ focus: true });
+  }
+
+  private loadPersistedAlertSimulation() {
+    this.alertSimulationPreviousLogicalRange = null;
+    this.alertSimulationState = loadTradingAlertSimulationState(
+      window.localStorage,
+      this.drawingStorageSessionId,
+    );
+    this.alertSimulationId = this.alertSimulationState?.simulationId || "";
+  }
+
+  private restoreAlertSimulationSelection() {
+    const state = this.alertSimulationState;
+    if (!state) return false;
+    const market = state.market
+      ? marketFromFavoriteRecord(state.market)
+      : this.favoriteMarketRecords.has(state.marketId)
+        ? marketFromFavoriteRecord(this.favoriteMarketRecords.get(state.marketId) as TradingFavoriteMarketRecord)
+        : binanceMarketFromAnalysisContext({
+            schemaVersion: 1,
+            marketId: state.marketId,
+            interval: state.interval,
+            updatedAt: state.updatedAt,
+          });
+    if (!market) return false;
+    if (!this.periods.some((period) => tradingViewResolution(period) === state.interval)) {
+      const period = tradingPeriodFromResolution(state.interval);
+      if (period && this.periods.length < MAX_TRADING_PERIODS) this.periods = [...this.periods, period];
+    }
+    this.activeInterval = state.interval;
+    this.selectMarket(market);
+    this.updateSymbolUi();
+    return true;
+  }
+
+  clearAlertSimulation(options: { restoreViewport?: boolean } = {}) {
+    const previousLogicalRange = this.alertSimulationPreviousLogicalRange;
+    this.detachAlertSimulation();
+    this.alertSimulationId = "";
+    this.alertSimulationState = null;
+    this.alertSimulationPreviousLogicalRange = null;
+    clearTradingAlertSimulationState(window.localStorage, this.drawingStorageSessionId);
+    if (options.restoreViewport === false || !this.chart || !this.chartCandles.length) return;
+    if (previousLogicalRange) {
+      this.chart.timeScale().setVisibleLogicalRange(previousLogicalRange);
+      this.updateVisiblePriceScale();
+      this.updateCurrentPriceLabel();
+      this.drawingController?.redraw();
+      return;
+    }
+    // Persisted overlays from older builds do not have a saved pre-simulation
+    // range. Reset them to the standard recent-candle viewport.
+    this.applyInitialChartViewport();
   }
 
   drawingStorageSessionMatches(storageSessionId: string) {
@@ -7113,12 +9176,17 @@ class TradingExpertMarketWorkspace {
     const targetMarketMeta = this.selectedMarketMeta ? { ...this.selectedMarketMeta } : null;
     const targetInterval = this.activeInterval;
     const keepChart = options.preserveChart === true && this.candles.length > 0;
+    // The overlay belongs to the exact market/interval where it was created.
+    // Detach it while any chart reload is in flight; a matching context restores
+    // it only after that context's real candles have committed.
+    this.detachAlertSimulation();
     this.loadingHistory = false;
     if (this.historyCooldownTimer !== null) {
       window.clearTimeout(this.historyCooldownTimer);
       this.historyCooldownTimer = null;
     }
     this.closeSocket();
+    this.cancelScheduledLiveChartPaint();
     if (this.pollTimer !== null) {
       window.clearInterval(this.pollTimer);
       this.pollTimer = null;
@@ -7142,25 +9210,32 @@ class TradingExpertMarketWorkspace {
       this.lastAggregateTradeId = null;
       this.clearChart();
     }
-    this.errorElement.hidden = true;
-    this.errorElement.dataset.marketAction = "retry";
-    this.errorElement.removeAttribute("aria-label");
+    this.clearMarketError();
     try {
       const { stats, candleBatch } = targetProvider === "finnhub"
         ? await this.fetchFinnhubSnapshot(targetSymbol, targetAssetClass, targetInterval, 500)
         : targetProvider === "ifind"
           ? await this.fetchIfindSnapshot(targetSymbol, targetAssetClass, targetInterval, 500)
           : await (async () => {
-            const [stats, candleBatch] = await Promise.all([
-              fetchTradingMarketStats(targetSymbol, targetMarketType === "spot" ? "spot" : "perpetual"),
-              fetchTradingCandles(
-                targetSymbol,
-                targetInterval,
-                500,
-                Date.now(),
-                targetMarketType === "spot" ? "spot" : "perpetual",
-              ),
-            ]);
+            // K-line availability is the primary loading result. Quote statistics
+            // are refreshed independently after the chart is ready, so a temporary
+            // ticker failure cannot expose Retry while candles are still loading.
+            // The visible chart uses Chromium's network stack, just like split
+            // panes. The background alert service uses Node networking and must
+            // not become the chart's history transport or period switching can
+            // silently fail behind a cached previous interval.
+            const candleBatch = await fetchTradingCandles(
+              targetSymbol,
+              targetInterval,
+              500,
+              Date.now(),
+              targetMarketType === "spot" ? "spot" : "perpetual",
+            );
+            if (!candleBatch.candles.length) throw new Error("未返回可用 K 线数据");
+            if (!tradingCandleSeriesMatchesResolution(candleBatch.candles, targetInterval)) {
+              throw new Error(`返回的 K 线周期与所选周期 ${targetInterval} 不一致`);
+            }
+            const stats = tradingMarketStatsFromCandles(targetSymbol, candleBatch.candles);
             return { stats, candleBatch };
           })();
       if (this.disposed || generation !== this.loadGeneration) return;
@@ -7177,55 +9252,70 @@ class TradingExpertMarketWorkspace {
       this.loadedInterval = targetInterval;
       this.updateStatsUi();
       this.updateChartData({ resetViewport: true });
+      this.syncAlertSimulationForCurrentContext();
       this.setLoading(false);
     } catch (error) {
       if (this.disposed || generation !== this.loadGeneration) return;
       console.error("加载实时行情失败", error);
       this.setLoading(false);
-      if (keepChart && targetProvider === "binance") {
-        this.selectedSymbol = this.loadedSymbol;
-        this.selectedMarketId = this.loadedMarketId;
-        this.selectedProvider = this.loadedProvider;
-        this.selectedAssetClass = this.loadedAssetClass;
-        this.selectedMarketType = this.loadedMarketType;
-        this.selectedMarketMeta = this.loadedMarketMeta;
-        this.activeInterval = this.loadedInterval;
-        this.updateSymbolUi();
-        this.updateIntervalPressedButtons(this.activeInterval);
-        this.renderMarkets();
-      } else {
-        this.stats = null;
-        this.candles = [];
-        this.sourceCandles = [];
-        this.lastAggregateTradeId = null;
-        this.clearChart();
-        const message = String((error as Error)?.message || "行情加载失败").trim();
-        this.errorElement.textContent = targetProvider === "finnhub"
-          ? GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE
-          : `${message} 点击重试`;
-        this.errorElement.dataset.marketAction = targetProvider === "finnhub"
-          ? "open-default-market"
-          : "retry";
-        if (targetProvider === "finnhub") {
-          this.errorElement.setAttribute(
-            "aria-label",
-            `${GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE}，点击加载 BTC/USDT 永续合约`,
-          );
-        }
-        this.errorElement.hidden = false;
-        if (targetProvider === "finnhub") return;
+      // Never relabel the previous interval's candles as the newly selected
+      // period. A failed switch is an explicit error state and the retry keeps
+      // the user's requested symbol and interval.
+      this.stats = null;
+      this.candles = [];
+      this.sourceCandles = [];
+      this.lastAggregateTradeId = null;
+      this.clearChart();
+      const message = String((error as Error)?.message || "行情加载失败").trim();
+      this.errorElement.textContent = targetProvider === "finnhub"
+        ? GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE
+        : `${message} 点击重试`;
+      this.errorElement.dataset.marketAction = targetProvider === "finnhub"
+        ? "open-default-market"
+        : "retry";
+      if (targetProvider === "finnhub") {
+        this.errorElement.setAttribute(
+          "aria-label",
+          `${GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE}，点击加载 BTC/USDT 永续合约`,
+        );
       }
+      this.errorElement.hidden = false;
+      if (targetProvider === "finnhub") return;
     }
     if (this.disposed || generation !== this.loadGeneration) return;
-    if (this.selectedProvider === "binance") this.connectSocket(generation);
+    if (this.selectedProvider === "binance") {
+      this.connectSocket(generation);
+      void this.refreshSnapshot(generation);
+    }
     this.pollTimer = window.setInterval(() => void this.refreshSnapshot(generation), 30_000);
     this.candlePollTimer = window.setInterval(
-      () => void this.refreshLiveCandle(generation),
-      this.selectedProvider === "binance" ? 2_000 : 60_000,
+      () => this.refreshMarketDataFallback(generation),
+      this.selectedProvider === "binance" ? MARKET_SOCKET_FALLBACK_INTERVAL_MS : 60_000,
     );
   }
 
+  private refreshMarketDataFallback(generation: number) {
+    if (this.disposed || generation !== this.loadGeneration) return;
+    if (this.selectedProvider !== "binance") {
+      void this.refreshLiveCandle(generation);
+      return;
+    }
+    const silenceMs = Date.now() - this.marketSocketLastActivityAt;
+    if (this.marketSocketLastActivityAt > 0 && silenceMs < MARKET_SOCKET_STALE_MS) return;
+    void this.refreshSnapshot(generation);
+    void this.refreshLiveCandle(generation);
+    if (
+      this.marketSocketLastActivityAt > 0
+      && silenceMs >= MARKET_SOCKET_WATCHDOG_MS
+      && this.socket?.readyState === WebSocket.OPEN
+    ) {
+      this.socket.close();
+    }
+  }
+
   private async refreshSnapshot(generation: number) {
+    if (this.refreshingSnapshotGeneration === generation) return;
+    this.refreshingSnapshotGeneration = generation;
     try {
       if (this.selectedProvider !== "binance") {
         const api = this.selectedProvider === "ifind"
@@ -7254,6 +9344,10 @@ class TradingExpertMarketWorkspace {
       this.updateStatsUi();
     } catch {
       // WebSocket is the primary stream; a failed fallback poll is non-fatal.
+    } finally {
+      if (this.refreshingSnapshotGeneration === generation) {
+        this.refreshingSnapshotGeneration = null;
+      }
     }
   }
 
@@ -7274,8 +9368,10 @@ class TradingExpertMarketWorkspace {
           endTime: Date.now(),
         });
         if (this.disposed || generation !== this.loadGeneration || response?.ok !== true) return;
+        const recovering = this.candles.length === 0;
         this.candles = mergeCandles(this.candles, this.normalizeRemoteCandles(response.candles));
-        this.updateChartData();
+        if (this.candles.length) this.commitLoadedSelection();
+        this.updateChartData({ resetViewport: recovering });
         return;
       }
       const sourceStartTime = this.sourceCandles.at(-1)?.time;
@@ -7293,6 +9389,7 @@ class TradingExpertMarketWorkspace {
           batch.lastTradeId,
         );
       }
+      const recovering = this.candles.length === 0;
       if (batch.source.sourceInterval && batch.source.sourceMs) {
         this.sourceCandles = mergeCandles(this.sourceCandles, batch.sourceCandles);
         this.candles = batch.source.sourceMs === batch.source.targetMs
@@ -7301,7 +9398,8 @@ class TradingExpertMarketWorkspace {
       } else {
         this.candles = mergeCandles(this.candles, batch.candles);
       }
-      this.updateChartData();
+      if (this.candles.length) this.commitLoadedSelection();
+      this.updateChartData({ resetViewport: recovering });
     } catch {
       // Production WebSocket remains primary; REST polling is a best-effort fallback.
     } finally {
@@ -7318,13 +9416,12 @@ class TradingExpertMarketWorkspace {
     this.socket = socket;
     socket.onopen = () => {
       if (this.disposed || generation !== this.loadGeneration) return;
+      this.marketSocketLastActivityAt = Date.now();
       const source = binanceResolutionSource(this.activeInterval);
       const symbol = this.selectedSymbol.toLowerCase();
-      const streams = [`${symbol}@ticker`];
+      const streams = [`${symbol}@ticker`, `${symbol}@aggTrade`];
       if (marketType === "perpetual") streams.unshift(`${symbol}@markPrice@1s`);
-      streams.push(source?.sourceInterval
-        ? `${symbol}@kline_${source.sourceInterval}`
-        : `${symbol}@aggTrade`);
+      if (source?.sourceInterval) streams.push(`${symbol}@kline_${source.sourceInterval}`);
       socket.send(JSON.stringify({
         method: "SUBSCRIBE",
         params: streams,
@@ -7333,6 +9430,7 @@ class TradingExpertMarketWorkspace {
     };
     socket.onmessage = (event) => {
       if (this.disposed || generation !== this.loadGeneration) return;
+      this.marketSocketLastActivityAt = Date.now();
       try {
         this.handleSocketMessage(JSON.parse(String(event.data)));
       } catch (error) {
@@ -7342,6 +9440,7 @@ class TradingExpertMarketWorkspace {
     socket.onerror = () => socket.close();
     socket.onclose = () => {
       if (this.disposed || generation !== this.loadGeneration) return;
+      if (this.socket === socket) this.socket = null;
       this.reconnectTimer = window.setTimeout(() => this.connectSocket(generation), 1500);
     };
   }
@@ -7394,11 +9493,42 @@ class TradingExpertMarketWorkspace {
       close: Number(kline.c || 0),
       volume: Number(kline.v || 0),
     };
-    this.sourceCandles = mergeCandles(this.sourceCandles, [incoming]);
-    this.candles = source.sourceMs === source.targetMs
-      ? [...this.sourceCandles]
-      : aggregateTradingCandles(this.sourceCandles, source.targetMs);
-    this.updateChartData();
+    this.applyLiveSourceCandle(incoming, source);
+    this.commitLoadedSelection();
+    this.scheduleLiveChartPaint();
+  }
+
+  private upsertLiveCandle(candles: TradingCandle[], incoming: TradingCandle) {
+    const latest = candles.at(-1);
+    if (latest?.time === incoming.time) {
+      candles[candles.length - 1] = incoming;
+      return candles;
+    }
+    if (!latest || incoming.time > latest.time) {
+      candles.push(incoming);
+      return candles;
+    }
+    return mergeCandles(candles, [incoming]);
+  }
+
+  private applyLiveSourceCandle(
+    incoming: TradingCandle,
+    source: NonNullable<ReturnType<typeof binanceResolutionSource>>,
+  ) {
+    this.sourceCandles = this.upsertLiveCandle(this.sourceCandles, incoming);
+    if (source.sourceMs === source.targetMs) {
+      this.candles = this.upsertLiveCandle(this.candles, { ...incoming });
+      return;
+    }
+    const bucketTime = Math.floor(incoming.time * 1_000 / source.targetMs) * source.targetMs / 1_000;
+    const bucketSourceCandles: TradingCandle[] = [];
+    for (let index = this.sourceCandles.length - 1; index >= 0; index -= 1) {
+      const candle = this.sourceCandles[index];
+      if (candle.time < bucketTime) break;
+      if (candle.time < bucketTime + source.targetMs / 1_000) bucketSourceCandles.unshift(candle);
+    }
+    const target = aggregateTradingCandles(bucketSourceCandles, source.targetMs).at(-1);
+    if (target) this.candles = this.upsertLiveCandle(this.candles, target);
   }
 
   private updateFromBinanceTrade(trade: BinanceWsMessage) {
@@ -7407,17 +9537,54 @@ class TradingExpertMarketWorkspace {
     const price = Number(trade.p || 0);
     const volume = Number(trade.q || 0);
     const tradeId = Number(trade.a || 0);
-    if (!source || source.sourceInterval || timeMs <= 0 || !Number.isFinite(price) || price <= 0) return;
+    if (!source || timeMs <= 0 || !Number.isFinite(price) || price <= 0) return;
     if (Number.isFinite(tradeId) && tradeId > 0) {
       this.lastAggregateTradeId = Math.max(this.lastAggregateTradeId ?? tradeId, tradeId);
     }
+    if (source.sourceInterval) {
+      const sourceMs = Number(source.sourceMs || 0);
+      if (sourceMs <= 0) return;
+      const sourceTime = Math.floor(timeMs / sourceMs) * sourceMs / 1000;
+      const latestSource = this.sourceCandles.at(-1);
+      const incoming = latestSource?.time === sourceTime
+        ? {
+            ...latestSource,
+            high: Math.max(latestSource.high, price),
+            low: Math.min(latestSource.low, price),
+            close: price,
+          }
+        : {
+          time: sourceTime,
+          open: price,
+          high: price,
+          low: price,
+          close: price,
+          volume,
+        };
+      this.applyLiveSourceCandle(incoming, source);
+      this.commitLoadedSelection();
+      this.scheduleLiveChartPaint();
+      return;
+    }
     const time = Math.floor(timeMs / source.targetMs) * source.targetMs / 1000;
-    const existing = this.candles.find((candle) => candle.time === time);
+    const latest = this.candles.at(-1);
+    const existing = latest?.time === time
+      ? latest
+      : this.candles.find((candle) => candle.time === time);
     if (existing) {
       existing.high = Math.max(existing.high, price);
       existing.low = Math.min(existing.low, price);
       existing.close = price;
       existing.volume = Number(existing.volume || 0) + volume;
+    } else if (!latest || time > latest.time) {
+      this.candles.push({
+        time,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume,
+      });
     } else {
       this.candles = mergeCandles(this.candles, [{
         time,
@@ -7428,7 +9595,66 @@ class TradingExpertMarketWorkspace {
         volume,
       }]);
     }
-    this.updateChartData();
+    this.commitLoadedSelection();
+    this.scheduleLiveChartPaint();
+  }
+
+  private scheduleLiveChartPaint() {
+    if (this.disposed || this.liveChartPaintTimer !== null || this.liveChartPaintFrame !== null) return;
+    const delayMs = document.hidden
+      ? MARKET_BACKGROUND_PAINT_INTERVAL_MS
+      : MARKET_LIVE_PAINT_INTERVAL_MS;
+    this.liveChartPaintTimer = window.setTimeout(() => {
+      this.liveChartPaintTimer = null;
+      this.liveChartPaintFrame = window.requestAnimationFrame(() => {
+        this.liveChartPaintFrame = null;
+        if (this.disposed) return;
+        if (Date.now() - this.lastLiveChartFullRefreshAt >= MARKET_LIVE_FULL_REFRESH_INTERVAL_MS) {
+          this.updateChartData();
+          return;
+        }
+        this.paintLatestCandle();
+      });
+    }, delayMs);
+  }
+
+  private paintLatestCandle() {
+    if (!this.chart || !this.candleSeries) return;
+    const latest = this.candles.at(-1);
+    if (!latest) return;
+    const renderedLatest = this.chartCandles.at(-1);
+    if (renderedLatest?.time === latest.time) {
+      this.chartCandles[this.chartCandles.length - 1] = { ...latest };
+    } else if (!renderedLatest || latest.time > renderedLatest.time) {
+      this.chartCandles.push({ ...latest });
+    } else {
+      this.chartCandles = mergeCandles(this.chartCandles, [{ ...latest }]);
+    }
+    const trendBars = this.trendBandEnabled ? atm1TrendCandles(this.chartCandles) : null;
+    const display = this.primarySeriesData(this.chartCandles, trendBars).at(-1);
+    if (!display) return;
+    this.candleSeries.update(display);
+    const lineColor = latest.close >= latest.open
+      ? this.chartSettings.risingColor
+      : this.chartSettings.fallingColor;
+    this.priceLine?.applyOptions({
+      price: latest.close,
+      color: lineColor,
+      axisLabelColor: lineColor,
+    });
+    this.renderLatestOhlc();
+    this.clearMarketError();
+    this.updateCountdown();
+  }
+
+  private commitLoadedSelection() {
+    this.loadedSymbol = this.selectedSymbol;
+    this.loadedMarketId = this.selectedMarketId;
+    this.loadedProvider = this.selectedProvider;
+    this.loadedAssetClass = this.selectedAssetClass;
+    this.loadedMarketType = this.selectedMarketType;
+    this.loadedMarketMeta = this.selectedMarketMeta ? { ...this.selectedMarketMeta } : null;
+    this.loadedInterval = this.activeInterval;
   }
 
   private updateStatsUi() {
@@ -7759,6 +9985,7 @@ class TradingExpertMarketWorkspace {
         this.positionLayoutPicker();
         this.positionIndicatorLegends();
         this.updateCurrentPriceLabel();
+        this.paintAlertSimulationMarker();
         this.drawingController?.redraw();
       });
     });
@@ -7777,7 +10004,7 @@ class TradingExpertMarketWorkspace {
       resolveControlTarget: () => this.activeDrawingController ?? this.drawingController,
       onSharedToolStateChanged: (state, source) => this.syncDrawingSharedToolState(state, source),
       onSurfaceFocus: (source) => this.activateDrawingController(source),
-      onDrawingStateChanged: () => this.recordLastDrawingWorkspace(),
+      onDrawingStateChanged: () => { this.recordLastDrawingWorkspace(); this.queueAlertDrawingSync(); },
       onAiDrawingContextsChanged: (context) => {
         saveTradingLastAnalysisContext(
           window.localStorage,
@@ -7916,7 +10143,10 @@ class TradingExpertMarketWorkspace {
 
   private updateMainIndicatorLegends(timeValue?: number) {
     this.mainIndicatorLegendElement.replaceChildren();
-    if (!this.activeMainIndicators.length) return;
+    if (!this.activeMainIndicators.length) {
+      this.renderAlertSimulationMainIndicatorLegends();
+      return;
+    }
 
     let candleIndex = this.chartCandles.length - 1;
     if (typeof timeValue === "number" && Number.isFinite(timeValue)) {
@@ -7993,11 +10223,14 @@ class TradingExpertMarketWorkspace {
         },
       ] : []);
     });
+    this.renderAlertSimulationMainIndicatorLegends();
   }
 
   private rebuildIndicatorPanes() {
     if (!this.chart) return;
     const visibleRange = this.chart.timeScale().getVisibleLogicalRange();
+    const restoreAlertSimulationIndicators = this.alertSimulationIndicatorRuntimes.length > 0;
+    if (restoreAlertSimulationIndicators) this.detachAlertSimulationIndicators();
     this.rebuildingIndicatorPanes = true;
     try {
       // removePane() only detaches the visual pane in lightweight-charts. Its
@@ -8020,7 +10253,21 @@ class TradingExpertMarketWorkspace {
       });
       this.chart.panes()[0]?.setStretchFactor(visibleIndicators.length ? 3 : 1);
       visibleIndicators.forEach((id) => this.createIndicatorPane(id));
-      if (visibleRange) this.chart.timeScale().setVisibleLogicalRange(visibleRange);
+      if (restoreAlertSimulationIndicators) {
+        try {
+          this.attachAlertSimulationIndicators();
+        } catch (error) {
+          console.error("[trading-alert] simulation indicator rebuild failed", error);
+          this.detachAlertSimulationIndicators();
+        }
+        this.updateAlertSimulationIndicatorsSafely(this.alertSimulationState?.display.length || 0);
+        this.paintAlertSimulationMarker();
+      }
+      if (this.alertSimulationState && this.alertSimulationSeries) {
+        this.focusAlertSimulationViewport(this.alertSimulationState);
+      } else if (visibleRange) {
+        this.chart.timeScale().setVisibleLogicalRange(visibleRange);
+      }
     } finally {
       this.rebuildingIndicatorPanes = false;
     }
@@ -8115,6 +10362,12 @@ class TradingExpertMarketWorkspace {
   private positionIndicatorLegends() {
     const viewportRect = this.viewport.getBoundingClientRect();
     this.indicatorPanes.forEach((runtime) => {
+      const paneElement = runtime.pane?.getHTMLElement?.() as HTMLElement | null;
+      if (!paneElement || !runtime.legend) return;
+      const paneRect = paneElement.getBoundingClientRect();
+      runtime.legend.style.top = `${Math.max(paneRect.top - viewportRect.top + 7, 0)}px`;
+    });
+    this.alertSimulationIndicatorRuntimes.forEach((runtime) => {
       const paneElement = runtime.pane?.getHTMLElement?.() as HTMLElement | null;
       if (!paneElement || !runtime.legend) return;
       const paneRect = paneElement.getBoundingClientRect();
@@ -8245,14 +10498,29 @@ class TradingExpertMarketWorkspace {
       bottomColor: chartTheme.backgroundColor,
       lineColor: theme.bandLine,
     });
+    const simulationColors = isDarkTheme()
+      ? { up: "rgba(91, 156, 255, 0.72)", down: "rgba(255, 173, 66, 0.74)", upBorder: "#7eb2ff", downBorder: "#ffc06b" }
+      : { up: "rgba(29, 78, 216, 0.62)", down: "rgba(180, 83, 9, 0.66)", upBorder: "#1d4ed8", downBorder: "#b45309" };
+    this.alertSimulationSeries?.applyOptions({
+      upColor: simulationColors.up,
+      downColor: simulationColors.down,
+      borderUpColor: simulationColors.upBorder,
+      borderDownColor: simulationColors.downBorder,
+      wickUpColor: simulationColors.upBorder,
+      wickDownColor: simulationColors.downBorder,
+    });
     this.applyPrimarySeriesOptions();
     this.applyMainIndicatorSeriesOptions();
     this.updateChartData();
+    this.applyAlertSimulationIndicatorTheme();
+    this.paintAlertSimulationMarker();
     this.drawingController?.redraw();
     this.splitPanes.forEach((pane) => pane.updateSettings(this.chartSettings, themeName));
   }
 
   private clearChart() {
+    this.alertEvidencePoint = null;
+    if (this.alertEvidenceAnnotation) this.alertEvidenceAnnotation.hidden = true;
     this.candleSeries?.setData([]);
     this.bandUpperSeries?.setData([]);
     this.bandLowerSeries?.setData([]);
@@ -8281,6 +10549,12 @@ class TradingExpertMarketWorkspace {
       this.priceLine = null;
     }
     this.ohlcElement.innerHTML = "";
+  }
+
+  private clearMarketError() {
+    this.errorElement.hidden = true;
+    this.errorElement.dataset.marketAction = "retry";
+    this.errorElement.removeAttribute("aria-label");
   }
 
   private updateChartData(options: { resetViewport?: boolean; preserveViewport?: boolean } = {}) {
@@ -8322,12 +10596,23 @@ class TradingExpertMarketWorkspace {
           })
         : null;
       this.renderLatestOhlc();
-      if (preservedLogicalRange) {
+      if (this.alertSimulationState && this.alertSimulationSeries) {
+        // Live candle refreshes preserve the current viewport by default. A
+        // simulation focus request can still be pending in the chart's render
+        // queue at that moment, so restoring the captured pre-simulation range
+        // would repeatedly push the trigger off-screen. The simulation range
+        // is authoritative until its isolated overlay is cleared.
+        this.focusAlertSimulationViewport(this.alertSimulationState);
+      } else if (preservedLogicalRange) {
         this.chart.timeScale().setVisibleLogicalRange(preservedLogicalRange);
       }
     } finally {
       this.updatingChartData = false;
     }
+    // Initial login can receive live candles after the bootstrap REST request
+    // has already exposed its retry state. A successfully rendered candle set
+    // is authoritative and must retire that stale error action.
+    this.clearMarketError();
     if (resetViewport) {
       this.applyInitialChartViewport();
       this.resettingChartViewport = false;
@@ -8335,6 +10620,7 @@ class TradingExpertMarketWorkspace {
     } else {
       this.synchronizeVisibleChartGeometry();
     }
+    this.lastLiveChartFullRefreshAt = Date.now();
     this.updateCountdown();
   }
 
@@ -8360,6 +10646,7 @@ class TradingExpertMarketWorkspace {
     this.chart.timeScale().setVisibleLogicalRange(logicalRange);
     this.updateVisiblePriceScale();
     this.updateCurrentPriceLabel();
+    this.paintAlertSimulationMarker();
     this.drawingController?.redraw();
   }
 
@@ -8425,6 +10712,7 @@ class TradingExpertMarketWorkspace {
     ) return;
     this.updateVisiblePriceScale();
     this.updateCurrentPriceLabel();
+    this.paintAlertSimulationMarker();
     this.drawingController?.redraw();
   }
 
@@ -8722,6 +11010,18 @@ class TradingExpertMarketWorkspace {
       this.socket.close();
       this.socket = null;
     }
+    this.marketSocketLastActivityAt = 0;
+  }
+
+  private cancelScheduledLiveChartPaint() {
+    if (this.liveChartPaintTimer !== null) {
+      window.clearTimeout(this.liveChartPaintTimer);
+      this.liveChartPaintTimer = null;
+    }
+    if (this.liveChartPaintFrame !== null) {
+      window.cancelAnimationFrame(this.liveChartPaintFrame);
+      this.liveChartPaintFrame = null;
+    }
   }
 
   destroy() {
@@ -8729,11 +11029,14 @@ class TradingExpertMarketWorkspace {
     this.disposed = true;
     this.loadGeneration += 1;
     this.favoriteTickerGeneration += 1;
+    this.detachAlertSimulation();
     this.closeSocket();
+    this.cancelScheduledLiveChartPaint();
     this.closeFavoriteTickerStreams();
     if (this.countdownTimer !== null) window.clearInterval(this.countdownTimer);
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.candlePollTimer !== null) window.clearInterval(this.candlePollTimer);
+    if (this.alertDrawingSyncTimer !== null) window.clearTimeout(this.alertDrawingSyncTimer);
     if (this.historyCooldownTimer !== null) window.clearTimeout(this.historyCooldownTimer);
     if (this.finnhubSearchTimer !== null) window.clearTimeout(this.finnhubSearchTimer);
     if (this.ifindSearchTimer !== null) window.clearTimeout(this.ifindSearchTimer);
@@ -8915,6 +11218,34 @@ export function migrateTradingExpertMarketWorkspaceStorageSession(
 
 export function tradingExpertMarketWorkspaceStorageSessionId() {
   return activeWorkspace?.drawingStorageSession() || "";
+}
+
+export function tradingExpertAlertContextSnapshot() {
+  return activeWorkspace?.alertContextSnapshot() || null;
+}
+
+export async function prepareTradingExpertAlertContext(marketId?: string | null, interval?: string | null) {
+  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
+  return activeWorkspace.prepareAlertContext(marketId, interval);
+}
+
+export async function tradingExpertAlertSimulationFrames(rule: any) {
+  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
+  return activeWorkspace.alertSimulationFrames(rule);
+}
+
+export function focusTradingExpertAlertEvidence(triggeredAt: number) {
+  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
+  return activeWorkspace.focusAlertEvidence(triggeredAt);
+}
+
+export function showTradingExpertAlertSimulation(simulation: any, anchorContextId: string, rule?: any) {
+  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
+  return activeWorkspace.showAlertSimulation(simulation, anchorContextId, rule);
+}
+
+export function clearTradingExpertAlertSimulation() {
+  activeWorkspace?.clearAlertSimulation();
 }
 
 export function applyTradingExpertCustomIndicatorMentions(text: string) {

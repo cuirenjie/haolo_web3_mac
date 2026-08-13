@@ -239,8 +239,9 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   assert.match(mainSource, /tradingAnalysis:classifyChanRequest/);
   assert.match(mainSource, /tradingAnalysis:runChanTest/);
   assert.match(mainSource, /DEFAULT_TRADING_ANALYSIS_PROVIDER_ID/);
-  assert.match(mainSource, /resetTimeoutOnActivity: !isRequestRouting/);
-  assert.match(mainSource, /timeoutRetryable: !isRequestRouting/);
+  assert.match(mainSource, /const turnPolicy = tradingAnalysisTurnPolicy\(request\.task\)/);
+  assert.match(mainSource, /resetTimeoutOnActivity,/);
+  assert.match(mainSource, /timeoutRetryable,/);
   assert.match(mainSource, /error\.code = "WORKFLOW_TURN_TIMEOUT"/);
   assert.match(mainSource, /error\.category = "timeout"/);
   assert.match(mainSource, /if \(resetTimeoutOnActivity\) armTimeout\(\)/);
@@ -325,7 +326,8 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
   assert.match(progressBlock, /label: "正在分析盘面"/);
   assert.match(progressBlock, /label: "正在绘制缠论结构"/);
   assert.match(progressBlock, /label: "正在整理分析报告"/);
-  assert.match(tradingThinkingBlock, /function tradingExpertThinkingStage\(phase: string\)[\s\S]*?const detail = "";/);
+  assert.match(tradingThinkingBlock, /function tradingExpertThinkingStage\(phase: string, reasoningSummary = ""\)[\s\S]*?const detail = "";/);
+  assert.match(tradingThinkingBlock, /phase === "alert-analyzing" \? reasoningSummary\.trim\(\) : detail/);
   assert.doesNotMatch(tradingThinkingBlock, /message\.trim\(\)/);
   assert.match(progressBlock, /function appendTradingExpertProgress/);
   assert.match(progressBlock, /phase: phase === "error" \? "final_answer" : "commentary"/);

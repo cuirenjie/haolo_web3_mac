@@ -131,6 +131,8 @@ export interface MessageAction {
   label: string;
   text?: string;
   conversation_id?: string;
+  destination?: "trading-alerts" | string;
+  alert_id?: string;
 }
 
 export interface MessageBase {
@@ -263,11 +265,11 @@ export const HOME_ICON_URL = {
   messageActive: new URL("./assets/nav/message-active.svg", import.meta.url).href,
   autoTask: new URL("./assets/nav/auto-task.svg", import.meta.url).href,
   autoTaskActive: new URL("./assets/nav/auto-task-active.svg", import.meta.url).href,
-  autoTaskChat: new URL("./assets/home/auto-task-zidong.png", import.meta.url).href,
+  autoTaskChat: new URL("./assets/home/icon-auto-task-chat.svg", import.meta.url).href,
   autoTaskEdit: new URL("./assets/home/icon-auto-task-edit.svg", import.meta.url).href,
   autoTaskPause: new URL("./assets/home/icon-auto-task-pause.svg", import.meta.url).href,
   autoTaskRun: new URL("./assets/home/icon-auto-task-run.svg", import.meta.url).href,
-  autoTaskCard: new URL("./assets/home/auto-task-zidong.png", import.meta.url).href,
+  autoTaskCard: new URL("./assets/home/icon-auto-task-card.svg", import.meta.url).href,
   autoTaskAdd: new URL("./assets/home/icon-auto-task-add.svg", import.meta.url).href,
   autoTaskTemplate: new URL("./assets/home/icon-auto-task-template.svg", import.meta.url).href,
   skillsPlaza: new URL("./assets/nav/skills-plaza.svg", import.meta.url).href,

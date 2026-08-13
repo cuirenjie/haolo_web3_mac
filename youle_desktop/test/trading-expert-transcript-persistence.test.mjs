@@ -6,11 +6,15 @@ import test from "node:test";
 
 import {
   indexedTradingTranscriptThreads,
+  loadTradingTranscriptIndex,
   mergeIndexedTradingTranscriptThreads,
   parseTradingTranscriptMarkerText,
   readTradingTranscriptItemsFromRollout,
   removeTradingTranscriptIndexThread,
+  replaceTradingTranscriptIndexThread,
+  resolveTradingTranscriptIndexThreadAlias,
   tradingTranscriptInjectionItems,
+  tradingTranscriptItemsFromThreadResult,
   updateTradingTranscriptIndex,
   withTradingTranscriptHistory,
   withTradingTranscriptItems,
@@ -55,6 +59,27 @@ test("trading transcript messages use explicit user and assistant injection item
   assert.equal(parseTradingTranscriptMarkerText(injected[1].content[0].text)?.text, "当前结构保持震荡。");
 });
 
+test("trading alert success navigation survives transcript persistence and hydration", () => {
+  const action = {
+    id: "open-trading-alerts",
+    kind: "navigate",
+    label: "查看我的预警",
+    destination: "trading-alerts",
+    alert_id: "alert-persisted-action",
+  };
+  const assistant = {
+    ...transcriptItems()[1],
+    id: "trading-alert-success-action",
+    text: "预警已创建：趋势线触碰预警",
+    actions: [action],
+  };
+  const [injected] = tradingTranscriptInjectionItems([assistant]);
+  assert.deepEqual(parseTradingTranscriptMarkerText(injected.content[0].text)?.actions, [action]);
+
+  const hydrated = withTradingTranscriptItems({ thread: { id: "thread-alert-action", turns: [] } }, [assistant]);
+  assert.deepEqual(hydrated.thread.turns[0].items[0].actions, [action]);
+});
+
 test("rollout recovery restores transcript items once after restart", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-trading-transcript-"));
   const rolloutPath = path.join(tempRoot, "rollout.jsonl");
@@ -72,6 +97,38 @@ test("rollout recovery restores transcript items once after restart", async () =
       "local-user-persist-1",
       "trading-report-persist-1",
     ]);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("explicit persistence verification scans a new unindexed thread rollout", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-trading-unindexed-"));
+  const rolloutPath = path.join(
+    tempRoot,
+    "sessions",
+    "2026",
+    "08",
+    "11",
+    "rollout-2026-08-11T08-00-00-new-unindexed-thread.jsonl",
+  );
+  try {
+    const [injected] = tradingTranscriptInjectionItems(transcriptItems());
+    fs.mkdirSync(path.dirname(rolloutPath), { recursive: true });
+    fs.writeFileSync(
+      rolloutPath,
+      `${JSON.stringify({ timestamp: "2026-08-11T08:00:00.000Z", type: "response_item", payload: injected })}\n`,
+      "utf8",
+    );
+    const guarded = await tradingTranscriptItemsFromThreadResult({
+      thread: { id: "new-unindexed-thread", path: rolloutPath, turns: [] },
+    }, { codexHome: tempRoot });
+    assert.deepEqual(guarded, []);
+
+    const verified = await tradingTranscriptItemsFromThreadResult({
+      thread: { id: "new-unindexed-thread", turns: [] },
+    }, { codexHome: tempRoot, scanUnindexed: true });
+    assert.deepEqual(verified.map((item) => item.id), ["local-user-persist-1"]);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -230,19 +287,87 @@ test("the discovery index stores bounded metadata while the transcript stays in 
   }
 });
 
+test("thread replacement atomically preserves transcript metadata and durable aliases", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-trading-replacement-"));
+  const workspace = path.join(tempRoot, "workspace");
+  const firstRollout = path.join(tempRoot, "first.jsonl");
+  const secondRollout = path.join(tempRoot, "second.jsonl");
+  const thirdRollout = path.join(tempRoot, "third.jsonl");
+  fs.mkdirSync(workspace, { recursive: true });
+  [firstRollout, secondRollout, thirdRollout].forEach((filePath) => fs.writeFileSync(filePath, "{}\n", "utf8"));
+  try {
+    updateTradingTranscriptIndex(tempRoot, {
+      threadId: "thread-before-relogin",
+      cwd: workspace,
+      rolloutPath: firstRollout,
+      title: "BTC trend alert",
+      preview: "confirm",
+      createdAt: "2026-08-11T08:00:00.000Z",
+      updatedAt: "2026-08-11T08:01:00.000Z",
+    });
+    replaceTradingTranscriptIndexThread(tempRoot, "thread-before-relogin", {
+      threadId: "thread-after-relogin",
+      cwd: workspace,
+      rolloutPath: secondRollout,
+      title: "",
+      preview: "continue",
+      createdAt: "2026-08-11T08:02:00.000Z",
+      updatedAt: "2026-08-11T08:02:00.000Z",
+    });
+    let index = loadTradingTranscriptIndex(tempRoot);
+    assert.equal(index.threads["thread-before-relogin"], undefined);
+    assert.equal(index.threads["thread-after-relogin"].title, "BTC trend alert");
+    assert.equal(index.threads["thread-after-relogin"].createdAt, "2026-08-11T08:00:00.000Z");
+    assert.equal(
+      resolveTradingTranscriptIndexThreadAlias(tempRoot, "thread-before-relogin"),
+      "thread-after-relogin",
+    );
+
+    replaceTradingTranscriptIndexThread(tempRoot, "thread-after-relogin", {
+      threadId: "thread-after-second-relogin",
+      cwd: workspace,
+      rolloutPath: thirdRollout,
+      title: "",
+      preview: "continue again",
+      createdAt: "2026-08-11T08:03:00.000Z",
+      updatedAt: "2026-08-11T08:03:00.000Z",
+    });
+    index = loadTradingTranscriptIndex(tempRoot);
+    assert.equal(Object.keys(index.threads).length, 1);
+    assert.equal(
+      resolveTradingTranscriptIndexThreadAlias(tempRoot, "thread-before-relogin"),
+      "thread-after-second-relogin",
+    );
+    assert.equal(removeTradingTranscriptIndexThread(tempRoot, "thread-after-second-relogin"), true);
+    index = loadTradingTranscriptIndex(tempRoot);
+    assert.deepEqual(index.threads, {});
+    assert.deepEqual(index.aliases, {});
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("main process persists and verifies the top-level transcript under the thread lock", () => {
   const handler = sourceBlock(
     mainSource,
     'ipcMain.handle("codex:persistTradingTranscript"',
     'ipcMain.handle("codex:stageContinuationPrompt"',
   );
-  assert.match(handler, /runSerializedThreadSettingsOperation\(threadId/);
+  assert.match(handler, /runSerializedThreadSettingsOperation\(requestedThreadId/);
   assert.match(handler, /"thread\/inject_items"/);
-  assert.match(handler, /tradingTranscriptInjectionItems\(missingItems\)/);
-  assert.match(handler, /tradingTranscriptItemsFromThreadResult\(threadResult\)/);
+  assert.match(handler, /tradingTranscriptInjectionItems\(missingItems\.slice\(index, index \+ 32\)\)/);
+  assert.match(handler, /tradingTranscriptItemsFromThreadResult\(threadResult, \{/);
+  assert.match(handler, /scanUnindexed: true/);
+  assert.match(handler, /verificationDelaysMs = \[0, 40, 120, 250, 500\]/);
   assert.match(handler, /missingVerifiedIds/);
   assert.match(handler, /"thread\/name\/set"/);
-  assert.match(handler, /updateTradingTranscriptIndex\(workspaceCodexHome\(cwd\)/);
+  assert.match(handler, /resolveTradingTranscriptIndexThreadAlias/);
+  assert.match(handler, /readTradingTranscriptItemsFromRollout/);
+  assert.match(handler, /isThreadNotFoundError/);
+  assert.match(handler, /requestThreadStart/);
+  assert.match(handler, /replaceTradingTranscriptIndexThread/);
+  assert.match(handler, /replacementThread/);
+  assert.match(handler, /replacedThreadId: requestedThreadId/);
   assert.match(preloadSource, /persistTradingTranscript:.*codex:persistTradingTranscript/);
 });
 
@@ -301,6 +426,9 @@ test("all five chart-analysis branches persist the parent user message before re
   }
   assert.match(dispatch, /任务未执行：顶层会话保存失败/);
   assert.match(rendererSource, /payload\.slice\(index \* 32, index \* 32 \+ 32\)/);
+  assert.match(dispatch, /threadId = persistedThreadId/);
+  assert.match(rendererSource, /adoptReplacementCodexThread\(previousThreadId, result\.replacementThread, 0\)/);
+  assert.match(rendererSource, /movePendingComposerSend\(previousThreadId, activeThreadId, pending\.itemId\)/);
 });
 
 test("all five chart-analysis runners persist progress and terminal messages", () => {

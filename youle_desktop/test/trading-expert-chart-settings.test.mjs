@@ -76,6 +76,22 @@ test("chart settings normalize corrupt values and preserve independent light/dar
   assert.notEqual(settings.themes.light, settings.themes.dark);
 });
 
+test("light chart canvas defaults to white and migrates the former gray default", () => {
+  assert.equal(DEFAULT_TRADING_CHART_SETTINGS.themes.light.backgroundColor, "#ffffff");
+  assert.equal(DEFAULT_TRADING_CHART_SETTINGS.themes.dark.backgroundColor, "#0b0c0f");
+
+  const legacy = cloneTradingChartSettings();
+  legacy.version = 1;
+  legacy.themes.light.backgroundColor = "#f7f9fc";
+  const storage = memoryStorage({
+    [TRADING_CHART_SETTINGS_STORAGE_KEY]: JSON.stringify(legacy),
+  });
+  const migrated = loadTradingChartSettings(storage);
+  assert.equal(migrated.version, 2);
+  assert.equal(migrated.themes.light.backgroundColor, "#ffffff");
+  assert.equal(migrated.themes.dark.backgroundColor, "#0B0C0F");
+});
+
 test("nonlinear price scales use native autoscaling while linear mode keeps its fixed range", async () => {
   assert.equal(tradingPriceScaleUsesAutoScale("linear"), false);
   assert.equal(tradingPriceScaleUsesAutoScale("logarithmic"), true);
@@ -242,14 +258,17 @@ test("settings dialog contains exactly the seven requested categories", () => {
   assert.match(renderTradingChartSettingsDialog(cloneTradingChartSettings(), "dark"), /当前正在编辑暗色主题/);
 });
 
-test("ellipsis actions are wired to persisted settings and real independent split charts", async () => {
+test("settings and split actions are direct buttons wired to persisted settings and real independent split charts", async () => {
   const [market, splitPane, drawing] = await Promise.all([marketSource, splitPaneSource, drawingSource]);
-  const symbolIndex = market.indexOf("${renderMarketMoreControls()}");
+  const symbolIndex = market.indexOf("${renderMarketChartActions()}");
   const favoritesIndex = market.indexOf('class="trading-market-favorite-tickers"');
   assert.ok(symbolIndex >= 0 && favoritesIndex > symbolIndex);
-  assert.match(market, /data-market-action="toggle-more-menu"/);
+  assert.equal((market.match(/class="trading-market-chart-action"/g) ?? []).length, 2);
   assert.match(market, /data-market-action="open-chart-settings"/);
   assert.match(market, /data-market-action="open-split-layouts"/);
+  assert.doesNotMatch(market, /toggle-more-menu|data-market-more-menu|•••/);
+  assert.equal((splitPane.match(/class="trading-market-chart-action"/g) ?? []).length, 2);
+  assert.doesNotMatch(splitPane, /toggle-more-menu|data-split-more-menu|•••/);
   assert.match(market, /saveTradingChartSettings\(window\.localStorage/);
   assert.match(market, /saveTradingSplitLayoutId\(window\.localStorage/);
   assert.match(market, /rebuildPrimarySeries\(\)/);
@@ -271,10 +290,11 @@ test("ellipsis actions are wired to persisted settings and real independent spli
 
 test("new controls cover light and dark themes plus interaction and async states", async () => {
   const css = await stylesSource;
-  assert.match(css, /\.trading-market-more-trigger:hover/);
-  assert.match(css, /\.trading-market-more-trigger:active/);
-  assert.match(css, /\.trading-market-more-trigger:focus-visible/);
-  assert.match(css, /\.trading-market-more-trigger\[aria-expanded="true"\]/);
+  assert.match(css, /\.trading-market-chart-action:hover:not\(:disabled\)/);
+  assert.match(css, /\.trading-market-chart-action:active:not\(:disabled\)/);
+  assert.match(css, /\.trading-market-chart-action:focus-visible/);
+  assert.match(css, /\.trading-market-chart-action\[aria-expanded="true"\]/);
+  assert.match(css, /\.trading-market-chart-action:disabled/);
   assert.match(css, /\.trading-market-layout-row button\.selected/);
   assert.match(css, /\.trading-market-layout-row button > \.sr-only[\s\S]*?clip-path: inset\(50%\)/);
   assert.match(css, /\.trading-market-split-loading/);
@@ -286,11 +306,12 @@ test("new controls cover light and dark themes plus interaction and async states
   assert.match(css, /\.trading-chart-settings-check input:checked/);
   assert.match(css, /\.trading-chart-settings-choice:has\(input:disabled\)/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-chart-settings-dialog/);
-  assert.match(css, /html\[data-theme="dark"\] \.trading-market-more-menu/);
+  assert.match(css, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-control:\s*#212224/);
+  assert.match(css, /\.trading-expert-market\s*\{[\s\S]*?--trading-market-control:\s*#f0f3f7/);
   assert.match(css, /html\[data-theme="light"\] \.trading-chart-settings-dialog/);
   assert.match(css, /color-scheme: dark/);
   assert.match(css, /color-scheme: light/);
-  const newControlCss = css.slice(css.indexOf(".trading-market-more-wrap"));
+  const newControlCss = css.slice(css.indexOf(".trading-market-chart-actions"));
   assert.match(newControlCss, /var\(--trading-market-panel\)/);
   assert.match(newControlCss, /var\(--trading-market-text\)/);
   assert.match(newControlCss, /var\(--trading-market-border\)/);
@@ -322,11 +343,14 @@ test("every split pane uses the main toolbar components without blocking period 
   assert.match(splitPane, /trading-market-overview trading-market-split-toolbar/);
   assert.match(splitPane, /trading-market-symbol trading-market-split-symbol-trigger/);
   assert.match(splitPane, /renderTradingMarketAssetLogo\(this\.market\.baseAsset, this\.market\.provider, true\)/);
-  assert.match(splitPane, /trading-market-more-trigger/);
+  assert.match(splitPane, /trading-market-chart-actions trading-market-split-chart-actions/);
+  assert.equal((splitPane.match(/class="trading-market-chart-action"/g) ?? []).length, 2);
   assert.match(splitPane, /trading-market-period-trigger trading-market-split-period-trigger/);
   assert.match(splitPane, /trading-market-times trading-market-split-times/);
   assert.match(splitPane, /data-split-action="open-chart-settings"/);
   assert.match(splitPane, /data-split-action="open-split-layouts"/);
+  assert.match(splitPane, /onOpenGlobalSettings\?: \(anchor: HTMLElement\) => void/);
+  assert.match(splitPane, /this\.onOpenGlobalSettings\?\.\(target\)/);
   assert.match(splitPane, /data-split-action="symbol"/);
   assert.match(splitPane, /data-split-action="interval"/);
   assert.doesNotMatch(splitPane, /<select/);
@@ -436,7 +460,7 @@ test("the primary pane reuses the compact split-period menu only while split mod
 test("the split-layout picker escapes pane clipping and stays inside the whole market workspace", async () => {
   const [market, splitPane, css] = await Promise.all([marketSource, splitPaneSource, stylesSource]);
   assert.match(splitPane, /onOpenSplitLayouts\?: \(anchor: HTMLElement\) => void/);
-  assert.match(splitPane, /this\.onOpenSplitLayouts\?\.\(this\.moreTrigger\)/);
+  assert.match(splitPane, /this\.onOpenSplitLayouts\?\.\(target\)/);
   assert.match(market, /this\.layoutPickerHome = document\.createComment\("trading-market-layout-picker-home"\)/);
   assert.match(market, /private setLayoutPickerOpen\(open: boolean, anchor: HTMLElement \| null = null\)[\s\S]*?this\.host\.append\(this\.layoutPicker\)/);
   assert.match(
@@ -469,7 +493,7 @@ test("split panes keep global titlebar favorite quotes while symbol and period s
   assert.match(market, /private splitPaneSelections = new Map<number, TradingSplitPaneSelection>\(\)/);
   assert.match(market, /const savedSelection = this\.splitPaneSelections\.get\(index\)/);
   assert.match(market, /onSelectionChange: \(selection\) => \{[\s\S]*?this\.splitPaneSelections\.set\(index, selection\)/);
-  assert.match(market, /onOpenGlobalSettings: \(\) => \{[\s\S]*?this\.setChartSettingsOpen\(true\)/);
+  assert.match(market, /onOpenGlobalSettings: \(anchor\) => \{[\s\S]*?this\.setChartSettingsOpen\(true, anchor\)/);
   assert.match(market, /this\.splitPanes\.forEach\(\(pane\) => pane\.updateSettings\(this\.chartSettings, themeName\)\)/);
   assert.match(splitPane, /this\.onSelectionChange\?\.\(\{[\s\S]*?marketId: this\.market\.id,[\s\S]*?interval: this\.interval,[\s\S]*?market: \{ \.\.\.this\.market \}/);
   assert.match(splitPane, /this\.settings = cloneTradingChartSettings\(settings\)/);

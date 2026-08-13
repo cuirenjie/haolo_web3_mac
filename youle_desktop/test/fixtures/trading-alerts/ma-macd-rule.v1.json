@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "ruleId": "rule_ma_macd",
+  "revision": 1,
+  "title": "MA5/MA20 死叉且 MACD 下穿零轴",
+  "root": {
+    "type": "all",
+    "children": [
+      {
+        "type": "condition",
+        "condition": {
+          "conditionId": "ma_cross",
+          "contextId": "primary",
+          "operator": "cross_under",
+          "left": { "type": "indicator", "name": "sma", "params": { "period": 5 } },
+          "right": { "type": "indicator", "name": "sma", "params": { "period": 20 } },
+          "confirmation": "bar_close"
+        }
+      },
+      {
+        "type": "condition",
+        "condition": {
+          "conditionId": "macd_zero",
+          "contextId": "primary",
+          "operator": "cross_under",
+          "left": { "type": "indicator", "name": "macd", "params": { "fast": 12, "slow": 26, "signal": 9 }, "output": "dif" },
+          "right": { "type": "constant", "value": 0 },
+          "confirmation": "bar_close"
+        }
+      }
+    ]
+  },
+  "contexts": [
+    {
+      "contextId": "primary",
+      "marketSelector": { "kind": "fixed", "marketIds": ["BINANCE:FUTURES:BTCUSDT"] },
+      "intervals": ["1h"]
+    }
+  ],
+  "evaluationPolicy": {
+    "clock": "bar_close",
+    "anchorContextId": "primary",
+    "joinMode": "same_close_time",
+    "maxDataAgeMs": 5000,
+    "unknownPolicy": "do_not_trigger"
+  },
+  "triggerPolicy": {
+    "mode": "once",
+    "edge": "false_to_true",
+    "rearm": "must_become_false",
+    "maxTriggersTotal": 1,
+    "resumePolicy": "baseline_only_no_catch_up"
+  },
+  "dataRequirements": [],
+  "sourceText": "MA5和MA20死叉同时MACD DIF下穿0轴就预警",
+  "normalizedSummary": "BTCUSDT 永续 1小时收盘时，MA5下穿MA20且MACD DIF同根下穿0轴，只提醒一次",
+  "createdAt": 1786464000000
+}
+

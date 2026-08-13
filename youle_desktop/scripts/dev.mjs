@@ -195,6 +195,9 @@ function developmentEnv() {
     HAOLO_DESKTOP_DEV_SERVER_URL: devUrl,
     CODEX_DESKTOP_DEV_SERVER_URL: devUrl,
     YOULE_DESKTOP_DEV_SERVER_URL: devUrl,
+    // Production remains opt-in. The local development client must keep the
+    // confirmation -> Engine monitoring path available for end-to-end QA.
+    HAOLO_TRADING_ALERTS_ENABLED: process.env.HAOLO_TRADING_ALERTS_ENABLED || "1",
     [DEV_MANUAL_RESTART_ENV]: "1",
   };
   delete env.ELECTRON_RUN_AS_NODE;

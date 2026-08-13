@@ -57,6 +57,59 @@ test("drawing measurement preserves time, price, and percentage changes", async 
   );
 });
 
+test("drawing mode forwards wheel zoom to the chart surface without changing native wheel semantics", async () => {
+  const { tradingDrawingForwardedWheelEventInit } = await import(
+    "../src/renderer/trading-expert-drawing.ts"
+  );
+  const [drawing, market, splitPane] = await Promise.all([
+    drawingSource,
+    marketSource,
+    splitPaneSource,
+  ]);
+  const wheelInit = tradingDrawingForwardedWheelEventInit({
+    altKey: false,
+    buttons: 0,
+    clientX: 620,
+    clientY: 310,
+    ctrlKey: true,
+    deltaMode: 0,
+    deltaX: 0,
+    deltaY: -120,
+    deltaZ: 0,
+    metaKey: false,
+    screenX: 720,
+    screenY: 410,
+    shiftKey: false,
+  });
+
+  assert.deepEqual(wheelInit, {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    altKey: false,
+    buttons: 0,
+    clientX: 620,
+    clientY: 310,
+    ctrlKey: true,
+    deltaMode: 0,
+    deltaX: 0,
+    deltaY: -120,
+    deltaZ: 0,
+    metaKey: false,
+    screenX: 720,
+    screenY: 410,
+    shiftKey: false,
+  });
+  assert.match(drawing, /this\.overlay\.addEventListener\("wheel", this\.handleWheel, \{ passive: false \}\)/);
+  assert.match(
+    drawing,
+    /private readonly handleWheel = \(event: WheelEvent\) => \{[\s\S]*?this\.chartElement\.firstElementChild[\s\S]*?new WheelEvent\([\s\S]*?tradingDrawingForwardedWheelEventInit\(event\)[\s\S]*?chartSurface\.dispatchEvent\(forwardedEvent\)[\s\S]*?forwardedEvent\.defaultPrevented[\s\S]*?event\.preventDefault\(\)/,
+  );
+  assert.match(drawing, /this\.overlay\.removeEventListener\("wheel", this\.handleWheel\)/);
+  assert.match(market, /handleScale:\s*\{[\s\S]*?mouseWheel: true/);
+  assert.match(splitPane, /handleScale: true/);
+});
+
 test("AI drawings are isolated and replaced by market plus interval context", async () => {
   const {
     replaceTradingAiDrawingContext,
@@ -655,7 +708,25 @@ test("selected drawings expose endpoints, whole-line dragging, and the requested
 });
 
 test("multi-click drafts follow the pointer until their final confirming click", async () => {
+  const { tradingDrawingRewindDraftPoints } = await import("../src/renderer/trading-expert-drawing.ts");
   const drawing = await drawingSource;
+  const first = { time: 1, price: 100 };
+  const second = { time: 2, price: 110 };
+  const cancelledThird = { time: 3, price: 105 };
+  const preview = { time: 4, price: 108 };
+
+  assert.deepEqual(
+    tradingDrawingRewindDraftPoints([first, second, cancelledThird, preview], 3, preview),
+    {
+      points: [first, second, preview],
+      confirmedPointCount: 2,
+      complete: false,
+    },
+  );
+  assert.deepEqual(
+    tradingDrawingRewindDraftPoints([first, preview], 1, preview),
+    { points: [], confirmedPointCount: 0, complete: false },
+  );
 
   assert.match(drawing, /private draftConfirmedPointCount = 0/);
   assert.match(drawing, /private draftRequiredPointCount = 0/);
@@ -665,6 +736,11 @@ test("multi-click drafts follow the pointer until their final confirming click",
   assert.match(drawing, /tradingDrawingAdvanceDraftPoints\([\s\S]*?this\.draftRequiredPointCount,[\s\S]*?drawingPoint/);
   assert.match(drawing, /this\.draft\.points = progress\.points[\s\S]*?this\.draftConfirmedPointCount = progress\.confirmedPointCount/);
   assert.match(drawing, /if \(!progress\.complete\)/);
+  assert.match(drawing, /this\.overlay\.addEventListener\("contextmenu", this\.handleContextMenu\)/);
+  assert.match(drawing, /private readonly handleContextMenu = \(event: MouseEvent\)[\s\S]*?if \(!this\.userDrawingEnabled \|\| !this\.draft \|\| !this\.hasPendingDraftPoint\(\)\) return;[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);/);
+  assert.match(drawing, /tradingDrawingRewindDraftPoints\([\s\S]*?this\.draft\.points = progress\.points;[\s\S]*?this\.draftConfirmedPointCount = progress\.confirmedPointCount;/);
+  assert.match(drawing, /已取消第 \$\{cancelledPointNumber\} 个端点，前 \$\{progress\.confirmedPointCount\} 个端点已保留/);
+  assert.match(drawing, /this\.overlay\.removeEventListener\("contextmenu", this\.handleContextMenu\)/);
   assert.match(drawing, /definition\?\.kind === "pattern"[\s\S]*?共 \$\{this\.draftRequiredPointCount\} 个/);
   assert.match(drawing, /第二个端点已设置[\s\S]*?移动鼠标选择第三个端点/);
   assert.match(drawing, /this\.renderPattern\(points, definition, color, lineAppearance\)/);
@@ -1017,7 +1093,7 @@ test("drawing toolbar header removes the exit divider and aligns the symbol to i
   assert.doesNotMatch(drawing, /trading-drawing-exit|exit-trading-expert|<span>退出<\/span>/);
   assert.match(
     styles,
-    /\.trading-drawing-toolbar-head\s*\{[^}]*height: 36\.4px;[^}]*flex: 0 0 36\.4px;[^}]*border-bottom: 1px solid var\(--trading-market-border\);/s,
+    /\.trading-drawing-toolbar-head\s*\{[^}]*height: 36\.4px;[^}]*flex: 0 0 36\.4px;[^}]*border-bottom: 0;/s,
   );
   assert.match(
     styles,

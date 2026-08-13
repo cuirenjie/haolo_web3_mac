@@ -20,7 +20,7 @@ export interface TradingChartThemeSettings {
 }
 
 export interface TradingChartSettings {
-  version: 1;
+  version: 2;
   chartStyle: TradingChartStyle;
   priceAdjustment: TradingPriceAdjustment;
   verticalPaddingPercent: number;
@@ -102,7 +102,7 @@ export function tradingPriceScaleUsesAutoScale(mode: TradingPriceScaleMode) {
 }
 
 export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
-  version: 1,
+  version: 2,
   chartStyle: "candlestick",
   priceAdjustment: "none",
   verticalPaddingPercent: 2,
@@ -124,7 +124,7 @@ export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
       horizontalGridVisible: true,
       horizontalGridColor: "#edf1f6",
       crosshairColor: "#97a0ad",
-      backgroundColor: "#f7f9fc",
+      backgroundColor: "#ffffff",
     },
     dark: {
       verticalGridVisible: false,
@@ -295,8 +295,13 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
   const defaults = DEFAULT_TRADING_CHART_SETTINGS;
   const source = value && typeof value === "object" ? value as Partial<TradingChartSettings> : {};
   const sourceThemes = source.themes && typeof source.themes === "object" ? source.themes : {} as TradingChartSettings["themes"];
+  const sourceVersion = Number((source as { version?: unknown }).version);
+  const lightTheme = normalizeTheme(sourceThemes.light, defaults.themes.light);
+  if (sourceVersion !== 2 && lightTheme.backgroundColor === "#F7F9FC") {
+    lightTheme.backgroundColor = defaults.themes.light.backgroundColor;
+  }
   return {
-    version: 1,
+    version: 2,
     chartStyle: chartStyles.has(source.chartStyle as TradingChartStyle)
       ? source.chartStyle as TradingChartStyle
       : defaults.chartStyle,
@@ -324,7 +329,7 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
       ? source.drawingToolsEnabled
       : defaults.drawingToolsEnabled,
     themes: {
-      light: normalizeTheme(sourceThemes.light, defaults.themes.light),
+      light: lightTheme,
       dark: normalizeTheme(sourceThemes.dark, defaults.themes.dark),
     },
   };

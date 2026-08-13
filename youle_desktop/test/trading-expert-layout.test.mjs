@@ -179,22 +179,21 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.match(tradingChatBranch, /\$\{renderTradingExpertMarketWorkspace\(\)\}/);
   assert.doesNotMatch(tradingChatBranch, /renderComposer\(thread\)/);
   assert.doesNotMatch(tradingChatBranch, /renderChatHeader\(thread\)/);
-  assert.match(tradingPanelToggleBlock, /return collapsed \? "展开会话" : "收起会话"/);
+  assert.match(tradingPanelToggleBlock, /return expanded \? "收起会话" : "展开会话"/);
   assert.match(tradingPanelToggleBlock, /function renderTradingExpertConversationHeader\(thread: ConversationSummary\)/);
   assert.match(tradingPanelToggleBlock, /const title = chatHeaderTitle\(thread\) \|\| NEW_THREAD_TITLE/);
-  assert.match(tradingPanelToggleBlock, /const panelToggle = disabled\s*\? ""\s*:\s*`[\s\S]*data-action="toggle-right-panel"/);
-  assert.match(tradingPanelToggleBlock, /const disabled = state\.tradingExpertChartCollapsed && !collapsed/);
-  assert.match(tradingPanelToggleBlock, /class="trading-expert-panel-title"[\s\S]*\$\{chartCollapsed \? `[\s\S]*data-action="toggle-trading-expert-chart"[\s\S]*` : panelToggle\}/);
+  assert.match(tradingPanelToggleBlock, /const conversationExpanded = state\.tradingExpertChartCollapsed && !state\.rightCollapsed/);
   assert.match(tradingPanelToggleBlock, /class="trading-expert-panel-header"[\s\S]*class="trading-expert-panel-title"[\s\S]*data-action="toggle-right-panel"/);
-  assert.match(tradingPanelToggleBlock, /class="trading-expert-panel-heading"[\s\S]*class="trading-expert-panel-title"[\s\S]*data-action="toggle-trading-expert-chart"/);
+  assert.match(tradingPanelToggleBlock, /data-trading-expert-conversation-expansion/);
+  assert.match(tradingPanelToggleBlock, /aria-expanded="\$\{conversationExpanded \? "true" : "false"\}"/);
   assert.match(tradingPanelToggleBlock, /function renderTradingExpertCollapseControls/);
-  assert.match(tradingPanelToggleBlock, /class="trading-expert-collapse-controls" role="group" aria-label="K线与会话显示控制"/);
-  assert.match(tradingPanelToggleBlock, /data-action="toggle-trading-expert-chart"[\s\S]*data-action="toggle-right-panel"/);
+  assert.match(tradingPanelToggleBlock, /class="trading-expert-collapse-controls" role="group" aria-label="K线展开与全屏显示控制"/);
+  assert.match(tradingPanelToggleBlock, /data-action="toggle-trading-expert-chart"[\s\S]*data-trading-expert-chart-expansion/);
   assert.match(tradingPanelToggleBlock, /data-action="toggle-right-panel"/);
   assert.match(tradingPanelToggleBlock, /data-action="toggle-right-panel"[\s\S]*renderPanelLayoutIcon\("right"\)/);
-  assert.match(tradingPanelToggleBlock, /aria-expanded="\$\{panelCollapsed \? "false" : "true"\}"/);
-  assert.match(tradingPanelToggleBlock, /const chartDisabled = panelCollapsed && !chartCollapsed/);
-  assert.match(tradingPanelToggleBlock, /const panelDisabled = chartCollapsed && !panelCollapsed/);
+  assert.match(tradingPanelToggleBlock, /const chartExpanded = panelCollapsed && !chartCollapsed/);
+  assert.match(tradingPanelToggleBlock, /aria-expanded="\$\{chartExpanded \? "true" : "false"\}"/);
+  assert.doesNotMatch(tradingPanelToggleBlock, /trading-expert-panel-toggle/);
   assert.match(tradingAgentPanelBranch, /const collapsed = state\.rightCollapsed/);
   assert.match(tradingAgentPanelBranch, /class="agent-panel \$\{collapsed \? "collapsed" : "expanded"\} trading-expert-panel"/);
   assert.match(tradingAgentPanelBranch, /aria-hidden="\$\{collapsed \? "true" : "false"\}"/);
@@ -206,14 +205,18 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.match(tradingAgentPanelBranch, /renderComposer\(thread\)/);
   assert.match(chatListBlock, /<aside class="chat-list trading-expert-task-list">/);
   assert.match(chatListBlock, /<div class="conversation-list-body">[\s\S]*\$\{renderConversationListActions\(\)\}/);
+  assert.match(chatListBlock, /\$\{renderUpdateDownloadDock\(\)\}[\s\S]*\$\{renderConversationListFooter\(\)\}/);
   assert.doesNotMatch(chatListBlock, /isTradingExpertThreadId\(state\.currentThreadId\)/);
   assert.match(sidebarActions, /data-conversation-static-action="account"[\s\S]*>账户<\/span>/);
   assert.match(sidebarActions, /data-conversation-static-action="alerts"[\s\S]*>预警<\/span>/);
   assert.match(sidebarActions, /data-conversation-static-action="knowledge"[\s\S]*>知识库<\/span>/);
-  assert.match(sidebarActions, /renderConversationListIcon\("account"\)[\s\S]*renderConversationListIcon\("alerts"\)[\s\S]*renderConversationListIcon\("knowledge"\)/);
+  assert.match(sidebarActions, /data-conversation-static-action="skills"[\s\S]*>技能<\/span>/);
+  assert.match(sidebarActions, /renderConversationListIcon\("account"\)[\s\S]*renderConversationListIcon\("alerts"\)[\s\S]*renderConversationListIcon\("knowledge"\)[\s\S]*renderConversationListIcon\("skills"\)/);
   assert.doesNotMatch(sidebarActions, /data-trading-expert-panel-tab|role="tab"|aria-selected/);
-  assert.match(titlebarActions, />自动化<\/button>[\s\S]*>连接<\/button>[\s\S]*>设置<\/button>/);
-  assert.doesNotMatch(titlebarActions, />任务<\/button>|renderConversationListIcon|<svg/);
+  assert.match(titlebarActions, /toggle-external-channel-menu[\s\S]*renderTitlebarPlugIcon\(\)/);
+  assert.match(titlebarActions, /open-auto-task-dialog[\s\S]*renderTitlebarAlarmIcon\(\)/);
+  assert.ok(titlebarActions.indexOf("toggle-external-channel-menu") < titlebarActions.indexOf("open-auto-task-dialog"));
+  assert.doesNotMatch(titlebarActions, /自动化|open-auto-tasks|>连接<|data-action="open-settings"|>设置<|>任务<\/button>|renderConversationListIcon/);
   assert.match(source, /class="titlebar-drag-region">[\s\S]*class="titlebar-market-favorites-host" data-titlebar-market-favorites-host/);
   assert.doesNotMatch(source, /trading-expert-task-refresh|data-trading-expert-task-refresh|refreshTradingExpertTask/);
   assert.doesNotMatch(source, /TradingExpertPanelTab|tradingExpertPanelTab|renderTradingExpertPanelTabs|bindTradingExpertPanelTabEvents/);
@@ -230,27 +233,98 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   );
   assert.match(panelSyncBlock, /classList\.toggle\("right-panel-collapsed", collapsed\)/);
   assert.match(panelSyncBlock, /isTradingExpertThreadId\(state\.currentThreadId\)/);
-  assert.match(panelSyncBlock, /tradingExpertPanelToggleLabel\(collapsed\)/);
+  assert.match(panelSyncBlock, /tradingExpertChartToggleLabel\(collapsed\)/);
   assert.match(panelSyncBlock, /syncTradingExpertCollapseControlsState\(\)/);
-  assert.match(tradingPanelToggleBlock, /querySelectorAll<HTMLButtonElement>\('\[data-action="toggle-right-panel"\]'\)/);
-  assert.match(tradingPanelToggleBlock, /querySelectorAll<HTMLButtonElement>\('\[data-action="toggle-trading-expert-chart"\]'\)/);
-  assert.match(tradingPanelToggleBlock, /panelButtons\.forEach\(\(panelButton\)/);
+  assert.match(tradingPanelToggleBlock, /querySelectorAll<HTMLButtonElement>\("\[data-trading-expert-chart-expansion\]"\)/);
+  assert.match(tradingPanelToggleBlock, /querySelectorAll<HTMLButtonElement>\("\[data-trading-expert-conversation-expansion\]"\)/);
+  assert.match(tradingPanelToggleBlock, /conversationButtons\.forEach\(\(panelButton\)/);
   assert.match(tradingPanelToggleBlock, /button\.innerHTML = renderPanelLayoutIcon\(side\)/);
-  assert.match(tradingPanelToggleBlock, /return collapsed \? "展开K线画布" : "收起K线画布"/);
+  assert.match(tradingPanelToggleBlock, /return expanded \? "收起K线画布" : "展开K线画布"/);
   assert.match(tradingPanelToggleBlock, /data-action="toggle-trading-expert-chart"/);
   assert.match(tradingPanelToggleBlock, /data-action="toggle-trading-expert-chart"[\s\S]*renderPanelLayoutIcon\("left"\)/);
-  assert.match(tradingPanelToggleBlock, /aria-expanded="\$\{chartCollapsed \? "false" : "true"\}"/);
   assert.doesNotMatch(source, /function renderCollapseChevronIcon|collapse-chevron-icon/);
   assert.match(source, /data-action="toggle-left-panel"[\s\S]*renderPanelLayoutIcon\("left"\)/);
   assert.match(
     source,
-    /\[data-action="toggle-trading-expert-chart"\][\s\S]*state\.rightCollapsed && !state\.tradingExpertChartCollapsed[\s\S]*state\.tradingExpertChartCollapsed = !state\.tradingExpertChartCollapsed;[\s\S]*render\(\)/,
+    /\[data-action="toggle-trading-expert-chart"\][\s\S]*state\.tradingExpertChartCollapsed[\s\S]*state\.rightCollapsed = !state\.rightCollapsed;[\s\S]*syncAgentPanelState\(\)/,
   );
   assert.match(
     source,
-    /\[data-action="toggle-right-panel"\][\s\S]*state\.tradingExpertChartCollapsed && !state\.rightCollapsed[\s\S]*state\.rightCollapsed = !state\.rightCollapsed/,
+    /button\.hasAttribute\("data-trading-expert-conversation-expansion"\)[\s\S]*state\.tradingExpertChartCollapsed = !state\.tradingExpertChartCollapsed;[\s\S]*render\(\)/,
   );
   assert.doesNotMatch(source, /function renderTradingExpert(?:Panel|Chart)Toggle/);
+});
+
+test("Trading Expert chart focus mode fills the workspace and restores the exact prior layout", async () => {
+  const [source, styles] = await Promise.all([mainSource, stylesSource]);
+  const renderBlock = sourceBlock(source, "function render()", "function scheduleRender");
+  const focusBlock = sourceBlock(
+    source,
+    "function tradingExpertChartFocusToggleLabel",
+    "function renderTradingExpertCollapseControls",
+  );
+  const controlsBlock = sourceBlock(
+    source,
+    "function renderTradingExpertCollapseControls",
+    "function renderTradingExpertConversation",
+  );
+  const bindingBlock = sourceBlock(
+    source,
+    '.querySelectorAll<HTMLButtonElement>(\'[data-action="toggle-right-panel"]\')',
+    '.querySelector<HTMLInputElement>("#localGroupChatMemberSearch")',
+  );
+  const leftToggleBlock = sourceBlock(
+    source,
+    "function toggleLeftPanelCollapsed",
+    "function renderMaximizeIcon",
+  );
+
+  assert.match(source, /tradingExpertChartFocusMode: boolean/);
+  assert.match(source, /tradingExpertChartFocusMode: false/);
+  assert.match(renderBlock, /tradingExpertChartFocusMode \? "trading-expert-chart-focus-mode" : ""/);
+  assert.match(
+    renderBlock,
+    /!tradingExpertLayout && state\.tradingExpertChartFocusMode[\s\S]*restoreTradingExpertChartFocusLayout\(\)/,
+  );
+  assert.match(focusBlock, /return active \? "退出K线全屏" : "K线全屏"/);
+  assert.match(focusBlock, /trading-expert-chart-focus-icon[\s\S]*M10 10L4 4/);
+  assert.match(focusBlock, /trading-expert-chart-focus-icon[\s\S]*M4 4l6 6/);
+  assert.match(
+    focusBlock,
+    /tradingExpertChartFocusRestoreState = \{[\s\S]*leftCollapsed: state\.leftCollapsed,[\s\S]*rightCollapsed: state\.rightCollapsed,[\s\S]*chartCollapsed: state\.tradingExpertChartCollapsed/,
+  );
+  assert.match(
+    focusBlock,
+    /state\.tradingExpertChartFocusMode = true;[\s\S]*state\.leftCollapsed = true;[\s\S]*state\.rightCollapsed = true;[\s\S]*state\.tradingExpertChartCollapsed = false/,
+  );
+  assert.match(
+    focusBlock,
+    /state\.leftCollapsed = restore\.leftCollapsed;[\s\S]*state\.rightCollapsed = restore\.rightCollapsed;[\s\S]*state\.tradingExpertChartCollapsed = restore\.chartCollapsed/,
+  );
+  assert.match(
+    focusBlock,
+    /isTradingExpertConversationCollapseLocked\(state\.currentThreadId\)[\s\S]*syncTradingExpertCollapseControlsState\(\)[\s\S]*return/,
+  );
+  assert.match(
+    controlsBlock,
+    /data-action="toggle-trading-expert-chart-focus"[\s\S]*aria-pressed="\$\{focusMode \? "true" : "false"\}"/,
+  );
+  assert.match(controlsBlock, /分析进行中，暂不可进入K线全屏/);
+  assert.match(controlsBlock, /focusButton\.hidden = chartCollapsed && !focusMode/);
+  assert.match(
+    bindingBlock,
+    /\[data-action="toggle-trading-expert-chart-focus"\][\s\S]*toggleTradingExpertChartFocusMode\(\)/,
+  );
+  assert.match(leftToggleBlock, /state\.tradingExpertChartFocusMode[\s\S]*return/);
+  assert.match(
+    styles,
+    /\.desktop-shell\.trading-expert-chart-focus-mode \.left-panel-toggle,[\s\S]*> \.trading-expert-chart-toggle,[\s\S]*> \.trading-expert-resize-handle\s*\{\s*display: none;/s,
+  );
+  assert.match(styles, /\.trading-expert-chart-focus-icon\s*\{[^}]*width: 14px;[^}]*height: 14px;[^}]*stroke: currentColor;[^}]*stroke-width: 1\.55;/s);
+  assert.match(styles, /\.trading-expert-chart-focus-toggle\[aria-pressed="true"\]\s*\{[^}]*color: var\(--text-tertiary\);/s);
+  assert.match(styles, /\[data-action="toggle-trading-expert-chart-focus"\][\s\S]*:hover:not\(:disabled\),[\s\S]*:focus-visible[\s\S]*color: var\(--text-secondary\);/s);
+  assert.match(styles, /\[data-action="toggle-trading-expert-chart-focus"\][\s\S]*:active:not\(:disabled\)[\s\S]*background: var\(--surface-active-translucent\);/s);
+  assert.match(styles, /\[data-action="toggle-trading-expert-chart-focus"\][\s\S]*:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.45;/s);
 });
 
 test("collapsed Trading Expert progress cannot replace the restore control mid-click", async () => {
@@ -312,7 +386,7 @@ test("collapsed Trading Expert progress cannot replace the restore control mid-c
   );
 });
 
-test("Trading Expert hides and hard-locks the conversation collapse action until analysis reaches a terminal state", async () => {
+test("Trading Expert hides and hard-locks chart expansion until analysis reaches a terminal state", async () => {
   const source = await mainSource;
   const styles = await stylesSource;
   const lockBlock = sourceBlock(
@@ -349,22 +423,22 @@ test("Trading Expert hides and hard-locks the conversation collapse action until
   assert.match(lockBlock, /submittingComposerThreadIds\.has\(threadId\)/);
   assert.match(lockBlock, /tradingExpertThinkingStateByThreadId\.has\(threadId\)/);
   assert.match(lockBlock, /isThreadBusy\(threadId\)/);
-  assert.match(headerBlock, /!collapsed && isTradingExpertConversationCollapseLocked\(thread\.id\)/);
-  assert.match(headerBlock, /collapseLocked \? ' hidden aria-hidden="true" disabled'/);
-  assert.match(controlsBlock, /panelCollapseLocked = !panelCollapsed && isTradingExpertConversationCollapseLocked\(state\.currentThreadId\)/);
-  assert.match(controlsBlock, /panelButton\.hidden = panelCollapseLocked/);
-  assert.match(controlsBlock, /panelButton\.removeAttribute\("aria-hidden"\)/);
+  assert.match(headerBlock, /data-trading-expert-conversation-expansion/);
+  assert.doesNotMatch(headerBlock, /isTradingExpertConversationCollapseLocked/);
+  assert.match(controlsBlock, /chartExpansionLocked = !chartExpanded && isTradingExpertConversationCollapseLocked\(state\.currentThreadId\)/);
+  assert.match(controlsBlock, /chartButton\.hidden = chartCollapsed \|\| chartExpansionLocked/);
+  assert.match(controlsBlock, /chartButton\.removeAttribute\("aria-hidden"\)/);
   assert.match(
     busyBlock,
     /threadId === state\.currentThreadId && isTradingExpertThreadId\(threadId\)[\s\S]*syncTradingExpertCollapseControlsState\(\)/,
   );
   assert.match(
     styles,
-    /\.trading-expert-panel-header-toggle\[hidden\],[\s\S]*\.trading-expert-panel-toggle\[hidden\][\s\S]*display:\s*none !important/,
+    /\.trading-expert-panel-header-toggle\[hidden\],[\s\S]*\.trading-expert-chart-toggle\[hidden\][\s\S]*display:\s*none !important/,
   );
   assert.match(
     bindingBlock,
-    /!state\.rightCollapsed[\s\S]*isTradingExpertConversationCollapseLocked\(state\.currentThreadId\)[\s\S]*return;[\s\S]*state\.rightCollapsed = !state\.rightCollapsed/,
+    /\[data-action="toggle-trading-expert-chart"\][\s\S]*!state\.rightCollapsed[\s\S]*isTradingExpertConversationCollapseLocked\(state\.currentThreadId\)[\s\S]*return;[\s\S]*state\.rightCollapsed = !state\.rightCollapsed/,
   );
   assert.match(
     sendBlock,
@@ -614,17 +688,17 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /> \.trading-expert-panel\s*\{[^}]*flex: 0 0 var\(--trading-expert-panel-width\);[^}]*background: #ffffff;/s);
   assert.match(styles, /> \.trading-expert-panel:has\([\s\S]*?\.trading-expert-mention-popover:not\(\.hidden\)[\s\S]*?\)\s*\{[^}]*z-index: 70;[^}]*overflow: visible;/s);
   assert.match(styles, /--trading-expert-panel-divider: #e3e8ef;/);
-  assert.match(styles, /\.chat-list\.trading-expert-task-list\s*\{[^}]*--trading-expert-panel-divider: #e3e8ef;/s);
+  assert.match(styles, /\.chat-list\.trading-expert-task-list\s*\{[^}]*--trading-expert-panel-divider: #e3e8ef;[^}]*border-right: 0;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.chat-list\.trading-expert-task-list\s*\{[^}]*--trading-expert-panel-divider: #1a2437;/s);
-  assert.match(styles, /\.trading-market-overview\s*\{[^}]*height: 36\.4px;[^}]*border-bottom: 1px solid var\(--trading-market-border\);/s);
-  assert.match(styles, /\.desktop-body\.trading-expert-layout\s*> \.trading-expert-panel\s+\.trading-expert-panel-header\s*\{[^}]*display: grid;[^}]*height: 36\.4px;[^}]*flex: 0 0 36\.4px;[^}]*grid-template-columns: minmax\(0, 1fr\) auto;[^}]*border-bottom: 1px solid var\(--trading-expert-panel-divider\);[^}]*background: inherit;[^}]*padding: 0 14px;/s);
+  assert.match(styles, /\.trading-market-overview\s*\{[^}]*height: 36\.4px;[^}]*border-bottom: 0;/s);
+  assert.match(styles, /\.desktop-body\.trading-expert-layout\s*> \.trading-expert-panel\s+\.trading-expert-panel-header\s*\{[^}]*display: grid;[^}]*height: 36\.4px;[^}]*flex: 0 0 36\.4px;[^}]*grid-template-columns: minmax\(0, 1fr\) auto;[^}]*border-bottom: 0;[^}]*background: inherit;[^}]*padding: 0 14px;/s);
   assert.match(styles, /\.trading-expert-panel-title\s*\{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s);
   assert.match(styles, /\.trading-expert-panel-heading\s*\{[^}]*display: grid;[^}]*height: 100%;[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*grid-template-rows: 1fr;/s);
   assert.match(styles, /\.trading-expert-panel-heading > \*\s*\{[^}]*position: static;[^}]*grid-row: 1;[^}]*align-self: center;/s);
   assert.match(styles, /\.trading-expert-panel-header-toggle\s*\{[^}]*width: 24px;[^}]*height: 26px;[^}]*justify-self: end;[^}]*border-radius: 7px;[^}]*background: transparent;/s);
   assert.doesNotMatch(styles, /trading-expert-panel-tabs|trading-expert-panel-tab-cell|trading-expert-sidebar-category/);
-  assert.match(styles, /\.titlebar-primary-actions\s*\{[^}]*display: flex;[^}]*height: 100%;[^}]*gap: 2px;/s);
-  assert.match(styles, /\.titlebar-primary-action\s*\{[^}]*height: 30px;[^}]*border-radius: 7px;[^}]*background: transparent;[^}]*font-size: calc\(13px \+ var\(--app-font-size-offset\)\);/s);
+  assert.match(styles, /\.titlebar-primary-actions\s*\{[^}]*display: flex;[^}]*height: 100%;[^}]*gap: 2px;[^}]*margin-left: -8px;/s);
+  assert.match(styles, /\.titlebar-primary-action\s*\{[^}]*height: 30px;[^}]*border-radius: 16px;[^}]*background: transparent;[^}]*font-size: calc\(13px \+ var\(--app-font-size-offset\)\);/s);
   assert.match(styles, /\.titlebar-primary-action:hover:not\(:disabled\),[\s\S]*background: var\(--conversation-action-hover\);/s);
   assert.match(styles, /\.titlebar-primary-action:is\(\.active, :active\):not\(:disabled\)[\s\S]*background: var\(--conversation-action-hover\);/s);
   assert.doesNotMatch(styles, /\.titlebar-primary-action:is\(\.active, :active\):not\(:disabled\)[\s\S]*?background: var\(--conversation-action-selected\);/s);
@@ -633,7 +707,8 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /\.chat-list\.trading-expert-task-list \.conversation-list-body\s*\{[^}]*padding-top: 8px;/s);
   assert.match(styles, /\.titlebar-channel-menu-overlay\s*\{[^}]*top: 100%;[^}]*z-index: 90;[^}]*display: none;[^}]*width: 208px;[^}]*padding-top: 5px;/s);
   assert.match(styles, /\.titlebar-channel-action:is\(:hover, \.menu-open\) > \.titlebar-channel-menu-overlay\s*\{[^}]*display: block;/s);
-  assert.match(styles, /\.app-titlebar\s*\{[^}]*z-index: 100;[^}]*background: var\(--app-chrome-background\);[^}]*overflow: visible;/s);
+  assert.match(styles, /\.app-titlebar\s*\{[^}]*z-index: 100;[^}]*background: var\(--app-chrome-background\);[^}]*border-bottom: 0;[^}]*overflow: visible;/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.app-titlebar\s*\{[^}]*border-bottom: 0;/s);
   assert.match(styles, /\.chat-list\s*\{[^}]*background: var\(--app-chrome-background\);[^}]*backdrop-filter: none;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.chat-list\s*\{[^}]*background: var\(--app-chrome-background\);/s);
   assert.match(styles, /html\[data-theme="dark"\] \.desktop-body:has\(> \.chat-panel\) > \.chat-list\s*\{[^}]*background: var\(--app-chrome-background\);/s);
@@ -646,14 +721,14 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /> \.trading-expert-collapse-controls\s*\{[^}]*position: absolute;[^}]*top: 4px;[^}]*right: calc\(var\(--trading-expert-panel-width\) \+ 5px\);[^}]*left: auto;[^}]*z-index: 60;[^}]*display: flex;[^}]*gap: 2px;[^}]*height: 26px;[^}]*background: transparent;/s);
   assert.match(styles, /> \.trading-expert-collapse-controls[\s\S]*?> \.trading-expert-collapse-button\s*\{[^}]*position: static;[^}]*left: auto;[^}]*width: 24px;[^}]*height: 26px;[^}]*border-radius: 7px;[^}]*background: transparent;/s);
   assert.match(styles, /\.desktop-body\.trading-expert-layout:has\(\.trading-expert-market\.split-layout-active\)[\s\S]*?> \.trading-expert-collapse-controls\s*\{\s*display: none;/s);
-  assert.match(market, /class="small-icon-button panel-toggle trading-market-split-panel-restore collapsed"[\s\S]*?data-action="toggle-right-panel"[\s\S]*?aria-label="展开会话"/);
+  assert.match(market, /class="small-icon-button panel-toggle trading-market-split-panel-restore expanded"[\s\S]*?data-action="toggle-right-panel"[\s\S]*?aria-label="收起K线画布"/);
   assert.match(styles, /\.trading-market-split-panel-restore\s*\{[^}]*display: none;[^}]*width: 24px;[^}]*height: 26px;[^}]*border-radius: 7px;[^}]*background: transparent;/s);
   assert.match(styles, /\.desktop-body\.trading-expert-layout\.right-panel-collapsed[\s\S]*?\.trading-expert-market\.split-layout-active[\s\S]*?\.trading-market-primary-pane[\s\S]*?\.trading-market-split-panel-restore\s*\{\s*display: inline-flex;/s);
   assert.match(styles, /\.trading-market-split-panel-restore:hover:not\(:disabled\),[\s\S]*?\.trading-market-split-panel-restore:focus-visible\s*\{[^}]*background: var\(--surface-hover-translucent\);/s);
   assert.match(styles, /\.trading-market-split-panel-restore:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 2px var\(--conversation-action-focus\);/s);
-  assert.match(styles, /\.trading-expert-layout:not\(\.right-panel-collapsed\)[\s\S]*?> \.trading-expert-panel-toggle\s*\{\s*display: none;/s);
-  assert.match(styles, /\.trading-expert-layout\.right-panel-collapsed[\s\S]*?> \.trading-expert-chart-toggle\s*\{\s*display: none;/s);
-  assert.match(styles, /\.trading-expert-layout\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-chart-toggle\s*\{\s*display: none;/s);
+  assert.doesNotMatch(styles, /> \.trading-expert-panel-toggle/);
+  assert.doesNotMatch(styles, /\.trading-expert-layout\.right-panel-collapsed[\s\S]*?> \.trading-expert-chart-toggle\s*\{\s*display: none;/s);
+  assert.match(styles, /\.trading-expert-layout\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-collapse-controls\s*\{\s*display: none;/s);
   assert.doesNotMatch(styles, /\.trading-expert-collapse-controls\s*\{[^}]*border:/s);
   assert.doesNotMatch(styles, /> \.trading-expert-collapse-button\s*\+ \.trading-expert-collapse-button/);
   assert.doesNotMatch(styles, /\.collapse-chevron-icon\s*\{/);
@@ -661,8 +736,7 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /\.trading-expert-collapse-button:hover:not\(:disabled\),[\s\S]*\.trading-expert-collapse-button:focus-visible\s*\{[^}]*background: var\(--surface-hover-translucent\);/s);
   assert.match(styles, /\.trading-expert-collapse-button:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 2px var\(--conversation-action-focus\);/s);
   assert.match(styles, /\.trading-expert-layout\.right-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?> \.trading-expert-collapse-controls\s*\{[^}]*right: 5px;/s);
-  assert.match(styles, /\.trading-expert-layout\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-collapse-controls\s*\{[^}]*right: auto;[^}]*left: calc\(var\(--conversation-list-width\) \+ 38px\);/s);
-  assert.match(styles, /\.trading-expert-layout\.trading-expert-chart-collapsed\.left-panel-collapsed[\s\S]*?> \.trading-expert-collapse-controls\s*\{[^}]*left: 41px;/s);
+  assert.doesNotMatch(styles, /\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-collapse-controls\s*\{[^}]*left:/s);
   assert.match(renderBlock, /tradingExpertLayout \? "trading-expert-shell" : ""/);
   assert.match(styles, /\.app-titlebar\s*\{[^}]*height: 38px;/s);
   assert.match(styles, /\.small-icon-button\s*\{[^}]*height: 26px;/s);
@@ -817,12 +891,13 @@ test("Trading Expert shows its mention catalog with left-opening submenus", asyn
     "function bindEvents",
   );
 
-  assert.match(source, /const TRADING_EXPERT_MENTION_CATALOG = \[[\s\S]*?label: "策略", options: \["缠论", "订单流", "波浪理论", "威科夫"\][\s\S]*?label: "知识库", options: \[\][\s\S]*?label: "自定义指标", options: \["趋势带"\]/);
+  assert.match(source, /const TRADING_EXPERT_MENTION_CATALOG = \[[\s\S]*?label: "策略", options: \["缠论", "订单流", "波浪理论", "威科夫"\][\s\S]*?label: "预警", options: \[\][\s\S]*?label: "知识库", options: \[\][\s\S]*?label: "自定义指标", options: \["趋势带"\]/);
   assert.match(menuBlock, /class="composer-mention-root trading-expert-mention-root"/);
   assert.match(menuBlock, /class="composer-mention-submenu trading-expert-mention-submenu"/);
   assert.match(menuBlock, /aria-haspopup="menu" aria-expanded="false"/);
   assert.match(menuBlock, /class="trading-expert-mention-option"[^>]*data-trading-expert-mention-group=/);
   assert.match(menuBlock, /data-trading-expert-mention-option=/);
+  assert.match(menuBlock, /item\.options\.length \? ' aria-haspopup="menu" aria-expanded="false"' : ` data-trading-expert-mention-group=/);
   assert.doesNotMatch(menuBlock, /aria-disabled="true"/);
   assert.doesNotMatch(menuBlock, /data-composer-mention-root|data-skill-mention-index|applyComposerSkillMention/);
   assert.match(popoverBlock, /isTradingExpertThreadId\(currentComposerThreadId\(\)\)[\s\S]*return renderTradingExpertMentionMenu\(open\)/);
@@ -878,9 +953,10 @@ test("Trading Expert mention selection inserts an atomic highlighted category to
     "function composerSkillTokenDeleteRange",
   );
 
-  assert.match(placeholderBlock, /isTradingExpertThreadId\(thread\.id\)[\s\S]*return "输入@调用 策略、知识库、自定义指标"/);
+  assert.match(placeholderBlock, /isTradingExpertThreadId\(thread\.id\)[\s\S]*return "输入@调用 策略、预警、知识库、自定义指标"/);
   assert.match(applyBlock, /isTradingExpertThreadId\(threadId\)/);
-  assert.match(applyBlock, /const token = `@\$\{item\.label\}:\$\{option\}`/);
+  assert.match(applyBlock, /item\.options\.length > 0 && !option/);
+  assert.match(applyBlock, /const token = `@\$\{item\.label\}\$\{option \? `:\$\{option\}` : ""\}`/);
   assert.match(applyBlock, /composerMentionLeadingSpacer\(input\.value, match\.start\)/);
   assert.match(applyBlock, /composerMentionTrailingSpacer\(afterSelection\)/);
   assert.match(applyBlock, /applyTradingExpertCustomIndicatorMentions\(nextValue\)/);
@@ -889,6 +965,7 @@ test("Trading Expert mention selection inserts an atomic highlighted category to
   assert.match(bindBlock, /\[data-trading-expert-mention-option\][\s\S]*applyTradingExpertMention/);
   assert.match(highlightTokenBlock, /tradingExpertMentionTokens\(\)/);
   assert.match(atomicTokenBlock, /tradingExpertMentionTokens\(\)[\s\S]*TRADING_EXPERT_MENTION_CATALOG\.flatMap/);
+  assert.match(atomicTokenBlock, /item\.options\.length[\s\S]*\[`@\$\{item\.label\}`\]/);
   assert.match(composerInputBlock, /state\.composerText = input\.value;\s*applyTradingExpertCustomIndicatorMentions\(input\.value\)/);
   assert.match(pendingSendBlock, /state\.composerText = "";\s*applyTradingExpertCustomIndicatorMentions\(state\.composerText\)/);
   assert.match(atomicDeleteBlock, /state\.composerText = nextValue;\s*applyTradingExpertCustomIndicatorMentions\(nextValue\)/);
@@ -925,7 +1002,7 @@ test("Trading Expert market uses Binance USDT perpetual REST and realtime data",
   assert.match(source, /export function atm4MaBand/);
   assert.match(source, /subscribeVisibleLogicalRangeChange/);
   assert.match(source, /window\.setTimeout\(\(\) => this\.connectSocket\(generation\), 1500\)/);
-  assert.match(source, /this\.selectedProvider === "binance" \? 2_000 : 60_000/);
+  assert.match(source, /this\.selectedProvider === "binance" \? MARKET_SOCKET_FALLBACK_INTERVAL_MS : 60_000/);
 
   assert.match(styles, /\.trading-expert-market\s*\{[\s\S]*?--trading-market-panel: #ffffff;/);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-panel: #0f1014;/);
@@ -1160,6 +1237,11 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
     "function renderPeriodEditorShell()",
     "function renderIndicatorButtons()",
   );
+  const sharedFocusRing = sourceBlock(
+    styles,
+    ".trading-market-symbol:focus-visible",
+    ".trading-market-symbol strong",
+  );
 
   assert.match(source, /function tradingViewResolution/);
   assert.match(source, /period\.unit === "s"\) return `\$\{amount\}S`/);
@@ -1214,6 +1296,11 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
   assert.match(styles, /html\[data-theme="dark"\] \.trading-market-period-editor\s*\{[^}]*box-shadow:/s);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-market-period-drag-ghost\s*\{[^}]*box-shadow:/s);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-market-period-add input\s*\{[^}]*color-scheme: dark;/s);
+  assert.doesNotMatch(sharedFocusRing, /\.trading-market-period-editor input:focus-visible/);
+  assert.match(
+    styles,
+    /\.trading-market-period-add input:focus-visible\s*\{[^}]*outline: 0;[^}]*border-color: color-mix\(in srgb, var\(--trading-market-text\) 38%, var\(--trading-market-border\)\);[^}]*box-shadow: none;/s,
+  );
 });
 
 test("Trading Expert custom indicator dialog configures every existing study and applies only on save", async () => {
@@ -1401,7 +1488,7 @@ test("Trading Expert favorites persist, filter the next open, and remain availab
   assert.match(styles, /\.trading-market-favorite:hover\s*\{[^}]*background: transparent;[^}]*color: var\(--trading-market-favorite-fill\);/s);
   assert.match(styles, /\.trading-market-favorite:focus-visible\s*\{[^}]*outline: 2px solid var\(--trading-market-favorite-fill\);/s);
   assert.match(styles, /\.trading-market-favorite:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.45;/s);
-  assert.match(styles, /\.titlebar-market-favorites-host\s*\{[^}]*margin: 0 24px;[^}]*overflow: hidden;/s);
+  assert.match(styles, /\.titlebar-market-favorites-host\s*\{[^}]*margin: 0 24px 0 -4px;[^}]*overflow: hidden;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.titlebar-market-favorites-host\s*\{[^}]*--trading-market-positive: #52dc88;[^}]*--trading-market-negative: #ff718e;/s);
   assert.match(styles, /\.trading-market-favorite-tickers\s*\{[^}]*flex: 1 1 auto;[^}]*gap: 4px;[^}]*overflow-x: auto;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scrollbar-width: none;[^}]*touch-action: pan-x;/s);
   assert.match(styles, /\.trading-market-favorite-tickers\.dragging\s*\{[^}]*cursor: grabbing;[^}]*user-select: none;/s);
@@ -1441,7 +1528,7 @@ test("Trading Expert uses backend-managed Finnhub without a visible provider sta
   assert.match(source, /tag: "现货"/);
   assert.match(source, /fetchBinanceSpot<BinanceExchangeInfo>\("\/api\/v3\/exchangeInfo"/);
   assert.match(source, /fetchBinanceMarket<unknown\[\]\[]>\(marketType, "\/fapi\/v1\/klines", "\/api\/v3\/klines"/);
-  assert.match(source, /this\.selectedProvider === "binance" \? 2_000 : 60_000/);
+  assert.match(source, /this\.selectedProvider === "binance" \? MARKET_SOCKET_FALLBACK_INTERVAL_MS : 60_000/);
   assert.match(desktopMain, /getYouleApiClient\(\)\.getFinnhubMarketDataStatus\(\)/);
   assert.match(preload, /getFinnhubMarketDataStatus: \(\) => ipcRenderer\.invoke\("marketData:getFinnhubStatus"\)/);
   assert.match(apiClient, /\/api\/market-data\/finnhub/);
@@ -1459,7 +1546,7 @@ test("Trading Expert market chart sits flush beneath a shadowless themed divider
   );
   assert.match(
     styles,
-    /\.trading-market-overview\s*\{[^}]*border-bottom: 1px solid var\(--trading-market-border\);[^}]*box-shadow: none;/s,
+    /\.trading-market-overview\s*\{[^}]*border-bottom: 0;[^}]*box-shadow: none;/s,
   );
   assert.match(
     styles,
@@ -1633,7 +1720,7 @@ test("Trading Expert subchart indicators cover pane behavior and both themes", a
   assert.match(source, /current\?\.value \?\? current\?\.high \?\? seriesRuntime\.latestValue/);
   assert.match(source, /subscribeVisibleLogicalRangeChange\(\(range: any\) => \{[\s\S]*?this\.rebuildingIndicatorPanes/);
 
-  assert.match(styles, /\.trading-market-indicator-bar\s*\{[^}]*background: var\(--trading-market-panel\)/s);
+  assert.match(styles, /\.trading-market-indicator-bar\s*\{[^}]*border-top: 0;[^}]*background: var\(--trading-market-panel\)/s);
   assert.match(styles, /\.trading-market-indicators button\s*\{[^}]*color: var\(--trading-market-muted\)/s);
   assert.match(styles, /\.trading-market-indicators button:hover\s*\{[^}]*background: var\(--trading-market-control\)/s);
   assert.match(styles, /\.trading-market-indicators button:active\s*\{[^}]*transform: translateY\(1px\)/s);
@@ -1666,13 +1753,14 @@ test("Trading Expert adds functional main-chart studies on the left and moves su
   assert.match(source, /createSeriesMarkers\(this\.candleSeries/);
   assert.match(source, /const tdSignals = isActive\("td"\) \? computeTdSequential\(candles, tdSetting\.parameters\[0\]\) : \[\]/);
   assert.ok(indicatorBar.indexOf("data-market-main-indicators") < indicatorBar.indexOf("data-market-indicators"));
-  assert.match(styles, /\.trading-drawing-toolbar\s*\{[^}]*width: 41\.6px;[^}]*flex: 0 0 41\.6px;/s);
-  assert.match(styles, /\.trading-expert-layout:not\(\.left-panel-collapsed\)[\s\S]*?\.trading-drawing-toolbar\s*\{\s*display: none;/s);
-  assert.match(styles, /\.trading-expert-layout\.left-panel-collapsed[\s\S]*?\.trading-drawing-toolbar\s*\{\s*display: flex;/s);
+  assert.match(styles, /\.trading-drawing-toolbar\s*\{[^}]*width: 41\.6px;[^}]*flex: 0 0 41\.6px;[^}]*margin-bottom: 42px;/s);
+  assert.match(styles, /\.trading-expert-market\.split-layout-active \.trading-drawing-toolbar\s*\{[^}]*margin-bottom: 32px;/s);
+  assert.doesNotMatch(styles, /\.desktop-body\.trading-expert-layout[^,{]*\s+\.trading-drawing-toolbar\s*\{\s*display: none;/s);
   assert.match(styles, /\.trading-market-chart-panel\s*\{[^}]*overflow: visible;/s);
   assert.match(styles, /\.trading-market-chart-viewport\s*\{[^}]*overflow: hidden;/s);
+  assert.match(styles, /\.trading-expert-market:not\(\.split-layout-active\) \.trading-market-chart-grid,[\s\S]*?\.trading-market-chart-grid > \.trading-market-primary-pane\s*\{[^}]*overflow: visible;/s);
   assert.match(styles, /\.trading-market-indicator-bar\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding: 0 11px 0 10px;/s);
-  assert.match(styles, /\.trading-expert-layout:not\(\.left-panel-collapsed\)[\s\S]*?\.trading-market-indicator-bar\s*\{[^}]*width: 100%;[^}]*margin-left: 0;/s);
+  assert.doesNotMatch(styles, /\.desktop-body\.trading-expert-layout:not\(\.left-panel-collapsed\)\s+\.trading-market-indicator-bar\s*\{/s);
   assert.match(styles, /\.trading-market-indicators\s*\{[^}]*justify-content: flex-end;[^}]*margin-left: auto;/s);
   assert.match(styles, /\.trading-market-main-indicators button\.active,[\s\S]*?border-color: transparent;[\s\S]*?background: transparent;[\s\S]*?color: var\(--trading-market-indicator-selected\);/);
   assert.doesNotMatch(styles, /\.trading-market-main-indicators button\.active::after|\.trading-market-indicators button\.active::after/);
@@ -1790,6 +1878,11 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
     "private updateChartData(options:",
     "private updateVisiblePriceScale()",
   );
+  const clearMarketErrorBlock = sourceBlock(
+    source,
+    "private clearMarketError()",
+    "private updateChartData(options:",
+  );
   const historyBlock = sourceBlock(
     source,
     "private async loadMoreHistory",
@@ -1802,6 +1895,7 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
   assert.match(restartBlock, /const targetInterval = this\.activeInterval/);
   assert.match(restartBlock, /const keepChart = options\.preserveChart === true && this\.candles\.length > 0/);
   assert.match(restartBlock, /this\.setLoading\(true\)/);
+  assert.match(restartBlock, /this\.clearMarketError\(\)/);
   assert.match(restartBlock, /this\.hideCrosshairTimeLabel\(\)/);
   assert.match(restartBlock, /this\.hideCrosshairPriceLabel\(\)/);
   assert.match(restartBlock, /this\.currentPriceElement\.hidden = true/);
@@ -1810,9 +1904,19 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
     /if \(!keepChart\) \{[\s\S]*?this\.candles = \[\][\s\S]*?this\.clearChart\(\)/,
   );
   assert.match(restartBlock, /fetchTradingCandles\([\s\S]*?targetSymbol,[\s\S]*?targetInterval,[\s\S]*?500,[\s\S]*?targetMarketType === "spot"/);
+  assert.doesNotMatch(restartBlock, /Promise\.all\(\[\s*fetchTradingMarketStats/);
+  assert.doesNotMatch(restartBlock, /tradingAlertsMarketSubscribe|subscribeAlertMarketData/);
+  assert.match(restartBlock, /if \(!candleBatch\.candles\.length\) throw new Error\("未返回可用 K 线数据"\)/);
+  assert.match(restartBlock, /tradingCandleSeriesMatchesResolution\(candleBatch\.candles, targetInterval\)/);
+  assert.match(restartBlock, /const stats = tradingMarketStatsFromCandles\(targetSymbol, candleBatch\.candles\)/);
+  assert.match(restartBlock, /this\.connectSocket\(generation\);[\s\S]*?void this\.refreshSnapshot\(generation\)/);
   assert.match(restartBlock, /this\.loadedSymbol = targetSymbol[\s\S]*?this\.loadedInterval = targetInterval/);
   assert.match(restartBlock, /this\.updateChartData\(\{ resetViewport: true \}\)/);
-  assert.match(restartBlock, /this\.selectedSymbol = this\.loadedSymbol[\s\S]*?this\.activeInterval = this\.loadedInterval/);
+  assert.doesNotMatch(restartBlock, /this\.selectedSymbol = this\.loadedSymbol|this\.activeInterval = this\.loadedInterval/);
+  assert.match(restartBlock, /this\.candles = \[\];[\s\S]*?this\.clearChart\(\);[\s\S]*?this\.errorElement\.hidden = false/);
+  assert.match(source, /const streams = \[`\$\{symbol\}@ticker`, `\$\{symbol\}@aggTrade`\]/);
+  assert.match(source, /if \(source\?\.sourceInterval\) streams\.push\(`\$\{symbol\}@kline_\$\{source\.sourceInterval\}`\)/);
+  assert.doesNotMatch(source, /if \(this\.alertMarketSubscriptionId\) return/);
   assert.match(restartBlock, /this\.loadingHistory = false;[\s\S]*?window\.clearTimeout\(this\.historyCooldownTimer\)/);
   assert.doesNotMatch(source, /firstChartLoad/);
   assert.match(viewportResetBlock, /const resetViewport = options\.resetViewport === true/);
@@ -1821,6 +1925,10 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
   assert.match(viewportResetBlock, /initialMarketLogicalRange\(this\.chartCandles\.length, this\.activeInterval\)/);
   assert.match(viewportResetBlock, /private applyInitialChartViewport\(\)[\s\S]*?this\.updateVisiblePriceScale\(\)/);
   assert.match(viewportResetBlock, /this\.resettingChartViewport = false;[\s\S]*?this\.queueVisiblePriceScaleUpdate\(\)/);
+  assert.match(viewportResetBlock, /this\.clearMarketError\(\);[\s\S]*?this\.updateCountdown\(\)/);
+  assert.match(clearMarketErrorBlock, /this\.errorElement\.hidden = true/);
+  assert.match(clearMarketErrorBlock, /this\.errorElement\.dataset\.marketAction = "retry"/);
+  assert.match(clearMarketErrorBlock, /this\.errorElement\.removeAttribute\("aria-label"\)/);
   assert.match(historyBlock, /const generation = this\.loadGeneration/);
   assert.match(historyBlock, /const targetSymbol = this\.selectedSymbol/);
   assert.match(historyBlock, /const targetInterval = this\.activeInterval/);
@@ -1830,6 +1938,40 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
   assert.match(source, /private refreshingLiveCandleGeneration: number \| null = null/);
   assert.match(source, /if \(this\.refreshingLiveCandleGeneration === generation\) return/);
   assert.match(source, /if \(this\.refreshingLiveCandleGeneration === generation\) \{[\s\S]*?this\.refreshingLiveCandleGeneration = null/);
+});
+
+test("Trading Expert coalesces exchange-rate live candles while keeping one-second full refreshes and fallbacks", async () => {
+  const source = await marketSource;
+  const socketBlock = sourceBlock(source, "private connectSocket", "private handleSocketMessage");
+  const klineBlock = sourceBlock(source, "private updateFromBinanceKline", "private updateFromBinanceTrade");
+  const tradeBlock = sourceBlock(source, "private updateFromBinanceTrade", "private scheduleLiveChartPaint");
+  const paintBlock = sourceBlock(source, "private scheduleLiveChartPaint", "private commitLoadedSelection");
+  const fallbackBlock = sourceBlock(source, "private refreshMarketDataFallback", "private async refreshSnapshot");
+  const favoritePaintBlock = sourceBlock(source, "private scheduleFavoriteTickerPaint", "private armFavoriteTickerSocketWatchdog");
+
+  assert.match(source, /const MARKET_LIVE_PAINT_INTERVAL_MS = 100/);
+  assert.match(source, /const MARKET_BACKGROUND_PAINT_INTERVAL_MS = 1_000/);
+  assert.match(source, /const MARKET_LIVE_FULL_REFRESH_INTERVAL_MS = 1_000/);
+  assert.match(source, /const MARKET_SOCKET_STALE_MS = 2_500/);
+  assert.match(source, /const MARKET_SOCKET_FALLBACK_INTERVAL_MS = 1_000/);
+  assert.match(source, /const FAVORITE_TICKER_FALLBACK_INTERVAL_MS = 1_000/);
+  assert.match(source, /const FAVORITE_TICKER_SOCKET_STALE_MS = 2_500/);
+  assert.match(socketBlock, /this\.marketSocketLastActivityAt = Date\.now\(\)/);
+  assert.match(socketBlock, /`\$\{symbol\}@aggTrade`/);
+  assert.match(klineBlock, /this\.scheduleLiveChartPaint\(\)/);
+  assert.match(tradeBlock, /if \(source\.sourceInterval\)[\s\S]*?close: price[\s\S]*?this\.applyLiveSourceCandle\(incoming, source\)[\s\S]*?this\.scheduleLiveChartPaint\(\)/);
+  assert.match(paintBlock, /document\.hidden[\s\S]*?MARKET_BACKGROUND_PAINT_INTERVAL_MS[\s\S]*?MARKET_LIVE_PAINT_INTERVAL_MS/);
+  assert.match(paintBlock, /window\.requestAnimationFrame/);
+  assert.match(paintBlock, /Date\.now\(\) - this\.lastLiveChartFullRefreshAt >= MARKET_LIVE_FULL_REFRESH_INTERVAL_MS[\s\S]*?this\.updateChartData\(\)/);
+  assert.match(paintBlock, /private paintLatestCandle\(\)[\s\S]*?this\.candleSeries\.update\(display\)/);
+  assert.doesNotMatch(paintBlock, /this\.candleSeries\.setData/);
+  assert.match(fallbackBlock, /silenceMs < MARKET_SOCKET_STALE_MS/);
+  assert.match(fallbackBlock, /this\.refreshSnapshot\(generation\)[\s\S]*?this\.refreshLiveCandle\(generation\)/);
+  assert.match(fallbackBlock, /silenceMs >= MARKET_SOCKET_WATCHDOG_MS[\s\S]*?this\.socket\.close\(\)/);
+  assert.match(favoritePaintBlock, /this\.paintVisibleMarketQuotes\(\)/);
+  assert.doesNotMatch(favoritePaintBlock, /this\.renderMarkets\(\)/);
+  assert.match(source, /data-market-row-price/);
+  assert.match(source, /data-market-row-change/);
 });
 
 test("Trading Expert trend-band mention toggles the chart without a transient time-axis shift", async () => {

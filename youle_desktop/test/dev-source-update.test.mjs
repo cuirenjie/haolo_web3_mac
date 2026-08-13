@@ -243,6 +243,7 @@ test("manual development mode disables Vite HMR and the old automatic restart wa
   );
   assert.match(devScript, /watchDevelopmentSources/);
   assert.match(devScript, /DEV_SOURCE_UPDATED_MESSAGE/);
+  assert.match(devScript, /HAOLO_TRADING_ALERTS_ENABLED:\s*process\.env\.HAOLO_TRADING_ALERTS_ENABLED\s*\|\|\s*"1"/);
   assert.doesNotMatch(devScript, /src\/main changed; restarting Electron/);
   assert.doesNotMatch(devScript, /function watchMainProcessFiles/);
 });

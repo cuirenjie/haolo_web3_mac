@@ -83,8 +83,6 @@ test("dark secondary and toolbar controls no longer blend into their panels", as
     ".skills-my-button:not(.active)",
     ".skills-import-button",
     '.skills-plaza-categories button:not(.active):not([aria-pressed="true"])',
-    ".auto-task-search-button",
-    ".auto-task-filter-button",
   ];
 
   for (const selector of selectors) {

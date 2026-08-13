@@ -1,4 +1,13 @@
 import "./styles.css";
+import { resolveComposerThreadIdForSend } from "./composer-thread-routing";
+import {
+  applyTradingAlertsSnapshot,
+  createTradingAlertsUiState,
+  renderTradingAlertsPage,
+  resolveTradingAlertSourceText,
+  type TradingAlertFilter,
+  type TradingAlertsUiState,
+} from "./trading-alerts-ui";
 import { ensureBrowserDesktopApi } from "./browser_mock";
 import {
   applyTradingExpertCustomIndicatorMentions,
@@ -12,6 +21,12 @@ import {
   runTradingExpertWaveConversation,
   runTradingExpertWyckoffConversation,
   syncTradingExpertMarketWorkspace,
+  tradingExpertAlertContextSnapshot,
+  prepareTradingExpertAlertContext,
+  tradingExpertAlertSimulationFrames,
+  focusTradingExpertAlertEvidence,
+  showTradingExpertAlertSimulation,
+  clearTradingExpertAlertSimulation,
   tradingLastAnalysisLabelForThread,
   tradingExpertMarketWorkspaceStorageSessionId,
 } from "./trading-expert-market";
@@ -606,6 +621,7 @@ const TRADING_EXPERT_CONTACT_ID = "agent-trading-expert";
 const TRADING_EXPERT_NAME = "交易专家";
 const TRADING_EXPERT_MENTION_CATALOG = [
   { label: "策略", options: ["缠论", "订单流", "波浪理论", "威科夫"] },
+  { label: "预警", options: [] },
   { label: "知识库", options: [] },
   { label: "自定义指标", options: ["趋势带"] },
 ] as const;
@@ -1453,6 +1469,20 @@ type DesktopApi = {
   listAutoTasks?(): Promise<any>;
   saveAutoTasks?(params: { tasks: AutoTaskItem[] }): Promise<any>;
   runAutoTask?(params: { taskId: string }): Promise<any>;
+  tradingAlertsSnapshot?(): Promise<any>;
+  tradingAlertsCompile?(params: any): Promise<any>;
+  tradingAlertsResumeDraft?(params: { draftId: string }): Promise<any>;
+  tradingAlertsCancelDraft?(params: { draftId: string }): Promise<any>;
+  tradingAlertsSimulate?(params: any): Promise<any>;
+  tradingAlertsConfirm?(params: any): Promise<any>;
+  tradingAlertsRevise?(params: any): Promise<any>;
+  tradingAlertsPause?(params: { alertId: string }): Promise<any>;
+  tradingAlertsResume?(params: { alertId: string }): Promise<any>;
+  tradingAlertsDelete?(params: { alertId: string }): Promise<any>;
+  tradingAlertsLifecycle?(params: { phase: "suspend" | "resume"; reason: "network_offline" }): Promise<any>;
+  tradingAlertsSyncDrawings?(params: { marketId: string; interval: string; drawings: any[] }): Promise<any>;
+  tradingAlertsMarketSubscribe?(params: any): Promise<any>;
+  tradingAlertsMarketUnsubscribe?(params: { subscriptionId: string }): Promise<any>;
   previewFile(params: { url: string; name?: string; mime?: string | null; cwd?: string;
   }): Promise<any>;
   previewImageFile?(params: { path: string; name?: string; mime?: string | null; theme?: AppTheme; cwd?: string;
@@ -1515,6 +1545,12 @@ type DesktopApi = {
     threadId: string;
     cwd: string;
     title?: string;
+    conversationMode?: string;
+    model?: string;
+    modelProvider?: string;
+    reasoningEffort?: string;
+    approvalPolicy?: string;
+    sandboxPolicy?: string;
     items: Array<{
       id: string;
       role: "user" | "assistant";
@@ -1523,6 +1559,7 @@ type DesktopApi = {
       phase?: string;
       startedAt?: string;
       completedAt?: string;
+      actions?: MessageAction[];
     }>;
   }): Promise<any>;
   stageContinuationPrompt?(params: any): Promise<any>;
@@ -1586,6 +1623,11 @@ type DesktopApi = {
   onChromeApprovalUpdated?(callback: (payload: any) => void): () => void;
   onLocalArtifactsChanged?(callback: (payload: any) => void): () => void;
   onAutoTasksChanged?(callback: (payload: any) => void): () => void;
+  onTradingAlertsChanged?(callback: (payload: any) => void): () => void;
+  onTradingAlertIntentProgress?(callback: (payload: { threadId?: string | null; kind?: string | null; delta?: string | null }) => void): () => void;
+  onTradingAlertTriggered?(callback: (payload: { threadId?: string | null; alertId?: string | null; evidenceId?: string | null; title?: string | null; summary?: string | null; marketId?: string | null; interval?: string | null; triggeredAt?: number | null }) => void): () => void;
+  onTradingAlertOpen?(callback: (payload: { alertId?: string | null; evidenceId?: string | null; marketId?: string | null; interval?: string | null; triggeredAt?: number | null }) => void): () => void;
+  onTradingAlertMarketData?(callback: (payload: any) => void): () => void;
   onChannelEvent?(callback: (payload: any) => void): () => void;
   onExternalChannelsBackendReady?(callback: (payload: any) => void): () => void;
   onProfileUpdated?(callback: (payload: any) => void): () => void;
@@ -1728,6 +1770,7 @@ type PreservedTradingExpertMarketWorkspace = {
 type TradingExpertThinkingState = {
   phase: string;
   message: string;
+  reasoningSummary: string;
   startedAtMs: number;
 };
 
@@ -2131,7 +2174,7 @@ type SettingsState = {
   modelProvider: string;
   approvalPolicy: string;
   sandbox: string;
-  tab: "profile" | "models" | "github" | "general" | "about";
+  tab: "profile" | "models" | "github" | "dataProviders" | "general" | "about";
   theme: AppTheme;
   fontSize: AppFontSize;
   taskCompletionPopupEnabled: boolean;
@@ -2431,6 +2474,7 @@ type ViewId =
   | "results"
   | "materials"
   | "autoTasks"
+  | "alerts"
   | "skillsPlaza"
   | "recharge"
   | "consumption";
@@ -3516,6 +3560,7 @@ type UiState = {
   profileSubscriptionDetails: ProfileSubscriptionDetailsState;
   autoTaskDraft: AutoTaskDraftState;
   autoTaskItems: AutoTaskItem[];
+  tradingAlerts: TradingAlertsUiState;
   selectedAutoTaskId: string | null;
   autoTaskMenuTaskId: string | null;
   autoTaskPicker: AutoTaskPickerState;
@@ -3532,6 +3577,7 @@ type UiState = {
   leftCollapsed: boolean;
   rightCollapsed: boolean;
   tradingExpertChartCollapsed: boolean;
+  tradingExpertChartFocusMode: boolean;
   windowMaximized: boolean;
   windowNativeMaximized: boolean;
   windowPinned: boolean;
@@ -3736,6 +3782,13 @@ const THREAD_CONTEXT_MENU_LIST_GAP = 2;
 const THREAD_CONTEXT_MENU_ROW_HEIGHT = 28;
 const THREAD_CONTEXT_MENU_CHROME_HEIGHT = 14;
 const THREAD_MARKER_PRESETS = ["待办", "进行", "完成", "暂缓", "关闭"] as const;
+const THREAD_MARKER_PRESET_COLORS: Record<(typeof THREAD_MARKER_PRESETS)[number], string> = {
+  待办: "#3b82f6",
+  进行: "#8b5cf6",
+  完成: "#22a866",
+  暂缓: "#d8890b",
+  关闭: "#718096",
+};
 const CASCADE_MENU_CLOSE_DELAY_MS = 180;
 const MEMBER_ACTIVITY_HEARTBEAT_INTERVAL_MS = 60_000;
 const MEMBER_ACTIVITY_HEARTBEAT_MIN_DELTA_MS = 15_000;
@@ -3889,6 +3942,17 @@ const TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY = "haolo.trading-market.works
 const tradingExpertThinkingStateByThreadId = new Map<string, TradingExpertThinkingState>();
 const tradingExpertAnalysisJobIdsByThreadId = new Map<string, Set<string>>();
 const tradingExpertAnalysisThreadAliases = new Map<string, string>();
+type TradingAlertConversationState = {
+  draftId: string;
+  sourceText: string;
+  stage: "clarification" | "dependency" | "confirmation";
+  conversation: Array<{ role: "user" | "assistant"; text: string }>;
+  simulationId?: string;
+  confirmationId?: string;
+};
+const tradingAlertConversationByThreadId = new Map<string, TradingAlertConversationState>();
+const tradingAlertConversationRunByThreadId = new Map<string, symbol>();
+const persistedTradingAlertEvidenceIds = new Set<string>();
 const providerDraftThreadIdByBlankThreadId = new Map<string, string>();
 const blankThreadIdByProviderDraftThreadId = new Map<string, string>();
 const newThreadModeByThreadId = new Map<string, NewThreadMode>(Object.entries(threadPreferences.threadModes));
@@ -4778,6 +4842,7 @@ const state: UiState = {
   },
   autoTaskDraft: createAutoTaskDraft(),
   autoTaskItems: loadAutoTaskItems(),
+  tradingAlerts: createTradingAlertsUiState(),
   selectedAutoTaskId: null,
   autoTaskMenuTaskId: null,
   autoTaskPicker: null,
@@ -4794,6 +4859,7 @@ const state: UiState = {
   leftCollapsed: false,
   rightCollapsed: true,
   tradingExpertChartCollapsed: false,
+  tradingExpertChartFocusMode: false,
   windowMaximized: false,
   windowNativeMaximized: false,
   windowPinned: false,
@@ -4948,6 +5014,11 @@ let composerModePointerReleaseTimer: number | null = null;
 let tradingExpertLayoutControlPointerActive = false;
 let tradingExpertLayoutControlRenderPending = false;
 let tradingExpertLayoutControlPointerReleaseTimer: number | null = null;
+let tradingExpertChartFocusRestoreState: {
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+  chartCollapsed: boolean;
+} | null = null;
 let lastPointerClientX = -1;
 let lastPointerClientY = -1;
 let pendingMessageScrollAnchor: MessageScrollState | null = null;
@@ -6001,10 +6072,14 @@ function wireDesktopEvents() {
           // Keep the local session when the network is still unstable.
         }
         refreshProfileOnAppActivation({ force: true });
+        await api.tradingAlertsLifecycle?.({ phase: "resume", reason: "network_offline" });
       })();
     },
     { passive: true },
   );
+  window.addEventListener("offline", () => {
+    void api.tradingAlertsLifecycle?.({ phase: "suspend", reason: "network_offline" });
+  }, { passive: true });
 
   api.onStatus((status) => {
     const wasServerReady = state.serverReady;
@@ -6047,6 +6122,22 @@ function wireDesktopEvents() {
   api.onAutoTasksChanged?.((payload) => {
     applyAutoTasksPayload(payload);
     scheduleRender({ protectComposer: true });
+  });
+  api.onTradingAlertsChanged?.((payload) => {
+    applyTradingAlertsSnapshot(state.tradingAlerts, payload);
+    if (state.activeView === "alerts") scheduleRender({ protectComposer: true });
+  });
+  api.onTradingAlertIntentProgress?.((payload) => {
+    if (payload?.kind !== "reasoning_summary_delta") return;
+    const threadId = firstString(payload.threadId);
+    if (!threadId || !tradingExpertThinkingStateByThreadId.has(threadId)) return;
+    appendTradingAlertReasoningSummary(threadId, String(payload.delta || ""));
+  });
+  api.onTradingAlertTriggered?.((payload) => {
+    void handleTradingAlertTriggered(payload);
+  });
+  api.onTradingAlertOpen?.((payload) => {
+    openTradingAlertsPage(payload?.alertId || null, payload?.evidenceId || null);
   });
   api.onChannelEvent?.((payload) => {
     void handleChannelEvent(payload);
@@ -6125,7 +6216,7 @@ function wirePointerTracking() {
       }
       if (
         event.target.closest(
-          '.trading-expert-layout [data-action="toggle-right-panel"], .trading-expert-layout [data-action="toggle-trading-expert-chart"]',
+          '.trading-expert-layout [data-action="toggle-right-panel"], .trading-expert-layout [data-action="toggle-trading-expert-chart"], .trading-expert-layout [data-action="toggle-trading-expert-chart-focus"]',
         )
       ) {
         if (tradingExpertLayoutControlPointerReleaseTimer !== null) {
@@ -16611,9 +16702,13 @@ function isVideoExpertThread(thread: ConversationSummary | null | undefined) {
 
 function isTradingExpertThreadId(threadId: string | null | undefined) {
   if (!threadId) return false;
-  if (tradingExpertThreadIds.has(threadId)) return true;
-  if (newThreadModeByThreadId.get(threadId) === "execution") return true;
-  const groupId = threadGroupByThreadId[threadId];
+  const resolvedThreadId = resolveTradingExpertAnalysisThreadId(threadId);
+  if (tradingExpertThreadIds.has(threadId) || tradingExpertThreadIds.has(resolvedThreadId)) return true;
+  if (
+    newThreadModeByThreadId.get(threadId) === "execution"
+    || newThreadModeByThreadId.get(resolvedThreadId) === "execution"
+  ) return true;
+  const groupId = threadGroupByThreadId[threadId] || threadGroupByThreadId[resolvedThreadId];
   return Boolean(groupId && threadGroupById(groupId)?.name.trim() === TRADING_EXPERT_NAME);
 }
 
@@ -16638,6 +16733,8 @@ function initializeTradingExpertTaskThread(
     );
   }
   if (options.expandPanel) {
+    state.tradingExpertChartFocusMode = false;
+    tradingExpertChartFocusRestoreState = null;
     state.leftCollapsed = false;
     state.rightCollapsed = false;
     state.tradingExpertChartCollapsed = false;
@@ -17143,7 +17240,10 @@ function patchActiveThinkingElapsed() {
   if (!bubble) return false;
   const tradingExpertThinking = tradingExpertThinkingStateByThreadId.get(threadId);
   const stage = tradingExpertThinking
-    ? tradingExpertThinkingStage(tradingExpertThinking.phase)
+    ? tradingExpertThinkingStage(
+        tradingExpertThinking.phase,
+        tradingExpertThinking.reasoningSummary,
+      )
     : activeCodexThinkingStage(threadId);
   const elapsedLabel = activeThinkingElapsedLabel(threadId);
   const durationText = elapsedLabel ? `${HANDLED_STATUS_LABEL} ${elapsedLabel}` : "";
@@ -23102,6 +23202,24 @@ function threadMarkerForThreadId(threadId: string | null | undefined) {
   return normalizeThreadMarkerText(threadMarkers[threadId]);
 }
 
+function threadMarkerColor(value: string | null | undefined) {
+  const marker = normalizeThreadMarkerText(value);
+  if (!marker) return "";
+  const presetColor = (THREAD_MARKER_PRESET_COLORS as Record<string, string>)[marker];
+  if (presetColor) return presetColor;
+  let hash = 0;
+  for (const character of Array.from(marker)) {
+    hash = (hash * 41 + (character.codePointAt(0) ?? 0)) % 360;
+  }
+  return `hsl(${hash} 66% 46%)`;
+}
+
+function renderThreadMarkerDot(marker: string, className = "thread-marker-dot") {
+  const color = threadMarkerColor(marker);
+  if (!color) return "";
+  return `<span class="${escapeAttr(className)}" style="${escapeAttr(`--thread-marker-color: ${color}`)}" title="${escapeAttr(`标记：${marker}`)}" aria-hidden="true"></span>`;
+}
+
 function setThreadMarker(threadId: string, value: string) {
   const marker = normalizeThreadMarkerText(value);
   if (!threadById(threadId) || !marker) return false;
@@ -23525,9 +23643,26 @@ function taskItemStableTimestamp(item: CodexItem) {
   );
 }
 
-function currentComposerThreadId() {
-  const form = root.querySelector<HTMLFormElement>("#composerForm");
-  return firstString(form?.dataset.threadId, state.currentThreadId);
+function composerThreadIdForSend(candidateThreadId?: string | null) {
+  const activeThreadId = state.activeView === "chat"
+    ? firstString(state.currentThreadId)
+    : null;
+  return resolveComposerThreadIdForSend({
+    candidateThreadId,
+    activeThreadId,
+    resolveThreadId: resolvedTradingAlertThreadId,
+    isVisibleThreadId: (threadId) => Boolean(
+      threadById(threadId) && !hiddenThreadIds.has(threadId)
+    ),
+  });
+}
+
+function currentComposerThreadId(form?: HTMLFormElement | null) {
+  const focusedForm = document.activeElement instanceof HTMLElement
+    ? document.activeElement.closest<HTMLFormElement>("#composerForm")
+    : null;
+  const renderedForm = form || focusedForm || root.querySelector<HTMLFormElement>("#composerForm");
+  return composerThreadIdForSend(renderedForm?.dataset.threadId);
 }
 
 function resetComposerMentionState() {
@@ -23811,6 +23946,12 @@ function replaceComposerDraftThreadId(previousThreadId: string | null | undefine
     };
   }
   delete state.composerDrafts[previousThreadId];
+}
+
+function replaceRenderedComposerThreadId(previousThreadId: string, nextThreadId: string) {
+  root.querySelectorAll<HTMLFormElement>("#composerForm").forEach((form) => {
+    if (form.dataset.threadId === previousThreadId) form.dataset.threadId = nextThreadId;
+  });
 }
 
 function isLocalBlankThreadId(threadId: string | null | undefined) {
@@ -25123,7 +25264,7 @@ function deepSeekMediaComposerValidationError(threadId: string) {
 }
 
 async function sendCurrentMessage(threadIdOverride?: string | null) {
-  let threadId = firstString(threadIdOverride, currentComposerThreadId());
+  let threadId = composerThreadIdForSend(firstString(threadIdOverride, currentComposerThreadId()));
   if (!threadId || submittingComposerThreadIds.has(threadId) || isComposerSendPending(threadId)) return;
   if (activeWorkflowRunForThread(threadId)) {
     showToast(WORKFLOW_RUNNING_SEND_BLOCKED_TOAST, 2200);
@@ -25285,6 +25426,14 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   } else if (!text && !state.attachments.length) {
     return;
   }
+  if (
+    isTradingExpertThreadId(threadId)
+    && !inMemoryTradingAlertConversationForThread(threadId)
+    && !state.tradingAlerts.loaded
+    && api.tradingAlertsSnapshot
+  ) {
+    await refreshTradingAlerts();
+  }
   const tradingChanMentionAtSend = isTradingExpertThreadId(threadId)
     && tradingChanMentioned(text);
   const tradingOrderFlowMentionAtSend = isTradingExpertThreadId(threadId)
@@ -25293,11 +25442,14 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     && tradingWaveMentioned(text);
   const tradingWyckoffMentionAtSend = isTradingExpertThreadId(threadId)
     && tradingWyckoffMentioned(text);
+  const tradingAlertCandidateAtSend = isTradingExpertThreadId(threadId)
+    && (tradingAlertMentioned(text) || Boolean(tradingAlertConversationStateForThread(threadId)));
   const tradingGeneralCandidateAtSend = isTradingExpertThreadId(threadId)
     && !tradingChanMentionAtSend
     && !tradingOrderFlowMentionAtSend
     && !tradingWaveMentionAtSend
-    && !tradingWyckoffMentionAtSend;
+    && !tradingWyckoffMentionAtSend
+    && !tradingAlertCandidateAtSend;
   let tradingChanRequestAtSend: TradingChanRequest | null = null;
   let tradingOrderFlowRequestAtSend: TradingOrderFlowRequest | null = null;
   let tradingWaveRequestAtSend: TradingWaveRequest | null = null;
@@ -25310,6 +25462,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       || tradingOrderFlowMentionAtSend
       || tradingWaveMentionAtSend
       || tradingWyckoffMentionAtSend
+      || tradingAlertCandidateAtSend
       || tradingGeneralCandidateAtSend
       || (isBlankNewThread(threadId) && !isLocalBlankThreadId(threadId))
     )
@@ -25344,6 +25497,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       else if (tradingOrderFlowMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingWaveMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingWyckoffMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
+      else if (tradingAlertCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingGeneralCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       // The local item must exist before the blank thread is assigned to a
       // non-default group, but both mutations must finish before the first
@@ -25351,7 +25505,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       commitSelectedNewThreadGroupForSend(threadId, composerGroupIdForSend);
       if (revealThreadGroupForComposerSend(threadId)) saveThreadPreferences();
       state.error = null;
-      if (tradingChanMentionAtSend || tradingOrderFlowMentionAtSend || tradingWaveMentionAtSend || tradingWyckoffMentionAtSend || tradingGeneralCandidateAtSend) {
+      if (tradingChanMentionAtSend || tradingOrderFlowMentionAtSend || tradingWaveMentionAtSend || tradingWyckoffMentionAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
         refreshTradingExpertConversationSurface(threadId);
       } else {
         render();
@@ -25433,6 +25587,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       && tradingOrderFlowRequestAtSend?.mode !== "chart-analysis"
       && tradingWaveRequestAtSend?.mode !== "chart-analysis"
       && tradingWyckoffRequestAtSend?.mode !== "chart-analysis"
+      && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
     ) {
       const initialBaseAgentText = workflowContractAtSend
@@ -25456,11 +25611,12 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       else if (tradingOrderFlowMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingWaveMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingWyckoffMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
+      else if (tradingAlertCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingGeneralCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       commitSelectedNewThreadGroupForSend(threadId, composerGroupIdForSend);
       if (revealThreadGroupForComposerSend(threadId)) saveThreadPreferences();
       state.error = null;
-      if (tradingChanMentionAtSend || tradingOrderFlowMentionAtSend || tradingWaveMentionAtSend || tradingWyckoffMentionAtSend || tradingGeneralCandidateAtSend) {
+      if (tradingChanMentionAtSend || tradingOrderFlowMentionAtSend || tradingWaveMentionAtSend || tradingWyckoffMentionAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
         refreshTradingExpertConversationSurface(threadId);
       } else {
         render();
@@ -25618,6 +25774,8 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       tradingChanRequestAtSend?.mode !== "chart-analysis"
       && tradingOrderFlowRequestAtSend?.mode !== "chart-analysis"
       && tradingWaveRequestAtSend?.mode !== "chart-analysis"
+      && tradingWyckoffRequestAtSend?.mode !== "chart-analysis"
+      && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
     ) {
       const currentBudget = await prepareContextBudgetForSend(threadId, agentText, { deferWhileBusy: true });
@@ -25689,16 +25847,31 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       || tradingOrderFlowRequestAtSend?.mode === "chart-analysis"
       || tradingWaveRequestAtSend?.mode === "chart-analysis"
       || tradingWyckoffRequestAtSend?.mode === "chart-analysis"
+      || tradingAlertCandidateAtSend
       || tradingGeneralRequestAtSend?.mode === "chart-analysis",
     );
     if (isTradingChartAnalysisSend) {
       try {
         if (!submittedUserItem) throw new Error("找不到待保存的用户消息");
-        await persistTradingExpertTranscriptItems(threadId, [submittedUserItem], {
+        const persistenceResult = await persistTradingExpertTranscriptItems(threadId, [submittedUserItem], {
           title: conversationTitleFromText(userMessageDisplayText(submittedUserItem)),
         });
+        const persistedThreadId = firstString(persistenceResult?.threadId);
+        if (persistedThreadId && persistedThreadId !== threadId) {
+          threadId = persistedThreadId;
+          submittingComposerThreadIds.add(threadId);
+          if (pendingSend) {
+            pendingSend = pendingComposerSendForThread(threadId, pendingSend.itemId)
+              || { ...pendingSend, threadId };
+          }
+          const submittedItemId = itemStableId(submittedUserItem);
+          if (submittedItemId) {
+            submittedUserItem = state.items[threadId]?.[submittedItemId] || submittedUserItem;
+          }
+        }
         scheduleThreadListRefresh(0);
       } catch (error) {
+        threadId = resolvedTradingAlertThreadId(threadId);
         const message = `任务未执行：顶层会话保存失败：${errorMessage(error)}`;
         state.error = message;
         if (pendingSend) failPendingComposerSend(threadId, pendingSend.itemId, message);
@@ -25738,6 +25911,14 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       clearTradingExpertComposerAfterSend(threadId);
       refreshTradingExpertConversationSurface(threadId);
       await runTradingWyckoffChartRequest(threadId, tradingWyckoffRequestAtSend);
+      return;
+    }
+    if (tradingAlertCandidateAtSend) {
+      localHistoryAheadThreadIds.add(threadId);
+      if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
+      clearTradingExpertComposerAfterSend(threadId);
+      refreshTradingExpertConversationSurface(threadId);
+      await runTradingAlertConversation(threadId, text);
       return;
     }
     if (tradingGeneralRequestAtSend?.mode === "chart-analysis") {
@@ -27650,6 +27831,16 @@ function adoptReplacementCodexThread(previousThreadId: string, replacementThread
     tradingExpertThinkingStateByThreadId.set(nextThreadId, tradingThinkingState);
     tradingExpertThinkingStateByThreadId.delete(previousThreadId);
   }
+  const tradingAlertConversation = tradingAlertConversationByThreadId.get(previousThreadId);
+  if (tradingAlertConversation) {
+    tradingAlertConversationByThreadId.set(nextThreadId, tradingAlertConversation);
+    tradingAlertConversationByThreadId.delete(previousThreadId);
+  }
+  const tradingAlertRun = tradingAlertConversationRunByThreadId.get(previousThreadId);
+  if (tradingAlertRun) {
+    tradingAlertConversationRunByThreadId.set(nextThreadId, tradingAlertRun);
+    tradingAlertConversationRunByThreadId.delete(previousThreadId);
+  }
 
   const wasTradingExpertThread = tradingExpertThreadIds.delete(previousThreadId);
   const oldItems = (state.itemOrder[previousThreadId] || [])
@@ -27718,6 +27909,7 @@ function adoptReplacementCodexThread(previousThreadId: string, replacementThread
   state.threads = sortThreadsForList(mergeThreads(state.threads, [threadFromLoaded(replacementThread)]));
   replaceRememberedChatThreadSelection(previousThreadId, nextThreadId);
   replaceComposerDraftThreadId(previousThreadId, nextThreadId);
+  replaceRenderedComposerThreadId(previousThreadId, nextThreadId);
   if (wasCurrent) {
     state.currentThreadId = nextThreadId;
     state.activeView = "chat";
@@ -28339,8 +28531,9 @@ function clearTradingExpertComposerAfterSend(threadId: string) {
   syncComposerSendButton();
 }
 
-function tradingExpertThinkingStage(phase: string): ThinkingStagePresentation {
+function tradingExpertThinkingStage(phase: string, reasoningSummary = ""): ThinkingStagePresentation {
   const detail = "";
+  const streamedDetail = phase === "alert-analyzing" ? reasoningSummary.trim() : detail;
   if (phase === "classifying") {
     return { key: "reasoning", label: "正在理解请求", detail };
   }
@@ -28349,6 +28542,12 @@ function tradingExpertThinkingStage(phase: string): ThinkingStagePresentation {
   }
   if (phase === "analyzing") {
     return { key: "reasoning", label: "正在分析盘面", detail };
+  }
+  if (phase === "alert-analyzing") {
+    return { key: "reasoning", label: "正在编译预警", detail: streamedDetail };
+  }
+  if (phase === "alert-confirming") {
+    return { key: "executing", label: "正在创建预警", detail };
   }
   if (phase === "order-flow-analyzing") {
     return { key: "reasoning", label: "正在分析订单流", detail };
@@ -28395,9 +28594,22 @@ function updateTradingExpertThinkingState(
   tradingExpertThinkingStateByThreadId.set(threadId, {
     phase,
     message,
+    reasoningSummary: "",
     startedAtMs: existing?.startedAtMs ?? Date.now(),
   });
   syncThinkingElapsedTimer();
+}
+
+function appendTradingAlertReasoningSummary(threadId: string, delta: string) {
+  const existing = tradingExpertThinkingStateByThreadId.get(threadId);
+  if (!existing || existing.phase !== "alert-analyzing" || !delta) return;
+  const combined = `${existing.reasoningSummary || ""}${delta}`.replace(/\u0000/g, "");
+  const maxLength = 6_000;
+  existing.reasoningSummary = combined.length > maxLength
+    ? `…${combined.slice(-maxLength)}`
+    : combined;
+  tradingExpertThinkingStateByThreadId.set(threadId, existing);
+  refreshTradingExpertConversationSurface(threadId);
 }
 
 function clearTradingExpertThinkingState(threadId: string) {
@@ -28471,20 +28683,385 @@ function appendTradingExpertProgress(
   return item;
 }
 
-function appendTradingExpertReport(threadId: string, text: string) {
+function appendTradingExpertReport(threadId: string, text: string, itemId?: string, actions?: MessageAction[]) {
   localHistoryAheadThreadIds.add(threadId);
   const item: CodexItem = {
-    id: `trading-expert-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    id: itemId || `trading-expert-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type: "agentMessage",
     phase: "final_answer",
     text,
     createdAt: new Date().toISOString(),
+    ...(actions?.length ? { actions } : {}),
   };
   upsertItem(threadId, item);
   setMessageStreamFollow(threadId, true);
   patchConversationRow(threadId);
   refreshTradingExpertConversationSurface(threadId);
   return item;
+}
+
+function tradingAlertMentioned(text: string) {
+  return /(^|\s)@预警(?=\s|$|[:：])/u.test(String(text || ""));
+}
+
+function stripTradingAlertMention(text: string) {
+  return String(text || "").replace(/(^|\s)@预警(?=\s|$|[:：])\s*[:：]?\s*/u, "$1").trim();
+}
+
+function tradingAlertAffirmative(text: string) {
+  return /^(是|对|对的|没错|确认|确认创建|就这样|可以|好的|好|yes|y|confirm|ok)[。.!！\s]*$/iu.test(String(text || "").trim());
+}
+
+function tradingAlertCancelled(text: string) {
+  return /^(取消|不要|不创建|算了|停止|退出|cancel|no)[。.!！\s]*$/iu.test(String(text || "").trim());
+}
+
+function resolvedTradingAlertThreadId(threadId: string) {
+  const aliases = tradingExpertWorkspaceSessionAliases();
+  let resolved = threadId;
+  const visited = new Set<string>();
+  while (resolved && !visited.has(resolved)) {
+    visited.add(resolved);
+    const next = aliases[resolved];
+    if (!next) break;
+    resolved = next;
+  }
+  return resolveTradingExpertAnalysisThreadId(resolved);
+}
+
+function tradingAlertThreadMatches(left: string | null | undefined, right: string | null | undefined) {
+  const leftId = firstString(left);
+  const rightId = firstString(right);
+  return Boolean(leftId && rightId && resolvedTradingAlertThreadId(leftId) === resolvedTradingAlertThreadId(rightId));
+}
+
+function pendingTradingAlertConfirmationForThread(threadId: string) {
+  return state.tradingAlerts.pendingConfirmations.find((entry) => (
+    tradingAlertThreadMatches(entry?.originThreadId, threadId)
+  )) || null;
+}
+
+function inMemoryTradingAlertConversationForThread(threadId: string) {
+  const direct = tradingAlertConversationByThreadId.get(threadId);
+  if (direct) return direct;
+  const resolvedThreadId = resolvedTradingAlertThreadId(threadId);
+  const resolved = tradingAlertConversationByThreadId.get(resolvedThreadId);
+  if (resolved) return resolved;
+  for (const [storedThreadId, conversation] of tradingAlertConversationByThreadId.entries()) {
+    if (!tradingAlertThreadMatches(storedThreadId, threadId)) continue;
+    const destinationThreadId = threadById(resolvedThreadId) ? resolvedThreadId : threadId;
+    tradingAlertConversationByThreadId.delete(storedThreadId);
+    tradingAlertConversationByThreadId.set(destinationThreadId, conversation);
+    return conversation;
+  }
+  return null;
+}
+
+function activeTradingAlertDraftForThread(threadId: string) {
+  return state.tradingAlerts.drafts
+    .filter((draft) => (
+      draft?.draftId
+      && !["confirmed", "cancelled"].includes(String(draft.status || ""))
+      && tradingAlertThreadMatches(draft?.originThreadId, threadId)
+    ))
+    .sort((left, right) => Number(right?.updatedAt || 0) - Number(left?.updatedAt || 0))[0] || null;
+}
+
+function rememberTradingAlertDraftSnapshot(draft: any) {
+  if (!draft?.draftId) return;
+  const index = state.tradingAlerts.drafts.findIndex((entry) => entry?.draftId === draft.draftId);
+  if (index < 0) state.tradingAlerts.drafts.push(structuredClone(draft));
+  else state.tradingAlerts.drafts[index] = structuredClone(draft);
+}
+
+function recoveredTradingAlertDraftConversation(draft: any) {
+  const persisted = (Array.isArray(draft?.conversation) ? draft.conversation : [])
+    .flatMap((turn: any) => {
+      const role = turn?.role === "user" || turn?.role === "assistant" ? turn.role : null;
+      const text = firstString(turn?.text);
+      return role && text ? [{ role, text }] : [];
+    })
+    .slice(-32) as Array<{ role: "user" | "assistant"; text: string }>;
+  const sourceText = firstString(draft?.sourceText);
+  const question = tradingAlertQuestionsText({ draft });
+  if (persisted.length) {
+    return [
+      ...persisted,
+      ...(persisted.at(-1)?.role === "user" && question
+        ? [{ role: "assistant" as const, text: question }]
+        : []),
+    ].slice(-32);
+  }
+  return [
+    ...(sourceText ? [{ role: "user" as const, text: sourceText }] : []),
+    ...(question ? [{ role: "assistant" as const, text: question }] : []),
+  ];
+}
+
+function tradingAlertConversationStateForThread(threadId: string): TradingAlertConversationState | null {
+  const current = inMemoryTradingAlertConversationForThread(threadId);
+  if (current) return current;
+  const pending = pendingTradingAlertConfirmationForThread(threadId);
+  if (pending?.draftId && pending?.simulationId && pending?.confirmationId) {
+    const confirmationState: TradingAlertConversationState = {
+      draftId: String(pending.draftId),
+      sourceText: String(pending.sourceText || ""),
+      stage: "confirmation",
+      conversation: recoveredTradingAlertDraftConversation(
+        state.tradingAlerts.drafts.find((draft) => draft?.draftId === pending.draftId),
+      ),
+      simulationId: String(pending.simulationId),
+      confirmationId: String(pending.confirmationId),
+    };
+    tradingAlertConversationByThreadId.set(threadId, confirmationState);
+    return confirmationState;
+  }
+  const draft = activeTradingAlertDraftForThread(threadId);
+  if (!draft?.draftId) return null;
+  const draftStatus = String(draft.status || "");
+  const draftState: TradingAlertConversationState = {
+    draftId: String(draft.draftId),
+    sourceText: String(draft.sourceText || ""),
+    stage: draftStatus.includes("awaiting_data")
+      || draftStatus.includes("awaiting_tool")
+      || draftStatus.includes("awaiting_authorization")
+      ? "dependency"
+      : "clarification",
+    conversation: recoveredTradingAlertDraftConversation(draft),
+  };
+  tradingAlertConversationByThreadId.set(threadId, draftState);
+  return draftState;
+}
+
+function tradingAlertResponseData(response: any) {
+  if (response?.ok === true) return response.data;
+  if (response?.ok === false) {
+    const error = new Error(String(response.error?.message || "智能预警操作失败"));
+    const alertError = error as Error & {
+      code?: string;
+      category?: string;
+      retryable?: boolean;
+      details?: Record<string, unknown> | null;
+    };
+    alertError.code = String(response.error?.code || "TRADING_ALERT_FAILED");
+    alertError.category = String(response.error?.category || "evaluation");
+    alertError.retryable = response.error?.retryable === true;
+    alertError.details = response.error?.details && typeof response.error.details === "object"
+      ? structuredClone(response.error.details)
+      : null;
+    throw error;
+  }
+  return response;
+}
+
+function tradingAlertQuestionsText(result: any) {
+  const questions = Array.isArray(result?.draft?.questions) ? result.draft.questions.filter(Boolean) : [];
+  if (questions.length) return `为了准确还原你的条件，我还需要确认：\n\n${questions.map((question: string, index: number) => `${index + 1}. ${question}`).join("\n")}`;
+  const onboarding = Array.isArray(result?.onboarding) ? result.onboarding : [];
+  if (onboarding.length) {
+    return [
+      "这条预警需要补充数据或工具能力。我会保留当前草稿，不会直接拒绝创建。",
+      ...onboarding.map((entry: any, index: number) => typeof entry === "string"
+        ? `${index + 1}. ${entry}`
+        : `${index + 1}. ${String(entry?.title || entry?.provider || "接入数据源")}：${String(entry?.steps?.join("；") || entry?.message || entry?.reason || "请在安全设置中完成只读接入和验证")}`),
+      "完成接入后直接回复“已连接”，我会从这份草稿继续验证和模拟。请不要在聊天里发送 API Key 或私钥。",
+    ].join("\n\n");
+  }
+  return "这条预警仍缺少可验证的信息。请补充明确的交易对、周期、阈值或确认方式，我会继续从当前草稿处理。";
+}
+
+async function persistTradingAlertAssistantItem(threadId: string, text: string) {
+  const item = appendTradingExpertReport(threadId, text);
+  await persistCompletedTradingExpertTranscript(threadId, [item]);
+  return item;
+}
+
+async function persistTradingAlertCreationSuccessItem(threadId: string, text: string, alertId: string) {
+  const item = appendTradingExpertReport(threadId, text, undefined, [{
+    id: "open-trading-alerts",
+    kind: "navigate",
+    label: "查看我的预警",
+    destination: "trading-alerts",
+    alert_id: alertId,
+  }]);
+  await persistCompletedTradingExpertTranscript(threadId, [item]);
+  return item;
+}
+
+async function refreshTradingAlertsAndRequireAlert(alertId: string) {
+  if (!alertId || !api.tradingAlertsSnapshot) throw new Error("无法验证新建预警是否已进入预警列表");
+  const snapshot = await api.tradingAlertsSnapshot();
+  if (snapshot?.ok === false) tradingAlertResponseData(snapshot);
+  applyTradingAlertsSnapshot(state.tradingAlerts, snapshot);
+  const alert = state.tradingAlerts.alerts.find((entry) => entry?.alertId === alertId);
+  if (!alert) throw new Error("预警写入后未能从预警列表读回，因此没有显示创建成功");
+  return alert;
+}
+
+async function handleTradingAlertTriggered(payload: {
+  threadId?: string | null;
+  alertId?: string | null;
+  evidenceId?: string | null;
+  title?: string | null;
+  summary?: string | null;
+  marketId?: string | null;
+  interval?: string | null;
+  triggeredAt?: number | null;
+}) {
+  const evidenceId = firstString(payload?.evidenceId);
+  const threadId = firstString(payload?.threadId);
+  if (!evidenceId || persistedTradingAlertEvidenceIds.has(evidenceId)) return;
+  persistedTradingAlertEvidenceIds.add(evidenceId);
+  const triggeredAt = Number(payload?.triggeredAt || Date.now());
+  const scope = [firstString(payload?.marketId), firstString(payload?.interval)].filter(Boolean).join(" / ");
+  const text = [
+    `预警真实触发：${firstString(payload?.title) || "交易条件"}`,
+    firstString(payload?.summary) || "已通过确定性规则引擎验证全部条件。",
+    scope ? `触发范围：${scope}` : "",
+    `触发时间：${new Date(triggeredAt).toLocaleString("zh-CN")}`,
+    `证据编号：${evidenceId}`,
+    "此会话气泡、预警卡片与桌面通知指向同一份触发证据；可在“预警”页面查看条件明细并定位触发 K 线。",
+  ].filter(Boolean).join("\n\n");
+  if (threadId) {
+    const item = appendTradingExpertReport(threadId, text, `trading-alert-trigger-${evidenceId}`);
+    await persistCompletedTradingExpertTranscript(threadId, [item]);
+  }
+  showToast(`${firstString(payload?.title) || "交易预警"} 已真实触发`, 5000);
+}
+
+async function runTradingAlertConversation(threadId: string, rawText: string) {
+  const apiMissing = !api.tradingAlertsCompile || !api.tradingAlertsSimulate || !api.tradingAlertsConfirm || !api.tradingAlertsSnapshot;
+  if (apiMissing) {
+    await persistTradingAlertAssistantItem(threadId, "当前客户端缺少智能预警运行桥，请更新客户端后重试；你的指令没有被创建为不完整预警。");
+    return;
+  }
+  const previous = tradingAlertConversationStateForThread(threadId);
+  const answer = stripTradingAlertMention(rawText) || rawText.trim();
+  if (previous?.stage === "confirmation" && tradingAlertCancelled(answer)) {
+    await api.tradingAlertsCancelDraft?.({ draftId: previous.draftId });
+    tradingAlertConversationByThreadId.delete(threadId);
+    clearTradingExpertAlertSimulation();
+    await persistTradingAlertAssistantItem(threadId, "已取消本次创建，模拟图层已移除，没有启动后台监控。");
+    return;
+  }
+  const confirmsDraftCreation = previous?.stage === "confirmation" && tradingAlertAffirmative(answer);
+  const runToken = Symbol(`trading-alert-${threadId}`);
+  tradingAlertConversationRunByThreadId.set(threadId, runToken);
+  const isCurrentRun = () => tradingAlertConversationRunByThreadId.get(threadId) === runToken;
+  updateTradingExpertThinkingState(
+    threadId,
+    confirmsDraftCreation ? "alert-confirming" : "alert-analyzing",
+    confirmsDraftCreation ? "正在校验你的确认与规则版本…" : "正在把自然语言条件编译为可验证的预警规则…",
+  );
+  refreshTradingExpertConversationSurface(threadId);
+  try {
+    if (confirmsDraftCreation) {
+      const confirmed = tradingAlertResponseData(await api.tradingAlertsConfirm!({
+        draftId: previous.draftId,
+        simulationId: previous.simulationId,
+        confirmationId: previous.confirmationId,
+      }));
+      if (!isCurrentRun()) return;
+      const alertId = firstString(confirmed?.alert?.alertId) || "";
+      const persistedAlert = await refreshTradingAlertsAndRequireAlert(alertId);
+      if (!isCurrentRun()) return;
+      tradingAlertConversationByThreadId.delete(threadId);
+      clearTradingExpertAlertSimulation();
+      const monitoringReady = persistedAlert?.status === "monitoring";
+      const monitoringStateMessage = monitoringReady
+        ? "后台监控已启动，可在预警页面查看状态。"
+        : persistedAlert?.status === "reconnecting"
+          ? "预警已安全保存，当前行情连接正在恢复；客户端会自动重试，连接成功后卡片将切换为监控中。"
+          : "预警已安全保存，但监控初始化需要处理；请点击下方入口查看卡片中的具体原因。";
+      await persistTradingAlertCreationSuccessItem(threadId, [
+        `预警已创建：${String(confirmed?.alert?.rule?.title || "交易预警")}`,
+        String(confirmed?.summary || confirmed?.alert?.rule?.normalizedSummary || "规则已保存"),
+        monitoringStateMessage,
+        "仅在 Haolo 客户端运行且数据连接正常时监控；停机或断线期间不补触发，恢复后只建立新基线，卡片会显示监控空档。",
+      ].join("\n\n"), alertId);
+      return;
+    }
+
+    let compileResult: any;
+    const sourceTextForTurn = resolveTradingAlertSourceText(previous, answer);
+    const conversationForTurn = (previous
+      ? [...previous.conversation, { role: "user" as const, text: answer }]
+      : [{ role: "user" as const, text: answer }]).slice(-32);
+    if (previous?.stage === "dependency" && /^(已连接|已接入|已授权|完成|done|connected)[。.!！\s]*$/iu.test(answer) && api.tradingAlertsResumeDraft) {
+      compileResult = tradingAlertResponseData(await api.tradingAlertsResumeDraft({ draftId: previous.draftId }));
+    } else {
+      const chart = tradingExpertAlertContextSnapshot();
+      if (chart?.marketId && chart?.interval) await api.tradingAlertsSyncDrawings?.({ marketId: chart.marketId, interval: chart.interval, drawings: chart.drawings || [] });
+      compileResult = tradingAlertResponseData(await api.tradingAlertsCompile!({
+        ...(previous ? { draftId: previous.draftId } : {}),
+        threadId,
+        sourceText: sourceTextForTurn,
+        conversation: conversationForTurn,
+        currentChart: chart ? { marketId: chart.marketId, interval: chart.interval } : null,
+        drawings: (chart?.drawings || []).map((drawing: any) => ({ ...drawing, interval: chart?.interval })),
+      }));
+    }
+    if (!isCurrentRun()) return;
+    const draft = compileResult?.draft;
+    if (!draft?.draftId) throw new Error("预警编译器没有返回可续接草稿");
+    rememberTradingAlertDraftSnapshot(draft);
+    if (draft.status !== "ready_to_simulate" && draft.status !== "awaiting_confirmation") {
+      const reply = tradingAlertQuestionsText(compileResult);
+      tradingAlertConversationByThreadId.set(threadId, {
+        draftId: draft.draftId,
+        sourceText: sourceTextForTurn,
+        stage: String(draft.status).includes("awaiting_data") || String(draft.status).includes("awaiting_tool") || String(draft.status).includes("awaiting_authorization") ? "dependency" : "clarification",
+        conversation: [...conversationForTurn, { role: "assistant" as const, text: reply }].slice(-32),
+      });
+      await persistTradingAlertAssistantItem(threadId, reply);
+      return;
+    }
+    if (!draft.rule) throw new Error("规则尚不完整，不能进入模拟");
+    const chartSwitch = compileResult?.chartSwitch;
+    if (chartSwitch) await prepareTradingExpertAlertContext(chartSwitch.marketId, chartSwitch.interval);
+    if (!isCurrentRun()) return;
+    const frames = await tradingExpertAlertSimulationFrames(draft.rule);
+    if (!isCurrentRun()) return;
+    updateTradingExpertThinkingState(threadId, "drawing", "正在用与真实监控相同的公式反推合法 OHLCV，并在独立图层标注触发路径…");
+    refreshTradingExpertConversationSurface(threadId);
+    const simulated = tradingAlertResponseData(await api.tradingAlertsSimulate!({ draftId: draft.draftId, frames }));
+    if (!isCurrentRun()) return;
+    let visualizationWarning = "";
+    try {
+      showTradingExpertAlertSimulation(simulated.simulation, draft.rule.evaluationPolicy.anchorContextId, draft.rule);
+    } catch (visualizationError) {
+      // Rule compilation and deterministic simulation have already succeeded at
+      // this point. A chart overlay lifecycle problem must not discard that
+      // work or misleadingly report an intent-creation failure.
+      console.error("[trading-alert] simulation overlay failed", visualizationError);
+      clearTradingExpertAlertSimulation();
+      visualizationWarning = "\n\n规则和模拟已经生成，但本次图表标注暂时没有显示。请先按上面的文字条件核对；草稿不会丢失。";
+    }
+    const question = `${String(simulated.question || "模拟已完成，是否按这种情况创建预警？")}${visualizationWarning}\n\n回复“确认”后才会创建监控，回复“取消”则不会创建，也可以直接说明要修改的条件。`;
+    tradingAlertConversationByThreadId.set(threadId, {
+      draftId: draft.draftId,
+      sourceText: sourceTextForTurn,
+      stage: "confirmation",
+      conversation: [...conversationForTurn, { role: "assistant" as const, text: question }].slice(-32),
+      simulationId: simulated.simulation.simulationId,
+      confirmationId: simulated.simulation.confirmation.confirmationId,
+    });
+    await persistTradingAlertAssistantItem(threadId, question);
+  } catch (error) {
+    const code = String((error as Error & { code?: string })?.code || "");
+    if (!isCurrentRun() || code === "TRADING_ANALYSIS_CANCELLED") return;
+    clearTradingExpertAlertSimulation();
+    const message = errorMessage(error);
+    const completionFirst = code === "TRADING_ALERT_SIMULATION_NO_VALID_PATH"
+      ? `我还没能在当前历史与模拟预算内构造出经过公式验证的触发路径，但草稿已保留。请补充条件的优先级、时间窗口或允许的阈值范围，我会继续求解，而不会创建未经验证的预警。\n\n技术信息：${message}`
+      : `这次预警流程尚未完成，未创建后台监控。草稿和已确认信息会保留；请补充缺失信息或完成所需接入后继续。\n\n原因：${message}`;
+    await persistTradingAlertAssistantItem(threadId, completionFirst);
+  } finally {
+    if (isCurrentRun()) {
+      tradingAlertConversationRunByThreadId.delete(threadId);
+      if (clearTradingExpertThinkingState(threadId)) refreshTradingExpertConversationSurface(threadId);
+    }
+  }
 }
 
 function tradingTranscriptPayloadFromItem(item: CodexItem) {
@@ -28496,6 +29073,7 @@ function tradingTranscriptPayloadFromItem(item: CodexItem) {
   if (!id || !text) return null;
   const startedAt = firstString((item as any).__youleTurnStartedAt);
   const completedAt = firstString((item as any).__youleTurnCompletedAt);
+  const actions = messageActionsFromItem(item);
   return {
     id,
     role,
@@ -28504,6 +29082,7 @@ function tradingTranscriptPayloadFromItem(item: CodexItem) {
     ...(role === "assistant" ? { phase: firstString((item as any).phase) || "final_answer" } : {}),
     ...(startedAt ? { startedAt } : {}),
     ...(completedAt ? { completedAt } : {}),
+    ...(role === "assistant" && actions?.length ? { actions } : {}),
   } as const;
 }
 
@@ -28525,17 +29104,33 @@ async function persistTradingExpertTranscriptItems(
   );
   const persistedItemIds: string[] = [];
   const injectedItemIds: string[] = [];
+  let activeThreadId = threadId;
   let lastResult: any = null;
   for (const [chunkIndex, payloadChunk] of payloadChunks.entries()) {
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
+        const modelOptions = selectedChatModelRequestOptions(activeThreadId);
         const result = await api.persistTradingTranscript({
-          threadId,
-          cwd: threadWorkspaceCwd(threadId),
+          threadId: activeThreadId,
+          cwd: threadWorkspaceCwd(activeThreadId),
           title: chunkIndex === 0 ? options.title : undefined,
+          conversationMode: codexConversationModeForThread(activeThreadId),
+          model: modelOptions.model,
+          modelProvider: modelOptions.modelProvider,
+          reasoningEffort: modelOptions.reasoningEffort,
+          approvalPolicy: DESKTOP_APPROVAL_POLICY,
+          sandboxPolicy: DESKTOP_SANDBOX_POLICY,
           items: payloadChunk,
         });
+        if (result?.replacementThread && firstString(result.replacedThreadId) === activeThreadId) {
+          const previousThreadId = activeThreadId;
+          const pending = pendingComposerSendForThread(previousThreadId);
+          activeThreadId = adoptReplacementCodexThread(previousThreadId, result.replacementThread, 0);
+          if (pending) movePendingComposerSend(previousThreadId, activeThreadId, pending.itemId);
+        } else {
+          activeThreadId = firstString(result?.threadId, activeThreadId) || activeThreadId;
+        }
         const chunkPersistedIds = new Set(
           Array.isArray(result?.persistedItemIds) ? result.persistedItemIds.map(String) : [],
         );
@@ -28558,6 +29153,7 @@ async function persistTradingExpertTranscriptItems(
   }
   return {
     ...(lastResult || {}),
+    threadId: activeThreadId,
     persistedItemIds,
     injectedItemIds,
   };
@@ -29512,7 +30108,13 @@ function applyTradingExpertMention(groupLabel: string, optionLabel: string) {
     (candidate) => candidate.label === groupLabel,
   );
   const option = item?.options.find((candidate) => candidate === optionLabel);
-  if (!threadId || !isTradingExpertThreadId(threadId) || !input || !item || !option) return;
+  if (
+    !threadId ||
+    !isTradingExpertThreadId(threadId) ||
+    !input ||
+    !item ||
+    (item.options.length > 0 && !option)
+  ) return;
   const match =
     findComposerMentionMatch(
       input.value,
@@ -29526,7 +30128,7 @@ function applyTradingExpertMention(groupLabel: string, optionLabel: string) {
         }
       : null);
   if (!match) return;
-  const token = `@${item.label}:${option}`;
+  const token = `@${item.label}${option ? `:${option}` : ""}`;
   const afterSelection = input.value.slice(match.end);
   const leadingSpacer = composerMentionLeadingSpacer(input.value, match.start);
   const trailingSpacer = composerMentionTrailingSpacer(afterSelection);
@@ -30091,7 +30693,9 @@ function tradingExpertMentionTokens(
 ) {
   if (!isTradingExpertThreadId(threadId)) return [];
   return TRADING_EXPERT_MENTION_CATALOG.flatMap((item) =>
-    item.options.map((option) => `@${item.label}:${option}`),
+    item.options.length
+      ? item.options.map((option) => `@${item.label}:${option}`)
+      : [`@${item.label}`],
   );
 }
 
@@ -32485,6 +33089,22 @@ function tradingExpertFavoriteStorageAccountIdentity() {
   return `${state.auth.baseUrl || "haolo"}::${accountIdentity}`;
 }
 
+function tradingAlertThreadEndedWithFailure(threadId: string | null | undefined) {
+  if (!threadId) return false;
+  const failurePattern = /这次预警流程尚未完成，未创建后台监控|(?:创建预警|预警创建)失败/;
+  for (const itemId of [...(state.itemOrder[threadId] || [])].reverse()) {
+    const item = state.items[threadId]?.[itemId];
+    if (!item || item.type !== "agentMessage") continue;
+    const text = assistantVisibleText(itemText(item)).trim();
+    return failurePattern.test(text);
+  }
+  return failurePattern.test(firstString(threadById(threadId)?.preview) || "");
+}
+
+function clearFailedTradingAlertHistorySimulation(threadId: string | null | undefined) {
+  if (tradingAlertThreadEndedWithFailure(threadId)) clearTradingExpertAlertSimulation();
+}
+
 function restorePreservedTradingExpertMarketWorkspace(
   preserved: PreservedTradingExpertMarketWorkspace | null,
   targetThreadId: string | null | undefined,
@@ -32518,6 +33138,7 @@ function restorePreservedTradingExpertMarketWorkspace(
         ? sourceStorageSessionId
         : "",
     );
+    clearFailedTradingAlertHistorySimulation(targetThreadId || preserved.threadId);
     if (replacementThreadId === targetThreadId && sourceStorageSessionId) {
       tradingExpertWorkspaceThreadReplacements.delete(sourceStorageSessionId);
       tradingExpertWorkspaceThreadReplacements.delete(preserved.threadId);
@@ -32534,6 +33155,7 @@ function restorePreservedTradingExpertMarketWorkspace(
     targetThreadId || "",
     pendingStorageMigrationSource,
   );
+  clearFailedTradingAlertHistorySimulation(targetThreadId);
   if (pendingStorageMigrationSource) {
     forgetTradingExpertWorkspaceSessionAlias(pendingStorageMigrationSource);
   }
@@ -32662,6 +33284,11 @@ function render() {
     state.activeView === "chat" &&
     !state.chatPreview &&
     isTradingExpertThreadId(thread?.id);
+  if (!tradingExpertLayout && state.tradingExpertChartFocusMode) {
+    restoreTradingExpertChartFocusLayout();
+  }
+  const tradingExpertChartFocusMode =
+    tradingExpertLayout && state.tradingExpertChartFocusMode;
   const mainContent =
     state.activeView === "chat"
       ? `
@@ -32674,20 +33301,32 @@ function render() {
         : state.activeView === "results"
           ? renderResultsPage()
           : state.activeView === "autoTasks"
-            ? renderAutoTasksPage()
+            ? `
+              ${renderChatList()}
+              ${renderAutoTasksPage()}
+            `
+            : state.activeView === "alerts"
+              ? `
+                ${renderChatList()}
+                ${renderTradingAlertsPage(state.tradingAlerts)}
+              `
             : state.activeView === "skillsPlaza"
-              ? renderSkillsPlazaPage()
+              ? `
+                ${renderChatList()}
+                ${renderSkillsPlazaPage()}
+              `
               : state.activeView === "recharge"
                 ? renderRechargePage()
                 : state.activeView === "consumption"
                   ? renderConsumptionPage()
                   : renderMaterialsPage();
   const isChatLeftCollapsed =
-    state.activeView === "chat" && state.leftCollapsed;
+    (state.activeView === "chat" || state.activeView === "autoTasks" || state.activeView === "alerts" || state.activeView === "skillsPlaza") && state.leftCollapsed;
   const shellClasses = [
     "desktop-shell",
     isChatLeftCollapsed ? "left-panel-collapsed" : "",
     tradingExpertLayout ? "trading-expert-shell" : "",
+    tradingExpertChartFocusMode ? "trading-expert-chart-focus-mode" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -32708,6 +33347,7 @@ function render() {
     tradingExpertLayout && state.tradingExpertChartCollapsed
       ? "trading-expert-chart-collapsed"
       : "",
+    tradingExpertChartFocusMode ? "trading-expert-chart-focus-mode" : "",
     multiModelClusterLayout ? "multi-model-cluster-layout" : "",
     workflowChatPanelWidth !== undefined ? "workflow-chat-panel-resized" : "",
   ]
@@ -33033,6 +33673,7 @@ function openSettingsDialog(tab: SettingsState["tab"] = "general") {
   if (tab === "github") {
     void refreshGitHubConnection();
   }
+  if (tab === "dataProviders") void refreshTradingAlerts();
 }
 
 async function refreshGitHubConnection({
@@ -33698,16 +34339,52 @@ function loginWindowMode(): WindowMode {
   return "login";
 }
 
+function renderTitlebarPlugIcon() {
+  return `<svg class="titlebar-action-icon titlebar-plug-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="M8 3v5M16 3v5M6.5 8h11v2a5.5 5.5 0 0 1-11 0V8ZM12 15.5V21" />
+  </svg>`;
+}
+
+function renderTitlebarAlarmIcon() {
+  return `<svg class="titlebar-action-icon titlebar-alarm-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <circle cx="12" cy="13" r="6.5" />
+    <path d="M12 9.5v3.8l2.4 1.4M7.2 3.5 4.7 5.8M16.8 3.5l2.5 2.3M7.5 19l-1.3 1.5M16.5 19l1.3 1.5" />
+  </svg>`;
+}
+
+function renderAutoTaskAlarmIcon() {
+  return `<svg class="auto-task-card-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <circle cx="12" cy="13" r="6.5" />
+    <path d="M12 9.5v3.8l2.4 1.4M7.2 3.5 4.7 5.8M16.8 3.5l2.5 2.3M7.5 19l-1.3 1.5M16.5 19l1.3 1.5" />
+  </svg>`;
+}
+
+function titlebarProfileDisplayName(name: string) {
+  const characters = Array.from(String(name || ""));
+  return characters.length > 5 ? `${characters.slice(0, 5).join("")}...` : characters.join("");
+}
+
 function renderTitlebarPrimaryActions() {
   const channelMenuOpen = state.externalChannels.menuOpen;
   return `
     <nav class="titlebar-primary-actions" aria-label="应用快捷操作">
-      <button type="button" class="titlebar-primary-action ${state.autoTaskDialogOpen ? "active" : ""}" data-action="open-auto-tasks">自动化</button>
       <div class="titlebar-channel-action ${channelMenuOpen ? "menu-open" : ""}">
-        <button type="button" class="titlebar-primary-action ${channelMenuOpen ? "active" : ""}" data-action="toggle-external-channel-menu" aria-haspopup="menu" aria-expanded="${channelMenuOpen ? "true" : "false"}">连接</button>
+        <button type="button" class="titlebar-primary-action titlebar-icon-action ${channelMenuOpen ? "active" : ""}" data-action="toggle-external-channel-menu" aria-haspopup="menu" aria-expanded="${channelMenuOpen ? "true" : "false"}" title="连接" aria-label="连接">
+          ${renderTitlebarPlugIcon()}
+        </button>
         <div class="titlebar-channel-menu-overlay">${renderExternalChannelMenu()}</div>
       </div>
-      <button type="button" class="titlebar-primary-action ${state.settingsOpen ? "active" : ""}" data-action="open-settings" aria-haspopup="dialog">设置</button>
+      <button
+        type="button"
+        class="titlebar-primary-action titlebar-icon-action titlebar-auto-task-action ${state.autoTaskDialogOpen ? "active" : ""}"
+        data-action="open-auto-task-dialog"
+        title="自动任务"
+        aria-label="自动任务"
+        aria-haspopup="dialog"
+        aria-expanded="${state.autoTaskDialogOpen ? "true" : "false"}"
+      >
+        ${renderTitlebarAlarmIcon()}
+      </button>
     </nav>
   `;
 }
@@ -33715,15 +34392,16 @@ function renderTitlebarPrimaryActions() {
 function renderWindowControls() {
   const maximized = state.windowMaximized;
   const avatarUrl = currentProfileAvatar();
+  const profileName = currentProfileName();
   return `
     <header class="app-titlebar" aria-label="应用标题栏">
-      ${state.activeView === "chat" ? renderLeftPanelToggle() : ""}
-      <button class="titlebar-profile" data-action="toggle-profile" aria-label="打开个人资料">
+      ${state.activeView === "chat" || state.activeView === "autoTasks" || state.activeView === "alerts" || state.activeView === "skillsPlaza" ? renderLeftPanelToggle() : ""}
+      <button class="titlebar-profile" data-action="toggle-profile" title="${escapeAttr(profileName)}" aria-label="打开个人资料：${escapeAttr(profileName)}">
         <span class="titlebar-profile-avatar">
           <img${builtInAvatarEdgeCropClassAttribute(avatarUrl)} src="${escapeAttr(avatarUrl)}" alt="" />
           <i class="titlebar-profile-online-dot" aria-hidden="true"></i>
         </span>
-        <span class="titlebar-profile-name">${escapeHtml(currentProfileName())}</span>
+        <span class="titlebar-profile-name">${escapeHtml(titlebarProfileDisplayName(profileName))}</span>
       </button>
       ${renderTitlebarPrimaryActions()}
       <div class="titlebar-drag-region">
@@ -33782,7 +34460,8 @@ function renderPanelLayoutIcon(side: "left" | "right") {
 }
 
 function toggleLeftPanelCollapsed() {
-  if (state.activeView !== "chat") return;
+  if (state.activeView !== "chat" && state.activeView !== "autoTasks" && state.activeView !== "alerts" && state.activeView !== "skillsPlaza") return;
+  if (state.tradingExpertChartFocusMode && isTradingExpertThreadId(state.currentThreadId)) return;
   state.leftCollapsed = !state.leftCollapsed;
   state.profileMenuOpen = false;
   state.externalChannels.menuOpen = false;
@@ -35626,35 +36305,15 @@ function renderAutoTasksPage() {
   if (selectedTask) return renderAutoTaskDetailPage(selectedTask);
   return `
     <main class="auto-task-page">
-      <header class="simple-page-header">
-        <div class="simple-page-title">
-          ${renderPageHomeButton()}
-          <h1>自动任务</h1>
-        </div>
-        <button class="simple-page-fold" type="button" aria-label="收起">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" /></svg>
-        </button>
-      </header>
       ${
         tasks.length
           ? `
             <section class="auto-task-list-page">
               <div class="auto-task-list-toolbar">
-                <p>请保持电脑开机并运行客户端，否则在关机、休眠或退出客户端时，自动任务无法执行</p>
-                <div class="auto-task-toolbar-actions">
-                  <button type="button" class="auto-task-search-button" aria-label="搜索自动任务">
-                    <img src="${escapeAttr(HOME_ICON_URL.search)}" alt="" />
-                  </button>
-                  <button type="button" class="auto-task-filter-button">
-                    <img src="${escapeAttr(HOME_ICON_URL.skillSort)}" alt="" />
-                    <span>全部项</span>
-                    <img class="auto-task-filter-chevron" src="${escapeAttr(HOME_ICON_URL.skillChevronDown)}" alt="" />
-                  </button>
-                  <button type="button" class="auto-task-primary" data-action="open-auto-task-dialog">
-                    <img src="${escapeAttr(HOME_ICON_URL.autoTaskAdd)}" alt="" />
-                    <span>新建自动任务</span>
-                  </button>
-                </div>
+                <button type="button" class="auto-task-primary" data-action="open-auto-task-dialog">
+                  <img src="${escapeAttr(HOME_ICON_URL.autoTaskAdd)}" alt="" />
+                  <span>新建自动任务</span>
+                </button>
               </div>
               <div class="auto-task-list">
                 ${tasks.map(renderAutoTaskItem).join("")}
@@ -35665,7 +36324,6 @@ function renderAutoTasksPage() {
             <section class="auto-task-empty">
               <div class="auto-task-hero">
                 <h2>开启你的第一个自动任务吧</h2>
-                <p>Tips:请保持电脑开机并运行客户端，否则在关机、休眠或退出客户端时，自动任务无法执行</p>
                 <button type="button" class="auto-task-primary" data-action="open-auto-task-dialog">
                   <img src="${escapeAttr(HOME_ICON_URL.autoTaskAdd)}" alt="" />
                   <span>新建自动任务</span>
@@ -35688,13 +36346,12 @@ function renderAutoTaskItem(task: AutoTaskItem) {
     <article class="auto-task-item">
       <div class="auto-task-item-main">
         <header>
-          <img class="auto-task-card-icon" src="${escapeAttr(HOME_ICON_URL.autoTaskCard)}" alt="" />
+          ${renderAutoTaskAlarmIcon()}
           <strong>${escapeHtml(task.name)}</strong>
           <span class="auto-task-status ${escapeAttr(status.className)}">${escapeHtml(status.label)}</span>
         </header>
         ${task.lastResult ? `<div class="auto-task-result"><b>执行结果</b><span>${escapeHtml(task.lastResult)}</span></div>` : ""}
         <footer>
-          <span class="auto-task-card-time">${escapeHtml(autoTaskCardTime(task))}</span>
           <div class="auto-task-item-actions ${menuOpen ? "open" : ""}">
             <button type="button" class="auto-task-view-button" data-action="view-auto-task" data-task-id="${escapeAttr(task.id)}">查看</button>
             <button type="button" class="auto-task-more-button" data-action="toggle-auto-task-menu" data-task-id="${escapeAttr(task.id)}" aria-label="更多操作" aria-expanded="${menuOpen ? "true" : "false"}">⋮</button>
@@ -35729,7 +36386,7 @@ function renderAutoTaskDetailPage(task: AutoTaskItem) {
       <section class="auto-task-detail-card">
         <div class="auto-task-detail-main">
           <header>
-            <img class="auto-task-card-icon" src="${escapeAttr(HOME_ICON_URL.autoTaskCard)}" alt="" />
+            ${renderAutoTaskAlarmIcon()}
             <strong>${escapeHtml(task.name)}</strong>
           </header>
           <p>${escapeHtml(task.description)}</p>
@@ -35871,7 +36528,6 @@ function renderSkillsPlazaTabs() {
 function renderSkillsPlazaHeader() {
   return `
       <header class="skills-plaza-header">
-        ${renderPageHomeButton()}
         <label class="skills-plaza-search">
           <img src="${escapeAttr(HOME_ICON_URL.search)}" alt="" />
           <input id="skillsSearch" value="${escapeAttr(state.skillSearch)}" placeholder="搜索" autocomplete="off" />
@@ -38995,7 +39651,7 @@ function renderLibraryEmpty(title: string, detail?: string) {
   `;
 }
 
-function renderConversationListIcon(icon: "new-chat" | "account" | "alerts" | "knowledge" | "folder") {
+function renderConversationListIcon(icon: "new-chat" | "account" | "alerts" | "knowledge" | "skills" | "folder" | "settings") {
   const paths =
     icon === "new-chat"
       ? `<path d="M13.8 4.3H6.2A2.2 2.2 0 0 0 4 6.5v11.3A2.2 2.2 0 0 0 6.2 20h11.3a2.2 2.2 0 0 0 2.2-2.2v-7.6" />
@@ -39009,26 +39665,36 @@ function renderConversationListIcon(icon: "new-chat" | "account" | "alerts" | "k
           : icon === "knowledge"
             ? `<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
                <path d="m4.2 7.6 7.8 4.5 7.8-4.5M12 12.1V21" />`
-            : `<path d="M3.5 7.2h6l1.8 2h9.2v8.3a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7.2Z" />
-               <path d="M3.5 9.2h17" />`;
+            : icon === "skills"
+              ? `<path d="m15.5 3.5 5 5-12 12-5-5 12-12Z" />
+                 <path d="m5.5 13.5 5 5M6 3v3M4.5 4.5h3M18.5 16.5v4M16.5 18.5h4" />`
+              : icon === "settings"
+                ? `<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z" />
+                   <circle cx="12" cy="12" r="3" />`
+                : `<path d="M3.5 7.2h6l1.8 2h9.2v8.3a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7.2Z" />
+                   <path d="M3.5 9.2h17" />`;
   return `<svg class="conversation-list-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths}</svg>`;
 }
 
 function renderConversationListActions() {
-  const newConversationActive = isBlankNewThread(state.currentThreadId);
+  const newConversationActive = state.activeView === "chat" && isBlankNewThread(state.currentThreadId);
+  const alertsActive = state.activeView === "alerts";
+  const skillsActive = state.activeView === "skillsPlaza";
   return `
     <div class="conversation-list-new-sticky">
-      <button type="button" class="conversation-list-action conversation-list-new-action ${newConversationActive ? "active" : ""}" data-action="new-chat" ${newConversationActive ? 'aria-current="page"' : ""}>
-        ${renderConversationListIcon("new-chat")}
-        <span>新任务</span>
-      </button>
+      <div class="conversation-list-new-row">
+        <button type="button" class="conversation-list-action conversation-list-new-action ${newConversationActive ? "active" : ""}" data-action="new-chat" ${newConversationActive ? 'aria-current="page"' : ""}>
+          ${renderConversationListIcon("new-chat")}
+          <span>新任务</span>
+        </button>
+      </div>
     </div>
     <section class="conversation-list-secondary-actions" aria-label="任务分类">
       <button type="button" class="conversation-list-action" data-conversation-static-action="account">
         ${renderConversationListIcon("account")}
         <span>账户</span>
       </button>
-      <button type="button" class="conversation-list-action" data-conversation-static-action="alerts">
+      <button type="button" class="conversation-list-action ${alertsActive ? "active" : ""}" data-conversation-static-action="alerts" ${alertsActive ? 'aria-current="page"' : ""}>
         ${renderConversationListIcon("alerts")}
         <span>预警</span>
       </button>
@@ -39036,7 +39702,29 @@ function renderConversationListActions() {
         ${renderConversationListIcon("knowledge")}
         <span>知识库</span>
       </button>
+      <button type="button" class="conversation-list-action ${skillsActive ? "active" : ""}" data-conversation-static-action="skills" ${skillsActive ? 'aria-current="page"' : ""}>
+        ${renderConversationListIcon("skills")}
+        <span>技能</span>
+      </button>
     </section>
+  `;
+}
+
+function renderConversationListFooter() {
+  return `
+    <footer class="conversation-list-footer">
+      <button
+        type="button"
+        class="conversation-list-settings-button ${state.settingsOpen ? "active" : ""}"
+        data-action="open-settings"
+        title="设置"
+        aria-label="设置"
+        aria-haspopup="dialog"
+        aria-expanded="${state.settingsOpen ? "true" : "false"}"
+      >
+        ${renderConversationListIcon("settings")}
+      </button>
+    </footer>
   `;
 }
 
@@ -39057,6 +39745,7 @@ function renderChatList() {
         </div>
       </div>
       ${renderUpdateDownloadDock()}
+      ${renderConversationListFooter()}
     </aside>
   `;
 }
@@ -39611,9 +40300,11 @@ function renderThreadRow(thread: ConversationSummary) {
         ? NEW_THREAD_TITLE
         : threadListDisplayName(thread);
   const minimalTitle = rawRowName.trim() || preview.trim() || NEW_THREAD_TITLE;
+  const marker = threadMarkerForThreadId(thread.id);
   const analysisContextLabel = tradingLastAnalysisLabelForThread(thread.id);
   const minimalAriaLabel = [
     pinned ? "已置顶" : "",
+    marker ? `标记 ${marker}` : "",
     analysisContextLabel ? `最后分析画布 ${analysisContextLabel}` : "",
     minimalTitle,
     working ? "AI 正在工作" : "",
@@ -39622,7 +40313,7 @@ function renderThreadRow(thread: ConversationSummary) {
   return `
     <div class="conversation-row-wrap conversation-row-minimal ${active ? "active" : ""} ${menuOpen ? "menu-open" : ""} ${thread.unread ? "has-unread" : ""} ${working ? "is-working" : ""} ${finalResultUnviewed ? "has-final-result-unviewed" : ""}" data-thread-row="${escapeAttr(thread.id)}">
       <button class="conversation-row" data-thread-id="${escapeAttr(thread.id)}" aria-label="${escapeAttr(minimalAriaLabel)}">
-        <span class="conversation-copy conversation-copy-minimal"><span class="row-title">${analysisContextLabel ? `<span class="conversation-analysis-context" title="最后分析画布 ${escapeAttr(analysisContextLabel)}">${escapeHtml(analysisContextLabel)}</span>` : ""}<span class="row-name" title="${escapeAttr(minimalTitle)}">${escapeHtml(minimalTitle)}</span></span></span>
+        <span class="conversation-copy conversation-copy-minimal"><span class="row-title">${marker ? renderThreadMarkerDot(marker) : ""}${analysisContextLabel ? `<span class="conversation-analysis-context" title="最后分析画布 ${escapeAttr(analysisContextLabel)}">${escapeHtml(analysisContextLabel)}</span>` : ""}<span class="row-name" title="${escapeAttr(minimalTitle)}"><span class="row-name-text">${escapeHtml(minimalTitle)}</span></span></span></span>
         ${thread.unread ? `<span class="unread-dot">${escapeHtml(thread.unread > 99 ? "99+" : thread.unread)}</span>` : ""}
         ${working ? `<span class="conversation-row-spinner" title="AI 正在工作" aria-label="AI 正在工作"></span>` : ""}
       </button>
@@ -40711,7 +41402,7 @@ function renderThreadMarkerMenuItem(thread: ConversationSummary) {
   const presetItems = THREAD_MARKER_PRESETS.map(
     (marker) => `
       <button type="button" class="${marker === activeMarker ? "active" : ""}" data-thread-action="marker" data-thread-marker="${escapeAttr(marker)}" data-thread-id="${escapeAttr(thread.id)}" role="menuitemradio" aria-checked="${marker === activeMarker ? "true" : "false"}">
-        <span>${escapeHtml(marker)}</span>
+        <span class="thread-marker-choice">${renderThreadMarkerDot(marker, "thread-marker-choice-dot")}<span>${escapeHtml(marker)}</span></span>
       </button>`,
   ).join("");
   return `
@@ -42578,35 +43269,22 @@ function renderChatPanel(thread: ConversationSummary | null) {
   `;
 }
 
-function tradingExpertPanelToggleLabel(collapsed: boolean) {
-  return collapsed ? "展开会话" : "收起会话";
+function tradingExpertPanelToggleLabel(expanded: boolean) {
+  return expanded ? "收起会话" : "展开会话";
 }
 
 function renderTradingExpertConversationHeader(thread: ConversationSummary) {
-  const collapsed = state.rightCollapsed;
-  const label = tradingExpertPanelToggleLabel(collapsed);
-  const disabled = state.tradingExpertChartCollapsed && !collapsed;
-  const collapseLocked = !collapsed && isTradingExpertConversationCollapseLocked(thread.id);
-  const chartCollapsed = state.tradingExpertChartCollapsed;
-  const chartLabel = tradingExpertChartToggleLabel(chartCollapsed);
+  const conversationExpanded = state.tradingExpertChartCollapsed && !state.rightCollapsed;
+  const label = tradingExpertPanelToggleLabel(conversationExpanded);
   const title = chatHeaderTitle(thread) || NEW_THREAD_TITLE;
-  const panelToggle = disabled
-    ? ""
-    : `
-      <button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle ${collapsed ? "collapsed" : "expanded"}" data-action="toggle-right-panel" title="${label}" aria-label="${label}" aria-expanded="${collapsed ? "false" : "true"}"${collapseLocked ? ' hidden aria-hidden="true" disabled' : ""}>
-        ${renderPanelLayoutIcon("right")}
-      </button>
-    `;
   return `
     <header class="trading-expert-panel-header">
       <div class="trading-expert-panel-heading">
         <strong class="trading-expert-panel-title" title="${escapeAttr(title)}">${escapeHtml(title)}</strong>
       </div>
-      ${chartCollapsed ? `
-        <button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle trading-expert-chart-header-toggle collapsed" data-action="toggle-trading-expert-chart" title="${chartLabel}" aria-label="${chartLabel}" aria-expanded="false">
-          ${renderPanelLayoutIcon("left")}
-        </button>
-      ` : panelToggle}
+      <button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle ${conversationExpanded ? "expanded" : "collapsed"}" data-action="toggle-right-panel" data-trading-expert-conversation-expansion title="${label}" aria-label="${label}" aria-expanded="${conversationExpanded ? "true" : "false"}">
+        ${renderPanelLayoutIcon("right")}
+      </button>
     </header>
   `;
 }
@@ -42623,27 +43301,90 @@ function renderTradingExpertConversationPanel(thread: ConversationSummary) {
   `;
 }
 
-function tradingExpertChartToggleLabel(collapsed: boolean) {
-  return collapsed ? "展开K线画布" : "收起K线画布";
+function tradingExpertChartToggleLabel(expanded: boolean) {
+  return expanded ? "收起K线画布" : "展开K线画布";
+}
+
+function tradingExpertChartFocusToggleLabel(active: boolean) {
+  return active ? "退出K线全屏" : "K线全屏";
+}
+
+function renderTradingExpertChartFocusIcon(active: boolean) {
+  return active
+    ? `
+      <svg class="trading-expert-chart-focus-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 4l6 6M5 10h5V5M20 4l-6 6M14 5v5h5M4 20l6-6M5 14h5v5M20 20l-6-6M14 19v-5h5"></path>
+      </svg>
+    `
+    : `
+      <svg class="trading-expert-chart-focus-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M10 10L4 4M4 8V4h4M14 10l6-6M16 4h4v4M10 14l-6 6M4 16v4h4M14 14l6 6M16 20h4v-4"></path>
+      </svg>
+    `;
+}
+
+function restoreTradingExpertChartFocusLayout() {
+  const restore = tradingExpertChartFocusRestoreState;
+  state.tradingExpertChartFocusMode = false;
+  tradingExpertChartFocusRestoreState = null;
+  if (!restore) return;
+  state.leftCollapsed = restore.leftCollapsed;
+  state.rightCollapsed = restore.rightCollapsed;
+  state.tradingExpertChartCollapsed = restore.chartCollapsed;
+}
+
+function toggleTradingExpertChartFocusMode() {
+  if (!isTradingExpertThreadId(state.currentThreadId)) return;
+  if (state.tradingExpertChartFocusMode) {
+    restoreTradingExpertChartFocusLayout();
+  } else {
+    if (isTradingExpertConversationCollapseLocked(state.currentThreadId)) {
+      syncTradingExpertCollapseControlsState();
+      return;
+    }
+    tradingExpertChartFocusRestoreState = {
+      leftCollapsed: state.leftCollapsed,
+      rightCollapsed: state.rightCollapsed,
+      chartCollapsed: state.tradingExpertChartCollapsed,
+    };
+    state.tradingExpertChartFocusMode = true;
+    state.leftCollapsed = true;
+    state.rightCollapsed = true;
+    state.tradingExpertChartCollapsed = false;
+    state.profileMenuOpen = false;
+    state.externalChannels.menuOpen = false;
+    state.newThreadGroupPickerOpen = false;
+    state.threadMenu = null;
+    state.threadGroupMenu = null;
+    state.contactMenu = null;
+  }
+  render();
+  queueMicrotask(() => {
+    root
+      .querySelector<HTMLButtonElement>('[data-action="toggle-trading-expert-chart-focus"]')
+      ?.focus();
+  });
 }
 
 function renderTradingExpertCollapseControls() {
   const chartCollapsed = state.tradingExpertChartCollapsed;
   const panelCollapsed = state.rightCollapsed;
-  const chartLabel = tradingExpertChartToggleLabel(chartCollapsed);
-  const panelLabel = tradingExpertPanelToggleLabel(panelCollapsed);
-  const chartDisabled = panelCollapsed && !chartCollapsed;
-  const panelDisabled = chartCollapsed && !panelCollapsed;
-  const panelCollapseLocked = !panelCollapsed && isTradingExpertConversationCollapseLocked(state.currentThreadId);
-  const chartTitle = chartDisabled ? "会话已收起，请先展开会话" : chartLabel;
-  const panelTitle = panelDisabled ? "K线画布已收起，请先展开K线画布" : panelLabel;
+  const focusMode = state.tradingExpertChartFocusMode;
+  const chartExpanded = panelCollapsed && !chartCollapsed;
+  const chartLabel = tradingExpertChartToggleLabel(chartExpanded);
+  const focusLabel = tradingExpertChartFocusToggleLabel(focusMode);
+  const chartExpansionLocked = !chartExpanded && isTradingExpertConversationCollapseLocked(state.currentThreadId);
+  const chartExpansionHidden = chartCollapsed || chartExpansionLocked;
+  const focusDisabled = !focusMode && isTradingExpertConversationCollapseLocked(state.currentThreadId);
+  const chartTitle = chartExpansionLocked ? "分析进行中，暂不可展开K线画布" : chartLabel;
+  const focusTitle = focusDisabled ? "分析进行中，暂不可进入K线全屏" : focusLabel;
   return `
-    <div class="trading-expert-collapse-controls" role="group" aria-label="K线与会话显示控制">
-      <button type="button" class="small-icon-button panel-toggle trading-expert-collapse-button trading-expert-chart-toggle ${chartCollapsed ? "collapsed" : "expanded"}" data-action="toggle-trading-expert-chart" title="${chartTitle}" aria-label="${chartLabel}" aria-expanded="${chartCollapsed ? "false" : "true"}"${chartDisabled ? " disabled" : ""}>
-        ${renderPanelLayoutIcon("left")}
+    <div class="trading-expert-collapse-controls" role="group" aria-label="K线展开与全屏显示控制">
+      <button type="button" class="small-icon-button panel-toggle trading-expert-collapse-button trading-expert-chart-focus-toggle${focusMode ? " active" : ""}" data-action="toggle-trading-expert-chart-focus" title="${focusTitle}" aria-label="${focusLabel}" aria-pressed="${focusMode ? "true" : "false"}"${focusDisabled ? " disabled" : ""}${chartCollapsed && !focusMode ? " hidden" : ""}>
+        ${renderTradingExpertChartFocusIcon(focusMode)}
       </button>
-      <button type="button" class="small-icon-button panel-toggle trading-expert-collapse-button trading-expert-panel-toggle ${panelCollapsed ? "collapsed" : "expanded"}" data-action="toggle-right-panel" title="${panelTitle}" aria-label="${panelLabel}" aria-expanded="${panelCollapsed ? "false" : "true"}"${panelDisabled || panelCollapseLocked ? " disabled" : ""}${panelCollapseLocked ? ' hidden aria-hidden="true"' : ""}>
-        ${renderPanelLayoutIcon("right")}
+      <button type="button" class="small-icon-button panel-toggle trading-expert-collapse-button trading-expert-chart-toggle ${chartExpanded ? "expanded" : "collapsed"}" data-action="toggle-trading-expert-chart" data-trading-expert-chart-expansion title="${chartTitle}" aria-label="${chartLabel}" aria-expanded="${chartExpanded ? "true" : "false"}"${chartExpansionHidden ? ' hidden aria-hidden="true"' : ""}${chartExpansionLocked ? " disabled" : ""}>
+        ${renderPanelLayoutIcon("left")}
       </button>
     </div>
   `;
@@ -42653,22 +43394,26 @@ function syncTradingExpertCollapseControlsState() {
   if (!isTradingExpertThreadId(state.currentThreadId)) return;
   const chartCollapsed = state.tradingExpertChartCollapsed;
   const panelCollapsed = state.rightCollapsed;
-  const panelCollapseLocked = !panelCollapsed && isTradingExpertConversationCollapseLocked(state.currentThreadId);
-  const chartButtons = root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-trading-expert-chart"]');
-  const panelButtons = root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-right-panel"]');
+  const focusMode = state.tradingExpertChartFocusMode;
+  const chartExpanded = panelCollapsed && !chartCollapsed;
+  const conversationExpanded = chartCollapsed && !panelCollapsed;
+  const chartExpansionLocked = !chartExpanded && isTradingExpertConversationCollapseLocked(state.currentThreadId);
+  const chartButtons = root.querySelectorAll<HTMLButtonElement>("[data-trading-expert-chart-expansion]");
+  const conversationButtons = root.querySelectorAll<HTMLButtonElement>("[data-trading-expert-conversation-expansion]");
+  const focusButtons = root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-trading-expert-chart-focus"]');
   const syncButton = (
     button: HTMLButtonElement | null,
-    collapsed: boolean,
+    expanded: boolean,
     disabled: boolean,
     label: string,
     disabledTitle: string,
     side: "left" | "right",
   ) => {
     if (!button) return;
-    button.classList.toggle("collapsed", collapsed);
-    button.classList.toggle("expanded", !collapsed);
+    button.classList.toggle("collapsed", !expanded);
+    button.classList.toggle("expanded", expanded);
     button.disabled = disabled;
-    button.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    button.setAttribute("aria-expanded", String(expanded));
     button.setAttribute("aria-label", label);
     button.setAttribute("title", disabled ? disabledTitle : label);
     button.innerHTML = renderPanelLayoutIcon(side);
@@ -42676,25 +43421,36 @@ function syncTradingExpertCollapseControlsState() {
   chartButtons.forEach((chartButton) => {
     syncButton(
       chartButton,
-      chartCollapsed,
-      panelCollapsed && !chartCollapsed,
-      tradingExpertChartToggleLabel(chartCollapsed),
-      "会话已收起，请先展开会话",
+      chartExpanded,
+      chartExpansionLocked,
+      tradingExpertChartToggleLabel(chartExpanded),
+      "分析进行中，暂不可展开K线画布",
       "left",
     );
+    chartButton.hidden = chartCollapsed || chartExpansionLocked;
+    if (chartExpansionLocked) chartButton.setAttribute("aria-hidden", "true");
+    else chartButton.removeAttribute("aria-hidden");
   });
-  panelButtons.forEach((panelButton) => {
+  conversationButtons.forEach((panelButton) => {
     syncButton(
       panelButton,
-      panelCollapsed,
-      (chartCollapsed && !panelCollapsed) || panelCollapseLocked,
-      tradingExpertPanelToggleLabel(panelCollapsed),
-      "K线画布已收起，请先展开K线画布",
+      conversationExpanded,
+      false,
+      tradingExpertPanelToggleLabel(conversationExpanded),
+      "",
       "right",
     );
-    panelButton.hidden = panelCollapseLocked;
-    if (panelCollapseLocked) panelButton.setAttribute("aria-hidden", "true");
-    else panelButton.removeAttribute("aria-hidden");
+  });
+  focusButtons.forEach((focusButton) => {
+    const disabled = !focusMode && isTradingExpertConversationCollapseLocked(state.currentThreadId);
+    const label = tradingExpertChartFocusToggleLabel(focusMode);
+    focusButton.classList.toggle("active", focusMode);
+    focusButton.disabled = disabled;
+    focusButton.hidden = chartCollapsed && !focusMode;
+    focusButton.setAttribute("aria-pressed", focusMode ? "true" : "false");
+    focusButton.setAttribute("aria-label", label);
+    focusButton.setAttribute("title", disabled ? "分析进行中，暂不可进入K线全屏" : label);
+    focusButton.innerHTML = renderTradingExpertChartFocusIcon(focusMode);
   });
 }
 
@@ -46222,7 +46978,7 @@ function renderAutoTaskChatCard(task: AutoTaskItem) {
     <section class="auto-task-detail-card auto-task-chat-card">
       <div class="auto-task-detail-main">
         <header class="auto-task-chat-card-summary">
-          <img class="auto-task-card-icon" src="${escapeAttr(HOME_ICON_URL.autoTaskCard)}" alt="" />
+          ${renderAutoTaskAlarmIcon()}
           <p>${escapeHtml(task.description)}</p>
         </header>
         ${failureText ? `<span class="auto-task-error-text">${AUTO_TASK_FAILURE_PREFIX} ${escapeHtml(failureText)}</span>` : ""}
@@ -47159,7 +47915,7 @@ function messageRenderSignature(message: Message, options: { streaming?: boolean
     )
     .join("|");
   const images = (message.images || []).map((image) => `${image.id}:${image.url}`).join("|");
-  const actions = (message.actions || []).map((action) => [action.id, action.kind, action.label, action.text, action.conversation_id].map((value) => String(value ?? "")).join(":")).join("|");
+  const actions = (message.actions || []).map((action) => [action.id, action.kind, action.label, action.text, action.conversation_id, action.destination, action.alert_id].map((value) => String(value ?? "")).join(":")).join("|");
   const localSendStatus = localSendStatusFromRecord(message) || "";
   const localSendError = firstString((message as unknown as Record<string, unknown>).__youleLocalSendError) || "";
   const quotePreview = (message as MessageUiMeta).quotePreview;
@@ -48005,6 +48761,8 @@ function renderTextBubble(
   const conversationSupplementHeader = renderConversationSupplementHeader(message);
   const localSendStatus = fromUser ? renderLocalSendStatus(message) : "";
   const attachmentMarkup = content.attachments.length ? renderAttachmentGrid(content.attachments, !fromUser) : "";
+  const actionsMarkup = renderMessageActions(message);
+  const actionsBelowBubble = Boolean(message.actions?.some((action) => action.destination === "trading-alerts"));
   return `
     <div class="message-bubble ${fromUser ? "user-bubble" : "agent-bubble"} ${message.kind === "system" ? "system-bubble" : ""}">
       ${turnResultHeader}
@@ -48016,7 +48774,7 @@ function renderTextBubble(
         assistantSkillDisplayAliases: !fromUser,
       })}</div>` : ""}
       ${attachmentMarkup}
-      ${renderMessageActions(message)}
+      ${actionsBelowBubble ? "" : actionsMarkup}
       ${localSendStatus}
       ${
         hoverBar
@@ -48031,6 +48789,7 @@ function renderTextBubble(
           : ""
       }
     </div>
+    ${actionsBelowBubble ? actionsMarkup : ""}
   `;
 }
 
@@ -48073,21 +48832,27 @@ function localSendStatusFromRecord(record: Record<string, unknown> | Message | C
 function renderMessageActions(message: Message) {
   const actions = message.actions || [];
   if (!actions.length) return "";
-  return `<div class="message-actions">${actions.map(renderMessageActionButton).join("")}</div>`;
+  const classes = actions.some((action) => action.destination === "trading-alerts")
+    ? "message-actions message-actions-below-bubble"
+    : "message-actions";
+  return `<div class="${classes}">${actions.map(renderMessageActionButton).join("")}</div>`;
 }
 
 function renderMessageActionButton(action: MessageAction) {
   const kind = firstString(action.kind) || "";
   const actionId = firstString(action.id, kind, action.label) || "";
   const isRecharge = isRechargeTokenAction(action);
+  const isTradingAlertsNavigation = action.destination === "trading-alerts";
   return `
     <button
       type="button"
-      class="message-action-button ${isRecharge ? "message-recharge-button" : ""}"
+      class="message-action-button ${isRecharge ? "message-recharge-button" : ""} ${isTradingAlertsNavigation ? "message-trading-alert-link" : ""}"
       data-message-action="${escapeAttr(actionId)}"
       data-message-action-kind="${escapeAttr(kind)}"
       ${action.text ? `data-message-action-text="${escapeAttr(action.text)}"` : ""}
       ${action.conversation_id ? `data-message-action-conversation="${escapeAttr(action.conversation_id)}"` : ""}
+      ${action.destination ? `data-message-action-destination="${escapeAttr(action.destination)}"` : ""}
+      ${action.alert_id ? `data-message-action-alert-id="${escapeAttr(action.alert_id)}"` : ""}
     >
       ${escapeHtml(action.label)}
     </button>
@@ -48605,8 +49370,9 @@ function renderThreadAvatar(thread?: ConversationSummary | null) {
   if (clusterAvatar) return clusterAvatar;
   const taskAnchor = taskAnchorAvatarText(thread);
   if (taskAnchor) {
-    const taskAnchorBg = taskAnchorAvatarBg(taskAnchor);
-    const description = threadMarkerForThreadId(thread?.id) ? `标记：${taskAnchor}` : `任务锚点：${taskAnchor}`;
+    const marker = threadMarkerForThreadId(thread?.id);
+    const taskAnchorBg = marker ? threadMarkerColor(marker) : taskAnchorAvatarBg(taskAnchor);
+    const description = marker ? `标记：${taskAnchor}` : `任务锚点：${taskAnchor}`;
     return `<span class="avatar task-anchor-avatar" style="${escapeAttr(`--task-anchor-avatar-bg: ${taskAnchorBg}`)}" title="${escapeAttr(description)}" aria-label="${escapeAttr(description)}">${escapeHtml(taskAnchor)}</span>`;
   }
   const provider = thread?.provider as ProviderChatProvider | undefined;
@@ -48996,7 +49762,7 @@ function composerPlaceholderForThread(thread: ConversationSummary) {
     return "发送消息，输入 @ 可指定一个或多个群成员回复";
   }
   if (isTradingExpertThreadId(thread.id)) {
-    return "输入@调用 策略、知识库、自定义指标";
+    return "输入@调用 策略、预警、知识库、自定义指标";
   }
   const threadBusy = isThreadBusy(thread.id) && !providerFromThreadId(thread.id);
   if (threadBusy && isLocalCodexThread(thread.id)) {
@@ -52092,7 +52858,7 @@ function renderTradingExpertMentionMenu(open: boolean) {
                 .map(
                   (item) => `
                     <div class="trading-expert-mention-group">
-                      <button type="button" class="composer-mention-root-item trading-expert-mention-root-item" role="menuitem"${item.options.length ? ' aria-haspopup="menu" aria-expanded="false"' : ""}>
+                      <button type="button" class="composer-mention-root-item trading-expert-mention-root-item" role="menuitem"${item.options.length ? ' aria-haspopup="menu" aria-expanded="false"' : ` data-trading-expert-mention-group="${escapeAttr(item.label)}" data-trading-expert-mention-option=""`}>
                         <span>${item.label}</span>
                         ${item.options.length ? '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>' : ""}
                       </button>
@@ -54411,6 +55177,10 @@ function renderSettingsDialog() {
               </svg>
               <span>GitHub</span>
             </button>
+            <button type="button" class="settings-nav-item ${activeTab === "dataProviders" ? "active" : ""}" data-settings-tab="dataProviders">
+              <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_GENERAL_ICON_URL)}" alt="" />
+              <span>数据提供方</span>
+            </button>
             ${
               ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS
                 ? `<button type="button" class="settings-nav-item ${activeTab === "models" ? "active" : ""}" data-settings-tab="models">
@@ -54440,7 +55210,7 @@ function renderSettingsDialog() {
           <button type="button" class="settings-close-button" data-action="close-settings" aria-label="关闭">
             <img src="${escapeAttr(SETTINGS_CLOSE_ICON_URL)}" alt="" />
           </button>
-          <h3>${activeTab === "profile" ? "个人资料" : activeTab === "models" ? "模型服务" : activeTab === "github" ? "GitHub" : activeTab === "about" ? "关于&反馈" : "通用设置"}</h3>
+          <h3>${activeTab === "profile" ? "个人资料" : activeTab === "models" ? "模型服务" : activeTab === "github" ? "GitHub" : activeTab === "dataProviders" ? "数据提供方" : activeTab === "about" ? "关于&反馈" : "通用设置"}</h3>
           ${
             activeTab === "profile"
               ? renderSettingsProfilePanel()
@@ -54448,6 +55218,8 @@ function renderSettingsDialog() {
               ? renderExternalModelSettingsPanel(state.settings.externalModels)
               : activeTab === "github"
               ? renderGitHubSettingsPanel()
+              : activeTab === "dataProviders"
+              ? renderTradingAlertDataProviderSettingsPanel()
               : activeTab === "about"
               ? renderSettingsAboutPanel()
               : `
@@ -54540,6 +55312,19 @@ function renderGitHubSettingsPanel() {
       }
     </div>
   `;
+}
+
+function renderTradingAlertDataProviderSettingsPanel() {
+  const providers = state.tradingAlerts.providers || [];
+  return `<section class="settings-data-providers" aria-label="交易预警数据提供方">
+    <p class="settings-data-providers-intro">预警只使用经过 Schema、时效、覆盖范围和健康检查的数据。凭证仅能通过提供方授权页或系统安全存储接入，请勿粘贴到聊天。</p>
+    ${providers.length ? providers.map((provider) => `<article>
+      <div><strong>${escapeHtml(provider.displayName)}</strong><span class="${provider.connectionState === "connected" ? "connected" : ""}">${provider.connectionState === "connected" ? "已连接并验证" : provider.connectionState === "degraded" ? "连接不稳定" : "等待连接"}</span></div>
+      <p>${escapeHtml((provider.fields || []).join("、"))}</p>
+      <small>${provider.permission === "public" ? "公共只读，不需要 API Key" : `最小授权：${escapeHtml(provider.permission)}`}</small>
+      <footer>${provider.docsUrl ? `<button type="button" data-trading-alert-provider-docs="${escapeAttr(provider.docsUrl)}">官方接入文档</button>` : ""}<button type="button" data-trading-alert-provider-refresh>重新验证</button></footer>
+    </article>`).join("") : `<div class="settings-data-providers-empty" role="status">尚未发现可执行的数据 Adapter。请让智能体根据当前草稿生成接口、Plugin、MCP、Webhook、数据库或文件接入清单。</div>`}
+  </section>`;
 }
 
 // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable settings action
@@ -55840,7 +56625,7 @@ function bindEvents() {
   });
   root
     .querySelectorAll<HTMLElement>(
-      '[data-action="open-auto-task-dialog"], [data-action="open-auto-tasks"]',
+      '[data-action="open-auto-task-dialog"]',
     )
     .forEach((element) => {
       element.addEventListener("click", () => {
@@ -56028,6 +56813,8 @@ function bindEvents() {
               ? "models"
               : button.dataset.settingsTab === "github"
                 ? "github"
+              : button.dataset.settingsTab === "dataProviders"
+                ? "dataProviders"
               : button.dataset.settingsTab === "about"
                 ? "about"
                 : "general";
@@ -56045,8 +56832,12 @@ function bindEvents() {
           state.settings.github.authorizing = false;
           state.settings.github.authorizationExpiresAt = null;
         }
+        if (tab === "dataProviders") void refreshTradingAlerts();
       });
     });
+  root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-provider-refresh]").forEach((button) => {
+    button.addEventListener("click", () => { button.disabled = true; void refreshTradingAlerts().finally(() => { if (button.isConnected) button.disabled = false; }); });
+  });
   root
     .querySelector<HTMLButtonElement>('[data-action="github-connect"]')
     ?.addEventListener("click", () => {
@@ -56252,6 +57043,51 @@ function bindEvents() {
         state.contactChat.open = false;
         state.externalChannels.menuOpen = false;
         void startNewThread();
+      });
+    });
+  root
+    .querySelectorAll<HTMLButtonElement>('[data-conversation-static-action="alerts"]')
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        openTradingAlertsPage();
+      });
+    });
+  root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const filter = button.dataset.tradingAlertFilter as TradingAlertFilter;
+        if (!["all", "monitoring", "triggered", "paused", "attention", "draft"].includes(filter)) return;
+      state.tradingAlerts.filter = filter;
+      render();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.tradingAlertAction;
+      const alertId = button.dataset.alertId || "";
+      if (action === "refresh") void refreshTradingAlerts();
+      else if (action === "view" && alertId) { state.tradingAlerts.selectedAlertId = alertId; render(); }
+      else if (action === "back") { state.tradingAlerts.selectedAlertId = null; state.tradingAlerts.editorAlertId = null; render(); }
+      else if (action === "edit" && alertId) { state.tradingAlerts.editorAlertId = alertId; render(); }
+      else if (action === "view-evidence-chart") void openTradingAlertEvidenceChart(button);
+      else if (action === "close-editor") { state.tradingAlerts.editorAlertId = null; render(); }
+      else if ((action === "pause" || action === "resume" || action === "delete") && alertId) void mutateTradingAlert(action, alertId);
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-draft]").forEach((button) => {
+    button.addEventListener("click", openTradingAlertComposer);
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-provider-docs]").forEach((button) => {
+    button.addEventListener("click", () => { const url = button.dataset.tradingAlertProviderDocs; if (url) void api.openExternal(url); });
+  });
+  root.querySelector<HTMLFormElement>("[data-trading-alert-editor-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void submitTradingAlertRevision(event.currentTarget as HTMLFormElement);
+  });
+  root
+    .querySelectorAll<HTMLButtonElement>('[data-conversation-static-action="skills"]')
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        openMyConfigPage();
       });
     });
   root
@@ -57815,6 +58651,18 @@ function bindEvents() {
         closePreviewPanel("chat");
         return;
       }
+      if (
+        isTradingExpertThreadId(state.currentThreadId)
+        && button.hasAttribute("data-trading-expert-conversation-expansion")
+      ) {
+        if (state.tradingExpertChartFocusMode || state.rightCollapsed) return;
+        state.tradingExpertChartCollapsed = !state.tradingExpertChartCollapsed;
+        render();
+        return;
+      }
+      if (isTradingExpertThreadId(state.currentThreadId) && state.tradingExpertChartFocusMode) {
+        return;
+      }
       if (isTradingExpertThreadId(state.currentThreadId) && state.tradingExpertChartCollapsed && !state.rightCollapsed) {
         return;
       }
@@ -57841,9 +58689,27 @@ function bindEvents() {
     .forEach((button) => button.addEventListener("click", () => {
       finishTradingExpertLayoutControlPointerInteraction(false);
       if (!isTradingExpertThreadId(state.currentThreadId)) return;
-      if (state.rightCollapsed && !state.tradingExpertChartCollapsed) return;
-      state.tradingExpertChartCollapsed = !state.tradingExpertChartCollapsed;
-      render();
+      if (state.tradingExpertChartFocusMode) return;
+      if (state.tradingExpertChartCollapsed) return;
+      if (
+        !state.rightCollapsed
+        && isTradingExpertConversationCollapseLocked(state.currentThreadId)
+      ) {
+        syncTradingExpertCollapseControlsState();
+        return;
+      }
+      state.rightCollapsed = !state.rightCollapsed;
+      syncAgentPanelState();
+      if (!state.rightCollapsed) {
+        patchActiveChatSurfaces(state.currentThreadId, { patchThreadRow: true });
+      }
+      scrollWorkflowToLatestStep();
+    }));
+  root
+    .querySelectorAll<HTMLButtonElement>('[data-action="toggle-trading-expert-chart-focus"]')
+    .forEach((button) => button.addEventListener("click", () => {
+      finishTradingExpertLayoutControlPointerInteraction(false);
+      toggleTradingExpertChartFocusMode();
     }));
   root
     .querySelector<HTMLInputElement>("#localGroupChatMemberSearch")
@@ -58002,9 +58868,9 @@ function bindEvents() {
     .querySelector<HTMLFormElement>("#composerForm")
     ?.addEventListener("submit", (event) => {
       event.preventDefault();
-      const formThreadId =
-        (event.currentTarget as HTMLFormElement | null)?.dataset.threadId ||
-        currentComposerThreadId();
+      const formThreadId = currentComposerThreadId(
+        event.currentTarget as HTMLFormElement | null,
+      );
       const submitter = (event as SubmitEvent).submitter;
       if (
         submitter instanceof HTMLElement &&
@@ -58019,10 +58885,11 @@ function bindEvents() {
     .querySelector<HTMLButtonElement>('[data-action="interrupt-turn"]')
     ?.addEventListener("click", (event) => {
       event.preventDefault();
-      const threadId =
+      const threadId = currentComposerThreadId(
         (event.currentTarget as HTMLElement | null)?.closest<HTMLFormElement>(
           "#composerForm",
-        )?.dataset.threadId || currentComposerThreadId();
+        ),
+      );
       void interruptCurrentTurn(threadId, "composer-click");
     });
   root
@@ -58063,10 +58930,11 @@ function bindEvents() {
       }
       if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
-        const threadId =
+        const threadId = currentComposerThreadId(
           (event.currentTarget as HTMLElement | null)?.closest<HTMLFormElement>(
             "#composerForm",
-          )?.dataset.threadId || currentComposerThreadId();
+          ),
+        );
         if (activeWorkflowRunForThread(threadId)) {
           showToast(WORKFLOW_RUNNING_SEND_BLOCKED_TOAST, 2200);
           return;
@@ -58088,7 +58956,9 @@ function bindEvents() {
     .querySelectorAll<HTMLInputElement>("[data-workflow-input-text-slot]")
     .forEach((slotInput) => {
       slotInput.addEventListener("input", () => {
-        const threadId = slotInput.closest<HTMLFormElement>("#composerForm")?.dataset.threadId;
+        const threadId = currentComposerThreadId(
+          slotInput.closest<HTMLFormElement>("#composerForm"),
+        );
         const slotId = String(slotInput.dataset.workflowInputTextSlot || "").trim();
         if (!threadId || !slotId) return;
         workflowComposerNamedTextValues(threadId)[slotId] = slotInput.value;
@@ -58097,7 +58967,9 @@ function bindEvents() {
       slotInput.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" || event.shiftKey) return;
         event.preventDefault();
-        const threadId = slotInput.closest<HTMLFormElement>("#composerForm")?.dataset.threadId;
+        const threadId = currentComposerThreadId(
+          slotInput.closest<HTMLFormElement>("#composerForm"),
+        );
         void sendCurrentMessage(threadId);
       });
     });
@@ -58980,16 +59852,22 @@ function syncAgentPanelState() {
   panel?.classList.toggle("expanded", !collapsed);
   panel?.setAttribute("aria-hidden", collapsed ? "true" : "false");
 
-  const button = root.querySelector<HTMLButtonElement>('[data-action="toggle-right-panel"]');
-  const label = isTradingExpertThreadId(state.currentThreadId)
-    ? tradingExpertPanelToggleLabel(collapsed)
-    : collapsed
-      ? "展开协作看板"
-      : "收起协作看板";
-  button?.classList.toggle("expanded", !collapsed);
-  button?.setAttribute("aria-expanded", collapsed ? "false" : "true");
-  button?.setAttribute("title", label);
-  button?.setAttribute("aria-label", label);
+  if (isTradingExpertThreadId(state.currentThreadId)) {
+    const restoreButton = root.querySelector<HTMLButtonElement>(".trading-market-split-panel-restore");
+    const label = tradingExpertChartToggleLabel(collapsed);
+    restoreButton?.classList.toggle("collapsed", !collapsed);
+    restoreButton?.classList.toggle("expanded", collapsed);
+    restoreButton?.setAttribute("aria-expanded", String(collapsed));
+    restoreButton?.setAttribute("title", label);
+    restoreButton?.setAttribute("aria-label", label);
+  } else {
+    const button = root.querySelector<HTMLButtonElement>('[data-action="toggle-right-panel"]');
+    const label = collapsed ? "展开协作看板" : "收起协作看板";
+    button?.classList.toggle("expanded", !collapsed);
+    button?.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    button?.setAttribute("title", label);
+    button?.setAttribute("aria-label", label);
+  }
   syncTradingExpertCollapseControlsState();
   scheduleWorkflowComposerConnector();
 }
@@ -59700,6 +60578,10 @@ function bindMessageContentEvents(container: ParentNode = root) {
       const kind = button.dataset.messageActionKind || "";
       if (button.dataset.messageAction === RECHARGE_TOKEN_ACTION_ID || kind === RECHARGE_TOKEN_ACTION_KIND) {
         openRechargePage();
+        return;
+      }
+      if (button.dataset.messageActionDestination === "trading-alerts") {
+        openTradingAlertsPage(null, null);
         return;
       }
       const conversationId = button.dataset.messageActionConversation;
@@ -62314,6 +63196,8 @@ function resetAuthenticatedWorkspace() {
   state.currentThreadId = null;
   state.lastChatThreadId = null;
   state.tradingExpertChartCollapsed = false;
+  state.tradingExpertChartFocusMode = false;
+  tradingExpertChartFocusRestoreState = null;
   workflowCanvasDraftsByThreadId.clear();
   workflowComposerNamedTextValuesByThreadId.clear();
   workflowCanvasDirtyNodeIdsByThreadId.clear();
@@ -62999,6 +63883,7 @@ function isPointerOverStreamSensitiveUi() {
         ".chat-preview-panel",
         '.trading-expert-layout [data-action="toggle-right-panel"]',
         '.trading-expert-layout [data-action="toggle-trading-expert-chart"]',
+        '.trading-expert-layout [data-action="toggle-trading-expert-chart-focus"]',
       ].join(","),
     ),
   );
@@ -65009,6 +65894,136 @@ function restoreRememberedChatThreadSelection() {
   return true;
 }
 
+function openTradingAlertsPage(alertId: string | null = null, evidenceId: string | null = null) {
+  if (state.activeView === "chat") rememberCurrentChatThreadSelection();
+  state.activeView = "alerts";
+  state.tradingAlerts.selectedAlertId = alertId;
+  state.tradingAlerts.selectedEvidenceId = evidenceId;
+  state.tradingAlerts.editorAlertId = null;
+  state.externalChannels.menuOpen = false;
+  state.profileMenuOpen = false;
+  state.skillSortMenuOpen = false;
+  state.chatPreview = null;
+  state.closingPreviewSource = null;
+  render();
+  void refreshTradingAlerts();
+}
+
+async function refreshTradingAlerts() {
+  if (!api.tradingAlertsSnapshot) return;
+  state.tradingAlerts.loading = true;
+  state.tradingAlerts.error = null;
+  if (state.activeView === "alerts" || (state.settingsOpen && state.settings.tab === "dataProviders")) render();
+  try {
+    applyTradingAlertsSnapshot(state.tradingAlerts, await api.tradingAlertsSnapshot());
+  } catch (error) {
+    state.tradingAlerts.loading = false;
+    state.tradingAlerts.error = errorMessage(error);
+  }
+  if (state.activeView === "alerts" || (state.settingsOpen && state.settings.tab === "dataProviders")) render();
+}
+
+function openTradingAlertComposer() {
+  const tradingThread = state.threads.find((thread) => isTradingExpertThreadId(thread.id));
+  state.activeView = "chat";
+  if (tradingThread) {
+    state.currentThreadId = tradingThread.id;
+    rememberChatThreadSelection(tradingThread.id);
+    restoreComposerDraftForThread(tradingThread.id);
+  } else if (!restoreRememberedChatThreadSelection()) {
+    ensureTopLevelBlankThreadForList({ activateIfMissingSelection: true });
+  }
+  if (!state.composerText.trim()) state.composerText = "@预警 ";
+  render();
+  showToast("请描述任意组合条件；智能体会持续追问并先模拟，再请你确认。", 3600);
+}
+
+async function mutateTradingAlert(action: "pause" | "resume" | "delete", alertId: string) {
+  if (action === "delete" && !window.confirm("确定删除这个预警吗？历史触发证据将保留在审计记录中。")) return;
+  const call = action === "pause" ? api.tradingAlertsPause : action === "resume" ? api.tradingAlertsResume : api.tradingAlertsDelete;
+  if (!call) return;
+  state.tradingAlerts.busyAlertId = alertId;
+  render();
+  try {
+    const response = await call({ alertId });
+    if (response?.ok === false) throw new Error(response.error?.message || "预警操作失败");
+    if (action === "delete") state.tradingAlerts.selectedAlertId = null;
+    await refreshTradingAlerts();
+  } catch (error) {
+    state.tradingAlerts.error = errorMessage(error);
+    showToast(state.tradingAlerts.error, 5000);
+  } finally {
+    state.tradingAlerts.busyAlertId = null;
+    if (state.activeView === "alerts") render();
+  }
+}
+
+async function submitTradingAlertRevision(form: HTMLFormElement) {
+  if (!api.tradingAlertsRevise) return;
+  const alertId = form.dataset.alertId || "";
+  const values = new FormData(form);
+  state.tradingAlerts.busyAlertId = alertId;
+  try {
+    const response = await api.tradingAlertsRevise({
+      alertId,
+      contextId: form.dataset.contextId,
+      marketIds: values.get("marketIds") || undefined,
+      intervals: values.get("intervals") || undefined,
+      selectorKind: values.get("selectorKind") || undefined,
+      clock: values.get("clock") || undefined,
+      mode: values.get("mode") || undefined,
+    });
+    if (response?.ok === false) throw new Error(response.error?.message || "生成新 Revision 失败");
+    const draft = response?.data?.draft;
+    state.tradingAlerts.editorAlertId = null;
+    await refreshTradingAlerts();
+    if (!draft?.rule || !api.tradingAlertsSimulate) throw new Error("新 Revision 尚未形成可模拟规则");
+    openTradingAlertComposer();
+    await Promise.resolve();
+    const threadId = state.currentThreadId;
+    if (!threadId || !isTradingExpertThreadId(threadId)) throw new Error("请先打开交易专家会话以确认新 Revision");
+    const anchor = draft.rule.contexts.find((context: any) => context.contextId === draft.rule.evaluationPolicy.anchorContextId)
+      || draft.rule.contexts[0];
+    const marketId = anchor?.marketSelector?.kind === "fixed" ? anchor.marketSelector.marketIds?.[0] : null;
+    await prepareTradingExpertAlertContext(marketId, anchor?.intervals?.[0]);
+    const frames = await tradingExpertAlertSimulationFrames(draft.rule);
+    const simulated = tradingAlertResponseData(await api.tradingAlertsSimulate({ draftId: draft.draftId, frames, replacesAlertId: alertId }));
+    showTradingExpertAlertSimulation(simulated.simulation, draft.rule.evaluationPolicy.anchorContextId, draft.rule);
+    const question = `${String(simulated.question || "新 Revision 已完成模拟，是否按这种情况更新预警？")}\n\n原 Revision 在你确认前继续监控；确认后才会切换规则。`;
+    tradingAlertConversationByThreadId.set(threadId, {
+      draftId: draft.draftId,
+      sourceText: draft.sourceText,
+      stage: "confirmation",
+      conversation: [{ role: "assistant", text: question }],
+      simulationId: simulated.simulation.simulationId,
+      confirmationId: simulated.simulation.confirmation.confirmationId,
+    });
+    await persistTradingAlertAssistantItem(threadId, question);
+    showToast(response?.data?.message || "新 Revision 已模拟，请在交易会话中确认。", 5000);
+  } catch (error) {
+    state.tradingAlerts.error = errorMessage(error);
+    showToast(state.tradingAlerts.error, 5000);
+  } finally {
+    state.tradingAlerts.busyAlertId = null;
+    if (state.activeView === "alerts") render();
+  }
+}
+
+async function openTradingAlertEvidenceChart(button: HTMLButtonElement) {
+  const marketId = button.dataset.marketId || "";
+  const interval = button.dataset.interval || "";
+  const triggeredAt = Number(button.dataset.triggeredAt || 0);
+  if (!marketId || !interval || !Number.isFinite(triggeredAt)) return;
+  try {
+    await openTradingExpertWorkspace();
+    await prepareTradingExpertAlertContext(marketId, interval);
+    focusTradingExpertAlertEvidence(triggeredAt);
+    showToast("已定位到预警真实触发 K 线。", 3200);
+  } catch (error) {
+    showToast(errorMessage(error), 5000);
+  }
+}
+
 function returnToHomePage() {
   state.activeView = "chat";
   if (!restoreRememberedChatThreadSelection()) {
@@ -65465,6 +66480,7 @@ function deleteThreadGroup(groupId: string) {
   if (index >= 0) threadGroups.splice(index, 1);
   delete threadGroupWorkspaceById[groupId];
   collapsedThreadGroupIds.delete(groupId);
+  expandedConversationProjectIds.delete(groupId);
   if (state.activeNewThreadGroupId === groupId) state.activeNewThreadGroupId = DEFAULT_THREAD_GROUP_ID;
   if (state.autoTaskDraft.groupId === groupId) {
     state.autoTaskDraft = {
@@ -65581,6 +66597,7 @@ function collapseOtherThreadGroupsAfterCreate(createdGroupId: string) {
   collapsedThreadGroupIds.clear();
   for (const group of threadGroups) {
     if (group.id !== createdGroupId) collapsedThreadGroupIds.add(group.id);
+    if (group.id !== createdGroupId) expandedConversationProjectIds.delete(group.id);
   }
 }
 
@@ -65903,7 +66920,10 @@ function pinThreadGroup(groupId: string) {
 function toggleThreadGroupCollapsed(groupId: string) {
   if (!threadGroupById(groupId)) return;
   if (collapsedThreadGroupIds.has(groupId)) collapsedThreadGroupIds.delete(groupId);
-  else collapsedThreadGroupIds.add(groupId);
+  else {
+    collapsedThreadGroupIds.add(groupId);
+    expandedConversationProjectIds.delete(groupId);
+  }
   saveThreadPreferences();
   render();
 }
@@ -66881,7 +67901,10 @@ function withThinkingMessage(threadId: string, messages: Message[]) {
   }
   const tradingExpertThinking = tradingExpertThinkingStateByThreadId.get(threadId);
   if (tradingExpertThinking) {
-    const thinkingStage = tradingExpertThinkingStage(tradingExpertThinking.phase);
+    const thinkingStage = tradingExpertThinkingStage(
+      tradingExpertThinking.phase,
+      tradingExpertThinking.reasoningSummary,
+    );
     return [
       ...visible,
       {
@@ -67150,6 +68173,8 @@ function messageActionsFromItem(item: CodexItem) {
         label,
         text: firstString(record.text, record.message, record.prompt) || undefined,
         conversation_id: firstString(record.conversation_id, record.conversationId, record.thread_id, record.threadId) || undefined,
+        destination: firstString(record.destination) || undefined,
+        alert_id: firstString(record.alert_id, record.alertId) || undefined,
       };
     })
     .filter((action): action is MessageAction => Boolean(action));
@@ -69104,11 +70129,6 @@ function formatAutoTaskClockTime(value?: string | null) {
     minute: "2-digit",
     hour12: false,
   });
-}
-
-function autoTaskCardTime(task: AutoTaskItem) {
-  if (task.status === "failed" && task.lastRunAt) return `已过期 ${formatAutoTaskDateTime(task.lastRunAt)}`;
-  return formatAutoTaskSchedule(task);
 }
 
 function autoTaskFailureText(task: AutoTaskItem) {

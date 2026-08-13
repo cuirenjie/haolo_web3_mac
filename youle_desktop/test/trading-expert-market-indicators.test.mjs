@@ -208,6 +208,30 @@ test("duplicate crypto search results prefer Binance over Finnhub", async () => 
   );
 });
 
+test("chart bootstrap derives temporary quote stats without treating quote loading as a chart failure", async () => {
+  const { tradingMarketStatsFromCandles } = await import("../src/renderer/trading-expert-market.ts");
+  const stats = tradingMarketStatsFromCandles("BTCUSDT", [
+    { close: 62_500 },
+    { close: 63_710 },
+  ]);
+
+  assert.equal(stats.symbol, "BTCUSDT");
+  assert.equal(stats.markPrice, 63_710);
+  assert.equal(stats.midPrice, 63_710);
+  assert.equal(stats.prevDayPrice, 63_710);
+});
+
+test("market candle cadence rejects daily data for intraday selections", async () => {
+  const { tradingCandleSeriesMatchesResolution } = await import("../src/renderer/trading-expert-market.ts");
+  const fiveMinute = Array.from({ length: 20 }, (_, index) => ({ time: 1_700_000_000 + index * 300 }));
+  const daily = Array.from({ length: 20 }, (_, index) => ({ time: 1_700_000_000 + index * 86_400 }));
+
+  assert.equal(tradingCandleSeriesMatchesResolution(fiveMinute, "5"), true);
+  assert.equal(tradingCandleSeriesMatchesResolution(fiveMinute, "15"), false);
+  assert.equal(tradingCandleSeriesMatchesResolution(daily, "5"), false);
+  assert.equal(tradingCandleSeriesMatchesResolution(daily, "1D"), true);
+});
+
 test("favorite market resolution preserves live prices over persisted metadata", async () => {
   const {
     resolveTradingFavoriteMarkets,
@@ -635,6 +659,8 @@ test("volume reference style uses thin defaults and migrates legacy widths once"
     normalizeTradingIndicatorSettings,
   } = await import("../src/renderer/trading-expert-market.ts");
   const defaults = normalizeTradingIndicatorSettings(null);
+  assert.equal(defaults["sub:volume"].enabled, true);
+  assert.equal(defaults["sub:macd"].enabled, false);
   assert.equal(defaults["sub:volume"].series.ma5.lineWidth, 1);
   assert.equal(defaults["sub:volume"].series.ma10.lineWidth, 1);
 

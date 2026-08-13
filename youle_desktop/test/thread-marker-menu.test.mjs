@@ -254,13 +254,53 @@ test("manual markers override automatic avatar anchors and use semantic colors",
   );
   const colors = sourceBlock(
     source,
-    "const TASK_ANCHOR_AVATAR_COLOR_RULES",
-    "function taskAnchorAvatarBg",
+    "const THREAD_MARKER_PRESET_COLORS",
+    "const CASCADE_MENU_CLOSE_DELAY_MS",
+  );
+  const markerColor = sourceBlock(
+    source,
+    "function threadMarkerColor",
+    "function renderThreadMarkerDot",
+  );
+  const threadRow = sourceBlock(
+    source,
+    "function renderThreadRow",
+    "function threadComposerDraftPreview",
+  );
+  const threadAvatar = sourceBlock(
+    source,
+    "function renderThreadAvatar",
+    "function renderThreadRowAvatar",
   );
   const styles = await stylesSource;
 
   assert.match(avatarText, /threadMarkerForThreadId\(thread\?\.id\)/);
-  assert.match(colors, /待办[\s\S]*进行[\s\S]*完成[\s\S]*暂缓[\s\S]*关闭/);
+  assert.match(colors, /待办:[\s\S]*进行:[\s\S]*完成:[\s\S]*暂缓:[\s\S]*关闭:/);
+  const presetColorValues = [
+    ...colors.matchAll(/(?:待办|进行|完成|暂缓|关闭): "(#[0-9a-f]{6})"/gi),
+  ].map((match) => match[1].toLowerCase());
+  assert.equal(presetColorValues.length, 5);
+  assert.equal(new Set(presetColorValues).size, 5);
+  assert.match(markerColor, /THREAD_MARKER_PRESET_COLORS/);
+  assert.match(markerColor, /character\.codePointAt\(0\)/);
+  assert.match(markerColor, /hsl\(\$\{hash\} 66% 46%\)/);
+  assert.match(threadRow, /const marker = threadMarkerForThreadId\(thread\.id\)/);
+  assert.match(threadRow, /marker \? `标记 \$\{marker\}` : ""/);
+  assert.match(threadRow, /marker \? renderThreadMarkerDot\(marker\) : ""/);
+  assert.match(threadAvatar, /marker \? threadMarkerColor\(marker\) : taskAnchorAvatarBg\(taskAnchor\)/);
+  assert.match(markerMenu, /renderThreadMarkerDot\(marker, "thread-marker-choice-dot"\)/);
+  assert.match(
+    styles,
+    /\.conversation-row-minimal \.thread-marker-dot\s*\{[\s\S]*position: absolute;[\s\S]*left: -2px;[\s\S]*width: 7px;[\s\S]*height: 7px;/,
+  );
+  assert.match(
+    styles,
+    /\.thread-marker-choice-dot,\s*\.thread-marker-dot\s*\{[\s\S]*background: var\(--thread-marker-color\)/,
+  );
+  assert.match(
+    styles,
+    /html\[data-theme="dark"\] \.thread-marker-choice-dot,\s*html\[data-theme="dark"\] \.thread-marker-dot\s*\{[\s\S]*rgba\(255, 255, 255, 0\.28\)/,
+  );
   assert.match(
     styles,
     /\.thread-marker-menu-item:hover \.thread-marker-submenu[\s\S]*display: grid/,

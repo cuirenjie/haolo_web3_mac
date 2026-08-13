@@ -15,6 +15,7 @@ const tokens = [
   "@策略：波浪理论",
   "@策略:威科夫",
   "@策略：威科夫",
+  "@预警",
   "@知识库",
   "@自定义指标:趋势带",
   "@自定义指标：趋势带",
@@ -28,6 +29,7 @@ test("conversation titles remove trading-expert call tokens and keep only user w
     "帮我数浪",
   );
   assert.equal(stripConversationTitleMentionTokens("@策略:威科夫", tokens), "");
+  assert.equal(stripConversationTitleMentionTokens("@预警 BTC 跌破 60000 时通知我", tokens), "BTC 跌破 60000 时通知我");
   assert.equal(stripConversationTitleMentionTokens("联系 foo@example.com 帮我分析", tokens), "联系 foo@example.com 帮我分析");
 });
 

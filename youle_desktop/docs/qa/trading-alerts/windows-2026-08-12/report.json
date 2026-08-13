@@ -1,0 +1,525 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-11T18:46:33.784Z",
+  "platform": "win32",
+  "electron": "39.8.10",
+  "chromium": "142.0.7444.265",
+  "index": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\dist\\renderer\\index.html",
+  "output": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa",
+  "captures": [
+    {
+      "name": "list-light-100",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\list-light-100.png",
+      "surface": "list",
+      "theme": "light",
+      "zoom": 1,
+      "state": {
+        "theme": "light",
+        "viewport": {
+          "width": 1586,
+          "height": 937,
+          "devicePixelRatio": 1.5
+        },
+        "document": {
+          "scrollWidth": 1586,
+          "clientWidth": 1586
+        },
+        "pageVisible": true,
+        "cards": 4,
+        "gaps": 1,
+        "evidence": 0,
+        "dialogs": 0,
+        "errors": 0,
+        "loading": 0,
+        "focus": {
+          "tag": "BUTTON",
+          "label": "全部4",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": {
+          "color": "rgb(17, 24, 39)",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(229, 231, 235)",
+          "contrast": 17.73971700407407
+        }
+      }
+    },
+    {
+      "name": "list-dark-100",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\list-dark-100.png",
+      "surface": "list",
+      "theme": "dark",
+      "zoom": 1,
+      "state": {
+        "theme": "dark",
+        "viewport": {
+          "width": 1586,
+          "height": 937,
+          "devicePixelRatio": 1.5
+        },
+        "document": {
+          "scrollWidth": 1586,
+          "clientWidth": 1586
+        },
+        "pageVisible": true,
+        "cards": 4,
+        "gaps": 1,
+        "evidence": 0,
+        "dialogs": 0,
+        "errors": 0,
+        "loading": 0,
+        "focus": {
+          "tag": "BUTTON",
+          "label": "全部4",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": {
+          "color": "rgb(243, 244, 246)",
+          "background": "rgb(23, 24, 26)",
+          "border": "rgb(41, 42, 46)",
+          "contrast": 16.14378218968219
+        }
+      }
+    },
+    {
+      "name": "list-light-125",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\list-light-125.png",
+      "surface": "list",
+      "theme": "light",
+      "zoom": 1.25,
+      "state": {
+        "theme": "light",
+        "viewport": {
+          "width": 1269,
+          "height": 750,
+          "devicePixelRatio": 1.875
+        },
+        "document": {
+          "scrollWidth": 1269,
+          "clientWidth": 1269
+        },
+        "pageVisible": true,
+        "cards": 4,
+        "gaps": 1,
+        "evidence": 0,
+        "dialogs": 0,
+        "errors": 0,
+        "loading": 0,
+        "focus": {
+          "tag": "BUTTON",
+          "label": "全部4",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": {
+          "color": "rgb(17, 24, 39)",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(229, 231, 235)",
+          "contrast": 17.73971700407407
+        }
+      }
+    },
+    {
+      "name": "list-dark-125",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\list-dark-125.png",
+      "surface": "list",
+      "theme": "dark",
+      "zoom": 1.25,
+      "state": {
+        "theme": "dark",
+        "viewport": {
+          "width": 1269,
+          "height": 750,
+          "devicePixelRatio": 1.875
+        },
+        "document": {
+          "scrollWidth": 1269,
+          "clientWidth": 1269
+        },
+        "pageVisible": true,
+        "cards": 4,
+        "gaps": 1,
+        "evidence": 0,
+        "dialogs": 0,
+        "errors": 0,
+        "loading": 0,
+        "focus": {
+          "tag": "BUTTON",
+          "label": "全部4",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": {
+          "color": "rgb(243, 244, 246)",
+          "background": "rgb(23, 24, 26)",
+          "border": "rgb(41, 42, 46)",
+          "contrast": 16.14378218968219
+        }
+      }
+    },
+    {
+      "name": "list-light-150",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\list-light-150.png",
+      "surface": "list",
+      "theme": "light",
+      "zoom": 1.5,
+      "state": {
+        "theme": "light",
+        "viewport": {
+          "width": 1057,
+          "height": 625,
+          "devicePixelRatio": 2.25
+        },
+        "document": {
+          "scrollWidth": 1057,
+          "clientWidth": 1057
+        },
+        "pageVisible": true,
+        "cards": 4,
+        "gaps": 1,
+        "evidence": 0,
+        "dialogs": 0,
+        "errors": 0,
+        "loading": 0,
+        "focus": {
+          "tag": "BUTTON",
+          "label": "全部4",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": {
+          "color": "rgb(17, 24, 39)",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(229, 231, 235)",
+          "contrast": 17.73971700407407
+        }
+      }
+    },
+    {
+      "name": "list-dark-150",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\list-dark-150.png",
+      "surface": "list",
+      "theme": "dark",
+      "zoom": 1.5,
+      "state": {
+        "theme": "dark",
+        "viewport": {
+          "width": 1057,
+          "height": 625,
+          "devicePixelRatio": 2.25
+        },
+        "document": {
+          "scrollWidth": 1057,
+          "clientWidth": 1057
+        },
+        "pageVisible": true,
+        "cards": 4,
+        "gaps": 1,
+        "evidence": 0,
+        "dialogs": 0,
+        "errors": 0,
+        "loading": 0,
+        "focus": {
+          "tag": "BUTTON",
+          "label": "全部4",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": {
+          "color": "rgb(243, 244, 246)",
+          "background": "rgb(23, 24, 26)",
+          "border": "rgb(41, 42, 46)",
+          "contrast": 16.14378218968219
+        }
+      }
+    },
+    {
+      "name": "detail-light",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\detail-light.png",
+      "surface": "detail",
+      "theme": "light",
+      "zoom": 1,
+      "state": {
+        "theme": "light",
+        "viewport": {
+          "width": 1586,
+          "height": 937,
+          "devicePixelRatio": 1.5
+        },
+        "document": {
+          "scrollWidth": 1586,
+          "clientWidth": 1586
+        },
+        "pageVisible": true,
+        "cards": 0,
+        "gaps": 0,
+        "evidence": 1,
+        "dialogs": 0,
+        "errors": 0,
+        "loading": 0,
+        "focus": {
+          "tag": "BUTTON",
+          "label": "返回预警列表",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": null
+      }
+    },
+    {
+      "name": "detail-dark",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\detail-dark.png",
+      "surface": "detail",
+      "theme": "dark",
+      "zoom": 1,
+      "state": {
+        "theme": "dark",
+        "viewport": {
+          "width": 1586,
+          "height": 937,
+          "devicePixelRatio": 1.5
+        },
+        "document": {
+          "scrollWidth": 1586,
+          "clientWidth": 1586
+        },
+        "pageVisible": true,
+        "cards": 0,
+        "gaps": 0,
+        "evidence": 1,
+        "dialogs": 0,
+        "errors": 0,
+        "loading": 0,
+        "focus": {
+          "tag": "BUTTON",
+          "label": "返回预警列表",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": null
+      }
+    },
+    {
+      "name": "editor-light",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\editor-light.png",
+      "surface": "editor",
+      "theme": "light",
+      "zoom": 1,
+      "state": {
+        "theme": "light",
+        "viewport": {
+          "width": 1586,
+          "height": 937,
+          "devicePixelRatio": 1.5
+        },
+        "document": {
+          "scrollWidth": 1586,
+          "clientWidth": 1586
+        },
+        "pageVisible": true,
+        "cards": 4,
+        "gaps": 1,
+        "evidence": 0,
+        "dialogs": 1,
+        "errors": 0,
+        "loading": 0,
+        "focus": {
+          "tag": "INPUT",
+          "label": "",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": {
+          "color": "rgb(17, 24, 39)",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(229, 231, 235)",
+          "contrast": 17.73971700407407
+        }
+      }
+    },
+    {
+      "name": "editor-dark",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\editor-dark.png",
+      "surface": "editor",
+      "theme": "dark",
+      "zoom": 1,
+      "state": {
+        "theme": "dark",
+        "viewport": {
+          "width": 1586,
+          "height": 937,
+          "devicePixelRatio": 1.5
+        },
+        "document": {
+          "scrollWidth": 1586,
+          "clientWidth": 1586
+        },
+        "pageVisible": true,
+        "cards": 4,
+        "gaps": 1,
+        "evidence": 0,
+        "dialogs": 1,
+        "errors": 0,
+        "loading": 0,
+        "focus": {
+          "tag": "INPUT",
+          "label": "",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": {
+          "color": "rgb(243, 244, 246)",
+          "background": "rgb(23, 24, 26)",
+          "border": "rgb(41, 42, 46)",
+          "contrast": 16.14378218968219
+        }
+      }
+    },
+    {
+      "name": "error-light",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\error-light.png",
+      "surface": "error",
+      "theme": "light",
+      "zoom": 1,
+      "state": {
+        "theme": "light",
+        "viewport": {
+          "width": 1586,
+          "height": 937,
+          "devicePixelRatio": 1.5
+        },
+        "document": {
+          "scrollWidth": 1586,
+          "clientWidth": 1586
+        },
+        "pageVisible": true,
+        "cards": 4,
+        "gaps": 1,
+        "evidence": 0,
+        "dialogs": 0,
+        "errors": 1,
+        "loading": 0,
+        "focus": {
+          "tag": "BUTTON",
+          "label": "重试",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": {
+          "color": "rgb(17, 24, 39)",
+          "background": "rgb(255, 255, 255)",
+          "border": "rgb(229, 231, 235)",
+          "contrast": 17.73971700407407
+        }
+      }
+    },
+    {
+      "name": "error-dark",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\error-dark.png",
+      "surface": "error",
+      "theme": "dark",
+      "zoom": 1,
+      "state": {
+        "theme": "dark",
+        "viewport": {
+          "width": 1586,
+          "height": 937,
+          "devicePixelRatio": 1.5
+        },
+        "document": {
+          "scrollWidth": 1586,
+          "clientWidth": 1586
+        },
+        "pageVisible": true,
+        "cards": 4,
+        "gaps": 1,
+        "evidence": 0,
+        "dialogs": 0,
+        "errors": 1,
+        "loading": 0,
+        "focus": {
+          "tag": "BUTTON",
+          "label": "重试",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": {
+          "color": "rgb(243, 244, 246)",
+          "background": "rgb(23, 24, 26)",
+          "border": "rgb(41, 42, 46)",
+          "contrast": 16.14378218968219
+        }
+      }
+    },
+    {
+      "name": "loading-light",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\loading-light.png",
+      "surface": "loading",
+      "theme": "light",
+      "zoom": 1,
+      "state": {
+        "theme": "light",
+        "viewport": {
+          "width": 1586,
+          "height": 937,
+          "devicePixelRatio": 1.5
+        },
+        "document": {
+          "scrollWidth": 1586,
+          "clientWidth": 1586
+        },
+        "pageVisible": true,
+        "cards": 0,
+        "gaps": 0,
+        "evidence": 0,
+        "dialogs": 0,
+        "errors": 0,
+        "loading": 1,
+        "focus": {
+          "tag": "BODY",
+          "label": "浏览器预览用户\n      \n      \n    \n      自动化\n      \n        连接\n        \n    \n      \n    ",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": null
+      }
+    },
+    {
+      "name": "loading-dark",
+      "file": "C:\\Users\\Joie\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\.tmp\\trading-alert-visual-qa\\loading-dark.png",
+      "surface": "loading",
+      "theme": "dark",
+      "zoom": 1,
+      "state": {
+        "theme": "dark",
+        "viewport": {
+          "width": 1586,
+          "height": 937,
+          "devicePixelRatio": 1.5
+        },
+        "document": {
+          "scrollWidth": 1586,
+          "clientWidth": 1586
+        },
+        "pageVisible": true,
+        "cards": 0,
+        "gaps": 0,
+        "evidence": 0,
+        "dialogs": 0,
+        "errors": 0,
+        "loading": 1,
+        "focus": {
+          "tag": "BODY",
+          "label": "浏览器预览用户\n      \n      \n    \n      自动化\n      \n        连接\n        \n    \n      \n    ",
+          "outline": "none",
+          "boxShadow": "none"
+        },
+        "cardStyle": null
+      }
+    }
+  ],
+  "failures": [],
+  "status": "passed"
+}

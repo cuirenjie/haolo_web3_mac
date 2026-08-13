@@ -12,15 +12,51 @@ type MockMessage = {
 
 type DesktopApiLike = Window["codexDesktop"];
 
+function createMockTradingAlertsSnapshot() {
+  const now = Date.now();
+  const rule = (id: string, title: string, summary: string, marketId = "BINANCE:FUTURES:BTCUSDT", interval = "1h", clock = "bar_close", mode = "repeat") => ({
+    schemaVersion: 1, ruleId: id, revision: 2, title, normalizedSummary: summary,
+    contexts: [{ contextId: "primary", marketSelector: { kind: "fixed", marketIds: [marketId] }, intervals: [interval] }],
+    evaluationPolicy: { clock, anchorContextId: "primary", joinMode: "latest_closed", maxDataAgeMs: 300_000, unknownPolicy: "do_not_trigger" },
+    triggerPolicy: { mode, edge: "false_to_true", rearm: "must_become_false", resumePolicy: "baseline_only_no_catch_up" },
+    dataRequirements: [],
+  });
+  const alerts = [
+    { alertId: "qa-monitoring", rule: rule("qa-rule-monitoring", "MA5/MA20 死叉且 MACD 下穿零轴", "BTC 永续 1小时收盘时，MA5 下穿 MA20 且 MACD DIF 下穿零轴后提醒。"), ruleHash: "sha256:qa-monitoring", status: "monitoring", enabled: true, triggerCount: 0, createdAt: now - 86_400_000, updatedAt: now - 60_000 },
+    { alertId: "qa-triggered", rule: rule("qa-rule-triggered", "价格触碰上升趋势线", "ETH 永续 15分钟盘中触碰已绑定趋势线时提醒。", "BINANCE:FUTURES:ETHUSDT", "15m", "bar_update", "once"), ruleHash: "sha256:qa-triggered", status: "triggered", enabled: true, triggerCount: 1, lastTriggeredAt: now - 180_000, createdAt: now - 172_800_000, updatedAt: now - 180_000 },
+    { alertId: "qa-paused", rule: rule("qa-rule-paused", "SOL 放量突破前高", "SOL 永续 4小时收盘突破前高且成交量超过均量 2 倍。", "HYPERLIQUID:PERPETUAL:SOL", "4h"), ruleHash: "sha256:qa-paused", status: "paused", enabled: false, triggerCount: 0, failure: "用户暂停", createdAt: now - 259_200_000, updatedAt: now - 3_600_000 },
+    { alertId: "qa-gap", rule: rule("qa-rule-gap", "BTC 多周期趋势共振", "BTC 1小时趋势向上，同时 15分钟 RSI 从超卖区回升。"), ruleHash: "sha256:qa-gap", status: "reconnecting", enabled: true, triggerCount: 0, failure: "数据提供方正在重新连接", createdAt: now - 345_600_000, updatedAt: now - 30_000 },
+  ];
+  return {
+    enabled: true,
+    engine: { running: true, alerts: alerts.length, subscriptions: 3 },
+    alerts,
+    drafts: [{ draftId: "qa-draft", status: "awaiting_authorization", sourceText: "当链上大额净流入且价格突破时提醒", questions: ["需要接入哪个链上数据提供方？"], rule: { title: "链上流入与价格突破", normalizedSummary: "已保留草稿，等待只读链上数据能力。" } }],
+    gaps: [{ gapId: "qa-gap-record", alertId: "qa-gap", startedAt: now - 7_200_000, endedAt: now - 3_600_000, resumedAt: now - 3_600_000, reason: "app_stopped", catchUpEvaluated: false }],
+    evidence: [{ evidenceId: "qa-evidence", alertId: "qa-triggered", triggerEventId: "ETHUSDT:15m:qa", triggeredAt: now - 180_000, contexts: [{ marketId: "BINANCE:FUTURES:ETHUSDT", interval: "15m", candle: { close: 3128.42 } }], conditionResults: [{ conditionId: "touch-line", result: true }] }],
+    providers: [
+      { providerId: "binance-public", displayName: "Binance Public Market Data", connectionState: "connected", fields: ["OHLCV", "last"], permission: "public", docsUrl: "https://developers.binance.com/" },
+      { providerId: "hyperliquid-public", displayName: "Hyperliquid Public Market Data", connectionState: "connected", fields: ["OHLCV", "mark", "index"], permission: "public", docsUrl: "https://hyperliquid.gitbook.io/hyperliquid-docs/" },
+      { providerId: "chain-provider", displayName: "链上数据提供方", connectionState: "disconnected", fields: ["exchange_netflow", "whale_transfer"], permission: "read_only" },
+    ],
+  };
+}
+
 export function ensureBrowserDesktopApi() {
   if (typeof window.codexDesktop !== "undefined") return;
   document.documentElement.dataset.mockDesktop = "true";
+  const tradingAlertVisualQa = new URLSearchParams(window.location.search).get("trading-alert-visual-qa") === "1";
 
   let notificationListeners: Array<Listener<any>> = [];
   let statusListeners: Array<Listener<any>> = [];
   let serverRequestListeners: Array<Listener<any>> = [];
   let errorListeners: Array<Listener<any>> = [];
   let windowsUpdateDownloadProgressListeners: Array<Listener<any>> = [];
+  let tradingAlertsChangedListeners: Array<Listener<any>> = [];
+  let tradingAlertTriggeredListeners: Array<Listener<any>> = [];
+  let tradingAlertOpenListeners: Array<Listener<any>> = [];
+  let tradingAlertQaMode: "normal" | "loading" | "error" = "normal";
+  const tradingAlertSnapshot = createMockTradingAlertsSnapshot();
 
   const session = {
     authenticated: true,
@@ -180,7 +216,7 @@ export function ensureBrowserDesktopApi() {
     async checkWindowsUpdate() {
       return {
         current_version: "0.1.103",
-        update_available: true,
+        update_available: !tradingAlertVisualQa,
         force_update: false,
         latest: { version: "0.1.105", release_notes: "暂无更新说明。" },
         download: {
@@ -428,6 +464,29 @@ export function ensureBrowserDesktopApi() {
     async saveAutoTasks(params: any) {
       return params?.tasks || [];
     },
+    async tradingAlertsSnapshot() {
+      if (tradingAlertQaMode === "loading") await new Promise((resolve) => window.setTimeout(resolve, 4_000));
+      if (tradingAlertQaMode === "error") return { ok: false, error: { code: "TRADING_ALERT_QA_ERROR", message: "行情连接暂时不可用，请检查网络或数据提供方。" } };
+      return structuredClone(tradingAlertSnapshot);
+    },
+    async tradingAlertsPause(params: any) {
+      const alert = tradingAlertSnapshot.alerts.find((entry) => entry.alertId === params?.alertId);
+      if (alert) Object.assign(alert, { status: "paused", enabled: false, failure: "用户暂停" });
+      tradingAlertsChangedListeners.forEach((listener) => listener(structuredClone(tradingAlertSnapshot)));
+      return structuredClone(alert || null);
+    },
+    async tradingAlertsResume(params: any) {
+      const alert = tradingAlertSnapshot.alerts.find((entry) => entry.alertId === params?.alertId);
+      if (alert) Object.assign(alert, { status: "monitoring", enabled: true, failure: null });
+      tradingAlertsChangedListeners.forEach((listener) => listener(structuredClone(tradingAlertSnapshot)));
+      return structuredClone(alert || null);
+    },
+    async tradingAlertsDelete(params: any) {
+      const index = tradingAlertSnapshot.alerts.findIndex((entry) => entry.alertId === params?.alertId);
+      const [removed] = index >= 0 ? tradingAlertSnapshot.alerts.splice(index, 1) : [];
+      tradingAlertsChangedListeners.forEach((listener) => listener(structuredClone(tradingAlertSnapshot)));
+      return structuredClone(removed || null);
+    },
     async previewFile() {
       return null;
     },
@@ -622,6 +681,21 @@ export function ensureBrowserDesktopApi() {
     onAutoTasksChanged() {
       return () => {};
     },
+    onTradingAlertsChanged(callback) {
+      tradingAlertsChangedListeners.push(callback);
+      return () => { tradingAlertsChangedListeners = tradingAlertsChangedListeners.filter((listener) => listener !== callback); };
+    },
+    onTradingAlertTriggered(callback) {
+      tradingAlertTriggeredListeners.push(callback);
+      return () => { tradingAlertTriggeredListeners = tradingAlertTriggeredListeners.filter((listener) => listener !== callback); };
+    },
+    onTradingAlertOpen(callback) {
+      tradingAlertOpenListeners.push(callback);
+      return () => { tradingAlertOpenListeners = tradingAlertOpenListeners.filter((listener) => listener !== callback); };
+    },
+    onTradingAlertMarketData() {
+      return () => {};
+    },
     onServerRequest(callback) {
       serverRequestListeners.push(callback);
       return () => {
@@ -649,6 +723,21 @@ export function ensureBrowserDesktopApi() {
   };
 
   window.codexDesktop = api;
+  (window as any).__haoloTradingAlertsQa = {
+    setMode(mode: "normal" | "loading" | "error") {
+      tradingAlertQaMode = ["normal", "loading", "error"].includes(mode) ? mode : "normal";
+      if (tradingAlertQaMode === "normal") tradingAlertsChangedListeners.forEach((listener) => listener(structuredClone(tradingAlertSnapshot)));
+      if (tradingAlertQaMode === "error") tradingAlertsChangedListeners.forEach((listener) => listener({ ok: false, error: { code: "TRADING_ALERT_QA_ERROR", message: "行情连接暂时不可用，请检查网络或数据提供方。" } }));
+    },
+    trigger() {
+      const evidence = tradingAlertSnapshot.evidence[0];
+      tradingAlertTriggeredListeners.forEach((listener) => listener({ threadId, alertId: evidence.alertId, evidenceId: evidence.evidenceId, title: "价格触碰上升趋势线", summary: "QA 触发", marketId: evidence.contexts[0].marketId, interval: evidence.contexts[0].interval, triggeredAt: evidence.triggeredAt }));
+    },
+    open() {
+      const evidence = tradingAlertSnapshot.evidence[0];
+      tradingAlertOpenListeners.forEach((listener) => listener({ alertId: evidence.alertId, evidenceId: evidence.evidenceId, marketId: evidence.contexts[0].marketId, interval: evidence.contexts[0].interval, triggeredAt: evidence.triggeredAt }));
+    },
+  };
 
   function emitNotification(method: string, params: any) {
     notificationListeners.forEach((listener) => listener({ method, params }));

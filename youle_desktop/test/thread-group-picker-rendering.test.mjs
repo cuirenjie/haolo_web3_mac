@@ -252,7 +252,7 @@ test("group add entries use a cascading create-or-existing folder menu", async (
   );
 });
 
-test("external channel entry opens from the titlebar text action", async () => {
+test("external channel entry opens from the titlebar plug action", async () => {
   const source = await mainSource;
   const actionBlock = sourceBlock(
     source,
@@ -262,7 +262,8 @@ test("external channel entry opens from the titlebar text action", async () => {
 
   assert.match(actionBlock, /data-action="toggle-external-channel-menu"/);
   assert.match(actionBlock, /aria-haspopup="menu"/);
-  assert.match(actionBlock, />连接<\/button>/);
+  assert.match(actionBlock, /title="连接" aria-label="连接"[\s\S]*renderTitlebarPlugIcon\(\)/);
+  assert.doesNotMatch(actionBlock, />连接<\/button>/);
   assert.match(actionBlock, /titlebar-channel-menu-overlay[\s\S]*renderExternalChannelMenu\(\)/);
   assert.doesNotMatch(actionBlock, /renderConversationListIcon|<svg/);
 
@@ -1148,7 +1149,7 @@ test("top-level new task placeholder is repaired after thread loading", async ()
   assert.match(ensureBlock, /state\.currentThreadId\s*=\s*threadId/);
 });
 
-test("left panel collapse control stays on every chat page", async () => {
+test("left panel collapse control stays on every conversation-sidebar page", async () => {
   const source = await mainSource;
   const renderBlock = sourceBlock(
     source,
@@ -1157,7 +1158,7 @@ test("left panel collapse control stays on every chat page", async () => {
   );
   assert.match(
     renderBlock,
-    /const isChatLeftCollapsed =\s*state\.activeView === "chat" && state\.leftCollapsed/,
+    /const isChatLeftCollapsed =\s*\(state\.activeView === "chat" \|\| state\.activeView === "autoTasks" \|\| state\.activeView === "alerts" \|\| state\.activeView === "skillsPlaza"\) && state\.leftCollapsed/,
   );
   assert.match(
     renderBlock,
@@ -1170,7 +1171,7 @@ test("left panel collapse control stays on every chat page", async () => {
   );
   assert.match(
     titlebarBlock,
-    /state\.activeView === "chat" \? renderLeftPanelToggle\(\) : ""[\s\S]*class="titlebar-profile"/,
+    /state\.activeView === "chat" \|\| state\.activeView === "autoTasks" \|\| state\.activeView === "alerts" \|\| state\.activeView === "skillsPlaza" \? renderLeftPanelToggle\(\) : ""[\s\S]*class="titlebar-profile"/,
   );
   assert.doesNotMatch(renderBlock, /renderAppSidebar\(\)/);
   assert.match(renderBlock, /renderChatList\(\)/);
@@ -1198,7 +1199,10 @@ test("left panel collapse control stays on every chat page", async () => {
     /button\?\.setAttribute\("aria-expanded", collapsed \? "false" : "true"\)/,
   );
   assert.match(toggleBlock, /function toggleLeftPanelCollapsed/);
-  assert.match(toggleBlock, /if \(state\.activeView !== "chat"\) return/);
+  assert.match(
+    toggleBlock,
+    /if \(state\.activeView !== "chat" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"\) return/,
+  );
 
   const eventBlock = sourceBlock(
     source,

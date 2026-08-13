@@ -96,7 +96,7 @@ export interface TradingSplitPaneOptions {
   onSelectionChange?: (selection: TradingSplitPaneSelection) => void;
   onIndicatorSelectionChange?: (selection: TradingSplitPaneIndicatorSelection) => void;
   onOpenIndicatorEditor?: () => void;
-  onOpenGlobalSettings?: () => void;
+  onOpenGlobalSettings?: (anchor: HTMLElement) => void;
   onOpenSplitLayouts?: (anchor: HTMLElement) => void;
 }
 
@@ -365,8 +365,6 @@ export class TradingExpertSplitPane {
   private symbolMenu: HTMLElement;
   private symbolSearch: HTMLInputElement;
   private symbolList: HTMLElement;
-  private moreTrigger: HTMLButtonElement;
-  private moreMenu: HTMLElement;
   private periodTrigger: HTMLButtonElement;
   private periodMenu: HTMLElement;
   private chart: ReturnType<typeof createChart> | null = null;
@@ -429,8 +427,6 @@ export class TradingExpertSplitPane {
     this.symbolMenu = this.requireElement("[data-split-symbol-menu]");
     this.symbolSearch = this.requireElement<HTMLInputElement>("[data-split-symbol-search]");
     this.symbolList = this.requireElement("[data-split-symbol-list]");
-    this.moreTrigger = this.requireElement<HTMLButtonElement>("[data-split-more-trigger]");
-    this.moreMenu = this.requireElement("[data-split-more-menu]");
     this.periodTrigger = this.requireElement<HTMLButtonElement>("[data-split-period-trigger]");
     this.periodMenu = this.requireElement("[data-split-period-menu]");
     this.bindEvents();
@@ -548,26 +544,29 @@ export class TradingExpertSplitPane {
               ></div>
             </div>
           </div>
-          <div class="trading-market-more-wrap trading-market-split-more-wrap">
+          <div class="trading-market-chart-actions trading-market-split-chart-actions" role="group" aria-label="图表 ${this.paneIndex + 1} 操作">
             <button
               type="button"
-              class="trading-market-more-trigger"
-              data-split-action="toggle-more-menu"
-              data-split-more-trigger
-              aria-label="图表 ${this.paneIndex + 1} 更多功能"
-              aria-haspopup="menu"
+              class="trading-market-chart-action"
+              data-split-action="open-chart-settings"
+              aria-label="图表 ${this.paneIndex + 1} 设置"
+              aria-haspopup="dialog"
               aria-expanded="false"
-            ><span aria-hidden="true">•••</span></button>
-            <div class="trading-market-more-menu trading-market-split-more-menu" data-split-more-menu role="menu" hidden>
-              <button type="button" data-split-action="open-chart-settings" role="menuitem">
-                <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3"/><path d="M10 2.2v2M10 15.8v2M2.2 10h2M15.8 10h2M4.5 4.5l1.4 1.4M14.1 14.1l1.4 1.4M15.5 4.5l-1.4 1.4M5.9 14.1l-1.4 1.4"/></svg>
-                设置
-              </button>
-              <button type="button" data-split-action="open-split-layouts" role="menuitem">
-                <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M10 3v14"/></svg>
-                分屏
-              </button>
-            </div>
+              title="设置"
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3"/><path d="M10 2.2v2M10 15.8v2M2.2 10h2M15.8 10h2M4.5 4.5l1.4 1.4M14.1 14.1l1.4 1.4M15.5 4.5l-1.4 1.4M5.9 14.1l-1.4 1.4"/></svg>
+            </button>
+            <button
+              type="button"
+              class="trading-market-chart-action"
+              data-split-action="open-split-layouts"
+              aria-label="图表 ${this.paneIndex + 1} 选择分屏布局"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              title="分屏"
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3" width="15" height="14" rx="1.5"/><path d="M10 3v14"/></svg>
+            </button>
           </div>
           <div class="trading-market-period-controls trading-market-split-period-controls">
             <button
@@ -645,22 +644,18 @@ export class TradingExpertSplitPane {
       this.setSymbolMenuOpen(this.symbolMenu.hidden);
       return;
     }
-    if (action === "toggle-more-menu") {
-      this.setMoreMenuOpen(this.moreMenu.hidden);
-      return;
-    }
     if (action === "toggle-periods") {
       this.setPeriodMenuOpen(this.periodMenu.hidden);
       return;
     }
     if (action === "open-chart-settings") {
       this.closeMenus();
-      this.onOpenGlobalSettings?.();
+      this.onOpenGlobalSettings?.(target);
       return;
     }
     if (action === "open-split-layouts") {
       this.closeMenus();
-      this.onOpenSplitLayouts?.(this.moreTrigger);
+      this.onOpenSplitLayouts?.(target);
       return;
     }
     if (action === "open-indicator-editor") {
@@ -733,7 +728,6 @@ export class TradingExpertSplitPane {
     this.symbolMenu.hidden = !open;
     this.symbolTrigger.setAttribute("aria-expanded", String(open));
     if (open) {
-      this.setMoreMenuOpen(false);
       this.setPeriodMenuOpen(false);
       this.symbolSearch.value = "";
       this.renderSymbolResults();
@@ -796,29 +790,17 @@ export class TradingExpertSplitPane {
     }).join("");
   }
 
-  private setMoreMenuOpen(open: boolean) {
-    this.moreMenu.hidden = !open;
-    this.moreTrigger.classList.toggle("active", open);
-    this.moreTrigger.setAttribute("aria-expanded", String(open));
-    if (open) {
-      this.setSymbolMenuOpen(false);
-      this.setPeriodMenuOpen(false);
-    }
-  }
-
   private setPeriodMenuOpen(open: boolean) {
     this.periodMenu.hidden = !open;
     this.periodTrigger.classList.toggle("active", open);
     this.periodTrigger.setAttribute("aria-expanded", String(open));
     if (open) {
       this.setSymbolMenuOpen(false);
-      this.setMoreMenuOpen(false);
     }
   }
 
   private closeMenus() {
     this.setSymbolMenuOpen(false);
-    this.setMoreMenuOpen(false);
     this.setPeriodMenuOpen(false);
   }
 

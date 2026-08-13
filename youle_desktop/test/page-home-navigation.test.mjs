@@ -13,15 +13,13 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("every standalone top-level page renders the shared return button", async () => {
+test("standalone top-level pages that replace the sidebar render the shared return button", async () => {
   const renderer = await rendererSource;
   const viewIds = sourceBlock(renderer, "type ViewId =", "type SkillCategoryId");
   const standaloneViews = [
     "contacts",
     "results",
     "materials",
-    "autoTasks",
-    "skillsPlaza",
     "recharge",
     "consumption",
   ];
@@ -31,8 +29,6 @@ test("every standalone top-level page renders the shared return button", async (
     ["contacts", "function renderContactsPage", "function groupChatSelectableProfiles"],
     ["results", "function renderResultsNavigation", "function renderResultsSkillsPane"],
     ["materials", "function renderMaterialsPage", "function renderAutoTasksPage"],
-    ["auto tasks", "function renderAutoTasksPage", "function renderAutoTaskItem"],
-    ["skills and plugins", "function renderSkillsPlazaHeader", "function renderPluginMarketplacePage"],
     ["recharge", "function renderRechargePage", "function consumptionPayload"],
     ["consumption", "function renderConsumptionPage", "function renderConsumptionCalendar"],
   ];
@@ -47,6 +43,40 @@ test("every standalone top-level page renders the shared return button", async (
   assert.match(button, /<span>返回<\/span>/);
   assert.doesNotMatch(button, /<span>返回主页<\/span>/);
   assert.doesNotMatch(renderer, /back-auto-tasks-to-chat/);
+});
+
+test("the skills and plugins page stays beside the conversation sidebar without a return button", async () => {
+  const [renderer, styles] = await Promise.all([rendererSource, stylesSource]);
+  const renderBlock = sourceBlock(renderer, "function render()", "function scheduleRender");
+  const headerBlock = sourceBlock(
+    renderer,
+    "function renderSkillsPlazaHeader",
+    "function renderPluginMarketplacePage",
+  );
+  const actionsBlock = sourceBlock(
+    renderer,
+    "function renderConversationListActions",
+    "function renderConversationListFooter",
+  );
+
+  assert.match(
+    renderBlock,
+    /state\.activeView === "skillsPlaza"[\s\S]*renderChatList\(\)[\s\S]*renderSkillsPlazaPage\(\)/,
+  );
+  assert.doesNotMatch(headerBlock, /renderPageHomeButton\(\)|data-action="return-home"|>返回</);
+  assert.match(
+    actionsBlock,
+    /const skillsActive = state\.activeView === "skillsPlaza";[\s\S]*data-conversation-static-action="skills"[\s\S]*aria-current="page"/,
+  );
+  assert.match(
+    styles,
+    /\.conversation-list-action\.active,[\s\S]*background:\s*var\(--conversation-action-hover\);/,
+  );
+  assert.match(styles, /--conversation-action-hover:\s*rgba\(17, 24, 39, 0\.035\);/);
+  assert.match(
+    styles,
+    /html\[data-theme="dark"\][\s\S]*--conversation-action-hover:\s*rgba\(255, 255, 255, 0\.045\);/,
+  );
 });
 
 test("the shared return button restores the chat home and has complete theme states", async () => {
@@ -79,4 +109,33 @@ test("the shared return button restores the chat home and has complete theme sta
   assert.match(styles, /\.page-home-button:active:not\(:disabled\)/);
   assert.match(styles, /\.page-home-button:focus-visible/);
   assert.match(styles, /\.page-home-button:disabled/);
+});
+
+test("the existing skills and plugins page shifts its complete content group right by 18px", async () => {
+  const styles = await stylesSource;
+  const skillsPage = sourceBlock(styles, ".skills-plaza-page {", ".desktop-body > .skills-plaza-page");
+
+  assert.match(skillsPage, /--skills-plaza-content-shift-x:\s*18px;/);
+  assert.match(
+    skillsPage,
+    /padding:\s*0 8px 32px calc\(8px \+ var\(--skills-plaza-content-shift-x\)\);/,
+  );
+  assert.doesNotMatch(skillsPage, /#[0-9a-f]{3,8}|rgba?\(/i);
+});
+
+test("my skills prefers three shorter card columns with responsive fallbacks", async () => {
+  const styles = await stylesSource;
+  const grid = sourceBlock(styles, ".my-skills-grid {", ".my-skill-card {");
+
+  assert.match(grid, /grid-template-columns:\s*repeat\(3, minmax\(0, 320px\)\);/);
+  assert.match(grid, /gap:\s*20px;/);
+  assert.match(
+    styles,
+    /@media \(max-width: 980px\)\s*\{[\s\S]*?\.my-skills-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 320px\)\);/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 660px\)\s*\{[\s\S]*?\.my-skills-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/,
+  );
+  assert.doesNotMatch(grid, /#[0-9a-f]{3,8}|rgba?\(/i);
 });

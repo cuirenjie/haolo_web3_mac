@@ -463,6 +463,29 @@ export function tradingDrawingAdvanceDraftPoints(
   };
 }
 
+export function tradingDrawingRewindDraftPoints(
+  points: ReadonlyArray<TradingDrawingPoint>,
+  confirmedPointCount: number,
+  previewPoint: TradingDrawingPoint,
+): TradingDrawingDraftProgress {
+  const safeConfirmedPointCount = Math.min(
+    Math.max(Math.trunc(confirmedPointCount), 0),
+    points.length,
+  );
+  const nextConfirmedPointCount = Math.max(safeConfirmedPointCount - 1, 0);
+  if (nextConfirmedPointCount === 0) {
+    return { points: [], confirmedPointCount: 0, complete: false };
+  }
+  return {
+    points: [
+      ...points.slice(0, nextConfirmedPointCount).map((point) => ({ ...point })),
+      { ...previewPoint },
+    ],
+    confirmedPointCount: nextConfirmedPointCount,
+    complete: false,
+  };
+}
+
 export function tradingDrawingAxisMarkerPoints(
   definition: TradingDrawingToolDefinition,
   points: ReadonlyArray<TradingDrawingPoint>,
@@ -1742,6 +1765,42 @@ export interface TradingDrawingSharedToolState {
   magnetEnabled: boolean;
 }
 
+export function tradingDrawingForwardedWheelEventInit(event: Pick<
+  WheelEvent,
+  | "altKey"
+  | "buttons"
+  | "clientX"
+  | "clientY"
+  | "ctrlKey"
+  | "deltaMode"
+  | "deltaX"
+  | "deltaY"
+  | "deltaZ"
+  | "metaKey"
+  | "screenX"
+  | "screenY"
+  | "shiftKey"
+>): WheelEventInit {
+  return {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    altKey: event.altKey,
+    buttons: event.buttons,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    ctrlKey: event.ctrlKey,
+    deltaMode: event.deltaMode,
+    deltaX: event.deltaX,
+    deltaY: event.deltaY,
+    deltaZ: event.deltaZ,
+    metaKey: event.metaKey,
+    screenX: event.screenX,
+    screenY: event.screenY,
+    shiftKey: event.shiftKey,
+  };
+}
+
 export function normalizeTradingAiDrawingPatch(
   patch: TradingAiDrawingPatch,
   expectedContext?: { marketId: string; interval: string },
@@ -2017,6 +2076,28 @@ export class TradingDrawingController {
     };
   }
 
+  alertDrawingSnapshots() {
+    const symbol = this.getSymbol();
+    const interval = this.getInterval();
+    return this.drawings
+      .filter((drawing) => tradingManualDrawingMatchesContext(drawing, symbol, interval))
+      .map((drawing) => Object.freeze({
+        drawingId: drawing.id,
+        revision: 1,
+        marketId: symbol,
+        interval,
+        tool: drawing.tool,
+        geometryMode: drawing.tool === "ray" || drawing.tool === "horizontal-ray"
+          ? "ray"
+          : drawing.tool === "extended-line" ? "extended" : "segment",
+        points: drawing.points.map((point) => Object.freeze({
+          time: Math.round(point.time * 1_000),
+          price: point.price,
+        })),
+        ...(drawing.text ? { text: drawing.text } : {}),
+      }));
+  }
+
   applySharedToolState(state: TradingDrawingSharedToolState) {
     const definition = tradingDrawingToolDefinition(state.activeTool);
     if (!definition) return;
@@ -2144,6 +2225,8 @@ export class TradingDrawingController {
     this.selectionToolbar.addEventListener("lostpointercapture", this.handleSelectionToolbarPointerCancel);
     this.chartElement.addEventListener("pointerdown", this.handleSurfacePointerDown, { capture: true });
     this.overlay.addEventListener("pointerdown", this.handlePointerDown);
+    this.overlay.addEventListener("contextmenu", this.handleContextMenu);
+    this.overlay.addEventListener("wheel", this.handleWheel, { passive: false });
     document.addEventListener("pointermove", this.handlePointerMove);
     document.addEventListener("pointerup", this.handlePointerUp);
     document.addEventListener("pointercancel", this.handlePointerCancel);
@@ -2158,6 +2241,17 @@ export class TradingDrawingController {
 
   private readonly handleSurfacePointerDown = () => {
     this.onSurfaceFocus?.(this);
+  };
+
+  private readonly handleWheel = (event: WheelEvent) => {
+    const chartSurface = this.chartElement.firstElementChild;
+    if (!chartSurface) return;
+    const forwardedEvent = new WheelEvent(
+      "wheel",
+      tradingDrawingForwardedWheelEventInit(event),
+    );
+    chartSurface.dispatchEvent(forwardedEvent);
+    if (forwardedEvent.defaultPrevented) event.preventDefault();
   };
 
   private readonly handleToolbarClick = (event: Event) => {
@@ -2618,6 +2712,35 @@ export class TradingDrawingController {
     this.redraw();
   };
 
+  private readonly handleContextMenu = (event: MouseEvent) => {
+    if (!this.userDrawingEnabled || !this.draft || !this.hasPendingDraftPoint()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.onSurfaceFocus?.(this);
+    const definition = tradingDrawingToolDefinition(this.draft.tool);
+    const cancelledPointNumber = this.draftConfirmedPointCount;
+    if (cancelledPointNumber <= 1) {
+      this.cancelDraft();
+      this.setStatus(`${definition?.label ?? "绘图"} · 已取消起点，请点击图表重新设置`);
+      return;
+    }
+    const previewPoint = this.eventDrawingPoint(this.eventScreenPoint(event))
+      ?? this.draft.points[this.draftConfirmedPointCount]
+      ?? this.draft.points[this.draftConfirmedPointCount - 1];
+    if (!previewPoint) return;
+    const progress = tradingDrawingRewindDraftPoints(
+      this.draft.points,
+      this.draftConfirmedPointCount,
+      previewPoint,
+    );
+    this.draft.points = progress.points;
+    this.draftConfirmedPointCount = progress.confirmedPointCount;
+    this.redraw();
+    this.setStatus(
+      `${definition?.label ?? "绘图"} · 已取消第 ${cancelledPointNumber} 个端点，前 ${progress.confirmedPointCount} 个端点已保留 · ${this.draftPlacementStatus()}`,
+    );
+  };
+
   private readonly handlePointerMove = (event: PointerEvent) => {
     const followingMultiClickDraft = Boolean(
       this.draft
@@ -2798,20 +2921,20 @@ export class TradingDrawingController {
     const definition = tradingDrawingToolDefinition(this.draft?.tool);
     if (definition?.kind === "triangle") {
       return this.draftConfirmedPointCount >= 2
-        ? "第二个端点已设置 · 移动鼠标选择第三个端点，再次点击完成"
-        : "移动鼠标选择第二个端点，再次点击确定一边";
+        ? "第二个端点已设置 · 移动鼠标选择第三个端点，再次点击完成 · 右键撤销上一端点"
+        : "移动鼠标选择第二个端点，再次点击确定一边 · 右键撤销上一端点";
     }
     if (definition?.id === "price-note") {
-      return "价格锚点已设置 · 移动鼠标选择标签位置，再次点击后输入注释";
+      return "价格锚点已设置 · 移动鼠标选择标签位置，再次点击后输入注释 · 右键撤销上一端点";
     }
     if (definition?.kind === "fib") {
-      return "100% 端点已设置 · 移动鼠标展开 0% 端点，再次点击完成";
+      return "100% 端点已设置 · 移动鼠标展开 0% 端点，再次点击完成 · 右键撤销上一端点";
     }
     if (definition?.kind === "pattern") {
       const nextPoint = Math.min(this.draftConfirmedPointCount + 1, this.draftRequiredPointCount);
-      return `${definition.label} · 第 ${this.draftConfirmedPointCount} 个端点已设置（共 ${this.draftRequiredPointCount} 个） · 移动鼠标选择第 ${nextPoint} 个端点，再次点击继续`;
+      return `${definition.label} · 第 ${this.draftConfirmedPointCount} 个端点已设置（共 ${this.draftRequiredPointCount} 个） · 移动鼠标选择第 ${nextPoint} 个端点，再次点击继续 · 右键撤销上一端点`;
     }
-    return "移动鼠标选择终点，再次点击完成";
+    return "移动鼠标选择终点，再次点击完成 · 右键撤销上一端点";
   }
 
   private setStatus(message: string) {
@@ -2961,7 +3084,7 @@ export class TradingDrawingController {
     this.setStatus("已删除绘图");
   }
 
-  private eventScreenPoint(event: PointerEvent): ScreenPoint {
+  private eventScreenPoint(event: Pick<MouseEvent, "clientX" | "clientY">): ScreenPoint {
     const rect = this.chartElement.getBoundingClientRect();
     const bounds = this.plotBounds();
     return {
@@ -4183,6 +4306,8 @@ export class TradingDrawingController {
     this.selectionToolbar.removeEventListener("lostpointercapture", this.handleSelectionToolbarPointerCancel);
     this.chartElement.removeEventListener("pointerdown", this.handleSurfacePointerDown, { capture: true });
     this.overlay.removeEventListener("pointerdown", this.handlePointerDown);
+    this.overlay.removeEventListener("contextmenu", this.handleContextMenu);
+    this.overlay.removeEventListener("wheel", this.handleWheel);
     document.removeEventListener("pointermove", this.handlePointerMove);
     document.removeEventListener("pointerup", this.handlePointerUp);
     document.removeEventListener("pointercancel", this.handlePointerCancel);
