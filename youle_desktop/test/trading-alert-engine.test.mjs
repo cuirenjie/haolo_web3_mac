@@ -51,12 +51,7 @@ class FakeAdapter {
 }
 
 async function createAlert(store, rule, id = "alert-engine") {
-  const draft = {
-    schemaVersion: 1, draftId: `draft-${id}`, sourceText: rule.sourceText, status: "awaiting_confirmation", rule,
-    missingFields: [], ambiguities: [], questions: [], dataRequirements: [], createdAt: START, updatedAt: START,
-  };
-  await store.createDraft(draft);
-  await store.createAlert(createInitialAlertInstance({ alertId: id, draftId: draft.draftId, rule, simulationId: `simulation-${id}`, confirmationId: `confirmation-${id}`, now: START }));
+  await store.createAlert(createInitialAlertInstance({ alertId: id, draftId: `draft-${id}`, rule, simulationId: `simulation-${id}`, confirmationId: `confirmation-${id}`, now: START }));
 }
 
 test("engine establishes a no-catch-up baseline, then triggers once with evidence and notification", async () => {

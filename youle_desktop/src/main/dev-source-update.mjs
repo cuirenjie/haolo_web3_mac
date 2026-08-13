@@ -25,11 +25,11 @@ export function isManualDevelopmentRestartEnabled({
 
 export function installDevelopmentSourceUpdatePrompt({
   app,
-  dialog,
-  getWindow = () => null,
   env = process.env,
   messageTarget = process,
   requestRestart = () => requestDevelopmentRestart(messageTarget),
+  requestConfirmation = async () => false,
+  showNotice = async () => {},
 } = {}) {
   const enabled = isManualDevelopmentRestartEnabled({
     env,
@@ -74,39 +74,28 @@ export function installDevelopmentSourceUpdatePrompt({
         `• 另有 ${changedFiles.length - detailLines.length} 个文件`,
       );
     }
-    const options = {
-      type: "info",
-      buttons: ["立即重启", "稍后"],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
+    const approved = await requestConfirmation({
       title: "开发代码已更新",
       message: "检测到代码更新，是否重启开发客户端？",
       detail: [
         "当前客户端不会自动刷新，选择“稍后”可继续保留现有测试状态。",
         detailLines.length ? `\n本次变化：\n${detailLines.join("\n")}` : "",
       ].join(""),
-    };
-    const parentWindow = getWindow?.();
-    const result =
-      parentWindow && !parentWindow.isDestroyed?.()
-        ? await dialog.showMessageBox(parentWindow, options)
-        : await dialog.showMessageBox(options);
-    if (result?.response !== 0 || disposed) return;
+      confirmLabel: "立即重启",
+      cancelLabel: "稍后",
+    });
+    if (!approved || disposed) return;
 
     const accepted = await requestRestart();
     if (accepted) {
       app.quit();
       return;
     }
-    await dialog.showMessageBox({
-      type: "warning",
-      buttons: ["知道了"],
-      defaultId: 0,
-      noLink: true,
+    await showNotice({
       title: "无法自动重启",
       message: "开发启动器连接已断开",
       detail: "请回到开发终端手动停止并重新运行 pnpm dev。",
+      confirmLabel: "知道了",
     });
   }
 

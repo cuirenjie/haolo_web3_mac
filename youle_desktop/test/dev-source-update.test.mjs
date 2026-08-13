@@ -132,11 +132,9 @@ test("development update prompt restarts only after explicit approval", async ()
         quitCount += 1;
       },
     },
-    dialog: {
-      async showMessageBox(...args) {
-        prompts.push(args.at(-1));
-        return { response: 0 };
-      },
+    async requestConfirmation(options) {
+      prompts.push(options);
+      return true;
     },
     env: developmentEnv,
     messageTarget,
@@ -168,7 +166,6 @@ test("branded default Electron apps install the development update listener", ()
 
   const installation = installDevelopmentSourceUpdatePrompt({
     app: { isPackaged: true },
-    dialog: {},
     env: developmentEnv,
     messageTarget,
   });
@@ -191,11 +188,9 @@ test("choosing later preserves the running development client", async () => {
         quitCount += 1;
       },
     },
-    dialog: {
-      async showMessageBox() {
-        promptCount += 1;
-        return { response: 1 };
-      },
+    async requestConfirmation() {
+      promptCount += 1;
+      return false;
     },
     env: developmentEnv,
     messageTarget,
@@ -220,7 +215,6 @@ test("packaged clients do not install a development update listener", () => {
   const messageTarget = new EventEmitter();
   const installation = installDevelopmentSourceUpdatePrompt({
     app: { isPackaged: true },
-    dialog: {},
     env: developmentEnv,
     messageTarget,
   });

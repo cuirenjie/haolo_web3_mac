@@ -50,9 +50,7 @@ function drawingIntentRule(drawing) {
 }
 
 async function seed(service, rule, alertId) {
-  const draft = { schemaVersion: 1, draftId: `draft-${alertId}`, sourceText: rule.sourceText, status: "awaiting_confirmation", rule, missingFields: [], ambiguities: [], questions: [], dataRequirements: rule.dataRequirements, createdAt: NOW, updatedAt: NOW };
-  await service.store.createDraft(draft);
-  await service.store.createAlert(createInitialAlertInstance({ alertId, draftId: draft.draftId, rule, simulationId: `simulation-${alertId}`, confirmationId: `confirmation-${alertId}`, now: NOW }));
+  await service.store.createAlert(createInitialAlertInstance({ alertId, draftId: `draft-${alertId}`, rule, simulationId: `simulation-${alertId}`, confirmationId: `confirmation-${alertId}`, now: NOW }));
 }
 
 test("editing generic scope accepts multiple markets and intervals but requires a new simulation", async () => {
@@ -70,6 +68,28 @@ test("editing generic scope accepts multiple markets and intervals but requires 
   } finally { await rm(dataDir, { recursive: true, force: true }); }
 });
 
+test("a generic revision persists the exact single market and interval selected by the editor", async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "haolo-alert-exact-edit-"));
+  try {
+    const service = new TradingAlertService({ dataDir, enabled: false, marketAdapter: adapter, invokeIntentModel, now: () => NOW + 1_000 });
+    await service.start();
+    await seed(service, fixture, "exact-edit");
+    const result = await service.revise({
+      alertId: "exact-edit",
+      contextId: "primary",
+      marketIds: "BINANCE:FUTURES:ETHUSDT",
+      intervals: "1h",
+      selectorKind: "fixed",
+      mode: "once",
+      clock: "bar_close",
+    });
+    assert.deepEqual(result.draft.rule.contexts[0].marketSelector.marketIds, ["BINANCE:FUTURES:ETHUSDT"]);
+    assert.deepEqual(result.draft.rule.contexts[0].intervals, ["1h"]);
+    assert.match(result.draft.sourceText, /BINANCE:FUTURES:ETHUSDT \/ 1h/);
+    await service.shutdown();
+  } finally { await rm(dataDir, { recursive: true, force: true }); }
+});
+
 test("service refuses a success response when the new alert cannot be read back from the persisted list", async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "haolo-alert-readback-gate-"));
   try {
@@ -79,7 +99,7 @@ test("service refuses a success response when the new alert cannot be read back 
     const listAlerts = service.store.listAlerts.bind(service.store);
     service.store.listAlerts = async () => [];
     await assert.rejects(
-      () => service.requirePersistedAlert("readback-gate", "draft-readback-gate"),
+      () => service.requirePersistedAlert("readback-gate"),
       (error) => error?.code === "TRADING_ALERT_PERSISTENCE_NOT_VERIFIED",
     );
     service.store.listAlerts = listAlerts;
@@ -87,14 +107,14 @@ test("service refuses a success response when the new alert cannot be read back 
   } finally { await rm(dataDir, { recursive: true, force: true }); }
 });
 
-test("pending confirmation routing data is restored from Store after service restart", async () => {
+test("unconfirmed alert state is discarded on service restart", async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "haolo-alert-pending-restart-"));
   const draftId = "draft-pending-restart";
   const simulationId = "simulation-pending-restart";
   try {
     let service = new TradingAlertService({ dataDir, enabled: false, marketAdapter: adapter, invokeIntentModel, now: () => NOW });
     await service.start();
-    await service.store.createDraft({
+    const pending = {
       schemaVersion: 1,
       draftId,
       sourceText: fixture.sourceText,
@@ -107,23 +127,67 @@ test("pending confirmation routing data is restored from Store after service res
       createdAt: NOW,
       updatedAt: NOW,
       originThreadId: "thread-pending-restart",
-    });
+    };
     const confirmation = createConfirmationBinding({ draftId, ruleHash: fixture.ruleHash, simulationId, now: NOW });
-    await service.store.saveSimulation({
+    const simulation = {
       simulationId,
       draftId,
       ruleHash: fixture.ruleHash,
       proof: { triggered: true },
       confirmation,
-    });
+    };
+    service.pendingDrafts.set(draftId, pending);
+    service.pendingSimulations.set(simulationId, simulation);
     await service.shutdown();
+    assert.equal(service.pendingDrafts.size, 0);
+    assert.equal(service.pendingSimulations.size, 0);
 
     service = new TradingAlertService({ dataDir, enabled: false, marketAdapter: adapter, invokeIntentModel, now: () => NOW + 1_000 });
     const snapshot = await service.start();
-    assert.equal(snapshot.pendingConfirmations.length, 1);
-    assert.equal(snapshot.pendingConfirmations[0].originThreadId, "thread-pending-restart");
-    assert.equal(snapshot.pendingConfirmations[0].simulationId, simulationId);
-    assert.equal(snapshot.pendingConfirmations[0].confirmationId, confirmation.confirmationId);
+    assert.equal("drafts" in snapshot, false);
+    assert.equal("pendingConfirmations" in snapshot, false);
+    assert.equal(service.pendingDrafts.size, 0);
+    assert.equal(service.pendingSimulations.size, 0);
+    assert.equal((await service.store.listSimulations()).length, 0);
+    await service.shutdown();
+  } finally { await rm(dataDir, { recursive: true, force: true }); }
+});
+
+test("saved alert simulations can be reloaded for the source conversation", async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "haolo-alert-simulation-read-"));
+  try {
+    const service = new TradingAlertService({ dataDir, enabled: false, marketAdapter: adapter, invokeIntentModel, now: () => NOW });
+    await service.start();
+    const simulationId = "simulation-source-conversation";
+    const draftId = "draft-source-conversation";
+    const confirmation = createConfirmationBinding({ draftId, ruleHash: fixture.ruleHash, simulationId, now: NOW });
+    const simulationRecord = {
+      simulationId,
+      draftId,
+      ruleHash: fixture.ruleHash,
+      generated: { primary: [{ time: NOW, closeTime: NOW + 60_000, open: 1, high: 2, low: 0.5, close: 1.5 }] },
+      proof: { triggered: true, trace: [] },
+      confirmation,
+    };
+    await service.store.createAlert(createInitialAlertInstance({
+      alertId: "alert-source-conversation",
+      draftId,
+      rule: fixture,
+      simulationId,
+      confirmationId: confirmation.confirmationId,
+      now: NOW,
+    }), { simulation: simulationRecord });
+    const simulation = await service.getSimulation({ simulationId });
+    assert.equal(simulation.simulationId, simulationId);
+    assert.equal(simulation.generated.primary.length, 1);
+    await assert.rejects(
+      () => service.getSimulation({}),
+      (error) => error?.code === "TRADING_ALERT_SIMULATION_ID_REQUIRED",
+    );
+    await assert.rejects(
+      () => service.getSimulation({ simulationId: "missing-simulation" }),
+      (error) => error?.code === "TRADING_ALERT_SIMULATION_NOT_FOUND",
+    );
     await service.shutdown();
   } finally { await rm(dataDir, { recursive: true, force: true }); }
 });
@@ -135,7 +199,10 @@ test("drawing scope is locked and deleting the persisted drawing pauses affected
     await service.start();
     const rule = normalizeAlertRule({ ...fixture, ruleId: "drawing-service", contexts: [{ ...fixture.contexts[0], drawingBinding: { drawingId: "locked-line", drawingRevision: 1, marketId: "BINANCE:FUTURES:BTCUSDT", interval: "1h", geometryMode: "extended" } }], root: { type: "condition", condition: { conditionId: "line", contextId: "primary", operator: "touch", left: { type: "field", field: "close" }, right: { type: "drawing", drawingId: "locked-line", output: "price_at_time" }, confirmation: "intrabar" } }, dataRequirements: [], ruleHash: undefined });
     await seed(service, rule, "drawing-service");
-    await assert.rejects(() => service.revise({ alertId: "drawing-service", marketIds: "BINANCE:FUTURES:ETHUSDT" }), /不能切换/);
+    await assert.rejects(
+      () => service.revise({ alertId: "drawing-service", marketIds: "BINANCE:FUTURES:ETHUSDT" }),
+      (error) => error?.code === "TRADING_ALERT_DRAWING_REVISION_LOCKED" && /原 K 线图/.test(error.message),
+    );
     await service.syncDrawings({ marketId: "BINANCE:FUTURES:BTCUSDT", interval: "1h", drawings: [{ drawingId: "locked-line", revision: 1, geometryMode: "extended", points: [{ time: NOW, price: 100 }, { time: NOW + 3_600_000, price: 100 }] }] });
     await service.syncDrawings({ marketId: "BINANCE:FUTURES:BTCUSDT", interval: "1h", drawings: [] });
     const paused = await service.store.getAlert("drawing-service");
@@ -182,7 +249,8 @@ test("service compile exposes the exact requestId to the intent model and surviv
     assert.equal(attempts, 2);
     assert.equal(result.draft.status, "awaiting_clarification");
     assert.match(result.draft.questions.join(" "), /画线触碰还是突破/);
-    assert.equal((await service.store.getDraft(result.draft.draftId)).originThreadId, "thread-request-id");
+    assert.equal(service.pendingDrafts.get(result.draft.draftId)?.originThreadId, "thread-request-id");
+    assert.equal("drafts" in await service.store.load(), false);
     await service.shutdown();
   } finally { await rm(dataDir, { recursive: true, force: true }); }
 });
@@ -278,6 +346,8 @@ test("drawing alert chain compiles through the model, simulates, confirms, and e
       beamWidth: 48,
     });
     assert.equal(simulated.simulation.proof.triggered, true);
+    assert.equal(simulated.simulation.visualization.anchorContextId, "primary");
+    assert.equal(simulated.simulation.visualization.candles.length, history.length);
     const triggerCandle = simulated.simulation.generated.primary[simulated.simulation.triggerBarIndex];
     const triggerPoint = simulated.simulation.triggerPoint;
     const triggerLinePrice = drawing.points[0].price
@@ -298,17 +368,12 @@ test("drawing alert chain compiles through the model, simulates, confirms, and e
     }
     assert.equal(simulated.draft.status, "awaiting_confirmation");
     const pendingSnapshot = await service.snapshot();
-    assert.deepEqual(pendingSnapshot.pendingConfirmations.map((entry) => ({
-      draftId: entry.draftId,
-      originThreadId: entry.originThreadId,
-      simulationId: entry.simulationId,
-      confirmationId: entry.confirmationId,
-    })), [{
-      draftId: compiled.draft.draftId,
-      originThreadId: "thread-drawing-chain",
-      simulationId: simulated.simulation.simulationId,
-      confirmationId: simulated.simulation.confirmation.confirmationId,
-    }]);
+    assert.equal("drafts" in pendingSnapshot, false);
+    assert.equal("pendingConfirmations" in pendingSnapshot, false);
+    assert.equal(service.pendingDrafts.get(compiled.draft.draftId)?.originThreadId, "thread-drawing-chain");
+    assert.equal(service.pendingSimulations.get(simulated.simulation.simulationId)?.confirmation.confirmationId,
+      simulated.simulation.confirmation.confirmationId);
+    assert.equal((await service.store.listSimulations()).length, 0);
 
     const confirmed = await service.confirm({
       draftId: compiled.draft.draftId,
@@ -327,8 +392,10 @@ test("drawing alert chain compiles through the model, simulates, confirms, and e
     assert.equal(snapshot.engine.subscriptions, 1);
     assert.equal(snapshot.alerts[0].alertId, "alert-drawing-chain");
     assert.equal(snapshot.alerts[0].status, "monitoring");
-    assert.equal(snapshot.drafts.find((draft) => draft.draftId === compiled.draft.draftId)?.status, "confirmed");
-    assert.deepEqual(snapshot.pendingConfirmations, []);
+    assert.equal(service.pendingDrafts.has(compiled.draft.draftId), false);
+    assert.equal(service.pendingSimulations.has(simulated.simulation.simulationId), false);
+    assert.equal((await service.store.getSimulation(simulated.simulation.simulationId))?.confirmation.confirmationId,
+      simulated.simulation.confirmation.confirmationId);
     const retried = await service.confirm({
       draftId: compiled.draft.draftId,
       simulationId: simulated.simulation.simulationId,
@@ -369,7 +436,7 @@ test("a retryable arm failure keeps one persisted card and confirmation retry re
     await service.start();
     const draftId = "draft-confirm-recovery";
     const simulationId = "simulation-confirm-recovery";
-    await service.store.createDraft({
+    service.pendingDrafts.set(draftId, {
       schemaVersion: 1,
       draftId,
       sourceText: fixture.sourceText,
@@ -383,7 +450,8 @@ test("a retryable arm failure keeps one persisted card and confirmation retry re
       updatedAt: NOW,
     });
     const confirmation = createConfirmationBinding({ draftId, ruleHash: fixture.ruleHash, simulationId, now: NOW });
-    await service.store.saveSimulation({ simulationId, draftId, ruleHash: fixture.ruleHash, proof: { triggered: true }, confirmation });
+    service.pendingSimulations.set(simulationId,
+      { simulationId, draftId, ruleHash: fixture.ruleHash, proof: { triggered: true }, confirmation });
     const params = { draftId, simulationId, confirmationId: confirmation.confirmationId, alertId: "alert-confirm-recovery" };
     const first = await service.confirm(params);
     assert.equal(first.monitoringReady, false);

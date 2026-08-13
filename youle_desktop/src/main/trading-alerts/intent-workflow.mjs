@@ -210,25 +210,17 @@ function defaultStatus(validation, capabilityResult) {
   return capabilityResult.status;
 }
 
-async function persistAlertDraft(store, draft) {
-  if (!store) return;
-  const existing = await store.getDraft(draft.draftId);
-  if (existing) await store.updateDraft(draft.draftId, draft);
-  else await store.createDraft(draft);
-}
-
 function intentProviderRecoveryQuestion(error) {
   if (error?.code === "TRADING_ALERT_INTENT_PROVIDER_UNAVAILABLE") {
-    return "当前没有可用的预警意图模型。原指令已保留；请先在模型设置中恢复可用模型，然后回复“继续”，我会从这份草稿重新解析。";
+    return "当前没有可用的预警意图模型。请先在模型设置中恢复可用模型，然后在当前会话回复“继续”，我会重新解析本次条件。";
   }
-  return "预警意图模型本次连接或执行失败，但原指令和画布上下文已保留。请回复“继续”或重新发送补充条件，我会从同一草稿重试解析。";
+  return "预警意图模型本次连接或执行失败。请在当前会话回复“继续”或重新发送补充条件，我会重试解析。";
 }
 
-export async function compileAlertDraft({ registry, providerId, capabilityRegistry, store, input, now = () => Date.now(), signal, onReasoningSummaryDelta } = {}) {
-  // These fields belong to Haolo's local draft lifecycle, not the model-neutral
-  // intent-provider contract. Keep them for persistence without leaking them
-  // across the provider boundary, whose strict schema intentionally rejects
-  // orchestration metadata.
+export async function compileAlertDraft({ registry, providerId, capabilityRegistry, input, now = () => Date.now(), signal, onReasoningSummaryDelta } = {}) {
+  // These fields belong to Haolo's transient confirmation flow, not the
+  // model-neutral provider contract. They must not cross the strict provider
+  // boundary or be persisted before the user confirms the alert.
   const { originThreadId, createdAt, ...rawProviderInput } = input || {};
   const restoredSourceText = accumulatedAlertIntentContext(rawProviderInput).originalInstruction;
   const providerInput = {
@@ -256,7 +248,6 @@ export async function compileAlertDraft({ registry, providerId, capabilityRegist
       updatedAt: time,
       ...(originThreadId ? { originThreadId } : {}),
     });
-    await persistAlertDraft(store, draft);
     return Object.freeze({
       draft,
       capabilityResult: Object.freeze({ requirements: [], resolutions: [], ready: false, status: "awaiting_clarification" }),
@@ -291,7 +282,7 @@ export async function compileAlertDraft({ registry, providerId, capabilityRegist
       sourceText: providerInput.sourceText,
       conversation: providerInput.conversation,
     }).size > 0
-    ? Object.freeze(["你的原始条件和补充回答已经完整保留，本轮规则解析没有完成。请回复“继续”，我会在同一草稿中直接重试，不需要重述条件。"])
+    ? Object.freeze(["你的原始条件和补充回答在当前运行内仍然可用，本轮规则解析没有完成。请回复“继续”，我会直接重试，不需要重述条件；未确认前不会写入预警存储。"])
     : questions;
   const time = now();
   const resolvedRule = validation.rule ? normalizeAlertRule({
@@ -314,7 +305,6 @@ export async function compileAlertDraft({ registry, providerId, capabilityRegist
     updatedAt: time,
     ...(originThreadId ? { originThreadId } : {}),
   });
-  await persistAlertDraft(store, draft);
   return Object.freeze({
     draft,
     capabilityResult,
@@ -364,7 +354,7 @@ export function verifyConfirmationBinding(binding, { draft, simulationId, now = 
   return true;
 }
 
-export async function resumeDraftAfterCapabilities({ draft, capabilityRegistry, store, now = () => Date.now() } = {}) {
+export async function resumeDraftAfterCapabilities({ draft, capabilityRegistry, now = () => Date.now() } = {}) {
   if (!draft?.rule) return { draft, ready: false, onboarding: [] };
   const capabilityResult = resolveRuleCapabilities(draft.rule, capabilityRegistry);
   const next = normalizeAlertDraft({
@@ -373,7 +363,6 @@ export async function resumeDraftAfterCapabilities({ draft, capabilityRegistry, 
     dataRequirements: capabilityResult.requirements,
     updatedAt: now(),
   });
-  if (store) await store.updateDraft(next.draftId, next);
   return Object.freeze({
     draft: next,
     ready: capabilityResult.ready,

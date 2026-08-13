@@ -1,13 +1,26 @@
 import "./styles.css";
+import { confirmInApp, type AppConfirmationOptions } from "./app-confirmation";
 import { resolveComposerThreadIdForSend } from "./composer-thread-routing";
 import {
   applyTradingAlertsSnapshot,
   createTradingAlertsUiState,
+  renderTradingAlertEditorMarketOptions,
   renderTradingAlertsPage,
   resolveTradingAlertSourceText,
+  tradingAlertHasDrawingContext,
   type TradingAlertFilter,
   type TradingAlertsUiState,
 } from "./trading-alerts-ui";
+import {
+  binanceAccountResendCountdown,
+  createBinanceAccountUiState,
+  renderBinanceAccountDialog,
+  renderBinanceAccountPage,
+  resetBinanceAccountDialog,
+  type BinanceAccountSnapshot,
+  type BinanceAccountStatus,
+  type BinanceAccountUiState,
+} from "./binance-account-ui";
 import { ensureBrowserDesktopApi } from "./browser_mock";
 import {
   applyTradingExpertCustomIndicatorMentions,
@@ -27,6 +40,10 @@ import {
   focusTradingExpertAlertEvidence,
   showTradingExpertAlertSimulation,
   clearTradingExpertAlertSimulation,
+  fetchTradingMarkets,
+  loadTradingPeriodsFromStorage,
+  tradingMarketsPreferBinance,
+  tradingPeriodLabel,
   tradingLastAnalysisLabelForThread,
   tradingExpertMarketWorkspaceStorageSessionId,
 } from "./trading-expert-market";
@@ -676,6 +693,8 @@ const LOW_BALANCE_PROFILE_REFRESH_SLOW_INTERVAL_MS = 15_000;
 const LOW_BALANCE_PROFILE_REFRESH_FAST_WINDOW_MS = 5 * 60_000;
 const PROFILE_ACTIVATION_REFRESH_MIN_INTERVAL_MS = 5_000;
 const PROVIDER_MODEL_CATALOG_REFRESH_MIN_INTERVAL_MS = 15_000;
+const BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS = 60_000;
+const BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS = 30_000;
 const GITHUB_AUTHORIZATION_POLL_INTERVAL_MS = 1_500;
 const MEDIA_CREATION_MODEL_CATALOG_CACHE_TTL_MS = 4 * 60 * 60_000;
 const CONTACT_REQUEST_SYNC_INTERVAL_MS = 6_000;
@@ -1099,6 +1118,7 @@ type DesktopApi = {
   }): Promise<UserDataTransferResult>;
   importUserData?(params: { groups: ThreadGroupWorkspaceRequest[];
   }): Promise<UserDataTransferResult>;
+  resolveAppConfirmation?(params: { requestId: string; confirmed: boolean }): Promise<{ ok?: boolean }>;
   getUserDataTransferStatus?(): Promise<UserDataTransferResult | null>;
   quitApp?(): Promise<any>;
   getYouleSession(): Promise<any>;
@@ -1135,6 +1155,23 @@ type DesktopApi = {
   lookupIdentity(params: any): Promise<any>;
   sendOtp(params: any): Promise<any>;
   verifyOtp(params: any): Promise<any>;
+  getBinanceAccountStatus?(): Promise<BinanceAccountStatus>;
+  sendBinanceAccountOtp?(): Promise<{
+    challengeId: string;
+    emailMasked: string;
+    resendAfter: number;
+  }>;
+  bindBinanceAccount?(params: {
+    apiKey: string;
+    apiSecret: string;
+    challengeId: string;
+    code: string;
+  }): Promise<{ status: BinanceAccountStatus; snapshot: BinanceAccountSnapshot }>;
+  getBinanceAccountSnapshot?(params?: { force?: boolean }): Promise<BinanceAccountSnapshot>;
+  removeBinanceAccount?(params: {
+    challengeId: string;
+    code: string;
+  }): Promise<BinanceAccountStatus>;
   completeRegistration(params: any): Promise<any>;
   getWechatAuthConfig?(params?: any): Promise<any>;
   startWechatAuthFlow?(params?: any): Promise<any>;
@@ -1470,9 +1507,9 @@ type DesktopApi = {
   saveAutoTasks?(params: { tasks: AutoTaskItem[] }): Promise<any>;
   runAutoTask?(params: { taskId: string }): Promise<any>;
   tradingAlertsSnapshot?(): Promise<any>;
+  tradingAlertsGetSimulation?(params: { simulationId: string }): Promise<any>;
   tradingAlertsCompile?(params: any): Promise<any>;
   tradingAlertsResumeDraft?(params: { draftId: string }): Promise<any>;
-  tradingAlertsCancelDraft?(params: { draftId: string }): Promise<any>;
   tradingAlertsSimulate?(params: any): Promise<any>;
   tradingAlertsConfirm?(params: any): Promise<any>;
   tradingAlertsRevise?(params: any): Promise<any>;
@@ -1633,6 +1670,7 @@ type DesktopApi = {
   onProfileUpdated?(callback: (payload: any) => void): () => void;
   onAuthExpired?(callback: (payload: any) => void): () => void;
   onWindowsUpdateDownloadProgress?(callback: (payload: WindowsUpdateDownloadProgress) => void): () => void;
+  onAppConfirmationRequested?(callback: (payload: AppConfirmationOptions & { requestId?: string }) => void): () => void;
   onVoiceInputStop?(callback: () => void): () => void;
   onVoiceTranscriptionResult?(callback: (payload: VoiceTranscriptionResponse) => void): () => void;
   onServerRequest(callback: (payload: JsonRpcMessage) => void): () => void;
@@ -2470,6 +2508,7 @@ type LoginState = {
 
 type ViewId =
   | "chat"
+  | "account"
   | "contacts"
   | "results"
   | "materials"
@@ -3561,6 +3600,7 @@ type UiState = {
   autoTaskDraft: AutoTaskDraftState;
   autoTaskItems: AutoTaskItem[];
   tradingAlerts: TradingAlertsUiState;
+  binanceAccount: BinanceAccountUiState;
   selectedAutoTaskId: string | null;
   autoTaskMenuTaskId: string | null;
   autoTaskPicker: AutoTaskPickerState;
@@ -4843,6 +4883,7 @@ const state: UiState = {
   autoTaskDraft: createAutoTaskDraft(),
   autoTaskItems: loadAutoTaskItems(),
   tradingAlerts: createTradingAlertsUiState(),
+  binanceAccount: createBinanceAccountUiState(),
   selectedAutoTaskId: null,
   autoTaskMenuTaskId: null,
   autoTaskPicker: null,
@@ -4869,6 +4910,9 @@ const state: UiState = {
 
 let loginCounterTimer: number | null = null;
 let loginWechatPollTimer: number | null = null;
+let binanceAccountOtpCountdownTimer: number | null = null;
+let binanceAccountLoadPromise: Promise<void> | null = null;
+let binanceAccountLoadSequence = 0;
 let loginWechatPollPending = false;
 let loginWechatExchangePending = false;
 let loginWechatExchangeAttempts = 0;
@@ -5122,6 +5166,7 @@ let windowScrollbarCandidatesDirty = true;
 let windowScrollbarCandidates: WindowScrollbarCandidate[] = [];
 let windowScrollbarCandidateObserver: MutationObserver | null = null;
 let lastRenderedThreadId: string | null = null;
+let parkedTradingExpertMarketWorkspace: PreservedTradingExpertMarketWorkspace | null = null;
 let lastRenderedMessageSignature: string | null = null;
 const channelAgentJobs: Record<string, ChannelAgentJob> = {};
 let desktopAgentRequestQueue = Promise.resolve();
@@ -5459,6 +5504,9 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
     resetBusinessModelPoolsState();
     state.providerModelCatalog = createProviderModelCatalogState();
     providerModelCatalogLastRequestedAt = 0;
+    stopBinanceAccountOtpCountdown();
+    binanceAccountLoadSequence += 1;
+    state.binanceAccount = createBinanceAccountUiState();
   }
   if (state.auth.authenticated && state.auth.profile) {
     persistLastLoginIdentity(state.auth.profile);
@@ -6137,7 +6185,7 @@ function wireDesktopEvents() {
     void handleTradingAlertTriggered(payload);
   });
   api.onTradingAlertOpen?.((payload) => {
-    openTradingAlertsPage(payload?.alertId || null, payload?.evidenceId || null);
+    void openTradingAlertSourceConversation(payload?.alertId || null, payload?.evidenceId || null);
   });
   api.onChannelEvent?.((payload) => {
     void handleChannelEvent(payload);
@@ -6158,6 +6206,13 @@ function wireDesktopEvents() {
     if (!state.settings.update.downloading) return;
     state.settings.update.downloadProgress = normalizeWindowsUpdateProgress(progress);
     syncWindowsUpdateProgress();
+  });
+  api.onAppConfirmationRequested?.((payload) => {
+    const requestId = String(payload?.requestId || "");
+    if (!requestId) return;
+    void confirmInApp(payload).then((confirmed) =>
+      api.resolveAppConfirmation?.({ requestId, confirmed }),
+    );
   });
   api.onServerRequest((request) => {
     state.approvalRequest = request;
@@ -6216,7 +6271,7 @@ function wirePointerTracking() {
       }
       if (
         event.target.closest(
-          '.trading-expert-layout [data-action="toggle-right-panel"], .trading-expert-layout [data-action="toggle-trading-expert-chart"], .trading-expert-layout [data-action="toggle-trading-expert-chart-focus"]',
+          '.trading-expert-layout [data-action="toggle-left-panel"], .trading-expert-layout [data-action="toggle-right-panel"], .trading-expert-layout [data-action="toggle-trading-expert-chart"], .trading-expert-layout [data-action="toggle-trading-expert-chart-focus"]',
         )
       ) {
         if (tradingExpertLayoutControlPointerReleaseTimer !== null) {
@@ -12798,7 +12853,13 @@ async function handleLocalAgentChannelRequest(channelId: string, payload: any) {
     replySent: false,
   };
   const threadId = channelThreadId(channelId);
-  const approved = window.confirm(`Allow this channel request to run your local Agent?\n\n${prompt}`);
+  const approved = await confirmInApp({
+    title: "运行本地 Agent",
+    message: "允许此频道请求运行你的本地 Agent 吗？",
+    detail: prompt,
+    confirmLabel: "允许",
+    cancelLabel: "拒绝",
+  });
   if (!approved) {
     channelAgentJobs[requestMessageId].replySent = true;
     addSystemItem(threadId, `Local Agent request rejected: ${prompt}`);
@@ -28735,12 +28796,6 @@ function tradingAlertThreadMatches(left: string | null | undefined, right: strin
   return Boolean(leftId && rightId && resolvedTradingAlertThreadId(leftId) === resolvedTradingAlertThreadId(rightId));
 }
 
-function pendingTradingAlertConfirmationForThread(threadId: string) {
-  return state.tradingAlerts.pendingConfirmations.find((entry) => (
-    tradingAlertThreadMatches(entry?.originThreadId, threadId)
-  )) || null;
-}
-
 function inMemoryTradingAlertConversationForThread(threadId: string) {
   const direct = tradingAlertConversationByThreadId.get(threadId);
   if (direct) return direct;
@@ -28757,80 +28812,8 @@ function inMemoryTradingAlertConversationForThread(threadId: string) {
   return null;
 }
 
-function activeTradingAlertDraftForThread(threadId: string) {
-  return state.tradingAlerts.drafts
-    .filter((draft) => (
-      draft?.draftId
-      && !["confirmed", "cancelled"].includes(String(draft.status || ""))
-      && tradingAlertThreadMatches(draft?.originThreadId, threadId)
-    ))
-    .sort((left, right) => Number(right?.updatedAt || 0) - Number(left?.updatedAt || 0))[0] || null;
-}
-
-function rememberTradingAlertDraftSnapshot(draft: any) {
-  if (!draft?.draftId) return;
-  const index = state.tradingAlerts.drafts.findIndex((entry) => entry?.draftId === draft.draftId);
-  if (index < 0) state.tradingAlerts.drafts.push(structuredClone(draft));
-  else state.tradingAlerts.drafts[index] = structuredClone(draft);
-}
-
-function recoveredTradingAlertDraftConversation(draft: any) {
-  const persisted = (Array.isArray(draft?.conversation) ? draft.conversation : [])
-    .flatMap((turn: any) => {
-      const role = turn?.role === "user" || turn?.role === "assistant" ? turn.role : null;
-      const text = firstString(turn?.text);
-      return role && text ? [{ role, text }] : [];
-    })
-    .slice(-32) as Array<{ role: "user" | "assistant"; text: string }>;
-  const sourceText = firstString(draft?.sourceText);
-  const question = tradingAlertQuestionsText({ draft });
-  if (persisted.length) {
-    return [
-      ...persisted,
-      ...(persisted.at(-1)?.role === "user" && question
-        ? [{ role: "assistant" as const, text: question }]
-        : []),
-    ].slice(-32);
-  }
-  return [
-    ...(sourceText ? [{ role: "user" as const, text: sourceText }] : []),
-    ...(question ? [{ role: "assistant" as const, text: question }] : []),
-  ];
-}
-
 function tradingAlertConversationStateForThread(threadId: string): TradingAlertConversationState | null {
-  const current = inMemoryTradingAlertConversationForThread(threadId);
-  if (current) return current;
-  const pending = pendingTradingAlertConfirmationForThread(threadId);
-  if (pending?.draftId && pending?.simulationId && pending?.confirmationId) {
-    const confirmationState: TradingAlertConversationState = {
-      draftId: String(pending.draftId),
-      sourceText: String(pending.sourceText || ""),
-      stage: "confirmation",
-      conversation: recoveredTradingAlertDraftConversation(
-        state.tradingAlerts.drafts.find((draft) => draft?.draftId === pending.draftId),
-      ),
-      simulationId: String(pending.simulationId),
-      confirmationId: String(pending.confirmationId),
-    };
-    tradingAlertConversationByThreadId.set(threadId, confirmationState);
-    return confirmationState;
-  }
-  const draft = activeTradingAlertDraftForThread(threadId);
-  if (!draft?.draftId) return null;
-  const draftStatus = String(draft.status || "");
-  const draftState: TradingAlertConversationState = {
-    draftId: String(draft.draftId),
-    sourceText: String(draft.sourceText || ""),
-    stage: draftStatus.includes("awaiting_data")
-      || draftStatus.includes("awaiting_tool")
-      || draftStatus.includes("awaiting_authorization")
-      ? "dependency"
-      : "clarification",
-    conversation: recoveredTradingAlertDraftConversation(draft),
-  };
-  tradingAlertConversationByThreadId.set(threadId, draftState);
-  return draftState;
+  return inMemoryTradingAlertConversationForThread(threadId) || null;
 }
 
 function tradingAlertResponseData(response: any) {
@@ -28860,14 +28843,14 @@ function tradingAlertQuestionsText(result: any) {
   const onboarding = Array.isArray(result?.onboarding) ? result.onboarding : [];
   if (onboarding.length) {
     return [
-      "这条预警需要补充数据或工具能力。我会保留当前草稿，不会直接拒绝创建。",
+      "这条预警需要补充数据或工具能力。未确认前只会在当前运行内继续处理，不会写入预警存储。",
       ...onboarding.map((entry: any, index: number) => typeof entry === "string"
         ? `${index + 1}. ${entry}`
         : `${index + 1}. ${String(entry?.title || entry?.provider || "接入数据源")}：${String(entry?.steps?.join("；") || entry?.message || entry?.reason || "请在安全设置中完成只读接入和验证")}`),
-      "完成接入后直接回复“已连接”，我会从这份草稿继续验证和模拟。请不要在聊天里发送 API Key 或私钥。",
+      "完成接入后直接回复“已连接”，我会继续验证和模拟。请不要在聊天里发送 API Key 或私钥。",
     ].join("\n\n");
   }
-  return "这条预警仍缺少可验证的信息。请补充明确的交易对、周期、阈值或确认方式，我会继续从当前草稿处理。";
+  return "这条预警仍缺少可验证的信息。请补充明确的交易对、周期、阈值或确认方式，我会继续处理；未确认前不会保存为预警。";
 }
 
 async function persistTradingAlertAssistantItem(threadId: string, text: string) {
@@ -28920,7 +28903,7 @@ async function handleTradingAlertTriggered(payload: {
     scope ? `触发范围：${scope}` : "",
     `触发时间：${new Date(triggeredAt).toLocaleString("zh-CN")}`,
     `证据编号：${evidenceId}`,
-    "此会话气泡、预警卡片与桌面通知指向同一份触发证据；可在“预警”页面查看条件明细并定位触发 K 线。",
+    "此会话气泡、预警卡片与桌面通知指向同一份触发证据；点击“查看”可回到创建会话，并定位真实触发 K 线或副图标注。",
   ].filter(Boolean).join("\n\n");
   if (threadId) {
     const item = appendTradingExpertReport(threadId, text, `trading-alert-trigger-${evidenceId}`);
@@ -28938,7 +28921,6 @@ async function runTradingAlertConversation(threadId: string, rawText: string) {
   const previous = tradingAlertConversationStateForThread(threadId);
   const answer = stripTradingAlertMention(rawText) || rawText.trim();
   if (previous?.stage === "confirmation" && tradingAlertCancelled(answer)) {
-    await api.tradingAlertsCancelDraft?.({ draftId: previous.draftId });
     tradingAlertConversationByThreadId.delete(threadId);
     clearTradingExpertAlertSimulation();
     await persistTradingAlertAssistantItem(threadId, "已取消本次创建，模拟图层已移除，没有启动后台监控。");
@@ -28966,7 +28948,6 @@ async function runTradingAlertConversation(threadId: string, rawText: string) {
       const persistedAlert = await refreshTradingAlertsAndRequireAlert(alertId);
       if (!isCurrentRun()) return;
       tradingAlertConversationByThreadId.delete(threadId);
-      clearTradingExpertAlertSimulation();
       const monitoringReady = persistedAlert?.status === "monitoring";
       const monitoringStateMessage = monitoringReady
         ? "后台监控已启动，可在预警页面查看状态。"
@@ -29003,8 +28984,7 @@ async function runTradingAlertConversation(threadId: string, rawText: string) {
     }
     if (!isCurrentRun()) return;
     const draft = compileResult?.draft;
-    if (!draft?.draftId) throw new Error("预警编译器没有返回可续接草稿");
-    rememberTradingAlertDraftSnapshot(draft);
+    if (!draft?.draftId) throw new Error("预警编译器没有返回可续接的临时规则");
     if (draft.status !== "ready_to_simulate" && draft.status !== "awaiting_confirmation") {
       const reply = tradingAlertQuestionsText(compileResult);
       tradingAlertConversationByThreadId.set(threadId, {
@@ -29035,7 +29015,7 @@ async function runTradingAlertConversation(threadId: string, rawText: string) {
       // work or misleadingly report an intent-creation failure.
       console.error("[trading-alert] simulation overlay failed", visualizationError);
       clearTradingExpertAlertSimulation();
-      visualizationWarning = "\n\n规则和模拟已经生成，但本次图表标注暂时没有显示。请先按上面的文字条件核对；草稿不会丢失。";
+      visualizationWarning = "\n\n规则和模拟已经生成，但本次图表标注暂时没有显示。请先按上面的文字条件核对；未确认前不会写入预警存储。";
     }
     const question = `${String(simulated.question || "模拟已完成，是否按这种情况创建预警？")}${visualizationWarning}\n\n回复“确认”后才会创建监控，回复“取消”则不会创建，也可以直接说明要修改的条件。`;
     tradingAlertConversationByThreadId.set(threadId, {
@@ -29053,8 +29033,8 @@ async function runTradingAlertConversation(threadId: string, rawText: string) {
     clearTradingExpertAlertSimulation();
     const message = errorMessage(error);
     const completionFirst = code === "TRADING_ALERT_SIMULATION_NO_VALID_PATH"
-      ? `我还没能在当前历史与模拟预算内构造出经过公式验证的触发路径，但草稿已保留。请补充条件的优先级、时间窗口或允许的阈值范围，我会继续求解，而不会创建未经验证的预警。\n\n技术信息：${message}`
-      : `这次预警流程尚未完成，未创建后台监控。草稿和已确认信息会保留；请补充缺失信息或完成所需接入后继续。\n\n原因：${message}`;
+      ? `我还没能在当前历史与模拟预算内构造出经过公式验证的触发路径。请补充条件的优先级、时间窗口或允许的阈值范围，我会继续求解；未确认前不会保存预警。\n\n技术信息：${message}`
+      : `这次预警流程尚未完成，未创建或保存后台监控。请补充缺失信息或完成所需接入后继续。\n\n原因：${message}`;
     await persistTradingAlertAssistantItem(threadId, completionFirst);
   } finally {
     if (isCurrentRun()) {
@@ -33072,10 +33052,14 @@ function restorePreservedPreviewVideo(preserved: PreservedPreviewVideo | null) {
 function preserveTradingExpertMarketWorkspace(): PreservedTradingExpertMarketWorkspace | null {
   const host = root.querySelector<HTMLElement>("[data-trading-market-workspace]");
   const threadId = lastRenderedThreadId ?? state.currentThreadId;
-  if (!host || !host.parentElement || !threadId || !isTradingExpertThreadId(threadId)) return null;
+  if (!host || !host.parentElement || !threadId || !isTradingExpertThreadId(threadId)) {
+    return parkedTradingExpertMarketWorkspace;
+  }
   const storageSessionId = tradingExpertMarketWorkspaceStorageSessionId() || threadId;
   host.remove();
-  return { host, threadId, storageSessionId };
+  const preserved = { host, threadId, storageSessionId };
+  parkedTradingExpertMarketWorkspace = preserved;
+  return preserved;
 }
 
 function tradingExpertFavoriteStorageAccountIdentity() {
@@ -33110,6 +33094,15 @@ function restorePreservedTradingExpertMarketWorkspace(
   targetThreadId: string | null | undefined,
 ) {
   const freshHost = root.querySelector<HTMLElement>("[data-trading-market-workspace]");
+  if (!targetThreadId) {
+    // Keep the exact chart, candles, drawings and live connection parked while
+    // Account/Alerts/Skills replace the center surface. Returning to the task
+    // reattaches this host instead of constructing a new chart and showing the
+    // initial 500-candle loading overlay again.
+    parkedTradingExpertMarketWorkspace = preserved;
+    if (!preserved) syncTradingExpertMarketWorkspace(null);
+    return;
+  }
   const targetStorageSessionId = targetThreadId || preserved?.threadId || "";
   const pendingStorageMigrationSource = tradingExpertWorkspaceSessionMigrationSource(
     targetStorageSessionId,
@@ -33130,6 +33123,7 @@ function restorePreservedTradingExpertMarketWorkspace(
   ) {
     const sourceStorageSessionId = pendingStorageMigrationSource || preservedStorageSessionId;
     freshHost.replaceWith(preserved.host);
+    parkedTradingExpertMarketWorkspace = null;
     syncTradingExpertMarketWorkspace(
       preserved.host,
       tradingExpertFavoriteStorageAccountIdentity(),
@@ -33149,6 +33143,7 @@ function restorePreservedTradingExpertMarketWorkspace(
     applyTradingExpertCustomIndicatorMentions(state.composerText);
     return;
   }
+  parkedTradingExpertMarketWorkspace = null;
   syncTradingExpertMarketWorkspace(
     freshHost,
     tradingExpertFavoriteStorageAccountIdentity(),
@@ -33263,6 +33258,7 @@ function render() {
   if (shouldShowLoginWindow()) {
     cancelWorkflowCanvasConnection();
     setDesktopWindowMode(loginWindowMode());
+    parkedTradingExpertMarketWorkspace = null;
     syncTradingExpertMarketWorkspace(null);
     root.innerHTML = `
       ${renderLoginScreen()}
@@ -33284,11 +33280,22 @@ function render() {
     state.activeView === "chat" &&
     !state.chatPreview &&
     isTradingExpertThreadId(thread?.id);
+  const tradingExpertPanelLayout =
+    tradingExpertLayout ||
+    (state.activeView === "account" &&
+      !state.chatPreview &&
+      isTradingExpertThreadId(thread?.id));
   if (!tradingExpertLayout && state.tradingExpertChartFocusMode) {
     restoreTradingExpertChartFocusLayout();
   }
   const tradingExpertChartFocusMode =
     tradingExpertLayout && state.tradingExpertChartFocusMode;
+  const workspaceHasConversationList =
+    state.activeView === "chat" ||
+    state.activeView === "account" ||
+    state.activeView === "autoTasks" ||
+    state.activeView === "alerts" ||
+    state.activeView === "skillsPlaza";
   const mainContent =
     state.activeView === "chat"
       ? `
@@ -33296,6 +33303,12 @@ function render() {
         ${renderChatPanel(thread)}
         ${state.chatPreview ? renderChatPreviewPanel() : renderAgentPanel(thread)}
       `
+      : state.activeView === "account"
+        ? `
+          ${renderChatList()}
+          ${renderBinanceAccountPage(state.binanceAccount)}
+          ${renderAgentPanel(thread)}
+        `
       : state.activeView === "contacts"
         ? renderContactsPage()
         : state.activeView === "results"
@@ -33321,7 +33334,7 @@ function render() {
                   ? renderConsumptionPage()
                   : renderMaterialsPage();
   const isChatLeftCollapsed =
-    (state.activeView === "chat" || state.activeView === "autoTasks" || state.activeView === "alerts" || state.activeView === "skillsPlaza") && state.leftCollapsed;
+    workspaceHasConversationList && state.leftCollapsed;
   const shellClasses = [
     "desktop-shell",
     isChatLeftCollapsed ? "left-panel-collapsed" : "",
@@ -33340,10 +33353,12 @@ function render() {
   const bodyClasses = [
     "desktop-body",
     isChatLeftCollapsed ? "left-panel-collapsed" : "",
-    state.activeView === "chat" && state.rightCollapsed && !state.chatPreview
+    (state.activeView === "chat" || state.activeView === "account") &&
+    state.rightCollapsed &&
+    !state.chatPreview
       ? "right-panel-collapsed"
       : "",
-    tradingExpertLayout ? "trading-expert-layout" : "",
+    tradingExpertPanelLayout ? "trading-expert-layout" : "",
     tradingExpertLayout && state.tradingExpertChartCollapsed
       ? "trading-expert-chart-collapsed"
       : "",
@@ -33369,7 +33384,7 @@ function render() {
     <div class="${shellClasses}">
       ${renderWindowControls()}
       <div class="${bodyClasses}"${bodyStyle}>
-        ${tradingExpertLayout ? renderLeftPanelToggle() : ""}
+        ${workspaceHasConversationList ? renderLeftPanelToggle() : ""}
         ${tradingExpertLayout ? renderTradingExpertCollapseControls() : ""}
         ${tradingExpertLayout ? renderTradingExpertPanelResizeHandles() : ""}
         ${mainContent}
@@ -33395,6 +33410,7 @@ function render() {
     ${state.marketplace.detailDialogOpen ? renderSkillDetailDialog() : ""}
     ${state.plugins.deleteDialog ? renderPluginDeleteDialog() : ""}
     ${state.chromeIntegration.open ? renderChromeIntegrationDialog() : ""}
+    ${renderBinanceAccountDialog(state.binanceAccount)}
     ${state.approvalRequest ? renderApprovalDialog(state.approvalRequest) : ""}
     ${renderThreadDeleteDialog()}
     ${renderThreadRenameDialog()}
@@ -34394,13 +34410,13 @@ function renderWindowControls() {
   const maximized = state.windowMaximized;
   const avatarUrl = currentProfileAvatar();
   const profileName = currentProfileName();
-  const tradingExpertLayout =
+  const showTradingExpertFavoriteTickers =
     state.activeView === "chat"
     && !state.chatPreview
+    && isBlankNewThread(state.currentThreadId)
     && isTradingExpertThreadId(state.currentThreadId);
   return `
     <header class="app-titlebar" aria-label="应用标题栏">
-      ${!tradingExpertLayout && (state.activeView === "chat" || state.activeView === "autoTasks" || state.activeView === "alerts" || state.activeView === "skillsPlaza") ? renderLeftPanelToggle() : ""}
       <button class="titlebar-profile" data-action="toggle-profile" title="${escapeAttr(profileName)}" aria-label="打开个人资料：${escapeAttr(profileName)}">
         <span class="titlebar-profile-avatar">
           <img${builtInAvatarEdgeCropClassAttribute(avatarUrl)} src="${escapeAttr(avatarUrl)}" alt="" />
@@ -34410,7 +34426,7 @@ function renderWindowControls() {
       </button>
       ${renderTitlebarPrimaryActions()}
       <div class="titlebar-drag-region">
-        <div class="titlebar-market-favorites-host" data-titlebar-market-favorites-host></div>
+        <div class="titlebar-market-favorites-host" data-titlebar-market-favorites-host${showTradingExpertFavoriteTickers ? "" : " hidden"}></div>
       </div>
       <div class="window-controls" aria-label="窗口控制">
         <button type="button" class="window-control" data-window-action="minimize" title="最小化" aria-label="最小化">
@@ -34465,9 +34481,13 @@ function renderPanelLayoutIcon(side: "left" | "right") {
 }
 
 function toggleLeftPanelCollapsed() {
-  if (state.activeView !== "chat" && state.activeView !== "autoTasks" && state.activeView !== "alerts" && state.activeView !== "skillsPlaza") return;
-  if (state.tradingExpertChartFocusMode && isTradingExpertThreadId(state.currentThreadId)) return;
-  state.leftCollapsed = !state.leftCollapsed;
+  if (state.activeView !== "chat" && state.activeView !== "account" && state.activeView !== "autoTasks" && state.activeView !== "alerts" && state.activeView !== "skillsPlaza") return;
+  if (state.tradingExpertChartFocusMode && isTradingExpertThreadId(state.currentThreadId)) {
+    restoreTradingExpertChartFocusLayout();
+    state.leftCollapsed = false;
+  } else {
+    state.leftCollapsed = !state.leftCollapsed;
+  }
   state.profileMenuOpen = false;
   state.externalChannels.menuOpen = false;
   state.newThreadGroupPickerOpen = false;
@@ -36530,17 +36550,6 @@ function renderSkillsPlazaTabs() {
   `;
 }
 
-function renderSkillsPlazaHeader() {
-  return `
-      <header class="skills-plaza-header">
-        <label class="skills-plaza-search">
-          <img src="${escapeAttr(HOME_ICON_URL.search)}" alt="" />
-          <input id="skillsSearch" value="${escapeAttr(state.skillSearch)}" placeholder="搜索" autocomplete="off" />
-        </label>
-      </header>
-  `;
-}
-
 function renderPluginMarketplacePage() {
   const query = state.skillSearch.trim().toLowerCase();
   const currentPluginCwd = threadWorkspaceCwd(state.currentThreadId);
@@ -36554,7 +36563,6 @@ function renderPluginMarketplacePage() {
   const filteredEmptyMessage = query ? "没有找到匹配的插件" : emptyMessage;
   return `
     <main class="skills-plaza-page plugin-marketplace-page">
-      ${renderSkillsPlazaHeader()}
       ${renderSkillsPlazaTabs()}
       ${currentWorkspaceLoaded && state.plugins.toast ? `<div class="plugin-top-toast" role="status">${escapeHtml(state.plugins.toast)}</div>` : ""}
       ${currentWorkspaceRequested && state.plugins.error ? `<p class="skills-load-state error">${escapeHtml(state.plugins.error)}</p>` : ""}
@@ -36800,7 +36808,6 @@ function renderSkillsPlazaPage() {
   const emptyMessage = mySkillsView ? "暂无本地技能" : "没有找到匹配的技能";
   return `
     <main class="skills-plaza-page ${mySkillsView ? "my-skills-page" : ""}">
-      ${renderSkillsPlazaHeader()}
       ${renderSkillsPlazaTabs()}
       ${
         mySkillsView
@@ -39683,6 +39690,7 @@ function renderConversationListIcon(icon: "new-chat" | "account" | "alerts" | "k
 
 function renderConversationListActions() {
   const newConversationActive = state.activeView === "chat" && isBlankNewThread(state.currentThreadId);
+  const accountActive = state.activeView === "account";
   const alertsActive = state.activeView === "alerts";
   const skillsActive = state.activeView === "skillsPlaza";
   return `
@@ -39695,7 +39703,7 @@ function renderConversationListActions() {
       </div>
     </div>
     <section class="conversation-list-secondary-actions" aria-label="任务分类">
-      <button type="button" class="conversation-list-action" data-conversation-static-action="account">
+      <button type="button" class="conversation-list-action ${accountActive ? "active" : ""}" data-conversation-static-action="account" ${accountActive ? 'aria-current="page"' : ""}>
         ${renderConversationListIcon("account")}
         <span>账户</span>
       </button>
@@ -39709,7 +39717,7 @@ function renderConversationListActions() {
       </button>
       <button type="button" class="conversation-list-action ${skillsActive ? "active" : ""}" data-conversation-static-action="skills" ${skillsActive ? 'aria-current="page"' : ""}>
         ${renderConversationListIcon("skills")}
-        <span>技能</span>
+        <span>策略</span>
       </button>
     </section>
   `;
@@ -50347,7 +50355,7 @@ function videoGenerationModelRequestParams(
   };
 }
 
-function reconcileImageGenerationAttachmentsForModel(
+async function reconcileImageGenerationAttachmentsForModel(
   threadId: string,
   model: string,
 ) {
@@ -50360,12 +50368,11 @@ function reconcileImageGenerationAttachmentsForModel(
   const discarded = attachments.filter(
     (attachment) => !retainedIds.has(attachment.id),
   );
-  if (
-    discarded.length > 0 &&
-    !window.confirm(
-      `切换模型后有 ${discarded.length} 个附件不再受支持，是否移除这些附件并继续切换？`,
-    )
-  ) {
+  if (discarded.length > 0 && !(await confirmInApp({
+    title: "切换模型",
+    message: `切换模型后有 ${discarded.length} 个附件不再受支持。是否移除这些附件并继续切换？`,
+    confirmLabel: "移除并切换",
+  }))) {
     return false;
   }
   discarded.forEach(revokeQueuedAttachmentUrls);
@@ -50375,14 +50382,14 @@ function reconcileImageGenerationAttachmentsForModel(
   return true;
 }
 
-function selectImageGenerationModelForThread(
+async function selectImageGenerationModelForThread(
   threadId: string | null | undefined,
   selected: ChatModelOption,
 ) {
   const id = firstString(threadId);
   const model = safeImageGenerationModelId(selected.value);
   if (!id || !model) return false;
-  if (!reconcileImageGenerationAttachmentsForModel(id, model)) return false;
+  if (!(await reconcileImageGenerationAttachmentsForModel(id, model))) return false;
   imageGenerationModelByThreadId.set(id, model);
   resetUnsupportedImageGenerationParameters(id, model);
   if (!isBlankNewThread(id) && !isLocalBlankThreadId(id)) {
@@ -50608,10 +50615,10 @@ async function selectComposerModelForThread(
   if (!usesUnifiedExecutionModelPicker(id)) {
     const currentKind = composerModelKindForThread(id);
     if (currentKind === "image") {
-      return selectImageGenerationModelForThread(id, selected);
+      return await selectImageGenerationModelForThread(id, selected);
     }
     if (currentKind === "video") {
-      const changed = selectVideoExpertModel(selected.value);
+      const changed = await selectVideoExpertModel(selected.value);
       if (changed) {
         state.composerModelMenuOpen = false;
         render();
@@ -50636,12 +50643,12 @@ async function selectComposerModelForThread(
     return false;
   }
   if (kind === "image") {
-    if (!selectImageGenerationModelForThread(id, selected)) return false;
+    if (!(await selectImageGenerationModelForThread(id, selected))) return false;
     await switchNewThreadMode("image-generation");
     return true;
   }
   if (kind === "video") {
-    if (!selectVideoExpertModel(selected.value)) return false;
+    if (!(await selectVideoExpertModel(selected.value))) return false;
     await switchNewThreadMode("video-generation");
     return true;
   }
@@ -56014,6 +56021,162 @@ function bindCascadeMenuHoverEvents() {
     });
 }
 
+function bindTradingAlertEditorSelects() {
+  const editor = root.querySelector<HTMLDialogElement>(".trading-alert-editor");
+  if (!editor) return;
+  const pickers = [...editor.querySelectorAll<HTMLElement>("[data-trading-alert-select]")];
+
+  const closePicker = (picker: HTMLElement, restoreFocus = false) => {
+    const trigger = picker.querySelector<HTMLButtonElement>("[data-trading-alert-select-trigger]");
+    const menu = picker.querySelector<HTMLElement>("[data-trading-alert-select-menu]");
+    picker.classList.remove("open");
+    trigger?.setAttribute("aria-expanded", "false");
+    if (menu) menu.hidden = true;
+    if (restoreFocus) trigger?.focus();
+  };
+  const closeAll = (except: HTMLElement | null = null) => {
+    pickers.forEach((picker) => {
+      if (picker !== except) closePicker(picker);
+    });
+  };
+  const optionsFor = (picker: HTMLElement) => [
+    ...picker.querySelectorAll<HTMLButtonElement>("[data-trading-alert-select-value]"),
+  ];
+  const openPicker = (
+    picker: HTMLElement,
+    focusTarget: "first" | "last" | "selected" | null = null,
+  ) => {
+    const trigger = picker.querySelector<HTMLButtonElement>("[data-trading-alert-select-trigger]");
+    const menu = picker.querySelector<HTMLElement>("[data-trading-alert-select-menu]");
+    if (!trigger || !menu || trigger.disabled) return;
+    closeAll(picker);
+    picker.classList.add("open");
+    trigger.setAttribute("aria-expanded", "true");
+    menu.hidden = false;
+    if (!focusTarget) return;
+    window.requestAnimationFrame(() => {
+      if (!picker.isConnected) return;
+      const options = optionsFor(picker);
+      const target = focusTarget === "first"
+        ? options[0]
+        : focusTarget === "last"
+          ? options.at(-1)
+          : options.find((option) => option.getAttribute("aria-selected") === "true") || options[0];
+      target?.focus();
+    });
+  };
+  const selectOption = (picker: HTMLElement, option: HTMLButtonElement) => {
+    const value = option.dataset.tradingAlertSelectValue;
+    const input = picker.querySelector<HTMLInputElement>('input[type="hidden"]');
+    const label = picker.querySelector<HTMLElement>("[data-trading-alert-select-label]");
+    if (value === undefined || !input) return;
+    input.value = value;
+    const selection = state.tradingAlerts.editorSelection;
+    if (selection && selection.alertId === state.tradingAlerts.editorAlertId) {
+      const name = picker.dataset.tradingAlertSelect;
+      if (name === "marketIds") selection.marketId = value.trim().toUpperCase();
+      else if (name === "intervals") selection.interval = value.trim().toLowerCase();
+      else if (name === "clock") selection.clock = value;
+      else if (name === "mode") selection.mode = value;
+    }
+    if (label) label.textContent = option.dataset.tradingAlertSelectOptionLabel || option.textContent?.trim() || value;
+    optionsFor(picker).forEach((candidate) => {
+      const selected = candidate === option;
+      candidate.classList.toggle("selected", selected);
+      candidate.setAttribute("aria-selected", selected ? "true" : "false");
+    });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    closePicker(picker, true);
+  };
+  const refreshMarketOptions = (picker: HTMLElement) => {
+    const search = picker.querySelector<HTMLInputElement>("[data-trading-alert-market-search]");
+    const list = picker.querySelector<HTMLElement>("[data-trading-alert-market-options]");
+    const status = picker.querySelector<HTMLElement>("[data-trading-alert-market-status]");
+    const selectedMarketId = picker.querySelector<HTMLInputElement>('input[type="hidden"]')?.value || "";
+    if (!search || !list || !status) return;
+    const query = search.value.trim().toUpperCase();
+    const markets = state.tradingAlerts.editorMarkets
+      .filter((market) => !query || [market.id, market.displaySymbol, market.baseAsset, market.venue, market.tag]
+        .some((value) => String(value || "").toUpperCase().includes(query)))
+      .slice(0, 120);
+    list.innerHTML = renderTradingAlertEditorMarketOptions(markets, selectedMarketId);
+    const message = state.tradingAlerts.editorMarketsLoading
+      ? "正在加载交易对…"
+      : state.tradingAlerts.editorMarketsError
+        || (markets.length ? "" : "未找到匹配交易对");
+    status.textContent = message;
+    status.hidden = !message;
+  };
+
+  pickers.forEach((picker) => {
+    const trigger = picker.querySelector<HTMLButtonElement>("[data-trading-alert-select-trigger]");
+    trigger?.addEventListener("click", () => {
+      if (picker.classList.contains("open")) closePicker(picker);
+      else {
+        openPicker(picker);
+        const marketSearch = picker.querySelector<HTMLInputElement>("[data-trading-alert-market-search]");
+        if (marketSearch) window.requestAnimationFrame(() => marketSearch.focus());
+      }
+    });
+    picker.addEventListener("click", (event) => {
+      const target = event.target;
+      const option = target instanceof Element
+        ? target.closest<HTMLButtonElement>("[data-trading-alert-select-value]")
+        : null;
+      if (option && picker.contains(option)) selectOption(picker, option);
+    });
+    picker.querySelector<HTMLInputElement>("[data-trading-alert-market-search]")
+      ?.addEventListener("input", () => refreshMarketOptions(picker));
+    picker.addEventListener("keydown", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.matches("[data-trading-alert-select-trigger]")) {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          openPicker(picker, event.key === "ArrowDown" ? "first" : "last");
+        } else if (event.key === "Escape" && picker.classList.contains("open")) {
+          event.preventDefault();
+          closePicker(picker, true);
+        }
+        return;
+      }
+      const option = target.closest<HTMLButtonElement>("[data-trading-alert-select-value]");
+      if (!option || !picker.contains(option)) return;
+      const options = optionsFor(picker);
+      const index = options.indexOf(option);
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const offset = event.key === "ArrowDown" ? 1 : -1;
+        options[(index + offset + options.length) % options.length]?.focus();
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        options[event.key === "Home" ? 0 : options.length - 1]?.focus();
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectOption(picker, option);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closePicker(picker, true);
+      } else if (event.key === "Tab") {
+        closePicker(picker);
+      }
+    });
+    picker.addEventListener("focusout", (event) => {
+      if (event.relatedTarget instanceof Node && picker.contains(event.relatedTarget)) return;
+      closePicker(picker);
+    });
+  });
+  editor.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element) || !event.target.closest("[data-trading-alert-select]")) closeAll();
+  });
+  editor.addEventListener("error", (event) => {
+    const image = event.target;
+    if (!(image instanceof HTMLImageElement) || !image.matches("[data-market-logo]")) return;
+    image.hidden = true;
+    image.closest<HTMLElement>("[data-market-logo-shell]")?.classList.add("fallback");
+  }, true);
+}
+
 function bindEvents() {
   bindWindowControls();
   bindLoginWeComQrEvents(false);
@@ -56406,6 +56569,7 @@ function bindEvents() {
   root.querySelector<HTMLButtonElement>('[data-action="toggle-left-panel"]')?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    finishTradingExpertLayoutControlPointerInteraction(false);
     toggleLeftPanelCollapsed();
   });
   root.querySelector<HTMLElement>(".skills-plaza-page")?.addEventListener("scroll", handleSkillsPlazaScroll, { passive: true });
@@ -56867,8 +57031,13 @@ function bindEvents() {
     });
   root
     .querySelector<HTMLButtonElement>('[data-action="github-disconnect"]')
-    ?.addEventListener("click", () => {
-      if (!window.confirm("确定断开 GitHub 吗？Haolo 将立即删除本账号的加密授权令牌。")) return;
+    ?.addEventListener("click", async () => {
+      if (!(await confirmInApp({
+        title: "断开 GitHub",
+        message: "确定断开 GitHub 吗？Haolo 将立即删除本账号的加密授权令牌。",
+        confirmLabel: "断开",
+        tone: "danger",
+      }))) return;
       void disconnectGitHubConnection();
     });
   root
@@ -56895,10 +57064,15 @@ function bindEvents() {
   root
     .querySelectorAll<HTMLButtonElement>("[data-external-model-remove]")
     .forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         const provider = button.dataset.externalModelRemove || "";
         const status = state.settings.externalModels.providers.find((item) => item.id === provider);
-        if (!provider || !window.confirm(`确定删除 ${status?.displayName || provider} 的本机 API Key 吗？`)) return;
+        if (!provider || !(await confirmInApp({
+          title: "删除 API Key",
+          message: `确定删除 ${status?.displayName || provider} 的本机 API Key 吗？`,
+          confirmLabel: "删除",
+          tone: "danger",
+        }))) return;
         void removeExternalModelProviderConfig(provider);
       });
     });
@@ -57051,36 +57225,112 @@ function bindEvents() {
       });
     });
   root
+    .querySelectorAll<HTMLButtonElement>('[data-conversation-static-action="account"]')
+    .forEach((button) => {
+      button.addEventListener("click", () => {
+        openBinanceAccountPage();
+      });
+    });
+  root
     .querySelectorAll<HTMLButtonElement>('[data-conversation-static-action="alerts"]')
     .forEach((button) => {
       button.addEventListener("click", () => {
         openTradingAlertsPage();
       });
     });
+  root.querySelectorAll<HTMLElement>("[data-binance-account-action]").forEach((element) => {
+    element.addEventListener("click", (event) => {
+      event.preventDefault();
+      const action = element.dataset.binanceAccountAction;
+      if (action === "open-dialog") openBinanceAccountDialog();
+      else if (action === "close-dialog") closeBinanceAccountDialog();
+      else if (action === "send-otp") void sendBinanceAccountOtp();
+      else if (action === "refresh" || action === "retry-load") void (action === "refresh" ? refreshBinanceAccountSnapshot() : loadBinanceAccountPage());
+      else if (action === "remove") void confirmBinanceAccountRemoval();
+      else if (action === "select-section") {
+        const section = element.dataset.binanceAccountSection;
+        if (section === "assets" || section === "positions" || section === "history") {
+          state.binanceAccount.activeSection = section;
+          render();
+        }
+      }
+      else if (action === "toggle-balances") {
+        state.binanceAccount.balancesVisible = !state.binanceAccount.balancesVisible;
+        render();
+      } else if (action === "toggle-secret") {
+        state.binanceAccount.dialog.secretVisible = !state.binanceAccount.dialog.secretVisible;
+        render();
+        window.requestAnimationFrame(() => root.querySelector<HTMLInputElement>('[data-binance-account-dialog-form] input[name="apiSecret"]')?.focus());
+      } else if (action === "open-tutorial") {
+        void api.openExternal("https://www.binance.com/zh-CN/support/faq/detail/360002502072");
+      }
+    });
+  });
+  root.querySelectorAll<HTMLInputElement>("[data-binance-account-dialog-form] input").forEach((input) => {
+    input.addEventListener("input", () => {
+      const name = input.name;
+      let value = input.value;
+      if (name === "code") {
+        value = value.replace(/\D/g, "").slice(0, 6);
+        if (input.value !== value) input.value = value;
+      }
+      if (name === "apiKey") state.binanceAccount.dialog.apiKey = value;
+      else if (name === "apiSecret") state.binanceAccount.dialog.apiSecret = value;
+      else if (name === "code") state.binanceAccount.dialog.code = value;
+      syncBinanceAccountDialogControls();
+    });
+  });
+  root.querySelector<HTMLFormElement>("[data-binance-account-dialog-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (state.binanceAccount.dialog.mode === "remove") void removeBinanceAccountBinding();
+    else void submitBinanceAccountBinding();
+  });
+  root.querySelector<HTMLDialogElement>(".binance-account-dialog")?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeBinanceAccountDialog();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      (event.currentTarget as HTMLDialogElement).querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
   root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       const filter = button.dataset.tradingAlertFilter as TradingAlertFilter;
-        if (!["all", "monitoring", "triggered", "paused", "attention", "draft"].includes(filter)) return;
+      if (!["monitoring", "triggered", "paused"].includes(filter)) return;
       state.tradingAlerts.filter = filter;
       render();
     });
   });
-  root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-action]").forEach((button) => {
+  root.querySelectorAll<HTMLElement>("[data-trading-alert-action]").forEach((button) => {
     button.addEventListener("click", () => {
       const action = button.dataset.tradingAlertAction;
       const alertId = button.dataset.alertId || "";
-      if (action === "refresh") void refreshTradingAlerts();
-      else if (action === "view" && alertId) { state.tradingAlerts.selectedAlertId = alertId; render(); }
-      else if (action === "back") { state.tradingAlerts.selectedAlertId = null; state.tradingAlerts.editorAlertId = null; render(); }
-      else if (action === "edit" && alertId) { state.tradingAlerts.editorAlertId = alertId; render(); }
-      else if (action === "view-evidence-chart") void openTradingAlertEvidenceChart(button);
-      else if (action === "close-editor") { state.tradingAlerts.editorAlertId = null; render(); }
+      if (action === "view" && alertId) void openTradingAlertSourceConversation(alertId);
+      else if (action === "edit" && alertId) openTradingAlertEditor(alertId);
+      else if (action === "close-editor") {
+        state.tradingAlerts.editorAlertId = null;
+        state.tradingAlerts.editorSelection = null;
+        render();
+      }
       else if ((action === "pause" || action === "resume" || action === "delete") && alertId) void mutateTradingAlert(action, alertId);
     });
   });
-  root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-draft]").forEach((button) => {
-    button.addEventListener("click", openTradingAlertComposer);
-  });
+  bindTradingAlertEditorSelects();
   root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-provider-docs]").forEach((button) => {
     button.addEventListener("click", () => { const url = button.dataset.tradingAlertProviderDocs; if (url) void api.openExternal(url); });
   });
@@ -57181,7 +57431,7 @@ function bindEvents() {
       '[data-action="toggle-new-thread-group-picker"]',
     )
     .forEach((button) => {
-      button.addEventListener("click", (event) => {
+      button.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
         const anchor = button.dataset.newThreadGroupPickerAnchor === "hero" ? "hero" : "composer";
@@ -58694,7 +58944,15 @@ function bindEvents() {
     .forEach((button) => button.addEventListener("click", () => {
       finishTradingExpertLayoutControlPointerInteraction(false);
       if (!isTradingExpertThreadId(state.currentThreadId)) return;
-      if (state.tradingExpertChartFocusMode) return;
+      if (state.tradingExpertChartFocusMode) {
+        restoreTradingExpertChartFocusLayout();
+        state.tradingExpertChartCollapsed = false;
+        state.rightCollapsed = false;
+        render();
+        patchActiveChatSurfaces(state.currentThreadId, { patchThreadRow: true });
+        scrollWorkflowToLatestStep();
+        return;
+      }
       if (state.tradingExpertChartCollapsed) return;
       if (
         !state.rightCollapsed
@@ -59314,10 +59572,10 @@ function bindEvents() {
   root
     .querySelectorAll<HTMLButtonElement>("[data-video-expert-model]")
     .forEach((button) => {
-      button.addEventListener("click", (event) => {
+      button.addEventListener("click", async (event) => {
         event.preventDefault();
         event.stopPropagation();
-        selectVideoExpertModel(button.dataset.videoExpertModel);
+        await selectVideoExpertModel(button.dataset.videoExpertModel);
         state.videoExpertMenuOpen = null;
         render();
         syncComposerSendButton();
@@ -60586,7 +60844,7 @@ function bindMessageContentEvents(container: ParentNode = root) {
         return;
       }
       if (button.dataset.messageActionDestination === "trading-alerts") {
-        openTradingAlertsPage(null, null);
+        openTradingAlertsPage();
         return;
       }
       const conversationId = button.dataset.messageActionConversation;
@@ -64794,13 +65052,13 @@ function selectedVideoExpertScreenSize() {
   );
 }
 
-function selectVideoExpertModel(value: unknown) {
+async function selectVideoExpertModel(value: unknown) {
   const requested = String(value || "").trim();
   const model =
     state.videoExpertModels.find((item) => item.id === requested) ||
     selectedVideoExpertModelCapability();
   if (!model) return false;
-  if (!reconcileVideoExpertAttachmentsForModel(model)) return false;
+  if (!(await reconcileVideoExpertAttachmentsForModel(model))) return false;
   const modelChanged = state.videoExpertModel !== model.id;
   state.videoExpertModel = model.id;
   state.videoExpertAspectRatio = normalizeVideoExpertAspectRatio(
@@ -64813,7 +65071,7 @@ function selectVideoExpertModel(value: unknown) {
   return true;
 }
 
-function reconcileVideoExpertAttachmentsForModel(
+async function reconcileVideoExpertAttachmentsForModel(
   model: VideoExpertModelCapability,
 ) {
   const threadId = firstString(currentComposerThreadId(), state.currentThreadId);
@@ -64829,11 +65087,11 @@ function reconcileVideoExpertAttachmentsForModel(
     (attachment) => !retainedIds.has(attachment.id),
   );
   if (!discarded.length) return true;
-  if (
-    !window.confirm(
-      `切换模型后有 ${discarded.length} 个附件不再受支持，是否移除这些附件并继续切换？`,
-    )
-  ) {
+  if (!(await confirmInApp({
+    title: "切换模型",
+    message: `切换模型后有 ${discarded.length} 个附件不再受支持。是否移除这些附件并继续切换？`,
+    confirmLabel: "移除并切换",
+  }))) {
     return false;
   }
   discarded.forEach(revokeQueuedAttachmentUrls);
@@ -64912,7 +65170,7 @@ async function loadVideoExpertModels(
         catalog.models.find((model) => model.id === catalog.defaultModel)?.id ||
         catalog.models[0].id;
       videoExpertModelCatalogLastRequestedAt = Date.now();
-      selectVideoExpertModel(nextModel);
+      await selectVideoExpertModel(nextModel);
       return true;
     } catch (error) {
       if (loadSeq !== videoExpertModelCatalogLoadSeq) return false;
@@ -65899,19 +66157,348 @@ function restoreRememberedChatThreadSelection() {
   return true;
 }
 
-function openTradingAlertsPage(alertId: string | null = null, evidenceId: string | null = null) {
+function syncTradingAlertEditorPeriods() {
+  state.tradingAlerts.editorPeriodOptions = loadTradingPeriodsFromStorage(window.localStorage)
+    .map((period) => ({
+      value: `${Math.max(1, Math.trunc(period.amount))}${period.unit}`,
+      label: tradingPeriodLabel(period),
+    }));
+}
+
+async function ensureTradingAlertEditorMarkets() {
+  if (state.tradingAlerts.editorMarkets.length || state.tradingAlerts.editorMarketsLoading) return;
+  state.tradingAlerts.editorMarketsLoading = true;
+  state.tradingAlerts.editorMarketsError = null;
+  if (state.activeView === "alerts" && state.tradingAlerts.editorAlertId) render();
+  try {
+    state.tradingAlerts.editorMarkets = tradingMarketsPreferBinance(await fetchTradingMarkets())
+      .map((market) => ({
+        id: market.id,
+        provider: market.provider,
+        baseAsset: market.baseAsset,
+        displaySymbol: market.displaySymbol,
+        venue: market.venue,
+        tag: market.tag,
+        markPrice: market.markPrice,
+        changePercent: market.changePercent,
+        quoteAvailable: market.quoteAvailable,
+      }));
+  } catch (error) {
+    state.tradingAlerts.editorMarketsError = `交易对加载失败：${errorMessage(error)}`;
+  } finally {
+    state.tradingAlerts.editorMarketsLoading = false;
+    if (state.activeView === "alerts" && state.tradingAlerts.editorAlertId) render();
+  }
+}
+
+function openTradingAlertEditor(alertId: string) {
+  const alert = state.tradingAlerts.alerts.find((entry) => entry.alertId === alertId);
+  if (tradingAlertHasDrawingContext(alert)) {
+    state.tradingAlerts.editorAlertId = null;
+    state.tradingAlerts.editorSelection = null;
+    showToast("含画线条件的预警不能迁移交易对或周期，请回到原 K 线图操作。", 5000);
+    return;
+  }
+  const anchor = alert?.rule?.contexts?.find((context: any) => (
+    context.contextId === alert?.rule?.evaluationPolicy?.anchorContextId
+  )) || alert?.rule?.contexts?.[0];
+  state.tradingAlerts.editorSelection = {
+    alertId,
+    marketId: String((anchor?.marketSelector?.marketIds || anchor?.marketSelector?.frozenMarketIds || [])[0] || "BINANCE:FUTURES:BTCUSDT").toUpperCase(),
+    interval: String(anchor?.intervals?.[0] || "1h").toLowerCase(),
+    // The editor exposes one explicit trading pair, so its revision is always
+    // a fixed scope even if an older rule was created from a frozen universe.
+    selectorKind: "fixed",
+    clock: String(alert?.rule?.evaluationPolicy?.clock || "bar_close"),
+    mode: String(alert?.rule?.triggerPolicy?.mode || "once"),
+  };
+  syncTradingAlertEditorPeriods();
+  state.tradingAlerts.editorAlertId = alertId;
+  render();
+  void ensureTradingAlertEditorMarkets();
+}
+
+function openTradingAlertsPage() {
   if (state.activeView === "chat") rememberCurrentChatThreadSelection();
   state.activeView = "alerts";
-  state.tradingAlerts.selectedAlertId = alertId;
-  state.tradingAlerts.selectedEvidenceId = evidenceId;
   state.tradingAlerts.editorAlertId = null;
+  state.tradingAlerts.editorSelection = null;
+  syncTradingAlertEditorPeriods();
   state.externalChannels.menuOpen = false;
   state.profileMenuOpen = false;
   state.skillSortMenuOpen = false;
   state.chatPreview = null;
   state.closingPreviewSource = null;
   render();
+  void ensureTradingAlertEditorMarkets();
   void refreshTradingAlerts();
+}
+
+function openBinanceAccountPage() {
+  if (state.activeView === "chat") rememberCurrentChatThreadSelection();
+  if (state.tradingExpertChartFocusMode) restoreTradingExpertChartFocusLayout();
+  state.activeView = "account";
+  state.rightCollapsed = false;
+  state.contactChat.open = false;
+  state.externalChannels.menuOpen = false;
+  state.profileMenuOpen = false;
+  state.skillSortMenuOpen = false;
+  state.chatPreview = null;
+  state.closingPreviewSource = null;
+  render();
+  void loadBinanceAccountPage();
+}
+
+async function loadBinanceAccountPage() {
+  const accountState = state.binanceAccount;
+  const getAccountStatus = api.getBinanceAccountStatus;
+  const getAccountSnapshot = api.getBinanceAccountSnapshot;
+  const hasCachedView = Boolean(
+    accountState.loaded
+    && accountState.status
+    && (!accountState.status.bound || accountState.snapshot),
+  );
+  if (!getAccountStatus) {
+    accountState.loading = false;
+    if (!hasCachedView) accountState.loaded = false;
+    accountState.error = "当前客户端版本不支持 Binance 账户连接。";
+    if (state.activeView === "account") render();
+    return;
+  }
+  if (hasCachedView && Date.now() < accountState.autoRefreshAfter) return;
+  if (binanceAccountLoadPromise) return binanceAccountLoadPromise;
+
+  const loadSequence = ++binanceAccountLoadSequence;
+  const request = (async () => {
+    accountState.loading = !hasCachedView;
+    if (!hasCachedView) accountState.error = null;
+    if (accountState.loading && state.activeView === "account") render();
+    try {
+      const status = await getAccountStatus();
+      let snapshot: BinanceAccountSnapshot | null = null;
+      if (status.bound) {
+        if (!getAccountSnapshot) throw new Error("当前客户端无法读取 Binance 账户数据。");
+        snapshot = await getAccountSnapshot();
+      }
+      if (loadSequence !== binanceAccountLoadSequence) return;
+      accountState.status = status;
+      accountState.snapshot = snapshot;
+      accountState.loaded = true;
+      accountState.error = null;
+      accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+    } catch (error) {
+      if (loadSequence !== binanceAccountLoadSequence) return;
+      if (hasCachedView) {
+        accountState.loaded = true;
+        accountState.error = `账户数据暂时未更新，仍显示上次成功数据：${errorMessage(error)}`;
+        accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS;
+      } else {
+        accountState.loaded = false;
+        accountState.error = errorMessage(error);
+      }
+    } finally {
+      if (loadSequence !== binanceAccountLoadSequence) return;
+      accountState.loading = false;
+      if (state.activeView === "account") render();
+    }
+  })();
+  binanceAccountLoadPromise = request;
+  try {
+    await request;
+  } finally {
+    if (binanceAccountLoadPromise === request) binanceAccountLoadPromise = null;
+  }
+}
+
+async function refreshBinanceAccountSnapshot() {
+  if (!api.getBinanceAccountSnapshot || state.binanceAccount.refreshing) return;
+  state.binanceAccount.refreshing = true;
+  state.binanceAccount.error = null;
+  if (state.activeView === "account") render();
+  try {
+    state.binanceAccount.snapshot = await api.getBinanceAccountSnapshot({ force: true });
+    state.binanceAccount.loaded = true;
+    state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+  } catch (error) {
+    state.binanceAccount.error = errorMessage(error);
+    state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS;
+    showToast(`Binance 账户刷新失败：${state.binanceAccount.error}`, 5000);
+  } finally {
+    state.binanceAccount.refreshing = false;
+    if (state.activeView === "account") render();
+  }
+}
+
+function stopBinanceAccountOtpCountdown() {
+  if (binanceAccountOtpCountdownTimer === null) return;
+  window.clearInterval(binanceAccountOtpCountdownTimer);
+  binanceAccountOtpCountdownTimer = null;
+}
+
+function syncBinanceAccountDialogControls() {
+  const dialog = state.binanceAccount.dialog;
+  const countdown = binanceAccountResendCountdown(dialog.resendReadyAt);
+  const resend = root.querySelector<HTMLButtonElement>("[data-binance-account-resend]");
+  if (resend) {
+    resend.disabled = Boolean(dialog.busy) || countdown > 0;
+    resend.textContent = countdown > 0 ? `${countdown}s 后重试` : "重新发送";
+  }
+  const submit = root.querySelector<HTMLButtonElement>("[data-binance-account-dialog-form] button[type=submit]");
+  if (submit) {
+    submit.disabled = Boolean(dialog.busy)
+      || !dialog.challengeId
+      || (dialog.mode === "bind" && (!dialog.apiKey.trim() || !dialog.apiSecret.trim()))
+      || !/^\d{6}$/.test(dialog.code.trim());
+  }
+  if (countdown <= 0) stopBinanceAccountOtpCountdown();
+}
+
+function startBinanceAccountOtpCountdown() {
+  stopBinanceAccountOtpCountdown();
+  syncBinanceAccountDialogControls();
+  if (binanceAccountResendCountdown(state.binanceAccount.dialog.resendReadyAt) <= 0) return;
+  binanceAccountOtpCountdownTimer = window.setInterval(syncBinanceAccountDialogControls, 1_000);
+}
+
+function closeBinanceAccountDialog() {
+  if (state.binanceAccount.dialog.busy) return;
+  stopBinanceAccountOtpCountdown();
+  resetBinanceAccountDialog(state.binanceAccount);
+  render();
+}
+
+async function sendBinanceAccountOtp() {
+  if (!api.sendBinanceAccountOtp || state.binanceAccount.dialog.busy) return;
+  state.binanceAccount.dialog.busy = "send";
+  state.binanceAccount.dialog.error = null;
+  render();
+  try {
+    const challenge = await api.sendBinanceAccountOtp();
+    state.binanceAccount.dialog.challengeId = String(challenge?.challengeId || "").trim();
+    state.binanceAccount.dialog.emailMasked = String(challenge?.emailMasked || state.binanceAccount.status?.emailMasked || "");
+    state.binanceAccount.dialog.resendReadyAt = Date.now() + Math.max(0, Number(challenge?.resendAfter) || 60) * 1_000;
+    if (!state.binanceAccount.dialog.challengeId) throw new Error("验证码发送失败，请重试。");
+  } catch (error) {
+    state.binanceAccount.dialog.error = errorMessage(error);
+  } finally {
+    state.binanceAccount.dialog.busy = null;
+    if (state.binanceAccount.dialog.open) {
+      render();
+      startBinanceAccountOtpCountdown();
+      window.requestAnimationFrame(() => {
+        const inputName = state.binanceAccount.dialog.mode === "remove" ? "code" : "apiKey";
+        root.querySelector<HTMLInputElement>(`[data-binance-account-dialog-form] input[name="${inputName}"]`)?.focus();
+      });
+    }
+  }
+}
+
+function openBinanceAccountDialog() {
+  resetBinanceAccountDialog(state.binanceAccount, "bind");
+  state.binanceAccount.dialog.open = true;
+  state.binanceAccount.dialog.emailMasked = state.binanceAccount.status?.emailMasked || "";
+  render();
+  void sendBinanceAccountOtp();
+}
+
+async function submitBinanceAccountBinding() {
+  const dialog = state.binanceAccount.dialog;
+  if (!api.bindBinanceAccount || dialog.busy) return;
+  if (!dialog.challengeId) {
+    dialog.error = "请先发送邮箱验证码。";
+    render();
+    return;
+  }
+  if (!dialog.apiKey.trim() || !dialog.apiSecret.trim() || !/^\d{6}$/.test(dialog.code.trim())) {
+    dialog.error = "请完整填写 API 密钥、密钥和 6 位邮箱验证码。";
+    render();
+    return;
+  }
+  dialog.busy = "bind";
+  dialog.error = null;
+  render();
+  try {
+    const result = await api.bindBinanceAccount({
+      apiKey: dialog.apiKey.trim(),
+      apiSecret: dialog.apiSecret.trim(),
+      challengeId: dialog.challengeId,
+      code: dialog.code.trim(),
+    });
+    binanceAccountLoadSequence += 1;
+    state.binanceAccount.status = {
+      ...result.status,
+      emailMasked: state.binanceAccount.status?.emailMasked || dialog.emailMasked,
+    };
+    state.binanceAccount.snapshot = result.snapshot;
+    state.binanceAccount.loaded = true;
+    state.binanceAccount.loading = false;
+    state.binanceAccount.error = null;
+    state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+    stopBinanceAccountOtpCountdown();
+    resetBinanceAccountDialog(state.binanceAccount);
+    render();
+    showToast("Binance API 已完成只读绑定。", 3600);
+  } catch (error) {
+    dialog.busy = null;
+    dialog.error = errorMessage(error);
+    render();
+    startBinanceAccountOtpCountdown();
+  }
+}
+
+async function confirmBinanceAccountRemoval() {
+  if (!api.removeBinanceAccount || state.binanceAccount.refreshing || state.binanceAccount.dialog.open) return;
+  const confirmed = await confirmInApp({
+    title: "解除 Binance API 绑定",
+    message: "解除后会从本机安全存储中删除 API Key 和 Secret Key，账户资产与持仓将停止显示。",
+    confirmLabel: "解除绑定",
+    tone: "danger",
+  });
+  if (!confirmed) return;
+  resetBinanceAccountDialog(state.binanceAccount, "remove");
+  state.binanceAccount.dialog.open = true;
+  state.binanceAccount.dialog.emailMasked = state.binanceAccount.status?.emailMasked || "";
+  render();
+  void sendBinanceAccountOtp();
+}
+
+async function removeBinanceAccountBinding() {
+  const dialog = state.binanceAccount.dialog;
+  if (!api.removeBinanceAccount || dialog.busy || dialog.mode !== "remove") return;
+  if (!dialog.challengeId) {
+    dialog.error = "请先发送邮箱验证码。";
+    render();
+    return;
+  }
+  if (!/^\d{6}$/.test(dialog.code.trim())) {
+    dialog.error = "请输入 6 位邮箱验证码。";
+    render();
+    return;
+  }
+  dialog.busy = "remove";
+  dialog.error = null;
+  binanceAccountLoadSequence += 1;
+  state.binanceAccount.loading = false;
+  render();
+  try {
+    state.binanceAccount.status = await api.removeBinanceAccount({
+      challengeId: dialog.challengeId,
+      code: dialog.code.trim(),
+    });
+    state.binanceAccount.snapshot = null;
+    state.binanceAccount.loaded = true;
+    state.binanceAccount.error = null;
+    state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+    stopBinanceAccountOtpCountdown();
+    resetBinanceAccountDialog(state.binanceAccount);
+    render();
+    showToast("Binance API 绑定已解除。", 3200);
+  } catch (error) {
+    dialog.busy = null;
+    dialog.error = errorMessage(error);
+    render();
+    startBinanceAccountOtpCountdown();
+  }
 }
 
 async function refreshTradingAlerts() {
@@ -65944,7 +66531,12 @@ function openTradingAlertComposer() {
 }
 
 async function mutateTradingAlert(action: "pause" | "resume" | "delete", alertId: string) {
-  if (action === "delete" && !window.confirm("确定删除这个预警吗？历史触发证据将保留在审计记录中。")) return;
+  if (action === "delete" && !(await confirmInApp({
+    title: "删除预警",
+    message: "确定删除这个预警吗？历史触发证据将保留在审计记录中。",
+    confirmLabel: "删除",
+    tone: "danger",
+  }))) return;
   const call = action === "pause" ? api.tradingAlertsPause : action === "resume" ? api.tradingAlertsResume : api.tradingAlertsDelete;
   if (!call) return;
   state.tradingAlerts.busyAlertId = alertId;
@@ -65952,7 +66544,6 @@ async function mutateTradingAlert(action: "pause" | "resume" | "delete", alertId
   try {
     const response = await call({ alertId });
     if (response?.ok === false) throw new Error(response.error?.message || "预警操作失败");
-    if (action === "delete") state.tradingAlerts.selectedAlertId = null;
     await refreshTradingAlerts();
   } catch (error) {
     state.tradingAlerts.error = errorMessage(error);
@@ -65963,24 +66554,57 @@ async function mutateTradingAlert(action: "pause" | "resume" | "delete", alertId
   }
 }
 
+const tradingAlertRevisionSubmissions = new Set<string>();
+
+function allowTradingAlertRevisionBusyStateToPaint() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => window.setTimeout(resolve, 0));
+  });
+}
+
 async function submitTradingAlertRevision(form: HTMLFormElement) {
   if (!api.tradingAlertsRevise) return;
   const alertId = form.dataset.alertId || "";
-  const values = new FormData(form);
+  if (!alertId || tradingAlertRevisionSubmissions.has(alertId)) return;
+  const requested = state.tradingAlerts.editorSelection?.alertId === alertId
+    ? { ...state.tradingAlerts.editorSelection }
+    : null;
+  if (!requested?.marketId || !requested.interval) {
+    showToast("编辑设置尚未就绪，请重新选择交易对和周期。", 5000);
+    return;
+  }
+  const submitButton = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const submitLabel = submitButton?.textContent || "生成新预警";
+  tradingAlertRevisionSubmissions.add(alertId);
   state.tradingAlerts.busyAlertId = alertId;
+  form.setAttribute("aria-busy", "true");
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "正在生成…";
+  }
   try {
+    await allowTradingAlertRevisionBusyStateToPaint();
     const response = await api.tradingAlertsRevise({
       alertId,
       contextId: form.dataset.contextId,
-      marketIds: values.get("marketIds") || undefined,
-      intervals: values.get("intervals") || undefined,
-      selectorKind: values.get("selectorKind") || undefined,
-      clock: values.get("clock") || undefined,
-      mode: values.get("mode") || undefined,
+      marketIds: requested.marketId,
+      intervals: requested.interval,
+      selectorKind: requested.selectorKind,
+      clock: requested.clock,
+      mode: requested.mode,
     });
-    if (response?.ok === false) throw new Error(response.error?.message || "生成新 Revision 失败");
+    if (response?.ok === false) throw new Error(response.error?.message || "生成新预警失败");
     const draft = response?.data?.draft;
+    const revisedAnchor = draft?.rule?.contexts?.find((context: any) => (
+      context.contextId === draft?.rule?.evaluationPolicy?.anchorContextId
+    )) || draft?.rule?.contexts?.[0];
+    const revisedMarketId = String((revisedAnchor?.marketSelector?.marketIds || revisedAnchor?.marketSelector?.frozenMarketIds || [])[0] || "").toUpperCase();
+    const revisedInterval = String(revisedAnchor?.intervals?.[0] || "").toLowerCase();
+    if (revisedMarketId !== requested.marketId || revisedInterval !== requested.interval) {
+      throw new Error(`新预警设置校验失败：选择的是 ${requested.marketId} / ${requested.interval}，生成的规则却是 ${revisedMarketId || "未知交易对"} / ${revisedInterval || "未知周期"}`);
+    }
     state.tradingAlerts.editorAlertId = null;
+    state.tradingAlerts.editorSelection = null;
     await refreshTradingAlerts();
     if (!draft?.rule || !api.tradingAlertsSimulate) throw new Error("新 Revision 尚未形成可模拟规则");
     openTradingAlertComposer();
@@ -65990,9 +66614,20 @@ async function submitTradingAlertRevision(form: HTMLFormElement) {
     const anchor = draft.rule.contexts.find((context: any) => context.contextId === draft.rule.evaluationPolicy.anchorContextId)
       || draft.rule.contexts[0];
     const marketId = anchor?.marketSelector?.kind === "fixed" ? anchor.marketSelector.marketIds?.[0] : null;
-    await prepareTradingExpertAlertContext(marketId, anchor?.intervals?.[0]);
+    showToast("正在后台模拟新预警，客户端可继续操作…", 2600);
+    const preparedContext = await prepareTradingExpertAlertContext(marketId, anchor?.intervals?.[0]);
+    if (
+      String(preparedContext?.marketId || "").toUpperCase() !== requested.marketId
+      || String(preparedContext?.interval || "").toLowerCase() !== requested.interval
+    ) throw new Error("行情图未切换到本次编辑选择的交易对和周期，已停止模拟");
     const frames = await tradingExpertAlertSimulationFrames(draft.rule);
+    const anchorFrame = frames?.[String(anchor?.contextId || "")];
+    if (
+      String(anchorFrame?.marketId || "").toUpperCase() !== requested.marketId
+      || String(anchorFrame?.interval || "").toLowerCase() !== requested.interval
+    ) throw new Error("模拟行情与本次编辑设置不一致，已停止模拟");
     const simulated = tradingAlertResponseData(await api.tradingAlertsSimulate({ draftId: draft.draftId, frames, replacesAlertId: alertId }));
+    await prepareTradingExpertAlertContext(requested.marketId, requested.interval);
     showTradingExpertAlertSimulation(simulated.simulation, draft.rule.evaluationPolicy.anchorContextId, draft.rule);
     const question = `${String(simulated.question || "新 Revision 已完成模拟，是否按这种情况更新预警？")}\n\n原 Revision 在你确认前继续监控；确认后才会切换规则。`;
     tradingAlertConversationByThreadId.set(threadId, {
@@ -66009,21 +66644,106 @@ async function submitTradingAlertRevision(form: HTMLFormElement) {
     state.tradingAlerts.error = errorMessage(error);
     showToast(state.tradingAlerts.error, 5000);
   } finally {
+    tradingAlertRevisionSubmissions.delete(alertId);
     state.tradingAlerts.busyAlertId = null;
+    if (form.isConnected) {
+      form.removeAttribute("aria-busy");
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = submitLabel;
+      }
+    }
     if (state.activeView === "alerts") render();
   }
 }
 
-async function openTradingAlertEvidenceChart(button: HTMLButtonElement) {
-  const marketId = button.dataset.marketId || "";
-  const interval = button.dataset.interval || "";
-  const triggeredAt = Number(button.dataset.triggeredAt || 0);
-  if (!marketId || !interval || !Number.isFinite(triggeredAt)) return;
+function tradingAlertForOpen(alertId: string | null | undefined) {
+  const id = firstString(alertId);
+  return id ? state.tradingAlerts.alerts.find((entry) => entry?.alertId === id) || null : null;
+}
+
+function tradingAlertEvidenceForOpen(alert: any, evidenceId?: string | null) {
+  const candidates = state.tradingAlerts.evidence
+    .filter((entry) => entry?.alertId === alert?.alertId)
+    .sort((left, right) => Number(right?.triggeredAt || 0) - Number(left?.triggeredAt || 0));
+  const requestedId = firstString(evidenceId, alert?.latestEvidenceId);
+  return (requestedId ? candidates.find((entry) => entry?.evidenceId === requestedId) : null)
+    || candidates[0]
+    || null;
+}
+
+function tradingAlertAnchorContext(alert: any) {
+  const contexts = Array.isArray(alert?.rule?.contexts) ? alert.rule.contexts : [];
+  return contexts.find((context: any) => context?.contextId === alert?.rule?.evaluationPolicy?.anchorContextId)
+    || contexts[0]
+    || null;
+}
+
+async function openTradingAlertSourceConversation(alertId?: string | null, evidenceId?: string | null) {
   try {
-    await openTradingExpertWorkspace();
+    let alert = tradingAlertForOpen(alertId);
+    if (!alert && api.tradingAlertsSnapshot) {
+      await refreshTradingAlerts();
+      alert = tradingAlertForOpen(alertId);
+    }
+    if (!alert) throw new Error("预警不存在或已经删除");
+    const originThreadId = firstString(alert.originThreadId);
+    if (!originThreadId) throw new Error("这条预警没有可返回的来源会话");
+    const resolvedThreadId = resolvedTradingAlertThreadId(originThreadId);
+    const threadId = threadById(resolvedThreadId)
+      ? resolvedThreadId
+      : threadById(originThreadId) ? originThreadId : resolvedThreadId || originThreadId;
+    initializeTradingExpertTaskThread(threadId, { expandPanel: true });
+    await selectThread(threadId);
+    if (state.activeView !== "chat" || !tradingAlertThreadMatches(state.currentThreadId, threadId)) {
+      throw new Error("来源会话暂时无法打开");
+    }
+
+    const anchor = tradingAlertAnchorContext(alert);
+    const selector = anchor?.marketSelector || {};
+    const evidence = tradingAlertEvidenceForOpen(alert, evidenceId);
+    const anchorMarketId = selector.kind === "fixed"
+      ? firstString(selector.marketIds?.[0])
+      : firstString(selector.frozenMarketIds?.[0]);
+    const evidenceContext = (Array.isArray(evidence?.contexts) ? evidence.contexts : []).find((context: any) => (
+      (!anchorMarketId || firstString(context?.marketId) === anchorMarketId)
+      && (!anchor?.intervals?.[0] || firstString(context?.interval) === firstString(anchor.intervals[0]))
+    )) || evidence?.contexts?.[0] || null;
+    const marketId = firstString(anchorMarketId, evidenceContext?.marketId);
+    const interval = firstString(anchor?.intervals?.[0], evidenceContext?.interval);
+    if (!marketId || !interval) throw new Error("预警缺少可恢复的市场或周期");
     await prepareTradingExpertAlertContext(marketId, interval);
-    focusTradingExpertAlertEvidence(triggeredAt);
-    showToast("已定位到预警真实触发 K 线。", 3200);
+
+    const visualizationWarnings: string[] = [];
+    if (alert.simulationId && api.tradingAlertsGetSimulation) {
+      try {
+        const simulation = tradingAlertResponseData(await api.tradingAlertsGetSimulation({ simulationId: String(alert.simulationId) }));
+        showTradingExpertAlertSimulation(
+          simulation,
+          String(alert.rule?.evaluationPolicy?.anchorContextId || anchor?.contextId || "primary"),
+          alert.rule,
+          { allowHistorical: true, animate: false, focus: !evidence },
+        );
+      } catch (error) {
+        visualizationWarnings.push(`模拟图恢复失败：${errorMessage(error)}`);
+      }
+    } else {
+      visualizationWarnings.push("没有找到该预警保存的模拟图");
+    }
+
+    if (evidence) {
+      try {
+        focusTradingExpertAlertEvidence(evidence, alert.rule);
+      } catch (error) {
+        visualizationWarnings.push(`真实触发定位失败：${errorMessage(error)}`);
+      }
+    }
+    showToast(
+      visualizationWarnings.length
+        ? `已打开来源会话；${visualizationWarnings.join("；")}`
+        : evidence ? "已打开来源会话，并定位真实触发位置。" : "已打开来源会话，并恢复创建时的模拟图。",
+      visualizationWarnings.length ? 6000 : 3600,
+    );
   } catch (error) {
     showToast(errorMessage(error), 5000);
   }

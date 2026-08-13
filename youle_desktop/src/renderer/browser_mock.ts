@@ -12,7 +12,7 @@ type MockMessage = {
 
 type DesktopApiLike = Window["codexDesktop"];
 
-function createMockTradingAlertsSnapshot() {
+function createMockTradingAlertsSnapshot(dense = false) {
   const now = Date.now();
   const rule = (id: string, title: string, summary: string, marketId = "BINANCE:FUTURES:BTCUSDT", interval = "1h", clock = "bar_close", mode = "repeat") => ({
     schemaVersion: 1, ruleId: id, revision: 2, title, normalizedSummary: summary,
@@ -27,6 +27,22 @@ function createMockTradingAlertsSnapshot() {
     { alertId: "qa-paused", rule: rule("qa-rule-paused", "SOL 放量突破前高", "SOL 永续 4小时收盘突破前高且成交量超过均量 2 倍。", "HYPERLIQUID:PERPETUAL:SOL", "4h"), ruleHash: "sha256:qa-paused", status: "paused", enabled: false, triggerCount: 0, failure: "用户暂停", createdAt: now - 259_200_000, updatedAt: now - 3_600_000 },
     { alertId: "qa-gap", rule: rule("qa-rule-gap", "BTC 多周期趋势共振", "BTC 1小时趋势向上，同时 15分钟 RSI 从超卖区回升。"), ruleHash: "sha256:qa-gap", status: "reconnecting", enabled: true, triggerCount: 0, failure: "数据提供方正在重新连接", createdAt: now - 345_600_000, updatedAt: now - 30_000 },
   ];
+  if (dense) {
+    const seeds = alerts.map((alert) => structuredClone(alert));
+    for (let index = 0; index < 24; index += 1) {
+      const seed = structuredClone(seeds[index % seeds.length]);
+      seed.alertId = `qa-overflow-${index + 1}`;
+      seed.rule.ruleId = `qa-rule-overflow-${index + 1}`;
+      seed.rule.title = `${seed.rule.title} ${index + 2}`;
+      seed.ruleHash = `sha256:qa-overflow-${index + 1}`;
+      alerts.push(seed);
+    }
+  }
+  alerts.forEach((alert) => Object.assign(alert, {
+    originThreadId: "mock-thread-1",
+    simulationId: `qa-simulation-${alert.alertId}`,
+  }));
+  Object.assign(alerts.find((alert) => alert.alertId === "qa-triggered") || {}, { latestEvidenceId: "qa-evidence" });
   return {
     enabled: true,
     engine: { running: true, alerts: alerts.length, subscriptions: 3 },
@@ -42,10 +58,141 @@ function createMockTradingAlertsSnapshot() {
   };
 }
 
+function createMockBinanceAccountSnapshot() {
+  return {
+    schemaVersion: 1 as const,
+    currency: "USDT",
+    estimatedTotalAssets: 3938.95088,
+    todayPnl: -14.32,
+    todayPnlPercent: -0.36,
+    marginBalance: 2842.7,
+    walletBalance: 2854.8,
+    unrealizedPnl: -12.1,
+    realizedPnlToday: -2.22,
+    initialMargin: 143.27,
+    availableBalance: 2699.43,
+    positions: [
+      {
+        symbol: "ETHUSDT",
+        direction: "SHORT" as const,
+        positionSide: "BOTH",
+        marginType: "cross" as const,
+        leverage: 50,
+        amount: 0.038,
+        notionalValue: 71.61,
+        margin: 1.43,
+        unrealizedPnl: -0.01,
+        roi: -0.98,
+        marginRatio: 10.06,
+        entryPrice: 1883.91,
+        markPrice: 1884.21,
+        liquidationPrice: 1951.3,
+        breakEvenPrice: 1883.65,
+        marginAsset: "USDT",
+        updatedAt: Date.now(),
+      },
+      {
+        symbol: "BTCUSDT",
+        direction: "LONG" as const,
+        positionSide: "BOTH",
+        marginType: "isolated" as const,
+        leverage: 20,
+        amount: 0.002,
+        notionalValue: 237.56,
+        margin: 11.88,
+        unrealizedPnl: 3.42,
+        roi: 28.79,
+        marginRatio: 6.38,
+        entryPrice: 117_068.4,
+        markPrice: 118_778.1,
+        liquidationPrice: 112_461.7,
+        breakEvenPrice: 117_102.8,
+        marginAsset: "USDT",
+        updatedAt: Date.now(),
+      },
+    ],
+    positionHistory: [
+      {
+        id: "mock-tutusdt-history",
+        symbol: "TUTUSDT",
+        contractType: "PERPETUAL" as const,
+        direction: "SHORT" as const,
+        positionSide: "BOTH",
+        marginType: "cross" as const,
+        leverage: 10,
+        closeType: "FULL" as const,
+        realizedPnl: 0.01,
+        unrealizedPnl: null,
+        roi: 1.34,
+        closedAmount: 169,
+        baseAsset: "TUT",
+        openTime: Date.now() - 58_000,
+        closeTime: Date.now() - 20_000,
+        entryPrice: 0.05562,
+        averageClosePrice: 0.05549,
+        updatedAt: Date.now() - 20_000,
+      },
+      {
+        id: "mock-promusdt-history",
+        symbol: "PROMUSDT",
+        contractType: "PERPETUAL" as const,
+        direction: "SHORT" as const,
+        positionSide: "BOTH",
+        marginType: "cross" as const,
+        leverage: 20,
+        closeType: "FULL" as const,
+        realizedPnl: 0.003,
+        unrealizedPnl: null,
+        roi: 0.48,
+        closedAmount: 5.2,
+        baseAsset: "PROM",
+        openTime: Date.now() - 101_000,
+        closeTime: Date.now() - 44_000,
+        entryPrice: 2.417,
+        averageClosePrice: 2.414,
+        updatedAt: Date.now() - 44_000,
+      },
+      {
+        id: "mock-ethusdt-partial-history",
+        symbol: "ETHUSDT",
+        contractType: "PERPETUAL" as const,
+        direction: "SHORT" as const,
+        positionSide: "BOTH",
+        marginType: "cross" as const,
+        leverage: 50,
+        closeType: "PARTIAL" as const,
+        realizedPnl: -0.13,
+        unrealizedPnl: -0.02,
+        roi: -10.65,
+        closedAmount: 0.029,
+        baseAsset: "ETH",
+        openTime: Date.now() - 3_720_000,
+        closeTime: null,
+        entryPrice: 1887.2,
+        averageClosePrice: 1889.5,
+        updatedAt: Date.now() - 42_000,
+      },
+    ],
+    walletBreakdown: [
+      { walletName: "Spot", balance: 1096.25088 },
+      { walletName: "USDⓈ-M Futures", balance: 2842.7 },
+    ],
+    sources: {
+      totalAssets: "BINANCE_WALLETS_USDT",
+      futures: "BINANCE_USDM_ACCOUNT_V3",
+      realizedPnl: "BINANCE_USDM_INCOME",
+      positionHistory: "BINANCE_USDM_ACCOUNT_TRADES",
+    },
+    warnings: [],
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
 export function ensureBrowserDesktopApi() {
   if (typeof window.codexDesktop !== "undefined") return;
   document.documentElement.dataset.mockDesktop = "true";
   const tradingAlertVisualQa = new URLSearchParams(window.location.search).get("trading-alert-visual-qa") === "1";
+  let binanceAccountBound = new URLSearchParams(window.location.search).get("binance-account-bound") === "1";
 
   let notificationListeners: Array<Listener<any>> = [];
   let statusListeners: Array<Listener<any>> = [];
@@ -56,7 +203,7 @@ export function ensureBrowserDesktopApi() {
   let tradingAlertTriggeredListeners: Array<Listener<any>> = [];
   let tradingAlertOpenListeners: Array<Listener<any>> = [];
   let tradingAlertQaMode: "normal" | "loading" | "error" = "normal";
-  const tradingAlertSnapshot = createMockTradingAlertsSnapshot();
+  const tradingAlertSnapshot = createMockTradingAlertsSnapshot(tradingAlertVisualQa);
 
   const session = {
     authenticated: true,
@@ -338,6 +485,50 @@ export function ensureBrowserDesktopApi() {
     async verifyOtp() {
       return session;
     },
+    async getBinanceAccountStatus() {
+      return {
+        bound: binanceAccountBound,
+        apiKeyMasked: binanceAccountBound ? "ABCD••••WXYZ" : null,
+        boundAt: binanceAccountBound ? new Date().toISOString() : null,
+        updatedAt: binanceAccountBound ? new Date().toISOString() : null,
+        secureStorageAvailable: true,
+        emailMasked: "jo****ec@qq.com",
+      };
+    },
+    async sendBinanceAccountOtp() {
+      return { challengeId: "mock-binance-challenge", emailMasked: "jo****ec@qq.com", resendAfter: 60 };
+    },
+    async bindBinanceAccount() {
+      binanceAccountBound = true;
+      return {
+        status: {
+          bound: true,
+          apiKeyMasked: "ABCD••••WXYZ",
+          boundAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          secureStorageAvailable: true,
+        },
+        snapshot: createMockBinanceAccountSnapshot(),
+      };
+    },
+    async getBinanceAccountSnapshot() {
+      if (!binanceAccountBound) throw new Error("尚未绑定 Binance API。");
+      return createMockBinanceAccountSnapshot();
+    },
+    async removeBinanceAccount(params: any) {
+      if (!params?.challengeId || !/^\d{6}$/.test(String(params?.code || ""))) {
+        throw new Error("请输入 6 位邮箱验证码。");
+      }
+      binanceAccountBound = false;
+      return {
+        bound: false,
+        apiKeyMasked: null,
+        boundAt: null,
+        updatedAt: null,
+        secureStorageAvailable: true,
+        emailMasked: "jo****ec@qq.com",
+      };
+    },
     async completeRegistration() {
       return session;
     },
@@ -468,6 +659,19 @@ export function ensureBrowserDesktopApi() {
       if (tradingAlertQaMode === "loading") await new Promise((resolve) => window.setTimeout(resolve, 4_000));
       if (tradingAlertQaMode === "error") return { ok: false, error: { code: "TRADING_ALERT_QA_ERROR", message: "行情连接暂时不可用，请检查网络或数据提供方。" } };
       return structuredClone(tradingAlertSnapshot);
+    },
+    async tradingAlertsGetSimulation(params: any) {
+      const simulationId = String(params?.simulationId || "");
+      return {
+        ok: true,
+        data: {
+          simulationId,
+          draftId: "qa-draft-triggered",
+          ruleHash: "sha256:qa-triggered",
+          generated: { primary: [] },
+          proof: { triggered: true, trace: [] },
+        },
+      };
     },
     async tradingAlertsPause(params: any) {
       const alert = tradingAlertSnapshot.alerts.find((entry) => entry.alertId === params?.alertId);

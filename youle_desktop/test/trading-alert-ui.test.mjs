@@ -3,6 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   createTradingAlertsUiState,
+  formatTradingAlertCardSummary,
+  formatTradingAlertDisplayText,
+  formatTradingAlertMarketLabel,
   renderTradingAlertsPage,
   resolveTradingAlertSourceText,
 } from "../src/renderer/trading-alerts-ui.ts";
@@ -21,6 +24,90 @@ test("alerts use an independent page and do not route to legacy auto tasks", asy
   assert.doesNotMatch(source, /function openAutoTasksFromAlerts/);
 });
 
+test("alerts keep a 16px top-left workspace corner when the window is maximized", async () => {
+  const styles = await stylesSource;
+  assert.match(
+    styles,
+    /\.window-maximized \.desktop-body > :is\([\s\S]*?\.trading-alerts-page,[\s\S]*?\.skills-plaza-page[\s\S]*?\)\s*\{\s*border-top-left-radius:\s*16px;/s,
+  );
+  assert.match(
+    styles,
+    /html\[data-theme\] \.desktop-body:has\(> :is\([\s\S]*?\.trading-alerts-page,[\s\S]*?\.skills-plaza-page[\s\S]*?\)\)\s*\{\s*background:\s*var\(--app-chrome-background\);/s,
+  );
+});
+
+test("alert errors stay hidden and overflowing cards use a themed scroll region", async () => {
+  const state = createTradingAlertsUiState();
+  state.error = "确认已过期，请重新模拟";
+  const html = renderTradingAlertsPage(state);
+  const [source, styles, renderer] = await Promise.all([alertUiSource, stylesSource, rendererSource]);
+  const actionHandlers = renderer.slice(
+    renderer.indexOf('root.querySelectorAll<HTMLElement>("[data-trading-alert-action]")'),
+    renderer.indexOf("bindTradingAlertEditorSelects()"),
+  );
+
+  assert.doesNotMatch(html, /确认已过期|重试|role="alert"|trading-alert-page-error/);
+  assert.match(html, /class="trading-alert-list-scroll" role="region" aria-label="预警列表" tabindex="0"/);
+  assert.doesNotMatch(source, /trading-alert-page-error|data-trading-alert-action="refresh"/);
+  assert.doesNotMatch(actionHandlers, /action === "refresh"/);
+  assert.doesNotMatch(styles, /\.trading-alert-page-error/);
+  assert.match(styles, /\.trading-alerts-page\s*\{[^}]*display:\s*flex;[^}]*min-height:\s*0;[^}]*flex-direction:\s*column;[^}]*overflow:\s*hidden;/s);
+  assert.match(styles, /\.trading-alert-list-scroll\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;[^}]*scrollbar-gutter:\s*stable;/s);
+  assert.match(styles, /\.trading-alert-list-scroll::-webkit-scrollbar-thumb\s*\{[^}]*background-color:\s*var\(--alert-scrollbar-thumb\);/s);
+  assert.match(styles, /\.trading-alert-list-scroll::-webkit-scrollbar-thumb:hover,[\s\S]*?::-webkit-scrollbar-thumb:active/);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-alerts-page\s*\{[^}]*--alert-scrollbar-thumb:/s);
+});
+
+test("alert market scopes use concise venue-asset-interval labels", () => {
+  assert.equal(formatTradingAlertMarketLabel("BINANCE:FUTURES:BTCUSDT", "4h"), "币安-BTC-4h");
+  assert.equal(formatTradingAlertMarketLabel("BINANCE:SPOT:ETHUSDC", "15m"), "币安-ETH-15m");
+  assert.equal(formatTradingAlertMarketLabel("HYPERLIQUID:PERPETUAL:SOL", "1h"), "Hyperliquid-SOL-1h");
+  assert.equal(
+    formatTradingAlertDisplayText("BINANCE:FUTURES:BTCUSDT 4h 收盘时确认"),
+    "币安-BTC-4h 收盘时确认",
+  );
+  assert.equal(
+    formatTradingAlertDisplayText("BINANCE:FUTURES:BTCUSDT · 4h 盘中触发"),
+    "币安-BTC-4h 盘中触发",
+  );
+  assert.equal(
+    formatTradingAlertCardSummary("BINANCE:FUTURES:BTCUSDT 4h 收盘时确认", "币安-BTC-4h"),
+    "收盘时确认",
+  );
+  assert.equal(
+    formatTradingAlertCardSummary("BTC 永续 4小时收盘确认", "币安-BTC-4h"),
+    "BTC 永续 4小时收盘确认",
+  );
+});
+
+test("alert cards use the concise market label", () => {
+  const state = createTradingAlertsUiState();
+  const rule = {
+    title: "BINANCE:FUTURES:BTCUSDT 4h 趋势预警",
+    normalizedSummary: "BINANCE:FUTURES:BTCUSDT 4h 收盘时确认",
+    contexts: [{
+      contextId: "primary",
+      marketSelector: { kind: "fixed", marketIds: ["BINANCE:FUTURES:BTCUSDT"] },
+      intervals: ["4h"],
+    }],
+    evaluationPolicy: { anchorContextId: "primary", clock: "bar_close" },
+    triggerPolicy: { mode: "once" },
+  };
+  state.loaded = true;
+  state.alerts = [{ alertId: "market-label", rule, status: "monitoring", enabled: true }];
+  const listHtml = renderTradingAlertsPage(state);
+  assert.match(listHtml, /<h2 title="币安-BTC-4h 趋势预警">币安-BTC-4h 趋势预警<\/h2>/);
+  assert.match(listHtml, /<p title="收盘时确认">收盘时确认<\/p>/);
+  assert.match(listHtml, /<small title="币安-BTC-4h · 收盘确认 · 一次性">币安-BTC-4h · 收盘确认 · 一次性<\/small>/);
+});
+
+test("the alert page contains no draft filter, cards, confirmation, or deletion UI", async () => {
+  const [ui, renderer, styles] = await Promise.all([alertUiSource, rendererSource, stylesSource]);
+  assert.doesNotMatch(ui, /trading-alert-draft|renderDraft|pendingConfirmations|busyDraftId|deleteDraftId|\["draft", "草稿"\]/);
+  assert.doesNotMatch(renderer, /confirmTradingAlertDraft|deleteTradingAlertDraft|tradingAlertsCancelDraft|confirm-draft|draft-delete/);
+  assert.doesNotMatch(styles, /trading-alert-(?:draft|status\.draft)/);
+});
+
 test("@预警 conversation is compiled, simulated and explicitly confirmed before creation", async () => {
   const source = await rendererSource;
   assert.match(source, /function tradingAlertMentioned/);
@@ -29,7 +116,7 @@ test("@预警 conversation is compiled, simulated and explicitly confirmed befor
   assert.match(source, /tradingAlertsSimulate!/);
   assert.match(source, /showTradingExpertAlertSimulation/);
   assert.match(source, /tradingAlertAffirmative[\s\S]*tradingAlertsConfirm!/);
-  assert.match(source, /tradingAlertCancelled[\s\S]*tradingAlertsCancelDraft/);
+  assert.match(source, /tradingAlertCancelled[\s\S]*tradingAlertConversationByThreadId\.delete\(threadId\)[\s\S]*clearTradingExpertAlertSimulation/);
 });
 
 test("clarification replies keep the original alert instruction as source text", () => {
@@ -57,12 +144,12 @@ test("a bounded conversation never replaces a persisted original with its first 
   assert.equal(sourceText, "当MA5死叉MA20并且MACD下穿零轴时预警");
 });
 
-test("confirmation is recovered from the persisted Store and success is shown only after list readback", async () => {
+test("unconfirmed state is memory-only and success is shown only after persisted list readback", async () => {
   const [renderer, ui] = await Promise.all([rendererSource, alertUiSource]);
-  assert.match(ui, /pendingConfirmations: any\[\]/);
-  assert.match(ui, /state\.pendingConfirmations = Array\.isArray\(value\?\.pendingConfirmations\)/);
+  assert.doesNotMatch(ui, /drafts: any\[\]|pendingConfirmations|deleteDraftId/);
   assert.match(renderer, /!state\.tradingAlerts\.loaded[\s\S]*await refreshTradingAlerts\(\)/);
-  assert.match(renderer, /function tradingAlertConversationStateForThread[\s\S]*pendingTradingAlertConfirmationForThread/);
+  assert.match(renderer, /function tradingAlertConversationStateForThread[\s\S]*inMemoryTradingAlertConversationForThread\(threadId\)/);
+  assert.doesNotMatch(renderer, /pendingTradingAlertConfirmationForThread|activeTradingAlertDraftForThread|recoveredTradingAlertDraftConversation/);
   assert.match(renderer, /tradingAlertCandidateAtSend[\s\S]*tradingAlertConversationStateForThread\(threadId\)/);
   assert.match(renderer, /tradingAlertsConfirm![\s\S]*refreshTradingAlertsAndRequireAlert\(alertId\)[\s\S]*persistTradingAlertCreationSuccessItem/);
   assert.match(renderer, /预警写入后未能从预警列表读回/);
@@ -92,16 +179,11 @@ test("clarification replies remain on the promoted Trading Expert task", async (
   );
 });
 
-test("clarification and dependency drafts recover their exact conversation after reload", async () => {
+test("clarification and dependency state is not recovered after reload", async () => {
   const source = await rendererSource;
   assert.match(source, /function inMemoryTradingAlertConversationForThread[\s\S]*tradingAlertThreadMatches/);
-  assert.match(source, /function activeTradingAlertDraftForThread[\s\S]*originThreadId[\s\S]*updatedAt/);
-  assert.match(source, /function recoveredTradingAlertDraftConversation[\s\S]*draft\?\.conversation/);
-  assert.match(
-    source,
-    /function tradingAlertConversationStateForThread[\s\S]*activeTradingAlertDraftForThread\(threadId\)[\s\S]*stage:[\s\S]*"dependency"[\s\S]*"clarification"/,
-  );
-  assert.match(source, /rememberTradingAlertDraftSnapshot\(draft\)/);
+  assert.match(source, /function tradingAlertConversationStateForThread[\s\S]*return inMemoryTradingAlertConversationForThread\(threadId\) \|\| null/);
+  assert.doesNotMatch(source, /activeTradingAlertDraftForThread|recoveredTradingAlertDraftConversation|rememberTradingAlertDraftSnapshot/);
 });
 
 test("a simulation overlay lifecycle error never reports intent creation as failed", async () => {
@@ -124,12 +206,12 @@ test("failed alert history removes simulated candles and restores the real K-lin
   assert.match(market, /simulation animation failed[\s\S]*this\.clearAlertSimulation\(\)/);
 });
 
-test("created-alert bubble exposes a persistent minimal link to the alert page in both themes", async () => {
+test("created-alert bubble exposes a persistent minimal link to the alert list in both themes", async () => {
   const [renderer, styles] = await Promise.all([rendererSource, stylesSource]);
   assert.match(renderer, /label: "查看我的预警"/);
   assert.match(renderer, /destination: "trading-alerts"/);
   assert.match(renderer, /data-message-action-destination/);
-  assert.match(renderer, /button\.dataset\.messageActionDestination === "trading-alerts"[\s\S]*openTradingAlertsPage\(null, null\)/);
+  assert.match(renderer, /button\.dataset\.messageActionDestination === "trading-alerts"[\s\S]*openTradingAlertsPage\(\)/);
   assert.match(renderer, /actionsBelowBubble[\s\S]*message-actions-below-bubble/);
   assert.match(styles, /\.message-actions-below-bubble/);
   assert.match(styles, /\.message-actions \.message-trading-alert-link\s*\{[\s\S]*?font-weight:\s*400;/);
@@ -251,13 +333,37 @@ test("simulation annotation layout reserves a data-free rail and avoids earlier 
   assert.ok(tradingAlertAnnotationRightPaddingBars(480, 40, 24) >= tradingAlertAnnotationRightPaddingBars(1000, 40, 24));
 });
 
-test("real trigger evidence uses the same diagonal collision-free annotation path", async () => {
+test("real trigger evidence marks the real K-line and matching indicator pane", async () => {
   const source = await marketSource;
-  const focus = source.match(/focusAlertEvidence\(triggeredAt: number\)[\s\S]*?\n  }/)?.[0] || "";
-  assert.match(focus, /createAlertSimulationAnnotation\("预警真实触发", "alert-evidence"\)/);
-  assert.match(focus, /alertEvidencePoint = \{ time: displayTime, price: nearest\.high \}/);
+  const focus = source.match(/focusAlertEvidence\(evidence: any, rule\?: any\)[\s\S]*?\n  async alertSimulationFrames/)?.[0] || "";
+  assert.match(focus, /matchingContext[\s\S]*matchingContext\?\.eventTime \|\| evidence\?\.triggeredAt/);
+  assert.match(focus, /createAlertSimulationAnnotation\("预警已触发", "alert-evidence"\)/);
+  assert.match(focus, /evidenceCandle\?\.time[\s\S]*alertEvidenceCandleSeries = this\.chart\.addSeries\(CandlestickSeries/);
+  assert.match(focus, /price: hasEvidenceCandle \? Number\(evidenceCandle\.high\) : nearest\.high/);
+  assert.match(focus, /alertSimulationIndicatorRuntimes[\s\S]*\.filter\(\(runtime\) => runtime\.pane\)/);
+  assert.match(focus, /result\.currentValues\?\.left[\s\S]*result\.currentValues\?\.right/);
+  assert.match(focus, /runtime\.pane\.addSeries\(LineSeries/);
+  assert.match(focus, /`已触发 · \$\{simulationIndicatorTriggerLabel\(condition\)\}`/);
   assert.match(focus, /paintAlertSimulationMarker\(\)/);
   assert.doesNotMatch(focus, /createSeriesMarkers|shape:\s*"arrowDown"/);
+  assert.match(source, /hasEvidenceIndicatorTarget[\s\S]*alertEvidenceIndicatorTargets\.forEach[\s\S]*priceToCoordinate/);
+});
+
+test("alert view returns to its origin conversation and restores saved simulation instead of rendering a detail page", async () => {
+  const [renderer, ui, styles, market] = await Promise.all([rendererSource, alertUiSource, stylesSource, marketSource]);
+  assert.match(ui, /data-trading-alert-action="view"/);
+  assert.match(renderer, /action === "view" && alertId[\s\S]*openTradingAlertSourceConversation\(alertId\)/);
+  assert.match(renderer, /openTradingAlertSourceConversation[\s\S]*alert\.originThreadId[\s\S]*selectThread\(threadId\)/);
+  assert.match(renderer, /tradingAlertsGetSimulation\(\{ simulationId:[\s\S]*showTradingExpertAlertSimulation/);
+  assert.match(renderer, /allowHistorical: true, animate: false, focus: !evidence/);
+  assert.match(renderer, /focusTradingExpertAlertEvidence\(evidence, alert\.rule\)/);
+  assert.match(market, /options\.allowHistorical !== true[\s\S]*模拟 K 线时间锚点已过期/);
+  for (const removed of ["selectedAlertId", "selectedEvidenceId", "renderDetail", "view-evidence-chart"]) {
+    assert.doesNotMatch(ui, new RegExp(removed));
+  }
+  assert.doesNotMatch(styles, /\.trading-alert-detail|\.trading-alert-evidence/);
+  const confirmation = renderer.match(/if \(confirmsDraftCreation\)[\s\S]*?await persistTradingAlertCreationSuccessItem/)?.[0] || "";
+  assert.doesNotMatch(confirmation, /clearTradingExpertAlertSimulation\(\)/);
 });
 
 test("simulation series are isolated by market and interval and restore after returning", async () => {
@@ -269,6 +375,7 @@ test("simulation series are isolated by market and interval and restore after re
   assert.match(contextMatch, /state\.marketId === this\.loadedMarketId/);
   assert.match(contextMatch, /state\.interval === this\.loadedInterval/);
   assert.match(restart, /this\.detachAlertSimulation\(\)[\s\S]*await[\s\S]*this\.syncAlertSimulationForCurrentContext\(\)/);
+  assert.match(source, /expectedMarketId[\s\S]*模拟结果与当前 K 线图的交易对或周期不一致，已拒绝显示/);
   assert.doesNotMatch(source, /queueAlertSimulationLayout|alertSimulationLayoutFrame/);
 });
 
@@ -293,6 +400,9 @@ test("simulation overlay persists per Trading Expert task until the workflow res
     display: [
       { time: 1_800_000_000, open: 100, high: 103, low: 99, close: 102 },
       { time: 1_800_003_600, open: 102, high: 105, low: 101, close: 104 },
+    ],
+    history: [
+      { time: 1_799_996_400, open: 98, high: 101, low: 97, close: 100, volume: 12_000 },
     ],
     triggerIndex: 1,
     triggerTime: 1_800_003_200,
@@ -325,6 +435,7 @@ test("simulation overlay persists per Trading Expert task until the workflow res
   assert.match(show, /saveTradingAlertSimulationState\([\s\S]*window\.localStorage[\s\S]*this\.drawingStorageSessionId/);
   assert.match(source, /loadPersistedAlertSimulation\(\)[\s\S]*loadTradingAlertSimulationState/);
   assert.match(source, /attachAlertSimulationConditionAnnotations\(\)/);
+  assert.match(source, /state\.history\?\.length[\s\S]*alertSimulationHistorySeries/);
   assert.match(source, /detachAlertSimulationConditionAnnotations\(\)/);
   assert.match(source, /migrateTradingAlertSimulationState\([\s\S]*migrateFromSessionId[\s\S]*drawingStorageSessionId/);
   assert.match(clear, /clearTradingAlertSimulationState\(window\.localStorage, this\.drawingStorageSessionId\)/);
@@ -437,6 +548,37 @@ test("multi-condition simulation annotates every active condition and includes c
   assert.deepEqual(legacyAnnotations[0]?.conditionIds, ["line-high", "line-low"]);
 });
 
+test("main-chart indicator crosses anchor their annotation to the planner's exact intersection", async () => {
+  const { collectTradingAlertSimulationConditionAnnotations } = await import("../src/renderer/trading-expert-market.ts");
+  const rule = {
+    contexts: [{
+      contextId: "primary",
+      marketSelector: { kind: "fixed", marketIds: ["BINANCE:FUTURES:ETHUSDT"] },
+      intervals: ["1h"],
+    }],
+    root: { type: "condition", condition: {
+      conditionId: "ma-death-cross",
+      contextId: "primary",
+      operator: "cross_under",
+      left: { type: "indicator", name: "ma", params: { period: 5 } },
+      right: { type: "indicator", name: "ma", params: { period: 20 } },
+    } },
+  };
+  const simulation = { triggerPoints: [{
+    kind: "indicator",
+    contextId: "primary",
+    conditionId: "ma-death-cross",
+    conditionIds: ["ma-death-cross"],
+    time: 1_800_001_800_000,
+    price: 1_884.375,
+  }] };
+  const annotations = collectTradingAlertSimulationConditionAnnotations(rule, simulation, "primary");
+  assert.equal(annotations.length, 1);
+  assert.equal(annotations[0].label, "模拟触发 · MA5/MA20死叉");
+  assert.equal(annotations[0].time, 1_800_001_800 + 8 * 60 * 60);
+  assert.equal(annotations[0].price, 1_884.375);
+});
+
 test("future candles and all supported main/sub indicator paths animate on one verified trigger timeline", async () => {
   const [source, renderer, styles] = await Promise.all([marketSource, rendererSource, stylesSource]);
   assert.match(renderer, /showTradingExpertAlertSimulation\(simulated\.simulation, draft\.rule\.evaluationPolicy\.anchorContextId, draft\.rule\)/);
@@ -445,7 +587,8 @@ test("future candles and all supported main/sub indicator paths animate on one v
   for (const indicator of ["volume", "macd", "rsi", "kdj", "atr", "cci", "adx", "momentum", "roc"]) {
     assert.match(source, new RegExp(`TRADING_ALERT_SIMULATION_PANE_INDICATORS[\\s\\S]*?"${indicator}"`));
   }
-  assert.match(source, /alertSimulationCombinedCandles[\s\S]*\.\.\.this\.chartCandles[\s\S]*\.\.\.state\.display/);
+  assert.match(source, /alertSimulationCombinedCandles[\s\S]*simulationStart[\s\S]*this\.chartCandles\.filter\(\(candle\) => candle\.time < simulationStart\)[\s\S]*\.\.\.simulated/);
+  assert.match(source, /realCandleCount = Math\.max\(0, candles\.length - state\.display\.length\)/);
   assert.match(source, /calculateAlertSimulationIndicator[\s\S]*computeSma[\s\S]*computeEma[\s\S]*computeBollingerBands[\s\S]*calculateTradingIndicator/);
   assert.match(source, /updateAlertSimulationIndicatorsSafely\(animate \? 1 : state\.display\.length\)/);
   assert.match(source, /series\.setData\(stagedDisplay\(count\)\)[\s\S]*updateAlertSimulationIndicatorsSafely\(count\)/);
@@ -475,20 +618,152 @@ test("simulation indicator pane failures cannot suppress the main trigger marker
   assert.match(source, /simulation indicator update failed[^]*?detachAlertSimulationIndicators\(\)/);
 });
 
-test("alert cards expose lifecycle, gap, evidence and revision controls", async () => {
+test("alert cards expose lifecycle, gaps, source-conversation view and revision controls", async () => {
   const source = await alertUiSource;
   for (const token of ["monitoring", "triggered", "paused", "attention", "gap_detected", "reconnecting", "cooling_down"]) {
     assert.match(source, new RegExp(token));
   }
   assert.match(source, /监控空档/);
-  assert.match(source, /触发证据/);
   assert.match(source, /Revision/);
-  assert.match(source, /data-trading-alert-action="view-evidence-chart"/);
+  assert.match(source, /data-trading-alert-action="view"/);
   assert.match(source, /name="marketIds"/);
-  assert.match(source, /name="intervals"/);
-  assert.match(source, /相同交易对\/周期会共享行情连接/);
+  assert.match(source, /renderEditorSelect\("intervals"/);
+  assert.doesNotMatch(source, /当前约 .*逻辑监控组合|相同交易对\/周期会共享行情连接/);
   assert.match(source, /data-trading-alert-action="pause"|\? "pause" : "resume"/);
   assert.match(source, /data-trading-alert-action="delete"/);
+});
+
+test("alert editor hides the technical market scope and uses Haolo selects for visible dropdowns", async () => {
+  const state = createTradingAlertsUiState();
+  state.alerts = [{
+    alertId: "editor-selects",
+    status: "monitoring",
+    enabled: true,
+    rule: {
+      contexts: [{
+        contextId: "primary",
+        marketSelector: { kind: "fixed", marketIds: ["BINANCE:FUTURES:BTCUSDT"] },
+        intervals: ["4h"],
+      }],
+      evaluationPolicy: { anchorContextId: "primary", clock: "bar_close" },
+      triggerPolicy: { mode: "repeat" },
+    },
+  }];
+  state.editorAlertId = "editor-selects";
+  state.editorMarkets = [
+    { id: "BINANCE:FUTURES:BTCUSDT", provider: "binance", baseAsset: "BTC", displaySymbol: "BTC/USDT", venue: "币安", tag: "永续", markPrice: 63861.6, changePercent: .18, quoteAvailable: true },
+    { id: "BINANCE:FUTURES:ETHUSDT", provider: "binance", baseAsset: "ETH", displaySymbol: "ETH/USDT", venue: "币安", tag: "永续", markPrice: 1896.39, changePercent: .38, quoteAvailable: true },
+  ];
+  state.editorPeriodOptions = [
+    { value: "1m", label: "1分" },
+    { value: "4h", label: "4时" },
+  ];
+
+  const [renderer, styles] = await Promise.all([rendererSource, stylesSource]);
+  const html = renderTradingAlertsPage(state);
+  assert.equal((html.match(/data-trading-alert-select="/g) || []).length, 4);
+  assert.doesNotMatch(html, /<select\b/);
+  assert.doesNotMatch(html, /市场范围|指定交易对（可多选）|市场集合（确认时冻结）/);
+  assert.doesNotMatch(html, /当前约 .*逻辑监控组合|相同交易对\/周期会共享行情连接/);
+  assert.match(html, /<input type="hidden" name="selectorKind" value="fixed"/);
+  assert.doesNotMatch(html, /<input(?![^>]*type="hidden")[^>]*name="(?:marketIds|intervals)"/);
+  for (const name of ["marketIds", "intervals", "clock", "mode"]) {
+    assert.match(html, new RegExp(`data-trading-alert-select="${name}"[\\s\\S]*?<input type="hidden" name="${name}"`));
+  }
+  assert.match(html, /data-trading-alert-market-search[^>]*placeholder="搜索交易对"/);
+  assert.match(html, /BTC\/USDT[\s\S]*ETH\/USDT/);
+  assert.match(html, /data-trading-alert-select="intervals"[\s\S]*?data-trading-alert-select-value="1m"[\s\S]*?>1分<[\s\S]*?data-trading-alert-select-value="4h"[\s\S]*?>4时</);
+  assert.doesNotMatch(html, />1周<|>1日<|>5分<|>15分<|>1时</);
+  assert.match(html, /data-trading-alert-select-value="mixed"[^>]*>多个条件</);
+  assert.doesNotMatch(html, /按条件混合/);
+  assert.doesNotMatch(html, /修改会生成新 Revision/);
+  assert.match(html, /生成新预警/);
+  assert.doesNotMatch(html, /生成新 Revision/);
+  state.editorSelection = {
+    alertId: "editor-selects",
+    marketId: "BINANCE:FUTURES:ETHUSDT",
+    interval: "1h",
+    selectorKind: "fixed",
+    clock: "bar_close",
+    mode: "repeat",
+  };
+  state.editorPeriodOptions = [...state.editorPeriodOptions, { value: "1h", label: "1时" }];
+  state.editorMarketsLoading = true;
+  const rerenderedHtml = renderTradingAlertsPage(state);
+  assert.match(rerenderedHtml, /name="marketIds" value="BINANCE:FUTURES:ETHUSDT"/);
+  assert.match(rerenderedHtml, /trading-alert-editor-market-value[^>]*>ETH\/USDT · 币安 · 永续</);
+  assert.match(rerenderedHtml, /name="intervals" value="1h"/);
+  assert.match(rerenderedHtml, /trading-alert-editor-intervals-value[^>]*>1时</);
+  state.busyAlertId = "editor-selects";
+  const busyHtml = renderTradingAlertsPage(state);
+  assert.match(busyHtml, /data-trading-alert-editor-form[^>]*aria-busy="true"/);
+  assert.match(busyHtml, /button type="submit" class="primary" disabled>正在生成…<\/button>/);
+  assert.match(html, /class="video-expert-select trading-alert-select/);
+  assert.match(html, /class="video-expert-select-menu trading-alert-select-menu"[^>]*role="listbox"/);
+  assert.match(html, /role="option" aria-selected="true" tabindex="-1"/);
+  assert.match(html, /data-trading-alert-select="mode"[^>]*opens-above|trading-alert-select opens-above[^>]*data-trading-alert-select="mode"/);
+  const binding = renderer.match(/function bindTradingAlertEditorSelects\(\)[\s\S]*?\n}\n\nfunction bindEvents/)?.[0] || "";
+  assert.match(binding, /aria-expanded/);
+  assert.match(binding, /input\.value = value/);
+  assert.match(binding, /aria-selected/);
+  assert.match(binding, /ArrowDown/);
+  assert.match(binding, /refreshMarketOptions/);
+  assert.match(renderer, /function syncTradingAlertEditorPeriods[\s\S]*loadTradingPeriodsFromStorage\(window\.localStorage\)/);
+  assert.match(renderer, /function ensureTradingAlertEditorMarkets[\s\S]*fetchTradingMarkets/);
+  assert.match(renderer, /const tradingAlertRevisionSubmissions = new Set<string>\(\)/);
+  assert.match(renderer, /tradingAlertRevisionSubmissions\.has\(alertId\)/);
+  assert.match(renderer, /selection\.marketId = value\.trim\(\)\.toUpperCase\(\)/);
+  assert.match(renderer, /selection\.interval = value\.trim\(\)\.toLowerCase\(\)/);
+  assert.match(renderer, /marketIds: requested\.marketId[\s\S]*intervals: requested\.interval/);
+  assert.match(renderer, /revisedMarketId !== requested\.marketId \|\| revisedInterval !== requested\.interval/);
+  assert.match(renderer, /anchorFrame[\s\S]*模拟行情与本次编辑设置不一致，已停止模拟/);
+  assert.match(renderer, /submitButton\.disabled = true[\s\S]*submitButton\.textContent = "正在生成…"/);
+  assert.match(renderer, /allowTradingAlertRevisionBusyStateToPaint\(\)/);
+  assert.match(renderer, /tradingAlertRevisionSubmissions\.delete\(alertId\)/);
+  assert.match(styles, /\.trading-alert-select > \.video-expert-select-button/);
+  assert.match(styles, /\.trading-alert-select\.open > \.video-expert-select-button/);
+  assert.match(styles, /\.trading-alert-editor input:not\(\[type="hidden"\]\):focus-visible\s*\{[^}]*outline:\s*0;[^}]*box-shadow:\s*none;/s);
+  assert.match(styles, /\.trading-alert-select > \.video-expert-select-button:focus-visible,[^{]*html\[data-theme="dark"\] \.trading-alert-editor\[open\] \.trading-alert-select > \.video-expert-select-button:focus-visible\s*\{[^}]*outline:\s*0;[^}]*box-shadow:\s*none;/s);
+  assert.match(styles, /\.trading-alert-select\.open > \.video-expert-select-button,[^{]*html\[data-theme="dark"\] \.trading-alert-editor\[open\] \.trading-alert-select\.open > \.video-expert-select-button\s*\{[^}]*border-color:\s*var\(--line-strong\);[^}]*box-shadow:\s*none;/s);
+  assert.match(styles, /\.trading-alert-select-menu button:focus-visible,[^{]*html\[data-theme="dark"\] \.trading-alert-editor\[open\] \.trading-alert-select-menu button:focus-visible\s*\{[^}]*outline:\s*0;[^}]*box-shadow:\s*none;/s);
+  assert.match(styles, /\.trading-alert-select-menu\[hidden\]/);
+  assert.match(styles, /\.trading-alert-market-menu\s*\{/);
+  assert.match(styles, /\.trading-alert-market-option\.selected/);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-alert-market-menu/);
+  assert.match(styles, /\.trading-alert-editor > header\s*\{[^}]*padding:\s*18px 20px 0;[^}]*\}/s);
+  assert.doesNotMatch(styles, /\.trading-alert-editor > header\s*\{[^}]*border-bottom/s);
+  assert.match(styles, /\.trading-alert-editor form footer \.primary\s*\{[^}]*background:\s*var\(--text-primary\);[^}]*color:\s*var\(--surface-primary\);/s);
+  assert.match(styles, /\.trading-alert-editor form footer \.primary:disabled/);
+  assert.match(styles, /html\[data-theme="dark"\] dialog\.trading-alert-editor\[open\] form footer button\.primary:not\(:disabled\)\s*\{[^}]*background:\s*var\(--text-primary\);[^}]*color:\s*var\(--surface-primary\);[^}]*box-shadow:\s*none;/s);
+  assert.match(styles, /html\[data-theme="dark"\][\s\S]*\.video-expert-select-menu/);
+  assert.match(styles, /html\[data-theme="dark"\][\s\S]*\[role="listbox"\][\s\S]*\[role="option"\]/);
+});
+
+test("alerts containing drawing contexts cannot open the generic revision editor", () => {
+  const state = createTradingAlertsUiState();
+  state.alerts = [{
+    alertId: "drawing-context-editor-locked",
+    status: "monitoring",
+    enabled: true,
+    rule: {
+      contexts: [
+        { contextId: "primary", marketSelector: { kind: "fixed", marketIds: ["BINANCE:FUTURES:ETHUSDT"] }, intervals: ["1h"] },
+        {
+          contextId: "trend_line_1",
+          marketSelector: { kind: "fixed", marketIds: ["BINANCE:FUTURES:BTCUSDT"] },
+          intervals: ["4h"],
+          drawingBinding: { drawingId: "line-1", marketId: "BINANCE:FUTURES:BTCUSDT", interval: "4h" },
+        },
+      ],
+      evaluationPolicy: { anchorContextId: "primary", clock: "mixed" },
+      triggerPolicy: { mode: "once" },
+    },
+  }];
+  state.editorAlertId = "drawing-context-editor-locked";
+
+  const html = renderTradingAlertsPage(state);
+  assert.match(html, /data-trading-alert-action="edit"[^>]*disabled[^>]*title="含画线条件的预警不能迁移，请回到原 K 线图操作"/);
+  assert.doesNotMatch(html, /data-trading-alert-editor-form/);
 });
 
 test("alert list starts directly with filters without a create action or status chrome", async () => {
@@ -505,29 +780,30 @@ test("alert list starts directly with filters without a create action or status 
 
 test("empty alert state is reduced to one small status line", async () => {
   const [source, styles] = await Promise.all([alertUiSource, stylesSource]);
-  assert.match(source, /<section class="trading-alert-empty"><p>\$\{state\.filter === "draft" \? "还没有草稿" : state\.filter === "all" \? "还没有智能预警" : "当前筛选下没有预警"\}<\/p><\/section>/);
+  assert.match(source, /<section class="trading-alert-empty"><p>当前筛选下没有预警<\/p><\/section>/);
   assert.doesNotMatch(source, /class="trading-alert-empty"><div aria-hidden="true">⏰/);
   assert.doesNotMatch(source, /前往交易专家创建|在交易专家会话中输入/);
   assert.match(styles, /\.trading-alert-empty p\s*\{[^}]*font-size:\s*calc\(12px \+ var\(--app-font-size-offset\)\);/s);
   assert.doesNotMatch(styles, /\.trading-alert-empty(?:\s*>)?\s+(?:div|h2)/);
 });
 
-test("active drafts render as cards in all and in a dedicated draft filter", async () => {
+test("alerts default to monitoring and expose no unconfirmed filter", async () => {
   const [source, renderer, styles] = await Promise.all([alertUiSource, rendererSource, stylesSource]);
-  assert.match(source, /TradingAlertFilter = [^;]+\| "draft"/);
-  assert.match(source, /const drafts = \["all", "draft"\]\.includes\(state\.filter\) \? activeDrafts : \[\]/);
-  assert.match(source, /all: state\.alerts\.length \+ activeDrafts\.length/);
-  assert.match(source, /draft: activeDrafts\.length/);
-  assert.match(source, /\["attention", "需处理"\], \["draft", "草稿"\]/);
-  assert.match(source, /trading-alert-card-grid[^`]+alerts\.map[^`]+drafts\.map\(renderDraftCard\)/s);
-  assert.doesNotMatch(source, /trading-alert-drafts|待完成的草稿/);
-  assert.match(renderer, /"attention", "draft"/);
-  assert.doesNotMatch(styles, /\.trading-alert-drafts/);
+  assert.match(source, /TradingAlertFilter = "monitoring" \| "triggered" \| "paused"/);
+  assert.match(source, /filter: "monitoring"/);
+  assert.match(source, /\["monitoring", "监控中"\], \["triggered", "已触发"\]/);
+  assert.doesNotMatch(source, /\["all", "全部"\]/);
+  assert.doesNotMatch(source, /\["attention", "需处理"\]/);
+  assert.doesNotMatch(source, /drafts|renderDraft|\["draft", "草稿"\]/);
+  assert.match(renderer, /"monitoring", "triggered", "paused"/);
+  assert.doesNotMatch(renderer, /"all", "monitoring"/);
+  assert.doesNotMatch(renderer, /"paused", "draft"/);
+  assert.doesNotMatch(styles, /\.trading-alert-draft/);
   assert.match(styles, /\.trading-alert-actions button:hover/);
   assert.match(styles, /\.trading-alert-actions button:active/);
 });
 
-test("all alert cards are ordered by lifecycle with drafts last", () => {
+test("the initial alert list contains only monitoring lifecycle cards", () => {
   const state = createTradingAlertsUiState();
   state.loaded = true;
   state.alerts = [
@@ -540,32 +816,25 @@ test("all alert cards are ordered by lifecycle with drafts last", () => {
     { alertId: "monitoring-arming", status: "arming" },
     { alertId: "monitoring", status: "monitoring" },
   ];
-  state.drafts = [{ draftId: "draft", status: "awaiting_confirmation" }];
-
   const html = renderTradingAlertsPage(state);
-  const cardIds = [...html.matchAll(/data-trading-alert-(?:card|draft-card)="([^"]+)"/g)].map((match) => match[1]);
+  const cardIds = [...html.matchAll(/data-trading-alert-card="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(cardIds, [
     "monitoring-cooling",
     "monitoring-arming",
     "monitoring",
-    "triggered-completed",
-    "triggered",
-    "paused",
-    "attention-reconnecting",
-    "attention-failed",
-    "draft",
   ]);
 });
 
-test("alert and draft cards mirror the compact installed-skill card layout", async () => {
+test("alert cards mirror the compact installed-skill card layout", async () => {
   const [source, styles] = await Promise.all([alertUiSource, stylesSource]);
-  assert.match(source, /class="trading-alert-card trading-alert-draft-card"/);
+  assert.doesNotMatch(source, /trading-alert-draft/);
   assert.doesNotMatch(source, /trading-alert-(?:card-icon|draft-icon|card-title-row)|⏰/);
   assert.match(source, /class="trading-alert-card-copy"/);
   assert.match(styles, /\.trading-alert-card-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 320px\)\);[^}]*gap:\s*20px;/s);
-  assert.match(styles, /\.trading-alert-card\s*\{[^}]*min-height:\s*88px;[^}]*grid-template-columns:\s*minmax\(0, 1fr\);[^}]*gap:\s*0;[^}]*border-radius:\s*8px;[^}]*padding:\s*14px 16px;/s);
+  assert.match(styles, /\.trading-alert-card\s*\{[^}]*min-height:\s*106px;[^}]*grid-template-columns:\s*minmax\(0, 1fr\);[^}]*gap:\s*0;[^}]*border-radius:\s*8px;[^}]*padding:\s*14px 16px;/s);
   assert.doesNotMatch(styles, /\.trading-alert-(?:card-icon|draft-icon|card-title-row)/);
-  assert.match(styles, /\.trading-alert-card-copy p\s*\{[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/s);
+  assert.match(styles, /\.trading-alert-card-copy p\s*\{[^}]*display:\s*-webkit-box;[^}]*min-height:\s*36px;[^}]*line-height:\s*18px;[^}]*white-space:\s*normal;[^}]*-webkit-box-orient:\s*vertical;[^}]*-webkit-line-clamp:\s*2;/s);
+  assert.doesNotMatch(styles, /\.trading-alert-card-copy p\s*\{[^}]*white-space:\s*nowrap;/s);
   assert.match(styles, /@media \(max-width: 980px\)[^}]+repeat\(2, minmax\(0, 320px\)\)/s);
   assert.match(styles, /@media \(max-width: 660px\)[^}]+minmax\(0, 1fr\)/s);
 });

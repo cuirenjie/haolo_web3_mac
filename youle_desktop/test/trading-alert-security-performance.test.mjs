@@ -18,10 +18,12 @@ test("IPC handlers authenticate the sender and renderer cannot invoke raw rule e
   const main = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
   const preload = await readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8");
   assert.match(main, /async function tradingAlertIpcCall[\s\S]*assertExternalModelsIpcSender\(event\)/);
+  assert.match(main, /ipcMain\.handle\("tradingAlerts:getSimulation"[\s\S]*tradingAlertIpcCall\(event, "getSimulation", params\)/);
   assert.match(main, /tradingAlerts:marketSubscribe[\s\S]*assertExternalModelsIpcSender\(event\)/);
   assert.match(main, /const openContext = \{[^}]*evidenceId:[^}]*\}[\s\S]*sendToRenderer\("tradingAlerts:triggered"[\s\S]*\.\.\.openContext/);
   assert.doesNotMatch(preload, /tradingAlertsEvaluate|evaluateRule|appendEvidence/);
   assert.doesNotMatch(preload, /apiKey.*tradingAlerts|privateKey.*tradingAlerts/iu);
+  assert.match(preload, /tradingAlertsGetSimulation: \(params\) => ipcRenderer\.invoke\("tradingAlerts:getSimulation", params\)/);
   assert.match(preload, /onTradingAlertTriggered/);
 });
 

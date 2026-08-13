@@ -134,6 +134,22 @@ test("complex MA5/MA20 death cross and MACD zero-axis cross are solved together"
   assert.equal(simulation.proof.triggered, true);
   assert.deepEqual(simulation.proof.trace.map((entry) => entry.conditionId), ["ma_cross", "macd_zero"]);
   assert.ok(simulation.proof.trace.every((entry) => entry.value === true));
+  const point = simulation.triggerPoints.find((entry) => entry.conditionId === "ma_cross");
+  assert.equal(point?.kind, "indicator");
+  const trace = simulation.proof.trace.find((entry) => entry.conditionId === "ma_cross");
+  const triggerCandle = simulation.generated.primary[simulation.triggerBarIndex];
+  const previousCandle = simulation.triggerBarIndex > 0
+    ? simulation.generated.primary[simulation.triggerBarIndex - 1]
+    : frames(values).primary.candles.at(-1);
+  const previousDifference = trace.previousLeft - trace.previousRight;
+  const currentDifference = trace.left - trace.right;
+  const progress = -previousDifference / (currentDifference - previousDifference);
+  const expectedTime = previousCandle.time + (triggerCandle.time - previousCandle.time) * progress;
+  const expectedLeft = trace.previousLeft + (trace.left - trace.previousLeft) * progress;
+  const expectedRight = trace.previousRight + (trace.right - trace.previousRight) * progress;
+  assert.ok(Math.abs(point.time - expectedTime) < 1e-6);
+  assert.ok(Math.abs(point.price - (expectedLeft + expectedRight) / 2) < 1e-9);
+  assert.ok(point.time >= previousCandle.time && point.time <= triggerCandle.time);
 });
 
 test("drawing touch is solved from exact bound line geometry", async () => {

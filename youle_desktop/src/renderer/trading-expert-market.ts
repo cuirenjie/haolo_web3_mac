@@ -710,6 +710,17 @@ export function normalizeTradingPeriods(value: unknown): TradingPeriod[] {
     : DEFAULT_TRADING_PERIODS.map((period) => ({ ...period }));
 }
 
+export function loadTradingPeriodsFromStorage(storage: Pick<Storage, "getItem">) {
+  try {
+    const saved = storage.getItem(TRADING_PERIODS_STORAGE_KEY);
+    return saved
+      ? normalizeTradingPeriods(JSON.parse(saved))
+      : cloneTradingPeriods(DEFAULT_TRADING_PERIODS);
+  } catch {
+    return cloneTradingPeriods(DEFAULT_TRADING_PERIODS);
+  }
+}
+
 export function normalizeTradingFavoriteSymbols(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const symbols = new Set<string>();
@@ -993,6 +1004,15 @@ function simulationIndicatorTriggerLabel(condition: any) {
     touch: "触碰",
   };
   return `${left}${operatorLabel[String(condition?.operator)] || "满足"}${right}`;
+}
+
+function tradingAlertExpressionContainsIndicatorOrVolume(expression: any): boolean {
+  if (!expression || typeof expression !== "object") return false;
+  if (expression.type === "indicator") return true;
+  if (expression.type === "field" && expression.field === "volume") return true;
+  if (expression.expr && tradingAlertExpressionContainsIndicatorOrVolume(expression.expr)) return true;
+  return (Array.isArray(expression.args) ? expression.args : [])
+    .some(tradingAlertExpressionContainsIndicatorOrVolume);
 }
 
 /**
@@ -1325,6 +1345,30 @@ function normalizeTradingAlertSimulationState(value: unknown): TradingAlertSimul
     || candle.low > Math.min(candle.open, candle.close)
     || (index > 0 && Number(candle.time) <= Number(display[index - 1].time))
   ))) return null;
+  const history = Array.isArray(candidate.history)
+    ? candidate.history.slice(-500).map((rawCandle) => {
+        const candle = rawCandle as Partial<TradingAlertSimulationCandle>;
+        return {
+          time: Math.trunc(Number(candle?.time)) as UTCTimestamp,
+          open: Number(candle?.open),
+          high: Number(candle?.high),
+          low: Number(candle?.low),
+          close: Number(candle?.close),
+          ...(Number.isFinite(Number(candle?.volume)) && Number(candle?.volume) >= 0
+            ? { volume: Number(candle?.volume) }
+            : {}),
+        };
+      })
+    : [];
+  if (history.some((candle, index) => (
+    !Number.isFinite(Number(candle.time))
+    || Number(candle.time) <= 0
+    || Number(candle.time) >= Number(display[0].time)
+    || [candle.open, candle.high, candle.low, candle.close].some((price) => !Number.isFinite(price) || price <= 0)
+    || candle.high < Math.max(candle.open, candle.close)
+    || candle.low > Math.min(candle.open, candle.close)
+    || (index > 0 && Number(candle.time) <= Number(history[index - 1].time))
+  ))) return null;
   const triggerIndex = Number(candidate.triggerIndex);
   const triggerTime = candidate.triggerTime === null ? null : Number(candidate.triggerTime);
   const triggerPrice = candidate.triggerPrice === null ? null : Number(candidate.triggerPrice);
@@ -1345,6 +1389,7 @@ function normalizeTradingAlertSimulationState(value: unknown): TradingAlertSimul
     marketId,
     interval,
     display,
+    ...(history.length ? { history } : {}),
     triggerIndex,
     triggerTime,
     triggerPrice,
@@ -2117,6 +2162,7 @@ export interface TradingAlertSimulationState {
   marketId: string;
   interval: string;
   display: TradingAlertSimulationCandle[];
+  history?: TradingAlertSimulationCandle[];
   triggerIndex: number;
   triggerTime: number | null;
   triggerPrice: number | null;
@@ -2125,6 +2171,12 @@ export interface TradingAlertSimulationState {
   indicators?: TradingAlertSimulationIndicatorSpec[];
   conditionAnnotations?: TradingAlertSimulationConditionAnnotationSpec[];
   market?: TradingFavoriteMarketRecord;
+}
+
+export interface TradingAlertSimulationShowOptions {
+  allowHistorical?: boolean;
+  animate?: boolean;
+  focus?: boolean;
 }
 
 export interface TradingFavoritesStorageSnapshot {
@@ -2290,6 +2342,14 @@ interface TradingAlertSimulationIndicatorRuntime {
   legend: HTMLElement | null;
   series: TradingAlertSimulationIndicatorSeriesRuntime[];
   historicalDisplayEnd: number;
+}
+
+interface TradingAlertEvidenceIndicatorTarget {
+  element: HTMLElement;
+  pane: any | null;
+  series: any;
+  time: number;
+  value: number;
 }
 
 export interface TdSequentialSignal {
@@ -3682,9 +3742,12 @@ class TradingExpertMarketWorkspace {
   private chartSettingsAnchor: HTMLElement | null = null;
   private chart: ReturnType<typeof createChart> | null = null;
   private candleSeries: any = null;
+  private alertSimulationHistorySeries: any = null;
   private alertSimulationSeries: any = null;
+  private alertEvidenceCandleSeries: any = null;
   private alertEvidenceAnnotation: HTMLElement | null = null;
-  private alertEvidencePoint: { time: number; price: number } | null = null;
+  private alertEvidencePoint: { time: number; price: number; series?: any } | null = null;
+  private alertEvidenceIndicatorTargets: TradingAlertEvidenceIndicatorTarget[] = [];
   private alertSimulationId = "";
   private alertSimulationState: TradingAlertSimulationState | null = null;
   private alertSimulationIndicatorRuntimes: TradingAlertSimulationIndicatorRuntime[] = [];
@@ -5142,14 +5205,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private loadTradingPeriods() {
-    try {
-      const saved = window.localStorage.getItem(TRADING_PERIODS_STORAGE_KEY);
-      return saved
-        ? normalizeTradingPeriods(JSON.parse(saved))
-        : cloneTradingPeriods(DEFAULT_TRADING_PERIODS);
-    } catch {
-      return cloneTradingPeriods(DEFAULT_TRADING_PERIODS);
-    }
+    return loadTradingPeriodsFromStorage(window.localStorage);
   }
 
   private loadIndicatorSettings() {
@@ -6949,15 +7005,101 @@ class TradingExpertMarketWorkspace {
     return this.alertContextSnapshot();
   }
 
-  focusAlertEvidence(triggeredAt: number) {
+  focusAlertEvidence(evidence: any, rule?: any) {
     if (!this.chart || !this.candleSeries || !this.candles.length) throw new Error("触发 K 线尚未加载");
-    const target = Math.floor(Number(triggeredAt) / 1_000);
+    const evidenceContexts = Array.isArray(evidence?.contexts) ? evidence.contexts : [];
+    const matchingContext = evidenceContexts.find((context: any) => (
+      String(context?.marketId || "").toUpperCase() === String(this.loadedMarketId || this.selectedMarketId).toUpperCase()
+      && tradingResolutionFromAlertInterval(context?.interval) === this.loadedInterval
+    )) || evidenceContexts[0] || null;
+    const triggeredAt = Number(matchingContext?.eventTime || evidence?.triggeredAt);
+    if (!Number.isFinite(triggeredAt) || triggeredAt <= 0) throw new Error("触发时间无效");
+    const target = Math.floor(triggeredAt / 1_000);
     const nearest = this.candles.reduce((best, candle) => Math.abs(candle.time - target) < Math.abs(best.time - target) ? candle : best, this.candles[0]);
     const step = Number(tradingViewResolutionDurationMs(this.activeInterval) || 3_600_000) / 1_000;
-    const displayTime = nearest.time + CHINA_TIME_OFFSET_SECONDS;
+    const evidenceCandle = matchingContext?.candle;
+    const evidenceCandleTime = Math.floor(Number(evidenceCandle?.time) / 1_000);
+    const hasEvidenceCandle = Number.isFinite(evidenceCandleTime)
+      && evidenceCandleTime > 0
+      && [evidenceCandle?.open, evidenceCandle?.high, evidenceCandle?.low, evidenceCandle?.close]
+        .every((price) => Number.isFinite(Number(price)) && Number(price) > 0);
+    const displayTime = (hasEvidenceCandle ? evidenceCandleTime : nearest.time) + CHINA_TIME_OFFSET_SECONDS;
+    this.clearAlertEvidenceCandleSeries();
+    if (hasEvidenceCandle) {
+      this.alertEvidenceCandleSeries = this.chart.addSeries(CandlestickSeries, {
+        priceLineVisible: false,
+        lastValueVisible: false,
+        upColor: this.chartSettings.hollowRising ? "rgba(0,0,0,0)" : this.chartSettings.risingColor,
+        downColor: this.chartSettings.fallingColor,
+        borderVisible: this.chartSettings.showCandleBorder,
+        borderUpColor: this.chartSettings.risingColor,
+        borderDownColor: this.chartSettings.fallingColor,
+        wickVisible: this.chartSettings.showWicks,
+        wickUpColor: this.chartSettings.risingColor,
+        wickDownColor: this.chartSettings.fallingColor,
+      });
+      this.alertEvidenceCandleSeries.setData([{
+        time: displayTime as UTCTimestamp,
+        open: Number(evidenceCandle.open),
+        high: Number(evidenceCandle.high),
+        low: Number(evidenceCandle.low),
+        close: Number(evidenceCandle.close),
+      }]);
+    }
     this.chart.timeScale().setVisibleRange({ from: (displayTime - step * 20) as any, to: (displayTime + step * 8) as any });
-    this.alertEvidenceAnnotation ||= this.createAlertSimulationAnnotation("预警真实触发", "alert-evidence");
-    this.alertEvidencePoint = { time: displayTime, price: nearest.high };
+    this.alertEvidenceAnnotation ||= this.createAlertSimulationAnnotation("预警已触发", "alert-evidence");
+    this.alertEvidencePoint = {
+      time: displayTime,
+      price: hasEvidenceCandle ? Number(evidenceCandle.high) : nearest.high,
+      ...(this.alertEvidenceCandleSeries ? { series: this.alertEvidenceCandleSeries } : {}),
+    };
+    this.clearAlertEvidenceIndicatorTargets();
+    const conditions = new Map<string, any>(tradingAlertSimulationLeafConditions(rule?.root)
+      .map((condition: any) => [String(condition?.conditionId || ""), condition]));
+    const results = new Map<string, any>((Array.isArray(evidence?.conditionResults) ? evidence.conditionResults : [])
+      .filter((result: any) => result?.result === true)
+      .map((result: any) => [String(result?.conditionId || ""), result]));
+    this.alertSimulationIndicatorRuntimes
+      .filter((runtime) => runtime.pane)
+      .forEach((runtime) => {
+        const conditionId = runtime.spec.conditionIds.find((id) => results.has(String(id)));
+        const condition = conditions.get(String(conditionId || ""));
+        const result = results.get(String(conditionId || ""));
+        if (!condition || !result) return;
+        const value = tradingAlertExpressionContainsIndicatorOrVolume(condition.left)
+          ? Number(result.currentValues?.left)
+          : tradingAlertExpressionContainsIndicatorOrVolume(condition.right)
+            ? Number(result.currentValues?.right)
+            : Number.NaN;
+        if (!Number.isFinite(value)) return;
+        let series: any = null;
+        try {
+          series = runtime.pane.addSeries(LineSeries, {
+            color: "rgba(0, 0, 0, 0)",
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+            title: "",
+          });
+          series.setData([{ time: displayTime as UTCTimestamp, value }]);
+          this.alertEvidenceIndicatorTargets.push({
+            element: this.createAlertSimulationAnnotation(
+              `已触发 · ${simulationIndicatorTriggerLabel(condition)}`,
+              `alert-evidence:${conditionId}:${runtime.spec.specId}`,
+            ),
+            pane: runtime.pane,
+            series,
+            time: displayTime,
+            value,
+          });
+        } catch (error) {
+          if (series) {
+            try { this.removeAlertSimulationSeries(series); } catch { /* best-effort rollback */ }
+          }
+          console.error("[trading-alert] evidence indicator marker failed", error);
+        }
+      });
     window.requestAnimationFrame(() => this.paintAlertSimulationMarker());
     return true;
   }
@@ -7012,8 +7154,19 @@ class TradingExpertMarketWorkspace {
     return frames;
   }
 
-  showAlertSimulation(simulation: any, anchorContextId: string, rule?: any) {
+  showAlertSimulation(
+    simulation: any,
+    anchorContextId: string,
+    rule?: any,
+    options: TradingAlertSimulationShowOptions = {},
+  ) {
     if (!this.chart) throw new Error("K 线画布尚未就绪");
+    const expectedMarketId = String(simulation?.visualization?.marketId || "").toUpperCase();
+    const expectedInterval = String(simulation?.visualization?.interval || "").toLowerCase();
+    if (
+      (expectedMarketId && expectedMarketId !== String(this.loadedMarketId || "").toUpperCase())
+      || (expectedInterval && tradingResolutionFromAlertInterval(expectedInterval) !== this.loadedInterval)
+    ) throw new Error("模拟结果与当前 K 线图的交易对或周期不一致，已拒绝显示");
     const generated = Array.isArray(simulation?.generated?.[anchorContextId])
       ? simulation.generated[anchorContextId]
       : [];
@@ -7029,8 +7182,31 @@ class TradingExpertMarketWorkspace {
         ? { volume: Number(candle.volume) }
         : {}),
     }));
+    const history: TradingAlertSimulationCandle[] = (Array.isArray(simulation?.visualization?.candles)
+      ? simulation.visualization.candles
+      : []).flatMap((candle: any): TradingAlertSimulationCandle[] => {
+      const normalized = {
+        time: (Math.floor(Number(candle.time) / 1_000) + CHINA_TIME_OFFSET_SECONDS) as UTCTimestamp,
+        open: Number(candle.open),
+        high: Number(candle.high),
+        low: Number(candle.low),
+        close: Number(candle.close),
+        ...(Number.isFinite(Number(candle.volume)) && Number(candle.volume) >= 0
+          ? { volume: Number(candle.volume) }
+          : {}),
+      };
+      if (
+        !Number.isFinite(Number(normalized.time))
+        || Number(normalized.time) <= 0
+        || Number(normalized.time) >= Number(display[0]?.time || 0)
+        || [normalized.open, normalized.high, normalized.low, normalized.close].some((price) => !Number.isFinite(price) || price <= 0)
+        || normalized.high < Math.max(normalized.open, normalized.close)
+        || normalized.low > Math.min(normalized.open, normalized.close)
+      ) return [];
+      return [normalized];
+    }).slice(-500);
     const latestRealDisplayTime = Number(this.chartCandles.at(-1)?.time || 0) + CHINA_TIME_OFFSET_SECONDS;
-    if (Number(display[0]?.time || 0) <= latestRealDisplayTime) {
+    if (options.allowHistorical !== true && Number(display[0]?.time || 0) <= latestRealDisplayTime) {
       throw new Error("模拟 K 线时间锚点已过期，请基于最新行情重新模拟");
     }
     const triggerIndex = Math.max(0, Math.min(display.length - 1, Number(simulation.triggerBarIndex ?? display.length - 1)));
@@ -7052,6 +7228,8 @@ class TradingExpertMarketWorkspace {
     const normalLogicalRange = this.alertSimulationPreviousLogicalRange
       || this.chart.timeScale().getVisibleLogicalRange();
     this.clearAlertSimulation({ restoreViewport: false });
+    this.alertEvidencePoint = null;
+    if (this.alertEvidenceAnnotation) this.alertEvidenceAnnotation.hidden = true;
     this.alertSimulationPreviousLogicalRange = normalLogicalRange
       ? { from: Number(normalLogicalRange.from), to: Number(normalLogicalRange.to) }
       : null;
@@ -7072,6 +7250,7 @@ class TradingExpertMarketWorkspace {
       marketId: this.loadedMarketId,
       interval: this.loadedInterval,
       display,
+      ...(history.length ? { history } : {}),
       triggerIndex,
       triggerTime,
       triggerPrice,
@@ -7087,7 +7266,10 @@ class TradingExpertMarketWorkspace {
       this.alertSimulationState,
     );
     try {
-      this.attachAlertSimulation({ animate: true, focus: true });
+      this.attachAlertSimulation({
+        animate: options.animate ?? true,
+        focus: options.focus ?? true,
+      });
     } catch (error) {
       // The simulation overlay is transactional: a partially attached series
       // must never replace the real historical candles after a render failure.
@@ -7199,6 +7381,22 @@ class TradingExpertMarketWorkspace {
     const simulationColors = isDarkTheme()
       ? { up: "rgba(91, 156, 255, 0.72)", down: "rgba(255, 173, 66, 0.74)", upBorder: "#7eb2ff", downBorder: "#ffc06b" }
       : { up: "rgba(29, 78, 216, 0.62)", down: "rgba(180, 83, 9, 0.66)", upBorder: "#1d4ed8", downBorder: "#b45309" };
+    if (state.history?.length) {
+      const historySeries = this.chart.addSeries(CandlestickSeries, {
+        priceLineVisible: false,
+        lastValueVisible: false,
+        upColor: this.chartSettings.hollowRising ? "rgba(0,0,0,0)" : this.chartSettings.risingColor,
+        downColor: this.chartSettings.fallingColor,
+        borderVisible: this.chartSettings.showCandleBorder,
+        borderUpColor: this.chartSettings.risingColor,
+        borderDownColor: this.chartSettings.fallingColor,
+        wickVisible: this.chartSettings.showWicks,
+        wickUpColor: this.chartSettings.risingColor,
+        wickDownColor: this.chartSettings.fallingColor,
+      });
+      historySeries.setData(state.history);
+      this.alertSimulationHistorySeries = historySeries;
+    }
     const series = this.chart.addSeries(CandlestickSeries, {
       priceLineVisible: false,
       lastValueVisible: false,
@@ -7265,16 +7463,28 @@ class TradingExpertMarketWorkspace {
   }
 
   private alertSimulationCombinedCandles(state: TradingAlertSimulationState) {
+    const simulated = state.display.map((candle) => ({
+      time: Number(candle.time) - CHINA_TIME_OFFSET_SECONDS,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volume: Number(candle.volume || 0),
+    }));
+    const simulationStart = Number(simulated[0]?.time || Number.POSITIVE_INFINITY);
+    const historical = state.history?.length
+      ? state.history.map((candle) => ({
+          time: Number(candle.time) - CHINA_TIME_OFFSET_SECONDS,
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          volume: Number(candle.volume || 0),
+        }))
+      : this.chartCandles.filter((candle) => candle.time < simulationStart);
     return [
-      ...this.chartCandles,
-      ...state.display.map((candle) => ({
-        time: Number(candle.time) - CHINA_TIME_OFFSET_SECONDS,
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
-        volume: Number(candle.volume || 0),
-      })),
+      ...historical,
+      ...simulated,
     ];
   }
 
@@ -7333,8 +7543,8 @@ class TradingExpertMarketWorkspace {
     const state = this.alertSimulationState;
     if (!this.chart || !state?.indicators?.length || this.alertSimulationIndicatorRuntimes.length) return;
     const candles = this.alertSimulationCombinedCandles(state);
-    const realCandleCount = this.chartCandles.length;
-    const historicalDisplayEnd = Number(this.chartCandles.at(-1)?.time || 0) + CHINA_TIME_OFFSET_SECONDS;
+    const realCandleCount = Math.max(0, candles.length - state.display.length);
+    const historicalDisplayEnd = Number(candles[realCandleCount - 1]?.time || 0) + CHINA_TIME_OFFSET_SECONDS;
     const markerLabels = new Set<string>();
     state.indicators.forEach((spec, specIndex) => {
       const result = this.calculateAlertSimulationIndicator(spec, candles, specIndex * 2);
@@ -7565,6 +7775,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private detachAlertSimulationIndicators() {
+    this.clearAlertEvidenceIndicatorTargets();
     if (!this.alertSimulationIndicatorRuntimes.length) return;
     const runtimes = this.alertSimulationIndicatorRuntimes.splice(0);
     const panes = [...new Set(runtimes.flatMap((runtime) => runtime.pane ? [runtime.pane] : []))];
@@ -7596,6 +7807,30 @@ class TradingExpertMarketWorkspace {
     });
     this.chart?.panes()[0]?.setStretchFactor(hasVisibleIndicators ? 3 : 1);
     this.positionIndicatorLegends();
+  }
+
+  private clearAlertEvidenceIndicatorTargets() {
+    const targets = this.alertEvidenceIndicatorTargets.splice(0);
+    targets.forEach((target) => {
+      target.element.remove();
+      if (!this.chart || !target.series) return;
+      try {
+        this.removeAlertSimulationSeries(target.series);
+      } catch (error) {
+        console.error("[trading-alert] evidence indicator cleanup failed", error);
+      }
+    });
+  }
+
+  private clearAlertEvidenceCandleSeries() {
+    if (this.chart && this.alertEvidenceCandleSeries) {
+      try {
+        this.removeAlertSimulationSeries(this.alertEvidenceCandleSeries);
+      } catch (error) {
+        console.error("[trading-alert] evidence candle cleanup failed", error);
+      }
+    }
+    this.alertEvidenceCandleSeries = null;
   }
 
   private removeAlertSimulationPane(pane: any) {
@@ -7638,6 +7873,7 @@ class TradingExpertMarketWorkspace {
   private hideAlertSimulationAnnotations() {
     this.alertSimulationPointElement.hidden = true;
     if (this.alertEvidenceAnnotation) this.alertEvidenceAnnotation.hidden = true;
+    this.alertEvidenceIndicatorTargets.forEach((target) => { target.element.hidden = true; });
     this.alertSimulationIndicatorRuntimes.forEach((runtime) => {
       runtime.series.forEach((series) => {
         if (series.annotation) series.annotation.hidden = true;
@@ -7785,6 +8021,7 @@ class TradingExpertMarketWorkspace {
       return;
     }
     const hasEvidenceTarget = Boolean(this.alertEvidencePoint && this.alertEvidenceAnnotation);
+    const hasEvidenceIndicatorTarget = this.alertEvidenceIndicatorTargets.length > 0;
     const hasSimulationTarget = Boolean(
       this.alertSimulationMarkerVisible
       && this.alertSimulationSeries
@@ -7803,7 +8040,7 @@ class TradingExpertMarketWorkspace {
       && this.alertSimulationIndicatorRuntimes.some((runtime) => runtime.series.some((series) => (
         series.annotation || series.additionalAnnotations.length
       )));
-    if (!hasEvidenceTarget && !hasSimulationTarget && !hasConditionTarget && !hasIndicatorTarget) {
+    if (!hasEvidenceTarget && !hasEvidenceIndicatorTarget && !hasSimulationTarget && !hasConditionTarget && !hasIndicatorTarget) {
       this.hideAlertSimulationAnnotations();
       return;
     }
@@ -7817,7 +8054,7 @@ class TradingExpertMarketWorkspace {
     const mainGeometry = this.alertSimulationPaneGeometry(null);
     if (mainGeometry && this.alertEvidencePoint && this.alertEvidenceAnnotation) {
       const x = this.chart.timeScale().timeToCoordinate(this.alertEvidencePoint.time as UTCTimestamp);
-      const y = this.candleSeries?.priceToCoordinate?.(this.alertEvidencePoint.price);
+      const y = (this.alertEvidencePoint.series || this.candleSeries)?.priceToCoordinate?.(this.alertEvidencePoint.price);
       if (
         typeof x === "number" && Number.isFinite(x)
         && typeof y === "number" && Number.isFinite(y)
@@ -7832,6 +8069,25 @@ class TradingExpertMarketWorkspace {
         });
       }
     }
+    this.alertEvidenceIndicatorTargets.forEach((target) => {
+      const geometry = this.alertSimulationPaneGeometry(target.pane);
+      if (!geometry) return;
+      const x = this.chart?.timeScale().timeToCoordinate(target.time as UTCTimestamp);
+      const y = target.series?.priceToCoordinate?.(target.value);
+      if (
+        typeof x === "number" && Number.isFinite(x)
+        && typeof y === "number" && Number.isFinite(y)
+        && x >= 0 && x <= geometry.width
+        && y >= 0 && y <= geometry.height
+      ) {
+        targets.push({
+          element: target.element,
+          pane: target.pane,
+          x: geometry.left + x,
+          y: geometry.top + y,
+        });
+      }
+    });
     if (
       mainGeometry
       && this.alertSimulationMarkerVisible
@@ -8006,10 +8262,15 @@ class TradingExpertMarketWorkspace {
     this.chart?.timeScale().applyOptions({
       rightBarStaysOnScroll: this.chartSettings.scaleAnchor === "cursor",
     });
+    this.clearAlertEvidenceCandleSeries();
+    this.alertEvidencePoint = null;
+    if (this.alertEvidenceAnnotation) this.alertEvidenceAnnotation.hidden = true;
     this.detachAlertSimulationIndicators();
     this.detachAlertSimulationConditionAnnotations();
     if (this.chart && this.alertSimulationSeries) this.removeAlertSimulationSeries(this.alertSimulationSeries);
+    if (this.chart && this.alertSimulationHistorySeries) this.removeAlertSimulationSeries(this.alertSimulationHistorySeries);
     this.alertSimulationSeries = null;
+    this.alertSimulationHistorySeries = null;
     this.alertSimulationMarkerVisible = false;
     this.alertSimulationPointElement.hidden = true;
   }
@@ -10491,6 +10752,26 @@ class TradingExpertMarketWorkspace {
       wickUpColor: simulationColors.upBorder,
       wickDownColor: simulationColors.downBorder,
     });
+    this.alertSimulationHistorySeries?.applyOptions({
+      upColor: this.chartSettings.hollowRising ? "rgba(0,0,0,0)" : this.chartSettings.risingColor,
+      downColor: this.chartSettings.fallingColor,
+      borderVisible: this.chartSettings.showCandleBorder,
+      borderUpColor: this.chartSettings.risingColor,
+      borderDownColor: this.chartSettings.fallingColor,
+      wickVisible: this.chartSettings.showWicks,
+      wickUpColor: this.chartSettings.risingColor,
+      wickDownColor: this.chartSettings.fallingColor,
+    });
+    this.alertEvidenceCandleSeries?.applyOptions({
+      upColor: this.chartSettings.hollowRising ? "rgba(0,0,0,0)" : this.chartSettings.risingColor,
+      downColor: this.chartSettings.fallingColor,
+      borderVisible: this.chartSettings.showCandleBorder,
+      borderUpColor: this.chartSettings.risingColor,
+      borderDownColor: this.chartSettings.fallingColor,
+      wickVisible: this.chartSettings.showWicks,
+      wickUpColor: this.chartSettings.risingColor,
+      wickDownColor: this.chartSettings.fallingColor,
+    });
     this.applyPrimarySeriesOptions();
     this.applyMainIndicatorSeriesOptions();
     this.updateChartData();
@@ -10501,6 +10782,8 @@ class TradingExpertMarketWorkspace {
   }
 
   private clearChart() {
+    this.clearAlertEvidenceCandleSeries();
+    this.clearAlertEvidenceIndicatorTargets();
     this.alertEvidencePoint = null;
     if (this.alertEvidenceAnnotation) this.alertEvidenceAnnotation.hidden = true;
     this.candleSeries?.setData([]);
@@ -11213,14 +11496,19 @@ export async function tradingExpertAlertSimulationFrames(rule: any) {
   return activeWorkspace.alertSimulationFrames(rule);
 }
 
-export function focusTradingExpertAlertEvidence(triggeredAt: number) {
+export function focusTradingExpertAlertEvidence(evidence: any, rule?: any) {
   if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
-  return activeWorkspace.focusAlertEvidence(triggeredAt);
+  return activeWorkspace.focusAlertEvidence(evidence, rule);
 }
 
-export function showTradingExpertAlertSimulation(simulation: any, anchorContextId: string, rule?: any) {
+export function showTradingExpertAlertSimulation(
+  simulation: any,
+  anchorContextId: string,
+  rule?: any,
+  options: TradingAlertSimulationShowOptions = {},
+) {
   if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
-  return activeWorkspace.showAlertSimulation(simulation, anchorContextId, rule);
+  return activeWorkspace.showAlertSimulation(simulation, anchorContextId, rule, options);
 }
 
 export function clearTradingExpertAlertSimulation() {

@@ -21,7 +21,10 @@ const ZIP_COMPRESSION_DEFLATE = 8;
 const MANAGED_EXTERNAL_WORKSPACE_DIRS = ["haolo-ai-home", "outputs"];
 const USER_DATA_FULL_TOP_LEVEL_DIRS = new Set(["local storage"]);
 const USER_DATA_FULL_TOP_LEVEL_FILES = new Set(["haolo-session.json", "local state", "preferences", "wechat-external-channel-state.json"]);
-const USER_DATA_LOCAL_ONLY_TOP_LEVEL_FILES = new Set(["external-model-credentials.json"]);
+const USER_DATA_LOCAL_ONLY_TOP_LEVEL_FILES = new Set([
+  "external-model-credentials.json",
+  "binance-account-credentials.json",
+]);
 const HAOLO_AI_HOME_FULL_DIRS = new Set(["sessions", "archived_sessions", "skills"]);
 const HAOLO_AI_HOME_FULL_FILES = new Set(["config.toml", "installation_id", ".personality_migration"]);
 const HAOLO_AI_HOME_SQLITE_PREFIXES = ["state_", "goals_", "memories_"];
@@ -67,7 +70,15 @@ export async function scheduleUserDataExport({ app, dialog, window, productName,
   return executeExportPlan({ plan, productName, appVersion });
 }
 
-export async function scheduleUserDataImport({ app, dialog, window, productName, appVersion, workspaces = [] }) {
+export async function scheduleUserDataImport({
+  app,
+  dialog,
+  window,
+  productName,
+  appVersion,
+  workspaces = [],
+  requestConfirmation = async () => false,
+}) {
   const result = await dialog.showOpenDialog(window || undefined, {
     title: "选择用户数据备份 ZIP 文件",
     properties: ["openFile"],
@@ -97,17 +108,15 @@ export async function scheduleUserDataImport({ app, dialog, window, productName,
     const manifest = await readSnapshotManifest(manifestRoot);
     validateSnapshotManifest(manifest, manifestRoot);
 
-    const confirmed = await dialog.showMessageBox(window || undefined, {
-      type: "warning",
-      buttons: ["继续导入", "取消"],
-      defaultId: 1,
-      cancelId: 1,
+    const confirmed = await requestConfirmation({
       title: "导入用户数据",
       message: "导入会把当前用户数据恢复到所选备份状态。",
       detail: "导入前会先完整备份当前数据，不会合并新旧数据。应用将自动重启，并在窗口打开前完成替换。",
-      noLink: true,
+      confirmLabel: "继续导入",
+      cancelLabel: "取消",
+      tone: "danger",
     });
-    if (confirmed.response !== 0) {
+    if (!confirmed) {
       if (staged) await fs.promises.rm(stagingRoot, { recursive: true, force: true }).catch(() => {});
       return { canceled: true };
     }

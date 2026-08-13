@@ -40,6 +40,15 @@ test("soak runner defaults to a real 24h Hyperliquid run and validates its limit
   assert.throws(() => parseSoakOptions(["--provider", "unknown"]), /provider/);
 });
 
+test("scheduled soak launcher prevents idle sleep and preserves a stale run before restarting", async () => {
+  const launcher = await readFile(new URL("../scripts/run-trading-alert-soak-task.ps1", import.meta.url), "utf8");
+  assert.match(launcher, /SetThreadExecutionState\(\$ES_CONTINUOUS -bor \$ES_SYSTEM_REQUIRED\)/);
+  assert.match(launcher, /SetThreadExecutionState\(\$ES_CONTINUOUS\)/);
+  assert.match(launcher, /Test-SoakProcessOwner[\s\S]*trading-alert-soak\.mjs/);
+  assert.match(launcher, /\.interrupted\.json/);
+  assert.match(launcher, /resumePolicy = "restart_full_24h"/);
+});
+
 test("resource summary reports deterministic heap and RSS slopes", () => {
   const summary = summarizeSoakSamples([
     { elapsedMs: 0, heapUsed: 10 * 1024 * 1024, rss: 100 * 1024 * 1024 },

@@ -40,17 +40,17 @@ test("the alerts entry opens an independent alerts page beside the conversation 
     /\[data-conversation-static-action="alerts"\][\s\S]*openTradingAlertsPage\(\)/,
   );
   assert.match(openBlock, /state\.activeView = "alerts";/);
-  assert.match(openBlock, /state\.tradingAlerts\.selectedAlertId = alertId;/);
+  assert.doesNotMatch(openBlock, /selectedAlertId|selectedEvidenceId/);
   assert.match(openBlock, /render\(\);[\s\S]*void refreshTradingAlerts\(\);/);
 });
 
 test("the alerts selection and sidebar controls share light and dark theme states", async () => {
   const source = await rendererSource;
   const styles = await stylesSource;
-  const windowControls = sourceBlock(
+  const workspaceRender = sourceBlock(
     source,
-    "function renderWindowControls",
-    "function renderLeftPanelToggle",
+    "function render()",
+    "const renderedThreadId =",
   );
   const toggleBlock = sourceBlock(
     source,
@@ -58,8 +58,8 @@ test("the alerts selection and sidebar controls share light and dark theme state
     "function renderMaximizeIcon",
   );
 
-  assert.match(windowControls, /state\.activeView === "chat" \|\| state\.activeView === "autoTasks" \|\| state\.activeView === "alerts" \|\| state\.activeView === "skillsPlaza"/);
-  assert.match(toggleBlock, /state\.activeView !== "chat" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"/);
+  assert.match(workspaceRender, /state\.activeView === "chat" \|\|\s*state\.activeView === "account" \|\|\s*state\.activeView === "autoTasks" \|\|\s*state\.activeView === "alerts" \|\|\s*state\.activeView === "skillsPlaza"/);
+  assert.match(toggleBlock, /state\.activeView !== "chat" && state\.activeView !== "account" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"/);
   assert.match(styles, /--conversation-action-hover:\s*rgba\(17, 24, 39, 0\.035\);/);
   assert.match(
     styles,

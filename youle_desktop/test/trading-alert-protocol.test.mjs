@@ -129,47 +129,84 @@ test("exported JSON schemas are strict and versioned", () => {
   assert.match(ALERT_RULE_JSON_SCHEMA.$id, /alert-rule\.v1/);
 });
 
-test("trading alert feature flag is disabled by default and accepts explicit truthy values", () => {
-  assert.equal(tradingAlertFeatureState({}).enabled, false);
+test("trading alerts are enabled by default and retain an explicit kill switch", () => {
+  assert.equal(tradingAlertFeatureState({}).enabled, true);
+  assert.equal(tradingAlertFeatureState({}).reason, "enabled_by_default");
   assert.equal(parseTradingAlertFeatureFlag("TRUE"), true);
   assert.equal(parseTradingAlertFeatureFlag("0"), false);
+  assert.equal(tradingAlertFeatureState({ HAOLO_TRADING_ALERTS_ENABLED: "0" }).enabled, false);
+  assert.equal(tradingAlertFeatureState({ HAOLO_TRADING_ALERTS_ENABLED: "0" }).reason, "disabled_by_environment");
 });
 
-test("TradingAlertStore persists drafts and atomically confirms an alert", async () => {
+test("TradingAlertStore persists confirmed alerts without a draft collection", async () => {
   const dir = await tempDir("store");
   try {
     const now = 1786464000000;
     const rule = normalizeAlertRule(await fixture());
-    const draft = normalizeAlertDraft({
-      schemaVersion: 1,
-      draftId: "draft_store",
-      sourceText: rule.sourceText,
-      status: "awaiting_confirmation",
-      rule,
-      missingFields: [],
-      ambiguities: [],
-      questions: [],
-      dataRequirements: [],
-      createdAt: now,
-      updatedAt: now,
-    });
     const store = new TradingAlertStore({ dataDir: dir, now: () => now });
-    await store.createDraft(draft);
     const alert = createInitialAlertInstance({
       alertId: "alert_store",
-      draftId: draft.draftId,
+      draftId: "draft_store",
       rule,
       simulationId: "simulation_store",
       confirmationId: "confirmation_store",
       now,
     });
     await store.createAlert(alert);
-    assert.equal((await store.getDraft(draft.draftId)).status, "confirmed");
     assert.equal((await store.getAlert(alert.alertId)).ruleHash, rule.ruleHash);
+    assert.equal("drafts" in await store.load(), false);
     assert.ok((await store.listEvents({ alertId: alert.alertId })).some((event) => event.type === "alert.created"));
 
     const reopened = new TradingAlertStore({ dataDir: dir, now: () => now + 1 });
     assert.equal((await reopened.listAlerts()).length, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("TradingAlertStore migration removes legacy drafts and unconfirmed simulations from disk", async () => {
+  const dir = await tempDir("legacy-draft-cleanup");
+  try {
+    const now = 1786464000000;
+    const legacyDraft = normalizeAlertDraft({
+      schemaVersion: 1,
+      draftId: "legacy-draft",
+      sourceText: "legacy unconfirmed alert",
+      status: "awaiting_clarification",
+      rule: null,
+      missingFields: ["rule"],
+      ambiguities: [],
+      questions: ["clarify"],
+      dataRequirements: [],
+      createdAt: now,
+      updatedAt: now,
+    });
+    const filePath = path.join(dir, "trading-alert-store.json");
+    await writeFile(filePath, `${JSON.stringify({
+      version: 1,
+      drafts: [legacyDraft],
+      alerts: [],
+      simulations: [{
+        simulationId: "legacy-unconfirmed-simulation",
+        draftId: legacyDraft.draftId,
+        ruleHash: "a".repeat(64),
+        proof: { triggered: true },
+      }],
+      events: [{ type: "draft.created", time: now, draftId: legacyDraft.draftId }],
+    }, null, 2)}\n`, "utf8");
+
+    const store = new TradingAlertStore({ dataDir: dir, now: () => now + 1 });
+    const migrated = await store.load();
+    assert.equal("drafts" in migrated, false);
+    assert.deepEqual(migrated.simulations, []);
+    assert.deepEqual(migrated.events, []);
+
+    await store.purgeUnconfirmedArtifacts();
+    const persisted = JSON.parse(await readFile(filePath, "utf8"));
+    assert.equal(persisted.version, 2);
+    assert.equal("drafts" in persisted, false);
+    assert.deepEqual(persisted.simulations, []);
+    assert.deepEqual(persisted.events, []);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -181,19 +218,6 @@ test("TradingAlertStore trigger evidence is idempotent and completes one-shot al
     const now = 1786464000000;
     const rule = normalizeAlertRule(await fixture());
     const store = new TradingAlertStore({ dataDir: dir, now: () => now });
-    await store.createDraft(normalizeAlertDraft({
-      schemaVersion: 1,
-      draftId: "draft_evidence",
-      sourceText: rule.sourceText,
-      status: "awaiting_confirmation",
-      rule,
-      missingFields: [],
-      ambiguities: [],
-      questions: [],
-      dataRequirements: [],
-      createdAt: now,
-      updatedAt: now,
-    }));
     await store.createAlert(createInitialAlertInstance({
       alertId: "alert_evidence",
       draftId: "draft_evidence",

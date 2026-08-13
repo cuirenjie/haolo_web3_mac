@@ -6,7 +6,13 @@ export function parseTradingAlertFeatureFlag(value) {
 }
 
 export function tradingAlertsEnabled(env = process.env) {
-  return parseTradingAlertFeatureFlag(env?.[TRADING_ALERT_FEATURE_FLAG]);
+  const configured = env?.[TRADING_ALERT_FEATURE_FLAG];
+  // Trading alerts are a normal desktop capability. Keep an explicit kill
+  // switch for incident response, but do not make ordinary users opt in via an
+  // environment variable before a confirmed alert can be persisted and armed.
+  return configured === undefined || configured === null || String(configured).trim() === ""
+    ? true
+    : parseTradingAlertFeatureFlag(configured);
 }
 
 export function tradingAlertsShadowMode(env = process.env) {
@@ -19,6 +25,8 @@ export function tradingAlertFeatureState(env = process.env) {
     flag: TRADING_ALERT_FEATURE_FLAG,
     enabled,
     shadowMode: tradingAlertsShadowMode(env),
-    reason: enabled ? "enabled_by_environment" : "disabled_by_default",
+    reason: enabled
+      ? (env?.[TRADING_ALERT_FEATURE_FLAG] == null ? "enabled_by_default" : "enabled_by_environment")
+      : "disabled_by_environment",
   });
 }

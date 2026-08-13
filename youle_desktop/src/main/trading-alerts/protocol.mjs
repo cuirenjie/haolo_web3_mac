@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 export const TRADING_ALERT_SCHEMA_VERSION = 1;
-export const TRADING_ALERT_STORE_VERSION = 1;
+export const TRADING_ALERT_STORE_VERSION = 2;
 export const TRADING_ALERT_LIMITS = Object.freeze({
   maxAstDepth: 12,
   maxAstNodes: 128,

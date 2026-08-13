@@ -161,6 +161,8 @@ import {
 import { YouleApiClient, isYouleAuthExpiredError } from "./youle-api-client.mjs";
 import { ExternalModelCredentialStore } from "./external-agent/credential-store.mjs";
 import { ExternalModelService } from "./external-agent/service.mjs";
+import { BinanceCredentialStore } from "./binance-account/credential-store.mjs";
+import { BinanceAccountError, BinanceAccountService } from "./binance-account/service.mjs";
 import { normalizeExternalModelProviderId } from "./external-agent/provider-registry.mjs";
 import { ExternalAgentRuntime, externalAgentPublicEvent } from "./external-agent/runtime.mjs";
 import { marketDataBackendErrorPayload } from "./market-data/backend-errors.mjs";
@@ -308,8 +310,11 @@ import {
   resolveExistingLocalPath,
 } from "./local-file-resolver.mjs";
 import { installDevelopmentSourceUpdatePrompt } from "./dev-source-update.mjs";
+import { createRendererConfirmationBroker } from "./renderer-confirmation.mjs";
 
 installSafeConsole();
+
+const rendererConfirmationBroker = createRendererConfirmationBroker({ ipcMain });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow = null;
@@ -344,6 +349,8 @@ let chromeReleasePolicy = null;
 const chromeAuditEvents = [];
 let externalModelCredentialStore = null;
 let externalModelService = null;
+let binanceCredentialStore = null;
+let binanceAccountService = null;
 let externalAgentRuntime = null;
 let externalAgentRuntimeUnsubscribe = null;
 const externalAgentOwnerIds = new Set();
@@ -733,6 +740,7 @@ const LOCAL_ARTIFACT_INTERNAL_USER_DATA_DIRS = new Set([
 const AUTO_TASKS_FILE_NAME = "auto-tasks.json";
 const PROVIDER_CHAT_THREADS_FILE_NAME = "provider-chat-threads.json";
 const EXTERNAL_MODEL_CREDENTIALS_FILE_NAME = "external-model-credentials.json";
+const BINANCE_ACCOUNT_CREDENTIALS_FILE_NAME = "binance-account-credentials.json";
 const EXTERNAL_AGENT_RUNTIME_ENABLED = /^(1|true|yes|on)$/i.test(
   String(process.env.HAOLO_EXTERNAL_AGENT_RUNTIME || "").trim(),
 );
@@ -4136,6 +4144,61 @@ function getExternalModelService() {
     });
   }
   return externalModelService;
+}
+
+function getBinanceCredentialStore() {
+  if (!binanceCredentialStore) {
+    binanceCredentialStore = new BinanceCredentialStore({
+      storagePath: path.join(app.getPath("userData"), BINANCE_ACCOUNT_CREDENTIALS_FILE_NAME),
+      safeStorage,
+    });
+  }
+  return binanceCredentialStore;
+}
+
+function getBinanceAccountService() {
+  if (!binanceAccountService) {
+    binanceAccountService = new BinanceAccountService({
+      credentialStore: getBinanceCredentialStore(),
+      fetch: appNetworkFetch,
+    });
+  }
+  return binanceAccountService;
+}
+
+async function requireBinanceAccountOwner() {
+  const session = await getYouleApiClient().getSession();
+  if (!session?.authenticated || !session?.profile) {
+    throw new BinanceAccountError("HAOLO_AUTH_REQUIRED", "请先登录 Haolo 后再绑定 Binance API。");
+  }
+  const email = firstString(
+    session.profile.email,
+    session.profile.emailAddress,
+    session.profile.email_address,
+  ).toLowerCase();
+  if (!email || !email.includes("@")) {
+    throw new BinanceAccountError("HAOLO_EMAIL_REQUIRED", "当前 Haolo 账号尚未绑定邮箱，无法发送安全验证码。");
+  }
+  const accountId = firstString(session.profile.id, email);
+  return {
+    ownerId: `${session.baseUrl || "haolo"}::${accountId}`,
+    accountId,
+    email,
+    baseUrl: session.baseUrl,
+  };
+}
+
+function maskedEmail(email) {
+  const [local, domain] = String(email || "").split("@");
+  if (!local || !domain) return "***";
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}****@${domain}`;
+}
+
+function sameBinanceBindingOwner(before, after) {
+  if (!before || !after) return false;
+  if (before.accountId && after.accountId) return before.accountId === after.accountId;
+  return before.email === after.email;
 }
 
 function getExternalAgentRuntime() {
@@ -11344,9 +11407,9 @@ ipcMain.handle("automation:unregisterLoginTask", async (_event, params = {}) => 
 });
 
 ipcMain.handle("tradingAlerts:snapshot", async (event) => tradingAlertIpcCall(event, "snapshot"));
+ipcMain.handle("tradingAlerts:getSimulation", async (event, params = {}) => tradingAlertIpcCall(event, "getSimulation", params));
 ipcMain.handle("tradingAlerts:compile", async (event, params = {}) => tradingAlertIpcCall(event, "compile", params));
 ipcMain.handle("tradingAlerts:resumeDraft", async (event, params = {}) => tradingAlertIpcCall(event, "resumeDraft", params.draftId));
-ipcMain.handle("tradingAlerts:cancelDraft", async (event, params = {}) => tradingAlertIpcCall(event, "cancelDraft", params.draftId));
 ipcMain.handle("tradingAlerts:simulate", async (event, params = {}) => tradingAlertIpcCall(event, "simulate", params));
 ipcMain.handle("tradingAlerts:confirm", async (event, params = {}) => tradingAlertIpcCall(event, "confirm", params));
 ipcMain.handle("tradingAlerts:revise", async (event, params = {}) => tradingAlertIpcCall(event, "revise", params));
@@ -11511,6 +11574,106 @@ ipcMain.handle("youle:verifyOtp", async (_event, params = {}) => {
     await restartClientAfterAuthChange();
   }
   return session;
+});
+
+ipcMain.handle("binanceAccount:getStatus", async (event) => {
+  assertExternalModelsIpcSender(event);
+  const owner = await requireBinanceAccountOwner();
+  return {
+    ...(await getBinanceAccountService().status(owner.ownerId)),
+    emailMasked: maskedEmail(owner.email),
+  };
+});
+
+ipcMain.handle("binanceAccount:sendOtp", async (event) => {
+  assertExternalModelsIpcSender(event);
+  const owner = await requireBinanceAccountOwner();
+  const challenge = await getYouleApiClient().sendOtp({
+    baseUrl: owner.baseUrl,
+    channel: "email",
+    identifier: owner.email,
+    mode: "login",
+    surface: "client",
+  });
+  const challengeId = firstString(challenge?.challenge_id, challenge?.challengeId, challenge?.id);
+  if (!challengeId) {
+    throw new BinanceAccountError("OTP_CHALLENGE_INVALID", "验证码发送成功，但未获得有效验证凭证，请重新发送。");
+  }
+  const resendAfter = Number(challenge?.resend_after ?? challenge?.resendAfter);
+  return {
+    challengeId,
+    emailMasked: maskedEmail(owner.email),
+    resendAfter: Number.isFinite(resendAfter) ? Math.max(0, Math.min(300, Math.trunc(resendAfter))) : 60,
+  };
+});
+
+ipcMain.handle("binanceAccount:bind", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const challengeId = firstString(params?.challengeId, params?.challenge_id);
+  const code = firstString(params?.code);
+  if (!challengeId) throw new BinanceAccountError("OTP_REQUIRED", "请先发送邮箱验证码。");
+  if (!/^\d{6}$/.test(code)) throw new BinanceAccountError("OTP_INVALID", "请输入 6 位邮箱验证码。");
+  const ownerBeforeVerification = await requireBinanceAccountOwner();
+  return getBinanceAccountService().bind(ownerBeforeVerification.ownerId, {
+    apiKey: params?.apiKey,
+    apiSecret: params?.apiSecret,
+  }, {
+    beforeSave: async () => {
+      const verifiedSession = await getYouleApiClient().verifyOtp({
+        baseUrl: ownerBeforeVerification.baseUrl,
+        channel: "email",
+        identifier: ownerBeforeVerification.email,
+        challengeId,
+        code,
+        mode: "login",
+        surface: "client",
+      });
+      if (!verifiedSession?.authenticated) {
+        throw new BinanceAccountError("OTP_VERIFICATION_FAILED", "邮箱验证码校验失败，请重新发送后再试。");
+      }
+      const ownerAfterVerification = await requireBinanceAccountOwner();
+      if (!sameBinanceBindingOwner(ownerBeforeVerification, ownerAfterVerification)) {
+        throw new BinanceAccountError("ACCOUNT_CHANGED", "验证码对应的 Haolo 账号与当前账号不一致，已拒绝绑定。");
+      }
+      clearVoiceCredentialCache();
+      await restartClientAfterAuthChange();
+    },
+  });
+});
+
+ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const owner = await requireBinanceAccountOwner();
+  return getBinanceAccountService().snapshot(owner.ownerId, { force: params?.force === true });
+});
+
+ipcMain.handle("binanceAccount:remove", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const challengeId = firstString(params?.challengeId, params?.challenge_id);
+  const code = firstString(params?.code);
+  if (!challengeId) throw new BinanceAccountError("OTP_REQUIRED", "请先发送邮箱验证码。");
+  if (!/^\d{6}$/.test(code)) throw new BinanceAccountError("OTP_INVALID", "请输入 6 位邮箱验证码。");
+  const ownerBeforeVerification = await requireBinanceAccountOwner();
+  const verifiedSession = await getYouleApiClient().verifyOtp({
+    baseUrl: ownerBeforeVerification.baseUrl,
+    channel: "email",
+    identifier: ownerBeforeVerification.email,
+    challengeId,
+    code,
+    mode: "login",
+    surface: "client",
+  });
+  if (!verifiedSession?.authenticated) {
+    throw new BinanceAccountError("OTP_VERIFICATION_FAILED", "邮箱验证码校验失败，请重新发送后再试。");
+  }
+  const ownerAfterVerification = await requireBinanceAccountOwner();
+  if (!sameBinanceBindingOwner(ownerBeforeVerification, ownerAfterVerification)) {
+    throw new BinanceAccountError("ACCOUNT_CHANGED", "验证码对应的 Haolo 账号与当前账号不一致，已拒绝解除绑定。");
+  }
+  const status = await getBinanceAccountService().remove(ownerBeforeVerification.ownerId);
+  clearVoiceCredentialCache();
+  await restartClientAfterAuthChange();
+  return status;
 });
 
 ipcMain.handle("youle:completeRegistration", async (_event, params = {}) => {
@@ -12555,9 +12718,9 @@ async function getTradingAlertService() {
   tradingAlertServicePromise = (async () => {
     const service = new TradingAlertService({
       dataDir: path.join(app.getPath("userData"), "trading-alerts"),
-      // Keep production opt-in until release authorization, while allowing the
-      // development client to exercise the confirmation -> monitoring path.
-      enabled: tradingAlertsEnabled() || !app.isPackaged,
+      // Alerts are available in both packaged and development clients. The
+      // environment flag remains an explicit emergency kill switch.
+      enabled: tradingAlertsEnabled(),
       invokeIntentModel: invokeTradingAnalysisAppServer,
       marketFetch: (url, init) => net.fetch(url, init),
       marketSubscribeMode: "polling",
@@ -12601,7 +12764,7 @@ async function tradingAlertIpcCall(event, method, params = {}) {
     : params;
   try {
     const result = await service.safeCall(method, callParams);
-    if (result.ok && method !== "snapshot") sendToRenderer("tradingAlerts:changed", await service.snapshot());
+    if (result.ok && !["snapshot", "getSimulation"].includes(method)) sendToRenderer("tradingAlerts:changed", await service.snapshot());
     return result;
   } finally {
     if (controller && activeTradingAlertIntentControllers.get(controllerKey) === controller) {
@@ -13445,13 +13608,15 @@ ipcMain.handle("app:exportUserData", async (_event, params = {}) => {
 });
 
 ipcMain.handle("app:importUserData", async (_event, params = {}) => {
+  const window = focusedMainWindow();
   const result = await scheduleUserDataImport({
     app,
     dialog,
-    window: focusedMainWindow(),
+    window,
     productName: USER_DATA_DIR_NAME,
     appVersion: app.getVersion?.() || "",
     workspaces: await threadGroupWorkspacesForTransfer(params),
+    requestConfirmation: (options) => rendererConfirmationBroker.request(window, options),
   });
   if (result?.ok && result.requiresRelaunch) scheduleRelaunchForUserDataTransfer();
   return result;
@@ -19572,8 +19737,11 @@ app.whenReady().then(async () => {
   createWindow();
   installDevelopmentSourceUpdatePrompt({
     app,
-    dialog,
-    getWindow: () => mainWindow,
+    requestConfirmation: (options) => rendererConfirmationBroker.request(mainWindow, options),
+    showNotice: (options) => rendererConfirmationBroker.request(mainWindow, {
+      ...options,
+      cancelLabel: null,
+    }),
   });
   createAppTray();
   startAppServerIdleCleanup();

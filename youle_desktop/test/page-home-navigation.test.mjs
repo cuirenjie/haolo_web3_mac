@@ -48,10 +48,20 @@ test("standalone top-level pages that replace the sidebar render the shared retu
 test("the skills and plugins page stays beside the conversation sidebar without a return button", async () => {
   const [renderer, styles] = await Promise.all([rendererSource, stylesSource]);
   const renderBlock = sourceBlock(renderer, "function render()", "function scheduleRender");
-  const headerBlock = sourceBlock(
+  const tabsBlock = sourceBlock(
     renderer,
-    "function renderSkillsPlazaHeader",
+    "function renderSkillsPlazaTabs",
     "function renderPluginMarketplacePage",
+  );
+  const pluginPage = sourceBlock(
+    renderer,
+    "function renderPluginMarketplacePage",
+    "function renderPluginMarketplaceRow",
+  );
+  const skillsPage = sourceBlock(
+    renderer,
+    "function renderSkillsPlazaPage",
+    "function mySkillsPlazaCards",
   );
   const actionsBlock = sourceBlock(
     renderer,
@@ -63,7 +73,10 @@ test("the skills and plugins page stays beside the conversation sidebar without 
     renderBlock,
     /state\.activeView === "skillsPlaza"[\s\S]*renderChatList\(\)[\s\S]*renderSkillsPlazaPage\(\)/,
   );
-  assert.doesNotMatch(headerBlock, /renderPageHomeButton\(\)|data-action="return-home"|>返回</);
+  assert.doesNotMatch(tabsBlock, /renderPageHomeButton\(\)|data-action="return-home"|>返回/);
+  assert.doesNotMatch(renderer, /function renderSkillsPlazaHeader/);
+  assert.doesNotMatch(pluginPage, /skills-plaza-header|skills-plaza-search|id="skillsSearch"/);
+  assert.doesNotMatch(skillsPage, /skills-plaza-header|skills-plaza-search|id="skillsSearch"/);
   assert.match(
     actionsBlock,
     /const skillsActive = state\.activeView === "skillsPlaza";[\s\S]*data-conversation-static-action="skills"[\s\S]*aria-current="page"/,
@@ -121,6 +134,28 @@ test("the existing skills and plugins page shifts its complete content group rig
     /padding:\s*0 8px 32px calc\(8px \+ var\(--skills-plaza-content-shift-x\)\);/,
   );
   assert.doesNotMatch(skillsPage, /#[0-9a-f]{3,8}|rgba?\(/i);
+});
+
+test("skills and plugins use the same top and bottom toolbar spacing as the account page", async () => {
+  const styles = await stylesSource;
+  const tabs = sourceBlock(styles, ".skills-plaza-tabs {", ".plugin-top-toast {");
+
+  assert.match(tabs, /padding:\s*30px 0 8px;/);
+  assert.match(styles, /\.binance-account-bound-view\s*\{[^}]*padding:\s*30px 0 0;/s);
+  assert.match(styles, /\.binance-account-toolbar\s*\{[^}]*padding:\s*0 0 8px;/s);
+  assert.doesNotMatch(tabs, /#[0-9a-f]{3,8}|rgba?\(/i);
+});
+
+test("skills keeps a 16px top-left workspace corner when the window is maximized", async () => {
+  const styles = await stylesSource;
+  assert.match(
+    styles,
+    /\.window-maximized \.desktop-body > :is\([\s\S]*?\.trading-alerts-page,[\s\S]*?\.skills-plaza-page[\s\S]*?\)\s*\{\s*border-top-left-radius:\s*16px;/s,
+  );
+  assert.match(
+    styles,
+    /html\[data-theme\] \.desktop-body:has\(> :is\([\s\S]*?\.trading-alerts-page,[\s\S]*?\.skills-plaza-page[\s\S]*?\)\)\s*\{\s*background:\s*var\(--app-chrome-background\);/s,
+  );
 });
 
 test("my skills prefers three shorter card columns with responsive fallbacks", async () => {

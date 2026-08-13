@@ -125,15 +125,17 @@ test("export copies user data immediately without scheduling a relaunch", async 
         importOpenDialogOptions = options;
         return { canceled: false, filePaths: [result.exportPath] };
       },
-      async showMessageBox() {
-        return { response: 0 };
-      },
     };
+    let importConfirmationOptions = null;
     const importResult = await scheduleUserDataImport({
       app,
       dialog: importDialog,
       productName: "haolo_desktop",
       appVersion: "test",
+      async requestConfirmation(options) {
+        importConfirmationOptions = options;
+        return true;
+      },
     });
 
     assert.equal(importResult.ok, true);
@@ -142,6 +144,8 @@ test("export copies user data immediately without scheduling a relaunch", async 
     assert.equal(importOpenDialogOptions.title, "选择用户数据备份 ZIP 文件");
     assert.deepEqual(importOpenDialogOptions.properties, ["openFile"]);
     assert.deepEqual(importOpenDialogOptions.filters, [{ name: "Haolo 用户数据备份 ZIP", extensions: ["zip"] }]);
+    assert.equal(importConfirmationOptions.title, "导入用户数据");
+    assert.equal(importConfirmationOptions.tone, "danger");
     const pending = JSON.parse(await fs.readFile(pendingUserDataTransferPath(app, "haolo_desktop"), "utf8"));
     assert.equal(pending.sourceRoot, result.exportPath);
     await assert.doesNotReject(fs.access(path.join(pending.stagingRoot, "data", "userData", "Local State")));

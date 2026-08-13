@@ -137,7 +137,7 @@ test("intent prompt explicitly merges clarification replies with the original ru
   assert.match(prompt, /禁止再问上升线\/下降线\/选哪条/);
 });
 
-test("accumulated intent keeps persisted source when bounded history no longer contains the original turn", () => {
+test("accumulated intent keeps its original source when bounded history no longer contains the original turn", () => {
   const normalizedRequest = normalizeAlertIntentRequest({
     ...request("当MA5死叉MA20并且MACD下穿零轴时预警"),
     conversation: [
@@ -214,7 +214,7 @@ test("provider retries once when a model repeats an already answered clarificati
   assert.match(prompts[1], /不得重复询问已回答内容/);
 });
 
-test("backend restores the original instruction when an old draft source was overwritten by a short answer", async () => {
+test("backend restores the original instruction when a transient source was overwritten by a short answer", async () => {
   let providerSourceText = "";
   const registry = createAlertIntentProviderRegistry([{
     providerId: "restored-source",
@@ -289,14 +289,14 @@ function drawingCandidate({ drawingId = "trend-line-1", revision = 3, marketId =
   };
 }
 
-test("intent request redacts credentials before reaching a model or persisted draft", () => {
+test("intent request redacts credentials before reaching a model or transient rule object", () => {
   const sourceText = "监控BTC api_key=secret-value-1234567890，sk-abcdefghijklmnopqrstuvwxyz";
   const normalized = normalizeAlertIntentRequest(request(sourceText));
   assert.doesNotMatch(normalized.sourceText, /secret-value|sk-/);
   assert.equal(sanitizeAlertIntentText(sourceText).includes("[REDACTED_CREDENTIAL]"), true);
 });
 
-test("model-neutral registry fails closed into a resumable draft after repeated unknown output fields", async () => {
+test("model-neutral registry fails closed into transient retry state after repeated unknown output fields", async () => {
   let attempts = 0;
   const scripted = provider({ candidateRule: fixture, missingFields: [], ambiguities: [], questions: [], dataRequirements: [], unexpected: true });
   const registry = createAlertIntentProviderRegistry([{
@@ -684,7 +684,7 @@ test("protocol exhaustion asks the model for a targeted clarification before usi
   assert.equal(result.protocolDiagnostics.length, ALERT_INTENT_MAX_PROTOCOL_ATTEMPTS);
 });
 
-test("provider transport failure persists a resumable draft while cancellation remains non-persistent", async () => {
+test("provider transport failure returns transient recovery state without persisting an unconfirmed alert", async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "haolo-alert-intent-provider-failure-"));
   try {
     const store = new TradingAlertStore({ dataDir });
@@ -709,10 +709,11 @@ test("provider transport failure persists a resumable draft while cancellation r
     });
     assert.equal(recovered.draft.status, "awaiting_clarification");
     assert.deepEqual(recovered.draft.missingFields, ["modelProvider.validatedResponse"]);
-    assert.match(recovered.draft.questions[0], /原指令和画布上下文已保留/);
+    assert.match(recovered.draft.questions[0], /当前会话/);
     assert.doesNotMatch(recovered.draft.questions[0], /sensitive upstream/);
     assert.equal(recovered.providerFailure.retryable, true);
-    assert.equal((await store.getDraft(recovered.draft.draftId)).originThreadId, "thread-offline-provider");
+    assert.equal(recovered.draft.originThreadId, "thread-offline-provider");
+    assert.equal("drafts" in await store.load(), false);
 
     const controller = new AbortController();
     controller.abort(new Error("newer alert instruction"));
@@ -724,7 +725,7 @@ test("provider transport failure persists a resumable draft while cancellation r
       signal: controller.signal,
       input: { ...request(), requestId: "cancelled-request", draftId: "cancelled-draft" },
     }), /newer alert instruction/);
-    assert.equal(await store.getDraft("cancelled-draft"), null);
+    assert.equal("drafts" in await store.load(), false);
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }
@@ -764,7 +765,7 @@ test("repair prompt always carries the exact request correlation value", () => {
   assert.match(buildAlertIntentClarificationPrompt(normalizedRequest, [{ path: "response.requestId" }]), /candidateRule 必须为 null/);
 });
 
-test("local thread metadata persists on the draft without crossing the intent-provider boundary", async () => {
+test("local thread metadata stays on the transient result without crossing the intent-provider boundary", async () => {
   let providerRequest;
   const streamedSummaries = [];
   const onReasoningSummaryDelta = (delta) => streamedSummaries.push(delta);
@@ -846,7 +847,7 @@ test("app-server alert provider forwards reasoning summaries outside the strict 
   assert.deepEqual(summaries, ["正在核对市场与周期"]);
 });
 
-test("complex AND intent compiles to a persisted executable draft", async () => {
+test("complex AND intent compiles to a transient executable request", async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "haolo-alert-intent-"));
   try {
     const store = new TradingAlertStore({ dataDir });
@@ -869,7 +870,7 @@ test("complex AND intent compiles to a persisted executable draft", async () => 
     assert.equal(result.draft.status, "ready_to_simulate");
     assert.equal(result.draft.rule.root.type, "all");
     assert.equal(result.draft.rule.dataRequirements[0].status, "available");
-    assert.equal((await store.getDraft(result.draft.draftId)).rule.ruleHash, result.draft.rule.ruleHash);
+    assert.equal("drafts" in await store.load(), false);
     assert.match(summarizeAlertRule(result.draft.rule), /客户端停机期间不补触发/);
   } finally {
     await rm(dataDir, { recursive: true, force: true });
@@ -947,7 +948,7 @@ test("rolling volume rules request the exact field and enough history", () => {
   assert.ok(market.historyWindow >= 22);
 });
 
-test("capability completion resumes the original persisted draft", async () => {
+test("capability completion resumes the original transient request", async () => {
   const draft = {
     schemaVersion: 1,
     draftId: "resume-draft",

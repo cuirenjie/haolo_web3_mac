@@ -43,7 +43,7 @@ test("sidebar actions follow Codex order, with settings moved from the titlebar 
   const titlebarActions = sourceBlock(source, "function renderTitlebarPrimaryActions", "function renderWindowControls");
   const footer = sourceBlock(source, "function renderConversationListFooter", "function renderChatList");
   const chatList = sourceBlock(source, "function renderChatList", "function isHaoloContact");
-  const labels = ["新任务", "账户", "预警", "知识库", "技能"];
+  const labels = ["新任务", "账户", "预警", "知识库", "策略"];
   let cursor = -1;
   for (const label of labels) {
     const index = actions.indexOf(`<span>${label}</span>`);
@@ -83,7 +83,7 @@ test("the sidebar skills action opens the existing skills and plugins page", asy
   const eventBindings = source.slice(source.indexOf("function bindEvents()"));
 
   assert.match(actions, /data-conversation-static-action="knowledge"[\s\S]*data-conversation-static-action="skills"/);
-  assert.match(actions, /data-conversation-static-action="skills"[\s\S]*<span>技能<\/span>/);
+  assert.match(actions, /data-conversation-static-action="skills"[\s\S]*<span>策略<\/span>/);
   assert.match(openSkillsPage, /state\.activeView = "skillsPlaza"/);
   assert.match(openSkillsPage, /state\.skillsPlazaTab = "mySkills"/);
   assert.match(openSkillsPage, /refreshSkills\(\{ forceReload: true, reason: "my-config", renderAfter: false \}\)/);
@@ -295,11 +295,15 @@ test("minimal conversation rows use compact single-line geometry and trailing ac
   );
   assert.match(
     minimalStyles,
-    /\.conversation-project-expand\s*\{[^}]*width:\s*calc\(100% - 39px\);[^}]*margin:\s*0 6px 0 33px;/s,
+    /\.conversation-project-expand\s*\{[^}]*width:\s*calc\(100% - 19px\);[^}]*height:\s*32px;[^}]*margin:\s*0 4px 0 15px;[^}]*align-items:\s*center;[^}]*justify-content:\s*flex-start;[^}]*padding:\s*7px 12px;[^}]*line-height:\s*18px;[^}]*text-align:\s*left;/s,
   );
   assert.match(
     minimalStyles,
-    /\.conversation-project-section \.conversation-group-title\s*\{[^}]*height:\s*32px;/s,
+    /\.conversation-project-section\s*\{[^}]*position:\s*relative;[^}]*left:\s*-6px;[^}]*padding-top:\s*0;/s,
+  );
+  assert.match(
+    minimalStyles,
+    /\.conversation-project-section \.conversation-group-title\s*\{[^}]*position:\s*relative;[^}]*left:\s*2px;[^}]*height:\s*32px;/s,
   );
   assert.match(
     minimalStyles,

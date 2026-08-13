@@ -164,9 +164,9 @@ export function capabilityResolutionGuide(resolution) {
   if (resolution.action === "continue") return "数据能力已连接并验证，可继续模拟。";
   if (resolution.action === "connect_provider") {
     const provider = resolution.selected.provider;
-    return `需要连接 ${provider.displayName}。请在“设置 → 数据提供方”完成只读授权；不要在聊天中发送 API Key。授权后会从当前草稿继续。`;
+    return `需要连接 ${provider.displayName}。请在“设置 → 数据提供方”完成只读授权；不要在聊天中发送 API Key。授权后会继续处理当前条件。`;
   }
-  return `当前没有提供“${resolution.requirement.capability}”所需字段的适配器。请提供匹配的数据接口、插件、MCP、Webhook、数据库或文件样例；Haolo 验证 Schema、覆盖范围、时效和权限后会继续当前草稿。`;
+  return `当前没有提供“${resolution.requirement.capability}”所需字段的适配器。请提供匹配的数据接口、插件、MCP、Webhook、数据库或文件样例；Haolo 验证 Schema、覆盖范围、时效和权限后会继续处理当前条件。`;
 }
 
 export function createBuiltinCapabilityRegistry({ marketConnected = true } = {}) {

@@ -8,12 +8,13 @@ import { planRuleSubscriptions } from "./subscription-planner.mjs";
 import { createAlertIntentProviderRegistry, createAppServerAlertIntentProvider } from "./intent-provider.mjs";
 import { compileAlertDraft, createConfirmationBinding, resumeDraftAfterCapabilities, summarizeAlertRule, verifyConfirmationBinding } from "./intent-workflow.mjs";
 import { createBuiltinCapabilityRegistry } from "./capabilities.mjs";
-import { chartSwitchRequest, planAlertSimulation } from "./simulation-planner.mjs";
+import { chartSwitchRequest } from "./simulation-planner.mjs";
+import { planAlertSimulationIsolated } from "./simulation-worker-client.mjs";
 import { createAlertRuleRevision, normalizeAlertDraft, TRADING_ALERT_SCHEMA_VERSION } from "./protocol.mjs";
 import { TradingAlertError, tradingAlertErrorEnvelope } from "./errors.mjs";
 
 export class TradingAlertService {
-  constructor({ dataDir, invokeIntentModel, notify, enabled = false, now = () => Date.now(), marketAdapter, marketFetch, marketSubscribeMode, shadowMode = false } = {}) {
+  constructor({ dataDir, invokeIntentModel, notify, enabled = false, now = () => Date.now(), marketAdapter, marketFetch, marketSubscribeMode, shadowMode = false, planSimulation = planAlertSimulationIsolated } = {}) {
     this.enabled = enabled;
     this.now = now;
     this.store = new TradingAlertStore({ dataDir, now });
@@ -23,48 +24,42 @@ export class TradingAlertService {
     this.capabilities = createBuiltinCapabilityRegistry();
     this.intentProviderId = "openai-codex";
     this.confirmationOperations = new Map();
+    this.pendingDrafts = new Map();
+    this.pendingSimulations = new Map();
+    this.planSimulation = planSimulation;
     this.intentRegistry = createAlertIntentProviderRegistry([createAppServerAlertIntentProvider({ invoke: invokeIntentModel })]);
     this.engine = new TradingAlertEngine({ store: this.store, dataHub: this.dataHub, now, notify, shadowMode });
   }
 
   async start() {
     await this.store.load();
+    await this.store.purgeUnconfirmedArtifacts();
     this.engine.syncDrawings(await this.store.listDrawings());
     if (this.enabled) await this.engine.start();
     return this.snapshot();
   }
 
   async snapshot() {
-    const [alerts, drafts, gaps, evidence, simulations] = await Promise.all([
-      this.store.listAlerts(), this.store.listDrafts(), this.store.listGaps(), this.store.listEvidence(), this.store.listSimulations(),
+    const [alerts, gaps, evidence] = await Promise.all([
+      this.store.listAlerts(), this.store.listGaps(), this.store.listEvidence(),
     ]);
-    const draftsById = new Map(drafts.map((draft) => [draft.draftId, draft]));
-    const pendingConfirmations = simulations
-      .flatMap((simulation) => {
-        const draft = draftsById.get(simulation?.draftId);
-        const confirmation = simulation?.confirmation;
-        if (draft?.status !== "awaiting_confirmation" || !confirmation?.confirmationId) return [];
-        return [{
-          draftId: draft.draftId,
-          sourceText: draft.sourceText,
-          originThreadId: draft.originThreadId || null,
-          simulationId: simulation.simulationId,
-          confirmationId: confirmation.confirmationId,
-          issuedAt: Number(confirmation.issuedAt) || 0,
-          expiresAt: Number(confirmation.expiresAt) || 0,
-        }];
-      })
-      .sort((left, right) => right.issuedAt - left.issuedAt);
-    return Object.freeze({ schemaVersion: 1, enabled: this.enabled, engine: this.engine.status(), providers: this.capabilities.list(), alerts, drafts, gaps, evidence, pendingConfirmations });
+    return Object.freeze({ schemaVersion: 1, enabled: this.enabled, engine: this.engine.status(), providers: this.capabilities.list(), alerts, gaps, evidence });
   }
 
-  async requirePersistedAlert(alertId, draftId) {
-    const [alert, listedAlerts, draft] = await Promise.all([
+  async getSimulation(params = {}) {
+    const simulationId = String(params.simulationId || "").trim();
+    if (!simulationId) throw new TradingAlertError("缺少模拟标识", { code: "TRADING_ALERT_SIMULATION_ID_REQUIRED", category: "validation" });
+    const simulation = await this.store.getSimulation(simulationId);
+    if (!simulation) throw new TradingAlertError("预警模拟记录不存在", { code: "TRADING_ALERT_SIMULATION_NOT_FOUND", category: "storage" });
+    return simulation;
+  }
+
+  async requirePersistedAlert(alertId) {
+    const [alert, listedAlerts] = await Promise.all([
       this.store.getAlert(alertId),
       this.store.listAlerts(),
-      this.store.getDraft(draftId),
     ]);
-    if (!alert || !listedAlerts.some((entry) => entry.alertId === alert.alertId) || draft?.status !== "confirmed") {
+    if (!alert || !listedAlerts.some((entry) => entry.alertId === alert.alertId)) {
       throw new TradingAlertError("预警写入后未能从持久化列表读回，未返回创建成功", {
         code: "TRADING_ALERT_PERSISTENCE_NOT_VERIFIED",
         category: "storage",
@@ -81,7 +76,6 @@ export class TradingAlertService {
       registry: this.intentRegistry,
       providerId: this.intentProviderId,
       capabilityRegistry: this.capabilities,
-      store: this.store,
       now: this.now,
       signal: params.signal,
       onReasoningSummaryDelta: typeof params.onReasoningSummaryDelta === "function"
@@ -100,42 +94,76 @@ export class TradingAlertService {
         locale: "zh-CN",
       },
     });
+    this.pendingDrafts.set(result.draft.draftId, result.draft);
+    for (const [simulationId, simulation] of this.pendingSimulations) {
+      if (simulation.draftId === result.draft.draftId) this.pendingSimulations.delete(simulationId);
+    }
     return { ...result, chartSwitch: result.draft.rule ? chartSwitchRequest(result.draft.rule) : null };
   }
 
   async resumeDraft(draftId) {
-    const draft = await this.store.getDraft(draftId);
-    if (!draft) throw new TradingAlertError("预警草稿不存在", { code: "TRADING_ALERT_DRAFT_NOT_FOUND", category: "storage" });
-    return resumeDraftAfterCapabilities({ draft, capabilityRegistry: this.capabilities, store: this.store, now: this.now });
-  }
-
-  async cancelDraft(draftId) {
-    const draft = await this.store.getDraft(String(draftId));
-    if (!draft) throw new TradingAlertError("预警草稿不存在", { code: "TRADING_ALERT_DRAFT_NOT_FOUND", category: "storage" });
-    return this.store.updateDraft(draft.draftId, { status: "cancelled", updatedAt: this.now() });
+    const draft = this.pendingDrafts.get(String(draftId));
+    if (!draft) throw new TradingAlertError("本次未确认预警已失效，请重新提交条件", { code: "TRADING_ALERT_PENDING_NOT_FOUND", category: "validation" });
+    const result = resumeDraftAfterCapabilities({ draft, capabilityRegistry: this.capabilities, now: this.now });
+    this.pendingDrafts.set(result.draft.draftId, result.draft);
+    return result;
   }
 
   async simulate(params = {}) {
-    const draft = await this.store.getDraft(params.draftId);
-    if (!draft?.rule) throw new TradingAlertError("预警草稿尚未形成完整规则", { code: "TRADING_ALERT_DRAFT_NOT_EXECUTABLE", category: "validation" });
+    const draft = this.pendingDrafts.get(String(params.draftId));
+    if (!draft?.rule) throw new TradingAlertError("本次未确认预警尚未形成完整规则", { code: "TRADING_ALERT_PENDING_NOT_EXECUTABLE", category: "validation" });
     if (draft.status !== "ready_to_simulate" && draft.status !== "awaiting_confirmation") {
-      throw new TradingAlertError("请先补齐澄清项和数据能力", { code: "TRADING_ALERT_DRAFT_NOT_READY", category: "validation" });
+      throw new TradingAlertError("请先补齐澄清项和数据能力", { code: "TRADING_ALERT_PENDING_NOT_READY", category: "validation" });
     }
-    await this.store.updateDraft(draft.draftId, { status: "simulating" });
+    this.pendingDrafts.set(draft.draftId, normalizeAlertDraft({ ...draft, status: "simulating", updatedAt: this.now() }));
     try {
-      const simulation = await planAlertSimulation({ rule: draft.rule, frames: params.frames, maxBars: params.maxBars, beamWidth: params.beamWidth });
+      const simulation = await this.planSimulation({
+        rule: draft.rule,
+        frames: params.frames,
+        maxBars: params.maxBars,
+        beamWidth: params.beamWidth,
+        timeoutMs: params.timeoutMs,
+      });
       this.seedSimulationHistory(draft.rule, params.frames);
       const binding = createConfirmationBinding({ draftId: draft.draftId, ruleHash: draft.rule.ruleHash, simulationId: simulation.simulationId, now: this.now() });
       const replacesAlertId = params.replacesAlertId ? String(params.replacesAlertId) : null;
       if (replacesAlertId && !(await this.store.getAlert(replacesAlertId))) {
         throw new TradingAlertError("要更新的预警不存在", { code: "TRADING_ALERT_NOT_FOUND", category: "storage" });
       }
-      const record = { ...simulation, draftId: draft.draftId, confirmation: binding, ...(replacesAlertId ? { replacesAlertId } : {}) };
-      await this.store.saveSimulation(record);
-      const updatedDraft = await this.store.updateDraft(draft.draftId, { status: "awaiting_confirmation" });
+      const anchorContextId = String(draft.rule.evaluationPolicy.anchorContextId || "");
+      const anchorFrame = params.frames?.[anchorContextId];
+      const anchorCandles = Array.isArray(anchorFrame?.candles)
+        ? anchorFrame.candles.slice(-500).map((candle) => ({
+            time: Number(candle.time),
+            closeTime: Number(candle.closeTime),
+            open: Number(candle.open),
+            high: Number(candle.high),
+            low: Number(candle.low),
+            close: Number(candle.close),
+            volume: Number(candle.volume || 0),
+          }))
+        : [];
+      const record = {
+        ...simulation,
+        draftId: draft.draftId,
+        confirmation: binding,
+        ...(anchorCandles.length ? {
+          visualization: {
+            schemaVersion: 1,
+            anchorContextId,
+            marketId: String(anchorFrame?.marketId || ""),
+            interval: String(anchorFrame?.interval || ""),
+            candles: anchorCandles,
+          },
+        } : {}),
+        ...(replacesAlertId ? { replacesAlertId } : {}),
+      };
+      const updatedDraft = normalizeAlertDraft({ ...draft, status: "awaiting_confirmation", updatedAt: this.now() });
+      this.pendingDrafts.set(draft.draftId, updatedDraft);
+      this.pendingSimulations.set(record.simulationId, record);
       return { draft: updatedDraft, simulation: record, question: `我已按“${summarizeAlertRule(draft.rule)}”模拟并标注触发。是否就是这种情况？` };
     } catch (error) {
-      await this.store.updateDraft(draft.draftId, { status: "ready_to_simulate", error: String(error?.message || error) });
+      this.pendingDrafts.set(draft.draftId, normalizeAlertDraft({ ...draft, status: "ready_to_simulate", error: String(error?.message || error), updatedAt: this.now() }));
       throw error;
     }
   }
@@ -177,27 +205,22 @@ export class TradingAlertService {
 
   async confirmOnce(params = {}) {
     if (!this.enabled) throw new TradingAlertError("智能预警仍处于功能开关关闭状态，无法开始后台监控", { code: "TRADING_ALERT_FEATURE_DISABLED", category: "validation" });
-    const draft = await this.store.getDraft(params.draftId);
-    const simulation = await this.store.getSimulation(params.simulationId);
-    if (!draft?.rule || !simulation) throw new TradingAlertError("草稿或模拟不存在", { code: "TRADING_ALERT_CONFIRMATION_MISSING", category: "validation" });
-    if (params.confirmationId !== simulation.confirmation.confirmationId) throw new TradingAlertError("确认标识不匹配", { code: "TRADING_ALERT_CONFIRMATION_STALE", category: "validation" });
-    const existing = !simulation.replacesAlertId
-      ? (await this.store.listAlerts()).find((entry) => entry.draftId === draft.draftId)
-      : null;
+    const existing = (await this.store.listAlerts()).find((entry) => (
+      entry.draftId === String(params.draftId || "")
+      || (
+        entry.simulationId === String(params.simulationId || "")
+        && entry.confirmationId === String(params.confirmationId || "")
+      )
+    ));
     if (existing) {
-      verifyConfirmationBinding(simulation.confirmation, {
-        draft,
-        simulationId: params.simulationId,
-        now: Math.min(this.now(), Number(simulation.confirmation.expiresAt)),
-      });
-      if (existing.ruleHash !== draft.rule.ruleHash || existing.simulationId !== simulation.simulationId
-        || existing.confirmationId !== simulation.confirmation.confirmationId) {
+      if (existing.simulationId !== String(params.simulationId || "")
+        || existing.confirmationId !== String(params.confirmationId || "")) {
         throw new TradingAlertError("已创建预警与本次确认不一致，请重新模拟", { code: "TRADING_ALERT_CONFIRMATION_STALE", category: "validation" });
       }
       const armResult = existing.enabled && existing.status !== "completed" && existing.status !== "monitoring"
         ? await this.engine.armWithRecovery(existing.alertId)
         : { alert: existing, monitoringReady: existing.status === "monitoring", error: null };
-      const persisted = await this.requirePersistedAlert(existing.alertId, draft.draftId);
+      const persisted = await this.requirePersistedAlert(existing.alertId);
       return {
         alert: persisted,
         summary: summarizeAlertRule(persisted.rule),
@@ -206,12 +229,15 @@ export class TradingAlertService {
         ...(armResult.error ? { warning: String(armResult.error.message || armResult.error) } : {}),
       };
     }
+    const draft = this.pendingDrafts.get(String(params.draftId));
+    const simulation = this.pendingSimulations.get(String(params.simulationId));
+    if (!draft?.rule || !simulation) throw new TradingAlertError("本次未确认预警已失效，请重新提交条件并模拟", { code: "TRADING_ALERT_CONFIRMATION_MISSING", category: "validation" });
+    if (params.confirmationId !== simulation.confirmation.confirmationId) throw new TradingAlertError("确认标识不匹配", { code: "TRADING_ALERT_CONFIRMATION_STALE", category: "validation" });
     verifyConfirmationBinding(simulation.confirmation, { draft, simulationId: params.simulationId, now: this.now() });
     if (simulation.replacesAlertId) {
       const current = await this.store.getAlert(simulation.replacesAlertId);
       if (!current) throw new TradingAlertError("要更新的预警不存在", { code: "TRADING_ALERT_NOT_FOUND", category: "storage" });
       await this.engine.disarm(current.alertId, { updateStore: false });
-      await this.store.updateDraft(draft.draftId, { status: "confirmed" });
       const updated = await this.store.updateAlert(current.alertId, {
         rule: draft.rule,
         ruleHash: draft.rule.ruleHash,
@@ -222,12 +248,14 @@ export class TradingAlertService {
         lastEvaluatedAt: null,
         failure: null,
         ...(draft.originThreadId ? { originThreadId: draft.originThreadId } : {}),
-      });
+      }, { simulation });
+      this.pendingDrafts.delete(draft.draftId);
+      this.pendingSimulations.delete(simulation.simulationId);
       const armResult = updated.enabled
         ? await this.engine.armWithRecovery(updated.alertId)
         : { alert: updated, monitoringReady: false, error: null };
       return {
-        alert: await this.requirePersistedAlert(updated.alertId, draft.draftId),
+        alert: await this.requirePersistedAlert(updated.alertId),
         summary: summarizeAlertRule(updated.rule),
         revised: true,
         monitoringReady: armResult.monitoringReady,
@@ -238,10 +266,12 @@ export class TradingAlertService {
     const alert = await this.store.createAlert(createInitialAlertInstance({
       alertId, draftId: draft.draftId, rule: draft.rule, simulationId: simulation.simulationId,
       confirmationId: simulation.confirmation.confirmationId, originThreadId: draft.originThreadId, now: this.now(),
-    }));
+    }), { simulation });
+    this.pendingDrafts.delete(draft.draftId);
+    this.pendingSimulations.delete(simulation.simulationId);
     const armResult = await this.engine.armWithRecovery(alert.alertId);
     return {
-      alert: await this.requirePersistedAlert(alert.alertId, draft.draftId),
+      alert: await this.requirePersistedAlert(alert.alertId),
       summary: summarizeAlertRule(alert.rule),
       monitoringReady: armResult.monitoringReady,
       ...(armResult.error ? { warning: String(armResult.error.message || armResult.error) } : {}),
@@ -251,6 +281,12 @@ export class TradingAlertService {
   async revise(params = {}) {
     const alert = await this.store.getAlert(params.alertId);
     if (!alert) throw new TradingAlertError("预警不存在", { code: "TRADING_ALERT_NOT_FOUND", category: "storage" });
+    if (alert.rule.contexts.some((context) => context.drawingBinding)) {
+      throw new TradingAlertError("含画线条件的预警不能编辑或迁移，请回到原 K 线图操作", {
+        code: "TRADING_ALERT_DRAWING_REVISION_LOCKED",
+        category: "validation",
+      });
+    }
     const contextId = String(params.contextId || alert.rule.evaluationPolicy.anchorContextId);
     const parseList = (value, fallback = []) => {
       const source = Array.isArray(value) ? value : String(value || "").split(/[,，\s]+/u);
@@ -295,7 +331,7 @@ export class TradingAlertService {
       createdAt: time, updatedAt: time,
       ...(alert.originThreadId ? { originThreadId: alert.originThreadId } : {}),
     });
-    await this.store.createDraft(draft);
+    this.pendingDrafts.set(draft.draftId, draft);
     return { draft, requiresSimulation: true, message: "修改已生成新 revision；重新模拟并确认前，原预警继续按旧规则监控。" };
   }
 
@@ -334,7 +370,12 @@ export class TradingAlertService {
     const dispose = await this.dataHub.subscribe(subscription, onEvent);
     return { subscription, history, dispose };
   }
-  async shutdown() { await this.engine.shutdown(); await this.dataHub.close(); }
+  async shutdown() {
+    await this.engine.shutdown();
+    await this.dataHub.close();
+    this.pendingDrafts.clear();
+    this.pendingSimulations.clear();
+  }
 
   async safeCall(method, ...args) {
     try { return { ok: true, data: await this[method](...args) }; }

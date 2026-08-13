@@ -26,6 +26,54 @@ function cloneFrames(frames) {
   return structuredClone(frames instanceof Map ? Object.fromEntries(frames) : frames);
 }
 
+function expressionHistoryWindow(expression, lookback = 0) {
+  if (!expression || typeof expression !== "object") return Math.max(2, lookback + 2);
+  if (expression.type === "indicator") {
+    return Math.max(100, Number(expression.params?.period) || Number(expression.params?.slow) || 100) * 3 + lookback;
+  }
+  if (expression.type === "lag") return expressionHistoryWindow(expression.expr, lookback + Number(expression.bars || 0));
+  if (expression.type === "rolling") {
+    return expressionHistoryWindow(
+      expression.expr,
+      lookback + Number(expression.offset || 0) + Math.max(0, Number(expression.period || 1) - 1),
+    );
+  }
+  if (Array.isArray(expression.args) && expression.args.length) {
+    return Math.max(...expression.args.map((entry) => expressionHistoryWindow(entry, lookback)));
+  }
+  return Math.max(2, lookback + 2);
+}
+
+function simulationHistoryWindows(rule) {
+  const windows = new Map(rule.contexts.map((context) => [context.contextId, 32]));
+  const walk = (node) => {
+    if (node?.type === "condition") {
+      const condition = node.condition;
+      windows.set(condition.contextId, Math.max(
+        windows.get(condition.contextId) || 32,
+        expressionHistoryWindow(condition.left),
+        expressionHistoryWindow(condition.right),
+      ));
+    }
+    if (node?.child) walk(node.child);
+    for (const child of node?.children || node?.steps || []) walk(child);
+  };
+  walk(rule.root);
+  return windows;
+}
+
+function simulationFramesForRule(rule, inputFrames) {
+  const frames = cloneFrames(inputFrames);
+  const windows = simulationHistoryWindows(rule);
+  for (const context of rule.contexts) {
+    const frame = frames?.[context.contextId];
+    if (!Array.isArray(frame?.candles)) continue;
+    const required = Math.max(2, Math.ceil(Number(windows.get(context.contextId)) || 32));
+    if (frame.candles.length > required) frame.candles = frame.candles.slice(-required);
+  }
+  return frames;
+}
+
 function leafConditions(node, result = []) {
   if (node.type === "condition") result.push(node.condition);
   if (node.child) leafConditions(node.child, result);
@@ -134,7 +182,9 @@ function scoreResult(result) {
 }
 
 function buildEvent(rule, frames, eventId, time) {
-  const normalizedFrames = cloneFrames(frames);
+  // evaluatePath owns this frame set. Reusing it avoids cloning every context
+  // for every candidate bar; the evaluator only reads frames.
+  const normalizedFrames = frames;
   for (const context of rule.contexts) {
     const frame = normalizedFrames[context.contextId];
     const last = frame.candles.at(-1);
@@ -151,10 +201,11 @@ function constraintsForFrames(rule, frames) {
   return Object.fromEntries(rule.contexts.map((context) => [context.contextId, frameConstraints(frames[context.contextId])]));
 }
 
-function evaluatePath(rule, originalFrames, path, constraintsByContext = constraintsForFrames(rule, originalFrames)) {
+function evaluatePath(rule, originalFrames, path, constraintsByContext = constraintsForFrames(rule, originalFrames), { includeInputHash = false } = {}) {
   const frames = cloneFrames(originalFrames);
-  const evaluator = new TradingAlertEvaluator();
+  const evaluator = new TradingAlertEvaluator({ hashInputs: false });
   const results = [];
+  let lastEvent = null;
   for (let index = 0; index < path.length; index += 1) {
     const point = path[index];
     for (const context of rule.contexts) {
@@ -176,9 +227,22 @@ function evaluatePath(rule, originalFrames, path, constraintsByContext = constra
       ));
     }
     const time = Math.max(...Object.values(frames).map((frame) => frame.candles.at(-1).closeTime));
-    const result = evaluator.evaluate(rule, buildEvent(rule, frames, `simulation-event-${index + 1}`, time));
+    lastEvent = buildEvent(rule, frames, `simulation-event-${index + 1}`, time);
+    const result = evaluator.evaluate(rule, lastEvent);
     results.push(result);
     if (result.triggered) break;
+  }
+  if (includeInputHash && lastEvent && results.length) {
+    const index = results.length - 1;
+    results[index] = Object.freeze({
+      ...results[index],
+      inputHash: stableHash({
+        ruleHash: rule.ruleHash,
+        eventId: lastEvent.eventId,
+        time: lastEvent.time,
+        frames: lastEvent.frames,
+      }),
+    });
   }
   return { frames, results, result: results.at(-1) };
 }
@@ -267,23 +331,45 @@ function pathFromMultipliers(initialPrice, constraints, multipliers, maxBars) {
   return path;
 }
 
-function targetFollowingPath(rule, frames, primaryId, initialPrice, constraints, maxBars) {
+function targetFollowingPath(rule, frames, primaryId, constraintsByContext, maxBars) {
   const path = [];
-  let price = initialPrice;
+  const prices = Object.fromEntries(rule.contexts.map((context) => [
+    context.contextId,
+    frames[context.contextId].candles.at(-1).close,
+  ]));
   for (let index = 0; index < maxBars; index += 1) {
-    const target = targetPrices(rule, frames, index + 1).find((entry) => entry.contextId === primaryId);
-    if (!target) break;
-    const goal = target.price + Number(target.direction || 0) * Math.max(constraints.tickSize, constraints.typicalMove * 0.12);
-    const distance = goal - price;
-    const move = Math.sign(distance) * Math.min(Math.abs(distance), constraints.maxMove * 0.94);
-    const close = snapPrice(Math.max(Number.EPSILON, price + move), constraints.tickSize);
-    path.push({ close, change: (close - price) / Math.max(price, Number.EPSILON), previousClose: price });
-    price = close;
+    const targets = targetPrices(rule, frames, index + 1);
+    if (!targets.length) break;
+    const primaryPreviousClose = prices[primaryId];
+    const contextCloses = {};
+    for (const context of rule.contexts) {
+      const contextId = context.contextId;
+      const target = targets.find((entry) => entry.contextId === contextId);
+      if (!target) continue;
+      const constraints = constraintsByContext[contextId];
+      const price = prices[contextId];
+      const goal = target.price + Number(target.direction || 0)
+        * Math.max(constraints.tickSize, constraints.typicalMove * 0.12);
+      const distance = goal - price;
+      const move = Math.sign(distance) * Math.min(Math.abs(distance), constraints.maxMove * 0.94);
+      const close = snapPrice(Math.max(Number.EPSILON, price + move), constraints.tickSize);
+      contextCloses[contextId] = close;
+      prices[contextId] = close;
+    }
+    if (!Object.keys(contextCloses).length) break;
+    const close = contextCloses[primaryId] ?? primaryPreviousClose;
+    path.push({
+      close,
+      change: (close - primaryPreviousClose) / Math.max(primaryPreviousClose, Number.EPSILON),
+      previousClose: primaryPreviousClose,
+      contextCloses,
+    });
   }
   return path;
 }
 
-function seedPaths(rule, frames, primaryId, initialPrice, constraints, maxBars) {
+function seedPaths(rule, frames, primaryId, initialPrice, constraintsByContext, maxBars) {
+  const constraints = constraintsByContext[primaryId];
   const patterns = [
     [-0.45, -1.4, -0.72, -0.22, 0.22, -0.12],
     [0.45, 1.4, 0.72, 0.22, -0.22, 0.12],
@@ -292,7 +378,7 @@ function seedPaths(rule, frames, primaryId, initialPrice, constraints, maxBars) 
     [3, 3, -3, -3, -3, -1],
     [-3, -3, 3, 3, 3, 1],
   ];
-  const directed = targetFollowingPath(rule, frames, primaryId, initialPrice, constraints, maxBars);
+  const directed = targetFollowingPath(rule, frames, primaryId, constraintsByContext, maxBars);
   return [directed, ...patterns.map((pattern) => pathFromMultipliers(initialPrice, constraints, pattern, maxBars))].filter((path) => path.length);
 }
 
@@ -347,6 +433,34 @@ function expressionContainsIndicatorOrVolume(expression) {
   if (expression.type === "field" && expression.field === "volume") return true;
   if (expression.expr && expressionContainsIndicatorOrVolume(expression.expr)) return true;
   return (expression.args || []).some(expressionContainsIndicatorOrVolume);
+}
+
+function isMainPriceIndicatorExpression(expression) {
+  if (!expression || expression.type !== "indicator") return false;
+  return ["ma", "sma", "ema", "boll"].includes(String(expression.name || "").toLowerCase());
+}
+
+function exactMainIndicatorCrossPoint(condition, trace, previousCandle, triggerCandle) {
+  if (
+    !["cross_over", "cross_under"].includes(condition.operator)
+    || !isMainPriceIndicatorExpression(condition.left)
+    || !isMainPriceIndicatorExpression(condition.right)
+    || !previousCandle
+    || !triggerCandle
+    || ![trace.left, trace.right, trace.previousLeft, trace.previousRight].every(Number.isFinite)
+  ) return null;
+  const previousDifference = trace.previousLeft - trace.previousRight;
+  const currentDifference = trace.left - trace.right;
+  const denominator = currentDifference - previousDifference;
+  if (!Number.isFinite(denominator) || denominator === 0) return null;
+  const rawProgress = -previousDifference / denominator;
+  if (!Number.isFinite(rawProgress) || rawProgress < 0 || rawProgress > 1) return null;
+  const leftAtCross = trace.previousLeft + (trace.left - trace.previousLeft) * rawProgress;
+  const rightAtCross = trace.previousRight + (trace.right - trace.previousRight) * rawProgress;
+  const time = previousCandle.time + (triggerCandle.time - previousCandle.time) * rawProgress;
+  const price = (leftAtCross + rightAtCross) / 2;
+  if (!Number.isFinite(time) || time <= 0 || !Number.isFinite(price) || price <= 0) return null;
+  return { time, price };
 }
 
 function priceValueFromTrace(condition, trace) {
@@ -421,6 +535,24 @@ export function exactConditionTriggerPoints(rule, proof, completedFrames, origin
       continue;
     }
 
+    const indicatorCross = exactMainIndicatorCrossPoint(
+      condition,
+      trace,
+      candles[triggerFrameIndex - 1],
+      triggerCandle,
+    );
+    if (indicatorCross) {
+      points.push({
+        kind: "indicator",
+        contextId,
+        time: indicatorCross.time,
+        price: indicatorCross.price,
+        conditionId: condition.conditionId,
+        conditionIds: [condition.conditionId],
+      });
+      continue;
+    }
+
     if (
       expressionContainsIndicatorOrVolume(condition.left)
       || expressionContainsIndicatorOrVolume(condition.right)
@@ -473,7 +605,7 @@ function appendRealisticContinuation(rule, frames, generatedCount, minimumBars, 
 
 export async function planAlertSimulation({ rule: ruleValue, frames: inputFrames, maxBars = 48, beamWidth = 160, minFutureBars = DEFAULT_MIN_FUTURE_BARS, signal } = {}) {
   const rule = normalizeAlertRule(ruleValue);
-  const frames = cloneFrames(inputFrames);
+  const frames = simulationFramesForRule(rule, inputFrames);
   for (const context of rule.contexts) {
     const frame = frames[context.contextId];
     if (!frame?.candles?.length) throw new TradingAlertError(`缺少 ${context.contextId} 的 K 线历史`, { code: "TRADING_ALERT_SIMULATION_HISTORY_MISSING", category: "simulation" });
@@ -487,11 +619,18 @@ export async function planAlertSimulation({ rule: ruleValue, frames: inputFrames
   const minimumPathBars = Math.max(1, Math.min(maxBars, Math.floor(Number(minFutureBars) || DEFAULT_MIN_FUTURE_BARS)));
   const minimumTriggerBars = Math.min(3, minimumPathBars);
   let earlyTrigger = null;
-  for (const path of seedPaths(rule, frames, primaryId, initialPrice, primaryConstraints, maxBars)) {
+  for (const path of seedPaths(rule, frames, primaryId, initialPrice, constraintsByContext, maxBars)) {
     const evaluated = evaluatePath(rule, frames, path, constraintsByContext);
-    if (evaluated.result?.triggered) {
-      const effectivePath = path.slice(0, evaluated.results.length);
-      const candidate = { path: effectivePath, price: effectivePath.at(-1).close, score: scoreResult(evaluated.result), evaluated };
+    const evaluations = [{ path, evaluated }, ...volumeAdjustedEvaluations(rule, frames, path, constraintsByContext, evaluated)];
+    for (const variant of evaluations) {
+      if (!variant.evaluated.result?.triggered) continue;
+      const effectivePath = variant.path.slice(0, variant.evaluated.results.length);
+      const candidate = {
+        path: effectivePath,
+        price: effectivePath.at(-1).close,
+        score: scoreResult(variant.evaluated.result),
+        evaluated: variant.evaluated,
+      };
       if (effectivePath.length >= minimumTriggerBars) return finalizeSimulation(rule, frames, candidate, constraintsByContext, minimumPathBars, minimumTriggerBars);
       if (!earlyTrigger || effectivePath.length > earlyTrigger.path.length) earlyTrigger = candidate;
     }
@@ -524,7 +663,10 @@ export async function planAlertSimulation({ rule: ruleValue, frames: inputFrames
     candidates.sort((a, b) => a.score - b.score || a.price - b.price);
     beam = candidates.slice(0, beamWidth).map(({ path, price, score }) => ({ path, price, score }));
     if (!beam.length) break;
-    await Promise.resolve();
+    // A resolved promise only yields to the microtask queue and can still starve
+    // Electron's native window event loop. Keep direct callers responsive too;
+    // production simulations run in a worker, while tests and utilities may not.
+    await new Promise((resolve) => setImmediate(resolve));
   }
   if (earlyTrigger) return finalizeSimulation(rule, frames, earlyTrigger, constraintsByContext, minimumPathBars, minimumTriggerBars);
   throw new TradingAlertError("在当前数据与搜索预算内无法构造经 Evaluator 验证的触发路径；需要用户补充口径或提高模拟预算", {
@@ -535,6 +677,10 @@ export async function planAlertSimulation({ rule: ruleValue, frames: inputFrames
 }
 
 function finalizeSimulation(rule, originalFrames, candidate, constraintsByContext, minimumBars, minimumTriggerBars) {
+  candidate = {
+    ...candidate,
+    evaluated: evaluatePath(rule, originalFrames, candidate.path, constraintsByContext, { includeInputHash: true }),
+  };
   const simulationId = `simulation-${crypto.randomUUID()}`;
   const triggerBarIndex = candidate.evaluated.results.findIndex((result) => result.triggered);
   const completedFrames = appendRealisticContinuation(rule, candidate.evaluated.frames, candidate.evaluated.results.length, minimumBars, constraintsByContext);
@@ -597,7 +743,8 @@ export function verifySimulation(ruleValue, originalFrames, simulation) {
       .filter((context) => simulation.generated[context.contextId]?.[index])
       .map((context) => [context.contextId, simulation.generated[context.contextId][index].volume])),
   }));
-  const result = evaluatePath(rule, originalFrames, path, constraintsForFrames(rule, originalFrames)).result;
+  const frames = simulationFramesForRule(rule, originalFrames);
+  const result = evaluatePath(rule, frames, path, constraintsForFrames(rule, frames), { includeInputHash: true }).result;
   return { valid: result?.triggered === true && result.inputHash === simulation.proof.inputHash, result };
 }
 

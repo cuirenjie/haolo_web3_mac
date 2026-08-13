@@ -4,7 +4,6 @@ import path from "node:path";
 import {
   TRADING_ALERT_SCHEMA_VERSION,
   TRADING_ALERT_STORE_VERSION,
-  normalizeAlertDraft,
   normalizeAlertInstance,
   normalizeMonitoringGap,
   normalizeTriggerEvidence,
@@ -19,7 +18,6 @@ const LOCK_TIMEOUT_MS = 5_000;
 function emptyData() {
   return {
     version: TRADING_ALERT_STORE_VERSION,
-    drafts: [],
     alerts: [],
     evidence: [],
     simulations: [],
@@ -77,15 +75,20 @@ function migrateData(value) {
     });
   }
   const data = { ...emptyData(), ...value, version: TRADING_ALERT_STORE_VERSION };
+  const alerts = (Array.isArray(data.alerts) ? data.alerts : []).map(normalizeAlertInstance);
+  const confirmedSimulationIds = new Set(alerts.map((alert) => alert.simulationId));
   return {
     version: TRADING_ALERT_STORE_VERSION,
-    drafts: (Array.isArray(data.drafts) ? data.drafts : []).map(normalizeAlertDraft),
-    alerts: (Array.isArray(data.alerts) ? data.alerts : []).map(normalizeAlertInstance),
+    alerts,
     evidence: (Array.isArray(data.evidence) ? data.evidence : []).map(normalizeTriggerEvidence),
-    simulations: Array.isArray(data.simulations) ? structuredClone(data.simulations) : [],
+    simulations: (Array.isArray(data.simulations) ? data.simulations : [])
+      .filter((simulation) => confirmedSimulationIds.has(String(simulation?.simulationId || "")))
+      .map((simulation) => structuredClone(simulation)),
     gaps: (Array.isArray(data.gaps) ? data.gaps : []).map(normalizeMonitoringGap),
     drawings: (Array.isArray(data.drawings) ? data.drawings : []).map(normalizeStoredDrawing),
-    events: (Array.isArray(data.events) ? data.events : []).map(normalizeEvent),
+    events: (Array.isArray(data.events) ? data.events : [])
+      .filter((event) => !String(event?.type || "").startsWith("draft."))
+      .map(normalizeEvent),
     runtimeStates: data.runtimeStates && typeof data.runtimeStates === "object" && !Array.isArray(data.runtimeStates)
       ? structuredClone(data.runtimeStates)
       : {},
@@ -143,51 +146,6 @@ export class TradingAlertStore {
     return structuredClone(this.data);
   }
 
-  async listDrafts() {
-    await this.load();
-    return structuredClone([...this.data.drafts].sort((a, b) => b.updatedAt - a.updatedAt));
-  }
-
-  async getDraft(draftId) {
-    await this.load();
-    const draft = this.data.drafts.find((entry) => entry.draftId === String(draftId));
-    return draft ? structuredClone(draft) : null;
-  }
-
-  async createDraft(input) {
-    return await this.writeLocked((data) => {
-      const normalized = normalizeAlertDraft(input);
-      if (data.drafts.some((entry) => entry.draftId === normalized.draftId)) {
-        throw new TradingAlertError(`Draft already exists: ${normalized.draftId}`, { code: "TRADING_ALERT_DRAFT_EXISTS", category: "storage" });
-      }
-      data.drafts.push(normalized);
-      data.events.push(normalizeEvent({
-        type: "draft.created",
-        time: this.now(),
-        draftId: normalized.draftId,
-        payload: { status: normalized.status },
-      }));
-      return normalized;
-    });
-  }
-
-  async updateDraft(draftId, patch) {
-    return await this.writeLocked((data) => {
-      const index = data.drafts.findIndex((entry) => entry.draftId === String(draftId));
-      if (index < 0) throw new TradingAlertError(`Draft not found: ${draftId}`, { code: "TRADING_ALERT_DRAFT_NOT_FOUND", category: "storage" });
-      const current = data.drafts[index];
-      const normalized = normalizeAlertDraft({ ...current, ...structuredClone(patch), draftId: current.draftId, createdAt: current.createdAt, updatedAt: this.now() });
-      data.drafts[index] = normalized;
-      data.events.push(normalizeEvent({
-        type: "draft.updated",
-        time: this.now(),
-        draftId: current.draftId,
-        payload: { previousStatus: current.status, status: normalized.status },
-      }));
-      return normalized;
-    });
-  }
-
   async listAlerts() {
     await this.load();
     return structuredClone([...this.data.alerts].sort((a, b) => b.updatedAt - a.updatedAt));
@@ -199,7 +157,7 @@ export class TradingAlertStore {
     return alert ? structuredClone(alert) : null;
   }
 
-  async createAlert(input) {
+  async createAlert(input, { simulation = null } = {}) {
     return await this.writeLocked((data) => {
       const normalized = normalizeAlertInstance(input);
       if (data.alerts.some((entry) => entry.alertId === normalized.alertId)) {
@@ -208,14 +166,8 @@ export class TradingAlertStore {
       if (data.alerts.some((entry) => entry.draftId === normalized.draftId)) {
         throw new TradingAlertError(`Draft already created an alert: ${normalized.draftId}`, { code: "TRADING_ALERT_DRAFT_ALREADY_CONFIRMED", category: "storage" });
       }
-      const draftIndex = data.drafts.findIndex((entry) => entry.draftId === normalized.draftId);
-      if (draftIndex < 0) throw new TradingAlertError(`Draft not found: ${normalized.draftId}`, { code: "TRADING_ALERT_DRAFT_NOT_FOUND", category: "storage" });
-      const draft = data.drafts[draftIndex];
-      if (draft.rule?.ruleHash !== normalized.ruleHash || !["awaiting_confirmation", "confirmed"].includes(draft.status)) {
-        throw new TradingAlertError("Draft confirmation does not match alert rule", { code: "TRADING_ALERT_CONFIRMATION_STALE", category: "validation" });
-      }
+      if (simulation) this.upsertConfirmedSimulation(data, normalized, simulation);
       data.alerts.push(normalized);
-      data.drafts[draftIndex] = normalizeAlertDraft({ ...draft, status: "confirmed", updatedAt: this.now() });
       data.events.push(normalizeEvent({
         type: "alert.created",
         time: this.now(),
@@ -227,7 +179,7 @@ export class TradingAlertStore {
     });
   }
 
-  async updateAlert(alertId, patch) {
+  async updateAlert(alertId, patch, { simulation = null } = {}) {
     return await this.writeLocked((data) => {
       const index = data.alerts.findIndex((entry) => entry.alertId === String(alertId));
       if (index < 0) throw new TradingAlertError(`Alert not found: ${alertId}`, { code: "TRADING_ALERT_NOT_FOUND", category: "storage" });
@@ -240,6 +192,7 @@ export class TradingAlertStore {
         createdAt: current.createdAt,
         updatedAt: this.now(),
       });
+      if (simulation) this.upsertConfirmedSimulation(data, normalized, simulation);
       data.alerts[index] = normalized;
       data.events.push(normalizeEvent({
         type: "alert.updated",
@@ -254,9 +207,11 @@ export class TradingAlertStore {
   async deleteAlert(alertId) {
     return await this.writeLocked((data) => {
       const id = String(alertId);
+      const removed = data.alerts.find((entry) => entry.alertId === id);
       const before = data.alerts.length;
       data.alerts = data.alerts.filter((entry) => entry.alertId !== id);
       if (data.alerts.length === before) return { ok: false, deleted: false };
+      data.simulations = data.simulations.filter((entry) => entry.simulationId !== removed?.simulationId);
       data.events.push(normalizeEvent({ type: "alert.deleted", time: this.now(), alertId: id }));
       delete data.runtimeStates[id];
       return { ok: true, deleted: true };
@@ -361,21 +316,38 @@ export class TradingAlertStore {
     return structuredClone([...rows].sort((a, b) => b.triggeredAt - a.triggeredAt));
   }
 
-  async saveSimulation(record) {
+  upsertConfirmedSimulation(data, alert, record) {
     const simulation = structuredClone(record);
     const simulationId = boundedText(simulation?.simulationId, 160);
     const draftId = boundedText(simulation?.draftId, 160);
     if (!simulationId || !draftId || !simulation?.ruleHash || simulation?.proof?.triggered !== true) {
       throw new TradingAlertError("Simulation record is invalid", { code: "TRADING_ALERT_SIMULATION_INVALID", category: "storage" });
     }
+    if (
+      simulationId !== alert.simulationId
+      || (draftId !== alert.draftId && simulation.replacesAlertId !== alert.alertId)
+      || simulation.ruleHash !== alert.ruleHash
+      || simulation.confirmation?.confirmationId !== alert.confirmationId
+    ) {
+      throw new TradingAlertError("Simulation does not match the confirmed alert", { code: "TRADING_ALERT_CONFIRMATION_STALE", category: "validation" });
+    }
     if (JSON.stringify(simulation).length > 2_000_000) {
       throw new TradingAlertError("Simulation record exceeds 2 MiB", { code: "TRADING_ALERT_SIMULATION_TOO_LARGE", category: "storage" });
     }
+    data.simulations = data.simulations.filter((entry) => entry.simulationId !== simulationId);
+    data.simulations.push(simulation);
+    if (data.simulations.length > 100) data.simulations = data.simulations.slice(-100);
+    return simulation;
+  }
+
+  async saveSimulation(record) {
+    const simulationId = boundedText(record?.simulationId, 160);
     return await this.writeLocked((data) => {
-      data.simulations = data.simulations.filter((entry) => entry.simulationId !== simulationId);
-      data.simulations.push(simulation);
-      if (data.simulations.length > 100) data.simulations = data.simulations.slice(-100);
-      return simulation;
+      const alert = data.alerts.find((entry) => entry.simulationId === simulationId);
+      if (!alert) {
+        throw new TradingAlertError("Unconfirmed simulations are not persisted", { code: "TRADING_ALERT_CONFIRMATION_REQUIRED", category: "validation" });
+      }
+      return this.upsertConfirmedSimulation(data, alert, record);
     });
   }
 
@@ -388,6 +360,20 @@ export class TradingAlertStore {
   async listSimulations() {
     await this.load();
     return structuredClone(this.data.simulations);
+  }
+
+  async purgeUnconfirmedArtifacts() {
+    return await this.writeLocked((data) => {
+      const confirmedSimulationIds = new Set(data.alerts.map((alert) => alert.simulationId));
+      const beforeSimulations = data.simulations.length;
+      const beforeEvents = data.events.length;
+      data.simulations = data.simulations.filter((simulation) => confirmedSimulationIds.has(simulation.simulationId));
+      data.events = data.events.filter((event) => !String(event.type || "").startsWith("draft."));
+      return {
+        removedSimulations: beforeSimulations - data.simulations.length,
+        removedDraftEvents: beforeEvents - data.events.length,
+      };
+    });
   }
 
   async listEvents({ alertId, draftId, limit = 500 } = {}) {

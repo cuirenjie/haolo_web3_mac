@@ -166,11 +166,11 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.match(messageBlock, /contact\?\.id === TRADING_EXPERT_CONTACT_ID/);
   assert.match(messageBlock, /await openTradingExpertWorkspace\(\)/);
   assert.match(source, /function initializeTradingExpertTaskThread[\s\S]*tradingExpertThreadIds\.add\(threadId\)/);
-  assert.match(renderBlock, /tradingExpertLayout \? "trading-expert-layout" : ""/);
+  assert.match(renderBlock, /tradingExpertPanelLayout \? "trading-expert-layout" : ""/);
   assert.match(renderBlock, /tradingExpertLayout && state\.tradingExpertChartCollapsed[\s\S]*?\? "trading-expert-chart-collapsed"/);
   assert.match(
     renderBlock,
-    /state\.activeView === "chat" && state\.rightCollapsed && !state\.chatPreview\s*\? "right-panel-collapsed"/,
+    /\(state\.activeView === "chat" \|\| state\.activeView === "account"\) &&\s*state\.rightCollapsed &&\s*!state\.chatPreview\s*\? "right-panel-collapsed"/,
   );
   assert.doesNotMatch(renderBlock, /!state\.chatPreview && !tradingExpertLayout/);
   assert.doesNotMatch(source, /function renderLeftPanelToggle\(\) \{\s*if \(isTradingExpertThreadId\(state\.currentThreadId\)\) return "";/);
@@ -211,7 +211,7 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.match(sidebarActions, /data-conversation-static-action="account"[\s\S]*>账户<\/span>/);
   assert.match(sidebarActions, /data-conversation-static-action="alerts"[\s\S]*>预警<\/span>/);
   assert.match(sidebarActions, /data-conversation-static-action="knowledge"[\s\S]*>知识库<\/span>/);
-  assert.match(sidebarActions, /data-conversation-static-action="skills"[\s\S]*>技能<\/span>/);
+  assert.match(sidebarActions, /data-conversation-static-action="skills"[\s\S]*>策略<\/span>/);
   assert.match(sidebarActions, /renderConversationListIcon\("account"\)[\s\S]*renderConversationListIcon\("alerts"\)[\s\S]*renderConversationListIcon\("knowledge"\)[\s\S]*renderConversationListIcon\("skills"\)/);
   assert.doesNotMatch(sidebarActions, /data-trading-expert-panel-tab|role="tab"|aria-selected/);
   assert.match(titlebarActions, /toggle-external-channel-menu[\s\S]*renderTitlebarPlugIcon\(\)/);
@@ -316,11 +316,20 @@ test("Trading Expert chart focus mode fills the workspace and restores the exact
     bindingBlock,
     /\[data-action="toggle-trading-expert-chart-focus"\][\s\S]*toggleTradingExpertChartFocusMode\(\)/,
   );
-  assert.match(leftToggleBlock, /state\.tradingExpertChartFocusMode[\s\S]*return/);
+  assert.match(
+    leftToggleBlock,
+    /state\.tradingExpertChartFocusMode[\s\S]*restoreTradingExpertChartFocusLayout\(\);[\s\S]*state\.leftCollapsed = false/,
+  );
+  assert.match(
+    bindingBlock,
+    /\[data-action="toggle-trading-expert-chart"\][\s\S]*state\.tradingExpertChartFocusMode[\s\S]*restoreTradingExpertChartFocusLayout\(\);[\s\S]*state\.tradingExpertChartCollapsed = false;[\s\S]*state\.rightCollapsed = false;[\s\S]*render\(\)/,
+  );
   assert.match(
     styles,
-    /\.desktop-shell\.trading-expert-chart-focus-mode \.left-panel-toggle,[\s\S]*> \.trading-expert-chart-toggle,[\s\S]*> \.trading-expert-resize-handle\s*\{\s*display: none;/s,
+    /\.desktop-body\.trading-expert-layout\.trading-expert-chart-focus-mode[\s\S]*> \.trading-expert-resize-handle\s*\{\s*display: none;/s,
   );
+  assert.doesNotMatch(styles, /\.trading-expert-chart-focus-mode[^{}]*\.left-panel-toggle[^{}]*\{[^}]*display: none;/s);
+  assert.doesNotMatch(styles, /\.trading-expert-chart-focus-mode[^{}]*\.trading-expert-chart-toggle[^{}]*\{[^}]*display: none;/s);
   assert.match(styles, /\.trading-expert-chart-focus-icon\s*\{[^}]*width: 14px;[^}]*height: 14px;[^}]*stroke: currentColor;[^}]*stroke-width: 1\.55;/s);
   assert.match(styles, /\.trading-expert-chart-focus-toggle\[aria-pressed="true"\]\s*\{[^}]*color: var\(--text-tertiary\);/s);
   assert.match(styles, /\[data-action="toggle-trading-expert-chart-focus"\][\s\S]*:hover:not\(:disabled\),[\s\S]*:focus-visible[\s\S]*color: var\(--text-secondary\);/s);
@@ -349,7 +358,7 @@ test("collapsed Trading Expert progress cannot replace the restore control mid-c
 
   assert.match(
     pointerBlock,
-    /\.trading-expert-layout \[data-action="toggle-right-panel"\][\s\S]*?\.trading-expert-layout \[data-action="toggle-trading-expert-chart"\]/,
+    /\.trading-expert-layout \[data-action="toggle-left-panel"\][\s\S]*?\.trading-expert-layout \[data-action="toggle-right-panel"\][\s\S]*?\.trading-expert-layout \[data-action="toggle-trading-expert-chart"\]/,
   );
   assert.match(pointerBlock, /tradingExpertLayoutControlPointerActive = true/);
   assert.match(pointerBlock, /finishTradingExpertLayoutControlPointerInteraction/);
@@ -740,16 +749,19 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(renderBlock, /tradingExpertLayout \? "trading-expert-shell" : ""/);
   assert.match(styles, /\.app-titlebar\s*\{[^}]*height: 38px;/s);
   assert.match(styles, /\.small-icon-button\s*\{[^}]*height: 26px;/s);
-  assert.match(styles, /\.desktop-body\.trading-expert-layout > \.left-panel-toggle\s*\{[^}]*top: 4px;[^}]*left: calc\(var\(--conversation-list-width\) \+ 4px\);[^}]*z-index: 70;[^}]*left 0\.24s ease,/s);
-  assert.match(styles, /\.desktop-body\.trading-expert-layout\.left-panel-collapsed > \.left-panel-toggle\s*\{[^}]*left: 4px;/s);
-  assert.match(styles, /\.desktop-body\.trading-expert-layout > \.left-panel-toggle:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 2px var\(--conversation-action-focus\);/s);
-  assert.match(styles, /\.desktop-shell\.trading-expert-shell \.titlebar-profile,\s*\.desktop-shell\.trading-expert-shell \.titlebar-primary-actions\s*\{[^}]*transform: translateX\(-12px\);/s);
-  assert.match(styles, /body:has\(\.desktop-shell\.trading-expert-shell\) \.profile-menu\s*\{[^}]*left: 15px;/s);
+  assert.match(styles, /\.desktop-body > \.left-panel-toggle\s*\{[^}]*top: 4px;[^}]*left: calc\(var\(--conversation-list-width\) \+ 4px\);[^}]*z-index: 70;[^}]*left 0\.24s ease,/s);
+  assert.match(styles, /\.desktop-body\.left-panel-collapsed > \.left-panel-toggle\s*\{[^}]*left: 4px;/s);
+  assert.match(styles, /\.desktop-body > \.left-panel-toggle:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 2px var\(--conversation-action-focus\);/s);
+  assert.match(styles, /\.app-titlebar\s*\{[^}]*padding: 0 0 0 15px;/s);
+  assert.match(styles, /\.titlebar-profile\s*\{[^}]*transform: none;/s);
+  assert.match(styles, /\.profile-menu\s*\{[^}]*left: 15px;/s);
+  assert.doesNotMatch(styles, /\.desktop-shell\.trading-expert-shell \.titlebar-profile/);
   assert.match(styles, /\.desktop-body\.trading-expert-layout \.trading-market-content > \.trading-market-overview\s*\{[^}]*padding-right: 64px;[^}]*padding-left: 0;/s);
   assert.match(styles, /\.desktop-body\.trading-expert-layout \.trading-market-symbol-wrap\s*\{[^}]*margin-left: 0;/s);
   assert.match(styles, /\.desktop-body\.trading-expert-layout\.left-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?\.trading-market-content > \.trading-market-overview\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding-left: 36px;/s);
   assert.match(styles, /\.trading-expert-layout\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-chat-panel\s*\{\s*display: none;/s);
   assert.match(styles, /\.trading-expert-chart-collapsed:not\(\.right-panel-collapsed\)[\s\S]*?> \.trading-expert-panel\s*\{[^}]*width: auto;[^}]*max-width: none;[^}]*flex: 1 1 auto;[^}]*border-top-left-radius: 16px;/s);
+  assert.match(styles, /\.trading-expert-layout\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-panel[\s\S]*?\.trading-expert-panel-header\s*\{[^}]*padding-left: 44px;/s);
   assert.match(styles, /\.desktop-body\.right-panel-collapsed > \.agent-panel\.collapsed\s*\{\s*display: none;/s);
   assert.match(styles, /\.panel-toggle:is\([\s\S]*?\[data-action="toggle-trading-expert-chart"\][\s\S]*?\)\s*\{[^}]*color: var\(--text-placeholder\);/s);
   assert.match(styles, /\.panel-toggle:is\([\s\S]*?\[data-action="toggle-trading-expert-chart"\][\s\S]*?\)\[aria-expanded="true"\]\s*\{[^}]*color: var\(--text-tertiary\);/s);
@@ -1286,7 +1298,8 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
   assert.match(source, /this\.periodItems\.insertBefore\(/);
   assert.match(source, /item\.animate\(/);
   assert.match(source, /this\.draftPeriods = reorderTradingPeriods\(this\.draftPeriods, orderedResolutions\)/);
-  assert.match(source, /window\.localStorage\.getItem\(TRADING_PERIODS_STORAGE_KEY\)/);
+  assert.match(source, /function loadTradingPeriodsFromStorage[\s\S]*storage\.getItem\(TRADING_PERIODS_STORAGE_KEY\)/);
+  assert.match(source, /private loadTradingPeriods\(\)[\s\S]*return loadTradingPeriodsFromStorage\(window\.localStorage\)/);
   assert.match(source, /window\.localStorage\.setItem\(TRADING_PERIODS_STORAGE_KEY, JSON\.stringify\(this\.periods\)\)/);
   assert.match(styles, /\.trading-market-period-editor\s*\{[^}]*background: var\(--trading-market-panel\);/s);
   assert.match(styles, /\.trading-market-period-editor\s*\{[^}]*width: min\(336px, calc\(100vw - 112px\)\);/s);
@@ -1498,12 +1511,16 @@ test("Trading Expert favorites persist, filter the next open, and remain availab
   assert.match(styles, /\.trading-market-favorite:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.45;/s);
   assert.match(styles, /\.titlebar-market-favorites-host\s*\{[^}]*margin: 0 24px 0 -22px;[^}]*overflow: hidden;/s);
   assert.match(styles, /\.titlebar-market-favorites-host\s*\{[^}]*--trading-market-selected-background: #fff;/s);
+  assert.match(styles, /\.titlebar-market-favorites-host\[hidden\]\s*\{\s*display: none;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.titlebar-market-favorites-host\s*\{[^}]*--trading-market-positive: #52dc88;[^}]*--trading-market-negative: #ff718e;[^}]*--trading-market-selected-background: #1b1e23;/s);
+  assert.match(renderer, /const showTradingExpertFavoriteTickers =\s*state\.activeView === "chat"\s*&& !state\.chatPreview\s*&& isBlankNewThread\(state\.currentThreadId\)\s*&& isTradingExpertThreadId\(state\.currentThreadId\)/s);
+  assert.match(renderer, /data-titlebar-market-favorites-host\$\{showTradingExpertFavoriteTickers \? "" : " hidden"\}/);
   assert.match(styles, /\.trading-market-favorite-tickers\s*\{[^}]*flex: 1 1 auto;[^}]*gap: 4px;[^}]*overflow-x: auto;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scrollbar-width: none;[^}]*touch-action: pan-x;/s);
   assert.match(styles, /\.trading-market-favorite-tickers\.sorting\s*\{[^}]*cursor: grabbing;[^}]*user-select: none;/s);
   assert.match(styles, /\.trading-market-favorite-ticker\s*\{[^}]*width: 100px;[^}]*min-width: 100px;[^}]*max-width: 100px;[^}]*flex: 0 0 100px;[^}]*background: transparent;/s);
   assert.match(styles, /\.trading-market-favorite-ticker\s*\{[^}]*cursor: grab;[^}]*touch-action: none;/s);
   assert.match(styles, /\.trading-market-favorite-ticker\.selected\s*\{[^}]*background: var\(--trading-market-selected-background\);/s);
+  assert.match(styles, /\.trading-market-favorite-ticker\.selected > strong\s*\{[^}]*color: var\(--trading-market-text\);/s);
   assert.match(styles, /\.trading-market-favorite-ticker\.sorting\s*\{[^}]*cursor: grabbing;[^}]*visibility: hidden;/s);
   assert.doesNotMatch(styles, /\.trading-market-favorite-ticker\.sorting\s*\{[^}]*opacity:/s);
   assert.match(styles, /\.trading-market-favorite-ticker-drag-ghost\s*\{[^}]*position: fixed;[^}]*z-index: 10000;[^}]*pointer-events: none;[^}]*background: #fff !important;[^}]*opacity: 1 !important;[^}]*transform: scale\(1\.035\);[^}]*border: 1px solid var\(--conversation-action-focus\);/s);
@@ -1850,7 +1867,7 @@ test("Trading Expert exposes multi-select TradingView-style indicator panes", as
   assert.match(styles, /\.trading-market-indicators button:disabled/);
 });
 
-test("Trading Expert keeps the live chart workspace across unrelated app renders", async () => {
+test("Trading Expert keeps the live chart workspace across renders and page navigation", async () => {
   const source = await mainSource;
   const market = await marketSource;
   const preservationBlock = sourceBlock(
@@ -1867,6 +1884,22 @@ test("Trading Expert keeps the live chart workspace across unrelated app renders
 
   assert.match(preservationBlock, /host\.remove\(\)/);
   assert.match(preservationBlock, /freshHost\.replaceWith\(preserved\.host\)/);
+  assert.match(source, /let parkedTradingExpertMarketWorkspace: PreservedTradingExpertMarketWorkspace \| null = null/);
+  assert.match(
+    preservationBlock,
+    /return parkedTradingExpertMarketWorkspace;[\s\S]*?parkedTradingExpertMarketWorkspace = preserved;/,
+    "an already detached chart must survive subsequent renders on non-chart pages",
+  );
+  assert.match(
+    preservationBlock,
+    /if \(!targetThreadId\) \{[\s\S]*?parkedTradingExpertMarketWorkspace = preserved;[\s\S]*?return;/,
+    "leaving New Task must park the live chart instead of destroying it",
+  );
+  assert.match(
+    preservationBlock,
+    /freshHost\.replaceWith\(preserved\.host\);[\s\S]*?parkedTradingExpertMarketWorkspace = null;[\s\S]*?syncTradingExpertMarketWorkspace\(/,
+    "returning to the task must reattach the same chart before workspace sync",
+  );
   assert.match(
     preservationBlock,
     /syncTradingExpertMarketWorkspace\([\s\S]*?preserved\.host,[\s\S]*?tradingExpertFavoriteStorageAccountIdentity\(\)/,
@@ -1886,6 +1919,11 @@ test("Trading Expert keeps the live chart workspace across unrelated app renders
   assert.doesNotMatch(
     renderBlock,
     /suppressScrollDetection\(\);\s*syncTradingExpertMarketWorkspace\(null\);/,
+  );
+  assert.match(
+    renderBlock,
+    /if \(shouldShowLoginWindow\(\)\) \{[\s\S]*?parkedTradingExpertMarketWorkspace = null;[\s\S]*?syncTradingExpertMarketWorkspace\(null\);/,
+    "logout must still dispose any parked account-scoped chart",
   );
   assert.match(
     marketSyncBlock,

@@ -1,4 +1,36 @@
-export type TradingAlertFilter = "all" | "monitoring" | "triggered" | "paused" | "attention" | "draft";
+import {
+  renderTradingMarketAssetLogo,
+  type TradingMarketIdentityProvider,
+} from "./trading-expert-market-identity.ts";
+
+export type TradingAlertFilter = "monitoring" | "triggered" | "paused";
+type TradingAlertStatusFilter = TradingAlertFilter | "attention";
+
+export type TradingAlertEditorMarketOption = {
+  id: string;
+  provider: TradingMarketIdentityProvider;
+  baseAsset: string;
+  displaySymbol: string;
+  venue: string;
+  tag: string;
+  markPrice: number;
+  changePercent: number;
+  quoteAvailable: boolean;
+};
+
+export type TradingAlertEditorPeriodOption = {
+  value: string;
+  label: string;
+};
+
+export type TradingAlertEditorSelection = {
+  alertId: string;
+  marketId: string;
+  interval: string;
+  selectorKind: "fixed" | "universe";
+  clock: string;
+  mode: string;
+};
 
 export type TradingAlertsUiState = {
   loading: boolean;
@@ -8,15 +40,16 @@ export type TradingAlertsUiState = {
   enabled: boolean;
   engine: { running?: boolean; alerts?: number; subscriptions?: number };
   alerts: any[];
-  drafts: any[];
   gaps: any[];
   evidence: any[];
   providers: any[];
-  pendingConfirmations: any[];
   filter: TradingAlertFilter;
-  selectedAlertId: string | null;
-  selectedEvidenceId: string | null;
   editorAlertId: string | null;
+  editorSelection: TradingAlertEditorSelection | null;
+  editorMarkets: TradingAlertEditorMarketOption[];
+  editorMarketsLoading: boolean;
+  editorMarketsError: string | null;
+  editorPeriodOptions: TradingAlertEditorPeriodOption[];
 };
 
 export type TradingAlertConversationSource = {
@@ -25,8 +58,8 @@ export type TradingAlertConversationSource = {
 };
 
 // A clarification reply is an answer to the existing instruction, not a new
-// standalone instruction. Prefer the first user turn so a resumed/persisted
-// draft cannot replace the complete rule with a short answer such as
+// standalone instruction. Prefer the first user turn so a transient follow-up
+// cannot replace the complete rule with a short answer such as
 // “触碰任意一条就预警”.
 export function resolveTradingAlertSourceText(
   previous: TradingAlertConversationSource | null | undefined,
@@ -56,11 +89,21 @@ export function createTradingAlertsUiState(): TradingAlertsUiState {
     error: null,
     enabled: false,
     engine: {},
-    alerts: [], drafts: [], gaps: [], evidence: [], providers: [], pendingConfirmations: [],
-    filter: "all",
-    selectedAlertId: null,
-    selectedEvidenceId: null,
+    alerts: [], gaps: [], evidence: [], providers: [],
+    filter: "monitoring",
     editorAlertId: null,
+    editorSelection: null,
+    editorMarkets: [],
+    editorMarketsLoading: false,
+    editorMarketsError: null,
+    editorPeriodOptions: [
+      { value: "1w", label: "1周" },
+      { value: "1d", label: "1日" },
+      { value: "5m", label: "5分" },
+      { value: "15m", label: "15分" },
+      { value: "1h", label: "1时" },
+      { value: "4h", label: "4时" },
+    ],
   };
 }
 
@@ -74,18 +117,64 @@ export function applyTradingAlertsSnapshot(state: TradingAlertsUiState, payload:
   state.enabled = value?.enabled === true;
   state.engine = value?.engine && typeof value.engine === "object" ? value.engine : {};
   state.alerts = Array.isArray(value?.alerts) ? value.alerts : [];
-  state.drafts = Array.isArray(value?.drafts) ? value.drafts : [];
   state.gaps = Array.isArray(value?.gaps) ? value.gaps : [];
   state.evidence = Array.isArray(value?.evidence) ? value.evidence : [];
   state.providers = Array.isArray(value?.providers) ? value.providers : [];
-  state.pendingConfirmations = Array.isArray(value?.pendingConfirmations) ? value.pendingConfirmations : [];
   state.error = null;
   state.loading = false;
   state.loaded = true;
-  if (state.selectedAlertId && !state.alerts.some((alert) => alert.alertId === state.selectedAlertId)) { state.selectedAlertId = null; state.selectedEvidenceId = null; }
+}
+
+export function tradingAlertHasDrawingContext(alert: any) {
+  return Array.isArray(alert?.rule?.contexts)
+    && alert.rule.contexts.some((context: any) => Boolean(context?.drawingBinding));
 }
 
 const esc = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] || char));
+
+const TRADING_ALERT_VENUE_LABELS: Record<string, string> = {
+  BINANCE: "币安",
+  HYPERLIQUID: "Hyperliquid",
+};
+const TRADING_ALERT_QUOTE_ASSETS = ["USDT", "USDC", "FDUSD", "BUSD", "USD"];
+const TRADING_ALERT_MARKET_INTERVAL_PATTERN = /\b([A-Z][A-Z0-9_-]*):([A-Z][A-Z0-9_-]*):([A-Z0-9][A-Z0-9._/-]*)(?:\s*[·-]\s*|\s+)(\d+(?:\.\d+)?[smhdw])\b/gi;
+
+function tradingAlertBaseAsset(symbol: string) {
+  const normalized = String(symbol || "").trim().toUpperCase();
+  const quote = TRADING_ALERT_QUOTE_ASSETS.find((candidate) => (
+    normalized.length > candidate.length && normalized.endsWith(candidate)
+  ));
+  return quote ? normalized.slice(0, -quote.length) : normalized;
+}
+
+export function formatTradingAlertMarketLabel(marketId: unknown, interval: unknown) {
+  const market = String(marketId ?? "").trim();
+  const period = String(interval ?? "").trim();
+  const [venue, , symbol, ...extra] = market.split(":");
+  if (!venue || !symbol || extra.length) return [market, period].filter(Boolean).join("-");
+  const venueLabel = TRADING_ALERT_VENUE_LABELS[venue.toUpperCase()] || venue;
+  const baseAsset = tradingAlertBaseAsset(symbol);
+  return [venueLabel, baseAsset, period].filter(Boolean).join("-");
+}
+
+export function formatTradingAlertDisplayText(value: unknown) {
+  return String(value ?? "").replace(
+    TRADING_ALERT_MARKET_INTERVAL_PATTERN,
+    (_match, venue, marketType, symbol, interval) => formatTradingAlertMarketLabel(
+      `${venue}:${marketType}:${symbol}`,
+      interval,
+    ),
+  );
+}
+
+export function formatTradingAlertCardSummary(value: unknown, marketLabel: unknown) {
+  const summary = formatTradingAlertDisplayText(value).trim();
+  const market = String(marketLabel ?? "").trim();
+  if (!market || !summary.startsWith(market)) return summary;
+  const suffix = summary.slice(market.length);
+  if (suffix && !/^[\s,，。:：·-]/.test(suffix)) return summary;
+  return suffix.replace(/^[\s,，。:：·-]+/, "");
+}
 
 function statusMeta(alert: any) {
   if (alert.status === "completed") return { label: "已完成", tone: "completed" };
@@ -101,23 +190,11 @@ function marketLabels(rule: any) {
   return (rule?.contexts || []).flatMap((context: any) => {
     const selector = context.marketSelector || {};
     const markets = selector.kind === "fixed" ? selector.marketIds : selector.kind === "current" ? ["当前交易对"] : selector.frozenMarketIds?.length ? selector.frozenMarketIds : ["市场集合"];
-    return markets.flatMap((market: string) => (context.intervals || []).map((interval: string) => `${market} · ${interval}`));
+    return markets.flatMap((market: string) => (context.intervals || []).map((interval: string) => formatTradingAlertMarketLabel(market, interval)));
   });
 }
 
-function providerLabels(rule: any) {
-  const selected = (rule?.dataRequirements || []).map((entry: any) => entry.selectedProvider).filter(Boolean);
-  return [...new Set(selected.length ? selected : ["binance-public"])];
-}
-
-function readableTime(value: unknown) {
-  const time = Number(value);
-  if (!Number.isFinite(time) || time <= 0) return "—";
-  return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(time));
-}
-
-function alertMatchesFilter(alert: any, filter: TradingAlertFilter) {
-  if (filter === "all") return true;
+function alertMatchesFilter(alert: any, filter: TradingAlertStatusFilter) {
   if (filter === "monitoring") return ["arming", "monitoring", "cooling_down"].includes(alert.status);
   if (filter === "triggered") return ["triggered", "completed"].includes(alert.status);
   if (filter === "paused") return alert.status === "paused";
@@ -144,22 +221,25 @@ function renderAlertCard(state: TradingAlertsUiState, alert: any) {
   const gaps = state.gaps.filter((gap) => gap.alertId === alert.alertId);
   const evidence = state.evidence.filter((entry) => entry.alertId === alert.alertId);
   const busy = state.busyAlertId === alert.alertId;
-  const clock = alert.rule?.evaluationPolicy?.clock === "bar_close" ? "收盘确认" : alert.rule?.evaluationPolicy?.clock === "mixed" ? "混合确认" : "盘中实时";
+  const drawingLocked = tradingAlertHasDrawingContext(alert);
+  const clock = alert.rule?.evaluationPolicy?.clock === "bar_close" ? "收盘确认" : alert.rule?.evaluationPolicy?.clock === "mixed" ? "多个条件" : "盘中实时";
   const mode = alert.rule?.triggerPolicy?.mode === "repeat" ? "重复监控" : "一次性";
   const market = marketLabels(alert.rule)[0] || "未指定市场";
+  const title = formatTradingAlertDisplayText(alert.rule?.title || "交易预警");
+  const summary = formatTradingAlertCardSummary(alert.rule?.normalizedSummary || "等待规则摘要", market);
   return `
     <article class="trading-alert-card ${esc(status.tone)}" data-trading-alert-card="${esc(alert.alertId)}">
       <span class="trading-alert-status ${esc(status.tone)}">${esc(status.label)}</span>
       <div class="trading-alert-card-copy">
-        <h2 title="${esc(alert.rule?.title || "交易预警")}">${esc(alert.rule?.title || "交易预警")}</h2>
-        <p title="${esc(alert.rule?.normalizedSummary || "等待规则摘要")}">${esc(alert.rule?.normalizedSummary || "等待规则摘要")}</p>
+        <h2 title="${esc(title)}">${esc(title)}</h2>
+        <p title="${esc(summary)}">${esc(summary)}</p>
         <small title="${esc(`${market} · ${clock} · ${mode}`)}">${esc(market)} · ${esc(clock)} · ${esc(mode)}</small>
       </div>
       <footer>
         <span title="${esc(gaps.length ? "存在监控空档" : alert.failure || "")}">${gaps.length ? "监控空档" : evidence.length ? `触发 ${evidence.length} 次` : `Revision ${esc(alert.rule?.revision || 1)}`}</span>
         <div class="trading-alert-actions">
           <button type="button" data-trading-alert-action="view" data-alert-id="${esc(alert.alertId)}">查看</button>
-          <button type="button" data-trading-alert-action="edit" data-alert-id="${esc(alert.alertId)}" ${busy ? "disabled" : ""}>编辑</button>
+          <button type="button" data-trading-alert-action="edit" data-alert-id="${esc(alert.alertId)}" ${busy || drawingLocked ? "disabled" : ""}${drawingLocked ? ' title="含画线条件的预警不能迁移，请回到原 K 线图操作" aria-label="编辑不可用：请回到原 K 线图操作"' : ""}>编辑</button>
           <button type="button" data-trading-alert-action="${alert.enabled ? "pause" : "resume"}" data-alert-id="${esc(alert.alertId)}" ${busy || alert.status === "completed" ? "disabled" : ""}>${busy ? "处理中…" : alert.enabled ? "暂停" : "恢复"}</button>
           <button type="button" class="danger" data-trading-alert-action="delete" data-alert-id="${esc(alert.alertId)}" ${busy ? "disabled" : ""}>删除</button>
         </div>
@@ -167,82 +247,168 @@ function renderAlertCard(state: TradingAlertsUiState, alert: any) {
     </article>`;
 }
 
-function renderDraftCard(draft: any) {
-  const label = draft.status === "awaiting_clarification" ? "等待补充" : draft.status === "awaiting_authorization" ? "等待接入" : draft.status === "awaiting_confirmation" ? "等待确认" : "创建中";
-  const detail = draft.questions?.length ? `${draft.questions.length} 项待补充` : "等待继续";
-  return `<article class="trading-alert-card trading-alert-draft-card" data-trading-alert-draft-card="${esc(draft.draftId)}">
-    <span class="trading-alert-status draft">${esc(label)}</span>
-    <div class="trading-alert-card-copy">
-      <h2 title="${esc(draft.rule?.title || "预警草稿")}">${esc(draft.rule?.title || "预警草稿")}</h2>
-      <p title="${esc(draft.rule?.normalizedSummary || draft.sourceText)}">${esc(draft.rule?.normalizedSummary || draft.sourceText)}</p>
-      <small>草稿 · ${esc(detail)}</small>
+function renderEditorSelect(
+  name: string,
+  label: string,
+  value: string,
+  options: Array<{ value: string; label: string }>,
+  { disabled = false, opensAbove = false, fallbackLabel = "" } = {},
+) {
+  const selected = options.find((option) => option.value === value)
+    || (value ? { value, label: fallbackLabel || value } : options[0]);
+  if (!selected) return "";
+  const labelId = `trading-alert-editor-${name}-label`;
+  const valueId = `trading-alert-editor-${name}-value`;
+  return `<div class="trading-alert-editor-field">
+    <span id="${esc(labelId)}">${esc(label)}</span>
+    <div class="video-expert-select trading-alert-select${opensAbove ? " opens-above" : ""}" data-trading-alert-select="${esc(name)}">
+      <input type="hidden" name="${esc(name)}" value="${esc(selected.value)}" ${disabled ? "disabled" : ""} />
+      <button type="button" class="video-expert-select-button" data-trading-alert-select-trigger aria-haspopup="listbox" aria-expanded="false" aria-labelledby="${esc(labelId)} ${esc(valueId)}" ${disabled ? "disabled" : ""}>
+        <span id="${esc(valueId)}" data-trading-alert-select-label>${esc(selected.label)}</span>
+        <svg viewBox="0 0 16 16" aria-hidden="true" draggable="false"><path d="m4 6 4 4 4-4" /></svg>
+      </button>
+      <div class="video-expert-select-menu trading-alert-select-menu" data-trading-alert-select-menu role="listbox" aria-labelledby="${esc(labelId)}" hidden>
+        ${options.map((option) => `<button type="button" class="${option.value === selected.value ? "selected" : ""}" data-trading-alert-select-value="${esc(option.value)}" data-trading-alert-select-option-label="${esc(option.label)}" role="option" aria-selected="${option.value === selected.value ? "true" : "false"}" tabindex="-1">${esc(option.label)}</button>`).join("")}
+      </div>
     </div>
-    <footer><span>未完成</span><div class="trading-alert-actions"><button type="button" data-trading-alert-draft="${esc(draft.draftId)}">继续</button></div></footer>
-  </article>`;
+  </div>`;
 }
 
-function renderDetail(state: TradingAlertsUiState, alert: any) {
-  const evidence = state.evidence.filter((entry) => entry.alertId === alert.alertId).sort((a, b) => b.triggeredAt - a.triggeredAt);
-  const gaps = state.gaps.filter((gap) => gap.alertId === alert.alertId).sort((a, b) => b.startedAt - a.startedAt);
-  return `<section class="trading-alert-detail" aria-labelledby="tradingAlertDetailTitle">
-    <header><button type="button" data-trading-alert-action="back" aria-label="返回预警列表">←</button><div><h1 id="tradingAlertDetailTitle">${esc(alert.rule?.title)}</h1><p>${esc(alert.rule?.normalizedSummary)}</p></div></header>
-    <div class="trading-alert-detail-grid">
-      <section><h2>执行配置</h2><dl>
-        <div><dt>市场 / 周期</dt><dd>${marketLabels(alert.rule).map(esc).join("；")}</dd></div>
-        <div><dt>判断时钟</dt><dd>${esc(alert.rule?.evaluationPolicy?.clock)}</dd></div>
-        <div><dt>触发策略</dt><dd>${esc(alert.rule?.triggerPolicy?.mode)} · false → true · 不补触发</dd></div>
-        <div><dt>数据提供方</dt><dd>${providerLabels(alert.rule).map(esc).join("；")}</dd></div>
-        <div><dt>规则哈希</dt><dd><code>${esc(alert.ruleHash)}</code></dd></div>
-      </dl></section>
-      <section><h2>监控空档</h2>${gaps.length ? gaps.map((gap) => `<div class="trading-alert-timeline-row"><strong>${esc(readableTime(gap.startedAt))} → ${esc(readableTime(gap.resumedAt))}</strong><span>${esc(gap.reason)} · 未补算</span></div>`).join("") : `<p class="trading-alert-muted">暂无监控空档</p>`}</section>
-    </div>
-    <section class="trading-alert-evidence"><h2>触发证据</h2>${evidence.length ? evidence.map((entry) => `<article class="${state.selectedEvidenceId === entry.evidenceId ? "selected" : ""}" ${state.selectedEvidenceId === entry.evidenceId ? "aria-current=\"true\"" : ""}><header><strong>${esc(readableTime(entry.triggeredAt))}</strong><code>${esc(entry.triggerEventId)}</code></header><div>${entry.contexts.map((context: any) => `<span>${esc(context.marketId)} · ${esc(context.interval)} · 收 ${esc(context.candle?.close)}</span>`).join("")}</div><ul>${entry.conditionResults.map((condition: any) => `<li>${esc(condition.conditionId)}：${esc(condition.result)}</li>`).join("")}</ul>${entry.contexts?.[0] ? `<button type="button" data-trading-alert-action="view-evidence-chart" data-market-id="${esc(entry.contexts[0].marketId)}" data-interval="${esc(entry.contexts[0].interval)}" data-triggered-at="${esc(entry.triggeredAt)}">查看触发 K 线</button>` : ""}</article>`).join("") : `<p class="trading-alert-muted">尚未真实触发</p>`}</section>
-  </section>`;
+function tradingAlertEditorMarketFallback(marketId: string): TradingAlertEditorMarketOption {
+  const [venueId, marketType, symbol = marketId] = marketId.split(":");
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const baseAsset = tradingAlertBaseAsset(normalizedSymbol) || normalizedSymbol;
+  const quoteAsset = normalizedSymbol.slice(baseAsset.length) || "USDT";
+  const provider = venueId?.toLowerCase() === "ifind"
+    ? "ifind"
+    : venueId?.toLowerCase() === "finnhub"
+      ? "finnhub"
+      : "binance";
+  return {
+    id: marketId,
+    provider,
+    baseAsset,
+    displaySymbol: [baseAsset, quoteAsset].filter(Boolean).join("/"),
+    venue: TRADING_ALERT_VENUE_LABELS[venueId?.toUpperCase()] || venueId || "币安",
+    tag: marketType?.toUpperCase() === "SPOT" ? "现货" : "永续",
+    markPrice: 0,
+    changePercent: 0,
+    quoteAvailable: false,
+  };
 }
 
-function renderEditor(alert: any) {
+function tradingAlertEditorMarketPrice(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "--";
+  if (value >= 1_000) return value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (value >= 1) return value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  return value.toLocaleString("zh-CN", { minimumFractionDigits: 4, maximumFractionDigits: 8 });
+}
+
+export function renderTradingAlertEditorMarketOptions(
+  markets: ReadonlyArray<TradingAlertEditorMarketOption>,
+  selectedMarketId: string,
+) {
+  return markets.map((market) => {
+    const selected = market.id === selectedMarketId;
+    const changeText = market.quoteAvailable
+      ? `${market.changePercent >= 0 ? "+" : ""}${market.changePercent.toFixed(2)}%`
+      : "--";
+    return `<button type="button" class="trading-alert-market-option${selected ? " selected" : ""}" data-trading-alert-select-value="${esc(market.id)}" data-trading-alert-select-option-label="${esc(`${market.displaySymbol} · ${market.venue} · ${market.tag}`)}" data-trading-alert-market-search-text="${esc(`${market.id} ${market.displaySymbol} ${market.baseAsset} ${market.venue} ${market.tag}`)}" role="option" aria-selected="${selected ? "true" : "false"}" tabindex="-1">
+      <span class="trading-alert-market-pair">${renderTradingMarketAssetLogo(market.baseAsset, market.provider)}<span><strong>${esc(market.displaySymbol)}</strong><small>${esc(market.tag)}</small></span></span>
+      <span>${esc(market.venue)}</span>
+      <b>${esc(tradingAlertEditorMarketPrice(market.markPrice))}</b>
+      <em class="${market.quoteAvailable ? market.changePercent >= 0 ? "positive" : "negative" : ""}">${esc(changeText)}</em>
+    </button>`;
+  }).join("");
+}
+
+function renderEditorMarketSelect(
+  state: TradingAlertsUiState,
+  marketId: string,
+  disabled: boolean,
+) {
+  const selected = state.editorMarkets.find((market) => market.id === marketId)
+    || tradingAlertEditorMarketFallback(marketId);
+  const markets = state.editorMarkets.some((market) => market.id === selected.id)
+    ? state.editorMarkets
+    : [selected, ...state.editorMarkets];
+  const status = state.editorMarketsError
+    || (state.editorMarketsLoading ? "正在加载交易对…" : markets.length ? "" : "暂无可选交易对");
+  return `<div class="trading-alert-editor-field">
+    <span id="trading-alert-editor-market-label">交易对</span>
+    <div class="video-expert-select trading-alert-select trading-alert-market-select" data-trading-alert-select="marketIds">
+      <input type="hidden" name="marketIds" value="${esc(selected.id)}" ${disabled ? "disabled" : ""} />
+      <button type="button" class="video-expert-select-button" data-trading-alert-select-trigger aria-haspopup="dialog" aria-expanded="false" aria-labelledby="trading-alert-editor-market-label trading-alert-editor-market-value" ${disabled ? "disabled" : ""}>
+        <span id="trading-alert-editor-market-value" data-trading-alert-select-label>${esc(`${selected.displaySymbol} · ${selected.venue} · ${selected.tag}`)}</span>
+        <svg viewBox="0 0 16 16" aria-hidden="true" draggable="false"><path d="m4 6 4 4 4-4" /></svg>
+      </button>
+      <div class="trading-alert-market-menu" data-trading-alert-select-menu role="dialog" aria-label="选择交易对" hidden>
+        <label class="trading-alert-market-search">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
+          <input type="search" data-trading-alert-market-search placeholder="搜索交易对" autocomplete="off" />
+        </label>
+        <div class="trading-alert-market-head" aria-hidden="true"><span>名称</span><span>平台</span><span>最新价</span><span>24H涨幅</span></div>
+        <div class="trading-alert-market-options" data-trading-alert-market-options role="listbox" aria-labelledby="trading-alert-editor-market-label">
+          ${renderTradingAlertEditorMarketOptions(markets.slice(0, 120), selected.id)}
+        </div>
+        <p class="trading-alert-market-status" data-trading-alert-market-status ${status ? "" : "hidden"}>${esc(status)}</p>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderEditor(state: TradingAlertsUiState, alert: any) {
   const anchor = alert.rule?.contexts?.find((context: any) => context.contextId === alert.rule?.evaluationPolicy?.anchorContextId) || alert.rule?.contexts?.[0];
-  const drawingLocked = Boolean(anchor?.drawingBinding);
-  const selectorKind = anchor?.marketSelector?.kind === "universe" ? "universe" : "fixed";
-  const markets = (anchor?.marketSelector?.marketIds || anchor?.marketSelector?.frozenMarketIds || []).join(", ");
-  const intervals = (anchor?.intervals || ["1h"]).join(", ");
-  const estimatedBindings = Math.max(1, (anchor?.marketSelector?.marketIds || anchor?.marketSelector?.frozenMarketIds || []).length) * Math.max(1, anchor?.intervals?.length || 1);
+  const drawingLocked = tradingAlertHasDrawingContext(alert);
+  const editorSelection = state.editorSelection?.alertId === alert.alertId ? state.editorSelection : null;
+  const selectorKind = editorSelection?.selectorKind
+    || (anchor?.marketSelector?.kind === "universe" ? "universe" : "fixed");
+  const marketId = editorSelection?.marketId
+    || (anchor?.marketSelector?.marketIds || anchor?.marketSelector?.frozenMarketIds || [])[0]
+    || "BINANCE:FUTURES:BTCUSDT";
+  const interval = editorSelection?.interval || (anchor?.intervals || ["1h"])[0] || "1h";
+  const revisionBusy = state.busyAlertId === alert.alertId;
   return `<div class="trading-alert-dialog-backdrop" data-trading-alert-action="close-editor"></div>
     <dialog class="trading-alert-editor" open aria-modal="true" aria-labelledby="tradingAlertEditorTitle">
-      <header><div><h2 id="tradingAlertEditorTitle">编辑预警配置</h2><p>修改会生成新 Revision；重新模拟和确认前，旧规则继续监控。</p></div><button type="button" data-trading-alert-action="close-editor" aria-label="关闭">×</button></header>
+      <header><h2 id="tradingAlertEditorTitle">编辑预警配置</h2><button type="button" data-trading-alert-action="close-editor" aria-label="关闭">×</button></header>
       ${drawingLocked ? `<div class="trading-alert-editor-note">该规则绑定画线，交易对和周期跟随画线，不能泛化。</div>` : ""}
-      <form data-trading-alert-editor-form data-alert-id="${esc(alert.alertId)}" data-context-id="${esc(anchor?.contextId || "primary")}">
-        <label><span>市场范围</span><select name="selectorKind" ${drawingLocked ? "disabled" : ""}><option value="fixed" ${selectorKind === "fixed" ? "selected" : ""}>指定交易对（可多选）</option><option value="universe" ${selectorKind === "universe" ? "selected" : ""}>市场集合（确认时冻结）</option></select></label>
-        <label><span>交易对（逗号分隔）</span><input name="marketIds" value="${esc(markets)}" placeholder="BINANCE:FUTURES:BTCUSDT, BINANCE:FUTURES:ETHUSDT" ${drawingLocked ? "disabled" : ""} /></label>
-        <label><span>周期（逗号分隔）</span><input name="intervals" value="${esc(intervals)}" placeholder="15m, 1h, 4h" ${drawingLocked ? "disabled" : ""} /></label>
-        <div class="trading-alert-resource-estimate" role="status">当前约 ${esc(estimatedBindings)} 个逻辑监控组合；相同交易对/周期会共享行情连接。</div>
-        <label><span>确认方式</span><select name="clock"><option value="bar_close" ${alert.rule?.evaluationPolicy?.clock === "bar_close" ? "selected" : ""}>K线收盘确认</option><option value="mixed" ${alert.rule?.evaluationPolicy?.clock === "mixed" ? "selected" : ""}>按条件混合</option><option value="bar_update" ${alert.rule?.evaluationPolicy?.clock === "bar_update" ? "selected" : ""}>盘中实时</option></select></label>
-        <label><span>重复方式</span><select name="mode"><option value="once" ${alert.rule?.triggerPolicy?.mode === "once" ? "selected" : ""}>一次性</option><option value="repeat" ${alert.rule?.triggerPolicy?.mode === "repeat" ? "selected" : ""}>重复监控</option></select></label>
-        <footer><button type="button" data-trading-alert-action="close-editor">取消</button><button type="submit" class="primary">生成新 Revision</button></footer>
+      <form data-trading-alert-editor-form data-alert-id="${esc(alert.alertId)}" data-context-id="${esc(anchor?.contextId || "primary")}"${revisionBusy ? ' aria-busy="true"' : ""}>
+        <input type="hidden" name="selectorKind" value="${esc(selectorKind)}" ${drawingLocked ? "disabled" : ""} />
+        ${renderEditorMarketSelect(state, marketId, drawingLocked)}
+        ${renderEditorSelect("intervals", "周期", interval, state.editorPeriodOptions, {
+          disabled: drawingLocked,
+          fallbackLabel: interval,
+        })}
+        ${renderEditorSelect("clock", "确认方式", editorSelection?.clock || alert.rule?.evaluationPolicy?.clock || "bar_close", [
+          { value: "bar_close", label: "K线收盘确认" },
+          { value: "mixed", label: "多个条件" },
+          { value: "bar_update", label: "盘中实时" },
+        ])}
+        ${renderEditorSelect("mode", "重复方式", editorSelection?.mode || alert.rule?.triggerPolicy?.mode || "once", [
+          { value: "once", label: "一次性" },
+          { value: "repeat", label: "重复监控" },
+        ], { opensAbove: true })}
+        <footer><button type="button" data-trading-alert-action="close-editor">取消</button><button type="submit" class="primary"${revisionBusy ? " disabled" : ""}>${revisionBusy ? "正在生成…" : "生成新预警"}</button></footer>
       </form>
     </dialog>`;
 }
 
 export function renderTradingAlertsPage(state: TradingAlertsUiState) {
-  const selected = state.alerts.find((alert) => alert.alertId === state.selectedAlertId);
-  const editor = state.alerts.find((alert) => alert.alertId === state.editorAlertId);
-  if (selected) return `<main class="trading-alerts-page">${renderDetail(state, selected)}${editor ? renderEditor(editor) : ""}</main>`;
-  const activeDrafts = state.drafts.filter((draft) => !["confirmed", "cancelled"].includes(draft.status));
-  const alerts = state.filter === "draft" ? [] : sortAlertsForDisplay(state.alerts.filter((alert) => alertMatchesFilter(alert, state.filter)));
-  const drafts = ["all", "draft"].includes(state.filter) ? activeDrafts : [];
+  const editor = state.alerts.find((alert) => (
+    alert.alertId === state.editorAlertId && !tradingAlertHasDrawingContext(alert)
+  ));
+  const alerts = sortAlertsForDisplay(state.alerts.filter((alert) => alertMatchesFilter(alert, state.filter)));
   const counts = {
-    all: state.alerts.length + activeDrafts.length,
     monitoring: state.alerts.filter((item) => alertMatchesFilter(item, "monitoring")).length,
     triggered: state.alerts.filter((item) => alertMatchesFilter(item, "triggered")).length,
     paused: state.alerts.filter((item) => alertMatchesFilter(item, "paused")).length,
-    attention: state.alerts.filter((item) => alertMatchesFilter(item, "attention")).length,
-    draft: activeDrafts.length,
   };
-  const tabs: Array<[TradingAlertFilter, string]> = [["all", "全部"], ["monitoring", "监控中"], ["triggered", "已触发"], ["paused", "已暂停"], ["attention", "需处理"], ["draft", "草稿"]];
+  const tabs: Array<[TradingAlertFilter, string]> = [["monitoring", "监控中"], ["triggered", "已触发"], ["paused", "已暂停"]];
   return `<main class="trading-alerts-page">
-    ${state.error ? `<div class="trading-alert-page-error" role="alert">${esc(state.error)}<button type="button" data-trading-alert-action="refresh">重试</button></div>` : ""}
-    <nav class="trading-alert-filters" aria-label="筛选预警和草稿">${tabs.map(([id, label]) => `<button type="button" class="${state.filter === id ? "active" : ""}" data-trading-alert-filter="${id}" aria-pressed="${state.filter === id}">${label}<span>${counts[id]}</span></button>`).join("")}</nav>
-    ${state.loading ? `<div class="trading-alert-loading" role="status"><span></span>正在读取预警…</div>` : alerts.length || drafts.length ? `<section class="trading-alert-card-grid">${alerts.map((alert) => renderAlertCard(state, alert)).join("")}${drafts.map(renderDraftCard).join("")}</section>` : `<section class="trading-alert-empty"><p>${state.filter === "draft" ? "还没有草稿" : state.filter === "all" ? "还没有智能预警" : "当前筛选下没有预警"}</p></section>`}
-    ${editor ? renderEditor(editor) : ""}
+    <nav class="trading-alert-filters" aria-label="筛选预警">${tabs.map(([id, label]) => `<button type="button" class="${state.filter === id ? "active" : ""}" data-trading-alert-filter="${id}" aria-pressed="${state.filter === id}">${label}<span>${counts[id]}</span></button>`).join("")}</nav>
+    <div class="trading-alert-list-scroll" role="region" aria-label="预警列表" tabindex="0">
+      ${state.loading ? `<div class="trading-alert-loading" role="status"><span></span>正在读取预警…</div>` : alerts.length ? `<section class="trading-alert-card-grid">${alerts.map((alert) => renderAlertCard(state, alert)).join("")}</section>` : `<section class="trading-alert-empty"><p>当前筛选下没有预警</p></section>`}
+    </div>
+    ${editor ? renderEditor(state, editor) : ""}
   </main>`;
 }

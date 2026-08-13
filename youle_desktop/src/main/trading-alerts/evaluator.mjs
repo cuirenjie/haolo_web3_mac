@@ -102,8 +102,9 @@ function eventPosition(context, fallbackTime) {
 }
 
 export class TradingAlertEvaluator {
-  constructor({ indicatorRegistry = createBuiltinIndicatorRegistry(), drawings = {}, external = {}, tickSize = 0 } = {}) {
+  constructor({ indicatorRegistry = createBuiltinIndicatorRegistry(), drawings = {}, external = {}, tickSize = 0, hashInputs = true } = {}) {
     this.services = { indicators: indicatorRegistry, drawings, external, tickSize };
+    this.hashInputs = hashInputs !== false;
     this.state = new Map();
   }
 
@@ -182,8 +183,10 @@ export class TradingAlertEvaluator {
   }
 
   result(rule, event, value, extra) {
-    const input = { ruleHash: rule.ruleHash, eventId: event.eventId, time: event.time, frames: event.frames };
-    return Object.freeze({ value, triggered: value === true, inputHash: stableHash(input), eventId: event.eventId, evaluatedAt: event.time, ...extra });
+    const inputHash = this.hashInputs
+      ? stableHash({ ruleHash: rule.ruleHash, eventId: event.eventId, time: event.time, frames: event.frames })
+      : null;
+    return Object.freeze({ value, triggered: value === true, inputHash, eventId: event.eventId, evaluatedAt: event.time, ...extra });
   }
 
   exportState() { return structuredClone(Object.fromEntries(this.state)); }

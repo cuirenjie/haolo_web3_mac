@@ -1158,7 +1158,7 @@ test("left panel collapse control stays on every conversation-sidebar page", asy
   );
   assert.match(
     renderBlock,
-    /const isChatLeftCollapsed =\s*\(state\.activeView === "chat" \|\| state\.activeView === "autoTasks" \|\| state\.activeView === "alerts" \|\| state\.activeView === "skillsPlaza"\) && state\.leftCollapsed/,
+    /const workspaceHasConversationList =\s*state\.activeView === "chat" \|\|\s*state\.activeView === "account" \|\|\s*state\.activeView === "autoTasks" \|\|\s*state\.activeView === "alerts" \|\|\s*state\.activeView === "skillsPlaza";[\s\S]*?const isChatLeftCollapsed =\s*workspaceHasConversationList && state\.leftCollapsed/,
   );
   assert.match(
     renderBlock,
@@ -1169,13 +1169,11 @@ test("left panel collapse control stays on every conversation-sidebar page", asy
     "function renderWindowControls",
     "function renderLeftPanelToggle",
   );
-  assert.match(
-    titlebarBlock,
-    /!tradingExpertLayout && \(state\.activeView === "chat" \|\| state\.activeView === "autoTasks" \|\| state\.activeView === "alerts" \|\| state\.activeView === "skillsPlaza"\) \? renderLeftPanelToggle\(\) : ""[\s\S]*class="titlebar-profile"/,
-  );
+  assert.doesNotMatch(titlebarBlock, /renderLeftPanelToggle\(\)/);
+  assert.match(titlebarBlock, /<header class="app-titlebar"[\s\S]*?<button class="titlebar-profile"/);
   assert.match(
     renderBlock,
-    /<div class="\$\{bodyClasses\}"\$\{bodyStyle\}>\s*\$\{tradingExpertLayout \? renderLeftPanelToggle\(\) : ""\}/,
+    /<div class="\$\{bodyClasses\}"\$\{bodyStyle\}>\s*\$\{workspaceHasConversationList \? renderLeftPanelToggle\(\) : ""\}/,
   );
   assert.doesNotMatch(renderBlock, /renderAppSidebar\(\)/);
   assert.match(renderBlock, /renderChatList\(\)/);
@@ -1205,7 +1203,7 @@ test("left panel collapse control stays on every conversation-sidebar page", asy
   assert.match(toggleBlock, /function toggleLeftPanelCollapsed/);
   assert.match(
     toggleBlock,
-    /if \(state\.activeView !== "chat" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"\) return/,
+    /if \(state\.activeView !== "chat" && state\.activeView !== "account" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"\) return/,
   );
 
   const eventBlock = sourceBlock(
@@ -1231,14 +1229,15 @@ test("left panel collapse control stays on every conversation-sidebar page", asy
   const styles = await stylesSource;
   assert.match(
     styles,
-    /\.left-panel-toggle\s*\{[^}]*top: 6px;[^}]*left: 0;[^}]*z-index: 110;[^}]*transition: color 0\.18s ease, background-color 0\.18s ease;/s,
+    /\.desktop-body > \.left-panel-toggle\s*\{[^}]*top: 4px;[^}]*left: calc\(var\(--conversation-list-width\) \+ 4px\);[^}]*z-index: 70;[^}]*left 0\.24s ease,/s,
   );
-  assert.match(styles, /\.app-titlebar\s*\{[^}]*padding: 0 0 0 27px;/s);
-  assert.match(styles, /\.profile-menu\s*\{[^}]*left: 27px;/s);
+  assert.match(styles, /\.app-titlebar\s*\{[^}]*padding: 0 0 0 15px;/s);
+  assert.match(styles, /\.titlebar-profile\s*\{[^}]*transform: none;/s);
+  assert.match(styles, /\.profile-menu\s*\{[^}]*left: 15px;/s);
   assert.match(styles, /\.titlebar-channel-menu-overlay\s*\{[^}]*position: absolute;[^}]*left: 50%;[^}]*transform: translateX\(-50%\);/s);
   assert.match(
     styles,
-    /\.desktop-shell\.left-panel-collapsed \.left-panel-toggle/,
+    /\.desktop-body\.left-panel-collapsed > \.left-panel-toggle\s*\{[^}]*left: 4px;/s,
   );
   assert.match(
     styles,
