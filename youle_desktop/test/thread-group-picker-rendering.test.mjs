@@ -1171,7 +1171,11 @@ test("left panel collapse control stays on every conversation-sidebar page", asy
   );
   assert.match(
     titlebarBlock,
-    /state\.activeView === "chat" \|\| state\.activeView === "autoTasks" \|\| state\.activeView === "alerts" \|\| state\.activeView === "skillsPlaza" \? renderLeftPanelToggle\(\) : ""[\s\S]*class="titlebar-profile"/,
+    /!tradingExpertLayout && \(state\.activeView === "chat" \|\| state\.activeView === "autoTasks" \|\| state\.activeView === "alerts" \|\| state\.activeView === "skillsPlaza"\) \? renderLeftPanelToggle\(\) : ""[\s\S]*class="titlebar-profile"/,
+  );
+  assert.match(
+    renderBlock,
+    /<div class="\$\{bodyClasses\}"\$\{bodyStyle\}>\s*\$\{tradingExpertLayout \? renderLeftPanelToggle\(\) : ""\}/,
   );
   assert.doesNotMatch(renderBlock, /renderAppSidebar\(\)/);
   assert.match(renderBlock, /renderChatList\(\)/);

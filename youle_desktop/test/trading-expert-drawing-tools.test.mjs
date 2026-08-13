@@ -1111,7 +1111,7 @@ test("drawing toolbar header removes the exit divider and aligns the symbol to i
   );
   assert.match(
     styles,
-    /\.desktop-body\.trading-expert-layout\.left-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?\.trading-market-content > \.trading-market-overview\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding-left: 5px;/s,
+    /\.desktop-body\.trading-expert-layout\.left-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?\.trading-market-content > \.trading-market-overview\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding-left: 36px;/s,
   );
   assert.doesNotMatch(styles, /trading-drawing-exit/);
   assert.doesNotMatch(main, /exitTradingExpertWorkspace|exit-trading-expert/);

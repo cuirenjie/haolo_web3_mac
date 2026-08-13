@@ -78,6 +78,54 @@ test("trading favorites normalize persisted symbols and remove invalid duplicate
   assert.equal(tradingMarketVisibleInPicker(eth, "btc", favorites, false), false);
 });
 
+test("favorite ticker drag order is stable across unrelated records and storage reloads", async () => {
+  const {
+    loadTradingFavoritesFromStorage,
+    reorderTradingFavoriteRecords,
+    saveTradingFavoritesToStorage,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const favoriteRecord = (id, assetClass = "crypto") => {
+    const symbol = id.split(":").at(-1);
+    return {
+      id,
+      provider: id.startsWith("FINNHUB:") ? "finnhub" : "binance",
+      symbol,
+      baseAsset: symbol.replace("USDT", ""),
+      quoteAsset: assetClass === "crypto" ? "USDT" : "",
+      displaySymbol: symbol,
+      description: symbol,
+      venue: assetClass === "crypto" ? "币安" : "NASDAQ",
+      assetClass,
+      marketType: assetClass === "crypto" ? "perpetual" : "global",
+      tag: assetClass === "crypto" ? "永续" : "股票",
+    };
+  };
+  const btc = favoriteRecord("BINANCE:FUTURES:BTCUSDT");
+  const apple = favoriteRecord("FINNHUB:AAPL", "stock");
+  const eth = favoriteRecord("BINANCE:FUTURES:ETHUSDT");
+  const sol = favoriteRecord("BINANCE:FUTURES:SOLUSDT");
+  const reordered = reorderTradingFavoriteRecords(
+    [btc, apple, eth, sol],
+    [sol.id, btc.id, eth.id],
+  );
+  assert.deepEqual(reordered.map(({ id }) => id), [sol.id, apple.id, btc.id, eth.id]);
+
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+  saveTradingFavoritesToStorage(storage, "account-a", {
+    symbols: reordered.map(({ id }) => id),
+    records: reordered,
+  });
+  assert.deepEqual(
+    loadTradingFavoritesFromStorage(storage, "account-a").records.map(({ id }) => id),
+    [sol.id, apple.id, btc.id, eth.id],
+  );
+});
+
 test("trading favorites survive reconstruction, migrate locally, and stay account scoped", async () => {
   const {
     loadTradingFavoritesFromStorage,

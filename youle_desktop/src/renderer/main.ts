@@ -33369,6 +33369,7 @@ function render() {
     <div class="${shellClasses}">
       ${renderWindowControls()}
       <div class="${bodyClasses}"${bodyStyle}>
+        ${tradingExpertLayout ? renderLeftPanelToggle() : ""}
         ${tradingExpertLayout ? renderTradingExpertCollapseControls() : ""}
         ${tradingExpertLayout ? renderTradingExpertPanelResizeHandles() : ""}
         ${mainContent}
@@ -34393,9 +34394,13 @@ function renderWindowControls() {
   const maximized = state.windowMaximized;
   const avatarUrl = currentProfileAvatar();
   const profileName = currentProfileName();
+  const tradingExpertLayout =
+    state.activeView === "chat"
+    && !state.chatPreview
+    && isTradingExpertThreadId(state.currentThreadId);
   return `
     <header class="app-titlebar" aria-label="应用标题栏">
-      ${state.activeView === "chat" || state.activeView === "autoTasks" || state.activeView === "alerts" || state.activeView === "skillsPlaza" ? renderLeftPanelToggle() : ""}
+      ${!tradingExpertLayout && (state.activeView === "chat" || state.activeView === "autoTasks" || state.activeView === "alerts" || state.activeView === "skillsPlaza") ? renderLeftPanelToggle() : ""}
       <button class="titlebar-profile" data-action="toggle-profile" title="${escapeAttr(profileName)}" aria-label="打开个人资料：${escapeAttr(profileName)}">
         <span class="titlebar-profile-avatar">
           <img${builtInAvatarEdgeCropClassAttribute(avatarUrl)} src="${escapeAttr(avatarUrl)}" alt="" />

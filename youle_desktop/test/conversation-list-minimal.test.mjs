@@ -125,7 +125,8 @@ test("the titlebar plug and adjacent alarm actions preserve menus, dialog flow, 
   assert.match(styles, /\.titlebar-action-icon\s*\{[^}]*width:\s*18px;[^}]*fill:\s*none;[^}]*stroke:\s*currentColor;/s);
   assert.match(styles, /\.titlebar-plug-icon\s*\{[^}]*transform:\s*translateX\(-5px\);/s);
   assert.match(styles, /\.titlebar-alarm-icon\s*\{[^}]*transform:\s*translateX\(-15px\);/s);
-  assert.match(styles, /\.titlebar-primary-action:hover:not\(:disabled\),[\s\S]*background:\s*var\(--conversation-action-hover\);/s);
+  assert.match(styles, /\.titlebar-primary-action:hover:not\(:disabled\),[\s\S]*?\.titlebar-channel-action\.menu-open > \.titlebar-primary-action,[\s\S]*?\.titlebar-primary-action:is\(\.active, :active\):not\(:disabled\)\s*\{[^}]*background:\s*transparent;/s);
+  assert.doesNotMatch(styles, /\.titlebar-primary-action\s*\{[^}]*transition:[^;}]*background/s);
   assert.match(styles, /\.titlebar-primary-action:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/s);
   assert.match(styles, /\.titlebar-primary-action:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
   assert.doesNotMatch(styles, /\.conversation-list-auto-task-action|\.conversation-list-alarm-icon/);

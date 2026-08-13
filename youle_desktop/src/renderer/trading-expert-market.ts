@@ -72,6 +72,7 @@ import {
   renderTradingMarketAssetLogo,
   tradingMarketAssetBadge,
 } from "./trading-expert-market-identity.ts";
+import { TradingFavoriteTickerSortController } from "./trading-expert-favorite-ticker-sort.ts";
 
 const BINANCE_FUTURES_REST_URL = "https://fapi.binance.com";
 const BINANCE_FUTURES_WS_URL = "wss://fstream.binance.com/ws";
@@ -724,6 +725,26 @@ export function normalizeTradingFavoriteSymbols(value: unknown): string[] {
   return [...symbols];
 }
 
+export function reorderTradingFavoriteRecords(
+  records: ReadonlyArray<TradingFavoriteMarketRecord>,
+  orderedMarketIds: ReadonlyArray<string>,
+) {
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  const seen = new Set<string>();
+  const orderedRecords = orderedMarketIds.flatMap((candidate) => {
+    const marketId = String(candidate || "").trim().toUpperCase();
+    const record = recordsById.get(marketId);
+    if (!record || seen.has(marketId)) return [];
+    seen.add(marketId);
+    return [record];
+  });
+  if (orderedRecords.length < 2) return [...records];
+  let orderedIndex = 0;
+  return records.map((record) => (
+    seen.has(record.id) ? orderedRecords[orderedIndex++] : record
+  ));
+}
+
 type TradingFavoritesStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export function tradingFavoriteStorageKeys(accountIdentity = "") {
@@ -813,11 +834,10 @@ export function saveTradingFavoritesToStorage(
   options: { removeLegacy?: boolean } = {},
 ) {
   const keys = tradingFavoriteStorageKeys(accountIdentity);
-  const symbols = normalizeTradingFavoriteSymbols(snapshot.symbols).sort();
+  const symbols = normalizeTradingFavoriteSymbols(snapshot.symbols);
   const symbolSet = new Set(symbols);
   const records = normalizeTradingFavoriteMarketRecords(snapshot.records)
-    .filter((record) => symbolSet.has(record.id))
-    .sort((first, second) => first.id.localeCompare(second.id));
+    .filter((record) => symbolSet.has(record.id));
   storage.setItem(keys.symbols, JSON.stringify(symbols));
   storage.setItem(keys.records, JSON.stringify(records));
   if (options.removeLegacy && keys.symbols !== keys.legacySymbols) {
@@ -3633,6 +3653,7 @@ class TradingExpertMarketWorkspace {
   private readonly search: HTMLInputElement;
   private readonly marketList: HTMLElement;
   private readonly favoriteTickerBar: HTMLElement;
+  private readonly favoriteTickerSortController: TradingFavoriteTickerSortController;
   private readonly indicatorLegendLayer: HTMLElement;
   private readonly mainIndicatorLegendElement: HTMLElement;
   private readonly periodControls: HTMLElement;
@@ -3714,11 +3735,6 @@ class TradingExpertMarketWorkspace {
   private favoriteTickerSocketWatchdogs = new Map<WebSocket, number>();
   private favoriteTickerSocketUpdatesByMarketId = new Map<string, number>();
   private favoriteTickerOpenPricesById = new Map<string, number>();
-  private favoriteTickerScrollPointerId: number | null = null;
-  private favoriteTickerScrollStartX = 0;
-  private favoriteTickerScrollStartLeft = 0;
-  private favoriteTickerScrollDragging = false;
-  private favoriteTickerScrollSuppressClick = false;
   private countdownTimer: number | null = null;
   private pollTimer: number | null = null;
   private candlePollTimer: number | null = null;
@@ -3822,6 +3838,10 @@ class TradingExpertMarketWorkspace {
     this.search = this.requireElement<HTMLInputElement>("[data-market-search]");
     this.marketList = this.requireElement("[data-market-list]");
     this.favoriteTickerBar = this.requireElement("[data-market-favorite-tickers]");
+    this.favoriteTickerSortController = new TradingFavoriteTickerSortController({
+      host: this.favoriteTickerBar,
+      onCommit: (orderedMarketIds) => this.commitFavoriteTickerOrder(orderedMarketIds),
+    });
     this.syncTitlebarFavoriteTickerHost();
     this.indicatorLegendLayer = this.requireElement("[data-market-indicator-legends]");
     this.mainIndicatorLegendElement = this.requireElement("[data-market-main-indicator-legends]");
@@ -3906,10 +3926,6 @@ class TradingExpertMarketWorkspace {
   private bindEvents() {
     this.host.addEventListener("click", this.handleClick);
     this.favoriteTickerBar.addEventListener("click", this.handleFavoriteTickerClick);
-    this.favoriteTickerBar.addEventListener("pointerdown", this.handleFavoriteTickerScrollPointerDown);
-    this.favoriteTickerBar.addEventListener("pointermove", this.handleFavoriteTickerScrollPointerMove);
-    this.favoriteTickerBar.addEventListener("pointerup", this.handleFavoriteTickerScrollPointerUp);
-    this.favoriteTickerBar.addEventListener("pointercancel", this.handleFavoriteTickerScrollPointerCancel);
     this.favoriteTickerBar.addEventListener("wheel", this.handleFavoriteTickerScrollWheel, { passive: false });
     this.host.addEventListener("input", this.handleIndicatorEditorInput);
     this.host.addEventListener("change", this.handleIndicatorEditorInput);
@@ -4300,62 +4316,8 @@ class TradingExpertMarketWorkspace {
   }
 
   private readonly handleFavoriteTickerClick = (event: Event) => {
-    if (this.favoriteTickerScrollSuppressClick) {
-      event.preventDefault();
-      event.stopPropagation();
-      this.favoriteTickerScrollSuppressClick = false;
-      return;
-    }
     this.handleClick(event);
     event.stopPropagation();
-  };
-
-  private readonly handleFavoriteTickerScrollPointerDown = (event: PointerEvent) => {
-    if (
-      event.pointerType !== "mouse"
-      || event.button !== 0
-      || this.favoriteTickerBar.scrollWidth <= this.favoriteTickerBar.clientWidth + 1
-    ) return;
-    this.favoriteTickerScrollPointerId = event.pointerId;
-    this.favoriteTickerScrollStartX = event.clientX;
-    this.favoriteTickerScrollStartLeft = this.favoriteTickerBar.scrollLeft;
-    this.favoriteTickerScrollDragging = false;
-  };
-
-  private readonly handleFavoriteTickerScrollPointerMove = (event: PointerEvent) => {
-    if (event.pointerId !== this.favoriteTickerScrollPointerId) return;
-    const distance = event.clientX - this.favoriteTickerScrollStartX;
-    if (!this.favoriteTickerScrollDragging && Math.abs(distance) < 4) return;
-    if (!this.favoriteTickerScrollDragging) {
-      this.favoriteTickerScrollDragging = true;
-      this.favoriteTickerBar.classList.add("dragging");
-      this.favoriteTickerBar.setPointerCapture?.(event.pointerId);
-    }
-    event.preventDefault();
-    this.favoriteTickerBar.scrollLeft = this.favoriteTickerScrollStartLeft - distance;
-  };
-
-  private finishFavoriteTickerScroll(event: PointerEvent, suppressClick: boolean) {
-    if (event.pointerId !== this.favoriteTickerScrollPointerId) return;
-    if (this.favoriteTickerBar.hasPointerCapture?.(event.pointerId)) {
-      this.favoriteTickerBar.releasePointerCapture(event.pointerId);
-    }
-    this.favoriteTickerBar.classList.remove("dragging");
-    this.favoriteTickerScrollPointerId = null;
-    this.favoriteTickerScrollDragging = false;
-    if (!suppressClick) return;
-    this.favoriteTickerScrollSuppressClick = true;
-    window.setTimeout(() => {
-      this.favoriteTickerScrollSuppressClick = false;
-    }, 0);
-  }
-
-  private readonly handleFavoriteTickerScrollPointerUp = (event: PointerEvent) => {
-    this.finishFavoriteTickerScroll(event, this.favoriteTickerScrollDragging);
-  };
-
-  private readonly handleFavoriteTickerScrollPointerCancel = (event: PointerEvent) => {
-    this.finishFavoriteTickerScroll(event, false);
   };
 
   private readonly handleFavoriteTickerScrollWheel = (event: WheelEvent) => {
@@ -5280,7 +5242,23 @@ class TradingExpertMarketWorkspace {
       .slice(0, MAX_TRADING_FAVORITE_TICKERS);
   }
 
+  private commitFavoriteTickerOrder(orderedMarketIds: string[]) {
+    const reordered = reorderTradingFavoriteRecords(
+      [...this.favoriteMarketRecords.values()],
+      orderedMarketIds,
+    );
+    this.favoriteMarketRecords = new Map(reordered.map((record) => [record.id, record]));
+    this.favoriteTickerMarketsById = new Map(
+      orderedMarketIds.flatMap((marketId) => {
+        const market = this.favoriteTickerMarketsById.get(marketId);
+        return market ? [[marketId, market] as const] : [];
+      }),
+    );
+    this.saveFavoriteSymbols();
+  }
+
   private renderFavoriteTickerBar() {
+    this.favoriteTickerSortController.cancel();
     const markets = this.favoriteTickerMarkets();
     this.favoriteTickerMarketsById = new Map(markets.map((market) => [market.id, market]));
     this.syncTitlebarFavoriteTickerHost();
@@ -5289,7 +5267,7 @@ class TradingExpertMarketWorkspace {
       this.favoriteTickerBar.innerHTML = "";
       return;
     }
-    this.favoriteTickerBar.innerHTML = markets.map((market) => {
+    this.favoriteTickerBar.innerHTML = markets.map((market, tickerIndex) => {
       const selected = market.id === this.selectedMarketId;
       const priceText = market.quoteAvailable ? formatMarketPrice(market.markPrice) : "--";
       const changeText = market.quoteAvailable ? `${market.changePercent.toFixed(2)}%` : "--";
@@ -5303,17 +5281,21 @@ class TradingExpertMarketWorkspace {
           class="trading-market-favorite-ticker${selected ? " selected" : ""}"
           data-market-action="favorite-symbol"
           data-market-id="${escapeAttribute(market.id)}"
+          data-market-favorite-sort-item
           data-quote-state="${market.quoteAvailable ? "live" : "loading"}"
           aria-current="${selected}"
           aria-busy="${!market.quoteAvailable}"
-          aria-label="切换至 ${escapeAttribute(name)}，价格 ${escapeAttribute(priceText)}，24小时涨幅 ${escapeAttribute(changeText)}"
-          title="${escapeAttribute(name)}"
+          aria-posinset="${tickerIndex + 1}"
+          aria-setsize="${markets.length}"
+          aria-roledescription="可拖动交易对"
+          aria-label="切换至 ${escapeAttribute(name)}，价格 ${escapeAttribute(priceText)}，24小时涨幅 ${escapeAttribute(changeText)}；拖动调整顺序，Alt+左右键可移动"
+          title="${escapeAttribute(name)}（拖动调整顺序）"
         >
           <strong>${escapeHtml(name)}</strong>
           <span><b data-market-favorite-price>${escapeHtml(priceText)}</b><em class="${changeClass}" data-market-favorite-change>${escapeHtml(changeText)}</em></span>
         </button>
       `;
-    }).join("");
+    }).join("") + '<span class="trading-market-favorite-sort-status" data-market-favorite-sort-status aria-live="polite"></span>';
   }
 
   private scheduleFavoriteTickerPaint() {
@@ -5337,7 +5319,7 @@ class TradingExpertMarketWorkspace {
         button.setAttribute("aria-busy", String(!market.quoteAvailable));
         button.setAttribute(
           "aria-label",
-          `切换至 ${market.displaySymbol}${market.tag}，价格 ${priceText}，24小时涨幅 ${changeText}`,
+          `切换至 ${market.displaySymbol}${market.tag}，价格 ${priceText}，24小时涨幅 ${changeText}；拖动调整顺序，Alt+左右键可移动`,
         );
       });
       if (!this.picker.hidden) this.paintVisibleMarketQuotes();
@@ -11060,11 +11042,8 @@ class TradingExpertMarketWorkspace {
     this.drawingController = null;
     this.host.removeEventListener("click", this.handleClick);
     this.favoriteTickerBar.removeEventListener("click", this.handleFavoriteTickerClick);
-    this.favoriteTickerBar.removeEventListener("pointerdown", this.handleFavoriteTickerScrollPointerDown);
-    this.favoriteTickerBar.removeEventListener("pointermove", this.handleFavoriteTickerScrollPointerMove);
-    this.favoriteTickerBar.removeEventListener("pointerup", this.handleFavoriteTickerScrollPointerUp);
-    this.favoriteTickerBar.removeEventListener("pointercancel", this.handleFavoriteTickerScrollPointerCancel);
     this.favoriteTickerBar.removeEventListener("wheel", this.handleFavoriteTickerScrollWheel);
+    this.favoriteTickerSortController.destroy();
     this.favoriteTickerBar.remove();
     this.host.removeEventListener("input", this.handleIndicatorEditorInput);
     this.host.removeEventListener("change", this.handleIndicatorEditorInput);

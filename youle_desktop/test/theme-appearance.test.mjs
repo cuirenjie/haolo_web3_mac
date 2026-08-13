@@ -143,6 +143,25 @@ test("highlighted light-theme hover surfaces share the soft gray token", async (
   assert.match(hoverGroup, /background: var\(--soft\)/);
 });
 
+test("application chrome preserves the original light gray and dark graphite surfaces", async () => {
+  const styles = await stylesSource;
+  const lightTokens = sourceBlock(styles, ":root {", 'html[data-font-size="small"]');
+  const darkTokens = sourceBlock(styles, 'html[data-theme="dark"] {', "* {");
+  const finalDarkPalette = sourceBlock(
+    styles,
+    "/* Dark graphite palette: neutral black surfaces, blue reserved for interaction and data. */",
+    'html[data-theme="dark"] .desktop-shell,',
+  );
+
+  assert.match(lightTokens, /--app-chrome-background: #f4f5f6/);
+  assert.match(darkTokens, /--app-chrome-background: #0f1115/);
+  assert.match(finalDarkPalette, /--app-chrome-background: #0c0d0f/);
+  assert.match(styles, /\.app-titlebar\s*\{[^}]*background: var\(--app-chrome-background\)/s);
+  assert.match(styles, /\.chat-list\s*\{[^}]*background: var\(--app-chrome-background\)/s);
+  assert.match(styles, /\.conversation-list-footer\s*\{[^}]*background: var\(--app-chrome-background\)/s);
+  assert.match(styles, /\.conversation-list-new-sticky\s*\{[^}]*background: var\(--app-chrome-background\)/s);
+});
+
 test("dark appearance defines layered neutral surfaces and broad component coverage", async () => {
   const styles = await stylesSource;
   const darkBlock = sourceBlock(styles, 'html[data-theme="dark"] {', "* {");
