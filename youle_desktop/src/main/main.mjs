@@ -163,6 +163,9 @@ import { ExternalModelCredentialStore } from "./external-agent/credential-store.
 import { ExternalModelService } from "./external-agent/service.mjs";
 import { BinanceCredentialStore } from "./binance-account/credential-store.mjs";
 import { BinanceAccountError, BinanceAccountService } from "./binance-account/service.mjs";
+import { BinanceRequestGovernor, BINANCE_REQUEST_PRIORITIES } from "./binance-request-governor.mjs";
+import { BinancePublicMarketService } from "./binance-public-market-service.mjs";
+import { HyperliquidPublicMarketService } from "./hyperliquid-public-market-service.mjs";
 import { normalizeExternalModelProviderId } from "./external-agent/provider-registry.mjs";
 import { ExternalAgentRuntime, externalAgentPublicEvent } from "./external-agent/runtime.mjs";
 import { marketDataBackendErrorPayload } from "./market-data/backend-errors.mjs";
@@ -185,27 +188,13 @@ import {
   updateTradingTranscriptIndex,
   withTradingTranscriptHistory,
 } from "./trading-expert-transcript.mjs";
-import { runTradingChanAnalysisPipeline } from "./trading-analysis/chan-pipeline.mjs";
+import { BUILTIN_TRADING_STRATEGY_ADAPTERS } from "./trading-strategy-runtime/builtins/index.mjs";
+import { TradingStrategyCoordinator } from "./trading-strategy-runtime/coordinator.mjs";
 import {
-  buildChanRequestRoutingPrompt,
-  normalizeChanRequestRoutingModelResponse,
-} from "./trading-analysis/chan-request-router.mjs";
-import { runTradingOrderFlowAnalysisPipeline } from "./trading-analysis/order-flow-pipeline.mjs";
-import {
-  buildOrderFlowRequestRoutingPrompt,
-  deterministicOrderFlowChartRequest,
-  normalizeOrderFlowRequestRoutingModelResponse,
-} from "./trading-analysis/order-flow-request-router.mjs";
-import { runTradingWaveAnalysisPipeline } from "./trading-analysis/wave-pipeline.mjs";
-import {
-  buildWaveRequestRoutingPrompt,
-  normalizeWaveRequestRoutingModelResponse,
-} from "./trading-analysis/wave-request-router.mjs";
-import { runTradingWyckoffAnalysisPipeline } from "./trading-analysis/wyckoff-pipeline.mjs";
-import {
-  buildWyckoffRequestRoutingPrompt,
-  normalizeWyckoffRequestRoutingModelResponse,
-} from "./trading-analysis/wyckoff-request-router.mjs";
+  tradingStrategyRuntimeEnabled,
+  tradingStrategyShadowMode,
+} from "./trading-strategy-runtime/feature-flags.mjs";
+import { createTradingStrategyRegistry } from "./trading-strategy-runtime/registry.mjs";
 import { runTradingPriceActionAnalysisPipeline } from "./trading-analysis/price-action-pipeline.mjs";
 import {
   buildGeneralRequestRoutingPrompt,
@@ -351,6 +340,9 @@ let externalModelCredentialStore = null;
 let externalModelService = null;
 let binanceCredentialStore = null;
 let binanceAccountService = null;
+let binanceRequestGovernor = null;
+let binancePublicMarketService = null;
+let hyperliquidPublicMarketService = null;
 let externalAgentRuntime = null;
 let externalAgentRuntimeUnsubscribe = null;
 const externalAgentOwnerIds = new Set();
@@ -4156,11 +4148,42 @@ function getBinanceCredentialStore() {
   return binanceCredentialStore;
 }
 
+function getBinanceRequestGovernor() {
+  if (!binanceRequestGovernor) {
+    binanceRequestGovernor = new BinanceRequestGovernor({
+      statePath: path.join(app.getPath("userData"), "binance-request-governor.json"),
+    });
+  }
+  return binanceRequestGovernor;
+}
+
+function governedBinanceFetch(source, priority) {
+  return (url, init) => getBinanceRequestGovernor().fetch(appNetworkFetch, url, init, { source, priority });
+}
+
+function getBinancePublicMarketService() {
+  if (!binancePublicMarketService) {
+    binancePublicMarketService = new BinancePublicMarketService({
+      fetch: governedBinanceFetch("market", BINANCE_REQUEST_PRIORITIES.market),
+    });
+  }
+  return binancePublicMarketService;
+}
+
+function getHyperliquidPublicMarketService() {
+  if (!hyperliquidPublicMarketService) {
+    // Keep Hyperliquid comparison traffic outside the Binance governor so SMT
+    // analysis can never consume or delay the existing order-flow request budget.
+    hyperliquidPublicMarketService = new HyperliquidPublicMarketService({ fetch: appNetworkFetch });
+  }
+  return hyperliquidPublicMarketService;
+}
+
 function getBinanceAccountService() {
   if (!binanceAccountService) {
     binanceAccountService = new BinanceAccountService({
       credentialStore: getBinanceCredentialStore(),
-      fetch: appNetworkFetch,
+      fetch: governedBinanceFetch("account", BINANCE_REQUEST_PRIORITIES.account),
     });
   }
   return binanceAccountService;
@@ -11576,6 +11599,15 @@ ipcMain.handle("youle:verifyOtp", async (_event, params = {}) => {
   return session;
 });
 
+ipcMain.handle("binanceMarket:publicGet", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  return getBinancePublicMarketService().request(params);
+});
+ipcMain.handle("hyperliquidMarket:candles", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  return getHyperliquidPublicMarketService().candles(params);
+});
+
 ipcMain.handle("binanceAccount:getStatus", async (event) => {
   assertExternalModelsIpcSender(event);
   const owner = await requireBinanceAccountOwner();
@@ -11644,7 +11676,51 @@ ipcMain.handle("binanceAccount:bind", async (event, params = {}) => {
 ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   const owner = await requireBinanceAccountOwner();
-  return getBinanceAccountService().snapshot(owner.ownerId, { force: params?.force === true });
+  try {
+    const snapshot = await getBinanceAccountService().snapshot(owner.ownerId, {
+      force: params?.force === true,
+      live: params?.live === true,
+    });
+    return { ok: true, snapshot };
+  } catch (error) {
+    if (error?.code !== "BINANCE_RATE_LIMITED") throw error;
+    return {
+      ok: false,
+      error: {
+        code: "BINANCE_RATE_LIMITED",
+        message: String(error?.message || "Binance 请求频率受限，客户端正在自动降频，请稍后再试。"),
+        retryable: true,
+        retryAfterMs: Number.isFinite(error?.retryAfterMs)
+          ? Math.max(1_000, Number(error.retryAfterMs))
+          : 60_000,
+      },
+    };
+  }
+});
+
+ipcMain.handle("binanceAccount:getProfitCalendar", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const owner = await requireBinanceAccountOwner();
+  try {
+    const calendar = await getBinanceAccountService().profitCalendar(owner.ownerId, {
+      month: params?.month,
+      force: params?.force === true,
+    });
+    return { ok: true, calendar };
+  } catch (error) {
+    if (error?.code !== "BINANCE_RATE_LIMITED") throw error;
+    return {
+      ok: false,
+      error: {
+        code: "BINANCE_RATE_LIMITED",
+        message: String(error?.message || "Binance 请求频率受限，客户端正在自动降频，请稍后再试。"),
+        retryable: true,
+        retryAfterMs: Number.isFinite(error?.retryAfterMs)
+          ? Math.max(1_000, Number(error.retryAfterMs))
+          : 60_000,
+      },
+    };
+  }
 });
 
 ipcMain.handle("binanceAccount:remove", async (event, params = {}) => {
@@ -12479,6 +12555,8 @@ const activeTradingAnalysisControllers = new Map();
 const activeTradingRoutingControllers = new Map();
 const activeTradingAlertIntentControllers = new Map();
 let tradingAnalysisModelRegistry = null;
+let tradingStrategyRegistry = null;
+let tradingStrategyCoordinator = null;
 
 function cancelTradingAnalysisRequestsForWebContents(ownerId) {
   const prefix = `${ownerId}\u0000`;
@@ -12722,8 +12800,8 @@ async function getTradingAlertService() {
       // environment flag remains an explicit emergency kill switch.
       enabled: tradingAlertsEnabled(),
       invokeIntentModel: invokeTradingAnalysisAppServer,
-      marketFetch: (url, init) => net.fetch(url, init),
-      marketSubscribeMode: "polling",
+      marketFetch: governedBinanceFetch("alert", BINANCE_REQUEST_PRIORITIES.alert),
+      marketSubscribeMode: "websocket",
       notify: notifyTradingAlertTriggered,
       shadowMode: tradingAlertsShadowMode(),
     });
@@ -12783,6 +12861,144 @@ function getTradingAnalysisModelRegistry() {
   tradingAnalysisModelRegistry = createTradingAnalysisModelProviderRegistry([gptProvider]);
   return tradingAnalysisModelRegistry;
 }
+
+function getTradingStrategyRegistry() {
+  if (tradingStrategyRegistry) return tradingStrategyRegistry;
+  tradingStrategyRegistry = createTradingStrategyRegistry({
+    adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS,
+  });
+  return tradingStrategyRegistry;
+}
+
+function getTradingStrategyCoordinator() {
+  if (tradingStrategyCoordinator) return tradingStrategyCoordinator;
+  tradingStrategyCoordinator = new TradingStrategyCoordinator({
+    registry: getTradingStrategyRegistry(),
+    modelRegistry: getTradingAnalysisModelRegistry(),
+    providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
+  });
+  return tradingStrategyCoordinator;
+}
+
+async function classifyTradingStrategyRequest(event, strategyId, params = {}) {
+  assertExternalModelsIpcSender(event);
+  const coordinator = getTradingStrategyCoordinator();
+  const errors = coordinator.strategyErrors(strategyId);
+  const ownerId = event.sender.id;
+  activeTradingRoutingControllers.get(ownerId)?.abort(
+    tradingAnalysisAbortError(errors.routingReplacementMessage),
+  );
+  const controller = new AbortController();
+  activeTradingRoutingControllers.set(ownerId, controller);
+  try {
+    return await coordinator.classify(strategyId, params, {
+      signal: controller.signal,
+      requestId: `${strategyId}-route-${crypto.randomUUID()}`,
+    });
+  } catch (error) {
+    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
+    return {
+      ok: false,
+      error: {
+        code: cancelled
+          ? "TRADING_ANALYSIS_CANCELLED"
+          : String(error?.code || errors.routingCode),
+        message: cancelled
+          ? errors.routingCancelledMessage
+          : String(error?.message || errors.routingFailureMessage).slice(0, 300),
+      },
+    };
+  } finally {
+    if (activeTradingRoutingControllers.get(ownerId) === controller) {
+      activeTradingRoutingControllers.delete(ownerId);
+    }
+  }
+}
+
+async function runTradingStrategyRequest(event, strategyId, params = {}) {
+  assertExternalModelsIpcSender(event);
+  const coordinator = getTradingStrategyCoordinator();
+  const registry = getTradingStrategyRegistry();
+  const errors = coordinator.strategyErrors(strategyId);
+  const { controller, controllerKey } = beginTradingAnalysisRequest(
+    event,
+    params,
+    errors.replacementMessage,
+  );
+  try {
+    if (!tradingStrategyRuntimeEnabled(strategyId)) {
+      const adapter = registry.adapter(strategyId);
+      if (!adapter) {
+        const error = new Error("Trading strategy implementation is unavailable");
+        error.code = "TRADING_STRATEGY_IMPLEMENTATION_UNAVAILABLE";
+        throw error;
+      }
+      return await adapter.run(params, {
+        modelRegistry: getTradingAnalysisModelRegistry(),
+        providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
+        signal: controller.signal,
+      });
+    }
+    const result = await coordinator.run(strategyId, params, { signal: controller.signal });
+    if (tradingStrategyShadowMode(strategyId)) {
+      if (!result?.ok || !result?.strategyResult || !result?.executionPlan) {
+        const error = new Error("Strategy shadow validation did not produce the required contracts");
+        error.code = "TRADING_STRATEGY_SHADOW_MISMATCH";
+        throw error;
+      }
+    }
+    return result;
+  } catch (error) {
+    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
+    return {
+      ok: false,
+      error: {
+        code: cancelled
+          ? "TRADING_ANALYSIS_CANCELLED"
+          : String(error?.code || errors.analysisCode),
+        message: cancelled
+          ? errors.analysisCancelledMessage
+          : String(error?.message || errors.analysisFailureMessage).slice(0, 300),
+        retryable: error?.retryable === true,
+      },
+    };
+  } finally {
+    finishTradingAnalysisRequest(controllerKey, controller);
+  }
+}
+
+ipcMain.handle("tradingStrategy:list", async (event) => {
+  assertExternalModelsIpcSender(event);
+  return getTradingStrategyCoordinator().listStrategies();
+});
+
+ipcMain.handle("tradingStrategy:classify", async (event, params = {}) => (
+  classifyTradingStrategyRequest(event, String(params?.strategyId || ""), params)
+));
+
+ipcMain.handle("tradingStrategy:run", async (event, params = {}) => (
+  runTradingStrategyRequest(event, String(params?.strategyId || ""), params)
+));
+
+ipcMain.handle("tradingStrategy:cancel", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const ownerId = event.sender.id;
+  const analysisJobId = normalizeTradingAnalysisJobId(params);
+  const ownerPrefix = `${ownerId}\u0000`;
+  const matchingAnalysisEntries = [...activeTradingAnalysisControllers.entries()].filter(([key]) => {
+    if (!key.startsWith(ownerPrefix)) return false;
+    if (!analysisJobId) return true;
+    const candidateJobId = key.slice(ownerPrefix.length);
+    return candidateJobId === analysisJobId || candidateJobId.startsWith(`${analysisJobId}:pane:`);
+  });
+  const routingController = analysisJobId ? null : activeTradingRoutingControllers.get(ownerId);
+  const controllers = [routingController, ...matchingAnalysisEntries.map(([, controller]) => controller)].filter(Boolean);
+  if (!controllers.length) return { cancelled: false };
+  controllers.forEach((controller) => controller.abort(tradingAnalysisAbortError()));
+  if (!analysisJobId) activeTradingRoutingControllers.delete(ownerId);
+  matchingAnalysisEntries.forEach(([key]) => activeTradingAnalysisControllers.delete(key));
+  return { cancelled: true };
+});
 
 ipcMain.handle("tradingAnalysis:classifyGeneralRequest", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
@@ -12846,392 +13062,35 @@ ipcMain.handle("tradingAnalysis:classifyGeneralRequest", async (event, params = 
 });
 
 ipcMain.handle("tradingAnalysis:classifyChanRequest", async (event, params = {}) => {
-  assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingRoutingControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer Chan request classification replaced this request"),
-  );
-  const controller = new AbortController();
-  activeTradingRoutingControllers.set(ownerId, controller);
-  const requestId = `chan-route-${crypto.randomUUID()}`;
-  const text = String(params?.text || "").slice(0, 12_000);
-  try {
-    const model = await getTradingAnalysisModelRegistry().analyze(
-      DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      {
-        schemaVersion: 1,
-        requestId,
-        task: "chan-request-routing",
-        theoryId: "chan",
-        snapshotId: requestId,
-        prompt: buildChanRequestRoutingPrompt({
-          text,
-          hasImageAttachment: params?.hasImageAttachment === true,
-          hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-        }),
-        responseFormat: "json",
-      },
-      { signal: controller.signal },
-    );
-    const routed = normalizeChanRequestRoutingModelResponse(model.text, text, {
-      hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-    });
-    return {
-      ok: true,
-      request: routed.request,
-      classification: routed.classification,
-      model: {
-        providerId: model.providerId,
-        modelId: model.modelId,
-        latencyMs: model.latencyMs,
-      },
-    };
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    return {
-      ok: false,
-      error: {
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || "TRADING_CHAN_ROUTING_FAILED"),
-        message: cancelled
-          ? "缠论请求识别已取消"
-          : String(error?.message || "缠论请求识别失败").slice(0, 300),
-      },
-    };
-  } finally {
-    if (activeTradingRoutingControllers.get(ownerId) === controller) {
-      activeTradingRoutingControllers.delete(ownerId);
-    }
-  }
+  return classifyTradingStrategyRequest(event, "chan", params);
 });
 
 ipcMain.handle("tradingAnalysis:classifyOrderFlowRequest", async (event, params = {}) => {
-  assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingRoutingControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer order-flow request classification replaced this request"),
-  );
-  const controller = new AbortController();
-  activeTradingRoutingControllers.set(ownerId, controller);
-  const requestId = `order-flow-route-${crypto.randomUUID()}`;
-  const text = String(params?.text || "").slice(0, 12_000);
-  try {
-    const deterministicRequest = deterministicOrderFlowChartRequest(text, {
-      hasImageAttachment: params?.hasImageAttachment === true,
-    });
-    if (deterministicRequest) {
-      return {
-        ok: true,
-        request: deterministicRequest,
-        classification: {
-          schemaVersion: 1,
-          mode: "chart-analysis",
-          intent: "chart-drawing",
-          confidence: 1,
-          source: "deterministic-short-action",
-        },
-        model: null,
-      };
-    }
-    const model = await getTradingAnalysisModelRegistry().analyze(
-      DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      {
-        schemaVersion: 1,
-        requestId,
-        task: "order-flow-request-routing",
-        theoryId: "order_flow",
-        snapshotId: requestId,
-        prompt: buildOrderFlowRequestRoutingPrompt({
-          text,
-          hasImageAttachment: params?.hasImageAttachment === true,
-          hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-        }),
-        responseFormat: "json",
-      },
-      { signal: controller.signal },
-    );
-    const routed = normalizeOrderFlowRequestRoutingModelResponse(model.text, text, {
-      hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-    });
-    return {
-      ok: true,
-      request: routed.request,
-      classification: routed.classification,
-      model: {
-        providerId: model.providerId,
-        modelId: model.modelId,
-        latencyMs: model.latencyMs,
-      },
-    };
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    return {
-      ok: false,
-      error: {
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || "TRADING_ORDER_FLOW_ROUTING_FAILED"),
-        message: cancelled
-          ? "订单流请求识别已取消"
-          : String(error?.message || "订单流请求识别失败").slice(0, 300),
-      },
-    };
-  } finally {
-    if (activeTradingRoutingControllers.get(ownerId) === controller) {
-      activeTradingRoutingControllers.delete(ownerId);
-    }
-  }
+  return classifyTradingStrategyRequest(event, "order-flow", params);
 });
 
 ipcMain.handle("tradingAnalysis:classifyWaveRequest", async (event, params = {}) => {
-  assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingRoutingControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer wave request classification replaced this request"),
-  );
-  const controller = new AbortController();
-  activeTradingRoutingControllers.set(ownerId, controller);
-  const requestId = `wave-route-${crypto.randomUUID()}`;
-  const text = String(params?.text || "").slice(0, 12_000);
-  try {
-    const model = await getTradingAnalysisModelRegistry().analyze(
-      DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      {
-        schemaVersion: 1,
-        requestId,
-        task: "wave-request-routing",
-        theoryId: "elliott_wave",
-        snapshotId: requestId,
-        prompt: buildWaveRequestRoutingPrompt({
-          text,
-          hasImageAttachment: params?.hasImageAttachment === true,
-          hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-        }),
-        responseFormat: "json",
-      },
-      { signal: controller.signal },
-    );
-    const routed = normalizeWaveRequestRoutingModelResponse(model.text, text, {
-      hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-    });
-    return {
-      ok: true,
-      request: routed.request,
-      classification: routed.classification,
-      model: {
-        providerId: model.providerId,
-        modelId: model.modelId,
-        latencyMs: model.latencyMs,
-      },
-    };
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    return {
-      ok: false,
-      error: {
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || "TRADING_WAVE_ROUTING_FAILED"),
-        message: cancelled
-          ? "波浪理论请求识别已取消"
-          : String(error?.message || "波浪理论请求识别失败").slice(0, 300),
-      },
-    };
-  } finally {
-    if (activeTradingRoutingControllers.get(ownerId) === controller) {
-      activeTradingRoutingControllers.delete(ownerId);
-    }
-  }
+  return classifyTradingStrategyRequest(event, "wave", params);
 });
 
 ipcMain.handle("tradingAnalysis:classifyWyckoffRequest", async (event, params = {}) => {
-  assertExternalModelsIpcSender(event);
-  const ownerId = event.sender.id;
-  activeTradingRoutingControllers.get(ownerId)?.abort(
-    tradingAnalysisAbortError("A newer Wyckoff request classification replaced this request"),
-  );
-  const controller = new AbortController();
-  activeTradingRoutingControllers.set(ownerId, controller);
-  const requestId = `wyckoff-route-${crypto.randomUUID()}`;
-  const text = String(params?.text || "").slice(0, 12_000);
-  try {
-    const model = await getTradingAnalysisModelRegistry().analyze(
-      DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      {
-        schemaVersion: 1,
-        requestId,
-        task: "wyckoff-request-routing",
-        theoryId: "wyckoff",
-        snapshotId: requestId,
-        prompt: buildWyckoffRequestRoutingPrompt({
-          text,
-          hasImageAttachment: params?.hasImageAttachment === true,
-          hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-        }),
-        responseFormat: "json",
-      },
-      { signal: controller.signal },
-    );
-    const routed = normalizeWyckoffRequestRoutingModelResponse(model.text, text, {
-      hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-    });
-    return {
-      ok: true,
-      request: routed.request,
-      classification: routed.classification,
-      model: {
-        providerId: model.providerId,
-        modelId: model.modelId,
-        latencyMs: model.latencyMs,
-      },
-    };
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    return {
-      ok: false,
-      error: {
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || "TRADING_WYCKOFF_ROUTING_FAILED"),
-        message: cancelled
-          ? "威科夫请求识别已取消"
-          : String(error?.message || "威科夫请求识别失败").slice(0, 300),
-      },
-    };
-  } finally {
-    if (activeTradingRoutingControllers.get(ownerId) === controller) {
-      activeTradingRoutingControllers.delete(ownerId);
-    }
-  }
+  return classifyTradingStrategyRequest(event, "wyckoff", params);
 });
 
 ipcMain.handle("tradingAnalysis:runChanTest", async (event, params = {}) => {
-  assertExternalModelsIpcSender(event);
-  const { controller, controllerKey } = beginTradingAnalysisRequest(
-    event,
-    params,
-    "A newer Chan analysis replaced this request",
-  );
-  try {
-    return await runTradingChanAnalysisPipeline(params, {
-      modelRegistry: getTradingAnalysisModelRegistry(),
-      providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      signal: controller.signal,
-    });
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    return {
-      ok: false,
-      error: {
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || "TRADING_CHAN_ANALYSIS_FAILED"),
-        message: cancelled
-          ? "缠论分析已取消"
-          : String(error?.message || "缠论分析失败").slice(0, 300),
-        retryable: error?.retryable === true,
-      },
-    };
-  } finally {
-    finishTradingAnalysisRequest(controllerKey, controller);
-  }
+  return runTradingStrategyRequest(event, "chan", params);
 });
 
 ipcMain.handle("tradingAnalysis:runOrderFlow", async (event, params = {}) => {
-  assertExternalModelsIpcSender(event);
-  const { controller, controllerKey } = beginTradingAnalysisRequest(
-    event,
-    params,
-    "A newer order-flow analysis replaced this request",
-  );
-  try {
-    return await runTradingOrderFlowAnalysisPipeline(params, {
-      modelRegistry: getTradingAnalysisModelRegistry(),
-      providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      signal: controller.signal,
-    });
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    return {
-      ok: false,
-      error: {
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || "TRADING_ORDER_FLOW_ANALYSIS_FAILED"),
-        message: cancelled
-          ? "订单流分析已取消"
-          : String(error?.message || "订单流分析失败").slice(0, 300),
-        retryable: error?.retryable === true,
-      },
-    };
-  } finally {
-    finishTradingAnalysisRequest(controllerKey, controller);
-  }
+  return runTradingStrategyRequest(event, "order-flow", params);
 });
 
 ipcMain.handle("tradingAnalysis:runWave", async (event, params = {}) => {
-  assertExternalModelsIpcSender(event);
-  const { controller, controllerKey } = beginTradingAnalysisRequest(
-    event,
-    params,
-    "A newer wave analysis replaced this request",
-  );
-  try {
-    return await runTradingWaveAnalysisPipeline(params, {
-      modelRegistry: getTradingAnalysisModelRegistry(),
-      providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      signal: controller.signal,
-    });
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    return {
-      ok: false,
-      error: {
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || "TRADING_WAVE_ANALYSIS_FAILED"),
-        message: cancelled
-          ? "波浪理论分析已取消"
-          : String(error?.message || "波浪理论分析失败").slice(0, 300),
-        retryable: error?.retryable === true,
-      },
-    };
-  } finally {
-    finishTradingAnalysisRequest(controllerKey, controller);
-  }
+  return runTradingStrategyRequest(event, "wave", params);
 });
 
 ipcMain.handle("tradingAnalysis:runWyckoff", async (event, params = {}) => {
-  assertExternalModelsIpcSender(event);
-  const { controller, controllerKey } = beginTradingAnalysisRequest(
-    event,
-    params,
-    "A newer Wyckoff analysis replaced this request",
-  );
-  try {
-    return await runTradingWyckoffAnalysisPipeline(params, {
-      modelRegistry: getTradingAnalysisModelRegistry(),
-      providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      signal: controller.signal,
-    });
-  } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
-    return {
-      ok: false,
-      error: {
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || "TRADING_WYCKOFF_ANALYSIS_FAILED"),
-        message: cancelled
-          ? "威科夫分析已取消"
-          : String(error?.message || "威科夫分析失败").slice(0, 300),
-        retryable: error?.retryable === true,
-      },
-    };
-  } finally {
-    finishTradingAnalysisRequest(controllerKey, controller);
-  }
+  return runTradingStrategyRequest(event, "wyckoff", params);
 });
 
 ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {

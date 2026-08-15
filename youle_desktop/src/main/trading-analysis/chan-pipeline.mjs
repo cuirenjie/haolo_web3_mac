@@ -458,6 +458,7 @@ export async function runTradingChanAnalysisPipeline(params, options = {}) {
     responseFormat: "json",
   }, { signal: options.signal });
   const modelReview = normalizeChanModelReview(modelResponse.text, theoryResult);
+  const actionPlan = buildChanMarketOutlook(snapshot, theoryResult, modelReview);
   const drawingPatch = buildChanDrawingPatch(snapshot, theoryResult, modelReview);
   const report = buildChanAnalysisReport(snapshot, theoryResult, modelReview, {
     instruction: params?.instruction,
@@ -484,6 +485,7 @@ export async function runTradingChanAnalysisPipeline(params, options = {}) {
         ? (modelReview.report || modelReview.summary)
         : modelReview.summary,
       report,
+      actionPlan,
       confidence: modelReview.confidence,
       drawingPatch,
     },

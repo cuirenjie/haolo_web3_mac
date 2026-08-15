@@ -224,10 +224,12 @@ test("AI drawing playback interpolates time and price without synthetic pointer 
 });
 
 test("Trading Expert routes @策略:缠论 through model JSON or controlled chart analysis", async () => {
-  const [mainSource, preloadSource, rendererSource, requestSource, routerSource, marketSource, drawingSource, stylesSource] = await Promise.all([
+  const [mainSource, preloadSource, rendererSource, catalogSource, clientSource, requestSource, routerSource, marketSource, drawingSource, stylesSource] = await Promise.all([
     readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/renderer/trading-strategy-runtime/catalog.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/renderer/trading-strategy-runtime/client.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-chan-request.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/main/trading-analysis/chan-request-router.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8"),
@@ -268,11 +270,13 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   assert.doesNotMatch(requestSource, /_PATTERN|parseTradingChanRequest|parseTradingChanSymbol|parseTradingChanInterval|parseTradingChanLookback/);
   assert.match(routerSource, /输出必须是单个 JSON 对象/);
   assert.match(routerSource, /不得根据常见默认值、上下文猜测或补全 BTC、日线、时间范围/);
-  assert.match(rendererSource, /await classifyTradingChanRequestForSend\(/);
+  assert.match(rendererSource, /await classifyTradingStrategyForSend\(/);
+  assert.match(clientSource, /client\.classifyTradingStrategyRequest\(/);
   assert.match(rendererSource, /label: "正在理解请求"/);
-  assert.match(rendererSource, /tradingChanRequestAtSend\?\.mode === "chart-analysis"/);
-  assert.match(rendererSource, /runTradingExpertChanConversation\(\{/);
-  assert.match(rendererSource, /buildTradingChanExpertPrompt\(baseAgentText\)/);
+  assert.match(rendererSource, /tradingStrategyRequestAtSend\?\.mode === "chart-analysis"/);
+  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend/);
+  assert.match(catalogSource, /buildTradingChanExpertPrompt/);
+  assert.match(marketSource, /chan: \(request:[\s\S]{0,180}runTradingExpertChanConversation/);
   assert.match(marketSource, /const targetMarket = request\.symbol[\s\S]{0,520}: currentMarket;/);
   assert.match(marketSource, /const targetInterval = String\(request\.interval \|\| this\.activeInterval\)/);
   assert.match(marketSource, /当前画布可见的 \$\{analysisCandles\.length\} 根/);
@@ -398,11 +402,11 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
     "pendingSend = beginPendingComposerSend(threadId, text, submissionSnapshotAttachments",
   );
   const immediateClear = rendererSource.indexOf(
-    "if (tradingChanMentionAtSend) clearTradingExpertComposerAfterSend(threadId);",
+    "if (tradingStrategyAtSend) clearTradingExpertComposerAfterSend(threadId);",
     pendingSendStart,
   );
   const routeModelWait = rendererSource.indexOf(
-    "tradingChanRequestAtSend = await classifyTradingChanRequestForSend(",
+    "tradingStrategyRequestAtSend = await classifyTradingStrategyForSend(",
     pendingSendStart,
   );
   assert.ok(pendingSendStart >= 0 && immediateClear > pendingSendStart);

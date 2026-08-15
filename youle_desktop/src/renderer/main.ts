@@ -4,6 +4,7 @@ import { resolveComposerThreadIdForSend } from "./composer-thread-routing";
 import {
   applyTradingAlertsSnapshot,
   createTradingAlertsUiState,
+  renderPlanningNavigation,
   renderTradingAlertEditorMarketOptions,
   renderTradingAlertsPage,
   resolveTradingAlertSourceText,
@@ -17,6 +18,8 @@ import {
   renderBinanceAccountDialog,
   renderBinanceAccountPage,
   resetBinanceAccountDialog,
+  shiftBinanceAccountProfitCalendarMonth,
+  type BinanceAccountProfitCalendar,
   type BinanceAccountSnapshot,
   type BinanceAccountStatus,
   type BinanceAccountUiState,
@@ -24,16 +27,16 @@ import {
 import { ensureBrowserDesktopApi } from "./browser_mock";
 import {
   applyTradingExpertCustomIndicatorMentions,
+  ensureTradingExpertChartIndicatorVisible,
+  TRADING_EXPERT_TREND_BAND_MENTION,
   cancelTradingExpertAnalysis,
   migrateTradingExpertMarketWorkspaceStorageSession,
   renderTradingExpertMarketWorkspace,
-  runTradingExpertChanConversation,
   runTradingExpertGeneralConversation,
   hasTradingExpertCurrentAnalysis,
-  runTradingExpertOrderFlowConversation,
-  runTradingExpertWaveConversation,
-  runTradingExpertWyckoffConversation,
+  runTradingExpertStrategyConversation,
   syncTradingExpertMarketWorkspace,
+  syncTradingExpertOrderLineSnapshot,
   tradingExpertAlertContextSnapshot,
   prepareTradingExpertAlertContext,
   tradingExpertAlertSimulationFrames,
@@ -52,29 +55,22 @@ import {
   renderTradingExpertPanelResizeHandles,
 } from "./trading-expert-panel-resize";
 import {
-  buildTradingChanExpertPrompt,
-  stripTradingChanMention,
-  tradingChanMentioned,
-  type TradingChanRequest,
-} from "./trading-expert-chan-request";
-import {
-  buildTradingOrderFlowExpertPrompt,
-  stripTradingOrderFlowMention,
-  tradingOrderFlowMentioned,
-  type TradingOrderFlowRequest,
-} from "./trading-expert-order-flow-request";
-import {
-  buildTradingWaveExpertPrompt,
-  stripTradingWaveMention,
-  tradingWaveMentioned,
-  type TradingWaveRequest,
-} from "./trading-expert-wave-request";
-import {
-  buildTradingWyckoffExpertPrompt,
-  stripTradingWyckoffMention,
-  tradingWyckoffMentioned,
-  type TradingWyckoffRequest,
-} from "./trading-expert-wyckoff-request";
+  reconcileTradingStrategyCatalog,
+  tradingIndicatorCatalog,
+  tradingIndicatorMentionOptions,
+  tradingStrategyByDisplayName,
+  tradingStrategyCatalog,
+  tradingStrategyMentionedByText,
+  tradingStrategyMentionOptions,
+  type TradingStrategyCatalogItem,
+  type TradingStrategyPublicManifest,
+  type TradingStrategyRequest,
+} from "./trading-strategy-runtime/catalog";
+import { classifyTradingStrategyForSend } from "./trading-strategy-runtime/client";
+import { stripTradingChanMention, type TradingChanRequest } from "./trading-expert-chan-request";
+import { stripTradingOrderFlowMention, type TradingOrderFlowRequest } from "./trading-expert-order-flow-request";
+import { stripTradingWaveMention, type TradingWaveRequest } from "./trading-expert-wave-request";
+import { stripTradingWyckoffMention, type TradingWyckoffRequest } from "./trading-expert-wyckoff-request";
 import {
   buildTradingAnalysisFollowupPrompt,
   type TradingGeneralRequest,
@@ -425,6 +421,9 @@ const LEGACY_WECHAT_CHANNEL_AVATAR_URLS = [
 ];
 const SKILL_DEFAULT_COVER_URL = new URL("./assets/skills-default-cover.png", import.meta.url).href;
 const SKILL_DEFAULT_ICON_URL = new URL("./assets/skills-default-icon.png", import.meta.url).href;
+const TRADING_STRATEGY_SKILL_CARD_PREFIX = "trading-strategy:";
+const TRADING_INDICATOR_SKILL_CARD_PREFIX = "trading-indicator:";
+const TRADING_TREND_BAND_SKILL_CARD_ID = `${TRADING_INDICATOR_SKILL_CARD_PREFIX}trend-band`;
 const LOGIN_SUCCESS_ICON_URL = new URL("./assets/login-success-logo.png", import.meta.url).href;
 const SETTINGS_APP_ICON_URL = new URL("./assets/nav/settings-about-logo.svg", import.meta.url).href;
 const SETTINGS_PROFILE_ICON_URL = new URL("./assets/images/settings-profile.svg", import.meta.url).href;
@@ -467,6 +466,8 @@ const HAOLO_INTERNAL_MESSAGE_BLOCKS = [
   ["<haolo_trading_order_flow_expert_prompt>", "</haolo_trading_order_flow_expert_prompt>"],
   ["<haolo_trading_wave_expert_prompt>", "</haolo_trading_wave_expert_prompt>"],
   ["<haolo_trading_wyckoff_expert_prompt>", "</haolo_trading_wyckoff_expert_prompt>"],
+  ["<haolo_trading_harmonic_expert_prompt>", "</haolo_trading_harmonic_expert_prompt>"],
+  ["<haolo_trading_strategy_prompt", "</haolo_trading_strategy_prompt>"],
   ["<haolo_trading_analysis_followup_prompt>", "</haolo_trading_analysis_followup_prompt>"],
   [SUPPLEMENT_RESOLUTION_INSTRUCTION_START, SUPPLEMENT_RESOLUTION_INSTRUCTION_END],
   [SUPPLEMENT_RESOLUTION_START, SUPPLEMENT_RESOLUTION_END],
@@ -637,7 +638,8 @@ const HAOLO_CONTACT_ID = "agent-haolo";
 const TRADING_EXPERT_CONTACT_ID = "agent-trading-expert";
 const TRADING_EXPERT_NAME = "交易专家";
 const TRADING_EXPERT_MENTION_CATALOG = [
-  { label: "策略", options: ["缠论", "订单流", "波浪理论", "威科夫"] },
+  { label: "策略", get options() { return tradingStrategyMentionOptions(); } },
+  { label: "指标", get options() { return tradingIndicatorMentionOptions(); } },
   { label: "预警", options: [] },
   { label: "知识库", options: [] },
   { label: "自定义指标", options: ["趋势带"] },
@@ -693,8 +695,12 @@ const LOW_BALANCE_PROFILE_REFRESH_SLOW_INTERVAL_MS = 15_000;
 const LOW_BALANCE_PROFILE_REFRESH_FAST_WINDOW_MS = 5 * 60_000;
 const PROFILE_ACTIVATION_REFRESH_MIN_INTERVAL_MS = 5_000;
 const PROVIDER_MODEL_CATALOG_REFRESH_MIN_INTERVAL_MS = 15_000;
-const BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS = 60_000;
+const BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS = 5 * 60_000;
 const BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS = 30_000;
+const BINANCE_ACCOUNT_LIVE_REFRESH_INTERVAL_MS = 30_000;
+const BINANCE_ACCOUNT_TRADING_LIVE_REFRESH_INTERVAL_MS = 60_000;
+const BINANCE_ACCOUNT_LIVE_RETRY_BASE_INTERVAL_MS = 15_000;
+const BINANCE_ACCOUNT_LIVE_RETRY_MAX_INTERVAL_MS = 60_000;
 const GITHUB_AUTHORIZATION_POLL_INTERVAL_MS = 1_500;
 const MEDIA_CREATION_MODEL_CATALOG_CACHE_TTL_MS = 4 * 60 * 60_000;
 const CONTACT_REQUEST_SYNC_INTERVAL_MS = 6_000;
@@ -1155,6 +1161,31 @@ type DesktopApi = {
   lookupIdentity(params: any): Promise<any>;
   sendOtp(params: any): Promise<any>;
   verifyOtp(params: any): Promise<any>;
+  getBinancePublicMarketData?(params: {
+    marketType: "futures" | "spot";
+    path: string;
+    parameters?: Record<string, string | number | undefined>;
+  }): Promise<{
+    ok: boolean;
+    status: number;
+    data: unknown;
+    cached?: boolean;
+    retryAfterMs?: number | null;
+    error?: string;
+  }>;
+  getHyperliquidPublicCandles?(params: {
+    coin: string;
+    interval: string;
+    startTime: number;
+    endTime: number;
+  }): Promise<{
+    ok: boolean;
+    status: number;
+    data: unknown;
+    cached?: boolean;
+    retryAfterMs?: number | null;
+    error?: string;
+  }>;
   getBinanceAccountStatus?(): Promise<BinanceAccountStatus>;
   sendBinanceAccountOtp?(): Promise<{
     challengeId: string;
@@ -1167,7 +1198,8 @@ type DesktopApi = {
     challengeId: string;
     code: string;
   }): Promise<{ status: BinanceAccountStatus; snapshot: BinanceAccountSnapshot }>;
-  getBinanceAccountSnapshot?(params?: { force?: boolean }): Promise<BinanceAccountSnapshot>;
+  getBinanceAccountSnapshot?(params?: { force?: boolean; live?: boolean }): Promise<BinanceAccountSnapshot>;
+  getBinanceAccountProfitCalendar?(params: { month: string; force?: boolean }): Promise<BinanceAccountProfitCalendar>;
   removeBinanceAccount?(params: {
     challengeId: string;
     code: string;
@@ -1273,6 +1305,41 @@ type DesktopApi = {
   }): Promise<any>;
   removeExternalModelProvider?(params: { provider: string }): Promise<any>;
   testExternalModelConnection?(params: { provider: string }): Promise<any>;
+  listTradingStrategies?(): Promise<{
+    strategies?: TradingStrategyPublicManifest[];
+    diagnostics?: Array<{ strategyId?: string | null; code?: string; message?: string }>;
+  }>;
+  classifyTradingStrategyRequest?(params: {
+    strategyId: string;
+    text: string;
+    hasImageAttachment?: boolean;
+    hasCurrentAnalysis?: boolean;
+  }): Promise<any>;
+  runTradingStrategyAnalysis?(params: {
+    strategyId: string;
+    analysisJobId?: string;
+    marketId: string;
+    interval: string;
+    snapshotTime: number;
+    instruction?: string;
+    responseMode?: "full" | "direct";
+    lookbackMs?: number | null;
+    candles: Array<{
+      time: number;
+      open: number;
+      high: number;
+      low: number;
+      close: number;
+      volume?: number;
+    }>;
+    contextCandles?: Array<Record<string, unknown>>;
+    comparisonMarkets?: Array<Record<string, unknown>>;
+    orderFlow?: Record<string, unknown>;
+  }): Promise<any>;
+  cancelTradingStrategyAnalysis?(params?: {
+    strategyId?: string;
+    analysisJobId?: string;
+  }): Promise<{ cancelled?: boolean }>;
   runTradingChanTest?(params: {
     analysisJobId?: string;
     marketId: string;
@@ -2519,7 +2586,7 @@ type ViewId =
   | "consumption";
 type SkillCategoryId = string;
 type SkillsSubView = "market" | "mine";
-type SkillsPlazaTab = "plugins" | "skills" | "mySkills";
+type SkillsPlazaTab = "plugins" | "skills" | "mySkills" | "indicators" | "quant";
 type PluginMarketplaceIcon = "documents" | "spreadsheets" | "presentations" | "browser";
 
 type PluginMarketplaceItem = {
@@ -3691,6 +3758,16 @@ ensureBrowserDesktopApi();
 const api = window.codexDesktop;
 const appRoot = document.querySelector<HTMLDivElement>("#app");
 const windowResizeRoot = document.querySelector<HTMLDivElement>("#windowResizeRoot");
+void api.listTradingStrategies?.()
+  .then((result) => {
+    if (Array.isArray(result?.strategies)) {
+      reconcileTradingStrategyCatalog(result.strategies);
+      render();
+    }
+  })
+  .catch(() => {
+    // Bundled manifests remain the fail-safe catalog when runtime discovery is unavailable.
+  });
 syncAppThemePreference(INITIAL_APP_THEME);
 
 document.addEventListener("visibilitychange", () => {
@@ -4913,6 +4990,12 @@ let loginWechatPollTimer: number | null = null;
 let binanceAccountOtpCountdownTimer: number | null = null;
 let binanceAccountLoadPromise: Promise<void> | null = null;
 let binanceAccountLoadSequence = 0;
+let binanceAccountProfitCalendarLoadSequence = 0;
+let binanceAccountLiveRefreshTimer: number | null = null;
+let binanceAccountLiveRefreshPromise: Promise<void> | null = null;
+let binanceAccountLiveRefreshFailures = 0;
+let binanceAccountFullRefreshAfter = 0;
+let binanceAccountLiveRetryAfter = 0;
 let loginWechatPollPending = false;
 let loginWechatExchangePending = false;
 let loginWechatExchangeAttempts = 0;
@@ -5505,7 +5588,12 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
     state.providerModelCatalog = createProviderModelCatalogState();
     providerModelCatalogLastRequestedAt = 0;
     stopBinanceAccountOtpCountdown();
+    stopBinanceAccountLiveRefresh();
     binanceAccountLoadSequence += 1;
+    binanceAccountProfitCalendarLoadSequence += 1;
+    binanceAccountFullRefreshAfter = 0;
+    binanceAccountLiveRetryAfter = 0;
+    binanceAccountLiveRefreshFailures = 0;
     state.binanceAccount = createBinanceAccountUiState();
   }
   if (state.auth.authenticated && state.auth.profile) {
@@ -6110,6 +6198,11 @@ function wireDesktopEvents() {
   document.addEventListener("visibilitychange", markActiveConversationViewed, { passive: true });
   window.addEventListener("focus", () => refreshProfileOnAppActivation(), { passive: true });
   document.addEventListener("visibilitychange", () => refreshProfileOnAppActivation(), { passive: true });
+  window.addEventListener("focus", resumeBinanceAccountLiveRefresh, { passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopBinanceAccountLiveRefresh();
+    else resumeBinanceAccountLiveRefresh();
+  }, { passive: true });
   window.addEventListener(
     "online",
     () => {
@@ -6120,6 +6213,7 @@ function wireDesktopEvents() {
           // Keep the local session when the network is still unstable.
         }
         refreshProfileOnAppActivation({ force: true });
+        resumeBinanceAccountLiveRefresh();
         await api.tradingAlertsLifecycle?.({ phase: "resume", reason: "network_offline" });
       })();
     },
@@ -19311,6 +19405,75 @@ async function useSkillInNewThread(skillId: string) {
   });
 }
 
+async function openTradingStrategySkillFromLibrary(skillId: string) {
+  if (!skillId.startsWith(TRADING_STRATEGY_SKILL_CARD_PREFIX)) return;
+  const strategyId = skillId.slice(TRADING_STRATEGY_SKILL_CARD_PREFIX.length);
+  const strategy = tradingStrategyCatalog().find((item) => item.id === strategyId);
+  if (!strategy || strategy.enabled === false) {
+    showToast(strategy?.disabledReason || "该交易策略当前不可用", 4000);
+    return;
+  }
+  const threadId = await openTradingExpertWorkspace();
+  if (!threadId) return;
+  const composerText = `${strategy.mentionTokens[0] || `@策略:${strategy.display.name}`} `;
+  state.composerText = composerText;
+  state.composerQuote = null;
+  state.composerThreadReferences = [];
+  state.attachments = [];
+  resetComposerMentionState();
+  setComposerDraft(threadId, {
+    text: composerText,
+    attachments: [],
+    quote: null,
+    threadReferences: [],
+  });
+  render();
+  window.requestAnimationFrame(() => {
+    const input = root.querySelector<HTMLTextAreaElement>("#composerInput");
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(composerText.length, composerText.length);
+    syncComposerMentionHighlights();
+    syncComposerSendButton();
+  });
+}
+
+async function openTradingIndicatorSkillFromLibrary(skillId: string) {
+  if (!skillId.startsWith(TRADING_INDICATOR_SKILL_CARD_PREFIX)) return;
+  const indicatorId = skillId.slice(TRADING_INDICATOR_SKILL_CARD_PREFIX.length);
+  const indicator = tradingIndicatorCatalog().find((item) => item.id === indicatorId);
+  if (skillId !== TRADING_TREND_BAND_SKILL_CARD_ID && (!indicator || indicator.enabled === false)) {
+    showToast(indicator?.disabledReason || "该指标分析当前不可用", 4000);
+    return;
+  }
+  const threadId = await openTradingExpertWorkspace();
+  if (!threadId) return;
+  const composerText = `${skillId === TRADING_TREND_BAND_SKILL_CARD_ID
+    ? TRADING_EXPERT_TREND_BAND_MENTION
+    : indicator?.mentionTokens[0] || `@指标:${indicator?.display.name || indicatorId}`} `;
+  state.composerText = composerText;
+  state.composerQuote = null;
+  state.composerThreadReferences = [];
+  state.attachments = [];
+  resetComposerMentionState();
+  setComposerDraft(threadId, {
+    text: composerText,
+    attachments: [],
+    quote: null,
+    threadReferences: [],
+  });
+  render();
+  window.requestAnimationFrame(() => {
+    const input = root.querySelector<HTMLTextAreaElement>("#composerInput");
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(composerText.length, composerText.length);
+    applyTradingExpertCustomIndicatorMentions(composerText);
+    syncComposerMentionHighlights();
+    syncComposerSendButton();
+  });
+}
+
 function skillForUse(skillId: string) {
   return (
     currentMarketplaceSkill(skillId) ??
@@ -25495,34 +25658,20 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   ) {
     await refreshTradingAlerts();
   }
-  const tradingChanMentionAtSend = isTradingExpertThreadId(threadId)
-    && tradingChanMentioned(text);
-  const tradingOrderFlowMentionAtSend = isTradingExpertThreadId(threadId)
-    && tradingOrderFlowMentioned(text);
-  const tradingWaveMentionAtSend = isTradingExpertThreadId(threadId)
-    && tradingWaveMentioned(text);
-  const tradingWyckoffMentionAtSend = isTradingExpertThreadId(threadId)
-    && tradingWyckoffMentioned(text);
+  const tradingStrategyAtSend = isTradingExpertThreadId(threadId)
+    ? tradingStrategyMentionedByText(text)
+    : null;
   const tradingAlertCandidateAtSend = isTradingExpertThreadId(threadId)
     && (tradingAlertMentioned(text) || Boolean(tradingAlertConversationStateForThread(threadId)));
   const tradingGeneralCandidateAtSend = isTradingExpertThreadId(threadId)
-    && !tradingChanMentionAtSend
-    && !tradingOrderFlowMentionAtSend
-    && !tradingWaveMentionAtSend
-    && !tradingWyckoffMentionAtSend
+    && !tradingStrategyAtSend
     && !tradingAlertCandidateAtSend;
-  let tradingChanRequestAtSend: TradingChanRequest | null = null;
-  let tradingOrderFlowRequestAtSend: TradingOrderFlowRequest | null = null;
-  let tradingWaveRequestAtSend: TradingWaveRequest | null = null;
-  let tradingWyckoffRequestAtSend: TradingWyckoffRequest | null = null;
+  let tradingStrategyRequestAtSend: TradingStrategyRequest | null = null;
   let tradingGeneralRequestAtSend: TradingGeneralRequest | null = null;
   if (
     !state.serverReady
     && (
-      tradingChanMentionAtSend
-      || tradingOrderFlowMentionAtSend
-      || tradingWaveMentionAtSend
-      || tradingWyckoffMentionAtSend
+      tradingStrategyAtSend
       || tradingAlertCandidateAtSend
       || tradingGeneralCandidateAtSend
       || (isBlankNewThread(threadId) && !isLocalBlankThreadId(threadId))
@@ -25554,10 +25703,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     // so the bubble must not depend on compaction completing successfully.
     if (!submissionSnapshotAttachments.some((attachment) => attachment.uploadStatus === "error")) {
       pendingSend = beginPendingComposerSend(threadId, text, submissionSnapshotAttachments, snapshotQuote, snapshotThreadReferences, input);
-      if (tradingChanMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (tradingOrderFlowMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (tradingWaveMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (tradingWyckoffMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
+      if (tradingStrategyAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingAlertCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingGeneralCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       // The local item must exist before the blank thread is assigned to a
@@ -25566,65 +25712,25 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       commitSelectedNewThreadGroupForSend(threadId, composerGroupIdForSend);
       if (revealThreadGroupForComposerSend(threadId)) saveThreadPreferences();
       state.error = null;
-      if (tradingChanMentionAtSend || tradingOrderFlowMentionAtSend || tradingWaveMentionAtSend || tradingWyckoffMentionAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
+      if (tradingStrategyAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
         refreshTradingExpertConversationSurface(threadId);
       } else {
         render();
       }
     }
-    if (tradingChanMentionAtSend) {
+    if (tradingStrategyAtSend) {
       updateTradingExpertThinkingState(
         originalThreadId,
         "classifying",
-        "正在由缠论请求路由模型识别问答、截图解读或看盘绘图意图。",
+        tradingStrategyAtSend.ui.classificationMessage,
       );
       refreshTradingExpertConversationSurface(originalThreadId);
-      tradingChanRequestAtSend = await classifyTradingChanRequestForSend(
+      tradingStrategyRequestAtSend = await classifyTradingStrategyForSend(
+        api,
+        tradingStrategyAtSend,
         text,
         snapshotAttachments.some(isImageAttachment),
-        hasTradingExpertCurrentAnalysis("chan"),
-      );
-      clearTradingExpertThinkingState(originalThreadId);
-      refreshTradingExpertConversationSurface(originalThreadId);
-    } else if (tradingOrderFlowMentionAtSend) {
-      updateTradingExpertThinkingState(
-        originalThreadId,
-        "classifying",
-        "正在由订单流请求路由模型识别问答、截图解读或实时盘面绘图意图。",
-      );
-      refreshTradingExpertConversationSurface(originalThreadId);
-      tradingOrderFlowRequestAtSend = await classifyTradingOrderFlowRequestForSend(
-        text,
-        snapshotAttachments.some(isImageAttachment),
-        hasTradingExpertCurrentAnalysis("order-flow"),
-      );
-      clearTradingExpertThinkingState(originalThreadId);
-      refreshTradingExpertConversationSurface(originalThreadId);
-    } else if (tradingWaveMentionAtSend) {
-      updateTradingExpertThinkingState(
-        originalThreadId,
-        "classifying",
-        "正在由波浪理论请求路由模型识别问答、截图解读或实时盘面绘图意图。",
-      );
-      refreshTradingExpertConversationSurface(originalThreadId);
-      tradingWaveRequestAtSend = await classifyTradingWaveRequestForSend(
-        text,
-        snapshotAttachments.some(isImageAttachment),
-        hasTradingExpertCurrentAnalysis("wave"),
-      );
-      clearTradingExpertThinkingState(originalThreadId);
-      refreshTradingExpertConversationSurface(originalThreadId);
-    } else if (tradingWyckoffMentionAtSend) {
-      updateTradingExpertThinkingState(
-        originalThreadId,
-        "classifying",
-        "正在由威科夫请求路由模型识别问答、截图解读或实时盘面绘图意图。",
-      );
-      refreshTradingExpertConversationSurface(originalThreadId);
-      tradingWyckoffRequestAtSend = await classifyTradingWyckoffRequestForSend(
-        text,
-        snapshotAttachments.some(isImageAttachment),
-        hasTradingExpertCurrentAnalysis("wyckoff"),
+        hasTradingExpertCurrentAnalysis(tradingStrategyAtSend.id),
       );
       clearTradingExpertThinkingState(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
@@ -25644,10 +25750,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       refreshTradingExpertConversationSurface(originalThreadId);
     }
     if (
-      tradingChanRequestAtSend?.mode !== "chart-analysis"
-      && tradingOrderFlowRequestAtSend?.mode !== "chart-analysis"
-      && tradingWaveRequestAtSend?.mode !== "chart-analysis"
-      && tradingWyckoffRequestAtSend?.mode !== "chart-analysis"
+      tradingStrategyRequestAtSend?.mode !== "chart-analysis"
       && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
     ) {
@@ -25668,16 +25771,13 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     }
     if (!pendingSend && submissionSnapshotAttachments.some((attachment) => attachment.uploadStatus === "uploading")) {
       pendingSend = beginPendingComposerSend(threadId, text, submissionSnapshotAttachments, snapshotQuote, snapshotThreadReferences, input);
-      if (tradingChanMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (tradingOrderFlowMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (tradingWaveMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
-      else if (tradingWyckoffMentionAtSend) clearTradingExpertComposerAfterSend(threadId);
+      if (tradingStrategyAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingAlertCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingGeneralCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       commitSelectedNewThreadGroupForSend(threadId, composerGroupIdForSend);
       if (revealThreadGroupForComposerSend(threadId)) saveThreadPreferences();
       state.error = null;
-      if (tradingChanMentionAtSend || tradingOrderFlowMentionAtSend || tradingWaveMentionAtSend || tradingWyckoffMentionAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
+      if (tradingStrategyAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
         refreshTradingExpertConversationSurface(threadId);
       } else {
         render();
@@ -25832,10 +25932,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       : composerAgentText(text, readyAttachments, composerQuote, composerThreadReferences);
     const agentText = tradingExpertAgentTextForSend(threadId, text, baseAgentText);
     if (
-      tradingChanRequestAtSend?.mode !== "chart-analysis"
-      && tradingOrderFlowRequestAtSend?.mode !== "chart-analysis"
-      && tradingWaveRequestAtSend?.mode !== "chart-analysis"
-      && tradingWyckoffRequestAtSend?.mode !== "chart-analysis"
+      tradingStrategyRequestAtSend?.mode !== "chart-analysis"
       && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
     ) {
@@ -25904,10 +26001,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     }
     state.error = null;
     const isTradingChartAnalysisSend = Boolean(
-      tradingChanRequestAtSend?.mode === "chart-analysis"
-      || tradingOrderFlowRequestAtSend?.mode === "chart-analysis"
-      || tradingWaveRequestAtSend?.mode === "chart-analysis"
-      || tradingWyckoffRequestAtSend?.mode === "chart-analysis"
+      tradingStrategyRequestAtSend?.mode === "chart-analysis"
       || tradingAlertCandidateAtSend
       || tradingGeneralRequestAtSend?.mode === "chart-analysis",
     );
@@ -25942,36 +26036,12 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         return;
       }
     }
-    if (tradingChanRequestAtSend?.mode === "chart-analysis") {
+    if (tradingStrategyAtSend && tradingStrategyRequestAtSend?.mode === "chart-analysis") {
       localHistoryAheadThreadIds.add(threadId);
       if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
       clearTradingExpertComposerAfterSend(threadId);
       refreshTradingExpertConversationSurface(threadId);
-      await runTradingChanChartRequest(threadId, tradingChanRequestAtSend);
-      return;
-    }
-    if (tradingOrderFlowRequestAtSend?.mode === "chart-analysis") {
-      localHistoryAheadThreadIds.add(threadId);
-      if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
-      clearTradingExpertComposerAfterSend(threadId);
-      refreshTradingExpertConversationSurface(threadId);
-      await runTradingOrderFlowChartRequest(threadId, tradingOrderFlowRequestAtSend);
-      return;
-    }
-    if (tradingWaveRequestAtSend?.mode === "chart-analysis") {
-      localHistoryAheadThreadIds.add(threadId);
-      if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
-      clearTradingExpertComposerAfterSend(threadId);
-      refreshTradingExpertConversationSurface(threadId);
-      await runTradingWaveChartRequest(threadId, tradingWaveRequestAtSend);
-      return;
-    }
-    if (tradingWyckoffRequestAtSend?.mode === "chart-analysis") {
-      localHistoryAheadThreadIds.add(threadId);
-      if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
-      clearTradingExpertComposerAfterSend(threadId);
-      refreshTradingExpertConversationSurface(threadId);
-      await runTradingWyckoffChartRequest(threadId, tradingWyckoffRequestAtSend);
+      await runTradingStrategyChartRequest(threadId, tradingStrategyAtSend, tradingStrategyRequestAtSend);
       return;
     }
     if (tradingAlertCandidateAtSend) {
@@ -29238,9 +29308,75 @@ async function runTradingGeneralChartRequest(
   }
 }
 
+async function runTradingStrategyChartRequest(
+  threadId: string,
+  strategy: TradingStrategyCatalogItem,
+  request: TradingStrategyRequest,
+) {
+  const analysisId = beginTradingExpertAnalysisJob(threadId, strategy.id);
+  const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
+  const progressIdPrefix = `trading-${strategy.id}-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  let progressSequence = 0;
+  let latestProgress = "";
+  const transcriptItems: CodexItem[] = [];
+  const updateProgress = (phase: string, message: string) => {
+    if (!message || message === latestProgress) return;
+    latestProgress = message;
+    if (phase === "error") clearTradingExpertThinkingState(targetThreadId());
+    else updateTradingExpertThinkingState(targetThreadId(), phase, message);
+    progressSequence += 1;
+    const progressItem = appendTradingExpertProgress(
+      targetThreadId(),
+      `${progressIdPrefix}-${progressSequence}`,
+      phase,
+      message,
+    );
+    transcriptItems.push(progressItem);
+  };
+  updateProgress("preparing", strategy.ui.preparingMessage);
+  try {
+    ensureTradingExpertChartIndicatorVisible(strategy.chartIndicator);
+    const result = await runTradingExpertStrategyConversation(strategy.id, {
+      analysisId,
+      instruction: request.instruction,
+      symbol: request.symbol,
+      interval: request.interval,
+      lookbackMs: request.lookbackMs,
+      lookbackLabel: request.lookbackLabel,
+      drawingRequested: request.drawingRequested,
+      strategyDisplayName: strategy.display.name,
+      minimumCandles: strategy.dataRequirements?.candles?.minCount,
+      preferredCandles: strategy.dataRequirements?.candles?.preferredCount,
+      visibleCandlesOnly: Boolean(strategy.dataRequirements?.["visible-candles"]?.required),
+      executionPlanRequested: strategy.capabilities.includes("execution-plan"),
+      contextCandlesRequested: Boolean(strategy.dataRequirements?.["context-candles"]),
+      comparisonCandlesRequested: Boolean(strategy.dataRequirements?.["comparison-candles"]),
+      onProgress: updateProgress,
+    });
+    updateProgress(
+      strategy.ui.completionPhase,
+      `${result.modelName} 已完成 ${result.symbol} ${strategy.ui.completionMetric(result)}${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
+    );
+    clearTradingExpertThinkingState(targetThreadId());
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
+  } catch (error) {
+    const message = errorMessage(error);
+    updateProgress("error", `${strategy.display.name}盘面分析未完成：${message}`);
+    state.error = message;
+    showToast(message, 5000);
+    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+  } finally {
+    finishTradingExpertAnalysisJob(threadId, analysisId);
+    if (clearTradingExpertThinkingState(targetThreadId())) {
+      refreshTradingExpertConversationSurface(targetThreadId());
+    }
+  }
+}
+
 async function runTradingChanChartRequest(
   threadId: string,
-  request: TradingChanRequest,
+  request: TradingStrategyRequest,
 ) {
   const analysisId = beginTradingExpertAnalysisJob(threadId, "chan");
   const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
@@ -29267,7 +29403,7 @@ async function runTradingChanChartRequest(
     "正在理解你的缠论看盘指令并读取当前画布。",
   );
   try {
-    const result = await runTradingExpertChanConversation({
+    const result = await runTradingExpertStrategyConversation("chan", {
       analysisId,
       instruction: request.instruction,
       symbol: request.symbol,
@@ -29300,7 +29436,7 @@ async function runTradingChanChartRequest(
 
 async function runTradingOrderFlowChartRequest(
   threadId: string,
-  request: TradingOrderFlowRequest,
+  request: TradingStrategyRequest,
 ) {
   const analysisId = beginTradingExpertAnalysisJob(threadId, "order-flow");
   const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
@@ -29327,7 +29463,7 @@ async function runTradingOrderFlowChartRequest(
     "正在理解你的订单流看盘指令并读取当前画布与真实微观结构数据。",
   );
   try {
-    const result = await runTradingExpertOrderFlowConversation({
+    const result = await runTradingExpertStrategyConversation("order-flow", {
       analysisId,
       instruction: request.instruction,
       symbol: request.symbol,
@@ -29360,7 +29496,7 @@ async function runTradingOrderFlowChartRequest(
 
 async function runTradingWaveChartRequest(
   threadId: string,
-  request: TradingWaveRequest,
+  request: TradingStrategyRequest,
 ) {
   const analysisId = beginTradingExpertAnalysisJob(threadId, "wave");
   const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
@@ -29387,7 +29523,7 @@ async function runTradingWaveChartRequest(
     "正在理解你的波浪理论看盘指令并读取当前画布。",
   );
   try {
-    const result = await runTradingExpertWaveConversation({
+    const result = await runTradingExpertStrategyConversation("wave", {
       analysisId,
       instruction: request.instruction,
       symbol: request.symbol,
@@ -29420,7 +29556,7 @@ async function runTradingWaveChartRequest(
 
 async function runTradingWyckoffChartRequest(
   threadId: string,
-  request: TradingWyckoffRequest,
+  request: TradingStrategyRequest,
 ) {
   const analysisId = beginTradingExpertAnalysisJob(threadId, "wyckoff");
   const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
@@ -29447,7 +29583,7 @@ async function runTradingWyckoffChartRequest(
     "正在理解你的威科夫看盘指令并读取当前画布。",
   );
   try {
-    const result = await runTradingExpertWyckoffConversation({
+    const result = await runTradingExpertStrategyConversation("wyckoff", {
       analysisId,
       instruction: request.instruction,
       symbol: request.symbol,
@@ -32343,10 +32479,8 @@ function tradingExpertAgentTextForSend(
   baseAgentText: string,
 ) {
   if (!isTradingExpertThreadId(threadId)) return baseAgentText;
-  if (tradingChanMentioned(visibleText)) return buildTradingChanExpertPrompt(baseAgentText);
-  if (tradingOrderFlowMentioned(visibleText)) return buildTradingOrderFlowExpertPrompt(baseAgentText);
-  if (tradingWaveMentioned(visibleText)) return buildTradingWaveExpertPrompt(baseAgentText);
-  if (tradingWyckoffMentioned(visibleText)) return buildTradingWyckoffExpertPrompt(baseAgentText);
+  const strategy = tradingStrategyMentionedByText(visibleText);
+  if (strategy) return strategy.ui.buildExpertPrompt(baseAgentText);
   if (hasTradingExpertCurrentAnalysis()) return buildTradingAnalysisFollowupPrompt(baseAgentText);
   return baseAgentText;
 }
@@ -33359,7 +33493,7 @@ function render() {
       ? "right-panel-collapsed"
       : "",
     tradingExpertPanelLayout ? "trading-expert-layout" : "",
-    tradingExpertLayout && state.tradingExpertChartCollapsed
+    tradingExpertPanelLayout && state.tradingExpertChartCollapsed
       ? "trading-expert-chart-collapsed"
       : "",
     tradingExpertChartFocusMode ? "trading-expert-chart-focus-mode" : "",
@@ -33386,6 +33520,9 @@ function render() {
       <div class="${bodyClasses}"${bodyStyle}>
         ${workspaceHasConversationList ? renderLeftPanelToggle() : ""}
         ${tradingExpertLayout ? renderTradingExpertCollapseControls() : ""}
+        ${state.activeView === "account" && tradingExpertPanelLayout && !state.tradingExpertChartCollapsed
+          ? renderBinanceAccountExpansionControl()
+          : ""}
         ${tradingExpertLayout ? renderTradingExpertPanelResizeHandles() : ""}
         ${mainContent}
       </div>
@@ -33435,6 +33572,16 @@ function render() {
     preservedTradingExpertMarketWorkspace,
     tradingExpertLayout ? thread?.id : null,
   );
+  syncTradingExpertOrderLineSnapshot(state.binanceAccount.snapshot);
+  if (
+    tradingExpertLayout
+    && !state.binanceAccount.loaded
+    && !state.binanceAccount.loading
+    && !binanceAccountLoadPromise
+    && Date.now() >= state.binanceAccount.autoRefreshAfter
+  ) {
+    void loadBinanceAccountPage().finally(() => scheduleBinanceAccountLiveRefresh());
+  }
   restoreActiveWorkflowNodeFormSnapshot(workflowNodeFormSnapshot);
   if (threadHistoryPopover) {
     const anchorRow = root.querySelector<HTMLElement>(
@@ -34413,6 +34560,7 @@ function renderWindowControls() {
   const showTradingExpertFavoriteTickers =
     state.activeView === "chat"
     && !state.chatPreview
+    && !state.tradingExpertChartCollapsed
     && isBlankNewThread(state.currentThreadId)
     && isTradingExpertThreadId(state.currentThreadId);
   return `
@@ -36133,7 +36281,7 @@ function renderResultsNavigation(allRows: ResultRow[]) {
           allRows.filter((row) => row.kind === "file" || row.kind === "agent" || row.kind === "command" || row.kind === "card").length,
           "result",
         )}
-        ${renderCategoryButton("skill", "技能", state.skills.items.length, "result")}
+        ${renderCategoryButton("skill", "技能", mySkillsPlazaCards().length, "result")}
         ${renderCategoryButton("plugin", "插件", currentInstalledPluginItems().length, "result")}
       </nav>
     </aside>
@@ -36330,16 +36478,11 @@ function renderAutoTasksPage() {
   if (selectedTask) return renderAutoTaskDetailPage(selectedTask);
   return `
     <main class="auto-task-page">
+      ${renderPlanningNavigation("plans")}
       ${
         tasks.length
           ? `
             <section class="auto-task-list-page">
-              <div class="auto-task-list-toolbar">
-                <button type="button" class="auto-task-primary" data-action="open-auto-task-dialog">
-                  <img src="${escapeAttr(HOME_ICON_URL.autoTaskAdd)}" alt="" />
-                  <span>新建自动任务</span>
-                </button>
-              </div>
               <div class="auto-task-list">
                 ${tasks.map(renderAutoTaskItem).join("")}
               </div>
@@ -36534,8 +36677,10 @@ function renderAutoTaskTemplate(template: (typeof AUTO_TASK_TEMPLATES)[number]) 
 function renderSkillsPlazaTabs() {
   const tabs: Array<{ id: SkillsPlazaTab; label: string; hidden?: boolean }> = [
     { id: "skills", label: "技能", hidden: true },
-    { id: "mySkills", label: "我的技能" },
-    { id: "plugins", label: "插件" },
+    { id: "mySkills", label: "策略" },
+    { id: "indicators", label: "指标" },
+    { id: "quant", label: "量化" },
+    { id: "plugins", label: "插件", hidden: true },
   ];
   return `
     <nav class="skills-plaza-tabs" aria-label="发现分类">
@@ -36781,12 +36926,23 @@ function renderSkillsPlazaPage() {
   if (state.skillsPlazaTab === "plugins") {
     return renderPluginMarketplacePage();
   }
-  const mySkillsView = state.skillsPlazaTab === "mySkills" || state.marketplace.mySkillsOnly || state.marketplace.subView === "mine";
+  const collectionTab = state.skillsPlazaTab === "mySkills"
+    || state.skillsPlazaTab === "indicators"
+    || state.skillsPlazaTab === "quant"
+    ? state.skillsPlazaTab
+    : state.marketplace.mySkillsOnly || state.marketplace.subView === "mine"
+      ? "mySkills"
+      : null;
+  const mySkillsView = collectionTab !== null;
   const categories = marketplaceFilterCategories();
   const query = state.skillSearch.trim().toLowerCase();
-  const sourceCards = mySkillsView
-    ? mySkillsPlazaCards()
-    : state.marketplace.items.map(mapMarketplaceSkillToCard);
+  const sourceCards = collectionTab === "mySkills"
+    ? strategySkillPlazaCards()
+    : collectionTab === "indicators"
+      ? indicatorSkillPlazaCards()
+      : collectionTab === "quant"
+        ? []
+        : state.marketplace.items.map(mapMarketplaceSkillToCard);
   const cards = sourceCards.filter((card) => {
     if (
       !mySkillsView &&
@@ -36805,7 +36961,13 @@ function renderSkillsPlazaPage() {
     !mySkillsView &&
     state.marketplace.loading &&
     !state.marketplace.items.length;
-  const emptyMessage = mySkillsView ? "暂无本地技能" : "没有找到匹配的技能";
+  const emptyMessage = collectionTab === "mySkills"
+    ? "暂无策略"
+    : collectionTab === "indicators"
+      ? "暂无指标"
+      : collectionTab === "quant"
+        ? "暂无量化"
+        : "没有找到匹配的技能";
   return `
     <main class="skills-plaza-page ${mySkillsView ? "my-skills-page" : ""}">
       ${renderSkillsPlazaTabs()}
@@ -36827,7 +36989,7 @@ function renderSkillsPlazaPage() {
               </div>
               <div class="skills-plaza-filter-actions">
                 ${renderSkillSortDropdown()}
-                <button type="button" class="skills-my-button" data-action="show-my-skills" aria-pressed="false">我的技能</button>
+                <button type="button" class="skills-my-button" data-action="show-my-skills" aria-pressed="false">策略</button>
               </div>
             </section>`
       }
@@ -36852,7 +37014,81 @@ function renderSkillsPlazaPage() {
 }
 
 function mySkillsPlazaCards() {
-  return state.skills.items.map(mapLocalSkillToCard);
+  const localCards = state.skills.items.map(mapLocalSkillToCard);
+  const localSkillNames = new Set(
+    localCards.flatMap((card) => [card.title, card.subtitle]).map((value) => value.trim().toLowerCase()),
+  );
+  const tradingCards = tradingStrategyCatalog()
+    .filter((strategy) => strategy.enabled !== false)
+    .map((strategy): SkillPlazaCard => ({
+      id: `${TRADING_STRATEGY_SKILL_CARD_PREFIX}${strategy.id}`,
+      title: strategy.skill.displayName,
+      subtitle: strategy.id,
+      detail: strategy.skill.shortDescription,
+      category: "local",
+      rawCategory: "local",
+      theme: "local",
+      height: strategy.skill.shortDescription.length > 34 ? "medium" : "short",
+      tags: ["交易策略", "K线分析"],
+      badge: "已装",
+      author: "本地",
+      likes: "已安装",
+      iconUrl: SKILL_DEFAULT_ICON_URL,
+      defaultCover: true,
+      installed: true,
+      installStatus: "installed",
+      version: strategy.version,
+    }))
+    .filter(
+      (card) =>
+        !localSkillNames.has(card.title.trim().toLowerCase()) &&
+        !localSkillNames.has(card.subtitle.trim().toLowerCase()),
+    );
+  return [...localCards, ...tradingCards];
+}
+
+function strategySkillPlazaCards() {
+  return mySkillsPlazaCards().filter((card) => card.id.startsWith(TRADING_STRATEGY_SKILL_CARD_PREFIX));
+}
+
+function indicatorSkillPlazaCards(): SkillPlazaCard[] {
+  const analysisCards = tradingIndicatorCatalog().map((indicator): SkillPlazaCard => ({
+    id: `${TRADING_INDICATOR_SKILL_CARD_PREFIX}${indicator.id}`,
+    title: indicator.skill.displayName,
+    subtitle: indicator.id,
+    detail: indicator.skill.shortDescription,
+    category: "local",
+    rawCategory: "local",
+    theme: "local",
+    height: indicator.skill.shortDescription.length > 34 ? "medium" : "short",
+    tags: ["技术指标", "形态与背离"],
+    badge: indicator.enabled === false ? "不可用" : "已装",
+    author: "本地",
+    likes: indicator.enabled === false ? "诊断失败" : "已安装",
+    installed: indicator.enabled !== false,
+    installStatus: indicator.enabled === false ? "failed" : "installed",
+    version: indicator.version,
+  }));
+  return [
+    {
+      id: TRADING_TREND_BAND_SKILL_CARD_ID,
+      title: "趋势带",
+      subtitle: "trend-band",
+      detail: "通过趋势蜡烛与均线带识别行情方向，辅助观察趋势延续与转折",
+      category: "local",
+      rawCategory: "local",
+      theme: "local",
+      height: "short",
+      tags: ["技术指标", "趋势分析"],
+      badge: "已装",
+      author: "本地",
+      likes: "已安装",
+      installed: true,
+      installStatus: "installed",
+      version: "1.0.0",
+    },
+    ...analysisCards,
+  ];
 }
 
 function renderMySkillsPage() {
@@ -36881,7 +37117,7 @@ function renderMySkillsPage() {
   const backTitle = `
         <button type="button" class="my-skills-back-title" data-action="back-from-my-skills" aria-label="返回">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>
-          <span>我的技能</span>
+          <span>策略</span>
         </button>`;
   return `
     <main class="skills-plaza-page my-skills-page">
@@ -36904,7 +37140,7 @@ function renderMySkillsPage() {
         <button type="button" data-action="open-skill-import">手动导入</button>
       </section>
       ${state.marketplace.myError ? `<p class="skills-load-state error">${escapeHtml(state.marketplace.myError)}</p>` : ""}
-      ${state.marketplace.myLoading ? `<p class="skills-load-state">我的技能加载中...</p>` : ""}
+      ${state.marketplace.myLoading ? `<p class="skills-load-state">策略加载中...</p>` : ""}
       <section class="my-skills-grid">
         ${cards.length ? cards.map(renderMySkillCard).join("") : `<p class="skills-empty">暂无已安装技能</p>`}
       </section>
@@ -37204,19 +37440,185 @@ function renderMySkillCard(card: MySkillCard) {
   `;
 }
 
+function renderTradingStrategySkillIcon(cardId: string) {
+  if (!cardId.startsWith(TRADING_STRATEGY_SKILL_CARD_PREFIX)) return "";
+  const strategyId = cardId.slice(TRADING_STRATEGY_SKILL_CARD_PREFIX.length);
+  const pathsByStrategy: Record<string, string> = {
+    chan: `
+      <rect x="10" y="12" width="12" height="9" rx="1.5" />
+      <path d="M3 25 8 19l5 3 5-11 5 4 6-8" />
+      <circle cx="8" cy="19" r="1.25" />
+      <circle cx="18" cy="11" r="1.25" />
+      <circle cx="29" cy="7" r="1.25" />
+    `,
+    "order-flow": `
+      <path d="M16 4v24" />
+      <path d="M4 8h9M7 13h6M3 19h10M8 24h5" />
+      <path d="M19 8h9M19 13h5M19 19h10M19 24h6" />
+      <path d="m11 6 3 2-3 2M21 17l-3 2 3 2" />
+    `,
+    "ict-smc": `
+      <path d="M3 24 8 17l5 3 5-12 5 6 6-9" />
+      <path d="M5 11h8M19 21h10" stroke-dasharray="2 2" />
+      <rect x="14" y="12" width="8" height="5" rx="1" />
+      <circle cx="8" cy="17" r="1.2" /><circle cx="18" cy="8" r="1.2" />
+    `,
+    "smt-divergence": `
+      <path d="M3 24 8 10l5 7 5-10 5 8 6-11" />
+      <path d="M3 27 8 18l5 4 5-8 5 5 6-8" stroke-dasharray="2.5 2.5" />
+      <path d="m24 5 5-1-1 5M24 12l5-1-1 5" />
+    `,
+    wave: `
+      <path d="M3 25 8 17l5 4 6-12 4 6 6-10" />
+      <circle cx="8" cy="17" r="1.25" />
+      <circle cx="13" cy="21" r="1.25" />
+      <circle cx="19" cy="9" r="1.25" />
+      <circle cx="23" cy="15" r="1.25" />
+      <circle cx="29" cy="5" r="1.25" />
+    `,
+    wyckoff: `
+      <path d="M4 10h19M4 22h19" />
+      <path d="M4 17 8 12l4 8 4-6 3 10 4-7 6-9" />
+      <path d="m25 8 4 0 0 4" />
+    `,
+    harmonic: `
+      <path d="M3 25 9 6l7 15 7-11 6 16" />
+      <circle cx="3" cy="25" r="1.2" />
+      <circle cx="9" cy="6" r="1.2" />
+      <circle cx="16" cy="21" r="1.2" />
+      <circle cx="23" cy="10" r="1.2" />
+      <circle cx="29" cy="26" r="1.2" />
+      <path d="M25 23h6v6h-6z" />
+    `,
+    "chart-patterns": `
+      <path d="M3 24 8 14l5 5 4-13 5 13 4-5 3 10" />
+      <path d="M4 25h24" stroke-dasharray="2.5 2.5" />
+      <circle cx="8" cy="14" r="1.2" />
+      <circle cx="17" cy="6" r="1.2" />
+      <circle cx="26" cy="14" r="1.2" />
+    `,
+    "price-action": `
+      <path d="M3 25 9 18l6 3 7-12 7 4" />
+      <path d="M7 7v10M5 10h4v4H5z" />
+      <path d="M16 9v10M14 12h4v4h-4z" />
+      <path d="M25 4v11M23 7h4v5h-4z" />
+      <circle cx="9" cy="18" r="1.1" />
+      <circle cx="15" cy="21" r="1.1" />
+      <circle cx="22" cy="9" r="1.1" />
+    `,
+    "dow-theory": `
+      <path d="M3 24 8 17l5 3 6-12 5 5 5-8" />
+      <path d="M5 27h22" stroke-dasharray="2.5 2.5" />
+      <path d="M8 14v3M13 20v3M19 5v3M24 13v3" />
+      <circle cx="8" cy="17" r="1.15" />
+      <circle cx="19" cy="8" r="1.15" />
+      <circle cx="29" cy="5" r="1.15" />
+    `,
+    "gann-theory": `
+      <path d="M4 27V5M4 27h24" />
+      <path d="M4 27 28 5M4 27l24-10M4 27l15-22M4 27l9-22" />
+      <rect x="13" y="12" width="10" height="10" rx="1" />
+      <path d="M18 12v10M13 17h10" stroke-dasharray="2 2" />
+    `,
+  };
+  const paths = pathsByStrategy[strategyId];
+  if (!paths) return "";
+  return `
+    <div class="my-skill-icon trading-strategy-icon trading-strategy-icon-${escapeAttr(strategyId)}" data-trading-strategy-icon="${escapeAttr(strategyId)}" aria-hidden="true">
+      <svg viewBox="0 0 32 32" fill="none" focusable="false">
+        ${paths}
+      </svg>
+    </div>
+  `;
+}
+
+function renderTradingIndicatorSkillIcon(cardId: string) {
+  const indicatorId = cardId.slice(TRADING_INDICATOR_SKILL_CARD_PREFIX.length);
+  if (cardId !== TRADING_TREND_BAND_SKILL_CARD_ID && !["moving-average-analysis", "macd-analysis", "bollinger-bands-analysis", "rsi-analysis", "kdj-analysis", "vpvr-analysis"].includes(indicatorId)) return "";
+  if (indicatorId === "moving-average-analysis") return `
+    <div class="my-skill-icon trading-strategy-icon trading-indicator-icon-moving-average" data-trading-indicator-icon="moving-average-analysis" aria-hidden="true">
+      <svg viewBox="0 0 32 32" fill="none" focusable="false">
+        <path d="M3 23c4-1 6-5 10-5s6 2 9-1 4-6 7-7" />
+        <path d="M3 18c4-1 6-4 10-4s6 2 9-1 4-5 7-6" stroke-dasharray="2 2" />
+        <path d="M3 13c4 0 6-3 10-3s6 2 9-1 4-4 7-5" opacity=".65" />
+        <path d="M7 10v12M5 13h4v6H5zM17 7v14M15 10h4v7h-4zM26 9v11M24 12h4v5h-4z" opacity=".75" />
+      </svg>
+    </div>`;
+  if (indicatorId === "macd-analysis") return `
+    <div class="my-skill-icon trading-strategy-icon trading-indicator-icon-macd" data-trading-indicator-icon="macd-analysis" aria-hidden="true">
+      <svg viewBox="0 0 32 32" fill="none" focusable="false">
+        <path d="M3 18c3-7 5 7 8 0s5 7 8 0 5-7 10-3" />
+        <path d="M3 20c3-4 5 4 8 0s5 4 8 0 5-4 10-2" stroke-dasharray="2 2" />
+        <path d="M6 25v3M10 23v5M14 26v2M18 21v7M22 24v4M26 20v8" />
+        <path d="M3 28h26" opacity=".45" />
+      </svg>
+    </div>`;
+  if (indicatorId === "bollinger-bands-analysis") return `
+    <div class="my-skill-icon trading-strategy-icon trading-indicator-icon-bollinger-bands" data-trading-indicator-icon="bollinger-bands-analysis" aria-hidden="true">
+      <svg viewBox="0 0 32 32" fill="none" focusable="false">
+        <path d="M3 9c4-3 7-2 10 0s6 3 9 0 5-4 7-3" />
+        <path d="M3 16c4-2 7-1 10 0s6 2 9 0 5-3 7-2" stroke-dasharray="2 2" />
+        <path d="M3 23c4-1 7 0 10 0s6 1 9 0 5-2 7-1" />
+        <path d="M8 10v12M6 13h4v6H6zM18 8v14M16 11h4v7h-4zM26 9v12M24 12h4v6h-4z" opacity=".75" />
+      </svg>
+    </div>`;
+  if (indicatorId === "rsi-analysis") return `
+    <div class="my-skill-icon trading-strategy-icon trading-indicator-icon-rsi" data-trading-indicator-icon="rsi-analysis" aria-hidden="true">
+      <svg viewBox="0 0 32 32" fill="none" focusable="false">
+        <path d="M4 7h24M4 16h24M4 25h24" stroke-dasharray="2 2" opacity=".55" />
+        <path d="M3 22c3-1 4-9 7-8s4 7 7 5 4-11 7-9 3 6 5 5" />
+        <circle cx="10" cy="14" r="1.2" />
+        <circle cx="24" cy="10" r="1.2" />
+      </svg>
+    </div>`;
+  if (indicatorId === "kdj-analysis") return `
+    <div class="my-skill-icon trading-strategy-icon trading-indicator-icon-kdj" data-trading-indicator-icon="kdj-analysis" aria-hidden="true">
+      <svg viewBox="0 0 32 32" fill="none" focusable="false">
+        <path d="M4 7h24M4 25h24" stroke-dasharray="2 2" opacity=".5" />
+        <path d="M3 22c4-7 7-11 10-6s5 8 8 1 5-8 8-6" />
+        <path d="M3 24c4-5 7-8 10-5s5 5 8 0 5-6 8-4" opacity=".78" />
+        <path d="M3 26c4-3 7-5 10-3s5 2 8-2 5-4 8-3" opacity=".56" />
+        <circle cx="13" cy="16" r="1.1" />
+      </svg>
+    </div>`;
+  if (indicatorId === "vpvr-analysis") return `
+    <div class="my-skill-icon trading-strategy-icon trading-indicator-icon-vpvr" data-trading-indicator-icon="vpvr-analysis" aria-hidden="true">
+      <svg viewBox="0 0 32 32" fill="none" focusable="false">
+        <path d="M4 5v22M4 27h24" opacity=".55" />
+        <path d="M27 7h-7M27 10h-11M27 13h-17M27 16H8M27 19H13M27 22H18M27 25h-9" />
+        <path d="M6 16h22" stroke-dasharray="2 2" opacity=".8" />
+        <circle cx="8" cy="16" r="1.1" />
+      </svg>
+    </div>`;
+  return `
+    <div class="my-skill-icon trading-strategy-icon trading-indicator-icon-trend-band" data-trading-indicator-icon="trend-band" aria-hidden="true">
+      <svg viewBox="0 0 32 32" fill="none" focusable="false">
+        <path d="M3 23c4-1 6-4 9-3s4 3 7 1 5-7 10-8" />
+        <path d="M3 17c4-1 6-4 9-3s4 3 7 1 5-7 10-8" />
+        <path d="M7 7v7M5 9h4v3H5zM15 11v8M13 13h4v4h-4zM24 5v8M22 7h4v4h-4z" />
+      </svg>
+    </div>
+  `;
+}
+
 function renderMySkillPlazaCard(card: SkillPlazaCard) {
   const description = firstString(card.detail, card.subtitle) || "本地技能";
   const iconDisplay = skillImageDisplay(card.iconUrl || SKILL_DEFAULT_ICON_URL, `${card.title} icon`);
+  const strategyIcon = renderTradingStrategySkillIcon(card.id);
+  const indicatorIcon = renderTradingIndicatorSkillIcon(card.id);
+  const libraryIcon = strategyIcon || indicatorIcon;
+  const strategyCardClass = libraryIcon ? " trading-strategy-skill-card" : "";
   return `
-    <article class="my-skill-card" data-skill-id="${escapeAttr(card.id)}">
-      <span class="my-skill-installed">${escapeHtml(skillInstallStatusLabel(card.installStatus || "installed"))}</span>
-      <div class="my-skill-icon">
-        ${iconDisplay.status === "ready" ? `<img src="${escapeAttr(iconDisplay.url)}" alt="" />` : `<img src="${escapeAttr(SKILL_DEFAULT_ICON_URL)}" alt="" />`}
-      </div>
+    <article class="my-skill-card${strategyCardClass}" data-skill-id="${escapeAttr(card.id)}" role="button" tabindex="0" aria-label="打开${escapeAttr(card.title)}">
+      ${
+        libraryIcon ||
+        `<div class="my-skill-icon">
+          ${iconDisplay.status === "ready" ? `<img src="${escapeAttr(iconDisplay.url)}" alt="" />` : `<img src="${escapeAttr(SKILL_DEFAULT_ICON_URL)}" alt="" />`}
+        </div>`
+      }
       <div class="my-skill-copy">
         <h2>${escapeHtml(card.title)}</h2>
         <p title="${escapeAttr(description)}">${escapeHtml(description)}</p>
-        <small><img src="${escapeAttr(HOME_ICON_URL.skillLocal)}" alt="" />${escapeHtml(card.author || "本地")}</small>
       </div>
     </article>
   `;
@@ -39663,7 +40065,7 @@ function renderLibraryEmpty(title: string, detail?: string) {
   `;
 }
 
-function renderConversationListIcon(icon: "new-chat" | "account" | "alerts" | "knowledge" | "skills" | "folder" | "settings") {
+function renderConversationListIcon(icon: "new-chat" | "account" | "plans" | "skills" | "folder" | "settings") {
   const paths =
     icon === "new-chat"
       ? `<path d="M13.8 4.3H6.2A2.2 2.2 0 0 0 4 6.5v11.3A2.2 2.2 0 0 0 6.2 20h11.3a2.2 2.2 0 0 0 2.2-2.2v-7.6" />
@@ -39671,15 +40073,12 @@ function renderConversationListIcon(icon: "new-chat" | "account" | "alerts" | "k
       : icon === "account"
         ? `<circle cx="12" cy="8" r="3.2" />
            <path d="M5.4 20a6.6 6.6 0 0 1 13.2 0" />`
-        : icon === "alerts"
-          ? `<path d="M18 9.5a6 6 0 0 0-12 0v3.8L4.2 17h15.6L18 13.3V9.5Z" />
-             <path d="M9.6 20h4.8" />`
-          : icon === "knowledge"
-            ? `<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
-               <path d="m4.2 7.6 7.8 4.5 7.8-4.5M12 12.1V21" />`
-            : icon === "skills"
-              ? `<path d="m15.5 3.5 5 5-12 12-5-5 12-12Z" />
-                 <path d="m5.5 13.5 5 5M6 3v3M4.5 4.5h3M18.5 16.5v4M16.5 18.5h4" />`
+        : icon === "plans"
+          ? `<rect x="4" y="5.5" width="16" height="14" rx="2" />
+             <path d="M8 3v4M16 3v4M4 9.5h16M8 14l2 2 4-4" />`
+          : icon === "skills"
+            ? `<path d="m15.5 3.5 5 5-12 12-5-5 12-12Z" />
+               <path d="m5.5 13.5 5 5M6 3v3M4.5 4.5h3M18.5 16.5v4M16.5 18.5h4" />`
               : icon === "settings"
                 ? `<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z" />
                    <circle cx="12" cy="12" r="3" />`
@@ -39691,7 +40090,7 @@ function renderConversationListIcon(icon: "new-chat" | "account" | "alerts" | "k
 function renderConversationListActions() {
   const newConversationActive = state.activeView === "chat" && isBlankNewThread(state.currentThreadId);
   const accountActive = state.activeView === "account";
-  const alertsActive = state.activeView === "alerts";
+  const planningActive = state.activeView === "autoTasks" || state.activeView === "alerts";
   const skillsActive = state.activeView === "skillsPlaza";
   return `
     <div class="conversation-list-new-sticky">
@@ -39707,13 +40106,9 @@ function renderConversationListActions() {
         ${renderConversationListIcon("account")}
         <span>账户</span>
       </button>
-      <button type="button" class="conversation-list-action ${alertsActive ? "active" : ""}" data-conversation-static-action="alerts" ${alertsActive ? 'aria-current="page"' : ""}>
-        ${renderConversationListIcon("alerts")}
-        <span>预警</span>
-      </button>
-      <button type="button" class="conversation-list-action" data-conversation-static-action="knowledge">
-        ${renderConversationListIcon("knowledge")}
-        <span>知识库</span>
+      <button type="button" class="conversation-list-action ${planningActive ? "active" : ""}" data-conversation-static-action="plans" ${planningActive ? 'aria-current="page"' : ""}>
+        ${renderConversationListIcon("plans")}
+        <span>计划</span>
       </button>
       <button type="button" class="conversation-list-action ${skillsActive ? "active" : ""}" data-conversation-static-action="skills" ${skillsActive ? 'aria-current="page"' : ""}>
         ${renderConversationListIcon("skills")}
@@ -43318,6 +43713,20 @@ function tradingExpertChartToggleLabel(expanded: boolean) {
   return expanded ? "收起K线画布" : "展开K线画布";
 }
 
+function binanceAccountPageToggleLabel(expanded: boolean) {
+  return expanded ? "收起账户页" : "展开账户页";
+}
+
+function renderBinanceAccountExpansionControl() {
+  const accountExpanded = state.rightCollapsed && !state.tradingExpertChartCollapsed;
+  const label = binanceAccountPageToggleLabel(accountExpanded);
+  return `
+    <button type="button" class="small-icon-button panel-toggle binance-account-page-expansion-toggle ${accountExpanded ? "expanded" : "collapsed"}" data-action="toggle-trading-expert-chart" data-trading-expert-account-expansion title="${label}" aria-label="${label}" aria-expanded="${accountExpanded ? "true" : "false"}">
+      ${renderPanelLayoutIcon("left")}
+    </button>
+  `;
+}
+
 function tradingExpertChartFocusToggleLabel(active: boolean) {
   return active ? "退出K线全屏" : "K线全屏";
 }
@@ -43412,6 +43821,7 @@ function syncTradingExpertCollapseControlsState() {
   const conversationExpanded = chartCollapsed && !panelCollapsed;
   const chartExpansionLocked = !chartExpanded && isTradingExpertConversationCollapseLocked(state.currentThreadId);
   const chartButtons = root.querySelectorAll<HTMLButtonElement>("[data-trading-expert-chart-expansion]");
+  const accountButtons = root.querySelectorAll<HTMLButtonElement>("[data-trading-expert-account-expansion]");
   const conversationButtons = root.querySelectorAll<HTMLButtonElement>("[data-trading-expert-conversation-expansion]");
   const focusButtons = root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-trading-expert-chart-focus"]');
   const syncButton = (
@@ -43443,6 +43853,16 @@ function syncTradingExpertCollapseControlsState() {
     chartButton.hidden = chartCollapsed || chartExpansionLocked;
     if (chartExpansionLocked) chartButton.setAttribute("aria-hidden", "true");
     else chartButton.removeAttribute("aria-hidden");
+  });
+  accountButtons.forEach((accountButton) => {
+    syncButton(
+      accountButton,
+      chartExpanded,
+      false,
+      binanceAccountPageToggleLabel(chartExpanded),
+      "",
+      "left",
+    );
   });
   conversationButtons.forEach((panelButton) => {
     syncButton(
@@ -48829,9 +49249,9 @@ function renderMessageQuotePreview(quote: MessageQuotePreview, searchKeyword: st
 function renderLocalSendStatus(message: Message) {
   const status = localSendStatusFromRecord(message);
   if (!status) return "";
-  if (status !== "failed" && isThreadBusy(message.conversation_id)) return "";
-  const label = status === "failed" ? firstString((message as unknown as Record<string, unknown>).__youleLocalSendError) || "发送失败" : "发送中...";
-  return `<div class="message-local-send-status ${status === "failed" ? "failed" : ""}">${escapeHtml(label)}</div>`;
+  if (status !== "failed") return "";
+  const label = firstString((message as unknown as Record<string, unknown>).__youleLocalSendError) || "发送失败";
+  return `<div class="message-local-send-status failed">${escapeHtml(label)}</div>`;
 }
 
 function localSendStatusFromRecord(record: Record<string, unknown> | Message | CodexItem | null | undefined): PendingComposerSendStatus | null {
@@ -49775,7 +50195,7 @@ function composerPlaceholderForThread(thread: ConversationSummary) {
     return "发送消息，输入 @ 可指定一个或多个群成员回复";
   }
   if (isTradingExpertThreadId(thread.id)) {
-    return "输入@调用 策略、预警、知识库、自定义指标";
+    return "输入@调用 策略、指标、预警、知识库、自定义指标";
   }
   const threadBusy = isThreadBusy(thread.id) && !providerFromThreadId(thread.id);
   if (threadBusy && isLocalCodexThread(thread.id)) {
@@ -52878,9 +53298,12 @@ function renderTradingExpertMentionMenu(open: boolean) {
                         item.options.length
                           ? `<div class="composer-mention-submenu trading-expert-mention-submenu" role="menu" aria-label="${item.label}选项">
                               ${item.options
-                                .map(
-                                  (option) => `<button type="button" class="trading-expert-mention-option" role="menuitem" data-trading-expert-mention-group="${escapeAttr(item.label)}" data-trading-expert-mention-option="${escapeAttr(option)}">${escapeHtml(option)}</button>`,
-                                )
+                                .map((option) => {
+                                  const strategy = item.label === "策略" ? tradingStrategyByDisplayName(option) : null;
+                                  const disabled = strategy?.enabled === false;
+                                  const disabledReason = strategy?.disabledReason || strategy?.diagnostic || "策略当前不可用";
+                                  return `<button type="button" class="trading-expert-mention-option" role="menuitem" data-trading-expert-mention-group="${escapeAttr(item.label)}" data-trading-expert-mention-option="${escapeAttr(option)}"${disabled ? ` disabled aria-disabled="true" title="${escapeAttr(disabledReason)}"` : ""}>${escapeHtml(option)}</button>`;
+                                })
                                 .join("")}
                             </div>`
                           : ""
@@ -56177,6 +56600,85 @@ function bindTradingAlertEditorSelects() {
   }, true);
 }
 
+function bindBinanceAccountEvents(scope: ParentNode) {
+  scope.querySelectorAll<HTMLElement>("[data-binance-account-action]").forEach((element) => {
+    element.addEventListener("click", (event) => {
+      event.preventDefault();
+      const action = element.dataset.binanceAccountAction;
+      if (action === "open-dialog") openBinanceAccountDialog();
+      else if (action === "close-dialog") closeBinanceAccountDialog();
+      else if (action === "send-otp") void sendBinanceAccountOtp();
+      else if (action === "refresh" || action === "retry-load") void (action === "refresh" ? refreshBinanceAccountSnapshot() : loadBinanceAccountPage());
+      else if (action === "retry-profit-calendar") void loadBinanceAccountProfitCalendar({ force: true });
+      else if (action === "previous-profit-month") navigateBinanceAccountProfitCalendar(-1);
+      else if (action === "next-profit-month") navigateBinanceAccountProfitCalendar(1);
+      else if (action === "remove") void confirmBinanceAccountRemoval();
+      else if (action === "select-section") {
+        const section = element.dataset.binanceAccountSection;
+        if (section === "assets" || section === "positions" || section === "open-orders" || section === "history" || section === "profit-calendar") {
+          state.binanceAccount.activeSection = section;
+          render();
+          if (section === "profit-calendar" && !state.binanceAccount.profitCalendar && !state.binanceAccount.profitCalendarLoading) {
+            void loadBinanceAccountProfitCalendar();
+          }
+        }
+      }
+      else if (action === "toggle-balances") {
+        state.binanceAccount.balancesVisible = !state.binanceAccount.balancesVisible;
+        render();
+      } else if (action === "toggle-secret") {
+        state.binanceAccount.dialog.secretVisible = !state.binanceAccount.dialog.secretVisible;
+        render();
+        window.requestAnimationFrame(() => root.querySelector<HTMLInputElement>('[data-binance-account-dialog-form] input[name="apiSecret"]')?.focus());
+      } else if (action === "open-tutorial") {
+        void api.openExternal("https://www.binance.com/zh-CN/support/faq/detail/360002502072");
+      }
+    });
+  });
+  scope.querySelectorAll<HTMLInputElement>("[data-binance-account-dialog-form] input").forEach((input) => {
+    input.addEventListener("input", () => {
+      const name = input.name;
+      let value = input.value;
+      if (name === "code") {
+        value = value.replace(/\D/g, "").slice(0, 6);
+        if (input.value !== value) input.value = value;
+      }
+      if (name === "apiKey") state.binanceAccount.dialog.apiKey = value;
+      else if (name === "apiSecret") state.binanceAccount.dialog.apiSecret = value;
+      else if (name === "code") state.binanceAccount.dialog.code = value;
+      syncBinanceAccountDialogControls();
+    });
+  });
+  scope.querySelector<HTMLFormElement>("[data-binance-account-dialog-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (state.binanceAccount.dialog.mode === "remove") void removeBinanceAccountBinding();
+    else void submitBinanceAccountBinding();
+  });
+  scope.querySelector<HTMLDialogElement>(".binance-account-dialog")?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeBinanceAccountDialog();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      (event.currentTarget as HTMLDialogElement).querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+}
+
 function bindEvents() {
   bindWindowControls();
   bindLoginWeComQrEvents(false);
@@ -56655,7 +57157,13 @@ function bindEvents() {
   root.querySelectorAll<HTMLButtonElement>("[data-skills-plaza-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       const tab = button.dataset.skillsPlazaTab as SkillsPlazaTab | undefined;
-      if (tab !== "plugins" && tab !== "skills" && tab !== "mySkills") return;
+      if (
+        tab !== "plugins"
+        && tab !== "skills"
+        && tab !== "mySkills"
+        && tab !== "indicators"
+        && tab !== "quant"
+      ) return;
       if (tab === state.skillsPlazaTab) return;
       state.skillsPlazaTab = tab;
       state.skillSortMenuOpen = false;
@@ -57232,82 +57740,19 @@ function bindEvents() {
       });
     });
   root
-    .querySelectorAll<HTMLButtonElement>('[data-conversation-static-action="alerts"]')
+    .querySelectorAll<HTMLButtonElement>('[data-conversation-static-action="plans"]')
     .forEach((button) => {
       button.addEventListener("click", () => {
-        openTradingAlertsPage();
+        openAutoTasksPage();
       });
     });
-  root.querySelectorAll<HTMLElement>("[data-binance-account-action]").forEach((element) => {
-    element.addEventListener("click", (event) => {
-      event.preventDefault();
-      const action = element.dataset.binanceAccountAction;
-      if (action === "open-dialog") openBinanceAccountDialog();
-      else if (action === "close-dialog") closeBinanceAccountDialog();
-      else if (action === "send-otp") void sendBinanceAccountOtp();
-      else if (action === "refresh" || action === "retry-load") void (action === "refresh" ? refreshBinanceAccountSnapshot() : loadBinanceAccountPage());
-      else if (action === "remove") void confirmBinanceAccountRemoval();
-      else if (action === "select-section") {
-        const section = element.dataset.binanceAccountSection;
-        if (section === "assets" || section === "positions" || section === "history") {
-          state.binanceAccount.activeSection = section;
-          render();
-        }
-      }
-      else if (action === "toggle-balances") {
-        state.binanceAccount.balancesVisible = !state.binanceAccount.balancesVisible;
-        render();
-      } else if (action === "toggle-secret") {
-        state.binanceAccount.dialog.secretVisible = !state.binanceAccount.dialog.secretVisible;
-        render();
-        window.requestAnimationFrame(() => root.querySelector<HTMLInputElement>('[data-binance-account-dialog-form] input[name="apiSecret"]')?.focus());
-      } else if (action === "open-tutorial") {
-        void api.openExternal("https://www.binance.com/zh-CN/support/faq/detail/360002502072");
-      }
+  root.querySelectorAll<HTMLButtonElement>("[data-planning-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.dataset.planningSection === "plans") openAutoTasksPage();
+      else if (button.dataset.planningSection === "alerts") openTradingAlertsPage();
     });
   });
-  root.querySelectorAll<HTMLInputElement>("[data-binance-account-dialog-form] input").forEach((input) => {
-    input.addEventListener("input", () => {
-      const name = input.name;
-      let value = input.value;
-      if (name === "code") {
-        value = value.replace(/\D/g, "").slice(0, 6);
-        if (input.value !== value) input.value = value;
-      }
-      if (name === "apiKey") state.binanceAccount.dialog.apiKey = value;
-      else if (name === "apiSecret") state.binanceAccount.dialog.apiSecret = value;
-      else if (name === "code") state.binanceAccount.dialog.code = value;
-      syncBinanceAccountDialogControls();
-    });
-  });
-  root.querySelector<HTMLFormElement>("[data-binance-account-dialog-form]")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (state.binanceAccount.dialog.mode === "remove") void removeBinanceAccountBinding();
-    else void submitBinanceAccountBinding();
-  });
-  root.querySelector<HTMLDialogElement>(".binance-account-dialog")?.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeBinanceAccountDialog();
-      return;
-    }
-    if (event.key !== "Tab") return;
-    const focusable = Array.from(
-      (event.currentTarget as HTMLDialogElement).querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ),
-    );
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  });
+  bindBinanceAccountEvents(root);
   root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       const filter = button.dataset.tradingAlertFilter as TradingAlertFilter;
@@ -58435,13 +58880,27 @@ function bindEvents() {
       render();
     });
   root.querySelectorAll<HTMLElement>("[data-skill-id]").forEach((card) => {
-    card.addEventListener("click", () => {
+    const activateSkillCard = () => {
       const skillId = card.dataset.skillId;
+      if (skillId?.startsWith(TRADING_STRATEGY_SKILL_CARD_PREFIX)) {
+        void openTradingStrategySkillFromLibrary(skillId);
+        return;
+      }
+      if (skillId?.startsWith(TRADING_INDICATOR_SKILL_CARD_PREFIX)) {
+        void openTradingIndicatorSkillFromLibrary(skillId);
+        return;
+      }
       if (skillId?.startsWith("local:")) {
         showLocalSkillDetail(skillId);
         return;
       }
       if (skillId) void loadMarketplaceSkillDetail(skillId);
+    };
+    card.addEventListener("click", activateSkillCard);
+    card.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      activateSkillCard();
     });
   });
   root.querySelectorAll<HTMLElement>("[data-skill-tool]").forEach((row) => {
@@ -58944,6 +59403,7 @@ function bindEvents() {
     .forEach((button) => button.addEventListener("click", () => {
       finishTradingExpertLayoutControlPointerInteraction(false);
       if (!isTradingExpertThreadId(state.currentThreadId)) return;
+      const accountExpansion = button.hasAttribute("data-trading-expert-account-expansion");
       if (state.tradingExpertChartFocusMode) {
         restoreTradingExpertChartFocusLayout();
         state.tradingExpertChartCollapsed = false;
@@ -58955,6 +59415,7 @@ function bindEvents() {
       }
       if (state.tradingExpertChartCollapsed) return;
       if (
+        !accountExpansion &&
         !state.rightCollapsed
         && isTradingExpertConversationCollapseLocked(state.currentThreadId)
       ) {
@@ -62506,7 +62967,7 @@ async function openTradingExpertWorkspace() {
   const threadId = await startNewThread();
   if (!threadId) {
     showToast("暂时无法打开交易专家", 3000);
-    return;
+    return null;
   }
   initializeTradingExpertTaskThread(threadId, { expandPanel: true });
   state.activeView = "chat";
@@ -62515,6 +62976,7 @@ async function openTradingExpertWorkspace() {
   state.closingPreviewSource = null;
   render();
   focusFormFieldAfterRender("#composerInput");
+  return threadId;
 }
 
 async function openHaoloContactNewThread() {
@@ -66234,11 +66696,26 @@ function openTradingAlertsPage() {
   void refreshTradingAlerts();
 }
 
+function openAutoTasksPage() {
+  if (state.activeView === "chat") rememberCurrentChatThreadSelection();
+  state.activeView = "autoTasks";
+  state.selectedAutoTaskId = null;
+  state.autoTaskMenuTaskId = null;
+  state.externalChannels.menuOpen = false;
+  state.profileMenuOpen = false;
+  state.skillSortMenuOpen = false;
+  state.chatPreview = null;
+  state.closingPreviewSource = null;
+  render();
+  void refreshAutoTasks();
+}
+
 function openBinanceAccountPage() {
   if (state.activeView === "chat") rememberCurrentChatThreadSelection();
   if (state.tradingExpertChartFocusMode) restoreTradingExpertChartFocusLayout();
   state.activeView = "account";
   state.rightCollapsed = false;
+  state.tradingExpertChartCollapsed = false;
   state.contactChat.open = false;
   state.externalChannels.menuOpen = false;
   state.profileMenuOpen = false;
@@ -66246,7 +66723,65 @@ function openBinanceAccountPage() {
   state.chatPreview = null;
   state.closingPreviewSource = null;
   render();
-  void loadBinanceAccountPage();
+  void loadBinanceAccountPage().finally(() => scheduleBinanceAccountLiveRefresh());
+}
+
+function currentBinanceAccountProfitCalendarMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function navigateBinanceAccountProfitCalendar(offset: -1 | 1) {
+  const accountState = state.binanceAccount;
+  if (accountState.profitCalendarLoading) return;
+  const nextMonth = shiftBinanceAccountProfitCalendarMonth(accountState.profitCalendarMonth, offset);
+  if (nextMonth > currentBinanceAccountProfitCalendarMonth()) return;
+  accountState.profitCalendarMonth = nextMonth;
+  accountState.profitCalendar = null;
+  accountState.profitCalendarError = null;
+  renderBinanceAccountLiveUpdate();
+  void loadBinanceAccountProfitCalendar();
+}
+
+async function loadBinanceAccountProfitCalendar({ force = false } = {}) {
+  const accountState = state.binanceAccount;
+  const getProfitCalendar = api.getBinanceAccountProfitCalendar;
+  if (!accountState.status?.bound || accountState.profitCalendarLoading) return;
+  if (accountState.profitCalendar?.month === accountState.profitCalendarMonth && !force) return;
+  if (!getProfitCalendar) {
+    accountState.profitCalendarError = "当前客户端版本不支持收益日历。";
+    renderBinanceAccountLiveUpdate();
+    return;
+  }
+  const month = accountState.profitCalendarMonth;
+  const loadSequence = ++binanceAccountProfitCalendarLoadSequence;
+  accountState.profitCalendarLoading = true;
+  accountState.profitCalendarError = null;
+  renderBinanceAccountLiveUpdate();
+  try {
+    const calendar = await getProfitCalendar({ month, force });
+    if (
+      loadSequence !== binanceAccountProfitCalendarLoadSequence
+      || state.binanceAccount !== accountState
+      || accountState.profitCalendarMonth !== month
+    ) return;
+    accountState.profitCalendar = calendar;
+  } catch (error) {
+    if (
+      loadSequence !== binanceAccountProfitCalendarLoadSequence
+      || state.binanceAccount !== accountState
+      || accountState.profitCalendarMonth !== month
+    ) return;
+    accountState.profitCalendarError = errorMessage(error);
+  } finally {
+    if (
+      loadSequence !== binanceAccountProfitCalendarLoadSequence
+      || state.binanceAccount !== accountState
+      || accountState.profitCalendarMonth !== month
+    ) return;
+    accountState.profitCalendarLoading = false;
+    renderBinanceAccountLiveUpdate();
+  }
 }
 
 async function loadBinanceAccountPage() {
@@ -66265,7 +66800,10 @@ async function loadBinanceAccountPage() {
     if (state.activeView === "account") render();
     return;
   }
-  if (hasCachedView && Date.now() < accountState.autoRefreshAfter) return;
+  if (
+    Date.now() < accountState.autoRefreshAfter
+    && (hasCachedView || Boolean(accountState.error))
+  ) return;
   if (binanceAccountLoadPromise) return binanceAccountLoadPromise;
 
   const loadSequence = ++binanceAccountLoadSequence;
@@ -66275,27 +66813,37 @@ async function loadBinanceAccountPage() {
     if (accountState.loading && state.activeView === "account") render();
     try {
       const status = await getAccountStatus();
+      if (loadSequence !== binanceAccountLoadSequence) return;
+      accountState.status = status;
       let snapshot: BinanceAccountSnapshot | null = null;
       if (status.bound) {
         if (!getAccountSnapshot) throw new Error("当前客户端无法读取 Binance 账户数据。");
         snapshot = await getAccountSnapshot();
       }
       if (loadSequence !== binanceAccountLoadSequence) return;
-      accountState.status = status;
       accountState.snapshot = snapshot;
+      syncTradingExpertOrderLineSnapshot(snapshot);
       accountState.loaded = true;
       accountState.error = null;
       accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+      binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+      binanceAccountLiveRefreshFailures = 0;
+      binanceAccountLiveRetryAfter = 0;
+      if (status.bound) void loadBinanceAccountProfitCalendar();
     } catch (error) {
       if (loadSequence !== binanceAccountLoadSequence) return;
+      binanceAccountLiveRefreshFailures += 1;
+      const retryDelay = binanceAccountRetryDelay(error, binanceAccountLiveRefreshFailures);
       if (hasCachedView) {
         accountState.loaded = true;
         accountState.error = `账户数据暂时未更新，仍显示上次成功数据：${errorMessage(error)}`;
-        accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS;
+        accountState.autoRefreshAfter = Date.now() + Math.max(BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS, retryDelay);
       } else {
         accountState.loaded = false;
         accountState.error = errorMessage(error);
+        accountState.autoRefreshAfter = Date.now() + Math.max(BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS, retryDelay);
       }
+      binanceAccountLiveRetryAfter = Date.now() + retryDelay;
     } finally {
       if (loadSequence !== binanceAccountLoadSequence) return;
       accountState.loading = false;
@@ -66317,16 +66865,208 @@ async function refreshBinanceAccountSnapshot() {
   if (state.activeView === "account") render();
   try {
     state.binanceAccount.snapshot = await api.getBinanceAccountSnapshot({ force: true });
+    syncTradingExpertOrderLineSnapshot(state.binanceAccount.snapshot);
     state.binanceAccount.loaded = true;
     state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+    binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+    binanceAccountLiveRefreshFailures = 0;
+    binanceAccountLiveRetryAfter = 0;
+    void loadBinanceAccountProfitCalendar({ force: true });
   } catch (error) {
     state.binanceAccount.error = errorMessage(error);
-    state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS;
+    binanceAccountLiveRefreshFailures += 1;
+    const retryDelay = binanceAccountRetryDelay(error, binanceAccountLiveRefreshFailures);
+    state.binanceAccount.autoRefreshAfter = Date.now() + Math.max(BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS, retryDelay);
+    binanceAccountLiveRetryAfter = Date.now() + retryDelay;
     showToast(`Binance 账户刷新失败：${state.binanceAccount.error}`, 5000);
   } finally {
     state.binanceAccount.refreshing = false;
     if (state.activeView === "account") render();
+    scheduleBinanceAccountLiveRefresh();
   }
+}
+
+function stopBinanceAccountLiveRefresh() {
+  if (binanceAccountLiveRefreshTimer === null) return;
+  window.clearTimeout(binanceAccountLiveRefreshTimer);
+  binanceAccountLiveRefreshTimer = null;
+}
+
+function binanceAccountReadOnlyDataVisible() {
+  return state.activeView === "account"
+    || (
+      state.activeView === "chat"
+      && !state.chatPreview
+      && isTradingExpertThreadId(state.currentThreadId)
+    );
+}
+
+function binanceAccountLiveRefreshInterval() {
+  return state.activeView === "account"
+    ? BINANCE_ACCOUNT_LIVE_REFRESH_INTERVAL_MS
+    : BINANCE_ACCOUNT_TRADING_LIVE_REFRESH_INTERVAL_MS;
+}
+
+function binanceAccountRetryDelay(error: unknown, failureCount: number) {
+  const exponentialDelay = Math.min(
+    BINANCE_ACCOUNT_LIVE_RETRY_MAX_INTERVAL_MS,
+    BINANCE_ACCOUNT_LIVE_RETRY_BASE_INTERVAL_MS * (2 ** Math.max(0, failureCount - 1)),
+  );
+  const retryAfterMs = Number((error as { retryAfterMs?: unknown } | null)?.retryAfterMs);
+  if (!Number.isFinite(retryAfterMs) || retryAfterMs <= 0) return exponentialDelay;
+  return Math.max(exponentialDelay, Math.min(24 * 60 * 60_000, retryAfterMs + 500));
+}
+
+function scheduleBinanceAccountLiveRefresh(delayMs = binanceAccountLiveRefreshInterval()) {
+  stopBinanceAccountLiveRefresh();
+  if (!binanceAccountReadOnlyDataVisible() || document.hidden) return;
+  if (!state.binanceAccount.status?.bound || !state.binanceAccount.snapshot) {
+    const bootstrapDelay = state.binanceAccount.autoRefreshAfter - Date.now();
+    if (!state.binanceAccount.loaded && state.binanceAccount.error && bootstrapDelay > 0) {
+      binanceAccountLiveRefreshTimer = window.setTimeout(() => {
+        binanceAccountLiveRefreshTimer = null;
+        resumeBinanceAccountLiveRefresh();
+      }, Math.max(1_000, bootstrapDelay));
+    }
+    return;
+  }
+  const retryDelay = Math.max(0, binanceAccountLiveRetryAfter - Date.now());
+  binanceAccountLiveRefreshTimer = window.setTimeout(() => {
+    binanceAccountLiveRefreshTimer = null;
+    void silentlyRefreshBinanceAccountSnapshot();
+  }, Math.max(0, delayMs, retryDelay));
+}
+
+function resumeBinanceAccountLiveRefresh() {
+  if (!binanceAccountReadOnlyDataVisible() || document.hidden) return;
+  if (state.binanceAccount.status?.bound && state.binanceAccount.snapshot) {
+    scheduleBinanceAccountLiveRefresh(
+      Math.max(0, binanceAccountLiveRetryAfter - Date.now()),
+    );
+    return;
+  }
+  void loadBinanceAccountPage().finally(() => scheduleBinanceAccountLiveRefresh());
+}
+
+async function silentlyRefreshBinanceAccountSnapshot() {
+  if (
+    !binanceAccountReadOnlyDataVisible()
+    || document.hidden
+    || !api.getBinanceAccountSnapshot
+    || !state.binanceAccount.status?.bound
+    || !state.binanceAccount.snapshot
+  ) {
+    stopBinanceAccountLiveRefresh();
+    return;
+  }
+  if (
+    binanceAccountLiveRefreshPromise
+    || binanceAccountLoadPromise
+    || state.binanceAccount.refreshing
+    || state.binanceAccount.dialog.open
+  ) {
+    scheduleBinanceAccountLiveRefresh(1_000);
+    return binanceAccountLiveRefreshPromise;
+  }
+
+  const accountState = state.binanceAccount;
+  const loadSequence = binanceAccountLoadSequence;
+  const request = (async () => {
+    try {
+      const previousFetchedAt = accountState.snapshot?.fetchedAt;
+      const liveOnly = Date.now() < binanceAccountFullRefreshAfter;
+      const snapshot = await api.getBinanceAccountSnapshot!({ force: true, live: liveOnly });
+      if (
+        loadSequence !== binanceAccountLoadSequence
+        || state.binanceAccount !== accountState
+        || !accountState.status?.bound
+      ) return;
+      const reusedStaleSnapshot = snapshot.fetchedAt === previousFetchedAt
+        && snapshot.warnings?.some((warning) => warning.includes("上次成功读取的数据"));
+      accountState.snapshot = snapshot;
+      syncTradingExpertOrderLineSnapshot(snapshot);
+      accountState.loaded = true;
+      accountState.error = null;
+      accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+      if (!liveOnly && !reusedStaleSnapshot) {
+        binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+      }
+      binanceAccountLiveRefreshFailures = reusedStaleSnapshot
+        ? binanceAccountLiveRefreshFailures + 1
+        : 0;
+      binanceAccountLiveRetryAfter = reusedStaleSnapshot
+        ? Date.now() + Math.min(
+            BINANCE_ACCOUNT_LIVE_RETRY_MAX_INTERVAL_MS,
+            BINANCE_ACCOUNT_LIVE_RETRY_BASE_INTERVAL_MS * (2 ** Math.max(0, binanceAccountLiveRefreshFailures - 1)),
+          )
+        : 0;
+      renderBinanceAccountLiveUpdate();
+      if (!liveOnly && accountState.profitCalendarMonth === currentBinanceAccountProfitCalendarMonth()) {
+        void loadBinanceAccountProfitCalendar({ force: true });
+      }
+    } catch (error) {
+      if (loadSequence !== binanceAccountLoadSequence || state.binanceAccount !== accountState) return;
+      binanceAccountLiveRefreshFailures += 1;
+      binanceAccountLiveRetryAfter = Date.now()
+        + binanceAccountRetryDelay(error, binanceAccountLiveRefreshFailures);
+      accountState.error = `账户数据暂时未更新，仍显示上次成功数据：${errorMessage(error)}`;
+      renderBinanceAccountLiveUpdate();
+    }
+  })();
+  binanceAccountLiveRefreshPromise = request;
+  try {
+    await request;
+  } finally {
+    if (binanceAccountLiveRefreshPromise === request) binanceAccountLiveRefreshPromise = null;
+    const retryDelay = Math.min(
+      BINANCE_ACCOUNT_LIVE_RETRY_MAX_INTERVAL_MS,
+      BINANCE_ACCOUNT_LIVE_RETRY_BASE_INTERVAL_MS * (2 ** Math.max(0, binanceAccountLiveRefreshFailures - 1)),
+    );
+    scheduleBinanceAccountLiveRefresh(
+      binanceAccountLiveRefreshFailures > 0 ? retryDelay : binanceAccountLiveRefreshInterval(),
+    );
+  }
+}
+
+function renderBinanceAccountLiveUpdate() {
+  if (state.activeView !== "account") return;
+  const currentPage = root.querySelector<HTMLElement>(".binance-account-page");
+  if (!currentPage) {
+    render();
+    return;
+  }
+  const currentScroll = currentPage.querySelector<HTMLElement>(".binance-account-scroll");
+  const scrollTop = currentScroll?.scrollTop ?? 0;
+  const scrollLeft = currentScroll?.scrollLeft ?? 0;
+  const focusedElement = document.activeElement instanceof HTMLElement && currentPage.contains(document.activeElement)
+    ? document.activeElement
+    : null;
+  const focusedAction = focusedElement?.dataset.binanceAccountAction || null;
+  const focusedSection = focusedElement?.dataset.binanceAccountSection || null;
+  const scrollWasFocused = focusedElement === currentScroll;
+  const template = document.createElement("template");
+  template.innerHTML = renderBinanceAccountPage(state.binanceAccount).trim();
+  const nextPage = template.content.firstElementChild;
+  if (!(nextPage instanceof HTMLElement)) {
+    render();
+    return;
+  }
+  currentPage.replaceWith(nextPage);
+  bindBinanceAccountEvents(nextPage);
+  const nextScroll = nextPage.querySelector<HTMLElement>(".binance-account-scroll");
+  if (!nextScroll) return;
+  nextScroll.scrollTop = scrollTop;
+  nextScroll.scrollLeft = scrollLeft;
+  if (scrollWasFocused) {
+    nextScroll.focus({ preventScroll: true });
+    return;
+  }
+  const focusSelector = focusedSection
+    ? `[data-binance-account-section="${focusedSection}"]`
+    : focusedAction
+      ? `[data-binance-account-action="${focusedAction}"]`
+      : null;
+  if (focusSelector) nextPage.querySelector<HTMLElement>(focusSelector)?.focus({ preventScroll: true });
 }
 
 function stopBinanceAccountOtpCountdown() {
@@ -66430,13 +67170,18 @@ async function submitBinanceAccountBinding() {
       emailMasked: state.binanceAccount.status?.emailMasked || dialog.emailMasked,
     };
     state.binanceAccount.snapshot = result.snapshot;
+    syncTradingExpertOrderLineSnapshot(result.snapshot);
     state.binanceAccount.loaded = true;
     state.binanceAccount.loading = false;
     state.binanceAccount.error = null;
     state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+    binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+    binanceAccountLiveRefreshFailures = 0;
     stopBinanceAccountOtpCountdown();
     resetBinanceAccountDialog(state.binanceAccount);
     render();
+    void loadBinanceAccountProfitCalendar({ force: true });
+    scheduleBinanceAccountLiveRefresh();
     showToast("Binance API 已完成只读绑定。", 3600);
   } catch (error) {
     dialog.busy = null;
@@ -66486,9 +67231,18 @@ async function removeBinanceAccountBinding() {
       code: dialog.code.trim(),
     });
     state.binanceAccount.snapshot = null;
+    binanceAccountProfitCalendarLoadSequence += 1;
+    state.binanceAccount.profitCalendar = null;
+    state.binanceAccount.profitCalendarMonth = currentBinanceAccountProfitCalendarMonth();
+    state.binanceAccount.profitCalendarLoading = false;
+    state.binanceAccount.profitCalendarError = null;
+    syncTradingExpertOrderLineSnapshot(null);
     state.binanceAccount.loaded = true;
     state.binanceAccount.error = null;
     state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+    stopBinanceAccountLiveRefresh();
+    binanceAccountLiveRefreshFailures = 0;
+    binanceAccountFullRefreshAfter = 0;
     stopBinanceAccountOtpCountdown();
     resetBinanceAccountDialog(state.binanceAccount);
     render();
@@ -73223,6 +73977,7 @@ function cleanIpcError(message: string) {
   const cleaned = message
     .replace(/^Error invoking remote method '[^']+':\s*/i, "")
     .replace(/^Error:\s*/i, "")
+    .replace(/^BinanceAccountError:\s*/i, "")
     .replace(/^YouleHttpError:\s*/i, "");
   if (/^(?:Upstream rate limit exceeded|HTTP 429)/i.test(cleaned)) {
     return "模型上游当前限流，请稍后重试";

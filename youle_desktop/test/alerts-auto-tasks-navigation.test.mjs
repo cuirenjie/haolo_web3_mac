@@ -16,7 +16,7 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("the alerts entry opens an independent alerts page beside the conversation sidebar", async () => {
+test("the plan entry opens the shared plan and alert workspace beside the conversation sidebar", async () => {
   const source = await rendererSource;
   const renderBlock = sourceBlock(source, "function render()", "function scheduleRender");
   const actionsBlock = sourceBlock(
@@ -25,7 +25,7 @@ test("the alerts entry opens an independent alerts page beside the conversation 
     "function renderConversationListFooter",
   );
   const eventBlock = sourceBlock(source, "function bindEvents()", "function bindLoginEvents()");
-  const openBlock = sourceBlock(source, "function openTradingAlertsPage", "function refreshTradingAlerts");
+  const openPlansBlock = sourceBlock(source, "function openAutoTasksPage", "function openBinanceAccountPage");
 
   assert.match(
     renderBlock,
@@ -33,15 +33,15 @@ test("the alerts entry opens an independent alerts page beside the conversation 
   );
   assert.match(
     actionsBlock,
-    /const alertsActive = state\.activeView === "alerts";[\s\S]*data-conversation-static-action="alerts"[\s\S]*aria-current="page"/,
+    /const planningActive = state\.activeView === "autoTasks" \|\| state\.activeView === "alerts";[\s\S]*data-conversation-static-action="plans"[\s\S]*aria-current="page"/,
   );
   assert.match(
     eventBlock,
-    /\[data-conversation-static-action="alerts"\][\s\S]*openTradingAlertsPage\(\)/,
+    /\[data-conversation-static-action="plans"\][\s\S]*openAutoTasksPage\(\)/,
   );
-  assert.match(openBlock, /state\.activeView = "alerts";/);
-  assert.doesNotMatch(openBlock, /selectedAlertId|selectedEvidenceId/);
-  assert.match(openBlock, /render\(\);[\s\S]*void refreshTradingAlerts\(\);/);
+  assert.match(openPlansBlock, /state\.activeView = "autoTasks";/);
+  assert.match(openPlansBlock, /render\(\);[\s\S]*void refreshAutoTasks\(\);/);
+  assert.match(source, /renderAutoTasksPage\(\)[\s\S]*renderPlanningNavigation\("plans"\)/);
 });
 
 test("the alerts selection and sidebar controls share light and dark theme states", async () => {
@@ -75,7 +75,7 @@ test("the alerts selection and sidebar controls share light and dark theme state
   );
 });
 
-test("the embedded auto-task list keeps only a left-aligned create action above its cards", async () => {
+test("the populated auto-task list starts directly with its cards", async () => {
   const source = await rendererSource;
   const styles = await stylesSource;
   const pageBlock = sourceBlock(source, "function renderAutoTasksPage", "function renderAutoTaskItem");
@@ -83,15 +83,15 @@ test("the embedded auto-task list keeps only a left-aligned create action above 
   assert.doesNotMatch(pageBlock, /simple-page-header|renderPageHomeButton|simple-page-fold/);
   assert.doesNotMatch(pageBlock, /auto-task-search-button|auto-task-filter-button|全部项/);
   assert.doesNotMatch(pageBlock, /请保持电脑开机|auto-task-toolbar-actions/);
-  assert.match(
-    pageBlock,
-    /class="auto-task-list-toolbar">\s*<button type="button" class="auto-task-primary" data-action="open-auto-task-dialog"/,
-  );
+  assert.match(pageBlock, /tasks\.length[\s\S]*class="auto-task-list"/);
+  assert.doesNotMatch(pageBlock, /auto-task-list-toolbar|class="auto-task-primary"[\s\S]*新建自动任务[\s\S]*class="auto-task-list"/);
   assert.doesNotMatch(styles, /\.auto-task-search-button|\.auto-task-filter-button/);
   assert.doesNotMatch(styles, /\.auto-task-toolbar-actions|\.auto-task-list-toolbar p|\.auto-task-hero p/);
+  assert.doesNotMatch(styles, /\.auto-task-list-toolbar/);
+  assert.match(styles, /\.auto-task-list-page\s*\{[^}]*padding:\s*4px 34px 40px;/s);
   assert.match(
     styles,
-    /\.auto-task-list-toolbar\s*\{[^}]*justify-content:\s*flex-start;/s,
+    /\.planning-primary-tabs,[\s\S]*?\{[^}]*width:\s*min\(1180px, calc\(100% - 68px\)\);/s,
   );
 });
 
@@ -110,6 +110,7 @@ test("auto-task cards omit their divider and schedule time while retaining right
   );
   const footerRule = styles.match(/\.auto-task-item footer\s*\{([^}]*)\}/)?.[1] || "";
   assert.doesNotMatch(footerRule, /border-top/);
+  assert.match(styles, /\.auto-task-item\s*\{[^}]*border:\s*1px solid var\(--card-border-subtle\);[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*none;/s);
 });
 
 test("all automatic-task alarm marks use the simplified themed line icon instead of the blue bitmap", async () => {

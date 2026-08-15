@@ -1,0 +1,4 @@
+interface:
+  display_name: "裸K分析"
+  short_description: "仅用OHLC识别市场结构、K线形态并生成条件执行场景"
+  default_prompt: "Use $price-action to analyze the current OHLC chart, circle and label complete candlestick patterns, and produce a conditional execution plan."

@@ -59,6 +59,7 @@
     "files": [
       "dist/renderer/**/*",
       "src/main/**/*",
+      "resources/trading-strategies/**/*",
       "resources/haolo-logo.ico",
       "resources/haolo-runtime-icon.ico",
       "resources/haolo-logo.svg",

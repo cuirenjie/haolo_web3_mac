@@ -6,6 +6,7 @@ import {
   formatTradingAlertCardSummary,
   formatTradingAlertDisplayText,
   formatTradingAlertMarketLabel,
+  renderPlanningNavigation,
   renderTradingAlertsPage,
   resolveTradingAlertSourceText,
 } from "../src/renderer/trading-alerts-ui.ts";
@@ -15,13 +16,15 @@ const alertUiSource = readFile(new URL("../src/renderer/trading-alerts-ui.ts", i
 const marketSource = readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 
-test("alerts use an independent page and do not route to legacy auto tasks", async () => {
+test("plans and alerts share one top-level workspace while keeping their existing content", async () => {
   const source = await rendererSource;
   assert.match(source, /type ViewId[\s\S]*"alerts"/);
   assert.match(source, /function openTradingAlertsPage[\s\S]*state\.activeView = "alerts"/);
+  assert.match(source, /function openAutoTasksPage[\s\S]*state\.activeView = "autoTasks"/);
   assert.match(source, /renderTradingAlertsPage\(state\.tradingAlerts\)/);
-  assert.match(source, /data-conversation-static-action="alerts"/);
-  assert.doesNotMatch(source, /function openAutoTasksFromAlerts/);
+  assert.match(source, /data-conversation-static-action="plans"/);
+  assert.match(source, /\[data-planning-section\][\s\S]*openAutoTasksPage\(\)[\s\S]*openTradingAlertsPage\(\)/);
+  assert.match(renderPlanningNavigation("plans"), /data-planning-section="plans"[\s\S]*data-planning-section="alerts"/);
 });
 
 test("alerts keep a 16px top-left workspace corner when the window is maximized", async () => {
@@ -803,7 +806,7 @@ test("alerts default to monitoring and expose no unconfirmed filter", async () =
   assert.match(styles, /\.trading-alert-actions button:active/);
 });
 
-test("the initial alert list contains only monitoring lifecycle cards", () => {
+test("alert filters keep active monitoring separate and move attention lifecycles under paused", () => {
   const state = createTradingAlertsUiState();
   state.loaded = true;
   state.alerts = [
@@ -815,6 +818,7 @@ test("the initial alert list contains only monitoring lifecycle cards", () => {
     { alertId: "triggered", status: "triggered" },
     { alertId: "monitoring-arming", status: "arming" },
     { alertId: "monitoring", status: "monitoring" },
+    { alertId: "attention-gap", status: "gap_detected" },
   ];
   const html = renderTradingAlertsPage(state);
   const cardIds = [...html.matchAll(/data-trading-alert-card="([^"]+)"/g)].map((match) => match[1]);
@@ -823,6 +827,20 @@ test("the initial alert list contains only monitoring lifecycle cards", () => {
     "monitoring-arming",
     "monitoring",
   ]);
+
+  state.filter = "paused";
+  const pausedHtml = renderTradingAlertsPage(state);
+  const pausedCardIds = [...pausedHtml.matchAll(/data-trading-alert-card="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(pausedCardIds, [
+    "attention-reconnecting",
+    "paused",
+    "attention-failed",
+    "attention-gap",
+  ]);
+  assert.match(pausedHtml, /data-trading-alert-filter="paused"[^>]*aria-pressed="true"[^>]*>[^<]+<span>4<\/span>/);
+  assert.match(pausedHtml, /trading-alert-status attention[^>]*>重连中<\/span>/);
+  assert.match(pausedHtml, /trading-alert-status attention[^>]*>需要处理<\/span>/);
+  assert.match(pausedHtml, /trading-alert-status attention[^>]*>存在空档<\/span>/);
 });
 
 test("alert cards mirror the compact installed-skill card layout", async () => {
@@ -839,13 +857,19 @@ test("alert cards mirror the compact installed-skill card layout", async () => {
   assert.match(styles, /@media \(max-width: 660px\)[^}]+minmax\(0, 1fr\)/s);
 });
 
-test("alert filters mirror the skills pill tabs in both themes", async () => {
+test("planning uses pill-style primary tabs and plain-text alert subcategories in both themes", async () => {
   const styles = await stylesSource;
-  assert.match(styles, /\.trading-alert-filters\s*\{[^}]*gap:\s*18px;[^}]*padding:\s*0 0 8px;/s);
-  assert.match(styles, /\.trading-alert-filters button\s*\{[^}]*height:\s*34px;[^}]*border-radius:\s*14px;[^}]*padding:\s*0 16px;/s);
-  assert.match(styles, /\.trading-alert-filters button:is\(\.active, \[aria-pressed="true"\]\)\s*\{[^}]*background:\s*var\(--selection-strong\);/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-alert-filters button:hover/);
-  assert.doesNotMatch(styles, /\.trading-alert-filters button\.active::after/);
+  const html = renderTradingAlertsPage(createTradingAlertsUiState());
+  assert.match(html, /class="planning-primary-tabs"[\s\S]*>计划<\/button>[\s\S]*>预警<\/button>/);
+  assert.match(html, /class="trading-alert-subfilters"[\s\S]*>监控中<span>0<\/span>[\s\S]*>已触发<span>0<\/span>[\s\S]*>已暂停<span>0<\/span>/);
+  assert.match(styles, /\.planning-primary-tabs,[\s\S]*?\{[^}]*gap:\s*18px;[^}]*padding:\s*0 0 8px;/s);
+  assert.match(styles, /\.planning-primary-tabs button,[\s\S]*?\{[^}]*height:\s*34px;[^}]*border-radius:\s*14px;[^}]*padding:\s*0 16px;/s);
+  assert.match(styles, /\.planning-primary-tabs button:is\(\.active, \[aria-pressed="true"\]\),[\s\S]*?\{[^}]*background:\s*var\(--selection-strong\);[^}]*color:\s*var\(--text-primary\);/s);
+  assert.match(styles, /\.trading-alert-subfilters button\s*\{[^}]*border-radius:\s*0;[^}]*background:\s*transparent;[^}]*padding:\s*0;[^}]*color:\s*var\(--text-tertiary\);/s);
+  assert.match(styles, /\.trading-alert-subfilters button:is\(\.active, \[aria-pressed="true"\]\),[\s\S]*?\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-primary\);/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.planning-primary-tabs button:hover/);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-alert-subfilters button:is\(\.active, \[aria-pressed="true"\]\)/);
+  assert.doesNotMatch(styles, /\.trading-alert-subfilters button\.active::after/);
 });
 
 test("alert UI has semantic light/dark tokens and all interaction states", async () => {

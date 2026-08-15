@@ -1,0 +1,4 @@
+interface:
+  display_name: "图表形态学"
+  short_description: "识别反转、延续与双向图表形态并生成标准条件式执行方案"
+  default_prompt: "Use $chart-patterns to analyze the current chart, draw any qualified pattern, and produce a conditional execution plan."

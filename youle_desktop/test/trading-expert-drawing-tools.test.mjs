@@ -315,7 +315,11 @@ test("manual and AI drawings persist in isolated conversation storage", async ()
 });
 
 test("drawing coordinate conversion rejects missing chart values instead of teleporting endpoints", async () => {
-  const { finiteTradingChartCoordinate } = await import("../src/renderer/trading-expert-drawing.ts");
+  const {
+    finiteTradingChartCoordinate,
+    tradingDrawingEllipseGeometry,
+    tradingDrawingLogicalToCoordinate,
+  } = await import("../src/renderer/trading-expert-drawing.ts");
 
   assert.equal(finiteTradingChartCoordinate(null), null);
   assert.equal(finiteTradingChartCoordinate(undefined), null);
@@ -324,6 +328,74 @@ test("drawing coordinate conversion rejects missing chart values instead of tele
   assert.equal(finiteTradingChartCoordinate("0"), null);
   assert.equal(finiteTradingChartCoordinate(0), 0);
   assert.equal(finiteTradingChartCoordinate(123.5), 123.5);
+
+  const integerOnlyScale = (logical) => Number.isInteger(logical) ? 100 + logical * 24 : 0;
+  assert.equal(tradingDrawingLogicalToCoordinate(7, integerOnlyScale), 268);
+  assert.equal(tradingDrawingLogicalToCoordinate(7.5, integerOnlyScale), 280);
+  assert.equal(tradingDrawingLogicalToCoordinate(-0.48, integerOnlyScale), 88.48);
+  assert.equal(tradingDrawingLogicalToCoordinate(Number.NaN, integerOnlyScale), null);
+
+  const ellipse = tradingDrawingEllipseGeometry(
+    { x: tradingDrawingLogicalToCoordinate(7.52, integerOnlyScale), y: 410 },
+    { x: tradingDrawingLogicalToCoordinate(10.48, integerOnlyScale), y: 250 },
+  );
+  assert.ok(ellipse.rx > 0, "fractional candle padding must produce a visible horizontal ellipse radius");
+  assert.equal(ellipse.cx, 316);
+  assert.ok(Math.abs(ellipse.rx - 35.52) < Number.EPSILON * 128);
+  assert.equal(ellipse.ry, 80);
+});
+
+test("controlled AI drawings preserve professional line and inline-label appearance", async () => {
+  const { normalizeTradingAiDrawingPatch } = await import("../src/renderer/trading-expert-drawing.ts");
+  const base = {
+    strategyId: "harmonic",
+    symbol: "BTCUSDT",
+    interval: "1h",
+    theory: "strategy",
+    layer: "ai/strategy/harmonic",
+    locked: true,
+    status: "confirmed",
+    evidenceIds: [],
+  };
+  const drawings = normalizeTradingAiDrawingPatch({
+    schemaVersion: 1,
+    analysisId: "harmonic-professional-drawing",
+    baseRevision: 0,
+    marketId: "BTCUSDT",
+    interval: "1h",
+    operations: [
+      {
+        op: "upsert",
+        drawing: {
+          ...base,
+          id: "harmonic-main",
+          tool: "path",
+          points: [{ time: 1, price: 100 }, { time: 2, price: 110 }],
+          colorToken: "strategy-support",
+          lineStyle: "solid",
+          lineWidth: 3,
+        },
+      },
+      {
+        op: "upsert",
+        drawing: {
+          ...base,
+          id: "harmonic-ratio",
+          tool: "text",
+          points: [{ time: 2, price: 106 }],
+          text: "B/XA 0.618",
+          colorToken: "strategy-note",
+          fontSize: 10,
+          bold: true,
+        },
+      },
+    ],
+  });
+  assert.equal(drawings[0].lineStyle, "solid");
+  assert.equal(drawings[0].lineWidth, 3);
+  assert.equal(drawings[1].tool, "text");
+  assert.equal(drawings[1].fontSize, 10);
+  assert.equal(drawings[1].bold, true);
 });
 
 test("drawing stroke styles resolve solid, dashed, dotted, and tool-default lines", async () => {
@@ -499,6 +571,7 @@ test("Fibonacci retracement anchors the first click at 100 percent and the secon
 
 test("drawing time coordinates extrapolate across the complete visible K-line canvas", async () => {
   const {
+    tradingDrawingIsSingleCandlePatternSpan,
     tradingDrawingLogicalIndexAtTime,
     tradingDrawingTimeAtLogicalIndex,
   } = await import("../src/renderer/trading-expert-drawing.ts");
@@ -512,6 +585,8 @@ test("drawing time coordinates extrapolate across the complete visible K-line ca
   assert.equal(tradingDrawingLogicalIndexAtTime(candles, 150), 0.5);
   assert.equal(tradingDrawingLogicalIndexAtTime(candles, 300), 1.5);
   assert.equal(tradingDrawingLogicalIndexAtTime(candles, 600), 3);
+  assert.equal(tradingDrawingIsSingleCandlePatternSpan(candles, [{ time: 52 }, { time: 148 }]), true);
+  assert.equal(tradingDrawingIsSingleCandlePatternSpan(candles, [{ time: 52 }, { time: 248 }]), false);
 });
 
 test("selected drawing endpoints expose price and date-time axis markers", async () => {
@@ -688,7 +763,7 @@ test("selected drawings expose endpoints, whole-line dragging, and the requested
   assert.match(drawing, /document\.addEventListener\("pointermove", this\.handlePointerMove\)/);
   assert.match(drawing, /this\.queueDragRedraw\(\)/);
   assert.match(drawing, /timeScale\.coordinateToLogical\(screen\.x\)/);
-  assert.match(drawing, /timeScale\.logicalToCoordinate\(logical as any\)/);
+  assert.match(drawing, /tradingDrawingLogicalToCoordinate\([\s\S]*?timeScale\.logicalToCoordinate\(integerLogical as any\)/);
   assert.match(drawing, /class="trading-drawing-handle" data-drawing-handle-index=/);
   assert.match(drawing, /class="trading-drawing-hit-target"/);
   for (const action of ["reset", "toggle-color", "toggle-style", "toggle-width", "toggle-lock", "delete"]) {
@@ -835,6 +910,71 @@ test("AI note labels disperse as a group and avoid visible candles", async () =>
   }
 });
 
+test("price-action candlestick labels avoid one another, candles, and strategy drawings", async () => {
+  const {
+    layoutTradingAiNoteBoxes,
+    tradingDrawingIsPriceActionCandlestickPatternLabel,
+  } = await import("../src/renderer/trading-expert-drawing.ts");
+  const bounds = { width: 800, height: 500 };
+  const labels = Array.from({ length: 3 }, (_, index) => ({
+    id: `pattern-label-${index}`,
+    anchor: { x: 330 + index * 12, y: 250 + index * 4 },
+    text: index === 2 ? "long-legged-doji" : "spinning-top",
+    fontSize: 12,
+    avoidBoxInteriors: true,
+    maxLeaderDistance: 180,
+  }));
+  const candleObstacles = Array.from({ length: 14 }, (_, index) => ({
+    x: 270 + index * 13,
+    y: 190 + (index % 3) * 7,
+    width: 10,
+    height: 180,
+  }));
+  const drawingObstacles = [
+    { x: 250, y: 150, width: 220, height: 130 },
+    { x: 500, y: 205, width: 95, height: 24 },
+  ];
+  const placements = layoutTradingAiNoteBoxes(labels, bounds, candleObstacles, drawingObstacles);
+  const rectFor = ({ geometry }) => ({
+    x: geometry.boxLeft,
+    y: geometry.boxTop,
+    width: geometry.boxWidth,
+    height: geometry.boxHeight,
+  });
+  const overlaps = (first, second, gap = 0) => (
+    first.x < second.x + second.width + gap
+    && first.x + first.width + gap > second.x
+    && first.y < second.y + second.height + gap
+    && first.y + first.height + gap > second.y
+  );
+
+  assert.equal(placements.length, labels.length);
+  placements.forEach((placement, index) => {
+    const rect = rectFor(placement);
+    assert.ok(candleObstacles.every((obstacle) => !overlaps(rect, obstacle, 8)));
+    assert.ok(drawingObstacles.every((obstacle) => !overlaps(rect, obstacle, 8)));
+    for (let other = index + 1; other < placements.length; other += 1) {
+      assert.equal(overlaps(rect, rectFor(placements[other]), 12), false);
+    }
+  });
+  assert.equal(tradingDrawingIsPriceActionCandlestickPatternLabel({
+    id: "analysis-candlestick-pattern-label-1",
+    source: "ai",
+    strategyId: "price-action",
+  }), true);
+  assert.equal(tradingDrawingIsPriceActionCandlestickPatternLabel({
+    id: "analysis-candlestick-pattern-label-1",
+    source: "ai",
+    strategyId: "harmonic",
+  }), false);
+
+  const drawing = await drawingSource;
+  assert.match(drawing, /const aiTextLayoutRequests = \[\.\.\.aiCandlestickLabelRequests, \.\.\.aiNoteRequests\]/);
+  assert.match(drawing, /avoidBoxInteriors: true,[\s\S]*?maxLeaderDistance: 180/);
+  assert.match(drawing, /visiblePriceActionDrawingObstacles\(aiDrawings, bounds\)/);
+  assert.match(drawing, /resolvedTextGeometry\.boxLeft \+ resolvedTextGeometry\.boxWidth \/ 2/);
+});
+
 test("live order-flow note leaders stay near their execution candle", async () => {
   const { layoutTradingAiNoteBoxes } = await import("../src/renderer/trading-expert-drawing.ts");
   const anchor = { x: 1040, y: 520 };
@@ -899,8 +1039,74 @@ test("order-flow note labels stay outside every visible structure box", async ()
     assert.ok(boxObstacles.every((box) => !overlaps(labelRect, box, 8)));
   }
   const drawing = await drawingSource;
-  assert.match(drawing, /avoidBoxInteriors: String\(drawing\.colorToken \|\| ""\)\.startsWith\("order-flow-"\)/);
+  assert.match(drawing, /const isOrderFlowNote = String\(drawing\.colorToken \|\| ""\)\.startsWith\("order-flow-"\)/);
+  assert.match(drawing, /avoidBoxInteriors: isOrderFlowNote \|\| isGannTheoryNote/);
   assert.match(drawing, /visibleOrderFlowBoxObstacles\(aiDrawings, bounds\)/);
+});
+
+test("Gann notes stay outside visible Gann squares and remain connected to their anchors", async () => {
+  const {
+    layoutTradingAiNoteBoxes,
+    tradingDrawingIsGannTheoryBox,
+  } = await import("../src/renderer/trading-expert-drawing.ts");
+  const gannSquare = { x: 280, y: 170, width: 360, height: 280 };
+  const notes = [
+    {
+      id: "gann-summary",
+      anchor: { x: 470, y: 310 },
+      text: "江恩：高点锚定的下降投影 · 1x1 62951.44 · 等待收盘确认",
+      fontSize: 11,
+      avoidBoxInteriors: true,
+      maxLeaderDistance: 360,
+    },
+    {
+      id: "gann-cycle",
+      anchor: { x: 520, y: 350 },
+      text: "轮中轮 1/2 周期",
+      fontSize: 11,
+      avoidBoxInteriors: true,
+      maxLeaderDistance: 360,
+    },
+  ];
+  const placements = layoutTradingAiNoteBoxes(
+    notes,
+    { width: 1000, height: 650 },
+    [],
+    [gannSquare],
+  );
+  const overlaps = (first, second, gap = 0) => (
+    first.x < second.x + second.width + gap
+    && first.x + first.width + gap > second.x
+    && first.y < second.y + second.height + gap
+    && first.y + first.height + gap > second.y
+  );
+
+  assert.equal(placements.length, notes.length);
+  for (const [index, placement] of placements.entries()) {
+    const rect = {
+      x: placement.geometry.boxLeft,
+      y: placement.geometry.boxTop,
+      width: placement.geometry.boxWidth,
+      height: placement.geometry.boxHeight,
+    };
+    assert.equal(overlaps(rect, gannSquare, 8), false);
+    assert.ok(Math.abs(placement.geometry.textStartPoint.x - notes[index].anchor.x) <= 360);
+  }
+  assert.equal(tradingDrawingIsGannTheoryBox({
+    source: "ai",
+    strategyId: "gann-theory",
+    tool: "rectangle",
+  }), true);
+  assert.equal(tradingDrawingIsGannTheoryBox({
+    source: "ai",
+    strategyId: "gann-theory",
+    tool: "path",
+  }), false);
+
+  const drawing = await drawingSource;
+  assert.match(drawing, /avoidBoxInteriors: isOrderFlowNote \|\| isGannTheoryNote/);
+  assert.match(drawing, /visibleGannTheoryBoxObstacles\(aiDrawings, bounds\)/);
+  assert.match(drawing, /gannTheoryBoxObstacles/);
 });
 
 test("anchored text, note, and price note complete creation, editing, and rendering flows", async () => {
@@ -967,13 +1173,31 @@ test("anchored text, note, and price note complete creation, editing, and render
   assert.doesNotMatch(noteVisualRenderer, /<rect\b/);
   assert.doesNotMatch(noteRenderer, /geometry\.tailX|geometry\.tailEdgeY/);
   assert.match(drawing, /layoutTradingAiNoteBoxes\([\s\S]*?this\.visibleCandleObstacles\(bounds\)/);
-  assert.match(drawing, /if \(drawing\.tool === "note" && !noteLayout\) return ""/);
+  assert.match(drawing, /if \(drawing\.tool === "note" && !textLayout\) return ""/);
   assert.match(drawing, /const nearHorizontalPenalty = Math\.max\(0, diagonalThreshold - verticalSeparation\) \* 5_000/);
   assert.match(textRenderer, /private renderTextHitTargets\([\s\S]*?points: ScreenPoint\[],[\s\S]*?drawing: TradingDrawingModel,[\s\S]*?bounds: \{ width: number; height: number \}/);
   assert.match(drawing, /const AI_NOTE_FONT_SIZE = 10/);
   assert.match(drawing, /const AI_NOTE_TEXT_MAX_WIDTH = 200/);
-  assert.match(drawing, /fontSize: drawing\.tool === "note" \? AI_NOTE_FONT_SIZE : undefined/);
+  assert.match(drawing, /fontSize: drawing\.fontSize \?\? \(drawing\.tool === "note" \? AI_NOTE_FONT_SIZE : undefined\)/);
+  assert.match(textRenderer, /trading-ai-inline-label/);
   assert.match(textRenderer, /textLength="\$\{layout\.lineWidths\[index\]\}" lengthAdjust="spacingAndGlyphs"/);
+});
+
+test("professional AI inline labels remain readable in light and dark themes", async () => {
+  const [drawing, styles] = await Promise.all([drawingSource, stylesSource]);
+  assert.match(styles, /\.trading-ai-inline-label\s*\{[^}]*paint-order: stroke fill;[^}]*stroke: var\(--trading-market-panel\);[^}]*stroke-width: 3px;[^}]*text-anchor: middle;/s);
+  assert.match(styles, /--trading-market-panel: #ffffff;[\s\S]*?--trading-ai-strategy-support: #078c53;[\s\S]*?--trading-ai-strategy-resistance: #dc3658;/);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-panel: #0f1014;[\s\S]*?--trading-ai-strategy-support: #52dc88;[\s\S]*?--trading-ai-strategy-resistance: #ff718e;/);
+  assert.match(drawing, /tradingDrawingIsPriceActionCandlestickPatternLabel[\s\S]*?strategyId === "price-action"[\s\S]*?candlestick-pattern-label-/);
+  assert.match(styles, /--trading-price-action-candlestick-label: #6d4acb;[\s\S]*?html\[data-theme="dark"\] \.trading-expert-market[\s\S]*?--trading-price-action-candlestick-label: #ffffff;/);
+  assert.match(styles, /\.trading-ai-inline-label\.trading-price-action-candlestick-label\s*\{[^}]*fill: var\(--trading-price-action-candlestick-label\);[^}]*paint-order: normal;[^}]*stroke: none;[^}]*font-weight: 400;/s);
+  assert.match(drawing, /trading-price-action-candlestick-label-leader[\s\S]*?resolvedTextGeometry\.connectorPoint\.x[\s\S]*?trading-price-action-candlestick-label-target/);
+  assert.match(styles, /\.trading-price-action-candlestick-label-leader\s*\{[^}]*stroke: var\(--trading-price-action-candlestick-label\);[^}]*stroke-width: 1\.2px;[^}]*stroke-dasharray: 4 4;[^}]*vector-effect: non-scaling-stroke;/s);
+  assert.match(styles, /\.trading-price-action-candlestick-label-target\s*\{[^}]*fill: var\(--trading-price-action-candlestick-label\);[^}]*stroke: none;/s);
+  assert.match(drawing, /const orderedAiDrawings = \[\.\.\.aiDrawings\]\.sort\([\s\S]*?tradingDrawingPriceActionCandlestickLayerRank/);
+  assert.match(drawing, /tradingDrawingIsPriceActionCandlestickPatternEllipse\(drawing\)[\s\S]*?trading-price-action-candlestick-pattern-ellipse/);
+  assert.match(drawing, /tradingDrawingIsPriceActionCandlestickPatternEllipse\(drawing\)[\s\S]*?tradingDrawingIsSingleCandlePatternSpan\(this\.getCandles\(\), drawing\.points\)[\s\S]*?return ""/);
+  assert.match(styles, /\.trading-price-action-candlestick-pattern-ellipse\s*\{[^}]*fill: var\(--trading-price-action-candlestick-label\);[^}]*stroke: var\(--trading-price-action-candlestick-label\);[^}]*stroke-width: 0\.8px;[^}]*stroke-dasharray: none;[^}]*vector-effect: non-scaling-stroke;/s);
 });
 
 test("Fibonacci retracement matches the full-width colored reference in both themes", async () => {
@@ -1182,8 +1406,10 @@ test("every visible split pane runs the requested analysis and plays its own dra
   assert.equal((market.match(/await this\.runSplitPaneAnalyses\(\{/g) || []).length, 5);
   assert.equal((market.match(/report: combineTradingAnalysisReports\(/g) || []).length, 5);
   assert.equal((market.match(/narrative: combineTradingAnalysisNarratives\(/g) || []).length, 5);
+  assert.match(market, /const api:[\s\S]{0,160}= strategyId[\s\S]{0,240}runTradingStrategyAnalysis/);
+  assert.match(market, /runTradingStrategyAnalysis![\s\S]{0,220}strategyId,[\s\S]{0,160}: window\.codexDesktop\.runTradingGeneralAnalysis/);
+  assert.doesNotMatch(market, /strategyId === "price-action"[\s\S]{0,160}runTradingGeneralAnalysis/);
   for (const api of [
-    "runTradingGeneralAnalysis",
     "runTradingChanTest",
     "runTradingWaveAnalysis",
     "runTradingWyckoffAnalysis",

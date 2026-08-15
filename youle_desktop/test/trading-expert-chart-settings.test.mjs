@@ -9,6 +9,7 @@ import {
   TRADING_SPLIT_LAYOUTS,
   TRADING_SPLIT_LAYOUT_STORAGE_KEY,
   cloneTradingChartSettings,
+  filterTradingOrderLinesForDisplay,
   heikinAshiCandles,
   hlcCandles,
   loadTradingChartSettings,
@@ -55,6 +56,12 @@ test("chart settings normalize corrupt values and preserve independent light/dar
     risingColor: "bad",
     fallingColor: "#123abc",
     priceScaleMode: "logarithmic",
+    orderDisplay: {
+      currentOrders: false,
+      positions: "invalid",
+      liquidation: 0,
+      takeProfitStopLoss: true,
+    },
     themes: {
       light: { backgroundColor: "#f0f1f2", horizontalGridVisible: false },
       dark: { backgroundColor: "#010203", verticalGridColor: "not-a-color" },
@@ -66,6 +73,12 @@ test("chart settings normalize corrupt values and preserve independent light/dar
   assert.equal(settings.risingColor, DEFAULT_TRADING_CHART_SETTINGS.risingColor);
   assert.equal(settings.fallingColor, "#123ABC");
   assert.equal(settings.priceScaleMode, "logarithmic");
+  assert.deepEqual(settings.orderDisplay, {
+    currentOrders: false,
+    positions: true,
+    liquidation: true,
+    takeProfitStopLoss: true,
+  });
   assert.equal(settings.themes.light.backgroundColor, "#F0F1F2");
   assert.equal(settings.themes.light.horizontalGridVisible, false);
   assert.equal(settings.themes.dark.backgroundColor, "#010203");
@@ -115,6 +128,7 @@ test("chart settings and selected split layout survive storage round trips", () 
   settings.chartStyle = "heikin-ashi";
   settings.showCountdown = true;
   settings.drawingToolsEnabled = false;
+  settings.orderDisplay.positions = false;
   settings.themes.light.backgroundColor = "#ABCDEF";
   settings.themes.dark.backgroundColor = "#101112";
 
@@ -124,6 +138,7 @@ test("chart settings and selected split layout survive storage round trips", () 
   assert.equal(loadTradingChartSettings(storage).chartStyle, "heikin-ashi");
   assert.equal(loadTradingChartSettings(storage).showCountdown, true);
   assert.equal(loadTradingChartSettings(storage).drawingToolsEnabled, false);
+  assert.equal(loadTradingChartSettings(storage).orderDisplay.positions, false);
   assert.equal(loadTradingChartSettings(storage).themes.light.backgroundColor, "#ABCDEF");
   assert.equal(loadTradingChartSettings(storage).themes.dark.backgroundColor, "#101112");
   assert.equal(loadTradingSplitLayoutId(storage), "7-left-major");
@@ -234,7 +249,7 @@ test("floating split-layout placement clamps horizontally and flips around every
   }
 });
 
-test("settings dialog contains exactly the seven requested categories", () => {
+test("settings dialog contains the eight requested categories with order display last", () => {
   const html = renderTradingChartSettingsDialog(cloneTradingChartSettings(), "light");
   const tabIds = [...html.matchAll(/data-market-settings-tab="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(tabIds, [
@@ -245,6 +260,7 @@ test("settings dialog contains exactly the seven requested categories", () => {
     "coordinate",
     "live-price",
     "drawing-tools",
+    "order-display",
   ]);
   assert.match(html, /主图样式/);
   assert.match(html, /图表背景/);
@@ -253,9 +269,52 @@ test("settings dialog contains exactly the seven requested categories", () => {
   assert.match(html, /坐标选择/);
   assert.match(html, /实时价格/);
   assert.match(html, /画线工具/);
+  assert.match(html, /订单显示/);
+  assert.match(html, /当前委托/);
+  assert.match(html, /当前持仓/);
+  assert.match(html, /强平价格/);
+  assert.match(html, /止盈止损/);
+  assert.doesNotMatch(html, /限价委托、条件市价委托、条件限价委托|多头持仓、空头持仓|持仓的预估强平价格|限价止盈止损、条件市价止盈止损、条件限价止盈止损/);
+  assert.doesNotMatch(html, /trading-chart-order-display-copy[^>]*>[\s\S]*?<small>/);
+  const enabledOrderDisplays = [...html.matchAll(/data-chart-setting="orderDisplay\.([^"]+)" checked/g)]
+    .map((match) => match[1]);
+  assert.deepEqual(enabledOrderDisplays, [
+    "currentOrders",
+    "positions",
+    "liquidation",
+    "takeProfitStopLoss",
+  ]);
   assert.doesNotMatch(html, /下单相关|K线大事件|开盘时间|主题选择|品牌水印|快捷键/);
   assert.match(html, /当前正在编辑亮色主题/);
   assert.match(renderTradingChartSettingsDialog(cloneTradingChartSettings(), "dark"), /当前正在编辑暗色主题/);
+});
+
+test("order display settings independently filter every canvas order-line category", () => {
+  const lines = [
+    { kind: "limit-long" },
+    { kind: "limit-short" },
+    { kind: "conditional-long" },
+    { kind: "conditional-short" },
+    { kind: "position-long" },
+    { kind: "position-short" },
+    { kind: "liquidation" },
+    { kind: "take-profit" },
+    { kind: "stop-loss" },
+  ];
+  assert.deepEqual(
+    filterTradingOrderLinesForDisplay(lines, cloneTradingChartSettings().orderDisplay),
+    lines,
+  );
+  assert.deepEqual(
+    filterTradingOrderLinesForDisplay(lines, {
+      currentOrders: false,
+      positions: true,
+      liquidation: false,
+      takeProfitStopLoss: true,
+    }).map((line) => line.kind),
+    ["position-long", "position-short", "take-profit", "stop-loss"],
+  );
+  assert.equal(lines.length, 9);
 });
 
 test("settings and split actions are direct buttons wired to persisted settings and real independent split charts", async () => {
@@ -270,6 +329,11 @@ test("settings and split actions are direct buttons wired to persisted settings 
   assert.equal((splitPane.match(/class="trading-market-chart-action"/g) ?? []).length, 2);
   assert.doesNotMatch(splitPane, /toggle-more-menu|data-split-more-menu|•••/);
   assert.match(market, /saveTradingChartSettings\(window\.localStorage/);
+  assert.match(market, /filterTradingOrderLinesForDisplay\(this\.orderLines, this\.chartSettings\.orderDisplay\)/);
+  assert.match(market, /private applyOrderDisplaySettings\(\)/);
+  assert.match(market, /this\.applyOrderDisplaySettings\(\)/);
+  assert.match(market, /setOrderLines\(this\.displayedOrderLines\(\)\)/);
+  assert.doesNotMatch(market, /setOrderLines\(this\.orderLines\)/);
   assert.match(market, /saveTradingSplitLayoutId\(window\.localStorage/);
   assert.match(market, /rebuildPrimarySeries\(\)/);
   assert.match(market, /cursorAnchoredByDefault = this\.chartSettings\.scaleAnchor === "cursor"/);
@@ -305,9 +369,16 @@ test("new controls cover light and dark themes plus interaction and async states
   assert.match(css, /\.trading-market-split-symbol-menu button:focus-visible/);
   assert.match(css, /\.trading-chart-settings-check input:checked/);
   assert.match(css, /\.trading-chart-settings-choice:has\(input:disabled\)/);
+  assert.match(css, /\.trading-chart-settings-switch input:checked \+ span/);
+  assert.match(css, /\.trading-chart-settings-switch:hover input:not\(:disabled\) \+ span/);
+  assert.match(css, /\.trading-chart-settings-switch:active input:not\(:disabled\) \+ span::after/);
+  assert.match(css, /\.trading-chart-settings-switch input:focus-visible \+ span/);
+  assert.match(css, /\.trading-chart-settings-switch:has\(input:disabled\)/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-chart-settings-dialog/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-control:\s*#212224/);
+  assert.match(css, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-chart-switch-off:\s*#3a3f47[\s\S]*?--trading-chart-switch-on:\s*#69a8ff/);
   assert.match(css, /\.trading-expert-market\s*\{[\s\S]*?--trading-market-control:\s*#f0f3f7/);
+  assert.match(css, /\.trading-expert-market\s*\{[\s\S]*?--trading-chart-switch-off:\s*#d7d8da[\s\S]*?--trading-chart-switch-on:\s*#2f80ed/);
   assert.match(css, /html\[data-theme="light"\] \.trading-chart-settings-dialog/);
   assert.match(css, /color-scheme: dark/);
   assert.match(css, /color-scheme: light/);
@@ -316,6 +387,43 @@ test("new controls cover light and dark themes plus interaction and async states
   assert.match(newControlCss, /var\(--trading-market-text\)/);
   assert.match(newControlCss, /var\(--trading-market-border\)/);
   assert.match(newControlCss, /var\(--trading-market-accent\)/);
+});
+
+test("order display reuses the frameless typography spacing and control scale of chart settings", async () => {
+  const css = await stylesSource;
+  const listStart = css.indexOf(".trading-chart-order-display-list {");
+  const rowStart = css.indexOf(".trading-chart-order-display-row {", listStart);
+  const copyStart = css.indexOf(".trading-chart-order-display-copy strong {", rowStart);
+  const switchStart = css.indexOf(".trading-chart-settings-switch {", copyStart);
+  assert.ok(listStart >= 0 && rowStart > listStart && copyStart > rowStart && switchStart > copyStart);
+
+  const listCss = css.slice(listStart, rowStart);
+  assert.match(listCss, /gap:\s*22px/);
+  assert.doesNotMatch(listCss, /border:|border-radius:|background:/);
+
+  const rowCss = css.slice(rowStart, css.indexOf(".trading-chart-order-display-copy {", rowStart));
+  assert.match(rowCss, /min-height:\s*34px/);
+  assert.match(rowCss, /gap:\s*24px/);
+  assert.match(rowCss, /padding:\s*0/);
+  assert.doesNotMatch(rowCss, /border-bottom/);
+
+  const copyCss = css.slice(copyStart, switchStart);
+  assert.match(copyCss, /padding-top:\s*7px/);
+  assert.match(copyCss, /color:\s*var\(--trading-market-muted\)/);
+  assert.match(copyCss, /font-size:\s*calc\(13px \+ var\(--app-font-size-offset\)\)/);
+  assert.match(copyCss, /font-weight:\s*400/);
+  assert.doesNotMatch(copyCss, /small/);
+
+  const switchCss = css.slice(switchStart, css.indexOf(".trading-chart-settings-switch input {", switchStart));
+  assert.match(switchCss, /width:\s*36px/);
+  assert.match(switchCss, /height:\s*20px/);
+  assert.match(switchCss, /flex:\s*0 0 36px/);
+  assert.match(switchCss, /margin-top:\s*7px/);
+  const knobStart = css.indexOf(".trading-chart-settings-switch > span::after {", switchStart);
+  const knobCss = css.slice(knobStart, css.indexOf(".trading-chart-settings-switch input:checked + span {", knobStart));
+  assert.match(knobCss, /width:\s*14px/);
+  assert.match(knobCss, /height:\s*14px/);
+  assert.match(css, /\.trading-chart-settings-switch input:checked \+ span::after\s*\{[\s\S]*?translateX\(16px\)/);
 });
 
 test("candle countdown is attached to the live price axis in both themes", async () => {

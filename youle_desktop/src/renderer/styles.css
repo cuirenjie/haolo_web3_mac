@@ -71,6 +71,7 @@
   --border-control: #d1d5db;
   --border-field: #d8dde6;
   --border-subtle: #eef0f3;
+  --card-border-subtle: rgba(17, 24, 39, 0.04);
   --control-primary: #111827;
   --control-primary-hover: #000;
   --scrollbar-size: 8px;
@@ -178,6 +179,7 @@ html[data-theme="dark"] {
   --border-control: #3a404a;
   --border-field: #343941;
   --border-subtle: #252a31;
+  --card-border-subtle: rgba(255, 255, 255, 0.08);
   --control-primary: var(--surface-interactive);
   --control-primary-hover: var(--surface-interactive-hover);
   --scrollbar-thumb-hidden: rgba(133, 139, 150, 0);
@@ -5112,6 +5114,11 @@ select:disabled {
   -webkit-app-region: no-drag;
 }
 
+.app-titlebar:has(.titlebar-market-favorites-host:not([hidden]))
+  > .titlebar-drag-region {
+  position: static;
+}
+
 .titlebar-market-favorites-host {
   --trading-market-text: var(--text-primary);
   --trading-market-muted: var(--text-tertiary);
@@ -5122,12 +5129,14 @@ select:disabled {
   --trading-market-positive: #078c53;
   --trading-market-negative: #d63857;
   --trading-market-selected-background: #fff;
+  position: absolute;
+  right: 144px;
+  left: var(--conversation-list-width);
   display: flex;
   min-width: 0;
   height: 100%;
-  flex: 1 1 auto;
   align-items: center;
-  margin: 0 24px 0 -22px;
+  margin: 0;
   overflow: hidden;
   color: var(--trading-market-text);
   cursor: move;
@@ -14159,27 +14168,7 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   flex: 1;
   flex-direction: column;
   overflow-y: auto;
-  padding: 19px 24px 40px;
-}
-
-.auto-task-list-toolbar {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: flex-start;
-  margin-bottom: 30px;
-}
-
-.auto-task-list-toolbar .auto-task-primary {
-  height: 32px;
-  min-width: 132px;
-  border-radius: 999px;
-  padding: 0 16px;
-}
-
-.auto-task-list-toolbar .auto-task-primary img {
-  width: 16px;
-  height: 16px;
+  padding: 4px 34px 40px;
 }
 
 .auto-task-list {
@@ -14195,11 +14184,11 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   min-height: 136px;
   flex-direction: column;
   overflow: visible;
-  border: 0;
-  border-radius: 12px;
+  border: 1px solid var(--card-border-subtle);
+  border-radius: 8px;
   background: var(--surface-primary);
   padding: 18px 17px 0;
-  box-shadow: 0 14px 38px rgba(17, 24, 39, 0.07);
+  box-shadow: none;
 }
 
 .auto-task-item-main {
@@ -14803,7 +14792,7 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
 }
 
 .skills-plaza-page {
-  --skills-plaza-content-shift-x: 18px;
+  --skills-plaza-content-shift-x: 26px;
   position: relative;
   z-index: 2;
   display: flex;
@@ -14963,6 +14952,26 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
 .skills-plaza-tabs button:hover {
   background: rgba(0, 0, 0, 0.03);
   color: var(--text-primary);
+}
+
+.skills-plaza-tabs button:active:not(:disabled) {
+  background: var(--surface-active-translucent);
+  transform: translateY(1px);
+}
+
+.skills-plaza-tabs button:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 2px;
+}
+
+.skills-plaza-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.skills-plaza-tabs button:disabled:hover {
+  background: transparent;
+  color: var(--text-tertiary);
 }
 
 .skills-plaza-tabs button.active,
@@ -16090,7 +16099,7 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   gap: 20px;
   align-items: start;
   justify-content: start;
-  padding: 12px 0 24px;
+  padding: 16px 0 24px;
 }
 
 .my-skill-card {
@@ -16101,7 +16110,7 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   grid-template-columns: 54px minmax(0, 1fr);
   align-items: center;
   gap: 14px;
-  border: 1px solid rgba(17, 24, 39, 0.04);
+  border: 1px solid var(--card-border-subtle);
   border-radius: 8px;
   background: var(--surface-primary);
   padding: 14px 16px;
@@ -16121,15 +16130,15 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   transform: none;
 }
 
-.my-skill-installed {
-  position: absolute;
-  top: 14px;
-  right: 16px;
-  color: #9aa3af;
-  font-size: calc(11px + var(--app-font-size-offset));
-  font-weight: 500;
-  line-height: 16px;
-  white-space: nowrap;
+.my-skill-card:active {
+  border-color: rgba(17, 24, 39, 0.12);
+  background: var(--surface-subtle);
+}
+
+.my-skill-card:focus-visible {
+  border-color: var(--brand-blue);
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 2px;
 }
 
 .my-skill-icon {
@@ -16169,13 +16178,152 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   transform: skewX(-18deg);
 }
 
+.trading-strategy-icon {
+  --strategy-icon-background: #eef2ff;
+  --strategy-icon-foreground: #5366cc;
+  --strategy-icon-ring: rgba(83, 102, 204, 0.28);
+  color: var(--strategy-icon-foreground);
+  background: var(--strategy-icon-background);
+  box-shadow: inset 0 0 0 1px transparent;
+  transition:
+    color 0.16s ease,
+    background-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.12s ease;
+}
+
+.trading-strategy-icon-order-flow {
+  --strategy-icon-background: #e9f8f3;
+  --strategy-icon-foreground: #168976;
+  --strategy-icon-ring: rgba(22, 137, 118, 0.28);
+}
+
+.trading-strategy-icon-ict-smc {
+  --strategy-icon-background: #f1edff;
+  --strategy-icon-foreground: #6f4cc7;
+  --strategy-icon-ring: rgba(111, 76, 199, 0.3);
+}
+
+.trading-strategy-icon-smt-divergence {
+  --strategy-icon-background: #e9f7fb;
+  --strategy-icon-foreground: #177c96;
+  --strategy-icon-ring: rgba(23, 124, 150, 0.3);
+}
+
+.trading-strategy-icon-wave {
+  --strategy-icon-background: #eaf5ff;
+  --strategy-icon-foreground: #2978bd;
+  --strategy-icon-ring: rgba(41, 120, 189, 0.28);
+}
+
+.trading-strategy-icon-wyckoff {
+  --strategy-icon-background: #fff4df;
+  --strategy-icon-foreground: #a56c1e;
+  --strategy-icon-ring: rgba(165, 108, 30, 0.28);
+}
+
+.trading-strategy-icon-harmonic {
+  --strategy-icon-background: #f8edff;
+  --strategy-icon-foreground: #8a4fbd;
+  --strategy-icon-ring: rgba(138, 79, 189, 0.28);
+}
+
+.trading-strategy-icon-chart-patterns {
+  --strategy-icon-background: #eaf7ff;
+  --strategy-icon-foreground: #256f9e;
+  --strategy-icon-ring: rgba(37, 111, 158, 0.3);
+}
+
+.trading-strategy-icon-price-action {
+  --strategy-icon-background: #edf8ee;
+  --strategy-icon-foreground: #2a7a45;
+  --strategy-icon-ring: rgba(42, 122, 69, 0.3);
+}
+
+.trading-strategy-icon-dow-theory {
+  --strategy-icon-background: #f3efff;
+  --strategy-icon-foreground: #6e55b8;
+  --strategy-icon-ring: rgba(110, 85, 184, 0.3);
+}
+
+.trading-strategy-icon-gann-theory {
+  --strategy-icon-background: #fff2e7;
+  --strategy-icon-foreground: #a95f24;
+  --strategy-icon-ring: rgba(169, 95, 36, 0.3);
+}
+
+.trading-indicator-icon-trend-band {
+  --strategy-icon-background: #e8f7f4;
+  --strategy-icon-foreground: #168976;
+  --strategy-icon-ring: rgba(22, 137, 118, 0.28);
+}
+
+.trading-indicator-icon-moving-average {
+  --strategy-icon-background: #fff7df;
+  --strategy-icon-foreground: #9a6a12;
+  --strategy-icon-ring: rgba(154, 106, 18, 0.3);
+}
+
+.trading-indicator-icon-macd {
+  --strategy-icon-background: #f2edff;
+  --strategy-icon-foreground: #7251c7;
+  --strategy-icon-ring: rgba(114, 81, 199, 0.3);
+}
+
+.trading-indicator-icon-bollinger-bands {
+  --strategy-icon-background: #eef3ff;
+  --strategy-icon-foreground: #3c68bd;
+  --strategy-icon-ring: rgba(60, 104, 189, 0.3);
+}
+
+.trading-indicator-icon-rsi {
+  --strategy-icon-background: #f7efff;
+  --strategy-icon-foreground: #7b45b9;
+  --strategy-icon-ring: rgba(123, 69, 185, 0.3);
+}
+
+.trading-indicator-icon-kdj {
+  --strategy-icon-background: #eef8ff;
+  --strategy-icon-foreground: #236f9d;
+  --strategy-icon-ring: rgba(35, 111, 157, 0.3);
+}
+
+.trading-indicator-icon-vpvr {
+  --strategy-icon-background: #edf5ff;
+  --strategy-icon-foreground: #336fb2;
+  --strategy-icon-ring: rgba(51, 111, 178, 0.3);
+}
+
+.trading-strategy-icon svg {
+  width: 34px;
+  height: 34px;
+  overflow: visible;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trading-strategy-icon circle {
+  fill: var(--strategy-icon-background);
+  stroke: currentColor;
+}
+
+.my-skill-card:hover .trading-strategy-icon,
+.my-skill-card:focus-visible .trading-strategy-icon {
+  box-shadow: inset 0 0 0 1px var(--strategy-icon-ring);
+}
+
+.my-skill-card:active .trading-strategy-icon {
+  transform: scale(0.97);
+}
+
 .my-skill-copy {
   min-width: 0;
 }
 
 .my-skill-copy h2 {
   margin: 0;
-  padding-right: 58px;
   overflow: hidden;
   color: var(--text-primary);
   font-size: calc(14px + var(--app-font-size-offset));
@@ -16193,6 +16341,14 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.trading-strategy-skill-card .my-skill-copy p {
+  display: -webkit-box;
+  min-height: 36px;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .my-skill-copy small {
@@ -24539,7 +24695,7 @@ html[data-theme="dark"] .material-card,
 html[data-theme="dark"] .workflow-empty,
 html[data-theme="dark"] .task-summary,
 html[data-theme="dark"] .agent-status-card {
-  border-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--card-border-subtle);
 }
 
 html[data-theme="dark"] .message-prompt-text {
@@ -24907,6 +25063,7 @@ html[data-theme="dark"] .composer-group-picker.open .chat-title-group-button,
 html[data-theme="dark"] .simple-page-back:hover,
 html[data-theme="dark"] .simple-page-fold,
 html[data-theme="dark"] .my-skill-card:hover,
+html[data-theme="dark"] .my-skill-card:active,
 html[data-theme="dark"] .skill-detail-dialog-close:hover,
 html[data-theme="dark"] .skill-detail-dialog footer button:disabled,
 html[data-theme="dark"] .skill-detail-dialog footer .skill-use-button,
@@ -24922,6 +25079,119 @@ html[data-theme="dark"] .chat-title-group-menu .thread-group-option-more:hover,
 html[data-theme="dark"] .auto-task-group-panel .thread-group-option-more:hover,
 html[data-theme="dark"] .thread-group-dialog .thread-dialog-secondary:hover {
   background: var(--surface-interactive);
+}
+
+html[data-theme="dark"] .my-skill-card:focus-visible {
+  border-color: var(--brand-blue);
+  background: var(--surface-interactive);
+}
+
+html[data-theme="dark"] .trading-strategy-icon {
+  --strategy-icon-background: rgba(90, 108, 214, 0.2);
+  --strategy-icon-foreground: #aab7ff;
+  --strategy-icon-ring: rgba(170, 183, 255, 0.34);
+}
+
+html[data-theme="dark"] .trading-strategy-icon-order-flow {
+  --strategy-icon-background: rgba(22, 137, 118, 0.2);
+  --strategy-icon-foreground: #76d8c5;
+  --strategy-icon-ring: rgba(118, 216, 197, 0.34);
+}
+
+html[data-theme="dark"] .trading-strategy-icon-ict-smc {
+  --strategy-icon-background: rgba(111, 76, 199, 0.25);
+  --strategy-icon-foreground: #c7b2ff;
+  --strategy-icon-ring: rgba(199, 178, 255, 0.38);
+}
+
+html[data-theme="dark"] .trading-strategy-icon-smt-divergence {
+  --strategy-icon-background: rgba(23, 124, 150, 0.25);
+  --strategy-icon-foreground: #8ee1f5;
+  --strategy-icon-ring: rgba(142, 225, 245, 0.38);
+}
+
+html[data-theme="dark"] .trading-strategy-icon-wave {
+  --strategy-icon-background: rgba(41, 120, 189, 0.22);
+  --strategy-icon-foreground: #83c6ff;
+  --strategy-icon-ring: rgba(131, 198, 255, 0.34);
+}
+
+html[data-theme="dark"] .trading-strategy-icon-wyckoff {
+  --strategy-icon-background: rgba(165, 108, 30, 0.22);
+  --strategy-icon-foreground: #f0c77a;
+  --strategy-icon-ring: rgba(240, 199, 122, 0.34);
+}
+
+html[data-theme="dark"] .trading-strategy-icon-harmonic {
+  --strategy-icon-background: rgba(138, 79, 189, 0.24);
+  --strategy-icon-foreground: #d5a8ff;
+  --strategy-icon-ring: rgba(213, 168, 255, 0.36);
+}
+
+html[data-theme="dark"] .trading-strategy-icon-chart-patterns {
+  --strategy-icon-background: rgba(37, 111, 158, 0.24);
+  --strategy-icon-foreground: #8ed5ff;
+  --strategy-icon-ring: rgba(142, 213, 255, 0.38);
+}
+
+html[data-theme="dark"] .trading-strategy-icon-price-action {
+  --strategy-icon-background: rgba(42, 122, 69, 0.25);
+  --strategy-icon-foreground: #8fe0a8;
+  --strategy-icon-ring: rgba(143, 224, 168, 0.38);
+}
+
+html[data-theme="dark"] .trading-strategy-icon-dow-theory {
+  --strategy-icon-background: rgba(110, 85, 184, 0.25);
+  --strategy-icon-foreground: #c5b4ff;
+  --strategy-icon-ring: rgba(197, 180, 255, 0.38);
+}
+
+html[data-theme="dark"] .trading-strategy-icon-gann-theory {
+  --strategy-icon-background: rgba(169, 95, 36, 0.25);
+  --strategy-icon-foreground: #ffc18f;
+  --strategy-icon-ring: rgba(255, 193, 143, 0.38);
+}
+
+html[data-theme="dark"] .trading-indicator-icon-trend-band {
+  --strategy-icon-background: rgba(22, 137, 118, 0.2);
+  --strategy-icon-foreground: #76d8c5;
+  --strategy-icon-ring: rgba(118, 216, 197, 0.34);
+}
+
+html[data-theme="dark"] .trading-indicator-icon-moving-average {
+  --strategy-icon-background: rgba(154, 106, 18, 0.25);
+  --strategy-icon-foreground: #f4cf75;
+  --strategy-icon-ring: rgba(244, 207, 117, 0.38);
+}
+
+html[data-theme="dark"] .trading-indicator-icon-macd {
+  --strategy-icon-background: rgba(114, 81, 199, 0.25);
+  --strategy-icon-foreground: #c8b4ff;
+  --strategy-icon-ring: rgba(200, 180, 255, 0.38);
+}
+
+html[data-theme="dark"] .trading-indicator-icon-bollinger-bands {
+  --strategy-icon-background: rgba(76, 119, 201, 0.25);
+  --strategy-icon-foreground: #a9c4ff;
+  --strategy-icon-ring: rgba(169, 196, 255, 0.38);
+}
+
+html[data-theme="dark"] .trading-indicator-icon-rsi {
+  --strategy-icon-background: rgba(123, 69, 185, 0.27);
+  --strategy-icon-foreground: #d5b1ff;
+  --strategy-icon-ring: rgba(213, 177, 255, 0.38);
+}
+
+html[data-theme="dark"] .trading-indicator-icon-kdj {
+  --strategy-icon-background: rgba(35, 111, 157, 0.28);
+  --strategy-icon-foreground: #a9dcff;
+  --strategy-icon-ring: rgba(169, 220, 255, 0.38);
+}
+
+html[data-theme="dark"] .trading-indicator-icon-vpvr {
+  --strategy-icon-background: rgba(51, 111, 178, 0.28);
+  --strategy-icon-foreground: #aad2ff;
+  --strategy-icon-ring: rgba(170, 210, 255, 0.38);
 }
 
 html[data-theme="dark"] .video-expert-select-menu button.selected {
@@ -25265,6 +25535,14 @@ html[data-theme="dark"] .window-control.pin.active:hover {
 html[data-theme="dark"] .skills-plaza-tabs button:hover,
 html[data-theme="dark"] .contacts-add-friend-toggle:hover {
   background: var(--surface-hover-translucent);
+}
+
+html[data-theme="dark"] .skills-plaza-tabs button:active:not(:disabled) {
+  background: var(--surface-active-translucent);
+}
+
+html[data-theme="dark"] .skills-plaza-tabs button:disabled:hover {
+  background: transparent;
 }
 
 /* Icon buttons stay quiet at rest, with a clearer hover/focus hit area. */
@@ -30426,6 +30704,48 @@ html[data-theme="dark"] .github-settings-actions button:disabled {
   right: 5px;
 }
 
+.desktop-body.trading-expert-layout > .binance-account-page-expansion-toggle {
+  position: absolute;
+  top: 4px;
+  right: calc(var(--trading-expert-panel-width) + 5px);
+  z-index: 60;
+  width: 24px;
+  height: 26px;
+  border-radius: 7px;
+  background: transparent;
+  transition:
+    right 0.24s ease,
+    color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+.desktop-body.trading-expert-layout
+  > .binance-account-page-expansion-toggle:hover:not(:disabled),
+.desktop-body.trading-expert-layout
+  > .binance-account-page-expansion-toggle:focus-visible {
+  outline: 0;
+  background: var(--surface-hover-translucent);
+}
+
+.desktop-body.trading-expert-layout
+  > .binance-account-page-expansion-toggle:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--conversation-action-focus);
+}
+
+.desktop-body.trading-expert-layout
+  > .binance-account-page-expansion-toggle:disabled,
+.desktop-body.trading-expert-layout
+  > .binance-account-page-expansion-toggle:disabled:hover {
+  background: transparent;
+  color: var(--text-placeholder);
+  transform: none;
+}
+
+.desktop-body.trading-expert-layout.right-panel-collapsed:not(.trading-expert-chart-collapsed)
+  > .binance-account-page-expansion-toggle {
+  right: 5px;
+}
+
 .desktop-body > .left-panel-toggle {
   top: 4px;
   left: calc(var(--conversation-list-width) + 4px);
@@ -30657,7 +30977,7 @@ html[data-theme="dark"] .github-settings-actions button:disabled {
 }
 
 .desktop-body.trading-expert-layout.trading-expert-chart-collapsed
-  > .trading-expert-chat-panel {
+  > :is(.trading-expert-chat-panel, .binance-account-page) {
   display: none;
 }
 
@@ -30799,6 +31119,28 @@ html[data-theme="dark"] .github-settings-actions button:disabled {
 .desktop-body.trading-expert-layout
   > .trading-expert-panel
   > .composer
+  .trading-expert-mention-submenu
+  > .trading-expert-mention-option:disabled {
+  background: var(--surface-soft);
+  color: var(--text-placeholder);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+html[data-theme="dark"]
+  .desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer
+  .trading-expert-mention-submenu
+  > .trading-expert-mention-option:disabled {
+  background: var(--surface-interactive);
+  color: var(--text-placeholder);
+  opacity: 0.68;
+}
+
+.desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer
   .trading-expert-mention-popover
   button:focus-visible {
   outline: 2px solid var(--brand-blue);
@@ -30831,10 +31173,11 @@ html[data-theme="dark"] .github-settings-actions button:disabled {
 
 /* The standard model menu is positioned from its compact footer trigger. In
    the 300px Trading Expert panel that puts the 224px menu past the clipped
-   panel edge. Let the picker span the composer only in this layout, keep the
-   trigger in its original footer position, and center the menu on the full
-   composer instead. */
-.desktop-body.trading-expert-layout
+   panel edge. While the chart is visible, let the picker span the composer,
+   keep the trigger in its original footer position, and center the menu on
+   the full composer instead. When the chart is collapsed, the base picker
+   rules keep the menu anchored above its trigger in the expanded composer. */
+.desktop-body.trading-expert-layout:not(.trading-expert-chart-collapsed)
   > .trading-expert-panel
   > .composer
   > .composer-model-picker {
@@ -30845,7 +31188,7 @@ html[data-theme="dark"] .github-settings-actions button:disabled {
   pointer-events: none;
 }
 
-.desktop-body.trading-expert-layout
+.desktop-body.trading-expert-layout:not(.trading-expert-chart-collapsed)
   > .trading-expert-panel
   > .composer
   > .composer-model-picker
@@ -30856,7 +31199,7 @@ html[data-theme="dark"] .github-settings-actions button:disabled {
   pointer-events: auto;
 }
 
-.desktop-body.trading-expert-layout
+.desktop-body.trading-expert-layout:not(.trading-expert-chart-collapsed)
   > .trading-expert-panel
   > .composer
   > .composer-model-picker
@@ -30910,10 +31253,18 @@ html[data-theme="dark"]
   --trading-market-muted: #7b8797;
   --trading-market-control: #f0f3f7;
   --trading-market-control-hover: #e6ebf2;
+  --trading-chart-switch-off: #d7d8da;
+  --trading-chart-switch-off-hover: #c8cbd0;
+  --trading-chart-switch-on: #2f80ed;
+  --trading-chart-switch-on-hover: #246dcc;
+  --trading-chart-switch-knob: #ffffff;
   --trading-market-indicator-section-bg: #e1e5eb;
   --trading-market-accent: #2f80ed;
   --trading-market-accent-soft: #eef5ff;
   --trading-market-indicator-selected: #5b95e5;
+  --trading-vpvr-bar-opacity: 15%;
+  --trading-vpvr-value-area-opacity: 26%;
+  --trading-vpvr-poc-opacity: 43%;
   --trading-market-positive: #12a66a;
   --trading-market-negative: #e54865;
   --trading-market-current-price: #269d4d;
@@ -30975,8 +31326,37 @@ html[data-theme="dark"]
   --trading-ai-price-action-support: #078c53;
   --trading-ai-price-action-resistance: #dc3658;
   --trading-ai-price-action-note: #6d4acb;
+  --trading-ai-strategy-primary: #3159c9;
+  --trading-ai-strategy-support: #078c53;
+  --trading-ai-strategy-resistance: #dc3658;
+  --trading-ai-strategy-entry: #087e8b;
+  --trading-ai-strategy-stop: #c52f4e;
+  --trading-ai-strategy-target: #067c49;
+  --trading-ai-strategy-note: #6d4acb;
+  --trading-price-action-candlestick-label: #6d4acb;
   --trading-ai-cursor: #2f80ed;
   --trading-ai-cursor-contrast: #ffffff;
+  --trading-order-position-long: #078c53;
+  --trading-order-position-short: #c93655;
+  --trading-order-pnl-profit: #078c53;
+  --trading-order-pnl-loss: #d63857;
+  --trading-order-long: #078c53;
+  --trading-order-short: #d63857;
+  --trading-order-take-profit: #078c53;
+  --trading-order-stop-loss: #d63857;
+  --trading-order-liquidation: #ff6739;
+  --trading-order-liquidation-key-bg: #ff6739;
+  --trading-order-liquidation-key-text: #ffffff;
+  --trading-order-liquidation-text-outline: rgba(96, 25, 5, 0.72);
+  --trading-order-label-bg: rgba(255, 255, 255, 0.96);
+  --trading-order-label-text: #172033;
+  --trading-order-label-key-text: #ffffff;
+  --trading-order-card-bg: #ffffff;
+  --trading-order-card-border: #dfe3ea;
+  --trading-order-card-text: #171a21;
+  --trading-order-card-muted: #8b95a5;
+  --trading-order-card-chip: #f4f6f8;
+  --trading-order-card-shadow: 0 14px 38px rgba(23, 32, 51, 0.18);
   --trading-drawing-clear-backdrop: rgba(23, 32, 51, 0.38);
   --trading-drawing-clear-shadow: 0 24px 72px rgba(23, 32, 51, 0.24);
   --trading-drawing-clear-danger: #d63857;
@@ -32401,8 +32781,345 @@ html[data-theme="dark"] .trading-market-favorite-ticker-drag-ghost {
 
 [data-ai-drawing-content],
 [data-ai-drawing-cursor],
+[data-trading-order-lines],
 [data-drawing-source="ai"] {
   pointer-events: none;
+}
+
+.trading-order-line {
+  color: var(--trading-order-long);
+  pointer-events: none;
+}
+
+.trading-order-line-card-hitbox,
+.trading-order-line-position-hitbox {
+  cursor: help;
+  pointer-events: all;
+}
+
+[data-trading-order-position-trigger]:focus {
+  outline: none;
+}
+
+[data-trading-order-position-trigger]:hover .trading-order-line-position-hitbox,
+[data-trading-order-position-trigger]:focus-visible .trading-order-line-position-hitbox {
+  fill: color-mix(in srgb, var(--trading-order-label-bg) 88%, currentColor 12%);
+  stroke-opacity: 0.9;
+  stroke-width: 1.5;
+}
+
+[data-trading-order-position-trigger]:active .trading-order-line-position-hitbox {
+  fill: color-mix(in srgb, var(--trading-order-label-bg) 80%, currentColor 20%);
+}
+
+.trading-order-line-position-long { color: var(--trading-order-position-long); }
+.trading-order-line-position-short { color: var(--trading-order-position-short); }
+.trading-order-line-conditional-long,
+.trading-order-line-limit-long { color: var(--trading-order-long); }
+.trading-order-line-conditional-short,
+.trading-order-line-limit-short { color: var(--trading-order-short); }
+.trading-order-line-take-profit { color: var(--trading-order-take-profit); }
+.trading-order-line-stop-loss { color: var(--trading-order-stop-loss); }
+.trading-order-line-liquidation { color: var(--trading-order-liquidation); }
+
+.trading-order-line-stroke,
+.trading-order-line-connector {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 0.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.trading-order-price-level-dashed .trading-order-line-stroke {
+  /* Lightweight Charts LineStyle.Dashed at the current-price line's 1px width. */
+  stroke-dasharray: 2 2;
+}
+
+.trading-order-price-level-solid .trading-order-line-stroke {
+  stroke-dasharray: none;
+}
+
+.trading-order-line-connector {
+  stroke-dasharray: 2 2;
+  opacity: 0.76;
+}
+
+.trading-order-line-label-bg {
+  fill: var(--trading-order-label-bg);
+  stroke: currentColor;
+  stroke-opacity: 0.42;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.trading-order-line-label-key,
+.trading-order-line-label-key-square {
+  fill: currentColor;
+}
+
+.trading-order-line-liquidation .trading-order-line-label-bg,
+.trading-order-line-liquidation .trading-order-line-label-key,
+.trading-order-line-liquidation .trading-order-line-label-key-square {
+  fill: var(--trading-order-liquidation-key-bg);
+}
+
+.trading-order-line-liquidation .trading-order-line-label-bg {
+  stroke: var(--trading-order-liquidation-key-bg);
+  stroke-opacity: 1;
+}
+
+.trading-order-line-liquidation .trading-order-line-label-text,
+.trading-order-line-liquidation .trading-order-line-liquidation-price {
+  fill: var(--trading-order-liquidation-key-text);
+  stroke: var(--trading-order-liquidation-text-outline);
+  stroke-width: 0.45px;
+  paint-order: stroke fill;
+}
+
+.trading-order-line-liquidation .trading-order-line-key-text {
+  fill: var(--trading-order-liquidation-key-text);
+  stroke: none;
+  paint-order: normal;
+}
+
+.trading-order-line-key-text,
+.trading-order-line-label-text {
+  dominant-baseline: middle;
+  font-size: calc(10px + var(--app-font-size-offset));
+  font-weight: 650;
+}
+
+.trading-order-line-key-text {
+  fill: var(--trading-order-label-key-text);
+  text-anchor: middle;
+}
+
+.trading-order-line-label-text {
+  fill: var(--trading-order-label-text);
+  letter-spacing: 0.005em;
+}
+
+.trading-order-line-quantity {
+  fill: var(--trading-order-label-text);
+}
+
+.trading-order-line-pnl-value.profit {
+  fill: var(--trading-order-pnl-profit);
+}
+
+.trading-order-line-pnl-value.loss {
+  fill: var(--trading-order-pnl-loss);
+}
+
+.trading-order-line-pnl-value.flat,
+.trading-order-line-pnl-value.unknown {
+  fill: var(--trading-order-label-text);
+}
+
+.trading-order-position-cards {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.trading-order-position-card {
+  position: absolute;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 250px;
+  max-width: calc(100% - 16px);
+  height: auto;
+  border: 1px solid var(--trading-order-card-border);
+  border-radius: 14px;
+  background: var(--trading-order-card-bg);
+  box-shadow: var(--trading-order-card-shadow);
+  color: var(--trading-order-card-text);
+  font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+  padding: 7px 10px;
+  pointer-events: none;
+}
+
+.trading-order-commission-card {
+  min-width: 300px;
+  padding: 14px 16px;
+}
+
+.trading-order-position-card[hidden] {
+  display: none !important;
+}
+
+.trading-order-position-card > header {
+  display: flex;
+  align-items: center;
+}
+
+.trading-order-position-card-symbol {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.trading-order-position-card-symbol > strong {
+  overflow: hidden;
+  font-size: calc(15px + var(--app-font-size-offset));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trading-order-position-card-symbol > span:not(.trading-order-position-card-side) {
+  flex: 0 0 auto;
+  border-radius: 5px;
+  background: var(--trading-order-card-chip);
+  color: var(--trading-order-card-muted);
+  font-size: calc(9px + var(--app-font-size-offset));
+  padding: 3px 5px;
+}
+
+.trading-order-position-card-side {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--trading-order-position-long) 14%, transparent);
+  color: var(--trading-order-position-long);
+  font-size: calc(12px + var(--app-font-size-offset));
+  font-weight: 650;
+}
+
+.trading-order-position-card.short .trading-order-position-card-side {
+  background: color-mix(in srgb, var(--trading-order-position-short) 14%, transparent);
+  color: var(--trading-order-position-short);
+}
+
+.trading-order-position-card-featured {
+  display: grid;
+  margin-top: 6px;
+  grid-template-columns: 2fr 1fr;
+  gap: 8px;
+}
+
+.trading-order-position-card-featured > div,
+.trading-order-position-card-metrics > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.trading-order-position-card-featured span,
+.trading-order-position-card-metrics span {
+  overflow: hidden;
+  color: var(--trading-order-card-muted);
+  font-size: calc(10px + var(--app-font-size-offset));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trading-order-position-card-featured strong {
+  color: var(--trading-order-card-text);
+  font-size: calc(16px + var(--app-font-size-offset));
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.trading-order-position-card-featured .positive strong {
+  color: var(--trading-order-pnl-profit);
+}
+
+.trading-order-position-card-featured .negative strong {
+  color: var(--trading-order-pnl-loss);
+}
+
+.trading-order-position-card-featured > div:last-child {
+  transform: translateX(7px);
+}
+
+.trading-order-position-card-featured > div:last-child > span {
+  margin-left: 4px;
+}
+
+.trading-order-position-card-metrics {
+  display: grid;
+  margin-top: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.trading-order-position-card-metrics strong {
+  overflow: hidden;
+  color: var(--trading-order-card-text);
+  font-size: calc(13px + var(--app-font-size-offset));
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trading-order-position-card-metrics > div:nth-child(3n) strong {
+  margin-left: 10px;
+}
+
+.trading-order-position-card-metrics > div:nth-child(3n) > span {
+  margin-left: 10px;
+}
+
+.trading-order-commission-card-intro {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-top: 8px;
+  white-space: nowrap;
+}
+
+.trading-order-commission-card-intro > strong {
+  color: var(--trading-order-pnl-profit);
+  font-size: calc(12px + var(--app-font-size-offset));
+  font-weight: 500;
+}
+
+.trading-order-commission-card.short .trading-order-commission-card-intro > strong {
+  color: var(--trading-order-pnl-loss);
+}
+
+.trading-order-commission-card-intro time {
+  color: var(--trading-order-card-muted);
+  font-size: calc(10px + var(--app-font-size-offset));
+  font-variant-numeric: tabular-nums;
+}
+
+.trading-order-commission-card-details {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.trading-order-commission-card-details > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.trading-order-commission-card-details span {
+  color: var(--trading-order-card-muted);
+  font-size: calc(11px + var(--app-font-size-offset));
+  white-space: nowrap;
+}
+
+.trading-order-commission-card-details strong {
+  min-width: 0;
+  color: var(--trading-order-card-text);
+  font-size: calc(13px + var(--app-font-size-offset));
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .trading-ai-cursor {
@@ -32443,6 +33160,47 @@ html[data-theme="dark"] .trading-market-favorite-ticker-drag-ghost {
   font-size: calc(8px + var(--app-font-size-offset));
   font-weight: 750;
   letter-spacing: 0.04em;
+}
+
+.trading-ai-inline-label {
+  paint-order: stroke fill;
+  stroke: var(--trading-market-panel);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  text-anchor: middle;
+}
+
+.trading-ai-inline-label.trading-price-action-candlestick-label {
+  fill: var(--trading-price-action-candlestick-label);
+  paint-order: normal;
+  stroke: none;
+  font-weight: 400;
+}
+
+.trading-price-action-candlestick-label-leader {
+  fill: none;
+  stroke: var(--trading-price-action-candlestick-label);
+  stroke-width: 1.2px;
+  stroke-dasharray: 4 4;
+  stroke-linecap: round;
+  opacity: 0.78;
+  vector-effect: non-scaling-stroke;
+}
+
+.trading-price-action-candlestick-label-target {
+  fill: var(--trading-price-action-candlestick-label);
+  stroke: none;
+  opacity: 0.9;
+}
+
+.trading-price-action-candlestick-pattern-ellipse {
+  fill: var(--trading-price-action-candlestick-label);
+  fill-opacity: 0.035;
+  stroke: var(--trading-price-action-candlestick-label);
+  stroke-width: 0.8px;
+  stroke-dasharray: none;
+  opacity: 0.96;
+  vector-effect: non-scaling-stroke;
 }
 
 @keyframes trading-ai-cursor-pulse {
@@ -33337,6 +34095,56 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
 .trading-market-chart {
   width: 100%;
   height: 100%;
+}
+
+.trading-market-volume-profile-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
+  shape-rendering: crispEdges;
+}
+
+.trading-market-volume-profile-layer[hidden] {
+  display: none !important;
+}
+
+.trading-market-vpvr-bar {
+  fill: color-mix(
+    in srgb,
+    var(--trading-vpvr-color, var(--trading-market-indicator-selected)) var(--trading-vpvr-bar-opacity),
+    transparent
+  );
+}
+
+.trading-market-vpvr-bar.value-area {
+  fill: color-mix(
+    in srgb,
+    var(--trading-vpvr-color, var(--trading-market-indicator-selected)) var(--trading-vpvr-value-area-opacity),
+    transparent
+  );
+}
+
+.trading-market-vpvr-bar.poc {
+  fill: color-mix(
+    in srgb,
+    var(--trading-vpvr-poc-color, var(--trading-vpvr-color, #5b95e5)) var(--trading-vpvr-poc-opacity),
+    transparent
+  );
+}
+
+.trading-market-vpvr-poc-line {
+  stroke: color-mix(
+    in srgb,
+    var(--trading-vpvr-poc-color, var(--trading-vpvr-color, #5b95e5)) 88%,
+    transparent
+  );
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  vector-effect: non-scaling-stroke;
 }
 
 .trading-alert-simulation-annotations {
@@ -35108,6 +35916,113 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   font-size: calc(11px + var(--app-font-size-offset));
 }
 
+.trading-chart-order-display-list {
+  display: grid;
+  max-width: 560px;
+  gap: 22px;
+}
+
+.trading-chart-order-display-row {
+  display: grid;
+  min-height: 34px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 24px;
+  padding: 0;
+}
+
+.trading-chart-order-display-copy {
+  min-width: 0;
+}
+
+.trading-chart-order-display-copy strong {
+  display: block;
+  padding-top: 7px;
+  color: var(--trading-market-muted);
+  font-size: calc(13px + var(--app-font-size-offset));
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.trading-chart-settings-switch {
+  position: relative;
+  display: inline-flex;
+  width: 36px;
+  height: 20px;
+  flex: 0 0 36px;
+  align-items: center;
+  margin-top: 7px;
+  cursor: pointer;
+}
+
+.trading-chart-settings-switch input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.trading-chart-settings-switch > span {
+  position: relative;
+  display: block;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--trading-chart-switch-off);
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.trading-chart-settings-switch > span::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--trading-chart-switch-knob);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--trading-market-text) 28%, transparent);
+  content: "";
+  transform: translateX(0);
+  transition: transform 140ms ease, scale 90ms ease;
+}
+
+.trading-chart-settings-switch input:checked + span {
+  background: var(--trading-chart-switch-on);
+}
+
+.trading-chart-settings-switch input:checked + span::after {
+  transform: translateX(16px);
+}
+
+.trading-chart-settings-switch:hover input:not(:disabled) + span {
+  background: var(--trading-chart-switch-off-hover);
+}
+
+.trading-chart-settings-switch:hover input:checked:not(:disabled) + span {
+  background: var(--trading-chart-switch-on-hover);
+}
+
+.trading-chart-settings-switch:active input:not(:disabled) + span::after {
+  scale: 0.9;
+}
+
+.trading-chart-settings-switch input:focus-visible + span {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--trading-market-accent) 28%, transparent);
+}
+
+.trading-chart-settings-switch:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.trading-chart-settings-switch input:disabled {
+  cursor: not-allowed;
+}
+
 .trading-chart-settings-dialog > footer {
   display: flex;
   align-items: center;
@@ -35162,10 +36077,18 @@ html[data-theme="dark"] .trading-expert-market {
   --trading-market-muted: #7e899b;
   --trading-market-control: #212224;
   --trading-market-control-hover: #172337;
+  --trading-chart-switch-off: #3a3f47;
+  --trading-chart-switch-off-hover: #4a5568;
+  --trading-chart-switch-on: #69a8ff;
+  --trading-chart-switch-on-hover: #82b6ff;
+  --trading-chart-switch-knob: #f5f7fa;
   --trading-market-indicator-section-bg: #24262b;
   --trading-market-accent: #69a8ff;
   --trading-market-accent-soft: #172337;
   --trading-market-indicator-selected: #82b6ff;
+  --trading-vpvr-bar-opacity: 18%;
+  --trading-vpvr-value-area-opacity: 30%;
+  --trading-vpvr-poc-opacity: 46%;
   --trading-market-positive: #41d37c;
   --trading-market-negative: #ff4f75;
   --trading-market-current-price: #45c979;
@@ -35227,8 +36150,37 @@ html[data-theme="dark"] .trading-expert-market {
   --trading-ai-price-action-support: #52dc88;
   --trading-ai-price-action-resistance: #ff718e;
   --trading-ai-price-action-note: #c3a7ff;
+  --trading-ai-strategy-primary: #7ea2ff;
+  --trading-ai-strategy-support: #52dc88;
+  --trading-ai-strategy-resistance: #ff718e;
+  --trading-ai-strategy-entry: #54d6df;
+  --trading-ai-strategy-stop: #ff718e;
+  --trading-ai-strategy-target: #52dc88;
+  --trading-ai-strategy-note: #c3a7ff;
+  --trading-price-action-candlestick-label: #ffffff;
   --trading-ai-cursor: #7fb5ff;
   --trading-ai-cursor-contrast: #0b1525;
+  --trading-order-position-long: #52dc88;
+  --trading-order-position-short: #ff718e;
+  --trading-order-pnl-profit: #52dc88;
+  --trading-order-pnl-loss: #ff718e;
+  --trading-order-long: #52dc88;
+  --trading-order-short: #ff718e;
+  --trading-order-take-profit: #52dc88;
+  --trading-order-stop-loss: #ff718e;
+  --trading-order-liquidation: #ff6739;
+  --trading-order-liquidation-key-bg: #ff6739;
+  --trading-order-liquidation-key-text: #ffffff;
+  --trading-order-liquidation-text-outline: rgba(96, 25, 5, 0.72);
+  --trading-order-label-bg: rgba(20, 24, 31, 0.96);
+  --trading-order-label-text: #f3f5f7;
+  --trading-order-label-key-text: #101419;
+  --trading-order-card-bg: #15191f;
+  --trading-order-card-border: #343b46;
+  --trading-order-card-text: #f3f5f7;
+  --trading-order-card-muted: #929dac;
+  --trading-order-card-chip: #232932;
+  --trading-order-card-shadow: 0 16px 44px rgba(0, 0, 0, 0.46);
   --trading-drawing-clear-backdrop: rgba(0, 0, 0, 0.66);
   --trading-drawing-clear-shadow: 0 28px 84px rgba(0, 0, 0, 0.62);
   --trading-drawing-clear-danger: #f0526c;
@@ -35938,7 +36890,7 @@ html[data-theme="dark"] .conversation-row-wrap.conversation-row-minimal.active {
   height: 100%;
   overflow: hidden;
   background: var(--bg);
-  padding: 30px 0 0;
+  padding: 0;
   color: var(--text-primary);
 }
 
@@ -35982,12 +36934,128 @@ html[data-theme="dark"] .trading-alerts-page {
 .trading-alerts-page :is(input, select):focus-visible { outline: 2px solid var(--alert-accent); outline-offset: 2px; }
 .trading-alerts-page button:disabled { cursor: not-allowed; opacity: 0.48; transform: none; }
 
-.trading-alert-filters { display: flex; width: min(1180px, calc(100% - 68px)); max-width: 1180px; flex: 0 0 auto; box-sizing: border-box; margin: 0 auto 12px; align-items: center; gap: 18px; overflow-x: auto; padding: 0 0 8px; }
+.planning-primary-tabs,
+.trading-alert-filters {
+  display: flex;
+  width: min(1180px, calc(100% - 68px));
+  max-width: 1180px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  margin: 30px auto 12px;
+  align-items: center;
+  gap: 18px;
+  overflow-x: auto;
+  padding: 0 0 8px;
+}
+
+.planning-primary-tabs button,
+.trading-alert-filters button {
+  display: inline-flex;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  padding: 0 16px;
+  color: var(--text-tertiary);
+  font-size: calc(13px + var(--app-font-size-offset));
+  font-weight: 500;
+  line-height: 19px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.planning-primary-tabs button:hover,
+.trading-alert-filters button:hover {
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  color: var(--text-primary);
+}
+
+.planning-primary-tabs button:is(.active, [aria-pressed="true"]),
+.trading-alert-filters button:is(.active, [aria-pressed="true"]) {
+  background: var(--selection-strong);
+  color: var(--text-primary);
+}
+
+.planning-primary-tabs button:active,
+.trading-alert-filters button:active {
+  background: var(--surface-active-translucent);
+}
+
+/* The account page still consumes the legacy pill-tab class. */
+.trading-alert-filters { display: flex; width: min(1180px, calc(100% - 68px)); max-width: 1180px; flex: 0 0 auto; box-sizing: border-box; margin: 30px auto 12px; align-items: center; gap: 18px; overflow-x: auto; padding: 0 0 8px; }
 .trading-alert-filters button { display: inline-flex; height: 34px; flex: 0 0 auto; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 14px; background: transparent; padding: 0 16px; color: var(--text-tertiary); font-size: calc(13px + var(--app-font-size-offset)); font-weight: 500; line-height: 19px; cursor: pointer; white-space: nowrap; transition: background 150ms ease, color 150ms ease; }
-.trading-alert-filters button span { color: inherit; font-size: calc(11px + var(--app-font-size-offset)); opacity: .72; }
 .trading-alert-filters button:hover { background: color-mix(in srgb, var(--text-primary) 3%, transparent); color: var(--text-primary); }
 .trading-alert-filters button:is(.active, [aria-pressed="true"]) { background: var(--selection-strong); color: var(--text-primary); }
 .trading-alert-filters button:active { background: var(--surface-active-translucent); }
+
+.trading-alert-subfilters {
+  display: flex;
+  width: min(1180px, calc(100% - 68px));
+  max-width: 1180px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  margin: 0 auto 14px;
+  align-items: center;
+  gap: 28px;
+  overflow-x: auto;
+  padding: 0 16px 6px;
+}
+
+.trading-alert-subfilters button {
+  display: inline-flex;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--text-tertiary);
+  font-size: calc(13px + var(--app-font-size-offset));
+  font-weight: 500;
+  line-height: 19px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 150ms ease;
+}
+
+.trading-alert-subfilters button span {
+  color: inherit;
+  font-size: calc(11px + var(--app-font-size-offset));
+  opacity: .72;
+}
+
+.trading-alert-subfilters button:hover {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.trading-alert-subfilters button:is(.active, [aria-pressed="true"]),
+.trading-alert-subfilters button:active {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.planning-primary-tabs button:focus-visible,
+.trading-alert-filters button:focus-visible,
+.trading-alert-subfilters button:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 2px;
+}
+
+.planning-primary-tabs button:disabled,
+.trading-alert-filters button:disabled,
+.trading-alert-subfilters button:disabled {
+  background: transparent;
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: .52;
+}
 
 .trading-alert-list-scroll {
   min-width: 0;
@@ -36052,7 +37120,10 @@ html[data-theme="dark"] .trading-alerts-page {
 .trading-alert-actions button:disabled:active { background: transparent; color: var(--text-muted); cursor: not-allowed; opacity: .62; }
 html[data-theme="dark"] .trading-alert-card { border-color: color-mix(in srgb, var(--text-primary) 8%, transparent); }
 html[data-theme="dark"] .trading-alert-card:hover { border-color: color-mix(in srgb, var(--text-primary) 14%, transparent); background: var(--surface-hover-translucent); }
+html[data-theme="dark"] .planning-primary-tabs button:hover,
 html[data-theme="dark"] .trading-alert-filters button:hover { background: var(--surface-hover-translucent); }
+html[data-theme="dark"] .trading-alert-subfilters button:hover { background: transparent; color: var(--text-secondary); }
+html[data-theme="dark"] .trading-alert-subfilters button:is(.active, [aria-pressed="true"]) { background: transparent; color: var(--text-primary); }
 
 @media (hover: none) { .trading-alert-actions { opacity: 1; } }
 
@@ -36153,7 +37224,9 @@ html[data-theme="dark"] dialog.trading-alert-editor[open] form footer button.pri
 
 @media (max-width: 660px) {
   .trading-alerts-page { padding-top: 22px; }
-  .trading-alert-filters { width: calc(100% - 40px); }
+  .planning-primary-tabs,
+  .trading-alert-filters,
+  .trading-alert-subfilters { width: calc(100% - 40px); }
   .trading-alert-list-scroll { padding: 0 20px 26px; }
   .trading-alert-card-grid { grid-template-columns: minmax(0, 1fr); }
 }
@@ -36184,6 +37257,12 @@ html[data-theme="dark"] dialog.trading-alert-editor[open] form footer button.pri
   --binance-action-text: #ffffff;
   --binance-positive: #0a9d68;
   --binance-negative: #e8465b;
+  --binance-calendar-profit-bg: #e6f6ed;
+  --binance-calendar-profit-text: #087b50;
+  --binance-calendar-loss-bg: #fff0f2;
+  --binance-calendar-loss-text: #cc354b;
+  --binance-calendar-neutral-bg: #ffffff;
+  --binance-calendar-cell-border: #dfe4ea;
   --binance-danger-action: #c62842;
   --binance-danger-action-hover: #b51e37;
   --binance-danger-action-active: #9e192f;
@@ -36192,6 +37271,8 @@ html[data-theme="dark"] dialog.trading-alert-editor[open] form footer button.pri
   --binance-warning-text: #5e6672;
   --binance-danger-bg: #fff0f2;
   --binance-focus: #15171b;
+  --binance-skeleton: #e8edf4;
+  --binance-skeleton-shine: rgba(255, 255, 255, 0.72);
   --binance-history-scrollbar-thumb: rgba(120, 129, 143, 0.42);
   --binance-history-scrollbar-thumb-hover: rgba(82, 92, 107, 0.68);
   --binance-shadow: 0 18px 54px rgba(20, 24, 32, 0.15);
@@ -36217,6 +37298,12 @@ html[data-theme="dark"] .binance-account-dialog {
   --binance-action-text: #101216;
   --binance-positive: #27c894;
   --binance-negative: #ff5f73;
+  --binance-calendar-profit-bg: #18372c;
+  --binance-calendar-profit-text: #72dfb6;
+  --binance-calendar-loss-bg: #3c2228;
+  --binance-calendar-loss-text: #ff93a1;
+  --binance-calendar-neutral-bg: #17191e;
+  --binance-calendar-cell-border: #343941;
   --binance-danger-action: #ff5f73;
   --binance-danger-action-hover: #ff7183;
   --binance-danger-action-active: #e94b61;
@@ -36225,6 +37312,8 @@ html[data-theme="dark"] .binance-account-dialog {
   --binance-warning-text: #b7bdc7;
   --binance-danger-bg: #361c22;
   --binance-focus: #f4f5f7;
+  --binance-skeleton: #283649;
+  --binance-skeleton-shine: rgba(255, 255, 255, 0.1);
   --binance-history-scrollbar-thumb: rgba(151, 161, 176, 0.44);
   --binance-history-scrollbar-thumb-hover: rgba(197, 205, 217, 0.7);
   --binance-shadow: 0 22px 70px rgba(0, 0, 0, 0.55);
@@ -36264,6 +37353,14 @@ html[data-theme="dark"] .desktop-body > .binance-account-page {
   .library-page
 ) {
   border-top-left-radius: 16px;
+}
+
+/* The New Task ticker rail and market canvas form one continuous surface.
+   Other workspaces keep the shared 16px inset corner above. */
+.desktop-shell:has(.titlebar-market-favorites-host:not([hidden]))
+  > .desktop-body.trading-expert-layout
+  > .trading-expert-chat-panel {
+  border-top-left-radius: 0;
 }
 
 /* The rounded page must reveal the app chrome beneath it. The default body
@@ -36397,6 +37494,8 @@ html[data-theme] .desktop-body:has(> :is(
   outline: 0;
 }
 
+.binance-account-content.profit-calendar { width: min(80%, 896px); }
+
 .binance-account-summary-card,
 .binance-account-unbound-card {
   border: 1px solid var(--binance-border);
@@ -36405,7 +37504,7 @@ html[data-theme] .desktop-body:has(> :is(
   color: var(--binance-text);
 }
 
-.binance-account-summary-card { position: relative; padding: 23px 34px 26px; }
+.binance-account-summary-card { position: relative; border: 1px solid var(--card-border-subtle); padding: 23px 34px 26px; }
 .binance-account-summary-card > header { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .binance-account-summary-heading { display: flex; min-width: 0; align-items: center; gap: 4px; }
 .binance-account-summary-card h2 { margin: 0; font-size: calc(16px + var(--app-font-size-offset)); font-weight: 400; line-height: 28px; }
@@ -36447,7 +37546,7 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-visibility-button:active { background: var(--binance-surface-active); }
 
 .binance-account-primary-amount { display: flex; align-items: baseline; gap: 12px; margin-top: 19px; }
-.binance-account-primary-amount strong { font-size: calc(31px + var(--app-font-size-offset)); font-weight: 500; line-height: 1; letter-spacing: -0.35px; font-variant-numeric: tabular-nums; }
+.binance-account-primary-amount strong { font-size: calc(31px + var(--app-font-size-offset)); font-weight: 600; line-height: 1; letter-spacing: -0.15px; font-variant-numeric: tabular-nums; }
 .binance-account-primary-amount.compact strong { font-size: calc(31px + var(--app-font-size-offset)); }
 .binance-account-primary-amount span { color: var(--binance-text); font-size: calc(14px + var(--app-font-size-offset)); font-weight: 600; }
 .binance-account-pnl-row,
@@ -36472,6 +37571,59 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-metric > strong { display: block; margin-top: 8px; color: inherit; font-size: calc(20px + var(--app-font-size-offset)); font-variant-numeric: tabular-nums; font-weight: 500; }
 .binance-account-metric > small { display: block; margin-top: 5px; color: var(--binance-text-muted); font-size: calc(11px + var(--app-font-size-offset)); }
 
+.binance-account-profit-calendar {
+  min-width: 0;
+  border: 1px solid var(--card-border-subtle);
+  border-radius: 16px;
+  background: var(--binance-surface);
+  padding: 23px 26px 24px;
+  color: var(--binance-text);
+}
+.binance-account-profit-calendar > header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; }
+.binance-account-profit-calendar h2 { margin: 0; font-size: calc(16px + var(--app-font-size-offset)); font-weight: 400; line-height: 28px; }
+.binance-account-profit-month-total { display: flex; min-width: 0; align-items: baseline; gap: 5px; margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.binance-account-profit-month-total > span { position: relative; top: -1px; color: var(--binance-text-secondary); font-size: calc(12px + var(--app-font-size-offset)); }
+.binance-account-profit-month-total > strong { color: inherit; font-size: calc(14px + var(--app-font-size-offset)); font-weight: 500; }
+.binance-account-profit-month-total > small { position: relative; top: -1px; color: var(--binance-label-text); font-size: calc(11px + var(--app-font-size-offset)); }
+.binance-account-profit-month-nav { display: flex; width: max-content; align-items: center; gap: 8px; margin-top: 12px; }
+.binance-account-profit-month-nav > strong { min-width: 104px; color: var(--binance-text-secondary); font-size: calc(14px + var(--app-font-size-offset)); font-weight: 500; line-height: 32px; text-align: center; font-variant-numeric: tabular-nums; }
+.binance-account-profit-month-nav > button { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--binance-border-strong); border-radius: 8px; background: var(--binance-surface); padding: 0; color: var(--binance-text-secondary); cursor: pointer; transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform 100ms ease; }
+.binance-account-profit-month-nav > button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.binance-account-profit-month-nav > button:hover:not(:disabled) { border-color: var(--binance-text-secondary); background: var(--binance-surface-hover); color: var(--binance-text); }
+.binance-account-profit-month-nav > button:active:not(:disabled) { background: var(--binance-surface-active); transform: translateY(1px); }
+.binance-account-profit-month-nav > button:disabled { border-color: var(--binance-border); background: var(--binance-surface-disabled); color: var(--binance-text-muted); }
+.binance-account-profit-weekdays,
+.binance-account-profit-grid,
+.binance-account-profit-calendar-loading { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; }
+.binance-account-profit-weekdays { margin-top: 9px; color: var(--binance-text-secondary); font-size: calc(11px + var(--app-font-size-offset)); text-align: center; }
+.binance-account-profit-weekdays > span { line-height: 24px; }
+.binance-account-profit-grid { margin-top: 4px; }
+.binance-account-profit-leading { grid-column: span var(--leading-days); }
+.binance-account-profit-day {
+  display: grid;
+  min-width: 0;
+  min-height: 52px;
+  align-content: center;
+  justify-items: center;
+  gap: 2px;
+  border: 1px solid var(--binance-calendar-cell-border);
+  border-radius: 11px;
+  background: var(--binance-calendar-neutral-bg);
+  color: var(--binance-text);
+  font-variant-numeric: tabular-nums;
+}
+.binance-account-profit-day > strong { font-size: calc(14px + var(--app-font-size-offset)); font-weight: 500; line-height: 20px; }
+.binance-account-profit-day > span { max-width: calc(100% - 10px); overflow: hidden; color: var(--binance-text-secondary); font-size: calc(12px + var(--app-font-size-offset)); line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.binance-account-profit-day.profit { border-color: color-mix(in srgb, var(--binance-calendar-profit-text) 22%, var(--binance-calendar-cell-border)); background: var(--binance-calendar-profit-bg); }
+.binance-account-profit-day.loss { border-color: color-mix(in srgb, var(--binance-calendar-loss-text) 22%, var(--binance-calendar-cell-border)); background: var(--binance-calendar-loss-bg); }
+.binance-account-profit-day.profit > span { color: var(--binance-calendar-profit-text); }
+.binance-account-profit-day.loss > span { color: var(--binance-calendar-loss-text); }
+.binance-account-profit-day.concealed { background: var(--binance-calendar-neutral-bg); color: var(--binance-text-muted); }
+.binance-account-profit-calendar-loading { margin-top: 6px; }
+.binance-account-profit-calendar-skeleton { min-height: 52px; border-radius: 11px; }
+.binance-account-profit-calendar-error { display: grid; min-height: 230px; place-items: center; align-content: center; gap: 12px; color: var(--binance-text-muted); font-size: calc(12px + var(--app-font-size-offset)); text-align: center; }
+.binance-account-profit-calendar-error .binance-account-quiet-button { min-width: 72px; }
+
 .binance-account-positions { min-width: 0; }
 .binance-account-position-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .binance-account-position-card { min-width: 0; border: 1px solid var(--binance-border); border-radius: 14px; background: var(--binance-surface); padding: 18px 20px 20px; color: var(--binance-text); }
@@ -36490,13 +37642,37 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-position-metrics { display: grid; margin-top: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 12px; }
 .binance-account-position-metrics > div { display: grid; min-width: 0; gap: 5px; }
 .binance-account-position-metrics strong { overflow: hidden; color: var(--binance-text); font-size: calc(13px + var(--app-font-size-offset)); font-weight: 500; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
-.binance-account-empty-positions { display: grid; min-height: 170px; place-items: center; align-content: center; border: 1px solid var(--binance-border); border-radius: 14px; background: var(--binance-surface); color: var(--binance-text-secondary); }
+.binance-account-empty-positions { display: grid; min-height: 170px; place-items: center; align-content: center; border: 0; border-radius: 0; background: transparent; color: var(--binance-text-secondary); }
 .binance-account-empty-positions strong { font-size: calc(14px + var(--app-font-size-offset)); font-weight: 400; }
 
+.binance-account-open-orders { min-width: 0; }
+.binance-account-open-order-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.binance-account-open-order-card { min-width: 0; border: 1px solid var(--binance-border); border-radius: 14px; background: var(--binance-surface); padding: 18px 20px 20px; color: var(--binance-text); }
+.binance-account-open-order-card > header { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.binance-account-open-order-symbol { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.binance-account-open-order-symbol > strong { overflow: hidden; font-size: calc(15px + var(--app-font-size-offset)); line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }
+.binance-account-open-order-symbol > span { flex: 0 0 auto; border-radius: 5px; background: var(--binance-surface-hover); padding: 3px 5px; color: var(--binance-text-secondary); font-size: calc(9px + var(--app-font-size-offset)); }
+.binance-account-open-order-progress { display: grid; width: 64px; flex: 0 0 64px; justify-items: center; gap: 6px; color: var(--binance-text-secondary); }
+.binance-account-open-order-progress > strong { font-size: calc(11px + var(--app-font-size-offset)); font-variant-numeric: tabular-nums; font-weight: 500; }
+.binance-account-open-order-progress > span { position: relative; display: block; width: 56px; height: 5px; overflow: hidden; border-radius: 999px; background: var(--binance-surface-active); }
+.binance-account-open-order-progress i { position: absolute; inset: 0 auto 0 0; max-width: 100%; border-radius: inherit; background: var(--binance-positive); }
+.binance-account-open-order-card.sell .binance-account-open-order-progress i { background: var(--binance-negative); }
+.binance-account-open-order-intro { display: flex; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-top: 5px; }
+.binance-account-open-order-intro > strong { color: var(--binance-positive); font-size: calc(11px + var(--app-font-size-offset)); font-weight: 500; }
+.binance-account-open-order-card.sell .binance-account-open-order-intro > strong { color: var(--binance-negative); }
+.binance-account-open-order-intro time { color: var(--binance-text-muted); font-size: calc(11px + var(--app-font-size-offset)); font-variant-numeric: tabular-nums; }
+.binance-account-open-order-details { display: grid; margin-top: 18px; gap: 10px; }
+.binance-account-open-order-details > div { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 24px; }
+.binance-account-open-order-details span { color: var(--binance-text-secondary); font-size: calc(13px + var(--app-font-size-offset)); }
+.binance-account-open-order-details strong { min-width: 0; color: var(--binance-text); font-size: calc(13px + var(--app-font-size-offset)); font-variant-numeric: tabular-nums; font-weight: 400; text-align: right; overflow-wrap: anywhere; }
+.binance-account-empty-open-orders { display: grid; min-height: 210px; place-items: center; align-content: center; gap: 8px; border: 0; border-radius: 14px; background: var(--binance-surface); color: var(--binance-text-secondary); text-align: center; }
+.binance-account-empty-open-orders strong { font-size: calc(14px + var(--app-font-size-offset)); font-weight: 400; }
+.binance-account-empty-open-orders span { color: var(--binance-text-muted); font-size: calc(11px + var(--app-font-size-offset)); }
+
 .binance-account-position-history { min-width: 0; }
-.binance-account-history-list { overflow: hidden; border: 1px solid var(--binance-border); border-radius: 14px; background: var(--binance-surface); }
+.binance-account-history-list { overflow: hidden; border: 1px solid var(--card-border-subtle); border-radius: 14px; background: var(--binance-surface); }
 .binance-account-history-card { min-width: 0; padding: 18px 20px 20px; color: var(--binance-text); }
-.binance-account-history-card + .binance-account-history-card { border-top: 1px solid var(--binance-border); }
+.binance-account-history-card + .binance-account-history-card { border-top: 1px solid var(--card-border-subtle); }
 .binance-account-history-card > header { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .binance-account-history-symbol { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px; }
 .binance-account-history-symbol > strong { overflow: hidden; font-size: calc(15px + var(--app-font-size-offset)); text-overflow: ellipsis; white-space: nowrap; }
@@ -36504,9 +37680,7 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-history-symbol > .binance-account-history-direction { background: color-mix(in srgb, var(--binance-positive) 12%, transparent); color: var(--binance-positive); }
 .binance-account-history-card.short .binance-account-history-symbol > .binance-account-history-direction { background: color-mix(in srgb, var(--binance-negative) 12%, transparent); color: var(--binance-negative); }
 .binance-account-history-symbol > .binance-account-history-close-type { background: transparent; padding-inline: 2px; color: var(--binance-text-secondary); }
-.binance-account-history-time { display: flex; min-width: 0; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 4px 7px; color: var(--binance-text-muted); font-size: calc(9px + var(--app-font-size-offset)); line-height: 1.5; text-align: right; }
-.binance-account-history-time i { width: 1px; height: 12px; align-self: center; background: var(--binance-border-strong); }
-.binance-account-history-time small { color: inherit; font: inherit; }
+.binance-account-history-time { display: flex; min-width: 0; flex: 0 1 auto; justify-content: flex-end; color: var(--binance-text-muted); font-size: calc(9px + var(--app-font-size-offset)); font-variant-numeric: tabular-nums; line-height: 1.5; text-align: right; white-space: nowrap; }
 .binance-account-history-body { display: grid; margin-top: 17px; grid-template-columns: minmax(0, 1.35fr) repeat(4, minmax(0, 1fr)); gap: 18px; }
 .binance-account-history-featured,
 .binance-account-history-metric { display: grid; min-width: 0; align-content: start; gap: 5px; }
@@ -36519,11 +37693,8 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-empty-history strong { font-size: calc(14px + var(--app-font-size-offset)); font-weight: 400; }
 .binance-account-empty-history span { color: var(--binance-text-muted); font-size: calc(11px + var(--app-font-size-offset)); }
 
-.binance-account-warning { display: grid; gap: 4px; border: 1px solid color-mix(in srgb, var(--binance-warning-text) 24%, var(--binance-border)); border-radius: 10px; background: var(--binance-warning-bg); padding: 10px 13px; color: var(--binance-warning-text); font-size: calc(11px + var(--app-font-size-offset)); }
-.binance-account-warning.error { border-color: color-mix(in srgb, var(--binance-negative) 25%, var(--binance-border)); background: var(--binance-danger-bg); color: var(--binance-negative); }
-
 .binance-account-unbound-wrap,
-.binance-account-loading {
+.binance-account-loading.error {
   display: grid;
   min-height: 0;
   flex: 1 1 auto;
@@ -36547,16 +37718,57 @@ html[data-theme] .desktop-body:has(> :is(
 .binance-account-unbound-icon circle { stroke-width: 2; }
 .binance-account-unbound-icon path { stroke-width: 2; }
 
-.binance-account-loading { align-content: center; gap: 9px; color: var(--binance-text-secondary); text-align: center; }
-.binance-account-loading:not(.error) > strong { font-weight: 400; }
+.binance-account-loading.error { align-content: center; gap: 9px; color: var(--binance-text-secondary); text-align: center; }
 .binance-account-loading p { max-width: 430px; margin: 0; color: var(--binance-text-muted); font-size: calc(12px + var(--app-font-size-offset)); line-height: 1.6; }
 .binance-account-loading.error strong { color: var(--binance-negative); }
 .binance-account-loading.error button { margin-top: 10px; }
-.binance-account-loading-spinner,
 .binance-account-button-spinner { display: inline-block; border: 2px solid color-mix(in srgb, currentColor 25%, transparent); border-top-color: currentColor; border-radius: 50%; animation: binance-account-spin 700ms linear infinite; }
-.binance-account-loading-spinner { width: 28px; height: 28px; color: var(--binance-action); }
 .binance-account-button-spinner { width: 13px; height: 13px; margin-right: 7px; vertical-align: -2px; }
 @keyframes binance-account-spin { to { transform: rotate(360deg); } }
+
+.binance-account-skeleton-view { pointer-events: none; }
+.binance-account-skeleton-toolbar { min-height: 34px; }
+.binance-account-skeleton-tabs,
+.binance-account-skeleton-actions,
+.binance-account-skeleton-heading,
+.binance-account-skeleton-amount { display: flex; align-items: center; }
+.binance-account-skeleton-tabs { min-width: 0; flex: 1 1 auto; gap: 18px; }
+.binance-account-skeleton-actions { flex: 0 0 auto; gap: 8px; margin-right: 8px; }
+.binance-account-skeleton-heading { min-height: 28px; gap: 8px; }
+.binance-account-skeleton-amount { gap: 12px; margin-top: 19px; }
+.binance-account-skeleton {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--binance-skeleton);
+}
+.binance-account-skeleton::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--binance-skeleton-shine), transparent);
+  animation: binance-account-skeleton-shimmer 1.35s ease-in-out infinite;
+}
+.binance-account-skeleton-tab { width: 58px; height: 20px; border-radius: 10px; }
+.binance-account-skeleton-tab.wide { width: 82px; }
+.binance-account-skeleton-action { width: 32px; height: 32px; border-radius: 7px; }
+.binance-account-skeleton-title { width: 116px; height: 20px; }
+.binance-account-skeleton-title.short { width: 100px; }
+.binance-account-skeleton-eye { width: 18px; height: 18px; border-radius: 50%; }
+.binance-account-skeleton-total { width: min(235px, 38vw); height: 31px; }
+.binance-account-skeleton-total.compact { width: min(188px, 32vw); }
+.binance-account-skeleton-currency { width: 46px; height: 16px; }
+.binance-account-skeleton-pnl { width: 174px; height: 16px; margin-top: 14px; }
+.binance-account-skeleton-pnl.compact { width: 205px; }
+.binance-account-skeleton-metric-grid { display: grid; margin-top: 28px; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.binance-account-skeleton-metric { display: grid; min-width: 0; gap: 8px; }
+.binance-account-skeleton-metric-label { width: min(110px, 78%); height: 14px; }
+.binance-account-skeleton-metric-value { width: min(132px, 88%); height: 22px; }
+@keyframes binance-account-skeleton-shimmer {
+  to { transform: translateX(100%); }
+}
 
 .binance-account-dialog-backdrop { position: fixed; z-index: 1290; inset: 0; background: rgba(8, 10, 14, 0.54); backdrop-filter: blur(3px); }
 .binance-account-dialog {
@@ -36618,7 +37830,11 @@ html[data-theme="dark"] .binance-account-dialog button:focus-visible { outline-c
 
 @media (max-width: 1000px) {
   .binance-account-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .binance-account-skeleton-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .binance-account-profit-day,
+  .binance-account-profit-calendar-skeleton { min-height: 76px; }
   .binance-account-position-list { grid-template-columns: minmax(0, 1fr); }
+  .binance-account-open-order-list { grid-template-columns: minmax(0, 1fr); }
   .binance-account-history-card > header { flex-direction: column; gap: 10px; }
   .binance-account-history-time { justify-content: flex-start; text-align: left; }
   .binance-account-history-body { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -36630,8 +37846,22 @@ html[data-theme="dark"] .binance-account-dialog button:focus-visible { outline-c
   .binance-account-bound-view { padding-top: 22px; }
   .binance-account-toolbar { width: calc(100% - 40px); }
   .binance-account-content { padding: 4px 20px 30px; }
+  .binance-account-content.profit-calendar { width: 100%; }
   .binance-account-summary-card { padding: 19px 20px 22px; }
+  .binance-account-profit-calendar { padding: 19px 20px 22px; }
+  .binance-account-profit-weekdays,
+  .binance-account-profit-grid,
+  .binance-account-profit-calendar-loading { gap: 6px; }
+  .binance-account-profit-day,
+  .binance-account-profit-calendar-skeleton { min-height: 66px; border-radius: 9px; }
+  .binance-account-profit-day { gap: 3px; }
+  .binance-account-profit-day > strong { font-size: calc(12px + var(--app-font-size-offset)); }
+  .binance-account-profit-day > span { font-size: calc(10px + var(--app-font-size-offset)); }
   .binance-account-position-card { padding: 17px 18px 19px; }
+  .binance-account-open-order-card { padding: 17px 18px 19px; }
+  .binance-account-open-order-card > header { gap: 14px; }
+  .binance-account-open-order-details > div { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .binance-account-open-order-details strong { text-align: left; }
   .binance-account-position-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .binance-account-history-card { padding: 17px 18px 19px; }
   .binance-account-history-body { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; }
@@ -36642,7 +37872,7 @@ html[data-theme="dark"] .binance-account-dialog button:focus-visible { outline-c
 @media (prefers-reduced-motion: reduce) {
   .binance-account-page button,
   .binance-account-dialog button { transition: none; }
-  .binance-account-loading-spinner,
   .binance-account-button-spinner,
   .binance-account-action-icon-button.refreshing svg { animation-duration: 1400ms; }
+  .binance-account-skeleton::after { animation: none; }
 }

@@ -43,7 +43,7 @@ test("sidebar actions follow Codex order, with settings moved from the titlebar 
   const titlebarActions = sourceBlock(source, "function renderTitlebarPrimaryActions", "function renderWindowControls");
   const footer = sourceBlock(source, "function renderConversationListFooter", "function renderChatList");
   const chatList = sourceBlock(source, "function renderChatList", "function isHaoloContact");
-  const labels = ["新任务", "账户", "预警", "知识库", "策略"];
+  const labels = ["新任务", "账户", "计划", "策略"];
   let cursor = -1;
   for (const label of labels) {
     const index = actions.indexOf(`<span>${label}</span>`);
@@ -52,8 +52,8 @@ test("sidebar actions follow Codex order, with settings moved from the titlebar 
   }
   assert.match(actions, /data-action="new-chat"/);
   assert.match(actions, /renderConversationListIcon\("account"\)/);
-  assert.match(actions, /renderConversationListIcon\("alerts"\)/);
-  assert.match(actions, /renderConversationListIcon\("knowledge"\)/);
+  assert.match(actions, /renderConversationListIcon\("plans"\)/);
+  assert.doesNotMatch(actions, /data-conversation-static-action="knowledge"|renderConversationListIcon\("knowledge"\)|<span>知识库<\/span>/);
   assert.match(actions, /data-conversation-static-action="skills"/);
   assert.match(actions, /renderConversationListIcon\("skills"\)/);
   assert.doesNotMatch(actions, /data-trading-expert-panel-tab|role="tab"|aria-selected/);
@@ -82,7 +82,7 @@ test("the sidebar skills action opens the existing skills and plugins page", asy
   const openSkillsPage = sourceBlock(source, "function openMyConfigPage", "function openSettingsDialog");
   const eventBindings = source.slice(source.indexOf("function bindEvents()"));
 
-  assert.match(actions, /data-conversation-static-action="knowledge"[\s\S]*data-conversation-static-action="skills"/);
+  assert.match(actions, /data-conversation-static-action="plans"[\s\S]*data-conversation-static-action="skills"/);
   assert.match(actions, /data-conversation-static-action="skills"[\s\S]*<span>策略<\/span>/);
   assert.match(openSkillsPage, /state\.activeView = "skillsPlaza"/);
   assert.match(openSkillsPage, /state\.skillsPlazaTab = "mySkills"/);

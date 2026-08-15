@@ -10,6 +10,6 @@ test("local skill cards use the same fixed light-gray source icon in every theme
   const [domain, renderer, localIcon] = await Promise.all([domainSource, rendererSource, localIconSource]);
 
   assert.match(domain, /skillLocal: new URL\("\.\/assets\/home\/icon-skill-local\.svg", import\.meta\.url\)\.href/);
-  assert.equal((renderer.match(/HOME_ICON_URL\.skillLocal/g) || []).length, 2);
+  assert.equal((renderer.match(/HOME_ICON_URL\.skillLocal/g) || []).length, 1);
   assert.match(localIcon, /fill="#8B93A0"/);
 });

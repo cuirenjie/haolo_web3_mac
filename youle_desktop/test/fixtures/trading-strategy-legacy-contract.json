@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "catalog": [
+    {
+      "id": "chan",
+      "displayName": "缠论",
+      "mention": "@策略:缠论",
+      "layer": "ai/chan",
+      "legacyClassifyChannel": "tradingAnalysis:classifyChanRequest",
+      "legacyRunChannel": "tradingAnalysis:runChanTest",
+      "requestSourceSha256": "8ebc460e2076c17b1c8d73bf3863bf272829fa6cd09f41857bcfdc800c0b789c"
+    },
+    {
+      "id": "order-flow",
+      "displayName": "订单流",
+      "mention": "@策略:订单流",
+      "layer": "ai/order-flow",
+      "legacyClassifyChannel": "tradingAnalysis:classifyOrderFlowRequest",
+      "legacyRunChannel": "tradingAnalysis:runOrderFlow",
+      "requestSourceSha256": "7597b18b0860bd21607673d9950637003cc5a3e8f552e2ffd8978c651f31aeba"
+    },
+    {
+      "id": "wave",
+      "displayName": "波浪理论",
+      "mention": "@策略:波浪理论",
+      "layer": "ai/wave",
+      "legacyClassifyChannel": "tradingAnalysis:classifyWaveRequest",
+      "legacyRunChannel": "tradingAnalysis:runWave",
+      "requestSourceSha256": "482a4c27467513b0f49b86d19443bb07e1ae49ec7af3149abb448df7447925f2"
+    },
+    {
+      "id": "wyckoff",
+      "displayName": "威科夫",
+      "mention": "@策略:威科夫",
+      "layer": "ai/wyckoff",
+      "legacyClassifyChannel": "tradingAnalysis:classifyWyckoffRequest",
+      "legacyRunChannel": "tradingAnalysis:runWyckoff",
+      "requestSourceSha256": "a97e8fb3ac05d4a52df11f096689a7f308518898b96acfbc4afe05828fc66d0b"
+    }
+  ]
+}

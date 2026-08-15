@@ -33,7 +33,12 @@ import {
   tradingAnalysisJobs,
   type TradingAnalysisJobContext,
 } from "./trading-expert-analysis-jobs.ts";
-import type { TradingAiDrawingPatch, TradingAiPlaybackPhase } from "./trading-expert-ai-playback.ts";
+import type {
+  TradingAiDrawingPatch,
+  TradingAiDrawingColorToken,
+  TradingAiPlaybackPhase,
+  TradingIndicatorAiDrawingPatch,
+} from "./trading-expert-ai-playback.ts";
 import {
   TRADING_WAVE_AUTO_EXPANSION_MAX_CANDLES,
   TRADING_WAVE_HISTORY_BATCH_CANDLES,
@@ -43,6 +48,7 @@ import {
 import {
   DEFAULT_TRADING_CHART_SETTINGS,
   cloneTradingChartSettings,
+  filterTradingOrderLinesForDisplay,
   heikinAshiCandles,
   hlcCandles,
   loadTradingChartSettings,
@@ -73,10 +79,20 @@ import {
   tradingMarketAssetBadge,
 } from "./trading-expert-market-identity.ts";
 import { TradingFavoriteTickerSortController } from "./trading-expert-favorite-ticker-sort.ts";
+import {
+  buildTradingOrderLines,
+  type TradingOrderLine,
+  type TradingOrderLineAccountSnapshot,
+} from "./trading-expert-order-lines.ts";
+import {
+  TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES,
+  calculateTradingVolumeProfile,
+  clearTradingVolumeProfileLayer,
+  renderTradingVolumeProfileLayer,
+  type TradingVolumeProfile,
+} from "./trading-volume-profile.ts";
 
-const BINANCE_FUTURES_REST_URL = "https://fapi.binance.com";
 const BINANCE_FUTURES_WS_URL = "wss://fstream.binance.com/ws";
-const BINANCE_SPOT_REST_URL = "https://data-api.binance.vision";
 const BINANCE_SPOT_WS_URL = "wss://stream.binance.com:9443/ws";
 const DEFAULT_SYMBOL = "BTCUSDT";
 const DEFAULT_INTERVAL = "1D";
@@ -90,7 +106,8 @@ const TRADING_FAVORITE_MARKETS_STORAGE_KEY = "haolo.trading-market.favorite-reco
 const TRADING_LAST_ANALYSIS_CONTEXT_STORAGE_KEY_PREFIX = "haolo.trading-market.last-analysis-context.v1.";
 const TRADING_LAST_DRAWING_WORKSPACE_STORAGE_KEY_PREFIX = "haolo.trading-market.last-drawing-workspace.v1.";
 const TRADING_ALERT_SIMULATION_STORAGE_KEY_PREFIX = "haolo.trading-market.alert-simulation.v1.";
-const TRADING_INDICATOR_SETTINGS_STORAGE_KEY = "haolo.trading-market.indicator-settings.v3";
+const TRADING_INDICATOR_SETTINGS_STORAGE_KEY = "haolo.trading-market.indicator-settings.v4";
+const PREVIOUS_TRADING_INDICATOR_SETTINGS_STORAGE_KEY = "haolo.trading-market.indicator-settings.v3";
 const LEGACY_TRADING_INDICATOR_SETTINGS_STORAGE_KEY = "haolo.trading-market.indicator-settings.v2";
 const OLDEST_TRADING_INDICATOR_SETTINGS_STORAGE_KEY = "haolo.trading-market.indicator-settings.v1";
 
@@ -102,21 +119,192 @@ export const TRADING_EXPERT_TREND_BAND_MENTION = "@自定义指标:趋势带";
 const MAX_TRADING_PERIODS = 10;
 const MAX_TRADING_FAVORITES = 500;
 export const MAX_TRADING_FAVORITE_TICKERS = 12;
+const DEFAULT_TRADING_FAVORITE_SYMBOLS = ["BTCUSDT", "ETHUSDT"] as const;
+export const DEFAULT_TRADING_FAVORITE_MARKET_IDS = DEFAULT_TRADING_FAVORITE_SYMBOLS
+  .map((symbol) => `BINANCE:FUTURES:${symbol}`);
 const MARKET_LIVE_PAINT_INTERVAL_MS = 100;
 const MARKET_BACKGROUND_PAINT_INTERVAL_MS = 1_000;
 const MARKET_LIVE_FULL_REFRESH_INTERVAL_MS = 1_000;
 const MARKET_SOCKET_STALE_MS = 2_500;
 const MARKET_SOCKET_WATCHDOG_MS = 8_000;
-const MARKET_SOCKET_FALLBACK_INTERVAL_MS = 1_000;
-const FAVORITE_TICKER_FALLBACK_INTERVAL_MS = 1_000;
+const MARKET_SOCKET_FALLBACK_INTERVAL_MS = 5_000;
+const FAVORITE_TICKER_FALLBACK_INTERVAL_MS = 5_000;
 const FAVORITE_TICKER_FALLBACK_TIMEOUT_MS = 8_000;
 const FAVORITE_TICKER_SOCKET_STALE_MS = 2_500;
 const FAVORITE_TICKER_SOCKET_WATCHDOG_MS = 8_000;
+const BINANCE_MARKET_RATE_LIMIT_DEFAULT_MS = 60_000;
+const BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS = 500;
 const FINNHUB_SEARCH_DEBOUNCE_MS = 480;
 const GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE = "目前版本此交易对数据还未接入";
 
+let binanceMarketRestRetryAt = 0;
+
+export function parseBinanceMarketRetryAfterMs(value: unknown, nowMs = Date.now()) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const seconds = Number(text);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000);
+  const dateMs = Date.parse(text);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - nowMs) : null;
+}
+
+export function binanceMarketRestCooldownRemaining(nowMs = Date.now()) {
+  return Math.max(0, binanceMarketRestRetryAt - nowMs);
+}
+
+function recordBinanceMarketRateLimit(value: unknown) {
+  const parsed = Number(value);
+  const retryAfterMs = Number.isFinite(parsed) && parsed > 0
+    ? Math.ceil(parsed)
+    : BINANCE_MARKET_RATE_LIMIT_DEFAULT_MS;
+  binanceMarketRestRetryAt = Math.max(binanceMarketRestRetryAt, Date.now() + retryAfterMs);
+  return retryAfterMs;
+}
+
+function binanceMarketRateLimitMessage(retryAfterMs: number) {
+  return `Binance 行情请求频率受限，约 ${Math.max(1, Math.ceil(retryAfterMs / 1_000))} 秒后自动重试`;
+}
+
 export function hasTradingExpertTrendBandMention(text: string) {
   return String(text || "").includes(TRADING_EXPERT_TREND_BAND_MENTION);
+}
+
+const TRADING_INDICATOR_AI_TOOLS = new Set(["path", "note", "text"]);
+const TRADING_INDICATOR_AI_COLOR_TOKENS = new Set([
+  "strategy-primary", "strategy-support", "strategy-resistance", "strategy-entry",
+  "strategy-stop", "strategy-target", "strategy-note",
+]);
+const TRADING_INDICATOR_AI_COLOR_VARIABLES: Record<TradingAiDrawingColorToken, string> = {
+  "chan-pen": "--trading-ai-chan-pen",
+  "chan-center": "--trading-ai-chan-center",
+  "chan-top": "--trading-ai-chan-top",
+  "chan-bottom": "--trading-ai-chan-bottom",
+  "chan-note": "--trading-ai-chan-note",
+  "order-flow-buy": "--trading-ai-order-flow-buy",
+  "order-flow-sell": "--trading-ai-order-flow-sell",
+  "order-flow-poc": "--trading-ai-order-flow-poc",
+  "order-flow-note": "--trading-ai-order-flow-note",
+  "order-flow-structure-bull": "--trading-ai-order-flow-structure-bull",
+  "order-flow-structure-bear": "--trading-ai-order-flow-structure-bear",
+  "order-flow-ob-bull": "--trading-ai-order-flow-ob-bull",
+  "order-flow-ob-bear": "--trading-ai-order-flow-ob-bear",
+  "order-flow-fvg-bull": "--trading-ai-order-flow-fvg-bull",
+  "order-flow-fvg-bear": "--trading-ai-order-flow-fvg-bear",
+  "order-flow-liquidity": "--trading-ai-order-flow-liquidity",
+  "order-flow-equilibrium": "--trading-ai-order-flow-equilibrium",
+  "order-flow-ote": "--trading-ai-order-flow-ote",
+  "wave-primary": "--trading-ai-wave-primary",
+  "wave-correction": "--trading-ai-wave-correction",
+  "wave-alternative": "--trading-ai-wave-alternative",
+  "wave-fibonacci": "--trading-ai-wave-fibonacci",
+  "wave-note": "--trading-ai-wave-note",
+  "wyckoff-range": "--trading-ai-wyckoff-range",
+  "wyckoff-demand": "--trading-ai-wyckoff-demand",
+  "wyckoff-supply": "--trading-ai-wyckoff-supply",
+  "wyckoff-phase": "--trading-ai-wyckoff-phase",
+  "wyckoff-event-bull": "--trading-ai-wyckoff-event-bull",
+  "wyckoff-event-bear": "--trading-ai-wyckoff-event-bear",
+  "wyckoff-projection": "--trading-ai-wyckoff-projection",
+  "wyckoff-note": "--trading-ai-wyckoff-note",
+  "price-action-trend": "--trading-ai-price-action-trend",
+  "price-action-support": "--trading-ai-price-action-support",
+  "price-action-resistance": "--trading-ai-price-action-resistance",
+  "price-action-note": "--trading-ai-price-action-note",
+  "strategy-primary": "--trading-ai-strategy-primary",
+  "strategy-support": "--trading-ai-strategy-support",
+  "strategy-resistance": "--trading-ai-strategy-resistance",
+  "strategy-entry": "--trading-ai-strategy-entry",
+  "strategy-stop": "--trading-ai-strategy-stop",
+  "strategy-target": "--trading-ai-strategy-target",
+  "strategy-note": "--trading-ai-strategy-note",
+};
+
+function tradingIndicatorAiLineStyle(style?: string) {
+  if (style === "dotted") return LineStyle.Dotted;
+  if (style === "dashed") return LineStyle.Dashed;
+  return LineStyle.Solid;
+}
+
+export function normalizeTradingIndicatorAiDrawingPatch(value: unknown): TradingIndicatorAiDrawingPatch {
+  const patch = value as Partial<TradingIndicatorAiDrawingPatch> | null;
+  const indicatorId = String(patch?.indicatorId || "").trim().toLowerCase();
+  if (
+    Number(patch?.schemaVersion) !== 1
+    || !String(patch?.analysisId || "").trim()
+    || !String(patch?.marketId || "").trim()
+    || !String(patch?.interval || "").trim()
+    || !/^[a-z][a-z0-9-]{1,63}$/.test(indicatorId)
+    || !Array.isArray(patch?.operations)
+    || !patch.operations.length
+    || patch.operations.length > 64
+  ) throw new TypeError("Indicator drawing patch is invalid");
+  const operations = patch.operations.map((operation, index) => {
+    const drawing = operation?.drawing;
+    const strategyId = String(drawing?.strategyId || "");
+    const points = Array.isArray(drawing?.points) ? drawing.points : [];
+    if (
+      operation?.op !== "upsert"
+      || !drawing
+      || drawing.theory !== "strategy"
+      || !/^[a-z][a-z0-9-]{1,63}$/.test(strategyId)
+      || drawing.layer !== `ai/strategy/${strategyId}`
+      || !TRADING_INDICATOR_AI_TOOLS.has(drawing.tool)
+      || !TRADING_INDICATOR_AI_COLOR_TOKENS.has(drawing.colorToken)
+      || !points.length
+      || points.length > 64
+      || !points.every((point) => Number.isFinite(point?.time) && point.time > 0 && Number.isFinite(point?.value))
+      || (drawing.tool === "path" && points.length < 2)
+      || ((drawing.tool === "note" || drawing.tool === "text") && points.length !== 1)
+    ) throw new TypeError(`Indicator drawing operation ${index} is invalid`);
+    return {
+      op: "upsert" as const,
+      drawing: {
+        id: String(drawing.id || `indicator-ai-${index}`).slice(0, 160),
+        strategyId,
+        theory: "strategy" as const,
+        layer: `ai/strategy/${strategyId}` as const,
+        tool: drawing.tool,
+        points: points.map((point) => ({ time: Number(point.time), value: Number(point.value) })),
+        text: typeof drawing.text === "string" ? drawing.text.slice(0, 120) : undefined,
+        colorToken: drawing.colorToken,
+        lineStyle: drawing.lineStyle === "solid" || drawing.lineStyle === "dashed" || drawing.lineStyle === "dotted" ? drawing.lineStyle : undefined,
+        lineWidth: Number.isFinite(drawing.lineWidth) && Number(drawing.lineWidth) >= 0.5 && Number(drawing.lineWidth) <= 4 ? Number(drawing.lineWidth) : undefined,
+        fontSize: Number.isFinite(drawing.fontSize) ? Number(drawing.fontSize) : undefined,
+        bold: drawing.bold === true,
+        markerSize: Number.isFinite(drawing.markerSize)
+          && Number(drawing.markerSize) >= (drawing.tool === "text" ? 0 : 0.1)
+          && Number(drawing.markerSize) <= 2
+          ? Number(drawing.markerSize)
+          : undefined,
+        locked: true as const,
+        status: drawing.status === "tentative" ? "tentative" as const : "confirmed" as const,
+        evidenceIds: Array.isArray(drawing.evidenceIds) ? drawing.evidenceIds.map(String).slice(0, 32) : [],
+      },
+    };
+  });
+  return {
+    schemaVersion: 1,
+    analysisId: String(patch.analysisId).slice(0, 160),
+    baseRevision: Math.max(0, Number(patch.baseRevision) || 0),
+    marketId: String(patch.marketId),
+    interval: String(patch.interval),
+    indicatorId,
+    operations,
+  };
+}
+
+export function strictlyAscendingTradingIndicatorPathPoints(
+  points: Array<{ time: number; value: number }>,
+) {
+  let previousTime = Number.NEGATIVE_INFINITY;
+  return points
+    .slice()
+    .sort((first, second) => first.time - second.time)
+    .map((point) => {
+      const time = point.time <= previousTime ? previousTime + 1 : point.time;
+      previousTime = time;
+      return { time, value: point.value };
+    });
 }
 
 type TradingMarketProvider = "binance" | "finnhub" | "ifind";
@@ -129,6 +317,7 @@ interface TradingChanAnalysisResponse {
     narrative?: string;
     report?: string;
     drawingPatch?: TradingAiDrawingPatch;
+    indicatorDrawingPatch?: TradingIndicatorAiDrawingPatch;
   };
   model?: {
     providerId?: string;
@@ -242,6 +431,13 @@ export interface TradingGeneralConversationRequest {
   lookbackMs?: number | null;
   lookbackLabel?: string | null;
   drawingRequested?: boolean;
+  strategyDisplayName?: string | null;
+  minimumCandles?: number | null;
+  preferredCandles?: number | null;
+  visibleCandlesOnly?: boolean;
+  executionPlanRequested?: boolean;
+  contextCandlesRequested?: boolean;
+  comparisonCandlesRequested?: boolean;
   onProgress?: (phase: TradingGeneralConversationPhase, message: string) => void;
 }
 export interface TradingGeneralConversationResult {
@@ -253,6 +449,17 @@ export interface TradingGeneralConversationResult {
   candleCount: number;
   modelName: string;
 }
+export type TradingStrategyConversationRequest = Omit<TradingChanConversationRequest, "onProgress"> & {
+  strategyDisplayName?: string | null;
+  minimumCandles?: number | null;
+  preferredCandles?: number | null;
+  visibleCandlesOnly?: boolean;
+  executionPlanRequested?: boolean;
+  contextCandlesRequested?: boolean;
+  comparisonCandlesRequested?: boolean;
+  onProgress?: (phase: string, message: string) => void;
+};
+export type TradingStrategyConversationResult = TradingOrderFlowConversationResult;
 export type TradingPeriodUnit = "s" | "m" | "h" | "d" | "w";
 type AddableTradingPeriodUnit = Extract<TradingPeriodUnit, "m" | "h" | "d">;
 export interface TradingPeriod {
@@ -274,7 +481,7 @@ const HIDDEN_TRADING_INDICATORS: ReadonlySet<TradingIndicatorId> = new Set([
   "mfi",
   "willr",
 ]);
-export type TradingMainIndicatorId = "ma" | "ema" | "boll" | "td" | "bbi";
+export type TradingMainIndicatorId = "ma" | "ema" | "boll" | "td" | "bbi" | "vpvr";
 export const TRADING_MAIN_INDICATORS: ReadonlyArray<{
   id: TradingMainIndicatorId;
   label: string;
@@ -286,6 +493,7 @@ export const TRADING_MAIN_INDICATORS: ReadonlyArray<{
   { id: "boll", label: "BOLL", name: "布林带", parameters: "20,2" },
   { id: "td", label: "TD", name: "TD序列", parameters: "9" },
   { id: "bbi", label: "BBI", name: "多空指标", parameters: "3,6,12,24" },
+  { id: "vpvr", label: "VPVR", name: "可见范围成交量分布", parameters: "96" },
 ] as const;
 
 type TradingIndicatorScope = "main" | "sub";
@@ -388,6 +596,15 @@ export const TRADING_MARKET_INDICATOR_CATALOG: readonly TradingMarketIndicatorCa
     description: "综合多个周期移动平均线形成一条均衡线，用于判断市场整体多空方向。",
     parameters: [indicatorParameter("周期一", 3), indicatorParameter("周期二", 6), indicatorParameter("周期三", 12), indicatorParameter("周期四", 24)],
     display: [{ key: "bbi", label: "BBI", color: "#5b95e5", defaultLineWidth: 2 }],
+  },
+  {
+    scope: "main", id: "vpvr", label: "VPVR", name: "可见范围成交量分布",
+    description: "把当前屏幕内K线的成交量按高低价覆盖范围分配到价格档位，突出70%价值区和最大成交量价位（POC）。OHLCV不含逐笔成交价，因此分档结果为区间估算。",
+    parameters: [indicatorParameter("价格区间数", 96, { min: 8, max: 96 })],
+    display: [
+      { key: "volume", label: "成交量分布", color: "#5b95e5", type: "histogram" },
+      { key: "poc", label: "最大成交量价位（POC）", color: "#5b95e5", type: "markers" },
+    ],
   },
   {
     scope: "sub", id: "volume", label: "VOLUME", name: "成交量",
@@ -586,6 +803,18 @@ export function migrateTradingBarColors(
     const series = migrated[settingKey]?.series[seriesKey];
     if (series?.color.toLowerCase() === "#16a873") series.color = TRADING_RISING_BAR_COLOR;
   });
+  return migrated;
+}
+
+export function migrateTradingVpvrDefaults(
+  settings: TradingIndicatorSettings,
+): TradingIndicatorSettings {
+  const migrated = cloneTradingIndicatorSettings(settings);
+  const vpvr = migrated[tradingIndicatorSettingKey("main", "vpvr")];
+  if (vpvr?.parameters[0] === 32) vpvr.parameters[0] = 96;
+  if (vpvr?.series.poc?.color.toLowerCase() === "#f59e0b") {
+    vpvr.series.poc.color = "#5b95e5";
+  }
   return migrated;
 }
 
@@ -831,6 +1060,15 @@ export function loadTradingFavoritesFromStorage(
     : null;
   const rawSymbols = scopedSymbols ?? legacySymbols;
   const rawRecords = scopedRecords ?? legacyRecords;
+  if (rawSymbols === null && rawRecords === null) {
+    const records = DEFAULT_TRADING_FAVORITE_SYMBOLS
+      .map((symbol) => tradingFavoriteRecord(defaultBinancePerpetualMarket(symbol)));
+    return {
+      symbols: records.map((record) => record.id),
+      records,
+      migratedFromLegacy: false,
+    };
+  }
   return {
     symbols: normalizeTradingFavoriteSymbols(rawSymbols ? JSON.parse(rawSymbols) : []),
     records: normalizeTradingFavoriteMarketRecords(rawRecords ? JSON.parse(rawRecords) : []),
@@ -2070,15 +2308,19 @@ export function tradingFavoriteTickerStreamUrl(
   return `${rawUrl.replace(/\/ws$/, "/stream")}?streams=${streams.join("/")}`;
 }
 
-function defaultBinancePerpetualMarket(): TradingMarket {
+function defaultBinancePerpetualMarket(symbol = DEFAULT_SYMBOL): TradingMarket {
+  const normalizedSymbol = String(symbol || DEFAULT_SYMBOL).trim().toUpperCase();
+  const baseAsset = normalizedSymbol.endsWith(MARKET_QUOTE)
+    ? normalizedSymbol.slice(0, -MARKET_QUOTE.length)
+    : normalizedSymbol;
   return {
-    id: `BINANCE:FUTURES:${DEFAULT_SYMBOL}`,
+    id: `BINANCE:FUTURES:${normalizedSymbol}`,
     provider: "binance",
-    symbol: DEFAULT_SYMBOL,
-    baseAsset: "BTC",
+    symbol: normalizedSymbol,
+    baseAsset,
     quoteAsset: MARKET_QUOTE,
-    displaySymbol: `BTC/${MARKET_QUOTE}`,
-    description: `BTC/${MARKET_QUOTE} 币安永续合约`,
+    displaySymbol: `${baseAsset}/${MARKET_QUOTE}`,
+    description: `${baseAsset}/${MARKET_QUOTE} 币安永续合约`,
     venue: MARKET_VENUE,
     assetClass: "crypto",
     marketType: "perpetual",
@@ -2322,6 +2564,9 @@ interface IndicatorPaneRuntime {
   pane: any;
   legend: HTMLElement | null;
   series: IndicatorSeriesRuntime[];
+  analysisSeries: any[];
+  analysisMarkers: { setMarkers(markers: any[]): void } | null;
+  analysisSignature: string;
 }
 
 interface TradingAlertSimulationIndicatorSeriesRuntime {
@@ -2444,15 +2689,11 @@ async function fetchBinanceFutures<T>(
   parameters: Record<string, string | number | undefined> = {},
   signal?: AbortSignal,
 ): Promise<T> {
-  const url = new URL(path, BINANCE_FUTURES_REST_URL);
-  Object.entries(parameters).forEach(([key, value]) => {
-    if (value !== undefined) url.searchParams.set(key, String(value));
-  });
-  const response = await fetch(url, { cache: "no-store", signal });
-  if (!response.ok) {
-    throw new Error(`Binance Futures request failed: ${response.status}`);
+  const cooldownRemaining = binanceMarketRestCooldownRemaining();
+  if (cooldownRemaining > 0) {
+    throw new Error(binanceMarketRateLimitMessage(cooldownRemaining));
   }
-  return response.json() as Promise<T>;
+  return fetchBinancePublicMarketData<T>("futures", path, parameters, signal);
 }
 
 async function fetchBinanceSpot<T>(
@@ -2460,15 +2701,37 @@ async function fetchBinanceSpot<T>(
   parameters: Record<string, string | number | undefined> = {},
   signal?: AbortSignal,
 ): Promise<T> {
-  const url = new URL(path, BINANCE_SPOT_REST_URL);
-  Object.entries(parameters).forEach(([key, value]) => {
-    if (value !== undefined) url.searchParams.set(key, String(value));
-  });
-  const response = await fetch(url, { cache: "no-store", signal });
-  if (!response.ok) {
-    throw new Error(`Binance Spot request failed: ${response.status}`);
+  const cooldownRemaining = binanceMarketRestCooldownRemaining();
+  if (cooldownRemaining > 0) {
+    throw new Error(binanceMarketRateLimitMessage(cooldownRemaining));
   }
-  return response.json() as Promise<T>;
+  return fetchBinancePublicMarketData<T>("spot", path, parameters, signal);
+}
+
+async function fetchBinancePublicMarketData<T>(
+  marketType: "futures" | "spot",
+  path: string,
+  parameters: Record<string, string | number | undefined>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const request = window.codexDesktop?.getBinancePublicMarketData;
+  if (typeof request !== "function") throw new Error("Binance market gateway is unavailable");
+  if (signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
+  const pending = request({ marketType, path, parameters });
+  const response = signal
+    ? await new Promise<Awaited<ReturnType<typeof request>>>((resolve, reject) => {
+      const abort = () => reject(new DOMException("The operation was aborted", "AbortError"));
+      signal.addEventListener("abort", abort, { once: true });
+      pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    })
+    : await pending;
+  if (!response?.ok) {
+    if (response?.status === 418 || response?.status === 429) {
+      throw new Error(binanceMarketRateLimitMessage(recordBinanceMarketRateLimit(response?.retryAfterMs)));
+    }
+    throw new Error(String(response?.error || `Binance ${marketType} request failed: ${response?.status || 0}`));
+  }
+  return response.data as T;
 }
 
 function fetchBinanceMarket<T>(
@@ -2798,6 +3061,88 @@ async function fetchTradingCandles(
     ? sourceCandles
     : aggregateTradingCandles(sourceCandles, source.targetMs);
   return { candles: candles.slice(-count), sourceCandles, source };
+}
+
+export function hyperliquidIntervalForTradingResolution(resolution: string) {
+  const normalized = String(resolution || "").trim().toUpperCase();
+  if (normalized === "1D") return "1d";
+  if (normalized === "1W") return "1w";
+  const minutes = Number(normalized);
+  return new Map<number, string>([
+    [1, "1m"], [3, "3m"], [5, "5m"], [15, "15m"], [30, "30m"],
+    [60, "1h"], [120, "2h"], [240, "4h"], [480, "8h"], [720, "12h"], [4_320, "3d"],
+  ]).get(minutes) || null;
+}
+
+interface TradingSmtComparisonMarket {
+  marketId: string;
+  symbol: string;
+  source: "hyperliquid-public";
+  kind: "venue-confirmation" | "correlated-market";
+  candles: TradingCandle[];
+}
+
+function normalizeHyperliquidCandles(value: unknown): TradingCandle[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item: any): TradingCandle[] => {
+    const candle = {
+      time: Math.floor(Number(item?.t) / 1_000),
+      open: Number(item?.o),
+      high: Number(item?.h),
+      low: Number(item?.l),
+      close: Number(item?.c),
+      volume: Math.max(0, Number(item?.v) || 0),
+    };
+    if (
+      !Number.isFinite(candle.time)
+      || candle.time <= 0
+      || candle.low <= 0
+      || candle.high < Math.max(candle.open, candle.close)
+      || candle.low > Math.min(candle.open, candle.close)
+    ) return [];
+    return [candle];
+  }).sort((first, second) => first.time - second.time);
+}
+
+async function fetchHyperliquidComparisonCandles(
+  coin: string,
+  interval: string,
+  count: number,
+  endTime: number,
+) {
+  const request = window.codexDesktop?.getHyperliquidPublicCandles;
+  const hyperliquidInterval = hyperliquidIntervalForTradingResolution(interval);
+  const durationMs = tradingViewResolutionDurationMs(interval);
+  if (typeof request !== "function" || !hyperliquidInterval || !durationMs) return [];
+  const response = await request({
+    coin,
+    interval: hyperliquidInterval,
+    startTime: Math.max(1, endTime - durationMs * Math.min(5_000, Math.max(80, count + 8))),
+    endTime,
+  });
+  if (!response?.ok) throw new Error(String(response?.error || "Hyperliquid 行情请求失败"));
+  return normalizeHyperliquidCandles(response.data).slice(-Math.min(600, count));
+}
+
+export async function fetchTradingSmtComparisonMarkets(
+  market: Pick<TradingMarket, "id" | "symbol" | "baseAsset">,
+  interval: string,
+  count = 500,
+  endTime = Date.now(),
+): Promise<TradingSmtComparisonMarket[]> {
+  const baseAsset = String(market.baseAsset || market.symbol.replace(/(?:USDT|USDC|USD)$/i, "")).trim().toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9._-]{0,31}$/.test(baseAsset)) return [];
+  const correlatedCoin = baseAsset === "BTC" ? "ETH" : "BTC";
+  const requests = await Promise.allSettled([
+    fetchHyperliquidComparisonCandles(baseAsset, interval, count, endTime),
+    fetchHyperliquidComparisonCandles(correlatedCoin, interval, count, endTime),
+  ]);
+  const sameAsset = requests[0].status === "fulfilled" ? requests[0].value : [];
+  const correlated = requests[1].status === "fulfilled" ? requests[1].value : [];
+  return [
+    ...(sameAsset.length >= 30 ? [{ marketId: `HYPERLIQUID:PERP:${baseAsset}`, symbol: baseAsset, source: "hyperliquid-public" as const, kind: "venue-confirmation" as const, candles: sameAsset }] : []),
+    ...(correlated.length >= 30 ? [{ marketId: `HYPERLIQUID:PERP:${correlatedCoin}`, symbol: correlatedCoin, source: "hyperliquid-public" as const, kind: "correlated-market" as const, candles: correlated }] : []),
+  ];
 }
 
 async function fetchBinanceAggregateTrades(
@@ -3567,7 +3912,7 @@ function renderMarketChartActions() {
         aria-expanded="false"
         title="设置"
       >
-        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3"/><path d="M10 2.2v2M10 15.8v2M2.2 10h2M15.8 10h2M4.5 4.5l1.4 1.4M14.1 14.1l1.4 1.4M15.5 4.5l-1.4 1.4M5.9 14.1l-1.4 1.4"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
       <button
         type="button"
@@ -3663,6 +4008,13 @@ export function renderTradingExpertMarketWorkspace() {
           <div class="trading-market-chart-panel trading-market-primary-pane" data-market-primary-pane>
           <div class="trading-market-chart-viewport" data-market-chart-viewport>
             <div class="trading-market-chart" data-market-chart></div>
+            <svg
+              class="trading-market-volume-profile-layer"
+              data-market-volume-profile-layer
+              role="img"
+              aria-label="可见范围成交量分布"
+              hidden
+            ></svg>
             ${renderTradingDrawingLayer()}
             <div class="trading-alert-simulation-annotations" data-alert-simulation-annotations>
               <div class="trading-alert-simulation-point" data-alert-simulation-point hidden aria-label="模拟触发"><span>模拟触发</span></div>
@@ -3716,6 +4068,7 @@ class TradingExpertMarketWorkspace {
   private readonly favoriteTickerSortController: TradingFavoriteTickerSortController;
   private readonly indicatorLegendLayer: HTMLElement;
   private readonly mainIndicatorLegendElement: HTMLElement;
+  private readonly volumeProfileLayer: SVGSVGElement;
   private readonly periodControls: HTMLElement;
   private readonly periodTimes: HTMLElement;
   private readonly primaryPeriodMenu: HTMLElement;
@@ -3765,6 +4118,10 @@ class TradingExpertMarketWorkspace {
   private lockedPriceRange: { from: number; to: number } | null = null;
   private priceLockAnimationFrame: number | null = null;
   private drawingSettleAnimationFrame: number | null = null;
+  private volumeProfileWheelAnimationFrame: number | null = null;
+  private volumeProfileWheelFramesRemaining = 0;
+  private volumeProfileSnapshot: TradingVolumeProfile | null | undefined;
+  private volumeProfileSnapshotCandleCount = 0;
   private resettingChartViewport = false;
   private updatingChartData = false;
   private rebuildingIndicatorPanes = false;
@@ -3788,6 +4145,7 @@ class TradingExpertMarketWorkspace {
   private lastLiveChartFullRefreshAt = 0;
   private alertDrawingSyncTimer: number | null = null;
   private reconnectTimer: number | null = null;
+  private marketRateLimitRetryTimer: number | null = null;
   private favoriteTickerSockets: WebSocket[] = [];
   private favoriteTickerReconnectTimer: number | null = null;
   private favoriteTickerGeneration = 0;
@@ -3869,8 +4227,10 @@ class TradingExpertMarketWorkspace {
   private tdIndicatorDirections: Array<TdSequentialSignal["direction"] | null> = [];
   private tdMarkers: any = null;
   private indicatorPanes = new Map<TradingIndicatorId, IndicatorPaneRuntime>();
+  private indicatorAnalysisPatches = new Map<TradingIndicatorId, TradingIndicatorAiDrawingPatch>();
   private drawingController: TradingDrawingController | null = null;
   private activeDrawingController: TradingDrawingController | null = null;
+  private orderLines: TradingOrderLine[] = [];
   private chartSettings = cloneTradingChartSettings();
   private chartSettingsTab: TradingChartSettingsTab = "main-style";
   private splitLayoutId = "1-single";
@@ -3908,6 +4268,7 @@ class TradingExpertMarketWorkspace {
     this.syncTitlebarFavoriteTickerHost();
     this.indicatorLegendLayer = this.requireElement("[data-market-indicator-legends]");
     this.mainIndicatorLegendElement = this.requireElement("[data-market-main-indicator-legends]");
+    this.volumeProfileLayer = this.requireElement<SVGSVGElement>("[data-market-volume-profile-layer]");
     this.periodControls = this.requireElement("[data-market-period-controls]");
     this.periodTimes = this.requireElement("[data-market-times]");
     this.primaryPeriodMenu = this.requireElement("[data-market-primary-period-menu]");
@@ -4329,6 +4690,18 @@ class TradingExpertMarketWorkspace {
       } else if (target.type === "color") {
         theme[themeKey] = target.value.toUpperCase() as never;
       }
+    } else if (key.startsWith("orderDisplay.")) {
+      const orderDisplayKey = key.slice("orderDisplay.".length) as keyof TradingChartSettings["orderDisplay"];
+      if (
+        orderDisplayKey === "currentOrders"
+        || orderDisplayKey === "positions"
+        || orderDisplayKey === "liquidation"
+        || orderDisplayKey === "takeProfitStopLoss"
+      ) {
+        this.chartSettings.orderDisplay[orderDisplayKey] = target.checked;
+      } else {
+        return;
+      }
     } else if (key === "riseFallPalette") {
       const redUp = target.value === "red-up";
       this.chartSettings.risingColor = redUp ? "#F6465D" : "#2EBD85";
@@ -4420,6 +4793,7 @@ class TradingExpertMarketWorkspace {
     if (options.rebuildSeries) this.rebuildPrimarySeries();
     this.applyChartTheme();
     this.applyDrawingToolsSetting();
+    this.applyOrderDisplaySettings();
     this.updateCountdown();
   }
 
@@ -4436,6 +4810,15 @@ class TradingExpertMarketWorkspace {
       this.drawingController,
       ...this.splitPanes.map((pane) => pane.getDrawingController()),
     ].filter((controller): controller is TradingDrawingController => Boolean(controller));
+  }
+
+  private displayedOrderLines() {
+    return filterTradingOrderLinesForDisplay(this.orderLines, this.chartSettings.orderDisplay);
+  }
+
+  private applyOrderDisplaySettings() {
+    const visibleOrderLines = this.displayedOrderLines();
+    this.drawingControllers().forEach((controller) => controller.setOrderLines(visibleOrderLines));
   }
 
   private syncDrawingSharedToolState(
@@ -4477,6 +4860,7 @@ class TradingExpertMarketWorkspace {
   private setChartSettingsTab(tab: TradingChartSettingsTab) {
     const allowed: TradingChartSettingsTab[] = [
       "main-style", "background", "scale", "rise-fall", "coordinate", "live-price", "drawing-tools",
+      "order-display",
     ];
     if (!allowed.includes(tab)) return;
     this.chartSettingsTab = tab;
@@ -4759,6 +5143,7 @@ class TradingExpertMarketWorkspace {
       });
       this.splitPanes.push(pane);
       const paneDrawingController = pane.getDrawingController();
+      paneDrawingController?.setOrderLines(this.displayedOrderLines());
       if (paneDrawingController && this.drawingController) {
         paneDrawingController.applySharedToolState(this.drawingController.sharedToolState());
       }
@@ -5087,6 +5472,7 @@ class TradingExpertMarketWorkspace {
       rightBarStaysOnScroll: event.ctrlKey ? !cursorAnchoredByDefault : cursorAnchoredByDefault,
     });
     this.queueVisiblePriceScaleUpdate();
+    this.trackVolumeProfileThroughWheelScale();
   };
 
   private readonly handlePeriodScrollPointerDown = (event: PointerEvent) => {
@@ -5211,22 +5597,28 @@ class TradingExpertMarketWorkspace {
   private loadIndicatorSettings() {
     try {
       const current = window.localStorage.getItem(TRADING_INDICATOR_SETTINGS_STORAGE_KEY);
-      const legacy = current
+      const previous = current
+        ? null
+        : window.localStorage.getItem(PREVIOUS_TRADING_INDICATOR_SETTINGS_STORAGE_KEY);
+      const legacy = current || previous
         ? null
         : window.localStorage.getItem(LEGACY_TRADING_INDICATOR_SETTINGS_STORAGE_KEY);
-      const oldestLegacy = current || legacy
+      const oldestLegacy = current || previous || legacy
         ? null
         : window.localStorage.getItem(OLDEST_TRADING_INDICATOR_SETTINGS_STORAGE_KEY);
       const settings = normalizeTradingIndicatorSettings(
-        current || legacy || oldestLegacy
-          ? JSON.parse(current || legacy || oldestLegacy || "null")
+        current || previous || legacy || oldestLegacy
+          ? JSON.parse(current || previous || legacy || oldestLegacy || "null")
           : null,
       );
-      if (!current && (legacy || oldestLegacy)) {
+      if (!current && (previous || legacy || oldestLegacy)) {
         const referenceMigrated = oldestLegacy
           ? migrateTradingVolumeReferenceStyle(settings)
           : settings;
-        const migrated = migrateTradingBarColors(referenceMigrated);
+        const barColorsMigrated = legacy || oldestLegacy
+          ? migrateTradingBarColors(referenceMigrated)
+          : referenceMigrated;
+        const migrated = migrateTradingVpvrDefaults(barColorsMigrated);
         try {
           window.localStorage.setItem(
             TRADING_INDICATOR_SETTINGS_STORAGE_KEY,
@@ -5417,6 +5809,7 @@ class TradingExpertMarketWorkspace {
       this.disposed
       || generation !== this.favoriteTickerGeneration
       || this.favoriteTickerFallbackPending
+      || binanceMarketRestCooldownRemaining() > 0
     ) return;
     const now = Date.now();
     const staleMarkets = [...this.favoriteTickerMarketsById.values()].filter((market) => (
@@ -5433,38 +5826,40 @@ class TradingExpertMarketWorkspace {
       FAVORITE_TICKER_FALLBACK_TIMEOUT_MS,
     );
     try {
-      const results = await Promise.allSettled(staleMarkets.map(async (market) => ({
-        marketId: market.id,
-        symbol: market.symbol,
-        ticker: await fetchBinanceMarket<BinanceTicker24h>(
-          market.marketType === "spot" ? "spot" : "perpetual",
-          "/fapi/v1/ticker/24hr",
-          "/api/v3/ticker/24hr",
-          { symbol: market.symbol },
-          abortController.signal,
-        ),
-      })));
-      if (this.disposed || generation !== this.favoriteTickerGeneration) return;
       let updated = false;
-      results.forEach((result) => {
-        if (result.status !== "fulfilled") return;
-        const market = this.favoriteTickerMarketsById.get(result.value.marketId);
-        if (!market || market.provider !== "binance" || market.symbol !== result.value.symbol) return;
+      for (const staleMarket of staleMarkets) {
+        if (binanceMarketRestCooldownRemaining() > 0 || abortController.signal.aborted) break;
+        let ticker: BinanceTicker24h;
+        try {
+          ticker = await fetchBinanceMarket<BinanceTicker24h>(
+            staleMarket.marketType === "spot" ? "spot" : "perpetual",
+            "/fapi/v1/ticker/24hr",
+            "/api/v3/ticker/24hr",
+            { symbol: staleMarket.symbol },
+            abortController.signal,
+          );
+        } catch {
+          if (binanceMarketRestCooldownRemaining() > 0 || abortController.signal.aborted) break;
+          continue;
+        }
+        if (this.disposed || generation !== this.favoriteTickerGeneration) return;
+        const market = this.favoriteTickerMarketsById.get(staleMarket.id);
+        if (!market || market.provider !== "binance" || market.symbol !== staleMarket.symbol) continue;
         const applied = applyTradingMarketTickerQuote(
           market,
           {
-            lastPrice: result.value.ticker.lastPrice,
-            openPrice: result.value.ticker.openPrice,
-            changePercent: result.value.ticker.priceChangePercent,
+            lastPrice: ticker.lastPrice,
+            openPrice: ticker.openPrice,
+            changePercent: ticker.priceChangePercent,
           },
           this.favoriteTickerOpenPricesById.get(market.id),
         );
-        if (!applied.updated) return;
+        if (!applied.updated) continue;
         if (applied.openPrice !== null) {
           this.favoriteTickerOpenPricesById.set(market.id, applied.openPrice);
         }
         updated = true;
-      });
+      }
       if (updated) this.scheduleFavoriteTickerPaint();
     } finally {
       window.clearTimeout(timeout);
@@ -6338,6 +6733,7 @@ class TradingExpertMarketWorkspace {
     this.updateIndicatorButtons();
     this.applyMainIndicatorSeriesOptions();
     this.rebuildIndicatorPanes();
+    this.invalidateVolumeProfileSnapshot();
     this.updateChartData({ preserveViewport: true });
     this.splitPanes.forEach((pane) => pane.updateIndicatorSettings(this.indicatorSettings));
     if (splitTarget && selectedIndicator) {
@@ -6867,10 +7263,13 @@ class TradingExpertMarketWorkspace {
           }
           const response = await options.analyze(snapshot);
           if (!tradingAnalysisJobs.isActive(options.job.analysisId)) return;
-          if (!response?.ok || !response.analysisPlan?.drawingPatch) {
+          if (
+            !response?.ok
+            || (!response.analysisPlan?.drawingPatch && !response.analysisPlan?.indicatorDrawingPatch)
+          ) {
             throw new Error(response?.error?.message || `${options.analysisLabel}没有返回绘图计划`);
           }
-          if (options.drawingsRequested) {
+          if (options.drawingsRequested && response.analysisPlan.drawingPatch) {
             options.onProgress?.(
               options.drawingProgressPhase,
               `${tradingAnalysisPaneHeading(snapshot.market, snapshot.interval)} 分析完成，正在逐笔落图。`,
@@ -6916,10 +7315,16 @@ class TradingExpertMarketWorkspace {
     return { completed, failed, reports, failures };
   }
 
-  private captureSplitPaneAnalysisSnapshots(lookbackMs: number | null) {
+  private captureSplitPaneAnalysisSnapshots(
+    lookbackMs: number | null,
+    preferredCandles: number | null = null,
+  ) {
     const panes = [...this.splitPanes];
+    const snapshotRequests = preferredCandles === null
+      ? panes.map((pane) => pane.analysisSnapshot(lookbackMs))
+      : panes.map((pane) => pane.analysisSnapshot(lookbackMs, preferredCandles));
     return Promise.allSettled(
-      panes.map((pane) => pane.analysisSnapshot(lookbackMs)),
+      snapshotRequests,
     ).then((results) => {
       const snapshots: TradingSplitPaneAnalysisSnapshot[] = [];
       const snapshotFailures: TradingSplitPaneAnalysisFailure[] = [];
@@ -6945,7 +7350,7 @@ class TradingExpertMarketWorkspace {
   }
 
   hasCurrentAnalysis(
-    theory?: "chan" | "order-flow" | "wave" | "wyckoff" | "price-action",
+    theory?: string,
   ) {
     return this.drawingController?.hasAiAnalysisForCurrentContext(theory) === true;
   }
@@ -8408,10 +8813,32 @@ class TradingExpertMarketWorkspace {
     return true;
   }
 
+  clearCurrentStrategyAnalysisDrawings(strategyId: string) {
+    if (this.disposed || !this.drawingController) return false;
+    return this.drawingController.clearAiAnalysisForCurrentContext(strategyId);
+  }
+
   async runGeneralConversation(
     request: TradingGeneralConversationRequest,
+    strategyId?: string,
   ): Promise<TradingGeneralConversationResult> {
-    const api = window.codexDesktop.runTradingGeneralAnalysis;
+    const analysisTheory = strategyId || "price-action";
+    const analysisName = String(request.strategyDisplayName || (strategyId ? "策略" : "价格结构")).trim();
+    const visibleCandlesOnly = request.visibleCandlesOnly === true;
+    const minimumFloor = visibleCandlesOnly ? 8 : 30;
+    const minimumCandles = Math.max(minimumFloor, Math.min(600, Math.floor(Number(request.minimumCandles) || minimumFloor)));
+    const preferredCandles = Math.max(
+      minimumCandles,
+      Math.min(600, Math.floor(Number(request.preferredCandles) || Math.max(100, minimumCandles))),
+    );
+    const api: ((params: any) => Promise<any>) | undefined = strategyId
+      ? typeof window.codexDesktop.runTradingStrategyAnalysis === "function"
+        ? (params: Record<string, unknown>) => window.codexDesktop.runTradingStrategyAnalysis!({
+          ...(params as Parameters<NonNullable<typeof window.codexDesktop.runTradingStrategyAnalysis>>[0]),
+          strategyId,
+        })
+        : undefined
+      : window.codexDesktop.runTradingGeneralAnalysis;
     if (typeof api !== "function") throw new Error("当前版本暂不支持通用盘面分析");
     if (!this.markets.length) await this.loadMarkets();
     const normalizedSymbol = String(request.symbol || this.selectedSymbol).trim().toUpperCase();
@@ -8459,31 +8886,40 @@ class TradingExpertMarketWorkspace {
     const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
     const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
     const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
+    const analysisWindowCount = Math.min(600, Math.max(canvasCandles.length, preferredCandles));
     const analysisCandles = requestedLookbackMs
       ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : canvasCandles.length
-        ? canvasCandles
-        : this.candles.slice(-100);
-    if (analysisCandles.length < 30) {
-      throw new Error(`${request.lookbackLabel || "当前画布可见范围"}仅有 ${analysisCandles.length} 根 K 线，不足以形成可靠的价格结构`);
+      : visibleCandlesOnly && canvasCandles.length
+        ? canvasCandles.slice(-600)
+        : this.candles.slice(-analysisWindowCount);
+    if (analysisCandles.length < minimumCandles) {
+      throw new Error(`${request.lookbackLabel || "当前可用数据窗口"}仅有 ${analysisCandles.length} 根 K 线，${analysisName}至少需要 ${minimumCandles} 根`);
     }
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
-      theory: "price-action",
+      theory: analysisTheory,
       storageSessionId: this.drawingStorageSessionId,
       marketId: this.selectedMarketId,
       symbol: this.selectedSymbol,
       interval: this.activeInterval,
       market: tradingFavoriteRecord(targetMarket),
     });
-    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs);
+    const splitSnapshotsPromise = visibleCandlesOnly
+      ? this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs, null)
+      : this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs, preferredCandles);
+    const contextCandlesPromise = request.contextCandlesRequested === true
+      ? fetchTradingMarketStructureContexts(targetMarket.symbol, targetInterval)
+      : Promise.resolve([] as TradingMarketStructureContext[]);
+    const comparisonMarketsPromise = request.comparisonCandlesRequested === true
+      ? fetchTradingSmtComparisonMarkets(targetMarket, targetInterval, preferredCandles, Date.now())
+      : Promise.resolve([] as TradingSmtComparisonMarket[]);
     if (requestedLookbackMs) this.focusChartLookback(requestedLookbackMs);
     const rangeDescription = request.lookbackLabel
       ? `最近 ${request.lookbackLabel}`
-      : `当前画布可见的 ${analysisCandles.length} 根`;
+      : `默认分析窗口的 ${analysisCandles.length} 根`;
     request.onProgress?.(
       "analyzing",
-      `已读取左侧 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在计算趋势、摆动高低点和关键支撑压力。`,
+      `已读取左侧 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在计算${analysisName}规则、候选结构和条件价位。`,
     );
     try {
       const response = await api({
@@ -8494,6 +8930,8 @@ class TradingExpertMarketWorkspace {
         instruction: request.instruction,
         responseMode: request.drawingRequested === false ? "direct" : "full",
         lookbackMs: requestedLookbackMs,
+        ...(request.contextCandlesRequested === true ? { contextCandles: await contextCandlesPromise } : {}),
+        ...(request.comparisonCandlesRequested === true ? { comparisonMarkets: await comparisonMarketsPromise } : {}),
         candles: analysisCandles.map((candle) => ({
           time: candle.time,
           open: candle.open,
@@ -8506,7 +8944,10 @@ class TradingExpertMarketWorkspace {
       if (!tradingAnalysisJobs.isActive(job.analysisId)) {
         throw new Error("盘面分析已由用户停止");
       }
-      if (!response?.ok || !response.analysisPlan?.drawingPatch) {
+      if (
+        !response?.ok
+        || (!response.analysisPlan?.drawingPatch && !response.analysisPlan?.indicatorDrawingPatch)
+      ) {
         const error = new Error(response?.error?.message || "盘面分析没有返回可绘制计划");
         (error as Error & { code?: string }).code = response?.error?.code;
         throw error;
@@ -8515,7 +8956,7 @@ class TradingExpertMarketWorkspace {
       if (request.drawingRequested !== false) {
         request.onProgress?.(
           "drawing",
-          `${modelName} 已完成盘面复核，正在左侧图表逐项绘制趋势、支撑、压力和条件价位。`,
+          `${modelName} 已完成${analysisName}复核，正在左侧图表逐项绘制形态、确认、失效和目标价位。`,
         );
         const onPhase = (phase: TradingAiPlaybackPhase) => {
           if (!tradingAnalysisJobs.isActive(job.analysisId)) return;
@@ -8523,34 +8964,51 @@ class TradingExpertMarketWorkspace {
             request.onProgress?.("drawing", `${modelName} 正在拟人化逐笔落图。`);
           }
         };
-        await commitTradingAnalysisDrawingPatch(job, response.analysisPlan.drawingPatch, 0, onPhase);
+        if (response.analysisPlan.drawingPatch) {
+          await commitTradingAnalysisDrawingPatch(job, response.analysisPlan.drawingPatch, 0, onPhase);
+        } else if (response.analysisPlan.indicatorDrawingPatch) {
+          this.clearCurrentStrategyAnalysisDrawings(analysisTheory);
+        }
+        if (response.analysisPlan.indicatorDrawingPatch) {
+          await commitTradingIndicatorAnalysisDrawingPatch(job, response.analysisPlan.indicatorDrawingPatch);
+        }
       }
       const splitResult = await this.runSplitPaneAnalyses({
         job,
         ...(await splitSnapshotsPromise),
-        minimumCandles: 30,
-        analysisLabel: "价格结构分析",
+        minimumCandles,
+        analysisLabel: `${analysisName}分析`,
         analysisProgressPhase: "analyzing",
         drawingProgressPhase: "drawing",
         drawingsRequested: request.drawingRequested !== false,
         onProgress: request.onProgress,
-        analyze: async (snapshot) => api({
-          analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
-          marketId: snapshot.market.id,
-          interval: snapshot.interval,
-          snapshotTime: Date.now(),
-          instruction: request.instruction,
-          responseMode: request.drawingRequested === false ? "direct" : "full",
-          lookbackMs: requestedLookbackMs,
-          candles: snapshot.candles.map((candle) => ({
-            time: candle.time,
-            open: candle.open,
-            high: candle.high,
-            low: candle.low,
-            close: candle.close,
-            volume: candle.volume,
-          })),
-        }) as Promise<TradingGeneralAnalysisResponse>,
+        analyze: async (snapshot) => {
+          const contextCandles = request.contextCandlesRequested === true
+            ? await fetchTradingMarketStructureContexts(snapshot.market.symbol, snapshot.interval)
+            : [];
+          const comparisonMarkets = request.comparisonCandlesRequested === true
+            ? await fetchTradingSmtComparisonMarkets(snapshot.market, snapshot.interval, preferredCandles, Date.now())
+            : [];
+          return api({
+            analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
+            marketId: snapshot.market.id,
+            interval: snapshot.interval,
+            snapshotTime: Date.now(),
+            instruction: request.instruction,
+            responseMode: request.drawingRequested === false ? "direct" : "full",
+            lookbackMs: requestedLookbackMs,
+            ...(request.contextCandlesRequested === true ? { contextCandles } : {}),
+            ...(request.comparisonCandlesRequested === true ? { comparisonMarkets } : {}),
+            candles: snapshot.candles.map((candle) => ({
+              time: candle.time,
+              open: candle.open,
+              high: candle.high,
+              low: candle.low,
+              close: candle.close,
+              volume: candle.volume,
+            })),
+          }) as Promise<TradingGeneralAnalysisResponse>;
+        },
       });
       if (!tradingAnalysisJobs.isActive(job.analysisId)) {
         throw new Error("盘面分析已由用户停止");
@@ -8558,7 +9016,9 @@ class TradingExpertMarketWorkspace {
       if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
       request.onProgress?.("complete", request.drawingRequested === false
         ? `${modelName} 已按最新行情完成复核，正在直接回答本次问题；左侧原画线保持不变。`
-        : `${modelName} 已完成盘面绘图，正在整理新手可执行的多空条件。`);
+        : request.executionPlanRequested === false
+          ? `${modelName} 已完成${analysisName}绘图，正在整理支撑、阻力与成交量分布信息。`
+          : `${modelName} 已完成${analysisName}绘图，正在整理可执行的条件式方案。`);
       const primaryReport = String((request.drawingRequested === false
           ? response.analysisPlan.narrative
           : response.analysisPlan.report) || response.analysisPlan.narrative || "盘面分析已完成");
@@ -9419,6 +9879,10 @@ class TradingExpertMarketWorkspace {
     const targetMarketMeta = this.selectedMarketMeta ? { ...this.selectedMarketMeta } : null;
     const targetInterval = this.activeInterval;
     const keepChart = options.preserveChart === true && this.candles.length > 0;
+    if (this.marketRateLimitRetryTimer !== null) {
+      window.clearTimeout(this.marketRateLimitRetryTimer);
+      this.marketRateLimitRetryTimer = null;
+    }
     // The overlay belongs to the exact market/interval where it was created.
     // Detach it while any chart reload is in flight; a matching context restores
     // it only after that context's real candles have committed.
@@ -9524,11 +9988,20 @@ class TradingExpertMarketWorkspace {
       }
       this.errorElement.hidden = false;
       if (targetProvider === "finnhub") return;
+      const cooldownRemaining = targetProvider === "binance"
+        ? binanceMarketRestCooldownRemaining()
+        : 0;
+      if (cooldownRemaining > 0) {
+        this.marketRateLimitRetryTimer = window.setTimeout(() => {
+          this.marketRateLimitRetryTimer = null;
+          if (this.disposed || generation !== this.loadGeneration) return;
+          void this.restartMarketData({ preserveChart: true });
+        }, cooldownRemaining + BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS);
+      }
     }
     if (this.disposed || generation !== this.loadGeneration) return;
     if (this.selectedProvider === "binance") {
       this.connectSocket(generation);
-      void this.refreshSnapshot(generation);
     }
     this.pollTimer = window.setInterval(() => void this.refreshSnapshot(generation), 30_000);
     this.candlePollTimer = window.setInterval(
@@ -9543,6 +10016,7 @@ class TradingExpertMarketWorkspace {
       void this.refreshLiveCandle(generation);
       return;
     }
+    if (binanceMarketRestCooldownRemaining() > 0) return;
     const silenceMs = Date.now() - this.marketSocketLastActivityAt;
     if (this.marketSocketLastActivityAt > 0 && silenceMs < MARKET_SOCKET_STALE_MS) return;
     void this.refreshSnapshot(generation);
@@ -9557,6 +10031,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private async refreshSnapshot(generation: number) {
+    if (this.selectedProvider === "binance" && binanceMarketRestCooldownRemaining() > 0) return;
     if (this.refreshingSnapshotGeneration === generation) return;
     this.refreshingSnapshotGeneration = generation;
     try {
@@ -9595,6 +10070,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private async refreshLiveCandle(generation: number) {
+    if (this.selectedProvider === "binance" && binanceMarketRestCooldownRemaining() > 0) return;
     if (this.refreshingLiveCandleGeneration === generation) return;
     this.refreshingLiveCandleGeneration = generation;
     try {
@@ -10229,6 +10705,7 @@ class TradingExpertMarketWorkspace {
         this.positionIndicatorLegends();
         this.updateCurrentPriceLabel();
         this.paintAlertSimulationMarker();
+        this.renderVolumeProfile(false);
         this.drawingController?.redraw();
       });
     });
@@ -10265,6 +10742,12 @@ class TradingExpertMarketWorkspace {
     });
     this.drawingController = drawingController;
     this.activeDrawingController = drawingController;
+    drawingController.setOrderLines(this.displayedOrderLines());
+  }
+
+  syncAccountOrderLines(snapshot: TradingOrderLineAccountSnapshot | null) {
+    this.orderLines = buildTradingOrderLines(snapshot);
+    this.applyOrderDisplaySettings();
   }
 
   private createMainIndicatorSeries() {
@@ -10302,6 +10785,52 @@ class TradingExpertMarketWorkspace {
         if (style) series.applyOptions({ color: style.color, lineWidth: style.lineWidth });
       });
     });
+  }
+
+  private renderVolumeProfile(recalculate = false) {
+    if (!this.chart || !this.candleSeries || !this.activeMainIndicators.includes("vpvr")) {
+      this.invalidateVolumeProfileSnapshot();
+      clearTradingVolumeProfileLayer(this.volumeProfileLayer);
+      return;
+    }
+    const setting = this.indicatorSettings[tradingIndicatorSettingKey("main", "vpvr")];
+    const logicalRange = this.chart.timeScale().getVisibleLogicalRange();
+    const visibleCandles = visibleCandlesInLogicalRange(this.chartCandles, logicalRange);
+    if (recalculate || this.volumeProfileSnapshot === undefined) {
+      this.volumeProfileSnapshot = calculateTradingVolumeProfile(
+        visibleCandles,
+        setting?.parameters[0] ?? 96,
+      );
+      this.volumeProfileSnapshotCandleCount = visibleCandles.length;
+    }
+    const priceScaleWidth = Number(this.chart.priceScale("right", 0).width() || 0);
+    const plotWidth = Math.max(this.chartElement.clientWidth - priceScaleWidth, 1);
+    const paneElement = this.chart.panes()[0]?.getHTMLElement?.() as HTMLElement | null;
+    const paneHeight = Math.max(
+      paneElement?.clientHeight || paneElement?.getBoundingClientRect().height || this.chartElement.clientHeight,
+      1,
+    );
+    renderTradingVolumeProfileLayer(this.volumeProfileLayer, {
+      candles: visibleCandles,
+      profile: this.volumeProfileSnapshot,
+      sourceCandleCount: this.volumeProfileSnapshotCandleCount,
+      rowCount: setting?.parameters[0] ?? 96,
+      plotWidth,
+      paneHeight,
+      priceToCoordinate: (price) => {
+        const coordinate = Number(this.candleSeries?.priceToCoordinate(price));
+        return Number.isFinite(coordinate) ? coordinate : null;
+      },
+      barColor: setting?.series.volume?.color ?? "#5b95e5",
+      pocColor: setting?.series.poc?.color ?? "#5b95e5",
+      showBars: setting?.series.volume?.visible !== false,
+      showPoc: setting?.series.poc?.visible !== false,
+    });
+  }
+
+  private invalidateVolumeProfileSnapshot() {
+    this.volumeProfileSnapshot = undefined;
+    this.volumeProfileSnapshotCandleCount = 0;
   }
 
   private setMainIndicatorSeriesData(
@@ -10456,6 +10985,7 @@ class TradingExpertMarketWorkspace {
         ] : []);
         return;
       }
+      if (id === "vpvr") return;
       const direction = this.tdIndicatorDirections[candleIndex];
       const directionSetting = direction ? setting.series[direction] : null;
       appendRow("td", `TD(${setting.parameters[0]})`, directionSetting?.visible ? [
@@ -10480,6 +11010,10 @@ class TradingExpertMarketWorkspace {
       // series must be removed first or their old timestamps remain in the
       // shared time scale and corrupt the next interval's candle spacing.
       this.indicatorPanes.forEach((runtime) => {
+        runtime.analysisMarkers?.setMarkers([]);
+        runtime.analysisSeries.forEach((series) => {
+          this.chart?.removeSeries(series);
+        });
         runtime.series.forEach((seriesRuntime) => {
           this.chart?.removeSeries(seriesRuntime.api);
         });
@@ -10534,6 +11068,9 @@ class TradingExpertMarketWorkspace {
       pane,
       legend: null,
       series: [],
+      analysisSeries: [],
+      analysisMarkers: null,
+      analysisSignature: "",
     };
     visibleSeries.forEach((descriptor) => {
       const seriesSetting = setting.series[descriptor.key];
@@ -10583,6 +11120,115 @@ class TradingExpertMarketWorkspace {
     });
     runtime.legend = this.createIndicatorLegend(result, setting);
     this.indicatorPanes.set(id, runtime);
+    this.renderIndicatorAnalysisPatch(id);
+  }
+
+  private indicatorAnalysisColor(colorToken: TradingAiDrawingColorToken) {
+    const variable = TRADING_INDICATOR_AI_COLOR_VARIABLES[colorToken];
+    const hostColor = variable ? getComputedStyle(this.host).getPropertyValue(variable).trim() : "";
+    if (hostColor) return hostColor;
+    const rootColor = variable ? getComputedStyle(document.documentElement).getPropertyValue(variable).trim() : "";
+    if (rootColor) return rootColor;
+    return isDarkTheme() ? "#c3a7ff" : "#6d4acb";
+  }
+
+  private clearIndicatorAnalysisRuntime(runtime: IndicatorPaneRuntime) {
+    runtime.analysisMarkers?.setMarkers([]);
+    runtime.analysisMarkers = null;
+    runtime.analysisSeries.forEach((series) => {
+      this.chart?.removeSeries(series);
+    });
+    runtime.analysisSeries = [];
+    runtime.analysisSignature = "";
+  }
+
+  private renderIndicatorAnalysisPatch(id: TradingIndicatorId, force = false) {
+    const runtime = this.indicatorPanes.get(id);
+    if (!runtime || !this.chart || !runtime.series[0]) return;
+    const patch = this.indicatorAnalysisPatches.get(id);
+    const matchesContext = patch
+      && patch.marketId === this.selectedMarketId
+      && patch.interval === this.activeInterval;
+    const signature = matchesContext
+      ? `${patch.analysisId}:${isDarkTheme() ? "dark" : "light"}`
+      : "";
+    if (!force && runtime.analysisSignature === signature) return;
+    this.clearIndicatorAnalysisRuntime(runtime);
+    if (!patch || !matchesContext) return;
+
+    const markers: any[] = [];
+    patch.operations.forEach(({ drawing }, operationIndex) => {
+      const color = this.indicatorAnalysisColor(drawing.colorToken);
+      if (drawing.tool === "path") {
+        const lineWidth = Math.max(1, Math.min(4, Math.round(Number(drawing.lineWidth) || 1))) as 1 | 2 | 3 | 4;
+        const series = runtime.pane.addSeries(LineSeries, {
+          color,
+          lineWidth,
+          lineStyle: tradingIndicatorAiLineStyle(drawing.lineStyle),
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+          title: "",
+          priceFormat: { type: "price" as const, precision: 4, minMove: 0.0001 },
+        });
+        series.setData(
+          strictlyAscendingTradingIndicatorPathPoints(drawing.points)
+            .map((point) => ({
+              time: (point.time + CHINA_TIME_OFFSET_SECONDS) as UTCTimestamp,
+              value: point.value,
+            })),
+        );
+        runtime.analysisSeries.push(series);
+        return;
+      }
+      const point = drawing.points[0];
+      if (!point || (!drawing.text && drawing.markerSize === undefined)) return;
+      const usesExactIndicatorAnchor = drawing.markerSize !== undefined;
+      markers.push({
+        time: (point.time + CHINA_TIME_OFFSET_SECONDS) as UTCTimestamp,
+        position: usesExactIndicatorAnchor
+          ? drawing.markerSize === 0
+            ? "atPriceMiddle"
+            : drawing.text
+            ? operationIndex % 2 === 0 ? "atPriceTop" : "atPriceBottom"
+            : "atPriceMiddle"
+          : operationIndex % 2 === 0 ? "aboveBar" : "belowBar",
+        ...(usesExactIndicatorAnchor ? { price: point.value } : {}),
+        color,
+        shape: "circle",
+        ...(drawing.text ? { text: drawing.text } : {}),
+        ...(drawing.markerSize !== undefined ? { size: drawing.markerSize } : {}),
+      });
+    });
+    if (markers.length) {
+      markers.sort((first, second) => Number(first.time) - Number(second.time));
+      runtime.analysisMarkers = createSeriesMarkers(runtime.series[0].api, markers.slice(id === "rsi" || id === "kdj" ? -16 : -8), {
+        autoScale: false,
+        zOrder: "aboveSeries",
+      });
+    }
+    runtime.analysisSignature = signature;
+    runtime.series[0]?.api?.priceScale()?.setAutoScale(true);
+  }
+
+  private renderIndicatorAnalysisPatches(force = false) {
+    this.indicatorPanes.forEach((_runtime, id) => this.renderIndicatorAnalysisPatch(id, force));
+  }
+
+  acceptIndicatorAnalysisDrawingPatch(value: TradingIndicatorAiDrawingPatch) {
+    if (this.disposed) return false;
+    const patch = normalizeTradingIndicatorAiDrawingPatch(value);
+    const indicatorId = patch.indicatorId as TradingIndicatorId;
+    const definition = TRADING_MARKET_INDICATOR_CATALOG.find((item) => (
+      item.scope === "sub" && item.id === indicatorId
+    ));
+    if (!definition) throw new TypeError(`Unsupported indicator drawing target: ${patch.indicatorId}`);
+    this.indicatorAnalysisPatches.set(indicatorId, patch);
+    if (!this.indicatorPanes.has(indicatorId)) {
+      this.ensureChartIndicatorVisible("sub", indicatorId);
+    }
+    this.renderIndicatorAnalysisPatch(indicatorId, true);
+    return true;
   }
 
   private createIndicatorLegend(result: TradingIndicatorResult, setting: TradingIndicatorSetting) {
@@ -10731,6 +11377,7 @@ class TradingExpertMarketWorkspace {
         textColor: theme.text,
       });
     });
+    this.renderIndicatorAnalysisPatches(true);
     this.bandUpperSeries?.applyOptions({
       topColor: theme.band,
       bottomColor: theme.band,
@@ -10782,6 +11429,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private clearChart() {
+    this.invalidateVolumeProfileSnapshot();
     this.clearAlertEvidenceCandleSeries();
     this.clearAlertEvidenceIndicatorTargets();
     this.alertEvidencePoint = null;
@@ -10805,6 +11453,7 @@ class TradingExpertMarketWorkspace {
     this.hideCrosshairPriceLabel();
     this.currentPriceElement.hidden = true;
     this.hideCandleCountdown();
+    clearTradingVolumeProfileLayer(this.volumeProfileLayer);
     this.mainIndicatorLegendElement.replaceChildren();
     this.updateIndicatorLegends();
     this.chartCandles = [];
@@ -10828,7 +11477,10 @@ class TradingExpertMarketWorkspace {
     const preservedLogicalRange = !resetViewport && options.preserveViewport === true
       ? this.chart.timeScale().getVisibleLogicalRange()
       : null;
-    if (resetViewport) this.prepareChartViewportReset();
+    if (resetViewport) {
+      this.invalidateVolumeProfileSnapshot();
+      this.prepareChartViewportReset();
+    }
     const deduped = mergeCandles([], this.candles);
     this.chartCandles = deduped;
     const trendBandEnabled = this.trendBandEnabled;
@@ -10842,6 +11494,7 @@ class TradingExpertMarketWorkspace {
       this.bandLowerSeries?.setData(atm4BandSeriesData(band, "bandLower", trendBandEnabled));
       this.updateMainIndicatorData(deduped);
       this.updateIndicatorData(deduped);
+      this.renderIndicatorAnalysisPatches();
       const lastRaw = deduped[deduped.length - 1];
       this.applyMarketPriceFormat(lastRaw.close);
       const lineColor = lastRaw.close >= lastRaw.open
@@ -10900,6 +11553,7 @@ class TradingExpertMarketWorkspace {
       window.cancelAnimationFrame(this.drawingSettleAnimationFrame);
       this.drawingSettleAnimationFrame = null;
     }
+    this.cancelVolumeProfileWheelTracking();
     this.lockedPriceRange = null;
     this.chart.priceScale("right", 0).setAutoScale(true);
   }
@@ -10912,6 +11566,7 @@ class TradingExpertMarketWorkspace {
     this.updateVisiblePriceScale();
     this.updateCurrentPriceLabel();
     this.paintAlertSimulationMarker();
+    this.renderVolumeProfile(true);
     this.drawingController?.redraw();
   }
 
@@ -10978,7 +11633,38 @@ class TradingExpertMarketWorkspace {
     this.updateVisiblePriceScale();
     this.updateCurrentPriceLabel();
     this.paintAlertSimulationMarker();
+    this.renderVolumeProfile(false);
     this.drawingController?.redraw();
+  }
+
+  private trackVolumeProfileThroughWheelScale() {
+    if (!this.chart || !this.activeMainIndicators.includes("vpvr")) return;
+    this.volumeProfileWheelFramesRemaining = TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES;
+    if (this.volumeProfileWheelAnimationFrame !== null) return;
+    const redraw = () => {
+      this.volumeProfileWheelAnimationFrame = null;
+      if (this.disposed) {
+        this.volumeProfileWheelFramesRemaining = 0;
+        return;
+      }
+      if (
+        !this.resettingChartViewport
+        && !this.updatingChartData
+        && !this.rebuildingIndicatorPanes
+      ) this.renderVolumeProfile(false);
+      this.volumeProfileWheelFramesRemaining -= 1;
+      if (this.volumeProfileWheelFramesRemaining > 0) {
+        this.volumeProfileWheelAnimationFrame = window.requestAnimationFrame(redraw);
+      }
+    };
+    this.volumeProfileWheelAnimationFrame = window.requestAnimationFrame(redraw);
+  }
+
+  private cancelVolumeProfileWheelTracking() {
+    this.volumeProfileWheelFramesRemaining = 0;
+    if (this.volumeProfileWheelAnimationFrame === null) return;
+    window.cancelAnimationFrame(this.volumeProfileWheelAnimationFrame);
+    this.volumeProfileWheelAnimationFrame = null;
   }
 
   private queueVisiblePriceScaleUpdate() {
@@ -11289,6 +11975,29 @@ class TradingExpertMarketWorkspace {
     }
   }
 
+  ensureChartIndicatorVisible(scope: "main" | "sub", id: string, parameters: number[] = []) {
+    const definition = TRADING_MARKET_INDICATOR_CATALOG.find((item) => item.scope === scope && item.id === id);
+    if (!definition) return false;
+    const current = this.indicatorSettings[tradingIndicatorSettingKey(definition.scope, definition.id)];
+    if (!current) return false;
+    current.enabled = true;
+    if (parameters.length === definition.parameters.length && parameters.every(Number.isFinite)) {
+      current.parameters = [...parameters];
+    }
+    this.indicatorSettings = normalizeTradingIndicatorSettings(this.indicatorSettings);
+    this.draftIndicatorSettings = cloneTradingIndicatorSettings(this.indicatorSettings);
+    this.syncActiveIndicatorsFromSettings();
+    this.persistIndicatorSettings();
+    this.updateMainIndicatorButtons();
+    this.updateIndicatorButtons();
+    this.applyMainIndicatorSeriesOptions();
+    this.rebuildIndicatorPanes();
+    this.invalidateVolumeProfileSnapshot();
+    this.updateChartData({ preserveViewport: true });
+    this.splitPanes.forEach((pane) => pane.updateIndicatorSettings(this.indicatorSettings));
+    return true;
+  }
+
   destroy() {
     if (this.disposed) return;
     this.disposed = true;
@@ -11298,6 +12007,7 @@ class TradingExpertMarketWorkspace {
     this.closeSocket();
     this.cancelScheduledLiveChartPaint();
     this.closeFavoriteTickerStreams();
+    if (this.marketRateLimitRetryTimer !== null) window.clearTimeout(this.marketRateLimitRetryTimer);
     if (this.countdownTimer !== null) window.clearInterval(this.countdownTimer);
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.candlePollTimer !== null) window.clearInterval(this.candlePollTimer);
@@ -11309,6 +12019,7 @@ class TradingExpertMarketWorkspace {
     if (this.drawingSettleAnimationFrame !== null) {
       window.cancelAnimationFrame(this.drawingSettleAnimationFrame);
     }
+    this.cancelVolumeProfileWheelTracking();
     if (this.marketListScrollRestoreFrame !== null) {
       window.cancelAnimationFrame(this.marketListScrollRestoreFrame);
     }
@@ -11419,6 +12130,28 @@ async function commitTradingAnalysisDrawingPatch(
   }
 }
 
+async function commitTradingIndicatorAnalysisDrawingPatch(
+  job: TradingAnalysisJobContext,
+  patch: TradingIndicatorAiDrawingPatch,
+) {
+  const currentJob = tradingAnalysisJobs.get(job.analysisId);
+  if (!currentJob || currentJob.status !== "running") {
+    throw new Error("交易分析已由用户停止");
+  }
+  const targetWorkspace = activeWorkspace;
+  if (
+    !targetWorkspace
+    || !targetWorkspace.drawingStorageSessionMatches(currentJob.storageSessionId)
+  ) {
+    throw new Error("MACD 副图绘制目标已失效");
+  }
+  targetWorkspace.acceptIndicatorAnalysisDrawingPatch(patch);
+  const latestJob = tradingAnalysisJobs.get(job.analysisId);
+  if (!latestJob || latestJob.status !== "running") {
+    throw new Error("交易分析已由用户停止");
+  }
+}
+
 function rememberTradingAnalysisJobContext(job: TradingAnalysisJobContext) {
   saveTradingLastAnalysisContext(window.localStorage, job.storageSessionId, {
     schemaVersion: 1,
@@ -11459,6 +12192,12 @@ export function syncTradingExpertMarketWorkspace(
       drawingStorageSessionId,
     );
   }
+}
+
+export function syncTradingExpertOrderLineSnapshot(
+  snapshot: TradingOrderLineAccountSnapshot | null,
+) {
+  activeWorkspace?.syncAccountOrderLines(snapshot);
 }
 
 export function migrateTradingExpertMarketWorkspaceStorageSession(
@@ -11520,8 +12259,15 @@ export function applyTradingExpertCustomIndicatorMentions(text: string) {
   return activeWorkspace.setTrendBandEnabled(hasTradingExpertTrendBandMention(text));
 }
 
+export function ensureTradingExpertChartIndicatorVisible(
+  descriptor?: { id: string; scope: "main" | "sub"; parameters?: number[] } | null,
+) {
+  if (!activeWorkspace || !descriptor) return false;
+  return activeWorkspace.ensureChartIndicatorVisible(descriptor.scope, descriptor.id, descriptor.parameters || []);
+}
+
 export function hasTradingExpertCurrentAnalysis(
-  theory?: "chan" | "order-flow" | "wave" | "wyckoff" | "price-action",
+  theory?: string,
 ) {
   return activeWorkspace?.hasCurrentAnalysis(theory) === true;
 }
@@ -11563,6 +12309,37 @@ export async function runTradingExpertWyckoffConversation(
 ) {
   if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
   return activeWorkspace.runWyckoffConversation(request);
+}
+
+const BUILTIN_TRADING_STRATEGY_CONVERSATION_RUNNERS = Object.freeze({
+  chan: (request: TradingStrategyConversationRequest) => runTradingExpertChanConversation({
+    ...request,
+    onProgress: request.onProgress as TradingChanConversationRequest["onProgress"],
+  }),
+  "order-flow": (request: TradingStrategyConversationRequest) => runTradingExpertOrderFlowConversation({
+    ...request,
+    onProgress: request.onProgress as TradingOrderFlowConversationRequest["onProgress"],
+  }),
+  wave: (request: TradingStrategyConversationRequest) => runTradingExpertWaveConversation({
+    ...request,
+    onProgress: request.onProgress as TradingWaveConversationRequest["onProgress"],
+  }),
+  wyckoff: (request: TradingStrategyConversationRequest) => runTradingExpertWyckoffConversation({
+    ...request,
+    onProgress: request.onProgress as TradingWyckoffConversationRequest["onProgress"],
+  }),
+});
+
+export async function runTradingExpertStrategyConversation(
+  strategyId: string,
+  request: TradingStrategyConversationRequest,
+): Promise<TradingStrategyConversationResult> {
+  const runner = BUILTIN_TRADING_STRATEGY_CONVERSATION_RUNNERS[
+    strategyId as keyof typeof BUILTIN_TRADING_STRATEGY_CONVERSATION_RUNNERS
+  ];
+  if (runner) return runner(request) as Promise<TradingStrategyConversationResult>;
+  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
+  return activeWorkspace.runGeneralConversation(request, strategyId) as Promise<TradingStrategyConversationResult>;
 }
 
 export async function runTradingExpertGeneralConversation(

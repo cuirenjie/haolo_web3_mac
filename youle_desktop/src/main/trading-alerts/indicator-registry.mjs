@@ -51,6 +51,24 @@ export function computeMacd(values, fast = 12, slow = 26, signalPeriod = 9) {
   return { dif, dea, histogram };
 }
 
+export function computeBollingerBands(values, period = 20, multiplier = 2) {
+  const middle = indicatorSma(values, period);
+  const upper = nan(values.length);
+  const lower = nan(values.length);
+  if (!Number.isInteger(period) || period <= 0 || !Number.isFinite(multiplier) || multiplier <= 0) {
+    return { middle, upper, lower };
+  }
+  for (let index = period - 1; index < values.length; index += 1) {
+    const window = values.slice(index - period + 1, index + 1);
+    if (!window.every(finite) || !finite(middle[index])) continue;
+    const variance = window.reduce((sum, value) => sum + (value - middle[index]) ** 2, 0) / period;
+    const deviation = Math.sqrt(variance) * multiplier;
+    upper[index] = middle[index] + deviation;
+    lower[index] = middle[index] - deviation;
+  }
+  return { middle, upper, lower };
+}
+
 export function computeRsi(values, period = 14) {
   const result = nan(values.length);
   if (values.length <= period) return result;
@@ -161,15 +179,11 @@ export function createBuiltinIndicatorRegistry() {
   registry.register("atr", (candles, expr) => ({ value: computeAtr(candles, params(expr).integer("period", 14)) }));
   registry.register("cci", (candles, expr) => ({ value: computeCci(candles, params(expr).integer("period", 20)) }));
   registry.register("adx", (candles, expr) => computeAdx(candles, params(expr).integer("period", 14)));
-  registry.register("boll", (candles, expr) => {
-    const period = params(expr).integer("period", 20), multiplier = Number(expr.params?.multiplier) || 2;
-    const values = candles.map((c) => c.close), middle = indicatorSma(values, period), upper = nan(values.length), lower = nan(values.length);
-    for (let i = period - 1; i < values.length; i += 1) {
-      const variance = values.slice(i - period + 1, i + 1).reduce((sum, value) => sum + (value - middle[i]) ** 2, 0) / period;
-      upper[i] = middle[i] + Math.sqrt(variance) * multiplier; lower[i] = middle[i] - Math.sqrt(variance) * multiplier;
-    }
-    return { middle, upper, lower };
-  });
+  registry.register("boll", (candles, expr) => computeBollingerBands(
+    candles.map((candle) => candle.close),
+    params(expr).integer("period", 20),
+    Number(expr.params?.multiplier) || 2,
+  ));
   registry.register("momentum", (candles, expr) => ({ value: candles.map((c, i, all) => i >= params(expr).integer("period", 10) ? c.close - all[i - params(expr).integer("period", 10)].close : Number.NaN) }));
   registry.register("roc", (candles, expr) => ({ value: candles.map((c, i, all) => {
     const period = params(expr).integer("period", 12); return i >= period && all[i - period].close !== 0 ? (c.close / all[i - period].close - 1) * 100 : Number.NaN;

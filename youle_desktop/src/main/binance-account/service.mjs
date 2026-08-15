@@ -8,6 +8,8 @@ const REQUEST_TIMEOUT_MS = 12_000;
 const POSITION_HISTORY_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
 const POSITION_HISTORY_TRADE_LIMIT = 1_000;
 const POSITION_HISTORY_CONCURRENCY = 4;
+const PROFIT_CALENDAR_PAGE_LIMIT = 1_000;
+const PROFIT_CALENDAR_MAX_PAGES = 100;
 const DEFAULT_SNAPSHOT_CACHE_TTL_MS = 60_000;
 const DEFAULT_SNAPSHOT_STALE_TTL_MS = 15 * 60_000;
 const STALE_SNAPSHOT_WARNING = "Binance 暂时连接不稳定，当前展示上次成功读取的数据";
@@ -18,6 +20,9 @@ export class BinanceAccountError extends Error {
     this.name = "BinanceAccountError";
     this.code = code;
     this.retryable = options.retryable === true;
+    this.retryAfterMs = Number.isFinite(options.retryAfterMs)
+      ? Math.max(0, Number(options.retryAfterMs))
+      : null;
   }
 }
 
@@ -48,6 +53,9 @@ export class BinanceAccountService {
     this.snapshotCache = new Map();
     this.snapshotRequests = new Map();
     this.snapshotCacheVersions = new Map();
+    this.profitCalendarCache = new Map();
+    this.profitCalendarRequests = new Map();
+    this.rateLimitedUntil = 0;
   }
 
   async status(ownerId) {
@@ -75,9 +83,20 @@ export class BinanceAccountService {
     return status;
   }
 
-  async snapshot(ownerId, { force = false } = {}) {
+  async snapshot(ownerId, { force = false, live = false } = {}) {
     const cached = this.snapshotCache.get(ownerId);
     const nowMs = this.currentTimeMs();
+    if (nowMs < this.rateLimitedUntil) {
+      const fallbackAge = cached ? nowMs - cached.cachedAt : Number.POSITIVE_INFINITY;
+      if (cached && fallbackAge <= this.snapshotStaleTtlMs) {
+        return snapshotWithWarning(cached.snapshot, STALE_SNAPSHOT_WARNING);
+      }
+      throw new BinanceAccountError(
+        "BINANCE_RATE_LIMITED",
+        "Binance 请求频率受限，客户端正在自动降频，请稍后再试。",
+        { retryable: true, retryAfterMs: this.rateLimitedUntil - nowMs },
+      );
+    }
     if (!force && cached && nowMs - cached.cachedAt < this.snapshotCacheTtlMs) {
       return cached.snapshot;
     }
@@ -88,7 +107,10 @@ export class BinanceAccountService {
     const request = (async () => {
       try {
         const credentials = await this.credentialStore.resolve(ownerId);
-        const snapshot = await this.snapshotWithCredentials(credentials);
+        const snapshot = await this.snapshotWithCredentials(credentials, {
+          previousSnapshot: cached?.snapshot ?? null,
+          live: live === true && Boolean(cached?.snapshot),
+        });
         if ((this.snapshotCacheVersions.get(ownerId) || 0) === cacheVersion) {
           this.storeSnapshotCache(ownerId, snapshot);
         }
@@ -108,6 +130,101 @@ export class BinanceAccountService {
     return request;
   }
 
+  async profitCalendar(ownerId, { month, force = false } = {}) {
+    const nowMs = this.currentTimeMs();
+    const normalizedMonth = normalizeProfitCalendarMonth(month, nowMs);
+    const { startTime, endTime } = localMonthRange(normalizedMonth);
+    if (startTime > nowMs) {
+      throw new BinanceAccountError("INVALID_PROFIT_CALENDAR_MONTH", "不能读取未来月份的收益日历。");
+    }
+    const cacheKey = `${ownerId}\0${normalizedMonth}`;
+    const cached = this.profitCalendarCache.get(cacheKey);
+    const closedMonth = endTime <= nowMs;
+    if (nowMs < this.rateLimitedUntil) {
+      const fallbackAge = cached ? nowMs - cached.cachedAt : Number.POSITIVE_INFINITY;
+      if (cached && (closedMonth || fallbackAge <= this.snapshotStaleTtlMs)) {
+        return profitCalendarWithWarning(cached.calendar, STALE_SNAPSHOT_WARNING);
+      }
+      throw new BinanceAccountError(
+        "BINANCE_RATE_LIMITED",
+        "Binance 请求频率受限，客户端正在自动降频，请稍后再试。",
+        { retryable: true, retryAfterMs: this.rateLimitedUntil - nowMs },
+      );
+    }
+    if (!force && cached && (closedMonth || nowMs - cached.cachedAt < this.snapshotCacheTtlMs)) {
+      return cached.calendar;
+    }
+    const pending = this.profitCalendarRequests.get(cacheKey);
+    if (pending) return pending;
+
+    const cacheVersion = this.snapshotCacheVersions.get(ownerId) || 0;
+    const request = (async () => {
+      try {
+        const credentials = await this.credentialStore.resolve(ownerId);
+        const serverTime = await this.serverTime(this.futuresBaseUrl, "/fapi/v1/time");
+        const result = await this.monthlyProfitCalendarIncome({
+          credentials,
+          serverTime,
+          startTime,
+          endTime: Math.min(endTime - 1, nowMs),
+        });
+        const calendar = normalizeBinanceProfitCalendar({
+          month: normalizedMonth,
+          income: result.income,
+          fetchedAt: new Date(nowMs).toISOString(),
+          warnings: result.truncated
+            ? ["本月成交记录过多，收益日历仅展示 Binance 本次可读取的范围"]
+            : [],
+        });
+        if ((this.snapshotCacheVersions.get(ownerId) || 0) === cacheVersion) {
+          this.profitCalendarCache.set(cacheKey, { calendar, cachedAt: this.currentTimeMs() });
+        }
+        return calendar;
+      } catch (error) {
+        const fallback = this.profitCalendarCache.get(cacheKey);
+        const fallbackAge = fallback ? this.currentTimeMs() - fallback.cachedAt : Number.POSITIVE_INFINITY;
+        if (error?.retryable === true && fallback && (closedMonth || fallbackAge <= this.snapshotStaleTtlMs)) {
+          return profitCalendarWithWarning(fallback.calendar, STALE_SNAPSHOT_WARNING);
+        }
+        throw error;
+      } finally {
+        if (this.profitCalendarRequests.get(cacheKey) === request) this.profitCalendarRequests.delete(cacheKey);
+      }
+    })();
+    this.profitCalendarRequests.set(cacheKey, request);
+    return request;
+  }
+
+  async monthlyProfitCalendarIncome({ credentials, serverTime, startTime, endTime }) {
+    const income = [];
+    const synchronizedAt = Date.now();
+    let page = 1;
+    for (; page <= PROFIT_CALENDAR_MAX_PAGES; page += 1) {
+      const value = await this.signedGet({
+        baseUrl: this.futuresBaseUrl,
+        pathname: "/fapi/v1/income",
+        credentials,
+        serverTime: serverTime + (Date.now() - synchronizedAt),
+        params: {
+          startTime,
+          endTime,
+          page,
+          limit: PROFIT_CALENDAR_PAGE_LIMIT,
+        },
+      });
+      if (!Array.isArray(value)) {
+        throw new BinanceAccountError(
+          "INVALID_PROFIT_CALENDAR_RESPONSE",
+          "Binance 返回了无法识别的收益日历数据。",
+          { retryable: true },
+        );
+      }
+      income.push(...value);
+      if (value.length < PROFIT_CALENDAR_PAGE_LIMIT) return { income, truncated: false };
+    }
+    return { income, truncated: true };
+  }
+
   currentTimeMs() {
     const value = this.now();
     const parsed = value instanceof Date ? value.getTime() : new Date(value).getTime();
@@ -120,6 +237,10 @@ export class BinanceAccountService {
 
   invalidateSnapshotCache(ownerId) {
     this.snapshotCache.delete(ownerId);
+    const prefix = `${ownerId}\0`;
+    for (const key of this.profitCalendarCache.keys()) {
+      if (key.startsWith(prefix)) this.profitCalendarCache.delete(key);
+    }
     this.snapshotCacheVersions.set(ownerId, (this.snapshotCacheVersions.get(ownerId) || 0) + 1);
   }
 
@@ -137,7 +258,7 @@ export class BinanceAccountService {
     return true;
   }
 
-  async snapshotWithCredentials(credentials) {
+  async snapshotWithCredentials(credentials, { previousSnapshot = null, live = false } = {}) {
     const fetchedAt = this.now();
     const nowMs = fetchedAt instanceof Date ? fetchedAt.getTime() : new Date(fetchedAt).getTime();
     const safeNowMs = Number.isFinite(nowMs) ? nowMs : Date.now();
@@ -148,23 +269,78 @@ export class BinanceAccountService {
     const shared = { credentials, serverTime: futuresTime, baseUrl: this.futuresBaseUrl };
     const [account, positions, incomeResult, walletResult] = await Promise.all([
       this.signedGet({ ...shared, pathname: "/fapi/v3/account" }),
-      this.signedGet({ ...shared, pathname: "/fapi/v2/positionRisk" }),
+      // Full snapshots need V2's zero-position rows to retain leverage and
+      // margin metadata for recently closed symbols. Live snapshots reuse the
+      // completed history and can keep V3's smaller active-symbol payload.
       this.signedGet({
         ...shared,
-        pathname: "/fapi/v1/income",
-        params: {
-          incomeType: "REALIZED_PNL",
-          startTime: historyStartTime,
-          endTime: safeNowMs,
-          page: 1,
-          limit: 1_000,
-        },
-      }).then((value) => ({ value })).catch((error) => ({ error })),
-      this.walletBalances(credentials).then((value) => ({ value })).catch((error) => ({ error })),
+        pathname: live ? "/fapi/v3/positionRisk" : "/fapi/v2/positionRisk",
+      }),
+      live
+        ? Promise.resolve({ skipped: true })
+        : this.signedGet({
+            ...shared,
+            pathname: "/fapi/v1/income",
+            params: {
+              incomeType: "REALIZED_PNL",
+              startTime: historyStartTime,
+              endTime: safeNowMs,
+              page: 1,
+              limit: 1_000,
+            },
+          }).then((value) => ({ value })).catch((error) => ({ error })),
+      live
+        ? Promise.resolve({ skipped: true })
+        : this.walletBalances(credentials).then((value) => ({ value })).catch((error) => ({ error })),
+    ]);
+    const previousOpenOrders = Array.isArray(previousSnapshot?.openOrders)
+      ? previousSnapshot.openOrders
+      : [];
+    const orderSymbols = live
+      ? liveOpenOrderSymbols({ account, positions, previousOpenOrders })
+      : null;
+    const [initialOpenOrdersResult, initialAlgoOpenOrdersResult] = await Promise.all([
+      this.readOpenOrdersCollection({
+        ...shared,
+        pathname: "/fapi/v1/openOrders",
+        symbols: orderSymbols,
+      }),
+      this.readOpenOrdersCollection({
+        ...shared,
+        pathname: "/fapi/v1/openAlgoOrders",
+        symbols: orderSymbols,
+      }),
+    ]);
+    const [openOrdersResult, algoOpenOrdersResult] = await Promise.all([
+      this.confirmEmptyOpenOrdersTransition({
+        result: initialOpenOrdersResult,
+        source: "ORDER",
+        pathname: "/fapi/v1/openOrders",
+        symbols: orderSymbols,
+        previousOpenOrders,
+        shared,
+      }),
+      this.confirmEmptyOpenOrdersTransition({
+        result: initialAlgoOpenOrdersResult,
+        source: "ALGO",
+        pathname: "/fapi/v1/openAlgoOrders",
+        symbols: orderSymbols,
+        previousOpenOrders,
+        shared,
+      }),
     ]);
     if (incomeResult.error) warnings.push("今日已实现盈亏暂时无法读取");
     if (walletResult.error) warnings.push("总资产暂以 USDⓈ-M 合约保证金余额展示");
-    const accountTradesResult = incomeResult.error
+    const rateLimitError = [
+      incomeResult.error,
+      walletResult.error,
+      openOrdersResult.error,
+      algoOpenOrdersResult.error,
+    ].find((error) => error?.code === "BINANCE_RATE_LIMITED");
+    if (rateLimitError) throw rateLimitError;
+    const accountTradesResult = live
+      ? { trades: [], failedSymbols: [], truncatedSymbols: [], skipped: true }
+      : incomeResult.error
       ? { trades: [], failedSymbols: [], truncatedSymbols: [] }
       : await this.recentAccountTrades({
           credentials,
@@ -178,17 +354,77 @@ export class BinanceAccountService {
     if (accountTradesResult.truncatedSymbols.length) {
       warnings.push("成交频繁的合约仅展示 Binance 本次返回范围内的仓位历史");
     }
-    return normalizeBinanceAccountSnapshot({
+    if (openOrdersResult.error && algoOpenOrdersResult.error) {
+      warnings.push("当前委托暂时无法读取");
+    } else if (openOrdersResult.error || algoOpenOrdersResult.error) {
+      warnings.push("部分当前委托暂时无法读取");
+    }
+    let snapshot = normalizeBinanceAccountSnapshot({
       account,
       positions,
       income: incomeResult.value ?? null,
       accountTrades: accountTradesResult.trades,
+      openOrders: openOrdersResult.value ?? null,
+      algoOpenOrders: algoOpenOrdersResult.value ?? null,
       walletBalances: walletResult.value ?? null,
       fetchedAt: new Date(safeNowMs).toISOString(),
       todayStartTime,
       historyStartTime,
       warnings,
     });
+    if (live && previousSnapshot) {
+      snapshot = mergeLiveAccountSnapshot(snapshot, previousSnapshot);
+    }
+    snapshot.openOrders = reconcileOpenOrderSources({
+      freshOpenOrders: snapshot.openOrders,
+      previousOpenOrders,
+      regularAvailable: !openOrdersResult.error,
+      algoAvailable: !algoOpenOrdersResult.error,
+    });
+    return snapshot;
+  }
+
+  async readOpenOrdersCollection({ symbols, pathname, ...shared }) {
+    if (!Array.isArray(symbols)) return this.readOpenOrders({ ...shared, pathname });
+    if (!symbols.length) return { value: [] };
+    const results = await mapWithConcurrency(symbols, 4, (symbol) => this.readOpenOrders({
+      ...shared,
+      pathname,
+      params: { symbol },
+    }));
+    const failed = results.find((result) => result?.error);
+    return failed
+      ? { error: failed.error }
+      : { value: results.flatMap((result) => result.value) };
+  }
+
+  async readOpenOrders({ pathname, ...shared }) {
+    try {
+      const value = await this.signedGet({ ...shared, pathname });
+      if (!Array.isArray(value)) {
+        throw new BinanceAccountError(
+          "INVALID_OPEN_ORDERS_RESPONSE",
+          "Binance 返回了无法识别的当前委托数据。",
+          { retryable: true },
+        );
+      }
+      return { value };
+    } catch (error) {
+      return { error };
+    }
+  }
+
+  async confirmEmptyOpenOrdersTransition({
+    result,
+    source,
+    pathname,
+    symbols,
+    previousOpenOrders,
+    shared,
+  }) {
+    const hadOrders = previousOpenOrders.some((order) => order?.source === source);
+    if (result?.error || !hadOrders || result.value.length > 0) return result;
+    return this.readOpenOrdersCollection({ ...shared, pathname, symbols });
   }
 
   async recentAccountTrades({ credentials, income, startTime, endTime }) {
@@ -268,7 +504,13 @@ export class BinanceAccountService {
   }
 
   async serverTime(baseUrl, pathname) {
-    const payload = await requestJson(this.fetch, new URL(pathname, `${baseUrl}/`).toString());
+    let payload;
+    try {
+      payload = await requestJson(this.fetch, new URL(pathname, `${baseUrl}/`).toString());
+    } catch (error) {
+      this.applyRateLimit(error);
+      throw error;
+    }
     const serverTime = finiteNumber(payload?.serverTime);
     if (serverTime == null || serverTime <= 0) {
       throw new BinanceAccountError("INVALID_SERVER_TIME", "Binance 时间服务返回异常，请稍后重试。", { retryable: true });
@@ -283,9 +525,22 @@ export class BinanceAccountService {
       params: { ...params, recvWindow: this.recvWindow, timestamp: Math.trunc(serverTime) },
       apiSecret: credentials.apiSecret,
     });
-    return requestJson(this.fetch, url, {
-      headers: { "X-MBX-APIKEY": credentials.apiKey },
-    });
+    try {
+      return await requestJson(this.fetch, url, {
+        headers: { "X-MBX-APIKEY": credentials.apiKey },
+      });
+    } catch (error) {
+      this.applyRateLimit(error);
+      throw error;
+    }
+  }
+
+  applyRateLimit(error) {
+    if (error?.code !== "BINANCE_RATE_LIMITED") return;
+    const retryAfterMs = Number.isFinite(error?.retryAfterMs)
+      ? Math.max(1_000, Number(error.retryAfterMs))
+      : 60_000;
+    this.rateLimitedUntil = Math.max(this.rateLimitedUntil, this.currentTimeMs() + retryAfterMs);
   }
 }
 
@@ -309,11 +564,69 @@ export function startOfLocalDayMs(value) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
+export function normalizeBinanceProfitCalendar({ month, income, fetchedAt, warnings = [] } = {}) {
+  const normalizedMonth = normalizeProfitCalendarMonth(month, Date.now());
+  const { startTime, endTime } = localMonthRange(normalizedMonth);
+  const pnlByDate = new Map();
+  for (const item of Array.isArray(income) ? income : []) {
+    const timestamp = finiteNumber(item?.time);
+    const value = finiteNumber(item?.income);
+    if (timestamp == null || value == null || timestamp < startTime || timestamp >= endTime) continue;
+    const incomeType = String(item?.incomeType || "REALIZED_PNL").trim().toUpperCase();
+    if (incomeType !== "REALIZED_PNL" && incomeType !== "COMMISSION") continue;
+    const date = localDateKey(timestamp);
+    if (!pnlByDate.has(date)) pnlByDate.set(date, 0);
+    if (incomeType === "REALIZED_PNL") pnlByDate.set(date, (pnlByDate.get(date) || 0) + value);
+  }
+  return {
+    schemaVersion: 1,
+    month: normalizedMonth,
+    currency: "USDT",
+    days: [...pnlByDate.entries()]
+      .map(([date, pnl]) => ({ date, pnl: normalNumber(pnl) }))
+      .sort((left, right) => left.date.localeCompare(right.date)),
+    source: "USD_M_INCOME_REALIZED_PNL+COMMISSION_ACTIVITY",
+    warnings: [...new Set(warnings.map((item) => String(item || "").trim()).filter(Boolean))],
+    fetchedAt: Number.isFinite(Date.parse(String(fetchedAt || "")))
+      ? new Date(fetchedAt).toISOString()
+      : new Date().toISOString(),
+  };
+}
+
+function normalizeProfitCalendarMonth(value, nowMs) {
+  const text = String(value || "").trim();
+  if (/^\d{4}-(?:0[1-9]|1[0-2])$/.test(text)) return text;
+  if (text) {
+    throw new BinanceAccountError("INVALID_PROFIT_CALENDAR_MONTH", "收益日历月份格式无效。");
+  }
+  const now = new Date(nowMs);
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function localMonthRange(month) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return {
+    startTime: new Date(year, monthNumber - 1, 1).getTime(),
+    endTime: new Date(year, monthNumber, 1).getTime(),
+  };
+}
+
+function localDateKey(timestamp) {
+  const date = new Date(timestamp);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
 export function normalizeBinanceAccountSnapshot({
   account,
   positions,
   income,
   accountTrades,
+  openOrders,
+  algoOpenOrders,
   walletBalances,
   fetchedAt,
   todayStartTime,
@@ -321,6 +634,7 @@ export function normalizeBinanceAccountSnapshot({
   warnings = [],
 } = {}) {
   const totalMarginBalance = finiteNumber(account?.totalMarginBalance) ?? 0;
+  const totalMaintenanceMargin = finiteNumber(account?.totalMaintMargin) ?? 0;
   const totalWalletBalance = finiteNumber(account?.totalWalletBalance) ?? 0;
   const totalUnrealizedPnl = finiteNumber(account?.totalUnrealizedProfit) ?? 0;
   const totalInitialMargin = finiteNumber(account?.totalInitialMargin) ?? 0;
@@ -349,15 +663,24 @@ export function normalizeBinanceAccountSnapshot({
       position,
     ]),
   );
+  const crossMarginRatio = marginRatioPercentage(totalMaintenanceMargin, totalMarginBalance);
   const normalizedPositions = (Array.isArray(positions) ? positions : [])
     .filter((position) => Math.abs(finiteNumber(position?.positionAmt) ?? 0) > 1e-12)
-    .map((position) => normalizePosition(position, accountPositions.get(positionIdentity(position))))
+    .map((position) => normalizePosition(
+      position,
+      accountPositions.get(positionIdentity(position)),
+      crossMarginRatio,
+    ))
     .sort((left, right) => right.notionalValue - left.notionalValue);
   const positionHistory = normalizeBinancePositionHistory({
     trades: accountTrades,
     positions,
     fetchedAt,
     historyStartTime,
+  });
+  const normalizedOpenOrders = normalizeBinanceOpenOrders({
+    openOrders,
+    algoOpenOrders,
   });
   return {
     schemaVersion: 1,
@@ -373,6 +696,7 @@ export function normalizeBinanceAccountSnapshot({
     availableBalance: normalNumber(availableBalance),
     positions: normalizedPositions,
     positionHistory,
+    openOrders: normalizedOpenOrders,
     walletBreakdown: activatedWallets.map((item) => ({
       walletName: String(item?.walletName || "Binance"),
       balance: normalNumber(finiteNumber(item?.balance) ?? 0),
@@ -382,12 +706,257 @@ export function normalizeBinanceAccountSnapshot({
       futures: "USD_M_FUTURES",
       realizedPnl: realizedIncomeAvailable ? "USD_M_INCOME" : "UNAVAILABLE",
       positionHistory: Array.isArray(accountTrades) ? "USD_M_ACCOUNT_TRADES" : "UNAVAILABLE",
+      openOrders: [
+        Array.isArray(openOrders) ? "USD_M_OPEN_ORDERS" : null,
+        Array.isArray(algoOpenOrders) ? "USD_M_OPEN_ALGO_ORDERS" : null,
+      ].filter(Boolean).join("+") || "UNAVAILABLE",
     },
     warnings: [...new Set(warnings.map((item) => String(item || "").trim()).filter(Boolean))],
     fetchedAt: Number.isFinite(Date.parse(String(fetchedAt || "")))
       ? new Date(fetchedAt).toISOString()
       : new Date().toISOString(),
   };
+}
+
+export function normalizeBinanceOpenOrders({ openOrders, algoOpenOrders } = {}) {
+  const regular = (Array.isArray(openOrders) ? openOrders : [])
+    .map(normalizeRegularOpenOrder)
+    .filter(Boolean);
+  const conditional = (Array.isArray(algoOpenOrders) ? algoOpenOrders : [])
+    .map(normalizeAlgoOpenOrder)
+    .filter(Boolean);
+  return sortOpenOrders([...regular, ...conditional]);
+}
+
+function liveOpenOrderSymbols({ account, positions, previousOpenOrders }) {
+  const symbols = new Set();
+  // Account V3 only returns symbols that currently have a position or an open
+  // order. Position Risk V2, however, may return every listed contract with a
+  // zero position. Never fan those zero rows out into two signed order reads per
+  // symbol; doing so can turn one refresh into hundreds of Binance requests.
+  const relevantItems = [
+    ...(Array.isArray(account?.positions) ? account.positions : []),
+    ...(Array.isArray(positions)
+      ? positions.filter((position) => Math.abs(finiteNumber(position?.positionAmt) ?? 0) > 1e-12)
+      : []),
+    ...(Array.isArray(previousOpenOrders) ? previousOpenOrders : []),
+  ];
+  for (const item of relevantItems) {
+    const symbol = normalizedOrderSymbol(item?.symbol);
+    if (symbol) symbols.add(symbol);
+  }
+  return [...symbols].sort();
+}
+
+function mergeLiveAccountSnapshot(freshSnapshot, previousSnapshot) {
+  const freshMarginBalance = finiteNumber(freshSnapshot?.marginBalance);
+  const previousMarginBalance = finiteNumber(previousSnapshot?.marginBalance);
+  const previousEstimatedAssets = finiteNumber(previousSnapshot?.estimatedTotalAssets);
+  const estimatedTotalAssets = previousEstimatedAssets != null
+    && previousMarginBalance != null
+    && freshMarginBalance != null
+    ? previousEstimatedAssets + (freshMarginBalance - previousMarginBalance)
+    : finiteNumber(freshSnapshot?.estimatedTotalAssets) ?? 0;
+  const realizedPnlToday = finiteNumber(previousSnapshot?.realizedPnlToday);
+  const unrealizedPnl = finiteNumber(freshSnapshot?.unrealizedPnl) ?? 0;
+  const todayPnl = realizedPnlToday == null ? null : realizedPnlToday + unrealizedPnl;
+  const dayOpeningAssets = todayPnl == null ? null : estimatedTotalAssets - todayPnl;
+  const todayPnlPercent = dayOpeningAssets != null && Math.abs(dayOpeningAssets) > 1e-12
+    ? (todayPnl / Math.abs(dayOpeningAssets)) * 100
+    : null;
+  return {
+    ...freshSnapshot,
+    estimatedTotalAssets: normalNumber(estimatedTotalAssets),
+    todayPnl: nullableNumber(todayPnl),
+    todayPnlPercent: nullableNumber(todayPnlPercent),
+    realizedPnlToday: nullableNumber(realizedPnlToday),
+    positionHistory: Array.isArray(previousSnapshot?.positionHistory)
+      ? previousSnapshot.positionHistory
+      : [],
+    walletBreakdown: Array.isArray(previousSnapshot?.walletBreakdown)
+      ? previousSnapshot.walletBreakdown
+      : [],
+    sources: {
+      ...freshSnapshot.sources,
+      totalAssets: previousSnapshot?.sources?.totalAssets || freshSnapshot.sources.totalAssets,
+      realizedPnl: previousSnapshot?.sources?.realizedPnl || freshSnapshot.sources.realizedPnl,
+      positionHistory: previousSnapshot?.sources?.positionHistory || freshSnapshot.sources.positionHistory,
+    },
+  };
+}
+
+function reconcileOpenOrderSources({
+  freshOpenOrders,
+  previousOpenOrders,
+  regularAvailable,
+  algoAvailable,
+}) {
+  const fresh = Array.isArray(freshOpenOrders) ? freshOpenOrders : [];
+  const previous = Array.isArray(previousOpenOrders) ? previousOpenOrders : [];
+  const sourceOrders = (source, available) => (available ? fresh : previous)
+    .filter((order) => order?.source === source);
+  return sortOpenOrders([
+    ...sourceOrders("ORDER", regularAvailable),
+    ...sourceOrders("ALGO", algoAvailable),
+  ]);
+}
+
+function sortOpenOrders(orders) {
+  return [...orders]
+    .sort((left, right) => right.createdAt - left.createdAt || right.updatedAt - left.updatedAt);
+}
+
+function normalizeRegularOpenOrder(order) {
+  const symbol = normalizedOrderSymbol(order?.symbol);
+  const side = normalizedOrderSide(order?.side);
+  if (!symbol || !side) return null;
+  const orderId = finiteNumber(order?.orderId);
+  const orderType = normalizedOrderType(order?.origType || order?.type);
+  const price = positiveOrderNumber(order?.price);
+  const averagePrice = positiveOrderNumber(order?.avgPrice);
+  const originalQuantity = nonNegativeOrderNumber(order?.origQty);
+  const executedQuantity = nonNegativeOrderNumber(order?.executedQty);
+  const cumulativeQuote = nonNegativeOrderNumber(order?.cumQuote);
+  const totalQuantityUsdt = originalQuantity == null || price == null
+    ? null
+    : originalQuantity * price;
+  const executedQuantityUsdt = cumulativeQuote != null && (cumulativeQuote > 0 || executedQuantity === 0)
+    ? cumulativeQuote
+    : executedQuantity == null || averagePrice == null
+      ? null
+      : executedQuantity * averagePrice;
+  const progressPercent = originalQuantity != null && originalQuantity > 0 && executedQuantity != null
+    ? Math.min(100, Math.max(0, executedQuantity / originalQuantity * 100))
+    : 0;
+  const createdAt = validOrderTime(order?.time ?? order?.updateTime);
+  const updatedAt = validOrderTime(order?.updateTime ?? order?.time);
+  return {
+    id: `order:${orderId ?? String(order?.clientOrderId || `${symbol}:${createdAt}`)}`,
+    source: "ORDER",
+    symbol,
+    contractType: "PERPETUAL",
+    orderType,
+    side,
+    positionSide: normalizedPositionSide(order?.positionSide),
+    status: normalizedOrderText(order?.status, "NEW"),
+    timeInForce: nullableOrderText(order?.timeInForce),
+    quantityUsdt: nullableNormalNumber(totalQuantityUsdt),
+    executedQuantityUsdt: nullableNormalNumber(executedQuantityUsdt),
+    progressPercent: normalNumber(progressPercent),
+    price: nullableNormalNumber(price),
+    averagePrice: nullableNormalNumber(averagePrice),
+    triggerPrice: nullableNormalNumber(positiveOrderNumber(order?.stopPrice)),
+    activationPrice: nullableNormalNumber(positiveOrderNumber(order?.activatePrice)),
+    callbackRate: nullableNormalNumber(nonNegativeOrderNumber(order?.priceRate)),
+    workingType: nullableOrderText(order?.workingType),
+    reduceOnly: order?.reduceOnly === true,
+    closePosition: order?.closePosition === true,
+    priceProtect: order?.priceProtect === true,
+    priceMatch: nullableOrderText(order?.priceMatch),
+    createdAt,
+    updatedAt,
+  };
+}
+
+function normalizeAlgoOpenOrder(order) {
+  const symbol = normalizedOrderSymbol(order?.symbol);
+  const side = normalizedOrderSide(order?.side);
+  if (!symbol || !side) return null;
+  const algoId = finiteNumber(order?.algoId);
+  const orderType = normalizedOrderType(order?.orderType || order?.type);
+  const price = positiveOrderNumber(order?.price ?? order?.actualPrice);
+  const triggerPrice = positiveOrderNumber(
+    order?.triggerPrice ?? order?.tpTriggerPrice ?? order?.slTriggerPrice,
+  );
+  const activationPrice = positiveOrderNumber(order?.activatePrice ?? order?.activationPrice);
+  const callbackRate = nonNegativeOrderNumber(order?.callbackRate ?? order?.priceRate);
+  const quantity = nonNegativeOrderNumber(order?.quantity);
+  const referencePrice = isMarketOrderType(orderType)
+    ? triggerPrice ?? activationPrice
+    : price;
+  const quantityUsdt = quantity == null || referencePrice == null
+    ? null
+    : quantity * referencePrice;
+  const createdAt = validOrderTime(order?.createTime ?? order?.time ?? order?.updateTime);
+  const updatedAt = validOrderTime(order?.updateTime ?? order?.createTime ?? order?.time);
+  return {
+    id: `algo:${algoId ?? String(order?.clientAlgoId || `${symbol}:${createdAt}`)}`,
+    source: "ALGO",
+    symbol,
+    contractType: "PERPETUAL",
+    orderType,
+    side,
+    positionSide: normalizedPositionSide(order?.positionSide),
+    status: normalizedOrderText(order?.algoStatus || order?.status, "NEW"),
+    timeInForce: nullableOrderText(order?.timeInForce),
+    quantityUsdt: nullableNormalNumber(quantityUsdt),
+    executedQuantityUsdt: null,
+    progressPercent: null,
+    price: nullableNormalNumber(price),
+    averagePrice: nullableNormalNumber(positiveOrderNumber(order?.actualPrice)),
+    triggerPrice: nullableNormalNumber(triggerPrice),
+    activationPrice: nullableNormalNumber(activationPrice),
+    callbackRate: nullableNormalNumber(callbackRate),
+    workingType: nullableOrderText(order?.workingType),
+    reduceOnly: order?.reduceOnly === true,
+    closePosition: order?.closePosition === true,
+    priceProtect: order?.priceProtect === true,
+    priceMatch: nullableOrderText(order?.priceMatch),
+    createdAt,
+    updatedAt,
+  };
+}
+
+function normalizedOrderSymbol(value) {
+  const symbol = String(value || "").trim().toUpperCase();
+  return /^[A-Z0-9_:-]{2,40}$/.test(symbol) ? symbol : "";
+}
+
+function normalizedOrderSide(value) {
+  const side = String(value || "").trim().toUpperCase();
+  return side === "BUY" || side === "SELL" ? side : "";
+}
+
+function normalizedOrderType(value) {
+  const type = String(value || "").trim().toUpperCase();
+  return type || "UNKNOWN";
+}
+
+function normalizedPositionSide(value) {
+  const side = String(value || "BOTH").trim().toUpperCase();
+  return ["BOTH", "LONG", "SHORT"].includes(side) ? side : "BOTH";
+}
+
+function normalizedOrderText(value, fallback) {
+  return String(value || fallback || "").trim().toUpperCase();
+}
+
+function nullableOrderText(value) {
+  const text = String(value || "").trim().toUpperCase();
+  return text || null;
+}
+
+function isMarketOrderType(type) {
+  return type === "MARKET" || type.endsWith("_MARKET");
+}
+
+function positiveOrderNumber(value) {
+  const number = finiteNumber(value);
+  return number != null && number > 0 ? number : null;
+}
+
+function nonNegativeOrderNumber(value) {
+  const number = finiteNumber(value);
+  return number != null && number >= 0 ? number : null;
+}
+
+function validOrderTime(value) {
+  const timestamp = finiteNumber(value);
+  return timestamp != null && timestamp > 0 ? Math.trunc(timestamp) : 0;
+}
+
+function nullableNormalNumber(value) {
+  return value == null ? null : normalNumber(value);
 }
 
 export function normalizeBinancePositionHistory({ trades, positions, fetchedAt, historyStartTime } = {}) {
@@ -583,12 +1152,15 @@ async function mapWithConcurrency(values, concurrency, mapper) {
   return results;
 }
 
-function normalizePosition(position, accountPosition) {
+function normalizePosition(position, accountPosition, crossMarginRatio) {
   const rawAmount = finiteNumber(position?.positionAmt) ?? 0;
   const positionSide = String(position?.positionSide || "BOTH").toUpperCase();
   const direction = positionSide === "LONG" || positionSide === "SHORT"
     ? positionSide
     : rawAmount >= 0 ? "LONG" : "SHORT";
+  const marginType = String(position?.marginType || "cross").toLowerCase() === "isolated"
+    ? "isolated"
+    : "cross";
   const leverage = Math.max(1, finiteNumber(position?.leverage) ?? 1);
   const notionalValue = Math.abs(finiteNumber(position?.notional) ?? 0);
   const isolatedMargin = finiteNumber(position?.isolatedMargin) ?? 0;
@@ -597,12 +1169,14 @@ function normalizePosition(position, accountPosition) {
   const unrealizedPnl = finiteNumber(position?.unRealizedProfit ?? position?.unrealizedProfit) ?? 0;
   const maintenanceMargin = Math.max(0, finiteNumber(accountPosition?.maintMargin) ?? 0);
   const roi = margin > 1e-12 ? (unrealizedPnl / margin) * 100 : 0;
-  const marginRatio = margin > 1e-12 ? (maintenanceMargin / margin) * 100 : 0;
+  const marginRatio = marginType === "isolated"
+    ? marginRatioPercentage(maintenanceMargin, margin)
+    : crossMarginRatio;
   return {
     symbol: String(position?.symbol || "").toUpperCase(),
     direction,
     positionSide,
-    marginType: String(position?.marginType || "cross").toLowerCase() === "isolated" ? "isolated" : "cross",
+    marginType,
     leverage: normalNumber(leverage),
     amount: normalNumber(Math.abs(rawAmount)),
     notionalValue: normalNumber(notionalValue),
@@ -617,6 +1191,13 @@ function normalizePosition(position, accountPosition) {
     marginAsset: String(position?.marginAsset || "USDT").toUpperCase(),
     updatedAt: finiteNumber(position?.updateTime) ?? 0,
   };
+}
+
+function marginRatioPercentage(maintenanceMargin, marginBalance) {
+  const maintenance = finiteNumber(maintenanceMargin);
+  const balance = finiteNumber(marginBalance);
+  if (maintenance == null || maintenance < 0 || balance == null || balance <= 1e-12) return 0;
+  return normalNumber((maintenance / balance) * 100);
 }
 
 async function requestJson(networkFetch, url, init = {}) {
@@ -646,11 +1227,15 @@ async function requestJson(networkFetch, url, init = {}) {
       }
     }
   }
-  if (!response.ok) throw binanceHttpError(response.status, payload);
+  if (!response.ok) {
+    throw binanceHttpError(response.status, payload, {
+      retryAfterMs: parseRetryAfterMs(response.headers?.get?.("retry-after")),
+    });
+  }
   return payload;
 }
 
-function binanceHttpError(status, payload) {
+function binanceHttpError(status, payload, { retryAfterMs = null } = {}) {
   const code = Number(payload?.code);
   if (code === -2015 || status === 401) {
     return new BinanceAccountError(
@@ -665,12 +1250,25 @@ function binanceHttpError(status, payload) {
     return new BinanceAccountError("BINANCE_TIME_INVALID", "设备时间与 Binance 不一致，请稍后重试。", { retryable: true });
   }
   if (status === 418 || status === 429) {
-    return new BinanceAccountError("BINANCE_RATE_LIMITED", "Binance 请求频率受限，请稍后再试。", { retryable: true });
+    return new BinanceAccountError(
+      "BINANCE_RATE_LIMITED",
+      "Binance 请求频率受限，客户端正在自动降频，请稍后再试。",
+      { retryable: true, retryAfterMs: retryAfterMs ?? 60_000 },
+    );
   }
   if (status >= 500) {
     return new BinanceAccountError("BINANCE_UNAVAILABLE", "Binance 服务暂时不可用，请稍后重试。", { retryable: true });
   }
   return new BinanceAccountError("BINANCE_REQUEST_FAILED", "Binance 拒绝了本次请求，请检查 API 权限后重试。");
+}
+
+function parseRetryAfterMs(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const seconds = Number(text);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000);
+  const dateMs = Date.parse(text);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
 }
 
 function normalizeCredentials(value) {
@@ -699,6 +1297,13 @@ function snapshotWithWarning(snapshot, warning) {
   return {
     ...snapshot,
     warnings: [...new Set([...(Array.isArray(snapshot?.warnings) ? snapshot.warnings : []), warning])],
+  };
+}
+
+function profitCalendarWithWarning(calendar, warning) {
+  return {
+    ...calendar,
+    warnings: [...new Set([...(Array.isArray(calendar?.warnings) ? calendar.warnings : []), warning])],
   };
 }
 

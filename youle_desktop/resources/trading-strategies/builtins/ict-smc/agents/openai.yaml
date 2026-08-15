@@ -1,0 +1,7 @@
+interface:
+  display_name: "ICT / SMC"
+  short_description: "识别流动性、结构转变、FVG/OB，并输出条件方案"
+  default_prompt: "Use $ict-smc to analyze ICT/SMC liquidity and structure, draw deterministic evidence, and produce a wait-first conditional execution plan."
+
+policy:
+  allow_implicit_invocation: true

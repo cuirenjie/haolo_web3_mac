@@ -32,8 +32,15 @@ test("desktop alert service uses Electron networking for both history and live m
   const start = main.indexOf("async function getTradingAlertService");
   const end = main.indexOf("async function tradingAlertIpcCall", start);
   const factory = main.slice(start, end);
-  assert.match(factory, /marketFetch: \(url, init\) => net\.fetch\(url, init\)/);
-  assert.match(factory, /marketSubscribeMode: "polling"/);
+  assert.match(factory, /marketFetch: governedBinanceFetch\("alert", BINANCE_REQUEST_PRIORITIES\.alert\)/);
+  assert.match(factory, /marketSubscribeMode: "websocket"/);
+});
+
+test("account and alert Binance REST traffic share one persisted main-process governor", async () => {
+  const main = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
+  assert.match(main, /new BinanceRequestGovernor\([\s\S]*binance-request-governor\.json/);
+  assert.match(main, /fetch: governedBinanceFetch\("account", BINANCE_REQUEST_PRIORITIES\.account\)/);
+  assert.match(main, /marketFetch: governedBinanceFetch\("alert", BINANCE_REQUEST_PRIORITIES\.alert\)/);
 });
 
 test("alert intent uses retryable idle timeout policy while request routing stays hard-bounded", async () => {

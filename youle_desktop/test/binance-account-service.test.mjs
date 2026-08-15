@@ -10,7 +10,9 @@ import {
   BinanceAccountService,
   buildSignedBinanceUrl,
   normalizeBinanceAccountSnapshot,
+  normalizeBinanceOpenOrders,
   normalizeBinancePositionHistory,
+  normalizeBinanceProfitCalendar,
 } from "../src/main/binance-account/service.mjs";
 import { createUserDataSnapshot, restoreUserDataSnapshot } from "../src/main/user-data-transfer.mjs";
 
@@ -71,10 +73,78 @@ test("signed Binance URLs use the exact encoded query and HMAC-SHA256", () => {
   assert.equal(url.searchParams.get("signature"), expected);
 });
 
+test("profit calendar groups realized PnL by local trading date and preserves zero-income days", () => {
+  const firstDay = new Date(2026, 6, 1, 9, 30).getTime();
+  const secondDay = new Date(2026, 6, 2, 18, 45).getTime();
+  const thirdDay = new Date(2026, 6, 3, 11, 15).getTime();
+  const calendar = normalizeBinanceProfitCalendar({
+    month: "2026-07",
+    income: [
+      { income: "500.30", time: firstDay },
+      { income: "-200", time: firstDay + 60_000 },
+      { income: "0", time: secondDay },
+      { incomeType: "COMMISSION", income: "-0.42", time: thirdDay },
+      { incomeType: "FUNDING_FEE", income: "1.2", time: new Date(2026, 6, 4, 8, 0).getTime() },
+      { income: "999", time: new Date(2026, 7, 1, 0, 0).getTime() },
+    ],
+    fetchedAt: "2026-08-14T04:00:00.000Z",
+  });
+
+  assert.equal(calendar.month, "2026-07");
+  assert.deepEqual(calendar.days, [
+    { date: "2026-07-01", pnl: 300.3 },
+    { date: "2026-07-02", pnl: 0 },
+    { date: "2026-07-03", pnl: 0 },
+  ]);
+  assert.equal(calendar.source, "USD_M_INCOME_REALIZED_PNL+COMMISSION_ACTIVITY");
+  assert.equal(calendar.days.some((day) => day.date === "2026-07-04"), false);
+});
+
+test("profit calendar reads one Binance month with signed pagination parameters and caches closed months", async () => {
+  const now = new Date(2026, 7, 14, 12, 0);
+  const incomeRequests = [];
+  const service = new BinanceAccountService({
+    credentialStore: {
+      resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }),
+    },
+    now: () => now,
+    fetch: async (url) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/fapi/v1/time") return jsonResponse({ serverTime: now.getTime() });
+      if (parsed.pathname !== "/fapi/v1/income") throw new Error(`unexpected route ${parsed.pathname}`);
+      incomeRequests.push(parsed);
+      return jsonResponse([
+        { incomeType: "REALIZED_PNL", income: "500.3", time: new Date(2026, 6, 1, 10, 0).getTime() },
+        { incomeType: "REALIZED_PNL", income: "-256.23", time: new Date(2026, 6, 2, 10, 0).getTime() },
+      ]);
+    },
+  });
+
+  const first = await service.profitCalendar(OWNER, { month: "2026-07" });
+  const second = await service.profitCalendar(OWNER, { month: "2026-07" });
+
+  assert.deepEqual(second, first);
+  assert.equal(incomeRequests.length, 1);
+  assert.equal(incomeRequests[0].searchParams.get("incomeType"), null);
+  assert.equal(incomeRequests[0].searchParams.get("startTime"), String(new Date(2026, 6, 1).getTime()));
+  assert.equal(incomeRequests[0].searchParams.get("endTime"), String(new Date(2026, 7, 1).getTime() - 1));
+  assert.equal(incomeRequests[0].searchParams.get("page"), "1");
+  assert.equal(incomeRequests[0].searchParams.get("limit"), "1000");
+  assert.deepEqual(first.days, [
+    { date: "2026-07-01", pnl: 500.3 },
+    { date: "2026-07-02", pnl: -256.23 },
+  ]);
+  await assert.rejects(
+    service.profitCalendar(OWNER, { month: "2026-09" }),
+    (error) => error?.code === "INVALID_PROFIT_CALENDAR_MONTH",
+  );
+});
+
 test("account snapshot maps real Binance wallet, futures, income and position fields", () => {
   const snapshot = normalizeBinanceAccountSnapshot({
     account: {
       totalMarginBalance: "2.8427",
+      totalMaintMargin: "0.0994945",
       totalWalletBalance: "2.8548",
       totalUnrealizedProfit: "-0.0121",
       totalInitialMargin: "1.43",
@@ -117,10 +187,126 @@ test("account snapshot maps real Binance wallet, futures, income and position fi
   assert.equal(snapshot.positions[0].leverage, 50);
   assert.equal(snapshot.positions[0].notionalValue, 71.6);
   assert.equal(snapshot.positions[0].margin, 1.43);
-  assert.equal(snapshot.positions[0].marginRatio, 10);
+  assert.ok(Math.abs(snapshot.positions[0].marginRatio - 3.5) < 1e-12);
   assert.ok(snapshot.positions[0].roi < 0);
   assert.equal(JSON.stringify(snapshot).includes(API_KEY), false);
   assert.equal(JSON.stringify(snapshot).includes(API_SECRET), false);
+});
+
+test("cross positions share Binance account margin ratio while isolated positions use isolated margin", () => {
+  const snapshot = normalizeBinanceAccountSnapshot({
+    account: {
+      totalMarginBalance: "3.6",
+      totalMaintMargin: "0.126",
+      positions: [{
+        symbol: "PROMUSDT",
+        positionSide: "BOTH",
+        initialMargin: "0.343361",
+        maintMargin: "0.1030083",
+      }, {
+        symbol: "ETHUSDT",
+        positionSide: "BOTH",
+        initialMargin: "0.1128",
+        maintMargin: "0.02256",
+      }, {
+        symbol: "BTCUSDT",
+        positionSide: "BOTH",
+        initialMargin: "0.6",
+        maintMargin: "0.08",
+      }],
+    },
+    positions: [{
+      symbol: "PROMUSDT",
+      positionSide: "BOTH",
+      positionAmt: "-2.6",
+      notional: "-6.8672",
+      isolatedMargin: "0",
+      leverage: "20",
+      marginType: "cross",
+    }, {
+      symbol: "ETHUSDT",
+      positionSide: "BOTH",
+      positionAmt: "-0.003",
+      notional: "-5.64",
+      isolatedMargin: "0",
+      leverage: "50",
+      marginType: "cross",
+    }, {
+      symbol: "BTCUSDT",
+      positionSide: "BOTH",
+      positionAmt: "0.001",
+      notional: "100",
+      isolatedMargin: "2",
+      leverage: "20",
+      marginType: "isolated",
+    }],
+    fetchedAt: "2026-08-14T05:22:00.000Z",
+  });
+  const bySymbol = new Map(snapshot.positions.map((position) => [position.symbol, position]));
+
+  assert.ok(Math.abs(bySymbol.get("PROMUSDT").marginRatio - 3.5) < 1e-12);
+  assert.ok(Math.abs(bySymbol.get("ETHUSDT").marginRatio - 3.5) < 1e-12);
+  assert.equal(bySymbol.get("BTCUSDT").marginRatio, 4);
+});
+
+test("current orders normalize official regular and algo fields into read-only USDT cards", () => {
+  const createdAt = Date.parse("2026-08-14T11:37:07.000Z");
+  const orders = normalizeBinanceOpenOrders({
+    openOrders: [{
+      avgPrice: "0",
+      clientOrderId: "regular-client-id",
+      cumQuote: "0",
+      executedQty: "0",
+      orderId: 101,
+      origQty: "191",
+      origType: "LIMIT",
+      price: "0.07000",
+      reduceOnly: false,
+      side: "BUY",
+      positionSide: "BOTH",
+      status: "NEW",
+      symbol: "EDENUSDT",
+      time: createdAt,
+      timeInForce: "GTC",
+      type: "LIMIT",
+      updateTime: createdAt,
+    }],
+    algoOpenOrders: [{
+      algoId: 202,
+      clientAlgoId: "algo-client-id",
+      algoType: "CONDITIONAL",
+      orderType: "STOP_MARKET",
+      symbol: "EDENUSDT",
+      side: "SELL",
+      positionSide: "BOTH",
+      quantity: "243",
+      algoStatus: "NEW",
+      triggerPrice: "0.079",
+      price: "0",
+      workingType: "CONTRACT_PRICE",
+      closePosition: false,
+      priceProtect: true,
+      reduceOnly: true,
+      createTime: createdAt + 1_000,
+      updateTime: createdAt + 1_000,
+    }],
+  });
+
+  assert.equal(orders.length, 2);
+  assert.equal(orders[0].source, "ALGO");
+  assert.equal(orders[0].orderType, "STOP_MARKET");
+  assert.equal(orders[0].quantityUsdt, 19.197);
+  assert.equal(orders[0].triggerPrice, 0.079);
+  assert.equal(orders[0].workingType, "CONTRACT_PRICE");
+  assert.equal(orders[0].reduceOnly, true);
+  assert.equal(orders[0].priceProtect, true);
+  assert.equal(orders[1].source, "ORDER");
+  assert.ok(Math.abs(orders[1].quantityUsdt - 13.37) < 1e-12);
+  assert.equal(orders[1].executedQuantityUsdt, 0);
+  assert.equal(orders[1].progressPercent, 0);
+  assert.equal(orders[1].price, 0.07);
+  assert.equal("apiKey" in orders[0], false);
+  assert.equal("clientAlgoId" in orders[0], false);
 });
 
 test("position history is reconstructed from official account trades without maximum-open-interest data", () => {
@@ -297,6 +483,42 @@ test("service validates credentials before saving and returns sanitized real-dat
           { id: 2, symbol: "TUTUSDT", side: "BUY", positionSide: "BOTH", qty: "100", baseQty: "0", price: "0.05549", realizedPnl: "0.013", time: Date.parse("2026-08-13T03:00:00.000Z") },
         ]);
       }
+      if (parsed.pathname === "/fapi/v1/openOrders") {
+        return jsonResponse([{
+          orderId: 101,
+          symbol: "EDENUSDT",
+          side: "BUY",
+          positionSide: "BOTH",
+          type: "LIMIT",
+          origType: "LIMIT",
+          status: "NEW",
+          origQty: "191",
+          executedQty: "0",
+          cumQuote: "0",
+          price: "0.07",
+          avgPrice: "0",
+          time: Date.parse("2026-08-13T03:30:00.000Z"),
+          updateTime: Date.parse("2026-08-13T03:30:00.000Z"),
+        }]);
+      }
+      if (parsed.pathname === "/fapi/v1/openAlgoOrders") {
+        return jsonResponse([{
+          algoId: 202,
+          algoType: "CONDITIONAL",
+          orderType: "STOP_MARKET",
+          symbol: "EDENUSDT",
+          side: "SELL",
+          positionSide: "BOTH",
+          quantity: "243",
+          algoStatus: "NEW",
+          triggerPrice: "0.079",
+          price: "0",
+          workingType: "CONTRACT_PRICE",
+          reduceOnly: true,
+          createTime: Date.parse("2026-08-13T03:40:00.000Z"),
+          updateTime: Date.parse("2026-08-13T03:40:00.000Z"),
+        }]);
+      }
       if (parsed.pathname === "/sapi/v1/asset/wallet/balance") {
         assert.equal(parsed.searchParams.get("quoteAsset"), "USDT");
         return jsonResponse([{ activate: true, walletName: "USD-M Futures", balance: "10" }]);
@@ -312,9 +534,17 @@ test("service validates credentials before saving and returns sanitized real-dat
   assert.equal(result.snapshot.positions.length, 0);
   assert.equal(result.snapshot.positionHistory.length, 1);
   assert.equal(result.snapshot.positionHistory[0].symbol, "TUTUSDT");
+  assert.equal(result.snapshot.positionHistory[0].leverage, 10);
+  assert.ok(Math.abs(result.snapshot.positionHistory[0].roi - 2.337289) < 1e-6);
+  assert.equal(result.snapshot.openOrders.length, 2);
+  assert.equal(result.snapshot.openOrders[0].source, "ALGO");
   assert.equal(JSON.stringify(result).includes(API_SECRET), false);
   assert.ok(requests.some((request) => new URL(request.url).pathname === "/fapi/v3/account"));
+  assert.ok(requests.some((request) => new URL(request.url).pathname === "/fapi/v2/positionRisk"));
+  assert.equal(requests.some((request) => new URL(request.url).pathname === "/fapi/v3/positionRisk"), false);
   assert.ok(requests.some((request) => new URL(request.url).pathname === "/fapi/v1/userTrades"));
+  assert.ok(requests.some((request) => new URL(request.url).pathname === "/fapi/v1/openOrders"));
+  assert.ok(requests.some((request) => new URL(request.url).pathname === "/fapi/v1/openAlgoOrders"));
 });
 
 test("account snapshots reuse fresh data, merge concurrent reads, and allow a forced refresh", async () => {
@@ -379,6 +609,243 @@ test("a transient Binance failure falls back to the last successful snapshot", a
   const fallback = await service.snapshot(OWNER);
   assert.equal(fallback.fetchedAt, successful.fetchedAt);
   assert.match(fallback.warnings.join("\n"), /当前展示上次成功读取的数据/);
+});
+
+test("current orders survive partial failures and require confirmation before becoming empty", async () => {
+  const createdAt = Date.parse("2026-08-14T13:33:14.000Z");
+  const regularOrder = {
+    orderId: 301,
+    symbol: "PROMUSDT",
+    side: "BUY",
+    positionSide: "BOTH",
+    type: "LIMIT",
+    origType: "LIMIT",
+    status: "NEW",
+    origQty: "3.4",
+    executedQty: "0",
+    cumQuote: "0",
+    price: "2.65",
+    avgPrice: "0",
+    time: createdAt,
+    updateTime: createdAt,
+  };
+  let regularResponses = [[regularOrder]];
+  let regularReads = 0;
+  const service = new BinanceAccountService({
+    credentialStore: {
+      resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }),
+    },
+    now: () => new Date("2026-08-14T13:34:00.000Z"),
+    snapshotCacheTtlMs: 0,
+  });
+  service.serverTime = async () => createdAt;
+  service.walletBalances = async () => [];
+  service.recentAccountTrades = async () => ({
+    trades: [],
+    failedSymbols: [],
+    truncatedSymbols: [],
+  });
+  service.signedGet = async ({ pathname }) => {
+    if (pathname === "/fapi/v3/account") {
+      return {
+        totalMarginBalance: "10",
+        totalMaintMargin: "0.1",
+        totalWalletBalance: "10",
+        totalUnrealizedProfit: "0",
+        totalInitialMargin: "0",
+        availableBalance: "10",
+        positions: [],
+      };
+    }
+    if (pathname === "/fapi/v2/positionRisk" || pathname === "/fapi/v1/income") return [];
+    if (pathname === "/fapi/v1/openAlgoOrders") return [];
+    if (pathname === "/fapi/v1/openOrders") {
+      regularReads += 1;
+      const response = regularResponses.shift();
+      if (response instanceof Error) throw response;
+      if (response === undefined) throw new Error("missing regular-order test response");
+      return response;
+    }
+    throw new Error(`unexpected route ${pathname}`);
+  };
+
+  const first = await service.snapshot(OWNER, { force: true });
+  assert.deepEqual(first.openOrders.map((order) => order.id), ["order:301"]);
+
+  regularResponses = [new Error("temporary openOrders failure")];
+  const afterFailure = await service.snapshot(OWNER, { force: true });
+  assert.deepEqual(afterFailure.openOrders.map((order) => order.id), ["order:301"]);
+  assert.match(afterFailure.warnings.join("\n"), /部分当前委托暂时无法读取/);
+
+  regularResponses = [[], [regularOrder]];
+  const readsBeforeTransientEmpty = regularReads;
+  const afterTransientEmpty = await service.snapshot(OWNER, { force: true });
+  assert.equal(regularReads - readsBeforeTransientEmpty, 2);
+  assert.deepEqual(afterTransientEmpty.openOrders.map((order) => order.id), ["order:301"]);
+
+  regularResponses = [[], []];
+  const readsBeforeConfirmedEmpty = regularReads;
+  const afterConfirmedEmpty = await service.snapshot(OWNER, { force: true });
+  assert.equal(regularReads - readsBeforeConfirmedEmpty, 2);
+  assert.deepEqual(afterConfirmedEmpty.openOrders, []);
+});
+
+test("live account refresh uses low-weight per-symbol order reads and reuses slow-changing data", async () => {
+  const fetchedAt = Date.parse("2026-08-14T13:40:00.000Z");
+  const regularOrder = {
+    orderId: 401,
+    symbol: "PROMUSDT",
+    side: "BUY",
+    positionSide: "BOTH",
+    type: "LIMIT",
+    origType: "LIMIT",
+    status: "NEW",
+    origQty: "3.4",
+    executedQty: "0",
+    cumQuote: "0",
+    price: "2.65",
+    avgPrice: "0",
+    time: fetchedAt,
+    updateTime: fetchedAt,
+  };
+  const previousSnapshot = {
+    schemaVersion: 1,
+    currency: "USDT",
+    estimatedTotalAssets: 20,
+    todayPnl: 3,
+    todayPnlPercent: 17.647,
+    marginBalance: 10,
+    walletBalance: 9,
+    unrealizedPnl: 1,
+    realizedPnlToday: 2,
+    initialMargin: 1,
+    availableBalance: 9,
+    positions: [],
+    positionHistory: [{ id: "preserved-history" }],
+    openOrders: normalizeBinanceOpenOrders({ openOrders: [regularOrder] }),
+    walletBreakdown: [{ walletName: "Spot", balance: 10 }],
+    sources: {
+      totalAssets: "BINANCE_WALLETS_USDT",
+      futures: "USD_M_FUTURES",
+      realizedPnl: "USD_M_INCOME",
+      positionHistory: "USD_M_ACCOUNT_TRADES",
+      openOrders: "USD_M_OPEN_ORDERS+USD_M_OPEN_ALGO_ORDERS",
+    },
+    warnings: [],
+    fetchedAt: new Date(fetchedAt).toISOString(),
+  };
+  const orderReads = [];
+  let walletReads = 0;
+  const service = new BinanceAccountService({
+    credentialStore: {
+      resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }),
+    },
+    now: () => new Date(fetchedAt + 5_000),
+    snapshotCacheTtlMs: 0,
+  });
+  service.storeSnapshotCache(OWNER, previousSnapshot);
+  service.serverTime = async () => fetchedAt + 5_000;
+  service.walletBalances = async () => {
+    walletReads += 1;
+    return [];
+  };
+  service.recentAccountTrades = async () => {
+    throw new Error("live refresh must not read account-trade history");
+  };
+  service.signedGet = async ({ pathname, params }) => {
+    if (pathname === "/fapi/v3/account") {
+      return {
+        totalMarginBalance: "11",
+        totalMaintMargin: "0.11",
+        totalWalletBalance: "9",
+        totalUnrealizedProfit: "2",
+        totalInitialMargin: "1",
+        availableBalance: "10",
+        positions: [{ symbol: "ETHUSDT", positionSide: "BOTH" }],
+      };
+    }
+    if (pathname === "/fapi/v3/positionRisk") {
+      return [
+        {
+          symbol: "ETHUSDT",
+          positionSide: "BOTH",
+          positionAmt: "-0.001",
+          notional: "-1.9",
+          leverage: "50",
+          marginType: "cross",
+          unRealizedProfit: "2",
+        },
+        {
+          symbol: "ZEROUSDT",
+          positionSide: "BOTH",
+          positionAmt: "0",
+          notional: "0",
+          leverage: "20",
+          marginType: "cross",
+          unRealizedProfit: "0",
+        },
+      ];
+    }
+    if (pathname === "/fapi/v1/income") {
+      throw new Error("live refresh must not read income history");
+    }
+    if (pathname === "/fapi/v1/openOrders" || pathname === "/fapi/v1/openAlgoOrders") {
+      orderReads.push({ pathname, symbol: params?.symbol ?? null });
+      if (pathname === "/fapi/v1/openOrders" && params?.symbol === "PROMUSDT") {
+        return [regularOrder];
+      }
+      return [];
+    }
+    throw new Error(`unexpected route ${pathname}`);
+  };
+
+  const snapshot = await service.snapshot(OWNER, { force: true, live: true });
+  assert.equal(walletReads, 0);
+  assert.deepEqual(
+    [...new Set(orderReads.map((request) => request.symbol))],
+    ["ETHUSDT", "PROMUSDT"],
+  );
+  assert.ok(orderReads.every((request) => request.symbol));
+  assert.ok(orderReads.every((request) => request.symbol !== "ZEROUSDT"));
+  assert.equal(snapshot.estimatedTotalAssets, 21);
+  assert.equal(snapshot.realizedPnlToday, 2);
+  assert.equal(snapshot.todayPnl, 4);
+  assert.deepEqual(snapshot.positionHistory, previousSnapshot.positionHistory);
+  assert.deepEqual(snapshot.walletBreakdown, previousSnapshot.walletBreakdown);
+  assert.deepEqual(snapshot.openOrders.map((order) => order.id), ["order:401"]);
+});
+
+test("Binance Retry-After starts a local cooldown instead of repeating rate-limited requests", async () => {
+  let nowMs = Date.parse("2026-08-14T13:45:00.000Z");
+  let requests = 0;
+  const service = new BinanceAccountService({
+    credentialStore: {
+      resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }),
+    },
+    now: () => new Date(nowMs),
+    fetch: async () => {
+      requests += 1;
+      return new Response(JSON.stringify({ code: -1003, msg: "Too many requests" }), {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": "2" },
+      });
+    },
+  });
+
+  await assert.rejects(
+    service.snapshot(OWNER, { force: true }),
+    (error) => error?.code === "BINANCE_RATE_LIMITED" && error?.retryAfterMs === 2_000,
+  );
+  assert.equal(requests, 1);
+  await assert.rejects(
+    service.snapshot(OWNER, { force: true }),
+    (error) => error?.code === "BINANCE_RATE_LIMITED" && error?.retryAfterMs === 2_000,
+  );
+  assert.equal(requests, 1);
+
+  nowMs += 2_001;
+  await assert.rejects(service.snapshot(OWNER, { force: true }), /自动降频/);
+  assert.equal(requests, 2);
 });
 
 test("binding fails atomically when required Binance account data cannot be read", async (t) => {

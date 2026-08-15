@@ -30,7 +30,7 @@ test("results library exposes installed skills and plugins as counted categories
   assert.match(source, /type ResultLibraryCategory = LibraryCategory \| "skill" \| "plugin";/);
   assert.match(
     results,
-    /renderCategoryButton\("skill", "技能", state\.skills\.items\.length, "result"\)/,
+    /renderCategoryButton\("skill", "技能", mySkillsPlazaCards\(\)\.length, "result"\)/,
   );
   assert.match(
     results,

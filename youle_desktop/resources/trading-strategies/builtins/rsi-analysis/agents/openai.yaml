@@ -1,0 +1,4 @@
+interface:
+  display_name: "RSI"
+  short_description: "分析RSI超买超卖、中心线、失败摆动与背离并生成条件执行方案"
+  default_prompt: "Use $rsi-analysis to analyze the current chart RSI and produce a conditional execution plan."

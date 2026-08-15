@@ -1,0 +1,4 @@
+interface:
+  display_name: "波浪理论"
+  short_description: "严格按艾略特波浪硬规则复核主备计数并生成条件式执行方案"
+  default_prompt: "Use $wave to analyze Elliott Wave candidates and produce a conditional execution plan."

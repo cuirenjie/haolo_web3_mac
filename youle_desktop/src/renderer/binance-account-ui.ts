@@ -48,6 +48,33 @@ export type BinanceAccountPositionHistory = {
   updatedAt: number;
 };
 
+export type BinanceAccountOpenOrder = {
+  id: string;
+  source: "ORDER" | "ALGO";
+  symbol: string;
+  contractType: "PERPETUAL";
+  orderType: string;
+  side: "BUY" | "SELL";
+  positionSide: string;
+  status: string;
+  timeInForce: string | null;
+  quantityUsdt: number | null;
+  executedQuantityUsdt: number | null;
+  progressPercent: number | null;
+  price: number | null;
+  averagePrice: number | null;
+  triggerPrice: number | null;
+  activationPrice: number | null;
+  callbackRate: number | null;
+  workingType: string | null;
+  reduceOnly: boolean;
+  closePosition: boolean;
+  priceProtect: boolean;
+  priceMatch: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type BinanceAccountSnapshot = {
   schemaVersion: 1;
   currency: string;
@@ -62,13 +89,25 @@ export type BinanceAccountSnapshot = {
   availableBalance: number;
   positions: BinanceAccountPosition[];
   positionHistory: BinanceAccountPositionHistory[];
+  openOrders: BinanceAccountOpenOrder[];
   walletBreakdown: Array<{ walletName: string; balance: number }>;
   sources: {
     totalAssets: string;
     futures: string;
     realizedPnl: string;
     positionHistory: string;
+    openOrders: string;
   };
+  warnings: string[];
+  fetchedAt: string;
+};
+
+export type BinanceAccountProfitCalendar = {
+  schemaVersion: 1;
+  month: string;
+  currency: string;
+  days: Array<{ date: string; pnl: number }>;
+  source: string;
   warnings: string[];
   fetchedAt: string;
 };
@@ -87,7 +126,7 @@ type BinanceAccountDialogState = {
   secretVisible: boolean;
 };
 
-export type BinanceAccountSection = "assets" | "positions" | "history";
+export type BinanceAccountSection = "assets" | "positions" | "open-orders" | "history" | "profit-calendar";
 
 export type BinanceAccountUiState = {
   loading: boolean;
@@ -96,6 +135,10 @@ export type BinanceAccountUiState = {
   error: string | null;
   status: BinanceAccountStatus | null;
   snapshot: BinanceAccountSnapshot | null;
+  profitCalendar: BinanceAccountProfitCalendar | null;
+  profitCalendarMonth: string;
+  profitCalendarLoading: boolean;
+  profitCalendarError: string | null;
   autoRefreshAfter: number;
   balancesVisible: boolean;
   activeSection: BinanceAccountSection;
@@ -110,6 +153,10 @@ export function createBinanceAccountUiState(): BinanceAccountUiState {
     error: null,
     status: null,
     snapshot: null,
+    profitCalendar: null,
+    profitCalendarMonth: localMonthKey(new Date()),
+    profitCalendarLoading: false,
+    profitCalendarError: null,
     autoRefreshAfter: 0,
     balancesVisible: true,
     activeSection: "assets",
@@ -152,7 +199,7 @@ export function renderBinanceAccountPage(state: BinanceAccountUiState) {
   const status = state.status;
   const initialLoading = state.loading && !state.loaded;
   return `
-    <section class="binance-account-page" aria-label="Binance 账户">
+    <section class="binance-account-page" aria-label="Binance 账户" aria-busy="${initialLoading}">
       ${initialLoading
         ? renderBinanceAccountLoading()
         : state.error && !state.loaded
@@ -272,11 +319,53 @@ function renderUnboundBinanceAccount(state: BinanceAccountUiState) {
 }
 
 function renderBinanceAccountLoading() {
+  const metrics = Array.from({ length: 4 }, () => `
+    <div class="binance-account-skeleton-metric">
+      <span class="binance-account-skeleton binance-account-skeleton-metric-label"></span>
+      <span class="binance-account-skeleton binance-account-skeleton-metric-value"></span>
+    </div>
+  `).join("");
   return `
-    <div class="binance-account-loading" role="status" aria-live="polite">
-      <span class="binance-account-loading-spinner" aria-hidden="true"></span>
-      <strong>正在读取 Binance 账户</strong>
-      <p>凭据只在主进程解密，正在拉取真实资产与持仓数据。</p>
+    <div class="binance-account-bound-view binance-account-skeleton-view" role="status" aria-live="polite" aria-label="正在加载 Binance 账户数据">
+      <div class="binance-account-toolbar binance-account-skeleton-toolbar" aria-hidden="true">
+        <div class="binance-account-skeleton-tabs">
+          <span class="binance-account-skeleton binance-account-skeleton-tab"></span>
+          <span class="binance-account-skeleton binance-account-skeleton-tab"></span>
+          <span class="binance-account-skeleton binance-account-skeleton-tab wide"></span>
+          <span class="binance-account-skeleton binance-account-skeleton-tab wide"></span>
+          <span class="binance-account-skeleton binance-account-skeleton-tab wide"></span>
+        </div>
+        <div class="binance-account-skeleton-actions">
+          <span class="binance-account-skeleton binance-account-skeleton-action"></span>
+          <span class="binance-account-skeleton binance-account-skeleton-action"></span>
+        </div>
+      </div>
+      <div class="binance-account-scroll" aria-hidden="true">
+        <div class="binance-account-content assets">
+          <article class="binance-account-summary-card total-assets">
+            <div class="binance-account-skeleton-heading">
+              <span class="binance-account-skeleton binance-account-skeleton-title"></span>
+              <span class="binance-account-skeleton binance-account-skeleton-eye"></span>
+            </div>
+            <div class="binance-account-skeleton-amount">
+              <span class="binance-account-skeleton binance-account-skeleton-total"></span>
+              <span class="binance-account-skeleton binance-account-skeleton-currency"></span>
+            </div>
+            <span class="binance-account-skeleton binance-account-skeleton-pnl"></span>
+          </article>
+          <article class="binance-account-summary-card futures-assets">
+            <div class="binance-account-skeleton-heading">
+              <span class="binance-account-skeleton binance-account-skeleton-title short"></span>
+            </div>
+            <div class="binance-account-skeleton-amount">
+              <span class="binance-account-skeleton binance-account-skeleton-total compact"></span>
+              <span class="binance-account-skeleton binance-account-skeleton-currency"></span>
+            </div>
+            <span class="binance-account-skeleton binance-account-skeleton-pnl compact"></span>
+            <div class="binance-account-skeleton-metric-grid">${metrics}</div>
+          </article>
+        </div>
+      </div>
     </div>
   `;
 }
@@ -297,18 +386,13 @@ function renderBoundBinanceAccount(state: BinanceAccountUiState) {
   const visible = state.balancesVisible;
   const positions = Array.isArray(snapshot.positions) ? snapshot.positions : [];
   const positionHistory = Array.isArray(snapshot.positionHistory) ? snapshot.positionHistory : [];
+  const openOrders = Array.isArray(snapshot.openOrders) ? snapshot.openOrders : [];
   const activeSection = state.activeSection;
   return `
     <div class="binance-account-bound-view">
       ${renderBinanceAccountToolbar(activeSection, state.refreshing)}
       <div class="binance-account-scroll ${activeSection}" tabindex="0">
         <div class="binance-account-content ${activeSection}" role="region" aria-label="${sectionLabel(activeSection)}">
-        ${state.error ? `<div class="binance-account-warning error" role="alert"><span>${escapeHtml(state.error)}</span></div>` : ""}
-        ${snapshot.warnings?.length ? `
-          <div class="binance-account-warning" role="status">
-            ${snapshot.warnings.map((warning) => `<span>${escapeHtml(warning)}</span>`).join("")}
-          </div>
-        ` : ""}
         ${activeSection === "assets" ? `
           <article class="binance-account-summary-card total-assets">
             <header>
@@ -328,7 +412,6 @@ function renderBoundBinanceAccount(state: BinanceAccountUiState) {
             <header>
               <div class="binance-account-summary-heading">
                 <h2>保证金余额</h2>
-                <button type="button" class="binance-account-visibility-button" data-binance-account-action="toggle-balances" aria-label="${visible ? "隐藏资产" : "显示资产"}" aria-pressed="${visible ? "false" : "true"}">${renderEyeIcon(visible)}</button>
               </div>
             </header>
             <div class="binance-account-primary-amount compact">
@@ -343,18 +426,27 @@ function renderBoundBinanceAccount(state: BinanceAccountUiState) {
               ${renderAccountMetric("占用保证金 (USD)", snapshot.initialMargin, visible)}
             </div>
           </article>
+
         ` : activeSection === "positions" ? `
           <section class="binance-account-positions" aria-label="持仓">
             ${positions.length
               ? `<div class="binance-account-position-list">${positions.map((position) => renderPositionCard(position, visible)).join("")}</div>`
               : `<div class="binance-account-empty-positions"><strong>暂无持仓</strong></div>`}
           </section>
-        ` : `
+        ` : activeSection === "open-orders" ? `
+          <section class="binance-account-open-orders" aria-label="当前委托">
+            ${openOrders.length
+              ? `<div class="binance-account-open-order-list">${openOrders.map((order) => renderOpenOrderCard(order, visible)).join("")}</div>`
+              : `<div class="binance-account-empty-open-orders"><strong>暂无当前委托</strong><span>当前没有未完成的普通委托或条件委托</span></div>`}
+          </section>
+        ` : activeSection === "history" ? `
           <section class="binance-account-position-history" aria-label="仓位历史">
             ${positionHistory.length
               ? `<div class="binance-account-history-list">${positionHistory.map((record) => renderPositionHistoryCard(record, visible, snapshot.fetchedAt)).join("")}</div>`
               : `<div class="binance-account-empty-history"><strong>暂无仓位历史</strong><span>最近 7 天没有可展示的已平仓或部分平仓记录</span></div>`}
           </section>
+        ` : `
+          ${renderProfitCalendar(state, visible)}
         `}
         </div>
       </div>
@@ -362,11 +454,102 @@ function renderBoundBinanceAccount(state: BinanceAccountUiState) {
   `;
 }
 
+function renderProfitCalendar(state: BinanceAccountUiState, visible: boolean) {
+  const month = validCalendarMonth(state.profitCalendarMonth)
+    ? state.profitCalendarMonth
+    : localMonthKey(new Date());
+  const calendar = state.profitCalendar?.month === month ? state.profitCalendar : null;
+  const [year, monthNumber] = month.split("-").map(Number);
+  const leadingDays = (new Date(year, monthNumber - 1, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(year, monthNumber, 0).getDate();
+  const calendarDays = (Array.isArray(calendar?.days) ? calendar.days : [])
+    .filter((day) => typeof day?.date === "string" && day.date.startsWith(`${month}-`) && Number.isFinite(day?.pnl));
+  const pnlByDate = new Map(
+    calendarDays.map((day) => [day.date, day.pnl] as const),
+  );
+  const monthlyPnl = calendar
+    ? roundedCalendarPnl(calendarDays.reduce((total, day) => total + day.pnl, 0))
+    : null;
+  const monthlyTone = visible ? metricTone(monthlyPnl) : "neutral";
+  const monthlyValue = !visible
+    ? "••••"
+    : monthlyPnl == null
+      ? "--"
+      : formatMonthlyPnl(monthlyPnl);
+  const dayCells = Array.from({ length: daysInMonth }, (_, index) => {
+    const day = index + 1;
+    const date = `${month}-${String(day).padStart(2, "0")}`;
+    const hasTrading = pnlByDate.has(date);
+    const pnl = hasTrading ? pnlByDate.get(date)! : null;
+    const roundedPnl = pnl == null ? null : roundedCalendarPnl(pnl);
+    const tone = !visible
+      ? "concealed"
+      : roundedPnl == null
+        ? "empty"
+        : roundedPnl > 0
+          ? "profit"
+          : roundedPnl < 0
+            ? "loss"
+            : "zero";
+    const value = !visible
+      ? "••••"
+      : roundedPnl == null
+        ? "--"
+        : formatCalendarPnl(roundedPnl);
+    const accessibleValue = !visible
+      ? "盈亏已隐藏"
+      : roundedPnl == null
+        ? "无交易"
+        : roundedPnl === 0
+          ? "盈亏 0.00"
+          : `${roundedPnl > 0 ? "盈利" : "亏损"} ${formatNumber(Math.abs(roundedPnl), 2)}`;
+    return `
+      <div class="binance-account-profit-day ${tone}" role="gridcell" aria-label="${monthNumber}月${day}日，${accessibleValue}">
+        <strong>${String(day).padStart(2, "0")}</strong>
+        <span>${value}</span>
+      </div>
+    `;
+  }).join("");
+  const loadingCells = Array.from({ length: 35 }, () => `
+    <span class="binance-account-profit-calendar-skeleton binance-account-skeleton" aria-hidden="true"></span>
+  `).join("");
+  const leadingCell = leadingDays
+    ? `<span class="binance-account-profit-leading" style="--leading-days:${leadingDays}" aria-hidden="true"></span>`
+    : "";
+  const body = state.profitCalendarLoading && !calendar
+    ? `<div class="binance-account-profit-calendar-loading" role="status" aria-label="正在加载收益日历">${loadingCells}</div>`
+    : state.profitCalendarError && !calendar
+      ? `<div class="binance-account-profit-calendar-error" role="alert"><span>${escapeHtml(state.profitCalendarError)}</span><button type="button" class="binance-account-quiet-button" data-binance-account-action="retry-profit-calendar">重试</button></div>`
+      : `<div class="binance-account-profit-grid" role="grid" aria-label="${year}年${monthNumber}月每日盈亏">${leadingCell}${dayCells}</div>`;
+  const nextDisabled = month >= localMonthKey(new Date()) || state.profitCalendarLoading;
+  return `
+    <section class="binance-account-profit-calendar" aria-labelledby="binanceAccountProfitCalendarTitle">
+      <header>
+        <h2 id="binanceAccountProfitCalendarTitle">收益日历</h2>
+        <div class="binance-account-profit-month-total ${monthlyTone}" aria-live="polite">
+          <span>本月</span>
+          <strong>${monthlyValue}</strong>
+          <small>${escapeHtml(calendar?.currency || "USDT")}</small>
+        </div>
+      </header>
+      <div class="binance-account-profit-month-nav">
+        <button type="button" data-binance-account-action="previous-profit-month" aria-label="查看上个月" ${state.profitCalendarLoading ? "disabled" : ""}>${renderChevronIcon("previous")}</button>
+        <strong>${year}年 ${monthNumber}月</strong>
+        <button type="button" data-binance-account-action="next-profit-month" aria-label="查看下个月" ${nextDisabled ? "disabled" : ""}>${renderChevronIcon("next")}</button>
+      </div>
+      <div class="binance-account-profit-weekdays" aria-hidden="true">${["一", "二", "三", "四", "五", "六", "日"].map((day) => `<span>${day}</span>`).join("")}</div>
+      ${body}
+    </section>
+  `;
+}
+
 function renderBinanceAccountToolbar(activeSection: BinanceAccountSection, refreshing: boolean) {
   const tabs: Array<[BinanceAccountSection, string]> = [
     ["assets", "资产"],
     ["positions", "持仓"],
+    ["open-orders", "当前委托"],
     ["history", "仓位历史"],
+    ["profit-calendar", "收益日历"],
   ];
   return `
     <div class="binance-account-toolbar">
@@ -387,7 +570,9 @@ function renderBinanceAccountToolbar(activeSection: BinanceAccountSection, refre
 
 function sectionLabel(section: BinanceAccountSection) {
   if (section === "positions") return "持仓";
+  if (section === "open-orders") return "当前委托";
   if (section === "history") return "仓位历史";
+  if (section === "profit-calendar") return "收益日历";
   return "资产";
 }
 
@@ -409,7 +594,7 @@ function renderPositionCard(position: BinanceAccountPosition, visible: boolean) 
     <article class="binance-account-position-card ${short ? "short" : "long"}">
       <header>
         <div class="binance-account-position-symbol">
-          <span class="binance-account-position-side">${short ? "卖" : "买"}</span>
+          <span class="binance-account-position-side">${short ? "空" : "多"}</span>
           <strong>${escapeHtml(position.symbol)}</strong>
           <span>永续</span>
           <span>${position.marginType === "cross" ? "全仓" : "逐仓"} ${formatNumber(position.leverage, 0)}X</span>
@@ -437,6 +622,185 @@ function renderPositionCard(position: BinanceAccountPosition, visible: boolean) 
   `;
 }
 
+function renderOpenOrderCard(order: BinanceAccountOpenOrder, visible: boolean) {
+  const buy = order.side === "BUY";
+  const regular = order.source === "ORDER";
+  const intent = openOrderIntent(order);
+  const intro = openOrderIntro(order, intent);
+  const progress = Math.min(100, Math.max(0, order.progressPercent ?? 0));
+  return `
+    <article class="binance-account-open-order-card ${buy ? "buy" : "sell"} ${regular ? "regular" : "conditional"}">
+      <header>
+        <div class="binance-account-open-order-symbol">
+          <strong>${escapeHtml(order.symbol)}</strong>
+          <span>${order.contractType === "PERPETUAL" ? "永续" : escapeHtml(order.contractType)}</span>
+        </div>
+        ${regular ? `
+          <div class="binance-account-open-order-progress" role="progressbar" aria-label="成交比例" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(progress * 100) / 100}">
+            <strong>${formatOrderProgress(progress)}</strong>
+            <span><i style="width:${progress}%"></i></span>
+          </div>
+        ` : ""}
+      </header>
+      <div class="binance-account-open-order-intro">
+        <strong>${escapeHtml(intro.type)} / ${escapeHtml(intro.action)}</strong>
+        <time datetime="${openOrderDateTime(order.createdAt)}">${formatHistoryTimestamp(order.createdAt)}</time>
+      </div>
+      ${regular ? `
+        <div class="binance-account-open-order-details regular">
+          ${renderOpenOrderMetric(
+            "成交数量 / 数量 (USDT)",
+            visible
+              ? `${formatOrderUsdt(order.executedQuantityUsdt)} / ${formatOrderUsdt(order.quantityUsdt)}`
+              : "•••• / ••••",
+          )}
+          ${renderOpenOrderMetric("价格", visible ? openOrderPrice(order) : "••••")}
+        </div>
+      ` : `
+        <div class="binance-account-open-order-details conditional">
+          ${renderOpenOrderMetric("数量 (USDT)", visible ? formatOrderUsdt(order.quantityUsdt) : "••••")}
+          ${renderOpenOrderMetric("价格", visible ? openOrderPrice(order) : "••••")}
+          ${renderOpenOrderMetric("触发类型", visible ? openOrderTriggerLabel(order) : "••••")}
+          ${order.closePosition ? renderOpenOrderMetric("全部平仓", "是") : ""}
+          ${order.orderType === "TRAILING_STOP_MARKET" && order.callbackRate != null
+            ? renderOpenOrderMetric("回调率", `${formatNumber(order.callbackRate, 2)}%`)
+            : ""}
+        </div>
+      `}
+    </article>
+  `;
+}
+
+function renderOpenOrderMetric(label: string, value: string) {
+  return `
+    <div>
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>
+  `;
+}
+
+type BinanceAccountOpenOrderIntent = "OPEN_LONG" | "OPEN_SHORT" | "CLOSE_LONG" | "CLOSE_SHORT";
+
+function openOrderIntent(order: BinanceAccountOpenOrder): BinanceAccountOpenOrderIntent {
+  if (order.positionSide === "LONG") {
+    return order.side === "SELL" ? "CLOSE_LONG" : "OPEN_LONG";
+  }
+  if (order.positionSide === "SHORT") {
+    return order.side === "BUY" ? "CLOSE_SHORT" : "OPEN_SHORT";
+  }
+  if (order.reduceOnly || order.closePosition) {
+    return order.side === "BUY" ? "CLOSE_SHORT" : "CLOSE_LONG";
+  }
+  return order.side === "BUY" ? "OPEN_LONG" : "OPEN_SHORT";
+}
+
+function openOrderIntro(
+  order: BinanceAccountOpenOrder,
+  intent: BinanceAccountOpenOrderIntent,
+) {
+  const opening = intent === "OPEN_LONG" || intent === "OPEN_SHORT";
+  const actionLabels: Record<BinanceAccountOpenOrderIntent, string> = {
+    OPEN_LONG: "做多",
+    OPEN_SHORT: "做空",
+    CLOSE_LONG: "平多",
+    CLOSE_SHORT: "平空",
+  };
+  if (order.source === "ALGO" && opening) {
+    return {
+      type: "条件委托",
+      action: `${isOpenOrderMarket(order.orderType) ? "市价" : "限价"}${actionLabels[intent]}`,
+    };
+  }
+  return {
+    type: openOrderTypeLabel(order.orderType),
+    action: actionLabels[intent],
+  };
+}
+
+function openOrderTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    LIMIT: "限价",
+    MARKET: "市价",
+    STOP: "限价止损",
+    STOP_MARKET: "市价止损",
+    TAKE_PROFIT: "限价止盈",
+    TAKE_PROFIT_MARKET: "市价止盈",
+    TRAILING_STOP_MARKET: "跟踪止损",
+  };
+  return labels[type] || type.replaceAll("_", " ");
+}
+
+function openOrderPriceMatchLabel(value: string) {
+  const labels: Record<string, string> = {
+    OPPONENT: "对手价",
+    OPPONENT_5: "对手五档",
+    OPPONENT_10: "对手十档",
+    OPPONENT_20: "对手二十档",
+    QUEUE: "同向排队价",
+    QUEUE_5: "同向五档",
+    QUEUE_10: "同向十档",
+    QUEUE_20: "同向二十档",
+  };
+  return labels[value] || value;
+}
+
+function openOrderPrice(order: BinanceAccountOpenOrder) {
+  if (isOpenOrderMarket(order.orderType)) return "市价";
+  if (order.price != null) return formatOrderNumber(order.price, priceDecimals(order.price));
+  if (order.priceMatch) return openOrderPriceMatchLabel(order.priceMatch);
+  return "—";
+}
+
+function openOrderTriggerLabel(order: BinanceAccountOpenOrder) {
+  if (order.orderType === "TRAILING_STOP_MARKET") {
+    return order.activationPrice == null
+      ? "跟踪价格"
+      : `${openOrderWorkingTypeLabel(order.workingType)}激活于 ${formatOrderNumber(order.activationPrice, priceDecimals(order.activationPrice))}`;
+  }
+  if (order.triggerPrice == null) return "—";
+  const stopLoss = order.orderType === "STOP" || order.orderType === "STOP_MARKET";
+  const takeProfit = order.orderType === "TAKE_PROFIT" || order.orderType === "TAKE_PROFIT_MARKET";
+  const operator = stopLoss
+    ? order.side === "BUY" ? "≥" : "≤"
+    : takeProfit
+      ? order.side === "BUY" ? "≤" : "≥"
+      : "=";
+  return `${openOrderWorkingTypeLabel(order.workingType)}${operator}${formatOrderNumber(order.triggerPrice, priceDecimals(order.triggerPrice))}`;
+}
+
+function openOrderWorkingTypeLabel(value: string | null) {
+  if (value === "MARK_PRICE") return "标记价格";
+  if (value === "CONTRACT_PRICE" || !value) return "最新价格";
+  return value.replaceAll("_", " ");
+}
+
+function isOpenOrderMarket(type: string) {
+  return type === "MARKET" || type.endsWith("_MARKET");
+}
+
+function formatOrderProgress(value: number) {
+  const decimals = Math.abs(value - Math.round(value)) < 1e-9 ? 0 : 2;
+  return `${formatNumber(value, decimals)}%`;
+}
+
+function formatOrderUsdt(value: number | null) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return formatOrderNumber(value, 5);
+}
+
+function formatOrderNumber(value: number, decimals: number) {
+  return value.toLocaleString("zh-CN", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+    useGrouping: Math.abs(value) >= 1_000,
+  });
+}
+
+function openOrderDateTime(value: number) {
+  return Number.isFinite(value) && value > 0 ? new Date(value).toISOString() : "";
+}
+
 function renderPositionHistoryCard(record: BinanceAccountPositionHistory, visible: boolean, fetchedAt: string) {
   const short = record.direction === "SHORT";
   const realizedTone = visible ? metricTone(record.realizedPnl) : "neutral";
@@ -456,10 +820,7 @@ function renderPositionHistoryCard(record: BinanceAccountPositionHistory, visibl
           <span class="binance-account-history-close-type">${closingLabel}</span>
         </div>
         <div class="binance-account-history-time">
-          <span>${formatHistoryTimestamp(record.openTime)} 开仓时间</span>
-          <i aria-hidden="true"></i>
-          <span>${formatHistoryTimestamp(record.closeTime)} 最后平仓时间</span>
-          <small>${formatHistoryDuration(record.openTime, record.closeTime, fetchedAt)}</small>
+          <span>${formatPositionHistoryTimestamp(record.openTime)} → ${formatPositionHistoryTimestamp(record.closeTime)}&nbsp;&nbsp;${formatHistoryDuration(record.openTime, record.closeTime, fetchedAt)}</span>
         </div>
       </header>
       <div class="binance-account-history-body">
@@ -506,6 +867,49 @@ function renderRefreshIcon() {
 
 function renderUnlinkIcon() {
   return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17H7A5 5 0 0 1 7 7h3"></path><path d="M15 7h2a5 5 0 1 1 0 10h-3"></path><path d="M8 12h8"></path><path d="M5 3l14 18"></path></svg>`;
+}
+
+function renderChevronIcon(direction: "previous" | "next") {
+  return direction === "previous"
+    ? `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 5-5 5 5 5"></path></svg>`
+    : `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5"></path></svg>`;
+}
+
+export function shiftBinanceAccountProfitCalendarMonth(month: string, offset: number) {
+  const normalized = validCalendarMonth(month) ? month : localMonthKey(new Date());
+  const [year, monthNumber] = normalized.split("-").map(Number);
+  return localMonthKey(new Date(year, monthNumber - 1 + Math.trunc(offset), 1));
+}
+
+function localMonthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function validCalendarMonth(value: string) {
+  return /^\d{4}-(?:0[1-9]|1[0-2])$/.test(value);
+}
+
+function roundedCalendarPnl(value: number) {
+  const rounded = Math.sign(value) * Math.round((Math.abs(value) + Number.EPSILON) * 100) / 100;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function formatCalendarPnl(value: number) {
+  if (Math.abs(value) < 1e-12) return "0.00";
+  return `${value > 0 ? "+" : "-"}${Math.abs(value).toLocaleString("zh-CN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+    useGrouping: Math.abs(value) >= 1_000,
+  })}`;
+}
+
+function formatMonthlyPnl(value: number) {
+  if (Math.abs(value) < 1e-12) return "0.00";
+  return `${value > 0 ? "+" : "-"}${Math.abs(value).toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    useGrouping: Math.abs(value) >= 1_000,
+  })}`;
 }
 
 function signedMetric(value: number | null, percent: number | null, visible: boolean) {
@@ -586,6 +990,21 @@ function formatHistoryTimestamp(value: number | null) {
   return `${part("month")}/${part("day")}/${part("year")} ${part("hour")}:${part("minute")}:${part("second")}`;
 }
 
+function formatPositionHistoryTimestamp(value: number | null) {
+  if (value == null || !Number.isFinite(value) || value <= 0) return "--";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}:${part("second")}`;
+}
+
 function formatHistoryDuration(openTime: number | null, closeTime: number | null, fetchedAt: string) {
   if (openTime == null || !Number.isFinite(openTime)) return "";
   const fallback = Date.parse(fetchedAt);
@@ -596,7 +1015,7 @@ function formatHistoryDuration(openTime: number | null, closeTime: number | null
   const hours = Math.floor(totalMinutes % (24 * 60) / 60);
   const minutes = totalMinutes % 60;
   const parts = [days ? `${days}天` : "", hours ? `${hours}小时` : "", `${minutes}分`].filter(Boolean);
-  return `（持续 ${parts.join(" ")}）`;
+  return `(${parts.join("")})`;
 }
 
 function formatUpdatedAt(value: string) {

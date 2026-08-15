@@ -1,0 +1,4 @@
+interface:
+  display_name: "MACD"
+  short_description: "分析八大经典形态、交叉、动能与顶底背离并生成条件方案"
+  default_prompt: "Use $macd-analysis to analyze the current closed-candle chart, show the MACD pane, mark evidence, and produce a conditional execution plan."

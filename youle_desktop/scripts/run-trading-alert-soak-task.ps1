@@ -66,6 +66,32 @@ function Save-InterruptedRun {
 
 Save-InterruptedRun
 
+function Test-CompletedSoakRun {
+  if (-not (Test-Path -LiteralPath $runningStatePath -PathType Leaf)) { return $false }
+  try {
+    $report = Get-Content -LiteralPath $runningStatePath -Raw | ConvertFrom-Json
+    $requiredDurationMs = [double]$report.options.durationMs
+    return [string]$report.status -eq "passed" -and $requiredDurationMs -ge 86400000 -and [double]$report.elapsedMs -ge $requiredDurationMs
+  } catch {
+    return $false
+  }
+}
+
+if (Test-CompletedSoakRun) {
+  [ordered]@{
+    schemaVersion = 1
+    status = "passed"
+    launcherProcessId = $PID
+    startedAt = (Get-Date).ToUniversalTime().ToString("o")
+    endedAt = (Get-Date).ToUniversalTime().ToString("o")
+    exitCode = 0
+    nodePath = $NodePath
+    outputDirectory = $outputPath
+    note = "existing completed 24-hour report preserved for assessment"
+  } | ConvertTo-Json | Set-Content -LiteralPath $launcherStatePath -Encoding utf8
+  exit 0
+}
+
 if (-not ("HaoloSoakPowerGuard" -as [type])) {
   Add-Type -TypeDefinition @"
 using System;

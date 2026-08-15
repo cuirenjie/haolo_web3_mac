@@ -28,6 +28,15 @@ test("restored provider chat history drops stale in-flight markers", async () =>
   assert.match(mergeBlock, /delete settled\.__youleLocalSendStatus/);
 });
 
+test("pending user bubbles hide sending copy while delivery failures remain visible", async () => {
+  const source = await rendererSource;
+  const renderBlock = sourceBlock(source, "function renderLocalSendStatus", "function localSendStatusFromRecord");
+  assert.match(renderBlock, /if \(status !== "failed"\) return "";/);
+  assert.doesNotMatch(renderBlock, /发送中/);
+  assert.match(renderBlock, /__youleLocalSendError[\s\S]*\|\| "发送失败"/);
+  assert.match(renderBlock, /class="message-local-send-status failed"/);
+});
+
 test("provider history excludes the optimistic item that is dispatched separately", async () => {
   const source = await rendererSource;
   const historyBlock = sourceBlock(source, "function providerMessagesForThread", "async function sendCurrentChannelMessage");

@@ -7,7 +7,21 @@ const MAX_CONTEXT_CANDLES = 300;
 const MAX_ORDER_FLOW_TRADES = 2_000;
 const MAX_ORDER_BOOK_LEVELS = 200;
 const MAX_OPEN_INTEREST_POINTS = 120;
-const ALLOWED_DRAWING_TOOLS = new Set(["path", "rectangle", "arrow-up", "arrow-down", "note"]);
+const ALLOWED_DRAWING_TOOLS = new Set(["path", "rectangle", "arrow-up", "arrow-down", "note", "text"]);
+const STRATEGY_ALLOWED_DRAWING_TOOLS = new Set([...ALLOWED_DRAWING_TOOLS, "circle", "ellipse"]);
+const STRATEGY_INDICATOR_DRAWING_TOOLS = new Set(["path", "note", "text"]);
+const DRAWING_LINE_STYLES = new Set(["solid", "dashed", "dotted"]);
+const DRAWING_TEXT_FONT_SIZES = new Set([10, 11, 12, 14, 16, 18]);
+const STRATEGY_ID_PATTERN = /^[a-z][a-z0-9-]{1,63}$/;
+const STRATEGY_DRAWING_COLOR_TOKENS = new Set([
+  "strategy-primary",
+  "strategy-support",
+  "strategy-resistance",
+  "strategy-entry",
+  "strategy-stop",
+  "strategy-target",
+  "strategy-note",
+]);
 const DRAWING_THEORY_STYLES = Object.freeze({
   chan: Object.freeze({
     layer: "ai/chan",
@@ -186,7 +200,7 @@ function normalizeContextCandles(value, primaryInterval) {
   return Object.freeze([...byInterval.values()]);
 }
 
-export function normalizeTradingMarketSnapshot(value = {}) {
+export function normalizeTradingMarketSnapshot(value = {}, options = {}) {
   const marketId = String(value?.marketId || "").trim().toUpperCase().slice(0, 120);
   const interval = String(value?.interval || "").trim().slice(0, 24);
   if (!marketId || !interval) throw new TypeError("marketId and interval are required");
@@ -197,7 +211,10 @@ export function normalizeTradingMarketSnapshot(value = {}) {
     byTime.set(normalized.time, normalized);
   });
   const candles = [...byTime.values()].sort((first, second) => first.time - second.time);
-  if (candles.length < 30) throw new TypeError("At least 30 valid candles are required");
+  const minimumCandles = Math.min(30, Math.max(1, Math.floor(Number(options?.minimumCandles) || 30)));
+  if (candles.length < minimumCandles) {
+    throw new TypeError(`At least ${minimumCandles} valid candles are required`);
+  }
   const snapshotTime = Math.max(finiteNumber(value?.snapshotTime ?? Date.now(), "snapshotTime"), 1);
   const orderFlow = normalizeOrderFlow(value?.orderFlow);
   const contextCandles = normalizeContextCandles(value?.contextCandles, interval);
@@ -221,6 +238,52 @@ function normalizePoint(value, context) {
   const price = finiteNumber(value?.price, `${context}.price`);
   if (time <= 0 || price <= 0) throw new TypeError(`${context} is outside valid bounds`);
   return { time, price };
+}
+
+function normalizeIndicatorPoint(value, context) {
+  const time = finiteNumber(value?.time, `${context}.time`);
+  const indicatorValue = finiteNumber(value?.value, `${context}.value`);
+  if (time <= 0) throw new TypeError(`${context} is outside valid bounds`);
+  return { time, value: indicatorValue };
+}
+
+function normalizeDrawingAppearance(drawing, tool, context) {
+  const appearance = {};
+  if (drawing.lineStyle !== undefined) {
+    if ((tool !== "path" && tool !== "rectangle" && tool !== "circle" && tool !== "ellipse") || !DRAWING_LINE_STYLES.has(drawing.lineStyle)) {
+      throw new TypeError(`${context}.lineStyle is invalid`);
+    }
+    appearance.lineStyle = drawing.lineStyle;
+  }
+  if (drawing.lineWidth !== undefined) {
+    const lineWidth = Number(drawing.lineWidth);
+    if ((tool !== "path" && tool !== "rectangle" && tool !== "circle" && tool !== "ellipse") || !Number.isFinite(lineWidth) || lineWidth < 0.5 || lineWidth > 4) {
+      throw new TypeError(`${context}.lineWidth is invalid`);
+    }
+    appearance.lineWidth = lineWidth;
+  }
+  if (drawing.fontSize !== undefined) {
+    const fontSize = Number(drawing.fontSize);
+    if ((tool !== "note" && tool !== "text") || !DRAWING_TEXT_FONT_SIZES.has(fontSize)) {
+      throw new TypeError(`${context}.fontSize is invalid`);
+    }
+    appearance.fontSize = fontSize;
+  }
+  if (drawing.bold !== undefined) {
+    if ((tool !== "note" && tool !== "text") || typeof drawing.bold !== "boolean") {
+      throw new TypeError(`${context}.bold is invalid`);
+    }
+    appearance.bold = drawing.bold;
+  }
+  if (drawing.markerSize !== undefined) {
+    const markerSize = Number(drawing.markerSize);
+    const minimumMarkerSize = tool === "text" ? 0 : 0.1;
+    if ((tool !== "note" && tool !== "text") || !Number.isFinite(markerSize) || markerSize < minimumMarkerSize || markerSize > 2) {
+      throw new TypeError(`${context}.markerSize is invalid`);
+    }
+    appearance.markerSize = markerSize;
+  }
+  return appearance;
 }
 
 export function validateTradingDrawingPatch(value, snapshot) {
@@ -257,9 +320,11 @@ export function validateTradingDrawingPatch(value, snapshot) {
     const points = rawPoints.map((point, pointIndex) => normalizePoint(point, `operations[${operationIndex}].points[${pointIndex}]`));
     if (tool === "path" && points.length < 2) throw new TypeError("A path requires at least two points");
     if (tool === "rectangle" && points.length !== 2) throw new TypeError("A rectangle requires two points");
-    if ((tool === "arrow-up" || tool === "arrow-down" || tool === "note") && points.length !== 1) {
+    if ((tool === "circle" || tool === "ellipse") && points.length !== 2) throw new TypeError(`${tool} requires two points`);
+    if ((tool === "arrow-up" || tool === "arrow-down" || tool === "note" || tool === "text") && points.length !== 1) {
       throw new TypeError(`${tool} requires one point`);
     }
+    const appearance = normalizeDrawingAppearance(drawing, tool, `operations[${operationIndex}].drawing`);
     return {
       op: "upsert",
       drawing: {
@@ -271,6 +336,7 @@ export function validateTradingDrawingPatch(value, snapshot) {
         points,
         text: typeof drawing.text === "string" ? drawing.text.slice(0, 120) : undefined,
         colorToken,
+        ...appearance,
         locked: true,
         status: drawing.status === "tentative" ? "tentative" : "confirmed",
         evidenceIds: Array.isArray(drawing.evidenceIds)
@@ -285,6 +351,149 @@ export function validateTradingDrawingPatch(value, snapshot) {
     baseRevision: Math.max(0, Number(value.baseRevision) || 0),
     marketId: snapshot.marketId,
     interval: snapshot.interval,
+    operations: sanitizedOperations,
+  };
+}
+
+export function validateStrategyDrawingPatch(value, snapshot, strategyId) {
+  const normalizedStrategyId = String(strategyId || "").trim();
+  if (!STRATEGY_ID_PATTERN.test(normalizedStrategyId)) throw new TypeError("Strategy drawing id is invalid");
+  if (Number(value?.schemaVersion) !== TRADING_ANALYSIS_SCHEMA_VERSION) {
+    throw new TypeError("Unsupported strategy drawing patch schemaVersion");
+  }
+  if (String(value?.marketId || "") !== snapshot.marketId || String(value?.interval || "") !== snapshot.interval) {
+    throw new TypeError("Strategy drawing patch market identity does not match snapshot");
+  }
+  const operations = Array.isArray(value?.operations) ? value.operations : [];
+  if (!operations.length || operations.length > 64) throw new TypeError("Strategy drawing patch operation count is invalid");
+  const sanitizedOperations = operations.map((operation, operationIndex) => {
+    if (operation?.op !== "upsert" || !operation?.drawing || typeof operation.drawing !== "object") {
+      throw new TypeError(`operations[${operationIndex}] is invalid`);
+    }
+    const drawing = operation.drawing;
+    const tool = String(drawing.tool || "");
+    const colorToken = String(drawing.colorToken || "");
+    if (
+      drawing.theory !== "strategy"
+      || drawing.strategyId !== normalizedStrategyId
+      || drawing.layer !== `ai/strategy/${normalizedStrategyId}`
+      || !STRATEGY_ALLOWED_DRAWING_TOOLS.has(tool)
+      || !STRATEGY_DRAWING_COLOR_TOKENS.has(colorToken)
+    ) {
+      throw new TypeError(`operations[${operationIndex}] uses an unsupported strategy drawing style`);
+    }
+    const rawPoints = Array.isArray(drawing.points) ? drawing.points : [];
+    if (!rawPoints.length || rawPoints.length > 64) throw new TypeError(`operations[${operationIndex}] point count is invalid`);
+    const points = rawPoints.map((point, pointIndex) => (
+      normalizePoint(point, `operations[${operationIndex}].points[${pointIndex}]`)
+    ));
+    if (tool === "path" && points.length < 2) throw new TypeError("A path requires at least two points");
+    if (tool === "rectangle" && points.length !== 2) throw new TypeError("A rectangle requires two points");
+    if ((tool === "circle" || tool === "ellipse") && points.length !== 2) throw new TypeError(`${tool} requires two points`);
+    if ((tool === "arrow-up" || tool === "arrow-down" || tool === "note" || tool === "text") && points.length !== 1) {
+      throw new TypeError(`${tool} requires one point`);
+    }
+    const appearance = normalizeDrawingAppearance(drawing, tool, `operations[${operationIndex}].drawing`);
+    return {
+      op: "upsert",
+      drawing: {
+        id: String(drawing.id || `ai-strategy-${operationIndex}`).slice(0, 160),
+        strategyId: normalizedStrategyId,
+        symbol: snapshot.marketId,
+        interval: snapshot.interval,
+        theory: "strategy",
+        layer: `ai/strategy/${normalizedStrategyId}`,
+        tool,
+        points,
+        text: typeof drawing.text === "string" ? drawing.text.slice(0, 120) : undefined,
+        colorToken,
+        ...appearance,
+        locked: true,
+        status: drawing.status === "tentative" ? "tentative" : "confirmed",
+        evidenceIds: Array.isArray(drawing.evidenceIds)
+          ? drawing.evidenceIds.map((item) => String(item).slice(0, 160)).slice(0, 32)
+          : [],
+      },
+    };
+  });
+  return {
+    schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
+    analysisId: String(value.analysisId || "").slice(0, 160),
+    baseRevision: Math.max(0, Number(value.baseRevision) || 0),
+    marketId: snapshot.marketId,
+    interval: snapshot.interval,
+    operations: sanitizedOperations,
+  };
+}
+
+export function validateStrategyIndicatorDrawingPatch(value, snapshot, strategyId, indicatorId) {
+  const normalizedStrategyId = String(strategyId || "").trim();
+  const normalizedIndicatorId = String(indicatorId || "").trim().toLowerCase();
+  if (!STRATEGY_ID_PATTERN.test(normalizedStrategyId)) throw new TypeError("Strategy indicator drawing id is invalid");
+  if (!/^[a-z][a-z0-9-]{1,63}$/.test(normalizedIndicatorId)) throw new TypeError("Indicator drawing target is invalid");
+  if (Number(value?.schemaVersion) !== TRADING_ANALYSIS_SCHEMA_VERSION) {
+    throw new TypeError("Unsupported strategy indicator drawing patch schemaVersion");
+  }
+  if (
+    String(value?.marketId || "") !== snapshot.marketId
+    || String(value?.interval || "") !== snapshot.interval
+    || String(value?.indicatorId || "").trim().toLowerCase() !== normalizedIndicatorId
+  ) {
+    throw new TypeError("Strategy indicator drawing patch target does not match snapshot");
+  }
+  const operations = Array.isArray(value?.operations) ? value.operations : [];
+  if (!operations.length || operations.length > 64) throw new TypeError("Strategy indicator drawing patch operation count is invalid");
+  const sanitizedOperations = operations.map((operation, operationIndex) => {
+    if (operation?.op !== "upsert" || !operation?.drawing || typeof operation.drawing !== "object") {
+      throw new TypeError(`indicator operations[${operationIndex}] is invalid`);
+    }
+    const drawing = operation.drawing;
+    const tool = String(drawing.tool || "");
+    const colorToken = String(drawing.colorToken || "");
+    if (
+      drawing.theory !== "strategy"
+      || drawing.strategyId !== normalizedStrategyId
+      || drawing.layer !== `ai/strategy/${normalizedStrategyId}`
+      || !STRATEGY_INDICATOR_DRAWING_TOOLS.has(tool)
+      || !STRATEGY_DRAWING_COLOR_TOKENS.has(colorToken)
+    ) {
+      throw new TypeError(`indicator operations[${operationIndex}] uses an unsupported strategy drawing style`);
+    }
+    const rawPoints = Array.isArray(drawing.points) ? drawing.points : [];
+    if (!rawPoints.length || rawPoints.length > 64) throw new TypeError(`indicator operations[${operationIndex}] point count is invalid`);
+    const points = rawPoints.map((point, pointIndex) => (
+      normalizeIndicatorPoint(point, `indicator operations[${operationIndex}].points[${pointIndex}]`)
+    ));
+    if (tool === "path" && points.length < 2) throw new TypeError("An indicator path requires at least two points");
+    if ((tool === "note" || tool === "text") && points.length !== 1) throw new TypeError(`${tool} requires one indicator point`);
+    const appearance = normalizeDrawingAppearance(drawing, tool, `indicator operations[${operationIndex}].drawing`);
+    return {
+      op: "upsert",
+      drawing: {
+        id: String(drawing.id || `ai-strategy-indicator-${operationIndex}`).slice(0, 160),
+        strategyId: normalizedStrategyId,
+        theory: "strategy",
+        layer: `ai/strategy/${normalizedStrategyId}`,
+        tool,
+        points,
+        text: typeof drawing.text === "string" ? drawing.text.slice(0, 120) : undefined,
+        colorToken,
+        ...appearance,
+        locked: true,
+        status: drawing.status === "tentative" ? "tentative" : "confirmed",
+        evidenceIds: Array.isArray(drawing.evidenceIds)
+          ? drawing.evidenceIds.map((item) => String(item).slice(0, 160)).slice(0, 32)
+          : [],
+      },
+    };
+  });
+  return {
+    schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
+    analysisId: String(value.analysisId || "").slice(0, 160),
+    baseRevision: Math.max(0, Number(value.baseRevision) || 0),
+    marketId: snapshot.marketId,
+    interval: snapshot.interval,
+    indicatorId: normalizedIndicatorId,
     operations: sanitizedOperations,
   };
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: "缠论"
+  short_description: "基于确定性缠论结构分析当前K线并生成可验证的条件执行方案"
+  default_prompt: "Use $chan to analyze the current chart with Chan structures and produce an evidence-bound execution plan."

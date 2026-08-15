@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import { TradingAlertMarketDataHub } from "../src/main/trading-alerts/market-data-hub.mjs";
 import { createBinanceMarketAdapter, planBinanceInterval } from "../src/main/trading-alerts/binance-market-adapter.mjs";
@@ -93,4 +94,62 @@ test("Binance history transport failures are retryable structured errors", async
       && error?.retryable === true
       && /fetch failed/.test(error.message),
   );
+});
+
+test("Binance history treats shared 429 cooldown responses as retryable", async () => {
+  const adapter = createBinanceMarketAdapter({
+    fetchImpl: async () => new Response("{}", { status: 429, headers: { "retry-after": "45" } }),
+  });
+  await assert.rejects(
+    () => adapter.loadHistory({ marketId: "BINANCE:FUTURES:BTCUSDT", interval: "15m" }, 2),
+    (error) => error?.code === "TRADING_ALERT_MARKET_RATE_LIMITED"
+      && error?.retryable === true
+      && error?.details?.retryAfterMs === 45_000,
+  );
+});
+
+test("Binance live alerts multiplex futures streams over one WebSocket", async () => {
+  class FakeWebSocket extends EventEmitter {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static instances = [];
+    constructor(url) {
+      super();
+      this.url = url;
+      this.readyState = FakeWebSocket.CONNECTING;
+      this.sent = [];
+      FakeWebSocket.instances.push(this);
+    }
+    send(value) { this.sent.push(JSON.parse(value)); }
+    open() { this.readyState = FakeWebSocket.OPEN; this.emit("open"); }
+    message(value) { this.emit("message", JSON.stringify(value)); }
+    close() { this.readyState = 3; this.emit("close"); }
+  }
+
+  const adapter = createBinanceMarketAdapter({ WebSocketImpl: FakeWebSocket });
+  const btcEvents = [];
+  const ethEvents = [];
+  const disposeBtc = await adapter.subscribe(
+    { marketId: "BINANCE:FUTURES:BTCUSDT", interval: "1m" },
+    (event) => btcEvents.push(event),
+  );
+  const disposeEth = await adapter.subscribe(
+    { marketId: "BINANCE:FUTURES:ETHUSDT", interval: "5m" },
+    (event) => ethEvents.push(event),
+  );
+  assert.equal(FakeWebSocket.instances.length, 1);
+  const socket = FakeWebSocket.instances[0];
+  assert.equal(socket.url, "wss://fstream.binance.com/ws");
+  socket.open();
+  assert.deepEqual(socket.sent[0].params.sort(), ["btcusdt@kline_1m", "ethusdt@kline_5m"]);
+
+  socket.message({ E: 1_700_000_060_000, k: { s: "BTCUSDT", i: "1m", t: 1_700_000_000_000, T: 1_700_000_059_999, o: "100", h: "102", l: "99", c: "101", v: "10", x: true } });
+  assert.equal(btcEvents.length, 1);
+  assert.equal(ethEvents.length, 0);
+  assert.equal(btcEvents[0].source, "binance-websocket");
+
+  await disposeBtc();
+  assert.equal(socket.readyState, FakeWebSocket.OPEN);
+  await disposeEth();
+  assert.equal(socket.readyState, 3);
 });

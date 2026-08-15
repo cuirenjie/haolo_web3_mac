@@ -83,7 +83,7 @@ function createMockBinanceAccountSnapshot() {
         margin: 1.43,
         unrealizedPnl: -0.01,
         roi: -0.98,
-        marginRatio: 10.06,
+        marginRatio: 3.5,
         entryPrice: 1883.91,
         markPrice: 1884.21,
         liquidationPrice: 1951.3,
@@ -173,6 +173,86 @@ function createMockBinanceAccountSnapshot() {
         updatedAt: Date.now() - 42_000,
       },
     ],
+    openOrders: [
+      {
+        id: "mock-limit-buy",
+        source: "ORDER" as const,
+        symbol: "EDENUSDT",
+        contractType: "PERPETUAL" as const,
+        orderType: "LIMIT",
+        side: "BUY" as const,
+        positionSide: "BOTH",
+        status: "NEW",
+        timeInForce: "GTC",
+        quantityUsdt: 13.37,
+        executedQuantityUsdt: 0,
+        progressPercent: 0,
+        price: 0.07,
+        averagePrice: null,
+        triggerPrice: null,
+        activationPrice: null,
+        callbackRate: null,
+        workingType: null,
+        reduceOnly: false,
+        closePosition: false,
+        priceProtect: false,
+        priceMatch: null,
+        createdAt: Date.now() - 12 * 60_000,
+        updatedAt: Date.now() - 12 * 60_000,
+      },
+      {
+        id: "mock-stop-market-sell",
+        source: "ALGO" as const,
+        symbol: "EDENUSDT",
+        contractType: "PERPETUAL" as const,
+        orderType: "STOP_MARKET",
+        side: "SELL" as const,
+        positionSide: "BOTH",
+        status: "NEW",
+        timeInForce: null,
+        quantityUsdt: 19.197,
+        executedQuantityUsdt: null,
+        progressPercent: null,
+        price: null,
+        averagePrice: null,
+        triggerPrice: 0.079,
+        activationPrice: null,
+        callbackRate: null,
+        workingType: "CONTRACT_PRICE",
+        reduceOnly: true,
+        closePosition: false,
+        priceProtect: false,
+        priceMatch: null,
+        createdAt: Date.now() - 18 * 60_000,
+        updatedAt: Date.now() - 18 * 60_000,
+      },
+      {
+        id: "mock-take-profit-limit-buy",
+        source: "ALGO" as const,
+        symbol: "EDENUSDT",
+        contractType: "PERPETUAL" as const,
+        orderType: "TAKE_PROFIT",
+        side: "BUY" as const,
+        positionSide: "SHORT",
+        status: "NEW",
+        timeInForce: "GTC",
+        quantityUsdt: 10.92,
+        executedQuantityUsdt: null,
+        progressPercent: null,
+        price: 0.091,
+        averagePrice: null,
+        triggerPrice: 0.09,
+        activationPrice: null,
+        callbackRate: null,
+        workingType: "CONTRACT_PRICE",
+        reduceOnly: true,
+        closePosition: false,
+        priceProtect: true,
+        priceMatch: null,
+        createdAt: Date.now() - 22 * 60_000,
+        updatedAt: Date.now() - 22 * 60_000,
+      },
+    ],
     walletBreakdown: [
       { walletName: "Spot", balance: 1096.25088 },
       { walletName: "USDⓈ-M Futures", balance: 2842.7 },
@@ -182,7 +262,33 @@ function createMockBinanceAccountSnapshot() {
       futures: "BINANCE_USDM_ACCOUNT_V3",
       realizedPnl: "BINANCE_USDM_INCOME",
       positionHistory: "BINANCE_USDM_ACCOUNT_TRADES",
+      openOrders: "USD_M_OPEN_ORDERS+USD_M_OPEN_ALGO_ORDERS",
     },
+    warnings: [],
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+function createMockBinanceAccountProfitCalendar(month: string) {
+  const normalizedMonth = /^\d{4}-(?:0[1-9]|1[0-2])$/.test(month)
+    ? month
+    : new Date().toISOString().slice(0, 7);
+  return {
+    schemaVersion: 1 as const,
+    month: normalizedMonth,
+    currency: "USDT",
+    days: [
+      { date: `${normalizedMonth}-01`, pnl: 500.3 },
+      { date: `${normalizedMonth}-03`, pnl: -256.23 },
+      { date: `${normalizedMonth}-05`, pnl: 86.42 },
+      { date: `${normalizedMonth}-08`, pnl: -38.7 },
+      { date: `${normalizedMonth}-11`, pnl: 0 },
+      { date: `${normalizedMonth}-14`, pnl: 127.58 },
+      { date: `${normalizedMonth}-18`, pnl: -72.15 },
+      { date: `${normalizedMonth}-22`, pnl: 316.8 },
+      { date: `${normalizedMonth}-27`, pnl: -19.06 },
+    ],
+    source: "USD_M_INCOME_REALIZED_PNL+COMMISSION_ACTIVITY",
     warnings: [],
     fetchedAt: new Date().toISOString(),
   };
@@ -485,6 +591,34 @@ export function ensureBrowserDesktopApi() {
     async verifyOtp() {
       return session;
     },
+    async getBinancePublicMarketData(params: any) {
+      const marketType = params?.marketType === "spot" ? "spot" : "futures";
+      const base = marketType === "spot" ? "https://api.binance.com" : "https://fapi.binance.com";
+      const url = new URL(String(params?.path || "/"), base);
+      Object.entries(params?.parameters || {}).forEach(([key, value]) => {
+        if (value !== undefined) url.searchParams.set(key, String(value));
+      });
+      const response = await fetch(url, { cache: "no-store" });
+      const data = await response.json().catch(() => null);
+      return {
+        ok: response.ok,
+        status: response.status,
+        data,
+        cached: false,
+        retryAfterMs: Number(response.headers.get("retry-after")) * 1_000 || null,
+        error: response.ok ? undefined : String((data as any)?.msg || `Binance market request failed: ${response.status}`),
+      };
+    },
+    async getHyperliquidPublicCandles(params: any) {
+      const response = await fetch("https://api.hyperliquid.xyz/info", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "candleSnapshot", req: params }),
+      });
+      const data = await response.json().catch(() => null);
+      return { ok: response.ok, status: response.status, data, cached: false, retryAfterMs: Number(response.headers.get("retry-after")) * 1_000 || null, error: response.ok ? undefined : `Hyperliquid market request failed: ${response.status}` };
+    },
     async getBinanceAccountStatus() {
       return {
         bound: binanceAccountBound,
@@ -514,6 +648,10 @@ export function ensureBrowserDesktopApi() {
     async getBinanceAccountSnapshot() {
       if (!binanceAccountBound) throw new Error("尚未绑定 Binance API。");
       return createMockBinanceAccountSnapshot();
+    },
+    async getBinanceAccountProfitCalendar(params: { month: string }) {
+      if (!binanceAccountBound) throw new Error("尚未绑定 Binance API。");
+      return createMockBinanceAccountProfitCalendar(params?.month);
     },
     async removeBinanceAccount(params: any) {
       if (!params?.challengeId || !/^\d{6}$/.test(String(params?.code || ""))) {

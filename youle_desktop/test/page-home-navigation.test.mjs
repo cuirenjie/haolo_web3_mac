@@ -124,15 +124,16 @@ test("the shared return button restores the chat home and has complete theme sta
   assert.match(styles, /\.page-home-button:disabled/);
 });
 
-test("the existing skills and plugins page shifts its complete content group right by 18px", async () => {
+test("the skills and plugins page aligns its content group to the account page's 34px gutter", async () => {
   const styles = await stylesSource;
   const skillsPage = sourceBlock(styles, ".skills-plaza-page {", ".desktop-body > .skills-plaza-page");
 
-  assert.match(skillsPage, /--skills-plaza-content-shift-x:\s*18px;/);
+  assert.match(skillsPage, /--skills-plaza-content-shift-x:\s*26px;/);
   assert.match(
     skillsPage,
     /padding:\s*0 8px 32px calc\(8px \+ var\(--skills-plaza-content-shift-x\)\);/,
   );
+  assert.match(styles, /\.binance-account-toolbar\s*\{[^}]*width:\s*min\(1180px, calc\(100% - 68px\)\);/s);
   assert.doesNotMatch(skillsPage, /#[0-9a-f]{3,8}|rgba?\(/i);
 });
 
@@ -164,6 +165,7 @@ test("my skills prefers three shorter card columns with responsive fallbacks", a
 
   assert.match(grid, /grid-template-columns:\s*repeat\(3, minmax\(0, 320px\)\);/);
   assert.match(grid, /gap:\s*20px;/);
+  assert.match(grid, /padding:\s*16px 0 24px;/);
   assert.match(
     styles,
     /@media \(max-width: 980px\)\s*\{[\s\S]*?\.my-skills-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 320px\)\);/,

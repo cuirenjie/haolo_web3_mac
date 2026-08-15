@@ -286,10 +286,12 @@ test("Wyckoff mention and expert prompt preserve the actual user message", () =>
 });
 
 test("Trading Expert wires Wyckoff through IPC, persistent playback, and paired themes", async () => {
-  const [mainSource, preloadSource, rendererSource, marketSource, drawingSource, playbackSource, stylesSource] = await Promise.all([
+  const [mainSource, preloadSource, rendererSource, catalogSource, clientSource, marketSource, drawingSource, playbackSource, stylesSource] = await Promise.all([
     readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/renderer/trading-strategy-runtime/catalog.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/renderer/trading-strategy-runtime/client.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-drawing.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-ai-playback.ts", import.meta.url), "utf8"),
@@ -299,10 +301,11 @@ test("Trading Expert wires Wyckoff through IPC, persistent playback, and paired 
   assert.match(mainSource, /tradingAnalysis:runWyckoff/);
   assert.match(preloadSource, /classifyTradingWyckoffRequest/);
   assert.match(preloadSource, /runTradingWyckoffAnalysis/);
-  assert.match(rendererSource, /await classifyTradingWyckoffRequestForSend\(/);
-  assert.match(rendererSource, /tradingWyckoffRequestAtSend\?\.mode === "chart-analysis"/);
-  assert.match(rendererSource, /runTradingWyckoffChartRequest\(/);
-  assert.match(rendererSource, /buildTradingWyckoffExpertPrompt\(baseAgentText\)/);
+  assert.match(rendererSource, /await classifyTradingStrategyForSend\(/);
+  assert.match(clientSource, /client\.classifyTradingStrategyRequest\(/);
+  assert.match(rendererSource, /tradingStrategyRequestAtSend\?\.mode === "chart-analysis"/);
+  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend/);
+  assert.match(catalogSource, /buildTradingWyckoffExpertPrompt/);
   assert.match(marketSource, /runWyckoffConversation/);
   assert.match(marketSource, /识别交易区间、量价努力结果、A–E 阶段和关键事件/);
   assert.match(marketSource, /playAiDrawingPatch/);

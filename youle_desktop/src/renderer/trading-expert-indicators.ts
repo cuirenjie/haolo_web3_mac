@@ -407,6 +407,7 @@ export function calculateTradingIndicator(
       series: [line("rsi", "RSI", LINE_COLORS.purple, computeRsi(priceCloses, period))],
       referenceLines: [
         { value: 70, color: "rgba(239, 83, 80, 0.5)" },
+        { value: 50, color: "rgba(123, 135, 151, 0.45)" },
         { value: 30, color: "rgba(22, 168, 115, 0.5)" },
       ],
     };
@@ -424,6 +425,11 @@ export function calculateTradingIndicator(
         line("k", "K", LINE_COLORS.cyan, result.k),
         line("d", "D", LINE_COLORS.amber, result.d),
         line("j", "J", LINE_COLORS.purple, result.j),
+      ],
+      referenceLines: [
+        { value: 80, color: "rgba(239, 83, 80, 0.5)" },
+        { value: 50, color: "rgba(123, 135, 151, 0.45)" },
+        { value: 20, color: "rgba(22, 168, 115, 0.5)" },
       ],
     };
   }

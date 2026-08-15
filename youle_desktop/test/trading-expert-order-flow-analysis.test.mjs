@@ -448,10 +448,26 @@ test("order-flow request routing preserves the current canvas unless fields are 
 });
 
 test("Trading Expert wires @策略:订单流 through IPC, real Binance inputs, playback, and both themes", async () => {
-  const [mainSource, preloadSource, rendererSource, marketSource, drawingSource, playbackSource, stylesSource] = await Promise.all([
+  const [
+    mainSource,
+    orderFlowAdapterSource,
+    coordinatorSource,
+    preloadSource,
+    rendererSource,
+    catalogSource,
+    clientSource,
+    marketSource,
+    drawingSource,
+    playbackSource,
+    stylesSource,
+  ] = await Promise.all([
     readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../src/main/trading-strategy-runtime/builtins/order-flow-adapter.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../src/main/trading-strategy-runtime/coordinator.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/renderer/trading-strategy-runtime/catalog.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/renderer/trading-strategy-runtime/client.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-drawing.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-ai-playback.ts", import.meta.url), "utf8"),
@@ -459,14 +475,16 @@ test("Trading Expert wires @策略:订单流 through IPC, real Binance inputs, p
   ]);
 
   assert.match(mainSource, /tradingAnalysis:classifyOrderFlowRequest/);
-  assert.match(mainSource, /deterministicOrderFlowChartRequest\(text/);
+  assert.match(orderFlowAdapterSource, /deterministicRouting:\s*deterministicOrderFlowChartRequest/);
+  assert.match(coordinatorSource, /adapter\.routing\.deterministic\?\.\(text/);
   assert.match(mainSource, /tradingAnalysis:runOrderFlow/);
   assert.match(preloadSource, /classifyTradingOrderFlowRequest/);
   assert.match(preloadSource, /runTradingOrderFlowAnalysis/);
-  assert.match(rendererSource, /await classifyTradingOrderFlowRequestForSend\(/);
-  assert.match(rendererSource, /tradingOrderFlowRequestAtSend\?\.mode === "chart-analysis"/);
-  assert.match(rendererSource, /runTradingOrderFlowChartRequest\(/);
-  assert.match(rendererSource, /buildTradingOrderFlowExpertPrompt\(baseAgentText\)/);
+  assert.match(rendererSource, /await classifyTradingStrategyForSend\(/);
+  assert.match(clientSource, /client\.classifyTradingStrategyRequest\(/);
+  assert.match(rendererSource, /tradingStrategyRequestAtSend\?\.mode === "chart-analysis"/);
+  assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend/);
+  assert.match(catalogSource, /buildTradingOrderFlowExpertPrompt/);
   assert.match(
     rendererSource,
     /\["<haolo_trading_order_flow_expert_prompt>", "<\/haolo_trading_order_flow_expert_prompt>"\]/,

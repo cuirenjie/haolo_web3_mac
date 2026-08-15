@@ -181,6 +181,7 @@ export function bindTradingExpertPanelResize(container: ParentNode = document) {
   const abortController = new AbortController();
   const { signal } = abortController;
   activeBindingAbortController = abortController;
+  const shell = body.closest<HTMLElement>(".desktop-shell");
 
   const availableWidth = () => body.getBoundingClientRect().width;
   const maximumForSide = (side: TradingExpertPanelSide) => {
@@ -212,6 +213,7 @@ export function bindTradingExpertPanelResize(container: ParentNode = document) {
   ) => {
     panelWidths = clampTradingExpertPanelWidths(requested, availableWidth());
     body.style.setProperty("--conversation-list-width", `${panelWidths.left}px`);
+    shell?.style.setProperty("--conversation-list-width", `${panelWidths.left}px`);
     body.style.setProperty("--trading-expert-panel-width", `${panelWidths.right}px`);
     syncHandleAccessibility();
     if (options.persist !== false) persistPanelWidths();
@@ -228,6 +230,7 @@ export function bindTradingExpertPanelResize(container: ParentNode = document) {
       availableWidth(),
     );
     body.style.setProperty("--conversation-list-width", `${panelWidths.left}px`);
+    shell?.style.setProperty("--conversation-list-width", `${panelWidths.left}px`);
     body.style.setProperty("--trading-expert-panel-width", `${panelWidths.right}px`);
     syncHandleAccessibility();
     if (options.persist !== false) persistPanelWidths();

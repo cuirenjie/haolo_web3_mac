@@ -35,6 +35,13 @@ import {
   type TradingDrawingSharedToolState,
 } from "./trading-expert-drawing.ts";
 import type { TradingAiDrawingPatch, TradingAiPlaybackPhase } from "./trading-expert-ai-playback.ts";
+import {
+  TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES,
+  calculateTradingVolumeProfile,
+  clearTradingVolumeProfileLayer,
+  renderTradingVolumeProfileLayer,
+  type TradingVolumeProfile,
+} from "./trading-volume-profile.ts";
 
 const CHINA_TIME_OFFSET_SECONDS = 8 * 60 * 60;
 const SPLIT_PANE_REFRESH_INTERVAL_MS = 15_000;
@@ -100,7 +107,7 @@ export interface TradingSplitPaneOptions {
   onOpenSplitLayouts?: (anchor: HTMLElement) => void;
 }
 
-export type TradingSplitPaneMainIndicatorId = "ma" | "ema" | "boll" | "td" | "bbi";
+export type TradingSplitPaneMainIndicatorId = "ma" | "ema" | "boll" | "td" | "bbi" | "vpvr";
 
 export interface TradingSplitPaneMainIndicatorDefinition {
   id: TradingSplitPaneMainIndicatorId;
@@ -359,6 +366,7 @@ export class TradingExpertSplitPane {
   private ohlcElement: HTMLElement;
   private indicatorLegendLayer: HTMLElement;
   private mainIndicatorLegendElement: HTMLElement;
+  private volumeProfileLayer: SVGSVGElement;
   private loadingElement: HTMLElement;
   private errorElement: HTMLButtonElement;
   private symbolTrigger: HTMLButtonElement;
@@ -378,6 +386,10 @@ export class TradingExpertSplitPane {
   private drawingController: TradingDrawingController | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private refreshTimer: number | null = null;
+  private volumeProfileWheelAnimationFrame: number | null = null;
+  private volumeProfileWheelFramesRemaining = 0;
+  private volumeProfileSnapshot: TradingVolumeProfile | null | undefined;
+  private volumeProfileSnapshotCandleCount = 0;
   private loadGeneration = 0;
   private destroyed = false;
   private candles: TradingChartCandle[] = [];
@@ -421,6 +433,7 @@ export class TradingExpertSplitPane {
     this.ohlcElement = this.requireElement("[data-split-ohlc]");
     this.indicatorLegendLayer = this.requireElement("[data-split-indicator-legends]");
     this.mainIndicatorLegendElement = this.requireElement("[data-split-main-indicator-legends]");
+    this.volumeProfileLayer = this.requireElement<SVGSVGElement>("[data-split-volume-profile-layer]");
     this.loadingElement = this.requireElement("[data-split-loading]");
     this.errorElement = this.requireElement<HTMLButtonElement>("[data-split-error]");
     this.symbolTrigger = this.requireElement<HTMLButtonElement>("[data-split-symbol-trigger]");
@@ -586,6 +599,13 @@ export class TradingExpertSplitPane {
         </header>
         <div class="trading-market-split-viewport" data-split-viewport>
           <div class="trading-market-split-chart" data-split-chart></div>
+          <svg
+            class="trading-market-volume-profile-layer"
+            data-split-volume-profile-layer
+            role="img"
+            aria-label="分屏 ${this.paneIndex + 1} 可见范围成交量分布"
+            hidden
+          ></svg>
           ${renderTradingDrawingLayer()}
           <div class="trading-market-indicator-legends-layer" data-split-indicator-legends aria-hidden="true"></div>
           <div
@@ -691,6 +711,7 @@ export class TradingExpertSplitPane {
       const market = this.markets.find((candidate) => candidate.id === marketId);
       this.setSymbolMenuOpen(false);
       if (!market || market.id === this.market.id) return;
+      this.invalidateVolumeProfileSnapshot();
       this.market = market;
       this.updateToolbarState();
       this.drawingController?.redraw();
@@ -702,6 +723,7 @@ export class TradingExpertSplitPane {
       const interval = String(target.dataset.splitInterval || "");
       this.setPeriodMenuOpen(false);
       if (!this.periods.some((period) => period.resolution === interval) || interval === this.interval) return;
+      this.invalidateVolumeProfileSnapshot();
       this.interval = interval;
       this.updateToolbarState();
       this.drawingController?.redraw();
@@ -860,6 +882,7 @@ export class TradingExpertSplitPane {
     this.chart?.timeScale().applyOptions({
       rightBarStaysOnScroll: event.ctrlKey ? !cursorAnchoredByDefault : cursorAnchoredByDefault,
     });
+    this.trackVolumeProfileThroughWheelScale();
   };
 
   private createChart() {
@@ -922,6 +945,7 @@ export class TradingExpertSplitPane {
     });
     this.chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
       if (this.rebuildingIndicatorPanes) return;
+      this.renderVolumeProfile(false);
       this.drawingController?.redraw();
     });
     this.resizeObserver = new ResizeObserver(() => {
@@ -932,6 +956,7 @@ export class TradingExpertSplitPane {
       this.positionSymbolMenu();
       window.requestAnimationFrame(() => {
         this.positionIndicatorLegends();
+        this.renderVolumeProfile(false);
         this.drawingController?.redraw();
       });
     });
@@ -1028,6 +1053,82 @@ export class TradingExpertSplitPane {
     });
   }
 
+  private renderVolumeProfile(recalculate = false) {
+    if (!this.chart || !this.series || !this.activeMainIndicators.includes("vpvr")) {
+      this.invalidateVolumeProfileSnapshot();
+      clearTradingVolumeProfileLayer(this.volumeProfileLayer);
+      return;
+    }
+    const setting = this.indicatorSettings[indicatorSettingKey("main", "vpvr")];
+    const logicalRange = this.chart.timeScale().getVisibleLogicalRange();
+    const from = logicalRange ? Math.max(0, Math.floor(Number(logicalRange.from))) : 0;
+    const to = logicalRange
+      ? Math.min(this.candles.length - 1, Math.ceil(Number(logicalRange.to)))
+      : this.candles.length - 1;
+    const visibleCandles = to >= from ? this.candles.slice(from, to + 1) : [];
+    if (recalculate || this.volumeProfileSnapshot === undefined) {
+      this.volumeProfileSnapshot = calculateTradingVolumeProfile(
+        visibleCandles,
+        setting?.parameters[0] ?? 96,
+      );
+      this.volumeProfileSnapshotCandleCount = visibleCandles.length;
+    }
+    const priceScaleWidth = Number(this.chart.priceScale("right", 0).width() || 0);
+    const plotWidth = Math.max(this.chartElement.clientWidth - priceScaleWidth, 1);
+    const paneElement = this.chart.panes()[0]?.getHTMLElement?.() as HTMLElement | null;
+    const paneHeight = Math.max(
+      paneElement?.clientHeight || paneElement?.getBoundingClientRect().height || this.chartElement.clientHeight,
+      1,
+    );
+    renderTradingVolumeProfileLayer(this.volumeProfileLayer, {
+      candles: visibleCandles,
+      profile: this.volumeProfileSnapshot,
+      sourceCandleCount: this.volumeProfileSnapshotCandleCount,
+      rowCount: setting?.parameters[0] ?? 96,
+      plotWidth,
+      paneHeight,
+      priceToCoordinate: (price) => {
+        const coordinate = Number(this.series?.priceToCoordinate(price));
+        return Number.isFinite(coordinate) ? coordinate : null;
+      },
+      barColor: setting?.series.volume?.color ?? "#5b95e5",
+      pocColor: setting?.series.poc?.color ?? "#5b95e5",
+      showBars: setting?.series.volume?.visible !== false,
+      showPoc: setting?.series.poc?.visible !== false,
+    });
+  }
+
+  private invalidateVolumeProfileSnapshot() {
+    this.volumeProfileSnapshot = undefined;
+    this.volumeProfileSnapshotCandleCount = 0;
+  }
+
+  private trackVolumeProfileThroughWheelScale() {
+    if (!this.chart || !this.activeMainIndicators.includes("vpvr")) return;
+    this.volumeProfileWheelFramesRemaining = TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES;
+    if (this.volumeProfileWheelAnimationFrame !== null) return;
+    const redraw = () => {
+      this.volumeProfileWheelAnimationFrame = null;
+      if (this.destroyed) {
+        this.volumeProfileWheelFramesRemaining = 0;
+        return;
+      }
+      if (!this.rebuildingIndicatorPanes) this.renderVolumeProfile(false);
+      this.volumeProfileWheelFramesRemaining -= 1;
+      if (this.volumeProfileWheelFramesRemaining > 0) {
+        this.volumeProfileWheelAnimationFrame = window.requestAnimationFrame(redraw);
+      }
+    };
+    this.volumeProfileWheelAnimationFrame = window.requestAnimationFrame(redraw);
+  }
+
+  private cancelVolumeProfileWheelTracking() {
+    this.volumeProfileWheelFramesRemaining = 0;
+    if (this.volumeProfileWheelAnimationFrame === null) return;
+    window.cancelAnimationFrame(this.volumeProfileWheelAnimationFrame);
+    this.volumeProfileWheelAnimationFrame = null;
+  }
+
   private setMainIndicatorSeriesData(
     id: TradingSplitPaneMainIndicatorId,
     values: number[][],
@@ -1054,7 +1155,7 @@ export class TradingExpertSplitPane {
     });
   }
 
-  private updateMainIndicatorData() {
+  private updateMainIndicatorData(refreshVolumeProfile = false) {
     const closes = this.candles.map((candle) => candle.close);
     const setting = (id: TradingSplitPaneMainIndicatorId) =>
       this.indicatorSettings[indicatorSettingKey("main", id)];
@@ -1104,6 +1205,7 @@ export class TradingExpertSplitPane {
       }];
     }));
     this.updateMainIndicatorLegends();
+    this.renderVolumeProfile(refreshVolumeProfile);
   }
 
   private updateMainIndicatorLegends(timeValue?: number) {
@@ -1164,6 +1266,8 @@ export class TradingExpertSplitPane {
           value: valueAt(id, 0),
           color: current.series.bbi?.color ?? "#5b95e5",
         }]);
+      } else if (id === "vpvr") {
+        return;
       } else {
         const direction = this.tdIndicatorDirections[candleIndex];
         const style = direction ? current.series[direction] : null;
@@ -1200,6 +1304,7 @@ export class TradingExpertSplitPane {
     }
     window.requestAnimationFrame(() => {
       this.positionIndicatorLegends();
+      this.renderVolumeProfile(false);
       this.drawingController?.redraw();
     });
   }
@@ -1338,7 +1443,7 @@ export class TradingExpertSplitPane {
     this.indicatorSettings = cloneIndicatorSettings(settings);
     this.applyMainIndicatorSeriesOptions();
     this.rebuildIndicatorPanes();
-    this.updateMainIndicatorData();
+    this.updateMainIndicatorData(true);
     this.updateIndicatorData();
   }
 
@@ -1455,7 +1560,15 @@ export class TradingExpertSplitPane {
     return this.market.id === marketId && this.interval === interval;
   }
 
-  async analysisSnapshot(lookbackMs: number | null): Promise<TradingSplitPaneAnalysisSnapshot> {
+  async analysisSnapshot(lookbackMs: number | null): Promise<TradingSplitPaneAnalysisSnapshot>;
+  async analysisSnapshot(
+    lookbackMs: number | null,
+    preferredCandles: number | null,
+  ): Promise<TradingSplitPaneAnalysisSnapshot>;
+  async analysisSnapshot(
+    lookbackMs: number | null,
+    preferredCandles: number | null = null,
+  ): Promise<TradingSplitPaneAnalysisSnapshot> {
     if (!this.candles.length) await this.reload(true);
     if (this.destroyed || !this.candles.length) {
       throw new Error(`分屏 ${this.paneIndex + 1} 行情尚未就绪`);
@@ -1469,11 +1582,18 @@ export class TradingExpertSplitPane {
     const visibleCandles = visibleTo >= visibleFrom
       ? this.candles.slice(visibleFrom, visibleTo + 1)
       : [];
-    const candles = lookbackMs && latestTimeMs > 0
-      ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - lookbackMs)
+    const normalizedPreferredCandles = Math.max(
+      0,
+      Math.min(600, Math.floor(Number(preferredCandles) || 0)),
+    );
+    const defaultCandles = normalizedPreferredCandles > 0
+      ? this.candles.slice(-Math.min(600, Math.max(visibleCandles.length, normalizedPreferredCandles)))
       : visibleCandles.length
         ? visibleCandles
         : this.candles.slice(-100);
+    const candles = lookbackMs && latestTimeMs > 0
+      ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - lookbackMs)
+      : defaultCandles;
     return {
       paneIndex: this.paneIndex,
       market: { ...this.market },
@@ -1507,6 +1627,7 @@ export class TradingExpertSplitPane {
   }
 
   private async reload(resetViewport: boolean) {
+    if (resetViewport) this.invalidateVolumeProfileSnapshot();
     const generation = ++this.loadGeneration;
     if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
     this.refreshTimer = null;
@@ -1590,6 +1711,7 @@ export class TradingExpertSplitPane {
     this.destroyed = true;
     this.loadGeneration += 1;
     if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
+    this.cancelVolumeProfileWheelTracking();
     this.resizeObserver?.disconnect();
     this.host.removeEventListener("click", this.handleToolbarClick);
     this.symbolSearch.removeEventListener("input", this.handleSymbolSearchInput);

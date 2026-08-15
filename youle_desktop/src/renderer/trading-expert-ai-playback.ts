@@ -1,4 +1,8 @@
-import type { TradingDrawingPoint, TradingDrawingToolId } from "./trading-expert-drawing";
+import type {
+  TradingDrawingLineStyle,
+  TradingDrawingPoint,
+  TradingDrawingToolId,
+} from "./trading-expert-drawing";
 
 export type TradingAiDrawingColorToken =
   | "chan-pen"
@@ -35,18 +39,30 @@ export type TradingAiDrawingColorToken =
   | "price-action-trend"
   | "price-action-support"
   | "price-action-resistance"
-  | "price-action-note";
+  | "price-action-note"
+  | "strategy-primary"
+  | "strategy-support"
+  | "strategy-resistance"
+  | "strategy-entry"
+  | "strategy-stop"
+  | "strategy-target"
+  | "strategy-note";
 
 export interface TradingAiDrawing {
   id: string;
+  strategyId?: string;
   symbol: string;
   interval?: string;
-  theory: "chan" | "order-flow" | "wave" | "wyckoff" | "price-action";
-  layer: "ai/chan" | "ai/order-flow" | "ai/wave" | "ai/wyckoff" | "ai/price-action";
+  theory: "chan" | "order-flow" | "wave" | "wyckoff" | "price-action" | "strategy";
+  layer: "ai/chan" | "ai/order-flow" | "ai/wave" | "ai/wyckoff" | "ai/price-action" | `ai/strategy/${string}`;
   tool: TradingDrawingToolId;
   points: TradingDrawingPoint[];
   text?: string;
   colorToken: TradingAiDrawingColorToken;
+  lineStyle?: TradingDrawingLineStyle;
+  lineWidth?: number;
+  fontSize?: number;
+  bold?: boolean;
   locked: true;
   status: "tentative" | "confirmed";
   evidenceIds: string[];
@@ -58,6 +74,40 @@ export interface TradingAiDrawingPatch {
   marketId: string;
   interval: string;
   operations: Array<{ op: "upsert"; drawing: TradingAiDrawing }>;
+}
+
+export interface TradingIndicatorAiDrawingPoint {
+  time: number;
+  value: number;
+}
+
+export interface TradingIndicatorAiDrawing {
+  id: string;
+  strategyId: string;
+  theory: "strategy";
+  layer: `ai/strategy/${string}`;
+  tool: "path" | "note" | "text";
+  points: TradingIndicatorAiDrawingPoint[];
+  text?: string;
+  colorToken: TradingAiDrawingColorToken;
+  lineStyle?: TradingDrawingLineStyle;
+  lineWidth?: number;
+  fontSize?: number;
+  bold?: boolean;
+  markerSize?: number;
+  locked: true;
+  status: "tentative" | "confirmed";
+  evidenceIds: string[];
+}
+
+export interface TradingIndicatorAiDrawingPatch {
+  schemaVersion: 1;
+  analysisId: string;
+  baseRevision: number;
+  marketId: string;
+  interval: string;
+  indicatorId: string;
+  operations: Array<{ op: "upsert"; drawing: TradingIndicatorAiDrawing }>;
 }
 
 export type TradingAiPlaybackPhase = "moving" | "drawing" | "committing" | "completed" | "cancelled";

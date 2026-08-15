@@ -50,7 +50,105 @@ function aggregateCandles(rows, plan) {
   return result;
 }
 
+function createBinanceSocketPool(WebSocketImpl) {
+  const channels = new Map();
+  let requestId = 1;
+
+  const websocketBase = (marketType) => marketType === "FUTURES"
+    ? "wss://fstream.binance.com/ws"
+    : "wss://stream.binance.com:9443/ws";
+  const isOpen = (socket) => socket?.readyState === (WebSocketImpl.OPEN ?? 1);
+  const sendCommand = (channel, method, streams) => {
+    if (!isOpen(channel.socket) || !streams.length) return;
+    try {
+      channel.socket.send(JSON.stringify({ method, params: streams, id: requestId++ }));
+    } catch {}
+  };
+  const broadcastHealth = (channel, health) => {
+    for (const listeners of channel.streams.values()) {
+      for (const listener of listeners) listener.onHealth(health);
+    }
+  };
+  const connect = (channel) => {
+    if (!channel.active || channel.socket || !channel.streams.size) return;
+    const socket = new WebSocketImpl(websocketBase(channel.marketType));
+    channel.socket = socket;
+    socket.on("open", () => {
+      if (channel.socket !== socket || !channel.active) return;
+      channel.reconnectAttempt = 0;
+      sendCommand(channel, "SUBSCRIBE", [...channel.streams.keys()]);
+      broadcastHealth(channel, { status: "connected", at: Date.now() });
+    });
+    socket.on("message", (payload) => {
+      if (channel.socket !== socket || !channel.active) return;
+      try {
+        const parsed = JSON.parse(String(payload));
+        const message = parsed?.data || parsed;
+        const kline = message?.k;
+        const stream = kline?.s && kline?.i ? `${String(kline.s).toLowerCase()}@kline_${String(kline.i)}` : "";
+        if (!stream) return;
+        for (const listener of channel.streams.get(stream) || []) listener.onMessage(message);
+      } catch {}
+    });
+    socket.on("error", () => {
+      try { socket.close(); } catch {}
+    });
+    socket.on("close", () => {
+      if (channel.socket !== socket) return;
+      channel.socket = null;
+      if (!channel.active || !channel.streams.size) return;
+      broadcastHealth(channel, { status: "reconnecting", at: Date.now(), reason: "websocket_closed" });
+      const delay = Math.min(30_000, 500 * 2 ** Math.min(channel.reconnectAttempt++, 6));
+      channel.reconnectTimer = setTimeout(() => {
+        channel.reconnectTimer = null;
+        connect(channel);
+      }, delay);
+      channel.reconnectTimer.unref?.();
+    });
+  };
+
+  return Object.freeze({
+    subscribe(marketType, stream, onMessage, onHealth) {
+      let channel = channels.get(marketType);
+      if (!channel) {
+        channel = { marketType, streams: new Map(), socket: null, reconnectTimer: null, reconnectAttempt: 0, active: true };
+        channels.set(marketType, channel);
+      }
+      let listeners = channel.streams.get(stream);
+      const existingStream = Boolean(listeners);
+      if (!listeners) {
+        listeners = new Set();
+        channel.streams.set(stream, listeners);
+      }
+      const listener = { onMessage, onHealth };
+      listeners.add(listener);
+      if (existingStream && isOpen(channel.socket)) onHealth({ status: "connected", at: Date.now() });
+      if (!existingStream) sendCommand(channel, "SUBSCRIBE", [stream]);
+      connect(channel);
+
+      return async () => {
+        const current = channel.streams.get(stream);
+        current?.delete(listener);
+        if (current?.size) return;
+        channel.streams.delete(stream);
+        sendCommand(channel, "UNSUBSCRIBE", [stream]);
+        if (channel.streams.size) return;
+        channel.active = false;
+        clearTimeout(channel.reconnectTimer);
+        channel.reconnectTimer = null;
+        channels.delete(marketType);
+        const socket = channel.socket;
+        channel.socket = null;
+        if (socket && (isOpen(socket) || socket.readyState === (WebSocketImpl.CONNECTING ?? 0))) {
+          try { socket.close(); } catch {}
+        }
+      };
+    },
+  });
+}
+
 export function createBinanceMarketAdapter({ fetchImpl = globalThis.fetch, WebSocketImpl = WebSocket, subscribeMode = "websocket", pollIntervalMs = 5_000 } = {}) {
+  const socketPool = createBinanceSocketPool(WebSocketImpl);
   const loadHistory = async (subscription, limit = 500) => {
     const { marketType, symbol } = parseMarket(subscription.marketId);
     const plan = planBinanceInterval(subscription.interval);
@@ -68,7 +166,18 @@ export function createBinanceMarketAdapter({ fetchImpl = globalThis.fetch, WebSo
         cause: error,
       });
     }
-    if (!response?.ok) throw new TradingAlertError(`Binance 历史行情失败：HTTP ${response?.status || 0}`, { code: "TRADING_ALERT_MARKET_HISTORY_FAILED", category: "transport", retryable: Number(response?.status || 0) >= 500 || !response?.status });
+    if (!response?.ok) {
+      const status = Number(response?.status || 0);
+      const retryAfterSeconds = Number(response?.headers?.get?.("retry-after"));
+      throw new TradingAlertError(`Binance 历史行情失败：HTTP ${status}`, {
+        code: status === 429 || status === 418 ? "TRADING_ALERT_MARKET_RATE_LIMITED" : "TRADING_ALERT_MARKET_HISTORY_FAILED",
+        category: "transport",
+        retryable: status === 429 || status === 418 || status >= 500 || !status,
+        details: Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+          ? { retryAfterMs: Math.ceil(retryAfterSeconds * 1_000) }
+          : null,
+      });
+    }
     let rows;
     try {
       rows = await response.json();
@@ -133,50 +242,23 @@ export function createBinanceMarketAdapter({ fetchImpl = globalThis.fetch, WebSo
           clearTimeout(timer);
         };
       }
-      const base = marketType === "FUTURES" ? "wss://fstream.binance.com/ws" : "wss://stream.binance.com:9443/ws";
-      let socket = null;
-      let reconnectTimer = null;
-      let disposed = false;
-      let reconnectAttempt = 0;
       let aggregate = null;
-      const connect = () => {
-        if (disposed) return;
-        socket = new WebSocketImpl(`${base}/${symbol.toLowerCase()}@kline_${plan.sourceInterval}`);
-        socket.on("open", () => { reconnectAttempt = 0; onHealth({ status: "connected", at: Date.now() }); });
-        socket.on("message", (payload) => {
-          try {
-            const message = JSON.parse(String(payload));
-            const kline = message.k;
-            if (!kline) return;
-            const sourceCandle = candleFromKline(kline);
-            aggregate = plan.aggregate ? mergeAggregate(aggregate, sourceCandle, plan) : sourceCandle;
-            const closed = plan.aggregate
-              ? kline.x === true && Number(kline.T) >= aggregate.closeTime - 1
-              : kline.x === true;
-            onEvent({
-              eventId: `${symbol}:${plan.interval}:${sourceCandle.time}:${Number(message.E || kline.T)}:${closed ? "close" : "update"}`,
-              candle: { ...aggregate }, closed, eventTime: Number(message.E || kline.T), receivedAt: Date.now(), coverage: "available",
-              source: plan.aggregate ? `binance-websocket:${plan.sourceInterval}->${plan.interval}` : "binance-websocket",
-            });
-            if (closed && plan.aggregate) aggregate = null;
-          } catch {}
+      const stream = `${symbol.toLowerCase()}@kline_${plan.sourceInterval}`;
+      return socketPool.subscribe(marketType, stream, (message) => {
+        const kline = message.k;
+        if (!kline) return;
+        const sourceCandle = candleFromKline(kline);
+        aggregate = plan.aggregate ? mergeAggregate(aggregate, sourceCandle, plan) : sourceCandle;
+        const closed = plan.aggregate
+          ? kline.x === true && Number(kline.T) >= aggregate.closeTime - 1
+          : kline.x === true;
+        onEvent({
+          eventId: `${symbol}:${plan.interval}:${sourceCandle.time}:${Number(message.E || kline.T)}:${closed ? "close" : "update"}`,
+          candle: { ...aggregate }, closed, eventTime: Number(message.E || kline.T), receivedAt: Date.now(), coverage: "available",
+          source: plan.aggregate ? `binance-websocket:${plan.sourceInterval}->${plan.interval}` : "binance-websocket",
         });
-        socket.on("error", () => socket?.close());
-        socket.on("close", () => {
-          socket = null;
-          if (disposed) return;
-          onHealth({ status: "reconnecting", at: Date.now(), reason: "websocket_closed" });
-          const delay = Math.min(30_000, 500 * 2 ** Math.min(reconnectAttempt++, 6));
-          reconnectTimer = setTimeout(connect, delay);
-          reconnectTimer.unref?.();
-        });
-      };
-      connect();
-      return async () => {
-        disposed = true;
-        clearTimeout(reconnectTimer);
-        if (socket && (socket.readyState === WebSocketImpl.OPEN || socket.readyState === WebSocketImpl.CONNECTING)) socket.close();
-      };
+        if (closed && plan.aggregate) aggregate = null;
+      }, onHealth);
     },
   });
 }

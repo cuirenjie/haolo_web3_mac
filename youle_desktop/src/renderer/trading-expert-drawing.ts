@@ -5,6 +5,12 @@ import {
   type TradingAiDrawingPatch,
   type TradingAiPlaybackPhase,
 } from "./trading-expert-ai-playback.ts";
+import {
+  fitTradingOrderLineLabels,
+  renderTradingOrderLineSvg,
+  renderTradingOrderPositionCards,
+  type TradingOrderLine,
+} from "./trading-expert-order-lines.ts";
 
 const LEGACY_TRADING_DRAWINGS_STORAGE_KEY = "haolo.trading-market.drawings.v1";
 const LEGACY_TRADING_AI_DRAWINGS_STORAGE_KEY = "haolo.trading-market.ai-drawings.v1";
@@ -383,6 +389,7 @@ export interface TradingDrawingPoint {
 
 interface TradingDrawingModel {
   id: string;
+  strategyId?: string;
   symbol: string;
   interval?: string;
   tool: TradingDrawingToolId;
@@ -419,6 +426,50 @@ export interface TradingAiNoteLayoutRequest {
   fontSize: number;
   maxLeaderDistance?: number;
   avoidBoxInteriors?: boolean;
+}
+
+export function tradingDrawingIsPriceActionCandlestickPatternLabel(drawing: {
+  id: string;
+  source?: "manual" | "ai";
+  strategyId?: string;
+}) {
+  return drawing.source === "ai"
+    && drawing.strategyId === "price-action"
+    && drawing.id.includes("-candlestick-pattern-label-");
+}
+
+export function tradingDrawingIsPriceActionCandlestickPatternEllipse(drawing: {
+  id: string;
+  source?: "manual" | "ai";
+  strategyId?: string;
+  tool: TradingDrawingToolId;
+}) {
+  return drawing.source === "ai"
+    && drawing.strategyId === "price-action"
+    && drawing.tool === "ellipse"
+    && drawing.id.includes("-candlestick-pattern-")
+    && !drawing.id.includes("-candlestick-pattern-label-");
+}
+
+export function tradingDrawingIsGannTheoryBox(drawing: {
+  source?: "manual" | "ai";
+  strategyId?: string;
+  tool: TradingDrawingToolId;
+}) {
+  return drawing.source === "ai"
+    && drawing.strategyId === "gann-theory"
+    && drawing.tool === "rectangle";
+}
+
+export function tradingDrawingPriceActionCandlestickLayerRank(drawing: {
+  id: string;
+  source?: "manual" | "ai";
+  strategyId?: string;
+  tool: TradingDrawingToolId;
+}) {
+  if (tradingDrawingIsPriceActionCandlestickPatternLabel(drawing)) return 2;
+  if (tradingDrawingIsPriceActionCandlestickPatternEllipse(drawing)) return 1;
+  return 0;
 }
 
 export function tradingDrawingScreenPointVisible(
@@ -558,6 +609,29 @@ export function finiteTradingChartCoordinate(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+export function tradingDrawingLogicalToCoordinate(
+  logical: number,
+  logicalToCoordinate: (integerLogical: number) => unknown,
+): number | null {
+  if (!Number.isFinite(logical)) return null;
+  const lowerLogical = Math.floor(logical);
+  const upperLogical = Math.ceil(logical);
+  const lowerCoordinate = finiteTradingChartCoordinate(logicalToCoordinate(lowerLogical));
+  if (lowerLogical === upperLogical) return lowerCoordinate;
+  const upperCoordinate = finiteTradingChartCoordinate(logicalToCoordinate(upperLogical));
+  if (lowerCoordinate === null || upperCoordinate === null) return lowerCoordinate ?? upperCoordinate;
+  return lowerCoordinate + (upperCoordinate - lowerCoordinate) * (logical - lowerLogical);
+}
+
+export function tradingDrawingEllipseGeometry(first: ScreenPoint, second: ScreenPoint) {
+  return {
+    cx: (first.x + second.x) / 2,
+    cy: (first.y + second.y) / 2,
+    rx: Math.abs(second.x - first.x) / 2,
+    ry: Math.abs(second.y - first.y) / 2,
+  };
+}
+
 function tradingDrawingEdgeInterval(
   candles: ReadonlyArray<{ time: number }>,
   edge: "start" | "end",
@@ -617,6 +691,17 @@ export function tradingDrawingLogicalIndexAtTime(
   const upperTime = candles[upperIndex].time;
   const span = upperTime - lowerTime;
   return span > 0 ? lowerIndex + (time - lowerTime) / span : lowerIndex;
+}
+
+export function tradingDrawingIsSingleCandlePatternSpan(
+  candles: ReadonlyArray<{ time: number }>,
+  points: ReadonlyArray<Pick<TradingDrawingPoint, "time">>,
+) {
+  if (candles.length < 2 || points.length < 2) return false;
+  const firstLogical = tradingDrawingLogicalIndexAtTime(candles, points[0].time);
+  const lastLogical = tradingDrawingLogicalIndexAtTime(candles, points[points.length - 1].time);
+  if (firstLogical === null || lastLogical === null) return false;
+  return Math.abs(lastLogical - firstLogical) < 1.5;
 }
 
 export function measureTradingDrawing(
@@ -898,10 +983,12 @@ export function renderTradingDrawingLayer() {
           <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" stroke="none" />
         </marker>
       </defs>
+      <g data-trading-order-lines aria-label="账户持仓与委托线"></g>
       <g data-drawing-content></g>
       <g data-ai-drawing-content aria-label="AI 策略绘图"></g>
       <g data-ai-drawing-cursor aria-hidden="true"></g>
     </svg>
+    <div class="trading-order-position-cards" data-trading-order-position-cards></div>
     <div class="trading-drawing-axis-markers" data-drawing-axis-markers aria-hidden="true"></div>
     ${renderTradingDrawingSelectionToolbar()}
   `;
@@ -966,14 +1053,24 @@ const TRADING_AI_DRAWING_COLOR_VARIABLES: Readonly<Record<TradingAiDrawingColorT
   "price-action-support": "--trading-ai-price-action-support",
   "price-action-resistance": "--trading-ai-price-action-resistance",
   "price-action-note": "--trading-ai-price-action-note",
+  "strategy-primary": "--trading-ai-strategy-primary",
+  "strategy-support": "--trading-ai-strategy-support",
+  "strategy-resistance": "--trading-ai-strategy-resistance",
+  "strategy-entry": "--trading-ai-strategy-entry",
+  "strategy-stop": "--trading-ai-strategy-stop",
+  "strategy-target": "--trading-ai-strategy-target",
+  "strategy-note": "--trading-ai-strategy-note",
 };
 
 const TRADING_AI_DRAWING_TOOLS = new Set<TradingDrawingToolId>([
   "path",
   "rectangle",
+  "circle",
+  "ellipse",
   "arrow-up",
   "arrow-down",
   "note",
+  "text",
 ]);
 
 const TRADING_AI_DRAWING_COLOR_TOKENS = new Set<TradingAiDrawingColorToken>(
@@ -1024,7 +1121,7 @@ function drawingLineStyle(value: unknown): TradingDrawingLineStyle | undefined {
 
 function drawingLineWidth(value: unknown) {
   const width = Number(value);
-  return Number.isFinite(width) && width >= 1 && width <= 4 ? width : undefined;
+  return Number.isFinite(width) && width >= 0.5 && width <= 4 ? width : undefined;
 }
 
 function drawingTextFontSize(value: unknown) {
@@ -1113,6 +1210,9 @@ function loadStoredAiDrawings(storageSessionId: string): TradingDrawingModel[] {
       const symbol = typeof candidate.symbol === "string" ? candidate.symbol.trim().slice(0, 120) : "";
       const interval = typeof candidate.interval === "string" ? candidate.interval.trim().slice(0, 24) : "";
       const colorToken = candidate.colorToken;
+      const strategyId = typeof candidate.strategyId === "string" && /^[a-z][a-z0-9-]{1,63}$/.test(candidate.strategyId)
+        ? candidate.strategyId
+        : undefined;
       if (
         !id
         || !symbol
@@ -1120,6 +1220,7 @@ function loadStoredAiDrawings(storageSessionId: string): TradingDrawingModel[] {
         || candidate.source !== "ai"
         || !TRADING_AI_DRAWING_TOOLS.has(candidate.tool as TradingDrawingToolId)
         || !TRADING_AI_DRAWING_COLOR_TOKENS.has(colorToken as TradingAiDrawingColorToken)
+        || (String(colorToken).startsWith("strategy-") && !strategyId)
       ) {
         return [];
       }
@@ -1129,6 +1230,7 @@ function loadStoredAiDrawings(storageSessionId: string): TradingDrawingModel[] {
       if (!points.length) return [];
       return [{
         id,
+        strategyId,
         symbol,
         interval,
         tool: candidate.tool as TradingDrawingToolId,
@@ -1140,6 +1242,7 @@ function loadStoredAiDrawings(storageSessionId: string): TradingDrawingModel[] {
         lineStyle: drawingLineStyle(candidate.lineStyle),
         lineWidth: drawingLineWidth(candidate.lineWidth),
         fontSize: drawingTextFontSize(candidate.fontSize),
+        bold: candidate.bold === true,
       }];
     }).slice(-MAX_STORED_AI_DRAWINGS);
   } catch {
@@ -1847,16 +1950,27 @@ export function normalizeTradingAiDrawingPatch(
           && drawing.layer === "ai/price-action"
           && drawing.colorToken.startsWith("price-action-")
         )
+        || (
+          drawing.theory === "strategy"
+          && /^[a-z][a-z0-9-]{1,63}$/.test(String(drawing.strategyId || ""))
+          && drawing.layer === `ai/strategy/${drawing.strategyId}`
+          && drawing.colorToken.startsWith("strategy-")
+        )
       )
       || !Array.isArray(drawing.points)
       || !drawing.points.length
       || drawing.points.length > 64
       || !drawing.points.every(finitePoint)
+      || (drawing.tool === "path" && drawing.points.length < 2)
+      || (drawing.tool === "rectangle" && drawing.points.length !== 2)
+      || ((drawing.tool === "circle" || drawing.tool === "ellipse") && drawing.points.length !== 2)
+      || (["arrow-up", "arrow-down", "note", "text"].includes(drawing.tool) && drawing.points.length !== 1)
     ) {
       throw new TypeError(`AI drawing operation ${index} is invalid`);
     }
     return {
       id: String(drawing.id || `ai-${index}`).slice(0, 160),
+      strategyId: drawing.theory === "strategy" ? String(drawing.strategyId) : undefined,
       symbol: patch.marketId,
       interval: patch.interval,
       theory: drawing.theory,
@@ -1865,6 +1979,10 @@ export function normalizeTradingAiDrawingPatch(
       points: drawing.points.map((point) => ({ time: Number(point.time), price: Number(point.price) })),
       text: typeof drawing.text === "string" ? drawing.text.slice(0, 120) : undefined,
       colorToken: drawing.colorToken,
+      lineStyle: drawingLineStyle(drawing.lineStyle),
+      lineWidth: drawingLineWidth(drawing.lineWidth),
+      fontSize: drawingTextFontSize(drawing.fontSize),
+      bold: drawing.bold === true,
       locked: true,
       status: drawing.status === "tentative" ? "tentative" : "confirmed",
       evidenceIds: Array.isArray(drawing.evidenceIds)
@@ -1884,6 +2002,7 @@ function tradingAiDrawingModel(drawing: TradingAiDrawing): TradingDrawingModel {
     );
   return {
     id: drawing.id,
+    strategyId: drawing.strategyId,
     symbol: drawing.symbol,
     interval: drawing.interval,
     tool: drawing.tool,
@@ -1892,11 +2011,12 @@ function tradingAiDrawingModel(drawing: TradingAiDrawing): TradingDrawingModel {
     locked: true,
     source: "ai",
     colorToken: drawing.colorToken,
-    lineStyle: drawing.theory === "wave" && drawing.tool === "path" && !waveAuxiliaryPath
+    lineStyle: drawing.lineStyle ?? (drawing.theory === "wave" && drawing.tool === "path" && !waveAuxiliaryPath
       ? "solid"
-      : drawing.status === "tentative" ? "dashed" : "solid",
-    lineWidth: drawing.tool === "path" ? 2 : undefined,
-    fontSize: drawing.tool === "note" ? AI_NOTE_FONT_SIZE : undefined,
+      : drawing.status === "tentative" ? "dashed" : "solid"),
+    lineWidth: drawing.lineWidth ?? (drawing.tool === "path" ? 2 : undefined),
+    fontSize: drawing.fontSize ?? (drawing.tool === "note" ? AI_NOTE_FONT_SIZE : undefined),
+    bold: drawing.bold === true,
   };
 }
 
@@ -1944,6 +2064,8 @@ export class TradingDrawingController {
   private readonly host: HTMLElement;
   private readonly chartElement: HTMLElement;
   private readonly overlay: SVGSVGElement;
+  private readonly orderLineContent: SVGGElement;
+  private readonly orderPositionCardLayer: HTMLElement;
   private readonly content: SVGGElement;
   private readonly aiContent: SVGGElement;
   private readonly aiCursorContent: SVGGElement;
@@ -1972,6 +2094,8 @@ export class TradingDrawingController {
   private aiDraft: TradingDrawingModel | null = null;
   private aiCursorPoint: TradingDrawingPoint | null = null;
   private aiCursorPulse = false;
+  private orderLines: TradingOrderLine[] = [];
+  private openOrderPositionCardId: string | null = null;
   private readonly aiPlayback: TradingAiDrawingPlaybackController;
   private redoStack: TradingDrawingModel[] = [];
   private activeTool: TradingDrawingToolId = "cursor";
@@ -2013,6 +2137,8 @@ export class TradingDrawingController {
     this.storageSessionId = normalizeTradingDrawingStorageSessionId(options.storageSessionId);
     this.drawings = loadStoredDrawings(this.storageSessionId);
     this.aiDrawings = loadStoredAiDrawings(this.storageSessionId);
+    const orderLineContent = this.overlay.querySelector<SVGGElement>("[data-trading-order-lines]");
+    const orderPositionCardLayer = this.host.querySelector<HTMLElement>("[data-trading-order-position-cards]");
     const content = this.overlay.querySelector<SVGGElement>("[data-drawing-content]");
     const aiContent = this.overlay.querySelector<SVGGElement>("[data-ai-drawing-content]");
     const aiCursorContent = this.overlay.querySelector<SVGGElement>("[data-ai-drawing-cursor]");
@@ -2022,9 +2148,11 @@ export class TradingDrawingController {
     const selectionToolbar = this.host.querySelector<HTMLElement>("[data-drawing-selection]");
     const axisMarkerLayer = this.host.querySelector<HTMLElement>("[data-drawing-axis-markers]");
     const clearDialog = controlsHost.querySelector<HTMLDialogElement>("[data-drawing-clear-dialog]");
-    if (!content || !aiContent || !aiCursorContent || !toolbar || !status || !selectionToolbar || !axisMarkerLayer || !clearDialog) {
+    if (!orderLineContent || !orderPositionCardLayer || !content || !aiContent || !aiCursorContent || !toolbar || !status || !selectionToolbar || !axisMarkerLayer || !clearDialog) {
       throw new Error("Trading drawing surface is incomplete");
     }
+    this.orderLineContent = orderLineContent;
+    this.orderPositionCardLayer = orderPositionCardLayer;
     this.content = content;
     this.aiContent = aiContent;
     this.aiCursorContent = aiCursorContent;
@@ -2157,6 +2285,21 @@ export class TradingDrawingController {
     this.selectTool("cursor");
   }
 
+  setOrderLines(lines: readonly TradingOrderLine[]) {
+    this.orderLines = lines.flatMap((line) => (
+      line
+      && typeof line.id === "string"
+      && typeof line.marketId === "string"
+      && typeof line.label === "string"
+      && typeof line.shortLabel === "string"
+      && Number.isFinite(line.price)
+      && line.price > 0
+        ? [{ ...line }]
+        : []
+    ));
+    this.redraw();
+  }
+
   switchStorageSession(
     storageSessionId: string,
     options: { migrateFromSessionId?: string } = {},
@@ -2224,6 +2367,10 @@ export class TradingDrawingController {
     this.selectionToolbar.addEventListener("pointercancel", this.handleSelectionToolbarPointerCancel);
     this.selectionToolbar.addEventListener("lostpointercapture", this.handleSelectionToolbarPointerCancel);
     this.chartElement.addEventListener("pointerdown", this.handleSurfacePointerDown, { capture: true });
+    this.orderLineContent.addEventListener("pointerover", this.handleOrderPositionPointerOver);
+    this.orderLineContent.addEventListener("pointerout", this.handleOrderPositionPointerOut);
+    this.orderLineContent.addEventListener("focusin", this.handleOrderPositionFocusIn);
+    this.orderLineContent.addEventListener("focusout", this.handleOrderPositionFocusOut);
     this.overlay.addEventListener("pointerdown", this.handlePointerDown);
     this.overlay.addEventListener("contextmenu", this.handleContextMenu);
     this.overlay.addEventListener("wheel", this.handleWheel, { passive: false });
@@ -2243,7 +2390,58 @@ export class TradingDrawingController {
     this.onSurfaceFocus?.(this);
   };
 
+  private orderPositionTrigger(target: EventTarget | null) {
+    return target instanceof Element
+      ? target.closest<SVGGElement>("[data-trading-order-card-trigger]")
+      : null;
+  }
+
+  private setOpenOrderPositionCard(id: string | null) {
+    this.openOrderPositionCardId = id;
+    let matched = false;
+    this.orderPositionCardLayer
+      .querySelectorAll<HTMLElement>("[data-trading-order-card]")
+      .forEach((card) => {
+        const open = id !== null && card.dataset.tradingOrderCard === id;
+        card.toggleAttribute("hidden", !open);
+        card.setAttribute("aria-hidden", String(!open));
+        matched ||= open;
+      });
+    if (id !== null && !matched) this.openOrderPositionCardId = null;
+  }
+
+  private readonly handleOrderPositionPointerOver = (event: PointerEvent) => {
+    const trigger = this.orderPositionTrigger(event.target);
+    if (trigger?.dataset.tradingOrderCardTrigger) {
+      this.setOpenOrderPositionCard(trigger.dataset.tradingOrderCardTrigger);
+    }
+  };
+
+  private readonly handleOrderPositionPointerOut = (event: PointerEvent) => {
+    const trigger = this.orderPositionTrigger(event.target);
+    if (!trigger) return;
+    if (event.relatedTarget instanceof Node && trigger.contains(event.relatedTarget)) return;
+    if (trigger.matches(":focus, :focus-within")) return;
+    this.setOpenOrderPositionCard(null);
+  };
+
+  private readonly handleOrderPositionFocusIn = (event: FocusEvent) => {
+    const trigger = this.orderPositionTrigger(event.target);
+    if (trigger?.dataset.tradingOrderCardTrigger) {
+      this.setOpenOrderPositionCard(trigger.dataset.tradingOrderCardTrigger);
+    }
+  };
+
+  private readonly handleOrderPositionFocusOut = (event: FocusEvent) => {
+    const trigger = this.orderPositionTrigger(event.target);
+    if (!trigger) return;
+    if (event.relatedTarget instanceof Node && trigger.contains(event.relatedTarget)) return;
+    if (trigger.matches(":hover")) return;
+    this.setOpenOrderPositionCard(null);
+  };
+
   private readonly handleWheel = (event: WheelEvent) => {
+    this.setOpenOrderPositionCard(null);
     const chartSurface = this.chartElement.firstElementChild;
     if (!chartSurface) return;
     const forwardedEvent = new WheelEvent(
@@ -2590,6 +2788,10 @@ export class TradingDrawingController {
 
   private readonly handlePointerDown = (event: PointerEvent) => {
     this.onSurfaceFocus?.(this);
+    if (this.orderPositionTrigger(event.target)) {
+      event.stopPropagation();
+      return;
+    }
     if (!this.userDrawingEnabled) return;
     if (event.button !== 0 || this.pointerId !== null) return;
     const definition = tradingDrawingToolDefinition(this.activeTool);
@@ -3157,7 +3359,10 @@ export class TradingDrawingController {
     const logical = tradingDrawingLogicalIndexAtTime(this.getCandles(), point.time);
     const logicalX = logical === null
       ? null
-      : finiteTradingChartCoordinate(timeScale.logicalToCoordinate(logical as any));
+      : tradingDrawingLogicalToCoordinate(
+        logical,
+        (integerLogical) => timeScale.logicalToCoordinate(integerLogical as any),
+      );
     const x = logicalX ?? finiteTradingChartCoordinate(
       timeScale.timeToCoordinate((point.time + this.timeOffsetSeconds) as any),
     );
@@ -3667,11 +3872,28 @@ export class TradingDrawingController {
       : null);
   }
 
-  hasAiAnalysisForCurrentContext(theory?: "chan" | "order-flow" | "wave" | "wyckoff" | "price-action") {
+  clearAiAnalysisForCurrentContext(strategyId: string) {
+    const normalizedStrategyId = String(strategyId || "").trim();
+    if (!normalizedStrategyId) return false;
+    this.cancelAiPlayback();
+    const previousLength = this.aiDrawings.length;
+    this.aiDrawings = this.aiDrawings.filter((drawing) => (
+      !tradingAiDrawingMatchesContext(drawing, this.getSymbol(), this.getInterval())
+      || drawing.strategyId !== normalizedStrategyId
+    ));
+    if (this.aiDrawings.length === previousLength) return false;
+    this.persistAiDrawings();
+    this.redraw();
+    return true;
+  }
+
+  hasAiAnalysisForCurrentContext(theory?: string) {
     const colorPrefix = theory ? `${theory}-` : "";
     return this.aiDrawings.some((drawing) => (
       tradingAiDrawingMatchesContext(drawing, this.getSymbol(), this.getInterval())
-      && (!colorPrefix || String(drawing.colorToken || "").startsWith(colorPrefix))
+      && (!theory
+        || drawing.strategyId === theory
+        || String(drawing.colorToken || "").startsWith(colorPrefix))
     ));
   }
 
@@ -3738,6 +3960,82 @@ export class TradingDrawingController {
     }).filter((rect) => rect.y < bounds.height && rect.y + rect.height > 0);
   }
 
+  private visiblePriceActionDrawingObstacles(
+    drawings: TradingDrawingModel[],
+    bounds: { width: number; height: number },
+  ) {
+    const obstacles: TradingDrawingCollisionRect[] = [];
+    const addRect = (x: number, y: number, width: number, height: number) => {
+      const left = Math.max(0, x);
+      const top = Math.max(0, y);
+      const right = Math.min(bounds.width, x + width);
+      const bottom = Math.min(bounds.height, y + height);
+      if (right <= left || bottom <= top) return;
+      obstacles.push({ x: left, y: top, width: right - left, height: bottom - top });
+    };
+    const addSegment = (first: ScreenPoint, second: ScreenPoint, padding = 4) => {
+      const dx = second.x - first.x;
+      const dy = second.y - first.y;
+      const distance = Math.hypot(dx, dy);
+      if (Math.abs(dx) <= 2 || Math.abs(dy) <= 2) {
+        addRect(
+          Math.min(first.x, second.x) - padding,
+          Math.min(first.y, second.y) - padding,
+          Math.abs(dx) + padding * 2,
+          Math.abs(dy) + padding * 2,
+        );
+        return;
+      }
+      const samples = Math.max(1, Math.ceil(distance / 24));
+      for (let index = 0; index <= samples; index += 1) {
+        const progress = index / samples;
+        addRect(first.x + dx * progress - padding, first.y + dy * progress - padding, padding * 2, padding * 2);
+      }
+    };
+
+    for (const drawing of drawings) {
+      if (drawing.strategyId !== "price-action" || tradingDrawingIsPriceActionCandlestickPatternLabel(drawing)) continue;
+      const points = drawing.points.map((point) => this.pointToScreen(point)).filter((point): point is ScreenPoint => Boolean(point));
+      if (!points.length) continue;
+      const first = points[0];
+      const last = points.at(-1) ?? first;
+      if (drawing.tool === "text" || drawing.tool === "anchored-text") {
+        const fontSize = drawing.fontSize ?? DEFAULT_TEXT_FONT_SIZE;
+        const layout = tradingDrawingTextLayout(drawing.text ?? "", fontSize);
+        addRect(first.x - layout.width / 2, first.y - fontSize, layout.width, layout.height);
+      } else if (drawing.tool === "circle") {
+        const circle = tradingDrawingCircleGeometry(first, last);
+        addRect(
+          circle.cx - circle.radius,
+          circle.cy - circle.radius,
+          circle.radius * 2,
+          circle.radius * 2,
+        );
+      } else if (drawing.tool === "ellipse") {
+        addRect(
+          Math.min(first.x, last.x),
+          Math.min(first.y, last.y),
+          Math.abs(last.x - first.x),
+          Math.abs(last.y - first.y),
+        );
+      } else if (drawing.tool === "rectangle") {
+        const left = Math.min(first.x, last.x);
+        const right = Math.max(first.x, last.x);
+        const top = Math.min(first.y, last.y);
+        const bottom = Math.max(first.y, last.y);
+        addSegment({ x: left, y: top }, { x: right, y: top });
+        addSegment({ x: right, y: top }, { x: right, y: bottom });
+        addSegment({ x: right, y: bottom }, { x: left, y: bottom });
+        addSegment({ x: left, y: bottom }, { x: left, y: top });
+      } else if (drawing.tool === "path") {
+        for (let index = 1; index < points.length; index += 1) addSegment(points[index - 1], points[index]);
+      } else if (["arrow-up", "arrow-down"].includes(drawing.tool)) {
+        addRect(first.x - 10, first.y - 10, 20, 20);
+      }
+    }
+    return obstacles;
+  }
+
   private visibleOrderFlowBoxObstacles(
     drawings: TradingDrawingModel[],
     bounds: { width: number; height: number },
@@ -3762,12 +4060,53 @@ export class TradingDrawingController {
     });
   }
 
+  private visibleGannTheoryBoxObstacles(
+    drawings: TradingDrawingModel[],
+    bounds: { width: number; height: number },
+  ) {
+    return drawings.flatMap((drawing): TradingDrawingCollisionRect[] => {
+      if (!tradingDrawingIsGannTheoryBox(drawing) || drawing.points.length < 2) return [];
+      const first = this.pointToScreen(drawing.points[0]);
+      const second = this.pointToScreen(drawing.points.at(-1) ?? drawing.points[0]);
+      if (!first || !second) return [];
+      const left = Math.max(0, Math.min(first.x, second.x));
+      const right = Math.min(bounds.width, Math.max(first.x, second.x));
+      const top = Math.max(0, Math.min(first.y, second.y));
+      const bottom = Math.min(bounds.height, Math.max(first.y, second.y));
+      if (right <= left || bottom <= top) return [];
+      return [{ x: left, y: top, width: right - left, height: bottom - top }];
+    });
+  }
+
   redraw() {
     if (this.destroyed) return;
     const bounds = this.plotBounds();
     this.overlay.setAttribute("viewBox", `0 0 ${bounds.width} ${bounds.height}`);
     this.overlay.setAttribute("width", String(bounds.width));
     this.overlay.setAttribute("height", String(bounds.height));
+    const candleSeries = this.getCandleSeries();
+    const priceToCoordinate = (price: number) => finiteTradingChartCoordinate(candleSeries?.priceToCoordinate(price));
+    const candleObstacles = this.visibleCandleObstacles(bounds);
+    this.orderLineContent.innerHTML = candleSeries
+      ? renderTradingOrderLineSvg(
+        this.orderLines,
+        this.getSymbol(),
+        bounds,
+        priceToCoordinate,
+        candleObstacles,
+      )
+      : "";
+    this.orderPositionCardLayer.innerHTML = candleSeries
+      ? renderTradingOrderPositionCards(
+        this.orderLines,
+        this.getSymbol(),
+        bounds,
+        priceToCoordinate,
+        candleObstacles,
+      )
+      : "";
+    fitTradingOrderLineLabels(this.orderLineContent, this.orderPositionCardLayer, bounds);
+    this.setOpenOrderPositionCard(this.openOrderPositionCardId);
     if (this.drawingsHidden) {
       this.content.innerHTML = "";
       this.aiContent.innerHTML = "";
@@ -3789,8 +4128,8 @@ export class TradingDrawingController {
     if (this.aiDraft && tradingAiDrawingMatchesContext(this.aiDraft, symbol, interval)) {
       aiDrawings.push(this.aiDraft);
     }
-    const aiNoteRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
-      if (drawing.tool !== "note" || !drawing.points[0]) return [];
+    const aiCandlestickLabelRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
+      if (!tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) || !drawing.points[0]) return [];
       const anchor = this.pointToScreen(drawing.points[0]);
       if (!anchor || !tradingDrawingScreenPointVisible(anchor, bounds)) return [];
       return [{
@@ -3798,33 +4137,55 @@ export class TradingDrawingController {
         anchor,
         text: drawing.text ?? "",
         fontSize: drawing.fontSize ?? DEFAULT_TEXT_FONT_SIZE,
-        avoidBoxInteriors: String(drawing.colorToken || "").startsWith("order-flow-"),
+        avoidBoxInteriors: true,
+        maxLeaderDistance: 180,
+      }];
+    });
+    const aiNoteRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
+      if (drawing.tool !== "note" || !drawing.points[0]) return [];
+      const anchor = this.pointToScreen(drawing.points[0]);
+      if (!anchor || !tradingDrawingScreenPointVisible(anchor, bounds)) return [];
+      const isOrderFlowNote = String(drawing.colorToken || "").startsWith("order-flow-");
+      const isGannTheoryNote = drawing.strategyId === "gann-theory";
+      return [{
+        id: drawing.id,
+        anchor,
+        text: drawing.text ?? "",
+        fontSize: drawing.fontSize ?? DEFAULT_TEXT_FONT_SIZE,
+        avoidBoxInteriors: isOrderFlowNote || isGannTheoryNote,
         maxLeaderDistance: ["order-flow-buy", "order-flow-sell", "order-flow-poc"]
           .includes(String(drawing.colorToken || ""))
           ? 220
-          : undefined,
+          : isGannTheoryNote ? 360 : undefined,
       }];
     });
     const orderFlowBoxObstacles = this.visibleOrderFlowBoxObstacles(aiDrawings, bounds);
-    const aiNoteLayouts = new Map((aiNoteRequests.length
+    const priceActionDrawingObstacles = this.visiblePriceActionDrawingObstacles(aiDrawings, bounds);
+    const gannTheoryBoxObstacles = this.visibleGannTheoryBoxObstacles(aiDrawings, bounds);
+    const aiTextLayoutRequests = [...aiCandlestickLabelRequests, ...aiNoteRequests];
+    const aiTextLayouts = new Map((aiTextLayoutRequests.length
       ? layoutTradingAiNoteBoxes(
-        aiNoteRequests,
+        aiTextLayoutRequests,
         bounds,
-        this.visibleCandleObstacles(bounds),
-        orderFlowBoxObstacles,
+        candleObstacles,
+        [...orderFlowBoxObstacles, ...priceActionDrawingObstacles, ...gannTheoryBoxObstacles],
       )
       : []
     ).map((placement) => [placement.id, placement.geometry]));
-    this.aiContent.innerHTML = aiDrawings
+    const orderedAiDrawings = [...aiDrawings].sort((left, right) => (
+      tradingDrawingPriceActionCandlestickLayerRank(left)
+      - tradingDrawingPriceActionCandlestickLayerRank(right)
+    ));
+    this.aiContent.innerHTML = orderedAiDrawings
       .map((drawing) => {
-        const noteLayout = aiNoteLayouts.get(drawing.id);
-        if (drawing.tool === "note" && !noteLayout) return "";
+        const textLayout = aiTextLayouts.get(drawing.id);
+        if (drawing.tool === "note" && !textLayout) return "";
         return this.renderDrawing(
           drawing,
           bounds,
           drawing === this.aiDraft,
           false,
-          noteLayout,
+          textLayout,
         );
       })
       .join("");
@@ -3839,10 +4200,14 @@ export class TradingDrawingController {
     bounds: { width: number; height: number },
     draft: boolean,
     interactive = true,
-    resolvedNoteGeometry?: ReturnType<typeof tradingDrawingNoteBoxGeometry>,
+    resolvedTextGeometry?: ReturnType<typeof tradingDrawingNoteBoxGeometry>,
   ) {
     const definition = tradingDrawingToolDefinition(drawing.tool);
     if (!definition) return "";
+    if (
+      tradingDrawingIsPriceActionCandlestickPatternEllipse(drawing)
+      && tradingDrawingIsSingleCandlePatternSpan(this.getCandles(), drawing.points)
+    ) return "";
     this.ensureAnchoredViewportAnchor(drawing);
     const pointEntries = drawing.points
       .map((_point, index) => ({ index, point: this.drawingPointToScreen(drawing, index, bounds) }))
@@ -3915,9 +4280,11 @@ export class TradingDrawingController {
         const circle = tradingDrawingCircleGeometry(first, second);
         body = `<circle cx="${circle.cx}" cy="${circle.cy}" r="${circle.radius}" fill="${color}" fill-opacity="0.06" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`;
       } else {
-        const radiusX = Math.abs(dx) / 2;
-        const radiusY = Math.abs(dy) / 2;
-        body = `<ellipse cx="${(first.x + second.x) / 2}" cy="${(first.y + second.y) / 2}" rx="${radiusX}" ry="${radiusY}" fill="${color}" fill-opacity="0.06" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`;
+        const ellipse = tradingDrawingEllipseGeometry(first, second);
+        const candlestickPatternClass = tradingDrawingIsPriceActionCandlestickPatternEllipse(drawing)
+          ? ' class="trading-price-action-candlestick-pattern-ellipse"'
+          : "";
+        body = `<ellipse${candlestickPatternClass} cx="${ellipse.cx}" cy="${ellipse.cy}" rx="${ellipse.rx}" ry="${ellipse.ry}" fill="${color}" fill-opacity="0.06" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`;
       }
     } else if (definition.kind === "triangle") {
       const triangle = tradingDrawingTrianglePoints(first, points[1] ?? second, points[2]);
@@ -3935,7 +4302,7 @@ export class TradingDrawingController {
       lineAppearance,
       bounds,
       second,
-      resolvedNoteGeometry,
+      resolvedTextGeometry,
     );
     else if (definition.kind === "marker") body = this.renderMarker(first, definition, color);
     else if (definition.kind === "pattern") body = this.renderPattern(points, definition, color, lineAppearance);
@@ -4131,14 +4498,14 @@ export class TradingDrawingController {
     appearance: TradingDrawingStrokeAppearance,
     bounds: { width: number; height: number },
     labelPoint: ScreenPoint = point,
-    resolvedNoteGeometry?: ReturnType<typeof tradingDrawingNoteBoxGeometry>,
+    resolvedTextGeometry?: ReturnType<typeof tradingDrawingNoteBoxGeometry>,
   ) {
     if (!text) return "";
     const toolId = drawing.tool;
     const fontSize = drawing.fontSize ?? DEFAULT_TEXT_FONT_SIZE;
     const boxed = toolId !== "text" && toolId !== "anchored-text";
     const noteGeometry = (toolId === "note" || toolId === "callout")
-      ? resolvedNoteGeometry ?? tradingDrawingNoteBoxGeometry(point, text, fontSize, bounds)
+      ? resolvedTextGeometry ?? tradingDrawingNoteBoxGeometry(point, text, fontSize, bounds)
       : null;
     const textBox = noteGeometry ?? (boxed ? tradingDrawingTextBoxLayout(text, fontSize, bounds) : null);
     const layout = textBox?.layout ?? tradingDrawingTextLayout(text, fontSize);
@@ -4147,10 +4514,27 @@ export class TradingDrawingController {
     )).join("");
     const fontWeight = drawing.bold ? 700 : 400;
     if (toolId === "text" || toolId === "anchored-text") {
+      const isPriceActionCandlestickPatternLabel = tradingDrawingIsPriceActionCandlestickPatternLabel(drawing);
+      const inlinePoint = isPriceActionCandlestickPatternLabel && resolvedTextGeometry
+        ? {
+            x: resolvedTextGeometry.boxLeft + resolvedTextGeometry.boxWidth / 2,
+            y: resolvedTextGeometry.boxTop + fontSize,
+          }
+        : point;
+      const backgroundPoint = isPriceActionCandlestickPatternLabel
+        ? { x: inlinePoint.x - layout.width / 2, y: inlinePoint.y }
+        : inlinePoint;
       const background = drawing.textBackgroundColor
-        ? `<rect x="${point.x - 5}" y="${point.y - fontSize - 4}" width="${layout.width + 10}" height="${layout.height + 8}" rx="2" fill="${drawing.textBackgroundColor}" />`
+        ? `<rect x="${backgroundPoint.x - 5}" y="${backgroundPoint.y - fontSize - 4}" width="${layout.width + 10}" height="${layout.height + 8}" rx="2" fill="${drawing.textBackgroundColor}" />`
         : "";
-      return `${background}<text fill="${color}" font-size="${fontSize}" font-weight="${fontWeight}">${textLines(point.x, point.y)}</text>`;
+      const inlineLabelClass = drawing.source === "ai"
+        ? ` class="trading-ai-inline-label${isPriceActionCandlestickPatternLabel ? " trading-price-action-candlestick-label" : ""}"`
+        : "";
+      const candlestickLeader = isPriceActionCandlestickPatternLabel && resolvedTextGeometry
+        ? `<line class="trading-price-action-candlestick-label-leader" x1="${point.x}" y1="${point.y}" x2="${resolvedTextGeometry.connectorPoint.x}" y2="${resolvedTextGeometry.connectorPoint.y}" />`
+          + `<circle class="trading-price-action-candlestick-label-target" cx="${point.x}" cy="${point.y}" r="2.2" />`
+        : "";
+      return `${candlestickLeader}${background}<text${inlineLabelClass} fill="${color}" font-size="${fontSize}" font-weight="${fontWeight}">${textLines(inlinePoint.x, inlinePoint.y)}</text>`;
     }
     const background = drawing.textBackgroundColor ?? "transparent";
     if (toolId === "price-note") {
@@ -4305,6 +4689,10 @@ export class TradingDrawingController {
     this.selectionToolbar.removeEventListener("pointercancel", this.handleSelectionToolbarPointerCancel);
     this.selectionToolbar.removeEventListener("lostpointercapture", this.handleSelectionToolbarPointerCancel);
     this.chartElement.removeEventListener("pointerdown", this.handleSurfacePointerDown, { capture: true });
+    this.orderLineContent.removeEventListener("pointerover", this.handleOrderPositionPointerOver);
+    this.orderLineContent.removeEventListener("pointerout", this.handleOrderPositionPointerOut);
+    this.orderLineContent.removeEventListener("focusin", this.handleOrderPositionFocusIn);
+    this.orderLineContent.removeEventListener("focusout", this.handleOrderPositionFocusOut);
     this.overlay.removeEventListener("pointerdown", this.handlePointerDown);
     this.overlay.removeEventListener("contextmenu", this.handleContextMenu);
     this.overlay.removeEventListener("wheel", this.handleWheel);

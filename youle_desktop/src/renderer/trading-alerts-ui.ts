@@ -4,7 +4,7 @@ import {
 } from "./trading-expert-market-identity.ts";
 
 export type TradingAlertFilter = "monitoring" | "triggered" | "paused";
-type TradingAlertStatusFilter = TradingAlertFilter | "attention";
+export type PlanningSection = "plans" | "alerts";
 
 export type TradingAlertEditorMarketOption = {
   id: string;
@@ -194,11 +194,10 @@ function marketLabels(rule: any) {
   });
 }
 
-function alertMatchesFilter(alert: any, filter: TradingAlertStatusFilter) {
+function alertMatchesFilter(alert: any, filter: TradingAlertFilter) {
   if (filter === "monitoring") return ["arming", "monitoring", "cooling_down"].includes(alert.status);
   if (filter === "triggered") return ["triggered", "completed"].includes(alert.status);
-  if (filter === "paused") return alert.status === "paused";
-  if (filter === "attention") return ["failed", "gap_detected", "reconnecting"].includes(alert.status);
+  if (filter === "paused") return ["paused", "failed", "gap_detected", "reconnecting"].includes(alert.status);
   return false;
 }
 
@@ -207,7 +206,6 @@ function sortAlertsForDisplay(alerts: any[]) {
     if (alertMatchesFilter(alert, "monitoring")) return 0;
     if (alertMatchesFilter(alert, "triggered")) return 1;
     if (alertMatchesFilter(alert, "paused")) return 2;
-    if (alertMatchesFilter(alert, "attention")) return 3;
     return 0;
   };
   return alerts
@@ -393,6 +391,11 @@ function renderEditor(state: TradingAlertsUiState, alert: any) {
     </dialog>`;
 }
 
+export function renderPlanningNavigation(activeSection: PlanningSection) {
+  const tabs: Array<[PlanningSection, string]> = [["plans", "计划"], ["alerts", "预警"]];
+  return `<nav class="planning-primary-tabs" aria-label="计划分类">${tabs.map(([id, label]) => `<button type="button" class="${activeSection === id ? "active" : ""}" data-planning-section="${id}" aria-pressed="${activeSection === id}">${label}</button>`).join("")}</nav>`;
+}
+
 export function renderTradingAlertsPage(state: TradingAlertsUiState) {
   const editor = state.alerts.find((alert) => (
     alert.alertId === state.editorAlertId && !tradingAlertHasDrawingContext(alert)
@@ -405,7 +408,8 @@ export function renderTradingAlertsPage(state: TradingAlertsUiState) {
   };
   const tabs: Array<[TradingAlertFilter, string]> = [["monitoring", "监控中"], ["triggered", "已触发"], ["paused", "已暂停"]];
   return `<main class="trading-alerts-page">
-    <nav class="trading-alert-filters" aria-label="筛选预警">${tabs.map(([id, label]) => `<button type="button" class="${state.filter === id ? "active" : ""}" data-trading-alert-filter="${id}" aria-pressed="${state.filter === id}">${label}<span>${counts[id]}</span></button>`).join("")}</nav>
+    ${renderPlanningNavigation("alerts")}
+    <nav class="trading-alert-subfilters" aria-label="筛选预警">${tabs.map(([id, label]) => `<button type="button" class="${state.filter === id ? "active" : ""}" data-trading-alert-filter="${id}" aria-pressed="${state.filter === id}">${label}<span>${counts[id]}</span></button>`).join("")}</nav>
     <div class="trading-alert-list-scroll" role="region" aria-label="预警列表" tabindex="0">
       ${state.loading ? `<div class="trading-alert-loading" role="status"><span></span>正在读取预警…</div>` : alerts.length ? `<section class="trading-alert-card-grid">${alerts.map((alert) => renderAlertCard(state, alert)).join("")}</section>` : `<section class="trading-alert-empty"><p>当前筛选下没有预警</p></section>`}
     </div>

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "bollinger-bands-analysis",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "布林带", "group": "indicator", "sortOrder": 20 },
+  "mentions": { "canonical": "布林带", "aliases": ["BOLL", "BOLL指标", "布林线", "布林带分析", "Bollinger Bands"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "bollinger-bands-analysis" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 80, "preferredCount": 500, "minimumCoverage": "available" }
+  },
+  "chartIndicator": { "id": "boll", "scope": "main", "parameters": [20, 2] },
+  "drawingPolicyId": "bollinger-bands-analysis-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

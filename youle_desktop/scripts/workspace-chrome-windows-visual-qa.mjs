@@ -61,6 +61,15 @@ async function capture(window, name, surface, theme) {
       ? getComputedStyle(workspace.parentElement)
       : null;
     const appChromeStyle = getComputedStyle(document.querySelector('.app-titlebar'));
+    const activeSkillsTab = document.querySelector('.skills-plaza-tabs button[aria-pressed="true"]');
+    const firstSkillCard = document.querySelector('.my-skill-card');
+    const trendBandCard = Array.from(document.querySelectorAll('.my-skill-card')).find(
+      (card) => card.querySelector('h2')?.textContent?.trim() === '趋势带',
+    );
+    const trendBandIcon = trendBandCard?.querySelector('[data-trading-indicator-icon="trend-band"]');
+    const trendBandDescription = trendBandCard?.querySelector('.my-skill-copy p');
+    const trendBandIconStyle = trendBandIcon ? getComputedStyle(trendBandIcon) : null;
+    const trendBandDescriptionStyle = trendBandDescription ? getComputedStyle(trendBandDescription) : null;
     return {
       theme: document.documentElement.dataset.theme,
       maximized: document.documentElement.classList.contains('window-maximized'),
@@ -69,6 +78,7 @@ async function capture(window, name, surface, theme) {
         && !favoriteHost.hidden
         && getComputedStyle(favoriteHost).display !== 'none'
       ),
+      favoriteHostRect: rect(favoriteHost),
       leftToggleInBody: leftToggle?.parentElement?.classList.contains('desktop-body') || false,
       leftToggleInTitlebar: Boolean(leftToggle?.closest('.app-titlebar')),
       leftToggleRect: rect(leftToggle),
@@ -77,6 +87,16 @@ async function capture(window, name, surface, theme) {
       workspaceTopLeftRadius: workspaceStyle?.borderTopLeftRadius || null,
       workspaceCornerBackdrop: workspaceBackdropStyle?.backgroundColor || null,
       appChromeBackground: appChromeStyle.backgroundColor,
+      activeSkillsTab: activeSkillsTab?.textContent?.trim() || null,
+      firstSkillCardRect: rect(firstSkillCard),
+      trendBandCardRect: rect(trendBandCard),
+      trendBandInstalled: trendBandCard?.querySelector('.my-skill-installed')?.textContent?.trim() || null,
+      trendBandAuthor: trendBandCard?.querySelector('.my-skill-copy small')?.textContent?.trim() || null,
+      trendBandRole: trendBandCard?.getAttribute('role') || null,
+      trendBandTabIndex: trendBandCard?.getAttribute('tabindex') || null,
+      trendBandDescriptionClamp: trendBandDescriptionStyle?.webkitLineClamp || null,
+      trendBandIconBackground: trendBandIconStyle?.backgroundColor || null,
+      trendBandIconColor: trendBandIconStyle?.color || null,
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     };
   })()`, true);
@@ -92,11 +112,22 @@ function validate(entry) {
   if (!entry.state.leftToggleInBody || entry.state.leftToggleInTitlebar) {
     failures.push(`${entry.name}: 左栏收起按钮未固定在内容区`);
   }
-  if (entry.state.workspaceTopLeftRadius !== "16px") {
-    failures.push(`${entry.name}: 中央工作区左上圆角不是 16px`);
+  const expectedWorkspaceRadius = entry.surface === "new-task" ? "0px" : "16px";
+  if (entry.state.workspaceTopLeftRadius !== expectedWorkspaceRadius) {
+    failures.push(`${entry.name}: 中央工作区左上圆角不是 ${expectedWorkspaceRadius}`);
   }
   if (
-    (entry.surface === "alerts" || entry.surface === "skills")
+    entry.surface === "new-task"
+    && (
+      !Number.isFinite(entry.state.favoriteHostRect?.left)
+      || !Number.isFinite(entry.state.workspaceRect?.left)
+      || Math.abs(entry.state.favoriteHostRect.left - entry.state.workspaceRect.left) > 2
+    )
+  ) {
+    failures.push(`${entry.name}: 收藏交易对未与 K 线画布左对齐`);
+  }
+  if (
+    (entry.surface === "alerts" || entry.surface === "skills" || entry.surface === "indicators")
     && entry.state.workspaceCornerBackdrop !== entry.state.appChromeBackground
   ) {
     failures.push(`${entry.name}: 圆角背后的底层未与应用框架背景对齐`);
@@ -107,6 +138,19 @@ function validate(entry) {
     failures.push(`${entry.name}: 左栏收起按钮未贴合中央工作区左边缘`);
   }
   if (entry.state.horizontalOverflow) failures.push(`${entry.name}: 页面出现横向溢出`);
+  if (entry.surface === "indicators") {
+    if (entry.state.activeSkillsTab !== "指标") failures.push(`${entry.name}: 指标页签未选中`);
+    if (!entry.state.trendBandCardRect) failures.push(`${entry.name}: 趋势带卡片缺失`);
+    if (entry.state.trendBandInstalled !== "已安装") failures.push(`${entry.name}: 趋势带安装状态错误`);
+    if (!entry.state.trendBandAuthor?.includes("本地")) failures.push(`${entry.name}: 趋势带作者信息错误`);
+    if (entry.state.trendBandRole !== "button" || entry.state.trendBandTabIndex !== "0") {
+      failures.push(`${entry.name}: 趋势带卡片键盘语义错误`);
+    }
+    if (entry.state.trendBandDescriptionClamp !== "2") failures.push(`${entry.name}: 趋势带说明未限制为两行`);
+    if (!entry.state.trendBandIconBackground || !entry.state.trendBandIconColor) {
+      failures.push(`${entry.name}: 趋势带图标主题色缺失`);
+    }
+  }
   return failures;
 }
 
@@ -172,7 +216,32 @@ async function main() {
       captures.push(await capture(window, `skills-${theme}`, "skills", theme));
     }
 
+    await window.webContents.executeJavaScript(`document.querySelector('[data-skills-plaza-tab="indicators"]')?.click()`, true);
+    await waitFor(window, `Array.from(document.querySelectorAll('.my-skill-card h2')).some((title) => title.textContent?.trim() === '趋势带')`);
+    for (const theme of ["light", "dark"]) {
+      await settleTheme(window, theme);
+      captures.push(await capture(window, `indicators-${theme}`, "indicators", theme));
+    }
+
+    await window.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.my-skill-card')).find(
+      (card) => card.querySelector('h2')?.textContent?.trim() === '趋势带'
+    )?.click()`, true);
+    await waitFor(window, `document.querySelector('#composerInput')?.value === '@自定义指标:趋势带 '`);
+    const trendBandActivation = await window.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('#composerInput');
+      return {
+        composerText: input?.value || '',
+        focused: document.activeElement === input,
+      };
+    })()`, true);
+
     const failures = captures.flatMap(validate);
+    if (trendBandActivation.composerText !== "@自定义指标:趋势带 ") {
+      failures.push("indicators-activation: 点击卡片未预填趋势带标记");
+    }
+    if (!trendBandActivation.focused) {
+      failures.push("indicators-activation: 点击卡片后输入框未获得焦点");
+    }
     const avatarAnchor = captures[0]?.state.profileAvatarRect;
     for (const entry of captures) {
       const avatarRect = entry.state.profileAvatarRect;
@@ -185,10 +254,25 @@ async function main() {
         failures.push(`${entry.name}: 页面切换后标题栏头像发生位移`);
       }
     }
+    for (const theme of ["light", "dark"]) {
+      const strategyCapture = captures.find((entry) => entry.name === `skills-${theme}`);
+      const indicatorCapture = captures.find((entry) => entry.name === `indicators-${theme}`);
+      const strategyRect = strategyCapture?.state.firstSkillCardRect;
+      const indicatorRect = indicatorCapture?.state.trendBandCardRect;
+      if (
+        !strategyRect
+        || !indicatorRect
+        || Math.abs(strategyRect.width - indicatorRect.width) > 0.1
+        || Math.abs(strategyRect.height - indicatorRect.height) > 0.1
+      ) {
+        failures.push(`indicators-${theme}: 趋势带卡片尺寸未与策略卡片一致`);
+      }
+    }
     const report = {
       generatedAt: new Date().toISOString(),
       status: failures.length ? "failed" : "passed",
       captures,
+      trendBandActivation,
       failures,
     };
     await writeFile(path.join(OUTPUT, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");

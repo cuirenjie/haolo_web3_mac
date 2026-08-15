@@ -19,6 +19,13 @@ export interface TradingChartThemeSettings {
   backgroundColor: string;
 }
 
+export interface TradingOrderDisplaySettings {
+  currentOrders: boolean;
+  positions: boolean;
+  liquidation: boolean;
+  takeProfitStopLoss: boolean;
+}
+
 export interface TradingChartSettings {
   version: 2;
   chartStyle: TradingChartStyle;
@@ -35,6 +42,7 @@ export interface TradingChartSettings {
   showPriceLabel: boolean;
   showCountdown: boolean;
   drawingToolsEnabled: boolean;
+  orderDisplay: TradingOrderDisplaySettings;
   themes: Record<TradingChartThemeName, TradingChartThemeSettings>;
 }
 
@@ -54,7 +62,8 @@ export type TradingChartSettingsTab =
   | "rise-fall"
   | "coordinate"
   | "live-price"
-  | "drawing-tools";
+  | "drawing-tools"
+  | "order-display";
 
 export interface TradingSplitLayoutCell {
   column: number;
@@ -117,6 +126,12 @@ export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
   showPriceLabel: true,
   showCountdown: false,
   drawingToolsEnabled: true,
+  orderDisplay: {
+    currentOrders: true,
+    positions: true,
+    liquidation: true,
+    takeProfitStopLoss: true,
+  },
   themes: {
     light: {
       verticalGridVisible: false,
@@ -255,6 +270,7 @@ export function cloneTradingChartSettings(
 ): TradingChartSettings {
   return {
     ...settings,
+    orderDisplay: { ...settings.orderDisplay },
     themes: {
       light: cloneTheme(settings.themes.light),
       dark: cloneTheme(settings.themes.dark),
@@ -288,6 +304,29 @@ function normalizeTheme(
     horizontalGridColor: color(source.horizontalGridColor, fallback.horizontalGridColor),
     crosshairColor: color(source.crosshairColor, fallback.crosshairColor),
     backgroundColor: color(source.backgroundColor, fallback.backgroundColor),
+  };
+}
+
+function normalizeOrderDisplay(
+  value: unknown,
+  fallback: TradingOrderDisplaySettings,
+): TradingOrderDisplaySettings {
+  const source = value && typeof value === "object"
+    ? value as Partial<TradingOrderDisplaySettings>
+    : {};
+  return {
+    currentOrders: typeof source.currentOrders === "boolean"
+      ? source.currentOrders
+      : fallback.currentOrders,
+    positions: typeof source.positions === "boolean"
+      ? source.positions
+      : fallback.positions,
+    liquidation: typeof source.liquidation === "boolean"
+      ? source.liquidation
+      : fallback.liquidation,
+    takeProfitStopLoss: typeof source.takeProfitStopLoss === "boolean"
+      ? source.takeProfitStopLoss
+      : fallback.takeProfitStopLoss,
   };
 }
 
@@ -328,11 +367,28 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
     drawingToolsEnabled: typeof source.drawingToolsEnabled === "boolean"
       ? source.drawingToolsEnabled
       : defaults.drawingToolsEnabled,
+    orderDisplay: normalizeOrderDisplay(source.orderDisplay, defaults.orderDisplay),
     themes: {
       light: lightTheme,
       dark: normalizeTheme(sourceThemes.dark, defaults.themes.dark),
     },
   };
+}
+
+export function filterTradingOrderLinesForDisplay<T extends { kind: string }>(
+  lines: readonly T[],
+  settings: TradingOrderDisplaySettings,
+): T[] {
+  return lines.filter((line) => {
+    if (line.kind === "position-long" || line.kind === "position-short") {
+      return settings.positions;
+    }
+    if (line.kind === "liquidation") return settings.liquidation;
+    if (line.kind === "take-profit" || line.kind === "stop-loss") {
+      return settings.takeProfitStopLoss;
+    }
+    return settings.currentOrders;
+  });
 }
 
 export function loadTradingChartSettings(storage: Pick<Storage, "getItem">): TradingChartSettings {
@@ -505,6 +561,20 @@ const checkbox = (key: string, label: string, checked = false) => `
   </label>
 `;
 
+const orderDisplaySwitch = (
+  key: keyof TradingOrderDisplaySettings,
+  label: string,
+  checked: boolean,
+) => `
+  <div class="trading-chart-order-display-row">
+    <span class="trading-chart-order-display-copy"><strong>${label}</strong></span>
+    <label class="trading-chart-settings-switch">
+      <input type="checkbox" data-chart-setting="orderDisplay.${key}" ${checked ? "checked" : ""} aria-label="显示${label}"/>
+      <span aria-hidden="true"></span>
+    </label>
+  </div>
+`;
+
 const colorInput = (key: string, label: string, value: string) => `
   <label class="trading-chart-settings-color"><input type="color" data-chart-setting="${key}" value="${value}"/><span>${label}</span></label>
 `;
@@ -522,6 +592,7 @@ export function renderTradingChartSettingsDialog(
     ["coordinate", "坐标选择"],
     ["live-price", "实时价格"],
     ["drawing-tools", "画线工具"],
+    ["order-display", "订单显示"],
   ];
   return `
     <div class="trading-chart-settings-backdrop" data-market-chart-settings hidden>
@@ -597,6 +668,14 @@ export function renderTradingChartSettingsDialog(
                 ${option("drawingToolsEnabled", "true", "打开", settings.drawingToolsEnabled)}
                 ${option("drawingToolsEnabled", "false", "关闭", !settings.drawingToolsEnabled)}
               </div></div>
+            </section>
+            <section data-chart-settings-panel="order-display" hidden>
+              <div class="trading-chart-order-display-list">
+                ${orderDisplaySwitch("currentOrders", "当前委托", settings.orderDisplay.currentOrders)}
+                ${orderDisplaySwitch("positions", "当前持仓", settings.orderDisplay.positions)}
+                ${orderDisplaySwitch("liquidation", "强平价格", settings.orderDisplay.liquidation)}
+                ${orderDisplaySwitch("takeProfitStopLoss", "止盈止损", settings.orderDisplay.takeProfitStopLoss)}
+              </div>
             </section>
           </main>
         </div>

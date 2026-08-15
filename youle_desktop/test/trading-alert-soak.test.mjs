@@ -47,6 +47,9 @@ test("scheduled soak launcher prevents idle sleep and preserves a stale run befo
   assert.match(launcher, /Test-SoakProcessOwner[\s\S]*trading-alert-soak\.mjs/);
   assert.match(launcher, /\.interrupted\.json/);
   assert.match(launcher, /resumePolicy = "restart_full_24h"/);
+  assert.match(launcher, /Test-CompletedSoakRun[\s\S]*status -eq "passed"/);
+  assert.match(launcher, /elapsedMs -ge \$requiredDurationMs/);
+  assert.match(launcher, /existing completed 24-hour report preserved for assessment/);
 });
 
 test("resource summary reports deterministic heap and RSS slopes", () => {

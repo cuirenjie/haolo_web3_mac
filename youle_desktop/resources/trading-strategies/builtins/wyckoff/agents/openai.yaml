@@ -1,0 +1,4 @@
+interface:
+  display_name: "威科夫"
+  short_description: "依据量价交易区间阶段与事件证据生成威科夫条件执行方案"
+  default_prompt: "Use $wyckoff to analyze Wyckoff range evidence and produce an actionable conditional plan."

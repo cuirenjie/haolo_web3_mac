@@ -407,7 +407,7 @@ test("foreground and background reads hydrate the persisted trading transcript",
   assert.match(background, /withTradingTranscriptHistory\(result, \{/);
 });
 
-test("all five chart-analysis branches persist the parent user message before returning", () => {
+test("generic strategy and general chart-analysis branches persist the parent user message before returning", () => {
   const dispatch = sourceBlock(
     rendererSource,
     "const isTradingChartAnalysisSend = Boolean(",
@@ -416,10 +416,7 @@ test("all five chart-analysis branches persist the parent user message before re
   const persistIndex = dispatch.indexOf("await persistTradingExpertTranscriptItems");
   assert.ok(persistIndex >= 0);
   for (const runner of [
-    "runTradingChanChartRequest",
-    "runTradingOrderFlowChartRequest",
-    "runTradingWaveChartRequest",
-    "runTradingWyckoffChartRequest",
+    "runTradingStrategyChartRequest",
     "runTradingGeneralChartRequest",
   ]) {
     assert.ok(dispatch.indexOf(`await ${runner}`) > persistIndex, `${runner} must run after parent persistence`);
@@ -431,13 +428,13 @@ test("all five chart-analysis branches persist the parent user message before re
   assert.match(rendererSource, /movePendingComposerSend\(previousThreadId, activeThreadId, pending\.itemId\)/);
 });
 
-test("all five chart-analysis runners persist progress and terminal messages", () => {
+test("generic strategy and general chart-analysis runners persist progress and terminal messages", () => {
   const runnerSection = sourceBlock(
     rendererSource,
     "async function runTradingGeneralChartRequest",
-    "function hasUploadingAttachments",
+    "async function runTradingChanChartRequest",
   );
-  assert.equal((runnerSection.match(/const transcriptItems: CodexItem\[\] = \[\];/g) || []).length, 5);
-  assert.equal((runnerSection.match(/await persistCompletedTradingExpertTranscript/g) || []).length, 10);
-  assert.equal((runnerSection.match(/const reportItem = appendTradingExpertReport/g) || []).length, 5);
+  assert.equal((runnerSection.match(/const transcriptItems: CodexItem\[\] = \[\];/g) || []).length, 2);
+  assert.equal((runnerSection.match(/await persistCompletedTradingExpertTranscript/g) || []).length, 4);
+  assert.equal((runnerSection.match(/const reportItem = appendTradingExpertReport/g) || []).length, 2);
 });

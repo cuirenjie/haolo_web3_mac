@@ -42,7 +42,7 @@ async function capture(window, name, metadata) {
   await writeFile(file, image.toPNG());
   const state = await window.webContents.executeJavaScript(`(() => {
     const page = document.querySelector('.binance-account-page');
-    const card = document.querySelector('.binance-account-summary-card, .binance-account-position-card, .binance-account-history-card, .binance-account-unbound-card');
+    const card = document.querySelector('.binance-account-summary-card, .binance-account-position-card, .binance-account-open-order-card, .binance-account-history-card, .binance-account-unbound-card');
     const panel = document.querySelector('.trading-expert-panel');
     const panelInner = panel?.querySelector('.agent-panel-inner');
     const panelHeader = panel?.querySelector('.trading-expert-panel-header');
@@ -56,6 +56,11 @@ async function capture(window, name, metadata) {
     const leftToggle = document.querySelector('[data-action="toggle-left-panel"]');
     const conversationList = document.querySelector('.desktop-body > .chat-list');
     const favoriteHost = document.querySelector('[data-titlebar-market-favorites-host]');
+    const primaryAmountValue = document.querySelector('.binance-account-primary-amount strong');
+    const profitMonthTotal = document.querySelector('.binance-account-profit-month-total');
+    const openOrderType = document.querySelector('.binance-account-open-order-intro > strong');
+    const openOrderLabel = document.querySelector('.binance-account-open-order-details span');
+    const openOrderValue = document.querySelector('.binance-account-open-order-details strong');
     const pageStyle = page ? getComputedStyle(page) : null;
     const cardStyle = card ? getComputedStyle(card) : null;
     const rect = (element) => {
@@ -127,6 +132,7 @@ async function capture(window, name, metadata) {
       } : null,
       summaryCards: document.querySelectorAll('.binance-account-summary-card').length,
       positions: document.querySelectorAll('.binance-account-position-card').length,
+      openOrders: document.querySelectorAll('.binance-account-open-order-card').length,
       positionHistory: document.querySelectorAll('.binance-account-history-card').length,
       forbiddenMaximumOpenInterestVisible: document.querySelector('.binance-account-position-history')?.textContent?.includes('最大未平仓合约量') || false,
       positionTitleRemoved: !document.querySelector('#binanceAccountPositionsTitle'),
@@ -146,7 +152,7 @@ async function capture(window, name, metadata) {
       accountToolbarRect: rect(document.querySelector('.binance-account-toolbar')),
       accountToolbarActionsRect: rect(document.querySelector('.binance-account-toolbar-actions')),
       accountRefreshButtonRect: rect(document.querySelector('.binance-account-toolbar-actions [data-binance-account-action="refresh"]')),
-      accountSectionRect: rect(document.querySelector('.binance-account-content > :is(.binance-account-summary-card, .binance-account-positions, .binance-account-position-history)')),
+      accountSectionRect: rect(document.querySelector('.binance-account-content > :is(.binance-account-summary-card, .binance-account-positions, .binance-account-open-orders, .binance-account-position-history)')),
       accountContentRect: rect(document.querySelector('.binance-account-content')),
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
       accountHeaderRemoved: !document.querySelector('.binance-account-page-header'),
@@ -175,6 +181,17 @@ async function capture(window, name, metadata) {
         tutorialHeight: rect(tutorialButton)?.height || null,
         tutorialFontWeight: tutorialButton ? getComputedStyle(tutorialButton).fontWeight : null,
       },
+      accountTypography: {
+        primaryAmountWeight: primaryAmountValue ? getComputedStyle(primaryAmountValue).fontWeight : null,
+        openOrderTypeSize: openOrderType ? getComputedStyle(openOrderType).fontSize : null,
+        openOrderLabelSize: openOrderLabel ? getComputedStyle(openOrderLabel).fontSize : null,
+        openOrderValueSize: openOrderValue ? getComputedStyle(openOrderValue).fontSize : null,
+      },
+      profitMonthTotal: profitMonthTotal ? {
+        text: profitMonthTotal.textContent?.replace(/\s+/g, ' ').trim() || '',
+        className: profitMonthTotal.className,
+        color: getComputedStyle(profitMonthTotal).color,
+      } : null,
       panelLayoutComplete,
       panel: {
         rect: panelRect,
@@ -244,10 +261,18 @@ async function main() {
     for (const theme of ["light", "dark"]) {
       await settleTheme(window, theme);
       captures.push(await capture(window, `assets-${theme}`, { surface: "assets", theme }));
+      await window.webContents.executeJavaScript(`document.querySelector('[data-binance-account-section="profit-calendar"]')?.click()`, true);
+      await waitFor(window, `document.querySelector('.binance-account-profit-calendar')`);
+      await delay(120);
+      captures.push(await capture(window, `profit-calendar-${theme}`, { surface: "profit-calendar", theme }));
       await window.webContents.executeJavaScript(`document.querySelector('[data-binance-account-section="positions"]')?.click()`, true);
       await waitFor(window, `document.querySelector('.binance-account-position-card')`);
       await delay(120);
       captures.push(await capture(window, `positions-${theme}`, { surface: "positions", theme }));
+      await window.webContents.executeJavaScript(`document.querySelector('[data-binance-account-section="open-orders"]')?.click()`, true);
+      await waitFor(window, `document.querySelector('.binance-account-open-order-card')`);
+      await delay(120);
+      captures.push(await capture(window, `open-orders-${theme}`, { surface: "open-orders", theme }));
       await window.webContents.executeJavaScript(`document.querySelector('[data-binance-account-section="history"]')?.click()`, true);
       await waitFor(window, `document.querySelector('.binance-account-history-card')`);
       await delay(120);
@@ -354,9 +379,9 @@ async function main() {
       throw new Error(`账户页左侧栏点击收起失败：${brokenAccountLeftCollapse.name}`);
     }
     const wrongAccountTabs = captures.find((entry) => (
-      (entry.surface === 'assets' || entry.surface === 'positions' || entry.surface === 'history')
-      && (entry.state.accountTabs.length !== 3
-        || entry.state.accountTabs.map((tab) => tab.label).join(',') !== '资产,持仓,仓位历史'
+      (entry.surface === 'assets' || entry.surface === 'positions' || entry.surface === 'open-orders' || entry.surface === 'history')
+      && (entry.state.accountTabs.length !== 4
+        || entry.state.accountTabs.map((tab) => tab.label).join(',') !== '资产,持仓,当前委托,仓位历史'
         || entry.state.activeAccountSection !== entry.surface
         || entry.state.accountTabs.filter((tab) => tab.selected).length !== 1)
     ));
@@ -364,7 +389,7 @@ async function main() {
       throw new Error(`账户页分类栏状态不正确：${wrongAccountTabs.name}`);
     }
     const misalignedAccountActions = captures.find((entry) => {
-      if (entry.surface !== 'assets' && entry.surface !== 'positions' && entry.surface !== 'history') return false;
+      if (entry.surface !== 'assets' && entry.surface !== 'positions' && entry.surface !== 'open-orders' && entry.surface !== 'history') return false;
       const activeTabRect = entry.state.accountTabs.find((tab) => tab.selected)?.rect;
       const refreshRect = entry.state.accountRefreshButtonRect;
       const actionsRect = entry.state.accountToolbarActionsRect;
@@ -386,12 +411,24 @@ async function main() {
     if (wrongPositionHistory) {
       throw new Error(`仓位历史内容不正确：${wrongPositionHistory.name}`);
     }
+    const wrongAccountTypography = captures.find((entry) => (
+      (entry.surface === 'assets' && entry.state.accountTypography.primaryAmountWeight !== '600')
+      || (entry.surface === 'open-orders'
+        && (entry.state.accountTypography.openOrderTypeSize !== '11px'
+          || entry.state.accountTypography.openOrderLabelSize !== '13px'
+          || entry.state.accountTypography.openOrderValueSize !== '13px'))
+    ));
+    if (wrongAccountTypography) {
+      throw new Error(`账户资产或当前委托字号不正确：${wrongAccountTypography.name}`);
+    }
     const mixedAccountContent = captures.find((entry) => (
       entry.surface === 'assets'
-        ? entry.state.summaryCards !== 2 || entry.state.positions !== 0
+        ? entry.state.summaryCards !== 2 || entry.state.positions !== 0 || entry.state.openOrders !== 0
         : entry.surface === 'positions'
-          ? entry.state.summaryCards !== 0 || entry.state.positions < 1
-          : false
+          ? entry.state.summaryCards !== 0 || entry.state.positions < 1 || entry.state.openOrders !== 0
+          : entry.surface === 'open-orders'
+            ? entry.state.summaryCards !== 0 || entry.state.positions !== 0 || entry.state.openOrders < 1
+            : false
     ));
     if (mixedAccountContent) {
       throw new Error(`账户分类内容没有完全分离：${mixedAccountContent.name}`);
@@ -407,7 +444,7 @@ async function main() {
       throw new Error(`持仓双列或投资回报率对齐不正确：${wrongPositionLayout.name}`);
     }
     const overflowingAccount = captures.find((entry) => (
-      (entry.surface === 'assets' || entry.surface === 'positions' || entry.surface === 'history')
+      (entry.surface === 'assets' || entry.surface === 'positions' || entry.surface === 'open-orders' || entry.surface === 'history')
       && entry.state.horizontalOverflow
     ));
     if (overflowingAccount) {

@@ -126,8 +126,41 @@ test("favorite ticker drag order is stable across unrelated records and storage 
   );
 });
 
+test("new accounts start with only BTC and ETH perpetual favorites while a saved empty list stays empty", async () => {
+  const {
+    DEFAULT_TRADING_FAVORITE_MARKET_IDS,
+    loadTradingFavoritesFromStorage,
+    saveTradingFavoritesToStorage,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+  };
+
+  const firstLoad = loadTradingFavoritesFromStorage(storage, "account-new");
+  assert.deepEqual(firstLoad.symbols, DEFAULT_TRADING_FAVORITE_MARKET_IDS);
+  assert.deepEqual(
+    firstLoad.records.map(({ id, displaySymbol, marketType, tag }) => ({ id, displaySymbol, marketType, tag })),
+    [
+      { id: "BINANCE:FUTURES:BTCUSDT", displaySymbol: "BTC/USDT", marketType: "perpetual", tag: "永续" },
+      { id: "BINANCE:FUTURES:ETHUSDT", displaySymbol: "ETH/USDT", marketType: "perpetual", tag: "永续" },
+    ],
+  );
+
+  saveTradingFavoritesToStorage(storage, "account-new", { symbols: [], records: [] });
+  assert.deepEqual(loadTradingFavoritesFromStorage(storage, "account-new").symbols, []);
+  assert.deepEqual(loadTradingFavoritesFromStorage(storage, "account-new").records, []);
+  assert.deepEqual(
+    loadTradingFavoritesFromStorage(storage, "another-new-account").symbols,
+    DEFAULT_TRADING_FAVORITE_MARKET_IDS,
+  );
+});
+
 test("trading favorites survive reconstruction, migrate locally, and stay account scoped", async () => {
   const {
+    DEFAULT_TRADING_FAVORITE_MARKET_IDS,
     loadTradingFavoritesFromStorage,
     saveTradingFavoritesToStorage,
     tradingFavoriteStorageKeys,
@@ -180,7 +213,7 @@ test("trading favorites survive reconstruction, migrate locally, and stay accoun
   assert.equal(afterLogoutOrRestart.records[0]?.displaySymbol, "BTC/USDT");
   assert.deepEqual(
     loadTradingFavoritesFromStorage(storage, "https://haolo.com::user-b").symbols,
-    [],
+    DEFAULT_TRADING_FAVORITE_MARKET_IDS,
   );
 });
 
@@ -395,22 +428,24 @@ test("favorite ticker quotes update continuously and use direct combined streams
 
 test("Binance search catalog combines USDT spot and perpetual markets", async () => {
   const { fetchTradingMarkets } = await import("../src/renderer/trading-expert-market.ts");
-  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
   const paths = [];
-  globalThis.fetch = async (urlValue) => {
-    const url = new URL(String(urlValue));
-    paths.push(url.pathname);
-    const payload = url.pathname === "/fapi/v1/exchangeInfo"
+  globalThis.window = {
+    ...(originalWindow || {}),
+    codexDesktop: {
+      ...(originalWindow?.codexDesktop || {}),
+      async getBinancePublicMarketData(request) {
+        paths.push(request.path);
+        const payload = request.path === "/fapi/v1/exchangeInfo"
       ? { symbols: [{ symbol: "BTCUSDT", baseAsset: "BTC", quoteAsset: "USDT", contractType: "PERPETUAL", status: "TRADING" }] }
-      : url.pathname === "/fapi/v1/ticker/24hr"
+      : request.path === "/fapi/v1/ticker/24hr"
         ? [{ symbol: "BTCUSDT", lastPrice: "65000", openPrice: "64000", priceChangePercent: "1.5625", quoteVolume: "1000" }]
-        : url.pathname === "/api/v3/exchangeInfo"
+        : request.path === "/api/v3/exchangeInfo"
           ? { symbols: [{ symbol: "BTCUSDT", baseAsset: "BTC", quoteAsset: "USDT", status: "TRADING", isSpotTradingAllowed: true }] }
           : [{ symbol: "BTCUSDT", lastPrice: "64900", openPrice: "64000", quoteVolume: "900" }];
-    return new Response(JSON.stringify(payload), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+        return { ok: true, status: 200, data: payload, cached: false };
+      },
+    },
   };
   try {
     const markets = await fetchTradingMarkets();
@@ -429,7 +464,8 @@ test("Binance search catalog combines USDT spot and perpetual markets", async ()
       "/api/v3/ticker/24hr",
     ]));
   } finally {
-    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
   }
 });
 
@@ -551,7 +587,7 @@ test("upgraded chart produces trend colors and a finite MA band", async () => {
   assert.ok(hiddenData.every((point) => !("value" in point)));
 });
 
-test("main-chart MA, EMA, BOLL, TD, and BBI studies expose working calculations", async () => {
+test("main-chart indicators expose working calculations and VPVR is placed after BBI", async () => {
   const {
     TRADING_MAIN_INDICATORS,
     TRADING_MAIN_INDICATOR_LINE_COLORS,
@@ -573,7 +609,7 @@ test("main-chart MA, EMA, BOLL, TD, and BBI studies expose working calculations"
 
   assert.deepEqual(
     TRADING_MAIN_INDICATORS.map((indicator) => indicator.id),
-    ["ma", "ema", "boll", "td", "bbi"],
+    ["ma", "ema", "boll", "td", "bbi", "vpvr"],
   );
   assert.deepEqual(
     TRADING_MAIN_INDICATOR_LINE_COLORS,
@@ -585,6 +621,62 @@ test("main-chart MA, EMA, BOLL, TD, and BBI studies expose working calculations"
   assert.ok(Number.isFinite(bbi.at(-1)));
   assert.deepEqual(td.slice(0, 9).map((signal) => signal.count), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
   assert.ok(td.slice(0, 9).every((signal) => signal.direction === "buy"));
+});
+
+test("VPVR distributes visible OHLCV across price rows and identifies POC/value area", async () => {
+  const { calculateTradingVolumeProfile } = await import("../src/renderer/trading-volume-profile.ts");
+  const profile = calculateTradingVolumeProfile([
+    { low: 0, high: 8, volume: 80 },
+    { low: 6, high: 8, volume: 40 },
+  ], 8);
+
+  assert.ok(profile);
+  assert.equal(profile.rows.length, 8);
+  assert.ok(Math.abs(profile.totalVolume - 120) < 1e-9);
+  assert.equal(profile.pocIndex, 6);
+  assert.equal(profile.rows[6].volume, 30);
+  assert.equal(profile.rows[6].poc, true);
+  assert.ok(profile.rows[6].valueArea);
+  const valueAreaVolume = profile.rows
+    .filter((row) => row.valueArea)
+    .reduce((sum, row) => sum + row.volume, 0);
+  assert.ok(valueAreaVolume >= profile.totalVolume * 0.7);
+  assert.equal(calculateTradingVolumeProfile([{ low: 10, high: 12, volume: 0 }], 32), null);
+  assert.equal(calculateTradingVolumeProfile([{ low: 10, high: 12, volume: 1 }], 200)?.rows.length, 96);
+  assert.equal(calculateTradingVolumeProfile([{ low: 10, high: 12, volume: 1 }])?.rows.length, 96);
+});
+
+test("VPVR v3 defaults migrate once to 96 light-blue rows without overwriting custom choices", async () => {
+  const {
+    migrateTradingVpvrDefaults,
+    normalizeTradingIndicatorSettings,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const legacy = normalizeTradingIndicatorSettings({
+    "main:vpvr": {
+      enabled: true,
+      parameters: [32],
+      series: {
+        volume: { visible: true, color: "#5b95e5", lineWidth: 2 },
+        poc: { visible: true, color: "#f59e0b", lineWidth: 2 },
+      },
+    },
+  });
+  const migrated = migrateTradingVpvrDefaults(legacy);
+  assert.deepEqual(migrated["main:vpvr"].parameters, [96]);
+  assert.equal(migrated["main:vpvr"].series.volume.color, "#5b95e5");
+  assert.equal(migrated["main:vpvr"].series.poc.color, "#5b95e5");
+  assert.deepEqual(legacy["main:vpvr"].parameters, [32]);
+  assert.equal(legacy["main:vpvr"].series.poc.color, "#f59e0b");
+
+  const custom = normalizeTradingIndicatorSettings({
+    "main:vpvr": {
+      parameters: [48],
+      series: { poc: { visible: true, color: "#123456", lineWidth: 1 } },
+    },
+  });
+  const customMigrated = migrateTradingVpvrDefaults(custom);
+  assert.deepEqual(customMigrated["main:vpvr"].parameters, [48]);
+  assert.equal(customMigrated["main:vpvr"].series.poc.color, "#123456");
 });
 
 test("fixed price scale follows the high-low range of the visible candles", async () => {
@@ -810,9 +902,9 @@ test("custom indicator settings normalize all current main and subchart studies"
     },
   });
 
-  assert.equal(TRADING_MARKET_INDICATOR_CATALOG.filter((item) => item.scope === "main").length, 5);
+  assert.equal(TRADING_MARKET_INDICATOR_CATALOG.filter((item) => item.scope === "main").length, 6);
   assert.equal(TRADING_MARKET_INDICATOR_CATALOG.filter((item) => item.scope === "sub").length, 13);
-  assert.equal(Object.keys(settings).length, 18);
+  assert.equal(Object.keys(settings).length, 19);
   assert.equal(settings["main:ma"].enabled, true);
   assert.deepEqual(settings["main:ma"].parameters, [2, 500, 20]);
   assert.deepEqual(settings["main:ma"].series.short, {
@@ -820,5 +912,10 @@ test("custom indicator settings normalize all current main and subchart studies"
     color: "#123456",
     lineWidth: 3,
   });
+  assert.deepEqual(settings["main:vpvr"].parameters, [96]);
+  assert.equal(settings["main:vpvr"].series.volume.color, "#5b95e5");
+  assert.equal(settings["main:vpvr"].series.poc.color, "#5b95e5");
+  assert.equal(settings["main:vpvr"].series.volume.visible, true);
+  assert.equal(settings["main:vpvr"].series.poc.visible, true);
   assert.equal(settings["sub:obv"].parameters.length, 0);
 });

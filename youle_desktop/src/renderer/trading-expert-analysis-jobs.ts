@@ -3,7 +3,8 @@ export type TradingAnalysisTheory =
   | "order-flow"
   | "wave"
   | "wyckoff"
-  | "price-action";
+  | "price-action"
+  | (string & {});
 
 export type TradingAnalysisJobStatus =
   | "running"

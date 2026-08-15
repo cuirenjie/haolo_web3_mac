@@ -6,6 +6,37 @@ const on = (channel, callback) => {
   return () => ipcRenderer.off(channel, listener);
 };
 
+async function invokeBinanceAccountSnapshot(params) {
+  const result = await ipcRenderer.invoke("binanceAccount:getSnapshot", params);
+  if (result?.ok === true) return result.snapshot;
+  if (result?.ok === false && result.error) {
+    const error = new Error(String(result.error.message || "Binance 账户数据读取失败。"));
+    error.name = "BinanceAccountError";
+    error.code = String(result.error.code || "BINANCE_REQUEST_FAILED");
+    error.retryable = result.error.retryable === true;
+    const retryAfterMs = Number(result.error.retryAfterMs);
+    if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) error.retryAfterMs = retryAfterMs;
+    throw error;
+  }
+  // Backward compatibility for a main process from before the response envelope.
+  return result;
+}
+
+async function invokeBinanceAccountProfitCalendar(params) {
+  const result = await ipcRenderer.invoke("binanceAccount:getProfitCalendar", params);
+  if (result?.ok === true) return result.calendar;
+  if (result?.ok === false && result.error) {
+    const error = new Error(String(result.error.message || "Binance 收益日历读取失败。"));
+    error.name = "BinanceAccountError";
+    error.code = String(result.error.code || "BINANCE_REQUEST_FAILED");
+    error.retryable = result.error.retryable === true;
+    const retryAfterMs = Number(result.error.retryAfterMs);
+    if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) error.retryAfterMs = retryAfterMs;
+    throw error;
+  }
+  return result;
+}
+
 contextBridge.exposeInMainWorld("codexDesktop", {
   start: () => ipcRenderer.invoke("codex:start"),
   getStatus: () => ipcRenderer.invoke("codex:getStatus"),
@@ -58,10 +89,13 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   lookupIdentity: (params) => ipcRenderer.invoke("youle:lookupIdentity", params),
   sendOtp: (params) => ipcRenderer.invoke("youle:sendOtp", params),
   verifyOtp: (params) => ipcRenderer.invoke("youle:verifyOtp", params),
+  getBinancePublicMarketData: (params) => ipcRenderer.invoke("binanceMarket:publicGet", params),
+  getHyperliquidPublicCandles: (params) => ipcRenderer.invoke("hyperliquidMarket:candles", params),
   getBinanceAccountStatus: () => ipcRenderer.invoke("binanceAccount:getStatus"),
   sendBinanceAccountOtp: () => ipcRenderer.invoke("binanceAccount:sendOtp"),
   bindBinanceAccount: (params) => ipcRenderer.invoke("binanceAccount:bind", params),
-  getBinanceAccountSnapshot: (params) => ipcRenderer.invoke("binanceAccount:getSnapshot", params),
+  getBinanceAccountSnapshot: (params) => invokeBinanceAccountSnapshot(params),
+  getBinanceAccountProfitCalendar: (params) => invokeBinanceAccountProfitCalendar(params),
   removeBinanceAccount: (params) => ipcRenderer.invoke("binanceAccount:remove", params),
   completeRegistration: (params) => ipcRenderer.invoke("youle:completeRegistration", params),
   getWechatAuthConfig: (params) => ipcRenderer.invoke("youle:getWechatAuthConfig", params),
@@ -116,6 +150,10 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   saveExternalModelProvider: (params) => ipcRenderer.invoke("externalModels:saveProvider", params),
   removeExternalModelProvider: (params) => ipcRenderer.invoke("externalModels:removeProvider", params),
   testExternalModelConnection: (params) => ipcRenderer.invoke("externalModels:testConnection", params),
+  listTradingStrategies: () => ipcRenderer.invoke("tradingStrategy:list"),
+  classifyTradingStrategyRequest: (params) => ipcRenderer.invoke("tradingStrategy:classify", params),
+  runTradingStrategyAnalysis: (params) => ipcRenderer.invoke("tradingStrategy:run", params),
+  cancelTradingStrategyAnalysis: (params = {}) => ipcRenderer.invoke("tradingStrategy:cancel", params),
   classifyTradingChanRequest: (params) => ipcRenderer.invoke("tradingAnalysis:classifyChanRequest", params),
   runTradingChanTest: (params) => ipcRenderer.invoke("tradingAnalysis:runChanTest", params),
   classifyTradingOrderFlowRequest: (params) => ipcRenderer.invoke("tradingAnalysis:classifyOrderFlowRequest", params),

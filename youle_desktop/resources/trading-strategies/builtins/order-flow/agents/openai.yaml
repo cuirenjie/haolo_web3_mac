@@ -1,0 +1,4 @@
+interface:
+  display_name: "订单流"
+  short_description: "结合真实主动成交盘口深度持仓量与市场结构生成订单流执行方案"
+  default_prompt: "Use $order-flow to analyze real order-flow data and produce a controlled chart plan."

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "gann-theory",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "江恩理论", "group": "strategy", "sortOrder": 90 },
+  "mentions": { "canonical": "江恩理论", "aliases": ["江恩", "江恩角度线", "Gann Theory"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "gann-theory" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 80, "preferredCount": 600, "minimumCoverage": "available" }
+  },
+  "drawingPolicyId": "gann-theory-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

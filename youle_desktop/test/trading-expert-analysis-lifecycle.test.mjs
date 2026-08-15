@@ -70,7 +70,11 @@ test("chart navigation is detached from analysis cancellation and IPC cancellati
   assert.doesNotMatch(restartBlock, /cancelTradingAnalysis|cancelChanAnalysis/);
   assert.doesNotMatch(destroyBlock, /cancelTradingAnalysis|cancelChanAnalysis/);
   assert.equal((market.match(/const job = tradingAnalysisJobs\.start\(\{/g) || []).length, 5);
-  assert.equal((renderer.match(/const analysisId = beginTradingExpertAnalysisJob\(/g) || []).length, 5);
+  const activeRunnerSection = renderer.slice(
+    renderer.indexOf("async function runTradingGeneralChartRequest"),
+    renderer.indexOf("async function runTradingChanChartRequest"),
+  );
+  assert.equal((activeRunnerSection.match(/const analysisId = beginTradingExpertAnalysisJob\(/g) || []).length, 2);
   assert.match(market, /persistTradingAiDrawingPatch\(storageSessionId, patch\)/);
   assert.match(market, /const latestJob = tradingAnalysisJobs\.get\(job\.analysisId\)[\s\S]*?persistTradingAiDrawingPatch\(storageSessionId, patch\)[\s\S]*?storeAnalysisDrawingPatch\(patch, paneIndex\)/);
   assert.match(renderer, /migrateTradingExpertMarketWorkspaceStorageSession\(previousThreadId, nextThreadId\)/);
@@ -87,4 +91,6 @@ test("chart navigation is detached from analysis cancellation and IPC cancellati
   assert.match(main, /tradingAnalysisControllerKey[\s\S]*?analysisJobId/);
   assert.match(main, /candidateJobId === analysisJobId \|\| candidateJobId\.startsWith\(`\$\{analysisJobId\}:pane:`\)/);
   assert.match(preload, /cancelTradingAnalysis: \(params = \{\}\) => ipcRenderer\.invoke\("tradingAnalysis:cancel", params\)/);
+  assert.match(preload, /cancelTradingStrategyAnalysis: \(params = \{\}\) => ipcRenderer\.invoke\("tradingStrategy:cancel", params\)/);
+  assert.match(main, /ipcMain\.handle\("tradingStrategy:cancel"/);
 });
