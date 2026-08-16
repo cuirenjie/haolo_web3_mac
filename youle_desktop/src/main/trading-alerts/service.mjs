@@ -12,6 +12,11 @@ import { chartSwitchRequest } from "./simulation-planner.mjs";
 import { planAlertSimulationIsolated } from "./simulation-worker-client.mjs";
 import { createAlertRuleRevision, normalizeAlertDraft, TRADING_ALERT_SCHEMA_VERSION } from "./protocol.mjs";
 import { TradingAlertError, tradingAlertErrorEnvelope } from "./errors.mjs";
+import {
+  buildExecutionPlanAlertRule,
+  executionPlanAlertIds,
+  parseExecutionPlanAlertInput,
+} from "./execution-plan-alert.mjs";
 
 export class TradingAlertService {
   constructor({ dataDir, invokeIntentModel, notify, enabled = false, now = () => Date.now(), marketAdapter, marketFetch, marketSubscribeMode, shadowMode = false, planSimulation = planAlertSimulationIsolated } = {}) {
@@ -66,6 +71,83 @@ export class TradingAlertService {
       });
     }
     return alert;
+  }
+
+  async syncExecutionPlan(params = {}) {
+    if (!this.enabled) {
+      throw new TradingAlertError("智能预警仍处于功能开关关闭状态，无法监控执行计划", {
+        code: "TRADING_ALERT_FEATURE_DISABLED",
+        category: "validation",
+      });
+    }
+    const spec = parseExecutionPlanAlertInput(params);
+    const ids = executionPlanAlertIds(spec.planId);
+    const alerts = await this.store.listAlerts();
+    const requested = spec.alertId ? alerts.find((entry) => entry.alertId === spec.alertId) : null;
+    const linked = alerts.find((entry) => entry.draftId === ids.draftId) || null;
+    if (requested && requested.draftId !== ids.draftId) {
+      throw new TradingAlertError("该预警不属于当前执行计划，已拒绝覆盖", {
+        code: "TRADING_ALERT_EXECUTION_PLAN_LINK_MISMATCH",
+        category: "validation",
+      });
+    }
+    const current = requested || linked;
+    const rule = buildExecutionPlanAlertRule(spec, {
+      previousRule: current?.rule || null,
+      now: this.now(),
+    });
+    const paused = spec.status === "ended";
+    let alert;
+    if (current) {
+      await this.engine.disarm(current.alertId, { updateStore: false });
+      alert = await this.store.updateAlert(current.alertId, {
+        rule,
+        ruleHash: rule.ruleHash,
+        enabled: !paused,
+        status: paused ? "paused" : "arming",
+        rearmState: "unarmed",
+        triggerCount: 0,
+        armedAt: null,
+        lastEvaluatedAt: null,
+        lastTriggeredAt: null,
+        latestEvidenceId: undefined,
+        failure: paused ? "执行计划已结束，预警已自动暂停" : null,
+        ...(spec.originThreadId ? { originThreadId: spec.originThreadId } : {}),
+      });
+    } else {
+      const initial = createInitialAlertInstance({
+        alertId: ids.alertId,
+        draftId: ids.draftId,
+        rule,
+        simulationId: ids.simulationId,
+        confirmationId: ids.confirmationId,
+        originThreadId: spec.originThreadId,
+        now: this.now(),
+      });
+      alert = await this.store.createAlert(paused ? {
+        ...initial,
+        enabled: false,
+        status: "paused",
+        failure: "执行计划已结束，预警已自动暂停",
+      } : initial);
+    }
+    if (!paused) {
+      const armResult = await this.engine.armWithRecovery(alert.alertId);
+      alert = armResult.alert || alert;
+      return {
+        alert: await this.requirePersistedAlert(alert.alertId),
+        phase: spec.status,
+        monitoringReady: armResult.monitoringReady,
+        created: !current,
+        ...(armResult.error ? { warning: String(armResult.error.message || armResult.error) } : {}),
+      };
+    }
+    return {
+      alert: await this.requirePersistedAlert(alert.alertId),
+      phase: spec.status,
+      monitoringReady: false,
+      created: !current,
+    };
   }
 
   async compile(params = {}) {

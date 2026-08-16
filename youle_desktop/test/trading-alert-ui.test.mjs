@@ -16,14 +16,15 @@ const alertUiSource = readFile(new URL("../src/renderer/trading-alerts-ui.ts", i
 const marketSource = readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 
-test("plans and alerts share one top-level workspace while keeping their existing content", async () => {
+test("saved plans and alerts share one top-level workspace while automatic tasks remain independent", async () => {
   const source = await rendererSource;
   assert.match(source, /type ViewId[\s\S]*"alerts"/);
   assert.match(source, /function openTradingAlertsPage[\s\S]*state\.activeView = "alerts"/);
+  assert.match(source, /function openExecutionPlansPage[\s\S]*state\.activeView = "plans"/);
   assert.match(source, /function openAutoTasksPage[\s\S]*state\.activeView = "autoTasks"/);
   assert.match(source, /renderTradingAlertsPage\(state\.tradingAlerts\)/);
   assert.match(source, /data-conversation-static-action="plans"/);
-  assert.match(source, /\[data-planning-section\][\s\S]*openAutoTasksPage\(\)[\s\S]*openTradingAlertsPage\(\)/);
+  assert.match(source, /\[data-planning-section\][\s\S]*openExecutionPlansPage\(\)[\s\S]*openTradingAlertsPage\(\)/);
   assert.match(renderPlanningNavigation("plans"), /data-planning-section="plans"[\s\S]*data-planning-section="alerts"/);
 });
 
@@ -700,7 +701,9 @@ test("alert editor hides the technical market scope and uses Haolo selects for v
   state.busyAlertId = "editor-selects";
   const busyHtml = renderTradingAlertsPage(state);
   assert.match(busyHtml, /data-trading-alert-editor-form[^>]*aria-busy="true"/);
-  assert.match(busyHtml, /button type="submit" class="primary" disabled>正在生成…<\/button>/);
+  assert.match(busyHtml, /button type="submit" class="primary-button" disabled>正在生成…<\/button>/);
+  assert.doesNotMatch(busyHtml, /data-trading-alert-action="edit"[^>]*data-alert-id="editor-selects"/);
+  assert.match(html, /button type="button" class="secondary-button" data-trading-alert-action="close-editor">取消<\/button>/);
   assert.match(html, /class="video-expert-select trading-alert-select/);
   assert.match(html, /class="video-expert-select-menu trading-alert-select-menu"[^>]*role="listbox"/);
   assert.match(html, /role="option" aria-selected="true" tabindex="-1"/);
@@ -735,9 +738,9 @@ test("alert editor hides the technical market scope and uses Haolo selects for v
   assert.match(styles, /html\[data-theme="dark"\] \.trading-alert-market-menu/);
   assert.match(styles, /\.trading-alert-editor > header\s*\{[^}]*padding:\s*18px 20px 0;[^}]*\}/s);
   assert.doesNotMatch(styles, /\.trading-alert-editor > header\s*\{[^}]*border-bottom/s);
-  assert.match(styles, /\.trading-alert-editor form footer \.primary\s*\{[^}]*background:\s*var\(--text-primary\);[^}]*color:\s*var\(--surface-primary\);/s);
-  assert.match(styles, /\.trading-alert-editor form footer \.primary:disabled/);
-  assert.match(styles, /html\[data-theme="dark"\] dialog\.trading-alert-editor\[open\] form footer button\.primary:not\(:disabled\)\s*\{[^}]*background:\s*var\(--text-primary\);[^}]*color:\s*var\(--surface-primary\);[^}]*box-shadow:\s*none;/s);
+  assert.match(styles, /\.primary-button,\s*\.secondary-button\s*\{[^}]*height:\s*36px;[^}]*border-radius:\s*999px;/s);
+  assert.match(styles, /html\[data-theme="dark"\] dialog\[open\] \.primary-button:not\(:disabled\)/);
+  assert.doesNotMatch(styles, /\.trading-alert-editor form footer (?:button|\.primary)/);
   assert.match(styles, /html\[data-theme="dark"\][\s\S]*\.video-expert-select-menu/);
   assert.match(styles, /html\[data-theme="dark"\][\s\S]*\[role="listbox"\][\s\S]*\[role="option"\]/);
 });
@@ -765,7 +768,7 @@ test("alerts containing drawing contexts cannot open the generic revision editor
   state.editorAlertId = "drawing-context-editor-locked";
 
   const html = renderTradingAlertsPage(state);
-  assert.match(html, /data-trading-alert-action="edit"[^>]*disabled[^>]*title="含画线条件的预警不能迁移，请回到原 K 线图操作"/);
+  assert.doesNotMatch(html, /data-trading-alert-action="edit"[^>]*data-alert-id="drawing-context-editor-locked"/);
   assert.doesNotMatch(html, /data-trading-alert-editor-form/);
 });
 
@@ -784,9 +787,11 @@ test("alert list starts directly with filters without a create action or status 
 test("empty alert state is reduced to one small status line", async () => {
   const [source, styles] = await Promise.all([alertUiSource, stylesSource]);
   assert.match(source, /<section class="trading-alert-empty"><p>当前筛选下没有预警<\/p><\/section>/);
+  assert.match(source, /const alertSubfilters = state\.alerts\.length\s*\?/);
   assert.doesNotMatch(source, /class="trading-alert-empty"><div aria-hidden="true">⏰/);
   assert.doesNotMatch(source, /前往交易专家创建|在交易专家会话中输入/);
   assert.match(styles, /\.trading-alert-empty p\s*\{[^}]*font-size:\s*calc\(12px \+ var\(--app-font-size-offset\)\);/s);
+  assert.match(styles, /\.trading-alert-empty\s*\{[^}]*min-height:\s*100%;[^}]*padding-bottom:\s*10vh;/s);
   assert.doesNotMatch(styles, /\.trading-alert-empty(?:\s*>)?\s+(?:div|h2)/);
 });
 
@@ -849,7 +854,10 @@ test("alert cards mirror the compact installed-skill card layout", async () => {
   assert.doesNotMatch(source, /trading-alert-(?:card-icon|draft-icon|card-title-row)|⏰/);
   assert.match(source, /class="trading-alert-card-copy"/);
   assert.match(styles, /\.trading-alert-card-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 320px\)\);[^}]*gap:\s*20px;/s);
-  assert.match(styles, /\.trading-alert-card\s*\{[^}]*min-height:\s*106px;[^}]*grid-template-columns:\s*minmax\(0, 1fr\);[^}]*gap:\s*0;[^}]*border-radius:\s*8px;[^}]*padding:\s*14px 16px;/s);
+  assert.match(styles, /\.trading-alert-card-grid\s*\{[^}]*align-items:\s*stretch;/s);
+  assert.match(styles, /\.trading-alert-card\s*\{[^}]*min-height:\s*106px;[^}]*grid-template-columns:\s*minmax\(0, 1fr\);[^}]*align-items:\s*stretch;[^}]*gap:\s*0;[^}]*border-radius:\s*8px;[^}]*padding:\s*14px 16px;/s);
+  assert.match(styles, /\.trading-alert-card-copy\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*align-self:\s*stretch;/s);
+  assert.match(styles, /\.trading-alert-card-copy small\s*\{[^}]*margin-top:\s*auto;/s);
   assert.doesNotMatch(styles, /\.trading-alert-(?:card-icon|draft-icon|card-title-row)/);
   assert.match(styles, /\.trading-alert-card-copy p\s*\{[^}]*display:\s*-webkit-box;[^}]*min-height:\s*36px;[^}]*line-height:\s*18px;[^}]*white-space:\s*normal;[^}]*-webkit-box-orient:\s*vertical;[^}]*-webkit-line-clamp:\s*2;/s);
   assert.doesNotMatch(styles, /\.trading-alert-card-copy p\s*\{[^}]*white-space:\s*nowrap;/s);
@@ -859,9 +867,13 @@ test("alert cards mirror the compact installed-skill card layout", async () => {
 
 test("planning uses pill-style primary tabs and plain-text alert subcategories in both themes", async () => {
   const styles = await stylesSource;
-  const html = renderTradingAlertsPage(createTradingAlertsUiState());
+  const emptyState = createTradingAlertsUiState();
+  const html = renderTradingAlertsPage(emptyState);
   assert.match(html, /class="planning-primary-tabs"[\s\S]*>计划<\/button>[\s\S]*>预警<\/button>/);
-  assert.match(html, /class="trading-alert-subfilters"[\s\S]*>监控中<span>0<\/span>[\s\S]*>已触发<span>0<\/span>[\s\S]*>已暂停<span>0<\/span>/);
+  assert.doesNotMatch(html, /class="trading-alert-subfilters"/);
+  emptyState.alerts = [{ alertId: "alert-one", status: "monitoring", enabled: true, rule: { contexts: [] } }];
+  const populatedHtml = renderTradingAlertsPage(emptyState);
+  assert.match(populatedHtml, /class="trading-alert-subfilters"[\s\S]*>监控中<span>1<\/span>[\s\S]*>已触发<span>0<\/span>[\s\S]*>已暂停<span>0<\/span>/);
   assert.match(styles, /\.planning-primary-tabs,[\s\S]*?\{[^}]*gap:\s*18px;[^}]*padding:\s*0 0 8px;/s);
   assert.match(styles, /\.planning-primary-tabs button,[\s\S]*?\{[^}]*height:\s*34px;[^}]*border-radius:\s*14px;[^}]*padding:\s*0 16px;/s);
   assert.match(styles, /\.planning-primary-tabs button:is\(\.active, \[aria-pressed="true"\]\),[\s\S]*?\{[^}]*background:\s*var\(--selection-strong\);[^}]*color:\s*var\(--text-primary\);/s);
@@ -882,4 +894,44 @@ test("alert UI has semantic light/dark tokens and all interaction states", async
   assert.doesNotMatch(styles, /\.trading-alert-simulation-(?:watermark|divider)/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*trading-alert/);
   assert.match(styles, /\.trading-alerts-page\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?flex:\s*1 1 auto;[\s\S]*?box-sizing:\s*border-box;/);
+});
+
+test("plan-linked alert cards show all three conditions while keeping their editor plan-managed", async () => {
+  const state = createTradingAlertsUiState();
+  state.loaded = true;
+  state.alerts = [{
+    alertId: "alert-plan-sol-1",
+    status: "monitoring",
+    enabled: true,
+    rule: {
+      ruleId: "execution-plan-alert-plan-sol-1",
+      title: "SOL/USDT 计划预警",
+      normalizedSummary: "待执行｜SOL 价格达到 75.12 时触发开空预警\n执行中｜SOL 价格达到 75.68 时触发止损预警\n执行中｜SOL 价格达到 74.28 时触发止盈预警",
+      root: { type: "condition", condition: { conditionId: "execution-plan-entry" } },
+      contexts: [{ contextId: "plan-market", marketSelector: { kind: "fixed", marketIds: ["BINANCE:FUTURES:SOLUSDT"] }, intervals: ["1h"] }],
+      evaluationPolicy: { clock: "bar_update" },
+      triggerPolicy: { mode: "once" },
+      revision: 1,
+    },
+  }];
+  const html = renderTradingAlertsPage(state);
+  assert.match(html, /execution-plan-linked/);
+  assert.match(html, /待执行[\s\S]*触发开空预警/);
+  assert.match(html, /执行中[\s\S]*触发止损预警/);
+  assert.match(html, /执行中[\s\S]*触发止盈预警/);
+  assert.match(html, /随计划自动管理/);
+  assert.match(html, /data-trading-alert-action="view"[^>]*data-alert-id="alert-plan-sol-1"/);
+  assert.doesNotMatch(html, /data-trading-alert-action="edit"[^>]*data-alert-id="alert-plan-sol-1"/);
+  assert.match(html, /data-trading-alert-action="pause"[^>]*data-alert-id="alert-plan-sol-1"/);
+  assert.match(html, /data-trading-alert-action="delete"[^>]*data-alert-id="alert-plan-sol-1"/);
+  assert.match(html, /trading-alert-plan-condition active/);
+  assert.match(html, /trading-alert-plan-condition(?! active)/);
+  state.editorAlertId = "alert-plan-sol-1";
+  assert.doesNotMatch(renderTradingAlertsPage(state), /data-trading-alert-editor-form/);
+  const renderer = await rendererSource;
+  assert.match(renderer, /function openTradingAlertEditor[\s\S]*tradingAlertIsExecutionPlanLinked\(alert\)[\s\S]*该预警由计划自动管理，请前往计划卡片调整/);
+  const styles = await stylesSource;
+  assert.match(styles, /\.trading-alert-card\.execution-plan-linked\s*\{[^}]*min-height:\s*0/);
+  assert.match(styles, /\.trading-alert-plan-conditions\s*\{[^}]*margin:\s*2px 0 9px;/);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-alert-plan-condition\.active/);
 });

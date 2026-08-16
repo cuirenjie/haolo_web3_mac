@@ -6,6 +6,21 @@ function boundedText(value, max = 12_000) {
   return String(value || "").replace(/\u0000/g, "").slice(0, max);
 }
 
+function stripLegacyExecutionPlanSection(value) {
+  const lines = String(value || "").replace(/\r\n?/g, "\n").split("\n");
+  const output = [];
+  let skipping = false;
+  for (const line of lines) {
+    if (/^\s*#{1,6}\s+标准执行方案\s*$/u.test(line)) {
+      skipping = true;
+      continue;
+    }
+    if (skipping && /^\s*#{1,6}\s+\S/u.test(line)) skipping = false;
+    if (!skipping) output.push(line);
+  }
+  return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export class TradingStrategyCoordinator {
   #registry;
   #modelRegistry;
@@ -111,14 +126,31 @@ export class TradingStrategyCoordinator {
       error.code = "TRADING_STRATEGY_IMPLEMENTATION_UNAVAILABLE";
       throw error;
     }
-    const legacyResult = await adapter.run(params, {
+    const {
+      binanceAccountContext: providedBinanceAccountContext,
+      loadBinanceAccountContext,
+      ...analysisParams
+    } = params;
+    const legacyResult = await adapter.run(analysisParams, {
       modelRegistry: this.#modelRegistry,
       providerId: this.#providerId,
       signal,
     });
-    const executionPlan = buildExecutionPlanV1(strategy.manifest, legacyResult, params);
     const legacyAnalysisPlan = legacyResult.analysisPlan || {};
     const exposesExecutionPlan = strategy.manifest.capabilities.includes("execution-plan");
+    let binanceAccountContext = providedBinanceAccountContext;
+    if (exposesExecutionPlan && typeof loadBinanceAccountContext === "function") {
+      try {
+        binanceAccountContext = await loadBinanceAccountContext();
+      } catch {
+        binanceAccountContext = { bound: true, available: false, snapshot: null };
+      }
+    }
+    const executionPlan = buildExecutionPlanV1(strategy.manifest, legacyResult, {
+      ...analysisParams,
+      binanceAccountContext,
+    });
+    const legacyReportWithoutExecutionPlan = stripLegacyExecutionPlanSection(legacyAnalysisPlan.report);
     const decoratedResult = {
       ...legacyResult,
       strategy: Object.freeze({ id: strategy.manifest.id, version: strategy.manifest.version }),
@@ -127,7 +159,7 @@ export class TradingStrategyCoordinator {
         executionPlan,
         report: params?.responseMode === "direct" || !exposesExecutionPlan
           ? legacyAnalysisPlan.report
-          : `${formatExecutionPlanMarkdown(executionPlan)}\n\n---\n\n${String(legacyAnalysisPlan.report || "").trim()}`.trim(),
+          : `${formatExecutionPlanMarkdown(executionPlan)}\n\n---\n\n${legacyReportWithoutExecutionPlan}`.trim(),
       },
     };
     return createStrategyResultEnvelope(strategy.manifest, decoratedResult, executionPlan);

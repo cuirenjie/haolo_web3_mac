@@ -393,6 +393,11 @@ export function ensureBrowserDesktopApi() {
   };
   let taskCompletionPopupEnabled = true;
   let promptFavorites: Array<{ id: string; content: string; created_at: string; updated_at: string }> = [];
+  let tradingPreferenceProfile: any = {
+    schemaVersion: 1,
+    onboardingCompleted: false,
+    entries: [],
+  };
 
   const api: DesktopApiLike = {
     async start() {
@@ -898,6 +903,30 @@ export function ensureBrowserDesktopApi() {
         reasoningEffort: activeThreadReasoningEffort,
         serviceTier: null,
       };
+    },
+    async getTradingPreferenceProfile() {
+      return {
+        ok: true,
+        completed: tradingPreferenceProfile.onboardingCompleted === true,
+        profile: tradingPreferenceProfile,
+      };
+    },
+    async saveTradingPreferenceProfile(params: any = {}) {
+      const entries = Array.isArray(params.entries) ? params.entries : [];
+      const byKey = new Map(entries.map((entry: any) => [entry.key, entry.value]));
+      tradingPreferenceProfile = {
+        schemaVersion: 1,
+        maxLossPerTradePercent: Number(byKey.get("max_loss_per_trade_percent")) || 2,
+        minimumRiskRewardRatio: Number(byKey.get("minimum_risk_reward_ratio")) || 2,
+        moveStopToBreakEven: byKey.get("move_stop_to_break_even") !== false,
+        breakEvenTriggerR: Number(byKey.get("break_even_trigger_r")) || 1,
+        analysisStyle: String(byKey.get("trading_analysis_style") || "concise"),
+        requiredAnalysisSections: String(byKey.get("required_analysis_sections") || ""),
+        conflictHandling: String(byKey.get("risk_conflict_handling") || ""),
+        onboardingCompleted: byKey.get("onboarding_completed") === true,
+        entries,
+      };
+      return { ok: true, completed: tradingPreferenceProfile.onboardingCompleted, profile: tradingPreferenceProfile };
     },
     async stageContinuationPrompt(params: any = {}) {
       return { ok: true, transaction: { ...params, status: "ready", targetThreadId: null } };

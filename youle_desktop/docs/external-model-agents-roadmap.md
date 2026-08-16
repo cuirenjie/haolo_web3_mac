@@ -11,6 +11,10 @@
 > **2026-07-29 问答/计划模式终态收敛：** Provider 问答与 GPT 计划模式只有当前主进程和 Renderer 仍共同持有对应 `interactionId` 时才允许显示“运行中/正在思考”。应用重启、开发热重载、连接丢失或用户停止导致执行所有权消失时，恢复历史必须把遗留的运行中回答、计划过程和看板步骤统一收敛为失败，并补充可见的中断终态；如果已持久化的最终回答明确为 completed，则只把迟到的看板状态修复为完成。用户停止还必须通过独立 Provider 取消 IPC 中止请求，不能误走 Codex turn interrupt，也不能让迟到响应覆盖终态。
 >
 > **2026-07-27 派生媒体补充：** 外部模型的视频输入能力不等于图片文件输出能力。问答语义规划需要真实视频帧交付时，必须生成显式 `derivedMedia.extract_video_frames` 计划，由桌面 Host 只读取被选中的原视频并提取确切时间点，结果以本地 `Artifact` 返回；不得让文本模型编造图片 URL，也不得因此扫描分组文件。普通媒体理解请求使用独立的较长响应窗口，问答与集群继续共用 Provider Adapter 的媒体超时策略。
+>
+> **2026-08-16 根 Codex 个人上下文补充：** 桌面端新增的全局 `personal_context` MCP 仅供根 Codex 通过短期本地 loopback token 按需读取当前 Haolo 用户的显式长期记忆与 Binance 只读账户上下文。它不是阶段 4 的 External Agent Bridge，也没有把私有账户、记忆、MCP 或写入权限开放给当前外部模型 Runtime；外部模型继续只能消费 Host/根 Codex 显式选取并经既有 `ContextSourcePlan` 或 `CapabilityGrant + ContextPackage` 交付的最小上下文。未来若让外部节点访问此类来源，必须另行实现节点级授权、敏感度分类、审批与审计，不能复用根 Codex 的本地 bearer token。
+>
+> **2026-08-16 普通串行执行产品覆盖：** Haolo 桌面客户端当前固定为普通串行执行模式。Renderer 不再提供计划/集群任务模式切换，历史 `multi-agent`、`multi-model-cluster` 偏好在边界统一降级为 `execution`；每轮根 Codex 都收到禁止 `spawn_agent`、协作委派、并行任务和后台任务分支的强制策略，App Server 每会话并发线程上限固定为 1，工作流启动 IPC 和旧画布节点语义编译入口均失败关闭。图片和视频仍通过同一个根执行轮串行运行。此覆盖撤销 2026-07-26 的三模型并行临时产品覆盖；历史工作流结构仅保留兼容读取，不得启动新运行。
 
 ## 目标与固定边界
 

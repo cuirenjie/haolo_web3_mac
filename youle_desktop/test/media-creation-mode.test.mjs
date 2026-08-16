@@ -332,22 +332,18 @@ test("Seedance keeps its branded capitalization in media provider groups", () =>
   );
 });
 
-test("selected media models keep the execution mode label and remove media submenu styling", () => {
-  const label = sourceBlock(
-    "function composerModeLabel",
-    "function composerModeIconForThread",
-  );
+test("selected media models keep the fixed serial execution label", () => {
   const picker = sourceBlock(
     "function renderComposerModePicker",
     "function activeComposerDraftSnapshot",
   );
-  assert.match(
-    label,
-    /if \(mode === "question-answer"\) return "计划模式";[\s\S]*return "执行模式";/,
+  assert.match(picker, /class="composer-mode-trigger serial-only"/);
+  assert.match(picker, /role="status"/);
+  assert.match(picker, /<span>执行模式<\/span>/);
+  assert.doesNotMatch(
+    picker,
+    /data-new-thread-mode|data-composer-cluster-mode|data-composer-mode-cascade|媒体创作|计划模式|集群模式/,
   );
-  assert.doesNotMatch(label, /媒体创作/);
-  assert.match(picker, /activeMode === "execution" \|\| isMediaCreationMode\(activeMode\)/);
-  assert.doesNotMatch(picker, /data-composer-mode-cascade="media"|媒体创作/);
   assert.doesNotMatch(styles, /data-composer-mode-cascade="media"/);
 });
 

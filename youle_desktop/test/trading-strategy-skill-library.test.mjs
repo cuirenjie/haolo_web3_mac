@@ -97,6 +97,7 @@ test("the Strategy page exposes indicator and quantitative categories while keep
   assert.match(page, /collectionTab === "quant"/);
   assert.match(page, /"暂无指标"/);
   assert.match(page, /"暂无量化"/);
+  assert.match(page, /my-skills-grid.*skills-empty-state/s);
   assert.match(bindings, /tab !== "indicators"/);
   assert.match(bindings, /tab !== "quant"/);
   assert.match(renderer, /function renderPluginMarketplacePage\(\)/);
@@ -106,6 +107,8 @@ test("the Strategy page exposes indicator and quantitative categories while keep
   assert.match(styles, /\.skills-plaza-tabs button:disabled/);
   assert.match(styles, /html\[data-theme="dark"\] \.skills-plaza-tabs button:hover/);
   assert.match(styles, /html\[data-theme="dark"\] \.skills-plaza-tabs button:active:not\(:disabled\)/);
+  assert.match(styles, /\.my-skills-grid\.skills-empty-state\s*\{[^}]*align-content:\s*center;[^}]*justify-content:\s*center;[^}]*padding:\s*0 0 10vh;/s);
+  assert.match(styles, /\.my-skills-grid\.skills-empty-state \.skills-empty\s*\{[^}]*margin:\s*0;/s);
 });
 
 test("the Indicator tab renders Trend Band with the same installed card contract as strategies", async () => {
@@ -127,7 +130,7 @@ test("the Indicator tab renders Trend Band with the same installed card contract
   assert.match(styles, /html\[data-theme="dark"\] \.trading-indicator-icon-trend-band\s*\{[^}]*--strategy-icon-background:[^}]*--strategy-icon-foreground:[^}]*--strategy-icon-ring:/s);
 });
 
-test("the Trend Band indicator card opens Trading Expert and pre-fills its custom indicator mention", async () => {
+test("the Trend Band indicator card opens Trading Expert and pre-fills its indicator mention", async () => {
   const renderer = await rendererSource;
   const openIndicator = sourceBlock(renderer, "async function openTradingIndicatorSkillFromLibrary", "function skillForUse");
   const bindings = sourceBlock(renderer, 'root.querySelectorAll<HTMLElement>("[data-skill-id]")', 'root.querySelectorAll<HTMLElement>("[data-skill-tool]")');
@@ -176,11 +179,44 @@ test("trading strategy cards render concise strategy icons and clamp description
 test("trading strategy icon states remain explicit in light and dark themes", async () => {
   const styles = await stylesSource;
 
-  assert.match(styles, /\.trading-strategy-icon\s*\{[^}]*--strategy-icon-background:[^}]*--strategy-icon-foreground:[^}]*--strategy-icon-ring:/s);
+  assert.match(styles, /\.trading-strategy-icon\s*\{[^}]*--strategy-icon-background:[^}]*--strategy-icon-foreground:[^}]*--strategy-icon-ring:[^}]*--strategy-icon-stroke-width:\s*1\.8;/s);
+  assert.match(styles, /\.trading-strategy-icon svg\s*\{[^}]*stroke-width:\s*var\(--strategy-icon-stroke-width\);/s);
   assert.match(styles, /\.my-skill-card:hover \.trading-strategy-icon,[\s\S]*?\.my-skill-card:focus-visible \.trading-strategy-icon\s*\{/);
   assert.match(styles, /\.my-skill-card:active \.trading-strategy-icon\s*\{[^}]*transform:\s*scale\(0\.97\);/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-strategy-icon\s*\{[^}]*--strategy-icon-background:[^}]*--strategy-icon-foreground:[^}]*--strategy-icon-ring:/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-strategy-icon\s*\{[^}]*--strategy-icon-background:[^}]*--strategy-icon-foreground:\s*#c4ccff;[^}]*--strategy-icon-ring:[^}]*--strategy-icon-stroke-width:\s*2\.05;/s);
   for (const strategyId of ["order-flow", "wave", "wyckoff", "harmonic", "chart-patterns", "price-action", "dow-theory", "gann-theory"]) {
     assert.match(styles, new RegExp(`html\\[data-theme="dark"\\] \\.trading-strategy-icon-${strategyId}\\s*\\{`));
+  }
+});
+
+test("dark strategy and indicator cards use the brighter icon foreground palette", async () => {
+  const styles = await stylesSource;
+  const expectedDarkForegrounds = new Map([
+    ["trading-strategy-icon-order-flow", "#91e6d6"],
+    ["trading-strategy-icon-ict-smc", "#d8c9ff"],
+    ["trading-strategy-icon-smt-divergence", "#a8edfb"],
+    ["trading-strategy-icon-wave", "#9bd1ff"],
+    ["trading-strategy-icon-wyckoff", "#f7d28d"],
+    ["trading-strategy-icon-harmonic", "#e0bdff"],
+    ["trading-strategy-icon-chart-patterns", "#a8e2ff"],
+    ["trading-strategy-icon-price-action", "#a9e8bb"],
+    ["trading-strategy-icon-dow-theory", "#d5c9ff"],
+    ["trading-strategy-icon-gann-theory", "#ffd0ad"],
+    ["trading-indicator-icon-trend-band", "#91e6d6"],
+    ["trading-indicator-icon-moving-average", "#f8da8c"],
+    ["trading-indicator-icon-macd", "#d8caff"],
+    ["trading-indicator-icon-bollinger-bands", "#bed2ff"],
+    ["trading-indicator-icon-rsi", "#dfc4ff"],
+    ["trading-indicator-icon-kdj", "#b8e5ff"],
+    ["trading-indicator-icon-vpvr", "#bbdcff"],
+  ]);
+
+  for (const [className, foreground] of expectedDarkForegrounds) {
+    const block = sourceBlock(
+      styles,
+      `html[data-theme="dark"] .${className} {`,
+      "}\n",
+    );
+    assert.match(block, new RegExp(`--strategy-icon-foreground:\\s*${foreground};`));
   }
 });

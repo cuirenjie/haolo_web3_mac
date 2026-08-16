@@ -164,7 +164,7 @@ test("Dow pipeline returns evidence-bound drawings and a standard non-ordering e
   assert.equal(result.ok, true);
   assert.equal(result.executionPlan.action, "wait");
   assert.equal(result.executionPlan.positionSizing.suggestedQuantity, null);
-  assert.match(result.analysisPlan.report, /标准执行方案/);
+  assert.match(result.analysisPlan.report, /^## BTC\/USDT 币安永续 1H/m);
   assert.match(result.analysisPlan.report, /道氏理论结论/);
 });
 

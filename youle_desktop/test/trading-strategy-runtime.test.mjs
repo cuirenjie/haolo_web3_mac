@@ -177,11 +177,309 @@ test("ExecutionPlanV1 derives prices from deterministic action levels and remain
   assert.equal(plan.scenarios[0].targets[0].price, 108);
   assert.equal(plan.positionSizing.suggestedQuantity, null);
   assert.match(plan.positionSizing.unavailableReason, /账户权益/);
-  assert.match(formatExecutionPlanMarkdown(plan), /标准执行方案/);
+  const markdown = formatExecutionPlanMarkdown(plan);
+  assert.match(markdown, /^## BTC\/USDT 币安永续 1H/m);
+  assert.match(markdown, /^当前动作：等待条件触发/m);
+  assert.match(markdown, /^方向判断：偏多/m);
+  assert.match(markdown, /^多头触发：102/m);
+  assert.equal(markdown.split("\n").filter((line) => /^(?:当前动作|方向判断|多头触发|止损与失效|分批止盈|风险收益比)：/.test(line)).length, 6);
+  assert.doesNotMatch(markdown, /标准执行方案|^[•*-]\s+/m);
+  assert.doesNotMatch(markdown, /前置条件|确认方式|继续观察|方案有效期|取消执行|回踩|反抽/);
   assert.deepEqual(validateExecutionPlan(plan), plan);
   const tickNormalized = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), { tickSize: 0.25 });
   assert.equal(tickNormalized.scenarios[0].trigger.price % 0.25, 0);
   assert.match(tickNormalized.warnings.join(" "), /tick size 0\.25/);
+});
+
+test("unbound Binance output uses estimated net risk/reward in the requested six-item short plan", () => {
+  const legacyResult = sampleLegacyResult();
+  legacyResult.theoryResult.signals = [{ direction: "bearish", strength: 0.9 }];
+  Object.assign(legacyResult.analysisPlan.actionPlan, {
+    currentPrice: 63_050,
+    shortTrigger: 63_007.1,
+    shortInvalidation: 63_141.6,
+    shortTarget: 62_770.701875,
+  });
+  const markdown = formatExecutionPlanMarkdown(buildExecutionPlanV1(sampleManifest, legacyResult, {
+    userRiskProfile: { minimumRiskRewardRatio: 0.4 },
+    binanceAccountContext: { bound: false, available: false, snapshot: null },
+  }));
+  assert.equal(markdown, [
+    "## BTC/USDT 币安永续 1H",
+    "",
+    "当前动作：等待条件触发",
+    "方向判断：偏空",
+    "空头触发：63007.1",
+    "止损与失效：63141.6",
+    "分批止盈：第1目标 62770.701875",
+    "风险收益比：目标1为 1:0.42",
+  ].join("\n"));
+});
+
+test("ExecutionPlanV1 keeps displayed SOL net risk/reward consistent with its net PnL and gate", () => {
+  const legacyResult = sampleLegacyResult();
+  legacyResult.snapshot.marketId = "BINANCE:FUTURES:SOLUSDT";
+  legacyResult.theoryResult.signals = [{ direction: "bearish", strength: 0.9 }];
+  Object.assign(legacyResult.analysisPlan.actionPlan, {
+    currentPrice: 75.22,
+    shortTrigger: 74.61,
+    shortInvalidation: 75.68,
+    shortTarget: 73.005,
+  });
+  const params = {
+    estimatedRoundTripCostRate: 0.002,
+    userRiskProfile: {
+      maxLossPerTradePercent: 10,
+      maxLeverage: 10,
+    },
+    binanceAccountContext: {
+      bound: true,
+      available: true,
+      snapshot: {
+        fetchedAt: new Date().toISOString(),
+        marginBalance: 5_000,
+        availableBalance: 183.334,
+        positions: [],
+        warnings: [],
+      },
+    },
+  };
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult, params);
+  assert.equal(plan.positionSizing.accountPlan.notional, 1_833.34);
+  assert.equal(plan.positionSizing.accountPlan.estimatedStopLoss, 29.95);
+  assert.equal(plan.positionSizing.accountPlan.estimatedTakeProfit, 35.77);
+  assert.equal(plan.riskReward[0].ratio, 1.19);
+  assert.match(
+    formatExecutionPlanMarkdown(plan),
+    /目标1为 1:1\.19，如果止损：约 -29\.95 USDT，如果全部止盈：约 \+35\.77 USDT/,
+  );
+
+  const blocked = buildExecutionPlanV1(sampleManifest, legacyResult, {
+    ...params,
+    userRiskProfile: {
+      ...params.userRiskProfile,
+      minimumRiskRewardRatio: 1.5,
+    },
+  });
+  assert.equal(blocked.action, "no_trade");
+  assert.deepEqual(blocked.riskReward, [{ targetIndex: 0, ratio: 1.19 }]);
+  assert.equal(blocked.takeProfits.length, 1);
+  assert.equal(blocked.scenarios.find((item) => item.side === "short").trigger.price, 74.61);
+  assert.equal(blocked.positionSizing.accountPlan.estimatedStopLoss, 29.95);
+  assert.equal(blocked.positionSizing.accountPlan.estimatedTakeProfit, 35.77);
+  assert.match(blocked.marketAssessment, /净盈亏比低于用户设定的最低 1:1\.5/);
+  const blockedMarkdown = formatExecutionPlanMarkdown(blocked);
+  assert.match(blockedMarkdown, /当前动作：不交易/);
+  assert.match(blockedMarkdown, /止损与失效：止损 75\.68/);
+  assert.match(blockedMarkdown, /分批止盈：止盈 73\.005，推荐仓位 1833\.34 USDT/);
+  assert.doesNotMatch(blockedMarkdown, /[（）()]|候选|测算/);
+  assert.match(blockedMarkdown, /目标1为 1:1\.19，如果止损：约 -29\.95 USDT，如果全部止盈：约 \+35\.77 USDT/);
+});
+
+test("ExecutionPlanV1 uses direct price-touch execution and fresh read-only Binance sizing", () => {
+  const legacyResult = sampleLegacyResult();
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult, {
+    currentPrice: 102,
+    userRiskProfile: {
+      maxLossPerTradePercent: 10,
+      maxLeverage: 10,
+      minimumRiskRewardRatio: 1.3,
+    },
+    binanceAccountContext: {
+      bound: true,
+      available: true,
+      snapshot: {
+        fetchedAt: new Date().toISOString(),
+        marginBalance: 1_000,
+        availableBalance: 500,
+        positions: [],
+        warnings: [],
+      },
+    },
+  });
+  assert.equal(plan.action, "long");
+  assert.equal(plan.scenarios.find((item) => item.side === "long").conditions[0].id, "long-price-touch");
+  assert.match(plan.entry.confirmation[0].text, /价格触达.*即执行/);
+  assert.doesNotMatch(plan.entry.confirmation[0].text, /回踩.*确认|反抽.*确认/);
+  assert.equal(plan.positionSizing.accountStatus, "available");
+  assert.equal(plan.positionSizing.accountPlan.mode, "new_position");
+  assert.equal(plan.positionSizing.accountPlan.leverage, 10);
+  assert.ok(plan.positionSizing.accountPlan.notional > 0);
+  assert.ok(plan.positionSizing.accountPlan.estimatedStopLoss <= 100);
+  const markdown = formatExecutionPlanMarkdown(plan);
+  assert.match(markdown, /^当前动作：现价做多/m);
+  assert.match(markdown, /用 10 倍杠杆开仓 .* USDT 的多单/);
+  assert.match(markdown, /挂条件委托 98 市价止损/);
+  assert.match(markdown, /挂条件委托 108 市价止盈 .* USDT/);
+  assert.match(markdown, /如果止损：约 -.* USDT，如果全部止盈：约 \+.* USDT/);
+});
+
+test("ExecutionPlanV1 caps a live ETH order from the account's actual available balance", () => {
+  const legacyResult = sampleLegacyResult();
+  Object.assign(legacyResult.analysisPlan.actionPlan, {
+    currentPrice: 1_879.93,
+    longTrigger: 1_881.57,
+    longInvalidation: 1_876.01,
+    longTarget: 1_889.91,
+  });
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult, {
+    userRiskProfile: {
+      maxLossPerTradePercent: 10,
+      maxLeverage: 10,
+      minimumRiskRewardRatio: 0.4,
+    },
+    binanceAccountContext: {
+      bound: true,
+      available: true,
+      snapshot: {
+        fetchedAt: new Date().toISOString(),
+        marginBalance: 299.5056,
+        availableBalance: 262.8893,
+        positions: [],
+        warnings: [],
+      },
+    },
+  });
+  assert.equal(plan.positionSizing.accountPlan.mode, "new_position");
+  assert.equal(plan.positionSizing.accountPlan.availableBalance, 262.88);
+  assert.equal(plan.positionSizing.accountPlan.notional, 2_628.89);
+  assert.ok(plan.positionSizing.accountPlan.estimatedStopLoss <= 29.95);
+  assert.match(formatExecutionPlanMarkdown(plan), /用 10 倍杠杆开仓 2628\.89 USDT 的多单/);
+});
+
+test("ExecutionPlanV1 never invents Binance sizing from an unavailable or stale snapshot", () => {
+  const stalePlan = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), {
+    binanceAccountContext: {
+      bound: true,
+      available: true,
+      snapshot: {
+        fetchedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+        marginBalance: 1_000,
+        availableBalance: 500,
+        positions: [],
+        warnings: [],
+      },
+    },
+  });
+  assert.equal(stalePlan.positionSizing.accountStatus, "unavailable");
+  assert.equal(stalePlan.positionSizing.accountPlan, null);
+  assert.doesNotMatch(formatExecutionPlanMarkdown(stalePlan), /倍杠杆|USDT 的多单|USDT 的空单|如果止损/);
+});
+
+test("ExecutionPlanV1 tells the user to close an opposite Binance position before opening", () => {
+  const plan = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), {
+    binanceAccountContext: {
+      bound: true,
+      available: true,
+      snapshot: {
+        fetchedAt: new Date().toISOString(),
+        marginBalance: 1_000,
+        availableBalance: 500,
+        positions: [{
+          symbol: "BTCUSDT",
+          direction: "SHORT",
+          leverage: 5,
+          notionalValue: 300,
+          markPrice: 100,
+        }],
+        warnings: [],
+      },
+    },
+  });
+  assert.equal(plan.positionSizing.accountPlan.mode, "close_opposite");
+  const markdown = formatExecutionPlanMarkdown(plan);
+  assert.match(markdown, /^当前动作：先平反向仓位，暂不开新仓/m);
+  assert.match(markdown, /先平现有 300 USDT 的空单/);
+  assert.doesNotMatch(markdown, /用 .* 倍杠杆开仓/);
+});
+
+test("ExecutionPlanV1 manages or reduces an existing same-direction Binance position without adding", () => {
+  const accountContext = (notionalValue) => ({
+    bound: true,
+    available: true,
+    snapshot: {
+      fetchedAt: new Date().toISOString(),
+      marginBalance: 1_000,
+      availableBalance: 200,
+      positions: [{
+        symbol: "BTCUSDT",
+        direction: "LONG",
+        leverage: 5,
+        notionalValue,
+        markPrice: 100,
+      }],
+      warnings: [],
+    },
+  });
+  const managed = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), {
+    binanceAccountContext: accountContext(300),
+  });
+  assert.equal(managed.positionSizing.accountPlan.mode, "manage_existing");
+  assert.match(formatExecutionPlanMarkdown(managed), /按现有仓位执行，不重复开仓/);
+  assert.doesNotMatch(formatExecutionPlanMarkdown(managed), /倍杠杆开仓/);
+
+  const reduced = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), {
+    binanceAccountContext: accountContext(1_000),
+  });
+  assert.equal(reduced.positionSizing.accountPlan.mode, "reduce_existing");
+  assert.ok(reduced.positionSizing.accountPlan.notional < 1_000);
+  assert.match(formatExecutionPlanMarkdown(reduced), /^当前动作：先减仓，再按计划管理/m);
+});
+
+test("ExecutionPlanV1 deterministically enforces remembered personal risk limits", () => {
+  const blocked = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), {
+    userRiskProfile: {
+      maxLossPerTradePercent: 3,
+      maxPositionPercent: 50,
+      maxLeverage: 2,
+      minimumRiskRewardRatio: 2,
+      riskPreference: "conservative",
+      entries: [{
+        scope: "trading.risk",
+        kind: "constraint",
+        key: "avoid_weekend_entries",
+        value: "周末不开新仓",
+        strength: "hard",
+      }],
+    },
+  });
+  assert.equal(blocked.action, "no_trade");
+  assert.equal(blocked.entry.mode, "conditional");
+  assert.equal(blocked.takeProfits.length, 1);
+  assert.equal(blocked.positionSizing.maxAccountRiskPercent, 3);
+  assert.equal(blocked.positionSizing.maxPositionPercent, 50);
+  assert.equal(blocked.positionSizing.maxLeverage, 2);
+  assert.equal(blocked.positionSizing.minimumRiskRewardRatio, 2);
+  assert.match(blocked.marketAssessment, /最低 1:2/);
+  assert.equal(blocked.scenarios.length, 2);
+  assert.deepEqual(blocked.riskReward, [{ targetIndex: 0, ratio: 1.38 }]);
+  assert.match(blocked.positionSizing.formula, /账户权益 × 3%/);
+  assert.match(blocked.positionSizing.formula, /手续费与滑点/);
+  assert.match(blocked.positionSizing.formula, /账户权益 × 50%/);
+  assert.match(blocked.preconditions.map((item) => item.text).join("；"), /周末不开新仓/);
+  assert.match(blocked.preconditions.map((item) => item.text).join("；"), /浮盈达到 1R/);
+  assert.match(formatExecutionPlanMarkdown(blocked), /当前动作.*不交易/);
+
+  const explicitlyHigherRisk = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), {
+    userRiskProfile: {
+      maxLossPerTradePercent: 9,
+      // A stale field from an older client must not lower the user's current value.
+      absoluteMaxLossPerTradePercent: 3,
+      moveStopToBreakEven: true,
+      breakEvenTriggerR: 1.5,
+    },
+  });
+  assert.equal(explicitlyHigherRisk.positionSizing.maxAccountRiskPercent, 9);
+  assert.match(explicitlyHigherRisk.positionSizing.formula, /账户权益 × 9%/);
+  assert.doesNotMatch(explicitlyHigherRisk.preconditions.map((item) => item.text).join("；"), /绝对.*3%/);
+  assert.match(explicitlyHigherRisk.preconditions.map((item) => item.text).join("；"), /浮盈达到 1\.5R/);
+
+  const allowed = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), {
+    userRiskProfile: { minimumRiskRewardRatio: 1.3 },
+  });
+  assert.equal(allowed.action, "wait");
+  assert.equal(allowed.riskReward[0].ratio, 1.38);
+  assert.equal(allowed.takeProfits.length, 1);
 });
 
 test("ExecutionPlanV1 accepts bounded strategy-owned validity and observation policy without strategy id branches", () => {
@@ -193,7 +491,8 @@ test("ExecutionPlanV1 accepts bounded strategy-owned validity and observation po
   assert.equal(plan.observe[0].text, "只观察已收盘 K 线的结构确认");
 });
 
-test("coordinator preserves legacy results while adding a validated execution plan", async () => {
+test("coordinator refreshes private Binance context after analysis before building the execution plan", async () => {
+  const sequence = [];
   const adapter = {
     id: "sample-strategy",
     errors: {},
@@ -207,8 +506,24 @@ test("coordinator preserves legacy results while adding a validated execution pl
       }),
       deterministic: null,
     },
-    async run() {
-      return sampleLegacyResult();
+    async run(adapterParams) {
+      assert.equal("binanceAccountContext" in adapterParams, false);
+      assert.equal("loadBinanceAccountContext" in adapterParams, false);
+      sequence.push("analysis");
+      const result = sampleLegacyResult();
+      result.analysisPlan.report = `### 标准执行方案
+
+• 当前动作：等待
+• 方向判断：偏多
+• 多头触发：102
+• 止损与失效：98
+• 分批止盈：108
+• 风险收益比：1:1.5
+
+### 原策略分析
+
+原策略报告`;
+      return result;
     },
   };
   const registry = new TradingStrategyRegistry({ adapters: [adapter], manifestRecords: [{ manifest: sampleManifest }] });
@@ -220,11 +535,43 @@ test("coordinator preserves legacy results while adding a validated execution pl
   const coordinator = new TradingStrategyCoordinator({ registry, modelRegistry, providerId: "stub" });
   const classified = await coordinator.classify("sample-strategy", { text: "分析" });
   assert.equal(classified.request.mode, "chart-analysis");
-  const result = await coordinator.run("sample-strategy", {});
+  const result = await coordinator.run("sample-strategy", {
+    binanceAccountContext: {
+      bound: true,
+      available: true,
+      snapshot: {
+        fetchedAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+        marginBalance: 1_000,
+        availableBalance: 500,
+        positions: [],
+        warnings: [],
+      },
+    },
+    async loadBinanceAccountContext() {
+      assert.deepEqual(sequence, ["analysis"]);
+      sequence.push("account-refresh");
+      return {
+        bound: true,
+        available: true,
+        snapshot: {
+          fetchedAt: new Date().toISOString(),
+          marginBalance: 1_000,
+          availableBalance: 500,
+          positions: [],
+          warnings: [],
+        },
+      };
+    },
+  });
+  assert.deepEqual(sequence, ["analysis", "account-refresh"]);
   assert.equal(result.ok, true);
   assert.equal(result.strategy.id, "sample-strategy");
   assert.equal(result.executionPlan.action, "wait");
-  assert.match(result.analysisPlan.report, /标准执行方案/);
+  assert.equal(result.executionPlan.positionSizing.accountStatus, "available");
+  assert.equal(result.executionPlan.positionSizing.accountPlan.mode, "new_position");
+  assert.match(result.analysisPlan.report, /^## BTC\/USDT 币安永续 1H/m);
+  assert.doesNotMatch(result.analysisPlan.report, /标准执行方案|^[•*-]\s+/m);
+  assert.match(result.analysisPlan.report, /倍杠杆开仓/);
   assert.match(result.analysisPlan.report, /原策略报告/);
 });
 
@@ -321,7 +668,7 @@ test("a fifth declarative strategy registers, analyzes, draws, and plans without
   assert.equal(normalizeTradingAiDrawingPatch(result.analysisPlan.drawingPatch)[0].strategyId, "moving-average-demo");
   assert.equal(result.executionPlan.action, "wait");
   assert.equal(result.executionPlan.scenarios.length, 2);
-  assert.match(result.analysisPlan.report, /标准执行方案/);
+  assert.match(result.analysisPlan.report, /^## BTC\/USDT 币安永续 1H/m);
 });
 
 test("generic Drawing Gateway isolates declarative strategy layers and semantic colors", () => {

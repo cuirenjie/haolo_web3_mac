@@ -48,12 +48,15 @@ const COPY_ONCE_SYSTEM_SKILL_MARKER = ".haolo-desktop-managed";
 const DEEPSEEK_MCP_SERVER_FILE = path.join("mcp", "deepseek-server", "index.mjs");
 const GITHUB_MCP_SERVER_FILE = path.join("mcp", "github-server", "index.mjs");
 const CHROME_MCP_SERVER_FILE = path.join("mcp", "chrome-server", "index.mjs");
+const PERSONAL_CONTEXT_MCP_SERVER_FILE = path.join("mcp", "personal-context-server", "index.mjs");
 const MANAGED_DEEPSEEK_MCP_CONFIG_START = "# >>> haolo_desktop managed DeepSeek MCP";
 const MANAGED_DEEPSEEK_MCP_CONFIG_END = "# <<< haolo_desktop managed DeepSeek MCP";
 const MANAGED_GITHUB_MCP_CONFIG_START = "# >>> haolo_desktop managed GitHub MCP";
 const MANAGED_GITHUB_MCP_CONFIG_END = "# <<< haolo_desktop managed GitHub MCP";
 const MANAGED_CHROME_MCP_CONFIG_START = "# >>> haolo_desktop managed Chrome MCP";
 const MANAGED_CHROME_MCP_CONFIG_END = "# <<< haolo_desktop managed Chrome MCP";
+const MANAGED_PERSONAL_CONTEXT_MCP_CONFIG_START = "# >>> haolo_desktop managed Personal Context MCP";
+const MANAGED_PERSONAL_CONTEXT_MCP_CONFIG_END = "# <<< haolo_desktop managed Personal Context MCP";
 const PACKAGED_CODEX_BIN = process.platform === "win32" ? "haolo_ai.exe" : "haolo_ai";
 const DEFAULT_PROVIDER_ID = "haolo_ai";
 export const DEEPSEEK_EXECUTION_PROVIDER_ID = "deepseek";
@@ -62,8 +65,10 @@ export const DEEPSEEK_EXECUTION_ENV_KEY = "HAOLO_DEEPSEEK_EXECUTION_TOKEN";
 const DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_MODEL_REASONING_EFFORT = "high";
 const DEFAULT_WINDOWS_SANDBOX_MODE = "unelevated";
-// Multi-agent v2 counts the root thread, leaving five slots for child agents.
-const DEFAULT_AGENT_MAX_THREADS_PER_SESSION = 6;
+// The root thread occupies the only session slot. This is a runtime backstop
+// for Haolo's ordinary serial-execution policy, even if a stale prompt tries
+// to create a child thread.
+const DEFAULT_AGENT_MAX_THREADS_PER_SESSION = 1;
 // The managed haolo_ai provider uses the ChatGPT/Codex OAuth subscription
 // route. Production currently enforces a 400K native window on that route,
 // independently of the 1.05M window advertised for direct OpenAI API access.
@@ -676,6 +681,7 @@ export function syncDefaultCodexResources(codexHome, options = {}) {
     deepSeekMcpConfig: null,
     githubMcpConfig: null,
     chromeMcpConfig: null,
+    personalContextMcpConfig: null,
     builtinPluginConfig: null,
     modelCatalogConfig: null,
   };
@@ -693,6 +699,7 @@ export function syncDefaultCodexResources(codexHome, options = {}) {
       aggregate.deepSeekMcpConfig = result.deepSeekMcpConfig;
       aggregate.githubMcpConfig = result.githubMcpConfig;
       aggregate.chromeMcpConfig = result.chromeMcpConfig;
+      aggregate.personalContextMcpConfig = result.personalContextMcpConfig;
       aggregate.builtinPluginConfig = result.builtinPluginConfig;
       aggregate.modelCatalogConfig = result.modelCatalogConfig;
     }
@@ -802,6 +809,11 @@ function syncDefaultCodexResourcesInto(codexHome, options = {}) {
     copied.push(`${DEFAULT_CODEX_CONFIG_FILE}:mcp_servers.chrome`);
   }
 
+  const personalContextMcpConfig = syncManagedPersonalContextMcpConfig(codexHome);
+  if (personalContextMcpConfig.action === "updated") {
+    copied.push(`${DEFAULT_CODEX_CONFIG_FILE}:mcp_servers.personal_context`);
+  }
+
   const builtinPluginConfig =
     pluginsPath && options.skipPlugins !== true
       ? syncBuiltinPluginRegistration(codexHome, pluginsPath)
@@ -838,6 +850,7 @@ function syncDefaultCodexResourcesInto(codexHome, options = {}) {
     deepSeekMcpConfig,
     githubMcpConfig,
     chromeMcpConfig,
+    personalContextMcpConfig,
     builtinPluginConfig,
     modelCatalogConfig,
   };
@@ -1890,6 +1903,69 @@ function hasChromeMcpConfig(text) {
   return /^\s*\[mcp_servers\.chrome(?:\]|\.)/m.test(String(text || ""));
 }
 
+function syncManagedPersonalContextMcpConfig(codexHome) {
+  if (process.env.HAOLO_DESKTOP_SKIP_BUILTIN_PERSONAL_CONTEXT_MCP === "1") {
+    return { action: "skipped", reason: "HAOLO_DESKTOP_SKIP_BUILTIN_PERSONAL_CONTEXT_MCP=1" };
+  }
+  const serverPath = resolveBundledPersonalContextMcpServer();
+  if (!serverPath) return { action: "missing-server" };
+  const command = resolveBundledDeepSeekMcpCommand();
+  if (!command) return { action: "missing-command", serverPath };
+
+  const configPath = path.join(codexHome, DEFAULT_CODEX_CONFIG_FILE);
+  let current = "";
+  try {
+    current = fs.existsSync(configPath) ? fs.readFileSync(configPath, "utf8") : "";
+  } catch (error) {
+    return { action: "read-failed", configPath, error: error.message };
+  }
+  const hasManagedConfig = current.includes(MANAGED_PERSONAL_CONTEXT_MCP_CONFIG_START);
+  if (!hasManagedConfig && hasPersonalContextMcpConfig(current)) {
+    return { action: "preserved-existing", configPath, serverPath };
+  }
+  const managedBlock = withDocumentNewlines(
+    buildManagedPersonalContextMcpConfig({ command, serverPath }),
+    current,
+  );
+  const next = hasManagedConfig
+    ? replaceManagedTomlBlock(
+        current,
+        MANAGED_PERSONAL_CONTEXT_MCP_CONFIG_START,
+        MANAGED_PERSONAL_CONTEXT_MCP_CONFIG_END,
+        managedBlock,
+      )
+    : appendTomlBlock(current, managedBlock);
+  if (next === current) return { action: "unchanged", configPath, serverPath };
+  try {
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, next, "utf8");
+  } catch (error) {
+    return { action: "write-failed", configPath, error: error.message };
+  }
+  return { action: "updated", configPath, serverPath };
+}
+
+function buildManagedPersonalContextMcpConfig({ command, serverPath }) {
+  return [
+    MANAGED_PERSONAL_CONTEXT_MCP_CONFIG_START,
+    "[mcp_servers.personal_context]",
+    `command = "${tomlString(command)}"`,
+    `args = ["${tomlString(serverPath)}"]`,
+    'env_vars = ["HAOLO_PERSONAL_CONTEXT_BROKER_URL", "HAOLO_PERSONAL_CONTEXT_BROKER_TOKEN"]',
+    "startup_timeout_sec = 20",
+    "tool_timeout_sec = 135",
+    'default_tools_approval_mode = "writes"',
+    "",
+    "[mcp_servers.personal_context.env]",
+    'ELECTRON_RUN_AS_NODE = "1"',
+    MANAGED_PERSONAL_CONTEXT_MCP_CONFIG_END,
+  ].join("\n");
+}
+
+function hasPersonalContextMcpConfig(text) {
+  return /^\s*\[mcp_servers\.personal_context(?:\]|\.)/m.test(String(text || ""));
+}
+
 function replaceManagedTomlBlock(text, startMarker, endMarker, block) {
   const current = String(text || "");
   const start = current.indexOf(startMarker);
@@ -2485,6 +2561,10 @@ function resolveBundledGitHubMcpServer() {
 
 function resolveBundledChromeMcpServer() {
   return resolveBundledMcpServer(CHROME_MCP_SERVER_FILE);
+}
+
+function resolveBundledPersonalContextMcpServer() {
+  return resolveBundledMcpServer(PERSONAL_CONTEXT_MCP_SERVER_FILE);
 }
 
 function resolveBundledMcpServer(relativeFile) {

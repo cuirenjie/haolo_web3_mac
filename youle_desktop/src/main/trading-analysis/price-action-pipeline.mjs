@@ -42,8 +42,29 @@ function trendLabel(trend) {
   return "震荡等待";
 }
 
+function personalizedTradingSettings(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const numeric = (candidate, fallback, max = 100) => {
+    const number = Number(candidate);
+    return Number.isFinite(number) && number > 0 && number <= max ? number : fallback;
+  };
+  return {
+    maxLossPerTradePercent: numeric(source.maxLossPerTradePercent, 2),
+    minimumRiskRewardRatio: numeric(source.minimumRiskRewardRatio, 2),
+    moveStopToBreakEven: source.moveStopToBreakEven !== false,
+    breakEvenTriggerR: numeric(source.breakEvenTriggerR, 1),
+    analysisStyle: source.analysisStyle === "detailed" ? "detailed" : "concise",
+    requiredAnalysisSections: String(source.requiredAnalysisSections || "").trim().slice(0, 500),
+    savedRules: (Array.isArray(source.entries) ? source.entries : [])
+      .filter((entry) => entry?.scope?.startsWith?.("trading."))
+      .slice(0, 16)
+      .map((entry) => ({ scope: entry.scope, key: entry.key, value: entry.value })),
+  };
+}
+
 export function buildPriceActionModelPrompt(snapshot, result, context = {}) {
   const directAnswer = context.responseMode === "direct";
+  const preferences = personalizedTradingSettings(context.userRiskProfile);
   return [
     "你是交易分析系统的通用价格行为复核器，不负责直接操作界面，也不得套用或声称使用缠论、波浪、订单流、威科夫等某一种理论。",
     "确定性引擎已从用户当前左侧画布的真实 OHLCV 计算趋势、摆动高低点、支撑压力和条件价位。只可复核给定结果，不得创造新价格、时间或市场事实。",
@@ -64,6 +85,8 @@ export function buildPriceActionModelPrompt(snapshot, result, context = {}) {
     }),
     "用户要求：",
     JSON.stringify(String(context.instruction || "分析当前盘面")),
+    "用户已保存的交易配置（所有仓位和计划建议必须遵守；与当前请求冲突时指出风险并给出合规备选）：",
+    JSON.stringify(preferences),
     "确定性结果（价位只能引用 levels）：",
     JSON.stringify(result),
     "最近 K 线 [time,open,high,low,close,volume]：",
@@ -102,6 +125,10 @@ export function buildPriceActionReport(snapshot, result, review, context = {}) {
   const latest = candles.at(-1);
   const levels = result.levels;
   const change = first.open ? ((latest.close - first.open) / first.open) * 100 : 0;
+  const preferences = personalizedTradingSettings(context.userRiskProfile);
+  const breakEvenText = preferences.moveStopToBreakEven
+    ? `浮盈达到 ${preferences.breakEvenTriggerR}R 后，把止损移动至覆盖手续费和滑点的保本位置。`
+    : "按你的偏好，不自动移动保本，继续执行原止损管理方式。";
   return [
     `## ${snapshot.marketId} · ${intervalLabel(snapshot.interval)}盘面分析`,
     context.instruction ? `你的要求：${String(context.instruction).trim()}` : "",
@@ -114,7 +141,8 @@ export function buildPriceActionReport(snapshot, result, review, context = {}) {
     `- **想做多**：等本周期 K 线收盘站上 ${formatPrice(levels.longTrigger)}，最好回踩不破后再考虑；第一目标 ${formatPrice(levels.longTarget)}，跌回 ${formatPrice(levels.longInvalidation)} 下方则取消多头方案。`,
     `- **想做空**：等本周期 K 线收盘跌破 ${formatPrice(levels.shortTrigger)}，最好反抽站不回后再考虑；第一目标 ${formatPrice(levels.shortTarget)}，重新站上 ${formatPrice(levels.shortInvalidation)} 则取消空头方案。`,
     `- **继续等待**：还在 ${formatPrice(levels.waitZone.lower)}–${formatPrice(levels.waitZone.upper)} 内，或突破后很快收回区间，就当成信号未确认。`,
-    "- **控制风险**：先确定自己最多能承受的单笔亏损，再按入场价到取消价的距离倒推仓位；合约交易谨慎使用杠杆。",
+    `- **控制风险**：单笔止损后的实际亏损不得超过当前账户净值的 ${preferences.maxLossPerTradePercent}%；计算时包含手续费和预估滑点，再按入场价到取消价的距离倒推仓位。`,
+    `- **盈亏与保本**：最低净盈亏比为 ${preferences.minimumRiskRewardRatio}:1。${breakEvenText}`,
     "",
     "### 为什么这样判断",
     `本次读取左侧画布的 ${candles.length} 根 ${intervalLabel(snapshot.interval)} K 线，范围 ${formatTime(first.time)} 至 ${formatTime(latest.time)}；区间变化 ${change >= 0 ? "+" : ""}${change.toFixed(2)}%。`,
@@ -246,12 +274,16 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
     prompt: buildPriceActionModelPrompt(snapshot, theoryResult, {
       instruction: params?.instruction,
       responseMode: params?.responseMode,
+      userRiskProfile: params?.userRiskProfile,
     }),
     responseFormat: "json",
   }, { signal: options.signal });
   const modelReview = normalizePriceActionModelReview(modelResponse.text);
   const drawingPatch = buildPriceActionDrawingPatch(snapshot, theoryResult, modelReview);
-  const report = buildPriceActionReport(snapshot, theoryResult, modelReview, { instruction: params?.instruction });
+  const report = buildPriceActionReport(snapshot, theoryResult, modelReview, {
+    instruction: params?.instruction,
+    userRiskProfile: params?.userRiskProfile,
+  });
   return {
     ok: true,
     schemaVersion: 1,

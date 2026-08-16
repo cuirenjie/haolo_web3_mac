@@ -286,7 +286,7 @@ test("multi-model history rows use the agent collage before task-anchor avatars"
   assert.match(styles, /\.cluster-group-avatar:is\(\.member-count-5, \.member-count-6, \.member-count-7, \.member-count-8, \.member-count-9\) \.cluster-group-avatar-cell\s*\{[^}]*width:\s*9px;[^}]*height:\s*9px;/s);
 });
 
-test("persisted workflows restore missing cluster metadata before rendering history", async () => {
+test("persisted workflows clear stale cluster execution metadata", async () => {
   const source = await rendererSource;
   const workflowEvents = sourceBlock(source, "function applyWorkflowEvent", "function presentWorkflowFailure");
   const restoration = sourceBlock(
@@ -303,8 +303,8 @@ test("persisted workflows restore missing cluster metadata before rendering hist
 
   assert.match(workflowEvents, /restoreMultiModelClusterIdentity\(threadId\)/);
   assert.match(workflowEvents, /clusterIdentityRestored \|\| membersJustJoined/);
-  assert.match(restoration, /newThreadModeByThreadId\.set\(threadId, "multi-agent"\)/);
-  assert.match(restoration, /clusterModeByThreadId\.set\(threadId, "multi-model"\)/);
+  assert.match(restoration, /newThreadModeByThreadId\.set\(threadId, "execution"\)/);
+  assert.match(restoration, /clusterModeByThreadId\.delete\(threadId\)/);
   assert.match(restoration, /saveThreadPreferences\(\)/);
   assert.ok(
     avatar.indexOf("hydrateLatestWorkflowRun(threadId)") <
@@ -314,37 +314,26 @@ test("persisted workflows restore missing cluster metadata before rendering hist
   assert.match(panel, /isMultiModelClusterThread\(threadId\) \|\| Boolean\(cachedWorkflowRun\)/);
 });
 
-test("composer mode picker exposes cluster as a direct parallel subagent mode", async () => {
+test("composer mode picker exposes only a static ordinary execution mode", async () => {
   const source = await rendererSource;
   const picker = sourceBlock(
     source,
-    "function composerModeLabel",
+    "function renderComposerModePicker",
     "function activeComposerDraftSnapshot",
   );
   const composer = sourceBlock(source, "function renderComposer(thread", "function renderVideoExpertComposer");
-  const selection = sourceBlock(source, "function selectClusterModeForThread", "type ComposerModeIcon");
   const clusterSwitch = sourceBlock(
     source,
     "async function switchComposerClusterMode",
     "function renderBlankThreadHero",
   );
-  const toggleEvent = sourceBlock(
-    source.slice(source.indexOf("function bindEvents")),
-    'querySelectorAll<HTMLButtonElement>("[data-composer-cluster-mode]")',
-    "'[data-action=\"toggle-composer-model-menu\"]'",
-  );
 
-  assert.match(picker, /class="composer-mode-trigger"/);
-  assert.match(picker, /class="composer-mode-menu"/);
-  assert.match(picker, /if \(mode === "multi-agent"\) return "集群模式";/);
-  assert.match(picker, /data-composer-cluster-mode="subagent"/);
-  assert.match(picker, /role="menuitemradio"/);
-  assert.match(picker, /集群模式/);
-  assert.doesNotMatch(
-    picker,
-    /renderComposerClusterModeOption|data-composer-mode-cascade|composer-mode-submenu|composer-mode-menu-chevron/,
-  );
-  assert.doesNotMatch(picker, /<span>并行<\/span>|<span>画布<\/span>|<span>群聊<\/span>/);
+  assert.match(picker, /class="composer-mode-trigger serial-only"/);
+  assert.match(picker, /role="status"/);
+  assert.match(picker, /执行模式，已固定为串行执行/);
+  assert.match(picker, /renderComposerModeIcon\("execution"\)/);
+  assert.doesNotMatch(picker, /composer-mode-menu|data-new-thread-mode|data-composer-cluster-mode/);
+  assert.doesNotMatch(picker, /计划模式|集群模式|role="menuitemradio"/);
   assert.match(
     composer,
     /const composerModePicker = blankNewThread\s*\? renderComposerModePicker\(thread\.id\)/,
@@ -365,11 +354,10 @@ test("composer mode picker exposes cluster as a direct parallel subagent mode", 
       composer.indexOf("${renderWorkflowComposerInputSlots(thread.id, workflowInputContract)}"),
   );
   assert.equal((composer.match(/renderComposerModelPicker\(thread\.id\)/g) || []).length, 1);
-  assert.doesNotMatch(selection, /sendAgentText|threadParams|conversationMode|api\./);
-  assert.match(clusterSwitch, /await switchNewThreadMode\("multi-agent"\)/);
-  assert.match(clusterSwitch, /ensureNativeMultiAgentModelSelection\(threadId\)/);
-  assert.match(clusterSwitch, /selectClusterModeForThread\(threadId, nextMode\)/);
-  assert.match(toggleEvent, /switchComposerClusterMode\(button\.dataset\.composerClusterMode\)/);
+  assert.match(clusterSwitch, /newThreadModeByThreadId\.set\(threadId, "execution"\)/);
+  assert.match(clusterSwitch, /clusterModeByThreadId\.delete\(threadId\)/);
+  assert.match(clusterSwitch, /已固定为普通串行执行模式/);
+  assert.doesNotMatch(clusterSwitch, /switchNewThreadMode\("multi-agent"\)|selectClusterModeForThread/);
 });
 
 test("parallel subagent mode cannot inherit a DeepSeek root model", async () => {
@@ -743,7 +731,7 @@ test("composer group and cluster labels share the one-pixel optical alignment", 
   );
 });
 
-test("cluster composer picker reuses the cluster icon in the trigger and menu", async () => {
+test("serial composer indicator uses the execution icon in both themes", async () => {
   const source = await rendererSource;
   const styles = await stylesSource;
   const icon = sourceBlock(source, "function renderComposerModeIcon", "function composerModeLabel");
@@ -751,10 +739,13 @@ test("cluster composer picker reuses the cluster icon in the trigger and menu", 
 
   assert.match(icon, /icon === "cluster"/);
   assert.match(icon, /<circle cx="12" cy="5"/);
-  assert.match(picker, /renderComposerModeIcon\("cluster"\)/);
+  assert.match(picker, /renderComposerModeIcon\("execution"\)/);
+  assert.doesNotMatch(picker, /renderComposerModeIcon\("cluster"\)/);
   assert.doesNotMatch(picker, /renderComposerModeCheck|composer-mode-check/);
   assert.doesNotMatch(styles, /\.composer-mode-check/);
   assert.match(styles, /\.composer-mode-icon\s*\{[^}]*width:\s*18px;[^}]*height:\s*18px;/s);
+  assert.match(styles, /\.composer-mode-trigger\.serial-only[\s\S]*color:\s*var\(--text-secondary\)/);
+  assert.match(styles, /html\[data-theme="dark"\] \.composer-mode-trigger\.serial-only[\s\S]*color:\s*var\(--text-tertiary\)/);
 });
 
 test("thread titles remove every legacy group mark and trim surrounding whitespace", async () => {

@@ -1,0 +1,353 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+import {
+  createSavedExecutionPlan,
+  executionPlanCardTitle,
+  executionPlanDirectionTone,
+  executionPlanDisplayLines,
+  executionPlanSignedNumberSegments,
+  executionPlanCandidateFromText,
+  executionPlanTextPartition,
+  loadExecutionPlans,
+  saveExecutionPlans,
+  transitionExecutionPlan,
+} from "../src/renderer/execution-plans.ts";
+
+const rendererSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
+const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
+
+class MemoryStorage {
+  values = new Map();
+
+  getItem(key) {
+    return this.values.get(key) ?? null;
+  }
+
+  setItem(key, value) {
+    this.values.set(key, String(value));
+  }
+}
+
+test("the standard six-field trading proposal is extracted as one execution plan", () => {
+  const candidate = executionPlanCandidateFromText(`
+分析结论如下。
+
+### 标准执行方案
+
+• 当前动作：不交易（净盈亏比低于最低 1:1.5，保留候选测算）
+• 方向判断：偏空
+• 空头触发：74.61，候选测算：10 倍杠杆、1853.42 USDT 的空单
+• 止损与失效：候选止损 75.68
+• 分批止盈：候选止盈 73.005，测算仓位 1853.42 USDT
+• 风险收益比：目标 1 为 1:1.19，止损约 -30.28 USDT，止盈约 +36.15 USDT
+
+---
+
+## BINANCE:FUTURES:SOLUSDT · 1小时缠论分析
+
+### 风险控制
+后续止损参考 75.68，完整报告中的风险收益比仍需继续观察。
+  `);
+
+  assert.ok(candidate);
+  assert.equal(candidate.title, "标准执行方案");
+  assert.match(candidate.content, /^• 当前动作：/);
+  assert.match(candidate.content, /• 风险收益比：/);
+  assert.doesNotMatch(candidate.content, /BINANCE:FUTURES/);
+  assert.doesNotMatch(candidate.content, /完整报告/);
+});
+
+test("assistant execution-plan text is partitioned around both current and legacy headings", () => {
+  const current = executionPlanTextPartition(`
+盘面结论如下。
+
+## SOL/USDT 币安永续 1H
+
+当前动作：不交易
+方向判断：偏空
+空头触发：75.12，推荐：10 倍杠杆、2523.22 USDT 的空单
+止损与失效：止损 75.68
+分批止盈：止盈 74.28，推荐仓位 2523.21 USDT
+风险收益比：目标1为 1:0.97，如果止损：约 -23.85 USDT，如果全部止盈：约 +23.16 USDT
+
+---
+
+## 数据范围
+后续完整分析。
+  `);
+
+  assert.ok(current);
+  assert.equal(current.before, "盘面结论如下。");
+  assert.equal(current.candidate.title, "SOL/USDT 币安永续 1H");
+  assert.match(current.candidate.content, /^当前动作：不交易/);
+  assert.match(current.after, /^---[\s\S]*## 数据范围/);
+
+  const legacy = executionPlanTextPartition(`
+### 标准执行方案
+
+• 当前动作：等待
+• 方向判断：偏多
+• 多头触发：100
+• 止损与失效：95
+• 分批止盈：110
+• 风险收益比：1:2
+  `);
+  assert.ok(legacy);
+  assert.equal(legacy.before, "");
+  assert.equal(legacy.candidate.title, "标准执行方案");
+  assert.equal(legacy.after, "");
+});
+
+test("structured generic plans and option candidates are recognized, while ordinary prose is ignored", () => {
+  const structured = executionPlanCandidateFromText(`
+## 推荐执行计划
+- 先备份现有配置。
+- 修改主题变量并覆盖 hover、focus 和 disabled 状态。
+- 运行测试并检查亮暗主题。
+  `);
+  const options = executionPlanCandidateFromText(`
+方案一：今天先完成本地迁移并运行验证。
+方案二：保留旧入口，明天灰度切换。
+  `);
+  const letteredOptions = executionPlanCandidateFromText(`
+## 候选方案
+A. 先在本机完成迁移和验证。
+B. 先保留旧入口，再进行灰度切换。
+  `);
+
+  assert.equal(structured?.title, "推荐执行计划");
+  assert.match(structured?.content || "", /先备份现有配置/);
+  assert.match(options?.content || "", /方案一/);
+  assert.equal(letteredOptions?.title, "候选方案");
+  assert.match(letteredOptions?.content || "", /A\. 先在本机/);
+  assert.equal(executionPlanCandidateFromText("今天市场偏空，但还需要继续观察。"), null);
+  assert.equal(executionPlanCandidateFromText("这里仅提到执行方案，没有给出可选择或可执行的步骤。"), null);
+});
+
+test("saved plans persist per account scope and malformed records are discarded", () => {
+  const storage = new MemoryStorage();
+  const candidate = executionPlanCandidateFromText(`
+• 当前动作：等待
+• 方向判断：偏多
+• 多头触发：100
+• 止损与失效：95
+• 分批止盈：110
+• 风险收益比：1:2
+  `);
+  assert.ok(candidate);
+  const plan = createSavedExecutionPlan({
+    candidate,
+    sourceThreadId: "thread-1",
+    sourceMessageId: "message-1",
+    sourceTitle: "BTC1H 分析",
+    createdAt: "2026-08-16T12:00:00.000Z",
+  });
+
+  assert.equal(saveExecutionPlans("account-a", [plan], storage), true);
+  assert.deepEqual(loadExecutionPlans("account-a", storage), [plan]);
+  assert.deepEqual(loadExecutionPlans("account-b", storage), []);
+  assert.equal(plan.status, "pending");
+  assert.equal(plan.endReason, null);
+});
+
+test("legacy plans migrate to pending and lifecycle transitions retain explicit end reasons", () => {
+  const storage = new MemoryStorage();
+  const legacyPlan = {
+    schemaVersion: 1,
+    id: "legacy-plan",
+    title: "标准执行方案",
+    content: `• 当前动作：等待
+• 方向判断：偏多
+• 多头触发：100
+• 止损与失效：95
+• 分批止盈：110
+• 风险收益比：1:2`,
+    sourceThreadId: "thread-legacy-v1",
+    sourceMessageId: "message-legacy-v1",
+    sourceTitle: "BTC1H 分析",
+    createdAt: "2026-08-16T12:00:00.000Z",
+  };
+  assert.equal(saveExecutionPlans("legacy-lifecycle", [legacyPlan], storage), true);
+  const [pending] = loadExecutionPlans("legacy-lifecycle", storage);
+  assert.equal(pending.status, "pending");
+  assert.equal(pending.schemaVersion, 2);
+  const executing = transitionExecutionPlan(pending, "executing", { updatedAt: "2026-08-16T12:05:00.000Z" });
+  assert.equal(executing.status, "executing");
+  assert.equal(executing.endReason, null);
+  const ended = transitionExecutionPlan(executing, "ended", {
+    endReason: "take_profit",
+    updatedAt: "2026-08-16T12:30:00.000Z",
+  });
+  assert.equal(ended.status, "ended");
+  assert.equal(ended.endReason, "take_profit");
+  const reopened = transitionExecutionPlan(ended, "pending", { updatedAt: "2026-08-16T12:40:00.000Z" });
+  assert.equal(reopened.status, "pending");
+  assert.equal(reopened.endReason, null);
+});
+
+test("previously saved plan cards are narrowed when later analysis repeats core labels", () => {
+  const storage = new MemoryStorage();
+  const plan = createSavedExecutionPlan({
+    candidate: {
+      title: "标准执行方案",
+      content: `• 当前动作：等待
+• 方向判断：偏空
+• 空头触发：75.12
+• 止损与失效：75.68
+• 分批止盈：74.28
+• 风险收益比：1:1.5
+
+---
+
+BINANCE:FUTURES:SOLUSDT · 1小时缠论分析
+完整分析再次提到止损 75.68 和风险收益比 1:1.5。`,
+    },
+    sourceThreadId: "thread-legacy",
+    sourceMessageId: "message-legacy",
+    createdAt: "2026-08-16T13:00:00.000Z",
+  });
+
+  assert.equal(saveExecutionPlans("account-legacy", [plan], storage), true);
+  const [loaded] = loadExecutionPlans("account-legacy", storage);
+  assert.ok(loaded);
+  assert.match(loaded.content, /• 风险收益比：1:1\.5$/);
+  assert.doesNotMatch(loaded.content, /BINANCE:FUTURES|完整分析/);
+});
+
+test("plan card display lines remove list markers and separate highlighted labels", () => {
+  assert.deepEqual(executionPlanDisplayLines(`
+• 当前动作：不交易（净盈亏比低于最低 1:1.5，保留候选测算）
+- 方向判断：偏空
+3. 空头触发：75.12，候选测算：10 倍杠杆
+• 止损与失效：候选止损 75.68
+• 分批止盈：候选止盈 74.28，测算仓位 2523.21 USDT
+• 风险收益比：1:1.19（已含预估手续费和滑点）
+  `), [
+    { label: "当前动作：", text: "不交易" },
+    { label: "方向判断：", text: "偏空" },
+    { label: "空头触发：", text: "75.12，推荐：10 倍杠杆" },
+    { label: "止损与失效：", text: "止损 75.68" },
+    { label: "分批止盈：", text: "止盈 74.28，推荐仓位 2523.21 USDT" },
+    { label: "风险收益比：", text: "1:1.19" },
+  ]);
+  assert.equal(executionPlanDirectionTone("方向判断：", "偏空"), "bearish");
+  assert.equal(executionPlanDirectionTone("方向判断：", "看多"), "bullish");
+  assert.equal(executionPlanDirectionTone("当前动作：", "空仓等待"), "");
+});
+
+test("trading plan card titles use symbol venue contract and interval format", () => {
+  assert.equal(executionPlanCardTitle({
+    fallbackTitle: "标准执行方案",
+    analysisLabel: "SOL1H",
+  }), "SOL/USDT 币安永续 1H");
+  assert.equal(executionPlanCardTitle({
+    fallbackTitle: "标准执行方案",
+    sourceTitle: "BTC1D 帮我分析下",
+  }), "BTC/USDT 币安永续 1D");
+  assert.equal(executionPlanCardTitle({
+    fallbackTitle: "标准执行方案",
+    sourceText: "BINANCE:FUTURES:ETHUSDT · 4小时缠论分析",
+  }), "ETH/USDT 币安永续 4H");
+  assert.equal(executionPlanCardTitle({ fallbackTitle: "推荐执行计划" }), "推荐执行计划");
+});
+
+test("signed plan values color losses red and gains green without treating ranges as signed", () => {
+  assert.deepEqual(
+    executionPlanSignedNumberSegments("止损约 -23.85 USDT，全部止盈约 +23.16 USDT，区间 75.12-75.68"),
+    [
+      { text: "止损约 ", tone: "" },
+      { text: "-23.85", tone: "bearish" },
+      { text: " USDT，全部止盈约 ", tone: "" },
+      { text: "+23.16", tone: "bullish" },
+      { text: " USDT，区间 75.12-75.68", tone: "" },
+    ],
+  );
+});
+
+test("the final assistant bubble, plan empty state, and both themes are wired together", async () => {
+  const [renderer, styles] = await Promise.all([rendererSource, stylesSource]);
+  const autoTaskStart = renderer.indexOf("function renderAutoTasksPage");
+  const autoTaskEnd = renderer.indexOf("function renderAutoTaskItem", autoTaskStart);
+  const autoTaskBlock = renderer.slice(autoTaskStart, autoTaskEnd);
+  const addPlanStart = renderer.indexOf("function addExecutionPlanFromMessageAction");
+  const addPlanEnd = renderer.indexOf("function bindMessageContentEvents", addPlanStart);
+  const addPlanBlock = renderer.slice(addPlanStart, addPlanEnd);
+  const planCardContentStart = renderer.indexOf("function renderExecutionPlanCardContent");
+  const planCardStart = renderer.indexOf("function renderExecutionPlanCard(plan");
+  const planCardEnd = renderer.indexOf("function renderExecutionPlansPage", planCardStart);
+  const planCardContentBlock = renderer.slice(planCardContentStart, planCardStart);
+  const messagePlanStart = renderer.indexOf("function renderMessageExecutionPlan");
+  const messagePlanEnd = renderer.indexOf("function executionPlanStatusMeta", messagePlanStart);
+  const messagePlanBlock = renderer.slice(messagePlanStart, messagePlanEnd);
+  const planCardBlock = renderer.slice(planCardStart, planCardEnd);
+  const planEventStart = renderer.indexOf("function bindExecutionPlanEvents");
+  const planEventEnd = renderer.indexOf("function bindEvents", planEventStart);
+  const planEventBlock = renderer.slice(planEventStart, planEventEnd);
+
+  assert.match(renderer, /allowPlanAction:[\s\S]*!streaming[\s\S]*hasConclusiveAgentMessagePhase/);
+  assert.match(renderer, /function renderAddToPlanAction[\s\S]*executionPlanCandidateFromText\(text\)/);
+  assert.match(renderer, /class="message-action-button trading-preference-onboarding-start trading-preference-binance-connect message-add-to-plan"/);
+  assert.match(renderer, /data-message-action-destination="execution-plans"/);
+  assert.match(renderer, /function renderExecutionPlansPage[\s\S]*execution-plan-list[\s\S]*当前没有计划/);
+  assert.match(renderer, /const executionPlanSubfilters = state\.executionPlans\.length\s*\?/);
+  assert.match(renderer, /\["pending", "待执行"\][\s\S]*\["executing", "执行中"\][\s\S]*\["ended", "已结束"\]/);
+  assert.match(renderer, /data-execution-plan-filter="\$\{status\}"/);
+  assert.match(renderer, /data-execution-plan-action="start"[\s\S]*开始执行/);
+  assert.match(renderer, /data-execution-plan-action="open-end-menu"[\s\S]*data-execution-plan-action="reopen"/);
+  assert.match(renderer, /data-execution-plan-action="delete"[\s\S]*删除/);
+  assert.match(renderer, /data-execution-plan-end-reason="\$\{reason\}"/);
+  assert.match(renderer, /class="execution-plan-end-menu" role="menu"/);
+  assert.match(renderer, /updateExecutionPlanLifecycle[\s\S]*transitionExecutionPlan[\s\S]*saveExecutionPlans/);
+  assert.match(planEventBlock, /executionPlanEventsBound[\s\S]*root\.addEventListener\("click"/);
+  assert.match(planEventBlock, /closest<HTMLButtonElement>\("\[data-execution-plan-action\]"\)/);
+  assert.match(planEventBlock, /event\.stopPropagation\(\)[\s\S]*action === "start"[\s\S]*updateExecutionPlanLifecycle\(planId, "executing"\)/);
+  assert.match(planEventBlock, /action === "open-end-menu"[\s\S]*queueMicrotask/);
+  assert.match(planEventBlock, /action === "end"[\s\S]*updateExecutionPlanLifecycle\(planId, "ended", endReason\)/);
+  assert.match(planEventBlock, /action === "delete"[\s\S]*deleteExecutionPlan\(planId\)/);
+  assert.match(renderer, /async function deleteExecutionPlan[\s\S]*confirmInApp[\s\S]*api\.tradingAlertsDelete[\s\S]*saveExecutionPlans/);
+  assert.match(planEventBlock, /closest<HTMLButtonElement>\("\[data-execution-plan-filter\]"\)/);
+  assert.match(planEventBlock, /root\.addEventListener\("keydown"[\s\S]*event\.key !== "Escape"/);
+  assert.doesNotMatch(renderer, /querySelectorAll<HTMLButtonElement>\("\[data-execution-plan-action\]"\)/);
+  assert.match(planCardBlock, /renderExecutionPlanCardContent\(plan\.content\)/);
+  assert.match(planCardBlock, /executionPlanCardTitle\([\s\S]*tradingLastAnalysisLabelForThread\(plan\.sourceThreadId\)/);
+  assert.doesNotMatch(planCardBlock, /execution-plan-card-mark|<svg/);
+  assert.match(planCardContentBlock, /<span class="execution-plan-card-label">/);
+  assert.match(planCardContentBlock, /executionPlanDirectionTone\(line\.label, line\.text\)/);
+  assert.match(planCardContentBlock, /executionPlanSignedNumberSegments\(line\.text\)/);
+  assert.match(planCardContentBlock, /execution-plan-card-number-\$\{segment\.tone\}/);
+  assert.match(planCardContentBlock, /execution-plan-card-value-\$\{directionTone\}/);
+  assert.doesNotMatch(planCardContentBlock, /<strong class="execution-plan-card-label">/);
+  assert.match(messagePlanBlock, /executionPlanTextPartition\(text\)/);
+  assert.match(messagePlanBlock, /executionPlanCardTitle\([\s\S]*sourceText: text/);
+  assert.match(messagePlanBlock, /class="message-execution-plan"/);
+  assert.match(messagePlanBlock, /renderExecutionPlanCardContent\(partition\.candidate\.content\)/);
+  assert.match(renderer, /renderMessageExecutionPlan\(message, content\.text/);
+  assert.match(planCardBlock, /<footer>[\s\S]*<time/);
+  assert.doesNotMatch(planCardBlock, /sourceLabel|footer span/);
+  assert.match(addPlanBlock, /saveExecutionPlans[\s\S]*openExecutionPlansPage\(\)[\s\S]*showToast\("已添加到计划"\)/);
+  assert.doesNotMatch(autoTaskBlock, /renderPlanningNavigation|execution-plan|当前没有计划/);
+  assert.match(styles, /\.message-actions \.trading-preference-binance-connect:hover:not\(:disabled\)/);
+  assert.match(styles, /\.message-actions \.trading-preference-binance-connect:focus-visible/);
+  assert.match(styles, /\.message-actions \.trading-preference-binance-connect:disabled/);
+  assert.match(styles, /html\[data-theme="dark"\] \.message-actions \.trading-preference-binance-connect:hover:not\(:disabled\)/);
+  assert.match(styles, /html\[data-theme="dark"\] \.execution-plan-card:hover/);
+  assert.match(styles, /\.execution-plan-card-actions[\s\S]*opacity:\s*0[\s\S]*\.execution-plan-card:is\(:hover, :focus-within\)/);
+  assert.match(styles, /\.execution-plan-card footer time\s*\{[^}]*pointer-events:\s*none/s);
+  assert.match(styles, /\.execution-plan-card-actions\s*\{[^}]*z-index:\s*2/s);
+  assert.match(styles, /\.execution-plan-end-menu\s*\{[^}]*position:\s*absolute/s);
+  assert.doesNotMatch(styles, /\.execution-plan-card-actions button\.danger\s*\{[^}]*color:\s*var\(--danger\)/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.execution-plan-end-menu/);
+  assert.match(styles, /\.execution-plan-card-label\s*\{[^}]*color:\s*var\(--conversation-analysis-context\)/s);
+  assert.match(styles, /\.execution-plan-card-label\s*\{[^}]*font-weight:\s*400/s);
+  assert.match(styles, /\.execution-plan-card-line\s*\{[^}]*padding:\s*0;[^}]*text-align:\s*left/s);
+  assert.match(styles, /\.execution-plan-card-value-bearish\s*\{[^}]*color:\s*var\(--execution-plan-direction-bearish\)/s);
+  assert.match(styles, /\.execution-plan-card-value-bullish\s*\{[^}]*color:\s*var\(--execution-plan-direction-bullish\)/s);
+  assert.match(styles, /\.execution-plan-card-number-bearish\s*\{[^}]*color:\s*var\(--execution-plan-direction-bearish\)/s);
+  assert.match(styles, /\.execution-plan-card-number-bullish\s*\{[^}]*color:\s*var\(--execution-plan-direction-bullish\)/s);
+  assert.match(styles, /\.message-execution-plan\s*\{[^}]*text-align:\s*left;[^}]*user-select:\s*text/s);
+  assert.match(styles, /\.message-execution-plan h2\s*\{[^}]*color:\s*var\(--text-primary\)[^}]*text-align:\s*left/s);
+  assert.match(styles, /html\[data-theme="dark"\] :is\(\.execution-plans-page, \.message-execution-plan\)\s*\{[^}]*--execution-plan-direction-bullish:\s*#52dc88;[^}]*--execution-plan-direction-bearish:\s*#ff718e/s);
+  assert.doesNotMatch(styles, /\.execution-plan-card-mark/);
+  assert.match(styles, /\.execution-plan-empty p\s*\{[^}]*font-size:\s*calc\(12px \+ var\(--app-font-size-offset\)\)/s);
+});

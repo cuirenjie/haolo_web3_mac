@@ -250,7 +250,7 @@ test("registry-to-coordinator chain returns ExecutionPlanV1 without calling a re
   assert.equal(result.executionPlan.expiresAt - result.executionPlan.createdAt, 4 * 60 * 60_000);
   assert.doesNotMatch(result.executionPlan.observe.map((item) => item.text).join(" "), /成交量/);
   assert.match(result.executionPlan.observe.map((item) => item.text).join(" "), /实体、影线、收盘位置/);
-  assert.match(result.analysisPlan.report, /标准执行方案/);
+  assert.match(result.analysisPlan.report, /^## PATEST\/USDT 币安永续 1H/m);
 });
 
 test("price-action request router is strict, non-mutating in conversation, and injection-resistant", () => {

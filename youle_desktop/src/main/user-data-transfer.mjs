@@ -24,6 +24,7 @@ const USER_DATA_FULL_TOP_LEVEL_FILES = new Set(["haolo-session.json", "local sta
 const USER_DATA_LOCAL_ONLY_TOP_LEVEL_FILES = new Set([
   "external-model-credentials.json",
   "binance-account-credentials.json",
+  "personal-memory.json",
 ]);
 const HAOLO_AI_HOME_FULL_DIRS = new Set(["sessions", "archived_sessions", "skills"]);
 const HAOLO_AI_HOME_FULL_FILES = new Set(["config.toml", "installation_id", ".personality_migration"]);

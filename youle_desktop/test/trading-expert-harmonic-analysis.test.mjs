@@ -524,7 +524,7 @@ test("pipeline and ExecutionPlanV1 preserve two deterministic targets without or
   ));
   assert.equal(manifest.dataRequirements.candles.preferredCount, 600);
   const executionPlan = buildExecutionPlanV1(manifest, result, params);
-  assert.equal(executionPlan.action, "wait");
+  assert.equal(executionPlan.action, "long");
   assert.equal(executionPlan.preferredSide, "long");
   assert.equal(executionPlan.takeProfits.length, 2);
   assert.equal(executionPlan.takeProfits.reduce((sum, target) => sum + target.allocationPercent, 0), 100);
@@ -571,7 +571,7 @@ test("no qualified pattern completes as a deterministic no-trade analysis instea
   assert.equal(coordinated.strategyResult.status, "completed");
   assert.equal(coordinated.executionPlan.action, "insufficient_data");
   assert.equal(coordinated.executionPlan.scenarios.length, 0);
-  assert.match(coordinated.analysisPlan.report, /标准执行方案/);
+  assert.match(coordinated.analysisPlan.report, /^## NOPATTERN\/USDT 币安永续 4H/m);
   assert.match(coordinated.analysisPlan.report, /数据\/价位不足，不交易/);
   assert.equal(modelCalls, 0);
 });
@@ -659,7 +659,7 @@ test("registry and coordinator complete the harmonic mention-to-drawing-to-execu
   assert.equal(result.theoryResult.structures.primaryCandidate.patternId, "butterfly");
   assert.equal(result.analysisPlan.drawingPatch.operations.length, 21);
   assert.equal(result.executionPlan.takeProfits.length, 2);
-  assert.match(result.analysisPlan.report, /标准执行方案/);
+  assert.match(result.analysisPlan.report, /^## TEST\/USDT 币安永续 1H/m);
   assert.match(result.analysisPlan.report, /谐波形态结论/);
 });
 

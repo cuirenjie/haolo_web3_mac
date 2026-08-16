@@ -23,29 +23,25 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("multi-agent mode requires two to five real child-agent dispatches", () => {
+test("legacy multi-agent mode fails closed to ordinary serial execution", () => {
   const instructions = buildConversationModeDeveloperInstructions("multi-agent");
 
-  assert.equal(normalizeConversationMode("multi_agent"), "multi-agent");
-  assert.match(instructions, /must call `spawn_agent`/);
-  assert.match(instructions, /no fewer than 2 and no more than 5 child agents/);
-  assert.match(instructions, /2 for a simple or narrow task/);
-  assert.match(instructions, /5 for a highly complex task/);
-  assert.match(instructions, /user may explicitly choose child-agent roles/);
-  assert.match(instructions, /fewer than 2 child agents, add enough useful assignments to reach 2/);
-  assert.match(instructions, /more than 5, consolidate the assignments into at most 5/);
-  assert.match(instructions, /not itself a dispatch/);
-  assert.match(instructions, /Never claim that child agents worked unless they were actually dispatched/);
+  assert.equal(normalizeConversationMode("multi_agent"), "execution");
+  assert.match(instructions, /locked to ordinary serial execution/);
+  assert.match(instructions, /Do not call `spawn_agent`/);
+  assert.match(instructions, /do not use collaboration or delegation tools/);
+  assert.match(instructions, /at most one substantive task or tool operation at a time/);
+  assert.match(instructions, /does not override this client policy/);
+  assert.doesNotMatch(instructions, /must call `spawn_agent`|no fewer than 2/);
 });
 
-test("execution mode keeps collaboration available without a minimum dispatch count", () => {
+test("execution mode always carries the serial policy, including omitted mode values", () => {
   const instructions = buildConversationModeDeveloperInstructions("execution");
 
-  assert.match(instructions, /may use `spawn_agent`/);
-  assert.match(instructions, /delegation is optional/);
-  assert.match(instructions, /There is no minimum child-agent count/);
+  assert.match(instructions, /Do not call `spawn_agent`/);
+  assert.match(instructions, /single root agent/);
   assert.doesNotMatch(instructions, /no fewer than 2/);
-  assert.equal(buildConversationModeDeveloperInstructions(null), null);
+  assert.match(buildConversationModeDeveloperInstructions(null), /haolo_serial_execution_policy/);
 });
 
 test("image generation mode routes plain prompts through the bundled image skill", () => {
@@ -59,6 +55,7 @@ test("image generation mode routes plain prompts through the bundled image skill
   );
 
   assert.equal(normalizeConversationMode("image_generation"), "image-generation");
+  assert.match(instructions, /Do not call `spawn_agent`/);
   assert.match(instructions, /Image Generation mode is active/);
   assert.match(instructions, /bundled Haolo image skill/);
   assert.match(instructions, /generated bitmap result/);
@@ -111,7 +108,7 @@ test("image generation mode routes plain prompts through the bundled image skill
   );
 });
 
-test("multi-agent mode activates the runtime native collaboration contract", () => {
+test("multi-agent mode cannot activate the runtime native collaboration contract", () => {
   const developerInstructions = buildConversationModeDeveloperInstructions("multi-agent");
   const overrides = buildConversationModeTurnOverrides("multi-agent", {
     model: "gpt-5.6-sol",
@@ -119,17 +116,7 @@ test("multi-agent mode activates the runtime native collaboration contract", () 
   });
 
   assert.equal(MULTI_AGENT_REASONING_EFFORT, "ultra");
-  assert.deepEqual(overrides, {
-    effort: "ultra",
-    collaborationMode: {
-      mode: "default",
-      settings: {
-        model: "gpt-5.6-sol",
-        reasoning_effort: "ultra",
-        developer_instructions: developerInstructions,
-      },
-    },
-  });
+  assert.deepEqual(overrides, {});
   assert.deepEqual(buildConversationModeTurnOverrides("execution", {
     model: "gpt-5.6-sol",
     developerInstructions,
@@ -137,7 +124,7 @@ test("multi-agent mode activates the runtime native collaboration contract", () 
   assert.deepEqual(buildConversationModeTurnOverrides("multi-agent", {
     model: "unsafe\nmodel",
     developerInstructions,
-  }), { effort: "ultra" });
+  }), {});
 });
 
 test("main process rejects DeepSeek media orchestration as a defense in depth", async () => {
@@ -154,7 +141,7 @@ test("main process rejects DeepSeek media orchestration as a defense in depth", 
   assert.match(send, /图片和视频创作需要使用支持工具调用的 GPT 执行模型/);
 });
 
-test("main process rejects non-GPT roots for native clusters and workflow canvases", async () => {
+test("main process disables cluster workflows before any model dispatch", async () => {
   const main = await mainSource;
   const send = sourceBlock(
     main,
@@ -164,21 +151,29 @@ test("main process rejects non-GPT roots for native clusters and workflow canvas
   const workflowGuard = sourceBlock(
     main,
     "function assertCodexWorkflowRootModel",
-    'ipcMain.handle("workflow:getRun"',
+    'ipcMain.handle("workflow:applyRevisionCommand"',
   );
 
-  assert.match(
-    send,
-    /conversationMode === MULTI_AGENT_CONVERSATION_MODE[\s\S]*conversationMode === MULTI_MODEL_CLUSTER_CONVERSATION_MODE[\s\S]*executionSelection\.isDeepSeek/,
-  );
+  assert.doesNotMatch(send, /MULTI_AGENT_CONVERSATION_MODE|MULTI_MODEL_CLUSTER_CONVERSATION_MODE/);
+  assert.match(workflowGuard, /function assertWorkflowExecutionEnabled\(\)/);
+  assert.match(workflowGuard, /if \(SERIAL_EXECUTION_ONLY\)/);
+  assert.match(workflowGuard, /普通串行执行模式/);
   assert.match(workflowGuard, /slug\.startsWith\("gpt-"\)/);
   assert.equal(
     (workflowGuard.match(/assertCodexWorkflowRootModel\(params\.model\)/g) || []).length,
     2,
   );
+  assert.equal(
+    (workflowGuard.match(/assertWorkflowExecutionEnabled\(\)/g) || []).length,
+    4,
+  );
+  assert.match(
+    workflowGuard,
+    /ipcMain\.handle\("workflow:compileRevisionNode"[\s\S]*assertWorkflowExecutionEnabled\(\)/,
+  );
 });
 
-test("multi-agent effort never exceeds the selected model capability", () => {
+test("legacy multi-agent effort helpers remain bounded but are never activated", () => {
   assert.equal(multiAgentReasoningEffortForModel("gpt-5.5"), "xhigh");
   assert.equal(
     multiAgentReasoningEffortForModel("gpt-5.5-codex-1p-codexswic-ev3"),
@@ -196,8 +191,7 @@ test("multi-agent effort never exceeds the selected model capability", () => {
     supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
     developerInstructions: "cluster contract",
   });
-  assert.equal(overrides.effort, "xhigh");
-  assert.equal(overrides.collaborationMode.settings.reasoning_effort, "xhigh");
+  assert.deepEqual(overrides, {});
 });
 
 test("video generation mode uses the ordinary execution lifecycle with locked client parameters", () => {
@@ -214,6 +208,7 @@ test("video generation mode uses the ordinary execution lifecycle with locked cl
   );
 
   assert.equal(normalizeConversationMode("video_generation"), "video-generation");
+  assert.match(instructions, /Do not call `spawn_agent`/);
   assert.match(instructions, /same Codex execution turn/);
   assert.match(instructions, /live thinking status/);
   assert.match(instructions, /interruption behavior/);
@@ -252,13 +247,12 @@ test("video generation mode uses the ordinary execution lifecycle with locked cl
   );
 });
 
-test("multi-model cluster keeps root Codex sole and forbids native child agents", () => {
+test("multi-model cluster also fails closed to the ordinary serial root", () => {
   const instructions = buildConversationModeDeveloperInstructions("multi_model_cluster");
 
-  assert.equal(normalizeConversationMode("multi_model_cluster"), "multi-model-cluster");
-  assert.match(instructions, /sole root Codex orchestrator/);
+  assert.equal(normalizeConversationMode("multi_model_cluster"), "execution");
   assert.match(instructions, /Do not call `spawn_agent`/);
-  assert.match(instructions, /do not create or delegate to Codex child agents/);
+  assert.match(instructions, /ordinary serial execution/);
 });
 
 test("login preload caches both media catalogs before mode switching", async () => {
@@ -341,6 +335,25 @@ test("renderer preserves the selected mode across thread creation, sends, contin
   assert.match(preferences, /threadImageSizes: Object\.fromEntries/);
 });
 
+test("renderer migrates legacy cluster preferences to execution and stops persisting cluster state", async () => {
+  const source = await rendererSource;
+  const normalizers = sourceBlock(
+    source,
+    "function normalizePersistedThreadModes",
+    "function normalizePersistedThreadContinuations",
+  );
+  const preferences = sourceBlock(
+    source,
+    "function saveThreadPreferences",
+    "function shouldPersistThreadPreferenceId",
+  );
+
+  assert.match(normalizers, /mode === "multi-agent" \? "execution" : mode/);
+  assert.match(normalizers, /function normalizePersistedClusterModes[\s\S]*return \{\};/);
+  assert.doesNotMatch(preferences, /mode === "multi-agent"/);
+  assert.match(preferences, /clusterModes: \{\}/);
+});
+
 test("main process injects the selected conversation-mode contract before every turn", async () => {
   const source = await mainSource;
   const refresh = sourceBlock(source, "async function refreshSkillsDeveloperInstructions", "function buildThreadGroupMemoryInstructions");
@@ -361,9 +374,8 @@ test("main process injects the selected conversation-mode contract before every 
   assert.match(send, /videoGenerationInstructionOptions\(params\)/);
   assert.match(send, /buildConversationModeTurnOverrides\(/);
   assert.match(send, /\.\.\.conversationModeTurnOverrides/);
-  assert.match(send, /multiAgentReasoningEffortForModel\(/);
+  assert.doesNotMatch(send, /multiAgentReasoningEffortForModel|MULTI_AGENT_CONVERSATION_MODE/);
   assert.match(send, /params\.supportedReasoningEfforts/);
-  assert.match(send, /conversationMode === MULTI_AGENT_CONVERSATION_MODE[\s\S]*executionSelection\.isDeepSeek/);
   assert.match(
     send,
     /buildTurnInputWithGroupMemory\(text, cwd,[\s\S]*videoGenerationOptions/,

@@ -569,7 +569,19 @@ test("renderer replaces thinking with the branded cluster but lets compaction wi
   assert.match(styles, /\.subagent-panel-tabs/);
   assert.match(styles, /\.subagent-output-area\s*\{[\s\S]*?position: relative;[\s\S]*?flex: 1;/);
   assert.match(styles, /\.workflow-scroll-bottom-button/);
-  assert.match(styles, /\.subagent-cluster-avatar\s*\{[^}]*border-radius: 50%;/);
+  const avatarFreeClusterRenderer = renderer.slice(
+    renderer.indexOf("function renderSubagentClusterRow"),
+    renderer.indexOf("function subagentStageIcon"),
+  );
+  assert.doesNotMatch(avatarFreeClusterRenderer, /subagent-cluster-avatar|avatarUrl|<img/);
+  assert.doesNotMatch(avatarFreeClusterRenderer, /subagent-cluster-index/);
+  const avatarFreeCardStyles = styles.slice(styles.indexOf("/* Avatar-free parallel task cards"));
+  assert.match(avatarFreeCardStyles, /\.subagent-cluster-row\s*\{[^}]*display: block;[^}]*grid-template-columns: minmax\(0, 1fr\);/s);
+  assert.match(avatarFreeCardStyles, /\.subagent-cluster-identity\s*\{[^}]*justify-content: space-between;/s);
+  assert.match(avatarFreeCardStyles, /html:not\(\[data-theme="dark"\]\) \.subagent-cluster-row:(?:hover|active|focus-visible)/);
+  assert.match(avatarFreeCardStyles, /html\[data-theme="dark"\] \.subagent-cluster-row:(?:hover|active|focus-visible)/);
+  assert.match(avatarFreeCardStyles, /html:not\(\[data-theme="dark"\]\) \.subagent-cluster-row\.failed/);
+  assert.match(avatarFreeCardStyles, /html\[data-theme="dark"\] \.subagent-cluster-row\.interrupted/);
   assert.match(styles, /\.subagent-panel-tab\s*\{[^}]*border: 0;[^}]*border-radius: 50%;[^}]*background: transparent;/);
   assert.doesNotMatch(styles, /\.subagent-panel-tab\.active\s*\{[^}]*border-color:/);
   assert.match(styles, /\.subagent-panel-tab img\s*\{[^}]*border-radius: 50%;[^}]*filter: saturate\(0\.55\) brightness\(1\.08\);[^}]*opacity: 0\.38;/);

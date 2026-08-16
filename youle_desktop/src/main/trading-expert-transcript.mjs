@@ -38,6 +38,14 @@ function normalizeTradingTranscriptActions(value, role) {
     const destination = firstString(candidate.destination);
     const label = firstString(candidate.label).slice(0, 80);
     const alertId = firstString(candidate.alert_id, candidate.alertId).slice(0, 160);
+    if (destination === "binance-account" && label) {
+      return [{
+        id: firstString(candidate.id).slice(0, 120) || "connect-binance-account",
+        kind: "navigate",
+        label,
+        destination,
+      }];
+    }
     if (destination !== "trading-alerts" || !label || !alertId) return [];
     return [{
       id: firstString(candidate.id).slice(0, 120) || "open-trading-alerts",

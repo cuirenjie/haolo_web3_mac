@@ -3,6 +3,7 @@
 > 状态：架构基线（2026-07-22）
 > 适用范围：Haolo 桌面工作流、外部模型、Codex/Claude Code/Workbuddy 等 CLI Agent、其他用户的 Haolo Agent，以及未来工具节点。
 > 当前实现说明：本文定义目标架构和演进边界，不表示所有能力已经上线。现有外部模型只读 Runtime、生产模型中转和功能开关继续按当前路线运行，直到对应阶段完成并通过灰度。
+> 2026-08-16 当前产品覆盖：Haolo 桌面客户端固定为普通串行执行模式，禁止根 Codex 创建子 Agent、协作委派、并行任务或后台任务分支；App Server 每会话只保留根线程一个槽位，Renderer 不提供计划/集群任务模式切换，主进程拒绝启动新的多模型工作流，也拒绝通过旧画布节点语义编译入口发起模型调用。该覆盖撤销下文 2026-07-26 的三模型并行临时覆盖；下文并行图模型继续作为长期架构与历史数据兼容定义，当前不得据此启动新运行。
 > 2026-07-27 已落地边界：集群工作流的全部模型节点声明 `local.files.review`，仅在根 Codex 为当前节点签发只读 `CapabilityGrant` 后，由 Context Broker 按节点独立组装 `ContextPackage`；问答模式是独立的直连产品路径，不经过根 Codex 或工作流节点授权，由桌面问答运行时直接只读当前分组目录和本次上传文件。
 > 2026-07-27 已落地执行节点：集群规划协议现在显式区分 `external_model` 与 `codex_subagent`。前者继续只读分析；后者通过统一 `ExecutorGateway + ExecutorAdapter + CapabilityGrant + ExecutionResult` 边界启动隔离临时 Codex Worker，可按 `read_only`、`workspace_write` 或 `full_access` 执行文件、命令、应用、网络与发布类任务。运行时 Grant 绑定 workflow/node/task/attempt，禁止隐式全局上下文和转授权；可写 Agent 强制串行且不做未知副作用后的盲目自动重试。当前 App Server sandbox 是第一层程序边界，更细的逐工具强制、远程 Agent Host、两阶段提交和可验证远端凭证仍属于后续阶段。
 > 2026-07-27 已落地多模态边界：模型能力由单一注册表声明；文件正文继续走 `ContextPackage`，图片和视频走显式 `ArtifactRef`/附件引用，并在同一个节点执行边界交付。媒体输入不进入隐式全局上下文，也不改变根 Codex 的编排与采纳权。

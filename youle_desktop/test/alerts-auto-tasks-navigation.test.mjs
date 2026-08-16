@@ -16,7 +16,7 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("the plan entry opens the shared plan and alert workspace beside the conversation sidebar", async () => {
+test("the plan entry opens the saved-plan workspace without coupling it to automatic tasks", async () => {
   const source = await rendererSource;
   const renderBlock = sourceBlock(source, "function render()", "function scheduleRender");
   const actionsBlock = sourceBlock(
@@ -25,23 +25,25 @@ test("the plan entry opens the shared plan and alert workspace beside the conver
     "function renderConversationListFooter",
   );
   const eventBlock = sourceBlock(source, "function bindEvents()", "function bindLoginEvents()");
-  const openPlansBlock = sourceBlock(source, "function openAutoTasksPage", "function openBinanceAccountPage");
+  const openPlansBlock = sourceBlock(source, "function openExecutionPlansPage", "function openTradingAlertsPage");
+  const autoTasksBlock = sourceBlock(source, "function renderAutoTasksPage", "function renderAutoTaskItem");
 
   assert.match(
     renderBlock,
-    /state\.activeView === "alerts"[\s\S]*renderChatList\(\)[\s\S]*renderTradingAlertsPage\(state\.tradingAlerts\)/,
+    /state\.activeView === "plans"[\s\S]*renderChatList\(\)[\s\S]*renderExecutionPlansPage\(\)/,
   );
   assert.match(
     actionsBlock,
-    /const planningActive = state\.activeView === "autoTasks" \|\| state\.activeView === "alerts";[\s\S]*data-conversation-static-action="plans"[\s\S]*aria-current="page"/,
+    /const planningActive = state\.activeView === "plans" \|\| state\.activeView === "alerts";[\s\S]*data-conversation-static-action="plans"[\s\S]*aria-current="page"/,
   );
   assert.match(
     eventBlock,
-    /\[data-conversation-static-action="plans"\][\s\S]*openAutoTasksPage\(\)/,
+    /\[data-conversation-static-action="plans"\][\s\S]*openExecutionPlansPage\(\)/,
   );
-  assert.match(openPlansBlock, /state\.activeView = "autoTasks";/);
-  assert.match(openPlansBlock, /render\(\);[\s\S]*void refreshAutoTasks\(\);/);
-  assert.match(source, /renderAutoTasksPage\(\)[\s\S]*renderPlanningNavigation\("plans"\)/);
+  assert.match(openPlansBlock, /state\.activeView = "plans";/);
+  assert.doesNotMatch(openPlansBlock, /refreshAutoTasks/);
+  assert.match(source, /function renderExecutionPlansPage\(\)[\s\S]*renderPlanningNavigation\("plans"\)/);
+  assert.doesNotMatch(autoTasksBlock, /renderPlanningNavigation|execution-plan|当前没有计划/);
 });
 
 test("the alerts selection and sidebar controls share light and dark theme states", async () => {
@@ -58,8 +60,8 @@ test("the alerts selection and sidebar controls share light and dark theme state
     "function renderMaximizeIcon",
   );
 
-  assert.match(workspaceRender, /state\.activeView === "chat" \|\|\s*state\.activeView === "account" \|\|\s*state\.activeView === "autoTasks" \|\|\s*state\.activeView === "alerts" \|\|\s*state\.activeView === "skillsPlaza"/);
-  assert.match(toggleBlock, /state\.activeView !== "chat" && state\.activeView !== "account" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"/);
+  assert.match(workspaceRender, /state\.activeView === "chat" \|\|\s*state\.activeView === "account" \|\|\s*state\.activeView === "plans" \|\|\s*state\.activeView === "autoTasks" \|\|\s*state\.activeView === "alerts" \|\|\s*state\.activeView === "skillsPlaza"/);
+  assert.match(toggleBlock, /state\.activeView !== "chat" && state\.activeView !== "account" && state\.activeView !== "plans" && state\.activeView !== "autoTasks" && state\.activeView !== "alerts" && state\.activeView !== "skillsPlaza"/);
   assert.match(styles, /--conversation-action-hover:\s*rgba\(17, 24, 39, 0\.035\);/);
   assert.match(
     styles,

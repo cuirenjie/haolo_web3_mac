@@ -81,6 +81,13 @@ test("general semantic router preserves conceptual questions as normal conversat
   assert.equal(routed.request.drawingRequested, false);
 });
 
+test("general semantic router sends personal account and memory questions to the context-capable agent", () => {
+  const prompt = buildGeneralRequestRoutingPrompt({ text: "我目前的仓位健康吗，该怎么操作" });
+  assert.match(prompt, /账户、资产、持仓、订单、交易记录、风险偏好、长期记忆/);
+  assert.match(prompt, /我目前的仓位健康吗，该怎么操作.*conversation\/general-question/);
+  assert.match(prompt, /记住以后单笔最多亏本金的 3%.*conversation\/general-question/);
+});
+
 test("chart-analysis can refresh an answer without replacing existing drawings", () => {
   const routed = normalizeGeneralRequestRoutingModelResponse(JSON.stringify({
     schemaVersion: 1,
@@ -131,6 +138,16 @@ test("general analysis pipeline stays provider-neutral and emits a small isolate
     interval: "60",
     snapshotTime: 1_785_500_000_000,
     instruction: "分析下",
+    userRiskProfile: {
+      maxLossPerTradePercent: 10,
+      // Legacy clients may still send this deprecated field; it must be ignored.
+      absoluteMaxLossPerTradePercent: 3,
+      minimumRiskRewardRatio: 2,
+      moveStopToBreakEven: true,
+      breakEvenTriggerR: 1,
+      analysisStyle: "concise",
+      entries: [{ scope: "trading.discipline", key: "user_custom_rules", value: "不允许亏损加仓" }],
+    },
     candles: fixtureCandles(),
   }, {
     providerId: "fixture-provider",
@@ -158,6 +175,8 @@ test("general analysis pipeline stays provider-neutral and emits a small isolate
   });
   assert.equal(capturedRequest.providerId, "fixture-provider");
   assert.equal(capturedRequest.request.theoryId, "price_action");
+  assert.match(capturedRequest.request.prompt, /用户已保存的交易配置/);
+  assert.match(capturedRequest.request.prompt, /不允许亏损加仓/);
   assert.equal(result.ok, true);
   assert.equal(result.analysisPlan.drawingPatch.operations.length, 6);
   assert.ok(result.analysisPlan.drawingPatch.operations.length <= 10);
@@ -169,6 +188,10 @@ test("general analysis pipeline stays provider-neutral and emits a small isolate
   assert.match(result.analysisPlan.report, /新手执行清单/);
   assert.match(result.analysisPlan.report, /想做多/);
   assert.match(result.analysisPlan.report, /想做空/);
+  assert.match(result.analysisPlan.report, /当前账户净值的 10%/);
+  assert.doesNotMatch(result.analysisPlan.report, /绝对不超过 3%/);
+  assert.match(result.analysisPlan.report, /最低净盈亏比为 2:1/);
+  assert.match(result.analysisPlan.report, /浮盈达到 1R/);
 });
 
 test("direct analysis mode returns the model's question-specific answer without removing the guarded patch", async () => {

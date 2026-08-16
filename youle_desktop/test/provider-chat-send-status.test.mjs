@@ -179,8 +179,9 @@ test("contact message opens a hidden question-mode draft while preserving the Ha
   assert.match(modeBlock, /isVideoExpertProviderThreadId\(threadId\) \? "video-generation" : "question-answer"/);
 
   const pickerBlock = sourceBlock(source, "function renderComposerModePicker", "function activeComposerDraftSnapshot");
-  assert.match(pickerBlock, /activeMode === "question-answer"/);
-  assert.match(pickerBlock, /data-new-thread-mode="question-answer"/);
+  assert.match(pickerBlock, /class="composer-mode-trigger serial-only"/);
+  assert.match(pickerBlock, /<span>执行模式<\/span>/);
+  assert.doesNotMatch(pickerBlock, /question-answer|data-new-thread-mode|data-composer-cluster-mode/);
 });
 
 test("video expert uses a hidden question-mode draft and its dedicated composer", async () => {
@@ -243,9 +244,10 @@ test("clicking the fixed Haolo new task discards a provider draft and returns to
   const heroBlock = sourceBlock(source, "function renderBlankThreadHero", "function renderMessage");
   const pickerBlock = sourceBlock(source, "function renderComposerModePicker", "function activeComposerDraftSnapshot");
   assert.doesNotMatch(heroBlock, /data-new-thread-mode/);
-  assert.match(pickerBlock, /data-new-thread-mode="execution"/);
+  assert.match(pickerBlock, /class="composer-mode-trigger serial-only"/);
+  assert.match(pickerBlock, /role="status"/);
   assert.match(pickerBlock, /<span>执行模式<\/span>/);
-  assert.match(pickerBlock, /data-composer-cluster-mode="subagent"/);
+  assert.doesNotMatch(pickerBlock, /data-new-thread-mode|data-composer-cluster-mode|计划模式|集群模式/);
 });
 
 test("the execution model picker preserves the underlying image and video workflows", async () => {

@@ -140,7 +140,7 @@ test("KDJ mention runs through Registry and Coordinator into a standard executio
   assert.equal(result.strategy.id, "kdj-analysis");
   assert.equal(result.analysisPlan.indicatorDrawingPatch.indicatorId, "kdj");
   assert.equal(result.executionPlan.action, "wait");
-  assert.match(result.analysisPlan.report, /标准执行方案/);
+  assert.match(result.analysisPlan.report, /^## BTC\/USDT 币安永续 1H/m);
 });
 
 test("KDJ card, Chinese metadata, pane, reference lines and both icon themes are wired", async () => {

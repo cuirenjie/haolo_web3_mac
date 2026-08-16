@@ -453,7 +453,7 @@ test("registry-to-coordinator chain returns StrategyResult and ExecutionPlanV1 f
   assert.equal(result.executionPlan.schemaVersion, 1);
   assert.equal(result.executionPlan.preferredSide, "short");
   assert.ok(result.executionPlan.scenarios.some((scenario) => scenario.side === "short"));
-  assert.match(result.analysisPlan.report, /标准执行方案/);
+  assert.match(result.analysisPlan.report, /^## TEST\/USDT 币安永续 1H/m);
   assert.match(result.analysisPlan.report, /头肩顶/);
   assert.equal(result.analysisPlan.drawingPatch.operations.at(-1).drawing.strategyId, "chart-patterns");
 });

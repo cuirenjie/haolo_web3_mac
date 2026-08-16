@@ -9,9 +9,26 @@ import {
   renderTradingAlertsPage,
   resolveTradingAlertSourceText,
   tradingAlertHasDrawingContext,
+  tradingAlertIsExecutionPlanLinked,
   type TradingAlertFilter,
   type TradingAlertsUiState,
 } from "./trading-alerts-ui";
+import {
+  createSavedExecutionPlan,
+  executionPlanCardTitle,
+  executionPlanDirectionTone,
+  executionPlanDisplayLines,
+  executionPlanSignedNumberSegments,
+  executionPlanCandidateFromText,
+  executionPlanTextPartition,
+  loadExecutionPlans,
+  saveExecutionPlans,
+  transitionExecutionPlan,
+  type ExecutionPlanEndReason,
+  type ExecutionPlanCandidate,
+  type ExecutionPlanStatus,
+  type SavedExecutionPlan,
+} from "./execution-plans";
 import {
   binanceAccountResendCountdown,
   createBinanceAccountUiState,
@@ -639,16 +656,27 @@ const TRADING_EXPERT_CONTACT_ID = "agent-trading-expert";
 const TRADING_EXPERT_NAME = "交易专家";
 const TRADING_EXPERT_MENTION_CATALOG = [
   { label: "策略", get options() { return tradingStrategyMentionOptions(); } },
-  { label: "指标", get options() { return tradingIndicatorMentionOptions(); } },
+  {
+    label: "指标",
+    get options() {
+      return [
+        "趋势带",
+        ...tradingIndicatorMentionOptions().filter((option) => option !== "趋势带"),
+      ];
+    },
+  },
   { label: "预警", options: [] },
-  { label: "知识库", options: [] },
-  { label: "自定义指标", options: ["趋势带"] },
 ] as const;
-const TRADING_EXPERT_TITLE_MENTION_TOKENS = TRADING_EXPERT_MENTION_CATALOG.flatMap((item) => (
-  item.options.length
-    ? item.options.flatMap((option) => [`@${item.label}:${option}`, `@${item.label}：${option}`])
-    : [`@${item.label}`]
-));
+const TRADING_EXPERT_TITLE_MENTION_TOKENS = [
+  ...TRADING_EXPERT_MENTION_CATALOG.flatMap((item) => (
+    item.options.length
+      ? item.options.flatMap((option) => [`@${item.label}:${option}`, `@${item.label}：${option}`])
+      : [`@${item.label}`]
+  )),
+  "@知识库",
+  "@自定义指标:趋势带",
+  "@自定义指标：趋势带",
+];
 const GROUP_CHAT_QUANTITY_MIN = 1;
 const GROUP_CHAT_QUANTITY_MAX = 10;
 const VIDEO_EXPERT_CONTACT_ID = "agent-video-expert";
@@ -1579,6 +1607,14 @@ type DesktopApi = {
   tradingAlertsResumeDraft?(params: { draftId: string }): Promise<any>;
   tradingAlertsSimulate?(params: any): Promise<any>;
   tradingAlertsConfirm?(params: any): Promise<any>;
+  tradingAlertsSyncExecutionPlan?(params: {
+    planId: string;
+    alertId?: string;
+    title: string;
+    content: string;
+    status: ExecutionPlanStatus;
+    originThreadId?: string;
+  }): Promise<any>;
   tradingAlertsRevise?(params: any): Promise<any>;
   tradingAlertsPause?(params: { alertId: string }): Promise<any>;
   tradingAlertsResume?(params: { alertId: string }): Promise<any>;
@@ -1626,6 +1662,17 @@ type DesktopApi = {
   annotateImage?(params: { name: string; mime?: string | null; base64: string; theme?: AppTheme;
   }): Promise<{ cancelled?: boolean }>;
   listThreads(params?: any): Promise<any>;
+  getTradingPreferenceProfile?(): Promise<any>;
+  saveTradingPreferenceProfile?(params: {
+    userStatement: string;
+    entries: Array<{
+      scope: string;
+      kind: "preference" | "constraint" | "fact" | "goal";
+      key: string;
+      value: string | number | boolean;
+      strength?: "normal" | "hard";
+    }>;
+  }): Promise<any>;
   modelList(): Promise<any>;
   configRead(): Promise<any>;
   skillsList(params?: { cwd?: string; forceReload?: boolean; reason?: string;
@@ -2279,7 +2326,7 @@ type SettingsState = {
   modelProvider: string;
   approvalPolicy: string;
   sandbox: string;
-  tab: "profile" | "models" | "github" | "dataProviders" | "general" | "about";
+  tab: "profile" | "models" | "github" | "general" | "about";
   theme: AppTheme;
   fontSize: AppFontSize;
   taskCompletionPopupEnabled: boolean;
@@ -2579,6 +2626,7 @@ type ViewId =
   | "contacts"
   | "results"
   | "materials"
+  | "plans"
   | "autoTasks"
   | "alerts"
   | "skillsPlaza"
@@ -3666,6 +3714,10 @@ type UiState = {
   profileSubscriptionDetails: ProfileSubscriptionDetailsState;
   autoTaskDraft: AutoTaskDraftState;
   autoTaskItems: AutoTaskItem[];
+  executionPlans: SavedExecutionPlan[];
+  executionPlansScope: string;
+  executionPlanFilter: ExecutionPlanStatus;
+  executionPlanEndMenuId: string | null;
   tradingAlerts: TradingAlertsUiState;
   binanceAccount: BinanceAccountUiState;
   selectedAutoTaskId: string | null;
@@ -4959,6 +5011,10 @@ const state: UiState = {
   },
   autoTaskDraft: createAutoTaskDraft(),
   autoTaskItems: loadAutoTaskItems(),
+  executionPlans: [],
+  executionPlansScope: "",
+  executionPlanFilter: "pending",
+  executionPlanEndMenuId: null,
   tradingAlerts: createTradingAlertsUiState(),
   binanceAccount: createBinanceAccountUiState(),
   selectedAutoTaskId: null,
@@ -4984,6 +5040,11 @@ const state: UiState = {
   configOutput: null,
   error: null,
 };
+
+const executionPlanCandidatesBySource = new Map<string, ExecutionPlanCandidate>();
+const executionPlanAlertSyncBusyIds = new Set<string>();
+const executionPlanDeleteBusyIds = new Set<string>();
+const executionPlanAlertReconciledScopes = new Set<string>();
 
 let loginCounterTimer: number | null = null;
 let loginWechatPollTimer: number | null = null;
@@ -5508,6 +5569,8 @@ async function bootLocalWorkspace(
   try {
     const status = await api.start();
     if (abortStaleWorkspaceBoot(seq)) return false;
+    await loadTradingPreferenceProfile({ renderAfter: false });
+    if (abortStaleWorkspaceBoot(seq)) return false;
     hydrateFixedChatModel();
     if (abortStaleWorkspaceBoot(seq)) return false;
     await syncThreadGroupWorkspaces({ renderAfter: false });
@@ -5579,6 +5642,7 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
     state.auth.profile?.email,
   );
   if (!state.auth.authenticated || accountIdentity !== previousAccountIdentity) {
+    resetTradingPreferenceProfileState();
     authenticatedModelCatalogPreloadPromise = null;
     authenticatedModelCatalogPreloadIdentity = "";
     authenticatedModelCatalogCachedIdentity = "";
@@ -6292,6 +6356,7 @@ function wireDesktopEvents() {
   api.onProfileUpdated?.((session) => {
     applyAuthSession(session, state.auth.baseUrl || state.login.baseUrl);
     render();
+    if (state.auth.authenticated) void loadTradingPreferenceProfile();
   });
   api.onAuthExpired?.((session) => {
     handleAuthExpired(session);
@@ -14154,7 +14219,10 @@ async function materializeThreadSwitchMessagesInBatches(
   const messages = messagesForThread(threadId);
   scroller.classList.toggle(
     "new-thread-scroller",
-    !messages.length && !isThreadBusy(threadId) && isBlankNewThread(threadId),
+    !isTradingExpertThreadId(threadId)
+      && !messages.length
+      && !isThreadBusy(threadId)
+      && isBlankNewThread(threadId),
   );
   if (!messages.length) {
     scroller.innerHTML = renderMessageScrollerContent(thread);
@@ -24651,12 +24719,12 @@ function maybeAutoCollapseLeftPanelForWorkflow(run: WorkflowCanvasRun) {
 
 function restoreMultiModelClusterIdentity(threadId: string) {
   let changed = false;
-  if (newThreadModeByThreadId.get(threadId) !== "multi-agent") {
-    newThreadModeByThreadId.set(threadId, "multi-agent");
+  if (newThreadModeByThreadId.get(threadId) === "multi-agent") {
+    newThreadModeByThreadId.set(threadId, "execution");
     changed = true;
   }
-  if (clusterModeByThreadId.get(threadId) !== "multi-model") {
-    clusterModeByThreadId.set(threadId, "multi-model");
+  if (clusterModeByThreadId.has(threadId)) {
+    clusterModeByThreadId.delete(threadId);
     changed = true;
   }
   if (changed && shouldPersistThreadPreferenceId(threadId)) saveThreadPreferences();
@@ -25648,6 +25716,13 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     }
     text = workflowComposerVisibleText(threadId, workflowContractAtSend, workflowMainTextAtSend);
   } else if (!text && !state.attachments.length) {
+    return;
+  }
+  if (
+    isTradingExpertThreadId(threadId)
+    && tradingPreferenceOnboardingByThreadId.has(threadId)
+    && await handleTradingPreferenceOnboardingReply(threadId, text, input || null)
+  ) {
     return;
   }
   if (
@@ -29209,10 +29284,22 @@ async function persistTradingExpertTranscriptItems(
   };
 }
 
-async function persistCompletedTradingExpertTranscript(threadId: string, items: CodexItem[]) {
+async function persistCompletedTradingExpertTranscript(
+  threadId: string,
+  items: CodexItem[],
+  options: { title?: string } = {},
+) {
   try {
+    let activeThreadId = threadId;
+    if (isLocalBlankThreadId(activeThreadId)) {
+      const promotedThreadId = await promoteLocalBlankThreadForSend(activeThreadId);
+      if (!promotedThreadId) {
+        throw new Error("无法创建用于保存交易会话记录的正式任务");
+      }
+      activeThreadId = promotedThreadId;
+    }
     stampCompletedTradingExpertTranscriptTiming(items);
-    await persistTradingExpertTranscriptItems(threadId, items);
+    await persistTradingExpertTranscriptItems(activeThreadId, items, options);
     scheduleThreadListRefresh(0);
     return true;
   } catch (error) {
@@ -33414,11 +33501,6 @@ function render() {
     state.activeView === "chat" &&
     !state.chatPreview &&
     isTradingExpertThreadId(thread?.id);
-  const tradingExpertPanelLayout =
-    tradingExpertLayout ||
-    (state.activeView === "account" &&
-      !state.chatPreview &&
-      isTradingExpertThreadId(thread?.id));
   if (!tradingExpertLayout && state.tradingExpertChartFocusMode) {
     restoreTradingExpertChartFocusLayout();
   }
@@ -33427,6 +33509,7 @@ function render() {
   const workspaceHasConversationList =
     state.activeView === "chat" ||
     state.activeView === "account" ||
+    state.activeView === "plans" ||
     state.activeView === "autoTasks" ||
     state.activeView === "alerts" ||
     state.activeView === "skillsPlaza";
@@ -33441,12 +33524,16 @@ function render() {
         ? `
           ${renderChatList()}
           ${renderBinanceAccountPage(state.binanceAccount)}
-          ${renderAgentPanel(thread)}
         `
       : state.activeView === "contacts"
         ? renderContactsPage()
-        : state.activeView === "results"
-          ? renderResultsPage()
+          : state.activeView === "results"
+            ? renderResultsPage()
+          : state.activeView === "plans"
+            ? `
+              ${renderChatList()}
+              ${renderExecutionPlansPage()}
+            `
           : state.activeView === "autoTasks"
             ? `
               ${renderChatList()}
@@ -33487,13 +33574,11 @@ function render() {
   const bodyClasses = [
     "desktop-body",
     isChatLeftCollapsed ? "left-panel-collapsed" : "",
-    (state.activeView === "chat" || state.activeView === "account") &&
-    state.rightCollapsed &&
-    !state.chatPreview
+    state.activeView === "chat" && state.rightCollapsed && !state.chatPreview
       ? "right-panel-collapsed"
       : "",
-    tradingExpertPanelLayout ? "trading-expert-layout" : "",
-    tradingExpertPanelLayout && state.tradingExpertChartCollapsed
+    tradingExpertLayout ? "trading-expert-layout" : "",
+    tradingExpertLayout && state.tradingExpertChartCollapsed
       ? "trading-expert-chart-collapsed"
       : "",
     tradingExpertChartFocusMode ? "trading-expert-chart-focus-mode" : "",
@@ -33520,9 +33605,6 @@ function render() {
       <div class="${bodyClasses}"${bodyStyle}>
         ${workspaceHasConversationList ? renderLeftPanelToggle() : ""}
         ${tradingExpertLayout ? renderTradingExpertCollapseControls() : ""}
-        ${state.activeView === "account" && tradingExpertPanelLayout && !state.tradingExpertChartCollapsed
-          ? renderBinanceAccountExpansionControl()
-          : ""}
         ${tradingExpertLayout ? renderTradingExpertPanelResizeHandles() : ""}
         ${mainContent}
       </div>
@@ -33837,7 +33919,6 @@ function openSettingsDialog(tab: SettingsState["tab"] = "general") {
   if (tab === "github") {
     void refreshGitHubConnection();
   }
-  if (tab === "dataProviders") void refreshTradingAlerts();
 }
 
 async function refreshGitHubConnection({
@@ -34629,7 +34710,7 @@ function renderPanelLayoutIcon(side: "left" | "right") {
 }
 
 function toggleLeftPanelCollapsed() {
-  if (state.activeView !== "chat" && state.activeView !== "account" && state.activeView !== "autoTasks" && state.activeView !== "alerts" && state.activeView !== "skillsPlaza") return;
+  if (state.activeView !== "chat" && state.activeView !== "account" && state.activeView !== "plans" && state.activeView !== "autoTasks" && state.activeView !== "alerts" && state.activeView !== "skillsPlaza") return;
   if (state.tradingExpertChartFocusMode && isTradingExpertThreadId(state.currentThreadId)) {
     restoreTradingExpertChartFocusLayout();
     state.leftCollapsed = false;
@@ -36471,6 +36552,314 @@ function renderMaterialsPage() {
   `;
 }
 
+function currentExecutionPlanStorageScope() {
+  const endpoint = firstString(state.auth.baseUrl, state.login.baseUrl) || "local";
+  const profileIdentity = firstString(
+    state.auth.profile?.id,
+    state.auth.profile?.email,
+    state.auth.profile?.phone,
+  ) || "anonymous";
+  return `${endpoint.trim().toLowerCase()}::${profileIdentity.trim().toLowerCase()}`;
+}
+
+function syncExecutionPlansForCurrentAccount() {
+  const scope = currentExecutionPlanStorageScope();
+  if (state.executionPlansScope === scope) return;
+  state.executionPlans = loadExecutionPlans(scope);
+  state.executionPlansScope = scope;
+  state.executionPlanFilter = "pending";
+  state.executionPlanEndMenuId = null;
+  void reconcileMissingExecutionPlanAlerts(scope);
+}
+
+async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan) {
+  if (!api.tradingAlertsSyncExecutionPlan) throw new Error("当前版本不支持计划预警联动");
+  const result = tradingAlertResponseData(await api.tradingAlertsSyncExecutionPlan({
+    planId: plan.id,
+    ...(plan.linkedAlertId ? { alertId: plan.linkedAlertId } : {}),
+    title: executionPlanCardTitle({
+      fallbackTitle: plan.title,
+      analysisLabel: tradingLastAnalysisLabelForThread(plan.sourceThreadId),
+      sourceTitle: plan.sourceTitle,
+      sourceText: plan.content,
+    }),
+    content: plan.content,
+    status: plan.status,
+    originThreadId: plan.sourceThreadId,
+  }));
+  const alertId = String(result?.alert?.alertId || "").trim();
+  if (!alertId) throw new Error("计划预警创建后未能读回，请稍后重试");
+  return { alertId, warning: String(result?.warning || "").trim(), created: result?.created === true };
+}
+
+async function reconcileMissingExecutionPlanAlerts(scope: string) {
+  if (executionPlanAlertReconciledScopes.has(scope)) return;
+  executionPlanAlertReconciledScopes.add(scope);
+  const missing = state.executionPlans.filter((plan) => !plan.linkedAlertId && !executionPlanDeleteBusyIds.has(plan.id));
+  if (!missing.length) return;
+  const linked = new Map<string, string>();
+  const createdAlertIds: string[] = [];
+  let firstError = "";
+  for (const plan of missing) {
+    try {
+      const result = await syncExecutionPlanLinkedAlert(plan);
+      linked.set(plan.id, result.alertId);
+      if (result.created) createdAlertIds.push(result.alertId);
+    } catch (error) {
+      firstError ||= errorMessage(error);
+    }
+  }
+  if (state.executionPlansScope !== scope || !linked.size) {
+    if (firstError) showToast(`计划预警同步失败：${firstError}`, 5000);
+    return;
+  }
+  const nextPlans = state.executionPlans
+    .filter((plan) => !executionPlanDeleteBusyIds.has(plan.id))
+    .map((plan) => linked.has(plan.id)
+      ? { ...plan, linkedAlertId: linked.get(plan.id) || null }
+      : plan);
+  if (!saveExecutionPlans(scope, nextPlans)) {
+    for (const alertId of createdAlertIds) void api.tradingAlertsDelete?.({ alertId })?.catch(() => {});
+    showToast("计划预警已创建，但计划关联保存失败，已撤销预警", 5000);
+    return;
+  }
+  state.executionPlans = nextPlans;
+  if (firstError) showToast(`部分计划无法创建预警：${firstError}`, 5000);
+  if (state.activeView === "plans" || state.activeView === "alerts") render();
+}
+
+function executionPlanCreatedLabel(createdAt: string) {
+  const date = new Date(createdAt);
+  if (!Number.isFinite(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function renderExecutionPlanCardContent(content: string) {
+  return executionPlanDisplayLines(content)
+    .map((line) => {
+      const directionTone = executionPlanDirectionTone(line.label, line.text);
+      const valueClass = directionTone ? ` execution-plan-card-value-${directionTone}` : "";
+      const value = executionPlanSignedNumberSegments(line.text)
+        .map((segment) => segment.tone
+          ? `<span class="execution-plan-card-number-${segment.tone}">${escapeHtml(segment.text)}</span>`
+          : escapeHtml(segment.text))
+        .join("");
+      return `
+        <p class="execution-plan-card-line">
+          ${line.label ? `<span class="execution-plan-card-label">${escapeHtml(line.label)}</span>` : ""}${line.text ? `<span class="execution-plan-card-value${valueClass}">${value}</span>` : ""}
+        </p>
+      `;
+    })
+    .join("");
+}
+
+function renderMessageExecutionPlan(
+  message: Message,
+  text: string,
+  options: FormatMessageTextOptions = {},
+) {
+  const partition = executionPlanTextPartition(text);
+  if (!partition) return formatMessageText(text, options);
+  const sourceThread = state.threads.find((thread) => thread.id === message.conversation_id);
+  const title = executionPlanCardTitle({
+    fallbackTitle: partition.candidate.title,
+    analysisLabel: tradingLastAnalysisLabelForThread(message.conversation_id),
+    sourceTitle: sourceThread?.name,
+    sourceText: text,
+  });
+  const before = partition.before
+    ? `<div class="message-execution-plan-context before">${formatMessageText(partition.before, options)}</div>`
+    : "";
+  const after = partition.after
+    ? `<div class="message-execution-plan-context after">${formatMessageText(partition.after, options)}</div>`
+    : "";
+  return `${before}
+    <section class="message-execution-plan" aria-label="${escapeAttr(title)}">
+      <h2>${escapeHtml(title)}</h2>
+      <div class="execution-plan-card-content">${renderExecutionPlanCardContent(partition.candidate.content)}</div>
+    </section>
+    ${after}`;
+}
+
+function executionPlanStatusMeta(plan: SavedExecutionPlan) {
+  if (plan.status === "executing") return { label: "执行中", tone: "executing" };
+  if (plan.status === "ended") {
+    if (plan.endReason === "take_profit") return { label: "已止盈", tone: "take-profit" };
+    if (plan.endReason === "stop_loss") return { label: "已止损", tone: "stop-loss" };
+    if (plan.endReason === "expired") return { label: "已过期", tone: "expired" };
+    return { label: "已取消", tone: "cancelled" };
+  }
+  return { label: "待执行", tone: "pending" };
+}
+
+function renderExecutionPlanEndMenu(plan: SavedExecutionPlan) {
+  if (state.executionPlanEndMenuId !== plan.id) return "";
+  const reasons: Array<[ExecutionPlanEndReason, string, string]> = [
+    ["take_profit", "已止盈", "take-profit"],
+    ["stop_loss", "已止损", "stop-loss"],
+    ["cancelled", "手动取消", "cancelled"],
+    ["expired", "已过期", "expired"],
+  ];
+  return `<div class="execution-plan-end-menu" role="menu" aria-label="选择计划结束原因">
+    ${reasons.map(([reason, label, tone]) => `<button type="button" class="${tone}" role="menuitem" data-execution-plan-action="end" data-execution-plan-id="${escapeAttr(plan.id)}" data-execution-plan-end-reason="${reason}">${label}</button>`).join("")}
+    <button type="button" class="cancel" role="menuitem" data-execution-plan-action="close-end-menu" data-execution-plan-id="${escapeAttr(plan.id)}">取消</button>
+  </div>`;
+}
+
+function renderExecutionPlanActions(plan: SavedExecutionPlan) {
+  const menuOpen = state.executionPlanEndMenuId === plan.id;
+  const syncing = executionPlanAlertSyncBusyIds.has(plan.id);
+  const deleting = executionPlanDeleteBusyIds.has(plan.id);
+  const busy = syncing || deleting;
+  const disabled = busy ? ' disabled aria-disabled="true"' : "";
+  const busyLabel = deleting ? "删除中…" : "同步预警…";
+  const actions = plan.status === "pending"
+    ? `<button type="button" data-execution-plan-action="start" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${busy ? busyLabel : "开始执行"}</button>
+       <button type="button" data-execution-plan-action="open-end-menu" data-execution-plan-id="${escapeAttr(plan.id)}" aria-haspopup="menu" aria-expanded="${menuOpen}"${disabled}>结束</button>`
+    : plan.status === "executing"
+      ? `<button type="button" data-execution-plan-action="open-end-menu" data-execution-plan-id="${escapeAttr(plan.id)}" aria-haspopup="menu" aria-expanded="${menuOpen}"${disabled}>${busy ? busyLabel : "结束"}</button>`
+      : `<button type="button" data-execution-plan-action="reopen" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${busy ? busyLabel : "重新打开"}</button>`;
+  return `<div class="execution-plan-card-actions ${menuOpen ? "open" : ""}">${actions}
+    <button type="button" class="danger" data-execution-plan-action="delete" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${deleting ? "删除中…" : "删除"}</button>
+  </div>${renderExecutionPlanEndMenu(plan)}`;
+}
+
+function renderExecutionPlanCard(plan: SavedExecutionPlan) {
+  const createdLabel = executionPlanCreatedLabel(plan.createdAt);
+  const status = executionPlanStatusMeta(plan);
+  const title = executionPlanCardTitle({
+    fallbackTitle: plan.title,
+    analysisLabel: tradingLastAnalysisLabelForThread(plan.sourceThreadId),
+    sourceTitle: plan.sourceTitle,
+    sourceText: plan.content,
+  });
+  return `
+    <article class="execution-plan-card" data-execution-plan-id="${escapeAttr(plan.id)}">
+      <header>
+        <h2>${escapeHtml(title)}</h2>
+        <span class="execution-plan-card-status ${escapeAttr(status.tone)}">${escapeHtml(status.label)}</span>
+      </header>
+      <div class="execution-plan-card-content">${renderExecutionPlanCardContent(plan.content)}</div>
+      <footer>
+        ${createdLabel ? `<time datetime="${escapeAttr(plan.createdAt)}">${escapeHtml(createdLabel)}</time>` : "<span></span>"}
+        ${renderExecutionPlanActions(plan)}
+      </footer>
+    </article>
+  `;
+}
+
+function renderExecutionPlansPage() {
+  syncExecutionPlansForCurrentAccount();
+  const filters: Array<[ExecutionPlanStatus, string]> = [
+    ["pending", "待执行"],
+    ["executing", "执行中"],
+    ["ended", "已结束"],
+  ];
+  const counts = Object.fromEntries(filters.map(([status]) => [
+    status,
+    state.executionPlans.filter((plan) => plan.status === status).length,
+  ])) as Record<ExecutionPlanStatus, number>;
+  const plans = state.executionPlans.filter((plan) => plan.status === state.executionPlanFilter);
+  const executionPlanSubfilters = state.executionPlans.length
+    ? `<nav class="trading-alert-subfilters execution-plan-subfilters" aria-label="筛选执行计划">
+        ${filters.map(([status, label]) => `<button type="button" class="${state.executionPlanFilter === status ? "active" : ""}" data-execution-plan-filter="${status}" aria-pressed="${state.executionPlanFilter === status}">${label}<span>${counts[status]}</span></button>`).join("")}
+      </nav>`
+    : "";
+  return `
+    <main class="execution-plans-page">
+      ${renderPlanningNavigation("plans")}
+      ${executionPlanSubfilters}
+      ${
+        plans.length
+          ? `<section class="execution-plan-list" aria-label="${escapeAttr(filters.find(([status]) => status === state.executionPlanFilter)?.[1] || "执行计划")}">${plans.map(renderExecutionPlanCard).join("")}</section>`
+          : `<section class="execution-plan-empty"><p>${state.executionPlans.length ? "当前分类没有计划" : "当前没有计划"}</p></section>`
+      }
+    </main>
+  `;
+}
+
+async function updateExecutionPlanLifecycle(
+  planId: string,
+  status: ExecutionPlanStatus,
+  endReason: ExecutionPlanEndReason | null = null,
+) {
+  const plan = state.executionPlans.find((item) => item.id === planId);
+  if (!plan || executionPlanAlertSyncBusyIds.has(planId)) return;
+  executionPlanAlertSyncBusyIds.add(planId);
+  state.executionPlanEndMenuId = null;
+  render();
+  try {
+    let updated = transitionExecutionPlan(plan, status, { endReason });
+    const alertResult = await syncExecutionPlanLinkedAlert(updated);
+    updated = { ...updated, linkedAlertId: alertResult.alertId };
+    const nextPlans = state.executionPlans.map((item) => item.id === planId ? updated : item);
+    if (!saveExecutionPlans(state.executionPlansScope, nextPlans)) {
+      void syncExecutionPlanLinkedAlert(plan).catch(() => {});
+      throw new Error("计划状态保存失败，预警状态已回退");
+    }
+    state.executionPlans = nextPlans;
+    state.executionPlanFilter = status;
+    const statusText = status === "executing"
+      ? "计划已执行，预警已切换为止损与止盈监控"
+      : status === "pending"
+        ? "计划已恢复待执行，预警已切换为入场监控"
+        : "计划已结束，对应预警已自动暂停";
+    showToast(alertResult.warning ? `${statusText}；行情连接正在恢复` : statusText, 5000);
+  } catch (error) {
+    showToast(`计划状态更新失败：${errorMessage(error)}`, 5000);
+  } finally {
+    executionPlanAlertSyncBusyIds.delete(planId);
+    render();
+  }
+}
+
+async function deleteExecutionPlan(planId: string) {
+  const plan = state.executionPlans.find((item) => item.id === planId);
+  if (!plan || executionPlanAlertSyncBusyIds.has(planId) || executionPlanDeleteBusyIds.has(planId)) return;
+  const linkedAlertId = plan.linkedAlertId
+    || state.tradingAlerts.alerts.find((alert) => String(alert?.rule?.ruleId || "") === `execution-plan-alert-${plan.id}`)?.alertId
+    || null;
+  if (!(await confirmInApp({
+    title: "删除计划",
+    message: linkedAlertId ? "确定删除这个计划吗？关联的预警也会一并删除。" : "确定删除这个计划吗？删除后不可恢复。",
+    confirmLabel: "删除",
+    tone: "danger",
+  }))) return;
+  if (linkedAlertId && !api.tradingAlertsDelete) {
+    showToast("当前版本不支持删除计划关联预警，计划未删除。", 5000);
+    return;
+  }
+  executionPlanDeleteBusyIds.add(planId);
+  state.executionPlanEndMenuId = null;
+  render();
+  const previousPlans = state.executionPlans;
+  const nextPlans = previousPlans.filter((item) => item.id !== planId);
+  try {
+    if (!saveExecutionPlans(state.executionPlansScope, nextPlans)) throw new Error("计划删除失败，未能保存计划列表");
+    state.executionPlans = nextPlans;
+    if (linkedAlertId) {
+      const response = await api.tradingAlertsDelete!({ alertId: linkedAlertId });
+      if (response?.ok === false) throw new Error(response.error?.message || "关联预警删除失败");
+    }
+    await refreshTradingAlerts();
+    showToast(linkedAlertId ? "计划及其关联预警已删除" : "计划已删除", 5000);
+  } catch (error) {
+    saveExecutionPlans(state.executionPlansScope, previousPlans);
+    state.executionPlans = previousPlans;
+    showToast(`删除计划失败：${errorMessage(error)}`, 5000);
+  } finally {
+    executionPlanDeleteBusyIds.delete(planId);
+    render();
+  }
+}
+
 function renderAutoTasksPage() {
   const tasks = state.autoTaskItems;
   const selectedTask = state.selectedAutoTaskId ? (tasks.find((task) => task.id === state.selectedAutoTaskId) ?? null)
@@ -36478,7 +36867,6 @@ function renderAutoTasksPage() {
   if (selectedTask) return renderAutoTaskDetailPage(selectedTask);
   return `
     <main class="auto-task-page">
-      ${renderPlanningNavigation("plans")}
       ${
         tasks.length
           ? `
@@ -36998,7 +37386,7 @@ function renderSkillsPlazaPage() {
       ${
         showInitialLoading
           ? ""
-          : `<section class="${mySkillsView ? "my-skills-grid" : "skills-masonry"}">
+          : `<section class="${mySkillsView ? "my-skills-grid" : "skills-masonry"}${cards.length ? "" : " skills-empty-state"}">
               ${
                 cards.length
                   ? cards.map((card) =>
@@ -40090,7 +40478,7 @@ function renderConversationListIcon(icon: "new-chat" | "account" | "plans" | "sk
 function renderConversationListActions() {
   const newConversationActive = state.activeView === "chat" && isBlankNewThread(state.currentThreadId);
   const accountActive = state.activeView === "account";
-  const planningActive = state.activeView === "autoTasks" || state.activeView === "alerts";
+  const planningActive = state.activeView === "plans" || state.activeView === "alerts";
   const skillsActive = state.activeView === "skillsPlaza";
   return `
     <div class="conversation-list-new-sticky">
@@ -43713,20 +44101,6 @@ function tradingExpertChartToggleLabel(expanded: boolean) {
   return expanded ? "收起K线画布" : "展开K线画布";
 }
 
-function binanceAccountPageToggleLabel(expanded: boolean) {
-  return expanded ? "收起账户页" : "展开账户页";
-}
-
-function renderBinanceAccountExpansionControl() {
-  const accountExpanded = state.rightCollapsed && !state.tradingExpertChartCollapsed;
-  const label = binanceAccountPageToggleLabel(accountExpanded);
-  return `
-    <button type="button" class="small-icon-button panel-toggle binance-account-page-expansion-toggle ${accountExpanded ? "expanded" : "collapsed"}" data-action="toggle-trading-expert-chart" data-trading-expert-account-expansion title="${label}" aria-label="${label}" aria-expanded="${accountExpanded ? "true" : "false"}">
-      ${renderPanelLayoutIcon("left")}
-    </button>
-  `;
-}
-
 function tradingExpertChartFocusToggleLabel(active: boolean) {
   return active ? "退出K线全屏" : "K线全屏";
 }
@@ -43821,7 +44195,6 @@ function syncTradingExpertCollapseControlsState() {
   const conversationExpanded = chartCollapsed && !panelCollapsed;
   const chartExpansionLocked = !chartExpanded && isTradingExpertConversationCollapseLocked(state.currentThreadId);
   const chartButtons = root.querySelectorAll<HTMLButtonElement>("[data-trading-expert-chart-expansion]");
-  const accountButtons = root.querySelectorAll<HTMLButtonElement>("[data-trading-expert-account-expansion]");
   const conversationButtons = root.querySelectorAll<HTMLButtonElement>("[data-trading-expert-conversation-expansion]");
   const focusButtons = root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-trading-expert-chart-focus"]');
   const syncButton = (
@@ -43853,16 +44226,6 @@ function syncTradingExpertCollapseControlsState() {
     chartButton.hidden = chartCollapsed || chartExpansionLocked;
     if (chartExpansionLocked) chartButton.setAttribute("aria-hidden", "true");
     else chartButton.removeAttribute("aria-hidden");
-  });
-  accountButtons.forEach((accountButton) => {
-    syncButton(
-      accountButton,
-      chartExpanded,
-      false,
-      binanceAccountPageToggleLabel(chartExpanded),
-      "",
-      "left",
-    );
   });
   conversationButtons.forEach((panelButton) => {
     syncButton(
@@ -43896,6 +44259,471 @@ function renderTradingExpertConversation(thread: ConversationSummary) {
       ${renderMessageScrollBottomButton()}
     </div>
   `;
+}
+
+const TRADING_PREFERENCE_ONBOARDING_GREETING =
+  "未来的顶尖分析师，你好！我是 Haolo，你的全能交易助理。接下来我们会通过几段简短对话了解你的交易偏好。现在可以开始吗？";
+const TRADING_PREFERENCE_THREAD_TITLE = "配置交易偏好";
+
+const TRADING_PREFERENCE_QUESTION_ONE = [
+  "**第一组：单笔风险控制**",
+  "",
+  "每笔交易触发止损后，你最多允许亏损当前账户净值的百分之多少？",
+  "",
+  "这里计算的是包含手续费和预估滑点后的实际亏损，不是保证金比例。例如账户净值为 10,000 USDT，单笔风险设置为 2%，代表这笔交易最多亏损约 200 USDT。",
+  "",
+  "**Haolo 推荐：单笔风险为2%。你也可以根据自己的风险承受能力设置更高或更低的比例，系统会以你明确填写的数值作为单笔风险上限。**",
+  "",
+  "你可以回复一个自定义比例，或回复“同意”采用推荐值并继续下一题。",
+].join("\n");
+
+const TRADING_PREFERENCE_QUESTION_TWO = [
+  "**第二组：浮盈保护和盈亏比**",
+  "",
+  "交易出现浮盈后，你是否需要将止损移动到保本位置？如果需要，希望浮盈达到多少时执行？",
+  "",
+  "这里的 1R 代表这笔交易最初承担的风险。例如计划最多亏损 200 USDT，那么浮盈达到 200 USDT 就是达到 1R。保本位置会覆盖手续费和预估滑点，避免名义保本但实际仍然亏损。",
+  "",
+  "同时，你能接受的最低盈亏比是多少？例如盈亏比 2:1，表示计划盈利空间至少是止损风险的2倍。",
+  "",
+  "**Haolo 推荐：浮盈达到1R后移动保本，最低净盈亏比为2:1。**",
+  "",
+  "你可以回复“同意”，也可以自定义，例如“1.5R后保本，最低盈亏比3:1”或“不移动保本”。",
+].join("\n");
+
+const TRADING_PREFERENCE_QUESTION_THREE = [
+  "**最后一组：分析方式和交易纪律**",
+  "",
+  "你希望 Haolo 的分析默认偏简洁还是详细？",
+  "",
+  "对于持仓分析和交易计划，是否固定包含以下内容：仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件？",
+  "",
+  "如果你还有必须遵守的交易纪律或绝对不能触碰的禁忌，也可以一起告诉我。例如“不允许亏损加仓”“不做逆势交易”或“不在重大数据公布前开仓”。",
+  "",
+  "**Haolo 推荐：普通回答保持简洁；持仓分析和交易计划保持结构完整；遇到高风险或规则冲突时自动提供详细说明。**",
+  "",
+  "你可以回复“同意”，也可以直接说出自己的要求。",
+].join("\n");
+
+const TRADING_PREFERENCE_BINANCE_INVITATION = [
+  "为了让后续交易分析更贴合你的真实账户情况，是否愿意连接币安账户的只读权限？",
+  "",
+  "连接后，Haolo 可以结合你的账户余额、持仓和风险敞口提供更有针对性的分析。只读权限不能下单、转账或修改账户设置。",
+].join("\n");
+
+const TRADING_PREFERENCE_REQUIRED_SECTIONS =
+  "仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件";
+
+type TradingPreferenceAnswers = {
+  maxLossPerTradePercent?: number;
+  moveStopToBreakEven?: boolean;
+  breakEvenTriggerR?: number;
+  minimumRiskRewardRatio?: number;
+  analysisStyle?: "concise" | "detailed";
+  requiredSections?: "fixed" | "adaptive";
+  customRules?: string;
+};
+
+type TradingPreferenceOnboardingFlow = {
+  stage: 1 | 2 | 3 | "saving" | "save-error";
+  answers: TradingPreferenceAnswers;
+  itemIds: string[];
+  userStatements: string[];
+};
+
+let tradingPreferenceProfileLoadStatus: "idle" | "loading" | "loaded" | "error" = "idle";
+let tradingPreferenceProfileCompleted = false;
+let tradingPreferenceProfileLoadGeneration = 0;
+const tradingPreferenceOnboardingByThreadId = new Map<string, TradingPreferenceOnboardingFlow>();
+
+function resetTradingPreferenceProfileState() {
+  tradingPreferenceProfileLoadGeneration += 1;
+  tradingPreferenceProfileLoadStatus = "idle";
+  tradingPreferenceProfileCompleted = false;
+  tradingPreferenceOnboardingByThreadId.clear();
+}
+
+async function loadTradingPreferenceProfile(options: { renderAfter?: boolean } = {}) {
+  if (!state.auth.authenticated || typeof api.getTradingPreferenceProfile !== "function") {
+    tradingPreferenceProfileLoadStatus = "loaded";
+    tradingPreferenceProfileCompleted = false;
+    if (options.renderAfter !== false) render();
+    return false;
+  }
+  const generation = ++tradingPreferenceProfileLoadGeneration;
+  tradingPreferenceProfileLoadStatus = "loading";
+  try {
+    const result = await api.getTradingPreferenceProfile();
+    if (generation !== tradingPreferenceProfileLoadGeneration) return false;
+    tradingPreferenceProfileCompleted = result?.completed === true
+      || result?.profile?.onboardingCompleted === true;
+    tradingPreferenceProfileLoadStatus = "loaded";
+    return true;
+  } catch {
+    if (generation !== tradingPreferenceProfileLoadGeneration) return false;
+    tradingPreferenceProfileCompleted = false;
+    tradingPreferenceProfileLoadStatus = "error";
+    return false;
+  } finally {
+    if (generation === tradingPreferenceProfileLoadGeneration && options.renderAfter !== false) render();
+  }
+}
+
+function renderTradingPreferenceOnboardingEntry(thread: ConversationSummary) {
+  if (
+    !isTradingExpertThreadId(thread.id)
+    || tradingPreferenceProfileCompleted
+    || !["loaded", "error"].includes(tradingPreferenceProfileLoadStatus)
+    || messagesForThread(thread.id).length
+    || isThreadBusy(thread.id)
+  ) {
+    return "";
+  }
+  return `
+    <article class="message-row from-agent trading-preference-onboarding-message">
+      <div class="message-stack">
+        <div class="message-meta">Haolo</div>
+        <div class="message-bubble agent-bubble trading-preference-onboarding-bubble">
+          <div class="message-text">${escapeHtml(TRADING_PREFERENCE_ONBOARDING_GREETING)}</div>
+        </div>
+        <div class="trading-preference-onboarding-actions">
+          <button
+            type="button"
+            class="trading-preference-onboarding-start"
+            data-action="start-trading-preference-onboarding"
+          >开始</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function startTradingPreferenceOnboarding() {
+  const threadId = state.currentThreadId;
+  const thread = threadById(threadId);
+  if (
+    !threadId
+    || !thread
+    || !isTradingExpertThreadId(threadId)
+    || tradingPreferenceProfileCompleted
+    || messagesForThread(threadId).length
+    || isThreadBusy(threadId)
+  ) {
+    return;
+  }
+  const greetingItemId = `trading-preference-onboarding-greeting-${Date.now()}`;
+  const questionItemId = `trading-preference-onboarding-question-1-${Date.now()}`;
+  const greetingItem: CodexItem = {
+    id: greetingItemId,
+    type: "agentMessage",
+    text: TRADING_PREFERENCE_ONBOARDING_GREETING,
+    sender_label: "Haolo",
+    createdAt: new Date().toISOString(),
+    __youleLocalStatus: true,
+  };
+  const questionItem: CodexItem = {
+    id: questionItemId,
+    type: "agentMessage",
+    text: TRADING_PREFERENCE_QUESTION_ONE,
+    sender_label: "Haolo",
+    createdAt: new Date().toISOString(),
+    __youleLocalStatus: true,
+  };
+  upsertItem(threadId, greetingItem);
+  upsertItem(threadId, questionItem);
+  threadNameOverrides[threadId] = TRADING_PREFERENCE_THREAD_TITLE;
+  state.threads = sortThreadsForList(state.threads.map((candidate) => (
+    candidate.id === threadId
+      ? { ...candidate, name: TRADING_PREFERENCE_THREAD_TITLE }
+      : candidate
+  )));
+  tradingPreferenceOnboardingByThreadId.set(threadId, {
+    stage: 1,
+    answers: {},
+    itemIds: [greetingItemId, questionItemId],
+    userStatements: [],
+  });
+  render();
+  scheduleScrollMessagesToBottom();
+}
+
+function tradingPreferenceReplyUsesCurrentRecommendation(text: string) {
+  return /^同意[。！!]?$/.test(text.trim());
+}
+
+function tradingPreferenceNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Number(number.toFixed(4)) : null;
+}
+
+function tradingPreferencePercentFromReply(text: string) {
+  const match = text.match(/(?:百分之\s*)?(\d+(?:\.\d+)?)\s*(?:%|％|百分比)?/);
+  return tradingPreferenceNumber(match?.[1]);
+}
+
+function applyTradingPreferenceRecommendedRemaining(flow: TradingPreferenceOnboardingFlow) {
+  flow.answers.maxLossPerTradePercent ??= 2;
+  flow.answers.moveStopToBreakEven ??= true;
+  flow.answers.breakEvenTriggerR ??= 1;
+  flow.answers.minimumRiskRewardRatio ??= 2;
+  flow.answers.analysisStyle ??= "concise";
+  flow.answers.requiredSections ??= "fixed";
+}
+
+function tradingPreferenceQuestionTwoAnswers(text: string) {
+  const noBreakEven = /(?:不|无需|不用|取消).{0,6}(?:移动)?保本|不移动(?:止损|保本)/.test(text);
+  const triggerMatch = text.match(/(\d+(?:\.\d+)?)\s*[rR]\b/);
+  const rewardRiskMatch = text.match(/(\d+(?:\.\d+)?)\s*[:：比]\s*1(?:\b|\s|$)/);
+  const riskRewardMatch = text.match(/(?:^|\D)1\s*[:：比]\s*(\d+(?:\.\d+)?)(?:\b|\s|$)/);
+  const triggerR = tradingPreferenceNumber(triggerMatch?.[1]);
+  const minimumRiskRewardRatio = tradingPreferenceNumber(rewardRiskMatch?.[1] || riskRewardMatch?.[1]);
+  if (!noBreakEven && triggerR === null && minimumRiskRewardRatio === null) return null;
+  return {
+    moveStopToBreakEven: !noBreakEven,
+    breakEvenTriggerR: noBreakEven ? 1 : triggerR ?? 1,
+    minimumRiskRewardRatio: minimumRiskRewardRatio ?? 2,
+  };
+}
+
+function tradingPreferenceQuestionThreeAnswers(text: string) {
+  const analysisStyle: "concise" | "detailed" = /详细|展开|完整说明/.test(text)
+    ? "detailed"
+    : "concise";
+  const requiredSections: "fixed" | "adaptive" = /不固定|无需固定|不用固定|按需|自动决定/.test(text)
+    ? "adaptive"
+    : "fixed";
+  const customRules = /必须|禁止|不允许|不能|只做|不做|禁忌|不得/.test(text)
+    ? text.replace(/\u0000/g, "").trim().slice(0, 1_800)
+    : "";
+  return { analysisStyle, requiredSections, customRules };
+}
+
+function appendTradingPreferenceMessage(
+  threadId: string,
+  role: "user" | "assistant",
+  text: string,
+  flow: TradingPreferenceOnboardingFlow,
+  actions: MessageAction[] = [],
+) {
+  const id = `trading-preference-${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const item: CodexItem = role === "user"
+    ? {
+        id,
+        type: "userMessage",
+        role: "user",
+        text,
+        content: [{ text, attachments: [] }],
+        createdAt: new Date().toISOString(),
+        __youleLocalStatus: true,
+      }
+    : {
+        id,
+        type: "agentMessage",
+        text,
+        sender_label: "Haolo",
+        createdAt: new Date().toISOString(),
+        __youleLocalStatus: true,
+        ...(actions.length ? { actions } : {}),
+      };
+  upsertItem(threadId, item);
+  flow.itemIds.push(id);
+  return item;
+}
+
+function tradingPreferenceMemoryEntries(answers: TradingPreferenceAnswers) {
+  const entries: Array<{
+    scope: string;
+    kind: "preference" | "constraint" | "fact" | "goal";
+    key: string;
+    value: string | number | boolean;
+    strength: "normal" | "hard";
+  }> = [
+    { scope: "trading.profile", kind: "fact", key: "onboarding_completed", value: true, strength: "normal" },
+    { scope: "trading.risk", kind: "constraint", key: "max_loss_per_trade_percent", value: answers.maxLossPerTradePercent ?? 2, strength: "hard" },
+    { scope: "trading.risk", kind: "constraint", key: "loss_calculation_basis", value: "按当前账户净值计算止损触发后的实际亏损，包含手续费和预估滑点，不按保证金比例计算", strength: "hard" },
+    { scope: "trading.risk", kind: "constraint", key: "minimum_risk_reward_ratio", value: answers.minimumRiskRewardRatio ?? 2, strength: "hard" },
+    { scope: "trading.exit", kind: "preference", key: "move_stop_to_break_even", value: answers.moveStopToBreakEven !== false, strength: "normal" },
+    { scope: "trading.exit", kind: "preference", key: "break_even_trigger_r", value: answers.breakEvenTriggerR ?? 1, strength: "normal" },
+    { scope: "communication", kind: "preference", key: "trading_analysis_style", value: answers.analysisStyle ?? "concise", strength: "normal" },
+    { scope: "trading.analysis", kind: "preference", key: "required_analysis_sections", value: answers.requiredSections === "adaptive" ? "根据问题按需选择栏目" : TRADING_PREFERENCE_REQUIRED_SECTIONS, strength: "normal" },
+    { scope: "trading.discipline", kind: "constraint", key: "default_execution_discipline", value: "先确定止损和失效条件再计算仓位；不得通过随意缩小止损距离放大仓位；不默认使用马丁格尔或亏损加仓；亏损后可以继续寻找新机会，但不得为了回本提高风险或降低交易标准", strength: "hard" },
+    { scope: "trading.behavior", kind: "preference", key: "risk_conflict_handling", value: "明确提示规则冲突和风险，并提供符合已保存风险规则的备选方案", strength: "normal" },
+  ];
+  if (answers.customRules) {
+    entries.push({
+      scope: "trading.discipline",
+      kind: "constraint",
+      key: "user_custom_rules",
+      value: answers.customRules,
+      strength: "hard",
+    });
+  }
+  return entries;
+}
+
+function tradingPreferenceCompletionText(answers: TradingPreferenceAnswers) {
+  const breakEven = answers.moveStopToBreakEven === false
+    ? "不自动移动保本"
+    : `浮盈达到 ${answers.breakEvenTriggerR ?? 1}R 后移动至覆盖交易成本的保本位置`;
+  const style = answers.analysisStyle === "detailed" ? "详细" : "简洁";
+  const sections = answers.requiredSections === "adaptive"
+    ? "持仓分析和交易计划按问题选择必要栏目"
+    : `持仓分析和交易计划固定包含${TRADING_PREFERENCE_REQUIRED_SECTIONS}`;
+  const lines = [
+    "配置完成，我已经将你的交易偏好安全保存到长期记忆：",
+    "",
+    `- 单笔最大风险：当前账户净值的 ${answers.maxLossPerTradePercent ?? 2}%；`,
+    `- 浮盈保护：${breakEven}；`,
+    `- 最低净盈亏比：${answers.minimumRiskRewardRatio ?? 2}:1；`,
+    `- 回答风格：默认${style}；`,
+    `- 分析结构：${sections}；`,
+    ...(answers.customRules ? [`- 你的补充纪律：${answers.customRules}；`] : []),
+    "- 规则冲突时：提示具体风险并提供符合规则的备选方案。",
+    "",
+    "以后无论使用普通分析、技能还是交易策略，我都会参考这份配置。你也可以随时告诉我修改交易偏好。",
+  ];
+  return lines.join("\n");
+}
+
+async function saveTradingPreferenceOnboarding(
+  threadId: string,
+  flow: TradingPreferenceOnboardingFlow,
+) {
+  applyTradingPreferenceRecommendedRemaining(flow);
+  flow.stage = "saving";
+  render();
+  try {
+    if (typeof api.saveTradingPreferenceProfile !== "function") {
+      throw new Error("当前客户端不支持交易偏好长期记忆，请升级后重试");
+    }
+    const result = await api.saveTradingPreferenceProfile({
+      userStatement: flow.userStatements.join("；").slice(0, 2_000)
+        || "我同意采用 Haolo 推荐的交易配置，并要求长期保存。",
+      entries: tradingPreferenceMemoryEntries(flow.answers),
+    });
+    if (result?.ok !== true || result?.completed !== true) {
+      throw new Error("交易偏好没有完整写入长期记忆");
+    }
+    tradingPreferenceProfileCompleted = true;
+    tradingPreferenceProfileLoadStatus = "loaded";
+    const completionItem = appendTradingPreferenceMessage(
+      threadId,
+      "assistant",
+      tradingPreferenceCompletionText(flow.answers),
+      flow,
+    );
+    const binanceInvitationItem = appendTradingPreferenceMessage(
+      threadId,
+      "assistant",
+      TRADING_PREFERENCE_BINANCE_INVITATION,
+      flow,
+      [{
+        id: "connect-binance-account",
+        kind: "navigate",
+        label: "连接币安",
+        destination: "binance-account",
+      }],
+    );
+    const transcriptItems = flow.itemIds
+      .map((id) => state.items[threadId]?.[id])
+      .filter((item): item is CodexItem => Boolean(item));
+    tradingPreferenceOnboardingByThreadId.delete(threadId);
+    setMessageStreamFollow(threadId, true);
+    render();
+    scheduleScrollMessagesToBottom();
+    void persistCompletedTradingExpertTranscript(
+      threadId,
+      transcriptItems.length ? transcriptItems : [completionItem, binanceInvitationItem],
+      { title: TRADING_PREFERENCE_THREAD_TITLE },
+    );
+  } catch (error) {
+    flow.stage = "save-error";
+    appendTradingPreferenceMessage(
+      threadId,
+      "assistant",
+      `偏好暂时没有保存成功：${errorMessage(error)}\n\n请回复“重试保存”，我会保留你刚才的答案并再次保存。`,
+      flow,
+    );
+    render();
+    scheduleScrollMessagesToBottom();
+  }
+}
+
+async function handleTradingPreferenceOnboardingReply(
+  threadId: string,
+  text: string,
+  input: HTMLTextAreaElement | null,
+) {
+  const flow = tradingPreferenceOnboardingByThreadId.get(threadId);
+  if (!flow) return false;
+  if (state.attachments.length) {
+    showToast("交易偏好问答只需要文字，请先移除附件", 3200);
+    return true;
+  }
+  if (flow.stage === "saving") return true;
+  const reply = text.replace(/\u0000/g, "").trim();
+  if (!reply) return true;
+  if (flow.stage === "save-error" && /^(?:重试保存|重试)[。！!]?$/i.test(reply)) {
+    appendTradingPreferenceMessage(threadId, "user", reply, flow);
+    clearTradingExpertComposerAfterSend(threadId);
+    void saveTradingPreferenceOnboarding(threadId, flow);
+    return true;
+  }
+  appendTradingPreferenceMessage(threadId, "user", reply, flow);
+  flow.userStatements.push(reply);
+  clearTradingExpertComposerAfterSend(threadId);
+
+  if (flow.stage === 1) {
+    const percent = tradingPreferenceReplyUsesCurrentRecommendation(reply)
+      ? 2
+      : tradingPreferencePercentFromReply(reply);
+    if (percent === null) {
+      appendTradingPreferenceMessage(
+        threadId,
+        "assistant",
+        "我还没有识别到单笔风险比例。你可以回复“2%”“1.5%”“10%”或“同意”。完成本题后我们会继续下一题。",
+        flow,
+      );
+    } else if (percent > 100) {
+      appendTradingPreferenceMessage(
+        threadId,
+        "assistant",
+        `单笔亏损比例不能超过账户净值的 100%。请填写 0.01%–100% 之间的比例，例如“2%”或“10%”。`,
+        flow,
+      );
+    } else {
+      flow.answers.maxLossPerTradePercent = percent;
+      flow.stage = 2;
+      appendTradingPreferenceMessage(threadId, "assistant", TRADING_PREFERENCE_QUESTION_TWO, flow);
+    }
+  } else if (flow.stage === 2) {
+    const answer = tradingPreferenceReplyUsesCurrentRecommendation(reply)
+      ? { moveStopToBreakEven: true, breakEvenTriggerR: 1, minimumRiskRewardRatio: 2 }
+      : tradingPreferenceQuestionTwoAnswers(reply);
+    if (!answer) {
+      appendTradingPreferenceMessage(
+        threadId,
+        "assistant",
+        "我还没有识别到保本或盈亏比设置。你可以回复“同意”“1.5R后保本，最低盈亏比3:1”或“不移动保本，最低盈亏比2:1”。",
+        flow,
+      );
+    } else {
+      Object.assign(flow.answers, answer);
+      flow.stage = 3;
+      appendTradingPreferenceMessage(threadId, "assistant", TRADING_PREFERENCE_QUESTION_THREE, flow);
+    }
+  } else if (flow.stage === 3 || flow.stage === "save-error") {
+    const answer = tradingPreferenceReplyUsesCurrentRecommendation(reply)
+      ? { analysisStyle: "concise" as const, requiredSections: "fixed" as const, customRules: "" }
+      : tradingPreferenceQuestionThreeAnswers(reply);
+    Object.assign(flow.answers, answer);
+    await saveTradingPreferenceOnboarding(threadId, flow);
+    return true;
+  }
+  setMessageStreamFollow(threadId, true);
+  render();
+  scheduleScrollMessagesToBottom();
+  return true;
 }
 
 function workflowRevisionNodePayload(node: WorkflowCanvasNode) {
@@ -47480,7 +48308,7 @@ function renderMessageScrollerContent(thread: ConversationSummary) {
     ? renderBlankThreadHero(thread.id)
     : "";
   const emptyContent = isTradingExpertThreadId(thread.id)
-    ? ""
+    ? renderTradingPreferenceOnboardingEntry(thread)
     : shouldHideEmptyChatStateDuringSwitch(thread.id)
     ? ""
     : blankThreadHero
@@ -47509,7 +48337,10 @@ function updateActiveMessageScroller() {
   if (isThreadSwitchMaterializing(thread.id)) return true;
   scroller.classList.toggle(
     "new-thread-scroller",
-    !messagesForThread(thread.id).length && !isThreadBusy(thread.id) && isBlankNewThread(thread.id),
+    !isTradingExpertThreadId(thread.id)
+      && !messagesForThread(thread.id).length
+      && !isThreadBusy(thread.id)
+      && isBlankNewThread(thread.id),
   );
   const previousScrollTop = scroller.scrollTop;
   suppressScrollDetection();
@@ -47876,7 +48707,8 @@ function newThreadModeForThread(threadId: string | null | undefined): NewThreadM
   if (threadId && providerDraftThreadIds.has(threadId)) {
     return isVideoExpertProviderThreadId(threadId) ? "video-generation" : "question-answer";
   }
-  return (threadId && newThreadModeByThreadId.get(threadId)) || "execution";
+  const mode = (threadId && newThreadModeByThreadId.get(threadId)) || "execution";
+  return mode === "multi-agent" ? "execution" : mode;
 }
 
 function isMediaCreationMode(
@@ -47964,60 +48796,18 @@ function composerModeIconForThread(threadId: string): ComposerModeIcon {
 }
 
 function renderComposerModePicker(threadId: string) {
-  const activeMode = newThreadModeForThread(threadId);
-  const menuOpen = state.composerModeMenuOpen;
-  const triggerLabel = composerModeLabel(threadId);
+  void threadId;
   return `
-    <div class="composer-mode-picker ${menuOpen ? "open" : ""}">
-      <button
-        type="button"
-        class="composer-mode-trigger"
-        data-action="toggle-composer-mode-menu"
-        aria-haspopup="menu"
-        aria-expanded="${menuOpen ? "true" : "false"}"
-        aria-label="当前${escapeAttr(triggerLabel)}，选择任务模式"
-        title="选择任务模式"
+    <div class="composer-mode-picker">
+      <div
+        class="composer-mode-trigger serial-only"
+        role="status"
+        aria-label="执行模式，已固定为串行执行"
+        title="执行模式（仅串行）"
       >
-        ${renderComposerModeIcon(composerModeIconForThread(threadId))}
-        <span>${escapeHtml(triggerLabel)}</span>
-        <svg class="composer-mode-trigger-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
-      </button>
-      ${
-        menuOpen
-          ? `<div class="composer-mode-menu" role="menu" aria-label="任务模式">
-              <button
-                type="button"
-                class="composer-mode-menu-button ${activeMode === "execution" || isMediaCreationMode(activeMode) ? "selected" : ""}"
-                data-new-thread-mode="execution"
-                role="menuitemradio"
-                aria-checked="${activeMode === "execution" || isMediaCreationMode(activeMode) ? "true" : "false"}"
-              >
-                ${renderComposerModeIcon("execution")}
-                <span>执行模式</span>
-              </button>
-              <button
-                type="button"
-                class="composer-mode-menu-button ${activeMode === "question-answer" ? "selected" : ""}"
-                data-new-thread-mode="question-answer"
-                role="menuitemradio"
-                aria-checked="${activeMode === "question-answer" ? "true" : "false"}"
-              >
-                ${renderComposerModeIcon("question-answer")}
-                <span>计划模式</span>
-              </button>
-              <button
-                type="button"
-                class="composer-mode-menu-button ${activeMode === "multi-agent" ? "selected" : ""}"
-                data-composer-cluster-mode="subagent"
-                role="menuitemradio"
-                aria-checked="${activeMode === "multi-agent" ? "true" : "false"}"
-              >
-                ${renderComposerModeIcon("cluster")}
-                <span>集群模式</span>
-              </button>
-            </div>`
-          : ""
-      }
+        ${renderComposerModeIcon("execution")}
+        <span>执行模式</span>
+      </div>
     </div>
   `;
 }
@@ -48062,6 +48852,7 @@ function applyCachedQuestionAnswerDefaultToDraft(threadId: string) {
 }
 
 async function switchNewThreadMode(mode: NewThreadMode) {
+  if (mode === "multi-agent") mode = "execution";
   const sourceThreadId = currentComposerThreadId();
   if (!sourceThreadId || !isBlankNewThread(sourceThreadId)) return;
   if (mode !== "execution") tradingExpertThreadIds.delete(sourceThreadId);
@@ -48201,20 +48992,16 @@ async function switchNewThreadMode(mode: NewThreadMode) {
 }
 
 async function switchComposerClusterMode(value: unknown) {
-  const nextMode = normalizeClusterModeVariant(value);
-  await switchNewThreadMode("multi-agent");
+  void value;
   const threadId = currentComposerThreadId();
   if (!threadId) return;
-  if (!ensureNativeMultiAgentModelSelection(threadId)) {
-    newThreadModeByThreadId.set(threadId, "execution");
-    clusterModeByThreadId.delete(threadId);
-    saveThreadPreferences();
-    showToast("集群模式需要可用的 GPT 执行模型，请先联系管理员配置模型池。", 4200);
-    render();
-    focusFormFieldAfterRender("#composerInput");
-    return;
-  }
-  selectClusterModeForThread(threadId, nextMode);
+  newThreadModeByThreadId.set(threadId, "execution");
+  clusterModeByThreadId.delete(threadId);
+  state.composerModeMenuOpen = false;
+  saveThreadPreferences();
+  showToast("Haolo 已固定为普通串行执行模式。", 3200);
+  render();
+  focusFormFieldAfterRender("#composerInput");
 }
 
 function renderBlankThreadHero(threadId: string) {
@@ -48327,7 +49114,15 @@ function renderMessage(message: Message, conversationMessages: Message[] = [mess
                   )
               : message.kind === "agent_card"
                 ? renderAgentCard(message)
-                : renderTextBubble(message, message.text || "", alignRight, { hideHoverBar: streaming, searchHighlightKeyword })
+                : renderTextBubble(message, message.text || "", alignRight, {
+                    hideHoverBar: streaming,
+                    searchHighlightKeyword,
+                    allowPlanAction:
+                      !streaming &&
+                      !fromUser &&
+                      message.kind !== "system" &&
+                      hasConclusiveAgentMessagePhase(state.items[message.conversation_id]?.[message.id]),
+                  })
         }
       </div>
       ${alignRight && showAvatar ? renderMessageAvatar(message, role) : ""}
@@ -48614,13 +49409,13 @@ function renderSubagentCluster(
         </span>
       </header>
       <div class="subagent-cluster-list">
-        ${agents.map((agent, index) => renderSubagentClusterRow(agent, index)).join("")}
+        ${agents.map((agent) => renderSubagentClusterRow(agent)).join("")}
       </div>
     </section>
   `;
 }
 
-function renderSubagentClusterRow(agent: SubagentUiEntry, index: number) {
+function renderSubagentClusterRow(agent: SubagentUiEntry) {
   const active = agent.stage === "starting" || agent.stage === "working";
   const statusIcon = subagentStageIcon(agent.stage);
   const progress = Array.from({ length: SUBAGENT_PROGRESS_SEGMENTS }, (_, segmentIndex) => {
@@ -48631,12 +49426,10 @@ function renderSubagentClusterRow(agent: SubagentUiEntry, index: number) {
   return `
     <article class="subagent-cluster-row ${escapeAttr(agent.stage)}" data-open-subagent-thread="${escapeAttr(agent.threadId)}"
       role="button" tabindex="0" aria-label="在系统看板中查看 ${escapeAttr(agent.name)}">
-      <span class="subagent-cluster-avatar"><img src="${escapeAttr(agent.avatarUrl)}" alt="${escapeAttr(agent.name)}" /></span>
       <div class="subagent-cluster-row-main">
         <div class="subagent-cluster-identity">
           <span class="subagent-cluster-name">${escapeHtml(agent.name)}<span class="subagent-cluster-profession">（${escapeHtml(agent.profession)}）</span></span>
           <span class="subagent-cluster-stage"><i aria-hidden="true">${escapeHtml(statusIcon)}</i>${escapeHtml(agent.statusLabel)}</span>
-          <span class="subagent-cluster-index" aria-hidden="true">${String(index + 1).padStart(2, "0")}</span>
         </div>
         <div class="subagent-cluster-task"><i aria-hidden="true"></i><span>${escapeHtml(agent.task)}</span></div>
         <div class="subagent-cluster-progress" aria-label="${escapeAttr(`${agent.name}任务阶段 ${agent.progressSegments}/${SUBAGENT_PROGRESS_SEGMENTS}`)}">
@@ -49175,7 +49968,7 @@ function renderTextBubble(
   message: Message,
   text: string,
   fromUser: boolean,
-  options: { hideHoverBar?: boolean; searchHighlightKeyword?: string | null;
+  options: { hideHoverBar?: boolean; searchHighlightKeyword?: string | null; allowPlanAction?: boolean;
   } = {},
 ) {
   const content = messageDisplayContent(message, text);
@@ -49195,17 +49988,27 @@ function renderTextBubble(
   const localSendStatus = fromUser ? renderLocalSendStatus(message) : "";
   const attachmentMarkup = content.attachments.length ? renderAttachmentGrid(content.attachments, !fromUser) : "";
   const actionsMarkup = renderMessageActions(message);
-  const actionsBelowBubble = Boolean(message.actions?.some((action) => action.destination === "trading-alerts"));
+  const addToPlanMarkup = options.allowPlanAction
+    ? renderAddToPlanAction(message, content.text)
+    : "";
+  const actionsBelowBubble = Boolean(addToPlanMarkup) || Boolean(message.actions?.some((action) => (
+    action.destination === "trading-alerts" || action.destination === "binance-account"
+  )));
   return `
     <div class="message-bubble ${fromUser ? "user-bubble" : "agent-bubble"} ${message.kind === "system" ? "system-bubble" : ""}">
       ${turnResultHeader}
       ${conversationSupplementHeader}
       ${(content.threadReferences || []).map((reference) => renderMessageThreadReferencePreview(reference, options.searchHighlightKeyword)).join("")}
       ${content.quote ? renderMessageQuotePreview(content.quote, options.searchHighlightKeyword) : ""}
-      ${content.text ? `<div class="message-text">${formatMessageText(content.text, {
-        searchKeyword: options.searchHighlightKeyword,
-        assistantSkillDisplayAliases: !fromUser,
-      })}</div>` : ""}
+      ${content.text ? `<div class="message-text">${fromUser
+        ? formatMessageText(content.text, {
+            searchKeyword: options.searchHighlightKeyword,
+            assistantSkillDisplayAliases: false,
+          })
+        : renderMessageExecutionPlan(message, content.text, {
+            searchKeyword: options.searchHighlightKeyword,
+            assistantSkillDisplayAliases: true,
+          })}</div>` : ""}
       ${attachmentMarkup}
       ${actionsBelowBubble ? "" : actionsMarkup}
       ${localSendStatus}
@@ -49222,7 +50025,36 @@ function renderTextBubble(
           : ""
       }
     </div>
-    ${actionsBelowBubble ? actionsMarkup : ""}
+    ${actionsBelowBubble ? `${actionsMarkup}${addToPlanMarkup}` : ""}
+  `;
+}
+
+function executionPlanCandidateKey(threadId: string, messageId: string) {
+  return `${threadId}\u0000${messageId}`;
+}
+
+function renderAddToPlanAction(message: Message, text: string) {
+  const candidate = executionPlanCandidateFromText(text);
+  if (!candidate) return "";
+  syncExecutionPlansForCurrentAccount();
+  const key = executionPlanCandidateKey(message.conversation_id, message.id);
+  executionPlanCandidatesBySource.set(key, candidate);
+  const alreadyAdded = state.executionPlans.some((plan) => (
+    plan.sourceThreadId === message.conversation_id && plan.sourceMessageId === message.id
+  ));
+  return `
+    <div class="message-actions message-actions-below-bubble trading-preference-onboarding-actions execution-plan-message-actions">
+      <button
+        type="button"
+        class="message-action-button trading-preference-onboarding-start trading-preference-binance-connect message-add-to-plan"
+        data-message-action="add-to-plan"
+        data-message-action-kind="add-to-plan"
+        data-message-action-destination="execution-plans"
+        data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}"
+        data-execution-plan-message-id="${escapeAttr(message.id)}"
+        ${alreadyAdded ? 'disabled aria-disabled="true"' : ""}
+      >${alreadyAdded ? "已添加到计划" : "添加到计划"}</button>
+    </div>
   `;
 }
 
@@ -49265,9 +50097,15 @@ function localSendStatusFromRecord(record: Record<string, unknown> | Message | C
 function renderMessageActions(message: Message) {
   const actions = message.actions || [];
   if (!actions.length) return "";
-  const classes = actions.some((action) => action.destination === "trading-alerts")
-    ? "message-actions message-actions-below-bubble"
-    : "message-actions";
+  const actionsBelowBubble = actions.some((action) => (
+    action.destination === "trading-alerts" || action.destination === "binance-account"
+  ));
+  const hasBinanceAccountNavigation = actions.some((action) => action.destination === "binance-account");
+  const classes = [
+    "message-actions",
+    actionsBelowBubble ? "message-actions-below-bubble" : "",
+    hasBinanceAccountNavigation ? "trading-preference-onboarding-actions" : "",
+  ].filter(Boolean).join(" ");
   return `<div class="${classes}">${actions.map(renderMessageActionButton).join("")}</div>`;
 }
 
@@ -49276,10 +50114,11 @@ function renderMessageActionButton(action: MessageAction) {
   const actionId = firstString(action.id, kind, action.label) || "";
   const isRecharge = isRechargeTokenAction(action);
   const isTradingAlertsNavigation = action.destination === "trading-alerts";
+  const isBinanceAccountNavigation = action.destination === "binance-account";
   return `
     <button
       type="button"
-      class="message-action-button ${isRecharge ? "message-recharge-button" : ""} ${isTradingAlertsNavigation ? "message-trading-alert-link" : ""}"
+      class="message-action-button ${isRecharge ? "message-recharge-button" : ""} ${isTradingAlertsNavigation ? "message-trading-alert-link" : ""} ${isBinanceAccountNavigation ? "trading-preference-onboarding-start trading-preference-binance-connect" : ""}"
       data-message-action="${escapeAttr(actionId)}"
       data-message-action-kind="${escapeAttr(kind)}"
       ${action.text ? `data-message-action-text="${escapeAttr(action.text)}"` : ""}
@@ -50195,7 +51034,7 @@ function composerPlaceholderForThread(thread: ConversationSummary) {
     return "发送消息，输入 @ 可指定一个或多个群成员回复";
   }
   if (isTradingExpertThreadId(thread.id)) {
-    return "输入@调用 策略、指标、预警、知识库、自定义指标";
+    return "输入@调用 策略、指标、预警";
   }
   const threadBusy = isThreadBusy(thread.id) && !providerFromThreadId(thread.id);
   if (threadBusy && isLocalCodexThread(thread.id)) {
@@ -55612,10 +56451,6 @@ function renderSettingsDialog() {
               </svg>
               <span>GitHub</span>
             </button>
-            <button type="button" class="settings-nav-item ${activeTab === "dataProviders" ? "active" : ""}" data-settings-tab="dataProviders">
-              <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_GENERAL_ICON_URL)}" alt="" />
-              <span>数据提供方</span>
-            </button>
             ${
               ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS
                 ? `<button type="button" class="settings-nav-item ${activeTab === "models" ? "active" : ""}" data-settings-tab="models">
@@ -55645,7 +56480,7 @@ function renderSettingsDialog() {
           <button type="button" class="settings-close-button" data-action="close-settings" aria-label="关闭">
             <img src="${escapeAttr(SETTINGS_CLOSE_ICON_URL)}" alt="" />
           </button>
-          <h3>${activeTab === "profile" ? "个人资料" : activeTab === "models" ? "模型服务" : activeTab === "github" ? "GitHub" : activeTab === "dataProviders" ? "数据提供方" : activeTab === "about" ? "关于&反馈" : "通用设置"}</h3>
+          <h3>${activeTab === "profile" ? "个人资料" : activeTab === "models" ? "模型服务" : activeTab === "github" ? "GitHub" : activeTab === "about" ? "关于&反馈" : "通用设置"}</h3>
           ${
             activeTab === "profile"
               ? renderSettingsProfilePanel()
@@ -55653,8 +56488,6 @@ function renderSettingsDialog() {
               ? renderExternalModelSettingsPanel(state.settings.externalModels)
               : activeTab === "github"
               ? renderGitHubSettingsPanel()
-              : activeTab === "dataProviders"
-              ? renderTradingAlertDataProviderSettingsPanel()
               : activeTab === "about"
               ? renderSettingsAboutPanel()
               : `
@@ -55747,19 +56580,6 @@ function renderGitHubSettingsPanel() {
       }
     </div>
   `;
-}
-
-function renderTradingAlertDataProviderSettingsPanel() {
-  const providers = state.tradingAlerts.providers || [];
-  return `<section class="settings-data-providers" aria-label="交易预警数据提供方">
-    <p class="settings-data-providers-intro">预警只使用经过 Schema、时效、覆盖范围和健康检查的数据。凭证仅能通过提供方授权页或系统安全存储接入，请勿粘贴到聊天。</p>
-    ${providers.length ? providers.map((provider) => `<article>
-      <div><strong>${escapeHtml(provider.displayName)}</strong><span class="${provider.connectionState === "connected" ? "connected" : ""}">${provider.connectionState === "connected" ? "已连接并验证" : provider.connectionState === "degraded" ? "连接不稳定" : "等待连接"}</span></div>
-      <p>${escapeHtml((provider.fields || []).join("、"))}</p>
-      <small>${provider.permission === "public" ? "公共只读，不需要 API Key" : `最小授权：${escapeHtml(provider.permission)}`}</small>
-      <footer>${provider.docsUrl ? `<button type="button" data-trading-alert-provider-docs="${escapeAttr(provider.docsUrl)}">官方接入文档</button>` : ""}<button type="button" data-trading-alert-provider-refresh>重新验证</button></footer>
-    </article>`).join("") : `<div class="settings-data-providers-empty" role="status">尚未发现可执行的数据 Adapter。请让智能体根据当前草稿生成接口、Plugin、MCP、Webhook、数据库或文件接入清单。</div>`}
-  </section>`;
 }
 
 // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable settings action
@@ -56679,10 +57499,64 @@ function bindBinanceAccountEvents(scope: ParentNode) {
   });
 }
 
+function bindExecutionPlanEvents() {
+  if (root.dataset.executionPlanEventsBound === "1") return;
+  root.dataset.executionPlanEventsBound = "1";
+  root.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    const actionButton = target?.closest<HTMLButtonElement>("[data-execution-plan-action]");
+    if (actionButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const action = actionButton.dataset.executionPlanAction;
+      const planId = actionButton.dataset.executionPlanId || "";
+      if (!planId) return;
+      if (action === "start") void updateExecutionPlanLifecycle(planId, "executing");
+      else if (action === "reopen") void updateExecutionPlanLifecycle(planId, "pending");
+      else if (action === "open-end-menu") {
+        state.executionPlanEndMenuId = state.executionPlanEndMenuId === planId ? null : planId;
+        render();
+        queueMicrotask(() => {
+          root.querySelector<HTMLButtonElement>(`.execution-plan-end-menu [role="menuitem"]`)?.focus();
+        });
+      } else if (action === "close-end-menu") {
+        state.executionPlanEndMenuId = null;
+        render();
+      } else if (action === "end") {
+        const endReason = actionButton.dataset.executionPlanEndReason as ExecutionPlanEndReason;
+        if (!["take_profit", "stop_loss", "cancelled", "expired"].includes(endReason)) return;
+        void updateExecutionPlanLifecycle(planId, "ended", endReason);
+      } else if (action === "delete") {
+        void deleteExecutionPlan(planId);
+      }
+      return;
+    }
+    const filterButton = target?.closest<HTMLButtonElement>("[data-execution-plan-filter]");
+    if (!filterButton) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const filter = filterButton.dataset.executionPlanFilter as ExecutionPlanStatus;
+    if (!["pending", "executing", "ended"].includes(filter)) return;
+    state.executionPlanFilter = filter;
+    state.executionPlanEndMenuId = null;
+    render();
+  }, true);
+  root.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target?.closest(".execution-plan-end-menu")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.executionPlanEndMenuId = null;
+    render();
+  }, true);
+}
+
 function bindEvents() {
   bindWindowControls();
   bindLoginWeComQrEvents(false);
   bindCascadeMenuHoverEvents();
+  bindExecutionPlanEvents();
   root.querySelector<HTMLElement>(".desktop-shell")?.addEventListener("click", (event) => {
     const target = event.target;
     let shouldRender = false;
@@ -56758,6 +57632,10 @@ function bindEvents() {
     }
     if (state.autoTaskMenuTaskId && !(target instanceof Element && target.closest(".auto-task-item-actions, .auto-task-detail-actions"))) {
       state.autoTaskMenuTaskId = null;
+      shouldRender = true;
+    }
+    if (state.executionPlanEndMenuId && !(target instanceof Element && target.closest(".execution-plan-card-actions, .execution-plan-end-menu"))) {
+      state.executionPlanEndMenuId = null;
       shouldRender = true;
     }
     if (shouldRender) render();
@@ -57490,8 +58368,6 @@ function bindEvents() {
               ? "models"
               : button.dataset.settingsTab === "github"
                 ? "github"
-              : button.dataset.settingsTab === "dataProviders"
-                ? "dataProviders"
               : button.dataset.settingsTab === "about"
                 ? "about"
                 : "general";
@@ -57509,12 +58385,8 @@ function bindEvents() {
           state.settings.github.authorizing = false;
           state.settings.github.authorizationExpiresAt = null;
         }
-        if (tab === "dataProviders") void refreshTradingAlerts();
       });
     });
-  root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-provider-refresh]").forEach((button) => {
-    button.addEventListener("click", () => { button.disabled = true; void refreshTradingAlerts().finally(() => { if (button.isConnected) button.disabled = false; }); });
-  });
   root
     .querySelector<HTMLButtonElement>('[data-action="github-connect"]')
     ?.addEventListener("click", () => {
@@ -57743,12 +58615,12 @@ function bindEvents() {
     .querySelectorAll<HTMLButtonElement>('[data-conversation-static-action="plans"]')
     .forEach((button) => {
       button.addEventListener("click", () => {
-        openAutoTasksPage();
+        openExecutionPlansPage();
       });
     });
   root.querySelectorAll<HTMLButtonElement>("[data-planning-section]").forEach((button) => {
     button.addEventListener("click", () => {
-      if (button.dataset.planningSection === "plans") openAutoTasksPage();
+      if (button.dataset.planningSection === "plans") openExecutionPlansPage();
       else if (button.dataset.planningSection === "alerts") openTradingAlertsPage();
     });
   });
@@ -57776,9 +58648,6 @@ function bindEvents() {
     });
   });
   bindTradingAlertEditorSelects();
-  root.querySelectorAll<HTMLButtonElement>("[data-trading-alert-provider-docs]").forEach((button) => {
-    button.addEventListener("click", () => { const url = button.dataset.tradingAlertProviderDocs; if (url) void api.openExternal(url); });
-  });
   root.querySelector<HTMLFormElement>("[data-trading-alert-editor-form]")?.addEventListener("submit", (event) => {
     event.preventDefault();
     void submitTradingAlertRevision(event.currentTarget as HTMLFormElement);
@@ -59403,7 +60272,6 @@ function bindEvents() {
     .forEach((button) => button.addEventListener("click", () => {
       finishTradingExpertLayoutControlPointerInteraction(false);
       if (!isTradingExpertThreadId(state.currentThreadId)) return;
-      const accountExpansion = button.hasAttribute("data-trading-expert-account-expansion");
       if (state.tradingExpertChartFocusMode) {
         restoreTradingExpertChartFocusLayout();
         state.tradingExpertChartCollapsed = false;
@@ -59415,7 +60283,6 @@ function bindEvents() {
       }
       if (state.tradingExpertChartCollapsed) return;
       if (
-        !accountExpansion &&
         !state.rightCollapsed
         && isTradingExpertConversationCollapseLocked(state.currentThreadId)
       ) {
@@ -59435,6 +60302,9 @@ function bindEvents() {
       finishTradingExpertLayoutControlPointerInteraction(false);
       toggleTradingExpertChartFocusMode();
     }));
+  root
+    .querySelector<HTMLButtonElement>('[data-action="start-trading-preference-onboarding"]')
+    ?.addEventListener("click", startTradingPreferenceOnboarding);
   root
     .querySelector<HTMLInputElement>("#localGroupChatMemberSearch")
     ?.addEventListener("input", (event) => {
@@ -61282,6 +62152,61 @@ function toggleWindowMaximizedFromTitlebar() {
   }
 }
 
+async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
+  const sourceThreadId = button.dataset.executionPlanThreadId || "";
+  const sourceMessageId = button.dataset.executionPlanMessageId || "";
+  if (!sourceThreadId || !sourceMessageId) return;
+  syncExecutionPlansForCurrentAccount();
+  if (state.executionPlans.some((plan) => (
+    plan.sourceThreadId === sourceThreadId && plan.sourceMessageId === sourceMessageId
+  ))) {
+    button.disabled = true;
+    button.setAttribute("aria-disabled", "true");
+    button.textContent = "已添加到计划";
+    showToast("该计划已经添加");
+    return;
+  }
+  const candidate = executionPlanCandidatesBySource.get(
+    executionPlanCandidateKey(sourceThreadId, sourceMessageId),
+  );
+  if (!candidate) {
+    showToast("暂时无法读取这条执行计划，请刷新后重试");
+    return;
+  }
+  const sourceThread = state.threads.find((thread) => thread.id === sourceThreadId);
+  let plan = createSavedExecutionPlan({
+    candidate,
+    sourceThreadId,
+    sourceMessageId,
+    sourceTitle: sourceThread ? threadListDisplayName(sourceThread) : "来自智能体",
+    analysisLabel: tradingLastAnalysisLabelForThread(sourceThreadId),
+  });
+  button.disabled = true;
+  button.setAttribute("aria-disabled", "true");
+  button.textContent = "正在创建计划与预警…";
+  try {
+    const alertResult = await syncExecutionPlanLinkedAlert(plan);
+    plan = { ...plan, linkedAlertId: alertResult.alertId };
+    const nextPlans = [plan, ...state.executionPlans];
+    if (!saveExecutionPlans(state.executionPlansScope, nextPlans)) {
+      void api.tradingAlertsDelete?.({ alertId: alertResult.alertId })?.catch(() => {});
+      throw new Error("计划保存失败，已撤销对应预警");
+    }
+    state.executionPlans = nextPlans;
+    state.executionPlanFilter = "pending";
+    state.executionPlanEndMenuId = null;
+    button.textContent = "已添加到计划";
+    openExecutionPlansPage();
+    if (alertResult.warning) showToast("已添加到计划，入场预警正在等待行情重连", 5000);
+    else showToast("已添加到计划");
+  } catch (error) {
+    button.disabled = false;
+    button.removeAttribute("aria-disabled");
+    button.textContent = "添加到计划";
+    showToast(`添加计划失败：${errorMessage(error)}`, 5000);
+  }
+}
+
 function bindMessageContentEvents(container: ParentNode = root) {
   container.querySelectorAll<HTMLElement>("[data-open-subagent-thread]").forEach((card) => {
     const openSubagent = () => {
@@ -61304,8 +62229,16 @@ function bindMessageContentEvents(container: ParentNode = root) {
         openRechargePage();
         return;
       }
+      if (button.dataset.messageActionDestination === "execution-plans") {
+        void addExecutionPlanFromMessageAction(button);
+        return;
+      }
       if (button.dataset.messageActionDestination === "trading-alerts") {
         openTradingAlertsPage();
+        return;
+      }
+      if (button.dataset.messageActionDestination === "binance-account") {
+        openBinanceAccountPage();
         return;
       }
       const conversationId = button.dataset.messageActionConversation;
@@ -66655,6 +67588,12 @@ async function ensureTradingAlertEditorMarkets() {
 
 function openTradingAlertEditor(alertId: string) {
   const alert = state.tradingAlerts.alerts.find((entry) => entry.alertId === alertId);
+  if (tradingAlertIsExecutionPlanLinked(alert)) {
+    state.tradingAlerts.editorAlertId = null;
+    state.tradingAlerts.editorSelection = null;
+    showToast("该预警由计划自动管理，请前往计划卡片调整。", 5000);
+    return;
+  }
   if (tradingAlertHasDrawingContext(alert)) {
     state.tradingAlerts.editorAlertId = null;
     state.tradingAlerts.editorSelection = null;
@@ -66680,11 +67619,24 @@ function openTradingAlertEditor(alertId: string) {
   void ensureTradingAlertEditorMarkets();
 }
 
+function openExecutionPlansPage() {
+  if (state.activeView === "chat") rememberCurrentChatThreadSelection();
+  syncExecutionPlansForCurrentAccount();
+  state.activeView = "plans";
+  state.externalChannels.menuOpen = false;
+  state.profileMenuOpen = false;
+  state.skillSortMenuOpen = false;
+  state.chatPreview = null;
+  state.closingPreviewSource = null;
+  render();
+}
+
 function openTradingAlertsPage() {
   if (state.activeView === "chat") rememberCurrentChatThreadSelection();
   state.activeView = "alerts";
   state.tradingAlerts.editorAlertId = null;
   state.tradingAlerts.editorSelection = null;
+  state.executionPlanEndMenuId = null;
   syncTradingAlertEditorPeriods();
   state.externalChannels.menuOpen = false;
   state.profileMenuOpen = false;
@@ -66714,8 +67666,6 @@ function openBinanceAccountPage() {
   if (state.activeView === "chat") rememberCurrentChatThreadSelection();
   if (state.tradingExpertChartFocusMode) restoreTradingExpertChartFocusLayout();
   state.activeView = "account";
-  state.rightCollapsed = false;
-  state.tradingExpertChartCollapsed = false;
   state.contactChat.open = false;
   state.externalChannels.menuOpen = false;
   state.profileMenuOpen = false;
@@ -67259,14 +68209,14 @@ async function refreshTradingAlerts() {
   if (!api.tradingAlertsSnapshot) return;
   state.tradingAlerts.loading = true;
   state.tradingAlerts.error = null;
-  if (state.activeView === "alerts" || (state.settingsOpen && state.settings.tab === "dataProviders")) render();
+  if (state.activeView === "alerts") render();
   try {
     applyTradingAlertsSnapshot(state.tradingAlerts, await api.tradingAlertsSnapshot());
   } catch (error) {
     state.tradingAlerts.loading = false;
     state.tradingAlerts.error = errorMessage(error);
   }
-  if (state.activeView === "alerts" || (state.settingsOpen && state.settings.tab === "dataProviders")) render();
+  if (state.activeView === "alerts") render();
 }
 
 function openTradingAlertComposer() {
@@ -69639,8 +70589,7 @@ function isNoisyReconnectError(text: string) {
 
 function messageActionsFromItem(item: CodexItem) {
   const rawActions = (item as { actions?: unknown }).actions;
-  if (!Array.isArray(rawActions)) return undefined;
-  const actions = rawActions
+  const actions = (Array.isArray(rawActions) ? rawActions : [])
     .map((raw): MessageAction | null => {
       if (!raw || typeof raw !== "object") return null;
       const record = raw as Record<string, unknown>;
@@ -69657,7 +70606,19 @@ function messageActionsFromItem(item: CodexItem) {
       };
     })
     .filter((action): action is MessageAction => Boolean(action));
-  return actions.length ? actions : undefined;
+  if (actions.length) return actions;
+  if (
+    item.type === "agentMessage"
+    && assistantVisibleText(itemText(item)).trim() === TRADING_PREFERENCE_BINANCE_INVITATION
+  ) {
+    return [{
+      id: "connect-binance-account",
+      kind: "navigate",
+      label: "连接币安",
+      destination: "binance-account",
+    }];
+  }
+  return undefined;
 }
 
 function itemToMessage(threadId: string, id: string, item: CodexItem): Message {
@@ -71147,27 +72108,27 @@ function normalizePersistedThreadLastAssistantProviders(value: unknown): Record<
 function normalizePersistedThreadModes(value: unknown): Record<string, NewThreadMode> {
   if (!value || typeof value !== "object") return {};
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).filter(
-      (entry): entry is [string, NewThreadMode] =>
-        Boolean(
-          entry[0] &&
-            !isLocalBlankThreadId(entry[0]) &&
-            (entry[1] === "execution" ||
-              entry[1] === "multi-agent" ||
-              entry[1] === "image-generation" ||
-              entry[1] === "video-generation"),
-        ),
-    ),
+    Object.entries(value as Record<string, unknown>)
+      .filter(([threadId, mode]) => Boolean(
+        threadId
+        && !isLocalBlankThreadId(threadId)
+        && (
+          mode === "execution"
+          || mode === "multi-agent"
+          || mode === "image-generation"
+          || mode === "video-generation"
+        )
+      ))
+      .map(([threadId, mode]) => [
+        threadId,
+        mode === "multi-agent" ? "execution" : mode,
+      ] as [string, NewThreadMode]),
   );
 }
 
 function normalizePersistedClusterModes(value: unknown): Record<string, ClusterModeVariant> {
-  if (!value || typeof value !== "object") return {};
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([threadId, mode]) => Boolean(threadId && !isLocalBlankThreadId(threadId) && mode === "multi-model"))
-      .map(([threadId, mode]) => [threadId, normalizeClusterModeVariant(mode)]),
-  );
+  void value;
+  return {};
 }
 
 function normalizePersistedThreadContinuations(value: unknown): Record<string, ThreadContinuationRecord> {
@@ -71325,19 +72286,11 @@ function saveThreadPreferences() {
           shouldPersistThreadPreferenceId(threadId) &&
           !hiddenThreadIds.has(threadId) &&
           (mode === "execution" ||
-            mode === "multi-agent" ||
             mode === "image-generation" ||
             mode === "video-generation"),
       ),
     ),
-    clusterModes: Object.fromEntries(
-      [...clusterModeByThreadId].filter(
-        ([threadId, mode]) =>
-          shouldPersistThreadPreferenceId(threadId) &&
-          !hiddenThreadIds.has(threadId) &&
-          mode === "multi-model",
-      ),
-    ),
+    clusterModes: {},
     threadLastAssistantProviders: Object.fromEntries(
       [...threadLastAssistantProviderByThreadId].filter(
         ([threadId, provider]) =>

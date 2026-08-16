@@ -115,7 +115,8 @@ export function tradingSplitPaneDrawingStorageSessionId(storageSessionId: string
   const sessionId = storageSessionId.trim() || "trading-expert-unassigned";
   return `${sessionId}::split-pane:${Math.max(1, Math.trunc(paneIndex))}`;
 }
-export const TRADING_EXPERT_TREND_BAND_MENTION = "@自定义指标:趋势带";
+export const TRADING_EXPERT_TREND_BAND_MENTION = "@指标:趋势带";
+const LEGACY_TRADING_EXPERT_TREND_BAND_MENTION = "@自定义指标:趋势带";
 const MAX_TRADING_PERIODS = 10;
 const MAX_TRADING_FAVORITES = 500;
 export const MAX_TRADING_FAVORITE_TICKERS = 12;
@@ -166,7 +167,13 @@ function binanceMarketRateLimitMessage(retryAfterMs: number) {
 }
 
 export function hasTradingExpertTrendBandMention(text: string) {
-  return String(text || "").includes(TRADING_EXPERT_TREND_BAND_MENTION);
+  const source = String(text || "");
+  return (
+    source.includes(TRADING_EXPERT_TREND_BAND_MENTION)
+    || source.includes(TRADING_EXPERT_TREND_BAND_MENTION.replace(":", "："))
+    || source.includes(LEGACY_TRADING_EXPERT_TREND_BAND_MENTION)
+    || source.includes(LEGACY_TRADING_EXPERT_TREND_BAND_MENTION.replace(":", "："))
+  );
 }
 
 const TRADING_INDICATOR_AI_TOOLS = new Set(["path", "note", "text"]);

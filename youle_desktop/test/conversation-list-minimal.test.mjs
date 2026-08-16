@@ -94,10 +94,10 @@ test("the sidebar skills action opens the existing skills and plugins page", asy
   );
 });
 
-test("the bottom-left settings icon covers light and dark interaction states with shared theme tokens", async () => {
+test("the bottom-left settings icon blends into its sidebar and covers themed interaction states", async () => {
   const styles = await stylesSource;
 
-  assert.match(styles, /\.conversation-list-footer\s*\{[^}]*flex:\s*0 0 auto;[^}]*background:\s*var\(--app-chrome-background\);/s);
+  assert.match(styles, /\.conversation-list-footer\s*\{[^}]*flex:\s*0 0 auto;[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.conversation-list-settings-button\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-secondary\);/s);
   assert.match(styles, /\.conversation-list-settings-button:is\(:hover, :focus-visible\),[\s\S]*?\.conversation-list-settings-button\.active\s*\{[^}]*background:\s*var\(--conversation-action-hover\);[^}]*color:\s*var\(--text-primary\);/);
   assert.match(styles, /\.conversation-list-settings-button:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/s);

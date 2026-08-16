@@ -65,18 +65,14 @@ test("new-thread welcome stays focused and WebGuide scaffolding remains removed"
   assert.match(blankThreadHero, /data-action="toggle-new-thread-group-picker"/);
 
   const composerModePicker = sourceBlock(source, "function renderComposerModePicker", "function activeComposerDraftSnapshot");
+  assert.match(composerModePicker, /class="composer-mode-trigger serial-only"/);
+  assert.match(composerModePicker, /role="status"/);
   assert.match(composerModePicker, /<span>执行模式<\/span>/);
-  assert.match(composerModePicker, /<span>计划模式<\/span>/);
   assert.doesNotMatch(composerModePicker, /<span>问答模式<\/span>/);
-  assert.match(composerModePicker, /<span>集群模式<\/span>/);
-  assert.match(
-    composerModePicker,
-    /<span>执行模式<\/span>[\s\S]*<span>计划模式<\/span>[\s\S]*<span>集群模式<\/span>/,
-  );
+  assert.doesNotMatch(composerModePicker, /<span>计划模式<\/span>/);
+  assert.doesNotMatch(composerModePicker, /<span>集群模式<\/span>/);
   assert.doesNotMatch(composerModePicker, /<span>媒体创作<\/span>/);
-  assert.match(composerModePicker, /data-new-thread-mode="execution"/);
-  assert.doesNotMatch(composerModePicker, /data-new-thread-mode="media-creation"/);
-  assert.match(composerModePicker, /data-composer-cluster-mode="subagent"/);
+  assert.doesNotMatch(composerModePicker, /data-new-thread-mode|data-composer-cluster-mode/);
   assert.doesNotMatch(
     composerModePicker,
     /data-composer-mode-cascade|composer-mode-submenu|composer-mode-menu-chevron/,

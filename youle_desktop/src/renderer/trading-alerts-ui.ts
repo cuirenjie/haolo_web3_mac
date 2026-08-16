@@ -183,7 +183,51 @@ function statusMeta(alert: any) {
   if (alert.status === "cooling_down") return { label: "冷却中", tone: "loading" };
   if (["failed", "gap_detected", "reconnecting"].includes(alert.status)) return { label: alert.status === "gap_detected" ? "存在空档" : alert.status === "reconnecting" ? "重连中" : "需要处理", tone: "attention" };
   if (alert.status === "arming") return { label: "正在预热", tone: "loading" };
+  if (tradingAlertIsExecutionPlanLinked(alert)) {
+    return executionPlanAlertActiveConditionIds(alert.rule).has("execution-plan-entry")
+      ? { label: "监控入场", tone: "monitoring" }
+      : { label: "监控风控", tone: "monitoring" };
+  }
   return { label: "监控中", tone: "monitoring" };
+}
+
+export function tradingAlertIsExecutionPlanLinked(alert: any) {
+  return String(alert?.rule?.ruleId || "").startsWith("execution-plan-alert-");
+}
+
+function executionPlanAlertActiveConditionIds(rule: any) {
+  const ids = new Set<string>();
+  const visit = (node: any) => {
+    if (node?.type === "condition" && node.condition?.conditionId) {
+      ids.add(String(node.condition.conditionId));
+      return;
+    }
+    if (Array.isArray(node?.children)) node.children.forEach(visit);
+  };
+  visit(rule?.root);
+  return ids;
+}
+
+function renderExecutionPlanAlertConditions(alert: any) {
+  const conditionIds = [
+    "execution-plan-entry",
+    "execution-plan-stop-loss",
+    "execution-plan-take-profit",
+  ];
+  const activeIds = alert.enabled ? executionPlanAlertActiveConditionIds(alert.rule) : new Set<string>();
+  const lines = String(alert.rule?.normalizedSummary || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return `<div class="trading-alert-plan-conditions" aria-label="计划联动预警条件">
+    ${lines.map((line, index) => {
+      const separator = line.indexOf("｜");
+      const phase = separator >= 0 ? line.slice(0, separator).trim() : "计划";
+      const description = separator >= 0 ? line.slice(separator + 1).trim() : line;
+      const active = activeIds.has(conditionIds[index] || "");
+      return `<p class="trading-alert-plan-condition${active ? " active" : ""}"><span>${esc(phase)}</span><b>${esc(description)}</b></p>`;
+    }).join("")}
+  </div>`;
 }
 
 function marketLabels(rule: any) {
@@ -220,24 +264,30 @@ function renderAlertCard(state: TradingAlertsUiState, alert: any) {
   const evidence = state.evidence.filter((entry) => entry.alertId === alert.alertId);
   const busy = state.busyAlertId === alert.alertId;
   const drawingLocked = tradingAlertHasDrawingContext(alert);
+  const planLinked = tradingAlertIsExecutionPlanLinked(alert);
+  const editLocked = drawingLocked || planLinked;
   const clock = alert.rule?.evaluationPolicy?.clock === "bar_close" ? "收盘确认" : alert.rule?.evaluationPolicy?.clock === "mixed" ? "多个条件" : "盘中实时";
   const mode = alert.rule?.triggerPolicy?.mode === "repeat" ? "重复监控" : "一次性";
   const market = marketLabels(alert.rule)[0] || "未指定市场";
   const title = formatTradingAlertDisplayText(alert.rule?.title || "交易预警");
   const summary = formatTradingAlertCardSummary(alert.rule?.normalizedSummary || "等待规则摘要", market);
+  const details = planLinked
+    ? renderExecutionPlanAlertConditions(alert)
+    : `<p title="${esc(summary)}">${esc(summary)}</p>`;
+  const metadata = planLinked ? `${market} · ${clock} · 随计划自动管理` : `${market} · ${clock} · ${mode}`;
   return `
-    <article class="trading-alert-card ${esc(status.tone)}" data-trading-alert-card="${esc(alert.alertId)}">
+    <article class="trading-alert-card ${esc(status.tone)}${planLinked ? " execution-plan-linked" : ""}" data-trading-alert-card="${esc(alert.alertId)}">
       <span class="trading-alert-status ${esc(status.tone)}">${esc(status.label)}</span>
       <div class="trading-alert-card-copy">
         <h2 title="${esc(title)}">${esc(title)}</h2>
-        <p title="${esc(summary)}">${esc(summary)}</p>
-        <small title="${esc(`${market} · ${clock} · ${mode}`)}">${esc(market)} · ${esc(clock)} · ${esc(mode)}</small>
+        ${details}
+        <small title="${esc(metadata)}">${esc(metadata)}</small>
       </div>
       <footer>
         <span title="${esc(gaps.length ? "存在监控空档" : alert.failure || "")}">${gaps.length ? "监控空档" : evidence.length ? `触发 ${evidence.length} 次` : `Revision ${esc(alert.rule?.revision || 1)}`}</span>
         <div class="trading-alert-actions">
           <button type="button" data-trading-alert-action="view" data-alert-id="${esc(alert.alertId)}">查看</button>
-          <button type="button" data-trading-alert-action="edit" data-alert-id="${esc(alert.alertId)}" ${busy || drawingLocked ? "disabled" : ""}${drawingLocked ? ' title="含画线条件的预警不能迁移，请回到原 K 线图操作" aria-label="编辑不可用：请回到原 K 线图操作"' : ""}>编辑</button>
+          ${busy || editLocked ? "" : `<button type="button" data-trading-alert-action="edit" data-alert-id="${esc(alert.alertId)}">编辑</button>`}
           <button type="button" data-trading-alert-action="${alert.enabled ? "pause" : "resume"}" data-alert-id="${esc(alert.alertId)}" ${busy || alert.status === "completed" ? "disabled" : ""}>${busy ? "处理中…" : alert.enabled ? "暂停" : "恢复"}</button>
           <button type="button" class="danger" data-trading-alert-action="delete" data-alert-id="${esc(alert.alertId)}" ${busy ? "disabled" : ""}>删除</button>
         </div>
@@ -386,7 +436,7 @@ function renderEditor(state: TradingAlertsUiState, alert: any) {
           { value: "once", label: "一次性" },
           { value: "repeat", label: "重复监控" },
         ], { opensAbove: true })}
-        <footer><button type="button" data-trading-alert-action="close-editor">取消</button><button type="submit" class="primary"${revisionBusy ? " disabled" : ""}>${revisionBusy ? "正在生成…" : "生成新预警"}</button></footer>
+        <footer><button type="button" class="secondary-button" data-trading-alert-action="close-editor">取消</button><button type="submit" class="primary-button"${revisionBusy ? " disabled" : ""}>${revisionBusy ? "正在生成…" : "生成新预警"}</button></footer>
       </form>
     </dialog>`;
 }
@@ -398,7 +448,9 @@ export function renderPlanningNavigation(activeSection: PlanningSection) {
 
 export function renderTradingAlertsPage(state: TradingAlertsUiState) {
   const editor = state.alerts.find((alert) => (
-    alert.alertId === state.editorAlertId && !tradingAlertHasDrawingContext(alert)
+    alert.alertId === state.editorAlertId
+    && !tradingAlertHasDrawingContext(alert)
+    && !tradingAlertIsExecutionPlanLinked(alert)
   ));
   const alerts = sortAlertsForDisplay(state.alerts.filter((alert) => alertMatchesFilter(alert, state.filter)));
   const counts = {
@@ -407,9 +459,12 @@ export function renderTradingAlertsPage(state: TradingAlertsUiState) {
     paused: state.alerts.filter((item) => alertMatchesFilter(item, "paused")).length,
   };
   const tabs: Array<[TradingAlertFilter, string]> = [["monitoring", "监控中"], ["triggered", "已触发"], ["paused", "已暂停"]];
+  const alertSubfilters = state.alerts.length
+    ? `<nav class="trading-alert-subfilters" aria-label="筛选预警">${tabs.map(([id, label]) => `<button type="button" class="${state.filter === id ? "active" : ""}" data-trading-alert-filter="${id}" aria-pressed="${state.filter === id}">${label}<span>${counts[id]}</span></button>`).join("")}</nav>`
+    : "";
   return `<main class="trading-alerts-page">
     ${renderPlanningNavigation("alerts")}
-    <nav class="trading-alert-subfilters" aria-label="筛选预警">${tabs.map(([id, label]) => `<button type="button" class="${state.filter === id ? "active" : ""}" data-trading-alert-filter="${id}" aria-pressed="${state.filter === id}">${label}<span>${counts[id]}</span></button>`).join("")}</nav>
+    ${alertSubfilters}
     <div class="trading-alert-list-scroll" role="region" aria-label="预警列表" tabindex="0">
       ${state.loading ? `<div class="trading-alert-loading" role="status"><span></span>正在读取预警…</div>` : alerts.length ? `<section class="trading-alert-card-grid">${alerts.map((alert) => renderAlertCard(state, alert)).join("")}</section>` : `<section class="trading-alert-empty"><p>当前筛选下没有预警</p></section>`}
     </div>

@@ -113,8 +113,8 @@ test("analysis excludes the live candle and succeeds without forcing a pattern",
   const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
   const plan = buildExecutionPlanV1(registry.list().find((item) => item.id === "bollinger-bands-analysis"), result);
   assert.equal(plan.action, "wait");
-  assert.match(formatExecutionPlanMarkdown(plan), /标准执行方案/);
-  assert.match(formatExecutionPlanMarkdown(plan), /取消执行/);
+  assert.match(formatExecutionPlanMarkdown(plan), /^## BTC\/USDT 币安永续 1H/m);
+  assert.doesNotMatch(formatExecutionPlanMarkdown(plan), /前置条件|确认方式|继续观察|方案有效期|取消执行/);
 });
 
 test("a live-only price spike cannot alter the deterministic closed-candle state", () => {

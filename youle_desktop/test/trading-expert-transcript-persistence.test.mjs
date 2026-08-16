@@ -80,6 +80,26 @@ test("trading alert success navigation survives transcript persistence and hydra
   assert.deepEqual(hydrated.thread.turns[0].items[0].actions, [action]);
 });
 
+test("Binance account navigation survives transcript persistence and hydration", () => {
+  const action = {
+    id: "connect-binance-account",
+    kind: "navigate",
+    label: "连接币安",
+    destination: "binance-account",
+  };
+  const assistant = {
+    ...transcriptItems()[1],
+    id: "trading-preference-binance-action",
+    text: "是否愿意连接币安账户的只读权限？",
+    actions: [action],
+  };
+  const [injected] = tradingTranscriptInjectionItems([assistant]);
+  assert.deepEqual(parseTradingTranscriptMarkerText(injected.content[0].text)?.actions, [action]);
+
+  const hydrated = withTradingTranscriptItems({ thread: { id: "thread-binance-action", turns: [] } }, [assistant]);
+  assert.deepEqual(hydrated.thread.turns[0].items[0].actions, [action]);
+});
+
 test("rollout recovery restores transcript items once after restart", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-trading-transcript-"));
   const rolloutPath = path.join(tempRoot, "rollout.jsonl");

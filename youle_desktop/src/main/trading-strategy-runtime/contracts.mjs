@@ -293,6 +293,53 @@ function validateScenario(value, field) {
   });
 }
 
+function validateAccountPlan(value, field) {
+  if (value === null || value === undefined) return null;
+  const source = plainObject(value, field);
+  const mode = boundedString(source.mode, `${field}.mode`, { max: 40 });
+  if (!["new_position", "manage_existing", "reduce_existing", "close_opposite"].includes(mode)) {
+    fail(`${field}.mode is invalid`);
+  }
+  const existingSide = source.existingSide === null || source.existingSide === undefined
+    ? null
+    : source.existingSide === "long" || source.existingSide === "short"
+      ? source.existingSide
+      : fail(`${field}.existingSide is invalid`);
+  return Object.freeze({
+    mode,
+    snapshotAt: finiteNumber(source.snapshotAt, `${field}.snapshotAt`, { min: 1 }),
+    equity: finiteNumber(source.equity, `${field}.equity`, { min: 0 }),
+    availableBalance: finiteNumber(source.availableBalance, `${field}.availableBalance`, { min: 0 }),
+    leverage: finiteNumber(source.leverage, `${field}.leverage`, { min: 1, max: 1_000 }),
+    notional: finiteNumber(source.notional, `${field}.notional`, { min: 0 }),
+    existingSide,
+    existingNotional: finiteNumber(source.existingNotional, `${field}.existingNotional`, { min: 0 }),
+    estimatedStopLoss: finiteNumber(source.estimatedStopLoss, `${field}.estimatedStopLoss`, {
+      min: 0,
+      nullable: true,
+    }),
+    estimatedTakeProfit: finiteNumber(source.estimatedTakeProfit, `${field}.estimatedTakeProfit`, {
+      min: 0,
+      nullable: true,
+    }),
+    estimatedRoundTripCostRate: finiteNumber(
+      source.estimatedRoundTripCostRate,
+      `${field}.estimatedRoundTripCostRate`,
+      { min: 0, max: 0.05 },
+    ),
+    targetOrders: frozenArray((source.targetOrders || []).slice(0, 8).map((item, index) => ({
+      targetIndex: finiteNumber(item?.targetIndex, `${field}.targetOrders[${index}].targetIndex`, { min: 0, max: 7 }),
+      price: finiteNumber(item?.price, `${field}.targetOrders[${index}].price`, { min: Number.EPSILON }),
+      notional: finiteNumber(item?.notional, `${field}.targetOrders[${index}].notional`, { min: 0 }),
+      estimatedNetProfit: finiteNumber(
+        item?.estimatedNetProfit,
+        `${field}.targetOrders[${index}].estimatedNetProfit`,
+        { min: 0 },
+      ),
+    }))),
+  });
+}
+
 export function validateExecutionPlan(value) {
   const source = plainObject(value, "executionPlan");
   if (Number(source.schemaVersion) !== EXECUTION_PLAN_SCHEMA_VERSION) fail("executionPlan.schemaVersion is unsupported");
@@ -302,6 +349,13 @@ export function validateExecutionPlan(value) {
   const entryMode = boundedString(entrySource.mode, "executionPlan.entry.mode", { max: 40 });
   if (!ALLOWED_ENTRY_MODES.has(entryMode)) fail("executionPlan.entry.mode is invalid");
   const sizingSource = plainObject(source.positionSizing, "executionPlan.positionSizing");
+  const accountStatus = ["unbound", "unavailable", "available"].includes(sizingSource.accountStatus)
+    ? sizingSource.accountStatus
+    : "unbound";
+  const accountPlan = validateAccountPlan(sizingSource.accountPlan, "executionPlan.positionSizing.accountPlan");
+  if (accountPlan && accountStatus !== "available") {
+    fail("executionPlan.positionSizing.accountPlan requires an available account");
+  }
   const plan = {
     schemaVersion: EXECUTION_PLAN_SCHEMA_VERSION,
     planId: boundedString(source.planId, "executionPlan.planId", { max: 160 }),
@@ -362,6 +416,21 @@ export function validateExecutionPlan(value) {
         max: 100,
         nullable: true,
       }),
+      maxPositionPercent: finiteNumber(sizingSource.maxPositionPercent, "executionPlan.positionSizing.maxPositionPercent", {
+        min: 0,
+        max: 100,
+        nullable: true,
+      }),
+      maxLeverage: finiteNumber(sizingSource.maxLeverage, "executionPlan.positionSizing.maxLeverage", {
+        min: 1,
+        max: 1_000,
+        nullable: true,
+      }),
+      minimumRiskRewardRatio: finiteNumber(
+        sizingSource.minimumRiskRewardRatio,
+        "executionPlan.positionSizing.minimumRiskRewardRatio",
+        { min: 0, max: 100, nullable: true },
+      ),
       formula: boundedString(sizingSource.formula, "executionPlan.positionSizing.formula", { max: 500 }),
       suggestedQuantity: finiteNumber(sizingSource.suggestedQuantity, "executionPlan.positionSizing.suggestedQuantity", {
         min: 0,
@@ -370,6 +439,8 @@ export function validateExecutionPlan(value) {
       unavailableReason: sizingSource.unavailableReason === null
         ? null
         : boundedString(sizingSource.unavailableReason, "executionPlan.positionSizing.unavailableReason", { max: 500 }),
+      accountStatus,
+      accountPlan,
     }),
     riskReward: frozenArray((source.riskReward || []).slice(0, 8).map((item, index) => ({
       targetIndex: finiteNumber(item?.targetIndex, `executionPlan.riskReward[${index}].targetIndex`, { min: 0, max: 7 }),

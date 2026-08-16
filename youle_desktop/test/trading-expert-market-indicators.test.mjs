@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-test("trend-band custom-indicator mention is recognized from composer text", async () => {
+test("trend-band indicator mention is recognized from composer text", async () => {
   const {
     TRADING_EXPERT_TREND_BAND_MENTION,
     hasTradingExpertTrendBandMention,
   } = await import("../src/renderer/trading-expert-market.ts");
 
-  assert.equal(TRADING_EXPERT_TREND_BAND_MENTION, "@自定义指标:趋势带");
+  assert.equal(TRADING_EXPERT_TREND_BAND_MENTION, "@指标:趋势带");
+  assert.equal(hasTradingExpertTrendBandMention("@指标:趋势带 "), true);
+  assert.equal(hasTradingExpertTrendBandMention("@指标：趋势带 "), true);
+  assert.equal(hasTradingExpertTrendBandMention("请启用 @指标:趋势带 看盘"), true);
   assert.equal(hasTradingExpertTrendBandMention("@自定义指标:趋势带 "), true);
-  assert.equal(hasTradingExpertTrendBandMention("请启用 @自定义指标:趋势带 看盘"), true);
-  assert.equal(hasTradingExpertTrendBandMention("@自定义指标:趋势"), false);
+  assert.equal(hasTradingExpertTrendBandMention("@自定义指标：趋势带 "), true);
+  assert.equal(hasTradingExpertTrendBandMention("@指标:趋势"), false);
   assert.equal(hasTradingExpertTrendBandMention(""), false);
   assert.equal(hasTradingExpertTrendBandMention("@策略:缠论"), false);
 });

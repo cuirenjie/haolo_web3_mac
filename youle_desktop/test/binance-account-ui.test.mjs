@@ -16,38 +16,32 @@ const serviceSource = readFile(new URL("../src/main/binance-account/service.mjs"
 const uiSource = readFile(new URL("../src/renderer/binance-account-ui.ts", import.meta.url), "utf8");
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 
-test("account navigation replaces the center canvas while preserving both side panels", async () => {
+test("account navigation uses the same full-width workspace layout as strategy", async () => {
   const source = await rendererSource;
+  const accountBranch = source.slice(
+    source.indexOf(': state.activeView === "account"'),
+    source.indexOf(': state.activeView === "contacts"'),
+  );
+  const openAccountBlock = source.slice(
+    source.indexOf("function openBinanceAccountPage"),
+    source.indexOf("function currentBinanceAccountProfitCalendarMonth"),
+  );
   assert.match(source, /type ViewId[\s\S]*\| "account"/);
   assert.match(source, /function openBinanceAccountPage[\s\S]*state\.activeView = "account"/);
-  assert.match(
-    source,
-    /state\.activeView === "account"[\s\S]*renderChatList\(\)[\s\S]*renderBinanceAccountPage\(state\.binanceAccount\)[\s\S]*renderAgentPanel\(thread\)/,
-  );
+  assert.match(accountBranch, /renderChatList\(\)[\s\S]*renderBinanceAccountPage\(state\.binanceAccount\)/);
+  assert.doesNotMatch(accountBranch, /renderAgentPanel|renderChatPanel|agent-panel/);
   assert.match(source, /data-conversation-static-action="account"/);
   assert.match(source, /const accountActive = state\.activeView === "account"/);
-  assert.match(
-    source,
-    /const tradingExpertPanelLayout =\s*tradingExpertLayout \|\|\s*\(state\.activeView === "account"[\s\S]*isTradingExpertThreadId\(thread\?\.id\)\)/,
-  );
-  assert.match(source, /tradingExpertPanelLayout \? "trading-expert-layout" : ""/);
+  assert.match(source, /tradingExpertLayout \? "trading-expert-layout" : ""/);
+  assert.doesNotMatch(source, /tradingExpertPanelLayout/);
   assert.match(source, /workspaceHasConversationList \? renderLeftPanelToggle\(\) : ""/);
   assert.doesNotMatch(
     source.slice(source.indexOf("function renderWindowControls"), source.indexOf("function renderLeftPanelToggle")),
     /renderLeftPanelToggle\(\)/,
   );
-  assert.match(
-    source,
-    /function openBinanceAccountPage\(\)[\s\S]*restoreTradingExpertChartFocusLayout\(\)[\s\S]*state\.rightCollapsed = false;[\s\S]*state\.tradingExpertChartCollapsed = false/,
-  );
-  assert.match(
-    source,
-    /state\.activeView === "account" && tradingExpertPanelLayout && !state\.tradingExpertChartCollapsed[\s\S]*renderBinanceAccountExpansionControl\(\)/,
-  );
-  assert.match(
-    source,
-    /function renderBinanceAccountExpansionControl\(\)[\s\S]*data-trading-expert-account-expansion[\s\S]*aria-expanded="\$\{accountExpanded \? "true" : "false"\}"/,
-  );
+  assert.match(openAccountBlock, /restoreTradingExpertChartFocusLayout\(\)[\s\S]*state\.activeView = "account"/);
+  assert.doesNotMatch(openAccountBlock, /state\.(?:rightCollapsed|tradingExpertChartCollapsed)\s*=/);
+  assert.doesNotMatch(source, /renderBinanceAccountExpansionControl|data-trading-expert-account-expansion|binanceAccountPageToggleLabel/);
   assert.match(
     source,
     /function toggleLeftPanelCollapsed\(\)[\s\S]*state\.activeView !== "chat" && state\.activeView !== "account"[\s\S]*state\.leftCollapsed = !state\.leftCollapsed/,
@@ -58,10 +52,7 @@ test("account navigation replaces the center canvas while preserving both side p
   );
   assert.match(source, /section === "assets" \|\| section === "positions" \|\| section === "open-orders" \|\| section === "history" \|\| section === "profit-calendar"/);
   assert.match(source, /section === "profit-calendar" && !state\.binanceAccount\.profitCalendar/);
-  assert.match(
-    source,
-    /state\.activeView === "chat" \|\| state\.activeView === "account"\) &&\s*state\.rightCollapsed/,
-  );
+  assert.match(source, /state\.activeView === "chat" && state\.rightCollapsed && !state\.chatPreview/);
 });
 
 test("unbound state and binding dialog match the complete secure flow", () => {
@@ -506,11 +497,8 @@ test("account styles cover light and dark surfaces plus every interactive state"
   const accountStyles = styles.slice(styles.indexOf("/* Binance account"));
   assert.match(styles, /--card-border-subtle: rgba\(17, 24, 39, 0\.04\);/);
   assert.match(styles, /html\[data-theme="dark"\] \{[\s\S]*?--card-border-subtle: rgba\(255, 255, 255, 0\.08\);/s);
-  assert.match(styles, /\.desktop-body\.trading-expert-layout\.trading-expert-chart-collapsed\s*> :is\(\.trading-expert-chat-panel, \.binance-account-page\)\s*\{\s*display: none;/s);
-  assert.match(styles, /\.desktop-body\.trading-expert-layout > \.binance-account-page-expansion-toggle\s*\{[^}]*background: transparent;[^}]*color 0\.18s ease,[^}]*background-color 0\.18s ease;/s);
-  assert.match(styles, /> \.binance-account-page-expansion-toggle:hover:not\(:disabled\),[\s\S]*?> \.binance-account-page-expansion-toggle:focus-visible\s*\{[^}]*background: var\(--surface-hover-translucent\);/s);
-  assert.match(styles, /> \.binance-account-page-expansion-toggle:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 2px var\(--conversation-action-focus\);/s);
-  assert.match(styles, /> \.binance-account-page-expansion-toggle:disabled:hover\s*\{[^}]*color: var\(--text-placeholder\);[^}]*transform: none;/s);
+  assert.match(styles, /\.desktop-body > \.binance-account-page\s*\{[^}]*display: flex;[^}]*min-width: 0;[^}]*flex: 1 1 auto;/s);
+  assert.doesNotMatch(styles, /binance-account-page-expansion-toggle/);
   assert.match(styles, /\.binance-account-page,[\s\S]*--binance-bg: #ffffff/);
   assert.match(styles, /--binance-surface: #ffffff/);
   assert.match(styles, /html\[data-theme="dark"\] \.binance-account-page,[\s\S]*--binance-bg: #101216/);

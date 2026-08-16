@@ -1,9 +1,77 @@
 import crypto from "node:crypto";
 import { EXECUTION_PLAN_SCHEMA_VERSION, validateExecutionPlan } from "./contracts.mjs";
 
+const DEFAULT_EXECUTION_LEVERAGE = 10;
+// Conservative fallback for both-side fees plus slippage when the read-only
+// account snapshot does not expose an account-specific commission schedule.
+const DEFAULT_ROUND_TRIP_COST_RATE = 0.002;
+const ACCOUNT_SNAPSHOT_MAX_AGE_MS = 2 * 60_000;
+
 function finite(value) {
   const normalized = Number(value);
   return Number.isFinite(normalized) && normalized > 0 ? normalized : null;
+}
+
+function nonNegative(value) {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) && normalized >= 0 ? normalized : null;
+}
+
+function roundedDown(value, decimals = 2) {
+  const normalized = nonNegative(value);
+  if (normalized === null) return null;
+  const scale = 10 ** decimals;
+  return Math.floor((normalized + Number.EPSILON) * scale) / scale;
+}
+
+function boundedRiskValue(value, min, max, fallback = null) {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) && normalized >= min && normalized <= max
+    ? normalized
+    : fallback;
+}
+
+function normalizeUserRiskProfile(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const nativelyEnforcedKeys = new Set([
+    "max_loss_per_trade_percent",
+    // Deprecated profile key: suppress it as a custom constraint, but never
+    // cap the user's current max_loss_per_trade_percent with its old value.
+    "absolute_max_loss_per_trade_percent",
+    "max_position_percent",
+    "max_leverage",
+    "minimum_risk_reward_ratio",
+    "move_stop_to_break_even",
+    "break_even_trigger_r",
+    "trading_analysis_style",
+    "required_analysis_sections",
+    "risk_conflict_handling",
+    "onboarding_completed",
+  ]);
+  const customHardConstraints = (Array.isArray(source.entries) ? source.entries : [])
+    .filter((entry) => (
+      entry?.kind === "constraint"
+      && entry?.strength === "hard"
+      && !nativelyEnforcedKeys.has(String(entry?.key || ""))
+    ))
+    .slice(0, 24)
+    .map((entry) => Object.freeze({
+      key: String(entry.key || "").trim().slice(0, 96),
+      value: String(entry.value ?? "").trim().slice(0, 300),
+    }))
+    .filter((entry) => entry.key && entry.value);
+  return Object.freeze({
+    maxLossPerTradePercent: boundedRiskValue(source.maxLossPerTradePercent, 0.01, 100, 2),
+    maxPositionPercent: boundedRiskValue(source.maxPositionPercent, 0.01, 100),
+    maxLeverage: boundedRiskValue(source.maxLeverage, 1, 1_000),
+    minimumRiskRewardRatio: boundedRiskValue(source.minimumRiskRewardRatio, 0.01, 100),
+    moveStopToBreakEven: source.moveStopToBreakEven !== false,
+    breakEvenTriggerR: boundedRiskValue(source.breakEvenTriggerR, 0.01, 100, 1),
+    riskPreference: typeof source.riskPreference === "string"
+      ? source.riskPreference.trim().slice(0, 120) || null
+      : null,
+    customHardConstraints: Object.freeze(customHardConstraints),
+  });
 }
 
 function roundedPrice(value, tickSize = null) {
@@ -68,9 +136,9 @@ function inferredPreferredSide(actionPlan, theoryResult) {
   return score > 0.2 ? "long" : score < -0.2 ? "short" : "neutral";
 }
 
-function scenario(side, actionPlan, status, evidenceIds, tickSize = null) {
+function scenario(side, actionPlan, status, evidenceIds, tickSize = null, currentPrice = null) {
   const long = side === "long";
-  const trigger = level(long ? actionPlan?.longTrigger : actionPlan?.shortTrigger, long ? "多头触发价" : "空头触发价", evidenceIds, tickSize);
+  const configuredTrigger = level(long ? actionPlan?.longTrigger : actionPlan?.shortTrigger, long ? "多头触发价" : "空头触发价", evidenceIds, tickSize);
   const stop = level(long ? actionPlan?.longInvalidation : actionPlan?.shortInvalidation, long ? "多头失效/止损参考" : "空头失效/止损参考", evidenceIds, tickSize);
   const configuredTargets = long ? actionPlan?.longTargets : actionPlan?.shortTargets;
   const fallbackTarget = long ? actionPlan?.longTarget : actionPlan?.shortTarget;
@@ -86,7 +154,14 @@ function scenario(side, actionPlan, status, evidenceIds, tickSize = null) {
     seenTargets.add(target.price);
     return [target];
   }).slice(0, 8);
-  if (!trigger || !stop || !targets.length) return null;
+  if (!configuredTrigger || !stop || !targets.length) return null;
+  const normalizedCurrentPrice = roundedPrice(currentPrice, tickSize);
+  const currentPriceTriggered = status === "preferred"
+    && normalizedCurrentPrice !== null
+    && (long ? normalizedCurrentPrice >= configuredTrigger.price : normalizedCurrentPrice <= configuredTrigger.price);
+  const trigger = currentPriceTriggered
+    ? level(normalizedCurrentPrice, long ? "现价直接做多" : "现价直接做空", evidenceIds, tickSize)
+    : configuredTrigger;
   return {
     id: `${side}-scenario`,
     side,
@@ -95,20 +170,199 @@ function scenario(side, actionPlan, status, evidenceIds, tickSize = null) {
     stop,
     targets,
     conditions: [condition(
-      `${side}-close-confirmation`,
-      long
-        ? `等待当前周期已收盘 K 线有效站上 ${trigger.price}，并确认回踩不重新跌破`
-        : `等待当前周期已收盘 K 线有效跌破 ${trigger.price}，并确认反抽无法重新站回`,
+      `${side}-price-touch`,
+      currentPriceTriggered
+        ? `现价 ${trigger.price} 已满足条件，直接${long ? "做多" : "做空"}`
+        : `价格触达 ${trigger.price} 即${long ? "做多" : "做空"}`,
       evidenceIds,
     )],
   };
 }
 
-function riskReward(entry, stop, target) {
+function riskReward(entry, stop, target, side = null, estimatedRoundTripCostRate = 0) {
   if (!entry || !stop || !target) return null;
-  const risk = Math.abs(entry.price - stop.price);
-  const reward = Math.abs(target.price - entry.price);
-  return risk > Number.EPSILON ? Number((reward / risk).toFixed(2)) : null;
+  if (side === "long" && !(stop.price < entry.price && entry.price < target.price)) return null;
+  if (side === "short" && !(target.price < entry.price && entry.price < stop.price)) return null;
+  const entryPrice = finite(entry.price);
+  if (entryPrice === null) return null;
+  const costRate = Number.isFinite(estimatedRoundTripCostRate) && estimatedRoundTripCostRate >= 0
+    ? estimatedRoundTripCostRate
+    : 0;
+  const netRiskRate = Math.abs(entry.price - stop.price) / entryPrice + costRate;
+  const netRewardRate = Math.abs(target.price - entry.price) / entryPrice - costRate;
+  return netRiskRate > Number.EPSILON
+    ? Number((Math.max(0, netRewardRate) / netRiskRate).toFixed(2))
+    : null;
+}
+
+function scenarioWithValidRiskRewardTargets(value, estimatedRoundTripCostRate) {
+  if (!value) return value;
+  const targets = value.targets.filter((target) => {
+    const ratio = riskReward(
+      value.trigger,
+      value.stop,
+      target,
+      value.side,
+      estimatedRoundTripCostRate,
+    );
+    return ratio !== null;
+  });
+  return targets.length ? { ...value, targets } : null;
+}
+
+function normalizedAccountContext(value, now) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  if (source.bound !== true) return { status: "unbound", snapshot: null };
+  const snapshot = source.snapshot && typeof source.snapshot === "object" && !Array.isArray(source.snapshot)
+    ? source.snapshot
+    : null;
+  const fetchedAt = snapshot ? Date.parse(String(snapshot.fetchedAt || "")) : Number.NaN;
+  const snapshotAge = Number.isFinite(fetchedAt) ? now - fetchedAt : Number.POSITIVE_INFINITY;
+  const stale = (Array.isArray(snapshot?.warnings) ? snapshot.warnings : [])
+    .some((warning) => /上次成功读取的数据|stale/i.test(String(warning || "")));
+  if (
+    source.available !== true
+    || !snapshot
+    || stale
+    || snapshotAge < -30_000
+    || snapshotAge > ACCOUNT_SNAPSHOT_MAX_AGE_MS
+  ) return { status: "unavailable", snapshot: null };
+  const equity = finite(snapshot.marginBalance);
+  const availableBalance = nonNegative(snapshot.availableBalance);
+  if (equity === null || availableBalance === null) return { status: "unavailable", snapshot: null };
+  const positions = (Array.isArray(snapshot.positions) ? snapshot.positions : []).flatMap((position) => {
+    const symbol = String(position?.symbol || "").trim().toUpperCase();
+    const direction = String(position?.direction || "").trim().toUpperCase();
+    const notionalValue = finite(position?.notionalValue);
+    const markPrice = finite(position?.markPrice);
+    if (!symbol || !["LONG", "SHORT"].includes(direction) || notionalValue === null || markPrice === null) return [];
+    return [{
+      symbol,
+      side: direction === "LONG" ? "long" : "short",
+      notionalValue,
+      markPrice,
+      leverage: Math.max(1, Math.floor(finite(position?.leverage) || 1)),
+    }];
+  });
+  return {
+    status: "available",
+    snapshot: {
+      fetchedAt,
+      equity,
+      availableBalance,
+      positions,
+    },
+  };
+}
+
+function executionCostRate(params) {
+  const configured = Number(params?.estimatedRoundTripCostRate);
+  return Number.isFinite(configured) && configured >= 0 && configured <= 0.05
+    ? configured
+    : DEFAULT_ROUND_TRIP_COST_RATE;
+}
+
+function directionalMoveRate(side, entryPrice, exitPrice) {
+  const entry = finite(entryPrice);
+  const exit = finite(exitPrice);
+  if (entry === null || exit === null) return null;
+  const move = side === "long" ? (exit - entry) / entry : (entry - exit) / entry;
+  return Number.isFinite(move) ? move : null;
+}
+
+function accountExecutionPlan({
+  accountContext,
+  market,
+  scenario: preferredScenario,
+  takeProfits,
+  riskPolicy,
+  estimatedRoundTripCostRate,
+  now,
+}) {
+  const account = normalizedAccountContext(accountContext, now);
+  if (account.status !== "available" || !preferredScenario || !takeProfits.length) {
+    return { accountStatus: account.status, accountPlan: null };
+  }
+  const snapshot = account.snapshot;
+  const sameMarketPositions = snapshot.positions.filter((position) => position.symbol === market.symbol.toUpperCase());
+  const oppositePosition = sameMarketPositions.find((position) => position.side !== preferredScenario.side);
+  if (oppositePosition) {
+    return {
+      accountStatus: "available",
+      accountPlan: {
+        mode: "close_opposite",
+        snapshotAt: snapshot.fetchedAt,
+        equity: snapshot.equity,
+        availableBalance: snapshot.availableBalance,
+        leverage: oppositePosition.leverage,
+        notional: oppositePosition.notionalValue,
+        existingSide: oppositePosition.side,
+        existingNotional: oppositePosition.notionalValue,
+        estimatedStopLoss: null,
+        estimatedTakeProfit: null,
+        estimatedRoundTripCostRate,
+        targetOrders: [],
+      },
+    };
+  }
+  const sameSidePosition = sameMarketPositions.find((position) => position.side === preferredScenario.side) || null;
+  const costRate = estimatedRoundTripCostRate;
+  const riskBudget = snapshot.equity * (riskPolicy.maxLossPerTradePercent / 100);
+  const entryPrice = sameSidePosition?.markPrice || preferredScenario.trigger.price;
+  const adverseMoveRate = -directionalMoveRate(preferredScenario.side, entryPrice, preferredScenario.stop.price);
+  if (!Number.isFinite(adverseMoveRate) || adverseMoveRate <= 0) {
+    return { accountStatus: "available", accountPlan: null };
+  }
+  const lossRate = adverseMoveRate + costRate;
+  let mode = sameSidePosition ? "manage_existing" : "new_position";
+  let leverage = sameSidePosition?.leverage
+    || Math.max(1, Math.floor(Math.min(DEFAULT_EXECUTION_LEVERAGE, riskPolicy.maxLeverage || DEFAULT_EXECUTION_LEVERAGE)));
+  let notional = sameSidePosition?.notionalValue || riskBudget / lossRate;
+  if (!sameSidePosition) {
+    notional = Math.min(notional, snapshot.availableBalance * leverage);
+    if (riskPolicy.maxPositionPercent !== null) {
+      notional = Math.min(notional, snapshot.equity * (riskPolicy.maxPositionPercent / 100));
+    }
+  } else if (notional * lossRate > riskBudget) {
+    mode = "reduce_existing";
+    notional = riskBudget / lossRate;
+  }
+  notional = roundedDown(notional, 2);
+  if (notional === null || notional <= 0) {
+    return { accountStatus: "available", accountPlan: null };
+  }
+  const targetOrders = [];
+  let allocated = 0;
+  for (const [index, takeProfit] of takeProfits.entries()) {
+    const targetNotional = index === takeProfits.length - 1
+      ? roundedDown(Math.max(0, notional - allocated), 2)
+      : roundedDown(notional * (takeProfit.allocationPercent / 100), 2);
+    allocated += targetNotional || 0;
+    const favorableMoveRate = directionalMoveRate(preferredScenario.side, entryPrice, takeProfit.price.price);
+    targetOrders.push({
+      targetIndex: index,
+      price: takeProfit.price.price,
+      notional: targetNotional || 0,
+      estimatedNetProfit: roundedDown(Math.max(0, (targetNotional || 0) * ((favorableMoveRate || 0) - costRate)), 2),
+    });
+  }
+  return {
+    accountStatus: "available",
+    accountPlan: {
+      mode,
+      snapshotAt: snapshot.fetchedAt,
+      equity: roundedDown(snapshot.equity, 2),
+      availableBalance: roundedDown(snapshot.availableBalance, 2),
+      leverage,
+      notional,
+      existingSide: sameSidePosition?.side || null,
+      existingNotional: roundedDown(sameSidePosition?.notionalValue || 0, 2),
+      estimatedStopLoss: roundedDown(notional * lossRate, 2),
+      estimatedTakeProfit: roundedDown(targetOrders.reduce((total, target) => total + target.estimatedNetProfit, 0), 2),
+      estimatedRoundTripCostRate: costRate,
+      targetOrders,
+    },
+  };
 }
 
 function planHash(value) {
@@ -120,6 +374,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
   const analysisPlan = legacyResult?.analysisPlan || {};
   const theoryResult = legacyResult?.theoryResult || {};
   const actionPlan = analysisPlan.actionPlan || {};
+  const riskPolicy = normalizeUserRiskProfile(params.userRiskProfile);
   const actionLevelEvidence = [
     ["long-trigger", actionPlan.longTrigger, "确定性结果给出的多头触发价"],
     ["long-invalidation", actionPlan.longInvalidation, "确定性结果给出的多头失效价"],
@@ -131,15 +386,93 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
   const evidence = [...actionLevelEvidence, ...evidenceFromResult(legacyResult)];
   const evidenceIds = evidence.slice(0, 16).map((item) => item.id);
   const tickSize = finite(params.tickSize);
+  const estimatedRoundTripCostRate = executionCostRate(params);
   const preferredSide = inferredPreferredSide(actionPlan, theoryResult);
-  const longScenario = scenario("long", actionPlan, preferredSide === "long" ? "preferred" : "conditional", evidenceIds, tickSize);
-  const shortScenario = scenario("short", actionPlan, preferredSide === "short" ? "preferred" : "conditional", evidenceIds, tickSize);
+  const currentPrice = finite(params.currentPrice)
+    || finite(params?.candles?.at?.(-1)?.close)
+    || finite(actionPlan.currentPrice)
+    || finite(snapshot?.candles?.at?.(-1)?.close)
+    || null;
+  const rawLongScenario = scenario(
+    "long",
+    actionPlan,
+    preferredSide === "long" ? "preferred" : "conditional",
+    evidenceIds,
+    tickSize,
+    preferredSide === "long" ? currentPrice : null,
+  );
+  const rawShortScenario = scenario(
+    "short",
+    actionPlan,
+    preferredSide === "short" ? "preferred" : "conditional",
+    evidenceIds,
+    tickSize,
+    preferredSide === "short" ? currentPrice : null,
+  );
+  const longScenario = scenarioWithValidRiskRewardTargets(
+    rawLongScenario,
+    estimatedRoundTripCostRate,
+  );
+  const shortScenario = scenarioWithValidRiskRewardTargets(
+    rawShortScenario,
+    estimatedRoundTripCostRate,
+  );
   const scenarios = [longScenario, shortScenario].filter(Boolean);
   const preferredScenario = preferredSide === "long"
     ? longScenario
     : preferredSide === "short"
       ? shortScenario
       : null;
+  const preferredTargetRiskRewards = preferredScenario
+    ? preferredScenario.targets.map((target, targetIndex) => ({
+        target,
+        targetIndex,
+        ratio: riskReward(
+          preferredScenario.trigger,
+          preferredScenario.stop,
+          target,
+          preferredScenario.side,
+          estimatedRoundTripCostRate,
+        ) || 0,
+      }))
+    : [];
+  const minimumRiskRewardBlocked = Boolean(
+    riskPolicy.minimumRiskRewardRatio !== null
+    && preferredTargetRiskRewards.length > 0
+    && preferredTargetRiskRewards.every((item) => item.ratio < riskPolicy.minimumRiskRewardRatio),
+  );
+  const personalRiskPreconditions = [
+    condition(
+      "user-max-loss-per-trade",
+      `单笔计划止损后的实际亏损（含预估手续费和滑点）不得超过当前账户权益的 ${riskPolicy.maxLossPerTradePercent}%`,
+      evidenceIds,
+    ),
+    ...(riskPolicy.maxPositionPercent === null ? [] : [condition(
+      "user-max-position",
+      `单次持仓名义价值不得超过账户权益的 ${riskPolicy.maxPositionPercent}%`,
+      evidenceIds,
+    )]),
+    ...(riskPolicy.maxLeverage === null ? [] : [condition(
+      "user-max-leverage",
+      `实际杠杆不得超过 ${riskPolicy.maxLeverage} 倍`,
+      evidenceIds,
+    )]),
+    ...(riskPolicy.minimumRiskRewardRatio === null ? [] : [condition(
+      "user-minimum-risk-reward",
+      `仅允许执行扣除预估手续费和滑点后的净盈亏比不低于 1:${riskPolicy.minimumRiskRewardRatio} 的目标方案`,
+      evidenceIds,
+    )]),
+    ...(riskPolicy.moveStopToBreakEven ? [condition(
+      "user-break-even-policy",
+      `浮盈达到 ${riskPolicy.breakEvenTriggerR}R 后，把止损移动至覆盖双向手续费和预估滑点的实际保本位置`,
+      evidenceIds,
+    )] : []),
+    ...riskPolicy.customHardConstraints.map((entry, index) => condition(
+      `user-custom-risk-${index + 1}`,
+      `用户硬性交易约束 ${entry.key}：${entry.value}`,
+      evidenceIds,
+    )),
+  ];
   const waitZone = actionPlan?.waitZone;
   const entryZone = waitZone && finite(waitZone.lower) && finite(waitZone.upper)
     ? { lower: roundedPrice(Math.min(waitZone.lower, waitZone.upper), tickSize), upper: roundedPrice(Math.max(waitZone.lower, waitZone.upper), tickSize) }
@@ -151,20 +484,50 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     ? requestedValidityBars
     : 3;
   const observeTrigger = String(actionPlan.observeTrigger || "").trim().slice(0, 500)
-    || "观察多空触发价附近的收盘确认、回踩/反抽和成交量变化";
+    || "观察首选方向触发价是否被价格直接触达";
   const hasScenarios = scenarios.length > 0;
   const observationWait = !hasScenarios && actionPlan?.disposition === "wait";
   const coverage = theoryResult?.coverage || snapshot?.orderFlowCoverage || {};
+  const preferredTriggerReached = Boolean(
+    preferredScenario
+    && currentPrice !== null
+    && (preferredSide === "long"
+      ? currentPrice >= preferredScenario.trigger.price
+      : preferredSide === "short" && currentPrice <= preferredScenario.trigger.price),
+  );
+  const takeProfits = preferredTargetRiskRewards.length
+    ? preferredTargetRiskRewards.map((item, index, targets) => ({
+      price: item.target,
+      allocationPercent: index === targets.length - 1
+        ? 100 - Math.floor(100 / targets.length) * (targets.length - 1)
+        : Math.floor(100 / targets.length),
+      condition: index === 0
+        ? riskPolicy.moveStopToBreakEven
+          ? `到达第一目标后按计划分批退出；浮盈达到 ${riskPolicy.breakEvenTriggerR}R 后把剩余仓位止损移动至覆盖交易成本的保本位置`
+          : "到达第一目标后按计划分批退出，并按用户偏好保留原止损管理方式"
+        : "仅在结构仍有效时持有至后续目标；不得把目标当作必达价格",
+    }))
+    : [];
+  const market = {
+    marketId: String(snapshot.marketId || params.marketId || "UNKNOWN:UNKNOWN"),
+    symbol: marketSymbol(snapshot.marketId || params.marketId),
+    interval: String(snapshot.interval || params.interval || "1D"),
+  };
+  const accountExecution = accountExecutionPlan({
+    accountContext: params.binanceAccountContext,
+    market,
+    scenario: preferredScenario,
+    takeProfits,
+    riskPolicy,
+    estimatedRoundTripCostRate,
+    now,
+  });
   const source = {
     schemaVersion: EXECUTION_PLAN_SCHEMA_VERSION,
     planId: "pending",
     analysisId: String(analysisPlan.analysisId || `analysis-${crypto.randomUUID()}`),
     strategy: { id: manifest.id, version: manifest.version },
-    market: {
-      marketId: String(snapshot.marketId || params.marketId || "UNKNOWN:UNKNOWN"),
-      symbol: marketSymbol(snapshot.marketId || params.marketId),
-      interval: String(snapshot.interval || params.interval || "1D"),
-    },
+    market,
     snapshot: {
       id: String(snapshot.snapshotId || `snapshot-${crypto.randomUUID()}`),
       inputHash: String(snapshot.inputHash || "unknown-input-hash"),
@@ -172,20 +535,33 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     },
     createdAt: now,
     expiresAt: now + intervalMs * validityBars,
-    action: hasScenarios || observationWait ? "wait" : "insufficient_data",
+    action: minimumRiskRewardBlocked
+      ? "no_trade"
+      : preferredTriggerReached
+        ? preferredSide
+      : hasScenarios || observationWait
+        ? "wait"
+        : "insufficient_data",
     preferredSide,
-    marketAssessment: hasScenarios
+    marketAssessment: minimumRiskRewardBlocked
+      ? `当前候选场景扣除预估手续费和滑点后的净盈亏比低于用户设定的最低 1:${riskPolicy.minimumRiskRewardRatio}；本方案标记为不交易，但保留完整候选测算供用户决策。`
+      : hasScenarios
       ? preferredSide === "long"
-        ? "当前结构偏多，但尚需等待多头触发条件由已收盘 K 线确认。"
+        ? preferredTriggerReached
+          ? "当前结构偏多，现价已满足多头条件，可按计划直接执行。"
+          : "当前结构偏多，价格触达多头触发价即按计划执行。"
         : preferredSide === "short"
-          ? "当前结构偏空，但尚需等待空头触发条件由已收盘 K 线确认。"
-          : "当前方向未形成单边优势，按上下触发条件执行，区间内保持等待。"
+          ? preferredTriggerReached
+            ? "当前结构偏空，现价已满足空头条件，可按计划直接执行。"
+            : "当前结构偏空，价格触达空头触发价即按计划执行。"
+          : "当前方向未形成单边优势，暂不强行选择方向。"
       : observationWait
         ? "当前存在需要继续观察的结构，但尚未形成完整入场、失效和目标价位；保持等待，不交易。"
         : "当前结果缺少完整入场、失效或目标价位，暂不形成交易执行方案。",
     preconditions: [
-      condition("closed-candle", "只使用当前周期已收盘 K 线确认，不把盘中瞬时刺破视为有效触发", evidenceIds),
+      condition("closed-candle-levels", "触发、止损和目标只从当前周期已收盘 K 线结构产生；执行时价格触达即操作", evidenceIds),
       condition("data-coverage", "策略所需行情和数据覆盖必须保持可用，数据降级时取消执行", evidenceIds),
+      ...personalRiskPreconditions,
     ],
     entry: {
       mode: hasScenarios ? "conditional" : "none",
@@ -193,7 +569,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       trigger: scenarios.map((item) => item.conditions[0]),
       confirmation: [condition(
         "confirmation",
-        String(actionPlan.confirmation || "等待当前周期收盘确认，并观察突破后的回踩或反抽是否守住"),
+        "价格触达首选方向触发价即执行",
         evidenceIds,
       )],
     },
@@ -203,29 +579,25 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
         ? ["价格触及策略确定性失效位，主场景不再成立"]
         : ["方向触发前不持仓；任一假突破重新回到等待区都取消当次信号"],
     },
-    takeProfits: preferredScenario
-      ? preferredScenario.targets.map((target, index, targets) => ({
-        price: target,
-        allocationPercent: index === targets.length - 1
-          ? 100 - Math.floor(100 / targets.length) * (targets.length - 1)
-          : Math.floor(100 / targets.length),
-        condition: index === 0
-          ? "到达第一目标后按计划分批退出，并把剩余仓位风险降至可承受范围"
-          : "仅在结构仍有效时持有至后续目标；不得把目标当作必达价格",
-      }))
-      : [],
+    takeProfits,
     positionSizing: {
-      maxAccountRiskPercent: 1,
-      formula: "建议数量 = 可承受亏损金额 ÷ |计划入场价 - 止损价|；永续合约还需按合约乘数和最小数量归一化",
+      maxAccountRiskPercent: riskPolicy.maxLossPerTradePercent,
+      maxPositionPercent: riskPolicy.maxPositionPercent,
+      maxLeverage: riskPolicy.maxLeverage,
+      minimumRiskRewardRatio: riskPolicy.minimumRiskRewardRatio,
+      formula: `建议数量上限 = 账户权益 × ${riskPolicy.maxLossPerTradePercent}% ÷（|计划入场价 - 止损价| + 单位仓位预估手续费与滑点）${riskPolicy.maxPositionPercent === null ? "" : `；且持仓名义价值不得超过账户权益 × ${riskPolicy.maxPositionPercent}%`}${riskPolicy.maxLeverage === null ? "" : `；实际杠杆不得超过 ${riskPolicy.maxLeverage} 倍`}；最后按合约乘数和最小数量向下归一化`,
       suggestedQuantity: null,
-      unavailableReason: "本分析链路未获得经授权的新鲜账户权益、合约乘数和最小下单数量，因此不生成具体数量",
+      unavailableReason: accountExecution.accountPlan
+        ? null
+        : accountExecution.accountStatus === "unbound"
+          ? "Binance API 未绑定，未获得账户权益，因此不生成具体账户仓位"
+          : accountExecution.accountStatus === "unavailable"
+            ? "未获得可用于仓位计算的新鲜 Binance 只读账户快照，因此不生成具体账户仓位"
+            : "当前场景或账户状态不支持新增具体仓位",
+      accountStatus: accountExecution.accountStatus,
+      accountPlan: accountExecution.accountPlan,
     },
-    riskReward: preferredScenario
-      ? preferredScenario.targets.map((target, targetIndex) => ({
-        targetIndex,
-        ratio: riskReward(preferredScenario.trigger, preferredScenario.stop, target) || 0,
-      }))
-      : [],
+    riskReward: preferredTargetRiskRewards.map(({ targetIndex, ratio }) => ({ targetIndex, ratio })),
     observe: [
       condition(
         "observe-trigger",
@@ -238,6 +610,11 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       condition("false-breakout", "触发后很快重新收回等待区，按假突破取消执行", evidenceIds),
       condition("expired", "超过方案有效期仍未触发，必须使用最新行情重新分析", evidenceIds),
       condition("coverage-loss", "策略所需数据变为 partial/unavailable 且不满足最低覆盖要求", evidenceIds),
+      ...(riskPolicy.minimumRiskRewardRatio === null ? [] : [condition(
+        "minimum-risk-reward-lost",
+        `若执行前重新计算的净盈亏比低于 1:${riskPolicy.minimumRiskRewardRatio}，取消执行`,
+        evidenceIds,
+      )]),
     ],
     scenarios,
     evidence,
@@ -248,6 +625,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
         ? `所有执行价已按宿主提供的 tick size ${tickSize} 归一化；执行前仍须核对交易所最新合约规格。`
         : "未提供交易所 tick size 时价格只做有限小数归一化，下单前必须按真实合约规格复核。",
       "永续合约存在杠杆、滑点、资金费率和强平风险。",
+      `用户单笔风险按当前账户权益的 ${riskPolicy.maxLossPerTradePercent}% 约束；不得在未获得用户明确授权时为了回本主动提高这一比例。`,
     ],
   };
   source.planId = `plan-${planHash({ ...source, planId: undefined, createdAt: undefined })}`;
@@ -258,40 +636,102 @@ function displayPrice(level) {
   return level ? String(level.price) : "未形成";
 }
 
-function displayTime(value) {
-  if (!Number.isFinite(Number(value))) return "需重新分析后确定";
-  return new Date(Number(value)).toLocaleString("zh-CN", { hour12: false });
-}
-
 function displayTargets(scenario) {
   if (!scenario?.targets?.length) return "未形成";
-  return scenario.targets.map((target, index) => `T${index + 1} ${displayPrice(target)}`).join("；");
+  return scenario.targets.map((target, index) => `第${index + 1}目标 ${displayPrice(target)}`).join("，");
+}
+
+function displayMoney(value) {
+  const normalized = nonNegative(value);
+  if (normalized === null) return "0";
+  return normalized.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+function displayExecutionPlanInterval(value) {
+  const source = String(value || "").trim().toUpperCase();
+  if (/^\d+[MHDW]$/.test(source)) return source;
+  const minutes = Number(source);
+  if (!Number.isFinite(minutes) || minutes <= 0) return source || "1H";
+  if (minutes % 10_080 === 0) return `${minutes / 10_080}W`;
+  if (minutes % 1_440 === 0) return `${minutes / 1_440}D`;
+  if (minutes % 60 === 0) return `${minutes / 60}H`;
+  return `${minutes}M`;
+}
+
+function executionPlanDisplayTitle(plan) {
+  const symbol = String(plan?.market?.symbol || "").trim().toUpperCase();
+  const match = symbol.match(/^(.+?)(USDT|USDC|BUSD)$/);
+  const pair = match ? `${match[1]}/${match[2]}` : symbol || "交易对";
+  return `${pair} 币安永续 ${displayExecutionPlanInterval(plan?.market?.interval)}`;
 }
 
 export function formatExecutionPlanMarkdown(plan) {
   const validated = validateExecutionPlan(plan);
-  const longScenario = validated.scenarios.find((item) => item.side === "long");
-  const shortScenario = validated.scenarios.find((item) => item.side === "short");
+  const selectedScenario = validated.preferredSide === "long" || validated.preferredSide === "short"
+    ? validated.scenarios.find((item) => item.side === validated.preferredSide)
+    : null;
+  const accountPlan = validated.positionSizing.accountPlan;
+  const candidateOnly = validated.action === "no_trade";
+  const directionText = validated.preferredSide === "long" ? "偏多" : validated.preferredSide === "short" ? "偏空" : "中性";
+  const directionOrder = validated.preferredSide === "long" ? "多单" : "空单";
+  let actionText = validated.action === "wait"
+    ? "等待条件触发"
+    : candidateOnly
+      ? "不交易"
+      : validated.action === "insufficient_data"
+        ? "数据/价位不足，不交易"
+        : validated.action === "long"
+          ? "现价做多"
+          : "现价做空";
+  let triggerText = displayPrice(selectedScenario?.trigger);
+  if (!selectedScenario) triggerText = "未形成明确单侧方案";
+  if (accountPlan?.mode === "new_position") {
+    triggerText += candidateOnly
+      ? `，推荐：${accountPlan.leverage} 倍杠杆、${displayMoney(accountPlan.notional)} USDT 的${directionOrder}`
+      : `，用 ${accountPlan.leverage} 倍杠杆开仓 ${displayMoney(accountPlan.notional)} USDT 的${directionOrder}`;
+  } else if (accountPlan?.mode === "manage_existing") {
+    triggerText += `，已有 ${displayMoney(accountPlan.existingNotional)} USDT 的${directionOrder}，按现有仓位执行，不重复开仓`;
+  } else if (accountPlan?.mode === "reduce_existing") {
+    actionText = "先减仓，再按计划管理";
+    triggerText += `，已有 ${displayMoney(accountPlan.existingNotional)} USDT 的${directionOrder}，先减至 ${displayMoney(accountPlan.notional)} USDT`;
+  } else if (accountPlan?.mode === "close_opposite") {
+    const oppositeOrder = accountPlan.existingSide === "long" ? "多单" : "空单";
+    actionText = "先平反向仓位，暂不开新仓";
+    triggerText += `，先平现有 ${displayMoney(accountPlan.existingNotional)} USDT 的${oppositeOrder}`;
+  }
   const riskRewardText = validated.riskReward.length
-    ? validated.riskReward.map((item) => `目标 ${item.targetIndex + 1} 为 1:${item.ratio}`).join("；")
-    : "方向触发前不计算；触发后按入场、止损和目标重新核对";
+    ? validated.riskReward.map((item) => `目标${item.targetIndex + 1}为 1:${item.ratio}`).join("，")
+    : "未形成";
+  const accountOrdersAvailable = accountPlan && accountPlan.mode !== "close_opposite";
+  const stopText = accountOrdersAvailable
+    ? candidateOnly
+      ? `止损 ${displayPrice(selectedScenario?.stop)}`
+      : `挂条件委托 ${displayPrice(selectedScenario?.stop)} 市价止损`
+    : displayPrice(selectedScenario?.stop);
+  const takeProfitText = accountOrdersAvailable
+    ? accountPlan.targetOrders
+      .filter((target) => target.notional > 0)
+      .map((target) => candidateOnly
+        ? `止盈 ${target.price}，推荐仓位 ${displayMoney(target.notional)} USDT`
+        : `挂条件委托 ${target.price} 市价止盈 ${displayMoney(target.notional)} USDT`)
+      .join("，") || "未形成"
+    : displayTargets(selectedScenario);
+  const outcomeText = accountOrdersAvailable
+    ? `${riskRewardText}，如果止损：约 -${displayMoney(accountPlan.estimatedStopLoss)} USDT，如果全部止盈：约 +${displayMoney(accountPlan.estimatedTakeProfit)} USDT`
+    : riskRewardText;
+  const triggerLabel = validated.preferredSide === "long"
+    ? "多头触发"
+    : validated.preferredSide === "short"
+      ? "空头触发"
+      : "方向触发";
   return [
-    "## 标准执行方案",
+    `## ${executionPlanDisplayTitle(validated)}`,
     "",
-    `- **前置条件**：${validated.preconditions.map((item) => item.text).join("；")}`,
-    `- **当前动作**：${validated.action === "wait" ? "等待条件触发" : validated.action === "insufficient_data" ? "数据/价位不足，不交易" : validated.action}`,
-    `- **方向判断**：${validated.preferredSide === "long" ? "偏多" : validated.preferredSide === "short" ? "偏空" : "中性，等待上下边界选择方向"}`,
-    `- **多头触发**：${longScenario ? `${displayPrice(longScenario.trigger)}，${longScenario.conditions[0]?.text || "等待确认"}` : "未形成"}`,
-    `- **空头触发**：${shortScenario ? `${displayPrice(shortScenario.trigger)}，${shortScenario.conditions[0]?.text || "等待确认"}` : "未形成"}`,
-    `- **确认方式**：${validated.entry.confirmation.map((item) => item.text).join("；")}`,
-    `- **止损与失效**：${validated.preferredSide === "long" ? displayPrice(longScenario?.stop) : validated.preferredSide === "short" ? displayPrice(shortScenario?.stop) : "方向触发后使用对应场景失效位"}；${validated.invalidation.reasons.join("；")}`,
-    `- **分批止盈**：${validated.preferredSide === "long" ? displayTargets(longScenario) : validated.preferredSide === "short" ? displayTargets(shortScenario) : "方向触发后使用对应场景目标；到达后按计划分批退出"}`,
-    `- **仓位与最大风险**：单笔预设亏损不超过账户权益约 ${validated.positionSizing.maxAccountRiskPercent ?? "未设定"}%；${validated.positionSizing.formula}`,
-    `- **风险收益比**：${riskRewardText}`,
-    `- **继续观察**：${validated.observe.map((item) => item.text).join("；")}`,
-    `- **方案有效期**：${displayTime(validated.expiresAt)}`,
-    `- **取消执行**：${validated.cancelConditions.map((item) => item.text).join("；")}`,
-    "",
-    `> ${validated.warnings.join(" ")}`,
+    `当前动作：${actionText}`,
+    `方向判断：${directionText}`,
+    `${triggerLabel}：${triggerText}`,
+    `止损与失效：${stopText}`,
+    `分批止盈：${takeProfitText}`,
+    `风险收益比：${outcomeText}`,
   ].join("\n");
 }

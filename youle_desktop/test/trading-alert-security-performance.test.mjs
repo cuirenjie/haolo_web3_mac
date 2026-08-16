@@ -27,13 +27,13 @@ test("IPC handlers authenticate the sender and renderer cannot invoke raw rule e
   assert.match(preload, /onTradingAlertTriggered/);
 });
 
-test("desktop alert service uses Electron networking for both history and live monitoring", async () => {
+test("desktop alert service uses Electron networking for both history and polling monitoring", async () => {
   const main = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
   const start = main.indexOf("async function getTradingAlertService");
   const end = main.indexOf("async function tradingAlertIpcCall", start);
   const factory = main.slice(start, end);
   assert.match(factory, /marketFetch: governedBinanceFetch\("alert", BINANCE_REQUEST_PRIORITIES\.alert\)/);
-  assert.match(factory, /marketSubscribeMode: "websocket"/);
+  assert.match(factory, /marketSubscribeMode: "polling"/);
 });
 
 test("account and alert Binance REST traffic share one persisted main-process governor", async () => {
@@ -99,16 +99,15 @@ test("alert intent streams only model reasoning summaries to its authenticated r
   assert.match(renderer, /reasoningSummary[\s\S]*tradingExpertThinkingStage/);
 });
 
-test("alert UI includes provider safety, theme, focus, disabled and reduced-motion contracts", async () => {
+test("alert UI keeps provider safety while the settings provider page stays removed", async () => {
   const ui = await readFile(new URL("../src/renderer/trading-alerts-ui.ts", import.meta.url), "utf8");
   const styles = await readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
   const renderer = await readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
   assert.match(renderer, /请不要在聊天里发送 API Key 或私钥/);
-  assert.match(renderer, /data-settings-tab="dataProviders"/);
+  assert.doesNotMatch(renderer, /data-settings-tab="dataProviders"|renderTradingAlertDataProviderSettingsPanel|settings-data-providers/);
   assert.match(renderer, /handleTradingAlertTriggered[\s\S]*证据编号：[\$\{]*evidenceId/);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-alerts-page/);
   assert.match(styles, /\.thinking-status-meta \.thinking-stage-detail[\s\S]*color: var\(--text-subtle\)/);
-  assert.match(styles, /\.settings-data-providers button:focus-visible/);
-  assert.match(styles, /\.settings-data-providers button:disabled/);
+  assert.doesNotMatch(styles, /\.settings-data-providers/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/);
 });

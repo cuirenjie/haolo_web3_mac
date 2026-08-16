@@ -11,7 +11,7 @@ const rendererSource = readFile(
   "utf8",
 ).then((source) => source.replace(/\r\n/g, "\n"));
 
-test("cluster mode no longer renders a submenu or right arrow", async () => {
+test("composer mode is a static ordinary serial-execution indicator", async () => {
   const [styles, renderer] = await Promise.all([stylesSource, rendererSource]);
   const pickerStart = renderer.indexOf("function renderComposerModePicker");
   const pickerEnd = renderer.indexOf("\nfunction activeComposerDraftSnapshot", pickerStart);
@@ -19,7 +19,10 @@ test("cluster mode no longer renders a submenu or right arrow", async () => {
   assert.notEqual(pickerEnd, -1);
   const picker = renderer.slice(pickerStart, pickerEnd);
 
-  assert.match(picker, /data-composer-cluster-mode="subagent"/);
+  assert.match(picker, /class="composer-mode-trigger serial-only"/);
+  assert.match(picker, /aria-label="执行模式，已固定为串行执行"/);
+  assert.match(picker, /renderComposerModeIcon\("execution"\)/);
+  assert.doesNotMatch(picker, /data-composer-cluster-mode|data-new-thread-mode|composer-mode-menu/);
   assert.doesNotMatch(
     picker,
     /composer-mode-submenu|composer-mode-menu-chevron|data-composer-mode-cascade/,

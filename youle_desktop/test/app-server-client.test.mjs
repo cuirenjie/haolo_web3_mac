@@ -224,7 +224,7 @@ test("runtime provider overrides always send the bundled Codex version without f
   assert.ok(args.includes('model_reasoning_effort="high"'));
   assert.ok(args.includes('windows.sandbox="unelevated"'));
   assert.ok(args.includes("features.network_proxy.enabled=false"));
-  assert.ok(args.includes("features.multi_agent_v2.max_concurrent_threads_per_session=6"));
+  assert.ok(args.includes("features.multi_agent_v2.max_concurrent_threads_per_session=1"));
   assert.equal(args.some((arg) => arg.startsWith("agents.max_threads=")), false);
   assert.ok(args.includes('model_providers.haolo_ai.http_headers.version="0.144.1"'));
   assert.ok(args.includes('model_providers.haolo_ai.http_headers.X-Haolo-Model-Pool="execution"'));

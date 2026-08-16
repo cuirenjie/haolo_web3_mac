@@ -168,16 +168,16 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.match(messageBlock, /contact\?\.id === TRADING_EXPERT_CONTACT_ID/);
   assert.match(messageBlock, /await openTradingExpertWorkspace\(\)/);
   assert.match(source, /function initializeTradingExpertTaskThread[\s\S]*tradingExpertThreadIds\.add\(threadId\)/);
-  assert.match(renderBlock, /tradingExpertPanelLayout \? "trading-expert-layout" : ""/);
-  assert.match(renderBlock, /tradingExpertPanelLayout && state\.tradingExpertChartCollapsed[\s\S]*?\? "trading-expert-chart-collapsed"/);
+  assert.match(renderBlock, /tradingExpertLayout \? "trading-expert-layout" : ""/);
+  assert.match(renderBlock, /tradingExpertLayout && state\.tradingExpertChartCollapsed[\s\S]*?\? "trading-expert-chart-collapsed"/);
   assert.match(
     renderBlock,
-    /\(state\.activeView === "chat" \|\| state\.activeView === "account"\) &&\s*state\.rightCollapsed &&\s*!state\.chatPreview\s*\? "right-panel-collapsed"/,
+    /state\.activeView === "chat" && state\.rightCollapsed && !state\.chatPreview\s*\? "right-panel-collapsed"/,
   );
   assert.doesNotMatch(renderBlock, /!state\.chatPreview && !tradingExpertLayout/);
   assert.doesNotMatch(source, /function renderLeftPanelToggle\(\) \{\s*if \(isTradingExpertThreadId\(state\.currentThreadId\)\) return "";/);
   assert.match(renderBlock, /tradingExpertLayout \? renderTradingExpertCollapseControls\(\) : ""/);
-  assert.match(renderBlock, /state\.activeView === "account" && tradingExpertPanelLayout && !state\.tradingExpertChartCollapsed[\s\S]*?renderBinanceAccountExpansionControl\(\)/);
+  assert.doesNotMatch(renderBlock, /renderBinanceAccountExpansionControl|data-trading-expert-account-expansion/);
   assert.match(tradingChatBranch, /class="chat-panel trading-expert-chat-panel"/);
   assert.doesNotMatch(tradingChatBranch, /renderTradingExpertCollapseControls/);
   assert.match(tradingChatBranch, /\$\{renderTradingExpertMarketWorkspace\(\)\}/);
@@ -244,10 +244,7 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.match(tradingPanelToggleBlock, /conversationButtons\.forEach\(\(panelButton\)/);
   assert.match(tradingPanelToggleBlock, /button\.innerHTML = renderPanelLayoutIcon\(side\)/);
   assert.match(tradingPanelToggleBlock, /return expanded \? "收起K线画布" : "展开K线画布"/);
-  assert.match(tradingPanelToggleBlock, /return expanded \? "收起账户页" : "展开账户页"/);
-  assert.match(tradingPanelToggleBlock, /function renderBinanceAccountExpansionControl\(\)[\s\S]*data-action="toggle-trading-expert-chart"[\s\S]*data-trading-expert-account-expansion[\s\S]*renderPanelLayoutIcon\("left"\)/);
-  assert.match(tradingPanelToggleBlock, /querySelectorAll<HTMLButtonElement>\("\[data-trading-expert-account-expansion\]"\)/);
-  assert.match(tradingPanelToggleBlock, /accountButtons\.forEach\(\(accountButton\)/);
+  assert.doesNotMatch(tradingPanelToggleBlock, /收起账户页|展开账户页|data-trading-expert-account-expansion|accountButtons/);
   assert.match(tradingPanelToggleBlock, /data-action="toggle-trading-expert-chart"/);
   assert.match(tradingPanelToggleBlock, /data-action="toggle-trading-expert-chart"[\s\S]*renderPanelLayoutIcon\("left"\)/);
   assert.doesNotMatch(source, /function renderCollapseChevronIcon|collapse-chevron-icon/);
@@ -256,10 +253,7 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
     source,
     /\[data-action="toggle-trading-expert-chart"\][\s\S]*state\.tradingExpertChartCollapsed[\s\S]*state\.rightCollapsed = !state\.rightCollapsed;[\s\S]*syncAgentPanelState\(\)/,
   );
-  assert.match(
-    source,
-    /const accountExpansion = button\.hasAttribute\("data-trading-expert-account-expansion"\);[\s\S]*!accountExpansion[\s\S]*isTradingExpertConversationCollapseLocked/,
-  );
+  assert.doesNotMatch(source, /data-trading-expert-account-expansion|accountExpansion/);
   assert.match(
     source,
     /button\.hasAttribute\("data-trading-expert-conversation-expansion"\)[\s\S]*state\.tradingExpertChartCollapsed = !state\.tradingExpertChartCollapsed;[\s\S]*render\(\)/,
@@ -770,12 +764,8 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /\.desktop-body\.trading-expert-layout \.trading-market-content > \.trading-market-overview\s*\{[^}]*padding-right: 64px;[^}]*padding-left: 0;/s);
   assert.match(styles, /\.desktop-body\.trading-expert-layout \.trading-market-symbol-wrap\s*\{[^}]*margin-left: 0;/s);
   assert.match(styles, /\.desktop-body\.trading-expert-layout\.left-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?\.trading-market-content > \.trading-market-overview\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding-left: 36px;/s);
-  assert.match(styles, /\.desktop-body\.trading-expert-layout\.trading-expert-chart-collapsed\s*> :is\(\.trading-expert-chat-panel, \.binance-account-page\)\s*\{\s*display: none;/s);
-  assert.match(styles, /\.desktop-body\.trading-expert-layout > \.binance-account-page-expansion-toggle\s*\{[^}]*position: absolute;[^}]*top: 4px;[^}]*right: calc\(var\(--trading-expert-panel-width\) \+ 5px\);[^}]*z-index: 60;[^}]*width: 24px;[^}]*height: 26px;[^}]*background: transparent;/s);
-  assert.match(styles, /> \.binance-account-page-expansion-toggle:hover:not\(:disabled\),[\s\S]*?> \.binance-account-page-expansion-toggle:focus-visible\s*\{[^}]*background: var\(--surface-hover-translucent\);/s);
-  assert.match(styles, /> \.binance-account-page-expansion-toggle:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 2px var\(--conversation-action-focus\);/s);
-  assert.match(styles, /> \.binance-account-page-expansion-toggle:disabled:hover\s*\{[^}]*background: transparent;[^}]*color: var\(--text-placeholder\);[^}]*transform: none;/s);
-  assert.match(styles, /\.desktop-body\.trading-expert-layout\.right-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?> \.binance-account-page-expansion-toggle\s*\{[^}]*right: 5px;/s);
+  assert.match(styles, /\.desktop-body\.trading-expert-layout\.trading-expert-chart-collapsed\s*> \.trading-expert-chat-panel\s*\{\s*display: none;/s);
+  assert.doesNotMatch(styles, /binance-account-page-expansion-toggle/);
   assert.match(styles, /\.trading-expert-chart-collapsed:not\(\.right-panel-collapsed\)[\s\S]*?> \.trading-expert-panel\s*\{[^}]*width: auto;[^}]*max-width: none;[^}]*flex: 1 1 auto;[^}]*border-top-left-radius: 16px;/s);
   assert.match(styles, /\.trading-expert-layout\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-panel[\s\S]*?\.trading-expert-panel-header\s*\{[^}]*padding-left: 44px;/s);
   assert.match(styles, /\.desktop-body\.right-panel-collapsed > \.agent-panel\.collapsed\s*\{\s*display: none;/s);
@@ -929,7 +919,9 @@ test("Trading Expert shows its mention catalog with left-opening submenus", asyn
   );
 
   assert.match(source, /label: "策略", get options\(\) \{ return tradingStrategyMentionOptions\(\); \}/);
-  assert.match(source, /label: "预警", options: \[\][\s\S]*?label: "知识库", options: \[\][\s\S]*?label: "自定义指标", options: \["趋势带"\]/);
+  assert.match(source, /label: "指标",[\s\S]*?"趋势带",[\s\S]*?tradingIndicatorMentionOptions\(\)\.filter/);
+  assert.match(source, /label: "预警", options: \[\]/);
+  assert.doesNotMatch(source, /label: "知识库", options: \[\]|label: "自定义指标", options:/);
   assert.match(catalog, /import\.meta\.glob<TradingStrategyPublicManifest>/);
   assert.match(catalog, /sort\(\(left, right\) => left\.display\.sortOrder - right\.display\.sortOrder/);
   assert.match(menuBlock, /class="composer-mention-root trading-expert-mention-root"/);
@@ -997,7 +989,7 @@ test("Trading Expert mention selection inserts an atomic highlighted category to
     "function composerSkillTokenDeleteRange",
   );
 
-  assert.match(placeholderBlock, /isTradingExpertThreadId\(thread\.id\)[\s\S]*return "输入@调用 策略、指标、预警、知识库、自定义指标"/);
+  assert.match(placeholderBlock, /isTradingExpertThreadId\(thread\.id\)[\s\S]*return "输入@调用 策略、指标、预警"/);
   assert.match(applyBlock, /isTradingExpertThreadId\(threadId\)/);
   assert.match(applyBlock, /item\.options\.length > 0 && !option/);
   assert.match(applyBlock, /const token = `@\$\{item\.label\}\$\{option \? `:\$\{option\}` : ""\}`/);
@@ -2190,7 +2182,7 @@ test("Trading Expert trend-band mention toggles the chart without a transient ti
   assert.match(modeSyncBlock, /this\.trendBandEnabled = enabled/);
   assert.match(modeSyncBlock, /this\.updateChartData\(\{ preserveViewport: true \}\)/);
   assert.match(mentionSyncBlock, /setTrendBandEnabled\(hasTradingExpertTrendBandMention\(text\)\)/);
-  assert.match(source, /export const TRADING_EXPERT_TREND_BAND_MENTION = "@自定义指标:趋势带"/);
+  assert.match(source, /export const TRADING_EXPERT_TREND_BAND_MENTION = "@指标:趋势带"/);
   assert.match(source, /export function applyTradingExpertCustomIndicatorMentions/);
   assert.match(source, /export function atm4BandSeriesData/);
   assert.match(updateBlock, /const preservedLogicalRange = !resetViewport && options\.preserveViewport === true/);

@@ -137,7 +137,7 @@ test("Gann pipeline draws fan, square, nested wheel and numeric-spiral price lev
   const result = await coordinator.run("gann-theory", params);
   assert.equal(result.executionPlan.action, "wait");
   assert.equal(result.executionPlan.positionSizing.suggestedQuantity, null);
-  assert.match(result.analysisPlan.report, /标准执行方案/);
+  assert.match(result.analysisPlan.report, /^## BTC\/USDT 币安永续 1H/m);
 });
 
 test("Gann request router is strict, confidence-gated and rejects injected output fields", () => {
