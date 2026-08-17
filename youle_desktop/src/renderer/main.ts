@@ -16,8 +16,10 @@ import {
 import {
   createSavedExecutionPlan,
   executionPlanCardTitle,
+  executionPlanBinanceMarketDetails,
   executionPlanDirectionTone,
   executionPlanDisplayLines,
+  executionPlanHasConcreteTradingPlan,
   executionPlanSignedNumberSegments,
   executionPlanCandidateFromText,
   executionPlanTextPartition,
@@ -27,6 +29,7 @@ import {
   type ExecutionPlanEndReason,
   type ExecutionPlanCandidate,
   type ExecutionPlanStatus,
+  type ExecutionPlanBinanceTracking,
   type SavedExecutionPlan,
 } from "./execution-plans";
 import {
@@ -727,6 +730,7 @@ const BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS = 5 * 60_000;
 const BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS = 30_000;
 const BINANCE_ACCOUNT_LIVE_REFRESH_INTERVAL_MS = 30_000;
 const BINANCE_ACCOUNT_TRADING_LIVE_REFRESH_INTERVAL_MS = 60_000;
+const BINANCE_ACCOUNT_EXECUTION_PLAN_LIVE_REFRESH_INTERVAL_MS = 15_000;
 const BINANCE_ACCOUNT_LIVE_RETRY_BASE_INTERVAL_MS = 15_000;
 const BINANCE_ACCOUNT_LIVE_RETRY_MAX_INTERVAL_MS = 60_000;
 const GITHUB_AUTHORIZATION_POLL_INTERVAL_MS = 1_500;
@@ -5045,6 +5049,7 @@ const executionPlanCandidatesBySource = new Map<string, ExecutionPlanCandidate>(
 const executionPlanAlertSyncBusyIds = new Set<string>();
 const executionPlanDeleteBusyIds = new Set<string>();
 const executionPlanAlertReconciledScopes = new Set<string>();
+const executionPlanMonitorFullRefreshAt = new Map<string, number>();
 
 let loginCounterTimer: number | null = null;
 let loginWechatPollTimer: number | null = null;
@@ -5658,10 +5663,12 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
     binanceAccountFullRefreshAfter = 0;
     binanceAccountLiveRetryAfter = 0;
     binanceAccountLiveRefreshFailures = 0;
+    executionPlanMonitorFullRefreshAt.clear();
     state.binanceAccount = createBinanceAccountUiState();
   }
   if (state.auth.authenticated && state.auth.profile) {
     persistLastLoginIdentity(state.auth.profile);
+    syncExecutionPlansForCurrentAccount();
   }
   state.auth.modelProviders = Array.isArray(session?.modelProviders)
     ? Array.from(new Set<string>(
@@ -6264,7 +6271,7 @@ function wireDesktopEvents() {
   document.addEventListener("visibilitychange", () => refreshProfileOnAppActivation(), { passive: true });
   window.addEventListener("focus", resumeBinanceAccountLiveRefresh, { passive: true });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopBinanceAccountLiveRefresh();
+    if (document.hidden && !executionPlanBinanceMonitoringNeeded()) stopBinanceAccountLiveRefresh();
     else resumeBinanceAccountLiveRefresh();
   }, { passive: true });
   window.addEventListener(
@@ -33739,6 +33746,7 @@ function render() {
   syncExternalChannelQrRefreshTimer();
   syncConsumptionRefreshTimer();
   scheduleThreadSwitchRevealAfterRender(renderedThreadId);
+  ensureBinanceAccountLiveRefresh();
   if (renderStartedAt) reportRendererPerformanceTiming("renderer-render", renderStartedAt, () => renderPerformancePayload("app"));
 }
 
@@ -36565,11 +36573,216 @@ function currentExecutionPlanStorageScope() {
 function syncExecutionPlansForCurrentAccount() {
   const scope = currentExecutionPlanStorageScope();
   if (state.executionPlansScope === scope) return;
+  executionPlanMonitorFullRefreshAt.clear();
   state.executionPlans = loadExecutionPlans(scope);
   state.executionPlansScope = scope;
   state.executionPlanFilter = "pending";
   state.executionPlanEndMenuId = null;
   void reconcileMissingExecutionPlanAlerts(scope);
+}
+
+function executionPlanBinanceMonitoringNeeded() {
+  return state.auth.authenticated && state.executionPlans.some((plan) => {
+    if (plan.status !== "pending" && plan.status !== "executing") return false;
+    const identity = executionPlanBinanceIdentity(plan);
+    return Boolean(identity.symbol && identity.direction);
+  });
+}
+
+function executionPlanBinanceIdentity(plan: SavedExecutionPlan) {
+  return executionPlanBinanceMarketDetails({
+    title: executionPlanCardTitle({
+      fallbackTitle: plan.title,
+      analysisLabel: tradingLastAnalysisLabelForThread(plan.sourceThreadId),
+      sourceTitle: plan.sourceTitle,
+      sourceText: plan.content,
+    }),
+    content: plan.content,
+    sourceTitle: plan.sourceTitle,
+  });
+}
+
+function matchingExecutionPlanBinancePosition(
+  plan: SavedExecutionPlan,
+  snapshot: BinanceAccountSnapshot,
+) {
+  const identity = executionPlanBinanceIdentity(plan);
+  if (!identity.symbol || !identity.direction) return null;
+  return snapshot.positions.find((position) => (
+    position.symbol.trim().toUpperCase() === identity.symbol
+    && position.direction === identity.direction
+    && Math.abs(position.amount) > 1e-12
+  )) || null;
+}
+
+function freshBinanceSnapshotForExecutionPlans(snapshot: BinanceAccountSnapshot | null | undefined) {
+  if (!snapshot || !Number.isFinite(Date.parse(snapshot.fetchedAt))) return false;
+  return !snapshot.warnings?.some((warning) => warning.includes("上次成功读取的数据"));
+}
+
+function executionPlanTrackingForPosition(
+  position: BinanceAccountSnapshot["positions"][number],
+  snapshot: BinanceAccountSnapshot,
+): ExecutionPlanBinanceTracking {
+  return {
+    positionObserved: true,
+    missingPolls: 0,
+    lastPositionAt: snapshot.fetchedAt,
+    lastPositionAmount: Math.abs(position.amount),
+    lastEntryPrice: position.entryPrice,
+    lastMarkPrice: position.markPrice,
+    lastUnrealizedPnl: position.unrealizedPnl,
+  };
+}
+
+function saveExecutionPlanBinanceTracking(
+  planId: string,
+  tracking: ExecutionPlanBinanceTracking,
+) {
+  const plan = state.executionPlans.find((item) => item.id === planId);
+  if (!plan) return false;
+  const nextPlans = state.executionPlans.map((item) => item.id === planId
+    ? { ...item, binanceTracking: tracking }
+    : item);
+  if (!saveExecutionPlans(state.executionPlansScope, nextPlans)) return false;
+  state.executionPlans = nextPlans;
+  return true;
+}
+
+function executionPlanBinanceCloseRecord(
+  plan: SavedExecutionPlan,
+  snapshot: BinanceAccountSnapshot,
+) {
+  const identity = executionPlanBinanceIdentity(plan);
+  if (!identity.symbol || !identity.direction) return null;
+  const observedAt = Date.parse(
+    plan.binanceTracking.lastPositionAt || plan.statusUpdatedAt || plan.createdAt,
+  );
+  const earliestCloseTime = Number.isFinite(observedAt) ? observedAt - 60_000 : 0;
+  return snapshot.positionHistory.find((record) => (
+    record.symbol.trim().toUpperCase() === identity.symbol
+    && record.direction === identity.direction
+    && record.closeType === "FULL"
+    && Number(record.closeTime || record.updatedAt) >= earliestCloseTime
+  )) || null;
+}
+
+function executionPlanEndReasonForBinanceClose(
+  plan: SavedExecutionPlan,
+  close: BinanceAccountSnapshot["positionHistory"][number] | null,
+): ExecutionPlanEndReason {
+  const realizedPnl = Number(close?.realizedPnl);
+  if (Number.isFinite(realizedPnl) && Math.abs(realizedPnl) > 1e-8) {
+    return realizedPnl > 0 ? "take_profit" : "stop_loss";
+  }
+  const direction = executionPlanBinanceIdentity(plan).direction;
+  const entryPrice = Number(close?.entryPrice || plan.binanceTracking.lastEntryPrice);
+  const closePrice = Number(close?.averageClosePrice || plan.binanceTracking.lastMarkPrice);
+  if (direction && entryPrice > 0 && closePrice > 0 && Math.abs(closePrice - entryPrice) > 1e-12) {
+    const profitable = direction === "LONG" ? closePrice > entryPrice : closePrice < entryPrice;
+    return profitable ? "take_profit" : "stop_loss";
+  }
+  return Number(plan.binanceTracking.lastUnrealizedPnl) >= 0 ? "take_profit" : "stop_loss";
+}
+
+function executionPlanBinanceTransitionMessage(
+  plan: SavedExecutionPlan,
+  status: ExecutionPlanStatus,
+  endReason: ExecutionPlanEndReason | null,
+) {
+  const identity = executionPlanBinanceIdentity(plan);
+  const symbol = identity.symbol || "该合约";
+  if (status === "executing") {
+    return `已检测到 Binance ${symbol} ${identity.direction === "SHORT" ? "空单" : "多单"}，计划已自动进入执行中`;
+  }
+  return endReason === "take_profit"
+    ? `已检测到 Binance ${symbol} 仓位全部平仓，计划已自动记为已止盈`
+    : `已检测到 Binance ${symbol} 仓位全部平仓，计划已自动记为已止损`;
+}
+
+async function reconcileExecutionPlansWithBinanceSnapshot(
+  snapshot: BinanceAccountSnapshot | null | undefined,
+  { allowFullRefresh = true } = {},
+) {
+  if (
+    !executionPlanBinanceMonitoringNeeded()
+    || !state.binanceAccount.status?.bound
+    || !freshBinanceSnapshotForExecutionPlans(snapshot)
+  ) return;
+
+  let needsFullRefresh = false;
+  const plans = [...state.executionPlans];
+  for (const stalePlan of plans) {
+    const plan = state.executionPlans.find((item) => item.id === stalePlan.id);
+    if (
+      !plan
+      || plan.status === "ended"
+      || executionPlanAlertSyncBusyIds.has(plan.id)
+      || executionPlanDeleteBusyIds.has(plan.id)
+    ) continue;
+    const identity = executionPlanBinanceIdentity(plan);
+    if (!identity.symbol || !identity.direction) continue;
+    const position = matchingExecutionPlanBinancePosition(plan, snapshot!);
+    if (position) {
+      executionPlanMonitorFullRefreshAt.delete(plan.id);
+      const tracking = executionPlanTrackingForPosition(position, snapshot!);
+      if (plan.status === "pending") {
+        await updateExecutionPlanLifecycle(plan.id, "executing", null, {
+          binanceTracking: tracking,
+          automaticMessage: executionPlanBinanceTransitionMessage(plan, "executing", null),
+        });
+      } else {
+        saveExecutionPlanBinanceTracking(plan.id, tracking);
+      }
+      continue;
+    }
+
+    if (plan.status !== "executing" || !plan.binanceTracking.positionObserved) continue;
+    const closeRecord = executionPlanBinanceCloseRecord(plan, snapshot!);
+    if (closeRecord) {
+      const endReason = executionPlanEndReasonForBinanceClose(plan, closeRecord);
+      await updateExecutionPlanLifecycle(plan.id, "ended", endReason, {
+        automaticMessage: executionPlanBinanceTransitionMessage(plan, "ended", endReason),
+      });
+      executionPlanMonitorFullRefreshAt.delete(plan.id);
+      continue;
+    }
+
+    const tracking = {
+      ...plan.binanceTracking,
+      missingPolls: plan.binanceTracking.missingPolls + 1,
+    };
+    saveExecutionPlanBinanceTracking(plan.id, tracking);
+    const lastFullRefreshAt = executionPlanMonitorFullRefreshAt.get(plan.id) || 0;
+    if (allowFullRefresh && Date.now() - lastFullRefreshAt >= 60_000) {
+      executionPlanMonitorFullRefreshAt.set(plan.id, Date.now());
+      needsFullRefresh = true;
+      continue;
+    }
+    if (tracking.missingPolls < 2) continue;
+    const endReason = executionPlanEndReasonForBinanceClose(
+      { ...plan, binanceTracking: tracking },
+      null,
+    );
+    await updateExecutionPlanLifecycle(plan.id, "ended", endReason, {
+      binanceTracking: tracking,
+      automaticMessage: executionPlanBinanceTransitionMessage(plan, "ended", endReason),
+    });
+    executionPlanMonitorFullRefreshAt.delete(plan.id);
+  }
+
+  if (!needsFullRefresh || !api.getBinanceAccountSnapshot) return;
+  try {
+    const fullSnapshot = await api.getBinanceAccountSnapshot({ force: true, live: false });
+    if (!freshBinanceSnapshotForExecutionPlans(fullSnapshot)) return;
+    state.binanceAccount.snapshot = fullSnapshot;
+    syncTradingExpertOrderLineSnapshot(fullSnapshot);
+    binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+    await reconcileExecutionPlansWithBinanceSnapshot(fullSnapshot, { allowFullRefresh: false });
+  } catch {
+    // The regular account refresh loop owns retry/backoff. Keep the plan in
+    // executing state until another fresh position snapshot confirms closure.
+  }
 }
 
 async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan) {
@@ -36720,12 +36933,9 @@ function renderExecutionPlanActions(plan: SavedExecutionPlan) {
   const busy = syncing || deleting;
   const disabled = busy ? ' disabled aria-disabled="true"' : "";
   const busyLabel = deleting ? "删除中…" : "同步预警…";
-  const actions = plan.status === "pending"
-    ? `<button type="button" data-execution-plan-action="start" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${busy ? busyLabel : "开始执行"}</button>
-       <button type="button" data-execution-plan-action="open-end-menu" data-execution-plan-id="${escapeAttr(plan.id)}" aria-haspopup="menu" aria-expanded="${menuOpen}"${disabled}>结束</button>`
-    : plan.status === "executing"
-      ? `<button type="button" data-execution-plan-action="open-end-menu" data-execution-plan-id="${escapeAttr(plan.id)}" aria-haspopup="menu" aria-expanded="${menuOpen}"${disabled}>${busy ? busyLabel : "结束"}</button>`
-      : `<button type="button" data-execution-plan-action="reopen" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${busy ? busyLabel : "重新打开"}</button>`;
+  const actions = plan.status === "ended"
+    ? `<button type="button" data-execution-plan-action="reopen" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${busy ? busyLabel : "重新打开"}</button>`
+    : `<button type="button" data-execution-plan-action="open-end-menu" data-execution-plan-id="${escapeAttr(plan.id)}" aria-haspopup="menu" aria-expanded="${menuOpen}"${disabled}>${busy ? busyLabel : "结束"}</button>`;
   return `<div class="execution-plan-card-actions ${menuOpen ? "open" : ""}">${actions}
     <button type="button" class="danger" data-execution-plan-action="delete" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${deleting ? "删除中…" : "删除"}</button>
   </div>${renderExecutionPlanEndMenu(plan)}`;
@@ -36789,6 +36999,10 @@ async function updateExecutionPlanLifecycle(
   planId: string,
   status: ExecutionPlanStatus,
   endReason: ExecutionPlanEndReason | null = null,
+  options: {
+    binanceTracking?: Partial<ExecutionPlanBinanceTracking>;
+    automaticMessage?: string;
+  } = {},
 ) {
   const plan = state.executionPlans.find((item) => item.id === planId);
   if (!plan || executionPlanAlertSyncBusyIds.has(planId)) return;
@@ -36796,7 +37010,18 @@ async function updateExecutionPlanLifecycle(
   state.executionPlanEndMenuId = null;
   render();
   try {
-    let updated = transitionExecutionPlan(plan, status, { endReason });
+    const binanceTracking = status === "pending" && !options.binanceTracking
+      ? {
+          positionObserved: false,
+          missingPolls: 0,
+          lastPositionAt: null,
+          lastPositionAmount: null,
+          lastEntryPrice: null,
+          lastMarkPrice: null,
+          lastUnrealizedPnl: null,
+        }
+      : options.binanceTracking;
+    let updated = transitionExecutionPlan(plan, status, { endReason, binanceTracking });
     const alertResult = await syncExecutionPlanLinkedAlert(updated);
     updated = { ...updated, linkedAlertId: alertResult.alertId };
     const nextPlans = state.executionPlans.map((item) => item.id === planId ? updated : item);
@@ -36806,11 +37031,11 @@ async function updateExecutionPlanLifecycle(
     }
     state.executionPlans = nextPlans;
     state.executionPlanFilter = status;
-    const statusText = status === "executing"
+    const statusText = options.automaticMessage || (status === "executing"
       ? "计划已执行，预警已切换为止损与止盈监控"
       : status === "pending"
         ? "计划已恢复待执行，预警已切换为入场监控"
-        : "计划已结束，对应预警已自动暂停";
+        : "计划已结束，对应预警已自动暂停");
     showToast(alertResult.warning ? `${statusText}；行情连接正在恢复` : statusText, 5000);
   } catch (error) {
     showToast(`计划状态更新失败：${errorMessage(error)}`, 5000);
@@ -50035,7 +50260,7 @@ function executionPlanCandidateKey(threadId: string, messageId: string) {
 
 function renderAddToPlanAction(message: Message, text: string) {
   const candidate = executionPlanCandidateFromText(text);
-  if (!candidate) return "";
+  if (!candidate || !executionPlanHasConcreteTradingPlan(candidate)) return "";
   syncExecutionPlansForCurrentAccount();
   const key = executionPlanCandidateKey(message.conversation_id, message.id);
   executionPlanCandidatesBySource.set(key, candidate);
@@ -57511,8 +57736,7 @@ function bindExecutionPlanEvents() {
       const action = actionButton.dataset.executionPlanAction;
       const planId = actionButton.dataset.executionPlanId || "";
       if (!planId) return;
-      if (action === "start") void updateExecutionPlanLifecycle(planId, "executing");
-      else if (action === "reopen") void updateExecutionPlanLifecycle(planId, "pending");
+      if (action === "reopen") void updateExecutionPlanLifecycle(planId, "pending");
       else if (action === "open-end-menu") {
         state.executionPlanEndMenuId = state.executionPlanEndMenuId === planId ? null : planId;
         render();
@@ -67773,6 +67997,7 @@ async function loadBinanceAccountPage() {
       if (loadSequence !== binanceAccountLoadSequence) return;
       accountState.snapshot = snapshot;
       syncTradingExpertOrderLineSnapshot(snapshot);
+      await reconcileExecutionPlansWithBinanceSnapshot(snapshot);
       accountState.loaded = true;
       accountState.error = null;
       accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
@@ -67816,6 +68041,7 @@ async function refreshBinanceAccountSnapshot() {
   try {
     state.binanceAccount.snapshot = await api.getBinanceAccountSnapshot({ force: true });
     syncTradingExpertOrderLineSnapshot(state.binanceAccount.snapshot);
+    await reconcileExecutionPlansWithBinanceSnapshot(state.binanceAccount.snapshot);
     state.binanceAccount.loaded = true;
     state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
     binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
@@ -67843,7 +68069,8 @@ function stopBinanceAccountLiveRefresh() {
 }
 
 function binanceAccountReadOnlyDataVisible() {
-  return state.activeView === "account"
+  return executionPlanBinanceMonitoringNeeded()
+    || state.activeView === "account"
     || (
       state.activeView === "chat"
       && !state.chatPreview
@@ -67852,6 +68079,9 @@ function binanceAccountReadOnlyDataVisible() {
 }
 
 function binanceAccountLiveRefreshInterval() {
+  if (executionPlanBinanceMonitoringNeeded()) {
+    return BINANCE_ACCOUNT_EXECUTION_PLAN_LIVE_REFRESH_INTERVAL_MS;
+  }
   return state.activeView === "account"
     ? BINANCE_ACCOUNT_LIVE_REFRESH_INTERVAL_MS
     : BINANCE_ACCOUNT_TRADING_LIVE_REFRESH_INTERVAL_MS;
@@ -67869,7 +68099,10 @@ function binanceAccountRetryDelay(error: unknown, failureCount: number) {
 
 function scheduleBinanceAccountLiveRefresh(delayMs = binanceAccountLiveRefreshInterval()) {
   stopBinanceAccountLiveRefresh();
-  if (!binanceAccountReadOnlyDataVisible() || document.hidden) return;
+  if (
+    !binanceAccountReadOnlyDataVisible()
+    || (document.hidden && !executionPlanBinanceMonitoringNeeded())
+  ) return;
   if (!state.binanceAccount.status?.bound || !state.binanceAccount.snapshot) {
     const bootstrapDelay = state.binanceAccount.autoRefreshAfter - Date.now();
     if (!state.binanceAccount.loaded && state.binanceAccount.error && bootstrapDelay > 0) {
@@ -67888,7 +68121,10 @@ function scheduleBinanceAccountLiveRefresh(delayMs = binanceAccountLiveRefreshIn
 }
 
 function resumeBinanceAccountLiveRefresh() {
-  if (!binanceAccountReadOnlyDataVisible() || document.hidden) return;
+  if (
+    !binanceAccountReadOnlyDataVisible()
+    || (document.hidden && !executionPlanBinanceMonitoringNeeded())
+  ) return;
   if (state.binanceAccount.status?.bound && state.binanceAccount.snapshot) {
     scheduleBinanceAccountLiveRefresh(
       Math.max(0, binanceAccountLiveRetryAfter - Date.now()),
@@ -67898,10 +68134,30 @@ function resumeBinanceAccountLiveRefresh() {
   void loadBinanceAccountPage().finally(() => scheduleBinanceAccountLiveRefresh());
 }
 
+function ensureBinanceAccountLiveRefresh() {
+  if (
+    !binanceAccountReadOnlyDataVisible()
+    || (document.hidden && !executionPlanBinanceMonitoringNeeded())
+  ) return;
+  if (
+    binanceAccountLiveRefreshTimer !== null
+    || binanceAccountLiveRefreshPromise
+    || binanceAccountLoadPromise
+    || state.binanceAccount.loading
+  ) return;
+  if (
+    state.binanceAccount.loaded
+    && state.binanceAccount.status
+    && !state.binanceAccount.status.bound
+    && Date.now() < state.binanceAccount.autoRefreshAfter
+  ) return;
+  resumeBinanceAccountLiveRefresh();
+}
+
 async function silentlyRefreshBinanceAccountSnapshot() {
   if (
     !binanceAccountReadOnlyDataVisible()
-    || document.hidden
+    || (document.hidden && !executionPlanBinanceMonitoringNeeded())
     || !api.getBinanceAccountSnapshot
     || !state.binanceAccount.status?.bound
     || !state.binanceAccount.snapshot
@@ -67935,6 +68191,7 @@ async function silentlyRefreshBinanceAccountSnapshot() {
         && snapshot.warnings?.some((warning) => warning.includes("上次成功读取的数据"));
       accountState.snapshot = snapshot;
       syncTradingExpertOrderLineSnapshot(snapshot);
+      await reconcileExecutionPlansWithBinanceSnapshot(snapshot);
       accountState.loaded = true;
       accountState.error = null;
       accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
@@ -68121,6 +68378,7 @@ async function submitBinanceAccountBinding() {
     };
     state.binanceAccount.snapshot = result.snapshot;
     syncTradingExpertOrderLineSnapshot(result.snapshot);
+    await reconcileExecutionPlansWithBinanceSnapshot(result.snapshot);
     state.binanceAccount.loaded = true;
     state.binanceAccount.loading = false;
     state.binanceAccount.error = null;

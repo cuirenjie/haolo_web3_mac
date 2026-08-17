@@ -23,6 +23,17 @@ export type ExecutionPlanSignedNumberSegment = {
 
 export type ExecutionPlanStatus = "pending" | "executing" | "ended";
 export type ExecutionPlanEndReason = "take_profit" | "stop_loss" | "cancelled" | "expired";
+export type ExecutionPlanTradeDirection = "LONG" | "SHORT";
+
+export type ExecutionPlanBinanceTracking = {
+  positionObserved: boolean;
+  missingPolls: number;
+  lastPositionAt: string | null;
+  lastPositionAmount: number | null;
+  lastEntryPrice: number | null;
+  lastMarkPrice: number | null;
+  lastUnrealizedPnl: number | null;
+};
 
 export type SavedExecutionPlan = ExecutionPlanCandidate & {
   schemaVersion: 2;
@@ -35,6 +46,7 @@ export type SavedExecutionPlan = ExecutionPlanCandidate & {
   endReason: ExecutionPlanEndReason | null;
   statusUpdatedAt: string;
   linkedAlertId: string | null;
+  binanceTracking: ExecutionPlanBinanceTracking;
 };
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
@@ -65,6 +77,85 @@ function cleanExecutionPlanDisplayText(value: unknown) {
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\s+([，。；、])/g, "$1")
     .trim();
+}
+
+function normalizedBinanceSymbol(value: unknown) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function normalizedTradeDirection(value: unknown): ExecutionPlanTradeDirection | null {
+  const text = String(value || "");
+  if (/(?:偏|看)?空|空头/.test(text)) return "SHORT";
+  if (/(?:偏|看)?多|多头/.test(text)) return "LONG";
+  return null;
+}
+
+/**
+ * Extracts the Binance USDⓈ-M symbol and intended direction from a saved plan.
+ * The title is preferred for the market because it is normalized when a plan
+ * is created; content remains a fallback for legacy plans.
+ */
+export function executionPlanBinanceMarketDetails(input: {
+  title?: unknown;
+  content?: unknown;
+  sourceTitle?: unknown;
+  sourceText?: unknown;
+}): { symbol: string | null; direction: ExecutionPlanTradeDirection | null } {
+  const title = String(input.title || "").trim().toUpperCase();
+  const sources = [title, input.content, input.sourceTitle, input.sourceText]
+    .map((value) => String(value || "").trim().toUpperCase())
+    .filter(Boolean);
+  const combined = sources.join("\n");
+  const marketIdMatch = combined.match(/BINANCE\s*:\s*FUTURES\s*:\s*([A-Z0-9]{2,30})\b/);
+  const slashMatch = combined.match(/\b([A-Z0-9]{2,20})\s*\/\s*(USDT|USDC|BUSD)\b/);
+  const compactMatch = combined.match(/\b([A-Z0-9]{2,24})(?:\s+币安)?(?:永续|合约)\b/);
+  const symbol = normalizedBinanceSymbol(
+    marketIdMatch?.[1]
+      || (slashMatch ? `${slashMatch[1]}${slashMatch[2]}` : "")
+      || compactMatch?.[1],
+  );
+  const directionLine = String(input.content || "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-*+•▪◦]\s+|\d+[.)、]\s*)/, "").trim())
+    .find((line) => /^方向判断\s*[：:]/u.test(line));
+  const direction = normalizedTradeDirection(directionLine || combined);
+  return {
+    symbol: symbol && /(?:USDT|USDC|BUSD)$/.test(symbol) ? symbol : null,
+    direction,
+  };
+}
+
+function defaultBinanceTracking(): ExecutionPlanBinanceTracking {
+  return {
+    positionObserved: false,
+    missingPolls: 0,
+    lastPositionAt: null,
+    lastPositionAmount: null,
+    lastEntryPrice: null,
+    lastMarkPrice: null,
+    lastUnrealizedPnl: null,
+  };
+}
+
+function normalizedBinanceTracking(value: unknown): ExecutionPlanBinanceTracking {
+  const record = value && typeof value === "object" ? value as Partial<ExecutionPlanBinanceTracking> : {};
+  const numberOrNull = (candidate: unknown) => {
+    if (candidate == null || candidate === "") return null;
+    const number = Number(candidate);
+    return Number.isFinite(number) ? number : null;
+  };
+  return {
+    positionObserved: record.positionObserved === true,
+    missingPolls: Math.max(0, Math.trunc(Number(record.missingPolls) || 0)),
+    lastPositionAt: String(record.lastPositionAt || "").trim() || null,
+    lastPositionAmount: numberOrNull(record.lastPositionAmount),
+    lastEntryPrice: numberOrNull(record.lastEntryPrice),
+    lastMarkPrice: numberOrNull(record.lastMarkPrice),
+    lastUnrealizedPnl: numberOrNull(record.lastUnrealizedPnl),
+  };
 }
 
 export function executionPlanDirectionTone(label: unknown, text: unknown): ExecutionPlanDirectionTone {
@@ -169,6 +260,31 @@ export function executionPlanDisplayLines(value: unknown): ExecutionPlanDisplayL
         text: labelMatch[3].trim(),
       };
     });
+}
+
+/**
+ * A trading analysis can contain the six familiar labels while still being a
+ * non-plan placeholder (for example, a neutral direction with every price
+ * marked as "未形成"). Keep the generic step-plan parser permissive, but only
+ * expose the Add to Plan action when a trading candidate has a concrete
+ * direction, trigger, stop and take-profit price.
+ */
+export function executionPlanHasConcreteTradingPlan(candidate: ExecutionPlanCandidate | null | undefined) {
+  if (!candidate) return false;
+  const lines = executionPlanDisplayLines(candidate.content);
+  const tradingLabels = lines.filter((line) => /方向判断|触发|止损|止盈|风险收益比/u.test(line.label));
+  if (!tradingLabels.length) return true;
+  const direction = lines.find((line) => /方向判断/u.test(line.label))?.text || "";
+  if (
+    !/(?:多|空)/u.test(direction)
+    || /中性|未形成|未明确|观望|等待/u.test(direction)
+  ) return false;
+  const hasConcretePrice = (pattern: RegExp) => lines.some((line) => (
+    pattern.test(line.label)
+    && !/未形成|未明确|待定|暂无|无/u.test(line.text)
+    && /(?:^|[^\d])\d+(?:,\d{3})*(?:\.\d+)?/u.test(line.text)
+  ));
+  return hasConcretePrice(/触发/u) && hasConcretePrice(/止损/u) && hasConcretePrice(/止盈/u);
 }
 
 function defaultStorage(): StorageLike | null {
@@ -330,6 +446,7 @@ function savedExecutionPlanFromUnknown(value: unknown): SavedExecutionPlan | nul
     endReason,
     statusUpdatedAt,
     linkedAlertId,
+    binanceTracking: normalizedBinanceTracking(record.binanceTracking),
   };
 }
 
@@ -388,15 +505,23 @@ export function createSavedExecutionPlan(input: {
     endReason: null,
     statusUpdatedAt: createdAt,
     linkedAlertId: null,
+    binanceTracking: defaultBinanceTracking(),
   };
 }
 
 export function transitionExecutionPlan(
   plan: SavedExecutionPlan,
   status: ExecutionPlanStatus,
-  options: { endReason?: ExecutionPlanEndReason | null; updatedAt?: string } = {},
+  options: {
+    endReason?: ExecutionPlanEndReason | null;
+    updatedAt?: string;
+    binanceTracking?: Partial<ExecutionPlanBinanceTracking> | null;
+  } = {},
 ): SavedExecutionPlan {
   const statusUpdatedAt = String(options.updatedAt || new Date().toISOString()).trim();
+  const tracking = options.binanceTracking == null
+    ? plan.binanceTracking
+    : normalizedBinanceTracking({ ...plan.binanceTracking, ...options.binanceTracking });
   return {
     ...plan,
     schemaVersion: 2,
@@ -405,5 +530,6 @@ export function transitionExecutionPlan(
       ? options.endReason
       : null,
     statusUpdatedAt: statusUpdatedAt || plan.statusUpdatedAt || plan.createdAt,
+    binanceTracking: tracking,
   };
 }

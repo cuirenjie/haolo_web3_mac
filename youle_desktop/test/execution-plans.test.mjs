@@ -3,9 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   createSavedExecutionPlan,
+  executionPlanBinanceMarketDetails,
   executionPlanCardTitle,
   executionPlanDirectionTone,
   executionPlanDisplayLines,
+  executionPlanHasConcreteTradingPlan,
   executionPlanSignedNumberSegments,
   executionPlanCandidateFromText,
   executionPlanTextPartition,
@@ -123,6 +125,38 @@ B. 先保留旧入口，再进行灰度切换。
   assert.match(letteredOptions?.content || "", /A\. 先在本机/);
   assert.equal(executionPlanCandidateFromText("今天市场偏空，但还需要继续观察。"), null);
   assert.equal(executionPlanCandidateFromText("这里仅提到执行方案，没有给出可选择或可执行的步骤。"), null);
+});
+
+test("Add to Plan is hidden for neutral trading placeholders without concrete prices", () => {
+  const placeholder = executionPlanCandidateFromText(`
+当前动作：等待条件触发
+方向判断：中性
+方向触发：未形成明确单侧方案
+止损与失效：未形成
+分批止盈：未形成
+风险收益比：未形成
+  `);
+  assert.ok(placeholder);
+  assert.equal(executionPlanHasConcreteTradingPlan(placeholder), false);
+
+  const actionable = executionPlanCandidateFromText(`
+当前动作：等待
+方向判断：偏多
+多头触发：1897.34
+止损与失效：1876.01
+分批止盈：1929.335
+风险收益比：1:1.12
+  `);
+  assert.ok(actionable);
+  assert.equal(executionPlanHasConcreteTradingPlan(actionable), true);
+
+  const generic = executionPlanCandidateFromText(`
+## 推荐执行计划
+- 先备份现有配置。
+- 修改主题变量并运行回归测试。
+- 发布前检查亮暗主题。
+  `);
+  assert.equal(executionPlanHasConcreteTradingPlan(generic), true);
 });
 
 test("saved plans persist per account scope and malformed records are discarded", () => {
@@ -252,6 +286,81 @@ test("trading plan card titles use symbol venue contract and interval format", (
   assert.equal(executionPlanCardTitle({ fallbackTitle: "推荐执行计划" }), "推荐执行计划");
 });
 
+test("Binance position monitoring extracts the perpetual symbol and required direction", () => {
+  assert.deepEqual(executionPlanBinanceMarketDetails({
+    title: "SOL/USDT 币安永续 1H",
+    content: `当前动作：不交易
+方向判断：偏多
+多头触发：1897.34
+止损与失效：1876.01`,
+  }), {
+    symbol: "SOLUSDT",
+    direction: "LONG",
+  });
+  assert.deepEqual(executionPlanBinanceMarketDetails({
+    title: "标准执行方案",
+    sourceText: "BINANCE:FUTURES:ETHUSDT · 4小时缠论分析",
+    content: "方向判断：看空\n空头触发：2222.08",
+  }), {
+    symbol: "ETHUSDT",
+    direction: "SHORT",
+  });
+});
+
+test("saved plans retain Binance position observation state across restarts", () => {
+  const storage = new MemoryStorage();
+  const plan = createSavedExecutionPlan({
+    candidate: {
+      title: "SOL/USDT 币安永续 1H",
+      content: "当前动作：等待\n方向判断：偏多\n多头触发：100\n止损与失效：95\n分批止盈：110\n风险收益比：1:2",
+    },
+    sourceThreadId: "thread-monitor",
+    sourceMessageId: "message-monitor",
+    createdAt: "2026-08-17T02:00:00.000Z",
+  });
+  const executing = transitionExecutionPlan(plan, "executing", {
+    updatedAt: "2026-08-17T02:01:00.000Z",
+    binanceTracking: {
+      positionObserved: true,
+      lastPositionAt: "2026-08-17T02:01:15.000Z",
+      lastPositionAmount: 2.5,
+      lastEntryPrice: 100,
+      lastMarkPrice: 101,
+      lastUnrealizedPnl: 2.5,
+    },
+  });
+  assert.equal(saveExecutionPlans("monitor-account", [executing], storage), true);
+  const [restored] = loadExecutionPlans("monitor-account", storage);
+  assert.equal(restored.binanceTracking.positionObserved, true);
+  assert.equal(restored.binanceTracking.lastPositionAmount, 2.5);
+  assert.equal(restored.binanceTracking.lastUnrealizedPnl, 2.5);
+});
+
+test("active plans reconcile against fresh Binance positions and full-close history", async () => {
+  const renderer = await rendererSource;
+  const monitorStart = renderer.indexOf("function executionPlanBinanceMonitoringNeeded");
+  const monitorEnd = renderer.indexOf("async function syncExecutionPlanLinkedAlert", monitorStart);
+  const monitor = renderer.slice(monitorStart, monitorEnd);
+  const liveRefreshStart = renderer.indexOf("function binanceAccountReadOnlyDataVisible");
+  const liveRefreshEnd = renderer.indexOf("function renderBinanceAccountLiveUpdate", liveRefreshStart);
+  const liveRefresh = renderer.slice(liveRefreshStart, liveRefreshEnd);
+
+  assert.match(renderer, /const BINANCE_ACCOUNT_EXECUTION_PLAN_LIVE_REFRESH_INTERVAL_MS = 15_000/);
+  assert.match(monitor, /position\.symbol\.trim\(\)\.toUpperCase\(\) === identity\.symbol/);
+  assert.match(monitor, /position\.direction === identity\.direction/);
+  assert.match(monitor, /Math\.abs\(position\.amount\) > 1e-12/);
+  assert.match(monitor, /plan\.status === "pending"[\s\S]*updateExecutionPlanLifecycle\(plan\.id, "executing"/);
+  assert.match(monitor, /record\.closeType === "FULL"/);
+  assert.match(monitor, /record\.direction === identity\.direction/);
+  assert.match(monitor, /realizedPnl > 0 \? "take_profit" : "stop_loss"/);
+  assert.match(monitor, /getBinanceAccountSnapshot\(\{ force: true, live: false \}\)/);
+  assert.match(monitor, /tracking\.missingPolls < 2/);
+  assert.match(monitor, /updateExecutionPlanLifecycle\(plan\.id, "ended", endReason/);
+  assert.match(liveRefresh, /executionPlanBinanceMonitoringNeeded\(\)/);
+  assert.match(liveRefresh, /BINANCE_ACCOUNT_EXECUTION_PLAN_LIVE_REFRESH_INTERVAL_MS/);
+  assert.match(renderer, /document\.hidden && !executionPlanBinanceMonitoringNeeded\(\)/);
+});
+
 test("signed plan values color losses red and gains green without treating ranges as signed", () => {
   assert.deepEqual(
     executionPlanSignedNumberSegments("止损约 -23.85 USDT，全部止盈约 +23.16 USDT，区间 75.12-75.68"),
@@ -287,21 +396,22 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
 
   assert.match(renderer, /allowPlanAction:[\s\S]*!streaming[\s\S]*hasConclusiveAgentMessagePhase/);
   assert.match(renderer, /function renderAddToPlanAction[\s\S]*executionPlanCandidateFromText\(text\)/);
+  assert.match(renderer, /function renderAddToPlanAction[\s\S]*executionPlanHasConcreteTradingPlan\(candidate\)/);
   assert.match(renderer, /class="message-action-button trading-preference-onboarding-start trading-preference-binance-connect message-add-to-plan"/);
   assert.match(renderer, /data-message-action-destination="execution-plans"/);
   assert.match(renderer, /function renderExecutionPlansPage[\s\S]*execution-plan-list[\s\S]*当前没有计划/);
   assert.match(renderer, /const executionPlanSubfilters = state\.executionPlans\.length\s*\?/);
   assert.match(renderer, /\["pending", "待执行"\][\s\S]*\["executing", "执行中"\][\s\S]*\["ended", "已结束"\]/);
   assert.match(renderer, /data-execution-plan-filter="\$\{status\}"/);
-  assert.match(renderer, /data-execution-plan-action="start"[\s\S]*开始执行/);
-  assert.match(renderer, /data-execution-plan-action="open-end-menu"[\s\S]*data-execution-plan-action="reopen"/);
+  assert.doesNotMatch(renderer, /data-execution-plan-action="start"|开始执行/);
+  assert.match(renderer, /plan\.status === "ended"[\s\S]*data-execution-plan-action="reopen"[\s\S]*data-execution-plan-action="open-end-menu"/);
   assert.match(renderer, /data-execution-plan-action="delete"[\s\S]*删除/);
   assert.match(renderer, /data-execution-plan-end-reason="\$\{reason\}"/);
   assert.match(renderer, /class="execution-plan-end-menu" role="menu"/);
   assert.match(renderer, /updateExecutionPlanLifecycle[\s\S]*transitionExecutionPlan[\s\S]*saveExecutionPlans/);
   assert.match(planEventBlock, /executionPlanEventsBound[\s\S]*root\.addEventListener\("click"/);
   assert.match(planEventBlock, /closest<HTMLButtonElement>\("\[data-execution-plan-action\]"\)/);
-  assert.match(planEventBlock, /event\.stopPropagation\(\)[\s\S]*action === "start"[\s\S]*updateExecutionPlanLifecycle\(planId, "executing"\)/);
+  assert.doesNotMatch(planEventBlock, /action === "start"|updateExecutionPlanLifecycle\(planId, "executing"\)/);
   assert.match(planEventBlock, /action === "open-end-menu"[\s\S]*queueMicrotask/);
   assert.match(planEventBlock, /action === "end"[\s\S]*updateExecutionPlanLifecycle\(planId, "ended", endReason\)/);
   assert.match(planEventBlock, /action === "delete"[\s\S]*deleteExecutionPlan\(planId\)/);
