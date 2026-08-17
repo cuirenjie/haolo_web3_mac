@@ -201,6 +201,11 @@ import {
   buildGeneralRequestRoutingPrompt,
   normalizeGeneralRequestRoutingModelResponse,
 } from "./trading-analysis/general-request-router.mjs";
+import {
+  buildExternalTradingRoutingPrompt,
+  normalizeExternalTradingRoutingModelResponse,
+  repairExternalTradingRoutingFromText,
+} from "./trading-analysis/external-strategy-router.mjs";
 import { createTradingAnalysisModelProviderRegistry } from "./trading-analysis/model-provider.mjs";
 import { tradingAnalysisTurnPolicy } from "./trading-analysis-turn-policy.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
@@ -11339,6 +11344,10 @@ ipcMain.handle("app:confirmTaskCompletionRendered", async (_event, params = {}) 
   return confirmTaskCompletionRendered(params);
 });
 
+ipcMain.handle("app:notifyExecutionPlanStatusChanged", async (_event, params = {}) => {
+  return notifyExecutionPlanStatusChanged(params);
+});
+
 ipcMain.handle("app:setTheme", async (_event, params = {}) => {
   return setAppTheme(params.theme);
 });
@@ -12915,6 +12924,37 @@ async function notifyTradingAlertTriggered({ alert, evidence } = {}) {
   sendToRenderer("tradingAlerts:changed", await getTradingAlertService().then((service) => service.snapshot()));
 }
 
+function notifyExecutionPlanStatusChanged(params = {}) {
+  if (appShuttingDown || AUTOMATION_BACKGROUND || !taskCompletionPopupEnabled()) {
+    return { ok: true, shown: false };
+  }
+  const planTitle = firstString(params.title) || "执行计划";
+  const statusLabel = firstString(params.statusLabel, params.status);
+  const body = [
+    firstString(params.body) || "计划状态已更新。",
+    statusLabel ? `当前状态：${statusLabel}` : "",
+  ].filter(Boolean).join("\n");
+  const openContext = notificationOpenContext({
+    threadId: params.threadId,
+    alertId: params.alertId,
+  });
+  const title = `计划状态已更新 · ${planTitle}`;
+  if (process.platform === "win32") {
+    showDesktopNotificationWindow({ title, body, ...openContext });
+    return { ok: true, shown: true };
+  }
+  if (!Notification.isSupported()) return { ok: true, shown: false };
+  const notification = new Notification({
+    title,
+    body,
+    icon: SHELL_ICON_PATH || WINDOW_ICON_PATH || undefined,
+    silent: false,
+  });
+  notification.on("click", () => focusMainWindowFromNotification(openContext));
+  notification.show();
+  return { ok: true, shown: true };
+}
+
 async function getTradingAlertService() {
   if (tradingAlertService) return tradingAlertService;
   if (tradingAlertServicePromise) return tradingAlertServicePromise;
@@ -13044,6 +13084,135 @@ async function classifyTradingStrategyRequest(event, strategyId, params = {}) {
   }
 }
 
+async function classifyExternalTradingRequest(event, params = {}) {
+  assertExternalModelsIpcSender(event);
+  const ownerId = event.sender.id;
+  activeTradingRoutingControllers.get(ownerId)?.abort(
+    tradingAnalysisAbortError("A newer external trading request replaced this request"),
+  );
+  const controller = new AbortController();
+  activeTradingRoutingControllers.set(ownerId, controller);
+  const coordinator = getTradingStrategyCoordinator();
+  const strategies = coordinator.listStrategies().strategies.filter((strategy) => strategy.enabled !== false);
+  const requestId = `external-trading-route-${crypto.randomUUID()}`;
+  const text = String(params?.text || "").replace(/\u0000/g, "").slice(0, 12_000);
+  // A fully explicit request should never wait for a model timeout. Keep the
+  // LLM path for fuzzy/ambiguous language, while this narrow high-confidence
+  // repair handles phrases such as “用缠论分析 ETH 1h 的 K 线” immediately.
+  const explicitRoute = repairExternalTradingRoutingFromText({
+    text,
+    strategies,
+    route: {
+      mode: "clarification",
+      strategyId: null,
+      symbol: null,
+      interval: null,
+      lookbackMs: null,
+      lookbackLabel: null,
+      confidence: 0,
+      clarificationQuestion: null,
+    },
+  });
+  if (explicitRoute.mode === "analysis") {
+    if (activeTradingRoutingControllers.get(ownerId) === controller) {
+      activeTradingRoutingControllers.delete(ownerId);
+    }
+    return {
+      ok: true,
+      request: explicitRoute,
+      classification: {
+        schemaVersion: 1,
+        mode: explicitRoute.mode,
+        strategyId: explicitRoute.strategyId,
+        confidence: explicitRoute.confidence,
+      },
+      model: { providerId: "deterministic-explicit-route", modelId: "text-repair" },
+    };
+  }
+  try {
+    const model = await getTradingAnalysisModelRegistry().analyze(
+      DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
+      {
+        schemaVersion: 1,
+        requestId,
+        task: "external-trading-request-routing",
+        theoryId: "external_trading",
+        snapshotId: requestId,
+        prompt: buildExternalTradingRoutingPrompt({
+          text,
+          strategies,
+          pendingContext: params?.pendingContext,
+        }),
+        responseFormat: "json",
+      },
+      { signal: controller.signal },
+    );
+    const routed = repairExternalTradingRoutingFromText({
+      text,
+      strategies,
+      route: normalizeExternalTradingRoutingModelResponse(model.text, strategies),
+    });
+    return {
+      ok: true,
+      request: routed,
+      classification: {
+        schemaVersion: 1,
+        mode: routed.mode,
+        strategyId: routed.strategyId,
+        confidence: routed.confidence,
+      },
+      model: {
+        providerId: model.providerId,
+        modelId: model.modelId,
+        latencyMs: model.latencyMs,
+      },
+    };
+  } catch (error) {
+    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
+    const fallback = repairExternalTradingRoutingFromText({
+      text,
+      strategies,
+      route: {
+        mode: "clarification",
+        strategyId: null,
+        symbol: null,
+        interval: null,
+        lookbackMs: null,
+        lookbackLabel: null,
+        confidence: 0,
+        clarificationQuestion: null,
+      },
+    });
+    const hasTradingSignal = /K\s*线|行情|盘面|走势|趋势|复盘|分析|缠论|波浪|威科夫|订单流|ICT|SMC|SMT/iu.test(text);
+    if (!cancelled && (fallback.mode === "analysis" || fallback.strategyId || fallback.symbol || fallback.interval || hasTradingSignal)) {
+      return {
+        ok: true,
+        request: fallback,
+        classification: {
+          schemaVersion: 1,
+          mode: fallback.mode,
+          strategyId: fallback.strategyId,
+          confidence: fallback.confidence,
+        },
+        model: null,
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        code: cancelled ? "TRADING_ANALYSIS_CANCELLED" : "EXTERNAL_TRADING_ROUTING_FAILED",
+        message: cancelled
+          ? "外部通道交易请求识别已取消"
+          : String(error?.message || "外部通道交易请求识别失败").slice(0, 300),
+      },
+    };
+  } finally {
+    if (activeTradingRoutingControllers.get(ownerId) === controller) {
+      activeTradingRoutingControllers.delete(ownerId);
+    }
+  }
+}
+
 async function tradingStrategyParamsWithPersonalRisk(params = {}) {
   let owner;
   try {
@@ -13088,8 +13257,11 @@ async function loadTradingStrategyReadOnlyBinanceAccountContext() {
           symbol: position?.symbol,
           direction: position?.direction,
           leverage: position?.leverage,
+          amount: position?.amount,
           notionalValue: position?.notionalValue,
           markPrice: position?.markPrice,
+          entryPrice: position?.entryPrice,
+          unrealizedPnl: position?.unrealizedPnl,
         })),
         warnings: snapshot?.warnings,
       },
@@ -13203,6 +13375,10 @@ ipcMain.handle("personalContext:saveTradingPreferences", async (event, params = 
 
 ipcMain.handle("tradingStrategy:classify", async (event, params = {}) => (
   classifyTradingStrategyRequest(event, String(params?.strategyId || ""), params)
+));
+
+ipcMain.handle("tradingStrategy:classifyExternal", async (event, params = {}) => (
+  classifyExternalTradingRequest(event, params)
 ));
 
 ipcMain.handle("tradingStrategy:run", async (event, params = {}) => (

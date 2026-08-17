@@ -3027,7 +3027,7 @@ async function fetchTradingMarketStats(
   };
 }
 
-async function fetchTradingCandles(
+export async function fetchTradingCandles(
   symbol: string,
   resolution: string,
   count = 500,

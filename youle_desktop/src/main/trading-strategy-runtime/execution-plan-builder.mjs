@@ -24,6 +24,13 @@ function roundedDown(value, decimals = 2) {
   return Math.floor((normalized + Number.EPSILON) * scale) / scale;
 }
 
+function roundedQuantity(value) {
+  // Binance quantity precision varies by contract. Keep enough precision for
+  // a useful recommendation, while rounding down so the displayed quantity
+  // never exceeds the exposure used by the risk calculation.
+  return roundedDown(value, 8);
+}
+
 function boundedRiskValue(value, min, max, fallback = null) {
   const normalized = Number(value);
   return Number.isFinite(normalized) && normalized >= min && normalized <= max
@@ -116,19 +123,44 @@ function level(price, label, evidenceIds = [], tickSize = null) {
 }
 
 function inferredPreferredSide(actionPlan, theoryResult) {
-  const values = [
+  const normalizedSide = (value) => {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (/bull|long|accum|向上|偏多|看多/.test(normalized)) return "long";
+    if (/bear|short|distrib|向下|偏空|看空/.test(normalized)) return "short";
+    if (/neutral|balanced|range|sideways|中性|震荡|横盘|双向/.test(normalized)) return "neutral";
+    return null;
+  };
+  const explicitValues = [
     actionPlan?.primaryBias,
     actionPlan?.primaryScenario,
     actionPlan?.bias,
+  ];
+  for (const value of explicitValues) {
+    const side = normalizedSide(value);
+    if (side) return side;
+  }
+  const theoryValues = [
     theoryResult?.bias,
     theoryResult?.direction,
-  ].map((item) => String(item || "").trim().toLowerCase());
-  if (values.some((item) => /bull|long|accum|向上|偏多|看多/.test(item))) return "long";
-  if (values.some((item) => /bear|short|distrib|向下|偏空|看空/.test(item))) return "short";
+    theoryResult?.statistics?.direction,
+    theoryResult?.marketStructure?.currentBias,
+    theoryResult?.structure?.currentBias,
+  ];
+  for (const value of theoryValues) {
+    const side = normalizedSide(value);
+    if (side) return side;
+  }
   const signals = Array.isArray(theoryResult?.signals) ? theoryResult.signals : [];
   let score = 0;
   for (const signal of signals) {
-    const direction = String(signal?.direction || signal?.side || signal?.bias || "").toLowerCase();
+    const direction = String(
+      signal?.direction
+        || signal?.side
+        || signal?.bias
+        || signal?.kind
+        || signal?.type
+        || "",
+    ).toLowerCase();
     const weight = Math.max(0.1, Math.min(1, Number(signal?.strength) || 0.5));
     if (/bull|buy|long|up/.test(direction)) score += weight;
     if (/bear|sell|short|down/.test(direction)) score -= weight;
@@ -241,6 +273,9 @@ function normalizedAccountContext(value, now) {
       side: direction === "LONG" ? "long" : "short",
       notionalValue,
       markPrice,
+      amount: nonNegative(position?.amount),
+      entryPrice: finite(position?.entryPrice),
+      unrealizedPnl: Number.isFinite(Number(position?.unrealizedPnl)) ? Number(position.unrealizedPnl) : null,
       leverage: Math.max(1, Math.floor(finite(position?.leverage) || 1)),
     }];
   });
@@ -295,9 +330,14 @@ function accountExecutionPlan({
         equity: snapshot.equity,
         availableBalance: snapshot.availableBalance,
         leverage: oppositePosition.leverage,
+        entryPrice: oppositePosition.markPrice,
         notional: oppositePosition.notionalValue,
+        quantity: roundedQuantity(oppositePosition.amount || oppositePosition.notionalValue / oppositePosition.markPrice),
         existingSide: oppositePosition.side,
         existingNotional: oppositePosition.notionalValue,
+        existingQuantity: oppositePosition.amount || roundedQuantity(oppositePosition.notionalValue / oppositePosition.markPrice),
+        existingEntryPrice: oppositePosition.entryPrice,
+        existingUnrealizedPnl: oppositePosition.unrealizedPnl,
         estimatedStopLoss: null,
         estimatedTakeProfit: null,
         estimatedRoundTripCostRate,
@@ -354,9 +394,16 @@ function accountExecutionPlan({
       equity: roundedDown(snapshot.equity, 2),
       availableBalance: roundedDown(snapshot.availableBalance, 2),
       leverage,
+      entryPrice,
       notional,
+      quantity: roundedQuantity(notional / entryPrice),
       existingSide: sameSidePosition?.side || null,
       existingNotional: roundedDown(sameSidePosition?.notionalValue || 0, 2),
+      existingQuantity: sameSidePosition
+        ? roundedQuantity(sameSidePosition.amount || sameSidePosition.notionalValue / sameSidePosition.markPrice)
+        : 0,
+      existingEntryPrice: sameSidePosition?.entryPrice || null,
+      existingUnrealizedPnl: sameSidePosition?.unrealizedPnl ?? null,
       estimatedStopLoss: roundedDown(notional * lossRate, 2),
       estimatedTakeProfit: roundedDown(targetOrders.reduce((total, target) => total + target.estimatedNetProfit, 0), 2),
       estimatedRoundTripCostRate: costRate,
@@ -585,6 +632,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       maxPositionPercent: riskPolicy.maxPositionPercent,
       maxLeverage: riskPolicy.maxLeverage,
       minimumRiskRewardRatio: riskPolicy.minimumRiskRewardRatio,
+      estimatedRoundTripCostRate,
       formula: `建议数量上限 = 账户权益 × ${riskPolicy.maxLossPerTradePercent}% ÷（|计划入场价 - 止损价| + 单位仓位预估手续费与滑点）${riskPolicy.maxPositionPercent === null ? "" : `；且持仓名义价值不得超过账户权益 × ${riskPolicy.maxPositionPercent}%`}${riskPolicy.maxLeverage === null ? "" : `；实际杠杆不得超过 ${riskPolicy.maxLeverage} 倍`}；最后按合约乘数和最小数量向下归一化`,
       suggestedQuantity: null,
       unavailableReason: accountExecution.accountPlan
@@ -641,10 +689,38 @@ function displayTargets(scenario) {
   return scenario.targets.map((target, index) => `第${index + 1}目标 ${displayPrice(target)}`).join("，");
 }
 
+function scenarioRiskRewardText(scenario, costRate) {
+  if (!scenario?.targets?.length) return "未形成";
+  const ratios = scenario.targets.map((target, targetIndex) => ({
+    targetIndex,
+    ratio: riskReward(scenario.trigger, scenario.stop, target, scenario.side, costRate) || 0,
+  }));
+  return ratios.length
+    ? ratios.map((item) => `目标${item.targetIndex + 1}为 1:${item.ratio}`).join("，")
+    : "未形成";
+}
+
 function displayMoney(value) {
   const normalized = nonNegative(value);
   if (normalized === null) return "0";
   return normalized.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
+}
+
+function displayQuantity(value) {
+  const normalized = nonNegative(value);
+  if (normalized === null) return "未形成";
+  return normalized.toFixed(8).replace(/0+$/, "").replace(/\.$/, "") || "0";
+}
+
+function displaySignedMoney(value) {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) return "暂无";
+  return `${normalized >= 0 ? "+" : "-"}${displayMoney(Math.abs(normalized))} USDT`;
+}
+
+function executionPlanBaseAsset(plan) {
+  const symbol = String(plan?.market?.symbol || "").trim().toUpperCase();
+  return symbol.match(/^(.+?)(?:USDT|USDC|BUSD)$/)?.[1] || symbol || "标的";
 }
 
 function displayExecutionPlanInterval(value) {
@@ -667,71 +743,117 @@ function executionPlanDisplayTitle(plan) {
 
 export function formatExecutionPlanMarkdown(plan) {
   const validated = validateExecutionPlan(plan);
+  const bilateralScenarios = validated.preferredSide === "neutral"
+    ? validated.scenarios.filter((item) => item.side === "long" || item.side === "short")
+    : [];
+  const formatOne = (selectedScenario, bilateral = false) => {
+    const selectedSide = selectedScenario?.side || validated.preferredSide;
+    const accountPlan = bilateral ? null : validated.positionSizing.accountPlan;
+    const candidateOnly = validated.action === "no_trade";
+    const directionText = selectedSide === "long" ? "偏多" : selectedSide === "short" ? "偏空" : "中性";
+    const directionOrder = selectedSide === "long" ? "多单" : "空单";
+    let actionText = validated.action === "wait"
+      ? "等待条件触发"
+      : candidateOnly
+        ? "不交易"
+        : validated.action === "insufficient_data"
+          ? "数据/价位不足，不交易"
+          : validated.action === "long"
+            ? "现价做多"
+            : "现价做空";
+    let triggerText = displayPrice(selectedScenario?.trigger);
+    if (!selectedScenario) triggerText = "未形成明确单侧方案";
+    if (accountPlan?.mode === "new_position") {
+      triggerText += candidateOnly
+        ? `，推荐：${accountPlan.leverage} 倍杠杆、${displayMoney(accountPlan.notional)} USDT 的${directionOrder}`
+        : `，用 ${accountPlan.leverage} 倍杠杆开仓 ${displayMoney(accountPlan.notional)} USDT 的${directionOrder}`;
+    } else if (accountPlan?.mode === "manage_existing") {
+      triggerText += `，已有 ${displayMoney(accountPlan.existingNotional)} USDT 的${directionOrder}，按现有仓位执行，不重复开仓`;
+    } else if (accountPlan?.mode === "reduce_existing") {
+      actionText = "先减仓，再按计划管理";
+      triggerText += `，已有 ${displayMoney(accountPlan.existingNotional)} USDT 的${directionOrder}，先减至 ${displayMoney(accountPlan.notional)} USDT`;
+    } else if (accountPlan?.mode === "close_opposite") {
+      const oppositeOrder = accountPlan.existingSide === "long" ? "多单" : "空单";
+      actionText = "先平反向仓位，暂不开新仓";
+      triggerText += `，先平现有 ${displayMoney(accountPlan.existingNotional)} USDT 的${oppositeOrder}`;
+    }
+    const riskRewardText = bilateral
+      ? scenarioRiskRewardText(selectedScenario, validated.positionSizing?.estimatedRoundTripCostRate)
+      : validated.riskReward.length
+        ? validated.riskReward.map((item) => `目标${item.targetIndex + 1}为 1:${item.ratio}`).join("，")
+        : "未形成";
+    const accountOrdersAvailable = accountPlan && accountPlan.mode !== "close_opposite";
+    const stopText = accountOrdersAvailable
+      ? candidateOnly
+        ? `止损 ${displayPrice(selectedScenario?.stop)}`
+        : `挂条件委托 ${displayPrice(selectedScenario?.stop)} 市价止损`
+      : displayPrice(selectedScenario?.stop);
+    const takeProfitText = accountOrdersAvailable
+      ? accountPlan.targetOrders
+        .filter((target) => target.notional > 0)
+        .map((target) => candidateOnly
+          ? `止盈 ${target.price}，推荐仓位 ${displayMoney(target.notional)} USDT；预计盈利 +${displayMoney(target.estimatedNetProfit)} USDT`
+          : `挂条件委托 ${target.price} 市价止盈 ${displayMoney(target.notional)} USDT；预计盈利 +${displayMoney(target.estimatedNetProfit)} USDT`)
+        .join("，") || "未形成"
+      : displayTargets(selectedScenario);
+    const outcomeText = accountOrdersAvailable
+      ? `${riskRewardText}，如果止损：约 -${displayMoney(accountPlan.estimatedStopLoss)} USDT，如果全部止盈：约 +${displayMoney(accountPlan.estimatedTakeProfit)} USDT`
+      : riskRewardText;
+    const baseAsset = executionPlanBaseAsset(validated);
+    const accountBasisText = accountPlan
+      ? `账户权益 ${displayMoney(accountPlan.equity)} USDT；可用余额 ${displayMoney(accountPlan.availableBalance)} USDT`
+      : "";
+    const accountSizingText = accountOrdersAvailable
+      ? accountPlan.mode === "manage_existing"
+        ? `仓位大小：当前持仓约 ${displayQuantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset}；名义金额 ${displayMoney(accountPlan.existingNotional)} USDT；不重复开仓；${accountBasisText}`
+        : accountPlan.mode === "reduce_existing"
+          ? `仓位大小：调整后约 ${displayQuantity(accountPlan.quantity)} ${baseAsset}；名义金额 ${displayMoney(accountPlan.notional)} USDT；${accountBasisText}`
+          : `仓位大小：推荐下单 ${displayQuantity(accountPlan.quantity)} ${baseAsset}；名义金额 ${displayMoney(accountPlan.notional)} USDT；${accountPlan.leverage} 倍杠杆；${accountBasisText}`
+      : accountPlan?.mode === "close_opposite"
+        ? `仓位大小：当前已有约 ${displayQuantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset} 的${accountPlan.existingSide === "long" ? "多单" : "空单"}，先平仓，暂不推荐新下单；${accountBasisText}`
+        : "";
+    const accountPnlText = accountOrdersAvailable
+      ? `可能盈亏：止损约 -${displayMoney(accountPlan.estimatedStopLoss)} USDT；全部止盈约 +${displayMoney(accountPlan.estimatedTakeProfit)} USDT；已计入预估手续费和滑点`
+      : "";
+    const accountUnavailableText = !accountPlan && validated.positionSizing.accountStatus === "unavailable"
+      ? "仓位大小：实盘账户快照不可用或已过期，暂不生成推荐下单数量及盈亏金额；请刷新账户后重新分析"
+      : "";
+    const livePositionText = accountPlan?.existingSide
+      ? `实盘仓位：已有 ${displayQuantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset} 的${accountPlan.existingSide === "long" ? "多单" : "空单"}；开仓均价 ${accountPlan.existingEntryPrice == null ? "暂无" : accountPlan.existingEntryPrice}；未实现盈亏 ${displaySignedMoney(accountPlan.existingUnrealizedPnl)}`
+      : "";
+    const triggerLabel = selectedSide === "long"
+      ? "多头触发"
+      : selectedSide === "short"
+        ? "空头触发"
+        : "方向触发";
+    const titleSuffix = bilateral && selectedSide === "long"
+      ? " · 多头条件方案"
+      : bilateral && selectedSide === "short"
+        ? " · 空头条件方案"
+        : "";
+    return [
+      `## ${executionPlanDisplayTitle(validated)}${titleSuffix}`,
+      "",
+      `当前动作：${actionText}`,
+      `方向判断：${directionText}`,
+      `${triggerLabel}：${triggerText}`,
+      `止损与失效：${stopText}`,
+      `分批止盈：${takeProfitText}`,
+      ...(accountSizingText ? [accountSizingText] : []),
+      ...(livePositionText ? [livePositionText] : []),
+      ...(accountPnlText ? [accountPnlText] : []),
+      ...(accountUnavailableText ? [accountUnavailableText] : []),
+      `风险收益比：${outcomeText}`,
+    ].join("\n");
+  };
+  if (bilateralScenarios.length >= 2) {
+    return bilateralScenarios
+      .sort((left, right) => (left.side === "long" ? -1 : right.side === "long" ? 1 : 0))
+      .map((scenarioItem) => formatOne(scenarioItem, true))
+      .join("\n\n");
+  }
   const selectedScenario = validated.preferredSide === "long" || validated.preferredSide === "short"
     ? validated.scenarios.find((item) => item.side === validated.preferredSide)
     : null;
-  const accountPlan = validated.positionSizing.accountPlan;
-  const candidateOnly = validated.action === "no_trade";
-  const directionText = validated.preferredSide === "long" ? "偏多" : validated.preferredSide === "short" ? "偏空" : "中性";
-  const directionOrder = validated.preferredSide === "long" ? "多单" : "空单";
-  let actionText = validated.action === "wait"
-    ? "等待条件触发"
-    : candidateOnly
-      ? "不交易"
-      : validated.action === "insufficient_data"
-        ? "数据/价位不足，不交易"
-        : validated.action === "long"
-          ? "现价做多"
-          : "现价做空";
-  let triggerText = displayPrice(selectedScenario?.trigger);
-  if (!selectedScenario) triggerText = "未形成明确单侧方案";
-  if (accountPlan?.mode === "new_position") {
-    triggerText += candidateOnly
-      ? `，推荐：${accountPlan.leverage} 倍杠杆、${displayMoney(accountPlan.notional)} USDT 的${directionOrder}`
-      : `，用 ${accountPlan.leverage} 倍杠杆开仓 ${displayMoney(accountPlan.notional)} USDT 的${directionOrder}`;
-  } else if (accountPlan?.mode === "manage_existing") {
-    triggerText += `，已有 ${displayMoney(accountPlan.existingNotional)} USDT 的${directionOrder}，按现有仓位执行，不重复开仓`;
-  } else if (accountPlan?.mode === "reduce_existing") {
-    actionText = "先减仓，再按计划管理";
-    triggerText += `，已有 ${displayMoney(accountPlan.existingNotional)} USDT 的${directionOrder}，先减至 ${displayMoney(accountPlan.notional)} USDT`;
-  } else if (accountPlan?.mode === "close_opposite") {
-    const oppositeOrder = accountPlan.existingSide === "long" ? "多单" : "空单";
-    actionText = "先平反向仓位，暂不开新仓";
-    triggerText += `，先平现有 ${displayMoney(accountPlan.existingNotional)} USDT 的${oppositeOrder}`;
-  }
-  const riskRewardText = validated.riskReward.length
-    ? validated.riskReward.map((item) => `目标${item.targetIndex + 1}为 1:${item.ratio}`).join("，")
-    : "未形成";
-  const accountOrdersAvailable = accountPlan && accountPlan.mode !== "close_opposite";
-  const stopText = accountOrdersAvailable
-    ? candidateOnly
-      ? `止损 ${displayPrice(selectedScenario?.stop)}`
-      : `挂条件委托 ${displayPrice(selectedScenario?.stop)} 市价止损`
-    : displayPrice(selectedScenario?.stop);
-  const takeProfitText = accountOrdersAvailable
-    ? accountPlan.targetOrders
-      .filter((target) => target.notional > 0)
-      .map((target) => candidateOnly
-        ? `止盈 ${target.price}，推荐仓位 ${displayMoney(target.notional)} USDT`
-        : `挂条件委托 ${target.price} 市价止盈 ${displayMoney(target.notional)} USDT`)
-      .join("，") || "未形成"
-    : displayTargets(selectedScenario);
-  const outcomeText = accountOrdersAvailable
-    ? `${riskRewardText}，如果止损：约 -${displayMoney(accountPlan.estimatedStopLoss)} USDT，如果全部止盈：约 +${displayMoney(accountPlan.estimatedTakeProfit)} USDT`
-    : riskRewardText;
-  const triggerLabel = validated.preferredSide === "long"
-    ? "多头触发"
-    : validated.preferredSide === "short"
-      ? "空头触发"
-      : "方向触发";
-  return [
-    `## ${executionPlanDisplayTitle(validated)}`,
-    "",
-    `当前动作：${actionText}`,
-    `方向判断：${directionText}`,
-    `${triggerLabel}：${triggerText}`,
-    `止损与失效：${stopText}`,
-    `分批止盈：${takeProfitText}`,
-    `风险收益比：${outcomeText}`,
-  ].join("\n");
+  return formatOne(selectedScenario);
 }

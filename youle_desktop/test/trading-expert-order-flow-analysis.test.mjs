@@ -22,6 +22,10 @@ import {
   validateTradingDrawingPatch,
 } from "../src/main/trading-analysis/protocol.mjs";
 import {
+  buildExecutionPlanV1,
+  formatExecutionPlanMarkdown,
+} from "../src/main/trading-strategy-runtime/execution-plan-builder.mjs";
+import {
   buildTradingOrderFlowExpertPrompt,
   stripTradingOrderFlowMention,
   tradingOrderFlowMentioned,
@@ -237,6 +241,34 @@ test("order-flow pipeline stays model-neutral and emits a guarded AI drawing lay
   ]);
   assert.doesNotMatch(engineSource, /gpt|deepseek|openai/i);
   assert.doesNotMatch(pipelineSource, /gpt-\d|deepseek|openai/i);
+});
+
+test("neutral order-flow review keeps both deterministic sides as separate execution plans", async () => {
+  const registry = createTradingAnalysisModelProviderRegistry([{
+    providerId: "fixture-provider",
+    modelId: "fixture-model",
+    capabilities: { json: true, theoryReview: true },
+    async analyze() {
+      return {
+        text: JSON.stringify({
+          ...approvedMicroDrawingReview(runOrderFlowTheoryEngine(normalizeTradingMarketSnapshot(fixtureParams()))),
+          marketBias: "neutral",
+        }),
+      };
+    },
+  }]);
+  const result = await runTradingOrderFlowAnalysisPipeline(fixtureParams(), {
+    modelRegistry: registry,
+    providerId: "fixture-provider",
+  });
+  assert.equal(result.analysisPlan.actionPlan.primaryBias, "neutral");
+  const plan = buildExecutionPlanV1({ id: "order-flow", version: "1.0.0" }, result);
+  assert.equal(plan.preferredSide, "neutral");
+  assert.deepEqual(plan.scenarios.map((scenario) => scenario.side), ["long", "short"]);
+  const markdown = formatExecutionPlanMarkdown(plan);
+  assert.match(markdown, /^## BTC\/USDT 币安永续 15M · 多头条件方案$/m);
+  assert.match(markdown, /^## BTC\/USDT 币安永续 15M · 空头条件方案$/m);
+  assert.doesNotMatch(markdown, /未形成明确单侧方案/);
 });
 
 test("order-flow drawing aggregates same-side live evidence on its execution candle", () => {

@@ -464,6 +464,9 @@ export function ensureBrowserDesktopApi() {
       taskCompletionPopupEnabled = params?.enabled !== false;
       return { taskCompletionPopupEnabled };
     },
+    async notifyExecutionPlanStatusChanged() {
+      return { ok: true, shown: false };
+    },
     async confirmTaskCompletionRendered() {
       return { ok: true, shown: taskCompletionPopupEnabled };
     },

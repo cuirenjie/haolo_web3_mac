@@ -9,6 +9,12 @@ export type ExecutionPlanTextPartition = {
   after: string;
 };
 
+export type ExecutionPlanTextPartitions = {
+  before: string;
+  candidates: ExecutionPlanCandidate[];
+  after: string;
+};
+
 export type ExecutionPlanDisplayLine = {
   label: string;
   text: string;
@@ -40,6 +46,7 @@ export type SavedExecutionPlan = ExecutionPlanCandidate & {
   id: string;
   sourceThreadId: string;
   sourceMessageId: string;
+  sourcePlanKey?: string;
   sourceTitle: string;
   createdAt: string;
   status: ExecutionPlanStatus;
@@ -59,7 +66,7 @@ const EXECUTION_PLAN_END_REASONS = new Set<ExecutionPlanEndReason>(["take_profit
 
 const CORE_PLAN_LABEL = /(?:当前动作|方向判断|(?:多头|空头|首选方向)?触发|止损(?:与失效)?|分批止盈|风险收益比|候选(?:测算|止损|止盈))/;
 const PLAN_HEADING = /^(?:(?:标准|推荐|首选|备选|候选|可选)\s*)?(?:(?:执行|行动|实施|操作|落地)\s*)?(?:方案|计划)(?:\s*[A-C一二三123])?(?:\s*[:：-].*)?$/i;
-const TRADING_PLAN_HEADING = /^[A-Z0-9]{2,20}\/(?:USDT|USDC|BUSD)\s+币安永续\s+\d+(?:M|H|D|W)$/i;
+const TRADING_PLAN_HEADING = /^[A-Z0-9]{2,20}\/(?:USDT|USDC|BUSD)\s+币安永续\s+\d+(?:M|H|D|W)(?:\s+·\s+(?:多头|空头)条件方案)?$/i;
 const OPTION_LINE = /^(?:(?:方案|候选|选项|路径)\s*(?:[A-C]|[一二三四五六]|\d+)|[A-C]\s*方案|[A-C])\s*[:：、.)-]/i;
 const ORDERED_OR_BULLET_LINE = /^(?:[-*+•▪◦]\s+|(?:\d+|[A-C一二三四五六])[.)、]\s*)/i;
 
@@ -238,8 +245,13 @@ export function executionPlanCardTitle(input: {
     }
   }
 
-  if (baseAsset && interval) return `${baseAsset}/${quoteAsset} 币安永续 ${interval}`;
-  return cleanExecutionPlanDisplayText(input.fallbackTitle).slice(0, 120) || "执行计划";
+  const baseTitle = baseAsset && interval
+    ? `${baseAsset}/${quoteAsset} 币安永续 ${interval}`
+    : cleanExecutionPlanDisplayText(input.fallbackTitle).slice(0, 120) || "执行计划";
+  const fallback = String(input.fallbackTitle || "");
+  const sideSuffix = fallback.match(/(?:·|-)\s*(多头|空头)条件方案/u)?.[1];
+  if (sideSuffix && !baseTitle.includes(`${sideSuffix}条件方案`)) return `${baseTitle} · ${sideSuffix}条件方案`;
+  return baseTitle;
 }
 
 export function executionPlanDisplayLines(value: unknown): ExecutionPlanDisplayLine[] {
@@ -330,7 +342,8 @@ function planBlock(lines: string[], startIndex: number, endIndex: number): Execu
   };
 }
 
-function explicitHeadingCandidate(lines: string[]) {
+function explicitHeadingCandidates(lines: string[]) {
+  const candidates = [];
   for (let headingIndex = 0; headingIndex < lines.length; headingIndex += 1) {
     const heading = searchableLine(lines[headingIndex] || "");
     if (!isExecutionPlanHeading(heading)) continue;
@@ -348,9 +361,18 @@ function explicitHeadingCandidate(lines: string[]) {
     }
     if (structuredLineCount < 2 && coreLabelCount < 2) continue;
     const candidate = planBlock(lines, headingIndex + 1, endIndex);
-    if (candidate) return { ...candidate, title: heading.slice(0, 120) };
+    if (candidate) candidates.push({
+      ...candidate,
+      title: heading.slice(0, 120),
+      headingIndex,
+      endIndex,
+    });
   }
-  return null;
+  return candidates;
+}
+
+function explicitHeadingCandidate(lines: string[]) {
+  return explicitHeadingCandidates(lines)[0] || null;
 }
 
 function boundedCorePlanCandidate(lines: string[]) {
@@ -389,6 +411,36 @@ export function executionPlanCandidateFromText(value: unknown): ExecutionPlanCan
   return planBlock(lines, optionIndexes[0], optionIndexes[optionIndexes.length - 1]);
 }
 
+export function executionPlanCandidatesFromText(value: unknown): ExecutionPlanCandidate[] {
+  const text = String(value || "").replace(/\r\n?/g, "\n").trim();
+  if (!text) return [];
+  const lines = text.split("\n");
+  const explicitCandidates = explicitHeadingCandidates(lines);
+  if (explicitCandidates.length) return explicitCandidates.map(({ headingIndex, endIndex, ...candidate }) => candidate);
+  const candidate = executionPlanCandidateFromText(text);
+  return candidate ? [candidate] : [];
+}
+
+export function executionPlanTextPartitions(value: unknown): ExecutionPlanTextPartitions | null {
+  const text = String(value || "").replace(/\r\n?/g, "\n").trim();
+  if (!text) return null;
+  const lines = text.split("\n");
+  const explicitCandidates = explicitHeadingCandidates(lines);
+  if (!explicitCandidates.length) {
+    const candidate = executionPlanCandidateFromText(text);
+    return candidate ? { before: "", candidates: [candidate], after: "" } : null;
+  }
+  const first = explicitCandidates[0];
+  const last = explicitCandidates[explicitCandidates.length - 1];
+  if (!first || !last) return null;
+  const candidates = explicitCandidates.map(({ headingIndex, endIndex, ...candidate }) => candidate);
+  return {
+    before: lines.slice(0, first.headingIndex).join("\n").trim(),
+    candidates,
+    after: lines.slice(last.endIndex + 1).join("\n").trim(),
+  };
+}
+
 export function executionPlanTextPartition(value: unknown): ExecutionPlanTextPartition | null {
   const text = String(value || "").replace(/\r\n?/g, "\n").trim();
   const candidate = executionPlanCandidateFromText(text);
@@ -418,6 +470,7 @@ function savedExecutionPlanFromUnknown(value: unknown): SavedExecutionPlan | nul
   const sourceTitle = String(record.sourceTitle || "").trim().slice(0, 200);
   const sourceThreadId = String(record.sourceThreadId || "").trim();
   const sourceMessageId = String(record.sourceMessageId || "").trim();
+  const sourcePlanKey = String(record.sourcePlanKey || "").trim().slice(0, 120);
   const id = String(record.id || "").trim();
   const createdAt = String(record.createdAt || "").trim();
   const status = EXECUTION_PLAN_STATUSES.has(record.status as ExecutionPlanStatus)
@@ -440,6 +493,7 @@ function savedExecutionPlanFromUnknown(value: unknown): SavedExecutionPlan | nul
     content: narrowedCandidate?.content || content,
     sourceThreadId,
     sourceMessageId,
+    ...(sourcePlanKey ? { sourcePlanKey } : {}),
     sourceTitle,
     createdAt,
     status,
@@ -482,6 +536,7 @@ export function createSavedExecutionPlan(input: {
   candidate: ExecutionPlanCandidate;
   sourceThreadId: string;
   sourceMessageId: string;
+  sourcePlanKey?: string | null;
   sourceTitle?: string | null;
   analysisLabel?: string | null;
   createdAt?: string;
@@ -499,6 +554,7 @@ export function createSavedExecutionPlan(input: {
     content: input.candidate.content,
     sourceThreadId: input.sourceThreadId,
     sourceMessageId: input.sourceMessageId,
+    ...(String(input.sourcePlanKey || "").trim() ? { sourcePlanKey: String(input.sourcePlanKey).trim().slice(0, 120) } : {}),
     sourceTitle: String(input.sourceTitle || "").trim().slice(0, 200),
     createdAt,
     status: "pending",

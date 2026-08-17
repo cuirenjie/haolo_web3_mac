@@ -191,6 +191,34 @@ test("ExecutionPlanV1 derives prices from deterministic action levels and remain
   assert.match(tickNormalized.warnings.join(" "), /tick size 0\.25/);
 });
 
+test("bilateral conditional plans are rendered as independent long and short execution plans", () => {
+  const legacyResult = sampleLegacyResult();
+  legacyResult.theoryResult.signals = [{ direction: "neutral", strength: 0.9 }];
+  legacyResult.analysisPlan.actionPlan.primaryBias = "neutral";
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult);
+  assert.equal(plan.preferredSide, "neutral");
+  const markdown = formatExecutionPlanMarkdown(plan);
+  assert.match(markdown, /^## BTC\/USDT 币安永续 1H · 多头条件方案$/m);
+  assert.match(markdown, /^## BTC\/USDT 币安永续 1H · 空头条件方案$/m);
+  assert.match(markdown, /多头触发：102/);
+  assert.match(markdown, /空头触发：96/);
+  assert.equal((markdown.match(/^当前动作：等待条件触发$/gm) || []).length, 2);
+  assert.equal((markdown.match(/^方向判断：/gm) || []).length, 2);
+  assert.doesNotMatch(markdown, /方向触发：未形成明确单侧方案/);
+});
+
+test("ExecutionPlanV1 recognizes nested order-flow bias and signal kinds", () => {
+  const legacyResult = sampleLegacyResult();
+  legacyResult.theoryResult = {
+    statistics: { direction: "buying_pressure" },
+    marketStructure: { currentBias: "bullish" },
+    signals: [{ kind: "bullish_structure", strength: 0.7 }],
+  };
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult);
+  assert.equal(plan.preferredSide, "long");
+  assert.match(formatExecutionPlanMarkdown(plan), /^方向判断：偏多$/m);
+});
+
 test("unbound Binance output uses estimated net risk/reward in the requested six-item short plan", () => {
   const legacyResult = sampleLegacyResult();
   legacyResult.theoryResult.signals = [{ direction: "bearish", strength: 0.9 }];
@@ -305,12 +333,16 @@ test("ExecutionPlanV1 uses direct price-touch execution and fresh read-only Bina
   assert.equal(plan.positionSizing.accountPlan.mode, "new_position");
   assert.equal(plan.positionSizing.accountPlan.leverage, 10);
   assert.ok(plan.positionSizing.accountPlan.notional > 0);
+  assert.ok(plan.positionSizing.accountPlan.quantity > 0);
+  assert.equal(plan.positionSizing.accountPlan.entryPrice, 102);
   assert.ok(plan.positionSizing.accountPlan.estimatedStopLoss <= 100);
   const markdown = formatExecutionPlanMarkdown(plan);
   assert.match(markdown, /^当前动作：现价做多/m);
   assert.match(markdown, /用 10 倍杠杆开仓 .* USDT 的多单/);
   assert.match(markdown, /挂条件委托 98 市价止损/);
   assert.match(markdown, /挂条件委托 108 市价止盈 .* USDT/);
+  assert.match(markdown, /仓位大小：推荐下单 .* BTC；名义金额 .* USDT；10 倍杠杆/);
+  assert.match(markdown, /可能盈亏：止损约 -.* USDT；全部止盈约 \+.* USDT/);
   assert.match(markdown, /如果止损：约 -.* USDT，如果全部止盈：约 \+.* USDT/);
 });
 

@@ -21,8 +21,8 @@ import {
   executionPlanDisplayLines,
   executionPlanHasConcreteTradingPlan,
   executionPlanSignedNumberSegments,
-  executionPlanCandidateFromText,
-  executionPlanTextPartition,
+  executionPlanCandidatesFromText,
+  executionPlanTextPartitions,
   loadExecutionPlans,
   saveExecutionPlans,
   transitionExecutionPlan,
@@ -78,6 +78,7 @@ import {
   reconcileTradingStrategyCatalog,
   tradingIndicatorCatalog,
   tradingIndicatorMentionOptions,
+  tradingStrategyById,
   tradingStrategyByDisplayName,
   tradingStrategyCatalog,
   tradingStrategyMentionedByText,
@@ -1130,6 +1131,14 @@ type DesktopApi = {
   }): Promise<SystemIntegrationSnapshot>;
   setTaskCompletionPopupEnabled?(params: { enabled: boolean;
   }): Promise<{ taskCompletionPopupEnabled?: boolean }>;
+  notifyExecutionPlanStatusChanged?(params: {
+    title?: string;
+    body?: string;
+    status?: ExecutionPlanStatus;
+    statusLabel?: string;
+    threadId?: string | null;
+    alertId?: string | null;
+  }): Promise<{ ok?: boolean; shown?: boolean }>;
   confirmTaskCompletionRendered?(params: {
     threadId?: string | null;
     turnId?: string | null;
@@ -1346,6 +1355,10 @@ type DesktopApi = {
     text: string;
     hasImageAttachment?: boolean;
     hasCurrentAnalysis?: boolean;
+  }): Promise<any>;
+  classifyExternalTradingRequest?(params: {
+    text: string;
+    pendingContext?: string;
   }): Promise<any>;
   runTradingStrategyAnalysis?(params: {
     strategyId: string;
@@ -3980,7 +3993,10 @@ const TELEGRAM_CHANNEL_THREAD_STORAGE_KEY = "youle-desktop-telegram-channel-thre
 const WECHAT_CHANNEL_THREAD_NAME = "微信-好咯";
 const FEISHU_CHANNEL_THREAD_NAME = "飞书-好咯";
 const TELEGRAM_CHANNEL_THREAD_NAME = "Telegram-好咯";
-const EXTERNAL_CHANNEL_THREAD_ORDER = ["wechat", "feishu", "telegram"] as const;
+// Connected external channels are shown in the global pinned section in this
+// product order. Keep this independent of connection time so reconnecting a
+// channel cannot change the user's stable ordering.
+const EXTERNAL_CHANNEL_THREAD_ORDER = ["wechat", "telegram", "feishu"] as const;
 const WECHAT_CHANNEL_WELCOME_ITEM_ID = "wechat-channel-welcome";
 const WECHAT_CHANNEL_WELCOME_TEXT = "\u5fae\u4fe1\u5df2\u8fde\u63a5 \ud83c\udf89 \u53bb\u5fae\u4fe1\u7ed9\u5c0f\u54af\u53d1\u6761\u6d88\u606f\uff0c\u6211\u5c31\u4f1a\u5728\u8fd9\u91cc\u6536\u5230\u5e76\u56de\u590d\u4f60\u3002";
 const FEISHU_CHANNEL_WELCOME_TEXT = "飞书已连接 🎉 去飞书给小咯发条消息，我就会在这里收到并回复你。";
@@ -4073,6 +4089,8 @@ const displayedWechatChannelMessageIds = new Set<string>();
 const displayedFeishuChannelMessageIds = new Set<string>();
 const displayedTelegramChannelMessageIds = new Set<string>();
 const acknowledgedFeishuChannelMessageIds = new Set<string>();
+const acknowledgedExternalTradingMessageIds = new Set<string>();
+const pendingExternalTradingRequests = new Map<ExternalChannelId, { text: string; updatedAt: number }>();
 const interruptedWechatChannelThreadIds = new Set<string>();
 const interruptedExternalChannelReplyKeys = new Set<string>();
 const channelMessageRefreshTimers = new Map<string, number[]>();
@@ -8401,8 +8419,13 @@ async function loadThreads() {
   if (blankThread) {
     state.threads = [blankThread, ...state.threads.filter((thread) => thread.id !== blankThread.id)];
   }
+  const defaultGroupMappingChanged = assignThreadsToDefaultGroup(mergeThreads(state.threads, autoTaskThreadSummaries()));
   const autoTaskGroupMappingChanged = syncAutoTaskThreadGroupMappings();
-  if (assignThreadsToDefaultGroup(mergeThreads(state.threads, autoTaskThreadSummaries())) || groupMappingChanged || autoTaskGroupMappingChanged) {
+  if (defaultGroupMappingChanged || groupMappingChanged || autoTaskGroupMappingChanged) {
+    // Default-group migration also pins connected external channel summaries;
+    // refresh the list immediately so the global pinned section reflects the
+    // new preference during the first render after startup.
+    if (defaultGroupMappingChanged) state.threads = sortThreadsForList(state.threads);
     saveThreadPreferences();
   }
   ensureTopLevelBlankThreadForList({ activateIfMissingSelection: true });
@@ -9908,6 +9931,7 @@ function activateWechatChannelThread(threadId: string, options: { loadHistory?: 
   state.profileMenuOpen = false;
   state.activeView = "chat";
   state.currentThreadId = threadId;
+  prepareExternalTradingWorkspaceLayout();
   restoreComposerDraftForThread(threadId);
   state.activeTurnId = state.activeTurnIds[threadId] ?? null;
   rememberChatThreadSelection(threadId);
@@ -10608,6 +10632,12 @@ async function handleFeishuChannelMessage(message: any) {
   setMessageStreamFollow(threadId, true);
   render();
   await sendFeishuChannelProcessingAck(threadId, messageId);
+  if (await handleExternalTradingChannelMessage({
+    channel: "feishu",
+    threadId,
+    messageId,
+    text: explicitText,
+  })) return;
   const beforeIds = new Set(state.itemOrder[threadId] || []);
   const reply = await runFeishuChannelAgent(
     threadId,
@@ -10680,6 +10710,12 @@ async function handleTelegramChannelMessage(message: any) {
   state.threads = sortThreadsForList(mergeThreadsWithoutSorting(state.threads, [telegramChannelThreadSummary(threadId)]));
   setMessageStreamFollow(threadId, true);
   render();
+  if (await handleExternalTradingChannelMessage({
+    channel: "telegram",
+    threadId,
+    messageId,
+    text: explicitText,
+  })) return;
   const beforeIds = new Set(state.itemOrder[threadId] || []);
   const reply = await runTelegramChannelAgent(
     threadId,
@@ -10754,6 +10790,12 @@ async function handleWechatChannelMessage(message: any) {
   state.threads = sortThreadsForList(mergeThreadsWithoutSorting(state.threads, [wechatChannelThreadSummary(threadId)]));
   setMessageStreamFollow(threadId, true);
   render();
+  if (await handleExternalTradingChannelMessage({
+    channel: "wechat",
+    threadId,
+    messageId,
+    text: explicitText,
+  })) return;
   let beforeIds = new Set(state.itemOrder[threadId] || []);
   let reply: Awaited<ReturnType<typeof runWechatChannelAgent>>;
   try {
@@ -10832,6 +10874,279 @@ async function handleWechatChannelMessage(message: any) {
   }
   rememberWechatChannelHandledMessage(messageId);
   wechatDebugLog("wechat.handle.remembered", { messageId });
+}
+
+type ExternalTradingRoute = {
+  mode: "analysis" | "conversation" | "clarification";
+  strategyId: string | null;
+  symbol: string | null;
+  interval: string | null;
+  lookbackMs: number | null;
+  lookbackLabel: string | null;
+  confidence?: number;
+  clarificationQuestion?: string | null;
+};
+
+function externalTradingRequestLikely(text: string) {
+  return /(?:K\s*线|行情|盘面|走势|趋势|支撑|阻力|复盘|缠论|波浪|威科夫|订单流|ICT|SMC|SMT|分析|看看|看下|研判)/iu.test(String(text || ""));
+}
+
+function externalTradingPendingText(channel: ExternalChannelId, text: string) {
+  const current = pendingExternalTradingRequests.get(channel);
+  const clean = String(text || "").trim();
+  if (!current?.text) return clean;
+  if (!clean) return current.text;
+  return `${current.text}\n\n用户补充：${clean}`.slice(-12_000);
+}
+
+function externalTradingClarificationQuestion(route: Partial<ExternalTradingRoute> = {}) {
+  const supplied = String(route.clarificationQuestion || "").trim();
+  if (supplied) return supplied;
+  if (!route.strategyId) return "你想用哪种策略分析？可以直接说缠论、波浪理论、威科夫、订单流或其他策略。";
+  const missing: string[] = [];
+  if (!route.symbol) missing.push("交易对（例如 BTC 或 BTCUSDT）");
+  if (!route.interval) missing.push("K 线周期（例如 1h、15分钟或日线）");
+  return missing.length
+    ? `为了开始${tradingStrategyById(route.strategyId)?.display.name || "策略"}分析，请补充${missing.join("和")}。`
+    : "我还不能确定这次是否要读取实时 K 线。请说明要分析哪个交易对、周期以及使用的策略。";
+}
+
+function externalTradingClarificationError(error: unknown) {
+  const code = String((error as any)?.code || "").toUpperCase();
+  const message = errorMessage(error);
+  return /INSUFFICIENT|UNAVAILABLE|UNSUPPORTED|NOT_FOUND|NO_DATA|MARKET_DATA|RATE[_-]?LIMIT|\b(?:429|451)\b|行情|数据|K\s*线|成交|深度|订单流|周期|不可用|未返回|没有可用|限流|请求失败/iu.test(`${code} ${message}`);
+}
+
+function appendExternalTradingAgentMessage(
+  threadId: string,
+  channel: ExternalChannelId,
+  messageId: string,
+  text: string,
+) {
+  const clean = String(text || "").trim();
+  if (!clean) return;
+  upsertItem(threadId, {
+    id: `external-trading-agent-${channel}-${messageId}`,
+    type: "agentMessage",
+    createdAt: new Date().toISOString(),
+    text: clean,
+    content: [{ text: clean }],
+    external_channel: channel,
+    external_message_id: messageId,
+    phase: "final",
+  });
+}
+
+async function sendExternalTradingReply(
+  threadId: string,
+  channel: ExternalChannelId,
+  messageId: string,
+  text: string,
+  kind: "ack" | "final" = "final",
+) {
+  if (!api.replyExternalChannelMessage) return false;
+  try {
+    const response = await api.replyExternalChannelMessage({
+      channel,
+      messageId,
+      text,
+      attachments: [],
+      kind,
+    });
+    const failure = externalChannelReplyFailureMessage(response);
+    if (failure) {
+      addSystemItem(threadId, `${channel} 回复发送失败：${failure}`);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    addSystemItem(threadId, `${channel} 回复发送失败：${errorMessage(error)}`);
+    return false;
+  }
+}
+
+async function sendExternalTradingProcessingAck(
+  threadId: string,
+  channel: ExternalChannelId,
+  messageId: string,
+) {
+  // The Feishu handler already sends its standard processing acknowledgement
+  // before entering this router. Avoid emitting a second, strategy-specific
+  // acknowledgement for the same inbound message.
+  if (channel === "feishu") return;
+  const key = `${channel}:${messageId}`;
+  if (acknowledgedExternalTradingMessageIds.has(key)) return;
+  acknowledgedExternalTradingMessageIds.add(key);
+  const sent = await sendExternalTradingReply(threadId, channel, messageId, "收到，我正在读取行情并按策略分析。", "ack");
+  if (!sent) acknowledgedExternalTradingMessageIds.delete(key);
+}
+
+function externalTradingResultText(route: ExternalTradingRoute, result: any) {
+  const strategy = tradingStrategyById(route.strategyId || "");
+  const strategyName = strategy?.display.name || route.strategyId || "策略";
+  const report = String(
+    result?.analysisPlan?.report
+      || result?.analysisPlan?.narrative
+      || result?.report
+      || result?.narrative
+      || "策略分析已完成，但没有返回可发送的文字报告。",
+  ).trim();
+  return `【${strategyName} · ${route.symbol} · ${route.interval}】\n${report}`;
+}
+
+async function runExternalTradingStrategyAnalysis(
+  route: ExternalTradingRoute,
+  instruction: string,
+  threadId: string,
+) {
+  if (!route.strategyId || !route.symbol || !route.interval) {
+    throw Object.assign(new Error("策略、交易对和周期尚未完整"), { code: "TRADING_EXTERNAL_REQUEST_INCOMPLETE" });
+  }
+  const strategy = tradingStrategyById(route.strategyId);
+  if (!strategy || strategy.enabled === false) {
+    throw Object.assign(new Error("当前客户端没有可用的该策略"), { code: "TRADING_STRATEGY_NOT_FOUND" });
+  }
+  const analysisId = beginTradingExpertAnalysisJob(threadId, route.strategyId);
+  const progressIdPrefix = `external-trading-${route.strategyId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  let progressSequence = 0;
+  let latestProgress = "";
+  const onProgress = (phase: string, message: string) => {
+    if (!message || message === latestProgress) return;
+    latestProgress = message;
+    progressSequence += 1;
+    if (phase === "error") clearTradingExpertThinkingState(threadId);
+    else updateTradingExpertThinkingState(threadId, phase, message);
+    appendTradingExpertProgress(
+      threadId,
+      `${progressIdPrefix}-${progressSequence}`,
+      phase,
+      message,
+    );
+  };
+  onProgress("preparing", `正在读取 ${route.symbol} ${route.interval} K 线并准备${strategy.display.name}分析。`);
+  // Use the same workspace runner as New Task. It owns market-data loading,
+  // strategy-specific adapters, analysis jobs, and drawing-patch playback;
+  // keeping external requests on this path prevents the channel integration
+  // from silently falling back to a text-only/direct response.
+  try {
+    return await runTradingExpertStrategyConversation(route.strategyId, {
+      analysisId,
+      instruction,
+      symbol: route.symbol,
+      interval: route.interval,
+      lookbackMs: route.lookbackMs,
+      lookbackLabel: route.lookbackLabel,
+      drawingRequested: true,
+      strategyDisplayName: strategy.display.name,
+      minimumCandles: strategy.dataRequirements?.candles?.minCount,
+      preferredCandles: strategy.dataRequirements?.candles?.preferredCount,
+      visibleCandlesOnly: Boolean(strategy.dataRequirements?.["visible-candles"]?.required),
+      executionPlanRequested: strategy.capabilities.includes("execution-plan"),
+      contextCandlesRequested: Boolean(strategy.dataRequirements?.["context-candles"]),
+      comparisonCandlesRequested: Boolean(strategy.dataRequirements?.["comparison-candles"]),
+      onProgress,
+    });
+  } finally {
+    finishTradingExpertAnalysisJob(threadId, analysisId);
+    clearTradingExpertThinkingState(threadId);
+    refreshTradingExpertConversationSurface(threadId);
+  }
+}
+
+async function handleExternalTradingChannelMessage(params: {
+  channel: ExternalChannelId;
+  threadId: string;
+  messageId: string;
+  text: string;
+}) {
+  const cleanText = String(params.text || "").trim();
+  const pending = pendingExternalTradingRequests.get(params.channel);
+  if (!cleanText && !pending) return false;
+  const combinedText = externalTradingPendingText(params.channel, cleanText);
+  let route: ExternalTradingRoute;
+  if (typeof api.classifyExternalTradingRequest !== "function") {
+    if (!pending && !externalTradingRequestLikely(cleanText)) return false;
+    route = {
+      mode: "clarification",
+      strategyId: null,
+      symbol: null,
+      interval: null,
+      lookbackMs: null,
+      lookbackLabel: null,
+      clarificationQuestion: "我暂时无法判断你要使用哪种策略。请直接说缠论、波浪理论、威科夫或其他策略，并说明交易对和周期。",
+    };
+  } else {
+    try {
+      const result = await api.classifyExternalTradingRequest({
+        text: combinedText,
+        pendingContext: pending?.text || "",
+      });
+      if (!result?.ok || !result.request) {
+        if (!pending && !externalTradingRequestLikely(cleanText)) return false;
+        route = {
+          mode: "clarification",
+          strategyId: null,
+          symbol: null,
+          interval: null,
+          lookbackMs: null,
+          lookbackLabel: null,
+          clarificationQuestion: "我暂时无法确认这条消息的分析意图。请说明要用什么策略、分析哪个交易对和哪个周期。",
+        };
+      } else {
+        route = result.request as ExternalTradingRoute;
+      }
+    } catch {
+      if (!pending && !externalTradingRequestLikely(cleanText)) return false;
+      route = {
+        mode: "clarification",
+        strategyId: null,
+        symbol: null,
+        interval: null,
+        lookbackMs: null,
+        lookbackLabel: null,
+        clarificationQuestion: "我暂时无法确认这条消息的分析意图。请说明要用什么策略、分析哪个交易对和哪个周期。",
+      };
+    }
+  }
+  if (route.mode === "conversation") {
+    pendingExternalTradingRequests.delete(params.channel);
+    return false;
+  }
+  if (route.mode === "clarification") {
+    pendingExternalTradingRequests.set(params.channel, { text: combinedText, updatedAt: Date.now() });
+    const question = externalTradingClarificationQuestion(route);
+    appendExternalTradingAgentMessage(params.threadId, params.channel, params.messageId, question);
+    await sendExternalTradingReply(params.threadId, params.channel, params.messageId, question);
+    rememberExternalChannelHandledMessage(params.channel, params.messageId);
+    return true;
+  }
+  await sendExternalTradingProcessingAck(params.threadId, params.channel, params.messageId);
+  try {
+    const result = await runExternalTradingStrategyAnalysis(route, combinedText, params.threadId);
+    const replyText = externalTradingResultText(route, result);
+    pendingExternalTradingRequests.delete(params.channel);
+    appendExternalTradingAgentMessage(params.threadId, params.channel, params.messageId, replyText);
+    await sendExternalTradingReply(params.threadId, params.channel, params.messageId, replyText);
+  } catch (error) {
+    if (externalTradingClarificationError(error)) {
+      pendingExternalTradingRequests.set(params.channel, { text: combinedText, updatedAt: Date.now() });
+      const question = `这次${route.strategyId ? `${tradingStrategyById(route.strategyId)?.display.name || "策略"} ` : ""}分析暂时无法开始：${errorMessage(error)}。请补充或更换交易对、周期或范围后再试。`;
+      appendExternalTradingAgentMessage(params.threadId, params.channel, params.messageId, question);
+      await sendExternalTradingReply(params.threadId, params.channel, params.messageId, question);
+    } else {
+      const failure = `策略分析暂时失败：${errorMessage(error)}。你可以稍后重试，或补充交易对和周期。`;
+      appendExternalTradingAgentMessage(params.threadId, params.channel, params.messageId, failure);
+      await sendExternalTradingReply(params.threadId, params.channel, params.messageId, failure);
+    }
+  }
+  rememberExternalChannelHandledMessage(params.channel, params.messageId);
+  return true;
+}
+
+function rememberExternalChannelHandledMessage(channel: ExternalChannelId, messageId: string) {
+  if (channel === "wechat") rememberWechatChannelHandledMessage(messageId);
+  else if (channel === "feishu") rememberFeishuChannelHandledMessage(messageId);
+  else rememberTelegramChannelHandledMessage(messageId);
 }
 
 function externalChannelReplyFailureMessage(response: unknown) {
@@ -11596,12 +11911,29 @@ function isWechatChannelThreadId(threadId: string | null | undefined) {
 function ensureWechatChannelGlobalContext(threadId: string | null | undefined) {
   const id = firstString(threadId);
   if (!id) return false;
+  return ensureExternalChannelThreadPlacement(id, "wechat");
+}
+
+/**
+ * Keep a connected external channel in the default thread group (displayed as
+ * “最近”) and in the global pinned section. The explicit mapping is removed so
+ * the same default-group fallback used by ordinary conversations remains the
+ * source of truth, while the pin preference is persisted separately.
+ */
+function ensureExternalChannelThreadPlacement(threadId: string, channelId: ExternalChannelId) {
+  const id = firstString(threadId);
+  if (!id || !isExternalChannelId(channelId)) return false;
   let changed = false;
+  ensureDefaultThreadGroup();
   if (threadGroupByThreadId[id]) {
     delete threadGroupByThreadId[id];
     changed = true;
   }
   if (rememberThreadWorkspace(id, workspaceForGroupId(DEFAULT_THREAD_GROUP_ID))) changed = true;
+  const wasPinned = pinnedThreadIds.has(id);
+  const wasUnpinned = unpinnedThreadIds.has(id);
+  setThreadPinPreference(id, true);
+  if (!wasPinned || wasUnpinned) changed = true;
   return changed;
 }
 
@@ -11812,6 +12144,7 @@ function activateFeishuChannelThread(threadId: string, options: { loadHistory?: 
   state.profileMenuOpen = false;
   state.activeView = "chat";
   state.currentThreadId = threadId;
+  prepareExternalTradingWorkspaceLayout();
   restoreComposerDraftForThread(threadId);
   state.activeTurnId = state.activeTurnIds[threadId] ?? null;
   rememberChatThreadSelection(threadId);
@@ -11910,13 +12243,7 @@ function isFeishuChannelThreadId(threadId: string | null | undefined) {
 function ensureFeishuChannelGlobalContext(threadId: string | null | undefined) {
   const id = firstString(threadId);
   if (!id) return false;
-  let changed = false;
-  if (threadGroupByThreadId[id]) {
-    delete threadGroupByThreadId[id];
-    changed = true;
-  }
-  if (rememberThreadWorkspace(id, workspaceForGroupId(DEFAULT_THREAD_GROUP_ID))) changed = true;
-  return changed;
+  return ensureExternalChannelThreadPlacement(id, "feishu");
 }
 
 function rememberFeishuChannelThreadId(threadId: string) {
@@ -12146,6 +12473,7 @@ function activateTelegramChannelThread(threadId: string) {
   state.profileMenuOpen = false;
   state.activeView = "chat";
   state.currentThreadId = threadId;
+  prepareExternalTradingWorkspaceLayout();
   restoreComposerDraftForThread(threadId);
   state.activeTurnId = state.activeTurnIds[threadId] ?? null;
   rememberChatThreadSelection(threadId);
@@ -12198,13 +12526,7 @@ function isTelegramChannelThreadId(threadId: string | null | undefined) {
 function ensureTelegramChannelGlobalContext(threadId: string | null | undefined) {
   const id = firstString(threadId);
   if (!id) return false;
-  let changed = false;
-  if (threadGroupByThreadId[id]) {
-    delete threadGroupByThreadId[id];
-    changed = true;
-  }
-  if (rememberThreadWorkspace(id, workspaceForGroupId(DEFAULT_THREAD_GROUP_ID))) changed = true;
-  return changed;
+  return ensureExternalChannelThreadPlacement(id, "telegram");
 }
 
 function rememberTelegramChannelThreadId(threadId: string) {
@@ -16102,7 +16424,13 @@ function loadThread(thread: any, options: { activate?: boolean; preserveListOrde
   threadHistoryEntriesByThreadId.set(threadId, threadHistoryEntriesFromMessages(threadId));
   const lastAssistantProviderChanged =
     previousLastAssistantProvider !== (threadLastAssistantProviderByThreadId.get(threadId) || null);
-  if (threadModelChanged || lastAssistantProviderChanged || assignThreadToDefaultGroup(threadId)) saveThreadPreferences();
+  const groupMappingChanged = assignThreadToDefaultGroup(threadId);
+  if (threadModelChanged || lastAssistantProviderChanged || groupMappingChanged) {
+    if (groupMappingChanged && isExternalChannelConnectionThread(summary)) {
+      state.threads = sortThreadsForList(state.threads);
+    }
+    saveThreadPreferences();
+  }
   if (options.activate !== false || state.currentThreadId === threadId) rebuildTaskFromItems(threadId);
   void hydratePersistedResultArtifactsForThread(threadId);
   scheduleThreadContinuationDrain(threadId, 120);
@@ -16942,6 +17270,34 @@ function isTradingExpertThreadId(threadId: string | null | undefined) {
   return Boolean(groupId && threadGroupById(groupId)?.name.trim() === TRADING_EXPERT_NAME);
 }
 
+/**
+ * External channel conversations use the same market workspace as a trading
+ * expert task, while keeping their normal channel identity and send/reply
+ * plumbing. This is intentionally a surface check rather than an expert
+ * thread check so channel messages do not enter the desktop task router.
+ */
+function isExternalTradingWorkspaceThreadId(threadId: string | null | undefined) {
+  const id = firstString(threadId);
+  if (!id) return false;
+  const thread = threadById(id);
+  return Boolean(
+    isWechatConnectionThreadId(id)
+      || isFeishuConnectionThreadId(id)
+      || isTelegramConnectionThreadId(id),
+  ) || isExternalChannelConnectionThread(thread);
+}
+
+function isTradingExpertSurfaceThreadId(threadId: string | null | undefined) {
+  return isTradingExpertThreadId(threadId) || isExternalTradingWorkspaceThreadId(threadId);
+}
+
+function prepareExternalTradingWorkspaceLayout() {
+  state.tradingExpertChartFocusMode = false;
+  tradingExpertChartFocusRestoreState = null;
+  state.tradingExpertChartCollapsed = false;
+  state.rightCollapsed = false;
+}
+
 function initializeTradingExpertTaskThread(
   threadId: string,
   options: { expandPanel?: boolean } = {},
@@ -17161,7 +17517,7 @@ function isThreadBusy(threadId: string | null | undefined) {
 function isTradingExpertConversationCollapseLocked(threadId: string | null | undefined) {
   return Boolean(
     threadId
-      && isTradingExpertThreadId(threadId)
+      && isTradingExpertSurfaceThreadId(threadId)
       && (
         submittingComposerThreadIds.has(threadId)
         || tradingExpertThinkingStateByThreadId.has(threadId)
@@ -17595,7 +17951,7 @@ function canBufferCollapsedTradingExpertConversation(threadId: string | null | u
   if (
     !threadId
     || !state.rightCollapsed
-    || !isTradingExpertThreadId(threadId)
+    || !(isTradingExpertThreadId(threadId) || isExternalTradingWorkspaceThreadId(threadId))
     || threadId !== state.currentThreadId
     || state.activeView !== "chat"
     || state.chatPreview
@@ -17610,7 +17966,7 @@ function canBufferCollapsedTradingExpertConversation(threadId: string | null | u
 function shouldKeepChatSurfaceUpdateLocal(threadId: string | null | undefined = state.currentThreadId) {
   if (!threadId || threadId !== state.currentThreadId || state.activeView !== "chat" || state.chatPreview) return false;
   return (
-    isTradingExpertThreadId(threadId)
+    (isTradingExpertThreadId(threadId) || isExternalTradingWorkspaceThreadId(threadId))
     || !state.rightCollapsed
     || Boolean(state.threadMenu || state.threadGroupMenu)
   );
@@ -33280,7 +33636,7 @@ function restorePreservedPreviewVideo(preserved: PreservedPreviewVideo | null) {
 function preserveTradingExpertMarketWorkspace(): PreservedTradingExpertMarketWorkspace | null {
   const host = root.querySelector<HTMLElement>("[data-trading-market-workspace]");
   const threadId = lastRenderedThreadId ?? state.currentThreadId;
-  if (!host || !host.parentElement || !threadId || !isTradingExpertThreadId(threadId)) {
+  if (!host || !host.parentElement || !threadId || !isTradingExpertSurfaceThreadId(threadId)) {
     return parkedTradingExpertMarketWorkspace;
   }
   const storageSessionId = tradingExpertMarketWorkspaceStorageSessionId() || threadId;
@@ -33382,7 +33738,7 @@ function restorePreservedTradingExpertMarketWorkspace(
   if (pendingStorageMigrationSource) {
     forgetTradingExpertWorkspaceSessionAlias(pendingStorageMigrationSource);
   }
-  if (targetThreadId && isTradingExpertThreadId(targetThreadId)) {
+  if (targetThreadId && isTradingExpertSurfaceThreadId(targetThreadId)) {
     applyTradingExpertCustomIndicatorMentions(state.composerText);
   }
 }
@@ -33507,7 +33863,7 @@ function render() {
   const tradingExpertLayout =
     state.activeView === "chat" &&
     !state.chatPreview &&
-    isTradingExpertThreadId(thread?.id);
+    isTradingExpertSurfaceThreadId(thread?.id);
   if (!tradingExpertLayout && state.tradingExpertChartFocusMode) {
     restoreTradingExpertChartFocusLayout();
   }
@@ -34719,7 +35075,7 @@ function renderPanelLayoutIcon(side: "left" | "right") {
 
 function toggleLeftPanelCollapsed() {
   if (state.activeView !== "chat" && state.activeView !== "account" && state.activeView !== "plans" && state.activeView !== "autoTasks" && state.activeView !== "alerts" && state.activeView !== "skillsPlaza") return;
-  if (state.tradingExpertChartFocusMode && isTradingExpertThreadId(state.currentThreadId)) {
+  if (state.tradingExpertChartFocusMode && isTradingExpertSurfaceThreadId(state.currentThreadId)) {
     restoreTradingExpertChartFocusLayout();
     state.leftCollapsed = false;
   } else {
@@ -36878,27 +37234,28 @@ function renderMessageExecutionPlan(
   text: string,
   options: FormatMessageTextOptions = {},
 ) {
-  const partition = executionPlanTextPartition(text);
-  if (!partition) return formatMessageText(text, options);
+  const partitions = executionPlanTextPartitions(text);
+  if (!partitions) return formatMessageText(text, options);
   const sourceThread = state.threads.find((thread) => thread.id === message.conversation_id);
-  const title = executionPlanCardTitle({
-    fallbackTitle: partition.candidate.title,
+  const titleContext = {
     analysisLabel: tradingLastAnalysisLabelForThread(message.conversation_id),
     sourceTitle: sourceThread?.name,
     sourceText: text,
-  });
-  const before = partition.before
-    ? `<div class="message-execution-plan-context before">${formatMessageText(partition.before, options)}</div>`
+  };
+  const before = partitions.before
+    ? `<div class="message-execution-plan-context before">${formatMessageText(partitions.before, options)}</div>`
     : "";
-  const after = partition.after
-    ? `<div class="message-execution-plan-context after">${formatMessageText(partition.after, options)}</div>`
-    : "";
-  return `${before}
-    <section class="message-execution-plan" aria-label="${escapeAttr(title)}">
+  const cards = partitions.candidates.map((candidate) => {
+    const title = executionPlanCardTitle({ fallbackTitle: candidate.title, ...titleContext });
+    return `<section class="message-execution-plan" aria-label="${escapeAttr(title)}">
       <h2>${escapeHtml(title)}</h2>
-      <div class="execution-plan-card-content">${renderExecutionPlanCardContent(partition.candidate.content)}</div>
-    </section>
-    ${after}`;
+      <div class="execution-plan-card-content">${renderExecutionPlanCardContent(candidate.content)}</div>
+    </section>`;
+  }).join("");
+  const after = partitions.after
+    ? `<div class="message-execution-plan-context after">${formatMessageText(partitions.after, options)}</div>`
+    : "";
+  return `${before}${cards}${after}`;
 }
 
 function executionPlanStatusMeta(plan: SavedExecutionPlan) {
@@ -37005,7 +37362,7 @@ async function updateExecutionPlanLifecycle(
   } = {},
 ) {
   const plan = state.executionPlans.find((item) => item.id === planId);
-  if (!plan || executionPlanAlertSyncBusyIds.has(planId)) return;
+  if (!plan || plan.status === status || executionPlanAlertSyncBusyIds.has(planId)) return;
   executionPlanAlertSyncBusyIds.add(planId);
   state.executionPlanEndMenuId = null;
   render();
@@ -37036,6 +37393,23 @@ async function updateExecutionPlanLifecycle(
       : status === "pending"
         ? "计划已恢复待执行，预警已切换为入场监控"
         : "计划已结束，对应预警已自动暂停");
+    try {
+      void api.notifyExecutionPlanStatusChanged?.({
+        title: executionPlanCardTitle({
+          fallbackTitle: updated.title,
+          analysisLabel: tradingLastAnalysisLabelForThread(updated.sourceThreadId),
+          sourceTitle: updated.sourceTitle,
+          sourceText: updated.content,
+        }),
+        body: statusText,
+        status,
+        statusLabel: executionPlanStatusMeta(updated).label,
+        threadId: updated.sourceThreadId,
+        alertId: updated.linkedAlertId,
+      })?.catch(() => {});
+    } catch {
+      // Desktop notification is best effort; the saved plan state remains authoritative.
+    }
     showToast(alertResult.warning ? `${statusText}；行情连接正在恢复` : statusText, 5000);
   } catch (error) {
     showToast(`计划状态更新失败：${errorMessage(error)}`, 5000);
@@ -41122,7 +41496,7 @@ function conversationGroupSectionsForList(
 }
 
 function isTopLevelConversationThread(thread: ConversationSummary) {
-  return isBlankNewThread(thread.id) || isExternalChannelConnectionThread(thread);
+  return isBlankNewThread(thread.id);
 }
 
 function renderThreadSection(title: string, threads: ConversationSummary[], emptyText: string) {
@@ -44233,6 +44607,13 @@ function renderChatPanel(thread: ConversationSummary | null) {
       </main>
     `;
   }
+  if (isExternalTradingWorkspaceThreadId(thread.id)) {
+    return `
+      <main class="chat-panel trading-expert-chat-panel" aria-label="交易专家行情工作区">
+        ${renderTradingExpertMarketWorkspace()}
+      </main>
+    `;
+  }
   if (isThreadSwitchLoadingState(thread.id)) {
     return `
       <main class="chat-panel">
@@ -44355,7 +44736,7 @@ function restoreTradingExpertChartFocusLayout() {
 }
 
 function toggleTradingExpertChartFocusMode() {
-  if (!isTradingExpertThreadId(state.currentThreadId)) return;
+  if (!isTradingExpertSurfaceThreadId(state.currentThreadId)) return;
   if (state.tradingExpertChartFocusMode) {
     restoreTradingExpertChartFocusLayout();
   } else {
@@ -44412,7 +44793,7 @@ function renderTradingExpertCollapseControls() {
 }
 
 function syncTradingExpertCollapseControlsState() {
-  if (!isTradingExpertThreadId(state.currentThreadId)) return;
+  if (!isTradingExpertSurfaceThreadId(state.currentThreadId)) return;
   const chartCollapsed = state.tradingExpertChartCollapsed;
   const panelCollapsed = state.rightCollapsed;
   const focusMode = state.tradingExpertChartFocusMode;
@@ -49282,7 +49663,17 @@ function renderMessage(message: Message, conversationMessages: Message[] = [mess
   );
   const fromUser = message.role === "user" || message.kind === "user_text";
   const alignRight = fromUser || message.align_right === true;
-  const showAvatar = !isTradingExpertThreadId(message.conversation_id);
+  // Trading surfaces use the chart as the primary visual context while the
+  // conversation is split to the right. Keep that compact presentation free
+  // of repeated avatars, but restore the normal chat treatment whenever the
+  // chart is collapsed/expanded to the full conversation view. External
+  // channel workspaces share the same surface helper as ordinary Trading
+  // Expert tasks, so WeChat, Feishu, Telegram and regular tasks stay in sync.
+  // Legacy equivalent for callers that only know the built-in Trading Expert:
+  // const showAvatar = !isTradingExpertThreadId(message.conversation_id);
+  const hideAvatarInTradingSplit = isTradingExpertSurfaceThreadId(message.conversation_id)
+    && !state.tradingExpertChartCollapsed;
+  const showAvatar = !hideAvatarInTradingSplit;
   const role = fromUser ? "user" : visibleRole(message.role);
   const displayName = visibleMessageSenderLabel(message.sender_label, role, message);
   const mediaGeneration = isMediaGenerationMessage(message);
@@ -50254,22 +50645,29 @@ function renderTextBubble(
   `;
 }
 
-function executionPlanCandidateKey(threadId: string, messageId: string) {
-  return `${threadId}\u0000${messageId}`;
+function executionPlanCandidateKey(threadId: string, messageId: string, candidateIndex = 0) {
+  return `${threadId}\u0000${messageId}\u0000${candidateIndex}`;
 }
 
 function renderAddToPlanAction(message: Message, text: string) {
-  const candidate = executionPlanCandidateFromText(text);
-  if (!candidate || !executionPlanHasConcreteTradingPlan(candidate)) return "";
+  const candidates = executionPlanCandidatesFromText(text)
+    .filter((candidate) => executionPlanHasConcreteTradingPlan(candidate));
+  if (!candidates.length) return "";
   syncExecutionPlansForCurrentAccount();
-  const key = executionPlanCandidateKey(message.conversation_id, message.id);
-  executionPlanCandidatesBySource.set(key, candidate);
-  const alreadyAdded = state.executionPlans.some((plan) => (
-    plan.sourceThreadId === message.conversation_id && plan.sourceMessageId === message.id
-  ));
-  return `
-    <div class="message-actions message-actions-below-bubble trading-preference-onboarding-actions execution-plan-message-actions">
-      <button
+  const buttons = candidates.map((candidate, candidateIndex) => {
+    const key = executionPlanCandidateKey(message.conversation_id, message.id, candidateIndex);
+    executionPlanCandidatesBySource.set(key, candidate);
+    const sourcePlanKey = String(candidateIndex);
+    const alreadyAdded = state.executionPlans.some((plan) => (
+      plan.sourceThreadId === message.conversation_id
+      && plan.sourceMessageId === message.id
+      && String(plan.sourcePlanKey || "0") === sourcePlanKey
+    ));
+    const side = executionPlanBinanceMarketDetails({ content: candidate.content }).direction;
+    const sideLabel = candidates.length > 1
+      ? side === "LONG" ? "多头" : side === "SHORT" ? "空头" : `方案${candidateIndex + 1}`
+      : "";
+    return `<button
         type="button"
         class="message-action-button trading-preference-onboarding-start trading-preference-binance-connect message-add-to-plan"
         data-message-action="add-to-plan"
@@ -50277,8 +50675,13 @@ function renderAddToPlanAction(message: Message, text: string) {
         data-message-action-destination="execution-plans"
         data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}"
         data-execution-plan-message-id="${escapeAttr(message.id)}"
+        data-execution-plan-index="${candidateIndex}"
         ${alreadyAdded ? 'disabled aria-disabled="true"' : ""}
-      >${alreadyAdded ? "已添加到计划" : "添加到计划"}</button>
+      >${alreadyAdded ? `已添加到计划${sideLabel ? `（${sideLabel}）` : ""}` : `添加到计划${sideLabel ? `（${sideLabel}）` : ""}`}</button>`;
+  }).join("");
+  return `
+    <div class="message-actions message-actions-below-bubble trading-preference-onboarding-actions execution-plan-message-actions">
+      ${buttons}
     </div>
   `;
 }
@@ -55013,6 +55416,18 @@ function renderAgentPanel(thread: ConversationSummary | null) {
       </aside>
     `;
   }
+  if (thread && isExternalTradingWorkspaceThreadId(threadId)) {
+    const collapsed = state.rightCollapsed;
+    return `
+      <aside class="agent-panel ${collapsed ? "collapsed" : "expanded"} trading-expert-panel" aria-hidden="${collapsed ? "true" : "false"}" aria-label="交易专家任务会话">
+        <div class="agent-panel-inner">
+          ${renderTradingExpertConversationHeader(thread)}
+          ${renderTradingExpertConversationPanel(thread)}
+        </div>
+        ${renderComposer(thread)}
+      </aside>
+    `;
+  }
   const localGroupChat = localGroupChatRecord(threadId);
   if (localGroupChat) return renderLocalGroupChatMembersPanel(localGroupChat);
   const blankNewThread = isBlankNewThread(threadId);
@@ -55654,7 +56069,7 @@ function patchActiveAgentPanel(threadId: string | null | undefined = state.curre
   const thread = currentThread();
   const panel = root.querySelector<HTMLElement>(".agent-panel");
   if (!thread || !panel) return false;
-  if (isTradingExpertThreadId(threadId)) {
+  if (isTradingExpertThreadId(threadId) || isExternalTradingWorkspaceThreadId(threadId)) {
     const scroller = panel.querySelector<HTMLElement>("#messageScroller");
     if (scroller?.dataset.threadId === threadId) {
       const title = panel.querySelector<HTMLElement>(".trading-expert-panel-title");
@@ -55669,7 +56084,7 @@ function patchActiveAgentPanel(threadId: string | null | undefined = state.curre
   if (!isMultiModelClusterThread(threadId) && subagents.length && patchActiveSubagentBoardInPlace(panel, threadId, subagents)) return true;
   const task = pickActiveTask(state.tasks[threadId] ?? []);
   const hasSpecialBoard = Boolean(
-    isTradingExpertThreadId(threadId)
+    isTradingExpertThreadId(threadId) || isExternalTradingWorkspaceThreadId(threadId)
     || localGroupChatRecord(threadId)
     || isMultiModelClusterThread(threadId)
     || workflowRunsByThreadId.get(threadId)
@@ -60459,7 +60874,7 @@ function bindEvents() {
         return;
       }
       if (
-        isTradingExpertThreadId(state.currentThreadId)
+        isTradingExpertSurfaceThreadId(state.currentThreadId)
         && button.hasAttribute("data-trading-expert-conversation-expansion")
       ) {
         if (state.tradingExpertChartFocusMode || state.rightCollapsed) return;
@@ -60467,14 +60882,14 @@ function bindEvents() {
         render();
         return;
       }
-      if (isTradingExpertThreadId(state.currentThreadId) && state.tradingExpertChartFocusMode) {
+      if (isTradingExpertSurfaceThreadId(state.currentThreadId) && state.tradingExpertChartFocusMode) {
         return;
       }
-      if (isTradingExpertThreadId(state.currentThreadId) && state.tradingExpertChartCollapsed && !state.rightCollapsed) {
+      if (isTradingExpertSurfaceThreadId(state.currentThreadId) && state.tradingExpertChartCollapsed && !state.rightCollapsed) {
         return;
       }
       if (
-        isTradingExpertThreadId(state.currentThreadId)
+        isTradingExpertSurfaceThreadId(state.currentThreadId)
         && !state.rightCollapsed
         && isTradingExpertConversationCollapseLocked(state.currentThreadId)
       ) {
@@ -60485,7 +60900,7 @@ function bindEvents() {
       syncAgentPanelState();
       if (
         !state.rightCollapsed
-        && isTradingExpertThreadId(state.currentThreadId)
+        && isTradingExpertSurfaceThreadId(state.currentThreadId)
       ) {
         patchActiveChatSurfaces(state.currentThreadId, { patchThreadRow: true });
       }
@@ -60495,7 +60910,7 @@ function bindEvents() {
     .querySelectorAll<HTMLButtonElement>('[data-action="toggle-trading-expert-chart"]')
     .forEach((button) => button.addEventListener("click", () => {
       finishTradingExpertLayoutControlPointerInteraction(false);
-      if (!isTradingExpertThreadId(state.currentThreadId)) return;
+      if (!isTradingExpertSurfaceThreadId(state.currentThreadId)) return;
       if (state.tradingExpertChartFocusMode) {
         restoreTradingExpertChartFocusLayout();
         state.tradingExpertChartCollapsed = false;
@@ -61670,7 +62085,7 @@ function syncAgentPanelState() {
   panel?.classList.toggle("expanded", !collapsed);
   panel?.setAttribute("aria-hidden", collapsed ? "true" : "false");
 
-  if (isTradingExpertThreadId(state.currentThreadId)) {
+  if (isTradingExpertThreadId(state.currentThreadId) || isExternalTradingWorkspaceThreadId(state.currentThreadId)) {
     const restoreButton = root.querySelector<HTMLButtonElement>(".trading-market-split-panel-restore");
     const label = tradingExpertChartToggleLabel(collapsed);
     restoreButton?.classList.toggle("collapsed", !collapsed);
@@ -62379,10 +62794,13 @@ function toggleWindowMaximizedFromTitlebar() {
 async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
   const sourceThreadId = button.dataset.executionPlanThreadId || "";
   const sourceMessageId = button.dataset.executionPlanMessageId || "";
+  const sourcePlanKey = button.dataset.executionPlanIndex || "0";
   if (!sourceThreadId || !sourceMessageId) return;
   syncExecutionPlansForCurrentAccount();
   if (state.executionPlans.some((plan) => (
-    plan.sourceThreadId === sourceThreadId && plan.sourceMessageId === sourceMessageId
+    plan.sourceThreadId === sourceThreadId
+    && plan.sourceMessageId === sourceMessageId
+    && String(plan.sourcePlanKey || "0") === sourcePlanKey
   ))) {
     button.disabled = true;
     button.setAttribute("aria-disabled", "true");
@@ -62391,7 +62809,7 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
     return;
   }
   const candidate = executionPlanCandidatesBySource.get(
-    executionPlanCandidateKey(sourceThreadId, sourceMessageId),
+    executionPlanCandidateKey(sourceThreadId, sourceMessageId, Number(sourcePlanKey) || 0),
   );
   if (!candidate) {
     showToast("暂时无法读取这条执行计划，请刷新后重试");
@@ -62402,6 +62820,7 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
     candidate,
     sourceThreadId,
     sourceMessageId,
+    sourcePlanKey,
     sourceTitle: sourceThread ? threadListDisplayName(sourceThread) : "来自智能体",
     analysisLabel: tradingLastAnalysisLabelForThread(sourceThreadId),
   });
@@ -62419,14 +62838,15 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
     state.executionPlans = nextPlans;
     state.executionPlanFilter = "pending";
     state.executionPlanEndMenuId = null;
-    button.textContent = "已添加到计划";
+    button.textContent = `已添加到计划${candidate.content.includes("偏多") ? "（多头）" : candidate.content.includes("偏空") ? "（空头）" : ""}`;
     openExecutionPlansPage();
     if (alertResult.warning) showToast("已添加到计划，入场预警正在等待行情重连", 5000);
     else showToast("已添加到计划");
   } catch (error) {
     button.disabled = false;
     button.removeAttribute("aria-disabled");
-    button.textContent = "添加到计划";
+    const sideSuffix = candidate.content.includes("偏多") ? "（多头）" : candidate.content.includes("偏空") ? "（空头）" : "";
+    button.textContent = `添加到计划${sideSuffix}`;
     showToast(`添加计划失败：${errorMessage(error)}`, 5000);
   }
 }
@@ -68935,7 +69355,6 @@ function isDefaultThreadGroup(groupId: string | null | undefined) {
 function isDefaultAssignableThread(thread: ConversationSummary | null | undefined) {
   if (!thread || hiddenThreadIds.has(thread.id)) return false;
   if (isBlankNewThread(thread.id)) return false;
-  if (isExternalChannelConnectionThread(thread)) return false;
   if (isProviderThread(thread) || providerFromThreadId(thread.id)) return true;
   if (isAutoTaskThread(thread) || autoTaskIdFromThreadId(thread.id) || isAutoTaskOwnedThreadId(thread.id)) return true;
   if (isChannelThread(thread) || channelIdFromThreadId(thread.id)) return isDirectChannelThread(thread);
@@ -68955,6 +69374,10 @@ function isDirectChannelThread(thread: ConversationSummary) {
 function assignThreadToDefaultGroup(threadOrId: ConversationSummary | string | null | undefined) {
   const thread = typeof threadOrId === "string" ? threadById(threadOrId) || ({ id: threadOrId } as ConversationSummary) : threadOrId;
   if (!thread || internalSubagentThreadIds.has(thread.id) || !isDefaultAssignableThread(thread)) return false;
+  if (isExternalChannelConnectionThread(thread)) {
+    const channelId = externalChannelConnectionThreadId(thread);
+    return channelId ? ensureExternalChannelThreadPlacement(thread.id, channelId) : false;
+  }
   ensureDefaultThreadGroup();
   if (threadGroupByThreadId[thread.id]) return false;
   threadGroupByThreadId[thread.id] = DEFAULT_THREAD_GROUP_ID;

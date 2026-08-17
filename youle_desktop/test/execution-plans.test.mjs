@@ -10,7 +10,9 @@ import {
   executionPlanHasConcreteTradingPlan,
   executionPlanSignedNumberSegments,
   executionPlanCandidateFromText,
+  executionPlanCandidatesFromText,
   executionPlanTextPartition,
+  executionPlanTextPartitions,
   loadExecutionPlans,
   saveExecutionPlans,
   transitionExecutionPlan,
@@ -99,6 +101,46 @@ test("assistant execution-plan text is partitioned around both current and legac
   assert.equal(legacy.before, "");
   assert.equal(legacy.candidate.title, "标准执行方案");
   assert.equal(legacy.after, "");
+});
+
+test("bilateral execution-plan markdown is extracted into independent candidates", () => {
+  const text = `
+盘面结论如下。
+
+## ETH/USDT 币安永续 1H · 多头条件方案
+
+当前动作：等待条件触发
+方向判断：偏多
+多头触发：1907.89
+止损与失效：1891.93
+分批止盈：第1目标 1926
+风险收益比：目标1为 1:1.02
+
+## ETH/USDT 币安永续 1H · 空头条件方案
+
+当前动作：等待条件触发
+方向判断：偏空
+空头触发：1891.93
+止损与失效：1907.89
+分批止盈：第1目标 1886.67
+风险收益比：目标1为 1:0.96
+
+---
+
+## 数据范围
+完整报告。
+  `;
+  const candidates = executionPlanCandidatesFromText(text);
+  assert.equal(candidates.length, 2);
+  assert.equal(candidates[0].title, "ETH/USDT 币安永续 1H · 多头条件方案");
+  assert.equal(candidates[1].title, "ETH/USDT 币安永续 1H · 空头条件方案");
+  assert.equal(executionPlanHasConcreteTradingPlan(candidates[0]), true);
+  assert.equal(executionPlanHasConcreteTradingPlan(candidates[1]), true);
+  const partitions = executionPlanTextPartitions(text);
+  assert.ok(partitions);
+  assert.equal(partitions.candidates.length, 2);
+  assert.equal(partitions.before, "盘面结论如下。");
+  assert.match(partitions.after, /^---[\s\S]*## 数据范围/);
 });
 
 test("structured generic plans and option candidates are recognized, while ordinary prose is ignored", () => {
@@ -395,7 +437,7 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   const planEventBlock = renderer.slice(planEventStart, planEventEnd);
 
   assert.match(renderer, /allowPlanAction:[\s\S]*!streaming[\s\S]*hasConclusiveAgentMessagePhase/);
-  assert.match(renderer, /function renderAddToPlanAction[\s\S]*executionPlanCandidateFromText\(text\)/);
+  assert.match(renderer, /function renderAddToPlanAction[\s\S]*executionPlanCandidatesFromText\(text\)/);
   assert.match(renderer, /function renderAddToPlanAction[\s\S]*executionPlanHasConcreteTradingPlan\(candidate\)/);
   assert.match(renderer, /class="message-action-button trading-preference-onboarding-start trading-preference-binance-connect message-add-to-plan"/);
   assert.match(renderer, /data-message-action-destination="execution-plans"/);
@@ -428,10 +470,10 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(planCardContentBlock, /execution-plan-card-number-\$\{segment\.tone\}/);
   assert.match(planCardContentBlock, /execution-plan-card-value-\$\{directionTone\}/);
   assert.doesNotMatch(planCardContentBlock, /<strong class="execution-plan-card-label">/);
-  assert.match(messagePlanBlock, /executionPlanTextPartition\(text\)/);
-  assert.match(messagePlanBlock, /executionPlanCardTitle\([\s\S]*sourceText: text/);
+  assert.match(messagePlanBlock, /executionPlanTextPartitions\(text\)/);
+  assert.match(messagePlanBlock, /executionPlanCardTitle\([\s\S]*titleContext/);
   assert.match(messagePlanBlock, /class="message-execution-plan"/);
-  assert.match(messagePlanBlock, /renderExecutionPlanCardContent\(partition\.candidate\.content\)/);
+  assert.match(messagePlanBlock, /partitions\.candidates\.map\([\s\S]*renderExecutionPlanCardContent\(candidate\.content\)/);
   assert.match(renderer, /renderMessageExecutionPlan\(message, content\.text/);
   assert.match(planCardBlock, /<footer>[\s\S]*<time/);
   assert.doesNotMatch(planCardBlock, /sourceLabel|footer span/);

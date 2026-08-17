@@ -311,9 +311,14 @@ function validateAccountPlan(value, field) {
     equity: finiteNumber(source.equity, `${field}.equity`, { min: 0 }),
     availableBalance: finiteNumber(source.availableBalance, `${field}.availableBalance`, { min: 0 }),
     leverage: finiteNumber(source.leverage, `${field}.leverage`, { min: 1, max: 1_000 }),
+    entryPrice: finiteNumber(source.entryPrice, `${field}.entryPrice`, { min: Number.EPSILON, nullable: true }),
     notional: finiteNumber(source.notional, `${field}.notional`, { min: 0 }),
+    quantity: finiteNumber(source.quantity, `${field}.quantity`, { min: 0, nullable: true }),
     existingSide,
     existingNotional: finiteNumber(source.existingNotional, `${field}.existingNotional`, { min: 0 }),
+    existingQuantity: finiteNumber(source.existingQuantity, `${field}.existingQuantity`, { min: 0, nullable: true }),
+    existingEntryPrice: finiteNumber(source.existingEntryPrice, `${field}.existingEntryPrice`, { min: Number.EPSILON, nullable: true }),
+    existingUnrealizedPnl: finiteNumber(source.existingUnrealizedPnl, `${field}.existingUnrealizedPnl`, { nullable: true }),
     estimatedStopLoss: finiteNumber(source.estimatedStopLoss, `${field}.estimatedStopLoss`, {
       min: 0,
       nullable: true,
@@ -430,6 +435,11 @@ export function validateExecutionPlan(value) {
         sizingSource.minimumRiskRewardRatio,
         "executionPlan.positionSizing.minimumRiskRewardRatio",
         { min: 0, max: 100, nullable: true },
+      ),
+      estimatedRoundTripCostRate: finiteNumber(
+        sizingSource.estimatedRoundTripCostRate,
+        "executionPlan.positionSizing.estimatedRoundTripCostRate",
+        { min: 0, max: 0.05 },
       ),
       formula: boundedString(sizingSource.formula, "executionPlan.positionSizing.formula", { max: 500 }),
       suggestedQuantity: finiteNumber(sizingSource.suggestedQuantity, "executionPlan.positionSizing.suggestedQuantity", {

@@ -812,6 +812,10 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(renderMessageBlock, /alignRight \|\| !showAvatar \? "" : renderMessageAvatar\(message, role\)/);
   assert.match(renderMessageBlock, /alignRight && showAvatar \? renderMessageAvatar\(message, role\) : ""/);
   assert.match(styles, /\.trading-expert-message-scroller \.message-stack\s*\{[^}]*max-width: 100%;/s);
+  assert.match(
+    styles,
+    /\.desktop-body\.trading-expert-layout \.trading-expert-message-scroller \.message-row\s*\{[^}]*gap: 8px;[^}]*margin: 20px 0;/s,
+  );
   assert.doesNotMatch(styles, /\.trading-expert-message-scroller \.message-avatar\s*\{/);
   assert.match(styles, /\.message-scroll-bottom-button:hover:not\(:disabled\):not\(\.hidden\)/);
   assert.match(styles, /\.message-scroll-bottom-button:focus-visible/);

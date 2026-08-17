@@ -1047,7 +1047,13 @@ export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) 
     responseFormat: "json",
   }, { signal: options.signal });
   const modelReview = normalizeOrderFlowModelReview(modelResponse.text, theoryResult);
-  const actionPlan = buildOrderFlowActionPlan(snapshot, theoryResult);
+  const deterministicActionPlan = buildOrderFlowActionPlan(snapshot, theoryResult);
+  const primaryBias = modelReview.marketBias === "buying"
+    ? "bullish"
+    : modelReview.marketBias === "selling"
+      ? "bearish"
+      : "neutral";
+  const actionPlan = { ...deterministicActionPlan, primaryBias };
   const drawingPatch = buildOrderFlowDrawingPatch(snapshot, theoryResult, modelReview);
   const report = buildOrderFlowAnalysisReport(snapshot, theoryResult, modelReview, {
     instruction: params?.instruction,
