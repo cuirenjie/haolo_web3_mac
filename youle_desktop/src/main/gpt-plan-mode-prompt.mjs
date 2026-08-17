@@ -42,7 +42,19 @@ export function isGptPlanModeProviderRequest(params = {}) {
   return (
     normalizedToken(params.provider) === "codex"
     && /^gpt(?:-|$)/i.test(String(params.model || "").trim())
+    && isExplicitGptPlanModeRequest(params)
   );
+}
+
+function isExplicitGptPlanModeRequest(params = {}) {
+  if (
+    params.gptPlanMode === true
+    || params.gpt_plan_mode === true
+    || params.planMode === true
+    || params.plan_mode === true
+  ) return true;
+  return [params.presentationMode, params.presentation_mode]
+    .some((value) => normalizedToken(value) === "plan");
 }
 
 export function providerMessagesWithGptPlanModePrompt(messages, params = {}) {

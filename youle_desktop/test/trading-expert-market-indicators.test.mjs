@@ -398,7 +398,7 @@ test("favorite ticker quotes update continuously and use direct combined streams
   );
   assert.equal(
     tradingFavoriteTickerStreamUrl("spot", ["BTCUSDT"]),
-    "wss://stream.binance.com:9443/stream?streams=btcusdt@ticker",
+    "wss://data-stream.binance.vision:443/stream?streams=btcusdt@ticker",
   );
   assert.equal(formatTradingMarketTickerPrice(1_916.9), "1,916.90");
   assert.equal(formatTradingMarketTickerPrice(76.81), "76.81");
@@ -466,6 +466,184 @@ test("Binance search catalog combines USDT spot and perpetual markets", async ()
       "/api/v3/exchangeInfo",
       "/api/v3/ticker/24hr",
     ]));
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("Binance TradFi perpetual contracts are catalogued with their underlying categories", async () => {
+  const {
+    fetchTradingMarkets,
+    isBinanceTradFiContract,
+    tradingMarketCategoryLabel,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  assert.equal(isBinanceTradFiContract({
+    contractType: "TRADIFI_PERPETUAL",
+    underlyingType: "COMMODITY",
+    underlyingSubType: ["TradFi"],
+  }), true);
+  assert.equal(isBinanceTradFiContract({
+    contractType: "PERPETUAL",
+    underlyingType: "EQUITY",
+    underlyingSubType: "TradFi",
+  }), true);
+  assert.equal(tradingMarketCategoryLabel("commodity"), "大宗商品");
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    ...(originalWindow || {}),
+    codexDesktop: {
+      ...(originalWindow?.codexDesktop || {}),
+      async getBinancePublicMarketData(request) {
+        const payload = request.path === "/fapi/v1/exchangeInfo"
+          ? {
+            symbols: [
+              {
+                symbol: "SNDKUSDT",
+                baseAsset: "SNDK",
+                quoteAsset: "USDT",
+                contractType: "TRADIFI_PERPETUAL",
+                underlyingType: "EQUITY",
+                underlyingSubType: ["TradFi"],
+                status: "TRADING",
+              },
+              {
+                symbol: "XAUUSDT",
+                baseAsset: "XAU",
+                quoteAsset: "USDT",
+                contractType: "TRADIFI_PERPETUAL",
+                underlyingType: "COMMODITY",
+                underlyingSubType: ["TradFi"],
+                status: "TRADING",
+              },
+              {
+                symbol: "XAGUSDT",
+                baseAsset: "XAG",
+                quoteAsset: "USDT",
+                contractType: "TRADIFI_PERPETUAL",
+                underlyingType: "COMMODITY",
+                underlyingSubType: ["TradFi"],
+                status: "TRADING",
+              },
+              {
+                symbol: "SPCXUSD1",
+                baseAsset: "SPCX",
+                quoteAsset: "USD1",
+                contractType: "TRADIFI_PERPETUAL",
+                underlyingType: "EQUITY",
+                underlyingSubType: ["TradFi"],
+                status: "TRADING",
+              },
+              {
+                symbol: "OPENAIUSDT",
+                baseAsset: "OPENAI",
+                quoteAsset: "USDT",
+                contractType: "TRADIFI_PERPETUAL",
+                underlyingType: "PREMARKET",
+                underlyingSubType: ["Pre-IPO", "TradFi"],
+                status: "TRADING",
+              },
+            ],
+          }
+          : request.path === "/fapi/v1/ticker/24hr"
+            ? [
+              { symbol: "SNDKUSDT", lastPrice: "1725.97", priceChangePercent: "4.05", quoteVolume: "1000" },
+              { symbol: "XAUUSDT", lastPrice: "4398.98", priceChangePercent: "0.25", quoteVolume: "900" },
+              { symbol: "XAGUSDT", lastPrice: "65.62", priceChangePercent: "0.89", quoteVolume: "850" },
+              { symbol: "SPCXUSD1", lastPrice: "141.62", priceChangePercent: "0.95", quoteVolume: "800" },
+              { symbol: "OPENAIUSDT", lastPrice: "99.5", priceChangePercent: "1.4", quoteVolume: "700" },
+            ]
+            : request.path === "/api/v3/exchangeInfo"
+              ? { symbols: [] }
+              : [];
+        return { ok: true, status: 200, data: payload, cached: false };
+      },
+    },
+  };
+  try {
+    const markets = await fetchTradingMarkets();
+    assert.deepEqual(
+      markets.map(({ symbol, quoteAsset, assetClass, description }) => ({ symbol, quoteAsset, assetClass, description })),
+      [
+        { symbol: "SNDKUSDT", quoteAsset: "USDT", assetClass: "stock", description: "SNDK/USDT 币安传统金融永续合约" },
+        { symbol: "XAUUSDT", quoteAsset: "USDT", assetClass: "commodity", description: "XAU/USDT 币安传统金融永续合约" },
+        { symbol: "XAGUSDT", quoteAsset: "USDT", assetClass: "commodity", description: "XAG/USDT 币安传统金融永续合约" },
+        { symbol: "SPCXUSD1", quoteAsset: "USD1", assetClass: "stock", description: "SPCX/USD1 币安传统金融永续合约" },
+        { symbol: "OPENAIUSDT", quoteAsset: "USDT", assetClass: "preipo", description: "OPENAI/USDT 币安传统金融永续合约" },
+      ],
+    );
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("Binance TradFi spot wrappers inherit Futures categories and keep every live quote", async () => {
+  const { fetchTradingMarkets, binanceTradFiSpotAssetClass } = await import("../src/renderer/trading-expert-market.ts");
+  assert.equal(binanceTradFiSpotAssetClass("XAUT", new Map([["XAU", "commodity"]])), "commodity");
+  assert.equal(binanceTradFiSpotAssetClass("SNDKB", new Map([["SNDK", "stock"]])), "stock");
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    ...(originalWindow || {}),
+    codexDesktop: {
+      ...(originalWindow?.codexDesktop || {}),
+      async getBinancePublicMarketData(request) {
+        const payload = request.path === "/fapi/v1/exchangeInfo"
+          ? {
+            symbols: [
+              {
+                symbol: "XAUUSDT",
+                baseAsset: "XAU",
+                quoteAsset: "USDT",
+                contractType: "TRADIFI_PERPETUAL",
+                underlyingType: "COMMODITY",
+                underlyingSubType: ["TradFi"],
+                status: "TRADING",
+              },
+              {
+                symbol: "SNDKUSDT",
+                baseAsset: "SNDK",
+                quoteAsset: "USDT",
+                contractType: "TRADIFI_PERPETUAL",
+                underlyingType: "EQUITY",
+                underlyingSubType: ["TradFi"],
+                status: "TRADING",
+              },
+            ],
+          }
+          : request.path === "/fapi/v1/ticker/24hr"
+            ? []
+            : request.path === "/api/v3/exchangeInfo"
+              ? {
+                symbols: [
+                  { symbol: "XAUTUSDT", baseAsset: "XAUT", quoteAsset: "USDT", status: "TRADING", isSpotTradingAllowed: true },
+                  { symbol: "XAUTUSDC", baseAsset: "XAUT", quoteAsset: "USDC", status: "TRADING", isSpotTradingAllowed: true },
+                  { symbol: "XAUTBTC", baseAsset: "XAUT", quoteAsset: "BTC", status: "TRADING", isSpotTradingAllowed: true },
+                  { symbol: "SNDKBUSDT", baseAsset: "SNDKB", quoteAsset: "USDT", status: "TRADING", isSpotTradingAllowed: true },
+                  { symbol: "ETHUSDC", baseAsset: "ETH", quoteAsset: "USDC", status: "TRADING", isSpotTradingAllowed: true },
+                ],
+              }
+              : [
+                { symbol: "XAUTUSDT", lastPrice: "4400", openPrice: "4300", quoteVolume: "100" },
+                { symbol: "XAUTUSDC", lastPrice: "4401", openPrice: "4301", quoteVolume: "250" },
+                { symbol: "XAUTBTC", lastPrice: "0.07", openPrice: "0.06", quoteVolume: "300" },
+                { symbol: "SNDKBUSDT", lastPrice: "18", openPrice: "17", quoteVolume: "200" },
+              ];
+        return { ok: true, status: 200, data: payload, cached: false };
+      },
+    },
+  };
+  try {
+    const spotMarkets = (await fetchTradingMarkets()).filter((market) => market.marketType === "spot");
+    assert.deepEqual(
+      spotMarkets.map(({ symbol, quoteAsset, assetClass, description }) => ({ symbol, quoteAsset, assetClass, description })),
+      [
+        { symbol: "XAUTBTC", quoteAsset: "BTC", assetClass: "commodity", description: "XAUT/BTC 币安传统金融现货" },
+        { symbol: "XAUTUSDC", quoteAsset: "USDC", assetClass: "commodity", description: "XAUT/USDC 币安传统金融现货" },
+        { symbol: "SNDKBUSDT", quoteAsset: "USDT", assetClass: "stock", description: "SNDKB/USDT 币安传统金融现货" },
+        { symbol: "XAUTUSDT", quoteAsset: "USDT", assetClass: "commodity", description: "XAUT/USDT 币安传统金融现货" },
+      ],
+    );
   } finally {
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;
@@ -717,6 +895,39 @@ test("Binance asset logos use the shared official static asset path", async () =
     binanceAssetLogoUrl(" 1000pepe "),
     "https://bin.bnbstatic.com/static/assets/logos/1000PEPE.png",
   );
+});
+
+test("TradFi asset logos use deterministic local marks when exchange logos are unavailable", async () => {
+  const { renderTradingMarketAssetLogo } = await import("../src/renderer/trading-expert-market-identity.ts");
+
+  const xau = renderTradingMarketAssetLogo("XAU", "binance", false, "commodity");
+  assert.match(xau, /data-market-logo-local="commodity"/);
+  assert.match(xau, /data-market-logo-glyph="Au"/);
+  assert.doesNotMatch(xau, /bin\.bnbstatic\.com/);
+
+  const sndk = renderTradingMarketAssetLogo("SNDK", "binance", false, "stock");
+  assert.match(sndk, /data-market-logo-local="stock"/);
+  assert.match(sndk, /asset-symbol-sndk/);
+  assert.match(sndk, /data-market-logo-glyph="S"/);
+
+  const xag = renderTradingMarketAssetLogo("XAG", "binance", false, "commodity");
+  assert.match(xag, /asset-symbol-xag/);
+  assert.match(xag, /data-market-logo-glyph="Ag"/);
+
+  const xaut = renderTradingMarketAssetLogo("XAUT", "binance", false, "commodity");
+  assert.match(xaut, /asset-symbol-xaut/);
+  assert.match(xaut, /data-market-logo-glyph="Au"/);
+
+  const sndkSpot = renderTradingMarketAssetLogo("SNDKB", "binance", false, "stock");
+  assert.match(sndkSpot, /asset-symbol-sndkb/);
+  assert.match(sndkSpot, /data-market-logo-glyph="S"/);
+
+  const preIpo = renderTradingMarketAssetLogo("OPENAI", "binance", false, "preipo");
+  assert.match(preIpo, /data-market-logo-local="preipo"/);
+
+  const btc = renderTradingMarketAssetLogo("BTC", "binance");
+  assert.match(btc, /data-market-logo-stage="binance"/);
+  assert.match(btc, /bin\.bnbstatic\.com\/static\/assets\/logos\/BTC\.png/);
 });
 
 test("every Trading Expert subchart indicator produces aligned finite series", async () => {

@@ -31,6 +31,10 @@ import {
   TRADING_CHAN_EXPERT_PROMPT_END,
   TRADING_CHAN_EXPERT_PROMPT_START,
 } from "../src/renderer/trading-expert-chan-request.ts";
+import {
+  TRADING_CHAN_INSUFFICIENT_DATA_CODE,
+  runTradingAnalysisWithAutoExpansion,
+} from "../src/renderer/trading-expert-wave-expansion.ts";
 
 function fixtureCandles(count = 96) {
   return Array.from({ length: count }, (_, index) => {
@@ -70,6 +74,75 @@ test("Chan engine deterministically produces confirmed fractals, pen points, and
     assert.notEqual(first.structures.penPoints[index - 1].type, first.structures.penPoints[index].type);
     assert.ok(first.structures.penPoints[index - 1].time < first.structures.penPoints[index].time);
   }
+});
+
+test("Chan analysis never expands a historical visible window into future candles", async () => {
+  const allCandles = Array.from({ length: 501 }, (_, index) => ({ time: index + 1 }));
+  const expansionEvents = [];
+  const result = await runTradingAnalysisWithAutoExpansion({
+    initialCandles: allCandles.slice(177, 201),
+    getAvailableCandles: () => allCandles,
+    insufficientDataCode: TRADING_CHAN_INSUFFICIENT_DATA_CODE,
+    async analyze(candles) {
+      return candles.length >= 240
+        ? { ok: true }
+        : { ok: false, error: { code: TRADING_CHAN_INSUFFICIENT_DATA_CODE } };
+    },
+    onExpansion: (event) => expansionEvents.push(event),
+    maxCandleCount: 600,
+  });
+
+  assert.deepEqual(result.attemptCounts, [24, 120, 201]);
+  assert.equal(result.exhausted, true, "a historical end point cannot manufacture earlier candles");
+  assert.equal(result.candles[0].time, 1);
+  assert.equal(result.candles.at(-1).time, 201, "expansion must not introduce future candles");
+  assert.deepEqual(expansionEvents.map((event) => event.type), ["window", "window"]);
+});
+
+test("Chan analysis reaches success after expanding the current 24-candle canvas", async () => {
+  const allCandles = Array.from({ length: 501 }, (_, index) => ({ time: index + 1 }));
+  const result = await runTradingAnalysisWithAutoExpansion({
+    initialCandles: allCandles.slice(-24),
+    getAvailableCandles: () => allCandles,
+    insufficientDataCode: TRADING_CHAN_INSUFFICIENT_DATA_CODE,
+    async analyze(candles) {
+      return candles.length >= 240
+        ? { ok: true }
+        : { ok: false, error: { code: TRADING_CHAN_INSUFFICIENT_DATA_CODE } };
+    },
+    maxCandleCount: 600,
+  });
+
+  assert.deepEqual(result.attemptCounts, [24, 120, 240]);
+  assert.equal(result.candles.length, 240);
+  assert.equal(result.exhausted, false);
+});
+
+test("Chan analysis loads older history when the chart has no larger loaded window", async () => {
+  let candlePool = Array.from({ length: 24 }, (_, index) => ({ time: index + 501 }));
+  const expansionEvents = [];
+  const result = await runTradingAnalysisWithAutoExpansion({
+    initialCandles: candlePool,
+    getAvailableCandles: () => candlePool,
+    insufficientDataCode: TRADING_CHAN_INSUFFICIENT_DATA_CODE,
+    async analyze(candles) {
+      return candles.length >= 120
+        ? { ok: true }
+        : { ok: false, error: { code: TRADING_CHAN_INSUFFICIENT_DATA_CODE } };
+    },
+    async loadMoreHistory() {
+      candlePool = [
+        ...Array.from({ length: 500 }, (_, index) => ({ time: index + 1 })),
+        ...candlePool,
+      ];
+    },
+    onExpansion: (event) => expansionEvents.push(event),
+    maxCandleCount: 600,
+  });
+
+  assert.deepEqual(result.attemptCounts, [24, 120]);
+  assert.equal(result.historyLoadCount, 1);
+  assert.deepEqual(expansionEvents.map((event) => event.type), ["history", "window"]);
 });
 
 test("model provider registry keeps the Chan pipeline independent from a concrete vendor", async () => {
@@ -224,7 +297,7 @@ test("AI drawing playback interpolates time and price without synthetic pointer 
 });
 
 test("Trading Expert routes @策略:缠论 through model JSON or controlled chart analysis", async () => {
-  const [mainSource, preloadSource, rendererSource, catalogSource, clientSource, requestSource, routerSource, marketSource, drawingSource, stylesSource] = await Promise.all([
+  const [mainSource, preloadSource, rendererSource, catalogSource, clientSource, requestSource, routerSource, marketSource, drawingSource, stylesSource, strategySource, skillSource] = await Promise.all([
     readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),
@@ -235,6 +308,8 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
     readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/trading-expert-drawing.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../resources/trading-strategies/builtins/chan/strategy.json", import.meta.url), "utf8"),
+    readFile(new URL("../resources/trading-strategies/builtins/chan/SKILL.md", import.meta.url), "utf8"),
   ]);
 
   assert.match(mainSource, /createTradingAnalysisModelProviderRegistry/);
@@ -281,7 +356,16 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   assert.match(marketSource, /const targetInterval = String\(request\.interval \|\| this\.activeInterval\)/);
   assert.match(marketSource, /当前画布可见的 \$\{analysisCandles\.length\} 根/);
   assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles, visibleRange\)/);
+  assert.match(marketSource, /runTradingAnalysisWithAutoExpansion\(\{/);
+  assert.match(marketSource, /insufficientDataCode: TRADING_CHAN_INSUFFICIENT_DATA_CODE/);
+  assert.match(marketSource, /focusChanAnalysisCandles[\s\S]*?timeScale\(\)\.setVisibleRange\(\{[\s\S]*?from: first\.time[\s\S]*?to: last\.time/);
+  assert.match(marketSource, /当前 \$\{event\.fromCount\} 根 K 线不足，正在自动扩大画布到 \$\{event\.toCount\} 根并继续缠论分析/);
+  assert.match(marketSource, /自动加载更早历史，最多检查 \$\{event\.maxCandleCount\} 根/);
+  assert.doesNotMatch(marketSource, /所选范围"\}仅有 \$\{analysisCandles\.length\} 根 K 线，不足以形成可靠的缠论笔结构/);
   assert.match(marketSource, /playAiDrawingPatch/);
+  assert.equal(JSON.parse(strategySource).dataRequirements.candles.preferredCount, 600);
+  assert.match(skillSource, /visible range as the starting window only/);
+  assert.match(skillSource, /expand the chart leftward and retry/);
   assert.match(drawingSource, /data-ai-drawing-content/);
   assert.match(drawingSource, /data-ai-drawing-cursor/);
   assert.match(stylesSource, /--trading-ai-chan-pen: #7b61ff;/);

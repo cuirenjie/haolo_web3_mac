@@ -1,6 +1,15 @@
 export const TRADING_WAVE_INSUFFICIENT_DATA_CODE = "TRADING_WAVE_INSUFFICIENT_DATA";
 export const TRADING_WAVE_AUTO_EXPANSION_MAX_CANDLES = 2_500;
 export const TRADING_WAVE_HISTORY_BATCH_CANDLES = 500;
+export const TRADING_CHAN_INSUFFICIENT_DATA_CODE = "TRADING_CHAN_INSUFFICIENT_DATA";
+export const TRADING_CHAN_AUTO_EXPANSION_MAX_CANDLES = 600;
+export const TRADING_CHAN_HISTORY_BATCH_CANDLES = 500;
+export const TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE = "TRADING_WYCKOFF_INSUFFICIENT_DATA";
+export const TRADING_WYCKOFF_AUTO_EXPANSION_MAX_CANDLES = 600;
+export const TRADING_WYCKOFF_HISTORY_BATCH_CANDLES = 500;
+export const TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE = "TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA";
+export const TRADING_CANDLE_WINDOW_AUTO_EXPANSION_MAX_CANDLES = 600;
+export const TRADING_CANDLE_WINDOW_HISTORY_BATCH_CANDLES = 500;
 
 const TRADING_WAVE_MIN_EXPANDED_CANDLES = 120;
 
@@ -17,6 +26,8 @@ export interface TradingWaveExpansionResponse {
   };
 }
 
+export type TradingAnalysisExpansionResponse = TradingWaveExpansionResponse;
+
 export type TradingWaveExpansionEvent =
   | {
       type: "window";
@@ -29,6 +40,8 @@ export type TradingWaveExpansionEvent =
       maxCandleCount: number;
     };
 
+export type TradingAnalysisExpansionEvent = TradingWaveExpansionEvent;
+
 export interface TradingWaveAutoExpansionResult<
   Candle extends TradingWaveExpansionCandle,
   Response extends TradingWaveExpansionResponse,
@@ -40,11 +53,26 @@ export interface TradingWaveAutoExpansionResult<
   exhausted: boolean;
 }
 
+export type TradingAnalysisAutoExpansionResult<
+  Candle extends TradingWaveExpansionCandle,
+  Response extends TradingAnalysisExpansionResponse,
+> = TradingWaveAutoExpansionResult<Candle, Response>;
+
+export function isTradingAnalysisInsufficientDataResponse(
+  response: TradingAnalysisExpansionResponse | null | undefined,
+  insufficientDataCode: string,
+) {
+  return response?.ok !== true
+    && response?.error?.code === insufficientDataCode;
+}
+
 export function isTradingWaveInsufficientDataResponse(
   response: TradingWaveExpansionResponse | null | undefined,
 ) {
-  return response?.ok !== true
-    && response?.error?.code === TRADING_WAVE_INSUFFICIENT_DATA_CODE;
+  return isTradingAnalysisInsufficientDataResponse(
+    response,
+    TRADING_WAVE_INSUFFICIENT_DATA_CODE,
+  );
 }
 
 export function nextTradingWaveAnalysisCandleCount(
@@ -86,8 +114,28 @@ export async function runTradingWaveAnalysisWithAutoExpansion<
   onExpansion?: (event: TradingWaveExpansionEvent) => void;
   maxCandleCount?: number;
 }): Promise<TradingWaveAutoExpansionResult<Candle, Response>> {
+  return runTradingAnalysisWithAutoExpansion({
+    ...options,
+    insufficientDataCode: TRADING_WAVE_INSUFFICIENT_DATA_CODE,
+  });
+}
+
+export async function runTradingAnalysisWithAutoExpansion<
+  Candle extends TradingWaveExpansionCandle,
+  Response extends TradingAnalysisExpansionResponse,
+>(options: {
+  initialCandles: ReadonlyArray<Candle>;
+  getAvailableCandles: () => ReadonlyArray<Candle>;
+  analyze: (candles: ReadonlyArray<Candle>) => Promise<Response>;
+  insufficientDataCode: string;
+  loadMoreHistory?: () => Promise<unknown>;
+  onExpansion?: (event: TradingAnalysisExpansionEvent) => void;
+  maxCandleCount?: number;
+}): Promise<TradingAnalysisAutoExpansionResult<Candle, Response>> {
   let analysisCandles = [...options.initialCandles];
   if (!analysisCandles.length) throw new TypeError("initialCandles is required");
+  const insufficientDataCode = String(options.insufficientDataCode || "").trim();
+  if (!insufficientDataCode) throw new TypeError("insufficientDataCode is required");
   const analysisEndTime = Math.max(...analysisCandles.map((candle) => Number(candle.time)));
   if (!Number.isFinite(analysisEndTime)) throw new TypeError("initialCandles contains invalid time");
   const maxCandleCount = Math.max(
@@ -100,7 +148,7 @@ export async function runTradingWaveAnalysisWithAutoExpansion<
   while (true) {
     attemptCounts.push(analysisCandles.length);
     const response = await options.analyze(analysisCandles);
-    if (!isTradingWaveInsufficientDataResponse(response)) {
+    if (!isTradingAnalysisInsufficientDataResponse(response, insufficientDataCode)) {
       return {
         response,
         candles: analysisCandles,

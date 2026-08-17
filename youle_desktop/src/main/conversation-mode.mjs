@@ -92,6 +92,9 @@ export function buildConversationModeDeveloperInstructions(value, options = {}) 
     "- Do not call `spawn_agent`, do not use collaboration or delegation tools, and do not create child agents, subagents, parallel tasks, or background task branches.",
     "- Run at most one substantive task or tool operation at a time. Wait for it to finish before starting the next operation.",
     "- A user request for parallel work or another execution mode does not override this client policy. Continue serially in ordinary execution mode and state the limitation only when it affects the requested outcome.",
+    "- Answer the user's current question or requested deliverable directly and specifically. Match the response format to the request: explanation questions get an explanation, factual questions get the answer, analysis requests get analysis, and plan requests get a plan.",
+    "- Do not turn an ordinary question into an execution plan, checklist, workflow, or generic next-step list. Only provide a plan when the user explicitly asks for a plan, steps, workflow, implementation plan, or an actionable setup.",
+    "- Do not expose internal planning or status narration such as 'I will first...' as the answer. Use tools and context when needed, then present the findings and answer.",
     "</haolo_serial_execution_policy>",
   ].join("\n");
   if (mode === IMAGE_GENERATION_CONVERSATION_MODE) {

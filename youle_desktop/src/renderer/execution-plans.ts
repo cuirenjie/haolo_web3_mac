@@ -285,6 +285,22 @@ export function executionPlanHasConcreteTradingPlan(candidate: ExecutionPlanCand
   if (!candidate) return false;
   const lines = executionPlanDisplayLines(candidate.content);
   const tradingLabels = lines.filter((line) => /方向判断|触发|止损|止盈|风险收益比/u.test(line.label));
+  // A market-context heading can be present in an ordinary educational
+  // answer (for example, “BTC/USDT 币安永续 4H”).  Do not treat that heading
+  // plus prose mentioning stop-loss/take-profit as an actionable plan; a real
+  // trading plan must contain at least one of its structured trading fields.
+  const candidateTitle = String(candidate.title || "").trim();
+  const educationalLabels = lines.some((line) => /交易基础|趋势与结构|支撑与阻力|风险管理|策略执行/u.test(line.label));
+  if (
+    !tradingLabels.length
+    && (
+      candidateTitle === "执行计划"
+      || TRADING_PLAN_HEADING.test(candidateTitle)
+      || educationalLabels
+    )
+  ) {
+    return false;
+  }
   if (!tradingLabels.length) return true;
   const direction = lines.find((line) => /方向判断/u.test(line.label))?.text || "";
   if (
@@ -297,6 +313,26 @@ export function executionPlanHasConcreteTradingPlan(candidate: ExecutionPlanCand
     && /(?:^|[^\d])\d+(?:,\d{3})*(?:\.\d+)?/u.test(line.text)
   ));
   return hasConcretePrice(/触发/u) && hasConcretePrice(/止损/u) && hasConcretePrice(/止盈/u);
+}
+
+/**
+ * Return whether a candidate has the structured fields that identify a
+ * trading proposal, independent of whether its values are actionable yet.
+ *
+ * This is deliberately separate from `executionPlanHasConcreteTradingPlan`:
+ * the latter remains permissive for legacy generic plan parsing, while the
+ * renderer must not turn arbitrary prose (or a generic project checklist)
+ * into a collapsible trading card merely because it contains words such as
+ * “止损” or “策略”.
+ */
+export function executionPlanHasStructuredTradingFields(candidate: ExecutionPlanCandidate | null | undefined) {
+  if (!candidate) return false;
+  const lines = executionPlanDisplayLines(candidate.content);
+  const hasDirection = lines.some((line) => /方向判断/u.test(line.label));
+  const hasTrigger = lines.some((line) => /触发/u.test(line.label));
+  const hasStop = lines.some((line) => /止损/u.test(line.label));
+  const hasTakeProfit = lines.some((line) => /止盈/u.test(line.label));
+  return hasDirection && hasTrigger && hasStop && hasTakeProfit;
 }
 
 function defaultStorage(): StorageLike | null {

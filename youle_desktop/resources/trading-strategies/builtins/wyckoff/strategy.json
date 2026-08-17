@@ -9,7 +9,7 @@
   "implementation": { "kind": "builtin-adapter", "adapterId": "wyckoff" },
   "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
   "dataRequirements": {
-    "candles": { "required": true, "minCount": 60, "minimumCoverage": "available" }
+    "candles": { "required": true, "minCount": 60, "preferredCount": 600, "minimumCoverage": "available" }
   },
   "drawingPolicyId": "wyckoff-v1",
   "executionPlanPolicyId": "standard-v1",

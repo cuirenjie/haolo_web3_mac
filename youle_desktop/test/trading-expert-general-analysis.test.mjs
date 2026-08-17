@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildGeneralRequestRoutingPrompt,
+  deterministicGeneralRequestRouting,
   normalizeGeneralRequestRoutingModelResponse,
 } from "../src/main/trading-analysis/general-request-router.mjs";
 import { runPriceActionEngine } from "../src/main/trading-analysis/price-action-engine.mjs";
@@ -79,6 +80,62 @@ test("general semantic router preserves conceptual questions as normal conversat
   assert.equal(routed.request.mode, "conversation");
   assert.equal(routed.request.symbol, null);
   assert.equal(routed.request.drawingRequested, false);
+});
+
+test("deterministic semantic guard keeps education and strategy recommendations off the chart", () => {
+  const text = "我是一个币圈新手小白，我想系统的学习简单点的交易理论，你一步步教我，给我推荐一个最适合我的交易策略";
+  const guarded = deterministicGeneralRequestRouting(text, { hasCurrentAnalysis: true });
+  assert.ok(guarded);
+  assert.equal(guarded.request.mode, "conversation");
+  assert.equal(guarded.request.drawingRequested, false);
+  assert.equal(guarded.request.analysisFollowup, false);
+  assert.equal(guarded.classification.source, "deterministic-semantic-guard");
+
+  // Even if a stale/incorrect model response says chart-analysis, the same
+  // semantic guard is applied at the normalization boundary.
+  const normalized = normalizeGeneralRequestRoutingModelResponse(JSON.stringify({
+    schemaVersion: 1,
+    mode: "chart-analysis",
+    intent: "chart-drawing",
+    symbol: null,
+    interval: null,
+    lookbackMs: null,
+    lookbackLabel: null,
+    confidence: 0.99,
+  }), text, { hasCurrentAnalysis: true });
+  assert.equal(normalized.request.mode, "conversation");
+  assert.equal(normalized.request.drawingRequested, false);
+
+  const explainChart = deterministicGeneralRequestRouting("请解释什么是 K 线", { hasCurrentAnalysis: true });
+  assert.equal(explainChart?.request.mode, "conversation");
+  const nonMarket = deterministicGeneralRequestRouting("你能做什么？", { hasCurrentAnalysis: true });
+  assert.equal(nonMarket?.classification.intent, "non-market-request");
+});
+
+test("only concrete prior-analysis questions receive the follow-up marker", () => {
+  const followup = normalizeGeneralRequestRoutingModelResponse(JSON.stringify({
+    schemaVersion: 1,
+    mode: "conversation",
+    intent: "general-question",
+    symbol: null,
+    interval: null,
+    lookbackMs: null,
+    lookbackLabel: null,
+    confidence: 0.96,
+  }), "你凭什么认为第一目标会到 0.4", { hasCurrentAnalysis: true });
+  assert.equal(followup.request.analysisFollowup, true);
+
+  const unrelated = normalizeGeneralRequestRoutingModelResponse(JSON.stringify({
+    schemaVersion: 1,
+    mode: "conversation",
+    intent: "general-question",
+    symbol: null,
+    interval: null,
+    lookbackMs: null,
+    lookbackLabel: null,
+    confidence: 0.96,
+  }), "推荐一个最适合新手的交易策略", { hasCurrentAnalysis: true });
+  assert.equal(unrelated.request.analysisFollowup, false);
 });
 
 test("general semantic router sends personal account and memory questions to the context-capable agent", () => {
@@ -241,6 +298,7 @@ test("renderer route inherits the selected symbol, interval and visible candle r
   assert.match(mainSource, /tradingGeneralCandidateAtSend/);
   assert.match(mainSource, /await classifyTradingGeneralRequestForSend\(/);
   assert.match(mainSource, /hasTradingExpertCurrentAnalysis\(\)/);
+  assert.match(mainSource, /generalRequest\?\.analysisFollowup === true/);
   assert.match(mainSource, /buildTradingAnalysisFollowupPrompt\(baseAgentText\)/);
   assert.match(mainSource, /hasCurrentAnalysis,/);
   assert.match(mainSource, /drawingRequested: chartAnalysis && request\.drawingRequested === true/);
@@ -250,6 +308,11 @@ test("renderer route inherits the selected symbol, interval and visible candle r
   assert.match(marketSource, /request\.interval \|\| this\.activeInterval/);
   assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles, visibleRange\)/);
   assert.match(marketSource, /canvasCandles\.length\s*\? canvasCandles/);
+  assert.match(marketSource, /canvasCandles\.slice\(-\(visibleCandlesOnly \? 600 : analysisWindowCount\)\)/);
+  assert.match(marketSource, /runTradingAnalysisWithAutoExpansion\(\{/);
+  assert.match(marketSource, /TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE/);
+  assert.match(marketSource, /自动扩大画布到 \$\{event\.toCount\} 根再计算\$\{analysisName\}/);
+  assert.match(marketSource, /focusAnalysisCandles[\s\S]*timeScale\(\)\.setVisibleRange/);
   assert.match(marketSource, /if \(request\.drawingRequested !== false\)[\s\S]*?commitTradingAnalysisDrawingPatch/);
   assert.match(marketSource, /request\.drawingRequested === false[\s\S]*?response\.analysisPlan\.narrative/);
   assert.match(marketSource, /左侧原画线保持不变/);
@@ -269,6 +332,7 @@ test("follow-up prompts answer the actual question while initial analysis templa
     "trading-expert-wyckoff-request.ts",
   ].map((name) => fs.readFileSync(path.join(root, "src/renderer", name), "utf8")).join("\n");
   assert.match(generalRequest, /第一句话直接回答用户真正问的内容/);
+  assert.match(generalRequest, /学习交易理论、选择策略、询问账户\/记忆/);
   assert.match(generalRequest, /不要机械复述完整盘面报告/);
   assert.match(generalRequest, /不要固定套用.*先看结论.*新手执行清单.*为什么这样判断/);
   assert.match(theoryPrompts, /若用户是在追问上一轮分析/);

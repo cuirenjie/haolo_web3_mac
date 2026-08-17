@@ -56,7 +56,7 @@ function createBinanceSocketPool(WebSocketImpl) {
 
   const websocketBase = (marketType) => marketType === "FUTURES"
     ? "wss://fstream.binance.com/ws"
-    : "wss://stream.binance.com:9443/ws";
+    : "wss://data-stream.binance.vision:443/ws";
   const isOpen = (socket) => socket?.readyState === (WebSocketImpl.OPEN ?? 1);
   const sendCommand = (channel, method, streams) => {
     if (!isOpen(channel.socket) || !streams.length) return;
@@ -152,7 +152,9 @@ export function createBinanceMarketAdapter({ fetchImpl = globalThis.fetch, WebSo
   const loadHistory = async (subscription, limit = 500) => {
     const { marketType, symbol } = parseMarket(subscription.marketId);
     const plan = planBinanceInterval(subscription.interval);
-    const base = marketType === "FUTURES" ? "https://fapi.binance.com/fapi/v1/klines" : "https://api.binance.com/api/v3/klines";
+    const base = marketType === "FUTURES"
+      ? "https://fapi.binance.com/fapi/v1/klines"
+      : "https://data-api.binance.vision/api/v3/klines";
     const sourceLimit = Math.min(1_500, Math.max(limit, Math.ceil(limit * plan.targetMs / plan.sourceMs)));
     const url = `${base}?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(plan.sourceInterval)}&limit=${sourceLimit}`;
     let response;

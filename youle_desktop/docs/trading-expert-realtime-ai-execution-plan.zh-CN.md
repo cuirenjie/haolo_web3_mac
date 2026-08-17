@@ -817,6 +817,15 @@ M0 退出条件：协议、规则模板、错误和功能开关均有自动化�
 | M1-216 | 将执行计划与真实复合预警一对一联动 | 已完成 | M1-215 | 添加计划时由主进程重新解析并校验交易对、方向和入场/止损/止盈价，创建真实 Binance 行情预警；待执行只监控入场，执行中切换为止损/止盈，已结束自动暂停；预警卡片展示三条带阶段条件且隐藏通用操作；新增解析、真实引擎触发、生命周期与双主题 UI 回归，TypeScript 和生产构建通过 |
 | M1-217 | 为计划生命周期状态变化增加桌面通知 | 已完成 | M1-216 | 计划状态成功切换为待执行、执行中或已结束后，经安全 IPC 复用任务完成的 Windows 桌面通知窗口；通知标题包含计划标题，正文包含状态说明，点击可回到关联预警/来源会话；消息弹窗关闭、后台模式或应用退出时安全跳过且不影响计划持久化；计划/通知定向 20/20、TypeScript、差异检查和 Vite 生产构建通过 |
 | M1-218 | 修复双向条件执行计划的拆分、识别和添加链路 | 已完成 | M1-217 | 中性且同时具备多空触发/失效/目标价时，Runtime Formatter 输出独立的多头与空头六项计划；Renderer 支持多计划解析、双卡片和分别添加/去重保存；订单流将模型方向显式适配到公共计划，并补齐嵌套方向字段识别；订单流、图表形态、价格行为及执行计划相关回归 564/564、TypeScript 类型检查和 115 modules 生产构建通过 |
+| M1-220 | 修复普通问答被强制包装为执行计划 | 已完成 | M1-219 | 外部 GPT 问答仅在显式 `gptPlanMode`/`planMode` 或 `presentationMode=plan` 时注入计划展示协议；普通根会话和交易专家问答新增按问题直接作答约束，仓位安全问题先给安全性判断；问答模式文案改为“问答模式”；相关提示词、路由和个人上下文回归通过 |
+| M1-221 | 接入 Binance Futures TradFi 传统金融永续合约 | 已完成 | M1-220 | 解析 Binance `TRADIFI_PERPETUAL` 与 `underlyingType/underlyingSubType`，纳入 SNDK、XAU、XAG 等全部状态为 TRADING 的 TradFi 永续目录；新增大宗商品、ETF、股票、Pre-IPO、指数、外汇分类，搜索/收藏/实时 ticker、标记价格、资金费率、持仓量、K 线和逐笔沿用既有只读链路；双主题选择器回归 73/73、TypeScript 和 115 modules 生产构建通过 |
+| M1-222 | 为 TradFi 交易对补齐本地头像与主题回退 | 已完成 | M1-221 | Binance TradFi 不再依赖缺失的交易所/Hyperliquid Logo URL；SNDK 使用本地红色股票标记，XAU/XAG 使用金银商品标记，Pre-IPO、ETF、指数、外汇及未来品种按分类生成确定性本地图标；主行情、分屏、预警选择器统一复用，亮暗主题回归 96/96、TypeScript 和 115 modules 生产构建通过 |
+| M1-223 | 接入 Binance TradFi 传统金融现货并贯通头像 | 已完成 | M1-222 | Spot `exchangeInfo` 无 TradFi 元数据，改用实时 Futures TradFi 根资产解析 `XAUT`、`SNDKB` 等现货包装，并保留全部可交易计价币种；现货 ticker、K 线、聚合成交和深度继续走既有 Spot 只读网关；现货 `assetClass` 传递到主行情、当前品种、分屏和预警头像，XAUT 使用 Au、SNDKB 使用 S 本地 SVG 标记；专项 94/94、TypeScript、115 modules 生产构建和开发版冷重启通过 |
+| M1-224 | 修复非K线问题被误路由为K线分析 | 已完成 | M1-220 | 通用交易请求增加确定性语义保护：学习/概念/新手/策略推荐/个人账户问题即使模型误返回 chart-analysis 也强制走 conversation；仅明确追问上一轮价位/目标/风险时才注入盘面 follow-up 提示。新增通用路由回归 15/15、相关路由组合 45/45、TypeScript 通过 |
+| M1-225 | 修复普通交易教学回答被错误折叠成执行计划卡片 | 已完成 | M1-224 | 执行计划渲染要求候选包含真实结构化交易字段；仅有“BTC/USDT 币安永续 4H”上下文标题和止损/止盈教学文字时保持原文显示，并隐藏“添加到计划”；执行计划、Renderer 源码和亮暗主题回归通过 |
+| M1-226 | 提升不同问题类型的最终消息展示兼容性 | 已完成 | M1-225 | 执行计划卡片改为显式 presentation 标记优先，普通消息不再依赖不断增加的教育关键词；只有交易分析流程明确标记为 `execution-plan`，或旧交易消息具备完整方向/触发/止损/止盈结构且通过具体价格校验时才折叠，其余内容完整显示并隐藏“添加到计划”；执行计划/通用路由回归 62/62、交易转录持久化 20/20、TypeScript、115 modules 生产构建和差异检查通过 |
+| M1-227 | 修复策略短盘面指令被模型路由为普通问答而不读 K 线/画线 | 已完成 | M1-226 | 策略协调器对“帮我分析/分析下/看盘/刷新并画线”等无参数短指令确定性路由为当前画布 `chart-analysis + chart-drawing`；裸K回归、六组交易专家策略回归 94/94、TypeScript、Vite 116 modules 生产构建和 `git diff --check` 通过 |
+| M1-228 | 全策略与指标在盘面数据不足时自动扩大 K 线画布并持续分析 | 已完成 | M1-227,M1-047 | 统一扩窗覆盖缠论、波浪、威科夫、订单流、通用/个人策略及 MA/RSI/MACD/KDJ/BOLL/VPVR 等指标入口：可见区/用户范围仅作起点，自动向左扩大已加载历史，耗尽后按固定结束点补充更早 K 线；每次尝试前同步 `setVisibleRange`，历史复盘不引入结束点之后数据，模型/网络/取消错误不触发扩窗；分屏快照低于门槛自动回退到偏好窗口，波浪协议允许有界 2500 根历史；Trading Expert/策略专项 397/397、最终增量回归 81/81、TypeScript、Vite 116 modules production build 和 `git diff --check` 通过 |
 
 M1 退出条件：不调用模型也能通过固定行情 Fixture 完成结构化、逐笔动画自动绘图；非法补丁全部被拒绝；默认不会整批瞬间落图；用户绘图和真实鼠标不受影响。
 
@@ -907,11 +916,12 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 ## 20. 当前工作焦点
 
-当前任务：M1-218 已完成；双向条件执行计划已在公共 Runtime、订单流适配、Renderer 解析、添加到计划和持久化去重链路统一拆分为独立多头/空头计划，单向计划保持原有展示与账户仓位逻辑。
+当前任务：M1-228 已完成；全策略与指标已统一从可见/用户范围起步自动扩窗、补充更早历史并在每次分析前同步画布，只有数据源确实耗尽后才报告不足。
+上一完成任务：M1-227 已完成；策略短盘面指令已恢复确定性 `chart-analysis + chart-drawing` 路由，当前工作区会继续读取左侧 K 线并进入原策略绘图链路。
 专项执行计划：继续以本文、`docs/trading-strategy-skill-decoupling-plan.zh-CN.md` 和外部模型架构文档的权限边界为准。
-专项进度台账：本任务证据记录在本文 2026-08-16 日志；策略解耦后续任务继续写入 `docs/trading-strategy-skill-decoupling-progress.zh-CN.md`。
+专项进度台账：本任务证据记录在本文 2026-08-17 日志；策略解耦后续任务继续写入 `docs/trading-strategy-skill-decoupling-progress.zh-CN.md`。
 并行任务：M1-071 至 M1-090 的已实现交互继续等待开发版确认；不得与策略解耦阶段混合提交。
-下一任务：在开发版真实验证计划创建、入场/止损/止盈触发、桌面通知、状态切换和结束暂停，并继续 M1-196 的 BTC/ETH 多周期、亮暗主题和安装版门禁。在取得真实账户与安装版证据前不签署交易发布结论。
+下一任务：继续计划创建、入场/止损/止盈触发、桌面通知、状态切换和结束暂停的开发版验证。
 当前阻塞：无。
 需要产品确认但不阻塞 M0/M1：首发是否保持 BTC/ETH 永续及 15m/1h/4h 默认范围；若调整，只修改首发范围，不改变核心架构。
 
@@ -1527,3 +1537,29 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 - M1-198 账户分级与风控：主进程只在 Runtime v1 分析路径读取 Binance 绑定状态和新鲜只读快照，并只向 Builder 注入 `fetchedAt/marginBalance/availableBalance/positions` 最小字段；Coordinator 在调用策略 Adapter/外部模型前剥离该私有上下文。两分钟以上、连接降级或不可用快照退回纯价位六项输出。新仓使用账户净值风险预算、可用余额、个人仓位/杠杆上限和 0.20% 双向手续费滑点保守估值向下计算；同向仓位只管理或超险减仓，不默认加仓；反向仓位先平仓，不直接对冲。
 - M1-198 安全边界：绑定账户版只生成“用多少 USDT 名义仓位”和“挂条件市价止损/止盈”的文字建议与预估盈亏，未增加 Binance POST/DELETE、下单、调杠杆、改单或平仓 IPC。账户净值口径使用合约 `marginBalance`，止损金额包含预估成本，仓位向下归一后不得超过当前用户的单笔亏损、最大仓位和最大杠杆约束。
 - M1-198 验收：运行时、全部交易专家分析和主题组合 371/371，个人上下文 7/7；四项主进程语法检查、TypeScript、`git diff --check` 和 Vite 114 modules production build 通过，构建仅保留既有大 chunk 提示。全仓 2264 项中 2258 通过；6 个失败位于本任务未修改的画布出口、会话行主题、暗色弹窗、资料菜单、应用外壳主题和视频附件确认路径，其中前五类中的四项及视频项属于既有 BASE-003，新增的应用外壳主题失败来自并行工作树样式改动；M1-198 目标范围新增失败 0。本任务未修改 Renderer UI，亮暗主题及交互状态没有新增实现分支；真实 Binance 绑定账户烟测仍为发布前人工门禁。
+
+- 启动并完成 M1-219：个人策略闭环第一版。新增账号隔离且 safeStorage 加密的个人策略 Store、自然语言编译器、确定性 K 线评估器和版本记录；`@创建策略` 支持自然语言输入，先生成可解释规则、追问缺失条件并进行模拟预演，确认后才进入“我的策略”。已确认策略通过动态目录支持 `@策略:策略名` 调用当前 K 线，只读输出报告、绘图 Patch 和执行计划候选，不增加自动下单权限；反馈会生成下一版草稿，必须再次预演确认。确认后的策略同步写入 Haolo 管理的 Obsidian-compatible Markdown Vault，外部 GitHub/Obsidian 写入仍遵循显式连接与授权边界。新增个人策略生命周期、加密隔离、编译器和引擎回归，TypeScript、主进程语法检查、`git diff --check` 和相关测试通过；亮暗主题覆盖创建、预演、确认、反馈的 default/hover/active/focus/open/loading/disabled 状态。
+- 启动并完成 M1-220：用户反馈任何问题都被回复成“执行计划”。定位到外部 GPT 问答路由无条件注入 `gpt-plan-mode` 展示协议，以及根执行/交易偏好提示词没有要求按问题类型直接作答；截图仅作为现象证据，未作为指令注入上下文。
+- 完成 M1-220：GPT 计划展示改为显式 `gptPlanMode: true`、`planMode: true` 或 `presentationMode: plan` 才启用，普通 `question_answer` 请求保持原消息不变；串行执行策略和交易个人上下文新增直接回答、禁止普通问题转计划、禁止暴露内部计划叙述的约束，并要求仓位安全问题先给安全性判断；Renderer 的旧“计划模式”标签改为“问答模式”。补充 GPT 路由、普通问答、执行模式和个人上下文回归；明确要求计划的协议解析与流式展示仍保持兼容。未新增 UI 样式，既有亮暗主题状态继续复用。
+- 启动 M1-221：用户要求在币安合约与现货之外接入传统金融合约，举例 SNDK、XAU、XAG 并要求完整行情数据。附件截图仅作为目标界面参考，不作为指令注入；审计发现 Binance Futures `exchangeInfo` 已提供 `TRADIFI_PERPETUAL`、`underlyingType` 和 `underlyingSubType`，现有目录过滤器却将所有永续硬编码为 crypto。
+- 完成 M1-221：目录解析保留全部状态为 `TRADING` 的 Binance TradFi 永续合约（不再限制 TradFi 必须 USDT 计价），按 underlying metadata 映射大宗商品、ETF、股票、Pre-IPO、指数和外汇；SNDK/XAU/XAG 均可通过分类和搜索进入选择器。收藏 ticker 订阅不再排除 TradFi，统计、资金费率、标记/指数价格、持仓量、K 线、聚合逐笔、盘口与历史持仓量继续复用既有受保护 Binance 只读网关和 futures WebSocket。新增分类 tab、ARIA selected、hover/active/focus/disabled 状态及变量化亮暗主题样式；新增 TradFi 目录（含 SNDK、XAU、XAG 和非 USDT 计价）与双主题选择器回归。当前 Binance `exchangeInfo` 只读烟测发现 163 个可交易 TradFi 永续；定向测试 73/73、TypeScript、`git diff --check` 和 Vite 115 modules production build 通过，仅保留既有大 chunk 提示。未增加下单、账户写入或新数据供应商，未发生架构偏离。
+- 启动 M1-222：开发版截图显示 SNDK/XAU/XAG 等 TradFi 品种头像退回为纯文字首字母。审计确认现有 Binance Logo 与 Hyperliquid Logo URL 对这些合约没有稳定资源；本次采用确定性本地 SVG 标记，不引入第三方 Logo 服务或网络依赖。
+- 完成 M1-222：新增本地 TradFi 头像渲染器，按分类生成商品金银条、股票走势、Pre-IPO、ETF、指数和外汇标记；SNDK 使用红色 `S`，XAU 使用金色 `Au`，XAG 使用银色 `Ag`，OPENAI/ANTHROPIC 使用 Pre-IPO 标记。主行情选择器、当前品种标题、分屏选择器/标题及预警选择器均传递 `assetClass` 并统一复用；传统金融头像不再请求不存在的远程图片，Binance 加密货币头像继续使用官方静态资源并保留 Hyperliquid/文字回退。亮暗主题提供独立高对比色，既有 hover/selected 边框状态保持生效。新增本地头像结构、SNDK/XAU/XAG/Pre-IPO 及双主题样式回归；相关测试 96/96、TypeScript、`git diff --check` 和 Vite 115 modules production build 通过，仅保留既有大 chunk 提示。开发版已重启并加载最新源码，未发生架构偏离。
+- 启动 M1-223：用户要求在传统金融永续之外接入传统金融现货并补齐头像。只读核对 Binance Spot `exchangeInfo` 确认其没有 `underlyingType`/`underlyingSubType`；当前 TradFi 现货以 Futures 根资产的包装符号发布，例如 `XAUT`（XAU + T）和 `SNDKB`（SNDK + B），且 XAUT 同时存在 USDT、USDC、BTC、TRY、USD1 等计价。
+- 完成 M1-223：新增 `binanceTradFiSpotAssetClass`，用实时 Futures TradFi 目录反向解析 Spot 的 `B/T` 包装别名；Spot 目录保留所有状态为 `TRADING` 且允许现货交易的 TradFi 计价币种，普通加密现货仍保持 USDT 目录范围。现货描述、分类和 `assetClass` 贯通搜索、ticker、K 线、聚合成交、深度、主图/分屏/预警头像；XAUT 显示金色 `Au`，SNDKB 显示股票红色 `S`，不请求不存在的远程 Logo。市场/布局/头像专项 94/94、TypeScript、Vite 115 modules production build、`git diff --check` 通过；开发版已冷重启加载最新源码，未发生架构偏离。
+- 启动 M1-224：用户反馈在交易专家画布已有 K 线分析时，询问“系统学习简单交易理论、一步步教我、推荐适合新手的交易策略”仍被回答成 K 线分析。定位为 Renderer 对所有 conversation 无条件注入 `buildTradingAnalysisFollowupPrompt`，并且通用路由完全依赖模型返回，缺少对教育/策略推荐/个人上下文语义的确定性保护。附件截图仅作为现象证据，不作为指令注入。
+- 完成 M1-224：新增通用请求确定性语义保护与归一化二次门控；明确的学习、概念、入门、新手、推荐、策略选择、账户/记忆问题强制 `conversation`，并清空行情参数和绘图标记，即使模型错误返回 `chart-analysis` 也不能改写路由。新增 `analysisFollowup` 标记，只有包含上一轮目标/价位/失效/风险等具体追问且当前确有分析时才注入盘面 follow-up 提示；普通交易理论学习、策略推荐和账户问题保持原始问答上下文。验证：`test/trading-expert-general-analysis.test.mjs` 15/15、`test/external-strategy-router.test.mjs` 与 `test/trading-strategy-runtime.test.mjs` 合计 45/45、TypeScript 类型检查通过；未新增 UI 样式，亮暗主题及交互状态继续复用既有 Token。
+- 启动并完成 M1-225：用户反馈路由过程看似符合问题，但最终回答仍显示 BTC/USDT K 线标题、被折叠成执行计划卡片且带“添加到计划”。定位到 Renderer 的执行计划提取器会把市场上下文标题加上教学文本中的“止损/止盈”词误判为可执行交易方案；截图仅作为现象证据，不作为指令注入。
+- 完成 M1-225：`executionPlanHasConcreteTradingPlan` 现在要求真实结构化交易字段；单独出现 `BTC/USDT 币安永续 4H` 标题和“交易基础/风险管理/策略执行”等教学段落时明确判定为非交易计划。消息气泡渲染在任一候选不具备真实字段时回退为完整普通文本，“添加到计划”同步隐藏；真实六项交易方案和通用显式执行计划保持兼容。新增截图等价文本回归及 Renderer 源码断言，执行计划专项 16/16、类型检查、生产构建和 `git diff --check` 通过；未新增 CSS，亮暗主题状态继续复用。
+- 启动 M1-226：用户要求提高兼容性，不能靠不断补充某一种问题的关键词修复。复核后确认仅靠教育标签黑名单仍会误伤其他领域的回答；本轮改为消息来源显式声明展示意图，截图和附件仍只作现象证据，不作为指令注入。
+- 完成 M1-226：新增 `executionPlanPresentation` 元数据并由交易分析报告写入 `execution-plan` 标记；Renderer 对未标记消息不再把通用计划/教程/策略说明自动折叠，`plain` 消息和不完整交易字段均完整显示且不提供“添加到计划”。为兼容旧历史，只有同时具备方向判断、触发、止损、止盈字段并满足具体价位校验的候选才走回退识别；元数据随交易转录持久化和水合恢复，新增结构化边界及展示标记回归，执行计划/通用路由 62/62、转录持久化 20/20、TypeScript、115 modules 生产构建和 `git diff --check` 通过。未新增 CSS，既有亮暗主题及交互状态继续复用。
+
+### 2026-08-17
+
+- 启动 M6-007 测试包预构建（不发布）：用户要求以 Haolo web3 最新代码生成 Windows 测试包。远端核对确认本地 `dev` 与 `origin/dev` 同为 `58c0f8f`，测试包包含当前未提交工作区改动；版本按 `C:\Users\Joie\Desktop\好咯最新安装包` 中最高安装包 `0.1.166` 递增到 `0.1.167`。本轮只执行类型检查、Renderer 构建、win-unpacked 与 NSIS 安装包构建并校验产物，不上传应用更新系统。
+- 完成 M6-007 测试包预构建（不发布）：`pnpm run typecheck`、Vite 115 modules production build、Electron `win-unpacked`、17 个 ASAR 运行时模块校验和 NSIS 构建全部通过；生成 `release/win-unpacked/haolo_desktop.exe`（210,974,208 bytes）和 `release/haolo_desktop-0.1.167-Setup.exe`（209,408,339 bytes，SHA-256 `386B15AD0C5DE5683F0E53A13784E00AC5C708471675C5045063F84532E82AD8`）。安装包已复制到 `C:\Users\Joie\Desktop\好咯最新安装包` 且源/副本哈希一致；`-SkipUpload` 生效，没有生成 `app-update-release-0.1.167.json`，未写生产发布记录。构建仅保留既有的大 chunk、Node 弃用和重复依赖提示，不影响产物；完整生产发布 M6-007 仍保持未开始。
+- 启动并完成 M1-227：用户截图显示 `@策略:裸K分析 帮我分析` 被回答为缺少标的/周期，未读取当前 SNDK/USDT 4H 画布。定位为策略路由器在“已有分析”上下文下仍把“帮我分析”交给模型，模型可能按普通追问返回 `conversation`，Renderer 因而跳过 K 线和 Drawing Patch；不是通用语义路由取代策略引擎。
+- 完成 M1-227：在 `TradingStrategyCoordinator.classify` 增加窄范围确定性短盘面命令门禁（分析/看盘/复盘/刷新/更新/画线及其常见礼貌表达），无图片、无显式参数时直接返回当前画布 `chart-analysis`、`chart-drawing`，并保留符号/周期/概念问题的策略专用模型路由。新增裸K回归证明即使 `hasCurrentAnalysis=true` 也不调用路由模型；相关策略/通用分析 94/94、TypeScript、Vite 116 modules build 和 `git diff --check` 通过。未新增 UI 或颜色，亮暗主题状态无新分支。
+- 启动 M1-228：用户实机截图显示当前画布实际已加载 501 根 1H K 线，但缩放后的可见区只有 24 根；缠论入口把可见区当成唯一输入并在 32 根门槛前直接失败。修复目标是从当前结束时点向左自动扩大已加载历史，必要时继续向数据源补充更早 K 线并同步画布，持续重试到缠论成功；历史复盘不得读取结束点之后的 K 线，模型/网络/取消错误不得误触发扩窗，亮暗主题进度与错误状态同步回归。
+- 扩展 M1-228：用户要求同批排查所有策略与指标。审计范围扩大到 17 个内置策略、个人策略通用入口、四个专用分析入口与图表指标；重点清除波浪/威科夫/订单流/通用策略仍存在的可见区最小根数前置抛错，并确认 VPVR 的“可见区”语义只决定起始窗口、不再阻止为满足分析门槛而自动扩展。
+- 完成 M1-228：通用入口接入固定右边界的共享扩窗器，偏好窗口不足时自动扩大并加载更早历史；缠论/波浪/威科夫/订单流专用入口移除可见区立即抛错，改为在 120/240/480/偏好窗口间逐次验证，必要时加载历史并将画布同步到实际分析区间；VPVR 小于 20 根时也会从可见区起点扩到可分析窗口，所有分屏快照在用户范围过窄时回退到偏好窗口。默认协议仍限制 600 根，波浪专用协议有界放宽到 2500 根，避免扩窗后又被协议截断为相同输入。新增策略元数据与 Skill 边界说明，未新增 UI 颜色分支，既有亮暗主题状态继续复用。Trading Expert/策略专项 397/397、最终增量 81/81、TypeScript、Vite 116 modules production build 和差异检查通过。

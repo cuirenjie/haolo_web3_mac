@@ -9,7 +9,7 @@
   "implementation": { "kind": "builtin-adapter", "adapterId": "chan" },
   "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
   "dataRequirements": {
-    "candles": { "required": true, "minCount": 30, "minimumCoverage": "available" }
+    "candles": { "required": true, "minCount": 30, "preferredCount": 600, "minimumCoverage": "available" }
   },
   "drawingPolicyId": "chan-v1",
   "executionPlanPolicyId": "standard-v1",

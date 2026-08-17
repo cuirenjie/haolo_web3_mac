@@ -20,6 +20,7 @@ import {
   executionPlanDirectionTone,
   executionPlanDisplayLines,
   executionPlanHasConcreteTradingPlan,
+  executionPlanHasStructuredTradingFields,
   executionPlanSignedNumberSegments,
   executionPlanCandidatesFromText,
   executionPlanTextPartitions,
@@ -54,6 +55,7 @@ import {
   renderTradingExpertMarketWorkspace,
   runTradingExpertGeneralConversation,
   hasTradingExpertCurrentAnalysis,
+  tradingExpertPersonalStrategyCandles,
   prepareTradingExpertMarketForExternalCapture,
   runTradingExpertStrategyConversation,
   syncTradingExpertMarketWorkspace,
@@ -306,6 +308,12 @@ import {
   providerModelInputCapabilities,
 } from "../main/provider-input-capabilities.mjs";
 import {
+  parseStrategyUnderstanding,
+  strategyUnderstandingCompilerText,
+  strategyUnderstandingDisplayText,
+  strategyUnderstandingPrompt,
+} from "../main/personal-strategy/understanding.mjs";
+import {
   DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
   canonicalExecutionModelProvider,
 } from "../main/execution-model-provider.mjs";
@@ -444,6 +452,7 @@ const LEGACY_WECHAT_CHANNEL_AVATAR_URLS = [
 const SKILL_DEFAULT_COVER_URL = new URL("./assets/skills-default-cover.png", import.meta.url).href;
 const SKILL_DEFAULT_ICON_URL = new URL("./assets/skills-default-icon.png", import.meta.url).href;
 const TRADING_STRATEGY_SKILL_CARD_PREFIX = "trading-strategy:";
+const PERSONAL_STRATEGY_SKILL_CARD_PREFIX = "personal-strategy:";
 const TRADING_INDICATOR_SKILL_CARD_PREFIX = "trading-indicator:";
 const TRADING_TREND_BAND_SKILL_CARD_ID = `${TRADING_INDICATOR_SKILL_CARD_PREFIX}trend-band`;
 const LOGIN_SUCCESS_ICON_URL = new URL("./assets/login-success-logo.png", import.meta.url).href;
@@ -1051,6 +1060,64 @@ type VoiceTranscriptionResponse = {
   message?: string;
 };
 
+type PersonalStrategiesState = {
+  items: PersonalStrategyRecord[];
+  loading: boolean;
+  error: string | null;
+  dialogOpen: boolean;
+  draft: PersonalStrategyRecord | null;
+  understanding: PersonalStrategyUnderstanding | null;
+  compile: { readyForSimulation?: boolean; readyForConfirmation?: boolean; questions?: string[]; warnings?: string[] } | null;
+  simulation: PersonalStrategyRecord["simulation"];
+  busy: "create" | "simulate" | "confirm" | "feedback" | null;
+  feedbackOpenFor: string | null;
+};
+
+type PersonalStrategyUnderstanding = {
+  schemaVersion?: number;
+  name?: string;
+  summary?: string;
+  direction?: "long" | "short" | "both" | "unknown" | string;
+  timeframes?: string[];
+  marketScope?: string[];
+  entryRules?: Array<{ type?: string; text?: string; parameters?: Record<string, unknown> }>;
+  exitRules?: Array<{ type?: string; text?: string; parameters?: Record<string, unknown> }>;
+  risk?: Record<string, unknown>;
+  exceptions?: string[];
+  evidence?: Array<{ source?: string; locator?: string; quote?: string; meaning?: string }>;
+  uncertainties?: string[];
+  questions?: string[];
+  confidence?: number;
+  compilerText?: string;
+  rawText?: string;
+};
+
+type PersonalStrategyRecord = {
+  id: string;
+  status: "draft" | "active" | "archived";
+  name: string;
+  version: string;
+  sourceText: string;
+  spec?: Record<string, any>;
+  simulation?: {
+    simulationId: string;
+    status: string;
+    report?: string;
+    questions?: string[];
+    warnings?: string[];
+    assumptions?: string[];
+    generated?: Record<string, Array<Record<string, unknown>>>;
+    visualization?: { marketId?: string; interval?: string; candles?: Array<Record<string, unknown>> };
+    triggerBarIndex?: number;
+    triggerPoint?: { time?: number; price?: number } | null;
+    activeConditionIds?: string[];
+  } | null;
+  feedback?: Array<{ text: string; createdAt?: string }>;
+  createdAt?: string;
+  updatedAt?: string;
+  manifest?: TradingStrategyPublicManifest;
+};
+
 type ChromeIntegrationState = {
   open: boolean;
   loading: boolean;
@@ -1361,6 +1428,41 @@ type DesktopApi = {
   listTradingStrategies?(): Promise<{
     strategies?: TradingStrategyPublicManifest[];
     diagnostics?: Array<{ strategyId?: string | null; code?: string; message?: string }>;
+  }>;
+  listPersonalStrategies?(params?: { includeDrafts?: boolean }): Promise<{
+    ok?: boolean;
+    strategies?: PersonalStrategyRecord[];
+    error?: { code?: string; message?: string };
+  }>;
+  preparePersonalStrategySource?(params: { text?: string; attachments?: MessageAttachment[]; cwd?: string }): Promise<{
+    ok?: boolean;
+    sourceText?: string;
+    sources?: { attachments?: Array<{ path?: string; name?: string }>; links?: Array<{ url?: string }> };
+    warnings?: string[];
+    error?: { code?: string; message?: string };
+  }>;
+  createPersonalStrategyDraft?(params: { text: string; name?: string; understanding?: PersonalStrategyUnderstanding | null }): Promise<{
+    ok?: boolean;
+    draft?: PersonalStrategyRecord;
+    compile?: { readyForSimulation?: boolean; readyForConfirmation?: boolean; questions?: string[]; warnings?: string[]; spec?: Record<string, any> };
+    error?: { code?: string; message?: string };
+  }>;
+  simulatePersonalStrategy?(params: { draftId: string; candles?: Array<Record<string, unknown>>; marketId?: string; interval?: string }): Promise<{
+    ok?: boolean;
+    draft?: PersonalStrategyRecord;
+    simulation?: PersonalStrategyRecord["simulation"];
+    error?: { code?: string; message?: string };
+  }>;
+  confirmPersonalStrategy?(params: { draftId: string; simulationId: string }): Promise<{
+    ok?: boolean;
+    strategy?: PersonalStrategyRecord;
+    error?: { code?: string; message?: string };
+  }>;
+  givePersonalStrategyFeedback?(params: { strategyId: string; text: string; understanding?: PersonalStrategyUnderstanding | null }): Promise<{
+    ok?: boolean;
+    strategy?: PersonalStrategyRecord;
+    compile?: { readyForSimulation?: boolean; readyForConfirmation?: boolean; questions?: string[]; warnings?: string[] };
+    error?: { code?: string; message?: string };
   }>;
   classifyTradingStrategyRequest?(params: {
     strategyId: string;
@@ -1843,6 +1945,7 @@ type CodexItem = {
   __youleTurnStartedAt?: string | number | null;
   __youleTurnCompletedAt?: string | number | null;
   __youleTurnStatus?: string | null;
+  __youleExecutionPlanPresentation?: "execution-plan" | "plain" | null;
   [key: string]: unknown;
 };
 
@@ -3509,6 +3612,7 @@ type MessageUiMeta = Message & {
   localGroupMemberEvent?: LocalGroupChatMemberEvent | null;
   localGroupMemberId?: string | null;
   localGroupThinkingMemberId?: string | null;
+  executionPlanPresentation?: "execution-plan" | "plain" | null;
 };
 
 type QuestionAnswerProgressStatus = "running" | "completed" | "failed";
@@ -3730,6 +3834,7 @@ type UiState = {
   resultProcessExpanded: Record<string, boolean>;
   logs: string[];
   skills: SkillsState;
+  personalStrategies: PersonalStrategiesState;
   plugins: PluginsState;
   chromeIntegration: ChromeIntegrationState;
   marketplace: MarketplaceState;
@@ -3848,6 +3953,18 @@ void api.listTradingStrategies?.()
   })
   .catch(() => {
     // Bundled manifests remain the fail-safe catalog when runtime discovery is unavailable.
+  });
+void api.listPersonalStrategies?.({ includeDrafts: true })
+  .then((result) => {
+    state.personalStrategies.items = Array.isArray(result?.strategies) ? result.strategies : [];
+    state.personalStrategies.loading = false;
+    state.personalStrategies.error = result?.ok === false ? String(result?.error?.message || "个人策略加载失败") : null;
+    render();
+  })
+  .catch((error) => {
+    state.personalStrategies.loading = false;
+    state.personalStrategies.error = String(error?.message || "个人策略加载失败");
+    render();
   });
 syncAppThemePreference(INITIAL_APP_THEME);
 
@@ -4155,6 +4272,51 @@ type TradingAlertConversationState = {
 };
 const tradingAlertConversationByThreadId = new Map<string, TradingAlertConversationState>();
 const tradingAlertConversationRunByThreadId = new Map<string, symbol>();
+type PersonalStrategyConversationState = {
+  draftId?: string;
+  sourceText: string;
+  understanding?: PersonalStrategyUnderstanding | null;
+  stage: "collecting" | "clarification" | "confirmation" | "active";
+  conversation: Array<{ role: "user" | "assistant"; text: string }>;
+  simulationId?: string;
+};
+const personalStrategyConversationByThreadId = new Map<string, PersonalStrategyConversationState>();
+const personalStrategyConversationRunByThreadId = new Map<string, symbol>();
+const PERSONAL_STRATEGY_CONVERSATION_STORAGE_KEY = "haolo.personal-strategy-conversation.v1";
+
+function personalStrategyConversationStorageKey(threadId: string) {
+  return `${PERSONAL_STRATEGY_CONVERSATION_STORAGE_KEY}.${threadId}`;
+}
+
+function setPersonalStrategyConversationState(threadId: string, conversation: PersonalStrategyConversationState) {
+  personalStrategyConversationByThreadId.set(threadId, conversation);
+  try {
+    localStorage.setItem(personalStrategyConversationStorageKey(threadId), JSON.stringify(conversation));
+  } catch {
+    // The in-memory state remains authoritative when storage is unavailable.
+  }
+}
+
+function deletePersonalStrategyConversationState(threadId: string) {
+  personalStrategyConversationByThreadId.delete(threadId);
+  try {
+    localStorage.removeItem(personalStrategyConversationStorageKey(threadId));
+  } catch {
+    // Best effort cleanup.
+  }
+}
+
+function loadPersonalStrategyConversationState(threadId: string): PersonalStrategyConversationState | null {
+  try {
+    const raw = localStorage.getItem(personalStrategyConversationStorageKey(threadId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !["collecting", "clarification", "confirmation", "active"].includes(parsed.stage)) return null;
+    return parsed as PersonalStrategyConversationState;
+  } catch {
+    return null;
+  }
+}
 const persistedTradingAlertEvidenceIds = new Set<string>();
 const providerDraftThreadIdByBlankThreadId = new Map<string, string>();
 const blankThreadIdByProviderDraftThreadId = new Map<string, string>();
@@ -4861,6 +5023,18 @@ const state: UiState = {
     error: null,
     cwd: "",
     refreshedAt: null,
+  },
+  personalStrategies: {
+    items: [],
+    loading: true,
+    error: null,
+    dialogOpen: false,
+    draft: null,
+    understanding: null,
+    compile: null,
+    simulation: null,
+    busy: null,
+    feedbackOpenFor: null,
   },
   plugins: {
     items: [],
@@ -19974,6 +20148,36 @@ async function openTradingStrategySkillFromLibrary(skillId: string) {
   });
 }
 
+function openPersonalStrategyFromLibrary(skillId: string) {
+  if (!skillId.startsWith(PERSONAL_STRATEGY_SKILL_CARD_PREFIX)) return;
+  const strategyId = skillId.slice(PERSONAL_STRATEGY_SKILL_CARD_PREFIX.length);
+  const strategy = state.personalStrategies.items.find((item) => item.id === strategyId && item.status === "active");
+  if (!strategy) {
+    showToast("个人策略暂不可用，请刷新策略列表。", 3500);
+    return;
+  }
+  state.personalStrategies.dialogOpen = true;
+  state.personalStrategies.draft = strategy;
+  state.personalStrategies.compile = {
+    readyForSimulation: true,
+    readyForConfirmation: false,
+    questions: strategy.spec?.questions || [],
+    warnings: strategy.spec?.warnings || [],
+  };
+  state.personalStrategies.simulation = strategy.simulation || null;
+  state.personalStrategies.feedbackOpenFor = strategy.id;
+  state.personalStrategies.error = null;
+  render();
+}
+
+function openPersonalStrategyGitHubSettings() {
+  state.personalStrategies.dialogOpen = false;
+  state.settingsOpen = true;
+  state.settings.tab = "github";
+  render();
+  void refreshGitHubConnection();
+}
+
 async function openTradingIndicatorSkillFromLibrary(skillId: string) {
   if (!skillId.startsWith(TRADING_INDICATOR_SKILL_CARD_PREFIX)) return;
   const indicatorId = skillId.slice(TRADING_INDICATOR_SKILL_CARD_PREFIX.length);
@@ -26023,6 +26227,173 @@ function deepSeekMediaComposerValidationError(threadId: string) {
   return DEEPSEEK_MEDIA_SEND_BLOCKED_MESSAGE;
 }
 
+function personalStrategyCreationDescription(text: string) {
+  return String(text || "")
+    .replace(/^\s*@创建策略(?:[：:]\s*|\s*)/u, "")
+    .trim();
+}
+
+function isPersonalStrategyCreationCommand(text: string) {
+  return /^\s*@创建策略(?:$|[：:\s])/u.test(String(text || ""));
+}
+
+function personalStrategyFeedbackIntent(text: string) {
+  return /(?:不对|错了|理解错|误解|应该|改成|修改|优化|反馈|漏了|少了|不要|只做多|只做空|必须|例外|不符合预期)/iu.test(String(text || ""));
+}
+
+async function openPersonalStrategyCreation(text = "") {
+  const description = personalStrategyCreationDescription(text);
+  state.personalStrategies.dialogOpen = true;
+  state.personalStrategies.draft = null;
+  state.personalStrategies.compile = null;
+  state.personalStrategies.simulation = null;
+  state.personalStrategies.error = null;
+  state.personalStrategies.busy = null;
+  render();
+  if (!description) return;
+  if (typeof api.createPersonalStrategyDraft !== "function") {
+    state.personalStrategies.error = "当前版本不支持个人策略创建，请更新 Haolo。";
+    render();
+    return;
+  }
+  state.personalStrategies.busy = "create";
+  render();
+  const result = await api.createPersonalStrategyDraft({ text: description });
+  state.personalStrategies.busy = null;
+  if (result?.ok !== true || !result.draft) {
+    state.personalStrategies.error = String(result?.error?.message || "策略理解失败，请补充入场条件和方向。");
+  } else {
+    state.personalStrategies.draft = result.draft;
+    state.personalStrategies.compile = result.compile || null;
+  }
+  render();
+}
+
+function personalStrategyDialogInputValue(selector: string) {
+  return root.querySelector<HTMLTextAreaElement>(selector)?.value.trim() || "";
+}
+
+async function createPersonalStrategyFromDialog() {
+  const text = personalStrategyDialogInputValue("[data-personal-strategy-source]");
+  const name = root.querySelector<HTMLInputElement>("[data-personal-strategy-name]")?.value.trim() || "";
+  if (!text) {
+    state.personalStrategies.error = "请先用自然语言描述策略，例如入场条件、方向、止损和例外。";
+    render();
+    return;
+  }
+  if (typeof api.createPersonalStrategyDraft !== "function") return;
+  state.personalStrategies.busy = "create";
+  state.personalStrategies.error = null;
+  render();
+  const result = await api.createPersonalStrategyDraft({ text, name });
+  state.personalStrategies.busy = null;
+  if (result?.ok !== true || !result.draft) {
+    state.personalStrategies.error = String(result?.error?.message || "策略理解失败");
+  } else {
+    state.personalStrategies.draft = result.draft;
+    state.personalStrategies.compile = result.compile || null;
+  }
+  render();
+}
+
+async function simulatePersonalStrategyDraft() {
+  const draft = state.personalStrategies.draft;
+  if (!draft || typeof api.simulatePersonalStrategy !== "function") return;
+  state.personalStrategies.busy = "simulate";
+  state.personalStrategies.error = null;
+  render();
+  const result = await api.simulatePersonalStrategy({ draftId: draft.id, candles: tradingExpertPersonalStrategyCandles() });
+  state.personalStrategies.busy = null;
+  if (result?.ok !== true || !result.simulation) {
+    state.personalStrategies.error = String(result?.error?.message || "预演失败，请补充条件后再试。");
+  } else {
+    state.personalStrategies.draft = result.draft || draft;
+    state.personalStrategies.simulation = result.simulation;
+  }
+  render();
+}
+
+async function confirmPersonalStrategyDraft() {
+  const draft = state.personalStrategies.draft;
+  const simulation = state.personalStrategies.simulation || draft?.simulation;
+  if (!draft || !simulation?.simulationId || typeof api.confirmPersonalStrategy !== "function") return;
+  state.personalStrategies.busy = "confirm";
+  state.personalStrategies.error = null;
+  render();
+  const result = await api.confirmPersonalStrategy({ draftId: draft.id, simulationId: simulation.simulationId });
+  state.personalStrategies.busy = null;
+  if (result?.ok !== true || !result.strategy) {
+    state.personalStrategies.error = String(result?.error?.message || "确认失败，请重新预演。");
+  } else {
+    state.personalStrategies.items = [
+      ...state.personalStrategies.items.filter((item) => item.id !== result.strategy!.id),
+      result.strategy,
+    ];
+    state.personalStrategies.draft = result.strategy;
+    state.personalStrategies.simulation = result.strategy.simulation || simulation;
+    state.personalStrategies.dialogOpen = false;
+    void api.listTradingStrategies?.().then((catalog) => {
+      if (Array.isArray(catalog?.strategies)) reconcileTradingStrategyCatalog(catalog.strategies);
+      render();
+    }).catch(() => {});
+  }
+  render();
+}
+
+async function submitPersonalStrategyFeedback(strategyId: string, text: string) {
+  if (!strategyId || !text || typeof api.givePersonalStrategyFeedback !== "function") return;
+  state.personalStrategies.busy = "feedback";
+  state.personalStrategies.error = null;
+  render();
+  const result = await api.givePersonalStrategyFeedback({ strategyId, text });
+  state.personalStrategies.busy = null;
+  if (result?.ok !== true || !result.strategy) {
+    state.personalStrategies.error = String(result?.error?.message || "策略优化失败");
+  } else {
+    state.personalStrategies.items = state.personalStrategies.items.map((item) => item.id === strategyId ? result.strategy! : item);
+    state.personalStrategies.draft = result.strategy;
+    state.personalStrategies.compile = result.compile || null;
+    state.personalStrategies.simulation = null;
+    state.personalStrategies.feedbackOpenFor = null;
+  }
+  render();
+}
+
+function renderPersonalStrategyDialog() {
+  const personal = state.personalStrategies;
+  const draft = personal.draft;
+  const simulation = personal.simulation || draft?.simulation || null;
+  const creating = personal.busy === "create";
+  const managingActiveStrategy = draft?.status === "active";
+  const canConfirm = Boolean(draft && draft.status !== "active" && simulation?.simulationId && !(personal.compile?.questions || draft.spec?.questions || []).length && !personal.busy);
+  return `
+    <div class="modal-backdrop personal-strategy-backdrop" data-personal-strategy-close></div>
+    <dialog class="personal-strategy-dialog" open aria-labelledby="personalStrategyTitle">
+      <header class="personal-strategy-dialog-header">
+        <div><span class="personal-strategy-kicker">PERSONAL STRATEGY</span><h2 id="personalStrategyTitle">${managingActiveStrategy ? "优化我的策略" : "策略预览"}</h2><p>${managingActiveStrategy ? "策略创建在会话中完成；这里仅用于查看版本与提交优化意见。" : "策略创建请回到交易会话，通过 @创建策略 开始。"}</p></div>
+        <button type="button" class="personal-strategy-close" data-personal-strategy-close aria-label="关闭" ${personal.busy ? "disabled" : ""}>×</button>
+      </header>
+      <div class="personal-strategy-dialog-body">
+        ${!draft ? `
+          <label class="personal-strategy-field"><span>策略名称（可选）</span><input data-personal-strategy-name placeholder="例如：回踩均线只做多" /></label>
+          <label class="personal-strategy-field"><span>自然语言描述</span><textarea data-personal-strategy-source rows="7" placeholder="例如：价格收盘上穿 EMA20 且放量，只做多；回踩不破时继续持有，跌破 EMA20 止损，不追高。"></textarea></label>
+          <div class="personal-strategy-dialog-actions"><button type="button" class="primary-button" data-personal-strategy-create ${creating ? "disabled" : ""}>${creating ? "正在理解…" : "理解策略"}</button></div>
+        ` : `
+          <section class="personal-strategy-preview"><div class="personal-strategy-preview-title"><strong>${escapeHtml(draft.name)}</strong><span>草稿 ${escapeHtml(draft.version)}</span></div><p>${escapeHtml(draft.sourceText)}</p>
+            <div class="personal-strategy-chip-row">${(draft.spec?.rules || []).map((rule: any) => `<span>${escapeHtml(String(rule.label || rule.type))}</span>`).join("") || "<span>暂无可执行条件</span>"}</div>
+            ${personal.compile?.questions?.length || draft.spec?.questions?.length ? `<div class="personal-strategy-warning" role="alert"><strong>需要你补充</strong><p>${escapeHtml([...(personal.compile?.questions || draft.spec?.questions || [])].join("；"))}</p></div>` : ""}
+            ${(personal.compile?.warnings || draft.spec?.warnings || []).length ? `<div class="personal-strategy-note"><strong>预警</strong><p>${escapeHtml([...(personal.compile?.warnings || draft.spec?.warnings || [])].join("；"))}</p></div>` : ""}
+          </section>
+          ${simulation ? `<section class="personal-strategy-simulation" aria-live="polite"><div class="personal-strategy-preview-title"><strong>预演结果</strong><span>${escapeHtml(simulation.status || "completed")}</span></div><p>${escapeHtml(simulation.report || "已完成规则预演")}</p>${(simulation.assumptions || []).map((item) => `<small>${escapeHtml(item)}</small>`).join("")}</section>` : ""}
+          <section class="personal-strategy-feedback"><label class="personal-strategy-field"><span>${draft.status === "active" ? "指出哪里不符合预期，Haolo 会生成下一版草稿" : "补充或纠正上面的理解，Haolo 会重新预演"}</span><textarea data-personal-strategy-feedback rows="3" placeholder="例如：只做多；必须先放量，且跌破 EMA20 后不再持有。"></textarea></label><div class="personal-strategy-feedback-actions"><button type="button" class="secondary-button" data-personal-strategy-feedback-submit data-personal-strategy-id="${escapeAttr(draft.id)}" ${personal.busy ? "disabled" : ""}>${personal.busy === "feedback" ? "正在优化…" : draft.status === "active" ? "生成优化草稿" : "重新理解"}</button>${draft.status === "active" ? `<button type="button" class="ghost-button" data-personal-strategy-github>GitHub 版本管理</button>` : ""}</div></section>
+          <div class="personal-strategy-dialog-actions"><button type="button" class="secondary-button" data-personal-strategy-simulate ${personal.busy || draft.status === "active" ? "disabled" : ""}>${personal.busy === "simulate" ? "预演中…" : "模拟预演"}</button><button type="button" class="primary-button" data-personal-strategy-confirm ${canConfirm ? "" : "disabled"}>${personal.busy === "confirm" ? "确认中…" : "确认并启用"}</button></div>
+        `}
+        ${personal.error ? `<p class="personal-strategy-error" role="alert">${escapeHtml(personal.error)}</p>` : ""}
+      </div>
+    </dialog>
+  `;
+}
+
 async function sendCurrentMessage(threadIdOverride?: string | null) {
   let threadId = composerThreadIdForSend(firstString(threadIdOverride, currentComposerThreadId()));
   if (!threadId || submittingComposerThreadIds.has(threadId) || isComposerSendPending(threadId)) return;
@@ -26204,10 +26575,23 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   const tradingStrategyAtSend = isTradingExpertThreadId(threadId)
     ? tradingStrategyMentionedByText(text)
     : null;
+  const personalStrategyConversationAtSend = isTradingExpertThreadId(threadId)
+    ? personalStrategyConversationStateForThread(threadId)
+    : null;
+  const explicitPersonalStrategyCreationAtSend = isPersonalStrategyCreationCommand(text);
+  const explicitTradingAlertAtSend = tradingAlertMentioned(text);
+  const personalStrategyCandidateAtSend = isTradingExpertThreadId(threadId)
+    && !tradingStrategyAtSend
+    && (explicitPersonalStrategyCreationAtSend
+      || (!explicitTradingAlertAtSend && Boolean(personalStrategyConversationAtSend)
+        && (personalStrategyConversationAtSend?.stage !== "active" || personalStrategyFeedbackIntent(text))));
   const tradingAlertCandidateAtSend = isTradingExpertThreadId(threadId)
-    && (tradingAlertMentioned(text) || Boolean(tradingAlertConversationStateForThread(threadId)));
+    && !tradingStrategyAtSend
+    && !explicitPersonalStrategyCreationAtSend
+    && (explicitTradingAlertAtSend || Boolean(tradingAlertConversationStateForThread(threadId)));
   const tradingGeneralCandidateAtSend = isTradingExpertThreadId(threadId)
     && !tradingStrategyAtSend
+    && !personalStrategyCandidateAtSend
     && !tradingAlertCandidateAtSend;
   let tradingStrategyRequestAtSend: TradingStrategyRequest | null = null;
   let tradingGeneralRequestAtSend: TradingGeneralRequest | null = null;
@@ -26215,6 +26599,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     !state.serverReady
     && (
       tradingStrategyAtSend
+      || personalStrategyCandidateAtSend
       || tradingAlertCandidateAtSend
       || tradingGeneralCandidateAtSend
       || (isBlankNewThread(threadId) && !isLocalBlankThreadId(threadId))
@@ -26247,6 +26632,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     if (!submissionSnapshotAttachments.some((attachment) => attachment.uploadStatus === "error")) {
       pendingSend = beginPendingComposerSend(threadId, text, submissionSnapshotAttachments, snapshotQuote, snapshotThreadReferences, input);
       if (tradingStrategyAtSend) clearTradingExpertComposerAfterSend(threadId);
+      else if (personalStrategyCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingAlertCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingGeneralCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       // The local item must exist before the blank thread is assigned to a
@@ -26255,7 +26641,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       commitSelectedNewThreadGroupForSend(threadId, composerGroupIdForSend);
       if (revealThreadGroupForComposerSend(threadId)) saveThreadPreferences();
       state.error = null;
-      if (tradingStrategyAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
+      if (tradingStrategyAtSend || personalStrategyCandidateAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
         refreshTradingExpertConversationSurface(threadId);
       } else {
         render();
@@ -26294,6 +26680,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     }
     if (
       tradingStrategyRequestAtSend?.mode !== "chart-analysis"
+      && !personalStrategyCandidateAtSend
       && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
     ) {
@@ -26304,6 +26691,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         originalThreadId,
         text,
         initialBaseAgentText,
+        tradingGeneralRequestAtSend,
       );
       const initialBudget = await prepareContextBudgetForSend(threadId, initialAgentText, { deferWhileBusy: true });
       if (!initialBudget.ok) {
@@ -26315,12 +26703,13 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     if (!pendingSend && submissionSnapshotAttachments.some((attachment) => attachment.uploadStatus === "uploading")) {
       pendingSend = beginPendingComposerSend(threadId, text, submissionSnapshotAttachments, snapshotQuote, snapshotThreadReferences, input);
       if (tradingStrategyAtSend) clearTradingExpertComposerAfterSend(threadId);
+      else if (personalStrategyCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingAlertCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       else if (tradingGeneralCandidateAtSend) clearTradingExpertComposerAfterSend(threadId);
       commitSelectedNewThreadGroupForSend(threadId, composerGroupIdForSend);
       if (revealThreadGroupForComposerSend(threadId)) saveThreadPreferences();
       state.error = null;
-      if (tradingStrategyAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
+      if (tradingStrategyAtSend || personalStrategyCandidateAtSend || tradingAlertCandidateAtSend || tradingGeneralCandidateAtSend) {
         refreshTradingExpertConversationSurface(threadId);
       } else {
         render();
@@ -26473,9 +26862,15 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     const baseAgentText = workflowContractAtSend
       ? workflowInvocationExecutionPrompt(text)
       : composerAgentText(text, readyAttachments, composerQuote, composerThreadReferences);
-    const agentText = tradingExpertAgentTextForSend(threadId, text, baseAgentText);
+    const agentText = tradingExpertAgentTextForSend(
+      threadId,
+      text,
+      baseAgentText,
+      tradingGeneralRequestAtSend,
+    );
     if (
       tradingStrategyRequestAtSend?.mode !== "chart-analysis"
+      && !personalStrategyCandidateAtSend
       && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
     ) {
@@ -26545,6 +26940,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     state.error = null;
     const isTradingChartAnalysisSend = Boolean(
       tradingStrategyRequestAtSend?.mode === "chart-analysis"
+      || personalStrategyCandidateAtSend
       || tradingAlertCandidateAtSend
       || tradingGeneralRequestAtSend?.mode === "chart-analysis",
     );
@@ -26585,6 +26981,14 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       clearTradingExpertComposerAfterSend(threadId);
       refreshTradingExpertConversationSurface(threadId);
       await runTradingStrategyChartRequest(threadId, tradingStrategyAtSend, tradingStrategyRequestAtSend);
+      return;
+    }
+    if (personalStrategyCandidateAtSend) {
+      localHistoryAheadThreadIds.add(threadId);
+      if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
+      clearTradingExpertComposerAfterSend(threadId);
+      refreshTradingExpertConversationSurface(threadId);
+      await runPersonalStrategyConversation(threadId, text, readyAttachments);
       return;
     }
     if (tradingAlertCandidateAtSend) {
@@ -28515,6 +28919,16 @@ function adoptReplacementCodexThread(previousThreadId: string, replacementThread
     tradingAlertConversationRunByThreadId.set(nextThreadId, tradingAlertRun);
     tradingAlertConversationRunByThreadId.delete(previousThreadId);
   }
+  const personalStrategyConversation = personalStrategyConversationByThreadId.get(previousThreadId);
+  if (personalStrategyConversation) {
+    setPersonalStrategyConversationState(nextThreadId, personalStrategyConversation);
+    deletePersonalStrategyConversationState(previousThreadId);
+  }
+  const personalStrategyRun = personalStrategyConversationRunByThreadId.get(previousThreadId);
+  if (personalStrategyRun) {
+    personalStrategyConversationRunByThreadId.set(nextThreadId, personalStrategyRun);
+    personalStrategyConversationRunByThreadId.delete(previousThreadId);
+  }
 
   const wasTradingExpertThread = tradingExpertThreadIds.delete(previousThreadId);
   const oldItems = (state.itemOrder[previousThreadId] || [])
@@ -29350,6 +29764,7 @@ function appendTradingExpertProgress(
     phase: phase === "error" ? "final_answer" : "commentary",
     text,
     createdAt: new Date().toISOString(),
+    __youleExecutionPlanPresentation: "plain",
   };
   upsertItem(threadId, item);
   setMessageStreamFollow(threadId, true);
@@ -29357,7 +29772,13 @@ function appendTradingExpertProgress(
   return item;
 }
 
-function appendTradingExpertReport(threadId: string, text: string, itemId?: string, actions?: MessageAction[]) {
+function appendTradingExpertReport(
+  threadId: string,
+  text: string,
+  itemId?: string,
+  actions?: MessageAction[],
+  presentation: "execution-plan" | "plain" = "plain",
+) {
   localHistoryAheadThreadIds.add(threadId);
   const item: CodexItem = {
     id: itemId || `trading-expert-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -29366,6 +29787,7 @@ function appendTradingExpertReport(threadId: string, text: string, itemId?: stri
     text,
     createdAt: new Date().toISOString(),
     ...(actions?.length ? { actions } : {}),
+    ...(presentation ? { __youleExecutionPlanPresentation: presentation } : {}),
   };
   upsertItem(threadId, item);
   setMessageStreamFollow(threadId, true);
@@ -29383,11 +29805,11 @@ function stripTradingAlertMention(text: string) {
 }
 
 function tradingAlertAffirmative(text: string) {
-  return /^(是|对|对的|没错|确认|确认创建|就这样|可以|好的|好|yes|y|confirm|ok)[。.!！\s]*$/iu.test(String(text || "").trim());
+  return /^(是|对|对的|没错|正确|确认|确认创建|就这样|可以|好的|好|没问题|同意|按这个|yes|y|confirm|ok)[。.!！\s]*$/iu.test(String(text || "").trim());
 }
 
 function tradingAlertCancelled(text: string) {
-  return /^(取消|不要|不创建|算了|停止|退出|cancel|no)[。.!！\s]*$/iu.test(String(text || "").trim());
+  return /^(取消|不要|不创建|先不创建|算了|停止|退出|放弃|cancel|no)[。.!！\s]*$/iu.test(String(text || "").trim());
 }
 
 function resolvedTradingAlertThreadId(threadId: string) {
@@ -29427,6 +29849,395 @@ function inMemoryTradingAlertConversationForThread(threadId: string) {
 
 function tradingAlertConversationStateForThread(threadId: string): TradingAlertConversationState | null {
   return inMemoryTradingAlertConversationForThread(threadId) || null;
+}
+
+function personalStrategyThreadMatches(left: string | null | undefined, right: string | null | undefined) {
+  const leftId = firstString(left);
+  const rightId = firstString(right);
+  return Boolean(leftId && rightId && resolvedTradingAlertThreadId(leftId) === resolvedTradingAlertThreadId(rightId));
+}
+
+function personalStrategyConversationStateForThread(threadId: string): PersonalStrategyConversationState | null {
+  const direct = personalStrategyConversationByThreadId.get(threadId);
+  if (direct) return direct;
+  const persisted = loadPersonalStrategyConversationState(threadId);
+  if (persisted) {
+    personalStrategyConversationByThreadId.set(threadId, persisted);
+    return persisted;
+  }
+  const resolvedThreadId = resolvedTradingAlertThreadId(threadId);
+  const resolved = personalStrategyConversationByThreadId.get(resolvedThreadId);
+  if (resolved) return resolved;
+  const persistedResolved = loadPersonalStrategyConversationState(resolvedThreadId);
+  if (persistedResolved) {
+    setPersonalStrategyConversationState(resolvedThreadId, persistedResolved);
+    return persistedResolved;
+  }
+  for (const [storedThreadId, conversation] of personalStrategyConversationByThreadId.entries()) {
+    if (!personalStrategyThreadMatches(storedThreadId, threadId)) continue;
+    const destinationThreadId = threadById(resolvedThreadId) ? resolvedThreadId : threadId;
+    deletePersonalStrategyConversationState(storedThreadId);
+    setPersonalStrategyConversationState(destinationThreadId, conversation);
+    return conversation;
+  }
+  return null;
+}
+
+function personalStrategyDirectionLabel(value: unknown) {
+  return value === "long" ? "只做多" : value === "short" ? "只做空" : "多空均可（尚未锁定方向）";
+}
+
+function personalStrategyUnderstandingText(draft: PersonalStrategyRecord, compile: any, warnings: string[] = []) {
+  const spec = draft.spec || {};
+  const rules = Array.isArray(spec.rules) ? spec.rules : [];
+  const questions = [...new Set([...(compile?.questions || []), ...(spec.questions || [])].map(String).filter(Boolean))];
+  const strategyWarnings = [...new Set([...(compile?.warnings || []), ...(spec.warnings || []), ...warnings].map(String).filter(Boolean))];
+  return [
+    `我先这样理解你的策略《${draft.name}》：`,
+    `- 方向：${personalStrategyDirectionLabel(spec.direction)}`,
+    `- 触发条件：${rules.length ? rules.map((rule: any) => rule.label || rule.type).join("；") : "还没有形成可计算条件"}`,
+    `- 风控：止损 ${spec.risk?.stopLoss ?? "按账户硬风控/盘面失效位"}；止盈 ${spec.risk?.takeProfit ?? (spec.risk?.riskReward ? `${spec.risk.riskReward}R` : "按确认后的目标位")}`,
+    spec.exceptions?.length ? `- 例外：${spec.exceptions.join("；")}` : "",
+    strategyWarnings.length ? `- 需要留意：${strategyWarnings.join("；")}` : "",
+    questions.length ? `\n还需要你确认：\n${questions.map((question, index) => `${index + 1}. ${question}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+async function persistPersonalStrategyAssistantItem(threadId: string, text: string) {
+  const item = appendTradingExpertReport(threadId, text);
+  await persistCompletedTradingExpertTranscript(threadId, [item]);
+  return item;
+}
+
+async function refreshPersonalStrategiesAfterConfirmation(strategyId: string) {
+  if (typeof api.listPersonalStrategies !== "function") throw new Error("当前客户端不支持个人策略列表");
+  const snapshot = await api.listPersonalStrategies({ includeDrafts: true });
+  if (snapshot?.ok === false) throw new Error(String(snapshot.error?.message || "策略列表读取失败"));
+  const strategy = (snapshot?.strategies || []).find((item) => item.id === strategyId && item.status === "active");
+  if (!strategy) throw new Error("策略已经确认，但没有从策略列表读回；请刷新后重试");
+  state.personalStrategies.items = snapshot.strategies || [];
+  state.personalStrategies.loading = false;
+  if (typeof api.listTradingStrategies === "function") {
+    const catalog = await api.listTradingStrategies();
+    if (Array.isArray(catalog?.strategies)) reconcileTradingStrategyCatalog(catalog.strategies);
+  }
+  return strategy;
+}
+
+async function persistPersonalStrategyCreationSuccessItem(threadId: string, strategy: PersonalStrategyRecord) {
+  const isRevision = strategy.version !== "1.0.0";
+  const item = appendTradingExpertReport(threadId, [
+    `${isRevision ? "策略版本已更新" : "策略已创建"}：${strategy.name}（v${strategy.version}）`,
+    "已进入“策略 → 我的策略”，后续可直接使用 @策略:策略名称 调用。",
+    "策略只会提供分析与建议，不会自动下单；你可以继续在本会话指出偏差，Haolo 会生成下一版并再次预演。",
+  ].join("\n\n"), undefined, [{
+    id: "open-personal-strategies",
+    kind: "navigate",
+    label: "查看我的策略",
+    destination: "strategies",
+  }]);
+  await persistCompletedTradingExpertTranscript(threadId, [item]);
+  return item;
+}
+
+function personalStrategyAttachmentNeedsVision(attachments: MessageAttachment[]) {
+  return attachments.some((attachment) => {
+    const mime = String(attachment?.mime || "").toLowerCase();
+    const name = String(attachment?.name || "").toLowerCase();
+    return mime.startsWith("image/") || /\.(?:png|jpe?g|webp|gif|bmp|tiff?)$/iu.test(name);
+  });
+}
+
+function personalStrategyAttachmentSummary(attachments: MessageAttachment[]) {
+  return attachments.map((attachment) => {
+    const name = String(attachment?.name || "附件").split(/[\\/]/u).at(-1) || "附件";
+    const mime = String(attachment?.mime || "").trim();
+    return `- ${name}${mime ? `（${mime}）` : ""}`;
+  }).join("\n");
+}
+
+function personalStrategyUnderstandingModel(threadId: string, attachments: MessageAttachment[]) {
+  const selectedModel = selectedChatModelValue(threadId);
+  const selectedProvider = questionAnswerProviderForModel(selectedModel) || providerFromThreadId(threadId) || "codex";
+  const selectedCapabilities = providerModelInputCapabilities(selectedProvider, selectedModel);
+  if (!personalStrategyAttachmentNeedsVision(attachments) || selectedCapabilities.image) {
+    return { provider: selectedProvider, model: selectedModel, capabilities: selectedCapabilities };
+  }
+  const preferredProviders: ProviderChatProvider[] = ["codex", "gemini", "claude", "kimi", "grok", "doubao", "mimo", "perplexity", "qwen"];
+  const catalogCandidates = questionAnswerModelOptions()
+    .filter((option) => option.value)
+    .map((option) => {
+      const provider = questionAnswerProviderForModel(option.value) || option.providerId as ProviderChatProvider;
+      return { provider, model: option.value, capabilities: providerModelInputCapabilities(provider, option.value) };
+    })
+    .filter((candidate) => candidate.capabilities.image)
+  const knownVisionCandidates = [
+    ["codex", "gpt-5.6-sol"],
+    ["codex", "gpt-5.6-terra"],
+    ["gemini", "gemini-3.5-flash"],
+    ["claude", "claude-fable-5"],
+    ["kimi", "kimi-k3"],
+    ["grok", "grok-4.5"],
+  ].map(([provider, model]) => ({
+    provider: provider as ProviderChatProvider,
+    model,
+    capabilities: providerModelInputCapabilities(provider, model),
+  }));
+  const candidates = [...catalogCandidates, ...knownVisionCandidates]
+    .filter((candidate, index, values) => values.findIndex((item) => `${item.provider}/${item.model}` === `${candidate.provider}/${candidate.model}`) === index)
+    .sort((left, right) => preferredProviders.indexOf(left.provider) - preferredProviders.indexOf(right.provider));
+  return candidates[0] || { provider: selectedProvider, model: selectedModel, capabilities: selectedCapabilities };
+}
+
+async function runPersonalStrategyUnderstanding({
+  threadId,
+  sourceText,
+  attachments,
+  previous,
+  userFeedback,
+}: {
+  threadId: string;
+  sourceText: string;
+  attachments: MessageAttachment[];
+  previous: PersonalStrategyConversationState | null;
+  userFeedback: string;
+}) {
+  if (typeof api.sendProviderChat !== "function") {
+    return { ok: false, error: "当前客户端没有可用的智能体资料理解桥。" };
+  }
+  const selection = personalStrategyUnderstandingModel(threadId, attachments);
+  if (personalStrategyAttachmentNeedsVision(attachments) && !selection.capabilities.image) {
+    return { ok: false, error: "当前可用模型不支持图片理解。请在模型目录加载完成后重试，或切换到支持图片输入的 GPT、Gemini、Claude、Kimi 等模型。" };
+  }
+  if (!selection.model) return { ok: false, error: "当前没有可用的策略理解模型。" };
+  if (await confirmInsufficientAvailableBalanceBeforeSend("personal-strategy-understanding")) {
+    return { ok: false, error: INSUFFICIENT_QUOTA_MESSAGE };
+  }
+  const prompt = strategyUnderstandingPrompt({
+    sourceText,
+    previous: previous?.understanding || null,
+    userFeedback,
+    attachmentSummary: personalStrategyAttachmentSummary(attachments),
+  });
+  const interactionId = `personal-strategy-understanding-${crypto.randomUUID()}`;
+  const explicitPaths = attachments
+    .map((attachment) => attachmentLocalPath(attachment))
+    .filter((value): value is string => Boolean(value));
+  let timeoutId: number | null = null;
+  try {
+    const request = api.sendProviderChat({
+      provider: PROVIDER_CHAT_META[selection.provider]?.apiProvider || selection.provider,
+      model: selection.model,
+      text: prompt,
+      messages: [{ role: "user", content: prompt, contextTurnId: interactionId, attachments }],
+      attachments,
+      threadId,
+      cwd: threadWorkspaceCwd(threadId),
+      explicitPaths,
+      interactionId,
+      conversationId: threadId,
+      sourceType: "personal-strategy-understanding",
+      modelPool: "question_answer",
+      modelCapability: "question_answer",
+      stream: false,
+    });
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(() => {
+        const interrupt = api.interruptProviderChat?.({ threadId, interactionId });
+        void interrupt?.catch(() => {});
+        reject(new Error("策略资料理解超时，模型请求已中止；请重试或减少附件数量。"));
+      }, 120_000);
+    });
+    const result = await Promise.race([request, timeout]);
+    const raw = firstString(result?.text, result?.message, result?.content) || "";
+    const parsed = parseStrategyUnderstanding(raw);
+    if (!parsed.ok) return { ...parsed, model: selection };
+    return { ...parsed, model: selection };
+  } catch (error) {
+    return { ok: false, error: errorMessage(error), model: selection };
+  } finally {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+  }
+}
+
+async function runPersonalStrategyConversation(
+  threadId: string,
+  rawText: string,
+  attachments: MessageAttachment[] = [],
+) {
+  const requiredApi = api.createPersonalStrategyDraft && api.simulatePersonalStrategy && api.confirmPersonalStrategy;
+  if (!requiredApi) {
+    await persistPersonalStrategyAssistantItem(threadId, "当前客户端缺少个人策略会话运行桥，请更新 Haolo 后重试；这次没有创建策略。 ");
+    return;
+  }
+  let previous = personalStrategyConversationStateForThread(threadId);
+  const startsNew = isPersonalStrategyCreationCommand(rawText) && Boolean(previous);
+  if (startsNew) {
+    deletePersonalStrategyConversationState(threadId);
+    clearTradingExpertAlertSimulation();
+    previous = null;
+  }
+  const answer = personalStrategyCreationDescription(rawText) || (previous ? rawText.trim() : "");
+  if (previous?.stage === "confirmation" && tradingAlertCancelled(answer)) {
+    deletePersonalStrategyConversationState(threadId);
+    clearTradingExpertAlertSimulation();
+    await persistPersonalStrategyAssistantItem(threadId, "已取消本次策略创建，模拟图层已移除；没有写入策略列表。 ");
+    return;
+  }
+  // During clarification, users often answer “确定/好的” to accept the
+  // current interpretation. Do not send that short acknowledgement through
+  // the source extractor as if it were a new strategy description; reuse the
+  // last compiled source and let the agent/local engine continue the flow.
+  const clarificationAffirmation = previous?.stage === "clarification"
+    && tradingAlertAffirmative(answer)
+    && !attachments.length;
+  if (!previous && !answer && !attachments.length) {
+    const stateForThread: PersonalStrategyConversationState = {
+      sourceText: "",
+      stage: "collecting",
+      conversation: [{ role: "assistant", text: "请直接发送策略说明，也可以附上 PDF、Markdown、Word、表格或公开链接。我会先提取资料并复述入场、出场、方向、风控和例外；你确认预演结果后才会保存。" }],
+    };
+    setPersonalStrategyConversationState(threadId, stateForThread);
+    await persistPersonalStrategyAssistantItem(threadId, stateForThread.conversation[0].text);
+    return;
+  }
+  const confirmsDraftCreation = previous?.stage === "confirmation" && tradingAlertAffirmative(answer);
+  const runToken = Symbol(`personal-strategy-${threadId}`);
+  personalStrategyConversationRunByThreadId.set(threadId, runToken);
+  const isCurrentRun = () => personalStrategyConversationRunByThreadId.get(threadId) === runToken;
+  updateTradingExpertThinkingState(threadId, confirmsDraftCreation ? "strategy-confirming" : "strategy-analyzing", confirmsDraftCreation ? "正在校验你的确认并写入策略列表…" : "正在读取策略资料，整理可执行规则并检查歧义…");
+  refreshTradingExpertConversationSurface(threadId);
+  try {
+    if (confirmsDraftCreation) {
+      const confirmed = await api.confirmPersonalStrategy!({ draftId: previous!.draftId!, simulationId: previous!.simulationId! });
+      if (confirmed?.ok !== true || !confirmed.strategy) throw new Error(String(confirmed?.error?.message || "策略确认失败，请重新预演"));
+      const strategy = await refreshPersonalStrategiesAfterConfirmation(confirmed.strategy.id);
+      clearTradingExpertAlertSimulation();
+      state.personalStrategies.draft = strategy;
+      state.personalStrategies.simulation = strategy.simulation || null;
+      setPersonalStrategyConversationState(threadId, {
+        draftId: strategy.id,
+        sourceText: strategy.sourceText,
+        understanding: previous?.understanding || null,
+        stage: "active",
+        conversation: [...(previous?.conversation || []), { role: "user" as const, text: answer }].slice(-32),
+      });
+      await persistPersonalStrategyCreationSuccessItem(threadId, strategy);
+      return;
+    }
+
+    let sourceText = clarificationAffirmation ? previous?.sourceText || "" : answer;
+    const sourceWarnings: string[] = [];
+    if (typeof api.preparePersonalStrategySource === "function") {
+      const prepared = await api.preparePersonalStrategySource({ text: answer, attachments, cwd: threadWorkspaceCwd(threadId) });
+      if (prepared?.ok === false) throw new Error(String(prepared.error?.message || "策略资料读取失败"));
+      sourceText = String(prepared?.sourceText || answer).trim();
+      sourceWarnings.push(...(prepared?.warnings || []).map(String));
+    } else if (attachments.length) {
+      sourceWarnings.push("当前版本暂时无法读取附件正文，请把关键规则直接粘贴到会话中。");
+    }
+    if ((!sourceText || sourceText.length < 8) && !attachments.length) {
+      const reply = "我还没有拿到足够的策略正文。请补充至少一个可验证的入场条件、方向或风险规则；链接需要是公开可读页面。";
+      setPersonalStrategyConversationState(threadId, { ...(previous || {}), sourceText, stage: "collecting", conversation: [...(previous?.conversation || []), { role: "user" as const, text: answer }, { role: "assistant" as const, text: reply }].slice(-32) });
+      await persistPersonalStrategyAssistantItem(threadId, reply);
+      return;
+    }
+
+    const understandingSourceText = previous?.sourceText
+      ? `${previous.sourceText}\n\n本轮用户补充或修正：\n${sourceText}`.slice(-12_000)
+      : sourceText;
+    const understandingResult = await runPersonalStrategyUnderstanding({
+      threadId,
+      sourceText: understandingSourceText,
+      attachments,
+      previous,
+      userFeedback: previous && !clarificationAffirmation ? answer : "",
+    });
+    if (!isCurrentRun()) return;
+    const understandingPayload = (understandingResult as any)?.understanding;
+    if (understandingResult?.ok !== true || !understandingPayload) {
+      const reply = [
+        "智能体暂时没有完成资料理解，因此没有进入本地规则编译，也没有创建策略。",
+        `原因：${String(understandingResult?.error || "模型没有返回可校验的结构化结果")}`,
+        "你可以重试，或直接补充关键条件；图片、PDF、Word、表格和公开链接会随本次会话一起重新送入理解器。",
+      ].join("\n\n");
+      setPersonalStrategyConversationState(threadId, {
+        ...(previous || {}),
+        sourceText,
+        stage: "collecting",
+        conversation: [...(previous?.conversation || []), ...(answer ? [{ role: "user" as const, text: answer }] : []), { role: "assistant" as const, text: reply }].slice(-32),
+      });
+      await persistPersonalStrategyAssistantItem(threadId, reply);
+      return;
+    }
+    const understanding = understandingPayload as PersonalStrategyUnderstanding;
+    state.personalStrategies.understanding = understanding;
+    const compilerText = strategyUnderstandingCompilerText(understanding, sourceText);
+    let draftResult: any;
+    if (previous?.draftId) {
+      draftResult = await api.givePersonalStrategyFeedback?.({ strategyId: previous.draftId, text: compilerText, understanding });
+    } else {
+      draftResult = await api.createPersonalStrategyDraft!({ text: compilerText, name: understanding.name || undefined, understanding });
+    }
+    if (draftResult?.ok !== true || !(draftResult.draft || draftResult.strategy)) throw new Error(String(draftResult?.error?.message || "策略理解失败，请补充清晰的规则"));
+    const draft: PersonalStrategyRecord = draftResult.draft || draftResult.strategy;
+    const compile = draftResult.compile || null;
+    state.personalStrategies.draft = draft;
+    state.personalStrategies.compile = compile;
+    state.personalStrategies.simulation = null;
+    const conversationForTurn = [...(previous?.conversation || []), ...(answer ? [{ role: "user" as const, text: answer }] : [])];
+    const understandingSummary = [
+      strategyUnderstandingDisplayText(understanding, { warnings: sourceWarnings }),
+      personalStrategyUnderstandingText(draft, compile, sourceWarnings),
+    ].filter(Boolean).join("\n\n规则引擎校验：\n");
+    const questions = [...new Set([
+      ...(understanding.questions || []),
+      ...(understanding.uncertainties || []),
+      ...(compile?.questions || []),
+      ...(draft.spec?.questions || []),
+    ].map(String).filter(Boolean))];
+    if (!draftResult.compile?.readyForSimulation || questions.length) {
+      const reply = `${understandingSummary}\n\n请直接回复需要补充或修改的地方；未完成确认前不会创建策略。`;
+      setPersonalStrategyConversationState(threadId, { draftId: draft.id, sourceText: draft.sourceText, understanding, stage: "clarification", conversation: [...conversationForTurn, { role: "assistant" as const, text: reply }].slice(-32) });
+      await persistPersonalStrategyAssistantItem(threadId, reply);
+      return;
+    }
+
+    updateTradingExpertThinkingState(threadId, "drawing", "规则已经形成，正在左侧图表播放独立的模拟 K 线触发路径…");
+    refreshTradingExpertConversationSurface(threadId);
+    const chart = tradingExpertAlertContextSnapshot();
+    const simulated = await api.simulatePersonalStrategy!({
+      draftId: draft.id,
+      candles: tradingExpertPersonalStrategyCandles(),
+      marketId: chart?.marketId || "SIMULATION",
+      interval: chart?.interval || "1d",
+    });
+    if (!isCurrentRun()) return;
+    if (simulated?.ok !== true || !simulated.simulation) throw new Error(String(simulated?.error?.message || "策略预演失败，请补充条件后再试"));
+    state.personalStrategies.draft = simulated.draft || draft;
+    state.personalStrategies.simulation = simulated.simulation;
+    let visualizationWarning = "";
+    try {
+      showTradingExpertAlertSimulation(simulated.simulation, "primary");
+    } catch (error) {
+      console.error("[personal-strategy] simulation overlay failed", error);
+      clearTradingExpertAlertSimulation();
+      visualizationWarning = "\n\n文字规则与预演已经完成，但当前图表暂时无法显示模拟图层；请先按文字核对。";
+    }
+    const report = String(simulated.simulation.report || "已完成规则预演");
+    const reply = `${understandingSummary}\n\n预演结果：\n${report}${visualizationWarning}\n\n这是规则理解演示，不代表收益回测或未来预测。若理解正确，请回复“确认”；若有任何偏差，直接指出哪一条不对，我会让智能体重新理解，再由本地规则引擎重新编译和预演。`;
+    setPersonalStrategyConversationState(threadId, { draftId: draft.id, sourceText: draft.sourceText, understanding, stage: "confirmation", conversation: [...conversationForTurn, { role: "assistant" as const, text: reply }].slice(-32), simulationId: simulated.simulation.simulationId });
+    await persistPersonalStrategyAssistantItem(threadId, reply);
+  } catch (error) {
+    if (!isCurrentRun()) return;
+    clearTradingExpertAlertSimulation();
+    await persistPersonalStrategyAssistantItem(threadId, `这次策略理解/预演还没有完成，所以没有写入策略列表。\n\n原因：${errorMessage(error)}\n\n你可以继续补充规则、换一个公开链接，或直接指出需要修正的条件。`);
+  } finally {
+    if (isCurrentRun()) {
+      personalStrategyConversationRunByThreadId.delete(threadId);
+      if (clearTradingExpertThinkingState(threadId)) refreshTradingExpertConversationSurface(threadId);
+    }
+  }
 }
 
 function tradingAlertResponseData(response: any) {
@@ -29667,6 +30478,7 @@ function tradingTranscriptPayloadFromItem(item: CodexItem) {
   const startedAt = firstString((item as any).__youleTurnStartedAt);
   const completedAt = firstString((item as any).__youleTurnCompletedAt);
   const actions = messageActionsFromItem(item);
+  const executionPlanPresentation = item.__youleExecutionPlanPresentation;
   return {
     id,
     role,
@@ -29676,6 +30488,9 @@ function tradingTranscriptPayloadFromItem(item: CodexItem) {
     ...(startedAt ? { startedAt } : {}),
     ...(completedAt ? { completedAt } : {}),
     ...(role === "assistant" && actions?.length ? { actions } : {}),
+    ...(role === "assistant" && (executionPlanPresentation === "execution-plan" || executionPlanPresentation === "plain")
+      ? { executionPlanPresentation }
+      : {}),
   } as const;
 }
 
@@ -29847,7 +30662,7 @@ async function runTradingGeneralChartRequest(
       `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的通用盘面分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
@@ -29913,7 +30728,7 @@ async function runTradingStrategyChartRequest(
       `${result.modelName} 已完成 ${result.symbol} ${strategy.ui.completionMetric(result)}${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
@@ -29973,7 +30788,7 @@ async function runTradingChanChartRequest(
       `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的缠论分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
@@ -30033,7 +30848,7 @@ async function runTradingOrderFlowChartRequest(
       `${result.modelName} 已完成 ${result.symbol} ${result.tradeCount} 笔真实成交的订单流分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
@@ -30093,7 +30908,7 @@ async function runTradingWaveChartRequest(
       `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的波浪理论分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
@@ -30153,7 +30968,7 @@ async function runTradingWyckoffChartRequest(
       `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的威科夫分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report);
+    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
@@ -33032,11 +33847,18 @@ function tradingExpertAgentTextForSend(
   threadId: string,
   visibleText: string,
   baseAgentText: string,
+  generalRequest: TradingGeneralRequest | null = null,
 ) {
   if (!isTradingExpertThreadId(threadId)) return baseAgentText;
   const strategy = tradingStrategyMentionedByText(visibleText);
   if (strategy) return strategy.ui.buildExpertPrompt(baseAgentText);
-  if (hasTradingExpertCurrentAnalysis()) return buildTradingAnalysisFollowupPrompt(baseAgentText);
+  // A visible chart/old analysis is context, not an instruction.  Only an
+  // explicit semantic follow-up may receive the follow-up prompt; otherwise
+  // ordinary education, recommendations and account questions go to the
+  // normal conversation agent unchanged.
+  if (generalRequest?.analysisFollowup === true && hasTradingExpertCurrentAnalysis()) {
+    return buildTradingAnalysisFollowupPrompt(baseAgentText);
+  }
   return baseAgentText;
 }
 
@@ -33230,6 +34052,7 @@ async function classifyTradingGeneralRequestForSend(
     lookbackMs: null,
     lookbackLabel: null,
     drawingRequested: false,
+    analysisFollowup: false,
   };
   if (typeof api.classifyTradingGeneralRequest !== "function") return fallback;
   try {
@@ -33253,6 +34076,7 @@ async function classifyTradingGeneralRequestForSend(
         ? request.lookbackLabel
         : null,
       drawingRequested: chartAnalysis && request.drawingRequested === true,
+      analysisFollowup: !chartAnalysis && request.analysisFollowup === true,
     };
   } catch {
     return fallback;
@@ -34095,6 +34919,7 @@ function render() {
     ${state.externalChannels.login.open ? renderExternalChannelLoginDialog() : ""}
     ${state.marketplace.importDialogOpen ? renderSkillImportDialog() : ""}
     ${state.marketplace.detailDialogOpen ? renderSkillDetailDialog() : ""}
+    ${state.personalStrategies.dialogOpen ? renderPersonalStrategyDialog() : ""}
     ${state.plugins.deleteDialog ? renderPluginDeleteDialog() : ""}
     ${state.chromeIntegration.open ? renderChromeIntegrationDialog() : ""}
     ${renderBinanceAccountDialog(state.binanceAccount)}
@@ -37339,8 +38164,19 @@ function renderMessageExecutionPlan(
   text: string,
   options: FormatMessageTextOptions = {},
 ) {
+  const presentation = (message as MessageUiMeta).executionPlanPresentation;
   const partitions = executionPlanTextPartitions(text);
-  if (!partitions) return formatMessageText(text, options);
+  if (
+    !partitions
+    || presentation === "plain"
+    || (
+      presentation !== "execution-plan"
+      && partitions.candidates.some((candidate) => !executionPlanHasStructuredTradingFields(candidate))
+    )
+    || partitions.candidates.some((candidate) => !executionPlanHasConcreteTradingPlan(candidate))
+  ) {
+    return formatMessageText(text, options);
+  }
   const sourceThread = state.threads.find((thread) => thread.id === message.conversation_id);
   const titleContext = {
     analysisLabel: tradingLastAnalysisLabelForThread(message.conversation_id),
@@ -38136,11 +38972,32 @@ function mySkillsPlazaCards() {
         !localSkillNames.has(card.title.trim().toLowerCase()) &&
         !localSkillNames.has(card.subtitle.trim().toLowerCase()),
     );
-  return [...localCards, ...tradingCards];
+  const personalCards = state.personalStrategies.items
+    .filter((item) => item.status === "active")
+    .map((item): SkillPlazaCard => ({
+      id: `${PERSONAL_STRATEGY_SKILL_CARD_PREFIX}${item.id}`,
+      title: item.name,
+      subtitle: `我的策略 · v${item.version}`,
+      detail: "按你的自然语言规则分析当前 K 线；可继续反馈优化并保留版本记录",
+      category: "personal",
+      rawCategory: "personal",
+      theme: "local",
+      height: "medium",
+      tags: ["我的策略", "K线分析", "可优化"],
+      badge: "我的策略",
+      author: "仅本账号",
+      likes: "已启用",
+      iconUrl: SKILL_DEFAULT_ICON_URL,
+      defaultCover: true,
+      installed: true,
+      installStatus: "installed",
+      version: item.version,
+    }));
+  return [...localCards, ...tradingCards].concat(personalCards);
 }
 
 function strategySkillPlazaCards() {
-  return mySkillsPlazaCards().filter((card) => card.id.startsWith(TRADING_STRATEGY_SKILL_CARD_PREFIX));
+  return mySkillsPlazaCards().filter((card) => card.id.startsWith(TRADING_STRATEGY_SKILL_CARD_PREFIX) || card.id.startsWith(PERSONAL_STRATEGY_SKILL_CARD_PREFIX));
 }
 
 function indicatorSkillPlazaCards(): SkillPlazaCard[] {
@@ -49495,7 +50352,7 @@ function renderComposerModeIcon(icon: ComposerModeIcon) {
 function composerModeLabel(threadId: string) {
   const mode = newThreadModeForThread(threadId);
   if (mode === "multi-agent") return "集群模式";
-  if (mode === "question-answer") return "计划模式";
+  if (mode === "question-answer") return "问答模式";
   return "执行模式";
 }
 
@@ -50713,7 +51570,7 @@ function renderTextBubble(
     ? renderAddToPlanAction(message, content.text)
     : "";
   const actionsBelowBubble = Boolean(addToPlanMarkup) || Boolean(message.actions?.some((action) => (
-    action.destination === "trading-alerts" || action.destination === "binance-account"
+    action.destination === "trading-alerts" || action.destination === "binance-account" || action.destination === "strategies"
   )));
   return `
     <div class="message-bubble ${fromUser ? "user-bubble" : "agent-bubble"} ${message.kind === "system" ? "system-bubble" : ""}">
@@ -50755,7 +51612,13 @@ function executionPlanCandidateKey(threadId: string, messageId: string, candidat
 }
 
 function renderAddToPlanAction(message: Message, text: string) {
+  const presentation = (message as MessageUiMeta).executionPlanPresentation;
+  if (presentation === "plain") return "";
   const candidates = executionPlanCandidatesFromText(text)
+    .filter((candidate) => (
+      presentation === "execution-plan"
+      || executionPlanHasStructuredTradingFields(candidate)
+    ))
     .filter((candidate) => executionPlanHasConcreteTradingPlan(candidate));
   if (!candidates.length) return "";
   syncExecutionPlansForCurrentAccount();
@@ -50831,7 +51694,7 @@ function renderMessageActions(message: Message) {
   const actions = message.actions || [];
   if (!actions.length) return "";
   const actionsBelowBubble = actions.some((action) => (
-    action.destination === "trading-alerts" || action.destination === "binance-account"
+    action.destination === "trading-alerts" || action.destination === "binance-account" || action.destination === "strategies"
   ));
   const hasBinanceAccountNavigation = actions.some((action) => action.destination === "binance-account");
   const classes = [
@@ -50848,10 +51711,11 @@ function renderMessageActionButton(action: MessageAction) {
   const isRecharge = isRechargeTokenAction(action);
   const isTradingAlertsNavigation = action.destination === "trading-alerts";
   const isBinanceAccountNavigation = action.destination === "binance-account";
+  const isStrategiesNavigation = action.destination === "strategies";
   return `
     <button
       type="button"
-      class="message-action-button ${isRecharge ? "message-recharge-button" : ""} ${isTradingAlertsNavigation ? "message-trading-alert-link" : ""} ${isBinanceAccountNavigation ? "trading-preference-onboarding-start trading-preference-binance-connect" : ""}"
+      class="message-action-button ${isRecharge ? "message-recharge-button" : ""} ${isTradingAlertsNavigation || isStrategiesNavigation ? "message-trading-alert-link" : ""} ${isBinanceAccountNavigation ? "trading-preference-onboarding-start trading-preference-binance-connect" : ""}"
       data-message-action="${escapeAttr(actionId)}"
       data-message-action-kind="${escapeAttr(kind)}"
       ${action.text ? `data-message-action-text="${escapeAttr(action.text)}"` : ""}
@@ -60495,6 +61359,10 @@ function bindEvents() {
   root.querySelectorAll<HTMLElement>("[data-skill-id]").forEach((card) => {
     const activateSkillCard = () => {
       const skillId = card.dataset.skillId;
+      if (skillId?.startsWith(PERSONAL_STRATEGY_SKILL_CARD_PREFIX)) {
+        openPersonalStrategyFromLibrary(skillId);
+        return;
+      }
       if (skillId?.startsWith(TRADING_STRATEGY_SKILL_CARD_PREFIX)) {
         void openTradingStrategySkillFromLibrary(skillId);
         return;
@@ -60515,6 +61383,35 @@ function bindEvents() {
       event.preventDefault();
       activateSkillCard();
     });
+  });
+  root.querySelectorAll<HTMLElement>("[data-personal-strategy-close]").forEach((element) => {
+    element.addEventListener("click", () => {
+      if (state.personalStrategies.busy) return;
+      state.personalStrategies.dialogOpen = false;
+      state.personalStrategies.draft = null;
+      state.personalStrategies.compile = null;
+      state.personalStrategies.simulation = null;
+      state.personalStrategies.feedbackOpenFor = null;
+      state.personalStrategies.error = null;
+      render();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-personal-strategy-create]")?.addEventListener("click", () => {
+    void createPersonalStrategyFromDialog();
+  });
+  root.querySelector<HTMLButtonElement>("[data-personal-strategy-simulate]")?.addEventListener("click", () => {
+    void simulatePersonalStrategyDraft();
+  });
+  root.querySelector<HTMLButtonElement>("[data-personal-strategy-confirm]")?.addEventListener("click", () => {
+    void confirmPersonalStrategyDraft();
+  });
+  root.querySelector<HTMLButtonElement>("[data-personal-strategy-feedback-submit]")?.addEventListener("click", (event) => {
+    const button = event.currentTarget as HTMLButtonElement;
+    const text = personalStrategyDialogInputValue("[data-personal-strategy-feedback]");
+    void submitPersonalStrategyFeedback(button.dataset.personalStrategyId || "", text);
+  });
+  root.querySelector<HTMLButtonElement>("[data-personal-strategy-github]")?.addEventListener("click", () => {
+    openPersonalStrategyGitHubSettings();
   });
   root.querySelectorAll<HTMLElement>("[data-skill-tool]").forEach((row) => {
     row.addEventListener("click", () => {
@@ -62984,6 +63881,10 @@ function bindMessageContentEvents(container: ParentNode = root) {
       }
       if (button.dataset.messageActionDestination === "trading-alerts") {
         openTradingAlertsPage();
+        return;
+      }
+      if (button.dataset.messageActionDestination === "strategies") {
+        openMyConfigPage();
         return;
       }
       if (button.dataset.messageActionDestination === "binance-account") {
@@ -71569,6 +72470,11 @@ function itemToMessage(threadId: string, id: string, item: CodexItem): Message {
       item.__youleVideoGenerationActor === "haolo" ||
       item.__youleVideoGenerationActor === "video-expert"
         ? item.__youleVideoGenerationActor
+        : null,
+    executionPlanPresentation:
+      item.__youleExecutionPlanPresentation === "execution-plan" ||
+      item.__youleExecutionPlanPresentation === "plain"
+        ? item.__youleExecutionPlanPresentation
         : null,
   } as MessageUiMeta;
 }

@@ -167,8 +167,11 @@ test("VPVR card and visible-range host path cover both light and dark themes", a
   assert.match(renderer, /data-trading-indicator-icon="vpvr-analysis"/);
   assert.match(renderer, /visibleCandlesOnly: Boolean\(strategy\.dataRequirements\?\.\["visible-candles"\]\?\.required\)/);
   assert.match(renderer, /executionPlanRequested: strategy\.capabilities\.includes\("execution-plan"\)/);
-  assert.match(market, /visibleCandlesOnly && canvasCandles\.length[\s\S]*canvasCandles\.slice\(-600\)/);
-  assert.match(market, /visibleCandlesOnly[\s\S]*captureSplitPaneAnalysisSnapshots\(requestedLookbackMs, null\)[\s\S]*captureSplitPaneAnalysisSnapshots\(requestedLookbackMs, preferredCandles\)/);
+  assert.match(market, /canvasCandles\.length[\s\S]*canvasCandles\.slice\(-\(visibleCandlesOnly \? 600 : analysisWindowCount\)\)/);
+  assert.match(market, /TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE/);
+  assert.match(market, /visibleCandlesOnly[\s\S]*desiredCandleCount/);
+  assert.match(skill, /tiny visible range is only a starting point/i);
+  assert.match(market, /captureSplitPaneAnalysisSnapshots\(\s*requestedLookbackMs,\s*preferredCandles,/);
   assert.match(market, /id: "vpvr"[\s\S]*name: "可见范围成交量分布"/);
   assert.match(profile, /requestedRowCount = 96/);
   assert.match(profile, /requestedValueAreaRatio = 0\.7/);

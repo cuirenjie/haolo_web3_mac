@@ -9,7 +9,7 @@
   "implementation": { "kind": "builtin-adapter", "adapterId": "order-flow" },
   "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
   "dataRequirements": {
-    "candles": { "required": true, "minCount": 30, "minimumCoverage": "available" },
+    "candles": { "required": true, "minCount": 30, "preferredCount": 120, "minimumCoverage": "available" },
     "trades": { "required": true, "minCount": 50, "minimumCoverage": "available" },
     "depth": { "required": true, "minCount": 5, "minimumCoverage": "partial" },
     "open-interest": { "required": false, "minCount": 0, "minimumCoverage": "partial" },

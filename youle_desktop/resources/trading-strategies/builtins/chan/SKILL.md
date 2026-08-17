@@ -9,7 +9,7 @@ Treat the deterministic engine output as the source of truth. Use the model to r
 
 ## Workflow
 
-1. Confirm the market, interval, visible range, and data freshness.
+1. Confirm the market, interval, analysis end time, and data freshness. Treat the visible range as the starting window only; when it cannot form a valid pen structure, let the host expand the chart leftward and retry with more historical candles.
 2. Separate confirmed, tentative, and invalidated structures.
 3. Reference only engine-provided fractal, pen, center, level, and evidence IDs.
 4. Express both the preferred scenario and its invalidation; retain a wait state inside the trigger range.

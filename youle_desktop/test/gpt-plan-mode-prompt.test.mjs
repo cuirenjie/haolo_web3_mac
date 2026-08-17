@@ -20,9 +20,10 @@ const PLAN_MODE_REQUEST = {
   provider: "codex",
   modelPool: "question_answer",
   modelCapability: "question_answer",
+  gptPlanMode: true,
 };
 
-test("plan mode applies default execution planning guidance to every GPT model", () => {
+test("explicit GPT plan mode applies default execution planning guidance", () => {
   for (const model of [
     "gpt-5.6-sol",
     "gpt-5.6-terra",
@@ -49,6 +50,19 @@ test("plan mode applies default execution planning guidance to every GPT model",
       content: "制定实施计划",
     });
   }
+});
+
+test("ordinary GPT question-answer requests answer directly by default", () => {
+  const original = [{ role: "user", content: "当前的仓位是否安全？" }];
+  const request = {
+    provider: "codex",
+    modelPool: "question_answer",
+    modelCapability: "question_answer",
+    model: "gpt-5.6-sol",
+  };
+
+  assert.equal(isGptPlanModeProviderRequest(request), false);
+  assert.equal(providerMessagesWithGptPlanModePrompt(original, request), original);
 });
 
 test("GPT plan presentation survives marker splits and separates public progress from the final answer", () => {
@@ -184,7 +198,7 @@ test("GPT planning guidance is idempotent across prepared message reuse", () => 
   );
 });
 
-test("question-answer transport sends the planning guidance for configured GPT models", async () => {
+test("explicit GPT plan mode sends the planning guidance for configured GPT models", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (_url, init = {}) => {
@@ -248,9 +262,16 @@ test("question-answer transport sends the planning guidance for configured GPT m
         text: "制定实施计划",
       });
     }
+    await client.sendProviderChat({
+      provider: "codex",
+      modelPool: "question_answer",
+      modelCapability: "question_answer",
+      model: "gpt-5.6-sol",
+      text: "当前的仓位是否安全？",
+    });
 
-    assert.equal(requests.length, models.length);
-    for (const [index, request] of requests.entries()) {
+    assert.equal(requests.length, models.length + 1);
+    for (const [index, request] of requests.slice(0, models.length).entries()) {
       assert.equal(request.model, models[index]);
       assert.equal(request.stream, true);
       assert.equal(request.messages[0].role, "system");
@@ -263,6 +284,12 @@ test("question-answer transport sends the planning guidance for configured GPT m
         content: "制定实施计划",
       });
     }
+    const ordinaryRequest = requests.at(-1);
+    assert.equal(ordinaryRequest.model, "gpt-5.6-sol");
+    assert.deepEqual(ordinaryRequest.messages[0], {
+      role: "user",
+      content: "当前的仓位是否安全？",
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

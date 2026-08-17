@@ -62,7 +62,7 @@ export interface TradingSplitPaneMarket {
   quoteAsset: string;
   displaySymbol: string;
   venue: string;
-  assetClass: "crypto" | "stock" | "index" | "forex";
+  assetClass: "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex";
   marketType: "perpetual" | "spot" | "global";
   tag: string;
   description: string;
@@ -526,7 +526,7 @@ export class TradingExpertSplitPane {
               aria-haspopup="dialog"
               aria-expanded="false"
             >
-              <span data-split-symbol-logo>${renderTradingMarketAssetLogo(this.market.baseAsset, this.market.provider, true)}</span>
+              <span data-split-symbol-logo>${renderTradingMarketAssetLogo(this.market.baseAsset, this.market.provider, true, this.market.assetClass)}</span>
               <strong data-split-symbol-label><span data-split-symbol-base>${escapeHtml(this.market.baseAsset)}</span><span data-split-symbol-quote>${this.market.quoteAsset ? `/${escapeHtml(this.market.quoteAsset)}` : ""}</span></strong>
               <span class="trading-market-venue" data-split-symbol-venue>${escapeHtml(this.market.venue)}</span>
               <span class="trading-market-contract-tag" data-split-symbol-tag>${this.marketTag(this.market)}</span>
@@ -800,7 +800,7 @@ export class TradingExpertSplitPane {
             aria-label="选择 ${escapeHtml(market.displaySymbol)} ${escapeHtml(market.tag)}"
           ></button>
           <span class="trading-market-row-pair">
-            ${renderTradingMarketAssetLogo(market.baseAsset, market.provider)}
+            ${renderTradingMarketAssetLogo(market.baseAsset, market.provider, false, market.assetClass)}
             <strong title="${escapeHtml(market.displaySymbol)}">${escapeHtml(market.displaySymbol)}</strong>
             <span class="trading-market-contract-tag">${this.marketTag(market)}</span>
           </span>
@@ -836,7 +836,7 @@ export class TradingExpertSplitPane {
     if (quote) quote.textContent = this.market.quoteAsset ? `/${this.market.quoteAsset}` : "";
     if (venue) venue.textContent = this.market.venue;
     if (tag) tag.textContent = this.market.tag;
-    if (logo) logo.innerHTML = renderTradingMarketAssetLogo(this.market.baseAsset, this.market.provider, true);
+    if (logo) logo.innerHTML = renderTradingMarketAssetLogo(this.market.baseAsset, this.market.provider, true, this.market.assetClass);
     if (!this.symbolMenu.hidden) this.renderSymbolResults();
     this.host.querySelectorAll<HTMLButtonElement>("[data-split-interval]").forEach((button) => {
       const selected = button.dataset.splitInterval === this.interval;
@@ -1591,8 +1591,12 @@ export class TradingExpertSplitPane {
       : visibleCandles.length
         ? visibleCandles
         : this.candles.slice(-100);
-    const candles = lookbackMs && latestTimeMs > 0
+    const lookbackCandles = lookbackMs && latestTimeMs > 0
       ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - lookbackMs)
+      : [];
+    const minimumSnapshotCandles = normalizedPreferredCandles > 0 ? normalizedPreferredCandles : 8;
+    const candles = lookbackCandles.length >= minimumSnapshotCandles
+      ? lookbackCandles
       : defaultCandles;
     return {
       paneIndex: this.paneIndex,

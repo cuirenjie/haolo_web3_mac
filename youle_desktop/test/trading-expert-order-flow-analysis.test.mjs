@@ -529,6 +529,9 @@ test("Trading Expert wires @策略:订单流 through IPC, real Binance inputs, p
   assert.match(marketSource, /trade\.m === true \? "sell" as const : "buy" as const/);
   assert.match(marketSource, /liquidations: "unavailable"/);
   assert.match(marketSource, /runOrderFlowConversation/);
+  assert.match(marketSource, /runTradingAnalysisWithAutoExpansion\(\{/);
+  assert.match(marketSource, /focusOrderFlowAnalysisCandles[\s\S]*timeScale\(\)\.setVisibleRange/);
+  assert.doesNotMatch(marketSource, /所选范围"\}仅有 \$\{analysisCandles\.length\} 根 K 线，不足以提供订单流所需的价格背景/);
   assert.match(marketSource, /只绘制最关键的转折、支撑\/压力、流动性与成交证据/);
   assert.match(marketSource, /整理新手可读的上破、跌破、回踩与等待方案/);
   assert.match(marketSource, /playAiDrawingPatch/);

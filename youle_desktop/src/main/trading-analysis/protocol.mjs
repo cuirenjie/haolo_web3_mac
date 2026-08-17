@@ -206,7 +206,11 @@ export function normalizeTradingMarketSnapshot(value = {}, options = {}) {
   if (!marketId || !interval) throw new TypeError("marketId and interval are required");
   if (!Array.isArray(value?.candles)) throw new TypeError("candles must be an array");
   const byTime = new Map();
-  value.candles.slice(-MAX_CANDLES).forEach((candle, index) => {
+  const maximumCandles = Math.min(
+    2_500,
+    Math.max(MAX_CANDLES, Math.floor(Number(options?.maximumCandles) || MAX_CANDLES)),
+  );
+  value.candles.slice(-maximumCandles).forEach((candle, index) => {
     const normalized = normalizeCandle(candle, index);
     byTime.set(normalized.time, normalized);
   });

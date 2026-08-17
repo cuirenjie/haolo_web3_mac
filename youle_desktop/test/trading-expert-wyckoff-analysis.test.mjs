@@ -307,6 +307,10 @@ test("Trading Expert wires Wyckoff through IPC, persistent playback, and paired 
   assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend/);
   assert.match(catalogSource, /buildTradingWyckoffExpertPrompt/);
   assert.match(marketSource, /runWyckoffConversation/);
+  assert.match(marketSource, /runTradingAnalysisWithAutoExpansion\(\{/);
+  assert.match(marketSource, /TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE/);
+  assert.match(marketSource, /focusWyckoffAnalysisCandles[\s\S]*timeScale\(\)\.setVisibleRange/);
+  assert.doesNotMatch(marketSource, /所选范围"\}仅有 \$\{analysisCandles\.length\} 根 K 线，不足以识别可靠的威科夫交易区间/);
   assert.match(marketSource, /识别交易区间、量价努力结果、A–E 阶段和关键事件/);
   assert.match(marketSource, /playAiDrawingPatch/);
   assert.match(drawingSource, /drawing\.theory === "wyckoff"/);

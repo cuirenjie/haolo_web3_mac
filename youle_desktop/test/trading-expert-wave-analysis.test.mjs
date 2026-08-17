@@ -197,6 +197,14 @@ test("candidate generation never repackages the SOL invalid motive as a complete
   assert.equal(result.structures.candidates.some((candidate) => candidate.kind === "diagonal"), false);
 });
 
+test("wave snapshots retain the bounded expanded history beyond the generic 600-candle cap", () => {
+  const snapshot = normalizeTradingMarketSnapshot(
+    fixtureParams(fixtureCandles(700)),
+    { maximumCandles: 2_500 },
+  );
+  assert.equal(snapshot.candles.length, 700);
+});
+
 test("wave-4 overlap never becomes a diagonal without position, wedge, and internal evidence", () => {
   const expandingShape = rulePoints([100, 110, 105, 120, 108, 125]);
   const unresolved = evaluateMotiveWaveRules(expandingShape, {
@@ -666,6 +674,10 @@ test("Trading Expert wires wave analysis through IPC, playback, and light/dark t
   assert.match(marketSource, /runWaveConversation/);
   assert.match(marketSource, /按价格硬规则与低一级结构验证 0-1-2-3-4-5、A-B-C \/ W-X-Y 候选/);
   assert.match(marketSource, /runTradingWaveAnalysisWithAutoExpansion/);
+  assert.match(await readFile(new URL("../src/main/trading-analysis/wave-pipeline.mjs", import.meta.url), "utf8"), /maximumCandles: 2_500/);
+  assert.match(marketSource, /focusWaveAnalysisCandles[\s\S]*timeScale\(\)\.setVisibleRange/);
+  assert.match(marketSource, /TRADING_WAVE_INSUFFICIENT_DATA[\s\S]*当前范围仅有/);
+  assert.doesNotMatch(marketSource, /所选范围"\}仅有 \$\{analysisCandles\.length\} 根 K 线，不足以形成可靠的波浪摆动点/);
   assert.match(marketSource, /当前 \$\{event\.fromCount\} 根 K 线未形成合格浪型，正在自动扩大到 \$\{event\.toCount\} 根继续验证/);
   assert.match(marketSource, /自动扩大到 \$\{analysisCandles\.length\} 根 K 线，仍未形成可复核浪型/);
   assert.match(marketSource, /逐笔绘制简短浪标、主路径和关键价位/);

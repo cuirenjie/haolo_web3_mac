@@ -598,7 +598,7 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review) {
 }
 
 export async function runTradingWaveAnalysisPipeline(params, options = {}) {
-  const snapshot = normalizeTradingMarketSnapshot(params);
+  const snapshot = normalizeTradingMarketSnapshot(params, { maximumCandles: 2_500 });
   const theoryResult = runWaveTheoryEngine(snapshot);
   if (theoryResult.status !== "succeeded") {
     const error = new Error("当前 K 线没有形成同时通过价格硬规则与低一级内部结构验证的波浪候选");

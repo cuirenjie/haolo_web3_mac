@@ -9,7 +9,7 @@ Treat a range as accumulation or distribution only when deterministic volume-pri
 
 ## Workflow
 
-1. Confirm that the market forms a rotational range rather than a one-way trend.
+1. Treat the visible range as the starting window only; if it is below the hard minimum or cannot form a range, let the host expand leftward and load older history before deciding that the structure is insufficient. Confirm that the market forms a rotational range rather than a one-way trend.
 2. Review spread, volume, boundary tests, breakout quality, and engine-provided event IDs.
 3. Mark events as confirmed or tentative and preserve alternate scenarios.
 4. Explain the range, preferred bias, confirmation, invalidation, and first target in plain language.

@@ -87,6 +87,10 @@ function normalizeTradingTranscriptItem(value) {
     throw new Error("trading transcript completedAt cannot precede startedAt");
   }
   const actions = normalizeTradingTranscriptActions(value.actions, role);
+  const executionPlanPresentation = role === "assistant"
+    && (value.executionPlanPresentation === "execution-plan" || value.executionPlanPresentation === "plain")
+    ? value.executionPlanPresentation
+    : "";
   return {
     version: 1,
     id,
@@ -97,6 +101,7 @@ function normalizeTradingTranscriptItem(value) {
     ...(startedAt ? { startedAt } : {}),
     ...(completedAt ? { completedAt } : {}),
     ...(actions.length ? { actions } : {}),
+    ...(executionPlanPresentation ? { executionPlanPresentation } : {}),
   };
 }
 
@@ -287,6 +292,9 @@ function visibleThreadItem(item, transcriptItem) {
     ...(transcriptItem.startedAt ? { __youleTurnStartedAt: transcriptItem.startedAt } : {}),
     ...(transcriptItem.completedAt ? { __youleTurnCompletedAt: transcriptItem.completedAt } : {}),
     ...(transcriptItem.actions?.length ? { actions: transcriptItem.actions } : {}),
+    ...(transcriptItem.executionPlanPresentation
+      ? { __youleExecutionPlanPresentation: transcriptItem.executionPlanPresentation }
+      : {}),
     __haoloTradingTranscript: true,
   };
 }

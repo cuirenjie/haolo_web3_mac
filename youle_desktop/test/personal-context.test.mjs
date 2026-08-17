@@ -7,6 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { syncDefaultCodexResources } from "../src/main/app-server-client.mjs";
+import { parseExplicitMarketAliasMemory } from "../src/main/personal-context/alias-memory.mjs";
 import { PersonalContextMcpBridge } from "../src/main/personal-context/mcp-bridge.mjs";
 import {
   PersonalMemoryStore,
@@ -26,6 +27,33 @@ function safeStorageFixture() {
     decryptString: (value) => transform(value).toString("utf8"),
   };
 }
+
+test("explicit market alias requests persist as semantic mappings without implying chart analysis", () => {
+  const parsed = parseExplicitMarketAliasMemory("闪迪 特指 SNDK，能长期记住吗");
+  assert.ok(parsed);
+  assert.deepEqual(
+    parsed && {
+      label: parsed.label,
+      symbol: parsed.symbol,
+      scope: parsed.scope,
+      kind: parsed.kind,
+      key: parsed.key,
+      strength: parsed.strength,
+    },
+    {
+      label: "闪迪",
+      symbol: "SNDK",
+      scope: "trading.aliases",
+      kind: "fact",
+      key: "market_alias_sndk",
+      strength: "normal",
+    },
+  );
+  assert.match(parsed.value, /名称映射，不代表用户要求 K 线/);
+  assert.equal(parseExplicitMarketAliasMemory("如果闪迪特指 SNDK，能记住吗"), null);
+  assert.equal(parseExplicitMarketAliasMemory("我今天看了 SNDK 的价格"), null);
+  assert.equal(parseExplicitMarketAliasMemory("闪迪特指 SNDK，但先别记住"), null);
+});
 
 test("personal memory is encrypted, account-isolated, replaceable, and removable", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-personal-memory-"));
@@ -247,6 +275,9 @@ test("personal context is globally registered and its skill defines memory safet
     assert.match(skill, /current user explicitly asks/);
     assert.match(skill, /max_loss_per_trade_percent/);
     assert.match(skill, /Preserve an explicit value above 3/);
+    assert.match(skill, /闪迪特指 SNDK/);
+    assert.match(skill, /trading\.aliases/);
+    assert.match(skill, /never implies a K-line/);
     assert.doesNotMatch(skill, /product ceiling is 3/);
     assert.match(metadata, /value: "personal_context"/);
   } finally {
@@ -264,6 +295,11 @@ test("main process owns the bridge, injects risk memory, and keeps encrypted mem
   assert.match(main, /personalContext:saveTradingPreferences/);
   assert.match(main, /buildPersonalTradingPreferenceDeveloperInstructions/);
   assert.match(main, /Apply these preferences to every trading-related answer, position review, trading plan, trading Skill, and strategy result/);
+  assert.match(main, /persistExplicitMarketAliasMemory/);
+  assert.match(main, /Resolve any saved market\/entity alias only when the current user mentions that alias/);
+  assert.match(main, /An alias is a name mapping/);
+  assert.match(main, /Response policy: answer the current question first and adapt the format to it/);
+  assert.match(main, /lead with a direct safe\/unsafe\/uncertain judgment/);
   assert.match(main, /explicit value may be higher than 3%; preserve it exactly/);
   assert.match(main, /tradingStrategyParamsWithReadOnlyBinanceAccount\(personalizedParams\)/);
   assert.match(main, /loadBinanceAccountContext: loadTradingStrategyReadOnlyBinanceAccountContext/);

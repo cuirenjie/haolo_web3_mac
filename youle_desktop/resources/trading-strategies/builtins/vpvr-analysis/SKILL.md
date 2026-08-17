@@ -11,7 +11,7 @@ Run deterministic visible-range volume-profile analysis on the current chart. Re
 
 ## Workflow
 
-1. Use the candles in the currently visible chart range. An explicit user lookback may replace the visible range; otherwise panning and zooming define the analysis window.
+1. Use the candles in the currently visible chart range after the host has ensured the minimum profile window; a tiny visible range is only a starting point and may be expanded leftward. An explicit user lookback may replace the visible range; otherwise panning and zooming define the analysis window.
 2. Allocate each candle's volume across the price rows intersecting its high-low range in proportion to overlap. Use 96 rows, matching the native VPVR overlay.
 3. Identify POC as the maximum-volume row. Starting from POC, expand toward the larger adjacent row until the selected rows contain at least 70% of estimated volume; expose the resulting VAL and VAH.
 4. Detect separated HVN peaks and LVN valleys from a lightly smoothed profile. Treat HVN as evidence of acceptance/balance and LVN as evidence of low acceptance or fast traversal/rejection, not as guaranteed future behavior.

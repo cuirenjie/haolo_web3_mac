@@ -8,6 +8,7 @@ import {
   executionPlanDirectionTone,
   executionPlanDisplayLines,
   executionPlanHasConcreteTradingPlan,
+  executionPlanHasStructuredTradingFields,
   executionPlanSignedNumberSegments,
   executionPlanCandidateFromText,
   executionPlanCandidatesFromText,
@@ -169,6 +170,22 @@ B. 先保留旧入口，再进行灰度切换。
   assert.equal(executionPlanCandidateFromText("这里仅提到执行方案，没有给出可选择或可执行的步骤。"), null);
 });
 
+test("market-context headings do not fold ordinary trading education into a plan card", () => {
+  const text = `
+BTC/USDT 币安永续 4H
+交易基础：现货、合约、杠杆、限价单、市价单、止损单。
+趋势与结构：高点、低点、上涨趋势、下跌趋势、震荡。
+支撑与阻力：如何画区域，而不是迷信一条线。
+风险管理：R 倍数、止损距离、仓位计算。
+策略执行：什么时候买、在哪里止损、何时止盈。
+  `;
+  const candidate = executionPlanCandidateFromText(text);
+
+  assert.ok(candidate);
+  assert.equal(candidate.title, "BTC/USDT 币安永续 4H");
+  assert.equal(executionPlanHasConcreteTradingPlan(candidate), false);
+});
+
 test("Add to Plan is hidden for neutral trading placeholders without concrete prices", () => {
   const placeholder = executionPlanCandidateFromText(`
 当前动作：等待条件触发
@@ -199,6 +216,26 @@ test("Add to Plan is hidden for neutral trading placeholders without concrete pr
 - 发布前检查亮暗主题。
   `);
   assert.equal(executionPlanHasConcreteTradingPlan(generic), true);
+  assert.equal(executionPlanHasStructuredTradingFields(generic), false);
+});
+
+test("structured trading fields are the compatibility boundary for card rendering", () => {
+  const education = executionPlanCandidateFromText(`
+## 推荐交易学习路径
+- 先理解止损和止盈的区别。
+- 再学习如何根据风险计算仓位。
+  `);
+  const tradingPlan = executionPlanCandidateFromText(`
+当前动作：等待
+方向判断：偏多
+多头触发：100
+止损与失效：95
+分批止盈：110
+风险收益比：1:2
+  `);
+
+  assert.equal(executionPlanHasStructuredTradingFields(education), false);
+  assert.equal(executionPlanHasStructuredTradingFields(tradingPlan), true);
 });
 
 test("saved plans persist per account scope and malformed records are discarded", () => {
@@ -471,6 +508,11 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(planCardContentBlock, /execution-plan-card-value-\$\{directionTone\}/);
   assert.doesNotMatch(planCardContentBlock, /<strong class="execution-plan-card-label">/);
   assert.match(messagePlanBlock, /executionPlanTextPartitions\(text\)/);
+  assert.match(messagePlanBlock, /presentation !== "execution-plan"/);
+  assert.match(messagePlanBlock, /executionPlanHasStructuredTradingFields\(candidate\)/);
+  assert.match(messagePlanBlock, /executionPlanHasConcreteTradingPlan\(candidate\)/);
+  assert.match(renderer, /__youleExecutionPlanPresentation: "plain"/);
+  assert.match(renderer, /result\.report, undefined, undefined, "execution-plan"/);
   assert.match(messagePlanBlock, /executionPlanCardTitle\([\s\S]*titleContext/);
   assert.match(messagePlanBlock, /class="message-execution-plan"/);
   assert.match(messagePlanBlock, /partitions\.candidates\.map\([\s\S]*renderExecutionPlanCardContent\(candidate\.content\)/);

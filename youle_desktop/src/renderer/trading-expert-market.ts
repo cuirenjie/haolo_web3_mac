@@ -40,9 +40,20 @@ import type {
   TradingIndicatorAiDrawingPatch,
 } from "./trading-expert-ai-playback.ts";
 import {
+  TRADING_CHAN_AUTO_EXPANSION_MAX_CANDLES,
+  TRADING_CHAN_HISTORY_BATCH_CANDLES,
+  TRADING_CHAN_INSUFFICIENT_DATA_CODE,
+  TRADING_CANDLE_WINDOW_AUTO_EXPANSION_MAX_CANDLES,
+  TRADING_CANDLE_WINDOW_HISTORY_BATCH_CANDLES,
+  TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE,
   TRADING_WAVE_AUTO_EXPANSION_MAX_CANDLES,
   TRADING_WAVE_HISTORY_BATCH_CANDLES,
+  TRADING_WYCKOFF_AUTO_EXPANSION_MAX_CANDLES,
+  TRADING_WYCKOFF_HISTORY_BATCH_CANDLES,
+  TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE,
+  runTradingAnalysisWithAutoExpansion,
   runTradingWaveAnalysisWithAutoExpansion,
+  type TradingAnalysisExpansionEvent,
   type TradingWaveExpansionEvent,
 } from "./trading-expert-wave-expansion.ts";
 import {
@@ -76,7 +87,6 @@ import {
   binanceTradingMarketAssetLogoUrl,
   hyperliquidTradingMarketAssetLogoUrl,
   renderTradingMarketAssetLogo,
-  tradingMarketAssetBadge,
 } from "./trading-expert-market-identity.ts";
 import { TradingFavoriteTickerSortController } from "./trading-expert-favorite-ticker-sort.ts";
 import {
@@ -93,7 +103,7 @@ import {
 } from "./trading-volume-profile.ts";
 
 const BINANCE_FUTURES_WS_URL = "wss://fstream.binance.com/ws";
-const BINANCE_SPOT_WS_URL = "wss://stream.binance.com:9443/ws";
+const BINANCE_SPOT_WS_URL = "wss://data-stream.binance.vision:443/ws";
 const DEFAULT_SYMBOL = "BTCUSDT";
 const DEFAULT_INTERVAL = "1D";
 const MARKET_QUOTE = "USDT";
@@ -315,8 +325,85 @@ export function strictlyAscendingTradingIndicatorPathPoints(
 }
 
 type TradingMarketProvider = "binance" | "finnhub" | "ifind";
-type TradingAssetClass = "crypto" | "stock" | "index" | "forex";
+export type TradingAssetClass = "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex";
 type TradingMarketType = "perpetual" | "spot" | "global";
+
+export type TradingMarketCategory = "all" | TradingAssetClass;
+
+export const TRADING_MARKET_CATEGORY_OPTIONS: ReadonlyArray<{
+  id: TradingMarketCategory;
+  label: string;
+}> = [
+  { id: "all", label: "全部" },
+  { id: "crypto", label: "加密货币" },
+  { id: "commodity", label: "大宗商品" },
+  { id: "etf", label: "ETF" },
+  { id: "stock", label: "股票" },
+  { id: "preipo", label: "Pre-IPO" },
+  { id: "index", label: "指数" },
+  { id: "forex", label: "外汇" },
+];
+
+export function tradingMarketCategoryLabel(category: TradingMarketCategory | TradingAssetClass) {
+  return TRADING_MARKET_CATEGORY_OPTIONS.find((option) => option.id === category)?.label || "其他";
+}
+
+function normalizeTradingAssetClass(value: unknown, fallback: TradingAssetClass = "stock"): TradingAssetClass {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["crypto", "commodity", "etf", "stock", "preipo", "index", "forex"].includes(normalized)
+    ? normalized as TradingAssetClass
+    : fallback;
+}
+
+function binanceUnderlyingSubTypes(item: Pick<BinanceExchangeSymbol, "underlyingSubType">) {
+  return Array.isArray(item.underlyingSubType)
+    ? item.underlyingSubType
+    : item.underlyingSubType
+      ? [item.underlyingSubType]
+      : [];
+}
+
+function binanceTradFiAssetClass(item: Pick<BinanceExchangeSymbol, "contractType" | "underlyingType" | "underlyingSubType">): TradingAssetClass {
+  const underlyingType = String(item.underlyingType || "").trim().toUpperCase();
+  const underlyingSubTypes = binanceUnderlyingSubTypes(item).map((value) => String(value).trim().toUpperCase());
+  if (underlyingSubTypes.includes("ETF")) return "etf";
+  if (underlyingSubTypes.some((value) => value === "PRE-IPO" || value === "PRE_IPO" || value === "PREMARKET")) return "preipo";
+  if (underlyingType === "COMMODITY") return "commodity";
+  if (underlyingType === "ETF") return "etf";
+  if (underlyingType === "PREMARKET" || underlyingType === "PRE_IPO" || underlyingType === "PRE-IPO") return "preipo";
+  if (underlyingType === "INDEX") return "index";
+  if (underlyingType === "FOREX" || underlyingType === "FX") return "forex";
+  if (String(item.contractType || "").toUpperCase() === "TRADIFI_PERPETUAL") return "stock";
+  return "crypto";
+}
+
+/**
+ * Binance Spot exchangeInfo does not expose the Futures `underlyingType` /
+ * `underlyingSubType` fields.  TradFi spot instruments are nevertheless
+ * published using the corresponding Futures base asset, with tokenized
+ * equity wrappers suffixed by `B` and the gold wrapper published as `XAUT`.
+ * Resolve those aliases against the live Futures TradFi catalog instead of
+ * maintaining a stale hard-coded symbol list.
+ */
+export function binanceTradFiSpotAssetClass(
+  baseAsset: string,
+  tradFiAssetClasses: ReadonlyMap<string, TradingAssetClass>,
+) {
+  const normalizedBaseAsset = String(baseAsset || "").trim().toUpperCase();
+  if (!normalizedBaseAsset) return null;
+  const exact = tradFiAssetClasses.get(normalizedBaseAsset);
+  if (exact) return exact;
+  const aliasRoot = /[BT]$/.test(normalizedBaseAsset)
+    ? normalizedBaseAsset.slice(0, -1)
+    : "";
+  return aliasRoot ? tradFiAssetClasses.get(aliasRoot) || null : null;
+}
+
+export function isBinanceTradFiContract(item: Pick<BinanceExchangeSymbol, "contractType" | "underlyingSubType" | "underlyingType">) {
+  const underlyingSubTypes = binanceUnderlyingSubTypes(item);
+  return String(item.contractType || "").toUpperCase() === "TRADIFI_PERPETUAL"
+    || underlyingSubTypes.some((value) => String(value).trim().toLowerCase() === "tradfi");
+}
 interface TradingChanAnalysisResponse {
   ok?: boolean;
   error?: { code?: string; message?: string; retryable?: boolean };
@@ -1023,9 +1110,10 @@ function normalizeTradingFavoriteMarketRecords(value: unknown): TradingFavoriteM
     const symbol = String(item.symbol || "").trim().toUpperCase();
     const id = String(item.id || "").trim().toUpperCase();
     if (!provider || !symbol || !id || !/^(?:BINANCE|FINNHUB|IFIND):[A-Z0-9^][A-Z0-9^:._/\-=]{0,96}$/.test(id)) return;
-    const assetClass: TradingAssetClass = ["crypto", "stock", "index", "forex"].includes(String(item.assetClass))
-      ? item.assetClass as TradingAssetClass
-      : provider === "binance" ? "crypto" : "stock";
+    const assetClass: TradingAssetClass = normalizeTradingAssetClass(
+      item.assetClass,
+      provider === "binance" ? "crypto" : "stock",
+    );
     const marketType: TradingMarketType = provider !== "binance"
       ? "global"
       : item.marketType === "spot" || item.tag === "现货"
@@ -1974,9 +2062,7 @@ export function normalizeFinnhubTradingMarket(value: unknown): TradingMarket | n
   const symbol = String(item.symbol || "").trim().toUpperCase();
   if (!symbol || !/^[A-Z0-9^][A-Z0-9^:._/\-=]{0,95}$/.test(symbol)) return null;
   const displaySymbol = String(item.displaySymbol || symbol).trim().slice(0, 96) || symbol;
-  const assetClass: TradingAssetClass = ["crypto", "stock", "index", "forex"].includes(String(item.assetClass))
-    ? item.assetClass as TradingAssetClass
-    : "stock";
+  const assetClass = normalizeTradingAssetClass(item.assetClass);
   const markPrice = Number(item.markPrice || 0);
   const changePercent = Number(item.changePercent || 0);
   return {
@@ -2441,6 +2527,8 @@ interface BinanceExchangeSymbol {
   status?: string;
   baseAsset?: string;
   quoteAsset?: string;
+  underlyingType?: string;
+  underlyingSubType?: string[] | string;
   isSpotTradingAllowed?: boolean;
 }
 
@@ -2917,18 +3005,29 @@ export async function fetchTradingMarkets() {
   const futuresTickerBySymbol = new Map(
     futuresTickers.map((ticker) => [String(ticker.symbol || ""), ticker]),
   );
+  const tradFiAssetClasses = new Map<string, TradingAssetClass>();
+  for (const item of futuresExchangeInfo.symbols ?? []) {
+    if (!isBinanceTradFiContract(item) || item.status !== "TRADING") continue;
+    const baseAsset = String(item.baseAsset || "").trim().toUpperCase();
+    if (!baseAsset || tradFiAssetClasses.has(baseAsset)) continue;
+    tradFiAssetClasses.set(baseAsset, binanceTradFiAssetClass(item));
+  }
   const futuresMarkets: TradingMarket[] = (futuresExchangeInfo.symbols ?? []).flatMap((item) => {
     const symbol = String(item.symbol || "");
     const baseAsset = String(item.baseAsset || "");
     const quoteAsset = String(item.quoteAsset || "");
+    const contractType = String(item.contractType || "").trim().toUpperCase();
+    const tradFi = isBinanceTradFiContract(item);
     if (
       !symbol
       || !baseAsset
-      || quoteAsset !== MARKET_QUOTE
-      || item.contractType !== "PERPETUAL"
+      || (!tradFi && quoteAsset !== MARKET_QUOTE)
+      || (contractType !== "PERPETUAL" && contractType !== "TRADIFI_PERPETUAL")
       || item.status !== "TRADING"
     ) return [];
     const ticker = futuresTickerBySymbol.get(symbol);
+    const assetClass = tradFi ? binanceTradFiAssetClass(item) : "crypto";
+    const contractLabel = tradFi ? "传统金融永续" : "永续";
     return [{
       id: `BINANCE:FUTURES:${symbol}`,
       provider: "binance",
@@ -2936,9 +3035,9 @@ export async function fetchTradingMarkets() {
       baseAsset,
       quoteAsset,
       displaySymbol: `${baseAsset}/${quoteAsset}`,
-      description: `${baseAsset}/${quoteAsset} 币安永续合约`,
+      description: `${baseAsset}/${quoteAsset} 币安${contractLabel}合约`,
       venue: MARKET_VENUE,
-      assetClass: "crypto",
+      assetClass,
       marketType: "perpetual",
       tag: "永续",
       markPrice: Number(ticker?.lastPrice || 0),
@@ -2954,10 +3053,11 @@ export async function fetchTradingMarkets() {
     const symbol = String(item.symbol || "");
     const baseAsset = String(item.baseAsset || "");
     const quoteAsset = String(item.quoteAsset || "");
+    const tradFiAssetClass = binanceTradFiSpotAssetClass(baseAsset, tradFiAssetClasses);
     if (
       !symbol
       || !baseAsset
-      || quoteAsset !== MARKET_QUOTE
+      || (!tradFiAssetClass && quoteAsset !== MARKET_QUOTE)
       || item.status !== "TRADING"
       || item.isSpotTradingAllowed === false
     ) return [];
@@ -2972,9 +3072,9 @@ export async function fetchTradingMarkets() {
       baseAsset,
       quoteAsset,
       displaySymbol: `${baseAsset}/${quoteAsset}`,
-      description: `${baseAsset}/${quoteAsset} 币安现货`,
+      description: `${baseAsset}/${quoteAsset} 币安${tradFiAssetClass ? "传统金融" : ""}现货`,
       venue: MARKET_VENUE,
-      assetClass: "crypto",
+      assetClass: tradFiAssetClass || "crypto",
       marketType: "spot",
       tag: "现货",
       markPrice: lastPrice,
@@ -3963,6 +4063,18 @@ export function renderTradingExpertMarketWorkspace() {
               <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4 4"/></svg>
               <input type="search" data-market-search placeholder="搜索交易对" autocomplete="off" />
             </div>
+            <div class="trading-market-categories" data-market-categories role="tablist" aria-label="行情分类">
+              ${TRADING_MARKET_CATEGORY_OPTIONS.map((option) => `
+                <button
+                  type="button"
+                  data-market-action="market-category"
+                  data-market-category="${option.id}"
+                  role="tab"
+                  aria-selected="${option.id === "all"}"
+                  class="${option.id === "all" ? "active" : ""}"
+                >${option.label}</button>
+              `).join("")}
+            </div>
             <div class="trading-market-picker-head">
               <span>名称</span><span>平台</span><span>最新价</span><span>24H涨幅</span><span>收藏</span>
             </div>
@@ -4224,6 +4336,7 @@ class TradingExpertMarketWorkspace {
   private finnhubSearchPending = false;
   private ifindConfigured = false;
   private ifindSearchPending = false;
+  private marketCategory: TradingMarketCategory = "all";
   private activeMainIndicators: TradingMainIndicatorId[] = [];
   private activeIndicators: TradingIndicatorId[] = [];
   private indicatorSettings = defaultTradingIndicatorSettings();
@@ -4450,6 +4563,17 @@ class TradingExpertMarketWorkspace {
     }
     if (action === "toggle-symbols") {
       this.setPickerOpen(this.picker.hidden);
+      return;
+    }
+    if (action === "market-category") {
+      const category = String(target.dataset.marketCategory || "") as TradingMarketCategory;
+      if (!TRADING_MARKET_CATEGORY_OPTIONS.some((option) => option.id === category)) return;
+      this.marketCategory = category;
+      // Category selection is an explicit request to browse the directory,
+      // including TradFi contracts that are not in the default favorites.
+      this.showFavoritesOnly = false;
+      this.syncMarketCategoryButtons();
+      this.renderMarkets({ resetScroll: true });
       return;
     }
     if (action === "toggle-period-editor") {
@@ -5689,7 +5813,7 @@ class TradingExpertMarketWorkspace {
   private favoriteTickerMarkets() {
     const liveMarkets = new Map(this.markets.map((market) => [market.id, market]));
     return [...this.favoriteMarketRecords.values()]
-      .filter((record) => record.assetClass === "crypto" && this.favoriteSymbols.has(record.id))
+      .filter((record) => (record.assetClass === "crypto" || record.provider === "binance") && this.favoriteSymbols.has(record.id))
       .map((record) => liveMarkets.get(record.id)
         || this.finnhubFavoriteMarkets.get(record.id)
         || this.favoriteTickerMarketsById.get(record.id)
@@ -6430,6 +6554,8 @@ class TradingExpertMarketWorkspace {
       this.ifindSearchMarkets = [];
       this.ifindSearchPending = false;
       this.showFavoritesOnly = this.favoriteSymbols.size > 0;
+      if (this.marketCategory !== "all") this.showFavoritesOnly = false;
+      this.syncMarketCategoryButtons();
       this.renderMarkets({ resetScroll: true });
       if (this.finnhubConfigured) void this.refreshFavoriteFinnhubQuotes();
       if (this.ifindConfigured) void this.refreshFavoriteIfindQuotes();
@@ -6853,7 +6979,8 @@ class TradingExpertMarketWorkspace {
         query,
         this.favoriteSymbols,
         favoritesOnly,
-      ));
+      ))
+      .filter((market) => this.marketCategory === "all" || market.assetClass === this.marketCategory);
     const markets = favoritesOnly ? matchingMarkets : matchingMarkets.slice(0, 120);
     this.renderedMarkets = new Map(markets.map((market) => [market.id, market]));
     if (!markets.length) {
@@ -6886,7 +7013,7 @@ class TradingExpertMarketWorkspace {
             aria-current="${active}"
           ></button>
           <span class="trading-market-row-pair">
-            ${renderTradingMarketAssetLogo(market.baseAsset, market.provider)}
+            ${renderTradingMarketAssetLogo(market.baseAsset, market.provider, false, market.assetClass)}
             <strong title="${escapeAttribute(accessibleName)}">${escapeHtml(market.displaySymbol)}</strong>
             <span class="trading-market-contract-tag">${escapeHtml(market.tag)}</span>
           </span>
@@ -6906,6 +7033,14 @@ class TradingExpertMarketWorkspace {
       `;
     }).join("");
     this.restoreMarketListScroll(preservedScrollTop);
+  }
+
+  private syncMarketCategoryButtons() {
+    this.picker.querySelectorAll<HTMLButtonElement>("[data-market-action=market-category]").forEach((button) => {
+      const selected = button.dataset.marketCategory === this.marketCategory;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-selected", String(selected));
+    });
   }
 
   private restoreMarketListScroll(scrollTop: number) {
@@ -7122,18 +7257,13 @@ class TradingExpertMarketWorkspace {
     if (venueElement) venueElement.textContent = market?.venue || MARKET_VENUE;
     if (tagElement) tagElement.textContent = market?.tag || "永续";
     const logoShell = this.host.querySelector<HTMLElement>(".trading-market-symbol [data-market-logo-shell]");
-    const logoFallback = logoShell?.querySelector<HTMLElement>("[data-market-logo-fallback]");
-    const logoImage = logoShell?.querySelector<HTMLImageElement>("[data-market-logo]");
-    if (logoFallback) logoFallback.textContent = tradingMarketAssetBadge(baseAsset);
-    logoShell?.classList.toggle("provider-finnhub", provider === "finnhub");
-    logoShell?.classList.toggle("provider-ifind", provider === "ifind");
-    logoShell?.classList.toggle("provider-binance", provider === "binance");
-    if (logoImage) {
-      logoImage.hidden = provider !== "binance";
-      logoImage.dataset.marketLogoAsset = baseAsset;
-      logoImage.dataset.marketLogoStage = "binance";
-      logoImage.src = binanceAssetLogoUrl(baseAsset);
-      logoShell?.classList.toggle("fallback", provider !== "binance");
+    if (logoShell) {
+      logoShell.outerHTML = renderTradingMarketAssetLogo(
+        baseAsset,
+        provider,
+        true,
+        market?.assetClass || this.selectedAssetClass || (provider === "binance" ? "crypto" : undefined),
+      );
     }
     this.renderFavoriteTickerBar();
   }
@@ -7360,6 +7490,17 @@ class TradingExpertMarketWorkspace {
     theory?: string,
   ) {
     return this.drawingController?.hasAiAnalysisForCurrentContext(theory) === true;
+  }
+
+  personalStrategyCandles() {
+    return this.candles.slice(-600).map((candle) => ({
+      time: candle.time,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volume: candle.volume,
+    }));
   }
 
   /**
@@ -8912,14 +9053,11 @@ class TradingExpertMarketWorkspace {
     const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
     const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
     const analysisWindowCount = Math.min(600, Math.max(canvasCandles.length, preferredCandles));
-    const analysisCandles = requestedLookbackMs
+    let analysisCandles = requestedLookbackMs
       ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : visibleCandlesOnly && canvasCandles.length
-        ? canvasCandles.slice(-600)
+      : canvasCandles.length
+        ? canvasCandles.slice(-(visibleCandlesOnly ? 600 : analysisWindowCount))
         : this.candles.slice(-analysisWindowCount);
-    if (analysisCandles.length < minimumCandles) {
-      throw new Error(`${request.lookbackLabel || "当前可用数据窗口"}仅有 ${analysisCandles.length} 根 K 线，${analysisName}至少需要 ${minimumCandles} 根`);
-    }
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: analysisTheory,
@@ -8929,24 +9067,105 @@ class TradingExpertMarketWorkspace {
       interval: this.activeInterval,
       market: tradingFavoriteRecord(targetMarket),
     });
-    const splitSnapshotsPromise = visibleCandlesOnly
-      ? this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs, null)
-      : this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs, preferredCandles);
-    const contextCandlesPromise = request.contextCandlesRequested === true
-      ? fetchTradingMarketStructureContexts(targetMarket.symbol, targetInterval)
-      : Promise.resolve([] as TradingMarketStructureContext[]);
-    const comparisonMarketsPromise = request.comparisonCandlesRequested === true
-      ? fetchTradingSmtComparisonMarkets(targetMarket, targetInterval, preferredCandles, Date.now())
-      : Promise.resolve([] as TradingSmtComparisonMarket[]);
-    if (requestedLookbackMs) this.focusChartLookback(requestedLookbackMs);
-    const rangeDescription = request.lookbackLabel
-      ? `最近 ${request.lookbackLabel}`
-      : `默认分析窗口的 ${analysisCandles.length} 根`;
-    request.onProgress?.(
-      "analyzing",
-      `已读取左侧 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在计算${analysisName}规则、候选结构和条件价位。`,
-    );
     try {
+      let analysisCandlePool = [...this.candles];
+      const desiredCandleCount = Math.max(
+        minimumCandles,
+        Math.min(TRADING_CANDLE_WINDOW_AUTO_EXPANSION_MAX_CANDLES, preferredCandles),
+      );
+      const focusAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
+        if (
+          this.disposed
+          || this.loadedMarketId !== job.marketId
+          || this.loadedInterval !== job.interval
+          || !candles.length
+        ) return;
+        const first = candles[0];
+        const last = candles[candles.length - 1];
+        this.chart?.timeScale().setVisibleRange({
+          from: first.time as UTCTimestamp,
+          to: last.time as UTCTimestamp,
+        });
+      };
+      const expansion = await runTradingAnalysisWithAutoExpansion({
+        initialCandles: analysisCandles,
+        getAvailableCandles: () => analysisCandlePool,
+        insufficientDataCode: TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE,
+        analyze: async (candles) => {
+          focusAnalysisCandles(candles);
+          return candles.length >= desiredCandleCount
+            ? { ok: true }
+            : {
+                ok: false,
+                error: {
+                  code: TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE,
+                  message: `当前分析窗口仅有 ${candles.length} 根 K 线`,
+                },
+              };
+        },
+        loadMoreHistory: async () => {
+          const oldestTime = Number(analysisCandlePool[0]?.time || 0) * 1_000;
+          if (!oldestTime) return;
+          const history = await this.fetchHistoricalCandleBatch({
+            symbol: targetMarket.symbol,
+            provider: targetMarket.provider,
+            assetClass: targetMarket.assetClass,
+            marketType: targetMarket.marketType,
+            interval: targetInterval,
+            count: TRADING_CANDLE_WINDOW_HISTORY_BATCH_CANDLES,
+            endTime: oldestTime - 1,
+          });
+          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
+            throw new Error("盘面分析已由用户停止");
+          }
+          analysisCandlePool = mergeCandles(history.candles, analysisCandlePool);
+          if (
+            !this.disposed
+            && this.loadedMarketId === job.marketId
+            && this.loadedInterval === job.interval
+          ) {
+            this.sourceCandles = mergeCandles(history.sourceCandles, this.sourceCandles);
+            this.candles = mergeCandles(history.candles, this.candles);
+            this.updateChartData();
+          }
+        },
+        onExpansion: (event) => {
+          if (event.type === "history") {
+            request.onProgress?.(
+              "loading",
+              `当前仅有 ${event.candleCount} 根 K 线，正在自动加载更早历史，最多扩展到 ${event.maxCandleCount} 根。`,
+            );
+            return;
+          }
+          request.onProgress?.(
+            "analyzing",
+            `当前 ${event.fromCount} 根 K 线不足，正在自动扩大画布到 ${event.toCount} 根再计算${analysisName}。`,
+          );
+        },
+        maxCandleCount: TRADING_CANDLE_WINDOW_AUTO_EXPANSION_MAX_CANDLES,
+      });
+      analysisCandles = expansion.candles;
+      if (analysisCandles.length < minimumCandles) {
+        throw new Error(`${request.lookbackLabel || "当前可用数据窗口"}仅有 ${analysisCandles.length} 根 K 线，${analysisName}至少需要 ${minimumCandles} 根`);
+      }
+      focusAnalysisCandles(analysisCandles);
+      const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
+        requestedLookbackMs,
+        preferredCandles,
+      );
+      const contextCandlesPromise = request.contextCandlesRequested === true
+        ? fetchTradingMarketStructureContexts(targetMarket.symbol, targetInterval)
+        : Promise.resolve([] as TradingMarketStructureContext[]);
+      const comparisonMarketsPromise = request.comparisonCandlesRequested === true
+        ? fetchTradingSmtComparisonMarkets(targetMarket, targetInterval, preferredCandles, Date.now())
+        : Promise.resolve([] as TradingSmtComparisonMarket[]);
+      const rangeDescription = request.lookbackLabel
+        ? `以最近 ${request.lookbackLabel} 为起点自动扩展后的 ${analysisCandles.length} 根`
+        : `自动扩展后的 ${analysisCandles.length} 根`;
+      request.onProgress?.(
+        "analyzing",
+        `已读取左侧 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在计算${analysisName}规则、候选结构和条件价位。`,
+      );
       const response = await api({
         analysisJobId: job.analysisId,
         marketId: job.marketId,
@@ -9127,14 +9346,11 @@ class TradingExpertMarketWorkspace {
     const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
     const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
     const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
-    const analysisCandles = requestedLookbackMs
+    let analysisCandles = requestedLookbackMs
       ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
       : canvasCandles.length
         ? canvasCandles
         : this.candles.slice(-100);
-    if (analysisCandles.length < 30) {
-      throw new Error(`${request.lookbackLabel || "所选范围"}仅有 ${analysisCandles.length} 根 K 线，不足以形成可靠的缠论笔结构`);
-    }
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: "chan",
@@ -9144,7 +9360,10 @@ class TradingExpertMarketWorkspace {
       interval: this.activeInterval,
       market: tradingFavoriteRecord(targetMarket),
     });
-    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs);
+    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
+      requestedLookbackMs,
+      TRADING_CHAN_AUTO_EXPANSION_MAX_CANDLES,
+    );
     if (requestedLookbackMs) this.focusChartLookback(requestedLookbackMs);
     const rangeDescription = request.lookbackLabel
       ? `最近 ${request.lookbackLabel}`
@@ -9154,30 +9373,121 @@ class TradingExpertMarketWorkspace {
       `已准备 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在识别包含关系、分型、笔和中枢。`,
     );
     try {
-      const response = await api({
-        analysisJobId: job.analysisId,
-        marketId: job.marketId,
-        interval: job.interval,
-        snapshotTime: Date.now(),
-        instruction: request.instruction,
-        responseMode: request.drawingRequested === false ? "direct" : "full",
-        lookbackMs: requestedLookbackMs,
-        candles: analysisCandles.map((candle) => ({
-          time: candle.time,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-          volume: candle.volume,
-        })),
-      }) as TradingChanAnalysisResponse;
-      if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-        throw new Error("缠论分析已由用户停止");
-      }
+      const initialAnalysisCandleCount = analysisCandles.length;
+      let chanCandlePool = [...this.candles];
+      let chanSourceCandlePool: TradingCandle[] = [];
+      let expandCanvasBeforeAnalysis = false;
+      const focusChanAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
+        if (
+          !expandCanvasBeforeAnalysis
+          || this.disposed
+          || this.loadedMarketId !== job.marketId
+          || this.loadedInterval !== job.interval
+        ) return;
+        const first = candles[0];
+        const last = candles.at(-1);
+        if (!first || !last) return;
+        this.chart?.timeScale().setVisibleRange({
+          from: first.time as UTCTimestamp,
+          to: last.time as UTCTimestamp,
+        });
+      };
+      const expansion = await runTradingAnalysisWithAutoExpansion({
+        initialCandles: analysisCandles,
+        getAvailableCandles: () => chanCandlePool,
+        insufficientDataCode: TRADING_CHAN_INSUFFICIENT_DATA_CODE,
+        analyze: async (candles) => {
+          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
+            throw new Error("缠论分析已由用户停止");
+          }
+          focusChanAnalysisCandles(candles);
+          if (candles.length < 30) {
+            return {
+              ok: false,
+              error: {
+                code: TRADING_CHAN_INSUFFICIENT_DATA_CODE,
+                message: `当前范围仅有 ${candles.length} 根 K 线`,
+              },
+            } as TradingChanAnalysisResponse;
+          }
+          return api({
+            analysisJobId: job.analysisId,
+            marketId: job.marketId,
+            interval: job.interval,
+            snapshotTime: Date.now(),
+            instruction: request.instruction,
+            responseMode: request.drawingRequested === false ? "direct" : "full",
+            lookbackMs: requestedLookbackMs,
+            candles: candles.map((candle) => ({
+              time: candle.time,
+              open: candle.open,
+              high: candle.high,
+              low: candle.low,
+              close: candle.close,
+              volume: candle.volume,
+            })),
+          }) as Promise<TradingChanAnalysisResponse>;
+        },
+        loadMoreHistory: async () => {
+          const oldestTime = Number(chanCandlePool[0]?.time || 0) * 1_000;
+          if (!oldestTime) return;
+          let history: TradingCandleBatch;
+          try {
+            history = await this.fetchHistoricalCandleBatch({
+              symbol: targetMarket.symbol,
+              provider: targetMarket.provider,
+              assetClass: targetMarket.assetClass,
+              marketType: targetMarket.marketType,
+              interval: targetInterval,
+              count: TRADING_CHAN_HISTORY_BATCH_CANDLES,
+              endTime: oldestTime - 1,
+            });
+          } catch (error) {
+            throw new Error(`自动扩大缠论分析范围时加载历史 K 线失败：${String((error as Error)?.message || error)}`);
+          }
+          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
+            throw new Error("缠论分析已由用户停止");
+          }
+          chanCandlePool = mergeCandles(history.candles, chanCandlePool);
+          chanSourceCandlePool = mergeCandles(history.sourceCandles, chanSourceCandlePool);
+          if (
+            !this.disposed
+            && this.loadedMarketId === job.marketId
+            && this.loadedInterval === job.interval
+          ) {
+            this.sourceCandles = mergeCandles(chanSourceCandlePool, this.sourceCandles);
+            this.candles = mergeCandles(chanCandlePool, this.candles);
+            this.updateChartData();
+          }
+        },
+        onExpansion: (event: TradingAnalysisExpansionEvent) => {
+          if (event.type === "history") {
+            request.onProgress?.(
+              "loading",
+              `已检查 ${event.candleCount} 根 K 线仍未形成缠论笔结构，正在自动加载更早历史，最多检查 ${event.maxCandleCount} 根。`,
+            );
+            return;
+          }
+          expandCanvasBeforeAnalysis = true;
+          request.onProgress?.(
+            "analyzing",
+            `当前 ${event.fromCount} 根 K 线不足，正在自动扩大画布到 ${event.toCount} 根并继续缠论分析。`,
+          );
+        },
+        maxCandleCount: TRADING_CHAN_AUTO_EXPANSION_MAX_CANDLES,
+      });
+      const response = expansion.response;
+      analysisCandles = expansion.candles;
       if (!response?.ok || !response.analysisPlan?.drawingPatch) {
-        const error = new Error(response?.error?.message || "缠论分析没有返回可绘制计划");
+        const responseMessage = response?.error?.message || "缠论分析没有返回可绘制计划";
+        const error = new Error(expansion.exhausted && response?.error?.code === TRADING_CHAN_INSUFFICIENT_DATA_CODE
+          ? `已自动扩大画布并检查 ${analysisCandles.length} 根 K 线，仍未形成可复核的缠论笔结构：${responseMessage}`
+          : responseMessage);
         (error as Error & { code?: string }).code = response?.error?.code;
         throw error;
+      }
+      if (analysisCandles.length > initialAnalysisCandleCount) {
+        focusChanAnalysisCandles(analysisCandles);
       }
       const modelName = response.model?.modelId || response.model?.providerId || "分析模型";
       if (request.drawingRequested !== false) {
@@ -9308,9 +9618,6 @@ class TradingExpertMarketWorkspace {
       : canvasCandles.length
         ? canvasCandles
         : this.candles.slice(-100);
-    if (analysisCandles.length < 30) {
-      throw new Error(`${request.lookbackLabel || "所选范围"}仅有 ${analysisCandles.length} 根 K 线，不足以形成可靠的波浪摆动点`);
-    }
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: "wave",
@@ -9320,8 +9627,10 @@ class TradingExpertMarketWorkspace {
       interval: this.activeInterval,
       market: tradingFavoriteRecord(targetMarket),
     });
-    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs);
-    if (requestedLookbackMs) this.focusChartLookback(requestedLookbackMs);
+    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
+      requestedLookbackMs,
+      TRADING_WAVE_AUTO_EXPANSION_MAX_CANDLES,
+    );
     const rangeDescription = request.lookbackLabel
       ? `最近 ${request.lookbackLabel}`
       : `当前画布可见的 ${analysisCandles.length} 根`;
@@ -9332,10 +9641,34 @@ class TradingExpertMarketWorkspace {
     try {
       let waveCandlePool = [...this.candles];
       let waveSourceCandlePool: TradingCandle[] = [];
+      const focusWaveAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
+        if (
+          this.disposed
+          || this.loadedMarketId !== job.marketId
+          || this.loadedInterval !== job.interval
+          || !candles.length
+        ) return;
+        const first = candles[0];
+        const last = candles[candles.length - 1];
+        this.chart?.timeScale().setVisibleRange({
+          from: first.time as UTCTimestamp,
+          to: last.time as UTCTimestamp,
+        });
+      };
       const expansion = await runTradingWaveAnalysisWithAutoExpansion({
         initialCandles: analysisCandles,
         getAvailableCandles: () => waveCandlePool,
         analyze: async (candles) => {
+          focusWaveAnalysisCandles(candles);
+          if (candles.length < 30) {
+            return {
+              ok: false,
+              error: {
+                code: "TRADING_WAVE_INSUFFICIENT_DATA",
+                message: `当前范围仅有 ${candles.length} 根 K 线`,
+              },
+            } as TradingWaveAnalysisResponse;
+          }
           const response = await api({
             analysisJobId: job.analysisId,
             marketId: job.marketId,
@@ -9380,6 +9713,15 @@ class TradingExpertMarketWorkspace {
           }
           waveCandlePool = mergeCandles(history.candles, waveCandlePool);
           waveSourceCandlePool = mergeCandles(history.sourceCandles, waveSourceCandlePool);
+          if (
+            !this.disposed
+            && this.loadedMarketId === job.marketId
+            && this.loadedInterval === job.interval
+          ) {
+            this.sourceCandles = mergeCandles(history.sourceCandles, this.sourceCandles);
+            this.candles = mergeCandles(history.candles, this.candles);
+            this.updateChartData();
+          }
         },
         onExpansion: (event: TradingWaveExpansionEvent) => {
           if (event.type === "history") {
@@ -9398,6 +9740,7 @@ class TradingExpertMarketWorkspace {
       });
       const response = expansion.response;
       analysisCandles = expansion.candles;
+      focusWaveAnalysisCandles(analysisCandles);
       if (!response?.ok || !response.analysisPlan?.drawingPatch) {
         const responseMessage = response?.error?.message || "波浪理论分析没有返回可绘制计划";
         const error = new Error(expansion.exhausted && response?.error?.code === "TRADING_WAVE_INSUFFICIENT_DATA"
@@ -9412,11 +9755,10 @@ class TradingExpertMarketWorkspace {
         && this.loadedInterval === job.interval
         && waveCandlePool.length > this.candles.length
       ) {
-        const visibleTimeRange = this.chart?.timeScale().getVisibleRange() || null;
         this.sourceCandles = mergeCandles(waveSourceCandlePool, this.sourceCandles);
         this.candles = mergeCandles(waveCandlePool, this.candles);
         this.updateChartData();
-        if (visibleTimeRange) this.chart?.timeScale().setVisibleRange(visibleTimeRange);
+        focusWaveAnalysisCandles(analysisCandles);
       }
       const modelName = response.model?.modelId || response.model?.providerId || "分析模型";
       if (request.drawingRequested !== false) {
@@ -9542,14 +9884,11 @@ class TradingExpertMarketWorkspace {
     const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
     const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
     const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
-    const analysisCandles = requestedLookbackMs
+    let analysisCandles = requestedLookbackMs
       ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
       : canvasCandles.length >= 60
         ? canvasCandles
         : this.candles.slice(-120);
-    if (analysisCandles.length < 60) {
-      throw new Error(`${request.lookbackLabel || "所选范围"}仅有 ${analysisCandles.length} 根 K 线，不足以识别可靠的威科夫交易区间`);
-    }
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: "wyckoff",
@@ -9559,8 +9898,10 @@ class TradingExpertMarketWorkspace {
       interval: this.activeInterval,
       market: tradingFavoriteRecord(targetMarket),
     });
-    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs);
-    if (requestedLookbackMs) this.focusChartLookback(requestedLookbackMs);
+    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
+      requestedLookbackMs,
+      TRADING_WYCKOFF_AUTO_EXPANSION_MAX_CANDLES,
+    );
     const rangeDescription = request.lookbackLabel
       ? `最近 ${request.lookbackLabel}`
       : `当前画布可见的 ${analysisCandles.length} 根`;
@@ -9569,23 +9910,98 @@ class TradingExpertMarketWorkspace {
       `已准备 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在识别交易区间、量价努力结果、A–E 阶段和关键事件。`,
     );
     try {
-      const response = await api({
-        analysisJobId: job.analysisId,
-        marketId: job.marketId,
-        interval: job.interval,
-        snapshotTime: Date.now(),
-        instruction: request.instruction,
-        responseMode: request.drawingRequested === false ? "direct" : "full",
-        lookbackMs: requestedLookbackMs,
-        candles: analysisCandles.map((candle) => ({
-          time: candle.time,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-          volume: candle.volume,
-        })),
-      }) as TradingWyckoffAnalysisResponse;
+      let wyckoffCandlePool = [...this.candles];
+      const focusWyckoffAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
+        if (
+          this.disposed
+          || this.loadedMarketId !== job.marketId
+          || this.loadedInterval !== job.interval
+          || !candles.length
+        ) return;
+        const first = candles[0];
+        const last = candles[candles.length - 1];
+        this.chart?.timeScale().setVisibleRange({
+          from: first.time as UTCTimestamp,
+          to: last.time as UTCTimestamp,
+        });
+      };
+      const expansion = await runTradingAnalysisWithAutoExpansion({
+        initialCandles: analysisCandles,
+        getAvailableCandles: () => wyckoffCandlePool,
+        insufficientDataCode: TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE,
+        analyze: async (candles) => {
+          focusWyckoffAnalysisCandles(candles);
+          if (candles.length < 60) {
+            return {
+              ok: false,
+              error: {
+                code: TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE,
+                message: `当前范围仅有 ${candles.length} 根 K 线`,
+              },
+            } as TradingWyckoffAnalysisResponse;
+          }
+          return api({
+            analysisJobId: job.analysisId,
+            marketId: job.marketId,
+            interval: job.interval,
+            snapshotTime: Date.now(),
+            instruction: request.instruction,
+            responseMode: request.drawingRequested === false ? "direct" : "full",
+            lookbackMs: requestedLookbackMs,
+            candles: candles.map((candle) => ({
+              time: candle.time,
+              open: candle.open,
+              high: candle.high,
+              low: candle.low,
+              close: candle.close,
+              volume: candle.volume,
+            })),
+          }) as Promise<TradingWyckoffAnalysisResponse>;
+        },
+        loadMoreHistory: async () => {
+          const oldestTime = Number(wyckoffCandlePool[0]?.time || 0) * 1_000;
+          if (!oldestTime) return;
+          const history = await this.fetchHistoricalCandleBatch({
+            symbol: targetMarket.symbol,
+            provider: targetMarket.provider,
+            assetClass: targetMarket.assetClass,
+            marketType: targetMarket.marketType,
+            interval: targetInterval,
+            count: TRADING_WYCKOFF_HISTORY_BATCH_CANDLES,
+            endTime: oldestTime - 1,
+          });
+          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
+            throw new Error("威科夫分析已由用户停止");
+          }
+          wyckoffCandlePool = mergeCandles(history.candles, wyckoffCandlePool);
+          if (
+            !this.disposed
+            && this.loadedMarketId === job.marketId
+            && this.loadedInterval === job.interval
+          ) {
+            this.sourceCandles = mergeCandles(history.sourceCandles, this.sourceCandles);
+            this.candles = mergeCandles(history.candles, this.candles);
+            this.updateChartData();
+          }
+        },
+        onExpansion: (event) => {
+          if (event.type === "history") {
+            request.onProgress?.(
+              "loading",
+              `已检查 ${event.candleCount} 根 K 线仍未形成威科夫区间，正在自动加载更早历史，最多检查 ${event.maxCandleCount} 根。`,
+            );
+            return;
+          }
+          request.onProgress?.(
+            "wyckoff-analyzing",
+            `当前 ${event.fromCount} 根 K 线不足，正在自动扩大画布到 ${event.toCount} 根继续威科夫分析。`,
+          );
+        },
+        maxCandleCount: TRADING_WYCKOFF_AUTO_EXPANSION_MAX_CANDLES,
+      });
+      const response = expansion.response;
+      analysisCandles = expansion.candles;
+      focusWyckoffAnalysisCandles(analysisCandles);
       if (!tradingAnalysisJobs.isActive(job.analysisId)) {
         throw new Error("威科夫分析已由用户停止");
       }
@@ -9721,14 +10137,11 @@ class TradingExpertMarketWorkspace {
     const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
     const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
     const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
-    const analysisCandles = requestedLookbackMs
+    let analysisCandles = requestedLookbackMs
       ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
       : canvasCandles.length
         ? canvasCandles
         : this.candles.slice(-100);
-    if (analysisCandles.length < 30) {
-      throw new Error(`${request.lookbackLabel || "所选范围"}仅有 ${analysisCandles.length} 根 K 线，不足以提供订单流所需的价格背景`);
-    }
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: "order-flow",
@@ -9739,8 +10152,10 @@ class TradingExpertMarketWorkspace {
       market: tradingFavoriteRecord(targetMarket),
     });
     const capturedOpenInterest = this.stats?.openInterest ?? null;
-    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs);
-    if (requestedLookbackMs) this.focusChartLookback(requestedLookbackMs);
+    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
+      requestedLookbackMs,
+      120,
+    );
     const rangeDescription = request.lookbackLabel
       ? `最近 ${request.lookbackLabel}`
       : `当前画布可见的 ${analysisCandles.length} 根`;
@@ -9749,6 +10164,80 @@ class TradingExpertMarketWorkspace {
       `已准备 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在读取真实主动成交、盘口深度和持仓量覆盖。`,
     );
     try {
+      let orderFlowCandlePool = [...this.candles];
+      const focusOrderFlowAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
+        if (
+          this.disposed
+          || this.loadedMarketId !== job.marketId
+          || this.loadedInterval !== job.interval
+          || !candles.length
+        ) return;
+        const first = candles[0];
+        const last = candles[candles.length - 1];
+        this.chart?.timeScale().setVisibleRange({
+          from: first.time as UTCTimestamp,
+          to: last.time as UTCTimestamp,
+        });
+      };
+      const expansion = await runTradingAnalysisWithAutoExpansion({
+        initialCandles: analysisCandles,
+        getAvailableCandles: () => orderFlowCandlePool,
+        insufficientDataCode: TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE,
+        analyze: async (candles) => {
+          focusOrderFlowAnalysisCandles(candles);
+          return candles.length >= 120
+            ? { ok: true }
+            : {
+                ok: false,
+                error: {
+                  code: TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE,
+                  message: `当前订单流背景窗口仅有 ${candles.length} 根 K 线`,
+                },
+              };
+        },
+        loadMoreHistory: async () => {
+          const oldestTime = Number(orderFlowCandlePool[0]?.time || 0) * 1_000;
+          if (!oldestTime) return;
+          const history = await this.fetchHistoricalCandleBatch({
+            symbol: targetMarket.symbol,
+            provider: targetMarket.provider,
+            assetClass: targetMarket.assetClass,
+            marketType: targetMarket.marketType,
+            interval: targetInterval,
+            count: TRADING_CANDLE_WINDOW_HISTORY_BATCH_CANDLES,
+            endTime: oldestTime - 1,
+          });
+          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
+            throw new Error("订单流分析已由用户停止");
+          }
+          orderFlowCandlePool = mergeCandles(history.candles, orderFlowCandlePool);
+          if (
+            !this.disposed
+            && this.loadedMarketId === job.marketId
+            && this.loadedInterval === job.interval
+          ) {
+            this.sourceCandles = mergeCandles(history.sourceCandles, this.sourceCandles);
+            this.candles = mergeCandles(history.candles, this.candles);
+            this.updateChartData();
+          }
+        },
+        onExpansion: (event) => {
+          if (event.type === "history") {
+            request.onProgress?.(
+              "loading",
+              `当前仅有 ${event.candleCount} 根 K 线，正在自动加载更早历史，最多扩展到 ${event.maxCandleCount} 根。`,
+            );
+            return;
+          }
+          request.onProgress?.(
+            "order-flow-analyzing",
+            `当前 ${event.fromCount} 根 K 线不足，正在自动扩大画布到 ${event.toCount} 根继续订单流分析。`,
+          );
+        },
+        maxCandleCount: TRADING_CANDLE_WINDOW_AUTO_EXPANSION_MAX_CANDLES,
+      });
+      analysisCandles = expansion.candles;
+      focusOrderFlowAnalysisCandles(analysisCandles);
       const orderFlow = await fetchTradingOrderFlowWindow(
         job.symbol,
         job.interval,
@@ -10751,6 +11240,10 @@ class TradingExpertMarketWorkspace {
       onSurfaceFocus: (source) => this.activateDrawingController(source),
       onDrawingStateChanged: () => { this.recordLastDrawingWorkspace(); this.queueAlertDrawingSync(); },
       onAiDrawingContextsChanged: (context) => {
+        const contextMarket = context
+          ? this.markets.find((market) => market.id === context.marketId)
+            || (this.selectedMarketId === context.marketId ? this.selectedMarketMeta : null)
+          : null;
         saveTradingLastAnalysisContext(
           window.localStorage,
           this.drawingStorageSessionId,
@@ -10760,6 +11253,7 @@ class TradingExpertMarketWorkspace {
                 marketId: context.marketId,
                 interval: context.interval,
                 updatedAt: Date.now(),
+                ...(contextMarket ? { market: tradingFavoriteRecord(contextMarket) } : {}),
               }
             : null,
         );
@@ -12295,6 +12789,10 @@ export function hasTradingExpertCurrentAnalysis(
   theory?: string,
 ) {
   return activeWorkspace?.hasCurrentAnalysis(theory) === true;
+}
+
+export function tradingExpertPersonalStrategyCandles() {
+  return activeWorkspace?.personalStrategyCandles() || [];
 }
 
 export function prepareTradingExpertMarketForExternalCapture() {

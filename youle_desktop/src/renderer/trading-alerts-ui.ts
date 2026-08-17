@@ -10,6 +10,7 @@ export type TradingAlertEditorMarketOption = {
   id: string;
   provider: TradingMarketIdentityProvider;
   baseAsset: string;
+  assetClass?: string;
   displaySymbol: string;
   venue: string;
   tag: string;
@@ -336,6 +337,7 @@ function tradingAlertEditorMarketFallback(marketId: string): TradingAlertEditorM
     id: marketId,
     provider,
     baseAsset,
+    assetClass: provider === "binance" && marketType?.toUpperCase() !== "SPOT" ? "stock" : "crypto",
     displaySymbol: [baseAsset, quoteAsset].filter(Boolean).join("/"),
     venue: TRADING_ALERT_VENUE_LABELS[venueId?.toUpperCase()] || venueId || "币安",
     tag: marketType?.toUpperCase() === "SPOT" ? "现货" : "永续",
@@ -362,7 +364,7 @@ export function renderTradingAlertEditorMarketOptions(
       ? `${market.changePercent >= 0 ? "+" : ""}${market.changePercent.toFixed(2)}%`
       : "--";
     return `<button type="button" class="trading-alert-market-option${selected ? " selected" : ""}" data-trading-alert-select-value="${esc(market.id)}" data-trading-alert-select-option-label="${esc(`${market.displaySymbol} · ${market.venue} · ${market.tag}`)}" data-trading-alert-market-search-text="${esc(`${market.id} ${market.displaySymbol} ${market.baseAsset} ${market.venue} ${market.tag}`)}" role="option" aria-selected="${selected ? "true" : "false"}" tabindex="-1">
-      <span class="trading-alert-market-pair">${renderTradingMarketAssetLogo(market.baseAsset, market.provider)}<span><strong>${esc(market.displaySymbol)}</strong><small>${esc(market.tag)}</small></span></span>
+      <span class="trading-alert-market-pair">${renderTradingMarketAssetLogo(market.baseAsset, market.provider, false, market.assetClass)}<span><strong>${esc(market.displaySymbol)}</strong><small>${esc(market.tag)}</small></span></span>
       <span>${esc(market.venue)}</span>
       <b>${esc(tradingAlertEditorMarketPrice(market.markPrice))}</b>
       <em class="${market.quoteAvailable ? market.changePercent >= 0 ? "positive" : "negative" : ""}">${esc(changeText)}</em>

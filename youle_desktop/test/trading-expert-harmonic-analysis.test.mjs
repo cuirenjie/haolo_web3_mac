@@ -673,7 +673,7 @@ test("renderer discovers harmonic metadata and requests enough closed candles wi
   assert.match(market, /minimumCandles/);
   assert.match(market, /preferredCandles/);
   assert.match(market, /analysisWindowCount/);
-  assert.match(market, /captureSplitPaneAnalysisSnapshots\(requestedLookbackMs, preferredCandles\)/);
+  assert.match(market, /captureSplitPaneAnalysisSnapshots\(\s*requestedLookbackMs,\s*preferredCandles,/);
   assert.match(renderer, /minimumCandles:\s*strategy\.dataRequirements/);
   assert.match(renderer, /preferredCandles:\s*strategy\.dataRequirements/);
   assert.match(renderer, /harmonic:/);

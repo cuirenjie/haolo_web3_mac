@@ -1,7 +1,45 @@
-const BASE_URLS = Object.freeze({
+/**
+ * Binance's public Spot market-data host is intentionally separate from the
+ * authenticated Spot API host. Futures keeps Binance's documented default,
+ * while both values can be overridden for a deployment-side market gateway.
+ */
+export const DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS = Object.freeze({
   futures: "https://fapi.binance.com",
-  spot: "https://api.binance.com",
+  spot: "https://data-api.binance.vision",
 });
+
+const BINANCE_PUBLIC_MARKET_BASE_URL_ENV_KEYS = Object.freeze({
+  futures: "HAOLO_BINANCE_FUTURES_MARKET_BASE_URL",
+  spot: "HAOLO_BINANCE_SPOT_MARKET_BASE_URL",
+});
+
+function normalizeBaseUrl(value, fallback) {
+  const raw = String(value || fallback || "").trim();
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new BinancePublicMarketRequestError("Invalid Binance market base URL");
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new BinancePublicMarketRequestError("Binance market base URL must be an HTTPS origin");
+  }
+  return parsed.origin;
+}
+
+export function resolveBinancePublicMarketBaseUrls(env = process.env) {
+  const source = env && typeof env === "object" ? env : {};
+  return Object.freeze({
+    futures: normalizeBaseUrl(
+      source[BINANCE_PUBLIC_MARKET_BASE_URL_ENV_KEYS.futures],
+      DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS.futures,
+    ),
+    spot: normalizeBaseUrl(
+      source[BINANCE_PUBLIC_MARKET_BASE_URL_ENV_KEYS.spot],
+      DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS.spot,
+    ),
+  });
+}
 
 const ROUTES = new Map([
   ["futures:/fapi/v1/exchangeInfo", []],
@@ -61,10 +99,10 @@ function validateParameter(key, value) {
   return String(numeric);
 }
 
-export function normalizeBinancePublicMarketRequest(value = {}) {
+export function normalizeBinancePublicMarketRequest(value = {}, { baseUrls = resolveBinancePublicMarketBaseUrls() } = {}) {
   const marketType = String(value?.marketType || "").toLowerCase();
   const route = String(value?.path || "");
-  if (!Object.hasOwn(BASE_URLS, marketType)) throw new BinancePublicMarketRequestError("Invalid Binance market type");
+  if (!Object.hasOwn(baseUrls, marketType)) throw new BinancePublicMarketRequestError("Invalid Binance market type");
   const allowed = ROUTES.get(`${marketType}:${route}`);
   if (!allowed) throw new BinancePublicMarketRequestError("Binance market route is not allowed");
   const parameters = value?.parameters == null ? {} : value.parameters;
@@ -73,7 +111,7 @@ export function normalizeBinancePublicMarketRequest(value = {}) {
   if (keys.length > 8 || keys.some((key) => !allowed.includes(key))) {
     throw new BinancePublicMarketRequestError("Binance market parameter is not allowed");
   }
-  const url = new URL(route, BASE_URLS[marketType]);
+  const url = new URL(route, normalizeBaseUrl(baseUrls[marketType], DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS[marketType]));
   for (const key of keys) {
     const normalized = validateParameter(key, parameters[key]);
     if (normalized !== null) url.searchParams.set(key, normalized);
@@ -100,11 +138,20 @@ function retryAfterMs(response) {
 }
 
 export class BinancePublicMarketService {
-  constructor({ fetch: networkFetch = globalThis.fetch, now = Date.now, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+  constructor({
+    fetch: networkFetch = globalThis.fetch,
+    now = Date.now,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+    baseUrls = resolveBinancePublicMarketBaseUrls(),
+  } = {}) {
     if (typeof networkFetch !== "function") throw new TypeError("fetch is required");
     this.fetch = networkFetch;
     this.now = now;
     this.timeoutMs = Math.max(1_000, Number(timeoutMs) || REQUEST_TIMEOUT_MS);
+    this.baseUrls = Object.freeze({
+      futures: normalizeBaseUrl(baseUrls?.futures, DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS.futures),
+      spot: normalizeBaseUrl(baseUrls?.spot, DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS.spot),
+    });
     this.cache = new Map();
   }
 
@@ -129,7 +176,7 @@ export class BinancePublicMarketService {
   }
 
   async request(value = {}) {
-    const request = normalizeBinancePublicMarketRequest(value);
+    const request = normalizeBinancePublicMarketRequest(value, { baseUrls: this.baseUrls });
     const currentMs = this.currentTimeMs();
     const cached = this.cached(request.url, currentMs);
     if (cached) return cached;

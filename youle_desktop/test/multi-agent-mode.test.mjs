@@ -32,6 +32,9 @@ test("legacy multi-agent mode fails closed to ordinary serial execution", () => 
   assert.match(instructions, /do not use collaboration or delegation tools/);
   assert.match(instructions, /at most one substantive task or tool operation at a time/);
   assert.match(instructions, /does not override this client policy/);
+  assert.match(instructions, /Answer the user's current question or requested deliverable directly/);
+  assert.match(instructions, /Do not turn an ordinary question into an execution plan/);
+  assert.match(instructions, /Do not expose internal planning or status narration/);
   assert.doesNotMatch(instructions, /must call `spawn_agent`|no fewer than 2/);
 });
 
@@ -40,6 +43,8 @@ test("execution mode always carries the serial policy, including omitted mode va
 
   assert.match(instructions, /Do not call `spawn_agent`/);
   assert.match(instructions, /single root agent/);
+  assert.match(instructions, /Answer the user's current question or requested deliverable directly/);
+  assert.match(instructions, /Only provide a plan when the user explicitly asks/);
   assert.doesNotMatch(instructions, /no fewer than 2/);
   assert.match(buildConversationModeDeveloperInstructions(null), /haolo_serial_execution_policy/);
 });
@@ -367,6 +372,8 @@ test("main process injects the selected conversation-mode contract before every 
     /buildConversationModeDeveloperInstructions\([\s\S]*imageGenerationModel[\s\S]*videoGenerationOptions/,
   );
   assert.match(desktopInstructions, /conversationModeInstructions/);
+  assert.match(desktopInstructions, /haolo_direct_answer_policy/);
+  assert.match(desktopInstructions, /do not substitute a generic execution plan for the requested answer/);
   assert.match(send, /params\.conversationMode \|\| params\.conversation_mode/);
   assert.match(send, /params\.imageGenerationModel \|\| params\.image_generation_model/);
   assert.match(send, /params\.imageGenerationSize \|\| params\.image_generation_size/);

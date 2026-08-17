@@ -20,7 +20,7 @@ test("public market gateway accepts only fixed Binance read-only routes and para
       path: "/api/v3/exchangeInfo",
       parameters: { permissions: "SPOT", symbolStatus: "TRADING" },
     }).url,
-    "https://api.binance.com/api/v3/exchangeInfo?permissions=SPOT&symbolStatus=TRADING",
+    "https://data-api.binance.vision/api/v3/exchangeInfo?permissions=SPOT&symbolStatus=TRADING",
   );
   assert.equal(
     normalizeBinancePublicMarketRequest({
@@ -28,7 +28,7 @@ test("public market gateway accepts only fixed Binance read-only routes and para
       path: "/api/v3/ticker/24hr",
       parameters: { type: "MINI" },
     }).url,
-    "https://api.binance.com/api/v3/ticker/24hr?type=MINI",
+    "https://data-api.binance.vision/api/v3/ticker/24hr?type=MINI",
   );
   assert.throws(
     () => normalizeBinancePublicMarketRequest({ marketType: "futures", path: "/fapi/v1/order", parameters: {} }),
@@ -41,6 +41,29 @@ test("public market gateway accepts only fixed Binance read-only routes and para
   assert.throws(
     () => normalizeBinancePublicMarketRequest({ marketType: "spot", path: "/api/v3/klines", parameters: { symbol: "BTC/USDT" } }),
     /symbol/,
+  );
+});
+
+test("public market gateway accepts deployment-specific HTTPS market gateways", () => {
+  const request = normalizeBinancePublicMarketRequest({
+    marketType: "futures",
+    path: "/fapi/v1/klines",
+    parameters: { symbol: "BTCUSDT", interval: "1m", limit: 2 },
+  }, {
+    baseUrls: {
+      futures: "https://market-gateway.example.test",
+      spot: "https://spot-gateway.example.test",
+    },
+  });
+  assert.equal(
+    request.url,
+    "https://market-gateway.example.test/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=2",
+  );
+  assert.throws(
+    () => normalizeBinancePublicMarketRequest({ marketType: "spot", path: "/api/v3/klines" }, {
+      baseUrls: { spot: "http://insecure.example.test", futures: "https://futures.example.test" },
+    }),
+    /HTTPS origin/,
   );
 });
 

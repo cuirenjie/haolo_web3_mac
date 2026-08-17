@@ -15,6 +15,81 @@ const CONVERSATION_INTENTS = new Set(["general-question", "screenshot-question",
 const CHART_INTENTS = new Set(["chart-analysis", "chart-drawing"]);
 const MAX_LOOKBACK_MS = 5 * 366 * 24 * 60 * 60 * 1_000;
 
+// These are deliberately high-signal phrases.  A trading workspace can keep
+// a chart open while the user is asking for education, strategy selection or
+// account context; those words must never be treated as permission to read
+// the chart.  The model still handles ambiguous wording, but this guard makes
+// the safety boundary deterministic for the common failure mode.
+const EXPLICIT_CONCEPTUAL_REQUEST = /(?:什么是|啥是|解释|讲解|讲讲|如何理解|怎么理解|怎么看|怎么学|怎么用|怎么判断|如何学习|如何入门|学习|教我|入门|新手|小白|教程|概念|原理|区别|推荐|适合|选择|一步步|系统地?学|系统学习)/iu;
+const PERSONAL_CONTEXT_REQUEST = /(?:我的|我目前|本人|账户|资产|余额|仓位|持仓|订单|交易记录|风险偏好|长期记忆|记住|保存|偏好)/iu;
+const EXPLICIT_CHART_DIRECTIVE = /(?:K\s*线|行情|盘面|看盘|图表|蜡烛|走势|趋势|支撑|阻力|candlestick|chart|price\s*action|当前价|最新价|实时行情|复盘|重画|刷新行情|更新行情|均线|MACD|RSI|成交量)/iu;
+const ACTIONABLE_MARKET_DIRECTIVE = /(?:现在|当前|最新|实时|能不能|是否|应该|帮我|请|看看|看下|分析下|研判|怎么走|买入|卖出|做多|做空|入场|止损价|止盈价|突破后|跌破后)/iu;
+const EXPLICIT_CURRENT_ACTION = /(?:现在|当前|最新|实时|能不能|是否|研判|刷新|更新|重画|怎么走|入场位|止损价|止盈价|突破后|跌破后|(?:帮我|请).*(?:分析|看看|看下|研判))/iu;
+const NON_MARKET_REQUEST = /(?:你是谁|你能做什么|有什么功能|如何使用(?:本应用|这个软件|Haolo)|软件怎么用|界面怎么用|翻译|写代码|代码报错|帮我改代码)/iu;
+
+function isExplicitConceptualRequest(text) {
+  return EXPLICIT_CONCEPTUAL_REQUEST.test(String(text || ""));
+}
+
+function isExplicitChartRequest(text) {
+  const source = String(text || "");
+  if (isExplicitConceptualRequest(source) && !EXPLICIT_CURRENT_ACTION.test(source)) return false;
+  if (EXPLICIT_CHART_DIRECTIVE.test(source) && ACTIONABLE_MARKET_DIRECTIVE.test(source)) return true;
+  // “分析下” is intentionally left to the model/current-analysis rule. It
+  // is ambiguous without an object and should not turn every conceptual use
+  // of “分析” into a chart request.
+  return /(?:分析|研判|看盘|复盘)/iu.test(source) && EXPLICIT_CHART_DIRECTIVE.test(source);
+}
+
+function deterministicConversationIntent(text, { hasImageAttachment = false } = {}) {
+  const source = String(text || "").trim();
+  if (!source) return null;
+  const conceptual = isExplicitConceptualRequest(source);
+  const personal = PERSONAL_CONTEXT_REQUEST.test(source);
+  const nonMarket = NON_MARKET_REQUEST.test(source);
+  const chartDirective = isExplicitChartRequest(source);
+  if (nonMarket && !chartDirective) return "non-market-request";
+  if ((personal && !chartDirective) || (conceptual && !chartDirective && !EXPLICIT_CURRENT_ACTION.test(source))) {
+    return hasImageAttachment && /(?:截图|图片|图中|这张图|这个图)/iu.test(source)
+      ? "screenshot-question"
+      : "general-question";
+  }
+  return null;
+}
+
+export function deterministicGeneralRequestRouting(text, context = {}) {
+  const intent = deterministicConversationIntent(text, context);
+  if (!intent) return null;
+  return {
+    request: {
+      mode: "conversation",
+      instruction: String(text || "").trim(),
+      symbol: null,
+      interval: null,
+      lookbackMs: null,
+      lookbackLabel: null,
+      drawingRequested: false,
+      analysisFollowup: false,
+    },
+    classification: {
+      schemaVersion: TRADING_GENERAL_ROUTING_SCHEMA_VERSION,
+      mode: "conversation",
+      intent,
+      confidence: 1,
+      source: "deterministic-semantic-guard",
+    },
+  };
+}
+
+function isLikelyAnalysisFollowup(text) {
+  const source = String(text || "");
+  // A follow-up must refer to a concrete prior conclusion/level or ask for a
+  // position decision.  Generic trading education and strategy discussion do
+  // not satisfy this test, even when a chart is visible beside the chat.
+  return /(?:上一轮|刚才|你说|你凭什么|第一目标|第二目标|目标位|失效位|止损位|止盈位|入场位|这个价位|该价位|这个位置|能不能买|现在买|现在卖|现在做多|现在做空|按.*条件|这个风险|这个判断|这个结论)/iu.test(source)
+    && !isExplicitConceptualRequest(source);
+}
+
 function extractJsonObject(text) {
   const source = String(text || "").trim();
   if (!source.startsWith("{") || !source.endsWith("}")) {
@@ -115,6 +190,8 @@ export function buildGeneralRequestRoutingPrompt(params = {}) {
 }
 
 export function normalizeGeneralRequestRoutingModelResponse(text, userText, context = {}) {
+  const deterministic = deterministicGeneralRequestRouting(userText, context);
+  if (deterministic) return deterministic;
   const parsed = extractJsonObject(text);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new TypeError("General request router response is invalid");
@@ -141,11 +218,14 @@ export function normalizeGeneralRequestRoutingModelResponse(text, userText, cont
   const acceptedMode = mode === "chart-analysis" && confidence < TRADING_GENERAL_ROUTING_CONFIDENCE_THRESHOLD
     ? "conversation"
     : mode;
+  const analysisFollowup = acceptedMode === "conversation"
+    && context.hasCurrentAnalysis === true
+    && isLikelyAnalysisFollowup(userText);
   return {
     classification: {
       schemaVersion: TRADING_GENERAL_ROUTING_SCHEMA_VERSION,
-      mode,
-      intent,
+      mode: acceptedMode,
+      intent: acceptedMode === "conversation" && mode !== "conversation" ? "general-question" : intent,
       confidence,
     },
     request: {
@@ -158,6 +238,7 @@ export function normalizeGeneralRequestRoutingModelResponse(text, userText, cont
       drawingRequested: acceptedMode === "chart-analysis" && (
         intent === "chart-drawing" || context.hasCurrentAnalysis !== true
       ),
+      analysisFollowup,
     },
   };
 }

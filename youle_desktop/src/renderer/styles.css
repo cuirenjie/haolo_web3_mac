@@ -27809,6 +27809,7 @@ html[data-theme="dark"] .settings-main {
   background: var(--dialog-surface);
 }
 
+html[data-theme="dark"] dialog[open] footer button,
 html[data-theme="dark"] dialog[open] footer button:not(.binance-account-submit),
 html[data-theme="dark"] .update-dialog-actions button,
 html[data-theme="dark"] .telegram-channel-login-actions > button {
@@ -27884,6 +27885,7 @@ html[data-theme="dark"] dialog[open] .thread-dialog-danger:hover:not(:disabled) 
   background: #dc3f46;
 }
 
+html[data-theme="dark"] dialog[open] footer button:disabled,
 html[data-theme="dark"] dialog[open] footer button:disabled:not(.binance-account-submit),
 html[data-theme="dark"] .update-dialog-actions button:disabled,
 html[data-theme="dark"] .telegram-channel-login-actions > button:disabled,
@@ -32015,6 +32017,130 @@ html[data-theme="dark"] .trading-market-favorite-ticker-drag-ghost {
   object-fit: cover;
 }
 
+.trading-market-asset-logo > .trading-market-asset-mark {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: inherit;
+  background: #3d74d8;
+  color: #ffffff;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.trading-market-asset-mark.asset-class-commodity {
+  background: #dca52a;
+  color: #fff7d6;
+}
+
+.trading-market-asset-mark.asset-symbol-sndk {
+  background: #df0014;
+  color: #ffffff;
+}
+
+.trading-market-asset-mark.asset-symbol-sndkb {
+  background: #df0014;
+  color: #ffffff;
+}
+
+.trading-market-asset-mark.asset-symbol-xag {
+  background: #a7abb6;
+  color: #ffffff;
+}
+
+.trading-market-asset-mark.asset-symbol-sndk > b,
+.trading-market-asset-mark.asset-symbol-sndkb > b {
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+.trading-market-asset-mark.asset-class-etf {
+  background: #168b89;
+  color: #e3ffff;
+}
+
+.trading-market-asset-mark.asset-class-preipo {
+  background: #7651c8;
+  color: #f0e9ff;
+}
+
+.trading-market-asset-mark.asset-class-index {
+  background: #667085;
+  color: #f0f3f8;
+}
+
+.trading-market-asset-mark.asset-class-forex {
+  background: #19865d;
+  color: #e4fff3;
+}
+
+.trading-market-asset-mark > svg {
+  position: absolute;
+  inset: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.45;
+  opacity: 0.42;
+}
+
+.trading-market-asset-mark > b {
+  position: relative;
+  z-index: 1;
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+}
+
+html[data-theme="dark"] .trading-market-asset-mark {
+  background: #4f82e1;
+  color: #f6f9ff;
+}
+
+html[data-theme="dark"] .trading-market-asset-mark.asset-class-commodity {
+  background: #c9931e;
+  color: #fff2b4;
+}
+
+html[data-theme="dark"] .trading-market-asset-mark.asset-symbol-sndk {
+  background: #f02d42;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .trading-market-asset-mark.asset-symbol-sndkb {
+  background: #f02d42;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .trading-market-asset-mark.asset-symbol-xag {
+  background: #aeb5c2;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .trading-market-asset-mark.asset-class-etf {
+  background: #1aa6a1;
+  color: #ddfffd;
+}
+
+html[data-theme="dark"] .trading-market-asset-mark.asset-class-preipo {
+  background: #8a67d9;
+  color: #f4edff;
+}
+
+html[data-theme="dark"] .trading-market-asset-mark.asset-class-index {
+  background: #7b879b;
+  color: #f5f8fd;
+}
+
+html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
+  background: #1fa36e;
+  color: #e4fff3;
+}
+
 .trading-market-asset-logo > img[hidden] {
   display: none !important;
 }
@@ -35474,6 +35600,56 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   color: var(--text-placeholder);
 }
 
+.trading-market-categories {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  gap: 3px;
+  overflow-x: auto;
+  padding: 0 12px 7px;
+  scrollbar-width: none;
+}
+
+.trading-market-categories::-webkit-scrollbar {
+  display: none;
+}
+
+.trading-market-categories button {
+  height: 28px;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--trading-market-muted);
+  padding: 0 9px;
+  font: inherit;
+  font-size: calc(11px + var(--app-font-size-offset));
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.1s ease;
+}
+
+.trading-market-categories button:hover:not(:disabled),
+.trading-market-categories button.active {
+  border-color: color-mix(in srgb, var(--trading-market-accent) 28%, var(--trading-market-border));
+  background: var(--trading-market-accent-soft);
+  color: var(--trading-market-accent);
+}
+
+.trading-market-categories button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--trading-market-accent) 14%, transparent);
+  transform: translateY(1px);
+}
+
+.trading-market-categories button:focus-visible {
+  outline: 2px solid var(--trading-market-accent);
+  outline-offset: 1px;
+}
+
+.trading-market-categories button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .trading-market-picker-head,
 .trading-market-row {
   display: grid;
@@ -38541,3 +38717,97 @@ html[data-theme="dark"] .subagent-cluster-task {
     transition: none;
   }
 }
+/* Personal strategy creation, simulation and feedback flow. Keep light and
+   dark surfaces in sync so the minimal interaction remains legible in every
+   state. */
+.personal-strategy-backdrop {
+  background: rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(8px);
+  z-index: 80;
+}
+.personal-strategy-dialog {
+  position: fixed;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 44px));
+  margin: 0;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 22px;
+  padding: 0;
+  overflow: auto;
+  color: #172033;
+  background: #ffffff;
+  box-shadow: 0 28px 90px rgba(15, 23, 42, 0.24);
+  z-index: 81;
+}
+.personal-strategy-dialog::backdrop { background: transparent; }
+.personal-strategy-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 24px 26px 18px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+.personal-strategy-dialog-header h2 { margin: 3px 0 5px; font-size: 21px; }
+.personal-strategy-dialog-header p { margin: 0; color: #667085; font-size: 13px; }
+.personal-strategy-kicker { color: #3a67d8; font-size: 10px; font-weight: 700; letter-spacing: .14em; }
+.personal-strategy-close {
+  width: 30px; height: 30px; border: 0; border-radius: 9px; background: transparent;
+  color: #667085; font-size: 23px; line-height: 1; cursor: pointer;
+}
+.personal-strategy-close:hover, .personal-strategy-close:focus-visible { color: #172033; background: #eef2f8; outline: none; }
+.personal-strategy-close:active { transform: translateY(1px); }
+.personal-strategy-dialog-body { display: grid; gap: 15px; padding: 20px 26px 26px; }
+.personal-strategy-field { display: grid; gap: 7px; color: #475467; font-size: 12px; font-weight: 600; }
+.personal-strategy-field input, .personal-strategy-field textarea {
+  width: 100%; box-sizing: border-box; border: 1px solid #d8dee9; border-radius: 12px; padding: 11px 12px;
+  color: #172033; background: #f8fafc; font: inherit; font-weight: 400; resize: vertical; transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.personal-strategy-field input:hover, .personal-strategy-field textarea:hover { border-color: #b5c0d1; }
+.personal-strategy-field input:focus, .personal-strategy-field textarea:focus { border-color: #4f72da; background: #fff; box-shadow: 0 0 0 3px rgba(79,114,218,.16); outline: none; }
+.personal-strategy-preview, .personal-strategy-simulation, .personal-strategy-feedback { border: 1px solid #e1e7f0; border-radius: 15px; padding: 14px 15px; background: #fbfcfe; }
+.personal-strategy-preview p, .personal-strategy-simulation p { margin: 10px 0 0; white-space: pre-wrap; color: #475467; font-size: 13px; line-height: 1.58; }
+.personal-strategy-preview-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.personal-strategy-preview-title span { color: #7a8699; font-size: 11px; }
+.personal-strategy-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.personal-strategy-chip-row span { border-radius: 99px; padding: 4px 8px; color: #3156bd; background: #e9efff; font-size: 11px; }
+.personal-strategy-warning, .personal-strategy-note { margin-top: 12px; border-radius: 10px; padding: 10px 11px; font-size: 12px; }
+.personal-strategy-warning { color: #8a4b00; background: #fff6df; }
+.personal-strategy-note { color: #526173; background: #f1f4f8; }
+.personal-strategy-warning p, .personal-strategy-note p { margin: 4px 0 0; color: inherit; font-size: 12px; }
+.personal-strategy-simulation small { display: block; margin-top: 8px; color: #7a8699; }
+.personal-strategy-feedback { display: grid; gap: 10px; }
+.personal-strategy-feedback-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.personal-strategy-feedback-actions .ghost-button { min-height: 36px; border: 1px solid #d8dee9; border-radius: 10px; padding: 0 12px; color: #526173; background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+.personal-strategy-feedback-actions .ghost-button:hover, .personal-strategy-feedback-actions .ghost-button:focus-visible { color: #294a9e; border-color: #9ab0ef; background: #f1f4ff; outline: none; }
+.personal-strategy-dialog-actions { display: flex; justify-content: flex-end; gap: 9px; }
+.personal-strategy-dialog-actions button, .personal-strategy-feedback button { min-height: 36px; border-radius: 10px; padding: 0 14px; border: 1px solid transparent; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; transition: transform .12s, filter .12s, background .12s; }
+.personal-strategy-dialog-actions button:hover:not(:disabled), .personal-strategy-feedback button:hover:not(:disabled) { filter: brightness(.98); }
+.personal-strategy-dialog-actions button:active:not(:disabled), .personal-strategy-feedback button:active:not(:disabled) { transform: translateY(1px); }
+.personal-strategy-dialog-actions button:focus-visible, .personal-strategy-feedback button:focus-visible { outline: 3px solid rgba(79,114,218,.24); outline-offset: 2px; }
+.personal-strategy-dialog-actions button:disabled, .personal-strategy-feedback button:disabled { cursor: not-allowed; opacity: .52; }
+.personal-strategy-dialog-actions .primary-button { color: #fff; background: #3f63ca; }
+.personal-strategy-dialog-actions .secondary-button, .personal-strategy-feedback .secondary-button { color: #294a9e; background: #edf2ff; border-color: #d7e1ff; }
+.personal-strategy-error { margin: 0; border-radius: 10px; padding: 9px 11px; color: #b42318; background: #fff0ef; font-size: 12px; }
+
+html[data-theme="dark"] .personal-strategy-backdrop { background: rgba(1, 6, 18, 0.68); }
+html[data-theme="dark"] dialog.personal-strategy-dialog[open] { border-color: rgba(148, 163, 184, 0.22); border-radius: 22px; padding: 0; color: #e8edf7; background: #151b28; box-shadow: 0 28px 90px rgba(0, 0, 0, .48); }
+html[data-theme="dark"] .personal-strategy-dialog-header { border-bottom-color: rgba(148, 163, 184, .16); }
+html[data-theme="dark"] .personal-strategy-dialog-header p, html[data-theme="dark"] .personal-strategy-field { color: #aab6c9; }
+html[data-theme="dark"] .personal-strategy-close { color: #aab6c9; }
+html[data-theme="dark"] .personal-strategy-close:hover, html[data-theme="dark"] .personal-strategy-close:focus-visible { color: #f3f6fb; background: #263148; }
+html[data-theme="dark"] .personal-strategy-field input, html[data-theme="dark"] .personal-strategy-field textarea { border-color: #354158; color: #e8edf7; background: #101725; }
+html[data-theme="dark"] .personal-strategy-field input:hover, html[data-theme="dark"] .personal-strategy-field textarea:hover { border-color: #50607a; }
+html[data-theme="dark"] .personal-strategy-field input:focus, html[data-theme="dark"] .personal-strategy-field textarea:focus { border-color: #7896ff; background: #0e1522; box-shadow: 0 0 0 3px rgba(120,150,255,.2); }
+html[data-theme="dark"] .personal-strategy-preview, html[data-theme="dark"] .personal-strategy-simulation, html[data-theme="dark"] .personal-strategy-feedback { border-color: #303c53; background: #1b2434; }
+html[data-theme="dark"] .personal-strategy-preview p, html[data-theme="dark"] .personal-strategy-simulation p { color: #c2ccdc; }
+html[data-theme="dark"] .personal-strategy-preview-title span, html[data-theme="dark"] .personal-strategy-simulation small { color: #8f9db3; }
+html[data-theme="dark"] .personal-strategy-chip-row span { color: #c8d5ff; background: #273964; }
+html[data-theme="dark"] .personal-strategy-warning { color: #ffd58a; background: #4b3517; }
+html[data-theme="dark"] .personal-strategy-note { color: #b8c3d5; background: #273147; }
+html[data-theme="dark"] .personal-strategy-dialog-actions .primary-button { color: #fff; background: #5474dc; }
+html[data-theme="dark"] .personal-strategy-dialog-actions .secondary-button, html[data-theme="dark"] .personal-strategy-feedback .secondary-button { color: #d4ddff; background: #263861; border-color: #3a4d80; }
+html[data-theme="dark"] .personal-strategy-feedback-actions .ghost-button { color: #b8c3d5; border-color: #43516b; background: transparent; }
+html[data-theme="dark"] .personal-strategy-feedback-actions .ghost-button:hover, html[data-theme="dark"] .personal-strategy-feedback-actions .ghost-button:focus-visible { color: #e0e7ff; border-color: #7188d9; background: #263861; }
+html[data-theme="dark"] .personal-strategy-error { color: #ffb5b0; background: #4b2528; }

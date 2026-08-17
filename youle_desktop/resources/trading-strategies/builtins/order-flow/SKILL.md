@@ -9,7 +9,7 @@ Require real structured order-flow inputs. Never substitute OHLCV, screenshots, 
 
 ## Workflow
 
-1. Verify venue, market type, time window, and coverage for trades, depth, open interest, and liquidations.
+1. Treat the visible candle range as the starting context only; let the host expand the chart leftward when the candle background is below its minimum before reading venue, market type, time window, and coverage for trades, depth, open interest, and liquidations.
 2. Fail closed when required trade or depth coverage is missing.
 3. Use deterministic Delta/CVD, POC, imbalance, large-trade, depth, OI, and ICT/SMC candidate IDs.
 4. Keep live micro-window evidence on its actual execution candle; do not project it onto unrelated history.

@@ -601,7 +601,7 @@ export function ensureBrowserDesktopApi() {
     },
     async getBinancePublicMarketData(params: any) {
       const marketType = params?.marketType === "spot" ? "spot" : "futures";
-      const base = marketType === "spot" ? "https://api.binance.com" : "https://fapi.binance.com";
+      const base = marketType === "spot" ? "https://data-api.binance.vision" : "https://fapi.binance.com";
       const url = new URL(String(params?.path || "/"), base);
       Object.entries(params?.parameters || {}).forEach(([key, value]) => {
         if (value !== undefined) url.searchParams.set(key, String(value));

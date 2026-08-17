@@ -59,6 +59,21 @@ test("trading transcript messages use explicit user and assistant injection item
   assert.equal(parseTradingTranscriptMarkerText(injected[1].content[0].text)?.text, "当前结构保持震荡。");
 });
 
+test("execution-plan presentation survives transcript persistence and hydration", () => {
+  const assistant = {
+    ...transcriptItems()[1],
+    id: "trading-report-presentation-1",
+    text: "方向判断：偏多\n多头触发：100\n止损与失效：95\n分批止盈：110",
+    executionPlanPresentation: "execution-plan",
+  };
+  const [injected] = tradingTranscriptInjectionItems([assistant]);
+  const parsed = parseTradingTranscriptMarkerText(injected.content[0].text);
+  assert.equal(parsed?.executionPlanPresentation, "execution-plan");
+
+  const hydrated = withTradingTranscriptItems({ thread: { id: "thread-presentation", turns: [] } }, [assistant]);
+  assert.equal(hydrated.thread.turns[0].items[0].__youleExecutionPlanPresentation, "execution-plan");
+});
+
 test("trading alert success navigation survives transcript persistence and hydration", () => {
   const action = {
     id: "open-trading-alerts",
