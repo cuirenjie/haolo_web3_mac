@@ -16738,6 +16738,32 @@ ipcMain.handle("window:control", async (event, action) => {
   return applyWindowControl(window, action);
 });
 
+ipcMain.handle("trading:captureChart", async (event, params = {}) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
+    return { ok: false, message: "交易图表窗口不可用" };
+  }
+  const rect = normalizeTradingChartCaptureRect(window, params?.rect);
+  if (!rect) return { ok: false, message: "交易图表截图区域无效" };
+  const image = await window.webContents.capturePage(rect);
+  if (!image || image.isEmpty()) return { ok: false, message: "交易图表截图为空" };
+  const buffer = image.toPNG();
+  const captureDirectory = path.join(app.getPath("temp"), "haolo-trading-captures");
+  await fs.promises.mkdir(captureDirectory, { recursive: true });
+  const name = `haolo-kline-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.png`;
+  const filePath = path.join(captureDirectory, name);
+  await fs.promises.writeFile(filePath, buffer);
+  return {
+    ok: true,
+    path: filePath,
+    name,
+    mime: "image/png",
+    size: buffer.length,
+    width: image.getSize().width,
+    height: image.getSize().height,
+  };
+});
+
 ipcMain.handle("window:resize", async (event, params) => {
   const window = BrowserWindow.fromWebContents(event.sender);
   const result = applyWindowResize(window, params, { live: false });
@@ -16845,6 +16871,26 @@ ipcMain.handle("window:getState", async (event) => {
 ipcMain.handle("window:revealModeTransition", async (event) => {
   return revealPendingWindowModeTransition(BrowserWindow.fromWebContents(event.sender));
 });
+
+function normalizeTradingChartCaptureRect(window, value) {
+  const source = value && typeof value === "object" ? value : {};
+  const [contentWidth, contentHeight] = window.getContentSize();
+  const widthLimit = Math.max(1, Math.trunc(Number(contentWidth) || 0));
+  const heightLimit = Math.max(1, Math.trunc(Number(contentHeight) || 0));
+  const rawX = Number(source.x);
+  const rawY = Number(source.y);
+  const rawWidth = Number(source.width);
+  const rawHeight = Number(source.height);
+  if (![rawX, rawY, rawWidth, rawHeight].every(Number.isFinite) || rawWidth <= 0 || rawHeight <= 0) {
+    return null;
+  }
+  const x = Math.max(0, Math.min(widthLimit - 1, Math.round(rawX)));
+  const y = Math.max(0, Math.min(heightLimit - 1, Math.round(rawY)));
+  const width = Math.min(widthLimit - x, Math.max(1, Math.round(rawWidth)));
+  const height = Math.min(heightLimit - y, Math.max(1, Math.round(rawHeight)));
+  if (width <= 0 || height <= 0) return null;
+  return { x, y, width, height };
+}
 
 function applyWindowControl(window, action) {
   if (!window) return { ok: false };

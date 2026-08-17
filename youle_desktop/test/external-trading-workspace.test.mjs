@@ -46,6 +46,27 @@ test("external strategy analysis uses the full strategy runner with drawing play
   assert.doesNotMatch(runner, /responseMode:\s*["']direct["']/);
 });
 
+test("external strategy final replies capture the focused chart and send it with the report", async () => {
+  const source = await rendererSource;
+  const capture = sourceBlock(
+    source,
+    "async function captureExternalTradingChartAttachment",
+    "async function sendExternalTradingReply",
+  );
+  assert.match(capture, /state\.tradingExpertChartFocusMode = true/);
+  assert.match(capture, /prepareTradingExpertMarketForExternalCapture\(\)/);
+  assert.match(capture, /captureTradingChart\(/);
+  assert.match(capture, /restoreTradingExpertChartFocusLayout\(\)/);
+
+  const reply = sourceBlock(
+    source,
+    "const result = await runExternalTradingStrategyAnalysis",
+    "} catch (error) {",
+  );
+  assert.match(reply, /captureExternalTradingChartAttachment\(params\.threadId\)/);
+  assert.match(reply, /chartAttachment \? \[chartAttachment\] : \[\]/);
+});
+
 test("trading surface avatars are hidden only while the chart is split and restored when collapsed", async () => {
   const source = await rendererSource;
   const renderMessage = sourceBlock(source, "function renderMessage(", "function messageRenderSignature");

@@ -54,6 +54,7 @@ import {
   renderTradingExpertMarketWorkspace,
   runTradingExpertGeneralConversation,
   hasTradingExpertCurrentAnalysis,
+  prepareTradingExpertMarketForExternalCapture,
   runTradingExpertStrategyConversation,
   syncTradingExpertMarketWorkspace,
   syncTradingExpertOrderLineSnapshot,
@@ -1144,6 +1145,17 @@ type DesktopApi = {
     turnId?: string | null;
     completedAt?: string | null;
   }): Promise<{ ok?: boolean; shown?: boolean }>;
+  captureTradingChart?(params: {
+    rect: { x: number; y: number; width: number; height: number };
+  }): Promise<{
+    ok?: boolean;
+    path?: string;
+    name?: string;
+    mime?: string;
+    size?: number;
+    width?: number;
+    height?: number;
+  }>;
   setAppTheme?(params: { theme: AppTheme }): Promise<{ theme?: AppTheme }>;
   checkWindowsUpdate?(params: { version: string;
   }): Promise<WindowsUpdateCheckResponse>;
@@ -10937,12 +10949,97 @@ function appendExternalTradingAgentMessage(
   });
 }
 
+function externalTradingChartCaptureAttachment(payload: any): MessageAttachment | null {
+  const filePath = firstString(payload?.path, payload?.local_path, payload?.localPath);
+  if (!filePath) return null;
+  const name = firstString(payload?.name, payload?.file_name, payload?.fileName) || `kline-${Date.now()}.png`;
+  const size = numericValue(payload?.size) ?? undefined;
+  return {
+    name,
+    file_name: name,
+    fileName: name,
+    mime: firstString(payload?.mime, payload?.mime_type, payload?.mimeType) || "image/png",
+    mime_type: firstString(payload?.mime, payload?.mime_type, payload?.mimeType) || "image/png",
+    mimeType: firstString(payload?.mime, payload?.mime_type, payload?.mimeType) || "image/png",
+    ...(size !== undefined ? { size, size_bytes: size, sizeBytes: size } : {}),
+    local_path: filePath,
+    localPath: filePath,
+    file_path: filePath,
+    filePath,
+    path: filePath,
+  } as MessageAttachment;
+}
+
+async function captureExternalTradingChartAttachment(threadId: string): Promise<MessageAttachment | null> {
+  if (
+    !isExternalTradingWorkspaceThreadId(threadId)
+    || state.currentThreadId !== threadId
+    || !hasTradingExpertCurrentAnalysis()
+    || typeof window.codexDesktop.captureTradingChart !== "function"
+  ) return null;
+  const workspace = root.querySelector<HTMLElement>("[data-trading-market-workspace]");
+  if (!workspace) return null;
+
+  const wasFocused = state.tradingExpertChartFocusMode;
+  if (!wasFocused) {
+    tradingExpertChartFocusRestoreState = {
+      leftCollapsed: state.leftCollapsed,
+      rightCollapsed: state.rightCollapsed,
+      chartCollapsed: state.tradingExpertChartCollapsed,
+    };
+    state.tradingExpertChartFocusMode = true;
+    state.leftCollapsed = true;
+    state.rightCollapsed = true;
+    state.tradingExpertChartCollapsed = false;
+    state.profileMenuOpen = false;
+    state.externalChannels.menuOpen = false;
+    state.newThreadGroupPickerOpen = false;
+    state.threadMenu = null;
+    state.threadGroupMenu = null;
+    state.contactMenu = null;
+    render();
+  }
+
+  try {
+    // Let the focus-mode grid resize before fitting the chart and calculating
+    // the capture rectangle. Two frames also allow SVG drawings and labels to
+    // repaint after lightweight-charts receives the new viewport dimensions.
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+    prepareTradingExpertMarketForExternalCapture();
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+    await waitMs(40);
+    const target = root.querySelector<HTMLElement>("[data-trading-market-workspace]");
+    if (!target) return null;
+    const bounds = target.getBoundingClientRect();
+    if (!(bounds.width > 0 && bounds.height > 0)) return null;
+    const result = await window.codexDesktop.captureTradingChart({
+      rect: {
+        x: Math.round(bounds.left),
+        y: Math.round(bounds.top),
+        width: Math.round(bounds.width),
+        height: Math.round(bounds.height),
+      },
+    });
+    if (result?.ok === false) return null;
+    return externalTradingChartCaptureAttachment(result);
+  } catch (error) {
+    console.warn("External trading chart capture failed", error);
+    return null;
+  } finally {
+    if (!wasFocused) {
+      restoreTradingExpertChartFocusLayout();
+      render();
+    }
+  }
+}
+
 async function sendExternalTradingReply(
   threadId: string,
   channel: ExternalChannelId,
   messageId: string,
   text: string,
   kind: "ack" | "final" = "final",
+  attachments: MessageAttachment[] = [],
 ) {
   if (!api.replyExternalChannelMessage) return false;
   try {
@@ -10950,7 +11047,7 @@ async function sendExternalTradingReply(
       channel,
       messageId,
       text,
-      attachments: [],
+      attachments,
       kind,
     });
     const failure = externalChannelReplyFailureMessage(response);
@@ -11126,7 +11223,15 @@ async function handleExternalTradingChannelMessage(params: {
     const replyText = externalTradingResultText(route, result);
     pendingExternalTradingRequests.delete(params.channel);
     appendExternalTradingAgentMessage(params.threadId, params.channel, params.messageId, replyText);
-    await sendExternalTradingReply(params.threadId, params.channel, params.messageId, replyText);
+    const chartAttachment = await captureExternalTradingChartAttachment(params.threadId);
+    await sendExternalTradingReply(
+      params.threadId,
+      params.channel,
+      params.messageId,
+      replyText,
+      "final",
+      chartAttachment ? [chartAttachment] : [],
+    );
   } catch (error) {
     if (externalTradingClarificationError(error)) {
       pendingExternalTradingRequests.set(params.channel, { text: combinedText, updatedAt: Date.now() });

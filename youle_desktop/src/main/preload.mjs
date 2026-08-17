@@ -319,6 +319,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   tradingAlertsMarketUnsubscribe: (params) => ipcRenderer.invoke("tradingAlerts:marketUnsubscribe", params),
   openExternal: (url) => ipcRenderer.invoke("codex:openExternal", url),
   debugLog: (params) => ipcRenderer.invoke("youle:debugLog", params),
+  captureTradingChart: (params) => ipcRenderer.invoke("trading:captureChart", params),
   windowControl: (action) => ipcRenderer.invoke("window:control", action),
   windowMove: (params) => ipcRenderer.invoke("window:move", params),
   windowMoveLive: (params) => ipcRenderer.send("window:move-live", params),

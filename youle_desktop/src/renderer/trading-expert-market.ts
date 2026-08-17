@@ -7362,6 +7362,24 @@ class TradingExpertMarketWorkspace {
     return this.drawingController?.hasAiAnalysisForCurrentContext(theory) === true;
   }
 
+  /**
+   * Normalize the primary chart viewport immediately before an external
+   * channel screenshot.  The channel reply should show the same recent-candle
+   * framing users get when opening the chart, with automatic price scaling and
+   * all persisted AI drawings/overlays repainted after the focus layout resize.
+   */
+  prepareForExternalCapture() {
+    if (this.disposed || !this.chart || !this.chartCandles.length) return false;
+    this.applyInitialChartViewport();
+    this.updateVisiblePriceScale();
+    this.updateCurrentPriceLabel();
+    this.positionIndicatorLegends();
+    this.renderVolumeProfile(true);
+    this.drawingController?.redraw();
+    this.splitPanes.forEach((pane) => pane.getDrawingController()?.redraw());
+    return true;
+  }
+
   alertContextSnapshot() {
     const market = this.selectedMarketMeta
       || this.markets.find((candidate) => candidate.id === this.selectedMarketId)
@@ -12277,6 +12295,10 @@ export function hasTradingExpertCurrentAnalysis(
   theory?: string,
 ) {
   return activeWorkspace?.hasCurrentAnalysis(theory) === true;
+}
+
+export function prepareTradingExpertMarketForExternalCapture() {
+  return activeWorkspace?.prepareForExternalCapture() === true;
 }
 
 export async function cancelTradingExpertAnalysis(analysisId: string) {
