@@ -1296,6 +1296,47 @@ test("cluster provider chats fall back to regular HTTP after a pre-response stre
   }
 });
 
+test("personal strategy understanding also falls back to regular HTTP before any stream bytes arrive", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (_url, init = {}) => {
+    const body = JSON.parse(init.body);
+    requests.push(body.stream);
+    if (requests.length === 1) {
+      const cause = Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+      throw Object.assign(new TypeError("fetch failed"), { cause });
+    }
+    return new Response(JSON.stringify({
+      model: "claude-fable-5",
+      choices: [{ message: { content: "Recovered strategy JSON." } }],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    client.token = "haolo-session-token";
+    client.modelKeys = [
+      { provider: "anthropic", apiKey: "sk-claude-user", baseUrl: "https://claude-transit.example/v1" },
+    ];
+
+    const result = await client.sendProviderChat({
+      provider: "claude",
+      text: "Understand this strategy",
+      sourceType: "personal-strategy-understanding",
+      stream: true,
+    });
+
+    assert.deepEqual(requests, [true, false]);
+    assert.equal(result.text, "Recovered strategy JSON.");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("cluster provider chats do not replay a stream after response bytes arrive", async () => {
   const originalFetch = globalThis.fetch;
   let requestCount = 0;

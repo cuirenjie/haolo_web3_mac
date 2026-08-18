@@ -133,6 +133,31 @@ test("a disconnected provider stream is resumed automatically with a fresh strea
   assert.equal(progressEvents.at(-1).status, "completed");
 });
 
+test("an interactive flow can bound transport recovery without leaking control fields upstream", async () => {
+  const requests = [];
+  await assert.rejects(
+    invokeQuestionAnswerProvider({
+      send: async (request) => {
+        requests.push(request);
+        throw Object.assign(new Error("response stream disconnected"), {
+          code: "STREAM_DISCONNECTED",
+          category: "transport",
+          retryable: true,
+        });
+      },
+      params: {
+        provider: "openai",
+        maxTransportAttempts: 2,
+      },
+      messages: [{ role: "user", content: "Finish this answer" }],
+      waitForRetry: async () => {},
+    }),
+    (error) => error.recoveryExhausted === true && error.recoveryAttempts === 2,
+  );
+  assert.equal(requests.length, 2);
+  assert.equal(requests.some((request) => "maxTransportAttempts" in request), false);
+});
+
 test("provider loop falls back to broad host context when the route rejects tools", async () => {
   const requests = [];
   const send = async (request) => {

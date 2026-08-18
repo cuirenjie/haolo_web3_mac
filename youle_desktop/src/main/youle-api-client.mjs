@@ -4229,7 +4229,11 @@ function annotateProviderStreamError(error, receivedBytes) {
 }
 
 function shouldFallbackClusterStreamToJson(error, params = {}) {
-  if (String(params.sourceType || params.source_type || "") !== "multi_model_cluster_node") return false;
+  const sourceType = String(params.sourceType || params.source_type || "");
+  if (
+    sourceType !== "multi_model_cluster_node"
+    && !sourceType.startsWith("personal-strategy-understanding")
+  ) return false;
   if ((Number(error?.streamReceivedBytes) || 0) > 0) return false;
   if (error?.retryable === false || error?.name === "AbortError") return false;
   const category = String(error?.category || "").toLowerCase();

@@ -191,6 +191,51 @@ export function strategyUnderstandingPrompt({ sourceText = "", previous = null, 
   ].filter(Boolean).join("\n\n");
 }
 
+export function strategyConfirmationIntentPrompt({ userText = "", strategyName = "", lastAssistantMessage = "" } = {}) {
+  return [
+    "你是 Haolo 交易策略会话的确认意图理解器，只负责判断用户这句话是在确认、取消，还是要修改策略。",
+    "不要执行交易，不要改写策略规则，不要根据自己的偏好猜测用户意图。必须结合上一条助手消息的上下文理解自然语言、口语、英文、错别字和委婉表达。",
+    "确认：用户明确接受刚才的策略预演，并希望写入/启用策略，例如同意、确定、可以、OK、没问题、按这个执行、就这样等同义表达。",
+    "取消：用户明确拒绝创建或要求放弃本次策略。",
+    "修改：用户指出理解错误、补充条件、要求调整方向/风控/入场/出场，或表示还要改。",
+    "不确定：无法判断，或用户提出问题但没有明确接受/拒绝。提出问题不能当作确认。",
+    "只输出一个 JSON 对象，不要 Markdown、不要解释 JSON 之外的内容：",
+    JSON.stringify({
+      intent: "confirm|cancel|revise|unclear",
+      confidence: 0.0,
+      reason: "一句话说明判定依据，不要补充策略内容",
+    }, null, 2),
+    `策略名称：${cleanText(strategyName, 120) || "未命名策略"}`,
+    `上一条助手消息：\n${cleanText(lastAssistantMessage, 2_000) || "（无）"}`,
+    `用户本轮消息：\n${cleanText(userText, 2_000) || "（空消息）"}`,
+    "请输出最终 JSON。",
+  ].join("\n\n");
+}
+
+export function parseStrategyConfirmationIntent(value) {
+  const rawText = cleanText(value, 6_000);
+  if (!rawText) return { ok: false, intent: "unclear", error: "模型没有返回确认意图。", rawText };
+  const jsonText = extractJsonText(rawText);
+  try {
+    const parsed = JSON.parse(jsonText);
+    const intent = String(parsed?.intent || "").trim().toLowerCase();
+    const allowed = new Set(["confirm", "cancel", "revise", "unclear"]);
+    if (!allowed.has(intent)) {
+      return { ok: false, intent: "unclear", error: "模型返回了无法识别的确认意图。", rawText };
+    }
+    const confidenceValue = Number(parsed?.confidence);
+    return {
+      ok: true,
+      intent,
+      confidence: Number.isFinite(confidenceValue) ? Math.max(0, Math.min(1, confidenceValue)) : 0,
+      reason: cleanText(parsed?.reason, 600),
+      rawText,
+    };
+  } catch {
+    return { ok: false, intent: "unclear", error: "模型没有按约定返回确认意图 JSON。", rawText };
+  }
+}
+
 export function strategyUnderstandingDisplayText(understandingValue, { warnings = [] } = {}) {
   const understanding = normalizeStrategyUnderstanding(understandingValue);
   const evidence = understanding.evidence.slice(0, 5).map((item) => {

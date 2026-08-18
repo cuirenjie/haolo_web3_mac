@@ -132,8 +132,10 @@ export async function runReadOnlyModelOperationWithRecovery({
   shortDelaysMs,
   lowFrequencyDelayMs,
   lowFrequencyAfter,
+  maxAttempts = Number.POSITIVE_INFINITY,
 } = {}) {
   if (typeof operation !== "function") throw new TypeError("operation is required");
+  const attemptLimit = normalizedAttemptLimit(maxAttempts);
   let attempt = 0;
   let noProgressFailures = 0;
   for (;;) {
@@ -143,6 +145,13 @@ export async function runReadOnlyModelOperationWithRecovery({
       return await operation({ attempt });
     } catch (error) {
       if (!isRetryableModelTransportError(error)) throw error;
+      if (attempt >= attemptLimit) {
+        if (error && typeof error === "object") {
+          error.recoveryAttempts = attempt;
+          error.recoveryExhausted = true;
+        }
+        throw error;
+      }
       noProgressFailures = modelTransportErrorMadeProgress(error)
         ? 1
         : noProgressFailures + 1;
@@ -168,6 +177,14 @@ export async function runReadOnlyModelOperationWithRecovery({
       await waitForRetry(recovery.delayMs, signal);
     }
   }
+}
+
+function normalizedAttemptLimit(value) {
+  if (value === Number.POSITIVE_INFINITY) return Number.POSITIVE_INFINITY;
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0
+    ? Math.max(1, Math.floor(number))
+    : Number.POSITIVE_INFINITY;
 }
 
 export function waitForModelTransportRecovery(delayMs, signal) {

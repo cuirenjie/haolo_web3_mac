@@ -1567,7 +1567,7 @@ test("Trading Expert market picker is compact, neutral-search, left-aligned, and
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-logo-bg: #171a20;[\s\S]*--trading-market-tag-bg: #24282f;/s);
 });
 
-test("Trading Expert favorites persist, filter the next open, and remain available in search", async () => {
+test("Trading Expert favorites persist, lead the next open, and remain available in the full directory", async () => {
   const source = await marketSource;
   const styles = await stylesSource;
   const renderer = await mainSource;
@@ -1591,11 +1591,20 @@ test("Trading Expert favorites persist, filter the next open, and remain availab
   assert.match(source, /export const MAX_TRADING_FAVORITE_TICKERS = 12/);
   assert.match(source, /data-market-favorite-tickers[\s\S]*?data-market-period-controls/);
   assert.match(pickerOpen, /this\.search\.value = ""/);
-  assert.match(pickerOpen, /this\.showFavoritesOnly = this\.favoriteSymbols\.size > 0/);
+  assert.match(pickerOpen, /this\.showFavoritesOnly = false/);
   assert.match(pickerOpen, /this\.renderMarkets\(\{ resetScroll: true \}\)/);
   assert.match(marketRender, /const favoritesOnly = !query && this\.showFavoritesOnly && this\.favoriteSymbols\.size > 0/);
   assert.match(marketRender, /tradingMarketVisibleInPicker\([\s\S]*?market,[\s\S]*?query,[\s\S]*?this\.favoriteSymbols,[\s\S]*?favoritesOnly/);
-  assert.match(marketRender, /const markets = favoritesOnly \? matchingMarkets : matchingMarkets\.slice\(0, 120\)/);
+  assert.match(marketRender, /const orderedMarkets = orderTradingMarketPickerResults\(matchingMarkets, this\.favoriteSymbols\)/);
+  assert.match(marketRender, /const markets = orderedMarkets/);
+  assert.match(marketRender, /if \(this\.picker\.hidden\) return/);
+  assert.match(marketRender, /const chunkSize = 48/);
+  assert.match(marketRender, /setTimeout\(\(\) => appendChunk\(0\), 0\)/);
+  assert.match(source, /export function orderTradingMarketPickerResults\([\s\S]*?favoriteSymbols[\s\S]*?return \[\.\.\.favorites, \.\.\.others\]/);
+  assert.match(source, /export function tradingMarketCandleCacheKey\([\s\S]*?provider[\s\S]*?interval/);
+  assert.match(source, /getTradingMarketCandleCache\(candleCacheKey\)/);
+  assert.match(source, /if \(cachedSnapshotUsable\)[\s\S]*?commitMarketSnapshot/);
+  assert.match(source, /setTradingMarketCandleCache\(candleCacheKey, \{ stats, candleBatch \}\)/);
   assert.match(marketRender, /class="trading-market-favorite\$\{favorite \? " active" : ""\}"/);
   assert.match(marketRender, /data-market-action="favorite"/);
   assert.match(marketRender, /aria-pressed="\$\{favorite\}"/);
@@ -2068,6 +2077,11 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
     "private async restartMarketData",
     "private async refreshSnapshot",
   );
+  const commitSnapshotBlock = sourceBlock(
+    source,
+    "private commitMarketSnapshot",
+    "private async restartMarketData",
+  );
   const viewportResetBlock = sourceBlock(
     source,
     "private updateChartData(options:",
@@ -2106,8 +2120,8 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
   assert.match(restartBlock, /const stats = tradingMarketStatsFromCandles\(targetSymbol, candleBatch\.candles\)/);
   assert.match(restartBlock, /this\.connectSocket\(generation\);[\s\S]*?window\.setInterval\(\(\) => void this\.refreshSnapshot\(generation\), 30_000\)/);
   assert.doesNotMatch(restartBlock, /this\.connectSocket\(generation\);\s*}\s*void this\.refreshSnapshot\(generation\)/);
-  assert.match(restartBlock, /this\.loadedSymbol = targetSymbol[\s\S]*?this\.loadedInterval = targetInterval/);
-  assert.match(restartBlock, /this\.updateChartData\(\{ resetViewport: true \}\)/);
+  assert.match(commitSnapshotBlock, /this\.loadedSymbol = targetSymbol[\s\S]*?this\.loadedInterval = targetInterval/);
+  assert.match(commitSnapshotBlock, /this\.updateChartData\(\{ resetViewport: true \}\)/);
   assert.doesNotMatch(restartBlock, /this\.selectedSymbol = this\.loadedSymbol|this\.activeInterval = this\.loadedInterval/);
   assert.match(restartBlock, /this\.candles = \[\];[\s\S]*?this\.clearChart\(\);[\s\S]*?this\.errorElement\.hidden = false/);
   assert.match(source, /const streams = \[`\$\{symbol\}@ticker`, `\$\{symbol\}@aggTrade`\]/);

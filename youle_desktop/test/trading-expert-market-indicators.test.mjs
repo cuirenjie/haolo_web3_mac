@@ -63,6 +63,7 @@ test("custom periods use TradingView resolution strings and keep at most ten uni
 test("trading favorites normalize persisted symbols and remove invalid duplicates", async () => {
   const {
     normalizeTradingFavoriteSymbols,
+    orderTradingMarketPickerResults,
     tradingMarketVisibleInPicker,
   } = await import("../src/renderer/trading-expert-market.ts");
 
@@ -79,6 +80,69 @@ test("trading favorites normalize persisted symbols and remove invalid duplicate
   assert.equal(tradingMarketVisibleInPicker(eth, "", favorites, true), false);
   assert.equal(tradingMarketVisibleInPicker(eth, "eth", favorites, true), true);
   assert.equal(tradingMarketVisibleInPicker(eth, "btc", favorites, false), false);
+
+  const market = (id, symbol, provider = "binance") => ({
+    id,
+    provider,
+    symbol,
+    baseAsset: symbol.replace("USDT", ""),
+    quoteAsset: "USDT",
+    displaySymbol: `${symbol.replace("USDT", "")}/USDT`,
+    description: symbol,
+    venue: provider === "binance" ? "币安" : "Finnhub",
+    assetClass: "crypto",
+    marketType: "perpetual",
+    tag: "永续",
+    markPrice: 1,
+    changePercent: 0,
+    volume24h: 0,
+    quoteAvailable: true,
+  });
+  const ordered = orderTradingMarketPickerResults(
+    [market("BINANCE:FUTURES:ETHUSDT", "ETHUSDT"), market("BINANCE:FUTURES:BTCUSDT", "BTCUSDT"), market("BINANCE:FUTURES:SOLUSDT", "SOLUSDT")],
+    new Set(["BTCUSDT"]),
+  );
+  assert.deepEqual(ordered.map(({ symbol }) => symbol), ["BTCUSDT", "ETHUSDT", "SOLUSDT"]);
+});
+
+test("trading candle snapshots are keyed by market context and expire without sharing mutable arrays", async () => {
+  const {
+    getTradingMarketCandleCache,
+    setTradingMarketCandleCache,
+    tradingMarketCandleCacheKey,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const key = tradingMarketCandleCacheKey({
+    provider: "binance",
+    symbol: "BTCUSDT",
+    assetClass: "crypto",
+    interval: "240",
+    marketType: "perpetual",
+  });
+  const snapshot = {
+    stats: {
+      symbol: "BTCUSDT",
+      markPrice: 100,
+      midPrice: 101,
+      oraclePrice: 99,
+      openInterest: 1,
+      fundingRate: 0.001,
+      nextFundingTime: 123,
+      prevDayPrice: 98,
+      volume24h: 10,
+    },
+    candleBatch: {
+      candles: [{ time: 1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 3 }],
+      sourceCandles: [{ time: 1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 3 }],
+      source: { targetMs: 240 * 60_000, sourceInterval: "4h", sourceMs: 240 * 60_000 },
+      lastTradeId: 7,
+    },
+  };
+  setTradingMarketCandleCache(key, snapshot, 1_000);
+  const cached = getTradingMarketCandleCache(key, 1_001);
+  assert.deepEqual(cached?.candleBatch.candles, snapshot.candleBatch.candles);
+  assert.notEqual(cached?.candleBatch.candles, snapshot.candleBatch.candles);
+  assert.notEqual(cached?.stats, snapshot.stats);
+  assert.equal(getTradingMarketCandleCache(key, 301_001), null);
 });
 
 test("favorite ticker drag order is stable across unrelated records and storage reloads", async () => {
@@ -476,7 +540,9 @@ test("Binance TradFi perpetual contracts are catalogued with their underlying ca
   const {
     fetchTradingMarkets,
     isBinanceTradFiContract,
+    tradingMarketCategoryIncludesAssetClass,
     tradingMarketCategoryLabel,
+    TRADING_MARKET_CATEGORY_OPTIONS,
   } = await import("../src/renderer/trading-expert-market.ts");
   assert.equal(isBinanceTradFiContract({
     contractType: "TRADIFI_PERPETUAL",
@@ -489,6 +555,19 @@ test("Binance TradFi perpetual contracts are catalogued with their underlying ca
     underlyingSubType: "TradFi",
   }), true);
   assert.equal(tradingMarketCategoryLabel("commodity"), "大宗商品");
+  assert.equal(tradingMarketCategoryLabel("stock"), "美股");
+  assert.equal(tradingMarketCategoryLabel("etf"), "美股");
+  assert.equal(tradingMarketCategoryLabel("preipo"), "美股");
+  assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "stock"), true);
+  assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "etf"), true);
+  assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "preipo"), true);
+  assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "index"), false);
+  assert.deepEqual(TRADING_MARKET_CATEGORY_OPTIONS, [
+    { id: "all", label: "全部" },
+    { id: "crypto", label: "加密货币" },
+    { id: "commodity", label: "大宗商品" },
+    { id: "stock", label: "美股" },
+  ]);
   const originalWindow = globalThis.window;
   globalThis.window = {
     ...(originalWindow || {}),

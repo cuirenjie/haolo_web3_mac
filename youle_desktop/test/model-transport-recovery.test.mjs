@@ -79,3 +79,22 @@ test("received stream progress resets the no-progress backoff", async () => {
   assert.deepEqual(retries.map((event) => event.delayMs), [1_500, 1_500]);
   assert.deepEqual(retries.map((event) => event.noProgressFailures), [1, 1]);
 });
+
+test("read-only model recovery can cap attempts for bounded interactive flows", async () => {
+  let attempts = 0;
+  await assert.rejects(
+    runReadOnlyModelOperationWithRecovery({
+      operation: async () => {
+        attempts += 1;
+        throw Object.assign(new Error("temporary upstream disconnect"), {
+          code: "STREAM_DISCONNECTED",
+          retryable: true,
+        });
+      },
+      maxAttempts: 3,
+      waitForRetry: async () => {},
+    }),
+    (error) => error.recoveryExhausted === true && error.recoveryAttempts === 3,
+  );
+  assert.equal(attempts, 3);
+});

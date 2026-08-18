@@ -59,7 +59,7 @@ test("preference start keeps the chart layout and immediately asks question one"
     "function workflowRevisionNodePayload",
   );
 
-  assert.match(source, /const TRADING_PREFERENCE_ONBOARDING_GREETING =[\s\S]*未来的顶尖分析师/);
+  assert.match(source, /const TRADING_PREFERENCE_ONBOARDING_GREETING =[\s\S]*天才交易员/);
   assert.doesNotMatch(source, /回复“开始”即可/);
   assert.doesNotMatch(handler, /state\.rightCollapsed\s*=/);
   assert.doesNotMatch(handler, /state\.tradingExpertChartCollapsed\s*=/);

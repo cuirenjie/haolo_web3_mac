@@ -328,7 +328,7 @@ type TradingMarketProvider = "binance" | "finnhub" | "ifind";
 export type TradingAssetClass = "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex";
 type TradingMarketType = "perpetual" | "spot" | "global";
 
-export type TradingMarketCategory = "all" | TradingAssetClass;
+export type TradingMarketCategory = "all" | "crypto" | "commodity" | "stock";
 
 export const TRADING_MARKET_CATEGORY_OPTIONS: ReadonlyArray<{
   id: TradingMarketCategory;
@@ -337,15 +337,27 @@ export const TRADING_MARKET_CATEGORY_OPTIONS: ReadonlyArray<{
   { id: "all", label: "全部" },
   { id: "crypto", label: "加密货币" },
   { id: "commodity", label: "大宗商品" },
-  { id: "etf", label: "ETF" },
-  { id: "stock", label: "股票" },
-  { id: "preipo", label: "Pre-IPO" },
-  { id: "index", label: "指数" },
-  { id: "forex", label: "外汇" },
+  { id: "stock", label: "美股" },
 ];
 
+const TRADING_STOCK_CATEGORY_ASSET_CLASSES: ReadonlySet<TradingAssetClass> = new Set([
+  "stock",
+  "etf",
+  "preipo",
+]);
+
+export function tradingMarketCategoryIncludesAssetClass(
+  category: TradingMarketCategory,
+  assetClass: TradingAssetClass,
+) {
+  if (category === "all") return true;
+  if (category === "stock") return TRADING_STOCK_CATEGORY_ASSET_CLASSES.has(assetClass);
+  return assetClass === category;
+}
+
 export function tradingMarketCategoryLabel(category: TradingMarketCategory | TradingAssetClass) {
-  return TRADING_MARKET_CATEGORY_OPTIONS.find((option) => option.id === category)?.label || "其他";
+  const normalizedCategory = category === "etf" || category === "preipo" ? "stock" : category;
+  return TRADING_MARKET_CATEGORY_OPTIONS.find((option) => option.id === normalizedCategory)?.label || "其他";
 }
 
 function normalizeTradingAssetClass(value: unknown, fallback: TradingAssetClass = "stock"): TradingAssetClass {
@@ -2162,6 +2174,30 @@ export function tradingMarketsPreferBinance(markets: ReadonlyArray<TradingMarket
   return [...marketById.values()];
 }
 
+/**
+ * Keep the market directory useful when it opens without a query: a user's
+ * saved pairs should be immediately reachable, while the rest of the catalog
+ * remains available below them. The legacy symbol form is accepted for
+ * Binance favorites so older local storage entries are ordered correctly too.
+ */
+export function orderTradingMarketPickerResults(
+  markets: ReadonlyArray<TradingMarket>,
+  favoriteSymbols: ReadonlySet<string>,
+) {
+  const favorites: TradingMarket[] = [];
+  const others: TradingMarket[] = [];
+  const seen = new Set<string>();
+  markets.forEach((market) => {
+    const marketId = String(market.id || "").trim().toUpperCase();
+    if (!marketId || seen.has(marketId)) return;
+    seen.add(marketId);
+    const favorite = favoriteSymbols.has(marketId)
+      || (market.provider === "binance" && favoriteSymbols.has(market.symbol.toUpperCase()));
+    (favorite ? favorites : others).push(market);
+  });
+  return [...favorites, ...others];
+}
+
 function cloneTradingPeriods(periods: ReadonlyArray<TradingPeriod>) {
   return periods.map((period) => ({ ...period }));
 }
@@ -2644,6 +2680,78 @@ interface TradingCandleBatch {
   sourceCandles: TradingCandle[];
   source: BinanceResolutionSource;
   lastTradeId?: number;
+}
+
+const TRADING_MARKET_CANDLE_CACHE_MAX_AGE_MS = 5 * 60_000;
+const TRADING_MARKET_CANDLE_CACHE_MAX_ENTRIES = 24;
+
+interface TradingMarketCandleCacheEntry {
+  cachedAt: number;
+  stats: TradingMarketStats;
+  candleBatch: TradingCandleBatch;
+}
+
+const tradingMarketCandleCache = new Map<string, TradingMarketCandleCacheEntry>();
+
+export function tradingMarketCandleCacheKey(input: {
+  provider: string;
+  symbol: string;
+  assetClass: string;
+  interval: string;
+  marketType: string;
+}) {
+  return [input.provider, input.symbol, input.assetClass, input.interval, input.marketType]
+    .map((value) => String(value || "").trim().toUpperCase())
+    .join("|");
+}
+
+function cloneTradingCandleBatch(batch: TradingCandleBatch): TradingCandleBatch {
+  return {
+    candles: batch.candles.map((candle) => ({ ...candle })),
+    sourceCandles: batch.sourceCandles.map((candle) => ({ ...candle })),
+    source: { ...batch.source },
+    lastTradeId: batch.lastTradeId,
+  };
+}
+
+function cloneTradingMarketStats(stats: TradingMarketStats): TradingMarketStats {
+  return { ...stats };
+}
+
+export function getTradingMarketCandleCache(
+  key: string,
+  now = Date.now(),
+) {
+  const entry = tradingMarketCandleCache.get(key);
+  if (!entry) return null;
+  if (now - entry.cachedAt > TRADING_MARKET_CANDLE_CACHE_MAX_AGE_MS) {
+    tradingMarketCandleCache.delete(key);
+    return null;
+  }
+  // Return copies so chart updates and live merges never mutate the cache.
+  return {
+    cachedAt: entry.cachedAt,
+    stats: cloneTradingMarketStats(entry.stats),
+    candleBatch: cloneTradingCandleBatch(entry.candleBatch),
+  };
+}
+
+export function setTradingMarketCandleCache(
+  key: string,
+  snapshot: Pick<TradingMarketCandleCacheEntry, "stats" | "candleBatch">,
+  cachedAt = Date.now(),
+) {
+  tradingMarketCandleCache.delete(key);
+  tradingMarketCandleCache.set(key, {
+    cachedAt,
+    stats: cloneTradingMarketStats(snapshot.stats),
+    candleBatch: cloneTradingCandleBatch(snapshot.candleBatch),
+  });
+  while (tradingMarketCandleCache.size > TRADING_MARKET_CANDLE_CACHE_MAX_ENTRIES) {
+    const oldestKey = tradingMarketCandleCache.keys().next().value;
+    if (!oldestKey) break;
+    tradingMarketCandleCache.delete(oldestKey);
+  }
 }
 
 interface IndicatorSeriesRuntime {
@@ -4245,6 +4353,8 @@ class TradingExpertMarketWorkspace {
   private updatingChartData = false;
   private rebuildingIndicatorPanes = false;
   private marketListScrollRestoreFrame: number | null = null;
+  private marketListRenderTimer: number | null = null;
+  private marketListRenderGeneration = 0;
   private finnhubSearchTimer: number | null = null;
   private finnhubSearchGeneration = 0;
   private ifindSearchTimer: number | null = null;
@@ -4330,6 +4440,7 @@ class TradingExpertMarketWorkspace {
   private readonly favoriteStorageAccountIdentity: string;
   private drawingStorageSessionId: string;
   private favoriteStorageMigratedFromLegacy = false;
+  private favoriteCandlePrefetchStarted = false;
   private favoriteTickerMarketsById = new Map<string, TradingMarket>();
   private showFavoritesOnly = false;
   private finnhubConfigured = false;
@@ -6537,6 +6648,16 @@ class TradingExpertMarketWorkspace {
       this.setPrimaryPeriodMenuOpen(false);
       this.setPeriodEditorOpen(false);
       this.setIndicatorEditorOpen(false);
+    } else {
+      // A selection closes the picker immediately; stop any remaining chunk
+      // work so the hidden directory does not continue consuming the main
+      // thread after the click.
+      this.marketListRenderGeneration += 1;
+      if (this.marketListRenderTimer !== null) {
+        window.clearTimeout(this.marketListRenderTimer);
+        this.marketListRenderTimer = null;
+      }
+      this.marketList.removeAttribute("aria-busy");
     }
     this.picker.hidden = !open;
     this.host.querySelector<HTMLElement>('[data-market-action="toggle-symbols"]')
@@ -6553,8 +6674,9 @@ class TradingExpertMarketWorkspace {
       this.ifindSearchTimer = null;
       this.ifindSearchMarkets = [];
       this.ifindSearchPending = false;
-      this.showFavoritesOnly = this.favoriteSymbols.size > 0;
-      if (this.marketCategory !== "all") this.showFavoritesOnly = false;
+      // Open on the full directory, with favorites ordered first. Users can
+      // still narrow the result with the search field or category tabs.
+      this.showFavoritesOnly = false;
       this.syncMarketCategoryButtons();
       this.renderMarkets({ resetScroll: true });
       if (this.finnhubConfigured) void this.refreshFavoriteFinnhubQuotes();
@@ -6954,6 +7076,11 @@ class TradingExpertMarketWorkspace {
   }
 
   private renderMarkets(options: { resetScroll?: boolean } = {}) {
+    const renderGeneration = ++this.marketListRenderGeneration;
+    if (this.marketListRenderTimer !== null) {
+      window.clearTimeout(this.marketListRenderTimer);
+      this.marketListRenderTimer = null;
+    }
     const preservedScrollTop = options.resetScroll
       ? 0
       : Math.max(this.marketList.scrollTop, this.marketListScrollTop);
@@ -6969,8 +7096,8 @@ class TradingExpertMarketWorkspace {
       ],
     );
     const matchingMarkets = tradingMarketsPreferBinance([
-      ...this.markets,
       ...favoriteMarkets,
+      ...this.markets,
       ...this.finnhubSearchMarkets,
       ...this.ifindSearchMarkets,
     ])
@@ -6980,9 +7107,16 @@ class TradingExpertMarketWorkspace {
         this.favoriteSymbols,
         favoritesOnly,
       ))
-      .filter((market) => this.marketCategory === "all" || market.assetClass === this.marketCategory);
-    const markets = favoritesOnly ? matchingMarkets : matchingMarkets.slice(0, 120);
+      .filter((market) => tradingMarketCategoryIncludesAssetClass(this.marketCategory, market.assetClass));
+    const orderedMarkets = orderTradingMarketPickerResults(matchingMarkets, this.favoriteSymbols);
+    // Keep the complete directory in the scrollable picker so pairs that are
+    // not among the highest-volume results remain directly selectable.
+    const markets = orderedMarkets;
     this.renderedMarkets = new Map(markets.map((market) => [market.id, market]));
+    // The picker is frequently refreshed while it is closed (market quotes,
+    // favorites, and background catalog updates). Avoid building a large DOM
+    // tree that the user cannot see; the next open always renders a fresh list.
+    if (this.picker.hidden) return;
     if (!markets.length) {
       this.marketList.innerHTML = `<p class="trading-market-list-empty">${
         this.finnhubSearchPending || this.ifindSearchPending
@@ -6993,7 +7127,7 @@ class TradingExpertMarketWorkspace {
       this.marketList.scrollTop = 0;
       return;
     }
-    this.marketList.innerHTML = markets.map((market) => {
+    const renderRow = (market: TradingMarket) => {
       const active = market.id === this.selectedMarketId;
       const favorite = this.isMarketFavorite(market);
       const changeClass = market.changePercent >= 0 ? "positive" : "negative";
@@ -7031,8 +7165,27 @@ class TradingExpertMarketWorkspace {
           >${renderMarketFavoriteIcon()}</button>
         </div>
       `;
-    }).join("");
-    this.restoreMarketListScroll(preservedScrollTop);
+    };
+    const chunkSize = 48;
+    this.marketList.setAttribute("aria-busy", "true");
+    this.marketList.innerHTML = '<p class="trading-market-list-empty">正在加载交易对目录…</p>';
+    const appendChunk = (start: number) => {
+      if (this.disposed || renderGeneration !== this.marketListRenderGeneration) return;
+      this.marketListRenderTimer = null;
+      if (start === 0) this.marketList.replaceChildren();
+      this.marketList.insertAdjacentHTML(
+        "beforeend",
+        markets.slice(start, start + chunkSize).map(renderRow).join(""),
+      );
+      const nextStart = start + chunkSize;
+      if (nextStart < markets.length) {
+        this.marketListRenderTimer = window.setTimeout(() => appendChunk(nextStart), 0);
+        return;
+      }
+      this.marketList.removeAttribute("aria-busy");
+      this.restoreMarketListScroll(preservedScrollTop);
+    };
+    this.marketListRenderTimer = window.setTimeout(() => appendChunk(0), 0);
   }
 
   private syncMarketCategoryButtons() {
@@ -10383,6 +10536,74 @@ class TradingExpertMarketWorkspace {
     }
   }
 
+  private commitMarketSnapshot(
+    targetSymbol: string,
+    targetMarketId: string,
+    targetProvider: TradingMarketProvider,
+    targetAssetClass: TradingAssetClass,
+    targetMarketType: TradingMarketType,
+    targetMarketMeta: TradingMarket | null,
+    targetInterval: string,
+    stats: TradingMarketStats,
+    candleBatch: TradingCandleBatch,
+  ) {
+    this.stats = stats;
+    this.candles = candleBatch.candles;
+    this.sourceCandles = candleBatch.sourceCandles;
+    this.lastAggregateTradeId = candleBatch.lastTradeId ?? null;
+    this.loadedSymbol = targetSymbol;
+    this.loadedMarketId = targetMarketId;
+    this.loadedProvider = targetProvider;
+    this.loadedAssetClass = targetAssetClass;
+    this.loadedMarketType = targetMarketType;
+    this.loadedMarketMeta = targetMarketMeta;
+    this.loadedInterval = targetInterval;
+    this.updateStatsUi();
+    this.updateChartData({ resetViewport: true });
+    this.syncAlertSimulationForCurrentContext();
+  }
+
+  private async prefetchFavoriteCandleSnapshots() {
+    if (this.favoriteCandlePrefetchStarted || this.disposed) return;
+    this.favoriteCandlePrefetchStarted = true;
+    const targets = [...this.favoriteMarketRecords.values()]
+      .filter((record) => record.provider === "binance" && this.favoriteSymbols.has(record.id))
+      .slice(0, 4);
+    for (const record of targets) {
+      if (this.disposed || binanceMarketRestCooldownRemaining() > 0) return;
+      const interval = this.activeInterval;
+      const marketType = record.marketType === "spot" ? "spot" : "perpetual";
+      const key = tradingMarketCandleCacheKey({
+        provider: record.provider,
+        symbol: record.symbol,
+        assetClass: record.assetClass,
+        interval,
+        marketType: record.marketType,
+      });
+      if (getTradingMarketCandleCache(key)) continue;
+      try {
+        const candleBatch = await fetchTradingCandles(
+          record.symbol,
+          interval,
+          500,
+          Date.now(),
+          marketType,
+        );
+        if (!candleBatch.candles.length || !tradingCandleSeriesMatchesResolution(candleBatch.candles, interval)) continue;
+        setTradingMarketCandleCache(key, {
+          stats: tradingMarketStatsFromCandles(record.symbol, candleBatch.candles),
+          candleBatch,
+        });
+      } catch {
+        // Prefetch is opportunistic; the explicit selection path still fetches
+        // the pair and shows its normal retry state if this request fails.
+      }
+      // Yield between favorites so the initial chart and picker remain
+      // responsive even when several saved pairs need a warm snapshot.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    }
+  }
+
   private async restartMarketData(options: { preserveChart?: boolean } = {}) {
     const generation = ++this.loadGeneration;
     const targetSymbol = this.selectedSymbol;
@@ -10392,6 +10613,18 @@ class TradingExpertMarketWorkspace {
     const targetMarketType = this.selectedMarketType;
     const targetMarketMeta = this.selectedMarketMeta ? { ...this.selectedMarketMeta } : null;
     const targetInterval = this.activeInterval;
+    const candleCacheKey = tradingMarketCandleCacheKey({
+      provider: targetProvider,
+      symbol: targetSymbol,
+      assetClass: targetAssetClass,
+      interval: targetInterval,
+      marketType: targetMarketType,
+    });
+    const cachedSnapshot = getTradingMarketCandleCache(candleCacheKey);
+    const cachedSnapshotUsable = cachedSnapshot
+      && cachedSnapshot.candleBatch.candles.length > 0
+      && tradingCandleSeriesMatchesResolution(cachedSnapshot.candleBatch.candles, targetInterval);
+    let cachedSnapshotApplied = false;
     const keepChart = options.preserveChart === true && this.candles.length > 0;
     if (this.marketRateLimitRetryTimer !== null) {
       window.clearTimeout(this.marketRateLimitRetryTimer);
@@ -10432,6 +10665,24 @@ class TradingExpertMarketWorkspace {
       this.clearChart();
     }
     this.clearMarketError();
+    if (cachedSnapshotUsable) {
+      // Paint a recent snapshot immediately, then keep the network request
+      // below as a background refresh. This makes switching back to a viewed
+      // pair feel instant without treating the cache as authoritative.
+      this.commitMarketSnapshot(
+        targetSymbol,
+        targetMarketId,
+        targetProvider,
+        targetAssetClass,
+        targetMarketType,
+        targetMarketMeta,
+        targetInterval,
+        cachedSnapshot.stats,
+        cachedSnapshot.candleBatch,
+      );
+      cachedSnapshotApplied = true;
+      this.setLoading(false);
+    }
     try {
       const { stats, candleBatch } = targetProvider === "finnhub"
         ? await this.fetchFinnhubSnapshot(targetSymbol, targetAssetClass, targetInterval, 500)
@@ -10459,61 +10710,67 @@ class TradingExpertMarketWorkspace {
             const stats = tradingMarketStatsFromCandles(targetSymbol, candleBatch.candles);
             return { stats, candleBatch };
           })();
+      setTradingMarketCandleCache(candleCacheKey, { stats, candleBatch });
       if (this.disposed || generation !== this.loadGeneration) return;
-      this.stats = stats;
-      this.candles = candleBatch.candles;
-      this.sourceCandles = candleBatch.sourceCandles;
-      this.lastAggregateTradeId = candleBatch.lastTradeId ?? null;
-      this.loadedSymbol = targetSymbol;
-      this.loadedMarketId = targetMarketId;
-      this.loadedProvider = targetProvider;
-      this.loadedAssetClass = targetAssetClass;
-      this.loadedMarketType = targetMarketType;
-      this.loadedMarketMeta = targetMarketMeta;
-      this.loadedInterval = targetInterval;
-      this.updateStatsUi();
-      this.updateChartData({ resetViewport: true });
-      this.syncAlertSimulationForCurrentContext();
+      this.commitMarketSnapshot(
+        targetSymbol,
+        targetMarketId,
+        targetProvider,
+        targetAssetClass,
+        targetMarketType,
+        targetMarketMeta,
+        targetInterval,
+        stats,
+        candleBatch,
+      );
       this.setLoading(false);
     } catch (error) {
       if (this.disposed || generation !== this.loadGeneration) return;
       console.error("加载实时行情失败", error);
-      this.setLoading(false);
-      // Never relabel the previous interval's candles as the newly selected
-      // period. A failed switch is an explicit error state and the retry keeps
-      // the user's requested symbol and interval.
-      this.stats = null;
-      this.candles = [];
-      this.sourceCandles = [];
-      this.lastAggregateTradeId = null;
-      this.clearChart();
-      const message = String((error as Error)?.message || "行情加载失败").trim();
-      this.errorElement.textContent = targetProvider === "finnhub"
-        ? GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE
-        : `${message} 点击重试`;
-      this.errorElement.dataset.marketAction = targetProvider === "finnhub"
-        ? "open-default-market"
-        : "retry";
-      if (targetProvider === "finnhub") {
-        this.errorElement.setAttribute(
-          "aria-label",
-          `${GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE}，点击加载 BTC/USDT 永续合约`,
-        );
-      }
-      this.errorElement.hidden = false;
-      if (targetProvider === "finnhub") return;
-      const cooldownRemaining = targetProvider === "binance"
-        ? binanceMarketRestCooldownRemaining()
-        : 0;
-      if (cooldownRemaining > 0) {
-        this.marketRateLimitRetryTimer = window.setTimeout(() => {
-          this.marketRateLimitRetryTimer = null;
-          if (this.disposed || generation !== this.loadGeneration) return;
-          void this.restartMarketData({ preserveChart: true });
-        }, cooldownRemaining + BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS);
+      if (cachedSnapshotApplied) {
+        // Keep the cached chart usable when a background refresh is rate
+        // limited or temporarily offline; the next fallback poll retries it.
+        this.setLoading(false);
+        this.clearMarketError();
+      } else {
+        this.setLoading(false);
+        // Never relabel the previous interval's candles as the newly selected
+        // period. A failed switch is an explicit error state and the retry keeps
+        // the user's requested symbol and interval.
+        this.stats = null;
+        this.candles = [];
+        this.sourceCandles = [];
+        this.lastAggregateTradeId = null;
+        this.clearChart();
+        const message = String((error as Error)?.message || "行情加载失败").trim();
+        this.errorElement.textContent = targetProvider === "finnhub"
+          ? GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE
+          : `${message} 点击重试`;
+        this.errorElement.dataset.marketAction = targetProvider === "finnhub"
+          ? "open-default-market"
+          : "retry";
+        if (targetProvider === "finnhub") {
+          this.errorElement.setAttribute(
+            "aria-label",
+            `${GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE}，点击加载 BTC/USDT 永续合约`,
+          );
+        }
+        this.errorElement.hidden = false;
+        if (targetProvider === "finnhub") return;
+        const cooldownRemaining = targetProvider === "binance"
+          ? binanceMarketRestCooldownRemaining()
+          : 0;
+        if (cooldownRemaining > 0) {
+          this.marketRateLimitRetryTimer = window.setTimeout(() => {
+            this.marketRateLimitRetryTimer = null;
+            if (this.disposed || generation !== this.loadGeneration) return;
+            void this.restartMarketData({ preserveChart: true });
+          }, cooldownRemaining + BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS);
+        }
       }
     }
     if (this.disposed || generation !== this.loadGeneration) return;
+    if (this.candles.length) void this.prefetchFavoriteCandleSnapshots();
     if (this.selectedProvider === "binance") {
       this.connectSocket(generation);
     }
@@ -12521,6 +12778,7 @@ class TradingExpertMarketWorkspace {
     if (this.disposed) return;
     this.disposed = true;
     this.loadGeneration += 1;
+    this.marketListRenderGeneration += 1;
     this.favoriteTickerGeneration += 1;
     this.detachAlertSimulation();
     this.closeSocket();
@@ -12534,6 +12792,10 @@ class TradingExpertMarketWorkspace {
     if (this.historyCooldownTimer !== null) window.clearTimeout(this.historyCooldownTimer);
     if (this.finnhubSearchTimer !== null) window.clearTimeout(this.finnhubSearchTimer);
     if (this.ifindSearchTimer !== null) window.clearTimeout(this.ifindSearchTimer);
+    if (this.marketListRenderTimer !== null) {
+      window.clearTimeout(this.marketListRenderTimer);
+      this.marketListRenderTimer = null;
+    }
     if (this.priceLockAnimationFrame !== null) window.cancelAnimationFrame(this.priceLockAnimationFrame);
     if (this.drawingSettleAnimationFrame !== null) {
       window.cancelAnimationFrame(this.drawingSettleAnimationFrame);

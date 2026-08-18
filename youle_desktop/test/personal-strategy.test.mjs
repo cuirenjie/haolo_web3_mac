@@ -17,11 +17,20 @@ import {
   strategyDocumentText,
 } from "../src/main/personal-strategy/source-ingestion.mjs";
 import {
+  parseStrategyConfirmationIntent,
   parseStrategyUnderstanding,
+  strategyConfirmationIntentPrompt,
   strategyUnderstandingCompilerText,
   strategyUnderstandingDisplayText,
   strategyUnderstandingPrompt,
 } from "../src/main/personal-strategy/understanding.mjs";
+import {
+  PERSONAL_STRATEGY_MAX_RETRIES,
+  chunkPersonalStrategyAttachments,
+  classifyPersonalStrategyFailure,
+  mergePersonalStrategyUnderstandings,
+  personalStrategyRetryDelayMs,
+} from "../src/main/personal-strategy/pipeline.mjs";
 
 function safeStorageFixture() {
   const transform = (buffer) => Buffer.from([...buffer].map((byte) => byte ^ 0xa5));
@@ -72,6 +81,24 @@ test("personal strategy compiler lets the latest user correction override an ear
   assert.equal(corrected.spec.direction, "short");
   assert.equal(corrected.spec.rules.some((rule) => rule.type === "cross_below"), true);
   assert.equal(corrected.spec.rules.some((rule) => rule.type === "cross_above"), false);
+});
+
+test("personal strategy confirmation intent parser accepts only the model contract", () => {
+  const prompt = strategyConfirmationIntentPrompt({
+    userText: "没问题，按这个执行",
+    strategyName: "回踩均线",
+    lastAssistantMessage: "预演完成，是否创建策略？",
+  });
+  assert.match(prompt, /confirm\|cancel\|revise\|unclear/);
+  assert.deepEqual(parseStrategyConfirmationIntent('{"intent":"confirm","confidence":0.97,"reason":"用户明确接受预演"}'), {
+    ok: true,
+    intent: "confirm",
+    confidence: 0.97,
+    reason: "用户明确接受预演",
+    rawText: '{"intent":"confirm","confidence":0.97,"reason":"用户明确接受预演"}',
+  });
+  assert.equal(parseStrategyConfirmationIntent("没问题").ok, false);
+  assert.equal(parseStrategyConfirmationIntent('{"intent":"revise","confidence":0.8}').intent, "revise");
 });
 
 test("personal strategy engine returns a safe read-only plan and drawing patch", () => {
@@ -164,6 +191,34 @@ test("personal strategy understanding accepts fenced JSON and produces compiler-
   assert.match(strategyUnderstandingPrompt({ sourceText: "读取截图中的策略", attachmentSummary: "- 截图.png（image/png）" }), /只输出一个 JSON 对象/);
 });
 
+test("personal strategy pipeline splits attachments and classifies stage failures", () => {
+  const attachments = [{ name: "a.png" }, { name: "b.pdf" }, { name: "c.docx" }, { name: "d.png" }];
+  assert.deepEqual(chunkPersonalStrategyAttachments(attachments), [attachments.slice(0, 3), attachments.slice(3)]);
+  assert.equal(PERSONAL_STRATEGY_MAX_RETRIES, 2);
+  assert.equal(personalStrategyRetryDelayMs(1) < personalStrategyRetryDelayMs(2), true);
+  assert.equal(classifyPersonalStrategyFailure({ code: "PERSONAL_STRATEGY_ATTACHMENT_READ_TIMEOUT", message: "60s" }).kind, "attachment_read_timeout");
+  assert.equal(classifyPersonalStrategyFailure({ code: "PERSONAL_STRATEGY_MODEL_TIMEOUT", message: "120s" }).kind, "model_timeout");
+  assert.match(classifyPersonalStrategyFailure({ code: "PROVIDER_FIRST_BYTE_TIMEOUT", message: "timeout" }, "model").userMessage, /首响应/);
+  assert.match(classifyPersonalStrategyFailure({ code: "PROVIDER_STREAM_INACTIVITY_TIMEOUT", message: "timeout" }, "model").userMessage, /生成中断/);
+  assert.equal(classifyPersonalStrategyFailure(new Error("websocket closed by server"), "model").kind, "network_disconnected");
+  assert.equal(classifyPersonalStrategyFailure({ code: "STREAM_DISCONNECTED", message: "模型流式响应在完成前断开" }, "model").kind, "network_disconnected");
+  assert.equal(classifyPersonalStrategyFailure(new Error("流式响应在完成前断开"), "model").kind, "network_disconnected");
+  assert.match(classifyPersonalStrategyFailure({ code: "STRATEGY_NAME_CONFLICT", message: "已有同名策略" }, "compiler").userMessage, /同名策略/);
+  assert.match(classifyPersonalStrategyFailure({ code: "STRATEGY_NOT_FOUND", message: "找不到个人策略" }, "compiler").userMessage, /找不到正在编辑/);
+});
+
+test("personal strategy pipeline merges understanding from attachment batches without inventing rules", () => {
+  const merged = mergePersonalStrategyUnderstandings([
+    { name: "EMA策略", summary: "上穿 EMA20", direction: "long", entryRules: [{ type: "cross_above", text: "收盘上穿 EMA20" }], confidence: 0.8 },
+    { name: "", summary: "放量确认", direction: "long", entryRules: [{ type: "volume_expansion", text: "成交量高于均值" }], exitRules: [{ type: "cross_below", text: "跌破 EMA20" }], confidence: 0.6 },
+  ], { rawText: "批次资料" });
+  assert.equal(merged.direction, "long");
+  assert.equal(merged.entryRules.length, 2);
+  assert.equal(merged.exitRules.length, 1);
+  assert.equal(merged.confidence, 0.7);
+  assert.match(merged.rawText, /批次资料/);
+});
+
 test("personal strategy UI and IPC keep the minimal flow and both themes wired", () => {
   const main = fs.readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8");
   const preload = fs.readFileSync(new URL("../src/main/preload.mjs", import.meta.url), "utf8");
@@ -175,6 +230,11 @@ test("personal strategy UI and IPC keep the minimal flow and both themes wired",
   assert.match(main, /ipcMain\.handle\("personalStrategy:feedback"/);
   assert.match(main, /personal-strategy-understanding/);
   assert.match(main, /strategyMediaAttachments/);
+  assert.match(main, /PERSONAL_STRATEGY_ATTACHMENT_BATCH_SIZE/);
+  assert.match(main, /PERSONAL_STRATEGY_ATTACHMENT_READ_TIMEOUT_MS/);
+  assert.match(main, /preparedPersonalStrategySourceContexts/);
+  assert.match(main, /modelPreparationIds/);
+  assert.match(main, /personalStrategyRetryDelayMs/);
   assert.match(main, /personalContext:/);
   assert.match(preload, /createPersonalStrategyDraft/);
   assert.match(preload, /preparePersonalStrategySource/);
@@ -185,10 +245,26 @@ test("personal strategy UI and IPC keep the minimal flow and both themes wired",
   assert.match(renderer, /GitHub 版本管理/);
   assert.match(renderer, /runPersonalStrategyConversation/);
   assert.match(renderer, /runPersonalStrategyUnderstanding/);
+  assert.match(renderer, /PERSONAL_STRATEGY_MAX_RETRIES/);
+  assert.match(renderer, /maxTransportAttempts: 1/);
+  assert.match(renderer, /personalStrategySourcePreparationId/);
+  assert.match(renderer, /label: "智能体正在理解策略资料", detail: ""/);
+  assert.doesNotMatch(renderer, /智能体正在理解策略资料（尝试/);
+  assert.doesNotMatch(renderer, /PERSONAL_STRATEGY_MODEL_TIMEOUT_MS/);
+  assert.match(renderer, /附件读取超时/);
+  assert.match(renderer, /网络连接中断/);
+  assert.match(renderer, /chunkPersonalStrategyAttachments/);
   assert.match(renderer, /strategyUnderstandingPrompt/);
+  assert.match(renderer, /strategyConfirmationIntentPrompt/);
+  assert.match(renderer, /parseStrategyConfirmationIntent/);
+  assert.match(renderer, /personal-strategy-understanding-confirmation-intent/);
   assert.match(renderer, /stream: false/);
-  assert.match(renderer, /clarificationAffirmation/);
+  assert.match(renderer, /不会重复发送“确认”/);
+  assert.match(renderer, /confirmationSimulationId/);
   assert.match(renderer, /personalStrategyConversationByThreadId/);
+  assert.match(main, /detail: `\$\{batchLabel\}：正在提取 \$\{batch\.length\} 个附件`/);
+  assert.doesNotMatch(main, /正在提取 \$\{batch\.length\} 个附件（尝试/);
+  assert.doesNotMatch(main, /次重试）/);
   assert.doesNotMatch(renderer, /await openPersonalStrategyCreation\(text\)/);
   assert.match(styles, /\.personal-strategy-dialog/);
   assert.match(styles, /\.personal-strategy-dialog\s*\{[\s\S]*?position: fixed;[\s\S]*?z-index: 81/);

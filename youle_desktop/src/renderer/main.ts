@@ -308,11 +308,20 @@ import {
   providerModelInputCapabilities,
 } from "../main/provider-input-capabilities.mjs";
 import {
+  parseStrategyConfirmationIntent,
   parseStrategyUnderstanding,
+  strategyConfirmationIntentPrompt,
   strategyUnderstandingCompilerText,
   strategyUnderstandingDisplayText,
   strategyUnderstandingPrompt,
 } from "../main/personal-strategy/understanding.mjs";
+import {
+  PERSONAL_STRATEGY_MAX_RETRIES,
+  chunkPersonalStrategyAttachments,
+  classifyPersonalStrategyFailure,
+  mergePersonalStrategyUnderstandings,
+  personalStrategyRetryDelayMs,
+} from "../main/personal-strategy/pipeline.mjs";
 import {
   DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
   canonicalExecutionModelProvider,
@@ -1397,7 +1406,7 @@ type DesktopApi = {
     attachments?: any[];
   }): Promise<any>;
   prepareGroupChatContext?(params: any): Promise<LocalGroupChatContextPreparation>;
-  sendProviderChat?(params: { provider: string; model?: string; modelPool?: string; modelCapability?: string; text: string; messages?: Array<{ role: string; content: string | Array<Record<string, unknown>>; contextTurnId?: string; attachments?: MessageAttachment[] }>; attachments?: MessageAttachment[]; interactionId?: string; conversationId?: string; sourceType?: string; threadId?: string; cwd?: string; explicitPaths?: string[]; currentGroupContext?: { protocolVersion: 1; source: "group_picker"; groupId: string; groupName: string; workspaceSlug: string; externalPath: string | null; requestId: string }; threadReferences?: any[]; threadReferencePreparationId?: string | null; currentContextTokens?: number | null; modelContextWindow?: number | null; messageTokens?: number; stream?: boolean; groupChatContextPreparationId?: string; groupChatThreadId?: string; groupChatMemberId?: string;
+  sendProviderChat?(params: { provider: string; model?: string; modelPool?: string; modelCapability?: string; text: string; messages?: Array<{ role: string; content: string | Array<Record<string, unknown>>; contextTurnId?: string; attachments?: MessageAttachment[] }>; attachments?: MessageAttachment[]; interactionId?: string; conversationId?: string; sourceType?: string; threadId?: string; cwd?: string; explicitPaths?: string[]; currentGroupContext?: { protocolVersion: 1; source: "group_picker"; groupId: string; groupName: string; workspaceSlug: string; externalPath: string | null; requestId: string }; threadReferences?: any[]; threadReferencePreparationId?: string | null; currentContextTokens?: number | null; modelContextWindow?: number | null; messageTokens?: number; stream?: boolean; groupChatContextPreparationId?: string; groupChatThreadId?: string; groupChatMemberId?: string; maxTransportAttempts?: number; personalStrategySourcePreparationId?: string | null;
   }): Promise<any>;
   interruptProviderChat?(params: { threadId: string; interactionId: string }): Promise<{
     interrupted?: boolean;
@@ -1434,11 +1443,13 @@ type DesktopApi = {
     strategies?: PersonalStrategyRecord[];
     error?: { code?: string; message?: string };
   }>;
-  preparePersonalStrategySource?(params: { text?: string; attachments?: MessageAttachment[]; cwd?: string }): Promise<{
+  preparePersonalStrategySource?(params: { text?: string; attachments?: MessageAttachment[]; cwd?: string; threadId?: string; interactionId?: string }): Promise<{
     ok?: boolean;
     sourceText?: string;
     sources?: { attachments?: Array<{ path?: string; name?: string }>; links?: Array<{ url?: string }> };
     warnings?: string[];
+    attachmentRead?: { total?: number; batchSize?: number; completedBatches?: number; failedBatches?: number };
+    modelPreparationIds?: Array<string | null>;
     error?: { code?: string; message?: string };
   }>;
   createPersonalStrategyDraft?(params: { text: string; name?: string; understanding?: PersonalStrategyUnderstanding | null }): Promise<{
@@ -4274,6 +4285,7 @@ const tradingAlertConversationByThreadId = new Map<string, TradingAlertConversat
 const tradingAlertConversationRunByThreadId = new Map<string, symbol>();
 type PersonalStrategyConversationState = {
   draftId?: string;
+  name?: string;
   sourceText: string;
   understanding?: PersonalStrategyUnderstanding | null;
   stage: "collecting" | "clarification" | "confirmation" | "active";
@@ -18106,9 +18118,10 @@ function patchActiveThinkingElapsed() {
   const tradingExpertThinking = tradingExpertThinkingStateByThreadId.get(threadId);
   const stage = tradingExpertThinking
     ? tradingExpertThinkingStage(
-        tradingExpertThinking.phase,
-        tradingExpertThinking.reasoningSummary,
-      )
+      tradingExpertThinking.phase,
+      tradingExpertThinking.reasoningSummary,
+      tradingExpertThinking.message,
+    )
     : activeCodexThinkingStage(threadId);
   const elapsedLabel = activeThinkingElapsedLabel(threadId);
   const durationText = elapsedLabel ? `${HANDLED_STATUS_LABEL} ${elapsedLabel}` : "";
@@ -29619,8 +29632,8 @@ function clearTradingExpertComposerAfterSend(threadId: string) {
   syncComposerSendButton();
 }
 
-function tradingExpertThinkingStage(phase: string, reasoningSummary = ""): ThinkingStagePresentation {
-  const detail = "";
+function tradingExpertThinkingStage(phase: string, reasoningSummary = "", message = ""): ThinkingStagePresentation {
+  const detail = message || "";
   const streamedDetail = phase === "alert-analyzing" ? reasoningSummary.trim() : detail;
   if (phase === "classifying") {
     return { key: "reasoning", label: "正在理解请求", detail };
@@ -29636,6 +29649,23 @@ function tradingExpertThinkingStage(phase: string, reasoningSummary = ""): Think
   }
   if (phase === "alert-confirming") {
     return { key: "executing", label: "正在创建预警", detail };
+  }
+  if (phase === "strategy-reading-attachments") {
+    return { key: "preparing", label: "正在读取策略附件", detail };
+  }
+  if (phase === "strategy-understanding") {
+    // Keep transport/model retries internal. The conversation surface should
+    // show one stable status instead of exposing attempt counts or model IDs.
+    return { key: "reasoning", label: "智能体正在理解策略资料", detail: "" };
+  }
+  if (phase === "strategy-confirmation-intent") {
+    return { key: "reasoning", label: "智能体正在理解你的确认", detail: "" };
+  }
+  if (phase === "strategy-compiling") {
+    return { key: "executing", label: "正在编译本地规则", detail };
+  }
+  if (phase === "strategy-confirming") {
+    return { key: "executing", label: "正在写入策略列表", detail };
   }
   if (phase === "order-flow-analyzing") {
     return { key: "reasoning", label: "正在分析订单流", detail };
@@ -29956,13 +29986,12 @@ function personalStrategyAttachmentSummary(attachments: MessageAttachment[]) {
   }).join("\n");
 }
 
-function personalStrategyUnderstandingModel(threadId: string, attachments: MessageAttachment[]) {
+function personalStrategyUnderstandingModels(threadId: string, attachments: MessageAttachment[]) {
   const selectedModel = selectedChatModelValue(threadId);
   const selectedProvider = questionAnswerProviderForModel(selectedModel) || providerFromThreadId(threadId) || "codex";
   const selectedCapabilities = providerModelInputCapabilities(selectedProvider, selectedModel);
-  if (!personalStrategyAttachmentNeedsVision(attachments) || selectedCapabilities.image) {
-    return { provider: selectedProvider, model: selectedModel, capabilities: selectedCapabilities };
-  }
+  const needsVision = personalStrategyAttachmentNeedsVision(attachments);
+  const selected = { provider: selectedProvider, model: selectedModel, capabilities: selectedCapabilities };
   const preferredProviders: ProviderChatProvider[] = ["codex", "gemini", "claude", "kimi", "grok", "doubao", "mimo", "perplexity", "qwen"];
   const catalogCandidates = questionAnswerModelOptions()
     .filter((option) => option.value)
@@ -29970,7 +29999,7 @@ function personalStrategyUnderstandingModel(threadId: string, attachments: Messa
       const provider = questionAnswerProviderForModel(option.value) || option.providerId as ProviderChatProvider;
       return { provider, model: option.value, capabilities: providerModelInputCapabilities(provider, option.value) };
     })
-    .filter((candidate) => candidate.capabilities.image)
+    .filter((candidate) => !needsVision || candidate.capabilities.image)
   const knownVisionCandidates = [
     ["codex", "gpt-5.6-sol"],
     ["codex", "gpt-5.6-terra"],
@@ -29983,81 +30012,332 @@ function personalStrategyUnderstandingModel(threadId: string, attachments: Messa
     model,
     capabilities: providerModelInputCapabilities(provider, model),
   }));
-  const candidates = [...catalogCandidates, ...knownVisionCandidates]
+  const availableCandidates = [selected, ...catalogCandidates]
+    .filter((candidate) => candidate.model && (!needsVision || candidate.capabilities.image));
+  const candidates = (availableCandidates.length ? availableCandidates : knownVisionCandidates)
     .filter((candidate, index, values) => values.findIndex((item) => `${item.provider}/${item.model}` === `${candidate.provider}/${candidate.model}`) === index)
-    .sort((left, right) => preferredProviders.indexOf(left.provider) - preferredProviders.indexOf(right.provider));
-  return candidates[0] || { provider: selectedProvider, model: selectedModel, capabilities: selectedCapabilities };
+  if (candidates.length <= 1) return candidates;
+  return [candidates[0], ...candidates.slice(1).sort((left, right) => preferredProviders.indexOf(left.provider) - preferredProviders.indexOf(right.provider))];
+}
+
+function personalStrategyUnderstandingModel(threadId: string, attachments: MessageAttachment[]) {
+  return personalStrategyUnderstandingModels(threadId, attachments)[0] || null;
+}
+
+function personalStrategyPipelineError(code: string, message: string) {
+  const error = new Error(message) as Error & { code?: string; phase?: string };
+  error.code = code;
+  error.phase = "model";
+  return error;
+}
+
+function personalStrategyProviderResultError(result: any) {
+  if (!result || typeof result !== "object") return null;
+  if (result.ok === false || result.error) {
+    const error = personalStrategyPipelineError(
+      String(result.error?.code || result.code || "PERSONAL_STRATEGY_MODEL_FAILED"),
+      String(result.error?.message || result.message || "模型没有完成策略资料理解"),
+    );
+    return error;
+  }
+  return null;
+}
+
+type PersonalStrategyTurnIntent = "confirm" | "cancel" | "revise" | "unclear";
+type PersonalStrategyTurnIntentResult = {
+  ok: boolean;
+  intent: PersonalStrategyTurnIntent;
+  confidence?: number;
+  reason?: string;
+  error?: string;
+  failure?: ReturnType<typeof classifyPersonalStrategyFailure>;
+};
+
+async function classifyPersonalStrategyTurnIntent(
+  threadId: string,
+  text: string,
+  previous: PersonalStrategyConversationState,
+): Promise<PersonalStrategyTurnIntentResult> {
+  if (typeof api.sendProviderChat !== "function") {
+    return { ok: false, intent: "unclear", error: "当前客户端没有可用的确认意图理解桥。" };
+  }
+  const selections = personalStrategyUnderstandingModels(threadId, []);
+  const primarySelection = selections[0];
+  if (!primarySelection?.model) {
+    return { ok: false, intent: "unclear", error: "当前没有可用的确认意图理解模型。" };
+  }
+  if (await confirmInsufficientAvailableBalanceBeforeSend("personal-strategy-confirmation")) {
+    return { ok: false, intent: "unclear", error: INSUFFICIENT_QUOTA_MESSAGE };
+  }
+  const lastAssistantMessage = [...(previous.conversation || [])]
+    .reverse()
+    .find((item) => item.role === "assistant")?.text || "";
+  const prompt = strategyConfirmationIntentPrompt({
+    userText: text,
+    strategyName: previous.name || previous.understanding?.name || "",
+    lastAssistantMessage,
+  });
+  let lastFailure: ReturnType<typeof classifyPersonalStrategyFailure> | null = null;
+  for (let attempt = 1; attempt <= PERSONAL_STRATEGY_MAX_RETRIES + 1; attempt += 1) {
+    const selection = attempt === PERSONAL_STRATEGY_MAX_RETRIES + 1 && selections[1]
+      ? selections[1]
+      : primarySelection;
+    const interactionId = `personal-strategy-confirmation-${crypto.randomUUID()}`;
+    updateTradingExpertThinkingState(threadId, "strategy-confirmation-intent", "");
+    refreshTradingExpertConversationSurface(threadId);
+    try {
+      const result = await api.sendProviderChat({
+        provider: PROVIDER_CHAT_META[selection.provider]?.apiProvider || selection.provider,
+        model: selection.model,
+        text: prompt,
+        messages: [{ role: "user", content: prompt, contextTurnId: interactionId }],
+        threadId,
+        cwd: threadWorkspaceCwd(threadId),
+        interactionId,
+        conversationId: threadId,
+        sourceType: "personal-strategy-understanding-confirmation-intent",
+        modelPool: "question_answer",
+        modelCapability: "question_answer",
+        stream: false,
+        maxTransportAttempts: 1,
+      });
+      const providerError = personalStrategyProviderResultError(result);
+      if (providerError) throw providerError;
+      const raw = firstString(
+        result?.text,
+        result?.message,
+        result?.content,
+        result?.output_text,
+        result?.data?.text,
+      ) || "";
+      const parsed = parseStrategyConfirmationIntent(raw);
+      if (!parsed.ok) {
+        throw personalStrategyPipelineError(
+          "PERSONAL_STRATEGY_MODEL_RESPONSE_INVALID",
+          parsed.error || "模型没有返回可校验的确认意图",
+        );
+      }
+      return {
+        ok: true,
+        intent: parsed.intent as PersonalStrategyTurnIntent,
+        confidence: parsed.confidence,
+        reason: parsed.reason,
+      };
+    } catch (error) {
+      lastFailure = classifyPersonalStrategyFailure(error, "model");
+      if (lastFailure.retryable && attempt <= PERSONAL_STRATEGY_MAX_RETRIES) {
+        await new Promise((resolve) => window.setTimeout(resolve, personalStrategyRetryDelayMs(attempt)));
+        continue;
+      }
+      break;
+    }
+  }
+  return {
+    ok: false,
+    intent: "unclear",
+    error: lastFailure?.userMessage || "暂时无法判断这句话是在确认策略还是要修改策略。",
+    failure: lastFailure || undefined,
+  };
+}
+
+async function personalStrategyExistingIdForEdit(previous: PersonalStrategyConversationState | null) {
+  if (typeof api.listPersonalStrategies !== "function") return null;
+  const candidateNames = [
+    previous?.name,
+    previous?.understanding?.name,
+    state.personalStrategies.draft?.name,
+  ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+  if (!candidateNames.length) return null;
+  try {
+    const snapshot = await api.listPersonalStrategies({ includeDrafts: true });
+    if (snapshot?.ok === false) return null;
+    const match = (snapshot?.strategies || []).find((item) => candidateNames.includes(String(item?.name || "").trim().toLowerCase()));
+    return match?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function compilePersonalStrategyDraft({
+  previous,
+  compilerText,
+  understanding,
+}: {
+  previous: PersonalStrategyConversationState | null;
+  compilerText: string;
+  understanding: PersonalStrategyUnderstanding;
+}) {
+  const giveFeedback = api.givePersonalStrategyFeedback;
+  const createDraft = api.createPersonalStrategyDraft;
+  let targetId = previous?.draftId || null;
+  if (previous && typeof giveFeedback !== "function") {
+    return {
+      ok: false,
+      error: {
+        code: "PERSONAL_STRATEGY_FEEDBACK_BRIDGE_UNAVAILABLE",
+        message: "当前客户端缺少策略编辑桥，请重启开发版后重试。",
+      },
+    };
+  }
+  if (targetId && giveFeedback) {
+    const result = await giveFeedback({ strategyId: targetId, text: compilerText, understanding });
+    const code = String(result?.error?.code || "").toUpperCase();
+    if (result?.ok === true || !["STRATEGY_NOT_FOUND", "STRATEGY_DRAFT_NOT_FOUND"].includes(code)) return result;
+    const fallbackId = await personalStrategyExistingIdForEdit(previous);
+    if (fallbackId && fallbackId !== targetId) {
+      targetId = fallbackId;
+      return giveFeedback({ strategyId: targetId, text: compilerText, understanding });
+    }
+    return result;
+  }
+  if (previous && giveFeedback) {
+    const fallbackId = await personalStrategyExistingIdForEdit(previous);
+    if (fallbackId) return giveFeedback({ strategyId: fallbackId, text: compilerText, understanding });
+  }
+  if (typeof createDraft !== "function") {
+    return {
+      ok: false,
+      error: {
+        code: "PERSONAL_STRATEGY_CREATE_BRIDGE_UNAVAILABLE",
+        message: "当前客户端缺少个人策略编译桥，请重启开发版后重试。",
+      },
+    };
+  }
+  return createDraft({ text: compilerText, name: understanding.name || undefined, understanding });
 }
 
 async function runPersonalStrategyUnderstanding({
   threadId,
   sourceText,
   attachments,
+  attachmentBatches,
+  sourcePreparationIds,
   previous,
   userFeedback,
 }: {
   threadId: string;
   sourceText: string;
   attachments: MessageAttachment[];
+  attachmentBatches?: MessageAttachment[][];
+  sourcePreparationIds?: Array<string | null>;
   previous: PersonalStrategyConversationState | null;
   userFeedback: string;
 }) {
   if (typeof api.sendProviderChat !== "function") {
     return { ok: false, error: "当前客户端没有可用的智能体资料理解桥。" };
   }
-  const selection = personalStrategyUnderstandingModel(threadId, attachments);
-  if (personalStrategyAttachmentNeedsVision(attachments) && !selection.capabilities.image) {
+  const selections = personalStrategyUnderstandingModels(threadId, attachments);
+  const primarySelection = selections[0] || personalStrategyUnderstandingModel(threadId, attachments);
+  if (personalStrategyAttachmentNeedsVision(attachments) && !primarySelection?.capabilities.image) {
     return { ok: false, error: "当前可用模型不支持图片理解。请在模型目录加载完成后重试，或切换到支持图片输入的 GPT、Gemini、Claude、Kimi 等模型。" };
   }
-  if (!selection.model) return { ok: false, error: "当前没有可用的策略理解模型。" };
+  if (!primarySelection?.model) return { ok: false, error: "当前没有可用的策略理解模型。" };
   if (await confirmInsufficientAvailableBalanceBeforeSend("personal-strategy-understanding")) {
     return { ok: false, error: INSUFFICIENT_QUOTA_MESSAGE };
   }
-  const prompt = strategyUnderstandingPrompt({
-    sourceText,
-    previous: previous?.understanding || null,
-    userFeedback,
-    attachmentSummary: personalStrategyAttachmentSummary(attachments),
-  });
-  const interactionId = `personal-strategy-understanding-${crypto.randomUUID()}`;
-  const explicitPaths = attachments
-    .map((attachment) => attachmentLocalPath(attachment))
-    .filter((value): value is string => Boolean(value));
-  let timeoutId: number | null = null;
-  try {
-    const request = api.sendProviderChat({
-      provider: PROVIDER_CHAT_META[selection.provider]?.apiProvider || selection.provider,
-      model: selection.model,
-      text: prompt,
-      messages: [{ role: "user", content: prompt, contextTurnId: interactionId, attachments }],
-      attachments,
-      threadId,
-      cwd: threadWorkspaceCwd(threadId),
-      explicitPaths,
-      interactionId,
-      conversationId: threadId,
-      sourceType: "personal-strategy-understanding",
-      modelPool: "question_answer",
-      modelCapability: "question_answer",
-      stream: false,
-    });
-    const timeout = new Promise<never>((_, reject) => {
-      timeoutId = window.setTimeout(() => {
-        const interrupt = api.interruptProviderChat?.({ threadId, interactionId });
-        void interrupt?.catch(() => {});
-        reject(new Error("策略资料理解超时，模型请求已中止；请重试或减少附件数量。"));
-      }, 120_000);
-    });
-    const result = await Promise.race([request, timeout]);
-    const raw = firstString(result?.text, result?.message, result?.content) || "";
-    const parsed = parseStrategyUnderstanding(raw);
-    if (!parsed.ok) return { ...parsed, model: selection };
-    return { ...parsed, model: selection };
-  } catch (error) {
-    return { ok: false, error: errorMessage(error), model: selection };
-  } finally {
-    if (timeoutId !== null) window.clearTimeout(timeoutId);
+  const batches: MessageAttachment[][] = attachmentBatches?.length
+    ? attachmentBatches
+    : chunkPersonalStrategyAttachments(attachments);
+  const modelBatches: MessageAttachment[][] = batches.length ? batches : [[]];
+  const partialUnderstandings: PersonalStrategyUnderstanding[] = [];
+  const failedBatches: Array<{ index: number; failure: ReturnType<typeof classifyPersonalStrategyFailure> }> = [];
+  let successfulSelection = primarySelection;
+
+  for (let batchIndex = 0; batchIndex < modelBatches.length; batchIndex += 1) {
+    const batch = modelBatches[batchIndex] || [];
+    let lastFailure: ReturnType<typeof classifyPersonalStrategyFailure> | null = null;
+    for (let attempt = 1; attempt <= PERSONAL_STRATEGY_MAX_RETRIES + 1; attempt += 1) {
+      const selection = attempt === PERSONAL_STRATEGY_MAX_RETRIES + 1 && selections[1]
+        ? selections[1]
+        : primarySelection;
+      const interactionId = `personal-strategy-understanding-${crypto.randomUUID()}`;
+      const prompt = [
+        strategyUnderstandingPrompt({
+          sourceText,
+          previous: previous?.understanding || null,
+          userFeedback,
+          attachmentSummary: personalStrategyAttachmentSummary(batch),
+        }),
+        modelBatches.length > 1
+          ? `本次是策略资料附件第 ${batchIndex + 1}/${modelBatches.length} 批。只依据当前批次可见的附件和已提取正文，提取你能确认的规则；不要因为其他批次暂时不可见而猜测缺失条件。`
+          : "本次是完整策略资料。",
+      ].join("\n\n");
+      const explicitPaths = batch
+        .map((attachment) => attachmentLocalPath(attachment))
+        .filter((value): value is string => Boolean(value));
+      updateTradingExpertThinkingState(
+        threadId,
+        "strategy-understanding",
+        "",
+      );
+      refreshTradingExpertConversationSurface(threadId);
+      try {
+        const result = await api.sendProviderChat({
+          provider: PROVIDER_CHAT_META[selection.provider]?.apiProvider || selection.provider,
+          model: selection.model,
+          text: prompt,
+          messages: [{ role: "user", content: prompt, contextTurnId: interactionId, attachments: batch }],
+          attachments: batch,
+          threadId,
+          cwd: threadWorkspaceCwd(threadId),
+          explicitPaths,
+          interactionId,
+          conversationId: threadId,
+          sourceType: "personal-strategy-understanding",
+          modelPool: "question_answer",
+          modelCapability: "question_answer",
+          stream: false,
+          maxTransportAttempts: 1,
+          personalStrategySourcePreparationId: sourcePreparationIds?.[batchIndex] || null,
+        });
+        const providerError = personalStrategyProviderResultError(result);
+        if (providerError) throw providerError;
+        const raw = firstString(result?.text, result?.message, result?.content) || "";
+        const parsed = parseStrategyUnderstanding(raw);
+        if (!parsed.ok) {
+          throw personalStrategyPipelineError("PERSONAL_STRATEGY_MODEL_RESPONSE_INVALID", parsed.error || "模型没有返回可校验的策略理解");
+        }
+        partialUnderstandings.push(parsed.understanding as PersonalStrategyUnderstanding);
+        successfulSelection = selection;
+        break;
+      } catch (error) {
+        const failure = classifyPersonalStrategyFailure(error, "model");
+        lastFailure = failure;
+        if (failure.retryable && attempt <= PERSONAL_STRATEGY_MAX_RETRIES) {
+          // Retry silently in the background while keeping the same stable
+          // user-facing understanding status.
+          updateTradingExpertThinkingState(threadId, "strategy-understanding", "");
+          refreshTradingExpertConversationSurface(threadId);
+          await new Promise((resolve) => window.setTimeout(resolve, personalStrategyRetryDelayMs(attempt)));
+          continue;
+        }
+        break;
+      }
+    }
+    if (lastFailure && partialUnderstandings.length < batchIndex + 1) {
+      failedBatches.push({ index: batchIndex, failure: lastFailure });
+    }
   }
+
+  if (failedBatches.length) {
+    const failure = failedBatches[0].failure;
+    return {
+      ok: false,
+      error: failure.userMessage,
+      errorCode: failure.code,
+      failure,
+      model: successfulSelection,
+      failedBatches: failedBatches.map((entry) => entry.index + 1),
+    };
+  }
+  const understanding = mergePersonalStrategyUnderstandings(partialUnderstandings, { rawText: sourceText });
+  return {
+    ok: true,
+    understanding,
+    rawText: partialUnderstandings.map((part) => part.rawText).filter(Boolean).join("\n\n"),
+    model: successfulSelection,
+    batchCount: modelBatches.length,
+  };
 }
 
 async function runPersonalStrategyConversation(
@@ -30078,19 +30358,39 @@ async function runPersonalStrategyConversation(
     previous = null;
   }
   const answer = personalStrategyCreationDescription(rawText) || (previous ? rawText.trim() : "");
-  if (previous?.stage === "confirmation" && tradingAlertCancelled(answer)) {
-    deletePersonalStrategyConversationState(threadId);
-    clearTradingExpertAlertSimulation();
-    await persistPersonalStrategyAssistantItem(threadId, "已取消本次策略创建，模拟图层已移除；没有写入策略列表。 ");
-    return;
+  let turnIntent: PersonalStrategyTurnIntent = "revise";
+  let turnIntentFailure: PersonalStrategyTurnIntentResult | null = null;
+  if (previous && answer && !attachments.length) {
+    const classifiedIntent = await classifyPersonalStrategyTurnIntent(threadId, answer, previous);
+    if (classifiedIntent.ok) {
+      turnIntent = classifiedIntent.intent;
+    } else {
+      turnIntentFailure = classifiedIntent;
+    }
+    if (clearTradingExpertThinkingState(threadId)) refreshTradingExpertConversationSurface(threadId);
   }
-  // During clarification, users often answer “确定/好的” to accept the
-  // current interpretation. Do not send that short acknowledgement through
-  // the source extractor as if it were a new strategy description; reuse the
-  // last compiled source and let the agent/local engine continue the flow.
-  const clarificationAffirmation = previous?.stage === "clarification"
-    && tradingAlertAffirmative(answer)
-    && !attachments.length;
+  // A renderer reload or blank-thread promotion can leave the persisted stage
+  // one step behind even though the completed simulation is still in memory.
+  // Recover that confirmation state before deciding how to route a model-classified
+  // confirmation such as “确定”“可以” or “按这个执行”.
+  const stateDraft = state.personalStrategies.draft;
+  const stateSimulation = state.personalStrategies.simulation || stateDraft?.simulation || null;
+  if (
+    turnIntent === "confirm"
+    && previous
+    && previous.stage !== "confirmation"
+    && previous.draftId
+    && stateDraft?.id === previous.draftId
+    && stateSimulation?.status === "completed"
+    && stateSimulation.simulationId
+  ) {
+    previous = {
+      ...previous,
+      stage: "confirmation",
+      simulationId: stateSimulation.simulationId,
+    };
+    setPersonalStrategyConversationState(threadId, previous);
+  }
   if (!previous && !answer && !attachments.length) {
     const stateForThread: PersonalStrategyConversationState = {
       sourceText: "",
@@ -30101,15 +30401,74 @@ async function runPersonalStrategyConversation(
     await persistPersonalStrategyAssistantItem(threadId, stateForThread.conversation[0].text);
     return;
   }
-  const confirmsDraftCreation = previous?.stage === "confirmation" && tradingAlertAffirmative(answer);
+  if (turnIntentFailure && previous) {
+    const reply = "我暂时无法可靠判断你这句话是在确认策略还是要修改策略。为避免误创建，请回复“确认并启用”或直接说明需要修改的规则；本轮不会重复触发策略理解。";
+    setPersonalStrategyConversationState(threadId, {
+      ...previous,
+      conversation: [...(previous.conversation || []), ...(answer ? [{ role: "user" as const, text: answer }] : []), { role: "assistant" as const, text: reply }].slice(-32),
+    });
+    await persistPersonalStrategyAssistantItem(threadId, reply);
+    return;
+  }
+  if (previous?.stage === "confirmation" && turnIntent === "cancel") {
+    deletePersonalStrategyConversationState(threadId);
+    clearTradingExpertAlertSimulation();
+    await persistPersonalStrategyAssistantItem(threadId, "已取消本次策略创建，模拟图层已移除；没有写入策略列表。 ");
+    return;
+  }
+  if (previous?.stage === "confirmation" && turnIntent === "unclear") {
+    const reply = "我还不能确定你是否要按这次预演创建策略。请明确回复“确认并启用”或直接指出需要修改的条件；本轮不会写入策略列表。";
+    setPersonalStrategyConversationState(threadId, {
+      ...previous,
+      conversation: [...(previous.conversation || []), ...(answer ? [{ role: "user" as const, text: answer }] : []), { role: "assistant" as const, text: reply }].slice(-32),
+    });
+    await persistPersonalStrategyAssistantItem(threadId, reply);
+    return;
+  }
+  const confirmsDraftCreation = previous?.stage === "confirmation" && turnIntent === "confirm";
+  // A model-classified confirmation is an acknowledgement, not a new strategy
+  // description. If the prior run never reached a completed simulation, stop
+  // here instead of sending the acknowledgement back to the understanding model
+  // and producing a duplicate understanding bubble.
+  if (turnIntent === "confirm" && !confirmsDraftCreation) {
+    if (!previous) {
+      await persistPersonalStrategyAssistantItem(threadId, "当前会话没有待确认的策略预演。“确认”不会直接触发策略理解；请先发送 @创建策略 和策略说明。 ");
+      return;
+    }
+    const pendingQuestions = [...new Set([
+      ...(previous.understanding?.questions || []),
+      ...(previous.understanding?.uncertainties || []),
+      ...((state.personalStrategies.compile as any)?.questions || []),
+      ...((stateDraft?.spec as any)?.questions || []),
+    ].map(String).filter(Boolean))];
+    const reply = pendingQuestions.length
+      ? `当前还有未确认条件，暂不能创建策略：\n${pendingQuestions.map((question, index) => `${index + 1}. ${question}`).join("\n")}\n\n请直接补充或修改这些条件；系统不会重复发送“确认”去触发智能体理解。`
+      : "当前还没有完成策略预演，暂不能创建策略。“确认”不会再次触发智能体理解；请先补充规则，或重新发送 @创建策略 重新预演。";
+    setPersonalStrategyConversationState(threadId, {
+      ...previous,
+      conversation: [...(previous.conversation || []), ...(answer ? [{ role: "user" as const, text: answer }] : []), { role: "assistant" as const, text: reply }].slice(-32),
+    });
+    await persistPersonalStrategyAssistantItem(threadId, reply);
+    return;
+  }
   const runToken = Symbol(`personal-strategy-${threadId}`);
   personalStrategyConversationRunByThreadId.set(threadId, runToken);
   const isCurrentRun = () => personalStrategyConversationRunByThreadId.get(threadId) === runToken;
-  updateTradingExpertThinkingState(threadId, confirmsDraftCreation ? "strategy-confirming" : "strategy-analyzing", confirmsDraftCreation ? "正在校验你的确认并写入策略列表…" : "正在读取策略资料，整理可执行规则并检查歧义…");
+  updateTradingExpertThinkingState(
+    threadId,
+    confirmsDraftCreation ? "strategy-confirming" : "strategy-reading-attachments",
+    confirmsDraftCreation ? "正在校验你的确认并写入策略列表…" : "正在读取策略附件，分批提取正文和图片内容…",
+  );
   refreshTradingExpertConversationSurface(threadId);
   try {
     if (confirmsDraftCreation) {
-      const confirmed = await api.confirmPersonalStrategy!({ draftId: previous!.draftId!, simulationId: previous!.simulationId! });
+      const confirmationSimulationId = firstString(
+        previous!.simulationId,
+        state.personalStrategies.simulation?.simulationId,
+        state.personalStrategies.draft?.simulation?.simulationId,
+      );
+      if (!confirmationSimulationId) throw new Error("策略预演结果已失效，请重新预演后再确认");
+      const confirmed = await api.confirmPersonalStrategy!({ draftId: previous!.draftId!, simulationId: confirmationSimulationId });
       if (confirmed?.ok !== true || !confirmed.strategy) throw new Error(String(confirmed?.error?.message || "策略确认失败，请重新预演"));
       const strategy = await refreshPersonalStrategiesAfterConfirmation(confirmed.strategy.id);
       clearTradingExpertAlertSimulation();
@@ -30117,6 +30476,7 @@ async function runPersonalStrategyConversation(
       state.personalStrategies.simulation = strategy.simulation || null;
       setPersonalStrategyConversationState(threadId, {
         draftId: strategy.id,
+        name: strategy.name,
         sourceText: strategy.sourceText,
         understanding: previous?.understanding || null,
         stage: "active",
@@ -30126,13 +30486,30 @@ async function runPersonalStrategyConversation(
       return;
     }
 
-    let sourceText = clarificationAffirmation ? previous?.sourceText || "" : answer;
+    let sourceText = answer;
     const sourceWarnings: string[] = [];
+    let sourcePreparationIds: Array<string | null> = [];
     if (typeof api.preparePersonalStrategySource === "function") {
-      const prepared = await api.preparePersonalStrategySource({ text: answer, attachments, cwd: threadWorkspaceCwd(threadId) });
-      if (prepared?.ok === false) throw new Error(String(prepared.error?.message || "策略资料读取失败"));
+      const sourceInteractionId = `personal-strategy-source-${crypto.randomUUID()}`;
+      const prepared = await api.preparePersonalStrategySource({
+        text: answer,
+        attachments,
+        cwd: threadWorkspaceCwd(threadId),
+        threadId,
+        interactionId: sourceInteractionId,
+      });
+      if (prepared?.ok === false) {
+        const failure = classifyPersonalStrategyFailure(
+          { code: prepared.error?.code, message: prepared.error?.message },
+          "attachments",
+        );
+        throw Object.assign(new Error(failure.userMessage), { code: failure.code, phase: failure.phase });
+      }
       sourceText = String(prepared?.sourceText || answer).trim();
       sourceWarnings.push(...(prepared?.warnings || []).map(String));
+      sourcePreparationIds = Array.isArray(prepared?.modelPreparationIds)
+        ? prepared.modelPreparationIds
+        : [];
     } else if (attachments.length) {
       sourceWarnings.push("当前版本暂时无法读取附件正文，请把关键规则直接粘贴到会话中。");
     }
@@ -30150,16 +30527,28 @@ async function runPersonalStrategyConversation(
       threadId,
       sourceText: understandingSourceText,
       attachments,
+      attachmentBatches: chunkPersonalStrategyAttachments(attachments),
+      sourcePreparationIds,
       previous,
-      userFeedback: previous && !clarificationAffirmation ? answer : "",
+      userFeedback: previous ? answer : "",
     });
     if (!isCurrentRun()) return;
     const understandingPayload = (understandingResult as any)?.understanding;
     if (understandingResult?.ok !== true || !understandingPayload) {
+      const failure = (understandingResult as any)?.failure
+        || classifyPersonalStrategyFailure(
+          { code: (understandingResult as any)?.errorCode, message: (understandingResult as any)?.error },
+          "model",
+        );
       const reply = [
         "智能体暂时没有完成资料理解，因此没有进入本地规则编译，也没有创建策略。",
-        `原因：${String(understandingResult?.error || "模型没有返回可校验的结构化结果")}`,
-        "你可以重试，或直接补充关键条件；图片、PDF、Word、表格和公开链接会随本次会话一起重新送入理解器。",
+        `原因：${failure.userMessage}`,
+        failure.kind === "network_disconnected"
+          ? "网络通道中断；请检查网络或代理后再试。"
+          : failure.kind === "attachment_read_timeout" || failure.kind === "attachment_read_failed"
+            ? "附件读取超时或失败；请减少附件数量、拆分文件，或先用文字补充关键规则。"
+            : "模型理解阶段没有完成；你可以重试，或直接补充关键条件。",
+        "本轮没有进入本地规则编译，也没有写入策略列表。图片、PDF、Word、表格和公开链接会随本次会话一起重新送入理解器。",
       ].join("\n\n");
       setPersonalStrategyConversationState(threadId, {
         ...(previous || {}),
@@ -30173,13 +30562,15 @@ async function runPersonalStrategyConversation(
     const understanding = understandingPayload as PersonalStrategyUnderstanding;
     state.personalStrategies.understanding = understanding;
     const compilerText = strategyUnderstandingCompilerText(understanding, sourceText);
-    let draftResult: any;
-    if (previous?.draftId) {
-      draftResult = await api.givePersonalStrategyFeedback?.({ strategyId: previous.draftId, text: compilerText, understanding });
-    } else {
-      draftResult = await api.createPersonalStrategyDraft!({ text: compilerText, name: understanding.name || undefined, understanding });
+    updateTradingExpertThinkingState(threadId, "strategy-compiling", "智能体理解已完成，正在交给本地确定性规则引擎校验…");
+    refreshTradingExpertConversationSurface(threadId);
+    const draftResult: any = await compilePersonalStrategyDraft({ previous, compilerText, understanding });
+    if (draftResult?.ok !== true || !(draftResult.draft || draftResult.strategy)) {
+      const compilerError = new Error(String(draftResult?.error?.message || "策略理解失败，请补充清晰的规则")) as Error & { phase?: string; code?: string };
+      compilerError.phase = "compiler";
+      compilerError.code = String(draftResult?.error?.code || "PERSONAL_STRATEGY_RULE_COMPILER_FAILED");
+      throw compilerError;
     }
-    if (draftResult?.ok !== true || !(draftResult.draft || draftResult.strategy)) throw new Error(String(draftResult?.error?.message || "策略理解失败，请补充清晰的规则"));
     const draft: PersonalStrategyRecord = draftResult.draft || draftResult.strategy;
     const compile = draftResult.compile || null;
     state.personalStrategies.draft = draft;
@@ -30198,7 +30589,7 @@ async function runPersonalStrategyConversation(
     ].map(String).filter(Boolean))];
     if (!draftResult.compile?.readyForSimulation || questions.length) {
       const reply = `${understandingSummary}\n\n请直接回复需要补充或修改的地方；未完成确认前不会创建策略。`;
-      setPersonalStrategyConversationState(threadId, { draftId: draft.id, sourceText: draft.sourceText, understanding, stage: "clarification", conversation: [...conversationForTurn, { role: "assistant" as const, text: reply }].slice(-32) });
+      setPersonalStrategyConversationState(threadId, { draftId: draft.id, name: draft.name, sourceText: draft.sourceText, understanding, stage: "clarification", conversation: [...conversationForTurn, { role: "assistant" as const, text: reply }].slice(-32) });
       await persistPersonalStrategyAssistantItem(threadId, reply);
       return;
     }
@@ -30226,12 +30617,27 @@ async function runPersonalStrategyConversation(
     }
     const report = String(simulated.simulation.report || "已完成规则预演");
     const reply = `${understandingSummary}\n\n预演结果：\n${report}${visualizationWarning}\n\n这是规则理解演示，不代表收益回测或未来预测。若理解正确，请回复“确认”；若有任何偏差，直接指出哪一条不对，我会让智能体重新理解，再由本地规则引擎重新编译和预演。`;
-    setPersonalStrategyConversationState(threadId, { draftId: draft.id, sourceText: draft.sourceText, understanding, stage: "confirmation", conversation: [...conversationForTurn, { role: "assistant" as const, text: reply }].slice(-32), simulationId: simulated.simulation.simulationId });
+    setPersonalStrategyConversationState(threadId, { draftId: draft.id, name: draft.name, sourceText: draft.sourceText, understanding, stage: "confirmation", conversation: [...conversationForTurn, { role: "assistant" as const, text: reply }].slice(-32), simulationId: simulated.simulation.simulationId });
     await persistPersonalStrategyAssistantItem(threadId, reply);
   } catch (error) {
     if (!isCurrentRun()) return;
     clearTradingExpertAlertSimulation();
-    await persistPersonalStrategyAssistantItem(threadId, `这次策略理解/预演还没有完成，所以没有写入策略列表。\n\n原因：${errorMessage(error)}\n\n你可以继续补充规则、换一个公开链接，或直接指出需要修正的条件。`);
+    const phase = String((error as any)?.phase || "").toLowerCase() === "attachments"
+      ? "attachments"
+      : String((error as any)?.phase || "").toLowerCase() === "compiler"
+        ? "compiler"
+        : "model";
+    const failure = classifyPersonalStrategyFailure(error, phase);
+    await persistPersonalStrategyAssistantItem(threadId, [
+      "这次策略理解/预演还没有完成，所以没有写入策略列表。",
+      `阶段：${failure.phase === "attachments" ? "附件读取" : failure.phase === "compiler" ? "本地规则编译" : "模型理解"}`,
+      `原因：${failure.userMessage}`,
+      failure.kind === "network_disconnected"
+        ? "网络连接中断；请检查网络或代理后重试。"
+        : failure.kind === "attachment_read_timeout"
+          ? "可以减少附件数量或拆分文件；本次没有生成半成品策略。"
+          : "你可以继续补充规则、换一个公开链接，或直接指出需要修正的条件。",
+    ].join("\n\n"));
   } finally {
     if (isCurrentRun()) {
       personalStrategyConversationRunByThreadId.delete(threadId);
@@ -45830,7 +46236,7 @@ function renderTradingExpertConversation(thread: ConversationSummary) {
 }
 
 const TRADING_PREFERENCE_ONBOARDING_GREETING =
-  "未来的顶尖分析师，你好！我是 Haolo，你的全能交易助理。接下来我们会通过几段简短对话了解你的交易偏好。现在可以开始吗？";
+  "天才交易员，你好！我是 Haolo，你的全能交易助理。接下来我们会通过几段简短对话了解你的交易偏好。现在可以开始吗？";
 const TRADING_PREFERENCE_THREAD_TITLE = "配置交易偏好";
 
 const TRADING_PREFERENCE_QUESTION_ONE = [
@@ -72020,6 +72426,7 @@ function withThinkingMessage(threadId: string, messages: Message[]) {
     const thinkingStage = tradingExpertThinkingStage(
       tradingExpertThinking.phase,
       tradingExpertThinking.reasoningSummary,
+      tradingExpertThinking.message,
     );
     return [
       ...visible,

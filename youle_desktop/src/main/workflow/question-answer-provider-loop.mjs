@@ -18,6 +18,9 @@ export async function invokeQuestionAnswerProvider({
     throw new Error("A question-answer provider send function is required.");
   }
   const cleanParams = withoutRendererToolOverrides(params);
+  const maxTransportAttempts = optionalPositiveInteger(
+    params?.maxTransportAttempts ?? params?.max_transport_attempts,
+  );
   let streamRoundSequence = 0;
   const nextStreamRound = () => ++streamRoundSequence;
   if (!supportsStatefulContinuation || !workspaceTools?.definitions) {
@@ -28,6 +31,7 @@ export async function invokeQuestionAnswerProvider({
       onProgress,
       nextStreamRound,
       waitForRetry,
+      maxTransportAttempts,
     });
   }
   const tools = workspaceTools.definitions();
@@ -39,6 +43,7 @@ export async function invokeQuestionAnswerProvider({
       onProgress,
       nextStreamRound,
       waitForRetry,
+      maxTransportAttempts,
     });
   }
 
@@ -62,6 +67,7 @@ export async function invokeQuestionAnswerProvider({
         onProgress,
         nextStreamRound,
         waitForRetry,
+        maxTransportAttempts,
       });
       const calls = Array.isArray(result?.toolCalls) ? result.toolCalls : [];
       if (!calls.length) {
@@ -136,6 +142,7 @@ export async function invokeQuestionAnswerProvider({
         onProgress,
         nextStreamRound,
         waitForRetry,
+        maxTransportAttempts,
       });
       return {
         ...finalResult,
@@ -171,6 +178,7 @@ export async function invokeQuestionAnswerProvider({
       onProgress,
       nextStreamRound,
       waitForRetry,
+      maxTransportAttempts,
     });
     return {
       ...fallbackResult,
@@ -246,6 +254,8 @@ function withoutRendererToolOverrides(params) {
   delete clean.tool_choice;
   delete clean.functions;
   delete clean.function_call;
+  delete clean.maxTransportAttempts;
+  delete clean.max_transport_attempts;
   return clean;
 }
 
@@ -296,6 +306,13 @@ function positiveInteger(value, fallback) {
     : fallback;
 }
 
+function optionalPositiveInteger(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0
+    ? Math.floor(number)
+    : Number.POSITIVE_INFINITY;
+}
+
 async function sendProviderRound({
   send,
   request,
@@ -303,6 +320,7 @@ async function sendProviderRound({
   onProgress,
   nextStreamRound,
   waitForRetry,
+  maxTransportAttempts,
 }) {
   const progress = providerSubmissionProgress(request, round);
   emitProgress(onProgress, {
@@ -343,6 +361,7 @@ async function sendProviderRound({
           : `将在约 ${Math.max(1, Math.round(delayMs / 1_000))} 秒后进行第 ${nextAttempt} 次连接`,
       });
     },
+    maxAttempts: maxTransportAttempts,
   });
   const calls = Array.isArray(result?.toolCalls) ? result.toolCalls : [];
   emitProgress(onProgress, {
