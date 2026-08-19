@@ -62,7 +62,7 @@ export interface TradingSplitPaneMarket {
   quoteAsset: string;
   displaySymbol: string;
   venue: string;
-  assetClass: "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex";
+  assetClass: "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex" | "a-share";
   marketType: "perpetual" | "spot" | "global";
   tag: string;
   description: string;
@@ -526,7 +526,7 @@ export class TradingExpertSplitPane {
               aria-haspopup="dialog"
               aria-expanded="false"
             >
-              <span data-split-symbol-logo>${renderTradingMarketAssetLogo(this.market.baseAsset, this.market.provider, true, this.market.assetClass)}</span>
+              <span data-split-symbol-logo>${renderTradingMarketAssetLogo(this.market.baseAsset, this.market.provider, true, this.market.assetClass, this.market.displaySymbol)}</span>
               <strong data-split-symbol-label><span data-split-symbol-base>${escapeHtml(this.market.baseAsset)}</span><span data-split-symbol-quote>${this.market.quoteAsset ? `/${escapeHtml(this.market.quoteAsset)}` : ""}</span></strong>
               <span class="trading-market-venue" data-split-symbol-venue>${escapeHtml(this.market.venue)}</span>
               <span class="trading-market-contract-tag" data-split-symbol-tag>${this.marketTag(this.market)}</span>
@@ -800,8 +800,11 @@ export class TradingExpertSplitPane {
             aria-label="选择 ${escapeHtml(market.displaySymbol)} ${escapeHtml(market.tag)}"
           ></button>
           <span class="trading-market-row-pair">
-            ${renderTradingMarketAssetLogo(market.baseAsset, market.provider, false, market.assetClass)}
+            ${renderTradingMarketAssetLogo(market.baseAsset, market.provider, false, market.assetClass, market.displaySymbol)}
             <strong title="${escapeHtml(market.displaySymbol)}">${escapeHtml(market.displaySymbol)}</strong>
+            ${market.assetClass === "a-share"
+              ? `<small class="trading-market-row-code" title="股票代码">${escapeHtml(market.symbol.split(".", 1)[0])}</small>`
+              : ""}
             <span class="trading-market-contract-tag">${this.marketTag(market)}</span>
           </span>
           <span class="trading-market-row-venue" title="${escapeHtml(market.venue)}">${escapeHtml(market.venue)}</span>
@@ -836,7 +839,7 @@ export class TradingExpertSplitPane {
     if (quote) quote.textContent = this.market.quoteAsset ? `/${this.market.quoteAsset}` : "";
     if (venue) venue.textContent = this.market.venue;
     if (tag) tag.textContent = this.market.tag;
-    if (logo) logo.innerHTML = renderTradingMarketAssetLogo(this.market.baseAsset, this.market.provider, true, this.market.assetClass);
+    if (logo) logo.innerHTML = renderTradingMarketAssetLogo(this.market.baseAsset, this.market.provider, true, this.market.assetClass, this.market.displaySymbol);
     if (!this.symbolMenu.hidden) this.renderSymbolResults();
     this.host.querySelectorAll<HTMLButtonElement>("[data-split-interval]").forEach((button) => {
       const selected = button.dataset.splitInterval === this.interval;

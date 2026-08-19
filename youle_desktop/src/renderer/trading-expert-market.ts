@@ -325,10 +325,10 @@ export function strictlyAscendingTradingIndicatorPathPoints(
 }
 
 type TradingMarketProvider = "binance" | "finnhub" | "ifind";
-export type TradingAssetClass = "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex";
+export type TradingAssetClass = "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex" | "a-share";
 type TradingMarketType = "perpetual" | "spot" | "global";
 
-export type TradingMarketCategory = "all" | "crypto" | "commodity" | "stock";
+export type TradingMarketCategory = "all" | "crypto" | "commodity" | "stock" | "a-share";
 
 export const TRADING_MARKET_CATEGORY_OPTIONS: ReadonlyArray<{
   id: TradingMarketCategory;
@@ -338,6 +338,7 @@ export const TRADING_MARKET_CATEGORY_OPTIONS: ReadonlyArray<{
   { id: "crypto", label: "加密货币" },
   { id: "commodity", label: "大宗商品" },
   { id: "stock", label: "美股" },
+  { id: "a-share", label: "A股" },
 ];
 
 const TRADING_STOCK_CATEGORY_ASSET_CLASSES: ReadonlySet<TradingAssetClass> = new Set([
@@ -345,6 +346,7 @@ const TRADING_STOCK_CATEGORY_ASSET_CLASSES: ReadonlySet<TradingAssetClass> = new
   "etf",
   "preipo",
 ]);
+const IFIND_DEFAULT_DIRECTORY_LIMIT = 30;
 
 export function tradingMarketCategoryIncludesAssetClass(
   category: TradingMarketCategory,
@@ -362,9 +364,18 @@ export function tradingMarketCategoryLabel(category: TradingMarketCategory | Tra
 
 function normalizeTradingAssetClass(value: unknown, fallback: TradingAssetClass = "stock"): TradingAssetClass {
   const normalized = String(value || "").trim().toLowerCase();
-  return ["crypto", "commodity", "etf", "stock", "preipo", "index", "forex"].includes(normalized)
+  return ["crypto", "commodity", "etf", "stock", "preipo", "index", "forex", "a-share"].includes(normalized)
     ? normalized as TradingAssetClass
     : fallback;
+}
+
+export function abbreviateIfindVenue(value: unknown) {
+  const venue = String(value || "").replace(/[\r\n\0]+/g, " ").trim();
+  const key = venue.toUpperCase();
+  if (key === "SH" || key === "SSE" || venue.includes("上海")) return "上交所";
+  if (key === "SZ" || key === "SZSE" || venue.includes("深圳")) return "深交所";
+  if (key === "BJ" || key === "BSE" || venue.includes("北京")) return "北交所";
+  return venue.slice(0, 80) || "A股市场";
 }
 
 function binanceUnderlyingSubTypes(item: Pick<BinanceExchangeSymbol, "underlyingSubType">) {
@@ -1008,6 +1019,11 @@ export function tradingCandleSeriesMatchesResolution(
 }
 
 export function ifindSupportsTradingResolution(resolution: string) {
+  // The current Haolo iFinD proxy is backed by cmd_history_quotation, whose
+  // desktop contract exposes daily and weekly bars.  iFinD's separate
+  // high_frequency endpoint can support minute bars, but enabling those
+  // periods here before the proxy advertises that capability would turn a
+  // selectable period into a guaranteed upstream error.
   return /^\d+[DW]$/i.test(String(resolution || "").trim());
 }
 
@@ -1122,10 +1138,12 @@ function normalizeTradingFavoriteMarketRecords(value: unknown): TradingFavoriteM
     const symbol = String(item.symbol || "").trim().toUpperCase();
     const id = String(item.id || "").trim().toUpperCase();
     if (!provider || !symbol || !id || !/^(?:BINANCE|FINNHUB|IFIND):[A-Z0-9^][A-Z0-9^:._/\-=]{0,96}$/.test(id)) return;
-    const assetClass: TradingAssetClass = normalizeTradingAssetClass(
-      item.assetClass,
-      provider === "binance" ? "crypto" : "stock",
-    );
+    // iFinD is an A-share-only provider.  Treat older persisted records that
+    // used the generic `stock` class as A shares so they move into the new
+    // category instead of disappearing from the picker.
+    const assetClass: TradingAssetClass = provider === "ifind"
+      ? "a-share"
+      : normalizeTradingAssetClass(item.assetClass, provider === "binance" ? "crypto" : "stock");
     const marketType: TradingMarketType = provider !== "binance"
       ? "global"
       : item.marketType === "spot" || item.tag === "现货"
@@ -1140,8 +1158,10 @@ function normalizeTradingFavoriteMarketRecords(value: unknown): TradingFavoriteM
       quoteAsset: String(item.quoteAsset || "").trim().slice(0, 24),
       displaySymbol,
       description: String(item.description || displaySymbol).replace(/[\r\n\0]+/g, " ").trim().slice(0, 160),
-      venue: String(item.venue || (provider === "binance" ? MARKET_VENUE : provider === "ifind" ? "A股市场" : "Finnhub"))
-        .replace(/[\r\n\0]+/g, " ").trim().slice(0, 80),
+      venue: provider === "ifind"
+        ? abbreviateIfindVenue(item.venue || "A股市场")
+        : String(item.venue || (provider === "binance" ? MARKET_VENUE : "Finnhub"))
+          .replace(/[\r\n\0]+/g, " ").trim().slice(0, 80),
       assetClass,
       marketType,
       tag: String(item.tag || (provider === "binance" ? "永续" : provider === "ifind" ? "A股" : "股票"))
@@ -2101,19 +2121,21 @@ export function normalizeIfindTradingMarket(value: unknown): TradingMarket | nul
   const item = value as Partial<TradingMarket>;
   const symbol = String(item.symbol || "").trim().toUpperCase();
   if (!/^\d{6}\.(?:SH|SZ|BJ)$/.test(symbol)) return null;
-  const displaySymbol = String(item.displaySymbol || symbol.split(".", 1)[0]).trim().slice(0, 96);
+  const ticker = String(item.baseAsset || symbol.split(".", 1)[0]).trim().slice(0, 24) || symbol.split(".", 1)[0];
+  const displaySymbol = String(item.description || item.displaySymbol || ticker).trim().slice(0, 96) || ticker;
+  const description = String(item.description || displaySymbol).replace(/[\r\n\0]+/g, " ").trim().slice(0, 160);
   const markPrice = Number(item.markPrice || 0);
   const changePercent = Number(item.changePercent || 0);
   return {
     id: `IFIND:${symbol}`,
     provider: "ifind",
     symbol,
-    baseAsset: displaySymbol,
+    baseAsset: ticker,
     quoteAsset: "",
     displaySymbol,
-    description: String(item.description || displaySymbol).replace(/[\r\n\0]+/g, " ").trim().slice(0, 160),
-    venue: String(item.venue || "A股市场").replace(/[\r\n\0]+/g, " ").trim().slice(0, 80),
-    assetClass: "stock",
+    description,
+    venue: abbreviateIfindVenue(item.venue || "A股市场"),
+    assetClass: "a-share",
     marketType: "global",
     tag: String(item.tag || "A股").replace(/[\r\n\0]+/g, " ").trim().slice(0, 24),
     markPrice: Number.isFinite(markPrice) ? markPrice : 0,
@@ -4700,6 +4722,7 @@ class TradingExpertMarketWorkspace {
       this.showFavoritesOnly = false;
       this.syncMarketCategoryButtons();
       this.renderMarkets({ resetScroll: true });
+      this.scheduleIfindSearch(true);
       return;
     }
     if (action === "toggle-period-editor") {
@@ -6614,7 +6637,10 @@ class TradingExpertMarketWorkspace {
       if (this.disposed) return;
       if (response?.ok !== true) throw new Error(String(response?.message || "读取 iFinD 状态失败"));
       this.ifindConfigured = response.status?.available === true;
-      if (this.ifindConfigured) void this.refreshFavoriteIfindQuotes();
+      if (this.ifindConfigured) {
+        void this.refreshFavoriteIfindQuotes();
+        if (this.marketCategory === "a-share") this.scheduleIfindSearch(true);
+      }
     } catch {
       if (this.disposed) return;
       this.ifindConfigured = false;
@@ -6631,7 +6657,8 @@ class TradingExpertMarketWorkspace {
     const query = this.search.value.trim();
     this.ifindSearchMarkets = [];
     this.ifindSearchPending = false;
-    if (!query || !this.ifindConfigured || !window.codexDesktop.searchIfindMarkets) {
+    const shouldLoadIfindDirectory = this.marketCategory === "a-share";
+    if ((!query && !shouldLoadIfindDirectory) || !this.ifindConfigured || !window.codexDesktop.searchIfindMarkets) {
       this.renderMarkets({ resetScroll: true });
       return;
     }
@@ -6647,7 +6674,10 @@ class TradingExpertMarketWorkspace {
     const search = window.codexDesktop.searchIfindMarkets;
     if (!search) return;
     try {
-      const response = await search({ query, limit: 12 });
+      const response = await search({
+        query,
+        limit: query ? 12 : IFIND_DEFAULT_DIRECTORY_LIMIT,
+      });
       if (this.disposed || generation !== this.ifindSearchGeneration || this.search.value.trim() !== query) return;
       this.ifindSearchMarkets = response?.ok === true && Array.isArray(response.markets)
         ? response.markets.flatMap((market: unknown) => normalizeIfindTradingMarket(market) ?? [])
@@ -6728,6 +6758,13 @@ class TradingExpertMarketWorkspace {
       this.renderMarkets({ resetScroll: true });
       if (this.finnhubConfigured) void this.refreshFavoriteFinnhubQuotes();
       if (this.ifindConfigured) void this.refreshFavoriteIfindQuotes();
+      // Opening the picker clears the previous remote result set. When the
+      // A-share tab is already selected (for example after expanding the
+      // chart and reopening the picker), reload the default iFinD directory
+      // instead of leaving the list empty until the category is clicked again.
+      if (this.ifindConfigured && this.marketCategory === "a-share") {
+        this.scheduleIfindSearch(true);
+      }
       this.search.focus();
       this.search.select();
     }
@@ -7165,9 +7202,11 @@ class TradingExpertMarketWorkspace {
     // tree that the user cannot see; the next open always renders a fresh list.
     if (this.picker.hidden) return;
     if (!markets.length) {
+      const ifindUnavailable = this.marketCategory === "a-share" && !this.ifindConfigured;
       this.marketList.innerHTML = `<p class="trading-market-list-empty">${
         this.finnhubSearchPending || this.ifindSearchPending
           ? "正在搜索行情市场…"
+          : ifindUnavailable ? "A股行情服务尚未完成后台配置"
           : favoritesOnly ? "暂无可用的收藏品种" : "未找到匹配品种"
       }</p>`;
       this.marketListScrollTop = 0;
@@ -7194,8 +7233,11 @@ class TradingExpertMarketWorkspace {
             aria-current="${active}"
           ></button>
           <span class="trading-market-row-pair">
-            ${renderTradingMarketAssetLogo(market.baseAsset, market.provider, false, market.assetClass)}
+            ${renderTradingMarketAssetLogo(market.baseAsset, market.provider, false, market.assetClass, market.displaySymbol)}
             <strong title="${escapeAttribute(accessibleName)}">${escapeHtml(market.displaySymbol)}</strong>
+            ${market.assetClass === "a-share"
+              ? `<small class="trading-market-row-code" title="股票代码">${escapeHtml(market.symbol.split(".", 1)[0])}</small>`
+              : ""}
             <span class="trading-market-contract-tag">${escapeHtml(market.tag)}</span>
           </span>
           <span class="trading-market-row-venue" title="${escapeAttribute(market.venue)}">${escapeHtml(market.venue)}</span>
@@ -7463,6 +7505,7 @@ class TradingExpertMarketWorkspace {
         provider,
         true,
         market?.assetClass || this.selectedAssetClass || (provider === "binance" ? "crypto" : undefined),
+        displaySymbol,
       );
     }
     this.renderFavoriteTickerBar();

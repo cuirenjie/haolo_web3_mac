@@ -32345,6 +32345,20 @@ html[data-theme="dark"] .trading-market-favorite-ticker-drag-ghost {
   line-height: 1;
 }
 
+.trading-market-asset-logo.asset-class-a-share,
+.trading-market-asset-logo > .trading-market-asset-mark.asset-class-a-share {
+  border-color: #ef6a6a;
+  border-radius: 50%;
+  background: #d9363e;
+  color: #ffffff;
+}
+
+.trading-market-asset-mark.asset-class-a-share b {
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1;
+}
+
 .trading-market-asset-mark.asset-class-commodity {
   background: #dca52a;
   color: #fff7d6;
@@ -36107,6 +36121,16 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   overflow: hidden;
   font-size: calc(13px + var(--app-font-size-offset));
   font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trading-market-row-code {
+  flex: 0 0 auto;
+  overflow: hidden;
+  color: var(--trading-market-muted);
+  font-size: calc(10px + var(--app-font-size-offset));
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

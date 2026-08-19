@@ -562,11 +562,15 @@ test("Binance TradFi perpetual contracts are catalogued with their underlying ca
   assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "etf"), true);
   assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "preipo"), true);
   assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "index"), false);
+  assert.equal(tradingMarketCategoryLabel("a-share"), "A股");
+  assert.equal(tradingMarketCategoryIncludesAssetClass("a-share", "a-share"), true);
+  assert.equal(tradingMarketCategoryIncludesAssetClass("a-share", "stock"), false);
   assert.deepEqual(TRADING_MARKET_CATEGORY_OPTIONS, [
     { id: "all", label: "全部" },
     { id: "crypto", label: "加密货币" },
     { id: "commodity", label: "大宗商品" },
     { id: "stock", label: "美股" },
+    { id: "a-share", label: "A股" },
   ]);
   const originalWindow = globalThis.window;
   globalThis.window = {
@@ -1007,6 +1011,12 @@ test("TradFi asset logos use deterministic local marks when exchange logos are u
   const btc = renderTradingMarketAssetLogo("BTC", "binance");
   assert.match(btc, /data-market-logo-stage="binance"/);
   assert.match(btc, /bin\.bnbstatic\.com\/static\/assets\/logos\/BTC\.png/);
+
+  const aShare = renderTradingMarketAssetLogo("600519", "ifind", false, "a-share", "贵州茅台");
+  assert.match(aShare, /asset-class-a-share/);
+  assert.match(aShare, /data-market-logo-local="a-share"/);
+  assert.match(aShare, /data-market-logo-glyph="贵"/);
+  assert.doesNotMatch(aShare, /bin\.bnbstatic\.com/);
 });
 
 test("every Trading Expert subchart indicator produces aligned finite series", async () => {

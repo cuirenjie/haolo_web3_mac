@@ -1548,7 +1548,7 @@ test("Trading Expert market picker is compact, neutral-search, left-aligned, and
   assert.match(source, /class="trading-market-row-pair"/);
   assert.match(identity, /https:\/\/bin\.bnbstatic\.com\/static\/assets\/logos/);
   assert.match(identity, /https:\/\/app\.hyperliquid\.xyz\/coins/);
-  assert.match(source, /renderTradingMarketAssetLogo\(market\.baseAsset, market\.provider, false, market\.assetClass\)/);
+  assert.match(source, /renderTradingMarketAssetLogo\(market\.baseAsset, market\.provider, false, market\.assetClass, market\.displaySymbol\)/);
   assert.match(identity, /data-market-logo-stage="binance"/);
   assert.match(source, /addEventListener\("error", this\.handleMarketLogoError, true\)/);
   assert.match(source, /this\.marketList\.addEventListener\("scroll", this\.handleMarketListScroll, \{ passive: true \}\)/);

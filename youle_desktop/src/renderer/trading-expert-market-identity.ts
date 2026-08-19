@@ -1,5 +1,5 @@
 export type TradingMarketIdentityProvider = "binance" | "finnhub" | "ifind";
-export type TradingMarketAssetClass = "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex";
+export type TradingMarketAssetClass = "crypto" | "commodity" | "etf" | "stock" | "preipo" | "index" | "forex" | "a-share";
 
 const BINANCE_ASSET_LOGO_URL = "https://bin.bnbstatic.com/static/assets/logos";
 const HYPERLIQUID_ASSET_LOGO_URL = "https://app.hyperliquid.xyz/coins";
@@ -10,6 +10,7 @@ const TRADFI_ASSET_CLASSES = new Set<TradingMarketAssetClass>([
   "preipo",
   "index",
   "forex",
+  "a-share",
 ]);
 
 function escapeAttribute(value: string) {
@@ -38,6 +39,12 @@ export function hyperliquidTradingMarketAssetLogoUrl(asset: string) {
 function normalizeAssetClass(value: unknown): TradingMarketAssetClass | null {
   const normalized = String(value || "").trim().toLowerCase() as TradingMarketAssetClass;
   return normalized === "crypto" || TRADFI_ASSET_CLASSES.has(normalized) ? normalized : null;
+}
+
+function firstAssetGlyph(displayName: string, asset: string) {
+  const label = String(displayName || "").trim();
+  const first = Array.from(label).find((character) => /[\p{L}\p{N}]/u.test(character));
+  return first || asset.trim().toUpperCase().slice(0, 1) || "A";
 }
 
 function inferredTradFiAssetClass(asset: string, assetClass: unknown) {
@@ -72,17 +79,31 @@ function renderTradFiAssetMark(asset: string, assetClass: Exclude<TradingMarketA
   </span>`;
 }
 
+function renderAShareAssetMark(asset: string, displayName: string) {
+  const glyph = firstAssetGlyph(displayName, asset);
+  return `<span class="trading-market-asset-mark asset-class-a-share" data-market-logo-local="a-share" data-market-logo-glyph="${escapeAttribute(glyph)}">
+    <b>${escapeAttribute(glyph)}</b>
+  </span>`;
+}
+
 export function renderTradingMarketAssetLogo(
   asset: string,
   provider: TradingMarketIdentityProvider = "binance",
   current = false,
   assetClass?: string,
+  displayName = "",
 ) {
   const normalizedAsset = asset.trim().toUpperCase();
-  const tradFiAssetClass = provider === "binance" ? inferredTradFiAssetClass(normalizedAsset, assetClass) : null;
+  const normalizedAssetClass = normalizeAssetClass(assetClass);
+  const isAShare = provider === "ifind" || normalizedAssetClass === "a-share";
+  const tradFiAssetClass = !isAShare && provider === "binance"
+    ? inferredTradFiAssetClass(normalizedAsset, assetClass)
+    : null;
   return `
-    <span class="trading-market-asset-logo provider-${provider}${current ? " current" : ""}" data-market-logo-shell aria-hidden="true">
-      ${tradFiAssetClass
+    <span class="trading-market-asset-logo provider-${provider}${isAShare ? " asset-class-a-share" : ""}${current ? " current" : ""}" data-market-logo-shell aria-hidden="true">
+      ${isAShare
+        ? renderAShareAssetMark(normalizedAsset, displayName)
+        : tradFiAssetClass
         ? renderTradFiAssetMark(normalizedAsset, tradFiAssetClass)
         : `<span data-market-logo-fallback>${escapeAttribute(tradingMarketAssetBadge(normalizedAsset))}</span>`}
       ${provider === "binance" && !tradFiAssetClass ? `<img

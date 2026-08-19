@@ -2948,6 +2948,10 @@ export class YouleApiClient {
     const pathValue = appendQuery(`${this.ifindMarketDataPath}/search`, {
       q: params?.query,
       limit: params?.limit,
+    }, {
+      // The backend treats an empty q as the A-share directory request.
+      // Keep the parameter on the wire instead of letting appendQuery omit it.
+      includeEmptyKeys: ["q"],
     });
     return this.requestJson(joinUrl(this.baseUrl, pathValue), {
       method: "GET",
@@ -5341,10 +5345,11 @@ function joinUrl(baseUrl, pathValue) {
   return `${baseUrl}/${cleanPath}`;
 }
 
-function appendQuery(pathValue, params = {}) {
+function appendQuery(pathValue, params = {}, options = {}) {
   const query = new URLSearchParams();
+  const includeEmptyKeys = new Set(Array.isArray(options?.includeEmptyKeys) ? options.includeEmptyKeys : []);
   for (const [key, value] of Object.entries(params)) {
-    if (value == null || value === "") continue;
+    if (value == null || (value === "" && !includeEmptyKeys.has(key))) continue;
     if (Array.isArray(value)) {
       for (const item of value) {
         if (item != null && item !== "") query.append(key, String(item));

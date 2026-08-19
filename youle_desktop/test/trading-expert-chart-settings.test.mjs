@@ -450,7 +450,7 @@ test("every split pane uses the main toolbar components without blocking period 
   const [splitPane, css] = await Promise.all([splitPaneSource, stylesSource]);
   assert.match(splitPane, /trading-market-overview trading-market-split-toolbar/);
   assert.match(splitPane, /trading-market-symbol trading-market-split-symbol-trigger/);
-  assert.match(splitPane, /renderTradingMarketAssetLogo\(this\.market\.baseAsset, this\.market\.provider, true, this\.market\.assetClass\)/);
+  assert.match(splitPane, /renderTradingMarketAssetLogo\(this\.market\.baseAsset, this\.market\.provider, true, this\.market\.assetClass, this\.market\.displaySymbol\)/);
   assert.match(splitPane, /trading-market-chart-actions trading-market-split-chart-actions/);
   assert.equal((splitPane.match(/class="trading-market-chart-action"/g) ?? []).length, 2);
   assert.match(splitPane, /trading-market-period-trigger trading-market-split-period-trigger/);
@@ -479,7 +479,7 @@ test("every auxiliary split pane searches the complete market catalog with the m
   assert.match(splitPane, /名称<\/span><span>平台<\/span><span>最新价<\/span><span>24H涨幅/);
   assert.match(splitPane, /tradingSplitPaneMarketMatchesQuery[\s\S]*?compactMarketSearchText/);
   assert.match(splitPane, /SPLIT_PANE_MARKET_RESULT_LIMIT = 120/);
-  assert.match(splitPane, /renderTradingMarketAssetLogo\(market\.baseAsset, market\.provider, false, market\.assetClass\)/);
+  assert.match(splitPane, /renderTradingMarketAssetLogo\(market\.baseAsset, market\.provider, false, market\.assetClass, market\.displaySymbol\)/);
   assert.match(splitPane, /market\.quoteAvailable[\s\S]*?market\.markPrice[\s\S]*?market\.changePercent/);
   assert.match(splitPane, /private positionSymbolMenu\(\)[\s\S]*?paneRect\.bottom - triggerRect\.bottom/);
   assert.match(splitPane, /updateMarkets\(markets: readonly TradingSplitPaneMarket\[\]\)/);
