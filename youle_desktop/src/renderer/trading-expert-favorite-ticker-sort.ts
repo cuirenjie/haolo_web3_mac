@@ -88,6 +88,10 @@ export class TradingFavoriteTickerSortController {
   }
 
   private itemFromEvent(event: Event) {
+    if (
+      event.target instanceof Element
+      && event.target.closest("[data-market-favorite-sort-ignore]")
+    ) return null;
     const item =
       event.target instanceof Element
         ? event.target.closest<HTMLElement>(this.itemSelector)

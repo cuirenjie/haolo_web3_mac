@@ -4581,6 +4581,7 @@ class TradingExpertMarketWorkspace {
   private bindEvents() {
     this.host.addEventListener("click", this.handleClick);
     this.favoriteTickerBar.addEventListener("click", this.handleFavoriteTickerClick);
+    this.favoriteTickerBar.addEventListener("keydown", this.handleFavoriteTickerKeyDown);
     this.favoriteTickerBar.addEventListener("wheel", this.handleFavoriteTickerScrollWheel, { passive: false });
     this.host.addEventListener("input", this.handleIndicatorEditorInput);
     this.host.addEventListener("change", this.handleIndicatorEditorInput);
@@ -4674,6 +4675,20 @@ class TradingExpertMarketWorkspace {
     }
     if (action === "toggle-symbols") {
       this.setPickerOpen(this.picker.hidden);
+      return;
+    }
+    if (action === "add-favorite") {
+      this.setPickerOpen(true);
+      return;
+    }
+    if (action === "remove-favorite") {
+      const marketId = String(target.dataset.marketId || "").toUpperCase();
+      const market = this.favoriteTickerMarketsById.get(marketId)
+        || this.favoriteMarketFromId(marketId);
+      if (!market) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleFavoriteMarket(market);
       return;
     }
     if (action === "market-category") {
@@ -4996,6 +5011,16 @@ class TradingExpertMarketWorkspace {
   private readonly handleFavoriteTickerClick = (event: Event) => {
     this.handleClick(event);
     event.stopPropagation();
+  };
+
+  private readonly handleFavoriteTickerKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const target = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('[data-market-action="remove-favorite"]')
+      : null;
+    if (!target || !this.favoriteTickerBar.contains(target)) return;
+    event.preventDefault();
+    target.click();
   };
 
   private readonly handleFavoriteTickerScrollWheel = (event: WheelEvent) => {
@@ -5952,11 +5977,7 @@ class TradingExpertMarketWorkspace {
     const markets = this.favoriteTickerMarkets();
     this.favoriteTickerMarketsById = new Map(markets.map((market) => [market.id, market]));
     this.syncTitlebarFavoriteTickerHost();
-    this.favoriteTickerBar.hidden = markets.length === 0;
-    if (!markets.length) {
-      this.favoriteTickerBar.innerHTML = "";
-      return;
-    }
+    this.favoriteTickerBar.hidden = false;
     this.favoriteTickerBar.innerHTML = markets.map((market, tickerIndex) => {
       const selected = market.id === this.selectedMarketId;
       const priceText = market.quoteAvailable ? formatMarketPrice(market.markPrice) : "--";
@@ -5983,9 +6004,33 @@ class TradingExpertMarketWorkspace {
         >
           <strong>${escapeHtml(name)}</strong>
           <span><b data-market-favorite-price>${escapeHtml(priceText)}</b><em class="${changeClass}" data-market-favorite-change>${escapeHtml(changeText)}</em></span>
+          <span
+            class="trading-market-favorite-remove"
+            data-market-action="remove-favorite"
+            data-market-id="${escapeAttribute(market.id)}"
+            data-market-favorite-sort-ignore
+            role="button"
+            tabindex="0"
+            aria-label="取消收藏 ${escapeAttribute(name)}"
+            title="取消收藏"
+          ><svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m5 5 6 6M11 5l-6 6" /></svg></span>
         </button>
       `;
-    }).join("") + '<span class="trading-market-favorite-sort-status" data-market-favorite-sort-status aria-live="polite"></span>';
+    }).join("") + `
+      <button
+        type="button"
+        class="trading-market-favorite-add"
+        data-market-action="add-favorite"
+        aria-label="添加收藏交易对"
+        aria-haspopup="dialog"
+        aria-expanded="false"
+        title="添加收藏交易对"
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 4v12M4 10h12" /></svg>
+      </button>
+      <span class="trading-market-favorite-sort-status" data-market-favorite-sort-status aria-live="polite"></span>`;
+    this.favoriteTickerBar.querySelector<HTMLElement>('[data-market-action="add-favorite"]')
+      ?.setAttribute("aria-expanded", String(!this.picker.hidden));
   }
 
   private scheduleFavoriteTickerPaint() {
@@ -6661,6 +6706,8 @@ class TradingExpertMarketWorkspace {
     }
     this.picker.hidden = !open;
     this.host.querySelector<HTMLElement>('[data-market-action="toggle-symbols"]')
+      ?.setAttribute("aria-expanded", String(open));
+    this.favoriteTickerBar.querySelector<HTMLElement>('[data-market-action="add-favorite"]')
       ?.setAttribute("aria-expanded", String(open));
     if (open) {
       this.search.value = "";
@@ -12817,6 +12864,7 @@ class TradingExpertMarketWorkspace {
     this.drawingController = null;
     this.host.removeEventListener("click", this.handleClick);
     this.favoriteTickerBar.removeEventListener("click", this.handleFavoriteTickerClick);
+    this.favoriteTickerBar.removeEventListener("keydown", this.handleFavoriteTickerKeyDown);
     this.favoriteTickerBar.removeEventListener("wheel", this.handleFavoriteTickerScrollWheel);
     this.favoriteTickerSortController.destroy();
     this.favoriteTickerBar.remove();
