@@ -2775,6 +2775,7 @@ type ViewId =
   | "skillsPlaza"
   | "recharge"
   | "consumption";
+type TradingExpertWorkspaceView = "chart" | "news" | "browser";
 type SkillCategoryId = string;
 type SkillsSubView = "market" | "mine";
 type SkillsPlazaTab = "plugins" | "skills" | "mySkills" | "indicators" | "quant";
@@ -3880,6 +3881,7 @@ type UiState = {
   approvalRequest: JsonRpcMessage | null;
   leftCollapsed: boolean;
   rightCollapsed: boolean;
+  tradingExpertWorkspaceView: TradingExpertWorkspaceView;
   tradingExpertChartCollapsed: boolean;
   tradingExpertChartFocusMode: boolean;
   windowMaximized: boolean;
@@ -5252,6 +5254,7 @@ const state: UiState = {
   approvalRequest: null,
   leftCollapsed: false,
   rightCollapsed: true,
+  tradingExpertWorkspaceView: "chart",
   tradingExpertChartCollapsed: false,
   tradingExpertChartFocusMode: false,
   windowMaximized: false,
@@ -6653,7 +6656,7 @@ function wirePointerTracking() {
       }
       if (
         event.target.closest(
-          '.trading-expert-layout [data-action="toggle-left-panel"], .trading-expert-layout [data-action="toggle-right-panel"], .trading-expert-layout [data-action="toggle-trading-expert-chart"], .trading-expert-layout [data-action="toggle-trading-expert-chart-focus"]',
+          '.trading-expert-layout [data-action="toggle-left-panel"], .trading-expert-layout [data-action="toggle-trading-expert-workspace-switch"], .trading-expert-layout [data-action="switch-trading-expert-workspace"], .trading-expert-layout [data-action="toggle-right-panel"], .trading-expert-layout [data-action="toggle-trading-expert-chart"], .trading-expert-layout [data-action="toggle-trading-expert-chart-focus"]',
         )
       ) {
         if (tradingExpertLayoutControlPointerReleaseTimer !== null) {
@@ -35022,6 +35025,16 @@ function restorePreservedTradingExpertMarketWorkspace(
     if (!preserved) syncTradingExpertMarketWorkspace(null);
     return;
   }
+  // News and browser are intentionally empty surfaces for now. Keep the live
+  // chart host parked while those views are active so switching back to K线
+  // restores candles, drawings and the existing market connection.
+  if (
+    isTradingExpertSurfaceThreadId(targetThreadId)
+    && state.tradingExpertWorkspaceView !== "chart"
+  ) {
+    parkedTradingExpertMarketWorkspace = preserved || parkedTradingExpertMarketWorkspace;
+    return;
+  }
   const targetStorageSessionId = targetThreadId || preserved?.threadId || "";
   const pendingStorageMigrationSource = tradingExpertWorkspaceSessionMigrationSource(
     targetStorageSessionId,
@@ -35302,6 +35315,7 @@ function render() {
       ${renderWindowControls()}
       <div class="${bodyClasses}"${bodyStyle}>
         ${workspaceHasConversationList ? renderLeftPanelToggle() : ""}
+        ${tradingExpertLayout ? renderTradingExpertWorkspaceSwitch() : ""}
         ${tradingExpertLayout ? renderTradingExpertCollapseControls() : ""}
         ${tradingExpertLayout ? renderTradingExpertPanelResizeHandles() : ""}
         ${mainContent}
@@ -36338,14 +36352,18 @@ function renderWindowControls() {
   const maximized = state.windowMaximized;
   const avatarUrl = currentProfileAvatar();
   const profileName = currentProfileName();
+  const showTradingExpertLeftPanelToggle =
+    state.activeView === "chat"
+    && !state.chatPreview
+    && isTradingExpertSurfaceThreadId(state.currentThreadId);
   const showTradingExpertFavoriteTickers =
     state.activeView === "chat"
     && !state.chatPreview
     && !state.tradingExpertChartCollapsed
-    && isBlankNewThread(state.currentThreadId)
     && isTradingExpertThreadId(state.currentThreadId);
   return `
     <header class="app-titlebar" aria-label="应用标题栏">
+      ${showTradingExpertLeftPanelToggle ? renderLeftPanelToggle("titlebar") : ""}
       <button class="titlebar-profile" data-action="toggle-profile" title="${escapeAttr(profileName)}" aria-label="打开个人资料：${escapeAttr(profileName)}">
         <span class="titlebar-profile-avatar">
           <img${builtInAvatarEdgeCropClassAttribute(avatarUrl)} src="${escapeAttr(avatarUrl)}" alt="" />
@@ -36372,13 +36390,13 @@ function renderWindowControls() {
   `;
 }
 
-function renderLeftPanelToggle() {
+function renderLeftPanelToggle(placement: "body" | "titlebar" = "body") {
   const collapsed = state.leftCollapsed;
   const label = collapsed ? "展开左侧栏" : "收起左侧栏";
   return `
     <button
       type="button"
-      class="small-icon-button panel-toggle left-panel-toggle ${collapsed ? "collapsed" : ""}"
+      class="small-icon-button panel-toggle left-panel-toggle${placement === "titlebar" ? " titlebar-left-panel-toggle" : ""} ${collapsed ? "collapsed" : ""}"
       data-action="toggle-left-panel"
       aria-label="${label}"
       title="${label}"
@@ -36386,6 +36404,68 @@ function renderLeftPanelToggle() {
     >
       ${renderPanelLayoutIcon("left")}
     </button>
+  `;
+}
+
+function tradingExpertWorkspaceViewLabel(view: TradingExpertWorkspaceView) {
+  return view === "chart" ? "K线" : view === "news" ? "快讯" : "浏览器";
+}
+
+function renderTradingExpertWorkspaceSwitchIcon() {
+  return `
+    <svg class="trading-expert-workspace-switch-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3.5" y="4" width="17" height="16" rx="2"></rect>
+      <path d="M9 4v16M12 8h5M12 12h3M12 16h5"></path>
+    </svg>
+  `;
+}
+
+function renderTradingExpertWorkspaceSwitch() {
+  const activeView = state.tradingExpertWorkspaceView;
+  const activeLabel = tradingExpertWorkspaceViewLabel(activeView);
+  const options: TradingExpertWorkspaceView[] = ["chart", "news", "browser"];
+  return `
+    <div class="trading-expert-workspace-switch" data-trading-expert-workspace-switch>
+      <button
+        type="button"
+        class="small-icon-button panel-toggle trading-expert-workspace-switch-trigger"
+        data-action="toggle-trading-expert-workspace-switch"
+        title="切换工作区（当前：${activeLabel}）"
+        aria-label="切换工作区（当前：${activeLabel}）"
+        aria-haspopup="menu"
+        aria-expanded="false"
+      >
+        ${renderTradingExpertWorkspaceSwitchIcon()}
+      </button>
+      <div class="trading-expert-workspace-switch-menu" role="menu" aria-label="切换工作区">
+        ${options.map((view) => `
+          <button
+            type="button"
+            class="trading-expert-workspace-switch-option${view === activeView ? " active" : ""}"
+            data-action="switch-trading-expert-workspace"
+            data-trading-expert-workspace-view="${view}"
+            role="menuitemradio"
+            aria-checked="${view === activeView ? "true" : "false"}"
+          >
+            <span>${tradingExpertWorkspaceViewLabel(view)}</span>
+            ${view === activeView ? '<span class="trading-expert-workspace-switch-check" aria-hidden="true">✓</span>' : ""}
+          </button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderTradingExpertWorkspacePlaceholder(view: Exclude<TradingExpertWorkspaceView, "chart">) {
+  const label = tradingExpertWorkspaceViewLabel(view);
+  return `
+    <section class="trading-expert-workspace-placeholder" data-trading-expert-workspace-placeholder aria-label="${label}占位页面">
+      <div class="trading-expert-workspace-placeholder-content">
+        <span class="trading-expert-workspace-placeholder-icon" aria-hidden="true">${view === "news" ? "◌" : "⌁"}</span>
+        <strong>${label}</strong>
+        <span>功能开发中，敬请期待</span>
+      </div>
+    </section>
   `;
 }
 
@@ -45969,6 +46049,13 @@ function renderChatPanel(thread: ConversationSummary | null) {
   const localGroupChat = localGroupChatRecord(thread.id);
   if (localGroupChat) return renderLocalGroupChatPanel(thread, localGroupChat);
   if (isTradingExpertThreadId(thread.id)) {
+    if (state.tradingExpertWorkspaceView !== "chart") {
+      return `
+        <main class="chat-panel trading-expert-chat-panel" aria-label="交易专家行情工作区">
+          ${renderTradingExpertWorkspacePlaceholder(state.tradingExpertWorkspaceView)}
+        </main>
+      `;
+    }
     return `
       <main class="chat-panel trading-expert-chat-panel" aria-label="交易专家行情工作区">
         ${renderTradingExpertMarketWorkspace()}
@@ -45976,6 +46063,13 @@ function renderChatPanel(thread: ConversationSummary | null) {
     `;
   }
   if (isExternalTradingWorkspaceThreadId(thread.id)) {
+    if (state.tradingExpertWorkspaceView !== "chart") {
+      return `
+        <main class="chat-panel trading-expert-chat-panel" aria-label="交易专家行情工作区">
+          ${renderTradingExpertWorkspacePlaceholder(state.tradingExpertWorkspaceView)}
+        </main>
+      `;
+    }
     return `
       <main class="chat-panel trading-expert-chat-panel" aria-label="交易专家行情工作区">
         ${renderTradingExpertMarketWorkspace()}
@@ -59966,6 +60060,59 @@ function bindEvents() {
     finishTradingExpertLayoutControlPointerInteraction(false);
     toggleLeftPanelCollapsed();
   });
+  root.querySelectorAll<HTMLButtonElement>('[data-action="switch-trading-expert-workspace"]').forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!isTradingExpertSurfaceThreadId(state.currentThreadId)) return;
+      const view = button.dataset.tradingExpertWorkspaceView;
+      if (view !== "chart" && view !== "news" && view !== "browser") return;
+      if (state.tradingExpertWorkspaceView === view) return;
+      finishTradingExpertLayoutControlPointerInteraction(false);
+      state.tradingExpertWorkspaceView = view;
+      state.profileMenuOpen = false;
+      state.externalChannels.menuOpen = false;
+      render();
+    });
+  });
+  root.querySelectorAll<HTMLElement>("[data-trading-expert-workspace-switch]").forEach((host) => {
+    const trigger = host.querySelector<HTMLButtonElement>('[data-action="toggle-trading-expert-workspace-switch"]');
+    if (!trigger) return;
+    const drawingToolbar = root.querySelector<HTMLElement>("[data-drawing-toolbar]");
+    const setExpanded = (expanded: boolean) => {
+      trigger.setAttribute("aria-expanded", expanded ? "true" : "false");
+      host.classList.toggle("menu-open", expanded);
+    };
+    const isWithinWorkspaceSwitchSafeArea = (target: EventTarget | null) => (
+      target instanceof Node
+      && (host.contains(target) || drawingToolbar?.contains(target) === true)
+    );
+    host.addEventListener("mouseenter", () => setExpanded(true));
+    host.addEventListener("mouseleave", (event) => {
+      if (isWithinWorkspaceSwitchSafeArea(event.relatedTarget)) return;
+      setExpanded(false);
+    });
+    drawingToolbar?.addEventListener("mouseleave", (event) => {
+      if (isWithinWorkspaceSwitchSafeArea(event.relatedTarget)) return;
+      setExpanded(false);
+    });
+    host.addEventListener("focusin", () => setExpanded(true));
+    host.addEventListener("focusout", () => {
+      window.setTimeout(() => {
+        if (
+          !host.matches(":hover")
+          && !drawingToolbar?.matches(":hover")
+          && !host.contains(document.activeElement)
+        ) setExpanded(false);
+      }, 0);
+    });
+    host.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setExpanded(false);
+      trigger.focus({ preventScroll: true });
+    });
+  });
   root.querySelector<HTMLElement>(".skills-plaza-page")?.addEventListener("scroll", handleSkillsPlazaScroll, { passive: true });
   root.querySelector<HTMLButtonElement>('[data-action="scroll-messages-bottom"]')?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -67595,7 +67742,10 @@ function isPointerOverStreamSensitiveUi() {
         ".bubble-hover-bar",
         ".library-preview-panel",
         ".chat-preview-panel",
+        ".trading-expert-workspace-switch",
         '.trading-expert-layout [data-action="toggle-right-panel"]',
+        '.trading-expert-layout [data-action="toggle-trading-expert-workspace-switch"]',
+        '.trading-expert-layout [data-action="switch-trading-expert-workspace"]',
         '.trading-expert-layout [data-action="toggle-trading-expert-chart"]',
         '.trading-expert-layout [data-action="toggle-trading-expert-chart-focus"]',
       ].join(","),

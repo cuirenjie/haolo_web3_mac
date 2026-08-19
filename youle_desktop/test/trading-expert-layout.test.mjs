@@ -117,6 +117,43 @@ test("the top-level New Task opens the complete Trading Expert workspace in the 
   assert.match(modeSwitch, /mode !== "execution"\) tradingExpertThreadIds\.delete\(sourceThreadId\)/);
 });
 
+test("Trading Expert workspace switch keeps a forgiving hover path through the drawing toolbar", async () => {
+  const source = await mainSource;
+  const styles = await stylesSource;
+  const bindingBlock = sourceBlock(
+    source,
+    'root.querySelectorAll<HTMLElement>("[data-trading-expert-workspace-switch]")',
+    'root.querySelector<HTMLElement>(".skills-plaza-page")',
+  );
+  const switchBlock = sourceBlock(
+    styles,
+    ".trading-expert-workspace-switch-trigger {",
+    ".trading-expert-workspace-switch-trigger:hover:not(:disabled)",
+  );
+  const bridgeBlock = sourceBlock(
+    styles,
+    ".trading-expert-workspace-switch-menu::before {",
+    ".trading-expert-workspace-switch:hover",
+  );
+
+  assert.match(switchBlock, /z-index:\s*5;/);
+  assert.match(bridgeBlock, /top:\s*-4px;/);
+  assert.match(bridgeBlock, /left:\s*-12px;/);
+  assert.match(bridgeBlock, /width:\s*12px;/);
+  assert.match(bridgeBlock, /height:\s*calc\(100% \+ 8px\);/);
+  assert.match(bridgeBlock, /pointer-events:\s*auto;/);
+  assert.match(bindingBlock, /root\.querySelector<HTMLElement>\("\[data-drawing-toolbar\]"\)/);
+  assert.match(bindingBlock, /host\.contains\(target\) \|\| drawingToolbar\?\.contains\(target\) === true/);
+  assert.match(bindingBlock, /host\.addEventListener\("mouseleave"[\s\S]*event\.relatedTarget[\s\S]*setExpanded\(false\)/);
+  assert.match(bindingBlock, /drawingToolbar\?\.addEventListener\("mouseleave"[\s\S]*event\.relatedTarget[\s\S]*setExpanded\(false\)/);
+  assert.match(bindingBlock, /host\.classList\.toggle\("menu-open", expanded\)/);
+  assert.match(bindingBlock, /event\.key !== "Escape"[\s\S]*setExpanded\(false\)[\s\S]*trigger\.focus/);
+  assert.match(styles, /\.trading-expert-workspace-switch\.menu-open\s*> \.trading-expert-workspace-switch-menu\s*\{[^}]*display:\s*grid;/s);
+  assert.match(styles, /\.trading-expert-workspace-switch-trigger\[aria-expanded="true"\]\s*\{[^}]*background:\s*var\(--surface-hover-translucent\);/s);
+  assert.match(styles, /\.trading-expert-workspace-switch-menu\s*\{[\s\S]*background:\s*var\(--surface-glass-strong\);[\s\S]*color:\s*var\(--text-primary\);/);
+  assert.match(styles, /\.trading-expert-workspace-switch-option\.active\s*\{[\s\S]*background:\s*var\(--conversation-action-selected\);/);
+});
+
 test("Trading Expert message action opens its dedicated two-pane presentation", async () => {
   const source = await mainSource;
   const messageBlock = sourceBlock(source, "async function messageContact", "async function openHaoloContactNewThread");
@@ -1652,7 +1689,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /\.titlebar-market-favorites-host\s*\{[^}]*--trading-market-selected-background: #fff;/s);
   assert.match(styles, /\.titlebar-market-favorites-host\[hidden\]\s*\{\s*display: none;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.titlebar-market-favorites-host\s*\{[^}]*--trading-market-positive: #52dc88;[^}]*--trading-market-negative: #ff718e;[^}]*--trading-market-selected-background: #1b1e23;/s);
-  assert.match(renderer, /const showTradingExpertFavoriteTickers =\s*state\.activeView === "chat"\s*&& !state\.chatPreview\s*&& !state\.tradingExpertChartCollapsed\s*&& isBlankNewThread\(state\.currentThreadId\)\s*&& isTradingExpertThreadId\(state\.currentThreadId\)/s);
+  assert.match(renderer, /const showTradingExpertFavoriteTickers =\s*state\.activeView === "chat"\s*&& !state\.chatPreview\s*&& !state\.tradingExpertChartCollapsed\s*&& isTradingExpertThreadId\(state\.currentThreadId\)/s);
   assert.match(renderer, /data-titlebar-market-favorites-host\$\{showTradingExpertFavoriteTickers \? "" : " hidden"\}/);
   assert.match(styles, /\.trading-market-favorite-tickers\s*\{[^}]*flex: 1 1 auto;[^}]*gap: 4px;[^}]*overflow-x: auto;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scrollbar-width: none;[^}]*touch-action: pan-x;/s);
   assert.match(styles, /\.trading-market-favorite-tickers\.sorting\s*\{[^}]*cursor: grabbing;[^}]*user-select: none;/s);

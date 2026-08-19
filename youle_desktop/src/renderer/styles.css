@@ -4946,6 +4946,30 @@ select:disabled {
   left: 0;
 }
 
+/* Trading Expert keeps the left-panel control in the titlebar, immediately
+   before the profile avatar. Other workspaces continue using the body anchor. */
+.app-titlebar > .titlebar-left-panel-toggle {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: 24px;
+  height: 30px;
+  flex: 0 0 24px;
+  margin-left: -15px;
+  margin-right: -9px;
+  border-radius: 8px;
+}
+
+.app-titlebar > .titlebar-left-panel-toggle:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 2px var(--conversation-action-focus);
+}
+
+.desktop-shell.left-panel-collapsed .app-titlebar > .titlebar-left-panel-toggle {
+  top: auto;
+  left: auto;
+}
+
 .titlebar-profile {
   display: inline-flex;
   max-width: min(420px, 45vw);
@@ -30669,6 +30693,139 @@ html[data-theme="dark"] .github-settings-actions button:disabled {
   transition: right 0.24s ease, left 0.24s ease;
 }
 
+.desktop-body.trading-expert-layout > .trading-expert-workspace-switch {
+  position: absolute;
+  top: 4px;
+  left: calc(var(--conversation-list-width) + 4px);
+  z-index: 70;
+  width: 24px;
+  height: 26px;
+  transition: left 0.24s ease;
+}
+
+/* The legacy body anchor remains in the DOM for shared event wiring, but its
+   visible Trading Expert instance now lives beside the profile avatar. */
+.desktop-body.trading-expert-layout > .left-panel-toggle {
+  display: none;
+}
+
+.desktop-body.trading-expert-layout.left-panel-collapsed
+  > .trading-expert-workspace-switch {
+  left: 4px;
+}
+
+.trading-expert-workspace-switch-trigger {
+  position: relative;
+  /* Keep the trigger above the expanded hover bridge below so the larger
+     hit area never steals clicks from the button itself. */
+  z-index: 5;
+  width: 24px;
+  height: 26px;
+  border-radius: 7px;
+  background: transparent;
+}
+
+.trading-expert-workspace-switch-trigger:hover:not(:disabled),
+.trading-expert-workspace-switch-trigger:focus-visible,
+.trading-expert-workspace-switch-trigger[aria-expanded="true"] {
+  outline: 0;
+  background: var(--surface-hover-translucent);
+  box-shadow: inset 0 0 0 2px var(--conversation-action-focus);
+}
+
+.trading-expert-workspace-switch-trigger:active:not(:disabled) {
+  background: var(--surface-active-translucent);
+}
+
+.trading-expert-workspace-switch-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.55;
+}
+
+.trading-expert-workspace-switch-menu {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 4px);
+  z-index: 4;
+  display: none;
+  width: 154px;
+  padding: 5px;
+  border: 1px solid var(--border-control);
+  border-radius: 10px;
+  background: var(--surface-glass-strong);
+  box-shadow: 0 12px 30px rgba(16, 24, 40, 0.18);
+  color: var(--text-primary);
+}
+
+.trading-expert-workspace-switch-menu::before {
+  position: absolute;
+  /* Keep the menu alive while the pointer travels diagonally from the
+     trigger to a lower option. The bridge spans the full visual gap and a
+     little extra vertical room without covering the trigger's click target. */
+  top: -4px;
+  left: -12px;
+  width: 12px;
+  height: calc(100% + 8px);
+  content: "";
+  pointer-events: auto;
+}
+
+.trading-expert-workspace-switch:hover
+  > .trading-expert-workspace-switch-menu,
+.trading-expert-workspace-switch:focus-within
+  > .trading-expert-workspace-switch-menu,
+.trading-expert-workspace-switch.menu-open
+  > .trading-expert-workspace-switch-menu {
+  display: grid;
+  gap: 2px;
+}
+
+.trading-expert-workspace-switch-option {
+  display: flex;
+  width: 100%;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 9px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: calc(13px + var(--app-font-size-offset));
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.trading-expert-workspace-switch-option:hover,
+.trading-expert-workspace-switch-option:focus-visible {
+  outline: 0;
+  background: var(--surface-hover-translucent);
+  color: var(--text-primary);
+}
+
+.trading-expert-workspace-switch-option:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--conversation-action-focus);
+}
+
+.trading-expert-workspace-switch-option.active {
+  background: var(--conversation-action-selected);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.trading-expert-workspace-switch-check {
+  color: var(--brand-blue);
+  font-size: 14px;
+  line-height: 1;
+}
+
 .desktop-body.trading-expert-layout
   > .trading-expert-collapse-controls
   > .trading-expert-collapse-button {
@@ -31500,6 +31657,53 @@ html[data-theme="dark"]
 .trading-expert-market *::before,
 .trading-expert-market *::after {
   box-sizing: border-box;
+}
+
+.trading-expert-workspace-placeholder {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  background: var(--surface-primary);
+  color: var(--text-secondary);
+}
+
+.trading-expert-workspace-placeholder-content {
+  display: flex;
+  max-width: min(420px, 80%);
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.trading-expert-workspace-placeholder-icon {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-control);
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  color: var(--text-tertiary);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.trading-expert-workspace-placeholder-content strong {
+  color: var(--text-primary);
+  font-size: calc(16px + var(--app-font-size-offset));
+  font-weight: 600;
+}
+
+.trading-expert-workspace-placeholder-content > span:last-child {
+  color: var(--text-tertiary);
+  font-size: calc(13px + var(--app-font-size-offset));
 }
 
 .trading-market-overview {
