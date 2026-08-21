@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Haolo Binance gateway readiness watchdog every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=haolo-gateway-watchdog.service
+
+[Install]
+WantedBy=timers.target

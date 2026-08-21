@@ -102,8 +102,20 @@ import {
   type TradingVolumeProfile,
 } from "./trading-volume-profile.ts";
 
-const BINANCE_FUTURES_WS_URL = "wss://fstream.binance.com/ws";
-const BINANCE_SPOT_WS_URL = "wss://data-stream.binance.vision:443/ws";
+async function subscribeBinanceMarketStreams(
+  marketType: Extract<TradingMarketType, "spot" | "perpetual">,
+  streams: string[],
+  callback: (event: any) => void,
+) {
+  const request = window.codexDesktop?.subscribeBinanceMarketStreams;
+  if (typeof request !== "function") throw new Error("Haolo 行情订阅服务不可用");
+  return request({ marketType: marketType === "spot" ? "spot" : "futures", streams }, callback);
+}
+
+function unsubscribeBinanceMarketStreams(subscriptionId: string | null | undefined) {
+  if (!subscriptionId) return;
+  void window.codexDesktop?.unsubscribeBinanceMarketStreams?.({ subscriptionId }).catch(() => {});
+}
 const DEFAULT_SYMBOL = "BTCUSDT";
 const DEFAULT_INTERVAL = "1D";
 const MARKET_QUOTE = "USDT";
@@ -137,12 +149,10 @@ const MARKET_LIVE_PAINT_INTERVAL_MS = 100;
 const MARKET_BACKGROUND_PAINT_INTERVAL_MS = 1_000;
 const MARKET_LIVE_FULL_REFRESH_INTERVAL_MS = 1_000;
 const MARKET_SOCKET_STALE_MS = 2_500;
-const MARKET_SOCKET_WATCHDOG_MS = 8_000;
 const MARKET_SOCKET_FALLBACK_INTERVAL_MS = 5_000;
 const FAVORITE_TICKER_FALLBACK_INTERVAL_MS = 5_000;
 const FAVORITE_TICKER_FALLBACK_TIMEOUT_MS = 8_000;
 const FAVORITE_TICKER_SOCKET_STALE_MS = 2_500;
-const FAVORITE_TICKER_SOCKET_WATCHDOG_MS = 8_000;
 const BINANCE_MARKET_RATE_LIMIT_DEFAULT_MS = 60_000;
 const BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS = 500;
 const FINNHUB_SEARCH_DEBOUNCE_MS = 480;
@@ -2447,16 +2457,11 @@ export function applyTradingMarketTickerQuote(
   return { updated: true, openPrice } as const;
 }
 
-export function tradingFavoriteTickerStreamUrl(
-  marketType: Extract<TradingMarketType, "spot" | "perpetual">,
-  symbols: Iterable<string>,
-) {
-  const streams = [...new Set([...symbols]
+export function tradingFavoriteTickerStreams(symbols: Iterable<string>) {
+  return [...new Set([...symbols]
     .map((symbol) => String(symbol || "").trim().toLowerCase())
     .filter((symbol) => /^[a-z0-9]+$/.test(symbol)))]
     .map((symbol) => `${symbol}@ticker`);
-  const rawUrl = marketType === "spot" ? BINANCE_SPOT_WS_URL : BINANCE_FUTURES_WS_URL;
-  return `${rawUrl.replace(/\/ws$/, "/stream")}?streams=${streams.join("/")}`;
 }
 
 function defaultBinancePerpetualMarket(symbol = DEFAULT_SYMBOL): TradingMarket {
@@ -4389,7 +4394,7 @@ class TradingExpertMarketWorkspace {
   private chartPanStartRange: { from: number; to: number } | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
-  private socket: WebSocket | null = null;
+  private marketStreamSubscriptionId: string | null = null;
   private marketSocketLastActivityAt = 0;
   private liveChartPaintTimer: number | null = null;
   private liveChartPaintFrame: number | null = null;
@@ -4397,14 +4402,13 @@ class TradingExpertMarketWorkspace {
   private alertDrawingSyncTimer: number | null = null;
   private reconnectTimer: number | null = null;
   private marketRateLimitRetryTimer: number | null = null;
-  private favoriteTickerSockets: WebSocket[] = [];
+  private favoriteTickerStreamSubscriptionIds: string[] = [];
   private favoriteTickerReconnectTimer: number | null = null;
   private favoriteTickerGeneration = 0;
   private favoriteTickerPaintFrame: number | null = null;
   private favoriteTickerFallbackTimer: number | null = null;
   private favoriteTickerFallbackPending = false;
   private favoriteTickerFallbackAbortController: AbortController | null = null;
-  private favoriteTickerSocketWatchdogs = new Map<WebSocket, number>();
   private favoriteTickerSocketUpdatesByMarketId = new Map<string, number>();
   private favoriteTickerOpenPricesById = new Map<string, number>();
   private countdownTimer: number | null = null;
@@ -6103,17 +6107,6 @@ class TradingExpertMarketWorkspace {
       });
   }
 
-  private armFavoriteTickerSocketWatchdog(socket: WebSocket, generation: number) {
-    const previousTimer = this.favoriteTickerSocketWatchdogs.get(socket);
-    if (previousTimer !== undefined) window.clearTimeout(previousTimer);
-    const timer = window.setTimeout(() => {
-      this.favoriteTickerSocketWatchdogs.delete(socket);
-      if (this.disposed || generation !== this.favoriteTickerGeneration) return;
-      socket.close();
-    }, FAVORITE_TICKER_SOCKET_WATCHDOG_MS);
-    this.favoriteTickerSocketWatchdogs.set(socket, timer);
-  }
-
   private async refreshFavoriteTickerFallback(generation: number) {
     if (
       this.disposed
@@ -6193,13 +6186,8 @@ class TradingExpertMarketWorkspace {
     }
     this.favoriteTickerFallbackAbortController?.abort();
     this.favoriteTickerFallbackAbortController = null;
-    this.favoriteTickerSocketWatchdogs.forEach((timer) => window.clearTimeout(timer));
-    this.favoriteTickerSocketWatchdogs.clear();
-    this.favoriteTickerSockets.forEach((socket) => {
-      socket.onclose = null;
-      socket.close();
-    });
-    this.favoriteTickerSockets = [];
+    this.favoriteTickerStreamSubscriptionIds.forEach(unsubscribeBinanceMarketStreams);
+    this.favoriteTickerStreamSubscriptionIds = [];
     this.favoriteTickerFallbackPending = false;
   }
 
@@ -6222,20 +6210,24 @@ class TradingExpertMarketWorkspace {
       () => void this.refreshFavoriteTickerFallback(generation),
       FAVORITE_TICKER_FALLBACK_INTERVAL_MS,
     );
-    groups.forEach((markets, marketType) => {
-      const marketBySymbol = new Map(markets.map((market) => [market.symbol, market]));
-      const socket = new WebSocket(tradingFavoriteTickerStreamUrl(marketType, marketBySymbol.keys()));
-      this.favoriteTickerSockets.push(socket);
-      socket.onopen = () => {
-        if (this.disposed || generation !== this.favoriteTickerGeneration) return;
-        this.armFavoriteTickerSocketWatchdog(socket, generation);
-      };
-      socket.onmessage = (event) => {
-        if (this.disposed || generation !== this.favoriteTickerGeneration) return;
-        try {
-          const message = JSON.parse(String(event.data));
-          const payload = (message?.data?.e ? message.data : message) as BinanceWsMessage;
-          if (payload.e !== "24hrTicker" || !payload.s) return;
+    groups.forEach((markets, marketType) => void this.connectFavoriteTickerGroup(markets, marketType, generation));
+  }
+
+  private async connectFavoriteTickerGroup(
+    markets: TradingMarket[],
+    marketType: Extract<TradingMarketType, "spot" | "perpetual">,
+    generation: number,
+  ) {
+    const marketBySymbol = new Map(markets.map((market) => [market.symbol, market]));
+    let result: { subscriptionId: string };
+    try {
+      result = await subscribeBinanceMarketStreams(
+        marketType,
+        tradingFavoriteTickerStreams(marketBySymbol.keys()),
+        (event) => {
+          if (this.disposed || generation !== this.favoriteTickerGeneration || event?.type !== "data") return;
+          const payload = event.data as BinanceWsMessage;
+          if (payload?.e !== "24hrTicker" || !payload.s) return;
           const market = marketBySymbol.get(payload.s.toUpperCase());
           if (!market) return;
           const applied = applyTradingMarketTickerQuote(
@@ -6248,28 +6240,20 @@ class TradingExpertMarketWorkspace {
             this.favoriteTickerOpenPricesById.set(market.id, applied.openPrice);
           }
           this.favoriteTickerSocketUpdatesByMarketId.set(market.id, Date.now());
-          this.armFavoriteTickerSocketWatchdog(socket, generation);
           this.scheduleFavoriteTickerPaint();
-        } catch {
-          // Ignore malformed ticker events and keep the remaining streams alive.
-        }
-      };
-      socket.onerror = () => socket.close();
-      socket.onclose = () => {
-        const watchdog = this.favoriteTickerSocketWatchdogs.get(socket);
-        if (watchdog !== undefined) window.clearTimeout(watchdog);
-        this.favoriteTickerSocketWatchdogs.delete(socket);
-        if (
-          this.disposed
-          || generation !== this.favoriteTickerGeneration
-          || this.favoriteTickerReconnectTimer !== null
-        ) return;
-        this.favoriteTickerReconnectTimer = window.setTimeout(
-          () => this.syncFavoriteTickerStreams(),
-          1_500,
-        );
-      };
-    });
+        },
+      );
+    } catch {
+      if (!this.disposed && generation === this.favoriteTickerGeneration && this.favoriteTickerReconnectTimer === null) {
+        this.favoriteTickerReconnectTimer = window.setTimeout(() => this.syncFavoriteTickerStreams(), 1_500);
+      }
+      return;
+    }
+    if (this.disposed || generation !== this.favoriteTickerGeneration) {
+      unsubscribeBinanceMarketStreams(result.subscriptionId);
+      return;
+    }
+    this.favoriteTickerStreamSubscriptionIds.push(result.subscriptionId);
   }
 
   private toggleFavoriteMarket(market: TradingMarket) {
@@ -10882,13 +10866,6 @@ class TradingExpertMarketWorkspace {
     if (this.marketSocketLastActivityAt > 0 && silenceMs < MARKET_SOCKET_STALE_MS) return;
     void this.refreshSnapshot(generation);
     void this.refreshLiveCandle(generation);
-    if (
-      this.marketSocketLastActivityAt > 0
-      && silenceMs >= MARKET_SOCKET_WATCHDOG_MS
-      && this.socket?.readyState === WebSocket.OPEN
-    ) {
-      this.socket.close();
-    }
   }
 
   private async refreshSnapshot(generation: number) {
@@ -10989,40 +10966,38 @@ class TradingExpertMarketWorkspace {
     }
   }
 
-  private connectSocket(generation: number) {
+  private async connectSocket(generation: number) {
     if (this.disposed || generation !== this.loadGeneration || this.selectedProvider !== "binance") return;
     const marketType = this.selectedMarketType === "spot" ? "spot" : "perpetual";
-    const socket = new WebSocket(marketType === "spot" ? BINANCE_SPOT_WS_URL : BINANCE_FUTURES_WS_URL);
-    this.socket = socket;
-    socket.onopen = () => {
-      if (this.disposed || generation !== this.loadGeneration) return;
-      this.marketSocketLastActivityAt = Date.now();
-      const source = binanceResolutionSource(this.activeInterval);
-      const symbol = this.selectedSymbol.toLowerCase();
-      const streams = [`${symbol}@ticker`, `${symbol}@aggTrade`];
-      if (marketType === "perpetual") streams.unshift(`${symbol}@markPrice@1s`);
-      if (source?.sourceInterval) streams.push(`${symbol}@kline_${source.sourceInterval}`);
-      socket.send(JSON.stringify({
-        method: "SUBSCRIBE",
-        params: streams,
-        id: generation,
-      }));
-    };
-    socket.onmessage = (event) => {
-      if (this.disposed || generation !== this.loadGeneration) return;
-      this.marketSocketLastActivityAt = Date.now();
-      try {
-        this.handleSocketMessage(JSON.parse(String(event.data)));
-      } catch (error) {
-        console.error("解析实时行情消息失败", error);
+    const source = binanceResolutionSource(this.activeInterval);
+    const symbol = this.selectedSymbol.toLowerCase();
+    const streams = [`${symbol}@ticker`, `${symbol}@aggTrade`];
+    if (marketType === "perpetual") streams.unshift(`${symbol}@markPrice@1s`);
+    if (source?.sourceInterval) streams.push(`${symbol}@kline_${source.sourceInterval}`);
+    let result: { subscriptionId: string };
+    try {
+      result = await subscribeBinanceMarketStreams(marketType, streams, (event) => {
+        if (this.disposed || generation !== this.loadGeneration) return;
+        if (event?.type === "health") {
+          if (event.status === "connected") this.marketSocketLastActivityAt = Date.now();
+          else if (event.status === "reconnecting") this.marketSocketLastActivityAt = 0;
+          return;
+        }
+        if (event?.type !== "data") return;
+        this.marketSocketLastActivityAt = Date.now();
+        this.handleSocketMessage(event.data);
+      });
+    } catch {
+      if (!this.disposed && generation === this.loadGeneration) {
+        this.reconnectTimer = window.setTimeout(() => void this.connectSocket(generation), 1_500);
       }
-    };
-    socket.onerror = () => socket.close();
-    socket.onclose = () => {
-      if (this.disposed || generation !== this.loadGeneration) return;
-      if (this.socket === socket) this.socket = null;
-      this.reconnectTimer = window.setTimeout(() => this.connectSocket(generation), 1500);
-    };
+      return;
+    }
+    if (this.disposed || generation !== this.loadGeneration || this.selectedProvider !== "binance") {
+      unsubscribeBinanceMarketStreams(result.subscriptionId);
+      return;
+    }
+    this.marketStreamSubscriptionId = result.subscriptionId;
   }
 
   private handleSocketMessage(message: any) {
@@ -12822,11 +12797,8 @@ class TradingExpertMarketWorkspace {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (this.socket) {
-      this.socket.onclose = null;
-      this.socket.close();
-      this.socket = null;
-    }
+    unsubscribeBinanceMarketStreams(this.marketStreamSubscriptionId);
+    this.marketStreamSubscriptionId = null;
     this.marketSocketLastActivityAt = 0;
   }
 

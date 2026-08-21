@@ -13,6 +13,7 @@ const PROFIT_CALENDAR_MAX_PAGES = 100;
 const DEFAULT_SNAPSHOT_CACHE_TTL_MS = 60_000;
 const DEFAULT_SNAPSHOT_STALE_TTL_MS = 15 * 60_000;
 const STALE_SNAPSHOT_WARNING = "Binance 暂时连接不稳定，当前展示上次成功读取的数据";
+const BINANCE_DIRECT_ROUTE_FAILED = "BINANCE_DIRECT_ROUTE_FAILED";
 
 export class BinanceAccountError extends Error {
   constructor(code, message, options = {}) {
@@ -508,8 +509,17 @@ export class BinanceAccountService {
     try {
       payload = await requestJson(this.fetch, new URL(pathname, `${baseUrl}/`).toString());
     } catch (error) {
-      this.applyRateLimit(error);
-      throw error;
+      if (error?.code === BINANCE_DIRECT_ROUTE_FAILED) {
+        try {
+          payload = await requestJson(this.fetch, new URL(pathname, `${baseUrl}/`).toString());
+        } catch (retryError) {
+          this.applyRateLimit(retryError);
+          throw retryError;
+        }
+      } else {
+        this.applyRateLimit(error);
+        throw error;
+      }
     }
     const serverTime = finiteNumber(payload?.serverTime);
     if (serverTime == null || serverTime <= 0) {
@@ -519,17 +529,32 @@ export class BinanceAccountService {
   }
 
   async signedGet({ baseUrl, pathname, credentials, serverTime, params = {} }) {
-    const url = buildSignedBinanceUrl({
-      baseUrl,
-      pathname,
-      params: { ...params, recvWindow: this.recvWindow, timestamp: Math.trunc(serverTime) },
-      apiSecret: credentials.apiSecret,
-    });
-    try {
-      return await requestJson(this.fetch, url, {
+    const requestAt = (timestamp) => {
+      const url = buildSignedBinanceUrl({
+        baseUrl,
+        pathname,
+        params: { ...params, recvWindow: this.recvWindow, timestamp: Math.trunc(timestamp) },
+        apiSecret: credentials.apiSecret,
+      });
+      return requestJson(this.fetch, url, {
         headers: { "X-MBX-APIKEY": credentials.apiKey },
       });
+    };
+    try {
+      return await requestAt(serverTime);
     } catch (error) {
+      if (error?.code === BINANCE_DIRECT_ROUTE_FAILED) {
+        const timePath = String(baseUrl).startsWith(DEFAULT_FUTURES_BASE_URL)
+          ? "/fapi/v1/time"
+          : "/api/v3/time";
+        const freshServerTime = await this.serverTime(baseUrl, timePath);
+        try {
+          return await requestAt(freshServerTime);
+        } catch (retryError) {
+          this.applyRateLimit(retryError);
+          throw retryError;
+        }
+      }
       this.applyRateLimit(error);
       throw error;
     }
@@ -1208,7 +1233,11 @@ async function requestJson(networkFetch, url, init = {}) {
   try {
     response = await networkFetch(url, { method: "GET", ...init, signal });
   } catch (error) {
-    if (error instanceof BinanceAccountError || error instanceof BinanceCredentialError) throw error;
+    if (
+      error instanceof BinanceAccountError
+      || error instanceof BinanceCredentialError
+      || error?.code === BINANCE_DIRECT_ROUTE_FAILED
+    ) throw error;
     const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
     throw new BinanceAccountError(
       timedOut ? "BINANCE_TIMEOUT" : "BINANCE_NETWORK_ERROR",
@@ -1240,7 +1269,7 @@ function binanceHttpError(status, payload, { retryAfterMs = null } = {}) {
   if (code === -2015 || status === 401) {
     return new BinanceAccountError(
       "BINANCE_AUTH_FAILED",
-      "API Key 无效、IP 白名单不匹配，或未开通 Binance 合约读取权限。",
+      "API Key 无效，或未开通 Binance 合约读取权限。",
     );
   }
   if (code === -1022) {

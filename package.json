@@ -7,7 +7,9 @@
     "typecheck": "pnpm --filter youle_desktop typecheck",
     "build": "pnpm --filter youle_desktop build",
     "smoke": "pnpm --filter youle_desktop smoke",
-    "dist:win": "pnpm --filter youle_desktop dist:win"
+    "dist:win": "pnpm --filter youle_desktop dist:win",
+    "gateway:start": "pnpm --filter @haolo/binance-gateway start",
+    "gateway:test": "pnpm --filter @haolo/binance-gateway test"
   },
   "devDependencies": {
     "prettier": "^3.5.3"

@@ -308,6 +308,8 @@ export function ensureBrowserDesktopApi() {
   let tradingAlertsChangedListeners: Array<Listener<any>> = [];
   let tradingAlertTriggeredListeners: Array<Listener<any>> = [];
   let tradingAlertOpenListeners: Array<Listener<any>> = [];
+  const binanceMarketStreamSockets = new Map<string, WebSocket>();
+  let binanceMarketStreamSequence = 0;
   let tradingAlertQaMode: "normal" | "loading" | "error" = "normal";
   const tradingAlertSnapshot = createMockTradingAlertsSnapshot(tradingAlertVisualQa);
 
@@ -1106,6 +1108,36 @@ export function ensureBrowserDesktopApi() {
     async openExternal(url: string) {
       window.open(url, "_blank", "noopener,noreferrer");
       return { ok: true };
+    },
+    async subscribeBinanceMarketStreams(params: any, callback: Listener<any>) {
+      const marketType = String(params?.marketType || "futures").toLowerCase();
+      const base = marketType === "spot"
+        ? "wss://data-stream.binance.vision:443/stream"
+        : "wss://fstream.binance.com/stream";
+      const url = new URL(base);
+      url.searchParams.set("streams", [...new Set(params?.streams || [])].join("/"));
+      const subscriptionId = `browser-market-${Date.now()}-${++binanceMarketStreamSequence}`;
+      const socket = new WebSocket(url.href);
+      binanceMarketStreamSockets.set(subscriptionId, socket);
+      socket.onopen = () => callback({ type: "health", status: "connected", at: Date.now() });
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(String(event.data));
+          callback({ type: "data", stream: message.stream, data: message.data, receivedAt: Date.now() });
+        } catch {}
+      };
+      socket.onerror = () => socket.close();
+      socket.onclose = () => callback({ type: "health", status: "reconnecting", at: Date.now() });
+      return { subscriptionId };
+    },
+    async unsubscribeBinanceMarketStreams(params: any) {
+      const subscriptionId = String(params?.subscriptionId || "");
+      const socket = binanceMarketStreamSockets.get(subscriptionId);
+      binanceMarketStreamSockets.delete(subscriptionId);
+      if (!socket) return { removed: false };
+      socket.onclose = null;
+      socket.close();
+      return { removed: true };
     },
     async openBlockchainTransaction(params) {
       const network = String(params?.network || "");

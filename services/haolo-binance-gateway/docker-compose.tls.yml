@@ -1,0 +1,9 @@
+services:
+  gateway:
+    environment:
+      HAOLO_PRIVATE_PROXY_ALLOW_INSECURE: "false"
+      HAOLO_PRIVATE_PROXY_TLS_CERT: /run/secrets/tls.crt
+      HAOLO_PRIVATE_PROXY_TLS_KEY: /run/secrets/tls.key
+    volumes:
+      - ./secrets/tls.crt:/run/secrets/tls.crt:ro
+      - ./secrets/tls.key:/run/secrets/tls.key:ro

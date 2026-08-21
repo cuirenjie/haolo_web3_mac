@@ -115,6 +115,10 @@
         "to": "chrome-release-policy.json"
       },
       {
+        "from": "resources/binance-gateway.json",
+        "to": "binance-gateway.json"
+      },
+      {
         "from": "scripts/clean-haolo-user-config.cmd",
         "to": "clean-haolo-user-config.cmd"
       }

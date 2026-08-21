@@ -120,7 +120,7 @@ test("renderer market REST is authenticated IPC-only and shares the main governo
     readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8"),
   ]);
   assert.match(main, /ipcMain\.handle\("binanceMarket:publicGet"[\s\S]*assertExternalModelsIpcSender\(event\)[\s\S]*getBinancePublicMarketService\(\)\.request/);
-  assert.match(main, /new BinancePublicMarketService\([\s\S]*governedBinanceFetch\("market", BINANCE_REQUEST_PRIORITIES\.market\)/);
+  assert.match(main, /new BinancePublicMarketService\([\s\S]*getBinanceRequestGovernor\(\)\.fetch\([\s\S]*router\.publicFetch\.bind\(router\)/);
   assert.match(preload, /getBinancePublicMarketData: \(params\) => ipcRenderer\.invoke\("binanceMarket:publicGet", params\)/);
   assert.match(renderer, /window\.codexDesktop\?\.getBinancePublicMarketData/);
   assert.doesNotMatch(renderer, /fetch\(url, \{ cache: "no-store", signal \}\)/);

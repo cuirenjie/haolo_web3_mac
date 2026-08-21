@@ -263,6 +263,19 @@ export class YouleApiClient {
     return this.sessionSummary();
   }
 
+  /**
+   * Trusted-main-process only. This must never be exposed through preload/IPC.
+   * It exists so isolated Haolo infrastructure clients can authenticate without
+   * copying the long-lived access token into Renderer state or query strings.
+   */
+  async getTrustedAccessToken() {
+    await this.load();
+    this.requireAuth();
+    await this.refreshAccessToken({ reason: "trusted-main-process" });
+    this.requireAuth();
+    return this.token;
+  }
+
   async refreshSession(params = {}) {
     await this.load();
     if (!this.token && !this.refreshToken) return this.sessionSummary();

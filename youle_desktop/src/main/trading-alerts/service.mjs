@@ -25,7 +25,7 @@ export class TradingAlertService {
     this.store = new TradingAlertStore({ dataDir, now });
     this.dataHub = new TradingAlertMarketDataHub();
     this.dataHub.registerAdapter(marketAdapter || createBinanceMarketAdapter({ fetchImpl: marketFetch, subscribeMode: marketSubscribeMode }));
-    if (!marketAdapter) this.dataHub.registerAdapter(createHyperliquidMarketAdapter());
+    this.dataHub.registerAdapter(createHyperliquidMarketAdapter());
     this.capabilities = createBuiltinCapabilityRegistry();
     this.intentProviderId = "openai-codex";
     this.confirmationOperations = new Map();

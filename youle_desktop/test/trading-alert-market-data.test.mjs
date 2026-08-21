@@ -153,3 +153,36 @@ test("Binance live alerts multiplex futures streams over one WebSocket", async (
   await disposeEth();
   assert.equal(socket.readyState, 3);
 });
+
+test("Binance live alerts reuse the main-process TradingMarketDataHub in gateway mode", async () => {
+  let hubSubscription;
+  let disposed = false;
+  const streamHub = {
+    subscribe(params, onEvent, onHealth) {
+      hubSubscription = { params, onEvent, onHealth };
+      return { dispose: async () => { disposed = true; } };
+    },
+  };
+  const adapter = createBinanceMarketAdapter({ streamHub });
+  const events = [];
+  const health = [];
+  const dispose = await adapter.subscribe(
+    { marketId: "BINANCE:FUTURES:BTCUSDT", interval: "1m" },
+    (event) => events.push(event),
+    (event) => health.push(event),
+  );
+  assert.deepEqual(hubSubscription.params, {
+    marketType: "futures",
+    streams: ["btcusdt@kline_1m"],
+  });
+  hubSubscription.onHealth({ status: "connected", at: 1 });
+  hubSubscription.onEvent({
+    type: "data",
+    data: { E: 1_700_000_060_000, k: { s: "BTCUSDT", i: "1m", t: 1_700_000_000_000, T: 1_700_000_059_999, o: "100", h: "102", l: "99", c: "101", v: "10", x: true } },
+  });
+  assert.equal(health[0].status, "connected");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].closed, true);
+  await dispose();
+  assert.equal(disposed, true);
+});

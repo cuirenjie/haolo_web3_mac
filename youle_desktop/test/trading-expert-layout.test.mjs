@@ -1055,8 +1055,9 @@ test("Trading Expert market uses the governed Binance gateway and realtime data"
 
   assert.match(source, /from "lightweight-charts"/);
   assert.match(source, /window\.codexDesktop\?\.getBinancePublicMarketData/);
+  assert.match(source, /window\.codexDesktop\?\.subscribeBinanceMarketStreams/);
   assert.doesNotMatch(source, /BINANCE_FUTURES_REST_URL|BINANCE_SPOT_REST_URL/);
-  assert.match(source, /BINANCE_FUTURES_WS_URL = "wss:\/\/fstream\.binance\.com\/ws"/);
+  assert.doesNotMatch(source, /fstream\.binance\.com|data-stream\.binance\.vision|new WebSocket/);
   assert.match(source, /const DEFAULT_SYMBOL = "BTCUSDT"/);
   assert.match(source, /const MARKET_QUOTE = "USDT"/);
   assert.match(source, /const MARKET_VENUE = "币安"/);
@@ -1083,7 +1084,8 @@ test("Trading Expert market uses the governed Binance gateway and realtime data"
   assert.match(source, /export function atm1TrendCandles/);
   assert.match(source, /export function atm4MaBand/);
   assert.match(source, /subscribeVisibleLogicalRangeChange/);
-  assert.match(source, /window\.setTimeout\(\(\) => this\.connectSocket\(generation\), 1500\)/);
+  assert.match(source, /subscribeBinanceMarketStreams\(marketType, streams/);
+  assert.match(source, /window\.setTimeout\(\(\) => void this\.connectSocket\(generation\), 1_500\)/);
   assert.match(source, /this\.selectedProvider === "binance" \? MARKET_SOCKET_FALLBACK_INTERVAL_MS : 60_000/);
 
   assert.match(styles, /\.trading-expert-market\s*\{[\s\S]*?--trading-market-panel: #ffffff;/);
@@ -1664,10 +1666,11 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(source, /action === "symbol" \|\| action === "favorite-symbol"[\s\S]*?this\.selectMarket\(market\)[\s\S]*?this\.restartMarketData\(\{ preserveChart: true \}\)/);
   assert.match(tickerRender, /this\.favoriteTickerMarketsById\.get\(record\.id\)/);
   assert.match(tickerStreams, /\[\.\.\.this\.favoriteTickerMarketsById\.values\(\)\]/);
-  assert.match(source, /tradingFavoriteTickerStreamUrl[\s\S]*?`\$\{symbol\}@ticker`/);
-  assert.match(tickerStreams, /new WebSocket\(tradingFavoriteTickerStreamUrl\(marketType, marketBySymbol\.keys\(\)\)\)/);
-  assert.match(tickerStreams, /payload\.e !== "24hrTicker"[\s\S]*?applyTradingMarketTickerQuote\([\s\S]*?lastPrice: payload\.c[\s\S]*?openPrice: payload\.o/);
-  assert.match(tickerStreams, /favoriteTickerSocketUpdatesByMarketId\.set\(market\.id, Date\.now\(\)\)[\s\S]*?armFavoriteTickerSocketWatchdog/);
+  assert.match(source, /tradingFavoriteTickerStreams[\s\S]*?`\$\{symbol\}@ticker`/);
+  assert.match(tickerStreams, /subscribeBinanceMarketStreams\([\s\S]*?tradingFavoriteTickerStreams\(marketBySymbol\.keys\(\)\)/);
+  assert.doesNotMatch(tickerStreams, /new WebSocket|resolveBinanceMarketStreamEndpoint/);
+  assert.match(tickerStreams, /payload\?\.e !== "24hrTicker"[\s\S]*?applyTradingMarketTickerQuote\([\s\S]*?lastPrice: payload\.c[\s\S]*?openPrice: payload\.o/);
+  assert.match(tickerStreams, /favoriteTickerSocketUpdatesByMarketId\.set\(market\.id, Date\.now\(\)\)[\s\S]*?scheduleFavoriteTickerPaint/);
   assert.match(source, /refreshFavoriteTickerFallback[\s\S]*?FAVORITE_TICKER_SOCKET_STALE_MS[\s\S]*?"\/fapi\/v1\/ticker\/24hr"[\s\S]*?"\/api\/v3\/ticker\/24hr"/);
   assert.match(source, /formatTradingMarketTickerPrice[\s\S]*?Math\.abs\(value\) < 1[\s\S]*?marketFocusedPriceFormatFor\(value\)\.precision/);
   assert.match(source, /const latestPrice = this\.selectedMarketType === "spot" \? this\.stats\.markPrice : this\.stats\.midPrice[\s\S]*?selectedFavorite\.markPrice = latestPrice/);
@@ -2207,14 +2210,14 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
 
 test("Trading Expert coalesces live candles while throttling REST fallbacks and rate-limit retries", async () => {
   const source = await marketSource;
-  const socketBlock = sourceBlock(source, "private connectSocket", "private handleSocketMessage");
+  const socketBlock = sourceBlock(source, "private async connectSocket", "private handleSocketMessage");
   const klineBlock = sourceBlock(source, "private updateFromBinanceKline", "private updateFromBinanceTrade");
   const tradeBlock = sourceBlock(source, "private updateFromBinanceTrade", "private scheduleLiveChartPaint");
   const paintBlock = sourceBlock(source, "private scheduleLiveChartPaint", "private commitLoadedSelection");
   const fallbackBlock = sourceBlock(source, "private refreshMarketDataFallback", "private async refreshSnapshot");
   const favoriteFallbackBlock = sourceBlock(source, "private async refreshFavoriteTickerFallback", "private closeFavoriteTickerStreams");
   const restartBlock = sourceBlock(source, "private async restartMarketData", "private refreshMarketDataFallback");
-  const favoritePaintBlock = sourceBlock(source, "private scheduleFavoriteTickerPaint", "private armFavoriteTickerSocketWatchdog");
+  const favoritePaintBlock = sourceBlock(source, "private scheduleFavoriteTickerPaint", "private async refreshFavoriteTickerFallback");
 
   assert.match(source, /const MARKET_LIVE_PAINT_INTERVAL_MS = 100/);
   assert.match(source, /const MARKET_BACKGROUND_PAINT_INTERVAL_MS = 1_000/);
@@ -2237,7 +2240,7 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.match(fallbackBlock, /binanceMarketRestCooldownRemaining\(\) > 0/);
   assert.match(fallbackBlock, /silenceMs < MARKET_SOCKET_STALE_MS/);
   assert.match(fallbackBlock, /this\.refreshSnapshot\(generation\)[\s\S]*?this\.refreshLiveCandle\(generation\)/);
-  assert.match(fallbackBlock, /silenceMs >= MARKET_SOCKET_WATCHDOG_MS[\s\S]*?this\.socket\.close\(\)/);
+  assert.doesNotMatch(fallbackBlock, /WebSocket|socket\.close/);
   assert.match(favoritePaintBlock, /this\.paintVisibleMarketQuotes\(\)/);
   assert.doesNotMatch(favoritePaintBlock, /this\.renderMarkets\(\)/);
   assert.match(favoriteFallbackBlock, /binanceMarketRestCooldownRemaining\(\) > 0/);

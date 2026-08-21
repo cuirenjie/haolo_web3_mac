@@ -834,13 +834,21 @@ M1 退出条件：不调用模型也能通过固定行情 Fixture 完成结构�
 
 | ID | 任务 | 状态 | 依赖 | 完成证据 |
 |---|---|---|---|---|
-| M2-001 | 实现主进程 TradingMarketDataHub | 未开始 | M0-005 | 连接与重连测试 |
+| M2-001 | 实现主进程 TradingMarketDataHub | 已完成 | M0-005 | `trading-market-data-hub.mjs` 在主进程按 Spot/Futures 复用 ticket 化连接、引用计数订阅、心跳和重连；Hub 契约与边界回归通过 |
 | M2-002 | 标准化 UTC、K 线收盘、市场身份和数据覆盖 | 未开始 | M2-001 | 协议测试 |
 | M2-003 | 实现 15m/1h/4h 多周期缓存与回补 | 未开始 | M2-001 | 回放测试 |
 | M2-004 | 实现 Feature Worker 与公共特征缓存 | 未开始 | M2-002 | 性能/单元测试 |
-| M2-005 | Renderer 改为 Data Hub 只读订阅 | 未开始 | M2-001 | UI 集成测试 |
+| M2-005 | Renderer 改为 Data Hub 只读订阅 | 已完成 | M2-001 | Renderer 不再创建 Binance WebSocket 或接触 JWT/ticket，只通过受限 preload IPC 订阅公共 stream；源码边界回归通过 |
 | M2-006 | 删除 M1 临时快照桥和双数据源 | 未开始 | M2-005 | 搜索与回归证据 |
 | M2-007 | 增加逐笔方向、深度、爆仓和 OI 序列覆盖 | 未开始 | M2-001 | 数据覆盖报告 |
+| M2-008 | 实现 Haolo 集中公共行情网关，统一 Binance Spot/Futures REST、WebSocket、缓存、订阅池、限流和健康检查 | 已完成 | M0-005 | 独立服务覆盖 REST 白名单、Redis/内存缓存、同请求合并、429/418 冷却、一次性 WS ticket、上游订阅池/轮换/重连、用户限流、受保护 metrics 和 readiness；Gateway 14/14 通过 |
+| M2-009 | 实现 Haolo 私有账户受控出口，保持本地凭证和签名并贯通国内只读 Binance USER_DATA | 已完成 | M2-008,ADR-008 | HTTPS CONNECT 只允许 `api.binance.com`/`fapi.binance.com:443`，Haolo JWT 代理鉴权、DNS 公网地址固定、SSRF 阻断、用户连接配额、TLS 透传与脱敏边界均有自动化覆盖 |
+| M2-010 | 建立桌面主进程网关配置和公共行情客户端，移除 Renderer 对 Binance 地址的硬编码 | 已完成 | M2-008 | 环境变量与打包资源双配置、HTTPS origin 校验、生产 `requireGateway` 失败关闭、主进程 JWT/ticket 客户端及 IPC 边界测试通过 |
+| M2-011 | 将主图、收藏行情、告警和分析迁移到统一 TradingMarketDataHub | 已完成 | M2-001,M2-010 | 主图与收藏由 Renderer 受限订阅、告警由主进程订阅，复用同一 Hub stream 引用；连接共享、切市场、重连和无 Renderer WebSocket 契约通过 |
+| M2-012 | 将 Binance 账户读取迁移到私有出口并保留 safeStorage、本地签名和只读路由边界 | 已完成 | M2-009,ADR-008 | Electron 隔离 session 使用固定 HTTPS proxy；凭证仍由 safeStorage 保存、本地主进程 HMAC 签名、仅 GET 且目标 origin 固定，代理认证按请求获取 Haolo JWT，私有传输与安全回归通过 |
+| M2-013 | 完成公共/私有双链路生产部署、双区域配置、国内三网、压力、混沌、安全与灰度验收 | 受阻 | M2-008,M2-009,M2-011,M2-012 | Docker Compose、TLS override、Kubernetes 双可用区/PDB/HPA/Ingress/L4 LB 模板及生产验收手册已交付；等待境外基础设施、真实域名/TLS、Redis、固定 EIP 和 Secret 注入后执行 72 小时 soak 与三网灰度；不再要求用户配置 Binance IP 白名单 |
+| M2-014 | 公共行情与用户只读账户按实际 Binance 可达性自动选择本地直连或 Haolo 网关 | 已完成 | M2-008,M2-009,M2-010,M2-012 | 主进程按现货/合约、行情/账户四通道执行 3 秒直连尝试、指数冷却和半开恢复；REST/WS 自动回退，账户回退前重新校时与重签；无 VPN/IP 采集、GET-only 与边界回归 50/50、Gateway 13/13、TypeScript 和 168 modules 生产构建通过 |
+| M2-015 | 将 Haolo 私有账户出口升级为稳定用户分片、Redis 全局权重许可和多固定 EIP 独立容量池 | 已完成 | M2-009,M2-012,M2-014,ADR-014 | 服务端可信只读路由权重、独立稳定哈希 Secret、一致性分片、总量/后台/单用户 Redis 原子预算、一次性短期 CONNECT 许可、429/418 原分片冷却、桌面逐请求双层 TLS、公共/私有 K8s 分片模板均已落地；Gateway 24/24、桌面专项 62/62、TypeScript、168 modules 构建和 YAML 解析通过 |
 
 M2 退出条件：图表和分析共享唯一行情事实源；断线、重复、乱序、回补和切市场均可回放验证。
 
@@ -917,13 +925,13 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 ## 20. 当前工作焦点
 
-当前任务：M6-007 测试包预构建（不发布）已完成；Web3 Windows 测试包 `0.1.170` 已通过类型检查、Renderer 构建、win-unpacked、17 个 ASAR 运行时模块校验和 NSIS 构建，安装包已复制到桌面基准目录且源/副本 SHA-256 一致，全程使用 `-SkipUpload`。
-上一完成任务：M1-229 已完成；iFinD A 股已进入独立分类，旧收藏可迁移，受保护的搜索/报价/快照/K 线桥继续复用，Renderer 不持有 refresh/access token。
+当前任务：M2-013 生产部署受阻；M2-015 本地实现已完成，等待真实境外集群、Redis、域名/TLS、每分片固定 NAT EIP 和 Secret 注入后实装、压测与灰度。
+上一完成任务：M2-015；Haolo 私有用户数据回退已升级为稳定用户分片、Redis 全局权重/公平预算、一次性 CONNECT permit、逐请求双层 TLS 和 429/418 原分片共享冷却，公共行情与私有 EIP 池也在部署模板中完全隔离。
 专项执行计划：继续以本文、`docs/trading-strategy-skill-decoupling-plan.zh-CN.md` 和外部模型架构文档的权限边界为准。
 专项进度台账：本任务证据记录在本文 2026-08-17 日志；策略解耦后续任务继续写入 `docs/trading-strategy-skill-decoupling-progress.zh-CN.md`。
 并行任务：M1-071 至 M1-090 的已实现交互继续等待开发版确认；不得与策略解耦阶段混合提交。
-下一任务：继续计划创建、入场/止损/止盈触发、桌面通知、状态切换和结束暂停的开发版验证；iFinD 后台代理上线前需补充真实 Token 的服务端配置与日/周 K 线烟测。
-当前阻塞：测试包构建与交付无阻塞；完整自动化套件有 12 项当前实现与旧源码契约不同步的既有失败，测试版交付不阻断，正式发布前应完成测试契约收敛。
+下一任务：取得境外服务器、公共域名和私有 shard 子域名/TLS/DNS 权限、托管 Redis、每分片固定 NAT EIP、镜像仓库和密钥管理入口，部署 M2-013 并执行 Redis Lua 真机、阶梯压力、三网、混沌、72 小时 soak 和分级灰度。
+当前阻塞：真实多 EIP 容量与故障切换验收仍依赖境外部署环境、私有出口分片子域名/TLS/DNS 接入、Redis、Haolo JWT/稳定分片哈希 Secret/独立监控 Token 的安全注入。本地没有 Docker、Kubernetes 或 Redis 运行时，无法执行镜像构建、Redis Lua 真机和集群实装；桌面全仓 2370 项中 2358 通过，剩余 12 项为与本任务无关且数量不变的旧源码契约失败。
 需要产品确认但不阻塞 M0/M1：首发是否保持 BTC/ETH 永续及 15m/1h/4h 默认范围；若调整，只修改首发范围，不改变核心架构。
 
 ## 21. 架构决策记录
@@ -1015,6 +1023,35 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 - 账户分级：未绑定 Binance API、只读快照不可用或快照已降级时，只输出方向和价格，不虚构账户权益、杠杆、数量或盈亏。已绑定且主进程取得新鲜只读快照时，Builder 才可使用合约账户净值、可用余额和同品种真实持仓，以当前用户风控上限确定性计算建议杠杆、USDT 名义仓位、条件市价止损/止盈分配及包含预估手续费和滑点的止损/止盈金额；账户快照没有账号级费率时，仓位预算使用双向手续费与滑点合计 0.20% 的保守估值并在结构中保留该比率。计算结果必须向下归一且不得突破风险、仓位或杠杆上限。
 - 执行边界：上述“开仓”“挂条件委托”均为直接可读的条件式操作建议，不新增 Binance POST/DELETE、下单、改单、调杠杆或平仓 IPC，不把只读 API 升级为交易授权。若已有反向仓位或剩余风险预算不足，方案必须明确先处理冲突或不新增仓位，不得借建议文字绕过一向/双向持仓语义与亏损加仓约束。
 - 原因：六行方案能让用户直接看到关键价格和动作；将账户数值限制在新鲜快照与确定性计算边界内，可在提高可执行性的同时避免模型猜仓位、误读杠杆或把文字建议变成未经授权的自动交易。
+
+### ADR-012：Binance 国内直连采用公共集中行情网关与私有账户受控出口分层
+
+- 状态：已批准；“所有流量固定走网关”和“用户填写 IP 白名单”部分已由 ADR-013 取代，公共/私有网关的分层安全边界继续有效。
+- 日期：2026-08-21。
+- 公共行情决策：独立部署 Haolo Market Gateway，统一管理 Binance Spot/Futures 公共 REST、WebSocket、订阅引用、缓存、相同请求合并、429/418 冷却、断线重连和缺口回补；桌面端最终只消费主进程 `TradingMarketDataHub`，Renderer、收藏和告警不得继续各自直连 Binance。公共行情可以跨用户共享上游订阅和非敏感缓存。
+- 私有账户决策：独立建立 Haolo Private Access Gateway，仅提供经 Haolo 身份鉴权、目标主机白名单、连接配额和审计脱敏保护的 Binance 私有网络出口。API Key/Secret 继续由 Electron `safeStorage` 按账户隔离保存，签名在主进程本地完成；私有账户连接、响应和缓存不得跨用户共享，禁止把 Secret 上传到 Haolo 服务端，禁止开放任意目标代理。
+- 交易边界：只读账户能力继续受 ADR-008 约束；桌面 IPC、网关应用协议和服务端路由均不新增下单、撤单、调杠杆、划转、提现或平仓能力。私有 TLS 隧道无法检查 HTTP 路径，因此继续由桌面端 GET 白名单、服务端目标域名白名单、safeStorage 和本地签名共同限制能力，不依赖用户 IP 白名单。
+- 容灾决策：公共与私有链路使用独立限流、健康检查和发布单元；稳定生产域名后的跨可用区负载均衡/全局流量入口负责 Haolo 内部健康切换，桌面端再按 ADR-013 在真实 Binance 直连和 Haolo 回退之间自动选择。固定 EIP 用于出口稳定性与运维定位，不要求写入用户 Binance API Key。
+- 原因：公共行情适合集中去重和广播，私有账户涉及凭证、签名、余额、仓位和订单，安全模型完全不同。分层可在实现国内直连的同时保留本地密钥、用户隔离、只读失败关闭和可审计边界。
+
+### ADR-013：客户端按实际 Binance 可达性自动直连，失败时统一回退 Haolo
+
+- 状态：已批准（来自 2026-08-21 用户明确要求公共行情和用户只读数据在当前网络可直连 Binance 时均走直连，不要求用户填写 IP 白名单）。
+- 日期：2026-08-21。
+- 路由决策：不得通过枚举 VPN 进程、虚拟网卡或上传公网 IP 推断用户是否开启 VPN；主进程只对 Binance 官方公共健康端点和真实请求做本地可达性判断。直连成功时公共 REST/WebSocket 和账户 GET 使用当前系统网络，连接超时、传输失败或明确地域阻断时进入有冷却时间的 Haolo 网关回退，恢复探测成功后再切回直连。Binance 429/418、鉴权和业务错误继续原样处理，不通过换出口规避上游限制。
+- 账户决策：API Key/Secret 继续由账号隔离 safeStorage 保存，签名仍在主进程本地完成，方法继续限制为 GET；取消“用户必须配置固定出口 IP 白名单”的产品前置条件。直连账户请求失败后必须重新取得服务器时间并重新签名再走私有出口，不能复用可能过期的签名；鉴权、权限和参数业务错误不得被误判为网络故障反复切路。
+- 稳定性决策：现货行情、合约行情、现货账户和合约账户分别记录真实结果；一次明确的传输失败、3 秒直连超时或地域阻断即可快速进入指数冷却，冷却结束只允许单飞半开探测，成功状态使用短租约。主进程 Data Hub 在 WebSocket 早期失败后统一重连；Renderer 不接触选路状态、VPN 信息、外部网关端点、JWT 或 ticket。
+- 原因：VPN、系统代理、TUN 分流和企业隧道不能仅凭适配器状态可靠判断；以目标可达性作为事实可减少误路由和网关带宽，同时保留国内网络下的可用回退。
+
+### ADR-014：私有账户回退使用稳定用户分片和全局权重准入，不用换 IP 规避限流
+
+- 状态：已批准（来自 2026-08-21 用户明确要求按长期生产的多出口分片方案彻底优化）。
+- 日期：2026-08-21。
+- 分片决策：公共行情与私有账户使用独立出口容量池；私有账户按 Haolo 用户 ID 对已启用分片做确定性一致性选择，同一用户稳定落到同一固定 EIP。分片散列使用独立长期稳定 Secret，不能与会定期轮换的 JWT Secret 共用。单纯增加域名、Pod 或服务器但共用同一 NAT EIP 不计为扩容；每个生产私有分片必须有独立出口 EIP、独立 shard ID 和可验证的 DNS/TLS 入口。
+- 配额决策：桌面端每个允许的 Binance 只读路由在建隧道前向控制面申请许可，权重只由服务端白名单计算。Redis 以 `shard + Spot/Futures + Binance 时间窗` 原子协调所有实例；核心路由与可降级的历史/全量路由使用独立预算，保留核心账户和仓位刷新余量。无 Redis 的生产环境失败关闭，不能退化为各 Pod 自行计数。
+- 隧道决策：控制面签发绑定用户、分片、目标主机、市场、权重和短过期时间的一次性 CONNECT 许可；出口分片校验 shard ID、目标和 nonce 后才能建立 TLS 透传。官方桌面客户端一项 Binance 请求只使用一个隧道，API Secret 和内层请求/响应继续端到端留在客户端与 Binance 之间。
+- 限流决策：Binance 429/418 或 `Retry-After` 只会使当前用户的既定分片进入共享冷却，客户端保留错误或使用已有缓存，不得切换其他 EIP 重试。只有已确认的 Haolo 基础设施故障才能通过一致性分片拓扑变更完成受控故障迁移；扩容、缩容和迁移均需审计并渐进发布。
+- 原因：Binance 请求权重按出口 IP 聚合，客户端各自限流无法保护共享 EIP；稳定分片和全局准入可把容量线性拆分并保留公平性，而一次性许可可在不终止 Binance 内层 TLS、不上传 Secret 的前提下把身份、路由、配额和实际出口绑定起来。
 
 ## 22. 进度日志
 
@@ -1571,6 +1608,19 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 - 完成 M1-229：选择器新增独立 `A股` tab；iFinD 代码归一化为 `a-share`，旧收藏中的 iFinD 记录自动迁移，避免落入“美股”；split pane 类型、分类过滤、搜索和 K 线入口贯通。保留主进程到 Haolo 后台的受保护 `status/search/quotes/snapshot/candles` 桥，不在 Renderer、源码或 URL 中写入 refresh/access token。iFinD/分类专项 5/5、Trading Expert 相关回归 78/78、TypeScript、Vite 117 modules production build 通过；真实 Token 注入和分钟线烟测仍待后台代理配置后执行。
 
 ### 2026-08-21
+
+- 启动 M2-015：用户批准按长期生产的多固定 EIP 分片方案彻底优化 Haolo Binance 用户数据回退链路。范围包括服务端可信只读路由权重、一致性用户分片、Redis 原子全局预算、核心/后台容量隔离、一次性短期 CONNECT 许可、429/418 原分片共享冷却、桌面逐请求隧道、Kubernetes 独立出口模板与容量/故障专项验证；明确不把换 EIP 作为绕过 Binance 限流的手段。
+- 完成 M2-015：新增 `PrivateEgressCoordinator`，只接受 market/path/hasSymbol 无敏感元数据并由服务端白名单认定权重；以独立长期稳定 hash Secret 对 user ID 做 rendezvous 分片，Redis Lua 在同一 EIP 上原子协调 Spot/Futures 总预算、后台预算和哈希化单用户公平预算。控制面签发绑定 user/shard/host/market/weight、15 秒过期的一次性 permit，出口校验本机 shard ID 和 Redis nonce 后建立隧道；普通 Haolo JWT 在生产不再可直接代理认证。客户端改为每项 Binance GET 建立一次外层代理 TLS + CONNECT + 内层官方 Binance TLS，许可动态选择 shard；只回报 permit ID、status、`X-MBX-USED-WEIGHT-1M` 和 `Retry-After`，429/418 只冷却既定 shard，不轮转 EIP。API Key/Secret、signature、完整 query 和账户响应始终不上传 Haolo。
+- M2-015 部署与验证：公共控制面和私有出口改为 `public/private` 角色；公共节点池、`sg-a`、`sg-b` 私有节点池/NAT EIP 完全隔离，交付双 L4 LB、PDB、HPA、Redis readiness、TLS、容量公式、扩容阈值和压测/灰度手册。Gateway 24/24；Binance 账户、动态路由、Data Hub、行情、告警与私有隧道专项 62/62；11 个相关模块语法、TypeScript、Vite 168 modules production build、两份 Kubernetes YAML 解析和 `git diff --check` 通过。桌面全仓 2370 项中 2358 通过，12 项旧源码契约失败数量未扩大。本任务不改 Renderer UI/CSS，亮暗主题无新增视觉分支；本机缺 Docker/Kubernetes/Redis，真实 Redis Lua、镜像、固定 EIP 和三网/72 小时验收转入 M2-013。
+- 启动 M2-014：用户决定取消 Binance API Key 固定 IP 白名单前置条件，公共行情与用户只读账户均在当前网络可实际访问 Binance 时直连，失败才使用 Haolo 网关。实现不检测 VPN 应用/进程/虚拟网卡，不上传用户公网 IP，只在主进程执行 Binance 可达性探测、真实请求反馈、熔断冷却和恢复切回；账户 Secret、本地签名、GET-only 与无交易 IPC 边界保持不变。
+- 完成 M2-014：新增主进程 `BinanceNetworkRouter`，按 Spot/Futures 与 public/private 四通道保留独立健康状态；`auto` 模式对真实目标执行 3 秒直连尝试，网络失败或 403/451 后切入 15 秒起步、最高 5 分钟的指数冷却，冷却结束单飞半开探测，成功自动恢复。公共 REST 在同一只读请求内改写到 Haolo 域名回退；WebSocket 先探测 Binance ping，早期断线向路由器反馈并由统一 Data Hub 重新取一次性 ticket。用户账户先走当前系统网络，直连失败抛出专用切路信号，由账户服务重新请求 Binance 时间、生成新 timestamp/signature 后再经 HTTPS CONNECT 出口读取；401、签名错误、429/418 和业务错误不触发换出口。生产资源新增 `routingMode=auto` 和直连超时配置，部署手册取消用户 IP 白名单步骤，固定 EIP 仅用于网关稳定出口。
+- M2-014 验证：动态路由、账户重签、Data Hub、网关客户端、私有代理、公共市场、限流与 Renderer 边界专项 50/50；Gateway 13/13；TypeScript、6 个主进程语法检查、Vite 168 modules production build 和 `git diff --check` 通过。全仓受控并发失败仍为改造前已有的 12 项 UI 源码契约基线，隔离复跑资源竞争型视频并发用例 1/1 通过，Binance 新增失败 0。本任务没有新增 Renderer UI/CSS，亮暗主题没有新视觉分支。
+
+- 完成 M2-008/M2-009：新增独立 `services/haolo-binance-gateway`，公共端统一 Binance Spot/Futures REST 与 WebSocket、Redis/内存缓存、同请求合并、429/418 冷却、一次性 ticket、订阅池、限流、健康/readiness 和受 Bearer Token 保护的 metrics；私有端仅提供 Haolo JWT 鉴权的 HTTPS CONNECT，严格限制 `api.binance.com`/`fapi.binance.com:443`，阻断私网/回环/保留地址和 DNS 混合结果，不终止内层 Binance TLS。Gateway 自动化 14/14 通过。
+- 完成 M2-001/M2-005/M2-010/M2-011：桌面主进程新增 `TradingMarketDataHub` 和网关客户端；主图、收藏、告警复用按 Spot/Futures 划分的主进程连接与 stream 引用。Renderer 不再创建 Binance WebSocket，不接触 Haolo JWT、一次性 ticket 或网关端点；打包资源与环境变量均支持 HTTPS origin 配置，生产 `requireGateway=true` 时任一链路缺失即失败关闭。
+- 完成 M2-012：Binance API Key/Secret 继续使用账号隔离的 safeStorage，只在主进程本地签名；账户 GET 请求通过 Electron 非持久隔离 session 和固定 HTTPS proxy 建立 CONNECT 隧道，目标 origin、方法、代理认证和中止竞态均受约束；登录账号切换或退出时主动关闭隧道连接、清理代理认证缓存并重建账户服务，防止跨账号复用连接。未新增任何 Binance 写操作、交易或提现能力。
+- 交付 M2-013 部署准备：新增 Compose、应用 TLS override、双可用区 Kubernetes Deployment/PDB/HPA、公共 WebSocket Ingress、私有 L4 TLS LoadBalancer、密钥/Redis配置和生产验收手册。真实域名、镜像 digest、托管 Redis、固定 NAT EIP 与 Secret 均保留为部署时注入，不在源码写入；当前资源缺失使国内三网、72 小时 soak、混沌和灰度验收处于受阻状态。
+- 最终本地验证：Gateway 14/14；桌面 TypeScript 和 Vite 168 modules production build 通过；受控并发全仓除一个资源竞争型视频并发用例外的 2358 项中 2346 通过、12 项失败名称与改造前基线完全一致，该视频用例隔离复跑 1/1 通过，合并口径为 2359 项中 2347 通过、既有失败 12、新增失败 0。该视频用例在全仓并发下偶发拖住 mock server 收尾，但与 Binance 改造无代码交集。主进程/Renderer 未新增 UI 或 CSS，亮暗主题没有新视觉分支。
 
 - 启动 M6-007 测试包预构建（不发布）：用户要求生成最新 Haolo Web3 Windows 测试包。`git fetch origin dev --prune` 后确认本地 `dev` 与 `origin/dev` 同为 `3129070`，保留并纳入当前未提交的 Web3 工作区改动；`C:\Users\Joie\Desktop\好咯最新安装包` 中最高安装包为 `0.1.169`，因此本轮目标版本为 `0.1.170`。范围限定为测试、类型检查、Renderer 构建、win-unpacked、ASAR/运行时校验、NSIS 安装包与哈希复制，明确使用 `-SkipUpload`，不写生产更新记录。
 - 完成 M6-007 测试包预构建（不发布）：版本由 `0.1.169` 递增到 `0.1.170`；`pnpm run typecheck`、Vite 168 modules production build、Electron `win-unpacked`、17 个 ASAR 运行时模块校验和 NSIS 构建全部通过。生成 `release/win-unpacked/haolo_desktop.exe`（210,974,208 bytes）与 `release/haolo_desktop-0.1.170-Setup.exe`（209,451,221 bytes，SHA-256 `80DAD33DF9A74ABE40EB3CB4BC2A549E80BD94EA5CE4481C18D533907FC431C4`）；安装包已复制到 `C:\Users\Joie\Desktop\好咯最新安装包`，源/副本大小及哈希一致。完整自动化套件为 2346 项中 2334 通过、12 项旧源码契约断言失败，失败集中在应用内确认数量、助手技能别名、旧画布退出入口、会话行主题、字号偏移、个人菜单、应用 Chrome 主题、预警模拟恢复、交易专家局部更新、分屏标题栏收藏和视频附件旧确认断言；类型检查与生产构建未受影响。`-SkipUpload` 生效，未生成 `app-update-release-0.1.170.json`，未写生产更新记录。

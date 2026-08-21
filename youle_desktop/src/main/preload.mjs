@@ -1,10 +1,36 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron/renderer";
+import { randomUUID } from "node:crypto";
 
 const on = (channel, callback) => {
   const listener = (_event, payload) => callback(payload);
   ipcRenderer.on(channel, listener);
   return () => ipcRenderer.off(channel, listener);
 };
+
+const binanceMarketStreamCallbacks = new Map();
+ipcRenderer.on("binanceMarket:streamEvent", (_event, payload = {}) => {
+  const callback = binanceMarketStreamCallbacks.get(String(payload.subscriptionId || ""));
+  if (callback) callback(payload.event);
+});
+
+async function subscribeBinanceMarketStreams(params, callback) {
+  if (typeof callback !== "function") throw new TypeError("Binance market stream callback is required");
+  const subscriptionId = `renderer-market-${randomUUID()}`;
+  binanceMarketStreamCallbacks.set(subscriptionId, callback);
+  try {
+    await ipcRenderer.invoke("binanceMarket:streamSubscribe", { ...params, subscriptionId });
+    return { subscriptionId };
+  } catch (error) {
+    binanceMarketStreamCallbacks.delete(subscriptionId);
+    throw error;
+  }
+}
+
+async function unsubscribeBinanceMarketStreams(params = {}) {
+  const subscriptionId = String(params.subscriptionId || "");
+  binanceMarketStreamCallbacks.delete(subscriptionId);
+  return ipcRenderer.invoke("binanceMarket:streamUnsubscribe", { subscriptionId });
+}
 
 async function invokeBinanceAccountSnapshot(params) {
   const result = await ipcRenderer.invoke("binanceAccount:getSnapshot", params);
@@ -94,6 +120,8 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   sendOtp: (params) => ipcRenderer.invoke("youle:sendOtp", params),
   verifyOtp: (params) => ipcRenderer.invoke("youle:verifyOtp", params),
   getBinancePublicMarketData: (params) => ipcRenderer.invoke("binanceMarket:publicGet", params),
+  subscribeBinanceMarketStreams: (params, callback) => subscribeBinanceMarketStreams(params, callback),
+  unsubscribeBinanceMarketStreams: (params) => unsubscribeBinanceMarketStreams(params),
   getHyperliquidPublicCandles: (params) => ipcRenderer.invoke("hyperliquidMarket:candles", params),
   getBinanceAccountStatus: () => ipcRenderer.invoke("binanceAccount:getStatus"),
   sendBinanceAccountOtp: () => ipcRenderer.invoke("binanceAccount:sendOtp"),

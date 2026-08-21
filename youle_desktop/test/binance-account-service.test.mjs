@@ -73,6 +73,41 @@ test("signed Binance URLs use the exact encoded query and HMAC-SHA256", () => {
   assert.equal(url.searchParams.get("signature"), expected);
 });
 
+test("account reads re-time and re-sign after the direct route switches to Haolo", async () => {
+  const signedRequests = [];
+  let timeRequests = 0;
+  const service = new BinanceAccountService({
+    credentialStore: { resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }) },
+    fetch: async (url, init = {}) => {
+      const parsed = new URL(url);
+      if (parsed.pathname === "/api/v3/time") {
+        timeRequests += 1;
+        return jsonResponse({ serverTime: timeRequests === 1 ? 1_700_000_000_000 : 1_700_000_000_500 });
+      }
+      if (parsed.pathname === "/sapi/v1/asset/wallet/balance") {
+        signedRequests.push({
+          timestamp: parsed.searchParams.get("timestamp"),
+          signature: parsed.searchParams.get("signature"),
+          apiKey: new Headers(init.headers).get("x-mbx-apikey"),
+        });
+        if (signedRequests.length === 1) {
+          const error = new Error("direct route failed");
+          error.code = "BINANCE_DIRECT_ROUTE_FAILED";
+          throw error;
+        }
+        return jsonResponse([]);
+      }
+      throw new Error(`unexpected route ${parsed.pathname}`);
+    },
+  });
+
+  assert.deepEqual(await service.walletBalances({ apiKey: API_KEY, apiSecret: API_SECRET }), []);
+  assert.equal(timeRequests, 2);
+  assert.deepEqual(signedRequests.map((request) => request.timestamp), ["1700000000000", "1700000000500"]);
+  assert.notEqual(signedRequests[0].signature, signedRequests[1].signature);
+  assert.equal(signedRequests[1].apiKey, API_KEY);
+});
+
 test("profit calendar groups realized PnL by local trading date and preserves zero-income days", () => {
   const firstDay = new Date(2026, 6, 1, 9, 30).getTime();
   const secondDay = new Date(2026, 6, 2, 18, 45).getTime();

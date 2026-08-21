@@ -1,0 +1,20 @@
+{
+  "name": "@haolo/binance-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Haolo public Binance market gateway and private read-only egress proxy.",
+  "main": "src/server.mjs",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test",
+    "typecheck": "node --check src/server.mjs"
+  },
+  "dependencies": {
+    "redis": "5.12.1",
+    "ws": "8.18.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

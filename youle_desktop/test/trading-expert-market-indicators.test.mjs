@@ -432,11 +432,11 @@ test("favorite market resolution preserves live prices over persisted metadata",
   assert.strictEqual(tradingMarketsPreferBinance([liveMarket, staleFavorite])[0], liveMarket);
 });
 
-test("favorite ticker quotes update continuously and use direct combined streams", async () => {
+test("favorite ticker quotes update continuously through normalized Data Hub streams", async () => {
   const {
     applyTradingMarketTickerQuote,
     formatTradingMarketTickerPrice,
-    tradingFavoriteTickerStreamUrl,
+    tradingFavoriteTickerStreams,
   } = await import("../src/renderer/trading-expert-market.ts");
   const liveMarket = {
     id: "BINANCE:FUTURES:ETHUSDT",
@@ -456,13 +456,9 @@ test("favorite ticker quotes update continuously and use direct combined streams
     quoteAvailable: false,
   };
 
-  assert.equal(
-    tradingFavoriteTickerStreamUrl("perpetual", ["ETHUSDT", "SOLUSDT", "ETHUSDT"]),
-    "wss://fstream.binance.com/stream?streams=ethusdt@ticker/solusdt@ticker",
-  );
-  assert.equal(
-    tradingFavoriteTickerStreamUrl("spot", ["BTCUSDT"]),
-    "wss://data-stream.binance.vision:443/stream?streams=btcusdt@ticker",
+  assert.deepEqual(
+    tradingFavoriteTickerStreams(["ETHUSDT", "SOLUSDT", "ETHUSDT"]),
+    ["ethusdt@ticker", "solusdt@ticker"],
   );
   assert.equal(formatTradingMarketTickerPrice(1_916.9), "1,916.90");
   assert.equal(formatTradingMarketTickerPrice(76.81), "76.81");

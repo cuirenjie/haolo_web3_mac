@@ -1,0 +1,206 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: haolo-market
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haolo-binance-gateway
+  namespace: haolo-market
+data:
+  NODE_ENV: production
+  HAOLO_GATEWAY_ROLE: public
+  HAOLO_MARKET_GATEWAY_HOST: 0.0.0.0
+  HAOLO_MARKET_GATEWAY_PORT: "8787"
+  HAOLO_GATEWAY_ALLOW_ANONYMOUS_PUBLIC: "false"
+  HAOLO_GATEWAY_TRUST_PROXY: "true"
+  HAOLO_MARKET_REQUESTS_PER_MINUTE: "300"
+  HAOLO_MARKET_MAX_SUBSCRIPTIONS_PER_CLIENT: "50"
+  HAOLO_MARKET_MAX_STREAMS_PER_UPSTREAM: "300"
+  HAOLO_MARKET_MAX_WS_CLIENTS_PER_USER: "8"
+  HAOLO_MARKET_MAX_WS_CLIENTS_TOTAL: "10000"
+  HAOLO_PRIVATE_TOTAL_SAFETY_PERCENT: "60"
+  HAOLO_PRIVATE_BACKGROUND_SAFETY_PERCENT: "35"
+  HAOLO_PRIVATE_USER_SPOT_WEIGHT_PER_MINUTE: "120"
+  HAOLO_PRIVATE_USER_FUTURES_WEIGHT_PER_MINUTE: "240"
+  HAOLO_PRIVATE_PERMIT_TTL_MS: "15000"
+  # Replace both proxy URLs. Every shard must terminate at a different fixed NAT EIP.
+  HAOLO_PRIVATE_EGRESS_SHARDS_JSON: '[{"id":"sg-a","proxyUrl":"https://sg-a.binance-egress.example.invalid","spotWeightLimitPerMinute":6000,"futuresWeightLimitPerMinute":2400},{"id":"sg-b","proxyUrl":"https://sg-b.binance-egress.example.invalid","spotWeightLimitPerMinute":6000,"futuresWeightLimitPerMinute":2400}]'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: haolo-binance-gateway
+  namespace: haolo-market
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: haolo-binance-gateway
+  template:
+    metadata:
+      labels:
+        app: haolo-binance-gateway
+    spec:
+      terminationGracePeriodSeconds: 45
+      nodeSelector:
+        haolo.network/egress-pool: public-market
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: haolo-binance-gateway
+      containers:
+        - name: gateway
+          image: registry.example.invalid/haolo/binance-gateway:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: haolo-binance-gateway
+          env:
+            - name: HAOLO_GATEWAY_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: haolo-binance-gateway-runtime
+                  key: jwt-secret
+            - name: HAOLO_GATEWAY_JWT_ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: haolo-binance-gateway-runtime
+                  key: jwt-issuer
+                  optional: true
+            - name: HAOLO_GATEWAY_JWT_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: haolo-binance-gateway-runtime
+                  key: jwt-audience
+                  optional: true
+            - name: HAOLO_GATEWAY_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: haolo-binance-gateway-runtime
+                  key: metrics-token
+            - name: HAOLO_PRIVATE_SHARD_HASH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: haolo-binance-gateway-runtime
+                  key: shard-hash-secret
+            - name: HAOLO_MARKET_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: haolo-binance-gateway-runtime
+                  key: redis-url
+          ports:
+            - name: market-http
+              containerPort: 8787
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: market-http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: market-http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: haolo-binance-market
+  namespace: haolo-market
+spec:
+  selector:
+    app: haolo-binance-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: market-http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: haolo-binance-market
+  namespace: haolo-market
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [market.example.invalid]
+      secretName: haolo-binance-market-public-tls
+  rules:
+    - host: market.example.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: haolo-binance-market
+                port:
+                  name: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: haolo-binance-gateway
+  namespace: haolo-market
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: haolo-binance-gateway
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: haolo-binance-gateway
+  namespace: haolo-market
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: haolo-binance-gateway
+  minReplicas: 2
+  maxReplicas: 10
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60

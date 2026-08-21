@@ -1,5 +1,6 @@
 packages:
   - youle_desktop
+  - services/*
 
 overrides:
   '@modelcontextprotocol/sdk': 1.26.0

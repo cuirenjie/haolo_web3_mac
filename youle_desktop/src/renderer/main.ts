@@ -1364,6 +1364,19 @@ type DesktopApi = {
     retryAfterMs?: number | null;
     error?: string;
   }>;
+  subscribeBinanceMarketStreams?(params: {
+    marketType: "futures" | "spot";
+    streams: string[];
+  }, callback: (event: {
+    type: "data" | "health";
+    stream?: string;
+    data?: unknown;
+    receivedAt?: number;
+    status?: "connected" | "reconnecting";
+    reason?: string;
+    at?: number;
+  }) => void): Promise<{ subscriptionId: string }>;
+  unsubscribeBinanceMarketStreams?(params: { subscriptionId: string }): Promise<{ removed: boolean }>;
   getHyperliquidPublicCandles?(params: {
     coin: string;
     interval: string;

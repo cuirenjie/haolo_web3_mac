@@ -27,20 +27,26 @@ test("IPC handlers authenticate the sender and renderer cannot invoke raw rule e
   assert.match(preload, /onTradingAlertTriggered/);
 });
 
-test("desktop alert service uses Electron networking for both history and polling monitoring", async () => {
+test("desktop alert service uses the governed dynamic router and shared market hub", async () => {
   const main = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
   const start = main.indexOf("async function getTradingAlertService");
   const end = main.indexOf("async function tradingAlertIpcCall", start);
   const factory = main.slice(start, end);
-  assert.match(factory, /marketFetch: governedBinanceFetch\("alert", BINANCE_REQUEST_PRIORITIES\.alert\)/);
-  assert.match(factory, /marketSubscribeMode: "polling"/);
+  assert.match(factory, /const router = getBinanceNetworkRouter\(\)/);
+  assert.match(factory, /getBinanceRequestGovernor\(\)\.fetch\([\s\S]*router\.publicFetch\.bind\(router\)[\s\S]*source: "alert"[\s\S]*BINANCE_REQUEST_PRIORITIES\.alert/);
+  assert.match(factory, /subscribeMode: "websocket"/);
+  assert.match(factory, /streamHub: getTradingMarketDataHub\(\)/);
 });
 
-test("account and alert Binance REST traffic share one persisted main-process governor", async () => {
+test("account traffic remains governed before its authenticated private tunnel", async () => {
   const main = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
   assert.match(main, /new BinanceRequestGovernor\([\s\S]*binance-request-governor\.json/);
-  assert.match(main, /fetch: governedBinanceFetch\("account", BINANCE_REQUEST_PRIORITIES\.account\)/);
-  assert.match(main, /marketFetch: governedBinanceFetch\("alert", BINANCE_REQUEST_PRIORITIES\.alert\)/);
+  assert.match(main, /const privateTransport = getBinancePrivateProxyTransport\(\)/);
+  assert.match(main, /getBinanceRequestGovernor\(\)\.fetch\([\s\S]*router\.privateFetch\.bind\(router\)[\s\S]*source: "account"[\s\S]*BINANCE_REQUEST_PRIORITIES\.account/);
+  assert.match(main, /permitProvider: \(url, options\) => gatewayClient\.privateRequestPermit\(url, options\)/);
+  assert.match(main, /usageReporter: \(report\) => gatewayClient\.reportPrivateUsage\(report\)/);
+  assert.match(main, /restartClientAfterAuthChange\(\)[\s\S]*resetBinanceNetworkRuntimeAfterAuthChange\(\)/);
+  assert.match(main, /resetBinanceNetworkRuntimeAfterAuthChange[\s\S]*binancePrivateProxyTransport\.close\(\)/);
 });
 
 test("alert intent uses retryable idle timeout policy while request routing stays hard-bounded", async () => {

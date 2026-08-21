@@ -179,8 +179,13 @@ import { ExternalModelCredentialStore } from "./external-agent/credential-store.
 import { ExternalModelService } from "./external-agent/service.mjs";
 import { BinanceCredentialStore } from "./binance-account/credential-store.mjs";
 import { BinanceAccountError, BinanceAccountService } from "./binance-account/service.mjs";
+import { BinancePrivateProxyTransport } from "./binance-account/private-proxy-fetch.mjs";
 import { BinanceRequestGovernor, BINANCE_REQUEST_PRIORITIES } from "./binance-request-governor.mjs";
 import { BinancePublicMarketService } from "./binance-public-market-service.mjs";
+import { resolveBinanceGatewayConfig } from "./binance-gateway-config.mjs";
+import { createBinanceGatewayClient } from "./binance-gateway-client.mjs";
+import { BinanceNetworkRouter } from "./binance-network-router.mjs";
+import { TradingMarketDataHub } from "./trading-market-data-hub.mjs";
 import { HyperliquidPublicMarketService } from "./hyperliquid-public-market-service.mjs";
 import { normalizeExternalModelProviderId } from "./external-agent/provider-registry.mjs";
 import { ExternalAgentRuntime, externalAgentPublicEvent } from "./external-agent/runtime.mjs";
@@ -225,6 +230,7 @@ import {
 import { createTradingAnalysisModelProviderRegistry } from "./trading-analysis/model-provider.mjs";
 import { tradingAnalysisTurnPolicy } from "./trading-analysis-turn-policy.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
+import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
 import { tradingAlertsEnabled, tradingAlertsShadowMode } from "./trading-alerts/feature-flag.mjs";
 import { tradingAlertErrorEnvelope } from "./trading-alerts/errors.mjs";
 import { executionPlanAlertTriggeredSummary } from "./trading-alerts/execution-plan-alert.mjs";
@@ -370,6 +376,11 @@ let personalContextService = null;
 let personalStrategyService = null;
 let binanceRequestGovernor = null;
 let binancePublicMarketService = null;
+let binanceGatewayConfig = null;
+let binanceGatewayClient = null;
+let binancePrivateProxyTransport = null;
+let binanceNetworkRouter = null;
+let tradingMarketDataHub = null;
 let hyperliquidPublicMarketService = null;
 let externalAgentRuntime = null;
 let externalAgentRuntimeUnsubscribe = null;
@@ -393,6 +404,7 @@ let automationWorker = null;
 let tradingAlertService = null;
 let tradingAlertServicePromise = null;
 const tradingAlertRendererSubscriptions = new Map();
+const binanceMarketRendererSubscriptions = new Map();
 let voiceRecognizer = null;
 let voiceSessionOwner = null;
 let voiceCredentialCache = null;
@@ -4191,14 +4203,91 @@ function getBinanceRequestGovernor() {
   return binanceRequestGovernor;
 }
 
-function governedBinanceFetch(source, priority) {
-  return (url, init) => getBinanceRequestGovernor().fetch(appNetworkFetch, url, init, { source, priority });
+function getBinanceGatewayConfig() {
+  if (!binanceGatewayConfig) {
+    const explicitPath = String(process.env.HAOLO_BINANCE_GATEWAY_CONFIG_PATH || "").trim();
+    const deploymentPath = explicitPath || (app.isPackaged
+      ? path.join(process.resourcesPath, "binance-gateway.json")
+      : path.join(app.getAppPath(), "resources", "binance-gateway.json"));
+    let deployment = {};
+    if (fs.existsSync(deploymentPath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new TypeError("configuration must be an object");
+        deployment = parsed;
+      } catch (error) {
+        throw new TypeError(`Binance gateway deployment config is invalid: ${error?.message || error}`);
+      }
+    } else if (explicitPath) {
+      throw new TypeError("HAOLO_BINANCE_GATEWAY_CONFIG_PATH does not exist");
+    }
+    binanceGatewayConfig = resolveBinanceGatewayConfig(process.env, deployment);
+  }
+  return binanceGatewayConfig;
+}
+
+function getBinanceGatewayClient() {
+  if (!binanceGatewayClient) {
+    binanceGatewayClient = createBinanceGatewayClient({
+      config: getBinanceGatewayConfig(),
+      apiClient: getYouleApiClient(),
+      fetchImpl: appNetworkFetch,
+    });
+  }
+  return binanceGatewayClient;
+}
+
+function getTradingMarketDataHub() {
+  if (!tradingMarketDataHub) {
+    const router = getBinanceNetworkRouter();
+    tradingMarketDataHub = new TradingMarketDataHub({
+      endpointProvider: (params) => router.marketStreamEndpoint(params),
+      endpointFailureReporter: (outcome) => router.reportMarketStreamOutcome(outcome),
+    });
+  }
+  return tradingMarketDataHub;
+}
+
+function getBinancePrivateProxyTransport() {
+  const config = getBinanceGatewayConfig();
+  if (!config.privateProxyEnabled) return null;
+  if (!binancePrivateProxyTransport) {
+    const gatewayClient = getBinanceGatewayClient();
+    binancePrivateProxyTransport = new BinancePrivateProxyTransport({
+      proxyUrl: config.privateProxyUrl,
+      permitProvider: (url, options) => gatewayClient.privateRequestPermit(url, options),
+      usageReporter: (report) => gatewayClient.reportPrivateUsage(report),
+    });
+  }
+  return binancePrivateProxyTransport;
+}
+
+function getBinanceNetworkRouter() {
+  if (!binanceNetworkRouter) {
+    const config = getBinanceGatewayConfig();
+    const privateTransport = getBinancePrivateProxyTransport();
+    binanceNetworkRouter = new BinanceNetworkRouter({
+      config,
+      directFetch: appNetworkFetch,
+      gatewayClient: config.marketGatewayEnabled ? getBinanceGatewayClient() : null,
+      privateProxyFetch: privateTransport ? privateTransport.fetch.bind(privateTransport) : null,
+    });
+  }
+  return binanceNetworkRouter;
 }
 
 function getBinancePublicMarketService() {
   if (!binancePublicMarketService) {
+    const gatewayConfig = getBinanceGatewayConfig();
+    const router = getBinanceNetworkRouter();
     binancePublicMarketService = new BinancePublicMarketService({
-      fetch: governedBinanceFetch("market", BINANCE_REQUEST_PRIORITIES.market),
+      fetch: (url, init) => getBinanceRequestGovernor().fetch(
+        router.publicFetch.bind(router),
+        url,
+        init,
+        { source: "market", priority: BINANCE_REQUEST_PRIORITIES.market },
+      ),
+      baseUrls: gatewayConfig.publicRest,
     });
   }
   return binancePublicMarketService;
@@ -4215,12 +4304,49 @@ function getHyperliquidPublicMarketService() {
 
 function getBinanceAccountService() {
   if (!binanceAccountService) {
+    const router = getBinanceNetworkRouter();
     binanceAccountService = new BinanceAccountService({
       credentialStore: getBinanceCredentialStore(),
-      fetch: governedBinanceFetch("account", BINANCE_REQUEST_PRIORITIES.account),
+      fetch: (url, init) => getBinanceRequestGovernor().fetch(
+        router.privateFetch.bind(router),
+        url,
+        init,
+        { source: "account", priority: BINANCE_REQUEST_PRIORITIES.account },
+      ),
     });
   }
   return binanceAccountService;
+}
+
+async function resetBinanceNetworkRuntimeAfterAuthChange() {
+  const pendingAlertService = tradingAlertServicePromise
+    ? await tradingAlertServicePromise.catch(() => null)
+    : null;
+  const alertService = tradingAlertService || pendingAlertService;
+  tradingAlertService = null;
+  tradingAlertServicePromise = null;
+  if (alertService) {
+    try { await alertService.shutdown(); } catch (error) {
+      console.warn("[trading-alerts] failed to reset after auth change", error?.message || error);
+    }
+  }
+  for (const record of binanceMarketRendererSubscriptions.values()) {
+    record.sender?.removeListener?.("destroyed", record.cleanup);
+    try { await record.dispose?.(); } catch {}
+  }
+  binanceMarketRendererSubscriptions.clear();
+  if (tradingMarketDataHub) {
+    try { await tradingMarketDataHub.close(); } catch {}
+    tradingMarketDataHub = null;
+  }
+  if (binancePrivateProxyTransport) {
+    try { await binancePrivateProxyTransport.close(); } catch {}
+    binancePrivateProxyTransport = null;
+  }
+  binanceNetworkRouter = null;
+  binanceGatewayClient = null;
+  binancePublicMarketService = null;
+  binanceAccountService = null;
 }
 
 function getPersonalMemoryStore() {
@@ -6375,6 +6501,7 @@ function youleAuthPath() {
 }
 
 async function restartClientAfterAuthChange() {
+  await resetBinanceNetworkRuntimeAfterAuthChange();
   const clients = [...appServerClients.values()];
   if (!clients.length && !client) {
     internalSubagentThreads.clearAll();
@@ -11799,6 +11926,49 @@ ipcMain.handle("binanceMarket:publicGet", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   return getBinancePublicMarketService().request(params);
 });
+ipcMain.handle("binanceMarket:streamSubscribe", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const subscriptionId = String(params.subscriptionId || "").trim();
+  if (!/^renderer-market-[a-z0-9-]{8,80}$/i.test(subscriptionId)) throw new TypeError("invalid market subscription id");
+  const existing = binanceMarketRendererSubscriptions.get(subscriptionId);
+  if (existing) {
+    if (existing.ownerId !== event.sender.id) throw new TypeError("market subscription owner mismatch");
+    return { subscriptionId };
+  }
+  const subscription = getTradingMarketDataHub().subscribe(
+    { marketType: params.marketType, streams: params.streams },
+    (marketEvent) => {
+      if (!event.sender.isDestroyed()) event.sender.send("binanceMarket:streamEvent", { subscriptionId, event: marketEvent });
+    },
+    (healthEvent) => {
+      if (!event.sender.isDestroyed()) event.sender.send("binanceMarket:streamEvent", { subscriptionId, event: healthEvent });
+    },
+  );
+  const cleanup = () => {
+    const current = binanceMarketRendererSubscriptions.get(subscriptionId);
+    if (!current) return;
+    binanceMarketRendererSubscriptions.delete(subscriptionId);
+    void current.dispose();
+  };
+  event.sender.once("destroyed", cleanup);
+  binanceMarketRendererSubscriptions.set(subscriptionId, {
+    ownerId: event.sender.id,
+    sender: event.sender,
+    cleanup,
+    dispose: subscription.dispose,
+  });
+  return { subscriptionId };
+});
+ipcMain.handle("binanceMarket:streamUnsubscribe", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const subscriptionId = String(params.subscriptionId || "").trim();
+  const record = binanceMarketRendererSubscriptions.get(subscriptionId);
+  if (!record || record.ownerId !== event.sender.id) return { removed: false };
+  binanceMarketRendererSubscriptions.delete(subscriptionId);
+  record.sender.removeListener?.("destroyed", record.cleanup);
+  await record.dispose();
+  return { removed: true };
+});
 ipcMain.handle("hyperliquidMarket:candles", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   return getHyperliquidPublicMarketService().candles(params);
@@ -13133,18 +13303,27 @@ async function getTradingAlertService() {
   if (tradingAlertService) return tradingAlertService;
   if (tradingAlertServicePromise) return tradingAlertServicePromise;
   tradingAlertServicePromise = (async () => {
+    const gatewayConfig = getBinanceGatewayConfig();
+    const router = getBinanceNetworkRouter();
+    const alertFetch = (url, init) => getBinanceRequestGovernor().fetch(
+      router.publicFetch.bind(router),
+      url,
+      init,
+      { source: "alert", priority: BINANCE_REQUEST_PRIORITIES.alert },
+    );
+    const marketAdapter = createBinanceMarketAdapter({
+      fetchImpl: alertFetch,
+      subscribeMode: "websocket",
+      restBaseUrls: gatewayConfig.publicRest,
+      streamHub: getTradingMarketDataHub(),
+    });
     const service = new TradingAlertService({
       dataDir: path.join(app.getPath("userData"), "trading-alerts"),
       // Alerts are available in both packaged and development clients. The
       // environment flag remains an explicit emergency kill switch.
       enabled: tradingAlertsEnabled(),
       invokeIntentModel: invokeTradingAnalysisAppServer,
-      marketFetch: governedBinanceFetch("alert", BINANCE_REQUEST_PRIORITIES.alert),
-      // The renderer's K-line connection uses Chromium's network stack. Keep
-      // alert monitoring on the same Electron net.fetch path instead of the
-      // Node WebSocket client, which can be blocked by the desktop proxy and
-      // otherwise leaves every alert in a misleading reconnecting state.
-      marketSubscribeMode: "polling",
+      marketAdapter,
       notify: notifyTradingAlertTriggered,
       shadowMode: tradingAlertsShadowMode(),
     });
@@ -20510,6 +20689,30 @@ async function cleanupAndExit(exitCode = 0) {
       console.warn("[trading-alerts] failed to stop", error?.message || error);
     } finally {
       tradingAlertService = null;
+    }
+  }
+
+  for (const record of binanceMarketRendererSubscriptions.values()) {
+    record.sender?.removeListener?.("destroyed", record.cleanup);
+    try { await record.dispose?.(); } catch {}
+  }
+  binanceMarketRendererSubscriptions.clear();
+  if (tradingMarketDataHub) {
+    try {
+      await withShutdownTimeout("trading market data hub", tradingMarketDataHub.close());
+    } catch (error) {
+      console.warn("[trading-market-data] failed to stop", error?.message || error);
+    } finally {
+      tradingMarketDataHub = null;
+    }
+  }
+  if (binancePrivateProxyTransport) {
+    try {
+      await withShutdownTimeout("Binance private proxy transport", binancePrivateProxyTransport.close());
+    } catch (error) {
+      console.warn("[binance-private-proxy] failed to stop", error?.message || error);
+    } finally {
+      binancePrivateProxyTransport = null;
     }
   }
 
