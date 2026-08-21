@@ -57,6 +57,7 @@ import {
   readChromeReleasePolicy,
 } from "./chrome/release-policy.mjs";
 import { downloadFileWithResume } from "./app-update-downloader.mjs";
+import { blockchainTransactionUrl } from "./blockchain-explorer.mjs";
 import { buildServerRequestResult, isToolRequestUserInputMethod, withFixedDefaultServiceTier } from "./codex-server-request.mjs";
 import {
   buildConversationModeTurnOverrides,
@@ -11706,6 +11707,18 @@ ipcMain.handle("youle:getSubscriptionBalanceDetails", async () => {
   return getYouleApiClient().getSubscriptionBalanceDetails();
 });
 
+ipcMain.handle("youle:createWeb3PaymentOrder", async (_event, params = {}) => {
+  return getYouleApiClient().createWeb3PaymentOrder(params);
+});
+
+ipcMain.handle("youle:getWeb3PaymentOrder", async (_event, params = {}) => {
+  return getYouleApiClient().getWeb3PaymentOrder(params);
+});
+
+ipcMain.handle("youle:listWeb3RechargeHistory", async (_event, params = {}) => {
+  return getYouleApiClient().listWeb3RechargeHistory(params);
+});
+
 ipcMain.handle("youle:refreshMemberLevel", async () => {
   return getYouleApiClient().refreshMemberLevel();
 });
@@ -17320,6 +17333,12 @@ ipcMain.handle("codex:respondServerRequest", async (_event, params = {}) => {
 });
 
 ipcMain.handle("codex:openExternal", async (_event, url) => {
+  await shell.openExternal(url);
+  return { ok: true };
+});
+
+ipcMain.handle("youle:openBlockchainTransaction", async (_event, params = {}) => {
+  const url = blockchainTransactionUrl(params);
   await shell.openExternal(url);
   return { ok: true };
 });

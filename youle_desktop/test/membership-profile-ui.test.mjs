@@ -135,7 +135,7 @@ test("logout lives at the bottom of settings", async () => {
   assert.match(styles, /\.settings-logout-button:disabled\s*\{/);
 });
 
-test("membership badges replace the profile pencil and show the subscribed weekly balance", async () => {
+test("membership badges replace the profile pencil and show the subscription balance", async () => {
   const [source, styles] = await Promise.all([rendererSource, stylesSource]);
   const titlebar = sourceBlock(
     source,
@@ -156,6 +156,11 @@ test("membership badges replace the profile pencil and show the subscribed weekl
     source,
     "function currentMembershipPlan",
     "function profileCitizenId",
+  );
+  const rechargeBalance = sourceBlock(
+    source,
+    "function renderRechargeSubscriptionBalance",
+    "function renderRechargeProductCard",
   );
   const subscriptionBadgeHandler = sourceBlock(source, "function bindEvents", "function openChannelDialog");
 
@@ -208,12 +213,13 @@ test("membership badges replace the profile pencil and show the subscribed weekl
   assert.match(subscriptionBadgeHandler, /event\.stopPropagation\(\)/);
   assert.match(subscriptionBadgeHandler, /button\.dataset\.subscriptionDetailsAnchor === "consumption-badge" \? "consumption-badge" : "badge"/);
   assert.match(subscriptionBadgeHandler, /toggleProfileSubscriptionDetails\(anchor\)/);
-  assert.match(subscriptionBadgeHandler, /#profileSubscriptionBalanceHelp > summary/);
-  assert.match(subscriptionBadgeHandler, /toggleProfileSubscriptionDetails\("balance"\)/);
+  assert.doesNotMatch(subscriptionBadgeHandler, /profileSubscriptionBalanceHelp|toggleProfileSubscriptionDetails\("balance"\)/);
   assert.match(membership, /subscription_balance_refresh_at/);
-  assert.match(membership, /<span>订阅周余额<\/span>/);
-  assert.match(membership, /id="profileSubscriptionBalanceHelp" class="recharge-product-help profile-subscription-help profile-subscription-details-anchor"/);
-  assert.match(membership, /<summary[^>]*>\?<\/summary>/);
+  assert.match(membership, /<span>订阅余额<\/span>/);
+  assert.match(rechargeBalance, /title="当前订阅余额"/);
+  assert.match(rechargeBalance, /<span>订阅余额<\/span>/);
+  assert.doesNotMatch(source, /订阅周余额/);
+  assert.doesNotMatch(membership, /profileSubscriptionBalanceHelp|<summary[^>]*>\?<\/summary>/);
   assert.match(membership, /api\.getSubscriptionBalanceDetails\(\)/);
   assert.match(membership, /details\.totalBalance/);
   assert.match(membership, /details\.creditedBalance/);
@@ -254,10 +260,7 @@ test("membership badge styling distinguishes experience and subscribed plans", a
     styles,
     /\.profile-subscription-row b\s*\{[^}]*font-weight: 700;/s,
   );
-  assert.match(
-    styles,
-    /\.profile-subscription-help summary\s*\{[^}]*width: 15px;[^}]*height: 15px;[^}]*background: #f4faff;/s,
-  );
+  assert.doesNotMatch(styles, /\.profile-subscription-help summary/);
   assert.match(styles, /\.profile-subscription-help-popover\s*\{[^}]*background: #172033;/s);
   assert.match(styles, /\.profile-membership-details,\s*\.consumption-membership-details\s*\{[^}]*position: relative;[^}]*display: inline-flex;/s);
   assert.match(styles, /\.profile-subscription-help-popover\.profile-membership-details-popover\s*\{[^}]*right: -8px;[^}]*left: auto;/s);

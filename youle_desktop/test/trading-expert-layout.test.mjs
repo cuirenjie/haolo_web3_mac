@@ -749,15 +749,15 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /\.trading-expert-panel-heading > \*\s*\{[^}]*position: static;[^}]*grid-row: 1;[^}]*align-self: center;/s);
   assert.match(styles, /\.trading-expert-panel-header-toggle\s*\{[^}]*width: 24px;[^}]*height: 26px;[^}]*justify-self: end;[^}]*border-radius: 7px;[^}]*background: transparent;/s);
   assert.doesNotMatch(styles, /trading-expert-panel-tabs|trading-expert-panel-tab-cell|trading-expert-sidebar-category/);
-  assert.match(styles, /\.titlebar-primary-actions\s*\{[^}]*display: flex;[^}]*height: 100%;[^}]*gap: 2px;[^}]*margin-left: -8px;/s);
+  assert.match(styles, /\.titlebar-primary-actions\s*\{[^}]*display: flex;[^}]*height: 100%;[^}]*gap: 2px;[^}]*margin-left: -17px;/s);
   assert.match(styles, /\.titlebar-primary-action\s*\{[^}]*height: 30px;[^}]*border-radius: 16px;[^}]*background: transparent;[^}]*font-size: calc\(13px \+ var\(--app-font-size-offset\)\);/s);
-  assert.match(styles, /\.titlebar-primary-action:hover:not\(:disabled\),[\s\S]*?\.titlebar-channel-action\.menu-open > \.titlebar-primary-action,[\s\S]*?\.titlebar-primary-action:is\(\.active, :active\):not\(:disabled\)\s*\{[^}]*background: transparent;/s);
+  assert.match(styles, /\.titlebar-primary-action:hover:not\(:disabled\),[\s\S]*?\.titlebar-more-action\.menu-open > \.titlebar-primary-action,[\s\S]*?\.titlebar-primary-action:is\(\.active, :active\):not\(:disabled\)\s*\{[^}]*background: transparent;/s);
   assert.doesNotMatch(styles, /\.titlebar-primary-action\s*\{[^}]*transition:[^;}]*background/s);
   assert.match(styles, /\.titlebar-primary-action:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 1px var\(--conversation-action-focus\);/s);
   assert.match(styles, /\.titlebar-primary-action:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.58;/s);
   assert.match(styles, /\.chat-list\.trading-expert-task-list \.conversation-list-body\s*\{[^}]*padding-top: 8px;/s);
-  assert.match(styles, /\.titlebar-channel-menu-overlay\s*\{[^}]*top: 100%;[^}]*z-index: 90;[^}]*display: none;[^}]*width: 208px;[^}]*padding-top: 5px;/s);
-  assert.match(styles, /\.titlebar-channel-action:is\(:hover, \.menu-open\) > \.titlebar-channel-menu-overlay\s*\{[^}]*display: block;/s);
+  assert.match(styles, /\.titlebar-more-menu-overlay\s*\{[^}]*top: 100%;[^}]*z-index: 90;[^}]*display: none;[^}]*width: 164px;[^}]*padding-top: 5px;/s);
+  assert.match(styles, /\.titlebar-more-action\.menu-open > \.titlebar-more-menu-overlay\s*\{[^}]*display: block;/s);
   assert.match(styles, /\.app-titlebar\s*\{[^}]*z-index: 100;[^}]*background: var\(--app-chrome-background\);[^}]*border-bottom: 0;[^}]*overflow: visible;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.app-titlebar\s*\{[^}]*border-bottom: 0;/s);
   assert.match(styles, /\.chat-list\s*\{[^}]*background: var\(--app-chrome-background\);[^}]*backdrop-filter: none;/s);
@@ -795,6 +795,7 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /\.desktop-body\.left-panel-collapsed > \.left-panel-toggle\s*\{[^}]*left: 4px;/s);
   assert.match(styles, /\.desktop-body > \.left-panel-toggle:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 2px var\(--conversation-action-focus\);/s);
   assert.match(styles, /\.app-titlebar\s*\{[^}]*padding: 0 0 0 15px;/s);
+  assert.match(styles, /\.app-titlebar > \.titlebar-left-panel-toggle\s*\{[^}]*margin-left: -7px;[^}]*margin-right: -1px;/s);
   assert.match(styles, /\.titlebar-profile\s*\{[^}]*transform: none;/s);
   assert.match(styles, /\.profile-menu\s*\{[^}]*left: 15px;/s);
   assert.doesNotMatch(styles, /\.desktop-shell\.trading-expert-shell \.titlebar-profile/);

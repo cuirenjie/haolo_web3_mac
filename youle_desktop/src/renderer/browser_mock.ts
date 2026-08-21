@@ -398,6 +398,7 @@ export function ensureBrowserDesktopApi() {
     onboardingCompleted: false,
     entries: [],
   };
+  const mockWeb3PaymentOrders = new Map<string, any>();
 
   const api: DesktopApiLike = {
     async start() {
@@ -508,6 +509,84 @@ export function ensureBrowserDesktopApi() {
     },
     async refreshProfile() {
       return session;
+    },
+    async createWeb3PaymentOrder(params: any) {
+      const productId = String(params?.productId || "subscription_basic");
+      const network = String(params?.network || "bsc");
+      const selectionKey = `${productId}:${network}:web3`;
+      const existingOrder = mockWeb3PaymentOrders.get(selectionKey);
+      if (
+        existingOrder?.status === "confirming"
+        || (existingOrder?.status === "pending" && Date.parse(existingOrder.expires_at) > Date.now())
+      ) return existingOrder;
+      if (existingOrder?.status === "pending") existingOrder.status = "expired";
+      const products: Record<string, { name: string; price: string; tokens: string; months: number; plan: string }> = {
+        subscription_basic: { name: "基础版订阅", price: "98.931", tokens: "1000", months: 1, plan: "basic" },
+        subscription_pro: { name: "专业版订阅", price: "498.956", tokens: "6000", months: 6, plan: "pro" },
+        subscription_flagship: { name: "旗舰版订阅", price: "798.913", tokens: "12000", months: 12, plan: "flagship" },
+      };
+      const product = products[productId] || products.subscription_basic;
+      const addresses: Record<string, string> = {
+        binance_internal: "1261385376",
+        okx_internal: "694504753333973132",
+        bsc: "0xd69a98907565b8ACb49E84644842535c86A78457",
+        tron: "TVXvodFriEMNjsVkuRWtiAmo1qVQauv635",
+        arbitrum: "0xd69a98907565b8ACb49E84644842535c86A78457",
+      };
+      const now = Date.now();
+      const order = {
+        order_no: `W3${now}${mockWeb3PaymentOrders.size}`,
+        product_id: productId,
+        plan_id: product.plan,
+        product_name: product.name,
+        list_amount: String(Math.ceil(Number(product.price))),
+        payable_amount: product.price,
+        currency: "USDT",
+        token_amount: product.tokens,
+        membership_months: product.months,
+        network,
+        recipient_address: addresses[network] || addresses.bsc,
+        token_contract: "mock-usdt-contract",
+        token_decimals: network === "bsc" ? 18 : 6,
+        status: "pending",
+        fulfillment_status: "pending",
+        expires_at: new Date(now + 30 * 60_000).toISOString(),
+        created_at: new Date(now).toISOString(),
+      };
+      mockWeb3PaymentOrders.set(selectionKey, order);
+      return order;
+    },
+    async getWeb3PaymentOrder(params: any) {
+      for (const order of mockWeb3PaymentOrders.values()) {
+        if (order.order_no === params?.orderNo) return order;
+      }
+      throw new Error("Web3 payment order not found");
+    },
+    async listWeb3RechargeHistory() {
+      return {
+        items: [
+          {
+            order_no: "W320260821140739",
+            recharged_at: "2026-08-21T06:07:39+00:00",
+            amount: "98.969",
+            currency: "USDT",
+            payment_method: "web3_arbitrum",
+            network: "arbitrum",
+            credited_points: "1000",
+            transaction_hash: "0x8e9d4d1b66e7e7598ccde0d23a49ce52872a0fa2637c36b47bb7d68b20f637a1",
+          },
+          {
+            order_no: "W320260820183023",
+            recharged_at: "2026-08-20T10:30:23+00:00",
+            amount: "98.956",
+            currency: "USDT",
+            payment_method: "web3_binance_internal",
+            network: "binance_internal",
+            credited_points: "1000",
+            transaction_hash: "1261385376000042",
+          },
+        ],
+      };
     },
     async refreshMemberLevel() {
       return { level: session.profile.level, session };
@@ -1026,6 +1105,20 @@ export function ensureBrowserDesktopApi() {
     },
     async openExternal(url: string) {
       window.open(url, "_blank", "noopener,noreferrer");
+      return { ok: true };
+    },
+    async openBlockchainTransaction(params) {
+      const network = String(params?.network || "");
+      const transactionHash = String(params?.transactionHash || "");
+      const explorerBaseUrls: Record<string, string> = {
+        bsc: "https://bscscan.com/tx/",
+        tron: "https://tronscan.org/#/transaction/",
+        arbitrum: "https://arbiscan.io/tx/",
+      };
+      const pattern = network === "tron" ? /^[0-9a-fA-F]{64}$/ : /^0x[0-9a-fA-F]{64}$/;
+      const baseUrl = explorerBaseUrls[network];
+      if (!baseUrl || !pattern.test(transactionHash)) throw new Error("交易哈希格式无效");
+      window.open(`${baseUrl}${transactionHash}`, "_blank", "noopener,noreferrer");
       return { ok: true };
     },
     async windowControl() {

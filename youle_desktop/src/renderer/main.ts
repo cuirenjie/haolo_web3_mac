@@ -1,4 +1,5 @@
 import "./styles.css";
+import QRCode from "qrcode";
 import { confirmInApp, type AppConfirmationOptions } from "./app-confirmation";
 import { resolveComposerThreadIdForSend } from "./composer-thread-routing";
 import {
@@ -77,6 +78,10 @@ import {
   bindTradingExpertPanelResize,
   renderTradingExpertPanelResizeHandles,
 } from "./trading-expert-panel-resize";
+import {
+  hyperliquidTradingMarketAssetLogoUrl,
+  renderTradingMarketAssetLogo,
+} from "./trading-expert-market-identity";
 import {
   reconcileTradingStrategyCatalog,
   tradingIndicatorCatalog,
@@ -428,6 +433,15 @@ import {
 } from "./quota-balance";
 import { formatProfileBalancePoints } from "./profile-balance";
 import {
+  canRetainRechargePaymentOrder,
+  normalizeRechargePaymentAmount,
+  rechargePaymentOrderSelectionKey,
+  rechargePaymentOrderVisualFingerprint,
+  rechargePaymentSelectionKey,
+  shouldAutoRetryRechargePaymentOrderRequest,
+  shouldReplaceRechargePaymentOrderAfterFinalCheck,
+} from "./recharge-payment-selection";
+import {
   composerMentionLeadingSpacer,
   composerMentionTrailingSpacer,
   findComposerMentionMatch,
@@ -487,6 +501,7 @@ const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.66";
 const ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS =
   import.meta.env.VITE_ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS === "true";
 const HAOLO_HOME_URL = "https://haolo.com";
+const AUTH_CLIENT_VARIANT = "haolo_windows_web3";
 const HAOLO_FEEDBACK_URL = "https://haolo.com/ideas.html";
 const USER_AGREEMENT_URL = "https://haolo.com/legal/terms.html";
 const PRIVACY_POLICY_URL = "https://haolo.com/legal/privacy.html";
@@ -535,14 +550,14 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     name: "基础版",
     orderName: "基础版订阅",
     description: "适合日常问答、偶尔创作和初次体验 AI 工作流。",
-    detail: "总额度 600 积分·30天会员",
-    priceYuan: 99,
-    amountFen: 9_900,
-    tokenAmount: 600,
-    weeklyTokenAmount: 150,
+    detail: "总额度 1,000 积分·1个月会员",
+    priceUsdt: 99,
+    amountCents: 9_900,
+    billingPeriod: "月",
+    tokenAmount: 1000,
     unitValue: "42.42",
     multiplier: "1:0.023",
-    features: ["每周额度上限 150 积分", "支持全部基础 AI 能力", "等级升级加速权益"],
+    features: ["支付成功后 1,000 积分立即到账", "1个月有效，未用完到期清零", "支持全部基础 AI 能力"],
   },
   {
     id: "subscription_pro",
@@ -550,15 +565,14 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     name: "专业版",
     orderName: "专业版订阅",
     description: "适合持续内容创作、研究分析与日常专业任务。",
-    detail: "总额度 1,200 积分·30天会员",
-    priceYuan: 169,
-    amountFen: 16_900,
-    tokenAmount: 1200,
-    weeklyTokenAmount: 300,
+    detail: "总额度 6,000 积分·半年会员",
+    priceUsdt: 499,
+    amountCents: 49_900,
+    billingPeriod: "半年",
+    tokenAmount: 6000,
     unitValue: "49.7",
     multiplier: "1:0.02",
-    featured: true,
-    features: ["每周额度上限 300 积分", "解锁更多功能", "比基础版更划算"],
+    features: ["支付成功后 6,000 积分立即到账", "6个月有效，未用完到期清零", "提前续费时积分叠加、期限顺延"],
   },
   {
     id: "subscription_flagship",
@@ -566,78 +580,118 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     name: "旗舰版",
     orderName: "旗舰版订阅",
     description: "适合高频 AI 创作、复杂任务执行与小型团队协作。",
-    detail: "总额度 4,000 积分·30天会员",
-    priceYuan: 499,
-    amountFen: 49_900,
-    tokenAmount: 4000,
-    weeklyTokenAmount: 1000,
+    detail: "总额度 12,000 积分·1年会员",
+    priceUsdt: 799,
+    amountCents: 79_900,
+    billingPeriod: "年",
+    tokenAmount: 12000,
     unitValue: "56.1",
     multiplier: "1:0.017",
-    features: ["每周额度上限 1,000 积分", "满足高频专业任务", "三档中单位额度最优"],
+    features: ["支付成功后 12,000 积分立即到账", "12个月有效，未用完到期清零", "提前升级时积分叠加、期限顺延"],
   },
 ];
-const RECHARGE_ADDON_PRODUCTS: readonly RechargeProductDefinition[] = [
+const RECHARGE_PAYMENT_NETWORKS = [
   {
-    id: "addon_20",
-    kind: "addon",
-    name: "轻量补充",
-    orderName: "60 积分加油包",
-    description: "适合临时补充少量额度。",
-    detail: "60 积分·永久余额",
-    priceYuan: 20,
-    amountFen: 2_000,
-    tokenAmount: 60,
-    unitValue: "21",
-    multiplier: "1:0.047",
-    features: ["进入积分余额", "永久有效"],
+    id: "binance_internal",
+    asset: "BNB",
+    label: "币安内部转账",
+    networkName: "币安站内转账",
+    address: "1261385376",
+    kind: "internal",
   },
   {
-    id: "addon_50",
-    kind: "addon",
-    name: "灵活补充",
-    orderName: "200 积分加油包",
-    description: "适合灵活增加日常使用额度。",
-    detail: "200 积分·含50 积分赠送",
-    priceYuan: 50,
-    amountFen: 5_000,
-    tokenAmount: 200,
-    unitValue: "28",
-    multiplier: "1:0.035",
-    bonus: 50,
-    features: ["进入积分余额", "永久有效"],
+    id: "okx_internal",
+    asset: "OKB",
+    label: "OKX内部转账",
+    networkName: "OKX站内转账",
+    address: "694504753333973132",
+    kind: "internal",
   },
   {
-    id: "addon_100",
-    kind: "addon",
-    name: "高额补充",
-    orderName: "430 积分加油包",
-    description: "适合高频任务的阶段性补充。",
-    detail: "430 积分·含130 积分赠送",
-    priceYuan: 100,
-    amountFen: 10_000,
-    tokenAmount: 430,
-    unitValue: "30.1",
-    multiplier: "1:0.033",
-    bonus: 130,
-    featured: true,
-    features: ["进入积分余额", "永久有效"],
+    id: "bsc",
+    asset: "BNB",
+    label: "币安链BSC 网络",
+    networkName: "BNB Smart Chain",
+    address: "0xd69a98907565b8ACb49E84644842535c86A78457",
+    kind: "network",
   },
   {
-    id: "addon_200",
-    kind: "addon",
-    name: "超值补充",
-    orderName: "1,000 积分加油包",
-    description: "适合长期、高强度的额外使用。",
-    detail: "1,000 积分·含400 积分赠送",
-    priceYuan: 200,
-    amountFen: 20_000,
-    tokenAmount: 1000,
-    unitValue: "35",
-    multiplier: "1:0.028",
-    bonus: 400,
-    features: ["进入积分余额", "永久有效"],
+    id: "tron",
+    asset: "TRX",
+    label: "波场TRON 网络",
+    networkName: "TRON",
+    address: "TVXvodFriEMNjsVkuRWtiAmo1qVQauv635",
+    kind: "network",
   },
-];
+  {
+    id: "arbitrum",
+    asset: "ARB",
+    label: "Arbitrum One 网络",
+    networkName: "Arbitrum One",
+    address: "0xd69a98907565b8ACb49E84644842535c86A78457",
+    kind: "network",
+  },
+] as const;
+type RechargePaymentNetworkId = (typeof RECHARGE_PAYMENT_NETWORKS)[number]["id"];
+type Web3PaymentOrderStatus = "pending" | "confirming" | "paid" | "expired" | "manual_review";
+type Web3PaymentOrder = {
+  order_no: string;
+  product_id: string;
+  plan_id: string;
+  product_name: string;
+  list_amount: string;
+  payable_amount: string;
+  currency: "USDT" | string;
+  token_amount: string;
+  membership_months: number;
+  network: RechargePaymentNetworkId;
+  recipient_address: string;
+  token_contract: string;
+  token_decimals: number;
+  status: Web3PaymentOrderStatus;
+  transaction_hash?: string | null;
+  fulfillment_status: "pending" | "succeeded" | "failed" | string;
+  expires_at: string;
+  created_at: string;
+  detected_at?: string | null;
+  paid_at?: string | null;
+};
+type Web3RechargeHistoryItem = {
+  order_no: string;
+  recharged_at: string;
+  amount: string;
+  currency: string;
+  payment_method: string;
+  network: RechargePaymentNetworkId;
+  credited_points: string;
+  transaction_hash: string | null;
+};
+type RechargeBlockchainNetwork = Extract<RechargePaymentNetworkId, "bsc" | "tron" | "arbitrum">;
+const RECHARGE_PAYMENT_POLL_INTERVAL_MS = 5_000;
+const RECHARGE_PAYMENT_CREATE_AUTO_RETRY_LIMIT = 1;
+const rechargePaymentQrDataUrlCache = new Map<string, Promise<string>>();
+const rechargePaymentOrdersBySelection = new Map<string, Web3PaymentOrder>();
+const rechargePaymentOrderLoadingSelections = new Set<string>();
+const rechargePaymentOrderErrorsBySelection = new Map<string, string>();
+const rechargePaymentExpiryChecksInFlight = new Set<string>();
+let selectedRechargeProductId = "subscription_basic";
+let selectedRechargePaymentNetwork: RechargePaymentNetworkId | null = "binance_internal";
+let rechargePaymentOrder: Web3PaymentOrder | null = null;
+let rechargePaymentOrderScope = "";
+let rechargePaymentCountdownEndsAt: number | null = null;
+let rechargePaymentCountdownTimer: number | null = null;
+let rechargePaymentPollTimer: number | null = null;
+let rechargePaymentPollingOrderNo: string | null = null;
+let rechargePaymentPollingSelectionKey: string | null = null;
+let rechargePaymentPollInFlight = false;
+let rechargePaymentPollGeneration = 0;
+let rechargePaymentProfileRefreshOrderNo: string | null = null;
+let rechargePaymentViewActive = false;
+let rechargeHistoryModalOpen = false;
+let rechargeHistoryLoading = false;
+let rechargeHistoryError = "";
+let rechargeHistoryItems: Web3RechargeHistoryItem[] = [];
+let rechargeHistoryRequestGeneration = 0;
 const VOICE_INPUT_MAX_DURATION_MS = 2 * 60 * 1000;
 const VOICE_INPUT_MIN_DURATION_MS = 350;
 const SUPPLEMENT_COMPOSER_PLACEHOLDER = "\u53ef\u4ee5\u7ee7\u7eed\u8865\u5145\u4f1a\u8bdd\uff0c\u70b9\u51fb\u5f15\u53f7\u6216\u6309Enter\u53d1\u9001";
@@ -1271,6 +1325,14 @@ type DesktopApi = {
   }>;
   disconnectGitHub?(): Promise<{ disconnected?: boolean; revoked_on_github?: boolean }>;
   getSubscriptionBalanceDetails?(): Promise<SubscriptionBalanceDetails>;
+  createWeb3PaymentOrder?(params: {
+    productId: string;
+    network: RechargePaymentNetworkId;
+    paymentChannel: "web3";
+    previousOrderNo?: string;
+  }): Promise<Web3PaymentOrder>;
+  getWeb3PaymentOrder?(params: { orderNo: string }): Promise<Web3PaymentOrder>;
+  listWeb3RechargeHistory?(params?: { limit?: number }): Promise<{ items?: Web3RechargeHistoryItem[] }>;
   refreshMemberLevel?(): Promise<any>;
   sendActivityHeartbeat?(params?: { onlineSecondsDelta?: number; online_seconds_delta?: number; sourceId?: string; source_id?: string;
   }): Promise<any>;
@@ -1895,6 +1957,10 @@ type DesktopApi = {
   interruptTurn(params: any): Promise<any>;
   respondServerRequest(params: any): Promise<any>;
   openExternal(url: string): Promise<any>;
+  openBlockchainTransaction?(params: {
+    network: RechargeBlockchainNetwork;
+    transactionHash: string;
+  }): Promise<{ ok?: boolean }>;
   windowControl?(action: WindowControlAction): Promise<WindowState & { ok?: boolean }> | void;
   windowMove?(params: WindowMovePayload): Promise<{ ok?: boolean }> | void;
   windowMoveLive?(params: WindowMovePayload): void;
@@ -2609,7 +2675,7 @@ type SubscriptionBalanceDetails = {
   calculatedAt: string;
 };
 
-type SubscriptionDetailsAnchor = "badge" | "consumption-badge" | "balance";
+type SubscriptionDetailsAnchor = "badge" | "consumption-badge";
 
 type ProfileSubscriptionDetailsState = {
   open: boolean;
@@ -2619,25 +2685,22 @@ type ProfileSubscriptionDetailsState = {
   error: string | null;
 };
 
-type RechargeProductKind = "subscription" | "addon";
-
 type RechargeProductDefinition = {
   id: string;
-  kind: RechargeProductKind;
+  kind: "subscription";
   name: string;
   orderName: string;
   description: string;
   detail: string;
-  priceYuan: number;
-  amountFen: number;
+  priceUsdt: number;
+  amountCents: number;
+  billingPeriod: "月" | "半年" | "年";
   tokenAmount: number;
   weeklyTokenAmount?: number;
   unitValue: string;
   multiplier: string;
   features: readonly string[];
   badge?: string;
-  bonus?: number;
-  featured?: boolean;
 };
 
 type AutoTaskDraftState = {
@@ -5622,7 +5685,6 @@ async function boot() {
     state.settings.sandbox = DESKTOP_SANDBOX_POLICY;
     state.settings.taskCompletionPopupEnabled = defaults.taskCompletionPopupEnabled !== false;
     state.login.baseUrl = defaults.youleApiBaseUrl || "";
-    const wechatConfigPromise = loadLoginWechatConfig();
     void refreshSystemIntegrationState({ renderAfter: false });
     void showLastUserDataTransferStatus();
 
@@ -5634,10 +5696,7 @@ async function boot() {
       state.loading = false;
       state.login.step = "identifier";
       setDesktopWindowMode("login");
-      await wechatConfigPromise;
-      if (seq !== startupAuthSeq) return;
-      if (loginWechatAvailable()) await startLoginWechatFlow("login");
-      else render();
+      render();
       return;
     }
     void checkForWindowsUpdate({ silent: true });
@@ -35138,6 +35197,10 @@ function renderPerformancePayload(mode: string): Record<string, unknown> {
 
 function render() {
   syncTaskbarUnreadCount();
+  if (state.activeView !== "recharge") {
+    stopRechargePaymentRuntime();
+    rechargePaymentViewActive = false;
+  }
   if (composerModePointerActive) {
     composerModePointerRenderPending = true;
     return;
@@ -36311,6 +36374,20 @@ function renderTitlebarAlarmIcon() {
   </svg>`;
 }
 
+function renderTitlebarMoreIcon() {
+  return `<svg class="titlebar-action-icon titlebar-more-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <circle cx="5" cy="12" r="1.45" />
+    <circle cx="12" cy="12" r="1.45" />
+    <circle cx="19" cy="12" r="1.45" />
+  </svg>`;
+}
+
+function renderTitlebarMenuChevron() {
+  return `<svg class="titlebar-more-menu-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+    <path d="m6 3.5 4.5 4.5L6 12.5" />
+  </svg>`;
+}
+
 function renderAutoTaskAlarmIcon() {
   return `<svg class="auto-task-card-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
     <circle cx="12" cy="13" r="6.5" />
@@ -36327,23 +36404,34 @@ function renderTitlebarPrimaryActions() {
   const channelMenuOpen = state.externalChannels.menuOpen;
   return `
     <nav class="titlebar-primary-actions" aria-label="应用快捷操作">
-      <div class="titlebar-channel-action ${channelMenuOpen ? "menu-open" : ""}">
-        <button type="button" class="titlebar-primary-action titlebar-icon-action ${channelMenuOpen ? "active" : ""}" data-action="toggle-external-channel-menu" aria-haspopup="menu" aria-expanded="${channelMenuOpen ? "true" : "false"}" title="连接" aria-label="连接">
-          ${renderTitlebarPlugIcon()}
+      <div class="titlebar-more-action ${channelMenuOpen ? "menu-open" : ""}">
+        <button type="button" class="titlebar-primary-action titlebar-icon-action ${channelMenuOpen ? "active" : ""}" data-action="toggle-external-channel-menu" aria-haspopup="menu" aria-controls="titlebarMoreMenu" aria-expanded="${channelMenuOpen ? "true" : "false"}" title="更多" aria-label="更多">
+          ${renderTitlebarMoreIcon()}
         </button>
-        <div class="titlebar-channel-menu-overlay">${renderExternalChannelMenu()}</div>
+        <div class="titlebar-more-menu-overlay">
+          <div class="titlebar-more-menu" id="titlebarMoreMenu" role="menu">
+            <div class="titlebar-more-channel-item">
+              <button type="button" class="titlebar-more-menu-button" data-titlebar-channel-trigger role="menuitem" aria-haspopup="menu" aria-expanded="false">
+                ${renderTitlebarPlugIcon()}
+                <span>连接渠道</span>
+                ${renderTitlebarMenuChevron()}
+              </button>
+              ${renderExternalChannelMenu()}
+            </div>
+            <button
+              type="button"
+              class="titlebar-more-menu-button ${state.autoTaskDialogOpen ? "active" : ""}"
+              data-action="open-auto-task-dialog"
+              role="menuitem"
+              aria-haspopup="dialog"
+              aria-expanded="${state.autoTaskDialogOpen ? "true" : "false"}"
+            >
+              ${renderTitlebarAlarmIcon()}
+              <span>自动任务</span>
+            </button>
+          </div>
+        </div>
       </div>
-      <button
-        type="button"
-        class="titlebar-primary-action titlebar-icon-action titlebar-auto-task-action ${state.autoTaskDialogOpen ? "active" : ""}"
-        data-action="open-auto-task-dialog"
-        title="自动任务"
-        aria-label="自动任务"
-        aria-haspopup="dialog"
-        aria-expanded="${state.autoTaskDialogOpen ? "true" : "false"}"
-      >
-        ${renderTitlebarAlarmIcon()}
-      </button>
     </nav>
   `;
 }
@@ -36527,7 +36615,7 @@ function renderLoginScreen() {
   const checking = (!state.auth.checked && state.loading) || workspaceLoading;
   return `
     <main class="login-shell ${displayStep === "identifier" || displayStep === "wechatEmail" || displayStep === "secondary" ? "login-step-email" : ""}">
-      <form id="loginForm" class="login-card login-card-${displayStep} ${loginWechatAvailable() ? "login-card-has-wechat" : ""}">
+      <form id="loginForm" class="login-card login-card-${displayStep}">
         <button type="button" class="login-close-button" data-window-action="close" aria-label="关闭到后台" title="关闭到后台">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
         </button>
@@ -36587,7 +36675,7 @@ function renderLoginIdentifierStep(checking: boolean) {
     ${renderLoginBrand()}
     <div class="login-identifier-action-group">
       <div class="login-fields login-email-fields">
-        <input id="loginIdentifier" value="${escapeAttr(state.login.identifier)}" placeholder="支持手机号/邮箱地址" autocomplete="username" autocapitalize="none" spellcheck="false" ${checking ? "disabled" : ""} />
+        <input id="loginIdentifier" type="email" value="${escapeAttr(state.login.identifier)}" placeholder="请输入邮箱地址" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" ${checking ? "disabled" : ""} />
       </div>
       <p class="login-error" aria-live="polite">${state.login.error ? escapeHtml(state.login.error) : ""}</p>
       <button class="primary-button login-submit ${sending ? "loading" : ""}" type="submit" ${submitDisabled ? "disabled" : ""}>
@@ -36595,7 +36683,6 @@ function renderLoginIdentifierStep(checking: boolean) {
       </button>
       ${renderLoginAgreement()}
     </div>
-    ${renderLoginMethodSwitch("switch-login-wechat", "切换微信登录")}
   `;
 }
 
@@ -57884,39 +57971,983 @@ function renderSettingsProfilePanel() {
 }
 
 function renderRechargePage() {
+  ensureRechargePaymentOrderScope();
+  ensureRechargeProductSelection();
   const membership = currentMembershipPlan();
   return `
     <main class="recharge-page">
       <div class="recharge-page-scroll">
-        <section class="recharge-page-intro">
-          <div>
-            <h1>选择适合你的订阅</h1>
-          </div>
-          <div class="recharge-page-balances">
-            ${renderPageHomeButton()}
-            <div class="recharge-page-balance" title="当前积分余额">
-              <span>积分余额</span>
-              <strong>${escapeHtml(currentProfileBalance())}</strong>
-            </div>
-            ${membership.subscribed ? renderRechargeSubscriptionBalance() : ""}
-          </div>
-        </section>
-        <section class="recharge-product-grid subscription" aria-label="选择适合你的订阅">
-          ${RECHARGE_SUBSCRIPTION_PRODUCTS.map(renderRechargeProductCard).join("")}
-        </section>
-        <section class="recharge-addon-section" aria-labelledby="rechargeAddonTitle">
-          <header class="recharge-addon-heading">
+        <div class="recharge-subscription-content">
+          <section class="recharge-page-intro">
             <div>
-              <h2 id="rechargeAddonTitle">临时不够，用加油包补上</h2>
+              <h1>选择适合你的订阅</h1>
             </div>
-          </header>
-          <section class="recharge-product-grid addon" aria-label="积分加油包">
-            ${RECHARGE_ADDON_PRODUCTS.map(renderRechargeProductCard).join("")}
+            <div class="recharge-page-balances">
+              ${renderPageHomeButton()}
+              <div class="recharge-page-balance" title="当前积分余额">
+                <span>积分余额</span>
+                <strong>${escapeHtml(currentProfileBalance())}</strong>
+              </div>
+              ${membership.subscribed ? renderRechargeSubscriptionBalance() : ""}
+            </div>
+            <div class="recharge-history-action">
+              <button type="button" class="recharge-history-button" data-recharge-history-open>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 5.25v4.9l3.1 1.8M17 10a7 7 0 1 1-2.05-4.95M14.95 2.9v3.15H11.8" /></svg>
+                <span>充值记录</span>
+              </button>
+            </div>
           </section>
-        </section>
+          <section class="recharge-product-grid subscription" role="radiogroup" aria-label="选择适合你的订阅" aria-required="true">
+            ${RECHARGE_SUBSCRIPTION_PRODUCTS.map(renderRechargeProductCard).join("")}
+          </section>
+        </div>
+        <div class="recharge-payment-shell">
+          ${renderRechargePaymentMethods()}
+          ${renderRechargePaymentDetailsShell()}
+        </div>
       </div>
+      ${renderRechargeHistoryModal()}
     </main>
   `;
+}
+
+function rechargeHistoryPaymentLabel(network: RechargePaymentNetworkId) {
+  const labels: Record<RechargePaymentNetworkId, string> = {
+    binance_internal: "币安内部转账",
+    okx_internal: "OKX内部转账",
+    bsc: "币安链 BSC",
+    tron: "波场 TRON",
+    arbitrum: "Arbitrum One",
+  };
+  return labels[network];
+}
+
+function isRechargeBlockchainNetwork(
+  network: RechargePaymentNetworkId,
+): network is RechargeBlockchainNetwork {
+  return network === "bsc" || network === "tron" || network === "arbitrum";
+}
+
+function normalizeRechargeHistoryTransactionHash(
+  network: RechargePaymentNetworkId,
+  rawItem: any,
+): string | null {
+  if (!isRechargeBlockchainNetwork(network)) return null;
+  const transactionHash = String(
+    rawItem?.transaction_hash
+      ?? rawItem?.transactionHash
+      ?? rawItem?.tx_hash
+      ?? rawItem?.txHash
+      ?? rawItem?.txid
+      ?? rawItem?.txId
+      ?? "",
+  ).trim();
+  const pattern = network === "tron"
+    ? /^[0-9a-fA-F]{64}$/
+    : /^0x[0-9a-fA-F]{64}$/;
+  return pattern.test(transactionHash) ? transactionHash : null;
+}
+
+function rechargeHistoryExplorerLabel(network: RechargeBlockchainNetwork) {
+  if (network === "bsc") return "BscScan";
+  if (network === "tron") return "TRONSCAN";
+  return "Arbiscan";
+}
+
+function truncateRechargeHistoryTransactionHash(transactionHash: string) {
+  const fixedDisplayLength = 16;
+  if (transactionHash.length <= fixedDisplayLength) return transactionHash;
+  return `${transactionHash.slice(0, fixedDisplayLength - 3)}...`;
+}
+
+function normalizeWeb3RechargeHistory(value: any): Web3RechargeHistoryItem[] {
+  const payload = value?.data && typeof value.data === "object" ? value.data : value;
+  const rawItems = Array.isArray(payload?.items) ? payload.items : [];
+  const items: Web3RechargeHistoryItem[] = [];
+  rawItems.forEach((rawItem: any) => {
+    const paymentMethod = String(rawItem?.payment_method || rawItem?.paymentMethod || "").trim().toLowerCase();
+    const network = String(rawItem?.network || paymentMethod.replace(/^web3_/, "")).trim().toLowerCase() as RechargePaymentNetworkId;
+    if (!RECHARGE_PAYMENT_NETWORKS.some((candidate) => candidate.id === network)) return;
+    const rechargedAt = String(rawItem?.recharged_at || rawItem?.rechargedAt || "").trim();
+    if (!Number.isFinite(Date.parse(rechargedAt))) return;
+    items.push({
+      order_no: String(rawItem?.order_no || rawItem?.orderNo || "").trim(),
+      recharged_at: rechargedAt,
+      amount: normalizeRechargePaymentAmount(rawItem?.amount),
+      currency: String(rawItem?.currency || "USDT").trim().toUpperCase() || "USDT",
+      payment_method: paymentMethod || `web3_${network}`,
+      network,
+      credited_points: String(rawItem?.credited_points || rawItem?.creditedPoints || "0").trim(),
+      transaction_hash: normalizeRechargeHistoryTransactionHash(network, rawItem),
+    });
+  });
+  return items;
+}
+
+async function hydrateRechargeHistoryTransactionHashes(
+  items: Web3RechargeHistoryItem[],
+  generation: number,
+) {
+  if (typeof api.getWeb3PaymentOrder !== "function") return items;
+  const pendingIndexes = items.flatMap((item, index) => (
+    isRechargeBlockchainNetwork(item.network) && !item.transaction_hash && item.order_no ? [index] : []
+  ));
+  if (pendingIndexes.length === 0) return items;
+
+  const hydratedItems = items.map((item) => ({ ...item }));
+  let cursor = 0;
+  const workerCount = Math.min(4, pendingIndexes.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (cursor < pendingIndexes.length && generation === rechargeHistoryRequestGeneration) {
+      const itemIndex = pendingIndexes[cursor];
+      cursor += 1;
+      const item = hydratedItems[itemIndex];
+      try {
+        const response: any = await api.getWeb3PaymentOrder?.({ orderNo: item.order_no });
+        if (generation !== rechargeHistoryRequestGeneration) return;
+        const rawOrder = response?.data && typeof response.data === "object" ? response.data : response;
+        item.transaction_hash = normalizeRechargeHistoryTransactionHash(item.network, rawOrder);
+      } catch {
+        // A missing detail record should not prevent the rest of the history from rendering.
+      }
+    }
+  }));
+  return hydratedItems;
+}
+
+function formatRechargeHistoryDateTime(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
+function formatRechargeHistoryPoints(value: string) {
+  const points = Number(value);
+  if (!Number.isFinite(points)) return value || "—";
+  return points.toLocaleString("zh-CN", { maximumFractionDigits: 8 });
+}
+
+function renderRechargeHistoryTransactionRecord(item: Web3RechargeHistoryItem) {
+  if (!isRechargeBlockchainNetwork(item.network)) {
+    return `<span class="recharge-history-internal-record" title="站内转账不会生成公开的区块链浏览器记录">站内转账，无链上记录</span>`;
+  }
+  if (!item.transaction_hash) {
+    return `<span class="recharge-history-unavailable" title="该笔链上交易暂无可用的交易哈希">—</span>`;
+  }
+  const explorerLabel = rechargeHistoryExplorerLabel(item.network);
+  const fullHash = escapeHtml(item.transaction_hash);
+  return `
+    <button
+      type="button"
+      class="recharge-history-transaction"
+      data-recharge-history-transaction
+      data-network="${escapeAttr(item.network)}"
+      data-transaction-hash="${escapeAttr(item.transaction_hash)}"
+      aria-label="在 ${escapeAttr(explorerLabel)} 查看交易 ${escapeAttr(item.transaction_hash)}"
+      title="${escapeAttr(item.transaction_hash)}&#10;点击在 ${escapeAttr(explorerLabel)} 查看交易"
+    >
+      <span class="recharge-history-transaction-hash">${escapeHtml(truncateRechargeHistoryTransactionHash(fullHash))}</span>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3h7v7M13 3 7.5 8.5M11 8.5V13H3V5h4.5" /></svg>
+    </button>
+  `;
+}
+
+function renderRechargeHistoryRows() {
+  if (rechargeHistoryLoading && rechargeHistoryItems.length === 0) {
+    return Array.from({ length: 4 }, (_, index) => `
+      <tr class="recharge-history-loading-row" aria-hidden="true">
+        ${Array.from({ length: 5 }, (__, column) => `<td><span class="recharge-history-skeleton width-${(index + column) % 3}"></span></td>`).join("")}
+      </tr>
+    `).join("");
+  }
+  return rechargeHistoryItems.map((item) => `
+    <tr>
+      <td><time datetime="${escapeAttr(item.recharged_at)}">${escapeHtml(formatRechargeHistoryDateTime(item.recharged_at))}</time></td>
+      <td><strong class="recharge-history-amount">${escapeHtml(item.amount)}</strong><small>${escapeHtml(item.currency)}</small></td>
+      <td><span class="recharge-history-method ${escapeAttr(item.network)}">${escapeHtml(rechargeHistoryPaymentLabel(item.network))}</span></td>
+      <td><strong>${escapeHtml(formatRechargeHistoryPoints(item.credited_points))}</strong><small>积分</small></td>
+      <td class="recharge-history-transaction-record">${renderRechargeHistoryTransactionRecord(item)}</td>
+    </tr>
+  `).join("");
+}
+
+function renderRechargeHistoryModal() {
+  if (!rechargeHistoryModalOpen) return "";
+  const hasItems = rechargeHistoryItems.length > 0;
+  return `
+    <div class="recharge-history-overlay" data-recharge-history-backdrop>
+      <section class="recharge-history-dialog" role="dialog" aria-modal="true" aria-labelledby="rechargeHistoryTitle" aria-describedby="rechargeHistoryDescription" aria-busy="${rechargeHistoryLoading ? "true" : "false"}" tabindex="-1">
+        <header>
+          <div>
+            <h2 id="rechargeHistoryTitle">充值记录</h2>
+            <p id="rechargeHistoryDescription">仅展示已成功到账的 USDT 充值记录</p>
+          </div>
+          <div class="recharge-history-dialog-actions">
+            ${rechargeHistoryLoading && hasItems ? `<span class="recharge-history-refreshing" role="status">正在刷新</span>` : ""}
+            <button type="button" class="recharge-history-close" data-recharge-history-close aria-label="关闭充值记录" title="关闭">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 5 10 10M15 5 5 15" /></svg>
+            </button>
+          </div>
+        </header>
+        <div class="recharge-history-body">
+          ${rechargeHistoryError && !hasItems ? `
+            <div class="recharge-history-status error" role="alert">
+              <span>充值记录加载失败</span>
+              <p>${escapeHtml(rechargeHistoryError)}</p>
+              <button type="button" data-recharge-history-retry>重新加载</button>
+            </div>
+          ` : !rechargeHistoryLoading && !hasItems ? `
+            <div class="recharge-history-status empty">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5" /></svg>
+              <span>暂无充值记录</span>
+              <p>完成 USDT 支付并成功到账后，记录会显示在这里。</p>
+            </div>
+          ` : `
+            <div class="recharge-history-table-wrap" role="region" aria-label="充值记录，可上下滑动查看更多" tabindex="0">
+              <table class="recharge-history-table">
+                <thead><tr><th>充值时间</th><th>金额</th><th>支付方式</th><th>到账积分</th><th>交易记录</th></tr></thead>
+                <tbody>${renderRechargeHistoryRows()}</tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+async function loadRechargeHistory() {
+  const generation = ++rechargeHistoryRequestGeneration;
+  rechargeHistoryLoading = true;
+  rechargeHistoryError = "";
+  if (rechargeHistoryModalOpen) render();
+  try {
+    if (typeof api.listWeb3RechargeHistory !== "function") {
+      throw new Error("当前客户端版本不支持查询充值记录，请更新后重试。");
+    }
+    const response = await api.listWeb3RechargeHistory({ limit: 100 });
+    if (generation !== rechargeHistoryRequestGeneration) return;
+    rechargeHistoryItems = await hydrateRechargeHistoryTransactionHashes(
+      normalizeWeb3RechargeHistory(response),
+      generation,
+    );
+  } catch (error) {
+    if (generation !== rechargeHistoryRequestGeneration) return;
+    rechargeHistoryError = isAuthSessionExpiredError(error)
+      ? "登录状态已过期，请重新登录后查看。"
+      : errorMessage(error) || "暂时无法获取充值记录，请稍后重试。";
+  } finally {
+    if (generation !== rechargeHistoryRequestGeneration) return;
+    rechargeHistoryLoading = false;
+    if (rechargeHistoryModalOpen && state.activeView === "recharge") render();
+  }
+}
+
+function openRechargeHistoryModal() {
+  rechargeHistoryModalOpen = true;
+  render();
+  void loadRechargeHistory();
+}
+
+function closeRechargeHistoryModal() {
+  rechargeHistoryModalOpen = false;
+  render();
+}
+
+function renderRechargePaymentMethods() {
+  return `
+    <section class="recharge-payment-methods" role="radiogroup" aria-labelledby="rechargePaymentMethodsTitle">
+      <h2 id="rechargePaymentMethodsTitle">支付方式</h2>
+      <div class="recharge-payment-network-grid">
+        ${RECHARGE_PAYMENT_NETWORKS.map((network) => `
+          <label class="recharge-payment-network">
+            <input
+              type="radio"
+              name="recharge-payment-network"
+              value="${escapeAttr(network.id)}"
+              ${network.id === selectedRechargePaymentNetwork ? "checked" : ""}
+            />
+            <span class="recharge-payment-network-icon">${renderRechargePaymentMethodLogo(network)}</span>
+            <span class="recharge-payment-network-label">${escapeHtml(network.label)}</span>
+            <span class="recharge-payment-network-indicator" aria-hidden="true">
+              <svg viewBox="0 0 16 16"><path d="m4 8.2 2.4 2.4L12 5" /></svg>
+            </span>
+          </label>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderRechargePaymentMethodLogo(network: (typeof RECHARGE_PAYMENT_NETWORKS)[number]) {
+  if (network.id !== "okx_internal") return renderTradingMarketAssetLogo(network.asset, "binance");
+  return `
+    <span class="recharge-payment-exchange-logo okx" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        <rect x="4" y="4" width="6" height="6" rx="1" />
+        <rect x="14" y="4" width="6" height="6" rx="1" />
+        <rect x="9" y="9" width="6" height="6" rx="1" />
+        <rect x="4" y="14" width="6" height="6" rx="1" />
+        <rect x="14" y="14" width="6" height="6" rx="1" />
+      </svg>
+    </span>
+  `;
+}
+
+function renderRechargePaymentDetailsShell() {
+  return `<section class="recharge-payment-details" data-recharge-payment-details aria-live="polite" hidden></section>`;
+}
+
+function ensureRechargeProductSelection() {
+  const product = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
+    (candidate) => candidate.id === selectedRechargeProductId,
+  ) || RECHARGE_SUBSCRIPTION_PRODUCTS[0] || null;
+  if (product) selectedRechargeProductId = product.id;
+  return product;
+}
+
+function rechargePaymentSelection() {
+  const product = ensureRechargeProductSelection();
+  const network = RECHARGE_PAYMENT_NETWORKS.find((candidate) => candidate.id === selectedRechargePaymentNetwork) || null;
+  return product && network ? { product, network } : null;
+}
+
+function currentRechargePaymentSelectionKey() {
+  const selection = rechargePaymentSelection();
+  return selection
+    ? rechargePaymentSelectionKey(selection.product.id, selection.network.id)
+    : null;
+}
+
+function currentRechargePaymentOrderScope() {
+  const accountIdentity = firstString(
+    state.auth.profile?.id,
+    state.auth.profile?.email,
+    state.auth.profile?.phone,
+  ) || "anonymous";
+  return `${state.auth.baseUrl || state.login.baseUrl || "haolo"}::${accountIdentity}`;
+}
+
+function resetRechargePaymentOrdersForScope(scope: string) {
+  stopRechargePaymentRuntime();
+  rechargePaymentOrderScope = scope;
+  rechargePaymentOrdersBySelection.clear();
+  rechargePaymentOrderLoadingSelections.clear();
+  rechargePaymentOrderErrorsBySelection.clear();
+  rechargePaymentExpiryChecksInFlight.clear();
+  rechargePaymentQrDataUrlCache.clear();
+  rechargePaymentOrder = null;
+  rechargePaymentProfileRefreshOrderNo = null;
+  rechargeHistoryModalOpen = false;
+  rechargeHistoryLoading = false;
+  rechargeHistoryError = "";
+  rechargeHistoryItems = [];
+  rechargeHistoryRequestGeneration += 1;
+}
+
+function ensureRechargePaymentOrderScope() {
+  const scope = currentRechargePaymentOrderScope();
+  if (scope !== rechargePaymentOrderScope) resetRechargePaymentOrdersForScope(scope);
+}
+
+function isActiveRechargePaymentOrder(order = rechargePaymentOrder) {
+  return Boolean(order && (order.status === "pending" || order.status === "confirming"));
+}
+
+function normalizeWeb3PaymentOrder(value: any): Web3PaymentOrder {
+  const network = String(value?.network || "").trim().toLowerCase() as RechargePaymentNetworkId;
+  const networkDefinition = RECHARGE_PAYMENT_NETWORKS.find((candidate) => candidate.id === network);
+  if (!networkDefinition) {
+    throw new Error("支付接口返回了不支持的网络");
+  }
+  const orderNo = String(value?.order_no || value?.orderNo || "").trim();
+  const responseRecipient = String(
+    value?.recipient_address
+    || value?.recipientAddress
+    || value?.recipient_account
+    || value?.recipientAccount
+    || "",
+  ).trim();
+  const recipientAddress = networkDefinition.kind === "internal"
+    ? networkDefinition.address
+    : responseRecipient;
+  const expiresAt = String(value?.expires_at || value?.expiresAt || "").trim();
+  if (!orderNo || !recipientAddress || !Number.isFinite(Date.parse(expiresAt))) {
+    throw new Error("支付接口返回的订单信息不完整");
+  }
+  return {
+    ...value,
+    order_no: orderNo,
+    product_id: String(value?.product_id || value?.productId || "").trim(),
+    plan_id: String(value?.plan_id || value?.planId || "").trim(),
+    product_name: String(value?.product_name || value?.productName || "").trim(),
+    list_amount: String(value?.list_amount || value?.listAmount || ""),
+    payable_amount: normalizeRechargePaymentAmount(value?.payable_amount || value?.payableAmount),
+    currency: String(value?.currency || "USDT"),
+    token_amount: String(value?.token_amount || value?.tokenAmount || "0"),
+    membership_months: Number(value?.membership_months || value?.membershipMonths || 0),
+    network,
+    recipient_address: recipientAddress,
+    token_contract: String(value?.token_contract || value?.tokenContract || "").trim(),
+    token_decimals: Number(value?.token_decimals || value?.tokenDecimals || 0),
+    status: String(value?.status || "pending").trim().toLowerCase() as Web3PaymentOrderStatus,
+    fulfillment_status: String(value?.fulfillment_status || value?.fulfillmentStatus || "pending"),
+    expires_at: expiresAt,
+    created_at: String(value?.created_at || value?.createdAt || ""),
+  };
+}
+
+function rechargePaymentOrderProduct(order: Web3PaymentOrder) {
+  return RECHARGE_SUBSCRIPTION_PRODUCTS.find((candidate) => candidate.id === order.product_id)
+    || ensureRechargeProductSelection();
+}
+
+function rechargePaymentOrderNetwork(order: Web3PaymentOrder) {
+  return RECHARGE_PAYMENT_NETWORKS.find((candidate) => candidate.id === order.network) || null;
+}
+
+function renderRechargePaymentState(
+  kind: "loading" | "error" | "expired" | "confirming" | "paid" | "manual",
+  title: string,
+  detail: string,
+  actionLabel = "",
+) {
+  const icon = kind === "paid"
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>'
+    : kind === "loading" || kind === "confirming"
+      ? '<svg class="spin" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 8a8.5 8.5 0 1 0 .1 7.8M20 4v4h-4" /></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v6m0 4h.01" /></svg>';
+  return `
+    <div class="recharge-payment-state ${kind}" role="status">
+      <span class="recharge-payment-state-icon">${icon}</span>
+      <div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(detail)}</p></div>
+      ${actionLabel ? `<button type="button" data-recharge-payment-retry>${escapeHtml(actionLabel)}</button>` : ""}
+    </div>
+  `;
+}
+
+function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
+  const product = rechargePaymentOrderProduct(order);
+  const network = rechargePaymentOrderNetwork(order);
+  if (!product || !network) return renderRechargePaymentState("error", "订单信息异常", "请重新获取支付订单。", "重新获取");
+  if (order.status === "paid") {
+    return `${renderRechargePaymentState("paid", "支付成功", "积分已全部到账，会员期限已更新。", "继续购买")}
+      <p class="recharge-payment-agreement">订单号：${escapeHtml(order.order_no)}</p>`;
+  }
+  if (order.status === "manual_review") {
+    return renderRechargePaymentState("manual", "订单已进入人工处理", "系统不会将这笔付款自动匹配给其他订单，请等待工作人员核对。", "获取新订单");
+  }
+  if (order.status === "confirming") {
+    return `${renderRechargePaymentState("confirming", "付款已确认", "正在发放积分和更新会员期限，请勿重复付款。")}
+      <p class="recharge-payment-agreement">订单号：${escapeHtml(order.order_no)}</p>`;
+  }
+  if (order.status === "expired" || Date.parse(order.expires_at) <= Date.now()) {
+    const expiredDetail = network.kind === "internal"
+      ? "旧金额和收款信息已失效，正在为你准备新的支付订单。"
+      : "旧金额和收款二维码已失效，正在为你准备新的支付订单。";
+    return renderRechargePaymentState("expired", "支付订单已过期", expiredDetail, "获取新订单");
+  }
+  if (network.kind === "internal") {
+    return `
+      <div class="recharge-payment-details-main internal-transfer">
+        <ol class="recharge-payment-internal-steps" aria-label="${escapeAttr(network.label)}支付步骤">
+          <li class="recharge-payment-internal-step">
+            <span class="recharge-payment-step-number" aria-hidden="true">1</span>
+            <span class="recharge-payment-step-label">收款账号</span>
+            <div class="recharge-payment-internal-field account">
+              <code>${escapeHtml(order.recipient_address)}</code>
+              <button
+                type="button"
+                class="recharge-payment-address-copy"
+                data-copy-recharge-address="${escapeAttr(order.recipient_address)}"
+                aria-label="复制${escapeAttr(network.label)}收款账号"
+                title="复制收款账号"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6.5V4.75A1.75 1.75 0 0 1 8.75 3h6.5A1.75 1.75 0 0 1 17 4.75v6.5A1.75 1.75 0 0 1 15.25 13H13.5M4.75 7h6.5A1.75 1.75 0 0 1 13 8.75v6.5A1.75 1.75 0 0 1 11.25 17h-6.5A1.75 1.75 0 0 1 3 15.25v-6.5A1.75 1.75 0 0 1 4.75 7Z" /></svg>
+              </button>
+            </div>
+          </li>
+          <li class="recharge-payment-internal-step">
+            <span class="recharge-payment-step-number" aria-hidden="true">2</span>
+            <span class="recharge-payment-step-label">支付金额</span>
+            <div class="recharge-payment-internal-field amount">
+              <strong>${escapeHtml(order.payable_amount)}<small>USDT</small></strong>
+              <span class="recharge-payment-exact-badge">金额必须完全一致</span>
+              <button
+                type="button"
+                class="recharge-payment-address-copy"
+                data-copy-recharge-amount="${escapeAttr(order.payable_amount)}"
+                aria-label="复制支付金额 ${escapeAttr(order.payable_amount)} USDT"
+                title="复制支付金额"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6.5V4.75A1.75 1.75 0 0 1 8.75 3h6.5A1.75 1.75 0 0 1 17 4.75v6.5A1.75 1.75 0 0 1 15.25 13H13.5M4.75 7h6.5A1.75 1.75 0 0 1 13 8.75v6.5A1.75 1.75 0 0 1 11.25 17h-6.5A1.75 1.75 0 0 1 3 15.25v-6.5A1.75 1.75 0 0 1 4.75 7Z" /></svg>
+              </button>
+            </div>
+          </li>
+        </ol>
+        <aside class="recharge-payment-internal-status" aria-label="到账检测状态">
+          <span class="recharge-payment-internal-logo">${renderRechargePaymentMethodLogo(network)}</span>
+          <p>实付 <strong>${escapeHtml(order.payable_amount)}</strong><small>USDT</small></p>
+          <span class="recharge-payment-internal-detecting" role="status">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 7.25A7 7 0 0 0 4.1 5.1L2.5 6.7m0 0V3m0 3.7h3.7M3.5 12.75A7 7 0 0 0 15.9 14.9l1.6-1.6m0 0V17m0-3.7h-3.7" /></svg>
+            检测到账中
+          </span>
+          <span class="recharge-payment-internal-countdown">订单剩余：<time data-recharge-payment-countdown>30:00</time></span>
+        </aside>
+      </div>
+      <p class="recharge-payment-internal-note">请使用 ${escapeHtml(network.networkName)} 支付 USDT，并确保收款账号和三位小数金额完全一致。</p>
+      <p class="recharge-payment-agreement">开通即视为同意 <span>《${escapeHtml(product.name)}会员服务协议》</span> · 订单号 ${escapeHtml(order.order_no)}</p>
+      <p class="recharge-payment-preservation-note">切换套餐或支付方式不会取消当前有效订单，请勿重复支付。</p>
+    `;
+  }
+  return `
+    <div class="recharge-payment-details-main">
+      <div class="recharge-payment-summary">
+        <div class="recharge-payment-summary-row amount">
+          <span>支付金额</span>
+          <strong>${escapeHtml(order.payable_amount)}<small>USDT</small></strong>
+        </div>
+        <div class="recharge-payment-summary-row address">
+          <span>收款地址</span>
+          <div>
+            <code>${escapeHtml(order.recipient_address)}</code>
+            <button
+              type="button"
+              class="recharge-payment-address-copy"
+              data-copy-recharge-address="${escapeAttr(order.recipient_address)}"
+              aria-label="复制收款地址"
+              title="复制收款地址"
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6.5V4.75A1.75 1.75 0 0 1 8.75 3h6.5A1.75 1.75 0 0 1 17 4.75v6.5A1.75 1.75 0 0 1 15.25 13H13.5M4.75 7h6.5A1.75 1.75 0 0 1 13 8.75v6.5A1.75 1.75 0 0 1 11.25 17h-6.5A1.75 1.75 0 0 1 3 15.25v-6.5A1.75 1.75 0 0 1 4.75 7Z" /></svg>
+            </button>
+          </div>
+        </div>
+        <p class="recharge-payment-network-note">请通过 ${escapeHtml(network.networkName)} 网络支付 USDT，金额必须精确到三位小数。</p>
+      </div>
+      <div class="recharge-payment-qr-column">
+        <div class="recharge-payment-qr-frame loading" data-recharge-payment-qr-frame>
+          <img class="recharge-payment-qr-image" data-recharge-payment-qr-image alt="${escapeAttr(network.label)} USDT 收款二维码" hidden />
+          <span class="recharge-payment-qr-logo">${renderTradingMarketAssetLogo(network.asset, "binance")}</span>
+          <span class="recharge-payment-qr-loading">正在生成二维码</span>
+        </div>
+      </div>
+    </div>
+    <div class="recharge-payment-progress">
+      <span class="recharge-payment-detecting">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 7.25A7 7 0 0 0 4.1 5.1L2.5 6.7m0 0V3m0 3.7h3.7M3.5 12.75A7 7 0 0 0 15.9 14.9l1.6-1.6m0 0V17m0-3.7h-3.7" /></svg>
+        检测到账中
+      </span>
+      <span class="recharge-payment-countdown">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" /><path d="M10 6v4.3l2.8 1.7" /></svg>
+        <time data-recharge-payment-countdown>30:00 剩余</time>
+      </span>
+    </div>
+    <p class="recharge-payment-agreement">开通即视为同意 <span>《${escapeHtml(product.name)}会员服务协议》</span> · 订单号 ${escapeHtml(order.order_no)}</p>
+    <p class="recharge-payment-preservation-note">切换套餐或支付方式不会取消当前有效订单，请勿重复支付。</p>
+  `;
+}
+
+function rechargePaymentQrDataUrl(order: Web3PaymentOrder) {
+  const cacheKey = `${order.network}:${order.recipient_address}`;
+  const cached = rechargePaymentQrDataUrlCache.get(cacheKey);
+  if (cached) return cached;
+  const pending = QRCode.toDataURL(order.recipient_address, {
+    errorCorrectionLevel: "H",
+    margin: 1,
+    width: 360,
+    color: { dark: "#000000", light: "#ffffff" },
+  }).catch((error) => {
+    rechargePaymentQrDataUrlCache.delete(cacheKey);
+    throw error;
+  });
+  rechargePaymentQrDataUrlCache.set(cacheKey, pending);
+  return pending;
+}
+
+function formatRechargePaymentCountdown(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function stopRechargePaymentCountdown() {
+  if (rechargePaymentCountdownTimer != null) window.clearInterval(rechargePaymentCountdownTimer);
+  rechargePaymentCountdownTimer = null;
+  rechargePaymentCountdownEndsAt = null;
+}
+
+function updateRechargePaymentCountdown() {
+  const countdown = root.querySelector<HTMLElement>("[data-recharge-payment-countdown]");
+  if (!countdown || rechargePaymentCountdownEndsAt == null) {
+    stopRechargePaymentCountdown();
+    return;
+  }
+  const remaining = Math.max(0, rechargePaymentCountdownEndsAt - Date.now());
+  countdown.textContent = `${formatRechargePaymentCountdown(remaining)} 剩余`;
+  if (remaining === 0) {
+    stopRechargePaymentCountdown();
+    void updateRechargePaymentDetails();
+  }
+}
+
+function startRechargePaymentCountdown(order: Web3PaymentOrder) {
+  const endsAt = Date.parse(order.expires_at);
+  stopRechargePaymentCountdown();
+  rechargePaymentCountdownEndsAt = Number.isFinite(endsAt) ? endsAt : null;
+  updateRechargePaymentCountdown();
+  if (rechargePaymentCountdownEndsAt != null && rechargePaymentCountdownEndsAt > Date.now()) {
+    rechargePaymentCountdownTimer = window.setInterval(updateRechargePaymentCountdown, 1000);
+  }
+}
+
+function stopRechargePaymentPolling() {
+  if (rechargePaymentPollTimer != null) window.clearInterval(rechargePaymentPollTimer);
+  rechargePaymentPollTimer = null;
+  rechargePaymentPollingOrderNo = null;
+  rechargePaymentPollingSelectionKey = null;
+  rechargePaymentPollInFlight = false;
+  rechargePaymentPollGeneration += 1;
+}
+
+function stopRechargePaymentRuntime() {
+  stopRechargePaymentCountdown();
+  stopRechargePaymentPolling();
+}
+
+function syncRechargePaymentSelectionControls() {
+  root.querySelectorAll<HTMLElement>("[data-recharge-product-id]").forEach((card) => {
+    const selected = card.dataset.rechargeProductId === selectedRechargeProductId;
+    card.classList.toggle("selected", selected);
+    card.setAttribute("aria-checked", selected ? "true" : "false");
+    card.setAttribute("tabindex", "0");
+  });
+  root.querySelectorAll<HTMLInputElement>('input[name="recharge-payment-network"]').forEach((input) => {
+    input.checked = input.value === selectedRechargePaymentNetwork;
+  });
+}
+
+function activateRechargePaymentSelection() {
+  ensureRechargePaymentOrderScope();
+  stopRechargePaymentRuntime();
+  const selectionKey = currentRechargePaymentSelectionKey();
+  rechargePaymentOrder = selectionKey
+    ? rechargePaymentOrdersBySelection.get(selectionKey) || null
+    : null;
+  syncRechargePaymentSelectionControls();
+  if (!selectionKey) {
+    void updateRechargePaymentDetails();
+    return;
+  }
+  rechargePaymentOrderErrorsBySelection.delete(selectionKey);
+  void createRechargePaymentOrder({ force: true, preserveExisting: true });
+}
+
+async function refreshRechargeProfileAfterPayment(order: Web3PaymentOrder) {
+  if (rechargePaymentProfileRefreshOrderNo === order.order_no) return;
+  rechargePaymentProfileRefreshOrderNo = order.order_no;
+  const refreshed = await refreshProfileFromApi({ renderAfter: false, reportError: false, showRefreshing: false });
+  if (refreshed && state.activeView === "recharge") render();
+}
+
+async function applyRechargePaymentOrder(
+  value: any,
+  expectedSelectionKey: string,
+  expectedScope: string,
+) {
+  if (expectedScope !== rechargePaymentOrderScope) return;
+  const order = normalizeWeb3PaymentOrder(value);
+  const orderSelectionKey = rechargePaymentOrderSelectionKey(order);
+  if (orderSelectionKey !== expectedSelectionKey) {
+    throw new Error("支付接口返回的套餐或支付方式与当前请求不一致");
+  }
+  rechargePaymentOrdersBySelection.set(orderSelectionKey, order);
+  rechargePaymentOrderErrorsBySelection.delete(orderSelectionKey);
+  if (currentRechargePaymentSelectionKey() !== orderSelectionKey) {
+    if (order.status === "paid") void refreshRechargeProfileAfterPayment(order);
+    return;
+  }
+  rechargePaymentOrder = order;
+  syncRechargePaymentSelectionControls();
+  const panel = root.querySelector<HTMLElement>("[data-recharge-payment-details]");
+  const visualFingerprint = rechargePaymentOrderVisualFingerprint(order);
+  if (panel?.dataset.rechargePaymentFingerprint !== visualFingerprint) {
+    await updateRechargePaymentDetails();
+  }
+  if (order.status === "paid") {
+    stopRechargePaymentRuntime();
+    void refreshRechargeProfileAfterPayment(order);
+  }
+}
+
+async function pollRechargePaymentOrder() {
+  if (
+    rechargePaymentPollInFlight
+    || !rechargePaymentPollingOrderNo
+    || !rechargePaymentPollingSelectionKey
+    || state.activeView !== "recharge"
+    || typeof api.getWeb3PaymentOrder !== "function"
+  ) return;
+  rechargePaymentPollInFlight = true;
+  const orderNo = rechargePaymentPollingOrderNo;
+  const selectionKey = rechargePaymentPollingSelectionKey;
+  const orderScope = rechargePaymentOrderScope;
+  const pollGeneration = rechargePaymentPollGeneration;
+  try {
+    const result = await api.getWeb3PaymentOrder({ orderNo });
+    await applyRechargePaymentOrder(result, selectionKey, orderScope);
+  } catch (error) {
+    if (!isAuthSessionExpiredError(error)) console.warn("[web3-payment] order poll failed", error);
+  } finally {
+    if (pollGeneration === rechargePaymentPollGeneration) rechargePaymentPollInFlight = false;
+  }
+}
+
+function startRechargePaymentPolling(orderNo: string, selectionKey: string) {
+  if (
+    rechargePaymentPollingOrderNo === orderNo
+    && rechargePaymentPollingSelectionKey === selectionKey
+    && rechargePaymentPollTimer != null
+  ) return;
+  stopRechargePaymentPolling();
+  rechargePaymentPollingOrderNo = orderNo;
+  rechargePaymentPollingSelectionKey = selectionKey;
+  rechargePaymentPollTimer = window.setInterval(() => void pollRechargePaymentOrder(), RECHARGE_PAYMENT_POLL_INTERVAL_MS);
+}
+
+async function createRechargePaymentOrder(options: {
+  force?: boolean;
+  preserveExisting?: boolean;
+  previousOrderNo?: string;
+  retryAttempt?: number;
+} = {}) {
+  ensureRechargePaymentOrderScope();
+  const selection = rechargePaymentSelection();
+  if (!selection) return;
+  const selectionKey = rechargePaymentSelectionKey(selection.product.id, selection.network.id);
+  const orderScope = rechargePaymentOrderScope;
+  if (rechargePaymentOrderLoadingSelections.has(selectionKey)) {
+    await updateRechargePaymentDetails();
+    return;
+  }
+  const existingOrder = rechargePaymentOrdersBySelection.get(selectionKey) || null;
+  const canRetainExistingOrder = canRetainRechargePaymentOrder(existingOrder);
+  if (
+    !options.force
+    && canRetainExistingOrder
+  ) {
+    rechargePaymentOrder = existingOrder;
+    await updateRechargePaymentDetails();
+    return;
+  }
+  if (typeof api.createWeb3PaymentOrder !== "function") {
+    rechargePaymentOrderErrorsBySelection.set(selectionKey, "当前客户端版本不支持 USDT 支付，请更新后重试。");
+    await updateRechargePaymentDetails();
+    return;
+  }
+  rechargePaymentOrderLoadingSelections.add(selectionKey);
+  rechargePaymentOrderErrorsBySelection.delete(selectionKey);
+  if (!options.preserveExisting || !canRetainExistingOrder) {
+    rechargePaymentOrdersBySelection.delete(selectionKey);
+  }
+  if (currentRechargePaymentSelectionKey() === selectionKey) {
+    rechargePaymentOrder = options.preserveExisting && canRetainExistingOrder ? existingOrder : null;
+    stopRechargePaymentRuntime();
+  }
+  await updateRechargePaymentDetails();
+  try {
+    const result = await api.createWeb3PaymentOrder({
+      productId: selection.product.id,
+      network: selection.network.id,
+      paymentChannel: "web3",
+      previousOrderNo: options.previousOrderNo,
+    });
+    if (orderScope !== rechargePaymentOrderScope) return;
+    rechargePaymentOrderLoadingSelections.delete(selectionKey);
+    await applyRechargePaymentOrder(result, selectionKey, orderScope);
+  } catch (error) {
+    if (orderScope !== rechargePaymentOrderScope) return;
+    rechargePaymentOrderLoadingSelections.delete(selectionKey);
+    const authExpired = isAuthSessionExpiredError(error);
+    const retryAttempt = Math.max(0, Math.trunc(options.retryAttempt || 0));
+    if (shouldAutoRetryRechargePaymentOrderRequest({
+      authExpired,
+      retryAttempt,
+      retryLimit: RECHARGE_PAYMENT_CREATE_AUTO_RETRY_LIMIT,
+      requestedSelectionKey: selectionKey,
+      currentSelectionKey: currentRechargePaymentSelectionKey(),
+    })) {
+      rechargePaymentOrderErrorsBySelection.delete(selectionKey);
+      await createRechargePaymentOrder({
+        force: true,
+        preserveExisting: options.preserveExisting,
+        previousOrderNo: options.previousOrderNo,
+        retryAttempt: retryAttempt + 1,
+      });
+      return;
+    }
+    const fallbackOrder = rechargePaymentOrdersBySelection.get(selectionKey) || null;
+    const canUseFallbackOrder = canRetainRechargePaymentOrder(fallbackOrder);
+    if (canUseFallbackOrder) {
+      rechargePaymentOrderErrorsBySelection.delete(selectionKey);
+    } else {
+      rechargePaymentOrderErrorsBySelection.set(selectionKey, authExpired
+        ? "登录状态已过期，请重新登录后再支付。"
+        : errorMessage(error) || "支付订单创建失败，请稍后重试。");
+    }
+    if (currentRechargePaymentSelectionKey() === selectionKey) await updateRechargePaymentDetails();
+  }
+}
+
+async function reconcileExpiredRechargePaymentOrder(
+  order: Web3PaymentOrder,
+  selectionKey: string,
+  expectedScope: string,
+) {
+  const checkKey = `${selectionKey}:${order.order_no}`;
+  if (rechargePaymentExpiryChecksInFlight.has(checkKey)) return;
+  rechargePaymentExpiryChecksInFlight.add(checkKey);
+  stopRechargePaymentRuntime();
+  try {
+    if (typeof api.getWeb3PaymentOrder !== "function") {
+      throw new Error("当前客户端版本无法确认订单最终状态");
+    }
+    const result = await api.getWeb3PaymentOrder({ orderNo: order.order_no });
+    if (expectedScope !== rechargePaymentOrderScope) return;
+    const refreshedOrder = normalizeWeb3PaymentOrder(result);
+    if (rechargePaymentOrderSelectionKey(refreshedOrder) !== selectionKey) {
+      throw new Error("支付接口返回的套餐或支付方式与当前请求不一致");
+    }
+    const serverConfirmedExpired = shouldReplaceRechargePaymentOrderAfterFinalCheck(refreshedOrder);
+    if (!serverConfirmedExpired) {
+      await applyRechargePaymentOrder(refreshedOrder, selectionKey, expectedScope);
+      return;
+    }
+    rechargePaymentOrdersBySelection.delete(selectionKey);
+    if (currentRechargePaymentSelectionKey() === selectionKey) rechargePaymentOrder = null;
+    await createRechargePaymentOrder({
+      force: true,
+      previousOrderNo: order.order_no,
+    });
+  } catch (error) {
+    if (expectedScope !== rechargePaymentOrderScope || currentRechargePaymentSelectionKey() !== selectionKey) return;
+    const panel = root.querySelector<HTMLElement>("[data-recharge-payment-details]");
+    if (!panel) return;
+    delete panel.dataset.rechargePaymentKey;
+    delete panel.dataset.rechargePaymentFingerprint;
+    panel.innerHTML = renderRechargePaymentState(
+      "error",
+      "订单最终状态确认失败",
+      "暂时无法确认最后一次到账结果，请勿重复支付。",
+      "重新确认",
+    );
+    panel.querySelector("[data-recharge-payment-retry]")?.addEventListener("click", () => {
+      void reconcileExpiredRechargePaymentOrder(order, selectionKey, expectedScope);
+    });
+    if (!isAuthSessionExpiredError(error)) console.warn("[web3-payment] final order reconciliation failed", error);
+  } finally {
+    rechargePaymentExpiryChecksInFlight.delete(checkKey);
+  }
+}
+
+async function updateRechargePaymentDetails() {
+  ensureRechargePaymentOrderScope();
+  const panel = root.querySelector<HTMLElement>("[data-recharge-payment-details]");
+  if (!panel) return;
+  const selectionKey = currentRechargePaymentSelectionKey();
+  if (!selectionKey) return;
+  rechargePaymentOrder = rechargePaymentOrdersBySelection.get(selectionKey) || null;
+  const order = rechargePaymentOrder;
+  panel.hidden = false;
+  if (rechargePaymentOrderLoadingSelections.has(selectionKey) && !order) {
+    delete panel.dataset.rechargePaymentKey;
+    delete panel.dataset.rechargePaymentFingerprint;
+    panel.innerHTML = renderRechargePaymentState("loading", "正在创建支付订单", "正在向后端申请专属于你的三位小数支付金额。 ");
+    return;
+  }
+  const paymentError = rechargePaymentOrderErrorsBySelection.get(selectionKey) || null;
+  if (paymentError && !order) {
+    delete panel.dataset.rechargePaymentKey;
+    delete panel.dataset.rechargePaymentFingerprint;
+    panel.innerHTML = renderRechargePaymentState("error", "支付订单获取失败", paymentError, "重试");
+    panel.querySelector("[data-recharge-payment-retry]")?.addEventListener("click", () => void createRechargePaymentOrder({ force: true }));
+    return;
+  }
+  if (!order) {
+    delete panel.dataset.rechargePaymentKey;
+    delete panel.dataset.rechargePaymentFingerprint;
+    panel.innerHTML = renderRechargePaymentState("loading", "正在创建支付订单", "正在向后端申请专属于你的三位小数支付金额。 ");
+    void createRechargePaymentOrder();
+    return;
+  }
+  if (order.status === "expired" || (order.status === "pending" && Date.parse(order.expires_at) <= Date.now())) {
+    delete panel.dataset.rechargePaymentKey;
+    delete panel.dataset.rechargePaymentFingerprint;
+    panel.innerHTML = renderRechargePaymentState(
+      "confirming",
+      "正在确认订单最终状态",
+      "正在向服务器核对最后一次到账结果，请勿重复支付。",
+    );
+    void reconcileExpiredRechargePaymentOrder(order, selectionKey, rechargePaymentOrderScope);
+    return;
+  }
+  panel.dataset.rechargePaymentKey = order.order_no;
+  panel.dataset.rechargePaymentFingerprint = rechargePaymentOrderVisualFingerprint(order);
+  panel.innerHTML = renderRechargePaymentDetailsContent(order);
+  hydrateRechargeMarketLogos(panel);
+  syncRechargePaymentSelectionControls();
+  const retryButton = panel.querySelector<HTMLElement>("[data-recharge-payment-retry]");
+  retryButton?.addEventListener("click", () => void createRechargePaymentOrder({ force: true }));
+  if (isActiveRechargePaymentOrder(order)) startRechargePaymentPolling(order.order_no, selectionKey);
+  else stopRechargePaymentRuntime();
+  if (order.status !== "pending") {
+    stopRechargePaymentCountdown();
+    return;
+  }
+  startRechargePaymentCountdown(order);
+  const copyButton = panel.querySelector<HTMLButtonElement>("[data-copy-recharge-address]");
+  copyButton?.addEventListener("click", () => {
+    copyButton.classList.add("copied");
+    void copyTextToClipboard(order.recipient_address);
+    window.setTimeout(() => copyButton.classList.remove("copied"), 1200);
+  });
+  const copyAmountButton = panel.querySelector<HTMLButtonElement>("[data-copy-recharge-amount]");
+  copyAmountButton?.addEventListener("click", () => {
+    copyAmountButton.classList.add("copied");
+    void copyTextToClipboard(order.payable_amount);
+    window.setTimeout(() => copyAmountButton.classList.remove("copied"), 1200);
+  });
+  const network = rechargePaymentOrderNetwork(order);
+  if (network?.kind === "internal") return;
+  const frame = panel.querySelector<HTMLElement>("[data-recharge-payment-qr-frame]");
+  const image = panel.querySelector<HTMLImageElement>("[data-recharge-payment-qr-image]");
+  if (!frame || !image) return;
+  try {
+    const dataUrl = await rechargePaymentQrDataUrl(order);
+    if (panel.dataset.rechargePaymentKey !== order.order_no) return;
+    image.addEventListener("load", () => {
+      image.hidden = false;
+      frame.classList.remove("loading", "error");
+      frame.classList.add("loaded");
+    }, { once: true });
+    image.addEventListener("error", () => {
+      frame.classList.remove("loading", "loaded");
+      frame.classList.add("error");
+    }, { once: true });
+    image.src = dataUrl;
+  } catch {
+    if (panel.dataset.rechargePaymentKey !== order.order_no) return;
+    frame.classList.remove("loading", "loaded");
+    frame.classList.add("error");
+  }
 }
 
 function consumptionPayload(value: any): any {
@@ -58465,8 +59496,8 @@ function syncConsumptionRefreshTimer() {
 function renderRechargeSubscriptionBalance() {
   const { balance, refreshAt, refreshLabel } = currentSubscriptionBalanceDisplay();
   return `
-    <div class="recharge-page-balance recharge-page-subscription-balance" title="当前订阅周余额">
-      <span>订阅周余额</span>
+    <div class="recharge-page-balance recharge-page-subscription-balance" title="当前订阅余额">
+      <span>订阅余额</span>
       <strong>${escapeHtml(balance)}</strong>
       ${refreshLabel ? `<time datetime="${escapeAttr(refreshAt || "")}">${escapeHtml(refreshLabel)}</time>` : ""}
     </div>
@@ -58474,36 +59505,23 @@ function renderRechargeSubscriptionBalance() {
 }
 
 function renderRechargeProductCard(product: RechargeProductDefinition) {
-  const isSubscription = product.kind === "subscription";
-  const period = isSubscription ? "/ 月" : "";
-  const bonus = product.bonus ? `<span class="recharge-product-bonus">+ ${product.bonus} 积分</span>` : "";
-  const ratioLabel = `换算比率 1美元 = ${product.unitValue} 积分`;
-  const valueExplanation = `相当于只用 1美元，即可获得 ChatGPT 官方价值 ${product.unitValue}美元的积分，倍率 ${product.multiplier}`;
-  const subscriptionQuotaExplanation =
-    isSubscription && product.weeklyTokenAmount != null
-      ? `月总额度 ${product.tokenAmount.toLocaleString("en-US")} 积分，分4周释放，每周额度上限 ${product.weeklyTokenAmount.toLocaleString("en-US")} 积分`
-      : "";
+  const isSelected = product.id === selectedRechargeProductId;
   return `
-    <article class="recharge-product-card ${product.featured ? "featured" : ""}">
+    <article
+      class="recharge-product-card ${isSelected ? "selected" : ""}"
+      data-recharge-product-id="${escapeAttr(product.id)}"
+      role="radio"
+      aria-checked="${isSelected ? "true" : "false"}"
+      tabindex="0"
+    >
       <div class="recharge-product-card-head">
-        <div class="recharge-product-title-row">
-          <h2>${escapeHtml(product.name)}</h2>
-          <details class="recharge-product-help">
-            <summary aria-label="查看兑换说明" title="查看兑换说明">?</summary>
-            <div class="recharge-product-help-popover" role="tooltip">
-              ${subscriptionQuotaExplanation ? `<span class="recharge-product-help-quota">${escapeHtml(subscriptionQuotaExplanation)}</span>` : ""}
-              <span>${escapeHtml(ratioLabel)}</span>
-              <strong>${escapeHtml(valueExplanation)}</strong>
-            </div>
-          </details>
-          ${bonus}
-        </div>
+        <h2>${escapeHtml(product.name)}</h2>
         ${product.badge ? `<span class="recharge-product-badge">${escapeHtml(product.badge)}</span>` : ""}
       </div>
       <p class="recharge-product-description">${escapeHtml(product.description)}</p>
       <div class="recharge-product-value-row">
         <div class="recharge-product-price">
-          <span>¥</span><strong>${product.priceYuan}</strong>${period ? `<small>${period}</small>` : ""}
+          <strong>${product.priceUsdt}U</strong><small>/${escapeHtml(product.billingPeriod)}</small>
         </div>
         <div class="recharge-product-token"><strong>${product.tokenAmount.toLocaleString("zh-CN")} 积分</strong></div>
       </div>
@@ -59332,7 +60350,7 @@ function formatContactRequestTime(value: unknown) {
 function bindCascadeMenuHoverEvents() {
   root
     .querySelectorAll<HTMLElement>(
-      ".thread-group-add-menu-item, .thread-marker-menu-item, .thread-group-move-menu-item, .trading-expert-mention-group, .workflow-canvas-history-menu-item",
+      ".thread-group-add-menu-item, .thread-marker-menu-item, .thread-group-move-menu-item, .titlebar-more-channel-item, .trading-expert-mention-group, .workflow-canvas-history-menu-item",
     )
     .forEach((item) => {
       const trigger = item.querySelector<HTMLButtonElement>(
@@ -59660,11 +60678,165 @@ function bindExecutionPlanEvents() {
   }, true);
 }
 
+function bindRechargeProductCardEvents() {
+  const cards = Array.from(root.querySelectorAll<HTMLElement>("[data-recharge-product-id]"));
+  if (cards.length === 0) return;
+  const selectCard = (selectedCard: HTMLElement) => {
+    const product = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
+      (candidate) => candidate.id === selectedCard.dataset.rechargeProductId,
+    );
+    if (!product) return;
+    selectedRechargeProductId = product.id;
+    cards.forEach((card) => {
+      const isSelected = card === selectedCard;
+      card.classList.toggle("selected", isSelected);
+      card.setAttribute("aria-checked", isSelected ? "true" : "false");
+    });
+    activateRechargePaymentSelection();
+  };
+  cards.forEach((card) => {
+    card.addEventListener("click", () => {
+      selectCard(card);
+    });
+    card.addEventListener("keydown", (event) => {
+      if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      selectCard(card);
+    });
+  });
+}
+
+function finishRechargeMarketLogoLoad(image: HTMLImageElement) {
+  image.hidden = false;
+  const shell = image.closest<HTMLElement>("[data-market-logo-shell]");
+  shell?.classList.remove("loading", "fallback");
+  shell?.classList.add("loaded");
+}
+
+function advanceRechargeMarketLogoFallback(image: HTMLImageElement) {
+  const asset = String(image.dataset.marketLogoAsset || "").trim().toUpperCase();
+  const shell = image.closest<HTMLElement>("[data-market-logo-shell]");
+  if (asset && image.dataset.marketLogoStage === "binance") {
+    image.dataset.marketLogoStage = "hyperliquid";
+    image.src = hyperliquidTradingMarketAssetLogoUrl(asset);
+    return;
+  }
+  image.hidden = true;
+  shell?.classList.remove("loading", "loaded");
+  shell?.classList.add("fallback");
+}
+
+function hydrateRechargeMarketLogos(scope: ParentNode) {
+  scope.querySelectorAll<HTMLImageElement>("[data-market-logo]").forEach((image) => {
+    image.closest<HTMLElement>("[data-market-logo-shell]")?.classList.add("loading");
+    if (!image.complete) return;
+    if (image.naturalWidth > 0) finishRechargeMarketLogoLoad(image);
+    else advanceRechargeMarketLogoFallback(image);
+  });
+}
+
+function bindRechargePaymentMethodEvents() {
+  const page = root.querySelector<HTMLElement>(".recharge-page");
+  const section = page?.querySelector<HTMLElement>(".recharge-payment-methods");
+  if (!page || !section) return;
+  page.addEventListener("load", (event) => {
+    const image = event.target;
+    if (image instanceof HTMLImageElement && image.matches("[data-market-logo]")) finishRechargeMarketLogoLoad(image);
+  }, true);
+  page.addEventListener("error", (event) => {
+    const image = event.target;
+    if (image instanceof HTMLImageElement && image.matches("[data-market-logo]")) advanceRechargeMarketLogoFallback(image);
+  }, true);
+  hydrateRechargeMarketLogos(section);
+  section.querySelectorAll<HTMLInputElement>('input[name="recharge-payment-network"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (!input.checked || input.disabled) return;
+      const network = RECHARGE_PAYMENT_NETWORKS.find((candidate) => candidate.id === input.value);
+      if (!network) return;
+      selectedRechargePaymentNetwork = network.id;
+      activateRechargePaymentSelection();
+    });
+  });
+  if (!rechargePaymentViewActive) {
+    rechargePaymentViewActive = true;
+    activateRechargePaymentSelection();
+  } else {
+    void updateRechargePaymentDetails();
+  }
+}
+
+function bindRechargeHistoryEvents() {
+  root.querySelector<HTMLButtonElement>("[data-recharge-history-open]")?.addEventListener("click", () => {
+    openRechargeHistoryModal();
+  });
+  const backdrop = root.querySelector<HTMLElement>("[data-recharge-history-backdrop]");
+  backdrop?.addEventListener("click", (event) => {
+    if (event.target === backdrop) closeRechargeHistoryModal();
+  });
+  root.querySelector<HTMLButtonElement>("[data-recharge-history-close]")?.addEventListener("click", () => {
+    closeRechargeHistoryModal();
+  });
+  root.querySelector<HTMLButtonElement>("[data-recharge-history-retry]")?.addEventListener("click", () => {
+    void loadRechargeHistory();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-recharge-history-transaction]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const network = String(button.dataset.network || "") as RechargePaymentNetworkId;
+      const transactionHash = normalizeRechargeHistoryTransactionHash(network, {
+        transaction_hash: button.dataset.transactionHash,
+      });
+      if (!isRechargeBlockchainNetwork(network) || !transactionHash) {
+        showToast("交易记录地址无效，请稍后重试。", 3200);
+        return;
+      }
+      if (typeof api.openBlockchainTransaction !== "function") {
+        showToast("当前客户端版本不支持打开区块链浏览器，请更新后重试。", 3600);
+        return;
+      }
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+      try {
+        await api.openBlockchainTransaction({ network, transactionHash });
+      } catch (error) {
+        showToast(`打开区块链浏览器失败：${errorMessage(error)}`, 4200);
+      } finally {
+        if (button.isConnected) {
+          button.disabled = false;
+          button.removeAttribute("aria-busy");
+        }
+      }
+    });
+  });
+  const tableWrap = root.querySelector<HTMLElement>(".recharge-history-table-wrap");
+  if (tableWrap) {
+    let scrollbarVisibilityTimer: number | null = null;
+    const revealScrollbarForWheel = () => {
+      tableWrap.classList.add("is-scrollbar-active");
+      if (scrollbarVisibilityTimer !== null) window.clearTimeout(scrollbarVisibilityTimer);
+      scrollbarVisibilityTimer = window.setTimeout(() => {
+        tableWrap.classList.remove("is-scrollbar-active");
+        scrollbarVisibilityTimer = null;
+      }, 900);
+    };
+    tableWrap.addEventListener("wheel", revealScrollbarForWheel, { passive: true });
+  }
+  const dialog = root.querySelector<HTMLElement>(".recharge-history-dialog");
+  dialog?.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    closeRechargeHistoryModal();
+  });
+  if (dialog) queueMicrotask(() => dialog.focus());
+}
+
 function bindEvents() {
   bindWindowControls();
   bindLoginWeComQrEvents(false);
   bindCascadeMenuHoverEvents();
   bindExecutionPlanEvents();
+  bindRechargeProductCardEvents();
+  bindRechargePaymentMethodEvents();
+  bindRechargeHistoryEvents();
   root.querySelector<HTMLElement>(".desktop-shell")?.addEventListener("click", (event) => {
     const target = event.target;
     let shouldRender = false;
@@ -59675,10 +60847,6 @@ function bindEvents() {
       workflowCanvasContextMenu = null;
       shouldRender = true;
     }
-    const clickedRechargeHelp = target instanceof Element ? target.closest(".recharge-product-help") : null;
-    root.querySelectorAll<HTMLDetailsElement>(".recharge-product-help[open]").forEach((details) => {
-      if (details !== clickedRechargeHelp) details.open = false;
-    });
     if (
       state.profileSubscriptionDetails.open &&
       !(target instanceof Element && target.closest(".profile-subscription-details-anchor"))
@@ -59692,7 +60860,7 @@ function bindEvents() {
     }
     if (
       state.externalChannels.menuOpen &&
-      !(target instanceof Element && target.closest(".titlebar-channel-action, .titlebar-channel-menu-overlay"))
+      !(target instanceof Element && target.closest(".titlebar-more-action"))
     ) {
       state.externalChannels.menuOpen = false;
       shouldRender = true;
@@ -60488,13 +61656,6 @@ function bindEvents() {
       });
     });
   root
-    .querySelector<HTMLElement>("#profileSubscriptionBalanceHelp > summary")
-    ?.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleProfileSubscriptionDetails("balance");
-    });
-  root
     .querySelectorAll<HTMLElement>('[data-action="profile-help"]')
     .forEach((element) => {
       element.addEventListener("click", () => {
@@ -61131,10 +62292,10 @@ function bindEvents() {
       if (state.externalChannels.menuOpen) primeExternalChannelMenu();
     });
   root
-    .querySelector<HTMLButtonElement>('[data-action="toggle-external-channel-menu"]')
+    .querySelector<HTMLElement>("[data-titlebar-channel-trigger]")
     ?.addEventListener("mouseenter", primeExternalChannelMenu);
   root
-    .querySelector<HTMLButtonElement>('[data-action="toggle-external-channel-menu"]')
+    .querySelector<HTMLElement>("[data-titlebar-channel-trigger]")
     ?.addEventListener("focus", primeExternalChannelMenu);
   root
     .querySelectorAll<HTMLButtonElement>("[data-external-channel-id]")
@@ -61359,7 +62520,7 @@ function bindEvents() {
     closeThreadHistoryPopover();
     if (state.externalChannels.menuOpen) {
       state.externalChannels.menuOpen = false;
-      root.querySelector(".titlebar-channel-menu-overlay")?.remove();
+      root.querySelector(".titlebar-more-menu-overlay")?.remove();
       root
         .querySelector<HTMLButtonElement>('[data-action="toggle-external-channel-menu"]')
         ?.setAttribute("aria-expanded", "false");
@@ -66220,12 +67381,7 @@ async function loadLoginWechatConfig() {
 }
 
 function loginWechatAvailable() {
-  return Boolean(
-    state.login.wechatConfig?.enabled === true &&
-      api.startWechatAuthFlow &&
-      api.getWechatAuthFlowStatus &&
-      api.exchangeWechatAuthFlow,
-  );
+  return false;
 }
 
 function loginWechatFlowReady(status: string) {
@@ -66526,7 +67682,7 @@ async function sendLoginCode() {
         ? `请输入正确的${authChannelLabel(secondaryLoginChannel())}`
         : isWechatEmail
           ? "请输入正确的邮箱地址"
-          : "请输入正确的手机号或邮箱地址"
+          : "请输入正确的邮箱地址"
       : "服务地址未配置";
     render();
     return;
@@ -66579,6 +67735,7 @@ async function sendLoginCode() {
       baseUrl: state.login.baseUrl,
       channel,
       identifier,
+      clientVariant: AUTH_CLIENT_VARIANT,
       registrationToken: isSecondary ? state.login.registrationToken : undefined,
       wechatFlowId: isWechatEmail ? wechatFlow?.flow_id : undefined,
       wechatPollToken: isWechatEmail ? wechatFlow?.poll_token : undefined,
@@ -66651,6 +67808,7 @@ async function verifyLoginCode() {
       baseUrl: state.login.baseUrl,
       channel,
       identifier,
+      clientVariant: AUTH_CLIENT_VARIANT,
       code: state.login.code,
       challengeId: challengeId(),
       registrationToken: verificationStage === "secondary" ? state.login.registrationToken : undefined,
@@ -66675,26 +67833,13 @@ async function verifyLoginCode() {
         (verificationStage === "primary" ? true : state.login.nicknameRequired);
       state.login.citizenId = "";
       state.login.error = null;
-      if (verificationStage === "primary") {
-        const secondaryChannel = secondaryChannelFromResponse(session) || oppositeAuthChannel(channel);
-        if (!secondaryChannel || secondaryChannel === channel) {
-          throw new Error("注册流程配置异常，请稍后重试");
-        }
-        state.login.primaryIdentifier = identifier;
-        state.login.primaryChannel = channel;
-        state.login.secondaryRequiredChannel = secondaryChannel;
-        state.login.verificationStage = "secondary";
-        state.login.channel = secondaryChannel;
-        state.login.identifier = "";
-        state.login.code = "";
-        state.login.challenge = null;
-        state.login.step = "secondary";
-      } else {
-        state.login.secondaryRequiredChannel = channel;
-        state.login.nickname = state.login.nicknameRequired ? "" : state.login.nickname;
-        state.login.inviteCode = state.login.inviteRequired ? state.login.inviteCode : "";
-        state.login.step = "activate";
-      }
+      state.login.primaryIdentifier = identifier;
+      state.login.primaryChannel = channel;
+      state.login.secondaryRequiredChannel = "";
+      state.login.verificationStage = "primary";
+      state.login.nickname = state.login.nicknameRequired ? "" : state.login.nickname;
+      state.login.inviteCode = state.login.inviteRequired ? state.login.inviteCode : "";
+      state.login.step = "activate";
       render();
       return;
     }
@@ -66740,6 +67885,7 @@ async function submitLoginRegistration(authorizedWechatFlow?: WechatAuthFlow | n
     nickname: state.login.nickname,
     nicknameRequired: state.login.nicknameRequired,
     avatarFile: await loginRegistrationAvatarPayload(),
+    clientVariant: AUTH_CLIENT_VARIANT,
     wechatFlowId: registrationWechatFlow?.flow_id,
     wechatPollToken: registrationWechatFlow?.poll_token,
   });
@@ -66804,7 +67950,7 @@ async function activateRegisteredUser() {
   }
   if (!shouldCompleteRegistration && !state.auth.authenticated) {
     state.login.step = state.login.verificationStage === "secondary" ? "secondary" : "identifier";
-    state.login.error = "请先完成手机号和邮箱验证";
+    state.login.error = "请先完成邮箱验证";
     render();
     return;
   }
@@ -66819,19 +67965,7 @@ async function activateRegisteredUser() {
     if (shouldCompleteRegistration) {
       const session = await submitLoginRegistration();
       if (session?.mode === "wechat_required") {
-        if (state.login.authMethod === "wechat" && state.login.wechatFlow) {
-          throw new Error("微信已确认，但注册未能完成，请重试。");
-        }
-        state.login.registrationToken = firstString(
-          session?.registrationToken,
-          session?.registration_token,
-          state.login.registrationToken,
-        ) || "";
-        if (!state.login.registrationToken) throw new Error("注册状态缺少微信绑定凭证，请重新开始。");
-        handedOffToWechat = true;
-        state.login.busy = null;
-        await startLoginWechatFlow("register", state.login.registrationToken);
-        return;
+        throw new Error("当前服务端尚未支持 Web3 邮箱注册，请更新服务端后重试。");
       }
       if (!session?.authenticated) throw new Error("注册成功但登录凭证缺失，请重新登录。");
       finishLoginRegistration(session);
@@ -66958,8 +68092,7 @@ async function logoutFromYoule() {
   if (logoutError) {
     state.error = `本地已退出登录，但清除会话文件失败：${logoutError}`;
   }
-  if (loginWechatAvailable()) void startLoginWechatFlow("login");
-  else render();
+  render();
 }
 
 function handleAuthExpired(session: any = {}) {
@@ -67009,8 +68142,7 @@ function handleAuthExpired(session: any = {}) {
     loginCounterTimer = null;
   }
   setDesktopWindowMode("login");
-  if (loginWechatAvailable()) void startLoginWechatFlow("login");
-  else render();
+  render();
 }
 
 function resetAuthenticatedWorkspace() {
@@ -75142,7 +76274,7 @@ function renderMembershipBadge(context: "titlebar" | "profile" | "consumption", 
     const detailsOpen = state.profileSubscriptionDetails.open && state.profileSubscriptionDetails.anchor === "badge";
     return `
       <div class="profile-membership-details profile-subscription-details-anchor">
-        <button type="button" class="${className}" data-membership-plan="${plan.id}" data-action="show-profile-subscription-details" data-subscription-details-anchor="badge" aria-controls="profileMembershipDetailsPopover" aria-expanded="${detailsOpen}" aria-label="当前套餐：${plan.label}，查看订阅周余额明细" title="查看订阅周余额明细">${plan.label}</button>
+        <button type="button" class="${className}" data-membership-plan="${plan.id}" data-action="show-profile-subscription-details" data-subscription-details-anchor="badge" aria-controls="profileMembershipDetailsPopover" aria-expanded="${detailsOpen}" aria-label="当前套餐：${plan.label}，查看订阅余额明细" title="查看订阅余额明细">${plan.label}</button>
         ${detailsOpen ? `
           <div id="profileMembershipDetailsPopover" class="profile-subscription-help-popover profile-membership-details-popover" role="tooltip">
             ${renderProfileSubscriptionDetails()}
@@ -75158,7 +76290,7 @@ function renderMembershipBadge(context: "titlebar" | "profile" | "consumption", 
     const detailsOpen = state.profileSubscriptionDetails.open && state.profileSubscriptionDetails.anchor === "consumption-badge";
     return `
       <div class="consumption-membership-details profile-subscription-details-anchor">
-        <button type="button" class="${className}" data-membership-plan="${plan.id}" data-action="show-profile-subscription-details" data-subscription-details-anchor="consumption-badge" aria-controls="consumptionMembershipDetailsPopover" aria-expanded="${detailsOpen}" aria-label="当前套餐：${plan.label}，查看订阅周余额明细" title="查看订阅周余额明细">${plan.label}</button>
+        <button type="button" class="${className}" data-membership-plan="${plan.id}" data-action="show-profile-subscription-details" data-subscription-details-anchor="consumption-badge" aria-controls="consumptionMembershipDetailsPopover" aria-expanded="${detailsOpen}" aria-label="当前套餐：${plan.label}，查看订阅余额明细" title="查看订阅余额明细">${plan.label}</button>
         ${detailsOpen ? `
           <div id="consumptionMembershipDetailsPopover" class="profile-subscription-help-popover consumption-membership-details-popover" role="tooltip">
             ${renderProfileSubscriptionDetails()}
@@ -75209,9 +76341,7 @@ function toggleProfileSubscriptionDetails(anchor: SubscriptionDetailsAnchor) {
 
 function focusProfileSubscriptionDetailsTrigger(anchor: SubscriptionDetailsAnchor) {
   window.setTimeout(() => {
-    const selector = anchor === "balance"
-      ? "#profileSubscriptionBalanceHelp > summary"
-      : `[data-action="show-profile-subscription-details"][data-subscription-details-anchor="${anchor}"]`;
+    const selector = `[data-action="show-profile-subscription-details"][data-subscription-details-anchor="${anchor}"]`;
     root.querySelector<HTMLElement>(selector)?.focus();
   }, 0);
 }
@@ -75219,7 +76349,7 @@ function focusProfileSubscriptionDetailsTrigger(anchor: SubscriptionDetailsAncho
 async function loadProfileSubscriptionDetails(requestSeq: number, refreshSnapshot: string) {
   try {
     if (typeof api.getSubscriptionBalanceDetails !== "function") {
-      throw new Error("订阅周余额明细接口不可用");
+      throw new Error("订阅余额明细接口不可用");
     }
     const data = await api.getSubscriptionBalanceDetails();
     if (
@@ -75260,14 +76390,14 @@ async function loadProfileSubscriptionDetails(requestSeq: number, refreshSnapsho
 function renderProfileSubscriptionDetails() {
   const detailsState = state.profileSubscriptionDetails;
   if (detailsState.loading) {
-    return `<span>正在加载订阅周余额明细...</span>`;
+    return `<span>正在加载订阅余额明细...</span>`;
   }
   if (detailsState.error) {
-    return `<span>订阅周余额明细加载失败，请关闭后重试</span>`;
+    return `<span>订阅余额明细加载失败，请关闭后重试</span>`;
   }
   const details = detailsState.data;
   if (!details) {
-    return `<span>打开后加载订阅周余额明细</span>`;
+    return `<span>打开后加载订阅余额明细</span>`;
   }
   if (!details.active) {
     return `<span>当前没有生效中的订阅</span>`;
@@ -75276,7 +76406,7 @@ function renderProfileSubscriptionDetails() {
   const nextCreditLabel = formatSubscriptionRefreshDate(details.nextCreditAt);
   const expiresLabel = formatSubscriptionRefreshDate(details.membershipExpiresAt);
   return `
-    <span>订阅周余额一共 ${escapeHtml(formatSubscriptionTokenAmount(details.totalBalance))}</span>
+    <span>订阅余额一共 ${escapeHtml(formatSubscriptionTokenAmount(details.totalBalance))}</span>
     <span>已到账 ${escapeHtml(formatSubscriptionTokenAmount(details.creditedBalance))}</span>
     <span>剩余未到账 ${escapeHtml(formatSubscriptionTokenAmount(details.pendingBalance))}</span>
     ${details.nextCreditAt ? `<span>下次到账时间 ${escapeHtml(nextCreditLabel || "--")}</span>` : ""}
@@ -75286,17 +76416,10 @@ function renderProfileSubscriptionDetails() {
 
 function renderProfileSubscriptionBalance() {
   const { balance, refreshAt, refreshLabel } = currentSubscriptionBalanceDisplay();
-  const detailsOpen = state.profileSubscriptionDetails.open && state.profileSubscriptionDetails.anchor === "balance";
   return `
     <div class="profile-subscription-row">
       <div class="profile-subscription-label">
-        <span>订阅周余额</span>
-        <details id="profileSubscriptionBalanceHelp" class="recharge-product-help profile-subscription-help profile-subscription-details-anchor" ${detailsOpen ? "open" : ""}>
-          <summary aria-label="查看订阅周余额明细" title="查看订阅周余额明细">?</summary>
-          <div class="profile-subscription-help-popover" role="tooltip">
-            ${renderProfileSubscriptionDetails()}
-          </div>
-        </details>
+        <span>订阅余额</span>
       </div>
       <strong>
         <b>${escapeHtml(balance)}</b>
@@ -75479,12 +76602,8 @@ function challengeMaskedIdentifier() {
 }
 
 function currentLoginIdentifier(): { channel: AuthIdentifierChannel; identifier: string } | null {
-  if (state.login.verificationStage === "secondary") {
-    const channel = secondaryLoginChannel();
-    const identifier = normalizeAuthIdentifier(state.login.identifier, channel);
-    return identifier ? { channel, identifier } : null;
-  }
-  return detectAuthIdentifier(state.login.identifier);
+  const identifier = normalizeAuthIdentifier(state.login.identifier, "email");
+  return identifier ? { channel: "email", identifier } : null;
 }
 
 function secondaryLoginChannel(): AuthIdentifierChannel {

@@ -246,7 +246,8 @@ test("night mode separates option hover and selected blue highlights", async () 
   assert.match(highlightRules, /background: var\(--selection-soft\)/);
   assert.match(highlightRules, /background: var\(--selection-strong\)/);
   assert.match(highlightRules, /\.thread-group-add-menu-item:is\(:hover, :focus-within, \.submenu-open\)/);
-  assert.match(styles, /\.titlebar-channel-action\.menu-open > \.titlebar-primary-action/);
+  assert.match(styles, /\.titlebar-more-action\.menu-open > \.titlebar-primary-action/);
+  assert.match(highlightRules, /\.titlebar-more-channel-item:is\(:hover, :focus-within, \.submenu-open\)/);
   assert.match(highlightRules, /\.thread-marker-menu-item:is\(:hover, :focus-within, \.submenu-open\)/);
   assert.match(highlightRules, /\.conversation-row-wrap/);
   assert.match(highlightRules, /\.contact-row-wrap/);

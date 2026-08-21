@@ -626,6 +626,8 @@ test("account styles cover light and dark surfaces plus every interactive state"
   assert.doesNotMatch(accountStyles, /\.binance-account-(?:metric|position-list|empty-positions) \{[^}]*border-top:/s);
   assert.doesNotMatch(accountStyles, /binance-account-source-note/);
   assert.doesNotMatch(accountStyles, /binance-account-usd-equivalent/);
+  assert.match(accountStyles, /\.binance-account-unbound-card \{[^}]*border: 0;[^}]*border-radius: 0;[^}]*background: transparent;/s);
+  assert.doesNotMatch(accountStyles, /\.binance-account-unbound-card \{[^}]*border: 1px/s);
   assert.match(accountStyles, /\.binance-account-unbound-icon svg \{[^}]*fill: none;[^}]*stroke: currentColor;/s);
   assert.match(accountStyles, /\.binance-account-unbound-copy h2 \{[^}]*font-size: calc\(25px \+ var\(--app-font-size-offset\)\);[^}]*font-weight: 400;/s);
   assert.match(accountStyles, /\.binance-account-bind-button \{[^}]*width: 88\.5px;[^}]*min-width: 88\.5px;[^}]*min-height: 38px;[^}]*font-size: calc\(12px \+ var\(--app-font-size-offset\)\);[^}]*font-weight: 400;/s);

@@ -49,6 +49,7 @@ const VIDEO_MODEL_CATALOG_ID_ALIASES = new Map([
 const BUSINESS_IMAGE_MODEL_CATALOG_CACHE_KEY =
   "business-model-pool:media_creation:image_generation";
 const DEFAULT_SUB2API_SUBSCRIPTION_BALANCE_DETAILS_PATH = "/api/sub2api/me/subscription-balance-details";
+const DEFAULT_WEB3_PAYMENT_ORDERS_PATH = "/api/finance/web3/token-products/orders";
 const DEFAULT_TENCENT_ASR_CREDENTIALS_PATH = "/api/asr/credentials";
 const DEFAULT_SUB2API_VIDEO_GENERATION_SETTLE_PATH = "/api/sub2api/me/video-generation/settle";
 const DEFAULT_MEMBER_LEVEL_PATH = "/api/level/me";
@@ -159,6 +160,8 @@ export class YouleApiClient {
     this.sub2apiSubscriptionBalanceDetailsPath =
       process.env.YOULE_API_SUB2API_SUBSCRIPTION_BALANCE_DETAILS_PATH ||
       DEFAULT_SUB2API_SUBSCRIPTION_BALANCE_DETAILS_PATH;
+    this.web3PaymentOrdersPath =
+      process.env.YOULE_API_WEB3_PAYMENT_ORDERS_PATH || DEFAULT_WEB3_PAYMENT_ORDERS_PATH;
     this.tencentAsrCredentialsPath = process.env.YOULE_API_TENCENT_ASR_CREDENTIALS_PATH || DEFAULT_TENCENT_ASR_CREDENTIALS_PATH;
     this.sub2apiVideoGenerationSettlePath = process.env.YOULE_API_SUB2API_VIDEO_GENERATION_SETTLE_PATH || DEFAULT_SUB2API_VIDEO_GENERATION_SETTLE_PATH;
     this.memberLevelPath = process.env.YOULE_API_MEMBER_LEVEL_PATH || DEFAULT_MEMBER_LEVEL_PATH;
@@ -431,6 +434,49 @@ export class YouleApiClient {
     return extractSubscriptionBalanceDetails(response);
   }
 
+  async createWeb3PaymentOrder(params = {}) {
+    await this.load();
+    this.requireAuth();
+    return this.requestJson(joinUrl(this.baseUrl, this.web3PaymentOrdersPath), {
+      method: "POST",
+      headers: this.clientHeaders({ auth: true, json: true }),
+      body: JSON.stringify({
+        product_id: String(params.productId || params.product_id || "").trim(),
+        network: String(params.network || "").trim().toLowerCase(),
+        payment_channel: "web3",
+        previous_order_no: String(params.previousOrderNo || params.previous_order_no || "").trim() || undefined,
+      }),
+    });
+  }
+
+  async getWeb3PaymentOrder(params = {}) {
+    await this.load();
+    this.requireAuth();
+    const orderNo = String(params.orderNo || params.order_no || "").trim();
+    if (!orderNo) throw new Error("缺少 Web3 支付订单号");
+    return this.requestJson(
+      joinUrl(this.baseUrl, `${this.web3PaymentOrdersPath}/${encodeURIComponent(orderNo)}`),
+      {
+        method: "GET",
+        headers: this.clientHeaders({ auth: true }),
+      },
+    );
+  }
+
+  async listWeb3RechargeHistory(params = {}) {
+    await this.load();
+    this.requireAuth();
+    const requestedLimit = Number(params.limit ?? 50);
+    const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? Math.trunc(requestedLimit) : 50, 100));
+    return this.requestJson(
+      joinUrl(this.baseUrl, `${this.web3PaymentOrdersPath}/history?limit=${limit}`),
+      {
+        method: "GET",
+        headers: this.clientHeaders({ auth: true }),
+      },
+    );
+  }
+
   async settleVideoGenerationCharge(params = {}) {
     await this.load();
     this.requireAuth();
@@ -636,6 +682,10 @@ export class YouleApiClient {
 
     const mode = normalizeOtpMode(params.mode);
     const surface = normalizeSurface(params.surface);
+    const clientVariant = normalizeClientVariant(params);
+    if (clientVariant === "haolo_windows_web3" && identity.channel !== "email") {
+      throw new Error("Web3 客户端仅支持邮箱验证码");
+    }
     const inviteCode = String(params.inviteCode || params.invite_code || "").trim();
     const registrationToken = normalizeRegistrationToken(params);
     const wechatFlowId = normalizeWechatFlowId(params);
@@ -648,6 +698,7 @@ export class YouleApiClient {
         identifier: identity.identifier,
         phone: identity.channel === "sms" ? identity.identifier : null,
         surface,
+        client_variant: clientVariant,
         registration_token: registrationToken,
         wechat_flow_id: wechatFlowId,
         wechat_poll_token: wechatPollToken,
@@ -703,10 +754,14 @@ export class YouleApiClient {
     const nickname = String(params.nickname || "").trim();
     const avatarFile = params.avatarFile || params.avatar_file || null;
     const mode = normalizeOtpMode(params.mode);
+    const clientVariant = normalizeClientVariant(params);
     const wechatFlowId = normalizeWechatFlowId(params);
     const wechatPollToken = normalizeWechatPollToken(params);
     if (!identity) {
       throw new Error("请输入正确的邮箱或手机号");
+    }
+    if (clientVariant === "haolo_windows_web3" && identity.channel !== "email") {
+      throw new Error("Web3 客户端仅支持邮箱验证码");
     }
     if (!challengeId) {
       throw new Error("请先发送验证码");
@@ -734,6 +789,7 @@ export class YouleApiClient {
           nickname,
           mode,
           surface: normalizeSurface(params.surface),
+          clientVariant,
           deviceId: this.deviceId,
           avatarFile,
           bytes,
@@ -757,6 +813,7 @@ export class YouleApiClient {
           nickname,
           mode,
           surface: normalizeSurface(params.surface),
+          client_variant: clientVariant,
           device_id: this.deviceId,
           include_key: true,
           wechat_flow_id: wechatFlowId,
@@ -832,6 +889,7 @@ export class YouleApiClient {
     const nicknameRequired = params.nicknameRequired ?? params.nickname_required ?? true;
     const nickname = String(params.nickname || "").trim();
     const avatarFile = params.avatarFile || params.avatar_file || null;
+    const clientVariant = normalizeClientVariant(params);
     const wechatFlowId = normalizeWechatFlowId(params);
     const wechatPollToken = normalizeWechatPollToken(params);
     if (!registrationToken) {
@@ -863,6 +921,7 @@ export class YouleApiClient {
           bytes,
           wechatFlowId,
           wechatPollToken,
+          clientVariant,
         }),
       });
     } else {
@@ -875,6 +934,7 @@ export class YouleApiClient {
           nickname,
           device_id: this.deviceId,
           surface: "client",
+          client_variant: clientVariant,
           include_key: true,
           wechat_flow_id: wechatFlowId,
           wechat_poll_token: wechatPollToken,
@@ -7161,13 +7221,13 @@ function extractSubscriptionBalanceDetails(payload) {
   ];
   const details = candidates.find((value) => value && typeof value === "object" && !Array.isArray(value));
   if (!details) {
-    throw new Error("订阅周余额明细接口未返回 details");
+    throw new Error("订阅余额明细接口未返回 details");
   }
 
   const active = details.active === true;
   const calculatedAt = firstProfileString(details.calculated_at, details.calculatedAt);
   if (!calculatedAt) {
-    throw new Error("订阅周余额明细接口缺少服务器计算时间");
+    throw new Error("订阅余额明细接口缺少服务器计算时间");
   }
   if (!active) {
     return {
@@ -7207,16 +7267,16 @@ function extractSubscriptionBalanceDetails(payload) {
     pendingBalance == null ||
     !membershipExpiresAt
   ) {
-    throw new Error("订阅周余额明细接口返回的数据不完整");
+    throw new Error("订阅余额明细接口返回的数据不完整");
   }
   if (totalBalance < 0 || creditedBalance < 0 || pendingBalance < 0) {
-    throw new Error("订阅周余额明细接口返回了无效的负数余额");
+    throw new Error("订阅余额明细接口返回了无效的负数余额");
   }
   if (Math.abs(totalBalance - creditedBalance - pendingBalance) > 0.000001) {
-    throw new Error("订阅周余额明细接口返回的总额与到账明细不一致");
+    throw new Error("订阅余额明细接口返回的总额与到账明细不一致");
   }
   if (pendingBalance > 0 && !nextCreditAt) {
-    throw new Error("订阅周余额明细接口缺少下一次到账时间");
+    throw new Error("订阅余额明细接口缺少下一次到账时间");
   }
   return {
     active: true,
@@ -7689,6 +7749,7 @@ function createVerifyOtpFormData({
   nickname,
   mode,
   surface,
+  clientVariant,
   deviceId,
   avatarFile,
   bytes,
@@ -7709,6 +7770,7 @@ function createVerifyOtpFormData({
   if (nickname) formData.append("nickname", nickname);
   if (mode) formData.append("mode", mode);
   formData.append("surface", surface || "web");
+  if (clientVariant) formData.append("client_variant", clientVariant);
   if (deviceId) formData.append("device_id", deviceId);
   formData.append("include_key", "true");
   if (wechatFlowId) formData.append("wechat_flow_id", wechatFlowId);
@@ -7729,6 +7791,7 @@ function createRegisterCompleteFormData({
   bytes,
   wechatFlowId,
   wechatPollToken,
+  clientVariant,
 }) {
   const formData = new FormData();
   formData.append("registration_token", registrationToken);
@@ -7736,6 +7799,7 @@ function createRegisterCompleteFormData({
   formData.append("nickname", nickname);
   if (deviceId) formData.append("device_id", deviceId);
   formData.append("surface", "client");
+  if (clientVariant) formData.append("client_variant", clientVariant);
   formData.append("include_key", "true");
   if (wechatFlowId) formData.append("wechat_flow_id", wechatFlowId);
   if (wechatPollToken) formData.append("wechat_poll_token", wechatPollToken);
@@ -7743,6 +7807,10 @@ function createRegisterCompleteFormData({
   const blob = new Blob([Buffer.from(bytes)], { type: mime });
   formData.append("avatar_file", blob, avatarFile.name || "avatar.png");
   return formData;
+}
+
+function normalizeClientVariant(params = {}) {
+  return String(params.clientVariant || params.client_variant || "").trim().toLowerCase();
 }
 
 function isProfilePatchServerError(error) {

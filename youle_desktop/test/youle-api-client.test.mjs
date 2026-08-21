@@ -1989,6 +1989,72 @@ test("sendOtp rejects an identifier that does not match the requested channel", 
   }
 });
 
+test("web3 auth variant is email-only and is forwarded by OTP requests", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init = {}) => {
+    requests.push({ url: String(url), init });
+    if (String(url).endsWith("/api/auth/otp/send")) {
+      return new Response(JSON.stringify({ challenge_id: "web3-email-challenge" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({
+      mode: "register_profile",
+      registration_token: "web3-registration-token",
+      invite_required: true,
+      nickname_required: true,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    await assert.rejects(
+      client.sendOtp({
+        channel: "sms",
+        identifier: "13800138000",
+        surface: "client",
+        clientVariant: "haolo_windows_web3",
+      }),
+      /仅支持邮箱验证码/,
+    );
+
+    await client.sendOtp({
+      channel: "email",
+      identifier: "WEB3@Example.com",
+      surface: "client",
+      clientVariant: "haolo_windows_web3",
+    });
+    const handoff = await client.verifyOtp({
+      channel: "email",
+      identifier: "WEB3@Example.com",
+      challengeId: "web3-email-challenge",
+      code: "123456",
+      surface: "client",
+      clientVariant: "haolo_windows_web3",
+    });
+
+    assert.equal(requests.length, 2);
+    for (const request of requests) {
+      const body = JSON.parse(request.init.body);
+      assert.equal(body.channel, "email");
+      assert.equal(body.identifier, "web3@example.com");
+      assert.equal(body.client_variant, "haolo_windows_web3");
+      assert.equal(Object.hasOwn(body, "phone"), false);
+    }
+    assert.equal(handoff.registrationToken, "web3-registration-token");
+    assert.equal(handoff.inviteRequired, true);
+    assert.equal(handoff.nicknameRequired, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("WeChat flow APIs use the client surface and poll credential header", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
@@ -2805,6 +2871,76 @@ test("getSubscriptionBalanceDetails rejects internally inconsistent balances", a
     client.loaded = true;
 
     await assert.rejects(client.getSubscriptionBalanceDetails(), /总额与到账明细不一致/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Web3 payment orders use the dedicated authenticated USDT route", async () => {
+  const dir = await tempDir("web3-payment-order");
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init = {}) => {
+    requests.push({ url: String(url), init });
+    return new Response(JSON.stringify({
+      order_no: "W320260820000001",
+      product_id: "subscription_pro",
+      network: "tron",
+      payable_amount: "498.956",
+      recipient_address: "TVXvodFriEMNjsVkuRWtiAmo1qVQauv635",
+      status: "pending",
+      expires_at: "2026-08-20T12:30:00Z",
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const client = new YouleApiClient({
+      storagePath: path.join(dir, "session.json"),
+      authPath: path.join(dir, "auth.json"),
+    });
+    client.baseUrl = "https://haolo.com";
+    client.token = "mas_token_web3";
+    client.loaded = true;
+
+    const created = await client.createWeb3PaymentOrder({
+      productId: "subscription_pro",
+      network: "tron",
+    });
+    await client.createWeb3PaymentOrder({
+      productId: "subscription_basic",
+      network: "binance_internal",
+      previousOrderNo: "W3202608210444069A4BEC",
+    });
+    await client.createWeb3PaymentOrder({
+      productId: "subscription_flagship",
+      network: "okx_internal",
+    });
+    const fetched = await client.getWeb3PaymentOrder({ orderNo: created.order_no });
+
+    assert.equal(requests.length, 4);
+    assert.equal(requests[0].url, "https://haolo.com/api/finance/web3/token-products/orders");
+    assert.equal(requests[0].init.method, "POST");
+    assert.equal(requests[0].init.headers.Authorization, "Bearer mas_token_web3");
+    assert.deepEqual(JSON.parse(requests[0].init.body), {
+      product_id: "subscription_pro",
+      network: "tron",
+      payment_channel: "web3",
+    });
+    assert.deepEqual(JSON.parse(requests[1].init.body), {
+      product_id: "subscription_basic",
+      network: "binance_internal",
+      payment_channel: "web3",
+      previous_order_no: "W3202608210444069A4BEC",
+    });
+    assert.deepEqual(JSON.parse(requests[2].init.body), {
+      product_id: "subscription_flagship",
+      network: "okx_internal",
+      payment_channel: "web3",
+    });
+    assert.equal(requests[3].url, "https://haolo.com/api/finance/web3/token-products/orders/W320260820000001");
+    assert.equal(requests[3].init.method, "GET");
+    assert.equal(fetched.payable_amount, "498.956");
   } finally {
     globalThis.fetch = originalFetch;
     await rm(dir, { recursive: true, force: true });

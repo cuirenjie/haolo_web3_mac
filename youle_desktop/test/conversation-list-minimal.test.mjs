@@ -59,10 +59,11 @@ test("sidebar actions follow Codex order, with settings moved from the titlebar 
   assert.doesNotMatch(actions, /data-trading-expert-panel-tab|role="tab"|aria-selected/);
   assert.match(titlebarActions, /data-action="toggle-external-channel-menu"/);
   assert.doesNotMatch(titlebarActions, /自动化|open-auto-tasks/);
-  assert.match(titlebarActions, /titlebar-icon-action[^>]*toggle-external-channel-menu[^>]*aria-label="连接"[\s\S]*renderTitlebarPlugIcon\(\)/);
-  assert.match(titlebarActions, /data-action="open-auto-task-dialog"[\s\S]*aria-label="自动任务"[\s\S]*renderTitlebarAlarmIcon\(\)/);
-  assert.ok(titlebarActions.indexOf('data-action="toggle-external-channel-menu"') < titlebarActions.indexOf('data-action="open-auto-task-dialog"'));
-  assert.doesNotMatch(titlebarActions, />连接<|data-action="open-settings"|>设置<|renderConversationListIcon|>任务</);
+  assert.match(titlebarActions, /titlebar-icon-action[^>]*toggle-external-channel-menu[^>]*aria-label="更多"[\s\S]*renderTitlebarMoreIcon\(\)/);
+  assert.match(titlebarActions, /data-titlebar-channel-trigger[\s\S]*renderTitlebarPlugIcon\(\)[\s\S]*<span>连接渠道<\/span>/);
+  assert.match(titlebarActions, /data-action="open-auto-task-dialog"[\s\S]*renderTitlebarAlarmIcon\(\)[\s\S]*<span>自动任务<\/span>/);
+  assert.ok(titlebarActions.indexOf("data-titlebar-channel-trigger") < titlebarActions.indexOf('data-action="open-auto-task-dialog"'));
+  assert.doesNotMatch(titlebarActions, /title="连接"|data-action="open-settings"|>设置<|renderConversationListIcon/);
   assert.doesNotMatch(actions, /data-action="open-auto-task-dialog"|renderTitlebarAlarmIcon/);
   assert.match(footer, /class="conversation-list-footer"/);
   assert.match(footer, /class="conversation-list-settings-button/);
@@ -105,7 +106,7 @@ test("the bottom-left settings icon blends into its sidebar and covers themed in
   assert.match(styles, /\.conversation-list-settings-button:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
 });
 
-test("the titlebar plug and adjacent alarm actions preserve menus, dialog flow, and themed states", async () => {
+test("the titlebar more menu nests channel connections and preserves the automatic-task dialog", async () => {
   const source = await rendererSource;
   const styles = await stylesSource;
   const actions = sourceBlock(source, "function renderConversationListActions", "function renderChatList");
@@ -116,19 +117,23 @@ test("the titlebar plug and adjacent alarm actions preserve menus, dialog flow, 
   assert.match(actions, /class="conversation-list-new-row"/);
   assert.match(actions, /data-action="new-chat"[\s\S]*<span>新任务<\/span>/);
   assert.doesNotMatch(actions, /data-action="open-auto-task-dialog"|renderTitlebarAlarmIcon/);
-  assert.match(titlebarActions, /renderTitlebarPlugIcon\(\)[\s\S]*data-action="open-auto-task-dialog"[\s\S]*renderTitlebarAlarmIcon\(\)/);
-  assert.match(titlebarActions, /aria-label="自动任务"[\s\S]*aria-haspopup="dialog"/);
-  assert.match(titlebarIcons, /class="titlebar-action-icon titlebar-plug-icon"[\s\S]*class="titlebar-action-icon titlebar-alarm-icon"/);
+  assert.match(titlebarActions, /aria-label="更多"[\s\S]*renderTitlebarMoreIcon\(\)/);
+  assert.match(titlebarActions, /data-titlebar-channel-trigger[\s\S]*aria-haspopup="menu"[\s\S]*renderTitlebarPlugIcon\(\)[\s\S]*连接渠道/);
+  assert.match(titlebarActions, /data-action="open-auto-task-dialog"[\s\S]*aria-haspopup="dialog"[\s\S]*renderTitlebarAlarmIcon\(\)[\s\S]*自动任务/);
+  assert.match(titlebarIcons, /class="titlebar-action-icon titlebar-plug-icon"[\s\S]*class="titlebar-action-icon titlebar-alarm-icon"[\s\S]*class="titlebar-action-icon titlebar-more-icon"/);
   assert.match(styles, /\.conversation-list-new-row\s*\{[^}]*display:\s*flex;[^}]*width:\s*100%;/s);
   assert.match(styles, /\.conversation-list-new-action\s*\{[^}]*width:\s*auto;[^}]*flex:\s*1 1 auto;/s);
   assert.match(styles, /\.titlebar-primary-action\.titlebar-icon-action\s*\{[^}]*width:\s*30px;[^}]*flex:\s*0 0 30px;[^}]*padding:\s*0;/s);
   assert.match(styles, /\.titlebar-action-icon\s*\{[^}]*width:\s*18px;[^}]*fill:\s*none;[^}]*stroke:\s*currentColor;/s);
-  assert.match(styles, /\.titlebar-plug-icon\s*\{[^}]*transform:\s*translateX\(-5px\);/s);
-  assert.match(styles, /\.titlebar-alarm-icon\s*\{[^}]*transform:\s*translateX\(-15px\);/s);
-  assert.match(styles, /\.titlebar-primary-action:hover:not\(:disabled\),[\s\S]*?\.titlebar-channel-action\.menu-open > \.titlebar-primary-action,[\s\S]*?\.titlebar-primary-action:is\(\.active, :active\):not\(:disabled\)\s*\{[^}]*background:\s*transparent;/s);
+  assert.match(styles, /\.titlebar-more-icon\s*\{[^}]*fill:\s*currentColor;[^}]*stroke:\s*none;/s);
+  assert.doesNotMatch(styles, /\.titlebar-(?:plug|alarm)-icon\s*\{[^}]*transform:/s);
+  assert.match(styles, /\.titlebar-primary-action:hover:not\(:disabled\),[\s\S]*?\.titlebar-more-action\.menu-open > \.titlebar-primary-action,[\s\S]*?\.titlebar-primary-action:is\(\.active, :active\):not\(:disabled\)\s*\{[^}]*background:\s*transparent;/s);
   assert.doesNotMatch(styles, /\.titlebar-primary-action\s*\{[^}]*transition:[^;}]*background/s);
   assert.match(styles, /\.titlebar-primary-action:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/s);
   assert.match(styles, /\.titlebar-primary-action:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
+  assert.match(styles, /\.titlebar-more-action\.menu-open > \.titlebar-more-menu-overlay\s*\{[^}]*display:\s*block;/s);
+  assert.match(styles, /\.titlebar-more-channel-item:hover > \.external-channel-menu,[\s\S]*?\.titlebar-more-channel-item\.submenu-open > \.external-channel-menu\s*\{[^}]*display:\s*block;/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.titlebar-more-menu,/);
   assert.doesNotMatch(styles, /\.conversation-list-auto-task-action|\.conversation-list-alarm-icon/);
   assert.match(
     eventBindings,

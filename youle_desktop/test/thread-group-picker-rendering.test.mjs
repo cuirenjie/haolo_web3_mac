@@ -252,7 +252,7 @@ test("group add entries use a cascading create-or-existing folder menu", async (
   );
 });
 
-test("external channel entry opens from the titlebar plug action", async () => {
+test("titlebar more menu cascades from channels into WeChat, Feishu, and Telegram", async () => {
   const source = await mainSource;
   const actionBlock = sourceBlock(
     source,
@@ -262,9 +262,11 @@ test("external channel entry opens from the titlebar plug action", async () => {
 
   assert.match(actionBlock, /data-action="toggle-external-channel-menu"/);
   assert.match(actionBlock, /aria-haspopup="menu"/);
-  assert.match(actionBlock, /title="连接" aria-label="连接"[\s\S]*renderTitlebarPlugIcon\(\)/);
-  assert.doesNotMatch(actionBlock, />连接<\/button>/);
-  assert.match(actionBlock, /titlebar-channel-menu-overlay[\s\S]*renderExternalChannelMenu\(\)/);
+  assert.match(actionBlock, /title="更多" aria-label="更多"[\s\S]*renderTitlebarMoreIcon\(\)/);
+  assert.match(actionBlock, /class="titlebar-more-menu"[^>]*role="menu"/);
+  assert.match(actionBlock, /titlebar-more-channel-item[\s\S]*data-titlebar-channel-trigger[\s\S]*renderTitlebarPlugIcon\(\)[\s\S]*<span>连接渠道<\/span>[\s\S]*renderExternalChannelMenu\(\)/);
+  assert.match(actionBlock, /data-action="open-auto-task-dialog"[\s\S]*renderTitlebarAlarmIcon\(\)[\s\S]*<span>自动任务<\/span>/);
+  assert.ok(actionBlock.indexOf("data-titlebar-channel-trigger") < actionBlock.indexOf('data-action="open-auto-task-dialog"'));
   assert.doesNotMatch(actionBlock, /renderConversationListIcon|<svg/);
 
   const menuBlock = sourceBlock(
@@ -273,7 +275,6 @@ test("external channel entry opens from the titlebar plug action", async () => {
     "function renderExternalChannelRow",
   );
   assert.match(menuBlock, /class="external-channel-menu" role="menu"/);
-  assert.doesNotMatch(menuBlock, /submenu/);
   assert.doesNotMatch(menuBlock, /external-channel-menu-title/);
   assert.doesNotMatch(menuBlock, />连接渠道</);
 
@@ -290,25 +291,34 @@ test("external channel entry opens from the titlebar plug action", async () => {
     "'[data-action=\"toggle-external-channel-menu\"]'",
     '"[data-external-channel-id]"',
   );
+  assert.match(bindBlock, /\[data-titlebar-channel-trigger\]/);
   assert.match(bindBlock, /mouseenter/);
   assert.match(bindBlock, /focus/);
   assert.match(bindBlock, /primeExternalChannelMenu\(\)/);
-  assert.doesNotMatch(source, /external-channel-cascade-item|external-channel-submenu/);
+
+  const cascadeBindings = sourceBlock(source, "function bindCascadeMenuHoverEvents", "function bindEvents");
+  assert.match(cascadeBindings, /\.titlebar-more-channel-item/);
+  assert.match(cascadeBindings, /item\.classList\.add\("submenu-open"\)/);
+  assert.match(cascadeBindings, /trigger\.setAttribute\("aria-expanded", "true"\)/);
 
   const styles = await stylesSource;
   assert.match(
     styles,
-    /\.titlebar-channel-menu-overlay\s*\{[\s\S]*position:\s*absolute;[\s\S]*top:\s*100%;[\s\S]*z-index:\s*90;[\s\S]*display:\s*none;[\s\S]*width:\s*208px;[\s\S]*padding-top:\s*5px;/,
+    /\.titlebar-more-menu-overlay\s*\{[\s\S]*position:\s*absolute;[\s\S]*top:\s*100%;[\s\S]*z-index:\s*90;[\s\S]*display:\s*none;[\s\S]*width:\s*164px;[\s\S]*padding-top:\s*5px;/,
   );
   assert.match(
     styles,
-    /\.titlebar-channel-action:is\(:hover, \.menu-open\) > \.titlebar-channel-menu-overlay\s*\{[^}]*display:\s*block;/,
+    /\.titlebar-more-action\.menu-open > \.titlebar-more-menu-overlay\s*\{[^}]*display:\s*block;/,
   );
+  assert.match(styles, /\.titlebar-more-channel-item > \.external-channel-menu\s*\{[^}]*left:\s*calc\(100% \+ var\(--titlebar-channel-submenu-offset\)\);[^}]*display:\s*none;/s);
+  assert.match(styles, /\.titlebar-more-channel-item > \.external-channel-menu::before\s*\{[^}]*top:\s*-8px;[^}]*height:\s*calc\(100% \+ 16px\);[^}]*pointer-events:\s*auto;/s);
+  assert.match(styles, /\.titlebar-more-channel-item:hover > \.external-channel-menu,[\s\S]*?\.titlebar-more-channel-item\.submenu-open > \.external-channel-menu\s*\{[^}]*display:\s*block;/s);
   assert.match(styles, /\.external-channel-row:is\(:hover, :focus-visible\)\s*\{[^}]*background:\s*var\(--surface-hover\);/);
   assert.match(styles, /\.external-channel-row:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/);
   assert.match(styles, /\.external-channel-row:active\s*\{[^}]*background:\s*var\(--surface-interactive-hover\);/);
   assert.match(styles, /html\[data-theme="dark"\] \.external-channel-menu[\s\S]*background:\s*#1b1e23;/);
-  assert.doesNotMatch(styles, /chat-new-menu|external-channel-submenu|external-channel-cascade-item/);
+  assert.match(styles, /html\[data-theme="dark"\] \.titlebar-more-menu,/);
+  assert.doesNotMatch(styles, /chat-new-menu/);
 });
 
 test("new group folder dialog creates a real folder before importing it", async () => {
@@ -1234,7 +1244,7 @@ test("left panel collapse control stays on every conversation-sidebar page", asy
   assert.match(styles, /\.app-titlebar\s*\{[^}]*padding: 0 0 0 15px;/s);
   assert.match(styles, /\.titlebar-profile\s*\{[^}]*transform: none;/s);
   assert.match(styles, /\.profile-menu\s*\{[^}]*left: 15px;/s);
-  assert.match(styles, /\.titlebar-channel-menu-overlay\s*\{[^}]*position: absolute;[^}]*left: 50%;[^}]*transform: translateX\(-50%\);/s);
+  assert.match(styles, /\.titlebar-more-menu-overlay\s*\{[^}]*position: absolute;[^}]*left: 50%;[^}]*transform: translateX\(-50%\);/s);
   assert.match(
     styles,
     /\.desktop-body\.left-panel-collapsed > \.left-panel-toggle\s*\{[^}]*left: 4px;/s,

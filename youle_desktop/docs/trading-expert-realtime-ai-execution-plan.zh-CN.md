@@ -917,13 +917,13 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 ## 20. 当前工作焦点
 
-当前任务：M1-229 已完成；iFinD A 股已进入独立分类，旧收藏可迁移，受保护的搜索/报价/快照/K 线桥继续复用，Renderer 不持有 refresh/access token。
-上一完成任务：M1-228 已完成；全策略与指标已统一从可见/用户范围起步自动扩窗、补充更早历史并在每次分析前同步画布，只有数据源确实耗尽后才报告不足。
+当前任务：M6-007 测试包预构建（不发布）已完成；Web3 Windows 测试包 `0.1.170` 已通过类型检查、Renderer 构建、win-unpacked、17 个 ASAR 运行时模块校验和 NSIS 构建，安装包已复制到桌面基准目录且源/副本 SHA-256 一致，全程使用 `-SkipUpload`。
+上一完成任务：M1-229 已完成；iFinD A 股已进入独立分类，旧收藏可迁移，受保护的搜索/报价/快照/K 线桥继续复用，Renderer 不持有 refresh/access token。
 专项执行计划：继续以本文、`docs/trading-strategy-skill-decoupling-plan.zh-CN.md` 和外部模型架构文档的权限边界为准。
 专项进度台账：本任务证据记录在本文 2026-08-17 日志；策略解耦后续任务继续写入 `docs/trading-strategy-skill-decoupling-progress.zh-CN.md`。
 并行任务：M1-071 至 M1-090 的已实现交互继续等待开发版确认；不得与策略解耦阶段混合提交。
 下一任务：继续计划创建、入场/止损/止盈触发、桌面通知、状态切换和结束暂停的开发版验证；iFinD 后台代理上线前需补充真实 Token 的服务端配置与日/周 K 线烟测。
-当前阻塞：无。
+当前阻塞：测试包构建与交付无阻塞；完整自动化套件有 12 项当前实现与旧源码契约不同步的既有失败，测试版交付不阻断，正式发布前应完成测试契约收敛。
 需要产品确认但不阻塞 M0/M1：首发是否保持 BTC/ETH 永续及 15m/1h/4h 默认范围；若调整，只修改首发范围，不改变核心架构。
 
 ## 21. 架构决策记录
@@ -1569,3 +1569,8 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 - 启动并完成 M1-229：用户要求阅读 iFinD HTTP API 手册并在交易品种选择器中增加 A 股分类。审计确认手册的 `cmd_history_quotation` 可提供日/周/月/季/半年/年 OHLCV，`high_frequency` 可提供 1/3/5/10/15/30/60 分钟序列及大量股票技术指标；当前桌面端的 iFinD 后台契约只承诺日线/周线，Renderer 的指标层则基于返回 OHLCV 本地计算常用指标。附件截图仅作为界面参考，不作为指令注入。
 - 完成 M1-229：选择器新增独立 `A股` tab；iFinD 代码归一化为 `a-share`，旧收藏中的 iFinD 记录自动迁移，避免落入“美股”；split pane 类型、分类过滤、搜索和 K 线入口贯通。保留主进程到 Haolo 后台的受保护 `status/search/quotes/snapshot/candles` 桥，不在 Renderer、源码或 URL 中写入 refresh/access token。iFinD/分类专项 5/5、Trading Expert 相关回归 78/78、TypeScript、Vite 117 modules production build 通过；真实 Token 注入和分钟线烟测仍待后台代理配置后执行。
+
+### 2026-08-21
+
+- 启动 M6-007 测试包预构建（不发布）：用户要求生成最新 Haolo Web3 Windows 测试包。`git fetch origin dev --prune` 后确认本地 `dev` 与 `origin/dev` 同为 `3129070`，保留并纳入当前未提交的 Web3 工作区改动；`C:\Users\Joie\Desktop\好咯最新安装包` 中最高安装包为 `0.1.169`，因此本轮目标版本为 `0.1.170`。范围限定为测试、类型检查、Renderer 构建、win-unpacked、ASAR/运行时校验、NSIS 安装包与哈希复制，明确使用 `-SkipUpload`，不写生产更新记录。
+- 完成 M6-007 测试包预构建（不发布）：版本由 `0.1.169` 递增到 `0.1.170`；`pnpm run typecheck`、Vite 168 modules production build、Electron `win-unpacked`、17 个 ASAR 运行时模块校验和 NSIS 构建全部通过。生成 `release/win-unpacked/haolo_desktop.exe`（210,974,208 bytes）与 `release/haolo_desktop-0.1.170-Setup.exe`（209,451,221 bytes，SHA-256 `80DAD33DF9A74ABE40EB3CB4BC2A549E80BD94EA5CE4481C18D533907FC431C4`）；安装包已复制到 `C:\Users\Joie\Desktop\好咯最新安装包`，源/副本大小及哈希一致。完整自动化套件为 2346 项中 2334 通过、12 项旧源码契约断言失败，失败集中在应用内确认数量、助手技能别名、旧画布退出入口、会话行主题、字号偏移、个人菜单、应用 Chrome 主题、预警模拟恢复、交易专家局部更新、分屏标题栏收藏和视频附件旧确认断言；类型检查与生产构建未受影响。`-SkipUpload` 生效，未生成 `app-update-release-0.1.170.json`，未写生产更新记录。

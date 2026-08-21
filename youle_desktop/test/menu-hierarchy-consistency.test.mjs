@@ -18,8 +18,7 @@ test("all CSS cascade menus share the same hover grace behavior", async () => {
   const bindings = sourceBlock(source, "function bindCascadeMenuHoverEvents", "function bindEvents");
 
   assert.match(source, /const CASCADE_MENU_CLOSE_DELAY_MS = 180;/);
-  assert.match(bindings, /\.thread-group-add-menu-item, \.thread-marker-menu-item, \.thread-group-move-menu-item/);
-  assert.doesNotMatch(bindings, /external-channel-cascade-item/);
+  assert.match(bindings, /\.thread-group-add-menu-item, \.thread-marker-menu-item, \.thread-group-move-menu-item, \.titlebar-more-channel-item/);
   assert.match(bindings, /\.trading-expert-mention-group/);
   assert.match(bindings, /:scope > button\[aria-haspopup='menu'\]/);
   assert.match(bindings, /:scope > \[role='menu'\]/);
@@ -31,6 +30,7 @@ test("all CSS cascade menus share the same hover grace behavior", async () => {
   assert.match(bindings, /trigger\.setAttribute\("aria-expanded", "false"\)/);
 
   assert.match(source, /data-action="toggle-external-channel-menu" aria-haspopup="menu"/);
+  assert.match(source, /data-titlebar-channel-trigger role="menuitem" aria-haspopup="menu" aria-expanded="false"/);
   assert.match(source, /class="create thread-group-add-trigger"[\s\S]*?aria-haspopup="menu"/);
   assert.doesNotMatch(source, /thread-group-add-trigger-quick/);
   assert.match(source, /thread-marker-menu-trigger[\s\S]*?aria-haspopup="menu" aria-expanded="false"/);
@@ -44,6 +44,7 @@ test("second- and third-level menus expose forgiving pointer bridges", async () 
     ".thread-group-add-submenu::before",
     ".thread-marker-submenu::before",
     ".composer-mention-submenu::before",
+    ".titlebar-more-channel-item > .external-channel-menu::before",
   ]) {
     const start = styles.lastIndexOf(`${selector} {`);
     assert.notEqual(start, -1, `missing bridge selector: ${selector}`);
@@ -64,7 +65,7 @@ test("second- and third-level menus expose forgiving pointer bridges", async () 
   assert.match(detailBridge, /pointer-events:\s*auto/);
 
   assert.match(styles, /\.thread-group-add-menu-item\.submenu-open > \.thread-group-add-submenu[\s\S]*?display:\s*grid/);
-  assert.doesNotMatch(styles, /external-channel-cascade-item|external-channel-submenu/);
+  assert.match(styles, /\.titlebar-more-channel-item\.submenu-open > \.external-channel-menu[\s\S]*?display:\s*block/);
   assert.match(styles, /\.thread-marker-menu-item\.submenu-open \.thread-marker-submenu[\s\S]*?display:\s*grid/);
   assert.match(styles, /\.trading-expert-mention-group\.submenu-open[\s\S]*?> \.trading-expert-mention-submenu[\s\S]*?display:\s*block/);
   assert.doesNotMatch(styles, /\.thread-group-add-menu-item\.quick/);
@@ -72,7 +73,7 @@ test("second- and third-level menus expose forgiving pointer bridges", async () 
     styles,
     /\.thread-group-add-submenu::before\s*\{[\s\S]*?width:\s*var\(--thread-group-add-submenu-offset\)/,
   );
-  assert.doesNotMatch(styles, /external-channel-submenu|chat-new-menu/);
+  assert.doesNotMatch(styles, /chat-new-menu/);
 });
 
 test("compact option menus use one shared surface treatment", async () => {
@@ -82,6 +83,7 @@ test("compact option menus use one shared surface treatment", async () => {
   for (const className of [
     "thread-group-add-submenu",
     "thread-marker-submenu",
+    "titlebar-more-menu",
     "external-channel-menu",
     "thread-context-menu",
     "chat-title-group-menu",
