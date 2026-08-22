@@ -1067,7 +1067,8 @@ test("Trading Expert market uses the governed Binance gateway and realtime data"
   assert.match(source, /"\/fapi\/v1\/openInterest"/);
   assert.match(source, /"\/fapi\/v1\/klines"/);
   assert.match(source, /async function fetchLatestTradingCandles/);
-  assert.match(source, /startTime: sourceStartTime/);
+  assert.match(source, /startTime: cursor/);
+  assert.match(source, /const maxPages = sourceStartTime === undefined \? 1 : 4/);
   assert.match(source, /fromId: options\.fromId/);
   assert.match(source, /this\.lastAggregateTradeId === null \? undefined : this\.lastAggregateTradeId \+ 1/);
   assert.match(source, /!tradFi && quoteAsset !== MARKET_QUOTE[\s\S]*?contractType !== "PERPETUAL"[\s\S]*?contractType !== "TRADIFI_PERPETUAL"[\s\S]*?item\.status !== "TRADING"/);
@@ -1646,7 +1647,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(source, /export function tradingMarketCandleCacheKey\([\s\S]*?provider[\s\S]*?interval/);
   assert.match(source, /getTradingMarketCandleCache\(candleCacheKey\)/);
   assert.match(source, /if \(cachedSnapshotUsable\)[\s\S]*?commitMarketSnapshot/);
-  assert.match(source, /setTradingMarketCandleCache\(candleCacheKey, \{ stats, candleBatch \}\)/);
+  assert.match(source, /setTradingMarketCandleCache\(candleCacheKey, \{ stats: finalStats, candleBatch: finalCandleBatch \}\)/);
   assert.match(marketRender, /class="trading-market-favorite\$\{favorite \? " active" : ""\}"/);
   assert.match(marketRender, /data-market-action="favorite"/);
   assert.match(marketRender, /aria-pressed="\$\{favorite\}"/);
@@ -2171,13 +2172,18 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
     /if \(!keepChart\) \{[\s\S]*?this\.candles = \[\][\s\S]*?this\.clearChart\(\)/,
   );
   assert.match(restartBlock, /fetchTradingCandles\([\s\S]*?targetSymbol,[\s\S]*?targetInterval,[\s\S]*?500,[\s\S]*?targetMarketType === "spot"/);
+  assert.match(restartBlock, /tradingCandleBatchCanRefreshIncrementally\(cachedBatch\)/);
+  assert.match(restartBlock, /mergeTradingCandleBatches\([\s\S]*?fetchLatestTradingCandles/);
+  assert.match(restartBlock, /this\.loadedMarketId === targetMarketId[\s\S]*?mergeTradingCandleBatches\(candleBatch/);
+  assert.doesNotMatch(restartBlock, /targetProvider === "binance"\s*&& cachedSnapshotApplied\s*&& generation/);
   assert.doesNotMatch(restartBlock, /Promise\.all\(\[\s*fetchTradingMarketStats/);
   assert.doesNotMatch(restartBlock, /tradingAlertsMarketSubscribe|subscribeAlertMarketData/);
   assert.match(restartBlock, /if \(!candleBatch\.candles\.length\) throw new Error\("未返回可用 K 线数据"\)/);
   assert.match(restartBlock, /tradingCandleSeriesMatchesResolution\(candleBatch\.candles, targetInterval\)/);
   assert.match(restartBlock, /const stats = tradingMarketStatsFromCandles\(targetSymbol, candleBatch\.candles\)/);
   assert.match(restartBlock, /this\.connectSocket\(generation\);[\s\S]*?window\.setInterval\(\(\) => void this\.refreshSnapshot\(generation\), 30_000\)/);
-  assert.doesNotMatch(restartBlock, /this\.connectSocket\(generation\);\s*}\s*void this\.refreshSnapshot\(generation\)/);
+  assert.match(restartBlock, /if \(targetProvider === "binance"\)[\s\S]*?void this\.connectSocket\(generation\);[\s\S]*?try \{/);
+  assert.match(restartBlock, /if \(this\.selectedProvider === "binance"\) void this\.refreshSnapshot\(generation\)/);
   assert.match(commitSnapshotBlock, /this\.loadedSymbol = targetSymbol[\s\S]*?this\.loadedInterval = targetInterval/);
   assert.match(commitSnapshotBlock, /this\.updateChartData\(\{ resetViewport: true \}\)/);
   assert.doesNotMatch(restartBlock, /this\.selectedSymbol = this\.loadedSymbol|this\.activeInterval = this\.loadedInterval/);

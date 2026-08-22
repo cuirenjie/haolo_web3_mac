@@ -116,6 +116,73 @@ test("the governor enforces concurrency and serves queued higher priorities firs
   assert.deepEqual(started, ["FIRST", "HIGH", "LOW"]);
 });
 
+test("execution deadlines start after queue admission and release hung slots", async () => {
+  const governor = new BinanceRequestGovernor({ maxConcurrency: 1 });
+  let releaseFirst;
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  const fetchImpl = async (url) => {
+    const symbol = new URL(url).searchParams.get("symbol");
+    if (symbol === "FIRST") await firstGate;
+    if (symbol === "HUNG") return new Promise(() => {});
+    return new Response(JSON.stringify({ symbol }), { status: 200 });
+  };
+  const first = governor.fetch(
+    fetchImpl,
+    "https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=FIRST",
+  );
+  await Promise.resolve();
+  const queued = governor.fetch(
+    fetchImpl,
+    "https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=QUEUED",
+    {},
+    { timeoutMs: 25 },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(governor.snapshot().queued, 1);
+  releaseFirst();
+  assert.equal((await queued).status, 200);
+  await first;
+
+  await assert.rejects(
+    governor.fetch(
+      fetchImpl,
+      "https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=HUNG",
+      {},
+      { timeoutMs: 20 },
+    ),
+    (error) => error?.name === "TimeoutError" && /20ms/.test(error.message),
+  );
+  assert.equal(governor.snapshot().running, 0);
+});
+
+test("a queued renderer abort removes stale work before it consumes concurrency", async () => {
+  const governor = new BinanceRequestGovernor({ maxConcurrency: 1 });
+  let releaseFirst;
+  const firstGate = new Promise((resolve) => { releaseFirst = resolve; });
+  const started = [];
+  const fetchImpl = async (url) => {
+    const symbol = new URL(url).searchParams.get("symbol");
+    started.push(symbol);
+    if (symbol === "FIRST") await firstGate;
+    return new Response("{}");
+  };
+  const first = governor.fetch(fetchImpl, "https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=FIRST");
+  await Promise.resolve();
+  const controller = new AbortController();
+  const stale = governor.fetch(
+    fetchImpl,
+    "https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=STALE",
+    { signal: controller.signal },
+    { timeoutMs: 50 },
+  );
+  controller.abort(new DOMException("superseded", "AbortError"));
+  await assert.rejects(stale, (error) => error?.name === "AbortError");
+  releaseFirst();
+  await first;
+  assert.deepEqual(started, ["FIRST"]);
+  assert.equal(governor.snapshot().queued, 0);
+});
+
 test("Retry-After supports seconds and HTTP dates", () => {
   assert.equal(parseBinanceRetryAfterMs(new Response(null, { headers: { "retry-after": "12" } }), 1_000), 12_000);
   assert.equal(parseBinanceRetryAfterMs(new Response(null, { headers: { "retry-after": new Date(31_000).toUTCString() } }), 1_000), 30_000);

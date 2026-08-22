@@ -31,11 +31,24 @@ function privateRouteMetadata(input) {
 
 export function createBinanceGatewayClient({ config, apiClient, fetchImpl = globalThis.fetch } = {}) {
   if (!config || !apiClient || typeof fetchImpl !== "function") throw new TypeError("config, apiClient and fetchImpl are required");
-  const authorization = async () => `Bearer ${await apiClient.getTrustedAccessToken()}`;
+  const authorization = async (forceRefresh = false) => `Bearer ${await apiClient.getTrustedAccessToken({ forceRefresh })}`;
+  const authenticatedFetch = async (url, init = {}) => {
+    let response = await fetchImpl(url, {
+      ...init,
+      headers: mergeHeaders(init.headers, await authorization()),
+    });
+    if (response.status !== 401 || init.signal?.aborted) return response;
+    try { await response.body?.cancel?.(); } catch {}
+    response = await fetchImpl(url, {
+      ...init,
+      headers: mergeHeaders(init.headers, await authorization(true)),
+    });
+    return response;
+  };
   return Object.freeze({
     async fetch(url, init = {}) {
       if (!config.marketGatewayEnabled) throw new Error("Haolo market gateway is not configured");
-      return fetchImpl(url, { ...init, headers: mergeHeaders(init.headers, await authorization()) });
+      return authenticatedFetch(url, init);
     },
     async marketStreamEndpoint({ marketType, combined = false } = {}) {
       const normalizedMarket = String(marketType || "").toLowerCase();
@@ -43,9 +56,9 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
       const key = combined ? `${normalizedMarket}Combined` : normalizedMarket;
       const endpoint = config.gatewayPublicWebSocket[key];
       if (!endpoint || !config.ticketUrl) throw new Error("Haolo market gateway is not configured");
-      const response = await fetchImpl(config.ticketUrl, {
+      const response = await authenticatedFetch(config.ticketUrl, {
         method: "POST",
-        headers: mergeHeaders({ "content-type": "application/json" }, await authorization()),
+        headers: { "content-type": "application/json" },
         body: "{}",
         cache: "no-store",
       });
@@ -55,9 +68,9 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
     },
     async privateRequestPermit(targetUrl, { signal } = {}) {
       if (!config.privateProxyEnabled || !config.privatePermitUrl) throw new Error("Haolo private egress is not configured");
-      const response = await fetchImpl(config.privatePermitUrl, {
+      const response = await authenticatedFetch(config.privatePermitUrl, {
         method: "POST",
-        headers: mergeHeaders({ "content-type": "application/json" }, await authorization()),
+        headers: { "content-type": "application/json" },
         body: JSON.stringify(privateRouteMetadata(targetUrl)),
         cache: "no-store",
         signal,
@@ -74,9 +87,9 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
     },
     async reportPrivateUsage(report = {}) {
       if (!config.privateUsageUrl) return false;
-      const response = await fetchImpl(config.privateUsageUrl, {
+      const response = await authenticatedFetch(config.privateUsageUrl, {
         method: "POST",
-        headers: mergeHeaders({ "content-type": "application/json" }, await authorization()),
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
           permitId: String(report.permitId || ""),
           status: Number(report.status || 0),

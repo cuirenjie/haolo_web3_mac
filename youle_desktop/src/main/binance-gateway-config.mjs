@@ -50,6 +50,11 @@ function positiveInteger(value, fallback, { min = 500, max = 30_000 } = {}) {
   return Number.isSafeInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
 }
 
+function durationValue(value, fallback, { min, max }) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
+}
+
 export function resolveBinanceGatewayConfig(env = process.env, deployment = {}) {
   const marketOrigin = httpsOrigin(
     env.HAOLO_BINANCE_MARKET_GATEWAY_URL || deployment.marketGatewayUrl,
@@ -96,6 +101,26 @@ export function resolveBinanceGatewayConfig(env = process.env, deployment = {}) 
     directAttemptTimeoutMs: positiveInteger(
       env.HAOLO_BINANCE_DIRECT_ATTEMPT_TIMEOUT_MS || deployment.directAttemptTimeoutMs,
       3_000,
+    ),
+    publicHedgeDelayMs: durationValue(
+      env.HAOLO_BINANCE_PUBLIC_HEDGE_DELAY_MS || deployment.publicHedgeDelayMs,
+      200,
+      { min: 50, max: 2_000 },
+    ),
+    routePreferenceTtlMs: durationValue(
+      env.HAOLO_BINANCE_ROUTE_PREFERENCE_TTL_MS || deployment.routePreferenceTtlMs,
+      30 * 60_000,
+      { min: 60_000, max: 6 * 60 * 60_000 },
+    ),
+    backgroundProbeIntervalMs: durationValue(
+      env.HAOLO_BINANCE_BACKGROUND_PROBE_INTERVAL_MS || deployment.backgroundProbeIntervalMs,
+      45_000,
+      { min: 10_000, max: 5 * 60_000 },
+    ),
+    gatewayRequestTimeoutMs: durationValue(
+      env.HAOLO_BINANCE_GATEWAY_REQUEST_TIMEOUT_MS || deployment.gatewayRequestTimeoutMs,
+      8_000,
+      { min: 2_000, max: 60_000 },
     ),
   });
 }

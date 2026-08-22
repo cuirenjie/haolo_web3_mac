@@ -108,6 +108,32 @@ test("account reads re-time and re-sign after the direct route switches to Haolo
   assert.equal(signedRequests[1].apiKey, API_KEY);
 });
 
+test("Binance server time is reused briefly and can still be force-resynchronized", async () => {
+  let timeReads = 0;
+  const service = new BinanceAccountService({
+    credentialStore: { resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }) },
+    fetch: async (url) => {
+      const parsed = new URL(url);
+      assert.equal(parsed.pathname, "/fapi/v1/time");
+      timeReads += 1;
+      return jsonResponse({ serverTime: 1_700_000_000_000 + timeReads * 1_000 });
+    },
+  });
+
+  const first = await service.serverTime("https://fapi.binance.com", "/fapi/v1/time");
+  const cached = await service.serverTime("https://fapi.binance.com", "/fapi/v1/time");
+  assert.equal(timeReads, 1);
+  assert.ok(cached >= first);
+
+  const resynchronized = await service.serverTime(
+    "https://fapi.binance.com",
+    "/fapi/v1/time",
+    { force: true },
+  );
+  assert.equal(timeReads, 2);
+  assert.ok(resynchronized > cached);
+});
+
 test("profit calendar groups realized PnL by local trading date and preserves zero-income days", () => {
   const firstDay = new Date(2026, 6, 1, 9, 30).getTime();
   const secondDay = new Date(2026, 6, 2, 18, 45).getTime();
@@ -138,6 +164,10 @@ test("profit calendar groups realized PnL by local trading date and preserves ze
 test("profit calendar reads one Binance month with signed pagination parameters and caches closed months", async () => {
   const now = new Date(2026, 7, 14, 12, 0);
   const incomeRequests = [];
+  const income = [
+    { incomeType: "REALIZED_PNL", income: "500.3", time: new Date(2026, 6, 1, 10, 0).getTime() },
+    { incomeType: "REALIZED_PNL", income: "-256.23", time: new Date(2026, 6, 22, 10, 0).getTime() },
+  ];
   const service = new BinanceAccountService({
     credentialStore: {
       resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }),
@@ -148,10 +178,9 @@ test("profit calendar reads one Binance month with signed pagination parameters 
       if (parsed.pathname === "/fapi/v1/time") return jsonResponse({ serverTime: now.getTime() });
       if (parsed.pathname !== "/fapi/v1/income") throw new Error(`unexpected route ${parsed.pathname}`);
       incomeRequests.push(parsed);
-      return jsonResponse([
-        { incomeType: "REALIZED_PNL", income: "500.3", time: new Date(2026, 6, 1, 10, 0).getTime() },
-        { incomeType: "REALIZED_PNL", income: "-256.23", time: new Date(2026, 6, 2, 10, 0).getTime() },
-      ]);
+      const startTime = Number(parsed.searchParams.get("startTime"));
+      const endTime = Number(parsed.searchParams.get("endTime"));
+      return jsonResponse(income.filter((item) => item.time >= startTime && item.time <= endTime));
     },
   });
 
@@ -159,20 +188,82 @@ test("profit calendar reads one Binance month with signed pagination parameters 
   const second = await service.profitCalendar(OWNER, { month: "2026-07" });
 
   assert.deepEqual(second, first);
-  assert.equal(incomeRequests.length, 1);
-  assert.equal(incomeRequests[0].searchParams.get("incomeType"), null);
+  assert.equal(incomeRequests.length, 3);
+  assert.ok(incomeRequests.every((request) => request.searchParams.get("incomeType") === "REALIZED_PNL"));
+  assert.ok(incomeRequests.every((request) => (
+    Number(request.searchParams.get("endTime")) - Number(request.searchParams.get("startTime"))
+    < 14 * 24 * 60 * 60 * 1_000
+  )));
   assert.equal(incomeRequests[0].searchParams.get("startTime"), String(new Date(2026, 6, 1).getTime()));
-  assert.equal(incomeRequests[0].searchParams.get("endTime"), String(new Date(2026, 7, 1).getTime() - 1));
+  assert.equal(incomeRequests.at(-1).searchParams.get("endTime"), String(new Date(2026, 7, 1).getTime() - 1));
   assert.equal(incomeRequests[0].searchParams.get("page"), "1");
   assert.equal(incomeRequests[0].searchParams.get("limit"), "1000");
   assert.deepEqual(first.days, [
     { date: "2026-07-01", pnl: 500.3 },
-    { date: "2026-07-02", pnl: -256.23 },
+    { date: "2026-07-22", pnl: -256.23 },
   ]);
   await assert.rejects(
     service.profitCalendar(OWNER, { month: "2026-09" }),
     (error) => error?.code === "INVALID_PROFIT_CALENDAR_MONTH",
   );
+});
+
+test("profit calendar halves only a failing range and preserves successful range data", async () => {
+  const requests = [];
+  const service = new BinanceAccountService({
+    credentialStore: { resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }) },
+  });
+  service.signedGet = async ({ pathname, params }) => {
+    assert.equal(pathname, "/fapi/v1/income");
+    requests.push({ startTime: params.startTime, endTime: params.endTime });
+    if (params.endTime - params.startTime >= 7 * 24 * 60 * 60 * 1_000) {
+      throw new BinanceAccountError("BINANCE_TIMEOUT", "timeout", { retryable: true });
+    }
+    return [{
+      incomeType: "REALIZED_PNL",
+      income: "1",
+      time: params.startTime,
+    }];
+  };
+
+  const result = await service.monthlyProfitCalendarIncome({
+    credentials: { apiKey: API_KEY, apiSecret: API_SECRET },
+    serverTime: Date.now(),
+    startTime: new Date(2026, 6, 1).getTime(),
+    endTime: new Date(2026, 7, 1).getTime() - 1,
+  });
+  assert.equal(result.truncated, false);
+  assert.equal(result.income.length, 5);
+  assert.equal(requests.length, 7);
+  assert.equal(requests.filter((request) => (
+    request.endTime - request.startTime >= 7 * 24 * 60 * 60 * 1_000
+  )).length, 2);
+});
+
+test("a newer profit-calendar month aborts the older month for the same account", async () => {
+  let firstStarted;
+  const started = new Promise((resolve) => { firstStarted = resolve; });
+  const service = new BinanceAccountService({
+    credentialStore: { resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }) },
+    now: () => new Date(2026, 7, 14, 12, 0),
+  });
+  service.serverTime = async () => Date.now();
+  let callCount = 0;
+  service.monthlyProfitCalendarIncome = async ({ signal }) => {
+    callCount += 1;
+    if (callCount > 1) return { income: [], truncated: false };
+    firstStarted();
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  };
+
+  const july = service.profitCalendar(OWNER, { month: "2026-07", force: true });
+  await started;
+  const june = service.profitCalendar(OWNER, { month: "2026-06", force: true });
+  await assert.rejects(july, (error) => error?.name === "AbortError");
+  assert.equal((await june).month, "2026-06");
+  assert.equal(callCount, 2);
 });
 
 test("account snapshot maps real Binance wallet, futures, income and position fields", () => {
@@ -617,6 +708,37 @@ test("account snapshots reuse fresh data, merge concurrent reads, and allow a fo
   assert.equal(reads, 3);
 });
 
+test("a summary refresh never waits for or gets overwritten by an older full refresh", async () => {
+  let releaseFull;
+  let markFullStarted;
+  const fullGate = new Promise((resolve) => { releaseFull = resolve; });
+  const fullStarted = new Promise((resolve) => { markFullStarted = resolve; });
+  const service = new BinanceAccountService({
+    credentialStore: {
+      resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }),
+    },
+    now: () => new Date("2026-08-13T04:00:00.000Z"),
+    snapshotCacheTtlMs: 0,
+  });
+  service.storeSnapshotCache(OWNER, { schemaVersion: 1, warnings: [], mode: "cached" });
+  service.snapshotWithCredentials = async (_credentials, options) => {
+    if (options.summary) return { schemaVersion: 1, warnings: [], mode: "summary" };
+    markFullStarted();
+    await fullGate;
+    return { schemaVersion: 1, warnings: [], mode: "full" };
+  };
+
+  const fullRequest = service.snapshot(OWNER, { force: true, live: false });
+  await fullStarted;
+  const summary = await service.snapshot(OWNER, { force: true, live: true, summary: true });
+  assert.equal(summary.mode, "summary");
+  assert.equal(service.snapshotCache.get(OWNER).snapshot.mode, "summary");
+
+  releaseFull();
+  assert.equal((await fullRequest).mode, "full");
+  assert.equal(service.snapshotCache.get(OWNER).snapshot.mode, "summary");
+});
+
 test("a transient Binance failure falls back to the last successful snapshot", async () => {
   let nowMs = Date.parse("2026-08-13T04:00:00.000Z");
   let fail = false;
@@ -848,6 +970,76 @@ test("live account refresh uses low-weight per-symbol order reads and reuses slo
   assert.deepEqual(snapshot.positionHistory, previousSnapshot.positionHistory);
   assert.deepEqual(snapshot.walletBreakdown, previousSnapshot.walletBreakdown);
   assert.deepEqual(snapshot.openOrders.map((order) => order.id), ["order:401"]);
+});
+
+test("summary account refresh uses one signed account read and preserves detailed data", async () => {
+  const fetchedAt = Date.parse("2026-08-14T13:50:00.000Z");
+  const previousSnapshot = {
+    schemaVersion: 1,
+    currency: "USDT",
+    estimatedTotalAssets: 20,
+    todayPnl: 3,
+    todayPnlPercent: 17.647,
+    marginBalance: 10,
+    walletBalance: 9,
+    unrealizedPnl: 1,
+    realizedPnlToday: 2,
+    initialMargin: 1,
+    availableBalance: 9,
+    positions: [{ symbol: "ETHUSDT", direction: "LONG" }],
+    positionHistory: [{ id: "preserved-history" }],
+    openOrders: [{ id: "preserved-order", source: "ORDER" }],
+    walletBreakdown: [{ walletName: "Spot", balance: 10 }],
+    sources: {
+      totalAssets: "BINANCE_WALLETS_USDT",
+      futures: "USD_M_FUTURES",
+      realizedPnl: "USD_M_INCOME",
+      positionHistory: "USD_M_ACCOUNT_TRADES",
+      openOrders: "USD_M_OPEN_ORDERS+USD_M_OPEN_ALGO_ORDERS",
+    },
+    warnings: ["preserved-warning"],
+    fetchedAt: new Date(fetchedAt).toISOString(),
+  };
+  const signedPaths = [];
+  const service = new BinanceAccountService({
+    credentialStore: {
+      resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }),
+    },
+    now: () => new Date(fetchedAt + 5_000),
+    snapshotCacheTtlMs: 0,
+  });
+  service.storeSnapshotCache(OWNER, previousSnapshot);
+  service.serverTime = async () => fetchedAt + 5_000;
+  service.signedGet = async ({ pathname }) => {
+    signedPaths.push(pathname);
+    assert.equal(pathname, "/fapi/v3/account");
+    return {
+      totalMarginBalance: "12",
+      totalMaintMargin: "0.12",
+      totalWalletBalance: "10",
+      totalUnrealizedProfit: "3",
+      totalInitialMargin: "1.5",
+      availableBalance: "10.5",
+      positions: [],
+    };
+  };
+
+  const snapshot = await service.snapshot(OWNER, {
+    force: true,
+    live: true,
+    summary: true,
+  });
+  assert.deepEqual(signedPaths, ["/fapi/v3/account"]);
+  assert.equal(snapshot.estimatedTotalAssets, 22);
+  assert.equal(snapshot.marginBalance, 12);
+  assert.equal(snapshot.availableBalance, 10.5);
+  assert.equal(snapshot.todayPnl, 5);
+  assert.deepEqual(snapshot.positions, previousSnapshot.positions);
+  assert.deepEqual(snapshot.positionHistory, previousSnapshot.positionHistory);
+  assert.deepEqual(snapshot.openOrders, previousSnapshot.openOrders);
+  assert.deepEqual(snapshot.walletBreakdown, previousSnapshot.walletBreakdown);
+  assert.deepEqual(snapshot.warnings, previousSnapshot.warnings);
+  assert.equal(snapshot.sources.openOrders, previousSnapshot.sources.openOrders);
 });
 
 test("Binance Retry-After starts a local cooldown instead of repeating rate-limited requests", async () => {

@@ -147,7 +147,9 @@ export class BinancePublicMarketService {
     if (typeof networkFetch !== "function") throw new TypeError("fetch is required");
     this.fetch = networkFetch;
     this.now = now;
-    this.timeoutMs = Math.max(1_000, Number(timeoutMs) || REQUEST_TIMEOUT_MS);
+    this.timeoutMs = Number(timeoutMs) === 0
+      ? 0
+      : Math.max(1_000, Number(timeoutMs) || REQUEST_TIMEOUT_MS);
     this.baseUrls = Object.freeze({
       futures: normalizeBaseUrl(baseUrls?.futures, DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS.futures),
       spot: normalizeBaseUrl(baseUrls?.spot, DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS.spot),
@@ -175,19 +177,33 @@ export class BinancePublicMarketService {
     while (this.cache.size > MAX_CACHE_ENTRIES) this.cache.delete(this.cache.keys().next().value);
   }
 
-  async request(value = {}) {
+  async request(value = {}, { signal: callerSignal } = {}) {
     const request = normalizeBinancePublicMarketRequest(value, { baseUrls: this.baseUrls });
     const currentMs = this.currentTimeMs();
     const cached = this.cached(request.url, currentMs);
     if (cached) return cached;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    timer.unref?.();
+    if (callerSignal?.aborted) {
+      throw callerSignal.reason || new DOMException("The operation was aborted", "AbortError");
+    }
+    const controller = this.timeoutMs > 0 ? new AbortController() : null;
+    const forwardAbort = controller && callerSignal
+      ? () => controller.abort(callerSignal.reason || new DOMException("The operation was aborted", "AbortError"))
+      : null;
+    if (forwardAbort) callerSignal.addEventListener("abort", forwardAbort, { once: true });
+    const timer = controller
+      ? setTimeout(() => controller.abort(new DOMException("The operation was aborted", "AbortError")), this.timeoutMs)
+      : null;
+    timer?.unref?.();
     let response;
     try {
-      response = await this.fetch(request.url, { method: "GET", cache: "no-store", signal: controller.signal });
+      response = await this.fetch(request.url, {
+        method: "GET",
+        cache: "no-store",
+        signal: controller?.signal || callerSignal,
+      });
     } finally {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
+      if (forwardAbort) callerSignal.removeEventListener("abort", forwardAbort);
     }
     let data = null;
     try { data = await response.json(); } catch {}

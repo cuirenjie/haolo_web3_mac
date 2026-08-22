@@ -105,7 +105,7 @@ test("trading favorites normalize persisted symbols and remove invalid duplicate
   assert.deepEqual(ordered.map(({ symbol }) => symbol), ["BTCUSDT", "ETHUSDT", "SOLUSDT"]);
 });
 
-test("trading candle snapshots are keyed by market context and expire without sharing mutable arrays", async () => {
+test("trading candle snapshots are keyed by market context, survive stale refreshes, and clone arrays", async () => {
   const {
     getTradingMarketCandleCache,
     setTradingMarketCandleCache,
@@ -142,7 +142,8 @@ test("trading candle snapshots are keyed by market context and expire without sh
   assert.deepEqual(cached?.candleBatch.candles, snapshot.candleBatch.candles);
   assert.notEqual(cached?.candleBatch.candles, snapshot.candleBatch.candles);
   assert.notEqual(cached?.stats, snapshot.stats);
-  assert.equal(getTradingMarketCandleCache(key, 301_001), null);
+  assert.equal(getTradingMarketCandleCache(key, 301_001)?.isStale, true);
+  assert.equal(getTradingMarketCandleCache(key, 7 * 24 * 60 * 60_000 + 1_001), null);
 });
 
 test("favorite ticker drag order is stable across unrelated records and storage reloads", async () => {
@@ -520,12 +521,81 @@ test("Binance search catalog combines USDT spot and perpetual markets", async ()
       ],
     );
     assert.equal(markets[1].changePercent, ((64_900 - 64_000) / 64_000) * 100);
-    assert.deepEqual(new Set(paths), new Set([
-      "/fapi/v1/exchangeInfo",
+    assert.deepEqual(paths, [
       "/fapi/v1/ticker/24hr",
-      "/api/v3/exchangeInfo",
+      "/fapi/v1/exchangeInfo",
       "/api/v3/ticker/24hr",
-    ]));
+      "/api/v3/exchangeInfo",
+    ]);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("latest Binance candles share a stable gateway cache key while historical pages keep endTime", async () => {
+  const { fetchTradingCandles } = await import("../src/renderer/trading-expert-market.ts");
+  const originalWindow = globalThis.window;
+  const requests = [];
+  globalThis.window = {
+    ...(originalWindow || {}),
+    codexDesktop: {
+      ...(originalWindow?.codexDesktop || {}),
+      async getBinancePublicMarketData(request) {
+        requests.push(request);
+        const end = Date.now();
+        return {
+          ok: true,
+          status: 200,
+          cached: false,
+          data: [
+            [end - 60_000, "1", "2", "0.5", "1.5", "10"],
+            [end, "1.5", "2.5", "1", "2", "12"],
+          ],
+        };
+      },
+    },
+  };
+  try {
+    await fetchTradingCandles("XRPUSDT", "60", 2, Date.now(), "perpetual");
+    assert.equal(requests[0].parameters.endTime, undefined);
+
+    const historicalEndTime = Date.now() - 5 * 60_000;
+    await fetchTradingCandles("XRPUSDT", "60", 2, historicalEndTime, "perpetual");
+    assert.equal(requests[1].parameters.endTime, historicalEndTime);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("fast Binance catalog builds the perpetual picker from the lightweight ticker route", async () => {
+  const { fetchTradingMarkets } = await import("../src/renderer/trading-expert-market.ts");
+  const originalWindow = globalThis.window;
+  const requests = [];
+  globalThis.window = {
+    ...(originalWindow || {}),
+    codexDesktop: {
+      ...(originalWindow?.codexDesktop || {}),
+      async getBinancePublicMarketData(request) {
+        requests.push(request.path);
+        return {
+          ok: true,
+          status: 200,
+          cached: false,
+          data: [
+            { symbol: "XRPUSDT", lastPrice: "0.55", priceChangePercent: "1.2", quoteVolume: "100" },
+            { symbol: "ETHBTC", lastPrice: "0.04", priceChangePercent: "0.1", quoteVolume: "50" },
+          ],
+        };
+      },
+    },
+  };
+  try {
+    const markets = await fetchTradingMarkets({ fast: true });
+    assert.deepEqual(requests, ["/fapi/v1/ticker/24hr"]);
+    assert.deepEqual(markets.map((market) => market.id), ["BINANCE:FUTURES:XRPUSDT"]);
+    assert.equal(markets[0].markPrice, 0.55);
   } finally {
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;

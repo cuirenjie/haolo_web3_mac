@@ -7,7 +7,9 @@ const DEFAULT_BAN_RETRY_AFTER_MS = 5 * 60_000;
 const BINANCE_HOST_PATTERN = /(^|\.)binance\.com$/i;
 
 export const BINANCE_REQUEST_PRIORITIES = Object.freeze({
+  accountInteractive: 120,
   account: 100,
+  chart: 90,
   market: 70,
   alert: 50,
   metadata: 20,
@@ -120,6 +122,60 @@ function localRateLimitResponse(retryAfterMs, reason) {
 
 function responseCopy(response) {
   return typeof response?.clone === "function" ? response.clone() : response;
+}
+
+function abortReason(signal) {
+  return signal?.reason || new DOMException("The operation was aborted", "AbortError");
+}
+
+function requestTimeoutError(timeoutMs) {
+  const error = new Error(`Binance network request timed out after ${timeoutMs}ms`);
+  error.name = "TimeoutError";
+  return error;
+}
+
+function awaitWithSignal(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(abortReason(signal));
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+async function runWithExecutionDeadline(networkFetch, input, init, timeoutMs) {
+  const callerSignal = init?.signal;
+  if (callerSignal?.aborted) throw abortReason(callerSignal);
+  const durationMs = Number(timeoutMs);
+  if ((!Number.isFinite(durationMs) || durationMs <= 0) && !callerSignal) {
+    return networkFetch(input, init);
+  }
+  const controller = new AbortController();
+  const forwardAbort = callerSignal
+    ? () => controller.abort(abortReason(callerSignal))
+    : null;
+  if (forwardAbort) callerSignal.addEventListener("abort", forwardAbort, { once: true });
+  let timer = null;
+  let rejectAbort = null;
+  const aborted = new Promise((_, reject) => {
+    rejectAbort = () => reject(abortReason(controller.signal));
+    controller.signal.addEventListener("abort", rejectAbort, { once: true });
+  });
+  if (Number.isFinite(durationMs) && durationMs > 0) {
+    timer = setTimeout(() => controller.abort(requestTimeoutError(Math.floor(durationMs))), Math.floor(durationMs));
+    timer.unref?.();
+  }
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => networkFetch(input, { ...init, signal: controller.signal })),
+      aborted,
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (rejectAbort) controller.signal.removeEventListener("abort", rejectAbort);
+    if (forwardAbort) callerSignal.removeEventListener("abort", forwardAbort);
+  }
 }
 
 export class BinanceRequestGovernor {
@@ -236,9 +292,32 @@ export class BinanceRequestGovernor {
     }
   }
 
-  enqueue(run, priority) {
+  enqueue(run, priority, signal) {
     return new Promise((resolve, reject) => {
-      this.queue.push({ run, priority: Number(priority) || 0, sequence: this.sequence++, resolve, reject });
+      if (signal?.aborted) {
+        reject(abortReason(signal));
+        return;
+      }
+      const task = {
+        run,
+        priority: Number(priority) || 0,
+        sequence: this.sequence++,
+        resolve,
+        reject,
+        signal,
+        abortQueued: null,
+      };
+      task.abortQueued = signal
+        ? () => {
+          const index = this.queue.indexOf(task);
+          if (index < 0) return;
+          this.queue.splice(index, 1);
+          signal.removeEventListener("abort", task.abortQueued);
+          reject(abortReason(signal));
+        }
+        : null;
+      if (task.abortQueued) signal.addEventListener("abort", task.abortQueued, { once: true });
+      this.queue.push(task);
       this.queue.sort((left, right) => right.priority - left.priority || left.sequence - right.sequence);
       this.pump();
     });
@@ -247,6 +326,7 @@ export class BinanceRequestGovernor {
   pump() {
     while (this.running < this.maxConcurrency && this.queue.length) {
       const task = this.queue.shift();
+      if (task.abortQueued) task.signal.removeEventListener("abort", task.abortQueued);
       this.running += 1;
       Promise.resolve().then(task.run).then(task.resolve, task.reject).finally(() => {
         this.running -= 1;
@@ -274,7 +354,7 @@ export class BinanceRequestGovernor {
     const pending = dedupeKey ? this.inflightPublicGets.get(dedupeKey) : null;
     if (pending) {
       this.metrics.coalesced += 1;
-      return pending.then(responseCopy);
+      return awaitWithSignal(pending.then(responseCopy), init?.signal);
     }
 
     const weight = Math.max(1, positiveInteger(context.weight, binanceRequestWeight(url, init)));
@@ -285,10 +365,10 @@ export class BinanceRequestGovernor {
 
     this.metrics.admitted += 1;
     const request = this.enqueue(async () => {
-      const response = await networkFetch(input, init);
+      const response = await runWithExecutionDeadline(networkFetch, input, init, context.timeoutMs);
       this.observeResponse(bucket, response, nowValue(this.now));
       return response;
-    }, context.priority ?? BINANCE_REQUEST_PRIORITIES.market);
+    }, context.priority ?? BINANCE_REQUEST_PRIORITIES.market, init?.signal);
     if (dedupeKey) this.inflightPublicGets.set(dedupeKey, request);
     try {
       return responseCopy(await request);

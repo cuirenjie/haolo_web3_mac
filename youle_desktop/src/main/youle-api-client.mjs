@@ -268,10 +268,26 @@ export class YouleApiClient {
    * It exists so isolated Haolo infrastructure clients can authenticate without
    * copying the long-lived access token into Renderer state or query strings.
    */
-  async getTrustedAccessToken() {
+  async getTrustedAccessToken(options = {}) {
     await this.load();
     this.requireAuth();
-    await this.refreshAccessToken({ reason: "trusted-main-process" });
+    const forceRefresh = options.forceRefresh === true;
+    if (!forceRefresh && !this.isAccessTokenExpired()) {
+      if (this.shouldRefreshAccessToken()) {
+        void this.refreshAccessToken({
+          reason: "trusted-main-process-background",
+        }).catch((error) => {
+          safeConsoleLog("[youle-api] trusted token background refresh deferred", error?.message || String(error));
+        });
+      }
+      return this.token;
+    }
+    await this.refreshAccessToken({
+      force: forceRefresh,
+      reason: forceRefresh
+        ? "trusted-main-process-401"
+        : "trusted-main-process",
+    });
     this.requireAuth();
     return this.token;
   }

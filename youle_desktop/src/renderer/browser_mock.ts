@@ -698,6 +698,9 @@ export function ensureBrowserDesktopApi() {
         error: response.ok ? undefined : String((data as any)?.msg || `Binance market request failed: ${response.status}`),
       };
     },
+    async cancelBinancePublicMarketData() {
+      return { cancelled: false };
+    },
     async getHyperliquidPublicCandles(params: any) {
       const response = await fetch("https://api.hyperliquid.xyz/info", {
         method: "POST",

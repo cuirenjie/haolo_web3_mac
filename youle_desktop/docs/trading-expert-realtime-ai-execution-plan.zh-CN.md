@@ -849,6 +849,8 @@ M1 退出条件：不调用模型也能通过固定行情 Fixture 完成结构�
 | M2-013 | 完成公共/私有双链路生产部署、双区域配置、国内三网、压力、混沌、安全与灰度验收 | 受阻 | M2-008,M2-009,M2-011,M2-012 | Docker Compose、TLS override、Kubernetes 双可用区/PDB/HPA/Ingress/L4 LB 模板及生产验收手册已交付；等待境外基础设施、真实域名/TLS、Redis、固定 EIP 和 Secret 注入后执行 72 小时 soak 与三网灰度；不再要求用户配置 Binance IP 白名单 |
 | M2-014 | 公共行情与用户只读账户按实际 Binance 可达性自动选择本地直连或 Haolo 网关 | 已完成 | M2-008,M2-009,M2-010,M2-012 | 主进程按现货/合约、行情/账户四通道执行 3 秒直连尝试、指数冷却和半开恢复；REST/WS 自动回退，账户回退前重新校时与重签；无 VPN/IP 采集、GET-only 与边界回归 50/50、Gateway 13/13、TypeScript 和 168 modules 生产构建通过 |
 | M2-015 | 将 Haolo 私有账户出口升级为稳定用户分片、Redis 全局权重许可和多固定 EIP 独立容量池 | 已完成 | M2-009,M2-012,M2-014,ADR-014 | 服务端可信只读路由权重、独立稳定哈希 Secret、一致性分片、总量/后台/单用户 Redis 原子预算、一次性短期 CONNECT 许可、429/418 原分片冷却、桌面逐请求双层 TLS、公共/私有 K8s 分片模板均已落地；Gateway 24/24、桌面专项 62/62、TypeScript、168 modules 构建和 YAML 解析通过 |
+| M2-016 | 极致优化国内 Binance 公共行情首屏与实时增量链路 | 已完成 | M2-001,M2-008,M2-010,M2-011,M2-014 | 跨重启路由偏好、45 秒后台直连恢复探测、公共 GET 200ms 延迟竞速、48 组 K 线持久化 stale-while-revalidate 缓存、增量 REST 分页与并发 WebSocket 合并均已落地；私有签名请求不竞速，专项 96/96、TypeScript 和 169 modules 生产构建通过 |
+| M2-017 | 修复关闭 VPN 后 Electron 残留系统代理导致公共行情网关回退失效 | 已完成 | M2-016 | Haolo 网关改用 origin 白名单、IPv4、Keep-Alive、8 秒硬超时的 Node 原生 HTTPS 直连，完全绕过 Electron/系统代理；网关 401 自动强制刷新一次令牌，记忆网关失败时立即尝试已恢复直连；无 VPN 等价 Electron 全链路 562ms、真实 500 根 ETH K 线 705ms，专项 107/107、全仓新增失败 0 |
 
 M2 退出条件：图表和分析共享唯一行情事实源；断线、重复、乱序、回补和切市场均可回放验证。
 
@@ -925,13 +927,13 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 ## 20. 当前工作焦点
 
-当前任务：M2-013 生产部署受阻；M2-015 本地实现已完成，等待真实境外集群、Redis、域名/TLS、每分片固定 NAT EIP 和 Secret 注入后实装、压测与灰度。
-上一完成任务：M2-015；Haolo 私有用户数据回退已升级为稳定用户分片、Redis 全局权重/公平预算、一次性 CONNECT permit、逐请求双层 TLS 和 429/418 原分片共享冷却，公共行情与私有 EIP 池也在部署模板中完全隔离。
+当前任务：等待 M2-013 所需境外生产基础设施后执行真实三网、压力、混沌、72 小时 soak 与灰度验收；本地可完成的国内 Binance 公共行情性能与 VPN 开关回归修复已全部收口。
+上一完成任务：M2-017；Haolo 行情网关现由 Node 原生 HTTPS 独立直连，不再继承 Electron 的系统代理或 VPN 残留状态，并具备 401 单次刷新重试与网关失败后的直连恢复兜底。
 专项执行计划：继续以本文、`docs/trading-strategy-skill-decoupling-plan.zh-CN.md` 和外部模型架构文档的权限边界为准。
 专项进度台账：本任务证据记录在本文 2026-08-17 日志；策略解耦后续任务继续写入 `docs/trading-strategy-skill-decoupling-progress.zh-CN.md`。
 并行任务：M1-071 至 M1-090 的已实现交互继续等待开发版确认；不得与策略解耦阶段混合提交。
 下一任务：取得境外服务器、公共域名和私有 shard 子域名/TLS/DNS 权限、托管 Redis、每分片固定 NAT EIP、镜像仓库和密钥管理入口，部署 M2-013 并执行 Redis Lua 真机、阶梯压力、三网、混沌、72 小时 soak 和分级灰度。
-当前阻塞：真实多 EIP 容量与故障切换验收仍依赖境外部署环境、私有出口分片子域名/TLS/DNS 接入、Redis、Haolo JWT/稳定分片哈希 Secret/独立监控 Token 的安全注入。本地没有 Docker、Kubernetes 或 Redis 运行时，无法执行镜像构建、Redis Lua 真机和集群实装；桌面全仓 2370 项中 2358 通过，剩余 12 项为与本任务无关且数量不变的旧源码契约失败。
+当前阻塞：真实多 EIP 容量与故障切换验收仍依赖境外部署环境、私有出口分片子域名/TLS/DNS 接入、Redis、Haolo JWT/稳定分片哈希 Secret/独立监控 Token 的安全注入。本地没有 Docker、Kubernetes 或 Redis 运行时，无法执行镜像构建、Redis Lua 真机和集群实装；桌面全仓 2385 项中 2373 通过，剩余 12 项与本轮改造前基线完全一致，本任务新增失败为 0。
 需要产品确认但不阻塞 M0/M1：首发是否保持 BTC/ETH 永续及 15m/1h/4h 默认范围；若调整，只修改首发范围，不改变核心架构。
 
 ## 21. 架构决策记录
@@ -1624,3 +1626,9 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 - 启动 M6-007 测试包预构建（不发布）：用户要求生成最新 Haolo Web3 Windows 测试包。`git fetch origin dev --prune` 后确认本地 `dev` 与 `origin/dev` 同为 `3129070`，保留并纳入当前未提交的 Web3 工作区改动；`C:\Users\Joie\Desktop\好咯最新安装包` 中最高安装包为 `0.1.169`，因此本轮目标版本为 `0.1.170`。范围限定为测试、类型检查、Renderer 构建、win-unpacked、ASAR/运行时校验、NSIS 安装包与哈希复制，明确使用 `-SkipUpload`，不写生产更新记录。
 - 完成 M6-007 测试包预构建（不发布）：版本由 `0.1.169` 递增到 `0.1.170`；`pnpm run typecheck`、Vite 168 modules production build、Electron `win-unpacked`、17 个 ASAR 运行时模块校验和 NSIS 构建全部通过。生成 `release/win-unpacked/haolo_desktop.exe`（210,974,208 bytes）与 `release/haolo_desktop-0.1.170-Setup.exe`（209,451,221 bytes，SHA-256 `80DAD33DF9A74ABE40EB3CB4BC2A549E80BD94EA5CE4481C18D533907FC431C4`）；安装包已复制到 `C:\Users\Joie\Desktop\好咯最新安装包`，源/副本大小及哈希一致。完整自动化套件为 2346 项中 2334 通过、12 项旧源码契约断言失败，失败集中在应用内确认数量、助手技能别名、旧画布退出入口、会话行主题、字号偏移、个人菜单、应用 Chrome 主题、预警模拟恢复、交易专家局部更新、分屏标题栏收藏和视频附件旧确认断言；类型检查与生产构建未受影响。`-SkipUpload` 生效，未生成 `app-update-release-0.1.170.json`，未写生产更新记录。
+
+### 2026-08-22
+
+- 启动 M2-016：用户要求一次性把国内 Binance 公共行情链路的四项性能优化做到极致。实现范围冻结为跨重启路由偏好与后台直连恢复探测、仅公共 GET 的 200ms 级延迟竞速、48 组 K 线持久化 stale-while-revalidate 缓存，以及缓存首显后由增量 REST 和 WebSocket 合并更新；私有账户、签名请求、交易和提现链路不参与竞速或缓存。
+- 完成 M2-016：主进程把现货/合约的公共与私有路由健康状态原子持久化到 `userData`，公共 GET 在直连启动 200ms 后以 Haolo 网关延迟竞速并中止败方，失败或慢路由记忆 30 分钟、每 45 秒后台探测直连恢复；WebSocket 在未知路径上同样只等待短探测窗口。Renderer 新增 48 组 LRU 紧凑 K 线持久化缓存，5 分钟内直接复用、7 天内 stale-while-revalidate，缓存首显后并发启动 WebSocket 并只分页补齐缺口，合并时保留历史、覆盖形成中 K 线并按 15 秒节流落盘。私有账户 GET 没有进入公共竞速，原有本地签名、重新校时/重签和 GET-only 边界保持不变。Binance 路由、缓存及 Trading Expert 专项 96/96 通过，TypeScript 与 Vite 169 modules production build 通过；全仓 2381 项中 2368 通过，12 项旧断言与基线一致，新增的插件资源同步并发失败隔离复跑 1/1 通过，因此本任务新增稳定失败为 0。未修改 UI/CSS，Trading Expert 亮暗主题专项断言继续通过。
+- 完成 M2-017：复现用户关闭 VPN 后 `binanceMarket:publicGet / net::ERR_CONNECTION_TIMED_OUT`。现场 DNS 与直连验证表明 Binance 直连在无 VPN 时超时，而 `market.youle.pro` 可不经代理直接到达；系统同时残留 `127.0.0.1:10809` 代理配置，原网关传输仍依赖运行时 `global fetch`，无法从实现边界上保证与 Electron/VPN 状态隔离。新增白名单限定的 Node 原生 HTTPS 传输，固定 IPv4、Keep-Alive、响应上限与 8 秒总超时，网关 REST、ticket、private permit 和 usage 全部复用该连接池；网关 HTTP 401 会强制刷新 Haolo 令牌并仅重试一次，持久化网关偏好本身失败时则立即回试直连并清除旧偏好。关闭 Electron 代理的等价全链路实测 ETH K 线 562ms，当前真实账号经新传输读取 500 根 ETH 1h K 线为 HTTP 200、70,123 bytes、705ms；专项 107/107、Youle 客户端扩展回归 125/125、TypeScript、Vite 169 modules production build通过，全仓 2385 项中 2373 通过，12 项旧失败与基线完全一致，新增失败 0。未修改 Renderer UI/CSS，亮暗主题契约不变。

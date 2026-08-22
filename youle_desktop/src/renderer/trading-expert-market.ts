@@ -101,6 +101,10 @@ import {
   renderTradingVolumeProfileLayer,
   type TradingVolumeProfile,
 } from "./trading-volume-profile.ts";
+import {
+  createTradingMarketCandleCache,
+  mergeTradingCandleBatches,
+} from "./trading-market-candle-cache.mjs";
 
 async function subscribeBinanceMarketStreams(
   marketType: Extract<TradingMarketType, "spot" | "perpetual">,
@@ -2709,16 +2713,24 @@ interface TradingCandleBatch {
   lastTradeId?: number;
 }
 
-const TRADING_MARKET_CANDLE_CACHE_MAX_AGE_MS = 5 * 60_000;
-const TRADING_MARKET_CANDLE_CACHE_MAX_ENTRIES = 24;
-
 interface TradingMarketCandleCacheEntry {
   cachedAt: number;
   stats: TradingMarketStats;
   candleBatch: TradingCandleBatch;
+  ageMs?: number;
+  isStale?: boolean;
 }
 
-const tradingMarketCandleCache = new Map<string, TradingMarketCandleCacheEntry>();
+function tradingMarketPersistentStorage() {
+  try { return window.localStorage; } catch { return null; }
+}
+
+const tradingMarketCandleCache = createTradingMarketCandleCache({
+  storage: tradingMarketPersistentStorage(),
+  maxEntries: 48,
+  maxCandles: 500,
+  maxSourceCandles: 1_500,
+});
 
 export function tradingMarketCandleCacheKey(input: {
   provider: string;
@@ -2732,35 +2744,11 @@ export function tradingMarketCandleCacheKey(input: {
     .join("|");
 }
 
-function cloneTradingCandleBatch(batch: TradingCandleBatch): TradingCandleBatch {
-  return {
-    candles: batch.candles.map((candle) => ({ ...candle })),
-    sourceCandles: batch.sourceCandles.map((candle) => ({ ...candle })),
-    source: { ...batch.source },
-    lastTradeId: batch.lastTradeId,
-  };
-}
-
-function cloneTradingMarketStats(stats: TradingMarketStats): TradingMarketStats {
-  return { ...stats };
-}
-
 export function getTradingMarketCandleCache(
   key: string,
   now = Date.now(),
 ) {
-  const entry = tradingMarketCandleCache.get(key);
-  if (!entry) return null;
-  if (now - entry.cachedAt > TRADING_MARKET_CANDLE_CACHE_MAX_AGE_MS) {
-    tradingMarketCandleCache.delete(key);
-    return null;
-  }
-  // Return copies so chart updates and live merges never mutate the cache.
-  return {
-    cachedAt: entry.cachedAt,
-    stats: cloneTradingMarketStats(entry.stats),
-    candleBatch: cloneTradingCandleBatch(entry.candleBatch),
-  };
+  return tradingMarketCandleCache.get(key, now) as TradingMarketCandleCacheEntry | null;
 }
 
 export function setTradingMarketCandleCache(
@@ -2768,17 +2756,7 @@ export function setTradingMarketCandleCache(
   snapshot: Pick<TradingMarketCandleCacheEntry, "stats" | "candleBatch">,
   cachedAt = Date.now(),
 ) {
-  tradingMarketCandleCache.delete(key);
-  tradingMarketCandleCache.set(key, {
-    cachedAt,
-    stats: cloneTradingMarketStats(snapshot.stats),
-    candleBatch: cloneTradingCandleBatch(snapshot.candleBatch),
-  });
-  while (tradingMarketCandleCache.size > TRADING_MARKET_CANDLE_CACHE_MAX_ENTRIES) {
-    const oldestKey = tradingMarketCandleCache.keys().next().value;
-    if (!oldestKey) break;
-    tradingMarketCandleCache.delete(oldestKey);
-  }
+  tradingMarketCandleCache.set(key, snapshot, cachedAt);
 }
 
 interface IndicatorSeriesRuntime {
@@ -2947,10 +2925,18 @@ async function fetchBinancePublicMarketData<T>(
   const request = window.codexDesktop?.getBinancePublicMarketData;
   if (typeof request !== "function") throw new Error("Binance market gateway is unavailable");
   if (signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
-  const pending = request({ marketType, path, parameters });
+  const requestId = signal
+    ? `renderer-market-rest-${Date.now().toString(36)}-${(++binancePublicMarketRequestSequence).toString(36)}`
+    : undefined;
+  const pending = request({ marketType, path, parameters, requestId });
   const response = signal
     ? await new Promise<Awaited<ReturnType<typeof request>>>((resolve, reject) => {
-      const abort = () => reject(new DOMException("The operation was aborted", "AbortError"));
+      const abort = () => {
+        if (requestId) {
+          void window.codexDesktop?.cancelBinancePublicMarketData?.({ requestId }).catch(() => {});
+        }
+        reject(new DOMException("The operation was aborted", "AbortError"));
+      };
       signal.addEventListener("abort", abort, { once: true });
       pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
     })
@@ -2963,6 +2949,8 @@ async function fetchBinancePublicMarketData<T>(
   }
   return response.data as T;
 }
+
+let binancePublicMarketRequestSequence = 0;
 
 function fetchBinanceMarket<T>(
   marketType: Extract<TradingMarketType, "perpetual" | "spot">,
@@ -3127,16 +3115,88 @@ export function tradingAlertAnnotationRightPaddingBars(
   )));
 }
 
-export async function fetchTradingMarkets() {
-  const [futuresExchangeInfo, futuresTickers, spotExchangeInfo, spotTickers] = await Promise.all([
-    fetchBinanceFutures<BinanceExchangeInfo>("/fapi/v1/exchangeInfo"),
-    fetchBinanceFutures<BinanceTicker24h[]>("/fapi/v1/ticker/24hr"),
-    fetchBinanceSpot<BinanceExchangeInfo>("/api/v3/exchangeInfo", {
-      permissions: "SPOT",
-      symbolStatus: "TRADING",
-    }),
-    fetchBinanceSpot<BinanceTicker24h[]>("/api/v3/ticker/24hr", { type: "MINI" }),
-  ]);
+function futuresExchangeSymbolsFromTickers(tickers: BinanceTicker24h[]): BinanceExchangeSymbol[] {
+  return tickers.flatMap((ticker) => {
+    const symbol = String(ticker.symbol || "").trim().toUpperCase();
+    if (!symbol.endsWith(MARKET_QUOTE) || symbol.length <= MARKET_QUOTE.length) return [];
+    return [{
+      symbol,
+      baseAsset: symbol.slice(0, -MARKET_QUOTE.length),
+      quoteAsset: MARKET_QUOTE,
+      contractType: "PERPETUAL",
+      status: "TRADING",
+    }];
+  });
+}
+
+function spotExchangeSymbolsFromTickers(tickers: BinanceTicker24h[]): BinanceExchangeSymbol[] {
+  return tickers.flatMap((ticker) => {
+    const symbol = String(ticker.symbol || "").trim().toUpperCase();
+    if (!symbol.endsWith(MARKET_QUOTE) || symbol.length <= MARKET_QUOTE.length) return [];
+    return [{
+      symbol,
+      baseAsset: symbol.slice(0, -MARKET_QUOTE.length),
+      quoteAsset: MARKET_QUOTE,
+      status: "TRADING",
+      isSpotTradingAllowed: true,
+    }];
+  });
+}
+
+export async function fetchTradingMarkets(options: { fast?: boolean } = {}) {
+  // These four responses are the largest public-market payloads. Sending them
+  // together can saturate a cold domestic-gateway connection and starve the
+  // selected chart. Load them deliberately in sequence; ticker snapshots are
+  // optional, while either exchange catalog is sufficient to keep search usable.
+  let firstCatalogError: unknown = null;
+  const optionalCatalogRequest = async <T>(
+    request: (signal?: AbortSignal) => Promise<T>,
+    fallback: T,
+    timeoutMs = 0,
+  ) => {
+    const controller = timeoutMs > 0 ? new AbortController() : null;
+    const timer = controller
+      ? setTimeout(() => controller.abort(new DOMException("Catalog request timed out", "TimeoutError")), timeoutMs)
+      : null;
+    try {
+      return await request(controller?.signal);
+    } catch (error) {
+      firstCatalogError ||= error;
+      return fallback;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+  const futuresTickers = await optionalCatalogRequest(
+    () => fetchBinanceFutures<BinanceTicker24h[]>("/fapi/v1/ticker/24hr"),
+    [],
+  );
+  const futuresExchangeInfo = options.fast
+    ? { symbols: futuresExchangeSymbolsFromTickers(futuresTickers) }
+    : await optionalCatalogRequest(
+      (signal) => fetchBinanceFutures<BinanceExchangeInfo>("/fapi/v1/exchangeInfo", {}, signal),
+      { symbols: futuresExchangeSymbolsFromTickers(futuresTickers) },
+      15_000,
+    );
+  const spotTickers = options.fast
+    ? []
+    : await optionalCatalogRequest(
+      () => fetchBinanceSpot<BinanceTicker24h[]>("/api/v3/ticker/24hr", { type: "MINI" }),
+      [],
+    );
+  const spotExchangeInfo = options.fast
+    ? { symbols: [] }
+    : await optionalCatalogRequest(
+      (signal) => fetchBinanceSpot<BinanceExchangeInfo>("/api/v3/exchangeInfo", {
+        permissions: "SPOT",
+        symbolStatus: "TRADING",
+      }, signal),
+      { symbols: spotExchangeSymbolsFromTickers(spotTickers) },
+      15_000,
+    );
+  if (!(futuresExchangeInfo.symbols?.length || spotExchangeInfo.symbols?.length || futuresTickers.length || spotTickers.length)) {
+    throw firstCatalogError || new Error("Binance market catalog is unavailable");
+  }
   const futuresTickerBySymbol = new Map(
     futuresTickers.map((ticker) => [String(ticker.symbol || ""), ticker]),
   );
@@ -3268,11 +3328,12 @@ export async function fetchTradingCandles(
   count = 500,
   endTime = Date.now(),
   marketType: Extract<TradingMarketType, "perpetual" | "spot"> = "perpetual",
+  signal?: AbortSignal,
 ): Promise<TradingCandleBatch> {
   const source = binanceResolutionSource(resolution);
   if (!source) throw new Error(`Unsupported TradingView resolution: ${resolution}`);
   if (!source.sourceInterval || !source.sourceMs) {
-    const trades = await fetchBinanceAggregateTrades(symbol, marketType, { endTime });
+    const trades = await fetchBinanceAggregateTrades(symbol, marketType, { endTime }, signal);
     return {
       candles: aggregateBinanceTrades(trades, source.targetMs).slice(-count),
       sourceCandles: [],
@@ -3286,12 +3347,19 @@ export async function fetchTradingCandles(
   let sourceCandles: TradingCandle[] = [];
   for (let page = 0; page < 10 && remaining > 0; page += 1) {
     const limit = Math.min(remaining, marketType === "spot" ? 1_000 : 1_500);
+    const currentMs = Date.now();
+    const latestPage = page === 0
+      && cursor >= currentMs - 60_000
+      && cursor <= currentMs + 5_000;
     const items = await fetchBinanceMarket<unknown[][]>(marketType, "/fapi/v1/klines", "/api/v3/klines", {
       symbol,
       interval: source.sourceInterval,
-      endTime: cursor,
+      // Binance already defaults to the latest closed/forming candles. Omitting
+      // a near-now timestamp gives every client the same cache key instead of
+      // forcing a unique domestic-gateway miss on every screen load.
+      endTime: latestPage ? undefined : cursor,
       limit,
-    });
+    }, signal);
     const batch = normalizeBinanceCandles(items);
     if (!batch.length) break;
     sourceCandles = mergeCandles(batch, sourceCandles);
@@ -3391,13 +3459,14 @@ async function fetchBinanceAggregateTrades(
   symbol: string,
   marketType: Extract<TradingMarketType, "perpetual" | "spot">,
   options: { endTime?: number; fromId?: number } = {},
+  signal?: AbortSignal,
 ) {
   return fetchBinanceMarket<BinanceAggregateTrade[]>(marketType, "/fapi/v1/aggTrades", "/api/v3/aggTrades", {
     symbol,
     endTime: options.endTime === undefined ? undefined : Math.floor(options.endTime),
     fromId: options.fromId,
     limit: 1_000,
-  });
+  }, signal);
 }
 
 function binanceOpenInterestPeriod(resolution: string) {
@@ -3738,13 +3807,26 @@ async function fetchLatestTradingCandles(
   sourceStartTime?: number,
   fromTradeId?: number,
   marketType: Extract<TradingMarketType, "perpetual" | "spot"> = "perpetual",
+  signal?: AbortSignal,
 ): Promise<TradingCandleBatch> {
   const source = binanceResolutionSource(resolution);
   if (!source) throw new Error(`Unsupported TradingView resolution: ${resolution}`);
   if (!source.sourceInterval || !source.sourceMs) {
-    const trades = await fetchBinanceAggregateTrades(symbol, marketType, fromTradeId
-      ? { fromId: fromTradeId }
-      : { endTime: Date.now() });
+    let trades: BinanceAggregateTrade[] = [];
+    let nextTradeId = fromTradeId;
+    for (let page = 0; page < (fromTradeId ? 4 : 1); page += 1) {
+      const batch = await fetchBinanceAggregateTrades(symbol, marketType, nextTradeId
+        ? { fromId: nextTradeId }
+        : { endTime: Date.now() }, signal);
+      if (!batch.length) break;
+      const byId = new Map(trades.map((trade) => [Number(trade.a), trade]));
+      batch.forEach((trade) => byId.set(Number(trade.a), trade));
+      trades = [...byId.values()].sort((first, second) => Number(first.a) - Number(second.a));
+      if (batch.length < 1_000) break;
+      const lastId = Number(batch.at(-1)?.a || 0);
+      if (!Number.isFinite(lastId) || lastId < 1) break;
+      nextTradeId = lastId + 1;
+    }
     return {
       candles: aggregateBinanceTrades(trades, source.targetMs),
       sourceCandles: [],
@@ -3752,13 +3834,25 @@ async function fetchLatestTradingCandles(
       lastTradeId: Number(trades.at(-1)?.a || 0) || undefined,
     };
   }
-  const items = await fetchBinanceMarket<unknown[][]>(marketType, "/fapi/v1/klines", "/api/v3/klines", {
-    symbol,
-    interval: source.sourceInterval,
-    startTime: sourceStartTime,
-    limit: sourceStartTime === undefined ? 2 : marketType === "spot" ? 1_000 : 1_500,
-  });
-  const sourceCandles = normalizeBinanceCandles(items);
+  const limit = sourceStartTime === undefined ? 2 : marketType === "spot" ? 1_000 : 1_500;
+  const maxPages = sourceStartTime === undefined ? 1 : 4;
+  let cursor = sourceStartTime;
+  let sourceCandles: TradingCandle[] = [];
+  for (let page = 0; page < maxPages; page += 1) {
+    const items = await fetchBinanceMarket<unknown[][]>(marketType, "/fapi/v1/klines", "/api/v3/klines", {
+      symbol,
+      interval: source.sourceInterval,
+      startTime: cursor,
+      limit,
+    }, signal);
+    const batch = normalizeBinanceCandles(items);
+    if (!batch.length) break;
+    sourceCandles = mergeCandles(sourceCandles, batch);
+    if (batch.length < limit || cursor === undefined) break;
+    const nextCursor = batch.at(-1)!.time * 1_000 + source.sourceMs;
+    if (nextCursor <= cursor || nextCursor > Date.now()) break;
+    cursor = nextCursor;
+  }
   return {
     candles: source.sourceMs === source.targetMs
       ? sourceCandles
@@ -3766,6 +3860,20 @@ async function fetchLatestTradingCandles(
     sourceCandles,
     source,
   };
+}
+
+export function tradingCandleBatchCanRefreshIncrementally(
+  batch: TradingCandleBatch,
+  now = Date.now(),
+  maxMissingSourceCandles = 4_000,
+) {
+  const source = batch.source;
+  const latest = (source.sourceInterval ? batch.sourceCandles.at(-1) : null)
+    || batch.candles.at(-1);
+  const stepMs = Number(source.sourceMs || source.targetMs || 0);
+  if (!latest || stepMs <= 0) return false;
+  const missing = Math.max(0, Math.ceil((now - latest.time * 1_000) / stepMs));
+  return missing <= Math.max(1, Math.floor(maxMissingSourceCandles));
 }
 
 export function atm1TrendCandles(
@@ -4399,6 +4507,8 @@ class TradingExpertMarketWorkspace {
   private liveChartPaintTimer: number | null = null;
   private liveChartPaintFrame: number | null = null;
   private lastLiveChartFullRefreshAt = 0;
+  private candleCachePersistTimer: number | null = null;
+  private lastCandleCachePersistAt = 0;
   private alertDrawingSyncTimer: number | null = null;
   private reconnectTimer: number | null = null;
   private marketRateLimitRetryTimer: number | null = null;
@@ -4416,6 +4526,7 @@ class TradingExpertMarketWorkspace {
   private candlePollTimer: number | null = null;
   private refreshingSnapshotGeneration: number | null = null;
   private refreshingLiveCandleGeneration: number | null = null;
+  private marketDataRequestAbortController: AbortController | null = null;
   private loadGeneration = 0;
   private loadingHistory = false;
   private historyCooldownTimer: number | null = null;
@@ -4592,10 +4703,14 @@ class TradingExpertMarketWorkspace {
     this.applySplitLayout();
     this.updateCountdown();
     this.countdownTimer = window.setInterval(() => this.updateCountdown(), 1000);
-    void this.loadMarkets();
     void this.loadFinnhubStatus();
     void this.loadIfindStatus();
-    void this.restartMarketData();
+    // The selected chart is the critical rendering path. Only start the four
+    // large Binance catalogs after it settles so a cold gateway cannot starve
+    // the candles the user is waiting to see.
+    void this.restartMarketData().finally(() => {
+      if (!this.disposed) void this.loadMarkets();
+    });
   }
 
   private requireElement<T extends Element = HTMLElement>(selector: string) {
@@ -7081,9 +7196,9 @@ class TradingExpertMarketWorkspace {
     });
   }
 
-  private async loadMarkets() {
+  private async loadMarkets(options: { complete?: boolean } = {}) {
     try {
-      this.markets = await fetchTradingMarkets();
+      this.markets = await fetchTradingMarkets({ fast: options.complete !== true });
       let migratedFavorites = false;
       const preferredBinanceBySymbol = new Map<string, TradingMarket>();
       this.markets.forEach((market) => {
@@ -7137,6 +7252,11 @@ class TradingExpertMarketWorkspace {
         this.renderMarkets();
         this.renderFavoriteTickerBar();
         this.syncFavoriteTickerStreams();
+        if (options.complete !== true) {
+          window.setTimeout(() => {
+            if (!this.disposed) void this.loadMarkets({ complete: true });
+          }, 0);
+        }
       }
     } catch (error) {
       console.error("加载交易币种失败", error);
@@ -10637,6 +10757,47 @@ class TradingExpertMarketWorkspace {
     this.syncAlertSimulationForCurrentContext();
   }
 
+  private currentMarketCandleCacheKey() {
+    return tradingMarketCandleCacheKey({
+      provider: this.loadedProvider,
+      symbol: this.loadedSymbol,
+      assetClass: this.loadedAssetClass,
+      interval: this.loadedInterval,
+      marketType: this.loadedMarketType,
+    });
+  }
+
+  private persistCurrentMarketCandleSnapshot() {
+    if (!this.stats || !this.candles.length || !this.loadedSymbol || !this.loadedInterval) return;
+    const source = this.loadedProvider === "binance"
+      ? binanceResolutionSource(this.loadedInterval)
+      : {
+          targetMs: tradingViewResolutionDurationMs(this.loadedInterval) || 60_000,
+          sourceInterval: null,
+          sourceMs: null,
+        };
+    if (!source) return;
+    setTradingMarketCandleCache(this.currentMarketCandleCacheKey(), {
+      stats: this.stats,
+      candleBatch: {
+        candles: this.candles,
+        sourceCandles: this.sourceCandles,
+        source,
+        lastTradeId: this.lastAggregateTradeId ?? undefined,
+      },
+    });
+    this.lastCandleCachePersistAt = Date.now();
+  }
+
+  private scheduleCurrentMarketCandlePersistence() {
+    if (this.disposed || this.candleCachePersistTimer !== null) return;
+    const delayMs = Math.max(1_500, 15_000 - (Date.now() - this.lastCandleCachePersistAt));
+    this.candleCachePersistTimer = window.setTimeout(() => {
+      this.candleCachePersistTimer = null;
+      if (!this.disposed) this.persistCurrentMarketCandleSnapshot();
+    }, delayMs);
+  }
+
   private async prefetchFavoriteCandleSnapshots() {
     if (this.favoriteCandlePrefetchStarted || this.disposed) return;
     this.favoriteCandlePrefetchStarted = true;
@@ -10680,6 +10841,10 @@ class TradingExpertMarketWorkspace {
 
   private async restartMarketData(options: { preserveChart?: boolean } = {}) {
     const generation = ++this.loadGeneration;
+    this.marketDataRequestAbortController?.abort();
+    const marketDataRequestAbortController = new AbortController();
+    this.marketDataRequestAbortController = marketDataRequestAbortController;
+    const marketDataRequestSignal = marketDataRequestAbortController.signal;
     const targetSymbol = this.selectedSymbol;
     const targetMarketId = this.selectedMarketId;
     const targetProvider = this.selectedProvider;
@@ -10699,6 +10864,7 @@ class TradingExpertMarketWorkspace {
       && cachedSnapshot.candleBatch.candles.length > 0
       && tradingCandleSeriesMatchesResolution(cachedSnapshot.candleBatch.candles, targetInterval);
     let cachedSnapshotApplied = false;
+    let binanceSocketStarted = false;
     const keepChart = options.preserveChart === true && this.candles.length > 0;
     if (this.marketRateLimitRetryTimer !== null) {
       window.clearTimeout(this.marketRateLimitRetryTimer);
@@ -10712,6 +10878,11 @@ class TradingExpertMarketWorkspace {
     if (this.historyCooldownTimer !== null) {
       window.clearTimeout(this.historyCooldownTimer);
       this.historyCooldownTimer = null;
+    }
+    if (this.candleCachePersistTimer !== null) {
+      window.clearTimeout(this.candleCachePersistTimer);
+      this.candleCachePersistTimer = null;
+      this.persistCurrentMarketCandleSnapshot();
     }
     this.closeSocket();
     this.cancelScheduledLiveChartPaint();
@@ -10757,6 +10928,13 @@ class TradingExpertMarketWorkspace {
       cachedSnapshotApplied = true;
       this.setLoading(false);
     }
+    if (targetProvider === "binance") {
+      // Establish realtime delivery in parallel with REST history. Cached charts
+      // can therefore receive the forming candle immediately instead of waiting
+      // for a full history refresh to finish first.
+      void this.connectSocket(generation);
+      binanceSocketStarted = true;
+    }
     try {
       const { stats, candleBatch } = targetProvider === "finnhub"
         ? await this.fetchFinnhubSnapshot(targetSymbol, targetAssetClass, targetInterval, 500)
@@ -10770,13 +10948,33 @@ class TradingExpertMarketWorkspace {
             // panes. The background alert service uses Node networking and must
             // not become the chart's history transport or period switching can
             // silently fail behind a cached previous interval.
-            const candleBatch = await fetchTradingCandles(
-              targetSymbol,
-              targetInterval,
-              500,
-              Date.now(),
-              targetMarketType === "spot" ? "spot" : "perpetual",
-            );
+            const cachedBatch = cachedSnapshotUsable ? cachedSnapshot.candleBatch : null;
+            const canRefreshIncrementally = cachedBatch
+              ? tradingCandleBatchCanRefreshIncrementally(cachedBatch)
+              : false;
+            const candleBatch = cachedBatch && canRefreshIncrementally
+              ? mergeTradingCandleBatches(
+                  cachedBatch,
+                  await fetchLatestTradingCandles(
+                    targetSymbol,
+                    targetInterval,
+                    cachedBatch.sourceCandles.at(-1)?.time === undefined
+                      ? undefined
+                      : cachedBatch.sourceCandles.at(-1)!.time * 1_000,
+                    cachedBatch.lastTradeId === undefined ? undefined : cachedBatch.lastTradeId + 1,
+                    targetMarketType === "spot" ? "spot" : "perpetual",
+                    marketDataRequestSignal,
+                  ),
+                  { candleLimit: 500 },
+                ) as TradingCandleBatch
+              : await fetchTradingCandles(
+                  targetSymbol,
+                  targetInterval,
+                  500,
+                  Date.now(),
+                  targetMarketType === "spot" ? "spot" : "perpetual",
+                  marketDataRequestSignal,
+                );
             if (!candleBatch.candles.length) throw new Error("未返回可用 K 线数据");
             if (!tradingCandleSeriesMatchesResolution(candleBatch.candles, targetInterval)) {
               throw new Error(`返回的 K 线周期与所选周期 ${targetInterval} 不一致`);
@@ -10784,7 +10982,29 @@ class TradingExpertMarketWorkspace {
             const stats = tradingMarketStatsFromCandles(targetSymbol, candleBatch.candles);
             return { stats, candleBatch };
           })();
-      setTradingMarketCandleCache(candleCacheKey, { stats, candleBatch });
+      let finalCandleBatch = candleBatch;
+      if (
+        targetProvider === "binance"
+        && generation === this.loadGeneration
+        && this.loadedMarketId === targetMarketId
+        && this.loadedInterval === targetInterval
+        && this.candles.length
+      ) {
+        const liveSource = binanceResolutionSource(targetInterval);
+        if (liveSource) {
+          finalCandleBatch = mergeTradingCandleBatches(candleBatch, {
+            candles: this.candles,
+            sourceCandles: this.sourceCandles,
+            source: liveSource,
+            lastTradeId: this.lastAggregateTradeId ?? undefined,
+          }, { candleLimit: 500 }) as TradingCandleBatch;
+        }
+      }
+      const finalStats = targetProvider === "binance"
+        ? tradingMarketStatsFromCandles(targetSymbol, finalCandleBatch.candles)
+        : stats;
+      setTradingMarketCandleCache(candleCacheKey, { stats: finalStats, candleBatch: finalCandleBatch });
+      this.lastCandleCachePersistAt = Date.now();
       if (this.disposed || generation !== this.loadGeneration) return;
       this.commitMarketSnapshot(
         targetSymbol,
@@ -10794,8 +11014,8 @@ class TradingExpertMarketWorkspace {
         targetMarketType,
         targetMarketMeta,
         targetInterval,
-        stats,
-        candleBatch,
+        finalStats,
+        finalCandleBatch,
       );
       this.setLoading(false);
     } catch (error) {
@@ -10845,9 +11065,10 @@ class TradingExpertMarketWorkspace {
     }
     if (this.disposed || generation !== this.loadGeneration) return;
     if (this.candles.length) void this.prefetchFavoriteCandleSnapshots();
-    if (this.selectedProvider === "binance") {
+    if (this.selectedProvider === "binance" && !binanceSocketStarted) {
       this.connectSocket(generation);
     }
+    if (this.selectedProvider === "binance") void this.refreshSnapshot(generation);
     this.pollTimer = window.setInterval(() => void this.refreshSnapshot(generation), 30_000);
     this.candlePollTimer = window.setInterval(
       () => this.refreshMarketDataFallback(generation),
@@ -10889,6 +11110,7 @@ class TradingExpertMarketWorkspace {
           prevDayPrice: Number(quote.previousClose || this.stats.prevDayPrice),
         };
         this.updateStatsUi();
+        this.scheduleCurrentMarketCandlePersistence();
         return;
       }
       const stats = await fetchTradingMarketStats(
@@ -10898,6 +11120,7 @@ class TradingExpertMarketWorkspace {
       if (this.disposed || generation !== this.loadGeneration) return;
       this.stats = stats;
       this.updateStatsUi();
+      this.scheduleCurrentMarketCandlePersistence();
     } catch {
       // WebSocket is the primary stream; a failed fallback poll is non-fatal.
     } finally {
@@ -10929,6 +11152,7 @@ class TradingExpertMarketWorkspace {
         this.candles = mergeCandles(this.candles, this.normalizeRemoteCandles(response.candles));
         if (this.candles.length) this.commitLoadedSelection();
         this.updateChartData({ resetViewport: recovering });
+        this.scheduleCurrentMarketCandlePersistence();
         return;
       }
       const sourceStartTime = this.sourceCandles.at(-1)?.time;
@@ -10938,6 +11162,7 @@ class TradingExpertMarketWorkspace {
         sourceStartTime === undefined ? undefined : sourceStartTime * 1000,
         this.lastAggregateTradeId === null ? undefined : this.lastAggregateTradeId + 1,
         this.selectedMarketType === "spot" ? "spot" : "perpetual",
+        this.marketDataRequestAbortController?.signal,
       );
       if (this.disposed || generation !== this.loadGeneration) return;
       if (batch.lastTradeId !== undefined) {
@@ -10957,6 +11182,7 @@ class TradingExpertMarketWorkspace {
       }
       if (this.candles.length) this.commitLoadedSelection();
       this.updateChartData({ resetViewport: recovering });
+      this.scheduleCurrentMarketCandlePersistence();
     } catch {
       // Production WebSocket remains primary; REST polling is a best-effort fallback.
     } finally {
@@ -11011,6 +11237,7 @@ class TradingExpertMarketWorkspace {
         nextFundingTime: Number(payload.T || this.stats.nextFundingTime),
       };
       this.updateStatsUi();
+      this.scheduleCurrentMarketCandlePersistence();
       return;
     }
     if (payload.e === "24hrTicker" && this.stats) {
@@ -11023,6 +11250,7 @@ class TradingExpertMarketWorkspace {
         volume24h: Number(payload.q || this.stats.volume24h),
       };
       this.updateStatsUi();
+      this.scheduleCurrentMarketCandlePersistence();
       return;
     }
     if (payload.e === "kline" && payload.k) {
@@ -11051,6 +11279,7 @@ class TradingExpertMarketWorkspace {
     this.applyLiveSourceCandle(incoming, source);
     this.commitLoadedSelection();
     this.scheduleLiveChartPaint();
+    this.scheduleCurrentMarketCandlePersistence();
   }
 
   private upsertLiveCandle(candles: TradingCandle[], incoming: TradingCandle) {
@@ -11119,6 +11348,7 @@ class TradingExpertMarketWorkspace {
       this.applyLiveSourceCandle(incoming, source);
       this.commitLoadedSelection();
       this.scheduleLiveChartPaint();
+      this.scheduleCurrentMarketCandlePersistence();
       return;
     }
     const time = Math.floor(timeMs / source.targetMs) * source.targetMs / 1000;
@@ -11152,6 +11382,7 @@ class TradingExpertMarketWorkspace {
     }
     this.commitLoadedSelection();
     this.scheduleLiveChartPaint();
+    this.scheduleCurrentMarketCandlePersistence();
   }
 
   private scheduleLiveChartPaint() {
@@ -12723,6 +12954,7 @@ class TradingExpertMarketWorkspace {
         interval: targetInterval,
         count: 300,
         endTime: oldestTime - 1,
+        signal: this.marketDataRequestAbortController?.signal,
       });
       if (
         !this.disposed
@@ -12756,6 +12988,7 @@ class TradingExpertMarketWorkspace {
     interval: string;
     count: number;
     endTime: number;
+    signal?: AbortSignal;
   }): Promise<TradingCandleBatch> {
     if (options.provider === "binance") {
       return fetchTradingCandles(
@@ -12764,6 +12997,7 @@ class TradingExpertMarketWorkspace {
         options.count,
         options.endTime,
         options.marketType === "spot" ? "spot" : "perpetual",
+        options.signal,
       );
     }
     const api = options.provider === "ifind"
@@ -12840,6 +13074,8 @@ class TradingExpertMarketWorkspace {
     if (this.disposed) return;
     this.disposed = true;
     this.loadGeneration += 1;
+    this.marketDataRequestAbortController?.abort();
+    this.marketDataRequestAbortController = null;
     this.marketListRenderGeneration += 1;
     this.favoriteTickerGeneration += 1;
     this.detachAlertSimulation();
@@ -12850,6 +13086,11 @@ class TradingExpertMarketWorkspace {
     if (this.countdownTimer !== null) window.clearInterval(this.countdownTimer);
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.candlePollTimer !== null) window.clearInterval(this.candlePollTimer);
+    if (this.candleCachePersistTimer !== null) {
+      window.clearTimeout(this.candleCachePersistTimer);
+      this.candleCachePersistTimer = null;
+      this.persistCurrentMarketCandleSnapshot();
+    }
     if (this.alertDrawingSyncTimer !== null) window.clearTimeout(this.alertDrawingSyncTimer);
     if (this.historyCooldownTimer !== null) window.clearTimeout(this.historyCooldownTimer);
     if (this.finnhubSearchTimer !== null) window.clearTimeout(this.finnhubSearchTimer);

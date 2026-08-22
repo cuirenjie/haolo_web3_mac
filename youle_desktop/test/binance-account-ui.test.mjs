@@ -407,10 +407,13 @@ test("account re-entry keeps the last successful snapshot and rate-limits automa
   assert.match(loader, /账户数据暂时未更新，仍显示上次成功数据/);
   assert.doesNotMatch(loader, /accountState\.snapshot = null/);
   assert.match(renderer, /tradingExpertLayout[\s\S]*!state\.binanceAccount\.loaded[\s\S]*!state\.binanceAccount\.loading[\s\S]*!binanceAccountLoadPromise[\s\S]*Date\.now\(\) >= state\.binanceAccount\.autoRefreshAfter/);
-  assert.match(renderer, /getBinanceAccountSnapshot\(\{ force: true \}\)/);
+  assert.match(renderer, /getBinanceAccountSnapshot\(\{[\s\S]*force: true,[\s\S]*live: true,[\s\S]*summary: true,[\s\S]*\}\)/);
+  assert.match(renderer, /progressivelyRefreshBinanceAccountSnapshot[\s\S]*\{ force: true, live: true \}[\s\S]*\{ force: true, live: false \}/);
+  assert.match(renderer, /accountState\.refreshing = false;[\s\S]*renderBinanceAccountLiveUpdate\(\);[\s\S]*progressivelyRefreshBinanceAccountSnapshot/);
   assert.match(preload, /async function invokeBinanceAccountSnapshot[\s\S]*ipcRenderer\.invoke\("binanceAccount:getSnapshot", params\)[\s\S]*error\.retryAfterMs = retryAfterMs/);
   assert.match(preload, /getBinanceAccountSnapshot: \(params\) => invokeBinanceAccountSnapshot\(params\)/);
-  assert.match(desktopMain, /snapshot\(owner\.ownerId, \{[\s\S]*force: params\?\.force === true,[\s\S]*live: params\?\.live === true[\s\S]*return \{ ok: true, snapshot \}/);
+  assert.match(desktopMain, /const requestOptions = \{[\s\S]*force: params\?\.force === true,[\s\S]*live: params\?\.live === true,[\s\S]*summary: params\?\.summary === true/);
+  assert.match(desktopMain, /snapshot\(owner\.ownerId, requestOptions\)[\s\S]*elapsedMs: Date\.now\(\) - startedAt/);
   assert.match(desktopMain, /error\?\.code !== "BINANCE_RATE_LIMITED"[\s\S]*retryAfterMs: Number\.isFinite\(error\?\.retryAfterMs\)/);
 });
 
@@ -433,7 +436,7 @@ test("visible account surfaces refresh at scoped intervals and honor bootstrap p
   assert.match(liveRefresh, /function resumeBinanceAccountLiveRefresh\(\)[\s\S]*Math\.max\(0, binanceAccountLiveRetryAfter - Date\.now\(\)\)/);
   assert.match(liveRefresh, /window\.setTimeout\([\s\S]*silentlyRefreshBinanceAccountSnapshot/);
   assert.match(liveRefresh, /binanceAccountLoadPromise[\s\S]*state\.binanceAccount\.refreshing[\s\S]*state\.binanceAccount\.dialog\.open/);
-  assert.match(liveRefresh, /const liveOnly = Date\.now\(\) < binanceAccountFullRefreshAfter/);
+  assert.match(liveRefresh, /const calendarVisible = accountState\.activeSection === "profit-calendar"[\s\S]*const liveOnly = calendarVisible \|\| Date\.now\(\) < binanceAccountFullRefreshAfter/);
   assert.match(liveRefresh, /getBinanceAccountSnapshot!\(\{ force: true, live: liveOnly \}\)/);
   assert.match(liveRefresh, /if \(!liveOnly && !reusedStaleSnapshot\)[\s\S]*binanceAccountFullRefreshAfter = Date\.now\(\) \+ BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS/);
   assert.match(liveRefresh, /BINANCE_ACCOUNT_LIVE_RETRY_MAX_INTERVAL_MS[\s\S]*BINANCE_ACCOUNT_LIVE_RETRY_BASE_INTERVAL_MS/);
@@ -480,7 +483,8 @@ test("renderer bridge reuses Haolo OTP and exposes no order or credential-read I
   assert.match(renderer, /action === "next-profit-month"[\s\S]*navigateBinanceAccountProfitCalendar\(1\)/);
   assert.match(renderer, /nextMonth > currentBinanceAccountProfitCalendarMonth\(\)/);
   assert.match(preload, /getBinanceAccountProfitCalendar: \(params\) => invokeBinanceAccountProfitCalendar\(params\)/);
-  assert.match(binanceHandlers, /profitCalendar\(owner\.ownerId, \{[\s\S]*month: params\?\.month,[\s\S]*force: params\?\.force === true/);
+  assert.match(binanceHandlers, /const force = params\?\.force === true[\s\S]*profitCalendar\(owner\.ownerId, \{[\s\S]*month: params\?\.month,[\s\S]*force,/);
+  assert.match(desktopMain, /profitCalendarFetch:[\s\S]*BINANCE_REQUEST_PRIORITIES\.accountInteractive/);
   assert.match(renderer, /confirmBinanceAccountRemoval[\s\S]*confirmInApp[\s\S]*resetBinanceAccountDialog\(state\.binanceAccount, "remove"\)[\s\S]*sendBinanceAccountOtp\(\)/);
   assert.match(renderer, /removeBinanceAccount\(\{[\s\S]*challengeId: dialog\.challengeId,[\s\S]*code: dialog\.code\.trim\(\)/);
   const removalHandler = binanceHandlers.slice(binanceHandlers.indexOf('ipcMain.handle("binanceAccount:remove"'));

@@ -112,6 +112,29 @@ test("public market gateway preserves shared cooldown status and Retry-After", a
   });
 });
 
+test("main-process public service can delegate its deadline and honor renderer cancellation", async () => {
+  let receivedSignal = null;
+  const service = new BinancePublicMarketService({
+    timeoutMs: 0,
+    fetch: async (_url, init) => {
+      receivedSignal = init.signal;
+      return new Promise((resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+      });
+    },
+  });
+  const controller = new AbortController();
+  const pending = service.request({
+    marketType: "futures",
+    path: "/fapi/v1/klines",
+    parameters: { symbol: "ZECUSDT", interval: "4h", limit: 500 },
+  }, { signal: controller.signal });
+  await Promise.resolve();
+  assert.equal(receivedSignal, controller.signal);
+  controller.abort(new DOMException("superseded", "AbortError"));
+  await assert.rejects(pending, (error) => error?.name === "AbortError");
+});
+
 test("renderer market REST is authenticated IPC-only and shares the main governor", async () => {
   const { readFile } = await import("node:fs/promises");
   const [main, preload, renderer] = await Promise.all([
@@ -122,6 +145,14 @@ test("renderer market REST is authenticated IPC-only and shares the main governo
   assert.match(main, /ipcMain\.handle\("binanceMarket:publicGet"[\s\S]*assertExternalModelsIpcSender\(event\)[\s\S]*getBinancePublicMarketService\(\)\.request/);
   assert.match(main, /new BinancePublicMarketService\([\s\S]*getBinanceRequestGovernor\(\)\.fetch\([\s\S]*router\.publicFetch\.bind\(router\)/);
   assert.match(preload, /getBinancePublicMarketData: \(params\) => ipcRenderer\.invoke\("binanceMarket:publicGet", params\)/);
+  assert.match(preload, /cancelBinancePublicMarketData: \(params\) => ipcRenderer\.invoke\("binanceMarket:publicCancel", params\)/);
+  assert.match(main, /new BinancePublicMarketService\([\s\S]*timeoutMs: 0/);
+  assert.match(main, /metadataRequest \? 50_000 : chartRequest \? 50_000 : 30_000/);
+  assert.match(main, /pathname\.endsWith\("\/ticker\/24hr"\) && !requestUrl\.searchParams\.has\("symbol"\)/);
+  assert.match(main, /BINANCE_REQUEST_PRIORITIES\.metadata/);
+  assert.match(main, /binancePublicRequestCoordinator\.begin\(ownerId, requestId\)/);
+  assert.match(renderer, /marketDataRequestAbortController\?\.abort\(\)/);
+  assert.match(renderer, /cancelBinancePublicMarketData/);
   assert.match(renderer, /window\.codexDesktop\?\.getBinancePublicMarketData/);
   assert.doesNotMatch(renderer, /fetch\(url, \{ cache: "no-store", signal \}\)/);
 });

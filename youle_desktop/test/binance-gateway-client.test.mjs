@@ -48,3 +48,29 @@ test("gateway client keeps Haolo JWT in main process and exposes only one-use WS
   });
   assert.doesNotMatch(endpoint, /trusted-access-token/);
 });
+
+test("gateway client refreshes an expired Haolo token once after HTTP 401", async () => {
+  const config = resolveBinanceGatewayConfig({
+    HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://market.haolo.example",
+  });
+  const tokenRequests = [];
+  const requests = [];
+  const client = createBinanceGatewayClient({
+    config,
+    apiClient: {
+      async getTrustedAccessToken(options = {}) {
+        tokenRequests.push(options);
+        return options.forceRefresh ? "refreshed-token" : "expired-token";
+      },
+    },
+    fetchImpl: async (_url, init) => {
+      requests.push(new Headers(init.headers).get("authorization"));
+      return new Response("{}", { status: requests.length === 1 ? 401 : 200 });
+    },
+  });
+
+  const response = await client.fetch("https://market.haolo.example/fapi/v1/ping");
+  assert.equal(response.status, 200);
+  assert.deepEqual(requests, ["Bearer expired-token", "Bearer refreshed-token"]);
+  assert.deepEqual(tokenRequests, [{ forceRefresh: false }, { forceRefresh: true }]);
+});

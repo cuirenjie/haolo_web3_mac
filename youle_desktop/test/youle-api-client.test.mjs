@@ -4396,6 +4396,27 @@ test("expired access token without a refresh token fails locally and never calls
   }
 });
 
+test("trusted gateway auth uses an unexpired token without waiting for background refresh", async () => {
+  const client = new YouleApiClient({ safeStorage: fakeSafeStorage() });
+  client.loaded = true;
+  client.token = "still-valid-gateway-token";
+  client.expiresAt = Date.now() + 60_000;
+  client.accessTokenTtlSeconds = 3_600;
+  let releaseRefresh;
+  client.refreshPromise = new Promise((resolve) => { releaseRefresh = resolve; });
+  try {
+    const token = await Promise.race([
+      client.getTrustedAccessToken(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("trusted token lookup blocked")), 25)),
+    ]);
+    assert.equal(token, "still-valid-gateway-token");
+  } finally {
+    releaseRefresh?.("refreshed-token");
+    await client.refreshPromise;
+    client.refreshPromise = null;
+  }
+});
+
 test("legacy access upgrade requires the server to return a complete refresh session", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({

@@ -1356,6 +1356,7 @@ type DesktopApi = {
     marketType: "futures" | "spot";
     path: string;
     parameters?: Record<string, string | number | undefined>;
+    requestId?: string;
   }): Promise<{
     ok: boolean;
     status: number;
@@ -1364,6 +1365,7 @@ type DesktopApi = {
     retryAfterMs?: number | null;
     error?: string;
   }>;
+  cancelBinancePublicMarketData?(params: { requestId: string }): Promise<{ cancelled: boolean }>;
   subscribeBinanceMarketStreams?(params: {
     marketType: "futures" | "spot";
     streams: string[];
@@ -1402,7 +1404,11 @@ type DesktopApi = {
     challengeId: string;
     code: string;
   }): Promise<{ status: BinanceAccountStatus; snapshot: BinanceAccountSnapshot }>;
-  getBinanceAccountSnapshot?(params?: { force?: boolean; live?: boolean }): Promise<BinanceAccountSnapshot>;
+  getBinanceAccountSnapshot?(params?: {
+    force?: boolean;
+    live?: boolean;
+    summary?: boolean;
+  }): Promise<BinanceAccountSnapshot>;
   getBinanceAccountProfitCalendar?(params: { month: string; force?: boolean }): Promise<BinanceAccountProfitCalendar>;
   removeBinanceAccount?(params: {
     challengeId: string;
@@ -5351,9 +5357,11 @@ let loginWechatPollTimer: number | null = null;
 let binanceAccountOtpCountdownTimer: number | null = null;
 let binanceAccountLoadPromise: Promise<void> | null = null;
 let binanceAccountLoadSequence = 0;
+let binanceAccountSnapshotApplySequence = 0;
 let binanceAccountProfitCalendarLoadSequence = 0;
 let binanceAccountLiveRefreshTimer: number | null = null;
 let binanceAccountLiveRefreshPromise: Promise<void> | null = null;
+let binanceAccountProgressiveRefreshPromise: Promise<void> | null = null;
 let binanceAccountLiveRefreshFailures = 0;
 let binanceAccountFullRefreshAfter = 0;
 let binanceAccountLiveRetryAfter = 0;
@@ -5950,10 +5958,12 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
     stopBinanceAccountOtpCountdown();
     stopBinanceAccountLiveRefresh();
     binanceAccountLoadSequence += 1;
+    binanceAccountSnapshotApplySequence += 1;
     binanceAccountProfitCalendarLoadSequence += 1;
     binanceAccountFullRefreshAfter = 0;
     binanceAccountLiveRetryAfter = 0;
     binanceAccountLiveRefreshFailures = 0;
+    binanceAccountProgressiveRefreshPromise = null;
     executionPlanMonitorFullRefreshAt.clear();
     state.binanceAccount = createBinanceAccountUiState();
   }
@@ -71131,7 +71141,9 @@ async function loadBinanceAccountPage() {
       binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
       binanceAccountLiveRefreshFailures = 0;
       binanceAccountLiveRetryAfter = 0;
-      if (status.bound) void loadBinanceAccountProfitCalendar();
+      if (status.bound && accountState.activeSection === "profit-calendar") {
+        void loadBinanceAccountProfitCalendar();
+      }
     } catch (error) {
       if (loadSequence !== binanceAccountLoadSequence) return;
       binanceAccountLiveRefreshFailures += 1;
@@ -71161,30 +71173,129 @@ async function loadBinanceAccountPage() {
 }
 
 async function refreshBinanceAccountSnapshot() {
-  if (!api.getBinanceAccountSnapshot || state.binanceAccount.refreshing) return;
-  state.binanceAccount.refreshing = true;
-  state.binanceAccount.error = null;
+  if (
+    !api.getBinanceAccountSnapshot
+    || state.binanceAccount.refreshing
+    || state.binanceAccount.profitCalendarLoading
+    || binanceAccountProgressiveRefreshPromise
+  ) return;
+  const accountState = state.binanceAccount;
+  const loadSequence = binanceAccountLoadSequence;
+  const snapshotApplySequence = ++binanceAccountSnapshotApplySequence;
+  const refreshSlowData = Date.now() >= binanceAccountFullRefreshAfter
+    && accountState.activeSection !== "profit-calendar"
+    && !accountState.profitCalendarLoading;
+  const refreshProfitCalendar = accountState.activeSection === "profit-calendar";
+  accountState.refreshing = true;
+  accountState.error = null;
   if (state.activeView === "account") render();
   try {
-    state.binanceAccount.snapshot = await api.getBinanceAccountSnapshot({ force: true });
-    syncTradingExpertOrderLineSnapshot(state.binanceAccount.snapshot);
-    await reconcileExecutionPlansWithBinanceSnapshot(state.binanceAccount.snapshot);
-    state.binanceAccount.loaded = true;
-    state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
-    binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+    const snapshot = await api.getBinanceAccountSnapshot({
+      force: true,
+      live: true,
+      summary: true,
+    });
+    if (
+      loadSequence !== binanceAccountLoadSequence
+      || snapshotApplySequence !== binanceAccountSnapshotApplySequence
+      || state.binanceAccount !== accountState
+      || !accountState.status?.bound
+    ) return;
+    accountState.snapshot = snapshot;
+    syncTradingExpertOrderLineSnapshot(snapshot);
+    accountState.loaded = true;
+    accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
     binanceAccountLiveRefreshFailures = 0;
     binanceAccountLiveRetryAfter = 0;
-    void loadBinanceAccountProfitCalendar({ force: true });
+    accountState.refreshing = false;
+    renderBinanceAccountLiveUpdate();
+    void progressivelyRefreshBinanceAccountSnapshot(
+      accountState,
+      loadSequence,
+      snapshotApplySequence,
+      refreshSlowData,
+    );
+    if (refreshProfitCalendar) void loadBinanceAccountProfitCalendar({ force: true });
   } catch (error) {
-    state.binanceAccount.error = errorMessage(error);
+    if (
+      loadSequence !== binanceAccountLoadSequence
+      || snapshotApplySequence !== binanceAccountSnapshotApplySequence
+      || state.binanceAccount !== accountState
+    ) return;
+    accountState.error = errorMessage(error);
     binanceAccountLiveRefreshFailures += 1;
     const retryDelay = binanceAccountRetryDelay(error, binanceAccountLiveRefreshFailures);
-    state.binanceAccount.autoRefreshAfter = Date.now() + Math.max(BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS, retryDelay);
+    accountState.autoRefreshAfter = Date.now() + Math.max(BINANCE_ACCOUNT_AUTO_RETRY_INTERVAL_MS, retryDelay);
     binanceAccountLiveRetryAfter = Date.now() + retryDelay;
-    showToast(`Binance 账户刷新失败：${state.binanceAccount.error}`, 5000);
+    showToast(`Binance 账户刷新失败：${accountState.error}`, 5000);
   } finally {
-    state.binanceAccount.refreshing = false;
+    if (state.binanceAccount === accountState) accountState.refreshing = false;
     if (state.activeView === "account") render();
+    scheduleBinanceAccountLiveRefresh();
+  }
+}
+
+async function progressivelyRefreshBinanceAccountSnapshot(
+  accountState: BinanceAccountUiState,
+  loadSequence: number,
+  snapshotApplySequence: number,
+  refreshSlowData: boolean,
+) {
+  if (!api.getBinanceAccountSnapshot || binanceAccountProgressiveRefreshPromise) return;
+  const isCurrentAccount = () => (
+    loadSequence === binanceAccountLoadSequence
+    && snapshotApplySequence === binanceAccountSnapshotApplySequence
+    && state.binanceAccount === accountState
+    && accountState.status?.bound === true
+  );
+  const request = (async () => {
+    try {
+      const liveSnapshot = await api.getBinanceAccountSnapshot!({ force: true, live: true });
+      if (!isCurrentAccount()) return;
+      accountState.snapshot = liveSnapshot;
+      syncTradingExpertOrderLineSnapshot(liveSnapshot);
+      accountState.loaded = true;
+      accountState.error = null;
+      accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+      binanceAccountLiveRefreshFailures = 0;
+      binanceAccountLiveRetryAfter = 0;
+      renderBinanceAccountLiveUpdate();
+      await reconcileExecutionPlansWithBinanceSnapshot(liveSnapshot);
+      if (!isCurrentAccount()) return;
+      if (
+        !refreshSlowData
+        || accountState.activeSection === "profit-calendar"
+        || accountState.profitCalendarLoading
+      ) return;
+
+      const fullSnapshot = await api.getBinanceAccountSnapshot!({ force: true, live: false });
+      if (!isCurrentAccount()) return;
+      accountState.snapshot = fullSnapshot;
+      syncTradingExpertOrderLineSnapshot(fullSnapshot);
+      accountState.loaded = true;
+      accountState.error = null;
+      accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+      binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+      binanceAccountLiveRefreshFailures = 0;
+      binanceAccountLiveRetryAfter = 0;
+      renderBinanceAccountLiveUpdate();
+      await reconcileExecutionPlansWithBinanceSnapshot(fullSnapshot);
+    } catch (error) {
+      if (!isCurrentAccount()) return;
+      binanceAccountLiveRefreshFailures += 1;
+      binanceAccountLiveRetryAfter = Date.now()
+        + binanceAccountRetryDelay(error, binanceAccountLiveRefreshFailures);
+      binanceAccountFullRefreshAfter = 0;
+      console.warn("[binance-account] progressive refresh deferred", errorMessage(error));
+    }
+  })();
+  binanceAccountProgressiveRefreshPromise = request;
+  try {
+    await request;
+  } finally {
+    if (binanceAccountProgressiveRefreshPromise === request) {
+      binanceAccountProgressiveRefreshPromise = null;
+    }
     scheduleBinanceAccountLiveRefresh();
   }
 }
@@ -71269,8 +71380,10 @@ function ensureBinanceAccountLiveRefresh() {
   if (
     binanceAccountLiveRefreshTimer !== null
     || binanceAccountLiveRefreshPromise
+    || binanceAccountProgressiveRefreshPromise
     || binanceAccountLoadPromise
     || state.binanceAccount.loading
+    || state.binanceAccount.profitCalendarLoading
   ) return;
   if (
     state.binanceAccount.loaded
@@ -71294,23 +71407,29 @@ async function silentlyRefreshBinanceAccountSnapshot() {
   }
   if (
     binanceAccountLiveRefreshPromise
+    || binanceAccountProgressiveRefreshPromise
     || binanceAccountLoadPromise
     || state.binanceAccount.refreshing
+    || state.binanceAccount.profitCalendarLoading
     || state.binanceAccount.dialog.open
   ) {
     scheduleBinanceAccountLiveRefresh(1_000);
-    return binanceAccountLiveRefreshPromise;
+    return binanceAccountLiveRefreshPromise || binanceAccountProgressiveRefreshPromise;
   }
 
   const accountState = state.binanceAccount;
   const loadSequence = binanceAccountLoadSequence;
+  const snapshotApplySequence = ++binanceAccountSnapshotApplySequence;
   const request = (async () => {
     try {
       const previousFetchedAt = accountState.snapshot?.fetchedAt;
-      const liveOnly = Date.now() < binanceAccountFullRefreshAfter;
+      const calendarVisible = accountState.activeSection === "profit-calendar"
+        || accountState.profitCalendarLoading;
+      const liveOnly = calendarVisible || Date.now() < binanceAccountFullRefreshAfter;
       const snapshot = await api.getBinanceAccountSnapshot!({ force: true, live: liveOnly });
       if (
         loadSequence !== binanceAccountLoadSequence
+        || snapshotApplySequence !== binanceAccountSnapshotApplySequence
         || state.binanceAccount !== accountState
         || !accountState.status?.bound
       ) return;
@@ -71335,11 +71454,12 @@ async function silentlyRefreshBinanceAccountSnapshot() {
           )
         : 0;
       renderBinanceAccountLiveUpdate();
-      if (!liveOnly && accountState.profitCalendarMonth === currentBinanceAccountProfitCalendarMonth()) {
-        void loadBinanceAccountProfitCalendar({ force: true });
-      }
     } catch (error) {
-      if (loadSequence !== binanceAccountLoadSequence || state.binanceAccount !== accountState) return;
+      if (
+        loadSequence !== binanceAccountLoadSequence
+        || snapshotApplySequence !== binanceAccountSnapshotApplySequence
+        || state.binanceAccount !== accountState
+      ) return;
       binanceAccountLiveRefreshFailures += 1;
       binanceAccountLiveRetryAfter = Date.now()
         + binanceAccountRetryDelay(error, binanceAccountLiveRefreshFailures);
@@ -71499,6 +71619,7 @@ async function submitBinanceAccountBinding() {
       code: dialog.code.trim(),
     });
     binanceAccountLoadSequence += 1;
+    binanceAccountSnapshotApplySequence += 1;
     state.binanceAccount.status = {
       ...result.status,
       emailMasked: state.binanceAccount.status?.emailMasked || dialog.emailMasked,
@@ -71515,7 +71636,9 @@ async function submitBinanceAccountBinding() {
     stopBinanceAccountOtpCountdown();
     resetBinanceAccountDialog(state.binanceAccount);
     render();
-    void loadBinanceAccountProfitCalendar({ force: true });
+    if (state.binanceAccount.activeSection === "profit-calendar") {
+      void loadBinanceAccountProfitCalendar({ force: true });
+    }
     scheduleBinanceAccountLiveRefresh();
     showToast("Binance API 已完成只读绑定。", 3600);
   } catch (error) {
@@ -71558,6 +71681,7 @@ async function removeBinanceAccountBinding() {
   dialog.busy = "remove";
   dialog.error = null;
   binanceAccountLoadSequence += 1;
+  binanceAccountSnapshotApplySequence += 1;
   state.binanceAccount.loading = false;
   render();
   try {

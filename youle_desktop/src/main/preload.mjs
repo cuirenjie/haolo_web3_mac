@@ -120,6 +120,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   sendOtp: (params) => ipcRenderer.invoke("youle:sendOtp", params),
   verifyOtp: (params) => ipcRenderer.invoke("youle:verifyOtp", params),
   getBinancePublicMarketData: (params) => ipcRenderer.invoke("binanceMarket:publicGet", params),
+  cancelBinancePublicMarketData: (params) => ipcRenderer.invoke("binanceMarket:publicCancel", params),
   subscribeBinanceMarketStreams: (params, callback) => subscribeBinanceMarketStreams(params, callback),
   unsubscribeBinanceMarketStreams: (params) => unsubscribeBinanceMarketStreams(params),
   getHyperliquidPublicCandles: (params) => ipcRenderer.invoke("hyperliquidMarket:candles", params),

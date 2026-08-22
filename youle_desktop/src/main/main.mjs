@@ -182,9 +182,12 @@ import { BinanceAccountError, BinanceAccountService } from "./binance-account/se
 import { BinancePrivateProxyTransport } from "./binance-account/private-proxy-fetch.mjs";
 import { BinanceRequestGovernor, BINANCE_REQUEST_PRIORITIES } from "./binance-request-governor.mjs";
 import { BinancePublicMarketService } from "./binance-public-market-service.mjs";
+import { BinancePublicRequestCoordinator } from "./binance-public-request-coordinator.mjs";
 import { resolveBinanceGatewayConfig } from "./binance-gateway-config.mjs";
 import { createBinanceGatewayClient } from "./binance-gateway-client.mjs";
 import { BinanceNetworkRouter } from "./binance-network-router.mjs";
+import { BinanceRoutePreferenceStore } from "./binance-route-preference-store.mjs";
+import { createProxyFreeHttpsFetch } from "./proxy-free-https-fetch.mjs";
 import { TradingMarketDataHub } from "./trading-market-data-hub.mjs";
 import { HyperliquidPublicMarketService } from "./hyperliquid-public-market-service.mjs";
 import { normalizeExternalModelProviderId } from "./external-agent/provider-registry.mjs";
@@ -380,6 +383,8 @@ let binanceGatewayConfig = null;
 let binanceGatewayClient = null;
 let binancePrivateProxyTransport = null;
 let binanceNetworkRouter = null;
+let binanceRoutePreferenceStore = null;
+let binanceGatewayNetworkFetch = null;
 let tradingMarketDataHub = null;
 let hyperliquidPublicMarketService = null;
 let externalAgentRuntime = null;
@@ -405,6 +410,7 @@ let tradingAlertService = null;
 let tradingAlertServicePromise = null;
 const tradingAlertRendererSubscriptions = new Map();
 const binanceMarketRendererSubscriptions = new Map();
+const binancePublicRequestCoordinator = new BinancePublicRequestCoordinator();
 let voiceRecognizer = null;
 let voiceSessionOwner = null;
 let voiceCredentialCache = null;
@@ -4198,6 +4204,7 @@ function getBinanceRequestGovernor() {
   if (!binanceRequestGovernor) {
     binanceRequestGovernor = new BinanceRequestGovernor({
       statePath: path.join(app.getPath("userData"), "binance-request-governor.json"),
+      maxConcurrency: 6,
     });
   }
   return binanceRequestGovernor;
@@ -4206,7 +4213,17 @@ function getBinanceRequestGovernor() {
 function getBinanceGatewayConfig() {
   if (!binanceGatewayConfig) {
     const explicitPath = String(process.env.HAOLO_BINANCE_GATEWAY_CONFIG_PATH || "").trim();
-    const deploymentPath = explicitPath || (app.isPackaged
+    // The Windows development executable is a renamed Electron binary so it
+    // can carry the real app icon. Electron may consequently report
+    // app.isPackaged=true even though Vite is serving the development app.
+    // Prefer the workspace resource whenever a desktop dev-server URL exists;
+    // otherwise this silently falls back to direct-only Binance networking.
+    const developmentRuntime = Boolean(
+      process.env.HAOLO_DESKTOP_DEV_SERVER_URL
+      || process.env.CODEX_DESKTOP_DEV_SERVER_URL
+      || process.env.YOULE_DESKTOP_DEV_SERVER_URL,
+    );
+    const deploymentPath = explicitPath || (app.isPackaged && !developmentRuntime
       ? path.join(process.resourcesPath, "binance-gateway.json")
       : path.join(app.getAppPath(), "resources", "binance-gateway.json"));
     let deployment = {};
@@ -4220,18 +4237,34 @@ function getBinanceGatewayConfig() {
       }
     } else if (explicitPath) {
       throw new TypeError("HAOLO_BINANCE_GATEWAY_CONFIG_PATH does not exist");
+    } else if (developmentRuntime) {
+      throw new TypeError(`Development Binance gateway config does not exist: ${deploymentPath}`);
     }
     binanceGatewayConfig = resolveBinanceGatewayConfig(process.env, deployment);
+    console.info("[binance-network] gateway configuration", {
+      deploymentPath,
+      developmentRuntime,
+      routingMode: binanceGatewayConfig.routingMode,
+      marketGatewayEnabled: binanceGatewayConfig.marketGatewayEnabled,
+      privateProxyEnabled: binanceGatewayConfig.privateProxyEnabled,
+    });
   }
   return binanceGatewayConfig;
 }
 
 function getBinanceGatewayClient() {
   if (!binanceGatewayClient) {
+    const config = getBinanceGatewayConfig();
+    if (!binanceGatewayNetworkFetch) {
+      binanceGatewayNetworkFetch = createProxyFreeHttpsFetch({
+        allowedOrigins: [config.marketOrigin],
+        timeoutMs: config.gatewayRequestTimeoutMs,
+      });
+    }
     binanceGatewayClient = createBinanceGatewayClient({
-      config: getBinanceGatewayConfig(),
+      config,
       apiClient: getYouleApiClient(),
-      fetchImpl: appNetworkFetch,
+      fetchImpl: binanceGatewayNetworkFetch,
     });
   }
   return binanceGatewayClient;
@@ -4266,12 +4299,20 @@ function getBinanceNetworkRouter() {
   if (!binanceNetworkRouter) {
     const config = getBinanceGatewayConfig();
     const privateTransport = getBinancePrivateProxyTransport();
+    if (!binanceRoutePreferenceStore) {
+      binanceRoutePreferenceStore = new BinanceRoutePreferenceStore({
+        storagePath: path.join(app.getPath("userData"), "binance-route-preferences.json"),
+      });
+    }
     binanceNetworkRouter = new BinanceNetworkRouter({
       config,
       directFetch: appNetworkFetch,
       gatewayClient: config.marketGatewayEnabled ? getBinanceGatewayClient() : null,
       privateProxyFetch: privateTransport ? privateTransport.fetch.bind(privateTransport) : null,
+      initialState: binanceRoutePreferenceStore.load(),
+      onStateChange: (state) => binanceRoutePreferenceStore?.schedule(state),
     });
+    binanceNetworkRouter.startBackgroundProbes();
   }
   return binanceNetworkRouter;
 }
@@ -4281,12 +4322,33 @@ function getBinancePublicMarketService() {
     const gatewayConfig = getBinanceGatewayConfig();
     const router = getBinanceNetworkRouter();
     binancePublicMarketService = new BinancePublicMarketService({
-      fetch: (url, init) => getBinanceRequestGovernor().fetch(
-        router.publicFetch.bind(router),
-        url,
-        init,
-        { source: "market", priority: BINANCE_REQUEST_PRIORITIES.market },
-      ),
+      fetch: (url, init) => {
+        const requestUrl = new URL(String(url));
+        const pathname = requestUrl.pathname;
+        const chartRequest = /\/(?:fapi\/v\d+|api\/v3)\/(?:klines|aggTrades)$/.test(pathname);
+        const metadataRequest = pathname.endsWith("/exchangeInfo")
+          || (pathname.endsWith("/ticker/24hr") && !requestUrl.searchParams.has("symbol"));
+        return getBinanceRequestGovernor().fetch(
+          router.publicFetch.bind(router),
+          url,
+          init,
+          {
+            source: metadataRequest ? "metadata" : "market",
+            priority: metadataRequest
+              ? BINANCE_REQUEST_PRIORITIES.metadata
+              : chartRequest
+                ? BINANCE_REQUEST_PRIORITIES.chart
+                : BINANCE_REQUEST_PRIORITIES.market,
+            // Start this deadline only after the governor admits the request.
+            // The 1 MB exchange catalog is slower than a chart request through
+            // the domestic gateway, so it gets an independent cold-start budget.
+            timeoutMs: metadataRequest ? 50_000 : chartRequest ? 50_000 : 30_000,
+          },
+        );
+      },
+      // The governor and each concrete route own execution deadlines. An outer
+      // timer here would start too early while the request is still queued.
+      timeoutMs: 0,
       baseUrls: gatewayConfig.publicRest,
     });
   }
@@ -4313,6 +4375,15 @@ function getBinanceAccountService() {
         init,
         { source: "account", priority: BINANCE_REQUEST_PRIORITIES.account },
       ),
+      profitCalendarFetch: (url, init) => getBinanceRequestGovernor().fetch(
+        router.privateFetch.bind(router),
+        url,
+        init,
+        {
+          source: "account-calendar",
+          priority: BINANCE_REQUEST_PRIORITIES.accountInteractive,
+        },
+      ),
     });
   }
   return binanceAccountService;
@@ -4335,15 +4406,21 @@ async function resetBinanceNetworkRuntimeAfterAuthChange() {
     try { await record.dispose?.(); } catch {}
   }
   binanceMarketRendererSubscriptions.clear();
+  binancePublicRequestCoordinator.cancelAll();
   if (tradingMarketDataHub) {
     try { await tradingMarketDataHub.close(); } catch {}
     tradingMarketDataHub = null;
   }
+  binanceNetworkRouter?.close();
   if (binancePrivateProxyTransport) {
     try { await binancePrivateProxyTransport.close(); } catch {}
     binancePrivateProxyTransport = null;
   }
   binanceNetworkRouter = null;
+  try { binanceRoutePreferenceStore?.close(); } catch (error) {
+    console.warn("[binance-route] failed to persist route preference", error?.message || error);
+  }
+  binanceRoutePreferenceStore = null;
   binanceGatewayClient = null;
   binancePublicMarketService = null;
   binanceAccountService = null;
@@ -11924,7 +12001,24 @@ ipcMain.handle("youle:verifyOtp", async (_event, params = {}) => {
 
 ipcMain.handle("binanceMarket:publicGet", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
-  return getBinancePublicMarketService().request(params);
+  const requestId = String(params.requestId || "").trim();
+  if (!requestId) return getBinancePublicMarketService().request(params);
+  const ownerId = event.sender.id;
+  const operation = binancePublicRequestCoordinator.begin(ownerId, requestId);
+  const abortOwner = () => binancePublicRequestCoordinator.cancelOwner(ownerId);
+  event.sender.once("destroyed", abortOwner);
+  try {
+    return await getBinancePublicMarketService().request(params, { signal: operation.signal });
+  } finally {
+    operation.finish();
+    event.sender.removeListener("destroyed", abortOwner);
+  }
+});
+ipcMain.handle("binanceMarket:publicCancel", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  return {
+    cancelled: binancePublicRequestCoordinator.cancel(event.sender.id, params.requestId),
+  };
 });
 ipcMain.handle("binanceMarket:streamSubscribe", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
@@ -12042,13 +12136,18 @@ ipcMain.handle("binanceAccount:bind", async (event, params = {}) => {
 ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   const owner = await requireBinanceAccountOwner();
+  const requestOptions = {
+    force: params?.force === true,
+    live: params?.live === true,
+    summary: params?.summary === true,
+  };
+  const startedAt = Date.now();
+  let outcome = "ok";
   try {
-    const snapshot = await getBinanceAccountService().snapshot(owner.ownerId, {
-      force: params?.force === true,
-      live: params?.live === true,
-    });
+    const snapshot = await getBinanceAccountService().snapshot(owner.ownerId, requestOptions);
     return { ok: true, snapshot };
   } catch (error) {
+    outcome = String(error?.code || "error");
     if (error?.code !== "BINANCE_RATE_LIMITED") throw error;
     return {
       ok: false,
@@ -12061,19 +12160,33 @@ ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
           : 60_000,
       },
     };
+  } finally {
+    console.info("[binance-account] snapshot", {
+      mode: requestOptions.summary ? "summary" : requestOptions.live ? "live" : "full",
+      force: requestOptions.force,
+      elapsedMs: Date.now() - startedAt,
+      outcome,
+    });
   }
 });
 
 ipcMain.handle("binanceAccount:getProfitCalendar", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   const owner = await requireBinanceAccountOwner();
+  const requestedMonth = /^\d{4}-(?:0[1-9]|1[0-2])$/.test(String(params?.month || ""))
+    ? String(params.month)
+    : "invalid";
+  const force = params?.force === true;
+  const startedAt = Date.now();
+  let outcome = "ok";
   try {
     const calendar = await getBinanceAccountService().profitCalendar(owner.ownerId, {
       month: params?.month,
-      force: params?.force === true,
+      force,
     });
     return { ok: true, calendar };
   } catch (error) {
+    outcome = String(error?.code || "error");
     if (error?.code !== "BINANCE_RATE_LIMITED") throw error;
     return {
       ok: false,
@@ -12086,6 +12199,13 @@ ipcMain.handle("binanceAccount:getProfitCalendar", async (event, params = {}) =>
           : 60_000,
       },
     };
+  } finally {
+    console.info("[binance-account] profit calendar", {
+      month: requestedMonth,
+      force,
+      elapsedMs: Date.now() - startedAt,
+      outcome,
+    });
   }
 });
 
@@ -20706,6 +20826,19 @@ async function cleanupAndExit(exitCode = 0) {
       tradingMarketDataHub = null;
     }
   }
+  if (binanceNetworkRouter) {
+    binanceNetworkRouter.close();
+    binanceNetworkRouter = null;
+  }
+  if (binanceRoutePreferenceStore) {
+    try {
+      binanceRoutePreferenceStore.close();
+    } catch (error) {
+      console.warn("[binance-route] failed to persist route preference", error?.message || error);
+    } finally {
+      binanceRoutePreferenceStore = null;
+    }
+  }
   if (binancePrivateProxyTransport) {
     try {
       await withShutdownTimeout("Binance private proxy transport", binancePrivateProxyTransport.close());
@@ -20714,6 +20847,10 @@ async function cleanupAndExit(exitCode = 0) {
     } finally {
       binancePrivateProxyTransport = null;
     }
+  }
+  if (binanceGatewayNetworkFetch) {
+    binanceGatewayNetworkFetch.close?.();
+    binanceGatewayNetworkFetch = null;
   }
 
   try {

@@ -10,8 +10,13 @@ const POSITION_HISTORY_TRADE_LIMIT = 1_000;
 const POSITION_HISTORY_CONCURRENCY = 4;
 const PROFIT_CALENDAR_PAGE_LIMIT = 1_000;
 const PROFIT_CALENDAR_MAX_PAGES = 100;
+const PROFIT_CALENDAR_CHUNK_MS = 14 * 24 * 60 * 60 * 1_000;
+const PROFIT_CALENDAR_SPLIT_MAX_DEPTH = 2;
+const PROFIT_CALENDAR_CHUNK_CONCURRENCY = 3;
+const PROFIT_CALENDAR_REQUEST_TIMEOUT_MS = 28_000;
 const DEFAULT_SNAPSHOT_CACHE_TTL_MS = 60_000;
 const DEFAULT_SNAPSHOT_STALE_TTL_MS = 15 * 60_000;
+const DEFAULT_SERVER_TIME_CACHE_TTL_MS = 5 * 60_000;
 const STALE_SNAPSHOT_WARNING = "Binance 暂时连接不稳定，当前展示上次成功读取的数据";
 const BINANCE_DIRECT_ROUTE_FAILED = "BINANCE_DIRECT_ROUTE_FAILED";
 
@@ -31,17 +36,21 @@ export class BinanceAccountService {
   constructor({
     credentialStore,
     fetch: networkFetch = globalThis.fetch,
+    profitCalendarFetch = networkFetch,
     now = () => new Date(),
     spotBaseUrl = DEFAULT_SPOT_BASE_URL,
     futuresBaseUrl = DEFAULT_FUTURES_BASE_URL,
     recvWindow = DEFAULT_RECV_WINDOW,
     snapshotCacheTtlMs = DEFAULT_SNAPSHOT_CACHE_TTL_MS,
     snapshotStaleTtlMs = DEFAULT_SNAPSHOT_STALE_TTL_MS,
+    serverTimeCacheTtlMs = DEFAULT_SERVER_TIME_CACHE_TTL_MS,
   } = {}) {
     if (!credentialStore) throw new Error("credentialStore is required");
     if (typeof networkFetch !== "function") throw new Error("fetch is required");
+    if (typeof profitCalendarFetch !== "function") throw new Error("profitCalendarFetch is required");
     this.credentialStore = credentialStore;
     this.fetch = networkFetch;
+    this.profitCalendarFetch = profitCalendarFetch;
     this.now = now;
     this.spotBaseUrl = normalizedBaseUrl(spotBaseUrl, DEFAULT_SPOT_BASE_URL);
     this.futuresBaseUrl = normalizedBaseUrl(futuresBaseUrl, DEFAULT_FUTURES_BASE_URL);
@@ -51,11 +60,19 @@ export class BinanceAccountService {
       this.snapshotCacheTtlMs,
       normalizedDuration(snapshotStaleTtlMs, DEFAULT_SNAPSHOT_STALE_TTL_MS),
     );
+    this.serverTimeCacheTtlMs = normalizedDuration(
+      serverTimeCacheTtlMs,
+      DEFAULT_SERVER_TIME_CACHE_TTL_MS,
+    );
     this.snapshotCache = new Map();
     this.snapshotRequests = new Map();
     this.snapshotCacheVersions = new Map();
+    this.snapshotRequestSequences = new Map();
+    this.serverTimeCache = new Map();
+    this.serverTimeRequests = new Map();
     this.profitCalendarCache = new Map();
     this.profitCalendarRequests = new Map();
+    this.profitCalendarOwnerRequests = new Map();
     this.rateLimitedUntil = 0;
   }
 
@@ -84,7 +101,7 @@ export class BinanceAccountService {
     return status;
   }
 
-  async snapshot(ownerId, { force = false, live = false } = {}) {
+  async snapshot(ownerId, { force = false, live = false, summary = false } = {}) {
     const cached = this.snapshotCache.get(ownerId);
     const nowMs = this.currentTimeMs();
     if (nowMs < this.rateLimitedUntil) {
@@ -101,18 +118,28 @@ export class BinanceAccountService {
     if (!force && cached && nowMs - cached.cachedAt < this.snapshotCacheTtlMs) {
       return cached.snapshot;
     }
-    const pending = this.snapshotRequests.get(ownerId);
+    const summaryOnly = summary === true && Boolean(cached?.snapshot);
+    const liveOnly = !summaryOnly && live === true && Boolean(cached?.snapshot);
+    const requestMode = summaryOnly ? "summary" : liveOnly ? "live" : "full";
+    const requestKey = `${ownerId}\0${requestMode}`;
+    const pending = this.snapshotRequests.get(requestKey);
     if (pending) return pending;
 
     const cacheVersion = this.snapshotCacheVersions.get(ownerId) || 0;
+    const requestSequence = (this.snapshotRequestSequences.get(ownerId) || 0) + 1;
+    this.snapshotRequestSequences.set(ownerId, requestSequence);
     const request = (async () => {
       try {
         const credentials = await this.credentialStore.resolve(ownerId);
         const snapshot = await this.snapshotWithCredentials(credentials, {
           previousSnapshot: cached?.snapshot ?? null,
-          live: live === true && Boolean(cached?.snapshot),
+          live: liveOnly,
+          summary: summaryOnly,
         });
-        if ((this.snapshotCacheVersions.get(ownerId) || 0) === cacheVersion) {
+        if (
+          (this.snapshotCacheVersions.get(ownerId) || 0) === cacheVersion
+          && this.snapshotRequestSequences.get(ownerId) === requestSequence
+        ) {
           this.storeSnapshotCache(ownerId, snapshot);
         }
         return snapshot;
@@ -124,10 +151,10 @@ export class BinanceAccountService {
         }
         throw error;
       } finally {
-        if (this.snapshotRequests.get(ownerId) === request) this.snapshotRequests.delete(ownerId);
+        if (this.snapshotRequests.get(requestKey) === request) this.snapshotRequests.delete(requestKey);
       }
     })();
-    this.snapshotRequests.set(ownerId, request);
+    this.snapshotRequests.set(requestKey, request);
     return request;
   }
 
@@ -157,8 +184,16 @@ export class BinanceAccountService {
     }
     const pending = this.profitCalendarRequests.get(cacheKey);
     if (pending) return pending;
+    const previousOwnerRequest = this.profitCalendarOwnerRequests.get(ownerId);
+    if (previousOwnerRequest?.cacheKey !== cacheKey) {
+      previousOwnerRequest?.controller.abort(new DOMException(
+        "A newer Binance profit-calendar month was requested",
+        "AbortError",
+      ));
+    }
 
     const cacheVersion = this.snapshotCacheVersions.get(ownerId) || 0;
+    const controller = new AbortController();
     const request = (async () => {
       try {
         const credentials = await this.credentialStore.resolve(ownerId);
@@ -168,6 +203,7 @@ export class BinanceAccountService {
           serverTime,
           startTime,
           endTime: Math.min(endTime - 1, nowMs),
+          signal: controller.signal,
         });
         const calendar = normalizeBinanceProfitCalendar({
           month: normalizedMonth,
@@ -190,15 +226,100 @@ export class BinanceAccountService {
         throw error;
       } finally {
         if (this.profitCalendarRequests.get(cacheKey) === request) this.profitCalendarRequests.delete(cacheKey);
+        if (this.profitCalendarOwnerRequests.get(ownerId)?.request === request) {
+          this.profitCalendarOwnerRequests.delete(ownerId);
+        }
       }
     })();
     this.profitCalendarRequests.set(cacheKey, request);
+    this.profitCalendarOwnerRequests.set(ownerId, { cacheKey, request, controller });
     return request;
   }
 
-  async monthlyProfitCalendarIncome({ credentials, serverTime, startTime, endTime }) {
-    const income = [];
+  async monthlyProfitCalendarIncome({ credentials, serverTime, startTime, endTime, signal }) {
     const synchronizedAt = Date.now();
+    const ranges = [];
+    for (let chunkStart = startTime; chunkStart <= endTime; chunkStart += PROFIT_CALENDAR_CHUNK_MS) {
+      const chunkEnd = Math.min(endTime, chunkStart + PROFIT_CALENDAR_CHUNK_MS - 1);
+      ranges.push({ startTime: chunkStart, endTime: chunkEnd });
+    }
+    const results = await mapWithConcurrency(
+      ranges,
+      PROFIT_CALENDAR_CHUNK_CONCURRENCY,
+      ({ startTime: rangeStartTime, endTime: rangeEndTime }) => this.profitCalendarIncomeRange({
+        credentials,
+        serverTime,
+        synchronizedAt,
+        startTime: rangeStartTime,
+        endTime: rangeEndTime,
+        signal,
+      }),
+    );
+    return {
+      income: results.flatMap((result) => result.income),
+      truncated: results.some((result) => result.truncated),
+    };
+  }
+
+  async profitCalendarIncomeRange({
+    credentials,
+    serverTime,
+    synchronizedAt,
+    startTime,
+    endTime,
+    splitDepth = 0,
+    signal,
+  }) {
+    try {
+      return await this.pagedProfitCalendarIncome({
+        credentials,
+        serverTime,
+        synchronizedAt,
+        startTime,
+        endTime,
+        signal,
+      });
+    } catch (error) {
+      const canSplit = !signal?.aborted
+        && profitCalendarRangeRetryable(error)
+        && splitDepth < PROFIT_CALENDAR_SPLIT_MAX_DEPTH
+        && endTime - startTime >= 2 * 24 * 60 * 60 * 1_000;
+      if (!canSplit) throw error;
+      const midpoint = Math.floor((startTime + endTime) / 2);
+      const left = await this.profitCalendarIncomeRange({
+        credentials,
+        serverTime,
+        synchronizedAt,
+        startTime,
+        endTime: midpoint,
+        splitDepth: splitDepth + 1,
+        signal,
+      });
+      const right = await this.profitCalendarIncomeRange({
+        credentials,
+        serverTime,
+        synchronizedAt,
+        startTime: midpoint + 1,
+        endTime,
+        splitDepth: splitDepth + 1,
+        signal,
+      });
+      return {
+        income: [...left.income, ...right.income],
+        truncated: left.truncated || right.truncated,
+      };
+    }
+  }
+
+  async pagedProfitCalendarIncome({
+    credentials,
+    serverTime,
+    synchronizedAt,
+    startTime,
+    endTime,
+    signal,
+  }) {
+    const income = [];
     let page = 1;
     for (; page <= PROFIT_CALENDAR_MAX_PAGES; page += 1) {
       const value = await this.signedGet({
@@ -206,7 +327,11 @@ export class BinanceAccountService {
         pathname: "/fapi/v1/income",
         credentials,
         serverTime: serverTime + (Date.now() - synchronizedAt),
+        networkFetch: this.profitCalendarFetch,
+        signal,
+        timeoutMs: PROFIT_CALENDAR_REQUEST_TIMEOUT_MS,
         params: {
+          incomeType: "REALIZED_PNL",
           startTime,
           endTime,
           page,
@@ -238,6 +363,12 @@ export class BinanceAccountService {
 
   invalidateSnapshotCache(ownerId) {
     this.snapshotCache.delete(ownerId);
+    const pendingCalendar = this.profitCalendarOwnerRequests.get(ownerId);
+    pendingCalendar?.controller.abort(new DOMException(
+      "Binance account calendar cache was invalidated",
+      "AbortError",
+    ));
+    this.profitCalendarOwnerRequests.delete(ownerId);
     const prefix = `${ownerId}\0`;
     for (const key of this.profitCalendarCache.keys()) {
       if (key.startsWith(prefix)) this.profitCalendarCache.delete(key);
@@ -259,7 +390,11 @@ export class BinanceAccountService {
     return true;
   }
 
-  async snapshotWithCredentials(credentials, { previousSnapshot = null, live = false } = {}) {
+  async snapshotWithCredentials(credentials, {
+    previousSnapshot = null,
+    live = false,
+    summary = false,
+  } = {}) {
     const fetchedAt = this.now();
     const nowMs = fetchedAt instanceof Date ? fetchedAt.getTime() : new Date(fetchedAt).getTime();
     const safeNowMs = Number.isFinite(nowMs) ? nowMs : Date.now();
@@ -268,6 +403,16 @@ export class BinanceAccountService {
     const warnings = [];
     const futuresTime = await this.serverTime(this.futuresBaseUrl, "/fapi/v1/time");
     const shared = { credentials, serverTime: futuresTime, baseUrl: this.futuresBaseUrl };
+    if (summary && previousSnapshot) {
+      const account = await this.signedGet({ ...shared, pathname: "/fapi/v3/account" });
+      return mergeAccountSummarySnapshot({
+        account,
+        previousSnapshot,
+        fetchedAt: new Date(safeNowMs).toISOString(),
+        todayStartTime,
+        historyStartTime,
+      });
+    }
     const [account, positions, incomeResult, walletResult] = await Promise.all([
       this.signedGet({ ...shared, pathname: "/fapi/v3/account" }),
       // Full snapshots need V2's zero-position rows to retain leverage and
@@ -504,31 +649,60 @@ export class BinanceAccountService {
     });
   }
 
-  async serverTime(baseUrl, pathname) {
-    let payload;
-    try {
-      payload = await requestJson(this.fetch, new URL(pathname, `${baseUrl}/`).toString());
-    } catch (error) {
-      if (error?.code === BINANCE_DIRECT_ROUTE_FAILED) {
-        try {
-          payload = await requestJson(this.fetch, new URL(pathname, `${baseUrl}/`).toString());
-        } catch (retryError) {
-          this.applyRateLimit(retryError);
-          throw retryError;
+  async serverTime(baseUrl, pathname, { force = false } = {}) {
+    const cacheKey = `${normalizedBaseUrl(baseUrl, DEFAULT_FUTURES_BASE_URL)}\0${pathname}`;
+    const nowMs = Date.now();
+    const cached = this.serverTimeCache.get(cacheKey);
+    if (!force && cached && nowMs - cached.synchronizedAt < this.serverTimeCacheTtlMs) {
+      return cached.serverTime + (nowMs - cached.synchronizedAt);
+    }
+    if (!force) {
+      const pending = this.serverTimeRequests.get(cacheKey);
+      if (pending) return pending;
+    }
+    const request = (async () => {
+      let payload;
+      try {
+        payload = await requestJson(this.fetch, new URL(pathname, `${baseUrl}/`).toString());
+      } catch (error) {
+        if (error?.code === BINANCE_DIRECT_ROUTE_FAILED) {
+          try {
+            payload = await requestJson(this.fetch, new URL(pathname, `${baseUrl}/`).toString());
+          } catch (retryError) {
+            this.applyRateLimit(retryError);
+            throw retryError;
+          }
+        } else {
+          this.applyRateLimit(error);
+          throw error;
         }
-      } else {
-        this.applyRateLimit(error);
-        throw error;
       }
+      const serverTime = finiteNumber(payload?.serverTime);
+      if (serverTime == null || serverTime <= 0) {
+        throw new BinanceAccountError("INVALID_SERVER_TIME", "Binance 时间服务返回异常，请稍后重试。", { retryable: true });
+      }
+      const synchronizedAt = Date.now();
+      this.serverTimeCache.set(cacheKey, { serverTime, synchronizedAt });
+      return serverTime;
+    })();
+    if (!force) this.serverTimeRequests.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      if (this.serverTimeRequests.get(cacheKey) === request) this.serverTimeRequests.delete(cacheKey);
     }
-    const serverTime = finiteNumber(payload?.serverTime);
-    if (serverTime == null || serverTime <= 0) {
-      throw new BinanceAccountError("INVALID_SERVER_TIME", "Binance 时间服务返回异常，请稍后重试。", { retryable: true });
-    }
-    return serverTime;
   }
 
-  async signedGet({ baseUrl, pathname, credentials, serverTime, params = {} }) {
+  async signedGet({
+    baseUrl,
+    pathname,
+    credentials,
+    serverTime,
+    params = {},
+    networkFetch = this.fetch,
+    signal,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  }) {
     const requestAt = (timestamp) => {
       const url = buildSignedBinanceUrl({
         baseUrl,
@@ -536,18 +710,19 @@ export class BinanceAccountService {
         params: { ...params, recvWindow: this.recvWindow, timestamp: Math.trunc(timestamp) },
         apiSecret: credentials.apiSecret,
       });
-      return requestJson(this.fetch, url, {
+      return requestJson(networkFetch, url, {
         headers: { "X-MBX-APIKEY": credentials.apiKey },
-      });
+        signal,
+      }, timeoutMs);
     };
     try {
       return await requestAt(serverTime);
     } catch (error) {
-      if (error?.code === BINANCE_DIRECT_ROUTE_FAILED) {
+      if (error?.code === BINANCE_DIRECT_ROUTE_FAILED || error?.code === "BINANCE_TIME_INVALID") {
         const timePath = String(baseUrl).startsWith(DEFAULT_FUTURES_BASE_URL)
           ? "/fapi/v1/time"
           : "/api/v3/time";
-        const freshServerTime = await this.serverTime(baseUrl, timePath);
+        const freshServerTime = await this.serverTime(baseUrl, timePath, { force: true });
         try {
           return await requestAt(freshServerTime);
         } catch (retryError) {
@@ -771,6 +946,38 @@ function liveOpenOrderSymbols({ account, positions, previousOpenOrders }) {
     if (symbol) symbols.add(symbol);
   }
   return [...symbols].sort();
+}
+
+function mergeAccountSummarySnapshot({
+  account,
+  previousSnapshot,
+  fetchedAt,
+  todayStartTime,
+  historyStartTime,
+}) {
+  const freshSnapshot = normalizeBinanceAccountSnapshot({
+    account,
+    positions: [],
+    income: null,
+    accountTrades: null,
+    openOrders: null,
+    algoOpenOrders: null,
+    walletBalances: null,
+    fetchedAt,
+    todayStartTime,
+    historyStartTime,
+  });
+  const merged = mergeLiveAccountSnapshot(freshSnapshot, previousSnapshot);
+  return {
+    ...merged,
+    positions: Array.isArray(previousSnapshot?.positions) ? previousSnapshot.positions : [],
+    openOrders: Array.isArray(previousSnapshot?.openOrders) ? previousSnapshot.openOrders : [],
+    warnings: Array.isArray(previousSnapshot?.warnings) ? previousSnapshot.warnings : [],
+    sources: {
+      ...merged.sources,
+      openOrders: previousSnapshot?.sources?.openOrders || merged.sources.openOrders,
+    },
+  };
 }
 
 function mergeLiveAccountSnapshot(freshSnapshot, previousSnapshot) {
@@ -1225,10 +1432,14 @@ function marginRatioPercentage(maintenanceMargin, marginBalance) {
   return normalNumber((maintenance / balance) * 100);
 }
 
-async function requestJson(networkFetch, url, init = {}) {
-  const signal = typeof AbortSignal?.timeout === "function"
-    ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+async function requestJson(networkFetch, url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const timeoutSignal = typeof AbortSignal?.timeout === "function"
+    ? AbortSignal.timeout(Math.max(1_000, Number(timeoutMs) || REQUEST_TIMEOUT_MS))
     : undefined;
+  const signals = [init?.signal, timeoutSignal].filter(Boolean);
+  const signal = signals.length > 1 && typeof AbortSignal?.any === "function"
+    ? AbortSignal.any(signals)
+    : signals[0];
   let response;
   try {
     response = await networkFetch(url, { method: "GET", ...init, signal });
@@ -1320,6 +1531,15 @@ function normalizedBaseUrl(value, fallback) {
 function normalizedDuration(value, fallback) {
   const duration = Number(value);
   return Number.isFinite(duration) ? Math.max(0, Math.min(24 * 60 * 60 * 1_000, duration)) : fallback;
+}
+
+function profitCalendarRangeRetryable(error) {
+  return [
+    "BINANCE_TIMEOUT",
+    "BINANCE_NETWORK_ERROR",
+    "BINANCE_UNAVAILABLE",
+    BINANCE_DIRECT_ROUTE_FAILED,
+  ].includes(String(error?.code || ""));
 }
 
 function snapshotWithWarning(snapshot, warning) {
