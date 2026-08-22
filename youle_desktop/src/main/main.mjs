@@ -11911,6 +11911,22 @@ ipcMain.handle("youle:getSubscriptionBalanceDetails", async () => {
   return getYouleApiClient().getSubscriptionBalanceDetails();
 });
 
+ipcMain.handle("youle:getReferralDashboard", async () => {
+  return getYouleApiClient().getReferralDashboard();
+});
+
+ipcMain.handle("youle:listReferralLinks", async () => {
+  return getYouleApiClient().listReferralLinks();
+});
+
+ipcMain.handle("youle:createReferralLink", async (_event, params = {}) => {
+  return getYouleApiClient().createReferralLink(params);
+});
+
+ipcMain.handle("youle:listReferralCommissions", async (_event, params = {}) => {
+  return getYouleApiClient().listReferralCommissions(params);
+});
+
 ipcMain.handle("youle:createWeb3PaymentOrder", async (_event, params = {}) => {
   return getYouleApiClient().createWeb3PaymentOrder(params);
 });

@@ -1325,6 +1325,10 @@ type DesktopApi = {
   }>;
   disconnectGitHub?(): Promise<{ disconnected?: boolean; revoked_on_github?: boolean }>;
   getSubscriptionBalanceDetails?(): Promise<SubscriptionBalanceDetails>;
+  getReferralDashboard?(): Promise<ReferralDashboard>;
+  listReferralLinks?(): Promise<{ items?: ReferralLink[] }>;
+  createReferralLink?(params: { linkType: ReferralLinkType; channelLabel: string }): Promise<ReferralLink>;
+  listReferralCommissions?(params?: { limit?: number }): Promise<{ items?: ReferralCommission[] }>;
   createWeb3PaymentOrder?(params: {
     productId: string;
     network: RechargePaymentNetworkId;
@@ -2694,6 +2698,59 @@ type SubscriptionBalanceDetails = {
   calculatedAt: string;
 };
 
+type ReferralLinkType = "ordinary_direct" | "node_direct" | "node_helper" | "helper_direct";
+
+type ReferralDashboard = {
+  profile?: {
+    role?: "ordinary" | "node" | "helper";
+    status?: "active" | "inactive" | "pending";
+    helper_rate_bps?: number | null;
+  };
+  primary_code?: string;
+  summary?: {
+    direct_invitees?: number;
+    pending_commission_usdt?: string;
+    paid_commission_usdt?: string;
+    commission_entries?: number;
+  };
+};
+
+type ReferralLink = {
+  id: string;
+  code: string;
+  url: string;
+  link_type: ReferralLinkType;
+  channel_label: string;
+  status: "active" | "paused";
+  created_at?: string | null;
+};
+
+type ReferralCommission = {
+  id: string;
+  order_no: string;
+  payer_name?: string | null;
+  payer_email?: string | null;
+  component: "ordinary" | "helper" | "node";
+  gross_amount_usdt: string;
+  rate_bps: number;
+  amount_usdt: string;
+  status: string;
+  product_name?: string | null;
+  paid_at?: string | null;
+  created_at?: string | null;
+};
+
+type ReferralCenterState = {
+  open: boolean;
+  loaded: boolean;
+  loading: boolean;
+  creating: boolean;
+  error: string | null;
+  dashboard: ReferralDashboard | null;
+  links: ReferralLink[];
+  commissions: ReferralCommission[];
+};
+
 type SubscriptionDetailsAnchor = "badge" | "consumption-badge";
 
 type ProfileSubscriptionDetailsState = {
@@ -3940,6 +3997,7 @@ type UiState = {
   login: LoginState;
   profileEdit: ProfileEditState;
   profileSubscriptionDetails: ProfileSubscriptionDetailsState;
+  referralCenter: ReferralCenterState;
   autoTaskDraft: AutoTaskDraftState;
   autoTaskItems: AutoTaskItem[];
   executionPlans: SavedExecutionPlan[];
@@ -5313,6 +5371,16 @@ const state: UiState = {
     data: null,
     error: null,
   },
+  referralCenter: {
+    open: false,
+    loaded: false,
+    loading: false,
+    creating: false,
+    error: null,
+    dashboard: null,
+    links: [],
+    commissions: [],
+  },
   autoTaskDraft: createAutoTaskDraft(),
   autoTaskItems: loadAutoTaskItems(),
   executionPlans: [],
@@ -5946,6 +6014,16 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
     state.auth.profile?.email,
   );
   if (!state.auth.authenticated || accountIdentity !== previousAccountIdentity) {
+    state.referralCenter = {
+      open: false,
+      loaded: false,
+      loading: false,
+      creating: false,
+      error: null,
+      dashboard: null,
+      links: [],
+      commissions: [],
+    };
     resetTradingPreferenceProfileState();
     authenticatedModelCatalogPreloadPromise = null;
     authenticatedModelCatalogPreloadIdentity = "";
@@ -6923,6 +7001,10 @@ function wireCopyContextMenu() {
       }
       if (state.groupChatDialog.open) {
         state.groupChatDialog = emptyGroupChatDialogState();
+        shouldRender = true;
+      }
+      if (state.referralCenter.open && !state.referralCenter.creating) {
+        state.referralCenter.open = false;
         shouldRender = true;
       }
       if (shouldRender) render();
@@ -35414,6 +35496,7 @@ function render() {
     ${renderLocalGroupChatMemberMenu()}
     ${renderWorkflowCanvasContextMenu()}
     ${renderProfileMenu()}
+    ${renderReferralCenterDialog()}
     ${state.settingsOpen ? renderSettingsDialog() : ""}
     ${state.login.wecomQrOpen ? renderLoginWeComDialog() : ""}
     ${state.settings.update.dialogOpen ? renderUpdateDialog() : ""}
@@ -57957,6 +58040,13 @@ function renderProfileMenu() {
           </div>
         </div>
         ${membership.subscribed ? renderProfileSubscriptionBalance() : ""}
+        <button class="profile-referral-entry" type="button" data-action="profile-referrals">
+          <span class="profile-referral-entry-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M20 12v8H4v-8M2 7h20v5H2zM12 7v13M12 7H7.5A2.5 2.5 0 1 1 10 4.5L12 7Zm0 0h4.5A2.5 2.5 0 1 0 14 4.5L12 7Z" /></svg>
+          </span>
+          <span><strong>邀请有礼</strong><small>推广会员，获得 USDT 返佣</small></span>
+          <i aria-hidden="true">›</i>
+        </button>
       </div>
     </section>
   `;
@@ -57989,6 +58079,124 @@ function renderSettingsProfilePanel() {
       </label>
       ${state.profileEdit.error ? `<div class="profile-edit-error">${escapeHtml(state.profileEdit.error)}</div>` : ""}
       <button class="profile-edit-submit settings-profile-submit" type="button" data-action="save-profile-edit" ${canSubmit ? "" : "disabled"}>${state.profileEdit.saving ? "保存中..." : "保存修改"}</button>
+    </div>
+  `;
+}
+
+function referralRoleLabel(dashboard: ReferralDashboard | null) {
+  const role = dashboard?.profile?.role || "ordinary";
+  const status = dashboard?.profile?.status || "active";
+  if (role === "node") return status === "active" ? "节点用户" : "节点已停用";
+  if (role === "helper") return status === "active" ? "助力人" : "待审核助力人";
+  return "普通推广者";
+}
+
+function referralRuleLabel(dashboard: ReferralDashboard | null) {
+  const role = dashboard?.profile?.role || "ordinary";
+  const status = dashboard?.profile?.status || "active";
+  if (role === "node" && status === "active") return "直属普通用户付款，你获得实付金额的 60%";
+  if (role === "helper" && status === "active") {
+    const rate = Number(dashboard?.profile?.helper_rate_bps || 0) / 100;
+    return `推广用户付款，你获得实付金额的 ${rate || 30}%`;
+  }
+  if (role === "helper" && status === "pending") return "审核通过前创建普通推广链接，固定返佣 20%";
+  if (role === "node" && status !== "active") return "节点已停用，原关系保留，当前不参与节点分佣";
+  return "推广普通用户付费，你获得链上实付金额的 20%";
+}
+
+function referralDefaultLinkType(dashboard: ReferralDashboard | null): ReferralLinkType {
+  const role = dashboard?.profile?.role || "ordinary";
+  const status = dashboard?.profile?.status || "active";
+  if (role === "node" && status === "active") return "node_direct";
+  if (role === "helper" && status === "active") return "helper_direct";
+  return "ordinary_direct";
+}
+
+function referralMoney(value: unknown) {
+  const numberValue = Number(value || 0);
+  if (!Number.isFinite(numberValue)) return "0.00";
+  return numberValue.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
+function referralDate(value: unknown) {
+  const date = new Date(String(value || ""));
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function renderReferralCommissionRow(item: ReferralCommission) {
+  const identity = item.payer_name || item.payer_email || "好咯用户";
+  const component = item.component === "node" ? "节点返佣" : item.component === "helper" ? "助力返佣" : "推广返佣";
+  const status = item.status === "paid" ? "已发放" : "待发放";
+  return `
+    <tr>
+      <td><strong>${escapeHtml(identity)}</strong><small>${escapeHtml(item.order_no || "—")}</small></td>
+      <td>${escapeHtml(component)}<small>${escapeHtml(item.product_name || "会员订单")}</small></td>
+      <td>${referralMoney(item.gross_amount_usdt)} USDT</td>
+      <td>${Number(item.rate_bps || 0) / 100}%</td>
+      <td><strong class="referral-amount-positive">+${referralMoney(item.amount_usdt)} USDT</strong></td>
+      <td><span class="referral-status ${item.status === "paid" ? "paid" : "pending"}">${status}</span><small>${referralDate(item.paid_at || item.created_at)}</small></td>
+    </tr>
+  `;
+}
+
+function renderReferralCenterContent() {
+  const center = state.referralCenter;
+  if (center.loading && !center.loaded) {
+    return `<div class="referral-loading" aria-label="正在加载"><i></i><i></i><i></i><span></span></div>`;
+  }
+  if (center.error && !center.dashboard) {
+    return `<div class="referral-center-error"><strong>邀请数据加载失败</strong><p>${escapeHtml(center.error)}</p><button type="button" data-action="retry-referral-center">重新加载</button></div>`;
+  }
+  const dashboard = center.dashboard;
+  const summary = dashboard?.summary || {};
+  const activeLink = center.links.find((item) => item.status === "active") || null;
+  const canCreate = !(dashboard?.profile?.role === "node" && dashboard?.profile?.status !== "active");
+  return `
+    ${center.error ? `<div class="referral-inline-error">${escapeHtml(center.error)}</div>` : ""}
+    <section class="referral-summary-grid">
+      <article><span>待发放返佣</span><strong>${referralMoney(summary.pending_commission_usdt)}<small> USDT</small></strong><i>后台账本实时记录</i></article>
+      <article><span>累计已发放</span><strong>${referralMoney(summary.paid_commission_usdt)}<small> USDT</small></strong><i>${Number(summary.commission_entries || 0)} 笔返佣记录</i></article>
+      <article><span>直属邀请</span><strong>${Number(summary.direct_invitees || 0)}<small> 人</small></strong><i>首次注册永久绑定</i></article>
+    </section>
+    <section class="referral-link-card">
+      <div class="referral-link-copy">
+        <span class="referral-kicker">我的专属推广</span>
+        <h3>${escapeHtml(referralRoleLabel(dashboard))}</h3>
+        <p>${escapeHtml(referralRuleLabel(dashboard))}</p>
+      </div>
+      ${activeLink ? `
+        <div class="referral-link-value">
+          <label for="referralLinkValue">专属邀请链接 · ${escapeHtml(activeLink.channel_label || "客户端邀请有礼")}</label>
+          <div><input id="referralLinkValue" value="${escapeAttr(activeLink.url)}" readonly aria-readonly="true" /><button type="button" data-action="copy-referral-link" data-referral-url="${escapeAttr(activeLink.url)}">复制链接</button></div>
+          <small>推广码：${escapeHtml(activeLink.code || dashboard?.primary_code || "—")} · 注册时即冻结当前链接规则</small>
+        </div>
+      ` : canCreate ? `
+        <div class="referral-create-first">
+          <p>还没有可用的推广链接，创建后即可分享给好友。</p>
+          <button type="button" data-action="create-referral-link" ${center.creating ? "disabled" : ""}>${center.creating ? "正在创建..." : "生成专属邀请链接"}</button>
+        </div>
+      ` : `<div class="referral-create-first is-disabled"><p>节点已停用，原链接和关系保留；重新启用节点后链接会自动恢复。</p></div>`}
+    </section>
+    <section class="referral-ledger">
+      <div class="referral-section-head"><div><span class="referral-kicker">REWARD RECORDS</span><h3>奖励记录</h3></div><button type="button" data-action="retry-referral-center" ${center.loading ? "disabled" : ""}>${center.loading ? "刷新中" : "刷新"}</button></div>
+      ${center.commissions.length ? `<div class="referral-table-scroll"><table><thead><tr><th>付款用户 / 订单</th><th>奖励类型</th><th>计佣金额</th><th>比例</th><th>返佣金额</th><th>状态 / 时间</th></tr></thead><tbody>${center.commissions.map(renderReferralCommissionRow).join("")}</tbody></table></div>` : `<div class="referral-empty"><strong>暂无奖励记录</strong><p>好友通过你的链接注册并完成 Web3 USDT 会员付款后，返佣会显示在这里。</p></div>`}
+    </section>
+    <div class="referral-center-rule"><strong>返佣规则</strong><span>仅 Web3 USDT 会员订单参与返佣，以链上确认的应付金额为基数；退款或履约失败不产生有效返佣。</span></div>
+  `;
+}
+
+function renderReferralCenterDialog() {
+  if (!state.referralCenter.open) return "";
+  return `
+    <div class="referral-center-overlay" data-action="close-referral-center">
+      <section class="referral-center-dialog" role="dialog" aria-modal="true" aria-labelledby="referralCenterTitle">
+        <header>
+          <div><span class="referral-kicker">MEMBER CENTER</span><h2 id="referralCenterTitle">邀请有礼</h2><p>分享好咯，清晰查看每一笔 USDT 返佣。</p></div>
+          <button class="referral-center-close" type="button" data-action="close-referral-center" aria-label="关闭">×</button>
+        </header>
+        <div class="referral-center-scroll">${renderReferralCenterContent()}</div>
+      </section>
     </div>
   `;
 }
@@ -59560,6 +59768,88 @@ function openRechargePage() {
   state.activeView = "recharge";
   render();
   void refreshProfileFromApi({ renderAfter: true, reportError: false, showRefreshing: false });
+}
+
+async function loadReferralCenter(options: { force?: boolean } = {}) {
+  if (!state.auth.authenticated) return;
+  if (!api.getReferralDashboard || !api.listReferralLinks || !api.listReferralCommissions) {
+    state.referralCenter.loading = false;
+    state.referralCenter.error = "当前客户端版本暂不支持邀请与返佣接口";
+    if (state.referralCenter.open) render();
+    return;
+  }
+  if (state.referralCenter.loaded && !options.force) return;
+  state.referralCenter.loading = true;
+  state.referralCenter.error = null;
+  if (state.referralCenter.open) render();
+  try {
+    const [dashboard, linksResult, commissionsResult] = await Promise.all([
+      api.getReferralDashboard(),
+      api.listReferralLinks(),
+      api.listReferralCommissions({ limit: 50 }),
+    ]);
+    state.referralCenter.dashboard = dashboard || null;
+    state.referralCenter.links = Array.isArray(linksResult?.items) ? linksResult.items : [];
+    state.referralCenter.commissions = Array.isArray(commissionsResult?.items) ? commissionsResult.items : [];
+    state.referralCenter.loaded = true;
+  } catch (error) {
+    state.referralCenter.error = errorMessage(error);
+  } finally {
+    state.referralCenter.loading = false;
+    if (state.referralCenter.open) render();
+  }
+}
+
+function openReferralCenter() {
+  state.profileMenuOpen = false;
+  state.referralCenter.open = true;
+  state.referralCenter.error = null;
+  render();
+  void loadReferralCenter();
+}
+
+function closeReferralCenter() {
+  if (state.referralCenter.creating) return;
+  state.referralCenter.open = false;
+  render();
+}
+
+async function createDefaultReferralLink() {
+  if (!api.createReferralLink || state.referralCenter.creating) return;
+  state.referralCenter.creating = true;
+  state.referralCenter.error = null;
+  render();
+  try {
+    await api.createReferralLink({
+      linkType: referralDefaultLinkType(state.referralCenter.dashboard),
+      channelLabel: "客户端邀请有礼",
+    });
+    state.referralCenter.loaded = false;
+    showToast("专属邀请链接已生成", 3200);
+    await loadReferralCenter({ force: true });
+  } catch (error) {
+    state.referralCenter.error = errorMessage(error);
+  } finally {
+    state.referralCenter.creating = false;
+    if (state.referralCenter.open) render();
+  }
+}
+
+async function copyReferralLink(url: string) {
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = url;
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.appendChild(input);
+    input.select();
+    document.execCommand("copy");
+    input.remove();
+  }
+  showToast("邀请链接已复制", 2600);
 }
 
 function renderSettingsDialog() {
@@ -61667,6 +61957,29 @@ function bindEvents() {
         openRechargePage();
       });
     });
+  root
+    .querySelectorAll<HTMLElement>('[data-action="profile-referrals"]')
+    .forEach((element) => {
+      element.addEventListener("click", () => openReferralCenter());
+    });
+  root
+    .querySelectorAll<HTMLElement>('[data-action="close-referral-center"]')
+    .forEach((element) => {
+      element.addEventListener("click", (event) => {
+        if (element.classList.contains("referral-center-overlay") && event.target !== element) return;
+        event.stopPropagation();
+        closeReferralCenter();
+      });
+    });
+  root.querySelectorAll<HTMLElement>('[data-action="retry-referral-center"]').forEach((element) => {
+    element.addEventListener("click", () => void loadReferralCenter({ force: true }));
+  });
+  root.querySelector<HTMLElement>('[data-action="create-referral-link"]')?.addEventListener("click", () => {
+    void createDefaultReferralLink();
+  });
+  root.querySelectorAll<HTMLElement>('[data-action="copy-referral-link"]').forEach((element) => {
+    element.addEventListener("click", () => void copyReferralLink(element.dataset.referralUrl || ""));
+  });
   root
     .querySelectorAll<HTMLButtonElement>(
       '[data-action="show-profile-subscription-details"]',
