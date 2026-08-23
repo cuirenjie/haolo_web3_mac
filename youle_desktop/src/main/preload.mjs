@@ -80,6 +80,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   listThreadGroupWorkspaces: (params) => ipcRenderer.invoke("app:listThreadGroupWorkspaces", params),
   openThreadGroupFolder: (params) => ipcRenderer.invoke("app:openThreadGroupFolder", params),
   pickThreadGroupFolder: () => ipcRenderer.invoke("app:pickThreadGroupFolder"),
+  pickComposerFilesAndFolders: () => ipcRenderer.invoke("app:pickComposerFilesAndFolders"),
   createThreadGroupFolder: (params) => ipcRenderer.invoke("app:createThreadGroupFolder", params),
   // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable report export bridge
   exportDiagnostics: () => ipcRenderer.invoke("app:exportDiagnostics"),

@@ -1298,6 +1298,10 @@ type DesktopApi = {
   openThreadGroupFolder?(params: ThreadGroupWorkspaceRequest): Promise<any>;
   pickThreadGroupFolder?(): Promise<{ canceled?: boolean; path?: string; name?: string;
   }>;
+  pickComposerFilesAndFolders?(): Promise<{
+    canceled?: boolean;
+    paths?: string[];
+  }>;
   createThreadGroupFolder?(params: { name: string;
   }): Promise<{ ok?: boolean; path?: string; name?: string }>;
   // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable desktop API type
@@ -8991,7 +8995,7 @@ function wireComposerSkillMentionPopoverDismissal() {
       const target = event.target instanceof Element ? event.target : null;
       if (
         target?.closest(
-          ".composer-skill-popover, .composer-media-mention-popover",
+          '.composer-skill-popover, .composer-media-mention-popover, [data-action="toggle-trading-expert-mention-menu"]',
         )
       )
         return;
@@ -33363,7 +33367,50 @@ function dismissComposerSkillMentionPopover() {
   resetComposerMediaMentionState();
   updateComposerSkillMentionPopover([]);
   updateComposerMediaMentionPopover([]);
+  root
+    .querySelector<HTMLElement>('[data-action="toggle-trading-expert-mention-menu"]')
+    ?.setAttribute("aria-expanded", "false");
   return dismissed;
+}
+
+function toggleTradingExpertMentionMenu() {
+  const threadId = currentComposerThreadId();
+  const input = root.querySelector<HTMLTextAreaElement>("#composerInput");
+  if (!threadId || !isTradingExpertThreadId(threadId) || !input) return;
+  if (state.composerSkillMention.open) {
+    dismissComposerSkillMentionPopover();
+    render();
+    return;
+  }
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? start;
+  resetComposerMediaMentionState();
+  state.composerModelMenuOpen = false;
+  state.composerModeMenuOpen = false;
+  state.newThreadGroupPickerOpen = false;
+  state.videoExpertMenuOpen = null;
+  state.composerSkillMention = {
+    ...state.composerSkillMention,
+    open: true,
+    query: "",
+    threadQuery: "",
+    favoriteQuery: "",
+    activeIndex: 0,
+    rootIndex: 0,
+    threadActiveIndex: 0,
+    favoriteActiveIndex: -1,
+    submenu: null,
+    threadDetail: null,
+    start,
+    end,
+  };
+  render();
+  queueMicrotask(() => {
+    const nextInput = root.querySelector<HTMLTextAreaElement>("#composerInput");
+    if (!nextInput) return;
+    nextInput.focus({ preventScroll: true });
+    nextInput.setSelectionRange(start, end);
+  });
 }
 
 function resetComposerMediaMentionState() {
@@ -33387,6 +33434,13 @@ function handleComposerSkillMentionKeydown(event: KeyboardEvent) {
   if (!state.composerSkillMention.open && event.key === "Enter") return false;
   if (!state.composerSkillMention.open) syncComposerSkillMentionPopover();
   if (!state.composerSkillMention.open) return false;
+  if (isTradingExpertThreadId(currentComposerThreadId())) {
+    if (event.key !== "Escape") return false;
+    event.preventDefault();
+    dismissComposerSkillMentionPopover();
+    render();
+    return true;
+  }
   const groupMention =
     state.composerSkillMention.submenu === "group-members" &&
     Boolean(localGroupChatRecord(currentComposerThreadId()));
@@ -33529,6 +33583,25 @@ function syncDesktopAgentMentionPopover() {
 }
 
 function syncComposerSkillMentionPopover(triggerInserted = false) {
+  if (isTradingExpertThreadId(currentComposerThreadId())) {
+    state.composerSkillMention = {
+      ...state.composerSkillMention,
+      open: false,
+      query: "",
+      threadQuery: "",
+      favoriteQuery: "",
+      activeIndex: 0,
+      rootIndex: 0,
+      threadActiveIndex: 0,
+      favoriteActiveIndex: -1,
+      submenu: null,
+      threadDetail: null,
+      start: -1,
+      end: -1,
+    };
+    updateComposerSkillMentionPopover([]);
+    return;
+  }
   const input = root.querySelector<HTMLTextAreaElement>("#composerInput");
   const selectionStart = input?.selectionStart ?? state.composerText.length;
   const match = composerSkillMentionMatch(input?.value ?? state.composerText, selectionStart);
@@ -53650,7 +53723,7 @@ function composerPlaceholderForThread(thread: ConversationSummary) {
     return "发送消息，输入 @ 可指定一个或多个群成员回复";
   }
   if (isTradingExpertThreadId(thread.id)) {
-    return "输入@调用 策略、指标、预警";
+    return "";
   }
   const threadBusy = isThreadBusy(thread.id) && !providerFromThreadId(thread.id);
   if (threadBusy && isLocalCodexThread(thread.id)) {
@@ -56068,6 +56141,7 @@ function renderComposer(thread: ConversationSummary) {
   const workflowHasEntryNodes = Boolean(workflowInputContract?.entryNodeIds.length);
   const workflowFileInputPolicy = workflowComposerFileInputPolicy(workflowInputContract);
   const workflowUsesMainText = workflowInvocationUsesMainText(workflowInputContract);
+  const tradingExpertMode = isTradingExpertThreadId(thread.id);
   const fileInputAccept = imageGenerationMode
     ? mediaInputAccept("image")
     : workflowInputContract
@@ -56092,7 +56166,10 @@ function renderComposer(thread: ConversationSummary) {
       : selectedInputCapabilities?.image
         ? "上传文件或图片"
         : "上传文件资料";
-  const composerTrailingPicker = multiAgentMode
+  const composerUploadAction = tradingExpertMode
+    ? `data-action="toggle-trading-expert-mention-menu" title="添加" aria-label="添加" aria-haspopup="menu" aria-expanded="${state.composerSkillMention.open ? "true" : "false"}"`
+    : `data-action="pick-files" title="${escapeAttr(uploadTitle)}" aria-label="${escapeAttr(uploadTitle)}"`;
+  const composerTrailingPicker = multiAgentMode || tradingExpertMode
     ? ""
     : renderComposerModelPicker(thread.id);
   const workflowComposerPort = isMultiModelClusterThread(thread.id)
@@ -56144,7 +56221,7 @@ function renderComposer(thread: ConversationSummary) {
       <div class="composer-tools">
         <input id="fileInput" type="file"${fileInputAcceptAttribute} data-default-accept="${escapeAttr(fileInputAccept)}" data-default-multiple="${workflowInputContract ? workflowFileInputPolicy.multiple ? "true" : "false" : "true"}" ${workflowInputContract && !workflowFileInputPolicy.multiple ? "" : "multiple"} hidden />
         ${workflowCanvasMode && workflowHasEntryNodes ? "" : `
-          <button type="button" class="composer-icon-btn composer-upload-button" data-action="pick-files" title="${uploadTitle}" aria-label="${uploadTitle}" draggable="false" ${workflowInputContract && !workflowFileInputPolicy.enabled ? "disabled" : ""}>
+          <button type="button" class="composer-icon-btn composer-upload-button" ${composerUploadAction} draggable="false" ${workflowInputContract && !workflowFileInputPolicy.enabled ? "disabled" : ""}>
             <svg class="composer-upload-plus" viewBox="0 0 24 24" aria-hidden="true" draggable="false">
               <path d="M12 5V19M5 12H19" />
             </svg>
@@ -56737,7 +56814,7 @@ function patchComposerDynamicState(threadId: string | null | undefined = state.c
 
 function renderTradingExpertMentionMenu(open: boolean) {
   return `
-    <div class="composer-skill-popover composer-mention-cascade trading-expert-mention-popover ${open ? "" : "hidden"}" aria-label="@ 交易专家菜单">
+    <div class="composer-skill-popover composer-mention-cascade trading-expert-mention-popover ${open ? "" : "hidden"}" aria-label="添加交易专家内容">
       ${
         open
           ? `<div class="composer-mention-root trading-expert-mention-root" role="menu">
@@ -56767,6 +56844,12 @@ function renderTradingExpertMentionMenu(open: boolean) {
                   `,
                 )
                 .join("")}
+              <button type="button" class="composer-mention-root-item trading-expert-attachment-item" role="menuitem" data-action="pick-composer-files-and-folders">
+                <svg class="trading-expert-attachment-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+                <span>文件和文件夹</span>
+              </button>
             </div>`
           : ""
       }
@@ -58486,7 +58569,7 @@ function renderReferralCenterContent() {
       </div>
       ${activeLink ? `
         <div class="referral-link-value">
-          <div><input id="referralLinkValue" value="${escapeAttr(activeLink.url)}" readonly aria-readonly="true" /><button type="button" data-action="copy-referral-link" data-referral-url="${escapeAttr(activeLink.url)}">复制链接</button></div>
+          <div><input id="referralLinkValue" value="${escapeAttr(activeLink.url)}" readonly aria-readonly="true" /><button type="button" class="referral-link-copy-button" data-action="copy-referral-link" data-referral-url="${escapeAttr(activeLink.url)}">复制链接</button></div>
           <div class="referral-code-row">
             <small>推广码:<span class="referral-code-value">${escapeHtml(activeReferralCode)}</span></small>
             <button type="button" class="referral-code-copy" data-action="copy-referral-code" data-referral-code="${escapeAttr(activeReferralCode)}" title="复制邀请码" aria-label="复制邀请码">
@@ -64731,6 +64814,20 @@ function bindEvents() {
       syncComposerMentionHighlights();
     });
   root
+    .querySelector<HTMLButtonElement>('[data-action="toggle-trading-expert-mention-menu"]')
+    ?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleTradingExpertMentionMenu();
+    });
+  root
+    .querySelector<HTMLButtonElement>('[data-action="pick-composer-files-and-folders"]')
+    ?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void pickComposerFilesAndFolders();
+    });
+  root
     .querySelectorAll<HTMLElement>('[data-action="pick-files"]')
     .forEach((element) => {
       element.addEventListener("click", () => {
@@ -69666,6 +69763,38 @@ async function queueDroppedFolders(paths: Set<string>) {
   if (!folders.length) return false;
 
   return queueComposerFolders(folders);
+}
+
+async function pickComposerFilesAndFolders() {
+  dismissComposerSkillMentionPopover();
+  render();
+  if (!api.pickComposerFilesAndFolders) {
+    const input = root.querySelector<HTMLInputElement>("#fileInput");
+    if (!input) return;
+    input.accept = "";
+    input.multiple = true;
+    input.click();
+    return;
+  }
+  try {
+    const result = await api.pickComposerFilesAndFolders();
+    const paths = new Set(
+      (result?.paths || [])
+        .map((path) => firstString(path))
+        .filter((path): path is string => Boolean(path)),
+    );
+    if (result?.canceled || !paths.size) return;
+    const handledFolders = await queueDroppedFolders(paths);
+    const files = await filesFromDroppedLocalPaths(paths);
+    if (files.length) queueFiles(files);
+    if (handledFolders || files.length) {
+      focusComposerInputAfterDrop();
+      return;
+    }
+    showToast("没有识别到可导入的文件或文件夹。", 3000);
+  } catch (error) {
+    showToast(`导入失败：${errorMessage(error)}`, 4000);
+  }
 }
 
 function queueComposerFolders(folders: ComposerFolderDescriptor[]) {

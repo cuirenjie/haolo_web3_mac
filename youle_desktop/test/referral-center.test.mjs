@@ -70,7 +70,7 @@ test("member center renders from settings with links, balances and reward rows",
   assert.match(rendererSource, /function renderReferralCenterDialog/);
   assert.match(rendererSource, /待发放返佣/);
   assert.match(rendererSource, /累计已发放/);
-  assert.match(rendererSource, /data-action="copy-referral-link"/);
+  assert.match(rendererSource, /class="referral-link-copy-button" data-action="copy-referral-link"/);
   assert.match(rendererSource, /推广码:<span class="referral-code-value">/);
   assert.match(rendererSource, /data-action="copy-referral-code" data-referral-code="\$\{escapeAttr\(activeReferralCode\)\}" title="复制邀请码" aria-label="复制邀请码">/);
   assert.match(rendererSource, /class="referral-code-copy"[\s\S]*?<svg viewBox="0 0 20 20"/);
@@ -118,6 +118,16 @@ test("referral center covers light and dark interactive states", () => {
   assert.match(stylesSource, /\.referral-link-value button:hover:not\(:disabled\)/);
   assert.match(stylesSource, /\.referral-link-value button:focus-visible/);
   assert.match(stylesSource, /\.referral-link-value button:disabled/);
+  assert.match(stylesSource, /\.referral-link-value \.referral-link-copy-button\s*\{[^}]*border-color:\s*#050505;[^}]*background:\s*#050505;/s);
+  assert.match(stylesSource, /\.referral-link-value \.referral-link-copy-button:hover:not\(:disabled\)\s*\{[^}]*background:\s*#1a1a1a;/s);
+  assert.match(stylesSource, /\.referral-link-value \.referral-link-copy-button:active:not\(:disabled\)\s*\{[^}]*background:\s*#000;/s);
+  assert.match(stylesSource, /\.referral-link-value \.referral-link-copy-button:focus-visible\s*\{[^}]*outline-color:\s*rgba\(5, 5, 5, \.34\);/s);
+  assert.match(stylesSource, /\.referral-link-value \.referral-link-copy-button:disabled\s*\{[^}]*background:\s*#6f6f6f;/s);
+  assert.match(stylesSource, /html\[data-theme="dark"\] \.referral-link-value \.referral-link-copy-button\s*\{[^}]*background:\s*#050505;/s);
+  assert.match(stylesSource, /html\[data-theme="dark"\] \.referral-link-value \.referral-link-copy-button:hover:not\(:disabled\)/);
+  assert.match(stylesSource, /html\[data-theme="dark"\] \.referral-link-value \.referral-link-copy-button:active:not\(:disabled\)/);
+  assert.match(stylesSource, /html\[data-theme="dark"\] \.referral-link-value \.referral-link-copy-button:focus-visible/);
+  assert.match(stylesSource, /html\[data-theme="dark"\] \.referral-link-value \.referral-link-copy-button:disabled/);
   assert.match(stylesSource, /\.referral-loading/);
   assert.match(stylesSource, /html\[data-theme="dark"\] \.referral-center-dialog/);
   assert.match(stylesSource, /html\[data-theme="dark"\] \.settings-referral-entry:hover/);

@@ -15039,6 +15039,48 @@ ipcMain.handle("app:pickThreadGroupFolder", async () => {
   };
 });
 
+ipcMain.handle("app:pickComposerFilesAndFolders", async () => {
+  const window = BrowserWindow.getFocusedWindow() || mainWindow;
+  if (window && !window.isDestroyed()) {
+    window.show();
+    window.moveTop();
+    window.focus();
+  }
+
+  let selectionKind = "combined";
+  if (process.platform === "win32" || process.platform === "linux") {
+    const choice = await dialog.showMessageBox(window || undefined, {
+      type: "none",
+      title: "文件和文件夹",
+      message: "请选择要导入的内容",
+      detail: "文件支持多选；文件夹将作为整个目录导入。",
+      buttons: ["选择文件", "选择文件夹", "取消"],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    });
+    if (choice.response === 2) return { canceled: true, paths: [] };
+    selectionKind = choice.response === 1 ? "folder" : "file";
+  }
+
+  const properties = selectionKind === "file"
+    ? ["openFile", "multiSelections"]
+    : selectionKind === "folder"
+      ? ["openDirectory", "multiSelections"]
+      : ["openFile", "openDirectory", "multiSelections"];
+  const result = await dialog.showOpenDialog(window || undefined, {
+    title: selectionKind === "folder" ? "选择文件夹" : selectionKind === "file" ? "选择文件" : "选择文件或文件夹",
+    properties,
+  });
+  if (result.canceled || !result.filePaths?.length) {
+    return { canceled: true, paths: [] };
+  }
+  return {
+    canceled: false,
+    paths: [...new Set(result.filePaths.map((filePath) => path.resolve(filePath)))],
+  };
+});
+
 function validateThreadGroupFolderName(value) {
   const name = String(value || "").trim();
   if (!name) throw new Error("请填写文件夹名");

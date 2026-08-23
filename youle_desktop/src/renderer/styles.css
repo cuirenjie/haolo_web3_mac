@@ -12675,6 +12675,11 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   line-height: 0;
 }
 
+.composer-upload-button[aria-expanded="true"] {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
 .composer-upload-plus {
   width: 20px;
   height: 20px;
@@ -27399,6 +27404,11 @@ html[data-theme="dark"] .composer-icon-btn:active:not(:disabled) {
   color: var(--text-primary-soft);
 }
 
+html[data-theme="dark"] .composer-upload-button[aria-expanded="true"] {
+  background: var(--selection-soft);
+  color: var(--text-primary-soft);
+}
+
 html[data-theme="dark"] .composer-icon-btn:focus-visible {
   outline-color: rgba(117, 169, 255, 0.7);
   background: var(--selection-soft);
@@ -33020,6 +33030,74 @@ html[data-theme="dark"] .message-actions .trading-preference-binance-connect:dis
   min-height: 40px;
   padding: 8px 10px;
   font-size: calc(13px + var(--app-font-size-offset));
+}
+
+.desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer
+  .trading-expert-attachment-item {
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+
+.desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer
+  .trading-expert-attachment-item
+  > .trading-expert-attachment-icon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.72;
+  transform: none;
+}
+
+.desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer
+  .trading-expert-attachment-item:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+html[data-theme="dark"]
+  .desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer
+  .trading-expert-attachment-item {
+  color: var(--text-secondary);
+}
+
+html[data-theme="dark"]
+  .desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer
+  .trading-expert-attachment-item:hover:not(:disabled),
+html[data-theme="dark"]
+  .desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer
+  .trading-expert-attachment-item:focus-visible {
+  background: var(--selection-soft);
+  color: var(--text-primary);
+}
+
+html[data-theme="dark"]
+  .desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer
+  .trading-expert-attachment-item:active:not(:disabled) {
+  background: var(--selection-strong);
+  color: var(--text-primary);
+}
+
+html[data-theme="dark"]
+  .desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer
+  .trading-expert-attachment-item:disabled {
+  background: transparent;
+  color: var(--text-disabled);
 }
 
 .desktop-body.trading-expert-layout
@@ -40836,6 +40914,11 @@ html[data-theme="dark"] .personal-strategy-error { color: #ffb5b0; background: #
 .referral-link-value button:active:not(:disabled), .referral-create-first button:active:not(:disabled), .referral-center-error button:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
 .referral-link-value button:focus-visible, .referral-create-first button:focus-visible, .referral-center-error button:focus-visible { outline: 3px solid rgba(47, 128, 237, .25); outline-offset: 2px; }
 .referral-link-value button:disabled, .referral-create-first button:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+.referral-link-value .referral-link-copy-button { border-color: #050505; background: #050505; box-shadow: 0 6px 15px rgba(0, 0, 0, .18); }
+.referral-link-value .referral-link-copy-button:hover:not(:disabled) { border-color: #1a1a1a; background: #1a1a1a; }
+.referral-link-value .referral-link-copy-button:active:not(:disabled) { border-color: #000; background: #000; box-shadow: none; }
+.referral-link-value .referral-link-copy-button:focus-visible { outline-color: rgba(5, 5, 5, .34); }
+.referral-link-value .referral-link-copy-button:disabled { border-color: #6f6f6f; background: #6f6f6f; color: #f4f4f4; }
 .referral-code-row { display: flex; min-width: 0; align-items: center; justify-content: flex-start; gap: 5px; }
 .referral-code-row small { min-width: 0; overflow: hidden; color: #8e9aad; font-size: calc(11px + var(--app-font-size-offset)); line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
 .referral-code-value { color: #0c1729; }
@@ -40908,6 +40991,11 @@ html[data-theme="dark"] .referral-link-value input:hover { border-color: #4e6685
 html[data-theme="dark"] .referral-link-value input:focus { border-color: #6ca8fb; background: #101b2a; box-shadow: 0 0 0 3px rgba(91, 157, 255, .18); }
 html[data-theme="dark"] .referral-link-value button, html[data-theme="dark"] .referral-create-first button, html[data-theme="dark"] .referral-center-error button { border-color: #4f8ce2; background: #397dcc; color: #fff; box-shadow: 0 6px 15px rgba(0, 0, 0, .22); }
 html[data-theme="dark"] .referral-link-value button:hover:not(:disabled), html[data-theme="dark"] .referral-create-first button:hover:not(:disabled), html[data-theme="dark"] .referral-center-error button:hover:not(:disabled) { border-color: #75adff; background: #4e91df; }
+html[data-theme="dark"] .referral-link-value .referral-link-copy-button { border-color: #050505; background: #050505; color: #fff; box-shadow: 0 6px 15px rgba(0, 0, 0, .34); }
+html[data-theme="dark"] .referral-link-value .referral-link-copy-button:hover:not(:disabled) { border-color: #202020; background: #202020; }
+html[data-theme="dark"] .referral-link-value .referral-link-copy-button:active:not(:disabled) { border-color: #000; background: #000; box-shadow: none; }
+html[data-theme="dark"] .referral-link-value .referral-link-copy-button:focus-visible { outline-color: rgba(226, 232, 240, .4); }
+html[data-theme="dark"] .referral-link-value .referral-link-copy-button:disabled { border-color: #4c4c4c; background: #4c4c4c; color: #aaa; }
 html[data-theme="dark"] .referral-create-first.is-disabled { border-color: #69542a; background: #352b1b; }
 html[data-theme="dark"] .referral-create-first.is-disabled p { color: #e2bd73; }
 html[data-theme="dark"] .referral-section-head button { border-color: #38485f; color: #aab7c9; background: #182333; }

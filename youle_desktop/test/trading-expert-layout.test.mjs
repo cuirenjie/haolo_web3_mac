@@ -571,7 +571,7 @@ test("Trading Expert starts with a clean conversation pane without hero or model
   );
 });
 
-test("Trading Expert restores grouping and switches only between Sol and DeepSeek", async () => {
+test("Trading Expert keeps Sol as the default while hiding its model selector", async () => {
   const source = await mainSource;
   const styles = await stylesSource;
   const desktopMain = await desktopMainSource;
@@ -587,6 +587,7 @@ test("Trading Expert restores grouping and switches only between Sol and DeepSee
     "gpt-5.6-sol",
     "deepseek-v4-flash",
   ]);
+  assert.equal(TRADING_EXPERT_DEFAULT_MODEL_VALUE, "gpt-5.6-sol");
   assert.equal(TRADING_EXPERT_REASONING_EFFORT, "ultra");
   assert.equal(TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT, "max");
   assert.equal(tradingExpertReasoningEffort("gpt-5.6-sol"), "ultra");
@@ -672,11 +673,7 @@ test("Trading Expert restores grouping and switches only between Sol and DeepSee
   );
   assert.match(
     composer,
-    /const composerTrailingPicker = multiAgentMode[\s\S]*\? ""[\s\S]*: renderComposerModelPicker\(thread\.id\)/,
-  );
-  assert.doesNotMatch(
-    composer,
-    /multiAgentMode \|\| isTradingExpertThreadId\(thread\.id\)/,
+    /const composerTrailingPicker = multiAgentMode \|\| tradingExpertMode[\s\S]*\? ""[\s\S]*: renderComposerModelPicker\(thread\.id\)/,
   );
   assert.doesNotMatch(
     styles,
@@ -974,6 +971,9 @@ test("Trading Expert shows its mention catalog with left-opening submenus", asyn
   assert.match(menuBlock, /item\.options\.length \? ' aria-haspopup="menu" aria-expanded="false"' : ` data-trading-expert-mention-group=/);
   assert.match(menuBlock, /strategy\?\.enabled === false/);
   assert.match(menuBlock, /disabled aria-disabled="true" title=/);
+  assert.match(menuBlock, /data-action="pick-composer-files-and-folders"/);
+  assert.match(menuBlock, /class="trading-expert-attachment-icon"/);
+  assert.match(menuBlock, /<span>文件和文件夹<\/span>/);
   assert.match(source, /tradingStrategyByDisplayName/);
   assert.match(styles, /\.trading-expert-mention-option:disabled/);
   assert.match(styles, /html\[data-theme="dark"\][\s\S]*\.trading-expert-mention-option:disabled/);
@@ -986,6 +986,9 @@ test("Trading Expert shows its mention catalog with left-opening submenus", asyn
   assert.match(cascadeHoverBlock, /CASCADE_MENU_CLOSE_DELAY_MS/);
   assert.match(styles, /\.trading-expert-mention-popover[\s\S]*?button:focus-visible\s*\{[^}]*outline: 2px solid var\(--brand-blue\);[^}]*background: var\(--selection-soft\);/s);
   assert.match(styles, /html\[data-theme="dark"\] \.composer-skill-popover,[\s\S]*?html\[data-theme="dark"\] \.composer-mention-submenu,[\s\S]*?background: #1b1e23;/s);
+  assert.match(styles, /\.trading-expert-attachment-item[\s\S]*?justify-content: flex-start;/);
+  assert.match(styles, /html\[data-theme="dark"\][\s\S]*?\.trading-expert-attachment-item:hover:not\(:disabled\),[\s\S]*?background: var\(--selection-soft\);/);
+  assert.match(styles, /html\[data-theme="dark"\][\s\S]*?\.trading-expert-attachment-item:active:not\(:disabled\)[\s\S]*?background: var\(--selection-strong\);/);
 });
 
 test("Trading Expert mention selection inserts an atomic highlighted category token", async () => {
@@ -1031,7 +1034,7 @@ test("Trading Expert mention selection inserts an atomic highlighted category to
     "function composerSkillTokenDeleteRange",
   );
 
-  assert.match(placeholderBlock, /isTradingExpertThreadId\(thread\.id\)[\s\S]*return "输入@调用 策略、指标、预警"/);
+  assert.match(placeholderBlock, /isTradingExpertThreadId\(thread\.id\)[\s\S]*return ""/);
   assert.match(applyBlock, /isTradingExpertThreadId\(threadId\)/);
   assert.match(applyBlock, /item\.options\.length > 0 && !option/);
   assert.match(applyBlock, /const token = `@\$\{item\.label\}\$\{option \? `:\$\{option\}` : ""\}`/);
@@ -1047,6 +1050,61 @@ test("Trading Expert mention selection inserts an atomic highlighted category to
   assert.match(composerInputBlock, /state\.composerText = input\.value;\s*applyTradingExpertCustomIndicatorMentions\(input\.value\)/);
   assert.match(pendingSendBlock, /state\.composerText = "";\s*applyTradingExpertCustomIndicatorMentions\(state\.composerText\)/);
   assert.match(atomicDeleteBlock, /state\.composerText = nextValue;\s*applyTradingExpertCustomIndicatorMentions\(nextValue\)/);
+});
+
+test("Trading Expert opens the former mention menu from plus without reacting to typed @", async () => {
+  const [source, desktopMain, preload, styles] = await Promise.all([
+    mainSource,
+    desktopMainSource,
+    preloadSource,
+    stylesSource,
+  ]);
+  const composer = sourceBlock(
+    source,
+    "function renderComposer(thread",
+    "function renderVideoExpertComposer",
+  );
+  const toggle = sourceBlock(
+    source,
+    "function toggleTradingExpertMentionMenu",
+    "function resetComposerMediaMentionState",
+  );
+  const sync = sourceBlock(
+    source,
+    "function syncComposerSkillMentionPopover",
+    "function syncComposerMediaMentionPopover",
+  );
+  const picker = sourceBlock(
+    source,
+    "async function pickComposerFilesAndFolders",
+    "function queueComposerFolders",
+  );
+  const nativePicker = sourceBlock(
+    desktopMain,
+    'ipcMain.handle("app:pickComposerFilesAndFolders"',
+    "function validateThreadGroupFolderName",
+  );
+
+  assert.match(composer, /const tradingExpertMode = isTradingExpertThreadId\(thread\.id\)/);
+  assert.match(composer, /const composerUploadAction = tradingExpertMode[\s\S]*?data-action="toggle-trading-expert-mention-menu"/);
+  assert.match(composer, /aria-expanded="\$\{state\.composerSkillMention\.open \? "true" : "false"\}"/);
+  assert.match(composer, /<button type="button" class="composer-icon-btn composer-upload-button" \$\{composerUploadAction\}/);
+  assert.match(toggle, /const start = input\.selectionStart \?\? input\.value\.length/);
+  assert.match(toggle, /open: true/);
+  assert.match(toggle, /start,\s*end,/);
+  assert.match(sync, /if \(isTradingExpertThreadId\(currentComposerThreadId\(\)\)\) \{[\s\S]*?open: false,[\s\S]*?start: -1,[\s\S]*?return;/);
+  assert.match(source, /\[data-action="toggle-trading-expert-mention-menu"\][\s\S]*?toggleTradingExpertMentionMenu\(\)/);
+  assert.match(source, /\[data-action="pick-composer-files-and-folders"\][\s\S]*?pickComposerFilesAndFolders\(\)/);
+  assert.match(picker, /queueDroppedFolders\(paths\)/);
+  assert.match(picker, /filesFromDroppedLocalPaths\(paths\)/);
+  assert.match(preload, /pickComposerFilesAndFolders: \(\) => ipcRenderer\.invoke\("app:pickComposerFilesAndFolders"\)/);
+  assert.match(nativePicker, /process\.platform === "win32" \|\| process\.platform === "linux"/);
+  assert.match(nativePicker, /buttons: \["选择文件", "选择文件夹", "取消"\]/);
+  assert.match(nativePicker, /\["openFile", "multiSelections"\]/);
+  assert.match(nativePicker, /\["openDirectory", "multiSelections"\]/);
+  assert.match(styles, /\.composer-upload-button\[aria-expanded="true"\][\s\S]*?background: var\(--surface-hover\);/);
+  assert.match(styles, /html\[data-theme="dark"\] \.composer-upload-button\[aria-expanded="true"\][\s\S]*?background: var\(--selection-soft\);/);
+  assert.match(styles, /html\[data-theme="dark"\][\s\S]*?\.trading-expert-attachment-item:disabled[\s\S]*?color: var\(--text-disabled\);/);
 });
 
 test("Trading Expert market uses the governed Binance gateway and realtime data", async () => {

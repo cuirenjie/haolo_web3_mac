@@ -90,14 +90,20 @@ test("folder attachments can be pasted globally without restoring a folder picke
   assert.match(mainClipboard, /return \{ type: "files", files, folders \}/);
 });
 
-test("the analysis composer does not expose a native folder upload entry", async () => {
+test("the composer attachment picker routes selected files and folders through the normal queues", async () => {
   const source = await rendererSource;
+  const picker = sourceBlock(
+    source,
+    "async function pickComposerFilesAndFolders",
+    "function queueComposerFolders",
+  );
 
-  assert.doesNotMatch(source, /data-action="pick-folder"/);
-  assert.doesNotMatch(source, /title="上传文件夹"/);
-  assert.doesNotMatch(source, /purpose:\s*"attachment"/);
-  assert.doesNotMatch(source, /composer-folder-upload-button/);
-  assert.match(source, /const uploadTitle = imageGenerationMode[\s\S]*"上传文件资料";/);
+  assert.match(source, /data-action="pick-composer-files-and-folders"/);
+  assert.match(picker, /api\.pickComposerFilesAndFolders\(\)/);
+  assert.match(picker, /queueDroppedFolders\(paths\)/);
+  assert.match(picker, /filesFromDroppedLocalPaths\(paths\)/);
+  assert.match(picker, /if \(files\.length\) queueFiles\(files\)/);
+  assert.match(picker, /focusComposerInputAfterDrop\(\)/);
 });
 
 test("composer folder card follows the compact reference layout", async () => {
