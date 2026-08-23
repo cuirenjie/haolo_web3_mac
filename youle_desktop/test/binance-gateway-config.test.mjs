@@ -11,6 +11,7 @@ test("Binance gateway config keeps direct defaults until a deployment origin is 
   assert.equal(config.routePreferenceTtlMs, 30 * 60_000);
   assert.equal(config.backgroundProbeIntervalMs, 45_000);
   assert.equal(config.gatewayRequestTimeoutMs, 8_000);
+  assert.deepEqual(config.marketGatewayResolutionCandidates, []);
 });
 
 test("Binance gateway config derives protected REST and WebSocket routes", () => {
@@ -36,11 +37,13 @@ test("packaged deployment config supplies fail-closed gateway origins without ma
     privateProxyUrl: "https://private-market.haolo.example",
     requireGateway: true,
     gatewayRequestTimeoutMs: 45_000,
+    marketGatewayResolutionCandidates: ["gateway-resolver.example", "203.0.113.8"],
   });
   assert.equal(config.mode, "auto");
   assert.equal(config.privateProxyEnabled, true);
   assert.equal(config.requireGateway, true);
   assert.equal(config.gatewayRequestTimeoutMs, 45_000);
+  assert.deepEqual(config.marketGatewayResolutionCandidates, ["gateway-resolver.example", "203.0.113.8"]);
 });
 
 test("Binance gateway config supports explicit direct and fail-closed gateway routing", () => {
@@ -81,4 +84,10 @@ test("Binance gateway config refuses insecure or credential-bearing endpoints", 
   assert.throws(() => resolveBinanceGatewayConfig({ HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://market.example/path" }), /HTTPS origin/);
   assert.throws(() => resolveBinanceGatewayConfig({ HAOLO_BINANCE_PRIVATE_PROXY_URL: "https://user:pass@proxy.example" }), /HTTPS origin/);
   assert.throws(() => resolveBinanceGatewayConfig({ HAOLO_BINANCE_REQUIRE_GATEWAY: "true" }), /requires both/);
+  assert.throws(
+    () => resolveBinanceGatewayConfig({
+      HAOLO_BINANCE_MARKET_GATEWAY_RESOLUTION_CANDIDATES: "https://resolver.example/path",
+    }),
+    /DNS hostnames or IPv4/,
+  );
 });

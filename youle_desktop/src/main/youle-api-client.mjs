@@ -3650,14 +3650,15 @@ export class YouleApiClient {
     const requestBody = compactObject({
       model,
       messages,
-      reasoning_effort: gptReasoningEffortForTask({
-        model,
-        task: text,
-        requestedEffort:
-          params.reasoningEffort
-          ?? params.reasoning_effort
-          ?? params.effort,
-      }),
+      reasoning_effort: fixedProviderReasoningEffort(params)
+        || gptReasoningEffortForTask({
+          model,
+          task: text,
+          requestedEffort:
+            params.reasoningEffort
+            ?? params.reasoning_effort
+            ?? params.effort,
+        }),
       temperature: providerChatTemperature(provider, model, params.temperature),
       stream: useStreamingTransport,
       tools: Array.isArray(params.tools) && params.tools.length
@@ -6340,7 +6341,7 @@ function providerMessagesForTransport(provider, messages) {
 }
 
 function normalizeProviderChatMessage(message) {
-  const role = ["system", "assistant", "user", "tool"].includes(
+  const role = ["system", "developer", "assistant", "user", "tool"].includes(
     String(message?.role || ""),
   )
     ? String(message.role)
@@ -6882,6 +6883,18 @@ function extractProviderChatText(payload, { allowEmpty = false } = {}) {
     payload?.data?.text,
   );
   return content || (allowEmpty ? "" : "模型没有返回内容");
+}
+
+function fixedProviderReasoningEffort(params = {}) {
+  const value = String(
+    params.fixedReasoningEffort
+      ?? params.fixed_reasoning_effort
+      ?? "",
+  ).trim().toLowerCase();
+  return ["none", "low", "medium", "high", "xhigh", "max", "ultra"]
+    .includes(value)
+    ? value
+    : null;
 }
 
 function extractProviderChatToolCalls(payload) {

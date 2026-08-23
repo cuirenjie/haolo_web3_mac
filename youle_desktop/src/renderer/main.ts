@@ -1497,6 +1497,24 @@ type DesktopApi = {
     interrupted?: boolean;
     interactionId?: string;
   }>;
+  routeTradingExpertFastChat?(params: {
+    text: string;
+    hasAttachments?: boolean;
+    hasImageAttachment?: boolean;
+    hasQuote?: boolean;
+    hasThreadReferences?: boolean;
+    hasCurrentAnalysis?: boolean;
+  }): Promise<{ ok?: boolean } & TradingExpertFastChatRoute>;
+  sendTradingExpertFastChat?(params: {
+    text: string;
+    threadId: string;
+    interactionId: string;
+    hasAttachments?: boolean;
+    hasImageAttachment?: boolean;
+    hasQuote?: boolean;
+    hasThreadReferences?: boolean;
+    hasCurrentAnalysis?: boolean;
+  }): Promise<TradingExpertFastChatResult>;
   startWorkflowRun?(params: { threadId: string; prompt: string; visibleQuestion?: string; cwd?: string; model?: string; reasoningEffort?: string; explicitPaths?: string[]; attachments?: MessageAttachment[]; onlineProviders?: ProviderChatProvider[] }): Promise<WorkflowCanvasRun>;
   startWorkflowSpecRun?(params: { threadId: string; prompt: string; visibleQuestion?: string; cwd?: string; model?: string; reasoningEffort?: string; explicitPaths?: string[]; attachments?: MessageAttachment[]; onlineProviders?: ProviderChatProvider[]; specId: string; version: number; entryNodeIds?: string[]; invocationInputs?: Record<string, unknown[]> }): Promise<WorkflowCanvasRun>;
   getWorkflowRun?(params: { runId: string }): Promise<WorkflowCanvasRun | null>;
@@ -3659,6 +3677,19 @@ type VideoExpertMenuKey =
   | "model"
   | "image-size";
 type ProviderChatProvider = ProviderModelProvider | typeof VIDEO_EXPERT_PROVIDER;
+type TradingExpertFastChatRoute = {
+  route: "direct" | "agent" | "chart-router";
+  reason: string;
+  model?: string;
+};
+type TradingExpertFastChatResult = {
+  ok?: boolean;
+  route?: "direct" | "handoff";
+  destination?: "agent" | "chart-router";
+  reason?: string;
+  text?: string;
+  model?: string;
+};
 type NewThreadMode =
   | "execution"
   | "question-answer"
@@ -4272,9 +4303,9 @@ const DEFAULT_THREAD_GROUP_WORKSPACE_SLUG = "default";
 const WECHAT_CHANNEL_THREAD_STORAGE_KEY = "youle-desktop-wechat-channel-thread";
 const FEISHU_CHANNEL_THREAD_STORAGE_KEY = "youle-desktop-feishu-channel-thread";
 const TELEGRAM_CHANNEL_THREAD_STORAGE_KEY = "youle-desktop-telegram-channel-thread";
-const WECHAT_CHANNEL_THREAD_NAME = "微信-好咯";
-const FEISHU_CHANNEL_THREAD_NAME = "飞书-好咯";
-const TELEGRAM_CHANNEL_THREAD_NAME = "Telegram-好咯";
+const WECHAT_CHANNEL_THREAD_NAME = "微信-HaoLo";
+const FEISHU_CHANNEL_THREAD_NAME = "飞书-HaoLo";
+const TELEGRAM_CHANNEL_THREAD_NAME = "Telegram-HaoLo";
 // Connected external channels are shown in the global pinned section in this
 // product order. Keep this independent of connection time so reconnecting a
 // channel cannot change the user's stable ordering.
@@ -5455,6 +5486,7 @@ let deferredThreadListRefreshTimer: number | null = null;
 let deferredThreadListRefreshInFlight = false;
 let backgroundNotificationRenderTimer: number | null = null;
 let toastTimer: number | null = null;
+let referralCenterContentDirty = false;
 let githubAuthorizationPollTimer: number | null = null;
 let lowBalanceProfileRefreshTimer: number | null = null;
 let consumptionRequestSeq = 0;
@@ -13908,8 +13940,8 @@ async function runLocalAgentForChannelRequest(prompt: string, channelId: string,
   await api.sendMessage({
     threadId: localThreadId,
     text:
-      `你正在代表当前桌面端的好咯桌面智能体回复频道请求。好咯由深圳市好咯科技有限公司开发。` +
-      `不得承认、暗示、引用或讨论任何内部命令行工具、运行时、封装层、配置文件、日志、路径或进程与好咯的关系。\n` +
+      `你正在代表当前桌面端的HaoLo桌面智能体回复频道请求。HaoLo由深圳市HaoLo科技有限公司开发。` +
+      `不得承认、暗示、引用或讨论任何内部命令行工具、运行时、封装层、配置文件、日志、路径或进程与HaoLo的关系。\n` +
       `频道 ID：${channelId}\n请求消息 ID：${requestMessageId}\n\n用户请求：\n${prompt}`,
     visibleQuestion: prompt,
     cwd: workspaceForGroupId(DEFAULT_THREAD_GROUP_ID),
@@ -13961,8 +13993,8 @@ function desktopAgentChannelPrompt(request: DesktopAgentChannelRequest) {
     `请先判断用户意图，只能归类为 chat、question、task_request、unclear、unsafe_request。\n` +
     `如果只是聊天或问答，直接给出自然回复。\n` +
     `如果是任务请求，请遵守当前桌面端的本地权限和审批策略；不能安全执行时说明原因或请求澄清。\n` +
-    `身份与品牌规则：你是好咯桌面智能体，由深圳市好咯科技有限公司开发；只有当用户追问身份、开发方、底层架构、是否套壳/封装/二次开发/重命名等关系时，才回复“不是。我是好咯桌面智能体，由深圳市好咯科技有限公司开发。底层实现细节属于产品内部信息，不对外展开。”\n` +
-    `如果用户是在请求查找、读取、列出、打开、修改本机文件/目录/配置/日志/skill/memory 路径，归类为 task_request 并按普通本地文件任务处理；可以返回必要的文件路径和操作结果，但不要主动解释这些路径与好咯底层实现的关系。\n` +
+    `身份与品牌规则：你是HaoLo桌面智能体，由深圳市HaoLo科技有限公司开发；只有当用户追问身份、开发方、底层架构、是否套壳/封装/二次开发/重命名等关系时，才回复“不是。我是HaoLo桌面智能体，由深圳市HaoLo科技有限公司开发。底层实现细节属于产品内部信息，不对外展开。”\n` +
+    `如果用户是在请求查找、读取、列出、打开、修改本机文件/目录/配置/日志/skill/memory 路径，归类为 task_request 并按普通本地文件任务处理；可以返回必要的文件路径和操作结果，但不要主动解释这些路径与HaoLo底层实现的关系。\n` +
     `不要泄露本机隐私信息。最终只输出 JSON，不要使用 Markdown 代码块：\n` +
     `{"intent":"chat|question|task_request|unclear|unsafe_request","task_status":"waiting_approval|running|completed|failed|rejected|null","message":"要回写到频道的中文回复"}\n\n` +
     `用户消息：\n${request.prompt}`
@@ -17962,7 +17994,7 @@ function activeWorkflowRunForThread(threadId: string | null | undefined) {
 }
 
 function isThreadBusy(threadId: string | null | undefined) {
-  if (providerFromThreadId(threadId)) return isProviderThreadBusy(threadId);
+  if (isProviderThreadBusy(threadId)) return true;
   return Boolean(
     threadId &&
       (
@@ -18439,7 +18471,7 @@ function canInterruptThread(threadId: string | null | undefined) {
   if (activeTradingExpertAnalysisJobIds(threadId).length) {
     return true;
   }
-  if (threadId && providerFromThreadId(threadId) && isProviderThreadBusy(threadId)) {
+  if (threadId && isProviderThreadBusy(threadId)) {
     const interactionId = firstString(
       activeVideoInteractionByThreadId.get(threadId),
       activeQuestionAnswerInteractionIdForThread(threadId),
@@ -26775,13 +26807,13 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     && !tradingAlertCandidateAtSend;
   let tradingStrategyRequestAtSend: TradingStrategyRequest | null = null;
   let tradingGeneralRequestAtSend: TradingGeneralRequest | null = null;
+  let tradingFastChatRouteAtSend: TradingExpertFastChatRoute | null = null;
   if (
     !state.serverReady
     && (
       tradingStrategyAtSend
       || personalStrategyCandidateAtSend
       || tradingAlertCandidateAtSend
-      || tradingGeneralCandidateAtSend
       || (isBlankNewThread(threadId) && !isLocalBlankThreadId(threadId))
     )
   ) {
@@ -26844,25 +26876,55 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       clearTradingExpertThinkingState(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
     } else if (tradingGeneralCandidateAtSend) {
-      updateTradingExpertThinkingState(
-        originalThreadId,
-        "classifying",
-        "正在由模型判断这是普通问答，还是要优先读取左侧当前 K 线进行盘面分析。",
-      );
-      refreshTradingExpertConversationSurface(originalThreadId);
-      tradingGeneralRequestAtSend = await classifyTradingGeneralRequestForSend(
+      tradingFastChatRouteAtSend = await routeTradingExpertFastChatForSend({
         text,
-        snapshotAttachments.some(isImageAttachment),
-        hasTradingExpertCurrentAnalysis(),
-      );
-      clearTradingExpertThinkingState(originalThreadId);
-      refreshTradingExpertConversationSurface(originalThreadId);
+        hasAttachments: snapshotAttachments.length > 0,
+        hasImageAttachment: snapshotAttachments.some(isImageAttachment),
+        hasQuote: Boolean(snapshotQuote),
+        hasThreadReferences: snapshotThreadReferences.length > 0,
+        hasCurrentAnalysis: hasTradingExpertCurrentAnalysis(),
+      });
+      if (
+        tradingFastChatRouteAtSend.route !== "direct"
+        && !state.serverReady
+        && !(await ensureServerReadyForComposerSend())
+      ) {
+        if (pendingSend) failPendingComposerSend(originalThreadId, pendingSend.itemId, "智能体尚未准备完成");
+        return;
+      }
+      if (tradingFastChatRouteAtSend.route === "chart-router") {
+        updateTradingExpertThinkingState(
+          originalThreadId,
+          "classifying",
+          "正在判断是否需要读取左侧当前 K 线并进行盘面分析。",
+        );
+        refreshTradingExpertConversationSurface(originalThreadId);
+        tradingGeneralRequestAtSend = await classifyTradingGeneralRequestForSend(
+          text,
+          snapshotAttachments.some(isImageAttachment),
+          hasTradingExpertCurrentAnalysis(),
+        );
+        clearTradingExpertThinkingState(originalThreadId);
+        refreshTradingExpertConversationSurface(originalThreadId);
+      } else if (tradingFastChatRouteAtSend.route === "agent") {
+        tradingGeneralRequestAtSend = {
+          mode: "conversation",
+          instruction: String(text || "").trim(),
+          symbol: null,
+          interval: null,
+          lookbackMs: null,
+          lookbackLabel: null,
+          drawingRequested: false,
+          analysisFollowup: false,
+        };
+      }
     }
     if (
       tradingStrategyRequestAtSend?.mode !== "chart-analysis"
       && !personalStrategyCandidateAtSend
       && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
+      && tradingFastChatRouteAtSend?.route !== "direct"
     ) {
       const initialBaseAgentText = workflowContractAtSend
         ? workflowInvocationExecutionPrompt(text)
@@ -27053,6 +27115,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       && !personalStrategyCandidateAtSend
       && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
+      && tradingFastChatRouteAtSend?.route !== "direct"
     ) {
       const currentBudget = await prepareContextBudgetForSend(threadId, agentText, { deferWhileBusy: true });
       if (!currentBudget.ok) {
@@ -27118,6 +27181,39 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       syncComposerMentionHighlights();
     }
     state.error = null;
+    if (tradingFastChatRouteAtSend?.route === "direct") {
+      if (!submittedUserItem) {
+        const message = "找不到待发送的用户消息";
+        state.error = message;
+        if (pendingSend) failPendingComposerSend(threadId, pendingSend.itemId, message);
+        render();
+        return;
+      }
+      const fastChatDisposition = await sendTradingExpertFastChatForSend({
+        threadId,
+        text,
+        submittedUserItem,
+        pendingLocalItemId: pendingSend?.itemId || null,
+        hasCurrentAnalysis: hasTradingExpertCurrentAnalysis(),
+      });
+      if (fastChatDisposition === "completed" || fastChatDisposition === "aborted") {
+        return;
+      }
+      tradingFastChatRouteAtSend = {
+        route: "agent",
+        reason: "direct-request-fell-back-to-agent",
+      };
+      if (
+        businessModelPoolsState.configured
+        && !selectedChatModelValue(threadId)
+      ) {
+        const message = "快速问答不可用，且执行模式暂无可用模型，请联系管理员配置模型池";
+        state.error = message;
+        showToast(message, 5000);
+        render();
+        return;
+      }
+    }
     const isTradingChartAnalysisSend = Boolean(
       tradingStrategyRequestAtSend?.mode === "chart-analysis"
       || personalStrategyCandidateAtSend
@@ -27318,6 +27414,159 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     ) {
       syncTradingExpertCollapseControlsState();
     }
+  }
+}
+
+function discardTradingExpertFastChatStream(
+  threadId: string,
+  interactionId: string,
+) {
+  for (const itemId of [...(state.itemOrder[threadId] || [])]) {
+    const item = state.items[threadId]?.[itemId];
+    if (
+      itemId === questionAnswerStreamItemId(interactionId)
+      || itemId === questionAnswerProgressItemId(interactionId)
+      || (itemTurnId(item) === interactionId && isGptPlanProcessItem(item))
+    ) {
+      removeThreadItem(threadId, itemId);
+    }
+  }
+}
+
+async function sendTradingExpertFastChatForSend(params: {
+  threadId: string;
+  text: string;
+  submittedUserItem: CodexItem;
+  pendingLocalItemId?: string | null;
+  hasCurrentAnalysis: boolean;
+}): Promise<"completed" | "handoff" | "aborted"> {
+  if (typeof api.sendTradingExpertFastChat !== "function") return "handoff";
+  const interactionId = `trading-fast-chat-${crypto.randomUUID()}`;
+  const startedAt = new Date().toISOString();
+  activeProviderInteractionByThreadId.set(params.threadId, interactionId);
+  state.providerBusy[params.threadId] = true;
+  setMessageStreamFollow(params.threadId, true);
+  refreshTradingExpertConversationSurface(params.threadId);
+  void api.reportConsumptionEvent?.({
+    interactionId,
+    conversationId: params.threadId,
+    sourceType: "trading-expert-fast-chat",
+    question: params.text,
+    status: "running",
+    startedAt,
+  }).catch(() => {});
+  try {
+    const result = await api.sendTradingExpertFastChat({
+      text: params.text,
+      threadId: params.threadId,
+      interactionId,
+      hasAttachments: false,
+      hasImageAttachment: false,
+      hasQuote: false,
+      hasThreadReferences: false,
+      hasCurrentAnalysis: params.hasCurrentAnalysis,
+    });
+    if (interruptedProviderInteractionIds.has(interactionId)) {
+      if (params.pendingLocalItemId) {
+        clearPendingComposerSend(params.threadId, params.pendingLocalItemId);
+      }
+      return "aborted";
+    }
+    if (result?.ok !== true || result.route !== "direct") {
+      discardTradingExpertFastChatStream(params.threadId, interactionId);
+      return "handoff";
+    }
+    const answer = firstString(result.text) || "";
+    if (!answer) {
+      discardTradingExpertFastChatStream(params.threadId, interactionId);
+      return "handoff";
+    }
+    finalizeQuestionAnswerStreamAgentMessage({
+      threadId: params.threadId,
+      interactionId,
+      provider: "codex",
+      text: answer,
+    });
+    const assistantItem = state.items[params.threadId]?.[
+      questionAnswerStreamItemId(interactionId)
+    ];
+    if (!assistantItem) {
+      discardTradingExpertFastChatStream(params.threadId, interactionId);
+      return "handoff";
+    }
+    (assistantItem as CodexItem & Record<string, unknown>).__youleExecutionPlanPresentation = "plain";
+    stampCompletedTradingExpertTranscriptTiming([
+      params.submittedUserItem,
+      assistantItem,
+    ]);
+    let completedThreadId = params.threadId;
+    try {
+      const persistenceResult = await persistTradingExpertTranscriptItems(
+        params.threadId,
+        [params.submittedUserItem, assistantItem],
+        {
+          title: conversationTitleFromText(
+            userMessageDisplayText(params.submittedUserItem),
+          ),
+        },
+      );
+      completedThreadId = firstString(
+        persistenceResult?.threadId,
+        params.threadId,
+      ) || params.threadId;
+      localHistoryAheadThreadIds.add(completedThreadId);
+      scheduleThreadListRefresh(0);
+    } catch (error) {
+      const message = `快速回答已完成，但会话记录保存失败：${errorMessage(error)}`;
+      state.error = message;
+      showToast(message, 7000);
+    }
+    rememberThreadLastAssistantProvider(completedThreadId, "codex");
+    markFinalResultUnviewed(completedThreadId);
+    if (params.pendingLocalItemId) {
+      clearPendingComposerSend(completedThreadId, params.pendingLocalItemId);
+    }
+    void api.reportConsumptionEvent?.({
+      interactionId,
+      conversationId: params.threadId,
+      sourceType: "trading-expert-fast-chat",
+      question: params.text,
+      answer,
+      status: "complete",
+      startedAt,
+      endedAt: new Date().toISOString(),
+    }).catch(() => {});
+    return "completed";
+  } catch (error) {
+    if (
+      interruptedProviderInteractionIds.has(interactionId)
+      || String((error as Error)?.name || "") === "AbortError"
+    ) {
+      if (params.pendingLocalItemId) {
+        clearPendingComposerSend(params.threadId, params.pendingLocalItemId);
+      }
+      return "aborted";
+    }
+    discardTradingExpertFastChatStream(params.threadId, interactionId);
+    void api.reportConsumptionEvent?.({
+      interactionId,
+      conversationId: params.threadId,
+      sourceType: "trading-expert-fast-chat",
+      question: params.text,
+      status: "failed",
+      startedAt,
+      endedAt: new Date().toISOString(),
+    }).catch(() => {});
+    return "handoff";
+  } finally {
+    if (
+      activeProviderInteractionByThreadId.get(params.threadId)
+        === interactionId
+    ) {
+      activeProviderInteractionByThreadId.delete(params.threadId);
+    }
+    delete state.providerBusy[params.threadId];
+    refreshTradingExpertConversationSurface(params.threadId);
   }
 }
 
@@ -29569,7 +29818,8 @@ async function interruptCurrentTurn(threadIdOverride?: string | null, source: In
   const providerInteractionId =
     activeQuestionAnswerInteractionIdForThread(threadId);
   const provider = providerProgress?.provider
-    || effectiveProviderForThread(threadId);
+    || effectiveProviderForThread(threadId)
+    || (threadId && activeProviderInteractionByThreadId.has(threadId) ? "codex" : null);
   const videoInteractionId = threadId
     ? firstString(activeVideoInteractionByThreadId.get(threadId))
     : null;
@@ -29607,7 +29857,6 @@ async function interruptCurrentTurn(threadIdOverride?: string | null, source: In
   }
   if (
     threadId
-    && providerFromThreadId(threadId)
     && isProviderThreadBusy(threadId)
     && providerInteractionId
     && provider
@@ -29633,8 +29882,10 @@ async function interruptCurrentTurn(threadIdOverride?: string | null, source: In
         activeProviderInteractionByThreadId.delete(threadId);
       }
       delete state.providerBusy[threadId];
-      upsertProviderThread(provider, threadId);
-      saveProviderChatThreads();
+      if (providerFromThreadId(threadId)) {
+        upsertProviderThread(provider, threadId);
+        saveProviderChatThreads();
+      }
       render();
     } catch (error) {
       interruptedProviderInteractionIds.delete(providerInteractionId);
@@ -34656,6 +34907,35 @@ async function classifyTradingGeneralRequestForSend(
   }
 }
 
+async function routeTradingExpertFastChatForSend(params: {
+  text: string;
+  hasAttachments: boolean;
+  hasImageAttachment: boolean;
+  hasQuote: boolean;
+  hasThreadReferences: boolean;
+  hasCurrentAnalysis: boolean;
+}): Promise<TradingExpertFastChatRoute> {
+  const fallback: TradingExpertFastChatRoute = {
+    route: "agent",
+    reason: "fast-chat-router-unavailable",
+  };
+  if (typeof api.routeTradingExpertFastChat !== "function") return fallback;
+  try {
+    const result = await api.routeTradingExpertFastChat(params);
+    if (
+      result?.ok !== true
+      || !["direct", "agent", "chart-router"].includes(result.route)
+    ) return fallback;
+    return {
+      route: result.route,
+      reason: firstString(result.reason) || "unspecified",
+      model: firstString(result.model) || undefined,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 function applyComposerQuoteContext(agentText: string, quote: ComposerQuotePayload | null | undefined) {
   if (!quote) return agentText;
   const userContent = String(agentText || "").trim();
@@ -35478,6 +35758,22 @@ function render() {
       activeMessageScrollerBeforeRender,
     );
   }
+  const preservedReferralCenterOverlay = state.referralCenter.open
+    ? root.querySelector<HTMLElement>(".referral-center-overlay")
+    : null;
+  if (preservedReferralCenterOverlay) {
+    if (referralCenterContentDirty) {
+      const scroll = preservedReferralCenterOverlay.querySelector<HTMLElement>(
+        ".referral-center-scroll",
+      );
+      if (scroll) {
+        scroll.innerHTML = renderReferralCenterContent();
+        bindReferralCenterContentEvents(scroll);
+      }
+      referralCenterContentDirty = false;
+    }
+    preservedReferralCenterOverlay.remove();
+  }
   root.innerHTML = `
     <div class="${shellClasses}">
       ${renderWindowControls()}
@@ -35496,7 +35792,7 @@ function render() {
     ${renderLocalGroupChatMemberMenu()}
     ${renderWorkflowCanvasContextMenu()}
     ${renderProfileMenu()}
-    ${renderReferralCenterDialog()}
+    ${preservedReferralCenterOverlay ? "" : renderReferralCenterDialog()}
     ${state.settingsOpen ? renderSettingsDialog() : ""}
     ${state.login.wecomQrOpen ? renderLoginWeComDialog() : ""}
     ${state.settings.update.dialogOpen ? renderUpdateDialog() : ""}
@@ -35531,6 +35827,9 @@ function render() {
     ${renderContactRequestSentToast()}
     ${state.error ? `<div class="toast">${escapeHtml(state.error)}</div>` : ""}
   `;
+  if (!preservedReferralCenterOverlay && state.referralCenter.open) {
+    referralCenterContentDirty = false;
+  }
   bindTradingExpertPanelResize(root);
   restorePreservedTradingExpertMarketWorkspace(
     preservedTradingExpertMarketWorkspace,
@@ -35576,6 +35875,9 @@ function render() {
       previousMessageSignature == null ||
       (nextMessageSignature !== previousMessageSignature && isFollowingMessageStream(renderedThreadId)));
   bindEvents();
+  if (preservedReferralCenterOverlay) {
+    root.appendChild(preservedReferralCenterOverlay);
+  }
   bindWindowResizeHandles();
   bindMessageScrollerEvents();
   bindThreadHistoryPopoverEvents();
@@ -35764,6 +36066,30 @@ function showToast(message: string, timeoutMs = 3000) {
     if (state.error !== message) return;
     state.error = null;
     render();
+  }, timeoutMs);
+}
+
+function showToastWithoutRender(message: string, timeoutMs = 3000) {
+  if (toastTimer !== null) {
+    window.clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+  state.error = message;
+  let toast = root.querySelector<HTMLElement>(":scope > .toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.className = "toast";
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+    root.appendChild(toast);
+  }
+  toast.textContent = message;
+  toastTimer = window.setTimeout(() => {
+    toastTimer = null;
+    if (state.error !== message) return;
+    state.error = null;
+    const currentToast = root.querySelector<HTMLElement>(":scope > .toast");
+    if (currentToast?.textContent === message) currentToast.remove();
   }, timeoutMs);
 }
 
@@ -36953,10 +37279,10 @@ function renderLoginSuccessStep() {
       </div>
       <h2>注册成功！</h2>
       <div class="login-citizen-row">
-        <p class="login-citizen-label">您的好咯号：</p>
+        <p class="login-citizen-label">您的HaoLo号：</p>
         <strong>${escapeHtml(citizenId)}</strong>
         <span aria-hidden="true">👑</span>
-        <button type="button" data-action="copy-citizen-id" aria-label="复制您的好咯号">
+        <button type="button" data-action="copy-citizen-id" aria-label="复制您的HaoLo号">
           <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="4" width="6" height="8" rx="1"/><path d="M4 10H3.5A1.5 1.5 0 0 1 2 8.5v-5A1.5 1.5 0 0 1 3.5 2h5A1.5 1.5 0 0 1 10 3.5V4"/></svg>
         </button>
       </div>
@@ -37818,7 +38144,7 @@ function renderContactSearchRow(contact: ContactProfile) {
 }
 
 function contactSearchResultDetail(contact: ContactProfile, query: string) {
-  const citizenId = shouldShowContactCitizenId(contact) && contact.citizenId ? `好咯号:${contact.citizenId}`
+  const citizenId = shouldShowContactCitizenId(contact) && contact.citizenId ? `HaoLo号:${contact.citizenId}`
       : "";
   const searchId =
     shouldShowContactCitizenId(contact) &&
@@ -38017,7 +38343,7 @@ function showStandbyAgentUnavailable(contact?: ContactProfile | null) {
 
 function renderContactProfilePage(contact: ContactProfile) {
   const footer = renderContactProfileActions(contact);
-  const citizenIdLine = shouldShowContactCitizenId(contact) ? `<p>好咯号：${escapeHtml(contact.citizenId)}</p>` : "";
+  const citizenIdLine = shouldShowContactCitizenId(contact) ? `<p>HaoLo号：${escapeHtml(contact.citizenId)}</p>` : "";
   return `
     <main class="contact-profile-page">
       <section class="contact-profile-card ${contact.kind === "agent" ? "agent" : "person"}">
@@ -38236,8 +38562,8 @@ function renderAddFriendDialogBody() {
   const query = dialog.query.trim();
   if (dialog.searching) return `<div class="add-friend-empty">搜索中...</div>`;
   if (dialog.error) return `<div class="add-friend-empty error">${escapeHtml(dialog.error)}</div>`;
-  if (!query) return `<div class="add-friend-empty">输入好咯号，点击搜索按钮或者按Enter搜索</div>`;
-  if (dialog.searchedQuery !== query.toLowerCase()) return `<div class="add-friend-empty">输入好咯号，点击搜索按钮或者按Enter搜索</div>`;
+  if (!query) return `<div class="add-friend-empty">输入HaoLo号，点击搜索按钮或者按Enter搜索</div>`;
+  if (dialog.searchedQuery !== query.toLowerCase()) return `<div class="add-friend-empty">输入HaoLo号，点击搜索按钮或者按Enter搜索</div>`;
   if (!dialog.results.length) return `<div class="add-friend-empty">没有找到用户</div>`;
   return `<div class="add-friend-results">${dialog.results.map(renderAddFriendResultRow).join("")}</div>`;
 }
@@ -39228,7 +39554,7 @@ function autoTaskFallbackMessages(task: AutoTaskItem, agentText: string): Messag
       conversation_id: threadId,
       kind: "agent_text",
       role: "ceo_assistant",
-      sender_label: "好咯",
+      sender_label: "HaoLo",
       text: agentText,
       time: formatAutoTaskClockTime(task.lastRunAt || task.updatedAt),
     });
@@ -56342,7 +56668,7 @@ function trackVoiceTranscriptInsertionAfterComposerEdit(input: HTMLTextAreaEleme
 function voiceInputCaptureErrorMessage(error: unknown) {
   const name = error instanceof DOMException ? error.name : "";
   if (name === "NotAllowedError" || name === "SecurityError") {
-    return "未获得麦克风权限，请在系统设置中允许好咯使用麦克风";
+    return "未获得麦克风权限，请在系统设置中允许HaoLo使用麦克风";
   }
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {
     return "没有检测到可用麦克风";
@@ -58024,7 +58350,7 @@ function renderProfileMenu() {
             <strong>${escapeHtml(currentProfileName())}</strong>
             ${renderMembershipBadge("profile", membership)}
           </div>
-          <span>好咯号：${escapeHtml(currentProfileShortId())}</span>
+          <span>HaoLo号：${escapeHtml(currentProfileShortId())}</span>
         </div>
       </div>
       <div class="profile-stats">
@@ -58040,13 +58366,6 @@ function renderProfileMenu() {
           </div>
         </div>
         ${membership.subscribed ? renderProfileSubscriptionBalance() : ""}
-        <button class="profile-referral-entry" type="button" data-action="profile-referrals">
-          <span class="profile-referral-entry-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24"><path d="M20 12v8H4v-8M2 7h20v5H2zM12 7v13M12 7H7.5A2.5 2.5 0 1 1 10 4.5L12 7Zm0 0h4.5A2.5 2.5 0 1 0 14 4.5L12 7Z" /></svg>
-          </span>
-          <span><strong>邀请有礼</strong><small>推广会员，获得 USDT 返佣</small></span>
-          <i aria-hidden="true">›</i>
-        </button>
       </div>
     </section>
   `;
@@ -58070,7 +58389,7 @@ function renderSettingsProfilePanel() {
         </div>
         <div class="settings-profile-identity">
           <strong>${escapeHtml(currentProfileName())}</strong>
-          <span>好咯号：${escapeHtml(currentProfileShortId())}</span>
+          <span>HaoLo号：${escapeHtml(currentProfileShortId())}</span>
         </div>
       </div>
       <label class="settings-profile-field" for="profileNicknameInput">
@@ -58125,7 +58444,7 @@ function referralDate(value: unknown) {
 }
 
 function renderReferralCommissionRow(item: ReferralCommission) {
-  const identity = item.payer_name || item.payer_email || "好咯用户";
+  const identity = item.payer_name || item.payer_email || "HaoLo用户";
   const component = item.component === "node" ? "节点返佣" : item.component === "helper" ? "助力返佣" : "推广返佣";
   const status = item.status === "paid" ? "已发放" : "待发放";
   return `
@@ -58151,25 +58470,29 @@ function renderReferralCenterContent() {
   const dashboard = center.dashboard;
   const summary = dashboard?.summary || {};
   const activeLink = center.links.find((item) => item.status === "active") || null;
+  const activeReferralCode = activeLink?.code || dashboard?.primary_code || "—";
   const canCreate = !(dashboard?.profile?.role === "node" && dashboard?.profile?.status !== "active");
   return `
     ${center.error ? `<div class="referral-inline-error">${escapeHtml(center.error)}</div>` : ""}
     <section class="referral-summary-grid">
-      <article><span>待发放返佣</span><strong>${referralMoney(summary.pending_commission_usdt)}<small> USDT</small></strong><i>后台账本实时记录</i></article>
-      <article><span>累计已发放</span><strong>${referralMoney(summary.paid_commission_usdt)}<small> USDT</small></strong><i>${Number(summary.commission_entries || 0)} 笔返佣记录</i></article>
-      <article><span>直属邀请</span><strong>${Number(summary.direct_invitees || 0)}<small> 人</small></strong><i>首次注册永久绑定</i></article>
+      <article><span>待发放返佣</span><strong>${referralMoney(summary.pending_commission_usdt)}<small> USDT</small></strong></article>
+      <article><span>累计已发放</span><strong>${referralMoney(summary.paid_commission_usdt)}<small> USDT</small></strong></article>
+      <article><span>直属邀请</span><strong>${Number(summary.direct_invitees || 0)}<small> 人</small></strong></article>
     </section>
     <section class="referral-link-card">
       <div class="referral-link-copy">
-        <span class="referral-kicker">我的专属推广</span>
         <h3>${escapeHtml(referralRoleLabel(dashboard))}</h3>
         <p>${escapeHtml(referralRuleLabel(dashboard))}</p>
       </div>
       ${activeLink ? `
         <div class="referral-link-value">
-          <label for="referralLinkValue">专属邀请链接 · ${escapeHtml(activeLink.channel_label || "客户端邀请有礼")}</label>
           <div><input id="referralLinkValue" value="${escapeAttr(activeLink.url)}" readonly aria-readonly="true" /><button type="button" data-action="copy-referral-link" data-referral-url="${escapeAttr(activeLink.url)}">复制链接</button></div>
-          <small>推广码：${escapeHtml(activeLink.code || dashboard?.primary_code || "—")} · 注册时即冻结当前链接规则</small>
+          <div class="referral-code-row">
+            <small>推广码:<span class="referral-code-value">${escapeHtml(activeReferralCode)}</span></small>
+            <button type="button" class="referral-code-copy" data-action="copy-referral-code" data-referral-code="${escapeAttr(activeReferralCode)}" title="复制邀请码" aria-label="复制邀请码">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="9" rx="1.5" /><path d="M5 13H4.5A1.5 1.5 0 0 1 3 11.5v-7A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5V5" /></svg>
+            </button>
+          </div>
         </div>
       ` : canCreate ? `
         <div class="referral-create-first">
@@ -58179,10 +58502,9 @@ function renderReferralCenterContent() {
       ` : `<div class="referral-create-first is-disabled"><p>节点已停用，原链接和关系保留；重新启用节点后链接会自动恢复。</p></div>`}
     </section>
     <section class="referral-ledger">
-      <div class="referral-section-head"><div><span class="referral-kicker">REWARD RECORDS</span><h3>奖励记录</h3></div><button type="button" data-action="retry-referral-center" ${center.loading ? "disabled" : ""}>${center.loading ? "刷新中" : "刷新"}</button></div>
-      ${center.commissions.length ? `<div class="referral-table-scroll"><table><thead><tr><th>付款用户 / 订单</th><th>奖励类型</th><th>计佣金额</th><th>比例</th><th>返佣金额</th><th>状态 / 时间</th></tr></thead><tbody>${center.commissions.map(renderReferralCommissionRow).join("")}</tbody></table></div>` : `<div class="referral-empty"><strong>暂无奖励记录</strong><p>好友通过你的链接注册并完成 Web3 USDT 会员付款后，返佣会显示在这里。</p></div>`}
+      <div class="referral-section-head"><h3>奖励记录</h3><button type="button" data-action="retry-referral-center" ${center.loading ? "disabled" : ""}>${center.loading ? "刷新中" : "刷新"}</button></div>
+      ${center.commissions.length ? `<div class="referral-table-scroll"><table><thead><tr><th>付款用户 / 订单</th><th>奖励类型</th><th>计佣金额</th><th>比例</th><th>返佣金额</th><th>状态 / 时间</th></tr></thead><tbody>${center.commissions.map(renderReferralCommissionRow).join("")}</tbody></table></div>` : `<div class="referral-empty"><strong>暂无奖励记录</strong></div>`}
     </section>
-    <div class="referral-center-rule"><strong>返佣规则</strong><span>仅 Web3 USDT 会员订单参与返佣，以链上确认的应付金额为基数；退款或履约失败不产生有效返佣。</span></div>
   `;
 }
 
@@ -58192,7 +58514,7 @@ function renderReferralCenterDialog() {
     <div class="referral-center-overlay" data-action="close-referral-center">
       <section class="referral-center-dialog" role="dialog" aria-modal="true" aria-labelledby="referralCenterTitle">
         <header>
-          <div><span class="referral-kicker">MEMBER CENTER</span><h2 id="referralCenterTitle">邀请有礼</h2><p>分享好咯，清晰查看每一笔 USDT 返佣。</p></div>
+          <h2 id="referralCenterTitle">邀请有礼</h2>
           <button class="referral-center-close" type="button" data-action="close-referral-center" aria-label="关闭">×</button>
         </header>
         <div class="referral-center-scroll">${renderReferralCenterContent()}</div>
@@ -59419,7 +59741,7 @@ function renderConsumptionPage(): string {
         <section class="consumption-profile-card">
           ${showSkeleton ? renderConsumptionProfileSkeleton(unit) : `<div class="consumption-profile-person">
             <img${builtInAvatarEdgeCropClassAttribute(avatar)} src="${escapeAttr(avatar)}" alt="" />
-            <div><div class="consumption-profile-name-row"><strong>${escapeHtml(name)}</strong>${renderMembershipBadge("consumption")}</div><span>好咯号：${escapeHtml(citizenId)}</span>${renderConsumptionLevelIcons(overview.level)}</div>
+            <div><div class="consumption-profile-name-row"><strong>${escapeHtml(name)}</strong>${renderMembershipBadge("consumption")}</div><span>HaoLo号：${escapeHtml(citizenId)}</span>${renderConsumptionLevelIcons(overview.level)}</div>
           </div>
           <div class="consumption-metric"><strong>${formatConsumptionAmount(overview.cumulative_tokens, overview.cumulative_points ?? overview.cumulative_usd)}</strong><span>累计${unit === "points" ? "积分" : "Token"}数</span></div>
           <div class="consumption-metric"><strong>${formatConsumptionAmount(overview.peak_daily_tokens, overview.peak_daily_points ?? overview.peak_daily_usd)}</strong><span>最高单日消耗</span></div>
@@ -59775,12 +60097,14 @@ async function loadReferralCenter(options: { force?: boolean } = {}) {
   if (!api.getReferralDashboard || !api.listReferralLinks || !api.listReferralCommissions) {
     state.referralCenter.loading = false;
     state.referralCenter.error = "当前客户端版本暂不支持邀请与返佣接口";
+    referralCenterContentDirty = true;
     if (state.referralCenter.open) render();
     return;
   }
   if (state.referralCenter.loaded && !options.force) return;
   state.referralCenter.loading = true;
   state.referralCenter.error = null;
+  referralCenterContentDirty = true;
   if (state.referralCenter.open) render();
   try {
     const [dashboard, linksResult, commissionsResult] = await Promise.all([
@@ -59796,6 +60120,7 @@ async function loadReferralCenter(options: { force?: boolean } = {}) {
     state.referralCenter.error = errorMessage(error);
   } finally {
     state.referralCenter.loading = false;
+    referralCenterContentDirty = true;
     if (state.referralCenter.open) render();
   }
 }
@@ -59804,6 +60129,7 @@ function openReferralCenter() {
   state.profileMenuOpen = false;
   state.referralCenter.open = true;
   state.referralCenter.error = null;
+  if (!state.referralCenter.loaded) state.referralCenter.loading = true;
   render();
   void loadReferralCenter();
 }
@@ -59818,6 +60144,7 @@ async function createDefaultReferralLink() {
   if (!api.createReferralLink || state.referralCenter.creating) return;
   state.referralCenter.creating = true;
   state.referralCenter.error = null;
+  referralCenterContentDirty = true;
   render();
   try {
     await api.createReferralLink({
@@ -59831,17 +60158,18 @@ async function createDefaultReferralLink() {
     state.referralCenter.error = errorMessage(error);
   } finally {
     state.referralCenter.creating = false;
+    referralCenterContentDirty = true;
     if (state.referralCenter.open) render();
   }
 }
 
-async function copyReferralLink(url: string) {
-  if (!url) return;
+async function copyReferralText(value: string, successMessage: string) {
+  if (!value) return;
   try {
-    await navigator.clipboard.writeText(url);
+    await navigator.clipboard.writeText(value);
   } catch {
     const input = document.createElement("textarea");
-    input.value = url;
+    input.value = value;
     input.style.position = "fixed";
     input.style.opacity = "0";
     document.body.appendChild(input);
@@ -59849,7 +60177,15 @@ async function copyReferralLink(url: string) {
     document.execCommand("copy");
     input.remove();
   }
-  showToast("邀请链接已复制", 2600);
+  showToastWithoutRender(successMessage, 2600);
+}
+
+function copyReferralLink(url: string) {
+  return copyReferralText(url, "邀请链接已复制");
+}
+
+function copyReferralCode(code: string) {
+  return copyReferralText(code, "邀请码已复制");
 }
 
 function renderSettingsDialog() {
@@ -59908,6 +60244,12 @@ function renderSettingsDialog() {
               <span>关于&反馈</span>
             </button>
           </nav>
+          <button type="button" class="settings-referral-entry" data-action="settings-referrals" aria-haspopup="dialog">
+            <span class="settings-referral-entry-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M20 12v8H4v-8M2 7h20v5H2zM12 7v13M12 7H7.5A2.5 2.5 0 1 1 10 4.5L12 7Zm0 0h4.5A2.5 2.5 0 1 0 14 4.5L12 7Z" /></svg>
+            </span>
+            <span><strong>邀请有礼</strong><small>推广会员，获得 USDT 返佣</small></span>
+          </button>
           <button type="button" class="settings-logout-button" data-action="logout" ${state.loggingOut ? "disabled" : ""}>
             <svg viewBox="0 0 20 20" aria-hidden="true">
               <path d="M8.25 3.5H5.5A1.5 1.5 0 0 0 4 5v10a1.5 1.5 0 0 0 1.5 1.5h2.75" />
@@ -60333,7 +60675,7 @@ function renderChannelDialog() {
         }
         <label>搜索用户
           <div class="channel-search-control">
-            <input id="channelUserSearchInput" value="${escapeAttr(dialog.query)}" placeholder="输入 email 或好咯号" autocomplete="off" />
+            <input id="channelUserSearchInput" value="${escapeAttr(dialog.query)}" placeholder="输入 email 或HaoLo号" autocomplete="off" />
             <button type="button" class="channel-search-button" data-action="search-channel-users" ${dialog.searching || !dialog.query.trim() ? "disabled" : ""}>
               ${dialog.searching ? "搜索中" : "搜索"}
             </button>
@@ -60359,7 +60701,7 @@ function renderChannelDialog() {
 
 function renderChannelSearchResults(results: ChannelUserSearchItem[]) {
   const query = state.channelDialog.query.trim();
-  if (!query) return `<div class="channel-search-empty">支持 email 或好咯号精确搜索</div>`;
+  if (!query) return `<div class="channel-search-empty">支持 email 或HaoLo号精确搜索</div>`;
   if (state.channelDialog.searchedQuery !== query) return `<div class="channel-search-empty">输入完成后再搜索</div>`;
   if (!results.length) return `<div class="channel-search-empty">没有找到用户</div>`;
   return results
@@ -60397,7 +60739,7 @@ function channelUserName(user: ChannelUserSearchItem) {
 function channelUserMeta(user: ChannelUserSearchItem) {
   const citizenId = firstString(user.citizen_id, user.citizenId);
   const email = firstString(user.email_masked, user.emailMasked);
-  return [citizenId ? `好咯号 ${citizenId}` : "", email].filter(Boolean).join(" · ");
+  return [citizenId ? `HaoLo号 ${citizenId}` : "", email].filter(Boolean).join(" · ");
 }
 
 function channelUserInitial(user: ChannelUserSearchItem) {
@@ -61140,6 +61482,21 @@ function bindRechargeHistoryEvents() {
     closeRechargeHistoryModal();
   });
   if (dialog) queueMicrotask(() => dialog.focus());
+}
+
+function bindReferralCenterContentEvents(scope: ParentNode) {
+  scope.querySelectorAll<HTMLElement>('[data-action="retry-referral-center"]').forEach((element) => {
+    element.addEventListener("click", () => void loadReferralCenter({ force: true }));
+  });
+  scope.querySelector<HTMLElement>('[data-action="create-referral-link"]')?.addEventListener("click", () => {
+    void createDefaultReferralLink();
+  });
+  scope.querySelectorAll<HTMLElement>('[data-action="copy-referral-link"]').forEach((element) => {
+    element.addEventListener("click", () => void copyReferralLink(element.dataset.referralUrl || ""));
+  });
+  scope.querySelectorAll<HTMLElement>('[data-action="copy-referral-code"]').forEach((element) => {
+    element.addEventListener("click", () => void copyReferralCode(element.dataset.referralCode || ""));
+  });
 }
 
 function bindEvents() {
@@ -61958,7 +62315,7 @@ function bindEvents() {
       });
     });
   root
-    .querySelectorAll<HTMLElement>('[data-action="profile-referrals"]')
+    .querySelectorAll<HTMLElement>('[data-action="settings-referrals"]')
     .forEach((element) => {
       element.addEventListener("click", () => openReferralCenter());
     });
@@ -61971,15 +62328,7 @@ function bindEvents() {
         closeReferralCenter();
       });
     });
-  root.querySelectorAll<HTMLElement>('[data-action="retry-referral-center"]').forEach((element) => {
-    element.addEventListener("click", () => void loadReferralCenter({ force: true }));
-  });
-  root.querySelector<HTMLElement>('[data-action="create-referral-link"]')?.addEventListener("click", () => {
-    void createDefaultReferralLink();
-  });
-  root.querySelectorAll<HTMLElement>('[data-action="copy-referral-link"]').forEach((element) => {
-    element.addEventListener("click", () => void copyReferralLink(element.dataset.referralUrl || ""));
-  });
+  bindReferralCenterContentEvents(root);
   root
     .querySelectorAll<HTMLButtonElement>(
       '[data-action="show-profile-subscription-details"]',

@@ -666,7 +666,7 @@ export function ensureBrowserDesktopApi() {
     },
     async exportConsumptionReport(params: any) {
       const unit = params?.unit === "points" ? "积分" : "Token";
-      return { ok: true, path: `/mock/好咯使用数据_${unit}.xlsx`, unit: params?.unit || "token" };
+      return { ok: true, path: `/mock/HaoLo使用数据_${unit}.xlsx`, unit: params?.unit || "token" };
     },
     async login() {
       return session;

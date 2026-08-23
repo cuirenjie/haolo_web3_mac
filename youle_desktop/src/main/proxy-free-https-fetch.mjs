@@ -1,4 +1,6 @@
+import dns from "node:dns";
 import https from "node:https";
+import { isIP } from "node:net";
 
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 
@@ -31,14 +33,89 @@ function responseHeaders(message) {
   return headers;
 }
 
+const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+
+function networkHost(value, field = "resolution candidate") {
+  const host = String(value || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!host || (!isIP(host) && !DNS_HOSTNAME_PATTERN.test(host))) {
+    throw new TypeError(`${field} must be an IP address or DNS hostname`);
+  }
+  return host;
+}
+
+function resolutionCandidateMap(value, allowedHostnames) {
+  if (value == null) return new Map();
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("resolutionCandidatesByHostname must be an object");
+  }
+  const result = new Map();
+  for (const [rawHostname, rawCandidates] of Object.entries(value)) {
+    const hostname = networkHost(rawHostname, "resolution hostname");
+    if (!allowedHostnames.has(hostname)) {
+      throw new TypeError("resolution hostname is not an allowed origin");
+    }
+    if (!Array.isArray(rawCandidates) || rawCandidates.length > 8) {
+      throw new TypeError("resolution candidates must be an array of at most 8 hosts");
+    }
+    const candidates = [...new Set(rawCandidates.map((candidate) => networkHost(candidate)))];
+    if (candidates.length) result.set(hostname, candidates);
+  }
+  return result;
+}
+
+function candidateLookup(candidate, options, lookupImpl, callback) {
+  const family = isIP(candidate);
+  if (family) {
+    queueMicrotask(() => callback(null, candidate, family));
+    return;
+  }
+  lookupImpl(candidate, {
+    family: Number(options?.family || 4),
+    hints: Number(options?.hints || 0),
+    all: false,
+    verbatim: true,
+  }, callback);
+}
+
+function resilientLookup(hostnameCandidates, lookupImpl) {
+  return (hostname, options, callback) => {
+    const normalizedHostname = networkHost(hostname, "request hostname");
+    const configured = hostnameCandidates.get(normalizedHostname) || [];
+    const candidates = [...new Set([...configured, normalizedHostname])];
+    let index = 0;
+    let lastError = null;
+    const next = () => {
+      if (index >= candidates.length) {
+        callback(lastError || Object.assign(new Error(`Unable to resolve ${normalizedHostname}`), { code: "ENOTFOUND" }));
+        return;
+      }
+      const candidate = candidates[index++];
+      candidateLookup(candidate, options, lookupImpl, (error, address, family) => {
+        if (error || !address) {
+          lastError = error || Object.assign(new Error(`Unable to resolve ${candidate}`), { code: "ENOTFOUND" });
+          next();
+          return;
+        }
+        callback(null, address, family || isIP(address) || 4);
+      });
+    };
+    next();
+  };
+}
+
 export function createProxyFreeHttpsFetch({
   allowedOrigins = [],
+  resolutionCandidatesByHostname = {},
   timeoutMs = 8_000,
   maxResponseBytes = 16 * 1024 * 1024,
   requestImpl = https.request,
+  lookupImpl = dns.lookup,
   agent = null,
 } = {}) {
   const origins = new Set([...allowedOrigins].map((value) => new URL(String(value)).origin));
+  const allowedHostnames = new Set([...origins].map((origin) => new URL(origin).hostname.toLowerCase()));
+  const hostnameCandidates = resolutionCandidateMap(resolutionCandidatesByHostname, allowedHostnames);
+  const lookup = resilientLookup(hostnameCandidates, lookupImpl);
   const requestTimeoutMs = Math.max(500, Number(timeoutMs) || 8_000);
   const responseLimit = Math.max(1_024, Number(maxResponseBytes) || 16 * 1024 * 1024);
   const httpsAgent = agent || new https.Agent({
@@ -84,6 +161,7 @@ export function createProxyFreeHttpsFetch({
         headers: Object.fromEntries(headers.entries()),
         agent: httpsAgent,
         family: 4,
+        lookup,
       }, (message) => {
         response = message;
         const chunks = [];
@@ -137,6 +215,10 @@ export function createProxyFreeHttpsFetch({
 
   Object.defineProperty(fetchImpl, "close", {
     value: () => httpsAgent.destroy?.(),
+    enumerable: false,
+  });
+  Object.defineProperty(fetchImpl, "lookup", {
+    value: lookup,
     enumerable: false,
   });
   return fetchImpl;

@@ -30,6 +30,12 @@ test("Binance direct and Haolo gateway requests use separate network transports"
     clientBlock.includes("fetchImpl: binanceGatewayNetworkFetch"),
     "gateway client must be wired to the dedicated gateway transport",
   );
+  assert.match(clientBlock, /resolutionCandidatesByHostname:[\s\S]*config\.marketGatewayResolutionCandidates/);
+
+  const hubStart = source.indexOf("function getTradingMarketDataHub");
+  const hubEnd = source.indexOf("function getBinancePrivateProxyTransport", hubStart);
+  const hubBlock = source.slice(hubStart, hubEnd);
+  assert.match(hubBlock, /lookupProvider:[\s\S]*route === "gateway"[\s\S]*binanceGatewayNetworkFetch\?\.lookup/);
 
   const routerStart = source.indexOf("function getBinanceNetworkRouter");
   const routerEnd = source.indexOf("function getBinancePublicMarketService", routerStart);

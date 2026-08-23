@@ -7,9 +7,10 @@ class FakeWebSocket extends EventEmitter {
   static OPEN = 1;
   static CONNECTING = 0;
   static instances = [];
-  constructor(url) {
+  constructor(url, options = {}) {
     super();
     this.url = url;
+    this.options = options;
     this.readyState = 0;
     this.sent = [];
     FakeWebSocket.instances.push(this);
@@ -89,6 +90,29 @@ test("main-process market hub reports an early direct socket failure for route f
   assert.equal(outcomes[0].route, "direct");
   assert.equal(outcomes[1].outcome, "failed");
   assert.ok(outcomes[1].connectedDurationMs < 30_000);
+  await subscription.dispose();
+  await hub.close();
+});
+
+test("main-process market hub applies trusted DNS resolution only to gateway sockets", async () => {
+  FakeWebSocket.instances = [];
+  const lookup = () => {};
+  const hub = new TradingMarketDataHub({
+    WebSocketImpl: FakeWebSocket,
+    endpointProvider: async () => ({
+      url: "wss://market.dead.example/stream/futures?ticket=short",
+      route: "gateway",
+      marketType: "futures",
+    }),
+    lookupProvider: ({ route }) => route === "gateway" ? lookup : null,
+  });
+  const subscription = hub.subscribe(
+    { marketType: "futures", streams: ["btcusdt@ticker"] },
+    () => {},
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(FakeWebSocket.instances[0].options.lookup, lookup);
+  assert.equal(FakeWebSocket.instances[0].options.family, 4);
   await subscription.dispose();
   await hub.close();
 });

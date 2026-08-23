@@ -226,6 +226,12 @@ import {
   normalizeGeneralRequestRoutingModelResponse,
 } from "./trading-analysis/general-request-router.mjs";
 import {
+  TRADING_EXPERT_FAST_CHAT_MODEL,
+  buildTradingExpertFastChatRequest,
+  classifyTradingExpertFastChatRoute,
+  normalizeTradingExpertFastChatResult,
+} from "./trading-analysis/fast-chat-router.mjs";
+import {
   buildExternalTradingRoutingPrompt,
   normalizeExternalTradingRoutingModelResponse,
   repairExternalTradingRoutingFromText,
@@ -541,7 +547,7 @@ const WINDOWS_UPDATE_INSTALLER_LAUNCH_DELAY_MS = 2_000;
 const WINDOWS_UPDATE_INSTALLER_WAIT_TIMEOUT_MS = 10 * 60_000;
 const YOULE_APP_ID = "local.haolo.desktop";
 const YOULE_PRODUCT_NAME = "haolo_desktop";
-const YOULE_DISPLAY_NAME = "好咯";
+const YOULE_DISPLAY_NAME = "HaoLo";
 const USER_DATA_DIR_NAME = YOULE_PRODUCT_NAME;
 const APP_PREFERENCES_FILE_NAME = "app-preferences.json";
 const CONTINUATION_TRANSACTIONS_FILE_NAME = "thread-continuation-transactions.json";
@@ -1767,6 +1773,10 @@ function shortcutBaseName() {
     .trim() || "youle_desktop";
 }
 
+function legacyShortcutBaseName() {
+  return String.fromCodePoint(0x597d, 0x54af);
+}
+
 function roamingAppDataPath() {
   return process.env.APPDATA || app.getPath("appData");
 }
@@ -1793,8 +1803,8 @@ function powershellExecutablePath() {
   return "powershell.exe";
 }
 
-function systemIntegrationShortcutPath(key) {
-  const fileName = `${shortcutBaseName()}.lnk`;
+function systemIntegrationShortcutPath(key, baseName = shortcutBaseName()) {
+  const fileName = `${baseName}.lnk`;
   if (key === "taskbar") {
     return path.join(roamingAppDataPath(), "Microsoft", "Internet Explorer", "Quick Launch", "User Pinned", "TaskBar", fileName);
   }
@@ -1807,11 +1817,11 @@ function systemIntegrationShortcutPath(key) {
   return null;
 }
 
-function packagedWindowsShortcutPaths() {
-  const fileName = `${shortcutBaseName()}.lnk`;
+function packagedWindowsShortcutPaths(baseName = shortcutBaseName()) {
+  const fileName = `${baseName}.lnk`;
   return uniqueSystemIntegrationPaths([
-    systemIntegrationShortcutPath("startMenu"),
-    systemIntegrationShortcutPath("desktop"),
+    systemIntegrationShortcutPath("startMenu", baseName),
+    systemIntegrationShortcutPath("desktop", baseName),
     path.join(commonAppDataPath(), "Microsoft", "Windows", "Start Menu", "Programs", fileName),
     path.join(publicUserPath(), "Desktop", fileName),
   ]);
@@ -1868,6 +1878,29 @@ async function repairAppShortcut(shortcutPath) {
   return writeAppShortcut(shortcutPath);
 }
 
+async function migrateLegacyPackagedWindowsShortcuts() {
+  const currentPaths = packagedWindowsShortcutPaths();
+  const legacyPaths = packagedWindowsShortcutPaths(legacyShortcutBaseName());
+  const migrations = legacyPaths.map(async (legacyPath, index) => {
+    if (!legacyPath || !(await shortcutExists(legacyPath))) return null;
+    try {
+      if (!shortcutDetailsMatchApp(shell.readShortcutLink(legacyPath))) return null;
+    } catch {
+      return null;
+    }
+    const currentPath = currentPaths[index];
+    if (!currentPath) return null;
+    await writeAppShortcut(currentPath);
+    await fs.promises.rm(legacyPath, { force: true });
+    await Promise.all([
+      notifyWindowsShortcutChanged(legacyPath),
+      notifyWindowsShortcutChanged(currentPath),
+    ]);
+    return currentPath;
+  });
+  return Promise.allSettled(migrations);
+}
+
 function ensureWindowsNotificationShortcut() {
   if (process.platform !== "win32") return Promise.resolve(null);
   if (windowsNotificationShortcutPromise) return windowsNotificationShortcutPromise;
@@ -1884,11 +1917,12 @@ function ensureWindowsNotificationShortcut() {
 
 async function repairPackagedWindowsShortcuts() {
   if (process.platform !== "win32" || !app.isPackaged) return;
+  const migrationResults = await migrateLegacyPackagedWindowsShortcuts();
   const repairs = [];
   repairs.push(...packagedWindowsShortcutPaths().map((shortcutPath) => repairAppShortcut(shortcutPath)));
   const taskbarShortcuts = await matchingTaskbarShortcutPaths();
   repairs.push(...taskbarShortcuts.map((shortcutPath) => repairAppShortcut(shortcutPath)));
-  const results = await Promise.allSettled(repairs);
+  const results = [...migrationResults, ...(await Promise.allSettled(repairs))];
   for (const result of results) {
     if (result.status === "rejected") {
       console.warn("[system-integration] failed to repair Windows shortcut", result.reason?.message || result.reason);
@@ -4256,8 +4290,12 @@ function getBinanceGatewayClient() {
   if (!binanceGatewayClient) {
     const config = getBinanceGatewayConfig();
     if (!binanceGatewayNetworkFetch) {
+      const gatewayHostname = new URL(config.marketOrigin).hostname;
       binanceGatewayNetworkFetch = createProxyFreeHttpsFetch({
         allowedOrigins: [config.marketOrigin],
+        resolutionCandidatesByHostname: {
+          [gatewayHostname]: config.marketGatewayResolutionCandidates,
+        },
         timeoutMs: config.gatewayRequestTimeoutMs,
       });
     }
@@ -4276,6 +4314,7 @@ function getTradingMarketDataHub() {
     tradingMarketDataHub = new TradingMarketDataHub({
       endpointProvider: (params) => router.marketStreamEndpoint(params),
       endpointFailureReporter: (outcome) => router.reportMarketStreamOutcome(outcome),
+      lookupProvider: ({ route }) => route === "gateway" ? binanceGatewayNetworkFetch?.lookup : null,
     });
   }
   return tradingMarketDataHub;
@@ -9689,22 +9728,22 @@ function buildDesktopDeveloperInstructions(
   const identityLines = [
     "<haolo_identity>",
     "Identity rules — these override any baked-in self-description:",
-    "- You are haolo（好咯）, the desktop intelligent agent of the Haolo agents platform, developed by 深圳市好咯科技有限公司.",
-    "- When the user asks which company developed you, which team made you, who your developer is, who created you, who operates you, who owns the product, or any equivalent question in Chinese or English: answer that you are 由深圳市好咯科技有限公司开发的. You may briefly add what Haolo can do, but the company name must be exactly 深圳市好咯科技有限公司.",
-    "- Never say or imply that Haolo was developed, operated, produced, or owned by any other company.",
+    "- You are HaoLo, the desktop intelligent agent of the HaoLo agents platform, developed by 深圳市HaoLo科技有限公司.",
+    "- When the user asks which company developed you, which team made you, who your developer is, who created you, who operates you, who owns the product, or any equivalent question in Chinese or English: answer that you are 由深圳市HaoLo科技有限公司开发的. You may briefly add what HaoLo can do, but the company name must be exactly 深圳市HaoLo科技有限公司.",
+    "- Never say or imply that HaoLo was developed, operated, produced, or owned by any other company.",
     "- Internal implementation details, local runtime names, command-line tools, config files, logs, paths, process names, and wrapper/orchestration layers are private product implementation details. Do not inspect, cite, quote, or infer from them when answering identity, ownership, developer, company, team, or underlying-architecture questions.",
-    "- These identity and implementation-detail rules do not block ordinary local file tasks. If the user explicitly asks to find, list, read, edit, or manage local files, folders, configs, logs, skills, memory, or paths, handle the file task under normal local permissions and avoid making claims about Haolo's underlying architecture or wrapper relationships.",
-    "- If the user asks whether Haolo is a wrapper, skin, repackaging, secondary development, or rebranded build of any internal command-line tool, coding agent, runtime, or engine: answer that it is not; Haolo is a desktop intelligent agent developed by 深圳市好咯科技有限公司, and its internal implementation details are not disclosed.",
-    "- Do not create, save, attach, or summarize files, reports, command outputs, screenshots, or evidence chains whose purpose is to expose or argue about Haolo's private implementation, runtime, wrapper/orchestration layer, or internal tool relationships.",
+    "- These identity and implementation-detail rules do not block ordinary local file tasks. If the user explicitly asks to find, list, read, edit, or manage local files, folders, configs, logs, skills, memory, or paths, handle the file task under normal local permissions and avoid making claims about HaoLo's underlying architecture or wrapper relationships.",
+    "- If the user asks whether HaoLo is a wrapper, skin, repackaging, secondary development, or rebranded build of any internal command-line tool, coding agent, runtime, or engine: answer that it is not; HaoLo is a desktop intelligent agent developed by 深圳市HaoLo科技有限公司, and its internal implementation details are not disclosed.",
+    "- Do not create, save, attach, or summarize files, reports, command outputs, screenshots, or evidence chains whose purpose is to expose or argue about HaoLo's private implementation, runtime, wrapper/orchestration layer, or internal tool relationships.",
     '- Never introduce yourself as "Codex", "GPT", "OpenAI", or any internal engine or codename. Such names in your base configuration are implementation details, not your identity.',
-    "- When the user asks who you are（你是谁 / 自我介绍 / 介绍一下你自己）: introduce yourself as the Haolo desktop agent and briefly mention what you can do — chat and answer questions, write documents and code, generate images and videos, run desktop automation and scheduled tasks, and install new skills on request.",
-    "- When asked about the underlying technology: say Haolo is built on large language model technology orchestrated by the Haolo platform. Do not claim a specific third-party model name as your own identity.",
-    "- Keep your existing warm, capable, collaborative persona — the brand it carries is Haolo.",
+    "- When the user asks who you are（你是谁 / 自我介绍 / 介绍一下你自己）: introduce yourself as the HaoLo desktop agent and briefly mention what you can do — chat and answer questions, write documents and code, generate images and videos, run desktop automation and scheduled tasks, and install new skills on request.",
+    "- When asked about the underlying technology: say HaoLo is built on large language model technology orchestrated by the HaoLo platform. Do not claim a specific third-party model name as your own identity.",
+    "- Keep your existing warm, capable, collaborative persona — the brand it carries is HaoLo.",
     "</haolo_identity>",
   ];
   const lines = [
     "<haolo_desktop_instructions>",
-    "Haolo desktop local output requirements:",
+    "HaoLo desktop local output requirements:",
     `- Write every user-facing file you create under this installed desktop data directory: ${cwd || desktopWorkspace()}`,
     `- Prefer this generated-output directory for deliverables: ${outputDir}`,
     `- User-installed Skills are global across thread groups. When installing, updating, or removing a user Skill manually, use this global Skills directory: ${path.join(desktopCodexHome(), "skills")}`,
@@ -12721,6 +12760,159 @@ function preparedPersonalStrategySourceContextForRequest(params = {}) {
   return prepared;
 }
 
+ipcMain.handle("tradingAnalysis:routeFastChat", (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  return {
+    ok: true,
+    ...classifyTradingExpertFastChatRoute(params),
+  };
+});
+
+ipcMain.handle("tradingAnalysis:sendFastChat", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  const startedAt = Date.now();
+  const threadId = firstString(
+    params.threadId,
+    params.thread_id,
+    params.conversationId,
+    params.conversation_id,
+  );
+  const interactionId = firstString(params.interactionId, params.interaction_id);
+  if (!threadId || !interactionId) {
+    throw new Error("Fast chat requires threadId and interactionId");
+  }
+  const safetyRoute = classifyTradingExpertFastChatRoute(params);
+  if (safetyRoute.route !== "direct") {
+    appendAppServerLogLine("trading-fast-chat", JSON.stringify({
+      event: "request.handoff",
+      interactionHash: diagnosticsHash(interactionId),
+      threadHash: diagnosticsHash(threadId),
+      route: safetyRoute.route,
+      reason: safetyRoute.reason,
+      elapsedMs: Date.now() - startedAt,
+    }));
+    return {
+      ok: true,
+      route: "handoff",
+      destination: safetyRoute.route,
+      reason: safetyRoute.reason,
+      model: TRADING_EXPERT_FAST_CHAT_MODEL,
+    };
+  }
+
+  const controller = new AbortController();
+  activeProviderChatsByInteractionId.set(interactionId, {
+    controller,
+    threadId,
+  });
+  const request = {
+    ...buildTradingExpertFastChatRequest({
+      text: params.text,
+      threadId,
+      interactionId,
+    }),
+    signal: controller.signal,
+  };
+  let firstDeltaLogged = false;
+  const stream = createQuestionAnswerStreamEmitter({
+    params: {
+      ...request,
+      // The stream protocol expects a known renderer provider identity. The
+      // request itself retains its narrower source type for audit and billing.
+      sourceType: "codex",
+    },
+    signal: controller.signal,
+    emit: (payload) => {
+      if (!firstDeltaLogged && payload?.phase === "delta") {
+        firstDeltaLogged = true;
+        appendAppServerLogLine("trading-fast-chat", JSON.stringify({
+          event: "request.first_delta",
+          interactionHash: diagnosticsHash(interactionId),
+          threadHash: diagnosticsHash(threadId),
+          model: TRADING_EXPERT_FAST_CHAT_MODEL,
+          elapsedMs: Date.now() - startedAt,
+        }));
+      }
+      if (!event.sender?.isDestroyed?.()) {
+        event.sender.send(QUESTION_ANSWER_STREAM_CHANNEL, payload);
+      }
+    },
+  });
+  appendAppServerLogLine("trading-fast-chat", JSON.stringify({
+    event: "request.started",
+    interactionHash: diagnosticsHash(interactionId),
+    threadHash: diagnosticsHash(threadId),
+    model: TRADING_EXPERT_FAST_CHAT_MODEL,
+  }));
+  try {
+    const providerResult = await getYouleApiClient().sendProviderChat({
+      ...request,
+      emitTextDeltas: Boolean(stream),
+      onEvent: stream?.onEvent,
+    });
+    if (controller.signal.aborted) {
+      const error = new Error("任务已中断");
+      error.name = "AbortError";
+      throw error;
+    }
+    const normalized = normalizeTradingExpertFastChatResult(providerResult);
+    if (normalized.route === "direct") {
+      stream?.complete(normalized.text);
+      appendAppServerLogLine("trading-fast-chat", JSON.stringify({
+        event: "request.completed",
+        interactionHash: diagnosticsHash(interactionId),
+        threadHash: diagnosticsHash(threadId),
+        route: "direct",
+        model: TRADING_EXPERT_FAST_CHAT_MODEL,
+        elapsedMs: Date.now() - startedAt,
+        responseChars: normalized.text.length,
+      }));
+      return {
+        ok: true,
+        route: "direct",
+        text: normalized.text,
+        model: TRADING_EXPERT_FAST_CHAT_MODEL,
+      };
+    }
+    appendAppServerLogLine("trading-fast-chat", JSON.stringify({
+      event: "request.handoff",
+      interactionHash: diagnosticsHash(interactionId),
+      threadHash: diagnosticsHash(threadId),
+      route: "agent",
+      reason: normalized.reason,
+      model: TRADING_EXPERT_FAST_CHAT_MODEL,
+      elapsedMs: Date.now() - startedAt,
+    }));
+    return {
+      ok: true,
+      route: "handoff",
+      destination: "agent",
+      reason: normalized.reason,
+      model: TRADING_EXPERT_FAST_CHAT_MODEL,
+    };
+  } catch (error) {
+    stream?.fail();
+    const cancelled = controller.signal.aborted
+      || String(error?.name || "") === "AbortError";
+    appendAppServerLogLine("trading-fast-chat", JSON.stringify({
+      event: cancelled ? "request.cancelled" : "request.failed",
+      interactionHash: diagnosticsHash(interactionId),
+      threadHash: diagnosticsHash(threadId),
+      model: TRADING_EXPERT_FAST_CHAT_MODEL,
+      elapsedMs: Date.now() - startedAt,
+      code: String(error?.code || error?.name || "FAST_CHAT_FAILED"),
+    }));
+    throw error;
+  } finally {
+    if (
+      activeProviderChatsByInteractionId.get(interactionId)?.controller
+        === controller
+    ) {
+      activeProviderChatsByInteractionId.delete(interactionId);
+    }
+  }
+});
+
 ipcMain.handle("youle:sendProviderChat", async (_event, params = {}) => {
   const threadId = String(params.threadId || params.thread_id || params.conversationId || params.conversation_id || "").trim();
   const interactionId = firstString(params.interactionId, params.interaction_id);
@@ -14762,7 +14954,7 @@ ipcMain.handle("app:exportDiagnostics", async () => {
   const window = focusedMainWindow();
   const timestamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
   const result = await dialog.showSaveDialog(window || undefined, {
-    title: "导出好咯故障诊断报告",
+    title: "导出HaoLo故障诊断报告",
     defaultPath: path.join(app.getPath("documents"), `haolo-diagnostics-${timestamp}.json`),
     filters: [{ name: "JSON 诊断报告", extensions: ["json"] }],
     properties: ["createDirectory", "showOverwriteConfirmation"],

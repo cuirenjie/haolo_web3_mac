@@ -92,7 +92,7 @@ test("profile menu keeps recharge beside the balance and omits My Config", async
   );
   assert.match(
     styles,
-    /\.profile-menu\s*\{[^}]*position:\s*fixed;[^}]*left:\s*27px;/s,
+    /\.profile-menu\s*\{[^}]*position:\s*fixed;[^}]*left:\s*15px;/s,
   );
   assert.match(
     styles,
@@ -100,7 +100,7 @@ test("profile menu keeps recharge beside the balance and omits My Config", async
   );
 });
 
-test("logout lives at the bottom of settings", async () => {
+test("referral entry and logout live at the bottom of settings", async () => {
   const [source, styles] = await Promise.all([rendererSource, stylesSource]);
   const settings = sourceBlock(
     source,
@@ -109,16 +109,21 @@ test("logout lives at the bottom of settings", async () => {
   );
 
   const navEnd = settings.indexOf("</nav>");
+  const referral = settings.indexOf('class="settings-referral-entry" data-action="settings-referrals"');
   const logout = settings.indexOf('class="settings-logout-button" data-action="logout"');
   assert.ok(
-    navEnd >= 0 && logout > navEnd,
-    "logout should be a separate control below settings navigation",
+    navEnd >= 0 && referral > navEnd && logout > referral,
+    "the referral entry and logout should be separate controls below settings navigation",
   );
   assert.match(settings, /state\.loggingOut \? "退出中\.\.\." : "退出登录"/);
   assert.match(styles, /\.settings-side\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;/s);
   assert.match(
     styles,
-    /\.settings-logout-button\s*\{[^}]*margin-top:\s*auto;[^}]*border:\s*1px solid rgba\(220, 38, 38, 0\.16\);/s,
+    /\.settings-referral-entry\s*\{[^}]*margin-top:\s*auto;/s,
+  );
+  assert.match(
+    styles,
+    /\.settings-logout-button\s*\{[^}]*margin-top:\s*12px;[^}]*border:\s*1px solid rgba\(220, 38, 38, 0\.16\);/s,
   );
   assert.match(
     styles,

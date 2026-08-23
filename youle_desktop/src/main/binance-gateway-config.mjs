@@ -11,6 +11,8 @@ const DEFAULT_DIRECT_ENDPOINTS = Object.freeze({
   }),
 });
 
+const DNS_HOSTNAME_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+
 function httpsOrigin(value, field, { required = false } = {}) {
   const raw = String(value || "").trim();
   if (!raw && !required) return "";
@@ -55,6 +57,17 @@ function durationValue(value, fallback, { min, max }) {
   return Number.isSafeInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
 }
 
+function resolutionCandidates(value) {
+  if (value == null || value === "") return Object.freeze([]);
+  const candidates = Array.isArray(value) ? value : String(value).split(",");
+  if (candidates.length > 8) throw new TypeError("Binance gateway resolution candidates are limited to 8 hosts");
+  const normalized = candidates.map((candidate) => String(candidate || "").trim().toLowerCase().replace(/\.$/, ""));
+  if (normalized.some((candidate) => !DNS_HOSTNAME_PATTERN.test(candidate))) {
+    throw new TypeError("Binance gateway resolution candidates must be DNS hostnames or IPv4 addresses");
+  }
+  return Object.freeze([...new Set(normalized)]);
+}
+
 export function resolveBinanceGatewayConfig(env = process.env, deployment = {}) {
   const marketOrigin = httpsOrigin(
     env.HAOLO_BINANCE_MARKET_GATEWAY_URL || deployment.marketGatewayUrl,
@@ -88,6 +101,10 @@ export function resolveBinanceGatewayConfig(env = process.env, deployment = {}) 
     routingMode,
     requireGateway,
     marketOrigin,
+    marketGatewayResolutionCandidates: resolutionCandidates(
+      env.HAOLO_BINANCE_MARKET_GATEWAY_RESOLUTION_CANDIDATES
+        || deployment.marketGatewayResolutionCandidates,
+    ),
     ticketUrl: gatewayEnabled ? `${marketOrigin}/api/market/v1/tickets` : "",
     privatePermitUrl: gatewayEnabled ? `${marketOrigin}/api/private/v1/permits` : "",
     privateUsageUrl: gatewayEnabled ? `${marketOrigin}/api/private/v1/usage` : "",

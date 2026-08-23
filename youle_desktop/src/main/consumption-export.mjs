@@ -13,7 +13,7 @@ export function consumptionExportDefaultFileName(unit, now = new Date()) {
     month: "2-digit",
     day: "2-digit",
   }).format(now).replaceAll("-", "");
-  return `好咯使用数据_${normalizedUnit === "points" ? "积分" : "Token"}_${date}.xlsx`;
+  return `HaoLo使用数据_${normalizedUnit === "points" ? "积分" : "Token"}_${date}.xlsx`;
 }
 
 export function ensureXlsxFilePath(value) {

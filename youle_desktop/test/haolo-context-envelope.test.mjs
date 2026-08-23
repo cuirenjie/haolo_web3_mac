@@ -24,7 +24,7 @@ function withSourceFixture(run) {
   }
 }
 
-function completeEnvelope({ pptx, body = "SOURCE: 项目介绍.pptx\nSLIDE 1\n好咯项目介绍与产品定位" }) {
+function completeEnvelope({ pptx, body = "SOURCE: 项目介绍.pptx\nSLIDE 1\nHaoLo项目介绍与产品定位" }) {
   return [
     `HAOLO_CONTEXT_RESULT: ${JSON.stringify({
       status: "complete",

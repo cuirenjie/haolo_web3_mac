@@ -19,6 +19,7 @@ export class TradingMarketDataHub {
   constructor({
     endpointProvider,
     endpointFailureReporter = null,
+    lookupProvider = null,
     WebSocketImpl = WebSocket,
     reconnectBaseMs = 500,
     heartbeatMs = 20_000,
@@ -27,8 +28,12 @@ export class TradingMarketDataHub {
     if (endpointFailureReporter != null && typeof endpointFailureReporter !== "function") {
       throw new TypeError("endpointFailureReporter must be a function");
     }
+    if (lookupProvider != null && typeof lookupProvider !== "function") {
+      throw new TypeError("lookupProvider must be a function");
+    }
     this.endpointProvider = endpointProvider;
     this.endpointFailureReporter = endpointFailureReporter;
+    this.lookupProvider = lookupProvider;
     this.WebSocketImpl = WebSocketImpl;
     this.reconnectBaseMs = Math.max(10, Number(reconnectBaseMs) || 500);
     this.heartbeatMs = Math.max(1_000, Number(heartbeatMs) || 20_000);
@@ -127,7 +132,12 @@ export class TradingMarketDataHub {
     }
     let socket;
     try {
-      socket = new this.WebSocketImpl(endpoint, { perMessageDeflate: false, maxPayload: 1024 * 1024 });
+      const lookup = this.lookupProvider?.(endpointContext);
+      socket = new this.WebSocketImpl(endpoint, {
+        perMessageDeflate: false,
+        maxPayload: 1024 * 1024,
+        ...(typeof lookup === "function" ? { family: 4, lookup } : {}),
+      });
     } catch (error) {
       channel.connecting = false;
       this.reportEndpointOutcome({ ...endpointContext, outcome: "failed", connectedDurationMs: 0 });

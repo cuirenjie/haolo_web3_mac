@@ -234,9 +234,9 @@ export const ROLES: Record<RoleKey, RoleMeta> = {
   user: { id: "user", name: "总裁", short: "总裁", initial: "总", color: "#e8755a" },
   ceo_assistant: {
     id: "ceo_assistant",
-    name: "好咯",
-    short: "好咯",
-    initial: "好咯",
+    name: "HaoLo",
+    short: "HaoLo",
+    initial: "HaoLo",
     color: "#f4c95d",
     description: "回答老板问题，识别小红书图文和短视频需求并拉起专项群",
   },

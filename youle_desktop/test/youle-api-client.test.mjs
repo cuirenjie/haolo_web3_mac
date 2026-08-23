@@ -285,6 +285,47 @@ test("Codex provider automatically sends medium for simple work and max for inte
   }
 });
 
+test("internal low-latency provider requests can hold reasoning at low", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody = null;
+  globalThis.fetch = async (_url, init = {}) => {
+    requestBody = JSON.parse(init.body);
+    return new Response(JSON.stringify({
+      model: "gpt-5.6-sol",
+      choices: [{ message: { content: "Fast answer" } }],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    client.token = "haolo-session-token";
+    client.modelKeys = [
+      { provider: "codex", apiKey: "sk-codex-user", baseUrl: "https://transit.example/v1" },
+    ];
+    await client.sendProviderChat({
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      text: "重构整个权限系统并完成安全审计和生产迁移",
+      fixedReasoningEffort: "low",
+      messages: [
+        { role: "developer", content: "Answer only from the current public question." },
+        { role: "user", content: "重构整个权限系统并完成安全审计和生产迁移" },
+      ],
+    });
+    assert.equal(requestBody.reasoning_effort, "low");
+    assert.deepEqual(requestBody.messages, [
+      { role: "developer", content: "Answer only from the current public question." },
+      { role: "user", content: "重构整个权限系统并完成安全审计和生产迁移" },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Gemini video input uses the native generateContent route with inline video data", async () => {
   const originalFetch = globalThis.fetch;
   const dir = await tempDir("provider-gemini-video");

@@ -10,9 +10,9 @@ import {
 
 test("consumption export builds a Shanghai-dated xlsx file name", () => {
   const now = new Date("2026-07-18T16:30:00.000Z");
-  assert.equal(consumptionExportDefaultFileName("token", now), "好咯使用数据_Token_20260719.xlsx");
-  assert.equal(consumptionExportDefaultFileName("points", now), "好咯使用数据_积分_20260719.xlsx");
-  assert.equal(consumptionExportDefaultFileName("usd", now), "好咯使用数据_积分_20260719.xlsx");
+  assert.equal(consumptionExportDefaultFileName("token", now), "HaoLo使用数据_Token_20260719.xlsx");
+  assert.equal(consumptionExportDefaultFileName("points", now), "HaoLo使用数据_积分_20260719.xlsx");
+  assert.equal(consumptionExportDefaultFileName("usd", now), "HaoLo使用数据_积分_20260719.xlsx");
   assert.equal(normalizeConsumptionExportUnit("usd"), "points");
   assert.equal(normalizeConsumptionExportUnit("other"), "token");
   assert.equal(ensureXlsxFilePath("D:\\reports\\usage"), "D:\\reports\\usage.xlsx");
@@ -40,7 +40,7 @@ test("consumption export downloads the selected unit and writes the returned wor
     dialog: {
       showSaveDialog: async (_window, options) => {
         assert.equal(options.title, "导出使用数据");
-        assert.match(options.defaultPath, /好咯使用数据_积分_/);
+        assert.match(options.defaultPath, /HaoLo使用数据_积分_/);
         return { canceled: false, filePath: "D:\\reports\\all-usage" };
       },
     },
