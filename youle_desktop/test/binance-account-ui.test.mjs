@@ -86,6 +86,9 @@ test("unbound state and binding dialog match the complete secure flow", () => {
   assert.match(dialog, /jo\*\*\*\*ec@qq\.com/);
   assert.match(dialog, /系统安全存储加密保存/);
   assert.match(dialog, /不会进入聊天、日志或数据导出/);
+  assert.match(dialog, /class="binance-account-dialog-backdrop" aria-hidden="true"/);
+  assert.equal((dialog.match(/data-binance-account-action="close-dialog"/g) || []).length, 1);
+  assert.match(dialog, /class="binance-account-dialog-close" data-binance-account-action="close-dialog"/);
   assert.ok(binanceAccountResendCountdown(Date.now() + 59_500) >= 59);
 
   state.dialog.apiKey = "temporary-key";
@@ -96,6 +99,20 @@ test("unbound state and binding dialog match the complete secure flow", () => {
   assert.equal(state.dialog.apiKey, "");
   assert.equal(state.dialog.apiSecret, "");
   assert.equal(state.dialog.code, "");
+});
+
+test("binding dialog ignores backdrop clicks and Escape so only its close button dismisses it", async () => {
+  const source = await rendererSource;
+  const bindingBlock = source.slice(
+    source.indexOf("function bindBinanceAccountEvents"),
+    source.indexOf("function bindExecutionPlanEvents"),
+  );
+
+  assert.match(
+    bindingBlock,
+    /if \(event\.key === "Escape"\) \{\s*event\.preventDefault\(\);\s*return;\s*\}/,
+  );
+  assert.doesNotMatch(bindingBlock, /event\.key === "Escape"[\s\S]*?closeBinanceAccountDialog\(\)/);
 });
 
 test("initial account load uses the account layout skeleton instead of a centered spinner", () => {

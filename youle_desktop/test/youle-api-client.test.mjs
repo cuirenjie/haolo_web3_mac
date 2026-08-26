@@ -104,6 +104,7 @@ test("Codex provider uses the supported GPT-5.6 Terra alias by default", async (
 
     assert.equal(request.url, "https://transit.example/v1/chat/completions");
     assert.equal(body.model, "gpt-5.6-terra");
+    assert.equal(Object.hasOwn(body, "service_tier"), false);
     assert.equal(body.reasoning_effort, "low");
     assert.deepEqual(body.messages, [{ role: "user", content: "Hello" }]);
     assert.equal(result.provider, "codex");
@@ -317,6 +318,7 @@ test("internal low-latency provider requests can hold reasoning at low", async (
       ],
     });
     assert.equal(requestBody.reasoning_effort, "low");
+    assert.equal(requestBody.service_tier, "priority");
     assert.deepEqual(requestBody.messages, [
       { role: "developer", content: "Answer only from the current public question." },
       { role: "user", content: "重构整个权限系统并完成安全审计和生产迁移" },
@@ -3229,12 +3231,17 @@ test("sendActivityHeartbeat posts client surface and stores returned level", asy
     client.profile = { id: "user-level-3" };
     client.loaded = true;
 
-    const result = await client.sendActivityHeartbeat({ onlineSecondsDelta: 60, sourceId: "2026-06-05" });
+    const result = await client.sendActivityHeartbeat({
+      onlineSecondsDelta: 60,
+      sourceId: "2026-06-05",
+      clientVariant: "haolo_windows_web3",
+    });
 
     assert.equal(requests[0].url, "https://haolo.com/api/activity/heartbeat");
     assert.equal(requests[0].init.headers.Authorization, "Bearer mas_token_heartbeat");
     const body = JSON.parse(requests[0].init.body);
     assert.equal(body.surface, "client");
+    assert.equal(body.client_variant, "haolo_windows_web3");
     assert.equal(body.online_seconds_delta, 60);
     assert.equal(body.source_id, "2026-06-05");
     assert.equal(result.session.profile.level.level, 5);

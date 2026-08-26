@@ -105,6 +105,10 @@ import {
   createTradingMarketCandleCache,
   mergeTradingCandleBatches,
 } from "./trading-market-candle-cache.mjs";
+import {
+  tradingAnalysisDrawingFocusRange,
+  waitForTradingAnalysisViewportPaint,
+} from "./trading-analysis-viewport.mjs";
 
 async function subscribeBinanceMarketStreams(
   marketType: Extract<TradingMarketType, "spot" | "perpetual">,
@@ -143,6 +147,8 @@ export function tradingSplitPaneDrawingStorageSessionId(storageSessionId: string
 }
 export const TRADING_EXPERT_TREND_BAND_MENTION = "@指标:趋势带";
 const LEGACY_TRADING_EXPERT_TREND_BAND_MENTION = "@自定义指标:趋势带";
+const ENGLISH_TRADING_EXPERT_TREND_BAND_MENTION = "@Indicator:Trend band";
+const TRADITIONAL_TRADING_EXPERT_TREND_BAND_MENTION = "@指標:趨勢帶";
 const MAX_TRADING_PERIODS = 10;
 const MAX_TRADING_FAVORITES = 500;
 export const MAX_TRADING_FAVORITE_TICKERS = 12;
@@ -197,6 +203,8 @@ export function hasTradingExpertTrendBandMention(text: string) {
     || source.includes(TRADING_EXPERT_TREND_BAND_MENTION.replace(":", "："))
     || source.includes(LEGACY_TRADING_EXPERT_TREND_BAND_MENTION)
     || source.includes(LEGACY_TRADING_EXPERT_TREND_BAND_MENTION.replace(":", "："))
+    || source.includes(ENGLISH_TRADING_EXPERT_TREND_BAND_MENTION)
+    || source.includes(TRADITIONAL_TRADING_EXPERT_TREND_BAND_MENTION)
   );
 }
 
@@ -9298,7 +9306,7 @@ class TradingExpertMarketWorkspace {
       const controller = pane?.getDrawingController();
       if (!pane || !controller) return false;
       if (pane.analysisContextMatches(patch.marketId, patch.interval)) {
-        await controller.playAiDrawingPatch(patch, { onPhase });
+        await pane.playAiDrawingPatch(patch, { onPhase });
       } else {
         controller.storeAiDrawingPatch(patch);
       }
@@ -9306,7 +9314,10 @@ class TradingExpertMarketWorkspace {
     }
     if (!this.drawingController) return false;
     if (this.selectedMarketId === patch.marketId && this.activeInterval === patch.interval) {
-      await this.drawingController.playAiDrawingPatch(patch, { onPhase });
+      await this.drawingController.playAiDrawingPatch(patch, {
+        onPhase,
+        beforePlayback: () => this.focusAnalysisDrawingPatch(patch),
+      });
     } else {
       this.drawingController.storeAiDrawingPatch(patch);
     }
@@ -12657,6 +12668,24 @@ class TradingExpertMarketWorkspace {
     this.chart.timeScale().setVisibleLogicalRange(logicalRange);
     this.updateVisiblePriceScale();
     this.updateCurrentPriceLabel();
+    this.drawingController?.redraw();
+  }
+
+  private async focusAnalysisDrawingPatch(patch: TradingAiDrawingPatch) {
+    if (!this.chart || !this.chartCandles.length) return;
+    const priceScaleWidth = Number(this.chart.priceScale("right", 0).width() || 0);
+    const plotWidth = Math.max(this.chartElement.clientWidth - priceScaleWidth, 1);
+    const logicalRange = tradingAnalysisDrawingFocusRange(patch, this.chartCandles, plotWidth);
+    if (!logicalRange) return;
+    this.invalidateVolumeProfileSnapshot();
+    this.chart.timeScale().setVisibleLogicalRange(logicalRange);
+    this.updateVisiblePriceScale();
+    this.updateCurrentPriceLabel();
+    this.renderVolumeProfile(true);
+    this.drawingController?.redraw();
+    this.queueVisiblePriceScaleUpdate();
+    await waitForTradingAnalysisViewportPaint(window);
+    if (this.disposed) return;
     this.drawingController?.redraw();
   }
 

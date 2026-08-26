@@ -554,6 +554,7 @@ const CONTINUATION_TRANSACTIONS_FILE_NAME = "thread-continuation-transactions.js
 const CONTINUATION_LATE_START_RESPONSE_GRACE_MS = 30_000;
 const DEFAULT_APP_PREFERENCES = Object.freeze({
   theme: "dark",
+  language: "en",
   taskCompletionPopupEnabled: true,
 });
 const LOCAL_FILE_DRAG_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -8027,8 +8028,8 @@ function notifyTaskTurnCompleted(message, { threadId, turnId } = {}) {
     notifiedCompletedTurns.delete(key);
   }, NOTIFIED_COMPLETED_TURN_TTL_MS).unref?.();
   pendingRenderedTaskCompletionNotifications.set(key, {
-    title: "任务已完成",
-    body: "任务已成功完成。您可以在编辑器中查看结果。",
+    title: mainUiText("taskCompleteTitle"),
+    body: mainUiText("taskCompleteBody"),
     threadId,
     turnId,
   });
@@ -8165,7 +8166,7 @@ function showDesktopNotificationWindow({ title, body, threadId, turnId, alertId,
   });
   desktopNotificationWindow.removeMenu();
   desktopNotificationWindow.setAlwaysOnTop(true, "screen-saver");
-  desktopNotificationWindow.loadURL(`data:text/html;base64,${Buffer.from(desktopNotificationHtml({ title, body, theme: appTheme() })).toString("base64")}`);
+  desktopNotificationWindow.loadURL(`data:text/html;base64,${Buffer.from(desktopNotificationHtml({ title, body, theme: appTheme(), language: appLanguage() })).toString("base64")}`);
   desktopNotificationWindow.once("ready-to-show", () => {
     if (!desktopNotificationWindow || desktopNotificationWindow.isDestroyed()) return;
     desktopNotificationWindow.showInactive();
@@ -8206,11 +8207,14 @@ function closeDesktopNotificationWindow() {
   desktopNotificationWindow = null;
 }
 
-function desktopNotificationHtml({ title, body, theme }) {
+function desktopNotificationHtml({ title, body, theme, language = appLanguage() }) {
   const icon = desktopNotificationIconDataUrl();
   const normalizedTheme = normalizeAppTheme(theme);
+  const normalizedLanguage = normalizeAppLanguage(language);
+  const settingsLabel = mainUiText("settings", normalizedLanguage);
+  const closeLabel = mainUiText("close", normalizedLanguage);
   return `<!doctype html>
-<html data-theme="${htmlEscape(normalizedTheme)}">
+<html lang="${htmlEscape(appLanguageLocale(normalizedLanguage))}" data-theme="${htmlEscape(normalizedTheme)}">
 <head>
 <meta charset="utf-8" />
 <style>
@@ -8239,8 +8243,8 @@ function desktopNotificationHtml({ title, body, theme }) {
   <section class="card">
     <div class="head">${icon ? `<img src="${htmlEscape(icon)}" alt="" />` : ""}<strong>${htmlEscape(YOULE_DISPLAY_NAME)}</strong></div>
     <p><strong>${htmlEscape(title)}</strong><br />${htmlEscape(body)}</p>
-    <button class="notification-settings-button" type="button" data-action="settings" aria-label="设置">设置</button>
-    <button class="notification-close-button" type="button" data-action="close" aria-label="关闭"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg></button>
+    <button class="notification-settings-button" type="button" data-action="settings" aria-label="${htmlEscape(settingsLabel)}">${htmlEscape(settingsLabel)}</button>
+    <button class="notification-close-button" type="button" data-action="close" aria-label="${htmlEscape(closeLabel)}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg></button>
   </section>
   <script>
     document.querySelector(".card").addEventListener("click", () => { location.href = "youle-notification://open"; });
@@ -9111,11 +9115,16 @@ function normalizeAppTheme(value) {
   return value === "light" ? "light" : "dark";
 }
 
+function normalizeAppLanguage(value) {
+  return value === "zh-CN" || value === "zh-TW" ? value : "en";
+}
+
 function normalizeAppPreferences(value = {}) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
     ...DEFAULT_APP_PREFERENCES,
     theme: normalizeAppTheme(source.theme),
+    language: normalizeAppLanguage(source.language),
     taskCompletionPopupEnabled: source.taskCompletionPopupEnabled !== false,
   };
 }
@@ -9132,6 +9141,182 @@ function taskCompletionPopupEnabled() {
 
 function appTheme() {
   return normalizeAppTheme(appPreferences().theme);
+}
+
+function appLanguage() {
+  return normalizeAppLanguage(appPreferences().language);
+}
+
+const MAIN_UI_COPY = Object.freeze({
+  en: Object.freeze({
+    settings: "Settings",
+    close: "Close",
+    taskCompleteTitle: "Task complete",
+    taskCompleteBody: "The task completed successfully. You can view the result in the app.",
+    planStatusUpdated: "Plan status updated",
+    executionPlan: "Execution plan",
+    currentStatus: "Current status",
+    alertTriggered: "Alert triggered",
+    tradingCondition: "Trading condition",
+    triggeredAt: "Triggered at",
+    saveImage: "Save image",
+    imageSaved: "Image saved",
+    saveFailed: "Save failed",
+    actionFailed: "Action failed",
+    exportDiagnostics: "Export HaoLo diagnostics",
+    diagnosticsFilter: "JSON diagnostics",
+    selectGroupFolder: "Select project folder",
+    filesAndFolders: "Files and folders",
+    selectImportContent: "Select content to import",
+    fileFolderImportDetail: "You can select multiple files; folders are imported in full.",
+    selectFiles: "Select files",
+    selectFolder: "Select folder",
+    cancel: "Cancel",
+    selectFile: "Select file",
+    selectFileOrFolder: "Select file or folder",
+    exportUsageData: "Export usage data",
+    excelWorkbook: "Excel workbook",
+    usageDataFilePrefix: "HaoLo-usage-data",
+    points: "Points",
+    emptyUsageExport: "Usage export failed: the server returned an empty file",
+    selectChromeUploadFile: "Select a file for Chrome to upload",
+    copy: "Copy",
+  }),
+  "zh-CN": Object.freeze({
+    settings: "设置",
+    close: "关闭",
+    taskCompleteTitle: "任务已完成",
+    taskCompleteBody: "任务已成功完成。您可以在应用中查看结果。",
+    planStatusUpdated: "计划状态已更新",
+    executionPlan: "执行计划",
+    currentStatus: "当前状态",
+    alertTriggered: "预警已触发",
+    tradingCondition: "交易条件",
+    triggeredAt: "触发时间",
+    saveImage: "保存图片",
+    imageSaved: "已保存图片",
+    saveFailed: "保存失败",
+    actionFailed: "操作失败",
+    exportDiagnostics: "导出 HaoLo 故障诊断报告",
+    diagnosticsFilter: "JSON 诊断报告",
+    selectGroupFolder: "选择分组文件夹",
+    filesAndFolders: "文件和文件夹",
+    selectImportContent: "请选择要导入的内容",
+    fileFolderImportDetail: "文件支持多选；文件夹将作为整个目录导入。",
+    selectFiles: "选择文件",
+    selectFolder: "选择文件夹",
+    cancel: "取消",
+    selectFile: "选择文件",
+    selectFileOrFolder: "选择文件或文件夹",
+    exportUsageData: "导出使用数据",
+    excelWorkbook: "Excel 工作簿",
+    usageDataFilePrefix: "HaoLo使用数据",
+    points: "积分",
+    emptyUsageExport: "消费明细导出失败：后端返回了空文件",
+    selectChromeUploadFile: "选择要交给 Chrome 上传的文件",
+    copy: "复制",
+  }),
+  "zh-TW": Object.freeze({
+    settings: "設定",
+    close: "關閉",
+    taskCompleteTitle: "任務已完成",
+    taskCompleteBody: "任務已成功完成。您可以在應用程式中查看結果。",
+    planStatusUpdated: "計畫狀態已更新",
+    executionPlan: "執行計畫",
+    currentStatus: "目前狀態",
+    alertTriggered: "預警已觸發",
+    tradingCondition: "交易條件",
+    triggeredAt: "觸發時間",
+    saveImage: "儲存圖片",
+    imageSaved: "已儲存圖片",
+    saveFailed: "儲存失敗",
+    actionFailed: "操作失敗",
+    exportDiagnostics: "匯出 HaoLo 故障診斷報告",
+    diagnosticsFilter: "JSON 診斷報告",
+    selectGroupFolder: "選擇分組資料夾",
+    filesAndFolders: "檔案和資料夾",
+    selectImportContent: "請選擇要匯入的內容",
+    fileFolderImportDetail: "檔案支援多選；資料夾將作為整個目錄匯入。",
+    selectFiles: "選擇檔案",
+    selectFolder: "選擇資料夾",
+    cancel: "取消",
+    selectFile: "選擇檔案",
+    selectFileOrFolder: "選擇檔案或資料夾",
+    exportUsageData: "匯出使用資料",
+    excelWorkbook: "Excel 活頁簿",
+    usageDataFilePrefix: "HaoLo使用資料",
+    points: "點數",
+    emptyUsageExport: "使用明細匯出失敗：伺服器傳回空白檔案",
+    selectChromeUploadFile: "選擇要交給 Chrome 上傳的檔案",
+    copy: "複製",
+  }),
+});
+
+function mainUiText(key, language = appLanguage()) {
+  const normalized = normalizeAppLanguage(language);
+  return MAIN_UI_COPY[normalized]?.[key] || MAIN_UI_COPY.en[key] || key;
+}
+
+function appLanguageLocale(language = appLanguage()) {
+  const normalized = normalizeAppLanguage(language);
+  return normalized === "en" ? "en-US" : normalized;
+}
+
+function userDataTransferCopy(language = appLanguage()) {
+  const normalized = normalizeAppLanguage(language);
+  const copies = {
+    en: {
+      exportLocationTitle: "Choose user data export location",
+      exportInsideUserDataError: "The export location cannot be inside the current user data directory. Choose another folder.",
+      importFileTitle: "Select a user data backup ZIP",
+      importFilterName: "HaoLo user data backup ZIP",
+      missingBackupError: "The selected user data backup does not exist.",
+      invalidZipError: "Select a HaoLo user data backup .zip file.",
+      confirmTitle: "Import user data",
+      confirmMessage: "Importing restores the current user data to the selected backup.",
+      confirmDetail: "A complete backup of the current data will be created first; old and new data will not be merged. The app will restart automatically and finish the replacement before the window opens.",
+      confirmLabel: "Continue import",
+      cancelLabel: "Cancel",
+    },
+    "zh-CN": {
+      exportLocationTitle: "选择用户数据导出位置",
+      exportInsideUserDataError: "导出位置不能放在当前用户数据目录里面，请选择其他文件夹。",
+      importFileTitle: "选择用户数据备份 ZIP 文件",
+      importFilterName: "Haolo 用户数据备份 ZIP",
+      missingBackupError: "所选用户数据备份不存在。",
+      invalidZipError: "请选择 Haolo 用户数据备份 .zip 文件。",
+      confirmTitle: "导入用户数据",
+      confirmMessage: "导入会把当前用户数据恢复到所选备份状态。",
+      confirmDetail: "导入前会先完整备份当前数据，不会合并新旧数据。应用将自动重启，并在窗口打开前完成替换。",
+      confirmLabel: "继续导入",
+      cancelLabel: "取消",
+    },
+    "zh-TW": {
+      exportLocationTitle: "選擇使用者資料匯出位置",
+      exportInsideUserDataError: "匯出位置不能位於目前的使用者資料目錄內，請選擇其他資料夾。",
+      importFileTitle: "選擇使用者資料備份 ZIP 檔案",
+      importFilterName: "Haolo 使用者資料備份 ZIP",
+      missingBackupError: "所選的使用者資料備份不存在。",
+      invalidZipError: "請選擇 Haolo 使用者資料備份 .zip 檔案。",
+      confirmTitle: "匯入使用者資料",
+      confirmMessage: "匯入會將目前的使用者資料還原為所選的備份狀態。",
+      confirmDetail: "匯入前會先完整備份目前資料，不會合併新舊資料。應用程式將自動重新啟動，並在視窗開啟前完成替換。",
+      confirmLabel: "繼續匯入",
+      cancelLabel: "取消",
+    },
+  };
+  return copies[normalized] || copies.en;
+}
+
+function consumptionExportCopy(language = appLanguage()) {
+  return {
+    title: mainUiText("exportUsageData", language),
+    filterName: mainUiText("excelWorkbook", language),
+    fileNamePrefix: mainUiText("usageDataFilePrefix", language),
+    pointsLabel: mainUiText("points", language),
+    tokenLabel: "Token",
+    emptyFileError: mainUiText("emptyUsageExport", language),
+  };
 }
 
 async function writeAppPreferences(nextPreferences) {
@@ -9161,6 +9346,13 @@ async function setAppTheme(theme) {
   return writeAppPreferences({
     ...appPreferences(),
     theme: normalizeAppTheme(theme),
+  });
+}
+
+async function setAppLanguage(language) {
+  return writeAppPreferences({
+    ...appPreferences(),
+    language: normalizeAppLanguage(language),
   });
 }
 
@@ -11627,6 +11819,7 @@ ipcMain.handle("codex:getDefaults", async () => {
     sandbox: "workspace-write",
     youleApiBaseUrl: normalizeBaseUrl(process.env.HAOLO_API_BASE_URL || HAOLO_HOME_URL),
     theme: appTheme(),
+    language: appLanguage(),
     taskCompletionPopupEnabled: taskCompletionPopupEnabled(),
   };
 });
@@ -11653,6 +11846,10 @@ ipcMain.handle("app:notifyExecutionPlanStatusChanged", async (_event, params = {
 
 ipcMain.handle("app:setTheme", async (_event, params = {}) => {
   return setAppTheme(params.theme);
+});
+
+ipcMain.handle("app:setLanguage", async (_event, params = {}) => {
+  return setAppLanguage(params.language);
 });
 
 ipcMain.handle("voice:getAvailability", async () => {
@@ -12018,7 +12215,10 @@ ipcMain.handle("youle:getConsumptionCalendar", async (_event, params = {}) => {
 });
 
 ipcMain.handle("youle:getConsumptionRecords", async (_event, params = {}) => {
-  return getYouleApiClient().getConsumptionRecords(params);
+  return getYouleApiClient().getConsumptionRecords({
+    ...params,
+    language: normalizeAppLanguage(params.language || appLanguage()),
+  });
 });
 
 ipcMain.handle("youle:exportConsumptionReport", async (event, params = {}) => {
@@ -12028,6 +12228,7 @@ ipcMain.handle("youle:exportConsumptionReport", async (event, params = {}) => {
     window: BrowserWindow.fromWebContents(event.sender) || focusedMainWindow(),
     apiClient: getYouleApiClient(),
     unit: params.unit,
+    copy: consumptionExportCopy(),
   });
 });
 
@@ -13576,9 +13777,9 @@ async function invokeTradingAnalysisAppServer({ modelId, modelProvider, request,
 }
 
 async function notifyTradingAlertTriggered({ alert, evidence } = {}) {
-  const title = `预警已触发 · ${String(alert?.rule?.title || "交易条件")}`;
+  const title = `${mainUiText("alertTriggered")} · ${String(alert?.rule?.title || mainUiText("tradingCondition"))}`;
   const triggeredSummary = executionPlanAlertTriggeredSummary(alert?.rule, evidence);
-  const body = `${triggeredSummary}\n触发时间：${new Date(Number(evidence?.triggeredAt || Date.now())).toLocaleString("zh-CN")}`;
+  const body = `${triggeredSummary}\n${mainUiText("triggeredAt")}: ${new Date(Number(evidence?.triggeredAt || Date.now())).toLocaleString(appLanguageLocale())}`;
   const anchor = evidence?.contexts?.[0] || {};
   const openContext = { alertId: alert?.alertId, evidenceId: evidence?.evidenceId, marketId: anchor.marketId, interval: anchor.interval, triggeredAt: evidence?.triggeredAt };
   if (taskCompletionPopupEnabled() && process.platform === "win32") showDesktopNotificationWindow({ title, body, ...openContext });
@@ -13600,17 +13801,17 @@ function notifyExecutionPlanStatusChanged(params = {}) {
   if (appShuttingDown || AUTOMATION_BACKGROUND || !taskCompletionPopupEnabled()) {
     return { ok: true, shown: false };
   }
-  const planTitle = firstString(params.title) || "执行计划";
+  const planTitle = firstString(params.title) || mainUiText("executionPlan");
   const statusLabel = firstString(params.statusLabel, params.status);
   const body = [
-    firstString(params.body) || "计划状态已更新。",
-    statusLabel ? `当前状态：${statusLabel}` : "",
+    firstString(params.body) || `${mainUiText("planStatusUpdated")}.`,
+    statusLabel ? `${mainUiText("currentStatus")}: ${statusLabel}` : "",
   ].filter(Boolean).join("\n");
   const openContext = notificationOpenContext({
     threadId: params.threadId,
     alertId: params.alertId,
   });
-  const title = `计划状态已更新 · ${planTitle}`;
+  const title = `${mainUiText("planStatusUpdated")} · ${planTitle}`;
   if (process.platform === "win32") {
     showDesktopNotificationWindow({ title, body, ...openContext });
     return { ok: true, shown: true };
@@ -14954,9 +15155,9 @@ ipcMain.handle("app:exportDiagnostics", async () => {
   const window = focusedMainWindow();
   const timestamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
   const result = await dialog.showSaveDialog(window || undefined, {
-    title: "导出HaoLo故障诊断报告",
+    title: mainUiText("exportDiagnostics"),
     defaultPath: path.join(app.getPath("documents"), `haolo-diagnostics-${timestamp}.json`),
-    filters: [{ name: "JSON 诊断报告", extensions: ["json"] }],
+    filters: [{ name: mainUiText("diagnosticsFilter"), extensions: ["json"] }],
     properties: ["createDirectory", "showOverwriteConfirmation"],
   });
   if (result.canceled || !result.filePath) return { ok: false, canceled: true };
@@ -14988,6 +15189,7 @@ ipcMain.handle("app:exportUserData", async (_event, params = {}) => {
     productName: USER_DATA_DIR_NAME,
     appVersion: app.getVersion?.() || "",
     workspaces: await threadGroupWorkspacesForTransfer(params),
+    copy: userDataTransferCopy(),
   });
   if (result?.ok && result.exportPath) {
     try {
@@ -15009,6 +15211,7 @@ ipcMain.handle("app:importUserData", async (_event, params = {}) => {
     productName: USER_DATA_DIR_NAME,
     appVersion: app.getVersion?.() || "",
     workspaces: await threadGroupWorkspacesForTransfer(params),
+    copy: userDataTransferCopy(),
     requestConfirmation: (options) => rendererConfirmationBroker.request(window, options),
   });
   if (result?.ok && result.requiresRelaunch) scheduleRelaunchForUserDataTransfer();
@@ -15027,7 +15230,7 @@ ipcMain.handle("app:pickThreadGroupFolder", async () => {
     window.focus();
   }
   const result = await dialog.showOpenDialog(window || undefined, {
-    title: "选择分组文件夹",
+    title: mainUiText("selectGroupFolder"),
     properties: ["openDirectory"],
   });
   if (result.canceled || !result.filePaths?.[0]) return { canceled: true };
@@ -15051,10 +15254,10 @@ ipcMain.handle("app:pickComposerFilesAndFolders", async () => {
   if (process.platform === "win32" || process.platform === "linux") {
     const choice = await dialog.showMessageBox(window || undefined, {
       type: "none",
-      title: "文件和文件夹",
-      message: "请选择要导入的内容",
-      detail: "文件支持多选；文件夹将作为整个目录导入。",
-      buttons: ["选择文件", "选择文件夹", "取消"],
+      title: mainUiText("filesAndFolders"),
+      message: mainUiText("selectImportContent"),
+      detail: mainUiText("fileFolderImportDetail"),
+      buttons: [mainUiText("selectFiles"), mainUiText("selectFolder"), mainUiText("cancel")],
       defaultId: 0,
       cancelId: 2,
       noLink: true,
@@ -15069,7 +15272,11 @@ ipcMain.handle("app:pickComposerFilesAndFolders", async () => {
       ? ["openDirectory", "multiSelections"]
       : ["openFile", "openDirectory", "multiSelections"];
   const result = await dialog.showOpenDialog(window || undefined, {
-    title: selectionKind === "folder" ? "选择文件夹" : selectionKind === "file" ? "选择文件" : "选择文件或文件夹",
+    title: selectionKind === "folder"
+      ? mainUiText("selectFolder")
+      : selectionKind === "file"
+        ? mainUiText("selectFile")
+        : mainUiText("selectFileOrFolder"),
     properties,
   });
   if (result.canceled || !result.filePaths?.length) {
@@ -17983,7 +18190,7 @@ ipcMain.handle("chrome:revealExtension", async () => {
 ipcMain.handle("chrome:selectArtifact", async (_event, params = {}) => {
   if (!chromeToolRuntime) throw new Error("Haolo Chrome runtime is not ready.");
   const result = await dialog.showOpenDialog(focusedMainWindow() || undefined, {
-    title: "选择要交给 Chrome 上传的文件",
+    title: mainUiText("selectChromeUploadFile"),
     properties: ["openFile"],
   });
   if (result.canceled || !result.filePaths[0]) return { cancelled: true };
@@ -18358,7 +18565,7 @@ function wireImagePreviewContextMenu(window, image) {
     event.preventDefault();
     const menu = Menu.buildFromTemplate([
       {
-        label: "复制",
+        label: mainUiText("copy"),
         click: () => clipboard.writeImage(image),
       },
     ]);
@@ -18419,7 +18626,7 @@ async function saveImagePreviewFromWindow(window) {
   if (!payload?.buffer?.length) return { ok: false };
   const defaultPath = path.join(app.getPath("pictures"), imagePreviewSaveFileName(payload.name, payload.mime));
   const result = await dialog.showSaveDialog(window, {
-    title: "保存图片",
+    title: mainUiText("saveImage"),
     defaultPath,
     filters: imagePreviewSaveFilters(payload.mime, payload.name),
   });
@@ -18451,13 +18658,17 @@ async function loadImagePreviewWindow(window, { image, name, canSave, theme }) {
         title: name || "Image preview",
         canSave,
         theme: imagePreviewTheme(theme),
+        language: appLanguage(),
       }),
   });
 }
 
-function imagePreviewHtml({ imageSrc, iconSrc, title, canSave, theme }) {
+function imagePreviewHtml({ imageSrc, iconSrc, title, canSave, theme, language = appLanguage() }) {
+  const normalizedLanguage = normalizeAppLanguage(language);
+  const saveImageLabel = mainUiText("saveImage", normalizedLanguage);
+  const closeLabel = mainUiText("close", normalizedLanguage);
   return `<!doctype html>
-<html data-theme="${htmlEscape(imagePreviewTheme(theme))}">
+<html lang="${htmlEscape(appLanguageLocale(normalizedLanguage))}" data-theme="${htmlEscape(imagePreviewTheme(theme))}">
   <head>
     <meta charset="utf-8" />
     <style>
@@ -18620,14 +18831,14 @@ function imagePreviewHtml({ imageSrc, iconSrc, title, canSave, theme }) {
         <span>${htmlEscape(title)}</span>
       </div>
       <div class="window-actions">
-        <button type="button" data-action="save" title="保存图片" aria-label="保存图片" ${canSave ? "" : "disabled"}>
+        <button type="button" data-action="save" title="${htmlEscape(saveImageLabel)}" aria-label="${htmlEscape(saveImageLabel)}" ${canSave ? "" : "disabled"}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 3v11" />
             <path d="m8 10 4 4 4-4" />
             <path d="M5 14v6h14v-6" />
           </svg>
         </button>
-        <button type="button" class="close" data-action="close" title="关闭" aria-label="关闭">
+        <button type="button" class="close" data-action="close" title="${htmlEscape(closeLabel)}" aria-label="${htmlEscape(closeLabel)}">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
         </button>
       </div>
@@ -18638,6 +18849,9 @@ function imagePreviewHtml({ imageSrc, iconSrc, title, canSave, theme }) {
     <div class="status" role="status" aria-live="polite"></div>
     <script>
       const status = document.querySelector(".status");
+      const imageSavedText = ${JSON.stringify(mainUiText("imageSaved", normalizedLanguage))};
+      const saveFailedText = ${JSON.stringify(mainUiText("saveFailed", normalizedLanguage))};
+      const actionFailedText = ${JSON.stringify(mainUiText("actionFailed", normalizedLanguage))};
       let statusTimer = null;
       function showStatus(text) {
         if (!status) return;
@@ -18651,12 +18865,12 @@ function imagePreviewHtml({ imageSrc, iconSrc, title, canSave, theme }) {
         try {
           if (action === "save") {
             const result = await window.youleImagePreview?.save?.();
-            if (result?.ok) showStatus("已保存图片");
+            if (result?.ok) showStatus(imageSavedText);
             return;
           }
           if (action === "close") await window.youleImagePreview?.close?.();
         } catch (error) {
-          showStatus(action === "save" ? "保存失败" : "操作失败");
+          showStatus(action === "save" ? saveFailedText : actionFailedText);
         }
       }
 

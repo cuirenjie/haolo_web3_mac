@@ -42,6 +42,10 @@ import {
   renderTradingVolumeProfileLayer,
   type TradingVolumeProfile,
 } from "./trading-volume-profile.ts";
+import {
+  tradingAnalysisDrawingFocusRange,
+  waitForTradingAnalysisViewportPaint,
+} from "./trading-analysis-viewport.mjs";
 
 const CHINA_TIME_OFFSET_SECONDS = 8 * 60 * 60;
 const SPLIT_PANE_REFRESH_INTERVAL_MS = 15_000;
@@ -1613,11 +1617,29 @@ export class TradingExpertSplitPane {
     this.drawingController?.cancelAiPlayback(options);
   }
 
-  playAiDrawingPatch(
+  async playAiDrawingPatch(
     patch: TradingAiDrawingPatch,
     options: { onPhase?: (phase: TradingAiPlaybackPhase) => void } = {},
   ) {
-    return this.drawingController?.playAiDrawingPatch(patch, options) ?? Promise.resolve();
+    await (this.drawingController?.playAiDrawingPatch(patch, {
+      ...options,
+      beforePlayback: () => this.focusAnalysisDrawingPatch(patch),
+    }) ?? Promise.resolve());
+  }
+
+  private async focusAnalysisDrawingPatch(patch: TradingAiDrawingPatch) {
+    if (!this.chart || !this.candles.length) return;
+    const priceScaleWidth = Number(this.chart.priceScale("right", 0).width() || 0);
+    const plotWidth = Math.max(this.chartElement.clientWidth - priceScaleWidth, 1);
+    const logicalRange = tradingAnalysisDrawingFocusRange(patch, this.candles, plotWidth);
+    if (!logicalRange) return;
+    this.invalidateVolumeProfileSnapshot();
+    this.chart.timeScale().setVisibleLogicalRange(logicalRange);
+    this.renderVolumeProfile(true);
+    this.drawingController?.redraw();
+    await waitForTradingAnalysisViewportPaint(window);
+    if (this.destroyed) return;
+    this.drawingController?.redraw();
   }
 
   updateDrawingStorageSession(storageSessionId: string, migrateFromSessionId = "") {

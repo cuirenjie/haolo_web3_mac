@@ -46,6 +46,7 @@ test("consumption client calls the authenticated backend contract", async () => 
     await client.getConsumptionRecords({
       range: "7d",
       unit: "usd",
+      language: "en",
       page: 2,
       pageSize: 20,
       runtimeStateProvided: true,
@@ -72,7 +73,7 @@ test("consumption client calls the authenticated backend contract", async () => 
     assert.match(requests[3].url, /\/calendar\?month=2026-07&unit=token$/);
     assert.match(
       requests[4].url,
-      /\/records\?range=7d&unit=points&page=2&page_size=20&runtime_state=true&active_interaction_id=turn-active&active_interaction_id=turn-child&active_conversation_id=thread-provider$/,
+      /\/records\?range=7d&unit=points&language=en&page=2&page_size=20&runtime_state=true&active_interaction_id=turn-active&active_interaction_id=turn-child&active_conversation_id=thread-provider$/,
     );
     assert.match(requests[5].url, /\/export\?unit=points$/);
     assert.deepEqual([...report.bytes], [0x50, 0x4b, 0x03, 0x04, 0x01]);
@@ -107,11 +108,12 @@ test("consumption client forwards an exact calendar date", async () => {
       range: "30d",
       date: "2026-07-19",
       unit: "token",
+      language: "zh-TW",
       page: 1,
       pageSize: 6,
     });
 
-    assert.match(requestedUrl, /\/records\?range=30d&date=2026-07-19&unit=token&page=1&page_size=6$/);
+    assert.match(requestedUrl, /\/records\?range=30d&date=2026-07-19&unit=token&language=zh-TW&page=1&page_size=6$/);
   } finally {
     globalThis.fetch = originalFetch;
   }

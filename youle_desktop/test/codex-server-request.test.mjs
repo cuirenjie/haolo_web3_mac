@@ -1,15 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildServerRequestResult, isToolRequestUserInputMethod, withFixedDefaultServiceTier } from "../src/main/codex-server-request.mjs";
+import {
+  buildServerRequestResult,
+  fastestServiceTierForModel,
+  isToolRequestUserInputMethod,
+  withFixedDefaultServiceTier,
+} from "../src/main/codex-server-request.mjs";
 
-test("forces default service tier on every billable app-server request", () => {
+test("forces Fast mode for GPT-5.6 Sol on every billable app-server request", () => {
   for (const method of ["thread/start", "thread/resume", "thread/settings/update", "turn/start"]) {
     assert.deepEqual(
-      withFixedDefaultServiceTier(method, { model: "gpt-5.6-terra", serviceTier: "priority", service_tier: "priority" }),
-      { model: "gpt-5.6-terra", serviceTier: null },
+      withFixedDefaultServiceTier(method, { model: "gpt-5.6-sol", serviceTier: null, service_tier: "default" }),
+      { model: "gpt-5.6-sol", serviceTier: "priority" },
     );
   }
+
+  assert.equal(fastestServiceTierForModel("openai/gpt-5.6-sol-high"), "priority");
+  assert.equal(fastestServiceTierForModel("gpt-5.6-terra"), null);
+  assert.deepEqual(
+    withFixedDefaultServiceTier("turn/start", { model: "gpt-5.6-terra", serviceTier: "priority" }),
+    { model: "gpt-5.6-terra", serviceTier: null },
+  );
+  assert.deepEqual(
+    withFixedDefaultServiceTier("turn/start", { threadId: "thread-sol", serviceTier: null }),
+    { threadId: "thread-sol" },
+  );
 
   const params = { threadId: "thread-1" };
   assert.equal(withFixedDefaultServiceTier("thread/read", params), params);

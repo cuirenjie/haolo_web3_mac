@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   notifyExecutionPlanStatusChanged: (params) => ipcRenderer.invoke("app:notifyExecutionPlanStatusChanged", params),
   setTaskbarUnreadCount: (params) => ipcRenderer.invoke("app:setTaskbarUnreadCount", params),
   setAppTheme: (params) => ipcRenderer.invoke("app:setTheme", params),
+  setAppLanguage: (params) => ipcRenderer.invoke("app:setLanguage", params),
   checkWindowsUpdate: (params) => ipcRenderer.invoke("app:checkWindowsUpdate", params),
   downloadWindowsUpdate: (params) => ipcRenderer.invoke("app:downloadWindowsUpdate", params),
   resolveThreadGroupWorkspace: (params) => ipcRenderer.invoke("app:resolveThreadGroupWorkspace", params),

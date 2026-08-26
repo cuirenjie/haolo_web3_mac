@@ -63,7 +63,7 @@ test("settings profile uses a circular avatar with top-aligned identity", async 
   );
   assert.match(
     styles,
-    /\.settings-profile-submit\s*\{[^}]*width:\s*96px;[^}]*height:\s*39\.6px;[^}]*justify-self:\s*center;/s,
+    /\.settings-profile-submit\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*132px;[^}]*height:\s*42px;[^}]*justify-self:\s*center;[^}]*padding:\s*0 22px;/s,
   );
   assert.match(
     styles,
@@ -88,11 +88,11 @@ test("profile menu keeps recharge beside the balance and omits My Config", async
   assert.doesNotMatch(profileMenu, /data-action="logout"/);
   assert.match(
     styles,
-    /\.profile-token-balance\s*\{[^}]*display:\s*flex;[^}]*gap:\s*20px;/s,
+    /\.profile-token-balance\s*\{[^}]*display:\s*flex;[^}]*min-width:\s*0;[^}]*gap:\s*12px;/s,
   );
   assert.match(
     styles,
-    /\.profile-menu\s*\{[^}]*position:\s*fixed;[^}]*left:\s*15px;/s,
+    /\.profile-menu\s*\{[^}]*position:\s*fixed;[^}]*left:\s*15px;[^}]*width:\s*min\(360px, calc\(100vw - 30px\)\);/s,
   );
   assert.match(
     styles,
@@ -140,7 +140,7 @@ test("referral entry and logout live at the bottom of settings", async () => {
   assert.match(styles, /\.settings-logout-button:disabled\s*\{/);
 });
 
-test("membership badges replace the profile pencil and show the subscription balance", async () => {
+test("membership badges replace the profile pencil without opening a details popover", async () => {
   const [source, styles] = await Promise.all([rendererSource, stylesSource]);
   const titlebar = sourceBlock(
     source,
@@ -167,8 +167,6 @@ test("membership badges replace the profile pencil and show the subscription bal
     "function renderRechargeSubscriptionBalance",
     "function renderRechargeProductCard",
   );
-  const subscriptionBadgeHandler = sourceBlock(source, "function bindEvents", "function openChannelDialog");
-
   assert.doesNotMatch(titlebar, /renderMembershipBadge\("titlebar"\)/);
   assert.match(
     styles,
@@ -196,42 +194,20 @@ test("membership badges replace the profile pencil and show the subscription bal
   assert.match(membership, /label: "旗舰版"/);
   assert.match(
     membership,
-    /context === "profile"[\s\S]*?!plan\.subscribed[\s\S]*?data-action="profile-quota"[\s\S]*?查看充值方案/,
+    /context === "profile" \|\| context === "consumption"[\s\S]*?!plan\.subscribed[\s\S]*?data-action="profile-quota"[\s\S]*?查看充值方案/,
   );
   assert.match(
     membership,
-    /plan\.subscribed[\s\S]*?class="profile-membership-details profile-subscription-details-anchor"[\s\S]*?data-action="show-profile-subscription-details"[\s\S]*?aria-controls="profileMembershipDetailsPopover"/,
+    /return `<span class="\$\{className\}" data-membership-plan="\$\{plan\.id\}" aria-label="当前套餐：\$\{plan\.label\}">\$\{plan\.label\}<\/span>`;/,
   );
-  assert.match(membership, /state\.profileSubscriptionDetails\.anchor === "badge"/);
-  assert.match(membership, /aria-expanded="\$\{detailsOpen\}"/);
-  assert.match(membership, /id="profileMembershipDetailsPopover"[\s\S]*?renderProfileSubscriptionDetails\(\)/);
-  assert.match(
-    membership,
-    /context === "consumption"[\s\S]*?!plan\.subscribed[\s\S]*?data-action="profile-quota"[\s\S]*?查看充值方案/,
-  );
-  assert.match(
-    membership,
-    /state\.profileSubscriptionDetails\.anchor === "consumption-badge"[\s\S]*?class="consumption-membership-details profile-subscription-details-anchor"[\s\S]*?data-subscription-details-anchor="consumption-badge"/,
-  );
-  assert.match(membership, /id="consumptionMembershipDetailsPopover"[\s\S]*?renderProfileSubscriptionDetails\(\)/);
-  assert.match(subscriptionBadgeHandler, /data-action="show-profile-subscription-details"/);
-  assert.match(subscriptionBadgeHandler, /event\.stopPropagation\(\)/);
-  assert.match(subscriptionBadgeHandler, /button\.dataset\.subscriptionDetailsAnchor === "consumption-badge" \? "consumption-badge" : "badge"/);
-  assert.match(subscriptionBadgeHandler, /toggleProfileSubscriptionDetails\(anchor\)/);
-  assert.doesNotMatch(subscriptionBadgeHandler, /profileSubscriptionBalanceHelp|toggleProfileSubscriptionDetails\("balance"\)/);
+  assert.doesNotMatch(source, /profileSubscriptionDetails|show-profile-subscription-details/);
+  assert.doesNotMatch(membership, /查看订阅余额明细|profileMembershipDetailsPopover|consumptionMembershipDetailsPopover|renderProfileSubscriptionDetails/);
   assert.match(membership, /subscription_balance_refresh_at/);
   assert.match(membership, /<span>订阅余额<\/span>/);
   assert.match(rechargeBalance, /title="当前订阅余额"/);
   assert.match(rechargeBalance, /<span>订阅余额<\/span>/);
   assert.doesNotMatch(source, /订阅周余额/);
   assert.doesNotMatch(membership, /profileSubscriptionBalanceHelp|<summary[^>]*>\?<\/summary>/);
-  assert.match(membership, /api\.getSubscriptionBalanceDetails\(\)/);
-  assert.match(membership, /details\.totalBalance/);
-  assert.match(membership, /details\.creditedBalance/);
-  assert.match(membership, /details\.pendingBalance/);
-  assert.match(membership, /details\.nextCreditAt \?/);
-  assert.match(membership, /details\.membershipExpiresAt/);
-  assert.doesNotMatch(membership, /estimateSubscriptionCreditedAmount|creditedInstallments|installmentAmount/);
   assert.doesNotMatch(source, /DEV_(?:BASIC|PRO|FLAGSHIP)_MEMBERSHIP_PREVIEW/);
 });
 
@@ -246,6 +222,14 @@ test("membership badge styling distinguishes experience and subscribed plans", a
     styles,
     /\.membership-badge-member\s*\{[^}]*linear-gradient\([^}]*#ffd77c[^}]*color: #6d3700;/s,
   );
+  assert.match(
+    styles,
+    /html\[data-theme="dark"\] \.membership-badge-experience\s*\{[^}]*background: #30343a;[^}]*color: #bec4cd;/s,
+  );
+  assert.match(
+    styles,
+    /html\[data-theme="dark"\] \.membership-badge-member\s*\{[^}]*border-color: rgba\(255, 190, 82, 0\.42\);/s,
+  );
   assert.doesNotMatch(styles, /\.membership-badge-member::before/);
   assert.match(styles, /\.settings-profile-panel\s*\{[^}]*margin-top: 36px;/s);
   assert.doesNotMatch(styles, /\.titlebar-profile-name\.member-highlight/);
@@ -255,8 +239,10 @@ test("membership badge styling distinguishes experience and subscribed plans", a
   );
   assert.match(
     styles,
-    /\.profile-subscription-row\s*\{[^}]*grid-template-columns: 104px minmax\(0, 1fr\);/s,
+    /\.profile-level-row,\s*\.profile-token-row,\s*\.profile-subscription-row\s*\{[^}]*grid-template-columns:\s*104px minmax\(0, 1fr\);[^}]*column-gap:\s*18px;/s,
   );
+  assert.match(styles, /\.profile-subscription-label > span\s*\{[^}]*white-space:\s*normal;/s);
+  assert.match(styles, /\.profile-subscription-row > strong\s*\{[^}]*flex-wrap:\s*wrap;/s);
   assert.match(
     styles,
     /\.profile-token-row strong\s*\{[^}]*font-weight: 700;/s,
@@ -266,9 +252,5 @@ test("membership badge styling distinguishes experience and subscribed plans", a
     /\.profile-subscription-row b\s*\{[^}]*font-weight: 700;/s,
   );
   assert.doesNotMatch(styles, /\.profile-subscription-help summary/);
-  assert.match(styles, /\.profile-subscription-help-popover\s*\{[^}]*background: #172033;/s);
-  assert.match(styles, /\.profile-membership-details,\s*\.consumption-membership-details\s*\{[^}]*position: relative;[^}]*display: inline-flex;/s);
-  assert.match(styles, /\.profile-subscription-help-popover\.profile-membership-details-popover\s*\{[^}]*right: -8px;[^}]*left: auto;/s);
-  assert.match(styles, /\.profile-subscription-help-popover\.consumption-membership-details-popover\s*\{[^}]*right: auto;[^}]*left: -8px;/s);
-  assert.match(styles, /\.profile-subscription-help-popover\.consumption-membership-details-popover::before\s*\{[^}]*right: auto;[^}]*left: 28px;/s);
+  assert.doesNotMatch(styles, /profile-subscription-help-popover|profile-membership-details-popover|consumption-membership-details-popover/);
 });

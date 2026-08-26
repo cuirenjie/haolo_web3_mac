@@ -19,6 +19,7 @@ import {
 import {
   providerModelInputCapabilities,
 } from "./provider-input-capabilities.mjs";
+import { fastestServiceTierForModel } from "./codex-server-request.mjs";
 import { gptReasoningEffortForTask } from "./gpt-reasoning-effort.mjs";
 import { prepareCompressedModelRequest } from "./model-request-compression.mjs";
 
@@ -636,11 +637,13 @@ export class YouleApiClient {
     this.requireAuth();
     const onlineSecondsDelta = normalizeHeartbeatDelta(params.onlineSecondsDelta ?? params.online_seconds_delta);
     const sourceId = firstProfileString(params.sourceId, params.source_id) || localDateSourceId();
+    const clientVariant = normalizeClientVariant(params);
     const response = await this.requestJson(joinUrl(this.baseUrl, this.activityHeartbeatPath), {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify(compactObject({
         surface: "client",
+        client_variant: clientVariant,
         online_seconds_delta: onlineSecondsDelta,
         source_id: sourceId,
       })),
@@ -1939,6 +1942,7 @@ export class YouleApiClient {
       range: params.range || "30d",
       date: params.date,
       unit: params.unit === "points" || params.unit === "usd" ? "points" : "token",
+      language: normalizeConsumptionLanguage(params.language),
       page: params.page || 1,
       page_size: params.pageSize || params.page_size || 20,
       runtime_state: params.runtimeStateProvided === true ? true : undefined,
@@ -3650,6 +3654,7 @@ export class YouleApiClient {
     const requestBody = compactObject({
       model,
       messages,
+      service_tier: fastestServiceTierForModel(model) || undefined,
       reasoning_effort: fixedProviderReasoningEffort(params)
         || gptReasoningEffortForTask({
           model,
@@ -6883,6 +6888,10 @@ function extractProviderChatText(payload, { allowEmpty = false } = {}) {
     payload?.data?.text,
   );
   return content || (allowEmpty ? "" : "模型没有返回内容");
+}
+
+function normalizeConsumptionLanguage(value) {
+  return value === "en" || value === "zh-TW" ? value : "zh-CN";
 }
 
 function fixedProviderReasoningEffort(params = {}) {

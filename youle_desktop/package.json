@@ -11,6 +11,8 @@
     "dev": "node ./scripts/dev.mjs",
     "typecheck": "node ./scripts/typecheck.mjs",
     "build": "vite build",
+    "audit:english-ui": "electron ./scripts/audit-english-ui.cjs",
+    "audit:i18n-layout": "electron ./scripts/audit-i18n-layout.cjs",
     "build:chrome-host": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-chrome-native-host.ps1",
     "chrome:package": "node ./scripts/package-chrome-extension.mjs",
     "chrome:package:store": "node ./scripts/package-chrome-extension.mjs --store",

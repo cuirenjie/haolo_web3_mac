@@ -278,9 +278,11 @@ function renderAlertCard(state: TradingAlertsUiState, alert: any) {
   const metadata = planLinked ? `${market} · ${clock} · 随计划自动管理` : `${market} · ${clock} · ${mode}`;
   return `
     <article class="trading-alert-card ${esc(status.tone)}${planLinked ? " execution-plan-linked" : ""}" data-trading-alert-card="${esc(alert.alertId)}">
-      <span class="trading-alert-status ${esc(status.tone)}">${esc(status.label)}</span>
       <div class="trading-alert-card-copy">
-        <h2 title="${esc(title)}">${esc(title)}</h2>
+        <div class="trading-alert-card-head">
+          <h2 title="${esc(title)}">${esc(title)}</h2>
+          <span class="trading-alert-status ${esc(status.tone)}">${esc(status.label)}</span>
+        </div>
         ${details}
         <small title="${esc(metadata)}">${esc(metadata)}</small>
       </div>

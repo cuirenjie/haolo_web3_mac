@@ -6,15 +6,36 @@ const FIXED_DEFAULT_SERVICE_TIER_METHODS = new Set([
   "turn/start",
 ]);
 
+export const GPT_5_6_SOL_FAST_SERVICE_TIER = "priority";
+
+export function fastestServiceTierForModel(model) {
+  const normalized = String(model || "").trim().toLowerCase();
+  const slug = normalized.split("/").at(-1) || normalized;
+  return slug === "gpt-5.6-sol" || slug.startsWith("gpt-5.6-sol-")
+    ? GPT_5_6_SOL_FAST_SERVICE_TIER
+    : null;
+}
+
 export function withFixedDefaultServiceTier(method, params = {}) {
   if (!FIXED_DEFAULT_SERVICE_TIER_METHODS.has(method)) return params;
   const normalized = params && typeof params === "object" && !Array.isArray(params)
     ? { ...params }
     : {};
-  // The app-server protocol uses camelCase. Drop a legacy alias as well so a
-  // renderer, channel, or automation path cannot accidentally request Fast.
+  // The app-server protocol uses camelCase. GPT-5.6 Sol always opts in to
+  // OpenAI Fast mode; other explicitly selected models stay on the standard
+  // tier. Requests without a model inherit the thread's existing tier.
+  const legacyServiceTier = normalized.service_tier;
   delete normalized.service_tier;
-  normalized.serviceTier = null;
+  if (String(normalized.model || "").trim()) {
+    normalized.serviceTier = fastestServiceTierForModel(normalized.model);
+  } else {
+    const requestedTier = normalized.serviceTier ?? legacyServiceTier;
+    if (requestedTier == null || String(requestedTier).trim().toLowerCase() === "default") {
+      delete normalized.serviceTier;
+    } else {
+      normalized.serviceTier = String(requestedTier).trim();
+    }
+  }
   return normalized;
 }
 

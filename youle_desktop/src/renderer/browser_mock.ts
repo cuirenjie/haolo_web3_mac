@@ -297,7 +297,9 @@ function createMockBinanceAccountProfitCalendar(month: string) {
 export function ensureBrowserDesktopApi() {
   if (typeof window.codexDesktop !== "undefined") return;
   document.documentElement.dataset.mockDesktop = "true";
-  const tradingAlertVisualQa = new URLSearchParams(window.location.search).get("trading-alert-visual-qa") === "1";
+  const previewParams = new URLSearchParams(window.location.search);
+  const i18nLayoutQa = previewParams.get("i18n-layout-qa") === "1";
+  const tradingAlertVisualQa = previewParams.get("trading-alert-visual-qa") === "1" || i18nLayoutQa;
   let binanceAccountBound = new URLSearchParams(window.location.search).get("binance-account-bound") === "1";
 
   let notificationListeners: Array<Listener<any>> = [];
@@ -318,7 +320,7 @@ export function ensureBrowserDesktopApi() {
     baseUrl: "https://haolo.com",
     profile: {
       id: "mock-user-001",
-      nickname: "浏览器预览用户",
+      nickname: i18nLayoutQa ? "Alexandria Montgomery" : "浏览器预览用户",
       email: "mock@example.com",
       avatar_url: "",
       avatar_style: "nft-rose",
@@ -328,6 +330,10 @@ export function ensureBrowserDesktopApi() {
         current_progress: 0,
         required_progress: 300,
       },
+      balance_points: i18nLayoutQa ? 930.89 : undefined,
+      membership_plan: i18nLayoutQa ? "basic" : undefined,
+      subscription_balance: i18nLayoutQa ? 11_988.56 : undefined,
+      subscription_balance_refresh_at: i18nLayoutQa ? "2026-08-20T00:00:00Z" : undefined,
     },
   };
 
@@ -383,6 +389,11 @@ export function ensureBrowserDesktopApi() {
     ],
   };
   let appTheme: "light" | "dark" = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+  let appLanguage: "en" | "zh-CN" | "zh-TW" = document.documentElement.dataset.language === "zh-CN"
+    ? "zh-CN"
+    : document.documentElement.dataset.language === "zh-TW"
+      ? "zh-TW"
+      : "en";
   const systemIntegration = {
     taskbar: false,
     startMenu: false,
@@ -419,6 +430,7 @@ export function ensureBrowserDesktopApi() {
         sandbox: "danger-full-access",
         youleApiBaseUrl: "https://haolo.com",
         theme: appTheme,
+        language: appLanguage,
         taskCompletionPopupEnabled,
       };
     },
@@ -476,6 +488,10 @@ export function ensureBrowserDesktopApi() {
     async setAppTheme(params: any) {
       appTheme = params?.theme === "dark" ? "dark" : "light";
       return { theme: appTheme };
+    },
+    async setAppLanguage(params: any) {
+      appLanguage = params?.language === "zh-CN" || params?.language === "zh-TW" ? params.language : "en";
+      return { language: appLanguage };
     },
     async checkWindowsUpdate() {
       return {

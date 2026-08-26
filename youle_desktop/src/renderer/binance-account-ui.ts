@@ -227,7 +227,7 @@ export function renderBinanceAccountDialog(state: BinanceAccountUiState) {
     && !busy,
   );
   return `
-    <div class="binance-account-dialog-backdrop" data-binance-account-action="close-dialog"></div>
+    <div class="binance-account-dialog-backdrop" aria-hidden="true"></div>
     <dialog class="binance-account-dialog" open aria-modal="true" aria-labelledby="binanceAccountDialogTitle">
       <header>
         <div>

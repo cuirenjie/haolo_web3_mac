@@ -366,7 +366,8 @@ test("alert view returns to its origin conversation and restores saved simulatio
     assert.doesNotMatch(ui, new RegExp(removed));
   }
   assert.doesNotMatch(styles, /\.trading-alert-detail|\.trading-alert-evidence/);
-  const confirmation = renderer.match(/if \(confirmsDraftCreation\)[\s\S]*?await persistTradingAlertCreationSuccessItem/)?.[0] || "";
+  const tradingAlertConversation = renderer.match(/async function runTradingAlertConversation[\s\S]*?\nfunction tradingTranscriptPayloadFromItem/)?.[0] || "";
+  const confirmation = tradingAlertConversation.match(/if \(confirmsDraftCreation\)[\s\S]*?await persistTradingAlertCreationSuccessItem/)?.[0] || "";
   assert.doesNotMatch(confirmation, /clearTradingExpertAlertSimulation\(\)/);
 });
 
@@ -378,7 +379,8 @@ test("simulation series are isolated by market and interval and restore after re
   assert.match(contextMatch, /state\.interval === this\.activeInterval/);
   assert.match(contextMatch, /state\.marketId === this\.loadedMarketId/);
   assert.match(contextMatch, /state\.interval === this\.loadedInterval/);
-  assert.match(restart, /this\.detachAlertSimulation\(\)[\s\S]*await[\s\S]*this\.syncAlertSimulationForCurrentContext\(\)/);
+  assert.match(restart, /this\.detachAlertSimulation\(\)[\s\S]*await[\s\S]*this\.commitMarketSnapshot\(/);
+  assert.match(source, /private commitMarketSnapshot\([\s\S]*?this\.syncAlertSimulationForCurrentContext\(\)/);
   assert.match(source, /expectedMarketId[\s\S]*模拟结果与当前 K 线图的交易对或周期不一致，已拒绝显示/);
   assert.doesNotMatch(source, /queueAlertSimulationLayout|alertSimulationLayoutFrame/);
 });
@@ -853,10 +855,14 @@ test("alert cards mirror the compact installed-skill card layout", async () => {
   assert.doesNotMatch(source, /trading-alert-draft/);
   assert.doesNotMatch(source, /trading-alert-(?:card-icon|draft-icon|card-title-row)|⏰/);
   assert.match(source, /class="trading-alert-card-copy"/);
+  assert.match(source, /class="trading-alert-card-head"[\s\S]*?<h2[\s\S]*?class="trading-alert-status/);
   assert.match(styles, /\.trading-alert-card-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 320px\)\);[^}]*gap:\s*20px;/s);
   assert.match(styles, /\.trading-alert-card-grid\s*\{[^}]*align-items:\s*stretch;/s);
   assert.match(styles, /\.trading-alert-card\s*\{[^}]*min-height:\s*106px;[^}]*grid-template-columns:\s*minmax\(0, 1fr\);[^}]*align-items:\s*stretch;[^}]*gap:\s*0;[^}]*border-radius:\s*8px;[^}]*padding:\s*14px 16px;/s);
   assert.match(styles, /\.trading-alert-card-copy\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;[^}]*align-self:\s*stretch;/s);
+  assert.match(styles, /\.trading-alert-card-head\s*\{[^}]*min-width:\s*0;[^}]*align-items:\s*flex-start;[^}]*gap:\s*10px;/s);
+  assert.match(styles, /\.trading-alert-status\s*\{[^}]*position:\s*static;[^}]*max-width:\s*50%;[^}]*flex:\s*0 0 auto;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/s);
+  assert.doesNotMatch(styles, /\.trading-alert-status\s*\{[^}]*position:\s*absolute;/s);
   assert.match(styles, /\.trading-alert-card-copy small\s*\{[^}]*margin-top:\s*auto;/s);
   assert.doesNotMatch(styles, /\.trading-alert-(?:card-icon|draft-icon|card-title-row)/);
   assert.match(styles, /\.trading-alert-card-copy p\s*\{[^}]*display:\s*-webkit-box;[^}]*min-height:\s*36px;[^}]*line-height:\s*18px;[^}]*white-space:\s*normal;[^}]*-webkit-box-orient:\s*vertical;[^}]*-webkit-line-clamp:\s*2;/s);
@@ -933,5 +939,7 @@ test("plan-linked alert cards show all three conditions while keeping their edit
   const styles = await stylesSource;
   assert.match(styles, /\.trading-alert-card\.execution-plan-linked\s*\{[^}]*min-height:\s*0/);
   assert.match(styles, /\.trading-alert-plan-conditions\s*\{[^}]*margin:\s*2px 0 9px;/);
+  assert.match(styles, /\.trading-alert-card-copy \.trading-alert-plan-condition\s*\{[^}]*grid-template-columns:\s*minmax\(0, \.75fr\) minmax\(0, 1\.25fr\);[^}]*overflow:\s*hidden;/s);
+  assert.match(styles, /\.trading-alert-plan-condition span\s*\{[^}]*overflow-wrap:\s*anywhere;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-alert-plan-condition\.active/);
 });

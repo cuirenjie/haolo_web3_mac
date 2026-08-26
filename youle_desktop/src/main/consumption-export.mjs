@@ -5,7 +5,7 @@ export function normalizeConsumptionExportUnit(value) {
   return value === "points" || value === "usd" ? "points" : "token";
 }
 
-export function consumptionExportDefaultFileName(unit, now = new Date()) {
+export function consumptionExportDefaultFileName(unit, now = new Date(), copy = {}) {
   const normalizedUnit = normalizeConsumptionExportUnit(unit);
   const date = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
@@ -13,7 +13,9 @@ export function consumptionExportDefaultFileName(unit, now = new Date()) {
     month: "2-digit",
     day: "2-digit",
   }).format(now).replaceAll("-", "");
-  return `HaoLo使用数据_${normalizedUnit === "points" ? "积分" : "Token"}_${date}.xlsx`;
+  const prefix = copy.fileNamePrefix || "HaoLo使用数据";
+  const unitLabel = normalizedUnit === "points" ? copy.pointsLabel || "积分" : copy.tokenLabel || "Token";
+  return `${prefix}_${unitLabel}_${date}.xlsx`;
 }
 
 export function ensureXlsxFilePath(value) {
@@ -29,15 +31,16 @@ export async function saveConsumptionReport({
   window,
   apiClient,
   unit,
+  copy = {},
   now = new Date(),
   writeFile = fs.promises.writeFile,
 } = {}) {
   const normalizedUnit = normalizeConsumptionExportUnit(unit);
-  const defaultPath = path.join(app.getPath("downloads"), consumptionExportDefaultFileName(normalizedUnit, now));
+  const defaultPath = path.join(app.getPath("downloads"), consumptionExportDefaultFileName(normalizedUnit, now, copy));
   const selection = await dialog.showSaveDialog(window || undefined, {
-    title: "导出使用数据",
+    title: copy.title || "导出使用数据",
     defaultPath,
-    filters: [{ name: "Excel 工作簿", extensions: ["xlsx"] }],
+    filters: [{ name: copy.filterName || "Excel 工作簿", extensions: ["xlsx"] }],
   });
   if (selection.canceled || !selection.filePath) return { ok: false, canceled: true };
 
@@ -48,7 +51,7 @@ export async function saveConsumptionReport({
   });
   if (!report?.path) {
     const bytes = Buffer.isBuffer(report?.bytes) ? report.bytes : Buffer.from(report?.bytes || []);
-    if (!bytes.length) throw new Error("消费明细导出失败：后端返回了空文件");
+    if (!bytes.length) throw new Error(copy.emptyFileError || "消费明细导出失败：后端返回了空文件");
     await writeFile(filePath, bytes);
   }
   return {

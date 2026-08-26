@@ -56,7 +56,7 @@ test("consumption detail is a standalone API-backed view below profile settings"
   assert.match(page, /showSkeleton \? renderConsumptionRecordsSkeleton\(\) : renderConsumptionRecords\(recordsData\)/);
   assert.match(page, /overview\.peak_daily_tokens, overview\.peak_daily_points \?\? overview\.peak_daily_usd\)[\s\S]*?<span>最高单日消耗<\/span>/);
   assert.doesNotMatch(page, /峰值\$\{unit/);
-  assert.match((await stylesSource), /\.consumption-profile-person > div\s*\{[^}]*transform:\s*translateX\(5px\)/s);
+  assert.doesNotMatch((await stylesSource), /\.consumption-profile-person > div\s*\{[^}]*transform:/s);
   assert.match(loader, /Promise\.all/);
   assert.match(loader, /await reportConsumptionAppEntryOnce\(\)/);
   assert.ok(
@@ -67,6 +67,7 @@ test("consumption detail is a standalone API-backed view below profile settings"
   assert.match(loader, /getConsumptionCalendar/);
   assert.match(loader, /getConsumptionCalendar\(\{ month: requestedMonth, unit: state\.consumption\.unit, includeHistory: true \}\)/);
   assert.match(loader, /getConsumptionRecords/);
+  assert.match(loader, /language:\s*state\.settings\.language/);
   assert.doesNotMatch(renderer, /mergeConsumptionOverview|consumptionHistoryMonthSummary|historyMonths/);
   assert.match(loader, /showToast\("当前客户端版本暂不支持消耗明细接口", 5000\)/);
   assert.match(loader, /showToast\(`消耗明细加载失败：\$\{errorMessage\(error\)\}`, 6000\)/);
@@ -76,6 +77,8 @@ test("consumption detail is a standalone API-backed view below profile settings"
   assert.match(renderer, /reportConsumptionAppEntryOnce\(\);\s*\}, 30_000\)/);
 
   assert.match(apiClient, /DEFAULT_CONSUMPTION_PATH = "\/api\/consumption\/me"/);
+  assert.match(apiClient, /language:\s*normalizeConsumptionLanguage\(params\.language\)/);
+  assert.match(mainProcess, /language:\s*normalizeAppLanguage\(params\.language \|\| appLanguage\(\)\)/);
   for (const operation of ["reportConsumptionAppEntry", "reportConsumptionEvent", "getConsumptionOverview", "getConsumptionCalendar", "getConsumptionRecords", "exportConsumptionReport"]) {
     assert.match(mainProcess, new RegExp(`youle:${operation}`));
     assert.match(preload, new RegExp(operation));
@@ -236,14 +239,24 @@ test("calendar colors and record rendering preserve the billing contract", async
   const executionDuration = sourceBlock(
     renderer,
     "function formatConsumptionExecutionDuration",
-    "function consumptionDurationDisplay",
+    "function formatEnglishConsumptionExecutionDuration",
   );
   const formatExecutionDuration = Function(
     `"use strict"; ${executionDuration.replace("(value: unknown): string", "(value)")}; return formatConsumptionExecutionDuration;`,
   )();
+  const englishExecutionDuration = sourceBlock(
+    renderer,
+    "function formatEnglishConsumptionExecutionDuration",
+    "function consumptionDurationDisplay",
+  );
+  const formatEnglishExecutionDuration = Function(
+    `"use strict"; ${englishExecutionDuration.replace("(value: unknown): string", "(value)")}; return formatEnglishConsumptionExecutionDuration;`,
+  )();
   assert.equal(formatExecutionDuration(0), "时长未完整上报");
   assert.equal(formatExecutionDuration(480), "不足1秒");
   assert.equal(formatExecutionDuration(126000), "2分6秒");
+  assert.equal(formatEnglishExecutionDuration(0), "Duration unavailable");
+  assert.equal(formatEnglishExecutionDuration(126000), "2m 6s");
   assert.match(records, /item\?\.duration_ms/);
   assert.match(records, /firstString\(item\?\.status\) \|\| "unknown"/);
   assert.match(
@@ -291,6 +304,8 @@ test("calendar colors and record rendering preserve the billing contract", async
   assert.match(records, /item\?\.task_kind/);
   assert.match(records, /item\?\.usage_event_count/);
   assert.match(records, /item\?\.billing_explanation/);
+  assert.match(records, /item\?\.call_summary/);
+  assert.match(records, /data-i18n-skip/);
   assert.match(records, /consumptionDurationDisplay\(item\)/);
   assert.doesNotMatch(renderer, /consumption-billing-note|按实际模型调用计费|缺少完整时长时会明确标注/);
   assert.match(records, /status-\$\{escapeAttr\(status\)\}/);
@@ -428,7 +443,8 @@ test("calendar month navigation commits the new month with its fetched days", as
 
   assert.match(page, /data-consumption-month="prev"[^>]*state\.consumption\.loading/);
   assert.match(page, /data-consumption-month="next"[^>]*state\.consumption\.loading/);
-  assert.match(monthLabel, /`\$\{year\}年\s+\$\{monthNumber\}月`/);
+  assert.match(monthLabel, /Intl\.DateTimeFormat\(appLanguageLocale\(state\.settings\.language\)/);
+  assert.match(monthLabel, /Date\.UTC\(year, monthNumber - 1, 1\)/);
   assert.match(loader, /const requestedMonth = options\.month \?\? state\.consumption\.month/);
   assert.match(loader, /getConsumptionCalendar\(\{ month: requestedMonth/);
   assert.ok(

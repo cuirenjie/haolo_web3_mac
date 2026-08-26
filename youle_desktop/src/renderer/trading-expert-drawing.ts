@@ -3819,11 +3819,21 @@ export class TradingDrawingController {
 
   async playAiDrawingPatch(
     patch: TradingAiDrawingPatch,
-    options: { onPhase?: (phase: TradingAiPlaybackPhase, drawing?: TradingAiDrawing) => void } = {},
+    options: {
+      onPhase?: (phase: TradingAiPlaybackPhase, drawing?: TradingAiDrawing) => void;
+      beforePlayback?: () => void | Promise<void>;
+    } = {},
   ) {
     const drawings = this.normalizeAiDrawingPatch(patch);
     const playbackStorageSessionId = this.storageSessionId;
     this.cancelAiPlayback({ clear: true });
+    await options.beforePlayback?.();
+    if (
+      this.destroyed
+      || this.storageSessionId !== playbackStorageSessionId
+      || this.getSymbol() !== patch.marketId
+      || this.getInterval() !== patch.interval
+    ) return;
     await this.aiPlayback.play(drawings, options);
     if (
       !this.destroyed

@@ -13,6 +13,8 @@ test("trend-band indicator mention is recognized from composer text", async () =
   assert.equal(hasTradingExpertTrendBandMention("请启用 @指标:趋势带 看盘"), true);
   assert.equal(hasTradingExpertTrendBandMention("@自定义指标:趋势带 "), true);
   assert.equal(hasTradingExpertTrendBandMention("@自定义指标：趋势带 "), true);
+  assert.equal(hasTradingExpertTrendBandMention("@Indicator:Trend band "), true);
+  assert.equal(hasTradingExpertTrendBandMention("@指標:趨勢帶 "), true);
   assert.equal(hasTradingExpertTrendBandMention("@指标:趋势"), false);
   assert.equal(hasTradingExpertTrendBandMention(""), false);
   assert.equal(hasTradingExpertTrendBandMention("@策略:缠论"), false);

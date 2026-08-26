@@ -1,5 +1,16 @@
 import "./styles.css";
 import QRCode from "qrcode";
+import {
+  applyAppLanguage,
+  appLanguageLocale,
+  appLanguageOptions,
+  isAppLanguage,
+  loadAppLanguage,
+  localizeAppTree,
+  observeAppLanguage,
+  translateAppText,
+  type AppLanguage,
+} from "./app-language.mjs";
 import { confirmInApp, type AppConfirmationOptions } from "./app-confirmation";
 import { resolveComposerThreadIdForSend } from "./composer-thread-routing";
 import {
@@ -749,6 +760,56 @@ const TRADING_EXPERT_TITLE_MENTION_TOKENS = [
   "@自定义指标:趋势带",
   "@自定义指标：趋势带",
 ];
+
+function tradingExpertMentionGroupTokenLabel(
+  groupLabel: string,
+  language: AppLanguage,
+) {
+  if (language === "en") {
+    if (groupLabel === "策略") return "Strategy";
+    if (groupLabel === "指标") return "Indicator";
+    if (groupLabel === "预警") return "Alert";
+  }
+  return translateAppText(groupLabel, language);
+}
+
+function localizedTradingExpertMentionToken(
+  groupLabel: string,
+  optionLabel = "",
+  language: AppLanguage = state.settings.language,
+) {
+  const group = tradingExpertMentionGroupTokenLabel(groupLabel, language);
+  const option = optionLabel ? translateAppText(optionLabel, language) : "";
+  return `@${group}${option ? `:${option}` : ""}`;
+}
+
+function localizedTradingCatalogMentionToken(
+  item: TradingStrategyCatalogItem,
+  language: AppLanguage = state.settings.language,
+) {
+  const group = item.display.group === "indicator" ? "指标" : "策略";
+  return localizedTradingExpertMentionToken(group, item.skill.displayName, language);
+}
+
+function canonicalizeTradingExpertMentionText(value: string) {
+  let source = String(value || "");
+  for (const item of [...tradingStrategyCatalog(), ...tradingIndicatorCatalog()]) {
+    const canonical = item.mentionTokens[0];
+    if (!canonical) continue;
+    for (const language of ["en", "zh-TW"] as const) {
+      const localized = localizedTradingCatalogMentionToken(item, language);
+      source = source.split(localized).join(canonical);
+    }
+  }
+  const trendBandCanonical = "@指标:趋势带";
+  const alertCanonical = "@预警";
+  for (const language of ["en", "zh-TW"] as const) {
+    source = source
+      .split(localizedTradingExpertMentionToken("指标", "趋势带", language)).join(trendBandCanonical)
+      .split(localizedTradingExpertMentionToken("预警", "", language)).join(alertCanonical);
+  }
+  return source;
+}
 const GROUP_CHAT_QUANTITY_MIN = 1;
 const GROUP_CHAT_QUANTITY_MAX = 10;
 const VIDEO_EXPERT_CONTACT_ID = "agent-video-expert";
@@ -1250,7 +1311,7 @@ type WorkflowRevisionCommand = {
 type DesktopApi = {
   start(): Promise<any>;
   getStatus(): Promise<any>;
-  getDefaults(): Promise<{ cwd: string; installDir?: string; approvalPolicy: string; sandbox: string; youleApiBaseUrl?: string; theme?: AppTheme; taskCompletionPopupEnabled?: boolean;
+  getDefaults(): Promise<{ cwd: string; installDir?: string; approvalPolicy: string; sandbox: string; youleApiBaseUrl?: string; theme?: AppTheme; language?: AppLanguage; taskCompletionPopupEnabled?: boolean;
   }>;
   getSystemIntegrationState?(): Promise<SystemIntegrationSnapshot>;
   setSystemIntegration?(params: { key: SystemIntegrationKey; enabled: boolean;
@@ -1282,6 +1343,7 @@ type DesktopApi = {
     height?: number;
   }>;
   setAppTheme?(params: { theme: AppTheme }): Promise<{ theme?: AppTheme }>;
+  setAppLanguage?(params: { language: AppLanguage }): Promise<{ language?: AppLanguage }>;
   checkWindowsUpdate?(params: { version: string;
   }): Promise<WindowsUpdateCheckResponse>;
   downloadWindowsUpdate?(params: { download: WindowsUpdateDownload;
@@ -1323,7 +1385,6 @@ type DesktopApi = {
     install_url?: string | null;
   }>;
   disconnectGitHub?(): Promise<{ disconnected?: boolean; revoked_on_github?: boolean }>;
-  getSubscriptionBalanceDetails?(): Promise<SubscriptionBalanceDetails>;
   getReferralDashboard?(): Promise<ReferralDashboard>;
   listReferralLinks?(): Promise<{ items?: ReferralLink[] }>;
   createReferralLink?(params: { linkType: ReferralLinkType; channelLabel: string }): Promise<ReferralLink>;
@@ -1337,7 +1398,7 @@ type DesktopApi = {
   getWeb3PaymentOrder?(params: { orderNo: string }): Promise<Web3PaymentOrder>;
   listWeb3RechargeHistory?(params?: { limit?: number }): Promise<{ items?: Web3RechargeHistoryItem[] }>;
   refreshMemberLevel?(): Promise<any>;
-  sendActivityHeartbeat?(params?: { onlineSecondsDelta?: number; online_seconds_delta?: number; sourceId?: string; source_id?: string;
+  sendActivityHeartbeat?(params?: { onlineSecondsDelta?: number; online_seconds_delta?: number; sourceId?: string; source_id?: string; clientVariant?: string; client_variant?: string;
   }): Promise<any>;
   reportTaskCompleted?(params: { userId?: string; user_id?: string; taskId?: string; task_id?: string; sourceType?: string; source_type?: string;
   }): Promise<any>;
@@ -1346,7 +1407,7 @@ type DesktopApi = {
   getConsumptionOverview?(params: { unit: ConsumptionUnit }): Promise<any>;
   getConsumptionCalendar?(params: { month: string; unit: ConsumptionUnit; includeHistory?: boolean;
   }): Promise<any>;
-  getConsumptionRecords?(params: { range: ConsumptionRange; date?: string | null; unit: ConsumptionUnit; page: number; pageSize: number; runtimeStateProvided?: boolean; activeInteractionIds?: string[]; activeConversationIds?: string[];
+  getConsumptionRecords?(params: { range: ConsumptionRange; date?: string | null; unit: ConsumptionUnit; language: AppLanguage; page: number; pageSize: number; runtimeStateProvided?: boolean; activeInteractionIds?: string[]; activeConversationIds?: string[];
   }): Promise<any>;
   exportConsumptionReport?(params: { unit: ConsumptionUnit;
   }): Promise<{ ok?: boolean; canceled?: boolean; path?: string; unit?: ConsumptionUnit;
@@ -2577,6 +2638,7 @@ type SettingsState = {
   sandbox: string;
   tab: "profile" | "models" | "github" | "general" | "about";
   theme: AppTheme;
+  language: AppLanguage;
   fontSize: AppFontSize;
   taskCompletionPopupEnabled: boolean;
   taskCompletionPopupUpdating: boolean;
@@ -2704,17 +2766,6 @@ type ConsumptionState = {
   records: any | null;
 };
 
-type SubscriptionBalanceDetails = {
-  active: boolean;
-  planId: string | null;
-  totalBalance: number;
-  creditedBalance: number;
-  pendingBalance: number;
-  nextCreditAt: string | null;
-  membershipExpiresAt: string | null;
-  calculatedAt: string;
-};
-
 type ReferralLinkType = "ordinary_direct" | "node_direct" | "node_helper" | "helper_direct";
 
 type ReferralDashboard = {
@@ -2766,16 +2817,6 @@ type ReferralCenterState = {
   dashboard: ReferralDashboard | null;
   links: ReferralLink[];
   commissions: ReferralCommission[];
-};
-
-type SubscriptionDetailsAnchor = "badge" | "consumption-badge";
-
-type ProfileSubscriptionDetailsState = {
-  open: boolean;
-  anchor: SubscriptionDetailsAnchor | null;
-  loading: boolean;
-  data: SubscriptionBalanceDetails | null;
-  error: string | null;
 };
 
 type RechargeProductDefinition = {
@@ -4026,7 +4067,6 @@ type UiState = {
   providerModelCatalog: ProviderModelCatalogState;
   login: LoginState;
   profileEdit: ProfileEditState;
-  profileSubscriptionDetails: ProfileSubscriptionDetailsState;
   referralCenter: ReferralCenterState;
   autoTaskDraft: AutoTaskDraftState;
   autoTaskItems: AutoTaskItem[];
@@ -4118,6 +4158,8 @@ function applyAppFontSize(fontSize: AppFontSize, persist = false) {
   }
 }
 
+const INITIAL_APP_LANGUAGE = loadAppLanguage();
+applyAppLanguage(INITIAL_APP_LANGUAGE);
 const INITIAL_APP_THEME = loadAppTheme();
 applyAppTheme(INITIAL_APP_THEME);
 const INITIAL_APP_FONT_SIZE = loadAppFontSize();
@@ -4150,6 +4192,9 @@ void api.listPersonalStrategies?.({ includeDrafts: true })
     render();
   });
 syncAppThemePreference(INITIAL_APP_THEME);
+void api.setAppLanguage?.({ language: INITIAL_APP_LANGUAGE }).catch(() => {
+  // Main-process language sync is best effort; the renderer language remains active.
+});
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) cancelVoiceInput();
@@ -4269,6 +4314,7 @@ if (!windowResizeRoot) {
 
 const root: HTMLDivElement = appRoot;
 const resizeRoot: HTMLDivElement = windowResizeRoot;
+observeAppLanguage(document.body);
 const MARKETPLACE_PAGE_SIZE = 15;
 const NEW_THREAD_TITLE = "新任务";
 const NEW_THREAD_WELCOME = "小咯已经就位，有什么任务，你尽管吩咐~";
@@ -5279,6 +5325,7 @@ const state: UiState = {
     sandbox: DESKTOP_SANDBOX_POLICY,
     tab: "general",
     theme: INITIAL_APP_THEME,
+    language: INITIAL_APP_LANGUAGE,
     fontSize: INITIAL_APP_FONT_SIZE,
     taskCompletionPopupEnabled: true,
     taskCompletionPopupUpdating: false,
@@ -5394,13 +5441,6 @@ const state: UiState = {
     avatarFile: null,
     error: null,
   },
-  profileSubscriptionDetails: {
-    open: false,
-    anchor: null,
-    loading: false,
-    data: null,
-    error: null,
-  },
   referralCenter: {
     open: false,
     loaded: false,
@@ -5495,7 +5535,6 @@ let consumptionPageScrollabilityFrame: number | null = null;
 let lastConsumptionAppEntryKey = "";
 let consumptionAppEntryRetryTimer: number | null = null;
 let consumptionAppEntryPromise: Promise<void> | null = null;
-let profileSubscriptionDetailsRequestSeq = 0;
 let lowBalanceProfileRefreshStartedAt = 0;
 let lowBalanceProfileRefreshInFlight = false;
 let availableBalanceProfileRefreshPromise: Promise<boolean> | null = null;
@@ -6438,7 +6477,10 @@ async function sendMemberActivityHeartbeat() {
   const authSnapshot = authActivityIdentitySnapshot();
   memberActivityHeartbeatInFlight = true;
   try {
-    const result = await api.sendActivityHeartbeat({ onlineSecondsDelta });
+    const result = await api.sendActivityHeartbeat({
+      onlineSecondsDelta,
+      clientVariant: AUTH_CLIENT_VARIANT,
+    });
     lastMemberActivityHeartbeatAt = now;
     if (!canApplyActivityResult(authSnapshot)) return;
     if (applyActivityLevelResult(result)) {
@@ -20336,7 +20378,7 @@ async function openTradingStrategySkillFromLibrary(skillId: string) {
   }
   const threadId = await openTradingExpertWorkspace();
   if (!threadId) return;
-  const composerText = `${strategy.mentionTokens[0] || `@策略:${strategy.display.name}`} `;
+  const composerText = `${localizedTradingCatalogMentionToken(strategy)} `;
   state.composerText = composerText;
   state.composerQuote = null;
   state.composerThreadReferences = [];
@@ -20400,8 +20442,10 @@ async function openTradingIndicatorSkillFromLibrary(skillId: string) {
   const threadId = await openTradingExpertWorkspace();
   if (!threadId) return;
   const composerText = `${skillId === TRADING_TREND_BAND_SKILL_CARD_ID
-    ? TRADING_EXPERT_TREND_BAND_MENTION
-    : indicator?.mentionTokens[0] || `@指标:${indicator?.display.name || indicatorId}`} `;
+    ? localizedTradingExpertMentionToken("指标", "趋势带")
+    : indicator
+      ? localizedTradingCatalogMentionToken(indicator)
+      : localizedTradingExpertMentionToken("指标", indicatorId)} `;
   state.composerText = composerText;
   state.composerQuote = null;
   state.composerThreadReferences = [];
@@ -26783,14 +26827,17 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   ) {
     await refreshTradingAlerts();
   }
+  const tradingExpertRoutingText = isTradingExpertThreadId(threadId)
+    ? canonicalizeTradingExpertMentionText(text)
+    : text;
   const tradingStrategyAtSend = isTradingExpertThreadId(threadId)
-    ? tradingStrategyMentionedByText(text)
+    ? tradingStrategyMentionedByText(tradingExpertRoutingText)
     : null;
   const personalStrategyConversationAtSend = isTradingExpertThreadId(threadId)
     ? personalStrategyConversationStateForThread(threadId)
     : null;
   const explicitPersonalStrategyCreationAtSend = isPersonalStrategyCreationCommand(text);
-  const explicitTradingAlertAtSend = tradingAlertMentioned(text);
+  const explicitTradingAlertAtSend = tradingAlertMentioned(tradingExpertRoutingText);
   const personalStrategyCandidateAtSend = isTradingExpertThreadId(threadId)
     && !tradingStrategyAtSend
     && (explicitPersonalStrategyCreationAtSend
@@ -26868,7 +26915,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       tradingStrategyRequestAtSend = await classifyTradingStrategyForSend(
         api,
         tradingStrategyAtSend,
-        text,
+        tradingExpertRoutingText,
         snapshotAttachments.some(isImageAttachment),
         hasTradingExpertCurrentAnalysis(tradingStrategyAtSend.id),
       );
@@ -27271,7 +27318,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
       clearTradingExpertComposerAfterSend(threadId);
       refreshTradingExpertConversationSurface(threadId);
-      await runTradingAlertConversation(threadId, text);
+      await runTradingAlertConversation(threadId, tradingExpertRoutingText);
       return;
     }
     if (tradingGeneralRequestAtSend?.mode === "chart-analysis") {
@@ -32437,7 +32484,7 @@ function applyTradingExpertMention(groupLabel: string, optionLabel: string) {
         }
       : null);
   if (!match) return;
-  const token = `@${item.label}${option ? `:${option}` : ""}`;
+  const token = localizedTradingExpertMentionToken(item.label, option || "");
   const afterSelection = input.value.slice(match.end);
   const leadingSpacer = composerMentionLeadingSpacer(input.value, match.start);
   const trailingSpacer = composerMentionTrailingSpacer(afterSelection);
@@ -33003,8 +33050,11 @@ function tradingExpertMentionTokens(
   if (!isTradingExpertThreadId(threadId)) return [];
   return TRADING_EXPERT_MENTION_CATALOG.flatMap((item) =>
     item.options.length
-      ? item.options.map((option) => `@${item.label}:${option}`)
-      : [`@${item.label}`],
+      ? item.options.flatMap((option) => [
+          `@${item.label}:${option}`,
+          localizedTradingExpertMentionToken(item.label, option),
+        ])
+      : [`@${item.label}`, localizedTradingExpertMentionToken(item.label)],
   );
 }
 
@@ -34742,7 +34792,9 @@ function tradingExpertAgentTextForSend(
   generalRequest: TradingGeneralRequest | null = null,
 ) {
   if (!isTradingExpertThreadId(threadId)) return baseAgentText;
-  const strategy = tradingStrategyMentionedByText(visibleText);
+  const strategy = tradingStrategyMentionedByText(
+    canonicalizeTradingExpertMentionText(visibleText),
+  );
   if (strategy) return strategy.ui.buildExpertPrompt(baseAgentText);
   // A visible chart/old analysis is context, not an instruction.  Only an
   // explicit semantic follow-up may receive the follow-up prompt; otherwise
@@ -35895,6 +35947,7 @@ function render() {
     ${renderContactRequestSentToast()}
     ${state.error ? `<div class="toast">${escapeHtml(state.error)}</div>` : ""}
   `;
+  localizeAppTree(root, state.settings.language);
   if (!preservedReferralCenterOverlay && state.referralCenter.open) {
     referralCenterContentDirty = false;
   }
@@ -36168,7 +36221,6 @@ function openMyConfigPage() {
   state.skillCategory = "all";
   state.contactChat.open = false;
   state.profileMenuOpen = false;
-  resetProfileSubscriptionDetails();
   state.externalChannels.menuOpen = false;
   state.skillSortMenuOpen = false;
   state.autoTaskMenuTaskId = null;
@@ -36444,6 +36496,16 @@ function selectAppTheme(theme: AppTheme) {
   applyAppTheme(theme, true);
   syncAppThemePreference(theme);
   render();
+}
+
+function selectAppLanguage(language: AppLanguage) {
+  state.settings.language = language;
+  applyAppLanguage(language, { persist: true, root: document.body });
+  void api.setAppLanguage?.({ language }).catch(() => {});
+  render();
+  if (state.consumption.loaded) {
+    void loadConsumptionData({ quiet: true, suppressError: true });
+  }
 }
 
 function selectAppFontSize(fontSize: AppFontSize) {
@@ -40021,25 +40083,29 @@ function mySkillsPlazaCards() {
   );
   const tradingCards = tradingStrategyCatalog()
     .filter((strategy) => strategy.enabled !== false)
-    .map((strategy): SkillPlazaCard => ({
-      id: `${TRADING_STRATEGY_SKILL_CARD_PREFIX}${strategy.id}`,
-      title: strategy.skill.displayName,
-      subtitle: strategy.id,
-      detail: strategy.skill.shortDescription,
-      category: "local",
-      rawCategory: "local",
-      theme: "local",
-      height: strategy.skill.shortDescription.length > 34 ? "medium" : "short",
-      tags: ["交易策略", "K线分析"],
-      badge: "已装",
-      author: "本地",
-      likes: "已安装",
-      iconUrl: SKILL_DEFAULT_ICON_URL,
-      defaultCover: true,
-      installed: true,
-      installStatus: "installed",
-      version: strategy.version,
-    }))
+    .map((strategy): SkillPlazaCard => {
+      const title = translateAppText(strategy.skill.displayName, state.settings.language);
+      const detail = translateAppText(strategy.skill.shortDescription, state.settings.language);
+      return {
+        id: `${TRADING_STRATEGY_SKILL_CARD_PREFIX}${strategy.id}`,
+        title,
+        subtitle: strategy.id,
+        detail,
+        category: "local",
+        rawCategory: "local",
+        theme: "local",
+        height: strategy.skill.shortDescription.length > 34 ? "medium" : "short",
+        tags: ["交易策略", "K线分析"],
+        badge: "已装",
+        author: "本地",
+        likes: "已安装",
+        iconUrl: SKILL_DEFAULT_ICON_URL,
+        defaultCover: true,
+        installed: true,
+        installStatus: "installed",
+        version: strategy.version,
+      };
+    })
     .filter(
       (card) =>
         !localSkillNames.has(card.title.trim().toLowerCase()) &&
@@ -40074,29 +40140,36 @@ function strategySkillPlazaCards() {
 }
 
 function indicatorSkillPlazaCards(): SkillPlazaCard[] {
-  const analysisCards = tradingIndicatorCatalog().map((indicator): SkillPlazaCard => ({
-    id: `${TRADING_INDICATOR_SKILL_CARD_PREFIX}${indicator.id}`,
-    title: indicator.skill.displayName,
-    subtitle: indicator.id,
-    detail: indicator.skill.shortDescription,
-    category: "local",
-    rawCategory: "local",
-    theme: "local",
-    height: indicator.skill.shortDescription.length > 34 ? "medium" : "short",
-    tags: ["技术指标", "形态与背离"],
-    badge: indicator.enabled === false ? "不可用" : "已装",
-    author: "本地",
-    likes: indicator.enabled === false ? "诊断失败" : "已安装",
-    installed: indicator.enabled !== false,
-    installStatus: indicator.enabled === false ? "failed" : "installed",
-    version: indicator.version,
-  }));
+  const analysisCards = tradingIndicatorCatalog().map((indicator): SkillPlazaCard => {
+    const title = translateAppText(indicator.skill.displayName, state.settings.language);
+    const detail = translateAppText(indicator.skill.shortDescription, state.settings.language);
+    return {
+      id: `${TRADING_INDICATOR_SKILL_CARD_PREFIX}${indicator.id}`,
+      title,
+      subtitle: indicator.id,
+      detail,
+      category: "local",
+      rawCategory: "local",
+      theme: "local",
+      height: indicator.skill.shortDescription.length > 34 ? "medium" : "short",
+      tags: ["技术指标", "形态与背离"],
+      badge: indicator.enabled === false ? "不可用" : "已装",
+      author: "本地",
+      likes: indicator.enabled === false ? "诊断失败" : "已安装",
+      installed: indicator.enabled !== false,
+      installStatus: indicator.enabled === false ? "failed" : "installed",
+      version: indicator.version,
+    };
+  });
   return [
     {
       id: TRADING_TREND_BAND_SKILL_CARD_ID,
-      title: "趋势带",
+      title: translateAppText("趋势带", state.settings.language),
       subtitle: "trend-band",
-      detail: "通过趋势蜡烛与均线带识别行情方向，辅助观察趋势延续与转折",
+      detail: translateAppText(
+        "通过趋势蜡烛与均线带识别行情方向，辅助观察趋势延续与转折",
+        state.settings.language,
+      ),
       category: "local",
       rawCategory: "local",
       theme: "local",
@@ -45760,7 +45833,7 @@ function multiModelClusterPlanningProgressPresentation(threadId: string) {
       <div class="message-stack">
         <div class="message-meta">${escapeHtml(messageRoleDisplayName("ceo_assistant"))}</div>
         <div class="message-bubble agent-bubble multi-model-cluster-planning-bubble">
-          <div class="message-text">${escapeHtml(update.text)}</div>
+          <div class="message-text" data-i18n-owned>${escapeHtml(update.text)}</div>
         </div>
       </div>
     </article>
@@ -47039,7 +47112,7 @@ function renderTradingPreferenceOnboardingEntry(thread: ConversationSummary) {
       <div class="message-stack">
         <div class="message-meta">Haolo</div>
         <div class="message-bubble agent-bubble trading-preference-onboarding-bubble">
-          <div class="message-text">${escapeHtml(TRADING_PREFERENCE_ONBOARDING_GREETING)}</div>
+          <div class="message-text" data-i18n-owned>${escapeHtml(TRADING_PREFERENCE_ONBOARDING_GREETING)}</div>
         </div>
         <div class="trading-preference-onboarding-actions">
           <button
@@ -52637,6 +52710,7 @@ function renderTextBubble(
   } = {},
 ) {
   const content = messageDisplayContent(message, text);
+  const localizeAppOwnedText = shouldLocalizeAppOwnedMessage(message, fromUser);
   const messageLocalSendStatus = localSendStatusFromRecord(message);
   const editPayload = fromUser && !messageLocalSendStatus ? editableMessagePayload(message, text, content.text) : null;
   const copyTextPayload = isBlankThreadWelcomeMessage(message)
@@ -52665,7 +52739,7 @@ function renderTextBubble(
       ${conversationSupplementHeader}
       ${(content.threadReferences || []).map((reference) => renderMessageThreadReferencePreview(reference, options.searchHighlightKeyword)).join("")}
       ${content.quote ? renderMessageQuotePreview(content.quote, options.searchHighlightKeyword) : ""}
-      ${content.text ? `<div class="message-text">${fromUser
+      ${content.text ? `<div class="message-text" ${localizeAppOwnedText ? "data-i18n-owned" : ""}>${fromUser
         ? formatMessageText(content.text, {
             searchKeyword: options.searchHighlightKeyword,
             assistantSkillDisplayAliases: false,
@@ -52692,6 +52766,21 @@ function renderTextBubble(
     </div>
     ${actionsBelowBubble ? `${actionsMarkup}${addToPlanMarkup}` : ""}
   `;
+}
+
+function shouldLocalizeAppOwnedMessage(message: Message, fromUser: boolean) {
+  if (fromUser) return false;
+  const id = String(message.id || "");
+  const record = message as Message & { __youleLocalStatus?: boolean };
+  return (
+    record.__youleLocalStatus === true
+    || isBlankThreadWelcomeMessage(message)
+    || id.startsWith("agent-notice-")
+    || id.startsWith("trading-preference-")
+    || id.startsWith("wechat-channel-")
+    || id.startsWith("feishu-channel-")
+    || id.startsWith("telegram-channel-")
+  );
 }
 
 function executionPlanCandidateKey(threadId: string, messageId: string, candidateIndex = 0) {
@@ -59043,6 +59132,53 @@ function rechargePaymentOrderNetwork(order: Web3PaymentOrder) {
   return RECHARGE_PAYMENT_NETWORKS.find((candidate) => candidate.id === order.network) || null;
 }
 
+function renderRechargeMembershipAgreement(
+  product: RechargeProductDefinition,
+  order: Web3PaymentOrder,
+) {
+  const language = state.settings.language;
+  const productName = translateAppText(product.name, language);
+  const escapedProductName = escapeHtml(productName);
+  const escapedOrderNumber = escapeHtml(order.order_no);
+  if (language === "en") {
+    return `<p class="recharge-payment-agreement">By subscribing, you agree to <span>${escapedProductName} Membership Service Agreement</span> · Order number ${escapedOrderNumber}</p>`;
+  }
+  if (language === "zh-TW") {
+    return `<p class="recharge-payment-agreement">開通即視為同意 <span>《${escapedProductName}會員服務協議》</span> · 訂單編號 ${escapedOrderNumber}</p>`;
+  }
+  return `<p class="recharge-payment-agreement">开通即视为同意 <span>《${escapedProductName}会员服务协议》</span> · 订单号 ${escapedOrderNumber}</p>`;
+}
+
+function rechargePaymentStepsAriaLabel(
+  network: (typeof RECHARGE_PAYMENT_NETWORKS)[number],
+) {
+  const language = state.settings.language;
+  const networkLabel = translateAppText(network.label, language);
+  if (language === "en") return `${networkLabel} payment steps`;
+  if (language === "zh-TW") return `${networkLabel}付款步驟`;
+  return `${networkLabel}支付步骤`;
+}
+
+function rechargePaymentAccountCopyAriaLabel(
+  network: (typeof RECHARGE_PAYMENT_NETWORKS)[number],
+) {
+  const language = state.settings.language;
+  const networkLabel = translateAppText(network.label, language);
+  if (language === "en") return `Copy ${networkLabel} recipient account`;
+  if (language === "zh-TW") return `複製${networkLabel}收款帳號`;
+  return `复制${networkLabel}收款账号`;
+}
+
+function rechargePaymentQrAlt(
+  network: (typeof RECHARGE_PAYMENT_NETWORKS)[number],
+) {
+  const language = state.settings.language;
+  const networkLabel = translateAppText(network.label, language);
+  if (language === "en") return `${networkLabel} USDT payment QR code`;
+  if (language === "zh-TW") return `${networkLabel} USDT 收款二維碼`;
+  return `${networkLabel} USDT 收款二维码`;
+}
+
 function renderRechargePaymentState(
   kind: "loading" | "error" | "expired" | "confirming" | "paid" | "manual",
   title: string,
@@ -59087,7 +59223,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
   if (network.kind === "internal") {
     return `
       <div class="recharge-payment-details-main internal-transfer">
-        <ol class="recharge-payment-internal-steps" aria-label="${escapeAttr(network.label)}支付步骤">
+        <ol class="recharge-payment-internal-steps" aria-label="${escapeAttr(rechargePaymentStepsAriaLabel(network))}">
           <li class="recharge-payment-internal-step">
             <span class="recharge-payment-step-number" aria-hidden="true">1</span>
             <span class="recharge-payment-step-label">收款账号</span>
@@ -59097,7 +59233,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
                 type="button"
                 class="recharge-payment-address-copy"
                 data-copy-recharge-address="${escapeAttr(order.recipient_address)}"
-                aria-label="复制${escapeAttr(network.label)}收款账号"
+                aria-label="${escapeAttr(rechargePaymentAccountCopyAriaLabel(network))}"
                 title="复制收款账号"
               >
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6.5V4.75A1.75 1.75 0 0 1 8.75 3h6.5A1.75 1.75 0 0 1 17 4.75v6.5A1.75 1.75 0 0 1 15.25 13H13.5M4.75 7h6.5A1.75 1.75 0 0 1 13 8.75v6.5A1.75 1.75 0 0 1 11.25 17h-6.5A1.75 1.75 0 0 1 3 15.25v-6.5A1.75 1.75 0 0 1 4.75 7Z" /></svg>
@@ -59133,7 +59269,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
         </aside>
       </div>
       <p class="recharge-payment-internal-note">请使用 ${escapeHtml(network.networkName)} 支付 USDT，并确保收款账号和三位小数金额完全一致。</p>
-      <p class="recharge-payment-agreement">开通即视为同意 <span>《${escapeHtml(product.name)}会员服务协议》</span> · 订单号 ${escapeHtml(order.order_no)}</p>
+      ${renderRechargeMembershipAgreement(product, order)}
       <p class="recharge-payment-preservation-note">切换套餐或支付方式不会取消当前有效订单，请勿重复支付。</p>
     `;
   }
@@ -59163,7 +59299,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
       </div>
       <div class="recharge-payment-qr-column">
         <div class="recharge-payment-qr-frame loading" data-recharge-payment-qr-frame>
-          <img class="recharge-payment-qr-image" data-recharge-payment-qr-image alt="${escapeAttr(network.label)} USDT 收款二维码" hidden />
+          <img class="recharge-payment-qr-image" data-recharge-payment-qr-image alt="${escapeAttr(rechargePaymentQrAlt(network))}" hidden />
           <span class="recharge-payment-qr-logo">${renderTradingMarketAssetLogo(network.asset, "binance")}</span>
           <span class="recharge-payment-qr-loading">正在生成二维码</span>
         </div>
@@ -59179,7 +59315,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
         <time data-recharge-payment-countdown>30:00 剩余</time>
       </span>
     </div>
-    <p class="recharge-payment-agreement">开通即视为同意 <span>《${escapeHtml(product.name)}会员服务协议》</span> · 订单号 ${escapeHtml(order.order_no)}</p>
+    ${renderRechargeMembershipAgreement(product, order)}
     <p class="recharge-payment-preservation-note">切换套餐或支付方式不会取消当前有效订单，请勿重复支付。</p>
   `;
 }
@@ -59586,9 +59722,16 @@ function consumptionPayload(value: any): any {
 
 function formatConsumptionToken(value: unknown): string {
   const amount = Math.max(Number(value) || 0, 0);
+  if (state.settings.language === "en") {
+    return new Intl.NumberFormat("en-US", {
+      notation: "compact",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  }
   if (amount >= 100_000_000) return `${(amount / 100_000_000).toFixed(amount >= 1_000_000_000 ? 1 : 2).replace(/\.0+$/, "")}亿`;
   if (amount >= 10_000) return `${(amount / 10_000).toFixed(amount >= 1_000_000 ? 1 : 2).replace(/\.0+$/, "")}万`;
-  return amount.toLocaleString("zh-CN", { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+  return amount.toLocaleString(appLanguageLocale(state.settings.language), { minimumFractionDigits: 0, maximumFractionDigits: 4 });
 }
 
 function formatConsumptionPoints(value: unknown): string {
@@ -59626,9 +59769,16 @@ function formatConsumptionCalendarAmount(tokens: unknown, points: unknown): stri
   }
   const amount = Math.max(Number(tokens) || 0, 0);
   if (amount === 0) return "--";
+  if (state.settings.language === "en") {
+    return new Intl.NumberFormat("en-US", {
+      notation: "compact",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 1,
+    }).format(amount);
+  }
   if (amount >= 100_000_000) return `${Math.round(amount / 100_000_000)}亿`;
   if (amount >= 10_000) return `${Math.round(amount / 10_000)}万`;
-  return amount.toLocaleString("zh-CN", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  return amount.toLocaleString(appLanguageLocale(state.settings.language), { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
 function consumptionRecordDisplayUnit(item: any): ConsumptionUnit {
@@ -59641,6 +59791,9 @@ function formatConsumptionDuration(value: unknown): string {
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);
   const minutes = totalMinutes % 60;
+  if (state.settings.language === "en") {
+    return [days ? `${days}d` : "", hours ? `${hours}h` : "", `${minutes}m`].filter(Boolean).join(" ");
+  }
   return [days ? `${days}天` : "", hours ? `${hours}小时` : "", `${minutes}分`].filter(Boolean).join(" ");
 }
 
@@ -59655,15 +59808,32 @@ function formatConsumptionExecutionDuration(value: unknown): string {
   remaining %= 3_600;
   const minutes = Math.floor(remaining / 60);
   const seconds = remaining % 60;
+  return [days ? `${days}天` : "", hours ? `${hours}小时` : "", minutes ? `${minutes}分` : "", seconds || (!days && !hours && !minutes) ? `${seconds}秒` : ""].filter(Boolean).join("");
+}
+
+function formatEnglishConsumptionExecutionDuration(value: unknown): string {
+  const milliseconds = Math.max(Number(value) || 0, 0);
+  if (!milliseconds) return "Duration unavailable";
+  if (milliseconds < 1_000) return "<1s";
+  let remaining = Math.max(Math.ceil(milliseconds / 1_000), 1);
+  const days = Math.floor(remaining / 86_400);
+  remaining %= 86_400;
+  const hours = Math.floor(remaining / 3_600);
+  remaining %= 3_600;
+  const minutes = Math.floor(remaining / 60);
+  const seconds = remaining % 60;
   return [
-    days ? `${days}天` : "",
-    hours ? `${hours}小时` : "",
-    minutes ? `${minutes}分` : "",
-    seconds || (!days && !hours && !minutes) ? `${seconds}秒` : "",
-  ].filter(Boolean).join("");
+    days ? `${days}d` : "",
+    hours ? `${hours}h` : "",
+    minutes ? `${minutes}m` : "",
+    seconds || (!days && !hours && !minutes) ? `${seconds}s` : "",
+  ].filter(Boolean).join(" ");
 }
 
 function consumptionDurationDisplay(item: any): string {
+  if (state.settings.language === "en") {
+    return formatEnglishConsumptionExecutionDuration(item?.duration_ms ?? item?.durationMs);
+  }
   return (
     firstString(item?.duration_display, item?.durationDisplay) ||
     formatConsumptionExecutionDuration(item?.duration_ms ?? item?.durationMs)
@@ -59672,13 +59842,35 @@ function consumptionDurationDisplay(item: any): string {
 
 function consumptionMonthLabel(month: string): string {
   const [year, monthNumber] = month.split("-").map(Number);
-  return Number.isFinite(year) && Number.isFinite(monthNumber) ? `${year}年 ${monthNumber}月` : month;
+  if (!Number.isFinite(year) || !Number.isFinite(monthNumber)) return month;
+  return new Intl.DateTimeFormat(appLanguageLocale(state.settings.language), {
+    timeZone: "UTC",
+    year: "numeric",
+    month: state.settings.language === "en" ? "long" : "numeric",
+  }).format(new Date(Date.UTC(year, monthNumber - 1, 1)));
 }
 
 function consumptionDateLabel(value: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return value;
-  return `${Number(match[1])}年${Number(match[2])}月${Number(match[3])}日`;
+  return new Intl.DateTimeFormat(appLanguageLocale(state.settings.language), {
+    timeZone: "UTC",
+    year: "numeric",
+    month: state.settings.language === "en" ? "short" : "numeric",
+    day: "numeric",
+  }).format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))));
+}
+
+function consumptionWeekdayLabels(): string[] {
+  return state.settings.language === "en"
+    ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    : ["一", "二", "三", "四", "五", "六", "日"];
+}
+
+function formatConsumptionLoginDays(value: unknown): string {
+  const days = Math.max(Number(value) || 0, 0);
+  if (state.settings.language === "en") return `${days} ${days === 1 ? "day" : "days"}`;
+  return `${days} 天`;
 }
 
 function shiftConsumptionMonth(month: string, offset: number): string {
@@ -59737,7 +59929,7 @@ function renderConsumptionCalendarSkeleton(): string {
   const mondayOffset = (offset + 6) % 7;
   const dayCount = new Date(year, month, 0).getDate();
   return `
-    <div class="consumption-weekdays">${["一","二","三","四","五","六","日"].map((day) => `<span>${day}</span>`).join("")}</div>
+    <div class="consumption-weekdays">${consumptionWeekdayLabels().map((day) => `<span>${day}</span>`).join("")}</div>
     <div class="consumption-calendar-grid consumption-calendar-skeleton" aria-hidden="true">
       ${Array.from({ length: mondayOffset }, () => `<span class="consumption-calendar-empty"></span>`).join("")}
       ${Array.from({ length: dayCount }, () => renderConsumptionSkeleton("consumption-skeleton-calendar-day")).join("")}
@@ -59822,7 +60014,7 @@ function renderConsumptionPage(): string {
           <div class="consumption-metric"><strong>${formatConsumptionAmount(overview.cumulative_tokens, overview.cumulative_points ?? overview.cumulative_usd)}</strong><span>累计${unit === "points" ? "积分" : "Token"}数</span></div>
           <div class="consumption-metric"><strong>${formatConsumptionAmount(overview.peak_daily_tokens, overview.peak_daily_points ?? overview.peak_daily_usd)}</strong><span>最高单日消耗</span></div>
           <div class="consumption-metric"><strong>${formatConsumptionDuration(overview.longest_task_ms)}</strong><span>最长任务时长</span></div>
-          <div class="consumption-metric"><strong>${Math.max(Number(overview.login_days) || 0, 0)} 天</strong><span>登录天数</span></div>`}
+          <div class="consumption-metric"><strong>${formatConsumptionLoginDays(overview.login_days)}</strong><span>登录天数</span></div>`}
         </section>
         <div class="consumption-detail-grid">
           <section class="consumption-calendar-card">
@@ -59851,7 +60043,7 @@ function renderConsumptionCalendar(rawDays: unknown): string {
   const offset = new Date(year, month - 1, 1).getDay();
   const mondayOffset = (offset + 6) % 7;
   return `
-    <div class="consumption-weekdays">${["一","二","三","四","五","六","日"].map((day) => `<span>${day}</span>`).join("")}</div>
+    <div class="consumption-weekdays">${consumptionWeekdayLabels().map((day) => `<span>${day}</span>`).join("")}</div>
     <div class="consumption-calendar-grid">
       ${Array.from({ length: mondayOffset }, () => `<span class="consumption-calendar-empty"></span>`).join("")}
       ${days.map((item: any) => {
@@ -59957,9 +60149,11 @@ function renderConsumptionRecords(data: any): string {
         const durationDisplay = consumptionDurationDisplay(item);
         const durationLabel = firstString(item?.duration_label, item?.durationLabel) || "用时";
         const durationNote = firstString(item?.duration_note, item?.durationNote) || durationDisplay;
-        const callSummary = durationDisplay === "时长未完整上报"
-          ? `${usageEventCount}次调用 · 时长未完整上报`
-          : `${usageEventCount}次调用 · ${durationLabel}${durationDisplay}`;
+        const callSummary = firstString(item?.call_summary, item?.callSummary) || (
+          durationDisplay === "时长未完整上报"
+            ? `${usageEventCount}次调用 · 时长未完整上报`
+            : `${usageEventCount}次调用 · ${durationLabel}${durationDisplay}`
+        );
         const billingExplanation =
           firstString(item?.billing_explanation, item?.billingExplanation) ||
           (answerExcerpt ? `实际模型调用已记账 · ${answerExcerpt}` : "实际模型调用已记账");
@@ -59967,9 +60161,9 @@ function renderConsumptionRecords(data: any): string {
         const amountUnit = displayUnit === "points" ? "积分" : "Token";
         return `<tr data-consumption-record-index="${index}" data-started-at="${escapeAttr(startedAt)}" data-duration-ms="${escapeAttr(String(durationMs))}" tabindex="0" role="link" aria-label="${escapeAttr(`${taskKindLabel}：${question}；实扣 ${amount} ${amountUnit}；${callSummary}`)}">
           <td><strong>${escapeHtml(amount)}</strong><small>${escapeHtml(amountUnit)}</small></td>
-          <td><span class="consumption-task-kind kind-${escapeAttr(taskKind)}">${escapeHtml(taskKindLabel)}</span><small>${escapeHtml(type)}</small></td>
-          <td><strong class="consumption-call-model">${escapeHtml(models || "-")}</strong><small title="${escapeAttr(durationNote)}">${escapeHtml(callSummary)}</small></td>
-          <td><div class="consumption-detail-title"><strong>${escapeHtml(question)}</strong><span class="status-${escapeAttr(status)}">${escapeHtml(statusLabel)}</span></div><small title="${escapeAttr(billingExplanation)}">${escapeHtml(billingExplanation)}</small></td>
+          <td><span class="consumption-task-kind kind-${escapeAttr(taskKind)}" data-i18n-skip>${escapeHtml(taskKindLabel)}</span><small data-i18n-skip>${escapeHtml(type)}</small></td>
+          <td><strong class="consumption-call-model" data-i18n-skip>${escapeHtml(models || "-")}</strong><small data-i18n-skip title="${escapeAttr(durationNote)}">${escapeHtml(callSummary)}</small></td>
+          <td><div class="consumption-detail-title"><strong data-i18n-skip>${escapeHtml(question)}</strong><span class="status-${escapeAttr(status)}" data-i18n-skip>${escapeHtml(statusLabel)}</span></div><small data-i18n-skip title="${escapeAttr(billingExplanation)}">${escapeHtml(billingExplanation)}</small></td>
         </tr>`;
       }).join("")}
     </tbody></table></div>
@@ -60034,6 +60228,7 @@ async function loadConsumptionData(options: { quiet?: boolean; month?: string; s
         range: state.consumption.range,
         date: state.consumption.selectedDate,
         unit: state.consumption.unit,
+        language: state.settings.language,
         page: state.consumption.page,
         pageSize: state.consumption.pageSize,
         runtimeStateProvided: true,
@@ -60357,6 +60552,7 @@ function renderSettingsDialog() {
                    ${renderSettingsThemeRow()}
                    ${renderSettingsFontSizeRow()}
                    ${renderSettingsUserDataRow()}
+                   ${renderSettingsLanguageRow()}
                    <div class="settings-storage-row">
                      <div class="settings-storage-copy">
                        <span>用户安装目录地址</span>
@@ -60470,6 +60666,23 @@ function renderSettingsUserDataRow() {
         <button type="button" class="settings-data-button" data-action="import-user-data" ${busy ? "disabled" : ""}>${importBusy ? "导入中" : "导入"}</button>
       </div>
     </div>
+  `;
+}
+
+function renderSettingsLanguageRow() {
+  const language = state.settings.language;
+  return `
+    <label class="settings-language-row">
+      <span>语言</span>
+      <span class="settings-language-select-wrap">
+        <select data-settings-language aria-label="选择界面语言">
+          ${appLanguageOptions(language).map(({ value, label }) => `
+            <option value="${escapeAttr(value)}" ${language === value ? "selected" : ""}>${escapeHtml(label)}</option>
+          `).join("")}
+        </select>
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6 3.5 3.5L11.5 6" /></svg>
+      </span>
+    </label>
   `;
 }
 
@@ -61335,7 +61548,6 @@ function bindBinanceAccountEvents(scope: ParentNode) {
   scope.querySelector<HTMLDialogElement>(".binance-account-dialog")?.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      closeBinanceAccountDialog();
       return;
     }
     if (event.key !== "Tab") return;
@@ -61591,13 +61803,6 @@ function bindEvents() {
       && !(target instanceof Element && target.closest("[data-workflow-canvas-context-menu]"))
     ) {
       workflowCanvasContextMenu = null;
-      shouldRender = true;
-    }
-    if (
-      state.profileSubscriptionDetails.open &&
-      !(target instanceof Element && target.closest(".profile-subscription-details-anchor"))
-    ) {
-      resetProfileSubscriptionDetails();
       shouldRender = true;
     }
     if (state.skillSortMenuOpen && !(target instanceof Element && target.closest(".skills-sort-wrap"))) {
@@ -62082,18 +62287,15 @@ function bindEvents() {
   root.querySelector<HTMLButtonElement>('[data-action="toggle-profile"]')?.addEventListener("click", () => {
     if (state.profileMenuOpen) {
       state.profileMenuOpen = false;
-      resetProfileSubscriptionDetails();
       render();
       return;
     }
     state.profileMenuOpen = true;
-    resetProfileSubscriptionDetails();
     void refreshProfileFromApi({ renderAfter: true, reportError: true });
   });
   root.querySelectorAll<HTMLElement>('[data-action="close-profile"]').forEach((element) => {
     element.addEventListener("click", () => {
       state.profileMenuOpen = false;
-      resetProfileSubscriptionDetails();
       render();
     });
   });
@@ -62406,17 +62608,6 @@ function bindEvents() {
     });
   bindReferralCenterContentEvents(root);
   root
-    .querySelectorAll<HTMLButtonElement>(
-      '[data-action="show-profile-subscription-details"]',
-    )
-    .forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const anchor = button.dataset.subscriptionDetailsAnchor === "consumption-badge" ? "consumption-badge" : "badge";
-        toggleProfileSubscriptionDetails(anchor);
-      });
-    });
-  root
     .querySelectorAll<HTMLElement>('[data-action="profile-help"]')
     .forEach((element) => {
       element.addEventListener("click", () => {
@@ -62641,6 +62832,10 @@ function bindEvents() {
         if (theme === "light" || theme === "dark") selectAppTheme(theme);
       });
     });
+  root.querySelector<HTMLSelectElement>("[data-settings-language]")?.addEventListener("change", (event) => {
+    const language = (event.currentTarget as HTMLSelectElement).value;
+    if (isAppLanguage(language)) selectAppLanguage(language);
+  });
   root
     .querySelectorAll<HTMLButtonElement>("[data-settings-font-size]")
     .forEach((button) => {
@@ -69045,14 +69240,6 @@ function resetAuthenticatedWorkspace() {
   state.settingsOpen = false;
   state.profileMenuOpen = false;
   state.profileRefreshing = false;
-  profileSubscriptionDetailsRequestSeq += 1;
-  state.profileSubscriptionDetails = {
-    open: false,
-    anchor: null,
-    loading: false,
-    data: null,
-    error: null,
-  };
   state.approvalRequest = null;
   state.configOutput = null;
   resetRemoteLibraries();
@@ -77188,151 +77375,13 @@ function currentMembershipPlan(): MembershipPlanDisplay {
 function renderMembershipBadge(context: "titlebar" | "profile" | "consumption", plan = currentMembershipPlan()) {
   const kind = plan.subscribed ? "member" : "experience";
   const className = `membership-badge membership-badge-${kind} ${context}-membership-badge`;
-  if (context === "profile") {
+  if (context === "profile" || context === "consumption") {
     if (!plan.subscribed) {
       return `<button type="button" class="${className}" data-membership-plan="${plan.id}" data-action="profile-quota" aria-label="当前套餐：${plan.label}，查看充值方案" title="查看充值方案">${plan.label}</button>`;
     }
-    const detailsOpen = state.profileSubscriptionDetails.open && state.profileSubscriptionDetails.anchor === "badge";
-    return `
-      <div class="profile-membership-details profile-subscription-details-anchor">
-        <button type="button" class="${className}" data-membership-plan="${plan.id}" data-action="show-profile-subscription-details" data-subscription-details-anchor="badge" aria-controls="profileMembershipDetailsPopover" aria-expanded="${detailsOpen}" aria-label="当前套餐：${plan.label}，查看订阅余额明细" title="查看订阅余额明细">${plan.label}</button>
-        ${detailsOpen ? `
-          <div id="profileMembershipDetailsPopover" class="profile-subscription-help-popover profile-membership-details-popover" role="tooltip">
-            ${renderProfileSubscriptionDetails()}
-          </div>
-        ` : ""}
-      </div>
-    `;
-  }
-  if (context === "consumption") {
-    if (!plan.subscribed) {
-      return `<button type="button" class="${className}" data-membership-plan="${plan.id}" data-action="profile-quota" aria-label="当前套餐：${plan.label}，查看充值方案" title="查看充值方案">${plan.label}</button>`;
-    }
-    const detailsOpen = state.profileSubscriptionDetails.open && state.profileSubscriptionDetails.anchor === "consumption-badge";
-    return `
-      <div class="consumption-membership-details profile-subscription-details-anchor">
-        <button type="button" class="${className}" data-membership-plan="${plan.id}" data-action="show-profile-subscription-details" data-subscription-details-anchor="consumption-badge" aria-controls="consumptionMembershipDetailsPopover" aria-expanded="${detailsOpen}" aria-label="当前套餐：${plan.label}，查看订阅余额明细" title="查看订阅余额明细">${plan.label}</button>
-        ${detailsOpen ? `
-          <div id="consumptionMembershipDetailsPopover" class="profile-subscription-help-popover consumption-membership-details-popover" role="tooltip">
-            ${renderProfileSubscriptionDetails()}
-          </div>
-        ` : ""}
-      </div>
-    `;
+    return `<span class="${className}" data-membership-plan="${plan.id}" aria-label="当前套餐：${plan.label}">${plan.label}</span>`;
   }
   return `<span class="${className}" data-membership-plan="${plan.id}" aria-label="订阅套餐：${plan.label}">${plan.label}</span>`;
-}
-
-function resetProfileSubscriptionDetails() {
-  profileSubscriptionDetailsRequestSeq += 1;
-  state.profileSubscriptionDetails = {
-    open: false,
-    anchor: null,
-    loading: false,
-    data: null,
-    error: null,
-  };
-}
-
-function toggleProfileSubscriptionDetails(anchor: SubscriptionDetailsAnchor) {
-  if (state.profileSubscriptionDetails.open) {
-    if (state.profileSubscriptionDetails.anchor === anchor) {
-      resetProfileSubscriptionDetails();
-    } else {
-      state.profileSubscriptionDetails.anchor = anchor;
-    }
-    render();
-    focusProfileSubscriptionDetailsTrigger(anchor);
-    return;
-  }
-
-  const requestSeq = ++profileSubscriptionDetailsRequestSeq;
-  const refreshSnapshot = authProfileRefreshSnapshot();
-  state.profileSubscriptionDetails = {
-    open: true,
-    anchor,
-    loading: true,
-    data: null,
-    error: null,
-  };
-  render();
-  focusProfileSubscriptionDetailsTrigger(anchor);
-  void loadProfileSubscriptionDetails(requestSeq, refreshSnapshot);
-}
-
-function focusProfileSubscriptionDetailsTrigger(anchor: SubscriptionDetailsAnchor) {
-  window.setTimeout(() => {
-    const selector = `[data-action="show-profile-subscription-details"][data-subscription-details-anchor="${anchor}"]`;
-    root.querySelector<HTMLElement>(selector)?.focus();
-  }, 0);
-}
-
-async function loadProfileSubscriptionDetails(requestSeq: number, refreshSnapshot: string) {
-  try {
-    if (typeof api.getSubscriptionBalanceDetails !== "function") {
-      throw new Error("订阅余额明细接口不可用");
-    }
-    const data = await api.getSubscriptionBalanceDetails();
-    if (
-      requestSeq !== profileSubscriptionDetailsRequestSeq ||
-      !state.profileSubscriptionDetails.open ||
-      !canApplyProfileRefreshResult(refreshSnapshot)
-    ) {
-      return;
-    }
-    state.profileSubscriptionDetails = {
-      open: true,
-      anchor: state.profileSubscriptionDetails.anchor,
-      loading: false,
-      data,
-      error: null,
-    };
-  } catch (error) {
-    if (
-      requestSeq !== profileSubscriptionDetailsRequestSeq ||
-      !state.profileSubscriptionDetails.open ||
-      !canApplyProfileRefreshResult(refreshSnapshot)
-    ) {
-      return;
-    }
-    state.profileSubscriptionDetails = {
-      open: true,
-      anchor: state.profileSubscriptionDetails.anchor,
-      loading: false,
-      data: null,
-      error: errorMessage(error),
-    };
-  }
-  if (requestSeq === profileSubscriptionDetailsRequestSeq && state.profileSubscriptionDetails.open) {
-    render();
-  }
-}
-
-function renderProfileSubscriptionDetails() {
-  const detailsState = state.profileSubscriptionDetails;
-  if (detailsState.loading) {
-    return `<span>正在加载订阅余额明细...</span>`;
-  }
-  if (detailsState.error) {
-    return `<span>订阅余额明细加载失败，请关闭后重试</span>`;
-  }
-  const details = detailsState.data;
-  if (!details) {
-    return `<span>打开后加载订阅余额明细</span>`;
-  }
-  if (!details.active) {
-    return `<span>当前没有生效中的订阅</span>`;
-  }
-
-  const nextCreditLabel = formatSubscriptionRefreshDate(details.nextCreditAt);
-  const expiresLabel = formatSubscriptionRefreshDate(details.membershipExpiresAt);
-  return `
-    <span>订阅余额一共 ${escapeHtml(formatSubscriptionTokenAmount(details.totalBalance))}</span>
-    <span>已到账 ${escapeHtml(formatSubscriptionTokenAmount(details.creditedBalance))}</span>
-    <span>剩余未到账 ${escapeHtml(formatSubscriptionTokenAmount(details.pendingBalance))}</span>
-    ${details.nextCreditAt ? `<span>下次到账时间 ${escapeHtml(nextCreditLabel || "--")}</span>` : ""}
-    <span>会员到期时间 ${escapeHtml(expiresLabel || "--")}</span>
-  `;
 }
 
 function renderProfileSubscriptionBalance() {
@@ -77372,7 +77421,7 @@ function currentSubscriptionBalanceDisplay() {
 }
 
 function formatSubscriptionTokenAmount(value: number) {
-  return value.toLocaleString("zh-CN", {
+  return value.toLocaleString(appLanguageLocale(state.settings.language), {
     minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
     maximumFractionDigits: 2,
   });
@@ -77382,7 +77431,10 @@ function formatSubscriptionRefreshDate(value: string | null) {
   if (!value) return "";
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
-  return `${date.getMonth() + 1}月${date.getDate()}日`;
+  return new Intl.DateTimeFormat(appLanguageLocale(state.settings.language), {
+    month: state.settings.language === "en" ? "short" : "numeric",
+    day: "numeric",
+  }).format(date);
 }
 
 function profileCitizenId(profile?: AuthProfile | null) {

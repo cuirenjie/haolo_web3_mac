@@ -59,8 +59,8 @@ test("My Skills derives installed cards from the trading strategy catalog", asyn
   assert.match(cards, /tradingStrategyCatalog\(\)/);
   assert.match(cards, /strategy\.enabled !== false/);
   assert.match(cards, /id:\s*`\$\{TRADING_STRATEGY_SKILL_CARD_PREFIX\}\$\{strategy\.id\}`/);
-  assert.match(cards, /title:\s*strategy\.skill\.displayName/);
-  assert.match(cards, /detail:\s*strategy\.skill\.shortDescription/);
+  assert.match(cards, /translateAppText\(strategy\.skill\.displayName, state\.settings\.language\)/);
+  assert.match(cards, /translateAppText\(strategy\.skill\.shortDescription, state\.settings\.language\)/);
   assert.match(cards, /installStatus:\s*"installed"/);
   assert.match(cards, /return \[\.\.\.localCards, \.\.\.tradingCards\]/);
   assert.match(renderer, /renderCategoryButton\("skill", "技能", mySkillsPlazaCards\(\)\.length, "result"\)/);
@@ -118,8 +118,8 @@ test("the Indicator tab renders Trend Band with the same installed card contract
   const renderCard = sourceBlock(renderer, "function renderMySkillPlazaCard", "function renderSkillPosterMark");
 
   assert.match(renderer, /const TRADING_TREND_BAND_SKILL_CARD_ID = `\$\{TRADING_INDICATOR_SKILL_CARD_PREFIX\}trend-band`/);
-  assert.match(cards, /title:\s*"趋势带"/);
-  assert.match(cards, /detail:\s*"通过趋势蜡烛与均线带识别行情方向，辅助观察趋势延续与转折"/);
+  assert.match(cards, /title:\s*translateAppText\("趋势带", state\.settings\.language\)/);
+  assert.match(cards, /detail:\s*translateAppText\([\s\S]*"通过趋势蜡烛与均线带识别行情方向，辅助观察趋势延续与转折"[\s\S]*state\.settings\.language/);
   assert.match(cards, /author:\s*"本地"/);
   assert.match(cards, /installStatus:\s*"installed"/);
   assert.match(indicatorIcon, /data-trading-indicator-icon="trend-band"/);
@@ -136,7 +136,7 @@ test("the Trend Band indicator card opens Trading Expert and pre-fills its indic
   const bindings = sourceBlock(renderer, 'root.querySelectorAll<HTMLElement>("[data-skill-id]")', 'root.querySelectorAll<HTMLElement>("[data-skill-tool]")');
 
   assert.match(openIndicator, /await openTradingExpertWorkspace\(\)/);
-  assert.match(openIndicator, /TRADING_EXPERT_TREND_BAND_MENTION/);
+  assert.match(openIndicator, /localizedTradingExpertMentionToken\("指标", "趋势带"\)/);
   assert.match(openIndicator, /setComposerDraft\(threadId/);
   assert.match(openIndicator, /applyTradingExpertCustomIndicatorMentions\(composerText\)/);
   assert.match(bindings, /openTradingIndicatorSkillFromLibrary\(skillId\)/);
@@ -150,7 +150,7 @@ test("trading Skill cards are keyboard accessible and open the matching Trading 
 
   assert.match(renderCard, /role="button" tabindex="0"/);
   assert.match(openSkill, /await openTradingExpertWorkspace\(\)/);
-  assert.match(openSkill, /strategy\.mentionTokens\[0\]/);
+  assert.match(openSkill, /localizedTradingCatalogMentionToken\(strategy\)/);
   assert.match(openSkill, /setComposerDraft\(threadId/);
   assert.match(bindings, /openTradingStrategySkillFromLibrary\(skillId\)/);
   assert.match(bindings, /event\.key !== "Enter" && event\.key !== " "/);

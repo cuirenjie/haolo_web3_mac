@@ -38,7 +38,7 @@ test("standalone image preview uses dark titlebar colors and pale controls", asy
   assert.match(annotateBlock, /theme: imagePreviewTheme\(params\.theme\)/);
   assert.match(fileBlock, /theme: imagePreviewTheme\(params\.theme\)/);
   assert.match(themeBlock, /return value === "dark" \? "dark" : "light"/);
-  assert.match(htmlBlock, /<html data-theme="\$\{htmlEscape\(imagePreviewTheme\(theme\)\)\}">/);
+  assert.match(htmlBlock, /<html lang="\$\{htmlEscape\(appLanguageLocale\(normalizedLanguage\)\)\}" data-theme="\$\{htmlEscape\(imagePreviewTheme\(theme\)\)\}">/);
   assert.match(darkBlock, /color-scheme: dark/);
   assert.match(darkBlock, /--titlebar-bg: #2b2d31/);
   assert.match(darkBlock, /--titlebar-fg: #f3f4f6/);

@@ -44,9 +44,9 @@ export function lastUserDataTransferStatusPath(app, productName) {
   return path.join(userDataTransferRoot(app, productName), LAST_TRANSFER_STATUS_FILE);
 }
 
-export async function scheduleUserDataExport({ app, dialog, window, productName, appVersion, workspaces = [] }) {
+export async function scheduleUserDataExport({ app, dialog, window, productName, appVersion, workspaces = [], copy = {} }) {
   const result = await dialog.showOpenDialog(window || undefined, {
-    title: "选择用户数据导出位置",
+    title: copy.exportLocationTitle || "选择用户数据导出位置",
     properties: ["openDirectory", "createDirectory"],
   });
   if (result.canceled || !result.filePaths?.[0]) return { canceled: true };
@@ -56,7 +56,7 @@ export async function scheduleUserDataExport({ app, dialog, window, productName,
   const exportDirName = `Haolo-user-data-${timestampForFileName()}`;
   const userDataPath = app.getPath("userData");
   if (isSamePathOrInside(destinationParent, userDataPath)) {
-    throw new Error("导出位置不能放在当前用户数据目录里面，请选择其他文件夹。");
+    throw new Error(copy.exportInsideUserDataError || "导出位置不能放在当前用户数据目录里面，请选择其他文件夹。");
   }
   const plan = {
     operation: "export",
@@ -78,12 +78,13 @@ export async function scheduleUserDataImport({
   productName,
   appVersion,
   workspaces = [],
+  copy = {},
   requestConfirmation = async () => false,
 }) {
   const result = await dialog.showOpenDialog(window || undefined, {
-    title: "选择用户数据备份 ZIP 文件",
+    title: copy.importFileTitle || "选择用户数据备份 ZIP 文件",
     properties: ["openFile"],
-    filters: [{ name: "Haolo 用户数据备份 ZIP", extensions: ["zip"] }],
+    filters: [{ name: copy.importFilterName || "Haolo 用户数据备份 ZIP", extensions: ["zip"] }],
   });
   if (result.canceled || !result.filePaths?.[0]) return { canceled: true };
 
@@ -93,14 +94,14 @@ export async function scheduleUserDataImport({
   const stagingRoot = path.join(transferRoot, "staging", `import-${timestampForFileName()}`);
   const sourceStat = await fs.promises.stat(sourcePath).catch(() => null);
   if (!sourceStat) {
-    throw new Error("所选用户数据备份不存在。");
+    throw new Error(copy.missingBackupError || "所选用户数据备份不存在。");
   }
 
   let staged = false;
   let manifestRoot = sourcePath;
   try {
     if (!sourceStat.isFile() || path.extname(sourcePath).toLowerCase() !== ".zip") {
-      throw new Error("请选择 Haolo 用户数据备份 .zip 文件。");
+      throw new Error(copy.invalidZipError || "请选择 Haolo 用户数据备份 .zip 文件。");
     }
     staged = true;
     await extractSnapshotZipArchive({ zipPath: sourcePath, destinationRoot: stagingRoot });
@@ -110,11 +111,11 @@ export async function scheduleUserDataImport({
     validateSnapshotManifest(manifest, manifestRoot);
 
     const confirmed = await requestConfirmation({
-      title: "导入用户数据",
-      message: "导入会把当前用户数据恢复到所选备份状态。",
-      detail: "导入前会先完整备份当前数据，不会合并新旧数据。应用将自动重启，并在窗口打开前完成替换。",
-      confirmLabel: "继续导入",
-      cancelLabel: "取消",
+      title: copy.confirmTitle || "导入用户数据",
+      message: copy.confirmMessage || "导入会把当前用户数据恢复到所选备份状态。",
+      detail: copy.confirmDetail || "导入前会先完整备份当前数据，不会合并新旧数据。应用将自动重启，并在窗口打开前完成替换。",
+      confirmLabel: copy.confirmLabel || "继续导入",
+      cancelLabel: copy.cancelLabel || "取消",
       tone: "danger",
     });
     if (!confirmed) {
