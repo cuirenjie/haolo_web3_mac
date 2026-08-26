@@ -200,7 +200,7 @@ test("workflow model nodes reuse the authenticated provider catalog", async () =
   const bindings = sourceBlock(
     renderer,
     "function bindWorkflowCanvasContextMenu",
-    "function bindLoginWeComQrEvents",
+    "function bindWeComSupportEvents",
   );
 
   assert.match(catalogOptions, /availableQuestionAnswerModelGroups\(\)/);

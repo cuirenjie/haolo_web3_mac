@@ -1,3 +1,5 @@
+import { renderHaoloSelect } from "./haolo-select";
+
 export type ExternalModelBaseUrlOption = {
   id: string;
   label: string;
@@ -92,16 +94,21 @@ function renderProviderCard(provider: ExternalModelProviderStatus, state: Extern
   const statusLabel = provider.configured ? "已加密保存" : "未配置";
   const baseUrlSelect = provider.baseUrlOptions.length > 1
     ? `
-      <label class="external-model-field">
+      <div class="external-model-field">
         <span>API 站点</span>
-        <select data-external-model-base-url="${escapeAttr(provider.id)}" ${disabled ? "disabled" : ""}>
-          ${provider.baseUrlOptions.map((option) => `
-            <option value="${escapeAttr(option.id)}" ${option.id === provider.baseUrlProfile ? "selected" : ""}>
-              ${escapeHtml(option.label)} · ${escapeHtml(option.baseUrl)}
-            </option>
-          `).join("")}
-        </select>
-      </label>
+        ${renderHaoloSelect({
+          id: `external-model-base-url-${provider.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+          value: provider.baseUrlProfile,
+          ariaLabel: `${provider.displayName} API 站点`,
+          className: "external-model-base-url-select",
+          disabled,
+          inputAttributes: { "data-external-model-base-url": provider.id },
+          options: provider.baseUrlOptions.map((option) => ({
+            value: option.id,
+            label: `${option.label} · ${option.baseUrl}`,
+          })),
+        })}
+      </div>
     `
     : `<div class="external-model-endpoint">${escapeHtml(provider.baseUrlOptions[0]?.baseUrl || "")}</div>`;
   return `

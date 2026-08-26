@@ -14,8 +14,12 @@ import {
   executionPlanCandidatesFromText,
   executionPlanTextPartition,
   executionPlanTextPartitions,
+  loadMessageExecutionPlanFontSize,
   loadExecutionPlans,
+  MESSAGE_EXECUTION_PLAN_FONT_SIZES,
+  saveMessageExecutionPlanFontSize,
   saveExecutionPlans,
+  stepMessageExecutionPlanFontSize,
   transitionExecutionPlan,
 } from "../src/renderer/execution-plans.ts";
 
@@ -33,6 +37,23 @@ class MemoryStorage {
     this.values.set(key, String(value));
   }
 }
+
+test("in-message execution-plan font sizing is bounded and can persist one synchronized size per card", () => {
+  const storage = new MemoryStorage();
+  const firstKey = "thread-a\u0000message-a\u00000";
+  const secondKey = "thread-a\u0000message-a\u00001";
+
+  assert.equal(loadMessageExecutionPlanFontSize(firstKey, storage), 12);
+  assert.equal(loadMessageExecutionPlanFontSize(secondKey, storage), 12);
+  assert.equal(saveMessageExecutionPlanFontSize(firstKey, 18, storage), 18);
+  assert.equal(saveMessageExecutionPlanFontSize(secondKey, 18, storage), 18);
+  assert.equal(loadMessageExecutionPlanFontSize(firstKey, storage), 18);
+  assert.equal(loadMessageExecutionPlanFontSize(secondKey, storage), 18);
+  assert.equal(stepMessageExecutionPlanFontSize(18, 1), 20);
+  assert.equal(stepMessageExecutionPlanFontSize(20, 1), 20);
+  assert.equal(stepMessageExecutionPlanFontSize(11, -1), 11);
+  assert.deepEqual(MESSAGE_EXECUTION_PLAN_FONT_SIZES, [11, 12, 13, 14, 16, 18, 20]);
+});
 
 test("the standard six-field trading proposal is extracted as one execution plan", () => {
   const candidate = executionPlanCandidateFromText(`
@@ -468,6 +489,9 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   const messagePlanStart = renderer.indexOf("function renderMessageExecutionPlan");
   const messagePlanEnd = renderer.indexOf("function executionPlanStatusMeta", messagePlanStart);
   const messagePlanBlock = renderer.slice(messagePlanStart, messagePlanEnd);
+  const textBubbleStart = renderer.indexOf("function renderTextBubble");
+  const textBubbleEnd = renderer.indexOf("function shouldLocalizeAppOwnedMessage", textBubbleStart);
+  const textBubbleBlock = renderer.slice(textBubbleStart, textBubbleEnd);
   const planCardBlock = renderer.slice(planCardStart, planCardEnd);
   const planEventStart = renderer.indexOf("function bindExecutionPlanEvents");
   const planEventEnd = renderer.indexOf("function bindEvents", planEventStart);
@@ -516,7 +540,18 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(messagePlanBlock, /executionPlanCardTitle\([\s\S]*titleContext/);
   assert.match(messagePlanBlock, /class="message-execution-plan"/);
   assert.match(messagePlanBlock, /partitions\.candidates\.map\([\s\S]*renderExecutionPlanCardContent\(candidate\.content\)/);
+  assert.match(messagePlanBlock, /data-message-execution-plan-action="increase"[\s\S]*>放大</);
+  assert.match(messagePlanBlock, /data-message-execution-plan-action="decrease"[\s\S]*>缩小</);
+  assert.match(messagePlanBlock, /data-message-execution-plan-action="sticky">便利贴</);
+  assert.match(messagePlanBlock, /loadMessageExecutionPlanFontSize\(key\)/);
   assert.match(renderer, /renderMessageExecutionPlan\(message, content\.text/);
+  assert.match(textBubbleBlock, /<\/div>\s*\$\{executionPlanPresentation\?\.cards \|\| ""\}\s*\$\{actionsBelowBubble/s);
+  assert.match(renderer, /querySelectorAll<HTMLButtonElement>\("\[data-message-execution-plan-action\]"\)/);
+  assert.match(renderer, /function messageExecutionPlanGroupCards[\s\S]*closest<HTMLElement>\("\.message-execution-plan-list"\)[\s\S]*querySelectorAll<HTMLElement>\("\.message-execution-plan"\)/);
+  assert.match(renderer, /function applyMessageExecutionPlanGroupFontSize[\s\S]*messageExecutionPlanGroupCards\(card\)\.forEach[\s\S]*applyMessageExecutionPlanFontSize\(groupCard, next\)/);
+  assert.match(renderer, /function createExecutionPlanStickyFromMessageGroup[\s\S]*Promise\.allSettled\(cards\.map[\s\S]*createExecutionPlanStickyFromMessageCard\(groupCard\)/);
+  assert.match(renderer, /button\.dataset\.messageExecutionPlanActionBound === "true"[\s\S]*button\.dataset\.messageExecutionPlanActionBound = "true"/);
+  assert.match(renderer, /api\.createExecutionPlanSticky\([\s\S]*executionPlanDisplayLines\(candidate\.content\)/);
   assert.match(planCardBlock, /<footer>[\s\S]*<time/);
   assert.doesNotMatch(planCardBlock, /sourceLabel|footer span/);
   assert.match(addPlanBlock, /saveExecutionPlans[\s\S]*openExecutionPlansPage\(\)[\s\S]*showToast\("已添加到计划"\)/);
@@ -533,14 +568,25 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.doesNotMatch(styles, /\.execution-plan-card-actions button\.danger\s*\{[^}]*color:\s*var\(--danger\)/s);
   assert.match(styles, /html\[data-theme="dark"\] \.execution-plan-end-menu/);
   assert.match(styles, /\.execution-plan-card-label\s*\{[^}]*color:\s*var\(--conversation-analysis-context\)/s);
-  assert.match(styles, /\.execution-plan-card-label\s*\{[^}]*font-weight:\s*400/s);
+  assert.match(styles, /\.execution-plan-card-label\s*\{[^}]*font-weight:\s*700/s);
   assert.match(styles, /\.execution-plan-card-line\s*\{[^}]*padding:\s*0;[^}]*text-align:\s*left/s);
   assert.match(styles, /\.execution-plan-card-value-bearish\s*\{[^}]*color:\s*var\(--execution-plan-direction-bearish\)/s);
   assert.match(styles, /\.execution-plan-card-value-bullish\s*\{[^}]*color:\s*var\(--execution-plan-direction-bullish\)/s);
   assert.match(styles, /\.execution-plan-card-number-bearish\s*\{[^}]*color:\s*var\(--execution-plan-direction-bearish\)/s);
   assert.match(styles, /\.execution-plan-card-number-bullish\s*\{[^}]*color:\s*var\(--execution-plan-direction-bullish\)/s);
   assert.match(styles, /\.message-execution-plan\s*\{[^}]*text-align:\s*left;[^}]*user-select:\s*text/s);
+  assert.match(styles, /\.message-execution-plan\s*\{[^}]*position:\s*relative;[^}]*padding:\s*16px 17px 25px/s);
   assert.match(styles, /\.message-execution-plan h2\s*\{[^}]*color:\s*var\(--text-primary\)[^}]*text-align:\s*left/s);
+  assert.match(styles, /\.message-execution-plan-controls\s*\{[^}]*position:\s*absolute;[^}]*justify-content:\s*flex-end[^}]*min-height:\s*20px[^}]*opacity:\s*0;[^}]*pointer-events:\s*none/s);
+  assert.match(styles, /\.message-execution-plan:hover \.message-execution-plan-controls,[\s\S]*button:focus-visible\)[\s\S]*button\[aria-busy="true"\][\s\S]*opacity:\s*1;[\s\S]*pointer-events:\s*auto/);
+  assert.match(styles, /@media \(hover:\s*none\)\s*\{[\s\S]*\.message-execution-plan-controls\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto/s);
+  assert.match(styles, /\.message-execution-plan-controls button:hover:not\(:disabled\)/);
+  assert.match(styles, /\.message-execution-plan-controls button:active:not\(:disabled\)/);
+  assert.match(styles, /\.message-execution-plan-controls button:focus-visible/);
+  assert.match(styles, /\.message-execution-plan-controls button:disabled/);
+  assert.match(styles, /html\[data-theme="dark"\] \.message-execution-plan:hover/);
+  assert.match(styles, /html\[data-theme="dark"\] \.message-execution-plan-controls\s*\{[^}]*background:\s*color-mix/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.message-execution-plan-controls button:hover:not\(:disabled\)/);
   assert.match(styles, /html\[data-theme="dark"\] :is\(\.execution-plans-page, \.message-execution-plan\)\s*\{[^}]*--execution-plan-direction-bullish:\s*#52dc88;[^}]*--execution-plan-direction-bearish:\s*#ff718e/s);
   assert.doesNotMatch(styles, /\.execution-plan-card-mark/);
   assert.match(styles, /\.execution-plan-empty p\s*\{[^}]*font-size:\s*calc\(12px \+ var\(--app-font-size-offset\)\)/s);

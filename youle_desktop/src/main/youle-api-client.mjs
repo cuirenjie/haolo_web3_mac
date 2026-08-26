@@ -97,14 +97,11 @@ const DEFAULT_WECHAT_ILINK_BASE_URL = "https://ilinkai.weixin.qq.com";
 const DEFAULT_WECHAT_ILINK_BOT_TYPE = "3";
 const DEFAULT_WECHAT_OPENCLAW_VERSION = "2.4.6";
 const DIRECT_WECHAT_SESSION_PREFIX = "direct-wechat:";
-const BUNDLED_SUPPORT_QRCODE_CONTENT_TYPE = "image/jpeg";
-const BUNDLED_SUPPORT_QRCODE_PATH = fileURLToPath(new URL("./assets/support-qrcode.jpg", import.meta.url));
 const YOULE_API_DEBUG = /^(1|true|yes)$/i.test(process.env.YOULE_API_DEBUG || "");
 const LOW_BALANCE_THRESHOLD_YUAN = 5;
 const EXTERNAL_CHANNEL_REPLY_ATTACHMENT_LIMIT = 20;
 const EXTERNAL_CHANNEL_REPLY_ATTACHMENT_UPLOAD_PURPOSE = "external_channel_reply";
 const EXTERNAL_CHANNEL_REPLY_ATTACHMENT_LINK_FALLBACK_MIN_BYTES = 20 * 1024 * 1024;
-let bundledSupportQrcodeDataUrlPromise = null;
 const YOULE_AUTH_RETRY = Symbol("youleAuthRetry");
 const EXTERNAL_CHANNEL_FALLBACK_ITEMS = [
   { id: "wechat", name: "微信", description: "扫码授权后开始通信", status: "disconnected", connected: false },
@@ -1981,10 +1978,6 @@ export class YouleApiClient {
       path: response.path,
       contentType: response.contentType,
     };
-  }
-
-  async fetchSupportQrcode() {
-    return bundledSupportQrcodePayload();
   }
 
   async listExternalChannels() {
@@ -7619,29 +7612,6 @@ function extractObject(payload) {
     payload,
   ];
   return candidates.find((value) => value && typeof value === "object" && !Array.isArray(value)) || {};
-}
-
-async function bundledSupportQrcodeDataUrl() {
-  if (!bundledSupportQrcodeDataUrlPromise) {
-    bundledSupportQrcodeDataUrlPromise = fs
-      .readFile(BUNDLED_SUPPORT_QRCODE_PATH)
-      .then((buffer) => `data:${BUNDLED_SUPPORT_QRCODE_CONTENT_TYPE};base64,${buffer.toString("base64")}`)
-      .catch((error) => {
-        bundledSupportQrcodeDataUrlPromise = null;
-        throw error;
-      });
-  }
-  return bundledSupportQrcodeDataUrlPromise;
-}
-
-async function bundledSupportQrcodePayload() {
-  const qrcodeUrl = await bundledSupportQrcodeDataUrl();
-  return {
-    qrcode_url: qrcodeUrl,
-    qrcodeUrl,
-    object_key: "bundled-support-qrcode",
-    content_type: BUNDLED_SUPPORT_QRCODE_CONTENT_TYPE,
-  };
 }
 
 function externalChannelsFallbackResponse(error = null) {

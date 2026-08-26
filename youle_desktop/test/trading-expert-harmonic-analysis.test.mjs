@@ -487,7 +487,7 @@ test("Shark and Cypher drawing patches preserve topology-specific labels, termin
   }
 });
 
-test("pipeline and ExecutionPlanV1 preserve two deterministic targets without order capability", async () => {
+test("pipeline preserves deterministic harmonic targets while ExecutionPlanV1 expands the final target into three exits", async () => {
   const marketSnapshot = snapshot("gartley");
   const deterministic = runHarmonicPatternEngine(marketSnapshot).structures.primaryCandidate;
   const modelRegistry = {
@@ -526,7 +526,13 @@ test("pipeline and ExecutionPlanV1 preserve two deterministic targets without or
   const executionPlan = buildExecutionPlanV1(manifest, result, params);
   assert.equal(executionPlan.action, "long");
   assert.equal(executionPlan.preferredSide, "long");
-  assert.equal(executionPlan.takeProfits.length, 2);
+  assert.equal(executionPlan.takeProfits.length, 3);
+  assert.equal(
+    executionPlan.takeProfits[2].price.price,
+    result.analysisPlan.actionPlan.longTargets.at(-1),
+  );
+  assert.equal(executionPlan.riskReward[0].ratio <= 0.5, true);
+  assert.equal(executionPlan.riskReward[1].ratio <= 0.8, true);
   assert.equal(executionPlan.takeProfits.reduce((sum, target) => sum + target.allocationPercent, 0), 100);
   assert.equal(executionPlan.positionSizing.suggestedQuantity, null);
   assert.match(executionPlan.warnings.join(" "), /不是自动订单/);
@@ -658,7 +664,7 @@ test("registry and coordinator complete the harmonic mention-to-drawing-to-execu
   assert.equal(result.strategy.id, "harmonic");
   assert.equal(result.theoryResult.structures.primaryCandidate.patternId, "butterfly");
   assert.equal(result.analysisPlan.drawingPatch.operations.length, 21);
-  assert.equal(result.executionPlan.takeProfits.length, 2);
+  assert.equal(result.executionPlan.takeProfits.length, 3);
   assert.match(result.analysisPlan.report, /^## TEST\/USDT 币安永续 1H/m);
   assert.match(result.analysisPlan.report, /谐波形态结论/);
 });

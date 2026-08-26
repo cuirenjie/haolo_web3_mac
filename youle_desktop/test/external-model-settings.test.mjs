@@ -38,6 +38,16 @@ test("model settings keeps keys in an ephemeral password input", async () => {
   assert.doesNotMatch(source, /(?:localStorage|sessionStorage)\.(?:setItem|getItem)|encryptedApiKey/);
 });
 
+test("model settings uses the shared HaoLo option box instead of a native visible select", async () => {
+  const [settings, renderer] = await Promise.all([settingsSource, rendererSource]);
+  assert.match(settings, /renderHaoloSelect\(\{/);
+  assert.match(settings, /className: "external-model-base-url-select"/);
+  assert.match(settings, /"data-external-model-base-url": provider\.id/);
+  assert.doesNotMatch(settings, /<select\b/);
+  assert.match(renderer, /bindHaoloSelects\(settingsDialog\)/);
+  assert.match(renderer, /querySelector<HTMLInputElement>\("\[data-external-model-base-url\]"\)/);
+});
+
 test("first-stage model configuration does not replace the existing provider chat route", async () => {
   const main = await mainSource;
   const renderer = await rendererSource;

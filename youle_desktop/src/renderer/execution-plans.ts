@@ -59,6 +59,7 @@ export type SavedExecutionPlan = ExecutionPlanCandidate & {
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 
 const EXECUTION_PLAN_STORAGE_PREFIX = "haolo.execution-plans.v1";
+const MESSAGE_EXECUTION_PLAN_FONT_STORAGE_PREFIX = "haolo.message-execution-plan-font.v1";
 const MAX_SAVED_EXECUTION_PLANS = 100;
 const MAX_PLAN_CONTENT_LENGTH = 20_000;
 const EXECUTION_PLAN_STATUSES = new Set<ExecutionPlanStatus>(["pending", "executing", "ended"]);
@@ -341,6 +342,55 @@ function defaultStorage(): StorageLike | null {
   } catch {
     return null;
   }
+}
+
+export const MESSAGE_EXECUTION_PLAN_FONT_SIZES = Object.freeze([11, 12, 13, 14, 16, 18, 20]);
+
+export function normalizeMessageExecutionPlanFontSize(value: unknown) {
+  if (value == null || String(value).trim() === "") return 12;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 12;
+  return MESSAGE_EXECUTION_PLAN_FONT_SIZES.reduce((nearest, candidate) => (
+    Math.abs(candidate - numeric) < Math.abs(nearest - numeric) ? candidate : nearest
+  ), MESSAGE_EXECUTION_PLAN_FONT_SIZES[0]);
+}
+
+function messageExecutionPlanFontStorageKey(key: string) {
+  return `${MESSAGE_EXECUTION_PLAN_FONT_STORAGE_PREFIX}:${encodeURIComponent(String(key || "")).slice(0, 640)}`;
+}
+
+export function loadMessageExecutionPlanFontSize(key: string, storage: StorageLike | null = defaultStorage()) {
+  if (!storage) return 12;
+  try {
+    return normalizeMessageExecutionPlanFontSize(storage.getItem(messageExecutionPlanFontStorageKey(key)));
+  } catch {
+    return 12;
+  }
+}
+
+export function saveMessageExecutionPlanFontSize(
+  key: string,
+  value: unknown,
+  storage: StorageLike | null = defaultStorage(),
+) {
+  const fontSize = normalizeMessageExecutionPlanFontSize(value);
+  if (!storage) return fontSize;
+  try {
+    storage.setItem(messageExecutionPlanFontStorageKey(key), String(fontSize));
+  } catch {
+    // The visible size can still update when browser storage is unavailable.
+  }
+  return fontSize;
+}
+
+export function stepMessageExecutionPlanFontSize(value: unknown, delta: number) {
+  const current = normalizeMessageExecutionPlanFontSize(value);
+  const index = MESSAGE_EXECUTION_PLAN_FONT_SIZES.indexOf(current);
+  const nextIndex = Math.max(0, Math.min(
+    MESSAGE_EXECUTION_PLAN_FONT_SIZES.length - 1,
+    index + Math.sign(Number(delta) || 0),
+  ));
+  return MESSAGE_EXECUTION_PLAN_FONT_SIZES[nextIndex];
 }
 
 function storageKey(scope: string) {

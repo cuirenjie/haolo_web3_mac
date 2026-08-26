@@ -32,6 +32,7 @@ const AI_NOTE_CANDLE_GAP = 8;
 const AI_NOTE_LEADER_GAP = 28;
 const AI_NOTE_TOP_INSET = 40;
 const TRADING_TEXT_FONT_SIZES = [10, 11, 12, 14, 16, 18, 20, 24, 28, 36] as const;
+const TRADING_AI_TEXT_FONT_SIZES = [8, 9, ...TRADING_TEXT_FONT_SIZES] as const;
 const DEFAULT_DRAWING_LINE_WIDTH = 1;
 const DRAWING_HANDLE_RADIUS = 5;
 const DRAWING_MAGNET_DISTANCE = 18;
@@ -728,6 +729,35 @@ export function clampTradingDrawingToolbarPosition(
   };
 }
 
+export function positionTradingAiTextSizeToolbar(
+  textBounds: TradingDrawingCollisionRect,
+  bounds: { width: number; height: number },
+  toolbarSize: { width: number; height: number },
+): ScreenPoint {
+  const inset = 8;
+  const gap = 6;
+  const left = textBounds.x - toolbarSize.width - gap;
+  const x = left >= inset
+    ? left
+    : textBounds.x + textBounds.width + gap;
+  const y = textBounds.y + (textBounds.height - toolbarSize.height) / 2;
+  return clampTradingDrawingToolbarPosition({ x, y }, bounds, toolbarSize);
+}
+
+export function tradingAiTextNextFontSize(
+  value: unknown,
+  action: "decrease" | "increase",
+) {
+  const numericValue = Number(value);
+  const current = Number.isFinite(numericValue) ? numericValue : AI_NOTE_FONT_SIZE;
+  if (action === "increase") {
+    return TRADING_AI_TEXT_FONT_SIZES.find((size) => size > current)
+      ?? TRADING_AI_TEXT_FONT_SIZES.at(-1)!;
+  }
+  return [...TRADING_AI_TEXT_FONT_SIZES].reverse().find((size) => size < current)
+    ?? TRADING_AI_TEXT_FONT_SIZES[0];
+}
+
 function drawingIcon(name: string) {
   const paths: Record<string, string> = {
     cursor: '<path d="M5 3.5 18 12l-6.1 1.4L9.5 20z"/>',
@@ -986,10 +1016,15 @@ export function renderTradingDrawingLayer() {
       <g data-trading-order-lines aria-label="账户持仓与委托线"></g>
       <g data-drawing-content></g>
       <g data-ai-drawing-content aria-label="AI 策略绘图"></g>
+      <g data-ai-text-hit-content aria-label="AI 文字标注字号调节"></g>
       <g data-ai-drawing-cursor aria-hidden="true"></g>
     </svg>
     <div class="trading-order-position-cards" data-trading-order-position-cards></div>
     <div class="trading-drawing-axis-markers" data-drawing-axis-markers aria-hidden="true"></div>
+    <div class="trading-ai-text-size-toolbar" data-ai-text-size-toolbar role="toolbar" aria-label="当前图表全部 AI 标注字号" hidden>
+      <button type="button" data-ai-text-size-action="decrease" aria-label="缩小当前图表全部标注文字" title="缩小当前图表全部标注文字"><span aria-hidden="true">A−</span></button>
+      <button type="button" data-ai-text-size-action="increase" aria-label="放大当前图表全部标注文字" title="放大当前图表全部标注文字"><span aria-hidden="true">A+</span></button>
+    </div>
     ${renderTradingDrawingSelectionToolbar()}
   `;
 }
@@ -1126,7 +1161,7 @@ function drawingLineWidth(value: unknown) {
 
 function drawingTextFontSize(value: unknown) {
   const size = Number(value);
-  return TRADING_TEXT_FONT_SIZES.includes(size as typeof TRADING_TEXT_FONT_SIZES[number]) ? size : undefined;
+  return TRADING_AI_TEXT_FONT_SIZES.includes(size as typeof TRADING_AI_TEXT_FONT_SIZES[number]) ? size : undefined;
 }
 
 function drawingViewportAnchor(value: unknown): ScreenPoint | undefined {
@@ -2068,10 +2103,12 @@ export class TradingDrawingController {
   private readonly orderPositionCardLayer: HTMLElement;
   private readonly content: SVGGElement;
   private readonly aiContent: SVGGElement;
+  private readonly aiTextHitContent: SVGGElement;
   private readonly aiCursorContent: SVGGElement;
   private readonly toolbar: HTMLElement;
   private readonly status: HTMLElement;
   private readonly selectionToolbar: HTMLElement;
+  private readonly aiTextSizeToolbar: HTMLElement;
   private readonly axisMarkerLayer: HTMLElement;
   private readonly clearDialog: HTMLDialogElement;
   private readonly getChart: () => any;
@@ -2096,6 +2133,8 @@ export class TradingDrawingController {
   private aiCursorPulse = false;
   private orderLines: TradingOrderLine[] = [];
   private openOrderPositionCardId: string | null = null;
+  private hoveredAiTextDrawingId: string | null = null;
+  private aiTextSizeToolbarHideTimer: number | null = null;
   private readonly aiPlayback: TradingAiDrawingPlaybackController;
   private redoStack: TradingDrawingModel[] = [];
   private activeTool: TradingDrawingToolId = "cursor";
@@ -2141,24 +2180,28 @@ export class TradingDrawingController {
     const orderPositionCardLayer = this.host.querySelector<HTMLElement>("[data-trading-order-position-cards]");
     const content = this.overlay.querySelector<SVGGElement>("[data-drawing-content]");
     const aiContent = this.overlay.querySelector<SVGGElement>("[data-ai-drawing-content]");
+    const aiTextHitContent = this.overlay.querySelector<SVGGElement>("[data-ai-text-hit-content]");
     const aiCursorContent = this.overlay.querySelector<SVGGElement>("[data-ai-drawing-cursor]");
     const controlsHost = options.controlsHost ?? this.host;
     const toolbar = controlsHost.querySelector<HTMLElement>("[data-drawing-toolbar]");
     const status = controlsHost.querySelector<HTMLElement>("[data-drawing-status]");
     const selectionToolbar = this.host.querySelector<HTMLElement>("[data-drawing-selection]");
+    const aiTextSizeToolbar = this.host.querySelector<HTMLElement>("[data-ai-text-size-toolbar]");
     const axisMarkerLayer = this.host.querySelector<HTMLElement>("[data-drawing-axis-markers]");
     const clearDialog = controlsHost.querySelector<HTMLDialogElement>("[data-drawing-clear-dialog]");
-    if (!orderLineContent || !orderPositionCardLayer || !content || !aiContent || !aiCursorContent || !toolbar || !status || !selectionToolbar || !axisMarkerLayer || !clearDialog) {
+    if (!orderLineContent || !orderPositionCardLayer || !content || !aiContent || !aiTextHitContent || !aiCursorContent || !toolbar || !status || !selectionToolbar || !aiTextSizeToolbar || !axisMarkerLayer || !clearDialog) {
       throw new Error("Trading drawing surface is incomplete");
     }
     this.orderLineContent = orderLineContent;
     this.orderPositionCardLayer = orderPositionCardLayer;
     this.content = content;
     this.aiContent = aiContent;
+    this.aiTextHitContent = aiTextHitContent;
     this.aiCursorContent = aiCursorContent;
     this.toolbar = toolbar;
     this.status = status;
     this.selectionToolbar = selectionToolbar;
+    this.aiTextSizeToolbar = aiTextSizeToolbar;
     this.axisMarkerLayer = axisMarkerLayer;
     this.clearDialog = clearDialog;
     this.getChart = options.getChart;
@@ -2239,6 +2282,7 @@ export class TradingDrawingController {
     this.stayInDrawingMode = state.stayInDrawingMode;
     this.magnetEnabled = state.magnetEnabled;
     this.overlay.classList.toggle("drawing-active", definition.kind !== "cursor");
+    if (definition.kind !== "cursor") this.hideAiTextSizeToolbar();
     this.overlay.dataset.drawingTool = definition.id;
     if (this.controlActive) {
       this.setStatus(this.activeToolLabel());
@@ -2253,6 +2297,7 @@ export class TradingDrawingController {
     }
     this.controlActive = active;
     if (!active) {
+      this.hideAiTextSizeToolbar();
       this.closeToolMenus();
       this.closeSelectionMenus();
       this.cancelDraft();
@@ -2277,6 +2322,7 @@ export class TradingDrawingController {
       return;
     }
     this.closeToolMenus();
+    this.hideAiTextSizeToolbar();
     this.closeSelectionMenus();
     this.cancelDraft();
     this.cancelSelectionDrag();
@@ -2342,6 +2388,7 @@ export class TradingDrawingController {
     this.dragState = null;
     this.pendingTextDrawingId = null;
     this.selectedDrawingId = null;
+    this.hideAiTextSizeToolbar();
     this.selectionToolbarPosition = null;
     this.draftConfirmedPointCount = 0;
     this.draftRequiredPointCount = 0;
@@ -2366,6 +2413,17 @@ export class TradingDrawingController {
     this.selectionToolbar.addEventListener("pointerup", this.handleSelectionToolbarPointerUp);
     this.selectionToolbar.addEventListener("pointercancel", this.handleSelectionToolbarPointerCancel);
     this.selectionToolbar.addEventListener("lostpointercapture", this.handleSelectionToolbarPointerCancel);
+    this.aiTextHitContent.addEventListener("pointerover", this.handleAiTextPointerOver);
+    this.aiTextHitContent.addEventListener("pointerout", this.handleAiTextPointerOut);
+    this.aiTextHitContent.addEventListener("focusin", this.handleAiTextFocusIn);
+    this.aiTextHitContent.addEventListener("focusout", this.handleAiTextFocusOut);
+    this.aiTextHitContent.addEventListener("keydown", this.handleAiTextTriggerKeyDown);
+    this.aiTextSizeToolbar.addEventListener("click", this.handleAiTextSizeToolbarClick);
+    this.aiTextSizeToolbar.addEventListener("pointerdown", this.handleAiTextSizeToolbarPointerDown);
+    this.aiTextSizeToolbar.addEventListener("pointerenter", this.handleAiTextSizeToolbarPointerEnter);
+    this.aiTextSizeToolbar.addEventListener("pointerleave", this.handleAiTextSizeToolbarPointerLeave);
+    this.aiTextSizeToolbar.addEventListener("focusin", this.handleAiTextSizeToolbarFocusIn);
+    this.aiTextSizeToolbar.addEventListener("focusout", this.handleAiTextSizeToolbarFocusOut);
     this.chartElement.addEventListener("pointerdown", this.handleSurfacePointerDown, { capture: true });
     this.orderLineContent.addEventListener("pointerover", this.handleOrderPositionPointerOver);
     this.orderLineContent.addEventListener("pointerout", this.handleOrderPositionPointerOut);
@@ -2438,6 +2496,173 @@ export class TradingDrawingController {
     if (event.relatedTarget instanceof Node && trigger.contains(event.relatedTarget)) return;
     if (trigger.matches(":hover")) return;
     this.setOpenOrderPositionCard(null);
+  };
+
+  private aiTextSizeTrigger(target: EventTarget | null) {
+    return target instanceof Element
+      ? target.closest<SVGGElement>("[data-ai-text-size-trigger]")
+      : null;
+  }
+
+  private aiTextDrawingsForCurrentContext() {
+    const symbol = this.getSymbol();
+    const interval = this.getInterval();
+    return this.aiDrawings.filter((drawing) => (
+      tradingAiDrawingMatchesContext(drawing, symbol, interval)
+      && tradingDrawingToolDefinition(drawing.tool)?.kind === "text"
+    ));
+  }
+
+  private aiTextDrawing(id: string | null) {
+    if (!id) return null;
+    return this.aiTextDrawingsForCurrentContext().find((drawing) => drawing.id === id) ?? null;
+  }
+
+  private clearAiTextSizeToolbarHideTimer() {
+    if (this.aiTextSizeToolbarHideTimer === null) return;
+    window.clearTimeout(this.aiTextSizeToolbarHideTimer);
+    this.aiTextSizeToolbarHideTimer = null;
+  }
+
+  private hideAiTextSizeToolbar() {
+    this.clearAiTextSizeToolbarHideTimer();
+    this.hoveredAiTextDrawingId = null;
+    this.aiTextSizeToolbar.hidden = true;
+  }
+
+  private scheduleAiTextSizeToolbarHide() {
+    this.clearAiTextSizeToolbarHideTimer();
+    this.aiTextSizeToolbarHideTimer = window.setTimeout(() => {
+      this.aiTextSizeToolbarHideTimer = null;
+      if (this.aiTextSizeToolbar.matches(":hover, :focus-within")) return;
+      const currentTrigger = [...this.aiTextHitContent.querySelectorAll<SVGGElement>("[data-ai-text-size-trigger]")]
+        .find((trigger) => trigger.dataset.aiTextSizeTrigger === this.hoveredAiTextDrawingId);
+      if (currentTrigger?.matches(":hover, :focus-within")) return;
+      this.hideAiTextSizeToolbar();
+    }, 140);
+  }
+
+  private showAiTextSizeToolbar(id: string) {
+    if (
+      !this.userDrawingEnabled
+      || this.drawingsHidden
+      || tradingDrawingToolDefinition(this.activeTool)?.kind !== "cursor"
+      || !this.aiTextDrawing(id)
+    ) return;
+    this.clearAiTextSizeToolbarHideTimer();
+    this.hoveredAiTextDrawingId = id;
+    this.updateAiTextSizeToolbar(this.plotBounds());
+  }
+
+  private adjustAiTextFontSize(action: "decrease" | "increase") {
+    const drawing = this.aiTextDrawing(this.hoveredAiTextDrawingId);
+    if (!drawing) {
+      this.hideAiTextSizeToolbar();
+      return;
+    }
+    let changed = false;
+    for (const textDrawing of this.aiTextDrawingsForCurrentContext()) {
+      const current = textDrawing.fontSize
+        ?? (textDrawing.tool === "note" ? AI_NOTE_FONT_SIZE : DEFAULT_TEXT_FONT_SIZE);
+      const next = tradingAiTextNextFontSize(current, action);
+      if (next === current) continue;
+      textDrawing.fontSize = next;
+      changed = true;
+    }
+    if (!changed) {
+      this.updateAiTextSizeToolbar(this.plotBounds());
+      return;
+    }
+    this.persistAiDrawings();
+    this.redraw();
+    this.setStatus(`当前图表全部 AI 标注已${action === "decrease" ? "缩小" : "放大"}`);
+  }
+
+  private readonly handleAiTextPointerOver = (event: PointerEvent) => {
+    const trigger = this.aiTextSizeTrigger(event.target);
+    const id = trigger?.dataset.aiTextSizeTrigger;
+    if (id) this.showAiTextSizeToolbar(id);
+  };
+
+  private readonly handleAiTextPointerOut = (event: PointerEvent) => {
+    const trigger = this.aiTextSizeTrigger(event.target);
+    if (!trigger) return;
+    if (event.relatedTarget instanceof Node && (
+      trigger.contains(event.relatedTarget)
+      || this.aiTextSizeToolbar.contains(event.relatedTarget)
+    )) return;
+    if (trigger.matches(":focus, :focus-within")) return;
+    this.scheduleAiTextSizeToolbarHide();
+  };
+
+  private readonly handleAiTextFocusIn = (event: FocusEvent) => {
+    const id = this.aiTextSizeTrigger(event.target)?.dataset.aiTextSizeTrigger;
+    if (id) this.showAiTextSizeToolbar(id);
+  };
+
+  private readonly handleAiTextFocusOut = (event: FocusEvent) => {
+    const trigger = this.aiTextSizeTrigger(event.target);
+    if (!trigger) return;
+    if (event.relatedTarget instanceof Node && (
+      trigger.contains(event.relatedTarget)
+      || this.aiTextSizeToolbar.contains(event.relatedTarget)
+    )) return;
+    if (trigger.matches(":hover")) return;
+    this.scheduleAiTextSizeToolbarHide();
+  };
+
+  private readonly handleAiTextTriggerKeyDown = (event: KeyboardEvent) => {
+    const id = this.aiTextSizeTrigger(event.target)?.dataset.aiTextSizeTrigger;
+    if (!id) return;
+    if (event.key === "Escape") {
+      this.hideAiTextSizeToolbar();
+      return;
+    }
+    const action = event.key === "+" || event.key === "=" || event.key === "ArrowUp"
+      ? "increase"
+      : event.key === "-" || event.key === "_" || event.key === "ArrowDown"
+        ? "decrease"
+        : null;
+    if (!action) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.showAiTextSizeToolbar(id);
+    this.adjustAiTextFontSize(action);
+  };
+
+  private readonly handleAiTextSizeToolbarClick = (event: Event) => {
+    const button = event.target instanceof Element
+      ? event.target.closest<HTMLButtonElement>("[data-ai-text-size-action]")
+      : null;
+    const action = button?.dataset.aiTextSizeAction;
+    if (action !== "decrease" && action !== "increase") return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.onSurfaceFocus?.(this);
+    this.adjustAiTextFontSize(action);
+  };
+
+  private readonly handleAiTextSizeToolbarPointerDown = (event: PointerEvent) => {
+    event.stopPropagation();
+  };
+
+  private readonly handleAiTextSizeToolbarPointerEnter = () => {
+    this.clearAiTextSizeToolbarHideTimer();
+  };
+
+  private readonly handleAiTextSizeToolbarPointerLeave = () => {
+    if (!this.aiTextSizeToolbar.matches(":focus-within")) this.scheduleAiTextSizeToolbarHide();
+  };
+
+  private readonly handleAiTextSizeToolbarFocusIn = () => {
+    this.clearAiTextSizeToolbarHideTimer();
+  };
+
+  private readonly handleAiTextSizeToolbarFocusOut = (event: FocusEvent) => {
+    if (event.relatedTarget instanceof Node && this.aiTextSizeToolbar.contains(event.relatedTarget)) return;
+    const trigger = this.aiTextSizeTrigger(event.relatedTarget);
+    if (trigger?.dataset.aiTextSizeTrigger === this.hoveredAiTextDrawingId) return;
+    if (!this.aiTextSizeToolbar.matches(":hover")) this.scheduleAiTextSizeToolbarHide();
   };
 
   private readonly handleWheel = (event: WheelEvent) => {
@@ -4120,7 +4345,9 @@ export class TradingDrawingController {
     if (this.drawingsHidden) {
       this.content.innerHTML = "";
       this.aiContent.innerHTML = "";
+      this.aiTextHitContent.innerHTML = "";
       this.aiCursorContent.innerHTML = "";
+      this.hideAiTextSizeToolbar();
       this.updateSelectionToolbar(bounds);
       this.updateAxisMarkers(bounds);
       return;
@@ -4199,7 +4426,16 @@ export class TradingDrawingController {
         );
       })
       .join("");
+    this.aiTextHitContent.innerHTML = orderedAiDrawings
+      .map((drawing) => {
+        if (drawing === this.aiDraft) return "";
+        const textLayout = aiTextLayouts.get(drawing.id);
+        if (drawing.tool === "note" && !textLayout) return "";
+        return this.renderAiTextSizeHitTarget(drawing, bounds, textLayout);
+      })
+      .join("");
     this.renderAiCursor(bounds);
+    this.updateAiTextSizeToolbar(bounds);
     this.updateToolbarState();
     this.updateSelectionToolbar(bounds);
     this.updateAxisMarkers(bounds);
@@ -4591,6 +4827,108 @@ export class TradingDrawingController {
     return `<rect class="trading-drawing-hit-target area" x="${point.x - 7}" y="${point.y - fontSize - 6}" width="${layout.width + 14}" height="${layout.height + 12}" />`;
   }
 
+  private renderAiTextSizeHitTarget(
+    drawing: TradingDrawingModel,
+    bounds: { width: number; height: number },
+    resolvedTextGeometry?: ReturnType<typeof tradingDrawingNoteBoxGeometry>,
+  ) {
+    if (tradingDrawingToolDefinition(drawing.tool)?.kind !== "text" || !drawing.text) return "";
+    this.ensureAnchoredViewportAnchor(drawing);
+    const points = drawing.points
+      .map((_point, index) => this.drawingPointToScreen(drawing, index, bounds))
+      .filter((point): point is ScreenPoint => Boolean(point));
+    const point = points[0];
+    if (!point) return "";
+    const fontSize = drawing.fontSize ?? (drawing.tool === "note" ? AI_NOTE_FONT_SIZE : DEFAULT_TEXT_FONT_SIZE);
+    let box: TradingDrawingCollisionRect;
+    if (drawing.tool === "price-note") {
+      const labelPoint = points.at(-1) ?? point;
+      const geometry = tradingDrawingPriceNoteBoxGeometry(labelPoint, drawing.text, fontSize, bounds);
+      box = {
+        x: geometry.boxLeft - 5,
+        y: geometry.boxTop - 5,
+        width: geometry.boxWidth + 10,
+        height: geometry.boxHeight + 10,
+      };
+    } else if (drawing.tool === "note" || drawing.tool === "callout") {
+      const geometry = resolvedTextGeometry
+        ?? tradingDrawingNoteBoxGeometry(point, drawing.text, fontSize, bounds);
+      box = {
+        x: geometry.boxLeft - 6,
+        y: geometry.boxTop - 6,
+        width: geometry.boxWidth + 12,
+        height: geometry.boxHeight + 12,
+      };
+    } else if (tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) && resolvedTextGeometry) {
+      box = {
+        x: resolvedTextGeometry.boxLeft - 6,
+        y: resolvedTextGeometry.boxTop - 6,
+        width: resolvedTextGeometry.boxWidth + 12,
+        height: resolvedTextGeometry.boxHeight + 12,
+      };
+    } else {
+      const layout = tradingDrawingTextLayout(drawing.text, fontSize);
+      box = {
+        x: point.x - 7,
+        y: point.y - fontSize - 6,
+        width: layout.width + 14,
+        height: layout.height + 12,
+      };
+    }
+    const label = drawing.text.replace(/\s+/g, " ").trim().slice(0, 48);
+    return `<g class="trading-ai-text-size-trigger" data-ai-text-size-trigger="${escapeHtml(drawing.id)}" tabindex="0" role="group" aria-label="${escapeHtml(`AI 标注：${label}；当前字号 ${fontSize}px`)}">`
+      + `<rect class="trading-ai-text-size-hit-target" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" />`
+      + `</g>`;
+  }
+
+  private updateAiTextSizeToolbar(bounds: { width: number; height: number }) {
+    const drawing = this.aiTextDrawing(this.hoveredAiTextDrawingId);
+    const trigger = drawing
+      ? [...this.aiTextHitContent.querySelectorAll<SVGGElement>("[data-ai-text-size-trigger]")]
+          .find((candidate) => candidate.dataset.aiTextSizeTrigger === drawing.id)
+      : null;
+    const hitTarget = trigger?.querySelector<SVGRectElement>(".trading-ai-text-size-hit-target");
+    if (!drawing || !hitTarget) {
+      this.hideAiTextSizeToolbar();
+      return;
+    }
+    const x = Number(hitTarget.getAttribute("x"));
+    const y = Number(hitTarget.getAttribute("y"));
+    const width = Number(hitTarget.getAttribute("width"));
+    const height = Number(hitTarget.getAttribute("height"));
+    if (![x, y, width, height].every(Number.isFinite)) {
+      this.hideAiTextSizeToolbar();
+      return;
+    }
+    const current = drawing.fontSize ?? (drawing.tool === "note" ? AI_NOTE_FONT_SIZE : DEFAULT_TEXT_FONT_SIZE);
+    const textDrawings = this.aiTextDrawingsForCurrentContext();
+    this.aiTextSizeToolbar.hidden = false;
+    this.aiTextSizeToolbar.setAttribute("aria-label", `当前图表全部 AI 标注字号，所在标注当前 ${current}px`);
+    this.aiTextSizeToolbar.querySelectorAll<HTMLButtonElement>("[data-ai-text-size-action]").forEach((button) => {
+      const action = button.dataset.aiTextSizeAction as "decrease" | "increase";
+      const disabled = textDrawings.every((textDrawing) => {
+        const fontSize = textDrawing.fontSize
+          ?? (textDrawing.tool === "note" ? AI_NOTE_FONT_SIZE : DEFAULT_TEXT_FONT_SIZE);
+        return tradingAiTextNextFontSize(fontSize, action) === fontSize;
+      });
+      const verb = action === "decrease" ? "缩小" : "放大";
+      button.disabled = disabled;
+      button.setAttribute("aria-label", `${verb}当前图表全部标注文字`);
+      button.title = `${verb}当前图表全部标注文字`;
+    });
+    const toolbarSize = {
+      width: this.aiTextSizeToolbar.offsetWidth || 66,
+      height: this.aiTextSizeToolbar.offsetHeight || 34,
+    };
+    const position = positionTradingAiTextSizeToolbar(
+      { x, y, width, height },
+      bounds,
+      toolbarSize,
+    );
+    this.aiTextSizeToolbar.style.left = `${position.x}px`;
+    this.aiTextSizeToolbar.style.top = `${position.y}px`;
+  }
+
   private renderMarker(point: ScreenPoint, definition: TradingDrawingToolDefinition, color: string) {
     const glyph: Partial<Record<TradingDrawingToolId, string>> = {
       signpost: "◆",
@@ -4683,6 +5021,7 @@ export class TradingDrawingController {
     if (this.destroyed) return;
     this.destroyed = true;
     this.aiPlayback.cancel();
+    this.hideAiTextSizeToolbar();
     if (this.clearDialog.open && (this.bindControlEvents || this.clearDialogTrigger)) this.clearDialog.close();
     this.releasePointer();
     this.finishSelectionToolbarDrag();
@@ -4698,6 +5037,17 @@ export class TradingDrawingController {
     this.selectionToolbar.removeEventListener("pointerup", this.handleSelectionToolbarPointerUp);
     this.selectionToolbar.removeEventListener("pointercancel", this.handleSelectionToolbarPointerCancel);
     this.selectionToolbar.removeEventListener("lostpointercapture", this.handleSelectionToolbarPointerCancel);
+    this.aiTextHitContent.removeEventListener("pointerover", this.handleAiTextPointerOver);
+    this.aiTextHitContent.removeEventListener("pointerout", this.handleAiTextPointerOut);
+    this.aiTextHitContent.removeEventListener("focusin", this.handleAiTextFocusIn);
+    this.aiTextHitContent.removeEventListener("focusout", this.handleAiTextFocusOut);
+    this.aiTextHitContent.removeEventListener("keydown", this.handleAiTextTriggerKeyDown);
+    this.aiTextSizeToolbar.removeEventListener("click", this.handleAiTextSizeToolbarClick);
+    this.aiTextSizeToolbar.removeEventListener("pointerdown", this.handleAiTextSizeToolbarPointerDown);
+    this.aiTextSizeToolbar.removeEventListener("pointerenter", this.handleAiTextSizeToolbarPointerEnter);
+    this.aiTextSizeToolbar.removeEventListener("pointerleave", this.handleAiTextSizeToolbarPointerLeave);
+    this.aiTextSizeToolbar.removeEventListener("focusin", this.handleAiTextSizeToolbarFocusIn);
+    this.aiTextSizeToolbar.removeEventListener("focusout", this.handleAiTextSizeToolbarFocusOut);
     this.chartElement.removeEventListener("pointerdown", this.handleSurfacePointerDown, { capture: true });
     this.orderLineContent.removeEventListener("pointerover", this.handleOrderPositionPointerOver);
     this.orderLineContent.removeEventListener("pointerout", this.handleOrderPositionPointerOut);

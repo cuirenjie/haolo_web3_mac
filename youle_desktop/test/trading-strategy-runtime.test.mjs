@@ -174,7 +174,15 @@ test("ExecutionPlanV1 derives prices from deterministic action levels and remain
   assert.deepEqual(plan.scenarios.map((scenario) => scenario.side), ["long", "short"]);
   assert.equal(plan.scenarios[0].trigger.price, 102);
   assert.equal(plan.scenarios[0].stop.price, 98);
-  assert.equal(plan.scenarios[0].targets[0].price, 108);
+  assert.deepEqual(plan.scenarios[0].targets.map((target) => target.price), [104.306, 105.5672, 108]);
+  assert.deepEqual(plan.riskReward, [
+    { targetIndex: 0, ratio: 0.5 },
+    { targetIndex: 1, ratio: 0.8 },
+    { targetIndex: 2, ratio: 1.38 },
+  ]);
+  assert.equal(plan.takeProfits.length, 3);
+  assert.deepEqual(plan.takeProfits.map((target) => target.allocationPercent), [33, 33, 34]);
+  assert.match(plan.takeProfits[2].price.label, /原策略止盈位/);
   assert.equal(plan.positionSizing.suggestedQuantity, null);
   assert.match(plan.positionSizing.unavailableReason, /账户权益/);
   const markdown = formatExecutionPlanMarkdown(plan);
@@ -187,8 +195,22 @@ test("ExecutionPlanV1 derives prices from deterministic action levels and remain
   assert.doesNotMatch(markdown, /前置条件|确认方式|继续观察|方案有效期|取消执行|回踩|反抽/);
   assert.deepEqual(validateExecutionPlan(plan), plan);
   const tickNormalized = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), { tickSize: 0.25 });
-  assert.equal(tickNormalized.scenarios[0].trigger.price % 0.25, 0);
+  assert.equal(tickNormalized.scenarios[0].targets.every((target) => target.price % 0.25 === 0), true);
+  assert.equal(tickNormalized.riskReward[0].ratio <= 0.5, true);
+  assert.equal(tickNormalized.riskReward[1].ratio <= 0.8, true);
+  assert.equal(tickNormalized.takeProfits[2].price.price, 108);
   assert.match(tickNormalized.warnings.join(" "), /tick size 0\.25/);
+
+  const shortResult = sampleLegacyResult();
+  shortResult.theoryResult.signals = [{ direction: "bearish", strength: 0.9 }];
+  const shortTickNormalized = buildExecutionPlanV1(sampleManifest, shortResult, { tickSize: 0.25 });
+  const shortTargets = shortTickNormalized.scenarios.find((item) => item.side === "short").targets;
+  assert.equal(shortTargets.length, 3);
+  assert.equal(shortTargets[0].price > shortTargets[1].price, true);
+  assert.equal(shortTargets[1].price > shortTargets[2].price, true);
+  assert.equal(shortTickNormalized.riskReward[0].ratio <= 0.5, true);
+  assert.equal(shortTickNormalized.riskReward[1].ratio <= 0.8, true);
+  assert.equal(shortTargets[2].price, 90);
 });
 
 test("bilateral conditional plans are rendered as independent long and short execution plans", () => {
@@ -239,8 +261,8 @@ test("unbound Binance output uses estimated net risk/reward in the requested six
     "方向判断：偏空",
     "空头触发：63007.1",
     "止损与失效：63141.6",
-    "分批止盈：第1目标 62770.701875",
-    "风险收益比：目标1为 1:0.42",
+    "分批止盈：第1目标 62835.09249792，第2目标 62807.49651667，第3目标 62770.701875",
+    "风险收益比：目标1为 1:0.18，目标2为 1:0.28，目标3为 1:0.42",
   ].join("\n"));
 });
 
@@ -275,11 +297,19 @@ test("ExecutionPlanV1 keeps displayed SOL net risk/reward consistent with its ne
   const plan = buildExecutionPlanV1(sampleManifest, legacyResult, params);
   assert.equal(plan.positionSizing.accountPlan.notional, 1_833.34);
   assert.equal(plan.positionSizing.accountPlan.estimatedStopLoss, 29.95);
-  assert.equal(plan.positionSizing.accountPlan.estimatedTakeProfit, 35.77);
-  assert.equal(plan.riskReward[0].ratio, 1.19);
+  assert.equal(plan.positionSizing.accountPlan.estimatedTakeProfit, 24.93);
+  assert.deepEqual(plan.riskReward, [
+    { targetIndex: 0, ratio: 0.5 },
+    { targetIndex: 1, ratio: 0.8 },
+    { targetIndex: 2, ratio: 1.19 },
+  ]);
+  assert.deepEqual(
+    plan.positionSizing.accountPlan.targetOrders.map((target) => target.notional),
+    [605, 605, 623.33],
+  );
   assert.match(
     formatExecutionPlanMarkdown(plan),
-    /目标1为 1:1\.19，如果止损：约 -29\.95 USDT，如果全部止盈：约 \+35\.77 USDT/,
+    /目标1为 1:0\.5，目标2为 1:0\.8，目标3为 1:1\.19，如果止损：约 -29\.95 USDT，如果全部止盈：约 \+24\.93 USDT/,
   );
 
   const blocked = buildExecutionPlanV1(sampleManifest, legacyResult, {
@@ -290,18 +320,22 @@ test("ExecutionPlanV1 keeps displayed SOL net risk/reward consistent with its ne
     },
   });
   assert.equal(blocked.action, "no_trade");
-  assert.deepEqual(blocked.riskReward, [{ targetIndex: 0, ratio: 1.19 }]);
-  assert.equal(blocked.takeProfits.length, 1);
+  assert.deepEqual(blocked.riskReward, [
+    { targetIndex: 0, ratio: 0.5 },
+    { targetIndex: 1, ratio: 0.8 },
+    { targetIndex: 2, ratio: 1.19 },
+  ]);
+  assert.equal(blocked.takeProfits.length, 3);
   assert.equal(blocked.scenarios.find((item) => item.side === "short").trigger.price, 74.61);
   assert.equal(blocked.positionSizing.accountPlan.estimatedStopLoss, 29.95);
-  assert.equal(blocked.positionSizing.accountPlan.estimatedTakeProfit, 35.77);
-  assert.match(blocked.marketAssessment, /净盈亏比低于用户设定的最低 1:1\.5/);
+  assert.equal(blocked.positionSizing.accountPlan.estimatedTakeProfit, 24.93);
+  assert.match(blocked.marketAssessment, /第三目标.*净盈亏比低于用户设定的最低 1:1\.5/);
   const blockedMarkdown = formatExecutionPlanMarkdown(blocked);
   assert.match(blockedMarkdown, /当前动作：不交易/);
   assert.match(blockedMarkdown, /止损与失效：止损 75\.68/);
-  assert.match(blockedMarkdown, /分批止盈：止盈 73\.005，推荐仓位 1833\.34 USDT/);
+  assert.match(blockedMarkdown, /分批止盈：止盈 73\.854205，推荐仓位 605 USDT.*止盈 73\.49026，推荐仓位 605 USDT.*止盈 73\.005，推荐仓位 623\.33 USDT/);
   assert.doesNotMatch(blockedMarkdown, /[（）()]|候选|测算/);
-  assert.match(blockedMarkdown, /目标1为 1:1\.19，如果止损：约 -29\.95 USDT，如果全部止盈：约 \+35\.77 USDT/);
+  assert.match(blockedMarkdown, /目标1为 1:0\.5，目标2为 1:0\.8，目标3为 1:1\.19，如果止损：约 -29\.95 USDT，如果全部止盈：约 \+24\.93 USDT/);
 });
 
 test("ExecutionPlanV1 uses direct price-touch execution and fresh read-only Binance sizing", () => {
@@ -477,14 +511,18 @@ test("ExecutionPlanV1 deterministically enforces remembered personal risk limits
   });
   assert.equal(blocked.action, "no_trade");
   assert.equal(blocked.entry.mode, "conditional");
-  assert.equal(blocked.takeProfits.length, 1);
+  assert.equal(blocked.takeProfits.length, 3);
   assert.equal(blocked.positionSizing.maxAccountRiskPercent, 3);
   assert.equal(blocked.positionSizing.maxPositionPercent, 50);
   assert.equal(blocked.positionSizing.maxLeverage, 2);
   assert.equal(blocked.positionSizing.minimumRiskRewardRatio, 2);
   assert.match(blocked.marketAssessment, /最低 1:2/);
   assert.equal(blocked.scenarios.length, 2);
-  assert.deepEqual(blocked.riskReward, [{ targetIndex: 0, ratio: 1.38 }]);
+  assert.deepEqual(blocked.riskReward, [
+    { targetIndex: 0, ratio: 0.5 },
+    { targetIndex: 1, ratio: 0.8 },
+    { targetIndex: 2, ratio: 1.38 },
+  ]);
   assert.match(blocked.positionSizing.formula, /账户权益 × 3%/);
   assert.match(blocked.positionSizing.formula, /手续费与滑点/);
   assert.match(blocked.positionSizing.formula, /账户权益 × 50%/);
@@ -510,8 +548,8 @@ test("ExecutionPlanV1 deterministically enforces remembered personal risk limits
     userRiskProfile: { minimumRiskRewardRatio: 1.3 },
   });
   assert.equal(allowed.action, "wait");
-  assert.equal(allowed.riskReward[0].ratio, 1.38);
-  assert.equal(allowed.takeProfits.length, 1);
+  assert.equal(allowed.riskReward[2].ratio, 1.38);
+  assert.equal(allowed.takeProfits.length, 3);
 });
 
 test("ExecutionPlanV1 accepts bounded strategy-owned validity and observation policy without strategy id branches", () => {

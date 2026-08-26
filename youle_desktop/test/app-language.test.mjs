@@ -15,6 +15,9 @@ import { GENERATED_TRADITIONAL_UI_PHRASES } from "../src/renderer/app-language-z
 
 const rendererSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const languageSource = readFile(new URL("../src/renderer/app-language.mjs", import.meta.url), "utf8");
+const selectSource = readFile(new URL("../src/renderer/haolo-select.ts", import.meta.url), "utf8");
+const workflowCanvasSource = readFile(new URL("../src/renderer/workflow-canvas.ts", import.meta.url), "utf8");
+const externalModelSettingsSource = readFile(new URL("../src/renderer/external-model-settings.ts", import.meta.url), "utf8");
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 const mainSource = readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 const userDataTransferSource = readFile(new URL("../src/main/user-data-transfer.mjs", import.meta.url), "utf8");
@@ -70,6 +73,10 @@ test("shared UI translator covers English and full renderer character conversion
   assert.equal(translateAppText("缠论", "en"), "Chan Theory");
   assert.equal(translateAppText("订单流", "en"), "Order Flow");
   assert.equal(translateAppText("波浪理论", "en"), "Elliott Wave Theory");
+  assert.equal(translateAppText("联系Telegram", "en"), "Contact Telegram");
+  assert.equal(translateAppText("联系客服", "en"), "Contact support");
+  assert.equal(translateAppText("联系Telegram", "zh-TW"), "聯絡 Telegram");
+  assert.equal(translateAppText("联系客服", "zh-TW"), "聯絡客服");
   assert.equal(translateAppText("威科夫", "en"), "Wyckoff Method");
   assert.equal(translateAppText("布林带", "en"), "Bollinger Bands");
   assert.equal(translateAppText("均线", "en"), "Moving Averages");
@@ -92,11 +99,13 @@ test("general settings renders the language selector in the requested position a
   const userDataIndex = dialogBlock.indexOf("renderSettingsUserDataRow()");
   const languageIndex = dialogBlock.indexOf("renderSettingsLanguageRow()");
   const installPathIndex = dialogBlock.indexOf('class="settings-storage-row"');
-  assert.ok(userDataIndex < languageIndex && languageIndex < installPathIndex);
+  assert.ok(languageIndex < userDataIndex && userDataIndex < installPathIndex);
   assert.match(languageBlock, /<span>语言<\/span>/);
   assert.match(languageBlock, /data-settings-language/);
   assert.match(languageBlock, /appLanguageOptions\(language\)/);
-  assert.match(languageBlock, /aria-label="选择界面语言"/);
+  assert.match(languageBlock, /ariaLabel: "选择界面语言"/);
+  assert.match(languageBlock, /renderHaoloSelect\(/);
+  assert.doesNotMatch(languageBlock, /<select\b/);
   assert.match(selectionBlock, /state\.settings\.language = language/);
   assert.match(selectionBlock, /applyAppLanguage\(language, \{ persist: true, root: document\.body \}\)/);
   assert.match(selectionBlock, /api\.setAppLanguage\?\.\(\{ language \}\)/);
@@ -162,27 +171,46 @@ test("language initializes as English before boot and is persisted in renderer a
 
 test("language control defines complete light and dark interaction states", async () => {
   const styles = await stylesSource;
-  const lightBlock = sourceBlock(styles, ".settings-language-row {", ".settings-data-button {");
+  const lightBlock = sourceBlock(styles, ".haolo-select {", ".settings-data-button {");
   const darkBlock = sourceBlock(
     styles,
-    'html[data-theme="dark"] .settings-language-select-wrap select {',
+    'html[data-theme="dark"] .haolo-select-trigger {',
     'html[data-theme="dark"] .settings-switch {',
   );
 
-  assert.match(lightBlock, /\.settings-language-select-wrap:hover select/);
-  assert.match(lightBlock, /select:active/);
-  assert.match(lightBlock, /select:open/);
-  assert.match(lightBlock, /select:focus-visible/);
-  assert.match(lightBlock, /select:disabled/);
-  assert.match(lightBlock, /select option/);
-  assert.match(darkBlock, /\.settings-language-select-wrap:hover select/);
-  assert.match(darkBlock, /select:active/);
-  assert.match(darkBlock, /select:open/);
-  assert.match(darkBlock, /select:focus-visible/);
-  assert.match(darkBlock, /select:disabled/);
-  assert.match(darkBlock, /select option/);
+  assert.match(lightBlock, /\.haolo-select-trigger:hover:not\(:disabled\)/);
+  assert.match(lightBlock, /\.haolo-select-trigger:active:not\(:disabled\)/);
+  assert.match(lightBlock, /\.haolo-select\.open \.haolo-select-trigger/);
+  assert.match(lightBlock, /\.haolo-select-trigger:focus-visible/);
+  assert.match(lightBlock, /\.haolo-select-trigger:disabled/);
+  assert.match(lightBlock, /\.haolo-select-option\.selected/);
+  assert.match(darkBlock, /\.haolo-select-trigger:hover:not\(:disabled\)/);
+  assert.match(darkBlock, /\.haolo-select-trigger:active:not\(:disabled\)/);
+  assert.match(darkBlock, /\.haolo-select\.open \.haolo-select-trigger/);
+  assert.match(darkBlock, /\.haolo-select-trigger:focus-visible/);
+  assert.match(darkBlock, /\.haolo-select-trigger:disabled/);
+  assert.match(darkBlock, /\.haolo-select-option\.selected/);
   assert.match(darkBlock, /background: #202329/);
   assert.match(darkBlock, /color: #f2f5fa/);
+});
+
+test("HaoLo select preserves listbox semantics and keyboard interaction", async () => {
+  const source = await selectSource;
+  assert.match(source, /aria-haspopup="listbox"/);
+  assert.match(source, /role="listbox"/);
+  assert.match(source, /role="option"/);
+  assert.match(source, /aria-selected=/);
+  assert.match(source, /event\.key === "ArrowDown"/);
+  assert.match(source, /event\.key === "Escape"/);
+  assert.match(source, /input\.dispatchEvent\(new Event\("change", \{ bubbles: true \}\)\)/);
+  assert.match(source, /spaceBelow < menuHeight \+ 6 && spaceAbove > spaceBelow/);
+});
+
+test("renderer has no remaining visible native option boxes", async () => {
+  const sources = await Promise.all([rendererSource, workflowCanvasSource, externalModelSettingsSource]);
+  const selectTags = sources.flatMap((source) => [...source.matchAll(/<select\b[^>]*>/g)].map((match) => match[0]));
+  assert.ok(selectTags.length > 0, "expected hidden compatibility selects to remain covered");
+  for (const tag of selectTags) assert.match(tag, /\bhidden\b|aria-hidden="true"/);
 });
 
 test("CSS-generated interface copy switches among all three languages", async () => {

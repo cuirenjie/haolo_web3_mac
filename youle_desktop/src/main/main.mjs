@@ -21,6 +21,10 @@ import {
   canonicalExecutionModelProvider,
 } from "./execution-model-provider.mjs";
 import {
+  closeExecutionPlanStickyWindows,
+  createExecutionPlanStickyWindow,
+} from "./execution-plan-sticky.mjs";
+import {
   HAOLO_RUNTIME_EXECUTABLE,
   isolateHaoloRuntimeEnvironment,
   materializeHaoloRuntime,
@@ -11844,6 +11848,10 @@ ipcMain.handle("app:notifyExecutionPlanStatusChanged", async (_event, params = {
   return notifyExecutionPlanStatusChanged(params);
 });
 
+ipcMain.handle("executionPlanSticky:create", async (_event, params = {}) => {
+  return createExecutionPlanStickyWindow({ ...params, theme: appTheme(), language: appLanguage() });
+});
+
 ipcMain.handle("app:setTheme", async (_event, params = {}) => {
   return setAppTheme(params.theme);
 });
@@ -15083,10 +15091,6 @@ ipcMain.handle("youle:archiveContactRequest", async (_event, params = {}) => {
 
 ipcMain.handle("youle:archiveHandledContactRequests", async (_event, params = {}) => {
   return getYouleApiClient().archiveHandledContactRequests(params);
-});
-
-ipcMain.handle("youle:fetchSupportQrcode", async () => {
-  return getYouleApiClient().fetchSupportQrcode();
 });
 
 ipcMain.handle("youle:ensureExternalChannelsBackend", async () => {
@@ -21168,6 +21172,7 @@ async function cleanupAndExit(exitCode = 0) {
   stopChannelEvents();
   pendingServerRequests.clear();
   closeDesktopNotificationWindow();
+  closeExecutionPlanStickyWindows();
   stopWechatMessageAttention();
   stopWechatExternalChannelBackendPolling();
   clearVoiceCredentialCache();

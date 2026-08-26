@@ -36,8 +36,12 @@ import {
   executionPlanSignedNumberSegments,
   executionPlanCandidatesFromText,
   executionPlanTextPartitions,
+  loadMessageExecutionPlanFontSize,
   loadExecutionPlans,
+  MESSAGE_EXECUTION_PLAN_FONT_SIZES,
+  saveMessageExecutionPlanFontSize,
   saveExecutionPlans,
+  stepMessageExecutionPlanFontSize,
   transitionExecutionPlan,
   type ExecutionPlanEndReason,
   type ExecutionPlanCandidate,
@@ -127,6 +131,8 @@ import {
   renderExternalModelSettingsPanel,
   type ExternalModelProviderStatus,
 } from "./external-model-settings";
+import { bindHaoloSelects, renderHaoloSelect } from "./haolo-select";
+import { stripLeadingMarkdownThematicBreak } from "./message-markdown";
 import { stripConversationTitleMentionTokens } from "./conversation-title";
 import {
   authChannelLabel,
@@ -491,6 +497,7 @@ const TRADING_INDICATOR_SKILL_CARD_PREFIX = "trading-indicator:";
 const TRADING_TREND_BAND_SKILL_CARD_ID = `${TRADING_INDICATOR_SKILL_CARD_PREFIX}trend-band`;
 const LOGIN_SUCCESS_ICON_URL = new URL("./assets/login-success-logo.png", import.meta.url).href;
 const SETTINGS_APP_ICON_URL = new URL("./assets/nav/settings-about-logo.svg", import.meta.url).href;
+const CUSTOMER_SERVICE_QR_URL = new URL("./assets/customer-service-qr.jpg", import.meta.url).href;
 const SETTINGS_PROFILE_ICON_URL = new URL("./assets/images/settings-profile.svg", import.meta.url).href;
 const SETTINGS_CONSUMPTION_ICON_URL = new URL("./assets/images/settings-consumption.svg", import.meta.url).href;
 const SETTINGS_GENERAL_ICON_URL = new URL("./assets/images/settings-general.svg", import.meta.url).href;
@@ -1326,6 +1333,19 @@ type DesktopApi = {
     threadId?: string | null;
     alertId?: string | null;
   }): Promise<{ ok?: boolean; shown?: boolean }>;
+  createExecutionPlanSticky?(params: {
+    groupId: string;
+    title: string;
+    theme: AppTheme;
+    language: AppLanguage;
+    fontSize: number;
+    lines: Array<{
+      label: string;
+      text: string;
+      directionTone: "bullish" | "bearish" | "";
+      segments: Array<{ text: string; tone: "bullish" | "bearish" | "" }>;
+    }>;
+  }): Promise<{ ok?: boolean; created?: boolean }>;
   confirmTaskCompletionRendered?(params: {
     threadId?: string | null;
     turnId?: string | null;
@@ -1869,8 +1889,6 @@ type DesktopApi = {
   cancelContactRequest?(params: { requestId: string }): Promise<any>;
   archiveContactRequest?(params: { requestId: string }): Promise<any>;
   archiveHandledContactRequests?(params?: { status?: string }): Promise<any>;
-  fetchSupportQrcode?(): Promise<{ qrcode_url?: string; qrcodeUrl?: string; object_key?: string | null; content_type?: string | null;
-  }>;
   ensureExternalChannelsBackend?(): Promise<any>;
   listExternalChannels?(): Promise<any>;
   startExternalChannelLogin?(params: { channel: string; botToken?: string; bot_token?: string; appId?: string; app_id?: string; appSecret?: string; app_secret?: string; desktopThreadId?: string; desktop_thread_id?: string;
@@ -2269,6 +2287,7 @@ type MessageRenderContext = {
 type FormatMessageTextOptions = {
   searchKeyword?: string | null;
   assistantSkillDisplayAliases?: boolean;
+  hideLeadingThematicBreak?: boolean;
 };
 
 type MediaGenerationType = "image" | "video";
@@ -2954,10 +2973,7 @@ type LoginState = {
   resendReadyAt: number | null;
   busy: "check" | "send" | "verify" | "activate" | "wechat" | null;
   error: string | null;
-  wecomQrOpen: boolean;
-  wecomQrLoading: boolean;
-  wecomQrUrl: string | null;
-  wecomQrError: string | null;
+  wecomSupportOpen: boolean;
 };
 
 type ViewId =
@@ -5428,10 +5444,7 @@ const state: UiState = {
     resendReadyAt: null,
     busy: null,
     error: null,
-    wecomQrOpen: false,
-    wecomQrLoading: false,
-    wecomQrUrl: null,
-    wecomQrError: null,
+    wecomSupportOpen: false,
   },
   profileEdit: {
     open: false,
@@ -5508,7 +5521,7 @@ let loginWechatExchangePending = false;
 let loginWechatExchangeAttempts = 0;
 let loginWechatFlowSeq = 0;
 let loginModeCheckSeq = 0;
-let loginWecomResendReadyAt: number | null = null;
+let loginSupportResendReadyAt: number | null = null;
 let loginCodeFocusToken = 0;
 let startupAuthSeq = 0;
 let authenticatedWorkspaceGeneration = 0;
@@ -35762,7 +35775,7 @@ function render() {
     syncTradingExpertMarketWorkspace(null);
     root.innerHTML = `
       ${renderLoginScreen()}
-      ${state.login.wecomQrOpen ? renderLoginWeComDialog() : ""}
+      ${state.login.wecomSupportOpen ? renderWeComSupportDialog() : ""}
       ${state.error ? `<div class="toast">${escapeHtml(state.error)}</div>` : ""}
     `;
     bindLoginEvents();
@@ -35914,7 +35927,7 @@ function render() {
     ${renderProfileMenu()}
     ${preservedReferralCenterOverlay ? "" : renderReferralCenterDialog()}
     ${state.settingsOpen ? renderSettingsDialog() : ""}
-    ${state.login.wecomQrOpen ? renderLoginWeComDialog() : ""}
+    ${state.login.wecomSupportOpen ? renderWeComSupportDialog() : ""}
     ${state.settings.update.dialogOpen ? renderUpdateDialog() : ""}
     ${state.autoTaskDialogOpen ? renderAutoTaskDialog() : ""}
     ${state.addFriendDialog.open ? renderAddFriendDialog() : ""}
@@ -37286,7 +37299,7 @@ function renderLoginCodeStep(checking: boolean) {
     ? `<div class="login-code-verifying">验证中...</div>`
     : `
         <button type="button" class="login-link-button" data-action="back-login-email">返回</button>
-        <button type="button" class="login-link-button" data-action="open-login-wecom-qr">收不到验证码</button>
+        <button type="button" class="login-link-button" data-action="open-wecom-support">收不到验证码</button>
         <button type="button" class="login-link-button login-resend-button" data-action="send-login-code" ${resendDisabled ? "disabled" : ""}>
           ${resendLabel}
         </button>
@@ -37305,63 +37318,26 @@ function renderLoginCodeStep(checking: boolean) {
   `;
 }
 
-function renderLoginWeComDialog() {
-  const qrUrl = loginWeComQrUrl();
-  const qrContent = state.login.wecomQrLoading
-    ? `<div class="login-wecom-qr" aria-label="企业微信二维码加载中"><span></span></div>`
-    : state.login.wecomQrError
-      ? `<div class="login-wecom-qr login-wecom-qr-error" aria-label="企业微信二维码加载失败">${escapeHtml(state.login.wecomQrError)}</div>`
-      : qrUrl
-        ? `<img class="login-wecom-qr-image" src="${escapeAttr(qrUrl)}" alt="企业微信二维码" />`
-        : `<div class="login-wecom-qr" aria-label="企业微信二维码"><span></span></div>`;
+function renderWeComSupportDialog() {
   return `
-    <div class="login-wecom-backdrop" data-action="close-login-wecom-qr"></div>
-    <dialog class="login-wecom-dialog" open aria-labelledby="loginWeComTitle">
-      <button type="button" class="login-wecom-close" data-action="close-login-wecom-qr" aria-label="关闭">
+    <div class="login-wecom-backdrop" data-action="close-wecom-support"></div>
+    <dialog class="login-wecom-dialog" open aria-modal="true" aria-labelledby="wecomSupportTitle">
+      <button type="button" class="login-wecom-close" data-action="close-wecom-support" aria-label="关闭" autofocus>
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
       </button>
-      <h2 id="loginWeComTitle">企业微信客服</h2>
-      ${qrContent}
+      <h2 id="wecomSupportTitle">联系Telegram</h2>
+      <img class="login-wecom-qr-image" src="${escapeAttr(CUSTOMER_SERVICE_QR_URL)}" alt="客服联系方式二维码" />
     </dialog>
   `;
 }
 
-function loginWeComQrUrl() {
-  return state.login.wecomQrUrl;
-}
-
-async function openLoginWeComQrDialog() {
+function openWeComSupportDialog() {
   if (!state.auth.authenticated && state.login.step === "code") {
     const countdown = loginResendCountdown();
-    loginWecomResendReadyAt = state.login.resendReadyAt ?? (countdown > 0 ? Date.now() + countdown * 1000 : null);
+    loginSupportResendReadyAt = state.login.resendReadyAt ?? (countdown > 0 ? Date.now() + countdown * 1000 : null);
   }
-  state.login.wecomQrOpen = true;
-  state.login.wecomQrError = null;
-  if (!state.login.wecomQrUrl) {
-    state.login.wecomQrLoading = true;
-  }
+  state.login.wecomSupportOpen = true;
   render();
-  if (state.login.wecomQrUrl) return;
-  if (!api.fetchSupportQrcode) {
-    state.login.wecomQrLoading = false;
-    state.login.wecomQrError = "客服二维码接口不可用";
-    render();
-    return;
-  }
-  try {
-    const payload = await api.fetchSupportQrcode();
-    const qrcodeUrl = firstString(payload?.qrcode_url, payload?.qrcodeUrl);
-    if (!qrcodeUrl) {
-      throw new Error("客服二维码地址为空");
-    }
-    state.login.wecomQrUrl = qrcodeUrl;
-    state.login.wecomQrError = null;
-  } catch (error) {
-    state.login.wecomQrError = `加载失败：${errorMessage(error)}`;
-  } finally {
-    state.login.wecomQrLoading = false;
-    render();
-  }
 }
 
 function renderLoginActivateStep(checking: boolean) {
@@ -39310,7 +39286,7 @@ function renderMessageExecutionPlan(
     )
     || partitions.candidates.some((candidate) => !executionPlanHasConcreteTradingPlan(candidate))
   ) {
-    return formatMessageText(text, options);
+    return null;
   }
   const sourceThread = state.threads.find((thread) => thread.id === message.conversation_id);
   const titleContext = {
@@ -39321,17 +39297,35 @@ function renderMessageExecutionPlan(
   const before = partitions.before
     ? `<div class="message-execution-plan-context before">${formatMessageText(partitions.before, options)}</div>`
     : "";
-  const cards = partitions.candidates.map((candidate) => {
+  const cards = partitions.candidates.map((candidate, candidateIndex) => {
+    const key = executionPlanCandidateKey(message.conversation_id, message.id, candidateIndex);
+    executionPlanCandidatesBySource.set(key, candidate);
+    const fontSize = loadMessageExecutionPlanFontSize(key);
     const title = executionPlanCardTitle({ fallbackTitle: candidate.title, ...titleContext });
-    return `<section class="message-execution-plan" aria-label="${escapeAttr(title)}">
+    return `<section
+      class="message-execution-plan"
+      aria-label="${escapeAttr(title)}"
+      data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}"
+      data-execution-plan-message-id="${escapeAttr(message.id)}"
+      data-execution-plan-index="${candidateIndex}"
+      style="--message-execution-plan-font-size: ${fontSize}px"
+    >
       <h2>${escapeHtml(title)}</h2>
       <div class="execution-plan-card-content">${renderExecutionPlanCardContent(candidate.content)}</div>
+      <footer class="message-execution-plan-controls" aria-label="执行卡片文字与便利贴操作">
+        <button type="button" data-message-execution-plan-action="increase"${fontSize >= MESSAGE_EXECUTION_PLAN_FONT_SIZES[MESSAGE_EXECUTION_PLAN_FONT_SIZES.length - 1] ? ' disabled aria-disabled="true"' : ""}>放大</button>
+        <button type="button" data-message-execution-plan-action="decrease"${fontSize <= MESSAGE_EXECUTION_PLAN_FONT_SIZES[0] ? ' disabled aria-disabled="true"' : ""}>缩小</button>
+        <button type="button" data-message-execution-plan-action="sticky">便利贴</button>
+      </footer>
     </section>`;
   }).join("");
   const after = partitions.after
     ? `<div class="message-execution-plan-context after">${formatMessageText(partitions.after, options)}</div>`
     : "";
-  return `${before}${cards}${after}`;
+  return {
+    bubbleContent: `${before}${after}`,
+    cards: `<div class="message-execution-plan-list">${cards}</div>`,
+  };
 }
 
 function executionPlanStatusMeta(plan: SavedExecutionPlan) {
@@ -52727,6 +52721,23 @@ function renderTextBubble(
   const localSendStatus = fromUser ? renderLocalSendStatus(message) : "";
   const attachmentMarkup = content.attachments.length ? renderAttachmentGrid(content.attachments, !fromUser) : "";
   const actionsMarkup = renderMessageActions(message);
+  const executionPlanPresentation = !fromUser && content.text
+    ? renderMessageExecutionPlan(message, content.text, {
+        searchKeyword: options.searchHighlightKeyword,
+        assistantSkillDisplayAliases: true,
+        hideLeadingThematicBreak: true,
+      })
+    : null;
+  const messageTextMarkup = fromUser
+    ? formatMessageText(content.text, {
+        searchKeyword: options.searchHighlightKeyword,
+        assistantSkillDisplayAliases: false,
+      })
+    : executionPlanPresentation?.bubbleContent ?? formatMessageText(content.text, {
+        searchKeyword: options.searchHighlightKeyword,
+        assistantSkillDisplayAliases: true,
+        hideLeadingThematicBreak: true,
+      });
   const addToPlanMarkup = options.allowPlanAction
     ? renderAddToPlanAction(message, content.text)
     : "";
@@ -52734,20 +52745,12 @@ function renderTextBubble(
     action.destination === "trading-alerts" || action.destination === "binance-account" || action.destination === "strategies"
   )));
   return `
-    <div class="message-bubble ${fromUser ? "user-bubble" : "agent-bubble"} ${message.kind === "system" ? "system-bubble" : ""}">
+    <div class="message-bubble ${fromUser ? "user-bubble" : "agent-bubble"} ${message.kind === "system" ? "system-bubble" : ""} ${executionPlanPresentation ? "has-execution-plan" : ""}">
       ${turnResultHeader}
       ${conversationSupplementHeader}
       ${(content.threadReferences || []).map((reference) => renderMessageThreadReferencePreview(reference, options.searchHighlightKeyword)).join("")}
       ${content.quote ? renderMessageQuotePreview(content.quote, options.searchHighlightKeyword) : ""}
-      ${content.text ? `<div class="message-text" ${localizeAppOwnedText ? "data-i18n-owned" : ""}>${fromUser
-        ? formatMessageText(content.text, {
-            searchKeyword: options.searchHighlightKeyword,
-            assistantSkillDisplayAliases: false,
-          })
-        : renderMessageExecutionPlan(message, content.text, {
-            searchKeyword: options.searchHighlightKeyword,
-            assistantSkillDisplayAliases: true,
-          })}</div>` : ""}
+      ${content.text ? `<div class="message-text" ${localizeAppOwnedText ? "data-i18n-owned" : ""}>${messageTextMarkup}</div>` : ""}
       ${attachmentMarkup}
       ${actionsBelowBubble ? "" : actionsMarkup}
       ${localSendStatus}
@@ -52764,6 +52767,7 @@ function renderTextBubble(
           : ""
       }
     </div>
+    ${executionPlanPresentation?.cards || ""}
     ${actionsBelowBubble ? `${actionsMarkup}${addToPlanMarkup}` : ""}
   `;
 }
@@ -58711,6 +58715,10 @@ function renderRechargePage() {
               ${membership.subscribed ? renderRechargeSubscriptionBalance() : ""}
             </div>
             <div class="recharge-history-action">
+              <button type="button" class="recharge-support-button" data-action="open-wecom-support">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 11v-1a6 6 0 0 1 12 0v1M4 10H3.5A1.5 1.5 0 0 0 2 11.5v2A1.5 1.5 0 0 0 3.5 15H5v-5H4Zm12 0h.5a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5H15v-5h1Zm0 5c0 1.1-.9 2-2 2h-3" /></svg>
+                <span>联系客服</span>
+              </button>
               <button type="button" class="recharge-history-button" data-recharge-history-open>
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 5.25v4.9l3.1 1.8M17 10a7 7 0 1 1-2.05-4.95M14.95 2.9v3.15H11.8" /></svg>
                 <span>充值记录</span>
@@ -59268,9 +59276,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
           <span class="recharge-payment-internal-countdown">订单剩余：<time data-recharge-payment-countdown>30:00</time></span>
         </aside>
       </div>
-      <p class="recharge-payment-internal-note">请使用 ${escapeHtml(network.networkName)} 支付 USDT，并确保收款账号和三位小数金额完全一致。</p>
       ${renderRechargeMembershipAgreement(product, order)}
-      <p class="recharge-payment-preservation-note">切换套餐或支付方式不会取消当前有效订单，请勿重复支付。</p>
     `;
   }
   return `
@@ -59316,7 +59322,6 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
       </span>
     </div>
     ${renderRechargeMembershipAgreement(product, order)}
-    <p class="recharge-payment-preservation-note">切换套餐或支付方式不会取消当前有效订单，请勿重复支付。</p>
   `;
 }
 
@@ -60551,8 +60556,8 @@ function renderSettingsDialog() {
                    ${renderSettingsTaskCompletionPopupRow()}
                    ${renderSettingsThemeRow()}
                    ${renderSettingsFontSizeRow()}
-                   ${renderSettingsUserDataRow()}
                    ${renderSettingsLanguageRow()}
+                   ${renderSettingsUserDataRow()}
                    <div class="settings-storage-row">
                      <div class="settings-storage-copy">
                        <span>用户安装目录地址</span>
@@ -60672,17 +60677,17 @@ function renderSettingsUserDataRow() {
 function renderSettingsLanguageRow() {
   const language = state.settings.language;
   return `
-    <label class="settings-language-row">
+    <div class="settings-language-row">
       <span>语言</span>
-      <span class="settings-language-select-wrap">
-        <select data-settings-language aria-label="选择界面语言">
-          ${appLanguageOptions(language).map(({ value, label }) => `
-            <option value="${escapeAttr(value)}" ${language === value ? "selected" : ""}>${escapeHtml(label)}</option>
-          `).join("")}
-        </select>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6 3.5 3.5L11.5 6" /></svg>
-      </span>
-    </label>
+      ${renderHaoloSelect({
+        id: "settings-language",
+        value: language,
+        ariaLabel: "选择界面语言",
+        className: "settings-language-select",
+        inputAttributes: { "data-settings-language": true },
+        options: appLanguageOptions(language),
+      })}
+    </div>
   `;
 }
 
@@ -60804,7 +60809,7 @@ function renderSettingsAboutPanel() {
           ${renderSettingsLinkRow("用户协议", USER_AGREEMENT_URL)}
           ${renderSettingsLinkRow("隐私政策", PRIVACY_POLICY_URL)}
           ${renderSettingsLinkRow("进入官网", HAOLO_HOME_URL)}
-          ${renderSettingsLinkRow("客服微信", "", "open-login-wecom-qr")}
+          ${renderSettingsLinkRow("联系Telegram", "", "open-wecom-support")}
         </div>
       </div>
     </div>
@@ -61789,8 +61794,10 @@ function bindReferralCenterContentEvents(scope: ParentNode) {
 
 function bindEvents() {
   bindWindowControls();
-  bindLoginWeComQrEvents(false);
+  bindWeComSupportEvents(false);
   bindCascadeMenuHoverEvents();
+  const settingsDialog = root.querySelector<HTMLElement>(".settings-dialog");
+  if (settingsDialog) bindHaoloSelects(settingsDialog);
   bindExecutionPlanEvents();
   bindRechargeProductCardEvents();
   bindRechargePaymentMethodEvents();
@@ -62624,7 +62631,7 @@ function bindEvents() {
         state.settings.github.authorizing = false;
         state.settings.github.authorizationExpiresAt = null;
         state.settingsOpen = false;
-        state.login.wecomQrOpen = false;
+        state.login.wecomSupportOpen = false;
         state.settings.tab = "general";
         state.configOutput = null;
         clearProfileEditDraft();
@@ -62703,7 +62710,7 @@ function bindEvents() {
         if (!provider || !card) return;
         const apiKey = card.querySelector<HTMLInputElement>("[data-external-model-key]")?.value || "";
         const model = card.querySelector<HTMLInputElement>("[data-external-model-model]")?.value || "";
-        const baseUrlProfile = card.querySelector<HTMLSelectElement>("[data-external-model-base-url]")?.value || "";
+        const baseUrlProfile = card.querySelector<HTMLInputElement>("[data-external-model-base-url]")?.value || "";
         void saveExternalModelProviderConfig({ provider, apiKey, model, baseUrlProfile });
       });
     });
@@ -62737,7 +62744,7 @@ function bindEvents() {
         const provider = button.dataset.externalModelKeyConsole || "";
         const status = state.settings.externalModels.providers.find((item) => item.id === provider);
         const profileId = button.closest<HTMLElement>("[data-external-model-card]")
-          ?.querySelector<HTMLSelectElement>("[data-external-model-base-url]")?.value;
+          ?.querySelector<HTMLInputElement>("[data-external-model-base-url]")?.value;
         const option = status?.baseUrlOptions.find((item) => item.id === profileId);
         const url = option?.keyConsoleUrl || status?.keyConsoleUrl;
         if (url) void api.openExternal(url);
@@ -62750,7 +62757,7 @@ function bindEvents() {
         const provider = button.dataset.externalModelDocs || "";
         const status = state.settings.externalModels.providers.find((item) => item.id === provider);
         const profileId = button.closest<HTMLElement>("[data-external-model-card]")
-          ?.querySelector<HTMLSelectElement>("[data-external-model-base-url]")?.value;
+          ?.querySelector<HTMLInputElement>("[data-external-model-base-url]")?.value;
         const option = status?.baseUrlOptions.find((item) => item.id === profileId);
         const url = option?.documentationUrl || status?.documentationUrl;
         if (url) void api.openExternal(url);
@@ -62832,8 +62839,8 @@ function bindEvents() {
         if (theme === "light" || theme === "dark") selectAppTheme(theme);
       });
     });
-  root.querySelector<HTMLSelectElement>("[data-settings-language]")?.addEventListener("change", (event) => {
-    const language = (event.currentTarget as HTMLSelectElement).value;
+  root.querySelector<HTMLInputElement>("[data-settings-language]")?.addEventListener("change", (event) => {
+    const language = (event.currentTarget as HTMLInputElement).value;
     if (isAppLanguage(language)) selectAppLanguage(language);
   });
   root
@@ -65472,7 +65479,7 @@ function handleSkillsPlazaScroll(event: Event) {
 
 function bindLoginEvents() {
   bindWindowControls();
-  bindLoginWeComQrEvents(true);
+  bindWeComSupportEvents(true);
   bindLoginWechatQrFrameEvents();
   root.querySelector<HTMLFormElement>("#loginForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -65550,7 +65557,7 @@ function bindLoginEvents() {
     state.login.challenge = null;
     state.login.counter = 0;
     state.login.error = null;
-    state.login.wecomQrOpen = false;
+    state.login.wecomSupportOpen = false;
     state.login.busy = null;
     loginModeCheckSeq += 1;
     stopLoginCounter();
@@ -65643,10 +65650,10 @@ function focusLoginCodeInput() {
 }
 
 function scheduleLoginCodeFocus() {
-  if (state.login.step !== "code" || state.login.wecomQrOpen) return;
+  if (state.login.step !== "code" || state.login.wecomSupportOpen) return;
   const token = ++loginCodeFocusToken;
   const focus = () => {
-    if (token !== loginCodeFocusToken || state.login.step !== "code" || state.login.wecomQrOpen) return;
+    if (token !== loginCodeFocusToken || state.login.step !== "code" || state.login.wecomSupportOpen) return;
     focusLoginCodeInput();
   };
   window.requestAnimationFrame(focus);
@@ -66098,14 +66105,16 @@ function bindWorkflowCanvasContextMenu() {
   });
 }
 
-function bindLoginWeComQrEvents(restoreCountdownOnClose: boolean) {
-  root.querySelector<HTMLElement>('[data-action="open-login-wecom-qr"]')?.addEventListener("click", () => {
-    void openLoginWeComQrDialog();
-  });
-  root.querySelectorAll<HTMLElement>('[data-action="close-login-wecom-qr"]').forEach((element) => {
+function bindWeComSupportEvents(restoreCountdownOnClose: boolean) {
+  root.querySelectorAll<HTMLElement>('[data-action="open-wecom-support"]').forEach((element) => {
     element.addEventListener("click", () => {
-      state.login.wecomQrOpen = false;
-      if (restoreCountdownOnClose) restoreLoginWecomCountdown();
+      openWeComSupportDialog();
+    });
+  });
+  root.querySelectorAll<HTMLElement>('[data-action="close-wecom-support"]').forEach((element) => {
+    element.addEventListener("click", () => {
+      state.login.wecomSupportOpen = false;
+      if (restoreCountdownOnClose) restoreLoginSupportCountdown();
       render();
     });
   });
@@ -66537,6 +66546,120 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
   }
 }
 
+function messageExecutionPlanCardKey(card: HTMLElement) {
+  const sourceThreadId = card.dataset.executionPlanThreadId || "";
+  const sourceMessageId = card.dataset.executionPlanMessageId || "";
+  const candidateIndex = Number(card.dataset.executionPlanIndex) || 0;
+  if (!sourceThreadId || !sourceMessageId) return null;
+  return {
+    sourceThreadId,
+    sourceMessageId,
+    candidateIndex,
+    key: executionPlanCandidateKey(sourceThreadId, sourceMessageId, candidateIndex),
+  };
+}
+
+function messageExecutionPlanGroupCards(card: HTMLElement) {
+  const group = card.closest<HTMLElement>(".message-execution-plan-list");
+  if (!group) return [card];
+  const cards = Array.from(group.querySelectorAll<HTMLElement>(".message-execution-plan"));
+  return cards.length ? cards : [card];
+}
+
+function applyMessageExecutionPlanFontSize(card: HTMLElement, fontSize: number) {
+  const normalized = saveMessageExecutionPlanFontSize(
+    messageExecutionPlanCardKey(card)?.key || "",
+    fontSize,
+  );
+  card.style.setProperty("--message-execution-plan-font-size", `${normalized}px`);
+  const min = MESSAGE_EXECUTION_PLAN_FONT_SIZES[0];
+  const max = MESSAGE_EXECUTION_PLAN_FONT_SIZES[MESSAGE_EXECUTION_PLAN_FONT_SIZES.length - 1];
+  const increase = card.querySelector<HTMLButtonElement>('[data-message-execution-plan-action="increase"]');
+  const decrease = card.querySelector<HTMLButtonElement>('[data-message-execution-plan-action="decrease"]');
+  if (increase) {
+    increase.disabled = normalized >= max;
+    increase.setAttribute("aria-disabled", String(increase.disabled));
+  }
+  if (decrease) {
+    decrease.disabled = normalized <= min;
+    decrease.setAttribute("aria-disabled", String(decrease.disabled));
+  }
+  return normalized;
+}
+
+function applyMessageExecutionPlanGroupFontSize(card: HTMLElement, delta: number) {
+  const source = messageExecutionPlanCardKey(card);
+  if (!source) return;
+  const current = loadMessageExecutionPlanFontSize(source.key);
+  const next = stepMessageExecutionPlanFontSize(current, delta);
+  messageExecutionPlanGroupCards(card).forEach((groupCard) => {
+    applyMessageExecutionPlanFontSize(groupCard, next);
+  });
+}
+
+async function createExecutionPlanStickyFromMessageCard(card: HTMLElement) {
+  const source = messageExecutionPlanCardKey(card);
+  if (!source) throw new Error("暂时无法读取这张执行卡片，请刷新后重试");
+  const candidate = executionPlanCandidatesBySource.get(source.key);
+  if (!candidate) {
+    throw new Error("暂时无法读取这张执行卡片，请刷新后重试");
+  }
+  if (!api.createExecutionPlanSticky) {
+    throw new Error("当前版本暂不支持桌面便利贴");
+  }
+  const sourceThread = state.threads.find((thread) => thread.id === source.sourceThreadId);
+  const title = executionPlanCardTitle({
+    fallbackTitle: candidate.title,
+    analysisLabel: tradingLastAnalysisLabelForThread(source.sourceThreadId),
+    sourceTitle: sourceThread?.name,
+    sourceText: candidate.content,
+  });
+  const fontSize = loadMessageExecutionPlanFontSize(source.key);
+  const result = await api.createExecutionPlanSticky({
+    groupId: `${source.sourceThreadId}\u0000${source.sourceMessageId}`,
+    title,
+    theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
+    language: state.settings.language,
+    fontSize,
+    lines: executionPlanDisplayLines(candidate.content).map((line) => ({
+      label: line.label,
+      text: line.text,
+      directionTone: executionPlanDirectionTone(line.label, line.text),
+      segments: executionPlanSignedNumberSegments(line.text),
+    })),
+  });
+  if (!result?.created) throw new Error("便利贴窗口未创建");
+}
+
+async function createExecutionPlanStickyFromMessageGroup(card: HTMLElement) {
+  const cards = messageExecutionPlanGroupCards(card);
+  const buttons = cards.flatMap((groupCard) => Array.from(
+    groupCard.querySelectorAll<HTMLButtonElement>('[data-message-execution-plan-action="sticky"]'),
+  ));
+  if (buttons.some((groupButton) => groupButton.getAttribute("aria-busy") === "true")) return;
+  buttons.forEach((groupButton) => {
+    groupButton.disabled = true;
+    groupButton.setAttribute("aria-disabled", "true");
+    groupButton.setAttribute("aria-busy", "true");
+  });
+  try {
+    const results = await Promise.allSettled(cards.map((groupCard) => (
+      createExecutionPlanStickyFromMessageCard(groupCard)
+    )));
+    const rejected = results.find((result) => result.status === "rejected");
+    if (rejected?.status === "rejected") throw rejected.reason;
+    showToast("执行卡片便利贴已固定到桌面");
+  } catch (error) {
+    showToast(`创建便利贴失败：${errorMessage(error)}`, 5000);
+  } finally {
+    buttons.forEach((groupButton) => {
+      groupButton.disabled = false;
+      groupButton.removeAttribute("aria-disabled");
+      groupButton.removeAttribute("aria-busy");
+    });
+  }
+}
+
 function bindMessageContentEvents(container: ParentNode = root) {
   container.querySelectorAll<HTMLElement>("[data-open-subagent-thread]").forEach((card) => {
     const openSubagent = () => {
@@ -66548,6 +66671,23 @@ function bindMessageContentEvents(container: ParentNode = root) {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       openSubagent();
+    });
+  });
+  container.querySelectorAll<HTMLButtonElement>("[data-message-execution-plan-action]").forEach((button) => {
+    if (button.dataset.messageExecutionPlanActionBound === "true") return;
+    button.dataset.messageExecutionPlanActionBound = "true";
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const card = button.closest<HTMLElement>(".message-execution-plan");
+      const source = card ? messageExecutionPlanCardKey(card) : null;
+      if (!card || !source) return;
+      const action = button.dataset.messageExecutionPlanAction;
+      if (action === "sticky") {
+        void createExecutionPlanStickyFromMessageGroup(card);
+        return;
+      }
+      applyMessageExecutionPlanGroupFontSize(card, action === "increase" ? 1 : -1);
     });
   });
   container.querySelectorAll<HTMLButtonElement>("[data-message-action]").forEach((button) => {
@@ -68691,7 +68831,7 @@ async function sendLoginCode() {
   state.login.code = "";
   state.login.busy = "send";
   state.login.error = null;
-  state.login.wecomQrOpen = false;
+  state.login.wecomSupportOpen = false;
   state.login.wechatEmailVerification = isWechatEmail;
   state.login.step = "code";
   state.login.counter = 60;
@@ -69051,7 +69191,7 @@ async function logoutFromYoule() {
     resendReadyAt: null,
     busy: null,
     error: null,
-    wecomQrOpen: false,
+    wecomSupportOpen: false,
   };
   loginModeCheckSeq += 1;
   if (loginCounterTimer !== null) {
@@ -69104,7 +69244,7 @@ function handleAuthExpired(session: any = {}) {
     resendReadyAt: null,
     busy: null,
     error: "\u767b\u5f55\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55",
-    wecomQrOpen: false,
+    wecomSupportOpen: false,
   };
   loginModeCheckSeq += 1;
   if (loginCounterTimer !== null) {
@@ -74099,7 +74239,7 @@ async function cancelLoginRestore() {
     resendReadyAt: null,
     busy: null,
     error: null,
-    wecomQrOpen: false,
+    wecomSupportOpen: false,
   };
   loginModeCheckSeq += 1;
   state.loading = false;
@@ -77637,7 +77777,7 @@ function resetLoginRegistrationFlow() {
   state.login.resendReadyAt = null;
   state.login.busy = null;
   state.login.error = null;
-  state.login.wecomQrOpen = false;
+  state.login.wecomSupportOpen = false;
   loginModeCheckSeq += 1;
   stopLoginCounter();
 }
@@ -77674,7 +77814,7 @@ function scheduleLoginCounter() {
   if (state.login.step !== "code" || countdown <= 0) {
     if (countdown <= 0) {
       state.login.resendReadyAt = null;
-      loginWecomResendReadyAt = null;
+      loginSupportResendReadyAt = null;
     }
     return;
   }
@@ -77686,7 +77826,7 @@ function scheduleLoginCounter() {
     state.login.counter = loginResendCountdown();
     if (state.login.counter <= 0) {
       state.login.resendReadyAt = null;
-      loginWecomResendReadyAt = null;
+      loginSupportResendReadyAt = null;
     }
     updateLoginCountdownView();
     scheduleLoginCounter();
@@ -77709,24 +77849,24 @@ function stopLoginCounter() {
     loginCounterTimer = null;
   }
   state.login.resendReadyAt = null;
-  loginWecomResendReadyAt = null;
+  loginSupportResendReadyAt = null;
 }
 
-function restoreLoginWecomCountdown() {
+function restoreLoginSupportCountdown() {
   if (state.login.step !== "code") return;
   const currentCountdown = loginResendCountdown();
   if (currentCountdown > 0) {
     scheduleLoginCounter();
     return;
   }
-  if (loginWecomResendReadyAt == null) return;
-  const countdown = Math.ceil((loginWecomResendReadyAt - Date.now()) / 1000);
+  if (loginSupportResendReadyAt == null) return;
+  const countdown = Math.ceil((loginSupportResendReadyAt - Date.now()) / 1000);
   if (countdown <= 0) {
-    loginWecomResendReadyAt = null;
+    loginSupportResendReadyAt = null;
     return;
   }
   state.login.counter = countdown;
-  state.login.resendReadyAt = loginWecomResendReadyAt;
+  state.login.resendReadyAt = loginSupportResendReadyAt;
   scheduleLoginCounter();
 }
 
@@ -77967,7 +78107,10 @@ function normalizeConversationKind(value: unknown): ConversationSummary["kind"] 
 function formatMessageText(text: string, options: FormatMessageTextOptions = {}) {
   const normalized = normalizeMarkdownLinks(text);
   const compacted = compactSourceLinkBlocks(normalized);
-  return renderMessageMarkdown(compacted, options);
+  const visibleText = options.hideLeadingThematicBreak
+    ? stripLeadingMarkdownThematicBreak(compacted)
+    : compacted;
+  return renderMessageMarkdown(visibleText, options);
 }
 
 function renderMessageMarkdown(text: string, options: FormatMessageTextOptions = {}) {

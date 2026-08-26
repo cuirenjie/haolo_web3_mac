@@ -85,6 +85,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(page, /RECHARGE_SUBSCRIPTION_PRODUCTS/);
   assert.match(page, /class="recharge-product-grid subscription" role="radiogroup"[\s\S]*?aria-required="true"/);
   assert.match(page, /class="recharge-subscription-content"/);
+  assert.match(page, /class="recharge-history-action"[\s\S]*?class="recharge-support-button" data-action="open-wecom-support"[\s\S]*?<span>联系客服<\/span>[\s\S]*?class="recharge-history-button"/);
   assert.match(pageScrollStyles, /overflow: hidden/);
   assert.match(pageScrollStyles, /padding: 12px clamp\(22px, 3\.4vw, 48px\) 47px/);
   assert.doesNotMatch(styles, /\.recharge-page-scroll\s*\{[^}]*scrollbar-color/);
@@ -142,7 +143,8 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentDetails, /rechargePaymentOrderErrorsBySelection\.delete\(selectionKey\)[\s\S]*?createRechargePaymentOrder\(\{ force: true, preserveExisting: true \}\)/);
   assert.match(paymentDetails, /rechargePaymentOrderLoadingSelections\.has\(selectionKey\) && !order/);
   assert.match(renderer, /state\.activeView !== "recharge"[\s\S]*?rechargePaymentViewActive = false/);
-  assert.match(paymentDetails, /切换套餐或支付方式不会取消当前有效订单，请勿重复支付/);
+  assert.doesNotMatch(paymentDetails, /请使用 [^<]+ 支付 USDT，并确保收款账号和三位小数金额完全一致/);
+  assert.doesNotMatch(paymentDetails, /切换套餐或支付方式不会取消当前有效订单，请勿重复支付/);
   assert.match(paymentDetails, /status === "expired"/);
   assert.match(paymentDetails, /function reconcileExpiredRechargePaymentOrder/);
   assert.match(paymentDetails, /api\.getWeb3PaymentOrder\(\{ orderNo: order\.order_no \}\)/);
@@ -155,6 +157,14 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(productEvents, /event\.key !== "Enter" && event\.key !== " "/);
   assert.match(styles, /\.recharge-product-card\.selected/);
   assert.match(styles, /\.recharge-product-card:focus-visible/);
+  assert.match(styles, /\.recharge-support-button:hover:not\(:disabled\)/);
+  assert.match(styles, /\.recharge-support-button:active:not\(:disabled\)/);
+  assert.match(styles, /\.recharge-support-button:focus-visible/);
+  assert.match(styles, /\.recharge-support-button:disabled/);
+  assert.match(styles, /html\[data-theme="dark"\] \.recharge-support-button/);
+  assert.match(styles, /html\[data-theme="dark"\] \.recharge-support-button:hover:not\(:disabled\)/);
+  assert.match(styles, /html\[data-theme="dark"\] \.recharge-support-button:active:not\(:disabled\)/);
+  assert.match(styles, /html\[data-theme="dark"\] \.recharge-support-button:disabled/);
   assert.match(styles, /html:not\(\[data-theme="dark"\]\) \.recharge-product-card\.selected/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card\.selected/);
   assert.doesNotMatch(styles, /recharge-product-card\.featured/);
@@ -184,7 +194,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-payment-details\s*\{[\s\S]*?--recharge-internal-field-bg:[\s\S]*?--recharge-internal-status-bg:/);
   assert.match(styles, /\.recharge-payment-state\.paid/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-payment-state\.expired/);
-  assert.match(styles, /\.recharge-payment-preservation-note\s*\{[\s\S]*?var\(--recharge-details-muted\)/);
+  assert.doesNotMatch(styles, /recharge-payment-(?:internal|preservation)-note/);
   assert.match(styles, /html:not\(\[data-theme="dark"\]\) \.recharge-product-card/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card/);
   assert.doesNotMatch(styles, /recharge-product-help/);

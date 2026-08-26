@@ -1200,6 +1200,55 @@ test("professional AI inline labels remain readable in light and dark themes", a
   assert.match(styles, /\.trading-price-action-candlestick-pattern-ellipse\s*\{[^}]*fill: var\(--trading-price-action-candlestick-label\);[^}]*stroke: var\(--trading-price-action-candlestick-label\);[^}]*stroke-width: 0\.8px;[^}]*stroke-dasharray: none;[^}]*vector-effect: non-scaling-stroke;/s);
 });
 
+test("AI text annotations expose hover controls that resize every label in the current chart", async () => {
+  const { positionTradingAiTextSizeToolbar, tradingAiTextNextFontSize } = await import(
+    "../src/renderer/trading-expert-drawing.ts"
+  );
+  const [drawing, styles] = await Promise.all([drawingSource, stylesSource]);
+
+  assert.equal(tradingAiTextNextFontSize(10, "decrease"), 9);
+  assert.equal(tradingAiTextNextFontSize(10, "increase"), 11);
+  assert.equal(tradingAiTextNextFontSize(13, "decrease"), 12);
+  assert.equal(tradingAiTextNextFontSize(13, "increase"), 14);
+  assert.equal(tradingAiTextNextFontSize(8, "decrease"), 8);
+  assert.equal(tradingAiTextNextFontSize(36, "increase"), 36);
+
+  assert.deepEqual(
+    positionTradingAiTextSizeToolbar(
+      { x: 180, y: 100, width: 160, height: 48 },
+      { width: 500, height: 300 },
+      { width: 66, height: 34 },
+    ),
+    { x: 108, y: 107 },
+  );
+  assert.deepEqual(
+    positionTradingAiTextSizeToolbar(
+      { x: 20, y: 10, width: 120, height: 20 },
+      { width: 500, height: 300 },
+      { width: 66, height: 34 },
+    ),
+    { x: 146, y: 8 },
+  );
+
+  assert.match(drawing, /data-ai-text-hit-content aria-label="AI 文字标注字号调节"/);
+  assert.match(drawing, /data-ai-text-size-toolbar role="toolbar" aria-label="当前图表全部 AI 标注字号" hidden/);
+  assert.match(drawing, /data-ai-text-size-action="decrease"[\s\S]*?data-ai-text-size-action="increase"/);
+  assert.match(drawing, /renderAiTextSizeHitTarget\([\s\S]*?data-ai-text-size-trigger/);
+  assert.match(drawing, /handleAiTextPointerOver[\s\S]*?showAiTextSizeToolbar/);
+  assert.match(drawing, /aiTextDrawingsForCurrentContext\(\)[\s\S]*?this\.aiDrawings\.filter/);
+  assert.match(drawing, /adjustAiTextFontSize\([\s\S]*?for \(const textDrawing of this\.aiTextDrawingsForCurrentContext\(\)\)[\s\S]*?textDrawing\.fontSize = next;[\s\S]*?this\.persistAiDrawings\(\);[\s\S]*?this\.redraw\(\);/);
+  assert.match(drawing, /tradingAiDrawingMatchesContext\(drawing, symbol, interval\)/);
+  assert.match(drawing, /const disabled = textDrawings\.every\([\s\S]*?button\.disabled = disabled/);
+  assert.match(drawing, /positionTradingAiTextSizeToolbar\([\s\S]*?\{ x, y, width, height \}/);
+
+  assert.match(styles, /\.trading-ai-text-size-trigger\s*\{[^}]*pointer-events: all;/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar\s*\{[^}]*background: color-mix\(in srgb, var\(--trading-market-panel\) 96%, transparent\);[^}]*pointer-events: auto;/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar > button:hover,[\s\S]*?background: var\(--trading-market-control\);[\s\S]*?color: var\(--trading-market-text\);/);
+  assert.match(styles, /\.trading-ai-text-size-toolbar > button:active\s*\{[^}]*background: var\(--trading-market-accent-soft\);[^}]*color: var\(--trading-market-accent\);/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar > button:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.32;/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-ai-text-size-toolbar\s*\{[^}]*background: #14171d;[^}]*box-shadow: 0 16px 42px rgba\(0, 0, 0, 0\.54\);/s);
+});
+
 test("Fibonacci retracement matches the full-width colored reference in both themes", async () => {
   const [drawing, styles] = await Promise.all([drawingSource, stylesSource]);
 
