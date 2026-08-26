@@ -596,7 +596,6 @@ const RECHARGE_PAYMENT_NETWORKS = [
     asset: "BNB",
     label: "币安内部转账",
     networkName: "币安站内转账",
-    address: "1261385376",
     kind: "internal",
   },
   {
@@ -604,7 +603,6 @@ const RECHARGE_PAYMENT_NETWORKS = [
     asset: "OKB",
     label: "OKX内部转账",
     networkName: "OKX站内转账",
-    address: "694504753333973132",
     kind: "internal",
   },
   {
@@ -612,7 +610,6 @@ const RECHARGE_PAYMENT_NETWORKS = [
     asset: "BNB",
     label: "币安链BSC 网络",
     networkName: "BNB Smart Chain",
-    address: "0xd69a98907565b8ACb49E84644842535c86A78457",
     kind: "network",
   },
   {
@@ -620,7 +617,6 @@ const RECHARGE_PAYMENT_NETWORKS = [
     asset: "TRX",
     label: "波场TRON 网络",
     networkName: "TRON",
-    address: "TVXvodFriEMNjsVkuRWtiAmo1qVQauv635",
     kind: "network",
   },
   {
@@ -628,7 +624,6 @@ const RECHARGE_PAYMENT_NETWORKS = [
     asset: "ARB",
     label: "Arbitrum One 网络",
     networkName: "Arbitrum One",
-    address: "0xd69a98907565b8ACb49E84644842535c86A78457",
     kind: "network",
   },
 ] as const;
@@ -59012,9 +59007,7 @@ function normalizeWeb3PaymentOrder(value: any): Web3PaymentOrder {
     || value?.recipientAccount
     || "",
   ).trim();
-  const recipientAddress = networkDefinition.kind === "internal"
-    ? networkDefinition.address
-    : responseRecipient;
+  const recipientAddress = responseRecipient;
   const expiresAt = String(value?.expires_at || value?.expiresAt || "").trim();
   if (!orderNo || !recipientAddress || !Number.isFinite(Date.parse(expiresAt))) {
     throw new Error("支付接口返回的订单信息不完整");

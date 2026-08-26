@@ -74,12 +74,13 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.doesNotMatch(productCard, /paymentLocked|payment-locked|aria-disabled/);
   assert.doesNotMatch(productCard, /recharge-product-help|<summary|查看兑换说明/);
   assert.doesNotMatch(products, /id: "addon_|kind: "addon"/);
-  assert.match(products, /id: "binance_internal"[\s\S]*?asset: "BNB"[\s\S]*?label: "币安内部转账"[\s\S]*?address: "1261385376"[\s\S]*?kind: "internal"/);
-  assert.match(products, /id: "okx_internal"[\s\S]*?asset: "OKB"[\s\S]*?label: "OKX内部转账"[\s\S]*?address: "694504753333973132"[\s\S]*?kind: "internal"/);
+  assert.match(products, /id: "binance_internal"[\s\S]*?asset: "BNB"[\s\S]*?label: "币安内部转账"[\s\S]*?kind: "internal"/);
+  assert.match(products, /id: "okx_internal"[\s\S]*?asset: "OKB"[\s\S]*?label: "OKX内部转账"[\s\S]*?kind: "internal"/);
   assert.ok(products.indexOf('id: "binance_internal"') < products.indexOf('id: "bsc"'));
   assert.ok(products.indexOf('id: "okx_internal"') < products.indexOf('id: "bsc"'));
-  assert.match(products, /id: "bsc"[\s\S]*?asset: "BNB"[\s\S]*?label: "币安链BSC 网络"[\s\S]*?address: "0xd69a98907565b8ACb49E84644842535c86A78457"[\s\S]*?id: "tron"[\s\S]*?asset: "TRX"[\s\S]*?label: "波场TRON 网络"[\s\S]*?address: "TVXvodFriEMNjsVkuRWtiAmo1qVQauv635"/);
-  assert.match(products, /id: "arbitrum"[\s\S]*?asset: "ARB"[\s\S]*?label: "Arbitrum One 网络"[\s\S]*?address: "0xd69a98907565b8ACb49E84644842535c86A78457"/);
+  assert.match(products, /id: "bsc"[\s\S]*?asset: "BNB"[\s\S]*?label: "币安链BSC 网络"[\s\S]*?id: "tron"[\s\S]*?asset: "TRX"[\s\S]*?label: "波场TRON 网络"/);
+  assert.match(products, /id: "arbitrum"[\s\S]*?asset: "ARB"[\s\S]*?label: "Arbitrum One 网络"/);
+  assert.match(paymentDetails, /const recipientAddress = responseRecipient/);
   assert.match(products, /let selectedRechargePaymentNetwork: RechargePaymentNetworkId \| null = "binance_internal"/);
   assert.match(page, /RECHARGE_SUBSCRIPTION_PRODUCTS/);
   assert.match(page, /class="recharge-product-grid subscription" role="radiogroup"[\s\S]*?aria-required="true"/);
