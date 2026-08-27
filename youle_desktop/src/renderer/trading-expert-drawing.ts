@@ -11,6 +11,7 @@ import {
   renderTradingOrderPositionCards,
   type TradingOrderLine,
 } from "./trading-expert-order-lines.ts";
+import { translateAppText, translateTradingAnnotationText, type AppLanguage } from "./app-language.mjs";
 
 const LEGACY_TRADING_DRAWINGS_STORAGE_KEY = "haolo.trading-market.drawings.v1";
 const LEGACY_TRADING_AI_DRAWINGS_STORAGE_KEY = "haolo.trading-market.ai-drawings.v1";
@@ -1398,15 +1399,27 @@ export function tradingDrawingTextLayout(
   for (const paragraph of String(text || "").split(/\r?\n/)) {
     let line = "";
     let lineWidth = 0;
-    for (const character of Array.from(paragraph)) {
-      const characterWidth = tradingDrawingGlyphWidth(character, fontSize);
-      if (line && lineWidth + characterWidth > widthLimit) {
-        lines.push(line);
-        line = character;
-        lineWidth = characterWidth;
-      } else {
-        line += character;
-        lineWidth += characterWidth;
+    const tokens = paragraph.match(/[A-Za-z0-9][A-Za-z0-9,.'’:/+\-]*|\s+|[^\s]/gu) ?? [];
+    for (const token of tokens) {
+      const tokenWidth = tradingDrawingLineWidth(token, fontSize);
+      if (line && lineWidth + tokenWidth > widthLimit) {
+        lines.push(line.trimEnd());
+        line = "";
+        lineWidth = 0;
+        if (!token.trim()) continue;
+      }
+      // Keep English words and prices together; only split a token when it
+      // cannot fit on an otherwise empty line (for example a long identifier).
+      for (const character of Array.from(token)) {
+        const characterWidth = tradingDrawingGlyphWidth(character, fontSize);
+        if (line && lineWidth + characterWidth > widthLimit) {
+          lines.push(line);
+          line = character;
+          lineWidth = characterWidth;
+        } else {
+          line += character;
+          lineWidth += characterWidth;
+        }
       }
     }
     lines.push(line);
@@ -2053,6 +2066,12 @@ function tradingAiDrawingModel(drawing: TradingAiDrawing): TradingDrawingModel {
     fontSize: drawing.fontSize ?? (drawing.tool === "note" ? AI_NOTE_FONT_SIZE : undefined),
     bold: drawing.bold === true,
   };
+}
+
+export function tradingAiDrawingDisplayModel<T extends { text?: string }>(drawing: T, language?: AppLanguage): T {
+  if (!drawing.text) return drawing;
+  const text = translateTradingAnnotationText(drawing.text, language);
+  return text === drawing.text ? drawing : { ...drawing, text };
 }
 
 export function persistTradingAiDrawingPatch(
@@ -4359,12 +4378,13 @@ export class TradingDrawingController {
     ));
     if (this.draft && tradingManualDrawingMatchesContext(this.draft, symbol, interval)) drawings.push(this.draft);
     this.content.innerHTML = drawings.map((drawing) => this.renderDrawing(drawing, bounds, drawing === this.draft)).join("");
-    const aiDrawings = this.aiDrawings.filter((drawing) => (
+    const aiSourceDrawings = this.aiDrawings.filter((drawing) => (
       tradingAiDrawingMatchesContext(drawing, symbol, interval)
     ));
     if (this.aiDraft && tradingAiDrawingMatchesContext(this.aiDraft, symbol, interval)) {
-      aiDrawings.push(this.aiDraft);
+      aiSourceDrawings.push(this.aiDraft);
     }
+    const aiDrawings = aiSourceDrawings.map((drawing) => tradingAiDrawingDisplayModel(drawing));
     const aiCandlestickLabelRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
       if (!tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) || !drawing.points[0]) return [];
       const anchor = this.pointToScreen(drawing.points[0]);
@@ -4420,15 +4440,16 @@ export class TradingDrawingController {
         return this.renderDrawing(
           drawing,
           bounds,
-          drawing === this.aiDraft,
+          drawing.id === this.aiDraft?.id,
           false,
           textLayout,
         );
       })
+      .map((markup) => `<g data-i18n-skip>${markup}</g>`)
       .join("");
     this.aiTextHitContent.innerHTML = orderedAiDrawings
       .map((drawing) => {
-        if (drawing === this.aiDraft) return "";
+        if (drawing.id === this.aiDraft?.id) return "";
         const textLayout = aiTextLayouts.get(drawing.id);
         if (drawing.tool === "note" && !textLayout) return "";
         return this.renderAiTextSizeHitTarget(drawing, bounds, textLayout);
@@ -4876,7 +4897,7 @@ export class TradingDrawingController {
       };
     }
     const label = drawing.text.replace(/\s+/g, " ").trim().slice(0, 48);
-    return `<g class="trading-ai-text-size-trigger" data-ai-text-size-trigger="${escapeHtml(drawing.id)}" tabindex="0" role="group" aria-label="${escapeHtml(`AI 标注：${label}；当前字号 ${fontSize}px`)}">`
+    return `<g class="trading-ai-text-size-trigger" data-i18n-skip data-ai-text-size-trigger="${escapeHtml(drawing.id)}" tabindex="0" role="group" aria-label="${escapeHtml(translateAppText(`AI 标注：${label}；当前字号 ${fontSize}px`))}">`
       + `<rect class="trading-ai-text-size-hit-target" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" />`
       + `</g>`;
   }

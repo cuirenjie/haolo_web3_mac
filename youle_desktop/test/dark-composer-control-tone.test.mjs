@@ -28,6 +28,21 @@ test("dark composer auxiliary controls use a muted shared tone", async () => {
   assert.match(toneRule, /color: var\(--text-tertiary\);/);
 });
 
+test("expanded conversation model picker covers focus, pressed, disabled, and catalog states in both themes", async () => {
+  const styles = await stylesSource;
+  for (const selector of [".composer-model-group-title", ".composer-model-menu-empty", ".composer-model-menu.grouped .composer-model-option-price"]) {
+    const rule = cssRuleStartingWith(styles, `${selector} {`);
+    assert.match(rule, /color: var\(--text-secondary\);/);
+    assert.doesNotMatch(rule, /color:\s*#[0-9a-f]+/i);
+  }
+  assert.match(cssRuleStartingWith(styles, ".composer-model-picker .chat-title-group-button:active:not(:disabled) {"), /background: var\(--selection-soft\);/);
+  assert.match(cssRuleStartingWith(styles, ".composer-model-picker .chat-title-group-button:focus-visible {"), /outline: 2px solid var\(--brand-blue\);/);
+  assert.match(cssRuleStartingWith(styles, ".composer-model-picker .chat-title-group-button:disabled {"), /color: var\(--text-muted\);[\s\S]*opacity: 0\.6;/);
+  assert.match(cssRuleStartingWith(styles, 'html[data-theme="dark"] .composer-model-group-title {'), /color: var\(--text-secondary\);/);
+  assert.match(cssRuleStartingWith(styles, 'html[data-theme="dark"] .composer-model-menu.grouped .composer-model-option-price {'), /color: var\(--text-secondary\);/);
+  assert.match(styles, /\.composer\.media-creation-composer\s*\.composer-tools\s*\{[^}]*bottom: 44px;/);
+});
+
 test("dark video expert selectors use the dark control border", async () => {
   const styles = await stylesSource;
   const selectorRule = cssRuleStartingWith(

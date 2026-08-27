@@ -10,6 +10,7 @@ import {
   createChart,
   createSeriesMarkers,
 } from "lightweight-charts";
+import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import {
   TRADING_INDICATORS,
   calculateTradingIndicator,
@@ -604,6 +605,7 @@ export class TradingExpertSplitPane {
         </header>
         <div class="trading-market-split-viewport" data-split-viewport>
           <div class="trading-market-split-chart" data-split-chart></div>
+          ${renderTradingChartBrand()}
           <svg
             class="trading-market-volume-profile-layer"
             data-split-volume-profile-layer

@@ -1,14 +1,19 @@
 import { app, BrowserWindow } from "electron/main";
 import { mkdir, writeFile } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { inspectTextClipping, inspectClippedLabelStyles } from "./text-clipping-audit.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const INDEX = path.join(ROOT, "dist", "renderer", "index.html");
+const DEV_URL = process.env.HAOLO_I18N_LAYOUT_QA_URL;
 const OUTPUT = path.resolve(process.env.HAOLO_I18N_LAYOUT_QA_DIR || path.join(ROOT, ".tmp", "i18n-layout-qa"));
 const QUICK_ENGLISH_BUTTON_AUDIT = process.env.HAOLO_I18N_BUTTON_QA_QUICK === "1";
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+mkdirSync(path.join(OUTPUT, "profile"), { recursive: true });
+app.setPath("userData", path.join(OUTPUT, "profile"));
 app.commandLine.appendSwitch("disable-gpu");
 
 async function waitFor(targetWindow, selector, timeoutMs = 15_000) {
@@ -62,9 +67,8 @@ async function nativeClick(targetWindow, selector) {
     };
   })()`, true);
   if (!target) throw new Error(`Cannot click missing element ${selector}`);
-  const zoomFactor = targetWindow.webContents.getZoomFactor();
-  const x = Math.round(target.x * zoomFactor);
-  const y = Math.round(target.y * zoomFactor);
+  // CDP takes CSS pixels; multiplying by Electron zoom clicks the wrong control.
+  const { x, y } = target;
   if (!targetWindow.webContents.debugger.isAttached()) {
     targetWindow.webContents.debugger.attach("1.3");
   }
@@ -133,11 +137,20 @@ async function switchLanguage(targetWindow, language) {
     language: document.documentElement.dataset.language,
     lang: document.documentElement.lang,
     selectedValue: document.querySelector("[data-settings-language]")?.value,
+    selectedLabel: document.querySelector(".settings-language-select [data-haolo-select-label]")?.textContent?.trim(),
+    optionLabels: Array.from(document.querySelectorAll(".settings-language-select [data-haolo-select-value]"), (option) => option.textContent.trim()),
     storedValue: localStorage.getItem("haolo.appearance.language"),
   }))()`,
     true,
   );
   const expectedLang = language === "en" ? "en-US" : language;
+  const nativeLabels = { en: "English", "zh-CN": "简体中文", "zh-TW": "繁體中文" };
+  if (
+    applied.selectedLabel !== nativeLabels[language] ||
+    JSON.stringify(applied.optionLabels) !== JSON.stringify(Object.values(nativeLabels))
+  ) {
+    throw new Error(`Language choices lost their native names: ${JSON.stringify(applied)}`);
+  }
   if (
     applied.language !== language ||
     applied.lang !== expectedLang ||
@@ -199,6 +212,14 @@ async function returnHome(targetWindow) {
 
 async function openSurface(targetWindow, surface) {
   await returnHome(targetWindow);
+  if (surface === "home") return "#app";
+  if (surface === "auto-task" || surface === "auto-task-frequency") {
+    await nativeClick(targetWindow, '[data-action="toggle-external-channel-menu"]');
+    await nativeClick(targetWindow, '[data-action="open-auto-task-dialog"]');
+    await waitFor(targetWindow, ".auto-task-dialog");
+    if (surface === "auto-task-frequency") await nativeClick(targetWindow, '[data-auto-task-picker="frequency"]');
+    return ".auto-task-dialog";
+  }
   if (surface === "profile") {
     await click(targetWindow, ".titlebar-profile");
     await waitFor(targetWindow, ".profile-menu");
@@ -230,10 +251,94 @@ async function openSurface(targetWindow, surface) {
   return ".trading-alerts-page";
 }
 
+async function verifyTextClippingDetector(targetWindow) {
+  const result = await targetWindow.webContents.executeJavaScript(`(() => {
+    const inspect = ${inspectTextClipping.toString()};
+    const fixture = document.createElement("div");
+    fixture.style.cssText = "position:fixed;inset:0 auto auto 0;width:280px;background:var(--surface-primary);z-index:9999;clip-path:inset(0 round 4px)";
+    // The language picker intentionally skips translation. Geometry must not skip it.
+    fixture.innerHTML = '<span data-i18n-skip translate="no" style="display:block;width:120px;overflow:hidden;white-space:nowrap;font:16px/1 Microsoft YaHei, sans-serif">English gjpqy</span>';
+    document.body.append(fixture);
+    const broken = inspect(fixture);
+    fixture.firstElementChild.style.lineHeight = "1.5";
+    const repaired = inspect(fixture);
+    // Horizontal ellipsis and completely scrolled-out lines are intentional.
+    fixture.firstElementChild.style.width = "35px";
+    fixture.firstElementChild.style.textOverflow = "ellipsis";
+    const ellipsis = inspect(fixture);
+    fixture.remove();
+    return { broken, repaired, ellipsis };
+  })()`, true);
+  if (!result.broken.some((issue) => issue.bottomLoss > 0.5) || result.repaired.length || result.ellipsis.length) {
+    throw new Error(`Glyph clipping detector self-test failed: ${JSON.stringify(result)}`);
+  }
+}
+
+async function inspectSelectStates(targetWindow, name, capture) {
+  const debuggerApi = targetWindow.webContents.debugger;
+  if (!debuggerApi.isAttached()) debuggerApi.attach("1.3");
+  await debuggerApi.sendCommand("DOM.enable");
+  await debuggerApi.sendCommand("CSS.enable");
+  const { root } = await debuggerApi.sendCommand("DOM.getDocument");
+  const triggerSelector = ".settings-language-select [data-haolo-select-trigger]";
+  const optionSelector = '.settings-language-select [aria-selected="true"]';
+  const { nodeId: triggerId } = await debuggerApi.sendCommand("DOM.querySelector", { nodeId: root.nodeId, selector: triggerSelector });
+  const { nodeId: optionId } = await debuggerApi.sendCommand("DOM.querySelector", { nodeId: root.nodeId, selector: optionSelector });
+  await debuggerApi.sendCommand("Input.dispatchMouseEvent", { type: "mouseMoved", x: 1, y: 1 });
+  const states = [];
+  const inspect = async (state, selector = triggerSelector) => {
+    // Let the compositor paint the new pseudo/disabled/menu state before capture.
+    await targetWindow.webContents.executeJavaScript("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))", true);
+    const result = await targetWindow.webContents.executeJavaScript(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      const style = getComputedStyle(element);
+      return {
+        textClipping: (${inspectTextClipping.toString()})(document.querySelector('.settings-language-select')),
+        color: style.color, background: style.backgroundColor, border: style.borderColor,
+        outline: style.outline, boxShadow: style.boxShadow, opacity: style.opacity,
+        expanded: document.querySelector(${JSON.stringify(triggerSelector)}).getAttribute('aria-expanded'),
+      };
+    })()`, true);
+    states.push({ state, ...result });
+    if (capture) await writeFile(path.join(OUTPUT, `${name}-${state}.png`), (await targetWindow.webContents.capturePage()).toPNG());
+  };
+  try {
+    for (const [state, forcedPseudoClasses] of [["default", []], ["hover", ["hover"]], ["active", ["hover", "active"]], ["focus", ["focus", "focus-visible"]]]) {
+      await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: triggerId, forcedPseudoClasses });
+      await inspect(state);
+    }
+    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: triggerId, forcedPseudoClasses: [] });
+    await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(triggerSelector)}).disabled = true`, true);
+    await inspect("disabled");
+    await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(triggerSelector)}).disabled = false`, true);
+    await nativeClick(targetWindow, triggerSelector);
+    await inspect("open");
+    if (states.at(-1).expanded !== "true") throw new Error(`Language menu did not open at zoom ${targetWindow.webContents.getZoomFactor()}`);
+    for (const [state, forcedPseudoClasses] of [["option-selected", []], ["option-hover", ["hover"]], ["option-focus", ["focus", "focus-visible"]]]) {
+      await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: optionId, forcedPseudoClasses });
+      await inspect(state, optionSelector);
+    }
+    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: optionId, forcedPseudoClasses: [] });
+    await targetWindow.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(optionSelector)}).disabled = true`, true);
+    await inspect("option-disabled", optionSelector);
+  } finally {
+    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: triggerId, forcedPseudoClasses: [] });
+    await debuggerApi.sendCommand("CSS.forcePseudoState", { nodeId: optionId, forcedPseudoClasses: [] });
+    await targetWindow.webContents.executeJavaScript(`(() => {
+      const trigger = document.querySelector(${JSON.stringify(triggerSelector)});
+      trigger.disabled = false;
+      document.querySelector(${JSON.stringify(optionSelector)}).disabled = false;
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      trigger.blur();
+    })()`, true);
+  }
+  return states;
+}
+
 async function inspectLayout(targetWindow, scopeSelector) {
   return targetWindow.webContents.executeJavaScript(`(() => {
     const scope = document.querySelector(${JSON.stringify(scopeSelector)});
-    if (!scope) return { missing: true, overlaps: [], overflow: [], escapedChildren: [], englishButtonIssues: [], languageResidue: [] };
+    if (!scope) return { missing: true, overlaps: [], overflow: [], escapedChildren: [], englishButtonIssues: [], languageResidue: [], textClipping: [] };
     const shown = (element) => {
       let current = element;
       while (current && current !== document.documentElement) {
@@ -243,7 +348,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
       }
       return true;
     };
-    if (!shown(scope)) return { missing: false, hidden: true, overlaps: [], overflow: [], escapedChildren: [], englishButtonIssues: [], languageResidue: [] };
+    if (!shown(scope)) return { missing: false, hidden: true, overlaps: [], overflow: [], escapedChildren: [], englishButtonIssues: [], languageResidue: [], textClipping: [] };
     const compact = (element) => {
       const text = String(element?.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 72);
       const tag = element?.tagName?.toLowerCase?.() || "?";
@@ -366,7 +471,9 @@ async function inspectLayout(targetWindow, scopeSelector) {
         const escaped = rects.some((rect) => rect.left < bounds.left - 1 || rect.right > bounds.right + 1 || rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1);
         const horizontalOverflow = button.scrollWidth > button.clientWidth + 1;
         const verticalOverflow = button.scrollHeight > button.clientHeight + 1;
-        const tagged = button.hasAttribute("data-i18n-single-line");
+        // Native language names skip the translation marker, but still need geometry checks.
+        const tagged = button.hasAttribute("data-i18n-single-line")
+          || Boolean(labelNodes[0].parentElement?.closest('[data-i18n-skip][translate="no"]'));
         if (!tagged || lines.length > 1 || escaped || horizontalOverflow || verticalOverflow) {
           englishButtonIssues.push({
             ...compact(button),
@@ -428,6 +535,7 @@ async function inspectLayout(targetWindow, scopeSelector) {
       escapedChildren,
       englishButtonIssues,
       languageResidue,
+      textClipping: (${inspectTextClipping.toString()})(scope),
     };
   })()`, true);
 }
@@ -442,28 +550,41 @@ async function main() {
     width: 1440,
     height: 960,
     backgroundColor: "#111317",
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, partition: `i18n-layout-qa-${Date.now()}` },
   });
   const records = [];
   const failures = [];
+  let typography = null;
   let exitCode = 0;
   try {
-    await targetWindow.loadFile(INDEX, { query: { "i18n-layout-qa": "1" } });
+    if (DEV_URL) {
+      const url = new URL(DEV_URL);
+      url.searchParams.set("i18n-layout-qa", "1");
+      await targetWindow.loadURL(url.href);
+    } else {
+      await targetWindow.loadFile(INDEX, { query: { "i18n-layout-qa": "1" } });
+    }
+    targetWindow.webContents.setZoomFactor(1);
     await waitFor(targetWindow, ".titlebar-profile");
     await delay(500);
+    await verifyTextClippingDetector(targetWindow);
+    typography = await targetWindow.webContents.executeJavaScript(`(${inspectClippedLabelStyles.toString()})(${inspectTextClipping.toString()})`, true);
+    process.stdout.write(`Typography: ${typography.checks} samples, ${typography.issues.length} clipped\n`);
+    if (typography.issues.length) failures.push({ name: "clipped-label-typography", issues: typography.issues.map((issue) => `glyph clipped: ${issue.selector} ${issue.fontSize} ${issue.text}`), result: { textClipping: typography.issues } });
     for (const language of ["en", "zh-CN", "zh-TW"]) {
       await verifyLanguageSurvivesReload(targetWindow, language);
     }
     await verifyLanguageTransitionMatrix(targetWindow);
     const languages = QUICK_ENGLISH_BUTTON_AUDIT ? ["en"] : ["en", "zh-CN", "zh-TW"];
     const zooms = QUICK_ENGLISH_BUTTON_AUDIT ? [1, 1.5] : [1, 1.25, 1.5];
-    const fontSizes = QUICK_ENGLISH_BUTTON_AUDIT ? ["large"] : ["default", "large"];
+    const fontSizes = QUICK_ENGLISH_BUTTON_AUDIT ? ["large"] : ["small", "default", "medium", "large"];
     for (const language of languages) {
       await returnHome(targetWindow);
       const transitionSource = language === "en" ? "zh-TW" : language === "zh-CN" ? "en" : "zh-CN";
       await switchLanguage(targetWindow, transitionSource);
       await switchLanguage(targetWindow, language);
-      for (const surface of ["profile", "settings-profile", "settings", "consumption", "alerts"]) {
+      for (const surface of ["home", "profile", "settings-profile", "settings", "auto-task", "auto-task-frequency", "consumption", "alerts"]) {
+        process.stdout.write(`Auditing ${language} ${surface}\n`);
         const scopeSelector = await openSurface(targetWindow, surface);
         for (const zoom of zooms) {
           targetWindow.webContents.setZoomFactor(zoom);
@@ -472,7 +593,9 @@ async function main() {
               await settle(targetWindow, theme, fontSize);
               const result = await inspectLayout(targetWindow, scopeSelector);
               const name = `${language}-${surface}-${theme}-${fontSize}-${Math.round(zoom * 100)}`;
-              const entry = { name, language, surface, theme, fontSize, zoom, result };
+              const selectStates = surface === "settings" && zoom === 1.5
+                ? await inspectSelectStates(targetWindow, name, language === "en" && fontSize === "large") : [];
+              const entry = { name, language, surface, theme, fontSize, zoom, result, selectStates };
               records.push(entry);
               const issues = [
                 ...(result.missing ? ["surface missing"] : []),
@@ -486,6 +609,8 @@ async function main() {
                 ...result.escapedChildren.map((issue) => `child escaped: ${issue.container.element} -> ${issue.child.element}`),
                 ...result.englishButtonIssues.map((issue) => `English button layout: ${issue.element} ${issue.text}`),
                 ...result.languageResidue.map((issue) => `English UI residue: ${issue.kind} ${issue.value}`),
+                ...result.textClipping.map((issue) => `glyph clipped: ${issue.element} ${issue.text}`),
+                ...selectStates.flatMap((state) => state.textClipping.map((issue) => `glyph clipped (${state.state}): ${issue.element} ${issue.text}`)),
               ];
               if (issues.length) failures.push({ name, issues, result });
               if (language === "en" && fontSize === "large" && zoom === 1.5) {
@@ -500,9 +625,12 @@ async function main() {
         if (surface === "profile") {
           await click(targetWindow, ".popover-backdrop");
           await waitForGone(targetWindow, ".profile-menu");
-        } else if (surface === "settings") {
+        } else if (surface.startsWith("settings")) {
           await click(targetWindow, ".settings-close-button");
           await waitForGone(targetWindow, ".settings-dialog");
+        } else if (surface.startsWith("auto-task")) {
+          await click(targetWindow, '[data-action="close-auto-task-dialog"]');
+          await waitForGone(targetWindow, ".auto-task-dialog");
         }
       }
     }
@@ -512,12 +640,14 @@ async function main() {
       index: INDEX,
       output: OUTPUT,
       auditedStates: records.length,
+      auditedSelectStates: records.reduce((count, entry) => count + entry.selectStates.length, 0),
+      typography,
       records,
       failures,
       status: failures.length ? "failed" : "passed",
     };
     await writeFile(path.join(OUTPUT, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
-    process.stdout.write(`${JSON.stringify({ status: report.status, auditedStates: records.length, failures: failures.length, output: OUTPUT }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ status: report.status, auditedStates: records.length, auditedSelectStates: report.auditedSelectStates, typographyChecks: typography.checks, failures: failures.length, output: OUTPUT }, null, 2)}\n`);
     if (failures.length) exitCode = 1;
   } catch (error) {
     const message = error instanceof Error ? error.stack || error.message : String(error);

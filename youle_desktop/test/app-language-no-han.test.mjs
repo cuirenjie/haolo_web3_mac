@@ -7,7 +7,7 @@ import ts from "typescript";
 
 import { translateAppText } from "../src/renderer/app-language.mjs";
 
-const HAN_TEXT_PATTERN = /[\u3400-\u9fff]/u;
+const HAN_TEXT_PATTERN = /\p{Script=Han}/u;
 const RENDERER_ROOT = fileURLToPath(new URL("../src/renderer", import.meta.url));
 const TRADING_STRATEGY_ROOT = fileURLToPath(new URL("../resources/trading-strategies/builtins", import.meta.url));
 const SOURCE_EXTENSION_PATTERN = /\.(?:html|js|mjs|ts)$/u;
@@ -25,6 +25,10 @@ function rendererSourceFiles(directory = RENDERER_ROOT) {
 function chineseLiteralFragments(source, file) {
   const fragments = [];
   const append = (literal) => {
+    literal = literal.replace(/&#(x[\da-f]+|\d+);/giu, (entity, code) => {
+      const point = code[0].toLowerCase() === "x" ? Number.parseInt(code.slice(1), 16) : Number(code);
+      return point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : entity;
+    });
     for (const match of literal.matchAll(/(?:aria-label|placeholder|title)="([^"]*)/gsu)) {
       append(match[1]);
     }

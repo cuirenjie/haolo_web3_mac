@@ -17,10 +17,25 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "关闭": "Close",
   "保存": "Save",
   "删除": "Delete",
+  "删除指定会话": "Delete selected conversations",
+  "处理中…": "Working…",
+  "无法读取完整会话列表，请稍后重试": "Unable to load the complete conversation list. Please try again later.",
+  "本组暂无可删除的会话": "There are no conversations to delete in this group",
+  "分组：": "Group: ",
+  "会话数量：": "Conversations: ",
+  "请选择要删除的会话，可多选。": "Select the conversations to delete. You can select more than one.",
+  "仅删除勾选的会话，删除后不可恢复。未勾选的会话、分组及文件夹将保留。": "Only selected conversations will be deleted. This cannot be undone. Unselected conversations, the group and its folder will be kept.",
+  "如勾选自动任务，对应任务也将停止执行。": "Selected scheduled tasks will also stop running.",
+  "已选择：": "Selected: ",
+  "所选会话中有会话正在运行，请等待完成或停止后再删除": "Some selected conversations are running. Wait for them to finish or stop them before deleting.",
+  "部分所选会话未删除，请稍后重试": "Some selected conversations were not deleted. Please try again later.",
+  "所选会话已删除": "Selected conversations have been deleted",
   "编辑": "Edit",
   "重命名": "Rename",
   "创建": "Create",
   "添加": "Add",
+  "点击+调用策略、指标、预警和文件": "Click + to use strategies, indicators, alerts, and files",
+  "点击+调用策略、指标、预警和文档": "Click + to use strategies, indicators, alerts, and files",
   "移除": "Remove",
   "返回": "Back",
   "继续": "Continue",
@@ -438,6 +453,13 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "确定将“": "Remove “",
   "”移出本群吗？移出后将不再接收群消息或参与回应。": "” from this group? They will no longer receive group messages or participate in replies.",
   "选择分组，当前为": "Select group; current group: ",
+  "不选择分组": "No group",
+  "正在加载会话记录...": "Loading conversation history...",
+  "点击在": "Click to view on",
+  "清除所选分组": "Clear selected group",
+  "请选择分组": "Select a group",
+  "已选择分组，创建自动任务后生效": "Group selected. It will apply when the automation is created.",
+  "已选择分组，发送任务后会话将归入该分组": "Group selected. This task will move to it when you send a message.",
   "在系统看板中查看": "View in the system dashboard",
   "请输入": "Enter ",
   "”后，与它相连的线也会删除，不会自动跨过该节点重连。": "”. Its connections will also be deleted and will not be reconnected around the node automatically.",
@@ -586,6 +608,7 @@ const TRADITIONAL_UI_PHRASES = Object.freeze({
   "创建": "建立",
   "删除": "刪除",
   "添加": "新增",
+  "点击+调用策略、指标、预警和文件": "點擊+調用策略、指標、預警和檔案",
   "点击": "點擊",
   "通过": "透過",
   "支持": "支援",
@@ -601,7 +624,7 @@ const TRADITIONAL_UI_PHRASES = Object.freeze({
   "内存": "記憶體",
 });
 
-const HAN_TEXT_PATTERN = /[\u3400-\u9fff]/u;
+const HAN_TEXT_PATTERN = /\p{Script=Han}/u;
 const LATIN_BUTTON_TEXT_PATTERN = /[A-Za-z]/u;
 const TRADING_PERIOD_LABEL_PATTERN = /^(\s*)(\d+)\s*(秒|分|时|日|周)(\s*)$/u;
 const ENGLISH_TRADING_PERIOD_UNITS = Object.freeze({
@@ -718,26 +741,12 @@ export function appLanguageLocale(language = currentAppLanguage) {
   return normalized === "en" ? "en-US" : normalized;
 }
 
-export function appLanguageOptions(language = currentAppLanguage) {
-  const normalized = normalizeAppLanguage(language);
-  if (normalized === "zh-CN") {
-    return [
-      { value: "en", label: "英语" },
-      { value: "zh-CN", label: "简体中文" },
-      { value: "zh-TW", label: "繁体中文" },
-    ];
-  }
-  if (normalized === "zh-TW") {
-    return [
-      { value: "en", label: "英語" },
-      { value: "zh-CN", label: "簡體中文" },
-      { value: "zh-TW", label: "繁體中文" },
-    ];
-  }
+export function appLanguageOptions() {
+  // Native names stay recognizable even when the current UI language is unfamiliar.
   return [
     { value: "en", label: "English" },
-    { value: "zh-CN", label: "Simplified Chinese" },
-    { value: "zh-TW", label: "Traditional Chinese" },
+    { value: "zh-CN", label: "简体中文" },
+    { value: "zh-TW", label: "繁體中文" },
   ];
 }
 
@@ -819,6 +828,92 @@ export function translateTradingPeriodLabel(value, language = currentAppLanguage
   const match = TRADING_PERIOD_LABEL_PATTERN.exec(canonicalSource);
   if (!match) return translateAppText(canonicalSource, normalized);
   return `${match[1]}${match[2]}${ENGLISH_TRADING_PERIOD_UNITS[match[3]]}${match[4]}`;
+}
+
+// Chart text must be translated as a complete annotation, before SVG wrapping.
+// Translating individual tspans can split terms such as 中枢 into unrelated UI words.
+const TRADING_ANNOTATION_ENGLISH_ENTRIES = entriesByLength({
+  "隐藏看涨背离": "hidden bullish divergence", "隐藏看跌背离": "hidden bearish divergence",
+  "顶背离": "bearish divergence", "底背离": "bullish divergence",
+  "暂无有效交叉/背离，继续等待": "no valid crossover or divergence; wait",
+  "暂无确认背离/失败摆动，继续等待": "no confirmed divergence or failure swing; wait",
+  "看涨失败摆动": "bullish failure swing", "看跌失败摆动": "bearish failure swing",
+  "收盘确认": "confirmed at close", "仅观察": "watch only",
+  "金叉": "bullish crossover", "死叉": "bearish crossover",
+  "超买区": "overbought zone", "超卖区": "oversold zone", "中性区": "neutral zone",
+  "上破关键高点": "break above key high", "跌破关键低点": "break below key low",
+  "趋势转多": "bullish shift", "趋势转空": "bearish shift",
+  "上方止损集中区": "buy-side liquidity", "下方止损集中区": "sell-side liquidity",
+  "扫低后收回": "low swept and reclaimed", "扫高后回落": "high swept and rejected",
+  "回调缺口": "bullish fair value gap", "反弹缺口": "bearish fair value gap",
+  "关键反转区": "breaker block", "主要订单区": "order block",
+  "成交密集价": "point of control", "大额主动买入": "large aggressive buys", "大额主动卖出": "large aggressive sells",
+  "主动买入密集区": "aggressive buying zone", "主动卖出密集区": "aggressive selling zone",
+  "主动买入失衡区": "buy imbalance zone", "主动卖出失衡区": "sell imbalance zone",
+  "低位金叉": "low-zone bullish crossover", "高位金叉": "high-zone bullish crossover", "中位金叉": "mid-zone bullish crossover",
+  "低位死叉": "low-zone bearish crossover", "高位死叉": "high-zone bearish crossover", "中位死叉": "mid-zone bearish crossover",
+  "进入超卖区": "entered oversold zone", "离开超卖区": "exited oversold zone",
+  "进入超买区": "entered overbought zone", "离开超买区": "exited overbought zone",
+  "上穿 50 中轴": "crossed above the 50 midline", "下穿 50 中轴": "crossed below the 50 midline",
+  "D线离开超卖区": "D exited oversold zone", "D线离开超买区": "D exited overbought zone",
+  "J线跌破0": "J crossed below 0", "J线上穿100": "J crossed above 100",
+  "主计数失效": "main count invalidation", "主计数确认": "main count confirmation",
+  "主计数": "main count", "备选": "alternative",
+  "已验证倾斜5浪": "validated five-wave diagonal", "标准5浪推动": "five-wave impulse",
+  "倾斜5浪": "five-wave diagonal", "标准5浪": "five-wave impulse",
+  "WXY调整": "WXY correction", "ABC调整": "ABC correction",
+  "区间上沿": "range high", "区间下沿": "range low",
+  "吸筹候选条件目标": "accumulation candidate target", "派发候选条件目标": "distribution candidate target",
+  "初步支撑": "preliminary support", "初步供应": "preliminary supply",
+  "恐慌抛售": "selling climax", "抢购高潮": "buying climax", "自动反应": "automatic reaction",
+  "二次测试": "secondary test", "假跌破后收回": "false breakdown reclaimed", "假上破后回落": "false breakout rejected",
+  "缩量确认": "low-volume confirmation", "放量上破": "high-volume breakout", "放量下破": "high-volume breakdown",
+  "回踩支撑": "support retest", "反抽受压": "resistance retest",
+  "关键价位": "key levels", "区间内等待": "wait inside the range", "震荡等待": "ranging; wait",
+  "上方压力": "resistance above", "下方支撑": "support below",
+  "收盘站稳后再考虑偏多": "consider a bullish bias after a close above",
+  "收盘跌破后再考虑偏空": "consider a bearish bias after a close below",
+  "上破": "above", "跌破": "below", "偏多": "bullish", "偏空": "bearish",
+  "结论": "outlook", "压力": "resistance", "支撑": "support", "确认": "confirmation",
+  "中枢": "central zone", "D线": "D line",
+}).map(([source, target]) => [source, ` ${target} `]);
+
+export function translateTradingAnnotationText(value, language = currentAppLanguage) {
+  const source = String(value ?? "");
+  if (!source || !HAN_TEXT_PATTERN.test(source)) return source;
+  if (normalizeAppLanguage(language) !== "en") return translateAppText(source, language);
+  const canonical = traditionalToSimplifiedCharacters(source);
+  const price = "([\\d,.+eE−-]+)";
+  let match = new RegExp(`^末端向(上|下)笔[：:]\\s*${price}\\s*→\\s*${price}[；;]\\s*最新确认为(顶|底)分型[。.]?$`, "u").exec(canonical);
+  if (match) {
+    return `Latest ${match[1] === "上" ? "up" : "down"} stroke: ${match[2]} → ${match[3]}; confirmed ${match[4] === "顶" ? "top" : "bottom"} fractal.`;
+  }
+  match = new RegExp(`^最近中枢\\s*${price}[–—-]${price}[：:]\\s*最新收盘(位于中枢上方|位于中枢下方|仍在中枢内部)[；;]\\s*关注离开后的回抽确认[。.]?$`, "u").exec(canonical);
+  if (match) {
+    const position = match[3] === "位于中枢上方" ? "above" : match[3] === "位于中枢下方" ? "below" : "inside";
+    return `Latest central zone ${match[1]}–${match[2]}; close ${position} the zone. Watch the post-breakout retest.`;
+  }
+  match = new RegExp(`^前序关键(顶|底)分型\\s*${price}[：:]\\s*(末笔起点|最近结构参照)[；;]\\s*(跌回关键低点下方则上行结构转弱|升回关键高点上方则下行结构转弱)[。.]?$`, "u").exec(canonical);
+  if (match) {
+    const reference = match[3] === "末笔起点" ? "stroke origin" : "structure reference";
+    const condition = match[4].startsWith("跌") ? "Below the key low weakens the up structure" : "Above the key high weakens the down structure";
+    return `Prior ${match[1] === "顶" ? "top" : "bottom"} fractal ${match[2]} (${reference}). ${condition}.`;
+  }
+  const summary = /^盘面结论[：:]\s*(.*)$/su.exec(canonical);
+  if (summary && !HAN_TEXT_PATTERN.test(summary[1])) return `Summary: ${summary[1]}`;
+  // Arbitrary historical model prose cannot be safely translated with a UI
+  // word dictionary. Keep the saved source intact and ask for a fresh analysis.
+  if (summary) return "Summary unavailable in English. Run the analysis again to refresh this note.";
+  if (canonical === "起") return "Start";
+  const annotation = replacePhrases(canonical, TRADING_ANNOTATION_ENGLISH_ENTRIES)
+    .replace(/（(\d+)处）/gu, " ($1 zones)")
+    .replace(/（/gu, " (").replace(/）/gu, ")")
+    .replace(/：/gu, ": ").replace(/；/gu, "; ").replace(/，/gu, ", ").replace(/。/gu, ".")
+    .replace(/｜/gu, " | ").replace(/\s+([:;,.])/gu, "$1").replace(/\s+/gu, " ").trim();
+  const translated = HAN_TEXT_PATTERN.test(annotation) ? translateAppText(canonical, "en") : annotation;
+  return /\p{Script=Han}/u.test(translated)
+    ? "Annotation unavailable in English. Run the analysis again to refresh this note."
+    : translated;
 }
 
 function shouldSkipLocalization(node) {

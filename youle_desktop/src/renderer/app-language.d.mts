@@ -14,9 +14,10 @@ export function resolveAppLanguagePreference(options?: {
   userSelected?: boolean;
 }): AppLanguage;
 export function appLanguageLocale(language?: AppLanguage): "en-US" | "zh-CN" | "zh-TW";
-export function appLanguageOptions(language?: AppLanguage): Array<{ value: AppLanguage; label: string }>;
+export function appLanguageOptions(): Array<{ value: AppLanguage; label: string }>;
 export function configureTraditionalCharacterMap(simplified: string, traditional: string): void;
 export function translateAppText(value: unknown, language?: AppLanguage): string;
+export function translateTradingAnnotationText(value: unknown, language?: AppLanguage): string;
 export function localizeAppTree(root: Node | null, language?: AppLanguage): void;
 export function applyAppLanguage(
   language: AppLanguage,

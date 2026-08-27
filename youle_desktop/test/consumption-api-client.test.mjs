@@ -154,6 +154,56 @@ test("calendar history sync drains the legacy export once without creating a loc
   }
 });
 
+test("background history sync is shared while foreground calendar requests remain independent", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const workbook = Promise.withResolvers();
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    if (String(url).includes("/export?")) return workbook.promise;
+    return Response.json({ days: [] });
+  };
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    client.baseUrl = "https://haolo.example";
+    client.token = "access-token";
+    const first = client.syncConsumptionHistory({ unit: "points" });
+    const duplicate = client.syncConsumptionHistory({ unit: "token" });
+    const calendar = await client.getConsumptionCalendar({ month: "2026-08", unit: "points" });
+    assert.deepEqual(calendar, { days: [] });
+    assert.equal(client.consumptionHistorySyncCompleted, false);
+    assert.equal(requests.filter((url) => url.includes("/export?")).length, 1);
+    workbook.resolve(new Response(Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x01])));
+    assert.deepEqual(await first, { synced: true });
+    assert.deepEqual(await duplicate, { synced: true });
+    assert.deepEqual(await client.syncConsumptionHistory({ unit: "points" }), { synced: true });
+    assert.equal(requests.filter((url) => url.includes("/export?")).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("resetting the consumption session ignores an old history sync completion", async () => {
+  const originalFetch = globalThis.fetch;
+  const workbook = Promise.withResolvers();
+  globalThis.fetch = async () => workbook.promise;
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    client.baseUrl = "https://haolo.example";
+    client.token = "access-token";
+    const pending = client.syncConsumptionHistory({ unit: "points" });
+    await new Promise((resolve) => setImmediate(resolve));
+    client.resetConsumptionHistorySync();
+    workbook.resolve(new Response(Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x01])));
+    assert.deepEqual(await pending, { synced: false });
+    assert.equal(client.consumptionHistorySyncCompleted, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("consumption export rejects a successful non-xlsx response", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({ ok: true }), {

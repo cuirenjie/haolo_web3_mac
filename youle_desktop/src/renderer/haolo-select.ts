@@ -12,6 +12,7 @@ export type HaoloSelectConfig = {
   className?: string;
   disabled?: boolean;
   inputAttributes?: Record<string, string | boolean>;
+  translateLabels?: boolean;
 };
 
 export function renderHaoloSelect(config: HaoloSelectConfig) {
@@ -39,6 +40,7 @@ export function renderHaoloSelect(config: HaoloSelectConfig) {
   const menuId = `${config.id}-menu`;
   const labelId = `${config.id}-label`;
   const valueId = `${config.id}-value`;
+  const labelAttributes = config.translateLabels === false ? ' data-i18n-skip translate="no"' : "";
 
   return `
     <span class="${className}" data-haolo-select>
@@ -55,7 +57,7 @@ export function renderHaoloSelect(config: HaoloSelectConfig) {
         aria-controls="${escapeAttr(menuId)}"
         ${config.disabled ? "disabled" : ""}
       >
-        <span id="${escapeAttr(valueId)}" data-haolo-select-label>${escapeHtml(selected.label)}</span>
+        <span id="${escapeAttr(valueId)}" data-haolo-select-label${labelAttributes}>${escapeHtml(selected.label)}</span>
         <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4" /></svg>
       </button>
       <span
@@ -74,7 +76,7 @@ export function renderHaoloSelect(config: HaoloSelectConfig) {
               type="button"
               class="haolo-select-option ${isSelected ? "selected" : ""}"
               data-haolo-select-value="${escapeAttr(option.value)}"
-              data-haolo-select-option-label="${escapeAttr(option.label)}"
+              data-haolo-select-option-label="${escapeAttr(option.label)}"${labelAttributes}
               role="option"
               aria-selected="${isSelected ? "true" : "false"}"
               tabindex="-1"

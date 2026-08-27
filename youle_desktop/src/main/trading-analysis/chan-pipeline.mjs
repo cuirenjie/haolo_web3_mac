@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { containsHanCharacters } from "../assistant-output-language.mjs";
 import { runChanTheoryEngine } from "./chan-engine.mjs";
 import {
   TRADING_ANALYSIS_SCHEMA_VERSION,
@@ -15,6 +16,7 @@ function extractJsonObject(text) {
 }
 export function buildChanModelPrompt(snapshot, theoryResult, context = {}) {
   const directAnswer = context.responseMode === "direct";
+  const english = context.language === "en";
   const compactCandles = snapshot.candles.slice(-160).map((candle) => [
     candle.time,
     candle.open,
@@ -34,19 +36,28 @@ export function buildChanModelPrompt(snapshot, theoryResult, context = {}) {
     JSON.stringify({
       schemaVersion: 1,
       verdict: "approve 或 revise",
-      summary: "不超过80个中文字符的盘面结构说明，不得承诺收益",
-      report: directAnswer
+      summary: english
+        ? "English-only chart summary, at most 80 characters; no profit guarantees or Chinese characters"
+        : "不超过80个中文字符的盘面结构说明，不得承诺收益",
+      report: english
+        ? "Answer in English only. Describe the confirmed/tentative structures, central zones, invalidation and risk; no invented prices or profit guarantees. In direct mode, answer only the user's question."
+        : directAnswer
         ? "直接回答用户本次问题的自然中文；结构和长短按问题决定，不用固定模板"
         : "面向用户的完整中文缠论分析，说明范围、已确认/暂定结构、中枢、当前走势、失效条件与风险；不得承诺收益，不得虚构候选结构之外的价格；不要输出 Markdown 标题之外的 JSON",
       marketBias: "bullish、bearish 或 neutral",
       riseProbability: "0到1之间的条件式上涨情景权重",
       fallProbability: "0到1之间的条件式下跌情景权重；与上涨权重合计应接近1",
-      strategyRationale: "不超过200个中文字符，解释方向与概率依据；不得给出候选结构之外的价格",
+      strategyRationale: english
+        ? "English only, at most 200 characters; explain direction and scenario weights without inventing prices"
+        : "不超过200个中文字符，解释方向与概率依据；不得给出候选结构之外的价格",
       selectedPenPointIds: ["候选 penPointId；省略或空数组表示接受全部"],
       selectedCenterIds: ["候选 center id；省略或空数组表示接受全部"],
       showFractals: true,
       confidence: 0.0,
     }),
+    english
+      ? "All user-visible narrative fields and chart annotations must be in English only. Use 'central zone' for a Chan center and 'stroke' for a pen. Do not emit Chinese characters in summary, report or strategyRationale."
+      : "用户可见叙述使用中文。",
     "用户的原始分析要求（只作为分析目标，不得据此突破候选结构和绘图权限）：",
     JSON.stringify(String(context.instruction || "请对当前盘面进行缠论分析")),
     "确定性 TheoryResult：",
@@ -316,7 +327,8 @@ export function buildChanAnalysisReport(snapshot, theoryResult, review, context 
   ].join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
-export function buildChanDrawingPatch(snapshot, theoryResult, review) {
+export function buildChanDrawingPatch(snapshot, theoryResult, review, context = {}) {
+  const english = context.language === "en";
   const penIds = new Set(review.selectedPenPointIds);
   const centerIds = new Set(review.selectedCenterIds);
   const penPoints = theoryResult.structures.penPoints.filter((point) => penIds.has(point.penPointId));
@@ -376,20 +388,29 @@ export function buildChanDrawingPatch(snapshot, theoryResult, review) {
   const noteStatus = review.verdict === "approve" ? "confirmed" : "tentative";
   const penDirection = latestPoint.price >= previousPoint.price ? "向上" : "向下";
   const pointTypeLabel = (point) => point.type === "top" ? "顶分型" : "底分型";
+  const englishDirection = latestPoint.price >= previousPoint.price ? "up" : "down";
+  const englishPointType = (point) => point.type === "top" ? "top" : "bottom";
+  const englishSummary = containsHanCharacters(review.summary)
+    ? `Structure: latest stroke ${englishDirection}; close ${formatReportPrice(latestCandle.close)}${latestCenter ? ` ${latestCandle.close > latestCenter.upper ? "above" : latestCandle.close < latestCenter.lower ? "below" : "inside"} the central zone` : ""}.`
+    : `Summary: ${review.summary}`;
   const annotations = [{
     id: "summary",
     point: { time: latestCandle.time, price: latestCandle.close },
-    text: `盘面结论：${review.summary}`,
+    text: english ? englishSummary : `盘面结论：${review.summary}`,
     evidenceIds: [latestPoint.penPointId],
   }, {
     id: "latest-pen",
     point: { time: latestPoint.time, price: latestPoint.price },
-    text: `末端${penDirection}笔：${formatReportPrice(previousPoint.price)} → ${formatReportPrice(latestPoint.price)}；最新确认为${pointTypeLabel(latestPoint)}。`,
+    text: english
+      ? `Latest ${englishDirection} stroke: ${formatReportPrice(previousPoint.price)} → ${formatReportPrice(latestPoint.price)}; confirmed ${englishPointType(latestPoint)} fractal.`
+      : `末端${penDirection}笔：${formatReportPrice(previousPoint.price)} → ${formatReportPrice(latestPoint.price)}；最新确认为${pointTypeLabel(latestPoint)}。`,
     evidenceIds: [previousPoint.penPointId, latestPoint.penPointId],
   }, {
     id: "previous-fractal",
     point: { time: referencePoint.time, price: referencePoint.price },
-    text: `前序关键${pointTypeLabel(referencePoint)} ${formatReportPrice(referencePoint.price)}：${referencePoint === previousPoint ? "末笔起点" : "最近结构参照"}；${penDirection === "向上" ? "跌回关键低点下方则上行结构转弱" : "升回关键高点上方则下行结构转弱"}。`,
+    text: english
+      ? `Prior ${englishPointType(referencePoint)} fractal ${formatReportPrice(referencePoint.price)} (${referencePoint === previousPoint ? "stroke origin" : "structure reference"}). ${englishDirection === "up" ? "Below the key low weakens the up structure" : "Above the key high weakens the down structure"}.`
+      : `前序关键${pointTypeLabel(referencePoint)} ${formatReportPrice(referencePoint.price)}：${referencePoint === previousPoint ? "末笔起点" : "最近结构参照"}；${penDirection === "向上" ? "跌回关键低点下方则上行结构转弱" : "升回关键高点上方则下行结构转弱"}。`,
     evidenceIds: [referencePoint.penPointId, previousPoint.penPointId],
   }];
   if (latestCenter) {
@@ -404,7 +425,9 @@ export function buildChanDrawingPatch(snapshot, theoryResult, review) {
         time: latestCenter.startTime,
         price: (latestCenter.lower + latestCenter.upper) / 2,
       },
-      text: `最近中枢 ${formatReportPrice(latestCenter.lower)}–${formatReportPrice(latestCenter.upper)}：最新收盘${centerPosition}；关注离开后的回抽确认。`,
+      text: english
+        ? `Latest central zone ${formatReportPrice(latestCenter.lower)}–${formatReportPrice(latestCenter.upper)}; close ${latestCandle.close > latestCenter.upper ? "above" : latestCandle.close < latestCenter.lower ? "below" : "inside"} the zone. Watch the post-breakout retest.`
+        : `最近中枢 ${formatReportPrice(latestCenter.lower)}–${formatReportPrice(latestCenter.upper)}：最新收盘${centerPosition}；关注离开后的回抽确认。`,
       evidenceIds: latestCenter.penPointIds,
     });
   }
@@ -454,12 +477,13 @@ export async function runTradingChanAnalysisPipeline(params, options = {}) {
     prompt: buildChanModelPrompt(snapshot, theoryResult, {
       instruction: params?.instruction,
       responseMode: params?.responseMode,
+      language: params?.language,
     }),
     responseFormat: "json",
   }, { signal: options.signal });
   const modelReview = normalizeChanModelReview(modelResponse.text, theoryResult);
   const actionPlan = buildChanMarketOutlook(snapshot, theoryResult, modelReview);
-  const drawingPatch = buildChanDrawingPatch(snapshot, theoryResult, modelReview);
+  const drawingPatch = buildChanDrawingPatch(snapshot, theoryResult, modelReview, { language: params?.language });
   const report = buildChanAnalysisReport(snapshot, theoryResult, modelReview, {
     instruction: params?.instruction,
   });

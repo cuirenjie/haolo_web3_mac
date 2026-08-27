@@ -531,7 +531,7 @@ test("node editor covers light and dark interaction states after the layout roll
   );
   assert.match(
     styles,
-    /html\[data-theme="dark"\] \.composer-model-menu\.grouped \.composer-model-option-name\s*\{[^}]*color:\s*#e2e7ef;/s,
+    /html\[data-theme="dark"\] \.composer-model-menu\.grouped \.composer-model-option-name\s*\{[^}]*color:\s*var\(--text-primary\);/s,
   );
   assert.match(
     styles,

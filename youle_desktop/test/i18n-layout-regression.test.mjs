@@ -55,7 +55,7 @@ test("the packaged geometry audit covers languages, themes, zooms and large text
   assert.match(auditSource, /\["en", "zh-CN", "zh-TW"\]/);
   assert.match(auditSource, /\["light", "dark"\]/);
   assert.match(auditSource, /\[1, 1\.25, 1\.5\]/);
-  assert.match(auditSource, /\["default", "large"\]/);
+  assert.match(auditSource, /\["small", "default", "medium", "large"\]/);
   assert.match(auditSource, /text overlap:/);
   assert.match(auditSource, /container overflow:/);
   assert.match(auditSource, /child escaped:/);
@@ -66,4 +66,36 @@ test("the packaged geometry audit covers languages, themes, zooms and large text
   assert.match(auditSource, /surface hidden/);
   assert.match(auditSource, /English UI residue:/);
   assert.match(auditSource, /transitionSource = language === "en" \? "zh-TW"/);
+  assert.match(auditSource, /glyph clipped:/);
+  assert.match(auditSource, /await verifyTextClippingDetector\(targetWindow\)/);
+  assert.match(auditSource, /await inspectSelectStates\(targetWindow/);
+  assert.match(auditSource, /states\.at\(-1\)\.expanded !== "true"/);
+});
+
+test("ellipsis controls reserve a font-relative line box for descenders at every font size", () => {
+  for (const selector of ["haolo-select-trigger", "auto-task-picker-trigger"]) {
+    const block = stylesSource.match(new RegExp(`\\.${selector}\\s*\\{([^}]+)\\}`))[1];
+    assert.match(block, /line-height:\s*1\.5;/, selector);
+  }
+  assert.match(stylesSource, /\.haolo-select-trigger > span\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/s);
+  assert.match(stylesSource, /\.haolo-select-option\s*\{[^}]*line-height:\s*max\(20px, 1\.5em\);/s);
+  for (const selector of ["pending-media-label", "trading-alert-status", "execution-plan-card-status"]) {
+    const block = stylesSource.match(new RegExp(`\\.${selector}\\s*\\{([^}]+)\\}`))[1];
+    assert.match(block, /line-height:\s*max\([\d.]+px, 1\.5em\);/, selector);
+  }
+  const ticker = stylesSource.match(/\.trading-market-favorite-ticker\s*\{([^}]+)\}/)[1];
+  assert.match(ticker, /height:\s*36px;/);
+  assert.match(ticker, /gap:\s*0;/);
+  assert.match(ticker, /padding:\s*0 8px;/);
+});
+
+test("text-clipping audit measures ink inside labels without ignoring untranslated language names", async () => {
+  const source = await readFile(new URL("../scripts/text-clipping-audit.mjs", import.meta.url), "utf8");
+  const detector = source.slice(0, source.indexOf("export function inspectClippedLabelStyles"));
+  assert.match(detector, /metrics\.actualBoundingBoxDescent/);
+  assert.match(detector, /metrics\.actualBoundingBoxAscent/);
+  assert.match(detector, /ancestor = ancestor\.parentElement/);
+  assert.doesNotMatch(detector, /closest\([^)]*data-i18n-skip/);
+  assert.match(source, /"English gjpqy", "Ångström café", "简体中文", "繁體中文"/);
+  assert.match(auditSource, /inspectClippedLabelStyles\.toString\(\)/);
 });

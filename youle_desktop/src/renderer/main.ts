@@ -13,7 +13,7 @@ import {
   translateAppText,
   type AppLanguage,
 } from "./app-language.mjs";
-import { confirmInApp, type AppConfirmationOptions } from "./app-confirmation";
+import { confirmInApp, confirmSelectionInApp, type AppConfirmationOptions } from "./app-confirmation";
 import { resolveComposerThreadIdForSend } from "./composer-thread-routing";
 import {
   applyTradingAlertsSnapshot,
@@ -1436,10 +1436,6 @@ type DesktopApi = {
     install_url?: string | null;
   }>;
   disconnectGitHub?(): Promise<{ disconnected?: boolean; revoked_on_github?: boolean }>;
-  getReferralDashboard?(): Promise<ReferralDashboard>;
-  listReferralLinks?(): Promise<{ items?: ReferralLink[] }>;
-  createReferralLink?(params: { linkType: ReferralLinkType; channelLabel: string }): Promise<ReferralLink>;
-  listReferralCommissions?(params?: { limit?: number }): Promise<{ items?: ReferralCommission[] }>;
   createWeb3PaymentOrder?(params: {
     productId: string;
     network: RechargePaymentNetworkId;
@@ -1458,6 +1454,7 @@ type DesktopApi = {
   getConsumptionOverview?(params: { unit: ConsumptionUnit }): Promise<any>;
   getConsumptionCalendar?(params: { month: string; unit: ConsumptionUnit; includeHistory?: boolean;
   }): Promise<any>;
+  syncConsumptionHistory?(params: { unit: ConsumptionUnit }): Promise<{ synced: boolean }>;
   getConsumptionRecords?(params: { range: ConsumptionRange; date?: string | null; unit: ConsumptionUnit; language: AppLanguage; page: number; pageSize: number; runtimeStateProvided?: boolean; activeInteractionIds?: string[]; activeConversationIds?: string[];
   }): Promise<any>;
   exportConsumptionReport?(params: { unit: ConsumptionUnit;
@@ -2811,62 +2808,11 @@ type ConsumptionState = {
   loading: boolean;
   exporting: boolean;
   loaded: boolean;
+  historySyncing: boolean;
+  historySyncAttempted: boolean;
   overview: any | null;
   calendar: any | null;
   records: any | null;
-};
-
-type ReferralLinkType = "ordinary_direct" | "node_direct" | "node_helper" | "helper_direct";
-
-type ReferralDashboard = {
-  profile?: {
-    role?: "ordinary" | "node" | "helper";
-    status?: "active" | "inactive" | "pending";
-    helper_rate_bps?: number | null;
-  };
-  primary_code?: string;
-  summary?: {
-    direct_invitees?: number;
-    pending_commission_usdt?: string;
-    paid_commission_usdt?: string;
-    commission_entries?: number;
-  };
-};
-
-type ReferralLink = {
-  id: string;
-  code: string;
-  url: string;
-  link_type: ReferralLinkType;
-  channel_label: string;
-  status: "active" | "paused";
-  created_at?: string | null;
-};
-
-type ReferralCommission = {
-  id: string;
-  order_no: string;
-  payer_name?: string | null;
-  payer_email?: string | null;
-  component: "ordinary" | "helper" | "node";
-  gross_amount_usdt: string;
-  rate_bps: number;
-  amount_usdt: string;
-  status: string;
-  product_name?: string | null;
-  paid_at?: string | null;
-  created_at?: string | null;
-};
-
-type ReferralCenterState = {
-  open: boolean;
-  loaded: boolean;
-  loading: boolean;
-  creating: boolean;
-  error: string | null;
-  dashboard: ReferralDashboard | null;
-  links: ReferralLink[];
-  commissions: ReferralCommission[];
 };
 
 type RechargeProductDefinition = {
@@ -3463,6 +3409,7 @@ type ThreadPreferences = {
   threadImageModels: Record<string, string>;
   threadImageSizes: Record<string, string>;
   threadModes: Record<string, NewThreadMode>;
+  tradingExpertThreads: string[];
   clusterModes: Record<string, ClusterModeVariant>;
   threadLastAssistantProviders: Record<string, ProviderChatProvider>;
   threadContinuations: Record<string, ThreadContinuationRecord>;
@@ -4114,7 +4061,6 @@ type UiState = {
   providerModelCatalog: ProviderModelCatalogState;
   login: LoginState;
   profileEdit: ProfileEditState;
-  referralCenter: ReferralCenterState;
   autoTaskDraft: AutoTaskDraftState;
   autoTaskItems: AutoTaskItem[];
   executionPlans: SavedExecutionPlan[];
@@ -4467,6 +4413,7 @@ const threadContinuationByOperationId: Record<string, ThreadContinuationRecord> 
 const threadGroupWorkspaceById: Record<string, string> = {};
 const collapsedThreadGroupIds = new Set<string>(threadPreferences.collapsedGroups);
 const expandedConversationProjectIds = new Set<string>();
+const pendingThreadGroupDeletions = new Set<string>();
 ensureDefaultThreadGroup();
 const initialNewThreadGroupId = threadGroupById(threadPreferences.newThreadGroupId) ? threadPreferences.newThreadGroupId : DEFAULT_THREAD_GROUP_ID;
 const threadHistoryClearedBefore = { ...threadPreferences.clearedBefore };
@@ -4530,7 +4477,7 @@ const liveConversationSupplementIds = new Set<string>();
 const liveConversationSupplementOrderById = new Map<string, ConversationSupplementOrderSnapshot>();
 const appliedSupplementResolutionKeys = new Set<string>();
 const providerDraftThreadIds = new Set<string>();
-const tradingExpertThreadIds = new Set<string>();
+const tradingExpertThreadIds = new Set<string>(threadPreferences.tradingExpertThreads);
 const tradingExpertWorkspaceThreadReplacements = new Map<string, string>();
 const TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY = "haolo.trading-market.workspace-session-aliases.v1";
 const tradingExpertThinkingStateByThreadId = new Map<string, TradingExpertThinkingState>();
@@ -5428,6 +5375,8 @@ const state: UiState = {
     loading: false,
     exporting: false,
     loaded: false,
+    historySyncing: false,
+    historySyncAttempted: false,
     overview: null,
     calendar: null,
     records: null,
@@ -5482,16 +5431,6 @@ const state: UiState = {
     avatarPreviewUrl: "",
     avatarFile: null,
     error: null,
-  },
-  referralCenter: {
-    open: false,
-    loaded: false,
-    loading: false,
-    creating: false,
-    error: null,
-    dashboard: null,
-    links: [],
-    commissions: [],
   },
   autoTaskDraft: createAutoTaskDraft(),
   autoTaskItems: loadAutoTaskItems(),
@@ -5567,10 +5506,12 @@ let deferredThreadListRefreshTimer: number | null = null;
 let deferredThreadListRefreshInFlight = false;
 let backgroundNotificationRenderTimer: number | null = null;
 let toastTimer: number | null = null;
-let referralCenterContentDirty = false;
 let githubAuthorizationPollTimer: number | null = null;
 let lowBalanceProfileRefreshTimer: number | null = null;
 let consumptionRequestSeq = 0;
+let consumptionLoadPromise: Promise<void> | null = null;
+let consumptionLoadKey = "";
+let consumptionPendingMonth: string | null = null;
 let consumptionRefreshTimer: number | null = null;
 let consumptionPrefetchPromise: Promise<void> | null = null;
 let consumptionPageScrollabilityFrame: number | null = null;
@@ -6115,6 +6056,7 @@ async function bootLocalWorkspace(
 }
 
 function applyAuthSession(session: any, fallbackBaseUrl = "") {
+  const previousBaseUrl = state.auth.baseUrl;
   const previousAccountIdentity = firstString(
     state.auth.profile?.id,
     state.auth.profile?.email,
@@ -6127,17 +6069,8 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
     state.auth.profile?.id,
     state.auth.profile?.email,
   );
-  if (!state.auth.authenticated || accountIdentity !== previousAccountIdentity) {
-    state.referralCenter = {
-      open: false,
-      loaded: false,
-      loading: false,
-      creating: false,
-      error: null,
-      dashboard: null,
-      links: [],
-      commissions: [],
-    };
+  if (!state.auth.authenticated || accountIdentity !== previousAccountIdentity || state.auth.baseUrl !== previousBaseUrl) {
+    resetConsumptionData();
     resetTradingPreferenceProfileState();
     authenticatedModelCatalogPreloadPromise = null;
     authenticatedModelCatalogPreloadIdentity = "";
@@ -7120,10 +7053,6 @@ function wireCopyContextMenu() {
         state.groupChatDialog = emptyGroupChatDialogState();
         shouldRender = true;
       }
-      if (state.referralCenter.open && !state.referralCenter.creating) {
-        state.referralCenter.open = false;
-        shouldRender = true;
-      }
       if (shouldRender) render();
       closeAllContextMenus();
     }
@@ -7239,6 +7168,7 @@ function runThreadMenuCommand(button: HTMLButtonElement) {
 }
 
 function runThreadGroupMenuCommand(button: HTMLButtonElement) {
+  if (button.disabled) return;
   const groupId = button.dataset.groupId;
   const action = button.dataset.threadGroupAction;
   if (!groupId) return;
@@ -7251,6 +7181,8 @@ function runThreadGroupMenuCommand(button: HTMLButtonElement) {
     void openThreadGroupFolder(groupId);
   } else if (action === "rename") {
     openThreadGroupEditor("rename", { groupId, threadId: returnToSetDialog?.threadId ?? null, returnToSetDialog });
+  } else if (action === "delete-conversations") {
+    void deleteThreadGroupConversations(groupId);
   } else if (action === "delete") {
     if (returnToSetDialog) state.threadGroupSetDialog = null;
     state.threadGroupDelete = { groupId, returnToSetDialog };
@@ -8827,7 +8759,23 @@ function consumptionVisibleQuestion(text: string, attachments: MessageAttachment
   return [visibleText, attachmentSummary].filter(Boolean).join("\n");
 }
 
-async function loadThreads() {
+async function listThreadGroupHistory(cwd: string, allPages = false) {
+  const threads: any[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | null = null;
+  while (true) {
+    const result = await api.listThreads({ cwd, limit: 40, ...(cursor ? { cursor } : {}) });
+    if (!Array.isArray(result?.data)) throw new Error("Invalid conversation list response");
+    threads.push(...result.data);
+    const nextCursor = firstString(result.nextCursor, result.next_cursor);
+    if (!allPages || !nextCursor) return threads;
+    if (seenCursors.has(nextCursor)) throw new Error("Repeated conversation list cursor");
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+}
+
+async function loadThreads(options: { allPages?: boolean } = {}) {
   const workspaceGeneration = authenticatedWorkspaceGeneration;
   const isCurrentWorkspace = () =>
     workspaceGeneration === authenticatedWorkspaceGeneration && state.auth.authenticated;
@@ -8840,9 +8788,10 @@ async function loadThreads() {
     sortedThreadGroups().map(async (group) => {
       const groupCwd = workspaceForGroupId(group.id);
       try {
-        const result = await api.listThreads({ cwd: groupCwd, limit: 40 });
-        return { group, groupCwd, threads: Array.isArray(result?.data) ? result.data : [] };
+        const threads = await listThreadGroupHistory(groupCwd, options.allPages);
+        return { group, groupCwd, threads };
       } catch (error) {
+        if (options.allPages) throw error;
         console.warn("Failed to list threads for group", group.id, error);
         return { group, groupCwd, threads: [] as any[] };
       }
@@ -17866,6 +17815,14 @@ function isTradingExpertSurfaceThreadId(threadId: string | null | undefined) {
   return isTradingExpertThreadId(threadId) || isExternalTradingWorkspaceThreadId(threadId);
 }
 
+function isTradingExpertExecutionThreadId(threadId: string | null | undefined) {
+  return isTradingExpertThreadId(threadId) && !isMediaCreationMode(newThreadModeForThread(threadId));
+}
+
+function isExpandedTradingExpertConversation(threadId: string | null | undefined) {
+  return isTradingExpertThreadId(threadId) && state.tradingExpertChartCollapsed && !state.rightCollapsed;
+}
+
 function prepareExternalTradingWorkspaceLayout() {
   state.tradingExpertChartFocusMode = false;
   tradingExpertChartFocusRestoreState = null;
@@ -17878,7 +17835,9 @@ function initializeTradingExpertTaskThread(
   options: { expandPanel?: boolean } = {},
 ) {
   tradingExpertThreadIds.add(threadId);
-  newThreadModeByThreadId.set(threadId, "execution");
+  if (!isMediaCreationMode(newThreadModeByThreadId.get(threadId))) {
+    newThreadModeByThreadId.set(threadId, "execution");
+  }
   const existingModel =
     threadModelSelection(threadId)?.model || threadModelSettings(threadId)?.model;
   if (!isTradingExpertModelValue(existingModel)) {
@@ -26857,41 +26816,41 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     return;
   }
   if (
-    isTradingExpertThreadId(threadId)
+    isTradingExpertExecutionThreadId(threadId)
     && tradingPreferenceOnboardingByThreadId.has(threadId)
     && await handleTradingPreferenceOnboardingReply(threadId, text, input || null)
   ) {
     return;
   }
   if (
-    isTradingExpertThreadId(threadId)
+    isTradingExpertExecutionThreadId(threadId)
     && !inMemoryTradingAlertConversationForThread(threadId)
     && !state.tradingAlerts.loaded
     && api.tradingAlertsSnapshot
   ) {
     await refreshTradingAlerts();
   }
-  const tradingExpertRoutingText = isTradingExpertThreadId(threadId)
+  const tradingExpertRoutingText = isTradingExpertExecutionThreadId(threadId)
     ? canonicalizeTradingExpertMentionText(text)
     : text;
-  const tradingStrategyAtSend = isTradingExpertThreadId(threadId)
+  const tradingStrategyAtSend = isTradingExpertExecutionThreadId(threadId)
     ? tradingStrategyMentionedByText(tradingExpertRoutingText)
     : null;
-  const personalStrategyConversationAtSend = isTradingExpertThreadId(threadId)
+  const personalStrategyConversationAtSend = isTradingExpertExecutionThreadId(threadId)
     ? personalStrategyConversationStateForThread(threadId)
     : null;
   const explicitPersonalStrategyCreationAtSend = isPersonalStrategyCreationCommand(text);
   const explicitTradingAlertAtSend = tradingAlertMentioned(tradingExpertRoutingText);
-  const personalStrategyCandidateAtSend = isTradingExpertThreadId(threadId)
+  const personalStrategyCandidateAtSend = isTradingExpertExecutionThreadId(threadId)
     && !tradingStrategyAtSend
     && (explicitPersonalStrategyCreationAtSend
       || (!explicitTradingAlertAtSend && Boolean(personalStrategyConversationAtSend)
         && (personalStrategyConversationAtSend?.stage !== "active" || personalStrategyFeedbackIntent(text))));
-  const tradingAlertCandidateAtSend = isTradingExpertThreadId(threadId)
+  const tradingAlertCandidateAtSend = isTradingExpertExecutionThreadId(threadId)
     && !tradingStrategyAtSend
     && !explicitPersonalStrategyCreationAtSend
     && (explicitTradingAlertAtSend || Boolean(tradingAlertConversationStateForThread(threadId)));
-  const tradingGeneralCandidateAtSend = isTradingExpertThreadId(threadId)
+  const tradingGeneralCandidateAtSend = isTradingExpertExecutionThreadId(threadId)
     && !tradingStrategyAtSend
     && !personalStrategyCandidateAtSend
     && !tradingAlertCandidateAtSend;
@@ -34848,7 +34807,7 @@ function tradingExpertAgentTextForSend(
   baseAgentText: string,
   generalRequest: TradingGeneralRequest | null = null,
 ) {
-  if (!isTradingExpertThreadId(threadId)) return baseAgentText;
+  if (!isTradingExpertExecutionThreadId(threadId)) return baseAgentText;
   const strategy = tradingStrategyMentionedByText(
     canonicalizeTradingExpertMentionText(visibleText),
   );
@@ -35935,22 +35894,6 @@ function render() {
       activeMessageScrollerBeforeRender,
     );
   }
-  const preservedReferralCenterOverlay = state.referralCenter.open
-    ? root.querySelector<HTMLElement>(".referral-center-overlay")
-    : null;
-  if (preservedReferralCenterOverlay) {
-    if (referralCenterContentDirty) {
-      const scroll = preservedReferralCenterOverlay.querySelector<HTMLElement>(
-        ".referral-center-scroll",
-      );
-      if (scroll) {
-        scroll.innerHTML = renderReferralCenterContent();
-        bindReferralCenterContentEvents(scroll);
-      }
-      referralCenterContentDirty = false;
-    }
-    preservedReferralCenterOverlay.remove();
-  }
   root.innerHTML = `
     <div class="${shellClasses}">
       ${renderWindowControls()}
@@ -35969,7 +35912,6 @@ function render() {
     ${renderLocalGroupChatMemberMenu()}
     ${renderWorkflowCanvasContextMenu()}
     ${renderProfileMenu()}
-    ${preservedReferralCenterOverlay ? "" : renderReferralCenterDialog()}
     ${state.settingsOpen ? renderSettingsDialog() : ""}
     ${state.login.wecomSupportOpen ? renderWeComSupportDialog() : ""}
     ${state.settings.update.dialogOpen ? renderUpdateDialog() : ""}
@@ -36005,9 +35947,6 @@ function render() {
     ${state.error ? `<div class="toast">${escapeHtml(state.error)}</div>` : ""}
   `;
   localizeAppTree(root, state.settings.language);
-  if (!preservedReferralCenterOverlay && state.referralCenter.open) {
-    referralCenterContentDirty = false;
-  }
   bindTradingExpertPanelResize(root);
   restorePreservedTradingExpertMarketWorkspace(
     preservedTradingExpertMarketWorkspace,
@@ -36053,9 +35992,6 @@ function render() {
       previousMessageSignature == null ||
       (nextMessageSignature !== previousMessageSignature && isFollowingMessageStream(renderedThreadId)));
   bindEvents();
-  if (preservedReferralCenterOverlay) {
-    root.appendChild(preservedReferralCenterOverlay);
-  }
   bindWindowResizeHandles();
   bindMessageScrollerEvents();
   bindThreadHistoryPopoverEvents();
@@ -36244,30 +36180,6 @@ function showToast(message: string, timeoutMs = 3000) {
     if (state.error !== message) return;
     state.error = null;
     render();
-  }, timeoutMs);
-}
-
-function showToastWithoutRender(message: string, timeoutMs = 3000) {
-  if (toastTimer !== null) {
-    window.clearTimeout(toastTimer);
-    toastTimer = null;
-  }
-  state.error = message;
-  let toast = root.querySelector<HTMLElement>(":scope > .toast");
-  if (!toast) {
-    toast = document.createElement("div");
-    toast.className = "toast";
-    toast.setAttribute("role", "status");
-    toast.setAttribute("aria-live", "polite");
-    root.appendChild(toast);
-  }
-  toast.textContent = message;
-  toastTimer = window.setTimeout(() => {
-    toastTimer = null;
-    if (state.error !== message) return;
-    state.error = null;
-    const currentToast = root.querySelector<HTMLElement>(":scope > .toast");
-    if (currentToast?.textContent === message) currentToast.remove();
   }, timeoutMs);
 }
 
@@ -45084,6 +44996,8 @@ function renderThreadGroupContextMenu() {
   const defaultGroup = isDefaultThreadGroup(group.id);
   const singleItem = false;
   const pinLabel = group.pinned ? "取消置顶" : "置顶分组";
+  const deleting = pendingThreadGroupDeletions.has(group.id);
+  const canDeleteConversations = !deleting;
   return `
     <div class="thread-menu-scrim" data-action="close-thread-group-menu"></div>
     <div class="thread-group-context-menu ${singleItem ? "single-item" : ""}" style="${threadGroupMenuStyle(menu)}" role="menu">
@@ -45109,6 +45023,9 @@ function renderThreadGroupContextMenu() {
               删除分组
             </button>`
       }
+      <button type="button" class="danger" data-thread-group-action="delete-conversations" data-group-id="${escapeAttr(group.id)}" role="menuitem" aria-busy="${deleting}" ${canDeleteConversations ? "" : "disabled"}>
+        ${deleting ? "处理中…" : "删除指定会话"}
+      </button>
     </div>
   `;
 }
@@ -45278,7 +45195,7 @@ function renderThreadGroupNonePickerOption(
       role="option"
       aria-selected="${selected ? "true" : "false"}"
     >
-      <span>&#19981;&#36873;&#25321;&#20998;&#32452;</span>
+      <span>不选择分组</span>
     </button>
   `;
 }
@@ -45556,7 +45473,8 @@ function threadMenuStyle(menu: ThreadMenuState) {
 function threadGroupMenuStyle(menu: ThreadGroupMenuState) {
   const width = 184;
   const compactMenu = isThreadGroupPickerMenuSource(menu.source);
-  const height = isDefaultThreadGroup(menu.groupId) ? 102 : compactMenu ? 132 : 162;
+  const rowCount = isDefaultThreadGroup(menu.groupId) ? 3 : 5;
+  const height = rowCount * THREAD_CONTEXT_MENU_ROW_HEIGHT + THREAD_CONTEXT_MENU_CHROME_HEIGHT;
   const chatListRight = root
     .querySelector<HTMLElement>(".chat-list")
     ?.getBoundingClientRect().right;
@@ -51500,11 +51418,11 @@ function newThreadModeForThread(threadId: string | null | undefined): NewThreadM
   // cluster/subagent preferences from threads created before that contract was
   // introduced so an existing Trading Expert conversation can never dispatch
   // through the multi-agent workflow branch.
-  if (isTradingExpertThreadId(threadId)) return "execution";
+  const mode = (threadId && newThreadModeByThreadId.get(threadId)) || "execution";
+  if (isTradingExpertThreadId(threadId)) return isMediaCreationMode(mode) ? mode : "execution";
   if (threadId && providerDraftThreadIds.has(threadId)) {
     return isVideoExpertProviderThreadId(threadId) ? "video-generation" : "question-answer";
   }
-  const mode = (threadId && newThreadModeByThreadId.get(threadId)) || "execution";
   return mode === "multi-agent" ? "execution" : mode;
 }
 
@@ -51648,11 +51566,24 @@ function applyCachedQuestionAnswerDefaultToDraft(threadId: string) {
   }
 }
 
-async function switchNewThreadMode(mode: NewThreadMode) {
+async function switchNewThreadMode(mode: NewThreadMode, threadId = currentComposerThreadId()) {
   if (mode === "multi-agent") mode = "execution";
-  const sourceThreadId = currentComposerThreadId();
-  if (!sourceThreadId || !isBlankNewThread(sourceThreadId)) return;
-  if (mode !== "execution") tradingExpertThreadIds.delete(sourceThreadId);
+  const sourceThreadId = threadId;
+  if (!sourceThreadId || sourceThreadId !== currentComposerThreadId()) return;
+  const tradingComposer = isTradingExpertThreadId(sourceThreadId);
+  if (tradingComposer) {
+    if (
+      !usesUnifiedExecutionModelPicker(sourceThreadId) ||
+      (mode !== "execution" && !isMediaCreationMode(mode)) ||
+      isThreadModelSelectionLocked(sourceThreadId) ||
+      isComposerThreadBusy(sourceThreadId)
+    ) return;
+    // Retain the chart workspace and history when an existing task chooses media.
+    tradingExpertThreadIds.add(sourceThreadId);
+  } else {
+    if (!isBlankNewThread(sourceThreadId)) return;
+    if (mode !== "execution") tradingExpertThreadIds.delete(sourceThreadId);
+  }
   dismissComposerSkillMentionPopover();
   const currentMode = newThreadModeForThread(sourceThreadId);
   state.composerModeMenuOpen = false;
@@ -53925,8 +53856,8 @@ function composerPlaceholderForThread(thread: ConversationSummary) {
   if (localGroupChatRecord(thread.id)) {
     return "发送消息，输入 @ 可指定一个或多个群成员回复";
   }
-  if (isTradingExpertThreadId(thread.id)) {
-    return "";
+  if (isTradingExpertExecutionThreadId(thread.id)) {
+    return "点击+调用策略、指标、预警和文件";
   }
   const threadBusy = isThreadBusy(thread.id) && !providerFromThreadId(thread.id);
   if (threadBusy && isLocalCodexThread(thread.id)) {
@@ -54300,8 +54231,12 @@ function composerModelKindForThread(
 function usesUnifiedExecutionModelPicker(
   threadId: string | null | undefined,
 ) {
-  if (isTradingExpertThreadId(threadId)) return false;
   const mode = newThreadModeForThread(threadId);
+  if (isTradingExpertThreadId(threadId)) {
+    return !providerFromThreadId(threadId) && (
+      isExpandedTradingExpertConversation(threadId) || isMediaCreationMode(mode)
+    );
+  }
   return (
     isBlankNewThread(threadId) &&
     !providerFromThreadId(threadId) &&
@@ -54763,6 +54698,7 @@ async function selectComposerModelForThread(
 ) {
   const id = firstString(threadId);
   if (!id) return false;
+  if (isThreadModelSelectionLocked(id) || (isTradingExpertThreadId(id) && isComposerThreadBusy(id))) return false;
   if (!usesUnifiedExecutionModelPicker(id)) {
     const currentKind = composerModelKindForThread(id);
     if (currentKind === "image") {
@@ -54795,16 +54731,21 @@ async function selectComposerModelForThread(
   }
   if (kind === "image") {
     if (!(await selectImageGenerationModelForThread(id, selected))) return false;
-    await switchNewThreadMode("image-generation");
-    return true;
+    await switchNewThreadMode("image-generation", id);
+    return newThreadModeForThread(id) === "image-generation";
   }
   if (kind === "video") {
     if (!(await selectVideoExpertModel(selected.value))) return false;
-    await switchNewThreadMode("video-generation");
-    return true;
+    await switchNewThreadMode("video-generation", id);
+    return newThreadModeForThread(id) === "video-generation";
   }
-  await switchNewThreadMode("execution");
-  return selectChatModelForThread(currentComposerThreadId(), selected);
+  if (isTradingExpertThreadId(id)) {
+    if (!selectChatModelForThread(id, selected)) return false;
+    await switchNewThreadMode("execution", id);
+    return newThreadModeForThread(id) === "execution";
+  }
+  await switchNewThreadMode("execution", id);
+  return selectChatModelForThread(id, selected);
 }
 
 function unavailableProviderChatModelOption(provider: ProviderModelProvider): ChatModelOption {
@@ -54858,7 +54799,7 @@ function tradingExpertSelectedModelRequestOptions(
 function selectedChatModelRequestOptions(
   threadId: string | null | undefined = currentComposerThreadId(),
 ): ChatModelRequestOptions {
-  if (isTradingExpertThreadId(threadId)) {
+  if (isTradingExpertExecutionThreadId(threadId)) {
     return tradingExpertSelectedModelRequestOptions(threadId);
   }
   const configuredSelected = selectedChatModelOption(threadId);
@@ -54900,7 +54841,7 @@ function selectedChatModelRequestOptions(
 function selectedChatModelReasoningEffortsForRequest(
   threadId: string | null | undefined,
 ) {
-  if (isTradingExpertThreadId(threadId)) {
+  if (isTradingExpertExecutionThreadId(threadId)) {
     return [tradingExpertSelectedModelRequestOptions(threadId).reasoningEffort || TRADING_EXPERT_REASONING_EFFORT];
   }
   const request = selectedChatModelRequestOptions(threadId);
@@ -55567,6 +55508,19 @@ function renderUnifiedExecutionModelMenu(
   `;
 }
 
+function isComposerModelSelectionDisabled(threadId: string) {
+  const awaitingEffectiveModel =
+    isLocalCodexThread(threadId) &&
+    !isBlankNewThread(threadId) &&
+    !isLocalBlankThreadId(threadId) &&
+    !threadModelSelection(threadId) &&
+    !threadModelSettings(threadId);
+  return executionModelFamily(lockedExecutionModelForThread(threadId)) === "deepseek" ||
+    awaitingEffectiveModel ||
+    (isTradingExpertThreadId(threadId) && isComposerThreadBusy(threadId)) ||
+    isThreadModelSelectionLocked(threadId);
+}
+
 function renderComposerModelPicker(threadId: string) {
   const modelOptions = composerModelOptionsForThread(threadId);
   const selected = selectedComposerModelOption(threadId);
@@ -55593,10 +55547,7 @@ function renderComposerModelPicker(threadId: string) {
     newThreadModeForThread(threadId) === "video-generation" &&
     !modelOptions.length &&
     (state.videoExpertModelsLoading || !state.videoExpertModelsLoaded);
-  const disabled =
-    deepSeekModelLocked ||
-    awaitingEffectiveModel ||
-    isThreadModelSelectionLocked(threadId);
+  const disabled = isComposerModelSelectionDisabled(threadId);
   const selectedLabel =
     awaitingEffectiveModel ||
     awaitingProviderCatalog ||
@@ -55629,10 +55580,10 @@ function renderComposerModelPicker(threadId: string) {
       </div>
       ${
         state.composerModelMenuOpen && !deepSeekModelLocked
-          ? isTradingExpertThreadId(threadId)
-            ? renderTradingExpertModelMenu(modelOptions, selected, disabled)
-            : unifiedExecutionPicker
+          ? unifiedExecutionPicker
             ? renderUnifiedExecutionModelMenu(threadId, selected, disabled)
+            : isTradingExpertThreadId(threadId)
+              ? renderTradingExpertModelMenu(modelOptions, selected, disabled)
             : isImageGenerationThreadMode(threadId)
               ? renderImageGenerationModelMenu(modelOptions, selected, disabled)
               : newThreadModeForThread(threadId) === "video-generation"
@@ -56369,10 +56320,10 @@ function renderComposer(thread: ConversationSummary) {
       : selectedInputCapabilities?.image
         ? "上传文件或图片"
         : "上传文件资料";
-  const composerUploadAction = tradingExpertMode
+  const composerUploadAction = tradingExpertMode && !imageGenerationMode
     ? `data-action="toggle-trading-expert-mention-menu" title="添加" aria-label="添加" aria-haspopup="menu" aria-expanded="${state.composerSkillMention.open ? "true" : "false"}"`
     : `data-action="pick-files" title="${escapeAttr(uploadTitle)}" aria-label="${escapeAttr(uploadTitle)}"`;
-  const composerTrailingPicker = multiAgentMode || tradingExpertMode
+  const composerTrailingPicker = multiAgentMode || (tradingExpertMode && !usesUnifiedExecutionModelPicker(thread.id))
     ? ""
     : renderComposerModelPicker(thread.id);
   const workflowComposerPort = isMultiModelClusterThread(thread.id)
@@ -57004,6 +56955,13 @@ function patchComposerDynamicState(threadId: string | null | undefined = state.c
   if (!thread || !form || form.dataset.threadId !== thread.id) return false;
   let patched = patchComposerSubmitButton(threadId);
   if (patchComposerPendingAttachments(form)) patched = true;
+  const modelSelectionDisabled = isComposerModelSelectionDisabled(threadId);
+  form.querySelectorAll<HTMLButtonElement>(".composer-model-button, [data-composer-model]").forEach((button) => {
+    if (button.disabled !== modelSelectionDisabled) {
+      button.disabled = modelSelectionDisabled;
+      patched = true;
+    }
+  });
   const input = form.querySelector<HTMLTextAreaElement>("#composerInput");
   if (input) {
     const placeholder = composerPlaceholderForThread(thread);
@@ -58703,127 +58661,6 @@ function renderSettingsProfilePanel() {
   `;
 }
 
-function referralRoleLabel(dashboard: ReferralDashboard | null) {
-  const role = dashboard?.profile?.role || "ordinary";
-  const status = dashboard?.profile?.status || "active";
-  if (role === "node") return status === "active" ? "节点用户" : "节点已停用";
-  if (role === "helper") return status === "active" ? "助力人" : "待审核助力人";
-  return "普通推广者";
-}
-
-function referralRuleLabel(dashboard: ReferralDashboard | null) {
-  const role = dashboard?.profile?.role || "ordinary";
-  const status = dashboard?.profile?.status || "active";
-  if (role === "node" && status === "active") return "直属普通用户付款，你获得实付金额的 60%";
-  if (role === "helper" && status === "active") {
-    const rate = Number(dashboard?.profile?.helper_rate_bps || 0) / 100;
-    return `推广用户付款，你获得实付金额的 ${rate || 30}%`;
-  }
-  if (role === "helper" && status === "pending") return "审核通过前创建普通推广链接，固定返佣 20%";
-  if (role === "node" && status !== "active") return "节点已停用，原关系保留，当前不参与节点分佣";
-  return "推广普通用户付费，你获得链上实付金额的 20%";
-}
-
-function referralDefaultLinkType(dashboard: ReferralDashboard | null): ReferralLinkType {
-  const role = dashboard?.profile?.role || "ordinary";
-  const status = dashboard?.profile?.status || "active";
-  if (role === "node" && status === "active") return "node_direct";
-  if (role === "helper" && status === "active") return "helper_direct";
-  return "ordinary_direct";
-}
-
-function referralMoney(value: unknown) {
-  const numberValue = Number(value || 0);
-  if (!Number.isFinite(numberValue)) return "0.00";
-  return numberValue.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-}
-
-function referralDate(value: unknown) {
-  const date = new Date(String(value || ""));
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
-function renderReferralCommissionRow(item: ReferralCommission) {
-  const identity = item.payer_name || item.payer_email || "HaoLo用户";
-  const component = item.component === "node" ? "节点返佣" : item.component === "helper" ? "助力返佣" : "推广返佣";
-  const status = item.status === "paid" ? "已发放" : "待发放";
-  return `
-    <tr>
-      <td><strong>${escapeHtml(identity)}</strong><small>${escapeHtml(item.order_no || "—")}</small></td>
-      <td>${escapeHtml(component)}<small>${escapeHtml(item.product_name || "会员订单")}</small></td>
-      <td>${referralMoney(item.gross_amount_usdt)} USDT</td>
-      <td>${Number(item.rate_bps || 0) / 100}%</td>
-      <td><strong class="referral-amount-positive">+${referralMoney(item.amount_usdt)} USDT</strong></td>
-      <td><span class="referral-status ${item.status === "paid" ? "paid" : "pending"}">${status}</span><small>${referralDate(item.paid_at || item.created_at)}</small></td>
-    </tr>
-  `;
-}
-
-function renderReferralCenterContent() {
-  const center = state.referralCenter;
-  if (center.loading && !center.loaded) {
-    return `<div class="referral-loading" aria-label="正在加载"><i></i><i></i><i></i><span></span></div>`;
-  }
-  if (center.error && !center.dashboard) {
-    return `<div class="referral-center-error"><strong>邀请数据加载失败</strong><p>${escapeHtml(center.error)}</p><button type="button" data-action="retry-referral-center">重新加载</button></div>`;
-  }
-  const dashboard = center.dashboard;
-  const summary = dashboard?.summary || {};
-  const activeLink = center.links.find((item) => item.status === "active") || null;
-  const activeReferralCode = activeLink?.code || dashboard?.primary_code || "—";
-  const canCreate = !(dashboard?.profile?.role === "node" && dashboard?.profile?.status !== "active");
-  return `
-    ${center.error ? `<div class="referral-inline-error">${escapeHtml(center.error)}</div>` : ""}
-    <section class="referral-summary-grid">
-      <article><span>待发放返佣</span><strong>${referralMoney(summary.pending_commission_usdt)}<small> USDT</small></strong></article>
-      <article><span>累计已发放</span><strong>${referralMoney(summary.paid_commission_usdt)}<small> USDT</small></strong></article>
-      <article><span>直属邀请</span><strong>${Number(summary.direct_invitees || 0)}<small> 人</small></strong></article>
-    </section>
-    <section class="referral-link-card">
-      <div class="referral-link-copy">
-        <h3>${escapeHtml(referralRoleLabel(dashboard))}</h3>
-        <p>${escapeHtml(referralRuleLabel(dashboard))}</p>
-      </div>
-      ${activeLink ? `
-        <div class="referral-link-value">
-          <div><input id="referralLinkValue" value="${escapeAttr(activeLink.url)}" readonly aria-readonly="true" /><button type="button" class="referral-link-copy-button" data-action="copy-referral-link" data-referral-url="${escapeAttr(activeLink.url)}">复制链接</button></div>
-          <div class="referral-code-row">
-            <small>推广码:<span class="referral-code-value">${escapeHtml(activeReferralCode)}</span></small>
-            <button type="button" class="referral-code-copy" data-action="copy-referral-code" data-referral-code="${escapeAttr(activeReferralCode)}" title="复制邀请码" aria-label="复制邀请码">
-              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="7" width="9" height="9" rx="1.5" /><path d="M5 13H4.5A1.5 1.5 0 0 1 3 11.5v-7A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5V5" /></svg>
-            </button>
-          </div>
-        </div>
-      ` : canCreate ? `
-        <div class="referral-create-first">
-          <p>还没有可用的推广链接，创建后即可分享给好友。</p>
-          <button type="button" data-action="create-referral-link" ${center.creating ? "disabled" : ""}>${center.creating ? "正在创建..." : "生成专属邀请链接"}</button>
-        </div>
-      ` : `<div class="referral-create-first is-disabled"><p>节点已停用，原链接和关系保留；重新启用节点后链接会自动恢复。</p></div>`}
-    </section>
-    <section class="referral-ledger">
-      <div class="referral-section-head"><h3>奖励记录</h3><button type="button" data-action="retry-referral-center" ${center.loading ? "disabled" : ""}>${center.loading ? "刷新中" : "刷新"}</button></div>
-      ${center.commissions.length ? `<div class="referral-table-scroll"><table><thead><tr><th>付款用户 / 订单</th><th>奖励类型</th><th>计佣金额</th><th>比例</th><th>返佣金额</th><th>状态 / 时间</th></tr></thead><tbody>${center.commissions.map(renderReferralCommissionRow).join("")}</tbody></table></div>` : `<div class="referral-empty"><strong>暂无奖励记录</strong></div>`}
-    </section>
-  `;
-}
-
-function renderReferralCenterDialog() {
-  if (!state.referralCenter.open) return "";
-  return `
-    <div class="referral-center-overlay" data-action="close-referral-center">
-      <section class="referral-center-dialog" role="dialog" aria-modal="true" aria-labelledby="referralCenterTitle">
-        <header>
-          <h2 id="referralCenterTitle">邀请有礼</h2>
-          <button class="referral-center-close" type="button" data-action="close-referral-center" aria-label="关闭">×</button>
-        </header>
-        <div class="referral-center-scroll">${renderReferralCenterContent()}</div>
-      </section>
-    </div>
-  `;
-}
-
 function renderRechargePage() {
   ensureRechargePaymentOrderScope();
   ensureRechargeProductSelection();
@@ -60121,6 +59958,9 @@ function renderConsumptionPage(): string {
   const name = firstString(profile.nickname, profile.name) || currentProfileName();
   const citizenId = firstString(profile.citizen_id, profile.citizenId) || currentProfileShortId();
   const showSkeleton = state.consumption.loading && !state.consumption.loaded;
+  const showOverviewSkeleton = state.consumption.loading && !state.consumption.overview;
+  const showCalendarSkeleton = state.consumption.loading && !state.consumption.calendar;
+  const showRecordsSkeleton = state.consumption.loading && !state.consumption.records;
   return `
     <main class="consumption-page${showSkeleton ? " is-loading" : ""}" aria-busy="${showSkeleton}">
       <div class="consumption-page-scroll">
@@ -60129,7 +59969,7 @@ function renderConsumptionPage(): string {
             ${renderPageHomeButton()}
             <div class="recharge-page-balance" title="当前积分余额">
               <span>积分余额</span>
-              <strong>${showSkeleton ? renderConsumptionSkeleton("consumption-skeleton-balance") : escapeHtml(currentProfileBalance())}</strong>
+              <strong>${escapeHtml(currentProfileBalance())}</strong>
             </div>
             ${membership.subscribed ? renderRechargeSubscriptionBalance() : ""}
           </div>
@@ -60141,8 +59981,8 @@ function renderConsumptionPage(): string {
             <button type="button" class="consumption-export" data-action="export-consumption" ${state.consumption.exporting || !api.exportConsumptionReport ? "disabled" : ""}>⇩&nbsp; ${state.consumption.exporting ? "导出中…" : "导出"}</button>
           </div>
         </header>
-        <section class="consumption-profile-card">
-          ${showSkeleton ? renderConsumptionProfileSkeleton(unit) : `<div class="consumption-profile-person">
+        <section class="consumption-profile-card" aria-busy="${showOverviewSkeleton}">
+          ${showOverviewSkeleton ? renderConsumptionProfileSkeleton(unit) : `<div class="consumption-profile-person">
             <img${builtInAvatarEdgeCropClassAttribute(avatar)} src="${escapeAttr(avatar)}" alt="" />
             <div><div class="consumption-profile-name-row"><strong>${escapeHtml(name)}</strong>${renderMembershipBadge("consumption")}</div><span>HaoLo号：${escapeHtml(citizenId)}</span>${renderConsumptionLevelIcons(overview.level)}</div>
           </div>
@@ -60152,19 +59992,19 @@ function renderConsumptionPage(): string {
           <div class="consumption-metric"><strong>${formatConsumptionLoginDays(overview.login_days)}</strong><span>登录天数</span></div>`}
         </section>
         <div class="consumption-detail-grid">
-          <section class="consumption-calendar-card">
+          <section class="consumption-calendar-card" aria-busy="${showCalendarSkeleton}">
             <header><h2>${unit === "points" ? "每日积分消耗" : "每日 Token 消耗"}</h2><div class="consumption-color-key"><span>低</span>${[1,2,3,4,5].map((level) => `<i class="level-${level}"></i>`).join("")}<span>高</span></div></header>
             <div class="consumption-calendar-toolbar">
               <button type="button" data-consumption-month="prev" aria-label="上个月" ${state.consumption.loading ? "disabled" : ""}><span aria-hidden="true">‹</span></button>
               <strong>${escapeHtml(consumptionMonthLabel(state.consumption.month))}</strong>
               <button type="button" data-consumption-month="next" aria-label="下个月" ${state.consumption.loading || state.consumption.month >= currentConsumptionMonth() ? "disabled" : ""}><span aria-hidden="true">›</span></button>
             </div>
-            ${showSkeleton ? renderConsumptionCalendarSkeleton() : renderConsumptionCalendar(calendarData.days)}
+            ${showCalendarSkeleton ? renderConsumptionCalendarSkeleton() : renderConsumptionCalendar(calendarData.days)}
           </section>
-          <section class="consumption-records-card">
+          <section class="consumption-records-card" aria-busy="${showRecordsSkeleton}">
             <header><h2 class="consumption-records-heading"><span>使用明细</span>${state.consumption.selectedDate ? `<small>${escapeHtml(consumptionDateLabel(state.consumption.selectedDate))}</small>` : ""}</h2><div class="consumption-range-toggle">${(["30d","7d","today"] as ConsumptionRange[]).map((range) => `<button type="button" class="${!state.consumption.selectedDate && state.consumption.range === range ? "active" : ""}" data-consumption-range="${range}">${range === "30d" ? "30天" : range === "7d" ? "7天" : "今天"}</button>`).join("")}</div></header>
-            ${showSkeleton ? renderConsumptionRecordsSkeleton() : renderConsumptionRecords(recordsData)}
-            ${state.consumption.loading && !showSkeleton ? `<div class="consumption-loading">正在同步实际账单…</div>` : ""}
+            ${showRecordsSkeleton ? renderConsumptionRecordsSkeleton() : renderConsumptionRecords(recordsData)}
+            ${(state.consumption.loading || state.consumption.historySyncing) && !showRecordsSkeleton ? `<div class="consumption-loading" role="status">正在同步实际账单…</div>` : ""}
           </section>
         </div>
       </div>
@@ -60339,7 +60179,7 @@ function consumptionRuntimeStateQuery() {
   };
 }
 
-async function loadConsumptionData(options: { quiet?: boolean; month?: string; suppressError?: boolean } = {}) {
+async function loadConsumptionData(options: { quiet?: boolean; month?: string; suppressError?: boolean; force?: boolean } = {}) {
   if (!state.auth.authenticated) return;
   if (!api.getConsumptionOverview || !api.getConsumptionCalendar || !api.getConsumptionRecords) {
     state.consumption.loading = false;
@@ -60347,42 +60187,113 @@ async function loadConsumptionData(options: { quiet?: boolean; month?: string; s
     if (!options.suppressError) showToast("当前客户端版本暂不支持消耗明细接口", 5000);
     return;
   }
+  const requestedMonth = options.month ?? consumptionPendingMonth ?? state.consumption.month;
+  const requestedUnit = state.consumption.unit;
+  const authSnapshot = authProfileRefreshSnapshot();
+  const runtimeState = consumptionRuntimeStateQuery();
+  const recordsParams = {
+    range: state.consumption.range,
+    date: state.consumption.selectedDate,
+    unit: requestedUnit,
+    language: state.settings.language,
+    page: state.consumption.page,
+    pageSize: state.consumption.pageSize,
+    runtimeStateProvided: true,
+    activeInteractionIds: runtimeState.activeInteractionIds,
+    activeConversationIds: runtimeState.activeConversationIds,
+  };
+  const requestKey = JSON.stringify({ authSnapshot, requestedMonth, recordsParams });
+  if (!options.force && consumptionLoadPromise && consumptionLoadKey === requestKey) return consumptionLoadPromise;
   const requestSeq = ++consumptionRequestSeq;
-  const requestedMonth = options.month ?? state.consumption.month;
-  if (!options.quiet) {
-    state.consumption.loading = true;
-    render();
-  }
+  consumptionLoadKey = requestKey;
+  consumptionPendingMonth = requestedMonth;
+  state.consumption.loading = true;
+  if (!options.quiet) render();
+  const isCurrent = () => requestSeq === consumptionRequestSeq && canApplyProfileRefreshResult(authSnapshot);
+  let reportedError = false;
+  const loadSection = async (section: "overview" | "calendar" | "records", fetchResult: () => Promise<any>) => {
+    try {
+      const result = await fetchResult();
+      if (!isCurrent()) return;
+      state.consumption[section] = consumptionPayload(result);
+      // Commit the month together with its days, never with a pending request.
+      if (section === "calendar") state.consumption.month = requestedMonth;
+      if (state.consumption.overview && state.consumption.calendar && state.consumption.records) {
+        state.consumption.loaded = true;
+      }
+    } catch (error) {
+      if (isCurrent() && !options.suppressError && !reportedError) {
+        reportedError = true;
+        showToast(`消耗明细加载失败：${errorMessage(error)}`, 6000);
+      }
+    } finally {
+      if (isCurrent() && state.activeView === "consumption") render();
+    }
+  };
+  // Only login-day statistics depend on app-enter. Each panel paints as soon as
+  // its own request resolves; neither records nor the calendar waits for it.
+  const request = Promise.all([
+    loadSection("overview", async () => {
+      await reportConsumptionAppEntryOnce();
+      if (!isCurrent()) return null;
+      return api.getConsumptionOverview!({ unit: requestedUnit });
+    }),
+    loadSection("calendar", () => api.getConsumptionCalendar!({ month: requestedMonth, unit: requestedUnit })),
+    loadSection("records", () => api.getConsumptionRecords!(recordsParams)),
+  ]).then(() => {
+    if (consumptionLoadPromise === request) {
+      consumptionLoadPromise = null;
+      consumptionLoadKey = "";
+      consumptionPendingMonth = null;
+    }
+    if (!isCurrent()) return;
+    state.consumption.loading = false;
+    if (state.activeView === "consumption") render();
+    if (state.consumption.loaded) void syncConsumptionHistoryInBackground();
+  });
+  consumptionLoadPromise = request;
+  return request;
+}
+
+function resetConsumptionData() {
+  consumptionRequestSeq += 1;
+  consumptionLoadPromise = null;
+  consumptionLoadKey = "";
+  consumptionPendingMonth = null;
+  consumptionPrefetchPromise = null;
+  if (consumptionRefreshTimer !== null) window.clearTimeout(consumptionRefreshTimer);
+  consumptionRefreshTimer = null;
+  state.consumption = {
+    ...state.consumption,
+    range: "30d", selectedDate: null, month: currentConsumptionMonth(), page: 1,
+    loading: false, loaded: false, exporting: false,
+    historySyncing: false, historySyncAttempted: false,
+    overview: null, calendar: null, records: null,
+  };
+}
+
+async function syncConsumptionHistoryInBackground() {
+  if (!api.syncConsumptionHistory || !state.auth.authenticated || state.consumption.historySyncAttempted) return;
+  const consumption = state.consumption;
+  const authSnapshot = authProfileRefreshSnapshot();
+  consumption.historySyncAttempted = true;
+  consumption.historySyncing = true;
+  if (state.activeView === "consumption") render();
   try {
-    await reportConsumptionAppEntryOnce();
-    const runtimeState = consumptionRuntimeStateQuery();
-    const [overviewResult, calendarResult, recordsResult] = await Promise.all([
-      api.getConsumptionOverview({ unit: state.consumption.unit }),
-      api.getConsumptionCalendar({ month: requestedMonth, unit: state.consumption.unit, includeHistory: true }),
-      api.getConsumptionRecords({
-        range: state.consumption.range,
-        date: state.consumption.selectedDate,
-        unit: state.consumption.unit,
-        language: state.settings.language,
-        page: state.consumption.page,
-        pageSize: state.consumption.pageSize,
-        runtimeStateProvided: true,
-        activeInteractionIds: runtimeState.activeInteractionIds,
-        activeConversationIds: runtimeState.activeConversationIds,
-      }),
-    ]);
-    if (requestSeq !== consumptionRequestSeq) return;
-    state.consumption.month = requestedMonth;
-    state.consumption.overview = consumptionPayload(overviewResult);
-    state.consumption.calendar = consumptionPayload(calendarResult);
-    state.consumption.records = consumptionPayload(recordsResult);
-    state.consumption.loaded = true;
+    const result = await api.syncConsumptionHistory({ unit: consumption.unit });
+    if (consumption !== state.consumption || !canApplyProfileRefreshResult(authSnapshot)) return;
+    if (result.synced) {
+      // Query the current filters after backfill, even if an older poll is still
+      // running. Its pre-backfill response must not replace the refreshed data.
+      await loadConsumptionData({ quiet: true, suppressError: true, force: true });
+    }
   } catch (error) {
-    if (requestSeq !== consumptionRequestSeq) return;
-    if (!options.suppressError) showToast(`消耗明细加载失败：${errorMessage(error)}`, 6000);
+    if (consumption === state.consumption && canApplyProfileRefreshResult(authSnapshot)) {
+      console.warn("[consumption] background history sync failed", error);
+    }
   } finally {
-    if (requestSeq === consumptionRequestSeq) {
-      state.consumption.loading = false;
+    if (consumption === state.consumption) {
+      consumption.historySyncing = false;
       if (state.activeView === "consumption") render();
     }
   }
@@ -60425,7 +60336,7 @@ function openConsumptionPage() {
   state.consumption.page = 1;
   const pendingPrefetch = consumptionPrefetchPromise;
   if (!state.consumption.loaded) state.consumption.loading = true;
-  else state.consumption.loading = Boolean(pendingPrefetch);
+  else state.consumption.loading = Boolean(consumptionLoadPromise || pendingPrefetch);
   render();
   if (state.consumption.loaded) return;
   if (pendingPrefetch) {
@@ -60448,6 +60359,12 @@ function syncConsumptionRefreshTimer() {
   if (consumptionRefreshTimer !== null) return;
   consumptionRefreshTimer = window.setTimeout(() => {
     consumptionRefreshTimer = null;
+    // A slow request (including a month change) must finish before a poll can
+    // start another request with the currently displayed filters.
+    if (consumptionLoadPromise) {
+      syncConsumptionRefreshTimer();
+      return;
+    }
     if (state.activeView === "consumption") void loadConsumptionData({ quiet: true });
   }, 30_000);
 }
@@ -60496,102 +60413,6 @@ function openRechargePage() {
   state.activeView = "recharge";
   render();
   void refreshProfileFromApi({ renderAfter: true, reportError: false, showRefreshing: false });
-}
-
-async function loadReferralCenter(options: { force?: boolean } = {}) {
-  if (!state.auth.authenticated) return;
-  if (!api.getReferralDashboard || !api.listReferralLinks || !api.listReferralCommissions) {
-    state.referralCenter.loading = false;
-    state.referralCenter.error = "当前客户端版本暂不支持邀请与返佣接口";
-    referralCenterContentDirty = true;
-    if (state.referralCenter.open) render();
-    return;
-  }
-  if (state.referralCenter.loaded && !options.force) return;
-  state.referralCenter.loading = true;
-  state.referralCenter.error = null;
-  referralCenterContentDirty = true;
-  if (state.referralCenter.open) render();
-  try {
-    const [dashboard, linksResult, commissionsResult] = await Promise.all([
-      api.getReferralDashboard(),
-      api.listReferralLinks(),
-      api.listReferralCommissions({ limit: 50 }),
-    ]);
-    state.referralCenter.dashboard = dashboard || null;
-    state.referralCenter.links = Array.isArray(linksResult?.items) ? linksResult.items : [];
-    state.referralCenter.commissions = Array.isArray(commissionsResult?.items) ? commissionsResult.items : [];
-    state.referralCenter.loaded = true;
-  } catch (error) {
-    state.referralCenter.error = errorMessage(error);
-  } finally {
-    state.referralCenter.loading = false;
-    referralCenterContentDirty = true;
-    if (state.referralCenter.open) render();
-  }
-}
-
-function openReferralCenter() {
-  state.profileMenuOpen = false;
-  state.referralCenter.open = true;
-  state.referralCenter.error = null;
-  if (!state.referralCenter.loaded) state.referralCenter.loading = true;
-  render();
-  void loadReferralCenter();
-}
-
-function closeReferralCenter() {
-  if (state.referralCenter.creating) return;
-  state.referralCenter.open = false;
-  render();
-}
-
-async function createDefaultReferralLink() {
-  if (!api.createReferralLink || state.referralCenter.creating) return;
-  state.referralCenter.creating = true;
-  state.referralCenter.error = null;
-  referralCenterContentDirty = true;
-  render();
-  try {
-    await api.createReferralLink({
-      linkType: referralDefaultLinkType(state.referralCenter.dashboard),
-      channelLabel: "客户端邀请有礼",
-    });
-    state.referralCenter.loaded = false;
-    showToast("专属邀请链接已生成", 3200);
-    await loadReferralCenter({ force: true });
-  } catch (error) {
-    state.referralCenter.error = errorMessage(error);
-  } finally {
-    state.referralCenter.creating = false;
-    referralCenterContentDirty = true;
-    if (state.referralCenter.open) render();
-  }
-}
-
-async function copyReferralText(value: string, successMessage: string) {
-  if (!value) return;
-  try {
-    await navigator.clipboard.writeText(value);
-  } catch {
-    const input = document.createElement("textarea");
-    input.value = value;
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.appendChild(input);
-    input.select();
-    document.execCommand("copy");
-    input.remove();
-  }
-  showToastWithoutRender(successMessage, 2600);
-}
-
-function copyReferralLink(url: string) {
-  return copyReferralText(url, "邀请链接已复制");
-}
-
-function copyReferralCode(code: string) {
-  return copyReferralText(code, "邀请码已复制");
 }
 
 function renderSettingsDialog() {
@@ -60650,7 +60471,7 @@ function renderSettingsDialog() {
               <span>关于&反馈</span>
             </button>
           </nav>
-          <button type="button" class="settings-referral-entry" data-action="settings-referrals" aria-haspopup="dialog">
+          <button type="button" class="settings-referral-entry" data-action="settings-referrals">
             <span class="settings-referral-entry-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M20 12v8H4v-8M2 7h20v5H2zM12 7v13M12 7H7.5A2.5 2.5 0 1 1 10 4.5L12 7Zm0 0h4.5A2.5 2.5 0 1 0 14 4.5L12 7Z" /></svg>
             </span>
@@ -60815,7 +60636,8 @@ function renderSettingsLanguageRow() {
         ariaLabel: "选择界面语言",
         className: "settings-language-select",
         inputAttributes: { "data-settings-language": true },
-        options: appLanguageOptions(language),
+        options: appLanguageOptions(),
+        translateLabels: false,
       })}
     </div>
   `;
@@ -61907,21 +61729,6 @@ function bindRechargeHistoryEvents() {
   if (dialog) queueMicrotask(() => dialog.focus());
 }
 
-function bindReferralCenterContentEvents(scope: ParentNode) {
-  scope.querySelectorAll<HTMLElement>('[data-action="retry-referral-center"]').forEach((element) => {
-    element.addEventListener("click", () => void loadReferralCenter({ force: true }));
-  });
-  scope.querySelector<HTMLElement>('[data-action="create-referral-link"]')?.addEventListener("click", () => {
-    void createDefaultReferralLink();
-  });
-  scope.querySelectorAll<HTMLElement>('[data-action="copy-referral-link"]').forEach((element) => {
-    element.addEventListener("click", () => void copyReferralLink(element.dataset.referralUrl || ""));
-  });
-  scope.querySelectorAll<HTMLElement>('[data-action="copy-referral-code"]').forEach((element) => {
-    element.addEventListener("click", () => void copyReferralCode(element.dataset.referralCode || ""));
-  });
-}
-
 function bindEvents() {
   bindWindowControls();
   bindWeComSupportEvents(false);
@@ -62732,18 +62539,12 @@ function bindEvents() {
   root
     .querySelectorAll<HTMLElement>('[data-action="settings-referrals"]')
     .forEach((element) => {
-      element.addEventListener("click", () => openReferralCenter());
-    });
-  root
-    .querySelectorAll<HTMLElement>('[data-action="close-referral-center"]')
-    .forEach((element) => {
-      element.addEventListener("click", (event) => {
-        if (element.classList.contains("referral-center-overlay") && event.target !== element) return;
-        event.stopPropagation();
-        closeReferralCenter();
+      element.addEventListener("click", () => {
+        void api.openExternal("https://invite.haolo.com/").catch((error: unknown) => {
+          showToast(errorMessage(error));
+        });
       });
     });
-  bindReferralCenterContentEvents(root);
   root
     .querySelectorAll<HTMLElement>('[data-action="profile-help"]')
     .forEach((element) => {
@@ -69388,6 +69189,7 @@ function handleAuthExpired(session: any = {}) {
 }
 
 function resetAuthenticatedWorkspace() {
+  resetConsumptionData();
   authenticatedWorkspaceGeneration += 1;
   authenticatedWorkspaceInteractive = false;
   clearChannelEventsReconnect();
@@ -73647,6 +73449,101 @@ async function submitThreadGroupEditor() {
   render();
 }
 
+function threadGroupConversations(groupId: string): ConversationSummary[] {
+  if (!threadGroupById(groupId)) return [];
+  const grouped = groupedThreadsForList(filteredThreads().filter((thread) => !hiddenThreadIds.has(thread.id)));
+  return isDefaultThreadGroup(groupId)
+    ? grouped.defaultThreads
+    : grouped.groups.find((item) => item.group.id === groupId)?.threads ?? [];
+}
+
+function isThreadGroupConversationDeletionBlocked(threadId: string) {
+  return isConversationThreadWorking(threadId)
+    || submittingComposerThreadIds.has(threadId)
+    || isThreadContinuationCreationActive(threadId);
+}
+
+async function deleteThreadGroupConversations(groupId: string) {
+  if (pendingThreadGroupDeletions.has(groupId)) return;
+  const group = threadGroupById(groupId);
+  if (!group) return;
+  const workspaceGeneration = authenticatedWorkspaceGeneration;
+  state.threadGroupMenu = null;
+  pendingThreadGroupDeletions.add(groupId);
+  render();
+  try {
+    try {
+      // A normal sidebar load only fetches 40 records per workspace. Read all pages
+      // before confirmation, including older conversations moved from other folders.
+      if (!(await loadThreads({ allPages: true }))) return;
+    } catch {
+      showToast("无法读取完整会话列表，请稍后重试", 3200);
+      return;
+    }
+    if (workspaceGeneration !== authenticatedWorkspaceGeneration || !threadGroupById(groupId)) return;
+    const threads = threadGroupConversations(groupId);
+    if (!threads.length) {
+      showToast("本组暂无可删除的会话", 1800);
+      return;
+    }
+    // Keep the confirmed scope stable, including pinned and collapsed conversations.
+    const threadIds = threads.map((thread) => thread.id);
+    const includesAutoTasks = threads.some((thread) => isAutoTaskThread(thread) || autoTaskIdFromThreadId(thread.id));
+    const selectedIds = await confirmSelectionInApp({
+      title: "删除指定会话",
+      message: `分组：${threadGroupDisplayLabel(group)}\n会话数量：${threadIds.length}\n请选择要删除的会话，可多选。`,
+      detail: `仅删除勾选的会话，删除后不可恢复。未勾选的会话、分组及文件夹将保留。${includesAutoTasks ? "\n如勾选自动任务，对应任务也将停止执行。" : ""}`,
+      confirmLabel: "删除",
+      cancelLabel: "取消",
+      tone: "danger",
+    }, threads.map((thread) => ({
+      id: thread.id,
+      label: [
+        tradingLastAnalysisLabelForThread(thread.id),
+        threadListDisplayName(thread).trim() || threadListPreviewText(thread).trim() || NEW_THREAD_TITLE,
+      ].filter(Boolean).join(" "),
+    })));
+    if (!selectedIds?.length || workspaceGeneration !== authenticatedWorkspaceGeneration || !threadGroupById(groupId)) return;
+    const selection = new Set(selectedIds);
+    const selectedThreadIds = threadIds.filter((threadId) => selection.has(threadId));
+    if (!selectedThreadIds.length) return;
+    const currentIds = new Set(threadGroupConversations(groupId).map((thread) => thread.id));
+    const targets = selectedThreadIds.filter((threadId) => currentIds.has(threadId));
+    if (targets.some(isThreadGroupConversationDeletionBlocked)) {
+      showToast("所选会话中有会话正在运行，请等待完成或停止后再删除", 3200);
+      return;
+    }
+    // Delete the open conversation last so the existing fallback navigation runs once.
+    const currentThreadId = state.currentThreadId;
+    targets.sort((a, b) => Number(a === currentThreadId) - Number(b === currentThreadId));
+    let failed = targets.length !== selectedThreadIds.length;
+    for (const threadId of targets) {
+      if (workspaceGeneration !== authenticatedWorkspaceGeneration) return;
+      // Membership and busy state can change while a preceding archive request is pending.
+      if (!threadGroupConversations(groupId).some((thread) => thread.id === threadId)) {
+        failed = true;
+        continue;
+      }
+      if (isThreadGroupConversationDeletionBlocked(threadId)) {
+        failed = true;
+        continue;
+      }
+      try {
+        await deleteThread(threadId);
+      } catch {
+        failed = true;
+      }
+    }
+    if (workspaceGeneration !== authenticatedWorkspaceGeneration) return;
+    const remainingIds = new Set(threadGroupConversations(groupId).map((thread) => thread.id));
+    const remaining = selectedThreadIds.some((threadId) => remainingIds.has(threadId));
+    showToast(failed || remaining ? "部分所选会话未删除，请稍后重试" : "所选会话已删除", 2600);
+  } finally {
+    pendingThreadGroupDeletions.delete(groupId);
+    render();
+  }
+}
+
 function deleteThreadGroup(groupId: string) {
   const returnToSetDialog = state.threadGroupDelete?.returnToSetDialog ?? null;
   const group = threadGroupById(groupId);
@@ -76766,6 +76663,9 @@ function loadThreadPreferences(): ThreadPreferences {
       threadImageModels: normalizePersistedThreadImageModels(parsed.threadImageModels),
       threadImageSizes: normalizePersistedThreadImageSizes(parsed.threadImageSizes),
       threadModes: normalizedThreadModes,
+      tradingExpertThreads: Array.isArray(parsed.tradingExpertThreads)
+        ? parsed.tradingExpertThreads.filter((id): id is string => typeof id === "string" && Boolean(id) && !isLocalBlankThreadId(id))
+        : [],
       clusterModes: normalizePersistedClusterModes(parsed.clusterModes),
       threadLastAssistantProviders: normalizePersistedThreadLastAssistantProviders(parsed.threadLastAssistantProviders),
       threadContinuations: normalizePersistedThreadContinuations(parsed.threadContinuations),
@@ -76812,6 +76712,7 @@ function emptyThreadPreferences(): ThreadPreferences {
     threadImageModels: {},
     threadImageSizes: {},
     threadModes: {},
+    tradingExpertThreads: [],
     clusterModes: {},
     threadLastAssistantProviders: {},
     threadContinuations: {},
@@ -77050,6 +76951,9 @@ function saveThreadPreferences() {
             mode === "image-generation" ||
             mode === "video-generation"),
       ),
+    ),
+    tradingExpertThreads: [...tradingExpertThreadIds].filter(
+      (threadId) => shouldPersistThreadPreferenceId(threadId) && !hiddenThreadIds.has(threadId),
     ),
     clusterModes: {},
     threadLastAssistantProviders: Object.fromEntries(

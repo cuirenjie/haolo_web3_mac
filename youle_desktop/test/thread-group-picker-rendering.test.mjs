@@ -1132,7 +1132,7 @@ test("top-level new task placeholder is repaired after thread loading", async ()
   const source = await mainSource;
   const loadThreadsBlock = sourceBlock(
     source,
-    "async function loadThreads()",
+    "async function loadThreads(",
     "function ensureInitialBlankChatThread",
   );
   assert.match(

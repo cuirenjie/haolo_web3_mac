@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
+import { mediaCreationExecutionModelOption } from "../src/renderer/business-model-pools.ts";
 import { longestVideoModelDuration } from "../src/renderer/video-model-duration.ts";
 
 const source = await readFile(
@@ -23,6 +25,169 @@ function sourceBlock(startMarker, endMarker) {
   assert.notEqual(end, -1, `missing end marker: ${endMarker}`);
   return source.slice(start, end);
 }
+
+function expandedComposerHarness() {
+  const names = [
+    "newThreadModeForThread", "isMediaCreationMode", "isExpandedTradingExpertConversation",
+    "isTradingExpertExecutionThreadId", "usesUnifiedExecutionModelPicker", "composerModelKindForThread",
+    "switchNewThreadMode", "selectComposerModelForThread", "selectedChatModelRequestOptions",
+    "tradingExpertAgentTextForSend",
+  ];
+  const parsed = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
+  const functions = parsed.statements.filter((node) => ts.isFunctionDeclaration(node) && names.includes(node.name?.text));
+  assert.equal(functions.length, names.length);
+  const code = ts.transpileModule(functions.map((node) => node.getText(parsed)).join("\n"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const gpt = { value: "gpt-5.6-sol", providerId: "haolo_ai", reasoningEfforts: [], serviceTiers: [] };
+  const deepSeek = { value: "deepseek-v4-flash", providerId: "deepseek", reasoningEfforts: [], serviceTiers: [] };
+  const fixture = {
+    currentId: "trading-existing", busy: false, locked: false, allowSelection: true,
+    selected: deepSeek, selectedImage: null, selectedVideo: null, persisted: [],
+    state: { tradingExpertChartCollapsed: true, rightCollapsed: false, composerText: "保留这份草稿", attachments: [], composerQuote: { text: "原会话引用" }, composerThreadReferences: [{ threadId: "reference" }] },
+    modes: new Map([["trading-existing", "execution"]]),
+    tradingIds: new Set(["trading-existing"]),
+  };
+  const context = {
+    state: fixture.state, newThreadModeByThreadId: fixture.modes, tradingExpertThreadIds: fixture.tradingIds,
+    providerDraftThreadIds: new Set(), chatModelOptions: [gpt, deepSeek],
+    isTradingExpertThreadId: (id) => fixture.tradingIds.has(id),
+    providerFromThreadId: (id) => id === "provider-thread" ? "codex" : null,
+    currentComposerThreadId: () => fixture.currentId,
+    isBlankNewThread: (id) => id === "blank",
+    isThreadModelSelectionLocked: () => fixture.locked,
+    isComposerThreadBusy: () => fixture.busy,
+    firstString: (...values) => values.find((value) => typeof value === "string" && value) || "",
+    mediaCreationExecutionModelOption,
+    selectedChatModelOption: () => fixture.selected,
+    selectChatModelForThread: (_id, model) => {
+      if (!fixture.allowSelection) return false;
+      fixture.selected = model;
+      return true;
+    },
+    selectImageGenerationModelForThread: async (_id, model) => {
+      if (!fixture.allowSelection) return false;
+      fixture.selectedImage = model.value;
+      return true;
+    },
+    selectVideoExpertModel: async (model) => {
+      if (!fixture.allowSelection) return false;
+      fixture.selectedVideo = model;
+      return true;
+    },
+    dismissComposerSkillMentionPopover() {}, render() {}, focusFormFieldAfterRender() {}, showToast() {},
+    clusterModeForThread: () => "native", groupIdForThreadContext: () => "recent",
+    isImageAttachment: (attachment) => attachment.mime === "image/png",
+    selectedVideoExpertInputPolicy: () => ({}), videoExpertInputAttachments: (attachments) => attachments,
+    revokeQueuedAttachmentUrls() {}, setComposerDraft() {},
+    activeComposerDraftSnapshot: () => ({ text: fixture.state.composerText, attachments: fixture.state.attachments, quote: fixture.state.composerQuote, threadReferences: fixture.state.composerThreadReferences }),
+    saveThreadPreferences: () => fixture.persisted.push({ mode: fixture.modes.get(fixture.currentId), tradingIds: [...fixture.tradingIds] }),
+    threadModelSelection: () => ({ model: fixture.selected.value, modelProvider: fixture.selected.providerId }),
+    threadModelSettings: () => null,
+    executionModelProviderId: (...values) => values.find(Boolean) || "haolo_ai",
+    isQuestionAnswerThreadId: () => false,
+    DEEPSEEK_EXECUTION_PROVIDER_ID: "deepseek", DEEPSEEK_EXECUTION_MODEL_VALUE: "deepseek-v4-flash",
+    tradingExpertSelectedModelRequestOptions: () => ({ model: fixture.selected.value, modelProvider: fixture.selected.providerId, reasoningEffortPolicy: "fixed" }),
+    tradingStrategyMentionedByText: () => ({ ui: { buildExpertPrompt: (text) => `strategy:${text}` } }),
+    canonicalizeTradingExpertMentionText: (text) => text,
+  };
+  return Object.assign(fixture, { gpt, deepSeek }, new Function(...Object.keys(context), `${code}\nreturn { ${names.join(",")} };`)(...Object.values(context)));
+}
+
+test("expanded trading conversations expose media models without enabling other established tasks or providers", () => {
+  const fixture = expandedComposerHarness();
+  assert.equal(fixture.usesUnifiedExecutionModelPicker("trading-existing"), true);
+  assert.equal(fixture.usesUnifiedExecutionModelPicker("ordinary-existing"), false);
+  assert.equal(fixture.usesUnifiedExecutionModelPicker("provider-thread"), false);
+  assert.equal(fixture.usesUnifiedExecutionModelPicker("blank"), true);
+  fixture.state.rightCollapsed = true;
+  assert.equal(fixture.usesUnifiedExecutionModelPicker("trading-existing"), false);
+  fixture.state.rightCollapsed = false;
+  fixture.state.tradingExpertChartCollapsed = false;
+  assert.equal(fixture.usesUnifiedExecutionModelPicker("trading-existing"), false);
+  fixture.modes.set("trading-existing", "image-generation");
+  assert.equal(fixture.usesUnifiedExecutionModelPicker("trading-existing"), true, "media tasks must retain a way to return to execution after restoring the chart");
+  fixture.modes.set("trading-existing", "multi-agent");
+  assert.equal(fixture.newThreadModeForThread("trading-existing"), "execution");
+});
+
+test("an established trading conversation switches image/video/execution in place and keeps its draft and GPT media routing", async () => {
+  const fixture = expandedComposerHarness();
+  const draft = structuredClone(fixture.state);
+  for (const [kind, model, mode] of [["image", "gpt-image-1", "image-generation"], ["video", "grok-imagine-video-1.5", "video-generation"]]) {
+    assert.equal(await fixture.selectComposerModelForThread("trading-existing", { value: model }, kind), true);
+    assert.equal(fixture.newThreadModeForThread("trading-existing"), mode);
+    assert.equal(fixture.currentId, "trading-existing");
+    assert.equal(fixture.tradingIds.has("trading-existing"), true);
+    assert.equal(fixture.state.composerText, draft.composerText);
+    assert.deepEqual(fixture.state.composerQuote, draft.composerQuote);
+    assert.deepEqual(fixture.state.composerThreadReferences, draft.composerThreadReferences);
+    assert.equal(fixture.isTradingExpertExecutionThreadId("trading-existing"), false);
+    assert.equal(fixture.tradingExpertAgentTextForSend("trading-existing", "@缠论", "media prompt"), "media prompt");
+    assert.deepEqual(fixture.selectedChatModelRequestOptions("trading-existing"), { model: fixture.gpt.value, modelProvider: "haolo_ai", serviceTier: null });
+    assert.equal(fixture.selected, fixture.deepSeek, "media fallback must not overwrite the execution preference");
+    assert.equal(fixture.persisted.at(-1).mode, mode);
+  }
+  assert.equal(await fixture.selectComposerModelForThread("trading-existing", fixture.gpt, "execution"), true);
+  assert.equal(fixture.newThreadModeForThread("trading-existing"), "execution");
+  assert.equal(fixture.isTradingExpertExecutionThreadId("trading-existing"), true);
+  assert.equal(fixture.selectedChatModelRequestOptions("trading-existing").reasoningEffortPolicy, "fixed");
+});
+
+test("media switching does not change running, loading, cancelled, or newly selected conversations", async () => {
+  const fixture = expandedComposerHarness();
+  for (const key of ["busy", "locked"]) {
+    fixture[key] = true;
+    assert.equal(await fixture.selectComposerModelForThread("trading-existing", { value: "gpt-image-1" }, "image"), false);
+    assert.equal(fixture.newThreadModeForThread("trading-existing"), "execution");
+    fixture[key] = false;
+  }
+  fixture.allowSelection = false;
+  assert.equal(await fixture.selectComposerModelForThread("trading-existing", { value: "gpt-image-1" }, "image"), false);
+  fixture.allowSelection = true;
+  fixture.currentId = "another-task";
+  await fixture.switchNewThreadMode("video-generation", "trading-existing");
+  assert.equal(fixture.newThreadModeForThread("trading-existing"), "execution");
+  assert.equal(fixture.modes.has("another-task"), false);
+});
+
+test("trading media sends bypass every chart/onboarding/alert router and retain workspace identity on reload", () => {
+  const send = sourceBlock("async function sendCurrentMessage", "async function sendCurrentProviderMessage");
+  assert.doesNotMatch(send, /isTradingExpertThreadId\(threadId\)/);
+  for (const candidate of ["tradingStrategyAtSend", "personalStrategyConversationAtSend", "personalStrategyCandidateAtSend", "tradingAlertCandidateAtSend", "tradingGeneralCandidateAtSend"]) {
+    assert.match(send, new RegExp(`const ${candidate} = isTradingExpertExecutionThreadId\\(threadId\\)`));
+  }
+  assert.match(source, /new Set<string>\(threadPreferences\.tradingExpertThreads\)/);
+  assert.match(source, /tradingExpertThreads: \[\.\.\.tradingExpertThreadIds\]\.filter/);
+  assert.match(source, /tradingExpertThreads: Array\.isArray\(parsed\.tradingExpertThreads\)/);
+});
+
+test("streamed completion re-enables the model picker without remounting the composer", () => {
+  const code = ts.transpileModule(sourceBlock("function patchComposerDynamicState", "function renderTradingExpertMentionMenu"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  let busy = true;
+  const trigger = { disabled: false };
+  const option = { disabled: false };
+  const input = { value: "pending draft", placeholder: "prompt" };
+  const form = { dataset: { threadId: "trading" }, querySelectorAll: () => [trigger, option], querySelector: () => input };
+  const context = {
+    state: { currentThreadId: "trading", activeView: "chat" },
+    root: { querySelector: () => form }, currentThread: () => ({ id: "trading" }),
+    patchComposerSubmitButton: () => false, patchComposerPendingAttachments: () => false,
+    isComposerModelSelectionDisabled: () => busy, composerPlaceholderForThread: () => "prompt",
+  };
+  const patch = new Function(...Object.keys(context), `${code}\nreturn patchComposerDynamicState;`)(...Object.values(context));
+  assert.equal(patch("trading"), true);
+  assert.equal(trigger.disabled, true);
+  assert.equal(option.disabled, true);
+  busy = false;
+  assert.equal(patch("trading"), true);
+  assert.equal(trigger.disabled, false);
+  assert.equal(option.disabled, false);
+  assert.equal(input.value, "pending draft");
+  assert.equal(patch("background-thread"), false);
+});
 
 test("image and video models live in the execution model picker without a media mode hierarchy", () => {
   const hero = sourceBlock("function renderBlankThreadHero", "function renderMessage");
@@ -101,6 +266,9 @@ test("media creation leaves extra space below the first-frame attachment rail", 
     styles,
     /\.media-creation-composer \.pending-attachments-wrap\s*\{[^}]*margin-bottom:\s*7\.5px;/,
   );
+  assert.match(styles, /\.trading-expert-panel\s*> \.composer\.media-creation-composer\s*\{[^}]*position: relative;[^}]*inset: auto;[^}]*flex: 0 0 auto;/);
+  assert.match(styles, /\.trading-expert-panel:has\(> \.composer\.media-creation-composer\)\s*> \.agent-panel-inner\s*\{[^}]*min-height: 0;[^}]*flex: 1 1 0;/);
+  assert.match(styles, /\.trading-expert-panel:has\(> \.composer\.media-creation-composer\)\s*\.trading-expert-dashboard\.chat\s*\{[^}]*padding-bottom: 0;/);
 });
 
 test("the image size control occupies the marked slot and follows the selected model", () => {
@@ -357,9 +525,9 @@ test("selecting a unified model switches the internal composer capability", () =
     "bindComposerSkillMentionSearchEvents",
   );
 
-  assert.match(selection, /kind === "image"[\s\S]*switchNewThreadMode\("image-generation"\)/);
-  assert.match(selection, /kind === "video"[\s\S]*selectVideoExpertModel\(selected\.value\)[\s\S]*switchNewThreadMode\("video-generation"\)/);
-  assert.match(selection, /switchNewThreadMode\("execution"\)[\s\S]*selectChatModelForThread/);
+  assert.match(selection, /kind === "image"[\s\S]*switchNewThreadMode\("image-generation", id\)/);
+  assert.match(selection, /kind === "video"[\s\S]*selectVideoExpertModel\(selected\.value\)[\s\S]*switchNewThreadMode\("video-generation", id\)/);
+  assert.match(selection, /switchNewThreadMode\("execution", id\)[\s\S]*selectChatModelForThread/);
   assert.match(binding, /button\.dataset\.composerModelKind/);
   assert.match(binding, /composerModelOptionsForKind\(threadId, kind\)/);
   assert.match(binding, /selectComposerModelForThread\(threadId, selected, kind\)/);
@@ -421,7 +589,7 @@ test("the unified model menu covers light and dark interaction states", () => {
   );
   assert.match(
     styles,
-    /html\[data-theme="dark"\] \.composer-model-menu\.grouped \.composer-model-option-name\s*\{[^}]*color:\s*#e2e7ef;/s,
+    /html\[data-theme="dark"\] \.composer-model-menu\.grouped \.composer-model-option-name\s*\{[^}]*color:\s*var\(--text-primary\);/s,
   );
   assert.match(
     styles,

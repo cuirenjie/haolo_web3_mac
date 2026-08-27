@@ -11,15 +11,30 @@ export type AppConfirmationOptions = {
 
 type QueuedConfirmation = {
   options: AppConfirmationOptions;
-  resolve: (confirmed: boolean) => void;
+  items?: AppConfirmationItem[];
+  resolve: (result: { confirmed: boolean; selectedIds: string[] }) => void;
 };
+
+export type AppConfirmationItem = { id: string; label: string };
 
 const confirmationQueue: QueuedConfirmation[] = [];
 let confirmationActive = false;
 
-export function confirmInApp(options: AppConfirmationOptions): Promise<boolean> {
-  return new Promise((resolve) => {
-    confirmationQueue.push({ options, resolve });
+export async function confirmInApp(options: AppConfirmationOptions): Promise<boolean> {
+  return (await enqueueConfirmation(options)).confirmed;
+}
+
+export async function confirmSelectionInApp(
+  options: AppConfirmationOptions,
+  items: AppConfirmationItem[],
+): Promise<string[] | null> {
+  const result = await enqueueConfirmation(options, items);
+  return result.confirmed ? result.selectedIds : null;
+}
+
+function enqueueConfirmation(options: AppConfirmationOptions, items?: AppConfirmationItem[]) {
+  return new Promise<{ confirmed: boolean; selectedIds: string[] }>((resolve) => {
+    confirmationQueue.push({ options, items: items?.map((item) => ({ ...item })), resolve });
     showNextConfirmation();
   });
 }
@@ -95,6 +110,47 @@ function showNextConfirmation() {
   footer.append(confirmButton);
   if (!cancelButton) footer.classList.add("single-action");
 
+  const selectedIds = new Set<string>();
+  if (request.items) {
+    const items = request.items;
+    dialog.classList.add("app-selection-confirmation-dialog");
+    const summary = document.createElement("p");
+    summary.className = "app-confirmation-selection-summary";
+    summary.setAttribute("role", "status");
+    summary.setAttribute("aria-live", "polite");
+    summary.setAttribute("aria-atomic", "true");
+    const list = document.createElement("div");
+    list.className = "app-confirmation-selection-list";
+    list.setAttribute("role", "group");
+    list.setAttribute("aria-labelledby", messageId);
+    const updateSelection = () => {
+      summary.textContent = `已选择：${selectedIds.size} / ${items.length}`;
+      confirmButton.disabled = selectedIds.size === 0;
+    };
+    for (const item of items) {
+      const row = document.createElement("label");
+      row.className = "app-confirmation-selection-row";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = item.id;
+      checkbox.className = "app-confirmation-selection-checkbox";
+      const label = document.createElement("span");
+      label.className = "app-confirmation-selection-label";
+      label.setAttribute("data-i18n-skip", "");
+      label.textContent = item.label;
+      label.title = item.label;
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) selectedIds.add(item.id);
+        else selectedIds.delete(item.id);
+        updateSelection();
+      });
+      row.append(checkbox, label);
+      list.append(row);
+    }
+    updateSelection();
+    section.append(summary, list);
+  }
+
   section.append(footer);
   dialog.append(section);
   host.append(backdrop, dialog);
@@ -102,13 +158,13 @@ function showNextConfirmation() {
 
   let settled = false;
   const finish = (confirmed: boolean) => {
-    if (settled) return;
+    if (settled || (confirmed && confirmButton.disabled)) return;
     settled = true;
     document.removeEventListener("keydown", onKeyDown, true);
     host.remove();
     if (appRoot) appRoot.inert = wasInert;
     if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
-    request.resolve(confirmed);
+    request.resolve({ confirmed, selectedIds: confirmed ? [...selectedIds] : [] });
     confirmationActive = false;
     showNextConfirmation();
   };
@@ -125,14 +181,14 @@ function showNextConfirmation() {
       return;
     }
     if (event.key !== "Tab") return;
-    const focusable = [...dialog.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+    const focusable = [...dialog.querySelectorAll<HTMLElement>("input:not(:disabled), button:not(:disabled)")];
     if (!focusable.length) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
       event.preventDefault();
       last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
+    } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) {
       event.preventDefault();
       first.focus();
     }
@@ -146,7 +202,9 @@ function showNextConfirmation() {
     else if (action === "cancel" && options.cancelLabel) finish(false);
   });
   document.addEventListener("keydown", onKeyDown, true);
-  window.requestAnimationFrame(() => (cancelButton || confirmButton).focus({ preventScroll: true }));
+  window.requestAnimationFrame(() => {
+    if (!settled) (cancelButton || dialog.querySelector<HTMLElement>("input:not(:disabled)") || confirmButton).focus({ preventScroll: true });
+  });
 }
 
 function normalizeConfirmationOptions(options: AppConfirmationOptions) {

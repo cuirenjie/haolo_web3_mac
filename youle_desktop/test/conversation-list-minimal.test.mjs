@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
+import { translateAppText } from "../src/renderer/app-language.mjs";
 
 const rendererSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
@@ -13,6 +16,299 @@ function sourceBlock(source, startMarker, endMarker) {
   assert.notEqual(end, -1, `missing end marker: ${endMarker}`);
   return source.slice(start, end);
 }
+
+const groupDeletionRuntime = rendererSource.then((source) => {
+  const names = new Set([
+    "groupedThreadsForList", "threadGroupConversations", "isThreadGroupConversationDeletionBlocked",
+    "deleteThreadGroupConversations", "renderThreadGroupContextMenu", "runThreadGroupMenuCommand",
+    "threadGroupMenuStyle", "listThreadGroupHistory",
+  ]);
+  const parsed = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const functions = parsed.statements.filter((node) => ts.isFunctionDeclaration(node) && names.has(node.name?.text));
+  assert.equal(functions.length, names.size);
+  return ts.transpileModule(functions.map((node) => node.getText(parsed)).join("\n"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText;
+});
+
+async function groupDeletionHarness({ threads, confirm = async () => true, remove } = {}) {
+  const groups = [{ id: "recent", name: "最近" }, { id: "project", name: "Project <test>" }, { id: "other", name: "Other" }];
+  const state = { threads: threads ?? [{ id: "a" }, { id: "b" }], currentThreadId: "a", threadGroupMenu: null };
+  const deleted = [];
+  const toasts = [];
+  const confirmations = [];
+  const busy = new Set();
+  const context = {
+    state, groups, deleted, toasts, confirmations, busy,
+    authenticatedWorkspaceGeneration: 1,
+    loadThreads: async (options) => { assert.equal(options.allPages, true); return true; },
+    firstString: (...values) => values.find((value) => typeof value === "string" && value.trim()) || null,
+    DEFAULT_THREAD_GROUP_ID: "recent",
+    THREAD_CONTEXT_MENU_ROW_HEIGHT: 28,
+    THREAD_CONTEXT_MENU_CHROME_HEIGHT: 14,
+    THREAD_CONTEXT_MENU_LIST_GAP: 4,
+    hiddenThreadIds: new Set(),
+    pendingThreadGroupDeletions: new Set(),
+    submittingComposerThreadIds: new Set(),
+    threadGroupByThreadId: {},
+    threadGroupById: (id) => groups.find((group) => group.id === id),
+    isDefaultThreadGroup: (id) => id === "recent",
+    isBlankNewThread: (id) => id === "blank",
+    isTopLevelConversationThread: (thread) => thread.id === "blank",
+    isDefaultAssignableThread: (thread) => !thread.unassigned,
+    conversationListThreadGroups: () => groups,
+    filteredThreads: () => state.threads.filter((thread) => !thread.internal),
+    isConversationThreadWorking: (id) => busy.has(id),
+    isThreadContinuationCreationActive: () => false,
+    isAutoTaskThread: (thread) => Boolean(thread.autoTask),
+    autoTaskIdFromThreadId: () => null,
+    threadGroupDisplayLabel: (group) => group.name,
+    threadListDisplayName: (thread) => thread.name || "",
+    threadListPreviewText: (thread) => thread.preview || "",
+    tradingLastAnalysisLabelForThread: (id) => state.threads.find((thread) => thread.id === id)?.analysisLabel || "",
+    NEW_THREAD_TITLE: "新任务",
+    escapeAttr: (value) => String(value).replaceAll('"', "&quot;"),
+    isThreadGroupPickerMenuSource: (source) => source === "select",
+    root: { querySelector: () => null },
+    window: { innerWidth: 1024 },
+    floatingMenuTop: (top, height) => Math.min(top, 600 - height - 8),
+    render: () => {},
+    showToast: (message) => toasts.push(message),
+    confirmSelectionInApp: async (options, items) => {
+      confirmations.push({ ...options, items });
+      const result = await confirm(context);
+      return result === true ? items.map((item) => item.id) : result === false ? null : result;
+    },
+    deleteThread: async (id) => {
+      deleted.push(id);
+      if (remove) await remove(id, context);
+      else state.threads = state.threads.filter((thread) => thread.id !== id);
+    },
+  };
+  runInNewContext(await groupDeletionRuntime, context);
+  return context;
+}
+
+test("group deletion offers all project conversations including pinned and unexpanded rows", async () => {
+  const threads = Array.from({ length: 9 }, (_, index) => ({ id: `project-${index}`, pinned: index === 0 }));
+  const runtime = await groupDeletionHarness({ threads: [...threads, { id: "other" }, { id: "blank" }, { id: "internal", internal: true }, { id: "hidden" }] });
+  Object.assign(runtime.threadGroupByThreadId, Object.fromEntries(threads.map((thread) => [thread.id, "project"])));
+  Object.assign(runtime.threadGroupByThreadId, { other: "other", blank: "project", internal: "project", hidden: "project" });
+  runtime.hiddenThreadIds.add("hidden");
+  runtime.state.currentThreadId = "project-0";
+  await runtime.deleteThreadGroupConversations("project");
+  assert.equal(runtime.deleted.length, 9);
+  assert.equal(runtime.deleted.at(-1), "project-0", "the current conversation is removed last");
+  assert.deepEqual(runtime.state.threads.map((thread) => thread.id), ["other", "blank", "internal", "hidden"]);
+  assert.equal(runtime.groups.length, 3, "deleting conversations must retain the group");
+  assert.match(runtime.confirmations[0].message, /Project <test>\n会话数量：9/);
+  assert.equal(runtime.confirmations[0].tone, "danger");
+  assert.deepEqual(Array.from(runtime.confirmations[0].items, (item) => item.id), threads.map((thread) => thread.id));
+  assert.match(runtime.confirmations[0].detail, /不可恢复.*分组及文件夹将保留/);
+  assert.equal(runtime.toasts.at(-1), "所选会话已删除");
+});
+
+test("group deletion removes only checked conversations and retains unselected conversations", async () => {
+  const runtime = await groupDeletionHarness({
+    threads: [{ id: "a", name: "帮我分析", analysisLabel: "ETH1H" }, { id: "b", preview: "消息预览" }, { id: "c", pinned: true }, { id: "other" }],
+    confirm: async () => ["a", "c", "c", "other", "unknown"],
+  });
+  runtime.threadGroupByThreadId.other = "other";
+  runtime.busy.add("b");
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.deepEqual(runtime.deleted, ["c", "a"], "only selected in-group IDs are deleted, once, with the open conversation last");
+  assert.deepEqual(runtime.state.threads.map((thread) => thread.id), ["b", "other"]);
+  assert.equal(runtime.confirmations[0].items[0].label, "ETH1H 帮我分析");
+  assert.equal(runtime.confirmations[0].items[1].label, "消息预览");
+  assert.equal(runtime.confirmations[0].items[2].label, "新任务");
+  assert.equal(runtime.toasts.at(-1), "所选会话已删除", "unselected and busy conversations must not count as failures");
+});
+
+test("empty or invalid selections cannot fall back to deleting the entire group", async () => {
+  for (const selection of [null, [], ["unknown"]]) {
+    const runtime = await groupDeletionHarness({ confirm: async () => selection });
+    await runtime.deleteThreadGroupConversations("recent");
+    assert.deepEqual(runtime.deleted, []);
+    assert.equal(runtime.pendingThreadGroupDeletions.size, 0);
+  }
+});
+
+test("recent-group deletion excludes other groups, unassigned channels and blank drafts", async () => {
+  const runtime = await groupDeletionHarness({ threads: [{ id: "default" }, { id: "pinned", pinned: true }, { id: "project" }, { id: "blank" }, { id: "channel", unassigned: true }] });
+  runtime.threadGroupByThreadId.project = "project";
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.deepEqual(runtime.deleted, ["default", "pinned"]);
+  assert.deepEqual(runtime.state.threads.map((thread) => thread.id), ["project", "blank", "channel"]);
+});
+
+test("cancelling or repeatedly requesting group deletion never bypasses confirmation", async () => {
+  let resolve;
+  const runtime = await groupDeletionHarness({ confirm: () => new Promise((done) => { resolve = done; }) });
+  const pending = runtime.deleteThreadGroupConversations("recent");
+  await runtime.deleteThreadGroupConversations("recent");
+  await Promise.resolve();
+  assert.equal(runtime.confirmations.length, 1);
+  assert.deepEqual(runtime.deleted, []);
+  resolve(false);
+  await pending;
+  assert.deepEqual(runtime.deleted, []);
+  assert.equal(runtime.pendingThreadGroupDeletions.size, 0);
+});
+
+test("confirmation keeps a stable scope if conversations move or arrive in the meantime", async () => {
+  const runtime = await groupDeletionHarness({ confirm: async (context) => {
+    context.threadGroupByThreadId.b = "other";
+    context.state.threads.push({ id: "new" });
+    return true;
+  } });
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.deepEqual(runtime.deleted, ["a"]);
+  assert.deepEqual(runtime.state.threads.map((thread) => thread.id), ["b", "new"]);
+  assert.match(runtime.toasts.at(-1), /部分所选会话未删除/);
+});
+
+test("selected running conversations block deletion without partially removing idle selections", async () => {
+  const runtime = await groupDeletionHarness();
+  runtime.busy.add("b");
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.equal(runtime.confirmations.length, 1);
+  assert.deepEqual(runtime.deleted, []);
+  assert.match(runtime.toasts.at(-1), /正在运行/);
+  assert.equal(runtime.pendingThreadGroupDeletions.size, 0);
+});
+
+test("group deletion rechecks membership and continues after an individual deletion fails", async () => {
+  const runtime = await groupDeletionHarness({ threads: [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }], remove: async (id, context) => {
+    if (id === "b") {
+      context.threadGroupByThreadId.c = "other";
+      throw new Error("archive failed");
+    }
+    context.state.threads = context.state.threads.filter((thread) => thread.id !== id);
+  } });
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.deepEqual(runtime.deleted, ["b", "d", "a"]);
+  assert.deepEqual(runtime.state.threads.map((thread) => thread.id), ["b", "c"]);
+  assert.match(runtime.toasts.at(-1), /部分所选会话未删除/);
+  assert.equal(runtime.pendingThreadGroupDeletions.size, 0);
+});
+
+test("a selected conversation that starts working during deletion is kept", async () => {
+  const runtime = await groupDeletionHarness({
+    threads: [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "unselected" }],
+    confirm: async () => ["a", "b", "c"],
+    remove: async (id, context) => {
+      context.state.threads = context.state.threads.filter((thread) => thread.id !== id);
+      if (id === "b") context.busy.add("c");
+    },
+  });
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.deepEqual(runtime.deleted, ["b", "a"]);
+  assert.deepEqual(runtime.state.threads.map((thread) => thread.id), ["c", "unselected"]);
+  assert.equal(runtime.toasts.at(-1), "部分所选会话未删除，请稍后重试");
+});
+
+test("group menu appends the bulk action, guards pending requests and fits every row", async () => {
+  const runtime = await groupDeletionHarness();
+  for (const groupId of ["recent", "project"]) {
+    runtime.state.threadGroupMenu = { groupId, x: 200, y: 590 };
+    runtime.threadGroupByThreadId.a = groupId;
+    const html = runtime.renderThreadGroupContextMenu();
+    const actions = Array.from(html.matchAll(/data-thread-group-action="([^"]+)"/g), (match) => match[1]);
+    assert.equal(actions.at(-1), "delete-conversations");
+    assert.equal(actions.length, groupId === "recent" ? 3 : 5);
+    assert.match(html, /role="menuitem" aria-busy="false" >\s*删除指定会话/);
+    const expectedTop = 600 - (actions.length * 28 + 14) - 8;
+    assert.match(runtime.threadGroupMenuStyle(runtime.state.threadGroupMenu), new RegExp(`top:${expectedTop}px`));
+    runtime.pendingThreadGroupDeletions.add(groupId);
+    assert.match(runtime.renderThreadGroupContextMenu(), /aria-busy="true" disabled>\s*处理中…/);
+  }
+  runtime.state.threads = [];
+  runtime.pendingThreadGroupDeletions.clear();
+  assert.match(runtime.renderThreadGroupContextMenu(), /aria-busy="false" >/, "an empty first page must still allow checking older history");
+  runtime.runThreadGroupMenuCommand({ disabled: true, dataset: { threadGroupAction: "delete-conversations", groupId: "project" } });
+  assert.equal(runtime.confirmations.length, 0);
+  await runtime.deleteThreadGroupConversations("project");
+  assert.equal(runtime.confirmations.length, 0);
+  assert.match(runtime.toasts.at(-1), /暂无可删除/);
+});
+
+test("bulk deletion warns about scheduled tasks and translates all new dialog copy", async () => {
+  const runtime = await groupDeletionHarness({ threads: [{ id: "task", autoTask: true }] });
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.match(runtime.confirmations[0].detail, /如勾选自动任务，对应任务也将停止执行/);
+  const options = runtime.confirmations[0];
+  for (const copy of [options.title, options.detail, "会话数量：1\n请选择要删除的会话，可多选。", "已选择：1 / 3", ...runtime.toasts]) {
+    assert.doesNotMatch(translateAppText(copy, "en"), /\p{Script=Han}/u);
+  }
+  assert.equal(translateAppText(options.title, "en"), "Delete selected conversations");
+  assert.equal(translateAppText(options.title, "zh-TW"), "刪除指定會話");
+});
+
+test("unselected scheduled tasks keep running after deleting an ordinary conversation", async () => {
+  const runtime = await groupDeletionHarness({ threads: [{ id: "a" }, { id: "task", autoTask: true }], confirm: async () => ["a"] });
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.deepEqual(runtime.deleted, ["a"]);
+  assert.deepEqual(runtime.state.threads.map((thread) => thread.id), ["task"]);
+  assert.equal(runtime.toasts.at(-1), "所选会话已删除");
+});
+
+test("bulk deletion reads history beyond the sidebar page and rejects incomplete results", async () => {
+  const runtime = await groupDeletionHarness();
+  const requests = [];
+  runtime.api = { listThreads: async (params) => {
+    requests.push(params);
+    return params.cursor ? { data: [{ id: "older" }], nextCursor: null } : { data: Array.from({ length: 40 }, (_, index) => ({ id: `recent-${index}` })), nextCursor: "older-page" };
+  } };
+  assert.equal((await runtime.listThreadGroupHistory("/project", true)).length, 41);
+  assert.equal(requests[1].cursor, "older-page");
+  assert.equal(requests[1].cwd, "/project");
+  requests.length = 0;
+  assert.equal((await runtime.listThreadGroupHistory("/project")).length, 40);
+  assert.equal(requests.length, 1, "normal sidebar loads remain paginated");
+  runtime.api.listThreads = async () => ({ data: [], nextCursor: "loop" });
+  await assert.rejects(runtime.listThreadGroupHistory("/project", true), /Repeated/);
+  runtime.api.listThreads = async () => ({});
+  await assert.rejects(runtime.listThreadGroupHistory("/project", true), /Invalid/);
+  runtime.loadThreads = async () => { throw new Error("offline"); };
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.equal(runtime.confirmations.length, 0);
+  assert.equal(runtime.deleted.length, 0);
+  assert.match(runtime.toasts.at(-1), /无法读取完整会话列表/);
+});
+
+test("changing accounts while confirming group deletion cancels the pending removal", async () => {
+  const runtime = await groupDeletionHarness({ confirm: async (context) => {
+    context.authenticatedWorkspaceGeneration += 1;
+    return true;
+  } });
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.deepEqual(runtime.deleted, []);
+  assert.equal(runtime.pendingThreadGroupDeletions.size, 0);
+});
+
+test("changing accounts while loading history never opens a deletion picker in the new account", async () => {
+  const runtime = await groupDeletionHarness();
+  runtime.loadThreads = async () => { runtime.authenticatedWorkspaceGeneration += 1; return true; };
+  await runtime.deleteThreadGroupConversations("recent");
+  assert.equal(runtime.confirmations.length, 0);
+  assert.deepEqual(runtime.deleted, []);
+});
+
+test("group menu destructive, hover, active, focus and disabled states use both theme tokens", async () => {
+  const styles = await stylesSource;
+  const states = sourceBlock(styles, ".thread-group-context-menu button.danger {", ".thread-menu-icon {");
+  assert.match(states, /color-mix\(in srgb, var\(--danger\) 80%, var\(--text-primary\)\)/);
+  assert.match(states, /:is\(:hover, :focus-visible\):not\(:disabled\)/);
+  assert.match(states, /:focus-visible\s*\{[^}]*outline: 2px solid var\(--brand-blue\)/s);
+  assert.match(states, /:active:not\(:disabled\)\s*\{[^}]*var\(--surface-hover-strong\)/s);
+  assert.match(states, /:disabled\s*\{[^}]*background: transparent;[^}]*color: var\(--text-muted\)/s);
+  assert.doesNotMatch(states, /#[0-9a-f]{3,8}|rgba?\(/i);
+  for (const theme of [sourceBlock(styles, ":root {", 'html[data-font-size="small"]'), sourceBlock(styles, 'html[data-theme="dark"] {', "* {")]) {
+    for (const token of ["danger", "text-primary", "surface-hover", "surface-hover-strong", "brand-blue", "text-muted"]) {
+      assert.ok(theme.includes(`--${token}:`), `${token} must be defined in both themes`);
+    }
+  }
+});
 
 test("history conversations render as one-line titles and the blank thread is not duplicated as a row", async () => {
   const source = await rendererSource;

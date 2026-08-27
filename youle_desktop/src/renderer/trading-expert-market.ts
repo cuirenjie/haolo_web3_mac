@@ -12,6 +12,8 @@ import {
   createSeriesMarkers,
   type UTCTimestamp,
 } from "lightweight-charts";
+import { appLanguageLocale, translateTradingAnnotationText } from "./app-language.mjs";
+import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import {
   TRADING_FALLING_BAR_COLOR,
   TRADING_INDICATORS,
@@ -4379,6 +4381,7 @@ export function renderTradingExpertMarketWorkspace() {
           <div class="trading-market-chart-panel trading-market-primary-pane" data-market-primary-pane>
           <div class="trading-market-chart-viewport" data-market-chart-viewport>
             <div class="trading-market-chart" data-market-chart></div>
+            ${renderTradingChartBrand()}
             <svg
               class="trading-market-volume-profile-layer"
               data-market-volume-profile-layer
@@ -12237,7 +12240,7 @@ class TradingExpertMarketWorkspace {
       && patch.marketId === this.selectedMarketId
       && patch.interval === this.activeInterval;
     const signature = matchesContext
-      ? `${patch.analysisId}:${isDarkTheme() ? "dark" : "light"}`
+      ? `${patch.analysisId}:${isDarkTheme() ? "dark" : "light"}:${appLanguageLocale()}`
       : "";
     if (!force && runtime.analysisSignature === signature) return;
     this.clearIndicatorAnalysisRuntime(runtime);
@@ -12283,7 +12286,7 @@ class TradingExpertMarketWorkspace {
         ...(usesExactIndicatorAnchor ? { price: point.value } : {}),
         color,
         shape: "circle",
-        ...(drawing.text ? { text: drawing.text } : {}),
+        ...(drawing.text ? { text: translateTradingAnnotationText(drawing.text) } : {}),
         ...(drawing.markerSize !== undefined ? { size: drawing.markerSize } : {}),
       });
     });

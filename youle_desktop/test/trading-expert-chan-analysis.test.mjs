@@ -17,6 +17,8 @@ import {
 } from "../src/main/trading-analysis/protocol.mjs";
 import {
   buildChanMarketOutlook,
+  buildChanDrawingPatch,
+  buildChanModelPrompt,
   runTradingChanAnalysisPipeline,
 } from "../src/main/trading-analysis/chan-pipeline.mjs";
 import {
@@ -59,6 +61,36 @@ function fixtureSnapshot() {
     candles: fixtureCandles(),
   });
 }
+
+test("English Chan annotations are generated in English even when a model returns Chinese", () => {
+  const snapshot = fixtureSnapshot();
+  const theoryResult = runChanTheoryEngine(snapshot);
+  const review = {
+    verdict: "approve", summary: "中枢震荡后向上反弹，后续笔尚未确认。",
+    selectedPenPointIds: theoryResult.structures.penPoints.map((point) => point.penPointId),
+    selectedCenterIds: theoryResult.structures.centers.map((center) => center.id),
+    showFractals: true,
+  };
+  const chinese = buildChanDrawingPatch(snapshot, theoryResult, review);
+  const english = buildChanDrawingPatch(snapshot, theoryResult, review, { language: "en" });
+  const notes = english.operations.map((operation) => operation.drawing).filter((drawing) => drawing.text);
+  assert.ok(notes.length >= 3);
+  for (const note of notes) {
+    assert.doesNotMatch(note.text, /\p{Script=Han}/u);
+    assert.ok(note.text.length <= 120);
+    assert.match(note.text, /[.!?]$/);
+  }
+  assert.match(notes.find((note) => note.id.endsWith("latest-center")).text, /Latest central zone/);
+  assert.match(notes.find((note) => note.id.endsWith("latest-pen")).text, /Latest (up|down) stroke/);
+  const withoutText = (patch) => patch.operations.map(({ drawing: { text, ...drawing }, ...operation }) => ({ ...operation, drawing }));
+  assert.deepEqual(withoutText(english), withoutText(chinese), "language must not change chart facts or geometry");
+  const nativeEnglish = buildChanDrawingPatch(snapshot, theoryResult, { ...review, summary: "The latest stroke is up; wait for confirmation." }, { language: "en" });
+  assert.equal(nativeEnglish.operations.find(({ drawing }) => drawing.id.endsWith("note-summary")).drawing.text, "Summary: The latest stroke is up; wait for confirmation.");
+  const prompt = buildChanModelPrompt(snapshot, theoryResult, { language: "en" });
+  assert.match(prompt, /English-only chart summary/);
+  assert.match(prompt, /Do not emit Chinese characters in summary, report or strategyRationale/);
+  assert.doesNotMatch(prompt, /完整中文缠论分析|不超过80个中文字符/);
+});
 
 test("Chan engine deterministically produces confirmed fractals, pen points, and centers", () => {
   const snapshot = fixtureSnapshot();
@@ -209,6 +241,12 @@ test("model provider registry keeps the Chan pipeline independent from a concret
   assert.match(calls[0].request.prompt, /确定性 TheoryResult/);
   assert.match(calls[0].request.prompt, /riseProbability/);
   assert.match(calls[0].request.prompt, /strategyRationale/);
+  const englishResult = await runTradingChanAnalysisPipeline({
+    marketId: "BINANCE:FUTURES:BTCUSDT", interval: "60", snapshotTime: 1_720_400_000_000,
+    candles: fixtureCandles(), language: "en",
+  }, { modelRegistry: registry, providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID });
+  assert.match(calls[1].request.prompt, /English-only chart summary/);
+  assert.ok(englishResult.analysisPlan.drawingPatch.operations.every(({ drawing }) => !/\p{Script=Han}/u.test(drawing.text || "")));
   const [engineSource, pipelineSource] = await Promise.all([
     readFile(new URL("../src/main/trading-analysis/chan-engine.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/main/trading-analysis/chan-pipeline.mjs", import.meta.url), "utf8"),

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
+import { renderTradingChartBrand } from "../src/renderer/trading-chart-brand.ts";
 
 import {
   TRADING_EXPERT_DEFAULT_MODEL_VALUE,
@@ -571,7 +573,7 @@ test("Trading Expert starts with a clean conversation pane without hero or model
   );
 });
 
-test("Trading Expert keeps Sol as the default while hiding its model selector", async () => {
+test("Trading Expert keeps Sol as the default and exposes media models in the expanded conversation", async () => {
   const source = await mainSource;
   const styles = await stylesSource;
   const desktopMain = await desktopMainSource;
@@ -661,11 +663,11 @@ test("Trading Expert keeps Sol as the default while hiding its model selector", 
   );
   assert.match(
     requestOptions,
-    /isTradingExpertThreadId\(threadId\)\)[\s\S]*return tradingExpertSelectedModelRequestOptions\(threadId\)/,
+    /isTradingExpertExecutionThreadId\(threadId\)\)[\s\S]*return tradingExpertSelectedModelRequestOptions\(threadId\)/,
   );
   assert.match(
     reasoningOptions,
-    /isTradingExpertThreadId\(threadId\)\)[\s\S]*tradingExpertSelectedModelRequestOptions\(threadId\)\.reasoningEffort/,
+    /isTradingExpertExecutionThreadId\(threadId\)\)[\s\S]*tradingExpertSelectedModelRequestOptions\(threadId\)\.reasoningEffort/,
   );
   assert.match(
     composer,
@@ -673,7 +675,7 @@ test("Trading Expert keeps Sol as the default while hiding its model selector", 
   );
   assert.match(
     composer,
-    /const composerTrailingPicker = multiAgentMode \|\| tradingExpertMode[\s\S]*\? ""[\s\S]*: renderComposerModelPicker\(thread\.id\)/,
+    /const composerTrailingPicker = multiAgentMode \|\| \(tradingExpertMode && !usesUnifiedExecutionModelPicker\(thread\.id\)\)[\s\S]*\? ""[\s\S]*: renderComposerModelPicker\(thread\.id\)/,
   );
   assert.doesNotMatch(
     styles,
@@ -701,12 +703,7 @@ test("Trading Expert keeps Sol as the default while hiding its model selector", 
   );
   assert.match(
     conversationMode,
-    /isTradingExpertThreadId\(threadId\)\) return "execution"/,
-  );
-  assert.ok(
-    conversationMode.indexOf("isTradingExpertThreadId(threadId)") <
-      conversationMode.indexOf("newThreadModeByThreadId.get(threadId)"),
-    "Trading Expert must override stale persisted multi-agent preferences",
+    /isTradingExpertThreadId\(threadId\)\) return isMediaCreationMode\(mode\) \? mode : "execution"/,
   );
   assert.match(
     desktopMain,
@@ -830,14 +827,14 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   );
   assert.match(
     styles,
-    /\.desktop-body\.trading-expert-layout:not\(\.trading-expert-chart-collapsed\)[\s\S]*?> \.composer\s*> \.composer-model-picker\s*> \.trading-expert-model-menu\s*\{[^}]*right: auto;[^}]*left: 50%;[^}]*width: min\(224px, calc\(100% - 24px\)\);[^}]*pointer-events: auto;[^}]*transform: translateX\(-50%\);/s,
+    /\.desktop-body\.trading-expert-layout:not\(\.trading-expert-chart-collapsed\)[\s\S]*?> \.composer\s*> \.composer-model-picker\s*> \.composer-model-menu\s*\{[^}]*right: auto;[^}]*left: 50%;[^}]*width: min\(224px, calc\(100% - 24px\)\);[^}]*pointer-events: auto;[^}]*transform: translateX\(-50%\);/s,
   );
   assert.match(styles, /\.composer-model-picker\s*\{[^}]*right: 104px;[^}]*bottom: 8px;/s);
   assert.match(styles, /\.composer-model-menu\s*\{[^}]*right: 0;[^}]*bottom: calc\(100% \+ 8px\);[^}]*left: auto;/s);
   assert.match(styles, /\.composer-model-menu button:hover,[\s\S]*?\.composer-model-menu button:focus-visible\s*\{[^}]*background: var\(--surface-soft\);/s);
   assert.match(styles, /\.composer-model-menu button:disabled\s*\{[^}]*cursor: default;[^}]*opacity: 0\.55;/s);
   assert.match(styles, /\.composer-model-menu button\.active,[\s\S]*?button\.active:hover\s*\{[^}]*background: var\(--selection-strong\);/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.composer-model-group-title\s*\{[^}]*color: #747d8a;/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.composer-model-group-title\s*\{[^}]*color: var\(--text-secondary\);/s);
   assert.match(styles, /html\[data-theme="dark"\] \.composer-model-menu button:focus-visible\s*\{[^}]*outline-color: rgba\(113, 190, 255, 0\.72\);/s);
   assert.match(styles, /\.trading-expert-dashboard\s*\{[^}]*display: flex;[^}]*padding-bottom: 0;/s);
   assert.match(styles, /\.trading-expert-dashboard\.chat\s*\{[^}]*padding-bottom: 184px;/s);
@@ -991,6 +988,24 @@ test("Trading Expert shows its mention catalog with left-opening submenus", asyn
   assert.match(styles, /html\[data-theme="dark"\][\s\S]*?\.trading-expert-attachment-item:active:not\(:disabled\)[\s\S]*?background: var\(--selection-strong\);/);
 });
 
+test("Trading Expert composer resource hint preserves workflow, continuation, and group prompts", async () => {
+  const source = sourceBlock(await mainSource, "function composerPlaceholderForThread", "function normalizeThreadModelSettings");
+  const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const context = {
+    workflowComposerInvocationContract: (id) => id === "workflow" ? { slots: [] } : null,
+    workflowInvocationRequirementMessage: () => "Required workflow input",
+    isMultiModelClusterThread: () => false,
+    isThreadContinuationCreationActive: (id) => id === "continuation",
+    localGroupChatRecord: (id) => id === "group" ? {} : null,
+    isTradingExpertExecutionThreadId: () => true,
+  };
+  const placeholderFor = new Function(...Object.keys(context), `${compiled}\nreturn composerPlaceholderForThread;`)(...Object.values(context));
+  assert.equal(placeholderFor({ id: "trading" }), "点击+调用策略、指标、预警和文件");
+  assert.equal(placeholderFor({ id: "workflow" }), "Required workflow input");
+  assert.equal(placeholderFor({ id: "continuation" }), "正在创建续接任务，请稍候…");
+  assert.equal(placeholderFor({ id: "group" }), "发送消息，输入 @ 可指定一个或多个群成员回复");
+});
+
 test("Trading Expert mention selection inserts an atomic highlighted category token", async () => {
   const source = await mainSource;
   const placeholderBlock = sourceBlock(
@@ -1034,7 +1049,7 @@ test("Trading Expert mention selection inserts an atomic highlighted category to
     "function composerSkillTokenDeleteRange",
   );
 
-  assert.match(placeholderBlock, /isTradingExpertThreadId\(thread\.id\)[\s\S]*return ""/);
+  assert.match(placeholderBlock, /isTradingExpertExecutionThreadId\(thread\.id\)[\s\S]*return "点击\+调用策略、指标、预警和文件"/);
   assert.match(applyBlock, /isTradingExpertThreadId\(threadId\)/);
   assert.match(applyBlock, /item\.options\.length > 0 && !option/);
   assert.match(applyBlock, /const token = `@\$\{item\.label\}\$\{option \? `:\$\{option\}` : ""\}`/);
@@ -1183,6 +1198,43 @@ test("Trading Expert hides the bottom time axis and applies each theme's configu
   assert.equal((settingsSource.match(/horizontalGridVisible: true/g) ?? []).length, 2);
   assert.match(createLayoutBlock, /attributionLogo: false/);
   assert.equal((createChartBlock.match(/attributionLogo: false/g) ?? []).length, 1);
+});
+
+test("Trading Expert renders the supplied wordmark with transparent, independently scoped masks", async () => {
+  const primary = renderTradingChartBrand();
+  const split = renderTradingChartBrand();
+  const primaryMask = primary.match(/<mask id="([^"]+)"/)[1];
+  const splitMask = split.match(/<mask id="([^"]+)"/)[1];
+
+  assert.match(primary, /class="trading-market-brand"[^>]*role="img"[^>]*aria-label="Haolo\."[^>]*focusable="false"/);
+  assert.match(primary, /<image href="[^"]*\/assets\/haolo-chart-wordmark\.png"/);
+  const artwork = await readFile(new URL("../src/renderer/assets/haolo-chart-wordmark.png", import.meta.url));
+  assert.match(primary, new RegExp(`<image[^>]*width="${artwork.readUInt32BE(16)}" height="${artwork.readUInt32BE(20)}"`));
+  assert.doesNotMatch(primary, /Haolo\.com/);
+  assert.match(primary, /mask-type: luminance/);
+  assert.match(primary, /<rect[^>]*fill="currentColor"/);
+  assert.ok(primary.includes(`mask="url(#${primaryMask})"`));
+  assert.ok(split.includes(`mask="url(#${splitMask})"`));
+  assert.notEqual(primaryMask, splitMask, "split charts must not share SVG mask IDs");
+  assert.doesNotMatch(primary, /tabindex|<a\b|<button\b/);
+});
+
+test("Trading Expert anchors its black/white wordmark to the full viewport, independent of indicator panes", async () => {
+  const [market, split, styles] = await Promise.all([marketSource, splitPaneSource, stylesSource]);
+  const brandStyles = sourceBlock(styles, ".trading-market-brand {", ".trading-market-volume-profile-layer {");
+  const lightTokens = sourceBlock(styles, "\n.trading-expert-market {", "\n}");
+  const darkTokens = sourceBlock(styles, 'html[data-theme="dark"] .trading-expert-market {', "\n}");
+
+  assert.match(market, /data-market-chart-viewport>\s*<div[^>]*data-market-chart><\/div>\s*\$\{renderTradingChartBrand\(\)\}/);
+  assert.match(split, /data-split-viewport>\s*<div[^>]*data-split-chart><\/div>\s*\$\{renderTradingChartBrand\(\)\}/);
+  assert.match(brandStyles, /position: absolute;/);
+  assert.match(brandStyles, /left: 12px;/);
+  assert.match(brandStyles, /bottom: 36px;/);
+  assert.match(brandStyles, /pointer-events: none;/);
+  assert.match(brandStyles, /user-select: none;/);
+  assert.match(brandStyles, /color: var\(--trading-market-brand\);/);
+  assert.match(lightTokens, /--trading-market-brand: #000000;/);
+  assert.match(darkTokens, /--trading-market-brand: #ffffff;/);
 });
 
 test("Trading Expert uses the shared settings gear for chart settings in both themes", async () => {

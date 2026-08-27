@@ -52,7 +52,6 @@ const BUSINESS_IMAGE_MODEL_CATALOG_CACHE_KEY =
   "business-model-pool:media_creation:image_generation";
 const DEFAULT_SUB2API_SUBSCRIPTION_BALANCE_DETAILS_PATH = "/api/sub2api/me/subscription-balance-details";
 const DEFAULT_WEB3_PAYMENT_ORDERS_PATH = "/api/finance/web3/token-products/orders";
-const DEFAULT_REFERRALS_PATH = "/api/referrals";
 const DEFAULT_TENCENT_ASR_CREDENTIALS_PATH = "/api/asr/credentials";
 const DEFAULT_SUB2API_VIDEO_GENERATION_SETTLE_PATH = "/api/sub2api/me/video-generation/settle";
 const DEFAULT_MEMBER_LEVEL_PATH = "/api/level/me";
@@ -162,7 +161,6 @@ export class YouleApiClient {
       DEFAULT_SUB2API_SUBSCRIPTION_BALANCE_DETAILS_PATH;
     this.web3PaymentOrdersPath =
       process.env.YOULE_API_WEB3_PAYMENT_ORDERS_PATH || DEFAULT_WEB3_PAYMENT_ORDERS_PATH;
-    this.referralsPath = process.env.YOULE_API_REFERRALS_PATH || DEFAULT_REFERRALS_PATH;
     this.tencentAsrCredentialsPath = process.env.YOULE_API_TENCENT_ASR_CREDENTIALS_PATH || DEFAULT_TENCENT_ASR_CREDENTIALS_PATH;
     this.sub2apiVideoGenerationSettlePath = process.env.YOULE_API_SUB2API_VIDEO_GENERATION_SETTLE_PATH || DEFAULT_SUB2API_VIDEO_GENERATION_SETTLE_PATH;
     this.memberLevelPath = process.env.YOULE_API_MEMBER_LEVEL_PATH || DEFAULT_MEMBER_LEVEL_PATH;
@@ -462,48 +460,6 @@ export class YouleApiClient {
       headers: this.clientHeaders({ auth: true }),
     });
     return extractSubscriptionBalanceDetails(response);
-  }
-
-  async getReferralDashboard() {
-    await this.load();
-    this.requireAuth();
-    return this.requestJson(joinUrl(this.baseUrl, `${this.referralsPath}/me`), {
-      method: "GET",
-      headers: this.clientHeaders({ auth: true }),
-    });
-  }
-
-  async listReferralLinks() {
-    await this.load();
-    this.requireAuth();
-    return this.requestJson(joinUrl(this.baseUrl, `${this.referralsPath}/me/links`), {
-      method: "GET",
-      headers: this.clientHeaders({ auth: true }),
-    });
-  }
-
-  async createReferralLink(params = {}) {
-    await this.load();
-    this.requireAuth();
-    return this.requestJson(joinUrl(this.baseUrl, `${this.referralsPath}/me/links`), {
-      method: "POST",
-      headers: this.clientHeaders({ auth: true, json: true }),
-      body: JSON.stringify({
-        link_type: String(params.linkType || params.link_type || "ordinary_direct").trim(),
-        channel_label: String(params.channelLabel || params.channel_label || "客户端邀请有礼").trim(),
-      }),
-    });
-  }
-
-  async listReferralCommissions(params = {}) {
-    await this.load();
-    this.requireAuth();
-    const requestedLimit = Number(params.limit ?? 50);
-    const limit = Math.max(1, Math.min(Number.isFinite(requestedLimit) ? Math.trunc(requestedLimit) : 50, 100));
-    return this.requestJson(joinUrl(this.baseUrl, `${this.referralsPath}/me/commissions?limit=${limit}`), {
-      method: "GET",
-      headers: this.clientHeaders({ auth: true }),
-    });
   }
 
   async createWeb3PaymentOrder(params = {}) {
@@ -1902,10 +1858,16 @@ export class YouleApiClient {
     });
   }
 
+  async syncConsumptionHistory(params = {}) {
+    await this.load();
+    this.requireAuth();
+    return { synced: await this.ensureConsumptionHistoryForCalendar(params.unit) };
+  }
+
   async ensureConsumptionHistoryForCalendar(unit) {
-    if (this.consumptionHistorySyncCompleted) return;
+    if (this.consumptionHistorySyncCompleted) return true;
     if (this.consumptionHistorySyncPromise) return this.consumptionHistorySyncPromise;
-    if (this.consumptionHistorySyncAttempted) return;
+    if (this.consumptionHistorySyncAttempted) return false;
     this.consumptionHistorySyncAttempted = true;
     const syncPromise = (async () => {
       const response = await requestBinary(joinUrl(this.baseUrl, appendQuery(`${this.consumptionPath}/export`, {
@@ -1923,11 +1885,14 @@ export class YouleApiClient {
       if (!isXlsxBuffer(response.bytes)) {
         throw new Error("日历历史消耗同步失败：后端返回的文件不是有效的 Excel 工作簿");
       }
+      // A logout or account change invalidates this backfill's completion.
+      if (this.consumptionHistorySyncPromise !== syncPromise) return false;
       this.consumptionHistorySyncCompleted = true;
+      return true;
     })();
     this.consumptionHistorySyncPromise = syncPromise;
     try {
-      await syncPromise;
+      return await syncPromise;
     } finally {
       if (this.consumptionHistorySyncPromise === syncPromise) this.consumptionHistorySyncPromise = null;
     }

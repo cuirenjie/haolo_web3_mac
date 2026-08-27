@@ -36,8 +36,16 @@ try {
   const scenarios = [];
   scenarios.push(await collectEnglishUiAudit(window, "initial"));
 
+  await clickAndWait(window, '[data-action="toggle-new-thread-group-picker"]', '.chat-title-group-menu');
+  scenarios.push(await collectEnglishUiAudit(window, "composer-group-picker"));
+  const noGroupLabel = await window.webContents.executeJavaScript(`document.querySelector('.chat-title-group-menu [data-new-thread-group-option]')?.textContent?.trim()`);
+  if (noGroupLabel !== "No group") throw new Error(`Unexpected default group option: ${noGroupLabel}`);
+  await clickAndWait(window, '[data-action="toggle-new-thread-group-picker"]', '#app', { waitForMissing: '.chat-title-group-menu' });
+
   await clickAndWait(window, '[data-action="open-auto-task-dialog"]', ".auto-task-dialog");
   scenarios.push(await collectEnglishUiAudit(window, "auto-task-dialog"));
+  await clickAndWait(window, '[data-auto-task-picker="group"]', '[data-auto-task-group]');
+  scenarios.push(await collectEnglishUiAudit(window, "automation-group-picker"));
   await clickAndWait(window, '[data-action="close-auto-task-dialog"]', "#app", { waitForMissing: ".auto-task-dialog" });
 
   await clickAndWait(window, '[data-conversation-static-action="skills"]', '[data-skills-plaza-tab="mySkills"]');

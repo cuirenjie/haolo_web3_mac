@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 import {
   businessModelDisplayName,
   normalizeBusinessModelPoolsState,
@@ -19,6 +20,201 @@ function sourceBlock(source, startMarker, endMarker) {
   assert.notEqual(end, -1, `missing end marker: ${endMarker}`);
   return source.slice(start, end);
 }
+
+const loadingHarness = rendererSource.then((renderer) => {
+  const source = [
+    sourceBlock(renderer, "let consumptionRequestSeq", "let consumptionPageScrollabilityFrame"),
+    sourceBlock(renderer, "function consumptionPayload", "function formatConsumptionToken"),
+    sourceBlock(renderer, "async function loadConsumptionData", "async function exportConsumptionReport"),
+    "resetConsumptionData(); return { load: loadConsumptionData, reset: resetConsumptionData };",
+  ].join("\n");
+  return ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+});
+
+async function createLoadingHarness(overrides = {}) {
+  const state = {
+    auth: { authenticated: true, profile: { id: "account-a" }, baseUrl: "https://haolo.example" },
+    settings: { language: "zh-CN" },
+    activeView: "consumption",
+    consumption: { unit: "points", pageSize: 6 },
+  };
+  const calls = [];
+  const renders = [];
+  const toasts = [];
+  const api = {};
+  for (const section of ["overview", "calendar", "records"]) {
+    api[`getConsumption${section[0].toUpperCase()}${section.slice(1)}`] = (params) => {
+      calls.push({ section, params });
+      return overrides[section]?.(params) ?? Promise.resolve({ section });
+    };
+  }
+  if (overrides.history) api.syncConsumptionHistory = (params) => {
+    calls.push({ section: "history", params });
+    return overrides.history(params);
+  };
+  const snapshot = () => JSON.stringify(state.auth);
+  const dependencies = {
+    state, api,
+    render: () => renders.push(structuredClone(state.consumption)),
+    reportConsumptionAppEntryOnce: () => overrides.entry?.() ?? Promise.resolve(),
+    consumptionRuntimeStateQuery: () => ({ activeInteractionIds: [], activeConversationIds: [] }),
+    authProfileRefreshSnapshot: snapshot,
+    canApplyProfileRefreshResult: (value) => state.auth.authenticated && snapshot() === value,
+    showToast: (message) => toasts.push(message),
+    errorMessage: (error) => error.message,
+    currentConsumptionMonth: () => "2026-08",
+    window: { clearTimeout },
+    console: { warn() {} },
+  };
+  const controls = Function(...Object.keys(dependencies), await loadingHarness)(...Object.values(dependencies));
+  return { ...controls, state, calls, renders, toasts };
+}
+
+const flushConsumptionRequests = () => new Promise((resolve) => setImmediate(resolve));
+
+test("records paint before slow app-entry and calendar requests, and history sync stays in the background", async () => {
+  const entry = Promise.withResolvers();
+  const calendar = Promise.withResolvers();
+  const history = Promise.withResolvers();
+  const harness = await createLoadingHarness({
+    entry: () => entry.promise,
+    calendar: () => calendar.promise,
+    history: () => history.promise,
+  });
+  const pending = harness.load();
+  await flushConsumptionRequests();
+  assert.deepEqual(harness.calls.map(({ section }) => section), ["calendar", "records"]);
+  assert.deepEqual(harness.state.consumption.records, { section: "records" });
+  assert.equal(harness.state.consumption.overview, null);
+  assert.equal(harness.state.consumption.calendar, null);
+  assert.ok(harness.renders.some((frame) => frame.records && !frame.calendar && frame.loading));
+  assert.ok(harness.calls.every(({ params }) => !params.includeHistory));
+
+  entry.resolve();
+  await flushConsumptionRequests();
+  assert.deepEqual(harness.state.consumption.overview, { section: "overview" });
+  calendar.resolve({ days: [{ date: "2026-08-27", points: 1 }] });
+  await pending;
+  assert.equal(harness.state.consumption.loading, false);
+  assert.equal(harness.state.consumption.loaded, true);
+  assert.equal(harness.state.consumption.historySyncing, true);
+
+  harness.state.consumption.range = "today";
+  history.resolve({ synced: true });
+  await flushConsumptionRequests();
+  assert.equal(harness.state.consumption.historySyncing, false);
+  assert.equal(harness.calls.filter(({ section }) => section === "history").length, 1);
+  assert.equal(harness.calls.filter(({ section }) => section === "records").at(-1).params.range, "today");
+});
+
+test("one failed consumption panel does not discard successful panels", async () => {
+  const calendar = Promise.withResolvers();
+  const harness = await createLoadingHarness({
+    overview: async () => { throw new Error("overview unavailable"); },
+    calendar: () => calendar.promise,
+  });
+  const pending = harness.load();
+  await flushConsumptionRequests();
+  assert.deepEqual(harness.state.consumption.records, { section: "records" });
+  calendar.resolve({ days: [] });
+  await pending;
+  assert.deepEqual(harness.state.consumption.calendar, { days: [] });
+  assert.equal(harness.state.consumption.loading, false);
+  assert.equal(harness.toasts.length, 1);
+});
+
+test("matching consumption requests share work and late filter results cannot overwrite newer data", async () => {
+  const firstRecords = Promise.withResolvers();
+  const nextRecords = Promise.withResolvers();
+  const harness = await createLoadingHarness({
+    records: ({ range }) => range === "30d" ? firstRecords.promise : nextRecords.promise,
+  });
+  const first = harness.load({ quiet: true });
+  const duplicate = harness.load();
+  await flushConsumptionRequests();
+  assert.equal(harness.calls.length, 3);
+  harness.state.consumption.range = "today";
+  const next = harness.load();
+  nextRecords.resolve({ items: ["today"] });
+  await next;
+  firstRecords.resolve({ items: ["old-range"] });
+  await Promise.all([first, duplicate]);
+  assert.deepEqual(harness.state.consumption.records, { items: ["today"] });
+  assert.equal(harness.state.consumption.loading, false);
+  assert.equal(harness.toasts.length, 0);
+});
+
+test("calendar month labels change only when that month's response is applied", async () => {
+  const calendar = Promise.withResolvers();
+  const harness = await createLoadingHarness({ calendar: () => calendar.promise });
+  const pending = harness.load({ month: "2026-07" });
+  await flushConsumptionRequests();
+  assert.equal(harness.state.consumption.month, "2026-08");
+  calendar.resolve({ days: [{ date: "2026-07-31" }] });
+  await pending;
+  assert.equal(harness.state.consumption.month, "2026-07");
+  assert.equal(harness.state.consumption.calendar.days[0].date, "2026-07-31");
+});
+
+test("background history failures retain visible consumption data without retry storms", async () => {
+  const harness = await createLoadingHarness({ history: async () => { throw new Error("export unavailable"); } });
+  await harness.load();
+  await flushConsumptionRequests();
+  await harness.load();
+  assert.equal(harness.state.consumption.loaded, true);
+  assert.equal(harness.state.consumption.historySyncing, false);
+  assert.equal(harness.calls.filter(({ section }) => section === "history").length, 1);
+  assert.equal(harness.toasts.length, 0);
+});
+
+test("history completion refreshes current filters instead of reusing a pre-backfill request", async () => {
+  const history = Promise.withResolvers();
+  const beforeBackfill = Promise.withResolvers();
+  const beforeBackfillCalendar = Promise.withResolvers();
+  let recordsRequest = 0;
+  let calendarRequest = 0;
+  const harness = await createLoadingHarness({
+    history: () => history.promise,
+    records: () => ++recordsRequest === 2 ? beforeBackfill.promise : Promise.resolve({ revision: recordsRequest }),
+    calendar: ({ month }) => ++calendarRequest === 2 ? beforeBackfillCalendar.promise : Promise.resolve({ month }),
+  });
+  await harness.load();
+  harness.state.consumption.range = "today";
+  const olderPoll = harness.load({ quiet: true, month: "2026-07" });
+  history.resolve({ synced: true });
+  await flushConsumptionRequests();
+  assert.equal(recordsRequest, 3);
+  assert.deepEqual(harness.state.consumption.records, { revision: 3 });
+  assert.equal(harness.state.consumption.month, "2026-07");
+  assert.equal(harness.state.consumption.calendar.month, "2026-07");
+  beforeBackfill.resolve({ revision: 2 });
+  beforeBackfillCalendar.resolve({ month: "2026-07", outdated: true });
+  await olderPoll;
+  assert.deepEqual(harness.state.consumption.records, { revision: 3 });
+  assert.equal(harness.state.consumption.historySyncing, false);
+});
+
+test("account reset discards cached bills and ignores late foreground and background responses", async () => {
+  const records = Promise.withResolvers();
+  const history = Promise.withResolvers();
+  const foreground = await createLoadingHarness({ records: () => records.promise });
+  const pending = foreground.load();
+  foreground.reset();
+  records.resolve({ items: ["previous-account"] });
+  await pending;
+  assert.equal(foreground.state.consumption.records, null);
+  assert.equal(foreground.state.consumption.loaded, false);
+
+  const background = await createLoadingHarness({ history: () => history.promise });
+  await background.load();
+  const callsBeforeReset = background.calls.length;
+  background.reset();
+  history.resolve({ synced: true });
+  await flushConsumptionRequests();
+  assert.equal(background.calls.length, callsBeforeReset);
+  assert.equal(background.state.consumption.records, null);
+  assert.equal(background.state.consumption.historySyncing, false);
+});
 
 test("consumption detail is a standalone API-backed view below profile settings", async () => {
   const [renderer, apiClient, mainProcess, preload] = await Promise.all([
@@ -53,19 +249,18 @@ test("consumption detail is a standalone API-backed view below profile settings"
   assert.match(page, /累计\$\{unit === "points" \? "积分" : "Token"\}数/);
   assert.match(page, /\$\{unit === "points" \? "每日积分消耗" : "每日 Token 消耗"\}/);
   assert.match(page, /data-consumption-range="\$\{range\}"/);
-  assert.match(page, /showSkeleton \? renderConsumptionRecordsSkeleton\(\) : renderConsumptionRecords\(recordsData\)/);
+  assert.match(page, /showRecordsSkeleton \? renderConsumptionRecordsSkeleton\(\) : renderConsumptionRecords\(recordsData\)/);
   assert.match(page, /overview\.peak_daily_tokens, overview\.peak_daily_points \?\? overview\.peak_daily_usd\)[\s\S]*?<span>最高单日消耗<\/span>/);
   assert.doesNotMatch(page, /峰值\$\{unit/);
   assert.doesNotMatch((await stylesSource), /\.consumption-profile-person > div\s*\{[^}]*transform:/s);
   assert.match(loader, /Promise\.all/);
   assert.match(loader, /await reportConsumptionAppEntryOnce\(\)/);
-  assert.ok(
-    loader.indexOf("await reportConsumptionAppEntryOnce()") < loader.indexOf("await Promise.all"),
-    "today's app entry must be recorded before visible statistics are requested",
-  );
+  assert.match(loader, /loadSection\("overview", async \(\) => \{\s*await reportConsumptionAppEntryOnce\(\)/);
   assert.match(loader, /getConsumptionOverview/);
   assert.match(loader, /getConsumptionCalendar/);
-  assert.match(loader, /getConsumptionCalendar\(\{ month: requestedMonth, unit: state\.consumption\.unit, includeHistory: true \}\)/);
+  assert.match(loader, /getConsumptionCalendar!\(\{ month: requestedMonth, unit: requestedUnit \}\)/);
+  assert.doesNotMatch(loader, /includeHistory:\s*true/);
+  assert.match(loader, /void syncConsumptionHistoryInBackground\(\)/);
   assert.match(loader, /getConsumptionRecords/);
   assert.match(loader, /language:\s*state\.settings\.language/);
   assert.doesNotMatch(renderer, /mergeConsumptionOverview|consumptionHistoryMonthSummary|historyMonths/);
@@ -79,13 +274,13 @@ test("consumption detail is a standalone API-backed view below profile settings"
   assert.match(apiClient, /DEFAULT_CONSUMPTION_PATH = "\/api\/consumption\/me"/);
   assert.match(apiClient, /language:\s*normalizeConsumptionLanguage\(params\.language\)/);
   assert.match(mainProcess, /language:\s*normalizeAppLanguage\(params\.language \|\| appLanguage\(\)\)/);
-  for (const operation of ["reportConsumptionAppEntry", "reportConsumptionEvent", "getConsumptionOverview", "getConsumptionCalendar", "getConsumptionRecords", "exportConsumptionReport"]) {
+  for (const operation of ["reportConsumptionAppEntry", "reportConsumptionEvent", "getConsumptionOverview", "getConsumptionCalendar", "syncConsumptionHistory", "getConsumptionRecords", "exportConsumptionReport"]) {
     assert.match(mainProcess, new RegExp(`youle:${operation}`));
     assert.match(preload, new RegExp(operation));
   }
 });
 
-test("consumption detail uses skeletons only before its first successful load", async () => {
+test("consumption detail reveals each panel independently with themed loading feedback", async () => {
   const [renderer, styles] = await Promise.all([rendererSource, stylesSource]);
   const profileSkeleton = sourceBlock(renderer, "function renderConsumptionProfileSkeleton", "function renderConsumptionCalendarSkeleton");
   const calendarSkeleton = sourceBlock(renderer, "function renderConsumptionCalendarSkeleton", "function renderConsumptionRecordsSkeleton");
@@ -98,11 +293,15 @@ test("consumption detail uses skeletons only before its first successful load", 
 
   assert.match(page, /const showSkeleton = state\.consumption\.loading && !state\.consumption\.loaded/);
   assert.match(page, /aria-busy="\$\{showSkeleton\}"/);
-  assert.match(page, /showSkeleton \? renderConsumptionSkeleton\("consumption-skeleton-balance"\)/);
-  assert.match(page, /showSkeleton \? renderConsumptionProfileSkeleton\(unit\)/);
-  assert.match(page, /showSkeleton \? renderConsumptionCalendarSkeleton\(\)/);
-  assert.match(page, /showSkeleton \? renderConsumptionRecordsSkeleton\(\)/);
-  assert.match(page, /state\.consumption\.loading && !showSkeleton \? `<div class="consumption-loading">正在同步实际账单…<\/div>`/);
+  assert.match(page, /<strong>\$\{escapeHtml\(currentProfileBalance\(\)\)\}<\/strong>/);
+  for (const section of ["Overview", "Calendar", "Records"]) {
+    assert.match(page, new RegExp(`const show${section}Skeleton = state\\.consumption\\.loading && !state\\.consumption\\.${section.toLowerCase()}`));
+    assert.match(page, new RegExp(`aria-busy="\\$\\{show${section}Skeleton\\}"`));
+  }
+  assert.match(page, /showOverviewSkeleton \? renderConsumptionProfileSkeleton\(unit\)/);
+  assert.match(page, /showCalendarSkeleton \? renderConsumptionCalendarSkeleton\(\)/);
+  assert.match(page, /showRecordsSkeleton \? renderConsumptionRecordsSkeleton\(\)/);
+  assert.match(page, /state\.consumption\.historySyncing\) && !showRecordsSkeleton \? `<div class="consumption-loading" role="status">正在同步实际账单…<\/div>`/);
   assert.ok(
     opener.indexOf("state.consumption.loading = true") < opener.indexOf("render()"),
     "the first consumption-page paint must already be in its skeleton state",
@@ -124,6 +323,7 @@ test("consumption detail uses skeletons only before its first successful load", 
   assert.match(styles, /@keyframes consumption-skeleton-shimmer/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.consumption-skeleton::after\s*\{\s*animation:\s*none/);
   assert.match(styles, /html\[data-theme="dark"\] \.consumption-skeleton\s*\{[^}]*background:\s*#283649/);
+  assert.match(styles, /html\[data-theme="dark"\] \.consumption-loading\s*\{[^}]*color:\s*#a8c7ee/);
   assert.match(loadingStyles, /position:\s*absolute/);
   assert.match(loadingStyles, /left:\s*50%/);
   assert.match(loadingStyles, /transform:\s*translateX\(-50%\)/);
@@ -445,12 +645,9 @@ test("calendar month navigation commits the new month with its fetched days", as
   assert.match(page, /data-consumption-month="next"[^>]*state\.consumption\.loading/);
   assert.match(monthLabel, /Intl\.DateTimeFormat\(appLanguageLocale\(state\.settings\.language\)/);
   assert.match(monthLabel, /Date\.UTC\(year, monthNumber - 1, 1\)/);
-  assert.match(loader, /const requestedMonth = options\.month \?\? state\.consumption\.month/);
-  assert.match(loader, /getConsumptionCalendar\(\{ month: requestedMonth/);
-  assert.ok(
-    loader.indexOf("await Promise.all") < loader.indexOf("state.consumption.month = requestedMonth"),
-    "the visible month must not change before its calendar request resolves",
-  );
+  assert.match(loader, /const requestedMonth = options\.month \?\? consumptionPendingMonth \?\? state\.consumption\.month/);
+  assert.match(loader, /getConsumptionCalendar!\(\{ month: requestedMonth/);
+  assert.match(loader, /const result = await fetchResult\(\);[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*if \(section === "calendar"\) state\.consumption\.month = requestedMonth/);
   assert.match(monthNavigation, /void loadConsumptionData\(\{ month \}\)/);
   assert.doesNotMatch(monthNavigation, /state\.consumption\.month = month/);
 });

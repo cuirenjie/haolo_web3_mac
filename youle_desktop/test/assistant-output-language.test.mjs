@@ -13,9 +13,11 @@ test("English app mode requires every assistant-visible surface to be English on
   assert.match(instruction, /commentary and progress updates/);
   assert.match(instruction, /reasoning or thinking summaries/);
   assert.match(instruction, /execution-card copy/);
+  assert.match(instruction, /chart annotations/);
   assert.match(instruction, /final answer/);
   assert.match(instruction, /Do not emit Chinese Han characters/);
   assert.equal(containsHanCharacters(instruction), false);
+  assert.equal(containsHanCharacters("English with 𠀀"), true);
 });
 
 test("English output policy is prepended without changing user content", () => {

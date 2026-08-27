@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 
 import {
   APP_LANGUAGE_STORAGE_KEY,
   appLanguageLocale,
   appLanguageOptions,
+  applyAppLanguage,
   loadAppLanguage,
   normalizeAppLanguage,
   readStoredAppLanguage,
   resolveAppLanguagePreference,
   translateAppText,
+  translateTradingAnnotationText,
   translateTradingPeriodLabel,
 } from "../src/renderer/app-language.mjs";
 import { GENERATED_ENGLISH_UI_PHRASES } from "../src/renderer/app-language-en-generated.mjs";
@@ -26,6 +29,60 @@ const mainSource = readFile(new URL("../src/main/main.mjs", import.meta.url), "u
 const userDataTransferSource = readFile(new URL("../src/main/user-data-transfer.mjs", import.meta.url), "utf8");
 const preloadSource = readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8");
 const indexSource = readFile(new URL("../src/renderer/index.html", import.meta.url), "utf8");
+
+test("group selection and encoded UI copy have complete English translations", () => {
+  assert.equal(translateAppText("不选择分组", "en"), "No group");
+  assert.equal(translateAppText("不選擇分組", "en"), "No group");
+  assert.equal(translateAppText("正在加载会话记录...", "en"), "Loading conversation history...");
+  assert.equal(translateAppText("不选择分组", "zh-CN"), "不选择分组");
+  assert.equal(translateAppText("不选择分组", "zh-TW"), "不選擇分組");
+});
+
+test("the composer resource hint translates as a complete phrase in every language", () => {
+  const hint = "点击+调用策略、指标、预警和文件";
+  const traditional = "點擊+調用策略、指標、預警和檔案";
+  const english = "Click + to use strategies, indicators, alerts, and files";
+  assert.equal(translateAppText(hint, "zh-CN"), hint);
+  assert.equal(translateAppText(hint, "zh-TW"), traditional);
+  assert.equal(translateAppText(hint, "en"), english);
+  assert.equal(translateAppText(traditional, "en"), english);
+});
+
+test("chart annotations translate whole statements without changing prices or polarity", () => {
+  for (const [direction, englishDirection, fractal, englishFractal] of [
+    ["上", "up", "顶", "top"], ["下", "down", "底", "bottom"],
+  ]) {
+    assert.equal(
+      translateTradingAnnotationText(`末端向${direction}笔：77,600 → 80,499.9；最新确认为${fractal}分型。`, "en"),
+      `Latest ${englishDirection} stroke: 77,600 → 80,499.9; confirmed ${englishFractal} fractal.`,
+    );
+  }
+  for (const [position, englishPosition] of [
+    ["位于中枢上方", "above"], ["位于中枢下方", "below"], ["仍在中枢内部", "inside"],
+  ]) {
+    const source = `最近中枢 78,579.7–79,180.2：最新收盘${position}；关注离开后的回抽确认。`;
+    assert.equal(translateTradingAnnotationText(source, "en"), `Latest central zone 78,579.7–79,180.2; close ${englishPosition} the zone. Watch the post-breakout retest.`);
+    assert.equal(translateTradingAnnotationText(source, "zh-CN"), source);
+    assert.match(translateTradingAnnotationText(source, "zh-TW"), /中樞/);
+  }
+  const reference = "前序关键顶分型 79,180.2：最近结构参照；升回关键高点上方则下行结构转弱。";
+  assert.equal(translateTradingAnnotationText(reference, "en"), "Prior top fractal 79,180.2 (structure reference). Above the key high weakens the down structure.");
+  assert.equal(translateTradingAnnotationText("盘面结论：The latest stroke is up.", "en"), "Summary: The latest stroke is up.");
+  for (const source of ["盘面结论：中枢震荡后反弹，后续笔尚未确认。", "Custom 𠀀 annotation", "Medium枢 still active"]) {
+    assert.doesNotMatch(translateTradingAnnotationText(source, "en"), /\p{Script=Han}/u);
+    assert.match(translateTradingAnnotationText(source, "en"), /unavailable in English/);
+  }
+  assert.equal(translateTradingAnnotationText("Fib 0.618: 79,180.2", "en"), "Fib 0.618: 79,180.2");
+  for (const [source, expected] of [
+    ["主计数失效 77,600", "main count invalidation 77,600"],
+    ["[1H] 上方止损集中区（BSL）", "[1H] buy-side liquidity (BSL)"],
+    ["ST · 二次测试", "ST · secondary test"],
+    ["顶背离 · RSI确认", "bearish divergence · RSI confirmation"],
+    ["低位金叉 · 22.5", "low-zone bullish crossover · 22.5"],
+    ["主动买入失衡区（2处）", "buy imbalance zone (2 zones)"],
+    ["关键价位：上破 80,499.9 偏多｜跌破 77,600 偏空｜区间内等待", "key levels: above 80,499.9 bullish | below 77,600 bearish | wait inside the range"],
+  ]) assert.equal(translateTradingAnnotationText(source, "en"), expected);
+});
 
 function sourceBlock(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -74,13 +131,39 @@ test("application language safely defaults to English and exposes three supporte
   assert.equal(normalizeAppLanguage("en"), "en");
   assert.equal(appLanguageLocale("en"), "en-US");
   assert.equal(appLanguageLocale("zh-CN"), "zh-CN");
-  assert.deepEqual(appLanguageOptions("en").map((option) => option.label), [
-    "English",
-    "Simplified Chinese",
-    "Traditional Chinese",
-  ]);
-  assert.deepEqual(appLanguageOptions("zh-CN").map((option) => option.label), ["英语", "简体中文", "繁体中文"]);
-  assert.deepEqual(appLanguageOptions("zh-TW").map((option) => option.label), ["英語", "簡體中文", "繁體中文"]);
+});
+
+test("language choices always use native names regardless of the active language", () => {
+  try {
+    for (const language of ["en", "zh-CN", "zh-TW"]) {
+      applyAppLanguage(language);
+      assert.deepEqual(appLanguageOptions(), [
+        { value: "en", label: "English" },
+        { value: "zh-CN", label: "简体中文" },
+        { value: "zh-TW", label: "繁體中文" },
+      ]);
+    }
+  } finally {
+    applyAppLanguage("en");
+  }
+});
+
+test("selects can protect native option and selected labels without skipping the accessible description", async () => {
+  const transpiled = ts.transpileModule(await selectSource, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
+  }).outputText;
+  const { renderHaoloSelect } = await import(`data:text/javascript;base64,${Buffer.from(transpiled).toString("base64")}`);
+  const options = appLanguageOptions();
+  for (const { value, label } of options) {
+    const config = { id: "settings-language", value, options, ariaLabel: "选择界面语言" };
+    const html = renderHaoloSelect({ ...config, translateLabels: false });
+    assert.match(html, new RegExp(`data-haolo-select-label data-i18n-skip translate="no">${label}</span>`));
+    const optionTags = [...html.matchAll(/<button\b[^>]*role="option"[^>]*>([^<]*)<\/button>/g)];
+    assert.deepEqual(optionTags.map((match) => match[1]), options.map((option) => option.label));
+    for (const [tag] of optionTags) assert.match(tag, /data-i18n-skip translate="no"/);
+    assert.match(html, /<span id="settings-language-label" class="haolo-select-sr-label">选择界面语言<\/span>/);
+    assert.doesNotMatch(renderHaoloSelect(config), /data-i18n-skip|translate="no"/);
+  }
 });
 
 test("shared UI translator covers English and full renderer character conversion for Traditional Chinese", () => {
@@ -148,7 +231,8 @@ test("general settings renders the language selector in the requested position a
   assert.ok(languageIndex < taskbarIndex && taskbarIndex < userDataIndex && userDataIndex < installPathIndex);
   assert.match(languageBlock, /<span>语言<\/span>/);
   assert.match(languageBlock, /data-settings-language/);
-  assert.match(languageBlock, /appLanguageOptions\(language\)/);
+  assert.match(languageBlock, /appLanguageOptions\(\)/);
+  assert.match(languageBlock, /translateLabels: false/);
   assert.match(languageBlock, /ariaLabel: "选择界面语言"/);
   assert.match(languageBlock, /renderHaoloSelect\(/);
   assert.doesNotMatch(languageBlock, /<select\b/);
@@ -198,7 +282,7 @@ test("localized trading expert mentions stay English in the composer and canonic
   assert.match(mentionHelpers, /language === "en"[\s\S]*Strategy[\s\S]*Indicator[\s\S]*Alert/);
   assert.match(mentionHelpers, /function canonicalizeTradingExpertMentionText/);
   assert.match(mentionHelpers, /tradingStrategyCatalog\(\)[\s\S]*tradingIndicatorCatalog\(\)[\s\S]*mentionTokens\[0\]/);
-  assert.match(source, /const tradingExpertRoutingText = isTradingExpertThreadId\(threadId\)[\s\S]*canonicalizeTradingExpertMentionText\(text\)/);
+  assert.match(source, /const tradingExpertRoutingText = isTradingExpertExecutionThreadId\(threadId\)[\s\S]*canonicalizeTradingExpertMentionText\(text\)/);
   assert.match(source, /tradingStrategyMentionedByText\(tradingExpertRoutingText\)/);
   assert.match(source, /tradingAlertMentioned\(tradingExpertRoutingText\)/);
 });
@@ -244,6 +328,12 @@ test("language control defines complete light and dark interaction states", asyn
   assert.match(darkBlock, /\.haolo-select-option\.selected/);
   assert.match(darkBlock, /background: #202329/);
   assert.match(darkBlock, /color: #f2f5fa/);
+  for (const block of [lightBlock, darkBlock]) {
+    assert.match(block, /\.haolo-select-menu\s*\{/);
+    assert.match(block, /\.haolo-select-option:focus-visible/);
+    assert.match(block, /\.haolo-select-option:active:not\(:disabled\)/);
+    assert.match(block, /\.haolo-select-option:disabled/);
+  }
 });
 
 test("HaoLo select preserves listbox semantics and keyboard interaction", async () => {
@@ -268,6 +358,8 @@ test("runtime language audit uses the same pointer interaction as users and veri
   assert.match(switchBlock, /nativeClick/);
   assert.doesNotMatch(switchBlock, /dispatchEvent/);
   assert.match(switchBlock, /storedValue/);
+  assert.match(switchBlock, /applied\.selectedLabel !== nativeLabels\[language\]/);
+  assert.match(switchBlock, /JSON\.stringify\(applied\.optionLabels\)/);
   const nativeClickBlock = sourceBlock(audit, "async function nativeClick", "async function click");
   assert.match(nativeClickBlock, /Input\.dispatchMouseEvent/);
   assert.doesNotMatch(nativeClickBlock, /element\.click\(\)/);
