@@ -1,4 +1,6 @@
 export const TRADING_EXPERT_FAST_CHAT_MODEL = "gpt-5.6-sol";
+import { assistantOutputLanguageInstruction } from "../assistant-output-language.mjs";
+
 export const TRADING_EXPERT_FAST_CHAT_SOURCE = "trading-expert-fast-chat";
 export const TRADING_EXPERT_FAST_CHAT_HANDOFF_TOOL = "handoff_to_agent";
 
@@ -56,7 +58,7 @@ const ACTION_OR_LOCAL_RESOURCE_PATTERNS = [
 
 export const TRADING_EXPERT_FAST_CHAT_POLICY = [
   "You are HaoLo's low-latency public question-answer lane.",
-  "Answer in the user's language and keep the answer direct and useful.",
+  "Follow the appended app output-language instruction when present; otherwise answer in the user's language. Keep the answer direct and useful.",
   "You receive only the current public question. You cannot access conversation history, memory, account data, balances, positions, orders, private preferences, the current chart, live market data, files, attachments, the web, the desktop, or any action tools.",
   `If the request needs any unavailable context, current or changing information, personalized financial guidance, chart inspection or drawing, local resources, an action, or prior conversation context, call ${TRADING_EXPERT_FAST_CHAT_HANDOFF_TOOL} exactly once and emit no user-facing text.`,
   "For stable public knowledge, definitions, explanations, writing, translation, brainstorming, and casual conversation, answer directly without calling the tool.",
@@ -136,7 +138,13 @@ export function buildTradingExpertFastChatRequest(params = {}) {
     threadId: String(params.threadId || "").trim(),
     text,
     messages: [
-      { role: "developer", content: TRADING_EXPERT_FAST_CHAT_POLICY },
+      {
+        role: "developer",
+        content: [
+          TRADING_EXPERT_FAST_CHAT_POLICY,
+          assistantOutputLanguageInstruction(params.language),
+        ].filter(Boolean).join("\n\n"),
+      },
       { role: "user", content: text },
     ],
     reasoningEffort: "low",

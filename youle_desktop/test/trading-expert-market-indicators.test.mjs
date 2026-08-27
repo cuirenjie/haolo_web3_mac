@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("trend-band indicator mention is recognized from composer text", async () => {
@@ -105,6 +106,12 @@ test("trading favorites normalize persisted symbols and remove invalid duplicate
     new Set(["BTCUSDT"]),
   );
   assert.deepEqual(ordered.map(({ symbol }) => symbol), ["BTCUSDT", "ETHUSDT", "SOLUSDT"]);
+});
+
+test("chart period controls opt into compact localized labels", async () => {
+  const source = await readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
+  assert.match(source, /data-market-action="interval"[\s\S]*data-i18n-trading-period-label/);
+  assert.match(source, /<span data-i18n-trading-period-label>\$\{tradingPeriodLabel\(period\)\}<\/span>/);
 });
 
 test("trading candle snapshots are keyed by market context, survive stale refreshes, and clone arrays", async () => {

@@ -830,8 +830,156 @@ function executionPlanDisplayTitle(plan) {
   return `${pair} 币安永续 ${displayExecutionPlanInterval(plan?.market?.interval)}`;
 }
 
-export function formatExecutionPlanMarkdown(plan) {
+function formatExecutionPlanMarkdownEnglish(validated) {
+  const price = (level) => level ? String(level.price) : "Not available";
+  const quantity = (value) => {
+    const normalized = nonNegative(value);
+    if (normalized === null) return "Not available";
+    return normalized.toFixed(8).replace(/0+$/, "").replace(/\.$/, "") || "0";
+  };
+  const signedMoney = (value) => {
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized)) return "Not available";
+    return `${normalized >= 0 ? "+" : "-"}${displayMoney(Math.abs(normalized))} USDT`;
+  };
+  const symbol = String(validated?.market?.symbol || "").trim().toUpperCase();
+  const match = symbol.match(/^(.+?)(USDT|USDC|BUSD)$/);
+  const pair = match ? `${match[1]}/${match[2]}` : symbol || "Trading pair";
+  const title = `${pair} Binance Perpetual ${displayExecutionPlanInterval(validated?.market?.interval)}`;
+  const baseAsset = match?.[1] || symbol || "Asset";
+  const targetText = (scenario) => scenario?.targets?.length
+    ? scenario.targets.map((target, index) => `Target ${index + 1}: ${price(target)}`).join("; ")
+    : "Not available";
+  const scenarioRiskReward = (scenario) => {
+    if (!scenario?.targets?.length) return "Not available";
+    const ratios = scenario.targets.map((target, targetIndex) => ({
+      targetIndex,
+      ratio: riskReward(
+        scenario.trigger,
+        scenario.stop,
+        target,
+        scenario.side,
+        validated.positionSizing?.estimatedRoundTripCostRate,
+      ) || 0,
+    }));
+    return ratios.map((item) => `Target ${item.targetIndex + 1}: 1:${item.ratio}`).join("; ");
+  };
+  const bilateralScenarios = validated.preferredSide === "neutral"
+    ? validated.scenarios.filter((item) => item.side === "long" || item.side === "short")
+    : [];
+  const formatOne = (selectedScenario, bilateral = false) => {
+    const selectedSide = selectedScenario?.side || validated.preferredSide;
+    const accountPlan = bilateral ? null : validated.positionSizing.accountPlan;
+    const candidateOnly = validated.action === "no_trade";
+    const directionText = selectedSide === "long" ? "Bullish" : selectedSide === "short" ? "Bearish" : "Neutral";
+    const directionOrder = selectedSide === "long" ? "long position" : "short position";
+    let actionText = validated.action === "wait"
+      ? "Wait for the trigger"
+      : candidateOnly
+        ? "Do not trade"
+        : validated.action === "insufficient_data"
+          ? "Insufficient data or price levels; do not trade"
+          : validated.action === "long"
+            ? "Open a long position at market"
+            : "Open a short position at market";
+    let triggerText = selectedScenario ? price(selectedScenario.trigger) : "No clear one-sided setup";
+    if (accountPlan?.mode === "new_position") {
+      triggerText += candidateOnly
+        ? `; suggested: ${accountPlan.leverage}x leverage and ${displayMoney(accountPlan.notional)} USDT ${directionOrder}`
+        : `; open a ${displayMoney(accountPlan.notional)} USDT ${directionOrder} with ${accountPlan.leverage}x leverage`;
+    } else if (accountPlan?.mode === "manage_existing") {
+      triggerText += `; manage the existing ${displayMoney(accountPlan.existingNotional)} USDT ${directionOrder} without adding`;
+    } else if (accountPlan?.mode === "reduce_existing") {
+      actionText = "Reduce the position first, then manage it under this plan";
+      triggerText += `; reduce the existing ${displayMoney(accountPlan.existingNotional)} USDT ${directionOrder} to ${displayMoney(accountPlan.notional)} USDT`;
+    } else if (accountPlan?.mode === "close_opposite") {
+      const oppositeOrder = accountPlan.existingSide === "long" ? "long position" : "short position";
+      actionText = "Close the opposite position first; do not open a new position yet";
+      triggerText += `; close the existing ${displayMoney(accountPlan.existingNotional)} USDT ${oppositeOrder}`;
+    }
+    const riskRewardText = bilateral
+      ? scenarioRiskReward(selectedScenario)
+      : validated.riskReward.length
+        ? validated.riskReward.map((item) => `Target ${item.targetIndex + 1}: 1:${item.ratio}`).join("; ")
+        : "Not available";
+    const accountOrdersAvailable = accountPlan && accountPlan.mode !== "close_opposite";
+    const stopText = accountOrdersAvailable
+      ? candidateOnly
+        ? `Stop loss: ${price(selectedScenario?.stop)}`
+        : `Conditional market stop at ${price(selectedScenario?.stop)}`
+      : price(selectedScenario?.stop);
+    const takeProfitText = accountOrdersAvailable
+      ? accountPlan.targetOrders
+        .filter((target) => target.notional > 0)
+        .map((target) => candidateOnly
+          ? `Take profit at ${target.price}; suggested size ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`
+          : `Conditional market take profit at ${target.price} for ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`)
+        .join("; ") || "Not available"
+      : targetText(selectedScenario);
+    const outcomeText = accountOrdersAvailable
+      ? `${riskRewardText}; estimated stop-loss outcome: -${displayMoney(accountPlan.estimatedStopLoss)} USDT; estimated all-target outcome: +${displayMoney(accountPlan.estimatedTakeProfit)} USDT`
+      : riskRewardText;
+    const accountBasisText = accountPlan
+      ? `account equity ${displayMoney(accountPlan.equity)} USDT; available balance ${displayMoney(accountPlan.availableBalance)} USDT`
+      : "";
+    const accountSizingText = accountOrdersAvailable
+      ? accountPlan.mode === "manage_existing"
+        ? `Position size: current position approximately ${quantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset}; notional ${displayMoney(accountPlan.existingNotional)} USDT; do not add; ${accountBasisText}`
+        : accountPlan.mode === "reduce_existing"
+          ? `Position size: approximately ${quantity(accountPlan.quantity)} ${baseAsset} after reduction; notional ${displayMoney(accountPlan.notional)} USDT; ${accountBasisText}`
+          : `Position size: suggested order ${quantity(accountPlan.quantity)} ${baseAsset}; notional ${displayMoney(accountPlan.notional)} USDT; ${accountPlan.leverage}x leverage; ${accountBasisText}`
+      : accountPlan?.mode === "close_opposite"
+        ? `Position size: close the existing approximately ${quantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset} ${accountPlan.existingSide === "long" ? "long position" : "short position"}; no new order is suggested yet; ${accountBasisText}`
+        : "";
+    const accountPnlText = accountOrdersAvailable
+      ? `Potential P&L: approximately -${displayMoney(accountPlan.estimatedStopLoss)} USDT at the stop and +${displayMoney(accountPlan.estimatedTakeProfit)} USDT if all targets fill; estimated fees and slippage are included`
+      : "";
+    const accountUnavailableText = !accountPlan && validated.positionSizing.accountStatus === "unavailable"
+      ? "Position size: the live account snapshot is unavailable or stale. Refresh the account and run the analysis again for an order size and P&L estimate"
+      : "";
+    const livePositionText = accountPlan?.existingSide
+      ? `Live position: approximately ${quantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset} ${accountPlan.existingSide === "long" ? "long" : "short"}; average entry ${accountPlan.existingEntryPrice == null ? "Not available" : accountPlan.existingEntryPrice}; unrealized P&L ${signedMoney(accountPlan.existingUnrealizedPnl)}`
+      : "";
+    const triggerLabel = selectedSide === "long"
+      ? "Long trigger"
+      : selectedSide === "short"
+        ? "Short trigger"
+        : "Entry trigger";
+    const titleSuffix = bilateral && selectedSide === "long"
+      ? " · Long setup"
+      : bilateral && selectedSide === "short"
+        ? " · Short setup"
+        : "";
+    return [
+      `## ${title}${titleSuffix}`,
+      "",
+      `Current action: ${actionText}`,
+      `Direction: ${directionText}`,
+      `${triggerLabel}: ${triggerText}`,
+      `Stop-loss and invalidation: ${stopText}`,
+      `Take-profit targets: ${takeProfitText}`,
+      ...(accountSizingText ? [accountSizingText] : []),
+      ...(livePositionText ? [livePositionText] : []),
+      ...(accountPnlText ? [accountPnlText] : []),
+      ...(accountUnavailableText ? [accountUnavailableText] : []),
+      `Risk/reward: ${outcomeText}`,
+    ].join("\n");
+  };
+  if (bilateralScenarios.length >= 2) {
+    return bilateralScenarios
+      .sort((left, right) => (left.side === "long" ? -1 : right.side === "long" ? 1 : 0))
+      .map((scenarioItem) => formatOne(scenarioItem, true))
+      .join("\n\n");
+  }
+  const selectedScenario = validated.preferredSide === "long" || validated.preferredSide === "short"
+    ? validated.scenarios.find((item) => item.side === validated.preferredSide)
+    : null;
+  return formatOne(selectedScenario);
+}
+
+export function formatExecutionPlanMarkdown(plan, options = {}) {
   const validated = validateExecutionPlan(plan);
+  if (options?.language === "en") return formatExecutionPlanMarkdownEnglish(validated);
   const bilateralScenarios = validated.preferredSide === "neutral"
     ? validated.scenarios.filter((item) => item.side === "long" || item.side === "short")
     : [];

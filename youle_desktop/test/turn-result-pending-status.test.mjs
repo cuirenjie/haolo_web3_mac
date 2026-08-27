@@ -32,8 +32,9 @@ test("interrupted turn result headers reuse the pending consumption status and h
     "commentary-only output must stay pending even when the transport reports completed",
   );
   assert.match(toggle, /meta\.status === "pending"/);
-  assert.match(toggle, /\? "待完成"/);
-  assert.match(toggle, /: `\$\{HANDLED_STATUS_LABEL\} \$\{meta\.elapsedLabel\}`/);
+  assert.match(toggle, /state\.settings\.language === "en" \? "Pending" : "待完成"/);
+  assert.match(toggle, /: `\$\{handledStatusLabel\(\)\} \$\{meta\.elapsedLabel\}`/);
+  assert.match(toggle, /Collapse processing details/);
   assert.match(toggle, /<span>\$\{escapeHtml\(statusLabel\)\}<\/span>/);
   assert.match(elapsed, /turnResultProcessIndexes\(messages, finalIndex\)/);
   assert.match(elapsed, /previousTurnResultUserStartMs\(threadId, messages, finalIndex\)/);

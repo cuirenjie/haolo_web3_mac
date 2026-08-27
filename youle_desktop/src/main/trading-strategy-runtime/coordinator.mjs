@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { createStrategyResultEnvelope } from "./contracts.mjs";
 import { buildExecutionPlanV1, formatExecutionPlanMarkdown } from "./execution-plan-builder.mjs";
+import { containsHanCharacters } from "../assistant-output-language.mjs";
 
 function boundedText(value, max = 12_000) {
   return String(value || "").replace(/\u0000/g, "").slice(0, max);
@@ -212,15 +213,21 @@ export class TradingStrategyCoordinator {
       binanceAccountContext,
     });
     const legacyReportWithoutExecutionPlan = stripLegacyExecutionPlanSection(legacyAnalysisPlan.report);
+    const defaultReport = params?.responseMode === "direct" || !exposesExecutionPlan
+      ? legacyAnalysisPlan.report
+      : `${formatExecutionPlanMarkdown(executionPlan)}\n\n---\n\n${legacyReportWithoutExecutionPlan}`.trim();
+    const englishReport = exposesExecutionPlan
+      ? formatExecutionPlanMarkdown(executionPlan, { language: "en" })
+      : containsHanCharacters(defaultReport)
+        ? "The market analysis is complete. Review the chart annotations for the detected structure and risk levels."
+        : defaultReport;
     const decoratedResult = {
       ...legacyResult,
       strategy: Object.freeze({ id: strategy.manifest.id, version: strategy.manifest.version }),
       analysisPlan: {
         ...legacyAnalysisPlan,
         executionPlan,
-        report: params?.responseMode === "direct" || !exposesExecutionPlan
-          ? legacyAnalysisPlan.report
-          : `${formatExecutionPlanMarkdown(executionPlan)}\n\n---\n\n${legacyReportWithoutExecutionPlan}`.trim(),
+        report: params?.language === "en" ? englishReport : defaultReport,
       },
     };
     return createStrategyResultEnvelope(strategy.manifest, decoratedResult, executionPlan);

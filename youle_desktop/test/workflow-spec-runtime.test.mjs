@@ -40,7 +40,7 @@ function fullAccessCapabilityRequest() {
       workspace: "current_group",
       paths: [],
       uploads: [],
-      network: ["aiapi.youleai.top"],
+      network: ["haolo.pro"],
       applications: [],
     },
     actions: ["read", "create", "update", "execute"],
@@ -644,7 +644,7 @@ test("semantic compilation shares parallel inputs by default and marks only expl
   assert.deepEqual(
     store.snapshot().current.nodes.find((node) => node.id === "shared-entry")
       .capabilityRequest.resourceScope.network,
-    ["aiapi.youleai.top"],
+    ["haolo.pro"],
   );
 });
 

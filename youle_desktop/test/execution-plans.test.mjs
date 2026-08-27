@@ -125,6 +125,37 @@ test("assistant execution-plan text is partitioned around both current and legac
   assert.equal(legacy.after, "");
 });
 
+test("English execution plans are parsed, titled, and classified without Chinese copy", () => {
+  const text = `
+Market review complete.
+
+## BTC/USDT Binance Perpetual 1D
+
+Current action: Wait for the trigger
+Direction: Bullish
+Long trigger: 79000
+Stop-loss and invalidation: 76000
+Take-profit targets: Target 1: 83000; Target 2: 85000
+Risk/reward: Target 1: 1:1.3
+  `;
+  const partition = executionPlanTextPartition(text);
+  assert.ok(partition);
+  assert.equal(partition.before, "Market review complete.");
+  assert.equal(partition.candidate.title, "BTC/USDT Binance Perpetual 1D");
+  assert.equal(executionPlanHasStructuredTradingFields(partition.candidate), true);
+  assert.equal(executionPlanHasConcreteTradingPlan(partition.candidate), true);
+  assert.equal(executionPlanDirectionTone("Direction:", "Bullish"), "bullish");
+  assert.equal(executionPlanCardTitle({
+    fallbackTitle: partition.candidate.title,
+    sourceText: text,
+    language: "en",
+  }), "BTC/USDT Binance Perpetual 1D");
+  assert.deepEqual(executionPlanBinanceMarketDetails({
+    title: partition.candidate.title,
+    content: partition.candidate.content,
+  }), { symbol: "BTCUSDT", direction: "LONG" });
+});
+
 test("bilateral execution-plan markdown is extracted into independent candidates", () => {
   const text = `
 盘面结论如下。
@@ -384,6 +415,12 @@ test("trading plan card titles use symbol venue contract and interval format", (
     sourceText: "BINANCE:FUTURES:ETHUSDT · 4小时缠论分析",
   }), "ETH/USDT 币安永续 4H");
   assert.equal(executionPlanCardTitle({ fallbackTitle: "推荐执行计划" }), "推荐执行计划");
+  assert.equal(executionPlanCardTitle({
+    fallbackTitle: "推荐执行计划",
+    sourceTitle: "BTC1D market review",
+    language: "en",
+  }), "BTC/USDT Binance Perpetual 1D");
+  assert.equal(executionPlanCardTitle({ fallbackTitle: "推荐执行计划", language: "en" }), "Execution plan");
 });
 
 test("Binance position monitoring extracts the perpetual symbol and required direction", () => {

@@ -33,6 +33,15 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "放大": "Zoom in",
   "缩小": "Zoom out",
   "便利贴": "Sticky note",
+  "AI 文字标注字号调节": "Adjust AI annotation text size",
+  "缩小当前图表全部标注文字": "Decrease all annotation text on the current chart",
+  "放大当前图表全部标注文字": "Increase all annotation text on the current chart",
+  "当前图表全部标注文字": "all annotation text on the current chart",
+  "当前图表全部 AI 标注已": "All AI annotations on the current chart have been",
+  "AI 标注：": "AI annotation: ",
+  "；当前字号": "; current font size",
+  "当前图表全部 AI 标注字号，所在标注当前": "All AI annotation text sizes on the current chart; selected annotation is currently",
+  "当前图表全部 AI 标注字号": "All AI annotation text sizes on the current chart",
   "执行卡片文字与便利贴操作": "Execution card text and sticky-note controls",
   "暂时无法读取这张执行卡片，请刷新后重试": "This execution card is temporarily unavailable. Refresh and try again.",
   "当前版本暂不支持桌面便利贴": "This version does not support desktop sticky notes.",
@@ -594,6 +603,14 @@ const TRADITIONAL_UI_PHRASES = Object.freeze({
 
 const HAN_TEXT_PATTERN = /[\u3400-\u9fff]/u;
 const LATIN_BUTTON_TEXT_PATTERN = /[A-Za-z]/u;
+const TRADING_PERIOD_LABEL_PATTERN = /^(\s*)(\d+)\s*(秒|分|时|日|周)(\s*)$/u;
+const ENGLISH_TRADING_PERIOD_UNITS = Object.freeze({
+  秒: "S",
+  分: "M",
+  时: "H",
+  日: "D",
+  周: "W",
+});
 const TRANSLATABLE_ATTRIBUTES = Object.freeze(["aria-label", "title", "placeholder"]);
 const APP_OWNED_LOCALIZATION_SELECTOR = "[data-i18n-owned]";
 const SKIP_LOCALIZATION_SELECTOR = [
@@ -668,12 +685,32 @@ export function normalizeAppLanguage(value) {
   return isAppLanguage(value) ? value : "en";
 }
 
-export function loadAppLanguage(storage = globalThis.localStorage) {
+export function readStoredAppLanguage(storage = globalThis.localStorage) {
   try {
-    return normalizeAppLanguage(storage?.getItem?.(APP_LANGUAGE_STORAGE_KEY));
+    const value = storage?.getItem?.(APP_LANGUAGE_STORAGE_KEY);
+    return isAppLanguage(value) ? value : null;
   } catch {
-    return "en";
+    return null;
   }
+}
+
+export function loadAppLanguage(storage = globalThis.localStorage) {
+  return readStoredAppLanguage(storage) || "en";
+}
+
+export function resolveAppLanguagePreference({
+  currentLanguage = "en",
+  mainLanguage = null,
+  mainPreferenceStored = false,
+  rendererLanguage = null,
+  userSelected = false,
+} = {}) {
+  const normalizedCurrentLanguage = normalizeAppLanguage(currentLanguage);
+  if (userSelected) return normalizedCurrentLanguage;
+  if (mainPreferenceStored && isAppLanguage(mainLanguage)) return mainLanguage;
+  if (isAppLanguage(rendererLanguage)) return rendererLanguage;
+  if (isAppLanguage(mainLanguage)) return mainLanguage;
+  return normalizedCurrentLanguage;
 }
 
 export function appLanguageLocale(language = currentAppLanguage) {
@@ -774,6 +811,16 @@ export function translateAppText(value, language = currentAppLanguage) {
   return translated;
 }
 
+export function translateTradingPeriodLabel(value, language = currentAppLanguage) {
+  const source = String(value ?? "");
+  const normalized = normalizeAppLanguage(language);
+  const canonicalSource = traditionalToSimplifiedCharacters(source);
+  if (normalized !== "en") return translateAppText(canonicalSource, normalized);
+  const match = TRADING_PERIOD_LABEL_PATTERN.exec(canonicalSource);
+  if (!match) return translateAppText(canonicalSource, normalized);
+  return `${match[1]}${match[2]}${ENGLISH_TRADING_PERIOD_UNITS[match[3]]}${match[4]}`;
+}
+
 function shouldSkipLocalization(node) {
   const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
   if (element?.closest?.(APP_OWNED_LOCALIZATION_SELECTOR)) return false;
@@ -819,7 +866,9 @@ function localizeTextNode(node, language) {
   const current = String(node.nodeValue ?? "");
   const previous = textLocalizationSources.get(node);
   const source = !previous || current !== previous.rendered ? current : previous.source;
-  const translated = translateAppText(source, language);
+  const translated = node.parentElement?.closest?.("[data-i18n-trading-period-label]")
+    ? translateTradingPeriodLabel(source, language)
+    : translateAppText(source, language);
   textLocalizationSources.set(node, { source, rendered: translated });
   if (translated !== current) node.nodeValue = translated;
   syncEnglishButtonLayout(node, language);

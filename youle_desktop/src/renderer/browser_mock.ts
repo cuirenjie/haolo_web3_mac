@@ -431,6 +431,7 @@ export function ensureBrowserDesktopApi() {
         youleApiBaseUrl: "https://haolo.com",
         theme: appTheme,
         language: appLanguage,
+        languagePreferenceStored: true,
         taskCompletionPopupEnabled,
       };
     },

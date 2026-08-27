@@ -4101,6 +4101,7 @@ function renderTimeButtons(
       type="button"
       data-market-action="interval"
       data-market-interval="${resolution}"
+      data-i18n-trading-period-label
       aria-pressed="${resolution === activeResolution ? "true" : "false"}"
       class="${resolution === activeResolution ? "active" : ""}"
     >${tradingPeriodLabel(period)}</button>
@@ -4984,6 +4985,7 @@ class TradingExpertMarketWorkspace {
       if (this.selectedProvider === "ifind" && !ifindSupportsTradingResolution(interval)) return;
       this.activeInterval = interval;
       this.updateIntervalPressedButtons(interval);
+      this.recordLastDrawingWorkspace();
       void this.restartMarketData({ preserveChart: true });
       return;
     }
@@ -5540,6 +5542,7 @@ class TradingExpertMarketWorkspace {
         },
         onSelectionChange: (selection) => {
           this.splitPaneSelections.set(index, selection);
+          this.recordLastDrawingWorkspace();
         },
         onIndicatorSelectionChange: (selection) => {
           this.splitPaneIndicatorSelections.set(index, selection);
@@ -6426,6 +6429,7 @@ class TradingExpertMarketWorkspace {
       this.updateIntervalPressedButtons(this.activeInterval);
     }
     this.syncIntervalAvailability();
+    this.recordLastDrawingWorkspace();
   }
 
   private syncIntervalAvailability() {
@@ -6468,7 +6472,7 @@ class TradingExpertMarketWorkspace {
           data-market-period-resolution="${resolution}"
         >
           <span class="trading-market-period-grip" aria-hidden="true">⋮⋮</span>
-          <span>${tradingPeriodLabel(period)}</span>
+          <span data-i18n-trading-period-label>${tradingPeriodLabel(period)}</span>
           <button
             type="button"
             data-market-action="remove-period"

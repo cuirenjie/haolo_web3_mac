@@ -440,7 +440,8 @@ test("renderer replaces thinking with the branded cluster but lets compaction wi
   assert.match(renderer, /subagent-cluster-profession/);
   assert.match(renderer, /subagent-status-row/);
   assert.match(renderer, /data-open-subagent-thread="\$\{escapeAttr\(agent\.threadId\)\}"/);
-  assert.match(renderer, /role="button" tabindex="0" aria-label="[^"]*\$\{escapeAttr\(agent\.name\)\}"/);
+  assert.match(renderer, /const name = englishSafeAssistantText\(agent\.name, "Agent"\)/);
+  assert.match(renderer, /aria-label="\$\{escapeAttr\(english \? `View \$\{name\} in the system board`/);
   assert.match(renderer, /renderSubagentOutputBoard\(/);
   assert.match(renderer, /function persistedSubagentStatusEntriesForParent\(/);
   assert.match(renderer, /activity\.parentThreadId === parentThreadId/);

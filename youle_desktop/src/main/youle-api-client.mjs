@@ -1,3 +1,4 @@
+import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, normalizeHaoloGatewayBaseUrl } from "./haolo-gateway.mjs";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -92,7 +93,7 @@ const MIN_ACCESS_REFRESH_WINDOW_MS = 5 * 60_000;
 const MAX_ACCESS_REFRESH_WINDOW_MS = 24 * 60 * 60_000;
 const ACCESS_REFRESH_TTL_FRACTION = 0.2;
 const EXTERNAL_CHANNEL_LOGIN_POLL_TIMEOUT_MS = 80_000;
-const DEFAULT_TRANSIT_BASE_URL = "https://aiapi.youleai.top/v1";
+const DEFAULT_TRANSIT_BASE_URL = HAOLO_GATEWAY_BASE_URL;
 const DEFAULT_WECHAT_ILINK_BASE_URL = "https://ilinkai.weixin.qq.com";
 const DEFAULT_WECHAT_ILINK_BOT_TYPE = "3";
 const DEFAULT_WECHAT_OPENCLAW_VERSION = "2.4.6";
@@ -3919,6 +3920,13 @@ export class YouleApiClient {
       this.modelApiKey = saved.modelApiKey || saved.sub2api?.api_key || null;
       this.modelBaseUrl = normalizeTransitBaseUrl(saved.modelBaseUrl || saved.sub2api?.transit_base_url || null);
       this.modelKeys = normalizeSub2ApiKeys(saved.modelKeys || saved.sub2api?.keys || []);
+      const savedModelBaseUrl = saved.modelBaseUrl || saved.sub2api?.transit_base_url || null;
+      const savedModelKeys = saved.modelKeys || saved.sub2api?.keys || [];
+      sessionNeedsRewrite ||= Boolean(savedModelBaseUrl && savedModelBaseUrl !== this.modelBaseUrl);
+      sessionNeedsRewrite ||= Array.isArray(savedModelKeys) && savedModelKeys.some((key) => {
+        const value = firstProfileString(key?.transit_base_url, key?.transitBaseUrl, key?.base_url, key?.baseUrl);
+        return value && value !== normalizeTransitBaseUrl(value);
+      });
       this.profile = saved.profile || null;
       this.deviceId = saved.deviceId || this.deviceId;
       if (!envBaseUrl && rawSavedBaseUrl && this.baseUrl !== rawSavedBaseUrl) {
@@ -3993,7 +4001,7 @@ export class YouleApiClient {
     if (!this.authPath || !this.modelApiKey) return;
     await fs.mkdir(path.dirname(this.authPath), { recursive: true });
     const existing = await readJsonFile(this.authPath);
-    const nextAuth = { ...(existing || {}), OPENAI_API_KEY: this.modelApiKey };
+    const nextAuth = migrateHaoloGatewayAuth({ ...(existing || {}), OPENAI_API_KEY: this.modelApiKey });
     if (this.modelBaseUrl) {
       nextAuth.TRANSIT_BASE_URL = this.modelBaseUrl;
     }
@@ -6993,11 +7001,7 @@ function sub2ApiKeyBaseUrlCandidates(key) {
 }
 
 function normalizeTransitBaseUrl(value) {
-  const text = typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
-  if (!text) return null;
-  if (/^http:\/\/54\.235\.242\.62(?::3000)?(?:\/|$)/i.test(text)) return DEFAULT_TRANSIT_BASE_URL;
-  if (/^https:\/\/aiapi\.youleai\.top(?:\/v1)?$/i.test(text)) return DEFAULT_TRANSIT_BASE_URL;
-  return text;
+  return normalizeHaoloGatewayBaseUrl(value, null);
 }
 
 function extractProfile(payload, fallbackId) {

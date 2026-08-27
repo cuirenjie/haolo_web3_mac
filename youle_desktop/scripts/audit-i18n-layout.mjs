@@ -49,6 +49,49 @@ async function waitForGone(targetWindow, selector, timeoutMs = 15_000) {
   throw new Error(`Timed out waiting for ${selector} to close`);
 }
 
+async function nativeClick(targetWindow, selector) {
+  const target = await targetWindow.webContents.executeJavaScript(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!element) return null;
+    element.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return {
+      x: Math.round(rect.left + rect.width / 2),
+      y: Math.round(rect.top + rect.height / 2),
+    };
+  })()`, true);
+  if (!target) throw new Error(`Cannot click missing element ${selector}`);
+  const zoomFactor = targetWindow.webContents.getZoomFactor();
+  const x = Math.round(target.x * zoomFactor);
+  const y = Math.round(target.y * zoomFactor);
+  if (!targetWindow.webContents.debugger.isAttached()) {
+    targetWindow.webContents.debugger.attach("1.3");
+  }
+  await targetWindow.webContents.debugger.sendCommand("Input.dispatchMouseEvent", {
+    type: "mouseMoved",
+    x,
+    y,
+  });
+  await targetWindow.webContents.debugger.sendCommand("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x,
+    y,
+    button: "left",
+    buttons: 1,
+    clickCount: 1,
+  });
+  await targetWindow.webContents.debugger.sendCommand("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x,
+    y,
+    button: "left",
+    buttons: 0,
+    clickCount: 1,
+  });
+  await delay(100);
+}
+
 async function click(targetWindow, selector) {
   const clicked = await targetWindow.webContents.executeJavaScript(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
@@ -79,25 +122,60 @@ async function settle(targetWindow, theme, fontSize) {
 
 async function switchLanguage(targetWindow, language) {
   if (!await targetWindow.webContents.executeJavaScript("Boolean(document.querySelector('.settings-dialog'))", true)) {
-    await click(targetWindow, '[data-action="open-settings"]');
+    await nativeClick(targetWindow, '[data-action="open-settings"]');
     await waitFor(targetWindow, ".settings-dialog");
   }
-  await targetWindow.webContents.executeJavaScript(`(() => {
-    const select = document.querySelector("[data-settings-language]");
-    if (!select) return false;
-    select.value = ${JSON.stringify(language)};
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
-  })()`, true);
+  await nativeClick(targetWindow, ".settings-language-select [data-haolo-select-trigger]");
+  await waitFor(targetWindow, ".settings-language-select [data-haolo-select-menu]");
+  await nativeClick(targetWindow, `.settings-language-select [data-haolo-select-value="${language}"]`);
   await waitFor(targetWindow, `.settings-dialog`);
-  const applied = await targetWindow.webContents.executeJavaScript(
-    `document.documentElement.dataset.language === ${JSON.stringify(language)}`,
+  const applied = await targetWindow.webContents.executeJavaScript(`(() => ({
+    language: document.documentElement.dataset.language,
+    lang: document.documentElement.lang,
+    selectedValue: document.querySelector("[data-settings-language]")?.value,
+    storedValue: localStorage.getItem("haolo.appearance.language"),
+  }))()`,
     true,
   );
-  if (!applied) throw new Error(`Language did not switch to ${language}`);
-  await click(targetWindow, ".settings-close-button");
+  const expectedLang = language === "en" ? "en-US" : language;
+  if (
+    applied.language !== language ||
+    applied.lang !== expectedLang ||
+    applied.selectedValue !== language ||
+    applied.storedValue !== language
+  ) {
+    throw new Error(`Language did not switch to ${language}: ${JSON.stringify(applied)}`);
+  }
+  await nativeClick(targetWindow, ".settings-close-button");
   await waitForGone(targetWindow, ".settings-dialog");
   await delay(80);
+}
+
+async function verifyLanguageSurvivesReload(targetWindow, language) {
+  await switchLanguage(targetWindow, language);
+  await targetWindow.reload();
+  await waitFor(targetWindow, ".titlebar-profile");
+  const restored = await targetWindow.webContents.executeJavaScript(`(() => ({
+    language: document.documentElement.dataset.language,
+    lang: document.documentElement.lang,
+    storedValue: localStorage.getItem("haolo.appearance.language"),
+  }))()`, true);
+  const expectedLang = language === "en" ? "en-US" : language;
+  if (restored.language !== language || restored.lang !== expectedLang || restored.storedValue !== language) {
+    throw new Error(`Language did not survive reload: ${JSON.stringify(restored)}`);
+  }
+}
+
+async function verifyLanguageTransitionMatrix(targetWindow) {
+  const languages = ["en", "zh-CN", "zh-TW"];
+  for (const source of languages) {
+    await switchLanguage(targetWindow, source);
+    for (const target of languages) {
+      if (target === source) continue;
+      await switchLanguage(targetWindow, target);
+      await switchLanguage(targetWindow, source);
+    }
+  }
 }
 
 async function returnHome(targetWindow) {
@@ -358,7 +436,9 @@ async function main() {
   await mkdir(OUTPUT, { recursive: true });
   await app.whenReady();
   const targetWindow = new BrowserWindow({
-    show: false,
+    show: true,
+    opacity: 0,
+    skipTaskbar: true,
     width: 1440,
     height: 960,
     backgroundColor: "#111317",
@@ -371,6 +451,10 @@ async function main() {
     await targetWindow.loadFile(INDEX, { query: { "i18n-layout-qa": "1" } });
     await waitFor(targetWindow, ".titlebar-profile");
     await delay(500);
+    for (const language of ["en", "zh-CN", "zh-TW"]) {
+      await verifyLanguageSurvivesReload(targetWindow, language);
+    }
+    await verifyLanguageTransitionMatrix(targetWindow);
     const languages = QUICK_ENGLISH_BUTTON_AUDIT ? ["en"] : ["en", "zh-CN", "zh-TW"];
     const zooms = QUICK_ENGLISH_BUTTON_AUDIT ? [1, 1.5] : [1, 1.25, 1.5];
     const fontSizes = QUICK_ENGLISH_BUTTON_AUDIT ? ["large"] : ["default", "large"];
@@ -412,6 +496,7 @@ async function main() {
           }
         }
         targetWindow.webContents.setZoomFactor(1);
+        await delay(100);
         if (surface === "profile") {
           await click(targetWindow, ".popover-backdrop");
           await waitForGone(targetWindow, ".profile-menu");
@@ -434,6 +519,11 @@ async function main() {
     await writeFile(path.join(OUTPUT, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
     process.stdout.write(`${JSON.stringify({ status: report.status, auditedStates: records.length, failures: failures.length, output: OUTPUT }, null, 2)}\n`);
     if (failures.length) exitCode = 1;
+  } catch (error) {
+    const message = error instanceof Error ? error.stack || error.message : String(error);
+    await writeFile(path.join(OUTPUT, "fatal-error.log"), `${message}\n`, "utf8").catch(() => {});
+    console.error(message);
+    exitCode = 1;
   } finally {
     targetWindow.destroy();
     app.exit(exitCode);

@@ -17,7 +17,7 @@ This is optional detail for complex transparency, multi-image editing, diagnosti
 
 # Image Generation Skill (Youle Subapi / AIHubCC)
 
-This is the haolo_desktop fork of the upstream `imagegen` skill, rewritten to use a **single journaled execution path**: the Director Python helper that calls authenticated Haolo image routes at `https://aiapi.youleai.top/v1`.
+This is the haolo_desktop fork of the upstream `imagegen` skill, rewritten to use a **single journaled execution path**: the Director Python helper that calls authenticated Haolo image routes at `https://haolo.pro/v1`.
 
 Default public model: `aihubcc/gpt-image-2`, matching the live relay catalog. If a user says "gpt-image-2", "image 2", or "默认生图", treat that as user intent for this catalog model. Normalize bare `gpt-image-2` and legacy `buming/gpt-image-2` or `lingke/gpt-image-2` to `aihubcc/gpt-image-2` before submission, even with `--exact-model`.
 
@@ -95,7 +95,7 @@ Fast preset path:
 Use this mode for every ordinary new-image generation, edit-by-prompt, reference-image workflow, and chroma-key transparent flow through `scripts/generate_openai_image.py`. This is the only path that works in haolo_desktop without ChatGPT login or OpenAI-direct API access.
 
 Provider boundary:
-- Use the Haolo Desktop runtime's configured OpenAI-compatible Images API by default (`https://aiapi.youleai.top/v1`).
+- Use the Haolo Desktop runtime's configured OpenAI-compatible Images API by default (`https://haolo.pro/v1`).
 - Do not use FAL, Replicate, Venice, Midjourney, Stability, Sora, or other third-party image providers from this skill.
 - Do not ask the user for endpoint URLs or API keys during normal use.
 - Do not write credentials into files or generated prompts.
@@ -393,7 +393,7 @@ python "$env:CODEX_HOME\skills\.system\imagegen\scripts\generate_openai_image.py
 ```
 
 Notes:
-- Endpoint: `{OPENAI_BASE_URL}/images/generations` (default base `https://aiapi.youleai.top/v1`), model `image2`. Credentials come from `OPENAI_API_KEY` (Bearer), the same Haolo credential the main process already injects after login.
+- Endpoint: `{OPENAI_BASE_URL}/images/generations` (default base `https://haolo.pro/v1`), model `image2`. Credentials come from `OPENAI_API_KEY` (Bearer), the same Haolo credential the main process already injects after login.
 - The response is synchronous: `data[].url` and/or `data[].b64_json`. Director downloads URL entries or decodes base64 entries and keeps the result in the same task journal.
 - `--size` accepts `1024x1024` / `1536x1024` / `1024x1536`; `--quality` accepts `low` / `medium` / `high`; Director requests one image.
 - Repeated `--image-url` values are preserved in the OtuAPI `image` array for reference-image generation.

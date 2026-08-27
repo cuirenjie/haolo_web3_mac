@@ -24,7 +24,7 @@ sandbox = "unelevated"
 
 [model_providers.haolo_ai]
 name = "haolo_ai"
-base_url = "https://aiapi.youleai.top"
+base_url = "https://haolo.pro/v1"
 wire_api = "responses"
 requires_openai_auth = true
 env_key = "OPENAI_API_KEY"
@@ -39,7 +39,7 @@ http_headers = { version = "0.144.1", "X-Haolo-Model-Pool" = "execution", "X-Hao
 
 [model_providers.deepseek]
 name = "DeepSeek"
-base_url = "https://aiapi.youleai.top/v1"
+base_url = "https://haolo.pro/v1"
 wire_api = "responses"
 requires_openai_auth = false
 env_key = "HAOLO_DEEPSEEK_EXECUTION_TOKEN"

@@ -310,16 +310,17 @@ function renderEditorSelect(
   if (!selected) return "";
   const labelId = `trading-alert-editor-${name}-label`;
   const valueId = `trading-alert-editor-${name}-value`;
+  const periodLabelAttribute = name === "intervals" ? " data-i18n-trading-period-label" : "";
   return `<div class="trading-alert-editor-field">
     <span id="${esc(labelId)}">${esc(label)}</span>
     <div class="video-expert-select trading-alert-select${opensAbove ? " opens-above" : ""}" data-trading-alert-select="${esc(name)}">
       <input type="hidden" name="${esc(name)}" value="${esc(selected.value)}" ${disabled ? "disabled" : ""} />
       <button type="button" class="video-expert-select-button" data-trading-alert-select-trigger aria-haspopup="listbox" aria-expanded="false" aria-labelledby="${esc(labelId)} ${esc(valueId)}" ${disabled ? "disabled" : ""}>
-        <span id="${esc(valueId)}" data-trading-alert-select-label>${esc(selected.label)}</span>
+        <span id="${esc(valueId)}" data-trading-alert-select-label${periodLabelAttribute}>${esc(selected.label)}</span>
         <svg viewBox="0 0 16 16" aria-hidden="true" draggable="false"><path d="m4 6 4 4 4-4" /></svg>
       </button>
       <div class="video-expert-select-menu trading-alert-select-menu" data-trading-alert-select-menu role="listbox" aria-labelledby="${esc(labelId)}" hidden>
-        ${options.map((option) => `<button type="button" class="${option.value === selected.value ? "selected" : ""}" data-trading-alert-select-value="${esc(option.value)}" data-trading-alert-select-option-label="${esc(option.label)}" role="option" aria-selected="${option.value === selected.value ? "true" : "false"}" tabindex="-1">${esc(option.label)}</button>`).join("")}
+        ${options.map((option) => `<button type="button" class="${option.value === selected.value ? "selected" : ""}" data-trading-alert-select-value="${esc(option.value)}" data-trading-alert-select-option-label="${esc(option.label)}"${periodLabelAttribute} role="option" aria-selected="${option.value === selected.value ? "true" : "false"}" tabindex="-1">${esc(option.label)}</button>`).join("")}
       </div>
     </div>
   </div>`;

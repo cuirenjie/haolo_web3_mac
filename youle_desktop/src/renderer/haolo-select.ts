@@ -226,6 +226,16 @@ export function bindHaoloSelects(scope: HTMLElement) {
         closePicker(picker);
       }
     });
+    menu.addEventListener("mousedown", (event) => {
+      const option = (
+        event.target as Element | null
+      )?.closest<HTMLButtonElement>("[data-haolo-select-value]");
+      if (!option || option.disabled || !picker.contains(option)) return;
+      // Keep focus on the trigger until the ensuing click selects the option.
+      // Otherwise Chromium can focus <body> for tabindex=-1 options, causing
+      // focusout to hide the menu between mouse down and mouse up.
+      event.preventDefault();
+    });
     menu.addEventListener("click", (event) => {
       const option = (
         event.target as Element | null

@@ -193,6 +193,15 @@ test("ExecutionPlanV1 derives prices from deterministic action levels and remain
   assert.equal(markdown.split("\n").filter((line) => /^(?:当前动作|方向判断|多头触发|止损与失效|分批止盈|风险收益比)：/.test(line)).length, 6);
   assert.doesNotMatch(markdown, /标准执行方案|^[•*-]\s+/m);
   assert.doesNotMatch(markdown, /前置条件|确认方式|继续观察|方案有效期|取消执行|回踩|反抽/);
+  const englishMarkdown = formatExecutionPlanMarkdown(plan, { language: "en" });
+  assert.match(englishMarkdown, /^## BTC\/USDT Binance Perpetual 1H/m);
+  assert.match(englishMarkdown, /^Current action: Wait for the trigger/m);
+  assert.match(englishMarkdown, /^Direction: Bullish/m);
+  assert.match(englishMarkdown, /^Long trigger: 102/m);
+  assert.match(englishMarkdown, /^Stop-loss and invalidation: 98/m);
+  assert.match(englishMarkdown, /^Take-profit targets: Target 1: /m);
+  assert.match(englishMarkdown, /^Risk\/reward: /m);
+  assert.doesNotMatch(englishMarkdown, /[\u3400-\u9fff]/u);
   assert.deepEqual(validateExecutionPlan(plan), plan);
   const tickNormalized = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), { tickSize: 0.25 });
   assert.equal(tickNormalized.scenarios[0].targets.every((target) => target.price % 0.25 === 0), true);
@@ -643,6 +652,29 @@ test("coordinator refreshes private Binance context after analysis before buildi
   assert.doesNotMatch(result.analysisPlan.report, /标准执行方案|^[•*-]\s+/m);
   assert.match(result.analysisPlan.report, /倍杠杆开仓/);
   assert.match(result.analysisPlan.report, /原策略报告/);
+
+  sequence.length = 0;
+  const englishResult = await coordinator.run("sample-strategy", {
+    language: "en",
+    async loadBinanceAccountContext() {
+      assert.deepEqual(sequence, ["analysis"]);
+      sequence.push("account-refresh");
+      return {
+        bound: true,
+        available: true,
+        snapshot: {
+          fetchedAt: new Date().toISOString(),
+          marginBalance: 1_000,
+          availableBalance: 500,
+          positions: [],
+          warnings: [],
+        },
+      };
+    },
+  });
+  assert.match(englishResult.analysisPlan.report, /^## BTC\/USDT Binance Perpetual 1H/m);
+  assert.match(englishResult.analysisPlan.report, /open a .* USDT long position with \d+x leverage/);
+  assert.doesNotMatch(englishResult.analysisPlan.report, /原策略报告|[\u3400-\u9fff]/u);
 });
 
 const declarativeManifest = Object.freeze({

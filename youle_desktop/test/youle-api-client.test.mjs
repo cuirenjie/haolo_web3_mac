@@ -2705,7 +2705,7 @@ test("completeRegistration honors optional nickname and normalizes transit base 
     const body = JSON.parse(registerRequest.init.body);
     assert.equal(Object.hasOwn(body, "nickname"), false);
     const auth = JSON.parse(await readFile(authPath, "utf8"));
-    assert.equal(auth.TRANSIT_BASE_URL, "https://aiapi.youleai.top/v1");
+    assert.equal(auth.TRANSIT_BASE_URL, "https://haolo.pro/v1");
   } finally {
     globalThis.fetch = originalFetch;
     await rm(dir, { recursive: true, force: true });

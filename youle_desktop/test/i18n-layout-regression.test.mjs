@@ -30,6 +30,8 @@ test("English action buttons remain single-line and expand beyond legacy CJK wid
   assert.match(stylesSource, /html\[data-language="en"\] button\[data-i18n-single-line\]\s*\{[^}]*min-inline-size:\s*max-content;[^}]*word-break:\s*normal;[^}]*white-space:\s*nowrap;/s);
   assert.match(stylesSource, /\.settings-profile-submit\s*\{[^}]*width:\s*auto;[^}]*min-width:\s*132px;[^}]*height:\s*42px;[^}]*padding:\s*0 22px;/s);
   assert.match(stylesSource, /\.settings-data-button\s*\{[^}]*display:\s*inline-flex;[^}]*min-width:\s*72px;[^}]*padding:\s*0 12px;[^}]*white-space:\s*nowrap;/s);
+  assert.match(stylesSource, /\.trading-alert-card:is\(:hover, :focus-within\) \.trading-alert-card-copy small\s*\{[^}]*opacity:\s*0;/s);
+  assert.match(stylesSource, /@media \(hover: none\)[\s\S]*?\.trading-alert-card-copy small\s*\{[^}]*opacity:\s*0;/s);
 });
 
 test("dynamic consumption copy is formatted for the active locale before rendering", () => {

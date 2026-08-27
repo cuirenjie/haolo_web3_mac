@@ -18,7 +18,7 @@ function baseEnv(envOverride = {}) {
   return {
     ...process.env,
     LLMHUB_API_KEY: "sk-test",
-    LLMHUB_BASE_URL: "https://aiapi.youleai.top/v1",
+    LLMHUB_BASE_URL: "https://haolo.pro/v1",
     SUB2API_API_KEY: "",
     SUB2API_BASE_URL: "",
     OPENAI_API_KEY: "",
@@ -335,8 +335,8 @@ test("image skill defaults to AIHubCC image task contract", () => {
     process.platform === "win32" &&
     spawnSync("curl.exe", ["--version"], { encoding: "utf8" }).status === 0;
 
-  assert.equal(dryRun.api_url, "https://aiapi.youleai.top/v1/images/generations");
-  assert.equal(dryRun.status_url_template, "https://aiapi.youleai.top/v1/media/status?task_id=<TASK_ID>");
+  assert.equal(dryRun.api_url, "https://haolo.pro/v1/images/generations");
+  assert.equal(dryRun.status_url_template, "https://haolo.pro/v1/media/status?task_id=<TASK_ID>");
   assert.equal(dryRun.timeout_seconds, 600);
   assert.equal(dryRun.http_transport, windowsCurlAvailable ? "curl" : "urllib");
   assert.equal(forcedPythonTransport.http_transport, "urllib");
@@ -1461,10 +1461,10 @@ test("image skill sends tier-model reference URLs through the documented fields"
       "https://example.com/ref-2.png",
     ],
   });
-  assert.equal(dryRun.api_url, "https://aiapi.youleai.top/v1/videos");
+  assert.equal(dryRun.api_url, "https://haolo.pro/v1/videos");
   assert.equal(
     dryRun.status_url_template,
-    "https://aiapi.youleai.top/v1/videos/<TASK_ID>",
+    "https://haolo.pro/v1/videos/<TASK_ID>",
   );
 });
 
@@ -1488,12 +1488,12 @@ test("image Director maps the final Buming image2 fallback to its distinct contr
       LLMHUB_API_KEY: "",
       LLMHUB_BASE_URL: "",
       OPENAI_API_KEY: "test-openai-image-key",
-      OPENAI_BASE_URL: "https://aiapi.youleai.top/v1",
+      OPENAI_BASE_URL: "https://haolo.pro/v1",
     },
   );
 
   assert.equal(dryRun.credential_source, "environment:OPENAI_API_KEY");
-  assert.equal(dryRun.api_url, "https://aiapi.youleai.top/v1/images/generations");
+  assert.equal(dryRun.api_url, "https://haolo.pro/v1/images/generations");
   assert.deepEqual(dryRun.payload, {
     model: "image2",
     prompt: "use both references",
@@ -1518,7 +1518,7 @@ test("image skill uses the documented base edit and asynchronous-only 1K routes"
     "https://example.com/ref.png",
     "--dry-run",
   ]);
-  assert.equal(edit.api_url, "https://aiapi.youleai.top/v1/images/edits");
+  assert.equal(edit.api_url, "https://haolo.pro/v1/images/edits");
   assert.deepEqual(edit.payload, {
     model: "aihubcc/gpt-image-2",
     prompt: "edit this image",
@@ -1533,10 +1533,10 @@ test("image skill uses the documented base edit and asynchronous-only 1K routes"
     "--exact-model",
     "--dry-run",
   ]);
-  assert.equal(oneK.api_url, "https://aiapi.youleai.top/v1/videos");
+  assert.equal(oneK.api_url, "https://haolo.pro/v1/videos");
   assert.equal(
     oneK.status_url_template,
-    "https://aiapi.youleai.top/v1/videos/<TASK_ID>",
+    "https://haolo.pro/v1/videos/<TASK_ID>",
   );
   assert.deepEqual(oneK.payload, {
     model: "gpt-image-2-1k",
@@ -1863,7 +1863,7 @@ test("strict edit permits asynchronous reference tiers and advances only after a
   };
   assert.equal(asyncTier.status, 0);
   assert.equal(asyncTier.payload.operation_mode, "reference_edit");
-  assert.equal(asyncTier.payload.api_url, "https://aiapi.youleai.top/v1/videos");
+  assert.equal(asyncTier.payload.api_url, "https://haolo.pro/v1/videos");
   assert.deepEqual(asyncTier.payload.payload.reference_image_urls, ["https://example.com/reference.png"]);
 
   const machineError = {
@@ -2355,16 +2355,16 @@ test("image skill ignores Codex OPENAI_BASE_URL when bundled Youle config is pre
   });
 
   assert.equal(dryRun.endpoint_source, "haolo_default_config");
-  assert.equal(dryRun.api_url, "https://aiapi.youleai.top/v1/images/generations");
-  assert.equal(dryRun.status_url_template, "https://aiapi.youleai.top/v1/media/status?task_id=<TASK_ID>");
+  assert.equal(dryRun.api_url, "https://haolo.pro/v1/images/generations");
+  assert.equal(dryRun.status_url_template, "https://haolo.pro/v1/media/status?task_id=<TASK_ID>");
 });
 
 test("video skill defaults to the documented Grok 1.5 asynchronous contract", () => {
   const imageUrl = "https://example.com/first-frame.png";
   const dryRun = runJson(videoScript, ["--prompt", "red cube rotates", "--image-url", imageUrl, "--dry-run"]);
 
-  assert.equal(dryRun.submit_url, "https://aiapi.youleai.top/v1/videos");
-  assert.equal(dryRun.status_url_template, "https://aiapi.youleai.top/v1/videos/<TASK_ID>");
+  assert.equal(dryRun.submit_url, "https://haolo.pro/v1/videos");
+  assert.equal(dryRun.status_url_template, "https://haolo.pro/v1/videos/<TASK_ID>");
   assert.equal(dryRun.credential_source, "environment:LLMHUB_API_KEY");
   assert.match(dryRun.http_transport, /^(curl|urllib)$/);
   assert.equal(dryRun.payload.model, "grok-imagine-video-1.5");
@@ -2474,8 +2474,8 @@ test("video skill ignores Codex OPENAI_BASE_URL by default", () => {
     OPENAI_BASE_URL: "https://chatgpt.com:18080/backend-api/codex",
   });
 
-  assert.equal(dryRun.submit_url, "https://aiapi.youleai.top/v1/videos");
-  assert.equal(dryRun.status_url_template, "https://aiapi.youleai.top/v1/videos/<TASK_ID>");
+  assert.equal(dryRun.submit_url, "https://haolo.pro/v1/videos");
+  assert.equal(dryRun.status_url_template, "https://haolo.pro/v1/videos/<TASK_ID>");
 });
 
 test("video skill sends documented image-to-video params", () => {
@@ -2497,7 +2497,7 @@ test("video skill sends documented image-to-video params", () => {
   ]);
 
   assert.equal(dryRun.payload.model, "grok-imagine-video-1.5");
-  assert.equal(dryRun.status_url_template, "https://aiapi.youleai.top/v1/videos/<TASK_ID>");
+  assert.equal(dryRun.status_url_template, "https://haolo.pro/v1/videos/<TASK_ID>");
   assert.deepEqual(dryRun.payload, {
     model: "grok-imagine-video-1.5",
     prompt: "animate the image",
@@ -3306,10 +3306,14 @@ test("concurrent video invocations with one request id submit only once", async 
     "1",
   ];
   try {
-    const [first, second] = await Promise.all([
+    const invocations = await Promise.allSettled([
       runProcessJsonAsync(videoScript, args, {}, 10_000),
       runProcessJsonAsync(videoScript, args, {}, 10_000),
     ]);
+    const [first, second] = invocations.map((invocation) => {
+      if (invocation.status === "rejected") throw invocation.reason;
+      return invocation.value;
+    });
 
     assert.equal(first.status, 0, first.stderr || first.stdout);
     assert.equal(second.status, 0, second.stderr || second.stdout);
@@ -3317,8 +3321,11 @@ test("concurrent video invocations with one request id submit only once", async 
     assert.equal(second.payload.task_id, "video-task");
     assert.equal(mock.videoSubmitCount, 1);
   } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-    await mock.close();
+    try {
+      await fs.promises.rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } finally {
+      await mock.close();
+    }
   }
 });
 

@@ -4,7 +4,7 @@
 Flow: Grok 1.5 uses POST {base}/videos -> task id -> GET {base}/videos/{task_id}.
 Legacy compatibility models retain the relay media-task endpoints.
 
-Default base: https://aiapi.youleai.top/v1
+Default base: https://haolo.pro/v1
 Default video model: grok-imagine-video-1.5
 Credentials: LLMHUB_API_KEY, SUB2API_API_KEY, or OPENAI_API_KEY injected by
 haolo_desktop after login.
@@ -24,7 +24,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-DEFAULT_BASE_URL = "https://aiapi.youleai.top/v1"
+DEFAULT_BASE_URL = "https://haolo.pro/v1"
 VIDEO_MODEL = "grok-imagine-video-1.5"
 LEGACY_VIDEO_MODELS = {
     "grok-imagine-video-1.5-preview",
@@ -419,7 +419,7 @@ def parse_args():
     parser.add_argument(
         "--base-url",
         default=None,
-        help="Haolo subapi base URL, e.g. https://aiapi.youleai.top/v1. Defaults from LLMHUB_BASE_URL, SUB2API_BASE_URL, or the bundled gateway.",
+        help="Haolo subapi base URL, e.g. https://haolo.pro/v1. Defaults from LLMHUB_BASE_URL, SUB2API_BASE_URL, or the bundled gateway.",
     )
     parser.add_argument("--poll-interval", type=int, default=5, help="Seconds between status polls.")
     parser.add_argument("--timeout", type=int, default=900, help="Overall timeout in seconds incl. polling.")
@@ -452,6 +452,19 @@ def media_job_path(job_dir, request_id):
     return Path(job_dir) / f"{digest}.json"
 
 
+def replace_job_file(source, destination):
+    # Windows readers can briefly deny replacement; retry only this local write,
+    # never the generation request or task ownership decision.
+    for attempt in range(10):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError as error:
+            if getattr(error, "winerror", None) not in {5, 32, 33} or attempt == 9:
+                raise
+            time.sleep(0.02 * (attempt + 1))
+
+
 def write_media_job(path, job):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -463,7 +476,7 @@ def write_media_job(path, job):
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    os.replace(temp_path, path)
+    replace_job_file(temp_path, path)
     return payload
 
 
@@ -562,14 +575,26 @@ def configure_text_output():
                 pass
 
 
+def migrate_gateway_url(value, *, preserve_query=False):
+    clean = str(value or "").strip().rstrip("/")
+    try:
+        url = urllib.parse.urlsplit(clean)
+        ports = {"aiapi.youleai.top": {None, 80, 443}, "8.216.5.161": {None, 80, 443, 8080}, "54.235.242.62": {None, 80, 3000}, "haolo.pro": {None, 80, 443}}
+        if url.scheme not in {"http", "https"} or url.username or url.password or (url.query and not preserve_query) or url.fragment:
+            return clean
+        if url.hostname not in ports or url.port not in ports[url.hostname]:
+            return clean
+        return urllib.parse.urlunsplit(("https", "haolo.pro", url.path.rstrip("/") or "/v1", url.query, ""))
+    except ValueError:
+        return clean
+
+
 def normalize_base_url(base_url):
-    clean = str(base_url or "").strip().rstrip("/")
+    clean = migrate_gateway_url(base_url)
     if not clean:
         return DEFAULT_BASE_URL
     lowered = clean.lower()
-    if lowered.startswith("http://54.235.242.62"):
-        return DEFAULT_BASE_URL
-    if lowered == "https://aiapi.youleai.top":
+    if lowered == "https://haolo.pro":
         return DEFAULT_BASE_URL
     for suffix in ("/videos/generations", "/videos"):
         if lowered.endswith(suffix):
@@ -1368,7 +1393,10 @@ def extract_task_id(response_body):
 def resolve_status_url(base_url, model, task_id, job):
     polling_url = str(job.get("polling_url") or "").strip()
     if polling_url:
-        return urllib.parse.urljoin(base_url.rstrip("/") + "/", polling_url)
+        return migrate_gateway_url(
+            urllib.parse.urljoin(base_url.rstrip("/") + "/", polling_url),
+            preserve_query=True,
+        )
     return status_url(base_url, model, task_id)
 
 
@@ -1492,6 +1520,8 @@ def poll_result(base_url, api_key, model, task_id, job, timeout, poll_interval):
 
 
 def download_video(video_url, api_key, base_url, output_dir, basename):
+    video_url = migrate_gateway_url(video_url, preserve_query=True)
+    base_url = normalize_base_url(base_url)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / f"{basename}.mp4"

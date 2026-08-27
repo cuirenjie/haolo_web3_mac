@@ -8,6 +8,8 @@ import {
   loadAppLanguage,
   localizeAppTree,
   observeAppLanguage,
+  readStoredAppLanguage,
+  resolveAppLanguagePreference,
   translateAppText,
   type AppLanguage,
 } from "./app-language.mjs";
@@ -555,12 +557,41 @@ const HAOLO_INTERNAL_MESSAGE_BLOCKS = [
   ["<haolo_execution_mode>", "</haolo_execution_mode>"],
   ["<haolo_multi_agent_mode>", "</haolo_multi_agent_mode>"],
   ["<haolo_desktop_instructions>", "</haolo_desktop_instructions>"],
+  ["<haolo_output_language>", "</haolo_output_language>"],
   ["<haolo_media_routing>", "</haolo_media_routing>"],
   ["<haolo_identity>", "</haolo_identity>"],
 ] as const;
 const CHANNELS_ENABLED = false;
 const CHANNEL_EVENTS_ENABLED = false;
 const HANDLED_STATUS_LABEL = "\u5df2\u5904\u7406";
+const HAN_CHARACTER_PATTERN = /[\u3400-\u9fff\uf900-\ufaff]/u;
+
+function handledStatusLabel() {
+  return state.settings.language === "en" ? "Handled" : HANDLED_STATUS_LABEL;
+}
+
+function englishSafeAssistantText(value: unknown, fallback = "The assistant is preparing an English response.") {
+  const text = String(value || "");
+  return state.settings.language === "en" && HAN_CHARACTER_PATTERN.test(text) ? fallback : text;
+}
+
+function localizedThinkingStage(stage: ThinkingStagePresentation | null): ThinkingStagePresentation | null {
+  if (!stage || state.settings.language !== "en") return stage;
+  const copy: Record<ThinkingStagePresentation["key"], { label: string; detail: string }> = {
+    preparing: { label: "Preparing the request", detail: "Preparing the required context" },
+    waiting: { label: "Waiting for the model", detail: "The request has been submitted" },
+    reasoning: { label: "Analyzing the request", detail: "Reviewing the task and available context" },
+    planning: { label: "Planning the task", detail: "Organizing the execution steps" },
+    executing: { label: "Running the task", detail: "Using tools and processing results" },
+    generating: { label: "Preparing the response", detail: "Generating the user-visible result" },
+  };
+  const fallback = copy[stage.key];
+  return {
+    ...stage,
+    label: englishSafeAssistantText(stage.label, fallback.label),
+    detail: englishSafeAssistantText(stage.detail, fallback.detail),
+  };
+}
 const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
   {
     id: "subscription_basic",
@@ -1318,7 +1349,7 @@ type WorkflowRevisionCommand = {
 type DesktopApi = {
   start(): Promise<any>;
   getStatus(): Promise<any>;
-  getDefaults(): Promise<{ cwd: string; installDir?: string; approvalPolicy: string; sandbox: string; youleApiBaseUrl?: string; theme?: AppTheme; language?: AppLanguage; taskCompletionPopupEnabled?: boolean;
+  getDefaults(): Promise<{ cwd: string; installDir?: string; approvalPolicy: string; sandbox: string; youleApiBaseUrl?: string; theme?: AppTheme; language?: AppLanguage; languagePreferenceStored?: boolean; taskCompletionPopupEnabled?: boolean;
   }>;
   getSystemIntegrationState?(): Promise<SystemIntegrationSnapshot>;
   setSystemIntegration?(params: { key: SystemIntegrationKey; enabled: boolean;
@@ -4174,7 +4205,8 @@ function applyAppFontSize(fontSize: AppFontSize, persist = false) {
   }
 }
 
-const INITIAL_APP_LANGUAGE = loadAppLanguage();
+const INITIAL_STORED_APP_LANGUAGE = readStoredAppLanguage();
+const INITIAL_APP_LANGUAGE = INITIAL_STORED_APP_LANGUAGE || loadAppLanguage();
 applyAppLanguage(INITIAL_APP_LANGUAGE);
 const INITIAL_APP_THEME = loadAppTheme();
 applyAppTheme(INITIAL_APP_THEME);
@@ -4208,9 +4240,6 @@ void api.listPersonalStrategies?.({ includeDrafts: true })
     render();
   });
 syncAppThemePreference(INITIAL_APP_THEME);
-void api.setAppLanguage?.({ language: INITIAL_APP_LANGUAGE }).catch(() => {
-  // Main-process language sync is best effort; the renderer language remains active.
-});
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) cancelVoiceInput();
@@ -5831,6 +5860,7 @@ const AUTO_TASK_FREQUENCY_OPTIONS: Array<{ value: AutoTaskDraftState["frequency"
   { value: "monthly", label: "每月" },
 ];
 const SYSTEM_INTEGRATION_KEYS = ["taskbar", "startMenu", "startup"] as const;
+let appLanguageSelectionRevision = 0;
 
 void boot();
 
@@ -5856,6 +5886,7 @@ async function boot() {
     state.settings.approvalPolicy = DESKTOP_APPROVAL_POLICY;
     state.settings.sandbox = DESKTOP_SANDBOX_POLICY;
     state.settings.taskCompletionPopupEnabled = defaults.taskCompletionPopupEnabled !== false;
+    reconcileStartupAppLanguage(defaults.language, defaults.languagePreferenceStored === true);
     state.login.baseUrl = defaults.youleApiBaseUrl || "";
     void refreshSystemIntegrationState({ renderAfter: false });
     void showLastUserDataTransferStatus();
@@ -18369,15 +18400,15 @@ function patchActiveThinkingElapsed() {
   const bubble = row.querySelector<HTMLElement>(".thinking-bubble");
   if (!bubble) return false;
   const tradingExpertThinking = tradingExpertThinkingStateByThreadId.get(threadId);
-  const stage = tradingExpertThinking
+  const stage = localizedThinkingStage(tradingExpertThinking
     ? tradingExpertThinkingStage(
       tradingExpertThinking.phase,
       tradingExpertThinking.reasoningSummary,
       tradingExpertThinking.message,
     )
-    : activeCodexThinkingStage(threadId);
+    : activeCodexThinkingStage(threadId))!;
   const elapsedLabel = activeThinkingElapsedLabel(threadId);
-  const durationText = elapsedLabel ? `${HANDLED_STATUS_LABEL} ${elapsedLabel}` : "";
+  const durationText = elapsedLabel ? `${handledStatusLabel()} ${elapsedLabel}` : "";
   const contextText = elapsedLabel && !tradingExpertThinking
     ? thinkingContextUsageLabel(threadId)
     : null;
@@ -18434,7 +18465,7 @@ function patchActiveContextCompactionElapsed() {
   const itemId = row.dataset.messageId || activeItemId || "";
   const item = itemId ? state.items[threadId]?.[itemId] : null;
   const elapsedLabel = contextCompactionElapsedLabel(threadId, item);
-  const durationText = elapsedLabel ? `${HANDLED_STATUS_LABEL} ${elapsedLabel}` : "";
+  const durationText = elapsedLabel ? `${handledStatusLabel()} ${elapsedLabel}` : "";
   let elapsed = bubble.querySelector<HTMLElement>(".context-compaction-elapsed");
   if (!durationText) {
     elapsed?.remove();
@@ -30265,11 +30296,20 @@ function appendTradingExpertProgress(
   text: string,
 ) {
   localHistoryAheadThreadIds.add(threadId);
+  const visibleText = englishSafeAssistantText(text, phase === "error"
+    ? "The market analysis did not complete."
+    : phase.includes("complete")
+      ? "Finalizing the market analysis."
+      : phase.includes("draw")
+        ? "Updating the chart annotations."
+        : phase.includes("analyz")
+          ? "Analyzing the current market data."
+          : "Reading the current chart and market data.");
   const item: CodexItem = {
     id: itemId,
     type: "agentMessage",
     phase: phase === "error" ? "final_answer" : "commentary",
-    text,
+    text: visibleText,
     createdAt: new Date().toISOString(),
     __youleExecutionPlanPresentation: "plain",
   };
@@ -30287,11 +30327,15 @@ function appendTradingExpertReport(
   presentation: "execution-plan" | "plain" = "plain",
 ) {
   localHistoryAheadThreadIds.add(threadId);
+  const visibleText = englishSafeAssistantText(
+    text,
+    "The analysis completed, but its result was not available entirely in English. Please run the analysis again.",
+  );
   const item: CodexItem = {
     id: itemId || `trading-expert-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type: "agentMessage",
     phase: "final_answer",
-    text,
+    text: visibleText,
     createdAt: new Date().toISOString(),
     ...(actions?.length ? { actions } : {}),
     ...(presentation ? { __youleExecutionPlanPresentation: presentation } : {}),
@@ -36511,7 +36555,30 @@ function selectAppTheme(theme: AppTheme) {
   render();
 }
 
+function reconcileStartupAppLanguage(
+  mainLanguage: AppLanguage | undefined,
+  mainPreferenceStored: boolean,
+) {
+  const normalizedMainLanguage = isAppLanguage(mainLanguage) ? mainLanguage : null;
+  const storedRendererLanguage = readStoredAppLanguage();
+  const language = resolveAppLanguagePreference({
+    currentLanguage: state.settings.language,
+    mainLanguage: normalizedMainLanguage,
+    mainPreferenceStored,
+    rendererLanguage: storedRendererLanguage,
+    userSelected: appLanguageSelectionRevision > 0,
+  });
+  state.settings.language = language;
+  applyAppLanguage(language, { persist: true, root: document.body });
+  if (!mainPreferenceStored || normalizedMainLanguage !== language) {
+    void api.setAppLanguage?.({ language }).catch(() => {
+      // The renderer preference stays active and will be reconciled again next launch.
+    });
+  }
+}
+
 function selectAppLanguage(language: AppLanguage) {
+  appLanguageSelectionRevision += 1;
   state.settings.language = language;
   applyAppLanguage(language, { persist: true, root: document.body });
   void api.setAppLanguage?.({ language }).catch(() => {});
@@ -38993,6 +39060,7 @@ function executionPlanBinanceIdentity(plan: SavedExecutionPlan) {
       analysisLabel: tradingLastAnalysisLabelForThread(plan.sourceThreadId),
       sourceTitle: plan.sourceTitle,
       sourceText: plan.content,
+      language: state.settings.language,
     }),
     content: plan.content,
     sourceTitle: plan.sourceTitle,
@@ -39192,6 +39260,7 @@ async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan) {
       analysisLabel: tradingLastAnalysisLabelForThread(plan.sourceThreadId),
       sourceTitle: plan.sourceTitle,
       sourceText: plan.content,
+      language: state.settings.language,
     }),
     content: plan.content,
     status: plan.status,
@@ -39252,7 +39321,11 @@ function executionPlanCreatedLabel(createdAt: string) {
 }
 
 function renderExecutionPlanCardContent(content: string) {
-  return executionPlanDisplayLines(content)
+  const visibleContent = englishSafeAssistantText(
+    content,
+    "Execution-plan details are unavailable in English. Run the analysis again to refresh this card.",
+  );
+  return executionPlanDisplayLines(visibleContent)
     .map((line) => {
       const directionTone = executionPlanDirectionTone(line.label, line.text);
       const valueClass = directionTone ? ` execution-plan-card-value-${directionTone}` : "";
@@ -39301,7 +39374,7 @@ function renderMessageExecutionPlan(
     const key = executionPlanCandidateKey(message.conversation_id, message.id, candidateIndex);
     executionPlanCandidatesBySource.set(key, candidate);
     const fontSize = loadMessageExecutionPlanFontSize(key);
-    const title = executionPlanCardTitle({ fallbackTitle: candidate.title, ...titleContext });
+    const title = executionPlanCardTitle({ fallbackTitle: candidate.title, ...titleContext, language: state.settings.language });
     return `<section
       class="message-execution-plan"
       aria-label="${escapeAttr(title)}"
@@ -39376,6 +39449,7 @@ function renderExecutionPlanCard(plan: SavedExecutionPlan) {
     analysisLabel: tradingLastAnalysisLabelForThread(plan.sourceThreadId),
     sourceTitle: plan.sourceTitle,
     sourceText: plan.content,
+    language: state.settings.language,
   });
   return `
     <article class="execution-plan-card" data-execution-plan-id="${escapeAttr(plan.id)}">
@@ -39470,6 +39544,7 @@ async function updateExecutionPlanLifecycle(
           analysisLabel: tradingLastAnalysisLabelForThread(updated.sourceThreadId),
           sourceTitle: updated.sourceTitle,
           sourceText: updated.content,
+          language: state.settings.language,
         }),
         body: statusText,
         status,
@@ -51812,9 +51887,9 @@ function renderMessage(message: Message, conversationMessages: Message[] = [mess
     activeThreadHistoryJumpHighlight.messageId === message.id &&
     activeThreadHistoryJumpHighlight.expiresAt > Date.now();
   const signature = messageRenderSignature(message, { streaming, searchHighlightKeyword });
-  const thinkingStage = thinkingStagePresentationFromMessage(message);
+  const thinkingStage = localizedThinkingStage(thinkingStagePresentationFromMessage(message));
   const thinkingAriaLabel = thinking
-    ? `${displayName} ${thinkingStage?.label || "正在思考"}`
+    ? `${displayName} ${thinkingStage?.label || (state.settings.language === "en" ? "Thinking" : "正在思考")}`
     : "";
   return `
     <article class="message-row ${alignRight ? "from-user" : "from-agent"} ${thinking ? "thinking-row" : ""} ${localGroupThinkingMemberId ? "local-group-thinking-row" : ""} ${subagents.length ? "subagent-status-row" : ""} ${contextCompaction ? "context-compaction-row" : ""} ${workflowRelay ? "workflow-relay-row" : ""} ${streaming ? "streaming-row" : ""} ${threadHistoryJumpTarget ? "thread-history-jump-target" : ""}" data-message-id="${escapeAttr(message.id)}" data-message-signature="${escapeAttr(signature)}"${thinking ? ` aria-live="polite" aria-label="${escapeAttr(thinkingAriaLabel)}"` : ""}>
@@ -52086,17 +52161,26 @@ function isContextCompactionMessage(message: Message) {
 
 function renderContextCompactionBubble(meta: ContextCompactionUiMeta) {
   const active = meta.status === "requesting" || meta.status === "compacting";
+  const handledLabel = state.settings.language === "en" ? "Handled" : HANDLED_STATUS_LABEL;
   const hoverMeta = active && meta.elapsedLabel
-    ? `<span class="thinking-elapsed context-compaction-elapsed"><span class="thinking-duration">${escapeHtml(`${HANDLED_STATUS_LABEL} ${meta.elapsedLabel}`)}</span></span>`
+    ? `<span class="thinking-elapsed context-compaction-elapsed"><span class="thinking-duration">${escapeHtml(`${handledLabel} ${meta.elapsedLabel}`)}</span></span>`
     : "";
-  const label =
-    meta.status === "requesting"
+  const label = state.settings.language === "en"
+    ? meta.status === "requesting"
+      ? "Preparing context compaction"
+      : meta.status === "compacting"
+        ? "Compacting context"
+        : meta.status === "completed"
+          ? "Context compaction complete"
+          : "Context compaction failed"
+    : meta.status === "requesting"
       ? "正在准备压缩上下文"
       : meta.status === "compacting"
         ? "正在压缩上下文"
         : meta.status === "completed"
           ? "上下文压缩成功"
           : "上下文压缩失败";
+  const error = englishSafeAssistantText(meta.error, "Context compaction failed.");
   const statusIcon = meta.status === "completed" ? "✓" : meta.status === "failed" ? "!" : "";
   return `
     <div class="context-compaction-bubble ${escapeAttr(meta.status)}" role="status" aria-live="polite">
@@ -52106,7 +52190,7 @@ function renderContextCompactionBubble(meta: ContextCompactionUiMeta) {
         ${active ? `<span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>` : ""}
       </span>
       ${hoverMeta}
-      ${meta.status === "failed" && meta.error ? `<span class="context-compaction-error">${escapeHtml(meta.error)}</span>` : ""}
+      ${meta.status === "failed" && meta.error ? `<span class="context-compaction-error">${escapeHtml(error)}</span>` : ""}
     </div>
   `;
 }
@@ -52117,7 +52201,7 @@ function thinkingContextUsageLabel(threadId: string | null | undefined) {
   const usage = contextUsageProgressState(id);
   if (usage.waitingForCurrentTurn) return null;
   if (usage.usedTokens == null || usage.modelContextWindow == null || usage.modelContextWindow <= 0) return null;
-  return `上下文 ${usage.percentLabel}`;
+  return `${state.settings.language === "en" ? "Context" : "上下文"} ${usage.percentLabel}`;
 }
 
 function renderSubagentCluster(
@@ -52126,18 +52210,28 @@ function renderSubagentCluster(
 ) {
   const activeCount = agents.filter((agent) => agent.stage === "starting" || agent.stage === "working").length;
   const completedCount = agents.filter((agent) => agent.stage === "completed").length;
-  const summary = activeCount
-    ? `${agents.length} 个并行任务`
-    : completedCount === agents.length
-      ? "任务已回传，正在汇总"
-      : "协作阶段已结束";
+  const english = state.settings.language === "en";
+  const summary = english
+    ? activeCount
+      ? `${agents.length} parallel tasks`
+      : completedCount === agents.length
+        ? "Tasks returned; preparing the summary"
+        : "Collaboration complete"
+    : activeCount
+      ? `${agents.length} 个并行任务`
+      : completedCount === agents.length
+        ? "任务已回传，正在汇总"
+        : "协作阶段已结束";
+  const elapsed = english
+    ? (elapsedLabel ? `Collaborating for ${elapsedLabel}` : "Collaboration in progress")
+    : (elapsedLabel ? `已协作 ${elapsedLabel}` : "协作进行中");
   return `
-    <section class="subagent-cluster" role="status" aria-live="polite" aria-label="子智能体协作状态">
+    <section class="subagent-cluster" role="status" aria-live="polite" aria-label="${english ? "Subagent collaboration status" : "子智能体协作状态"}">
       <header class="subagent-cluster-header">
         <span class="subagent-cluster-mark" aria-hidden="true"><i></i><i></i><i></i></span>
         <span class="subagent-cluster-summary">${escapeHtml(summary)}</span>
         <span class="subagent-cluster-live-meta">
-          <span class="subagent-cluster-elapsed">${escapeHtml(elapsedLabel ? `已协作 ${elapsedLabel}` : "协作进行中")}</span>
+          <span class="subagent-cluster-elapsed">${escapeHtml(elapsed)}</span>
         </span>
       </header>
       <div class="subagent-cluster-list">
@@ -52149,6 +52243,11 @@ function renderSubagentCluster(
 
 function renderSubagentClusterRow(agent: SubagentUiEntry) {
   const active = agent.stage === "starting" || agent.stage === "working";
+  const english = state.settings.language === "en";
+  const name = englishSafeAssistantText(agent.name, "Agent");
+  const profession = englishSafeAssistantText(agent.profession, "Specialist");
+  const statusLabel = englishSafeAssistantText(agent.statusLabel, active ? "Working" : "Complete");
+  const task = englishSafeAssistantText(agent.task, "Processing the delegated task");
   const statusIcon = subagentStageIcon(agent.stage);
   const progress = Array.from({ length: SUBAGENT_PROGRESS_SEGMENTS }, (_, segmentIndex) => {
     const filled = segmentIndex < agent.progressSegments;
@@ -52157,15 +52256,15 @@ function renderSubagentClusterRow(agent: SubagentUiEntry) {
   }).join("");
   return `
     <article class="subagent-cluster-row ${escapeAttr(agent.stage)}" data-open-subagent-thread="${escapeAttr(agent.threadId)}"
-      role="button" tabindex="0" aria-label="在系统看板中查看 ${escapeAttr(agent.name)}">
+      role="button" tabindex="0" aria-label="${escapeAttr(english ? `View ${name} in the system board` : `在系统看板中查看 ${agent.name}`)}">
       <div class="subagent-cluster-row-main">
         <div class="subagent-cluster-identity">
-          <span class="subagent-cluster-name">${escapeHtml(agent.name)}<span class="subagent-cluster-profession">（${escapeHtml(agent.profession)}）</span></span>
-          <span class="subagent-cluster-stage"><i aria-hidden="true">${escapeHtml(statusIcon)}</i>${escapeHtml(agent.statusLabel)}</span>
+          <span class="subagent-cluster-name">${escapeHtml(name)}<span class="subagent-cluster-profession">${english ? "(" : "（"}${escapeHtml(profession)}${english ? ")" : "）"}</span></span>
+          <span class="subagent-cluster-stage"><i aria-hidden="true">${escapeHtml(statusIcon)}</i>${escapeHtml(statusLabel)}</span>
         </div>
-        <div class="subagent-cluster-task"><i aria-hidden="true"></i><span>${escapeHtml(agent.task)}</span></div>
-        <div class="subagent-cluster-progress" aria-label="${escapeAttr(`${agent.name}任务阶段 ${agent.progressSegments}/${SUBAGENT_PROGRESS_SEGMENTS}`)}">
-          <span>阶段进度</span>
+        <div class="subagent-cluster-task"><i aria-hidden="true"></i><span>${escapeHtml(task)}</span></div>
+        <div class="subagent-cluster-progress" aria-label="${escapeAttr(english ? `${name} task stage ${agent.progressSegments}/${SUBAGENT_PROGRESS_SEGMENTS}` : `${agent.name}任务阶段 ${agent.progressSegments}/${SUBAGENT_PROGRESS_SEGMENTS}`)}">
+          <span>${english ? "Stage progress" : "阶段进度"}</span>
           <span class="subagent-cluster-progress-track" aria-hidden="true">${progress}</span>
         </div>
       </div>
@@ -52199,15 +52298,17 @@ function renderThinkingBubble(
   contextUsageLabel: string | null = null,
   stage: ThinkingStagePresentation | null = null,
 ) {
+  const visibleStage = localizedThinkingStage(stage);
+  const handledLabel = handledStatusLabel();
   const hoverMeta = elapsedLabel
-    ? `<span class="thinking-elapsed"><span class="thinking-duration">${escapeHtml(`${HANDLED_STATUS_LABEL} ${elapsedLabel}`)}</span>${contextUsageLabel ? `<span class="thinking-context-usage">${escapeHtml(contextUsageLabel)}</span>` : ""}</span>`
+    ? `<span class="thinking-elapsed"><span class="thinking-duration">${escapeHtml(`${handledLabel} ${elapsedLabel}`)}</span>${contextUsageLabel ? `<span class="thinking-context-usage">${escapeHtml(contextUsageLabel)}</span>` : ""}</span>`
     : "";
-  const statusMeta = stage
-    ? `<span class="thinking-status-meta"><span class="thinking-duration">${escapeHtml(elapsedLabel ? `${HANDLED_STATUS_LABEL} ${elapsedLabel}` : HANDLED_STATUS_LABEL)}</span>${stage.detail ? `<span class="thinking-stage-detail">${escapeHtml(stage.detail)}</span>` : ""}${contextUsageLabel ? `<span class="thinking-context-usage">${escapeHtml(contextUsageLabel)}</span>` : ""}</span>`
+  const statusMeta = visibleStage
+    ? `<span class="thinking-status-meta"><span class="thinking-duration">${escapeHtml(elapsedLabel ? `${handledLabel} ${elapsedLabel}` : handledLabel)}</span>${visibleStage.detail ? `<span class="thinking-stage-detail">${escapeHtml(visibleStage.detail)}</span>` : ""}${contextUsageLabel ? `<span class="thinking-context-usage">${escapeHtml(contextUsageLabel)}</span>` : ""}</span>`
     : hoverMeta;
-  const label = stage?.label || "正在思考";
+  const label = visibleStage?.label || (state.settings.language === "en" ? "Thinking" : "正在思考");
   return `
-    <div class="thinking-bubble"${stage ? ` data-thinking-stage="${escapeAttr(stage.key)}"` : ""}>
+    <div class="thinking-bubble"${visibleStage ? ` data-thinking-stage="${escapeAttr(visibleStage.key)}"` : ""}>
       <span class="thinking-text">
         <span class="thinking-stage-label">${escapeHtml(label)}</span>
         <span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -52703,8 +52804,14 @@ function renderTextBubble(
   options: { hideHoverBar?: boolean; searchHighlightKeyword?: string | null; allowPlanAction?: boolean;
   } = {},
 ) {
-  const content = messageDisplayContent(message, text);
   const localizeAppOwnedText = shouldLocalizeAppOwnedMessage(message, fromUser);
+  const displayText = fromUser || localizeAppOwnedText
+    ? text
+    : englishSafeAssistantText(
+        text,
+        "This response could not be displayed because it was not generated entirely in English. Please retry.",
+      );
+  const content = messageDisplayContent(message, displayText);
   const messageLocalSendStatus = localSendStatusFromRecord(message);
   const editPayload = fromUser && !messageLocalSendStatus ? editableMessagePayload(message, text, content.text) : null;
   const copyTextPayload = isBlankThreadWelcomeMessage(message)
@@ -52922,8 +53029,8 @@ function renderTurnResultHeader(message: Message) {
 
 function renderTurnResultToggle(meta: TurnResultMeta) {
   const statusLabel = meta.status === "pending"
-    ? "待完成"
-    : `${HANDLED_STATUS_LABEL} ${meta.elapsedLabel}`;
+    ? (state.settings.language === "en" ? "Pending" : "待完成")
+    : `${handledStatusLabel()} ${meta.elapsedLabel}`;
   return `
     <button
       type="button"
@@ -52931,7 +53038,7 @@ function renderTurnResultToggle(meta: TurnResultMeta) {
       data-action="toggle-turn-result"
       data-turn-result-key="${escapeAttr(meta.key)}"
       aria-expanded="${meta.expanded ? "true" : "false"}"
-      title="${escapeAttr(meta.expanded ? "\u6536\u8d77\u5904\u7406\u8fc7\u7a0b" : "\u5c55\u5f00\u5904\u7406\u8fc7\u7a0b")}"
+      title="${escapeAttr(state.settings.language === "en" ? (meta.expanded ? "Collapse processing details" : "Expand processing details") : (meta.expanded ? "\u6536\u8d77\u5904\u7406\u8fc7\u7a0b" : "\u5c55\u5f00\u5904\u7406\u8fc7\u7a0b"))}"
     >
       <span>${escapeHtml(statusLabel)}</span>
       <i aria-hidden="true"></i>
@@ -52942,13 +53049,21 @@ function renderTurnResultToggle(meta: TurnResultMeta) {
 function renderConversationSupplementHeader(message: Message) {
   const meta = (message as MessageUiMeta).conversationSupplement;
   if (!meta) return "";
-  const statusLabel =
-    meta.status === "pending"
+  const english = state.settings.language === "en";
+  const statusLabel = english
+    ? meta.status === "pending"
+      ? `Adding context${meta.elapsedLabel ? ` ${meta.elapsedLabel}` : ""}`
+      : meta.status === "ineffective"
+        ? "Context not applied"
+        : "Context added"
+    : meta.status === "pending"
       ? `${SUPPLEMENT_PENDING_LABEL}${meta.elapsedLabel ? ` ${meta.elapsedLabel}` : ""}`
       : meta.status === "ineffective"
         ? SUPPLEMENT_INEFFECTIVE_LABEL
         : SUPPLEMENT_ACCEPTED_LABEL;
-  const reason = meta.status === "ineffective" ? firstString(meta.reason) : null;
+  const reason = meta.status === "ineffective"
+    ? englishSafeAssistantText(firstString(meta.reason), "The additional context could not be applied.")
+    : null;
   if (meta.status !== "ineffective") {
     return `<div class="conversation-supplement-status"><span>${escapeHtml(statusLabel)}</span></div>`;
   }
@@ -57983,7 +58098,10 @@ function subagentOutputElapsedLabel(threadId: string) {
 
 function renderSubagentOutputMessage(agent: SubagentUiEntry, output: SubagentOutputMessage, turnResult: TurnResultMeta | null = null) {
   if (output.kind !== "message") return renderSubagentProcessUpdate(output, turnResult);
-  const sender = `${agent.name}（${agent.profession}）`;
+  const sender = state.settings.language === "en"
+    ? `${englishSafeAssistantText(agent.name, "Agent")} (${englishSafeAssistantText(agent.profession, "Specialist")})`
+    : `${agent.name}（${agent.profession}）`;
+  const outputText = englishSafeAssistantText(output.text, "The delegated task returned content that was not entirely in English.");
   return `
     <article class="subagent-output-message" data-subagent-thread-id="${escapeAttr(output.sourceThreadId)}"
       data-subagent-message-id="${escapeAttr(output.messageId)}" data-subagent-sender="${escapeAttr(sender)}">
@@ -57992,7 +58110,7 @@ function renderSubagentOutputMessage(agent: SubagentUiEntry, output: SubagentOut
       </div>
       <div class="message-bubble agent-bubble subagent-output-bubble">
         ${turnResult ? renderTurnResultToggle(turnResult) : ""}
-        <div class="message-text">${formatMessageText(output.text)}</div>
+        <div class="message-text">${formatMessageText(outputText)}</div>
         <div class="bubble-hover-bar subagent-output-actions">
           ${output.time ? `<span class="bubble-time">${escapeHtml(output.time)}</span>` : ""}
           <button class="bubble-copy" type="button" data-action="quote-message" title="引用子 Agent 消息">引用</button>
@@ -58005,16 +58123,20 @@ function renderSubagentOutputMessage(agent: SubagentUiEntry, output: SubagentOut
 
 function renderSubagentProcessUpdate(output: SubagentOutputMessage, turnResult: TurnResultMeta | null = null) {
   const phase = output.phase || "running";
-  const label = output.label || (output.kind === "reasoning" ? "思考摘要" : "执行动态");
+  const label = englishSafeAssistantText(
+    output.label || (output.kind === "reasoning" ? "思考摘要" : "执行动态"),
+    output.kind === "reasoning" ? "Reasoning summary" : "Execution update",
+  );
+  const outputText = englishSafeAssistantText(output.text, "The delegated task is still running.");
   return `
     <article class="subagent-process-update ${escapeAttr(output.kind)} ${escapeAttr(phase)}"
       data-subagent-thread-id="${escapeAttr(output.sourceThreadId)}" data-subagent-message-id="${escapeAttr(output.messageId)}"
-      aria-label="${escapeAttr(`${label}：${output.text}`)}">
+      aria-label="${escapeAttr(`${label}: ${outputText}`)}">
       <span class="subagent-process-marker" aria-hidden="true"></span>
       <div class="subagent-process-body">
         ${turnResult ? renderTurnResultToggle(turnResult) : ""}
         <div class="subagent-process-head"><span>${escapeHtml(label)}</span>${output.time ? `<time>${escapeHtml(output.time)}</time>` : ""}</div>
-        <div class="message-text subagent-process-text">${formatMessageText(output.text)}</div>
+        <div class="message-text subagent-process-text">${formatMessageText(outputText)}</div>
       </div>
     </article>
   `;
@@ -58476,7 +58598,10 @@ function renderQuestionAnswerProgressBoard(progress: QuestionAnswerProgressRun) 
           </span>
         </div>
         <ol class="question-answer-workflow-steps">
-          ${progress.steps.map((step, index) => `
+          ${progress.steps.map((step, index) => {
+            const title = englishSafeAssistantText(step.title, step.status === "completed" ? "Step complete" : step.status === "failed" ? "Step failed" : "Working on this step");
+            const detail = englishSafeAssistantText(step.detail, step.status === "completed" ? "This step has completed" : step.status === "failed" ? "This step could not be completed" : "Processing the available context");
+            return `
             <li class="${escapeAttr(step.status)}${index === progress.steps.length - 1 ? " latest" : ""}">
               <span class="question-answer-workflow-marker" aria-hidden="true">
                 ${step.status === "running"
@@ -58487,13 +58612,13 @@ function renderQuestionAnswerProgressBoard(progress: QuestionAnswerProgressRun) 
               </span>
               <article>
                 <div class="question-answer-workflow-step-head">
-                  <strong>${escapeHtml(step.title)}</strong>
+                  <strong>${escapeHtml(title)}</strong>
                   <span>${escapeHtml(questionAnswerProgressStepStatusLabel(step.status))}</span>
                 </div>
-                ${step.detail ? `<p>${escapeHtml(step.detail)}</p>` : ""}
+                ${detail ? `<p>${escapeHtml(detail)}</p>` : ""}
               </article>
             </li>
-          `).join("")}
+          `; }).join("")}
         </ol>
       </section>
       ${renderWorkflowScrollBottomButton()}
@@ -58502,6 +58627,11 @@ function renderQuestionAnswerProgressBoard(progress: QuestionAnswerProgressRun) 
 }
 
 function questionAnswerProgressStepStatusLabel(status: QuestionAnswerProgressStatus) {
+  if (state.settings.language === "en") {
+    if (status === "completed") return "Complete";
+    if (status === "failed") return "Failed";
+    return "In progress";
+  }
   if (status === "completed") return "完成";
   if (status === "failed") return "失败";
   return "进行中";
@@ -60550,13 +60680,13 @@ function renderSettingsDialog() {
               ? renderSettingsAboutPanel()
               : `
                 <div class="settings-general-list">
+                  ${renderSettingsLanguageRow()}
                   ${renderSettingsSwitchRow("固定在桌面任务栏", "taskbar")}
                   ${renderSettingsSwitchRow("固定在开始菜单", "startMenu")}
                   ${renderSettingsSwitchRow("开机启动", "startup")}
                    ${renderSettingsTaskCompletionPopupRow()}
                    ${renderSettingsThemeRow()}
                    ${renderSettingsFontSizeRow()}
-                   ${renderSettingsLanguageRow()}
                    ${renderSettingsUserDataRow()}
                    <div class="settings-storage-row">
                      <div class="settings-storage-copy">
@@ -66518,6 +66648,7 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
     sourcePlanKey,
     sourceTitle: sourceThread ? threadListDisplayName(sourceThread) : "来自智能体",
     analysisLabel: tradingLastAnalysisLabelForThread(sourceThreadId),
+    language: state.settings.language,
   });
   button.disabled = true;
   button.setAttribute("aria-disabled", "true");
@@ -66613,6 +66744,7 @@ async function createExecutionPlanStickyFromMessageCard(card: HTMLElement) {
     analysisLabel: tradingLastAnalysisLabelForThread(source.sourceThreadId),
     sourceTitle: sourceThread?.name,
     sourceText: candidate.content,
+    language: state.settings.language,
   });
   const fontSize = loadMessageExecutionPlanFontSize(source.key);
   const result = await api.createExecutionPlanSticky({

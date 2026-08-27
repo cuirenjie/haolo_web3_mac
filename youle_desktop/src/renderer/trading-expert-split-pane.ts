@@ -485,6 +485,7 @@ export class TradingExpertSplitPane {
         type="button"
         data-split-action="interval"
         data-split-interval="${escapeHtml(period.resolution)}"
+        data-i18n-trading-period-label
         class="${period.resolution === this.interval ? "active" : ""}"
         aria-pressed="${period.resolution === this.interval}"
       >${escapeHtml(period.label)}</button>

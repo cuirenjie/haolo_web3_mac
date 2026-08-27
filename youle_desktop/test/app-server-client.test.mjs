@@ -783,7 +783,7 @@ test("app server environment uses an isolated Haolo runtime home", () => {
     authEnv: {},
     providerEnv: { [DEEPSEEK_EXECUTION_ENV_KEY]: "opaque-relay-token" },
     authPath,
-    modelBaseUrl: "https://aiapi.youleai.top/v1",
+    modelBaseUrl: "https://haolo.pro/v1",
   });
 
   const runtimeHome = path.join(codexHome, "runtime-home");
@@ -938,7 +938,7 @@ test("app server environment exposes ripgrep and generated search guardrails", (
       },
       codexHome,
       authEnv: {},
-      modelBaseUrl: "https://aiapi.youleai.top/v1",
+      modelBaseUrl: "https://haolo.pro/v1",
     });
 
     assert.equal(env.RIPGREP_PATH, rgPath);
@@ -1014,7 +1014,7 @@ test("default auth env exposes AIHubCC media credentials to app-server children"
       JSON.stringify(
         {
           LLMHUB_API_KEY: "sk-llmhub",
-          LLMHUB_BASE_URL: "https://aiapi.youleai.top/v1",
+          LLMHUB_BASE_URL: "https://haolo.pro/v1",
           SUB2API_API_KEY: "sk-sub2api",
           OPENAI_API_KEY: "sk-openai",
         },
@@ -1028,10 +1028,10 @@ test("default auth env exposes AIHubCC media credentials to app-server children"
     const result = loadDefaultCodexAuthEnv();
 
     assert.equal(result.env.LLMHUB_API_KEY, "sk-llmhub");
-    assert.equal(result.env.LLMHUB_BASE_URL, "https://aiapi.youleai.top/v1");
+    assert.equal(result.env.LLMHUB_BASE_URL, "https://haolo.pro/v1");
     assert.equal(result.env.SUB2API_API_KEY, "sk-sub2api");
     assert.equal(result.env.OPENAI_API_KEY, "sk-openai");
-    assert.equal(result.modelBaseUrl, "https://aiapi.youleai.top/v1");
+    assert.equal(result.modelBaseUrl, "https://haolo.pro/v1");
   } finally {
     if (previousResourceDir === undefined) {
       delete process.env.HAOLO_DESKTOP_RUNTIME_RESOURCE_DIR;

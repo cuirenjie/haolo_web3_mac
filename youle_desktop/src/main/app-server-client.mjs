@@ -1,3 +1,4 @@
+import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, migrateHaoloGatewayConfig, normalizeHaoloGatewayBaseUrl } from "./haolo-gateway.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -114,7 +115,7 @@ const MANAGED_SECTION_CONFIG_KEYS = [
   { section: "model_providers.haolo_ai", key: "stream_max_retries" },
   { section: "model_providers.haolo_ai", key: "http_headers" },
 ];
-const DEFAULT_PROVIDER_BASE_URL = "https://aiapi.youleai.top/v1";
+const DEFAULT_PROVIDER_BASE_URL = HAOLO_GATEWAY_BASE_URL;
 const DEFAULT_PROVIDER_WIRE_API = "responses";
 const DEFAULT_PROVIDER_CODEX_VERSION = "0.144.1";
 const DEFAULT_PROVIDER_MODEL_POOL = "execution";
@@ -730,6 +731,12 @@ function syncDefaultCodexResourcesInto(codexHome, options = {}) {
       const contextDefaults = syncMissingManagedCodexConfigDefaults(configPath, targetConfig);
       if (contextDefaults.action === "updated") {
         copied.push(`${DEFAULT_CODEX_CONFIG_FILE}:context-defaults`);
+      }
+      const currentConfig = fs.readFileSync(targetConfig, "utf8");
+      const migratedConfig = migrateHaoloGatewayConfig(currentConfig);
+      if (migratedConfig !== currentConfig) {
+        fs.writeFileSync(targetConfig, migratedConfig, "utf8");
+        copied.push(`${DEFAULT_CODEX_CONFIG_FILE}:gateway-domain`);
       }
     } catch (error) {
       errors.push(resourceSyncError(DEFAULT_CODEX_CONFIG_FILE, error));
@@ -2001,7 +2008,7 @@ export function loadDefaultCodexAuthEnv(options = {}) {
   const templatePath = resolveDefaultCodexTemplate(DEFAULT_CODEX_AUTH_FILE);
   const templateAuth = templatePath ? readJsonFile(templatePath) || {} : {};
   const userAuth = options.authPath ? readJsonFile(options.authPath) || {} : {};
-  const mergedAuth = { ...templateAuth, ...nonEmptyAuthEntries(userAuth) };
+  const mergedAuth = migrateHaoloGatewayAuth({ ...templateAuth, ...nonEmptyAuthEntries(userAuth) });
   const authEnv = authObjectToEnv(mergedAuth);
   const modelBaseUrl = firstString(
     mergedAuth.LLMHUB_BASE_URL,
@@ -2243,7 +2250,7 @@ export function buildAppServerEnv({
     next.MODEL_BASE_URL = baseUrl;
     next.OPENAI_BASE_URL = baseUrl;
   }
-  return next;
+  return migrateHaoloGatewayAuth(next);
 }
 
 export function resolveAppServerProcessCwd({
@@ -2544,11 +2551,7 @@ async function resolveExecutionProviderRuntime(resolver) {
 }
 
 function normalizeProviderBaseUrl(value) {
-  const text = typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
-  if (!text) return DEFAULT_PROVIDER_BASE_URL;
-  if (/^http:\/\/54\.235\.242\.62(?::3000)?(?:\/|$)/i.test(text)) return DEFAULT_PROVIDER_BASE_URL;
-  if (/^https:\/\/aiapi\.youleai\.top(?:\/v1)?$/i.test(text)) return DEFAULT_PROVIDER_BASE_URL;
-  return text;
+  return normalizeHaoloGatewayBaseUrl(value);
 }
 
 function resolveBundledDeepSeekMcpServer() {

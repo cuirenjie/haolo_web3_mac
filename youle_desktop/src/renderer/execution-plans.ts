@@ -65,9 +65,9 @@ const MAX_PLAN_CONTENT_LENGTH = 20_000;
 const EXECUTION_PLAN_STATUSES = new Set<ExecutionPlanStatus>(["pending", "executing", "ended"]);
 const EXECUTION_PLAN_END_REASONS = new Set<ExecutionPlanEndReason>(["take_profit", "stop_loss", "cancelled", "expired"]);
 
-const CORE_PLAN_LABEL = /(?:当前动作|方向判断|(?:多头|空头|首选方向)?触发|止损(?:与失效)?|分批止盈|风险收益比|候选(?:测算|止损|止盈))/;
-const PLAN_HEADING = /^(?:(?:标准|推荐|首选|备选|候选|可选)\s*)?(?:(?:执行|行动|实施|操作|落地)\s*)?(?:方案|计划)(?:\s*[A-C一二三123])?(?:\s*[:：-].*)?$/i;
-const TRADING_PLAN_HEADING = /^[A-Z0-9]{2,20}\/(?:USDT|USDC|BUSD)\s+币安永续\s+\d+(?:M|H|D|W)(?:\s+·\s+(?:多头|空头)条件方案)?$/i;
+const CORE_PLAN_LABEL = /(?:当前动作|方向判断|(?:多头|空头|首选方向)?触发|止损(?:与失效)?|分批止盈|风险收益比|候选(?:测算|止损|止盈)|current action|direction|(?:long|short|entry) trigger|stop-loss(?: and invalidation)?|take-profit targets?|risk\/reward)/i;
+const PLAN_HEADING = /^(?:(?:标准|推荐|首选|备选|候选|可选)\s*)?(?:(?:执行|行动|实施|操作|落地)\s*)?(?:方案|计划)(?:\s*[A-C一二三123])?(?:\s*[:：-].*)?$|^(?:(?:standard|recommended|preferred|alternative|candidate)\s+)?(?:execution\s+)?plan(?:\s*[A-C123])?(?:\s*[:\-].*)?$/i;
+const TRADING_PLAN_HEADING = /^[A-Z0-9]{2,20}\/(?:USDT|USDC|BUSD)\s+(?:币安永续|BINANCE PERPETUAL)\s+\d+(?:M|H|D|W)(?:\s+·\s+(?:(?:多头|空头)条件方案|(?:LONG|SHORT) SETUP))?$/i;
 const OPTION_LINE = /^(?:(?:方案|候选|选项|路径)\s*(?:[A-C]|[一二三四五六]|\d+)|[A-C]\s*方案|[A-C])\s*[:：、.)-]/i;
 const ORDERED_OR_BULLET_LINE = /^(?:[-*+•▪◦]\s+|(?:\d+|[A-C一二三四五六])[.)、]\s*)/i;
 
@@ -96,8 +96,8 @@ function normalizedBinanceSymbol(value: unknown) {
 
 function normalizedTradeDirection(value: unknown): ExecutionPlanTradeDirection | null {
   const text = String(value || "");
-  if (/(?:偏|看)?空|空头/.test(text)) return "SHORT";
-  if (/(?:偏|看)?多|多头/.test(text)) return "LONG";
+  if (/(?:偏|看)?空|空头|bearish|short/i.test(text)) return "SHORT";
+  if (/(?:偏|看)?多|多头|bullish|long/i.test(text)) return "LONG";
   return null;
 }
 
@@ -119,7 +119,7 @@ export function executionPlanBinanceMarketDetails(input: {
   const combined = sources.join("\n");
   const marketIdMatch = combined.match(/BINANCE\s*:\s*FUTURES\s*:\s*([A-Z0-9]{2,30})\b/);
   const slashMatch = combined.match(/\b([A-Z0-9]{2,20})\s*\/\s*(USDT|USDC|BUSD)\b/);
-  const compactMatch = combined.match(/\b([A-Z0-9]{2,24})(?:\s+币安)?(?:永续|合约)\b/);
+  const compactMatch = combined.match(/\b([A-Z0-9]{2,24})(?:(?:\s+币安)?(?:永续|合约)|\s+BINANCE\s+PERPETUAL)\b/);
   const symbol = normalizedBinanceSymbol(
     marketIdMatch?.[1]
       || (slashMatch ? `${slashMatch[1]}${slashMatch[2]}` : "")
@@ -128,7 +128,7 @@ export function executionPlanBinanceMarketDetails(input: {
   const directionLine = String(input.content || "")
     .split(/\r?\n/)
     .map((line) => line.replace(/^\s*(?:[-*+•▪◦]\s+|\d+[.)、]\s*)/, "").trim())
-    .find((line) => /^方向判断\s*[：:]/u.test(line));
+    .find((line) => /^(?:方向判断|direction)\s*[：:]/iu.test(line));
   const direction = normalizedTradeDirection(directionLine || combined);
   return {
     symbol: symbol && /(?:USDT|USDC|BUSD)$/.test(symbol) ? symbol : null,
@@ -167,10 +167,10 @@ function normalizedBinanceTracking(value: unknown): ExecutionPlanBinanceTracking
 }
 
 export function executionPlanDirectionTone(label: unknown, text: unknown): ExecutionPlanDirectionTone {
-  if (!String(label || "").includes("方向判断")) return "";
+  if (!/(?:方向判断|direction)/iu.test(String(label || ""))) return "";
   const direction = String(text || "");
-  if (direction.includes("空")) return "bearish";
-  if (direction.includes("多")) return "bullish";
+  if (/空|bearish|short/iu.test(direction)) return "bearish";
+  if (/多|bullish|long/iu.test(direction)) return "bullish";
   return "";
 }
 
@@ -199,6 +199,7 @@ export function executionPlanCardTitle(input: {
   analysisLabel?: unknown;
   sourceTitle?: unknown;
   sourceText?: unknown;
+  language?: unknown;
 }) {
   const sources = [input.analysisLabel, input.sourceTitle, input.sourceText]
     .map((value) => String(value || "").trim())
@@ -246,12 +247,25 @@ export function executionPlanCardTitle(input: {
     }
   }
 
+  const english = input.language === "en";
+  const cleanedFallbackTitle = cleanExecutionPlanDisplayText(input.fallbackTitle).slice(0, 120);
+  const safeFallbackTitle = english && /[\u3400-\u9fff]/u.test(cleanedFallbackTitle)
+    ? "Execution plan"
+    : cleanedFallbackTitle;
   const baseTitle = baseAsset && interval
-    ? `${baseAsset}/${quoteAsset} 币安永续 ${interval}`
-    : cleanExecutionPlanDisplayText(input.fallbackTitle).slice(0, 120) || "执行计划";
+    ? `${baseAsset}/${quoteAsset} ${english ? "Binance Perpetual" : "币安永续"} ${interval}`
+    : safeFallbackTitle || (english ? "Execution plan" : "执行计划");
   const fallback = String(input.fallbackTitle || "");
-  const sideSuffix = fallback.match(/(?:·|-)\s*(多头|空头)条件方案/u)?.[1];
-  if (sideSuffix && !baseTitle.includes(`${sideSuffix}条件方案`)) return `${baseTitle} · ${sideSuffix}条件方案`;
+  const sideSuffix = fallback.match(/(?:·|-)\s*(多头|空头)条件方案/u)?.[1]
+    || fallback.match(/(?:·|-)\s*(LONG|SHORT) SETUP/iu)?.[1]?.toLowerCase();
+  const localizedSideSuffix = sideSuffix
+    ? english
+      ? `${sideSuffix === "多头" || sideSuffix === "long" ? "Long" : "Short"} setup`
+      : `${sideSuffix === "多头" || sideSuffix === "long" ? "多头" : "空头"}条件方案`
+    : "";
+  if (localizedSideSuffix && !baseTitle.toLowerCase().includes(localizedSideSuffix.toLowerCase())) {
+    return `${baseTitle} · ${localizedSideSuffix}`;
+  }
   return baseTitle;
 }
 
@@ -285,7 +299,7 @@ export function executionPlanDisplayLines(value: unknown): ExecutionPlanDisplayL
 export function executionPlanHasConcreteTradingPlan(candidate: ExecutionPlanCandidate | null | undefined) {
   if (!candidate) return false;
   const lines = executionPlanDisplayLines(candidate.content);
-  const tradingLabels = lines.filter((line) => /方向判断|触发|止损|止盈|风险收益比/u.test(line.label));
+  const tradingLabels = lines.filter((line) => /方向判断|触发|止损|止盈|风险收益比|direction|trigger|stop-loss|take-profit|risk\/reward/iu.test(line.label));
   // A market-context heading can be present in an ordinary educational
   // answer (for example, “BTC/USDT 币安永续 4H”).  Do not treat that heading
   // plus prose mentioning stop-loss/take-profit as an actionable plan; a real
@@ -303,17 +317,19 @@ export function executionPlanHasConcreteTradingPlan(candidate: ExecutionPlanCand
     return false;
   }
   if (!tradingLabels.length) return true;
-  const direction = lines.find((line) => /方向判断/u.test(line.label))?.text || "";
+  const direction = lines.find((line) => /方向判断|direction/iu.test(line.label))?.text || "";
   if (
-    !/(?:多|空)/u.test(direction)
-    || /中性|未形成|未明确|观望|等待/u.test(direction)
+    !/(?:多|空|bullish|bearish|long|short)/iu.test(direction)
+    || /中性|未形成|未明确|观望|等待|neutral|not available|unclear|wait/iu.test(direction)
   ) return false;
   const hasConcretePrice = (pattern: RegExp) => lines.some((line) => (
     pattern.test(line.label)
-    && !/未形成|未明确|待定|暂无|无/u.test(line.text)
+    && !/未形成|未明确|待定|暂无|无|not available|unclear|pending|none/iu.test(line.text)
     && /(?:^|[^\d])\d+(?:,\d{3})*(?:\.\d+)?/u.test(line.text)
   ));
-  return hasConcretePrice(/触发/u) && hasConcretePrice(/止损/u) && hasConcretePrice(/止盈/u);
+  return hasConcretePrice(/触发|trigger/iu)
+    && hasConcretePrice(/止损|stop-loss/iu)
+    && hasConcretePrice(/止盈|take-profit/iu);
 }
 
 /**
@@ -329,10 +345,10 @@ export function executionPlanHasConcreteTradingPlan(candidate: ExecutionPlanCand
 export function executionPlanHasStructuredTradingFields(candidate: ExecutionPlanCandidate | null | undefined) {
   if (!candidate) return false;
   const lines = executionPlanDisplayLines(candidate.content);
-  const hasDirection = lines.some((line) => /方向判断/u.test(line.label));
-  const hasTrigger = lines.some((line) => /触发/u.test(line.label));
-  const hasStop = lines.some((line) => /止损/u.test(line.label));
-  const hasTakeProfit = lines.some((line) => /止盈/u.test(line.label));
+  const hasDirection = lines.some((line) => /方向判断|direction/iu.test(line.label));
+  const hasTrigger = lines.some((line) => /触发|trigger/iu.test(line.label));
+  const hasStop = lines.some((line) => /止损|stop-loss/iu.test(line.label));
+  const hasTakeProfit = lines.some((line) => /止盈|take-profit/iu.test(line.label));
   return hasDirection && hasTrigger && hasStop && hasTakeProfit;
 }
 
@@ -443,7 +459,7 @@ function explicitHeadingCandidates(lines: string[]) {
       if (ORDERED_OR_BULLET_LINE.test(raw.trim())) structuredLineCount += 1;
       if (CORE_PLAN_LABEL.test(searchable)) coreLabelCount += 1;
       if (searchable) endIndex = index;
-      if (/风险收益比/.test(searchable) && coreLabelCount >= 3) break;
+      if (/风险收益比|risk\/reward/i.test(searchable) && coreLabelCount >= 3) break;
     }
     if (structuredLineCount < 2 && coreLabelCount < 2) continue;
     const candidate = planBlock(lines, headingIndex + 1, endIndex);
@@ -473,7 +489,7 @@ function boundedCorePlanCandidate(lines: string[]) {
       if (!CORE_PLAN_LABEL.test(searchable)) continue;
       coreLabelCount += 1;
       endIndex = index;
-      if (/风险收益比/.test(searchable) && coreLabelCount >= 3) break;
+      if (/风险收益比|risk\/reward/i.test(searchable) && coreLabelCount >= 3) break;
     }
     if (coreLabelCount >= 3) return planBlock(lines, startIndex, endIndex);
   }
@@ -625,6 +641,7 @@ export function createSavedExecutionPlan(input: {
   sourcePlanKey?: string | null;
   sourceTitle?: string | null;
   analysisLabel?: string | null;
+  language?: unknown;
   createdAt?: string;
 }): SavedExecutionPlan {
   const createdAt = input.createdAt || new Date().toISOString();
@@ -636,6 +653,7 @@ export function createSavedExecutionPlan(input: {
       analysisLabel: input.analysisLabel,
       sourceTitle: input.sourceTitle,
       sourceText: input.candidate.content,
+      language: input.language,
     }),
     content: input.candidate.content,
     sourceThreadId: input.sourceThreadId,

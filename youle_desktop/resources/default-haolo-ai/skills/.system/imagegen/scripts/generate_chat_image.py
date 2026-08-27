@@ -7,7 +7,7 @@ compatibility diagnostics. It still calls the **Haolo gateway** with the same
 OPENAI_API_KEY — there is no separate OtuAPI key or host on the desktop.
 
 Endpoint: POST {base}/images/generations
-Default base: https://aiapi.youleai.top/v1 (overridable via OPENAI_BASE_URL)
+Default base: https://haolo.pro/v1 (overridable via OPENAI_BASE_URL)
 Default model: image2
 Credentials: OPENAI_API_KEY (Bearer) — the Haolo credential injected by the
 main process after login.
@@ -22,10 +22,11 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
-DEFAULT_BASE_URL = "https://aiapi.youleai.top/v1"
+DEFAULT_BASE_URL = "https://haolo.pro/v1"
 DEFAULT_MODEL = "image2"
 # Returned image URLs may be third-party CDN (Cloudflare-fronted); urllib's
 # default User-Agent can draw a 403 (error 1010), so present a browser UA.
@@ -72,9 +73,23 @@ def read_prompt(args):
     return args.prompt.strip()
 
 
+def migrate_gateway_url(value):
+    clean = str(value or "").strip().rstrip("/")
+    try:
+        url = urllib.parse.urlsplit(clean)
+        ports = {"aiapi.youleai.top": {None, 80, 443}, "8.216.5.161": {None, 80, 443, 8080}, "54.235.242.62": {None, 80, 3000}, "haolo.pro": {None, 80, 443}}
+        if url.scheme not in {"http", "https"} or url.username or url.password or url.query or url.fragment:
+            return clean
+        if url.hostname not in ports or url.port not in ports[url.hostname]:
+            return clean
+        return urllib.parse.urlunsplit(("https", "haolo.pro", url.path.rstrip("/") or "/v1", "", ""))
+    except ValueError:
+        return clean
+
+
 def resolve_base_url(args):
     base = args.base_url or os.environ.get("OPENAI_BASE_URL") or DEFAULT_BASE_URL
-    return base.rstrip("/")
+    return migrate_gateway_url(base)
 
 
 def fail(message, detail=None, error_class=None):

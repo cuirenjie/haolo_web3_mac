@@ -30,7 +30,7 @@ except ModuleNotFoundError:
     local_preset_resolver = None
 
 
-DEFAULT_HAOLO_BASE_URL = "https://aiapi.youleai.top/v1"
+DEFAULT_HAOLO_BASE_URL = "https://haolo.pro/v1"
 DEFAULT_MODEL = "aihubcc/gpt-image-2"
 GPT_IMAGE_BASE_MODEL = DEFAULT_MODEL
 GPT_IMAGE_1K_MODEL = "gpt-image-2-1k"
@@ -340,14 +340,26 @@ def is_media_catalog_policy_mismatch(exc, model):
     )
 
 
+def migrate_gateway_url(value, *, preserve_query=False):
+    clean = str(value or "").strip().rstrip("/")
+    try:
+        url = urllib.parse.urlsplit(clean)
+        ports = {"aiapi.youleai.top": {None, 80, 443}, "8.216.5.161": {None, 80, 443, 8080}, "54.235.242.62": {None, 80, 3000}, "haolo.pro": {None, 80, 443}}
+        if url.scheme not in {"http", "https"} or url.username or url.password or (url.query and not preserve_query) or url.fragment:
+            return clean
+        if url.hostname not in ports or url.port not in ports[url.hostname]:
+            return clean
+        return urllib.parse.urlunsplit(("https", "haolo.pro", url.path.rstrip("/") or "/v1", url.query, ""))
+    except ValueError:
+        return clean
+
+
 def normalized_haolo_base_url(base_url):
-    clean = str(base_url or "").strip().rstrip("/")
+    clean = migrate_gateway_url(base_url)
     if not clean:
         return None
     lowered = clean.lower()
-    if lowered.startswith("http://54.235.242.62"):
-        return DEFAULT_HAOLO_BASE_URL
-    if lowered == "https://aiapi.youleai.top":
+    if lowered == "https://haolo.pro":
         return DEFAULT_HAOLO_BASE_URL
     for suffix in (
         "/images/generations",
@@ -378,13 +390,11 @@ def video_generation_endpoint(base_url):
 
 
 def normalized_haolo_api_url(api_url):
-    clean = str(api_url or "").strip().rstrip("/")
+    clean = migrate_gateway_url(api_url)
     if not clean:
         return None
     lowered = clean.lower()
-    if lowered.startswith("http://54.235.242.62"):
-        return images_endpoint(DEFAULT_HAOLO_BASE_URL)
-    if lowered in {"https://aiapi.youleai.top", "https://aiapi.youleai.top/v1"}:
+    if lowered in {"https://haolo.pro", "https://haolo.pro/v1"}:
         return images_endpoint(DEFAULT_HAOLO_BASE_URL)
     if lowered.endswith("/images/generations"):
         return clean
@@ -701,7 +711,7 @@ def parse_args():
     parser.add_argument(
         "--base-url",
         default=None,
-        help="Advanced testing only: subapi base URL, for example https://aiapi.youleai.top/v1.",
+        help="Advanced testing only: subapi base URL, for example https://haolo.pro/v1.",
     )
     parser.add_argument("--quality", default="auto", choices=["low", "medium", "high", "auto"])
     parser.add_argument("--size", default="auto", choices=IMAGE_SIZE_CHOICES)
@@ -829,12 +839,24 @@ def read_json_file(path, label):
     return value
 
 
+def replace_job_file(source, destination):
+    # Keep a transient Windows read handle from aborting a resumable task.
+    for attempt in range(10):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError as error:
+            if getattr(error, "winerror", None) not in {5, 32, 33} or attempt == 9:
+                raise
+            time.sleep(0.02 * (attempt + 1))
+
+
 def atomic_write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f"{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
     try:
         temp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-        os.replace(temp_path, path)
+        replace_job_file(temp_path, path)
     finally:
         try:
             temp_path.unlink(missing_ok=True)
@@ -1365,7 +1387,7 @@ def build_payload(args, prompt, model):
 
 def download_reference_bytes(image_url, max_bytes):
     request = urllib.request.Request(
-        image_url,
+        migrate_gateway_url(image_url, preserve_query=True),
         headers={"User-Agent": BROWSER_UA, "Accept": "image/png,image/jpeg,image/webp"},
     )
     with OPENER.open(request, timeout=60) as response:
@@ -1793,6 +1815,8 @@ def download_result(result_url, api_key, base_url, output_dir, basename, output_
     if str(result_url).startswith("data:image/"):
         return write_data_url(result_url, output, basename, stamp, output_format, index)
 
+    result_url = migrate_gateway_url(result_url, preserve_query=True)
+    base_url = normalize_base_url(base_url)
     headers = {"User-Agent": BROWSER_UA}
     if urllib.parse.urlparse(result_url).netloc == urllib.parse.urlparse(base_url).netloc:
         headers["Authorization"] = f"Bearer {api_key}"

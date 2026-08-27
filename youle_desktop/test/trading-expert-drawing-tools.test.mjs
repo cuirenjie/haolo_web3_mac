@@ -314,6 +314,27 @@ test("manual and AI drawings persist in isolated conversation storage", async ()
   assert.match(market, /persistTradingAiDrawingPatch\(storageSessionId, patch\)/);
 });
 
+test("each trading task persists its last selected market and interval", async () => {
+  const market = await marketSource;
+  const selectMarket = market.slice(
+    market.indexOf("private selectMarket(market: TradingMarket)"),
+    market.indexOf("private syncIntervalAvailability"),
+  );
+  const intervalAction = market.slice(
+    market.indexOf('if (action === "interval")'),
+    market.indexOf('if (action === "main-indicator")'),
+  );
+  const storageSwitch = market.slice(
+    market.indexOf("syncDrawingStorageSession("),
+    market.indexOf("private restoreLastAnalysisSelection"),
+  );
+
+  assert.match(selectMarket, /this\.selectedMarketId = market\.id;[\s\S]*this\.recordLastDrawingWorkspace\(\);/);
+  assert.match(intervalAction, /this\.activeInterval = interval;[\s\S]*this\.recordLastDrawingWorkspace\(\);/);
+  assert.match(market, /onSelectionChange: \(selection\) => \{[\s\S]*this\.splitPaneSelections\.set\(index, selection\);[\s\S]*this\.recordLastDrawingWorkspace\(\);/);
+  assert.match(storageSwitch, /previousStorageSessionId !== drawingStorageSessionId[\s\S]*loadTradingLastDrawingWorkspace\(window\.localStorage, drawingStorageSessionId\)[\s\S]*this\.restoreLastDrawingWorkspace\(workspace\)/);
+});
+
 test("drawing coordinate conversion rejects missing chart values instead of teleporting endpoints", async () => {
   const {
     finiteTradingChartCoordinate,

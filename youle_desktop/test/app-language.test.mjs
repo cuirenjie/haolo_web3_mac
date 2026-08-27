@@ -8,7 +8,10 @@ import {
   appLanguageOptions,
   loadAppLanguage,
   normalizeAppLanguage,
+  readStoredAppLanguage,
+  resolveAppLanguagePreference,
   translateAppText,
+  translateTradingPeriodLabel,
 } from "../src/renderer/app-language.mjs";
 import { GENERATED_ENGLISH_UI_PHRASES } from "../src/renderer/app-language-en-generated.mjs";
 import { GENERATED_TRADITIONAL_UI_PHRASES } from "../src/renderer/app-language-zh-tw-generated.mjs";
@@ -39,6 +42,35 @@ test("application language safely defaults to English and exposes three supporte
   assert.equal(loadAppLanguage({ getItem: () => "zh-CN" }), "zh-CN");
   assert.equal(loadAppLanguage({ getItem: () => "zh-TW" }), "zh-TW");
   assert.equal(loadAppLanguage({ getItem: () => { throw new Error("blocked"); } }), "en");
+  assert.equal(readStoredAppLanguage({ getItem: () => null }), null);
+  assert.equal(readStoredAppLanguage({ getItem: () => "unsupported" }), null);
+  assert.equal(readStoredAppLanguage({ getItem: () => "zh-CN" }), "zh-CN");
+  assert.equal(readStoredAppLanguage({ getItem: () => { throw new Error("blocked"); } }), null);
+  assert.equal(resolveAppLanguagePreference({
+    currentLanguage: "en",
+    mainLanguage: "zh-CN",
+    mainPreferenceStored: true,
+    rendererLanguage: "en",
+  }), "zh-CN");
+  assert.equal(resolveAppLanguagePreference({
+    currentLanguage: "en",
+    mainLanguage: "en",
+    mainPreferenceStored: false,
+    rendererLanguage: "zh-CN",
+  }), "zh-CN");
+  assert.equal(resolveAppLanguagePreference({
+    currentLanguage: "en",
+    mainLanguage: "zh-TW",
+    mainPreferenceStored: false,
+    rendererLanguage: null,
+  }), "zh-TW");
+  assert.equal(resolveAppLanguagePreference({
+    currentLanguage: "zh-CN",
+    mainLanguage: "en",
+    mainPreferenceStored: true,
+    rendererLanguage: null,
+    userSelected: true,
+  }), "zh-CN");
   assert.equal(normalizeAppLanguage("en"), "en");
   assert.equal(appLanguageLocale("en"), "en-US");
   assert.equal(appLanguageLocale("zh-CN"), "zh-CN");
@@ -58,6 +90,14 @@ test("shared UI translator covers English and full renderer character conversion
   assert.equal(translateAppText("开始", "en"), "Start");
   assert.equal(translateAppText("收", "en"), "Close");
   assert.equal(translateAppText("1日", "en"), "1 day");
+  assert.equal(translateTradingPeriodLabel("1周", "en"), "1W");
+  assert.equal(translateTradingPeriodLabel("1日", "en"), "1D");
+  assert.equal(translateTradingPeriodLabel("5分", "en"), "5M");
+  assert.equal(translateTradingPeriodLabel("15分", "en"), "15M");
+  assert.equal(translateTradingPeriodLabel("1时", "en"), "1H");
+  assert.equal(translateTradingPeriodLabel("1秒", "en"), "1S");
+  assert.equal(translateTradingPeriodLabel("4時", "en"), "4H");
+  assert.equal(translateTradingPeriodLabel("1时", "zh-TW"), "1時");
   assert.equal(
     translateAppText("天才交易员，你好！我是 Haolo，你的全能交易助理。接下来我们会通过几段简短对话了解你的交易偏好。现在可以开始吗？", "en"),
     "Hello, trader! I'm Haolo, your all-in-one trading assistant. A few short questions will help me understand your trading preferences. Ready to begin?",
@@ -77,6 +117,11 @@ test("shared UI translator covers English and full renderer character conversion
   assert.equal(translateAppText("联系客服", "en"), "Contact support");
   assert.equal(translateAppText("联系Telegram", "zh-TW"), "聯絡 Telegram");
   assert.equal(translateAppText("联系客服", "zh-TW"), "聯絡客服");
+  assert.equal(translateAppText("AI 文字标注字号调节", "en"), "Adjust AI annotation text size");
+  assert.equal(
+    translateAppText("当前图表全部 AI 标注字号，所在标注当前 16px", "en"),
+    "All AI annotation text sizes on the current chart; selected annotation is currently 16px",
+  );
   assert.equal(translateAppText("威科夫", "en"), "Wyckoff Method");
   assert.equal(translateAppText("布林带", "en"), "Bollinger Bands");
   assert.equal(translateAppText("均线", "en"), "Moving Averages");
@@ -98,8 +143,9 @@ test("general settings renders the language selector in the requested position a
 
   const userDataIndex = dialogBlock.indexOf("renderSettingsUserDataRow()");
   const languageIndex = dialogBlock.indexOf("renderSettingsLanguageRow()");
+  const taskbarIndex = dialogBlock.indexOf('renderSettingsSwitchRow("固定在桌面任务栏"');
   const installPathIndex = dialogBlock.indexOf('class="settings-storage-row"');
-  assert.ok(languageIndex < userDataIndex && userDataIndex < installPathIndex);
+  assert.ok(languageIndex < taskbarIndex && taskbarIndex < userDataIndex && userDataIndex < installPathIndex);
   assert.match(languageBlock, /<span>语言<\/span>/);
   assert.match(languageBlock, /data-settings-language/);
   assert.match(languageBlock, /appLanguageOptions\(language\)/);
@@ -157,13 +203,19 @@ test("localized trading expert mentions stay English in the composer and canonic
   assert.match(source, /tradingAlertMentioned\(tradingExpertRoutingText\)/);
 });
 
-test("language initializes as English before boot and is persisted in renderer and main process", async () => {
+test("language initializes before boot and reconciles renderer and main-process persistence without clobbering", async () => {
   const [source, main, preload, index] = await Promise.all([rendererSource, mainSource, preloadSource, indexSource]);
-  assert.match(source, /const INITIAL_APP_LANGUAGE = loadAppLanguage\(\);\s*applyAppLanguage\(INITIAL_APP_LANGUAGE\);/s);
+  assert.match(source, /const INITIAL_STORED_APP_LANGUAGE = readStoredAppLanguage\(\);/);
+  assert.match(source, /const INITIAL_APP_LANGUAGE = INITIAL_STORED_APP_LANGUAGE \|\| loadAppLanguage\(\);\s*applyAppLanguage\(INITIAL_APP_LANGUAGE\);/s);
   assert.ok(source.indexOf("applyAppLanguage(INITIAL_APP_LANGUAGE);") < source.indexOf("void boot();"));
   assert.match(source, /language: INITIAL_APP_LANGUAGE/);
+  assert.doesNotMatch(sourceBlock(source, "ensureBrowserDesktopApi();", 'document.addEventListener("visibilitychange"'), /api\.setAppLanguage/);
+  assert.match(source, /reconcileStartupAppLanguage\(defaults\.language, defaults\.languagePreferenceStored === true\)/);
+  assert.match(source, /resolveAppLanguagePreference\(\{[\s\S]*mainPreferenceStored,[\s\S]*rendererLanguage: storedRendererLanguage,[\s\S]*userSelected: appLanguageSelectionRevision > 0/);
   assert.match(main, /DEFAULT_APP_PREFERENCES = Object\.freeze\(\{\s*theme: "dark",\s*language: "en"/s);
   assert.match(main, /function normalizeAppLanguage\(value\)/);
+  assert.match(main, /function appLanguagePreferenceStored\(\)/);
+  assert.match(main, /languagePreferenceStored: appLanguagePreferenceStored\(\)/);
   assert.match(main, /ipcMain\.handle\("app:setLanguage"/);
   assert.match(preload, /setAppLanguage: \(params\) => ipcRenderer\.invoke\("app:setLanguage", params\)/);
   assert.match(index, /<html lang="en-US" data-language="en">/);
@@ -202,8 +254,29 @@ test("HaoLo select preserves listbox semantics and keyboard interaction", async 
   assert.match(source, /aria-selected=/);
   assert.match(source, /event\.key === "ArrowDown"/);
   assert.match(source, /event\.key === "Escape"/);
+  assert.match(source, /menu\.addEventListener\("mousedown"/);
+  assert.match(source, /event\.preventDefault\(\)/);
   assert.match(source, /input\.dispatchEvent\(new Event\("change", \{ bubbles: true \}\)\)/);
   assert.match(source, /spaceBelow < menuHeight \+ 6 && spaceAbove > spaceBelow/);
+});
+
+test("runtime language audit uses the same pointer interaction as users and verifies reload persistence", async () => {
+  const audit = await readFile(new URL("../scripts/audit-i18n-layout.mjs", import.meta.url), "utf8");
+  const switchBlock = sourceBlock(audit, "async function switchLanguage", "async function verifyLanguageSurvivesReload");
+  assert.match(switchBlock, /data-haolo-select-trigger/);
+  assert.match(switchBlock, /data-haolo-select-value/);
+  assert.match(switchBlock, /nativeClick/);
+  assert.doesNotMatch(switchBlock, /dispatchEvent/);
+  assert.match(switchBlock, /storedValue/);
+  const nativeClickBlock = sourceBlock(audit, "async function nativeClick", "async function click");
+  assert.match(nativeClickBlock, /Input\.dispatchMouseEvent/);
+  assert.doesNotMatch(nativeClickBlock, /element\.click\(\)/);
+  assert.match(audit, /function verifyLanguageTransitionMatrix/);
+  assert.match(audit, /for \(const source of languages\)/);
+  assert.match(audit, /for \(const target of languages\)/);
+  assert.match(audit, /for \(const language of \["en", "zh-CN", "zh-TW"\]\)/);
+  assert.match(audit, /verifyLanguageSurvivesReload\(targetWindow, language\)/);
+  assert.match(audit, /targetWindow\.reload\(\)/);
 });
 
 test("renderer has no remaining visible native option boxes", async () => {

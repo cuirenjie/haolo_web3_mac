@@ -2456,7 +2456,7 @@ function workflowNodeContractCompilerPrompt({
     "Fixed attachments are additive context. They never satisfy declared runtime input and never replace upstream output.",
     "Also compile the least CapabilityRequest that can actually execute this node. This is a semantic authorization requirement, not a description of the task.",
     "external_model is always read_only. A codex_subagent that only reads and analyzes may be read_only; one that creates or modifies local files or runs mutating commands needs workspace_write; one that calls any network service, generates or edits image/video through a media service, operates an application, or publishes needs full_access.",
-    "For media generation or editing plus document creation, use full_access with filesystem read/create/update, command.execute, network.access, actions read/create/update/execute, sideEffectPolicy=reversible, and the narrow media gateway domain aiapi.youleai.top (use * only when the required endpoint is genuinely unknown).",
+    "For media generation or editing plus document creation, use full_access with filesystem read/create/update, command.execute, network.access, actions read/create/update/execute, sideEffectPolicy=reversible, and the narrow media gateway domain haolo.pro (use * only when the required endpoint is genuinely unknown).",
     "Never return read_only for a codex_subagent that must create a required file, image, or video output. Never request delegation.",
     node.dependsOn?.length
       ? "This is a downstream node. Its runtime input will be generated from direct graph edges; do not invent or override upstream input slots. Return inputSlots=[] for it."
@@ -2504,7 +2504,7 @@ function workflowNodeContractCompilerPrompt({
           workspace: "none|current_group",
           paths: [],
           uploads: [],
-          network: ["aiapi.youleai.top"],
+          network: ["haolo.pro"],
           applications: [],
         },
         actions: ["read", "create", "update", "execute"],
@@ -2641,7 +2641,7 @@ function workflowNodeCapabilityCompilerPrompt(node) {
     "Do not execute the task, change the graph, add nodes, alter dependencies, call tools, read files, or browse.",
     "Semantically compile only the least CapabilityRequest that can execute this already-frozen node. Never downgrade an effectful task to read_only merely because the old canvas omitted its permission metadata.",
     "Use read_only only for pure reading and analysis. Use workspace_write for local file creation/modification and mutating commands that require no network or application operation. Use full_access whenever the task needs a network service, media generation/editing service, application operation, or publishing.",
-    "Image or video generation/editing through Haolo's media service requires full_access, filesystem read/create/update, command.execute, network.access, actions read/create/update/execute, sideEffectPolicy=reversible, and network scope aiapi.youleai.top. Use * only if the required endpoint is genuinely unknown.",
+    "Image or video generation/editing through Haolo's media service requires full_access, filesystem read/create/update, command.execute, network.access, actions read/create/update/execute, sideEffectPolicy=reversible, and network scope haolo.pro. Use * only if the required endpoint is genuinely unknown.",
     "A required generated file, image, or video output cannot use read_only. Delegation must be false.",
     `Frozen node (do not modify):\n${JSON.stringify({
       id: node?.id,
@@ -2664,7 +2664,7 @@ function workflowNodeCapabilityCompilerPrompt(node) {
           workspace: "none|current_group",
           paths: [],
           uploads: [],
-          network: ["aiapi.youleai.top"],
+          network: ["haolo.pro"],
           applications: [],
         },
         actions: ["read", "create", "update", "execute"],

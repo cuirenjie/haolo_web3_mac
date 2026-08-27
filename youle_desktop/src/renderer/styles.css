@@ -40281,7 +40281,7 @@ html[data-theme="dark"] .trading-alerts-page {
 .trading-alert-card-head { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .trading-alert-card-copy h2 { min-width: 0; flex: 1 1 auto; margin: 0; padding-right: 0; overflow: hidden; color: var(--text-primary); font-size: calc(14px + var(--app-font-size-offset)); font-weight: 700; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
 .trading-alert-card-copy p { display: -webkit-box; min-height: 36px; margin: 2px 0 4px; overflow: hidden; color: var(--text-subtle); font-size: calc(12px + var(--app-font-size-offset)); line-height: 18px; overflow-wrap: anywhere; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.trading-alert-card-copy small { display: block; margin-top: auto; padding-right: 74px; overflow: hidden; color: var(--text-muted); font-size: calc(11px + var(--app-font-size-offset)); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.trading-alert-card-copy small { display: block; margin-top: auto; padding-right: 74px; overflow: hidden; color: var(--text-muted); font-size: calc(11px + var(--app-font-size-offset)); line-height: 16px; text-overflow: ellipsis; white-space: nowrap; transition: opacity 140ms ease; }
 /* Plan-linked cards share the same top, first-content, and metadata baselines. */
 .trading-alert-card.execution-plan-linked { min-height: 0; }
 .trading-alert-card.execution-plan-linked .trading-alert-card-copy h2 { padding-right: 0; }
@@ -40299,6 +40299,7 @@ html[data-theme="dark"] .trading-alerts-page {
 .trading-alert-card footer > span { display: none; }
 .trading-alert-actions { display: flex; align-items: center; justify-content: flex-end; gap: 1px; border-radius: 7px; background: color-mix(in srgb, var(--surface-primary) 94%, transparent); opacity: 0; transition: opacity 140ms ease; }
 .trading-alert-card:is(:hover, :focus-within) .trading-alert-actions { opacity: 1; }
+.trading-alert-card:is(:hover, :focus-within) .trading-alert-card-copy small { opacity: 0; }
 .trading-alert-actions button { border: 0; border-radius: 6px; background: transparent; padding: 4px 6px; color: var(--text-secondary); font-size: calc(10px + var(--app-font-size-offset)); line-height: 16px; cursor: pointer; }
 .trading-alert-actions button:hover { background: var(--surface-hover); color: var(--text-primary); }
 .trading-alert-actions button:active { background: var(--surface-active-translucent); }
@@ -40315,7 +40316,10 @@ html[data-theme="dark"] .trading-alert-filters button:hover { background: var(--
 html[data-theme="dark"] .trading-alert-subfilters button:hover { background: transparent; color: var(--text-secondary); }
 html[data-theme="dark"] .trading-alert-subfilters button:is(.active, [aria-pressed="true"]) { background: transparent; color: var(--text-primary); }
 
-@media (hover: none) { .trading-alert-actions { opacity: 1; } }
+@media (hover: none) {
+  .trading-alert-actions { opacity: 1; }
+  .trading-alert-card-copy small { opacity: 0; }
+}
 
 .trading-alert-empty,
 .trading-alert-loading { display: grid; max-width: 1180px; margin: 0 auto; place-items: center; align-content: center; text-align: center; }

@@ -87,6 +87,8 @@ test("direct request contains only fixed policy and the current question", () =>
   assert.equal(request.messages.length, 2);
   assert.deepEqual(request.messages.map((message) => message.role), ["developer", "user"]);
   assert.equal(request.messages[1].content, "什么是移动平均线？");
+  assert.match(request.messages[0].content, /app interface language is English/);
+  assert.match(request.messages[0].content, /Do not emit Chinese Han characters/);
   assert.equal(request.tools.length, 1);
   assert.equal(request.tools[0].function.name, TRADING_EXPERT_FAST_CHAT_HANDOFF_TOOL);
   assert.equal("attachments" in request, false);

@@ -16,7 +16,7 @@ flowchart LR
   M --> C["Codex app-server / 根编排模型"]
   C --> S["读取 imagegen 或 videogen SKILL.md"]
   S --> P["运行内置 Python 脚本"]
-  P --> G["Haolo 统一中转 aiapi.youleai.top/v1"]
+  P --> G["Haolo 统一中转 haolo.pro/v1"]
   G --> A["按业务模型 ID 选择账号池并映射上游"]
   A --> G
   G --> P
@@ -421,7 +421,7 @@ Seedance 仍是显式可选模型。它的业务模型 ID 原样提交，不发�
 Grok 1.5 使用新的直接异步提交：
 
 ```text
-POST https://aiapi.youleai.top/v1/videos
+POST https://haolo.pro/v1/videos
 ```
 
 请求头包含 Bearer 下游凭据；如果环境中存在交互信息，还会携带：
@@ -439,7 +439,7 @@ X-Haolo-Model-Capability
 提交响应解析 `task_id` 或兼容字段 `id`。Grok 1.5 的轮询地址优先使用提交响应中的 `polling_url`，否则使用：
 
 ```text
-GET https://aiapi.youleai.top/v1/videos/<task_id>
+GET https://haolo.pro/v1/videos/<task_id>
 ```
 
 默认每 5 秒轮询一次，最长 900 秒。Windows 优先使用 `curl`，其他平台或显式配置时可使用 `urllib`。除非设置 `HAOLO_GEN_USE_PROXY=1`，请求默认绕过系统代理，避免长连接被本地代理提前断开。

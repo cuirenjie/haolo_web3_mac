@@ -1,6 +1,6 @@
 ---
 name: "videogen"
-description: "Generate short text-to-video, image-to-video, or video-to-video clips through the Haolo subapi video gateway. The desktop obtains the allowed model and documented input, screen-size, and duration combinations from the authenticated media model pool and Video Expert capability API. The skill only talks to https://aiapi.youleai.top/v1 with the user's Youle/subapi credential; it never calls a provider directly or needs a provider key. Use whenever the user asks to generate, make, or create a video (生成视频 / 生视频 / 做个视频 / 出个视频 / 文生视频 / 短片 / 动态视频 / video generation). Never satisfy a video request by composing animations with HTML/CSS/JS, canvas, or ffmpeg slideshows unless the user explicitly asks for a code-based animation."
+description: "Generate short text-to-video, image-to-video, or video-to-video clips through the Haolo subapi video gateway. The desktop obtains the allowed model and documented input, screen-size, and duration combinations from the authenticated media model pool and Video Expert capability API. The skill only talks to https://haolo.pro/v1 with the user's Youle/subapi credential; it never calls a provider directly or needs a provider key. Use whenever the user asks to generate, make, or create a video (生成视频 / 生视频 / 做个视频 / 出个视频 / 文生视频 / 短片 / 动态视频 / video generation). Never satisfy a video request by composing animations with HTML/CSS/JS, canvas, or ffmpeg slideshows unless the user explicitly asks for a code-based animation."
 ---
 
 # Video Generation Skill (Youle Subapi)
@@ -12,8 +12,8 @@ Generate video clips through the Haolo subapi asynchronous video API.
 - Ordinary text-to-video and image-to-video requests start with AIHubCC `grok-imagine-video-1.5`. Image-to-video may safely fall back to Buming `aihubcc/grok-video-3.5` and then AIHubCC `omni-fast-no-water`. Do not automatically select Seedance.
 - Current models: `Seedance-2.0-480p`, `Seedance-2.0-720p`, `Seedance-2.0-1080p`, `Seedance-2.0-mini-480p`, `Seedance-2.0-mini-720p`, `grok-imagine-video-1.5`, `aihubcc/grok-video-3.5`, `omni-fast-no-water`, and `omni-fast-v2v-no-water`.
 - Relay routing: the script submits the selected business model ID unchanged. The gateway owns provider-account selection and any upstream model mapping.
-- Grok 1.5 submit: `POST https://aiapi.youleai.top/v1/videos`.
-- Grok 1.5 poll: `GET https://aiapi.youleai.top/v1/videos/{task_id}` until `status=completed`; then read `video_url`.
+- Grok 1.5 submit: `POST https://haolo.pro/v1/videos`.
+- Grok 1.5 poll: `GET https://haolo.pro/v1/videos/{task_id}` until `status=completed`; then read `video_url`.
 - Input: follow the selected model contract; Grok 1.5 accepts text alone or one public image URL, Seedance accepts up to 4 images, 3 videos, and 1 audio reference (audio requires a main image), Omni Fast accepts up to 5 images, and Omni V2V requires 1-2 source videos.
 - Timeout guidance: poll every 3-5 seconds; allow up to 900 seconds.
 - Recovery: every submit must include a stable `--request-id`, the desktop `--conversation-id`, and a persistent `--job-dir`. The relay and local journal retain the task for 24 hours.
@@ -133,7 +133,7 @@ The recovery command first uses the local journal, then the authenticated relay'
 
 ## Endpoint reference
 
-- Base: `https://aiapi.youleai.top/v1` by default. `LLMHUB_BASE_URL`, `SUB2API_BASE_URL`, or `--base-url` may override it for local testing. Do not use ambient `OPENAI_BASE_URL` for routing because Codex sessions may set it to a non-subapi backend.
+- Base: `https://haolo.pro/v1` by default. `LLMHUB_BASE_URL`, `SUB2API_BASE_URL`, or `--base-url` may override it for local testing. Do not use ambient `OPENAI_BASE_URL` for routing because Codex sessions may set it to a non-subapi backend.
 - Auth: `Authorization: Bearer <LLMHUB_API_KEY>`. The script checks `LLMHUB_API_KEY`, then `SUB2API_API_KEY`, then `OPENAI_API_KEY`, which haolo_desktop injects after login.
 - Grok 1.5 submit: `POST {base}/videos`.
 - Grok 1.5 poll: use the submit response's `polling_url` when present; otherwise use `GET {base}/videos/{task_id}` and complete only on `status=completed`.

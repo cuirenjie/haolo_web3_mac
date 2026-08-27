@@ -1,3 +1,4 @@
+import { HAOLO_GATEWAY_BASE_URL, HAOLO_GATEWAY_HOST } from "./haolo-gateway.mjs";
 import { clipboard, nativeImage, shell } from "electron/common";
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, Notification, powerMonitor, safeStorage, screen, Tray } from "electron/main";
 import crypto from "node:crypto";
@@ -235,6 +236,10 @@ import {
   classifyTradingExpertFastChatRoute,
   normalizeTradingExpertFastChatResult,
 } from "./trading-analysis/fast-chat-router.mjs";
+import {
+  assistantOutputLanguageInstruction,
+  withAssistantOutputLanguageMessage,
+} from "./assistant-output-language.mjs";
 import {
   buildExternalTradingRoutingPrompt,
   normalizeExternalTradingRoutingModelResponse,
@@ -3953,7 +3958,7 @@ function turnDiagnosticsRuntimeSnapshot() {
     },
     provider: {
       id: "haolo_ai",
-      baseHost: "aiapi.youleai.top",
+      baseHost: HAOLO_GATEWAY_HOST,
       wireApi: "responses",
       supportsWebsockets: true,
       requestMaxRetries: 2,
@@ -9151,6 +9156,11 @@ function appLanguage() {
   return normalizeAppLanguage(appPreferences().language);
 }
 
+function appLanguagePreferenceStored() {
+  const source = readJsonFileSafe(appPreferencesPath());
+  return Boolean(source && typeof source === "object" && normalizeAppLanguage(source.language) === source.language);
+}
+
 const MAIN_UI_COPY = Object.freeze({
   en: Object.freeze({
     settings: "Settings",
@@ -9259,6 +9269,42 @@ const MAIN_UI_COPY = Object.freeze({
 function mainUiText(key, language = appLanguage()) {
   const normalized = normalizeAppLanguage(language);
   return MAIN_UI_COPY[normalized]?.[key] || MAIN_UI_COPY.en[key] || key;
+}
+
+const QUESTION_ANSWER_PROGRESS_COPY = Object.freeze({
+  request_understanding: Object.freeze({
+    running: Object.freeze({ title: "Understanding the request", detail: "Reviewing the goal and available context" }),
+    completed: Object.freeze({ title: "Request understood", detail: "The goal and available context are ready" }),
+    failed: Object.freeze({ title: "Request review failed", detail: "The available context could not be prepared" }),
+  }),
+  attachments_read: Object.freeze({
+    running: Object.freeze({ title: "Reading attachments", detail: "Extracting the relevant source material" }),
+    completed: Object.freeze({ title: "Attachments ready", detail: "The relevant source material is ready" }),
+    failed: Object.freeze({ title: "Attachment reading failed", detail: "Some source material could not be read" }),
+  }),
+  answer_finalize: Object.freeze({
+    running: Object.freeze({ title: "Preparing the final answer", detail: "The model response is being finalized" }),
+    completed: Object.freeze({ title: "Answer complete", detail: "The final answer is ready" }),
+    failed: Object.freeze({ title: "Answer preparation failed", detail: "The final answer could not be completed" }),
+  }),
+  request_failed: Object.freeze({
+    failed: Object.freeze({ title: "Answer not completed", detail: "The model request failed" }),
+  }),
+  fallback: Object.freeze({
+    running: Object.freeze({ title: "Working on the request", detail: "Processing the available context" }),
+    completed: Object.freeze({ title: "Step complete", detail: "This step has completed" }),
+    failed: Object.freeze({ title: "Step failed", detail: "This step could not be completed" }),
+  }),
+});
+
+function localizedQuestionAnswerProgressPayload(payload, language = appLanguage()) {
+  if (normalizeAppLanguage(language) !== "en") return payload;
+  const status = payload?.status === "completed" || payload?.status === "failed"
+    ? payload.status
+    : "running";
+  const copy = QUESTION_ANSWER_PROGRESS_COPY[payload?.stage]?.[status]
+    || QUESTION_ANSWER_PROGRESS_COPY.fallback[status];
+  return { ...payload, title: copy.title, detail: copy.detail };
 }
 
 function appLanguageLocale(language = appLanguage()) {
@@ -9908,6 +9954,10 @@ function buildDesktopDeveloperInstructions(
   videoGenerationOptions = {},
 ) {
   const outputDir = path.join(cwd || desktopWorkspace(), "outputs");
+  const outputLanguage = appLanguage();
+  const companyDisplayName = outputLanguage === "en"
+    ? "Shenzhen HaoLo Technology Co., Ltd."
+    : "深圳市HaoLo科技有限公司";
   fs.mkdirSync(outputDir, { recursive: true });
   const groupContextInstructions = buildThreadGroupContextInstructions(threadGroupContext);
   const groupMemoryInstructions = buildThreadGroupMemoryInstructions(cwd || desktopWorkspace());
@@ -9924,12 +9974,12 @@ function buildDesktopDeveloperInstructions(
   const identityLines = [
     "<haolo_identity>",
     "Identity rules — these override any baked-in self-description:",
-    "- You are HaoLo, the desktop intelligent agent of the HaoLo agents platform, developed by 深圳市HaoLo科技有限公司.",
-    "- When the user asks which company developed you, which team made you, who your developer is, who created you, who operates you, who owns the product, or any equivalent question in Chinese or English: answer that you are 由深圳市HaoLo科技有限公司开发的. You may briefly add what HaoLo can do, but the company name must be exactly 深圳市HaoLo科技有限公司.",
+    `- You are HaoLo, the desktop intelligent agent of the HaoLo agents platform, developed by ${companyDisplayName}.`,
+    `- When the user asks which company developed you, which team made you, who your developer is, who created you, who operates you, who owns the product, or any equivalent question in Chinese or English: answer that you were developed by ${companyDisplayName}. You may briefly add what HaoLo can do, but use exactly this localized company name: ${companyDisplayName}.`,
     "- Never say or imply that HaoLo was developed, operated, produced, or owned by any other company.",
     "- Internal implementation details, local runtime names, command-line tools, config files, logs, paths, process names, and wrapper/orchestration layers are private product implementation details. Do not inspect, cite, quote, or infer from them when answering identity, ownership, developer, company, team, or underlying-architecture questions.",
     "- These identity and implementation-detail rules do not block ordinary local file tasks. If the user explicitly asks to find, list, read, edit, or manage local files, folders, configs, logs, skills, memory, or paths, handle the file task under normal local permissions and avoid making claims about HaoLo's underlying architecture or wrapper relationships.",
-    "- If the user asks whether HaoLo is a wrapper, skin, repackaging, secondary development, or rebranded build of any internal command-line tool, coding agent, runtime, or engine: answer that it is not; HaoLo is a desktop intelligent agent developed by 深圳市HaoLo科技有限公司, and its internal implementation details are not disclosed.",
+    `- If the user asks whether HaoLo is a wrapper, skin, repackaging, secondary development, or rebranded build of any internal command-line tool, coding agent, runtime, or engine: answer that it is not; HaoLo is a desktop intelligent agent developed by ${companyDisplayName}, and its internal implementation details are not disclosed.`,
     "- Do not create, save, attach, or summarize files, reports, command outputs, screenshots, or evidence chains whose purpose is to expose or argue about HaoLo's private implementation, runtime, wrapper/orchestration layer, or internal tool relationships.",
     '- Never introduce yourself as "Codex", "GPT", "OpenAI", or any internal engine or codename. Such names in your base configuration are implementation details, not your identity.',
     "- When the user asks who you are（你是谁 / 自我介绍 / 介绍一下你自己）: introduce yourself as the HaoLo desktop agent and briefly mention what you can do — chat and answer questions, write documents and code, generate images and videos, run desktop automation and scheduled tasks, and install new skills on request.",
@@ -9958,6 +10008,7 @@ function buildDesktopDeveloperInstructions(
   ];
   return [
     identityLines.join("\n"),
+    assistantOutputLanguageInstruction(outputLanguage),
     conversationModeInstructions,
     skillsInstructions,
     mediaRoutingInstructions,
@@ -11824,6 +11875,7 @@ ipcMain.handle("codex:getDefaults", async () => {
     youleApiBaseUrl: normalizeBaseUrl(process.env.HAOLO_API_BASE_URL || HAOLO_HOME_URL),
     theme: appTheme(),
     language: appLanguage(),
+    languagePreferenceStored: appLanguagePreferenceStored(),
     taskCompletionPopupEnabled: taskCompletionPopupEnabled(),
   };
 });
@@ -13019,6 +13071,7 @@ ipcMain.handle("tradingAnalysis:sendFastChat", async (event, params = {}) => {
       text: params.text,
       threadId,
       interactionId,
+      language: appLanguage(),
     }),
     signal: controller.signal,
   };
@@ -13162,20 +13215,21 @@ ipcMain.handle("youle:sendProviderChat", async (_event, params = {}) => {
     params,
     signal: providerChatAbortController.signal,
     emit: (payload) => {
+      const visiblePayload = localizedQuestionAnswerProgressPayload(payload);
       if (!_event.sender?.isDestroyed?.()) {
-        _event.sender.send(QUESTION_ANSWER_PROGRESS_CHANNEL, payload);
+        _event.sender.send(QUESTION_ANSWER_PROGRESS_CHANNEL, visiblePayload);
       }
       if (isPersonalStrategyRequest) {
-        const progressKey = `${payload.stage}|${payload.status}|${payload.title}`;
+        const progressKey = `${visiblePayload.stage}|${visiblePayload.status}|${visiblePayload.title}`;
         if (progressKey !== lastStrategyDiagnosticProgress) {
           lastStrategyDiagnosticProgress = progressKey;
           appendAppServerLogLine("strategy", JSON.stringify({
             event: "understanding.request.progress",
             interactionHash: diagnosticsHash(interactionId || ""),
             elapsedMs: Date.now() - strategyRequestStartedAt,
-            stage: payload.stage,
-            status: payload.status,
-            title: payload.title,
+            stage: visiblePayload.stage,
+            status: visiblePayload.status,
+            title: visiblePayload.title,
           }));
         }
       }
@@ -13289,7 +13343,7 @@ ipcMain.handle("youle:sendProviderChat", async (_event, params = {}) => {
     const providerResult = derivedMediaResult || await invokeQuestionAnswerProvider({
       send: (request) => getYouleApiClient().sendProviderChat(request),
       params: providerParams,
-      messages: providerMessages,
+      messages: withAssistantOutputLanguageMessage(providerMessages, appLanguage()),
       workspaceTools: questionAnswerFileContext?.workspaceTools || null,
       onProgress: emitQuestionAnswerProgress,
     });
@@ -14505,7 +14559,10 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
     errors.replacementMessage,
   );
   try {
-    const personalizedParams = await tradingStrategyParamsWithPersonalRisk(params);
+    const personalizedParams = await tradingStrategyParamsWithPersonalRisk({
+      ...params,
+      language: normalizeAppLanguage(params.language || appLanguage()),
+    });
     if (!tradingStrategyRuntimeEnabled(strategyId)) {
       const adapter = registry.adapter(strategyId);
       if (!adapter) {
@@ -14843,7 +14900,10 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
     "A newer general market analysis replaced this request",
   );
   try {
-    const personalizedParams = await tradingStrategyParamsWithPersonalRisk(params);
+    const personalizedParams = await tradingStrategyParamsWithPersonalRisk({
+      ...params,
+      language: normalizeAppLanguage(params.language || appLanguage()),
+    });
     return await runTradingPriceActionAnalysisPipeline(personalizedParams, {
       modelRegistry: getTradingAnalysisModelRegistry(),
       providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
@@ -16031,7 +16091,7 @@ function videoGenerationSkillEnv({ interactionId, conversationId, model } = {}) 
     ...process.env,
     LLMHUB_API_KEY: mediaCredential.apiKey,
     LLMHUB_BASE_URL:
-      mediaCredential.baseUrl || "https://aiapi.youleai.top/v1",
+      mediaCredential.baseUrl || HAOLO_GATEWAY_BASE_URL,
     CODEX_HOME: desktopCodexHome(),
     HAOLO_AI_HOME: desktopCodexHome(),
     HAOLO_INTERACTION_ID: firstString(interactionId),
