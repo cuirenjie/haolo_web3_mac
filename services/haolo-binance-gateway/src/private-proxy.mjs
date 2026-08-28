@@ -5,6 +5,7 @@ import https from "node:https";
 import net from "node:net";
 import { metricsAuthorized, proxyToken, verifyHaoloJwt, verifyPrivateEgressPermit } from "./auth.mjs";
 import { FixedWindowRateLimiter } from "./rate-limit.mjs";
+import { DrainState, closeHttp } from "./drain.mjs";
 
 const blockedAddresses = new net.BlockList();
 for (const [subnet, prefix] of [
@@ -45,7 +46,9 @@ function reject(socket, statusCode, reason, authenticate = false) {
 
 export function createPrivateProxyServer({ config, cache = null, lookup = dns.lookup, connect = net.connect } = {}) {
   const tlsEnabled = Boolean(config.privateTlsCertPath && config.privateTlsKeyPath);
-  const requestHandler = (request, response) => {
+  const drain = new DrainState();
+  let closing;
+  const requestHandler = drain.http((request, response) => {
     if (request.url === "/metrics") {
       if (!metricsAuthorized(request.headers, config.metricsToken)) {
         const payload = '{"error":"AUTHENTICATION_REQUIRED"}';
@@ -67,7 +70,7 @@ export function createPrivateProxyServer({ config, cache = null, lookup = dns.lo
     }
     response.writeHead(405, { allow: "CONNECT", "content-type": "application/json" });
     response.end('{"error":"CONNECT_REQUIRED"}');
-  };
+  });
   const server = tlsEnabled
     ? https.createServer({ cert: fs.readFileSync(config.privateTlsCertPath), key: fs.readFileSync(config.privateTlsKeyPath), minVersion: "TLSv1.2" }, requestHandler)
     : http.createServer(requestHandler);
@@ -77,7 +80,7 @@ export function createPrivateProxyServer({ config, cache = null, lookup = dns.lo
   const allowedHosts = new Set(config.privateAllowedHosts);
   const metrics = { activeTunnels: 0, acceptedTunnels: 0, rejectedTunnels: 0, permitRejected: 0, upstreamFailures: 0 };
 
-  server.on("connect", async (request, clientSocket, head) => {
+  server.on("connect", drain.upgrade(async (request, clientSocket, head) => {
     const target = parseAuthority(request.url);
     if (target.port !== 443 || !allowedHosts.has(target.host)) {
       metrics.rejectedTunnels += 1;
@@ -193,12 +196,13 @@ export function createPrivateProxyServer({ config, cache = null, lookup = dns.lo
       upstream.destroy();
       release();
     });
-  });
+  }));
 
   return Object.freeze({
     server,
     metrics,
     tlsEnabled,
+    status: () => ({ phase: drain.phase, operations: drain.operations, tunnels: metrics.activeTunnels }),
     async listen() {
       await new Promise((resolve, rejectPromise) => {
         server.once("error", rejectPromise);
@@ -209,9 +213,16 @@ export function createPrivateProxyServer({ config, cache = null, lookup = dns.lo
       });
     },
     async close() {
-      for (const socket of tunnelSockets) socket.destroy();
-      tunnelSockets.clear();
-      await new Promise((resolve) => server.close(() => resolve()));
+      if (!closing) {
+        drain.begin();
+        const httpClosed = closeHttp(server);
+        closing = (async () => {
+          await drain.idle(() => tunnelSockets.size === 0);
+          await httpClosed;
+          drain.phase = "stopped";
+        })();
+      }
+      return closing;
     },
   });
 }

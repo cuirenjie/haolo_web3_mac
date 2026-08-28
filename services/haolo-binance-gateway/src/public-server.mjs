@@ -5,6 +5,7 @@ import { GatewayAuthError, requireHttpIdentity, verifyHaoloAccessJwt, bearerToke
 import { MarketGatewayError } from "./binance-rest.mjs";
 import { FixedWindowRateLimiter } from "./rate-limit.mjs";
 import { validateStreamName } from "./stream-pool.mjs";
+import { DrainState, closeHttp } from "./drain.mjs";
 
 function sendJson(response, statusCode, body, headers = {}) {
   const payload = JSON.stringify(body);
@@ -91,8 +92,10 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
   const websocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 64 * 1024 });
   const metrics = { httpRequests: 0, httpErrors: 0, websocketClients: 0, websocketRejected: 0 };
   const websocketClientsByUser = new Map();
+  const drain = new DrainState();
+  let closing;
 
-  const server = http.createServer(async (request, response) => {
+  const server = http.createServer(drain.http(async (request, response) => {
     if (request.url === "/metrics") {
       if (!metricsAuthorized(request.headers, config.metricsToken)) {
         sendJson(response, 401, { error: "AUTHENTICATION_REQUIRED" });
@@ -169,9 +172,9 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         retryAfterMs: Number(error?.retryAfterMs || 0),
       }, retryAfterSeconds > 0 ? { "retry-after": String(retryAfterSeconds) } : {});
     }
-  });
+  }));
 
-  server.on("upgrade", async (request, socket, head) => {
+  server.on("upgrade", drain.upgrade(async (request, socket, head) => {
     const route = websocketRoute(request.url);
     if (!route) {
       socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
@@ -198,7 +201,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       socket.write(`HTTP/1.1 ${statusCode} Rejected\r\nConnection: close\r\n\r\n`);
       socket.destroy();
     }
-  });
+  }));
 
   websocketServer.on("connection", (websocket, _request, context) => {
     metrics.websocketClients += 1;
@@ -268,6 +271,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     server,
     websocketServer,
     metrics,
+    status: () => ({ phase: drain.phase, operations: drain.operations, websockets: websocketServer.clients.size }),
     async listen() {
       await new Promise((resolve, reject) => {
         server.once("error", reject);
@@ -278,9 +282,17 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       });
     },
     async close() {
-      for (const client of websocketServer.clients) client.close(1012, "gateway_shutdown");
-      await new Promise((resolve) => server.close(() => resolve()));
-      websocketServer.close();
+      if (!closing) {
+        drain.begin();
+        const httpClosed = closeHttp(server);
+        closing = (async () => {
+          await drain.idle(); // include authentication for already accepted upgrades
+          await new Promise((resolve) => websocketServer.close(resolve));
+          await httpClosed;
+          drain.phase = "stopped";
+        })();
+      }
+      return closing;
     },
   });
 }

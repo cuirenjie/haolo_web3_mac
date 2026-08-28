@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { Duplex } from "node:stream";
 import net from "node:net";
 import test from "node:test";
+import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 import { GatewayCache } from "../src/cache.mjs";
 import { PrivateEgressCoordinator } from "../src/private-egress-coordinator.mjs";
 import { createPrivateProxyServer, isPublicAddress } from "../src/private-proxy.mjs";
@@ -12,6 +14,45 @@ class FakeUpstream extends Duplex {
   _write(_chunk, _encoding, callback) { callback(); }
   setTimeout() { return this; }
 }
+
+test("deployment drain does not terminate an accepted CONNECT tunnel", { timeout: 5000 }, async () => {
+  const config = baseConfig();
+  const cache = new GatewayCache();
+  const coordinator = new PrivateEgressCoordinator({ config, cache });
+  let upstream;
+  const proxy = createPrivateProxyServer({ config, cache,
+    lookup: async () => [{ address: "8.8.8.8", family: 4 }],
+    connect: () => {
+      upstream = new FakeUpstream();
+      upstream._write = (chunk, _encoding, callback) => { upstream.push(chunk); callback(); };
+      process.nextTick(() => upstream.emit("connect"));
+      return upstream;
+    },
+  });
+  await proxy.listen();
+  const permit = await coordinator.issuePermit({ userId: "drain-fixture" },
+    { marketType: "futures", pathname: "/fapi/v3/account", hasSymbol: false });
+  const auth = Buffer.from(`haolo:${permit.permitToken}`).toString("base64");
+  const socket = net.connect(proxy.server.address().port, "127.0.0.1");
+  try {
+    await once(socket, "connect");
+    let received = once(socket, "data");
+    socket.write(`CONNECT fapi.binance.com:443 HTTP/1.1\r\nHost: fapi.binance.com:443\r\nProxy-Authorization: Basic ${auth}\r\n\r\n`);
+    assert.match((await received)[0].toString(), /^HTTP\/1\.1 200/);
+    let closed = false;
+    const closing = proxy.close().then(() => { closed = true; });
+    await delay(40);
+    assert.equal(closed, false);
+    received = once(socket, "data");
+    socket.write("opaque-tls-fixture-after-switch");
+    assert.equal((await received)[0].toString(), "opaque-tls-fixture-after-switch");
+    // The real upstream and client end normally, not because deployment did it.
+    upstream.push(null);
+    socket.end();
+    await closing;
+    assert.equal(proxy.status().tunnels, 0);
+  } finally { socket.destroy(); upstream?.destroy(); await proxy.close(); }
+});
 
 async function connectRequest(port, request) {
   return new Promise((resolve, reject) => {

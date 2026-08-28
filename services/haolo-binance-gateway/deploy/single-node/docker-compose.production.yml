@@ -14,7 +14,9 @@ services:
         condition: service_healthy
     init: true
     restart: unless-stopped
-    stop_grace_period: 30s
+    # A release uses private cooperative drain, never Compose replacement.
+    # This is a host-shutdown allowance, not permission to kill long sessions.
+    stop_grace_period: 24h
     mem_limit: 2g
     cpus: 1.5
     pids_limit: 512

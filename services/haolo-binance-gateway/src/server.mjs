@@ -48,18 +48,23 @@ export async function startGateway(options = {}) {
     privateTls: privateProxy?.tlsEnabled || false,
     redis: Boolean(config.redisUrl),
   }));
-  let closed = false;
+  let closing;
   return Object.freeze({
     config,
     publicGateway,
     privateProxy,
     privateEgressCoordinator,
-    async close() {
-      if (closed) return;
-      closed = true;
-      await Promise.allSettled([publicGateway?.close(), privateProxy?.close()].filter(Boolean));
-      await streamPool?.close();
-      await cache.close();
+    status() {
+      return { public: publicGateway?.status(), private: privateProxy?.status() };
+    },
+    close() {
+      // Every caller waits for the same drain. Never close cache/upstream pools
+      // when a listener failed to drain or still owns accepted work.
+      return closing ||= (async () => {
+        await Promise.all([publicGateway?.close(), privateProxy?.close()].filter(Boolean));
+        await streamPool?.close();
+        await cache.close();
+      })();
     },
   });
 }

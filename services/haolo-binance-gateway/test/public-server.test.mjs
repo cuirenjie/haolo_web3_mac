@@ -1,10 +1,79 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 import WebSocket from "ws";
 import { GatewayCache } from "../src/cache.mjs";
 import { PrivateEgressCoordinator } from "../src/private-egress-coordinator.mjs";
 import { createPublicGatewayServer } from "../src/public-server.mjs";
 import { baseConfig, createJwt } from "./helpers.mjs";
+
+test("deployment drain keeps an accepted WebSocket alive until the client closes", { timeout: 5000 }, async () => {
+  const config = baseConfig();
+  const cache = new GatewayCache();
+  const gateway = createPublicGatewayServer({
+    config,
+    restGateway: { cache },
+    streamPool: { stats: () => ({}), subscribe() { return () => {}; } },
+  });
+  await gateway.listen();
+  const port = gateway.server.address().port;
+  const response = await fetch(`http://127.0.0.1:${port}/api/market/v1/tickets`, {
+    method: "POST", headers: { authorization: `Bearer ${createJwt(config.jwtSecret)}` },
+  });
+  const { ticket } = await response.json();
+  const client = new WebSocket(`ws://127.0.0.1:${port}/ws/futures?ticket=${ticket}`);
+  try {
+    await once(client, "open");
+    let closed = false;
+    const closing = gateway.close().then(() => { closed = true; });
+    await delay(50);
+    assert.equal(closed, false);
+    assert.equal(gateway.status().websockets, 1);
+    const pong = once(client, "pong");
+    client.ping("still-connected-after-cutover");
+    assert.equal((await pong)[0].toString(), "still-connected-after-cutover");
+    const ended = once(client, "close");
+    client.close(1000);
+    assert.equal((await ended)[0], 1000);
+    await closing;
+    assert.equal(gateway.status().phase, "stopped");
+  } finally {
+    client.terminate();
+    await gateway.close();
+  }
+});
+
+test("deployment drain waits for an accepted REST request before completing", { timeout: 5000 }, async () => {
+  const config = baseConfig();
+  let release;
+  let entered;
+  const accepted = new Promise((resolve) => { entered = resolve; });
+  const work = new Promise((resolve) => { release = resolve; });
+  const gateway = createPublicGatewayServer({
+    config,
+    restGateway: { cache: new GatewayCache(), async get() {
+      entered();
+      await work;
+      return { statusCode: 200, value: { ok: true }, cacheStatus: "MISS", headers: {} };
+    } },
+    streamPool: { stats: () => ({}), subscribe() { return () => {}; } },
+  });
+  await gateway.listen();
+  const response = fetch(`http://127.0.0.1:${gateway.server.address().port}/fapi/v1/klines?symbol=BTCUSDT&interval=1m`, {
+    headers: { authorization: `Bearer ${createJwt(config.jwtSecret)}` },
+  });
+  try {
+    await accepted;
+    let closed = false;
+    const closing = gateway.close().then(() => { closed = true; });
+    await delay(30);
+    assert.equal(closed, false);
+    release();
+    assert.deepEqual(await (await response).json(), { ok: true });
+    await closing;
+  } finally { release(); await gateway.close(); }
+});
 
 test("public gateway requires Haolo auth and forwards only through REST gateway", async (t) => {
   const config = baseConfig();
