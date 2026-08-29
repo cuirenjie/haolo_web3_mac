@@ -58,6 +58,32 @@ test("paid trial and free WEB3 membership copy is localized in all interface lan
     translateAppText("当前没有可用积分，请开通体验版或其他套餐后再提问", "en"),
     "You have no available points. Activate the trial or another plan before asking the model.",
   );
+  const planDescriptions = [
+    [
+      "首次开通专享，体验 AI 行情解读与基础交易分析。",
+      "A first-time offer for trying AI market insights and basic trading analysis.",
+      "首次開通專享，體驗 AI 行情解讀與基礎交易分析。",
+    ],
+    [
+      "适合日常看盘、行情问答与基础策略分析。",
+      "For everyday market monitoring, market Q&A, and basic strategy analysis.",
+      "適合日常看盤、行情問答與基礎策略分析。",
+    ],
+    [
+      "适合持续行情研判、多策略分析与交易计划制定。",
+      "For ongoing market assessment, multi-strategy analysis, and trading-plan development.",
+      "適合持續行情研判、多策略分析與交易計劃制定。",
+    ],
+    [
+      "适合高频行情分析、复杂策略研究与专业交易辅助。",
+      "For high-frequency market analysis, advanced strategy research, and professional trading assistance.",
+      "適合高頻行情分析、複雜策略研究與專業交易輔助。",
+    ],
+  ];
+  for (const [simplified, english, traditional] of planDescriptions) {
+    assert.equal(translateAppText(simplified, "en"), english);
+    assert.equal(translateAppText(simplified, "zh-TW"), traditional);
+  }
 });
 
 test("the composer resource hint translates as a complete phrase in every language", () => {

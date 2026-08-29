@@ -62,10 +62,16 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   );
 
   assert.match(products, /id: "subscription_trial"[\s\S]*?priceUsdt: 4\.9[\s\S]*?billingPeriod: "3天"[\s\S]*?tokenAmount: 100[\s\S]*?requiresTrialEligibility: true/);
+  assert.match(products, /description: "首次开通专享，体验 AI 行情解读与基础交易分析。"/);
   assert.ok(products.indexOf('id: "subscription_trial"') < products.indexOf('id: "subscription_basic"'));
   assert.match(products, /id: "subscription_basic"[\s\S]*?priceUsdt: 99[\s\S]*?billingPeriod: "月"[\s\S]*?tokenAmount: 1000/);
   assert.match(products, /id: "subscription_pro"[\s\S]*?priceUsdt: 499[\s\S]*?billingPeriod: "半年"[\s\S]*?tokenAmount: 6000/);
   assert.match(products, /id: "subscription_flagship"[\s\S]*?priceUsdt: 799[\s\S]*?billingPeriod: "年"[\s\S]*?tokenAmount: 12000/);
+  for (const description of [
+    "适合日常看盘、行情问答与基础策略分析。",
+    "适合持续行情研判、多策略分析与交易计划制定。",
+    "适合高频行情分析、复杂策略研究与专业交易辅助。",
+  ]) assert.ok(products.includes(`description: "${description}"`), `missing trading plan copy: ${description}`);
   assert.doesNotMatch(products, /priceYuan|amountFen/);
   assert.match(products, /let selectedRechargeProductId = "subscription_trial"/);
   assert.doesNotMatch(products, /featured:\s*true/);
@@ -170,6 +176,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(styles, /html:not\(\[data-theme="dark"\]\) \.recharge-product-card\.selected/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card\.selected/);
   assert.match(styles, /\.recharge-product-grid\s*\{[\s\S]*?grid-template-columns: repeat\(4, minmax\(190px, 1fr\)\)/);
+  assert.match(styles, /\.recharge-product-grid\s*\{[\s\S]*?gap: calc\(1\.25% \+ 2\.266667px\)/);
   assert.match(styles, /\.recharge-product-card\[aria-disabled="true"\]/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card\[aria-disabled="true"\]/);
   assert.doesNotMatch(styles, /recharge-product-card\.featured/);
