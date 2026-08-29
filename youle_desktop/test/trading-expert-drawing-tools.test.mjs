@@ -318,7 +318,7 @@ test("manual and AI drawings persist in isolated conversation storage", async ()
   assert.match(market, /this\.restoreLastAnalysisSelection\(\)/);
   assert.match(market, /loadTradingLastAnalysisContext\([\s\S]*this\.drawingStorageSessionId/);
   assert.match(restoreLastAnalysis, /context\.market[\s\S]*this\.favoriteMarketRecords[\s\S]*binanceMarketFromAnalysisContext\(context\)/);
-  assert.match(restoreLastAnalysis, /this\.activeInterval = context\.interval;[\s\S]*this\.selectMarket\(market\);[\s\S]*this\.updateSymbolUi\(\);/);
+  assert.match(restoreLastAnalysis, /this\.activeInterval = context\.interval;[\s\S]*if \(!this\.selectMarket\(market\)\) return false;[\s\S]*this\.updateSymbolUi\(\);/);
   assert.match(market, /migrateTradingLastAnalysisContext\([\s\S]*migrateFromSessionId,[\s\S]*drawingStorageSessionId/);
   assert.equal((market.match(/rememberTradingAnalysisJobContext\(job\)/g) || []).length, 5);
   assert.match(drawing, /onAiDrawingContextsChanged\(null\)/);
@@ -356,7 +356,7 @@ test("each trading task persists its last selected market and interval", async (
     market.indexOf("private restoreLastAnalysisSelection"),
   );
 
-  assert.match(selectMarket, /this\.selectedMarketId = market\.id;[\s\S]*this\.recordLastDrawingWorkspace\(\);/);
+  assert.match(selectMarket, /normalizeBinanceTradingMarket\(market\)[\s\S]*this\.selectedMarketId = selectedMarket\.id;[\s\S]*this\.recordLastDrawingWorkspace\(\);/);
   assert.match(intervalAction, /this\.activeInterval = interval;[\s\S]*this\.recordLastDrawingWorkspace\(\);/);
   assert.match(market, /onSelectionChange: \(selection\) => \{[\s\S]*this\.splitPaneSelections\.set\(index, selection\);[\s\S]*this\.recordLastDrawingWorkspace\(\);/);
   assert.match(storageSwitch, /previousStorageSessionId !== drawingStorageSessionId[\s\S]*loadTradingLastDrawingWorkspace\(window\.localStorage, drawingStorageSessionId\)[\s\S]*this\.restoreLastDrawingWorkspace\(workspace\)/);

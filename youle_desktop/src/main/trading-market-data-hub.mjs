@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 
-const STREAM_PATTERN = /^[a-z0-9]{2,40}@(kline_(?:1s|[1-9]\d*[mhdwM])|ticker|miniTicker|aggTrade|bookTicker|markPrice(?:@1s)?)$/;
+const STREAM_PATTERN = /^[a-z0-9_\p{Script=Han}]{2,40}@(kline_(?:1s|[1-9]\d*[mhdwM])|ticker|miniTicker|aggTrade|bookTicker|markPrice(?:@1s)?)$/u;
 
 function marketTypeValue(value) {
   const normalized = String(value || "").trim().toLowerCase();

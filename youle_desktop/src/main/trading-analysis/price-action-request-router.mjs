@@ -25,7 +25,7 @@ function assertExactKeys(value) {
 function normalizeExplicitSymbol(value) {
   if (value == null) return null;
   const symbol = String(value).trim().toUpperCase();
-  if (symbol.length < 5 || symbol.length > 24 || !/^[A-Z0-9]+$/.test(symbol)
+  if (symbol.length < 5 || symbol.length > 24 || !/^[A-Z0-9_\p{Script=Han}]+$/u.test(symbol)
     || !(symbol.endsWith("USDT") || symbol.endsWith("USDC") || symbol.endsWith("USD"))) {
     throw new TypeError("Price-action request router symbol is invalid");
   }
@@ -120,4 +120,3 @@ export function normalizePriceActionRequestRoutingModelResponse(text, userText, 
     },
   };
 }
-

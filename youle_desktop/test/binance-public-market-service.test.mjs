@@ -30,6 +30,12 @@ test("public market gateway accepts only fixed Binance read-only routes and para
     }).url,
     "https://data-api.binance.vision/api/v3/ticker/24hr?type=MINI",
   );
+  const hanSymbolRequest = normalizeBinancePublicMarketRequest({
+    marketType: "futures",
+    path: "/fapi/v1/klines",
+    parameters: { symbol: "龙虾USDT", interval: "1d", limit: 2 },
+  });
+  assert.equal(new URL(hanSymbolRequest.url).searchParams.get("symbol"), "龙虾USDT");
   assert.throws(
     () => normalizeBinancePublicMarketRequest({ marketType: "futures", path: "/fapi/v1/order", parameters: {} }),
     /not allowed/,
@@ -42,6 +48,47 @@ test("public market gateway accepts only fixed Binance read-only routes and para
     () => normalizeBinancePublicMarketRequest({ marketType: "spot", path: "/api/v3/klines", parameters: { symbol: "BTC/USDT" } }),
     /symbol/,
   );
+});
+
+test("public market service returns structured symbol failures instead of leaking IPC exceptions", async () => {
+  let calls = 0;
+  const service = new BinancePublicMarketService({
+    fetch: async () => {
+      calls += 1;
+      return new Response("{}", { status: 200 });
+    },
+  });
+  const result = await service.request({
+    marketType: "futures",
+    path: "/fapi/v1/klines",
+    parameters: { symbol: "龙虾/USDT", interval: "1d", limit: 500 },
+  });
+  assert.deepEqual(result, {
+    ok: false,
+    status: 400,
+    data: null,
+    cached: false,
+    retryAfterMs: null,
+    error: "Invalid Binance symbol",
+    errorCode: "BINANCE_MARKET_SYMBOL_INVALID",
+  });
+  assert.equal(calls, 0);
+});
+
+test("public market service classifies Binance's delisted or unknown symbol response", async () => {
+  const service = new BinancePublicMarketService({
+    fetch: async () => new Response(JSON.stringify({ code: -1121, msg: "Invalid symbol." }), {
+      status: 400,
+    }),
+  });
+  const result = await service.request({
+    marketType: "futures",
+    path: "/fapi/v1/klines",
+    parameters: { symbol: "LOBSTERUSDT", interval: "1d", limit: 500 },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "Invalid symbol.");
+  assert.equal(result.errorCode, "BINANCE_MARKET_SYMBOL_UNAVAILABLE");
 });
 
 test("public market gateway accepts deployment-specific HTTPS market gateways", () => {

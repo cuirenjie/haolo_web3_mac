@@ -1480,6 +1480,7 @@ type DesktopApi = {
     cached?: boolean;
     retryAfterMs?: number | null;
     error?: string;
+    errorCode?: string;
   }>;
   cancelBinancePublicMarketData?(params: { requestId: string }): Promise<{ cancelled: boolean }>;
   subscribeBinanceMarketStreams?(params: {

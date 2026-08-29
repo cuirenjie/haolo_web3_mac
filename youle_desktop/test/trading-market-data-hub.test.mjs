@@ -60,8 +60,11 @@ test("main-process market hub shares one ticketed socket and reference-counts st
 
 test("main-process market hub validates its read-only public stream boundary", async () => {
   const hub = new TradingMarketDataHub({ endpointProvider: async () => "wss://example.invalid" });
+  const hanSymbol = hub.subscribe({ marketType: "futures", streams: ["龙虾usdt@ticker"] }, () => {});
   assert.throws(() => hub.subscribe({ marketType: "futures", streams: ["btcusdt@userData"] }, () => {}), /unsupported/);
+  assert.throws(() => hub.subscribe({ marketType: "futures", streams: ["龙虾/usdt@ticker"] }, () => {}), /unsupported/);
   assert.throws(() => hub.subscribe({ marketType: "options", streams: ["btcusdt@ticker"] }, () => {}), /market type/);
+  await hanSymbol.dispose();
   await hub.close();
 });
 

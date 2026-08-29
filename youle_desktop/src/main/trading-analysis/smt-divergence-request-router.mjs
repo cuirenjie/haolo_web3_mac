@@ -26,7 +26,7 @@ export function normalizeSmtDivergenceRequestRoutingModelResponse(text, userText
   if (!mode || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new TypeError("SMT router response is invalid");
   const accepted = mode === "chart-analysis" && confidence < 0.65 ? "conversation" : mode;
   const rawSymbol = parsed.symbol == null ? null : String(parsed.symbol).trim().toUpperCase();
-  if (rawSymbol && !/^[A-Z0-9]{5,24}$/.test(rawSymbol)) throw new TypeError("SMT symbol is invalid");
+  if (rawSymbol && !/^[A-Z0-9_\p{Script=Han}]{5,24}$/u.test(rawSymbol)) throw new TypeError("SMT symbol is invalid");
   const rawInterval = parsed.interval == null ? null : String(parsed.interval).trim().toUpperCase();
   if (rawInterval && rawInterval !== "1D" && rawInterval !== "1W" && (!/^\d+$/.test(rawInterval) || Number(rawInterval) < 1 || Number(rawInterval) > 1_440)) throw new TypeError("SMT interval is invalid");
   const lookbackMs = parsed.lookbackMs == null ? null : Number(parsed.lookbackMs);

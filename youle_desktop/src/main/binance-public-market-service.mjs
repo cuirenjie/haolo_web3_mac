@@ -71,8 +71,13 @@ export class BinancePublicMarketRequestError extends Error {
 function validateParameter(key, value) {
   if (value === undefined || value === null || value === "") return null;
   if (key === "symbol") {
-    const symbol = String(value).toUpperCase();
-    if (!/^[A-Z0-9]{2,40}$/.test(symbol)) throw new BinancePublicMarketRequestError("Invalid Binance symbol");
+    const symbol = String(value).trim().toUpperCase();
+    // Binance USDⓈ-M Futures can use Han characters as the canonical API
+    // symbol (for example 龙虾USDT and 币安人生USDT). Keep the allowlist
+    // narrow while accepting the symbol alphabet returned by exchangeInfo.
+    if (!/^[A-Z0-9_\p{Script=Han}]{2,40}$/u.test(symbol)) {
+      throw new BinancePublicMarketRequestError("Invalid Binance symbol", "BINANCE_MARKET_SYMBOL_INVALID");
+    }
     return symbol;
   }
   if (key === "interval" || key === "period") {
@@ -178,7 +183,21 @@ export class BinancePublicMarketService {
   }
 
   async request(value = {}, { signal: callerSignal } = {}) {
-    const request = normalizeBinancePublicMarketRequest(value, { baseUrls: this.baseUrls });
+    let request;
+    try {
+      request = normalizeBinancePublicMarketRequest(value, { baseUrls: this.baseUrls });
+    } catch (error) {
+      if (!(error instanceof BinancePublicMarketRequestError)) throw error;
+      return {
+        ok: false,
+        status: 400,
+        data: null,
+        cached: false,
+        retryAfterMs: null,
+        error: error.message,
+        errorCode: error.code,
+      };
+    }
     const currentMs = this.currentTimeMs();
     const cached = this.cached(request.url, currentMs);
     if (cached) return cached;
@@ -208,6 +227,9 @@ export class BinancePublicMarketService {
     let data = null;
     try { data = await response.json(); } catch {}
     if (!response?.ok) {
+      const errorCode = Number(data?.code) === -1121
+        ? "BINANCE_MARKET_SYMBOL_UNAVAILABLE"
+        : null;
       return {
         ok: false,
         status: Number(response?.status || 0),
@@ -215,6 +237,7 @@ export class BinancePublicMarketService {
         cached: false,
         retryAfterMs: retryAfterMs(response),
         error: String(data?.msg || `Binance market request failed: ${response?.status || 0}`).slice(0, 500),
+        ...(errorCode ? { errorCode } : {}),
       };
     }
     this.store(request.url, data, currentMs + cacheTtlMs(request));

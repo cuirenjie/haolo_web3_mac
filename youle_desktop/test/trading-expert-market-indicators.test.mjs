@@ -108,6 +108,97 @@ test("trading favorites normalize persisted symbols and remove invalid duplicate
   assert.deepEqual(ordered.map(({ symbol }) => symbol), ["BTCUSDT", "ETHUSDT", "SOLUSDT"]);
 });
 
+test("official Han-character Binance symbols survive persistence and stay searchable", async () => {
+  const {
+    loadTradingFavoritesFromStorage,
+    normalizeBinanceMarketSymbol,
+    normalizeTradingFavoriteSymbols,
+    tradingFavoriteStorageKeys,
+    tradingMarketVisibleInPicker,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const keys = tradingFavoriteStorageKeys();
+  const values = new Map([
+    [keys.symbols, JSON.stringify([
+      "BINANCE:FUTURES:龙虾USDT",
+      "BINANCE:FUTURES:币安人生USDT",
+    ])],
+    [keys.records, JSON.stringify([{
+      id: "BINANCE:FUTURES:龙虾USDT",
+      provider: "binance",
+      symbol: "龙虾USDT",
+      baseAsset: "龙虾",
+      quoteAsset: "USDT",
+      displaySymbol: "龙虾/USDT",
+      description: "龙虾/USDT 币安永续合约",
+      venue: "币安",
+      assetClass: "crypto",
+      marketType: "perpetual",
+      tag: "永续",
+    }, {
+      id: "BINANCE:FUTURES:币安人生USDT",
+      provider: "binance",
+      symbol: "币安人生USDT",
+      baseAsset: "币安人生",
+      quoteAsset: "USDT",
+      displaySymbol: "币安人生/USDT",
+      description: "币安人生/USDT 币安永续合约",
+      venue: "币安",
+      assetClass: "crypto",
+      marketType: "perpetual",
+      tag: "永续",
+    }])],
+  ]);
+  const snapshot = loadTradingFavoritesFromStorage({
+    getItem: (key) => values.get(key) ?? null,
+  });
+  assert.equal(snapshot.records.length, 2);
+  assert.deepEqual(snapshot.records[0], {
+    id: "BINANCE:FUTURES:龙虾USDT",
+    provider: "binance",
+    symbol: "龙虾USDT",
+    baseAsset: "龙虾",
+    quoteAsset: "USDT",
+    displaySymbol: "龙虾/USDT",
+    description: "龙虾/USDT 币安永续合约",
+    venue: "币安",
+    assetClass: "crypto",
+    marketType: "perpetual",
+    tag: "永续",
+  });
+  assert.equal(tradingMarketVisibleInPicker(snapshot.records[0], "龙虾", new Set(), false), true);
+  assert.equal(tradingMarketVisibleInPicker(snapshot.records[1], "币安人生", new Set(), false), true);
+  assert.equal(normalizeBinanceMarketSymbol(" 龙虾USDT "), "龙虾USDT");
+  assert.equal(normalizeBinanceMarketSymbol("币安人生USDT"), "币安人生USDT");
+  assert.equal(normalizeBinanceMarketSymbol(" btcusdt "), "BTCUSDT");
+  assert.equal(normalizeBinanceMarketSymbol("龙虾/USDT"), null);
+  assert.equal(normalizeBinanceMarketSymbol("币安 人生USDT"), null);
+  assert.deepEqual(normalizeTradingFavoriteSymbols([
+    "BINANCE:FUTURES:龙虾USDT",
+    "币安人生USDT",
+  ]), ["BINANCE:FUTURES:龙虾USDT", "币安人生USDT"]);
+});
+
+test("invalid Binance symbols use a local recoverable error in both theme-backed states", async () => {
+  const {
+    BINANCE_MARKET_UNAVAILABLE_MESSAGE,
+    isBinanceMarketSymbolError,
+    tradingMarketErrorPresentation,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  assert.equal(isBinanceMarketSymbolError(new Error("Invalid Binance symbol")), true);
+  assert.equal(isBinanceMarketSymbolError({ code: "BINANCE_MARKET_SYMBOL_UNAVAILABLE" }), true);
+  assert.deepEqual(tradingMarketErrorPresentation("binance", new Error("Invalid symbol.")), {
+    message: `${BINANCE_MARKET_UNAVAILABLE_MESSAGE}，点击返回 BTC/USDT`,
+    action: "open-default-market",
+    ariaLabel: `${BINANCE_MARKET_UNAVAILABLE_MESSAGE}，点击加载 BTC/USDT 永续合约`,
+  });
+
+  const styles = await readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
+  assert.match(styles, /\.trading-market-error\s*\{[^}]*var\(--trading-market-negative\)[^}]*var\(--trading-market-panel\)/s);
+  assert.match(styles, /\.trading-market-error:hover\s*\{[^}]*var\(--trading-market-negative\)[^}]*var\(--trading-market-panel\)/s);
+  assert.match(styles, /\.trading-market-error:active\s*\{[^}]*var\(--trading-market-negative\)[^}]*var\(--trading-market-panel\)/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[^}]*--trading-market-panel:[^;]+;[^}]*--trading-market-negative:/s);
+});
+
 test("chart period controls opt into compact localized labels", async () => {
   const source = await readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
   assert.match(source, /data-market-action="interval"[\s\S]*data-i18n-trading-period-label/);
@@ -510,9 +601,17 @@ test("Binance search catalog combines USDT spot and perpetual markets", async ()
       async getBinancePublicMarketData(request) {
         paths.push(request.path);
         const payload = request.path === "/fapi/v1/exchangeInfo"
-      ? { symbols: [{ symbol: "BTCUSDT", baseAsset: "BTC", quoteAsset: "USDT", contractType: "PERPETUAL", status: "TRADING" }] }
+      ? { symbols: [
+        { symbol: "BTCUSDT", baseAsset: "BTC", quoteAsset: "USDT", contractType: "PERPETUAL", status: "TRADING" },
+        { symbol: "龙虾USDT", baseAsset: "龙虾", quoteAsset: "USDT", contractType: "PERPETUAL", status: "TRADING" },
+        { symbol: "币安人生USDT", baseAsset: "币安人生", quoteAsset: "USDT", contractType: "PERPETUAL", status: "TRADING" },
+      ] }
       : request.path === "/fapi/v1/ticker/24hr"
-        ? [{ symbol: "BTCUSDT", lastPrice: "65000", openPrice: "64000", priceChangePercent: "1.5625", quoteVolume: "1000" }]
+        ? [
+          { symbol: "BTCUSDT", lastPrice: "65000", openPrice: "64000", priceChangePercent: "1.5625", quoteVolume: "1000" },
+          { symbol: "龙虾USDT", lastPrice: "0.06", openPrice: "0.05", priceChangePercent: "20", quoteVolume: "800" },
+          { symbol: "币安人生USDT", lastPrice: "0.50", openPrice: "0.40", priceChangePercent: "25", quoteVolume: "700" },
+        ]
         : request.path === "/api/v3/exchangeInfo"
           ? { symbols: [{ symbol: "BTCUSDT", baseAsset: "BTC", quoteAsset: "USDT", status: "TRADING", isSpotTradingAllowed: true }] }
           : [{ symbol: "BTCUSDT", lastPrice: "64900", openPrice: "64000", quoteVolume: "900" }];
@@ -524,17 +623,60 @@ test("Binance search catalog combines USDT spot and perpetual markets", async ()
     const markets = await fetchTradingMarkets();
     assert.deepEqual(
       markets.map(({ id, tag }) => [id, tag]),
-      [
-        ["BINANCE:FUTURES:BTCUSDT", "永续"],
-        ["BINANCE:SPOT:BTCUSDT", "现货"],
-      ],
-    );
+        [
+          ["BINANCE:FUTURES:BTCUSDT", "永续"],
+          ["BINANCE:SPOT:BTCUSDT", "现货"],
+          ["BINANCE:FUTURES:龙虾USDT", "永续"],
+          ["BINANCE:FUTURES:币安人生USDT", "永续"],
+        ],
+      );
     assert.equal(markets[1].changePercent, ((64_900 - 64_000) / 64_000) * 100);
+    assert.equal(markets[2].displaySymbol, "龙虾/USDT");
+    assert.equal(markets[3].displaySymbol, "币安人生/USDT");
     assert.deepEqual(paths, [
       "/fapi/v1/ticker/24hr",
       "/fapi/v1/exchangeInfo",
       "/api/v3/ticker/24hr",
       "/api/v3/exchangeInfo",
+    ]);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("official Han-character Binance symbols reach the candle gateway unchanged", async () => {
+  const { fetchTradingCandles } = await import("../src/renderer/trading-expert-market.ts");
+  const originalWindow = globalThis.window;
+  const requests = [];
+  globalThis.window = {
+    ...(originalWindow || {}),
+    codexDesktop: {
+      ...(originalWindow?.codexDesktop || {}),
+      async getBinancePublicMarketData(request) {
+        requests.push(request);
+        return {
+          ok: true,
+          status: 200,
+          cached: false,
+          data: [
+            [1_700_000_000_000, "0.05", "0.07", "0.04", "0.06", "100", 1_700_086_399_999],
+            [1_700_086_400_000, "0.06", "0.08", "0.05", "0.07", "120", 1_700_172_799_999],
+          ],
+        };
+      },
+    },
+  };
+  try {
+    await fetchTradingCandles("龙虾USDT", "1D", 2, Date.now(), "perpetual");
+    await fetchTradingCandles("币安人生USDT", "1D", 2, Date.now(), "perpetual");
+    assert.deepEqual(requests.map((request) => request.parameters.symbol), [
+      "龙虾USDT",
+      "币安人生USDT",
+    ]);
+    assert.deepEqual(requests.map((request) => request.path), [
+      "/fapi/v1/klines",
+      "/fapi/v1/klines",
     ]);
   } finally {
     if (originalWindow === undefined) delete globalThis.window;

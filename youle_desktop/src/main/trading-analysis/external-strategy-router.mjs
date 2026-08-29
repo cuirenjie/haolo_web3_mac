@@ -42,7 +42,7 @@ function assertExactKeys(value) {
 function normalizeSymbol(value) {
   if (value == null || String(value).trim() === "") return null;
   const compact = String(value).trim().toUpperCase().replace(/[\s/_-]/g, "");
-  if (!/^[A-Z0-9]{2,24}$/.test(compact)) {
+  if (!/^[A-Z0-9\p{Script=Han}]{2,24}$/u.test(compact)) {
     throw new TypeError("External trading router symbol is invalid");
   }
   const quote = QUOTE_ASSETS.find((asset) => compact.endsWith(asset));

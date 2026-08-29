@@ -41,6 +41,8 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "继续": "Continue",
   "完成": "Done",
   "重试": "Retry",
+  "该交易对已下架或不受 Binance 支持": "This trading pair is delisted or unsupported by Binance",
+  "，点击返回 BTC/USDT": ". Click to return to BTC/USDT",
   "刷新": "Refresh",
   "搜索": "Search",
   "清空": "Clear",
@@ -579,6 +581,8 @@ const ENGLISH_UI_PHRASES = Object.freeze({
 });
 
 const TRADITIONAL_UI_PHRASES = Object.freeze({
+  "该交易对已下架或不受 Binance 支持": "該交易對已下架或不受 Binance 支援",
+  "，点击返回 BTC/USDT": "，點擊返回 BTC/USDT",
   "联系Telegram": "聯絡 Telegram",
   "联系客服": "聯絡客服",
   "软件": "軟體",
