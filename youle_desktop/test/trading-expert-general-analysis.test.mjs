@@ -66,6 +66,22 @@ test("general semantic router lets the model route a bare analysis request to th
   assert.match(buildGeneralRequestRoutingPrompt({ text: "分析下" }), /优先读取左侧当前 K 线/);
 });
 
+test("general semantic router preserves an official Han-character Binance symbol", () => {
+  const routed = normalizeGeneralRequestRoutingModelResponse(JSON.stringify({
+    schemaVersion: 1,
+    mode: "chart-analysis",
+    intent: "chart-analysis",
+    symbol: "币安人生USDT",
+    interval: "60",
+    lookbackMs: null,
+    lookbackLabel: null,
+    confidence: 0.98,
+  }), "分析币安人生的 1 小时 K 线");
+  assert.equal(routed.request.mode, "chart-analysis");
+  assert.equal(routed.request.symbol, "币安人生USDT");
+  assert.equal(routed.request.interval, "60");
+});
+
 test("general semantic router preserves conceptual questions as normal conversation", () => {
   const routed = normalizeGeneralRequestRoutingModelResponse(JSON.stringify({
     schemaVersion: 1,

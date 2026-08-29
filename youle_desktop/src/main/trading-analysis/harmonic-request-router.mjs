@@ -37,7 +37,7 @@ function normalizeExplicitSymbol(value) {
   if (
     symbol.length < 5
     || symbol.length > 24
-    || !/^[A-Z0-9]+$/.test(symbol)
+    || !/^[A-Z0-9_\p{Script=Han}]+$/u.test(symbol)
     || !(symbol.endsWith("USDT") || symbol.endsWith("USDC") || symbol.endsWith("USD"))
   ) throw new TypeError("Harmonic request router symbol is invalid");
   return symbol;

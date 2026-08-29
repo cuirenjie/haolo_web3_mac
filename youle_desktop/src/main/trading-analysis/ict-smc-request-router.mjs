@@ -23,7 +23,7 @@ export function buildIctSmcRequestRoutingPrompt(params = {}) {
 function symbol(value) {
   if (value == null) return null;
   const normalized = String(value).trim().toUpperCase();
-  if (!/^[A-Z0-9]{5,24}$/.test(normalized)) throw new TypeError("ICT/SMC symbol is invalid");
+  if (!/^[A-Z0-9_\p{Script=Han}]{5,24}$/u.test(normalized)) throw new TypeError("ICT/SMC symbol is invalid");
   return normalized;
 }
 

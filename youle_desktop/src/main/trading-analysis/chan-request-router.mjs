@@ -31,18 +31,14 @@ function assertExactKeys(value) {
   }
 }
 
-function isAsciiUpperOrDigit(value) {
-  for (const character of value) {
-    const code = character.charCodeAt(0);
-    if (!((code >= 48 && code <= 57) || (code >= 65 && code <= 90))) return false;
-  }
-  return true;
+function isBinanceSymbolText(value) {
+  return /^[A-Z0-9_\p{Script=Han}]+$/u.test(value);
 }
 
 function normalizeExplicitSymbol(value) {
   if (value == null) return null;
   const symbol = String(value).trim().toUpperCase();
-  if (symbol.length < 5 || symbol.length > 24 || !isAsciiUpperOrDigit(symbol)) {
+  if (symbol.length < 5 || symbol.length > 24 || !isBinanceSymbolText(symbol)) {
     throw new TypeError("Chan request router symbol is invalid");
   }
   if (!(symbol.endsWith("USDT") || symbol.endsWith("USDC") || symbol.endsWith("USD"))) {

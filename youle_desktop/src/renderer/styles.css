@@ -38112,6 +38112,11 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   background: color-mix(in srgb, var(--trading-market-negative) 8%, var(--trading-market-panel));
 }
 
+.trading-market-error:active {
+  background: color-mix(in srgb, var(--trading-market-negative) 14%, var(--trading-market-panel));
+  transform: translate(-50%, -50%) scale(0.98);
+}
+
 .trading-market-picker {
   position: absolute;
   top: calc(100% + 1px);

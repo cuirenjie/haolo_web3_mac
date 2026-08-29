@@ -169,6 +169,16 @@ const BINANCE_MARKET_RATE_LIMIT_DEFAULT_MS = 60_000;
 const BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS = 500;
 const FINNHUB_SEARCH_DEBOUNCE_MS = 480;
 const GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE = "目前版本此交易对数据还未接入";
+// Binance USDⓈ-M Futures currently includes canonical Han-character symbols
+// such as 龙虾USDT and 币安人生USDT. These are transport symbols, not display
+// aliases, so the validated market identity must preserve them end to end.
+const BINANCE_MARKET_ID_PATTERN = /^BINANCE:(FUTURES|SPOT):([A-Z0-9_\p{Script=Han}]{2,40})$/u;
+const BINANCE_MARKET_SYMBOL_PATTERN = /^[A-Z0-9_\p{Script=Han}]{2,40}$/u;
+const BINANCE_MARKET_SYMBOL_ERROR_CODES = new Set([
+  "BINANCE_MARKET_SYMBOL_INVALID",
+  "BINANCE_MARKET_SYMBOL_UNAVAILABLE",
+]);
+export const BINANCE_MARKET_UNAVAILABLE_MESSAGE = "该交易对已下架或不受 Binance 支持";
 
 let binanceMarketRestRetryAt = 0;
 
@@ -196,6 +206,52 @@ function recordBinanceMarketRateLimit(value: unknown) {
 
 function binanceMarketRateLimitMessage(retryAfterMs: number) {
   return `Binance 行情请求频率受限，约 ${Math.max(1, Math.ceil(retryAfterMs / 1_000))} 秒后自动重试`;
+}
+
+export function normalizeBinanceMarketSymbol(value: unknown) {
+  const symbol = String(value || "").trim().toUpperCase();
+  return BINANCE_MARKET_SYMBOL_PATTERN.test(symbol) ? symbol : null;
+}
+
+function binanceMarketSymbolError(message = BINANCE_MARKET_UNAVAILABLE_MESSAGE) {
+  const error = new Error(message) as Error & { code?: string };
+  error.name = "BinanceMarketSymbolError";
+  error.code = "BINANCE_MARKET_SYMBOL_INVALID";
+  return error;
+}
+
+export function isBinanceMarketSymbolError(error: unknown) {
+  const candidate = error as { code?: unknown; message?: unknown } | null;
+  const code = String(candidate?.code || "").trim().toUpperCase();
+  if (BINANCE_MARKET_SYMBOL_ERROR_CODES.has(code)) return true;
+  const message = String(candidate?.message || error || "");
+  return /(?:invalid|unknown)\s+(?:binance\s+)?symbol|binance[^\n]*symbol[^\n]*(?:invalid|unavailable)|交易对已下架|不受\s*binance\s*支持/iu.test(message);
+}
+
+export function tradingMarketErrorPresentation(
+  provider: TradingMarketProvider,
+  error: unknown,
+) {
+  if (provider === "binance" && isBinanceMarketSymbolError(error)) {
+    return {
+      message: `${BINANCE_MARKET_UNAVAILABLE_MESSAGE}，点击返回 BTC/USDT`,
+      action: "open-default-market" as const,
+      ariaLabel: `${BINANCE_MARKET_UNAVAILABLE_MESSAGE}，点击加载 BTC/USDT 永续合约`,
+    };
+  }
+  if (provider === "finnhub") {
+    return {
+      message: GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE,
+      action: "open-default-market" as const,
+      ariaLabel: `${GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE}，点击加载 BTC/USDT 永续合约`,
+    };
+  }
+  const message = String((error as Error)?.message || "行情加载失败").trim();
+  return {
+    message: `${message} 点击重试`,
+    action: "retry" as const,
+    ariaLabel: "",
+  };
 }
 
 export function hasTradingExpertTrendBandMention(text: string) {
@@ -1102,9 +1158,12 @@ export function normalizeTradingFavoriteSymbols(value: unknown): string[] {
   value.forEach((candidate) => {
     if (symbols.size >= MAX_TRADING_FAVORITES || typeof candidate !== "string") return;
     const symbol = candidate.trim().toUpperCase();
+    const binanceFavoriteIsValid = normalizeBinanceMarketSymbol(symbol) !== null
+      || BINANCE_MARKET_ID_PATTERN.test(symbol)
+      || /^BINANCE:([A-Z0-9_\p{Script=Han}]{2,40})$/u.test(symbol);
     if (
-      !/^[A-Z0-9]{2,40}$/.test(symbol)
-      && !/^(?:BINANCE|FINNHUB|IFIND):[A-Z0-9^][A-Z0-9^:._/\-=]{0,96}$/.test(symbol)
+      !binanceFavoriteIsValid
+      && !/^(?:FINNHUB|IFIND):[A-Z0-9^][A-Z0-9^:._/\-=]{0,96}$/.test(symbol)
     ) return;
     symbols.add(symbol);
   });
@@ -1133,6 +1192,58 @@ export function reorderTradingFavoriteRecords(
 
 type TradingFavoritesStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
+const BINANCE_COMMON_QUOTE_ASSETS = [
+  "FDUSD", "USDT", "USDC", "TUSD", "BUSD", "USD", "BTC", "ETH", "BNB", "EUR", "TRY",
+] as const;
+
+function normalizeBinanceFavoriteMarketRecord(
+  item: Partial<TradingFavoriteMarketRecord>,
+): TradingFavoriteMarketRecord | null {
+  if (item.provider !== "binance") return null;
+  const id = String(item.id || "").trim().toUpperCase();
+  const idMatch = BINANCE_MARKET_ID_PATTERN.exec(id);
+  if (!idMatch) return null;
+  // marketId is the stable identity. Always repair the transport symbol from
+  // the validated ID before the record can reach REST/WS. Han text is retained
+  // when it is part of Binance's canonical symbol rather than a display alias.
+  const symbol = idMatch[2];
+  const storedQuoteAsset = String(item.quoteAsset || "").trim().toUpperCase();
+  const quoteAsset = BINANCE_MARKET_SYMBOL_PATTERN.test(storedQuoteAsset)
+    && symbol.endsWith(storedQuoteAsset)
+    && symbol.length > storedQuoteAsset.length
+      ? storedQuoteAsset
+      : BINANCE_COMMON_QUOTE_ASSETS.find((quote) => (
+        symbol.endsWith(quote) && symbol.length > quote.length
+      )) || "";
+  const baseAsset = quoteAsset ? symbol.slice(0, -quoteAsset.length) : symbol;
+  if (!baseAsset) return null;
+  const marketType: TradingMarketType = idMatch[1] === "SPOT" ? "spot" : "perpetual";
+  const tag = marketType === "spot" ? "现货" : "永续";
+  const canonicalDisplaySymbol = quoteAsset ? `${baseAsset}/${quoteAsset}` : baseAsset;
+  const storedSymbol = normalizeBinanceMarketSymbol(item.symbol);
+  const storedBaseAsset = String(item.baseAsset || "").trim().toUpperCase();
+  const identityIsConsistent = storedSymbol === symbol && storedBaseAsset === baseAsset;
+  const displaySymbol = identityIsConsistent
+    ? String(item.displaySymbol || canonicalDisplaySymbol).trim().slice(0, 96) || canonicalDisplaySymbol
+    : canonicalDisplaySymbol;
+  const description = identityIsConsistent
+    ? String(item.description || displaySymbol).replace(/[\r\n\0]+/g, " ").trim().slice(0, 160) || displaySymbol
+    : `${canonicalDisplaySymbol} 币安${marketType === "spot" ? "现货" : "永续合约"}`;
+  return {
+    id,
+    provider: "binance",
+    symbol,
+    baseAsset,
+    quoteAsset,
+    displaySymbol,
+    description,
+    venue: MARKET_VENUE,
+    assetClass: normalizeTradingAssetClass(item.assetClass, "crypto"),
+    marketType,
+    tag,
+  };
+}
+
 export function tradingFavoriteStorageKeys(accountIdentity = "") {
   const normalizedIdentity = String(accountIdentity || "").trim().toLowerCase();
   const accountSuffix = normalizedIdentity
@@ -1159,20 +1270,26 @@ function normalizeTradingFavoriteMarketRecords(value: unknown): TradingFavoriteM
         : item.provider === "binance"
           ? "binance"
           : null;
-    const symbol = String(item.symbol || "").trim().toUpperCase();
     const id = String(item.id || "").trim().toUpperCase();
-    if (!provider || !symbol || !id || !/^(?:BINANCE|FINNHUB|IFIND):[A-Z0-9^][A-Z0-9^:._/\-=]{0,96}$/.test(id)) return;
+    if (!provider || !id) return;
+    if (provider === "binance") {
+      const normalized = normalizeBinanceFavoriteMarketRecord({ ...item, provider, id });
+      if (normalized) records.set(normalized.id, normalized);
+      return;
+    }
+    const symbol = String(item.symbol || "").trim().toUpperCase();
+    const providerIdIsValid = provider === "ifind"
+      ? /^IFIND:\d{6}\.(?:SH|SZ|BJ)$/.test(id) && /^\d{6}\.(?:SH|SZ|BJ)$/.test(symbol)
+      : /^FINNHUB:[A-Z0-9^][A-Z0-9^:._/\-=]{0,95}$/.test(id)
+        && /^[A-Z0-9^][A-Z0-9^:._/\-=]{0,95}$/.test(symbol);
+    if (!symbol || !providerIdIsValid) return;
     // iFinD is an A-share-only provider.  Treat older persisted records that
     // used the generic `stock` class as A shares so they move into the new
     // category instead of disappearing from the picker.
     const assetClass: TradingAssetClass = provider === "ifind"
       ? "a-share"
-      : normalizeTradingAssetClass(item.assetClass, provider === "binance" ? "crypto" : "stock");
-    const marketType: TradingMarketType = provider !== "binance"
-      ? "global"
-      : item.marketType === "spot" || item.tag === "现货"
-        ? "spot"
-        : "perpetual";
+      : normalizeTradingAssetClass(item.assetClass, "stock");
+    const marketType: TradingMarketType = "global";
     const displaySymbol = String(item.displaySymbol || symbol).trim().slice(0, 96) || symbol;
     records.set(id, {
       id,
@@ -1184,11 +1301,11 @@ function normalizeTradingFavoriteMarketRecords(value: unknown): TradingFavoriteM
       description: String(item.description || displaySymbol).replace(/[\r\n\0]+/g, " ").trim().slice(0, 160),
       venue: provider === "ifind"
         ? abbreviateIfindVenue(item.venue || "A股市场")
-        : String(item.venue || (provider === "binance" ? MARKET_VENUE : "Finnhub"))
+        : String(item.venue || "Finnhub")
           .replace(/[\r\n\0]+/g, " ").trim().slice(0, 80),
       assetClass,
       marketType,
-      tag: String(item.tag || (provider === "binance" ? "永续" : provider === "ifind" ? "A股" : "股票"))
+      tag: String(item.tag || (provider === "ifind" ? "A股" : "股票"))
         .replace(/[\r\n\0]+/g, " ").trim().slice(0, 24),
     });
   });
@@ -2478,8 +2595,25 @@ export function tradingFavoriteTickerStreams(symbols: Iterable<string>) {
     .map((symbol) => `${symbol}@ticker`);
 }
 
+export function normalizeBinanceTradingMarket(value: unknown): TradingMarket | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Partial<TradingMarket>;
+  const record = normalizeBinanceFavoriteMarketRecord(item);
+  if (!record) return null;
+  const markPrice = Number(item.markPrice || 0);
+  const changePercent = Number(item.changePercent || 0);
+  const volume24h = Number(item.volume24h || 0);
+  return {
+    ...record,
+    markPrice: Number.isFinite(markPrice) ? markPrice : 0,
+    changePercent: Number.isFinite(changePercent) ? changePercent : 0,
+    volume24h: Number.isFinite(volume24h) ? volume24h : 0,
+    quoteAvailable: item.quoteAvailable === true && Number.isFinite(markPrice) && markPrice > 0,
+  };
+}
+
 function defaultBinancePerpetualMarket(symbol = DEFAULT_SYMBOL): TradingMarket {
-  const normalizedSymbol = String(symbol || DEFAULT_SYMBOL).trim().toUpperCase();
+  const normalizedSymbol = normalizeBinanceMarketSymbol(symbol) || DEFAULT_SYMBOL;
   const baseAsset = normalizedSymbol.endsWith(MARKET_QUOTE)
     ? normalizedSymbol.slice(0, -MARKET_QUOTE.length)
     : normalizedSymbol;
@@ -2935,10 +3069,16 @@ async function fetchBinancePublicMarketData<T>(
   const request = window.codexDesktop?.getBinancePublicMarketData;
   if (typeof request !== "function") throw new Error("Binance market gateway is unavailable");
   if (signal?.aborted) throw new DOMException("The operation was aborted", "AbortError");
+  const normalizedParameters = { ...parameters };
+  if (Object.hasOwn(normalizedParameters, "symbol") && normalizedParameters.symbol != null && normalizedParameters.symbol !== "") {
+    const symbol = normalizeBinanceMarketSymbol(normalizedParameters.symbol);
+    if (!symbol) throw binanceMarketSymbolError();
+    normalizedParameters.symbol = symbol;
+  }
   const requestId = signal
     ? `renderer-market-rest-${Date.now().toString(36)}-${(++binancePublicMarketRequestSequence).toString(36)}`
     : undefined;
-  const pending = request({ marketType, path, parameters, requestId });
+  const pending = request({ marketType, path, parameters: normalizedParameters, requestId });
   const response = signal
     ? await new Promise<Awaited<ReturnType<typeof request>>>((resolve, reject) => {
       const abort = () => {
@@ -2954,6 +3094,14 @@ async function fetchBinancePublicMarketData<T>(
   if (!response?.ok) {
     if (response?.status === 418 || response?.status === 429) {
       throw new Error(binanceMarketRateLimitMessage(recordBinanceMarketRateLimit(response?.retryAfterMs)));
+    }
+    if (
+      BINANCE_MARKET_SYMBOL_ERROR_CODES.has(String(response?.errorCode || "").trim().toUpperCase())
+      || isBinanceMarketSymbolError(response?.error)
+    ) {
+      const error = binanceMarketSymbolError();
+      error.code = String(response?.errorCode || "BINANCE_MARKET_SYMBOL_UNAVAILABLE");
+      throw error;
     }
     throw new Error(String(response?.error || `Binance ${marketType} request failed: ${response?.status || 0}`));
   }
@@ -3127,8 +3275,8 @@ export function tradingAlertAnnotationRightPaddingBars(
 
 function futuresExchangeSymbolsFromTickers(tickers: BinanceTicker24h[]): BinanceExchangeSymbol[] {
   return tickers.flatMap((ticker) => {
-    const symbol = String(ticker.symbol || "").trim().toUpperCase();
-    if (!symbol.endsWith(MARKET_QUOTE) || symbol.length <= MARKET_QUOTE.length) return [];
+    const symbol = normalizeBinanceMarketSymbol(ticker.symbol);
+    if (!symbol || !symbol.endsWith(MARKET_QUOTE) || symbol.length <= MARKET_QUOTE.length) return [];
     return [{
       symbol,
       baseAsset: symbol.slice(0, -MARKET_QUOTE.length),
@@ -3141,8 +3289,8 @@ function futuresExchangeSymbolsFromTickers(tickers: BinanceTicker24h[]): Binance
 
 function spotExchangeSymbolsFromTickers(tickers: BinanceTicker24h[]): BinanceExchangeSymbol[] {
   return tickers.flatMap((ticker) => {
-    const symbol = String(ticker.symbol || "").trim().toUpperCase();
-    if (!symbol.endsWith(MARKET_QUOTE) || symbol.length <= MARKET_QUOTE.length) return [];
+    const symbol = normalizeBinanceMarketSymbol(ticker.symbol);
+    if (!symbol || !symbol.endsWith(MARKET_QUOTE) || symbol.length <= MARKET_QUOTE.length) return [];
     return [{
       symbol,
       baseAsset: symbol.slice(0, -MARKET_QUOTE.length),
@@ -3218,7 +3366,7 @@ export async function fetchTradingMarkets(options: { fast?: boolean } = {}) {
     tradFiAssetClasses.set(baseAsset, binanceTradFiAssetClass(item));
   }
   const futuresMarkets: TradingMarket[] = (futuresExchangeInfo.symbols ?? []).flatMap((item) => {
-    const symbol = String(item.symbol || "");
+    const symbol = normalizeBinanceMarketSymbol(item.symbol);
     const baseAsset = String(item.baseAsset || "");
     const quoteAsset = String(item.quoteAsset || "");
     const contractType = String(item.contractType || "").trim().toUpperCase();
@@ -3255,7 +3403,7 @@ export async function fetchTradingMarkets(options: { fast?: boolean } = {}) {
     spotTickers.map((ticker) => [String(ticker.symbol || ""), ticker]),
   );
   const spotMarkets: TradingMarket[] = (spotExchangeInfo.symbols ?? []).flatMap((item) => {
-    const symbol = String(item.symbol || "");
+    const symbol = normalizeBinanceMarketSymbol(item.symbol);
     const baseAsset = String(item.baseAsset || "");
     const quoteAsset = String(item.quoteAsset || "");
     const tradFiAssetClass = binanceTradFiSpotAssetClass(baseAsset, tradFiAssetClasses);
@@ -3978,7 +4126,7 @@ export function marketFocusedPriceFormatFor(value: number) {
 }
 
 function binanceMarketFromAnalysisContext(context: TradingLastAnalysisContext) {
-  const match = /^BINANCE:(FUTURES|SPOT):([A-Z0-9]{2,40})$/.exec(context.marketId);
+  const match = BINANCE_MARKET_ID_PATTERN.exec(context.marketId);
   if (!match) return null;
   const marketType: Extract<TradingMarketType, "perpetual" | "spot"> = match[1] === "SPOT"
     ? "spot"
@@ -5034,7 +5182,14 @@ class TradingExpertMarketWorkspace {
         this.renderFavoriteTickerBar();
         return;
       }
-      this.selectMarket(market);
+      if (!this.selectMarket(market)) {
+        const presentation = tradingMarketErrorPresentation("binance", binanceMarketSymbolError());
+        this.errorElement.textContent = presentation.message;
+        this.errorElement.dataset.marketAction = presentation.action;
+        this.errorElement.setAttribute("aria-label", presentation.ariaLabel);
+        this.errorElement.hidden = false;
+        return;
+      }
       this.updateSymbolUi();
       this.renderMarkets();
       this.drawingController?.redraw();
@@ -6419,13 +6574,17 @@ class TradingExpertMarketWorkspace {
   }
 
   private selectMarket(market: TradingMarket) {
-    this.selectedMarketMeta = { ...market };
-    this.selectedMarketId = market.id;
-    this.selectedProvider = market.provider;
-    this.selectedAssetClass = market.assetClass;
-    this.selectedMarketType = market.marketType;
-    this.selectedSymbol = market.symbol;
-    if (market.provider === "ifind" && !ifindSupportsTradingResolution(this.activeInterval)) {
+    const selectedMarket = market.provider === "binance"
+      ? normalizeBinanceTradingMarket(market)
+      : market;
+    if (!selectedMarket) return false;
+    this.selectedMarketMeta = { ...selectedMarket };
+    this.selectedMarketId = selectedMarket.id;
+    this.selectedProvider = selectedMarket.provider;
+    this.selectedAssetClass = selectedMarket.assetClass;
+    this.selectedMarketType = selectedMarket.marketType;
+    this.selectedSymbol = selectedMarket.symbol;
+    if (selectedMarket.provider === "ifind" && !ifindSupportsTradingResolution(this.activeInterval)) {
       this.activeInterval = this.periods
         .map((period) => tradingViewResolution(period))
         .find((resolution) => ifindSupportsTradingResolution(resolution)) || "1D";
@@ -6433,6 +6592,7 @@ class TradingExpertMarketWorkspace {
     }
     this.syncIntervalAvailability();
     this.recordLastDrawingWorkspace();
+    return true;
   }
 
   private syncIntervalAvailability() {
@@ -6450,7 +6610,7 @@ class TradingExpertMarketWorkspace {
     const market = this.markets.find(
       (candidate) => candidate.id === `BINANCE:FUTURES:${DEFAULT_SYMBOL}`,
     ) || defaultBinancePerpetualMarket();
-    this.selectMarket(market);
+    if (!this.selectMarket(market)) return false;
     this.updateSymbolUi();
     this.renderMarkets();
     this.drawingController?.redraw();
@@ -7223,8 +7383,8 @@ class TradingExpertMarketWorkspace {
         }
       });
       [...this.favoriteSymbols].forEach((favoriteId) => {
-        const legacyIdMatch = /^BINANCE:([A-Z0-9]{2,40})$/.exec(favoriteId);
-        const legacySymbol = legacyIdMatch?.[1] || (/^[A-Z0-9]{2,40}$/.test(favoriteId) ? favoriteId : "");
+        const legacyIdMatch = /^BINANCE:([A-Z0-9_\p{Script=Han}]{2,40})$/u.exec(favoriteId);
+        const legacySymbol = legacyIdMatch?.[1] || normalizeBinanceMarketSymbol(favoriteId) || "";
         const replacement = preferredBinanceBySymbol.get(legacySymbol);
         if (!replacement || favoriteId === replacement.id) return;
         this.favoriteSymbols.delete(favoriteId);
@@ -7471,8 +7631,17 @@ class TradingExpertMarketWorkspace {
       this.splitPaneSelections.clear();
       this.splitPaneIndicatorSelections.clear();
       this.splitLayoutId = workspace?.layoutId || loadTradingSplitLayoutId(window.localStorage);
-      if (workspace) this.restoreLastDrawingWorkspace(workspace);
-      else this.restoreLastAnalysisSelection();
+      const restored = workspace
+        ? this.restoreLastDrawingWorkspace(workspace)
+        : this.restoreLastAnalysisSelection();
+      if (!restored) {
+        const fallback = this.markets.find(
+          (market) => market.id === `BINANCE:FUTURES:${DEFAULT_SYMBOL}`,
+        ) || defaultBinancePerpetualMarket();
+        this.selectMarket(fallback);
+        this.activeInterval = DEFAULT_INTERVAL;
+        this.updateSymbolUi();
+      }
       this.restoreAlertSimulationSelection();
       this.applySplitLayout();
       this.refreshSplitLayoutPicker();
@@ -7511,7 +7680,7 @@ class TradingExpertMarketWorkspace {
       }
     }
     this.activeInterval = context.interval;
-    this.selectMarket(market);
+    if (!this.selectMarket(market)) return false;
     this.updateSymbolUi();
     return true;
   }
@@ -7545,7 +7714,7 @@ class TradingExpertMarketWorkspace {
       }
     });
     this.activeInterval = primary.interval;
-    this.selectMarket(marketFromFavoriteRecord(primary.market));
+    if (!this.selectMarket(marketFromFavoriteRecord(primary.market))) return false;
     this.updateSymbolUi();
     return true;
   }
@@ -11054,21 +11223,13 @@ class TradingExpertMarketWorkspace {
         this.sourceCandles = [];
         this.lastAggregateTradeId = null;
         this.clearChart();
-        const message = String((error as Error)?.message || "行情加载失败").trim();
-        this.errorElement.textContent = targetProvider === "finnhub"
-          ? GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE
-          : `${message} 点击重试`;
-        this.errorElement.dataset.marketAction = targetProvider === "finnhub"
-          ? "open-default-market"
-          : "retry";
-        if (targetProvider === "finnhub") {
-          this.errorElement.setAttribute(
-            "aria-label",
-            `${GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE}，点击加载 BTC/USDT 永续合约`,
-          );
-        }
+        const presentation = tradingMarketErrorPresentation(targetProvider, error);
+        this.errorElement.textContent = presentation.message;
+        this.errorElement.dataset.marketAction = presentation.action;
+        if (presentation.ariaLabel) this.errorElement.setAttribute("aria-label", presentation.ariaLabel);
+        else this.errorElement.removeAttribute("aria-label");
         this.errorElement.hidden = false;
-        if (targetProvider === "finnhub") return;
+        if (presentation.action === "open-default-market") return;
         const cooldownRemaining = targetProvider === "binance"
           ? binanceMarketRestCooldownRemaining()
           : 0;
