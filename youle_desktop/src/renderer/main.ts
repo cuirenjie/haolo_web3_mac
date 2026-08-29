@@ -503,7 +503,6 @@ const TRADING_INDICATOR_SKILL_CARD_PREFIX = "trading-indicator:";
 const TRADING_TREND_BAND_SKILL_CARD_ID = `${TRADING_INDICATOR_SKILL_CARD_PREFIX}trend-band`;
 const LOGIN_SUCCESS_ICON_URL = new URL("./assets/login-success-logo.png", import.meta.url).href;
 const SETTINGS_APP_ICON_URL = new URL("./assets/nav/settings-about-logo.svg", import.meta.url).href;
-const CUSTOMER_SERVICE_QR_URL = new URL("./assets/customer-service-qr.jpg", import.meta.url).href;
 const SETTINGS_PROFILE_ICON_URL = new URL("./assets/images/settings-profile.svg", import.meta.url).href;
 const SETTINGS_CONSUMPTION_ICON_URL = new URL("./assets/images/settings-consumption.svg", import.meta.url).href;
 const SETTINGS_GENERAL_ICON_URL = new URL("./assets/images/settings-general.svg", import.meta.url).href;
@@ -1446,6 +1445,7 @@ type DesktopApi = {
   quitApp?(): Promise<any>;
   getYouleSession(): Promise<any>;
   refreshYouleSession?(params?: { reason?: string }): Promise<any>;
+  openWebsiteSupport?(): Promise<{ ok?: boolean; authenticated?: boolean }>;
   refreshProfile(): Promise<any>;
   listImageGenerationModels?(params?: { force?: boolean }): Promise<any>;
   listProviderModelCatalog?(params?: { force?: boolean }): Promise<any>;
@@ -2976,7 +2976,6 @@ type LoginState = {
   resendReadyAt: number | null;
   busy: "check" | "send" | "verify" | "activate" | "wechat" | null;
   error: string | null;
-  wecomSupportOpen: boolean;
 };
 
 type ViewId =
@@ -5448,7 +5447,6 @@ const state: UiState = {
     resendReadyAt: null,
     busy: null,
     error: null,
-    wecomSupportOpen: false,
   },
   profileEdit: {
     open: false,
@@ -5515,7 +5513,6 @@ let loginWechatExchangePending = false;
 let loginWechatExchangeAttempts = 0;
 let loginWechatFlowSeq = 0;
 let loginModeCheckSeq = 0;
-let loginSupportResendReadyAt: number | null = null;
 let loginCodeFocusToken = 0;
 let startupAuthSeq = 0;
 let authenticatedWorkspaceGeneration = 0;
@@ -35808,7 +35805,6 @@ function render() {
     syncTradingExpertMarketWorkspace(null);
     root.innerHTML = `
       ${renderLoginScreen()}
-      ${state.login.wecomSupportOpen ? renderWeComSupportDialog() : ""}
       ${state.error ? `<div class="toast">${escapeHtml(state.error)}</div>` : ""}
     `;
     bindLoginEvents();
@@ -35943,7 +35939,6 @@ function render() {
     ${renderWorkflowCanvasContextMenu()}
     ${renderProfileMenu()}
     ${state.settingsOpen ? renderSettingsDialog() : ""}
-    ${state.login.wecomSupportOpen ? renderWeComSupportDialog() : ""}
     ${state.settings.update.dialogOpen ? renderUpdateDialog() : ""}
     ${state.autoTaskDialogOpen ? renderAutoTaskDialog() : ""}
     ${state.addFriendDialog.open ? renderAddFriendDialog() : ""}
@@ -37308,7 +37303,7 @@ function renderLoginCodeStep(checking: boolean) {
     ? `<div class="login-code-verifying">验证中...</div>`
     : `
         <button type="button" class="login-link-button" data-action="back-login-email">返回</button>
-        <button type="button" class="login-link-button" data-action="open-wecom-support">收不到验证码</button>
+        <button type="button" class="login-link-button" data-action="open-website-support">收不到验证码</button>
         <button type="button" class="login-link-button login-resend-button" data-action="send-login-code" ${resendDisabled ? "disabled" : ""}>
           ${resendLabel}
         </button>
@@ -37325,28 +37320,6 @@ function renderLoginCodeStep(checking: boolean) {
       <div class="login-code-actions">${codeActions}</div>
     </section>
   `;
-}
-
-function renderWeComSupportDialog() {
-  return `
-    <div class="login-wecom-backdrop" data-action="close-wecom-support"></div>
-    <dialog class="login-wecom-dialog" open aria-modal="true" aria-labelledby="wecomSupportTitle">
-      <button type="button" class="login-wecom-close" data-action="close-wecom-support" aria-label="关闭" autofocus>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
-      </button>
-      <h2 id="wecomSupportTitle">联系Telegram</h2>
-      <img class="login-wecom-qr-image" src="${escapeAttr(CUSTOMER_SERVICE_QR_URL)}" alt="客服联系方式二维码" />
-    </dialog>
-  `;
-}
-
-function openWeComSupportDialog() {
-  if (!state.auth.authenticated && state.login.step === "code") {
-    const countdown = loginResendCountdown();
-    loginSupportResendReadyAt = state.login.resendReadyAt ?? (countdown > 0 ? Date.now() + countdown * 1000 : null);
-  }
-  state.login.wecomSupportOpen = true;
-  render();
 }
 
 function renderLoginActivateStep(checking: boolean) {
@@ -58712,7 +58685,7 @@ function renderRechargePage() {
               ${membership.subscribed ? renderRechargeSubscriptionBalance() : ""}
             </div>
             <div class="recharge-history-action">
-              <button type="button" class="recharge-support-button" data-action="open-wecom-support">
+              <button type="button" class="recharge-support-button" data-action="open-website-support">
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 11v-1a6 6 0 0 1 12 0v1M4 10H3.5A1.5 1.5 0 0 0 2 11.5v2A1.5 1.5 0 0 0 3.5 15H5v-5H4Zm12 0h.5a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5H15v-5h1Zm0 5c0 1.1-.9 2-2 2h-3" /></svg>
                 <span>联系客服</span>
               </button>
@@ -60837,7 +60810,7 @@ function renderSettingsAboutPanel() {
           ${renderSettingsLinkRow("用户协议", USER_AGREEMENT_URL)}
           ${renderSettingsLinkRow("隐私政策", PRIVACY_POLICY_URL)}
           ${renderSettingsLinkRow("进入官网", HAOLO_HOME_URL)}
-          ${renderSettingsLinkRow("联系Telegram", "", "open-wecom-support")}
+          ${renderSettingsLinkRow("联系客服", "", "open-website-support")}
         </div>
       </div>
     </div>
@@ -61812,7 +61785,7 @@ function bindRechargeHistoryEvents() {
 
 function bindEvents() {
   bindWindowControls();
-  bindWeComSupportEvents(false);
+  bindWebsiteSupportEvents();
   bindCascadeMenuHoverEvents();
   const settingsDialog = root.querySelector<HTMLElement>(".settings-dialog");
   if (settingsDialog) bindHaoloSelects(settingsDialog);
@@ -62643,7 +62616,6 @@ function bindEvents() {
         state.settings.github.authorizing = false;
         state.settings.github.authorizationExpiresAt = null;
         state.settingsOpen = false;
-        state.login.wecomSupportOpen = false;
         state.settings.tab = "general";
         state.configOutput = null;
         clearProfileEditDraft();
@@ -65491,7 +65463,7 @@ function handleSkillsPlazaScroll(event: Event) {
 
 function bindLoginEvents() {
   bindWindowControls();
-  bindWeComSupportEvents(true);
+  bindWebsiteSupportEvents();
   bindLoginWechatQrFrameEvents();
   root.querySelector<HTMLFormElement>("#loginForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -65569,7 +65541,6 @@ function bindLoginEvents() {
     state.login.challenge = null;
     state.login.counter = 0;
     state.login.error = null;
-    state.login.wecomSupportOpen = false;
     state.login.busy = null;
     loginModeCheckSeq += 1;
     stopLoginCounter();
@@ -65662,10 +65633,10 @@ function focusLoginCodeInput() {
 }
 
 function scheduleLoginCodeFocus() {
-  if (state.login.step !== "code" || state.login.wecomSupportOpen) return;
+  if (state.login.step !== "code") return;
   const token = ++loginCodeFocusToken;
   const focus = () => {
-    if (token !== loginCodeFocusToken || state.login.step !== "code" || state.login.wecomSupportOpen) return;
+    if (token !== loginCodeFocusToken || state.login.step !== "code") return;
     focusLoginCodeInput();
   };
   window.requestAnimationFrame(focus);
@@ -66117,17 +66088,24 @@ function bindWorkflowCanvasContextMenu() {
   });
 }
 
-function bindWeComSupportEvents(restoreCountdownOnClose: boolean) {
-  root.querySelectorAll<HTMLElement>('[data-action="open-wecom-support"]').forEach((element) => {
-    element.addEventListener("click", () => {
-      openWeComSupportDialog();
-    });
-  });
-  root.querySelectorAll<HTMLElement>('[data-action="close-wecom-support"]').forEach((element) => {
-    element.addEventListener("click", () => {
-      state.login.wecomSupportOpen = false;
-      if (restoreCountdownOnClose) restoreLoginSupportCountdown();
-      render();
+function bindWebsiteSupportEvents() {
+  root.querySelectorAll<HTMLElement>('[data-action="open-website-support"]').forEach((element) => {
+    element.addEventListener("click", async () => {
+      if (element.getAttribute("aria-busy") === "true") return;
+      element.setAttribute("aria-busy", "true");
+      if (element instanceof HTMLButtonElement) element.disabled = true;
+      try {
+        if (api.openWebsiteSupport) {
+          await api.openWebsiteSupport();
+        } else {
+          await api.openExternal(`${HAOLO_HOME_URL}/#support=open`);
+        }
+      } catch {
+        showToast("暂时无法打开网页版客服，请稍后重试。", 3200);
+      } finally {
+        element.removeAttribute("aria-busy");
+        if (element instanceof HTMLButtonElement && element.isConnected) element.disabled = false;
+      }
     });
   });
 }
@@ -68845,7 +68823,6 @@ async function sendLoginCode() {
   state.login.code = "";
   state.login.busy = "send";
   state.login.error = null;
-  state.login.wecomSupportOpen = false;
   state.login.wechatEmailVerification = isWechatEmail;
   state.login.step = "code";
   state.login.counter = 60;
@@ -69205,7 +69182,6 @@ async function logoutFromYoule() {
     resendReadyAt: null,
     busy: null,
     error: null,
-    wecomSupportOpen: false,
   };
   loginModeCheckSeq += 1;
   if (loginCounterTimer !== null) {
@@ -69258,7 +69234,6 @@ function handleAuthExpired(session: any = {}) {
     resendReadyAt: null,
     busy: null,
     error: "\u767b\u5f55\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55",
-    wecomSupportOpen: false,
   };
   loginModeCheckSeq += 1;
   if (loginCounterTimer !== null) {
@@ -74349,7 +74324,6 @@ async function cancelLoginRestore() {
     resendReadyAt: null,
     busy: null,
     error: null,
-    wecomSupportOpen: false,
   };
   loginModeCheckSeq += 1;
   state.loading = false;
@@ -77909,7 +77883,6 @@ function resetLoginRegistrationFlow() {
   state.login.resendReadyAt = null;
   state.login.busy = null;
   state.login.error = null;
-  state.login.wecomSupportOpen = false;
   loginModeCheckSeq += 1;
   stopLoginCounter();
 }
@@ -77946,7 +77919,6 @@ function scheduleLoginCounter() {
   if (state.login.step !== "code" || countdown <= 0) {
     if (countdown <= 0) {
       state.login.resendReadyAt = null;
-      loginSupportResendReadyAt = null;
     }
     return;
   }
@@ -77958,7 +77930,6 @@ function scheduleLoginCounter() {
     state.login.counter = loginResendCountdown();
     if (state.login.counter <= 0) {
       state.login.resendReadyAt = null;
-      loginSupportResendReadyAt = null;
     }
     updateLoginCountdownView();
     scheduleLoginCounter();
@@ -77981,25 +77952,6 @@ function stopLoginCounter() {
     loginCounterTimer = null;
   }
   state.login.resendReadyAt = null;
-  loginSupportResendReadyAt = null;
-}
-
-function restoreLoginSupportCountdown() {
-  if (state.login.step !== "code") return;
-  const currentCountdown = loginResendCountdown();
-  if (currentCountdown > 0) {
-    scheduleLoginCounter();
-    return;
-  }
-  if (loginSupportResendReadyAt == null) return;
-  const countdown = Math.ceil((loginSupportResendReadyAt - Date.now()) / 1000);
-  if (countdown <= 0) {
-    loginSupportResendReadyAt = null;
-    return;
-  }
-  state.login.counter = countdown;
-  state.login.resendReadyAt = loginSupportResendReadyAt;
-  scheduleLoginCounter();
 }
 
 function loginResendCountdown() {

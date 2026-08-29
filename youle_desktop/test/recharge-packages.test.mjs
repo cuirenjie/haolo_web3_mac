@@ -92,7 +92,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(page, /RECHARGE_SUBSCRIPTION_PRODUCTS/);
   assert.match(page, /class="recharge-product-grid subscription" role="radiogroup"[\s\S]*?aria-required="true"/);
   assert.match(page, /class="recharge-subscription-content"/);
-  assert.match(page, /class="recharge-history-action"[\s\S]*?class="recharge-support-button" data-action="open-wecom-support"[\s\S]*?<span>联系客服<\/span>[\s\S]*?class="recharge-history-button"/);
+  assert.match(page, /class="recharge-history-action"[\s\S]*?class="recharge-support-button" data-action="open-website-support"[\s\S]*?<span>联系客服<\/span>[\s\S]*?class="recharge-history-button"/);
   assert.match(pageScrollStyles, /overflow: hidden/);
   assert.match(pageScrollStyles, /padding: 12px clamp\(22px, 3\.4vw, 48px\) 47px/);
   assert.doesNotMatch(styles, /\.recharge-page-scroll\s*\{[^}]*scrollbar-color/);

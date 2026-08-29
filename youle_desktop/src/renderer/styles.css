@@ -4553,93 +4553,6 @@ select:disabled {
   color: #8f8f8f;
 }
 
-.login-wecom-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 98;
-  background: rgba(0, 0, 0, 0.18);
-  -webkit-app-region: no-drag;
-}
-
-.login-wecom-dialog {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  z-index: 99;
-  display: grid;
-  justify-items: center;
-  width: min(300px, calc(100vw - 56px));
-  margin: 0;
-  border: 0;
-  border-radius: 16px;
-  background: var(--surface-primary);
-  padding: 22px 22px 20px;
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.18);
-  transform: translate(-50%, -50%);
-  -webkit-app-region: no-drag;
-}
-
-.login-wecom-close {
-  position: absolute;
-  right: 14px;
-  top: 14px;
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border-radius: 999px;
-  color: #a3a3a3;
-  padding: 0;
-  transition: background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
-}
-
-.login-wecom-close:hover {
-  background: #f2f4f7;
-  color: #4b5563;
-}
-
-.login-wecom-close:active {
-  background: #e7ebf0;
-  color: #242b36;
-  transform: scale(0.94);
-}
-
-.login-wecom-close:focus-visible {
-  outline: 2px solid rgba(47, 155, 255, 0.58);
-  outline-offset: 2px;
-}
-
-.login-wecom-close svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.5;
-}
-
-.login-wecom-dialog h2 {
-  width: min(216px, 100%);
-  margin: 0 0 14px;
-  padding-left: 35px;
-  color: var(--text-near-black);
-  font-size: calc(14px + var(--app-font-size-offset));
-  font-weight: 400;
-  line-height: 24px;
-  text-align: left;
-}
-
-.login-wecom-qr-image {
-  display: block;
-  width: min(216px, 100%);
-  max-height: min(62vh, 460px);
-  border: 0;
-  border-radius: 8px;
-  background: var(--surface-primary);
-  object-fit: contain;
-}
-
 .login-activate-panel {
   padding-top: 50px;
   width: 100%;
@@ -29714,28 +29627,9 @@ html[data-theme="dark"] {
   --dialog-disabled-text: #7f8792;
 }
 
-html[data-theme="dark"] .modal-backdrop,
-html[data-theme="dark"] .login-wecom-backdrop {
+html[data-theme="dark"] .modal-backdrop {
   background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(1px);
-}
-
-html[data-theme="dark"] .login-wecom-close {
-  color: #9ca6b4;
-}
-
-html[data-theme="dark"] .login-wecom-close:hover {
-  background: var(--dialog-secondary-hover);
-  color: #f2f5fa;
-}
-
-html[data-theme="dark"] .login-wecom-close:active {
-  background: #343840;
-  color: #fff;
-}
-
-html[data-theme="dark"] .login-wecom-close:focus-visible {
-  outline-color: #5b9dff;
 }
 
 html[data-theme="dark"] dialog[open] {

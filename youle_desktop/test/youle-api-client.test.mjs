@@ -36,6 +36,39 @@ function jwtAccessToken(expSeconds, extra = {}) {
   return `${header}.${payload}.test-signature`;
 }
 
+test("desktop support handoff is requested with authenticated client headers", async () => {
+  const originalFetch = globalThis.fetch;
+  let request = null;
+  globalThis.fetch = async (url, init = {}) => {
+    request = { url: String(url), init };
+    return new Response(JSON.stringify({
+      ticket: `hdw1.${"a".repeat(64)}`,
+      expires_in: 120,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    client.baseUrl = "https://haolo.example";
+    client.token = "desktop-access-token";
+
+    const handoff = await client.createDesktopWebHandoff();
+
+    assert.equal(request.url, "https://haolo.example/api/auth/desktop-handoff");
+    assert.equal(request.init.method, "POST");
+    assert.equal(request.init.headers.Authorization, "Bearer desktop-access-token");
+    assert.equal(request.init.headers["X-Youle-Client"], "windows-desktop");
+    assert.equal(request.init.headers["content-type"], "application/json");
+    assert.equal(request.init.body, "{}");
+    assert.deepEqual(handoff, { ticket: `hdw1.${"a".repeat(64)}`, expiresIn: 120 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Claude provider uses its dedicated transit key and stable public model alias", async () => {
   const originalFetch = globalThis.fetch;
   let request = null;

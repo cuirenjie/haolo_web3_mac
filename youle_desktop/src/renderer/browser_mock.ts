@@ -527,6 +527,10 @@ export function ensureBrowserDesktopApi() {
     async getYouleSession() {
       return session;
     },
+    async openWebsiteSupport() {
+      window.open("https://haolo.com/#support=open", "_blank", "noopener,noreferrer");
+      return { ok: true, authenticated: Boolean(session?.authenticated) };
+    },
     async refreshProfile() {
       return session;
     },

@@ -34,6 +34,7 @@ const DEFAULT_WECHAT_AUTH_CONFIG_PATH = "/api/auth/wechat/config";
 const DEFAULT_WECHAT_AUTH_FLOWS_PATH = "/api/auth/wechat/flows";
 const DEFAULT_REFRESH_PATH = "/api/auth/refresh";
 const DEFAULT_LOGOUT_PATH = "/api/auth/logout";
+const DEFAULT_DESKTOP_WEB_HANDOFF_PATH = "/api/auth/desktop-handoff";
 const DEFAULT_INVITE_VALIDATE_PATH = "/api/auth/invites/validate";
 const DEFAULT_VIDEO_EXPERT_ACCESS_VALIDATE_PATH = "/api/video-expert/access/validate";
 const DEFAULT_VIDEO_EXPERT_MODELS_PATH = "/api/video-expert/models";
@@ -146,6 +147,8 @@ export class YouleApiClient {
     this.wechatAuthFlowsPath = process.env.YOULE_API_WECHAT_AUTH_FLOWS_PATH || DEFAULT_WECHAT_AUTH_FLOWS_PATH;
     this.refreshPath = process.env.YOULE_API_REFRESH_PATH || DEFAULT_REFRESH_PATH;
     this.logoutPath = process.env.YOULE_API_LOGOUT_PATH || DEFAULT_LOGOUT_PATH;
+    this.desktopWebHandoffPath =
+      process.env.YOULE_API_DESKTOP_WEB_HANDOFF_PATH || DEFAULT_DESKTOP_WEB_HANDOFF_PATH;
     this.inviteValidatePath = process.env.YOULE_API_INVITE_VALIDATE_PATH || DEFAULT_INVITE_VALIDATE_PATH;
     this.videoExpertAccessValidatePath = process.env.YOULE_API_VIDEO_EXPERT_ACCESS_VALIDATE_PATH || DEFAULT_VIDEO_EXPERT_ACCESS_VALIDATE_PATH;
     this.videoExpertModelsPath = process.env.YOULE_API_VIDEO_EXPERT_MODELS_PATH || DEFAULT_VIDEO_EXPERT_MODELS_PATH;
@@ -414,6 +417,21 @@ export class YouleApiClient {
       await this.saveModelAuth();
     }
     return this.sessionSummary();
+  }
+
+  async createDesktopWebHandoff() {
+    await this.load();
+    this.requireAuth();
+    const response = await this.requestJson(joinUrl(this.baseUrl, this.desktopWebHandoffPath), {
+      method: "POST",
+      headers: this.clientHeaders({ auth: true, json: true }),
+      body: "{}",
+    });
+    const ticket = String(response?.ticket || "").trim();
+    if (!/^hdw1\.[A-Za-z0-9_-]{43,200}$/.test(ticket)) {
+      throw new Error("网页版登录交接凭证无效，请稍后重试。");
+    }
+    return { ticket, expiresIn: Number(response?.expires_in) || null };
   }
 
   async fetchSub2ApiKeys(token = this.token) {
@@ -5024,7 +5042,7 @@ function redactLogPayload(value) {
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
-      /token|password|secret|authorization|download_url|upload_url|api_key|apikey|key_prefix|code|challenge/i.test(key) ? "[redacted]" : redactLogPayload(item),
+      /token|ticket|password|secret|authorization|download_url|upload_url|api_key|apikey|key_prefix|code|challenge/i.test(key) ? "[redacted]" : redactLogPayload(item),
     ]),
   );
 }

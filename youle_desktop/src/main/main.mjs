@@ -12167,6 +12167,32 @@ ipcMain.handle("youle:refreshSession", async (_event, params = {}) => {
   });
 });
 
+ipcMain.handle("youle:openWebsiteSupport", async () => {
+  const apiClient = getYouleApiClient();
+  let session;
+  try {
+    session = await apiClient.getSession();
+  } catch (error) {
+    if (!isYouleAuthExpiredError(error)) throw error;
+    session = { authenticated: false };
+  }
+  let handoffTicket = "";
+  if (session?.authenticated) {
+    try {
+      const handoff = await apiClient.createDesktopWebHandoff();
+      handoffTicket = String(handoff?.ticket || "");
+    } catch (error) {
+      if (!isYouleAuthExpiredError(error)) throw error;
+    }
+  }
+  const supportUrl = new URL("/", HAOLO_HOME_URL);
+  const fragment = new URLSearchParams({ support: "open" });
+  if (handoffTicket) fragment.set("desktop_handoff", handoffTicket);
+  supportUrl.hash = fragment.toString();
+  await shell.openExternal(supportUrl.toString());
+  return { ok: true, authenticated: Boolean(handoffTicket) };
+});
+
 ipcMain.handle("youle:refreshProfile", async () => {
   return getYouleApiClient().refreshProfile();
 });
