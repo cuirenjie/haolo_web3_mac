@@ -88,7 +88,7 @@ test("reasoning placeholders are localized and do not leak provider debug text",
   assert.doesNotMatch(itemTextBlock, /Thinking\.\.\./);
 });
 
-test("final answer detection is scoped to the current active turn and final phase", async () => {
+test("final answer detection is scoped to the current busy response and final phase", async () => {
   const source = await mainSource;
   const activeFinalBlock = sourceBlock(
     source,
@@ -96,11 +96,19 @@ test("final answer detection is scoped to the current active turn and final phas
     "function isFinalAnswerAgentItem",
   );
 
+  assert.match(activeFinalBlock, /activeThinkingResponseId\(\{/);
+  assert.match(activeFinalBlock, /providerBusy: isProviderThreadBusy\(threadId\)/);
+  assert.match(activeFinalBlock, /providerInteractionId: activeProviderInteractionByThreadId\.get\(threadId\)/);
+  assert.match(activeFinalBlock, /codexBusy: activeCodexThreadIds\.has\(threadId\)/);
   assert.match(activeFinalBlock, /activeTurnIdForThread\(threadId\)/);
-  assert.match(activeFinalBlock, /isFinalAnswerAgentItem\(item\)/);
-  assert.match(activeFinalBlock, /itemTurnId\(item\)/);
-  assert.match(activeFinalBlock, /itemTurn && itemTurn !== activeTurnId/);
-  assert.match(activeFinalBlock, /itemText\(item\)\.trim\(\) \|\| itemAttachments\(item\)\.length \|\| messageActionsFromItem\(item\)\?\.length/);
+  assert.match(activeFinalBlock, /isFinalAnswerForThinkingResponse\(activeResponseId/);
+  assert.match(activeFinalBlock, /responseId: itemTurnId\(item\)/);
+  assert.match(activeFinalBlock, /isFinalAnswer: isFinalAnswerAgentItem\(item\)/);
+  assert.match(
+    activeFinalBlock,
+    /itemText\(item\)\.trim\(\)[\s\S]*?\|\| itemAttachments\(item\)\.length[\s\S]*?\|\| messageActionsFromItem\(item\)\?\.length/,
+  );
+  assert.doesNotMatch(activeFinalBlock, /itemTurn && itemTurn !== activeTurnId/);
 
   const finalItemBlock = sourceBlock(
     source,

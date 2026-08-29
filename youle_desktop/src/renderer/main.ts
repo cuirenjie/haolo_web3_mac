@@ -137,6 +137,10 @@ import { bindHaoloSelects, renderHaoloSelect } from "./haolo-select";
 import { stripLeadingMarkdownThematicBreak } from "./message-markdown";
 import { stripConversationTitleMentionTokens } from "./conversation-title";
 import {
+  activeThinkingResponseId,
+  isFinalAnswerForThinkingResponse,
+} from "./thinking-indicator";
+import {
   authChannelLabel,
   detectAuthIdentifier,
   maskAuthIdentifier,
@@ -28737,6 +28741,7 @@ function finalizeQuestionAnswerStreamAgentMessage(params: {
     round: stream?.round || 1,
     sequence: (stream?.sequence || 0) + 1,
     status: "completed",
+    phase: "final_answer",
   });
 }
 
@@ -75088,14 +75093,26 @@ function hasActiveContextCompaction(threadId: string) {
 }
 
 function hasActiveFinalAnswerMessage(threadId: string) {
-  const activeTurnId = activeTurnIdForThread(threadId);
-  if (!activeTurnId) return false;
+  const workflowRun = activeWorkflowRunForThread(threadId);
+  const activeResponseId = activeThinkingResponseId({
+    providerBusy: isProviderThreadBusy(threadId),
+    providerInteractionId: activeProviderInteractionByThreadId.get(threadId),
+    codexBusy: activeCodexThreadIds.has(threadId),
+    codexTurnId: activeTurnIdForThread(threadId),
+    workflowRunId: workflowRun?.id,
+  });
+  if (!activeResponseId) return false;
   return (state.itemOrder[threadId] || []).some((id) => {
     const item = state.items[threadId]?.[id];
-    if (!isFinalAnswerAgentItem(item)) return false;
-    const itemTurn = itemTurnId(item);
-    if (itemTurn && itemTurn !== activeTurnId) return false;
-    return Boolean(itemText(item).trim() || itemAttachments(item).length || messageActionsFromItem(item)?.length);
+    return isFinalAnswerForThinkingResponse(activeResponseId, {
+      responseId: itemTurnId(item),
+      isFinalAnswer: isFinalAnswerAgentItem(item),
+      hasRenderableContent: Boolean(
+        itemText(item).trim()
+        || itemAttachments(item).length
+        || messageActionsFromItem(item)?.length
+      ),
+    });
   });
 }
 

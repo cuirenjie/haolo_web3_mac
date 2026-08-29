@@ -60,6 +60,11 @@ test("renderer appends deltas into one deterministic answer bubble", async () =>
     "async function sendCurrentProviderMessage",
     "function applyVideoGenerationBillingSession",
   );
+  const finalizeBlock = sourceBlock(
+    renderer,
+    "function finalizeQuestionAnswerStreamAgentMessage",
+    "function failQuestionAnswerStreamAgentMessage",
+  );
 
   assert.match(
     renderer,
@@ -83,6 +88,7 @@ test("renderer appends deltas into one deterministic answer bubble", async () =>
     providerSendBlock,
     /finalizeQuestionAnswerStreamAgentMessage\(\{[\s\S]*text:\s*providerReply[\s\S]*attachments:/,
   );
+  assert.match(finalizeBlock, /status:\s*"completed"[\s\S]*phase:\s*"final_answer"/);
   assert.doesNotMatch(
     providerSendBlock,
     /appendProviderAgentMessage\([\s\S]*?providerReply/,
