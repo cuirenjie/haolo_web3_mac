@@ -1021,6 +1021,10 @@ function currentWindowIcon() {
   return windowIcon || MAC_DOCK_ICON_PATH || SHELL_ICON_PATH || null;
 }
 
+function nativeIconFromValue(icon) {
+  return typeof icon === "string" ? createNativeIconFromPath(icon) : icon;
+}
+
 async function createWindowIcon() {
   if (IS_MAC) {
     return createNativeIconFromPath(MAC_DOCK_ICON_PATH) || WINDOW_ICON;
@@ -2633,8 +2637,8 @@ function currentTrayIcon(icon = currentWindowIcon()) {
   if (!IS_MAC) return icon;
   const sourceIcon = createNativeIconFromPath(MAC_TRAY_ICON_PATH)
     || createNativeIconFromPath(MAC_DOCK_ICON_PATH)
-    || icon;
-  if (!sourceIcon || sourceIcon.isEmpty()) return null;
+    || nativeIconFromValue(icon);
+  if (!sourceIcon || typeof sourceIcon.isEmpty !== "function" || sourceIcon.isEmpty()) return null;
   const trayIcon = sourceIcon.resize({
     width: MAC_TRAY_ICON_SIZE,
     height: MAC_TRAY_ICON_SIZE,
@@ -2655,8 +2659,8 @@ function setMainWindowIcon(icon = currentWindowIcon()) {
 
 function setMacDockIcon(icon = currentWindowIcon()) {
   if (!IS_MAC || !app.dock) return;
-  const dockIcon = createNativeIconFromPath(MAC_DOCK_ICON_PATH) || icon;
-  if (!dockIcon || dockIcon.isEmpty()) return;
+  const dockIcon = createNativeIconFromPath(MAC_DOCK_ICON_PATH) || nativeIconFromValue(icon);
+  if (!dockIcon || typeof dockIcon.isEmpty !== "function" || dockIcon.isEmpty()) return;
   try {
     app.dock.setIcon(dockIcon);
   } catch (error) {
