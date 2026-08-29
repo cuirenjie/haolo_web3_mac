@@ -286,6 +286,68 @@ test("Codex provider automatically sends medium for simple work and max for inte
   }
 });
 
+test("provider chat preserves the WEB3 membership-expired error for the UI", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    code: "MEMBERSHIP_EXPIRED",
+    message: "会员到期",
+  }), {
+    status: 403,
+    headers: { "content-type": "application/json" },
+  });
+
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    client.baseUrl = "https://haolo.example";
+    client.token = "haolo-session-token";
+    client.modelKeys = [
+      { provider: "codex", apiKey: "sk-codex-user", baseUrl: "https://transit.example/v1" },
+    ];
+
+    await assert.rejects(
+      client.sendProviderChat({ provider: "gpt", text: "Hello" }),
+      (error) => error?.status === 403
+        && error?.code === "MEMBERSHIP_EXPIRED"
+        && error?.message === "会员到期"
+        && error?.retryable === false,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("provider chat preserves the paid-trial requirement for the UI", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    code: "TRIAL_REQUIRED",
+    message: "请先开通体验版或其他套餐",
+  }), {
+    status: 403,
+    headers: { "content-type": "application/json" },
+  });
+
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    client.baseUrl = "https://haolo.example";
+    client.token = "haolo-session-token";
+    client.modelKeys = [
+      { provider: "codex", apiKey: "sk-codex-user", baseUrl: "https://transit.example/v1" },
+    ];
+
+    await assert.rejects(
+      client.sendProviderChat({ provider: "gpt", text: "Hello" }),
+      (error) => error?.status === 403
+        && error?.code === "TRIAL_REQUIRED"
+        && error?.message === "请先开通体验版或其他套餐"
+        && error?.retryable === false,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("internal low-latency provider requests can hold reasoning at low", async () => {
   const originalFetch = globalThis.fetch;
   let requestBody = null;
@@ -2770,6 +2832,7 @@ test("refreshSub2ApiAccount reads balance and marks low balance", async () => {
           subscription_balance_refresh_at: "2026-07-21T00:00:00Z",
           membership_expires_at: "2026-08-11T00:00:00Z",
           membership_plan: "pro",
+          trial_eligible: false,
           active_membership: {
             plan_id: "pro",
             starts_at: "2026-07-12T00:00:00Z",
@@ -2821,6 +2884,7 @@ test("refreshSub2ApiAccount reads balance and marks low balance", async () => {
     assert.equal(result.session.profile.subscription_balance_refresh_at, "2026-07-21T00:00:00Z");
     assert.equal(result.session.profile.membership_expires_at, "2026-08-11T00:00:00Z");
     assert.equal(result.session.profile.membership_plan, "pro");
+    assert.equal(result.session.profile.trial_eligible, false);
     assert.equal(result.session.profile.active_membership.plan_id, "pro");
     assert.equal(result.session.profile.pending_membership.plan_id, "flagship");
     assert.equal(result.session.profile.pending_membership.starts_at, "2026-08-11T00:00:00Z");

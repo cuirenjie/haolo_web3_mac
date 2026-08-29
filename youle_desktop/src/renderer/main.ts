@@ -598,6 +598,23 @@ function localizedThinkingStage(stage: ThinkingStagePresentation | null): Thinki
 }
 const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
   {
+    id: "subscription_trial",
+    kind: "subscription",
+    name: "体验版",
+    orderName: "体验版订阅",
+    description: "首次开通专享，用于完整体验 AI 模型能力。",
+    detail: "总额度 100 积分·3天会员",
+    priceUsdt: 4.9,
+    amountCents: 490,
+    billingPeriod: "3天",
+    tokenAmount: 100,
+    unitValue: "4.9",
+    multiplier: "1:0.049",
+    features: ["支付成功后 100 积分立即到账", "从开通时刻起精确 72 小时有效", "到期剩余积分立即清零，每个账户限开通一次"],
+    badge: "首次专享",
+    requiresTrialEligibility: true,
+  },
+  {
     id: "subscription_basic",
     kind: "subscription",
     name: "基础版",
@@ -692,6 +709,7 @@ type Web3PaymentOrder = {
   currency: "USDT" | string;
   token_amount: string;
   membership_months: number;
+  membership_days: number;
   network: RechargePaymentNetworkId;
   recipient_address: string;
   token_contract: string;
@@ -722,7 +740,7 @@ const rechargePaymentOrdersBySelection = new Map<string, Web3PaymentOrder>();
 const rechargePaymentOrderLoadingSelections = new Set<string>();
 const rechargePaymentOrderErrorsBySelection = new Map<string, string>();
 const rechargePaymentExpiryChecksInFlight = new Set<string>();
-let selectedRechargeProductId = "subscription_basic";
+let selectedRechargeProductId = "subscription_trial";
 let selectedRechargePaymentNetwork: RechargePaymentNetworkId | null = "binance_internal";
 let rechargePaymentOrder: Web3PaymentOrder | null = null;
 let rechargePaymentOrderScope = "";
@@ -889,7 +907,7 @@ const DESKTOP_SANDBOX_POLICY = "danger-full-access";
 const AUTHENTICATED_WORKSPACE_BOOT_TIMEOUT_MS = 12_000;
 const APP_WINDOW_MODE_TRANSITION_REVEAL_DELAY_MS = 50;
 const APP_WINDOW_MODE_TRANSITION_FALLBACK_MS = 1800;
-const INSUFFICIENT_QUOTA_MESSAGE = "您的额度不足";
+const INSUFFICIENT_QUOTA_MESSAGE = "当前没有可用积分，请开通体验版或其他套餐后再提问";
 const RECHARGE_TOKEN_ACTION_ID = "recharge-token";
 const RECHARGE_TOKEN_ACTION_KIND = "recharge_token";
 const LOW_BALANCE_PROFILE_REFRESH_INITIAL_DELAY_MS = 1_000;
@@ -2747,6 +2765,8 @@ type AuthProfile = {
   membershipExpiresAt?: string | null;
   membership_plan?: string | null;
   membershipPlan?: string | null;
+  trial_eligible?: boolean | null;
+  trialEligible?: boolean | null;
   active_membership?: Record<string, unknown> | null;
   activeMembership?: Record<string, unknown> | null;
   token_balance_label?: string | null;
@@ -2829,13 +2849,14 @@ type RechargeProductDefinition = {
   detail: string;
   priceUsdt: number;
   amountCents: number;
-  billingPeriod: "月" | "半年" | "年";
+  billingPeriod: "3天" | "月" | "半年" | "年";
   tokenAmount: number;
   weeklyTokenAmount?: number;
   unitValue: string;
   multiplier: string;
   features: readonly string[];
   badge?: string;
+  requiresTrialEligibility?: boolean;
 };
 
 type AutoTaskDraftState = {
@@ -23913,7 +23934,7 @@ function rechargeTokenMessageAction(): MessageAction {
   return {
     id: RECHARGE_TOKEN_ACTION_ID,
     kind: RECHARGE_TOKEN_ACTION_KIND,
-    label: "充值积分",
+    label: "查看套餐",
   };
 }
 
@@ -24093,7 +24114,7 @@ async function refreshLowBalanceProfile(reason: string) {
 function isInsufficientQuotaError(value: unknown) {
   const text = insufficientQuotaSignalText(value);
   if (!text) return false;
-  return /(?:您的额度不足|额度不足|余额不足|没有余额|无可用额度|可用额度为\s*0|Token\s*余额不足|token余额不足|充值\s*Token|insufficient[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|not enough[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|out of[_\s-]*(?:quota|credit|credits|funds?|tokens?)|no[_\s-]*(?:quota|credit|credits|funds?|tokens?)|payment required|\b402\b|quota[_\s-]*exceeded|billing[_\s-]*(?:required|quota|limit))/i.test(text);
+  return /(?:TRIAL_REQUIRED|MEMBERSHIP_EXPIRED|请先开通体验版|开通体验版或其他套餐|会员到期|当前没有可用积分|您的额度不足|额度不足|余额不足|没有余额|无可用额度|可用额度为\s*0|Token\s*余额不足|token余额不足|充值\s*Token|insufficient[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|not enough[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|out of[_\s-]*(?:quota|credit|credits|funds?|tokens?)|no[_\s-]*(?:quota|credit|credits|funds?|tokens?)|payment required|\b402\b|quota[_\s-]*exceeded|billing[_\s-]*(?:required|quota|limit))/i.test(text);
 }
 
 function isInsufficientQuotaTurnSignal(message: JsonRpcMessage) {
@@ -35727,6 +35748,9 @@ function render() {
   if (state.activeView !== "recharge") {
     stopRechargePaymentRuntime();
     rechargePaymentViewActive = false;
+    if (selectedRechargeProductId === "subscription_trial" && currentRechargeTrialEligibility() === false) {
+      selectedRechargeProductId = "subscription_basic";
+    }
   }
   if (composerModePointerActive) {
     composerModePointerRenderPending = true;
@@ -59007,10 +59031,30 @@ function renderRechargePaymentDetailsShell() {
   return `<section class="recharge-payment-details" data-recharge-payment-details aria-live="polite" hidden></section>`;
 }
 
+function currentRechargeTrialEligibility() {
+  const profile = state.auth.profile as Record<string, unknown> | null;
+  const value = profile?.trial_eligible ?? profile?.trialEligible;
+  return typeof value === "boolean" ? value : null;
+}
+
+function rechargeTrialResultMustRemainVisible() {
+  return Array.from(rechargePaymentOrdersBySelection.values()).some((order) =>
+    order.product_id === "subscription_trial"
+    && (order.status === "paid" || order.status === "confirming" || order.status === "manual_review"),
+  );
+}
+
+function rechargeProductIsUnavailable(product: RechargeProductDefinition) {
+  return product.requiresTrialEligibility === true && currentRechargeTrialEligibility() === false;
+}
+
 function ensureRechargeProductSelection() {
-  const product = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
+  let product: RechargeProductDefinition | null = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
     (candidate) => candidate.id === selectedRechargeProductId,
   ) || RECHARGE_SUBSCRIPTION_PRODUCTS[0] || null;
+  if (product && rechargeProductIsUnavailable(product) && !rechargeTrialResultMustRemainVisible()) {
+    product = RECHARGE_SUBSCRIPTION_PRODUCTS.find((candidate) => candidate.id === "subscription_basic") || null;
+  }
   if (product) selectedRechargeProductId = product.id;
   return product;
 }
@@ -59093,6 +59137,7 @@ function normalizeWeb3PaymentOrder(value: any): Web3PaymentOrder {
     currency: String(value?.currency || "USDT"),
     token_amount: String(value?.token_amount || value?.tokenAmount || "0"),
     membership_months: Number(value?.membership_months || value?.membershipMonths || 0),
+    membership_days: Number(value?.membership_days || value?.membershipDays || 0),
     network,
     recipient_address: recipientAddress,
     token_contract: String(value?.token_contract || value?.tokenContract || "").trim(),
@@ -59369,9 +59414,15 @@ function stopRechargePaymentRuntime() {
 function syncRechargePaymentSelectionControls() {
   root.querySelectorAll<HTMLElement>("[data-recharge-product-id]").forEach((card) => {
     const selected = card.dataset.rechargeProductId === selectedRechargeProductId;
+    const product = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
+      (candidate) => candidate.id === card.dataset.rechargeProductId,
+    );
+    const unavailable = Boolean(product && rechargeProductIsUnavailable(product));
     card.classList.toggle("selected", selected);
+    card.classList.toggle("unavailable", unavailable);
     card.setAttribute("aria-checked", selected ? "true" : "false");
-    card.setAttribute("tabindex", "0");
+    card.setAttribute("aria-disabled", unavailable ? "true" : "false");
+    card.setAttribute("tabindex", unavailable ? "-1" : "0");
   });
   root.querySelectorAll<HTMLInputElement>('input[name="recharge-payment-network"]').forEach((input) => {
     input.checked = input.value === selectedRechargePaymentNetwork;
@@ -59466,6 +59517,11 @@ function startRechargePaymentPolling(orderNo: string, selectionKey: string) {
   rechargePaymentPollTimer = window.setInterval(() => void pollRechargePaymentOrder(), RECHARGE_PAYMENT_POLL_INTERVAL_MS);
 }
 
+function isRechargeTrialIneligibleError(value: unknown) {
+  return /(?:trial_membership_ineligible|体验版仅限每个账户开通一次|trial[^\n]*once|not eligible[^\n]*trial)/i
+    .test(insufficientQuotaSignalText(value));
+}
+
 async function createRechargePaymentOrder(options: {
   force?: boolean;
   preserveExisting?: boolean;
@@ -59520,6 +59576,16 @@ async function createRechargePaymentOrder(options: {
     if (orderScope !== rechargePaymentOrderScope) return;
     rechargePaymentOrderLoadingSelections.delete(selectionKey);
     const authExpired = isAuthSessionExpiredError(error);
+    if (selection.product.requiresTrialEligibility && isRechargeTrialIneligibleError(error)) {
+      if (state.auth.profile) {
+        state.auth.profile = { ...state.auth.profile, trial_eligible: false };
+      }
+      rechargePaymentOrderErrorsBySelection.set(selectionKey, "体验版仅限每个账户开通一次");
+      selectedRechargeProductId = "subscription_basic";
+      showToast("体验版仅限每个账户开通一次");
+      render();
+      return;
+    }
     const retryAttempt = Math.max(0, Math.trunc(options.retryAttempt || 0));
     if (shouldAutoRetryRechargePaymentOrderRequest({
       authExpired,
@@ -60388,17 +60454,21 @@ function renderRechargeSubscriptionBalance() {
 
 function renderRechargeProductCard(product: RechargeProductDefinition) {
   const isSelected = product.id === selectedRechargeProductId;
+  const unavailable = rechargeProductIsUnavailable(product);
   return `
     <article
-      class="recharge-product-card ${isSelected ? "selected" : ""}"
+      class="recharge-product-card ${isSelected ? "selected" : ""} ${unavailable ? "unavailable" : ""}"
       data-recharge-product-id="${escapeAttr(product.id)}"
       role="radio"
       aria-checked="${isSelected ? "true" : "false"}"
-      tabindex="0"
+      aria-disabled="${unavailable ? "true" : "false"}"
+      tabindex="${unavailable ? "-1" : "0"}"
     >
       <div class="recharge-product-card-head">
         <h2>${escapeHtml(product.name)}</h2>
-        ${product.badge ? `<span class="recharge-product-badge">${escapeHtml(product.badge)}</span>` : ""}
+        ${unavailable
+          ? `<span class="recharge-product-badge unavailable">已开通过</span>`
+          : product.badge ? `<span class="recharge-product-badge">${escapeHtml(product.badge)}</span>` : ""}
       </div>
       <p class="recharge-product-description">${escapeHtml(product.description)}</p>
       <div class="recharge-product-value-row">
@@ -61588,6 +61658,7 @@ function bindRechargeProductCardEvents() {
   const cards = Array.from(root.querySelectorAll<HTMLElement>("[data-recharge-product-id]"));
   if (cards.length === 0) return;
   const selectCard = (selectedCard: HTMLElement) => {
+    if (selectedCard.getAttribute("aria-disabled") === "true") return;
     const product = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
       (candidate) => candidate.id === selectedCard.dataset.rechargeProductId,
     );
@@ -61605,7 +61676,11 @@ function bindRechargeProductCardEvents() {
       selectCard(card);
     });
     card.addEventListener("keydown", (event) => {
-      if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
+      if (
+        event.target !== card
+        || card.getAttribute("aria-disabled") === "true"
+        || (event.key !== "Enter" && event.key !== " ")
+      ) return;
       event.preventDefault();
       selectCard(card);
     });
@@ -77530,11 +77605,11 @@ function currentProfileBalance() {
   return "--";
 }
 
-type MembershipPlanId = "experience" | "basic" | "pro" | "flagship";
+type MembershipPlanId = "free" | "trial" | "basic" | "pro" | "flagship";
 
 type MembershipPlanDisplay = {
   id: MembershipPlanId;
-  label: "体验版" | "基础版" | "专业版" | "旗舰版";
+  label: "WEB3免费" | "体验版" | "基础版" | "专业版" | "旗舰版";
   subscribed: boolean;
 };
 
@@ -77554,6 +77629,9 @@ function currentMembershipPlan(): MembershipPlanDisplay {
     .trim()
     .toLowerCase()
     .replace(/^subscription[_-]/, "");
+  if (normalized === "trial" || normalized === "experience" || normalized === "体验版") {
+    return { id: "trial", label: "体验版", subscribed: true };
+  }
   if (normalized === "basic" || normalized === "基础版") {
     return { id: "basic", label: "基础版", subscribed: true };
   }
@@ -77563,7 +77641,7 @@ function currentMembershipPlan(): MembershipPlanDisplay {
   if (normalized === "flagship" || normalized === "旗舰版") {
     return { id: "flagship", label: "旗舰版", subscribed: true };
   }
-  return { id: "experience", label: "体验版", subscribed: false };
+  return { id: "free", label: "WEB3免费", subscribed: false };
 }
 
 function renderMembershipBadge(context: "titlebar" | "profile" | "consumption", plan = currentMembershipPlan()) {

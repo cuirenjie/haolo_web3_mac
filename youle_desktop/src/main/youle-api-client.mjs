@@ -4768,10 +4768,21 @@ function httpErrorFromResponse(status, payload, headers = null) {
     payload?.retryable,
     headerBoolean(headers, "x-haolo-retryable"),
   );
-  return new YouleHttpError(errorMessageFromPayload(payload) || `HTTP ${status}`, {
+  const code = extractErrorCode(payload) || headerText(headers, "x-haolo-error-code");
+  const membershipAccessError = code === "MEMBERSHIP_EXPIRED" || code === "TRIAL_REQUIRED";
+  const message = membershipAccessError
+    ? firstProfileString(
+        payload?.message,
+        payload?.error?.message,
+        detailMessage(payload?.detail),
+        payload?.data?.message,
+        payload?.data?.error?.message,
+      ) || (code === "TRIAL_REQUIRED" ? "请先开通体验版或其他套餐" : "会员到期")
+    : errorMessageFromPayload(payload);
+  return new YouleHttpError(message || `HTTP ${status}`, {
     status,
     payload,
-    code: extractErrorCode(payload) || headerText(headers, "x-haolo-error-code"),
+    code,
     category: firstProfileString(
       payload?.error?.category,
       payload?.category,
@@ -7250,6 +7261,7 @@ function extractSub2ApiBalance(payload) {
       activeMembership?.plan_id,
       activeMembership?.planId,
     ),
+    trial_eligible: firstBoolean(account.trial_eligible, account.trialEligible),
     active_membership:
       activeMembership && typeof activeMembership === "object" && !Array.isArray(activeMembership)
         ? activeMembership

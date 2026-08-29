@@ -22,10 +22,10 @@ test("small request routers remain hard-bounded", () => {
   });
 });
 
-test("theory review keeps the recoverable high-effort policy", () => {
+test("theory review uses the recoverable medium-effort policy", () => {
   assert.deepEqual(tradingAnalysisTurnPolicy("trading_theory_review"), {
     kind: "theory_review",
-    reasoningEffort: "high",
+    reasoningEffort: "medium",
     timeoutMs: 180_000,
     resetTimeoutOnActivity: true,
     timeoutRetryable: true,

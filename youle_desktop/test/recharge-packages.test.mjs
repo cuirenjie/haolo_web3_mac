@@ -61,17 +61,18 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
     ".recharge-subscription-content",
   );
 
+  assert.match(products, /id: "subscription_trial"[\s\S]*?priceUsdt: 4\.9[\s\S]*?billingPeriod: "3天"[\s\S]*?tokenAmount: 100[\s\S]*?requiresTrialEligibility: true/);
+  assert.ok(products.indexOf('id: "subscription_trial"') < products.indexOf('id: "subscription_basic"'));
   assert.match(products, /id: "subscription_basic"[\s\S]*?priceUsdt: 99[\s\S]*?billingPeriod: "月"[\s\S]*?tokenAmount: 1000/);
   assert.match(products, /id: "subscription_pro"[\s\S]*?priceUsdt: 499[\s\S]*?billingPeriod: "半年"[\s\S]*?tokenAmount: 6000/);
   assert.match(products, /id: "subscription_flagship"[\s\S]*?priceUsdt: 799[\s\S]*?billingPeriod: "年"[\s\S]*?tokenAmount: 12000/);
   assert.doesNotMatch(products, /priceYuan|amountFen/);
-  assert.match(products, /let selectedRechargeProductId = "subscription_basic"/);
+  assert.match(products, /let selectedRechargeProductId = "subscription_trial"/);
   assert.doesNotMatch(products, /featured:\s*true/);
   assert.match(productCard, /<strong>\$\{product\.priceUsdt\}U<\/strong><small>\/\$\{escapeHtml\(product\.billingPeriod\)\}<\/small>/);
   assert.doesNotMatch(productCard, /<span>¥<\/span>|product\.priceYuan/);
-  assert.match(productCard, /class="recharge-product-card \$\{isSelected \? "selected" : ""\}"/);
-  assert.match(productCard, /role="radio"[\s\S]*?aria-checked="\$\{isSelected \? "true" : "false"\}"[\s\S]*?tabindex="0"/);
-  assert.doesNotMatch(productCard, /paymentLocked|payment-locked|aria-disabled/);
+  assert.match(productCard, /class="recharge-product-card \$\{isSelected \? "selected" : ""\} \$\{unavailable \? "unavailable" : ""\}"/);
+  assert.match(productCard, /role="radio"[\s\S]*?aria-checked="\$\{isSelected \? "true" : "false"\}"[\s\S]*?aria-disabled="\$\{unavailable \? "true" : "false"\}"[\s\S]*?tabindex="\$\{unavailable \? "-1" : "0"\}"/);
   assert.doesNotMatch(productCard, /recharge-product-help|<summary|查看兑换说明/);
   assert.doesNotMatch(products, /id: "addon_|kind: "addon"/);
   assert.match(products, /id: "binance_internal"[\s\S]*?asset: "BNB"[\s\S]*?label: "币安内部转账"[\s\S]*?kind: "internal"/);
@@ -153,6 +154,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentDetails, /暂时无法确认最后一次到账结果，请勿重复支付/);
   assert.match(paymentDetails, /积分已全部到账/);
   assert.match(productEvents, /selectedRechargeProductId = product\.id/);
+  assert.match(productEvents, /selectedCard\.getAttribute\("aria-disabled"\) === "true"/);
   assert.match(productEvents, /card\.classList\.toggle\("selected", isSelected\)/);
   assert.match(productEvents, /event\.key !== "Enter" && event\.key !== " "/);
   assert.match(styles, /\.recharge-product-card\.selected/);
@@ -167,6 +169,9 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-support-button:disabled/);
   assert.match(styles, /html:not\(\[data-theme="dark"\]\) \.recharge-product-card\.selected/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card\.selected/);
+  assert.match(styles, /\.recharge-product-grid\s*\{[\s\S]*?grid-template-columns: repeat\(4, minmax\(190px, 1fr\)\)/);
+  assert.match(styles, /\.recharge-product-card\[aria-disabled="true"\]/);
+  assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card\[aria-disabled="true"\]/);
   assert.doesNotMatch(styles, /recharge-product-card\.featured/);
   assert.match(styles, /\.recharge-payment-network:hover/);
   assert.match(styles, /\.recharge-payment-network:has\(input:not\(:disabled\)\):active/);
@@ -202,6 +207,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(browserMock, /selectionKey = `\$\{productId\}:\$\{network\}:web3`/);
   assert.match(browserMock, /mockWeb3PaymentOrders\.get\(selectionKey\)/);
   assert.match(browserMock, /mockWeb3PaymentOrders\.set\(selectionKey, order\)/);
+  assert.match(browserMock, /subscription_trial: \{ name: "体验版订阅", price: "4\.873", tokens: "100", months: 0, days: 3, plan: "trial" \}/);
   assert.match(browserMock, /binance_internal: "1261385376"/);
   assert.match(browserMock, /okx_internal: "694504753333973132"/);
 });

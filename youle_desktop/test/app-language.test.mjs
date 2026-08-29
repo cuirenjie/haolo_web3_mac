@@ -38,6 +38,28 @@ test("group selection and encoded UI copy have complete English translations", (
   assert.equal(translateAppText("不选择分组", "zh-TW"), "不選擇分組");
 });
 
+test("the WEB3 membership-expired error is localized in all interface languages", () => {
+  assert.equal(translateAppText("会员到期", "zh-CN"), "会员到期");
+  assert.equal(translateAppText("会员到期", "en"), "Membership expired");
+  assert.equal(translateAppText("会员到期", "zh-TW"), "會員到期");
+});
+
+test("paid trial and free WEB3 membership copy is localized in all interface languages", () => {
+  assert.equal(translateAppText("WEB3免费", "en"), "WEB3 Free");
+  assert.equal(translateAppText("WEB3免费", "zh-TW"), "WEB3免費");
+  assert.equal(translateAppText("体验版", "en"), "Trial");
+  assert.equal(translateAppText("体验版", "zh-TW"), "體驗版");
+  assert.equal(translateAppText("3天", "en"), "3 days");
+  assert.equal(
+    translateAppText("从开通时刻起精确 72 小时有效", "zh-TW"),
+    "從開通時刻起精確 72 小時有效",
+  );
+  assert.equal(
+    translateAppText("当前没有可用积分，请开通体验版或其他套餐后再提问", "en"),
+    "You have no available points. Activate the trial or another plan before asking the model.",
+  );
+});
+
 test("the composer resource hint translates as a complete phrase in every language", () => {
   const hint = "点击+调用策略、指标、预警和文件";
   const traditional = "點擊+調用策略、指標、預警和檔案";

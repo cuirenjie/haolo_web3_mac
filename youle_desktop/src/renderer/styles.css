@@ -21006,7 +21006,7 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
 .recharge-product-grid {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(3, minmax(210px, 1fr));
+  grid-template-columns: repeat(4, minmax(190px, 1fr));
   gap: calc(2.5% + 4.533333px);
 }
 
@@ -21050,6 +21050,28 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   border-color: #8dccff;
   background: #fff;
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.07);
+}
+
+.recharge-product-card[aria-disabled="true"] {
+  border-color: #d8dee8;
+  background: #f5f7fa;
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.recharge-product-card[aria-disabled="true"]:hover,
+.recharge-product-card[aria-disabled="true"]:active,
+.recharge-product-card[aria-disabled="true"]:focus-visible {
+  border-color: #d8dee8;
+  box-shadow: none;
+  transform: none;
+}
+
+.recharge-product-badge.unavailable {
+  border-color: #d7dde6;
+  background: #eef1f5;
+  color: #697586;
 }
 
 .recharge-product-card-head {
@@ -22124,6 +22146,12 @@ html[data-theme="dark"] .recharge-payment-state.manual .recharge-payment-state-i
   color: var(--brand-blue);
 }
 @media (max-width: 720px) {}
+
+@media (max-width: 1280px) {
+  .recharge-product-grid {
+    grid-template-columns: repeat(2, minmax(210px, 1fr));
+  }
+}
 
 @media (max-width: 860px) {
   .recharge-page-scroll {
@@ -29275,6 +29303,38 @@ html[data-theme="dark"] .recharge-product-card.selected {
 html[data-theme="dark"] .recharge-product-token {
   border-color: #34373c;
   background: linear-gradient(180deg, #222327 0%, #1f2023 100%);
+}
+
+html:not([data-theme="dark"]) .recharge-product-card[aria-disabled="true"],
+html:not([data-theme="dark"]) .recharge-product-card[aria-disabled="true"]:hover,
+html:not([data-theme="dark"]) .recharge-product-card[aria-disabled="true"]:active,
+html:not([data-theme="dark"]) .recharge-product-card[aria-disabled="true"]:focus-visible {
+  border-color: #d8dee8;
+  background: #f5f7fa;
+  box-shadow: none;
+  transform: none;
+}
+
+html[data-theme="dark"] .recharge-product-card[aria-disabled="true"],
+html[data-theme="dark"] .recharge-product-card[aria-disabled="true"]:hover,
+html[data-theme="dark"] .recharge-product-card[aria-disabled="true"]:active,
+html[data-theme="dark"] .recharge-product-card[aria-disabled="true"]:focus-visible {
+  border-color: #303238;
+  background: #17181b;
+  box-shadow: none;
+  transform: none;
+  opacity: 0.68;
+}
+
+html[data-theme="dark"] .recharge-product-card[aria-disabled="true"] .recharge-product-token {
+  border-color: #303238;
+  background: #1d1e21;
+}
+
+html[data-theme="dark"] .recharge-product-badge.unavailable {
+  border-color: #3a3d43;
+  background: #25272b;
+  color: #9ba2ad;
 }
 
 /* Chat workspace uses black separation instead of blue-gray panels. */

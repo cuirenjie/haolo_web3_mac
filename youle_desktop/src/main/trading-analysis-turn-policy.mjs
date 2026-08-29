@@ -24,7 +24,7 @@ export function tradingAnalysisTurnPolicy(taskValue) {
   }
   return Object.freeze({
     kind: "theory_review",
-    reasoningEffort: "high",
+    reasoningEffort: "medium",
     timeoutMs: THEORY_REVIEW_IDLE_TIMEOUT_MS,
     resetTimeoutOnActivity: true,
     timeoutRetryable: true,
