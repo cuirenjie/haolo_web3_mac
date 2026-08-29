@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "channel": "internal",
+  "productionExtensionId": "nghigncngejomffadebehdhlkfpdokmh",
+  "minimumExtensionVersion": "0.1.0",
+  "maximumExtensionVersionExclusive": "1.0.0",
+  "minimumWriteExtensionVersion": "0.1.0",
+  "rolloutPercent": 5,
+  "emergencyDisabled": false,
+  "emergencyWriteDisabled": false
+}

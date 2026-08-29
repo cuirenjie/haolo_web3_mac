@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "wave",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "波浪理论", "group": "strategy", "sortOrder": 30 },
+  "mentions": { "canonical": "波浪理论", "aliases": ["波浪", "Elliott Wave"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "wave" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 30, "preferredCount": 600, "minimumCoverage": "available" }
+  },
+  "drawingPolicyId": "wave-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

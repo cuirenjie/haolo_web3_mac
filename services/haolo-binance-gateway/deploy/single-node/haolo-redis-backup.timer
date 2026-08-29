@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Haolo Binance Redis backup
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=haolo-redis-backup.service
+
+[Install]
+WantedBy=timers.target

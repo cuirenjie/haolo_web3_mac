@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "dow-theory",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "道氏理论", "group": "strategy", "sortOrder": 80 },
+  "mentions": { "canonical": "道氏理论", "aliases": ["道氏", "道氏趋势", "Dow Theory"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "dow-theory" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 120, "preferredCount": 600, "minimumCoverage": "available" },
+    "context-candles": { "required": false, "minCount": 30, "preferredCount": 240, "minimumCoverage": "partial" }
+  },
+  "drawingPolicyId": "dow-theory-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

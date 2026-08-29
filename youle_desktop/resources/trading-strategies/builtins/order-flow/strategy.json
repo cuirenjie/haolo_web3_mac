@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "order-flow",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "订单流", "group": "strategy", "sortOrder": 20 },
+  "mentions": { "canonical": "订单流", "aliases": ["Order Flow"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "order-flow" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 30, "preferredCount": 120, "minimumCoverage": "available" },
+    "trades": { "required": true, "minCount": 50, "minimumCoverage": "available" },
+    "depth": { "required": true, "minCount": 5, "minimumCoverage": "partial" },
+    "open-interest": { "required": false, "minCount": 0, "minimumCoverage": "partial" },
+    "context-candles": { "required": false, "minCount": 30, "minimumCoverage": "partial" }
+  },
+  "drawingPolicyId": "order-flow-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

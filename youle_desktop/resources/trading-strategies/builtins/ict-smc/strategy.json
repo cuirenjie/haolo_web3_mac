@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "ict-smc",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "ICT / SMC", "group": "strategy", "sortOrder": 25 },
+  "mentions": { "canonical": "ICT/SMC", "aliases": ["ICT", "SMC", "聪明钱概念", "Smart Money Concepts"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "ict-smc" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 80, "preferredCount": 500, "minimumCoverage": "available" },
+    "context-candles": { "required": false, "minCount": 30, "preferredCount": 240, "minimumCoverage": "partial" }
+  },
+  "drawingPolicyId": "ict-smc-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

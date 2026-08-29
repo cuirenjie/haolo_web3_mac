@@ -1,0 +1,4 @@
+interface:
+  display_name: "谐波形态"
+  short_description: "识别七种谐波形态、PRZ 与确认条件并生成可执行方案"
+  default_prompt: "Use $harmonic to analyze validated classic, Shark, and Cypher harmonic patterns on the current chart."

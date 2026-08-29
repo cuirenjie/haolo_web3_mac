@@ -1,0 +1,47 @@
+# haolo_desktop default runtime config.
+# This file intentionally contains no API keys, access tokens, or login state.
+
+model_provider = "haolo_ai"
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+# Context and compaction settings live in the managed model catalog so each
+# provider retains its own official limits and policies.
+# Custom Responses providers are sent with `store = false` by Codex.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[features]
+remote_plugin = false
+
+# Codex 0.144.x can repeatedly invoke the elevated Windows setup helper from a
+# desktop host even after setup succeeds. Haolo keeps the restricted-token
+# sandbox but avoids that broken UAC/helper path.
+[features.network_proxy]
+enabled = false
+
+[windows]
+sandbox = "unelevated"
+
+[model_providers.haolo_ai]
+name = "haolo_ai"
+base_url = "https://haolo.pro/v1"
+wire_api = "responses"
+requires_openai_auth = true
+env_key = "OPENAI_API_KEY"
+# Prefer the lower-latency Responses WebSocket transport. Sub2API performs
+# account failover first; these small client-side budgets then absorb transient
+# request/stream disconnects without turning one outage into a long retry loop.
+supports_websockets = true
+request_max_retries = 2
+stream_max_retries = 3
+# Codex injects Responses Lite per model; do not force it provider-wide.
+http_headers = { version = "0.144.1", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }
+
+[model_providers.deepseek]
+name = "DeepSeek"
+base_url = "https://haolo.pro/v1"
+wire_api = "responses"
+requires_openai_auth = false
+env_key = "HAOLO_DEEPSEEK_EXECUTION_TOKEN"
+supports_websockets = false
+http_headers = { version = "0.144.1", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }

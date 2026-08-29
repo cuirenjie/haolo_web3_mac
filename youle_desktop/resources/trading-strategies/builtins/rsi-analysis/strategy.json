@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "rsi-analysis",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "RSI", "group": "indicator", "sortOrder": 30 },
+  "mentions": { "canonical": "RSI", "aliases": ["RSI指标", "RSI分析", "相对强弱指标", "相对强弱指数", "超买超卖", "RSI背离", "失败摆动"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "rsi-analysis" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 80, "preferredCount": 500, "minimumCoverage": "available" }
+  },
+  "chartIndicator": { "id": "rsi", "scope": "sub", "parameters": [14] },
+  "drawingPolicyId": "rsi-analysis-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

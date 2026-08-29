@@ -1,0 +1,133 @@
+# deps
+# Node.js dependencies
+node_modules
+.pnpm-store
+.pnpm-debug.log
+
+# Keep pnpm-lock.yaml
+!pnpm-lock.yaml
+
+# build
+dist/
+build/
+out/
+storybook-static/
+
+# editor
+.vscode/
+.idea/
+.history/
+.zed/
+*.swp
+*~
+
+# cli tools
+CLAUDE.md
+.claude/
+.agents/
+.codex/
+AGENTS.override.md
+
+# Bundled Codex plugin marketplaces are product resources, not local agent state.
+!youle_desktop/resources/default-haolo-ai/plugins/cache/haolo-primary-runtime/.agents/
+!youle_desktop/resources/default-haolo-ai/plugins/cache/haolo-primary-runtime/.agents/plugins/
+!youle_desktop/resources/default-haolo-ai/plugins/cache/haolo-primary-runtime/.agents/plugins/marketplace.json
+!youle_desktop/resources/default-haolo-ai/plugins/cache/haolo-bundled/.agents/
+!youle_desktop/resources/default-haolo-ai/plugins/cache/haolo-bundled/.agents/plugins/
+!youle_desktop/resources/default-haolo-ai/plugins/cache/haolo-bundled/.agents/plugins/marketplace.json
+
+# caches
+.cache/
+.turbo/
+.parcel-cache/
+.eslintcache
+.nyc_output/
+.jest/
+*.tsbuildinfo
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# env
+.env*
+!.env.example
+.venv/
+
+# package
+*.tgz
+
+# ci
+.vercel/
+.netlify/
+
+# patches
+apply_patch/
+
+# coverage
+coverage/
+
+# personal files
+personal/
+
+# os
+.DS_Store
+Thumbs.db
+Icon?
+!youle_desktop/extensions/haolo-chrome/icons/
+!youle_desktop/extensions/haolo-chrome/icons/**
+.Spotlight-V100/
+
+# Unwanted package managers
+.yarn/
+yarn.lock
+
+# release
+package.json-e
+session.ts-e
+
+# Python bytecode files
+__pycache__/
+*.pyc
+
+# local/runtime artifacts
+.omx/
+**/.omx/
+.omc/
+**/.omc/
+node_modules/
+runtime/
+
+# desktop build outputs
+**/dist/
+**/release/*
+!youle_desktop/release/
+
+# packaged local test credentials (never commit)
+youle_desktop/resources/default-youle-ai/auth.json
+youle_desktop/resources/default-youle-ai/auth.zip
+youle_desktop/resources/default-haolo-ai/auth.json
+youle_desktop/resources/default-haolo-ai/auth.zip
+
+# desktop user-generated data
+youle_desktop/user-data/
+
+# local integration and verification artifacts
+/tmp/
+/output/
+/backage/
+/.codex-release/
+/.codex-tmp/
+/.codex-dev-*.png
+/Microsoft/
+/deliverables/
+/outputs/
+/test-temp-hidden-models/
+/10001字符测试.txt
+/youle_desktop/tmp/
+/youle_desktop/.tmp/
+/youle_desktop/.codex-runtime/
+/youle_desktop/Microsoft/
+/youle_desktop/outputs/

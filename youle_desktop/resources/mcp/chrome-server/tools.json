@@ -1,0 +1,872 @@
+[
+  {
+    "name": "chrome_status",
+    "description": "Read Chrome extension, profile, host, and broker health.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "observe",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "cancel_task",
+    "description": "Cancel one active Haolo Chrome task and revoke its active grants.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Active Haolo Chrome task id."
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "observe",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "list_tabs",
+    "description": "List tabs visible to connected Haolo Chrome profile instances.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "maxLength": 8192,
+          "description": "Connected profile instance id."
+        },
+        "window_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Chrome window id."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "observe",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "read_page",
+    "description": "Read a bounded, structured snapshot of one authorized page.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "include_links": {
+          "type": "boolean",
+          "description": "Include visible links."
+        },
+        "include_forms": {
+          "type": "boolean",
+          "description": "Include non-sensitive form metadata."
+        },
+        "max_chars": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 50000
+        }
+      },
+      "required": [
+        "tab_id"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "observe",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "read_selection",
+    "description": "Read the user's current text selection in one authorized tab.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        }
+      },
+      "required": [
+        "tab_id"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "observe",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "capture_view",
+    "description": "Capture a visible-tab screenshot from one authorized tab.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        }
+      },
+      "required": [
+        "tab_id"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "observe",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "navigate",
+    "description": "Navigate an authorized task tab to an HTTP(S) URL.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Destination HTTP(S) URL."
+        }
+      },
+      "required": [
+        "tab_id",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "navigate",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "click",
+    "description": "Click one element in an authorized tab and verify the result.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "element_id": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Opaque element id from the latest Haolo page snapshot."
+            },
+            "role": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible role."
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible name or visible label."
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Visible text used to disambiguate the target."
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "tab_id",
+        "target"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "edit",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "type_text",
+    "description": "Type non-secret text into one authorized form control.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "element_id": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Opaque element id from the latest Haolo page snapshot."
+            },
+            "role": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible role."
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible name or visible label."
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Visible text used to disambiguate the target."
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Replace the current value instead of appending."
+        }
+      },
+      "required": [
+        "tab_id",
+        "target",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "edit",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "select_option",
+    "description": "Select an option in one authorized form control.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "element_id": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Opaque element id from the latest Haolo page snapshot."
+            },
+            "role": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible role."
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible name or visible label."
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Visible text used to disambiguate the target."
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "tab_id",
+        "target",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "edit",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "scroll",
+    "description": "Scroll an authorized tab or element.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "delta_x": {
+          "type": "integer",
+          "minimum": -10000,
+          "maximum": 10000
+        },
+        "delta_y": {
+          "type": "integer",
+          "minimum": -10000,
+          "maximum": 10000
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "element_id": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Opaque element id from the latest Haolo page snapshot."
+            },
+            "role": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible role."
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible name or visible label."
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Visible text used to disambiguate the target."
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "tab_id"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "navigate",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "press_key",
+    "description": "Send an allowlisted navigation or editing key chord to an authorized tab.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "tab_id",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "edit",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "wait_for",
+    "description": "Wait for a bounded URL, text, or element condition in an authorized tab.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "condition": {
+          "type": "object",
+          "properties": {
+            "url_matches": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Expected URL substring."
+            },
+            "text_present": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Expected visible text."
+            },
+            "target": {
+              "type": "object",
+              "properties": {
+                "element_id": {
+                  "type": "string",
+                  "maxLength": 8192,
+                  "description": "Opaque element id from the latest Haolo page snapshot."
+                },
+                "role": {
+                  "type": "string",
+                  "maxLength": 8192,
+                  "description": "Accessible role."
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 8192,
+                  "description": "Accessible name or visible label."
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 8192,
+                  "description": "Visible text used to disambiguate the target."
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 30000
+        }
+      },
+      "required": [
+        "tab_id",
+        "condition"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "observe",
+      "twoPhase": false,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "prepare_external_action",
+    "description": "Prepare a concrete external write without committing it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "submit",
+            "send",
+            "publish",
+            "delete",
+            "purchase"
+          ]
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "element_id": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Opaque element id from the latest Haolo page snapshot."
+            },
+            "role": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible role."
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible name or visible label."
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Visible text used to disambiguate the target."
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "tab_id",
+        "action",
+        "target",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "external_write",
+      "twoPhase": true,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "commit_external_action",
+    "description": "Commit one prepared external action after explicit approval.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Prepared operation id."
+        },
+        "approval_token": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Short-lived approval token issued by Haolo."
+        }
+      },
+      "required": [
+        "operation_id",
+        "approval_token"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "external_write",
+      "twoPhase": true,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "upload_file",
+    "description": "Upload one explicitly authorized local file to an authorized file input.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "element_id": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Opaque element id from the latest Haolo page snapshot."
+            },
+            "role": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible role."
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Accessible name or visible label."
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 8192,
+              "description": "Visible text used to disambiguate the target."
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "artifact_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Haolo artifact id selected for this task."
+        }
+      },
+      "required": [
+        "tab_id",
+        "target",
+        "artifact_id"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "external_write",
+      "twoPhase": true,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "download",
+    "description": "Download one explicitly identified resource from an authorized tab.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Target Chrome tab id."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "HTTP(S) download URL."
+        },
+        "filename": {
+          "type": "string",
+          "maxLength": 8192,
+          "description": "Suggested filename."
+        }
+      },
+      "required": [
+        "tab_id",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "external_write",
+      "twoPhase": true,
+      "ephemeralOnly": false
+    }
+  },
+  {
+    "name": "read_history",
+    "description": "Read a bounded browser history result after one-time approval.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "max_results": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "haolo": {
+      "effectLevel": "high_impact",
+      "twoPhase": false,
+      "ephemeralOnly": true
+    }
+  }
+]

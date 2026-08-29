@@ -1,0 +1,230 @@
+# Production template: replace domains, image digest, node labels and cloud LB annotations.
+# Nodes labelled haolo.network/egress-shard=sg-a and sg-b must route outbound traffic
+# through different NAT gateways/EIPs. Two Services or two domains alone are not enough.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haolo-binance-private-egress
+  namespace: haolo-market
+data:
+  NODE_ENV: production
+  HAOLO_GATEWAY_ROLE: private
+  HAOLO_PRIVATE_PROXY_HOST: 0.0.0.0
+  HAOLO_PRIVATE_PROXY_PORT: "8788"
+  HAOLO_PRIVATE_PROXY_TLS_CERT: /run/secrets/private-tls/tls.crt
+  HAOLO_PRIVATE_PROXY_TLS_KEY: /run/secrets/private-tls/tls.key
+  HAOLO_PRIVATE_PROXY_ALLOW_INSECURE: "false"
+  HAOLO_PRIVATE_PROXY_ALLOW_LEGACY_JWT: "false"
+  HAOLO_PRIVATE_PROXY_MAX_CONNECTIONS_PER_USER: "6"
+  HAOLO_PRIVATE_PROXY_CONNECTS_PER_MINUTE: "60"
+  HAOLO_PRIVATE_PROXY_IDLE_TIMEOUT_MS: "30000"
+  HAOLO_PRIVATE_PROXY_MAX_TUNNEL_MS: "30000"
+  HAOLO_PRIVATE_PROXY_ALLOWED_HOSTS: api.binance.com,fapi.binance.com
+  HAOLO_PRIVATE_PERMIT_TTL_MS: "15000"
+  HAOLO_PRIVATE_TOTAL_SAFETY_PERCENT: "60"
+  HAOLO_PRIVATE_BACKGROUND_SAFETY_PERCENT: "35"
+  HAOLO_PRIVATE_USER_SPOT_WEIGHT_PER_MINUTE: "120"
+  HAOLO_PRIVATE_USER_FUTURES_WEIGHT_PER_MINUTE: "240"
+  HAOLO_PRIVATE_EGRESS_SHARDS_JSON: '[{"id":"sg-a","proxyUrl":"https://sg-a.binance-egress.example.invalid","spotWeightLimitPerMinute":6000,"futuresWeightLimitPerMinute":2400},{"id":"sg-b","proxyUrl":"https://sg-b.binance-egress.example.invalid","spotWeightLimitPerMinute":6000,"futuresWeightLimitPerMinute":2400}]'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: haolo-binance-egress-sg-a
+  namespace: haolo-market
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: haolo-binance-private-egress, shard: sg-a }
+  template:
+    metadata:
+      labels: { app: haolo-binance-private-egress, shard: sg-a }
+    spec:
+      terminationGracePeriodSeconds: 30
+      nodeSelector:
+        haolo.network/egress-shard: sg-a
+      securityContext:
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: private-egress
+          image: registry.example.invalid/haolo/binance-gateway:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: haolo-binance-private-egress }
+          env:
+            - { name: HAOLO_PRIVATE_EGRESS_SHARD_ID, value: sg-a }
+            - name: HAOLO_GATEWAY_JWT_SECRET
+              valueFrom: { secretKeyRef: { name: haolo-binance-gateway-runtime, key: jwt-secret } }
+            - name: HAOLO_GATEWAY_JWT_ISSUER
+              valueFrom: { secretKeyRef: { name: haolo-binance-gateway-runtime, key: jwt-issuer, optional: true } }
+            - name: HAOLO_GATEWAY_JWT_AUDIENCE
+              valueFrom: { secretKeyRef: { name: haolo-binance-gateway-runtime, key: jwt-audience, optional: true } }
+            - name: HAOLO_GATEWAY_METRICS_TOKEN
+              valueFrom: { secretKeyRef: { name: haolo-binance-gateway-runtime, key: metrics-token } }
+            - name: HAOLO_MARKET_REDIS_URL
+              valueFrom: { secretKeyRef: { name: haolo-binance-gateway-runtime, key: redis-url } }
+          ports:
+            - { name: private-tls, containerPort: 8788 }
+          readinessProbe:
+            httpGet: { path: /ready, port: private-tls, scheme: HTTPS }
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet: { path: /health, port: private-tls, scheme: HTTPS }
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "2", memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: private-tls, mountPath: /run/secrets/private-tls, readOnly: true }
+      volumes:
+        - name: private-tls
+          secret: { secretName: haolo-binance-private-proxy-tls }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: haolo-binance-egress-sg-a
+  namespace: haolo-market
+  # Add the cloud-provider annotation that creates a TCP pass-through LB.
+  annotations: {}
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector: { app: haolo-binance-private-egress, shard: sg-a }
+  ports:
+    - { name: tls-connect, port: 443, targetPort: private-tls }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: haolo-binance-egress-sg-a, namespace: haolo-market }
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: haolo-binance-private-egress, shard: sg-a }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: haolo-binance-egress-sg-a, namespace: haolo-market }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: haolo-binance-egress-sg-a }
+  minReplicas: 2
+  maxReplicas: 6
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 300 }
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 60 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: haolo-binance-egress-sg-b
+  namespace: haolo-market
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: haolo-binance-private-egress, shard: sg-b }
+  template:
+    metadata:
+      labels: { app: haolo-binance-private-egress, shard: sg-b }
+    spec:
+      terminationGracePeriodSeconds: 30
+      nodeSelector:
+        haolo.network/egress-shard: sg-b
+      securityContext:
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: private-egress
+          image: registry.example.invalid/haolo/binance-gateway:replace-with-release-digest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef: { name: haolo-binance-private-egress }
+          env:
+            - { name: HAOLO_PRIVATE_EGRESS_SHARD_ID, value: sg-b }
+            - name: HAOLO_GATEWAY_JWT_SECRET
+              valueFrom: { secretKeyRef: { name: haolo-binance-gateway-runtime, key: jwt-secret } }
+            - name: HAOLO_GATEWAY_JWT_ISSUER
+              valueFrom: { secretKeyRef: { name: haolo-binance-gateway-runtime, key: jwt-issuer, optional: true } }
+            - name: HAOLO_GATEWAY_JWT_AUDIENCE
+              valueFrom: { secretKeyRef: { name: haolo-binance-gateway-runtime, key: jwt-audience, optional: true } }
+            - name: HAOLO_GATEWAY_METRICS_TOKEN
+              valueFrom: { secretKeyRef: { name: haolo-binance-gateway-runtime, key: metrics-token } }
+            - name: HAOLO_MARKET_REDIS_URL
+              valueFrom: { secretKeyRef: { name: haolo-binance-gateway-runtime, key: redis-url } }
+          ports:
+            - { name: private-tls, containerPort: 8788 }
+          readinessProbe:
+            httpGet: { path: /ready, port: private-tls, scheme: HTTPS }
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet: { path: /health, port: private-tls, scheme: HTTPS }
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "2", memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: private-tls, mountPath: /run/secrets/private-tls, readOnly: true }
+      volumes:
+        - name: private-tls
+          secret: { secretName: haolo-binance-private-proxy-tls }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: haolo-binance-egress-sg-b
+  namespace: haolo-market
+  # Add the cloud-provider annotation that creates a TCP pass-through LB.
+  annotations: {}
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector: { app: haolo-binance-private-egress, shard: sg-b }
+  ports:
+    - { name: tls-connect, port: 443, targetPort: private-tls }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: haolo-binance-egress-sg-b, namespace: haolo-market }
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: haolo-binance-private-egress, shard: sg-b }
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: haolo-binance-egress-sg-b, namespace: haolo-market }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: haolo-binance-egress-sg-b }
+  minReplicas: 2
+  maxReplicas: 6
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 300 }
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 60 }

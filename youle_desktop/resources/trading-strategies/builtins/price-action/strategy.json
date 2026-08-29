@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "price-action",
+  "version": "1.1.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "裸K分析", "group": "strategy", "sortOrder": 70 },
+  "mentions": { "canonical": "裸K分析", "aliases": ["裸K", "价格行为学", "价格行为", "Price Action"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "price-action" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 80, "preferredCount": 600, "minimumCoverage": "available" }
+  },
+  "drawingPolicyId": "price-action-v2",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

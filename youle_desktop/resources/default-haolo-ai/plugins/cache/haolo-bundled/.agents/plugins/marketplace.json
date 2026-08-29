@@ -1,0 +1,32 @@
+{
+  "name": "haolo-bundled",
+  "interface": {
+    "displayName": "Haolo Bundled"
+  },
+  "plugins": [
+    {
+      "name": "chrome",
+      "source": {
+        "source": "local",
+        "path": "./chrome/0.1.0"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "latex",
+      "source": {
+        "source": "local",
+        "path": "./latex/0.2.2"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_USE"
+      },
+      "category": "Education & Research"
+    }
+  ]
+}

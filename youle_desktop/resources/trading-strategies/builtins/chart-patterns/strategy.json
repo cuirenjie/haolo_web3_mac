@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "chart-patterns",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "图表形态学", "group": "strategy", "sortOrder": 60 },
+  "mentions": { "canonical": "图表形态学", "aliases": ["图表形态", "传统图表形态", "Chart Patterns"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "chart-patterns" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 80, "preferredCount": 600, "minimumCoverage": "available" }
+  },
+  "drawingPolicyId": "chart-patterns-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

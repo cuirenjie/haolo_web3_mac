@@ -1,0 +1,8 @@
+[Unit]
+Description=Haolo Binance gateway readiness watchdog
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/haolo-gateway-watchdog

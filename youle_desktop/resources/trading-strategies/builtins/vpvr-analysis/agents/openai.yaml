@@ -1,0 +1,4 @@
+interface:
+  display_name: "VPVR"
+  short_description: "分析可见范围成交量分布、POC、价值区、关键支撑阻力与市场接受度"
+  default_prompt: "使用 $vpvr-analysis 分析当前可见K线的支撑、阻力和成交量分布信息。"

@@ -1,0 +1,15 @@
+{
+  "routingMode": "auto",
+  "marketGatewayUrl": "https://market.youle.pro",
+  "marketGatewayResolutionCandidates": [
+    "sg-a.binance-egress.waduo.com",
+    "8.219.93.44"
+  ],
+  "privateProxyUrl": "https://sg-a.binance-egress.waduo.com",
+  "requireGateway": true,
+  "directAttemptTimeoutMs": 3000,
+  "publicHedgeDelayMs": 200,
+  "routePreferenceTtlMs": 1800000,
+  "backgroundProbeIntervalMs": 45000,
+  "gatewayRequestTimeoutMs": 45000
+}

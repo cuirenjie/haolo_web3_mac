@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="light dark" />
+  <title>HaoLo AI · 算力中心</title>
+  <style>
+    :root {
+      --brand: #319bff;
+      --brand-bright: #71beff;
+      --brand-soft: rgba(113, 190, 255, .16);
+      --green: #2eb872;
+      --bg: #0d1726;
+      --bg-elevated: #111d2e;
+      --surface: #152235;
+      --surface-2: #1b2a40;
+      --surface-3: #22344e;
+      --line: #29415e;
+      --line-strong: #3d5d82;
+      --text: #f7fbff;
+      --text-soft: #dceaff;
+      --muted: #9ab0ca;
+      --muted-2: #6f86a1;
+      --shadow: 0 24px 64px rgba(5, 16, 31, .32);
+      --card-shadow: 0 14px 34px rgba(3, 12, 25, .18);
+      --grid: rgba(113, 190, 255, .035);
+      --glass: rgba(13, 23, 38, .84);
+      --button-text: #ffffff;
+      --radius-xl: 24px;
+      --radius-lg: 18px;
+      --radius-md: 12px;
+      --font: "OPPO Sans", "PingFang SC", "Microsoft YaHei", "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    }
+
+    html[data-theme="light"] {
+      --bg: #f7fbff;
+      --bg-elevated: rgba(255, 255, 255, .84);
+      --surface: #ffffff;
+      --surface-2: #f4f9ff;
+      --surface-3: #eaf3ff;
+      --line: #e2eaf4;
+      --line-strong: #c9deff;
+      --text: #0f172a;
+      --text-soft: #334155;
+      --muted: #64748b;
+      --muted-2: #94a3b8;
+      --shadow: 0 18px 54px rgba(49, 104, 168, .13);
+      --card-shadow: 0 2px 0 rgba(15, 23, 42, .02), 0 8px 24px rgba(49, 104, 168, .065);
+      --grid: rgba(49, 155, 255, .035);
+      --glass: rgba(255, 255, 255, .86);
+      --brand-soft: rgba(113, 190, 255, .14);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input { font: inherit; }
+    button { color: inherit; }
+    a { color: inherit; text-decoration: none; }
+    .svg-icon { display: block; width: 20px; height: 20px; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 86%, transparent);
+      background: var(--glass);
+      box-shadow: 0 8px 28px rgba(81, 121, 183, .05);
+      backdrop-filter: blur(24px) saturate(150%);
+    }
+
+    .topbar-inner {
+      display: flex;
+      width: min(1180px, calc(100% - 40px));
+      height: 68px;
+      margin: 0 auto;
+      align-items: center;
+      gap: 30px;
+    }
+
+    .brand {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 11px;
+      font-size: 17px;
+      font-weight: 760;
+      letter-spacing: -.02em;
+    }
+
+    .brand-mark {
+      position: relative;
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, .6);
+      border-radius: 12px;
+      background: var(--brand);
+      box-shadow: 0 8px 20px rgba(49, 155, 255, .2), inset 0 1px 0 rgba(255, 255, 255, .38);
+    }
+
+    .brand-cloud {
+      position: relative;
+      width: 21px;
+      height: 11px;
+      margin-top: 7px;
+      border-radius: 10px 10px 8px 8px;
+      background: #fff;
+      box-shadow: 0 2px 6px rgba(0, 57, 146, .22);
+    }
+
+    .brand-cloud::before,
+    .brand-cloud::after {
+      position: absolute;
+      content: "";
+      border-radius: 50%;
+      background: #fff;
+    }
+
+    .brand-cloud::before { width: 12px; height: 12px; left: 2px; top: -6px; }
+    .brand-cloud::after { width: 10px; height: 10px; right: 1px; top: -4px; }
+
+    .brand-cloud span,
+    .brand-cloud i {
+      position: absolute;
+      z-index: 1;
+      display: block;
+      background: #1475f5;
+    }
+
+    .brand-cloud span { width: 2.5px; height: 3px; left: 7px; top: 5px; border-radius: 50%; }
+    .brand-cloud i { width: 5px; height: 2px; right: 5px; top: 6px; border-radius: 999px 999px 3px 3px; transform: rotate(-12deg); }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .nav a {
+      border-radius: 9px;
+      padding: 8px 11px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      transition: .2s ease;
+    }
+
+    .nav a:hover,
+    .nav a.active { background: var(--surface-3); color: var(--brand); }
+
+    .top-actions {
+      display: flex;
+      margin-left: auto;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .balance-pill {
+      display: flex;
+      height: 38px;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      padding: 0 13px;
+      color: var(--muted);
+      font-size: 12px;
+      box-shadow: var(--card-shadow);
+    }
+
+    .balance-pill b { color: var(--text); font-size: 13px; }
+    .balance-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(7, 193, 96, .12); }
+
+    .icon-button {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      cursor: pointer;
+      transition: .2s ease;
+    }
+
+    .icon-button:hover { border-color: var(--line-strong); background: var(--surface-3); color: var(--brand); transform: translateY(-1px); }
+    .icon-button .sun { display: none; }
+    html[data-theme="light"] .icon-button .moon { display: none; }
+    html[data-theme="light"] .icon-button .sun { display: block; }
+
+    main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+
+    .hero {
+      display: block;
+      padding: 58px 0 42px;
+    }
+
+    .hero-copy {
+      max-width: 980px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    h1 {
+      margin: 0 0 14px;
+      font-size: clamp(42px, 4vw, 54px);
+      font-weight: 700;
+      letter-spacing: -.04em;
+      line-height: 1.12;
+    }
+
+    .gradient-text {
+      background: none;
+      color: var(--brand);
+    }
+
+    html[data-theme="light"] .gradient-text {
+      background: none;
+      color: var(--brand);
+    }
+
+    .hero-title-tail { color: var(--text); }
+
+    .hero-copy > p {
+      max-width: 920px;
+      margin: 0 auto;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .hero-model-note {
+      color: var(--brand);
+      font-weight: 650;
+    }
+
+    .hero-points {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 26px;
+      margin-top: 18px;
+      color: var(--text-soft);
+      font-size: 12px;
+    }
+
+    .hero-point { display: inline-flex; align-items: center; gap: 7px; }
+    .hero-point svg { color: var(--green); }
+
+    .section { padding: 46px 0 34px; scroll-margin-top: 84px; }
+    .section-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+    h2 { margin: 0; font-size: clamp(27px, 3vw, 32px); font-weight: 700; letter-spacing: -.035em; }
+    .section-desc { margin: 10px 0 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
+
+    .segment {
+      display: flex;
+      flex: 0 0 auto;
+      gap: 4px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--surface);
+      padding: 4px;
+    }
+
+    .segment button {
+      height: 34px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      padding: 0 13px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .segment button.active { background: var(--surface-3); color: var(--brand); box-shadow: inset 0 0 0 1px rgba(49, 155, 255, .06); }
+
+    .plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+
+    .plan-card {
+      position: relative;
+      display: flex;
+      min-height: 530px;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      padding: 26px;
+      box-shadow: var(--card-shadow);
+      transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+    }
+
+    .plan-card:hover { transform: translateY(-3px); border-color: var(--line-strong); box-shadow: 0 12px 30px rgba(49, 104, 168, .1); }
+    .plan-card.featured { border-color: #9bd5ff; background: color-mix(in srgb, var(--surface) 86%, var(--brand-soft)); box-shadow: 0 12px 32px rgba(49, 155, 255, .1); }
+    .plan-top { position: relative; display: flex; min-height: 28px; align-items: center; justify-content: space-between; }
+    .plan-name { font-size: 14px; font-weight: 700; }
+    .badge { border: 1px solid #bfe5ff; border-radius: 999px; background: #f0f9ff; padding: 5px 9px; color: var(--brand); font-size: 10px; font-weight: 700; letter-spacing: .02em; box-shadow: none; }
+    .plan-for { position: relative; min-height: 42px; margin: 13px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+    .price { position: relative; display: flex; align-items: flex-end; min-height: 50px; }
+    .price sup { align-self: flex-start; margin-top: 5px; color: var(--text-soft); font-size: 17px; font-weight: 700; }
+    .price strong { font-size: 46px; line-height: 1; letter-spacing: -.055em; }
+    .price span { margin: 0 0 5px 7px; color: var(--muted); font-size: 12px; }
+    .token-box { position: relative; display: flex; margin-top: 22px; align-items: center; justify-content: space-between; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); padding: 14px 15px; }
+    .token-box span { color: var(--muted); font-size: 11px; }
+    .token-box b { color: var(--brand); font-size: 18px; letter-spacing: -.02em; }
+    .value-note { margin-top: 12px; border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line)); border-radius: 12px; background: var(--surface-2); padding: 10px 12px; }
+    .value-note-head { display: flex; align-items: baseline; gap: 7px; }
+    .value-note-head strong { color: var(--text); font-size: 13px; letter-spacing: -.015em; }
+    .value-note p { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .feature-list { display: grid; gap: 13px; margin: 20px 0 24px; padding: 0; list-style: none; }
+    .feature-list li { display: flex; align-items: flex-start; gap: 9px; color: var(--text-soft); font-size: 12px; line-height: 1.55; }
+    .feature-list svg { flex: 0 0 auto; margin-top: 1px; color: var(--brand); }
+
+    .boost-shell {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: var(--surface);
+      padding: 22px;
+      box-shadow: var(--card-shadow);
+    }
+
+    .boost-grid { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .boost-card { position: relative; display: flex; min-height: 332px; flex-direction: column; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); padding: 20px; text-align: left; transition: .22s ease; }
+    .boost-card:hover { border-color: var(--line-strong); background: var(--surface-2); transform: translateY(-2px); }
+    .boost-card.featured { border-color: #9bd5ff; background: var(--brand-soft); box-shadow: 0 10px 26px rgba(49, 155, 255, .08); }
+    .boost-label { color: var(--text); font-size: 11px; font-weight: 650; }
+    .boost-token { margin-top: 18px; color: var(--brand); font-size: 28px; font-weight: 750; letter-spacing: -.04em; }
+    .boost-bonus { min-height: 20px; margin-top: 7px; color: var(--green); font-size: 11px; font-weight: 650; }
+    .boost-price { display: flex; margin: 16px 0; align-items: baseline; justify-content: space-between; color: var(--muted); font-size: 11px; }
+    .boost-price b { color: var(--text); font-size: 17px; }
+
+    .notice {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+      margin: 42px 0 82px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--bg-elevated);
+    }
+
+    .notice-item { display: flex; min-width: 0; gap: 13px; padding: 20px 22px; }
+    .notice-item + .notice-item { border-left: 1px solid var(--line); }
+    .notice-icon { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 10px; background: var(--surface-3); color: var(--brand); }
+    .notice-item b { display: block; font-size: 12px; }
+    .notice-item p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+
+    footer { border-top: 1px solid var(--line); color: var(--muted); }
+    .footer-inner { display: flex; width: min(1180px, calc(100% - 40px)); min-height: 74px; margin: 0 auto; align-items: center; justify-content: space-between; gap: 20px; font-size: 11px; }
+    .footer-links { display: flex; gap: 18px; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 28px;
+      z-index: 100;
+      visibility: hidden;
+      border: 1px solid var(--line-strong);
+      border-radius: 11px;
+      background: #0f172a;
+      padding: 10px 15px;
+      color: #ffffff;
+      font-size: 12px;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translate(-50%, 10px);
+      transition: .2s ease;
+    }
+    .toast.show { visibility: visible; opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 980px) {
+      .nav { display: none; }
+      .hero { padding: 44px 0 34px; }
+      .plans { grid-template-columns: 1fr; }
+      .plan-card { min-height: auto; }
+      .boost-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 640px) {
+      .topbar-inner, main, .footer-inner { width: min(100% - 28px, 1180px); }
+      .topbar-inner { height: 62px; }
+      .brand > span:last-child { display: none; }
+      .balance-pill { padding: 0 10px; }
+      .balance-pill > span:not(.balance-dot) { display: none; }
+      .hero { padding: 36px 0 28px; }
+      h1 { font-size: 36px; }
+      .hero-title-tail { display: block; }
+      .hero-copy > p { font-size: 14px; }
+      .hero-points { gap: 10px 18px; }
+      .section { padding-top: 38px; }
+      .section-header { display: grid; }
+      .segment { width: fit-content; }
+      .boost-shell { padding: 14px; border-radius: 20px; }
+      .boost-grid { grid-template-columns: 1fr; }
+      .boost-card { min-height: 312px; }
+      .notice { grid-template-columns: 1fr; }
+      .notice-item + .notice-item { border-top: 1px solid var(--line); border-left: 0; }
+      .footer-inner { align-items: flex-start; flex-direction: column; justify-content: center; padding: 18px 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#top" aria-label="HaoLo AI 首页">
+        <span class="brand-mark" aria-hidden="true"><span class="brand-cloud"><span></span><i></i></span></span>
+        <span>HaoLo AI</span>
+      </a>
+      <nav class="nav" aria-label="页面导航">
+        <a class="active" href="#plans">订阅计划</a>
+        <a href="#boost">Token 加油包</a>
+        <a href="#rules">使用说明</a>
+      </nav>
+      <div class="top-actions">
+        <div class="balance-pill" title="登录后展示真实余额">
+          <span class="balance-dot"></span>
+          <span>当前余额</span>
+          <b>— Token</b>
+        </div>
+        <button class="icon-button" id="themeToggle" type="button" aria-label="切换明暗主题">
+          <svg class="svg-icon moon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.2 15.5A8.5 8.5 0 0 1 8.5 3.8 8.5 8.5 0 1 0 20.2 15.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          <svg class="svg-icon sun" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="3.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="pageTitle">
+      <div class="hero-copy">
+        <h1 id="pageTitle"><span class="gradient-text">给每一次灵感，</span><span class="hero-title-tail">留足算力。</span></h1>
+        <p><span class="hero-model-note">Haolo 主编排支持 OpenAI 最新 GPT‑5.6 模型家族，原生纯血能力，高速响应。</span> 订阅获得稳定 Token 配额，需要时可用加油包即时补充。</p>
+        <div class="hero-points">
+          <span class="hero-point"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>支付后即时生效</span>
+          <span class="hero-point"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>所有 AI 能力共享</span>
+          <span class="hero-point"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>支持订阅升级</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="plans" aria-labelledby="plansTitle">
+      <div class="section-header">
+        <div>
+          <h2 id="plansTitle">选择适合你的订阅</h2>
+          <p class="section-desc">轻量体验、稳定创作或高频交付，都有清晰可控的额度方案。</p>
+        </div>
+        <div class="segment" aria-label="用户类型">
+          <button class="active" type="button">个人版</button>
+          <button type="button" data-coming-soon>团队版 · 即将上线</button>
+        </div>
+      </div>
+
+      <div class="plans">
+        <article class="plan-card">
+          <div class="plan-top"><span class="plan-name">基础版</span></div>
+          <p class="plan-for">适合日常问答、偶尔创作和初次体验 AI 工作流。</p>
+          <div class="price"><sup>¥</sup><strong>139</strong><span>/ 月</span></div>
+          <div class="token-box"><span>每月可用额度</span><b>600 Token</b></div>
+          <div class="value-note">
+            <div class="value-note-head"><strong>1 = 30.24 Token</strong></div>
+            <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 30.24美元的 Token · 成本倍率 1:0.033</p>
+          </div>
+          <ul class="feature-list">
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>每周最高 140 Token</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>支持全部基础 AI 能力</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>额度按月自动刷新</li>
+          </ul>
+        </article>
+
+        <article class="plan-card featured">
+          <div class="plan-top"><span class="plan-name">专业版</span><span class="badge">最受欢迎</span></div>
+          <p class="plan-for">适合持续内容创作、研究分析与日常专业任务。</p>
+          <div class="price"><sup>¥</sup><strong>239</strong><span>/ 月</span></div>
+          <div class="token-box"><span>每月可用额度</span><b>1,200 Token</b></div>
+          <div class="value-note">
+            <div class="value-note-head"><strong>1 = 35.14 Token</strong></div>
+            <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 35.14美元的 Token · 成本倍率 1:0.028</p>
+          </div>
+          <ul class="feature-list">
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>每周最高 280 Token</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>解锁更高频模型调用</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>比基础版每 Token 更划算</li>
+          </ul>
+        </article>
+
+        <article class="plan-card">
+          <div class="plan-top"><span class="plan-name">旗舰版</span></div>
+          <p class="plan-for">适合高频 AI 创作、复杂任务执行与小型团队协作。</p>
+          <div class="price"><sup>¥</sup><strong>599</strong><span>/ 月</span></div>
+          <div class="token-box"><span>30天总额度</span><b>4,000 Token</b></div>
+          <div class="value-note">
+            <div class="value-note-head"><strong>1 = 46.73 Token</strong></div>
+            <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 46.73美元的 Token · 成本倍率 1:0.021</p>
+          </div>
+          <ul class="feature-list">
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>每7天最高 1,000 Token</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>满足高频专业任务</li>
+            <li><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="m3.3 8.1 2.8 2.8 6.6-6.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>三档中单位额度最优</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="boost" aria-labelledby="boostTitle">
+      <div class="section-header">
+        <div>
+          <h2 id="boostTitle">临时不够，用加油包补上</h2>
+          <p class="section-desc">一次购买、即时到账。与订阅额度叠加使用，不改变当前订阅计划。</p>
+        </div>
+      </div>
+
+      <div class="boost-shell">
+        <div class="boost-grid" aria-label="Token 加油包方案">
+          <article class="boost-card">
+            <span class="boost-label">轻量补充</span>
+            <div class="boost-token">52 Token</div>
+            <div class="boost-bonus">基础到账额度</div>
+            <div class="value-note">
+              <div class="value-note-head"><strong>1 = 18.20 Token</strong></div>
+              <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 18.20美元的 Token · 成本倍率 1:0.055</p>
+            </div>
+            <div class="boost-price"><span>一次性购买</span><b>¥20</b></div>
+          </article>
+          <article class="boost-card">
+            <span class="boost-label">灵活补充</span>
+            <div class="boost-token">140 Token</div>
+            <div class="boost-bonus">含 10 Token 赠送</div>
+            <div class="value-note">
+              <div class="value-note-head"><strong>1 = 19.60 Token</strong></div>
+              <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 19.60美元的 Token · 成本倍率 1:0.051</p>
+            </div>
+            <div class="boost-price"><span>一次性购买</span><b>¥50</b></div>
+          </article>
+          <article class="boost-card featured">
+            <span class="boost-label">高频补充 · 推荐</span>
+            <div class="boost-token">310 Token</div>
+            <div class="boost-bonus">含 50 Token 赠送</div>
+            <div class="value-note">
+              <div class="value-note-head"><strong>1 = 21.70 Token</strong></div>
+              <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 21.70美元的 Token · 成本倍率 1:0.046</p>
+            </div>
+            <div class="boost-price"><span>一次性购买</span><b>¥100</b></div>
+          </article>
+          <article class="boost-card">
+            <span class="boost-label">超值补充</span>
+            <div class="boost-token">700 Token</div>
+            <div class="boost-bonus">含 180 Token 赠送</div>
+            <div class="value-note">
+              <div class="value-note-head"><strong>1 = 24.50 Token</strong></div>
+              <p>相当于只用 1美元，即可获得 ChatGPT 官方价值 24.50美元的 Token · 成本倍率 1:0.041</p>
+            </div>
+            <div class="boost-price"><span>一次性购买</span><b>¥200</b></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="notice" id="rules" aria-label="额度规则">
+      <div class="notice-item">
+        <div class="notice-icon"><svg class="svg-icon" viewBox="0 0 24 24" fill="none"><path d="M12 3 4.5 6v5.3c0 4.7 3.2 8.2 7.5 9.7 4.3-1.5 7.5-5 7.5-9.7V6L12 3Z" stroke="currentColor" stroke-width="1.6"/><path d="m8.8 12 2.1 2.1 4.5-4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><b>安全支付</b><p>支付完成后自动入账，可在账户账单中查询明细。</p></div>
+      </div>
+      <div class="notice-item">
+        <div class="notice-icon"><svg class="svg-icon" viewBox="0 0 24 24" fill="none"><path d="M12 6v6l4 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/></svg></div>
+        <div><b>额度有效期</b><p>订阅额度按月刷新；加油包额度以实际账户规则为准。</p></div>
+      </div>
+      <div class="notice-item">
+        <div class="notice-icon"><svg class="svg-icon" viewBox="0 0 24 24" fill="none"><path d="M5 6.5h14M5 11.5h9M5 16.5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="m16 17 2 2 3-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <div><b>升级补差价</b><p>订阅周期内升级时，可按实际业务规则抵扣剩余价值。</p></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <span>© 2026 HaoLo AI · 让 AI 成为你的工作伙伴</span>
+      <div class="footer-links"><a href="#rules">额度规则</a><a href="#rules">支付说明</a><a href="#top">返回顶部</a></div>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const root = document.documentElement;
+    const themeToggle = document.getElementById('themeToggle');
+    const toast = document.getElementById('toast');
+    let toastTimer;
+
+    function showToast(message) {
+      clearTimeout(toastTimer);
+      toast.textContent = message;
+      toast.classList.add('show');
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2400);
+    }
+
+    themeToggle.addEventListener('click', () => {
+      const nextTheme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      root.dataset.theme = nextTheme;
+      themeToggle.setAttribute('aria-label', nextTheme === 'dark' ? '切换到明亮主题' : '切换到深色主题');
+    });
+
+    document.querySelectorAll('[data-coming-soon]').forEach((button) => {
+      button.addEventListener('click', () => showToast('团队版正在准备中，敬请期待'));
+    });
+
+    const sections = [...document.querySelectorAll('main section[id]')];
+    const navLinks = [...document.querySelectorAll('.nav a')];
+    window.addEventListener('scroll', () => {
+      const current = sections.reduce((active, section) => window.scrollY + 130 >= section.offsetTop ? section.id : active, 'plans');
+      navLinks.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === `#${current}`));
+    }, { passive: true });
+  </script>
+</body>
+</html>

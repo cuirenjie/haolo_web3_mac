@@ -1,0 +1,4 @@
+interface:
+  display_name: "KDJ"
+  short_description: "分析KDJ金叉死叉、超买超卖、钝化状态与背离形态并生成条件执行方案"
+  default_prompt: "使用 $kdj-analysis 分析当前K线，并生成条件式执行方案。"

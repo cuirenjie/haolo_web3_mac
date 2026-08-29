@@ -1,0 +1,44 @@
+{
+  "name": "haolo-primary-runtime",
+  "interface": {
+    "displayName": "Haolo Primary Runtime"
+  },
+  "plugins": [
+    {
+      "name": "documents",
+      "source": {
+        "source": "local",
+        "path": "./documents/26.601.10930"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "presentations",
+      "source": {
+        "source": "local",
+        "path": "./presentations/26.601.10930"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "spreadsheets",
+      "source": {
+        "source": "local",
+        "path": "./spreadsheets/26.601.10930"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

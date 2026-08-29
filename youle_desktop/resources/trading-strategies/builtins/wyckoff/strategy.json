@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "wyckoff",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "威科夫", "group": "strategy", "sortOrder": 40 },
+  "mentions": { "canonical": "威科夫", "aliases": ["Wyckoff"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "wyckoff" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 60, "preferredCount": 600, "minimumCoverage": "available" }
+  },
+  "drawingPolicyId": "wyckoff-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

@@ -1,0 +1,29 @@
+services:
+  gateway:
+    build:
+      context: ../..
+      dockerfile: services/haolo-binance-gateway/Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8787:8787"
+      - "127.0.0.1:8788:8788"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

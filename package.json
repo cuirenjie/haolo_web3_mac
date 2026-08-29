@@ -1,0 +1,44 @@
+{
+  "name": "youle_desktop_workspace",
+  "private": true,
+  "description": "Workspace for the Haolo cross-platform desktop app.",
+  "scripts": {
+    "dev": "pnpm --filter youle_desktop dev",
+    "typecheck": "pnpm --filter youle_desktop typecheck",
+    "build": "pnpm --filter youle_desktop build",
+    "smoke": "pnpm --filter youle_desktop smoke",
+    "dist:win": "pnpm --filter youle_desktop dist:win",
+    "dist:mac": "pnpm --filter youle_desktop dist:mac",
+    "dist:mac:x64": "pnpm --filter youle_desktop dist:mac:x64",
+    "dist:mac:arm64": "pnpm --filter youle_desktop dist:mac:arm64",
+    "dist:mac:universal": "pnpm --filter youle_desktop dist:mac:universal",
+    "gateway:start": "pnpm --filter @haolo/binance-gateway start",
+    "gateway:test": "pnpm --filter @haolo/binance-gateway test"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3"
+  },
+  "resolutions": {
+    "@modelcontextprotocol/sdk": "1.26.0",
+    "braces": "^3.0.3",
+    "flatted": "3.4.2",
+    "glob@10.4.5": "10.5.0",
+    "handlebars": "4.7.9",
+    "micromatch": "^4.0.8",
+    "minimatch@3.1.2": "3.1.4",
+    "minimatch@9.0.5": "9.0.7",
+    "path-to-regexp": "8.4.0",
+    "picomatch@2.3.1": "2.3.2",
+    "picomatch@4.0.3": "4.0.4",
+    "rollup": "4.59.0",
+    "semver": "^7.7.1"
+  },
+  "overrides": {
+    "punycode": "^2.3.1"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10.33.0"
+  },
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
+}

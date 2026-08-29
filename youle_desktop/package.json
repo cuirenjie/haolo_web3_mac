@@ -1,0 +1,198 @@
+{
+  "name": "haolo_desktop",
+  "version": "0.1.167",
+  "private": true,
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
+  "description": "Local desktop shell for the Haolo desktop app.",
+  "author": "haolo_desktop",
+  "type": "module",
+  "main": "src/main/main.mjs",
+  "scripts": {
+    "dev": "node ./scripts/dev.mjs",
+    "typecheck": "node ./scripts/typecheck.mjs",
+    "build": "vite build",
+    "audit:english-ui": "electron ./scripts/audit-english-ui.cjs",
+    "audit:i18n-layout": "electron ./scripts/audit-i18n-layout.cjs",
+    "build:chrome-host": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-chrome-native-host.ps1",
+    "chrome:package": "node ./scripts/package-chrome-extension.mjs",
+    "chrome:package:store": "node ./scripts/package-chrome-extension.mjs --store",
+    "chrome:assets": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/generate-chrome-store-assets.ps1",
+    "chrome:release:check": "node ./scripts/check-chrome-release-readiness.mjs --strict",
+    "chrome:smoke": "node ./scripts/chrome-extension-smoke.mjs",
+    "test": "node --test",
+    "wechat:backend": "node ./scripts/wechat-external-channel-server.mjs",
+    "bump:patch": "node ./scripts/bump-version.mjs patch",
+    "start": "electron .",
+    "smoke": "node ./scripts/smoke-app-server.mjs",
+    "alerts:soak": "node --expose-gc ./scripts/trading-alert-soak.mjs",
+    "alerts:soak:assess": "node ./scripts/trading-alert-soak-assess.mjs",
+    "alerts:intent:live-smoke": "node ./scripts/trading-alert-intent-live-smoke.mjs",
+    "alerts:visual-qa": "electron ./scripts/trading-alert-windows-visual-qa.mjs",
+    "pack:win": "pnpm run bump:patch && pnpm run build:chrome-host && pnpm run build && electron-builder --win --x64 --dir",
+    "dist:win": "pnpm run bump:patch && pnpm run build:chrome-host && pnpm run build && electron-builder --win nsis --x64 && pnpm run chrome:package",
+    "prepare:mac": "node ./scripts/prepare-mac-assets.mjs",
+    "verify:mac:runtimes": "node ./scripts/verify-codex-runtime-macos.mjs",
+    "verify:mac:update-artifact": "node ./scripts/verify-mac-update-artifact.mjs",
+    "pack:mac": "pnpm run verify:mac:runtimes && pnpm run prepare:mac -- --arch=x64,arm64 && pnpm run build && electron-builder --mac --universal --dir --config.mac.identity=- --config.mac.hardenedRuntime=false",
+    "dist:mac": "pnpm run verify:mac:runtimes && pnpm run prepare:mac -- --arch=x64,arm64 && pnpm run build && env -u ELECTRON_RUN_AS_NODE electron-builder --mac dmg --universal && pnpm run finalize:mac -- --target=universal",
+    "pack:mac:x64": "pnpm run prepare:mac -- --arch=x64 && pnpm run build && electron-builder --mac --x64 --dir --config.mac.identity=- --config.mac.hardenedRuntime=false",
+    "dist:mac:x64": "pnpm run prepare:mac -- --arch=x64 && pnpm run build && env -u ELECTRON_RUN_AS_NODE electron-builder --mac dmg --x64 && pnpm run finalize:mac -- --target=x64",
+    "pack:mac:arm64": "pnpm run prepare:mac -- --arch=arm64 && pnpm run build && electron-builder --mac --arm64 --dir --config.mac.identity=- --config.mac.hardenedRuntime=false",
+    "dist:mac:arm64": "pnpm run prepare:mac -- --arch=arm64 && pnpm run build && env -u ELECTRON_RUN_AS_NODE electron-builder --mac dmg --arm64 && pnpm run finalize:mac -- --target=arm64",
+    "dist:mac:test:arm64": "HAOLO_ALLOW_UNTRUSTED_MAC_DMG=1 pnpm run dist:mac:arm64",
+    "pack:mac:all": "pnpm run prepare:mac -- --arch=x64,arm64 && pnpm run build && electron-builder --mac --x64 --arm64 --dir --config.mac.identity=- --config.mac.hardenedRuntime=false",
+    "dist:mac:all": "pnpm run prepare:mac -- --arch=x64,arm64 && pnpm run build && env -u ELECTRON_RUN_AS_NODE electron-builder --mac dmg --x64 --arm64 && pnpm run finalize:mac -- --target=split",
+    "pack:mac:universal": "pnpm run verify:mac:runtimes && pnpm run prepare:mac -- --arch=x64,arm64 && pnpm run build && electron-builder --mac --universal --dir --config.mac.identity=- --config.mac.hardenedRuntime=false",
+    "dist:mac:universal": "pnpm run verify:mac:runtimes && pnpm run prepare:mac -- --arch=x64,arm64 && pnpm run build && env -u ELECTRON_RUN_AS_NODE electron-builder --mac dmg --universal && pnpm run finalize:mac -- --target=universal",
+    "finalize:mac": "node ./scripts/finalize-mac-dmg.mjs"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "1.67.0",
+    "call-bind-apply-helpers": "1.0.2",
+    "dunder-proto": "1.0.1",
+    "es-define-property": "1.0.1",
+    "es-object-atoms": "1.1.1",
+    "function-bind": "1.1.2",
+    "get-proto": "1.0.1",
+    "gopd": "1.2.0",
+    "lightweight-charts": "5.1.0",
+    "math-intrinsics": "1.1.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@electron/asar": "3.4.1",
+    "@electron/osx-sign": "1.3.3",
+    "electron": "41.10.2",
+    "electron-builder": "^26.11.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.7"
+  },
+  "build": {
+    "appId": "local.haolo.desktop",
+    "productName": "haolo_desktop",
+    "electronVersion": "41.10.2",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/renderer/**/*",
+      "src/main/**/*",
+      "resources/trading-strategies/**/*",
+      "resources/haolo-logo.ico",
+      "resources/haolo-runtime-icon.ico",
+      "resources/haolo-logo.svg",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/haolo-logo.ico",
+        "to": "haolo-logo.ico"
+      },
+      {
+        "from": "resources/haolo-runtime-icon.ico",
+        "to": "haolo-runtime-icon.ico"
+      },
+      {
+        "from": "src/renderer/assets/haolo-app-avatar.png",
+        "to": "haolo-app-avatar.png"
+      },
+      {
+        "from": "extensions/haolo-chrome",
+        "to": "chrome-extension"
+      },
+      {
+        "from": "resources/chrome-release-policy.json",
+        "to": "chrome-release-policy.json"
+      },
+      {
+        "from": "resources/binance-gateway.json",
+        "to": "binance-gateway.json"
+      }
+    ],
+    "asar": true,
+    "afterPack": "scripts/restore-windows-icon.cjs",
+    "win": {
+      "icon": "resources/haolo-logo.ico",
+      "signAndEditExecutable": false,
+      "signExts": [
+        "!.exe"
+      ],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-Setup.${ext}",
+      "extraResources": [
+        { "from": "resources/bin/haolo_ai.exe", "to": "bin/haolo_ai.exe" },
+        { "from": "resources/bin/codex-command-runner.exe", "to": "bin/codex-command-runner.exe" },
+        { "from": "resources/bin/codex-windows-sandbox-setup.exe", "to": "bin/codex-windows-sandbox-setup.exe" },
+        { "from": "resources/bin/codex-runtime.json", "to": "bin/codex-runtime.json" },
+        { "from": "resources/bin/haolo-chrome-native-host.exe", "to": "bin/haolo-chrome-native-host.exe" },
+        {
+          "from": "resources/default-haolo-ai",
+          "to": "default-haolo-ai",
+          "filter": ["**/*", "!**/auth.json", "!**/auth.zip"]
+        },
+        { "from": "resources/mcp", "to": "mcp" },
+        { "from": "extensions/haolo-chrome", "to": "chrome-extension" },
+        { "from": "resources/chrome-release-policy.json", "to": "chrome-release-policy.json" },
+        { "from": "resources/binance-gateway.json", "to": "binance-gateway.json" },
+        { "from": "scripts/clean-haolo-user-config.cmd", "to": "clean-haolo-user-config.cmd" }
+      ]
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "resources/haolo-logo.icns",
+      "extendInfo": {
+        "CFBundleDisplayName": "好咯",
+        "NSMicrophoneUsageDescription": "好咯需要使用麦克风将语音转换为文字。"
+      },
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.inherit.plist",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "target": [{ "target": "dmg" }],
+      "artifactName": "好咯-${version}-${arch}.${ext}",
+      "extraResources": [
+        { "from": "resources/haolo-logo.icns", "to": "haolo-logo.icns" },
+        { "from": "resources/haolo-logo.svg", "to": "haolo-logo.svg" },
+        { "from": "resources/haolo-tray-icon.png", "to": "haolo-tray-icon.png" },
+        { "from": "resources/bin/darwin-${arch}/haolo_ai", "to": "bin/haolo_ai" },
+        { "from": "resources/bin/darwin-${arch}/rg", "to": "bin/rg" },
+        { "from": "resources/licenses/ripgrep-LICENSE-MIT.txt", "to": "licenses/ripgrep-LICENSE-MIT.txt" },
+        {
+          "from": "resources/default-haolo-ai",
+          "to": "default-haolo-ai",
+          "filter": ["**/*", "!**/*.exe", "!**/*.cmd", "!**/*.dll", "!**/*.bat", "!**/*.ps1", "!**/*.msi", "!**/codex-runtime.json", "!**/auth.json", "!**/auth.zip"]
+        },
+        {
+          "from": "resources/mcp",
+          "to": "mcp",
+          "filter": ["**/*", "!**/*.exe", "!**/*.cmd", "!**/*.dll", "!**/*.bat", "!**/*.ps1", "!**/*.msi", "!**/codex-runtime.json"]
+        }
+      ],
+      "binaries": ["Contents/Resources/bin/haolo_ai", "Contents/Resources/bin/rg"]
+    },
+    "dmg": {
+      "artifactName": "好咯-${version}-${arch}.${ext}",
+      "title": "好咯"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "installerIcon": "resources/haolo-logo.ico",
+      "uninstallerIcon": "resources/haolo-logo.ico",
+      "installerHeaderIcon": "resources/haolo-logo.ico",
+      "include": "resources/installer.nsh",
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "HaoLo"
+    }
+  }
+}

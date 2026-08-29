@@ -1,0 +1,7 @@
+interface:
+  display_name: "江恩理论"
+  short_description: "校准价格与时间尺度，绘制江恩角度线、方格、轮中轮和数字螺旋价位"
+  default_prompt: "Use $gann-theory to calibrate the current chart, draw deterministic Gann geometry and Square of Nine levels, and produce a conditional execution plan."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,38 @@
+{
+  "name": "chrome",
+  "version": "0.1.0",
+  "description": "Use the user's authorized Chrome tabs through Haolo's local broker, site permissions, and audited browser tools.",
+  "author": {
+    "name": "Haolo"
+  },
+  "license": "Proprietary",
+  "keywords": [
+    "chrome",
+    "browser",
+    "web",
+    "tabs",
+    "automation",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Chrome",
+    "shortDescription": "Work with authorized Chrome tabs",
+    "longDescription": "Chrome connects Codex to the Chrome profile already signed in on this computer. Haolo keeps site access, task scope, sensitive fields, side effects, approvals, and audit at the desktop broker boundary.",
+    "developerName": "Haolo",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Summarize the current authorized Chrome page and cite its visible evidence.",
+      "Use the selected Chrome tab to complete this browser task, pausing before external side effects.",
+      "Check whether Haolo for Chrome is connected and explain how to repair it if necessary."
+    ],
+    "brandColor": "#6D5EF7",
+    "logo": "./assets/chrome-logo.svg",
+    "screenshots": []
+  }
+}

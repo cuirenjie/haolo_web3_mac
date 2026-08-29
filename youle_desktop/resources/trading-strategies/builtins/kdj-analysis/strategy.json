@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "kdj-analysis",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "KDJ", "group": "indicator", "sortOrder": 35 },
+  "mentions": { "canonical": "KDJ", "aliases": ["KDJ指标", "KDJ分析", "随机指标KDJ", "随机指标", "KDJ金叉", "KDJ死叉", "KDJ背离"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "kdj-analysis" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 80, "preferredCount": 500, "minimumCoverage": "available" }
+  },
+  "chartIndicator": { "id": "kdj", "scope": "sub", "parameters": [9, 3, 3] },
+  "drawingPolicyId": "kdj-analysis-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

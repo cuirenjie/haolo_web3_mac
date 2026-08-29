@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "vpvr-analysis",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "VPVR", "group": "indicator", "sortOrder": 40 },
+  "mentions": {
+    "canonical": "VPVR",
+    "aliases": ["VPVR分析", "可见范围成交量分布", "成交量分布", "Volume Profile", "POC分析", "价值区分析"]
+  },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "vpvr-analysis" },
+  "capabilities": ["conversation", "chart-analysis", "drawing"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 20, "preferredCount": 20, "minimumCoverage": "available" },
+    "visible-candles": { "required": true, "minCount": 20, "preferredCount": 20, "minimumCoverage": "available" },
+    "volume": { "required": true, "minCount": 20, "preferredCount": 20, "minimumCoverage": "available" }
+  },
+  "chartIndicator": { "id": "vpvr", "scope": "main", "parameters": [96] },
+  "drawingPolicyId": "vpvr-analysis-v1",
+  "executionPlanPolicyId": "observation-only-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

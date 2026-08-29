@@ -1,0 +1,7 @@
+interface:
+  display_name: "道氏理论"
+  short_description: "识别三层趋势、收盘确认与次级回撤，输出条件执行方案"
+  default_prompt: "Use $dow-theory to classify the current primary, secondary, and minor trends, draw confirmed structure, and produce a conditional execution plan."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "moving-average-analysis",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "均线", "group": "indicator", "sortOrder": 15 },
+  "mentions": { "canonical": "均线", "aliases": ["MA", "MA指标", "移动平均线", "均线系统", "均线分析", "SMA"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "moving-average-analysis" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 90, "preferredCount": 500, "minimumCoverage": "available" }
+  },
+  "chartIndicator": { "id": "ma", "scope": "main", "parameters": [5, 20, 60] },
+  "drawingPolicyId": "moving-average-analysis-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

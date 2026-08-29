@@ -1,0 +1,7 @@
+interface:
+  display_name: "SMT 背离"
+  short_description: "用相关市场与 Hyperliquid 数据确认跨市场背离"
+  default_prompt: "Use $smt-divergence to validate synchronized cross-market SMT divergence, draw primary-market evidence, and require local MSS confirmation before execution."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,120 @@
+name: Build Windows Desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_unpacked:
+        description: "Upload win-unpacked directory as a zip artifact"
+        required: true
+        type: boolean
+        default: true
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - ".github/workflows/windows-desktop-build.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "youle_desktop/**"
+  pull_request:
+    branches:
+      - main
+      - dev
+    paths:
+      - ".github/workflows/windows-desktop-build.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "youle_desktop/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-desktop-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: Build Windows desktop app
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: ${{ github.event_name != 'pull_request' }}
+
+      - name: Fetch Git LFS resources
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: pwsh
+        run: |
+          git lfs install
+          git lfs pull
+
+      - name: Validate bundled Codex runtime
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./youle_desktop/scripts/verify-codex-runtime.ps1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm --filter youle_desktop typecheck
+
+      - name: Build renderer
+        run: pnpm --filter youle_desktop build
+
+      - name: Package Windows installer
+        if: ${{ github.event_name != 'pull_request' }}
+        run: pnpm --filter youle_desktop exec electron-builder --win nsis --x64
+
+      - name: Package Windows unpacked app
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_unpacked) }}
+        run: pnpm --filter youle_desktop exec electron-builder --win --x64 --dir
+
+      - name: Archive win-unpacked
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_unpacked) }}
+        shell: pwsh
+        run: |
+          $source = "youle_desktop/release/win-unpacked"
+          if (!(Test-Path $source)) {
+            throw "Missing unpacked output: $source"
+          }
+          Compress-Archive -Path "$source/*" -DestinationPath "youle_desktop/release/youle_desktop-win-unpacked.zip" -Force
+
+      - name: Upload installer artifact
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: youle_desktop-windows-installer
+          path: |
+            youle_desktop/release/*-Setup.exe
+            youle_desktop/release/*-Setup.exe.blockmap
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload unpacked artifact
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_unpacked) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: youle_desktop-windows-unpacked
+          path: youle_desktop/release/youle_desktop-win-unpacked.zip
+          if-no-files-found: error
+          retention-days: 14

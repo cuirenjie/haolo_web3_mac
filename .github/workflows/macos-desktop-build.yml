@@ -1,0 +1,155 @@
+name: Build macOS Desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_unsigned:
+        description: "Build and upload unsigned x64 and arm64 app bundles"
+        required: true
+        type: boolean
+        default: true
+  push:
+    branches:
+      - main
+      - dev
+      - d_mac
+    paths:
+      - ".github/workflows/macos-desktop-build.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "youle_desktop/**"
+  pull_request:
+    branches:
+      - main
+      - dev
+      - d_mac
+    paths:
+      - ".github/workflows/macos-desktop-build.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "youle_desktop/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-desktop-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    name: Validate and package macOS desktop app
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm --filter ./youle_desktop typecheck
+
+      - name: Test
+        run: >-
+          pnpm --filter ./youle_desktop exec node --test
+          test/macos-compatibility.test.mjs
+          test/app-update-downloader.test.mjs
+          test/voice-input.test.mjs
+
+      - name: Build renderer
+        run: pnpm --filter ./youle_desktop build
+
+      - name: Fetch macOS Git LFS assets
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.package_unsigned) }}
+        run: |
+          git lfs install
+          git lfs pull --include="youle_desktop/resources/bin/darwin-*/haolo_ai,youle_desktop/resources/bin/darwin-*/rg,youle_desktop/resources/haolo-logo.icns"
+
+      - name: Check macOS package assets
+        id: mac_assets
+        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.package_unsigned) }}
+        shell: bash
+        run: |
+          available=true
+          for asset in \
+            youle_desktop/resources/bin/darwin-x64/haolo_ai \
+            youle_desktop/resources/bin/darwin-arm64/haolo_ai \
+            youle_desktop/resources/bin/darwin-x64/rg \
+            youle_desktop/resources/bin/darwin-arm64/rg \
+            youle_desktop/resources/haolo-logo.icns
+          do
+            if [[ ! -f "$asset" ]] || head -c 64 "$asset" | grep -a -q '^version https://git-lfs.github.com/spec/v1'; then
+              available=false
+            fi
+          done
+          echo "available=$available" >> "$GITHUB_OUTPUT"
+          if [[ "$available" != "true" ]]; then
+            echo "::error::macOS package assets are unavailable; refusing to publish an incomplete build."
+            exit 1
+          fi
+
+      - name: Validate macOS runtimes
+        if: ${{ steps.mac_assets.outputs.available == 'true' }}
+        run: node ./youle_desktop/scripts/verify-codex-runtime-macos.mjs
+
+      - name: Prepare macOS assets
+        if: ${{ steps.mac_assets.outputs.available == 'true' }}
+        run: pnpm --filter ./youle_desktop run prepare:mac -- --arch=x64,arm64
+
+      - name: Package unsigned x64 and arm64 apps
+        if: ${{ steps.mac_assets.outputs.available == 'true' }}
+        run: pnpm --filter ./youle_desktop exec electron-builder --mac --x64 --arm64 --dir --publish never --config.mac.identity=- --config.mac.hardenedRuntime=false
+
+      - name: Package unsigned universal app
+        if: ${{ steps.mac_assets.outputs.available == 'true' }}
+        run: pnpm --filter ./youle_desktop exec electron-builder --mac --universal --dir --publish never --config.mac.identity=- --config.mac.hardenedRuntime=false
+
+      - name: Verify packaged macOS apps
+        if: ${{ steps.mac_assets.outputs.available == 'true' }}
+        run: node ./youle_desktop/scripts/verify-mac-package.mjs --require-split --require-universal
+
+      - name: Verify unsigned macOS launch signatures
+        if: ${{ steps.mac_assets.outputs.available == 'true' }}
+        run: node ./youle_desktop/scripts/verify-mac-adhoc-launch.mjs --require-split --require-universal
+
+      - name: Confirm packaging did not bump the version
+        if: ${{ steps.mac_assets.outputs.available == 'true' }}
+        run: git diff --exit-code -- package.json pnpm-lock.yaml youle_desktop/package.json youle_desktop/package-lock.json
+
+      - name: Archive unsigned app bundles
+        if: ${{ steps.mac_assets.outputs.available == 'true' }}
+        working-directory: youle_desktop
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent release/mac/haolo_desktop.app release/haolo_desktop-mac-x64-unsigned.zip
+          ditto -c -k --sequesterRsrc --keepParent release/mac-arm64/haolo_desktop.app release/haolo_desktop-mac-arm64-unsigned.zip
+
+      - name: Upload unsigned app bundles
+        if: ${{ steps.mac_assets.outputs.available == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: haolo-desktop-macos-unsigned-${{ github.sha }}
+          path: |
+            youle_desktop/release/haolo_desktop-mac-x64-unsigned.zip
+            youle_desktop/release/haolo_desktop-mac-arm64-unsigned.zip
+          if-no-files-found: error
+          retention-days: 14

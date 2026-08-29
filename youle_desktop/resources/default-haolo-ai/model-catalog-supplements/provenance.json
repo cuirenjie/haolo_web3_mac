@@ -1,0 +1,9 @@
+{
+  "deepseek-v4-flash": {
+    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/agent_integrations/codex/",
+    "fetchedAt": "2026-08-05T15:22:40+08:00",
+    "sha256": "4bc05f964a3aee054b98236fae5e9de89a4ec6b2eea73577f412bc8ab6d54845",
+    "canonicalJsonSha256": "49c525cceef02b3e5dfa26e56cae970e7cc052cde2365a9d076577a3d34cdcfa",
+    "minimumCodexVersion": "0.144.0"
+  }
+}

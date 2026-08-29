@@ -1,0 +1,4 @@
+interface:
+  display_name: "布林带"
+  short_description: "分析布林带压缩扩张、沿带运行和经典形态并生成条件执行方案"
+  default_prompt: "Use $bollinger-bands-analysis to analyze the current closed-candle chart, show Bollinger Bands, mark confirmed evidence, and produce a conditional execution plan."

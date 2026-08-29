@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "chan",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "缠论", "group": "strategy", "sortOrder": 10 },
+  "mentions": { "canonical": "缠论", "aliases": [] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "chan" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 30, "preferredCount": 600, "minimumCoverage": "available" }
+  },
+  "drawingPolicyId": "chan-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}

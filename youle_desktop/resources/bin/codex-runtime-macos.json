@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "platform": "darwin",
+  "version": "0.144.1",
+  "versionOutput": "codex-cli 0.144.1",
+  "releaseTag": "rust-v0.144.1",
+  "releaseUrl": "https://github.com/openai/codex/releases/tag/rust-v0.144.1",
+  "signature": {
+    "authority": "Developer ID Application: OpenAI OpCo, LLC (2DC432GLL2)",
+    "teamIdentifier": "2DC432GLL2"
+  },
+  "files": [
+    {
+      "arch": "arm64",
+      "path": "darwin-arm64/haolo_ai",
+      "machOArchitecture": "arm64",
+      "sourceName": "codex-aarch64-apple-darwin",
+      "sourceAsset": "codex-aarch64-apple-darwin.tar.gz",
+      "sourceAssetUrl": "https://github.com/openai/codex/releases/download/rust-v0.144.1/codex-aarch64-apple-darwin.tar.gz",
+      "sourceAssetSize": 98299911,
+      "sourceAssetSha256": "88e72ac8bd30815f7d18e62dac333dc20ce3ad1cba94be1649a1977dd9bfdbb8",
+      "size": 260405808,
+      "sha256": "29915529b97697def1a957b0505e770aa6a45744435d62fc263e98d7619e167a"
+    },
+    {
+      "arch": "x64",
+      "path": "darwin-x64/haolo_ai",
+      "machOArchitecture": "x86_64",
+      "sourceName": "codex-x86_64-apple-darwin",
+      "sourceAsset": "codex-x86_64-apple-darwin.tar.gz",
+      "sourceAssetUrl": "https://github.com/openai/codex/releases/download/rust-v0.144.1/codex-x86_64-apple-darwin.tar.gz",
+      "sourceAssetSize": 107297255,
+      "sourceAssetSha256": "0ea72d21c794504342d5fe0d5d057b0221c0a42f4bdf4a48b95af243af2b0c0e",
+      "size": 282836688,
+      "sha256": "c6eb747e4145ecb3bed2647dbd0f8464b190a5ccba964666ef7c98d4681a4a4c"
+    }
+  ],
+  "tools": [
+    {
+      "name": "ripgrep",
+      "version": "15.1.0",
+      "versionOutput": "ripgrep 15.1.0 (rev af60c2de9d)",
+      "releaseTag": "15.1.0",
+      "releaseUrl": "https://github.com/BurntSushi/ripgrep/releases/tag/15.1.0",
+      "license": "resources/licenses/ripgrep-LICENSE-MIT.txt",
+      "files": [
+        {
+          "arch": "arm64",
+          "path": "darwin-arm64/rg",
+          "machOArchitecture": "arm64",
+          "sourcePath": "ripgrep-15.1.0-aarch64-apple-darwin/rg",
+          "sourceAsset": "ripgrep-15.1.0-aarch64-apple-darwin.tar.gz",
+          "sourceAssetUrl": "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-aarch64-apple-darwin.tar.gz",
+          "sourceAssetSize": 1777930,
+          "sourceAssetSha256": "378e973289176ca0c6054054ee7f631a065874a352bf43f0fa60ef079b6ba715",
+          "size": 4048816,
+          "sha256": "4fdf1d8365af224bc70e3c1490d8461d859c37cc70e739a11e987af0215f3e94"
+        },
+        {
+          "arch": "x64",
+          "path": "darwin-x64/rg",
+          "machOArchitecture": "x86_64",
+          "sourcePath": "ripgrep-15.1.0-x86_64-apple-darwin/rg",
+          "sourceAsset": "ripgrep-15.1.0-x86_64-apple-darwin.tar.gz",
+          "sourceAssetUrl": "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-apple-darwin.tar.gz",
+          "sourceAssetSize": 1894127,
+          "sourceAssetSha256": "64811cb24e77cac3057d6c40b63ac9becf9082eedd54ca411b475b755d334882",
+          "size": 4442900,
+          "sha256": "3bafa7e6ee51ba3ac4ed065883484a309be09b26ea6dad561ae4049bfe049c50"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "macd-analysis",
+  "version": "1.0.0",
+  "minimumHostVersion": "0.1.164",
+  "publisher": { "id": "haolo", "type": "official" },
+  "display": { "name": "MACD", "group": "indicator", "sortOrder": 10 },
+  "mentions": { "canonical": "MACD", "aliases": ["MACD指标", "MACD分析", "指数平滑异同移动平均线"] },
+  "implementation": { "kind": "builtin-adapter", "adapterId": "macd-analysis" },
+  "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
+  "dataRequirements": {
+    "candles": { "required": true, "minCount": 80, "preferredCount": 500, "minimumCoverage": "available" }
+  },
+  "chartIndicator": { "id": "macd", "scope": "sub", "parameters": [12, 26, 9] },
+  "drawingPolicyId": "macd-analysis-v1",
+  "executionPlanPolicyId": "standard-v1",
+  "assets": { "skill": "SKILL.md", "rules": "references/rules.md" }
+}
