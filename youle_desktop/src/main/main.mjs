@@ -8245,10 +8245,13 @@ function showDesktopNotificationWindow({ title, body, threadId, turnId, alertId,
     clearTimeout(desktopNotificationTimer);
     desktopNotificationTimer = null;
   }
-  if (desktopNotificationWindow && !desktopNotificationWindow.isDestroyed()) {
-    desktopNotificationWindow.close();
+  const previousNotificationWindow = desktopNotificationWindow;
+  if (previousNotificationWindow && !previousNotificationWindow.isDestroyed()) {
+    previousNotificationWindow.close();
   }
-  const display = screen.getPrimaryDisplay();
+  const display = mainWindow && !mainWindow.isDestroyed()
+    ? screen.getDisplayMatching(mainWindow.getBounds())
+    : screen.getPrimaryDisplay();
   const workArea = display.workArea;
   const width = DESKTOP_NOTIFICATION_BOUNDS.width;
   const height = DESKTOP_NOTIFICATION_BOUNDS.height;
@@ -8268,23 +8271,29 @@ function showDesktopNotificationWindow({ title, body, threadId, turnId, alertId,
     maximizable: false,
     fullscreenable: false,
     show: false,
+    ...(IS_MAC ? {
+      type: "panel",
+      focusable: false,
+      acceptFirstMouse: true,
+    } : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   });
-  desktopNotificationWindow.removeMenu();
-  desktopNotificationWindow.setAlwaysOnTop(true, "screen-saver");
-  desktopNotificationWindow.loadURL(`data:text/html;base64,${Buffer.from(desktopNotificationHtml({ title, body, theme: appTheme(), language: appLanguage() })).toString("base64")}`);
-  desktopNotificationWindow.once("ready-to-show", () => {
-    if (!desktopNotificationWindow || desktopNotificationWindow.isDestroyed()) return;
-    desktopNotificationWindow.showInactive();
+  const notificationWindow = desktopNotificationWindow;
+  notificationWindow.removeMenu();
+  notificationWindow.setAlwaysOnTop(true, "screen-saver");
+  notificationWindow.loadURL(`data:text/html;base64,${Buffer.from(desktopNotificationHtml({ title, body, theme: appTheme(), language: appLanguage() })).toString("base64")}`);
+  notificationWindow.once("ready-to-show", () => {
+    if (notificationWindow.isDestroyed() || desktopNotificationWindow !== notificationWindow) return;
+    notificationWindow.showInactive();
   });
-  desktopNotificationWindow.webContents.on("before-input-event", (_event, input) => {
+  notificationWindow.webContents.on("before-input-event", (_event, input) => {
     if (input.key === "Escape") closeDesktopNotificationWindow();
   });
-  desktopNotificationWindow.webContents.on("will-navigate", (event, url) => {
+  notificationWindow.webContents.on("will-navigate", (event, url) => {
     if (!String(url || "").startsWith("youle-notification://")) return;
     event.preventDefault();
     if (url === "youle-notification://open") {
@@ -8297,11 +8306,15 @@ function showDesktopNotificationWindow({ title, body, threadId, turnId, alertId,
       closeDesktopNotificationWindow();
     }
   });
-  desktopNotificationWindow.on("closed", () => {
-    desktopNotificationWindow = null;
+  notificationWindow.on("closed", () => {
+    if (desktopNotificationWindow === notificationWindow) {
+      desktopNotificationWindow = null;
+    }
   });
   desktopNotificationTimer = setTimeout(() => {
-    closeDesktopNotificationWindow();
+    if (desktopNotificationWindow === notificationWindow) {
+      closeDesktopNotificationWindow();
+    }
   }, 7000);
   desktopNotificationTimer.unref?.();
 }
@@ -19630,23 +19643,32 @@ async function fetchPreviewFile(params = {}) {
 async function checkAppUpdate(version) {
   const currentVersion = normalizeAppVersion(version || app.getVersion());
   const updateTarget = currentUpdateTarget();
-  const url = new URL(updateTarget.checkPath, updateTarget.baseUrl);
-  url.searchParams.set("version", currentVersion);
-  if (updateTarget.arch) {
-    url.searchParams.set("arch", updateTarget.arch);
+  const requestArchitectures = updateTarget.platform === "mac"
+    ? macUpdateRequestArchitectures(updateTarget)
+    : [null];
+  for (let index = 0; index < requestArchitectures.length; index += 1) {
+    const requestArch = requestArchitectures[index];
+    const url = new URL(updateTarget.checkPath, updateTarget.baseUrl);
+    url.searchParams.set("version", currentVersion);
+    if (requestArch) {
+      url.searchParams.set("arch", requestArch);
+    }
+    const response = await fetchWithTimeout(url.toString(), {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        "User-Agent": updateUserAgent(currentVersion, updateTarget),
+      },
+    });
+    const payload = await responseJson(response);
+    if (!response.ok) {
+      throw new Error(updateErrorMessage(payload, `检查更新失败：HTTP ${response.status}`));
+    }
+    const normalized = normalizeAppUpdateResponse(payload, currentVersion, updateTarget);
+    if (!normalized.update_available && index < requestArchitectures.length - 1) continue;
+    return normalized;
   }
-  const response = await fetchWithTimeout(url.toString(), {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-      "User-Agent": updateUserAgent(currentVersion, updateTarget),
-    },
-  });
-  const payload = await responseJson(response);
-  if (!response.ok) {
-    throw new Error(updateErrorMessage(payload, `检查更新失败：HTTP ${response.status}`));
-  }
-  return normalizeAppUpdateResponse(payload, currentVersion, updateTarget);
+  return normalizeAppUpdateResponse(null, currentVersion, updateTarget);
 }
 
 async function downloadAppUpdate(params = {}, onProgress = null) {
@@ -19884,6 +19906,12 @@ function currentUpdateTarget() {
     allowedExtensions: new Set([".exe"]),
     defaultFileName: "Haolo-Update.exe",
   };
+}
+
+function macUpdateRequestArchitectures(updateTarget) {
+  if (updateTarget?.platform !== "mac") return [null];
+  const runtimeArch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : "universal";
+  return [...new Set([updateTarget.arch, runtimeArch, "universal"].filter(Boolean))];
 }
 
 function updateUserAgent(version, updateTarget = currentUpdateTarget()) {

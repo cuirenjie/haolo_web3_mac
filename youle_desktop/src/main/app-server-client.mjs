@@ -2709,8 +2709,8 @@ function youleAiCandidates(cwd) {
     candidates.push(path.join(process.resourcesPath, "bin", PACKAGED_CODEX_BIN));
     candidates.push(path.join(process.resourcesPath, PACKAGED_CODEX_BIN));
   }
-  if (PACKAGED_CODEX_PLATFORM_BIN_DIR) {
-    candidates.push(path.join(process.resourcesPath || "", "bin", PACKAGED_CODEX_PLATFORM_BIN_DIR, PACKAGED_CODEX_BIN));
+  if (PACKAGED_CODEX_PLATFORM_BIN_DIR && process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, "bin", PACKAGED_CODEX_PLATFORM_BIN_DIR, PACKAGED_CODEX_BIN));
   }
   const repoRoot = findRepoRoot(cwd) || findRepoRoot(path.resolve(__dirname, "../../.."));
   if (repoRoot) {

@@ -5280,6 +5280,13 @@ select:disabled {
   -webkit-app-region: drag;
 }
 
+.mac-titlebar .trading-market-favorite-ticker,
+.mac-titlebar .trading-market-favorite-ticker *,
+.mac-titlebar .trading-market-favorite-remove,
+.mac-titlebar .trading-market-favorite-add {
+  -webkit-app-region: no-drag;
+}
+
 .app-titlebar:has(.titlebar-market-favorites-host:not([hidden]))
   > .titlebar-drag-region {
   position: static;
