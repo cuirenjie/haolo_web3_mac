@@ -216,8 +216,12 @@ export class TradingStrategyCoordinator {
     const defaultReport = params?.responseMode === "direct" || !exposesExecutionPlan
       ? legacyAnalysisPlan.report
       : `${formatExecutionPlanMarkdown(executionPlan)}\n\n---\n\n${legacyReportWithoutExecutionPlan}`.trim();
+    const englishLegacyReport = String(legacyReportWithoutExecutionPlan || "").trim();
     const englishReport = exposesExecutionPlan
-      ? formatExecutionPlanMarkdown(executionPlan, { language: "en" })
+      ? [
+          formatExecutionPlanMarkdown(executionPlan, { language: "en" }),
+          ...(!containsHanCharacters(englishLegacyReport) ? ["---", englishLegacyReport] : []),
+        ].filter(Boolean).join("\n\n")
       : containsHanCharacters(defaultReport)
         ? "The market analysis is complete. Review the chart annotations for the detected structure and risk levels."
         : defaultReport;

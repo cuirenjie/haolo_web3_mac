@@ -67,7 +67,10 @@ const EXECUTION_PLAN_END_REASONS = new Set<ExecutionPlanEndReason>(["take_profit
 
 const CORE_PLAN_LABEL = /(?:当前动作|方向判断|(?:多头|空头|首选方向)?触发|止损(?:与失效)?|分批止盈|风险收益比|候选(?:测算|止损|止盈)|current action|direction|(?:long|short|entry) trigger|stop-loss(?: and invalidation)?|take-profit targets?|risk\/reward)/i;
 const PLAN_HEADING = /^(?:(?:标准|推荐|首选|备选|候选|可选)\s*)?(?:(?:执行|行动|实施|操作|落地)\s*)?(?:方案|计划)(?:\s*[A-C一二三123])?(?:\s*[:：-].*)?$|^(?:(?:standard|recommended|preferred|alternative|candidate)\s+)?(?:execution\s+)?plan(?:\s*[A-C123])?(?:\s*[:\-].*)?$/i;
-const TRADING_PLAN_HEADING = /^[A-Z0-9]{2,20}\/(?:USDT|USDC|BUSD)\s+(?:币安永续|BINANCE PERPETUAL)\s+\d+(?:M|H|D|W)(?:\s+·\s+(?:(?:多头|空头)条件方案|(?:LONG|SHORT) SETUP))?$/i;
+// Market adapters normally return ASCII symbols, but custom/local market
+// names can contain CJK characters. Keep those headings recognizable so the
+// report body is not mistaken for a plan-only response.
+const TRADING_PLAN_HEADING = /^[\p{L}\p{N}][\p{L}\p{N}._-]{1,29}\/(?:USDT|USDC|BUSD)\s+(?:币安永续|BINANCE PERPETUAL)\s+\d+(?:M|H|D|W)(?:\s+·\s+(?:(?:多头|空头)条件方案|(?:LONG|SHORT) SETUP))?$/iu;
 const OPTION_LINE = /^(?:(?:方案|候选|选项|路径)\s*(?:[A-C]|[一二三四五六]|\d+)|[A-C]\s*方案|[A-C])\s*[:：、.)-]/i;
 const ORDERED_OR_BULLET_LINE = /^(?:[-*+•▪◦]\s+|(?:\d+|[A-C一二三四五六])[.)、]\s*)/i;
 
@@ -209,8 +212,8 @@ export function executionPlanCardTitle(input: {
   let quoteAsset = "USDT";
   let interval = "";
 
-  const marketIdMatch = combined.match(/BINANCE:FUTURES:([A-Z0-9]+?)(USDT|USDC|BUSD)\b/);
-  const slashMatch = combined.match(/\b([A-Z0-9]{2,20})\/(USDT|USDC|BUSD)\b/);
+  const marketIdMatch = combined.match(/BINANCE:FUTURES:([\p{L}\p{N}]+?)(USDT|USDC|BUSD)\b/iu);
+  const slashMatch = combined.match(/(?:^|[^\p{L}\p{N}])([\p{L}\p{N}]{2,20})\/(USDT|USDC|BUSD)\b/iu);
   if (marketIdMatch) {
     baseAsset = marketIdMatch[1];
     quoteAsset = marketIdMatch[2];
@@ -444,6 +447,12 @@ function planBlock(lines: string[], startIndex: number, endIndex: number): Execu
   };
 }
 
+type ExecutionPlanCandidateRange = {
+  candidate: ExecutionPlanCandidate;
+  startIndex: number;
+  endIndex: number;
+};
+
 function explicitHeadingCandidates(lines: string[]) {
   const candidates = [];
   for (let headingIndex = 0; headingIndex < lines.length; headingIndex += 1) {
@@ -477,7 +486,7 @@ function explicitHeadingCandidate(lines: string[]) {
   return explicitHeadingCandidates(lines)[0] || null;
 }
 
-function boundedCorePlanCandidate(lines: string[]) {
+function boundedCorePlanCandidateRange(lines: string[]): ExecutionPlanCandidateRange | null {
   for (let startIndex = 0; startIndex < lines.length; startIndex += 1) {
     if (!CORE_PLAN_LABEL.test(searchableLine(lines[startIndex] || ""))) continue;
     let coreLabelCount = 0;
@@ -491,9 +500,25 @@ function boundedCorePlanCandidate(lines: string[]) {
       endIndex = index;
       if (/风险收益比|risk\/reward/i.test(searchable) && coreLabelCount >= 3) break;
     }
-    if (coreLabelCount >= 3) return planBlock(lines, startIndex, endIndex);
+    if (coreLabelCount >= 3) {
+      const candidate = planBlock(lines, startIndex, endIndex);
+      if (candidate) return { candidate, startIndex, endIndex };
+    }
   }
   return null;
+}
+
+function unheadedPlanCandidateRange(lines: string[]): ExecutionPlanCandidateRange | null {
+  const bounded = boundedCorePlanCandidateRange(lines);
+  if (bounded) return bounded;
+  const optionIndexes = lines
+    .map((line, index) => (OPTION_LINE.test(searchableLine(line)) ? index : -1))
+    .filter((index) => index >= 0);
+  if (optionIndexes.length < 2) return null;
+  const startIndex = optionIndexes[0];
+  const endIndex = optionIndexes[optionIndexes.length - 1];
+  const candidate = planBlock(lines, startIndex, endIndex);
+  return candidate ? { candidate, startIndex, endIndex } : null;
 }
 
 export function executionPlanCandidateFromText(value: unknown): ExecutionPlanCandidate | null {
@@ -503,14 +528,7 @@ export function executionPlanCandidateFromText(value: unknown): ExecutionPlanCan
   const headingCandidate = explicitHeadingCandidate(lines);
   if (headingCandidate) return headingCandidate;
 
-  const coreCandidate = boundedCorePlanCandidate(lines);
-  if (coreCandidate) return coreCandidate;
-
-  const optionIndexes = lines
-    .map((line, index) => (OPTION_LINE.test(searchableLine(line)) ? index : -1))
-    .filter((index) => index >= 0);
-  if (optionIndexes.length < 2) return null;
-  return planBlock(lines, optionIndexes[0], optionIndexes[optionIndexes.length - 1]);
+  return unheadedPlanCandidateRange(lines)?.candidate || null;
 }
 
 export function executionPlanCandidatesFromText(value: unknown): ExecutionPlanCandidate[] {
@@ -529,8 +547,13 @@ export function executionPlanTextPartitions(value: unknown): ExecutionPlanTextPa
   const lines = text.split("\n");
   const explicitCandidates = explicitHeadingCandidates(lines);
   if (!explicitCandidates.length) {
-    const candidate = executionPlanCandidateFromText(text);
-    return candidate ? { before: "", candidates: [candidate], after: "" } : null;
+    const range = unheadedPlanCandidateRange(lines);
+    if (!range) return null;
+    return {
+      before: lines.slice(0, range.startIndex).join("\n").trim(),
+      candidates: [range.candidate],
+      after: lines.slice(range.endIndex + 1).join("\n").trim(),
+    };
   }
   const first = explicitCandidates[0];
   const last = explicitCandidates[explicitCandidates.length - 1];

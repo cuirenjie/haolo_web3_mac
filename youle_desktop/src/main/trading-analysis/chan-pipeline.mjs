@@ -145,6 +145,119 @@ function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
+function formatReportPriceEnglish(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const digits = Math.abs(number) >= 1_000 ? 2 : Math.abs(number) >= 1 ? 4 : 6;
+  return number.toLocaleString("en-US", { maximumFractionDigits: digits });
+}
+
+function formatReportTimeEnglish(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value)) return "—";
+  return new Date(value * 1_000).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+}
+
+function intervalReportLabelEnglish(interval) {
+  const source = String(interval || "").toUpperCase();
+  const match = /^(\d+)([DW]?)$/.exec(source);
+  if (!match) return source;
+  const amount = Number(match[1]);
+  if (match[2] === "D") return `${amount}D`;
+  if (match[2] === "W") return `${amount}W`;
+  return amount % 60 === 0 ? `${amount / 60}H` : `${amount}M`;
+}
+
+function englishMarketLabel(marketId) {
+  const value = String(marketId || "").trim();
+  return value && !containsHanCharacters(value) ? value : "Current market";
+}
+
+function englishChanReviewNarrative(review, fallback) {
+  const report = String(review?.report || "").replace(/\u0000/g, "").trim();
+  if (report && !containsHanCharacters(report)) return report;
+  const summary = String(review?.summary || "").replace(/\u0000/g, "").trim();
+  if (summary && !containsHanCharacters(summary)) return summary;
+  return fallback;
+}
+
+function buildChanEnglishAnalysisReport(snapshot, theoryResult, review, context = {}) {
+  const candles = snapshot.candles;
+  const first = candles[0];
+  const latest = candles.at(-1);
+  const penPoints = theoryResult.structures.penPoints;
+  const centers = theoryResult.structures.centers;
+  const latestPoint = penPoints.at(-1);
+  const previousPoint = penPoints.at(-2);
+  const latestCenter = centers.at(-1);
+  const changePercent = first?.open
+    ? ((latest.close - first.open) / first.open) * 100
+    : 0;
+  const segmentDirection = latestPoint && previousPoint
+    ? latestPoint.price >= previousPoint.price ? "upward stroke" : "downward stroke"
+    : "an unconfirmed terminal stroke";
+  const centerText = latestCenter
+    ? `The latest confirmed central zone is ${formatReportPriceEnglish(latestCenter.lower)}–${formatReportPriceEnglish(latestCenter.upper)}, formed from ${formatReportTimeEnglish(latestCenter.startTime)} to ${formatReportTimeEnglish(latestCenter.endTime)}.`
+    : "No confirmed central zone meets the overlap requirement in this sample; confidence should remain lower.";
+  const outlook = buildChanMarketOutlook(snapshot, theoryResult, review);
+  const bias = outlook.bias === "偏多" ? "bullish" : outlook.bias === "偏空" ? "bearish" : "range-bound / neutral";
+  const centerPosition = latestCenter
+    ? latest.close > latestCenter.upper
+      ? "above the latest central zone"
+      : latest.close < latestCenter.lower
+        ? "below the latest central zone"
+        : "inside the latest central zone"
+    : "without a confirmed central zone";
+  const penDirection = latestPoint && previousPoint
+    ? latestPoint.price >= previousPoint.price ? "up" : "down"
+    : "unconfirmed";
+  const momentumStart = candles.slice(-Math.min(48, candles.length))[0]?.open || latest.open;
+  const recentReturn = momentumStart ? (latest.close - momentumStart) / momentumStart : 0;
+  const modelFallback = `The deterministic review identifies ${segmentDirection}; the latest close is ${centerPosition}.`;
+  const modelNarrative = englishChanReviewNarrative(review, modelFallback);
+  const modelRationale = String(review?.strategyRationale || "").replace(/\u0000/g, "").trim();
+  const rationale = modelRationale && !containsHanCharacters(modelRationale)
+    ? ` Model review: ${modelRationale}`
+    : "";
+  const instruction = String(context.instruction || "").trim();
+  const safeInstruction = instruction && !containsHanCharacters(instruction)
+    ? `Requested analysis: ${instruction}`
+    : "";
+  const market = englishMarketLabel(snapshot.marketId);
+  const interval = intervalReportLabelEnglish(snapshot.interval);
+  return [
+    `## ${market} · ${interval} Chan analysis`,
+    safeInstruction,
+    "",
+    "### Data range",
+    `This review uses ${candles.length} candles from ${formatReportTimeEnglish(first?.time)} to ${formatReportTimeEnglish(latest?.time)}. The opening price was ${formatReportPriceEnglish(first?.open)}, the latest close is ${formatReportPriceEnglish(latest?.close)}, and the change is ${changePercent >= 0 ? "+" : ""}${changePercent.toFixed(2)}%.`,
+    "",
+    "### Chan structure",
+    `The deterministic engine merged ${theoryResult.statistics.mergedCandleCount} of ${theoryResult.statistics.sourceCandleCount} source candles, identifying ${theoryResult.statistics.fractalCount} fractals, ${theoryResult.statistics.penPointCount} pen endpoints, and ${theoryResult.statistics.centerCount} central-zone candidates. The chart shows the latest ${penPoints.length} selected pen endpoints and ${centers.length} central zones.`,
+    `The terminal structure is ${segmentDirection === "upward stroke" ? "an" : "a"} ${segmentDirection}; its latest endpoint is ${formatReportTimeEnglish(latestPoint?.time)} at ${formatReportPriceEnglish(latestPoint?.price)}. ${centerText}`,
+    "",
+    "### Overall assessment",
+    modelNarrative,
+    "",
+    "### Current view and scenario weights",
+    `The current structural bias is **${bias}**. With this ${interval} sample and the confirmed structure unchanged, the upside scenario weight is about ${outlook.risePercent}% and the downside scenario weight is about ${outlook.fallPercent}%.`,
+    `Main basis: the latest stroke is ${penDirection}, the latest close is ${centerPosition}, and recent ${Math.min(48, candles.length)}-candle momentum is ${recentReturn >= 0 ? "positive" : "negative"}.${rationale}`,
+    "These are heuristic scenario weights, not back-tested win rates. New candles, false breakouts, or structural reclassification can change them.",
+    "",
+    "### Conditional trading plan",
+    `- **Long setup**: wait for a closed candle to hold above ${formatReportPriceEnglish(outlook.longTrigger)}, then consider a long only after a retest does not fall back below that level; structural invalidation is ${formatReportPriceEnglish(outlook.longInvalidation)}, with a first reference target at ${formatReportPriceEnglish(outlook.longTarget)}.`,
+    `- **Short setup**: wait for a closed candle to hold below ${formatReportPriceEnglish(outlook.shortTrigger)}, then consider a short only after a rebound fails below that level; structural invalidation is ${formatReportPriceEnglish(outlook.shortInvalidation)}, with a first reference target at ${formatReportPriceEnglish(outlook.shortTarget)}.`,
+    `- **Wait zone**: while price remains between ${formatReportPriceEnglish(outlook.shortTrigger)} and ${formatReportPriceEnglish(outlook.longTrigger)}, treat the market as range-bound and avoid chasing from the middle; a quick reclaim after either trigger is a false breakout.`,
+    "- **Risk control**: use closed candles only, size from the invalidation distance and maximum tolerable loss, and account for leverage, funding, slippage, and liquidation risk on perpetual contracts.",
+    "",
+    "### Observation and invalidation",
+    latestCenter
+      ? `Watch whether price leaves the central zone ${formatReportPriceEnglish(latestCenter.lower)}–${formatReportPriceEnglish(latestCenter.upper)} with follow-through, and whether the move weakens or returns inside. A sustained return into the zone means the breakout direction is not confirmed.`
+      : "Wait for additional closed candles to confirm new fractals, strokes, and an overlapping central zone; an incomplete structure can change with the next candle.",
+    "This report separates structural identification from directional forecasting. It is not a return promise or an automatic trading instruction; unclosed candles, data coverage, and Chan conventions can invalidate tentative structures.",
+  ].join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
 function averageTrueRange(candles, period = 14) {
   const sample = candles.slice(-Math.max(2, period + 1));
   if (sample.length < 2) return 0;
@@ -274,6 +387,9 @@ export function buildChanMarketOutlook(snapshot, theoryResult, review = {}) {
 }
 
 export function buildChanAnalysisReport(snapshot, theoryResult, review, context = {}) {
+  if (context.language === "en") {
+    return buildChanEnglishAnalysisReport(snapshot, theoryResult, review, context);
+  }
   const candles = snapshot.candles;
   const first = candles[0];
   const latest = candles.at(-1);
@@ -486,6 +602,7 @@ export async function runTradingChanAnalysisPipeline(params, options = {}) {
   const drawingPatch = buildChanDrawingPatch(snapshot, theoryResult, modelReview, { language: params?.language });
   const report = buildChanAnalysisReport(snapshot, theoryResult, modelReview, {
     instruction: params?.instruction,
+    language: params?.language,
   });
   return {
     ok: true,

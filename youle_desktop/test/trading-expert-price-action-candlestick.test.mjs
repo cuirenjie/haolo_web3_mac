@@ -276,6 +276,20 @@ test("drawing patch circles a complete pattern and labels it with the same evide
   assert.match(buildPriceActionStrategyReport(snapshot, result), /明确K线形态[\s\S]*晨星/);
 });
 
+test("English candlestick labels use semantic pattern IDs instead of evidence hashes", () => {
+  const snapshot = snapshotFrom(morningStarFixture());
+  const result = runPriceActionStrategyEngine(snapshot);
+  const morning = result.candlestickPatterns.drawablePatterns.find((item) => item.patternId === "morning-star");
+  assert.ok(morning);
+  const patch = buildPriceActionStrategyDrawingPatch(snapshot, result, { language: "en" });
+  const label = patch.operations.find((item) => (
+    item.drawing.tool === "text" && item.drawing.evidenceIds.includes(morning.id)
+  ))?.drawing;
+  assert.ok(label);
+  assert.equal(label.text, "morning star");
+  assert.doesNotMatch(label.text, /pa[- ]candlestick[ -][0-9a-f]+/iu);
+});
+
 test("every multi-candle catalog pattern is paired with a visible covering ellipse", () => {
   const snapshot = snapshotFrom(trend("bullish", 48, 80));
   const baseResult = runPriceActionStrategyEngine(snapshot);

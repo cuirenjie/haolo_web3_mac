@@ -5409,10 +5409,12 @@ async function runWorkflowCodexNodeTurnWithRecovery({
   workspace,
   model,
   effort = "high",
+  fixedReasoningEffort,
   sandboxPolicy,
   timeoutMs = 30 * 60_000,
   resetTimeoutOnActivity = false,
   timeoutRetryable = true,
+  maxAttempts = Number.POSITIVE_INFINITY,
   recoveryInstructions,
   additionalContext,
   hideFromRenderer = true,
@@ -5423,6 +5425,9 @@ async function runWorkflowCodexNodeTurnWithRecovery({
   onTurnStarted,
   onTurnTerminal,
 }) {
+  const attemptLimit = Number.isFinite(Number(maxAttempts))
+    ? Math.max(1, Math.floor(Number(maxAttempts)))
+    : Number.POSITIVE_INFINITY;
   let attempt = 0;
   let noProgressFailures = 0;
   let nextPrompt = initialPrompt;
@@ -5457,6 +5462,7 @@ async function runWorkflowCodexNodeTurnWithRecovery({
         cwd: workspace,
         model: model || undefined,
         effort: effort || undefined,
+        [HAOLO_REASONING_FIXED_EFFORT_FIELD]: fixedReasoningEffort,
         serviceTier: null,
         approvalPolicy: "never",
         sandboxPolicy: normalizeSandboxPolicy(sandboxPolicy),
@@ -5543,12 +5549,21 @@ async function runWorkflowCodexNodeTurnWithRecovery({
       turnId: latestTurnId,
       turnFinished: latestTurnFinished,
     };
+    const recoveryExhausted = completed.retryable === true && attempt >= attemptLimit;
     if (
       completed.status === "success"
       || completed.status === "cancelled"
       || completed.retryable !== true
+      || recoveryExhausted
     ) {
-      return aggregate;
+      return recoveryExhausted
+        ? {
+            ...aggregate,
+            retryable: false,
+            recoveryAttempts: attempt,
+            recoveryExhausted: true,
+          }
+        : aggregate;
     }
 
     const madeProgress = newEffectCount > 0 || String(completed.text || "").trim().length > 0;
@@ -13822,14 +13837,23 @@ async function invokeTradingAnalysisAppServer({ modelId, modelProvider, request,
   const isRequestRouting = String(request.task || "").endsWith("-request-routing");
   const isAlertIntent = String(request.task || "") === "trading_alert_intent_compile";
   const turnPolicy = tradingAnalysisTurnPolicy(request.task);
-  const { reasoningEffort, timeoutMs, resetTimeoutOnActivity, timeoutRetryable } = turnPolicy;
+  const {
+    reasoningEffort,
+    timeoutMs,
+    resetTimeoutOnActivity,
+    timeoutRetryable,
+    maxAttempts,
+  } = turnPolicy;
   const diagnosticContext = {
     requestId: String(request.requestId || ""),
     snapshotId: String(request.snapshotId || ""),
     task: String(request.task || ""),
     modelId: String(modelId || ""),
     promptBytes: Buffer.byteLength(String(request.prompt || ""), "utf8"),
+    reasoningEffort,
     timeoutMs,
+    resetTimeoutOnActivity,
+    maxAttempts,
   };
   const developerInstructions = isAlertIntent
     ? [
@@ -13884,10 +13908,12 @@ async function invokeTradingAnalysisAppServer({ modelId, modelProvider, request,
       workspace,
       model: modelId,
       effort: reasoningEffort,
+      fixedReasoningEffort: reasoningEffort,
       sandboxPolicy: "read-only",
       timeoutMs,
       resetTimeoutOnActivity,
       timeoutRetryable,
+      maxAttempts,
       signal,
       onReasoningSummaryDelta: isAlertIntent ? onReasoningSummaryDelta : undefined,
       recoveryInstructions: isRequestRouting

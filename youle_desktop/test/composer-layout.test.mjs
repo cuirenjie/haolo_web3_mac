@@ -125,7 +125,7 @@ test("new-task group picker sits above the composer and aligns with the input cu
   assert.match(picker, /position:\s*absolute;/);
 });
 
-test("@ cascade sits above the new-task group picker without overlapping it", async () => {
+test("generic @ cascade stays above the new-task group picker without overlapping it", async () => {
   const styles = await stylesSource;
   const pickerDimensions = cssBlock(styles, ".composer-group-picker");
   const picker = cssBlock(styles, ".composer-context-group-picker");
@@ -139,6 +139,17 @@ test("@ cascade sits above the new-task group picker without overlapping it", as
     percentPlusPxDeclaration(picker, "bottom") -
     pxDeclaration(pickerDimensions, "height");
   assert.equal(gap, 8);
+});
+
+test("Trading Expert @ cascade stays anchored to the footer plus button", async () => {
+  const styles = await stylesSource;
+  const tradingExpertMention = cssBlock(
+    styles,
+    ".desktop-body.trading-expert-layout\n  > .trading-expert-panel\n  > .composer:has(.composer-context-group-picker)\n  .trading-expert-mention-popover",
+  );
+
+  assert.match(tradingExpertMention, /z-index:\s*30;/);
+  assert.match(tradingExpertMention, /bottom:\s*calc\(8px \+ 28px \+ 8px\);/);
 });
 
 test("composer upload plus stays centered in a circular hover target", async () => {

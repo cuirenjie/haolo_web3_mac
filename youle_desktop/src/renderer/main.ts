@@ -1709,6 +1709,7 @@ type DesktopApi = {
     marketId: string;
     interval: string;
     snapshotTime: number;
+    language?: AppLanguage;
     instruction?: string;
     responseMode?: "full" | "direct";
     lookbackMs?: number | null;
@@ -1733,6 +1734,7 @@ type DesktopApi = {
     marketId: string;
     interval: string;
     snapshotTime: number;
+    language?: AppLanguage;
     instruction?: string;
     responseMode?: "full" | "direct";
     lookbackMs?: number | null;
@@ -1760,6 +1762,7 @@ type DesktopApi = {
     marketId: string;
     interval: string;
     snapshotTime: number;
+    language?: AppLanguage;
     instruction?: string;
     responseMode?: "full" | "direct";
     lookbackMs?: number | null;
@@ -1794,6 +1797,7 @@ type DesktopApi = {
     marketId: string;
     interval: string;
     snapshotTime: number;
+    language?: AppLanguage;
     instruction?: string;
     responseMode?: "full" | "direct";
     lookbackMs?: number | null;
@@ -1816,6 +1820,7 @@ type DesktopApi = {
     marketId: string;
     interval: string;
     snapshotTime: number;
+    language?: AppLanguage;
     instruction?: string;
     responseMode?: "full" | "direct";
     lookbackMs?: number | null;
@@ -1838,6 +1843,7 @@ type DesktopApi = {
     marketId: string;
     interval: string;
     snapshotTime: number;
+    language?: AppLanguage;
     instruction?: string;
     responseMode?: "full" | "direct";
     lookbackMs?: number | null;
@@ -39376,8 +39382,19 @@ function renderMessageExecutionPlan(
   const after = partitions.after
     ? `<div class="message-execution-plan-context after">${formatMessageText(partitions.after, options)}</div>`
     : "";
+  const narrativeContext = [partitions.before, partitions.after]
+    .map((value) => String(value || "").replace(/^\s*(?:---+|___+)\s*$/gmu, "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+  // Cards are a supplemental trading view, never the sole representation of
+  // an assistant report. If a malformed or plan-only response leaves no
+  // narrative partition, retain the complete source text in the bubble so a
+  // parser change cannot silently hide the analysis again.
+  const fullReportFallback = narrativeContext
+    ? ""
+    : `<div class="message-execution-plan-context full-report">${formatMessageText(text, options)}</div>`;
   return {
-    bubbleContent: `${before}${after}`,
+    bubbleContent: `${before}${after}${fullReportFallback}`,
     cards: `<div class="message-execution-plan-list">${cards}</div>`,
   };
 }

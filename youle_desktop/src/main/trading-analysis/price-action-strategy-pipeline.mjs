@@ -45,6 +45,119 @@ function directionLabel(direction) {
   return "双向等待";
 }
 
+function formatPriceEnglish(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const digits = Math.abs(number) >= 1_000 ? 2 : Math.abs(number) >= 1 ? 4 : 6;
+  return number.toLocaleString("en-US", { maximumFractionDigits: digits });
+}
+
+function formatTimeEnglish(seconds) {
+  return new Date(Number(seconds) * 1_000).toLocaleString("en-US", { hour12: false });
+}
+
+function englishRegimeLabel(regime) {
+  if (regime === "uptrend") return "HH/HL uptrend";
+  if (regime === "downtrend") return "LH/LL downtrend";
+  if (regime === "transition") return "structure transition / divergence";
+  return "range-bound structure";
+}
+
+function englishLifecycleLabel(lifecycle) {
+  if (lifecycle === "confirmed") return "trigger confirmed by a closed candle";
+  if (lifecycle === "invalidated") return "invalidated";
+  if (lifecycle === "partial-target-reached") return "Target 1 reached; do not chase";
+  if (lifecycle === "completed") return "Target 2 reached; original setup complete";
+  if (lifecycle === "expired") return "expired";
+  return "formed; waiting for the condition to trigger";
+}
+
+function englishDirectionLabel(direction) {
+  if (direction === "bullish") return "bullish";
+  if (direction === "bearish") return "bearish";
+  return "bilateral / waiting";
+}
+
+function englishFactLabel(fact) {
+  return ({
+    doji: "doji",
+    "bullish-rejection": "bullish rejection",
+    "bearish-rejection": "bearish rejection",
+    "strong-bull": "strong bullish close",
+    "strong-bear": "strong bearish close",
+    "bullish-engulfing": "bullish engulfing",
+    "bearish-engulfing": "bearish engulfing",
+    "inside-bar": "inside bar",
+    "bullish-outside": "bullish outside bar",
+    "bearish-outside": "bearish outside bar",
+    "outside-bar": "outside bar",
+  })[fact] || String(fact || "fact");
+}
+
+const ENGLISH_SETUP_NAMES = Object.freeze({
+  "failed-breakdown-reclaim": "failed breakdown reclaim",
+  "failed-breakout-reject": "failed breakout rejection",
+  "trend-pullback-long": "uptrend pullback long",
+  "support-rejection-long": "support rejection long",
+  "trend-pullback-short": "downtrend rebound short",
+  "resistance-rejection-short": "resistance rejection short",
+  "breakout-retest-long": "resistance breakout retest long",
+  "breakdown-retest-short": "support breakdown retest short",
+  "inside-bar-breakout": "inside-bar breakout",
+});
+
+const ENGLISH_PATTERN_NAMES = Object.freeze({
+  "top-fractal": "top fractal",
+  "bottom-fractal": "bottom fractal",
+  hammer: "hammer",
+  "hanging-man": "hanging man",
+  "inverted-hammer": "inverted hammer",
+  "shooting-star": "shooting star",
+  "dragonfly-doji": "dragonfly doji",
+  "gravestone-doji": "gravestone doji",
+  "long-legged-doji": "long-legged doji",
+  doji: "doji",
+  "spinning-top": "spinning top",
+  "high-wave": "high wave",
+  "bullish-marubozu": "bullish marubozu",
+  "bearish-marubozu": "bearish marubozu",
+  "bullish-engulfing": "bullish engulfing",
+  "bearish-engulfing": "bearish engulfing",
+  "bullish-harami": "bullish harami",
+  "bearish-harami": "bearish harami",
+  "bullish-harami-cross": "bullish harami cross",
+  "bearish-harami-cross": "bearish harami cross",
+  "piercing-line": "piercing line",
+  "dark-cloud-cover": "dark cloud cover",
+  "tweezer-bottom": "tweezer bottom",
+  "tweezer-top": "tweezer top",
+  "morning-star": "morning star",
+  "evening-star": "evening star",
+  "morning-doji-star": "morning doji star",
+  "evening-doji-star": "evening doji star",
+  "three-white-soldiers": "three white soldiers",
+  "three-black-crows": "three black crows",
+});
+
+function englishSetupName(candidate) {
+  return ENGLISH_SETUP_NAMES[candidate?.setupId] || "price-action setup";
+}
+
+function englishPatternName(pattern) {
+  // `id` is the stable evidence identifier (for example
+  // `pa-candlestick-<hash>`), while `patternId` is the semantic catalog key
+  // (for example `morning-star`). Never expose the internal identifier as a
+  // user-facing chart label.
+  const patternId = String(pattern?.patternId || "").trim();
+  if (patternId) {
+    return ENGLISH_PATTERN_NAMES[patternId]
+      || patternId.replace(/[-_]+/gu, " ");
+  }
+  const name = String(pattern?.name || "").trim();
+  if (name && !/^pa[- ]candlestick(?:[- ]|$)/iu.test(name)) return name;
+  return "candlestick pattern";
+}
+
 function factLabel(fact) {
   return ({
     "doji": "十字/犹豫K",
@@ -207,6 +320,95 @@ export function buildPriceActionStrategyReport(snapshot, result) {
   ].join("\n");
 }
 
+function englishZoneLine(zone) {
+  const role = zone.role === "support" ? "support" : zone.role === "resistance" ? "resistance" : "decision";
+  return `${role} zone ${formatPriceEnglish(zone.lower)}–${formatPriceEnglish(zone.upper)} (${zone.touches} touches)`;
+}
+
+function englishSetupLines(candidate) {
+  if (!candidate) return [];
+  const setup = englishSetupName(candidate);
+  if (candidate.direction === "neutral") return [
+    `- Setup: **${setup}**; ${englishLifecycleLabel(candidate.lifecycle)}.`,
+    `- Long condition: close above ${formatPriceEnglish(candidate.longLevels.trigger)}; invalidation ${formatPriceEnglish(candidate.longLevels.stop)}; T1/T2 ${formatPriceEnglish(candidate.longLevels.targets[0])} / ${formatPriceEnglish(candidate.longLevels.targets[1])}.`,
+    `- Short condition: close below ${formatPriceEnglish(candidate.shortLevels.trigger)}; invalidation ${formatPriceEnglish(candidate.shortLevels.stop)}; T1/T2 ${formatPriceEnglish(candidate.shortLevels.targets[0])} / ${formatPriceEnglish(candidate.shortLevels.targets[1])}.`,
+  ];
+  const levels = candidate.actionLevels;
+  return [
+    `- Setup: **${setup}** (${englishDirectionLabel(candidate.direction)}); ${englishLifecycleLabel(candidate.lifecycle)}.`,
+    `- Condition trigger: ${formatPriceEnglish(levels.trigger)}; structural stop/invalidation: ${formatPriceEnglish(levels.stop)}.`,
+    `- Staged targets: T1 ${formatPriceEnglish(levels.targets[0])}; T2 ${formatPriceEnglish(levels.targets[1])}.`,
+  ];
+}
+
+function englishCandlestickPatternLine(pattern) {
+  const formationConfirmed = pattern.formationStatus
+    ? pattern.formationStatus === "confirmed"
+    : pattern.complete !== false;
+  const formation = formationConfirmed ? "all candles closed" : "contains an unclosed candle; preview only";
+  const confirmation = pattern.confirmation === "confirmed"
+    ? "direction confirmed"
+    : pattern.confirmation === "not-required" ? "confirmation not required" : "direction confirmation pending";
+  const location = pattern.zone
+    ? `in the ${pattern.zone.role === "support" ? "support" : pattern.zone.role === "resistance" ? "resistance" : "decision"} zone`
+    : "not tied to a repeated-touch key zone";
+  return `- **${englishPatternName(pattern)}** (${englishDirectionLabel(pattern.direction)}, ${pattern.candleCount} candle${pattern.candleCount === 1 ? "" : "s"}): ${location}; ${formation}; ${confirmation}${pattern.actionable ? "; pattern-level location and confirmation thresholds met" : "; not a standalone trade"}.`;
+}
+
+export function buildPriceActionStrategyEnglishReport(snapshot, result) {
+  const candidate = result.setups.primaryActiveCandidate;
+  const latest = result.candlePressure.latest;
+  const latestClose = snapshot.candles.at(-1).close;
+  const zones = result.zones
+    .filter((zone) => zone.role !== "decision" || latestClose >= zone.lower && latestClose <= zone.upper)
+    .slice(0, 4);
+  const historical = result.setups.historicalCandidates[0] || null;
+  const recentPatterns = result.candlestickPatterns.recentPatterns.slice(0, 6);
+  const structureEvent = result.marketStructure.event === "bullish-structure-break"
+    ? "a closed-candle break above the latest confirmed high"
+    : result.marketStructure.event === "bearish-structure-break"
+      ? "a closed-candle break below the latest confirmed low"
+      : "no new closed-candle structure break";
+  return [
+    "## Price Action Analysis",
+    "",
+    candidate
+      ? `Identified **${englishSetupName(candidate)}**, with a **${englishDirectionLabel(candidate.direction)}** bias; ${englishLifecycleLabel(candidate.lifecycle)}.`
+      : "The scan completed normally. No qualified, still-valid price-action setup is active; the current action is no trade.",
+    "",
+    "### Market structure",
+    `- Current structure: **${englishRegimeLabel(result.marketStructure.regime)}**; structure event: ${structureEvent}.`,
+    `- Recent swings: ${result.pivots.swings.slice(-6).map((swing) => `${swing.label} ${formatPriceEnglish(swing.price)}`).join("; ") || "not enough confirmed swings"}.`,
+    `- Key zones: ${zones.map(englishZoneLine).join("; ") || "no stable repeated-touch zone formed in the current window"}.`,
+    "",
+    "### Candle pressure (OHLC only)",
+    `- Latest close ${formatPriceEnglish(latest.close)}; body is ${(latest.bodyRatio * 100).toFixed(1)}% of the range, and the close is at ${(latest.closeLocation * 100).toFixed(1)}% of the high-low range.`,
+    `- Reproducible facts: ${latest.facts.length ? latest.facts.map(englishFactLabel).join(", ") : "ordinary candle; no frozen-threshold rejection, engulfing, strong-close, or compression fact"}.`,
+    "- These facts describe price pressure for this interval only. Without volume, order-book, or trade data, they do not prove real money flow or institutional buying/selling.",
+    "",
+    "### Named candlestick patterns",
+    ...(recentPatterns.length
+      ? recentPatterns.map(englishCandlestickPatternLine)
+      : ["- No named pattern met the geometric and prior-trend thresholds in the latest 24 candles; definitions are not relaxed to increase the hit count."]),
+    "- The chart highlights only the latest deduplicated patterns (up to four). Patterns containing an unclosed candle are previews and do not guarantee direction.",
+    "",
+    "### Conditional execution",
+    ...englishSetupLines(candidate),
+    ...(!candidate ? [
+      "- Current action: wait; do not trade. No entry, stop, or target is generated to avoid false precision.",
+      "- Re-run after a new confirmed swing, a return to a high-quality key zone, a contextual rejection/engulfing/inside bar, or a closed-candle breakout and retest.",
+      ...(historical ? [`- Historical exclusion: the latest ${englishSetupName(historical)} is ${englishLifecycleLabel(historical.lifecycle)} and is not drawn as a current opportunity.`] : []),
+    ] : [
+      "- Execution prerequisite: use closed-candle triggers only; an intrabar wick through the level is not confirmation.",
+      "- Setup validity: at most four current candles before the trigger and four after it; the original setup ends at a target, invalidation, or expiry.",
+    ]),
+    "",
+    "### Data and risk",
+    `This analysis reads only ${snapshot.candles.length} ${snapshot.interval} candles with time/open/high/low/close, from ${formatTimeEnglish(snapshot.candles[0].time)} to ${formatTimeEnglish(snapshot.candles.at(-1).time)}; volume and indicators are not used as signals.`,
+    "Price-action analysis is a conditional risk framework, not a return promise or an automatic order. Gaps, slippage, funding, news, and new candles can invalidate the conclusion.",
+  ].join("\n");
+}
+
 function analysisId(snapshot, ...parts) {
   return `price-action-analysis-${crypto.createHash("sha1").update(JSON.stringify([snapshot.snapshotId, ...parts])).digest("hex").slice(0, 18)}`;
 }
@@ -243,19 +445,29 @@ function selectedZones(snapshot, result) {
     .filter((zone, index, zones) => zones.findIndex((item) => item.id === zone.id) === index);
 }
 
-function appendLevels(operations, analysis, snapshot, candidate, levels, prefix = "") {
+function appendLevels(operations, analysis, snapshot, candidate, levels, prefix = "", language = "zh-CN") {
   if (!levels) return;
   const startIndex = Math.max(0, candidate.signalIndex - 10);
   const start = snapshot.candles[startIndex];
   const latest = snapshot.candles.at(-1);
+  const english = language === "en";
+  const labelPrefix = prefix || "main";
   [
-    ["entry", levels.trigger, `${prefix}触发 ${formatPrice(levels.trigger)}`],
-    ["stop", levels.stop, `${prefix}失效 ${formatPrice(levels.stop)}`],
-    ["target", levels.targets[0], `${prefix}T1 ${formatPrice(levels.targets[0])}`],
-    ["target", levels.targets[1], `${prefix}T2 ${formatPrice(levels.targets[1])}`],
+    ["entry", levels.trigger, english
+      ? `${prefix === "long" ? "Long" : prefix === "short" ? "Short" : "Entry"} trigger ${formatPriceEnglish(levels.trigger)}`
+      : `${prefix}触发 ${formatPrice(levels.trigger)}`],
+    ["stop", levels.stop, english
+      ? `Invalidation ${formatPriceEnglish(levels.stop)}`
+      : `${prefix}失效 ${formatPrice(levels.stop)}`],
+    ["target", levels.targets[0], english
+      ? `T1 ${formatPriceEnglish(levels.targets[0])}`
+      : `${prefix}T1 ${formatPrice(levels.targets[0])}`],
+    ["target", levels.targets[1], english
+      ? `T2 ${formatPriceEnglish(levels.targets[1])}`
+      : `${prefix}T2 ${formatPrice(levels.targets[1])}`],
   ].forEach(([role, price, text], index) => operations.push(operation(
     analysis,
-    `level-${prefix || "main"}-${index}`,
+    `level-${labelPrefix}-${index}`,
     role,
     "path",
     [{ time: start.time, price }, { time: latest.time, price }],
@@ -265,8 +477,9 @@ function appendLevels(operations, analysis, snapshot, candidate, levels, prefix 
   )));
 }
 
-function appendCandlestickPatterns(operations, analysis, snapshot, result) {
+function appendCandlestickPatterns(operations, analysis, snapshot, result, language = "zh-CN") {
   const candles = snapshot.candles;
+  const english = language === "en";
   const defaultInterval = candles.length > 1 ? candles.at(-1).time - candles.at(-2).time : 3_600;
   for (const [index, pattern] of result.candlestickPatterns.drawablePatterns.entries()) {
     const first = candles[pattern.startIndex];
@@ -284,7 +497,7 @@ function appendCandlestickPatterns(operations, analysis, snapshot, result) {
     const formationConfirmed = pattern.formationStatus
       ? pattern.formationStatus === "confirmed"
       : pattern.complete !== false;
-    const formationLabel = formationConfirmed ? "" : " · 待收盘";
+    const formationLabel = formationConfirmed ? "" : english ? " · unclosed" : " · 待收盘";
     const formationDrawingStatus = formationConfirmed ? "confirmed" : "tentative";
     if (candleCount >= 2) {
       operations.push(operation(
@@ -293,7 +506,7 @@ function appendCandlestickPatterns(operations, analysis, snapshot, result) {
         role,
         "ellipse",
         [{ time: leftTime, price: Math.max(Number.EPSILON, pattern.low - pricePadding) }, { time: rightTime, price: pattern.high + pricePadding }],
-        pattern.name,
+        english ? englishPatternName(pattern) : pattern.name,
         { lineStyle: "solid", lineWidth: 0.8, status: formationDrawingStatus },
         [pattern.id, ...pattern.evidenceIds],
       ));
@@ -304,14 +517,16 @@ function appendCandlestickPatterns(operations, analysis, snapshot, result) {
       role,
       "text",
       [{ time: centerTime, price: pattern.high + pricePadding }],
-      `${pattern.name}${formationLabel}`,
+      `${english ? englishPatternName(pattern) : pattern.name}${formationLabel}`,
       { fontSize: 12, bold: false, status: formationDrawingStatus },
       [pattern.id, ...pattern.evidenceIds],
     ));
   }
 }
 
-export function buildPriceActionStrategyDrawingPatch(snapshot, result) {
+export function buildPriceActionStrategyDrawingPatch(snapshot, result, options = {}) {
+  const language = options?.language === "en" ? "en" : "zh-CN";
+  const english = language === "en";
   const candidate = result.setups.primaryActiveCandidate;
   const analysis = analysisId(snapshot, candidate?.id || "no-current-setup", result.marketStructure.regime);
   const operations = [];
@@ -349,12 +564,12 @@ export function buildPriceActionStrategyDrawingPatch(snapshot, result) {
       role,
       "rectangle",
       [{ time: start.time, price: zone.lower }, { time: latest.time, price: zone.upper }],
-      zoneLine(zone),
+        english ? englishZoneLine(zone) : zoneLine(zone),
       { lineStyle: "dashed", lineWidth: 1.5, status: "confirmed" },
       zone.evidenceIds,
     ));
   }
-  appendCandlestickPatterns(operations, analysis, snapshot, result);
+  appendCandlestickPatterns(operations, analysis, snapshot, result, language);
   if (candidate) {
     const signalRole = candidate.direction === "bearish" ? "resistance" : candidate.direction === "bullish" ? "support" : "note";
     operations.push(operation(
@@ -363,14 +578,14 @@ export function buildPriceActionStrategyDrawingPatch(snapshot, result) {
       signalRole,
       candidate.direction === "bearish" ? "arrow-down" : candidate.direction === "bullish" ? "arrow-up" : "note",
       [{ time: candidate.signal.time, price: candidate.direction === "bearish" ? candidate.signal.high : candidate.direction === "bullish" ? candidate.signal.low : candidate.signal.close }],
-      `${candidate.setupName} · ${lifecycleLabel(candidate.lifecycle)}`,
+      `${english ? englishSetupName(candidate) : candidate.setupName} · ${english ? englishLifecycleLabel(candidate.lifecycle) : lifecycleLabel(candidate.lifecycle)}`,
       { status: candidate.lifecycle === "confirmed" ? "confirmed" : "tentative" },
       candidate.evidenceIds,
     ));
     if (candidate.direction === "neutral") {
-      appendLevels(operations, analysis, snapshot, candidate, candidate.longLevels, "多");
-      appendLevels(operations, analysis, snapshot, candidate, candidate.shortLevels, "空");
-    } else appendLevels(operations, analysis, snapshot, candidate, candidate.actionLevels);
+      appendLevels(operations, analysis, snapshot, candidate, candidate.longLevels, english ? "long" : "多", language);
+      appendLevels(operations, analysis, snapshot, candidate, candidate.shortLevels, english ? "short" : "空", language);
+    } else appendLevels(operations, analysis, snapshot, candidate, candidate.actionLevels, "", language);
   } else {
     operations.push(operation(
       analysis,
@@ -378,7 +593,9 @@ export function buildPriceActionStrategyDrawingPatch(snapshot, result) {
       "note",
       "note",
       [{ time: latest.time, price: latest.close }],
-      `裸K扫描完成：${regimeLabel(result.marketStructure.regime)}，当前无合格入场场景`,
+      english
+        ? `Price-action scan complete: ${englishRegimeLabel(result.marketStructure.regime)}; no qualified current setup`
+        : `裸K扫描完成：${regimeLabel(result.marketStructure.regime)}，当前无合格入场场景`,
       { status: "tentative" },
       result.evidence.slice(0, 8).map((item) => item.id),
     ));
@@ -396,12 +613,19 @@ export function buildPriceActionStrategyDrawingPatch(snapshot, result) {
 export async function runTradingPriceActionStrategyPipeline(params) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runPriceActionStrategyEngine(snapshot);
-  const drawingPatch = buildPriceActionStrategyDrawingPatch(snapshot, theoryResult);
-  const report = buildPriceActionStrategyReport(snapshot, theoryResult);
+  const language = params?.language === "en" ? "en" : "zh-CN";
+  const drawingPatch = buildPriceActionStrategyDrawingPatch(snapshot, theoryResult, { language });
+  const report = language === "en"
+    ? buildPriceActionStrategyEnglishReport(snapshot, theoryResult)
+    : buildPriceActionStrategyReport(snapshot, theoryResult);
   const candidate = theoryResult.setups.primaryActiveCandidate;
   const narrative = candidate
-    ? `${candidate.setupName}扫描完成：${lifecycleLabel(candidate.lifecycle)}；已绘制市场结构、关键区域、明确K线形态和条件价位。`
-    : `裸K分析已完成：已绘制当前市场结构、关键区域和 ${theoryResult.candlestickPatterns.drawablePatterns.length} 个明确K线形态；没有合格当前场景时保持不交易。`;
+    ? language === "en"
+      ? `${englishSetupName(candidate)} scan complete: ${englishLifecycleLabel(candidate.lifecycle)}; market structure, key zones, named candlestick patterns, and conditional levels were drawn.`
+      : `${candidate.setupName}扫描完成：${lifecycleLabel(candidate.lifecycle)}；已绘制市场结构、关键区域、明确K线形态和条件价位。`
+    : language === "en"
+      ? `Price-action analysis complete: market structure, key zones, and ${theoryResult.candlestickPatterns.drawablePatterns.length} named candlestick pattern${theoryResult.candlestickPatterns.drawablePatterns.length === 1 ? "" : "s"} were drawn; no qualified current setup means no trade.`
+      : `裸K分析已完成：已绘制当前市场结构、关键区域和 ${theoryResult.candlestickPatterns.drawablePatterns.length} 个明确K线形态；没有合格当前场景时保持不交易。`;
   return {
     ok: true,
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,

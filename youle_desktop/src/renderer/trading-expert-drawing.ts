@@ -34,6 +34,7 @@ const AI_NOTE_LEADER_GAP = 28;
 const AI_NOTE_TOP_INSET = 40;
 const TRADING_TEXT_FONT_SIZES = [10, 11, 12, 14, 16, 18, 20, 24, 28, 36] as const;
 const TRADING_AI_TEXT_FONT_SIZES = [8, 9, ...TRADING_TEXT_FONT_SIZES] as const;
+const LEGACY_PRICE_ACTION_CANDLESTICK_LABEL_PATTERN = /^pa[-\s]+candlestick[-\s]+[0-9a-f]{8,}(?:\s*[·•]\s*(?:unclosed|待收盘))?$/iu;
 const DEFAULT_DRAWING_LINE_WIDTH = 1;
 const DRAWING_HANDLE_RADIUS = 5;
 const DRAWING_MAGNET_DISTANCE = 18;
@@ -2070,7 +2071,21 @@ function tradingAiDrawingModel(drawing: TradingAiDrawing): TradingDrawingModel {
 
 export function tradingAiDrawingDisplayModel<T extends { text?: string }>(drawing: T, language?: AppLanguage): T {
   if (!drawing.text) return drawing;
-  const text = translateTradingAnnotationText(drawing.text, language);
+  const source = String(drawing.text);
+  // Older price-action patches accidentally used the stable evidence id as
+  // the English label (`pa-candlestick-<hash>`). Keep the id for correlation,
+  // but never render it as user-facing chart text. These drawings cannot be
+  // mapped back to a specific pattern name, so use a clear generic label
+  // until the next analysis replaces the legacy patch.
+  if (LEGACY_PRICE_ACTION_CANDLESTICK_LABEL_PATTERN.test(source)) {
+    const english = language === "en";
+    const traditional = language === "zh-TW";
+    const suffix = /(?:·|•)\s*(?:unclosed|待收盘)$/iu.test(source)
+      ? english ? " · unclosed" : traditional ? " · 待收盤" : " · 待收盘"
+      : "";
+    return { ...drawing, text: `${english ? "Candlestick pattern" : traditional ? "蠟燭形態" : "蜡烛形态"}${suffix}` };
+  }
+  const text = translateTradingAnnotationText(source, language);
   return text === drawing.text ? drawing : { ...drawing, text };
 }
 

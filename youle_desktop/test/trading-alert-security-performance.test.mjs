@@ -57,9 +57,10 @@ test("alert intent uses retryable idle timeout policy while request routing stay
   assert.match(main, /const turnPolicy = tradingAnalysisTurnPolicy\(request\.task\)/);
   assert.match(main, /resetTimeoutOnActivity,/);
   assert.match(main, /timeoutRetryable,/);
+  assert.match(main, /maxAttempts,/);
   assert.match(main, /Continue the same read-only trading alert intent compilation/);
-  assert.match(policy, /task === "trading_alert_intent_compile"[\s\S]*timeoutMs: ALERT_INTENT_IDLE_TIMEOUT_MS[\s\S]*resetTimeoutOnActivity: true[\s\S]*timeoutRetryable: true/);
-  assert.match(policy, /task\.endsWith\("-request-routing"\)[\s\S]*timeoutMs: ROUTING_TIMEOUT_MS[\s\S]*resetTimeoutOnActivity: false[\s\S]*timeoutRetryable: false/);
+  assert.match(policy, /task === "trading_alert_intent_compile"[\s\S]*timeoutMs: ALERT_INTENT_IDLE_TIMEOUT_MS[\s\S]*resetTimeoutOnActivity: true[\s\S]*timeoutRetryable: true[\s\S]*maxAttempts: 2/);
+  assert.match(policy, /task\.endsWith\("-request-routing"\)[\s\S]*timeoutMs: ROUTING_TIMEOUT_MS[\s\S]*resetTimeoutOnActivity: false[\s\S]*timeoutRetryable: false[\s\S]*maxAttempts: 1/);
 });
 
 test("a newer alert instruction cancels the older compiler and forwards its signal", async () => {

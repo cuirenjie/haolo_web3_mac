@@ -5325,6 +5325,24 @@ select:disabled {
   display: none;
 }
 
+/* macOS reserves a traffic-light spacer and the Trading Expert controls
+   before the profile button.  The absolute Windows rail therefore starts
+   underneath the profile when a long/custom name is shown.  Let the mac
+   titlebar rail participate in the remaining flex slot instead of anchoring
+   it to the conversation-list edge. */
+.mac-titlebar:has(.titlebar-market-favorites-host:not([hidden]))
+  > .titlebar-drag-region {
+  position: relative;
+}
+
+.mac-titlebar .titlebar-market-favorites-host {
+  position: relative;
+  inset: auto;
+  width: auto;
+  flex: 1 1 auto;
+  -webkit-app-region: no-drag;
+}
+
 html[data-theme="dark"] .titlebar-market-favorites-host {
   --trading-market-positive: #52dc88;
   --trading-market-negative: #ff718e;
@@ -12774,13 +12792,25 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   transform: none;
 }
 
-/* Keep the @ cascade above the 28px group picker, with an 8px visual gap. */
+/* Keep the generic @ cascade above the 28px group picker, with an 8px visual
+   gap.  The Trading Expert panel below overrides this because its menu is
+   opened from the footer plus button instead of the text-entry area. */
 .composer:has(.composer-context-group-picker) .composer-skill-popover {
   bottom: calc(100% + 41px);
 }
 
 .composer:has(.composer-context-group-picker) .composer-media-mention-popover {
   bottom: calc(100% + 41px);
+}
+
+/* Match the Windows Trading Expert placement: the cascade sits 8px above
+   the 28px footer plus button (8px bottom inset + 28px button + 8px gap). */
+.desktop-body.trading-expert-layout
+  > .trading-expert-panel
+  > .composer:has(.composer-context-group-picker)
+  .trading-expert-mention-popover {
+  z-index: 30;
+  bottom: calc(8px + 28px + 8px);
 }
 
 .composer-context-group-picker .chat-title-group-button {

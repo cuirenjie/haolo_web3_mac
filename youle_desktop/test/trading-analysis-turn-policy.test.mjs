@@ -9,6 +9,7 @@ test("alert intent timeout is activity-based and recoverable", () => {
     timeoutMs: 180_000,
     resetTimeoutOnActivity: true,
     timeoutRetryable: true,
+    maxAttempts: 2,
   });
 });
 
@@ -19,15 +20,17 @@ test("small request routers remain hard-bounded", () => {
     timeoutMs: 60_000,
     resetTimeoutOnActivity: false,
     timeoutRetryable: false,
+    maxAttempts: 1,
   });
 });
 
-test("theory review keeps the recoverable high-effort policy", () => {
+test("theory review fixes high effort behind a single hard-bounded attempt", () => {
   assert.deepEqual(tradingAnalysisTurnPolicy("trading_theory_review"), {
     kind: "theory_review",
     reasoningEffort: "high",
     timeoutMs: 180_000,
-    resetTimeoutOnActivity: true,
-    timeoutRetryable: true,
+    resetTimeoutOnActivity: false,
+    timeoutRetryable: false,
+    maxAttempts: 1,
   });
 });

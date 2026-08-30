@@ -125,6 +125,64 @@ test("assistant execution-plan text is partitioned around both current and legac
   assert.equal(legacy.after, "");
 });
 
+test("custom CJK market headings keep the full analysis visible beside the plan card", () => {
+  const text = `
+## 龙虾/USDT 币安永续 1H
+
+当前动作：等待条件触发
+方向判断：偏多
+多头触发：0.076888
+止损与失效：0.061826
+分批止盈：第1目标 0.08464966
+风险收益比：目标1为 1:0.5
+
+---
+
+## BINANCE:FUTURES:龙虾USDT · 1小时缠论分析
+
+### 数据范围
+本次使用 100 根 K 线。
+
+### 缠论结构
+当前末端结构为向下笔。
+  `;
+
+  const partitions = executionPlanTextPartitions(text);
+  assert.ok(partitions);
+  assert.equal(partitions.candidates.length, 1);
+  assert.equal(partitions.candidates[0].title, "龙虾/USDT 币安永续 1H");
+  assert.match(partitions.after, /### 数据范围/);
+  assert.match(partitions.after, /### 缠论结构/);
+  assert.equal(executionPlanCardTitle({
+    fallbackTitle: partitions.candidates[0].title,
+    sourceText: text,
+  }), "龙虾/USDT 币安永续 1H");
+});
+
+test("an unheaded leading plan block cannot swallow the surrounding analysis", () => {
+  const partitions = executionPlanTextPartitions(`
+盘面摘要。
+
+当前动作：等待条件触发
+方向判断：偏多
+多头触发：100
+止损与失效：95
+分批止盈：110
+风险收益比：1:2
+
+---
+
+### 综合判断
+结构仍然偏多，但需要收盘确认。
+  `);
+
+  assert.ok(partitions);
+  assert.equal(partitions.before, "盘面摘要。");
+  assert.match(partitions.candidates[0].content, /^当前动作：/);
+  assert.match(partitions.after, /### 综合判断/);
+  assert.match(partitions.after, /需要收盘确认/);
+});
+
 test("English execution plans are parsed, titled, and classified without Chinese copy", () => {
   const text = `
 Market review complete.
@@ -581,6 +639,8 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(messagePlanBlock, /data-message-execution-plan-action="decrease"[\s\S]*>缩小</);
   assert.match(messagePlanBlock, /data-message-execution-plan-action="sticky">便利贴</);
   assert.match(messagePlanBlock, /loadMessageExecutionPlanFontSize\(key\)/);
+  assert.match(messagePlanBlock, /const fullReportFallback = narrativeContext[\s\S]*?formatMessageText\(text, options\)/);
+  assert.match(messagePlanBlock, /bubbleContent: `\$\{before\}\$\{after\}\$\{fullReportFallback\}`/);
   assert.match(renderer, /renderMessageExecutionPlan\(message, content\.text/);
   assert.match(textBubbleBlock, /<\/div>\s*\$\{executionPlanPresentation\?\.cards \|\| ""\}\s*\$\{actionsBelowBubble/s);
   assert.match(renderer, /querySelectorAll<HTMLButtonElement>\("\[data-message-execution-plan-action\]"\)/);
@@ -625,6 +685,8 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(styles, /html\[data-theme="dark"\] \.message-execution-plan-controls\s*\{[^}]*background:\s*color-mix/s);
   assert.match(styles, /html\[data-theme="dark"\] \.message-execution-plan-controls button:hover:not\(:disabled\)/);
   assert.match(styles, /html\[data-theme="dark"\] :is\(\.execution-plans-page, \.message-execution-plan\)\s*\{[^}]*--execution-plan-direction-bullish:\s*#52dc88;[^}]*--execution-plan-direction-bearish:\s*#ff718e/s);
+  assert.match(styles, /\.mac-titlebar:has\(\.titlebar-market-favorites-host:not\(\[hidden\]\)\)[\s\S]*?> \.titlebar-drag-region\s*\{[^}]*position:\s*relative;/s);
+  assert.match(styles, /\.mac-titlebar \.titlebar-market-favorites-host\s*\{[^}]*position:\s*relative;[^}]*inset:\s*auto;[^}]*flex:\s*1 1 auto;/s);
   assert.doesNotMatch(styles, /\.execution-plan-card-mark/);
   assert.match(styles, /\.execution-plan-empty p\s*\{[^}]*font-size:\s*calc\(12px \+ var\(--app-font-size-offset\)\)/s);
 });

@@ -203,6 +203,41 @@ test("pipeline draws professional structure, zones, signal, and conditional leve
   assert.doesNotThrow(() => validateStrategyDrawingPatch(result.analysisPlan.drawingPatch, snapshot, "price-action"));
 });
 
+test("English Price Action keeps the full analysis report alongside the execution plan", async () => {
+  const snapshot = bullishFailedBreakSnapshot();
+  const result = await runTradingPriceActionStrategyPipeline({
+    marketId: snapshot.marketId,
+    interval: snapshot.interval,
+    snapshotTime: snapshot.snapshotTime,
+    language: "en",
+    candles: snapshot.candles,
+  });
+  assert.match(result.analysisPlan.report, /^## Price Action Analysis/m);
+  assert.match(result.analysisPlan.report, /### Market structure/);
+  assert.match(result.analysisPlan.report, /### Conditional execution/);
+  assert.doesNotMatch(result.analysisPlan.report, /[\u3400-\u9fff]/u);
+  const drawingTexts = result.analysisPlan.drawingPatch.operations
+    .map((operation) => operation.drawing.text || "")
+    .join(" ");
+  assert.doesNotMatch(drawingTexts, /[\u3400-\u9fff]/u);
+
+  const coordinator = new TradingStrategyCoordinator({
+    registry: createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS }),
+    providerId: "unused",
+    modelRegistry: { async analyze() { throw new Error("deterministic pipeline must not call a model"); } },
+  });
+  const coordinated = await coordinator.run("price-action", {
+    marketId: snapshot.marketId,
+    interval: snapshot.interval,
+    snapshotTime: snapshot.snapshotTime,
+    language: "en",
+    candles: snapshot.candles,
+  });
+  assert.match(coordinated.analysisPlan.report, /Current action:/);
+  assert.match(coordinated.analysisPlan.report, /---[\s\S]*## Price Action Analysis/);
+  assert.doesNotMatch(coordinated.analysisPlan.report, /[\u3400-\u9fff]/u);
+});
+
 test("expired historical setup is not promoted into a current execution plan", async () => {
   const snapshot = bullishFailedBreakSnapshot([
     { close: 103.4 }, { close: 103.3 }, { close: 103.2 }, { close: 103.1 }, { close: 103.0 }, { close: 102.9 },

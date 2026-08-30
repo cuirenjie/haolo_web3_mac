@@ -16,6 +16,7 @@ import {
   validateTradingDrawingPatch,
 } from "../src/main/trading-analysis/protocol.mjs";
 import {
+  buildChanAnalysisReport,
   buildChanMarketOutlook,
   buildChanDrawingPatch,
   buildChanModelPrompt,
@@ -25,6 +26,10 @@ import {
   buildChanRequestRoutingPrompt,
   normalizeChanRequestRoutingModelResponse,
 } from "../src/main/trading-analysis/chan-request-router.mjs";
+import { BUILTIN_TRADING_STRATEGY_ADAPTERS } from "../src/main/trading-strategy-runtime/builtins/index.mjs";
+import { TradingStrategyCoordinator } from "../src/main/trading-strategy-runtime/coordinator.mjs";
+import { createTradingStrategyRegistry } from "../src/main/trading-strategy-runtime/registry.mjs";
+import { executionPlanTextPartitions } from "../src/renderer/execution-plans.ts";
 import { interpolateTradingDrawingPoint } from "../src/renderer/trading-expert-ai-playback.ts";
 import {
   buildTradingChanExpertPrompt,
@@ -247,12 +252,96 @@ test("model provider registry keeps the Chan pipeline independent from a concret
   }, { modelRegistry: registry, providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID });
   assert.match(calls[1].request.prompt, /English-only chart summary/);
   assert.ok(englishResult.analysisPlan.drawingPatch.operations.every(({ drawing }) => !/\p{Script=Han}/u.test(drawing.text || "")));
+  assert.match(englishResult.analysisPlan.report, /^## BINANCE:FUTURES:BTCUSDT · 1H Chan analysis/m);
+  assert.match(englishResult.analysisPlan.report, /### Chan structure/);
+  assert.match(englishResult.analysisPlan.report, /### Overall assessment/);
+  assert.match(englishResult.analysisPlan.report, /### Current view and scenario weights/);
+  assert.match(englishResult.analysisPlan.report, /### Conditional trading plan/);
+  assert.match(englishResult.analysisPlan.report, /### Observation and invalidation/);
+  assert.doesNotMatch(englishResult.analysisPlan.report, /\p{Script=Han}/u);
   const [engineSource, pipelineSource] = await Promise.all([
     readFile(new URL("../src/main/trading-analysis/chan-engine.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/main/trading-analysis/chan-pipeline.mjs", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(engineSource, /gpt|deepseek|openai/i);
   assert.doesNotMatch(pipelineSource, /gpt-\d|deepseek|openai/i);
+});
+
+test("English Chan reports keep deterministic conclusions when the model narrative is Chinese", () => {
+  const snapshot = fixtureSnapshot();
+  const theoryResult = runChanTheoryEngine(snapshot);
+  const report = buildChanAnalysisReport(snapshot, theoryResult, {
+    verdict: "approve",
+    summary: "末笔向上但仍需等待突破确认。",
+    report: "中文模型复核结论不应泄漏到英文报告。",
+    strategyRationale: "中枢内仍有反复。",
+    confidence: 0.72,
+    marketBias: "bullish",
+    riseProbability: 0.62,
+    fallProbability: 0.38,
+  }, {
+    language: "en",
+    instruction: "分析当前缠论结构",
+  });
+
+  assert.match(report, /### Overall assessment/);
+  assert.match(report, /deterministic review identifies/i);
+  assert.match(report, /upside scenario weight is about \d+%/i);
+  assert.match(report, /Long setup[\s\S]*Short setup/);
+  assert.doesNotMatch(report, /\p{Script=Han}/u);
+});
+
+test("English Chan coordination returns plan cards plus a complete parseable analysis", async () => {
+  const snapshot = fixtureSnapshot();
+  const coordinator = new TradingStrategyCoordinator({
+    registry: createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS }),
+    providerId: "test-provider",
+    modelRegistry: {
+      async analyze() {
+        return {
+          text: JSON.stringify({
+            schemaVersion: 1,
+            verdict: "approve",
+            summary: "The latest stroke is up, but price is still testing the central zone.",
+            report: "The structure remains conditional; wait for a closed-candle break and retest.",
+            strategyRationale: "The last stroke is rising while the central zone still contains price.",
+            marketBias: "neutral",
+            riseProbability: 0.54,
+            fallProbability: 0.46,
+            selectedPenPointIds: [],
+            selectedCenterIds: [],
+            showFractals: true,
+            confidence: 0.72,
+          }),
+          providerId: "test-provider",
+          modelId: "test-model",
+          requestId: "test-request",
+          latencyMs: 1,
+          usage: null,
+          finishReason: "stop",
+        };
+      },
+    },
+  });
+  const coordinated = await coordinator.run("chan", {
+    marketId: snapshot.marketId,
+    interval: snapshot.interval,
+    snapshotTime: snapshot.snapshotTime,
+    language: "en",
+    candles: snapshot.candles,
+  });
+
+  assert.match(coordinated.analysisPlan.report, /^## BTC\/USDT Binance Perpetual 1H/m);
+  assert.match(coordinated.analysisPlan.report, /Current action:/);
+  assert.match(coordinated.analysisPlan.report, /---[\s\S]*## BINANCE:FUTURES:BTCUSDT · 1H Chan analysis/);
+  assert.match(coordinated.analysisPlan.report, /### Overall assessment/);
+  assert.doesNotMatch(coordinated.analysisPlan.report, /\p{Script=Han}/u);
+
+  const partitions = executionPlanTextPartitions(coordinated.analysisPlan.report);
+  assert.ok(partitions);
+  assert.ok(partitions.candidates.length >= 1);
+  assert.match(partitions.after, /### Chan structure/);
+  assert.match(partitions.after, /### Observation and invalidation/);
 });
 
 test("Chan market outlook produces bounded probabilities and structure-derived trade levels", () => {
@@ -357,6 +446,9 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   assert.match(mainSource, /const turnPolicy = tradingAnalysisTurnPolicy\(request\.task\)/);
   assert.match(mainSource, /resetTimeoutOnActivity,/);
   assert.match(mainSource, /timeoutRetryable,/);
+  assert.match(mainSource, /fixedReasoningEffort: reasoningEffort/);
+  assert.match(mainSource, /maxAttempts,/);
+  assert.match(mainSource, /\[HAOLO_REASONING_FIXED_EFFORT_FIELD\]: fixedReasoningEffort/);
   assert.match(mainSource, /error\.code = "WORKFLOW_TURN_TIMEOUT"/);
   assert.match(mainSource, /error\.category = "timeout"/);
   assert.match(mainSource, /if \(resetTimeoutOnActivity\) armTimeout\(\)/);
@@ -392,6 +484,10 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   assert.match(marketSource, /chan: \(request:[\s\S]{0,180}runTradingExpertChanConversation/);
   assert.match(marketSource, /const targetMarket = request\.symbol[\s\S]{0,520}: currentMarket;/);
   assert.match(marketSource, /const targetInterval = String\(request\.interval \|\| this\.activeInterval\)/);
+  assert.match(
+    marketSource,
+    /async runChanConversation\([\s\S]*?snapshotTime: Date\.now\(\),\s*language: getCurrentAppLanguage\(\)/,
+  );
   assert.match(marketSource, /当前画布可见的 \$\{analysisCandles\.length\} 根/);
   assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles, visibleRange\)/);
   assert.match(marketSource, /runTradingAnalysisWithAutoExpansion\(\{/);

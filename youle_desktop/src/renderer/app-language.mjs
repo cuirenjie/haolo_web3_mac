@@ -745,6 +745,10 @@ export function appLanguageLocale(language = currentAppLanguage) {
   return normalized === "en" ? "en-US" : normalized;
 }
 
+export function getCurrentAppLanguage() {
+  return currentAppLanguage;
+}
+
 export function appLanguageOptions() {
   // Native names stay recognizable even when the current UI language is unfamiliar.
   return [

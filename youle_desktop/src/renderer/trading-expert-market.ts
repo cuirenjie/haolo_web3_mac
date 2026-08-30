@@ -12,7 +12,7 @@ import {
   createSeriesMarkers,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { appLanguageLocale, translateTradingAnnotationText } from "./app-language.mjs";
+import { appLanguageLocale, getCurrentAppLanguage, translateTradingAnnotationText } from "./app-language.mjs";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import {
   TRADING_FALLING_BAR_COLOR,
@@ -2405,14 +2405,34 @@ export function tradingPeriodLabelForResolution(resolution: string) {
   return amount % 60 === 0 ? `${amount / 60}时` : `${amount}分`;
 }
 
+function tradingPeriodLabelForResolutionEnglish(resolution: string) {
+  const normalized = String(resolution || "").trim().toUpperCase();
+  const match = /^(\d+)([SDW]?)$/.exec(normalized);
+  if (!match) return normalized || "current timeframe";
+  const amount = Number(match[1]);
+  if (match[2] === "S") return `${amount}s`;
+  if (match[2] === "D") return `${amount}D`;
+  if (match[2] === "W") return `${amount}W`;
+  return amount % 60 === 0 ? `${amount / 60}H` : `${amount}m`;
+}
+
 function tradingAnalysisPaneHeading(
   market: Pick<TradingSplitPaneMarket, "displaySymbol" | "baseAsset" | "quoteAsset" | "symbol">,
   interval: string,
 ) {
-  const marketLabel = market.displaySymbol
+  const rawMarketLabel = market.displaySymbol
     || [market.baseAsset, market.quoteAsset].filter(Boolean).join("/")
     || market.symbol;
-  return `${marketLabel} · ${tradingPeriodLabelForResolution(interval)} K线`;
+  if (getCurrentAppLanguage() !== "en") {
+    return `${rawMarketLabel} · ${tradingPeriodLabelForResolution(interval)} K线`;
+  }
+  // A single Chinese heading used to make englishSafeAssistantText discard
+  // the entire otherwise-English report. Keep the pane heading localized and
+  // fall back to a neutral label if a custom market itself contains Han text.
+  const marketLabel = /[\u3400-\u9fff\uf900-\ufaff]/u.test(String(rawMarketLabel || ""))
+    ? "Current market"
+    : rawMarketLabel || "Current market";
+  return `${marketLabel} · ${tradingPeriodLabelForResolutionEnglish(interval)} K-line`;
 }
 
 function combineTradingAnalysisReports(
@@ -2421,6 +2441,7 @@ function combineTradingAnalysisReports(
   splitResult: TradingSplitPaneAnalysisResult,
 ) {
   if (!splitResult.reports.length && !splitResult.failures.length) return primaryReport;
+  const english = getCurrentAppLanguage() === "en";
   const sections = [
     `## ${primaryHeading}`,
     primaryReport.trim(),
@@ -2431,11 +2452,18 @@ function combineTradingAnalysisReports(
   ];
   if (splitResult.failures.length) {
     sections.push(
-      "## 未完成的分屏",
+      english ? "## Incomplete panes" : "## 未完成的分屏",
       ...splitResult.failures
         .slice()
         .sort((first, second) => first.paneIndex - second.paneIndex)
-        .map((failure) => `- ${failure.heading}：${failure.message}`),
+        .map((failure) => {
+          const message = english && /[\u3400-\u9fff\uf900-\ufaff]/u.test(failure.message)
+            ? "Pane analysis failed; the primary analysis is still available."
+            : failure.message;
+          return english
+            ? `- ${failure.heading}: ${message}`
+            : `- ${failure.heading}：${message}`;
+        }),
     );
   }
   return sections.filter(Boolean).join("\n\n");
@@ -9705,6 +9733,7 @@ class TradingExpertMarketWorkspace {
         marketId: job.marketId,
         interval: job.interval,
         snapshotTime: Date.now(),
+        language: getCurrentAppLanguage(),
         instruction: request.instruction,
         responseMode: request.drawingRequested === false ? "direct" : "full",
         lookbackMs: requestedLookbackMs,
@@ -9772,6 +9801,7 @@ class TradingExpertMarketWorkspace {
             marketId: snapshot.market.id,
             interval: snapshot.interval,
             snapshotTime: Date.now(),
+            language: getCurrentAppLanguage(),
             instruction: request.instruction,
             responseMode: request.drawingRequested === false ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
@@ -9949,6 +9979,7 @@ class TradingExpertMarketWorkspace {
             marketId: job.marketId,
             interval: job.interval,
             snapshotTime: Date.now(),
+            language: getCurrentAppLanguage(),
             instruction: request.instruction,
             responseMode: request.drawingRequested === false ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
@@ -10051,6 +10082,7 @@ class TradingExpertMarketWorkspace {
           marketId: snapshot.market.id,
           interval: snapshot.interval,
           snapshotTime: Date.now(),
+          language: getCurrentAppLanguage(),
           instruction: request.instruction,
           responseMode: request.drawingRequested === false ? "direct" : "full",
           lookbackMs: requestedLookbackMs,
@@ -10208,6 +10240,7 @@ class TradingExpertMarketWorkspace {
             marketId: job.marketId,
             interval: job.interval,
             snapshotTime: Date.now(),
+            language: getCurrentAppLanguage(),
             instruction: request.instruction,
             responseMode: request.drawingRequested === false ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
@@ -10322,6 +10355,7 @@ class TradingExpertMarketWorkspace {
           marketId: snapshot.market.id,
           interval: snapshot.interval,
           snapshotTime: Date.now(),
+          language: getCurrentAppLanguage(),
           instruction: request.instruction,
           responseMode: request.drawingRequested === false ? "direct" : "full",
           lookbackMs: requestedLookbackMs,
@@ -10479,6 +10513,7 @@ class TradingExpertMarketWorkspace {
             marketId: job.marketId,
             interval: job.interval,
             snapshotTime: Date.now(),
+            language: getCurrentAppLanguage(),
             instruction: request.instruction,
             responseMode: request.drawingRequested === false ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
@@ -10572,6 +10607,7 @@ class TradingExpertMarketWorkspace {
           marketId: snapshot.market.id,
           interval: snapshot.interval,
           snapshotTime: Date.now(),
+          language: getCurrentAppLanguage(),
           instruction: request.instruction,
           responseMode: request.drawingRequested === false ? "direct" : "full",
           lookbackMs: requestedLookbackMs,
@@ -10793,6 +10829,7 @@ class TradingExpertMarketWorkspace {
         marketId: job.marketId,
         interval: job.interval,
         snapshotTime: Date.now(),
+        language: getCurrentAppLanguage(),
         instruction: request.instruction,
         responseMode: request.drawingRequested === false ? "direct" : "full",
         lookbackMs: requestedLookbackMs,
@@ -10861,6 +10898,7 @@ class TradingExpertMarketWorkspace {
             marketId: snapshot.market.id,
             interval: snapshot.interval,
             snapshotTime: Date.now(),
+            language: getCurrentAppLanguage(),
             instruction: request.instruction,
             responseMode: request.drawingRequested === false ? "direct" : "full",
             lookbackMs: requestedLookbackMs,

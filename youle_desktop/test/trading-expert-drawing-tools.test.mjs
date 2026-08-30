@@ -30,6 +30,15 @@ test("AI annotation localization precedes layout and preserves saved source, geo
   }
   assert.match(original.text, /末端向上笔/);
   assert.equal(tradingAiDrawingDisplayModel(original, "zh-CN"), original);
+  const legacy = Object.freeze({
+    id: "price-action-analysis-candlestick-pattern-label-0",
+    source: "ai",
+    text: "pa candlestick 7fd3ae716ec4b42a · unclosed",
+  });
+  const legacyEnglish = tradingAiDrawingDisplayModel(legacy, "en");
+  assert.equal(legacyEnglish.text, "Candlestick pattern · unclosed");
+  assert.equal(tradingAiDrawingDisplayModel(legacy, "zh-CN").text, "蜡烛形态 · 待收盘");
+  assert.equal(legacy.text, "pa candlestick 7fd3ae716ec4b42a · unclosed");
   const drawing = await drawingSource;
   assert.ok(drawing.indexOf("const aiDrawings = aiSourceDrawings.map") < drawing.indexOf("const aiCandlestickLabelRequests"));
   assert.match(drawing, /data-i18n-skip>\$\{markup\}/);
