@@ -556,6 +556,7 @@ const MAC_UPDATE_BASE_URL = normalizeBaseUrl(
 );
 const MAC_UPDATE_CHECK_PATH = process.env.HAOLO_MAC_APP_UPDATE_CHECK_PATH || "/api/app-updates/mac/check";
 const MAC_UPDATE_ARCH = process.env.HAOLO_MAC_APP_UPDATE_ARCH || "universal";
+const MAC_UPDATE_CLIENT_VARIANT = WINDOWS_UPDATE_CLIENT_VARIANT;
 const WINDOWS_UPDATE_TIMEOUT_MS = 20_000;
 const APP_UPDATE_DOWNLOAD_CONNECT_TIMEOUT_MS = 120_000;
 const APP_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
@@ -20497,7 +20498,7 @@ function currentUpdateTarget() {
       baseUrl: MAC_UPDATE_BASE_URL,
       checkPath: MAC_UPDATE_CHECK_PATH,
       arch: MAC_UPDATE_ARCH,
-      clientVariant: null,
+      clientVariant: MAC_UPDATE_CLIENT_VARIANT,
       allowedExtensions: new Set([".dmg", ".zip"]),
       defaultFileName: "Haolo-Update.dmg",
     };
