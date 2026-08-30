@@ -100,6 +100,12 @@ function personalizedTradingSettings(value) {
   return {
     maxLossPerTradePercent: numeric(source.maxLossPerTradePercent, 2),
     minimumRiskRewardRatio: numeric(source.minimumRiskRewardRatio, 2),
+    riskPreference: String(source.riskPreference || "").trim().slice(0, 120),
+    preferredStopDistancePercent: numeric(source.preferredStopDistancePercent, null),
+    maxStopDistancePercent: numeric(source.maxStopDistancePercent, null),
+    preferredTakeProfitPercent: numeric(source.preferredTakeProfitPercent, null),
+    maxTakeProfitPercent: numeric(source.maxTakeProfitPercent, null),
+    riskClarificationRequired: source.riskClarificationRequired === true,
     moveStopToBreakEven: source.moveStopToBreakEven !== false,
     breakEvenTriggerR: numeric(source.breakEvenTriggerR, 1),
     analysisStyle: source.analysisStyle === "detailed" ? "detailed" : "concise",

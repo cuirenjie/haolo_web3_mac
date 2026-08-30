@@ -48,6 +48,12 @@ function normalizeUserRiskProfile(value) {
     "max_position_percent",
     "max_leverage",
     "minimum_risk_reward_ratio",
+    "preferred_stop_distance_percent",
+    "max_stop_distance_percent",
+    "preferred_take_profit_percent",
+    "max_take_profit_percent",
+    "preferred_stop_loss_percent",
+    "risk_reward_preference",
     "move_stop_to_break_even",
     "break_even_trigger_r",
     "trading_analysis_style",
@@ -72,6 +78,12 @@ function normalizeUserRiskProfile(value) {
     maxPositionPercent: boundedRiskValue(source.maxPositionPercent, 0.01, 100),
     maxLeverage: boundedRiskValue(source.maxLeverage, 1, 1_000),
     minimumRiskRewardRatio: boundedRiskValue(source.minimumRiskRewardRatio, 0.01, 100),
+    preferredStopDistancePercent: boundedRiskValue(source.preferredStopDistancePercent, 0.01, 100),
+    maxStopDistancePercent: boundedRiskValue(source.maxStopDistancePercent, 0.01, 100),
+    preferredTakeProfitPercent: boundedRiskValue(source.preferredTakeProfitPercent, 0.01, 100),
+    maxTakeProfitPercent: boundedRiskValue(source.maxTakeProfitPercent, 0.01, 100),
+    legacyAmbiguousStopLossPercent: boundedRiskValue(source.legacyAmbiguousStopLossPercent, 0.01, 100),
+    riskClarificationRequired: source.riskClarificationRequired === true,
     moveStopToBreakEven: source.moveStopToBreakEven !== false,
     breakEvenTriggerR: boundedRiskValue(source.breakEvenTriggerR, 0.01, 100, 1),
     riskPreference: typeof source.riskPreference === "string"
@@ -249,7 +261,50 @@ function roundedIntermediateTargetPrice(value, side, tickSize = null) {
   return Number(normalized.toFixed(8));
 }
 
-function scenarioWithThreeTakeProfitTargets(value, estimatedRoundTripCostRate, tickSize = null) {
+function targetPriceForPercent(entryPrice, side, percent, tickSize = null) {
+  const entry = finite(entryPrice);
+  const normalizedPercent = boundedRiskValue(percent, 0.01, 100);
+  if (entry === null || normalizedPercent === null) return null;
+  const multiplier = normalizedPercent / 100;
+  return roundedIntermediateTargetPrice(
+    side === "long" ? entry * (1 + multiplier) : entry * (1 - multiplier),
+    side,
+    tickSize,
+  );
+}
+
+function scenarioWithTakeProfitCap(value, maxTakeProfitPercent, tickSize = null) {
+  if (!value?.targets?.length || maxTakeProfitPercent === null) return value;
+  const cappedPrice = targetPriceForPercent(
+    value.trigger?.price,
+    value.side,
+    maxTakeProfitPercent,
+    tickSize,
+  );
+  if (cappedPrice === null) return value;
+  const seen = new Set();
+  const targets = value.targets.flatMap((target) => {
+    const beyondCap = value.side === "long" ? target.price > cappedPrice : target.price < cappedPrice;
+    const price = beyondCap ? cappedPrice : target.price;
+    if (seen.has(price)) return [];
+    seen.add(price);
+    return [{
+      ...target,
+      price,
+      label: beyondCap
+        ? `${value.side === "long" ? "多头" : "空头"}目标（用户最大止盈距离 ${maxTakeProfitPercent}%）`
+        : target.label,
+    }];
+  });
+  return targets.length ? { ...value, targets } : null;
+}
+
+function scenarioWithThreeTakeProfitTargets(
+  value,
+  estimatedRoundTripCostRate,
+  tickSize = null,
+  preferredTakeProfitPercent = null,
+) {
   if (!value?.targets?.length) return value;
   const finalTarget = value.targets.reduce((selected, target) => {
     if (!selected) return target;
@@ -291,22 +346,54 @@ function scenarioWithThreeTakeProfitTargets(value, estimatedRoundTripCostRate, t
   if (!ordered) return null;
 
   const sideLabel = value.side === "long" ? "多头" : "空头";
+  const firstTarget = {
+    ...finalTarget,
+    price: firstPrice,
+    label: `${sideLabel}第 1 目标（净盈亏比不超过 1:0.5）`,
+  };
+  const secondTarget = {
+    ...finalTarget,
+    price: secondPrice,
+    label: `${sideLabel}第 2 目标（净盈亏比不超过 1:0.8）`,
+  };
+  const preferredPrice = targetPriceForPercent(
+    entryPrice,
+    value.side,
+    preferredTakeProfitPercent,
+    tickSize,
+  );
+  const preferredInsideStrategyRange = preferredPrice !== null && (
+    value.side === "long"
+      ? entryPrice < preferredPrice && preferredPrice < finalTargetPrice
+      : finalTargetPrice < preferredPrice && preferredPrice < entryPrice
+  );
+  let intermediateTargets = [firstTarget, secondTarget];
+  if (preferredInsideStrategyRange && !intermediateTargets.some((target) => target.price === preferredPrice)) {
+    const preferredTarget = {
+      ...finalTarget,
+      price: preferredPrice,
+      label: `${sideLabel}常规止盈目标（用户偏好 ${preferredTakeProfitPercent}%）`,
+    };
+    const orderedIntermediates = [...intermediateTargets, preferredTarget]
+      .sort((left, right) => value.side === "long" ? left.price - right.price : right.price - left.price);
+    const earliest = orderedIntermediates[0];
+    intermediateTargets = [earliest, preferredTarget]
+      .filter((target, index, items) => items.findIndex((item) => item.price === target.price) === index)
+      .sort((left, right) => value.side === "long" ? left.price - right.price : right.price - left.price);
+    if (intermediateTargets.length < 2) {
+      const next = orderedIntermediates.find((target) => target.price !== earliest.price);
+      if (next) intermediateTargets.push(next);
+    }
+  }
   return {
     ...value,
     targets: [
+      ...intermediateTargets,
       {
         ...finalTarget,
-        price: firstPrice,
-        label: `${sideLabel}第 1 目标（净盈亏比不超过 1:0.5）`,
-      },
-      {
-        ...finalTarget,
-        price: secondPrice,
-        label: `${sideLabel}第 2 目标（净盈亏比不超过 1:0.8）`,
-      },
-      {
-        ...finalTarget,
-        label: `${sideLabel}第 3 目标（原策略止盈位）`,
+        label: /用户最大止盈距离/.test(String(finalTarget.label || ""))
+          ? finalTarget.label
+          : `${sideLabel}第 3 目标（原策略止盈位）`,
       },
     ],
   };
@@ -397,9 +484,13 @@ function accountExecutionPlan({
   takeProfits,
   riskPolicy,
   estimatedRoundTripCostRate,
+  sizingBlockedReason = null,
   now,
 }) {
   const account = normalizedAccountContext(accountContext, now);
+  if (sizingBlockedReason) {
+    return { accountStatus: account.status, accountPlan: null, sizingBlockedReason };
+  }
   if (account.status !== "available" || !preferredScenario || !takeProfits.length) {
     return { accountStatus: account.status, accountPlan: null };
   }
@@ -542,14 +633,22 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     preferredSide === "short" ? currentPrice : null,
   );
   const longScenario = scenarioWithThreeTakeProfitTargets(
-    scenarioWithValidRiskRewardTargets(rawLongScenario, estimatedRoundTripCostRate),
+    scenarioWithValidRiskRewardTargets(
+      scenarioWithTakeProfitCap(rawLongScenario, riskPolicy.maxTakeProfitPercent, tickSize),
+      estimatedRoundTripCostRate,
+    ),
     estimatedRoundTripCostRate,
     tickSize,
+    riskPolicy.preferredTakeProfitPercent,
   );
   const shortScenario = scenarioWithThreeTakeProfitTargets(
-    scenarioWithValidRiskRewardTargets(rawShortScenario, estimatedRoundTripCostRate),
+    scenarioWithValidRiskRewardTargets(
+      scenarioWithTakeProfitCap(rawShortScenario, riskPolicy.maxTakeProfitPercent, tickSize),
+      estimatedRoundTripCostRate,
+    ),
     estimatedRoundTripCostRate,
     tickSize,
+    riskPolicy.preferredTakeProfitPercent,
   );
   const scenarios = [longScenario, shortScenario].filter(Boolean);
   const preferredScenario = preferredSide === "long"
@@ -575,6 +674,15 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     && preferredTargetRiskRewards.length > 0
     && preferredTargetRiskRewards.at(-1).ratio < riskPolicy.minimumRiskRewardRatio,
   );
+  const preferredStopDistancePercent = preferredScenario
+    ? Math.abs(preferredScenario.trigger.price - preferredScenario.stop.price) / preferredScenario.trigger.price * 100
+    : null;
+  const maxStopDistanceBlocked = Boolean(
+    riskPolicy.maxStopDistancePercent !== null
+    && preferredStopDistancePercent !== null
+    && preferredStopDistancePercent > riskPolicy.maxStopDistancePercent + Number.EPSILON
+  );
+  const riskClarificationBlocked = riskPolicy.riskClarificationRequired;
   const personalRiskPreconditions = [
     condition(
       "user-max-loss-per-trade",
@@ -594,6 +702,31 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     ...(riskPolicy.minimumRiskRewardRatio === null ? [] : [condition(
       "user-minimum-risk-reward",
       `第三目标扣除预估手续费和滑点后的净盈亏比必须不低于 1:${riskPolicy.minimumRiskRewardRatio}；第一、第二目标用于分批降低持仓风险`,
+      evidenceIds,
+    )]),
+    ...(riskPolicy.riskPreference === null ? [] : [condition(
+      "user-risk-preference",
+      `用户定性风险偏好：${riskPolicy.riskPreference}；该偏好不得覆盖任何数值硬约束，也不得被表述为未经统计验证的胜率保证`,
+      evidenceIds,
+    )]),
+    ...(riskPolicy.preferredStopDistancePercent === null ? [] : [condition(
+      "user-preferred-stop-distance",
+      `用户偏好的价格止损距离为入场价的 ${riskPolicy.preferredStopDistancePercent}%；只有策略有效失效位自然满足时才采用，不得人为缩窄止损`,
+      evidenceIds,
+    )]),
+    ...(riskPolicy.maxStopDistancePercent === null ? [] : [condition(
+      "user-maximum-stop-distance",
+      `有效止损距离不得超过入场价的 ${riskPolicy.maxStopDistancePercent}%；超过时取消方案，不得通过缩窄止损放大仓位`,
+      evidenceIds,
+    )]),
+    ...(riskPolicy.preferredTakeProfitPercent === null ? [] : [condition(
+      "user-preferred-take-profit-distance",
+      `策略有效目标范围内优先包含距入场价 ${riskPolicy.preferredTakeProfitPercent}% 的常规止盈目标`,
+      evidenceIds,
+    )]),
+    ...(riskPolicy.maxTakeProfitPercent === null ? [] : [condition(
+      "user-maximum-take-profit-distance",
+      `任何止盈目标距入场价不得超过 ${riskPolicy.maxTakeProfitPercent}%`,
       evidenceIds,
     )]),
     ...(riskPolicy.moveStopToBreakEven ? [condition(
@@ -656,8 +789,14 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     takeProfits,
     riskPolicy,
     estimatedRoundTripCostRate,
+    sizingBlockedReason: riskClarificationBlocked
+      ? "止损百分比口径存在未澄清冲突，禁止生成账户仓位"
+      : maxStopDistanceBlocked
+        ? `策略有效止损距离 ${preferredStopDistancePercent.toFixed(2)}% 超过用户硬上限 ${riskPolicy.maxStopDistancePercent}%`
+        : null,
     now,
   });
+  const executionBlocked = minimumRiskRewardBlocked || maxStopDistanceBlocked || riskClarificationBlocked;
   const source = {
     schemaVersion: EXECUTION_PLAN_SCHEMA_VERSION,
     planId: "pending",
@@ -671,7 +810,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     },
     createdAt: now,
     expiresAt: now + intervalMs * validityBars,
-    action: minimumRiskRewardBlocked
+    action: executionBlocked
       ? "no_trade"
       : preferredTriggerReached
         ? preferredSide
@@ -679,8 +818,12 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
         ? "wait"
         : "insufficient_data",
     preferredSide,
-    marketAssessment: minimumRiskRewardBlocked
-      ? `当前候选场景第三目标扣除预估手续费和滑点后的净盈亏比低于用户设定的最低 1:${riskPolicy.minimumRiskRewardRatio}；本方案标记为不交易，但保留完整候选测算供用户决策。`
+    marketAssessment: riskClarificationBlocked
+      ? "已保存的旧版止损百分比缺少账户净值或入场价分母；本方案禁止执行，必须先让用户澄清并移除旧版模糊字段。"
+      : maxStopDistanceBlocked
+        ? `策略有效止损距离约 ${preferredStopDistancePercent.toFixed(2)}%，超过用户设定的价格止损距离硬上限 ${riskPolicy.maxStopDistancePercent}%；本方案标记为不交易，且不生成账户仓位。`
+        : minimumRiskRewardBlocked
+          ? `当前候选场景第三目标扣除预估手续费和滑点后的净盈亏比低于用户设定的最低 1:${riskPolicy.minimumRiskRewardRatio}；本方案标记为不交易，但保留完整候选测算供用户决策。`
       : hasScenarios
       ? preferredSide === "long"
         ? preferredTriggerReached
@@ -726,6 +869,8 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       suggestedQuantity: null,
       unavailableReason: accountExecution.accountPlan
         ? null
+        : accountExecution.sizingBlockedReason
+          ? accountExecution.sizingBlockedReason
         : accountExecution.accountStatus === "unbound"
           ? "Binance API 未绑定，未获得账户权益，因此不生成具体账户仓位"
           : accountExecution.accountStatus === "unavailable"
@@ -752,6 +897,16 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
         `若执行前重新计算的第三目标净盈亏比低于 1:${riskPolicy.minimumRiskRewardRatio}，取消执行`,
         evidenceIds,
       )]),
+      ...(riskClarificationBlocked ? [condition(
+        "ambiguous-stop-loss-memory",
+        "止损百分比的分母尚未澄清；确认并更新长期记忆前不得执行",
+        evidenceIds,
+      )] : []),
+      ...(maxStopDistanceBlocked ? [condition(
+        "maximum-stop-distance-exceeded",
+        `策略有效止损距离超过用户硬上限 ${riskPolicy.maxStopDistancePercent}%，取消执行`,
+        evidenceIds,
+      )] : []),
     ],
     scenarios,
     evidence,
@@ -763,6 +918,8 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
         : "未提供交易所 tick size 时价格只做有限小数归一化，下单前必须按真实合约规格复核。",
       "永续合约存在杠杆、滑点、资金费率和强平风险。",
       `用户单笔风险按当前账户权益的 ${riskPolicy.maxLossPerTradePercent}% 约束；不得在未获得用户明确授权时为了回本主动提高这一比例。`,
+      ...(riskPolicy.maxTakeProfitPercent === null ? [] : [`所有止盈目标已限制在距入场价 ${riskPolicy.maxTakeProfitPercent}% 以内。`]),
+      ...(riskClarificationBlocked ? ["长期记忆中的止损百分比口径冲突尚未解决，本方案禁止执行且不提供账户仓位。"] : []),
     ],
   };
   source.planId = `plan-${planHash({ ...source, planId: undefined, createdAt: undefined })}`;
@@ -885,7 +1042,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
     let triggerText = selectedScenario ? price(selectedScenario.trigger) : "No clear one-sided setup";
     if (accountPlan?.mode === "new_position") {
       triggerText += candidateOnly
-        ? `; suggested: ${accountPlan.leverage}x leverage and ${displayMoney(accountPlan.notional)} USDT ${directionOrder}`
+        ? `; non-executable candidate estimate: ${accountPlan.leverage}x leverage and ${displayMoney(accountPlan.notional)} USDT ${directionOrder}`
         : `; open a ${displayMoney(accountPlan.notional)} USDT ${directionOrder} with ${accountPlan.leverage}x leverage`;
     } else if (accountPlan?.mode === "manage_existing") {
       triggerText += `; manage the existing ${displayMoney(accountPlan.existingNotional)} USDT ${directionOrder} without adding`;
@@ -912,7 +1069,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
       ? accountPlan.targetOrders
         .filter((target) => target.notional > 0)
         .map((target) => candidateOnly
-          ? `Take profit at ${target.price}; suggested size ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`
+          ? `Take profit at ${target.price}; non-executable candidate allocation ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`
           : `Conditional market take profit at ${target.price} for ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`)
         .join("; ") || "Not available"
       : targetText(selectedScenario);
@@ -927,7 +1084,9 @@ function formatExecutionPlanMarkdownEnglish(validated) {
         ? `Position size: current position approximately ${quantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset}; notional ${displayMoney(accountPlan.existingNotional)} USDT; do not add; ${accountBasisText}`
         : accountPlan.mode === "reduce_existing"
           ? `Position size: approximately ${quantity(accountPlan.quantity)} ${baseAsset} after reduction; notional ${displayMoney(accountPlan.notional)} USDT; ${accountBasisText}`
-          : `Position size: suggested order ${quantity(accountPlan.quantity)} ${baseAsset}; notional ${displayMoney(accountPlan.notional)} USDT; ${accountPlan.leverage}x leverage; ${accountBasisText}`
+          : candidateOnly
+            ? `Position size: candidate estimate ${quantity(accountPlan.quantity)} ${baseAsset} (do not place an order); notional ${displayMoney(accountPlan.notional)} USDT; ${accountPlan.leverage}x leverage; ${accountBasisText}`
+            : `Position size: suggested order ${quantity(accountPlan.quantity)} ${baseAsset}; notional ${displayMoney(accountPlan.notional)} USDT; ${accountPlan.leverage}x leverage; ${accountBasisText}`
       : accountPlan?.mode === "close_opposite"
         ? `Position size: close the existing approximately ${quantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset} ${accountPlan.existingSide === "long" ? "long position" : "short position"}; no new order is suggested yet; ${accountBasisText}`
         : "";
@@ -935,8 +1094,12 @@ function formatExecutionPlanMarkdownEnglish(validated) {
       ? `Potential P&L: approximately -${displayMoney(accountPlan.estimatedStopLoss)} USDT at the stop and +${displayMoney(accountPlan.estimatedTakeProfit)} USDT if all targets fill; estimated fees and slippage are included`
       : "";
     const accountUnavailableText = !accountPlan && validated.positionSizing.accountStatus === "unavailable"
-      ? "Position size: the live account snapshot is unavailable or stale. Refresh the account and run the analysis again for an order size and P&L estimate"
-      : "";
+      ? "Position size: the live account snapshot is unavailable or stale. Refresh the account and run the analysis again"
+      : !accountPlan && validated.positionSizing.accountStatus === "available" && validated.positionSizing.unavailableReason
+        ? /口径|澄清/.test(validated.positionSizing.unavailableReason)
+          ? "Position size: the stop-loss percentage denominator is unresolved; no account size may be generated"
+          : "Position size: the valid structural stop exceeds the user's hard stop-distance cap; no account size may be generated"
+        : "";
     const livePositionText = accountPlan?.existingSide
       ? `Live position: approximately ${quantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset} ${accountPlan.existingSide === "long" ? "long" : "short"}; average entry ${accountPlan.existingEntryPrice == null ? "Not available" : accountPlan.existingEntryPrice}; unrealized P&L ${signedMoney(accountPlan.existingUnrealizedPnl)}`
       : "";
@@ -1002,7 +1165,7 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
     if (!selectedScenario) triggerText = "未形成明确单侧方案";
     if (accountPlan?.mode === "new_position") {
       triggerText += candidateOnly
-        ? `，推荐：${accountPlan.leverage} 倍杠杆、${displayMoney(accountPlan.notional)} USDT 的${directionOrder}`
+        ? `，候选测算（不可执行）：${accountPlan.leverage} 倍杠杆、${displayMoney(accountPlan.notional)} USDT 的${directionOrder}`
         : `，用 ${accountPlan.leverage} 倍杠杆开仓 ${displayMoney(accountPlan.notional)} USDT 的${directionOrder}`;
     } else if (accountPlan?.mode === "manage_existing") {
       triggerText += `，已有 ${displayMoney(accountPlan.existingNotional)} USDT 的${directionOrder}，按现有仓位执行，不重复开仓`;
@@ -1029,7 +1192,7 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
       ? accountPlan.targetOrders
         .filter((target) => target.notional > 0)
         .map((target) => candidateOnly
-          ? `止盈 ${target.price}，推荐仓位 ${displayMoney(target.notional)} USDT；预计盈利 +${displayMoney(target.estimatedNetProfit)} USDT`
+          ? `止盈 ${target.price}，候选分批测算（不可执行）${displayMoney(target.notional)} USDT；预计盈利 +${displayMoney(target.estimatedNetProfit)} USDT`
           : `挂条件委托 ${target.price} 市价止盈 ${displayMoney(target.notional)} USDT；预计盈利 +${displayMoney(target.estimatedNetProfit)} USDT`)
         .join("，") || "未形成"
       : displayTargets(selectedScenario);
@@ -1045,7 +1208,9 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
         ? `仓位大小：当前持仓约 ${displayQuantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset}；名义金额 ${displayMoney(accountPlan.existingNotional)} USDT；不重复开仓；${accountBasisText}`
         : accountPlan.mode === "reduce_existing"
           ? `仓位大小：调整后约 ${displayQuantity(accountPlan.quantity)} ${baseAsset}；名义金额 ${displayMoney(accountPlan.notional)} USDT；${accountBasisText}`
-          : `仓位大小：推荐下单 ${displayQuantity(accountPlan.quantity)} ${baseAsset}；名义金额 ${displayMoney(accountPlan.notional)} USDT；${accountPlan.leverage} 倍杠杆；${accountBasisText}`
+          : candidateOnly
+            ? `仓位大小：候选测算 ${displayQuantity(accountPlan.quantity)} ${baseAsset}（不可下单）；名义金额 ${displayMoney(accountPlan.notional)} USDT；${accountPlan.leverage} 倍杠杆；${accountBasisText}`
+            : `仓位大小：推荐下单 ${displayQuantity(accountPlan.quantity)} ${baseAsset}；名义金额 ${displayMoney(accountPlan.notional)} USDT；${accountPlan.leverage} 倍杠杆；${accountBasisText}`
       : accountPlan?.mode === "close_opposite"
         ? `仓位大小：当前已有约 ${displayQuantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset} 的${accountPlan.existingSide === "long" ? "多单" : "空单"}，先平仓，暂不推荐新下单；${accountBasisText}`
         : "";
@@ -1054,7 +1219,9 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
       : "";
     const accountUnavailableText = !accountPlan && validated.positionSizing.accountStatus === "unavailable"
       ? "仓位大小：实盘账户快照不可用或已过期，暂不生成推荐下单数量及盈亏金额；请刷新账户后重新分析"
-      : "";
+      : !accountPlan && validated.positionSizing.accountStatus === "available" && validated.positionSizing.unavailableReason
+        ? `仓位大小：${validated.positionSizing.unavailableReason}`
+        : "";
     const livePositionText = accountPlan?.existingSide
       ? `实盘仓位：已有 ${displayQuantity(accountPlan.existingQuantity ?? accountPlan.quantity)} ${baseAsset} 的${accountPlan.existingSide === "long" ? "多单" : "空单"}；开仓均价 ${accountPlan.existingEntryPrice == null ? "暂无" : accountPlan.existingEntryPrice}；未实现盈亏 ${displaySignedMoney(accountPlan.existingUnrealizedPnl)}`
       : "";

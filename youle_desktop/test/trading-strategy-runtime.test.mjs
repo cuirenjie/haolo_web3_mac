@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { tradingRiskProfileFromEntries } from "../src/main/personal-context/memory-store.mjs";
 import { BUILTIN_TRADING_STRATEGY_ADAPTERS } from "../src/main/trading-strategy-runtime/builtins/index.mjs";
 import {
   validateExecutionPlan,
@@ -342,8 +343,9 @@ test("ExecutionPlanV1 keeps displayed SOL net risk/reward consistent with its ne
   const blockedMarkdown = formatExecutionPlanMarkdown(blocked);
   assert.match(blockedMarkdown, /当前动作：不交易/);
   assert.match(blockedMarkdown, /止损与失效：止损 75\.68/);
-  assert.match(blockedMarkdown, /分批止盈：止盈 73\.854205，推荐仓位 605 USDT.*止盈 73\.49026，推荐仓位 605 USDT.*止盈 73\.005，推荐仓位 623\.33 USDT/);
-  assert.doesNotMatch(blockedMarkdown, /[（）()]|候选|测算/);
+  assert.match(blockedMarkdown, /分批止盈：止盈 73\.854205，候选分批测算（不可执行）605 USDT.*止盈 73\.49026，候选分批测算（不可执行）605 USDT.*止盈 73\.005，候选分批测算（不可执行）623\.33 USDT/);
+  assert.match(blockedMarkdown, /仓位大小：候选测算 24\.57230934 SOL（不可下单）/);
+  assert.doesNotMatch(blockedMarkdown, /推荐下单|推荐仓位|，推荐：/);
   assert.match(blockedMarkdown, /目标1为 1:0\.5，目标2为 1:0\.8，目标3为 1:1\.19，如果止损：约 -29\.95 USDT，如果全部止盈：约 \+24\.93 USDT/);
 });
 
@@ -559,6 +561,83 @@ test("ExecutionPlanV1 deterministically enforces remembered personal risk limits
   assert.equal(allowed.action, "wait");
   assert.equal(allowed.riskReward[2].ratio, 1.38);
   assert.equal(allowed.takeProfits.length, 3);
+});
+
+test("free-form trading preferences flow through canonical memory into deterministic sizing and exits", () => {
+  const memoryEntry = (scope, key, value, kind = "preference", strength = "normal") => ({
+    scope,
+    key,
+    value,
+    kind,
+    strength,
+    source: "user_explicit",
+  });
+  const profile = tradingRiskProfileFromEntries([
+    memoryEntry("trading.risk", "max_loss_per_trade_percent", 5, "constraint", "hard"),
+    memoryEntry("trading.exit", "preferred_take_profit_percent", 2),
+    memoryEntry("trading.exit", "max_take_profit_percent", 10, "constraint", "hard"),
+  ]);
+  const eth = sampleLegacyResult();
+  eth.snapshot.marketId = "BINANCE:FUTURES:ETHUSDT";
+  Object.assign(eth.analysisPlan.actionPlan, {
+    currentPrice: 2_450,
+    longTrigger: 2_462.46,
+    longInvalidation: 2_441.5865,
+    longTarget: 2_496.7175,
+  });
+  const account = {
+    bound: true,
+    available: true,
+    snapshot: {
+      fetchedAt: new Date().toISOString(),
+      marginBalance: 704.76,
+      availableBalance: 704.76,
+      positions: [],
+      warnings: [],
+    },
+  };
+  const plan = buildExecutionPlanV1(sampleManifest, eth, {
+    userRiskProfile: profile,
+    binanceAccountContext: account,
+  });
+  assert.equal(plan.positionSizing.maxAccountRiskPercent, 5);
+  assert.ok(plan.positionSizing.accountPlan.estimatedStopLoss <= 704.76 * 0.05);
+  assert.ok(plan.positionSizing.accountPlan.estimatedStopLoss >= 35.2);
+  assert.match(plan.positionSizing.formula, /账户权益 × 5%/);
+
+  const wideTarget = sampleLegacyResult();
+  wideTarget.analysisPlan.actionPlan.longTarget = 140;
+  const exitPlan = buildExecutionPlanV1(sampleManifest, wideTarget, {
+    userRiskProfile: profile,
+  });
+  const longTargets = exitPlan.scenarios.find((scenario) => scenario.side === "long").targets;
+  assert.deepEqual(longTargets.map((target) => target.price), [104.04, 104.306, 112.2]);
+  assert.match(longTargets[0].label, /用户偏好 2%/);
+  assert.match(longTargets[2].label, /用户最大止盈距离 10%/);
+
+  const legacyConflict = tradingRiskProfileFromEntries([
+    memoryEntry("trading.risk", "max_loss_per_trade_percent", 10, "constraint", "hard"),
+    memoryEntry("trading.exit", "preferred_stop_loss_percent", 5),
+  ]);
+  const conflicted = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), {
+    userRiskProfile: legacyConflict,
+    binanceAccountContext: account,
+  });
+  assert.equal(conflicted.action, "no_trade");
+  assert.equal(conflicted.positionSizing.accountPlan, null);
+  assert.match(conflicted.positionSizing.unavailableReason, /口径存在未澄清冲突/);
+  assert.match(formatExecutionPlanMarkdown(conflicted), /禁止生成账户仓位/);
+
+  const stopDistanceBlocked = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), {
+    userRiskProfile: {
+      maxLossPerTradePercent: 5,
+      maxStopDistancePercent: 3,
+    },
+    binanceAccountContext: account,
+  });
+  assert.equal(stopDistanceBlocked.action, "no_trade");
+  assert.equal(stopDistanceBlocked.positionSizing.accountPlan, null);
+  assert.match(stopDistanceBlocked.marketAssessment, /止损距离约 3\.92%.*硬上限 3%/);
 });
 
 test("ExecutionPlanV1 accepts bounded strategy-owned validity and observation policy without strategy id branches", () => {

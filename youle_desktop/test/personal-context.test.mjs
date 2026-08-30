@@ -14,6 +14,7 @@ import {
   tradingRiskProfileFromEntries,
 } from "../src/main/personal-context/memory-store.mjs";
 import { PersonalContextService } from "../src/main/personal-context/service.mjs";
+import { migrateLegacyStopPreferenceToAccountRisk } from "../src/main/personal-context/risk-memory-migration.mjs";
 import { createUserDataSnapshot, restoreUserDataSnapshot } from "../src/main/user-data-transfer.mjs";
 
 const personalContextSkillRoot = new URL("../resources/default-haolo-ai/skills/personal-context/", import.meta.url);
@@ -117,6 +118,26 @@ test("personal memory is encrypted, account-isolated, replaceable, and removable
       }]),
       (error) => error.code === "MEMORY_RISK_VALUE_INVALID",
     );
+    await assert.rejects(
+      store.upsert("owner-a", [{
+        scope: "trading.exit",
+        kind: "preference",
+        key: "preferred_stop_loss_percent",
+        value: 5,
+        strength: "normal",
+      }]),
+      (error) => error.code === "AMBIGUOUS_STOP_LOSS_MEMORY_KEY",
+    );
+    await assert.rejects(
+      store.upsert("owner-a", [{
+        scope: "trading.risk",
+        kind: "preference",
+        key: "max_loss_per_trade_percent",
+        value: 5,
+        strength: "normal",
+      }]),
+      (error) => error.code === "MEMORY_ACCOUNT_RISK_SHAPE_INVALID",
+    );
 
     const removed = await store.remove("owner-a", { keys: ["max_position_percent"] });
     assert.equal(removed.removed.length, 1);
@@ -190,6 +211,109 @@ test("trading preference profile covers risk, break-even, answer style, and cust
   assert.equal(profile.entries.some((saved) => saved.key === "user_custom_rules"), true);
 });
 
+test("trading preference profile separates account risk, price distance, and legacy ambiguity", () => {
+  const entry = (scope, key, value, kind = "preference", strength = "normal") => ({
+    id: `memory-${String(key).padEnd(24, "0").slice(0, 24).replace(/[^a-f0-9]/g, "a")}`,
+    scope,
+    key,
+    value,
+    kind,
+    strength,
+    source: "user_explicit",
+    createdAt: "2026-08-30T12:40:56.452Z",
+    updatedAt: "2026-08-30T12:40:56.452Z",
+  });
+  const conflicting = tradingRiskProfileFromEntries([
+    entry("trading.risk", "max_loss_per_trade_percent", 10, "constraint", "hard"),
+    entry("trading.exit", "preferred_stop_loss_percent", 5),
+    entry("trading.exit", "preferred_take_profit_percent", 2),
+    entry("trading.exit", "max_take_profit_percent", 10, "constraint", "hard"),
+    entry("trading.risk", "risk_reward_preference", "优先高胜率"),
+  ]);
+  assert.equal(conflicting.maxLossPerTradePercent, 10);
+  assert.equal(conflicting.legacyAmbiguousStopLossPercent, 5);
+  assert.equal(conflicting.riskClarificationRequired, true);
+  assert.equal(conflicting.preferredTakeProfitPercent, 2);
+  assert.equal(conflicting.maxTakeProfitPercent, 10);
+  assert.equal(conflicting.riskPreference, "优先高胜率");
+
+  const numericallyEqualButStillAmbiguous = tradingRiskProfileFromEntries([
+    entry("trading.risk", "max_loss_per_trade_percent", 5, "constraint", "hard"),
+    entry("trading.exit", "preferred_stop_loss_percent", 5),
+  ]);
+  assert.equal(numericallyEqualButStillAmbiguous.riskClarificationRequired, true);
+
+  const clarified = tradingRiskProfileFromEntries([
+    entry("trading.risk", "max_loss_per_trade_percent", 5, "constraint", "hard"),
+    entry("trading.exit", "preferred_stop_distance_percent", 3),
+    entry("trading.exit", "preferred_take_profit_percent", 2),
+    entry("trading.exit", "max_take_profit_percent", 10, "constraint", "hard"),
+  ]);
+  assert.equal(clarified.maxLossPerTradePercent, 5);
+  assert.equal(clarified.preferredStopDistancePercent, 3);
+  assert.equal(clarified.riskClarificationRequired, false);
+});
+
+test("authorized legacy preference migration replaces account risk and removes ambiguous keys", () => {
+  const profile = {
+    schemaVersion: 1,
+    revision: 2,
+    updatedAt: "2026-08-30T12:40:56.452Z",
+    entries: [
+      {
+        id: "memory-account-risk",
+        scope: "trading.risk",
+        key: "max_loss_per_trade_percent",
+        kind: "constraint",
+        value: 10,
+        strength: "hard",
+        source: "user_explicit",
+        createdAt: "2026-08-30T08:55:30.587Z",
+        updatedAt: "2026-08-30T08:55:30.587Z",
+      },
+      {
+        id: "memory-legacy-stop",
+        scope: "trading.exit",
+        key: "preferred_stop_loss_percent",
+        kind: "preference",
+        value: 5,
+        strength: "normal",
+        source: "user_explicit",
+        createdAt: "2026-08-30T12:40:56.452Z",
+        updatedAt: "2026-08-30T12:40:56.452Z",
+      },
+      {
+        id: "memory-legacy-risk-style",
+        scope: "trading.risk",
+        key: "risk_reward_preference",
+        kind: "preference",
+        value: "不追求很高的盈亏比，但优先高胜率",
+        strength: "normal",
+        source: "user_explicit",
+        createdAt: "2026-08-30T12:40:56.452Z",
+        updatedAt: "2026-08-30T12:40:56.452Z",
+      },
+    ],
+  };
+  const migrated = migrateLegacyStopPreferenceToAccountRisk(profile, {
+    accountRiskPercent: 5,
+    expectedLegacyPercent: 5,
+    updatedAt: "2026-08-30T15:00:00.000Z",
+  });
+  assert.equal(migrated.revision, 3);
+  assert.equal(migrated.entries.find((entry) => entry.key === "max_loss_per_trade_percent").value, 5);
+  assert.equal(migrated.entries.some((entry) => entry.key === "preferred_stop_loss_percent"), false);
+  assert.equal(migrated.entries.some((entry) => entry.key === "risk_reward_preference"), false);
+  assert.equal(migrated.entries.find((entry) => entry.key === "risk_preference").value, "不追求很高的盈亏比，但优先高胜率");
+  assert.throws(
+    () => migrateLegacyStopPreferenceToAccountRisk(profile, {
+      accountRiskPercent: 5,
+      expectedLegacyPercent: 3,
+    }),
+    /does not match/,
+  );
+});
+
 test("personal context service requires explicit memory authorization and returns minimal account sections", async () => {
   const memoryCalls = [];
   const accountCalls = [];
@@ -234,6 +358,72 @@ test("personal context service requires explicit memory authorization and return
   });
   assert.equal(remembered.entries[0].key, "answer_style");
   assert.equal(memoryCalls[0].ownerId, "owner-a");
+
+  await assert.rejects(
+    service.invoke({
+      tool: "remember_user_memory",
+      arguments: {
+        explicit_user_instruction: true,
+        user_statement: "我愿意每次止损5%，帮我记住",
+        entries: [{
+          scope: "trading.risk",
+          kind: "constraint",
+          key: "max_loss_per_trade_percent",
+          value: 5,
+          strength: "hard",
+        }],
+      },
+    }),
+    (error) => error.code === "TRADING_STOP_LOSS_BASIS_REQUIRED",
+  );
+  await assert.rejects(
+    service.invoke({
+      tool: "remember_user_memory",
+      arguments: {
+        explicit_user_instruction: true,
+        user_statement: "我希望盈亏比不要很高，优先高胜率，帮我记住",
+        entries: [{
+          scope: "trading.risk",
+          kind: "preference",
+          key: "risk_preference",
+          value: "优先高胜率",
+          strength: "normal",
+        }],
+      },
+    }),
+    (error) => error.code === "TRADING_MINIMUM_RISK_REWARD_REQUIRED",
+  );
+  const clarifiedRisk = await service.invoke({
+    tool: "remember_user_memory",
+    arguments: {
+      explicit_user_instruction: true,
+      user_statement: "每笔触发止损后，账户净值最多实际亏损5%，帮我记住",
+      entries: [{
+        scope: "trading.risk",
+        kind: "constraint",
+        key: "max_loss_per_trade_percent",
+        value: 5,
+        strength: "hard",
+      }],
+    },
+  });
+  assert.equal(clarifiedRisk.entries[0].key, "max_loss_per_trade_percent");
+  assert.equal(memoryCalls.at(-1).entries[0].value, 5);
+  await service.invoke({
+    tool: "remember_user_memory",
+    arguments: {
+      explicit_user_instruction: true,
+      user_statement: "我的固定止损价格是2441.5，帮我记住",
+      entries: [{
+        scope: "trading.exit",
+        kind: "preference",
+        key: "fixed_stop_price_note",
+        value: 2441.5,
+        strength: "normal",
+      }],
+    },
+  });
+  assert.equal(memoryCalls.at(-1).entries[0].value, 2441.5);
 
   const account = await service.invoke({
     tool: "read_binance_account_context",
@@ -341,12 +531,18 @@ test("personal context is globally registered and its skill defines memory safet
     assert.match(skill, /normal web capability/);
     assert.match(skill, /current user explicitly asks/);
     assert.match(skill, /max_loss_per_trade_percent/);
+    assert.match(skill, /preferred_stop_distance_percent/);
+    assert.match(skill, /“每次止损5%” does not identify a denominator/);
+    assert.match(skill, /Do not save one interpretation and ask afterward/);
     assert.match(skill, /Preserve an explicit value above 3/);
     assert.match(skill, /闪迪特指 SNDK/);
     assert.match(skill, /trading\.aliases/);
     assert.match(skill, /never implies a K-line/);
     assert.doesNotMatch(skill, /product ceiling is 3/);
     assert.match(metadata, /value: "personal_context"/);
+    const server = fs.readFileSync(personalContextMcpServer, "utf8");
+    assert.match(server, /Ask before writing when phrases such as 止损5% omit that denominator/);
+    assert.match(server, /Never invent preferred_stop_loss_percent or risk_reward_preference/);
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
@@ -368,6 +564,8 @@ test("main process owns the bridge, injects risk memory, and keeps encrypted mem
   assert.match(main, /Response policy: answer the current question first and adapt the format to it/);
   assert.match(main, /lead with a direct safe\/unsafe\/uncertain judgment/);
   assert.match(main, /explicit value may be higher than 3%; preserve it exactly/);
+  assert.match(main, /BLOCKING RISK-PREFERENCE CONFLICT/);
+  assert.match(main, /Preferred ordinary take-profit distance/);
   assert.match(main, /tradingStrategyParamsWithReadOnlyBinanceAccount\(personalizedParams\)/);
   assert.match(main, /getAccountService: getBinanceAccountService/);
   assert.match(main, /binanceAccountService = null;[\s\S]*personalContextService = null;/);

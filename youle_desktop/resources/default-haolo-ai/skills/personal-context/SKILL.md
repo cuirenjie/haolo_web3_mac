@@ -41,10 +41,19 @@ Map explicit trading rules to these canonical numeric keys under `trading.risk` 
 - `minimum_risk_reward_ratio`: minimum acceptable reward-to-risk ratio.
 - `risk_preference`: a concise text description such as conservative, balanced, or aggressive.
 
+For exit percentages, use these canonical keys under `trading.exit`:
+
+- `preferred_stop_distance_percent`: preferred stop distance as a percentage of entry price. This is not an account-loss limit.
+- `max_stop_distance_percent`: hard maximum stop distance as a percentage of entry price. Never tighten a valid structural stop merely to satisfy it; reject the setup instead.
+- `preferred_take_profit_percent`: preferred ordinary take-profit distance as a percentage of entry price.
+- `max_take_profit_percent`: hard maximum take-profit distance as a percentage of entry price.
+
+Never create `preferred_stop_loss_percent` or `risk_reward_preference`; those legacy names are ambiguous or non-executable. A request such as “每次止损5%” does not identify a denominator. Before writing anything, ask whether 5% means maximum realized loss as a percentage of current account equity or stop distance as a percentage of entry price. Do not save one interpretation and ask afterward. If a user qualitatively changes their risk/reward preference while an existing numeric minimum may remain, ask for the new minimum numeric ratio before saving.
+
 Ignore the legacy `absolute_max_loss_per_trade_percent` key if an older memory record still contains it. `max_loss_per_trade_percent` is the only enforced per-trade percentage limit.
 
 Use `trading.exit.move_stop_to_break_even` and `trading.exit.break_even_trigger_r` for break-even behavior, `communication.trading_analysis_style` for concise/detailed delivery, `trading.analysis.required_analysis_sections` for required plan sections, and `trading.discipline` for stable user rules or prohibitions. For every trading Skill or strategy answer, apply all relevant saved trading scopes together; do not read only `trading.risk` and silently omit exit, analysis, or discipline preferences.
 
-Do not reinterpret “本金的 3%” as “仓位的 3%”: preserve the user's stated denominator. Ask only if the denominator is genuinely ambiguous and would change the hard limit.
+Do not reinterpret “本金的 3%” as “仓位的 3%”: preserve the user's stated denominator. Ask whenever the denominator is ambiguous and would change the hard limit.
 
 For account or trading-plan answers, distinguish observed account facts from assumptions and public market information. A plan must obey all saved hard limits; if required equity, contract specification, price, or stop distance is unavailable, provide the limiting formula and decline to invent an executable quantity.
