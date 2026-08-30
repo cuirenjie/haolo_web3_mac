@@ -50,7 +50,7 @@ test("desktop support handoff is requested with authenticated client headers", a
     });
   };
   try {
-    const client = new YouleApiClient();
+    const client = new YouleApiClient({ platform: "win32" });
     client.loaded = true;
     client.baseUrl = "https://haolo.example";
     client.token = "desktop-access-token";

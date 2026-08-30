@@ -550,6 +550,7 @@ const CHANNEL_APIS_ENABLED = false;
 const WINDOWS_UPDATE_BASE_URL = normalizeBaseUrl(process.env.HAOLO_APP_UPDATE_BASE_URL || HAOLO_HOME_URL);
 const WINDOWS_UPDATE_CHECK_PATH =
   process.env.HAOLO_APP_UPDATE_CHECK_PATH || "/api/app-updates/windows/check";
+const WINDOWS_UPDATE_CLIENT_VARIANT = "haolo_windows_web3";
 const MAC_UPDATE_BASE_URL = normalizeBaseUrl(
   process.env.HAOLO_MAC_APP_UPDATE_BASE_URL || process.env.HAOLO_APP_UPDATE_BASE_URL || HAOLO_HOME_URL,
 );
@@ -20218,6 +20219,9 @@ async function checkAppUpdate(version) {
     if (requestArch) {
       url.searchParams.set("arch", requestArch);
     }
+    if (updateTarget.clientVariant) {
+      url.searchParams.set("client_variant", updateTarget.clientVariant);
+    }
     const response = await fetchWithTimeout(url.toString(), {
       method: "GET",
       headers: {
@@ -20228,6 +20232,16 @@ async function checkAppUpdate(version) {
     const payload = await responseJson(response);
     if (!response.ok) {
       throw new Error(updateErrorMessage(payload, `检查更新失败：HTTP ${response.status}`));
+    }
+    if (
+      updateTarget.clientVariant
+      && String(payload?.client_variant || "").trim().toLowerCase() !== updateTarget.clientVariant
+    ) {
+      return normalizeAppUpdateResponse(
+        { client_variant: updateTarget.clientVariant, update_available: false },
+        currentVersion,
+        updateTarget,
+      );
     }
     const normalized = normalizeAppUpdateResponse(payload, currentVersion, updateTarget);
     if (!normalized.update_available && index < requestArchitectures.length - 1) continue;
@@ -20459,6 +20473,7 @@ function currentUpdateTarget() {
       baseUrl: MAC_UPDATE_BASE_URL,
       checkPath: MAC_UPDATE_CHECK_PATH,
       arch: MAC_UPDATE_ARCH,
+      clientVariant: null,
       allowedExtensions: new Set([".dmg", ".zip"]),
       defaultFileName: "Haolo-Update.dmg",
     };
@@ -20468,6 +20483,7 @@ function currentUpdateTarget() {
     baseUrl: WINDOWS_UPDATE_BASE_URL,
     checkPath: WINDOWS_UPDATE_CHECK_PATH,
     arch: null,
+    clientVariant: WINDOWS_UPDATE_CLIENT_VARIANT,
     allowedExtensions: new Set([".exe"]),
     defaultFileName: "Haolo-Update.exe",
   };
@@ -20494,6 +20510,7 @@ function normalizeAppUpdateResponse(payload, currentVersion, updateTarget = curr
   const download = normalizeAppUpdateDownload(payload?.download);
   return {
     current_version: currentVersion,
+    client_variant: String(payload?.client_variant || ""),
     platform: updateTarget.platform,
     arch: updateTarget.arch,
     update_available: Boolean(payload?.update_available),
