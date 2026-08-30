@@ -10,6 +10,22 @@ https://youlebucket.oss-ap-southeast-1.aliyuncs.com/app-updates/windows/<version
 
 `oss-ap-southeast-1` 是阿里云新加坡地域。中国大陆用户下载大文件时会经过跨境公网链路。桌面客户端现已改为使用 Electron Chromium 网络栈，并支持 Range 断点续传、三次自动重试和 60 秒无数据检测；但真正改善所有国内用户速度，仍需把更新接口返回的文件地址切换到加速或境内链路。
 
+## Web3 更新通道隔离
+
+标准版与 Web3 版共用 OSS Bucket，但不能共用发布记录。旧客户端不带客户端类型时固定进入 `haolo_windows` 通道；Web3 客户端、官网 Windows 下载和发布脚本必须显式携带：
+
+```text
+client_variant=haolo_windows_web3
+```
+
+Web3 对象使用独立路径，避免相同版本号或文件名覆盖标准版：
+
+```text
+app-updates/windows/<version>/haolo_windows_web3/<installer>.exe
+```
+
+发布脚本会在上传前检查后端响应中的 `client_variant`。如果生产后端尚未支持隔离通道，脚本必须停止，不能退回标准版发布流。
+
 ## 方案 A：当天可完成，启用现有 Bucket 的传输加速
 
 适合先快速缓解，不迁移现有对象。传输加速会产生额外流量费用。
@@ -62,7 +78,7 @@ https://youlebucket.oss-ap-southeast-1.aliyuncs.com/app-updates/windows/<version
 检查更新接口实际返回的域名：
 
 ```powershell
-curl.exe -sS "https://haolo.com/api/app-updates/windows/check?version=0.1.155"
+curl.exe -sS "https://haolo.com/api/app-updates/windows/check?version=0.1.155&client_variant=haolo_windows_web3"
 ```
 
 验证服务支持断点续传；预期状态码为 `206`，响应包含 `Content-Range`：

@@ -112,6 +112,9 @@ test("main process routes app update requests through Electron net.fetch", async
   assert.match(source, /fetchImpl:\s*appNetworkFetch/);
   assert.match(source, /function appNetworkFetch[\s\S]*return net\.fetch\(url, options\)/);
   assert.ok(source.includes('const partialPath = `${destination}.part`;'));
+  assert.match(source, /WINDOWS_UPDATE_CLIENT_VARIANT = "haolo_windows_web3"/);
+  assert.match(source, /url\.searchParams\.set\("client_variant", updateTarget\.clientVariant\)/);
+  assert.match(source, /payload\?\.client_variant[\s\S]*!== updateTarget\.clientVariant/);
 });
 
 async function updateFixture(t) {
