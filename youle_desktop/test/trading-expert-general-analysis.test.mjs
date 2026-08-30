@@ -267,6 +267,119 @@ test("general analysis pipeline stays provider-neutral and emits a small isolate
   assert.match(result.analysisPlan.report, /浮盈达到 1R/);
 });
 
+test("general Binance futures analysis merges a fresh account snapshot locally without exposing it to the model", async () => {
+  let capturedPrompt = "";
+  let accountLoads = 0;
+  const result = await runTradingPriceActionAnalysisPipeline({
+    marketId: "BINANCE:FUTURES:BTCUSDT",
+    interval: "60",
+    snapshotTime: Date.now(),
+    instruction: "结合我的实盘仓位分析",
+    responseMode: "direct",
+    userRiskProfile: {
+      maxLossPerTradePercent: 2,
+      maxLeverage: 5,
+      minimumRiskRewardRatio: 1,
+    },
+    candles: fixtureCandles(),
+    async loadBinanceAccountContext() {
+      accountLoads += 1;
+      return {
+        bound: true,
+        available: true,
+        snapshot: {
+          fetchedAt: new Date().toISOString(),
+          marginBalance: 20_000,
+          availableBalance: 10_000,
+          positions: [{
+            symbol: "BTCUSDT",
+            direction: "LONG",
+            leverage: 5,
+            amount: 0.15677,
+            notionalValue: 9_876.54,
+            markPrice: 64_000,
+            entryPrice: 62_000,
+            unrealizedPnl: 123.45,
+          }],
+          warnings: [],
+        },
+      };
+    },
+  }, {
+    providerId: "fixture-provider",
+    modelRegistry: {
+      async analyze(providerId, request) {
+        capturedPrompt = request.prompt;
+        return {
+          providerId,
+          modelId: "fixture-model",
+          requestId: request.requestId,
+          latencyMs: 8,
+          usage: null,
+          finishReason: "completed",
+          text: JSON.stringify({
+            schemaVersion: 1,
+            verdict: "approve",
+            summary: "等待多头条件确认。",
+            answer: "多头结构仍在，但现在不要重复加仓。",
+            marketBias: "bullish",
+            rationale: "结构保持偏多。",
+            confidence: 0.75,
+          }),
+        };
+      },
+    },
+  });
+
+  assert.equal(accountLoads, 1);
+  assert.doesNotMatch(capturedPrompt, /9[,_]?876\.54|123\.45/);
+  assert.equal(result.executionPlan.positionSizing.accountPlan.mode, "manage_existing");
+  assert.match(result.analysisPlan.narrative, /^账户校验：当前已有 9876\.54 USDT 的多单，按现有仓位管理，不重复开仓。/);
+  assert.match(result.analysisPlan.narrative, /多头结构仍在，但现在不要重复加仓。/);
+  assert.match(result.analysisPlan.report, /已有 9876\.54 USDT 的多单，按现有仓位执行，不重复开仓/);
+  assert.match(result.analysisPlan.report, /未实现盈亏 \+123\.45 USDT/);
+});
+
+test("general Binance futures analysis safely disables sizing when the refreshed account snapshot fails", async () => {
+  const result = await runTradingPriceActionAnalysisPipeline({
+    marketId: "BINANCE:FUTURES:BTCUSDT",
+    interval: "60",
+    snapshotTime: Date.now(),
+    instruction: "分析下",
+    candles: fixtureCandles(),
+    async loadBinanceAccountContext() {
+      throw new Error("private transport unavailable");
+    },
+  }, {
+    providerId: "fixture-provider",
+    modelRegistry: {
+      async analyze(providerId, request) {
+        return {
+          providerId,
+          modelId: "fixture-model",
+          requestId: request.requestId,
+          latencyMs: 8,
+          usage: null,
+          finishReason: "completed",
+          text: JSON.stringify({
+            schemaVersion: 1,
+            verdict: "approve",
+            summary: "等待条件确认。",
+            marketBias: "bullish",
+            rationale: "结构保持偏多。",
+            confidence: 0.7,
+          }),
+        };
+      },
+    },
+  });
+
+  assert.equal(result.executionPlan.positionSizing.accountStatus, "unavailable");
+  assert.equal(result.executionPlan.positionSizing.accountPlan, null);
+  assert.match(result.analysisPlan.report, /实盘账户快照不可用或已过期/);
+  assert.doesNotMatch(result.analysisPlan.report, /推荐下单 [0-9]/);
+});
+
 test("direct analysis mode returns the model's question-specific answer without removing the guarded patch", async () => {
   const result = await runTradingPriceActionAnalysisPipeline({
     marketId: "BINANCE:FUTURES:BTCUSDT",

@@ -424,8 +424,8 @@ test("wave pipeline stays vendor-neutral and emits a guarded AI wave layer", asy
     providerId: "fixture-provider",
     modelId: "fixture-model",
     capabilities: { json: true, theoryReview: true },
-    async analyze(request) {
-      calls.push(request);
+    async analyze(request, options) {
+      calls.push({ request, options });
       return {
         text: JSON.stringify({
           schemaVersion: 1,
@@ -447,13 +447,17 @@ test("wave pipeline stays vendor-neutral and emits a guarded AI wave layer", asy
     providerId: "fixture-provider",
   });
 
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].theoryId, "elliott_wave");
-  assert.equal(calls[0].task, "wave-theory-review-and-drawing-plan");
-  assert.match(calls[0].prompt, /确定性 TheoryResult/);
-  assert.match(calls[0].prompt, /确定性 actionLevels/);
-  assert.match(calls[0].prompt, /波4重叠绝不会自动改名为倾斜/);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls.map((call) => call.options.reasoningEffort), ["medium", "high"]);
+  assert.equal(calls[0].request.theoryId, "elliott_wave");
+  assert.equal(calls[0].request.task, "wave-theory-review-and-drawing-plan");
+  assert.match(calls[0].request.prompt, /确定性 TheoryResult/);
+  assert.match(calls[0].request.prompt, /确定性 actionLevels/);
+  assert.match(calls[0].request.prompt, /波4重叠绝不会自动改名为倾斜/);
   assert.equal(result.model.providerId, "fixture-provider");
+  assert.equal(result.model.reasoningEffort, "high");
+  assert.equal(result.model.reviewAttempts, 2);
+  assert.match(result.model.escalationReason, /deterministic_candidates_close/);
   assert.ok(result.analysisPlan.drawingPatch.operations.length >= 24);
   assert.ok(result.analysisPlan.drawingPatch.operations.length <= 32);
   assert.ok(result.analysisPlan.drawingPatch.operations.every(({ drawing }) => (

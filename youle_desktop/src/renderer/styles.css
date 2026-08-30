@@ -4554,93 +4554,6 @@ select:disabled {
   color: #8f8f8f;
 }
 
-.login-wecom-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 98;
-  background: rgba(0, 0, 0, 0.18);
-  -webkit-app-region: no-drag;
-}
-
-.login-wecom-dialog {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  z-index: 99;
-  display: grid;
-  justify-items: center;
-  width: min(300px, calc(100vw - 56px));
-  margin: 0;
-  border: 0;
-  border-radius: 16px;
-  background: var(--surface-primary);
-  padding: 22px 22px 20px;
-  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.18);
-  transform: translate(-50%, -50%);
-  -webkit-app-region: no-drag;
-}
-
-.login-wecom-close {
-  position: absolute;
-  right: 14px;
-  top: 14px;
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border-radius: 999px;
-  color: #a3a3a3;
-  padding: 0;
-  transition: background-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
-}
-
-.login-wecom-close:hover {
-  background: #f2f4f7;
-  color: #4b5563;
-}
-
-.login-wecom-close:active {
-  background: #e7ebf0;
-  color: #242b36;
-  transform: scale(0.94);
-}
-
-.login-wecom-close:focus-visible {
-  outline: 2px solid rgba(47, 155, 255, 0.58);
-  outline-offset: 2px;
-}
-
-.login-wecom-close svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.5;
-}
-
-.login-wecom-dialog h2 {
-  width: min(216px, 100%);
-  margin: 0 0 14px;
-  padding-left: 35px;
-  color: var(--text-near-black);
-  font-size: calc(14px + var(--app-font-size-offset));
-  font-weight: 400;
-  line-height: 24px;
-  text-align: left;
-}
-
-.login-wecom-qr-image {
-  display: block;
-  width: min(216px, 100%);
-  max-height: min(62vh, 460px);
-  border: 0;
-  border-radius: 8px;
-  background: var(--surface-primary);
-  object-fit: contain;
-}
-
 .login-activate-panel {
   padding-top: 50px;
   width: 100%;
@@ -21060,8 +20973,8 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
 .recharge-product-grid {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(3, minmax(210px, 1fr));
-  gap: calc(2.5% + 4.533333px);
+  grid-template-columns: repeat(var(--recharge-product-columns, 4), minmax(190px, 1fr));
+  gap: calc(1.25% + 2.266667px);
 }
 
 .recharge-product-card {
@@ -21104,6 +21017,28 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   border-color: #8dccff;
   background: #fff;
   box-shadow: 0 16px 36px rgba(15, 23, 42, 0.07);
+}
+
+.recharge-product-card[aria-disabled="true"] {
+  border-color: #d8dee8;
+  background: #f5f7fa;
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.recharge-product-card[aria-disabled="true"]:hover,
+.recharge-product-card[aria-disabled="true"]:active,
+.recharge-product-card[aria-disabled="true"]:focus-visible {
+  border-color: #d8dee8;
+  box-shadow: none;
+  transform: none;
+}
+
+.recharge-product-badge.unavailable {
+  border-color: #d7dde6;
+  background: #eef1f5;
+  color: #697586;
 }
 
 .recharge-product-card-head {
@@ -22178,6 +22113,12 @@ html[data-theme="dark"] .recharge-payment-state.manual .recharge-payment-state-i
   color: var(--brand-blue);
 }
 @media (max-width: 720px) {}
+
+@media (max-width: 1280px) {
+  .recharge-product-grid {
+    grid-template-columns: repeat(2, minmax(210px, 1fr));
+  }
+}
 
 @media (max-width: 860px) {
   .recharge-page-scroll {
@@ -29331,6 +29272,38 @@ html[data-theme="dark"] .recharge-product-token {
   background: linear-gradient(180deg, #222327 0%, #1f2023 100%);
 }
 
+html:not([data-theme="dark"]) .recharge-product-card[aria-disabled="true"],
+html:not([data-theme="dark"]) .recharge-product-card[aria-disabled="true"]:hover,
+html:not([data-theme="dark"]) .recharge-product-card[aria-disabled="true"]:active,
+html:not([data-theme="dark"]) .recharge-product-card[aria-disabled="true"]:focus-visible {
+  border-color: #d8dee8;
+  background: #f5f7fa;
+  box-shadow: none;
+  transform: none;
+}
+
+html[data-theme="dark"] .recharge-product-card[aria-disabled="true"],
+html[data-theme="dark"] .recharge-product-card[aria-disabled="true"]:hover,
+html[data-theme="dark"] .recharge-product-card[aria-disabled="true"]:active,
+html[data-theme="dark"] .recharge-product-card[aria-disabled="true"]:focus-visible {
+  border-color: #303238;
+  background: #17181b;
+  box-shadow: none;
+  transform: none;
+  opacity: 0.68;
+}
+
+html[data-theme="dark"] .recharge-product-card[aria-disabled="true"] .recharge-product-token {
+  border-color: #303238;
+  background: #1d1e21;
+}
+
+html[data-theme="dark"] .recharge-product-badge.unavailable {
+  border-color: #3a3d43;
+  background: #25272b;
+  color: #9ba2ad;
+}
+
 /* Chat workspace uses black separation instead of blue-gray panels. */
 html[data-theme="dark"] .desktop-body:has(> .chat-panel) {
   background: #0d0e10;
@@ -29708,28 +29681,9 @@ html[data-theme="dark"] {
   --dialog-disabled-text: #7f8792;
 }
 
-html[data-theme="dark"] .modal-backdrop,
-html[data-theme="dark"] .login-wecom-backdrop {
+html[data-theme="dark"] .modal-backdrop {
   background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(1px);
-}
-
-html[data-theme="dark"] .login-wecom-close {
-  color: #9ca6b4;
-}
-
-html[data-theme="dark"] .login-wecom-close:hover {
-  background: var(--dialog-secondary-hover);
-  color: #f2f5fa;
-}
-
-html[data-theme="dark"] .login-wecom-close:active {
-  background: #343840;
-  color: #fff;
-}
-
-html[data-theme="dark"] .login-wecom-close:focus-visible {
-  outline-color: #5b9dff;
 }
 
 html[data-theme="dark"] dialog[open] {

@@ -61,17 +61,24 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
     ".recharge-subscription-content",
   );
 
+  assert.match(products, /id: "subscription_trial"[\s\S]*?priceUsdt: 4\.9[\s\S]*?billingPeriod: "3天"[\s\S]*?tokenAmount: 100[\s\S]*?requiresTrialEligibility: true/);
+  assert.match(products, /description: "首次开通专享，体验 AI 行情解读与基础交易分析。"/);
+  assert.ok(products.indexOf('id: "subscription_trial"') < products.indexOf('id: "subscription_basic"'));
   assert.match(products, /id: "subscription_basic"[\s\S]*?priceUsdt: 99[\s\S]*?billingPeriod: "月"[\s\S]*?tokenAmount: 1000/);
   assert.match(products, /id: "subscription_pro"[\s\S]*?priceUsdt: 499[\s\S]*?billingPeriod: "半年"[\s\S]*?tokenAmount: 6000/);
   assert.match(products, /id: "subscription_flagship"[\s\S]*?priceUsdt: 799[\s\S]*?billingPeriod: "年"[\s\S]*?tokenAmount: 12000/);
+  for (const description of [
+    "适合日常看盘、行情问答与基础策略分析。",
+    "适合持续行情研判、多策略分析与交易计划制定。",
+    "适合高频行情分析、复杂策略研究与专业交易辅助。",
+  ]) assert.ok(products.includes(`description: "${description}"`), `missing trading plan copy: ${description}`);
   assert.doesNotMatch(products, /priceYuan|amountFen/);
-  assert.match(products, /let selectedRechargeProductId = "subscription_basic"/);
+  assert.match(products, /let selectedRechargeProductId = "subscription_trial"/);
   assert.doesNotMatch(products, /featured:\s*true/);
   assert.match(productCard, /<strong>\$\{product\.priceUsdt\}U<\/strong><small>\/\$\{escapeHtml\(product\.billingPeriod\)\}<\/small>/);
   assert.doesNotMatch(productCard, /<span>¥<\/span>|product\.priceYuan/);
-  assert.match(productCard, /class="recharge-product-card \$\{isSelected \? "selected" : ""\}"/);
-  assert.match(productCard, /role="radio"[\s\S]*?aria-checked="\$\{isSelected \? "true" : "false"\}"[\s\S]*?tabindex="0"/);
-  assert.doesNotMatch(productCard, /paymentLocked|payment-locked|aria-disabled/);
+  assert.match(productCard, /class="recharge-product-card \$\{isSelected \? "selected" : ""\} \$\{unavailable \? "unavailable" : ""\}"/);
+  assert.match(productCard, /role="radio"[\s\S]*?aria-checked="\$\{isSelected \? "true" : "false"\}"[\s\S]*?aria-disabled="\$\{unavailable \? "true" : "false"\}"[\s\S]*?tabindex="\$\{unavailable \? "-1" : "0"\}"/);
   assert.doesNotMatch(productCard, /recharge-product-help|<summary|查看兑换说明/);
   assert.doesNotMatch(products, /id: "addon_|kind: "addon"/);
   assert.match(products, /id: "binance_internal"[\s\S]*?asset: "BNB"[\s\S]*?label: "币安内部转账"[\s\S]*?kind: "internal"/);
@@ -84,8 +91,11 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(products, /let selectedRechargePaymentNetwork: RechargePaymentNetworkId \| null = "binance_internal"/);
   assert.match(page, /RECHARGE_SUBSCRIPTION_PRODUCTS/);
   assert.match(page, /class="recharge-product-grid subscription" role="radiogroup"[\s\S]*?aria-required="true"/);
+  assert.match(page, /const visibleProducts = visibleRechargeSubscriptionProducts\(\)/);
+  assert.match(page, /style="--recharge-product-columns: \$\{visibleProducts\.length\}"/);
+  assert.match(page, /\$\{visibleProducts\.map\(renderRechargeProductCard\)\.join\(""\)\}/);
   assert.match(page, /class="recharge-subscription-content"/);
-  assert.match(page, /class="recharge-history-action"[\s\S]*?class="recharge-support-button" data-action="open-wecom-support"[\s\S]*?<span>联系客服<\/span>[\s\S]*?class="recharge-history-button"/);
+  assert.match(page, /class="recharge-history-action"[\s\S]*?class="recharge-support-button" data-action="open-website-support"[\s\S]*?<span>联系客服<\/span>[\s\S]*?class="recharge-history-button"/);
   assert.match(pageScrollStyles, /overflow: hidden/);
   assert.match(pageScrollStyles, /padding: 12px clamp\(22px, 3\.4vw, 48px\) 47px/);
   assert.doesNotMatch(styles, /\.recharge-page-scroll\s*\{[^}]*scrollbar-color/);
@@ -110,7 +120,8 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentEvents, /if \(!rechargePaymentViewActive\)[\s\S]*?rechargePaymentViewActive = true;[\s\S]*?activateRechargePaymentSelection\(\)/);
   assert.match(paymentEvents, /updateRechargePaymentDetails\(\)/);
   assert.match(paymentDetails, /支付金额/);
-  assert.match(paymentDetails, /function ensureRechargeProductSelection\(\)[\s\S]*?RECHARGE_SUBSCRIPTION_PRODUCTS\[0\][\s\S]*?selectedRechargeProductId = product\.id/);
+  assert.match(paymentDetails, /function visibleRechargeSubscriptionProducts\(\)[\s\S]*?RECHARGE_SUBSCRIPTION_PRODUCTS\.filter\(\(product\) => !rechargeProductIsUnavailable\(product\)\)/);
+  assert.match(paymentDetails, /function ensureRechargeProductSelection\(\)[\s\S]*?visibleRechargeSubscriptionProducts\(\)[\s\S]*?candidate\.id === "subscription_basic"[\s\S]*?selectedRechargeProductId = product\.id/);
   assert.match(paymentDetails, /function rechargePaymentSelection\(\)[\s\S]*?ensureRechargeProductSelection\(\)/);
   assert.match(paymentDetails, /收款地址/);
   assert.match(paymentDetails, /order\.payable_amount/);
@@ -153,6 +164,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentDetails, /暂时无法确认最后一次到账结果，请勿重复支付/);
   assert.match(paymentDetails, /积分已全部到账/);
   assert.match(productEvents, /selectedRechargeProductId = product\.id/);
+  assert.match(productEvents, /selectedCard\.getAttribute\("aria-disabled"\) === "true"/);
   assert.match(productEvents, /card\.classList\.toggle\("selected", isSelected\)/);
   assert.match(productEvents, /event\.key !== "Enter" && event\.key !== " "/);
   assert.match(styles, /\.recharge-product-card\.selected/);
@@ -167,6 +179,10 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-support-button:disabled/);
   assert.match(styles, /html:not\(\[data-theme="dark"\]\) \.recharge-product-card\.selected/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card\.selected/);
+  assert.match(styles, /\.recharge-product-grid\s*\{[\s\S]*?grid-template-columns: repeat\(var\(--recharge-product-columns, 4\), minmax\(190px, 1fr\)\)/);
+  assert.match(styles, /\.recharge-product-grid\s*\{[\s\S]*?gap: calc\(1\.25% \+ 2\.266667px\)/);
+  assert.match(styles, /\.recharge-product-card\[aria-disabled="true"\]/);
+  assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card\[aria-disabled="true"\]/);
   assert.doesNotMatch(styles, /recharge-product-card\.featured/);
   assert.match(styles, /\.recharge-payment-network:hover/);
   assert.match(styles, /\.recharge-payment-network:has\(input:not\(:disabled\)\):active/);
@@ -202,6 +218,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(browserMock, /selectionKey = `\$\{productId\}:\$\{network\}:web3`/);
   assert.match(browserMock, /mockWeb3PaymentOrders\.get\(selectionKey\)/);
   assert.match(browserMock, /mockWeb3PaymentOrders\.set\(selectionKey, order\)/);
+  assert.match(browserMock, /subscription_trial: \{ name: "体验版订阅", price: "4\.873", tokens: "100", months: 0, days: 3, plan: "trial" \}/);
   assert.match(browserMock, /binance_internal: "1261385376"/);
   assert.match(browserMock, /okx_internal: "694504753333973132"/);
 });

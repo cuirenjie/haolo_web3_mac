@@ -38,6 +38,54 @@ test("group selection and encoded UI copy have complete English translations", (
   assert.equal(translateAppText("不选择分组", "zh-TW"), "不選擇分組");
 });
 
+test("the WEB3 membership-expired error is localized in all interface languages", () => {
+  assert.equal(translateAppText("会员到期", "zh-CN"), "会员到期");
+  assert.equal(translateAppText("会员到期", "en"), "Membership expired");
+  assert.equal(translateAppText("会员到期", "zh-TW"), "會員到期");
+});
+
+test("paid trial and free WEB3 membership copy is localized in all interface languages", () => {
+  assert.equal(translateAppText("WEB3免费", "en"), "WEB3 Free");
+  assert.equal(translateAppText("WEB3免费", "zh-TW"), "WEB3免費");
+  assert.equal(translateAppText("体验版", "en"), "Trial");
+  assert.equal(translateAppText("体验版", "zh-TW"), "體驗版");
+  assert.equal(translateAppText("3天", "en"), "3 days");
+  assert.equal(
+    translateAppText("从开通时刻起精确 72 小时有效", "zh-TW"),
+    "從開通時刻起精確 72 小時有效",
+  );
+  assert.equal(
+    translateAppText("当前没有可用积分，请开通体验版或其他套餐后再提问", "en"),
+    "You have no available points. Activate the trial or another plan before asking the model.",
+  );
+  const planDescriptions = [
+    [
+      "首次开通专享，体验 AI 行情解读与基础交易分析。",
+      "A first-time offer for trying AI market insights and basic trading analysis.",
+      "首次開通專享，體驗 AI 行情解讀與基礎交易分析。",
+    ],
+    [
+      "适合日常看盘、行情问答与基础策略分析。",
+      "For everyday market monitoring, market Q&A, and basic strategy analysis.",
+      "適合日常看盤、行情問答與基礎策略分析。",
+    ],
+    [
+      "适合持续行情研判、多策略分析与交易计划制定。",
+      "For ongoing market assessment, multi-strategy analysis, and trading-plan development.",
+      "適合持續行情研判、多策略分析與交易計劃制定。",
+    ],
+    [
+      "适合高频行情分析、复杂策略研究与专业交易辅助。",
+      "For high-frequency market analysis, advanced strategy research, and professional trading assistance.",
+      "適合高頻行情分析、複雜策略研究與專業交易輔助。",
+    ],
+  ];
+  for (const [simplified, english, traditional] of planDescriptions) {
+    assert.equal(translateAppText(simplified, "en"), english);
+    assert.equal(translateAppText(simplified, "zh-TW"), traditional);
+  }
+});
+
 test("the composer resource hint translates as a complete phrase in every language", () => {
   const hint = "点击+调用策略、指标、预警和文件";
   const traditional = "點擊+調用策略、指標、預警和檔案";
@@ -69,8 +117,7 @@ test("chart annotations translate whole statements without changing prices or po
   assert.equal(translateTradingAnnotationText(reference, "en"), "Prior top fractal 79,180.2 (structure reference). Above the key high weakens the down structure.");
   assert.equal(translateTradingAnnotationText("盘面结论：The latest stroke is up.", "en"), "Summary: The latest stroke is up.");
   for (const source of ["盘面结论：中枢震荡后反弹，后续笔尚未确认。", "Custom 𠀀 annotation", "Medium枢 still active"]) {
-    assert.doesNotMatch(translateTradingAnnotationText(source, "en"), /\p{Script=Han}/u);
-    assert.match(translateTradingAnnotationText(source, "en"), /unavailable in English/);
+    assert.equal(translateTradingAnnotationText(source, "en"), source);
   }
   assert.equal(translateTradingAnnotationText("Fib 0.618: 79,180.2", "en"), "Fib 0.618: 79,180.2");
   for (const [source, expected] of [
@@ -422,11 +469,22 @@ test("native dialogs receive localized copy from the persisted application langu
 test("client-owned chat notices are localized while user and model content remain protected", async () => {
   const [renderer, language] = await Promise.all([rendererSource, languageSource]);
   const bubbleBlock = sourceBlock(renderer, "function renderTextBubble", "function executionPlanCandidateKey");
+  const reportBlock = sourceBlock(renderer, "function appendTradingExpertReport", "function tradingAlertMentioned");
+  const planCardBlock = sourceBlock(renderer, "function renderExecutionPlanCardContent", "function renderMessageExecutionPlan");
   const skipBlock = sourceBlock(language, "function shouldSkipLocalization", "function localizeTextNode");
   assert.match(renderer, /trading-preference-onboarding-bubble[\s\S]*message-text" data-i18n-owned/);
   assert.match(renderer, /multi-model-cluster-planning-bubble[\s\S]*message-text" data-i18n-owned/);
   assert.match(bubbleBlock, /shouldLocalizeAppOwnedMessage\(message, fromUser\)/);
+  assert.match(bubbleBlock, /const displayText = text/);
+  assert.doesNotMatch(bubbleBlock, /englishSafeAssistantText/);
   assert.match(bubbleBlock, /data-i18n-owned/);
+  assert.match(reportBlock, /const visibleText = String\(text \|\| ""\)/);
+  assert.doesNotMatch(reportBlock, /englishSafeAssistantText/);
+  assert.match(planCardBlock, /const visibleContent = String\(content \|\| ""\)/);
+  assert.doesNotMatch(planCardBlock, /englishSafeAssistantText/);
   assert.match(skipBlock, /closest\?\.\(APP_OWNED_LOCALIZATION_SELECTOR\).*return false/s);
   assert.match(language, /\.message-text/);
+  assert.match(language, /\.execution-plan-card-content/);
+  assert.doesNotMatch(renderer, /This response could not be displayed because it was not generated entirely in English/);
+  assert.doesNotMatch(language, /Annotation unavailable in English|Summary unavailable in English/);
 });

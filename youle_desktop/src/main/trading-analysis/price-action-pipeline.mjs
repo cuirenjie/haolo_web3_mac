@@ -1,10 +1,20 @@
 import crypto from "node:crypto";
 import { runPriceActionEngine } from "./price-action-engine.mjs";
+import { runValidatedTradingModelReview } from "./model-review.mjs";
 import {
   TRADING_ANALYSIS_SCHEMA_VERSION,
   normalizeTradingMarketSnapshot,
   validateTradingDrawingPatch,
 } from "./protocol.mjs";
+import {
+  buildExecutionPlanV1,
+  formatExecutionPlanMarkdown,
+} from "../trading-strategy-runtime/execution-plan-builder.mjs";
+
+const GENERAL_PRICE_ACTION_EXECUTION_MANIFEST = Object.freeze({
+  id: "price-action",
+  version: "1.1.0",
+});
 
 function extractJsonObject(text) {
   const source = String(text || "").trim();
@@ -40,6 +50,45 @@ function trendLabel(trend) {
   if (trend === "bullish") return "偏多";
   if (trend === "bearish") return "偏空";
   return "震荡等待";
+}
+
+function supportsBinanceAccountExecutionPlan(snapshot) {
+  return /^BINANCE:(?:FUTURES|PERPETUAL):/iu.test(String(snapshot?.marketId || ""));
+}
+
+async function loadBinanceAccountContext(params) {
+  if (params?.binanceAccountContext && typeof params.binanceAccountContext === "object") {
+    return params.binanceAccountContext;
+  }
+  if (typeof params?.loadBinanceAccountContext !== "function") return null;
+  try {
+    return await params.loadBinanceAccountContext();
+  } catch {
+    return { bound: true, available: false, snapshot: null };
+  }
+}
+
+function accountAwareDirectNarrative(narrative, executionPlan) {
+  const answer = String(narrative || "").trim();
+  const sizing = executionPlan?.positionSizing;
+  if (!sizing || sizing.accountStatus === "unbound") return answer;
+  if (sizing.accountStatus === "unavailable") {
+    return [answer, "账户校验：币安实盘快照不可用或已过期，暂不生成仓位调整或下单数量。"]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  const plan = sizing.accountPlan;
+  if (!plan) return answer;
+  const money = (value) => Number(value).toFixed(2).replace(/\.00$/u, "").replace(/(\.\d)0$/u, "$1");
+  const positionSide = plan.existingSide === "long" ? "多单" : "空单";
+  const accountDecision = plan.mode === "close_opposite"
+    ? `账户校验：当前已有 ${money(plan.existingNotional)} USDT 的反向${positionSide}，应先平仓，暂不开新仓。`
+    : plan.mode === "reduce_existing"
+      ? `账户校验：当前${positionSide}约 ${money(plan.existingNotional)} USDT，按风险上限应先减至约 ${money(plan.notional)} USDT。`
+      : plan.mode === "manage_existing"
+        ? `账户校验：当前已有 ${money(plan.existingNotional)} USDT 的${positionSide}，按现有仓位管理，不重复开仓。`
+        : `账户校验：按当前权益与可用余额测算，候选仓位约 ${money(plan.notional)} USDT，杠杆不超过 ${plan.leverage} 倍。`;
+  return [accountDecision, answer].filter(Boolean).join("\n\n");
 }
 
 function personalizedTradingSettings(value) {
@@ -265,7 +314,7 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
   }
   const providerId = String(options.providerId || "").trim();
   const requestId = `price-action-request-${crypto.randomUUID()}`;
-  const modelResponse = await options.modelRegistry.analyze(providerId, {
+  const modelRequest = {
     schemaVersion: 1,
     requestId,
     task: "price-action-review-and-drawing-plan",
@@ -277,14 +326,22 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
       userRiskProfile: params?.userRiskProfile,
     }),
     responseFormat: "json",
-  }, { signal: options.signal });
-  const modelReview = normalizePriceActionModelReview(modelResponse.text);
+  };
+  const reviewed = await runValidatedTradingModelReview({
+    modelRegistry: options.modelRegistry,
+    providerId,
+    request: modelRequest,
+    signal: options.signal,
+    theoryResult,
+    validateResponse: normalizePriceActionModelReview,
+  });
+  const { modelResponse, review: modelReview } = reviewed;
   const drawingPatch = buildPriceActionDrawingPatch(snapshot, theoryResult, modelReview);
-  const report = buildPriceActionReport(snapshot, theoryResult, modelReview, {
+  const baseReport = buildPriceActionReport(snapshot, theoryResult, modelReview, {
     instruction: params?.instruction,
     userRiskProfile: params?.userRiskProfile,
   });
-  return {
+  const result = {
     ok: true,
     schemaVersion: 1,
     snapshot: {
@@ -305,9 +362,12 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
       narrative: params?.responseMode === "direct"
         ? (modelReview.answer || modelReview.summary)
         : modelReview.summary,
-      report,
+      report: baseReport,
       confidence: modelReview.confidence,
-      actionPlan: theoryResult.levels,
+      actionPlan: {
+        ...theoryResult.levels,
+        primaryBias: theoryResult.trend,
+      },
       drawingPatch,
     },
     model: {
@@ -317,6 +377,40 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
       latencyMs: modelResponse.latencyMs,
       usage: modelResponse.usage,
       finishReason: modelResponse.finishReason,
+      reasoningEffort: reviewed.reasoningEffort,
+      reviewAttempts: reviewed.attempts.length,
+      escalationReason: reviewed.escalationReason,
+    },
+  };
+  const hasAccountContext = params?.binanceAccountContext && typeof params.binanceAccountContext === "object";
+  if (
+    !supportsBinanceAccountExecutionPlan(snapshot)
+    || (!hasAccountContext && typeof params?.loadBinanceAccountContext !== "function")
+  ) {
+    return result;
+  }
+
+  // Private account data is deliberately loaded only after the external model
+  // review has completed. It is merged by the local deterministic plan builder
+  // and is never included in the provider prompt above.
+  const binanceAccountContext = await loadBinanceAccountContext(params);
+  const executionPlan = buildExecutionPlanV1(GENERAL_PRICE_ACTION_EXECUTION_MANIFEST, result, {
+    ...params,
+    binanceAccountContext,
+  });
+  const executionReport = formatExecutionPlanMarkdown(executionPlan, {
+    language: params?.language,
+  });
+  return {
+    ...result,
+    executionPlan,
+    analysisPlan: {
+      ...result.analysisPlan,
+      executionPlan,
+      narrative: params?.responseMode === "direct"
+        ? accountAwareDirectNarrative(result.analysisPlan.narrative, executionPlan)
+        : result.analysisPlan.narrative,
+      report: `${executionReport}\n\n---\n\n${baseReport}`.trim(),
     },
   };
 }

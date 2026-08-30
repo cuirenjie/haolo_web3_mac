@@ -34,3 +34,21 @@ test("theory review fixes high effort behind a single hard-bounded attempt", () 
     maxAttempts: 1,
   });
 });
+
+test("only theory reviews accept controlled high and max escalation overrides", () => {
+  assert.equal(tradingAnalysisTurnPolicy("wave-theory-review", {
+    requestedReasoningEffort: "high",
+  }).reasoningEffort, "high");
+  assert.equal(tradingAnalysisTurnPolicy("wave-theory-review", {
+    requestedReasoningEffort: "max",
+  }).reasoningEffort, "max");
+  assert.equal(tradingAnalysisTurnPolicy("wave-theory-review", {
+    requestedReasoningEffort: "ultra",
+  }).reasoningEffort, "medium");
+  assert.equal(tradingAnalysisTurnPolicy("chan-request-routing", {
+    requestedReasoningEffort: "max",
+  }).reasoningEffort, "medium");
+  assert.equal(tradingAnalysisTurnPolicy("trading_alert_intent_compile", {
+    requestedReasoningEffort: "max",
+  }).reasoningEffort, "medium");
+});

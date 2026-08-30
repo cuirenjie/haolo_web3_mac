@@ -215,6 +215,9 @@ test("model provider registry keeps the Chan pipeline independent from a concret
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].modelId, DEFAULT_TRADING_ANALYSIS_MODEL_ID);
+  assert.equal(calls[0].reasoningEffort, "medium");
+  assert.equal(result.model.reasoningEffort, "medium");
+  assert.equal(result.model.reviewAttempts, 1);
   assert.equal(result.model.providerId, DEFAULT_TRADING_ANALYSIS_PROVIDER_ID);
   assert.equal(result.model.modelId, DEFAULT_TRADING_ANALYSIS_MODEL_ID);
   assert.equal(result.analysisPlan.drawingPatch.operations[0].drawing.tool, "path");
@@ -443,7 +446,8 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   assert.match(mainSource, /tradingAnalysis:classifyChanRequest/);
   assert.match(mainSource, /tradingAnalysis:runChanTest/);
   assert.match(mainSource, /DEFAULT_TRADING_ANALYSIS_PROVIDER_ID/);
-  assert.match(mainSource, /const turnPolicy = tradingAnalysisTurnPolicy\(request\.task\)/);
+  assert.match(mainSource, /const turnPolicy = tradingAnalysisTurnPolicy\(request\.task, \{ requestedReasoningEffort \}\)/);
+  assert.match(mainSource, /fixedEffort: reasoningEffort/);
   assert.match(mainSource, /resetTimeoutOnActivity,/);
   assert.match(mainSource, /timeoutRetryable,/);
   assert.match(mainSource, /fixedReasoningEffort: reasoningEffort/);

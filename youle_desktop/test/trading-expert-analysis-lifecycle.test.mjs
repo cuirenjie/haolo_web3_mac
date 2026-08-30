@@ -17,6 +17,7 @@ test("trading analysis jobs retain their submitted market context across view ch
     marketId: "BINANCE:FUTURES:BTCUSDT",
     symbol: "BTCUSDT",
     interval: "240",
+    language: "zh-CN",
     market: { id: "BINANCE:FUTURES:BTCUSDT", symbol: "BTCUSDT" },
   });
 
@@ -25,6 +26,7 @@ test("trading analysis jobs retain their submitted market context across view ch
   assert.equal(original.storageSessionId, "real-thread");
   assert.equal(original.marketId, "BINANCE:FUTURES:BTCUSDT");
   assert.equal(original.interval, "240");
+  assert.equal(original.language, "zh-CN");
   jobs.complete(original.analysisId);
   assert.equal(original.status, "completed");
 });

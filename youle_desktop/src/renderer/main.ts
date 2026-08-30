@@ -503,7 +503,6 @@ const TRADING_INDICATOR_SKILL_CARD_PREFIX = "trading-indicator:";
 const TRADING_TREND_BAND_SKILL_CARD_ID = `${TRADING_INDICATOR_SKILL_CARD_PREFIX}trend-band`;
 const LOGIN_SUCCESS_ICON_URL = new URL("./assets/login-success-logo.png", import.meta.url).href;
 const SETTINGS_APP_ICON_URL = new URL("./assets/nav/settings-about-logo.svg", import.meta.url).href;
-const CUSTOMER_SERVICE_QR_URL = new URL("./assets/customer-service-qr.jpg", import.meta.url).href;
 const SETTINGS_PROFILE_ICON_URL = new URL("./assets/images/settings-profile.svg", import.meta.url).href;
 const SETTINGS_CONSUMPTION_ICON_URL = new URL("./assets/images/settings-consumption.svg", import.meta.url).href;
 const SETTINGS_GENERAL_ICON_URL = new URL("./assets/images/settings-general.svg", import.meta.url).href;
@@ -598,11 +597,28 @@ function localizedThinkingStage(stage: ThinkingStagePresentation | null): Thinki
 }
 const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
   {
+    id: "subscription_trial",
+    kind: "subscription",
+    name: "体验版",
+    orderName: "体验版订阅",
+    description: "首次开通专享，体验 AI 行情解读与基础交易分析。",
+    detail: "总额度 100 积分·3天会员",
+    priceUsdt: 4.9,
+    amountCents: 490,
+    billingPeriod: "3天",
+    tokenAmount: 100,
+    unitValue: "4.9",
+    multiplier: "1:0.049",
+    features: ["支付成功后 100 积分立即到账", "从开通时刻起精确 72 小时有效", "到期剩余积分立即清零，每个账户限开通一次"],
+    badge: "首次专享",
+    requiresTrialEligibility: true,
+  },
+  {
     id: "subscription_basic",
     kind: "subscription",
     name: "基础版",
     orderName: "基础版订阅",
-    description: "适合日常问答、偶尔创作和初次体验 AI 工作流。",
+    description: "适合日常看盘、行情问答与基础策略分析。",
     detail: "总额度 1,000 积分·1个月会员",
     priceUsdt: 99,
     amountCents: 9_900,
@@ -617,7 +633,7 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     kind: "subscription",
     name: "专业版",
     orderName: "专业版订阅",
-    description: "适合持续内容创作、研究分析与日常专业任务。",
+    description: "适合持续行情研判、多策略分析与交易计划制定。",
     detail: "总额度 6,000 积分·半年会员",
     priceUsdt: 499,
     amountCents: 49_900,
@@ -632,7 +648,7 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     kind: "subscription",
     name: "旗舰版",
     orderName: "旗舰版订阅",
-    description: "适合高频 AI 创作、复杂任务执行与小型团队协作。",
+    description: "适合高频行情分析、复杂策略研究与专业交易辅助。",
     detail: "总额度 12,000 积分·1年会员",
     priceUsdt: 799,
     amountCents: 79_900,
@@ -692,6 +708,7 @@ type Web3PaymentOrder = {
   currency: "USDT" | string;
   token_amount: string;
   membership_months: number;
+  membership_days: number;
   network: RechargePaymentNetworkId;
   recipient_address: string;
   token_contract: string;
@@ -722,7 +739,7 @@ const rechargePaymentOrdersBySelection = new Map<string, Web3PaymentOrder>();
 const rechargePaymentOrderLoadingSelections = new Set<string>();
 const rechargePaymentOrderErrorsBySelection = new Map<string, string>();
 const rechargePaymentExpiryChecksInFlight = new Set<string>();
-let selectedRechargeProductId = "subscription_basic";
+let selectedRechargeProductId = "subscription_trial";
 let selectedRechargePaymentNetwork: RechargePaymentNetworkId | null = "binance_internal";
 let rechargePaymentOrder: Web3PaymentOrder | null = null;
 let rechargePaymentOrderScope = "";
@@ -889,7 +906,7 @@ const DESKTOP_SANDBOX_POLICY = "danger-full-access";
 const AUTHENTICATED_WORKSPACE_BOOT_TIMEOUT_MS = 12_000;
 const APP_WINDOW_MODE_TRANSITION_REVEAL_DELAY_MS = 50;
 const APP_WINDOW_MODE_TRANSITION_FALLBACK_MS = 1800;
-const INSUFFICIENT_QUOTA_MESSAGE = "您的额度不足";
+const INSUFFICIENT_QUOTA_MESSAGE = "当前没有可用积分，请开通体验版或其他套餐后再提问";
 const RECHARGE_TOKEN_ACTION_ID = "recharge-token";
 const RECHARGE_TOKEN_ACTION_KIND = "recharge_token";
 const LOW_BALANCE_PROFILE_REFRESH_INITIAL_DELAY_MS = 1_000;
@@ -1430,6 +1447,7 @@ type DesktopApi = {
   quitApp?(): Promise<any>;
   getYouleSession(): Promise<any>;
   refreshYouleSession?(params?: { reason?: string }): Promise<any>;
+  openWebsiteSupport?(): Promise<{ ok?: boolean; authenticated?: boolean }>;
   refreshProfile(): Promise<any>;
   listImageGenerationModels?(params?: { force?: boolean }): Promise<any>;
   listProviderModelCatalog?(params?: { force?: boolean }): Promise<any>;
@@ -2755,6 +2773,8 @@ type AuthProfile = {
   membershipExpiresAt?: string | null;
   membership_plan?: string | null;
   membershipPlan?: string | null;
+  trial_eligible?: boolean | null;
+  trialEligible?: boolean | null;
   active_membership?: Record<string, unknown> | null;
   activeMembership?: Record<string, unknown> | null;
   token_balance_label?: string | null;
@@ -2837,13 +2857,14 @@ type RechargeProductDefinition = {
   detail: string;
   priceUsdt: number;
   amountCents: number;
-  billingPeriod: "月" | "半年" | "年";
+  billingPeriod: "3天" | "月" | "半年" | "年";
   tokenAmount: number;
   weeklyTokenAmount?: number;
   unitValue: string;
   multiplier: string;
   features: readonly string[];
   badge?: string;
+  requiresTrialEligibility?: boolean;
 };
 
 type AutoTaskDraftState = {
@@ -2884,6 +2905,18 @@ type AutoTaskItem = {
   runCount?: number;
   threadId?: string | null;
   runs?: AutoTaskRunSummary[];
+  executionProfile?: "trading-agent-v1";
+  tradingContext?: AutoTaskTradingContext | null;
+};
+
+type AutoTaskTradingContext = {
+  provider: string;
+  venue: string;
+  marketType: string;
+  marketId: string;
+  symbol: string;
+  interval: string;
+  resolution: string;
 };
 
 type AutoTaskRunSummary = {
@@ -2896,6 +2929,7 @@ type AutoTaskRunSummary = {
   scheduledForUtc?: string | null;
   summary?: string | null;
   errorMessage?: string | null;
+  tradingAnalysis?: Record<string, unknown> | null;
 };
 
 type AutoTaskConversationSummary = ConversationSummary & {
@@ -2963,7 +2997,6 @@ type LoginState = {
   resendReadyAt: number | null;
   busy: "check" | "send" | "verify" | "activate" | "wechat" | null;
   error: string | null;
-  wecomSupportOpen: boolean;
 };
 
 type ViewId =
@@ -5437,7 +5470,6 @@ const state: UiState = {
     resendReadyAt: null,
     busy: null,
     error: null,
-    wecomSupportOpen: false,
   },
   profileEdit: {
     open: false,
@@ -5504,7 +5536,6 @@ let loginWechatExchangePending = false;
 let loginWechatExchangeAttempts = 0;
 let loginWechatFlowSeq = 0;
 let loginModeCheckSeq = 0;
-let loginSupportResendReadyAt: number | null = null;
 let loginCodeFocusToken = 0;
 let startupAuthSeq = 0;
 let authenticatedWorkspaceGeneration = 0;
@@ -15755,6 +15786,7 @@ function selectAutoTaskThread(threadId: string) {
   state.autoTaskMenuTaskId = null;
   state.busy = false;
   ensureThreadState(normalizedThreadId);
+  initializeTradingExpertTaskThread(normalizedThreadId, { expandPanel: true });
   refreshSkillsForThreadIfNeeded(normalizedThreadId, "auto-task-thread-select");
   state.threads = sortThreadsForList(mergeThreads(state.threads, [autoTaskThreadSummary({ ...task, threadId: normalizedThreadId })]));
   render();
@@ -17669,6 +17701,31 @@ function ensureAutoTaskThreadId(task: AutoTaskItem) {
   return existing && !autoTaskIdFromThreadId(existing) ? existing : autoTaskThreadId(task.id);
 }
 
+function normalizeAutoTaskTradingContext(value: unknown): AutoTaskTradingContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const marketId = firstString(record.marketId, record.market_id)?.toUpperCase() || "";
+  const symbol = firstString(record.symbol, marketId.split(":").at(-1))?.toUpperCase().replace(/[\s/_-]/g, "") || "";
+  const interval = firstString(record.interval, record.resolution)?.toUpperCase() || "";
+  if (!marketId || !symbol || !interval) return null;
+  const provider = firstString(record.provider, marketId.split(":")[0])?.toLowerCase() || "binance";
+  const inferredMarketType = marketId.includes(":SPOT:") ? "spot" : marketId.includes(":FUTURES:") ? "perpetual" : "";
+  const marketType = firstString(record.marketType, record.market_type, inferredMarketType)?.toLowerCase() || "perpetual";
+  return {
+    provider,
+    venue: firstString(record.venue) || (provider === "binance" ? "Binance" : provider),
+    marketType,
+    marketId,
+    symbol,
+    interval,
+    resolution: firstString(record.resolution, interval) || interval,
+  };
+}
+
+function currentAutoTaskTradingContext() {
+  return normalizeAutoTaskTradingContext(tradingExpertAlertContextSnapshot());
+}
+
 function autoTaskThreadSummary(task: AutoTaskItem): AutoTaskConversationSummary {
   const threadId = ensureAutoTaskThreadId(task);
   const timestamp = task.lastRunAt || task.updatedAt || task.createdAt || null;
@@ -17679,6 +17736,9 @@ function autoTaskThreadSummary(task: AutoTaskItem): AutoTaskConversationSummary 
     kind: "main_session",
     thread_kind: "auto_task",
     work_mode: "auto",
+    model_provider: DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
+    model: TRADING_EXPERT_DEFAULT_MODEL_VALUE,
+    reasoning_effort: TRADING_EXPERT_REASONING_EFFORT,
     preview: task.lastResult || task.lastError || task.description,
     preview_time: autoTaskChatListTime(task),
     last_message_at: normalizeTimestamp(timestamp),
@@ -17707,6 +17767,7 @@ function isAutoTaskOwnedThreadId(threadId: string | null | undefined) {
 function syncAutoTaskThreadSummaries() {
   const groupMappingChanged = syncAutoTaskThreadGroupMappings();
   const activeThreadIds = new Set(state.autoTaskItems.map(ensureAutoTaskThreadId));
+  activeThreadIds.forEach((threadId) => initializeTradingExpertTaskThread(threadId));
   const baseThreads = state.threads.filter((thread) => !activeThreadIds.has(thread.id) && !isAutoTaskThread(thread));
   state.threads = sortThreadsForList(mergeThreads(baseThreads, autoTaskThreadSummaries()));
   if (groupMappingChanged) saveThreadPreferences();
@@ -22349,6 +22410,7 @@ function handleAutomationThreadNotification(message: JsonRpcMessage) {
   const task = taskFromThreadId(threadId) || taskFromAutomationNotification(message) || autoTaskForAutomationNotification(threadId);
   if (!threadId || !task) return;
   const normalizedThreadId = autoTaskIdFromThreadId(threadId) ? ensureAutoTaskThreadId(task) : threadId;
+  initializeTradingExpertTaskThread(normalizedThreadId);
   if (task.threadId !== normalizedThreadId && !autoTaskIdFromThreadId(normalizedThreadId)) {
     replaceAutoTaskThreadId(task, normalizedThreadId);
     state.autoTaskItems = state.autoTaskItems.map((item) =>
@@ -22366,9 +22428,12 @@ function replaceAutoTaskThreadId(task: AutoTaskItem, nextThreadId: string) {
   const groupId = knownThreadGroupId(task.groupId);
   const previousWorkspace = firstString(...[...previousIds].map((id) => threadWorkspaceByThreadId[id]), task.workspacePath, task.externalPath, workspaceForGroupId(groupId));
   ensureThreadState(nextThreadId);
+  initializeTradingExpertTaskThread(nextThreadId);
   threadGroupByThreadId[nextThreadId] = groupId;
   rememberThreadWorkspace(nextThreadId, previousWorkspace);
   for (const previousId of previousIds) {
+    migrateTradingExpertMarketWorkspaceStorageSession(previousId, nextThreadId);
+    tradingExpertThreadIds.delete(previousId);
     replaceThreadModelSettings(previousId, nextThreadId);
     if (state.itemOrder[previousId]?.length) {
       const existingOrder = new Set(state.itemOrder[nextThreadId] || []);
@@ -22401,6 +22466,7 @@ function replaceAutoTaskThreadId(task: AutoTaskItem, nextThreadId: string) {
     }
   }
   state.threads = state.threads.filter((thread) => !previousIds.has(thread.id));
+  tradingExpertThreadIds.add(nextThreadId);
   saveThreadPreferences();
   syncGlobalCodexBusy();
 }
@@ -23925,7 +23991,7 @@ function rechargeTokenMessageAction(): MessageAction {
   return {
     id: RECHARGE_TOKEN_ACTION_ID,
     kind: RECHARGE_TOKEN_ACTION_KIND,
-    label: "充值积分",
+    label: "查看套餐",
   };
 }
 
@@ -24105,7 +24171,7 @@ async function refreshLowBalanceProfile(reason: string) {
 function isInsufficientQuotaError(value: unknown) {
   const text = insufficientQuotaSignalText(value);
   if (!text) return false;
-  return /(?:您的额度不足|额度不足|余额不足|没有余额|无可用额度|可用额度为\s*0|Token\s*余额不足|token余额不足|充值\s*Token|insufficient[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|not enough[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|out of[_\s-]*(?:quota|credit|credits|funds?|tokens?)|no[_\s-]*(?:quota|credit|credits|funds?|tokens?)|payment required|\b402\b|quota[_\s-]*exceeded|billing[_\s-]*(?:required|quota|limit))/i.test(text);
+  return /(?:TRIAL_REQUIRED|MEMBERSHIP_EXPIRED|请先开通体验版|开通体验版或其他套餐|会员到期|当前没有可用积分|您的额度不足|额度不足|余额不足|没有余额|无可用额度|可用额度为\s*0|Token\s*余额不足|token余额不足|充值\s*Token|insufficient[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|not enough[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|out of[_\s-]*(?:quota|credit|credits|funds?|tokens?)|no[_\s-]*(?:quota|credit|credits|funds?|tokens?)|payment required|\b402\b|quota[_\s-]*exceeded|billing[_\s-]*(?:required|quota|limit))/i.test(text);
 }
 
 function isInsufficientQuotaTurnSignal(message: JsonRpcMessage) {
@@ -30304,10 +30370,7 @@ function appendTradingExpertReport(
   presentation: "execution-plan" | "plain" = "plain",
 ) {
   localHistoryAheadThreadIds.add(threadId);
-  const visibleText = englishSafeAssistantText(
-    text,
-    "The analysis completed, but its result was not available entirely in English. Please run the analysis again.",
-  );
+  const visibleText = String(text || "");
   const item: CodexItem = {
     id: itemId || `trading-expert-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type: "agentMessage",
@@ -35795,6 +35858,9 @@ function render() {
   if (state.activeView !== "recharge") {
     stopRechargePaymentRuntime();
     rechargePaymentViewActive = false;
+    if (selectedRechargeProductId === "subscription_trial" && currentRechargeTrialEligibility() === false) {
+      selectedRechargeProductId = "subscription_basic";
+    }
   }
   if (composerModePointerActive) {
     composerModePointerRenderPending = true;
@@ -35852,7 +35918,6 @@ function render() {
     syncTradingExpertMarketWorkspace(null);
     root.innerHTML = `
       ${renderLoginScreen()}
-      ${state.login.wecomSupportOpen ? renderWeComSupportDialog() : ""}
       ${state.error ? `<div class="toast">${escapeHtml(state.error)}</div>` : ""}
     `;
     bindLoginEvents();
@@ -35987,7 +36052,6 @@ function render() {
     ${renderWorkflowCanvasContextMenu()}
     ${renderProfileMenu()}
     ${state.settingsOpen ? renderSettingsDialog() : ""}
-    ${state.login.wecomSupportOpen ? renderWeComSupportDialog() : ""}
     ${state.settings.update.dialogOpen ? renderUpdateDialog() : ""}
     ${state.autoTaskDialogOpen ? renderAutoTaskDialog() : ""}
     ${state.addFriendDialog.open ? renderAddFriendDialog() : ""}
@@ -37353,7 +37417,7 @@ function renderLoginCodeStep(checking: boolean) {
     ? `<div class="login-code-verifying">验证中...</div>`
     : `
         <button type="button" class="login-link-button" data-action="back-login-email">返回</button>
-        <button type="button" class="login-link-button" data-action="open-wecom-support">收不到验证码</button>
+        <button type="button" class="login-link-button" data-action="open-website-support">收不到验证码</button>
         <button type="button" class="login-link-button login-resend-button" data-action="send-login-code" ${resendDisabled ? "disabled" : ""}>
           ${resendLabel}
         </button>
@@ -37370,28 +37434,6 @@ function renderLoginCodeStep(checking: boolean) {
       <div class="login-code-actions">${codeActions}</div>
     </section>
   `;
-}
-
-function renderWeComSupportDialog() {
-  return `
-    <div class="login-wecom-backdrop" data-action="close-wecom-support"></div>
-    <dialog class="login-wecom-dialog" open aria-modal="true" aria-labelledby="wecomSupportTitle">
-      <button type="button" class="login-wecom-close" data-action="close-wecom-support" aria-label="关闭" autofocus>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
-      </button>
-      <h2 id="wecomSupportTitle">联系Telegram</h2>
-      <img class="login-wecom-qr-image" src="${escapeAttr(CUSTOMER_SERVICE_QR_URL)}" alt="客服联系方式二维码" />
-    </dialog>
-  `;
-}
-
-function openWeComSupportDialog() {
-  if (!state.auth.authenticated && state.login.step === "code") {
-    const countdown = loginResendCountdown();
-    loginSupportResendReadyAt = state.login.resendReadyAt ?? (countdown > 0 ? Date.now() + countdown * 1000 : null);
-  }
-  state.login.wecomSupportOpen = true;
-  render();
 }
 
 function renderLoginActivateStep(checking: boolean) {
@@ -39308,10 +39350,7 @@ function executionPlanCreatedLabel(createdAt: string) {
 }
 
 function renderExecutionPlanCardContent(content: string) {
-  const visibleContent = englishSafeAssistantText(
-    content,
-    "Execution-plan details are unavailable in English. Run the analysis again to refresh this card.",
-  );
+  const visibleContent = String(content || "");
   return executionPlanDisplayLines(visibleContent)
     .map((line) => {
       const directionTone = executionPlanDirectionTone(line.label, line.text);
@@ -47112,6 +47151,12 @@ const TRADING_PREFERENCE_BINANCE_INVITATION = [
   "连接后，Haolo 可以结合你的账户余额、持仓和风险敞口提供更有针对性的分析。只读权限不能下单、转账或修改账户设置。",
 ].join("\n");
 
+const TRADING_PREFERENCE_BINANCE_CONNECTED = [
+  "币安已经连接成功。",
+  "",
+  "Haolo 会结合你的账户余额、持仓和风险敞口提供更有针对性的分析。",
+].join("\n");
+
 const TRADING_PREFERENCE_REQUIRED_SECTIONS =
   "仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件";
 
@@ -47142,6 +47187,27 @@ function resetTradingPreferenceProfileState() {
   tradingPreferenceProfileLoadStatus = "idle";
   tradingPreferenceProfileCompleted = false;
   tradingPreferenceOnboardingByThreadId.clear();
+}
+
+async function tradingPreferenceBinanceIsConnected() {
+  if (state.binanceAccount.status?.bound === true) return true;
+  if (binanceAccountLoadPromise) {
+    try {
+      await binanceAccountLoadPromise;
+    } catch {
+      // The onboarding completion can still fall back to the safe connection invitation.
+    }
+    if (state.binanceAccount.status) return Boolean(state.binanceAccount.status.bound);
+  }
+  if (typeof api.getBinanceAccountStatus !== "function") return false;
+  try {
+    const status = await api.getBinanceAccountStatus();
+    if (Boolean(state.binanceAccount.status?.bound)) return true;
+    state.binanceAccount.status = status;
+    return status?.bound === true;
+  } catch {
+    return false;
+  }
 }
 
 async function loadTradingPreferenceProfile(options: { renderAfter?: boolean } = {}) {
@@ -47407,23 +47473,28 @@ async function saveTradingPreferenceOnboarding(
     }
     tradingPreferenceProfileCompleted = true;
     tradingPreferenceProfileLoadStatus = "loaded";
+    const binanceConnected = await tradingPreferenceBinanceIsConnected();
     const completionItem = appendTradingPreferenceMessage(
       threadId,
       "assistant",
       tradingPreferenceCompletionText(flow.answers),
       flow,
     );
-    const binanceInvitationItem = appendTradingPreferenceMessage(
+    const binanceStatusItem = appendTradingPreferenceMessage(
       threadId,
       "assistant",
-      TRADING_PREFERENCE_BINANCE_INVITATION,
+      binanceConnected
+        ? TRADING_PREFERENCE_BINANCE_CONNECTED
+        : TRADING_PREFERENCE_BINANCE_INVITATION,
       flow,
-      [{
-        id: "connect-binance-account",
-        kind: "navigate",
-        label: "连接币安",
-        destination: "binance-account",
-      }],
+      binanceConnected
+        ? []
+        : [{
+            id: "connect-binance-account",
+            kind: "navigate",
+            label: "连接币安",
+            destination: "binance-account",
+          }],
     );
     const transcriptItems = flow.itemIds
       .map((id) => state.items[threadId]?.[id])
@@ -47434,7 +47505,7 @@ async function saveTradingPreferenceOnboarding(
     scheduleScrollMessagesToBottom();
     void persistCompletedTradingExpertTranscript(
       threadId,
-      transcriptItems.length ? transcriptItems : [completionItem, binanceInvitationItem],
+      transcriptItems.length ? transcriptItems : [completionItem, binanceStatusItem],
       { title: TRADING_PREFERENCE_THREAD_TITLE },
     );
   } catch (error) {
@@ -52822,12 +52893,7 @@ function renderTextBubble(
   } = {},
 ) {
   const localizeAppOwnedText = shouldLocalizeAppOwnedMessage(message, fromUser);
-  const displayText = fromUser || localizeAppOwnedText
-    ? text
-    : englishSafeAssistantText(
-        text,
-        "This response could not be displayed because it was not generated entirely in English. Please retry.",
-      );
+  const displayText = text;
   const content = messageDisplayContent(message, displayText);
   const messageLocalSendStatus = localSendStatusFromRecord(message);
   const editPayload = fromUser && !messageLocalSendStatus ? editableMessagePayload(message, text, content.text) : null;
@@ -58145,7 +58211,7 @@ function renderSubagentOutputMessage(agent: SubagentUiEntry, output: SubagentOut
   const sender = state.settings.language === "en"
     ? `${englishSafeAssistantText(agent.name, "Agent")} (${englishSafeAssistantText(agent.profession, "Specialist")})`
     : `${agent.name}（${agent.profession}）`;
-  const outputText = englishSafeAssistantText(output.text, "The delegated task returned content that was not entirely in English.");
+  const outputText = output.text;
   return `
     <article class="subagent-output-message" data-subagent-thread-id="${escapeAttr(output.sourceThreadId)}"
       data-subagent-message-id="${escapeAttr(output.messageId)}" data-subagent-sender="${escapeAttr(sender)}">
@@ -58751,6 +58817,7 @@ function renderRechargePage() {
   ensureRechargePaymentOrderScope();
   ensureRechargeProductSelection();
   const membership = currentMembershipPlan();
+  const visibleProducts = visibleRechargeSubscriptionProducts();
   return `
     <main class="recharge-page">
       <div class="recharge-page-scroll">
@@ -58768,7 +58835,7 @@ function renderRechargePage() {
               ${membership.subscribed ? renderRechargeSubscriptionBalance() : ""}
             </div>
             <div class="recharge-history-action">
-              <button type="button" class="recharge-support-button" data-action="open-wecom-support">
+              <button type="button" class="recharge-support-button" data-action="open-website-support">
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 11v-1a6 6 0 0 1 12 0v1M4 10H3.5A1.5 1.5 0 0 0 2 11.5v2A1.5 1.5 0 0 0 3.5 15H5v-5H4Zm12 0h.5a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5H15v-5h1Zm0 5c0 1.1-.9 2-2 2h-3" /></svg>
                 <span>联系客服</span>
               </button>
@@ -58778,8 +58845,8 @@ function renderRechargePage() {
               </button>
             </div>
           </section>
-          <section class="recharge-product-grid subscription" role="radiogroup" aria-label="选择适合你的订阅" aria-required="true">
-            ${RECHARGE_SUBSCRIPTION_PRODUCTS.map(renderRechargeProductCard).join("")}
+          <section class="recharge-product-grid subscription" role="radiogroup" aria-label="选择适合你的订阅" aria-required="true" style="--recharge-product-columns: ${visibleProducts.length}">
+            ${visibleProducts.map(renderRechargeProductCard).join("")}
           </section>
         </div>
         <div class="recharge-payment-shell">
@@ -59087,10 +59154,25 @@ function renderRechargePaymentDetailsShell() {
   return `<section class="recharge-payment-details" data-recharge-payment-details aria-live="polite" hidden></section>`;
 }
 
+function currentRechargeTrialEligibility() {
+  const profile = state.auth.profile as Record<string, unknown> | null;
+  const value = profile?.trial_eligible ?? profile?.trialEligible;
+  return typeof value === "boolean" ? value : null;
+}
+
+function rechargeProductIsUnavailable(product: RechargeProductDefinition) {
+  return product.requiresTrialEligibility === true && currentRechargeTrialEligibility() === false;
+}
+
+function visibleRechargeSubscriptionProducts() {
+  return RECHARGE_SUBSCRIPTION_PRODUCTS.filter((product) => !rechargeProductIsUnavailable(product));
+}
+
 function ensureRechargeProductSelection() {
-  const product = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
+  const visibleProducts = visibleRechargeSubscriptionProducts();
+  const product: RechargeProductDefinition | null = visibleProducts.find(
     (candidate) => candidate.id === selectedRechargeProductId,
-  ) || RECHARGE_SUBSCRIPTION_PRODUCTS[0] || null;
+  ) || visibleProducts.find((candidate) => candidate.id === "subscription_basic") || visibleProducts[0] || null;
   if (product) selectedRechargeProductId = product.id;
   return product;
 }
@@ -59173,6 +59255,7 @@ function normalizeWeb3PaymentOrder(value: any): Web3PaymentOrder {
     currency: String(value?.currency || "USDT"),
     token_amount: String(value?.token_amount || value?.tokenAmount || "0"),
     membership_months: Number(value?.membership_months || value?.membershipMonths || 0),
+    membership_days: Number(value?.membership_days || value?.membershipDays || 0),
     network,
     recipient_address: recipientAddress,
     token_contract: String(value?.token_contract || value?.tokenContract || "").trim(),
@@ -59449,9 +59532,15 @@ function stopRechargePaymentRuntime() {
 function syncRechargePaymentSelectionControls() {
   root.querySelectorAll<HTMLElement>("[data-recharge-product-id]").forEach((card) => {
     const selected = card.dataset.rechargeProductId === selectedRechargeProductId;
+    const product = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
+      (candidate) => candidate.id === card.dataset.rechargeProductId,
+    );
+    const unavailable = Boolean(product && rechargeProductIsUnavailable(product));
     card.classList.toggle("selected", selected);
+    card.classList.toggle("unavailable", unavailable);
     card.setAttribute("aria-checked", selected ? "true" : "false");
-    card.setAttribute("tabindex", "0");
+    card.setAttribute("aria-disabled", unavailable ? "true" : "false");
+    card.setAttribute("tabindex", unavailable ? "-1" : "0");
   });
   root.querySelectorAll<HTMLInputElement>('input[name="recharge-payment-network"]').forEach((input) => {
     input.checked = input.value === selectedRechargePaymentNetwork;
@@ -59546,6 +59635,11 @@ function startRechargePaymentPolling(orderNo: string, selectionKey: string) {
   rechargePaymentPollTimer = window.setInterval(() => void pollRechargePaymentOrder(), RECHARGE_PAYMENT_POLL_INTERVAL_MS);
 }
 
+function isRechargeTrialIneligibleError(value: unknown) {
+  return /(?:trial_membership_ineligible|体验版仅限每个账户开通一次|trial[^\n]*once|not eligible[^\n]*trial)/i
+    .test(insufficientQuotaSignalText(value));
+}
+
 async function createRechargePaymentOrder(options: {
   force?: boolean;
   preserveExisting?: boolean;
@@ -59600,6 +59694,16 @@ async function createRechargePaymentOrder(options: {
     if (orderScope !== rechargePaymentOrderScope) return;
     rechargePaymentOrderLoadingSelections.delete(selectionKey);
     const authExpired = isAuthSessionExpiredError(error);
+    if (selection.product.requiresTrialEligibility && isRechargeTrialIneligibleError(error)) {
+      if (state.auth.profile) {
+        state.auth.profile = { ...state.auth.profile, trial_eligible: false };
+      }
+      rechargePaymentOrderErrorsBySelection.set(selectionKey, "体验版仅限每个账户开通一次");
+      selectedRechargeProductId = "subscription_basic";
+      showToast("体验版仅限每个账户开通一次");
+      render();
+      return;
+    }
     const retryAttempt = Math.max(0, Math.trunc(options.retryAttempt || 0));
     if (shouldAutoRetryRechargePaymentOrderRequest({
       authExpired,
@@ -60468,17 +60572,21 @@ function renderRechargeSubscriptionBalance() {
 
 function renderRechargeProductCard(product: RechargeProductDefinition) {
   const isSelected = product.id === selectedRechargeProductId;
+  const unavailable = rechargeProductIsUnavailable(product);
   return `
     <article
-      class="recharge-product-card ${isSelected ? "selected" : ""}"
+      class="recharge-product-card ${isSelected ? "selected" : ""} ${unavailable ? "unavailable" : ""}"
       data-recharge-product-id="${escapeAttr(product.id)}"
       role="radio"
       aria-checked="${isSelected ? "true" : "false"}"
-      tabindex="0"
+      aria-disabled="${unavailable ? "true" : "false"}"
+      tabindex="${unavailable ? "-1" : "0"}"
     >
       <div class="recharge-product-card-head">
         <h2>${escapeHtml(product.name)}</h2>
-        ${product.badge ? `<span class="recharge-product-badge">${escapeHtml(product.badge)}</span>` : ""}
+        ${unavailable
+          ? `<span class="recharge-product-badge unavailable">已开通过</span>`
+          : product.badge ? `<span class="recharge-product-badge">${escapeHtml(product.badge)}</span>` : ""}
       </div>
       <p class="recharge-product-description">${escapeHtml(product.description)}</p>
       <div class="recharge-product-value-row">
@@ -60847,7 +60955,7 @@ function renderSettingsAboutPanel() {
           ${renderSettingsLinkRow("用户协议", USER_AGREEMENT_URL)}
           ${renderSettingsLinkRow("隐私政策", PRIVACY_POLICY_URL)}
           ${renderSettingsLinkRow("进入官网", HAOLO_HOME_URL)}
-          ${renderSettingsLinkRow("联系Telegram", "", "open-wecom-support")}
+          ${renderSettingsLinkRow("联系客服", "", "open-website-support")}
         </div>
       </div>
     </div>
@@ -61668,6 +61776,7 @@ function bindRechargeProductCardEvents() {
   const cards = Array.from(root.querySelectorAll<HTMLElement>("[data-recharge-product-id]"));
   if (cards.length === 0) return;
   const selectCard = (selectedCard: HTMLElement) => {
+    if (selectedCard.getAttribute("aria-disabled") === "true") return;
     const product = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
       (candidate) => candidate.id === selectedCard.dataset.rechargeProductId,
     );
@@ -61685,7 +61794,11 @@ function bindRechargeProductCardEvents() {
       selectCard(card);
     });
     card.addEventListener("keydown", (event) => {
-      if (event.target !== card || (event.key !== "Enter" && event.key !== " ")) return;
+      if (
+        event.target !== card
+        || card.getAttribute("aria-disabled") === "true"
+        || (event.key !== "Enter" && event.key !== " ")
+      ) return;
       event.preventDefault();
       selectCard(card);
     });
@@ -61817,7 +61930,7 @@ function bindRechargeHistoryEvents() {
 
 function bindEvents() {
   bindWindowControls();
-  bindWeComSupportEvents(false);
+  bindWebsiteSupportEvents();
   bindCascadeMenuHoverEvents();
   const settingsDialog = root.querySelector<HTMLElement>(".settings-dialog");
   if (settingsDialog) bindHaoloSelects(settingsDialog);
@@ -62651,7 +62764,6 @@ function bindEvents() {
         state.settings.github.authorizing = false;
         state.settings.github.authorizationExpiresAt = null;
         state.settingsOpen = false;
-        state.login.wecomSupportOpen = false;
         state.settings.tab = "general";
         state.configOutput = null;
         clearProfileEditDraft();
@@ -65506,7 +65618,7 @@ function handleSkillsPlazaScroll(event: Event) {
 
 function bindLoginEvents() {
   bindWindowControls();
-  bindWeComSupportEvents(true);
+  bindWebsiteSupportEvents();
   bindLoginWechatQrFrameEvents();
   root.querySelector<HTMLFormElement>("#loginForm")?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -65584,7 +65696,6 @@ function bindLoginEvents() {
     state.login.challenge = null;
     state.login.counter = 0;
     state.login.error = null;
-    state.login.wecomSupportOpen = false;
     state.login.busy = null;
     loginModeCheckSeq += 1;
     stopLoginCounter();
@@ -65677,10 +65788,10 @@ function focusLoginCodeInput() {
 }
 
 function scheduleLoginCodeFocus() {
-  if (state.login.step !== "code" || state.login.wecomSupportOpen) return;
+  if (state.login.step !== "code") return;
   const token = ++loginCodeFocusToken;
   const focus = () => {
-    if (token !== loginCodeFocusToken || state.login.step !== "code" || state.login.wecomSupportOpen) return;
+    if (token !== loginCodeFocusToken || state.login.step !== "code") return;
     focusLoginCodeInput();
   };
   window.requestAnimationFrame(focus);
@@ -66132,17 +66243,24 @@ function bindWorkflowCanvasContextMenu() {
   });
 }
 
-function bindWeComSupportEvents(restoreCountdownOnClose: boolean) {
-  root.querySelectorAll<HTMLElement>('[data-action="open-wecom-support"]').forEach((element) => {
-    element.addEventListener("click", () => {
-      openWeComSupportDialog();
-    });
-  });
-  root.querySelectorAll<HTMLElement>('[data-action="close-wecom-support"]').forEach((element) => {
-    element.addEventListener("click", () => {
-      state.login.wecomSupportOpen = false;
-      if (restoreCountdownOnClose) restoreLoginSupportCountdown();
-      render();
+function bindWebsiteSupportEvents() {
+  root.querySelectorAll<HTMLElement>('[data-action="open-website-support"]').forEach((element) => {
+    element.addEventListener("click", async () => {
+      if (element.getAttribute("aria-busy") === "true") return;
+      element.setAttribute("aria-busy", "true");
+      if (element instanceof HTMLButtonElement) element.disabled = true;
+      try {
+        if (api.openWebsiteSupport) {
+          await api.openWebsiteSupport();
+        } else {
+          await api.openExternal(`${HAOLO_HOME_URL}/#support=open`);
+        }
+      } catch {
+        showToast("暂时无法打开网页版客服，请稍后重试。", 3200);
+      } finally {
+        element.removeAttribute("aria-busy");
+        if (element instanceof HTMLButtonElement && element.isConnected) element.disabled = false;
+      }
     });
   });
 }
@@ -67408,6 +67526,8 @@ async function submitAutoTaskForm() {
     lastResult: existing?.lastResult ?? null,
     runCount: existing?.runCount ?? 0,
     threadId,
+    executionProfile: "trading-agent-v1",
+    tradingContext: currentAutoTaskTradingContext() || existing?.tradingContext || null,
   };
   state.autoTaskItems = existing
     ? state.autoTaskItems.map((item) => (item.id === task.id ? task : item))
@@ -67430,6 +67550,7 @@ async function submitAutoTaskForm() {
   state.autoTaskMenuTaskId = null;
   syncAutoTaskThreadSummaries();
   ensureThreadState(savedThreadId);
+  initializeTradingExpertTaskThread(savedThreadId, { expandPanel: true });
   showToast(`自动任务「${task.name}」已${existing ? "修改" : "创建"}：${formatAutoTaskSchedule(task)}`, 2600);
   state.autoTaskDraft = createAutoTaskDraft(state.activeNewThreadGroupId);
   render();
@@ -68860,7 +68981,6 @@ async function sendLoginCode() {
   state.login.code = "";
   state.login.busy = "send";
   state.login.error = null;
-  state.login.wecomSupportOpen = false;
   state.login.wechatEmailVerification = isWechatEmail;
   state.login.step = "code";
   state.login.counter = 60;
@@ -69220,7 +69340,6 @@ async function logoutFromYoule() {
     resendReadyAt: null,
     busy: null,
     error: null,
-    wecomSupportOpen: false,
   };
   loginModeCheckSeq += 1;
   if (loginCounterTimer !== null) {
@@ -69273,7 +69392,6 @@ function handleAuthExpired(session: any = {}) {
     resendReadyAt: null,
     busy: null,
     error: "\u767b\u5f55\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55",
-    wecomSupportOpen: false,
   };
   loginModeCheckSeq += 1;
   if (loginCounterTimer !== null) {
@@ -74364,7 +74482,6 @@ async function cancelLoginRestore() {
     resendReadyAt: null,
     busy: null,
     error: null,
-    wecomSupportOpen: false,
   };
   loginModeCheckSeq += 1;
   state.loading = false;
@@ -75349,6 +75466,10 @@ function isNoisyReconnectError(text: string) {
 }
 
 function messageActionsFromItem(item: CodexItem) {
+  const isTradingPreferenceBinanceInvitation = item.type === "agentMessage"
+    && assistantVisibleText(itemText(item)).trim() === TRADING_PREFERENCE_BINANCE_INVITATION;
+  const binanceAlreadyConnected = isTradingPreferenceBinanceInvitation
+    && state.binanceAccount.status?.bound === true;
   const rawActions = (item as { actions?: unknown }).actions;
   const actions = (Array.isArray(rawActions) ? rawActions : [])
     .map((raw): MessageAction | null => {
@@ -75366,12 +75487,12 @@ function messageActionsFromItem(item: CodexItem) {
         alert_id: firstString(record.alert_id, record.alertId) || undefined,
       };
     })
-    .filter((action): action is MessageAction => Boolean(action));
+    .filter((action): action is MessageAction => Boolean(
+      action
+      && !(binanceAlreadyConnected && action.destination === "binance-account")
+    ));
   if (actions.length) return actions;
-  if (
-    item.type === "agentMessage"
-    && assistantVisibleText(itemText(item)).trim() === TRADING_PREFERENCE_BINANCE_INVITATION
-  ) {
+  if (isTradingPreferenceBinanceInvitation && !binanceAlreadyConnected) {
     return [{
       id: "connect-binance-account",
       kind: "navigate",
@@ -75380,6 +75501,15 @@ function messageActionsFromItem(item: CodexItem) {
     }];
   }
   return undefined;
+}
+
+function tradingPreferenceBinanceVisibleText(item: CodexItem) {
+  const text = assistantVisibleText(itemText(item));
+  return item.type === "agentMessage"
+    && state.binanceAccount.status?.bound === true
+    && text.trim() === TRADING_PREFERENCE_BINANCE_INVITATION
+      ? TRADING_PREFERENCE_BINANCE_CONNECTED
+      : text;
 }
 
 function itemToMessage(threadId: string, id: string, item: CodexItem): Message {
@@ -75537,7 +75667,7 @@ function itemToMessage(threadId: string, id: string, item: CodexItem): Message {
     ),
     align_right: item.align_right === true,
     time: formatThreadTime(item.created_at || item.createdAt),
-    text: assistantVisibleText(itemText(item)),
+    text: tradingPreferenceBinanceVisibleText(item),
     attachments: item.type === "agentMessage" ? itemAttachments(item) : undefined,
     actions: messageActionsFromItem(item),
     videoGenerationActor:
@@ -77244,6 +77374,8 @@ function normalizeAutoTaskItem(value: unknown): AutoTaskItem | null {
     runCount: Number.isFinite(Number(record.runCount)) ? Math.max(0, Math.floor(Number(record.runCount))) : 0,
     threadId: typeof record.threadId === "string" && record.threadId && !autoTaskIdFromThreadId(record.threadId) ? record.threadId : null,
     runs: normalizeAutoTaskRuns((record as any).runs),
+    executionProfile: "trading-agent-v1",
+    tradingContext: normalizeAutoTaskTradingContext((record as any).tradingContext || (record as any).trading_context),
   };
 }
 
@@ -77265,6 +77397,9 @@ function normalizeAutoTaskRuns(value: unknown): AutoTaskRunSummary[] {
         scheduledForUtc: firstString(record.scheduledForUtc),
         summary: firstString(record.summary),
         errorMessage: firstString(record.errorMessage),
+        tradingAnalysis: record.tradingAnalysis && typeof record.tradingAnalysis === "object"
+          ? record.tradingAnalysis as Record<string, unknown>
+          : null,
       };
     })
     .filter((run): run is AutoTaskRunSummary => Boolean(run));
@@ -77620,11 +77755,11 @@ function currentProfileBalance() {
   return "--";
 }
 
-type MembershipPlanId = "experience" | "basic" | "pro" | "flagship";
+type MembershipPlanId = "free" | "trial" | "basic" | "pro" | "flagship";
 
 type MembershipPlanDisplay = {
   id: MembershipPlanId;
-  label: "体验版" | "基础版" | "专业版" | "旗舰版";
+  label: "WEB3免费" | "体验版" | "基础版" | "专业版" | "旗舰版";
   subscribed: boolean;
 };
 
@@ -77644,6 +77779,9 @@ function currentMembershipPlan(): MembershipPlanDisplay {
     .trim()
     .toLowerCase()
     .replace(/^subscription[_-]/, "");
+  if (normalized === "trial" || normalized === "experience" || normalized === "体验版") {
+    return { id: "trial", label: "体验版", subscribed: true };
+  }
   if (normalized === "basic" || normalized === "基础版") {
     return { id: "basic", label: "基础版", subscribed: true };
   }
@@ -77653,7 +77791,7 @@ function currentMembershipPlan(): MembershipPlanDisplay {
   if (normalized === "flagship" || normalized === "旗舰版") {
     return { id: "flagship", label: "旗舰版", subscribed: true };
   }
-  return { id: "experience", label: "体验版", subscribed: false };
+  return { id: "free", label: "WEB3免费", subscribed: false };
 }
 
 function renderMembershipBadge(context: "titlebar" | "profile" | "consumption", plan = currentMembershipPlan()) {
@@ -77921,7 +78059,6 @@ function resetLoginRegistrationFlow() {
   state.login.resendReadyAt = null;
   state.login.busy = null;
   state.login.error = null;
-  state.login.wecomSupportOpen = false;
   loginModeCheckSeq += 1;
   stopLoginCounter();
 }
@@ -77958,7 +78095,6 @@ function scheduleLoginCounter() {
   if (state.login.step !== "code" || countdown <= 0) {
     if (countdown <= 0) {
       state.login.resendReadyAt = null;
-      loginSupportResendReadyAt = null;
     }
     return;
   }
@@ -77970,7 +78106,6 @@ function scheduleLoginCounter() {
     state.login.counter = loginResendCountdown();
     if (state.login.counter <= 0) {
       state.login.resendReadyAt = null;
-      loginSupportResendReadyAt = null;
     }
     updateLoginCountdownView();
     scheduleLoginCounter();
@@ -77993,25 +78128,6 @@ function stopLoginCounter() {
     loginCounterTimer = null;
   }
   state.login.resendReadyAt = null;
-  loginSupportResendReadyAt = null;
-}
-
-function restoreLoginSupportCountdown() {
-  if (state.login.step !== "code") return;
-  const currentCountdown = loginResendCountdown();
-  if (currentCountdown > 0) {
-    scheduleLoginCounter();
-    return;
-  }
-  if (loginSupportResendReadyAt == null) return;
-  const countdown = Math.ceil((loginSupportResendReadyAt - Date.now()) / 1000);
-  if (countdown <= 0) {
-    loginSupportResendReadyAt = null;
-    return;
-  }
-  state.login.counter = countdown;
-  state.login.resendReadyAt = loginSupportResendReadyAt;
-  scheduleLoginCounter();
 }
 
 function loginResendCountdown() {

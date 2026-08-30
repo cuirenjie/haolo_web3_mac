@@ -36,6 +36,39 @@ function jwtAccessToken(expSeconds, extra = {}) {
   return `${header}.${payload}.test-signature`;
 }
 
+test("desktop support handoff is requested with authenticated client headers", async () => {
+  const originalFetch = globalThis.fetch;
+  let request = null;
+  globalThis.fetch = async (url, init = {}) => {
+    request = { url: String(url), init };
+    return new Response(JSON.stringify({
+      ticket: `hdw1.${"a".repeat(64)}`,
+      expires_in: 120,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    client.baseUrl = "https://haolo.example";
+    client.token = "desktop-access-token";
+
+    const handoff = await client.createDesktopWebHandoff();
+
+    assert.equal(request.url, "https://haolo.example/api/auth/desktop-handoff");
+    assert.equal(request.init.method, "POST");
+    assert.equal(request.init.headers.Authorization, "Bearer desktop-access-token");
+    assert.equal(request.init.headers["X-Youle-Client"], "windows-desktop");
+    assert.equal(request.init.headers["content-type"], "application/json");
+    assert.equal(request.init.body, "{}");
+    assert.deepEqual(handoff, { ticket: `hdw1.${"a".repeat(64)}`, expiresIn: 120 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Claude provider uses its dedicated transit key and stable public model alias", async () => {
   const originalFetch = globalThis.fetch;
   let request = null;
@@ -281,6 +314,68 @@ test("Codex provider automatically sends medium for simple work and max for inte
 
     assert.equal(JSON.parse(requests[0].init.body).reasoning_effort, "medium");
     assert.equal(JSON.parse(requests[1].init.body).reasoning_effort, "max");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("provider chat preserves the WEB3 membership-expired error for the UI", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    code: "MEMBERSHIP_EXPIRED",
+    message: "会员到期",
+  }), {
+    status: 403,
+    headers: { "content-type": "application/json" },
+  });
+
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    client.baseUrl = "https://haolo.example";
+    client.token = "haolo-session-token";
+    client.modelKeys = [
+      { provider: "codex", apiKey: "sk-codex-user", baseUrl: "https://transit.example/v1" },
+    ];
+
+    await assert.rejects(
+      client.sendProviderChat({ provider: "gpt", text: "Hello" }),
+      (error) => error?.status === 403
+        && error?.code === "MEMBERSHIP_EXPIRED"
+        && error?.message === "会员到期"
+        && error?.retryable === false,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("provider chat preserves the paid-trial requirement for the UI", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    code: "TRIAL_REQUIRED",
+    message: "请先开通体验版或其他套餐",
+  }), {
+    status: 403,
+    headers: { "content-type": "application/json" },
+  });
+
+  try {
+    const client = new YouleApiClient();
+    client.loaded = true;
+    client.baseUrl = "https://haolo.example";
+    client.token = "haolo-session-token";
+    client.modelKeys = [
+      { provider: "codex", apiKey: "sk-codex-user", baseUrl: "https://transit.example/v1" },
+    ];
+
+    await assert.rejects(
+      client.sendProviderChat({ provider: "gpt", text: "Hello" }),
+      (error) => error?.status === 403
+        && error?.code === "TRIAL_REQUIRED"
+        && error?.message === "请先开通体验版或其他套餐"
+        && error?.retryable === false,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2770,6 +2865,7 @@ test("refreshSub2ApiAccount reads balance and marks low balance", async () => {
           subscription_balance_refresh_at: "2026-07-21T00:00:00Z",
           membership_expires_at: "2026-08-11T00:00:00Z",
           membership_plan: "pro",
+          trial_eligible: false,
           active_membership: {
             plan_id: "pro",
             starts_at: "2026-07-12T00:00:00Z",
@@ -2821,6 +2917,7 @@ test("refreshSub2ApiAccount reads balance and marks low balance", async () => {
     assert.equal(result.session.profile.subscription_balance_refresh_at, "2026-07-21T00:00:00Z");
     assert.equal(result.session.profile.membership_expires_at, "2026-08-11T00:00:00Z");
     assert.equal(result.session.profile.membership_plan, "pro");
+    assert.equal(result.session.profile.trial_eligible, false);
     assert.equal(result.session.profile.active_membership.plan_id, "pro");
     assert.equal(result.session.profile.pending_membership.plan_id, "flagship");
     assert.equal(result.session.profile.pending_membership.starts_at, "2026-08-11T00:00:00Z");

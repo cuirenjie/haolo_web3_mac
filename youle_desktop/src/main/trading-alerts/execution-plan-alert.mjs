@@ -1,7 +1,7 @@
 import { createAlertRuleRevision, normalizeAlertRule } from "./protocol.mjs";
 import { TradingAlertError } from "./errors.mjs";
 
-const PLAN_TITLE_PATTERN = /^([A-Z0-9]{2,20})\/(USDT|USDC|BUSD)\s+币安永续\s+(\d+)(M|H|D|W)$/i;
+const PLAN_TITLE_PATTERN = /^([A-Z0-9_\p{Script=Han}]{1,32})\/(USDT|USDC|BUSD)\s+(?:币安永续|BINANCE\s+PERPETUAL)\s+(\d+)(M|H|D|W)(?:\s*(?:·|-)\s*(?:(?:多头|空头)条件方案|(?:LONG|SHORT)\s+SETUP))?$/iu;
 const PLAN_STATUSES = new Set(["pending", "executing", "ended"]);
 const PLAN_ALERT_RULE_PREFIX = "execution-plan-alert-";
 
@@ -49,7 +49,7 @@ function planFields(content) {
 function positivePrice(value, kind) {
   const source = String(value || "").replace(/,/g, "");
   const targetMatch = kind === "takeProfit"
-    ? source.match(/第\s*\d+\s*目标\s*([0-9]+(?:\.[0-9]+)?)/u)
+    ? source.match(/(?:第\s*\d+\s*目标\s*|TARGET\s*\d+\s*[：:]?\s*)([0-9]+(?:\.[0-9]+)?)/iu)
     : null;
   const match = targetMatch || source.match(/(?:^|[^0-9.])([0-9]+(?:\.[0-9]+)?)/u);
   const price = Number(match?.[1]);
@@ -87,17 +87,32 @@ export function parseExecutionPlanAlertInput(value = {}) {
   const quoteAsset = quoteAssetValue.toUpperCase();
   const interval = `${Number(intervalValue)}${intervalUnitValue.toLowerCase()}`;
   const fields = planFields(value.content);
-  const directionText = fields.get("方向判断") || "";
-  const triggerEntry = [...fields.entries()].find(([label]) => /(?:多头|空头|方向)?触发/.test(label));
-  const direction = directionText.includes("空") || triggerEntry?.[0].includes("空")
+  const directionText = fields.get("方向判断") || fields.get("Direction") || "";
+  const triggerEntry = [...fields.entries()].find(([label]) => (
+    /(?:多头|空头|方向)?触发/u.test(label)
+    || /^(?:LONG|SHORT|ENTRY)\s+TRIGGER$/iu.test(label)
+  ));
+  const direction = /空|BEARISH|SHORT/iu.test(directionText) || /空|SHORT/iu.test(triggerEntry?.[0] || "")
     ? "short"
-    : directionText.includes("多") || triggerEntry?.[0].includes("多")
+    : /多|BULLISH|LONG/iu.test(directionText) || /多|LONG/iu.test(triggerEntry?.[0] || "")
       ? "long"
       : "";
   if (!direction) invalid("计划缺少明确的多空方向");
   const entry = positivePrice(triggerEntry?.[1], "entry");
-  const stopLoss = positivePrice(fields.get("止损与失效") || fields.get("止损"), "stopLoss");
-  const takeProfit = positivePrice(fields.get("分批止盈") || fields.get("止盈"), "takeProfit");
+  const stopLoss = positivePrice(
+    fields.get("止损与失效")
+      || fields.get("止损")
+      || fields.get("Stop-loss and invalidation")
+      || fields.get("Stop-loss"),
+    "stopLoss",
+  );
+  const takeProfit = positivePrice(
+    fields.get("分批止盈")
+      || fields.get("止盈")
+      || fields.get("Take-profit targets")
+      || fields.get("Take-profit"),
+    "takeProfit",
+  );
   if (direction === "short" && !(stopLoss > entry && entry > takeProfit)) {
     invalid("空头计划必须满足止损价高于触发价、触发价高于止盈价");
   }

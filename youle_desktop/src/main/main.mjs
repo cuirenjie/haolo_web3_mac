@@ -136,6 +136,16 @@ import { probeYouleAiEnvironment } from "./automation/runner.mjs";
 import { buildLoginTaskCommand, registerLoginTask, unregisterLoginTask, validateSchedule } from "./automation/scheduler.mjs";
 import { AutomationStore } from "./automation/store.mjs";
 import { AutomationWorker } from "./automation/worker.mjs";
+import {
+  TRADING_AUTOMATION_EXECUTION_PROFILE,
+  TRADING_AUTOMATION_MODEL,
+  TRADING_AUTOMATION_REASONING_EFFORT,
+  buildTradingAutomationDeveloperInstructions,
+  isTradingAutomationJob,
+  normalizeTradingAutomationContext,
+  resolveTradingAutomationRoute,
+  tradingAutomationBinanceInterval,
+} from "./automation/trading-profile.mjs";
 import { installSkillPackage, uninstallSkillPackage } from "./skill-installer.mjs";
 import { prepareUserSkillPromotionTarget } from "./skill-sync-resilience.mjs";
 import { migrateLegacyDefaultCodexHome } from "./legacy-codex-home-migration.mjs";
@@ -252,6 +262,7 @@ import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adap
 import { tradingAlertsEnabled, tradingAlertsShadowMode } from "./trading-alerts/feature-flag.mjs";
 import { tradingAlertErrorEnvelope } from "./trading-alerts/errors.mjs";
 import { executionPlanAlertTriggeredSummary } from "./trading-alerts/execution-plan-alert.mjs";
+import { TradingAlertEmailNotifier } from "./trading-alert-email-notifier.mjs";
 import { ClusterWorkflowRuntime } from "./workflow/runtime.mjs";
 import {
   CLUSTER_MODEL_REGISTRY,
@@ -423,6 +434,7 @@ let automationStore = null;
 let automationWorker = null;
 let tradingAlertService = null;
 let tradingAlertServicePromise = null;
+let tradingAlertEmailNotifier = null;
 const tradingAlertRendererSubscriptions = new Map();
 const binanceMarketRendererSubscriptions = new Map();
 const binancePublicRequestCoordinator = new BinancePublicRequestCoordinator();
@@ -4578,6 +4590,10 @@ async function resetBinanceNetworkRuntimeAfterAuthChange() {
   binanceGatewayClient = null;
   binancePublicMarketService = null;
   binanceAccountService = null;
+  // The loopback bridge is intentionally long-lived, but its service may have
+  // been created before this auth reset. Recreate it on the next invocation as
+  // defense in depth; the service also resolves the account dependency lazily.
+  personalContextService = null;
 }
 
 function getPersonalMemoryStore() {
@@ -4606,7 +4622,7 @@ function getPersonalContextService() {
   if (!personalContextService) {
     personalContextService = new PersonalContextService({
       memoryStore: getPersonalMemoryStore(),
-      accountService: getBinanceAccountService(),
+      getAccountService: getBinanceAccountService,
       resolveOwner: requireHaoloAccountOwner,
     });
   }
@@ -5410,6 +5426,7 @@ async function runWorkflowCodexNodeTurnWithRecovery({
   model,
   effort = "high",
   fixedReasoningEffort,
+  fixedEffort,
   sandboxPolicy,
   timeoutMs = 30 * 60_000,
   resetTimeoutOnActivity = false,
@@ -5425,6 +5442,7 @@ async function runWorkflowCodexNodeTurnWithRecovery({
   onTurnStarted,
   onTurnTerminal,
 }) {
+  const fixedEffortValue = fixedReasoningEffort || fixedEffort;
   const attemptLimit = Number.isFinite(Number(maxAttempts))
     ? Math.max(1, Math.floor(Number(maxAttempts)))
     : Number.POSITIVE_INFINITY;
@@ -5462,7 +5480,7 @@ async function runWorkflowCodexNodeTurnWithRecovery({
         cwd: workspace,
         model: model || undefined,
         effort: effort || undefined,
-        [HAOLO_REASONING_FIXED_EFFORT_FIELD]: fixedReasoningEffort,
+        [HAOLO_REASONING_FIXED_EFFORT_FIELD]: fixedEffortValue || undefined,
         serviceTier: null,
         approvalPolicy: "never",
         sandboxPolicy: normalizeSandboxPolicy(sandboxPolicy),
@@ -7060,6 +7078,8 @@ function normalizeAutoTask(value) {
     lastResult: stringValue(value.lastResult) || null,
     runCount: Number.isFinite(Number(value.runCount)) ? Math.max(0, Math.floor(Number(value.runCount))) : 0,
     threadId: normalizeAgentThreadId(value.threadId),
+    executionProfile: TRADING_AUTOMATION_EXECUTION_PROFILE,
+    tradingContext: normalizeTradingAutomationContext(value.tradingContext || {}, { withDefaults: true }),
   };
 }
 
@@ -7362,10 +7382,23 @@ async function ensureAutoTaskThread(task) {
   if (autoTaskThreadIds.has(task.id)) return autoTaskThreadIds.get(task.id);
   const cwd = autoTaskWorkspacePath(task);
   const serverClient = getClientForCwd(cwd);
-  const developerInstructions = await refreshSkillsDeveloperInstructions(cwd, "auto-task");
+  const developerInstructions = buildAutomationDeveloperInstructions(
+    await refreshSkillsDeveloperInstructions(cwd, "auto-task"),
+    {
+      ...task,
+      createdBy: AUTO_TASK_JOB_CREATED_BY,
+      executionProfile: TRADING_AUTOMATION_EXECUTION_PROFILE,
+    },
+  );
   const result = await requestThreadStart(serverClient, {
     ...threadConfigurationParams(
-      { cwd, approvalPolicy: AUTO_TASK_APPROVAL_POLICY, sandboxPolicy: AUTO_TASK_SANDBOX_POLICY },
+      {
+        cwd,
+        approvalPolicy: AUTO_TASK_APPROVAL_POLICY,
+        sandboxPolicy: AUTO_TASK_SANDBOX_POLICY,
+        model: TRADING_AUTOMATION_MODEL,
+        reasoningEffort: TRADING_AUTOMATION_REASONING_EFFORT,
+      },
       { developerInstructions },
     ),
     ephemeral: false,
@@ -10187,7 +10220,7 @@ function buildHaoloMediaDeveloperInstructions(cwd) {
   return lines.join("\n");
 }
 
-function buildAutomationDeveloperInstructions(baseInstructions) {
+function buildAutomationDeveloperInstructions(baseInstructions, job = {}) {
   const lines = [
     "<haolo_desktop_automation_instructions>",
     "Desktop automation run rules:",
@@ -10201,7 +10234,11 @@ function buildAutomationDeveloperInstructions(baseInstructions) {
     "- Summarize the execution result clearly, including created files, operated applications, verifiable output, failures, or required user follow-up.",
     "</haolo_desktop_automation_instructions>",
   ];
-  return [baseInstructions, lines.join("\n")].filter(Boolean).join("\n\n");
+  return [
+    baseInstructions,
+    buildTradingAutomationDeveloperInstructions(job),
+    lines.join("\n"),
+  ].filter(Boolean).join("\n\n");
 }
 
 async function injectLatestSkillsInstructions(threadId, developerInstructions) {
@@ -10226,6 +10263,7 @@ async function ensureAutomationThread(job, workspacePath, options = {}) {
   }
   const developerInstructions = buildAutomationDeveloperInstructions(
     await refreshSkillsDeveloperInstructions(workspacePath, "automation-thread-start"),
+    job,
   );
   const result = await requestThreadStart(serverClient, {
     ...threadConfigurationParams(
@@ -10234,6 +10272,7 @@ async function ensureAutomationThread(job, workspacePath, options = {}) {
         approvalPolicy: automationRuntimeApprovalPolicy(job),
         sandbox: automationRuntimeSandbox(job),
         model: job.model || undefined,
+        reasoningEffort: job.reasoningEffort || undefined,
       },
       { developerInstructions },
     ),
@@ -10252,7 +10291,414 @@ async function ensureAutomationThread(job, workspacePath, options = {}) {
   return threadId;
 }
 
+function tradingAutomationCandlesFromBinanceRows(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      time: Math.floor(Number(row?.[0]) / 1_000),
+      open: Number(row?.[1]),
+      high: Number(row?.[2]),
+      low: Number(row?.[3]),
+      close: Number(row?.[4]),
+      volume: Number(row?.[5]),
+    }))
+    .filter((candle) => (
+      Number.isFinite(candle.time)
+      && Number.isFinite(candle.open)
+      && Number.isFinite(candle.high)
+      && Number.isFinite(candle.low)
+      && Number.isFinite(candle.close)
+      && Number.isFinite(candle.volume)
+      && candle.time > 0
+      && candle.low > 0
+      && candle.high >= Math.max(candle.open, candle.close)
+      && candle.low <= Math.min(candle.open, candle.close)
+    ));
+}
+
+const TRADING_AUTOMATION_BINANCE_INTERVAL_MS = Object.freeze({
+  "1m": 60_000,
+  "3m": 180_000,
+  "5m": 300_000,
+  "15m": 900_000,
+  "30m": 1_800_000,
+  "1h": 3_600_000,
+  "2h": 7_200_000,
+  "4h": 14_400_000,
+  "6h": 21_600_000,
+  "8h": 28_800_000,
+  "12h": 43_200_000,
+  "1d": 86_400_000,
+  "3d": 259_200_000,
+  "1w": 604_800_000,
+});
+
+function tradingAutomationIntervalDurationMs(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "1D") return 86_400_000;
+  if (normalized === "1W") return 604_800_000;
+  const minutes = Number(normalized);
+  return Number.isInteger(minutes) && minutes >= 1 ? minutes * 60_000 : 0;
+}
+
+function tradingAutomationBinanceCandleSource(value) {
+  const targetMs = tradingAutomationIntervalDurationMs(value);
+  if (!targetMs) return null;
+  const source = Object.entries(TRADING_AUTOMATION_BINANCE_INTERVAL_MS)
+    .filter(([, duration]) => duration <= targetMs && targetMs % duration === 0)
+    .sort((first, second) => second[1] - first[1])[0];
+  return source ? { targetMs, sourceInterval: source[0], sourceMs: source[1] } : null;
+}
+
+function aggregateTradingAutomationCandles(candles, targetMs) {
+  const buckets = new Map();
+  candles.slice().sort((first, second) => first.time - second.time).forEach((candle) => {
+    const time = Math.floor((candle.time * 1_000) / targetMs) * targetMs / 1_000;
+    const current = buckets.get(time);
+    if (!current) {
+      buckets.set(time, { ...candle, time });
+      return;
+    }
+    current.high = Math.max(current.high, candle.high);
+    current.low = Math.min(current.low, candle.low);
+    current.close = candle.close;
+    current.volume += candle.volume;
+  });
+  return [...buckets.values()].sort((first, second) => first.time - second.time);
+}
+
+async function tradingAutomationPublicGet(marketType, requestPath, parameters, signal) {
+  const response = await getBinancePublicMarketService().request({
+    marketType,
+    path: requestPath,
+    parameters,
+  }, { signal });
+  if (response?.ok !== true) {
+    const error = new Error(response?.error || `Binance market request failed: ${requestPath}`);
+    error.code = response?.errorCode || "TRADING_AUTOMATION_MARKET_DATA_FAILED";
+    error.status = response?.status || 0;
+    throw error;
+  }
+  return response.data;
+}
+
+async function tradingAutomationFetchCandles(route, interval, count, signal) {
+  const source = tradingAutomationBinanceCandleSource(interval);
+  if (!source) throw new Error(`自动任务暂不支持 ${interval} K 线周期`);
+  const marketType = route.marketType === "spot" ? "spot" : "futures";
+  const requestPath = marketType === "spot" ? "/api/v3/klines" : "/fapi/v1/klines";
+  const ratio = Math.max(1, Math.ceil(source.targetMs / source.sourceMs));
+  let remaining = Math.min(Math.max(count * ratio + ratio, count), 15_000);
+  let cursor = Date.now();
+  let candles = [];
+  for (let page = 0; page < 10 && remaining > 0; page += 1) {
+    const limit = Math.min(remaining, marketType === "spot" ? 1_000 : 1_500);
+    const rows = await tradingAutomationPublicGet(marketType, requestPath, {
+      symbol: route.symbol,
+      interval: source.sourceInterval,
+      ...(page ? { endTime: cursor } : {}),
+      limit,
+    }, signal);
+    const batch = tradingAutomationCandlesFromBinanceRows(rows);
+    if (!batch.length) break;
+    const merged = new Map([...batch, ...candles].map((candle) => [candle.time, candle]));
+    candles = [...merged.values()].sort((first, second) => first.time - second.time);
+    remaining -= batch.length;
+    cursor = batch[0].time * 1_000 - 1;
+    if (batch.length < limit) break;
+  }
+  const normalized = source.sourceMs === source.targetMs
+    ? candles
+    : aggregateTradingAutomationCandles(candles, source.targetMs);
+  return normalized.slice(-count);
+}
+
+function tradingAutomationContextIntervals(interval) {
+  const duration = tradingAutomationIntervalDurationMs(interval);
+  if (duration <= 15 * 60_000) return ["60", "240", "1D"];
+  if (duration <= 60 * 60_000) return ["240", "1D"];
+  if (duration <= 4 * 60 * 60_000) return ["1D", "1W"];
+  if (duration <= 24 * 60 * 60_000) return ["1W"];
+  return [];
+}
+
+async function tradingAutomationContextCandles(route, signal) {
+  const rows = await Promise.all(tradingAutomationContextIntervals(route.interval).map(async (interval) => {
+    try {
+      const candles = await tradingAutomationFetchCandles(route, interval, 240, signal);
+      return candles.length >= 30 ? { interval, candles } : null;
+    } catch {
+      return null;
+    }
+  }));
+  return rows.filter(Boolean);
+}
+
+function tradingAutomationHyperliquidInterval(interval) {
+  const normalized = String(interval || "").trim().toUpperCase();
+  if (normalized === "1D") return "1d";
+  if (normalized === "1W") return "1w";
+  return new Map([
+    [1, "1m"], [3, "3m"], [5, "5m"], [15, "15m"], [30, "30m"],
+    [60, "1h"], [120, "2h"], [240, "4h"], [480, "8h"], [720, "12h"], [4_320, "3d"],
+  ]).get(Number(normalized)) || null;
+}
+
+async function tradingAutomationComparisonMarkets(route, signal) {
+  const interval = tradingAutomationHyperliquidInterval(route.interval);
+  const durationMs = tradingAutomationIntervalDurationMs(route.interval);
+  if (!interval || !durationMs || signal?.aborted) return [];
+  const baseAsset = route.symbol.replace(/(?:USDT|USDC|USD)$/iu, "");
+  if (!/^[A-Z0-9][A-Z0-9._-]{0,31}$/u.test(baseAsset)) return [];
+  const correlatedAsset = baseAsset === "BTC" ? "ETH" : "BTC";
+  const endTime = Date.now();
+  const startTime = Math.max(1, endTime - durationMs * 608);
+  const results = await Promise.allSettled([baseAsset, correlatedAsset].map((coin) => (
+    getHyperliquidPublicMarketService().candles({ coin, interval, startTime, endTime })
+  )));
+  return results.flatMap((result, index) => {
+    if (result.status !== "fulfilled" || result.value?.ok !== true) return [];
+    const candles = (Array.isArray(result.value.data) ? result.value.data : []).flatMap((item) => {
+      const candle = {
+        time: Math.floor(Number(item?.t) / 1_000),
+        open: Number(item?.o),
+        high: Number(item?.h),
+        low: Number(item?.l),
+        close: Number(item?.c),
+        volume: Math.max(0, Number(item?.v) || 0),
+      };
+      return candle.time > 0
+        && candle.low > 0
+        && candle.high >= Math.max(candle.open, candle.close)
+        && candle.low <= Math.min(candle.open, candle.close)
+        ? [candle]
+        : [];
+    }).slice(-600);
+    if (candles.length < 30) return [];
+    const coin = index === 0 ? baseAsset : correlatedAsset;
+    return [{
+      marketId: `HYPERLIQUID:PERP:${coin}`,
+      symbol: coin,
+      source: "hyperliquid-public",
+      kind: index === 0 ? "venue-confirmation" : "correlated-market",
+      candles,
+    }];
+  });
+}
+
+async function tradingAutomationOrderFlow(route, candles, signal) {
+  const marketType = route.marketType === "spot" ? "spot" : "futures";
+  const endTime = Math.max(0, Number(candles.at(-1)?.time || 0) * 1_000);
+  const startTime = Math.max(0, endTime - 60 * 60_000);
+  const routePrefix = marketType === "spot" ? "/api/v3" : "/fapi/v1";
+  const requests = [
+    tradingAutomationPublicGet(marketType, `${routePrefix}/aggTrades`, {
+      symbol: route.symbol,
+      startTime,
+      endTime,
+      limit: 1_000,
+    }, signal).catch(() => []),
+    tradingAutomationPublicGet(marketType, `${routePrefix}/depth`, {
+      symbol: route.symbol,
+      limit: 100,
+    }, signal).catch(() => null),
+  ];
+  if (marketType === "futures") {
+    requests.push(
+      tradingAutomationPublicGet("futures", "/fapi/v1/openInterest", {
+        symbol: route.symbol,
+      }, signal).catch(() => null),
+      tradingAutomationPublicGet("futures", "/futures/data/openInterestHist", {
+        symbol: route.symbol,
+        period: tradingAutomationBinanceInterval(route.interval),
+        limit: 30,
+      }, signal).catch(() => []),
+    );
+  }
+  const [rawTrades, rawDepth, rawOpenInterest, rawOpenInterestHistory] = await Promise.all(requests);
+  const trades = (Array.isArray(rawTrades) ? rawTrades : []).map((trade) => ({
+    id: String(trade?.a ?? trade?.id ?? ""),
+    time: Math.floor(Number(trade?.T ?? trade?.time) / 1_000),
+    price: Number(trade?.p ?? trade?.price),
+    quantity: Number(trade?.q ?? trade?.qty ?? trade?.quantity),
+    side: trade?.m === true ? "sell" : "buy",
+  })).filter((trade) => trade.time > 0 && trade.price > 0 && trade.quantity > 0);
+  const depthLevels = (value) => (Array.isArray(value) ? value : []).map((level) => ({
+    price: Number(level?.[0]),
+    quantity: Number(level?.[1]),
+  })).filter((level) => level.price > 0 && level.quantity >= 0);
+  const openInterestHistory = (Array.isArray(rawOpenInterestHistory) ? rawOpenInterestHistory : [])
+    .map((point) => ({
+      time: Math.floor(Number(point?.timestamp) / 1_000),
+      value: Number(point?.sumOpenInterest),
+    }))
+    .filter((point) => point.time > 0 && point.value >= 0);
+  return {
+    source: "binance-public-market-service",
+    windowStart: trades[0]?.time || candles.at(-1)?.time || 0,
+    windowEnd: trades.at(-1)?.time || candles.at(-1)?.time || 0,
+    trades,
+    depth: {
+      snapshotTime: Date.now(),
+      lastUpdateId: Number(rawDepth?.lastUpdateId || 0),
+      bids: depthLevels(rawDepth?.bids),
+      asks: depthLevels(rawDepth?.asks),
+    },
+    openInterest: {
+      current: Number.isFinite(Number(rawOpenInterest?.openInterest))
+        ? Number(rawOpenInterest.openInterest)
+        : null,
+      history: openInterestHistory,
+    },
+    coverage: {
+      trades: trades.length >= 50 ? "available" : trades.length ? "partial" : "unavailable",
+      depth: rawDepth?.bids?.length >= 5 && rawDepth?.asks?.length >= 5 ? "partial" : "unavailable",
+      openInterest: openInterestHistory.length >= 2
+        ? "available"
+        : rawOpenInterest ? "partial" : "unavailable",
+      liquidations: "unavailable",
+    },
+  };
+}
+
+function compactTradingAutomationAnalysis(route, result, artifactPath) {
+  const analysisPlan = result?.analysisPlan || {};
+  const snapshot = result?.snapshot || result?.strategyResult?.snapshot || {};
+  const drawingPatch = analysisPlan.drawingPatch || analysisPlan.indicatorDrawingPatch || null;
+  return {
+    schemaVersion: 1,
+    executionProfile: TRADING_AUTOMATION_EXECUTION_PROFILE,
+    route: {
+      source: route.source,
+      strategyId: result?.strategyResult?.strategy?.id || route.strategyId || "price-action",
+      marketId: route.marketId,
+      symbol: route.symbol,
+      interval: route.interval,
+      marketType: route.marketType,
+    },
+    snapshot: {
+      snapshotId: snapshot.snapshotId || snapshot.id || null,
+      inputHash: snapshot.inputHash || null,
+      marketId: snapshot.marketId || route.marketId,
+      interval: snapshot.interval || route.interval,
+    },
+    analysisId: analysisPlan.analysisId || result?.strategyResult?.analysisId || null,
+    executionPlan: result?.executionPlan || analysisPlan.executionPlan || null,
+    drawingArtifact: {
+      available: Boolean(drawingPatch),
+      analysisId: drawingPatch?.analysisId || analysisPlan.analysisId || null,
+      operationCount: Array.isArray(drawingPatch?.operations) ? drawingPatch.operations.length : 0,
+    },
+    artifactPath,
+  };
+}
+
+async function executeTradingAutomationAnalysis({ job, run, prompt, abortController, eventWrites }) {
+  if (!isTradingAutomationJob(job)) return null;
+  const coordinator = getTradingStrategyCoordinator();
+  const strategies = coordinator.listStrategies().strategies;
+  const route = resolveTradingAutomationRoute({
+    prompt,
+    context: job.tradingContext,
+    strategies,
+  });
+  eventWrites.push(getAutomationStore().appendRunEvent(run.id, {
+    source: "trading_automation",
+    eventType: "trading.route",
+    payload: route,
+  }));
+  if (route.mode !== "analysis") return null;
+  if (route.provider !== "binance") {
+    const error = new Error(`自动任务完整交易分析暂不支持后台读取 ${route.provider || "unknown"} 行情`);
+    error.code = "TRADING_AUTOMATION_PROVIDER_UNSUPPORTED";
+    throw error;
+  }
+  const candles = await tradingAutomationFetchCandles(route, route.interval, 600, abortController.signal);
+  if (candles.length < 30) {
+    const error = new Error(`自动任务交易链路只取得 ${candles.length} 根有效 K 线，无法完成分析`);
+    error.code = "TRADING_AUTOMATION_CANDLES_INSUFFICIENT";
+    throw error;
+  }
+  const baseParams = {
+    schemaVersion: 1,
+    marketId: route.marketId,
+    symbol: route.symbol,
+    interval: route.interval,
+    snapshotTime: Date.now(),
+    candles,
+    instruction: String(prompt || "").trim(),
+    drawingRequested: true,
+    executionPlanRequested: true,
+    language: appLanguage(),
+  };
+  const strategyId = route.strategyId || "price-action";
+  const strategy = strategies.find((candidate) => candidate.id === strategyId);
+  if (strategy?.dataRequirements?.["context-candles"]) {
+    baseParams.contextCandles = await tradingAutomationContextCandles(route, abortController.signal);
+  }
+  if (strategy?.dataRequirements?.["comparison-candles"]) {
+    baseParams.comparisonMarkets = await tradingAutomationComparisonMarkets(route, abortController.signal);
+  }
+  if (route.strategyId === "order-flow") {
+    baseParams.orderFlow = await tradingAutomationOrderFlow(route, candles, abortController.signal);
+  }
+  const personalizedParams = await tradingStrategyParamsWithPersonalRisk(baseParams);
+  const result = await coordinator.run(
+    strategyId,
+    tradingStrategyParamsWithReadOnlyBinanceAccount(personalizedParams),
+    { signal: abortController.signal },
+  );
+  const report = String(
+    result?.analysisPlan?.report
+      || result?.analysisPlan?.narrative
+      || result?.report
+      || "交易分析已完成，但没有返回文字报告。",
+  ).trim();
+  const artifactPath = path.join(run.runDir, "trading-analysis.json");
+  await fs.promises.writeFile(artifactPath, `${JSON.stringify({
+    schemaVersion: 1,
+    executionProfile: TRADING_AUTOMATION_EXECUTION_PROFILE,
+    checkedAt: new Date().toISOString(),
+    route,
+    result,
+  }, null, 2)}\n`, "utf8");
+  const artifactStat = await fs.promises.stat(artifactPath);
+  const tradingAnalysis = compactTradingAutomationAnalysis(route, result, artifactPath);
+  eventWrites.push(getAutomationStore().appendRunEvent(run.id, {
+    source: "trading_automation",
+    eventType: "trading.analysis.completed",
+    payload: {
+      strategyId: tradingAnalysis.route.strategyId,
+      marketId: route.marketId,
+      interval: route.interval,
+      candleCount: candles.length,
+      analysisId: tradingAnalysis.analysisId,
+      hasExecutionPlan: Boolean(tradingAnalysis.executionPlan),
+      hasDrawingPatch: tradingAnalysis.drawingArtifact.available,
+    },
+  }));
+  return {
+    status: "success",
+    summary: report,
+    hasFindings: true,
+    hasPatch: tradingAnalysis.drawingArtifact.available,
+    artifacts: [{
+      type: "trading_analysis",
+      path: artifactPath,
+      sizeBytes: artifactStat.size,
+    }],
+    tradingAnalysis,
+  };
+}
+
 async function executeAutomationTurn({ job, run, prompt, workspacePath, abortController, eventWrites }) {
+  const tradingAnalysisResult = await executeTradingAutomationAnalysis({
+    job,
+    run,
+    prompt,
+    abortController,
+    eventWrites,
+  });
+  if (tradingAnalysisResult) return tradingAnalysisResult;
   const consumptionStartedAt = new Date().toISOString();
   const workspaceCwd = path.resolve(workspacePath || job.workspacePath || autoTaskWorkspacePath(job) || desktopWorkspace());
   const serverClient = getClientForCwd(workspaceCwd);
@@ -10271,6 +10717,7 @@ async function executeAutomationTurn({ job, run, prompt, workspacePath, abortCon
   );
   const developerInstructions = buildAutomationDeveloperInstructions(
     await refreshSkillsDeveloperInstructions(workspaceCwd, "automation-before-turn"),
+    job,
   );
   if (threadIsNew) {
     await injectLatestSkillsInstructions(threadId, developerInstructions);
@@ -10306,6 +10753,7 @@ async function executeAutomationTurn({ job, run, prompt, workspacePath, abortCon
       input: [{ type: "text", text: buildTurnInputWithGroupMemory(String(prompt || job.promptTemplate || "").trim(), workspaceCwd), textElements: [] }],
       cwd: workspaceCwd,
       model: job.model || undefined,
+      effort: job.reasoningEffort || undefined,
       approvalPolicy: automationRuntimeApprovalPolicy(job),
       sandboxPolicy: normalizeSandboxPolicy(automationRuntimeSandbox(job)),
     });
@@ -10499,6 +10947,7 @@ async function resumeAutomationThread({ threadId, job, workspacePath, developerI
         approvalPolicy: automationRuntimeApprovalPolicy(job),
         sandbox: automationRuntimeSandbox(job),
         model: job.model || undefined,
+        reasoningEffort: job.reasoningEffort || undefined,
       },
       { developerInstructions },
     ),
@@ -10634,6 +11083,8 @@ function normalizeAutoTasks(value) {
         lastResult: item.lastResult || null,
         runCount: Number.isFinite(Number(item.runCount)) ? Math.max(0, Math.floor(Number(item.runCount))) : 0,
         threadId: normalizeAgentThreadId(item.threadId),
+        executionProfile: TRADING_AUTOMATION_EXECUTION_PROFILE,
+        tradingContext: normalizeTradingAutomationContext(item.tradingContext || {}, { withDefaults: true }),
       };
     })
     .filter((item) => item.name && item.description && item.time);
@@ -10683,10 +11134,14 @@ function autoTaskToAutomationJobInput(task) {
     ...groupMeta,
     schedule: autoTaskSchedule(task),
     prompt: buildAutoTaskPrompt(task),
+    executionProfile: TRADING_AUTOMATION_EXECUTION_PROFILE,
+    tradingContext: normalizeTradingAutomationContext(task.tradingContext || {}, { withDefaults: true }),
     workspaceMode: "local",
     allowLocalWrite: true,
     sandboxMode: AUTO_TASK_SANDBOX_POLICY,
     approvalPolicy: automationRuntimeApprovalPolicy(task),
+    model: TRADING_AUTOMATION_MODEL,
+    reasoningEffort: TRADING_AUTOMATION_REASONING_EFFORT,
     concurrencyPolicy: "skip",
     maxDurationSeconds: 1800,
     startupTimeoutSeconds: 120,
@@ -10751,6 +11206,11 @@ async function autoTaskFromAutomationJob(task, job) {
   return {
     ...task,
     ...groupMeta,
+    executionProfile: TRADING_AUTOMATION_EXECUTION_PROFILE,
+    tradingContext: normalizeTradingAutomationContext(
+      task.tradingContext || job.tradingContext || {},
+      { withDefaults: true },
+    ),
     enabled: job.enabled !== false,
     status,
     nextRunAt: job.nextRunAtUtc || null,
@@ -10798,6 +11258,7 @@ async function autoTaskRunHistory(jobId) {
       scheduledForUtc: run.scheduledForUtc,
       summary: run.summary || "",
       errorMessage: run.errorMessage || null,
+      tradingAnalysis: run.tradingAnalysis || null,
     }))
     .reverse();
 }
@@ -12338,6 +12799,32 @@ ipcMain.handle("youle:refreshSession", async (_event, params = {}) => {
   });
 });
 
+ipcMain.handle("youle:openWebsiteSupport", async () => {
+  const apiClient = getYouleApiClient();
+  let session;
+  try {
+    session = await apiClient.getSession();
+  } catch (error) {
+    if (!isYouleAuthExpiredError(error)) throw error;
+    session = { authenticated: false };
+  }
+  let handoffTicket = "";
+  if (session?.authenticated) {
+    try {
+      const handoff = await apiClient.createDesktopWebHandoff();
+      handoffTicket = String(handoff?.ticket || "");
+    } catch (error) {
+      if (!isYouleAuthExpiredError(error)) throw error;
+    }
+  }
+  const supportUrl = new URL("/", HAOLO_HOME_URL);
+  const fragment = new URLSearchParams({ support: "open" });
+  if (handoffTicket) fragment.set("desktop_handoff", handoffTicket);
+  supportUrl.hash = fragment.toString();
+  await shell.openExternal(supportUrl.toString());
+  return { ok: true, authenticated: Boolean(handoffTicket) };
+});
+
 ipcMain.handle("youle:refreshProfile", async () => {
   return getYouleApiClient().refreshProfile();
 });
@@ -13831,12 +14318,19 @@ function tradingAnalysisAbortError(message = "Trading analysis was cancelled") {
   return error;
 }
 
-async function invokeTradingAnalysisAppServer({ modelId, modelProvider, request, signal, onReasoningSummaryDelta }) {
+async function invokeTradingAnalysisAppServer({
+  modelId,
+  modelProvider,
+  request,
+  signal,
+  reasoningEffort: requestedReasoningEffort,
+  onReasoningSummaryDelta,
+}) {
   const workspace = desktopWorkspace();
   const serverClient = getClientForCwd(workspace);
   const isRequestRouting = String(request.task || "").endsWith("-request-routing");
   const isAlertIntent = String(request.task || "") === "trading_alert_intent_compile";
-  const turnPolicy = tradingAnalysisTurnPolicy(request.task);
+  const turnPolicy = tradingAnalysisTurnPolicy(request.task, { requestedReasoningEffort });
   const {
     reasoningEffort,
     timeoutMs,
@@ -13909,6 +14403,7 @@ async function invokeTradingAnalysisAppServer({ modelId, modelProvider, request,
       model: modelId,
       effort: reasoningEffort,
       fixedReasoningEffort: reasoningEffort,
+      fixedEffort: reasoningEffort,
       sandboxPolicy: "read-only",
       timeoutMs,
       resetTimeoutOnActivity,
@@ -14014,6 +14509,31 @@ async function notifyTradingAlertTriggered({ alert, evidence } = {}) {
   const body = `${triggeredSummary}\n${mainUiText("triggeredAt")}: ${new Date(Number(evidence?.triggeredAt || Date.now())).toLocaleString(appLanguageLocale())}`;
   const anchor = evidence?.contexts?.[0] || {};
   const openContext = { alertId: alert?.alertId, evidenceId: evidence?.evidenceId, marketId: anchor.marketId, interval: anchor.interval, triggeredAt: evidence?.triggeredAt };
+  const accountId = String(getYouleApiClient().sessionSummary()?.profile?.id || "").trim();
+  if (accountId) {
+    try {
+      await getTradingAlertEmailNotifier().enqueue({
+        accountId,
+        eventId: evidence?.evidenceId,
+        alertId: alert?.alertId,
+        alertTitle: alert?.rule?.title || mainUiText("tradingCondition"),
+        summary: triggeredSummary,
+        marketId: anchor.marketId,
+        interval: anchor.interval,
+        triggeredAt: evidence?.triggeredAt,
+        locale: appLanguage(),
+      });
+    } catch (error) {
+      console.warn("[trading-alert-email] failed to persist notification", {
+        eventId: String(evidence?.evidenceId || ""),
+        code: String(error?.code || "TRADING_ALERT_EMAIL_QUEUE_FAILED"),
+      });
+    }
+  } else {
+    console.warn("[trading-alert-email] skipped queue because no authenticated account is available", {
+      eventId: String(evidence?.evidenceId || ""),
+    });
+  }
   if (taskCompletionPopupEnabled() && process.platform === "win32") showDesktopNotificationWindow({ title, body, ...openContext });
   else if (taskCompletionPopupEnabled() && Notification.isSupported()) {
     const notification = new Notification({ title, body, icon: SHELL_ICON_PATH || WINDOW_ICON_PATH || undefined });
@@ -14027,6 +14547,17 @@ async function notifyTradingAlertTriggered({ alert, evidence } = {}) {
     summary: triggeredSummary,
   });
   sendToRenderer("tradingAlerts:changed", await getTradingAlertService().then((service) => service.snapshot()));
+}
+
+function getTradingAlertEmailNotifier() {
+  if (!tradingAlertEmailNotifier) {
+    tradingAlertEmailNotifier = new TradingAlertEmailNotifier({
+      dataDir: path.join(app.getPath("userData"), "trading-alerts"),
+      currentAccountId: () => String(getYouleApiClient().sessionSummary()?.profile?.id || "").trim(),
+      deliver: (payload) => getYouleApiClient().sendTradingAlertEmail(payload),
+    });
+  }
+  return tradingAlertEmailNotifier.start();
 }
 
 function notifyExecutionPlanStatusChanged(params = {}) {
@@ -14064,6 +14595,7 @@ async function getTradingAlertService() {
   if (tradingAlertService) return tradingAlertService;
   if (tradingAlertServicePromise) return tradingAlertServicePromise;
   tradingAlertServicePromise = (async () => {
+    getTradingAlertEmailNotifier();
     const gatewayConfig = getBinanceGatewayConfig();
     const router = getBinanceNetworkRouter();
     const alertFetch = (url, init) => getBinanceRequestGovernor().fetch(
@@ -15074,11 +15606,14 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
       ...params,
       language: normalizeAppLanguage(params.language || appLanguage()),
     });
-    return await runTradingPriceActionAnalysisPipeline(personalizedParams, {
-      modelRegistry: getTradingAnalysisModelRegistry(),
-      providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-      signal: controller.signal,
-    });
+    return await runTradingPriceActionAnalysisPipeline(
+      tradingStrategyParamsWithReadOnlyBinanceAccount(personalizedParams),
+      {
+        modelRegistry: getTradingAnalysisModelRegistry(),
+        providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
+        signal: controller.signal,
+      },
+    );
   } catch (error) {
     const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
     return {
@@ -21523,6 +22058,16 @@ async function cleanupAndExit(exitCode = 0) {
       console.warn("[trading-alerts] failed to stop", error?.message || error);
     } finally {
       tradingAlertService = null;
+    }
+  }
+
+  if (tradingAlertEmailNotifier) {
+    try {
+      await withShutdownTimeout("trading alert email notifier", tradingAlertEmailNotifier.stop());
+    } catch (error) {
+      console.warn("[trading-alert-email] failed to stop", error?.message || error);
+    } finally {
+      tradingAlertEmailNotifier = null;
     }
   }
 

@@ -1465,7 +1465,8 @@ test("Trading Expert market uses the compact pair title and customizable period 
   assert.match(overview, /class="trading-market-venue" data-market-current-venue>\$\{MARKET_VENUE\}<\/span>/);
   assert.match(overview, /renderTradingMarketAssetLogo\("BTC", "binance", true\)/);
   assert.match(overview, /class="trading-market-contract-tag" data-market-current-tag>永续<\/span>/);
-  assert.match(source, /const DEFAULT_INTERVAL = "1D"/);
+  assert.match(source, /const DEFAULT_INTERVAL = "60"/);
+  assert.match(source, /const intervalSequence = \[DEFAULT_INTERVAL, "240", "15", DEFAULT_INTERVAL, "5", "1W", "30", "120"\]/);
   assert.match(source, /\{ amount: 1, unit: "w" \},[\s\S]*?\{ amount: 1, unit: "d" \},[\s\S]*?\{ amount: 5, unit: "m" \},[\s\S]*?\{ amount: 15, unit: "m" \},[\s\S]*?\{ amount: 1, unit: "h" \},[\s\S]*?\{ amount: 4, unit: "h" \}/);
   assert.ok(
     indicatorBar.indexOf("data-market-main-indicators")
@@ -1716,6 +1717,15 @@ test("Trading Expert market picker is compact, neutral-search, left-aligned, and
   assert.match(styles, /--trading-market-scrollbar-thumb: rgba\(91, 108, 132, 0\.52\);[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-scrollbar-thumb: rgba\(148, 161, 181, 0\.5\);/s);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-panel: #0f1014;/);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-logo-bg: #171a20;[\s\S]*--trading-market-tag-bg: #24282f;/s);
+});
+
+test("Trading Expert auto-favorites only a successfully opened non-empty search result", async () => {
+  const source = await marketSource;
+
+  assert.match(source, /shouldAutoFavoriteTradingMarketSelection\(action, this\.search\.value\)/);
+  assert.match(source, /market && autoFavorite && this\.addFavoriteMarket\(market\)[\s\S]*?this\.commitFavoriteMarketChanges\(\)/);
+  assert.match(source, /if \(!this\.selectMarket\(market\)\)[\s\S]*?const favoriteAdded = autoFavorite && this\.addFavoriteMarket\(market\)[\s\S]*?this\.commitFavoriteMarketChanges\(false\)/);
+  assert.match(source, /private addFavoriteMarket\(market: TradingMarket\)[\s\S]*?this\.favoriteSymbols\.has\(market\.id\)[\s\S]*?this\.favoriteMarketRecords\.has\(market\.id\)[\s\S]*?if \(alreadyFavorite && hasStableFavorite\) return false;[\s\S]*?this\.favoriteMarketRecords\.set\(market\.id, tradingFavoriteRecord\(market\)\)/);
 });
 
 test("Trading Expert favorites persist, lead the next open, and remain available in the full directory", async () => {

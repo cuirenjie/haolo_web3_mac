@@ -118,8 +118,11 @@ test("three-question flow requires every question and supports per-question reco
   assert.match(flow, /result\?\.completed !== true/);
   assert.match(flow, /以后无论使用普通分析、技能还是交易策略，我都会参考这份配置/);
   assert.match(source, /const TRADING_PREFERENCE_BINANCE_INVITATION =[\s\S]*只读权限[\s\S]*不能下单、转账或修改账户设置/);
-  assert.match(flow, /const binanceInvitationItem = appendTradingPreferenceMessage\([\s\S]*TRADING_PREFERENCE_BINANCE_INVITATION[\s\S]*label: "连接币安"[\s\S]*destination: "binance-account"/);
-  assert.match(flow, /transcriptItems\.length \? transcriptItems : \[completionItem, binanceInvitationItem\]/);
+  assert.match(source, /const TRADING_PREFERENCE_BINANCE_CONNECTED =[\s\S]*币安已经连接成功/);
+  assert.match(flow, /const binanceConnected = await tradingPreferenceBinanceIsConnected\(\)/);
+  assert.match(flow, /const binanceStatusItem = appendTradingPreferenceMessage\([\s\S]*binanceConnected[\s\S]*TRADING_PREFERENCE_BINANCE_CONNECTED[\s\S]*TRADING_PREFERENCE_BINANCE_INVITATION/);
+  assert.match(flow, /binanceConnected[\s\S]*\? \[\][\s\S]*label: "连接币安"[\s\S]*destination: "binance-account"/);
+  assert.match(flow, /transcriptItems\.length \? transcriptItems : \[completionItem, binanceStatusItem\]/);
   assert.match(send, /tradingPreferenceOnboardingByThreadId\.has\(threadId\)[\s\S]*handleTradingPreferenceOnboardingReply/);
   assert.ok(
     send.indexOf("handleTradingPreferenceOnboardingReply") < send.indexOf("classifyTradingStrategyForSend"),
@@ -184,7 +187,10 @@ test("the final Binance invitation uses the onboarding action style and opens th
   assert.match(actionRenderer, /trading-preference-onboarding-start trading-preference-binance-connect/);
   assert.match(actionBindings, /messageActionDestination === "binance-account"[\s\S]*openBinanceAccountPage\(\)/);
   assert.match(actionHydration, /TRADING_PREFERENCE_BINANCE_INVITATION/);
+  assert.match(actionHydration, /binanceAlreadyConnected[\s\S]*action\.destination === "binance-account"/);
+  assert.match(actionHydration, /isTradingPreferenceBinanceInvitation && !binanceAlreadyConnected/);
   assert.match(actionHydration, /destination: "binance-account"/);
+  assert.match(source, /function tradingPreferenceBinanceVisibleText[\s\S]*status\?\.bound === true[\s\S]*TRADING_PREFERENCE_BINANCE_CONNECTED/);
   assert.match(styles, /\.message-actions \.trading-preference-binance-connect\s*\{/);
   assert.match(styles, /\.message-actions \.trading-preference-binance-connect:hover:not\(:disabled\)/);
   assert.match(styles, /\.message-actions \.trading-preference-binance-connect:active:not\(:disabled\)/);
@@ -195,4 +201,25 @@ test("the final Binance invitation uses the onboarding action style and opens th
   assert.match(styles, /html\[data-theme="dark"\] \.message-actions \.trading-preference-binance-connect:active:not\(:disabled\)/);
   assert.match(styles, /html\[data-theme="dark"\] \.message-actions \.trading-preference-binance-connect:focus-visible/);
   assert.match(styles, /html\[data-theme="dark"\] \.message-actions \.trading-preference-binance-connect:disabled/);
+});
+
+test("preference completion checks the live Binance binding before choosing success or connect UI", async () => {
+  const source = await rendererSource;
+  const statusCheck = sourceBlock(
+    source,
+    "async function tradingPreferenceBinanceIsConnected",
+    "async function loadTradingPreferenceProfile",
+  );
+  const completion = sourceBlock(
+    source,
+    "async function saveTradingPreferenceOnboarding",
+    "async function handleTradingPreferenceOnboardingReply",
+  );
+
+  assert.match(statusCheck, /state\.binanceAccount\.status\?\.bound === true/);
+  assert.match(statusCheck, /await binanceAccountLoadPromise/);
+  assert.match(statusCheck, /api\.getBinanceAccountStatus\(\)/);
+  assert.match(statusCheck, /state\.binanceAccount\.status = status/);
+  assert.match(completion, /binanceConnected[\s\S]*TRADING_PREFERENCE_BINANCE_CONNECTED/);
+  assert.match(completion, /binanceConnected[\s\S]*\? \[\][\s\S]*connect-binance-account/);
 });

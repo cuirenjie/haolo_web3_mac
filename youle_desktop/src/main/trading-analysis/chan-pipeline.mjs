@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { containsHanCharacters } from "../assistant-output-language.mjs";
 import { runChanTheoryEngine } from "./chan-engine.mjs";
+import { runValidatedTradingModelReview } from "./model-review.mjs";
 import {
   TRADING_ANALYSIS_SCHEMA_VERSION,
   normalizeTradingMarketSnapshot,
@@ -584,7 +585,7 @@ export async function runTradingChanAnalysisPipeline(params, options = {}) {
   }
   const providerId = String(options.providerId || "").trim();
   const requestId = `chan-request-${crypto.randomUUID()}`;
-  const modelResponse = await options.modelRegistry.analyze(providerId, {
+  const modelRequest = {
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     requestId,
     task: "chan-theory-review-and-drawing-plan",
@@ -596,8 +597,16 @@ export async function runTradingChanAnalysisPipeline(params, options = {}) {
       language: params?.language,
     }),
     responseFormat: "json",
-  }, { signal: options.signal });
-  const modelReview = normalizeChanModelReview(modelResponse.text, theoryResult);
+  };
+  const reviewed = await runValidatedTradingModelReview({
+    modelRegistry: options.modelRegistry,
+    providerId,
+    request: modelRequest,
+    signal: options.signal,
+    theoryResult,
+    validateResponse: (text) => normalizeChanModelReview(text, theoryResult),
+  });
+  const { modelResponse, review: modelReview } = reviewed;
   const actionPlan = buildChanMarketOutlook(snapshot, theoryResult, modelReview);
   const drawingPatch = buildChanDrawingPatch(snapshot, theoryResult, modelReview, { language: params?.language });
   const report = buildChanAnalysisReport(snapshot, theoryResult, modelReview, {
@@ -637,6 +646,9 @@ export async function runTradingChanAnalysisPipeline(params, options = {}) {
       latencyMs: modelResponse.latencyMs,
       usage: modelResponse.usage,
       finishReason: modelResponse.finishReason,
+      reasoningEffort: reviewed.reasoningEffort,
+      reviewAttempts: reviewed.attempts.length,
+      escalationReason: reviewed.escalationReason,
     },
   };
 }

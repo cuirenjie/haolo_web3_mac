@@ -113,6 +113,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "客服微信": "WeChat support",
   "联系Telegram": "Contact Telegram",
   "联系客服": "Contact support",
+  "暂时无法打开网页版客服，请稍后重试。": "Unable to open web support right now. Please try again later.",
   "当前版本": "Current version",
   "暂无更新说明。": "No release notes available.",
   "发现必须更新版本": "Required update available",
@@ -484,12 +485,30 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "USDT 收款二维码": "USDT payment QR code",
   "USDT 收款二維碼": "USDT payment QR code",
   "选择适合你的订阅": "Choose the subscription that fits you",
+  "WEB3免费": "WEB3 Free",
+  "体验版": "Trial",
+  "体验版订阅": "Trial subscription",
+  "3天": "3 days",
+  "总额度 100 积分·3天会员": "100 total points · 3-day membership",
+  "首次开通专享，体验 AI 行情解读与基础交易分析。": "A first-time offer for trying AI market insights and basic trading analysis.",
+  "支付成功后 100 积分立即到账": "100 points are credited immediately after payment.",
+  "从开通时刻起精确 72 小时有效": "Valid for exactly 72 hours from activation.",
+  "到期剩余积分立即清零，每个账户限开通一次": "Unused points are cleared at expiry; limited to one activation per account.",
+  "首次专享": "First-time offer",
+  "已开通过": "Already activated",
+  "体验版仅限每个账户开通一次": "The trial can be activated only once per account.",
+  "请先开通体验版或其他套餐": "Activate the trial or another plan first.",
+  "当前没有可用积分，请开通体验版或其他套餐后再提问": "You have no available points. Activate the trial or another plan before asking the model.",
+  "查看套餐": "View plans",
   "等级": "Level",
   "积分余额": "Points balance",
   "订阅余额": "Subscription balance",
   "基础版": "Basic",
   "专业版": "Professional",
   "旗舰版": "Flagship",
+  "适合日常看盘、行情问答与基础策略分析。": "For everyday market monitoring, market Q&A, and basic strategy analysis.",
+  "适合持续行情研判、多策略分析与交易计划制定。": "For ongoing market assessment, multi-strategy analysis, and trading-plan development.",
+  "适合高频行情分析、复杂策略研究与专业交易辅助。": "For high-frequency market analysis, advanced strategy research, and professional trading assistance.",
   "半年": "six months",
   "支付成功后 1,000 积分立即到账": "1,000 points are credited immediately after payment.",
   "支付成功后 6,000 积分立即到账": "6,000 points are credited immediately after payment.",
@@ -551,6 +570,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "已到账": "Credited",
   "剩余未到账": "Pending credit",
   "会员到期时间": "Membership expiration",
+  "会员到期": "Membership expired",
   "下次到账时间": "Next credit date",
   "正在检查本地路径": "Checking local path",
   "主题；切换主题后可分别设置另一套颜色。": " theme; switch themes to configure a separate color set.",
@@ -581,10 +601,28 @@ const ENGLISH_UI_PHRASES = Object.freeze({
 });
 
 const TRADITIONAL_UI_PHRASES = Object.freeze({
+  "WEB3免费": "WEB3免費",
+  "体验版": "體驗版",
+  "体验版订阅": "體驗版訂閱",
+  "总额度 100 积分·3天会员": "總額度 100 積分·3天會員",
+  "首次开通专享，体验 AI 行情解读与基础交易分析。": "首次開通專享，體驗 AI 行情解讀與基礎交易分析。",
+  "支付成功后 100 积分立即到账": "支付成功後 100 積分立即到賬",
+  "从开通时刻起精确 72 小时有效": "從開通時刻起精確 72 小時有效",
+  "到期剩余积分立即清零，每个账户限开通一次": "到期剩餘積分立即清零，每個帳戶限開通一次",
+  "首次专享": "首次專享",
+  "已开通过": "已開通過",
+  "体验版仅限每个账户开通一次": "體驗版僅限每個帳戶開通一次",
+  "请先开通体验版或其他套餐": "請先開通體驗版或其他套餐",
+  "当前没有可用积分，请开通体验版或其他套餐后再提问": "當前沒有可用積分，請開通體驗版或其他套餐後再提問",
+  "查看套餐": "查看套餐",
+  "适合日常看盘、行情问答与基础策略分析。": "適合日常看盤、行情問答與基礎策略分析。",
+  "适合持续行情研判、多策略分析与交易计划制定。": "適合持續行情研判、多策略分析與交易計劃制定。",
+  "适合高频行情分析、复杂策略研究与专业交易辅助。": "適合高頻行情分析、複雜策略研究與專業交易輔助。",
   "该交易对已下架或不受 Binance 支持": "該交易對已下架或不受 Binance 支援",
   "，点击返回 BTC/USDT": "，點擊返回 BTC/USDT",
   "联系Telegram": "聯絡 Telegram",
   "联系客服": "聯絡客服",
+  "暂时无法打开网页版客服，请稍后重试。": "暫時無法開啟網頁版客服，請稍後再試。",
   "软件": "軟體",
   "设置": "設定",
   "用户": "使用者",
@@ -652,6 +690,7 @@ const SKIP_LOCALIZATION_SELECTOR = [
   ".message-content-text",
   ".message-user-content",
   ".message-assistant-content",
+  ".execution-plan-card-content",
   ".conversation-row-title",
   ".titlebar-profile-name",
   ".row-name-text",
@@ -909,9 +948,9 @@ export function translateTradingAnnotationText(value, language = currentAppLangu
   }
   const summary = /^盘面结论[：:]\s*(.*)$/su.exec(canonical);
   if (summary && !HAN_TEXT_PATTERN.test(summary[1])) return `Summary: ${summary[1]}`;
-  // Arbitrary historical model prose cannot be safely translated with a UI
-  // word dictionary. Keep the saved source intact and ask for a fresh analysis.
-  if (summary) return "Summary unavailable in English. Run the analysis again to refresh this note.";
+  // Authored analysis content is user history. If it cannot be translated
+  // losslessly, keep the source instead of replacing it with an error notice.
+  if (summary) return source;
   if (canonical === "起") return "Start";
   const annotation = replacePhrases(canonical, TRADING_ANNOTATION_ENGLISH_ENTRIES)
     .replace(/（(\d+)处）/gu, " ($1 zones)")
@@ -919,9 +958,7 @@ export function translateTradingAnnotationText(value, language = currentAppLangu
     .replace(/：/gu, ": ").replace(/；/gu, "; ").replace(/，/gu, ", ").replace(/。/gu, ".")
     .replace(/｜/gu, " | ").replace(/\s+([:;,.])/gu, "$1").replace(/\s+/gu, " ").trim();
   const translated = HAN_TEXT_PATTERN.test(annotation) ? translateAppText(canonical, "en") : annotation;
-  return /\p{Script=Han}/u.test(translated)
-    ? "Annotation unavailable in English. Run the analysis again to refresh this note."
-    : translated;
+  return /\p{Script=Han}/u.test(translated) ? source : translated;
 }
 
 function shouldSkipLocalization(node) {

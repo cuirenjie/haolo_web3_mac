@@ -34,11 +34,13 @@ const DEFAULT_WECHAT_AUTH_CONFIG_PATH = "/api/auth/wechat/config";
 const DEFAULT_WECHAT_AUTH_FLOWS_PATH = "/api/auth/wechat/flows";
 const DEFAULT_REFRESH_PATH = "/api/auth/refresh";
 const DEFAULT_LOGOUT_PATH = "/api/auth/logout";
+const DEFAULT_DESKTOP_WEB_HANDOFF_PATH = "/api/auth/desktop-handoff";
 const DEFAULT_INVITE_VALIDATE_PATH = "/api/auth/invites/validate";
 const DEFAULT_VIDEO_EXPERT_ACCESS_VALIDATE_PATH = "/api/video-expert/access/validate";
 const DEFAULT_VIDEO_EXPERT_MODELS_PATH = "/api/video-expert/models";
 const DEFAULT_PROFILE_PATH = "/api/profile/me";
 const DEFAULT_ACTIVITY_HEARTBEAT_PATH = "/api/activity/heartbeat";
+const DEFAULT_TRADING_ALERT_EMAIL_PATH = "/api/trading-alerts/email-notifications";
 const DEFAULT_SUB2API_ACCOUNT_PATH = "/api/sub2api/me";
 const DEFAULT_SUB2API_KEYS_PATH = "/api/sub2api/me/keys";
 const DEFAULT_BUSINESS_MODEL_POOLS_PATH = "/api/sub2api/model-pools";
@@ -156,11 +158,14 @@ export class YouleApiClient {
     this.wechatAuthFlowsPath = process.env.YOULE_API_WECHAT_AUTH_FLOWS_PATH || DEFAULT_WECHAT_AUTH_FLOWS_PATH;
     this.refreshPath = process.env.YOULE_API_REFRESH_PATH || DEFAULT_REFRESH_PATH;
     this.logoutPath = process.env.YOULE_API_LOGOUT_PATH || DEFAULT_LOGOUT_PATH;
+    this.desktopWebHandoffPath =
+      process.env.YOULE_API_DESKTOP_WEB_HANDOFF_PATH || DEFAULT_DESKTOP_WEB_HANDOFF_PATH;
     this.inviteValidatePath = process.env.YOULE_API_INVITE_VALIDATE_PATH || DEFAULT_INVITE_VALIDATE_PATH;
     this.videoExpertAccessValidatePath = process.env.YOULE_API_VIDEO_EXPERT_ACCESS_VALIDATE_PATH || DEFAULT_VIDEO_EXPERT_ACCESS_VALIDATE_PATH;
     this.videoExpertModelsPath = process.env.YOULE_API_VIDEO_EXPERT_MODELS_PATH || DEFAULT_VIDEO_EXPERT_MODELS_PATH;
     this.profilePath = process.env.YOULE_API_PROFILE_PATH || DEFAULT_PROFILE_PATH;
     this.activityHeartbeatPath = process.env.YOULE_API_ACTIVITY_HEARTBEAT_PATH || DEFAULT_ACTIVITY_HEARTBEAT_PATH;
+    this.tradingAlertEmailPath = process.env.YOULE_API_TRADING_ALERT_EMAIL_PATH || DEFAULT_TRADING_ALERT_EMAIL_PATH;
     this.sub2apiAccountPath = process.env.YOULE_API_SUB2API_ACCOUNT_PATH || DEFAULT_SUB2API_ACCOUNT_PATH;
     this.sub2apiKeysPath = process.env.YOULE_API_SUB2API_KEYS_PATH || DEFAULT_SUB2API_KEYS_PATH;
     this.businessModelPoolsPath =
@@ -424,6 +429,21 @@ export class YouleApiClient {
       await this.saveModelAuth();
     }
     return this.sessionSummary();
+  }
+
+  async createDesktopWebHandoff() {
+    await this.load();
+    this.requireAuth();
+    const response = await this.requestJson(joinUrl(this.baseUrl, this.desktopWebHandoffPath), {
+      method: "POST",
+      headers: this.clientHeaders({ auth: true, json: true }),
+      body: "{}",
+    });
+    const ticket = String(response?.ticket || "").trim();
+    if (!/^hdw1\.[A-Za-z0-9_-]{43,200}$/.test(ticket)) {
+      throw new Error("网页版登录交接凭证无效，请稍后重试。");
+    }
+    return { ticket, expiresIn: Number(response?.expires_in) || null };
   }
 
   async fetchSub2ApiKeys(token = this.token) {
@@ -1872,6 +1892,16 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     return { synced: await this.ensureConsumptionHistoryForCalendar(params.unit) };
+  }
+
+  async sendTradingAlertEmail(params = {}) {
+    await this.load();
+    this.requireAuth();
+    return this.requestJson(joinUrl(this.baseUrl, this.tradingAlertEmailPath), {
+      method: "POST",
+      headers: this.clientHeaders({ auth: true, json: true }),
+      body: JSON.stringify(params),
+    });
   }
 
   async ensureConsumptionHistoryForCalendar(unit) {
@@ -4778,10 +4808,21 @@ function httpErrorFromResponse(status, payload, headers = null) {
     payload?.retryable,
     headerBoolean(headers, "x-haolo-retryable"),
   );
-  return new YouleHttpError(errorMessageFromPayload(payload) || `HTTP ${status}`, {
+  const code = extractErrorCode(payload) || headerText(headers, "x-haolo-error-code");
+  const membershipAccessError = code === "MEMBERSHIP_EXPIRED" || code === "TRIAL_REQUIRED";
+  const message = membershipAccessError
+    ? firstProfileString(
+        payload?.message,
+        payload?.error?.message,
+        detailMessage(payload?.detail),
+        payload?.data?.message,
+        payload?.data?.error?.message,
+      ) || (code === "TRIAL_REQUIRED" ? "请先开通体验版或其他套餐" : "会员到期")
+    : errorMessageFromPayload(payload);
+  return new YouleHttpError(message || `HTTP ${status}`, {
     status,
     payload,
-    code: extractErrorCode(payload) || headerText(headers, "x-haolo-error-code"),
+    code,
     category: firstProfileString(
       payload?.error?.category,
       payload?.category,
@@ -5023,7 +5064,7 @@ function redactLogPayload(value) {
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
       key,
-      /token|password|secret|authorization|download_url|upload_url|api_key|apikey|key_prefix|code|challenge/i.test(key) ? "[redacted]" : redactLogPayload(item),
+      /token|ticket|password|secret|authorization|download_url|upload_url|api_key|apikey|key_prefix|code|challenge/i.test(key) ? "[redacted]" : redactLogPayload(item),
     ]),
   );
 }
@@ -7260,6 +7301,7 @@ function extractSub2ApiBalance(payload) {
       activeMembership?.plan_id,
       activeMembership?.planId,
     ),
+    trial_eligible: firstBoolean(account.trial_eligible, account.trialEligible),
     active_membership:
       activeMembership && typeof activeMembership === "object" && !Array.isArray(activeMembership)
         ? activeMembership

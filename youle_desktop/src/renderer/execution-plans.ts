@@ -70,7 +70,8 @@ const PLAN_HEADING = /^(?:(?:标准|推荐|首选|备选|候选|可选)\s*)?(?:(
 // Market adapters normally return ASCII symbols, but custom/local market
 // names can contain CJK characters. Keep those headings recognizable so the
 // report body is not mistaken for a plan-only response.
-const TRADING_PLAN_HEADING = /^[\p{L}\p{N}][\p{L}\p{N}._-]{1,29}\/(?:USDT|USDC|BUSD)\s+(?:币安永续|BINANCE PERPETUAL)\s+\d+(?:M|H|D|W)(?:\s+·\s+(?:(?:多头|空头)条件方案|(?:LONG|SHORT) SETUP))?$/iu;
+const BINANCE_SYMBOL = /^[A-Z0-9_\p{Script=Han}]{2,40}$/u;
+const TRADING_PLAN_HEADING = /^[\p{L}\p{N}][\p{L}\p{N}._-]{1,39}\/(?:USDT|USDC|BUSD)\s+(?:币安永续|BINANCE PERPETUAL)\s+\d+(?:M|H|D|W)(?:\s+·\s+(?:(?:多头|空头)条件方案|(?:LONG|SHORT) SETUP))?$/iu;
 const OPTION_LINE = /^(?:(?:方案|候选|选项|路径)\s*(?:[A-C]|[一二三四五六]|\d+)|[A-C]\s*方案|[A-C])\s*[:：、.)-]/i;
 const ORDERED_OR_BULLET_LINE = /^(?:[-*+•▪◦]\s+|(?:\d+|[A-C一二三四五六])[.)、]\s*)/i;
 
@@ -91,10 +92,10 @@ function cleanExecutionPlanDisplayText(value: unknown) {
 }
 
 function normalizedBinanceSymbol(value: unknown) {
-  return String(value || "")
+  const symbol = String(value || "")
     .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
+    .toUpperCase();
+  return BINANCE_SYMBOL.test(symbol) ? symbol : "";
 }
 
 function normalizedTradeDirection(value: unknown): ExecutionPlanTradeDirection | null {
@@ -120,9 +121,9 @@ export function executionPlanBinanceMarketDetails(input: {
     .map((value) => String(value || "").trim().toUpperCase())
     .filter(Boolean);
   const combined = sources.join("\n");
-  const marketIdMatch = combined.match(/BINANCE\s*:\s*FUTURES\s*:\s*([A-Z0-9]{2,30})\b/);
-  const slashMatch = combined.match(/\b([A-Z0-9]{2,20})\s*\/\s*(USDT|USDC|BUSD)\b/);
-  const compactMatch = combined.match(/\b([A-Z0-9]{2,24})(?:(?:\s+币安)?(?:永续|合约)|\s+BINANCE\s+PERPETUAL)\b/);
+  const marketIdMatch = combined.match(/BINANCE\s*:\s*FUTURES\s*:\s*([A-Z0-9_\p{Script=Han}]{2,40})(?![A-Z0-9_\p{Script=Han}])/u);
+  const slashMatch = combined.match(/([A-Z0-9_\p{Script=Han}]{1,32})\s*\/\s*(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
+  const compactMatch = combined.match(/([A-Z0-9_\p{Script=Han}]{2,40})(?:(?:\s+币安)?(?:永续|合约)|\s+BINANCE\s+PERPETUAL)(?![A-Z0-9_\p{Script=Han}])/u);
   const symbol = normalizedBinanceSymbol(
     marketIdMatch?.[1]
       || (slashMatch ? `${slashMatch[1]}${slashMatch[2]}` : "")
@@ -204,7 +205,7 @@ export function executionPlanCardTitle(input: {
   sourceText?: unknown;
   language?: unknown;
 }) {
-  const sources = [input.analysisLabel, input.sourceTitle, input.sourceText]
+  const sources = [input.fallbackTitle, input.analysisLabel, input.sourceTitle, input.sourceText]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
   const combined = sources.join("\n").toUpperCase();
@@ -212,8 +213,8 @@ export function executionPlanCardTitle(input: {
   let quoteAsset = "USDT";
   let interval = "";
 
-  const marketIdMatch = combined.match(/BINANCE:FUTURES:([\p{L}\p{N}]+?)(USDT|USDC|BUSD)\b/iu);
-  const slashMatch = combined.match(/(?:^|[^\p{L}\p{N}])([\p{L}\p{N}]{2,20})\/(USDT|USDC|BUSD)\b/iu);
+  const marketIdMatch = combined.match(/BINANCE:FUTURES:([A-Z0-9_\p{Script=Han}]+?)(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
+  const slashMatch = combined.match(/([A-Z0-9_\p{Script=Han}]{1,32})\/(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
   if (marketIdMatch) {
     baseAsset = marketIdMatch[1];
     quoteAsset = marketIdMatch[2];
@@ -223,8 +224,8 @@ export function executionPlanCardTitle(input: {
   }
 
   for (const source of sources) {
-    const compactMatch = source.toUpperCase().match(/(?:^|[^A-Z0-9])([A-Z0-9]{2,20}?)(\d+)([MHDW])(?:[^A-Z0-9]|$)/);
-    if (!compactMatch || !/[A-Z]/.test(compactMatch[1])) continue;
+    const compactMatch = source.toUpperCase().match(/(?:^|[^A-Z0-9_\p{Script=Han}])([A-Z0-9_\p{Script=Han}]{1,32}?)(\d+)([MHDW])(?:[^A-Z0-9_\p{Script=Han}]|$)/u);
+    if (!compactMatch || !/[A-Z\p{Script=Han}]/u.test(compactMatch[1])) continue;
     const compactBase = compactMatch[1];
     const compactQuoteMatch = compactBase.match(/^(.*?)(USDT|USDC|BUSD)$/);
     if (!baseAsset) baseAsset = compactQuoteMatch?.[1] || compactBase;
@@ -547,22 +548,32 @@ export function executionPlanTextPartitions(value: unknown): ExecutionPlanTextPa
   const lines = text.split("\n");
   const explicitCandidates = explicitHeadingCandidates(lines);
   if (!explicitCandidates.length) {
-    const range = unheadedPlanCandidateRange(lines);
-    if (!range) return null;
-    return {
-      before: lines.slice(0, range.startIndex).join("\n").trim(),
-      candidates: [range.candidate],
-      after: lines.slice(range.endIndex + 1).join("\n").trim(),
-    };
+    const partition = executionPlanTextPartition(text);
+    return partition
+      ? {
+      before: partition.before,
+      candidates: [partition.candidate],
+      after: partition.after,
+        }
+      : null;
   }
   const first = explicitCandidates[0];
   const last = explicitCandidates[explicitCandidates.length - 1];
   if (!first || !last) return null;
   const candidates = explicitCandidates.map(({ headingIndex, endIndex, ...candidate }) => candidate);
+  const trailingContext = [];
+  let contextStart = first.endIndex + 1;
+  for (const candidate of explicitCandidates.slice(1)) {
+    const context = lines.slice(contextStart, candidate.headingIndex).join("\n").trim();
+    if (context) trailingContext.push(context);
+    contextStart = candidate.endIndex + 1;
+  }
+  const finalContext = lines.slice(contextStart).join("\n").trim();
+  if (finalContext) trailingContext.push(finalContext);
   return {
     before: lines.slice(0, first.headingIndex).join("\n").trim(),
     candidates,
-    after: lines.slice(last.endIndex + 1).join("\n").trim(),
+    after: trailingContext.join("\n\n"),
   };
 }
 

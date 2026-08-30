@@ -183,6 +183,97 @@ test("an unheaded leading plan block cannot swallow the surrounding analysis", (
   assert.match(partitions.after, /需要收盘确认/);
 });
 
+test("official Han-symbol plan headings keep the complete analysis outside the card", () => {
+  const text = `
+## 龙虾/USDT 币安永续 4H
+
+当前动作：不交易
+方向判断：偏多
+多头触发：0.078946
+止损与失效：0.02833
+分批止盈：0.10449083，0.119723，0.15487
+风险收益比：目标1为 1:0.5，目标2为 1:0.8，目标3为 1:1.49
+
+---
+
+## BINANCE:FUTURES:龙虾USDT · 4小时缠论分析
+
+### 综合判断
+九个笔与中枢确认当前结构偏多，等待回踩确认。
+  `;
+  const partitions = executionPlanTextPartitions(text);
+
+  assert.ok(partitions);
+  assert.equal(partitions.before, "");
+  assert.equal(partitions.candidates.length, 1);
+  assert.equal(partitions.candidates[0].title, "龙虾/USDT 币安永续 4H");
+  assert.doesNotMatch(partitions.candidates[0].content, /综合判断|等待回踩确认/);
+  assert.match(partitions.after, /^---[\s\S]*## BINANCE:FUTURES:龙虾USDT[\s\S]*### 综合判断[\s\S]*等待回踩确认/);
+  assert.equal(executionPlanCardTitle({
+    fallbackTitle: partitions.candidates[0].title,
+  }), "龙虾/USDT 币安永续 4H");
+  assert.deepEqual(executionPlanBinanceMarketDetails({
+    title: partitions.candidates[0].title,
+    content: partitions.candidates[0].content,
+  }), { symbol: "龙虾USDT", direction: "LONG" });
+});
+
+test("fallback and multi-card partitioning never discard surrounding assistant prose", () => {
+  const fallbackText = `
+先给出盘面结论：结构偏多，但当前不追价。
+
+### 条件清单
+当前动作：等待
+方向判断：偏多
+多头触发：100
+止损与失效：95
+分批止盈：110
+风险收益比：1:2
+
+---
+
+### 风险说明
+跌破 95 后结论失效。
+  `;
+  const fallbackPartitions = executionPlanTextPartitions(fallbackText);
+
+  assert.ok(fallbackPartitions);
+  assert.equal(fallbackPartitions.candidates.length, 1);
+  assert.match(fallbackPartitions.before, /盘面结论[\s\S]*### 条件清单/);
+  assert.match(fallbackPartitions.after, /^---[\s\S]*### 风险说明[\s\S]*结论失效/);
+  assert.doesNotMatch(fallbackPartitions.candidates[0].content, /盘面结论|风险说明/);
+
+  const bilateralText = `
+## BTC/USDT 币安永续 1H · 多头条件方案
+当前动作：等待
+方向判断：偏多
+多头触发：101
+止损与失效：99
+分批止盈：104
+风险收益比：1:1.5
+
+多空方案二选一，任一侧触发后另一侧自动失效。
+
+## BTC/USDT 币安永续 1H · 空头条件方案
+当前动作：等待
+方向判断：偏空
+空头触发：99
+止损与失效：101
+分批止盈：96
+风险收益比：1:1.5
+
+---
+
+完整风险结论。
+  `;
+  const bilateralPartitions = executionPlanTextPartitions(bilateralText);
+
+  assert.ok(bilateralPartitions);
+  assert.equal(bilateralPartitions.candidates.length, 2);
+  assert.match(bilateralPartitions.after, /多空方案二选一，任一侧触发后另一侧自动失效/);
+  assert.match(bilateralPartitions.after, /完整风险结论/);
+});
+
 test("English execution plans are parsed, titled, and classified without Chinese copy", () => {
   const text = `
 Market review complete.
@@ -252,6 +343,30 @@ test("bilateral execution-plan markdown is extracted into independent candidates
   assert.equal(partitions.candidates.length, 2);
   assert.equal(partitions.before, "盘面结论如下。");
   assert.match(partitions.after, /^---[\s\S]*## 数据范围/);
+});
+
+test("official Han-character Binance symbols remain intact across plan extraction and monitoring identity", () => {
+  const candidate = executionPlanCandidateFromText(`
+## 龙虾/USDT 币安永续 1D · 多头条件方案
+
+当前动作：等待条件触发
+方向判断：偏多
+多头触发：0.051
+止损与失效：0.049
+分批止盈：第1目标 0.055
+风险收益比：目标1为 1:2
+  `);
+
+  assert.ok(candidate);
+  assert.equal(candidate.title, "龙虾/USDT 币安永续 1D · 多头条件方案");
+  assert.equal(executionPlanCardTitle({
+    fallbackTitle: candidate.title,
+    analysisLabel: "龙虾1D",
+  }), "龙虾/USDT 币安永续 1D · 多头条件方案");
+  assert.deepEqual(executionPlanBinanceMarketDetails(candidate), {
+    symbol: "龙虾USDT",
+    direction: "LONG",
+  });
 });
 
 test("structured generic plans and option candidates are recognized, while ordinary prose is ignored", () => {
@@ -472,6 +587,10 @@ test("trading plan card titles use symbol venue contract and interval format", (
     fallbackTitle: "标准执行方案",
     sourceText: "BINANCE:FUTURES:ETHUSDT · 4小时缠论分析",
   }), "ETH/USDT 币安永续 4H");
+  assert.equal(executionPlanCardTitle({
+    fallbackTitle: "推荐执行计划",
+    analysisLabel: "币安人生4H",
+  }), "币安人生/USDT 币安永续 4H");
   assert.equal(executionPlanCardTitle({ fallbackTitle: "推荐执行计划" }), "推荐执行计划");
   assert.equal(executionPlanCardTitle({
     fallbackTitle: "推荐执行计划",
@@ -498,6 +617,13 @@ test("Binance position monitoring extracts the perpetual symbol and required dir
     content: "方向判断：看空\n空头触发：2222.08",
   }), {
     symbol: "ETHUSDT",
+    direction: "SHORT",
+  });
+  assert.deepEqual(executionPlanBinanceMarketDetails({
+    title: "币安人生/USDT 币安永续 4H · 空头条件方案",
+    content: "方向判断：偏空\n空头触发：0.5",
+  }), {
+    symbol: "币安人生USDT",
     direction: "SHORT",
   });
 });

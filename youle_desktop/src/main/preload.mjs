@@ -95,6 +95,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   quitApp: () => ipcRenderer.invoke("app:quit"),
   getYouleSession: () => ipcRenderer.invoke("youle:getSession"),
   refreshYouleSession: (params) => ipcRenderer.invoke("youle:refreshSession", params),
+  openWebsiteSupport: () => ipcRenderer.invoke("youle:openWebsiteSupport"),
   refreshProfile: () => ipcRenderer.invoke("youle:refreshProfile"),
   listImageGenerationModels: (params) =>
     ipcRenderer.invoke("youle:listImageGenerationModels", params),

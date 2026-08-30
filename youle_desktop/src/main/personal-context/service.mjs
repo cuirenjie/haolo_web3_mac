@@ -8,13 +8,25 @@ const ACCOUNT_CONTEXT_SECTIONS = new Set([
 ]);
 
 export class PersonalContextService {
-  constructor({ memoryStore, accountService, resolveOwner } = {}) {
+  constructor({ memoryStore, accountService, getAccountService, resolveOwner } = {}) {
     if (!memoryStore) throw new TypeError("memoryStore is required");
-    if (!accountService) throw new TypeError("accountService is required");
+    if (!accountService && typeof getAccountService !== "function") {
+      throw new TypeError("accountService or getAccountService is required");
+    }
     if (typeof resolveOwner !== "function") throw new TypeError("resolveOwner is required");
     this.memoryStore = memoryStore;
-    this.accountService = accountService;
+    this.getAccountService = typeof getAccountService === "function"
+      ? getAccountService
+      : () => accountService;
     this.resolveOwner = resolveOwner;
+  }
+
+  accountService() {
+    const service = this.getAccountService();
+    if (!service || typeof service.status !== "function" || typeof service.snapshot !== "function") {
+      throw new TypeError("getAccountService must return a Binance account service");
+    }
+    return service;
   }
 
   async invoke({ tool, arguments: args = {} } = {}) {
@@ -38,9 +50,10 @@ export class PersonalContextService {
   }
 
   async listSources(ownerId) {
+    const accountService = this.accountService();
     const [memory, account] = await Promise.all([
       this.memoryStore.status(ownerId),
-      this.accountService.status(ownerId),
+      accountService.status(ownerId),
     ]);
     return {
       schemaVersion: 1,
@@ -71,7 +84,12 @@ export class PersonalContextService {
   }
 
   async readBinanceAccount(ownerId, args = {}) {
-    const status = await this.accountService.status(ownerId);
+    // Resolve the account service for every tool invocation. Authentication and
+    // Binance API binding changes intentionally replace the network runtime, so
+    // retaining the service that existed at construction time would leave this
+    // long-lived MCP context bridge attached to a closed private transport.
+    const accountService = this.accountService();
+    const status = await accountService.status(ownerId);
     if (!status?.bound) {
       return {
         schemaVersion: 1,
@@ -82,7 +100,7 @@ export class PersonalContextService {
     }
     const sections = normalizeSections(args.sections);
     const maxHistoryItems = normalizeHistoryLimit(args.max_history_items ?? args.maxHistoryItems);
-    const snapshot = await this.accountService.snapshot(ownerId, {
+    const snapshot = await accountService.snapshot(ownerId, {
       force: args.force === true,
       live: false,
     });

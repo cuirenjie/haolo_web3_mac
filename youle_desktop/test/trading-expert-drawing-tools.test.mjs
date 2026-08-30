@@ -8,27 +8,45 @@ const drawingSource = readFile(new URL("../src/renderer/trading-expert-drawing.t
 const splitPaneSource = readFile(new URL("../src/renderer/trading-expert-split-pane.ts", import.meta.url), "utf8");
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 
-test("AI annotation localization precedes layout and preserves saved source, geometry and theme tokens", async () => {
-  const { tradingAiDrawingDisplayModel, tradingDrawingNoteBoxGeometry, tradingDrawingTextLayout } = await import("../src/renderer/trading-expert-drawing.ts");
+test("AI annotations localize once on commit and remain unchanged across later language switches", async () => {
+  const {
+    localizeTradingAiDrawingPatch,
+    tradingAiDrawingDisplayModel,
+    tradingDrawingNoteBoxGeometry,
+    tradingDrawingTextLayout,
+  } = await import("../src/renderer/trading-expert-drawing.ts");
   const original = Object.freeze({
     id: "chan-note", source: "ai", colorToken: "chan-note", fontSize: 10,
     text: "末端向上笔：77,600 → 80,499.9；最新确认为顶分型。",
     points: Object.freeze([{ time: 123, price: 80499.9 }]),
   });
   const display = tradingAiDrawingDisplayModel(original, "en");
-  assert.equal(display.text, "Latest up stroke: 77,600 → 80,499.9; confirmed top fractal.");
+  assert.equal(display, original);
+  assert.equal(display.text, original.text);
   assert.equal(display.points, original.points);
   assert.equal(display.colorToken, original.colorToken);
+  const localizedPatch = localizeTradingAiDrawingPatch({
+    schemaVersion: 1,
+    analysisId: "analysis-en",
+    baseRevision: 0,
+    marketId: "BINANCE:FUTURES:BTCUSDT",
+    interval: "240",
+    operations: [{ op: "upsert", drawing: original }],
+  }, "en");
+  const localizedText = localizedPatch.operations[0].drawing.text;
+  assert.equal(localizedText, "Latest up stroke: 77,600 → 80,499.9; confirmed top fractal.");
+  assert.equal(original.text, "末端向上笔：77,600 → 80,499.9；最新确认为顶分型。");
+  assert.equal(tradingAiDrawingDisplayModel(localizedPatch.operations[0].drawing, "zh-CN").text, localizedText);
+  assert.equal(tradingAiDrawingDisplayModel(localizedPatch.operations[0].drawing, "zh-TW").text, localizedText);
   for (const fontSize of [8, 10, 18, 36]) {
-    const box = tradingDrawingNoteBoxGeometry({ x: 600, y: 400 }, display.text, fontSize, { width: 1000, height: 700 });
-    assert.equal(box.layout.lines.join("").replace(/\s/g, ""), display.text.replace(/\s/g, ""));
+    const box = tradingDrawingNoteBoxGeometry({ x: 600, y: 400 }, localizedText, fontSize, { width: 1000, height: 700 });
+    assert.equal(box.layout.lines.join("").replace(/\s/g, ""), localizedText.replace(/\s/g, ""));
     assert.ok(box.boxLeft >= 0 && box.boxLeft + box.boxWidth <= 1000);
   }
   const wrapped = tradingDrawingTextLayout("Latest central zone 78,579.7; watch the retest.", 10, 120);
   for (const word of ["Latest", "central", "zone", "78,579.7;", "watch", "retest."]) {
     assert.ok(wrapped.lines.some((line) => line.includes(word)), `${word} must not be split across lines`);
   }
-  assert.match(original.text, /末端向上笔/);
   assert.equal(tradingAiDrawingDisplayModel(original, "zh-CN"), original);
   const legacy = Object.freeze({
     id: "price-action-analysis-candlestick-pattern-label-0",

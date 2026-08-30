@@ -69,7 +69,7 @@ const CONFIRMATION_MODES = new Set(["intrabar", "bar_close"]);
 const COVERAGE_STATUSES = new Set(["available", "delayed", "partial", "unavailable"]);
 const REQUIREMENT_STATUSES = new Set(["missing", "awaiting_user", "validating", "available", "degraded"]);
 const REQUIREMENT_PERMISSIONS = new Set(["public", "read_only_account", "wallet_signature"]);
-const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,159}$/;
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:/\-\p{Script=Han}]{0,159}$/u;
 
 export class TradingAlertProtocolError extends TypeError {
   constructor(message, { code = "TRADING_ALERT_VALIDATION_FAILED", path = "" } = {}) {

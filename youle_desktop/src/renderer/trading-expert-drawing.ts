@@ -4,6 +4,7 @@ import {
   type TradingAiDrawingColorToken,
   type TradingAiDrawingPatch,
   type TradingAiPlaybackPhase,
+  type TradingIndicatorAiDrawingPatch,
 } from "./trading-expert-ai-playback.ts";
 import {
   fitTradingOrderLineLabels,
@@ -2069,24 +2070,34 @@ function tradingAiDrawingModel(drawing: TradingAiDrawing): TradingDrawingModel {
   };
 }
 
+export function localizeTradingAiDrawingPatch<
+  T extends TradingAiDrawingPatch | TradingIndicatorAiDrawingPatch,
+>(patch: T, language: AppLanguage): T {
+  let changed = false;
+  const operations = patch.operations.map((operation) => {
+    const text = operation.drawing.text;
+    if (!text) return operation;
+    const localizedText = translateTradingAnnotationText(text, language);
+    if (localizedText === text) return operation;
+    changed = true;
+    return { ...operation, drawing: { ...operation.drawing, text: localizedText } };
+  });
+  return changed ? { ...patch, operations } as T : patch;
+}
+
 export function tradingAiDrawingDisplayModel<T extends { text?: string }>(drawing: T, language?: AppLanguage): T {
   if (!drawing.text) return drawing;
   const source = String(drawing.text);
-  // Older price-action patches accidentally used the stable evidence id as
-  // the English label (`pa-candlestick-<hash>`). Keep the id for correlation,
-  // but never render it as user-facing chart text. These drawings cannot be
-  // mapped back to a specific pattern name, so use a clear generic label
-  // until the next analysis replaces the legacy patch.
-  if (LEGACY_PRICE_ACTION_CANDLESTICK_LABEL_PATTERN.test(source)) {
-    const english = language === "en";
-    const traditional = language === "zh-TW";
-    const suffix = /(?:·|•)\s*(?:unclosed|待收盘)$/iu.test(source)
-      ? english ? " · unclosed" : traditional ? " · 待收盤" : " · 待收盘"
-      : "";
-    return { ...drawing, text: `${english ? "Candlestick pattern" : traditional ? "蠟燭形態" : "蜡烛形态"}${suffix}` };
-  }
-  const text = translateTradingAnnotationText(source, language);
-  return text === drawing.text ? drawing : { ...drawing, text };
+  // Stored AI text is already localized when its analysis is committed. Only
+  // repair the legacy candlestick evidence-id label, which was never a real
+  // user-facing translation and cannot be recovered after the fact.
+  if (!LEGACY_PRICE_ACTION_CANDLESTICK_LABEL_PATTERN.test(source)) return drawing;
+  const english = language === "en";
+  const traditional = language === "zh-TW";
+  const suffix = /(?:·|•)\s*(?:unclosed|待收盘)$/iu.test(source)
+    ? english ? " · unclosed" : traditional ? " · 待收盤" : " · 待收盘"
+    : "";
+  return { ...drawing, text: `${english ? "Candlestick pattern" : traditional ? "蠟燭形態" : "蜡烛形态"}${suffix}` };
 }
 
 export function persistTradingAiDrawingPatch(

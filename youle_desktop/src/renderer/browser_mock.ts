@@ -332,6 +332,7 @@ export function ensureBrowserDesktopApi() {
       },
       balance_points: i18nLayoutQa ? 930.89 : undefined,
       membership_plan: i18nLayoutQa ? "basic" : undefined,
+      trial_eligible: !i18nLayoutQa,
       subscription_balance: i18nLayoutQa ? 11_988.56 : undefined,
       subscription_balance_refresh_at: i18nLayoutQa ? "2026-08-20T00:00:00Z" : undefined,
     },
@@ -526,6 +527,10 @@ export function ensureBrowserDesktopApi() {
     async getYouleSession() {
       return session;
     },
+    async openWebsiteSupport() {
+      window.open("https://haolo.com/#support=open", "_blank", "noopener,noreferrer");
+      return { ok: true, authenticated: Boolean(session?.authenticated) };
+    },
     async refreshProfile() {
       return session;
     },
@@ -539,10 +544,11 @@ export function ensureBrowserDesktopApi() {
         || (existingOrder?.status === "pending" && Date.parse(existingOrder.expires_at) > Date.now())
       ) return existingOrder;
       if (existingOrder?.status === "pending") existingOrder.status = "expired";
-      const products: Record<string, { name: string; price: string; tokens: string; months: number; plan: string }> = {
-        subscription_basic: { name: "基础版订阅", price: "98.931", tokens: "1000", months: 1, plan: "basic" },
-        subscription_pro: { name: "专业版订阅", price: "498.956", tokens: "6000", months: 6, plan: "pro" },
-        subscription_flagship: { name: "旗舰版订阅", price: "798.913", tokens: "12000", months: 12, plan: "flagship" },
+      const products: Record<string, { name: string; price: string; tokens: string; months: number; days: number; plan: string }> = {
+        subscription_trial: { name: "体验版订阅", price: "4.873", tokens: "100", months: 0, days: 3, plan: "trial" },
+        subscription_basic: { name: "基础版订阅", price: "98.931", tokens: "1000", months: 1, days: 0, plan: "basic" },
+        subscription_pro: { name: "专业版订阅", price: "498.956", tokens: "6000", months: 6, days: 0, plan: "pro" },
+        subscription_flagship: { name: "旗舰版订阅", price: "798.913", tokens: "12000", months: 12, days: 0, plan: "flagship" },
       };
       const product = products[productId] || products.subscription_basic;
       const addresses: Record<string, string> = {
@@ -563,6 +569,7 @@ export function ensureBrowserDesktopApi() {
         currency: "USDT",
         token_amount: product.tokens,
         membership_months: product.months,
+        membership_days: product.days,
         network,
         recipient_address: addresses[network] || addresses.bsc,
         token_contract: "mock-usdt-contract",

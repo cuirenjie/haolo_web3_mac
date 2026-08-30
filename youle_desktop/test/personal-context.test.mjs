@@ -250,6 +250,73 @@ test("personal context service requires explicit memory authorization and return
   assert.deepEqual(sources.sources.map((source) => source.id), ["user.memory", "binance.account"]);
 });
 
+test("personal context service follows Binance account service replacements after auth and API rebinds", async () => {
+  const calls = [];
+  const accountService = (name, assets) => ({
+    async status(ownerId) {
+      calls.push({ name, operation: "status", ownerId });
+      return { bound: true, updatedAt: "2026-08-30T08:00:00.000Z" };
+    },
+    async snapshot(ownerId, options) {
+      calls.push({ name, operation: "snapshot", ownerId, options });
+      return {
+        fetchedAt: "2026-08-30T08:00:00.000Z",
+        currency: "USDT",
+        estimatedTotalAssets: assets,
+        positions: [{ symbol: "BTCUSDT", notionalValue: assets }],
+        warnings: [],
+        sources: { account: "live" },
+      };
+    },
+  });
+  let currentAccountService = accountService("initial", 10_000);
+  const service = new PersonalContextService({
+    memoryStore: {
+      async status() { return { available: true, entryCount: 0, updatedAt: null }; },
+      async list() { return { entries: [] }; },
+      async upsert() { return { entries: [] }; },
+      async remove() { return { removed: [] }; },
+    },
+    getAccountService: () => currentAccountService,
+    resolveOwner: async () => ({ ownerId: "owner-a" }),
+  });
+
+  const initial = await service.invoke({
+    tool: "read_binance_account_context",
+    arguments: { sections: ["summary", "positions"], force: true },
+  });
+  assert.equal(initial.summary.estimatedTotalAssets, 10_000);
+
+  currentAccountService = accountService("first-rebind", 20_000);
+  const firstRebind = await service.invoke({
+    tool: "read_binance_account_context",
+    arguments: { sections: ["summary", "positions"], force: true },
+  });
+  assert.equal(firstRebind.summary.estimatedTotalAssets, 20_000);
+  assert.equal(firstRebind.positions[0].notionalValue, 20_000);
+
+  currentAccountService = accountService("second-rebind", 30_000);
+  const sources = await service.invoke({ tool: "list_user_context_sources", arguments: {} });
+  const secondRebind = await service.invoke({
+    tool: "read_binance_account_context",
+    arguments: { sections: ["summary"], force: true },
+  });
+  assert.equal(sources.sources.find((source) => source.id === "binance.account").available, true);
+  assert.equal(secondRebind.summary.estimatedTotalAssets, 30_000);
+  assert.deepEqual(
+    calls.map(({ name, operation }) => `${name}:${operation}`),
+    [
+      "initial:status",
+      "initial:snapshot",
+      "first-rebind:status",
+      "first-rebind:snapshot",
+      "second-rebind:status",
+      "second-rebind:status",
+      "second-rebind:snapshot",
+    ],
+  );
+});
+
 test("personal context is globally registered and its skill defines memory safety and web fallback", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-personal-context-config-"));
   try {
@@ -302,10 +369,12 @@ test("main process owns the bridge, injects risk memory, and keeps encrypted mem
   assert.match(main, /lead with a direct safe\/unsafe\/uncertain judgment/);
   assert.match(main, /explicit value may be higher than 3%; preserve it exactly/);
   assert.match(main, /tradingStrategyParamsWithReadOnlyBinanceAccount\(personalizedParams\)/);
+  assert.match(main, /getAccountService: getBinanceAccountService/);
+  assert.match(main, /binanceAccountService = null;[\s\S]*personalContextService = null;/);
   assert.match(main, /loadBinanceAccountContext: loadTradingStrategyReadOnlyBinanceAccountContext/);
   assert.match(main, /snapshot\(owner\.ownerId, \{ force: true, live: true \}\)/);
   assert.match(main, /coordinator\.run\(strategyId, executionParams/);
-  assert.match(main, /runTradingPriceActionAnalysisPipeline\(personalizedParams/);
+  assert.match(main, /runTradingPriceActionAnalysisPipeline\([\s\S]*tradingStrategyParamsWithReadOnlyBinanceAccount\(personalizedParams\)/);
   assert.match(preload, /getTradingPreferenceProfile: \(\) => ipcRenderer\.invoke\("personalContext:getTradingPreferences"\)/);
   assert.match(preload, /saveTradingPreferenceProfile: \(params\) => ipcRenderer\.invoke\("personalContext:saveTradingPreferences", params\)/);
   assert.match(main, /withShutdownTimeout\("Personal context MCP bridge", personalContextMcpBridge\.stop\(\)\)/);

@@ -108,6 +108,18 @@ test("trading favorites normalize persisted symbols and remove invalid duplicate
   assert.deepEqual(ordered.map(({ symbol }) => symbol), ["BTCUSDT", "ETHUSDT", "SOLUSDT"]);
 });
 
+test("only a trading pair opened from a non-empty search is auto-favorited", async () => {
+  const { shouldAutoFavoriteTradingMarketSelection } = await import(
+    "../src/renderer/trading-expert-market.ts"
+  );
+
+  assert.equal(shouldAutoFavoriteTradingMarketSelection("symbol", " sol "), true);
+  assert.equal(shouldAutoFavoriteTradingMarketSelection("symbol", ""), false);
+  assert.equal(shouldAutoFavoriteTradingMarketSelection("symbol", "   "), false);
+  assert.equal(shouldAutoFavoriteTradingMarketSelection("favorite-symbol", "sol"), false);
+  assert.equal(shouldAutoFavoriteTradingMarketSelection("favorite", "sol"), false);
+});
+
 test("official Han-character Binance symbols survive persistence and stay searchable", async () => {
   const {
     loadTradingFavoritesFromStorage,

@@ -79,6 +79,8 @@ export class AutomationStore {
         baseRef: execution.baseRef || input.baseRef || null,
         includeDirtyState: Boolean(execution.includeDirtyState ?? input.includeDirtyState),
         youleAiProfile: execution.youleAiProfile || input.youleAiProfile || null,
+        executionProfile: execution.executionProfile || input.executionProfile || null,
+        tradingContext: normalizeTradingContext(execution.tradingContext || input.tradingContext),
         model: execution.model || input.model || null,
         reasoningEffort: execution.reasoningEffort || input.reasoningEffort || null,
         sandboxMode: execution.sandboxMode || input.sandboxMode || "read-only",
@@ -223,6 +225,7 @@ export class AutomationStore {
         reasoningOutputTokens: null,
         errorClass: null,
         errorMessage: null,
+        tradingAnalysis: null,
         archived: false,
         createdAt: now,
         updatedAt: now,
@@ -270,6 +273,7 @@ export class AutomationStore {
         youleAiThreadId: normalizeAgentThreadId(result.youleAiThreadId || result.agentThreadId || run.youleAiThreadId),
         errorClass: result.errorClass || null,
         errorMessage: result.errorMessage || null,
+        tradingAnalysis: result.tradingAnalysis ?? run.tradingAnalysis ?? null,
         archived: result.status === "no_findings",
         updatedAt: now,
       });
@@ -526,6 +530,8 @@ function normalizePersistedJob(job) {
     groupId: stringOrNull(job.groupId || job.group_id),
     groupName: stringOrNull(job.groupName || job.group_name),
     workspaceSlug: stringOrNull(job.workspaceSlug || job.workspace_slug),
+    executionProfile: stringOrNull(job.executionProfile || job.execution_profile),
+    tradingContext: normalizeTradingContext(job.tradingContext || job.trading_context),
     agentThreadId: threadId,
     youleAiThreadId: threadId,
   };
@@ -593,6 +599,8 @@ function flattenJobPatch(patch = {}) {
       approvalPolicy: patch.execution.approvalPolicy,
       model: patch.execution.model,
       youleAiProfile: patch.execution.youleAiProfile,
+      executionProfile: patch.execution.executionProfile,
+      tradingContext: patch.execution.tradingContext,
       maxDurationSeconds: patch.execution.maxDurationSeconds,
       startupTimeoutSeconds: patch.execution.startupTimeoutSeconds,
       noOutputTimeoutSeconds: patch.execution.noOutputTimeoutSeconds,
@@ -613,6 +621,16 @@ function flattenJobPatch(patch = {}) {
   if ("agentThreadId" in output) output.agentThreadId = normalizeAgentThreadId(output.agentThreadId);
   if ("youleAiThreadId" in output) output.youleAiThreadId = normalizeAgentThreadId(output.youleAiThreadId);
   return Object.fromEntries(Object.entries(output).filter(([, value]) => value !== undefined));
+}
+
+function normalizeTradingContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const bounded = {};
+  for (const key of ["provider", "venue", "marketType", "marketId", "symbol", "interval", "resolution"]) {
+    const text = typeof value[key] === "string" ? value[key].trim() : "";
+    if (text) bounded[key] = text.slice(0, 120);
+  }
+  return Object.keys(bounded).length ? bounded : null;
 }
 
 function patchRequestsFullAccess(patch = {}) {
