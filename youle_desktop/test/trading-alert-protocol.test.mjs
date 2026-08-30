@@ -40,6 +40,20 @@ test("AlertRule normalizes a strict nested MA and MACD rule with stable hash", a
   assert.ok(Object.isFrozen(first));
 });
 
+test("AlertRule accepts canonical Han-character Binance market IDs without relaxing the identifier character set", async () => {
+  const input = await fixture();
+  input.contexts[0].marketSelector.marketIds = ["BINANCE:FUTURES:龙虾USDT"];
+  input.ruleHash = undefined;
+  const rule = normalizeAlertRule(input);
+  assert.equal(rule.contexts[0].marketSelector.marketIds[0], "BINANCE:FUTURES:龙虾USDT");
+
+  for (const marketId of ["BINANCE:FUTURES:龙虾?USDT", "BINANCE:FUTURES:龙 虾USDT", "BINANCE:FUTURES:龙虾\nUSDT"]) {
+    const invalid = structuredClone(input);
+    invalid.contexts[0].marketSelector.marketIds = [marketId];
+    assert.throws(() => normalizeAlertRule(invalid), /invalid identifier format/);
+  }
+});
+
 test("AlertRule normalizes bounded lag and rolling value expressions", async () => {
   const input = await fixture();
   input.ruleId = "volume-rolling-rule";

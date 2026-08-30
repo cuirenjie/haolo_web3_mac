@@ -1718,6 +1718,15 @@ test("Trading Expert market picker is compact, neutral-search, left-aligned, and
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-logo-bg: #171a20;[\s\S]*--trading-market-tag-bg: #24282f;/s);
 });
 
+test("Trading Expert auto-favorites only a successfully opened non-empty search result", async () => {
+  const source = await marketSource;
+
+  assert.match(source, /shouldAutoFavoriteTradingMarketSelection\(action, this\.search\.value\)/);
+  assert.match(source, /market && autoFavorite && this\.addFavoriteMarket\(market\)[\s\S]*?this\.commitFavoriteMarketChanges\(\)/);
+  assert.match(source, /if \(!this\.selectMarket\(market\)\)[\s\S]*?const favoriteAdded = autoFavorite && this\.addFavoriteMarket\(market\)[\s\S]*?this\.commitFavoriteMarketChanges\(false\)/);
+  assert.match(source, /private addFavoriteMarket\(market: TradingMarket\)[\s\S]*?this\.favoriteSymbols\.has\(market\.id\)[\s\S]*?this\.favoriteMarketRecords\.has\(market\.id\)[\s\S]*?if \(alreadyFavorite && hasStableFavorite\) return false;[\s\S]*?this\.favoriteMarketRecords\.set\(market\.id, tradingFavoriteRecord\(market\)\)/);
+});
+
 test("Trading Expert favorites persist, lead the next open, and remain available in the full directory", async () => {
   const source = await marketSource;
   const styles = await stylesSource;

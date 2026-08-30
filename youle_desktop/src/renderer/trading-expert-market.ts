@@ -12,7 +12,7 @@ import {
   createSeriesMarkers,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { appLanguageLocale, translateTradingAnnotationText } from "./app-language.mjs";
+import { appLanguageLocale, type AppLanguage } from "./app-language.mjs";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import {
   TRADING_FALLING_BAR_COLOR,
@@ -24,6 +24,7 @@ import {
 } from "./trading-expert-indicators.ts";
 import {
   TradingDrawingController,
+  localizeTradingAiDrawingPatch,
   persistTradingAiDrawingPatch,
   renderTradingDrawingLayer,
   renderTradingDrawingToolbar,
@@ -111,6 +112,11 @@ import {
   tradingAnalysisDrawingFocusRange,
   waitForTradingAnalysisViewportPaint,
 } from "./trading-analysis-viewport.mjs";
+
+function activeTradingAnalysisLanguage(): AppLanguage {
+  const locale = appLanguageLocale();
+  return locale === "zh-CN" || locale === "zh-TW" ? locale : "en";
+}
 
 async function subscribeBinanceMarketStreams(
   marketType: Extract<TradingMarketType, "spot" | "perpetual">,
@@ -1170,6 +1176,10 @@ export function normalizeTradingFavoriteSymbols(value: unknown): string[] {
   return [...symbols];
 }
 
+export function shouldAutoFavoriteTradingMarketSelection(action: string, searchQuery: string) {
+  return action === "symbol" && searchQuery.trim().length > 0;
+}
+
 export function reorderTradingFavoriteRecords(
   records: ReadonlyArray<TradingFavoriteMarketRecord>,
   orderedMarketIds: ReadonlyArray<string>,
@@ -2167,7 +2177,7 @@ function tradingAnalysisBaseAsset(context: TradingLastAnalysisContext) {
   const storedBaseAsset = String(context.market?.baseAsset || "").trim().toUpperCase();
   if (storedBaseAsset) return storedBaseAsset;
   const symbol = String(context.marketId.split(":").at(-1) || "").trim().toUpperCase();
-  return baseAssetFromSymbol(symbol).replace(/[^A-Z0-9^._-]/g, "").slice(0, 24);
+  return baseAssetFromSymbol(symbol).replace(/[^A-Z0-9^._\-\p{Script=Han}]/gu, "").slice(0, 24);
 }
 
 export function tradingAnalysisIntervalLabel(resolution: string) {
@@ -5177,7 +5187,11 @@ class TradingExpertMarketWorkspace {
         || this.renderedMarkets.get(marketId)
         || this.markets.find((candidate) => candidate.id === marketId)
         || this.favoriteMarketFromId(marketId);
+      const autoFavorite = shouldAutoFavoriteTradingMarketSelection(action, this.search.value);
       if (!market || market.id === this.selectedMarketId) {
+        if (market && autoFavorite && this.addFavoriteMarket(market)) {
+          this.commitFavoriteMarketChanges();
+        }
         this.setPickerOpen(false);
         this.renderFavoriteTickerBar();
         return;
@@ -5190,8 +5204,10 @@ class TradingExpertMarketWorkspace {
         this.errorElement.hidden = false;
         return;
       }
+      const favoriteAdded = autoFavorite && this.addFavoriteMarket(market);
       this.updateSymbolUi();
       this.renderMarkets();
+      if (favoriteAdded) this.commitFavoriteMarketChanges(false);
       this.drawingController?.redraw();
       this.setPickerOpen(false);
       void this.restartMarketData({ preserveChart: true });
@@ -6546,12 +6562,25 @@ class TradingExpertMarketWorkspace {
       if (market.provider === "binance") this.favoriteSymbols.delete(market.symbol);
       this.favoriteMarketRecords.delete(market.id);
     } else {
-      this.favoriteSymbols.add(market.id);
-      this.favoriteMarketRecords.set(market.id, tradingFavoriteRecord(market));
+      this.addFavoriteMarket(market);
     }
+    this.commitFavoriteMarketChanges();
+  }
+
+  private addFavoriteMarket(market: TradingMarket) {
+    const alreadyFavorite = this.isMarketFavorite(market);
+    const hasStableFavorite = this.favoriteSymbols.has(market.id)
+      && this.favoriteMarketRecords.has(market.id);
+    if (alreadyFavorite && hasStableFavorite) return false;
+    this.favoriteSymbols.add(market.id);
+    this.favoriteMarketRecords.set(market.id, tradingFavoriteRecord(market));
+    return true;
+  }
+
+  private commitFavoriteMarketChanges(renderMarkets = true) {
     if (!this.favoriteSymbols.size) this.showFavoritesOnly = false;
     this.saveFavoriteSymbols();
-    this.renderMarkets();
+    if (renderMarkets) this.renderMarkets();
     this.renderFavoriteTickerBar();
     this.syncFavoriteTickerStreams();
   }
@@ -9599,6 +9628,7 @@ class TradingExpertMarketWorkspace {
       marketId: this.selectedMarketId,
       symbol: this.selectedSymbol,
       interval: this.activeInterval,
+      language: activeTradingAnalysisLanguage(),
       market: tradingFavoriteRecord(targetMarket),
     });
     try {
@@ -9892,6 +9922,7 @@ class TradingExpertMarketWorkspace {
       marketId: this.selectedMarketId,
       symbol: this.selectedSymbol,
       interval: this.activeInterval,
+      language: activeTradingAnalysisLanguage(),
       market: tradingFavoriteRecord(targetMarket),
     });
     const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
@@ -10159,6 +10190,7 @@ class TradingExpertMarketWorkspace {
       marketId: this.selectedMarketId,
       symbol: this.selectedSymbol,
       interval: this.activeInterval,
+      language: activeTradingAnalysisLanguage(),
       market: tradingFavoriteRecord(targetMarket),
     });
     const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
@@ -10430,6 +10462,7 @@ class TradingExpertMarketWorkspace {
       marketId: this.selectedMarketId,
       symbol: this.selectedSymbol,
       interval: this.activeInterval,
+      language: activeTradingAnalysisLanguage(),
       market: tradingFavoriteRecord(targetMarket),
     });
     const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
@@ -10683,6 +10716,7 @@ class TradingExpertMarketWorkspace {
       marketId: this.selectedMarketId,
       symbol: this.selectedSymbol,
       interval: this.activeInterval,
+      language: activeTradingAnalysisLanguage(),
       market: tradingFavoriteRecord(targetMarket),
     });
     const capturedOpenInterest = this.stats?.openInterest ?? null;
@@ -12447,7 +12481,7 @@ class TradingExpertMarketWorkspace {
         ...(usesExactIndicatorAnchor ? { price: point.value } : {}),
         color,
         shape: "circle",
-        ...(drawing.text ? { text: translateTradingAnnotationText(drawing.text) } : {}),
+        ...(drawing.text ? { text: drawing.text } : {}),
         ...(drawing.markerSize !== undefined ? { size: drawing.markerSize } : {}),
       });
     });
@@ -13386,6 +13420,7 @@ async function commitTradingAnalysisDrawingPatch(
   if (!currentJob || currentJob.status !== "running") {
     throw new Error("交易分析已由用户停止");
   }
+  patch = localizeTradingAiDrawingPatch(patch, currentJob.language);
   const targetWorkspace = activeWorkspace;
   if (
     targetWorkspace
@@ -13420,6 +13455,7 @@ async function commitTradingIndicatorAnalysisDrawingPatch(
   if (!currentJob || currentJob.status !== "running") {
     throw new Error("交易分析已由用户停止");
   }
+  patch = localizeTradingAiDrawingPatch(patch, currentJob.language);
   const targetWorkspace = activeWorkspace;
   if (
     !targetWorkspace

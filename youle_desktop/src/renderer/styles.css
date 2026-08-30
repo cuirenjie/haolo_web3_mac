@@ -20919,7 +20919,7 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
 .recharge-product-grid {
   display: grid;
   width: 100%;
-  grid-template-columns: repeat(4, minmax(190px, 1fr));
+  grid-template-columns: repeat(var(--recharge-product-columns, 4), minmax(190px, 1fr));
   gap: calc(1.25% + 2.266667px);
 }
 

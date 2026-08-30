@@ -690,6 +690,7 @@ const SKIP_LOCALIZATION_SELECTOR = [
   ".message-content-text",
   ".message-user-content",
   ".message-assistant-content",
+  ".execution-plan-card-content",
   ".conversation-row-title",
   ".titlebar-profile-name",
   ".row-name-text",
@@ -943,9 +944,9 @@ export function translateTradingAnnotationText(value, language = currentAppLangu
   }
   const summary = /^盘面结论[：:]\s*(.*)$/su.exec(canonical);
   if (summary && !HAN_TEXT_PATTERN.test(summary[1])) return `Summary: ${summary[1]}`;
-  // Arbitrary historical model prose cannot be safely translated with a UI
-  // word dictionary. Keep the saved source intact and ask for a fresh analysis.
-  if (summary) return "Summary unavailable in English. Run the analysis again to refresh this note.";
+  // Authored analysis content is user history. If it cannot be translated
+  // losslessly, keep the source instead of replacing it with an error notice.
+  if (summary) return source;
   if (canonical === "起") return "Start";
   const annotation = replacePhrases(canonical, TRADING_ANNOTATION_ENGLISH_ENTRIES)
     .replace(/（(\d+)处）/gu, " ($1 zones)")
@@ -953,9 +954,7 @@ export function translateTradingAnnotationText(value, language = currentAppLangu
     .replace(/：/gu, ": ").replace(/；/gu, "; ").replace(/，/gu, ", ").replace(/。/gu, ".")
     .replace(/｜/gu, " | ").replace(/\s+([:;,.])/gu, "$1").replace(/\s+/gu, " ").trim();
   const translated = HAN_TEXT_PATTERN.test(annotation) ? translateAppText(canonical, "en") : annotation;
-  return /\p{Script=Han}/u.test(translated)
-    ? "Annotation unavailable in English. Run the analysis again to refresh this note."
-    : translated;
+  return /\p{Script=Han}/u.test(translated) ? source : translated;
 }
 
 function shouldSkipLocalization(node) {

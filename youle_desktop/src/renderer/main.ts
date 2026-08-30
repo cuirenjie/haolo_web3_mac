@@ -2897,6 +2897,18 @@ type AutoTaskItem = {
   runCount?: number;
   threadId?: string | null;
   runs?: AutoTaskRunSummary[];
+  executionProfile?: "trading-agent-v1";
+  tradingContext?: AutoTaskTradingContext | null;
+};
+
+type AutoTaskTradingContext = {
+  provider: string;
+  venue: string;
+  marketType: string;
+  marketId: string;
+  symbol: string;
+  interval: string;
+  resolution: string;
 };
 
 type AutoTaskRunSummary = {
@@ -2909,6 +2921,7 @@ type AutoTaskRunSummary = {
   scheduledForUtc?: string | null;
   summary?: string | null;
   errorMessage?: string | null;
+  tradingAnalysis?: Record<string, unknown> | null;
 };
 
 type AutoTaskConversationSummary = ConversationSummary & {
@@ -15761,6 +15774,7 @@ function selectAutoTaskThread(threadId: string) {
   state.autoTaskMenuTaskId = null;
   state.busy = false;
   ensureThreadState(normalizedThreadId);
+  initializeTradingExpertTaskThread(normalizedThreadId, { expandPanel: true });
   refreshSkillsForThreadIfNeeded(normalizedThreadId, "auto-task-thread-select");
   state.threads = sortThreadsForList(mergeThreads(state.threads, [autoTaskThreadSummary({ ...task, threadId: normalizedThreadId })]));
   render();
@@ -17675,6 +17689,31 @@ function ensureAutoTaskThreadId(task: AutoTaskItem) {
   return existing && !autoTaskIdFromThreadId(existing) ? existing : autoTaskThreadId(task.id);
 }
 
+function normalizeAutoTaskTradingContext(value: unknown): AutoTaskTradingContext | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const marketId = firstString(record.marketId, record.market_id)?.toUpperCase() || "";
+  const symbol = firstString(record.symbol, marketId.split(":").at(-1))?.toUpperCase().replace(/[\s/_-]/g, "") || "";
+  const interval = firstString(record.interval, record.resolution)?.toUpperCase() || "";
+  if (!marketId || !symbol || !interval) return null;
+  const provider = firstString(record.provider, marketId.split(":")[0])?.toLowerCase() || "binance";
+  const inferredMarketType = marketId.includes(":SPOT:") ? "spot" : marketId.includes(":FUTURES:") ? "perpetual" : "";
+  const marketType = firstString(record.marketType, record.market_type, inferredMarketType)?.toLowerCase() || "perpetual";
+  return {
+    provider,
+    venue: firstString(record.venue) || (provider === "binance" ? "Binance" : provider),
+    marketType,
+    marketId,
+    symbol,
+    interval,
+    resolution: firstString(record.resolution, interval) || interval,
+  };
+}
+
+function currentAutoTaskTradingContext() {
+  return normalizeAutoTaskTradingContext(tradingExpertAlertContextSnapshot());
+}
+
 function autoTaskThreadSummary(task: AutoTaskItem): AutoTaskConversationSummary {
   const threadId = ensureAutoTaskThreadId(task);
   const timestamp = task.lastRunAt || task.updatedAt || task.createdAt || null;
@@ -17685,6 +17724,9 @@ function autoTaskThreadSummary(task: AutoTaskItem): AutoTaskConversationSummary 
     kind: "main_session",
     thread_kind: "auto_task",
     work_mode: "auto",
+    model_provider: DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
+    model: TRADING_EXPERT_DEFAULT_MODEL_VALUE,
+    reasoning_effort: TRADING_EXPERT_REASONING_EFFORT,
     preview: task.lastResult || task.lastError || task.description,
     preview_time: autoTaskChatListTime(task),
     last_message_at: normalizeTimestamp(timestamp),
@@ -17713,6 +17755,7 @@ function isAutoTaskOwnedThreadId(threadId: string | null | undefined) {
 function syncAutoTaskThreadSummaries() {
   const groupMappingChanged = syncAutoTaskThreadGroupMappings();
   const activeThreadIds = new Set(state.autoTaskItems.map(ensureAutoTaskThreadId));
+  activeThreadIds.forEach((threadId) => initializeTradingExpertTaskThread(threadId));
   const baseThreads = state.threads.filter((thread) => !activeThreadIds.has(thread.id) && !isAutoTaskThread(thread));
   state.threads = sortThreadsForList(mergeThreads(baseThreads, autoTaskThreadSummaries()));
   if (groupMappingChanged) saveThreadPreferences();
@@ -22355,6 +22398,7 @@ function handleAutomationThreadNotification(message: JsonRpcMessage) {
   const task = taskFromThreadId(threadId) || taskFromAutomationNotification(message) || autoTaskForAutomationNotification(threadId);
   if (!threadId || !task) return;
   const normalizedThreadId = autoTaskIdFromThreadId(threadId) ? ensureAutoTaskThreadId(task) : threadId;
+  initializeTradingExpertTaskThread(normalizedThreadId);
   if (task.threadId !== normalizedThreadId && !autoTaskIdFromThreadId(normalizedThreadId)) {
     replaceAutoTaskThreadId(task, normalizedThreadId);
     state.autoTaskItems = state.autoTaskItems.map((item) =>
@@ -22372,9 +22416,12 @@ function replaceAutoTaskThreadId(task: AutoTaskItem, nextThreadId: string) {
   const groupId = knownThreadGroupId(task.groupId);
   const previousWorkspace = firstString(...[...previousIds].map((id) => threadWorkspaceByThreadId[id]), task.workspacePath, task.externalPath, workspaceForGroupId(groupId));
   ensureThreadState(nextThreadId);
+  initializeTradingExpertTaskThread(nextThreadId);
   threadGroupByThreadId[nextThreadId] = groupId;
   rememberThreadWorkspace(nextThreadId, previousWorkspace);
   for (const previousId of previousIds) {
+    migrateTradingExpertMarketWorkspaceStorageSession(previousId, nextThreadId);
+    tradingExpertThreadIds.delete(previousId);
     replaceThreadModelSettings(previousId, nextThreadId);
     if (state.itemOrder[previousId]?.length) {
       const existingOrder = new Set(state.itemOrder[nextThreadId] || []);
@@ -22407,6 +22454,7 @@ function replaceAutoTaskThreadId(task: AutoTaskItem, nextThreadId: string) {
     }
   }
   state.threads = state.threads.filter((thread) => !previousIds.has(thread.id));
+  tradingExpertThreadIds.add(nextThreadId);
   saveThreadPreferences();
   syncGlobalCodexBusy();
 }
@@ -30310,10 +30358,7 @@ function appendTradingExpertReport(
   presentation: "execution-plan" | "plain" = "plain",
 ) {
   localHistoryAheadThreadIds.add(threadId);
-  const visibleText = englishSafeAssistantText(
-    text,
-    "The analysis completed, but its result was not available entirely in English. Please run the analysis again.",
-  );
+  const visibleText = String(text || "");
   const item: CodexItem = {
     id: itemId || `trading-expert-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type: "agentMessage",
@@ -39236,10 +39281,7 @@ function executionPlanCreatedLabel(createdAt: string) {
 }
 
 function renderExecutionPlanCardContent(content: string) {
-  const visibleContent = englishSafeAssistantText(
-    content,
-    "Execution-plan details are unavailable in English. Run the analysis again to refresh this card.",
-  );
+  const visibleContent = String(content || "");
   return executionPlanDisplayLines(visibleContent)
     .map((line) => {
       const directionTone = executionPlanDirectionTone(line.label, line.text);
@@ -52739,12 +52781,7 @@ function renderTextBubble(
   } = {},
 ) {
   const localizeAppOwnedText = shouldLocalizeAppOwnedMessage(message, fromUser);
-  const displayText = fromUser || localizeAppOwnedText
-    ? text
-    : englishSafeAssistantText(
-        text,
-        "This response could not be displayed because it was not generated entirely in English. Please retry.",
-      );
+  const displayText = text;
   const content = messageDisplayContent(message, displayText);
   const messageLocalSendStatus = localSendStatusFromRecord(message);
   const editPayload = fromUser && !messageLocalSendStatus ? editableMessagePayload(message, text, content.text) : null;
@@ -58062,7 +58099,7 @@ function renderSubagentOutputMessage(agent: SubagentUiEntry, output: SubagentOut
   const sender = state.settings.language === "en"
     ? `${englishSafeAssistantText(agent.name, "Agent")} (${englishSafeAssistantText(agent.profession, "Specialist")})`
     : `${agent.name}（${agent.profession}）`;
-  const outputText = englishSafeAssistantText(output.text, "The delegated task returned content that was not entirely in English.");
+  const outputText = output.text;
   return `
     <article class="subagent-output-message" data-subagent-thread-id="${escapeAttr(output.sourceThreadId)}"
       data-subagent-message-id="${escapeAttr(output.messageId)}" data-subagent-sender="${escapeAttr(sender)}">
@@ -58668,6 +58705,7 @@ function renderRechargePage() {
   ensureRechargePaymentOrderScope();
   ensureRechargeProductSelection();
   const membership = currentMembershipPlan();
+  const visibleProducts = visibleRechargeSubscriptionProducts();
   return `
     <main class="recharge-page">
       <div class="recharge-page-scroll">
@@ -58695,8 +58733,8 @@ function renderRechargePage() {
               </button>
             </div>
           </section>
-          <section class="recharge-product-grid subscription" role="radiogroup" aria-label="选择适合你的订阅" aria-required="true">
-            ${RECHARGE_SUBSCRIPTION_PRODUCTS.map(renderRechargeProductCard).join("")}
+          <section class="recharge-product-grid subscription" role="radiogroup" aria-label="选择适合你的订阅" aria-required="true" style="--recharge-product-columns: ${visibleProducts.length}">
+            ${visibleProducts.map(renderRechargeProductCard).join("")}
           </section>
         </div>
         <div class="recharge-payment-shell">
@@ -59010,24 +59048,19 @@ function currentRechargeTrialEligibility() {
   return typeof value === "boolean" ? value : null;
 }
 
-function rechargeTrialResultMustRemainVisible() {
-  return Array.from(rechargePaymentOrdersBySelection.values()).some((order) =>
-    order.product_id === "subscription_trial"
-    && (order.status === "paid" || order.status === "confirming" || order.status === "manual_review"),
-  );
-}
-
 function rechargeProductIsUnavailable(product: RechargeProductDefinition) {
   return product.requiresTrialEligibility === true && currentRechargeTrialEligibility() === false;
 }
 
+function visibleRechargeSubscriptionProducts() {
+  return RECHARGE_SUBSCRIPTION_PRODUCTS.filter((product) => !rechargeProductIsUnavailable(product));
+}
+
 function ensureRechargeProductSelection() {
-  let product: RechargeProductDefinition | null = RECHARGE_SUBSCRIPTION_PRODUCTS.find(
+  const visibleProducts = visibleRechargeSubscriptionProducts();
+  const product: RechargeProductDefinition | null = visibleProducts.find(
     (candidate) => candidate.id === selectedRechargeProductId,
-  ) || RECHARGE_SUBSCRIPTION_PRODUCTS[0] || null;
-  if (product && rechargeProductIsUnavailable(product) && !rechargeTrialResultMustRemainVisible()) {
-    product = RECHARGE_SUBSCRIPTION_PRODUCTS.find((candidate) => candidate.id === "subscription_basic") || null;
-  }
+  ) || visibleProducts.find((candidate) => candidate.id === "subscription_basic") || visibleProducts[0] || null;
   if (product) selectedRechargeProductId = product.id;
   return product;
 }
@@ -67371,6 +67404,8 @@ async function submitAutoTaskForm() {
     lastResult: existing?.lastResult ?? null,
     runCount: existing?.runCount ?? 0,
     threadId,
+    executionProfile: "trading-agent-v1",
+    tradingContext: currentAutoTaskTradingContext() || existing?.tradingContext || null,
   };
   state.autoTaskItems = existing
     ? state.autoTaskItems.map((item) => (item.id === task.id ? task : item))
@@ -67393,6 +67428,7 @@ async function submitAutoTaskForm() {
   state.autoTaskMenuTaskId = null;
   syncAutoTaskThreadSummaries();
   ensureThreadState(savedThreadId);
+  initializeTradingExpertTaskThread(savedThreadId, { expandPanel: true });
   showToast(`自动任务「${task.name}」已${existing ? "修改" : "创建"}：${formatAutoTaskSchedule(task)}`, 2600);
   state.autoTaskDraft = createAutoTaskDraft(state.activeNewThreadGroupId);
   render();
@@ -77203,6 +77239,8 @@ function normalizeAutoTaskItem(value: unknown): AutoTaskItem | null {
     runCount: Number.isFinite(Number(record.runCount)) ? Math.max(0, Math.floor(Number(record.runCount))) : 0,
     threadId: typeof record.threadId === "string" && record.threadId && !autoTaskIdFromThreadId(record.threadId) ? record.threadId : null,
     runs: normalizeAutoTaskRuns((record as any).runs),
+    executionProfile: "trading-agent-v1",
+    tradingContext: normalizeAutoTaskTradingContext((record as any).tradingContext || (record as any).trading_context),
   };
 }
 
@@ -77224,6 +77262,9 @@ function normalizeAutoTaskRuns(value: unknown): AutoTaskRunSummary[] {
         scheduledForUtc: firstString(record.scheduledForUtc),
         summary: firstString(record.summary),
         errorMessage: firstString(record.errorMessage),
+        tradingAnalysis: record.tradingAnalysis && typeof record.tradingAnalysis === "object"
+          ? record.tradingAnalysis as Record<string, unknown>
+          : null,
       };
     })
     .filter((run): run is AutoTaskRunSummary => Boolean(run));

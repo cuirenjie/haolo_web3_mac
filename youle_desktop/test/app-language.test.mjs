@@ -117,8 +117,7 @@ test("chart annotations translate whole statements without changing prices or po
   assert.equal(translateTradingAnnotationText(reference, "en"), "Prior top fractal 79,180.2 (structure reference). Above the key high weakens the down structure.");
   assert.equal(translateTradingAnnotationText("盘面结论：The latest stroke is up.", "en"), "Summary: The latest stroke is up.");
   for (const source of ["盘面结论：中枢震荡后反弹，后续笔尚未确认。", "Custom 𠀀 annotation", "Medium枢 still active"]) {
-    assert.doesNotMatch(translateTradingAnnotationText(source, "en"), /\p{Script=Han}/u);
-    assert.match(translateTradingAnnotationText(source, "en"), /unavailable in English/);
+    assert.equal(translateTradingAnnotationText(source, "en"), source);
   }
   assert.equal(translateTradingAnnotationText("Fib 0.618: 79,180.2", "en"), "Fib 0.618: 79,180.2");
   for (const [source, expected] of [
@@ -470,11 +469,22 @@ test("native dialogs receive localized copy from the persisted application langu
 test("client-owned chat notices are localized while user and model content remain protected", async () => {
   const [renderer, language] = await Promise.all([rendererSource, languageSource]);
   const bubbleBlock = sourceBlock(renderer, "function renderTextBubble", "function executionPlanCandidateKey");
+  const reportBlock = sourceBlock(renderer, "function appendTradingExpertReport", "function tradingAlertMentioned");
+  const planCardBlock = sourceBlock(renderer, "function renderExecutionPlanCardContent", "function renderMessageExecutionPlan");
   const skipBlock = sourceBlock(language, "function shouldSkipLocalization", "function localizeTextNode");
   assert.match(renderer, /trading-preference-onboarding-bubble[\s\S]*message-text" data-i18n-owned/);
   assert.match(renderer, /multi-model-cluster-planning-bubble[\s\S]*message-text" data-i18n-owned/);
   assert.match(bubbleBlock, /shouldLocalizeAppOwnedMessage\(message, fromUser\)/);
+  assert.match(bubbleBlock, /const displayText = text/);
+  assert.doesNotMatch(bubbleBlock, /englishSafeAssistantText/);
   assert.match(bubbleBlock, /data-i18n-owned/);
+  assert.match(reportBlock, /const visibleText = String\(text \|\| ""\)/);
+  assert.doesNotMatch(reportBlock, /englishSafeAssistantText/);
+  assert.match(planCardBlock, /const visibleContent = String\(content \|\| ""\)/);
+  assert.doesNotMatch(planCardBlock, /englishSafeAssistantText/);
   assert.match(skipBlock, /closest\?\.\(APP_OWNED_LOCALIZATION_SELECTOR\).*return false/s);
   assert.match(language, /\.message-text/);
+  assert.match(language, /\.execution-plan-card-content/);
+  assert.doesNotMatch(renderer, /This response could not be displayed because it was not generated entirely in English/);
+  assert.doesNotMatch(language, /Annotation unavailable in English|Summary unavailable in English/);
 });

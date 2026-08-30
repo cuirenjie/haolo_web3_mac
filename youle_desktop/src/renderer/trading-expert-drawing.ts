@@ -4,6 +4,7 @@ import {
   type TradingAiDrawingColorToken,
   type TradingAiDrawingPatch,
   type TradingAiPlaybackPhase,
+  type TradingIndicatorAiDrawingPatch,
 } from "./trading-expert-ai-playback.ts";
 import {
   fitTradingOrderLineLabels,
@@ -2068,10 +2069,25 @@ function tradingAiDrawingModel(drawing: TradingAiDrawing): TradingDrawingModel {
   };
 }
 
-export function tradingAiDrawingDisplayModel<T extends { text?: string }>(drawing: T, language?: AppLanguage): T {
-  if (!drawing.text) return drawing;
-  const text = translateTradingAnnotationText(drawing.text, language);
-  return text === drawing.text ? drawing : { ...drawing, text };
+export function localizeTradingAiDrawingPatch<
+  T extends TradingAiDrawingPatch | TradingIndicatorAiDrawingPatch,
+>(patch: T, language: AppLanguage): T {
+  let changed = false;
+  const operations = patch.operations.map((operation) => {
+    const text = operation.drawing.text;
+    if (!text) return operation;
+    const localizedText = translateTradingAnnotationText(text, language);
+    if (localizedText === text) return operation;
+    changed = true;
+    return { ...operation, drawing: { ...operation.drawing, text: localizedText } };
+  });
+  return changed ? { ...patch, operations } as T : patch;
+}
+
+export function tradingAiDrawingDisplayModel<T extends { text?: string }>(drawing: T, _language?: AppLanguage): T {
+  // Stored AI text is already localized when its analysis is committed. Never
+  // reinterpret saved history when the user later changes the interface language.
+  return drawing;
 }
 
 export function persistTradingAiDrawingPatch(

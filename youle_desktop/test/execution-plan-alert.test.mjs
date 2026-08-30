@@ -10,9 +10,11 @@ import {
   parseExecutionPlanAlertInput,
 } from "../src/main/trading-alerts/execution-plan-alert.mjs";
 import { TradingAlertService } from "../src/main/trading-alerts/service.mjs";
+import { createSavedExecutionPlan } from "../src/renderer/execution-plans.ts";
 
 const NOW = 1_786_464_000_000;
 const title = "SOL/USDT 币安永续 1H";
+const bilateralTitle = "SOL/USDT 币安永续 1H · 多头条件方案";
 const content = `当前动作：不交易
 方向判断：偏空
 空头触发：75.12，推荐：10 倍杠杆、2523.22 USDT 的空单
@@ -57,6 +59,127 @@ test("execution-plan parser rejects ambiguous direction and unsafe price relatio
   );
 });
 
+test("renderer bilateral display titles remain monitorable in Chinese and English", () => {
+  const cases = [
+    {
+      candidate: {
+        title: "ETH/USDT 币安永续 1D · 多头条件方案",
+        content: `当前动作：等待条件触发
+方向判断：偏多
+多头触发：2549.4
+止损与失效：2381.88
+分批止盈：第1目标 2581.7909666666，第2目标 2598.16626666
+风险收益比：目标1为 1:0.16`,
+      },
+      language: "zh-CN",
+      expectedTitle: "ETH/USDT 币安永续 1D · 多头条件方案",
+      expectedDirection: "long",
+      expectedEntry: 2549.4,
+      expectedStopLoss: 2381.88,
+      expectedTakeProfit: 2581.7909666666,
+    },
+    {
+      candidate: {
+        title: "ETH/USDT 币安永续 1D · 空头条件方案",
+        content: `当前动作：等待条件触发
+方向判断：偏空
+空头触发：2381.88
+止损与失效：2549.4
+分批止盈：第1目标 2329.74697334，第2目标 2301.32541334
+风险收益比：目标1为 1:0.27`,
+      },
+      language: "zh-CN",
+      expectedTitle: "ETH/USDT 币安永续 1D · 空头条件方案",
+      expectedDirection: "short",
+      expectedEntry: 2381.88,
+      expectedStopLoss: 2549.4,
+      expectedTakeProfit: 2329.74697334,
+    },
+    {
+      candidate: {
+        title: "ETH/USDT Binance Perpetual 1D · Long setup",
+        content: `Current action: Wait for the trigger
+Direction: Bullish
+Long trigger: 2549.4
+Stop-loss and invalidation: 2381.88
+Take-profit targets: Target 1: 2581.7909666666; Target 2: 2598.16626666
+Risk/reward: Target 1: 1:0.16`,
+      },
+      language: "en",
+      expectedTitle: "ETH/USDT Binance Perpetual 1D · Long setup",
+      expectedDirection: "long",
+      expectedEntry: 2549.4,
+      expectedStopLoss: 2381.88,
+      expectedTakeProfit: 2581.7909666666,
+    },
+    {
+      candidate: {
+        title: "ETH/USDT Binance Perpetual 1D · Short setup",
+        content: `Current action: Wait for the trigger
+Direction: Bearish
+Short trigger: 2381.88
+Stop-loss and invalidation: 2549.4
+Take-profit targets: Target 1: 2329.74697334; Target 2: 2301.32541334
+Risk/reward: Target 1: 1:0.27`,
+      },
+      language: "en",
+      expectedTitle: "ETH/USDT Binance Perpetual 1D · Short setup",
+      expectedDirection: "short",
+      expectedEntry: 2381.88,
+      expectedStopLoss: 2549.4,
+      expectedTakeProfit: 2329.74697334,
+    },
+    {
+      candidate: {
+        title: "龙虾/USDT 币安永续 1D · 多头条件方案",
+        content: `当前动作：等待条件触发
+方向判断：偏多
+多头触发：0.051
+止损与失效：0.049
+分批止盈：第1目标 0.055，第2目标 0.058
+风险收益比：目标1为 1:2`,
+      },
+      language: "zh-CN",
+      analysisLabel: "龙虾1D",
+      expectedTitle: "龙虾/USDT 币安永续 1D · 多头条件方案",
+      expectedMarketId: "BINANCE:FUTURES:龙虾USDT",
+      expectedDirection: "long",
+      expectedEntry: 0.051,
+      expectedStopLoss: 0.049,
+      expectedTakeProfit: 0.055,
+    },
+  ];
+
+  cases.forEach((fixture, index) => {
+    const plan = createSavedExecutionPlan({
+      candidate: fixture.candidate,
+      sourceThreadId: `thread-bilateral-${index}`,
+      sourceMessageId: `message-bilateral-${index}`,
+      analysisLabel: fixture.analysisLabel || "ETH1D",
+      language: fixture.language,
+      createdAt: "2026-08-30T06:00:00.000Z",
+    });
+    assert.equal(plan.title, fixture.expectedTitle);
+    const spec = parseExecutionPlanAlertInput({ ...plan, planId: plan.id });
+    assert.equal(spec.marketId, fixture.expectedMarketId || "BINANCE:FUTURES:ETHUSDT");
+    assert.equal(spec.interval, "1d");
+    assert.equal(spec.direction, fixture.expectedDirection);
+    assert.equal(spec.entry, fixture.expectedEntry);
+    assert.equal(spec.stopLoss, fixture.expectedStopLoss);
+    assert.equal(spec.takeProfit, fixture.expectedTakeProfit);
+  });
+
+  assert.throws(
+    () => parseExecutionPlanAlertInput({
+      planId: "unknown-suffix",
+      title: "ETH/USDT 币安永续 1D · 任意说明",
+      content,
+      status: "pending",
+    }),
+    /计划标题缺少可监控的交易对、永续合约或周期/,
+  );
+});
+
 test("syncExecutionPlan creates a real monitored alert, switches phases, triggers evidence, and pauses on end", async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "haolo-execution-plan-alert-"));
   let now = NOW;
@@ -86,7 +209,7 @@ test("syncExecutionPlan creates a real monitored alert, switches phases, trigger
       invokeIntentModel: async () => { throw new Error("not used"); },
     });
     await service.start();
-    const pending = await service.syncExecutionPlan({ planId: "plan-sol-1", title, content, status: "pending", originThreadId: "thread-sol-1" });
+    const pending = await service.syncExecutionPlan({ planId: "plan-sol-1", title: bilateralTitle, content, status: "pending", originThreadId: "thread-sol-1" });
     const ids = executionPlanAlertIds("plan-sol-1");
     assert.equal(pending.alert.alertId, ids.alertId);
     assert.equal(pending.alert.status, "monitoring");
@@ -124,7 +247,7 @@ test("syncExecutionPlan creates a real monitored alert, switches phases, trigger
     assert.equal(notifications.length, 1);
 
     now += 1;
-    const executing = await service.syncExecutionPlan({ planId: "plan-sol-1", alertId: ids.alertId, title, content, status: "executing", originThreadId: "thread-sol-1" });
+    const executing = await service.syncExecutionPlan({ planId: "plan-sol-1", alertId: ids.alertId, title: bilateralTitle, content, status: "executing", originThreadId: "thread-sol-1" });
     assert.equal(executing.alert.rule.revision, pending.alert.rule.revision + 1);
     assert.equal(executing.alert.status, "monitoring");
     assert.equal(executing.alert.rule.root.type, "any");
@@ -146,7 +269,7 @@ test("syncExecutionPlan creates a real monitored alert, switches phases, trigger
     assert.equal(evidence[0].conditionResults.some((item) => item.conditionId === "execution-plan-stop-loss" && item.result === true), true, JSON.stringify(evidence[0].conditionResults));
 
     now += 1;
-    const ended = await service.syncExecutionPlan({ planId: "plan-sol-1", alertId: ids.alertId, title, content, status: "ended", originThreadId: "thread-sol-1" });
+    const ended = await service.syncExecutionPlan({ planId: "plan-sol-1", alertId: ids.alertId, title: bilateralTitle, content, status: "ended", originThreadId: "thread-sol-1" });
     assert.equal(ended.alert.status, "paused");
     assert.equal(ended.alert.enabled, false);
     assert.equal(service.engine.runtimes.has(ids.alertId), false);
