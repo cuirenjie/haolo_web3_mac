@@ -147,6 +147,18 @@ test("fixed internal effort stays at the highest supported Sol tier", () => {
   assert.equal(Object.hasOwn(result, HAOLO_REASONING_SUPPORT_FIELD), false);
 });
 
+test("a fixed medium internal review cannot be promoted by a long prompt", () => {
+  const result = withAdaptiveTurnReasoning("turn/start", {
+    model: "gpt-5.6-sol",
+    effort: "medium",
+    input: [{ type: "text", text: "复杂交易候选。".repeat(2_000) }],
+    [HAOLO_REASONING_FIXED_EFFORT_FIELD]: "medium",
+  });
+
+  assert.equal(result.effort, "medium");
+  assert.equal(Object.hasOwn(result, HAOLO_REASONING_FIXED_EFFORT_FIELD), false);
+});
+
 test("native collaboration effort is authoritative and cannot be adaptively changed", () => {
   const result = withAdaptiveTurnReasoning("turn/start", {
     model: "gpt-5.6-sol",

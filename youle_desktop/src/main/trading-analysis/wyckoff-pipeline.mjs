@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { runWyckoffTheoryEngine } from "./wyckoff-engine.mjs";
+import { runValidatedTradingModelReview } from "./model-review.mjs";
 import {
   TRADING_ANALYSIS_SCHEMA_VERSION,
   normalizeTradingMarketSnapshot,
@@ -504,7 +505,7 @@ export async function runTradingWyckoffAnalysisPipeline(params, options = {}) {
   }
   const providerId = String(options.providerId || "").trim();
   const requestId = `wyckoff-request-${crypto.randomUUID()}`;
-  const modelResponse = await options.modelRegistry.analyze(providerId, {
+  const modelRequest = {
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     requestId,
     task: "wyckoff-theory-review-and-drawing-plan",
@@ -515,8 +516,16 @@ export async function runTradingWyckoffAnalysisPipeline(params, options = {}) {
       responseMode: params?.responseMode,
     }),
     responseFormat: "json",
-  }, { signal: options.signal });
-  const modelReview = normalizeWyckoffModelReview(modelResponse.text, theoryResult);
+  };
+  const reviewed = await runValidatedTradingModelReview({
+    modelRegistry: options.modelRegistry,
+    providerId,
+    request: modelRequest,
+    signal: options.signal,
+    theoryResult,
+    validateResponse: (text) => normalizeWyckoffModelReview(text, theoryResult),
+  });
+  const { modelResponse, review: modelReview } = reviewed;
   const primaryCandidate = candidateById(theoryResult, modelReview.primaryCandidateId)
     || theoryResult.structures.primaryCandidate;
   const actionPlan = buildWyckoffActionPlan(snapshot, primaryCandidate);
@@ -557,6 +566,9 @@ export async function runTradingWyckoffAnalysisPipeline(params, options = {}) {
       latencyMs: modelResponse.latencyMs,
       usage: modelResponse.usage,
       finishReason: modelResponse.finishReason,
+      reasoningEffort: reviewed.reasoningEffort,
+      reviewAttempts: reviewed.attempts.length,
+      escalationReason: reviewed.escalationReason,
     },
   };
 }

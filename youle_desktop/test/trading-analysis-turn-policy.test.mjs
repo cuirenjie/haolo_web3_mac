@@ -31,3 +31,21 @@ test("theory review uses the recoverable medium-effort policy", () => {
     timeoutRetryable: true,
   });
 });
+
+test("only theory reviews accept controlled high and max escalation overrides", () => {
+  assert.equal(tradingAnalysisTurnPolicy("wave-theory-review", {
+    requestedReasoningEffort: "high",
+  }).reasoningEffort, "high");
+  assert.equal(tradingAnalysisTurnPolicy("wave-theory-review", {
+    requestedReasoningEffort: "max",
+  }).reasoningEffort, "max");
+  assert.equal(tradingAnalysisTurnPolicy("wave-theory-review", {
+    requestedReasoningEffort: "ultra",
+  }).reasoningEffort, "medium");
+  assert.equal(tradingAnalysisTurnPolicy("chan-request-routing", {
+    requestedReasoningEffort: "max",
+  }).reasoningEffort, "medium");
+  assert.equal(tradingAnalysisTurnPolicy("trading_alert_intent_compile", {
+    requestedReasoningEffort: "max",
+  }).reasoningEffort, "medium");
+});

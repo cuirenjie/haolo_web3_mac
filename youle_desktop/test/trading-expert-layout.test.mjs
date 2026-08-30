@@ -1465,7 +1465,8 @@ test("Trading Expert market uses the compact pair title and customizable period 
   assert.match(overview, /class="trading-market-venue" data-market-current-venue>\$\{MARKET_VENUE\}<\/span>/);
   assert.match(overview, /renderTradingMarketAssetLogo\("BTC", "binance", true\)/);
   assert.match(overview, /class="trading-market-contract-tag" data-market-current-tag>永续<\/span>/);
-  assert.match(source, /const DEFAULT_INTERVAL = "1D"/);
+  assert.match(source, /const DEFAULT_INTERVAL = "60"/);
+  assert.match(source, /const intervalSequence = \[DEFAULT_INTERVAL, "240", "15", DEFAULT_INTERVAL, "5", "1W", "30", "120"\]/);
   assert.match(source, /\{ amount: 1, unit: "w" \},[\s\S]*?\{ amount: 1, unit: "d" \},[\s\S]*?\{ amount: 5, unit: "m" \},[\s\S]*?\{ amount: 15, unit: "m" \},[\s\S]*?\{ amount: 1, unit: "h" \},[\s\S]*?\{ amount: 4, unit: "h" \}/);
   assert.ok(
     indicatorBar.indexOf("data-market-main-indicators")

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { runPriceActionEngine } from "./price-action-engine.mjs";
+import { runValidatedTradingModelReview } from "./model-review.mjs";
 import {
   TRADING_ANALYSIS_SCHEMA_VERSION,
   normalizeTradingMarketSnapshot,
@@ -313,7 +314,7 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
   }
   const providerId = String(options.providerId || "").trim();
   const requestId = `price-action-request-${crypto.randomUUID()}`;
-  const modelResponse = await options.modelRegistry.analyze(providerId, {
+  const modelRequest = {
     schemaVersion: 1,
     requestId,
     task: "price-action-review-and-drawing-plan",
@@ -325,8 +326,16 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
       userRiskProfile: params?.userRiskProfile,
     }),
     responseFormat: "json",
-  }, { signal: options.signal });
-  const modelReview = normalizePriceActionModelReview(modelResponse.text);
+  };
+  const reviewed = await runValidatedTradingModelReview({
+    modelRegistry: options.modelRegistry,
+    providerId,
+    request: modelRequest,
+    signal: options.signal,
+    theoryResult,
+    validateResponse: normalizePriceActionModelReview,
+  });
+  const { modelResponse, review: modelReview } = reviewed;
   const drawingPatch = buildPriceActionDrawingPatch(snapshot, theoryResult, modelReview);
   const baseReport = buildPriceActionReport(snapshot, theoryResult, modelReview, {
     instruction: params?.instruction,
@@ -368,6 +377,9 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
       latencyMs: modelResponse.latencyMs,
       usage: modelResponse.usage,
       finishReason: modelResponse.finishReason,
+      reasoningEffort: reviewed.reasoningEffort,
+      reviewAttempts: reviewed.attempts.length,
+      escalationReason: reviewed.escalationReason,
     },
   };
   const hasAccountContext = params?.binanceAccountContext && typeof params.binanceAccountContext === "object";

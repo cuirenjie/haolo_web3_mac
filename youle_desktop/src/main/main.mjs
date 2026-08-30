@@ -5318,6 +5318,7 @@ async function runWorkflowCodexNodeTurnWithRecovery({
   workspace,
   model,
   effort = "high",
+  fixedEffort,
   sandboxPolicy,
   timeoutMs = 30 * 60_000,
   resetTimeoutOnActivity = false,
@@ -5366,6 +5367,7 @@ async function runWorkflowCodexNodeTurnWithRecovery({
         cwd: workspace,
         model: model || undefined,
         effort: effort || undefined,
+        [HAOLO_REASONING_FIXED_EFFORT_FIELD]: fixedEffort || undefined,
         serviceTier: null,
         approvalPolicy: "never",
         sandboxPolicy: normalizeSandboxPolicy(sandboxPolicy),
@@ -14143,12 +14145,19 @@ function tradingAnalysisAbortError(message = "Trading analysis was cancelled") {
   return error;
 }
 
-async function invokeTradingAnalysisAppServer({ modelId, modelProvider, request, signal, onReasoningSummaryDelta }) {
+async function invokeTradingAnalysisAppServer({
+  modelId,
+  modelProvider,
+  request,
+  signal,
+  reasoningEffort: requestedReasoningEffort,
+  onReasoningSummaryDelta,
+}) {
   const workspace = desktopWorkspace();
   const serverClient = getClientForCwd(workspace);
   const isRequestRouting = String(request.task || "").endsWith("-request-routing");
   const isAlertIntent = String(request.task || "") === "trading_alert_intent_compile";
-  const turnPolicy = tradingAnalysisTurnPolicy(request.task);
+  const turnPolicy = tradingAnalysisTurnPolicy(request.task, { requestedReasoningEffort });
   const { reasoningEffort, timeoutMs, resetTimeoutOnActivity, timeoutRetryable } = turnPolicy;
   const diagnosticContext = {
     requestId: String(request.requestId || ""),
@@ -14156,6 +14165,7 @@ async function invokeTradingAnalysisAppServer({ modelId, modelProvider, request,
     task: String(request.task || ""),
     modelId: String(modelId || ""),
     promptBytes: Buffer.byteLength(String(request.prompt || ""), "utf8"),
+    reasoningEffort,
     timeoutMs,
   };
   const developerInstructions = isAlertIntent
@@ -14211,6 +14221,7 @@ async function invokeTradingAnalysisAppServer({ modelId, modelProvider, request,
       workspace,
       model: modelId,
       effort: reasoningEffort,
+      fixedEffort: reasoningEffort,
       sandboxPolicy: "read-only",
       timeoutMs,
       resetTimeoutOnActivity,

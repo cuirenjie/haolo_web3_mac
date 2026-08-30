@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { runOrderFlowTheoryEngine } from "./order-flow-engine.mjs";
+import { runValidatedTradingModelReview } from "./model-review.mjs";
 import {
   fuseIctSmcWithOrderFlow,
   runIctSmcTheoryEngine,
@@ -1034,7 +1035,7 @@ export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) 
   }
   const providerId = String(options.providerId || "").trim();
   const requestId = `order-flow-request-${crypto.randomUUID()}`;
-  const modelResponse = await options.modelRegistry.analyze(providerId, {
+  const modelRequest = {
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     requestId,
     task: "order-flow-theory-review-and-drawing-plan",
@@ -1045,8 +1046,16 @@ export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) 
       responseMode: params?.responseMode,
     }),
     responseFormat: "json",
-  }, { signal: options.signal });
-  const modelReview = normalizeOrderFlowModelReview(modelResponse.text, theoryResult);
+  };
+  const reviewed = await runValidatedTradingModelReview({
+    modelRegistry: options.modelRegistry,
+    providerId,
+    request: modelRequest,
+    signal: options.signal,
+    theoryResult,
+    validateResponse: (text) => normalizeOrderFlowModelReview(text, theoryResult),
+  });
+  const { modelResponse, review: modelReview } = reviewed;
   const deterministicActionPlan = buildOrderFlowActionPlan(snapshot, theoryResult);
   const primaryBias = modelReview.marketBias === "buying"
     ? "bullish"
@@ -1092,6 +1101,9 @@ export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) 
       latencyMs: modelResponse.latencyMs,
       usage: modelResponse.usage,
       finishReason: modelResponse.finishReason,
+      reasoningEffort: reviewed.reasoningEffort,
+      reviewAttempts: reviewed.attempts.length,
+      escalationReason: reviewed.escalationReason,
     },
   };
 }

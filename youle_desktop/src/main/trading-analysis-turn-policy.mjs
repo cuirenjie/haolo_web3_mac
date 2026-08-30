@@ -2,7 +2,9 @@ const ROUTING_TIMEOUT_MS = 60_000;
 const ALERT_INTENT_IDLE_TIMEOUT_MS = 180_000;
 const THEORY_REVIEW_IDLE_TIMEOUT_MS = 180_000;
 
-export function tradingAnalysisTurnPolicy(taskValue) {
+const THEORY_REVIEW_EFFORTS = new Set(["medium", "high", "max"]);
+
+export function tradingAnalysisTurnPolicy(taskValue, options = {}) {
   const task = String(taskValue || "");
   if (task.endsWith("-request-routing")) {
     return Object.freeze({
@@ -22,9 +24,12 @@ export function tradingAnalysisTurnPolicy(taskValue) {
       timeoutRetryable: true,
     });
   }
+  const requestedReasoningEffort = String(options.requestedReasoningEffort || "").trim().toLowerCase();
   return Object.freeze({
     kind: "theory_review",
-    reasoningEffort: "medium",
+    reasoningEffort: THEORY_REVIEW_EFFORTS.has(requestedReasoningEffort)
+      ? requestedReasoningEffort
+      : "medium",
     timeoutMs: THEORY_REVIEW_IDLE_TIMEOUT_MS,
     resetTimeoutOnActivity: true,
     timeoutRetryable: true,

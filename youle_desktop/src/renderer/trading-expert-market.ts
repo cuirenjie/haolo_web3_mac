@@ -133,7 +133,7 @@ function unsubscribeBinanceMarketStreams(subscriptionId: string | null | undefin
   void window.codexDesktop?.unsubscribeBinanceMarketStreams?.({ subscriptionId }).catch(() => {});
 }
 const DEFAULT_SYMBOL = "BTCUSDT";
-const DEFAULT_INTERVAL = "1D";
+const DEFAULT_INTERVAL = "60";
 const MARKET_QUOTE = "USDT";
 const MARKET_VENUE = "币安";
 const MARKET_PRICE_FORMAT = { type: "price", precision: 2, minMove: 0.01 } as const;
@@ -5667,7 +5667,7 @@ class TradingExpertMarketWorkspace {
       resolution: tradingViewResolution(period),
       label: tradingPeriodLabel(period),
     }));
-    const intervalSequence = ["60", "240", "15", "1D", "5", "1W", "30", "120"];
+    const intervalSequence = [DEFAULT_INTERVAL, "240", "15", DEFAULT_INTERVAL, "5", "1W", "30", "120"];
     for (let index = 1; index < layout.count; index += 1) {
       const paneHost = document.createElement("div");
       paneHost.className = "trading-market-split-pane";

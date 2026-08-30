@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { HARMONIC_ENGINE_ID, runHarmonicPatternEngine } from "./harmonic-engine.mjs";
+import { runValidatedTradingModelReview } from "./model-review.mjs";
 import {
   TRADING_ANALYSIS_SCHEMA_VERSION,
   normalizeTradingMarketSnapshot,
@@ -726,7 +727,7 @@ export async function runTradingHarmonicAnalysisPipeline(params, options = {}) {
   }
   const providerId = String(options.providerId || "").trim();
   const requestId = `harmonic-request-${crypto.randomUUID()}`;
-  const modelResponse = await options.modelRegistry.analyze(providerId, {
+  const modelRequest = {
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     requestId,
     task: "harmonic-pattern-review-and-drawing-plan",
@@ -737,8 +738,16 @@ export async function runTradingHarmonicAnalysisPipeline(params, options = {}) {
       responseMode: params?.responseMode,
     }),
     responseFormat: "json",
-  }, { signal: options.signal });
-  const review = normalizeHarmonicModelReview(modelResponse.text, theoryResult);
+  };
+  const reviewed = await runValidatedTradingModelReview({
+    modelRegistry: options.modelRegistry,
+    providerId,
+    request: modelRequest,
+    signal: options.signal,
+    theoryResult,
+    validateResponse: (text) => normalizeHarmonicModelReview(text, theoryResult),
+  });
+  const { modelResponse, review } = reviewed;
   const primaryCandidate = candidateById(theoryResult, review.primaryCandidateId)
     || theoryResult.structures.primaryCandidate;
   const actionPlan = buildHarmonicActionPlan(snapshot, primaryCandidate);
@@ -770,6 +779,9 @@ export async function runTradingHarmonicAnalysisPipeline(params, options = {}) {
       latencyMs: modelResponse.latencyMs,
       usage: modelResponse.usage,
       finishReason: modelResponse.finishReason,
+      reasoningEffort: reviewed.reasoningEffort,
+      reviewAttempts: reviewed.attempts.length,
+      escalationReason: reviewed.escalationReason,
     },
   };
 }

@@ -17,7 +17,7 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
       cancellation: true,
       theoryReview: true,
     }),
-    async analyze(request, { signal } = {}) {
+    async analyze(request, { signal, reasoningEffort } = {}) {
       const startedAt = Date.now();
       const result = await invoke({
         providerId,
@@ -25,6 +25,7 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
         modelProvider,
         request,
         signal,
+        reasoningEffort,
       });
       if (result?.status !== "success") {
         throw new TradingAnalysisModelProviderError(

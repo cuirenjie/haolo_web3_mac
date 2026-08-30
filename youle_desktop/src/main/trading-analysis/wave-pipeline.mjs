@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { runWaveTheoryEngine } from "./wave-engine.mjs";
+import { runValidatedTradingModelReview } from "./model-review.mjs";
 import {
   TRADING_ANALYSIS_SCHEMA_VERSION,
   normalizeTradingMarketSnapshot,
@@ -610,7 +611,7 @@ export async function runTradingWaveAnalysisPipeline(params, options = {}) {
   }
   const providerId = String(options.providerId || "").trim();
   const requestId = `wave-request-${crypto.randomUUID()}`;
-  const modelResponse = await options.modelRegistry.analyze(providerId, {
+  const modelRequest = {
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     requestId,
     task: "wave-theory-review-and-drawing-plan",
@@ -621,8 +622,16 @@ export async function runTradingWaveAnalysisPipeline(params, options = {}) {
       responseMode: params?.responseMode,
     }),
     responseFormat: "json",
-  }, { signal: options.signal });
-  const modelReview = normalizeWaveModelReview(modelResponse.text, theoryResult);
+  };
+  const reviewed = await runValidatedTradingModelReview({
+    modelRegistry: options.modelRegistry,
+    providerId,
+    request: modelRequest,
+    signal: options.signal,
+    theoryResult,
+    validateResponse: (text) => normalizeWaveModelReview(text, theoryResult),
+  });
+  const { modelResponse, review: modelReview } = reviewed;
   const primaryCandidate = candidateById(theoryResult, modelReview.primaryCandidateId)
     || theoryResult.structures.primaryCandidate;
   const actionPlan = buildWaveActionPlan(snapshot, primaryCandidate);
@@ -663,6 +672,9 @@ export async function runTradingWaveAnalysisPipeline(params, options = {}) {
       latencyMs: modelResponse.latencyMs,
       usage: modelResponse.usage,
       finishReason: modelResponse.finishReason,
+      reasoningEffort: reviewed.reasoningEffort,
+      reviewAttempts: reviewed.attempts.length,
+      escalationReason: reviewed.escalationReason,
     },
   };
 }
