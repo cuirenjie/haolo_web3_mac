@@ -47071,6 +47071,12 @@ const TRADING_PREFERENCE_BINANCE_INVITATION = [
   "连接后，Haolo 可以结合你的账户余额、持仓和风险敞口提供更有针对性的分析。只读权限不能下单、转账或修改账户设置。",
 ].join("\n");
 
+const TRADING_PREFERENCE_BINANCE_CONNECTED = [
+  "币安已经连接成功。",
+  "",
+  "Haolo 会结合你的账户余额、持仓和风险敞口提供更有针对性的分析。",
+].join("\n");
+
 const TRADING_PREFERENCE_REQUIRED_SECTIONS =
   "仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件";
 
@@ -47101,6 +47107,27 @@ function resetTradingPreferenceProfileState() {
   tradingPreferenceProfileLoadStatus = "idle";
   tradingPreferenceProfileCompleted = false;
   tradingPreferenceOnboardingByThreadId.clear();
+}
+
+async function tradingPreferenceBinanceIsConnected() {
+  if (state.binanceAccount.status?.bound === true) return true;
+  if (binanceAccountLoadPromise) {
+    try {
+      await binanceAccountLoadPromise;
+    } catch {
+      // The onboarding completion can still fall back to the safe connection invitation.
+    }
+    if (state.binanceAccount.status) return Boolean(state.binanceAccount.status.bound);
+  }
+  if (typeof api.getBinanceAccountStatus !== "function") return false;
+  try {
+    const status = await api.getBinanceAccountStatus();
+    if (Boolean(state.binanceAccount.status?.bound)) return true;
+    state.binanceAccount.status = status;
+    return status?.bound === true;
+  } catch {
+    return false;
+  }
 }
 
 async function loadTradingPreferenceProfile(options: { renderAfter?: boolean } = {}) {
@@ -47366,23 +47393,28 @@ async function saveTradingPreferenceOnboarding(
     }
     tradingPreferenceProfileCompleted = true;
     tradingPreferenceProfileLoadStatus = "loaded";
+    const binanceConnected = await tradingPreferenceBinanceIsConnected();
     const completionItem = appendTradingPreferenceMessage(
       threadId,
       "assistant",
       tradingPreferenceCompletionText(flow.answers),
       flow,
     );
-    const binanceInvitationItem = appendTradingPreferenceMessage(
+    const binanceStatusItem = appendTradingPreferenceMessage(
       threadId,
       "assistant",
-      TRADING_PREFERENCE_BINANCE_INVITATION,
+      binanceConnected
+        ? TRADING_PREFERENCE_BINANCE_CONNECTED
+        : TRADING_PREFERENCE_BINANCE_INVITATION,
       flow,
-      [{
-        id: "connect-binance-account",
-        kind: "navigate",
-        label: "连接币安",
-        destination: "binance-account",
-      }],
+      binanceConnected
+        ? []
+        : [{
+            id: "connect-binance-account",
+            kind: "navigate",
+            label: "连接币安",
+            destination: "binance-account",
+          }],
     );
     const transcriptItems = flow.itemIds
       .map((id) => state.items[threadId]?.[id])
@@ -47393,7 +47425,7 @@ async function saveTradingPreferenceOnboarding(
     scheduleScrollMessagesToBottom();
     void persistCompletedTradingExpertTranscript(
       threadId,
-      transcriptItems.length ? transcriptItems : [completionItem, binanceInvitationItem],
+      transcriptItems.length ? transcriptItems : [completionItem, binanceStatusItem],
       { title: TRADING_PREFERENCE_THREAD_TITLE },
     );
   } catch (error) {
@@ -75344,6 +75376,10 @@ function isNoisyReconnectError(text: string) {
 }
 
 function messageActionsFromItem(item: CodexItem) {
+  const isTradingPreferenceBinanceInvitation = item.type === "agentMessage"
+    && assistantVisibleText(itemText(item)).trim() === TRADING_PREFERENCE_BINANCE_INVITATION;
+  const binanceAlreadyConnected = isTradingPreferenceBinanceInvitation
+    && state.binanceAccount.status?.bound === true;
   const rawActions = (item as { actions?: unknown }).actions;
   const actions = (Array.isArray(rawActions) ? rawActions : [])
     .map((raw): MessageAction | null => {
@@ -75361,12 +75397,12 @@ function messageActionsFromItem(item: CodexItem) {
         alert_id: firstString(record.alert_id, record.alertId) || undefined,
       };
     })
-    .filter((action): action is MessageAction => Boolean(action));
+    .filter((action): action is MessageAction => Boolean(
+      action
+      && !(binanceAlreadyConnected && action.destination === "binance-account")
+    ));
   if (actions.length) return actions;
-  if (
-    item.type === "agentMessage"
-    && assistantVisibleText(itemText(item)).trim() === TRADING_PREFERENCE_BINANCE_INVITATION
-  ) {
+  if (isTradingPreferenceBinanceInvitation && !binanceAlreadyConnected) {
     return [{
       id: "connect-binance-account",
       kind: "navigate",
@@ -75375,6 +75411,15 @@ function messageActionsFromItem(item: CodexItem) {
     }];
   }
   return undefined;
+}
+
+function tradingPreferenceBinanceVisibleText(item: CodexItem) {
+  const text = assistantVisibleText(itemText(item));
+  return item.type === "agentMessage"
+    && state.binanceAccount.status?.bound === true
+    && text.trim() === TRADING_PREFERENCE_BINANCE_INVITATION
+      ? TRADING_PREFERENCE_BINANCE_CONNECTED
+      : text;
 }
 
 function itemToMessage(threadId: string, id: string, item: CodexItem): Message {
@@ -75532,7 +75577,7 @@ function itemToMessage(threadId: string, id: string, item: CodexItem): Message {
     ),
     align_right: item.align_right === true,
     time: formatThreadTime(item.created_at || item.createdAt),
-    text: assistantVisibleText(itemText(item)),
+    text: tradingPreferenceBinanceVisibleText(item),
     attachments: item.type === "agentMessage" ? itemAttachments(item) : undefined,
     actions: messageActionsFromItem(item),
     videoGenerationActor:

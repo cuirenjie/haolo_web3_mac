@@ -262,6 +262,7 @@ import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adap
 import { tradingAlertsEnabled, tradingAlertsShadowMode } from "./trading-alerts/feature-flag.mjs";
 import { tradingAlertErrorEnvelope } from "./trading-alerts/errors.mjs";
 import { executionPlanAlertTriggeredSummary } from "./trading-alerts/execution-plan-alert.mjs";
+import { TradingAlertEmailNotifier } from "./trading-alert-email-notifier.mjs";
 import { ClusterWorkflowRuntime } from "./workflow/runtime.mjs";
 import {
   CLUSTER_MODEL_REGISTRY,
@@ -433,6 +434,7 @@ let automationStore = null;
 let automationWorker = null;
 let tradingAlertService = null;
 let tradingAlertServicePromise = null;
+let tradingAlertEmailNotifier = null;
 const tradingAlertRendererSubscriptions = new Map();
 const binanceMarketRendererSubscriptions = new Map();
 const binancePublicRequestCoordinator = new BinancePublicRequestCoordinator();
@@ -14326,6 +14328,31 @@ async function notifyTradingAlertTriggered({ alert, evidence } = {}) {
   const body = `${triggeredSummary}\n${mainUiText("triggeredAt")}: ${new Date(Number(evidence?.triggeredAt || Date.now())).toLocaleString(appLanguageLocale())}`;
   const anchor = evidence?.contexts?.[0] || {};
   const openContext = { alertId: alert?.alertId, evidenceId: evidence?.evidenceId, marketId: anchor.marketId, interval: anchor.interval, triggeredAt: evidence?.triggeredAt };
+  const accountId = String(getYouleApiClient().sessionSummary()?.profile?.id || "").trim();
+  if (accountId) {
+    try {
+      await getTradingAlertEmailNotifier().enqueue({
+        accountId,
+        eventId: evidence?.evidenceId,
+        alertId: alert?.alertId,
+        alertTitle: alert?.rule?.title || mainUiText("tradingCondition"),
+        summary: triggeredSummary,
+        marketId: anchor.marketId,
+        interval: anchor.interval,
+        triggeredAt: evidence?.triggeredAt,
+        locale: appLanguage(),
+      });
+    } catch (error) {
+      console.warn("[trading-alert-email] failed to persist notification", {
+        eventId: String(evidence?.evidenceId || ""),
+        code: String(error?.code || "TRADING_ALERT_EMAIL_QUEUE_FAILED"),
+      });
+    }
+  } else {
+    console.warn("[trading-alert-email] skipped queue because no authenticated account is available", {
+      eventId: String(evidence?.evidenceId || ""),
+    });
+  }
   if (taskCompletionPopupEnabled() && process.platform === "win32") showDesktopNotificationWindow({ title, body, ...openContext });
   else if (taskCompletionPopupEnabled() && Notification.isSupported()) {
     const notification = new Notification({ title, body, icon: SHELL_ICON_PATH || WINDOW_ICON_PATH || undefined });
@@ -14339,6 +14366,17 @@ async function notifyTradingAlertTriggered({ alert, evidence } = {}) {
     summary: triggeredSummary,
   });
   sendToRenderer("tradingAlerts:changed", await getTradingAlertService().then((service) => service.snapshot()));
+}
+
+function getTradingAlertEmailNotifier() {
+  if (!tradingAlertEmailNotifier) {
+    tradingAlertEmailNotifier = new TradingAlertEmailNotifier({
+      dataDir: path.join(app.getPath("userData"), "trading-alerts"),
+      currentAccountId: () => String(getYouleApiClient().sessionSummary()?.profile?.id || "").trim(),
+      deliver: (payload) => getYouleApiClient().sendTradingAlertEmail(payload),
+    });
+  }
+  return tradingAlertEmailNotifier.start();
 }
 
 function notifyExecutionPlanStatusChanged(params = {}) {
@@ -14376,6 +14414,7 @@ async function getTradingAlertService() {
   if (tradingAlertService) return tradingAlertService;
   if (tradingAlertServicePromise) return tradingAlertServicePromise;
   tradingAlertServicePromise = (async () => {
+    getTradingAlertEmailNotifier();
     const gatewayConfig = getBinanceGatewayConfig();
     const router = getBinanceNetworkRouter();
     const alertFetch = (url, init) => getBinanceRequestGovernor().fetch(
@@ -21823,6 +21862,16 @@ async function cleanupAndExit(exitCode = 0) {
       console.warn("[trading-alerts] failed to stop", error?.message || error);
     } finally {
       tradingAlertService = null;
+    }
+  }
+
+  if (tradingAlertEmailNotifier) {
+    try {
+      await withShutdownTimeout("trading alert email notifier", tradingAlertEmailNotifier.stop());
+    } catch (error) {
+      console.warn("[trading-alert-email] failed to stop", error?.message || error);
+    } finally {
+      tradingAlertEmailNotifier = null;
     }
   }
 
