@@ -38,6 +38,7 @@ export class PersonalContextService {
         return this.memoryStore.list(owner.ownerId, args);
       case "remember_user_memory":
         assertExplicitUserInstruction(args);
+        assertTradingMemoryWriteIsUnambiguous(args);
         return this.memoryStore.upsert(owner.ownerId, args.entries);
       case "forget_user_memory":
         assertExplicitUserInstruction(args);
@@ -192,6 +193,40 @@ function assertExplicitUserInstruction(args) {
       "USER_STATEMENT_REQUIRED",
       "Provide the current user's explicit memory instruction in user_statement.",
       400,
+    );
+  }
+}
+
+function assertTradingMemoryWriteIsUnambiguous(args) {
+  const statement = String(args?.user_statement || "").replace(/\u0000/g, " ").trim();
+  const entries = Array.isArray(args?.entries) ? args.entries : [];
+  const mentionsStopPercent = /(?:止损|stop[\s_-]*loss)[^\d%％]{0,16}(?:(?:百分之\s*)\d+(?:\.\d+)?|\d+(?:\.\d+)?\s*(?:%|％))/i.test(statement);
+  const statesAccountBasis = /账户(?:净值|权益|总资产)|本金|account\s+(?:equity|balance)|actual\s+account\s+loss/i.test(statement);
+  const statesPriceBasis = /(?:入场|开仓|成交|标记|市场)?价格|止损(?:幅度|距离)|price\s+(?:distance|move)|from\s+(?:entry|open)\s+price/i.test(statement);
+  const qualitativeRiskRewardChange = /盈亏比|risk[\s_-]*(?:reward|return)|reward[\s_-]*to[\s_-]*risk/i.test(statement)
+    && /不(?:要|用|追求|希望)?(?:很)?高|低一些|高胜率|win\s*rate/i.test(statement);
+  const hasNumericRiskReward = /\d+(?:\.\d+)?\s*[:：比]\s*\d+(?:\.\d+)?|minimum_risk_reward_ratio/i.test(statement)
+    || entries.some((entry) => String(entry?.key || "") === "minimum_risk_reward_ratio");
+  if (mentionsStopPercent && !statesAccountBasis && !statesPriceBasis) {
+    throw contextError(
+      "TRADING_STOP_LOSS_BASIS_REQUIRED",
+      `止损百分比缺少分母。请先询问用户：这是账户净值每笔最大实际亏损，还是相对入场价的止损距离；确认前不要写入长期记忆。${qualitativeRiskRewardChange && !hasNumericRiskReward ? " 同时请询问新的最低净盈亏比数值，不要静默保留旧硬规则。" : ""}`,
+      409,
+    );
+  }
+  const legacyStopEntry = entries.find((entry) => String(entry?.key || "") === "preferred_stop_loss_percent");
+  if (legacyStopEntry) {
+    throw contextError(
+      "TRADING_STOP_LOSS_CANONICAL_KEY_REQUIRED",
+      "禁止写入 preferred_stop_loss_percent。账户风险使用 trading.risk.max_loss_per_trade_percent；价格距离使用 trading.exit.preferred_stop_distance_percent。",
+      409,
+    );
+  }
+  if (qualitativeRiskRewardChange && !hasNumericRiskReward) {
+    throw contextError(
+      "TRADING_MINIMUM_RISK_REWARD_REQUIRED",
+      "用户希望调整盈亏比但没有给出可执行的最低数值。请先询问最低净盈亏比（例如1:1或1:1.5），不要静默保留旧硬规则。",
+      409,
     );
   }
 }

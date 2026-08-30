@@ -23,6 +23,14 @@ export const TRADING_RISK_MEMORY_KEYS = Object.freeze({
   maxLeverage: "max_leverage",
   minimumRiskRewardRatio: "minimum_risk_reward_ratio",
   riskPreference: "risk_preference",
+  preferredStopDistancePercent: "preferred_stop_distance_percent",
+  maxStopDistancePercent: "max_stop_distance_percent",
+  preferredTakeProfitPercent: "preferred_take_profit_percent",
+  maxTakeProfitPercent: "max_take_profit_percent",
+  // These two names were emitted by an older free-form memory flow. They are
+  // read only for conflict detection/migration and must never be written again.
+  legacyAmbiguousStopLossPercent: "preferred_stop_loss_percent",
+  legacyRiskRewardPreference: "risk_reward_preference",
   moveStopToBreakEven: "move_stop_to_break_even",
   breakEvenTriggerR: "break_even_trigger_r",
   analysisStyle: "trading_analysis_style",
@@ -275,38 +283,69 @@ export function tradingRiskProfileFromEntries(values) {
     || entry.scope.startsWith("trading.")
     || (entry.scope === "communication" && entry.key === TRADING_RISK_MEMORY_KEYS.analysisStyle)
   ));
-  const latestByKey = new Map(tradingEntries.map((entry) => [entry.key, entry]));
-  const numeric = (key, min, max) => {
-    const value = Number(latestByKey.get(key)?.value);
+  const latestByIdentity = new Map(tradingEntries.map((entry) => [`${entry.scope}\u0000${entry.key}`, entry]));
+  const scopedEntry = (scopes, key) => {
+    for (const scope of scopes) {
+      const candidate = latestByIdentity.get(`${scope}\u0000${key}`);
+      if (candidate) return candidate;
+    }
+    return null;
+  };
+  const numeric = (scopes, key, min, max) => {
+    const value = Number(scopedEntry(scopes, key)?.value);
     return Number.isFinite(value) && value >= min && value <= max ? value : null;
   };
-  const boolean = (key) => {
-    const value = latestByKey.get(key)?.value;
+  const boolean = (scopes, key) => {
+    const value = scopedEntry(scopes, key)?.value;
     return typeof value === "boolean" ? value : null;
   };
-  const text = (key) => {
-    const value = latestByKey.get(key)?.value;
+  const text = (scopes, key) => {
+    const value = scopedEntry(scopes, key)?.value;
     return typeof value === "string" && value.trim() ? value.trim() : null;
   };
-  const activeEntries = [...latestByKey.values()].map(publicEntry);
+  const activeEntries = [...latestByIdentity.values()].map(publicEntry);
   const configuredMaxLossPerTradePercent = numeric(
+    ["trading.risk", "trading"],
     TRADING_RISK_MEMORY_KEYS.maxLossPerTradePercent,
     0.01,
     100,
   );
+  const legacyAmbiguousStopLossPercent = numeric(
+    ["trading.exit"],
+    TRADING_RISK_MEMORY_KEYS.legacyAmbiguousStopLossPercent,
+    0.01,
+    100,
+  );
+  const preferredStopDistancePercent = numeric(
+    ["trading.exit"],
+    TRADING_RISK_MEMORY_KEYS.preferredStopDistancePercent,
+    0.01,
+    100,
+  );
+  // A legacy entry never recorded its denominator. Even when its number happens
+  // to equal the account-risk cap, it may still have meant entry-price distance,
+  // so execution must fail closed until that legacy entry is explicitly removed.
+  const riskClarificationRequired = legacyAmbiguousStopLossPercent !== null;
   return Object.freeze({
     schemaVersion: 1,
     maxLossPerTradePercent: configuredMaxLossPerTradePercent,
-    maxPositionPercent: numeric(TRADING_RISK_MEMORY_KEYS.maxPositionPercent, 0.01, 100),
-    maxLeverage: numeric(TRADING_RISK_MEMORY_KEYS.maxLeverage, 1, 1_000),
-    minimumRiskRewardRatio: numeric(TRADING_RISK_MEMORY_KEYS.minimumRiskRewardRatio, 0.01, 100),
-    riskPreference: text(TRADING_RISK_MEMORY_KEYS.riskPreference),
-    moveStopToBreakEven: boolean(TRADING_RISK_MEMORY_KEYS.moveStopToBreakEven),
-    breakEvenTriggerR: numeric(TRADING_RISK_MEMORY_KEYS.breakEvenTriggerR, 0.01, 100),
-    analysisStyle: text(TRADING_RISK_MEMORY_KEYS.analysisStyle),
-    requiredAnalysisSections: text(TRADING_RISK_MEMORY_KEYS.requiredAnalysisSections),
-    conflictHandling: text(TRADING_RISK_MEMORY_KEYS.conflictHandling),
-    onboardingCompleted: boolean(TRADING_RISK_MEMORY_KEYS.onboardingCompleted) === true,
+    maxPositionPercent: numeric(["trading.risk", "trading"], TRADING_RISK_MEMORY_KEYS.maxPositionPercent, 0.01, 100),
+    maxLeverage: numeric(["trading.risk", "trading"], TRADING_RISK_MEMORY_KEYS.maxLeverage, 1, 1_000),
+    minimumRiskRewardRatio: numeric(["trading.risk", "trading"], TRADING_RISK_MEMORY_KEYS.minimumRiskRewardRatio, 0.01, 100),
+    riskPreference: text(["trading.risk", "trading"], TRADING_RISK_MEMORY_KEYS.riskPreference)
+      || text(["trading.risk", "trading"], TRADING_RISK_MEMORY_KEYS.legacyRiskRewardPreference),
+    preferredStopDistancePercent,
+    maxStopDistancePercent: numeric(["trading.exit"], TRADING_RISK_MEMORY_KEYS.maxStopDistancePercent, 0.01, 100),
+    preferredTakeProfitPercent: numeric(["trading.exit"], TRADING_RISK_MEMORY_KEYS.preferredTakeProfitPercent, 0.01, 100),
+    maxTakeProfitPercent: numeric(["trading.exit"], TRADING_RISK_MEMORY_KEYS.maxTakeProfitPercent, 0.01, 100),
+    legacyAmbiguousStopLossPercent,
+    riskClarificationRequired,
+    moveStopToBreakEven: boolean(["trading.exit", "trading"], TRADING_RISK_MEMORY_KEYS.moveStopToBreakEven),
+    breakEvenTriggerR: numeric(["trading.exit", "trading"], TRADING_RISK_MEMORY_KEYS.breakEvenTriggerR, 0.01, 100),
+    analysisStyle: text(["communication", "trading"], TRADING_RISK_MEMORY_KEYS.analysisStyle),
+    requiredAnalysisSections: text(["trading.analysis", "trading"], TRADING_RISK_MEMORY_KEYS.requiredAnalysisSections),
+    conflictHandling: text(["trading.behavior", "trading"], TRADING_RISK_MEMORY_KEYS.conflictHandling),
+    onboardingCompleted: boolean(["trading.profile", "trading"], TRADING_RISK_MEMORY_KEYS.onboardingCompleted) === true,
     entries: Object.freeze(activeEntries),
   });
 }
@@ -402,11 +441,87 @@ function normalizeMutationEntries(values) {
 }
 
 function validateKnownRiskEntry(entry) {
-  if (entry.scope !== "trading.risk" && entry.scope !== "trading") return;
+  if (entry.key === TRADING_RISK_MEMORY_KEYS.legacyAmbiguousStopLossPercent) {
+    throw new PersonalMemoryError(
+      "AMBIGUOUS_STOP_LOSS_MEMORY_KEY",
+      "preferred_stop_loss_percent 口径不明确；账户净值风险请使用 trading.risk.max_loss_per_trade_percent，价格止损距离请使用 trading.exit.preferred_stop_distance_percent。",
+    );
+  }
+  if (entry.key === TRADING_RISK_MEMORY_KEYS.legacyRiskRewardPreference) {
+    throw new PersonalMemoryError(
+      "LEGACY_RISK_REWARD_MEMORY_KEY",
+      "risk_reward_preference 不是可执行字段；风险风格请使用 risk_preference，最低盈亏比请使用 minimum_risk_reward_ratio。",
+    );
+  }
+  const riskScope = entry.scope === "trading.risk" || entry.scope === "trading";
+  const exitScope = entry.scope === "trading.exit";
+  const riskOnlyKeys = new Set([
+    TRADING_RISK_MEMORY_KEYS.maxLossPerTradePercent,
+    TRADING_RISK_MEMORY_KEYS.absoluteMaxLossPerTradePercent,
+    TRADING_RISK_MEMORY_KEYS.maxPositionPercent,
+    TRADING_RISK_MEMORY_KEYS.maxLeverage,
+    TRADING_RISK_MEMORY_KEYS.minimumRiskRewardRatio,
+  ]);
+  const exitOnlyKeys = new Set([
+    TRADING_RISK_MEMORY_KEYS.preferredStopDistancePercent,
+    TRADING_RISK_MEMORY_KEYS.maxStopDistancePercent,
+    TRADING_RISK_MEMORY_KEYS.preferredTakeProfitPercent,
+    TRADING_RISK_MEMORY_KEYS.maxTakeProfitPercent,
+    TRADING_RISK_MEMORY_KEYS.breakEvenTriggerR,
+  ]);
+  if (riskOnlyKeys.has(entry.key) && entry.scope !== "trading.risk") {
+    throw new PersonalMemoryError("MEMORY_TRADING_SCOPE_INVALID", `${entry.key} 必须保存在 trading.risk。`);
+  }
+  if (exitOnlyKeys.has(entry.key) && !exitScope) {
+    throw new PersonalMemoryError("MEMORY_TRADING_SCOPE_INVALID", `${entry.key} 必须保存在 trading.exit。`);
+  }
+  if (!riskScope && !exitScope) return;
+  if (entry.key === TRADING_RISK_MEMORY_KEYS.maxLossPerTradePercent) {
+    if (entry.scope !== "trading.risk" || entry.kind !== "constraint" || entry.strength !== "hard") {
+      throw new PersonalMemoryError(
+        "MEMORY_ACCOUNT_RISK_SHAPE_INVALID",
+        "max_loss_per_trade_percent 必须保存为 trading.risk 下的 hard constraint。",
+      );
+    }
+  }
+  if (entry.key === TRADING_RISK_MEMORY_KEYS.maxTakeProfitPercent) {
+    if (!exitScope || entry.kind !== "constraint" || entry.strength !== "hard") {
+      throw new PersonalMemoryError(
+        "MEMORY_TAKE_PROFIT_CAP_SHAPE_INVALID",
+        "max_take_profit_percent 必须保存为 trading.exit 下的 hard constraint。",
+      );
+    }
+  }
+  if (entry.key === TRADING_RISK_MEMORY_KEYS.maxStopDistancePercent) {
+    if (!exitScope || entry.kind !== "constraint" || entry.strength !== "hard") {
+      throw new PersonalMemoryError(
+        "MEMORY_STOP_DISTANCE_CAP_SHAPE_INVALID",
+        "max_stop_distance_percent 必须保存为 trading.exit 下的 hard constraint。",
+      );
+    }
+  }
+  const hardLimitKeys = new Set([
+    TRADING_RISK_MEMORY_KEYS.maxLossPerTradePercent,
+    TRADING_RISK_MEMORY_KEYS.maxPositionPercent,
+    TRADING_RISK_MEMORY_KEYS.maxLeverage,
+    TRADING_RISK_MEMORY_KEYS.minimumRiskRewardRatio,
+    TRADING_RISK_MEMORY_KEYS.maxStopDistancePercent,
+    TRADING_RISK_MEMORY_KEYS.maxTakeProfitPercent,
+  ]);
+  if (hardLimitKeys.has(entry.key) && (entry.kind !== "constraint" || entry.strength !== "hard")) {
+    throw new PersonalMemoryError(
+      "MEMORY_TRADING_LIMIT_SHAPE_INVALID",
+      `${entry.key} 是确定性计划必须执行的上限，必须保存为 hard constraint。`,
+    );
+  }
   const percentageKeys = new Set([
     TRADING_RISK_MEMORY_KEYS.maxLossPerTradePercent,
     TRADING_RISK_MEMORY_KEYS.absoluteMaxLossPerTradePercent,
     TRADING_RISK_MEMORY_KEYS.maxPositionPercent,
+    TRADING_RISK_MEMORY_KEYS.preferredStopDistancePercent,
+    TRADING_RISK_MEMORY_KEYS.maxStopDistancePercent,
+    TRADING_RISK_MEMORY_KEYS.preferredTakeProfitPercent,
+    TRADING_RISK_MEMORY_KEYS.maxTakeProfitPercent,
   ]);
   const numericKeys = new Set([
     ...percentageKeys,

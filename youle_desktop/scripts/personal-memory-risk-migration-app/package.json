@@ -1,0 +1,6 @@
+{
+  "name": "haolo-personal-memory-risk-migration",
+  "private": true,
+  "type": "module",
+  "main": "../migrate-personal-account-risk.mjs"
+}

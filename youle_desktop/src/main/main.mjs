@@ -4676,6 +4676,12 @@ async function buildPersonalTradingPreferenceDeveloperInstructions() {
     "max_loss_per_trade_percent",
     "absolute_max_loss_per_trade_percent",
     "minimum_risk_reward_ratio",
+    "preferred_stop_distance_percent",
+    "max_stop_distance_percent",
+    "preferred_take_profit_percent",
+    "max_take_profit_percent",
+    "preferred_stop_loss_percent",
+    "risk_reward_preference",
     "move_stop_to_break_even",
     "break_even_trigger_r",
     "trading_analysis_style",
@@ -4701,6 +4707,24 @@ async function buildPersonalTradingPreferenceDeveloperInstructions() {
     "- For questions such as whether a position or account is safe, lead with a direct safe/unsafe/uncertain judgment and the observed evidence; do not prepend or replace that answer with a generic execution plan.",
     `- The user-configured per-trade realized-loss cap is ${profile.maxLossPerTradePercent ?? 2}% of current account equity and includes expected fees and slippage. This explicit value may be higher than 3%; preserve it exactly rather than applying a separate product ceiling. Position size must be derived from the valid stop distance, never from margin percentage alone.`,
     `- Minimum net risk/reward ratio is 1:${profile.minimumRiskRewardRatio ?? 2}.`,
+    profile.riskPreference
+      ? `- Qualitative risk preference: ${personalPreferenceInstructionValue(profile.riskPreference)}. This may shape explanation and opportunity selection but never overrides numeric hard limits or constitutes a measured win-rate guarantee.`
+      : "",
+    profile.preferredStopDistancePercent === null
+      ? ""
+      : `- Preferred stop distance is ${profile.preferredStopDistancePercent}% of entry price. This is separate from the account-equity realized-loss cap and must never replace it.`,
+    profile.maxStopDistancePercent === null
+      ? ""
+      : `- Hard maximum stop distance is ${profile.maxStopDistancePercent}% of entry price. Reject a setup whose valid structural stop is wider; never tighten the stop merely to enlarge position size.`,
+    profile.preferredTakeProfitPercent === null
+      ? ""
+      : `- Preferred ordinary take-profit distance is ${profile.preferredTakeProfitPercent}% of entry price when that price remains inside the strategy's valid target range.`,
+    profile.maxTakeProfitPercent === null
+      ? ""
+      : `- Hard maximum take-profit distance is ${profile.maxTakeProfitPercent}% of entry price; deterministic targets must not exceed it.`,
+    profile.riskClarificationRequired
+      ? `- BLOCKING RISK-PREFERENCE CONFLICT: legacy stop-loss value ${profile.legacyAmbiguousStopLossPercent}% has no denominator; the separate account-equity cap is ${profile.maxLossPerTradePercent ?? 2}%. Do not provide executable sizing; ask the user to clarify the denominator first.`
+      : "",
     profile.moveStopToBreakEven === false
       ? "- Do not automatically move the stop to break-even."
       : `- Move the stop to a fee-and-slippage-adjusted break-even price when floating profit reaches ${profile.breakEvenTriggerR ?? 1}R.`,
@@ -4709,7 +4733,7 @@ async function buildPersonalTradingPreferenceDeveloperInstructions() {
     "- There is no account-drawdown pause rule in this profile. Continue evaluating valid opportunities after losses, but never increase risk or lower entry standards merely to win losses back.",
     ...savedEntries,
     "</haolo_trading_preferences>",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 async function requireHaoloAccountOwner() {
