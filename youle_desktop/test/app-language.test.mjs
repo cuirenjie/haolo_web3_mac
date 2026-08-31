@@ -57,6 +57,19 @@ test("the recharge amount-after-fees warning is localized in all interface langu
   );
 });
 
+test("expired partial-payment review copy is localized without asking for another payment", () => {
+  const message = "订单已过期且只收到部分款项，已转入人工核对；请勿继续付款。";
+  assert.equal(translateAppText(message, "zh-CN"), message);
+  assert.equal(
+    translateAppText(message, "en"),
+    "The order expired after receiving only part of the payment and is under manual review. Do not send another payment.",
+  );
+  assert.equal(
+    translateAppText(message, "zh-TW"),
+    "訂單已到期且只收到部分款項，已轉入人工核對；請勿繼續付款。",
+  );
+});
+
 test("paid trial and free WEB3 membership copy is localized in all interface languages", () => {
   assert.equal(translateAppText("WEB3免费", "en"), "WEB3 Free");
   assert.equal(translateAppText("WEB3免费", "zh-TW"), "WEB3免費");

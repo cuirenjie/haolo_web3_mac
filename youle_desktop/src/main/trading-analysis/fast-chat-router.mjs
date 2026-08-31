@@ -1,5 +1,6 @@
 export const TRADING_EXPERT_FAST_CHAT_MODEL = "gpt-5.6-sol";
 import { assistantOutputLanguageInstruction } from "../assistant-output-language.mjs";
+import { isExplicitMarketAnalysisRequest } from "./request-routing-policy.mjs";
 
 export const TRADING_EXPERT_FAST_CHAT_SOURCE = "trading-expert-fast-chat";
 export const TRADING_EXPERT_FAST_CHAT_HANDOFF_TOOL = "handoff_to_agent";
@@ -56,6 +57,8 @@ const ACTION_OR_LOCAL_RESOURCE_PATTERNS = [
   /(?:attachment|image|screenshot|video|audio|path|directory|repository|workspace|local\s+machine|clipboard|shell|database|api\s*key|secret|token)/iu,
 ];
 
+const DIRECT_EXECUTION_ACTION = /(?:下单|撤单|立即平仓|直接平仓|替我买入|帮我买入|替我卖出|帮我卖出|设置预警|创建策略|保存策略|place\s+(?:an?\s+)?order|cancel\s+(?:the\s+)?order|close\s+(?:the\s+)?position)/iu;
+
 export const TRADING_EXPERT_FAST_CHAT_POLICY = [
   "You are HaoLo's low-latency public question-answer lane.",
   "Follow the appended app output-language instruction when present; otherwise answer in the user's language. Keep the answer direct and useful.",
@@ -94,6 +97,12 @@ export function classifyTradingExpertFastChatRoute(params = {}, options = {}) {
   const enabled = options.enabled ?? tradingExpertFastChatEnabled(options.env);
   if (!enabled) return route("agent", "feature-disabled");
   if (!text) return route("agent", "empty-question");
+  if (DIRECT_EXECUTION_ACTION.test(text)) {
+    return route("agent", "execution-action-required");
+  }
+  if (isExplicitMarketAnalysisRequest(text)) {
+    return route("chart-router", "deterministic-market-analysis");
+  }
   if (params.hasAttachments === true || params.hasImageAttachment === true) {
     return route("agent", "attachment-required");
   }

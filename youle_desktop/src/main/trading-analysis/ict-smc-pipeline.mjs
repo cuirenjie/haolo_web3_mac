@@ -27,6 +27,20 @@ function price(value) {
   return Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 8 });
 }
 
+function timeframeLabel(intervalValue) {
+  const interval = String(intervalValue || "").toUpperCase();
+  if (interval === "1D" || interval === "1W") return interval;
+  const minutes = Number(interval);
+  if (Number.isFinite(minutes) && minutes >= 60 && minutes % 60 === 0) return `${minutes / 60}H`;
+  return Number.isFinite(minutes) ? `${minutes}m` : interval;
+}
+
+function zoneLabel(zone) {
+  const side = zone.side === "bullish" ? "看涨" : "看跌";
+  const kind = zone.kind === "OB" ? "OB（Order Block）" : zone.kind;
+  return `[${timeframeLabel(zone.interval)}] ${side} ${kind}`;
+}
+
 function operation(analysisId, suffix, role, tool, points, text, appearance = {}, evidenceIds = []) {
   return { op: "upsert", drawing: {
     id: `${analysisId}-${suffix}`, strategyId: STRATEGY_ID, theory: "strategy", layer: `ai/strategy/${STRATEGY_ID}`,
@@ -72,10 +86,11 @@ export function buildIctSmcDrawingPatch(snapshot, result) {
   if (selectedPivots.length > 1) ops.push(operation(analysisId, "structure", "primary", "path", selectedPivots.map((item) => ({ time: item.time, price: item.price })), "ICT 市场结构", { lineStyle: "solid", lineWidth: 2 }, selectedPivots.map((item) => item.id)));
   structures.structureEvents.slice(-3).forEach((event, index) => ops.push(operation(analysisId, `event-${index}`, event.direction === "bullish" ? "support" : "resistance", "note", [{ time: event.breakTime, price: event.breakPrice }], `${event.kind} · ${event.direction === "bullish" ? "看涨" : "看跌"}${event.displacement.confirmed ? " · 位移" : ""}`, { fontSize: 11 }, [event.id])));
   const zones = [
-    ...structures.orderBlocks.filter((item) => item.state !== "invalidated").slice(0, 2).map((item) => ({ ...item, label: `${item.side === "bullish" ? "看涨" : "看跌"} OB`, startTime: item.originTime })),
-    ...structures.fairValueGaps.filter((item) => item.state === "open" || item.state === "partial").slice(0, 2).map((item) => ({ ...item, label: `${item.side === "bullish" ? "看涨" : "看跌"} FVG` })),
+    ...structures.orderBlocks.filter((item) => item.state !== "invalidated").slice(0, 2).map((item) => ({ ...item, startTime: item.originTime })),
+    ...structures.fairValueGaps.filter((item) => item.state === "open" || item.state === "partial").slice(0, 2),
+    ...structures.breakers.filter((item) => item.state === "confirmed").slice(0, 1).map((item) => ({ ...item, startTime: item.originTime })),
   ];
-  zones.forEach((zone, index) => ops.push(operation(analysisId, `zone-${index}`, zone.side === "bullish" ? "support" : "resistance", "rectangle", [{ time: zone.startTime, price: zone.lower }, { time: zone.endTime, price: zone.upper }], zone.label, { lineStyle: "dashed", lineWidth: 0.8 }, [zone.id])));
+  zones.forEach((zone, index) => ops.push(operation(analysisId, `zone-${index}`, zone.side === "bullish" ? "support" : "resistance", "rectangle", [{ time: zone.startTime, price: zone.lower }, { time: zone.endTime, price: zone.upper }], zoneLabel(zone), { lineStyle: "dashed", lineWidth: 0.8 }, [zone.id])));
   structures.liquidityPools.slice(0, 3).forEach((pool, index) => ops.push(operation(analysisId, `liquidity-${index}`, pool.side === "BSL" ? "resistance" : "support", "path", [{ time: pool.startTime, price: pool.price }, { time: pool.endTime, price: pool.price }], `${pool.side} · ${pool.state}`, { lineStyle: "dotted", lineWidth: 0.8 }, [pool.id])));
   const range = structures.dealingRange;
   if (range) ops.push(operation(analysisId, "equilibrium", "note", "path", [{ time: range.startTime, price: range.equilibrium }, { time: range.endTime, price: range.equilibrium }], `EQ ${price(range.equilibrium)}`, { lineStyle: "dashed", lineWidth: 0.8 }, [range.id]));

@@ -62,6 +62,38 @@ test("AI annotations localize once on commit and remain unchanged across later l
   assert.match(drawing, /data-i18n-skip>\$\{markup\}/);
 });
 
+test("strategy rectangles render their semantic label on the bound region in both themes", async () => {
+  const {
+    renderTradingDrawingRegionLabel,
+    tradingDrawingRegionLabelGeometry,
+  } = await import("../src/renderer/trading-expert-drawing.ts");
+  const bounds = { width: 800, height: 500 };
+  const geometry = tradingDrawingRegionLabelGeometry(
+    { x: 120, y: 260 },
+    { x: 520, y: 180 },
+    "[15m] 看涨 OB（Order Block）",
+    bounds,
+    10,
+  );
+  assert.ok(geometry);
+  assert.ok(geometry.x >= 120 && geometry.x + geometry.width <= bounds.width);
+  assert.ok(geometry.y >= 180 && geometry.y + geometry.height <= 260);
+  assert.equal(geometry.layout.lines.join(""), "[15m] 看涨 OB（Order Block）");
+  const markup = renderTradingDrawingRegionLabel(
+    { x: 120, y: 260 },
+    { x: 520, y: 180 },
+    "[15m] 看涨 FVG <open>",
+    "var(--trading-ai-order-flow-fvg-bull)",
+    bounds,
+    10,
+  );
+  assert.match(markup, /class="trading-drawing-region-label"/);
+  assert.match(markup, /fill="var\(--trading-market-panel\)"/);
+  assert.match(markup, /var\(--trading-ai-order-flow-fvg-bull\)/);
+  assert.match(markup, /FVG &lt;open&gt;/);
+  assert.doesNotMatch(markup, /fill="#(?:fff|ffffff|000|000000)"/i);
+});
+
 test("Trading Expert exposes a complete grouped TradingView-style drawing catalog", async () => {
   const { TRADING_DRAWING_TOOLS, tradingDrawingToolDefinition } = await import(
     "../src/renderer/trading-expert-drawing.ts"

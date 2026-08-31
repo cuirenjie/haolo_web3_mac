@@ -1446,6 +1446,61 @@ export function tradingDrawingTextLayout(
   };
 }
 
+export function tradingDrawingRegionLabelGeometry(
+  first: ScreenPoint,
+  second: ScreenPoint,
+  text: string,
+  bounds: { width: number; height: number },
+  fontSize = AI_NOTE_FONT_SIZE,
+) {
+  const normalizedText = String(text || "").replace(/\s+/g, " ").trim();
+  if (!normalizedText || bounds.width <= 0 || bounds.height <= 0) return null;
+  const viewportPadding = 6;
+  const paddingX = 5;
+  const paddingY = 3;
+  const left = Math.min(first.x, second.x);
+  const right = Math.max(first.x, second.x);
+  const top = Math.min(first.y, second.y);
+  const bottom = Math.max(first.y, second.y);
+  const availableViewportWidth = Math.max(24, bounds.width - viewportPadding * 2 - paddingX * 2);
+  const regionWidth = Math.max(0, right - left);
+  const textMaxWidth = Math.min(180, availableViewportWidth, Math.max(56, regionWidth - paddingX * 2));
+  const layout = tradingDrawingTextLayout(normalizedText, fontSize, textMaxWidth);
+  const width = Math.max(1, Math.min(bounds.width - viewportPadding * 2, layout.width + paddingX * 2));
+  const height = layout.height + paddingY * 2;
+  const maximumX = Math.max(viewportPadding, bounds.width - width - viewportPadding);
+  const x = Math.min(Math.max(left + 4, viewportPadding), maximumX);
+  const insideY = top + 4;
+  const aboveY = top - height - 3;
+  const preferredY = insideY + height <= bottom - 2 || aboveY < viewportPadding
+    ? insideY
+    : aboveY;
+  const maximumY = Math.max(viewportPadding, bounds.height - height - viewportPadding);
+  const y = Math.min(Math.max(preferredY, viewportPadding), maximumY);
+  return { x, y, width, height, paddingX, paddingY, fontSize, layout };
+}
+
+export function renderTradingDrawingRegionLabel(
+  first: ScreenPoint,
+  second: ScreenPoint,
+  text: string,
+  color: string,
+  bounds: { width: number; height: number },
+  fontSize = AI_NOTE_FONT_SIZE,
+) {
+  const geometry = tradingDrawingRegionLabelGeometry(first, second, text, bounds, fontSize);
+  if (!geometry) return "";
+  const textX = geometry.x + geometry.paddingX;
+  const firstBaseline = geometry.y + geometry.paddingY + geometry.fontSize;
+  const lines = geometry.layout.lines.map((line, index) => (
+    `<tspan x="${textX}" y="${firstBaseline + index * geometry.layout.lineHeight}">${escapeHtml(line)}</tspan>`
+  )).join("");
+  return `<g class="trading-drawing-region-label" pointer-events="none">`
+    + `<rect x="${geometry.x}" y="${geometry.y}" width="${geometry.width}" height="${geometry.height}" rx="3" fill="var(--trading-market-panel)" fill-opacity="0.92" stroke="${color}" stroke-width="0.8" vector-effect="non-scaling-stroke" />`
+    + `<text fill="${color}" font-size="${geometry.fontSize}" font-weight="600">${lines}</text>`
+    + `</g>`;
+}
+
 export function tradingDrawingTextBoxLayout(
   text: string,
   fontSize: number,
@@ -4566,7 +4621,10 @@ export class TradingDrawingController {
     else if (definition.kind === "freehand") {
       body = `<polyline points="${pointsAttribute(points)}" fill="none" stroke="${color}" ${svgStrokeAttributes(lineAppearance, drawing.tool === "highlighter" ? 9 : 2.2)} stroke-linecap="round" stroke-linejoin="round" opacity="${drawing.tool === "highlighter" ? 0.3 : opacity}" />`;
     } else if (definition.kind === "rectangle") {
-      body = `<rect x="${Math.min(first.x, second.x)}" y="${Math.min(first.y, second.y)}" width="${Math.abs(dx)}" height="${Math.abs(dy)}" fill="${color}" fill-opacity="0.08" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`;
+      body = `<rect x="${Math.min(first.x, second.x)}" y="${Math.min(first.y, second.y)}" width="${Math.abs(dx)}" height="${Math.abs(dy)}" fill="${color}" fill-opacity="0.08" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`
+        + (drawing.text
+          ? renderTradingDrawingRegionLabel(first, second, drawing.text, color, bounds, drawing.fontSize ?? AI_NOTE_FONT_SIZE)
+          : "");
     } else if (definition.kind === "rotated-rectangle") body = this.renderRotatedRectangle(first, second, color, lineAppearance);
     else if (definition.kind === "ellipse") {
       if (definition.id === "circle") {

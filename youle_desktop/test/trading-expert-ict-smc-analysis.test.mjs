@@ -183,6 +183,16 @@ test("combined pipeline lets the model select fixed candidates and emits clear I
   assert.match(labels, /EQ 50%/);
   assert.match(labels, /OTE 0\.618–0\.786/);
   assert.ok(labels.split("\n").filter(Boolean).length <= 16);
+  const zoneDrawings = result.analysisPlan.drawingPatch.operations
+    .map(({ drawing }) => drawing)
+    .filter((drawing) => drawing.tool === "rectangle" && ["order-flow-ob-bull", "order-flow-ob-bear", "order-flow-fvg-bull", "order-flow-fvg-bear"].includes(drawing.colorToken));
+  for (const zone of zoneDrawings) {
+    assert.ok(result.analysisPlan.drawingPatch.operations.some(({ drawing }) => (
+      drawing.tool === "note"
+      && drawing.evidenceIds?.includes(zone.evidenceIds[0])
+      && /[（(](?:OB|FVG)[）)]/.test(drawing.text || "")
+    )), `${zone.id} must keep a visible OB/FVG label bound to the same evidence`);
+  }
   assert.match(result.analysisPlan.report, /### 先看结论/);
   assert.match(result.analysisPlan.report, /多周期价格结构：15m.*4H.*1D/);
   assert.match(result.analysisPlan.report, /图上只保留最近的趋势转折、主要支撑\/压力/);

@@ -100,6 +100,7 @@ import {
   renderTradingMarketAssetLogo,
 } from "./trading-expert-market-identity";
 import {
+  extractTradingCatalogParameters,
   reconcileTradingStrategyCatalog,
   tradingIndicatorCatalog,
   tradingIndicatorMentionOptions,
@@ -714,6 +715,13 @@ type Web3PaymentOrder = {
   token_contract: string;
   token_decimals: number;
   status: Web3PaymentOrderStatus;
+  matching_strategy: string;
+  address_type: string;
+  payment_state: string;
+  amount_received: string;
+  remaining_amount: string;
+  overpayment_amount: string;
+  is_late_payment: boolean;
   transaction_hash?: string | null;
   fulfillment_status: "pending" | "succeeded" | "failed" | string;
   expires_at: string;
@@ -35136,21 +35144,41 @@ async function classifyTradingWyckoffRequestForSend(
   }
 }
 
+function deterministicTradingGeneralFallback(text: string): TradingGeneralRequest {
+  const normalizedText = String(text || "")
+    .replace(/([\p{Script=Han}])[\r\n]+\s*([\p{Script=Han}])/gu, "$1$2")
+    .replace(/\s+/g, " ")
+    .trim();
+  const conceptual = /(?:什么是|啥是|定义|概念|原理|区别|如何理解|怎么理解|入门|教程|科普|what\s+is|define|explain)/iu.test(normalizedText);
+  const currentOrActionable = /(?:当前|现在|最新|实时|能不能|是否可以|该不该|做多|做空|买入|卖出|入场|止损|止盈|支撑|压力|阻力|刷新|更新|重画|current|live|latest|entry|stop|target|support|resistance)/iu.test(normalizedText);
+  const explicitMarketAnalysis = !(conceptual && !currentOrActionable) && (
+    /^(?:分析|研判|看盘|复盘|看看|看下|看一下|刷新|更新|重画|画图|绘图|画线)(?:一下|下|吧)?[。.!！?？]*$/iu.test(normalizedText)
+    || /(?:分析|研判|看盘|复盘|解读|看看|看下|判断|预测|扫描|画线|画图|绘图|标注|刷新|更新|analy[sz]e|review|inspect|draw).{0,32}(?:K\s*线|蜡烛|图表|盘面|行情|走势|趋势|价格|结构|支撑|压力|阻力|形态|背离|成交量|订单流|流动性|chart|market|price|trend|support|resistance)/iu.test(normalizedText)
+    || /(?:能不能|是否可以|该不该|现在|当前|最新|实时).{0,24}(?:买|卖|做多|做空|入场|加仓|减仓|止损|止盈|持有|开仓|平仓|怎么走|安全吗|风险)/iu.test(normalizedText)
+    || /(?:仓位健康|持仓健康|强平风险|爆仓风险|仓位安全吗|持仓安全吗|该怎么操作)/iu.test(normalizedText)
+    || /(?:K\s*线|蜡烛|图表|盘面|行情|走势|趋势|价格|结构|支撑|压力|阻力|形态|背离|成交量|订单流|流动性).{0,20}(?:怎么看|如何看|如何分析|在哪|多少|怎么走)/iu.test(normalizedText)
+    || /(?:[A-Z][A-Z0-9]{1,11}|比特币|大饼|以太坊|以太|币安币|狗狗币|瑞波币|索拉纳).{0,16}(?:怎么样|咋样|怎么看|怎么走|能不能|能买吗|能卖吗|能做多吗|能做空吗)/iu.test(normalizedText)
+    || /^[A-Z][A-Z0-9]{1,11}[?？]?$/u.test(normalizedText)
+    || /[A-Za-z0-9\p{Script=Han}]{2,20}\s*(?:\/\s*)?(?:USDT|USDC|USD)?.{0,12}\d+(?:\.\d+)?\s*(?:m|min(?:ute)?s?|分钟|分|h|hours?|小时|d|days?|天|日|w|weeks?|周)/iu.test(normalizedText)
+  );
+  const drawingRequested = !/(?:不要|不用|无需|不需要|别)(?:重新)?(?:绘图|画图|画线|重画|标注)|(?:do\s+not|don't|without)\s+(?:draw|redraw|drawing|mark)/iu.test(normalizedText);
+  const parameters = extractTradingCatalogParameters(normalizedText);
+  const fallback: TradingGeneralRequest = {
+    mode: explicitMarketAnalysis ? "chart-analysis" : "conversation",
+    instruction: normalizedText,
+    ...parameters,
+    drawingRequested: explicitMarketAnalysis && drawingRequested,
+    analysisFollowup: false,
+  };
+  return fallback;
+}
+
 async function classifyTradingGeneralRequestForSend(
   text: string,
   hasImageAttachment: boolean,
   hasCurrentAnalysis = false,
 ): Promise<TradingGeneralRequest> {
-  const fallback: TradingGeneralRequest = {
-    mode: "conversation",
-    instruction: String(text || "").trim(),
-    symbol: null,
-    interval: null,
-    lookbackMs: null,
-    lookbackLabel: null,
-    drawingRequested: false,
-    analysisFollowup: false,
-  };
+  const fallback = deterministicTradingGeneralFallback(text);
   if (typeof api.classifyTradingGeneralRequest !== "function") return fallback;
   try {
     const result = await api.classifyTradingGeneralRequest({
@@ -35162,9 +35190,12 @@ async function classifyTradingGeneralRequestForSend(
     if (!request || (request.mode !== "conversation" && request.mode !== "chart-analysis")) {
       return fallback;
     }
-    const chartAnalysis = request.mode === "chart-analysis";
+    // An explicit market-analysis command must not be downgraded by a stale
+    // classifier response.  The IPC result can enrich parameters, but the
+    // deterministic renderer guard owns the minimum execution mode.
+    const chartAnalysis = fallback.mode === "chart-analysis" || request.mode === "chart-analysis";
     return {
-      mode: request.mode,
+      mode: chartAnalysis ? "chart-analysis" : "conversation",
       instruction: fallback.instruction,
       symbol: chartAnalysis && typeof request.symbol === "string" ? request.symbol : null,
       interval: chartAnalysis && typeof request.interval === "string" ? request.interval : null,
@@ -35172,7 +35203,7 @@ async function classifyTradingGeneralRequestForSend(
       lookbackLabel: chartAnalysis && typeof request.lookbackLabel === "string"
         ? request.lookbackLabel
         : null,
-      drawingRequested: chartAnalysis && request.drawingRequested === true,
+      drawingRequested: chartAnalysis && fallback.drawingRequested,
       analysisFollowup: !chartAnalysis && request.analysisFollowup === true,
     };
   } catch {
@@ -35188,10 +35219,10 @@ async function routeTradingExpertFastChatForSend(params: {
   hasThreadReferences: boolean;
   hasCurrentAnalysis: boolean;
 }): Promise<TradingExpertFastChatRoute> {
-  const fallback: TradingExpertFastChatRoute = {
-    route: "agent",
-    reason: "fast-chat-router-unavailable",
-  };
+  const deterministicChart = deterministicTradingGeneralFallback(params.text).mode === "chart-analysis";
+  const fallback: TradingExpertFastChatRoute = deterministicChart
+    ? { route: "chart-router", reason: "deterministic-market-analysis-fallback" }
+    : { route: "agent", reason: "fast-chat-router-unavailable" };
   if (typeof api.routeTradingExpertFastChat !== "function") return fallback;
   try {
     const result = await api.routeTradingExpertFastChat(params);
@@ -35199,6 +35230,9 @@ async function routeTradingExpertFastChatForSend(params: {
       result?.ok !== true
       || !["direct", "agent", "chart-router"].includes(result.route)
     ) return fallback;
+    if (deterministicChart) {
+      return { route: "chart-router", reason: "deterministic-market-analysis" };
+    }
     return {
       route: result.route,
       reason: firstString(result.reason) || "unspecified",
@@ -59222,7 +59256,17 @@ function ensureRechargePaymentOrderScope() {
 }
 
 function isActiveRechargePaymentOrder(order = rechargePaymentOrder) {
-  return Boolean(order && (order.status === "pending" || order.status === "confirming"));
+  return Boolean(order && (
+    (order.status === "pending" && Date.parse(order.expires_at) > Date.now())
+    || order.status === "confirming"
+  ));
+}
+
+function normalizeRechargeObservedAmount(value: unknown) {
+  const normalized = String(value == null || value === "" ? "0" : value).trim();
+  const match = /^(\d+)(?:\.(\d{0,18}))?$/.exec(normalized);
+  if (!match) throw new Error("支付接口返回的到账金额无效");
+  return `${match[1]}.${String(match[2] || "").replace(/0+$/, "").padEnd(3, "0")}`;
 }
 
 function normalizeWeb3PaymentOrder(value: any): Web3PaymentOrder {
@@ -59261,6 +59305,13 @@ function normalizeWeb3PaymentOrder(value: any): Web3PaymentOrder {
     token_contract: String(value?.token_contract || value?.tokenContract || "").trim(),
     token_decimals: Number(value?.token_decimals || value?.tokenDecimals || 0),
     status: String(value?.status || "pending").trim().toLowerCase() as Web3PaymentOrderStatus,
+    matching_strategy: String(value?.matching_strategy || value?.matchingStrategy || "shared_address_unique_amount"),
+    address_type: String(value?.address_type || value?.addressType || "shared"),
+    payment_state: String(value?.payment_state || value?.paymentState || value?.status || "pending").trim().toLowerCase(),
+    amount_received: normalizeRechargeObservedAmount(value?.amount_received || value?.amountReceived || "0"),
+    remaining_amount: normalizeRechargeObservedAmount(value?.remaining_amount || value?.remainingAmount || "0"),
+    overpayment_amount: normalizeRechargeObservedAmount(value?.overpayment_amount || value?.overpaymentAmount || "0"),
+    is_late_payment: Boolean(value?.is_late_payment || value?.isLatePayment),
     fulfillment_status: String(value?.fulfillment_status || value?.fulfillmentStatus || "pending"),
     expires_at: expiresAt,
     created_at: String(value?.created_at || value?.createdAt || ""),
@@ -59352,13 +59403,24 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
       <p class="recharge-payment-agreement">订单号：${escapeHtml(order.order_no)}</p>`;
   }
   if (order.status === "manual_review") {
-    return renderRechargePaymentState("manual", "订单已进入人工处理", "系统不会将这笔付款自动匹配给其他订单，请等待工作人员核对。", "获取新订单");
+    const detail = order.payment_state === "overpaid_review"
+      ? "到账金额超过订单面额，已转入人工核对；请勿再次付款。"
+      : order.payment_state === "late_payment_review"
+        ? "付款已超过自动处理时限，已转入人工核对；请勿重复付款。"
+        : order.payment_state === "expired_underpaid_review"
+          ? "订单已过期且只收到部分款项，已转入人工核对；请勿继续付款。"
+          : "系统不会将这笔付款自动匹配给其他订单，请等待工作人员核对。";
+    return renderRechargePaymentState("manual", "订单已进入人工处理", detail);
   }
   if (order.status === "confirming") {
     return `${renderRechargePaymentState("confirming", "付款已确认", "正在发放积分和更新会员期限，请勿重复付款。")}
       <p class="recharge-payment-agreement">订单号：${escapeHtml(order.order_no)}</p>`;
   }
-  if (order.status === "expired" || Date.parse(order.expires_at) <= Date.now()) {
+  const uniqueAddressUnderpaid = order.address_type === "unique_temporary"
+    && order.payment_state === "underpaid"
+    && order.status === "pending"
+    && Date.parse(order.expires_at) > Date.now();
+  if (!uniqueAddressUnderpaid && (order.status === "expired" || Date.parse(order.expires_at) <= Date.now())) {
     const expiredDetail = network.kind === "internal"
       ? "旧金额和收款信息已失效，正在为你准备新的支付订单。"
       : "旧金额和收款二维码已失效，正在为你准备新的支付订单。";
@@ -59415,6 +59477,9 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
       ${renderRechargeMembershipAgreement(product, order)}
     `;
   }
+  const chainPaymentNotice = uniqueAddressUnderpaid
+    ? `<div class="recharge-payment-underpaid" role="status"><strong>已到账 ${escapeHtml(order.amount_received)} USDT</strong><span>还需补付 ${escapeHtml(order.remaining_amount)} USDT · 请继续向同一临时地址补足，系统会累计到账金额。</span></div>`
+    : `<p class="recharge-payment-network-note">请通过 ${escapeHtml(network.networkName)} 网络支付 USDT。<strong class="recharge-payment-network-warning">该地址仅用于本订单，金额按商品固定面额核对。</strong></p>`;
   return `
     <div class="recharge-payment-details-main">
       <div class="recharge-payment-summary">
@@ -59423,7 +59488,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
           <strong>${escapeHtml(order.payable_amount)}<small>USDT</small></strong>
         </div>
         <div class="recharge-payment-summary-row address">
-          <span>收款地址</span>
+          <span>本订单专属临时地址</span>
           <div>
             <code>${escapeHtml(order.recipient_address)}</code>
             <button
@@ -59437,9 +59502,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
             </button>
           </div>
         </div>
-        <p class="recharge-payment-network-note">
-          请通过 ${escapeHtml(network.networkName)} 网络支付 USDT，<strong class="recharge-payment-network-warning">扣除手续费后，到账金额必须和支付金额一致，精确到三位小数。</strong>
-        </p>
+        ${chainPaymentNotice}
       </div>
       <div class="recharge-payment-qr-column">
         <div class="recharge-payment-qr-frame loading" data-recharge-payment-qr-frame>
@@ -59452,12 +59515,12 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
     <div class="recharge-payment-progress">
       <span class="recharge-payment-detecting">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 7.25A7 7 0 0 0 4.1 5.1L2.5 6.7m0 0V3m0 3.7h3.7M3.5 12.75A7 7 0 0 0 15.9 14.9l1.6-1.6m0 0V17m0-3.7h-3.7" /></svg>
-        检测到账中
+        ${uniqueAddressUnderpaid ? "等待补足金额" : "检测到账中"}
       </span>
-      <span class="recharge-payment-countdown">
+      ${uniqueAddressUnderpaid ? '<span>临时地址不会分配给其他订单</span>' : `<span class="recharge-payment-countdown">
         <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" /><path d="M10 6v4.3l2.8 1.7" /></svg>
         <time data-recharge-payment-countdown>30:00 剩余</time>
-      </span>
+      </span>`}
     </div>
     ${renderRechargeMembershipAgreement(product, order)}
   `;
@@ -59799,7 +59862,7 @@ async function updateRechargePaymentDetails() {
   if (rechargePaymentOrderLoadingSelections.has(selectionKey) && !order) {
     delete panel.dataset.rechargePaymentKey;
     delete panel.dataset.rechargePaymentFingerprint;
-    panel.innerHTML = renderRechargePaymentState("loading", "正在创建支付订单", "正在向后端申请专属于你的三位小数支付金额。 ");
+    panel.innerHTML = renderRechargePaymentState("loading", "正在创建支付订单", "正在向后端申请本订单的专属收款信息。");
     return;
   }
   const paymentError = rechargePaymentOrderErrorsBySelection.get(selectionKey) || null;
@@ -59813,11 +59876,15 @@ async function updateRechargePaymentDetails() {
   if (!order) {
     delete panel.dataset.rechargePaymentKey;
     delete panel.dataset.rechargePaymentFingerprint;
-    panel.innerHTML = renderRechargePaymentState("loading", "正在创建支付订单", "正在向后端申请专属于你的三位小数支付金额。 ");
+    panel.innerHTML = renderRechargePaymentState("loading", "正在创建支付订单", "正在向后端申请本订单的专属收款信息。");
     void createRechargePaymentOrder();
     return;
   }
-  if (order.status === "expired" || (order.status === "pending" && Date.parse(order.expires_at) <= Date.now())) {
+  const uniqueAddressUnderpaid = order.address_type === "unique_temporary"
+    && order.payment_state === "underpaid"
+    && order.status === "pending"
+    && Date.parse(order.expires_at) > Date.now();
+  if (!uniqueAddressUnderpaid && (order.status === "expired" || (order.status === "pending" && Date.parse(order.expires_at) <= Date.now()))) {
     delete panel.dataset.rechargePaymentKey;
     delete panel.dataset.rechargePaymentFingerprint;
     panel.innerHTML = renderRechargePaymentState(
@@ -59837,11 +59904,11 @@ async function updateRechargePaymentDetails() {
   retryButton?.addEventListener("click", () => void createRechargePaymentOrder({ force: true }));
   if (isActiveRechargePaymentOrder(order)) startRechargePaymentPolling(order.order_no, selectionKey);
   else stopRechargePaymentRuntime();
-  if (order.status !== "pending") {
+  if (order.status !== "pending" && !uniqueAddressUnderpaid) {
     stopRechargePaymentCountdown();
     return;
   }
-  startRechargePaymentCountdown(order);
+  if (order.status === "pending") startRechargePaymentCountdown(order);
   const copyButton = panel.querySelector<HTMLButtonElement>("[data-copy-recharge-address]");
   copyButton?.addEventListener("click", () => {
     copyButton.classList.add("copied");

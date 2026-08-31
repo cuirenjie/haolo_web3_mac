@@ -21510,7 +21510,7 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
 .recharge-payment-network-note {
   margin: -10px 0 0 94px;
   color: var(--recharge-details-muted);
-  font-size: calc(11px + var(--app-font-size-offset));
+  font-size: calc(16px + var(--app-font-size-offset));
   line-height: 1.5;
 }
 
@@ -21521,6 +21521,24 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   background: var(--recharge-details-warning-bg);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+  color: var(--recharge-details-warning-text);
+  font-weight: 750;
+}
+
+.recharge-payment-underpaid {
+  display: grid;
+  margin: -10px 0 0 94px;
+  gap: 4px;
+  border: 1px solid var(--recharge-details-warning-border);
+  border-radius: 9px;
+  background: var(--recharge-details-warning-bg);
+  padding: 10px 12px;
+  color: var(--recharge-details-label);
+  font-size: calc(13px + var(--app-font-size-offset));
+  line-height: 1.5;
+}
+
+.recharge-payment-underpaid strong {
   color: var(--recharge-details-warning-text);
   font-weight: 750;
 }
@@ -22260,6 +22278,10 @@ html[data-theme="dark"] .recharge-payment-state.manual .recharge-payment-state-i
   }
 
   .recharge-payment-network-note {
+    margin-left: 0;
+  }
+
+  .recharge-payment-underpaid {
     margin-left: 0;
   }
 

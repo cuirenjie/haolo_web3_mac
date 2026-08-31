@@ -46,7 +46,7 @@ function fixtureSnapshot() {
   });
 }
 
-test("general semantic router lets the model route a bare analysis request to the current chart", () => {
+test("general semantic router deterministically routes a bare analysis request to the current chart", () => {
   const routed = normalizeGeneralRequestRoutingModelResponse(JSON.stringify({
     schemaVersion: 1,
     mode: "chart-analysis",
@@ -63,7 +63,34 @@ test("general semantic router lets the model route a bare analysis request to th
   assert.equal(routed.request.interval, null);
   assert.equal(routed.request.lookbackMs, null);
   assert.equal(routed.request.drawingRequested, true);
-  assert.match(buildGeneralRequestRoutingPrompt({ text: "分析下" }), /优先读取左侧当前 K 线/);
+  assert.match(buildGeneralRequestRoutingPrompt({ text: "分析下" }), /必须 mode=chart-analysis/);
+});
+
+test("general market intent deterministically routes explicit symbols, intervals, live decisions, and drawing defaults", () => {
+  const exactIncident = deterministicGeneralRequestRouting("分析SNDK 15min这个盘\r面并绘图");
+  assert.equal(exactIncident?.request.mode, "chart-analysis");
+  assert.equal(exactIncident?.request.symbol, "SNDKUSDT");
+  assert.equal(exactIncident?.request.interval, "15");
+  assert.equal(exactIncident?.request.drawingRequested, true);
+  assert.equal(exactIncident?.classification.source, "deterministic-market-analysis");
+
+  const liveDecision = deterministicGeneralRequestRouting("那我现在做多可以吗", {
+    hasCurrentAnalysis: true,
+  });
+  assert.equal(liveDecision?.request.mode, "chart-analysis");
+  assert.equal(liveDecision?.request.drawingRequested, true);
+
+  const positionHealth = deterministicGeneralRequestRouting("我目前的仓位健康吗，该怎么操作", {
+    hasCurrentAnalysis: true,
+  });
+  assert.equal(positionHealth?.request.mode, "chart-analysis");
+  assert.equal(positionHealth?.request.drawingRequested, true);
+
+  const noDrawing = deterministicGeneralRequestRouting("刷新最新行情，只告诉我是否还能做多，不用重画", {
+    hasCurrentAnalysis: true,
+  });
+  assert.equal(noDrawing?.request.mode, "chart-analysis");
+  assert.equal(noDrawing?.request.drawingRequested, false);
 });
 
 test("general semantic router preserves an official Han-character Binance symbol", () => {
@@ -96,6 +123,21 @@ test("general semantic router preserves conceptual questions as normal conversat
   assert.equal(routed.request.mode, "conversation");
   assert.equal(routed.request.symbol, null);
   assert.equal(routed.request.drawingRequested, false);
+});
+
+test("a chart-analysis model result cannot be downgraded by low confidence or an old-analysis flag", () => {
+  const routed = normalizeGeneralRequestRoutingModelResponse(JSON.stringify({
+    schemaVersion: 1,
+    mode: "chart-analysis",
+    intent: "chart-analysis",
+    symbol: null,
+    interval: null,
+    lookbackMs: null,
+    lookbackLabel: null,
+    confidence: 0.2,
+  }), "这个位置需要重新确认吗", { hasCurrentAnalysis: true });
+  assert.equal(routed.request.mode, "chart-analysis");
+  assert.equal(routed.request.drawingRequested, true);
 });
 
 test("deterministic semantic guard keeps education and strategy recommendations off the chart", () => {
@@ -154,10 +196,10 @@ test("only concrete prior-analysis questions receive the follow-up marker", () =
   assert.equal(unrelated.request.analysisFollowup, false);
 });
 
-test("general semantic router sends personal account and memory questions to the context-capable agent", () => {
+test("general semantic router sends static account and memory questions to the agent but position-market reviews to chart analysis", () => {
   const prompt = buildGeneralRequestRoutingPrompt({ text: "我目前的仓位健康吗，该怎么操作" });
-  assert.match(prompt, /账户、资产、持仓、订单、交易记录、风险偏好、长期记忆/);
-  assert.match(prompt, /我目前的仓位健康吗，该怎么操作.*conversation\/general-question/);
+  assert.match(prompt, /只查询账户余额、订单、交易记录、风险偏好或长期记忆时用 conversation/);
+  assert.match(prompt, /我目前的仓位健康吗，该怎么操作.*chart-analysis\/chart-drawing/);
   assert.match(prompt, /记住以后单笔最多亏本金的 3%.*conversation\/general-question/);
 });
 
@@ -178,15 +220,15 @@ test("chart-analysis can refresh an answer without replacing existing drawings",
   assert.equal(routed.request.drawingRequested, false);
 });
 
-test("general semantic router reuses a current analysis for direct follow-up answers", () => {
+test("general semantic router reuses explanatory follow-ups but refreshes current-action questions", () => {
   const prompt = buildGeneralRequestRoutingPrompt({
     text: "你凭什么认为第一目标会到 0.4，那我现在能做多吗",
     hasCurrentAnalysis: true,
   });
   assert.match(prompt, /"hasCurrentAnalysis":true/);
-  assert.match(prompt, /复用既有分析直接回答/);
-  assert.match(prompt, /不得仅因出现.*现在、目标、做多、做空、能买吗.*重新分析或重画/);
-  assert.match(prompt, /重新分析、刷新行情、更新结论、重画/);
+  assert.match(prompt, /仅解释上一轮既有结论或价位含义/);
+  assert.match(prompt, /现在还能买吗\/现在能做多吗\/最新行情是否改变条件/);
+  assert.match(prompt, /必须重新 chart-analysis 并默认绘图/);
   assert.match(prompt, /你凭什么认为第一目标会到 0\.4/);
   assert.match(prompt, /那我现在做多可以吗/);
 });
@@ -443,6 +485,10 @@ test("renderer route inherits the selected symbol, interval and visible candle r
   assert.match(marketSource, /自动扩大画布到 \$\{event\.toCount\} 根再计算\$\{analysisName\}/);
   assert.match(marketSource, /focusAnalysisCandles[\s\S]*timeScale\(\)\.setVisibleRange/);
   assert.match(marketSource, /if \(request\.drawingRequested !== false\)[\s\S]*?commitTradingAnalysisDrawingPatch/);
+  assert.match(marketSource, /if \(!targetWorkspace\.analysisDrawingTargetMatches\(patch, paneIndex\)\)/);
+  assert.match(marketSource, /绘图目标与当前行情不一致/);
+  assert.match(marketSource, /const applied = await targetWorkspace\.acceptAnalysisDrawingPatch/);
+  assert.match(marketSource, /if \(applied !== true\)[\s\S]*?translateAppText\("Drawing Patch 未能应用到当前图表", currentJob\.language\)/);
   assert.match(marketSource, /request\.drawingRequested === false[\s\S]*?response\.analysisPlan\.narrative/);
   assert.match(marketSource, /左侧原画线保持不变/);
   assert.match(marketSource, /hasCurrentAnalysis\([\s\S]*?hasAiAnalysisForCurrentContext\(theory\)/);

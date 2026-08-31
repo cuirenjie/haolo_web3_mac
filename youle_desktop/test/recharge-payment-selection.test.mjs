@@ -63,6 +63,32 @@ test("unchanged payment polls keep one visual fingerprint while visible changes 
   assert.notEqual(rechargePaymentOrderVisualFingerprint({ ...order, order_no: "W3202608210604491F6117" }), fingerprint);
 });
 
+test("expired underpaid unique-address orders stop accepting top-ups", () => {
+  const order = {
+    product_id: "subscription_basic",
+    network: "bsc",
+    status: "expired",
+    expires_at: "2026-08-31T00:00:00Z",
+    address_type: "unique_temporary",
+    payment_state: "underpaid",
+  };
+  assert.equal(isReusableRechargePaymentOrder(order, Date.parse("2026-09-01T00:00:00Z")), false);
+  assert.equal(
+    shouldReplaceRechargePaymentOrderAfterFinalCheck(
+      order,
+      Date.parse("2026-09-01T00:00:00Z"),
+    ),
+    true,
+  );
+  assert.equal(
+    canRetainRechargePaymentOrder(
+      { ...order, status: "manual_review", payment_state: "expired_underpaid_review" },
+      Date.parse("2026-09-01T00:00:00Z"),
+    ),
+    true,
+  );
+});
+
 test("only unexpired pending and confirming Web3 orders are reusable", () => {
   const now = Date.parse("2026-08-21T00:00:00.000Z");
   const order = {

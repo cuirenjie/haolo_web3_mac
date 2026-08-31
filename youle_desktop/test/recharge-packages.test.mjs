@@ -120,11 +120,16 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentEvents, /if \(!rechargePaymentViewActive\)[\s\S]*?rechargePaymentViewActive = true;[\s\S]*?activateRechargePaymentSelection\(\)/);
   assert.match(paymentEvents, /updateRechargePaymentDetails\(\)/);
   assert.match(paymentDetails, /支付金额/);
-  assert.match(paymentDetails, /class="recharge-payment-network-warning">扣除手续费后，到账金额必须和支付金额一致，精确到三位小数。<\/strong>/);
+  assert.match(paymentDetails, /class="recharge-payment-network-warning">该地址仅用于本订单，金额按商品固定面额核对。<\/strong>/);
   assert.match(paymentDetails, /function visibleRechargeSubscriptionProducts\(\)[\s\S]*?RECHARGE_SUBSCRIPTION_PRODUCTS\.filter\(\(product\) => !rechargeProductIsUnavailable\(product\)\)/);
   assert.match(paymentDetails, /function ensureRechargeProductSelection\(\)[\s\S]*?visibleRechargeSubscriptionProducts\(\)[\s\S]*?candidate\.id === "subscription_basic"[\s\S]*?selectedRechargeProductId = product\.id/);
   assert.match(paymentDetails, /function rechargePaymentSelection\(\)[\s\S]*?ensureRechargeProductSelection\(\)/);
   assert.match(paymentDetails, /收款地址/);
+  assert.match(paymentDetails, /本订单专属临时地址/);
+  assert.match(paymentDetails, /payment_state === "underpaid"/);
+  assert.match(paymentDetails, /payment_state === "expired_underpaid_review"/);
+  assert.match(paymentDetails, /订单已过期且只收到部分款项，已转入人工核对；请勿继续付款。/);
+  assert.match(paymentDetails, /还需补付/);
   assert.match(paymentDetails, /order\.payable_amount/);
   assert.match(paymentDetails, /order\.recipient_address/);
   assert.match(renderer, /normalizeRechargePaymentAmount/);
@@ -180,7 +185,9 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-support-button:disabled/);
   assert.match(styles, /html:not\(\[data-theme="dark"\]\) \.recharge-product-card\.selected/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card\.selected/);
+  assert.match(styles, /\.recharge-payment-network-note\s*\{[\s\S]*?font-size: calc\(16px \+ var\(--app-font-size-offset\)\)/);
   assert.match(styles, /\.recharge-payment-network-warning\s*\{[\s\S]*?font-weight: 750/);
+  assert.match(styles, /\.recharge-payment-underpaid\s*\{[\s\S]*?var\(--recharge-details-warning-bg\)/);
   assert.match(styles, /\.recharge-payment-details\s*\{[\s\S]*?--recharge-details-warning-text: #8a4b00/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-payment-details\s*\{[\s\S]*?--recharge-details-warning-text: #ffd27a/);
   assert.match(styles, /\.recharge-product-grid\s*\{[\s\S]*?grid-template-columns: repeat\(var\(--recharge-product-columns, 4\), minmax\(190px, 1fr\)\)/);

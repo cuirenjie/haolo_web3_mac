@@ -302,7 +302,7 @@ test("short bare-K chart commands stay on the strategy drawing path even after a
   assert.equal(routed.request.drawingRequested, true);
   assert.equal(routed.request.symbol, null);
   assert.equal(routed.request.interval, null);
-  assert.equal(routed.classification.source, "deterministic-short-chart-action");
+  assert.equal(routed.classification.source, "deterministic-strategy-invocation");
 });
 
 test("price-action request router is strict, non-mutating in conversation, and injection-resistant", () => {
