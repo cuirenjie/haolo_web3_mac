@@ -21376,6 +21376,9 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   --recharge-details-muted: #94a0af;
   --recharge-details-accent: #168ee9;
   --recharge-details-divider: rgba(165, 184, 207, 0.22);
+  --recharge-details-warning-text: #8a4b00;
+  --recharge-details-warning-bg: rgba(237, 155, 22, 0.14);
+  --recharge-details-warning-border: rgba(181, 103, 0, 0.28);
   --recharge-internal-field-bg: #f4f6f8;
   --recharge-internal-field-border: rgba(165, 184, 207, 0.16);
   --recharge-internal-amount: #ed9b16;
@@ -21509,6 +21512,17 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   color: var(--recharge-details-muted);
   font-size: calc(11px + var(--app-font-size-offset));
   line-height: 1.5;
+}
+
+.recharge-payment-network-warning {
+  padding: 2px 6px;
+  border: 1px solid var(--recharge-details-warning-border);
+  border-radius: 5px;
+  background: var(--recharge-details-warning-bg);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  color: var(--recharge-details-warning-text);
+  font-weight: 750;
 }
 
 .recharge-payment-details-main.internal-transfer {
@@ -21981,6 +21995,9 @@ html[data-theme="dark"] .recharge-payment-details {
   --recharge-details-muted: #7f8d9f;
   --recharge-details-accent: #55aaff;
   --recharge-details-divider: rgba(145, 164, 190, 0.14);
+  --recharge-details-warning-text: #ffd27a;
+  --recharge-details-warning-bg: rgba(242, 173, 56, 0.15);
+  --recharge-details-warning-border: rgba(255, 196, 92, 0.34);
   --recharge-internal-field-bg: #1b2027;
   --recharge-internal-field-border: rgba(145, 164, 190, 0.18);
   --recharge-internal-amount: #f2ad38;

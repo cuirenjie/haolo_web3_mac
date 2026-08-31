@@ -120,6 +120,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentEvents, /if \(!rechargePaymentViewActive\)[\s\S]*?rechargePaymentViewActive = true;[\s\S]*?activateRechargePaymentSelection\(\)/);
   assert.match(paymentEvents, /updateRechargePaymentDetails\(\)/);
   assert.match(paymentDetails, /支付金额/);
+  assert.match(paymentDetails, /class="recharge-payment-network-warning">扣除手续费后，到账金额必须和支付金额一致，精确到三位小数。<\/strong>/);
   assert.match(paymentDetails, /function visibleRechargeSubscriptionProducts\(\)[\s\S]*?RECHARGE_SUBSCRIPTION_PRODUCTS\.filter\(\(product\) => !rechargeProductIsUnavailable\(product\)\)/);
   assert.match(paymentDetails, /function ensureRechargeProductSelection\(\)[\s\S]*?visibleRechargeSubscriptionProducts\(\)[\s\S]*?candidate\.id === "subscription_basic"[\s\S]*?selectedRechargeProductId = product\.id/);
   assert.match(paymentDetails, /function rechargePaymentSelection\(\)[\s\S]*?ensureRechargeProductSelection\(\)/);
@@ -179,6 +180,9 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-support-button:disabled/);
   assert.match(styles, /html:not\(\[data-theme="dark"\]\) \.recharge-product-card\.selected/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card\.selected/);
+  assert.match(styles, /\.recharge-payment-network-warning\s*\{[\s\S]*?font-weight: 750/);
+  assert.match(styles, /\.recharge-payment-details\s*\{[\s\S]*?--recharge-details-warning-text: #8a4b00/);
+  assert.match(styles, /html\[data-theme="dark"\] \.recharge-payment-details\s*\{[\s\S]*?--recharge-details-warning-text: #ffd27a/);
   assert.match(styles, /\.recharge-product-grid\s*\{[\s\S]*?grid-template-columns: repeat\(var\(--recharge-product-columns, 4\), minmax\(190px, 1fr\)\)/);
   assert.match(styles, /\.recharge-product-grid\s*\{[\s\S]*?gap: calc\(1\.25% \+ 2\.266667px\)/);
   assert.match(styles, /\.recharge-product-card\[aria-disabled="true"\]/);

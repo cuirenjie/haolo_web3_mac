@@ -59437,7 +59437,9 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
             </button>
           </div>
         </div>
-        <p class="recharge-payment-network-note">请通过 ${escapeHtml(network.networkName)} 网络支付 USDT，金额必须精确到三位小数。</p>
+        <p class="recharge-payment-network-note">
+          请通过 ${escapeHtml(network.networkName)} 网络支付 USDT，<strong class="recharge-payment-network-warning">扣除手续费后，到账金额必须和支付金额一致，精确到三位小数。</strong>
+        </p>
       </div>
       <div class="recharge-payment-qr-column">
         <div class="recharge-payment-qr-frame loading" data-recharge-payment-qr-frame>

@@ -44,6 +44,19 @@ test("the WEB3 membership-expired error is localized in all interface languages"
   assert.equal(translateAppText("会员到期", "zh-TW"), "會員到期");
 });
 
+test("the recharge amount-after-fees warning is localized in all interface languages", () => {
+  const warning = "扣除手续费后，到账金额必须和支付金额一致，精确到三位小数。";
+  assert.equal(translateAppText(warning, "zh-CN"), warning);
+  assert.equal(
+    translateAppText(warning, "en"),
+    "After fees are deducted, the amount received must match the payment amount, to exactly three decimal places.",
+  );
+  assert.equal(
+    translateAppText(warning, "zh-TW"),
+    "扣除手續費後，到賬金額必須和支付金額一致，精確到三位小數。",
+  );
+});
+
 test("paid trial and free WEB3 membership copy is localized in all interface languages", () => {
   assert.equal(translateAppText("WEB3免费", "en"), "WEB3 Free");
   assert.equal(translateAppText("WEB3免费", "zh-TW"), "WEB3免費");
