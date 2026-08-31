@@ -33,6 +33,9 @@ test("chart and live-market requests stay on the chart-analysis router", () => {
     "看看左边 K 线，现在适合做多吗？",
     "当前这根 K 线是什么意思？",
     "BTC 当前价格和入场点位怎么看",
+    "分析SNDK 15min这个盘\r面并绘图",
+    "那我现在做多可以吗",
+    "我目前的仓位健康吗，该怎么操作",
     "Read the current chart and draw resistance lines",
   ]) {
     assert.equal(
@@ -41,6 +44,14 @@ test("chart and live-market requests stay on the chart-analysis router", () => {
       text,
     );
   }
+
+  assert.equal(
+    classifyTradingExpertFastChatRoute({
+      text: "分析附件里的当前行情并标注关键位",
+      hasAttachments: true,
+    }, { enabled: true }).route,
+    "chart-router",
+  );
 });
 
 test("private context, history, attachments, current web data, and actions require the root agent", () => {
@@ -52,6 +63,7 @@ test("private context, history, attachments, current web data, and actions requi
     [{ text: "总结这份资料", hasAttachments: true }, "attachment-required"],
     [{ text: "回答引用消息的问题", hasQuote: true }, "referenced-context-required"],
     [{ text: "比较这两个任务", hasThreadReferences: true }, "referenced-context-required"],
+    [{ text: "帮我买入BTCUSDT" }, "execution-action-required"],
   ];
   for (const [params, reason] of cases) {
     const routed = classifyTradingExpertFastChatRoute(params, { enabled: true });
@@ -145,4 +157,6 @@ test("desktop integration uses a narrow IPC and bypasses the file-context provid
   assert.match(renderer, /persistTradingExpertTranscriptItems/);
   assert.match(renderer, /activeProviderInteractionByThreadId\.set\(params\.threadId, interactionId\)/);
   assert.match(renderer, /if \(isProviderThreadBusy\(threadId\)\) return true/);
+  assert.match(renderer, /deterministicTradingGeneralFallback\(params\.text\)\.mode === "chart-analysis"/);
+  assert.match(renderer, /if \(deterministicChart\) \{\s*return \{ route: "chart-router"/s);
 });

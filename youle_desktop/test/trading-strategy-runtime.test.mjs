@@ -756,6 +756,46 @@ test("coordinator refreshes private Binance context after analysis before buildi
   assert.doesNotMatch(englishResult.analysisPlan.report, /原策略报告|[\u3400-\u9fff]/u);
 });
 
+test("every strategy invocation deterministically enters chart analysis and never calls a routing model", async () => {
+  let modelCalls = 0;
+  const coordinator = new TradingStrategyCoordinator({
+    registry: createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS }),
+    providerId: "unused",
+    modelRegistry: {
+      async analyze() {
+        modelCalls += 1;
+        throw new Error("strategy invocation must not call a routing model");
+      },
+    },
+  });
+
+  const exactIncident = await coordinator.classify("ict-smc", {
+    text: "@策略:ICT / SMC 分析SNDK 15min这个盘\r面并绘图，生成交易策略",
+    hasCurrentAnalysis: true,
+  });
+  assert.equal(exactIncident.request.mode, "chart-analysis");
+  assert.equal(exactIncident.request.symbol, "SNDKUSDT");
+  assert.equal(exactIncident.request.interval, "15");
+  assert.equal(exactIncident.request.drawingRequested, true);
+  assert.equal(exactIncident.request.instruction, "分析SNDK 15min这个盘面并绘图，生成交易策略");
+  assert.equal(exactIncident.classification.source, "deterministic-strategy-invocation");
+
+  const conceptualMention = await coordinator.classify("ict-smc", {
+    text: "@策略:ICT/SMC 什么是 FVG",
+  });
+  assert.equal(conceptualMention.request.mode, "chart-analysis");
+  assert.equal(conceptualMention.request.drawingRequested, true);
+
+  const explicitNoDrawing = await coordinator.classify("ict-smc", {
+    text: "@策略:ICT/SMC 分析 BTC 1小时，不要画线",
+  });
+  assert.equal(explicitNoDrawing.request.mode, "chart-analysis");
+  assert.equal(explicitNoDrawing.request.symbol, "BTCUSDT");
+  assert.equal(explicitNoDrawing.request.interval, "60");
+  assert.equal(explicitNoDrawing.request.drawingRequested, false);
+  assert.equal(modelCalls, 0);
+});
+
 const declarativeManifest = Object.freeze({
   schemaVersion: 1,
   id: "moving-average-demo",

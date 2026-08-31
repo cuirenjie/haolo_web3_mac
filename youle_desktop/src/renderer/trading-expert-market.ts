@@ -12,7 +12,7 @@ import {
   createSeriesMarkers,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { appLanguageLocale, type AppLanguage } from "./app-language.mjs";
+import { appLanguageLocale, translateAppText, type AppLanguage } from "./app-language.mjs";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import {
   TRADING_FALLING_BAR_COLOR,
@@ -13422,14 +13422,18 @@ async function commitTradingAnalysisDrawingPatch(
   }
   patch = localizeTradingAiDrawingPatch(patch, currentJob.language);
   const targetWorkspace = activeWorkspace;
-  if (
-    targetWorkspace
-    && targetWorkspace.drawingStorageSessionMatches(currentJob.storageSessionId)
-  ) {
-    await targetWorkspace.acceptAnalysisDrawingPatch(patch, paneIndex, onPhase);
-    // The workspace may be promoted from a local draft id to a persisted thread id
-    // while playback is running. Keep a single durable exit path below.
+  if (!targetWorkspace || !targetWorkspace.drawingStorageSessionMatches(currentJob.storageSessionId)) {
+    throw new Error(translateAppText("绘图目标工作区已失效", currentJob.language));
   }
+  if (!targetWorkspace.analysisDrawingTargetMatches(patch, paneIndex)) {
+    throw new Error(`${translateAppText("绘图目标与当前行情不一致：", currentJob.language)}${patch.marketId} / ${patch.interval}`);
+  }
+  const applied = await targetWorkspace.acceptAnalysisDrawingPatch(patch, paneIndex, onPhase);
+  if (applied !== true) {
+    throw new Error(translateAppText("Drawing Patch 未能应用到当前图表", currentJob.language));
+  }
+  // The workspace may be promoted from a local draft id to a persisted thread id
+  // while playback is running. Keep a single durable exit path below.
   const latestJob = tradingAnalysisJobs.get(job.analysisId);
   if (!latestJob || latestJob.status !== "running") {
     throw new Error("交易分析已由用户停止");

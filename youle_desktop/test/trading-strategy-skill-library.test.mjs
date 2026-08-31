@@ -7,6 +7,10 @@ const catalogSource = readFile(
   new URL("../src/renderer/trading-strategy-runtime/catalog.ts", import.meta.url),
   "utf8",
 );
+const strategyClientSource = readFile(
+  new URL("../src/renderer/trading-strategy-runtime/client.ts", import.meta.url),
+  "utf8",
+);
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
 
 const expectedStrategies = [
@@ -46,6 +50,25 @@ test("the bundled trading strategies expose real Skill metadata", async () => {
     assert.match(metadataSource, new RegExp(`display_name:\\s*["']${displayName}["']`));
     assert.match(metadataSource, /^\s*short_description:\s*["']\S/m);
   }
+});
+
+test("strategy mentions cannot fall back to conversation when routing is slow or unavailable", async () => {
+  const [catalog, client, renderer] = await Promise.all([
+    catalogSource,
+    strategyClientSource,
+    rendererSource,
+  ]);
+  assert.match(catalog, /manifest\.display\.name/);
+  assert.ok(catalog.includes('.replace(/\\s*\\/\\s*/g, "/")'));
+  assert.match(catalog, /const fallback: TradingStrategyRequest = \{\s*mode: "chart-analysis"/s);
+  assert.match(catalog, /drawingRequested: strategyDrawingRequested\(text\)/);
+  assert.match(catalog, /const parameters = extractTradingCatalogParameters\(instruction\)/);
+  assert.match(catalog, /symbol:[\s\S]*?fallback\.symbol/);
+  assert.match(catalog, /interval:[\s\S]*?fallback\.interval/);
+  assert.match(catalog, /return \{\s*mode: "chart-analysis"/s);
+  assert.match(client, /catch \{\s*return normalizeTradingStrategyRequest\(strategy, text, null\)/s);
+  assert.match(renderer, /if \(tradingStrategyAtSend && tradingStrategyRequestAtSend\?\.mode === "chart-analysis"\)/);
+  assert.match(renderer, /await runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend, tradingStrategyRequestAtSend\)/);
 });
 
 test("My Skills derives installed cards from the trading strategy catalog", async () => {

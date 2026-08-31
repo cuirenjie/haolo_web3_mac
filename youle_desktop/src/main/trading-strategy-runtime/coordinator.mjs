@@ -1,51 +1,10 @@
-import crypto from "node:crypto";
 import { createStrategyResultEnvelope } from "./contracts.mjs";
 import { buildExecutionPlanV1, formatExecutionPlanMarkdown } from "./execution-plan-builder.mjs";
 import { containsHanCharacters } from "../assistant-output-language.mjs";
+import { deterministicStrategyChartRouting } from "../trading-analysis/request-routing-policy.mjs";
 
 function boundedText(value, max = 12_000) {
   return String(value || "").replace(/\u0000/g, "").slice(0, max);
-}
-
-// A strategy mention followed by a short imperative such as “帮我分析” is
-// an explicit request to inspect the active chart, not an open-ended strategy
-// question.  Leaving this small, unambiguous command to the model router is
-// unsafe: when a prior analysis exists, the model may classify it as a
-// conversation follow-up and the Renderer then skips both market-data reads
-// and Drawing Gateway playback.  Keep parameterised or conceptual messages
-// on the strategy-specific model router; only handle the no-parameter canvas
-// commands deterministically here.
-function stripStrategyMention(text, manifest) {
-  let source = String(text || "");
-  const names = [manifest?.mentions?.canonical, ...(manifest?.mentions?.aliases || [])]
-    .map((name) => String(name || "").trim())
-    .filter(Boolean);
-  for (const name of names) {
-    source = source
-      .split(`@策略:${name}`).join("")
-      .split(`@策略：${name}`).join("");
-  }
-  return source.replace(/\s+/gu, " ").trim();
-}
-
-function deterministicShortChartRequest(text, manifest, { hasImageAttachment = false } = {}) {
-  if (hasImageAttachment) return null;
-  const instruction = stripStrategyMention(text, manifest);
-  if (!instruction) return null;
-  // Keep this intentionally narrow so “什么是…”/“如何理解…” and requests
-  // containing explicit symbols or periods still receive their full strategy
-  // router/model treatment.
-  const shortCanvasAction = /^(?:(?:请|麻烦|劳驾|帮我|帮忙)\s*)?(?:分析(?:下|一下|看看)?|看盘|看(?:下|一下|看)?(?:盘面|行情|走势|图表|K\s*线)?|复盘(?:下|一下)?|重新分析|刷新(?:下|一下)?|更新(?:下|一下)?|画(?:下|一下)?(?:线|图)?|绘图)(?:\s*(?:当前|现在)?(?:盘面|行情|走势|图表|K\s*线)?)?(?:\s*(?:并|然后)?\s*(?:画线|画图|绘图))?(?:吧|呗|谢谢)?[。！!]*$/iu;
-  if (!shortCanvasAction.test(instruction)) return null;
-  return Object.freeze({
-    mode: "chart-analysis",
-    instruction,
-    symbol: null,
-    interval: null,
-    lookbackMs: null,
-    lookbackLabel: null,
-    drawingRequested: true,
-  });
 }
 
 function stripLegacyExecutionPlanSection(value) {
@@ -104,7 +63,7 @@ export class TradingStrategyCoordinator {
     });
   }
 
-  async classify(strategyId, params = {}, { signal, requestId = null } = {}) {
+  async classify(strategyId, params = {}) {
     const strategy = this.#registry.require(strategyId);
     const adapter = this.#registry.adapter(strategyId);
     if (!adapter) {
@@ -112,71 +71,27 @@ export class TradingStrategyCoordinator {
       error.code = "TRADING_STRATEGY_IMPLEMENTATION_UNAVAILABLE";
       throw error;
     }
-    const text = boundedText(params?.text);
-    const routingContext = {
-      hasImageAttachment: params?.hasImageAttachment === true,
-      hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-    };
-    const deterministic = adapter.routing.deterministic?.(text, routingContext);
-    if (deterministic) {
-      const mode = deterministic.mode === "chart-analysis" ? "chart-analysis" : "conversation";
-      return Object.freeze({
-        ok: true,
-        strategyId: strategy.manifest.id,
-        request: deterministic,
-        classification: Object.freeze({
-          schemaVersion: 1,
-          mode,
-          intent: mode === "chart-analysis" ? "chart-drawing" : "conversation",
-          confidence: 1,
-          source: "deterministic-short-action",
-        }),
-        model: null,
-      });
-    }
-    const deterministicShortAction = deterministicShortChartRequest(
-      text,
+    // Selecting a strategy/indicator is an execution command.  The model may
+    // review deterministic theory results later, but it must never decide
+    // whether the request is allowed to inspect the chart.  This also makes
+    // transport failures incapable of silently downgrading a strategy turn to
+    // a generic conversation with no Drawing Gateway access.
+    const request = deterministicStrategyChartRouting(
+      boundedText(params?.text),
       strategy.manifest,
-      routingContext,
     );
-    if (deterministicShortAction) {
-      return Object.freeze({
-        ok: true,
-        strategyId: strategy.manifest.id,
-        request: deterministicShortAction,
-        classification: Object.freeze({
-          schemaVersion: 1,
-          mode: "chart-analysis",
-          intent: "chart-drawing",
-          confidence: 1,
-          source: "deterministic-short-chart-action",
-        }),
-        model: null,
-      });
-    }
-    const normalizedRequestId = boundedText(requestId || `${strategy.manifest.id}-route-${crypto.randomUUID()}`, 200);
-    const model = await this.#modelRegistry.analyze(this.#providerId, {
-      schemaVersion: 1,
-      requestId: normalizedRequestId,
-      task: adapter.routing.task,
-      theoryId: adapter.routing.theoryId,
-      snapshotId: normalizedRequestId,
-      prompt: adapter.routing.buildPrompt({ text, ...routingContext }),
-      responseFormat: "json",
-    }, { signal });
-    const routed = adapter.routing.normalizeResponse(model.text, text, {
-      hasCurrentAnalysis: routingContext.hasCurrentAnalysis,
-    });
     return Object.freeze({
       ok: true,
       strategyId: strategy.manifest.id,
-      request: routed.request,
-      classification: routed.classification,
-      model: Object.freeze({
-        providerId: model.providerId,
-        modelId: model.modelId,
-        latencyMs: model.latencyMs,
+      request,
+      classification: Object.freeze({
+        schemaVersion: 1,
+        mode: "chart-analysis",
+        intent: request.drawingRequested ? "chart-drawing" : "chart-analysis",
+        confidence: 1,
+        source: "deterministic-strategy-invocation",
       }),
+      model: null,
     });
   }
 

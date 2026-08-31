@@ -52,6 +52,12 @@ test("independent ICT/SMC pipeline reuses deterministic structure without writin
   assert.equal(result.theoryResult.engineId, "ict_smc");
   assert.ok(result.analysisPlan.drawingPatch.operations.length > 0);
   assert.ok(result.analysisPlan.drawingPatch.operations.every(({ drawing }) => drawing.strategyId === "ict-smc" && drawing.layer === "ai/strategy/ict-smc"));
+  const regionLabels = result.analysisPlan.drawingPatch.operations
+    .filter(({ drawing }) => drawing.tool === "rectangle")
+    .map(({ drawing }) => drawing.text || "");
+  assert.ok(regionLabels.some((label) => /\bOB（Order Block）/.test(label)));
+  assert.ok(regionLabels.some((label) => /\bFVG\b/.test(label)));
+  assert.ok(regionLabels.every((label) => /^\[15m\] (?:看涨|看跌) (?:OB（Order Block）|FVG|Breaker)$/.test(label)));
   assert.match(result.analysisPlan.report, /本 Skill 不读取逐笔成交或深度/);
   assert.equal(result.analysisPlan.actionPlan.disposition, "wait");
 });
