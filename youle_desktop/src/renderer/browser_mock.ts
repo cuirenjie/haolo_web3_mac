@@ -394,7 +394,9 @@ export function ensureBrowserDesktopApi() {
     ? "zh-CN"
     : document.documentElement.dataset.language === "zh-TW"
       ? "zh-TW"
-      : "en";
+      : document.documentElement.dataset.language === "en"
+        ? "en"
+        : "zh-CN";
   const systemIntegration = {
     taskbar: false,
     startMenu: false,
@@ -492,7 +494,7 @@ export function ensureBrowserDesktopApi() {
       return { theme: appTheme };
     },
     async setAppLanguage(params: any) {
-      appLanguage = params?.language === "zh-CN" || params?.language === "zh-TW" ? params.language : "en";
+      appLanguage = params?.language === "en" || params?.language === "zh-TW" ? params.language : "zh-CN";
       return { language: appLanguage };
     },
     async checkWindowsUpdate() {

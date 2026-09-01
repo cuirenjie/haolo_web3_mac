@@ -577,7 +577,7 @@ const CONTINUATION_TRANSACTIONS_FILE_NAME = "thread-continuation-transactions.js
 const CONTINUATION_LATE_START_RESPONSE_GRACE_MS = 30_000;
 const DEFAULT_APP_PREFERENCES = Object.freeze({
   theme: "dark",
-  language: "en",
+  language: "zh-CN",
   taskCompletionPopupEnabled: true,
 });
 const LOCAL_FILE_DRAG_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -9317,7 +9317,7 @@ function normalizeAppTheme(value) {
 }
 
 function normalizeAppLanguage(value) {
-  return value === "zh-CN" || value === "zh-TW" ? value : "en";
+  return value === "en" || value === "zh-TW" ? value : "zh-CN";
 }
 
 function normalizeAppPreferences(value = {}) {
