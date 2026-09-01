@@ -30236,7 +30236,7 @@ function tradingExpertThinkingStage(phase: string, reasoningSummary = "", messag
     return { key: "reasoning", label: "正在分析威科夫结构", detail };
   }
   if (phase === "drawing") {
-    return { key: "executing", label: "正在绘制缠论结构", detail };
+    return { key: "executing", label: "正在绘制盘面结构", detail };
   }
   if (phase === "order-flow-drawing") {
     return { key: "executing", label: "正在绘制订单流结构", detail };
@@ -59477,19 +59477,17 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
       ${renderRechargeMembershipAgreement(product, order)}
     `;
   }
+  const fixedPaymentAmount = String(product.priceUsdt);
   const chainPaymentNotice = uniqueAddressUnderpaid
     ? `<div class="recharge-payment-underpaid" role="status"><strong>已到账 ${escapeHtml(order.amount_received)} USDT</strong><span>还需补付 ${escapeHtml(order.remaining_amount)} USDT · 请继续向同一临时地址补足，系统会累计到账金额。</span></div>`
-    : `<p class="recharge-payment-network-note">请通过 ${escapeHtml(network.networkName)} 网络支付 USDT。<strong class="recharge-payment-network-warning">该地址仅用于本订单，金额按商品固定面额核对。</strong></p>`;
+    : "";
   return `
-    <div class="recharge-payment-details-main">
-      <div class="recharge-payment-summary">
-        <div class="recharge-payment-summary-row amount">
-          <span>支付金额</span>
-          <strong>${escapeHtml(order.payable_amount)}<small>USDT</small></strong>
-        </div>
-        <div class="recharge-payment-summary-row address">
-          <span>本订单专属临时地址</span>
-          <div>
+    <div class="recharge-payment-details-main internal-transfer">
+      <ol class="recharge-payment-internal-steps" aria-label="${escapeAttr(rechargePaymentStepsAriaLabel(network))}">
+        <li class="recharge-payment-internal-step">
+          <span class="recharge-payment-step-number" aria-hidden="true">1</span>
+          <span class="recharge-payment-step-label">收款地址</span>
+          <div class="recharge-payment-internal-field account">
             <code>${escapeHtml(order.recipient_address)}</code>
             <button
               type="button"
@@ -59501,27 +59499,35 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6.5V4.75A1.75 1.75 0 0 1 8.75 3h6.5A1.75 1.75 0 0 1 17 4.75v6.5A1.75 1.75 0 0 1 15.25 13H13.5M4.75 7h6.5A1.75 1.75 0 0 1 13 8.75v6.5A1.75 1.75 0 0 1 11.25 17h-6.5A1.75 1.75 0 0 1 3 15.25v-6.5A1.75 1.75 0 0 1 4.75 7Z" /></svg>
             </button>
           </div>
-        </div>
-        ${chainPaymentNotice}
-      </div>
+        </li>
+        <li class="recharge-payment-internal-step">
+          <span class="recharge-payment-step-number" aria-hidden="true">2</span>
+          <span class="recharge-payment-step-label">支付金额</span>
+          <div class="recharge-payment-internal-field amount">
+            <strong>${escapeHtml(fixedPaymentAmount)}<small>USDT</small></strong>
+            <span class="recharge-payment-exact-badge">金额必须完全一致</span>
+            <button
+              type="button"
+              class="recharge-payment-address-copy"
+              data-copy-recharge-amount="${escapeAttr(fixedPaymentAmount)}"
+              aria-label="复制支付金额 ${escapeAttr(fixedPaymentAmount)} USDT"
+              title="复制支付金额"
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 6.5V4.75A1.75 1.75 0 0 1 8.75 3h6.5A1.75 1.75 0 0 1 17 4.75v6.5A1.75 1.75 0 0 1 15.25 13H13.5M4.75 7h6.5A1.75 1.75 0 0 1 13 8.75v6.5A1.75 1.75 0 0 1 11.25 17h-6.5A1.75 1.75 0 0 1 3 15.25v-6.5A1.75 1.75 0 0 1 4.75 7Z" /></svg>
+            </button>
+          </div>
+        </li>
+      </ol>
       <div class="recharge-payment-qr-column">
         <div class="recharge-payment-qr-frame loading" data-recharge-payment-qr-frame>
           <img class="recharge-payment-qr-image" data-recharge-payment-qr-image alt="${escapeAttr(rechargePaymentQrAlt(network))}" hidden />
           <span class="recharge-payment-qr-logo">${renderTradingMarketAssetLogo(network.asset, "binance")}</span>
           <span class="recharge-payment-qr-loading">正在生成二维码</span>
         </div>
+        <span class="recharge-payment-internal-countdown">订单剩余：<time data-recharge-payment-countdown>30:00</time></span>
       </div>
     </div>
-    <div class="recharge-payment-progress">
-      <span class="recharge-payment-detecting">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 7.25A7 7 0 0 0 4.1 5.1L2.5 6.7m0 0V3m0 3.7h3.7M3.5 12.75A7 7 0 0 0 15.9 14.9l1.6-1.6m0 0V17m0-3.7h-3.7" /></svg>
-        ${uniqueAddressUnderpaid ? "等待补足金额" : "检测到账中"}
-      </span>
-      ${uniqueAddressUnderpaid ? '<span>临时地址不会分配给其他订单</span>' : `<span class="recharge-payment-countdown">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.25" /><path d="M10 6v4.3l2.8 1.7" /></svg>
-        <time data-recharge-payment-countdown>30:00 剩余</time>
-      </span>`}
-    </div>
+    ${chainPaymentNotice}
     ${renderRechargeMembershipAgreement(product, order)}
   `;
 }
@@ -59918,7 +59924,7 @@ async function updateRechargePaymentDetails() {
   const copyAmountButton = panel.querySelector<HTMLButtonElement>("[data-copy-recharge-amount]");
   copyAmountButton?.addEventListener("click", () => {
     copyAmountButton.classList.add("copied");
-    void copyTextToClipboard(order.payable_amount);
+    void copyTextToClipboard(copyAmountButton.dataset.copyRechargeAmount || order.payable_amount);
     window.setTimeout(() => copyAmountButton.classList.remove("copied"), 1200);
   });
   const network = rechargePaymentOrderNetwork(order);

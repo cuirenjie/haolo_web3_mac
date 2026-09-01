@@ -546,11 +546,11 @@ export function ensureBrowserDesktopApi() {
         || (existingOrder?.status === "pending" && Date.parse(existingOrder.expires_at) > Date.now())
       ) return existingOrder;
       if (existingOrder?.status === "pending") existingOrder.status = "expired";
-      const products: Record<string, { name: string; price: string; tokens: string; months: number; days: number; plan: string }> = {
-        subscription_trial: { name: "体验版订阅", price: "4.873", tokens: "100", months: 0, days: 3, plan: "trial" },
-        subscription_basic: { name: "基础版订阅", price: "98.931", tokens: "1000", months: 1, days: 0, plan: "basic" },
-        subscription_pro: { name: "专业版订阅", price: "498.956", tokens: "6000", months: 6, days: 0, plan: "pro" },
-        subscription_flagship: { name: "旗舰版订阅", price: "798.913", tokens: "12000", months: 12, days: 0, plan: "flagship" },
+      const products: Record<string, { name: string; price: string; internalPrice: string; tokens: string; months: number; days: number; plan: string }> = {
+        subscription_trial: { name: "体验版订阅", price: "4.900", internalPrice: "4.873", tokens: "100", months: 0, days: 3, plan: "trial" },
+        subscription_basic: { name: "基础版订阅", price: "99.000", internalPrice: "98.931", tokens: "1000", months: 1, days: 0, plan: "basic" },
+        subscription_pro: { name: "专业版订阅", price: "499.000", internalPrice: "498.956", tokens: "6000", months: 6, days: 0, plan: "pro" },
+        subscription_flagship: { name: "旗舰版订阅", price: "799.000", internalPrice: "798.913", tokens: "12000", months: 12, days: 0, plan: "flagship" },
       };
       const product = products[productId] || products.subscription_basic;
       const addresses: Record<string, string> = {
@@ -567,7 +567,9 @@ export function ensureBrowserDesktopApi() {
         plan_id: product.plan,
         product_name: product.name,
         list_amount: String(Math.ceil(Number(product.price))),
-        payable_amount: product.price,
+        payable_amount: network === "binance_internal" || network === "okx_internal"
+          ? product.internalPrice
+          : product.price,
         currency: "USDT",
         token_amount: product.tokens,
         membership_months: product.months,

@@ -513,6 +513,20 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   );
 });
 
+test("generic drawing progress describes the chart instead of Chan analysis", async () => {
+  const rendererSource = await readFile(
+    new URL("../src/renderer/main.ts", import.meta.url),
+    "utf8",
+  );
+  const tradingThinkingBlock = rendererSource.slice(
+    rendererSource.indexOf("function tradingExpertThinkingStage"),
+    rendererSource.indexOf("function updateTradingExpertThinkingState"),
+  );
+
+  assert.match(tradingThinkingBlock, /phase === "drawing"[\s\S]*?label: "正在绘制盘面结构"/);
+  assert.doesNotMatch(tradingThinkingBlock, /label: "正在绘制缠论结构"/);
+});
+
 test("Trading Expert keeps the sent bubble and updates analysis progress without remounting the page", async () => {
   const rendererSource = await readFile(
     new URL("../src/renderer/main.ts", import.meta.url),
@@ -550,7 +564,8 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
   assert.match(progressBlock, /tradingExpertThinkingStateByThreadId\.set\(threadId/);
   assert.match(progressBlock, /label: "正在准备行情"/);
   assert.match(progressBlock, /label: "正在分析盘面"/);
-  assert.match(progressBlock, /label: "正在绘制缠论结构"/);
+  assert.match(progressBlock, /label: "正在绘制盘面结构"/);
+  assert.doesNotMatch(progressBlock, /label: "正在绘制缠论结构"/);
   assert.match(progressBlock, /label: "正在整理分析报告"/);
   assert.match(tradingThinkingBlock, /function tradingExpertThinkingStage\(phase: string, reasoningSummary = ""\)[\s\S]*?const detail = "";/);
   assert.match(tradingThinkingBlock, /phase === "alert-analyzing" \? reasoningSummary\.trim\(\) : detail/);

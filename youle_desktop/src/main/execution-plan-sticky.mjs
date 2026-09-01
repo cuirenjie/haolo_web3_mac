@@ -6,6 +6,7 @@ import {
   executionPlanStickyBounds,
   executionPlanStickyFontSize,
   executionPlanStickyHtml,
+  executionPlanStickyMovedBounds,
   executionPlanStickyResizedBounds,
   normalizeExecutionPlanStickyPayload,
 } from "./execution-plan-sticky-view.mjs";
@@ -86,6 +87,44 @@ function resizeStickyWindowFromSender(sender, params, finish = false) {
   return resizeStickyWindow(state, params, finish);
 }
 
+function moveStickyWindow(state, params = {}, finish = false) {
+  const sessionId = String(params.sessionId || "").slice(0, 120);
+  const startPoint = stickyResizePoint(params.startPoint);
+  const point = stickyResizePoint(params.point);
+  if (!sessionId || !startPoint || !point) return { ok: false };
+  if (!state.move || state.move.sessionId !== sessionId) {
+    const startBounds = state.window.getBounds();
+    state.move = {
+      sessionId,
+      startBounds,
+      startPoint,
+      workArea: screen.getDisplayNearestPoint(startPoint).workArea,
+    };
+  }
+  const nextBounds = executionPlanStickyMovedBounds({
+    ...state.move,
+    currentPoint: point,
+  });
+  state.window.setBounds(nextBounds);
+  if (finish) state.move = null;
+  return { ok: true };
+}
+
+function moveStickyWindowFromSender(sender, params, finish = false) {
+  const window = BrowserWindow.fromWebContents(sender);
+  const state = window ? stickyWindows.get(window) : null;
+  if (!state || window.isDestroyed()) return { ok: false };
+  return moveStickyWindow(state, params, finish);
+}
+
+ipcMain.on("executionPlanSticky:move-live", (event, params = {}) => {
+  moveStickyWindowFromSender(event.sender, params);
+});
+
+ipcMain.on("executionPlanSticky:move-commit", (event, params = {}) => {
+  moveStickyWindowFromSender(event.sender, params, true);
+});
+
 ipcMain.on("executionPlanSticky:resize-live", (event, params = {}) => {
   resizeStickyWindowFromSender(event.sender, params);
 });
@@ -137,6 +176,7 @@ export function createExecutionPlanStickyWindow(input = {}) {
     payload,
     bounds,
     autoSize: true,
+    move: null,
     resize: null,
   };
   stickyWindows.set(window, state);

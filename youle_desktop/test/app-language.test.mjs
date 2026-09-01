@@ -38,6 +38,12 @@ test("group selection and encoded UI copy have complete English translations", (
   assert.equal(translateAppText("不选择分组", "zh-TW"), "不選擇分組");
 });
 
+test("generic chart drawing progress is localized without naming Chan analysis", () => {
+  assert.equal(translateAppText("正在绘制盘面结构", "zh-CN"), "正在绘制盘面结构");
+  assert.equal(translateAppText("正在绘制盘面结构", "en"), "Drawing chart structure");
+  assert.equal(translateAppText("正在绘制盘面结构", "zh-TW"), "正在繪製盤面結構");
+});
+
 test("the WEB3 membership-expired error is localized in all interface languages", () => {
   assert.equal(translateAppText("会员到期", "zh-CN"), "会员到期");
   assert.equal(translateAppText("会员到期", "en"), "Membership expired");

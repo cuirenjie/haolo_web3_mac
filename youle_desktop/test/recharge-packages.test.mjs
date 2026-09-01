@@ -45,6 +45,11 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
     "function renderRechargePaymentDetailsShell",
     "function consumptionPayload",
   );
+  const chainPaymentDetails = sourceBlock(
+    paymentDetails,
+    "const fixedPaymentAmount",
+    "function rechargePaymentQrDataUrl",
+  );
   const productEvents = sourceBlock(
     renderer,
     "function bindRechargeProductCardEvents",
@@ -120,12 +125,11 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentEvents, /if \(!rechargePaymentViewActive\)[\s\S]*?rechargePaymentViewActive = true;[\s\S]*?activateRechargePaymentSelection\(\)/);
   assert.match(paymentEvents, /updateRechargePaymentDetails\(\)/);
   assert.match(paymentDetails, /支付金额/);
-  assert.match(paymentDetails, /class="recharge-payment-network-warning">该地址仅用于本订单，金额按商品固定面额核对。<\/strong>/);
   assert.match(paymentDetails, /function visibleRechargeSubscriptionProducts\(\)[\s\S]*?RECHARGE_SUBSCRIPTION_PRODUCTS\.filter\(\(product\) => !rechargeProductIsUnavailable\(product\)\)/);
   assert.match(paymentDetails, /function ensureRechargeProductSelection\(\)[\s\S]*?visibleRechargeSubscriptionProducts\(\)[\s\S]*?candidate\.id === "subscription_basic"[\s\S]*?selectedRechargeProductId = product\.id/);
   assert.match(paymentDetails, /function rechargePaymentSelection\(\)[\s\S]*?ensureRechargeProductSelection\(\)/);
   assert.match(paymentDetails, /收款地址/);
-  assert.match(paymentDetails, /本订单专属临时地址/);
+  assert.doesNotMatch(paymentDetails, /临时地址<\/span>|本订单专属临时地址/);
   assert.match(paymentDetails, /payment_state === "underpaid"/);
   assert.match(paymentDetails, /payment_state === "expired_underpaid_review"/);
   assert.match(paymentDetails, /订单已过期且只收到部分款项，已转入人工核对；请勿继续付款。/);
@@ -135,8 +139,17 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(renderer, /normalizeRechargePaymentAmount/);
   assert.match(paymentDetails, /network\.kind === "internal"[\s\S]*?recharge-payment-internal-steps/);
   assert.match(paymentDetails, /收款账号/);
+  assert.match(paymentDetails, /const fixedPaymentAmount = String\(product\.priceUsdt\)/);
+  assert.match(paymentDetails, /<span class="recharge-payment-step-label">收款地址<\/span>[\s\S]*?class="recharge-payment-internal-field account"/);
+  assert.match(paymentDetails, /<strong>\$\{escapeHtml\(fixedPaymentAmount\)\}<small>USDT<\/small><\/strong>/);
+  assert.match(paymentDetails, /data-copy-recharge-amount="\$\{escapeAttr\(fixedPaymentAmount\)\}"/);
+  assert.doesNotMatch(paymentDetails, /recharge-payment-summary(?:-row)?/);
+  assert.match(chainPaymentDetails, /class="recharge-payment-details-main internal-transfer"/);
+  assert.doesNotMatch(chainPaymentDetails, /recharge-payment-progress|recharge-payment-detecting|检测到账中/);
+  assert.match(chainPaymentDetails, /recharge-payment-qr-column[\s\S]*?recharge-payment-internal-countdown/);
   assert.match(paymentDetails, /金额必须完全一致/);
   assert.match(paymentDetails, /data-copy-recharge-amount/);
+  assert.match(paymentDetails, /copyAmountButton\.dataset\.copyRechargeAmount \|\| order\.payable_amount/);
   assert.match(paymentDetails, /network\?\.kind === "internal"\) return/);
   assert.match(paymentDetails, /QRCode\.toDataURL\(order\.recipient_address/);
   assert.match(paymentDetails, /errorCorrectionLevel: "H"/);
@@ -144,7 +157,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentDetails, /data-copy-recharge-address/);
   assert.match(paymentDetails, /检测到账中/);
   assert.match(paymentDetails, /data-recharge-payment-countdown/);
-  assert.match(paymentDetails, />30:00 剩余</);
+  assert.doesNotMatch(paymentDetails, />30:00 剩余</);
   assert.match(paymentDetails, /会员服务协议/);
   assert.match(paymentDetails, /api\.createWeb3PaymentOrder/);
   assert.match(paymentDetails, /api\.getWeb3PaymentOrder/);
@@ -185,8 +198,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-support-button:disabled/);
   assert.match(styles, /html:not\(\[data-theme="dark"\]\) \.recharge-product-card\.selected/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-card\.selected/);
-  assert.match(styles, /\.recharge-payment-network-note\s*\{[\s\S]*?font-size: calc\(16px \+ var\(--app-font-size-offset\)\)/);
-  assert.match(styles, /\.recharge-payment-network-warning\s*\{[\s\S]*?font-weight: 750/);
+  assert.doesNotMatch(styles, /\.recharge-payment-network-(?:note|warning)\b/);
   assert.match(styles, /\.recharge-payment-underpaid\s*\{[\s\S]*?var\(--recharge-details-warning-bg\)/);
   assert.match(styles, /\.recharge-payment-details\s*\{[\s\S]*?--recharge-details-warning-text: #8a4b00/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-payment-details\s*\{[\s\S]*?--recharge-details-warning-text: #ffd27a/);
@@ -202,6 +214,8 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(styles, /\.recharge-payment-network:has\(input:disabled\)/);
   assert.match(styles, /\.recharge-payment-network-grid\s*\{[\s\S]*?grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.recharge-payment-details-main\.internal-transfer/);
+  assert.doesNotMatch(styles, /\.recharge-payment-(?:progress|detecting|countdown)\b|--recharge-details-divider/);
+  assert.match(styles, /\.recharge-payment-qr-column > \.recharge-payment-internal-countdown\s*\{[\s\S]*?width: 194px/);
   assert.match(styles, /\.recharge-payment-internal-field\.amount strong/);
   assert.match(styles, /\.recharge-payment-internal-detecting/);
   assert.doesNotMatch(styles, /recharge-product-card\.payment-locked/);
@@ -229,7 +243,9 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(browserMock, /selectionKey = `\$\{productId\}:\$\{network\}:web3`/);
   assert.match(browserMock, /mockWeb3PaymentOrders\.get\(selectionKey\)/);
   assert.match(browserMock, /mockWeb3PaymentOrders\.set\(selectionKey, order\)/);
-  assert.match(browserMock, /subscription_trial: \{ name: "体验版订阅", price: "4\.873", tokens: "100", months: 0, days: 3, plan: "trial" \}/);
+  assert.match(browserMock, /subscription_trial: \{ name: "体验版订阅", price: "4\.900", internalPrice: "4\.873", tokens: "100", months: 0, days: 3, plan: "trial" \}/);
+  assert.match(browserMock, /subscription_basic: \{ name: "基础版订阅", price: "99\.000", internalPrice: "98\.931"/);
+  assert.match(browserMock, /payable_amount: network === "binance_internal" \|\| network === "okx_internal"[\s\S]*?\? product\.internalPrice[\s\S]*?: product\.price/);
   assert.match(browserMock, /binance_internal: "1261385376"/);
   assert.match(browserMock, /okx_internal: "694504753333973132"/);
 });

@@ -19,6 +19,7 @@ import {
   type AppLanguage,
 } from "./app-language.mjs";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
+import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
 import {
   TRADING_FALLING_BAR_COLOR,
   TRADING_INDICATORS,
@@ -168,7 +169,6 @@ export const MAX_TRADING_FAVORITE_TICKERS = 12;
 const DEFAULT_TRADING_FAVORITE_SYMBOLS = ["BTCUSDT", "ETHUSDT"] as const;
 export const DEFAULT_TRADING_FAVORITE_MARKET_IDS = DEFAULT_TRADING_FAVORITE_SYMBOLS
   .map((symbol) => `BINANCE:FUTURES:${symbol}`);
-const MARKET_LIVE_PAINT_INTERVAL_MS = 100;
 const MARKET_BACKGROUND_PAINT_INTERVAL_MS = 1_000;
 const MARKET_LIVE_FULL_REFRESH_INTERVAL_MS = 1_000;
 const MARKET_SOCKET_STALE_MS = 2_500;
@@ -4660,6 +4660,7 @@ class TradingExpertMarketWorkspace {
   private chartSettingsAnchor: HTMLElement | null = null;
   private chart: ReturnType<typeof createChart> | null = null;
   private candleSeries: any = null;
+  private extremaOverlay: TradingChartExtremaOverlay | null = null;
   private alertSimulationHistorySeries: any = null;
   private alertSimulationSeries: any = null;
   private alertEvidenceCandleSeries: any = null;
@@ -11643,21 +11644,25 @@ class TradingExpertMarketWorkspace {
 
   private scheduleLiveChartPaint() {
     if (this.disposed || this.liveChartPaintTimer !== null || this.liveChartPaintFrame !== null) return;
-    const delayMs = document.hidden
-      ? MARKET_BACKGROUND_PAINT_INTERVAL_MS
-      : MARKET_LIVE_PAINT_INTERVAL_MS;
-    this.liveChartPaintTimer = window.setTimeout(() => {
-      this.liveChartPaintTimer = null;
-      this.liveChartPaintFrame = window.requestAnimationFrame(() => {
-        this.liveChartPaintFrame = null;
-        if (this.disposed) return;
-        if (Date.now() - this.lastLiveChartFullRefreshAt >= MARKET_LIVE_FULL_REFRESH_INTERVAL_MS) {
-          this.updateChartData();
-          return;
-        }
-        this.paintLatestCandle();
-      });
-    }, delayMs);
+    const paint = () => {
+      if (this.disposed) return;
+      if (Date.now() - this.lastLiveChartFullRefreshAt >= MARKET_LIVE_FULL_REFRESH_INTERVAL_MS) {
+        this.updateChartData();
+        return;
+      }
+      this.paintLatestCandle();
+    };
+    if (document.hidden) {
+      this.liveChartPaintTimer = window.setTimeout(() => {
+        this.liveChartPaintTimer = null;
+        paint();
+      }, MARKET_BACKGROUND_PAINT_INTERVAL_MS);
+      return;
+    }
+    this.liveChartPaintFrame = window.requestAnimationFrame(() => {
+      this.liveChartPaintFrame = null;
+      paint();
+    });
   }
 
   private paintLatestCandle() {
@@ -11676,17 +11681,39 @@ class TradingExpertMarketWorkspace {
     const display = this.primarySeriesData(this.chartCandles, trendBars).at(-1);
     if (!display) return;
     this.candleSeries.update(display);
-    const lineColor = latest.close >= latest.open
-      ? this.chartSettings.risingColor
-      : this.chartSettings.fallingColor;
-    this.priceLine?.applyOptions({
-      price: latest.close,
-      color: lineColor,
-      axisLabelColor: lineColor,
-    });
+    if (
+      this.lockedPriceRange
+      && (latest.high > this.lockedPriceRange.to || latest.low < this.lockedPriceRange.from)
+    ) this.updateVisiblePriceScale();
+    this.syncCurrentPriceLine(latest);
     this.renderLatestOhlc();
     this.clearMarketError();
     this.updateCountdown();
+    this.extremaOverlay?.update();
+  }
+
+  private syncCurrentPriceLine(candle: TradingCandle) {
+    if (!this.candleSeries) return;
+    if (!this.chartSettings.showPriceLine) {
+      if (this.priceLine) this.candleSeries.removePriceLine(this.priceLine);
+      this.priceLine = null;
+      return;
+    }
+    const lineColor = candle.close >= candle.open
+      ? this.chartSettings.risingColor
+      : this.chartSettings.fallingColor;
+    const options = {
+      price: candle.close,
+      color: lineColor,
+      lineWidth: 1 as const,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: false,
+      title: "",
+      axisLabelColor: lineColor,
+      axisLabelTextColor: "#ffffff",
+    };
+    if (this.priceLine) this.priceLine.applyOptions(options);
+    else this.priceLine = this.candleSeries.createPriceLine(options);
   }
 
   private commitLoadedSelection() {
@@ -11759,10 +11786,13 @@ class TradingExpertMarketWorkspace {
         "aria-label",
         `K线结束倒计时 ${hours}小时${minutes}分${seconds}秒`,
       );
-      this.updateCurrentPriceLabel();
     } else {
       this.hideCandleCountdown();
     }
+    // The live price tag is independent from the optional countdown. Keeping
+    // this outside the countdown branch lets every aggTrade repaint move the
+    // axis tag in the same animation frame even when countdown display is off.
+    this.updateCurrentPriceLabel();
     if (this.stats) {
       if (this.selectedProvider !== "binance" || this.selectedMarketType !== "perpetual") {
         this.setStat("funding", "--");
@@ -11996,6 +12026,16 @@ class TradingExpertMarketWorkspace {
       crosshairMarkerVisible: false,
     });
     this.addPrimarySeries();
+    this.extremaOverlay?.destroy();
+    this.extremaOverlay = new TradingChartExtremaOverlay({
+      root: this.viewport,
+      chartElement: this.chartElement,
+      getChart: () => this.chart,
+      getSeries: () => this.candleSeries,
+      getCandles: () => this.chartCandles,
+      formatPrice: formatFocusedPrice,
+      timeOffsetSeconds: CHINA_TIME_OFFSET_SECONDS,
+    });
     this.createMainIndicatorSeries();
     this.chart.subscribeCrosshairMove((parameter: any) => {
       if (typeof parameter?.time === "number") {
@@ -12017,6 +12057,7 @@ class TradingExpertMarketWorkspace {
       if (range?.from < 10) void this.loadMoreHistory();
       this.synchronizeVisibleChartGeometry();
       this.queueVisiblePriceScaleUpdate();
+      this.extremaOverlay?.schedule();
     });
     this.resizeObserver = new ResizeObserver(() => {
       this.chart?.applyOptions({
@@ -12030,6 +12071,7 @@ class TradingExpertMarketWorkspace {
         this.paintAlertSimulationMarker();
         this.renderVolumeProfile(false);
         this.drawingController?.redraw();
+        this.extremaOverlay?.update();
       });
     });
     this.resizeObserver.observe(this.chartElement);
@@ -12780,6 +12822,7 @@ class TradingExpertMarketWorkspace {
     this.hideCrosshairTimeLabel();
     this.hideCrosshairPriceLabel();
     this.currentPriceElement.hidden = true;
+    this.extremaOverlay?.clear();
     this.hideCandleCountdown();
     clearTradingVolumeProfileLayer(this.volumeProfileLayer);
     this.mainIndicatorLegendElement.replaceChildren();
@@ -12825,22 +12868,7 @@ class TradingExpertMarketWorkspace {
       this.renderIndicatorAnalysisPatches();
       const lastRaw = deduped[deduped.length - 1];
       this.applyMarketPriceFormat(lastRaw.close);
-      const lineColor = lastRaw.close >= lastRaw.open
-        ? this.chartSettings.risingColor
-        : this.chartSettings.fallingColor;
-      if (this.priceLine) this.candleSeries.removePriceLine(this.priceLine);
-      this.priceLine = this.chartSettings.showPriceLine
-        ? this.candleSeries.createPriceLine({
-            price: lastRaw.close,
-            color: lineColor,
-            lineWidth: 1,
-            lineStyle: LineStyle.Dashed,
-            axisLabelVisible: false,
-            title: "",
-            axisLabelColor: lineColor,
-            axisLabelTextColor: "#ffffff",
-          })
-        : null;
+      this.syncCurrentPriceLine(lastRaw);
       this.renderLatestOhlc();
       if (this.alertSimulationState && this.alertSimulationSeries) {
         // Live candle refreshes preserve the current viewport by default. A
@@ -12868,6 +12896,7 @@ class TradingExpertMarketWorkspace {
     }
     this.lastLiveChartFullRefreshAt = Date.now();
     this.updateCountdown();
+    this.extremaOverlay?.schedule();
   }
 
   private prepareChartViewportReset() {
@@ -13392,6 +13421,8 @@ class TradingExpertMarketWorkspace {
     this.splitPanes = [];
     this.drawingController?.destroy();
     this.drawingController = null;
+    this.extremaOverlay?.destroy();
+    this.extremaOverlay = null;
     this.host.removeEventListener("click", this.handleClick);
     this.favoriteTickerBar.removeEventListener("click", this.handleFavoriteTickerClick);
     this.favoriteTickerBar.removeEventListener("keydown", this.handleFavoriteTickerKeyDown);

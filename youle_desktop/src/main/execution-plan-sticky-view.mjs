@@ -118,6 +118,29 @@ export function executionPlanStickyResizedBounds(input = {}) {
   };
 }
 
+export function executionPlanStickyMovedBounds(input = {}) {
+  const startBounds = input.startBounds || {};
+  const startPoint = input.startPoint || {};
+  const currentPoint = input.currentPoint || {};
+  const workArea = input.workArea || {};
+  const startX = finiteNumber(startBounds.x, 0);
+  const startY = finiteNumber(startBounds.y, 0);
+  const width = Math.max(EXECUTION_PLAN_STICKY_MIN_WIDTH, finiteNumber(startBounds.width, EXECUTION_PLAN_STICKY_MIN_WIDTH));
+  const height = Math.max(EXECUTION_PLAN_STICKY_MIN_HEIGHT, finiteNumber(startBounds.height, EXECUTION_PLAN_STICKY_MIN_HEIGHT));
+  const workX = finiteNumber(workArea.x, startX - 10_000);
+  const workY = finiteNumber(workArea.y, startY - 10_000);
+  const workRight = workX + Math.max(width, finiteNumber(workArea.width, 20_000));
+  const workBottom = workY + Math.max(height, finiteNumber(workArea.height, 20_000));
+  const deltaX = finiteNumber(currentPoint.x, 0) - finiteNumber(startPoint.x, 0);
+  const deltaY = finiteNumber(currentPoint.y, 0) - finiteNumber(startPoint.y, 0);
+  return {
+    x: Math.round(Math.max(workX, Math.min(startX + deltaX, workRight - width))),
+    y: Math.round(Math.max(workY, Math.min(startY + deltaY, workBottom - height))),
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -155,7 +178,8 @@ export function executionPlanStickyHtml(input = {}) {
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; }
     body { padding: 8px; }
-    .card { position: relative; display: flex; width: 100%; height: 100%; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); color: var(--text); padding: 18px 17px 14px; -webkit-app-region: drag; user-select: none; }
+    .card { position: relative; display: flex; width: 100%; height: 100%; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); color: var(--text); padding: 18px 17px 14px; cursor: grab; -webkit-app-region: no-drag; user-select: none; }
+    .card.dragging { cursor: grabbing; }
     h1 { margin: 0 126px 11px 0; color: var(--text); font-size: ${payload.fontSize + 1}px; font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; }
     .content { min-height: 0; overflow: auto; color: var(--secondary); font-size: ${payload.fontSize}px; line-height: 1.72; scrollbar-color: color-mix(in srgb, var(--secondary) 42%, transparent) transparent; scrollbar-width: thin; }
     p { margin: 0 0 3px; overflow-wrap: anywhere; }
@@ -179,7 +203,7 @@ export function executionPlanStickyHtml(input = {}) {
     .resize-handle:is(.ne, .sw)::before { content: "⤢"; }
     .resize-handle:hover, .resize-handle.active { color: var(--text); opacity: 1; }
     .resize-handle.active::before { transform: scale(.9); }
-    @media (hover: none) { .controls { opacity: 1; pointer-events: auto; transform: none; } }
+    @media (any-hover: none) { .controls { opacity: 1; pointer-events: auto; transform: none; } }
     @media (prefers-reduced-motion: reduce) { .controls, .sticky-action, .resize-handle { transition: none; } }
   </style>
 </head>
@@ -200,7 +224,7 @@ export function executionPlanStickyHtml(input = {}) {
   <script nonce="haolo-sticky-resize">
     (() => {
       const resizeApi = window.haoloExecutionPlanSticky;
-      if (!resizeApi?.resizeLive || !resizeApi?.resizeCommit) return;
+      if (!resizeApi) return;
       document.querySelectorAll("[data-resize-corner]").forEach((handle) => {
         let pointerId = null;
         let sessionId = "";
@@ -256,6 +280,59 @@ export function executionPlanStickyHtml(input = {}) {
         window.addEventListener("pointercancel", finish, true);
         window.addEventListener("blur", finish);
       });
+      const card = document.querySelector(".card");
+      if (!card || !resizeApi.moveLive || !resizeApi.moveCommit) return;
+      let movePointerId = null;
+      let moveSessionId = "";
+      let moveStartPoint = null;
+      let latestMovePoint = null;
+      let moveAnimationFrame = 0;
+      const movePayload = () => ({
+        sessionId: moveSessionId,
+        startPoint: moveStartPoint,
+        point: latestMovePoint,
+      });
+      const sendMove = () => {
+        moveAnimationFrame = 0;
+        if (movePointerId === null || !latestMovePoint) return;
+        resizeApi.moveLive(movePayload());
+      };
+      card.addEventListener("pointerdown", (event) => {
+        if (movePointerId !== null || event.button !== 0 || event.target.closest(".controls")) return;
+        event.preventDefault();
+        movePointerId = event.pointerId;
+        moveSessionId = "sticky-move-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+        moveStartPoint = { x: event.screenX, y: event.screenY };
+        latestMovePoint = moveStartPoint;
+        card.setPointerCapture(movePointerId);
+        card.classList.add("dragging");
+      });
+      card.addEventListener("pointermove", (event) => {
+        if (event.pointerId !== movePointerId) return;
+        latestMovePoint = { x: event.screenX, y: event.screenY };
+        if (!moveAnimationFrame) moveAnimationFrame = requestAnimationFrame(sendMove);
+      });
+      const finishMove = (event) => {
+        if (movePointerId === null || (event.pointerId != null && event.pointerId !== movePointerId)) return;
+        if (Number.isFinite(event.screenX) && Number.isFinite(event.screenY)) {
+          latestMovePoint = { x: event.screenX, y: event.screenY };
+        }
+        if (moveAnimationFrame) cancelAnimationFrame(moveAnimationFrame);
+        moveAnimationFrame = 0;
+        if (latestMovePoint) resizeApi.moveCommit(movePayload());
+        if (card.hasPointerCapture(movePointerId)) card.releasePointerCapture(movePointerId);
+        card.classList.remove("dragging");
+        movePointerId = null;
+        moveSessionId = "";
+        moveStartPoint = null;
+        latestMovePoint = null;
+      };
+      card.addEventListener("pointerup", finishMove);
+      card.addEventListener("pointercancel", finishMove);
+      card.addEventListener("lostpointercapture", finishMove);
+      window.addEventListener("pointerup", finishMove, true);
+      window.addEventListener("pointercancel", finishMove, true);
+      window.addEventListener("blur", finishMove);
     })();
   </script>
 </body>

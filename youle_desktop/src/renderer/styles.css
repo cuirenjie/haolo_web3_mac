@@ -21375,7 +21375,6 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   --recharge-details-text: #152136;
   --recharge-details-muted: #94a0af;
   --recharge-details-accent: #168ee9;
-  --recharge-details-divider: rgba(165, 184, 207, 0.22);
   --recharge-details-warning-text: #8a4b00;
   --recharge-details-warning-bg: rgba(237, 155, 22, 0.14);
   --recharge-details-warning-border: rgba(181, 103, 0, 0.28);
@@ -21405,61 +21404,6 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   grid-template-columns: minmax(0, 1fr) 194px;
   align-items: center;
   gap: 40px;
-}
-
-.recharge-payment-summary {
-  display: grid;
-  min-width: 0;
-  align-content: center;
-  gap: 23px;
-}
-
-.recharge-payment-summary-row {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: 76px minmax(0, 1fr);
-  align-items: center;
-  gap: 18px;
-}
-
-.recharge-payment-summary-row > span {
-  color: var(--recharge-details-label);
-  font-size: calc(13px + var(--app-font-size-offset));
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
-.recharge-payment-summary-row.amount strong {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  color: var(--recharge-details-text);
-  font-size: calc(26px + var(--app-font-size-offset));
-  font-variant-numeric: tabular-nums;
-  font-weight: 720;
-  line-height: 1;
-}
-
-.recharge-payment-summary-row.amount small {
-  font-size: calc(13px + var(--app-font-size-offset));
-  font-weight: 650;
-}
-
-.recharge-payment-summary-row.address > div {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.recharge-payment-summary-row.address code {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--recharge-details-text);
-  font-family: inherit;
-  font-size: calc(13px + var(--app-font-size-offset));
-  font-variant-numeric: tabular-nums;
-  line-height: 1.5;
 }
 
 .recharge-payment-address-copy {
@@ -21505,24 +21449,6 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
 .recharge-payment-address-copy:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--recharge-details-accent) 72%, transparent);
   outline-offset: 2px;
-}
-
-.recharge-payment-network-note {
-  margin: -10px 0 0 94px;
-  color: var(--recharge-details-muted);
-  font-size: calc(16px + var(--app-font-size-offset));
-  line-height: 1.5;
-}
-
-.recharge-payment-network-warning {
-  padding: 2px 6px;
-  border: 1px solid var(--recharge-details-warning-border);
-  border-radius: 5px;
-  background: var(--recharge-details-warning-bg);
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-  color: var(--recharge-details-warning-text);
-  font-weight: 750;
 }
 
 .recharge-payment-underpaid {
@@ -21724,7 +21650,14 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
 
 .recharge-payment-qr-column {
   display: grid;
+  align-content: center;
   justify-items: end;
+  gap: 12px;
+}
+
+.recharge-payment-qr-column > .recharge-payment-internal-countdown {
+  width: 194px;
+  text-align: center;
 }
 
 .recharge-payment-qr-frame {
@@ -21814,44 +21747,6 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   color: #d95757;
   content: var(--i18n-qr-generation-failed);
   font-size: calc(11px + var(--app-font-size-offset));
-}
-
-.recharge-payment-progress {
-  display: flex;
-  grid-column: 1 / -1;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  border-top: 1px solid var(--recharge-details-divider);
-  padding-top: 16px;
-  color: var(--recharge-details-muted);
-  font-size: calc(12px + var(--app-font-size-offset));
-}
-
-.recharge-payment-detecting,
-.recharge-payment-countdown {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-}
-
-.recharge-payment-progress svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.6;
-}
-
-.recharge-payment-detecting svg {
-  animation: recharge-payment-spin 1.6s linear infinite;
-}
-
-.recharge-payment-countdown time {
-  font-variant-numeric: tabular-nums;
 }
 
 .recharge-payment-agreement {
@@ -21972,7 +21867,6 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
 
 @media (prefers-reduced-motion: reduce) {
   .recharge-payment-qr-frame.loading::before,
-  .recharge-payment-detecting svg,
   .recharge-payment-internal-detecting svg,
   .recharge-payment-state-icon svg.spin {
     animation: none;
@@ -22012,7 +21906,6 @@ html[data-theme="dark"] .recharge-payment-details {
   --recharge-details-text: #f1f5fa;
   --recharge-details-muted: #7f8d9f;
   --recharge-details-accent: #55aaff;
-  --recharge-details-divider: rgba(145, 164, 190, 0.14);
   --recharge-details-warning-text: #ffd27a;
   --recharge-details-warning-bg: rgba(242, 173, 56, 0.15);
   --recharge-details-warning-border: rgba(255, 196, 92, 0.34);
@@ -22228,7 +22121,8 @@ html[data-theme="dark"] .recharge-payment-state.manual .recharge-payment-state-i
     padding-inline: 24px;
   }
 
-  .recharge-payment-details-main {
+  .recharge-payment-details-main,
+  .recharge-payment-details-main.internal-transfer {
     grid-template-columns: 1fr;
   }
 
@@ -22249,11 +22143,6 @@ html[data-theme="dark"] .recharge-payment-state.manual .recharge-payment-state-i
 
   .recharge-payment-details {
     padding: 22px 16px 18px;
-  }
-
-  .recharge-payment-summary-row {
-    grid-template-columns: 1fr;
-    gap: 6px;
   }
 
   .recharge-payment-internal-step {
@@ -22277,18 +22166,10 @@ html[data-theme="dark"] .recharge-payment-state.manual .recharge-payment-state-i
     margin-left: 0;
   }
 
-  .recharge-payment-network-note {
-    margin-left: 0;
-  }
-
   .recharge-payment-underpaid {
     margin-left: 0;
   }
 
-  .recharge-payment-progress {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }
 
 /* Recharge page: give the light theme a clearer surface hierarchy and calmer depth. */
@@ -33766,6 +33647,8 @@ html[data-theme="dark"]
   --trading-market-positive: #12a66a;
   --trading-market-negative: #e54865;
   --trading-market-current-price: #269d4d;
+  --trading-market-price-label-font-size: calc(11px + var(--app-font-size-offset));
+  --trading-market-extrema-label: #111318;
   --trading-market-ohlc-label: #000000;
   --trading-market-ohlc-positive: #078c53;
   --trading-market-ohlc-negative: #d63857;
@@ -37018,6 +36901,41 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
   display: none !important;
 }
 
+.trading-market-extrema-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.trading-market-extrema-label {
+  position: absolute;
+  display: block;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  color: var(--trading-market-extrema-label);
+  font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+  font-size: var(--trading-market-price-label-font-size);
+  font-feature-settings: "zero" 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0;
+  text-overflow: clip;
+  text-shadow:
+    -1px 0 var(--trading-market-panel),
+    0 1px var(--trading-market-panel),
+    1px 0 var(--trading-market-panel),
+    0 -1px var(--trading-market-panel);
+  white-space: nowrap;
+}
+
+.trading-market-extrema-label[hidden] {
+  display: none !important;
+}
+
 .trading-market-vpvr-bar {
   fill: color-mix(
     in srgb,
@@ -37168,7 +37086,7 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   color: #ffffff;
   padding: 0 6px;
   font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
-  font-size: calc(11px + var(--app-font-size-offset));
+  font-size: var(--trading-market-price-label-font-size);
   font-feature-settings: "zero" 0;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
@@ -39069,6 +38987,7 @@ html[data-theme="dark"] .trading-expert-market {
   --trading-market-positive: #41d37c;
   --trading-market-negative: #ff4f75;
   --trading-market-current-price: #45c979;
+  --trading-market-extrema-label: #f2f4f7;
   --trading-market-ohlc-label: #f5f7fa;
   --trading-market-ohlc-positive: #52dc88;
   --trading-market-ohlc-negative: #ff718e;
