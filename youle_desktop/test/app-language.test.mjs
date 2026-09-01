@@ -165,13 +165,15 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("application language safely defaults to English and exposes three supported locales", () => {
+test("application language safely defaults to Simplified Chinese and exposes three supported locales", () => {
   assert.equal(APP_LANGUAGE_STORAGE_KEY, "haolo.appearance.language");
-  assert.equal(loadAppLanguage({ getItem: () => null }), "en");
-  assert.equal(loadAppLanguage({ getItem: () => "unsupported" }), "en");
+  assert.equal(translateAppText("设置"), "设置");
+  assert.equal(loadAppLanguage({ getItem: () => null }), "zh-CN");
+  assert.equal(loadAppLanguage({ getItem: () => "unsupported" }), "zh-CN");
+  assert.equal(loadAppLanguage({ getItem: () => "en" }), "en");
   assert.equal(loadAppLanguage({ getItem: () => "zh-CN" }), "zh-CN");
   assert.equal(loadAppLanguage({ getItem: () => "zh-TW" }), "zh-TW");
-  assert.equal(loadAppLanguage({ getItem: () => { throw new Error("blocked"); } }), "en");
+  assert.equal(loadAppLanguage({ getItem: () => { throw new Error("blocked"); } }), "zh-CN");
   assert.equal(readStoredAppLanguage({ getItem: () => null }), null);
   assert.equal(readStoredAppLanguage({ getItem: () => "unsupported" }), null);
   assert.equal(readStoredAppLanguage({ getItem: () => "zh-CN" }), "zh-CN");
@@ -202,6 +204,7 @@ test("application language safely defaults to English and exposes three supporte
     userSelected: true,
   }), "zh-CN");
   assert.equal(normalizeAppLanguage("en"), "en");
+  assert.equal(normalizeAppLanguage("unsupported"), "zh-CN");
   assert.equal(appLanguageLocale("en"), "en-US");
   assert.equal(appLanguageLocale("zh-CN"), "zh-CN");
 });
@@ -369,13 +372,13 @@ test("language initializes before boot and reconciles renderer and main-process 
   assert.doesNotMatch(sourceBlock(source, "ensureBrowserDesktopApi();", 'document.addEventListener("visibilitychange"'), /api\.setAppLanguage/);
   assert.match(source, /reconcileStartupAppLanguage\(defaults\.language, defaults\.languagePreferenceStored === true\)/);
   assert.match(source, /resolveAppLanguagePreference\(\{[\s\S]*mainPreferenceStored,[\s\S]*rendererLanguage: storedRendererLanguage,[\s\S]*userSelected: appLanguageSelectionRevision > 0/);
-  assert.match(main, /DEFAULT_APP_PREFERENCES = Object\.freeze\(\{\s*theme: "dark",\s*language: "en"/s);
-  assert.match(main, /function normalizeAppLanguage\(value\)/);
+  assert.match(main, /DEFAULT_APP_PREFERENCES = Object\.freeze\(\{\s*theme: "dark",\s*language: "zh-CN"/s);
+  assert.match(main, /function normalizeAppLanguage\(value\) \{\s*return value === "en" \|\| value === "zh-TW" \? value : "zh-CN";\s*\}/s);
   assert.match(main, /function appLanguagePreferenceStored\(\)/);
   assert.match(main, /languagePreferenceStored: appLanguagePreferenceStored\(\)/);
   assert.match(main, /ipcMain\.handle\("app:setLanguage"/);
   assert.match(preload, /setAppLanguage: \(params\) => ipcRenderer\.invoke\("app:setLanguage", params\)/);
-  assert.match(index, /<html lang="en-US" data-language="en">/);
+  assert.match(index, /<html lang="zh-CN" data-language="zh-CN">/);
 });
 
 test("language control defines complete light and dark interaction states", async () => {

@@ -734,7 +734,7 @@ const SKIP_LOCALIZATION_SELECTOR = [
   ".settings-storage-copy strong",
 ].join(",");
 
-let currentAppLanguage = "en";
+let currentAppLanguage = "zh-CN";
 let traditionalCharacterMap = null;
 let simplifiedCharacterMap = null;
 let languageObserver = null;
@@ -781,7 +781,7 @@ export function isAppLanguage(value) {
 }
 
 export function normalizeAppLanguage(value) {
-  return isAppLanguage(value) ? value : "en";
+  return isAppLanguage(value) ? value : "zh-CN";
 }
 
 export function readStoredAppLanguage(storage = globalThis.localStorage) {
@@ -794,11 +794,11 @@ export function readStoredAppLanguage(storage = globalThis.localStorage) {
 }
 
 export function loadAppLanguage(storage = globalThis.localStorage) {
-  return readStoredAppLanguage(storage) || "en";
+  return readStoredAppLanguage(storage) || "zh-CN";
 }
 
 export function resolveAppLanguagePreference({
-  currentLanguage = "en",
+  currentLanguage = "zh-CN",
   mainLanguage = null,
   mainPreferenceStored = false,
   rendererLanguage = null,
