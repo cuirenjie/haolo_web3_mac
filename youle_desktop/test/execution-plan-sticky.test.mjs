@@ -8,6 +8,7 @@ import {
   executionPlanStickyBounds,
   executionPlanStickyFontSize,
   executionPlanStickyHtml,
+  executionPlanStickyMovedBounds,
   executionPlanStickyResizedBounds,
   normalizeExecutionPlanStickyPayload,
 } from "../src/main/execution-plan-sticky-view.mjs";
@@ -42,6 +43,15 @@ test("desktop execution-plan sticky payloads are bounded and normalized", () => 
   assert.equal(executionPlanStickyFontSize(11, -1), 11);
   assert.ok(executionPlanStickyBounds({ ...normalized, fontSize: 20 }).width > executionPlanStickyBounds(normalized).width);
   assert.deepEqual(
+    executionPlanStickyMovedBounds({
+      startBounds: { x: 100, y: 100, width: 400, height: 300 },
+      startPoint: { x: 300, y: 200 },
+      currentPoint: { x: 430, y: 280 },
+      workArea: { x: 0, y: 0, width: 1000, height: 800 },
+    }),
+    { x: 230, y: 180, width: 400, height: 300 },
+  );
+  assert.deepEqual(
     executionPlanStickyResizedBounds({
       corner: "nw",
       startBounds: { x: 100, y: 100, width: 400, height: 300 },
@@ -73,9 +83,12 @@ test("desktop execution-plan sticky HTML is escaped, draggable, themed, and full
 
   assert.match(html, /html lang="zh-CN" data-theme="dark"/);
   assert.match(html, /html\[data-theme="dark"\]/);
-  assert.match(html, /-webkit-app-region: drag/);
+  assert.match(html, /\.card\s*\{[^}]*cursor:\s*grab[^}]*-webkit-app-region:\s*no-drag/s);
   assert.doesNotMatch(html, /\.card\s*\{[^}]*box-shadow:/s);
+  assert.match(html, /\.controls\s*\{[^}]*opacity:\s*0[^}]*pointer-events:\s*none/s);
   assert.match(html, /\.card:hover \.controls/);
+  assert.match(html, /@media \(any-hover: none\)\s*\{\s*\.controls\s*\{[^}]*opacity:\s*1[^}]*pointer-events:\s*auto/s);
+  assert.doesNotMatch(html, /@media \(hover: none\)/);
   assert.match(html, /data-resize-corner="nw"[\s\S]*data-resize-corner="ne"[\s\S]*data-resize-corner="sw"[\s\S]*data-resize-corner="se"/);
   assert.match(html, /\.resize-handle:hover, \.resize-handle\.active[\s\S]*opacity: 1/);
   assert.doesNotMatch(html, /\.resize-handle::before\s*\{[^}]*\b(?:border|border-radius|background|box-shadow):/s);
@@ -85,6 +98,8 @@ test("desktop execution-plan sticky HTML is escaped, draggable, themed, and full
   assert.match(html, /resizeApi\.resizeLive\(payload\(\)\)/);
   assert.match(html, /requestAnimationFrame\(sendMove\)/);
   assert.match(html, /resizeApi\.resizeCommit\(payload\(\)\)[\s\S]*pointerup/);
+  assert.match(html, /resizeApi\.moveLive\(movePayload\(\)\)[\s\S]*card\.addEventListener\("pointerdown"/);
+  assert.match(html, /resizeApi\.moveCommit\(movePayload\(\)\)[\s\S]*card\.addEventListener\("pointerup"/);
   assert.match(html, /html\[data-theme="dark"\][\s\S]*--control:/);
   assert.match(html, /p strong \{[^}]*font-weight: 700/s);
   assert.match(html, /haolo-execution-plan-sticky:\/\/zoom-in[\s\S]*放大/);
@@ -109,6 +124,8 @@ test("desktop execution-plan sticky windows stay above the desktop, synchronize 
   assert.match(sticky, /minWidth: EXECUTION_PLAN_STICKY_MIN_WIDTH[\s\S]*minHeight: EXECUTION_PLAN_STICKY_MIN_HEIGHT/);
   assert.match(sticky, /preload: STICKY_PRELOAD_PATH/);
   assert.match(stickyPreload, /contextBridge\.exposeInMainWorld\("haoloExecutionPlanSticky"/);
+  assert.match(stickyPreload, /moveLive:[\s\S]*ipcRenderer\.send\("executionPlanSticky:move-live"/);
+  assert.match(stickyPreload, /moveCommit:[\s\S]*ipcRenderer\.send\("executionPlanSticky:move-commit"/);
   assert.match(stickyPreload, /resizeLive:[\s\S]*ipcRenderer\.send\("executionPlanSticky:resize-live"/);
   assert.match(stickyPreload, /resizeCommit:[\s\S]*ipcRenderer\.send\("executionPlanSticky:resize-commit"/);
   assert.match(sticky, /window\.setAlwaysOnTop\(true, "screen-saver"\)/);
@@ -119,6 +136,9 @@ test("desktop execution-plan sticky windows stay above the desktop, synchronize 
   assert.match(sticky, /ipcMain\.on\("executionPlanSticky:resize-live"[\s\S]*resizeStickyWindowFromSender/);
   assert.match(sticky, /ipcMain\.on\("executionPlanSticky:resize-commit"[\s\S]*resizeStickyWindowFromSender\(event\.sender, params, true\)/);
   assert.match(sticky, /executionPlanStickyResizedBounds/);
+  assert.match(sticky, /ipcMain\.on\("executionPlanSticky:move-live"[\s\S]*moveStickyWindowFromSender/);
+  assert.match(sticky, /ipcMain\.on\("executionPlanSticky:move-commit"[\s\S]*moveStickyWindowFromSender\(event\.sender, params, true\)/);
+  assert.match(sticky, /executionPlanStickyMovedBounds/);
   assert.match(sticky, /action === "delete"[\s\S]*window\.close\(\)/);
   assert.doesNotMatch(sticky, /action === "delete"[\s\S]*for \(const state of stickyWindows\.values\(\)\)/);
 });

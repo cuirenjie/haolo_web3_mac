@@ -3271,7 +3271,7 @@ export const GENERATED_ENGLISH_UI_PHRASES = Object.freeze({
   "正在规划任务": "Mission planning.",
   "正在后台模拟新预警，客户端可继续操作…": "Simulates new alerts on the backstage, and the client can continue to operate...",
   "正在绘制波浪计数": "Drawing wave count",
-  "正在绘制缠论结构": "Drawing tangent structure",
+  "正在绘制盘面结构": "Drawing chart structure",
   "正在绘制订单流结构": "Drawing order stream structure",
   "正在绘制威科夫阶段": "- I'm drawing up the Vikov phase.",
   "正在获取可用模型，请稍后再试。": "A search is under way for a possible model, and please try again later.",

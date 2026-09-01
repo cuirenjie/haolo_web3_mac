@@ -1961,20 +1961,26 @@ test("Trading Expert uses two-decimal ticks and high-precision highlighted price
     "private updateChartData(options:",
     "private updateVisiblePriceScale()",
   );
+  const syncCurrentPriceLine = sourceBlock(
+    source,
+    "private syncCurrentPriceLine",
+    "private commitLoadedSelection",
+  );
 
   assert.match(source, /background: "#ffffff",\s*text: "#000000"/);
   assert.match(source, /function marketPriceFormatFor[\s\S]*?return \{ \.\.\.MARKET_PRICE_FORMAT \};/);
   assert.match(source, /function marketFocusedPriceFormatFor[\s\S]*?const precision = Math\.max\(MARKET_PRICE_FORMAT\.precision, 6 - integerDigits\)/);
   assert.match(updateChartData, /this\.applyMarketPriceFormat\(lastRaw\.close\)/);
-  assert.match(updateChartData, /const lineColor = lastRaw\.close >= lastRaw\.open[\s\S]*?\? this\.chartSettings\.risingColor[\s\S]*?: this\.chartSettings\.fallingColor/);
-  assert.match(updateChartData, /lineStyle: LineStyle\.Dashed/);
-  assert.match(updateChartData, /axisLabelVisible: false/);
+  assert.match(updateChartData, /this\.syncCurrentPriceLine\(lastRaw\)/);
+  assert.match(syncCurrentPriceLine, /const lineColor = candle\.close >= candle\.open[\s\S]*?\? this\.chartSettings\.risingColor[\s\S]*?: this\.chartSettings\.fallingColor/);
+  assert.match(syncCurrentPriceLine, /lineStyle: LineStyle\.Dashed/);
+  assert.match(syncCurrentPriceLine, /axisLabelVisible: false/);
   assert.match(source, /this\.currentPriceElement\.textContent = formatFocusedPrice\(candle\.close\)/);
   assert.match(source, /this\.crosshairPriceElement\.textContent = formatFocusedPrice\(price\)/);
   assert.match(styles, /--trading-market-current-price: #269d4d;/);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-current-price: #45c979;/);
-  assert.match(updateChartData, /axisLabelColor: lineColor/);
-  assert.match(updateChartData, /axisLabelTextColor: "#ffffff"/);
+  assert.match(syncCurrentPriceLine, /axisLabelColor: lineColor/);
+  assert.match(syncCurrentPriceLine, /axisLabelTextColor: "#ffffff"/);
 });
 
 test("Trading Expert defaults to solid Binance candles and can apply configured candle styling", async () => {
@@ -2345,7 +2351,7 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   const restartBlock = sourceBlock(source, "private async restartMarketData", "private refreshMarketDataFallback");
   const favoritePaintBlock = sourceBlock(source, "private scheduleFavoriteTickerPaint", "private async refreshFavoriteTickerFallback");
 
-  assert.match(source, /const MARKET_LIVE_PAINT_INTERVAL_MS = 100/);
+  assert.doesNotMatch(source, /MARKET_LIVE_PAINT_INTERVAL_MS/);
   assert.match(source, /const MARKET_BACKGROUND_PAINT_INTERVAL_MS = 1_000/);
   assert.match(source, /const MARKET_LIVE_FULL_REFRESH_INTERVAL_MS = 1_000/);
   assert.match(source, /const MARKET_SOCKET_STALE_MS = 2_500/);
@@ -2358,8 +2364,8 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.match(socketBlock, /`\$\{symbol\}@aggTrade`/);
   assert.match(klineBlock, /this\.scheduleLiveChartPaint\(\)/);
   assert.match(tradeBlock, /if \(source\.sourceInterval\)[\s\S]*?close: price[\s\S]*?this\.applyLiveSourceCandle\(incoming, source\)[\s\S]*?this\.scheduleLiveChartPaint\(\)/);
-  assert.match(paintBlock, /document\.hidden[\s\S]*?MARKET_BACKGROUND_PAINT_INTERVAL_MS[\s\S]*?MARKET_LIVE_PAINT_INTERVAL_MS/);
-  assert.match(paintBlock, /window\.requestAnimationFrame/);
+  assert.match(paintBlock, /if \(document\.hidden\)[\s\S]*?MARKET_BACKGROUND_PAINT_INTERVAL_MS/);
+  assert.match(paintBlock, /this\.liveChartPaintFrame = window\.requestAnimationFrame/);
   assert.match(paintBlock, /Date\.now\(\) - this\.lastLiveChartFullRefreshAt >= MARKET_LIVE_FULL_REFRESH_INTERVAL_MS[\s\S]*?this\.updateChartData\(\)/);
   assert.match(paintBlock, /private paintLatestCandle\(\)[\s\S]*?this\.candleSeries\.update\(display\)/);
   assert.doesNotMatch(paintBlock, /this\.candleSeries\.setData/);

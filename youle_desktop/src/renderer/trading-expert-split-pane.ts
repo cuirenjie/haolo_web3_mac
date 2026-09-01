@@ -11,6 +11,7 @@ import {
   createSeriesMarkers,
 } from "lightweight-charts";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
+import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
 import {
   TRADING_INDICATORS,
   calculateTradingIndicator,
@@ -382,6 +383,7 @@ export class TradingExpertSplitPane {
   private periodMenu: HTMLElement;
   private chart: ReturnType<typeof createChart> | null = null;
   private series: any = null;
+  private extremaOverlay: TradingChartExtremaOverlay | null = null;
   private tdMarkers: any = null;
   private mainIndicatorSeries = new Map<TradingSplitPaneMainIndicatorId, any[]>();
   private mainIndicatorValues = new Map<TradingSplitPaneMainIndicatorId, number[][]>();
@@ -942,6 +944,16 @@ export class TradingExpertSplitPane {
       handleScale: true,
     });
     this.addSeries();
+    this.extremaOverlay?.destroy();
+    this.extremaOverlay = new TradingChartExtremaOverlay({
+      root: this.viewportElement,
+      chartElement: this.chartElement,
+      getChart: () => this.chart,
+      getSeries: () => this.series,
+      getCandles: () => this.candles,
+      formatPrice,
+      timeOffsetSeconds: CHINA_TIME_OFFSET_SECONDS,
+    });
     this.createMainIndicatorSeries();
     this.rebuildIndicatorPanes();
     this.chart.subscribeCrosshairMove((parameter: any) => {
@@ -957,6 +969,7 @@ export class TradingExpertSplitPane {
       if (this.rebuildingIndicatorPanes) return;
       this.renderVolumeProfile(false);
       this.drawingController?.redraw();
+      this.extremaOverlay?.schedule();
     });
     this.resizeObserver = new ResizeObserver(() => {
       this.chart?.applyOptions({
@@ -968,6 +981,7 @@ export class TradingExpertSplitPane {
         this.positionIndicatorLegends();
         this.renderVolumeProfile(false);
         this.drawingController?.redraw();
+        this.extremaOverlay?.update();
       });
     });
     this.resizeObserver.observe(this.chartElement);
@@ -1675,7 +1689,10 @@ export class TradingExpertSplitPane {
       this.updateData(previousCandles);
       if (resetViewport) this.chart?.timeScale().fitContent();
       this.renderOhlc(candles[candles.length - 1], candles[candles.length - 1].time + CHINA_TIME_OFFSET_SECONDS);
-      window.requestAnimationFrame(() => this.drawingController?.redraw());
+      window.requestAnimationFrame(() => {
+        this.drawingController?.redraw();
+        this.extremaOverlay?.update();
+      });
     } catch {
       if (this.destroyed || generation !== this.loadGeneration) return;
       if (showLoading || this.candles.length === 0) this.errorElement.hidden = false;
@@ -1712,6 +1729,7 @@ export class TradingExpertSplitPane {
     }
     this.updateMainIndicatorData();
     this.updateIndicatorData();
+    this.extremaOverlay?.schedule();
   }
 
   private renderOhlc(candle: TradingChartCandle, displayTime: number) {
@@ -1753,6 +1771,8 @@ export class TradingExpertSplitPane {
     document.removeEventListener("keydown", this.handleKeyDown);
     this.drawingController?.destroy();
     this.drawingController = null;
+    this.extremaOverlay?.destroy();
+    this.extremaOverlay = null;
     this.chart?.remove();
     this.chart = null;
     this.host.replaceChildren();
