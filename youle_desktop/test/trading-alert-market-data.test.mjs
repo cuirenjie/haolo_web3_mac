@@ -66,6 +66,31 @@ test("simulation history can seed the hub and avoids a second provider history r
   assert.deepEqual(rows.map((row) => row.close), [100, 101]);
 });
 
+test("concurrent alert history warmups share one physical provider request", async () => {
+  const hub = new TradingAlertMarketDataHub();
+  let historyRequests = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  hub.registerAdapter({
+    providerId: "mock",
+    async loadHistory() {
+      historyRequests += 1;
+      await gate;
+      return [candle(1_700_000_000_000), candle(1_700_000_060_000, 101)];
+    },
+    async subscribe() { return async () => {}; },
+  });
+  const first = hub.loadHistory(subscription, 500);
+  const second = hub.loadHistory(subscription, 500);
+  await Promise.resolve();
+  release();
+  const [left, right] = await Promise.all([first, second]);
+  assert.equal(historyRequests, 1);
+  assert.deepEqual(left, right);
+  assert.equal(hub.stats().historyLoads, 1);
+  assert.equal(hub.stats().historyCoalesced, 1);
+});
+
 test("Binance adapter plans and aggregates custom intervals instead of requesting an invalid stream", async () => {
   assert.deepEqual(planBinanceInterval("7m"), {
     interval: "7m", sourceInterval: "1m", sourceMs: 60_000, targetMs: 420_000, aggregate: true,

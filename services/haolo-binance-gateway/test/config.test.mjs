@@ -30,6 +30,10 @@ test("production config requires a separate strong metrics token", () => {
   assert.deepEqual(config.privateAllowedHosts, ["api.binance.com", "fapi.binance.com"]);
   assert.equal(config.privateEgressShardId, "sg-a");
   assert.equal(config.privateEgressShards[0].proxyUrl, "https://sg-a.private.haolo.example");
+  assert.equal(config.downstreamRequestsPerMinute, 300);
+  assert.equal(config.downstreamBurstRequestsPerMinute, 1_200);
+  assert.equal(config.publicFuturesUpstreamWeightPerMinute, 1_440);
+  assert.equal(config.publicSpotUpstreamWeightPerMinute, 3_600);
 });
 
 test("production config fails closed without Redis or an explicit egress shard directory", () => {

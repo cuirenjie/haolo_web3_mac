@@ -10,6 +10,9 @@ test("public market routes are strictly allowlisted and normalized", () => {
   assert.equal(route.marketType, "futures");
   assert.equal(route.upstream.origin, "https://fapi.binance.com");
   assert.equal(route.upstream.pathname, "/fapi/v1/klines");
+  assert.equal(route.weight, 5);
+  const unicodeRoute = resolvePublicMarketRequest("/fapi/v1/klines?symbol=%E9%BE%99%E8%99%BEUSDT&interval=1m&limit=2", config);
+  assert.equal(unicodeRoute.upstream.searchParams.get("symbol"), "龙虾USDT");
   assert.throws(() => resolvePublicMarketRequest("/fapi/v1/order?symbol=BTCUSDT", config), /not allowed/);
   assert.throws(() => resolvePublicMarketRequest("/fapi/v1/klines?symbol=../../etc&interval=1m", config), /invalid symbol/);
   assert.throws(() => resolvePublicMarketRequest("/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=9999", config), /invalid limit/);
@@ -19,6 +22,7 @@ test("REST gateway coalesces and caches identical requests", async () => {
   const config = baseConfig();
   const cache = new GatewayCache();
   let calls = 0;
+  let admissions = 0;
   const gateway = new BinanceRestGateway({
     config,
     cache,
@@ -29,10 +33,13 @@ test("REST gateway coalesces and caches identical requests", async () => {
     },
   });
   const url = "/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=2";
-  const [first, second] = await Promise.all([gateway.get(url), gateway.get(url)]);
+  const options = { beforeUpstream(route) { admissions += 1; assert.equal(route.weight, 1); } };
+  const [first, second] = await Promise.all([gateway.get(url, options), gateway.get(url, options)]);
   assert.equal(calls, 1);
+  assert.equal(admissions, 1);
   assert.deepEqual(first.value, second.value);
-  assert.equal((await gateway.get(url)).cacheStatus, "HIT");
+  assert.equal((await gateway.get(url, options)).cacheStatus, "HIT");
+  assert.equal(admissions, 1, "fresh cache hits must not consume upstream admission budget");
 });
 
 test("REST gateway serves stale data during Binance 429 cooldown", async () => {

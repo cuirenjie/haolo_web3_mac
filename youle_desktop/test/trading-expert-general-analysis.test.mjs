@@ -503,10 +503,12 @@ test("renderer route prioritizes explicit targets, verifies the loaded chart, an
   assert.match(marketSource, /自动扩大画布到 \$\{event\.toCount\} 根再计算\$\{analysisName\}/);
   assert.match(marketSource, /focusAnalysisCandles[\s\S]*timeScale\(\)\.setVisibleRange/);
   assert.match(marketSource, /if \(request\.drawingRequested !== false\)[\s\S]*?commitTradingAnalysisDrawingPatch/);
-  assert.match(marketSource, /if \(!targetWorkspace\.analysisDrawingTargetMatches\(patch, paneIndex\)\)/);
-  assert.match(marketSource, /绘图目标与当前行情不一致/);
+  assert.match(marketSource, /patch\.marketId !== currentJob\.marketId \|\| patch\.interval !== currentJob\.interval/);
+  assert.match(marketSource, /绘图目标与任务快照不一致/);
+  assert.match(marketSource, /activeWorkspace\?\.drawingStorageSessionMatches\(currentJob\.storageSessionId\)/);
   assert.match(marketSource, /const applied = await targetWorkspace\.acceptAnalysisDrawingPatch/);
-  assert.match(marketSource, /if \(applied !== true\)[\s\S]*?translateAppText\("Drawing Patch 未能应用到当前图表", currentJob\.language\)/);
+  assert.match(marketSource, /if \(applied !== true\)[\s\S]*?translateAppText\("Drawing Patch 未能应用到目标会话", currentJob\.language\)/);
+  assert.match(marketSource, /persistTradingAiDrawingPatch\(storageSessionId, patch\)/);
   assert.match(marketSource, /request\.drawingRequested === false[\s\S]*?response\.analysisPlan\.narrative/);
   assert.match(marketSource, /左侧原画线保持不变/);
   assert.match(marketSource, /buildRecoverableTradingAnalysis\(\{/);

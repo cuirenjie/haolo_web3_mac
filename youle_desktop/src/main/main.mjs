@@ -4373,6 +4373,10 @@ function getBinanceRequestGovernor() {
     binanceRequestGovernor = new BinanceRequestGovernor({
       statePath: path.join(app.getPath("userData"), "binance-request-governor.json"),
       maxConcurrency: 6,
+      onDiagnostic: (diagnostic) => {
+        if (!["local_budget", "direct_binance", "gateway_downstream", "gateway_upstream"].includes(diagnostic?.origin)) return;
+        console.warn("[binance-rate-limit]", diagnostic);
+      },
     });
   }
   return binanceRequestGovernor;

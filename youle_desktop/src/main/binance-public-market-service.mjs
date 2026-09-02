@@ -133,13 +133,60 @@ function cacheTtlMs(request) {
   return 1_000;
 }
 
+function cacheStaleTtlMs(request) {
+  if (request.path.endsWith("/exchangeInfo")) return 24 * 60 * 60_000;
+  if (request.path.endsWith("/openInterestHist")) return 5 * 60_000;
+  if (request.path.endsWith("/ticker/24hr")) return 60_000;
+  if (request.path.endsWith("/premiumIndex") || request.path.endsWith("/openInterest")) return 2 * 60_000;
+  if (request.path.endsWith("/klines")) {
+    return new URL(request.url).searchParams.has("endTime") ? 24 * 60 * 60_000 : 5 * 60_000;
+  }
+  // Depth and aggregate trades are order-flow evidence, so their emergency
+  // fallback is deliberately tiny compared with candles and metadata.
+  return 10_000;
+}
+
 function cloneData(value) {
   return value == null ? value : structuredClone(value);
 }
 
-function retryAfterMs(response) {
-  const value = Number(response?.headers?.get?.("retry-after"));
-  return Number.isFinite(value) && value >= 0 ? Math.ceil(value * 1_000) : null;
+function retryAfterMs(response, currentMs = Date.now()) {
+  const raw = String(response?.headers?.get?.("retry-after") || "").trim();
+  if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000);
+  const dateMs = Date.parse(raw);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - currentMs) : null;
+}
+
+function headerNumber(response, name) {
+  const raw = response?.headers?.get?.(name);
+  if (raw == null || String(raw).trim() === "") return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function responseDiagnostics(response) {
+  const status = Number(response?.status || 0);
+  const route = String(response?.headers?.get?.("x-haolo-binance-route") || "unknown").slice(0, 32);
+  const egress = String(response?.headers?.get?.("x-haolo-binance-egress") || "unknown").slice(0, 32);
+  const source = String(response?.headers?.get?.("x-haolo-rate-limit-source") || "").slice(0, 32);
+  let origin = "none";
+  if (source === "local-budget") origin = "local_budget";
+  else if (source === "direct-binance") origin = "direct_binance";
+  else if (source === "gateway-downstream") origin = "gateway_downstream";
+  else if (source === "gateway-upstream") origin = "gateway_upstream";
+  else if ([418, 429].includes(status)) origin = route.includes("gateway") ? "gateway_downstream" : "direct_binance";
+  return Object.freeze({
+    route,
+    egress,
+    origin,
+    cacheStatus: String(response?.headers?.get?.("x-haolo-cache") || "none").slice(0, 16).toUpperCase(),
+    usedWeight: headerNumber(response, "x-mbx-used-weight-1m")
+      ?? headerNumber(response, "x-sapi-used-ip-weight-1m")
+      ?? headerNumber(response, "x-mbx-used-weight"),
+    gatewayRemaining: headerNumber(response, "x-ratelimit-remaining"),
+  });
 }
 
 export class BinancePublicMarketService {
@@ -169,16 +216,55 @@ export class BinancePublicMarketService {
 
   cached(url, currentMs) {
     const entry = this.cache.get(url);
-    if (!entry || entry.expiresAt <= currentMs) {
+    if (!entry || entry.expiresAt <= currentMs) return null;
+    this.cache.delete(url);
+    this.cache.set(url, entry);
+    return {
+      ok: true,
+      status: 200,
+      data: cloneData(entry.data),
+      cached: true,
+      retryAfterMs: null,
+      diagnostics: Object.freeze({ route: "memory-cache", egress: "client", origin: "none", cacheStatus: "HIT", usedWeight: null, gatewayRemaining: null }),
+    };
+  }
+
+  stale(url, currentMs) {
+    const entry = this.cache.get(url);
+    if (!entry || entry.staleUntil <= currentMs) {
       if (entry) this.cache.delete(url);
       return null;
     }
-    return { ok: true, status: 200, data: cloneData(entry.data), cached: true, retryAfterMs: null };
+    return entry;
   }
 
-  store(url, data, expiresAt) {
+  staleResult(entry, currentMs, { status = 0, retryAfter = null, diagnostics = null, error = "" } = {}) {
+    return {
+      ok: true,
+      status: 200,
+      data: cloneData(entry.data),
+      cached: true,
+      stale: true,
+      staleAgeMs: Math.max(0, currentMs - entry.expiresAt),
+      sourceStatus: Number(status || 0),
+      retryAfterMs: retryAfter,
+      rateLimited: [418, 429].includes(Number(status))
+        || ["direct_binance", "gateway_downstream", "gateway_upstream", "local_budget"].includes(diagnostics?.origin),
+      diagnostics: diagnostics || Object.freeze({ route: "memory-cache", egress: "client", origin: "transport", cacheStatus: "STALE", usedWeight: null, gatewayRemaining: null }),
+      ...(error ? { degradedReason: String(error).slice(0, 500) } : {}),
+    };
+  }
+
+  store(url, data, currentMs, request, { fresh = true } = {}) {
+    const freshMs = fresh ? cacheTtlMs(request) : 0;
+    const expiresAt = currentMs + freshMs;
     this.cache.delete(url);
-    this.cache.set(url, { data: cloneData(data), expiresAt });
+    this.cache.set(url, {
+      data: cloneData(data),
+      storedAt: currentMs,
+      expiresAt,
+      staleUntil: expiresAt + cacheStaleTtlMs(request),
+    });
     while (this.cache.size > MAX_CACHE_ENTRIES) this.cache.delete(this.cache.keys().next().value);
   }
 
@@ -220,27 +306,80 @@ export class BinancePublicMarketService {
         cache: "no-store",
         signal: controller?.signal || callerSignal,
       });
+    } catch (error) {
+      if (callerSignal?.aborted) throw callerSignal.reason || error;
+      const failedAt = this.currentTimeMs();
+      const diagnostics = Object.freeze({
+        route: "unknown",
+        egress: "unknown",
+        origin: "transport",
+        cacheStatus: "NONE",
+        usedWeight: null,
+        gatewayRemaining: null,
+      });
+      const stale = this.stale(request.url, failedAt);
+      if (stale) return this.staleResult(stale, failedAt, { diagnostics, error: error?.message || error });
+      return {
+        ok: false,
+        status: 0,
+        data: null,
+        cached: false,
+        retryAfterMs: null,
+        error: String(error?.message || error || "Binance market request failed").slice(0, 500),
+        diagnostics,
+      };
     } finally {
       if (timer) clearTimeout(timer);
       if (forwardAbort) callerSignal.removeEventListener("abort", forwardAbort);
     }
+    const completedAt = this.currentTimeMs();
+    const diagnostics = responseDiagnostics(response);
+    const responseRetryAfterMs = retryAfterMs(response, completedAt);
     let data = null;
     try { data = await response.json(); } catch {}
     if (!response?.ok) {
       const errorCode = Number(data?.code) === -1121
         ? "BINANCE_MARKET_SYMBOL_UNAVAILABLE"
         : null;
+      const status = Number(response?.status || 0);
+      const error = String(data?.msg || `Binance market request failed: ${status}`).slice(0, 500);
+      const stale = this.stale(request.url, completedAt);
+      if (stale && (status === 418 || status === 429 || status >= 500 || !status)) {
+        return this.staleResult(stale, completedAt, {
+          status,
+          retryAfter: responseRetryAfterMs,
+          diagnostics,
+          error,
+        });
+      }
       return {
         ok: false,
-        status: Number(response?.status || 0),
+        status,
         data: null,
         cached: false,
-        retryAfterMs: retryAfterMs(response),
-        error: String(data?.msg || `Binance market request failed: ${response?.status || 0}`).slice(0, 500),
+        retryAfterMs: responseRetryAfterMs,
+        error,
+        diagnostics,
         ...(errorCode ? { errorCode } : {}),
       };
     }
-    this.store(request.url, data, currentMs + cacheTtlMs(request));
-    return { ok: true, status: Number(response.status || 200), data: cloneData(data), cached: false, retryAfterMs: null };
+    const gatewayStale = diagnostics.cacheStatus === "STALE";
+    this.store(request.url, data, completedAt, request, { fresh: !gatewayStale });
+    if (gatewayStale) {
+      const entry = this.stale(request.url, completedAt);
+      return this.staleResult(entry, completedAt, {
+        status: Number(response.status || 200),
+        retryAfter: responseRetryAfterMs,
+        diagnostics,
+      });
+    }
+    return {
+      ok: true,
+      status: Number(response.status || 200),
+      data: cloneData(data),
+      cached: false,
+      retryAfterMs: null,
+      diagnostics,
+    };
   }
 }

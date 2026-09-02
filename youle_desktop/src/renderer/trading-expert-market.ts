@@ -179,11 +179,12 @@ export const DEFAULT_TRADING_FAVORITE_MARKET_IDS = DEFAULT_TRADING_FAVORITE_SYMB
   .map((symbol) => `BINANCE:FUTURES:${symbol}`);
 const MARKET_BACKGROUND_PAINT_INTERVAL_MS = 1_000;
 const MARKET_LIVE_FULL_REFRESH_INTERVAL_MS = 1_000;
-const MARKET_SOCKET_STALE_MS = 2_500;
-const MARKET_SOCKET_FALLBACK_INTERVAL_MS = 5_000;
-const FAVORITE_TICKER_FALLBACK_INTERVAL_MS = 5_000;
+const MARKET_SOCKET_STALE_MS = 10_000;
+const MARKET_SOCKET_FALLBACK_INTERVAL_MS = 10_000;
+const FAVORITE_TICKER_FALLBACK_INTERVAL_MS = 10_000;
 const FAVORITE_TICKER_FALLBACK_TIMEOUT_MS = 8_000;
-const FAVORITE_TICKER_SOCKET_STALE_MS = 2_500;
+const FAVORITE_TICKER_SOCKET_STALE_MS = 10_000;
+const FAVORITE_TICKER_FALLBACK_BATCH_SIZE = 4;
 const BINANCE_MARKET_RATE_LIMIT_DEFAULT_MS = 60_000;
 const BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS = 500;
 const FINNHUB_SEARCH_DEBOUNCE_MS = 480;
@@ -199,7 +200,10 @@ const BINANCE_MARKET_SYMBOL_ERROR_CODES = new Set([
 ]);
 export const BINANCE_MARKET_UNAVAILABLE_MESSAGE = "该交易对已下架或不受 Binance 支持";
 
-let binanceMarketRestRetryAt = 0;
+const binanceMarketRestRetryAt = new Map<"futures" | "spot", number>([
+  ["futures", 0],
+  ["spot", 0],
+]);
 
 export function parseBinanceMarketRetryAfterMs(value: unknown, nowMs = Date.now()) {
   const text = String(value || "").trim();
@@ -210,16 +214,27 @@ export function parseBinanceMarketRetryAfterMs(value: unknown, nowMs = Date.now(
   return Number.isFinite(dateMs) ? Math.max(0, dateMs - nowMs) : null;
 }
 
-export function binanceMarketRestCooldownRemaining(nowMs = Date.now()) {
-  return Math.max(0, binanceMarketRestRetryAt - nowMs);
+function binanceCooldownMarketType(value: unknown): "futures" | "spot" {
+  return String(value || "").toLowerCase() === "spot" ? "spot" : "futures";
 }
 
-function recordBinanceMarketRateLimit(value: unknown) {
+export function binanceMarketRestCooldownRemaining(nowMs = Date.now(), marketType?: unknown) {
+  if (marketType != null) {
+    return Math.max(0, Number(binanceMarketRestRetryAt.get(binanceCooldownMarketType(marketType)) || 0) - nowMs);
+  }
+  return Math.max(0, ...[...binanceMarketRestRetryAt.values()].map((retryAt) => retryAt - nowMs));
+}
+
+export function recordBinanceMarketRateLimit(value: unknown, marketType: "futures" | "spot") {
   const parsed = Number(value);
   const retryAfterMs = Number.isFinite(parsed) && parsed > 0
     ? Math.ceil(parsed)
     : BINANCE_MARKET_RATE_LIMIT_DEFAULT_MS;
-  binanceMarketRestRetryAt = Math.max(binanceMarketRestRetryAt, Date.now() + retryAfterMs);
+  const bucket = binanceCooldownMarketType(marketType);
+  binanceMarketRestRetryAt.set(
+    bucket,
+    Math.max(Number(binanceMarketRestRetryAt.get(bucket) || 0), Date.now() + retryAfterMs),
+  );
   return retryAfterMs;
 }
 
@@ -543,8 +558,21 @@ interface TradingChanAnalysisResponse {
   };
 }
 export type TradingChanConversationPhase = "loading" | "analyzing" | "drawing" | "complete";
+export interface TradingAnalysisTaskTarget {
+  readonly schemaVersion: 1;
+  readonly targetId: string;
+  readonly capturedAt: number;
+  readonly storageSessionId: string;
+  readonly marketId: string;
+  readonly symbol: string;
+  readonly interval: string;
+  readonly market: Readonly<TradingFavoriteMarketRecord>;
+  readonly candles: ReadonlyArray<Readonly<TradingCandle>>;
+  readonly visibleCandles: ReadonlyArray<Readonly<TradingCandle>>;
+}
 export interface TradingChanConversationRequest {
   analysisId?: string | null;
+  analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
   symbol?: string | null;
   interval?: string | null;
@@ -570,6 +598,7 @@ export type TradingOrderFlowConversationPhase =
   | "order-flow-complete";
 export interface TradingOrderFlowConversationRequest {
   analysisId?: string | null;
+  analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
   symbol?: string | null;
   interval?: string | null;
@@ -596,6 +625,7 @@ export type TradingWaveConversationPhase =
   | "wave-complete";
 export interface TradingWaveConversationRequest {
   analysisId?: string | null;
+  analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
   symbol?: string | null;
   interval?: string | null;
@@ -621,6 +651,7 @@ export type TradingWyckoffConversationPhase =
   | "wyckoff-complete";
 export interface TradingWyckoffConversationRequest {
   analysisId?: string | null;
+  analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
   symbol?: string | null;
   interval?: string | null;
@@ -642,6 +673,7 @@ type TradingGeneralAnalysisResponse = TradingChanAnalysisResponse;
 export type TradingGeneralConversationPhase = "loading" | "analyzing" | "drawing" | "complete";
 export interface TradingGeneralConversationRequest {
   analysisId?: string | null;
+  analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
   symbol?: string | null;
   interval?: string | null;
@@ -2548,7 +2580,7 @@ type TrendState =
   | "close_above_fast_fast_below_slow"
   | "unclassified";
 
-interface TradingCandle {
+export interface TradingCandle {
   time: number;
   open: number;
   high: number;
@@ -3094,7 +3126,7 @@ async function fetchBinanceFutures<T>(
   parameters: Record<string, string | number | undefined> = {},
   signal?: AbortSignal,
 ): Promise<T> {
-  const cooldownRemaining = binanceMarketRestCooldownRemaining();
+  const cooldownRemaining = binanceMarketRestCooldownRemaining(Date.now(), "futures");
   if (cooldownRemaining > 0) {
     throw new Error(binanceMarketRateLimitMessage(cooldownRemaining));
   }
@@ -3106,7 +3138,7 @@ async function fetchBinanceSpot<T>(
   parameters: Record<string, string | number | undefined> = {},
   signal?: AbortSignal,
 ): Promise<T> {
-  const cooldownRemaining = binanceMarketRestCooldownRemaining();
+  const cooldownRemaining = binanceMarketRestCooldownRemaining(Date.now(), "spot");
   if (cooldownRemaining > 0) {
     throw new Error(binanceMarketRateLimitMessage(cooldownRemaining));
   }
@@ -3146,7 +3178,7 @@ async function fetchBinancePublicMarketData<T>(
     : await pending;
   if (!response?.ok) {
     if (response?.status === 418 || response?.status === 429) {
-      throw new Error(binanceMarketRateLimitMessage(recordBinanceMarketRateLimit(response?.retryAfterMs)));
+      throw new Error(binanceMarketRateLimitMessage(recordBinanceMarketRateLimit(response?.retryAfterMs, marketType)));
     }
     if (
       BINANCE_MARKET_SYMBOL_ERROR_CODES.has(String(response?.errorCode || "").trim().toUpperCase())
@@ -3158,6 +3190,7 @@ async function fetchBinancePublicMarketData<T>(
     }
     throw new Error(String(response?.error || `Binance ${marketType} request failed: ${response?.status || 0}`));
   }
+  if (response.rateLimited) recordBinanceMarketRateLimit(response.retryAfterMs, marketType);
   return response.data as T;
 }
 
@@ -4802,6 +4835,7 @@ class TradingExpertMarketWorkspace {
   private favoriteTickerPaintFrame: number | null = null;
   private favoriteTickerFallbackTimer: number | null = null;
   private favoriteTickerFallbackPending = false;
+  private favoriteTickerFallbackCursor = 0;
   private favoriteTickerFallbackAbortController: AbortController | null = null;
   private favoriteTickerSocketUpdatesByMarketId = new Map<string, number>();
   private favoriteTickerOpenPricesById = new Map<string, number>();
@@ -6526,15 +6560,21 @@ class TradingExpertMarketWorkspace {
       this.disposed
       || generation !== this.favoriteTickerGeneration
       || this.favoriteTickerFallbackPending
-      || binanceMarketRestCooldownRemaining() > 0
     ) return;
     const now = Date.now();
     const staleMarkets = [...this.favoriteTickerMarketsById.values()].filter((market) => (
       market.provider === "binance"
       && now - (this.favoriteTickerSocketUpdatesByMarketId.get(market.id) || 0)
         >= FAVORITE_TICKER_SOCKET_STALE_MS
+      && binanceMarketRestCooldownRemaining(now, market.marketType === "spot" ? "spot" : "futures") === 0
     ));
     if (!staleMarkets.length) return;
+    const start = this.favoriteTickerFallbackCursor % staleMarkets.length;
+    const selectedMarkets = Array.from(
+      { length: Math.min(FAVORITE_TICKER_FALLBACK_BATCH_SIZE, staleMarkets.length) },
+      (_, index) => staleMarkets[(start + index) % staleMarkets.length],
+    );
+    this.favoriteTickerFallbackCursor = (start + selectedMarkets.length) % staleMarkets.length;
     this.favoriteTickerFallbackPending = true;
     const abortController = new AbortController();
     this.favoriteTickerFallbackAbortController = abortController;
@@ -6544,8 +6584,10 @@ class TradingExpertMarketWorkspace {
     );
     try {
       let updated = false;
-      for (const staleMarket of staleMarkets) {
-        if (binanceMarketRestCooldownRemaining() > 0 || abortController.signal.aborted) break;
+      for (const staleMarket of selectedMarkets) {
+        const cooldownMarketType = staleMarket.marketType === "spot" ? "spot" : "futures";
+        if (abortController.signal.aborted) break;
+        if (binanceMarketRestCooldownRemaining(Date.now(), cooldownMarketType) > 0) continue;
         let ticker: BinanceTicker24h;
         try {
           ticker = await fetchBinanceMarket<BinanceTicker24h>(
@@ -6556,7 +6598,7 @@ class TradingExpertMarketWorkspace {
             abortController.signal,
           );
         } catch {
-          if (binanceMarketRestCooldownRemaining() > 0 || abortController.signal.aborted) break;
+          if (abortController.signal.aborted) break;
           continue;
         }
         if (this.disposed || generation !== this.favoriteTickerGeneration) return;
@@ -6619,7 +6661,6 @@ class TradingExpertMarketWorkspace {
         groups.set(marketType, group);
       });
     if (!groups.size) return;
-    void this.refreshFavoriteTickerFallback(generation);
     this.favoriteTickerFallbackTimer = window.setInterval(
       () => void this.refreshFavoriteTickerFallback(generation),
       FAVORITE_TICKER_FALLBACK_INTERVAL_MS,
@@ -8166,6 +8207,35 @@ class TradingExpertMarketWorkspace {
     return this.drawingController?.hasAiAnalysisForCurrentContext(theory) === true;
   }
 
+  captureAnalysisTaskTarget(): TradingAnalysisTaskTarget | null {
+    const market = this.selectedMarketMeta
+      || this.markets.find((candidate) => candidate.id === this.selectedMarketId)
+      || this.favoriteMarketFromId(this.selectedMarketId);
+    if (!market || !this.selectedMarketId || !this.activeInterval) return null;
+    const targetId = globalThis.crypto?.randomUUID?.()
+      || `${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
+    const loadedContextMatches = this.loadedMarketId === this.selectedMarketId
+      && this.loadedInterval === this.activeInterval;
+    const candles = loadedContextMatches ? this.candles : [];
+    const visibleRange = loadedContextMatches
+      ? this.chart?.timeScale().getVisibleLogicalRange() || null
+      : null;
+    const visibleCandles = visibleCandlesInLogicalRange(candles, visibleRange);
+    const freezeCandle = (candle: TradingCandle) => Object.freeze({ ...candle });
+    return Object.freeze({
+      schemaVersion: 1 as const,
+      targetId,
+      capturedAt: Date.now(),
+      storageSessionId: this.drawingStorageSessionId,
+      marketId: market.id,
+      symbol: market.symbol,
+      interval: this.activeInterval,
+      market: Object.freeze(tradingFavoriteRecord(market)),
+      candles: Object.freeze(candles.map(freezeCandle)),
+      visibleCandles: Object.freeze(visibleCandles.map(freezeCandle)),
+    });
+  }
+
   personalStrategyCandles() {
     return this.candles.slice(-600).map((candle) => ({
       time: candle.time,
@@ -9667,6 +9737,12 @@ class TradingExpertMarketWorkspace {
   ): Promise<TradingGeneralConversationResult> {
     const analysisTheory = strategyId || "price-action";
     const analysisName = String(request.strategyDisplayName || (strategyId ? "策略" : "价格结构")).trim();
+    const capturedTarget = request.analysisTarget || null;
+    const useCapturedTarget = Boolean(capturedTarget && !request.symbol);
+    const useCapturedCandles = Boolean(
+      useCapturedTarget
+      && (!request.interval || request.interval === capturedTarget?.interval),
+    );
     const visibleCandlesOnly = request.visibleCandlesOnly === true;
     const minimumFloor = visibleCandlesOnly ? 8 : 30;
     const minimumCandles = Math.max(minimumFloor, Math.min(600, Math.floor(Number(request.minimumCandles) || minimumFloor)));
@@ -9683,18 +9759,24 @@ class TradingExpertMarketWorkspace {
         : undefined
       : window.codexDesktop.runTradingGeneralAnalysis;
     if (typeof api !== "function") throw new Error("当前版本暂不支持通用盘面分析");
-    if (!this.markets.length) await this.loadMarkets();
-    const normalizedSymbol = String(request.symbol || this.selectedSymbol).trim().toUpperCase();
-    const currentMarket = this.selectedMarketMeta
+    if (!this.markets.length && !useCapturedTarget) await this.loadMarkets();
+    const capturedMarket = capturedTarget
+      ? marketFromFavoriteRecord(capturedTarget.market as TradingFavoriteMarketRecord)
+      : null;
+    const normalizedSymbol = String(request.symbol || capturedTarget?.symbol || this.selectedSymbol).trim().toUpperCase();
+    const currentMarket = capturedMarket
+      || this.selectedMarketMeta
       || this.markets.find((market) => market.id === this.selectedMarketId)
       || this.favoriteMarketFromId(this.selectedMarketId);
-    const currentIntervalAtStart = this.activeInterval;
-    let targetMarket = selectTradingAnalysisMarket(this.markets, {
-      symbol: normalizedSymbol,
-      currentMarket,
-      explicitSymbol: Boolean(request.symbol),
-      instruction: request.instruction,
-    }) as TradingMarket | null;
+    const currentIntervalAtStart = capturedTarget?.interval || this.activeInterval;
+    let targetMarket = useCapturedTarget
+      ? capturedMarket
+      : selectTradingAnalysisMarket(this.markets, {
+          symbol: normalizedSymbol,
+          currentMarket,
+          explicitSymbol: Boolean(request.symbol),
+          instruction: request.instruction,
+        }) as TradingMarket | null;
     if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
     if (
       request.symbol
@@ -9707,7 +9789,7 @@ class TradingExpertMarketWorkspace {
     }
     let targetInterval = selectTradingAnalysisInterval({
       interval: request.interval,
-      currentInterval: this.activeInterval,
+      currentInterval: currentIntervalAtStart,
       explicitSymbol: Boolean(request.symbol),
     });
     if (!tradingViewResolutionDurationMs(targetInterval)) {
@@ -9715,13 +9797,15 @@ class TradingExpertMarketWorkspace {
     }
 
     let marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
-    const shouldReload = targetMarket.id !== this.loadedMarketId
+    const shouldReload = !useCapturedTarget && (targetMarket.id !== this.loadedMarketId
       || targetInterval !== this.loadedInterval
       || this.candles.length < 2
-      || this.marketLoading;
-    request.onProgress?.("loading", shouldReload
-      ? `正在将左侧行情切换到 ${marketLabel}，加载 ${tradingPeriodLabelForResolution(targetInterval)} K 线。`
-      : `正在优先读取左侧当前画布的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线。`);
+      || this.marketLoading);
+    request.onProgress?.("loading", useCapturedTarget
+      ? `已锁定发送时的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线快照；切换交易对或会话不会改变本次任务目标。`
+      : shouldReload
+        ? `正在将左侧行情切换到 ${marketLabel}，加载 ${tradingPeriodLabelForResolution(targetInterval)} K 线。`
+        : `正在优先读取左侧当前画布的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线。`);
     if (shouldReload) {
       const loadTarget = async () => {
         this.selectMarket(targetMarket!);
@@ -9750,37 +9834,60 @@ class TradingExpertMarketWorkspace {
         await loadTarget();
       }
     }
+    let targetCandles = useCapturedTarget
+      ? useCapturedCandles
+        ? capturedTarget!.candles.map((candle) => ({ ...candle }))
+        : []
+      : [...this.candles];
+    if (useCapturedTarget && targetCandles.length < 2) {
+      const loaded = await this.fetchHistoricalCandleBatch({
+        symbol: targetMarket.symbol,
+        provider: targetMarket.provider,
+        assetClass: targetMarket.assetClass,
+        marketType: targetMarket.marketType,
+        interval: targetInterval,
+        count: 500,
+        endTime: capturedTarget!.capturedAt,
+      });
+      targetCandles = loaded.candles;
+    }
     if (
-      this.disposed
-      || this.loadedMarketId !== targetMarket.id
-      || this.loadedInterval !== targetInterval
-      || this.candles.length < 2
+      (!useCapturedTarget && (
+        this.disposed
+        || this.loadedMarketId !== targetMarket.id
+        || this.loadedInterval !== targetInterval
+      ))
+      || targetCandles.length < 2
     ) {
       throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
     }
 
-    const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
+    const latestTimeMs = Number(targetCandles.at(-1)?.time || 0) * 1_000;
     const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
-    const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
-    const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
+    const visibleRange = useCapturedTarget ? null : this.chart?.timeScale().getVisibleLogicalRange() || null;
+    const canvasCandles = useCapturedCandles
+      ? capturedTarget!.visibleCandles.map((candle) => ({ ...candle }))
+      : useCapturedTarget
+        ? []
+        : visibleCandlesInLogicalRange(targetCandles, visibleRange);
     const analysisWindowCount = Math.min(600, Math.max(canvasCandles.length, preferredCandles));
     let analysisCandles = requestedLookbackMs
-      ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
+      ? targetCandles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
       : canvasCandles.length
         ? canvasCandles.slice(-(visibleCandlesOnly ? 600 : analysisWindowCount))
-        : this.candles.slice(-analysisWindowCount);
+        : targetCandles.slice(-analysisWindowCount);
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: analysisTheory,
-      storageSessionId: this.drawingStorageSessionId,
-      marketId: this.selectedMarketId,
-      symbol: this.selectedSymbol,
-      interval: this.activeInterval,
+      storageSessionId: capturedTarget?.storageSessionId || this.drawingStorageSessionId,
+      marketId: targetMarket.id,
+      symbol: targetMarket.symbol,
+      interval: targetInterval,
       language: activeTradingAnalysisLanguage(),
       market: tradingFavoriteRecord(targetMarket),
     });
     try {
-      let analysisCandlePool = [...this.candles];
+      let analysisCandlePool = [...targetCandles];
       const desiredCandleCount = Math.max(
         minimumCandles,
         Math.min(TRADING_CANDLE_WINDOW_AUTO_EXPANSION_MAX_CANDLES, preferredCandles),
@@ -9788,6 +9895,7 @@ class TradingExpertMarketWorkspace {
       const focusAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
         if (
           this.disposed
+          || !this.drawingStorageSessionMatches(job.storageSessionId)
           || this.loadedMarketId !== job.marketId
           || this.loadedInterval !== job.interval
           || !candles.length
@@ -9833,6 +9941,7 @@ class TradingExpertMarketWorkspace {
           analysisCandlePool = mergeCandles(history.candles, analysisCandlePool);
           if (
             !this.disposed
+            && this.drawingStorageSessionMatches(job.storageSessionId)
             && this.loadedMarketId === job.marketId
             && this.loadedInterval === job.interval
           ) {
@@ -9861,10 +9970,15 @@ class TradingExpertMarketWorkspace {
         throw new Error(`${request.lookbackLabel || "当前可用数据窗口"}仅有 ${analysisCandles.length} 根 K 线，${analysisName}至少需要 ${minimumCandles} 根`);
       }
       focusAnalysisCandles(analysisCandles);
-      const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
-        requestedLookbackMs,
-        preferredCandles,
-      );
+      const splitSnapshotsPromise = useCapturedTarget
+        ? Promise.resolve({
+            snapshots: [] as TradingSplitPaneAnalysisSnapshot[],
+            snapshotFailures: [] as TradingSplitPaneAnalysisFailure[],
+          })
+        : this.captureSplitPaneAnalysisSnapshots(
+            requestedLookbackMs,
+            preferredCandles,
+          );
       const contextCandlesPromise = request.contextCandlesRequested === true
         ? fetchTradingMarketStructureContexts(targetMarket.symbol, targetInterval)
         : Promise.resolve([] as TradingMarketStructureContext[]);
@@ -9882,7 +9996,7 @@ class TradingExpertMarketWorkspace {
         analysisJobId: job.analysisId,
         marketId: job.marketId,
         interval: job.interval,
-        snapshotTime: Date.now(),
+        snapshotTime: capturedTarget?.capturedAt || Date.now(),
         language: getCurrentAppLanguage(),
         instruction: request.instruction,
         responseMode: request.drawingRequested === false ? "direct" : "full",
@@ -11252,9 +11366,10 @@ class TradingExpertMarketWorkspace {
       .filter((record) => record.provider === "binance" && this.favoriteSymbols.has(record.id))
       .slice(0, 4);
     for (const record of targets) {
-      if (this.disposed || binanceMarketRestCooldownRemaining() > 0) return;
       const interval = this.activeInterval;
       const marketType = record.marketType === "spot" ? "spot" : "perpetual";
+      if (this.disposed) return;
+      if (binanceMarketRestCooldownRemaining(Date.now(), marketType) > 0) continue;
       const key = tradingMarketCandleCacheKey({
         provider: record.provider,
         symbol: record.symbol,
@@ -11496,7 +11611,7 @@ class TradingExpertMarketWorkspace {
         this.errorElement.hidden = false;
         if (presentation.action === "open-default-market") return;
         const cooldownRemaining = targetProvider === "binance"
-          ? binanceMarketRestCooldownRemaining()
+          ? binanceMarketRestCooldownRemaining(Date.now(), targetMarketType)
           : 0;
         if (cooldownRemaining > 0) {
           this.marketRateLimitRetryTimer = window.setTimeout(() => {
@@ -11526,19 +11641,18 @@ class TradingExpertMarketWorkspace {
       void this.refreshLiveCandle(generation);
       return;
     }
-    if (binanceMarketRestCooldownRemaining() > 0) return;
+    if (binanceMarketRestCooldownRemaining(Date.now(), this.selectedMarketType) > 0) return;
     const source = binanceResolutionSource(this.activeInterval);
     const relevantActivityAt = source?.sourceInterval
       ? this.marketKlineLastActivityAt
       : this.marketSocketLastActivityAt;
     const silenceMs = Date.now() - relevantActivityAt;
     if (relevantActivityAt > 0 && silenceMs < MARKET_SOCKET_STALE_MS) return;
-    void this.refreshSnapshot(generation);
     void this.refreshLiveCandle(generation);
   }
 
   private async refreshSnapshot(generation: number) {
-    if (this.selectedProvider === "binance" && binanceMarketRestCooldownRemaining() > 0) return;
+    if (this.selectedProvider === "binance" && binanceMarketRestCooldownRemaining(Date.now(), this.selectedMarketType) > 0) return;
     if (this.refreshingSnapshotGeneration === generation) return;
     this.refreshingSnapshotGeneration = generation;
     try {
@@ -11579,7 +11693,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private async refreshLiveCandle(generation: number) {
-    if (this.selectedProvider === "binance" && binanceMarketRestCooldownRemaining() > 0) return;
+    if (this.selectedProvider === "binance" && binanceMarketRestCooldownRemaining(Date.now(), this.selectedMarketType) > 0) return;
     if (this.refreshingLiveCandleGeneration === generation) return;
     this.refreshingLiveCandleGeneration = generation;
     try {
@@ -13700,6 +13814,7 @@ function escapeAttribute(value: string) {
 let activeWorkspace: TradingExpertMarketWorkspace | null = null;
 let activeWorkspaceHost: HTMLElement | null = null;
 let activeWorkspaceFavoriteStorageAccountIdentity = "";
+const tradingAnalysisTargetWorkspaces = new Map<string, TradingExpertMarketWorkspace>();
 
 async function commitTradingAnalysisDrawingPatch(
   job: TradingAnalysisJobContext,
@@ -13712,16 +13827,20 @@ async function commitTradingAnalysisDrawingPatch(
     throw new Error("交易分析已由用户停止");
   }
   patch = localizeTradingAiDrawingPatch(patch, currentJob.language);
-  const targetWorkspace = activeWorkspace;
-  if (!targetWorkspace || !targetWorkspace.drawingStorageSessionMatches(currentJob.storageSessionId)) {
-    throw new Error(translateAppText("绘图目标工作区已失效", currentJob.language));
+  if (
+    paneIndex === 0
+    && (patch.marketId !== currentJob.marketId || patch.interval !== currentJob.interval)
+  ) {
+    throw new Error(`${translateAppText("绘图目标与任务快照不一致：", currentJob.language)}${patch.marketId} / ${patch.interval}`);
   }
-  if (!targetWorkspace.analysisDrawingTargetMatches(patch, paneIndex)) {
-    throw new Error(`${translateAppText("绘图目标与当前行情不一致：", currentJob.language)}${patch.marketId} / ${patch.interval}`);
-  }
-  const applied = await targetWorkspace.acceptAnalysisDrawingPatch(patch, paneIndex, onPhase);
-  if (applied !== true) {
-    throw new Error(translateAppText("Drawing Patch 未能应用到当前图表", currentJob.language));
+  const targetWorkspace = activeWorkspace?.drawingStorageSessionMatches(currentJob.storageSessionId)
+    ? activeWorkspace
+    : null;
+  if (targetWorkspace) {
+    const applied = await targetWorkspace.acceptAnalysisDrawingPatch(patch, paneIndex, onPhase);
+    if (applied !== true) {
+      throw new Error(translateAppText("Drawing Patch 未能应用到目标会话", currentJob.language));
+    }
   }
   // The workspace may be promoted from a local draft id to a persisted thread id
   // while playback is running. Keep a single durable exit path below.
@@ -13885,6 +14004,42 @@ export function hasTradingExpertCurrentAnalysis(
   return activeWorkspace?.hasCurrentAnalysis(theory) === true;
 }
 
+export function captureTradingExpertAnalysisTarget() {
+  const target = activeWorkspace?.captureAnalysisTaskTarget() || null;
+  if (target && activeWorkspace) {
+    tradingAnalysisTargetWorkspaces.set(target.targetId, activeWorkspace);
+  }
+  return target;
+}
+
+export function rebindTradingExpertAnalysisTargetStorageSession(
+  target: TradingAnalysisTaskTarget | null | undefined,
+  storageSessionId: string,
+) {
+  const normalizedStorageSessionId = String(storageSessionId || "").trim();
+  if (!target || !normalizedStorageSessionId || target.storageSessionId === normalizedStorageSessionId) {
+    return target || null;
+  }
+  return Object.freeze({
+    ...target,
+    storageSessionId: normalizedStorageSessionId,
+  }) as TradingAnalysisTaskTarget;
+}
+
+export function releaseTradingExpertAnalysisTarget(
+  target: TradingAnalysisTaskTarget | null | undefined,
+) {
+  if (target) tradingAnalysisTargetWorkspaces.delete(target.targetId);
+}
+
+function tradingExpertWorkspaceForAnalysisTarget(
+  target: TradingAnalysisTaskTarget | null | undefined,
+) {
+  return target
+    ? tradingAnalysisTargetWorkspaces.get(target.targetId) || activeWorkspace
+    : activeWorkspace;
+}
+
 export function tradingExpertPersonalStrategyCandles() {
   return activeWorkspace?.personalStrategyCandles() || [];
 }
@@ -13907,29 +14062,33 @@ export async function cancelTradingExpertAnalysis(analysisId: string) {
 export async function runTradingExpertChanConversation(
   request: TradingChanConversationRequest,
 ) {
-  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
-  return activeWorkspace.runChanConversation(request);
+  const workspace = tradingExpertWorkspaceForAnalysisTarget(request.analysisTarget);
+  if (!workspace) throw new Error("交易专家行情工作区尚未就绪");
+  return workspace.runChanConversation(request);
 }
 
 export async function runTradingExpertOrderFlowConversation(
   request: TradingOrderFlowConversationRequest,
 ) {
-  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
-  return activeWorkspace.runOrderFlowConversation(request);
+  const workspace = tradingExpertWorkspaceForAnalysisTarget(request.analysisTarget);
+  if (!workspace) throw new Error("交易专家行情工作区尚未就绪");
+  return workspace.runOrderFlowConversation(request);
 }
 
 export async function runTradingExpertWaveConversation(
   request: TradingWaveConversationRequest,
 ) {
-  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
-  return activeWorkspace.runWaveConversation(request);
+  const workspace = tradingExpertWorkspaceForAnalysisTarget(request.analysisTarget);
+  if (!workspace) throw new Error("交易专家行情工作区尚未就绪");
+  return workspace.runWaveConversation(request);
 }
 
 export async function runTradingExpertWyckoffConversation(
   request: TradingWyckoffConversationRequest,
 ) {
-  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
-  return activeWorkspace.runWyckoffConversation(request);
+  const workspace = tradingExpertWorkspaceForAnalysisTarget(request.analysisTarget);
+  if (!workspace) throw new Error("交易专家行情工作区尚未就绪");
+  return workspace.runWyckoffConversation(request);
 }
 
 const BUILTIN_TRADING_STRATEGY_CONVERSATION_RUNNERS = Object.freeze({
@@ -13959,13 +14118,15 @@ export async function runTradingExpertStrategyConversation(
     strategyId as keyof typeof BUILTIN_TRADING_STRATEGY_CONVERSATION_RUNNERS
   ];
   if (runner) return runner(request) as Promise<TradingStrategyConversationResult>;
-  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
-  return activeWorkspace.runGeneralConversation(request, strategyId) as Promise<TradingStrategyConversationResult>;
+  const workspace = tradingExpertWorkspaceForAnalysisTarget(request.analysisTarget);
+  if (!workspace) throw new Error("交易专家行情工作区尚未就绪");
+  return workspace.runGeneralConversation(request, strategyId) as Promise<TradingStrategyConversationResult>;
 }
 
 export async function runTradingExpertGeneralConversation(
   request: TradingGeneralConversationRequest,
 ) {
-  if (!activeWorkspace) throw new Error("交易专家行情工作区尚未就绪");
-  return activeWorkspace.runGeneralConversation(request);
+  const workspace = tradingExpertWorkspaceForAnalysisTarget(request.analysisTarget);
+  if (!workspace) throw new Error("交易专家行情工作区尚未就绪");
+  return workspace.runGeneralConversation(request);
 }

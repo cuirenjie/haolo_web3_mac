@@ -46,6 +46,36 @@ function isRouteBlockingResponse(response) {
   return ROUTE_BLOCKING_STATUSES.has(Number(response?.status || 0));
 }
 
+function decorateRouteResponse(response, route) {
+  if (!response || typeof response !== "object") return response;
+  const headers = new Headers(response.headers || {});
+  const gateway = route === "public-gateway" || route === "private-gateway";
+  headers.set("x-haolo-binance-route", route);
+  headers.set("x-haolo-binance-egress", route === "direct" ? "local" : route === "public-gateway" ? "haolo-public" : "haolo-private");
+  if (!headers.has("x-haolo-rate-limit-source") && [418, 429].includes(Number(response.status || 0))) {
+    headers.set("x-haolo-rate-limit-source", gateway ? "gateway-downstream" : "direct-binance");
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function isGatewayRetryableResponse(response) {
+  const status = Number(response?.status || 0);
+  const cacheStatus = String(response?.headers?.get?.("x-haolo-cache") || "").trim().toUpperCase();
+  return cacheStatus === "STALE" || status === 429 || status >= 500 || status === 0;
+}
+
+class BinanceGatewayResponseError extends Error {
+  constructor(response) {
+    super(`Haolo market gateway returned HTTP ${response?.status || 0}`);
+    this.name = "BinanceGatewayResponseError";
+    this.response = response;
+  }
+}
+
 function websocketKey(marketType, combined) {
   return combined ? `${marketType}Combined` : marketType;
 }
@@ -310,7 +340,7 @@ export class BinanceNetworkRouter {
           openGateway();
           throw new BinanceDirectRouteError(`Direct Binance market route returned HTTP ${response.status}`, { marketType });
         }
-        return { route: "direct", response };
+        return { route: "direct", response: decorateRouteResponse(response, "direct") };
       } catch (error) {
         if (init?.signal?.aborted) throw init.signal.reason || error;
         if (gatewayWon && directLink.controller.signal.aborted) throw error;
@@ -328,10 +358,11 @@ export class BinanceNetworkRouter {
       if (gatewayLink.controller.signal.aborted) {
         throw gatewayLink.controller.signal.reason || new DOMException("The operation was aborted", "AbortError");
       }
-      const response = await this.publicGatewayFetch(url, {
+      const response = decorateRouteResponse(await this.publicGatewayFetch(url, {
         ...init,
         signal: gatewayLink.controller.signal,
-      });
+      }), "public-gateway");
+      if (isGatewayRetryableResponse(response)) throw new BinanceGatewayResponseError(response);
       return { route: "gateway", response };
     })();
 
@@ -350,6 +381,8 @@ export class BinanceNetworkRouter {
     } catch (error) {
       if (init?.signal?.aborted) throw init.signal.reason || error;
       const errors = Array.isArray(error?.errors) ? error.errors : [];
+      const gatewayResponse = errors.find((item) => item?.response)?.response;
+      if (gatewayResponse) return gatewayResponse;
       throw errors.at(-1) || error;
     } finally {
       clearTimeout(hedgeTimer);
@@ -376,36 +409,51 @@ export class BinanceNetworkRouter {
     const method = String(init.method || "GET").toUpperCase();
     const mode = this.config.routingMode || this.config.mode || "direct";
     if (decision.route === "gateway") {
+      let gatewayResponse = null;
       try {
-        return await this.publicGatewayFetch(url, init);
+        gatewayResponse = decorateRouteResponse(await this.publicGatewayFetch(url, init), "public-gateway");
+        if (!isGatewayRetryableResponse(gatewayResponse) || mode !== "auto") return gatewayResponse;
       } catch (gatewayError) {
         if (init?.signal?.aborted || mode !== "auto") throw gatewayError;
         try {
           const directResponse = await this.directRequest("public", url.href, init);
-          if (isRouteBlockingResponse(directResponse)) throw new Error(`Direct Binance market route returned HTTP ${directResponse.status}`);
+          if (isRouteBlockingResponse(directResponse)) {
+            if (gatewayResponse) return gatewayResponse;
+            throw new Error(`Direct Binance market route returned HTTP ${directResponse.status}`);
+          }
           this.markDirectSuccess("public", marketType);
-          return directResponse;
+          return decorateRouteResponse(directResponse, "direct");
         } catch {
+          if (gatewayResponse) return gatewayResponse;
           throw gatewayError;
         }
       }
+      try {
+        const directResponse = await this.directRequest("public", url.href, init);
+        if (isRouteBlockingResponse(directResponse)) return gatewayResponse;
+        this.markDirectSuccess("public", marketType);
+        return decorateRouteResponse(directResponse, "direct");
+      } catch {
+        return gatewayResponse;
+      }
     }
-    if (method === "GET" && mode === "auto" && this.fallbackAvailable("public")) {
+    const directLeaseHealthy = Boolean(decision.state?.healthyUntil > this.currentTimeMs());
+    if (method === "GET" && mode === "auto" && this.fallbackAvailable("public") && !directLeaseHealthy) {
       return this.publicHedgedFetch(url, init, marketType);
     }
     try {
       const response = await this.directRequest("public", url.href, init);
       if (!isRouteBlockingResponse(response)) {
         this.markDirectSuccess("public", marketType);
-        return response;
+        return decorateRouteResponse(response, "direct");
       }
-      if (!this.fallbackAvailable("public")) return response;
+      if (!this.fallbackAvailable("public")) return decorateRouteResponse(response, "direct");
       this.markDirectFailure("public", marketType);
-      return this.publicGatewayFetch(url, init);
+      return decorateRouteResponse(await this.publicGatewayFetch(url, init), "public-gateway");
     } catch (error) {
       if (init?.signal?.aborted || !this.fallbackAvailable("public")) throw error;
       this.markDirectFailure("public", marketType);
-      return this.publicGatewayFetch(url, init);
+      return decorateRouteResponse(await this.publicGatewayFetch(url, init), "public-gateway");
     } finally {
       this.releaseProbe(decision.probe ? decision.state : null);
     }
@@ -417,14 +465,14 @@ export class BinanceNetworkRouter {
     const method = String(init.method || "GET").toUpperCase();
     if (method !== "GET") throw new TypeError("private Binance router permits GET only");
     const decision = this.acquire("private", marketType);
-    if (decision.route === "gateway") return this.privateProxyFetch(url.href, init);
+    if (decision.route === "gateway") return decorateRouteResponse(await this.privateProxyFetch(url.href, init), "private-gateway");
     try {
       const response = await this.directRequest("private", url.href, init);
       if (!isRouteBlockingResponse(response)) {
         this.markDirectSuccess("private", marketType);
-        return response;
+        return decorateRouteResponse(response, "direct");
       }
-      if (!this.fallbackAvailable("private")) return response;
+      if (!this.fallbackAvailable("private")) return decorateRouteResponse(response, "direct");
       this.markDirectFailure("private", marketType);
       throw new BinanceDirectRouteError("Direct Binance account route was blocked", { marketType });
     } catch (error) {

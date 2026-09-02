@@ -66,6 +66,7 @@ import {
 import { ensureBrowserDesktopApi } from "./browser_mock";
 import {
   applyTradingExpertCustomIndicatorMentions,
+  captureTradingExpertAnalysisTarget,
   ensureTradingExpertChartIndicatorVisible,
   TRADING_EXPERT_TREND_BAND_MENTION,
   cancelTradingExpertAnalysis,
@@ -75,6 +76,8 @@ import {
   hasTradingExpertCurrentAnalysis,
   tradingExpertPersonalStrategyCandles,
   prepareTradingExpertMarketForExternalCapture,
+  rebindTradingExpertAnalysisTargetStorageSession,
+  releaseTradingExpertAnalysisTarget,
   runTradingExpertStrategyConversation,
   syncTradingExpertMarketWorkspace,
   syncTradingExpertOrderLineSnapshot,
@@ -90,6 +93,7 @@ import {
   tradingPeriodLabel,
   tradingLastAnalysisLabelForThread,
   tradingExpertMarketWorkspaceStorageSessionId,
+  type TradingAnalysisTaskTarget,
 } from "./trading-expert-market";
 import {
   bindTradingExpertPanelResize,
@@ -1522,6 +1526,18 @@ type DesktopApi = {
     data: unknown;
     cached?: boolean;
     retryAfterMs?: number | null;
+    stale?: boolean;
+    staleAgeMs?: number;
+    sourceStatus?: number;
+    rateLimited?: boolean;
+    diagnostics?: {
+      route?: string;
+      egress?: string;
+      origin?: "none" | "local_budget" | "direct_binance" | "gateway_downstream" | "gateway_upstream" | "transport";
+      cacheStatus?: string;
+      usedWeight?: number | null;
+      gatewayRemaining?: number | null;
+    };
     error?: string;
     errorCode?: string;
   }>;
@@ -4552,6 +4568,7 @@ const tradingExpertThreadIds = new Set<string>(threadPreferences.tradingExpertTh
 const tradingExpertWorkspaceThreadReplacements = new Map<string, string>();
 const TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY = "haolo.trading-market.workspace-session-aliases.v1";
 const tradingExpertThinkingStateByThreadId = new Map<string, TradingExpertThinkingState>();
+const tradingStrategyAnalysisTargetByRequest = new WeakMap<object, TradingAnalysisTaskTarget>();
 const tradingExpertAnalysisJobIdsByThreadId = new Map<string, Set<string>>();
 const tradingExpertAnalysisThreadAliases = new Map<string, string>();
 type TradingAlertConversationState = {
@@ -18165,7 +18182,11 @@ function isConversationThreadWorking(threadId: string | null | undefined) {
   return (
     isThreadBusy(threadId) ||
     isProviderThreadBusy(threadId) ||
-    Boolean(threadId && localGroupChatBusyThreadIds.has(threadId))
+    Boolean(threadId && (
+      localGroupChatBusyThreadIds.has(threadId)
+      || submittingComposerThreadIds.has(threadId)
+      || tradingExpertThinkingStateByThreadId.has(threadId)
+    ))
   );
 }
 
@@ -26924,21 +26945,6 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   } else if (!text && !state.attachments.length) {
     return;
   }
-  if (
-    isTradingExpertExecutionThreadId(threadId)
-    && tradingPreferenceOnboardingByThreadId.has(threadId)
-    && await handleTradingPreferenceOnboardingReply(threadId, text, input || null)
-  ) {
-    return;
-  }
-  if (
-    isTradingExpertExecutionThreadId(threadId)
-    && !inMemoryTradingAlertConversationForThread(threadId)
-    && !state.tradingAlerts.loaded
-    && api.tradingAlertsSnapshot
-  ) {
-    await refreshTradingAlerts();
-  }
   const tradingExpertRoutingText = isTradingExpertExecutionThreadId(threadId)
     ? canonicalizeTradingExpertMentionText(text)
     : text;
@@ -26963,6 +26969,28 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     && !tradingStrategyAtSend
     && !personalStrategyCandidateAtSend
     && !tradingAlertCandidateAtSend;
+  let tradingAnalysisTargetAtSend: TradingAnalysisTaskTarget | null = (
+    tradingStrategyAtSend || tradingGeneralCandidateAtSend
+  )
+    ? captureTradingExpertAnalysisTarget()
+    : null;
+  if (
+    isTradingExpertExecutionThreadId(threadId)
+    && tradingPreferenceOnboardingByThreadId.has(threadId)
+    && await handleTradingPreferenceOnboardingReply(threadId, text, input || null)
+  ) {
+    releaseTradingExpertAnalysisTarget(tradingAnalysisTargetAtSend);
+    return;
+  }
+  if (
+    isTradingExpertExecutionThreadId(threadId)
+    && tradingAlertCandidateAtSend
+    && !inMemoryTradingAlertConversationForThread(threadId)
+    && !state.tradingAlerts.loaded
+    && api.tradingAlertsSnapshot
+  ) {
+    await refreshTradingAlerts();
+  }
   let tradingStrategyRequestAtSend: TradingStrategyRequest | null = null;
   let tradingGeneralRequestAtSend: TradingGeneralRequest | null = null;
   if (
@@ -26973,12 +27001,18 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       || (isBlankNewThread(threadId) && !isLocalBlankThreadId(threadId))
     )
   ) {
-    if (!(await ensureServerReadyForComposerSend())) return;
+    if (!(await ensureServerReadyForComposerSend())) {
+      releaseTradingExpertAnalysisTarget(tradingAnalysisTargetAtSend);
+      return;
+    }
   }
   recoverStaleCodexWorkForComposer(threadId);
   if (isConversationSupplementWindowOpen(threadId)) {
     const supplementDisposition = await sendConversationSupplementFromComposer(threadId, input, text);
-    if (supplementDisposition !== "send-as-follow-up") return;
+    if (supplementDisposition !== "send-as-follow-up") {
+      releaseTradingExpertAnalysisTarget(tradingAnalysisTargetAtSend);
+      return;
+    }
   }
   const composerGroupIdForSend = groupIdForThreadContext(threadId);
   const originalThreadId = threadId;
@@ -27192,6 +27226,10 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     }
     threadId = sendableThreadId;
     if (threadId !== originalThreadId) submittingComposerThreadIds.add(threadId);
+    tradingAnalysisTargetAtSend = rebindTradingExpertAnalysisTargetStorageSession(
+      tradingAnalysisTargetAtSend,
+      threadId,
+    );
     if (pendingSend && threadId !== originalThreadId) {
       pendingSend = movePendingComposerSend(originalThreadId, threadId, pendingSend.itemId) || pendingSend;
     }
@@ -27344,6 +27382,10 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         if (persistedThreadId && persistedThreadId !== threadId) {
           threadId = persistedThreadId;
           submittingComposerThreadIds.add(threadId);
+          tradingAnalysisTargetAtSend = rebindTradingExpertAnalysisTargetStorageSession(
+            tradingAnalysisTargetAtSend,
+            threadId,
+          );
           if (pendingSend) {
             pendingSend = pendingComposerSendForThread(threadId, pendingSend.itemId)
               || { ...pendingSend, threadId };
@@ -27369,6 +27411,12 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       }
     }
     if (tradingStrategyAtSend && tradingStrategyRequestAtSend?.mode === "chart-analysis") {
+      if (tradingAnalysisTargetAtSend) {
+        tradingStrategyAnalysisTargetByRequest.set(
+          tradingStrategyRequestAtSend,
+          tradingAnalysisTargetAtSend,
+        );
+      }
       localHistoryAheadThreadIds.add(threadId);
       if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
       clearTradingExpertComposerAfterSend(threadId);
@@ -27397,7 +27445,11 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
       clearTradingExpertComposerAfterSend(threadId);
       refreshTradingExpertConversationSurface(threadId);
-      await runTradingGeneralChartRequest(threadId, tradingGeneralRequestAtSend);
+      await runTradingGeneralChartRequest(
+        threadId,
+        tradingGeneralRequestAtSend,
+        tradingAnalysisTargetAtSend,
+      );
       return;
     }
     if (isMultiModelClusterThread(threadId)) {
@@ -27522,6 +27574,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       visibleQuestion,
     );
   } finally {
+    releaseTradingExpertAnalysisTarget(tradingAnalysisTargetAtSend);
     submittingComposerThreadIds.delete(originalThreadId);
     submittingComposerThreadIds.delete(threadId);
     syncComposerSendButton();
@@ -29992,6 +30045,10 @@ function refreshTradingExpertConversationSurface(threadId: string) {
 }
 
 function clearTradingExpertComposerAfterSend(threadId: string) {
+  const resolvedThreadId = resolveTradingExpertAnalysisThreadId(threadId);
+  if (state.currentThreadId !== threadId && state.currentThreadId !== resolvedThreadId) {
+    return;
+  }
   state.composerText = "";
   applyTradingExpertCustomIndicatorMentions(state.composerText);
   state.composerQuote = null;
@@ -31462,6 +31519,7 @@ function buildTradingAnalysisAvailabilityReport(instruction: string, _technicalR
 async function runTradingGeneralChartRequest(
   threadId: string,
   request: TradingGeneralRequest,
+  analysisTarget: TradingAnalysisTaskTarget | null = null,
 ) {
   const analysisId = beginTradingExpertAnalysisJob(threadId, "general");
   const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
@@ -31492,6 +31550,7 @@ async function runTradingGeneralChartRequest(
   try {
     const result = await runTradingExpertGeneralConversation({
       analysisId,
+      analysisTarget,
       instruction: request.instruction,
       symbol: request.symbol,
       interval: request.interval,
@@ -31532,6 +31591,7 @@ async function runTradingStrategyChartRequest(
   strategy: TradingStrategyCatalogItem,
   request: TradingStrategyRequest,
 ) {
+  const analysisTarget = tradingStrategyAnalysisTargetByRequest.get(request) || null;
   const analysisId = beginTradingExpertAnalysisJob(threadId, strategy.id);
   const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
   const progressIdPrefix = `trading-${strategy.id}-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -31557,6 +31617,7 @@ async function runTradingStrategyChartRequest(
     ensureTradingExpertChartIndicatorVisible(strategy.chartIndicator);
     const result = await runTradingExpertStrategyConversation(strategy.id, {
       analysisId,
+      analysisTarget,
       instruction: request.instruction,
       symbol: request.symbol,
       interval: request.interval,
@@ -31592,6 +31653,7 @@ async function runTradingStrategyChartRequest(
       try {
         const recovered = await runTradingExpertGeneralConversation({
           analysisId,
+          analysisTarget,
           instruction: request.instruction,
           symbol: request.symbol,
           interval: request.interval,

@@ -137,6 +137,12 @@ export function loadGatewayConfig(env = process.env) {
   if (privateBackgroundSafetyPercent >= privateTotalSafetyPercent) {
     throw new Error("HAOLO_PRIVATE_BACKGROUND_SAFETY_PERCENT must be lower than HAOLO_PRIVATE_TOTAL_SAFETY_PERCENT");
   }
+  const downstreamRequestsPerMinute = positiveInteger(env.HAOLO_MARKET_REQUESTS_PER_MINUTE, 300, { min: 10, max: 100_000 });
+  const downstreamBurstRequestsPerMinute = positiveInteger(
+    env.HAOLO_MARKET_BURST_REQUESTS_PER_MINUTE,
+    Math.max(1_200, downstreamRequestsPerMinute * 4),
+    { min: downstreamRequestsPerMinute, max: 1_000_000 },
+  );
 
   return Object.freeze({
     production,
@@ -158,7 +164,10 @@ export function loadGatewayConfig(env = process.env) {
     trustProxy: booleanValue(env.HAOLO_GATEWAY_TRUST_PROXY, false),
     redisUrl,
     requestTimeoutMs: positiveInteger(env.HAOLO_BINANCE_REQUEST_TIMEOUT_MS, 10_000, { min: 1_000, max: 60_000 }),
-    downstreamRequestsPerMinute: positiveInteger(env.HAOLO_MARKET_REQUESTS_PER_MINUTE, 300, { min: 10, max: 100_000 }),
+    downstreamRequestsPerMinute,
+    downstreamBurstRequestsPerMinute,
+    publicFuturesUpstreamWeightPerMinute: positiveInteger(env.HAOLO_MARKET_FUTURES_WEIGHT_PER_MINUTE, 1_440, { min: 100, max: 1_000_000 }),
+    publicSpotUpstreamWeightPerMinute: positiveInteger(env.HAOLO_MARKET_SPOT_WEIGHT_PER_MINUTE, 3_600, { min: 100, max: 1_000_000 }),
     maxSubscriptionsPerClient: positiveInteger(env.HAOLO_MARKET_MAX_SUBSCRIPTIONS_PER_CLIENT, 50, { min: 1, max: 1_024 }),
     maxWebsocketClientsPerUser: positiveInteger(env.HAOLO_MARKET_MAX_WS_CLIENTS_PER_USER, 8, { min: 1, max: 1_000 }),
     maxWebsocketClientsTotal: positiveInteger(env.HAOLO_MARKET_MAX_WS_CLIENTS_TOTAL, 10_000, { min: 10, max: 100_000 }),

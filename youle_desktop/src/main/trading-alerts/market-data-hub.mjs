@@ -61,13 +61,15 @@ export class TradingAlertMarketDataHub {
     this.adapters = new Map();
     this.channels = new Map();
     this.history = new Map();
+    this.historyInflight = new Map();
+    this.historyGeneration = new Map();
     this.historyLimit = Math.max(100, Number(historyLimit) || 1_500);
     this.seenEventIds = new Set();
     this.closedBars = new Set();
     this.latestEventTime = new Map();
     this.healthByChannel = new Map();
     this.healthListeners = new Set();
-    this.metrics = { received: 0, emitted: 0, duplicates: 0, late: 0, gaps: 0 };
+    this.metrics = { received: 0, emitted: 0, duplicates: 0, late: 0, gaps: 0, historyLoads: 0, historyCoalesced: 0 };
   }
 
   registerAdapter(adapter) {
@@ -81,14 +83,37 @@ export class TradingAlertMarketDataHub {
   async loadHistory(subscriptionValue, limit = 500) {
     const subscription = normalizeMarketDataSubscription(subscriptionValue);
     const key = marketSubscriptionKey(subscription);
+    const requestedLimit = Math.min(this.historyLimit, Math.max(2, Number(limit) || 500));
     const cached = this.history.get(key);
-    if (cached?.length) return structuredClone(cached.slice(-Math.min(this.historyLimit, Math.max(2, Number(limit) || 500))));
+    if (cached?.length) return structuredClone(cached.slice(-requestedLimit));
+    const pending = this.historyInflight.get(key);
+    if (pending) {
+      this.metrics.historyCoalesced += 1;
+      const rows = await pending.promise;
+      if (pending.limit >= requestedLimit || rows.length >= requestedLimit) {
+        return structuredClone(rows.slice(-requestedLimit));
+      }
+    }
     const adapter = this.adapters.get(subscription.providerId);
     if (!adapter) throw new TradingAlertError(`行情 Provider 不可用：${subscription.providerId}`, { code: "TRADING_ALERT_MARKET_PROVIDER_UNAVAILABLE", category: "provider" });
-    const rows = await adapter.loadHistory(subscription, Math.min(this.historyLimit, Math.max(2, Number(limit) || 500)));
-    const normalized = rows.map((row, index) => normalizeCandle(row, `history[${index}]`)).sort((a, b) => a.time - b.time);
-    this.history.set(key, normalized.slice(-this.historyLimit));
-    return structuredClone(this.history.get(key));
+    const generation = Number(this.historyGeneration.get(key) || 0);
+    const operation = {
+      limit: requestedLimit,
+      promise: Promise.resolve().then(async () => {
+        this.metrics.historyLoads += 1;
+        const rows = await adapter.loadHistory(subscription, requestedLimit);
+        const normalized = rows.map((row, index) => normalizeCandle(row, `history[${index}]`)).sort((a, b) => a.time - b.time);
+        const retained = normalized.slice(-this.historyLimit);
+        if (Number(this.historyGeneration.get(key) || 0) === generation) this.history.set(key, retained);
+        return retained;
+      }),
+    };
+    this.historyInflight.set(key, operation);
+    try {
+      return structuredClone((await operation.promise).slice(-requestedLimit));
+    } finally {
+      if (this.historyInflight.get(key) === operation) this.historyInflight.delete(key);
+    }
   }
 
   seedHistory(subscriptionValue, rows = []) {
@@ -168,8 +193,16 @@ export class TradingAlertMarketDataHub {
   }
 
   clearHistory(subscriptionValue) {
-    if (subscriptionValue) this.history.delete(marketSubscriptionKey(subscriptionValue));
-    else this.history.clear();
+    if (subscriptionValue) {
+      const key = marketSubscriptionKey(subscriptionValue);
+      this.history.delete(key);
+      this.historyGeneration.set(key, Number(this.historyGeneration.get(key) || 0) + 1);
+    } else {
+      this.history.clear();
+      for (const key of new Set([...this.historyGeneration.keys(), ...this.historyInflight.keys()])) {
+        this.historyGeneration.set(key, Number(this.historyGeneration.get(key) || 0) + 1);
+      }
+    }
   }
 
   onHealth(listener) {
@@ -186,7 +219,7 @@ export class TradingAlertMarketDataHub {
   }
 
   stats() {
-    return Object.freeze({ adapters: this.adapters.size, subscriptions: this.channels.size, cachedSeries: this.history.size, healthySubscriptions: [...this.healthByChannel.values()].filter((entry) => entry.status === "connected").length, ...this.metrics });
+    return Object.freeze({ adapters: this.adapters.size, subscriptions: this.channels.size, cachedSeries: this.history.size, inflightHistoryLoads: this.historyInflight.size, healthySubscriptions: [...this.healthByChannel.values()].filter((entry) => entry.status === "connected").length, ...this.metrics });
   }
 
   async close() {

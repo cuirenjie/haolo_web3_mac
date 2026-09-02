@@ -88,9 +88,23 @@ async function readJsonBody(request, maxBytes = 4 * 1024) {
 }
 
 export function createPublicGatewayServer({ config, restGateway, streamPool, privateEgressCoordinator = null, accessTokenVerifier = null } = {}) {
-  const limiter = new FixedWindowRateLimiter({ limit: config.downstreamRequestsPerMinute });
+  const controlLimiter = new FixedWindowRateLimiter({ limit: config.downstreamRequestsPerMinute });
+  const requestBurstLimiter = new FixedWindowRateLimiter({
+    limit: config.downstreamBurstRequestsPerMinute || Math.max(1_200, config.downstreamRequestsPerMinute * 4),
+  });
+  const upstreamBudgetStates = new Map();
   const websocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 64 * 1024 });
-  const metrics = { httpRequests: 0, httpErrors: 0, websocketClients: 0, websocketRejected: 0 };
+  const metrics = {
+    httpRequests: 0,
+    httpErrors: 0,
+    websocketClients: 0,
+    websocketRejected: 0,
+    restCacheHits: 0,
+    restCacheMisses: 0,
+    restCacheStale: 0,
+    upstreamAdmissions: 0,
+    downstreamRateLimited: 0,
+  };
   const websocketClientsByUser = new Map();
   const drain = new DrainState();
   let closing;
@@ -122,7 +136,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       if (request.method === "POST" && request.url === "/api/private/v1/permits") {
         if (!privateEgressCoordinator) throw new MarketGatewayError("private egress control plane is disabled", { statusCode: 503, code: "PRIVATE_EGRESS_DISABLED" });
         const identity = await requireHttpIdentity(request, config, accessTokenVerifier);
-        const rate = limiter.consume(`private-permit:${identity.userId}:${clientAddress(request, config)}`);
+        const rate = controlLimiter.consume(`private-permit:${identity.userId}:${clientAddress(request, config)}`);
         if (!rate.allowed) {
           throw new MarketGatewayError("private permit rate limit exceeded", { statusCode: 429, code: "RATE_LIMITED", retryAfterMs: rate.resetAt - Date.now() });
         }
@@ -139,7 +153,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       }
       if (request.method === "POST" && request.url === "/api/market/v1/tickets") {
         const identity = await requireHttpIdentity(request, config, accessTokenVerifier);
-        const rate = limiter.consume(`ticket:${identity.userId}:${clientAddress(request, config)}`);
+        const rate = controlLimiter.consume(`ticket:${identity.userId}:${clientAddress(request, config)}`);
         if (!rate.allowed) {
           throw new MarketGatewayError("ticket rate limit exceeded", { statusCode: 429, code: "RATE_LIMITED", retryAfterMs: rate.resetAt - Date.now() });
         }
@@ -151,26 +165,92 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       }
       if (request.method !== "GET") throw new MarketGatewayError("method not allowed", { statusCode: 405, code: "METHOD_NOT_ALLOWED" });
       const identity = await requireHttpIdentity(request, config, accessTokenVerifier);
-      const rate = limiter.consume(`${identity.userId}:${clientAddress(request, config)}`);
-      if (!rate.allowed) {
-        throw new MarketGatewayError("request rate limit exceeded", { statusCode: 429, code: "RATE_LIMITED", retryAfterMs: rate.resetAt - Date.now() });
+      const address = clientAddress(request, config);
+      const requestKey = `${identity.userId}:${address}`;
+      const burstRate = requestBurstLimiter.consume(requestKey);
+      if (!burstRate.allowed) {
+        metrics.downstreamRateLimited += 1;
+        throw new MarketGatewayError("request rate limit exceeded", { statusCode: 429, code: "RATE_LIMITED", retryAfterMs: burstRate.resetAt - Date.now() });
       }
-      const result = await restGateway.get(request.url);
+      let upstreamBudget = upstreamBudgetStates.get(requestKey) || null;
+      if (upstreamBudget?.resetAt <= Date.now()) {
+        upstreamBudgetStates.delete(requestKey);
+        upstreamBudget = null;
+      }
+      const result = await restGateway.get(request.url, {
+        async beforeUpstream(route) {
+          const now = Date.now();
+          const totalLimit = route.marketType === "futures"
+            ? config.publicFuturesUpstreamWeightPerMinute || 1_440
+            : config.publicSpotUpstreamWeightPerMinute || 3_600;
+          const budget = await restGateway.cache.consumeWeightBudget({
+            shardId: "public-egress",
+            marketType: route.marketType,
+            windowId: Math.floor(now / 60_000),
+            weight: route.weight,
+            totalLimit,
+            backgroundLimit: totalLimit,
+            background: false,
+            userKey: crypto.createHash("sha256").update(requestKey).digest("hex").slice(0, 32),
+            userLimit: config.downstreamRequestsPerMinute,
+            ttlMs: 60_000 - (now % 60_000) + 5_000,
+          });
+          upstreamBudget = Object.freeze({
+            marketType: route.marketType,
+            remaining: Math.max(0, config.downstreamRequestsPerMinute - budget.usedByUser),
+            resetAt: now + budget.retryAfterMs,
+          });
+          upstreamBudgetStates.delete(requestKey);
+          upstreamBudgetStates.set(requestKey, upstreamBudget);
+          while (upstreamBudgetStates.size > 20_000) {
+            upstreamBudgetStates.delete(upstreamBudgetStates.keys().next().value);
+          }
+          if (!budget.allowed) {
+            metrics.downstreamRateLimited += 1;
+            throw new MarketGatewayError(
+              budget.rejectedBy === "user"
+                ? "upstream request-weight budget exceeded"
+                : "shared upstream request-weight budget exceeded",
+              {
+                statusCode: 429,
+                code: "RATE_LIMITED",
+                retryAfterMs: budget.retryAfterMs,
+              },
+            );
+          }
+          metrics.upstreamAdmissions += 1;
+        },
+      });
+      if (result.cacheStatus === "HIT") metrics.restCacheHits += 1;
+      else if (result.cacheStatus === "STALE") metrics.restCacheStale += 1;
+      else metrics.restCacheMisses += 1;
       sendJson(response, result.statusCode, result.value, {
         "cache-control": "private, max-age=0",
         "x-haolo-cache": result.cacheStatus,
-        "x-ratelimit-remaining": String(rate.remaining),
+        ...(upstreamBudget && upstreamBudget.marketType === result.marketType
+          ? { "x-ratelimit-remaining": String(upstreamBudget.remaining) }
+          : {}),
+        "x-haolo-request-limit-remaining": String(burstRate.remaining),
         ...result.headers,
       });
     } catch (error) {
       metrics.httpErrors += 1;
       const statusCode = Number(error?.statusCode || 500);
       const retryAfterSeconds = Math.ceil(Number(error?.retryAfterMs || 0) / 1_000);
+      const errorCode = String(error?.code || "INTERNAL_ERROR");
+      const rateLimitSource = errorCode.startsWith("UPSTREAM_")
+        ? "gateway-upstream"
+        : errorCode === "RATE_LIMITED"
+          ? "gateway-downstream"
+          : "";
       sendJson(response, statusCode, {
-        error: String(error?.code || "INTERNAL_ERROR"),
+        error: errorCode,
         message: statusCode >= 500 ? "market gateway unavailable" : String(error?.message || "request rejected"),
         retryAfterMs: Number(error?.retryAfterMs || 0),
-      }, retryAfterSeconds > 0 ? { "retry-after": String(retryAfterSeconds) } : {});
+      }, {
+        ...(retryAfterSeconds > 0 ? { "retry-after": String(retryAfterSeconds) } : {}),
+        ...(rateLimitSource ? { "x-haolo-rate-limit-source": rateLimitSource } : {}),
+      });
     }
   }));
 
@@ -183,7 +263,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     }
     try {
       const identity = await websocketIdentity(request, config, restGateway.cache, accessTokenVerifier);
-      const rate = limiter.consume(`ws:${identity.userId}:${clientAddress(request, config)}`);
+      const rate = controlLimiter.consume(`ws:${identity.userId}:${clientAddress(request, config)}`);
       if (!rate.allowed) throw new GatewayAuthError("connection rate limit exceeded", 429);
       if (metrics.websocketClients >= config.maxWebsocketClientsTotal) {
         throw new GatewayAuthError("gateway connection capacity exceeded", 503);
