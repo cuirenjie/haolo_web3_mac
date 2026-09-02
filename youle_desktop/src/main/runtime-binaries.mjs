@@ -121,9 +121,7 @@ export function prependRuntimeBinToPath(env = {}, runtimeBinDir, { platform = pr
   if (!binDir) return env;
   const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") || (platform === "win32" ? "Path" : "PATH");
   const current = String(env[pathKey] || "");
-  // `path.delimiter` reflects the running host (and is `;` in an actual
-  // Windows process). `path.win32` deliberately has no delimiter property.
-  const delimiter = path.delimiter;
+  const delimiter = platform === "win32" ? path.win32.delimiter : path.delimiter;
   const parts = current.split(delimiter).map((entry) => entry.trim()).filter(Boolean);
   const normalizedBinDir = comparablePath(binDir, platform);
   const filtered = parts.filter((entry) => comparablePath(entry, platform) !== normalizedBinDir);

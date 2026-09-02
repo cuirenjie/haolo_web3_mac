@@ -399,6 +399,14 @@ function extractArtifactPathCandidates(text, options = {}) {
   collectMatches(
     value,
     new RegExp(
+      `(?:^|[\\s(["':\\uFF1A\`])((?:\\/(?!\\/))[^\\r\\n\`]*?\\.${extensionPattern})(?=$|[\\s\\])'",.;\\uFF0C\\u3002\\uFF1B\\u3001])`,
+      "giu",
+    ),
+    candidates,
+  );
+  collectMatches(
+    value,
+    new RegExp(
       `(?:^|[\\s(["':\\uFF1A\`])((?:\\.?[\\\\/])?outputs[\\\\/][^\\r\\n\`]*?\\.${extensionPattern})(?=$|[\\s\\])'",.;\\uFF0C\\u3002\\uFF1B\\u3001])`,
       "giu",
     ),

@@ -92,13 +92,13 @@ test("verifies a complete bundled source without a ready marker and rejects miss
 });
 
 test("puts the prepared runtime first on PATH without duplicates", () => {
-  const runtimeBin = path.resolve("C:\\ProgramData\\haolo-runtime\\bin");
-  const otherBin = path.resolve("C:\\Windows\\System32");
+  const runtimeBin = "C:\\ProgramData\\haolo-runtime\\bin";
+  const otherBin = "C:\\Windows\\System32";
   const env = {
-    Path: [otherBin, runtimeBin, otherBin].join(path.delimiter),
+    Path: [otherBin, runtimeBin, otherBin].join(path.win32.delimiter),
   };
   prependRuntimeBinToPath(env, runtimeBin, { platform: "win32" });
-  assert.deepEqual(env.Path.split(path.delimiter), [runtimeBin, otherBin, otherBin]);
+  assert.deepEqual(env.Path.split(path.win32.delimiter), [runtimeBin, otherBin, otherBin]);
 });
 
 function writeFakeWindowsRuntime(binDir) {

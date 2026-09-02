@@ -556,6 +556,7 @@ const MAC_UPDATE_BASE_URL = normalizeBaseUrl(
 const MAC_UPDATE_CHECK_PATH = process.env.HAOLO_MAC_APP_UPDATE_CHECK_PATH || "/api/app-updates/mac/check";
 const MAC_UPDATE_ARCH = process.env.HAOLO_MAC_APP_UPDATE_ARCH || "universal";
 const MAC_UPDATE_CLIENT_VARIANT = WINDOWS_UPDATE_CLIENT_VARIANT;
+const TRADING_PREMIUM_ACCESS_CACHE_MS = 5_000;
 const WINDOWS_UPDATE_TIMEOUT_MS = 20_000;
 const APP_UPDATE_DOWNLOAD_CONNECT_TIMEOUT_MS = 120_000;
 const APP_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
@@ -9390,6 +9391,7 @@ const MAIN_UI_COPY = Object.freeze({
     emptyUsageExport: "Usage export failed: the server returned an empty file",
     selectChromeUploadFile: "Select a file for Chrome to upload",
     copy: "Copy",
+    microphonePermissionDenied: "Allow HaoLo to use the microphone in System Settings > Privacy & Security > Microphone.",
   }),
   "zh-CN": Object.freeze({
     settings: "设置",
@@ -9424,6 +9426,7 @@ const MAIN_UI_COPY = Object.freeze({
     emptyUsageExport: "消费明细导出失败：后端返回了空文件",
     selectChromeUploadFile: "选择要交给 Chrome 上传的文件",
     copy: "复制",
+    microphonePermissionDenied: "请在系统设置 > 隐私与安全性 > 麦克风中允许 HaoLo 使用麦克风",
   }),
   "zh-TW": Object.freeze({
     settings: "設定",
@@ -9458,6 +9461,7 @@ const MAIN_UI_COPY = Object.freeze({
     emptyUsageExport: "使用明細匯出失敗：伺服器傳回空白檔案",
     selectChromeUploadFile: "選擇要交給 Chrome 上傳的檔案",
     copy: "複製",
+    microphonePermissionDenied: "請在系統設定 > 隱私權與安全性 > 麥克風中允許 HaoLo 使用麥克風",
   }),
 });
 
@@ -12442,7 +12446,7 @@ async function ensureVoiceMicrophoneAccess() {
   return {
     ok: false,
     code: "VOICE_MICROPHONE_PERMISSION_DENIED",
-    message: "请在系统设置 > 隐私与安全性 > 麦克风中允许好咯使用麦克风",
+    message: mainUiText("microphonePermissionDenied"),
   };
 }
 
@@ -12875,7 +12879,7 @@ ipcMain.handle("youle:listImageGenerationModels", async (event, params = {}) => 
 });
 
 ipcMain.handle("youle:refreshSub2ApiAccount", async () => {
-  return getYouleApiClient().refreshSub2ApiAccount();
+  return getYouleApiClient().refreshSub2ApiAccount({ maxAgeMs: TRADING_PREMIUM_ACCESS_CACHE_MS });
 });
 
 ipcMain.handle("youle:getGitHubConnectionStatus", async () => {
@@ -15160,7 +15164,9 @@ function tradingPremiumAccessError(code, message, retryable = false) {
 async function requireFreshTradingPremiumAccess() {
   let refreshed;
   try {
-    refreshed = await getYouleApiClient().refreshSub2ApiAccount();
+    refreshed = await getYouleApiClient().refreshSub2ApiAccount({
+      maxAgeMs: TRADING_PREMIUM_ACCESS_CACHE_MS,
+    });
   } catch (cause) {
     const causeCode = String(cause?.code || "");
     if (["HAOLO_AUTH_REQUIRED", "HAOLO_ACCOUNT_ID_REQUIRED"].includes(causeCode)) {
@@ -20509,8 +20515,7 @@ function normalizeAppUpdateResponse(payload, currentVersion, updateTarget = curr
     platform: updateTarget.platform,
     arch: updateTarget.arch,
     update_available: Boolean(payload?.update_available),
-    // Desktop releases are mandatory whenever the update service reports a newer version.
-    force_update: Boolean(payload?.update_available),
+    force_update: Boolean(payload?.force_update),
     latest,
     download,
   };

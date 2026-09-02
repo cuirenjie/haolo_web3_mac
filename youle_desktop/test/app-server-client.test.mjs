@@ -76,7 +76,11 @@ function assertRemotePluginDisabled(config) {
 
 function assertWindowsSandboxCompatibilityMode(config) {
   assert.match(config, /^\[features\.network_proxy\][\s\S]*?^enabled\s*=\s*false\s*$/m);
-  assert.match(config, /^\[windows\][\s\S]*?^sandbox\s*=\s*"unelevated"\s*$/m);
+  if (/^\[windows\]$/m.test(config)) {
+    assert.match(config, /^\[windows\][\s\S]*?^sandbox\s*=\s*"unelevated"\s*$/m);
+  } else {
+    assert.notEqual(process.platform, "win32");
+  }
 }
 
 function bundledModelCatalogFixture() {
@@ -222,7 +226,7 @@ test("runtime provider overrides always send the bundled Codex version without f
 
   assert.ok(args.includes('model="gpt-5.5"'));
   assert.ok(args.includes('model_reasoning_effort="high"'));
-  assert.ok(args.includes('windows.sandbox="unelevated"'));
+  assert.equal(args.includes('windows.sandbox="unelevated"'), process.platform === "win32");
   assert.ok(args.includes("features.network_proxy.enabled=false"));
   assert.ok(args.includes("features.multi_agent_v2.max_concurrent_threads_per_session=1"));
   assert.equal(args.some((arg) => arg.startsWith("agents.max_threads=")), false);
@@ -435,7 +439,7 @@ test("default resource sync backfills an old config while forcing the managed Ha
   });
 });
 
-test("default resource sync replaces elevated Windows sandbox settings in every Codex home", () => {
+test("default resource sync replaces elevated Windows sandbox settings in every Codex home", { skip: process.platform !== "win32" }, () => {
   withRuntimeConfigFixture(({ tempRoot }) => {
     const codexHome = path.join(tempRoot, "windows-sandbox-migration-home");
     const runtimeDotCodex = path.join(codexHome, "runtime-home", ".codex");
@@ -896,11 +900,11 @@ test("app server environment maps an explicit Haolo originator override without 
 });
 
 test("app server isolates inherited Codex Desktop state and prioritizes the Haolo runtime", () => {
-  const runtimeBinDir = path.resolve("C:\\ProgramData\\haolo_desktop-runtime\\test\\bin");
-  const systemCodexDir = path.resolve("C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\resources");
+  const runtimeBinDir = path.resolve("/opt/haolo-desktop-runtime/test/bin");
+  const systemCodexDir = path.resolve("/opt/Codex Desktop/resources");
   const env = buildAppServerEnv({
     baseEnv: {
-      Path: [systemCodexDir, path.resolve("C:\\Windows\\System32")].join(path.delimiter),
+      PATH: [systemCodexDir, "/usr/bin"].join(path.delimiter),
       HAOLO_DESKTOP_RUNTIME_BIN_DIR: runtimeBinDir,
       CODEX_INSTALL_DIR: systemCodexDir,
       CODEX_INTERNAL_ORIGINATOR_OVERRIDE: "Codex Desktop",
@@ -908,11 +912,11 @@ test("app server isolates inherited Codex Desktop state and prioritizes the Haol
       CODEX_SQLITE_HOME: path.resolve("D:\\CodexData\\state"),
       CODEX_THREAD_ID: "thread-parent",
     },
-    codexHome: path.resolve("C:\\Users\\Tester\\haolo-home"),
+    codexHome: path.resolve("/Users/tester/haolo-home"),
     authEnv: {},
   });
 
-  assert.equal(env.Path.split(path.delimiter)[0], runtimeBinDir);
+  assert.equal(env.PATH.split(path.delimiter)[0], runtimeBinDir);
   assert.equal(env.HAOLO_DESKTOP_RUNTIME_BIN_DIR, runtimeBinDir);
   assert.equal(env.CODEX_INSTALL_DIR, undefined);
   assert.equal(env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE, undefined);

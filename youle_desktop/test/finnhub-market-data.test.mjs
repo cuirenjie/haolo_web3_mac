@@ -95,7 +95,8 @@ test("desktop exposes only narrow backend-managed Finnhub IPC methods", async ()
   assert.match(apiClient, /DEFAULT_FINNHUB_MARKET_DATA_PATH = "\/api\/market-data\/finnhub"/);
   assert.match(renderer, /response\.status\?\.available === true/);
   assert.match(renderer, /GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE = "目前版本此交易对数据还未接入"/);
-  assert.match(renderer, /targetProvider === "finnhub"\s*\? GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE/);
+  assert.match(renderer, /targetProvider === "finnhub"\s*\? await this\.fetchFinnhubSnapshot/);
+  assert.match(renderer, /if \(provider === "finnhub"\) \{[\s\S]*message: GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE/);
   assert.match(renderer, /action === "open-default-market"/);
   assert.match(renderer, /candidate\.id === `BINANCE:FUTURES:\$\{DEFAULT_SYMBOL\}`/);
   assert.match(renderer, /点击加载 BTC\/USDT 永续合约/);

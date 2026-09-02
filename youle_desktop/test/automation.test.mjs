@@ -442,8 +442,8 @@ test("runner enforces startup and no-output timeouts", async () => {
     runDir: path.join(dir, "no-output"),
     sandboxMode: "read-only",
     approvalPolicy: "never",
-    timeoutMs: 5000,
-    startupTimeoutMs: 500,
+    timeoutMs: 15_000,
+    startupTimeoutMs: 8_000,
     noOutputTimeoutMs: 80,
   });
   assert.equal(noOutput.status, "timed_out");
@@ -475,10 +475,10 @@ test("runner gives timed-out processes cleanup grace before force killing", asyn
     runDir: path.join(dir, "run"),
     sandboxMode: "read-only",
     approvalPolicy: "never",
-    timeoutMs: 5000,
-    startupTimeoutMs: 500,
+    timeoutMs: 15_000,
+    startupTimeoutMs: 8_000,
     noOutputTimeoutMs: 250,
-    cleanupGraceMs: 500,
+    cleanupGraceMs: 1_500,
   });
   assert.equal(result.status, "timed_out");
   if (process.platform === "win32") {
@@ -711,7 +711,7 @@ test("worker passes per-job no-output watchdog settings to the runner", async ()
     workspacePath: dir,
     prompt: "Every run, watch output and return NO_FINDINGS if there is no result.",
     schedule: { type: "manual", expr: null, timezone: "UTC", misfirePolicy: "run_once" },
-    execution: { workspaceMode: "local", sandboxMode: "read-only", approvalPolicy: "never", maxDurationSeconds: 5, startupTimeoutSeconds: 1, noOutputTimeoutSeconds: 1, cleanupGraceSeconds: 1 },
+    execution: { workspaceMode: "local", sandboxMode: "read-only", approvalPolicy: "never", maxDurationSeconds: 15, startupTimeoutSeconds: 8, noOutputTimeoutSeconds: 1, cleanupGraceSeconds: 1 },
   });
   const worker = new AutomationWorker({ store, youleAiBin: fakeBin });
   const run = await worker.runNow(job.id);

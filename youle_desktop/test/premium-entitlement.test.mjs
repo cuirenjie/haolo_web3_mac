@@ -65,7 +65,8 @@ test("renderer and main process both enforce fresh premium access for local anal
 
   assert.match(renderer, /confirmPremiumTradingAccessBeforeSend\("trading-analysis-send"\)/);
   assert.match(renderer, /requiresPremiumTradingAccess[\s\S]*?accessState !== "available"[\s\S]*?return;/);
-  assert.match(mainProcess, /async function requireFreshTradingPremiumAccess\(\)[\s\S]*?refreshSub2ApiAccount\(\)[\s\S]*?premiumAccessState\(profile\)/);
+  assert.match(mainProcess, /TRADING_PREMIUM_ACCESS_CACHE_MS = 5_000/);
+  assert.match(mainProcess, /async function requireFreshTradingPremiumAccess\(\)[\s\S]*?refreshSub2ApiAccount\(\{[\s\S]*?maxAgeMs: TRADING_PREMIUM_ACCESS_CACHE_MS[\s\S]*?premiumAccessState\(profile\)/);
   assert.match(mainProcess, /async function runTradingStrategyRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
   assert.match(mainProcess, /tradingAnalysis:runGeneral[\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
   assert.match(mainProcess, /async function tradingAlertIpcCall[\s\S]*?\["compile", "resumeDraft", "simulate", "confirm", "revise"\][\s\S]*?await requireFreshTradingPremiumAccess\(\)/);

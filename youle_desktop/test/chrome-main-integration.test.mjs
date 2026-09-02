@@ -20,7 +20,7 @@ test("desktop starts and stops the Chrome Native Broker through the main-process
 });
 
 test("Windows packaging includes and removes the Chrome Native Host registration", () => {
-  assert.ok(pkg.build.extraResources.some((entry) => entry.to === "bin/haolo-chrome-native-host.exe"));
+  assert.ok(pkg.build.win.extraResources.some((entry) => entry.to === "bin/haolo-chrome-native-host.exe"));
   assert.ok(pkg.build.extraResources.some((entry) => entry.from === "extensions/haolo-chrome" && entry.to === "chrome-extension"));
   assert.ok(pkg.build.extraResources.some((entry) => entry.from === "resources/chrome-release-policy.json" && entry.to === "chrome-release-policy.json"));
   assert.match(installer, /NativeMessagingHosts\\com\.haolo\.chrome/);

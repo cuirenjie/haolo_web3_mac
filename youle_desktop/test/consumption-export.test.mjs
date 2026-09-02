@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -15,8 +16,8 @@ test("consumption export builds a Shanghai-dated xlsx file name", () => {
   assert.equal(consumptionExportDefaultFileName("usd", now), "HaoLo使用数据_积分_20260719.xlsx");
   assert.equal(normalizeConsumptionExportUnit("usd"), "points");
   assert.equal(normalizeConsumptionExportUnit("other"), "token");
-  assert.equal(ensureXlsxFilePath("D:\\reports\\usage"), "D:\\reports\\usage.xlsx");
-  assert.equal(ensureXlsxFilePath("D:\\reports\\usage.csv"), "D:\\reports\\usage.xlsx");
+  assert.equal(ensureXlsxFilePath(path.join("reports", "usage")), path.resolve("reports", "usage.xlsx"));
+  assert.equal(ensureXlsxFilePath(path.join("reports", "usage.csv")), path.resolve("reports", "usage.xlsx"));
 });
 
 test("consumption export stops before the backend request when save is canceled", async () => {
@@ -35,13 +36,15 @@ test("consumption export downloads the selected unit and writes the returned wor
   const writes = [];
   const requests = [];
   const bytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x01]);
+  const selectedPath = path.resolve("reports", "all-usage");
+  const workbookPath = `${selectedPath}.xlsx`;
   const result = await saveConsumptionReport({
-    app: { getPath: () => "D:\\downloads" },
+    app: { getPath: () => path.resolve("downloads") },
     dialog: {
       showSaveDialog: async (_window, options) => {
         assert.equal(options.title, "导出使用数据");
         assert.match(options.defaultPath, /HaoLo使用数据_积分_/);
-        return { canceled: false, filePath: "D:\\reports\\all-usage" };
+        return { canceled: false, filePath: selectedPath };
       },
     },
     apiClient: {
@@ -56,15 +59,15 @@ test("consumption export downloads the selected unit and writes the returned wor
 
   assert.deepEqual(requests, [{
     unit: "points",
-    destinationPath: "D:\\reports\\all-usage.xlsx",
+    destinationPath: workbookPath,
   }]);
   assert.equal(writes.length, 1);
-  assert.equal(writes[0].filePath, "D:\\reports\\all-usage.xlsx");
+  assert.equal(writes[0].filePath, workbookPath);
   assert.deepEqual(writes[0].contents, bytes);
   assert.deepEqual(result, {
     ok: true,
     canceled: false,
-    path: "D:\\reports\\all-usage.xlsx",
+    path: workbookPath,
     unit: "points",
   });
 });

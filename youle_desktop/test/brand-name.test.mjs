@@ -23,18 +23,19 @@ async function collectVisibleTextFiles(target) {
   return files;
 }
 
-test("all client-visible branding uses HaoLo", async () => {
+test("general and Windows branding uses HaoLo while macOS keeps its localized package name", async () => {
   const packageJson = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8"));
   const mainSource = await readFile(path.join(packageRoot, "src", "main", "main.mjs"), "utf8");
   const files = [
     path.join(repositoryRoot, "haolo-ai-recharge.html"),
-    path.join(packageRoot, "package.json"),
     ...await collectVisibleTextFiles(path.join(packageRoot, "src")),
     ...await collectVisibleTextFiles(path.join(packageRoot, "extensions")),
     path.join(packageRoot, "resources", "installer.nsh"),
   ];
 
   assert.equal(packageJson.build.nsis.shortcutName, "HaoLo");
+  assert.equal(packageJson.build.mac.extendInfo.CFBundleDisplayName, legacyChineseBrand);
+  assert.match(packageJson.build.mac.artifactName, new RegExp(`^${legacyChineseBrand}-`));
   assert.match(mainSource, /const YOULE_DISPLAY_NAME = "HaoLo";/);
   for (const file of files) {
     const source = await readFile(file, "utf8");

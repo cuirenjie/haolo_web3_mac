@@ -106,7 +106,12 @@ test("all application confirmations use the shared in-app dialog", async () => {
   ]);
 
   assert.doesNotMatch(renderer, /\bwindow\.(?:confirm|alert|prompt)\s*\(/);
-  assert.doesNotMatch(`${main}\n${devUpdate}\n${userDataTransfer}`, /showMessageBox(?:Sync)?\s*\(/);
+  assert.doesNotMatch(`${devUpdate}\n${userDataTransfer}`, /showMessageBox(?:Sync)?\s*\(/);
+  assert.equal((main.match(/showMessageBox(?:Sync)?\s*\(/g) || []).length, 1);
+  assert.match(
+    main,
+    /ipcMain\.handle\("app:pickComposerFilesAndFolders"[\s\S]*?dialog\.showMessageBox\([\s\S]*?selectImportContent/,
+  );
   assert.match(renderer, /import \{ confirmInApp, confirmSelectionInApp,/);
   assert.match(renderer, /\bconfirmSelectionInApp\s*\(/);
   assert.match(main, /createRendererConfirmationBroker\(\{ ipcMain \}\)/);

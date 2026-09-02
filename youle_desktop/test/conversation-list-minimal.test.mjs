@@ -505,7 +505,11 @@ test("minimal rows retain accessible status, unread, working, and overflow-menu 
 test("minimal conversation rows use compact single-line geometry and trailing actions", async () => {
   const styles = await stylesSource;
   const desktopMain = await desktopMainSource;
-  const minimalStyles = styles.slice(styles.indexOf("/* Codex-like conversation history:"));
+  const minimalStyles = sourceBlock(
+    styles,
+    "/* Codex-like conversation history:",
+    "/* Saved and in-chat execution plans",
+  );
 
   assert.match(styles, /--conversation-list-width:\s*192px;/);
   assert.match(desktopMain, /const APP_CHAT_LIST_WIDTH = 192;/);
@@ -616,7 +620,11 @@ test("minimal row hover, selected, focus, menu, and status states share light-da
   const styles = await stylesSource;
   const lightTokens = sourceBlock(styles, ":root {", 'html[data-font-size="small"]');
   const darkTokens = sourceBlock(styles, 'html[data-theme="dark"] {', "* {");
-  const minimalStyles = styles.slice(styles.indexOf("/* Codex-like conversation history:"));
+  const minimalStyles = sourceBlock(
+    styles,
+    "/* Codex-like conversation history:",
+    "/* Saved and in-chat execution plans",
+  );
 
   assert.match(lightTokens, /--surface-hover-translucent:/);
   assert.match(lightTokens, /--surface-active-translucent:/);

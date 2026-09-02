@@ -45,11 +45,11 @@ test("login and desktop windows share 16px outer corners", async () => {
 test("the composer resource hint uses adaptive gray without inheriting a faded placeholder", async () => {
   const styles = await stylesSource;
   const hint = styles.match(/\.trading-expert-panel \.composer #composerInput::placeholder\s*\{([^}]*)\}/)?.[1] || "";
-  assert.match(hint, /color: var\(--text-secondary\);/);
+  assert.match(hint, /color: var\(--text-placeholder\);/);
   assert.match(hint, /opacity: 1;/);
   const light = styles.match(/^:root\s*\{([^}]*)\}/)?.[1] || "";
   const dark = styles.match(/html\[data-theme="dark"\]\s*\{([^}]*)\}/)?.[1] || "";
-  const gray = (tokens) => tokens.match(/--text-secondary:\s*(#[0-9a-f]{6});/i)?.[1];
+  const gray = (tokens) => tokens.match(/--text-placeholder:\s*(#[0-9a-f]{6});/i)?.[1];
   assert.ok(gray(light));
   assert.ok(gray(dark));
   assert.notEqual(gray(light), gray(dark), "The hint must adapt to the dark surface");
@@ -171,7 +171,7 @@ test("application chrome preserves the original light gray and dark graphite sur
   assert.match(finalDarkPalette, /--app-chrome-background: #0c0d0f/);
   assert.match(styles, /\.app-titlebar\s*\{[^}]*background: var\(--app-chrome-background\)/s);
   assert.match(styles, /\.chat-list\s*\{[^}]*background: var\(--app-chrome-background\)/s);
-  assert.match(styles, /\.conversation-list-footer\s*\{[^}]*background: var\(--app-chrome-background\)/s);
+  assert.match(styles, /\.conversation-list-footer\s*\{[^}]*background: transparent/s);
   assert.match(styles, /\.conversation-list-new-sticky\s*\{[^}]*background: var\(--app-chrome-background\)/s);
 });
 

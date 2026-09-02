@@ -41,7 +41,7 @@ test("inline code aliases only the exact skill name", async () => {
 test("message rendering enables the alias only for assistant bubbles", async () => {
   const source = await rendererSource;
 
-  assert.match(source, /assistantSkillDisplayAliases:\s*!fromUser/);
+  assert.match(source, /const messageTextMarkup = fromUser[\s\S]*?assistantSkillDisplayAliases:\s*false,[\s\S]*?assistantSkillDisplayAliases:\s*true,/);
   assert.match(source, /options\.assistantSkillDisplayAliases\s*\?\s*assistantSkillDisplayText\(part\)\s*:\s*part/);
   assert.match(source, /options\.assistantSkillDisplayAliases\s*\?\s*assistantSkillDisplayInlineCode\(part\)\s*:\s*part/);
 });

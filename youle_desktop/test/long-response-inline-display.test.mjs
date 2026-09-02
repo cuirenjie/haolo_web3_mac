@@ -63,6 +63,6 @@ test("long replies stay inline while explicit result artifacts remain supported"
     "function renderTextBubble",
     "function renderMessageThreadReferencePreview",
   );
-  assert.match(bubble, /content\.text \? `<div class="message-text">/);
+  assert.match(bubble, /content\.text \? `<div class="message-text"[^>]*>/);
   assert.doesNotMatch(bubble, /automaticDeliveryLabel|长文已整理|长内容已整理/);
 });

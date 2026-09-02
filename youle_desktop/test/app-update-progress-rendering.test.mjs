@@ -72,7 +72,7 @@ test("both update progress surfaces expose incremental patch targets", async () 
   }
 });
 
-test("every available desktop update is mandatory and cannot be dismissed", async () => {
+test("desktop updates preserve the server mandatory-update decision", async () => {
   const [renderer, main] = await Promise.all([rendererSource, mainSource]);
   const checkBlock = sourceBlock(
     renderer,
@@ -100,14 +100,15 @@ test("every available desktop update is mandatory and cannot be dismissed", asyn
     "function normalizeAppUpdateDownload",
   );
 
-  assert.match(checkBlock, /result\.update_available[\s\S]*force_update: true/);
-  assert.match(downloadBlock, /if \(!state\.settings\.update\.result\?\.update_available\)/);
-  assert.match(dialogBlock, /const force = Boolean\(result\?\.update_available\)/);
+  assert.match(checkBlock, /state\.settings\.update\.result = result/);
+  assert.doesNotMatch(checkBlock, /force_update: true/);
+  assert.match(downloadBlock, /if \(!state\.settings\.update\.result\?\.force_update\)/);
+  assert.match(dialogBlock, /const force = Boolean\(result\?\.force_update\)/);
   assert.match(dialogBlock, /此版本必须更新后才能继续使用。/);
   assert.match(dialogBlock, /force \? `<button[^`]*data-action="quit-app"/);
   assert.match(dialogBlock, /force \? "" : 'data-action="close-update-dialog"'/);
-  assert.match(listenerBlock, /result\?\.update_available\) return/);
-  assert.match(normalizeBlock, /force_update: Boolean\(payload\?\.update_available\)/);
+  assert.match(listenerBlock, /result\?\.force_update\) return/);
+  assert.match(normalizeBlock, /force_update: Boolean\(payload\?\.force_update\)/);
 });
 
 test("main process rate-limits non-final update progress IPC", async () => {

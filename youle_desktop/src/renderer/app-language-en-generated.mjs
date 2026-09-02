@@ -3757,7 +3757,7 @@ export const GENERATED_ENGLISH_UI_PHRASES = Object.freeze({
   "Telegram 已连接 🎉 在Telegram搜索用户名": "Telegram is connected 🎉 search for usernames in Telegram",
   "Telegram 已连接，但后端还没有接管通信；请重新连接。": "Telegram has been connected, but the back end has not yet taken over the communication; please reconnect.",
   "Telegram Token 验证失败": "Telegram Token Authentication Failed",
-  "Telegram-好咯": "- Telegram. - Okay.",
+  "Telegram-HaoLo": "Telegram-HaoLo",
   "title=\"编辑": "\"Title=\"Edit",
   "title=\"设置\"": "title= \"Setting\"",
   "title=\"移出群成员\"": "TItle = \"Moving the members.\"",

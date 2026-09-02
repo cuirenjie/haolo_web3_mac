@@ -128,7 +128,7 @@ test("a server-backed blank thread retries app-server readiness before sending",
     readinessGuard,
     /!state\.serverReady[\s\S]*isBlankNewThread\(threadId\) && !isLocalBlankThreadId\(threadId\)/,
   );
-  assert.match(readinessGuard, /if \(!\(await ensureServerReadyForComposerSend\(\)\)\) return/);
+  assert.match(readinessGuard, /if \(!\(await ensureServerReadyForComposerSend\(\)\)\) \{[\s\S]*releaseTradingExpertAnalysisTarget\(tradingAnalysisTargetAtSend\);[\s\S]*return;/);
   assert.doesNotMatch(readinessGuard, /app-server 未启动成功/);
 });
 

@@ -3757,7 +3757,7 @@ export const GENERATED_TRADITIONAL_UI_PHRASES = Object.freeze({
   "Telegram 已连接 🎉 在Telegram搜索用户名": "Telegram 已連線 🎉 在Telegram搜尋使用者名稱",
   "Telegram 已连接，但后端还没有接管通信；请重新连接。": "Telegram 已連線，但後端還沒有接管通訊；請重新連線。",
   "Telegram Token 验证失败": "Telegram Token 驗證失敗",
-  "Telegram-好咯": "Telegram-好咯",
+  "Telegram-HaoLo": "Telegram-HaoLo",
   "title=\"编辑": "title=\"編輯",
   "title=\"设置\"": "title=\"設定\"",
   "title=\"移出群成员\"": "title=\"移出群成員\"",

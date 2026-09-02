@@ -75,7 +75,7 @@ test("video expert upload paths enforce image type and the selected model limit"
   assert.match(folderBlock, /videoExpertUploadRestrictionMessage\(\)/);
   assert.match(reconcileBlock, /inputPolicy\.mediaType === "none"/);
   assert.match(reconcileBlock, /videoExpertInputAttachments\(attachments, inputPolicy\)/);
-  assert.match(reconcileBlock, /window\.confirm/);
+  assert.match(reconcileBlock, /await confirmInApp\(\{/);
 });
 
 test("video expert blocks send with the requested missing-frame messages", async () => {

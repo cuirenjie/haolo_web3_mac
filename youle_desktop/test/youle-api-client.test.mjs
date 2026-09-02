@@ -2927,6 +2927,55 @@ test("refreshSub2ApiAccount reads balance and marks low balance", async () => {
   }
 });
 
+test("refreshSub2ApiAccount coalesces matching requests and honors a short cache window", async () => {
+  const dir = await tempDir("sub2api-balance-cache");
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    return new Response(JSON.stringify({
+      enabled: true,
+      account: {
+        email: "person@example.com",
+        real_balance: 10,
+        subscription_balance: 20,
+        total_balance: 30,
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const client = new YouleApiClient({
+      storagePath: path.join(dir, "session.json"),
+      authPath: path.join(dir, "auth.json"),
+    });
+    client.baseUrl = "https://haolo.com";
+    client.token = "mas_token_balance_cache";
+    client.profile = { id: "user-1", email: "person@example.com" };
+    client.loaded = true;
+
+    const [first, second] = await Promise.all([
+      client.refreshSub2ApiAccount({ maxAgeMs: 5_000 }),
+      client.refreshSub2ApiAccount({ maxAgeMs: 5_000 }),
+    ]);
+    const cached = await client.refreshSub2ApiAccount({ maxAgeMs: 5_000 });
+
+    assert.equal(requests.length, 1);
+    assert.equal(first.session.profile.total_balance, 30);
+    assert.equal(second.session.profile.total_balance, 30);
+    assert.equal(cached.session.profile.total_balance, 30);
+
+    await client.refreshSub2ApiAccount();
+    assert.equal(requests.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("refreshSub2ApiAccount clears stale membership fields for a free account", async () => {
   const dir = await tempDir("sub2api-clear-stale-membership");
   const originalFetch = globalThis.fetch;

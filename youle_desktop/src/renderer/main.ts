@@ -36392,9 +36392,7 @@ async function checkForWindowsUpdate(options: { silent?: boolean } = {}) {
   if (!options.silent) render();
   try {
     const result = await api.checkWindowsUpdate({ version: APP_VERSION });
-    state.settings.update.result = result.update_available
-      ? { ...result, force_update: true }
-      : result;
+    state.settings.update.result = result;
     if (result.update_available && result.latest && result.download) {
       state.settings.update.dialogOpen = true;
     } else {
@@ -36487,7 +36485,7 @@ async function downloadWindowsUpdate() {
       return;
     }
     showToast("安装包已打开，请按提示完成更新。", 5000);
-    if (!state.settings.update.result?.update_available) {
+    if (!state.settings.update.result?.force_update) {
       closeUpdateDialog();
     }
   } catch (error) {
@@ -60549,7 +60547,7 @@ function renderUpdateDialog() {
   const latestVersion = result?.latest?.version || "";
   const releaseNotes = result?.latest?.release_notes?.trim() || "暂无更新说明。";
   const sizeLabel = result?.download?.size_bytes ? formatFileSize(result.download.size_bytes) : "";
-  const force = Boolean(result?.update_available);
+  const force = Boolean(result?.force_update);
   const progress = update.downloadProgress;
   const hasProgress = Boolean(progress);
   const progressPercent = Math.max(0, Math.min(100, progress?.percent ?? 0));
@@ -62486,7 +62484,7 @@ function bindEvents() {
     .querySelectorAll<HTMLElement>('[data-action="close-update-dialog"]')
     .forEach((element) => {
       element.addEventListener("click", () => {
-        if (state.settings.update.result?.update_available) return;
+        if (state.settings.update.result?.force_update) return;
         closeUpdateDialog();
       });
     });

@@ -125,8 +125,8 @@ test("notification close button uses a centered geometric SVG", () => {
 });
 
 test("desktop notification window follows the dark app theme", () => {
-  assert.match(mainProcessSource, /desktopNotificationHtml\(\{ title, body, theme: appTheme\(\) \}\)/u);
-  assert.match(mainProcessSource, /<html data-theme="\$\{htmlEscape\(normalizedTheme\)\}">/u);
+  assert.match(mainProcessSource, /desktopNotificationHtml\(\{ title, body, theme: appTheme\(\), language: appLanguage\(\) \}\)/u);
+  assert.match(mainProcessSource, /<html lang="\$\{htmlEscape\(appLanguageLocale\(normalizedLanguage\)\)\}" data-theme="\$\{htmlEscape\(normalizedTheme\)\}">/u);
 
   const darkCardRule = cssRule(mainProcessSource, 'html[data-theme="dark"] .card');
   assert.match(darkCardRule, /background:\s*#1b1e23;/u);

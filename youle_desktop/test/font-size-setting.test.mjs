@@ -69,7 +69,7 @@ test("all fixed pixel font sizes share the selected additive offset", async () =
   assert.match(styles, /html\[data-font-size="medium"\][\s\S]*--app-font-size-offset: 1px/);
   assert.match(styles, /html\[data-font-size="large"\][\s\S]*--app-font-size-offset: 2px/);
   assert.ok(adjustedDeclarations.length >= 400, `expected broad font-size coverage, found ${adjustedDeclarations.length}`);
-  assert.doesNotMatch(styles, /font-size:\s*[0-9.]+px;/);
+  assert.doesNotMatch(styles, /(?<!-)font-size:\s*[0-9.]+px;/);
   assert.match(styles, /\.settings-font-size-options::before[\s\S]*\.settings-font-size-node/);
   assert.match(
     styles,

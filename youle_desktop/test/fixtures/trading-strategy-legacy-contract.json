@@ -8,7 +8,7 @@
       "layer": "ai/chan",
       "legacyClassifyChannel": "tradingAnalysis:classifyChanRequest",
       "legacyRunChannel": "tradingAnalysis:runChanTest",
-      "requestSourceSha256": "8ebc460e2076c17b1c8d73bf3863bf272829fa6cd09f41857bcfdc800c0b789c"
+      "requestSourceSha256": "ea3e8ee8fd463c948a88cae57c1b46dd6590fce2595df216b78857c9850dd60b"
     },
     {
       "id": "order-flow",
@@ -17,7 +17,7 @@
       "layer": "ai/order-flow",
       "legacyClassifyChannel": "tradingAnalysis:classifyOrderFlowRequest",
       "legacyRunChannel": "tradingAnalysis:runOrderFlow",
-      "requestSourceSha256": "7597b18b0860bd21607673d9950637003cc5a3e8f552e2ffd8978c651f31aeba"
+      "requestSourceSha256": "5256a20aa8615aa66ef3b762942bc65598ce2909fa057b603e6c8b3f40047116"
     },
     {
       "id": "wave",
@@ -26,7 +26,7 @@
       "layer": "ai/wave",
       "legacyClassifyChannel": "tradingAnalysis:classifyWaveRequest",
       "legacyRunChannel": "tradingAnalysis:runWave",
-      "requestSourceSha256": "482a4c27467513b0f49b86d19443bb07e1ae49ec7af3149abb448df7447925f2"
+      "requestSourceSha256": "3735f813e8141c24311e8c8d7baec9e9650d6122002c6de87a175b9308bf50f1"
     },
     {
       "id": "wyckoff",
@@ -35,7 +35,7 @@
       "layer": "ai/wyckoff",
       "legacyClassifyChannel": "tradingAnalysis:classifyWyckoffRequest",
       "legacyRunChannel": "tradingAnalysis:runWyckoff",
-      "requestSourceSha256": "a97e8fb3ac05d4a52df11f096689a7f308518898b96acfbc4afe05828fc66d0b"
+      "requestSourceSha256": "f11c02a5451619a7d2bd2998e691146ec7392485057b346ab360fac6f6646a9e"
     }
   ]
 }

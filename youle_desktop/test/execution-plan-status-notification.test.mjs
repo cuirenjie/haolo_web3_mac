@@ -27,8 +27,9 @@ test("execution plan lifecycle changes use the shared desktop notification path"
   );
   const notification = sourceBlock(mainSource, "function notifyExecutionPlanStatusChanged", "async function getTradingAlertService");
   assert.match(notification, /taskCompletionPopupEnabled\(\)/u);
-  assert.match(notification, /showDesktopNotificationWindow\(\{ title, body, \.\.\.openContext \}\)/u);
-  assert.match(notification, /title = `计划状态已更新 · \$\{planTitle\}`/u);
+  assert.match(notification, /title = `\$\{mainUiText\("planStatusUpdated"\)\} · \$\{planTitle\}`/u);
+  assert.match(notification, /if \(process\.platform === "win32"\) \{[\s\S]*showDesktopNotificationWindow\(\{ title, body, \.\.\.openContext \}\)/u);
+  assert.match(notification, /new Notification\(\{[\s\S]*title,[\s\S]*body,/u);
 
   const lifecycle = sourceBlock(rendererSource, "async function updateExecutionPlanLifecycle", "async function deleteExecutionPlan");
   assert.match(lifecycle, /notifyExecutionPlanStatusChanged\?\./u);

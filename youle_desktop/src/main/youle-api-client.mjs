@@ -250,6 +250,10 @@ export class YouleApiClient {
     this.envTokenActive = false;
     this.authRevision = 0;
     this.refreshPromise = null;
+    this.sub2ApiAccountRefreshPromise = null;
+    this.sub2ApiAccountRefreshAuthRevision = null;
+    this.sub2ApiAccountRefreshToken = null;
+    this.sub2ApiAccountRefreshCache = null;
     this.loadPromise = null;
     this.loaded = false;
     this.consumptionHistorySyncAttempted = false;
@@ -460,26 +464,69 @@ export class YouleApiClient {
     return rawKeys ? normalizeSub2ApiKeys(rawKeys) : null;
   }
 
-  async refreshSub2ApiAccount() {
+  async refreshSub2ApiAccount(options = {}) {
     await this.load();
     this.requireAuth();
-    const response = await this.requestJson(joinUrl(this.baseUrl, this.sub2apiAccountPath), {
-      method: "GET",
-      headers: this.clientHeaders({ auth: true }),
-    });
-    const balance = extractSub2ApiBalance(response);
-    if (balance) {
-      this.profile = mergeProfileBalance(this.profile, balance);
-      await this.save();
+    const maxAgeMs = Math.max(0, Number(options.maxAgeMs) || 0);
+    const cached = this.sub2ApiAccountRefreshCache;
+    if (
+      maxAgeMs > 0
+      && cached
+      && cached.authRevision === this.authRevision
+      && cached.token === this.token
+      && Date.now() - cached.refreshedAt <= maxAgeMs
+    ) {
+      return cached.result;
     }
-    const balanceLabel = balance ? formatYuanBalance(resolveYuanBalance(balance)) : "";
-    return {
-      ...(balance || {}),
-      balanceLabel,
-      lowBalance: isLowBalance(balance),
-      threshold: LOW_BALANCE_THRESHOLD_YUAN,
-      session: this.sessionSummary(),
-    };
+    if (
+      this.sub2ApiAccountRefreshPromise
+      && this.sub2ApiAccountRefreshAuthRevision === this.authRevision
+      && this.sub2ApiAccountRefreshToken === this.token
+    ) {
+      return this.sub2ApiAccountRefreshPromise;
+    }
+
+    const authRevision = this.authRevision;
+    const token = this.token;
+    const refreshPromise = (async () => {
+      const response = await this.requestJson(joinUrl(this.baseUrl, this.sub2apiAccountPath), {
+        method: "GET",
+        headers: this.clientHeaders({ auth: true }),
+      });
+      const balance = extractSub2ApiBalance(response);
+      const sessionIsCurrent = authRevision === this.authRevision && token === this.token;
+      if (balance && sessionIsCurrent) {
+        this.profile = mergeProfileBalance(this.profile, balance);
+        await this.save();
+      }
+      const balanceLabel = balance ? formatYuanBalance(resolveYuanBalance(balance)) : "";
+      const result = {
+        ...(balance || {}),
+        balanceLabel,
+        lowBalance: isLowBalance(balance),
+        threshold: LOW_BALANCE_THRESHOLD_YUAN,
+        session: this.sessionSummary(),
+      };
+      if (sessionIsCurrent) {
+        this.sub2ApiAccountRefreshCache = {
+          authRevision,
+          token,
+          refreshedAt: Date.now(),
+          result,
+        };
+      }
+      return result;
+    })().finally(() => {
+      if (this.sub2ApiAccountRefreshPromise === refreshPromise) {
+        this.sub2ApiAccountRefreshPromise = null;
+        this.sub2ApiAccountRefreshAuthRevision = null;
+        this.sub2ApiAccountRefreshToken = null;
+      }
+    });
+    this.sub2ApiAccountRefreshPromise = refreshPromise;
+    this.sub2ApiAccountRefreshAuthRevision = authRevision;
+    this.sub2ApiAccountRefreshToken = token;
+    return refreshPromise;
   }
 
   async getSubscriptionBalanceDetails() {
@@ -1190,6 +1237,10 @@ export class YouleApiClient {
     await this.load();
     this.authRevision += 1;
     this.refreshPromise = null;
+    this.sub2ApiAccountRefreshPromise = null;
+    this.sub2ApiAccountRefreshAuthRevision = null;
+    this.sub2ApiAccountRefreshToken = null;
+    this.sub2ApiAccountRefreshCache = null;
     const canRevokeCurrentSession = Boolean(this.token || this.refreshToken);
     if (canRevokeCurrentSession) {
       const refreshToken = this.refreshToken;

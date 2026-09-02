@@ -2708,7 +2708,8 @@ test("workflow canvas brands executable subAgents as Haolo and uses ordinary blu
   assert.doesNotMatch(canvas.replace(/<[^>]+>/g, " "), /codex/i);
   assert.doesNotMatch(dialog.replace(/<[^>]+>/g, " "), /codex/i);
   assert.doesNotMatch(styles, /(?:^|\n)\.workflow-node\.agent\s*\{/);
-  assert.match(styles, /\.workflow-node\.agent::after\s*\{[\s\S]*?background:\s*#f2f6ff;[\s\S]*?color:\s*#5574c9;[\s\S]*?content:\s*"可执行 Agent"/);
+  assert.match(styles, /--i18n-executable-agent:\s*"Executable Agent"/);
+  assert.match(styles, /\.workflow-node\.agent::after\s*\{[\s\S]*?background:\s*#f2f6ff;[\s\S]*?color:\s*#5574c9;[\s\S]*?content:\s*var\(--i18n-executable-agent\)/);
   assert.doesNotMatch(styles, /html\[data-theme="dark"\] \.workflow-node\.agent\s*\{/);
   assert.match(styles, /html\[data-theme="dark"\] \.workflow-node\.agent::after\s*\{[^}]*background:\s*#29334a;[^}]*color:\s*#9bb3f4/);
   assert.match(styles, /\.workflow-node:hover:not\(:disabled\)\s*\{/);
