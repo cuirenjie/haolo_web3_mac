@@ -55,6 +55,10 @@ const NAMED_ASSETS = new Map([
   ["苹果", "AAPLUSDT"],
   ["蘋果", "AAPLUSDT"],
   ["谷歌", "GOOGLUSDT"],
+  ["币安人生", "币安人生USDT"],
+  ["幣安人生", "币安人生USDT"],
+  ["龙虾", "龙虾USDT"],
+  ["龍蝦", "龙虾USDT"],
 ]);
 
 const RESERVED_BASE_ASSETS = new Set([
@@ -70,6 +74,7 @@ const MARKET_OBJECT = /(?:K\s*线|蜡烛|图表|盘面|行情|走势|趋势|价�
 const ACTIONABLE_MARKET_QUESTION = /(?:能不能|是否可以|该不该|适不适合|现在|当前|最新|实时).{0,24}(?:买|卖|做多|做空|入场|加仓|减仓|止损|止盈|持有|开仓|平仓|怎么走|安全吗|风险)|(?:支撑|压力|阻力|入场位|止损位|止盈位|目标位|失效位).{0,12}(?:在哪|多少|是什么|怎么看)|(?:can|should|is\s+it\s+safe).{0,24}(?:buy|sell|long|short|enter|hold|close)/iu;
 const POSITION_MARKET_REVIEW = /(?:仓位健康|持仓健康|强平风险|爆仓风险|仓位安全吗|持仓安全吗|该怎么操作)/iu;
 const MARKET_DIRECTION_OR_LEVEL_REQUEST = /(?:多还是空|空还是多|偏多|偏空|看多|看空|涨还是跌|跌还是涨|会涨|会跌|上涨|下跌|方向|开单|下单|入场|进场|点位|目标|止损|止盈|支撑|压力|阻力)/iu;
+const MARKET_IDEA_REQUEST = /(?:思路|交易计划|操作计划|交易方案|操作方案|布局|机会|setup)/iu;
 const FRESH_MARKET_REFERENCE = /(?:当前|现在|最新|实时|此刻|今天|未来|后续|接下来|下一|下个|这个盘|这张图|K\s*线|图表|盘面|行情|走势|价格)/iu;
 const TRADING_DOMAIN_REFERENCE = /(?:交易|市场|币|股票|指数|黄金|原油|外汇|期货|现货|永续|合约|仓位|持仓|开仓|平仓|买|卖|多|空|涨|跌|入场|止损|止盈|支撑|压力|阻力|趋势|结构|形态|K\s*线|盘面|行情|走势|价格|成交量|订单流|流动性|BTC|ETH|SOL|BNB|XRP|DOGE|USDT|USDC)/iu;
 const EXPLICIT_NO_DRAWING = /(?:不要|不用|无需|不需要|别)(?:重新)?(?:绘图|画图|画线|重画|标注)|(?:只要|仅要|只需).{0,12}(?:文字|结论|回答).{0,12}(?:不要|不用|无需).{0,8}(?:绘图|画图|画线)|(?:do\s+not|don't|without)\s+(?:draw|redraw|drawing|mark)/iu;
@@ -310,7 +315,11 @@ export function isExplicitMarketAnalysisRequest(text) {
   // Only an interval written in the message may satisfy the symbol+interval
   // intent rule; a missing interval is inherited later from the open chart.
   if (parameters.symbol && explicitTradingIntervalFromText(source)) return true;
-  if (parameters.symbol && (MARKET_ANALYSIS_ACTION.test(source) || CURRENT_OR_ACTIONABLE_REQUEST.test(source))) return true;
+  if (parameters.symbol && (
+    MARKET_ANALYSIS_ACTION.test(source)
+    || CURRENT_OR_ACTIONABLE_REQUEST.test(source)
+    || MARKET_IDEA_REQUEST.test(source)
+  )) return true;
   if (!conceptual && TRADING_DOMAIN_REFERENCE.test(source) && (
     /(?:分析|研判|判断|预测|看看|看下|怎么看|怎么走|是否|能否|能不能|应该|未来|接下来|下一|下个)/iu.test(source)
   )) return true;

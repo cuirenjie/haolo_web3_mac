@@ -487,7 +487,7 @@ test("renderer route prioritizes explicit targets, verifies the loaded chart, an
   assert.doesNotMatch(mainSource, /general(?:Analysis)?Mentioned/);
   assert.match(mainSource, /symbol: chartAnalysis \? fallback\.symbol : null/);
   assert.match(mainSource, /interval: chartAnalysis \? fallback\.interval : null/);
-  assert.match(mainSource, /正在由大模型理解问题是否需要读取盘面/);
+  assert.match(mainSource, /正在由大模型识别问题意图；需要盘面时将进入行情分析与画线智能体/);
   assert.doesNotMatch(mainSource, /routeTradingExpertFastChatForSend\(\{/);
   assert.match(marketSource, /selectTradingAnalysisMarket\(this\.markets/);
   assert.match(marketSource, /selectTradingAnalysisInterval\(\{/);

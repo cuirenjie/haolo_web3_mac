@@ -1669,24 +1669,6 @@ type DesktopApi = {
     interrupted?: boolean;
     interactionId?: string;
   }>;
-  routeTradingExpertFastChat?(params: {
-    text: string;
-    hasAttachments?: boolean;
-    hasImageAttachment?: boolean;
-    hasQuote?: boolean;
-    hasThreadReferences?: boolean;
-    hasCurrentAnalysis?: boolean;
-  }): Promise<{ ok?: boolean } & TradingExpertFastChatRoute>;
-  sendTradingExpertFastChat?(params: {
-    text: string;
-    threadId: string;
-    interactionId: string;
-    hasAttachments?: boolean;
-    hasImageAttachment?: boolean;
-    hasQuote?: boolean;
-    hasThreadReferences?: boolean;
-    hasCurrentAnalysis?: boolean;
-  }): Promise<TradingExpertFastChatResult>;
   startWorkflowRun?(params: { threadId: string; prompt: string; visibleQuestion?: string; cwd?: string; model?: string; reasoningEffort?: string; explicitPaths?: string[]; attachments?: MessageAttachment[]; onlineProviders?: ProviderChatProvider[] }): Promise<WorkflowCanvasRun>;
   startWorkflowSpecRun?(params: { threadId: string; prompt: string; visibleQuestion?: string; cwd?: string; model?: string; reasoningEffort?: string; explicitPaths?: string[]; attachments?: MessageAttachment[]; onlineProviders?: ProviderChatProvider[]; specId: string; version: number; entryNodeIds?: string[]; invocationInputs?: Record<string, unknown[]> }): Promise<WorkflowCanvasRun>;
   getWorkflowRun?(params: { runId: string }): Promise<WorkflowCanvasRun | null>;
@@ -3796,19 +3778,6 @@ type VideoExpertMenuKey =
   | "model"
   | "image-size";
 type ProviderChatProvider = ProviderModelProvider | typeof VIDEO_EXPERT_PROVIDER;
-type TradingExpertFastChatRoute = {
-  route: "direct" | "agent" | "chart-router";
-  reason: string;
-  model?: string;
-};
-type TradingExpertFastChatResult = {
-  ok?: boolean;
-  route?: "direct" | "handoff";
-  destination?: "agent" | "chart-router";
-  reason?: string;
-  text?: string;
-  model?: string;
-};
 type NewThreadMode =
   | "execution"
   | "question-answer"
@@ -27069,7 +27038,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       updateTradingExpertThinkingState(
         originalThreadId,
         "classifying",
-        "正在由大模型理解问题是否需要读取盘面；不可用时会自动采用本地语义保障。",
+        "正在由大模型识别问题意图；需要盘面时将进入行情分析与画线智能体。",
       );
       refreshTradingExpertConversationSurface(originalThreadId);
       tradingGeneralRequestAtSend = await classifyTradingGeneralRequestForSend(
@@ -34732,10 +34701,9 @@ async function classifyTradingGeneralRequestForSend(
       return deterministicTradingGeneralFallback(text);
     }
     const fallback = deterministicTradingGeneralFallback(text);
-    // An explicit market-analysis command must not be downgraded by a stale
-    // classifier response. The model may classify intent, but target fields
-    // are accepted only when the shared literal parser found them in the user
-    // message; this removes hallucinated symbols/periods from the whole lane.
+    // The intent model remains authoritative for ambiguous requests, while
+    // literal market targets and high-signal trading instructions are bound by
+    // the deterministic parser so the agent cannot substitute another asset.
     const chartAnalysis = fallback.mode === "chart-analysis" || request.mode === "chart-analysis";
     return {
       mode: chartAnalysis ? "chart-analysis" : "conversation",

@@ -168,8 +168,6 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   prepareGroupChatContext: (params) => ipcRenderer.invoke("youle:prepareGroupChatContext", params),
   sendProviderChat: (params) => ipcRenderer.invoke("youle:sendProviderChat", params),
   interruptProviderChat: (params) => ipcRenderer.invoke("youle:interruptProviderChat", params),
-  routeTradingExpertFastChat: (params) => ipcRenderer.invoke("tradingAnalysis:routeFastChat", params),
-  sendTradingExpertFastChat: (params) => ipcRenderer.invoke("tradingAnalysis:sendFastChat", params),
   onQuestionAnswerProgress: (callback) => on("questionAnswer:progress", callback),
   onQuestionAnswerStream: (callback) => on("questionAnswer:stream", callback),
   startWorkflowRun: (params) => ipcRenderer.invoke("workflow:startRun", params),

@@ -82,7 +82,7 @@ export function deterministicGeneralRequestRouting(text, context = {}) {
       forecastHorizonMs: null,
       questionKinds: classifyTradingQuestionKinds(text),
       drawingRequested: false,
-      analysisFollowup: false,
+      analysisFollowup: context.hasCurrentAnalysis === true && isLikelyAnalysisFollowup(text),
     },
     classification: {
       schemaVersion: TRADING_GENERAL_ROUTING_SCHEMA_VERSION,
@@ -94,7 +94,7 @@ export function deterministicGeneralRequestRouting(text, context = {}) {
   };
 }
 
-function isLikelyAnalysisFollowup(text) {
+export function isLikelyAnalysisFollowup(text) {
   const source = String(text || "");
   // A follow-up must refer to a concrete prior conclusion/level or ask for a
   // position decision.  Generic trading education and strategy discussion do

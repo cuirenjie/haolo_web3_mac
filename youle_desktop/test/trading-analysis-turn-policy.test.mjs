@@ -13,11 +13,11 @@ test("alert intent timeout is activity-based and recoverable", () => {
   });
 });
 
-test("small request routers remain hard-bounded", () => {
+test("small request routers use low reasoning and remain hard-bounded", () => {
   assert.deepEqual(tradingAnalysisTurnPolicy("chan-request-routing"), {
     kind: "request_routing",
-    reasoningEffort: "medium",
-    timeoutMs: 60_000,
+    reasoningEffort: "low",
+    timeoutMs: 30_000,
     resetTimeoutOnActivity: false,
     timeoutRetryable: false,
     maxAttempts: 1,
@@ -47,7 +47,7 @@ test("only theory reviews accept controlled high and max escalation overrides", 
   }).reasoningEffort, "medium");
   assert.equal(tradingAnalysisTurnPolicy("chan-request-routing", {
     requestedReasoningEffort: "max",
-  }).reasoningEffort, "medium");
+  }).reasoningEffort, "low");
   assert.equal(tradingAnalysisTurnPolicy("trading_alert_intent_compile", {
     requestedReasoningEffort: "max",
   }).reasoningEffort, "medium");

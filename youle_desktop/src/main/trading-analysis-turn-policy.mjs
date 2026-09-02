@@ -1,4 +1,4 @@
-const ROUTING_TIMEOUT_MS = 60_000;
+const ROUTING_TIMEOUT_MS = 30_000;
 const ALERT_INTENT_IDLE_TIMEOUT_MS = 180_000;
 // Theory review is an interactive analysis request. Keep this as a wall-clock
 // budget: active reasoning must not extend the user's wait indefinitely.
@@ -11,7 +11,7 @@ export function tradingAnalysisTurnPolicy(taskValue, options = {}) {
   if (task.endsWith("-request-routing")) {
     return Object.freeze({
       kind: "request_routing",
-      reasoningEffort: "medium",
+      reasoningEffort: "low",
       timeoutMs: ROUTING_TIMEOUT_MS,
       resetTimeoutOnActivity: false,
       timeoutRetryable: false,
