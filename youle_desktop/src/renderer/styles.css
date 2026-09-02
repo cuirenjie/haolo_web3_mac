@@ -33920,6 +33920,63 @@ html[data-theme="dark"]
   stroke-width: 1.5;
 }
 
+.trading-market-chart-settings-tooltip {
+  position: absolute;
+  z-index: 95;
+  top: calc(100% + 7px);
+  left: 0;
+  display: grid;
+  box-sizing: border-box;
+  width: 300px;
+  max-width: calc(100vw - 28px);
+  gap: 4px;
+  visibility: hidden;
+  border: 1px solid var(--trading-market-border);
+  border-radius: 8px;
+  background: var(--trading-market-panel);
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--trading-market-text) 14%, transparent);
+  padding: 13px 15px 14px;
+  color: var(--trading-market-text);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-3px);
+  transition: opacity 0.14s ease, transform 0.14s ease, visibility 0s linear 0.14s;
+}
+
+.trading-market-chart-settings-tooltip strong {
+  font-size: calc(14px + var(--app-font-size-offset));
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.trading-market-chart-settings-tooltip span {
+  color: var(--trading-market-muted);
+  font-size: calc(13px + var(--app-font-size-offset));
+  line-height: 20px;
+}
+
+.trading-market-chart-action[data-market-action="open-chart-settings"]:hover:not(:disabled, [aria-expanded="true"])
+  + .trading-market-chart-settings-tooltip,
+.trading-market-chart-action[data-market-action="open-chart-settings"]:focus-visible:not(:disabled, [aria-expanded="true"])
+  + .trading-market-chart-settings-tooltip {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: 0.32s, 0.32s, 0s;
+}
+
+.trading-market-chart-action[data-market-action="open-chart-settings"]:focus-visible:not(:disabled, [aria-expanded="true"])
+  + .trading-market-chart-settings-tooltip {
+  transition-delay: 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trading-market-chart-settings-tooltip {
+    transform: none;
+    transition: none;
+  }
+}
+
 .trading-market-layout-picker {
   position: absolute;
   z-index: 94;
@@ -36905,6 +36962,10 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
   color: var(--trading-market-brand);
   pointer-events: none;
   user-select: none;
+}
+
+.trading-expert-market.split-layout-active .trading-market-brand {
+  display: none;
 }
 
 .trading-market-volume-profile-layer {

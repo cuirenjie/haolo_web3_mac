@@ -455,6 +455,11 @@ import {
   confirmProfileAvailableBalanceStateBeforeSend,
   profileAvailableBalanceState,
 } from "./quota-balance";
+import {
+  activeMembershipEntitlement,
+  premiumAccessState,
+  type PremiumAccessState,
+} from "../main/premium-entitlement.mjs";
 import { formatProfileBalancePoints } from "./profile-balance";
 import {
   canRetainRechargePaymentOrder,
@@ -462,7 +467,6 @@ import {
   rechargePaymentOrderSelectionKey,
   rechargePaymentOrderVisualFingerprint,
   rechargePaymentSelectionKey,
-  shouldAutoRetryRechargePaymentOrderRequest,
   shouldReplaceRechargePaymentOrderAfterFinalCheck,
 } from "./recharge-payment-selection";
 import {
@@ -525,6 +529,9 @@ const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.66";
 // configured by the backend.
 const ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS =
   import.meta.env.VITE_ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS === "true";
+// Keep the GitHub account integration available in source while withholding its
+// settings UI from the current desktop release.
+const ENABLE_GITHUB_SETTINGS_UI = false;
 const HAOLO_HOME_URL = "https://haolo.com";
 const AUTH_CLIENT_VARIANT = "haolo_windows_web3";
 const HAOLO_FEEDBACK_URL = "https://haolo.com/ideas.html";
@@ -742,11 +749,11 @@ type Web3RechargeHistoryItem = {
 };
 type RechargeBlockchainNetwork = Extract<RechargePaymentNetworkId, "bsc" | "tron" | "arbitrum">;
 const RECHARGE_PAYMENT_POLL_INTERVAL_MS = 5_000;
-const RECHARGE_PAYMENT_CREATE_AUTO_RETRY_LIMIT = 1;
 const rechargePaymentQrDataUrlCache = new Map<string, Promise<string>>();
 const rechargePaymentOrdersBySelection = new Map<string, Web3PaymentOrder>();
 const rechargePaymentOrderLoadingSelections = new Set<string>();
 const rechargePaymentOrderErrorsBySelection = new Map<string, string>();
+const rechargePaymentReplacementPreviousOrderNos = new Map<string, string>();
 const rechargePaymentExpiryChecksInFlight = new Set<string>();
 let selectedRechargeProductId = "subscription_trial";
 let selectedRechargePaymentNetwork: RechargePaymentNetworkId | null = "binance_internal";
@@ -20515,10 +20522,7 @@ function openPersonalStrategyFromLibrary(skillId: string) {
 
 function openPersonalStrategyGitHubSettings() {
   state.personalStrategies.dialogOpen = false;
-  state.settingsOpen = true;
-  state.settings.tab = "github";
-  render();
-  void refreshGitHubConnection();
+  openSettingsDialog("github");
 }
 
 async function openTradingIndicatorSkillFromLibrary(skillId: string) {
@@ -24025,6 +24029,12 @@ async function confirmInsufficientAvailableBalanceBeforeSend(reason: string) {
   return confirmedBalanceState === "insufficient";
 }
 
+async function confirmPremiumTradingAccessBeforeSend(reason: string): Promise<PremiumAccessState> {
+  const refreshed = await refreshAvailableBalanceProfile(reason);
+  if (!refreshed) return "unknown";
+  return premiumAccessState(state.auth.profile as Record<string, unknown> | null);
+}
+
 async function refreshAvailableBalanceProfile(reason: string) {
   if (availableBalanceProfileRefreshPromise) {
     return await availableBalanceProfileRefreshPromise;
@@ -26735,7 +26745,7 @@ function renderPersonalStrategyDialog() {
             ${(personal.compile?.warnings || draft.spec?.warnings || []).length ? `<div class="personal-strategy-note"><strong>预警</strong><p>${escapeHtml([...(personal.compile?.warnings || draft.spec?.warnings || [])].join("；"))}</p></div>` : ""}
           </section>
           ${simulation ? `<section class="personal-strategy-simulation" aria-live="polite"><div class="personal-strategy-preview-title"><strong>预演结果</strong><span>${escapeHtml(simulation.status || "completed")}</span></div><p>${escapeHtml(simulation.report || "已完成规则预演")}</p>${(simulation.assumptions || []).map((item) => `<small>${escapeHtml(item)}</small>`).join("")}</section>` : ""}
-          <section class="personal-strategy-feedback"><label class="personal-strategy-field"><span>${draft.status === "active" ? "指出哪里不符合预期，Haolo 会生成下一版草稿" : "补充或纠正上面的理解，Haolo 会重新预演"}</span><textarea data-personal-strategy-feedback rows="3" placeholder="例如：只做多；必须先放量，且跌破 EMA20 后不再持有。"></textarea></label><div class="personal-strategy-feedback-actions"><button type="button" class="secondary-button" data-personal-strategy-feedback-submit data-personal-strategy-id="${escapeAttr(draft.id)}" ${personal.busy ? "disabled" : ""}>${personal.busy === "feedback" ? "正在优化…" : draft.status === "active" ? "生成优化草稿" : "重新理解"}</button>${draft.status === "active" ? `<button type="button" class="ghost-button" data-personal-strategy-github>GitHub 版本管理</button>` : ""}</div></section>
+          <section class="personal-strategy-feedback"><label class="personal-strategy-field"><span>${draft.status === "active" ? "指出哪里不符合预期，Haolo 会生成下一版草稿" : "补充或纠正上面的理解，Haolo 会重新预演"}</span><textarea data-personal-strategy-feedback rows="3" placeholder="例如：只做多；必须先放量，且跌破 EMA20 后不再持有。"></textarea></label><div class="personal-strategy-feedback-actions"><button type="button" class="secondary-button" data-personal-strategy-feedback-submit data-personal-strategy-id="${escapeAttr(draft.id)}" ${personal.busy ? "disabled" : ""}>${personal.busy === "feedback" ? "正在优化…" : draft.status === "active" ? "生成优化草稿" : "重新理解"}</button>${draft.status === "active" && ENABLE_GITHUB_SETTINGS_UI ? `<button type="button" class="ghost-button" data-personal-strategy-github>GitHub 版本管理</button>` : ""}</div></section>
           <div class="personal-strategy-dialog-actions"><button type="button" class="secondary-button" data-personal-strategy-simulate ${personal.busy || draft.status === "active" ? "disabled" : ""}>${personal.busy === "simulate" ? "预演中…" : "模拟预演"}</button><button type="button" class="primary-button" data-personal-strategy-confirm ${canConfirm ? "" : "disabled"}>${personal.busy === "confirm" ? "确认中…" : "确认并启用"}</button></div>
         `}
         ${personal.error ? `<p class="personal-strategy-error" role="alert">${escapeHtml(personal.error)}</p>` : ""}
@@ -27164,6 +27174,28 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       state.error = failedAttachments.length ? "文件上传失败，请删除后重新选择。" : null;
       render();
       return;
+    }
+
+    const requiresPremiumTradingAccess = Boolean(
+      tradingStrategyRequestAtSend?.mode === "chart-analysis"
+      || personalStrategyCandidateAtSend
+      || tradingAlertCandidateAtSend
+      || tradingGeneralRequestAtSend?.mode === "chart-analysis",
+    );
+    if (requiresPremiumTradingAccess) {
+      const accessState = await confirmPremiumTradingAccessBeforeSend("trading-analysis-send");
+      if (accessState !== "available") {
+        const message = accessState === "membership-required"
+          ? "当前未开通有效体验版或其他套餐，请先开通后再使用盘面分析"
+          : accessState === "insufficient"
+            ? INSUFFICIENT_QUOTA_MESSAGE
+            : "暂时无法验证会员权益，请稍后重试";
+        state.error = message;
+        if (pendingSend) failPendingComposerSend(originalThreadId, pendingSend.itemId, message);
+        showToast(message, 5000);
+        render();
+        return;
+      }
     }
 
     commitSelectedNewThreadGroupForSend(threadId, composerGroupIdForSend);
@@ -36377,6 +36409,7 @@ function openMyConfigPage() {
 
 function openSettingsDialog(tab: SettingsState["tab"] = "general") {
   if (tab === "models" && !ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS) tab = "general";
+  if (tab === "github" && !ENABLE_GITHUB_SETTINGS_UI) tab = "general";
   if (tab === "profile") prepareProfileEditDraft();
   state.settingsOpen = true;
   state.settings.tab = tab;
@@ -36912,7 +36945,9 @@ async function checkForWindowsUpdate(options: { silent?: boolean } = {}) {
   if (!options.silent) render();
   try {
     const result = await api.checkWindowsUpdate({ version: APP_VERSION });
-    state.settings.update.result = result;
+    state.settings.update.result = result.update_available
+      ? { ...result, force_update: true }
+      : result;
     if (result.update_available && result.latest && result.download) {
       state.settings.update.dialogOpen = true;
     } else {
@@ -37005,7 +37040,7 @@ async function downloadWindowsUpdate() {
       return;
     }
     showToast("安装包已打开，请按提示完成更新。", 5000);
-    if (!state.settings.update.result?.force_update) {
+    if (!state.settings.update.result?.update_available) {
       closeUpdateDialog();
     }
   } catch (error) {
@@ -59243,6 +59278,7 @@ function resetRechargePaymentOrdersForScope(scope: string) {
   rechargePaymentOrdersBySelection.clear();
   rechargePaymentOrderLoadingSelections.clear();
   rechargePaymentOrderErrorsBySelection.clear();
+  rechargePaymentReplacementPreviousOrderNos.clear();
   rechargePaymentExpiryChecksInFlight.clear();
   rechargePaymentQrDataUrlCache.clear();
   rechargePaymentOrder = null;
@@ -59379,7 +59415,7 @@ function rechargePaymentQrAlt(
 }
 
 function renderRechargePaymentState(
-  kind: "loading" | "error" | "expired" | "confirming" | "paid" | "manual",
+  kind: "idle" | "loading" | "error" | "expired" | "confirming" | "paid" | "manual",
   title: string,
   detail: string,
   actionLabel = "",
@@ -59634,8 +59670,7 @@ function activateRechargePaymentSelection() {
     void updateRechargePaymentDetails();
     return;
   }
-  rechargePaymentOrderErrorsBySelection.delete(selectionKey);
-  void createRechargePaymentOrder({ force: true, preserveExisting: true });
+  void updateRechargePaymentDetails();
 }
 
 async function refreshRechargeProfileAfterPayment(order: Web3PaymentOrder) {
@@ -59658,6 +59693,7 @@ async function applyRechargePaymentOrder(
   }
   rechargePaymentOrdersBySelection.set(orderSelectionKey, order);
   rechargePaymentOrderErrorsBySelection.delete(orderSelectionKey);
+  rechargePaymentReplacementPreviousOrderNos.delete(orderSelectionKey);
   if (currentRechargePaymentSelectionKey() !== orderSelectionKey) {
     if (order.status === "paid") void refreshRechargeProfileAfterPayment(order);
     return;
@@ -59719,12 +59755,13 @@ async function createRechargePaymentOrder(options: {
   force?: boolean;
   preserveExisting?: boolean;
   previousOrderNo?: string;
-  retryAttempt?: number;
 } = {}) {
   ensureRechargePaymentOrderScope();
   const selection = rechargePaymentSelection();
   if (!selection) return;
   const selectionKey = rechargePaymentSelectionKey(selection.product.id, selection.network.id);
+  const previousOrderNo = options.previousOrderNo
+    || rechargePaymentReplacementPreviousOrderNos.get(selectionKey);
   const orderScope = rechargePaymentOrderScope;
   if (rechargePaymentOrderLoadingSelections.has(selectionKey)) {
     await updateRechargePaymentDetails();
@@ -59760,7 +59797,7 @@ async function createRechargePaymentOrder(options: {
       productId: selection.product.id,
       network: selection.network.id,
       paymentChannel: "web3",
-      previousOrderNo: options.previousOrderNo,
+      previousOrderNo,
     });
     if (orderScope !== rechargePaymentOrderScope) return;
     rechargePaymentOrderLoadingSelections.delete(selectionKey);
@@ -59777,23 +59814,6 @@ async function createRechargePaymentOrder(options: {
       selectedRechargeProductId = "subscription_basic";
       showToast("体验版仅限每个账户开通一次");
       render();
-      return;
-    }
-    const retryAttempt = Math.max(0, Math.trunc(options.retryAttempt || 0));
-    if (shouldAutoRetryRechargePaymentOrderRequest({
-      authExpired,
-      retryAttempt,
-      retryLimit: RECHARGE_PAYMENT_CREATE_AUTO_RETRY_LIMIT,
-      requestedSelectionKey: selectionKey,
-      currentSelectionKey: currentRechargePaymentSelectionKey(),
-    })) {
-      rechargePaymentOrderErrorsBySelection.delete(selectionKey);
-      await createRechargePaymentOrder({
-        force: true,
-        preserveExisting: options.preserveExisting,
-        previousOrderNo: options.previousOrderNo,
-        retryAttempt: retryAttempt + 1,
-      });
       return;
     }
     const fallbackOrder = rechargePaymentOrdersBySelection.get(selectionKey) || null;
@@ -59834,11 +59854,9 @@ async function reconcileExpiredRechargePaymentOrder(
       return;
     }
     rechargePaymentOrdersBySelection.delete(selectionKey);
+    rechargePaymentReplacementPreviousOrderNos.set(selectionKey, order.order_no);
     if (currentRechargePaymentSelectionKey() === selectionKey) rechargePaymentOrder = null;
-    await createRechargePaymentOrder({
-      force: true,
-      previousOrderNo: order.order_no,
-    });
+    await updateRechargePaymentDetails();
   } catch (error) {
     if (expectedScope !== rechargePaymentOrderScope || currentRechargePaymentSelectionKey() !== selectionKey) return;
     const panel = root.querySelector<HTMLElement>("[data-recharge-payment-details]");
@@ -59886,8 +59904,15 @@ async function updateRechargePaymentDetails() {
   if (!order) {
     delete panel.dataset.rechargePaymentKey;
     delete panel.dataset.rechargePaymentFingerprint;
-    panel.innerHTML = renderRechargePaymentState("loading", "正在创建支付订单", "正在向后端申请本订单的专属收款信息。");
-    void createRechargePaymentOrder();
+    panel.innerHTML = renderRechargePaymentState(
+      "idle",
+      "确认支付信息",
+      "确认套餐和支付方式后，再生成本次支付订单。",
+      "生成支付信息",
+    );
+    panel.querySelector("[data-recharge-payment-retry]")?.addEventListener("click", () => {
+      void createRechargePaymentOrder({ force: true });
+    });
     return;
   }
   const uniqueAddressUnderpaid = order.address_type === "unique_temporary"
@@ -60690,7 +60715,9 @@ function openRechargePage() {
 
 function renderSettingsDialog() {
   const activeTab =
-    state.settings.tab === "models" && !ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS
+    state.settings.tab === "github" && !ENABLE_GITHUB_SETTINGS_UI
+      ? "general"
+      : state.settings.tab === "models" && !ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS
       ? "general"
       : state.settings.tab;
   const installPath = state.settings.installDir || state.settings.cwd || "-";
@@ -60721,12 +60748,16 @@ function renderSettingsDialog() {
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_CONSUMPTION_ICON_URL)}" alt="" />
               <span>消耗明细</span>
             </button>
-            <button type="button" class="settings-nav-item ${activeTab === "github" ? "active" : ""}" data-settings-tab="github">
-              <svg class="settings-nav-icon settings-github-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 2.5a9.7 9.7 0 0 0-3.07 18.9c.49.09.67-.21.67-.47v-1.86c-2.73.59-3.3-1.16-3.3-1.16-.45-1.14-1.09-1.44-1.09-1.44-.89-.61.07-.6.07-.6.98.07 1.5 1.01 1.5 1.01.88 1.5 2.3 1.07 2.86.82.09-.63.34-1.07.62-1.32-2.18-.25-4.47-1.09-4.47-4.85 0-1.07.38-1.95 1.01-2.64-.1-.25-.44-1.25.1-2.6 0 0 .83-.27 2.68 1.01A9.3 9.3 0 0 1 12 6.97a9.3 9.3 0 0 1 2.44.33c1.86-1.28 2.68-1.01 2.68-1.01.54 1.35.2 2.35.1 2.6.63.69 1.01 1.57 1.01 2.64 0 3.77-2.3 4.6-4.48 4.85.35.3.66.9.66 1.82v2.73c0 .26.18.57.67.47A9.7 9.7 0 0 0 12 2.5Z" />
-              </svg>
-              <span>GitHub</span>
-            </button>
+            ${
+              ENABLE_GITHUB_SETTINGS_UI
+                ? `<button type="button" class="settings-nav-item ${activeTab === "github" ? "active" : ""}" data-settings-tab="github">
+                    <svg class="settings-nav-icon settings-github-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 2.5a9.7 9.7 0 0 0-3.07 18.9c.49.09.67-.21.67-.47v-1.86c-2.73.59-3.3-1.16-3.3-1.16-.45-1.14-1.09-1.44-1.09-1.44-.89-.61.07-.6.07-.6.98.07 1.5 1.01 1.5 1.01.88 1.5 2.3 1.07 2.86.82.09-.63.34-1.07.62-1.32-2.18-.25-4.47-1.09-4.47-4.85 0-1.07.38-1.95 1.01-2.64-.1-.25-.44-1.25.1-2.6 0 0 .83-.27 2.68 1.01A9.3 9.3 0 0 1 12 6.97a9.3 9.3 0 0 1 2.44.33c1.86-1.28 2.68-1.01 2.68-1.01.54 1.35.2 2.35.1 2.6.63.69 1.01 1.57 1.01 2.64 0 3.77-2.3 4.6-4.48 4.85.35.3.66.9.66 1.82v2.73c0 .26.18.57.67.47A9.7 9.7 0 0 0 12 2.5Z" />
+                    </svg>
+                    <span>GitHub</span>
+                  </button>`
+                : ""
+            }
             ${
               ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS
                 ? `<button type="button" class="settings-nav-item ${activeTab === "models" ? "active" : ""}" data-settings-tab="models">
@@ -60762,13 +60793,13 @@ function renderSettingsDialog() {
           <button type="button" class="settings-close-button" data-action="close-settings" aria-label="关闭">
             <img src="${escapeAttr(SETTINGS_CLOSE_ICON_URL)}" alt="" />
           </button>
-          <h3>${activeTab === "profile" ? "个人资料" : activeTab === "models" ? "模型服务" : activeTab === "github" ? "GitHub" : activeTab === "about" ? "关于&反馈" : "通用设置"}</h3>
+          <h3>${activeTab === "profile" ? "个人资料" : activeTab === "models" ? "模型服务" : activeTab === "github" && ENABLE_GITHUB_SETTINGS_UI ? "GitHub" : activeTab === "about" ? "关于&反馈" : "通用设置"}</h3>
           ${
             activeTab === "profile"
               ? renderSettingsProfilePanel()
               : activeTab === "models"
               ? renderExternalModelSettingsPanel(state.settings.externalModels)
-              : activeTab === "github"
+              : activeTab === "github" && ENABLE_GITHUB_SETTINGS_UI
               ? renderGitHubSettingsPanel()
               : activeTab === "about"
               ? renderSettingsAboutPanel()
@@ -61060,7 +61091,7 @@ function renderUpdateDialog() {
   const latestVersion = result?.latest?.version || "";
   const releaseNotes = result?.latest?.release_notes?.trim() || "暂无更新说明。";
   const sizeLabel = result?.download?.size_bytes ? formatFileSize(result.download.size_bytes) : "";
-  const force = Boolean(result?.force_update);
+  const force = Boolean(result?.update_available);
   const progress = update.downloadProgress;
   const hasProgress = Boolean(progress);
   const progressPercent = Math.max(0, Math.min(100, progress?.percent ?? 0));
@@ -61080,6 +61111,7 @@ function renderUpdateDialog() {
       <section>
         <h2>${force ? "发现必须更新版本" : "发现新版本"}</h2>
         <p class="update-dialog-version">当前版本 v${escapeHtml(APP_VERSION)}${latestVersion ? ` · 最新版本 v${escapeHtml(latestVersion)}` : ""}</p>
+        ${force ? `<p class="update-dialog-meta">此版本必须更新后才能继续使用。</p>` : ""}
         ${sizeLabel ? `<p class="update-dialog-meta">安装包大小 ${escapeHtml(sizeLabel)}</p>` : ""}
         <div class="update-dialog-notes">${escapeHtml(releaseNotes)}</div>
         ${update.error ? `<div class="update-dialog-error">${escapeHtml(update.error)}</div>` : ""}
@@ -62996,7 +63028,7 @@ function bindEvents() {
     .querySelectorAll<HTMLElement>('[data-action="close-update-dialog"]')
     .forEach((element) => {
       element.addEventListener("click", () => {
-        if (state.settings.update.result?.force_update) return;
+        if (state.settings.update.result?.update_available) return;
         closeUpdateDialog();
       });
     });
@@ -77844,30 +77876,18 @@ type MembershipPlanDisplay = {
 
 function currentMembershipPlan(): MembershipPlanDisplay {
   const profile = state.auth.profile as Record<string, unknown> | null;
-  const activeMembership = plainRecord(profile?.active_membership ?? profile?.activeMembership);
-  const rawPlan = firstString(
-    profile?.membership_plan,
-    profile?.membershipPlan,
-    profile?.plan,
-    activeMembership?.plan_id,
-    activeMembership?.planId,
-    activeMembership?.product_id,
-    activeMembership?.productId,
-  );
-  const normalized = String(rawPlan || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^subscription[_-]/, "");
-  if (normalized === "trial" || normalized === "experience" || normalized === "体验版") {
+  const membership = activeMembershipEntitlement(profile);
+  if (!membership.active) return { id: "free", label: "WEB3免费", subscribed: false };
+  if (membership.planId === "trial") {
     return { id: "trial", label: "体验版", subscribed: true };
   }
-  if (normalized === "basic" || normalized === "基础版") {
+  if (membership.planId === "basic") {
     return { id: "basic", label: "基础版", subscribed: true };
   }
-  if (normalized === "pro" || normalized === "professional" || normalized === "专业版") {
+  if (membership.planId === "pro" || membership.planId === "professional") {
     return { id: "pro", label: "专业版", subscribed: true };
   }
-  if (normalized === "flagship" || normalized === "旗舰版") {
+  if (membership.planId === "flagship") {
     return { id: "flagship", label: "旗舰版", subscribed: true };
   }
   return { id: "free", label: "WEB3免费", subscribed: false };

@@ -83,15 +83,3 @@ export function shouldReplaceRechargePaymentOrderAfterFinalCheck(
   return order.status === "expired"
     || (order.status === "pending" && Date.parse(order.expires_at) <= now);
 }
-
-export function shouldAutoRetryRechargePaymentOrderRequest(params: {
-  authExpired: boolean;
-  retryAttempt: number;
-  retryLimit: number;
-  requestedSelectionKey: string;
-  currentSelectionKey: string | null;
-}) {
-  return !params.authExpired
-    && params.retryAttempt < params.retryLimit
-    && params.currentSelectionKey === params.requestedSelectionKey;
-}

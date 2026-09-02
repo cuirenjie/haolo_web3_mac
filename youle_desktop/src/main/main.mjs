@@ -190,6 +190,7 @@ import {
   windowsUtf8DesktopInstruction,
 } from "./windows-utf8-guardrails.mjs";
 import { YouleApiClient, isYouleAuthExpiredError } from "./youle-api-client.mjs";
+import { premiumAccessState } from "./premium-entitlement.mjs";
 import { ExternalModelCredentialStore } from "./external-agent/credential-store.mjs";
 import { ExternalModelService } from "./external-agent/service.mjs";
 import { BinanceCredentialStore } from "./binance-account/credential-store.mjs";
@@ -14655,6 +14656,20 @@ async function getTradingAlertService() {
 
 async function tradingAlertIpcCall(event, method, params = {}) {
   assertExternalModelsIpcSender(event);
+  if (["compile", "resumeDraft", "simulate", "confirm", "revise"].includes(method)) {
+    try {
+      await requireFreshTradingPremiumAccess();
+    } catch (error) {
+      return {
+        ok: false,
+        error: {
+          code: String(error?.code || "TRADING_ENTITLEMENT_UNAVAILABLE"),
+          message: String(error?.message || "暂时无法验证会员权益，请稍后重试").slice(0, 300),
+          retryable: error?.retryable === true,
+        },
+      };
+    }
+  }
   const service = await getTradingAlertService();
   const threadId = method === "compile" ? String(params?.threadId || "").trim() : "";
   const controllerKey = method === "compile" ? `${event.sender.id}\u0000${threadId || "default"}` : "";
@@ -15051,6 +15066,7 @@ async function classifyTradingStrategyRequest(event, strategyId, params = {}) {
   const controller = new AbortController();
   activeTradingRoutingControllers.set(ownerId, controller);
   try {
+    await requireFreshTradingPremiumAccess();
     return await coordinator.classify(strategyId, params, {
       signal: controller.signal,
       requestId: `${strategyId}-route-${crypto.randomUUID()}`,
@@ -15121,6 +15137,7 @@ async function classifyExternalTradingRequest(event, params = {}) {
     };
   }
   try {
+    await requireFreshTradingPremiumAccess();
     const model = await getTradingAnalysisModelRegistry().analyze(
       DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
       {
@@ -15160,6 +15177,22 @@ async function classifyExternalTradingRequest(event, params = {}) {
     };
   } catch (error) {
     const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
+    if ([
+      "HAOLO_AUTH_REQUIRED",
+      "HAOLO_ACCOUNT_ID_REQUIRED",
+      "TRIAL_REQUIRED",
+      "INSUFFICIENT_BALANCE",
+      "TRADING_ENTITLEMENT_UNAVAILABLE",
+    ].includes(String(error?.code || ""))) {
+      return {
+        ok: false,
+        error: {
+          code: String(error.code),
+          message: String(error.message || "暂时无法验证会员权益，请稍后重试").slice(0, 300),
+          retryable: error?.retryable === true,
+        },
+      };
+    }
     const fallback = repairExternalTradingRoutingFromText({
       text,
       strategies,
@@ -15269,8 +15302,64 @@ function tradingStrategyParamsWithReadOnlyBinanceAccount(params = {}) {
   };
 }
 
+function tradingPremiumAccessError(code, message, retryable = false) {
+  const error = new Error(message);
+  error.code = code;
+  error.retryable = retryable;
+  return error;
+}
+
+async function requireFreshTradingPremiumAccess() {
+  let refreshed;
+  try {
+    refreshed = await getYouleApiClient().refreshSub2ApiAccount();
+  } catch (cause) {
+    const causeCode = String(cause?.code || "");
+    if (["HAOLO_AUTH_REQUIRED", "HAOLO_ACCOUNT_ID_REQUIRED"].includes(causeCode)) {
+      throw tradingPremiumAccessError(causeCode, "请先登录 Haolo 后再使用盘面分析");
+    }
+    throw tradingPremiumAccessError(
+      "TRADING_ENTITLEMENT_UNAVAILABLE",
+      "暂时无法验证会员权益，请稍后重试",
+      true,
+    );
+  }
+  const profile = refreshed?.session?.profile;
+  const accessState = premiumAccessState(profile);
+  if (accessState === "available") return profile;
+  if (accessState === "membership-required") {
+    throw tradingPremiumAccessError(
+      "TRIAL_REQUIRED",
+      "当前未开通有效体验版或其他套餐，请先开通后再使用盘面分析",
+    );
+  }
+  if (accessState === "insufficient") {
+    throw tradingPremiumAccessError(
+      "INSUFFICIENT_BALANCE",
+      "当前没有可用积分，请开通体验版或其他套餐后再提问",
+    );
+  }
+  throw tradingPremiumAccessError(
+    "TRADING_ENTITLEMENT_UNAVAILABLE",
+    "暂时无法验证会员权益，请稍后重试",
+    true,
+  );
+}
+
 async function runTradingStrategyRequest(event, strategyId, params = {}) {
   assertExternalModelsIpcSender(event);
+  try {
+    await requireFreshTradingPremiumAccess();
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        code: String(error?.code || "TRADING_ENTITLEMENT_UNAVAILABLE"),
+        message: String(error?.message || "暂时无法验证会员权益，请稍后重试").slice(0, 300),
+        retryable: error?.retryable === true,
+      },
+    };
+  }
   if (isPersonalStrategyId(strategyId)) {
     try {
       return await runPersonalStrategyRequest(strategyId, params);
@@ -15538,6 +15627,7 @@ ipcMain.handle("tradingAnalysis:classifyGeneralRequest", async (event, params = 
     };
   }
   try {
+    await requireFreshTradingPremiumAccess();
     const model = await getTradingAnalysisModelRegistry().analyze(
       DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
       {
@@ -15628,6 +15718,7 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
     "A newer general market analysis replaced this request",
   );
   try {
+    await requireFreshTradingPremiumAccess();
     const personalizedParams = await tradingStrategyParamsWithPersonalRisk({
       ...params,
       language: normalizeAppLanguage(params.language || appLanguage()),
@@ -20539,7 +20630,8 @@ function normalizeAppUpdateResponse(payload, currentVersion, updateTarget = curr
     platform: updateTarget.platform,
     arch: updateTarget.arch,
     update_available: Boolean(payload?.update_available),
-    force_update: Boolean(payload?.force_update),
+    // Desktop releases are mandatory whenever the update service reports a newer version.
+    force_update: Boolean(payload?.update_available),
     latest,
     download,
   };

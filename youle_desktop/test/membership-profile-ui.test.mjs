@@ -188,7 +188,10 @@ test("membership badges replace the profile pencil without opening a details pop
     profileMenu,
     /membership\.subscribed \? renderProfileSubscriptionBalance\(\) : ""/,
   );
-  assert.match(membership, /normalized === "trial"[\s\S]*?label: "体验版", subscribed: true/);
+  assert.match(membership, /activeMembershipEntitlement\(profile\)/);
+  assert.match(membership, /!membership\.active[\s\S]*?label: "WEB3免费", subscribed: false/);
+  assert.match(membership, /membership\.planId === "trial"[\s\S]*?label: "体验版", subscribed: true/);
+  assert.doesNotMatch(membership, /profile\?\.membership_plan|profile\?\.membershipPlan|membership\.planId === "experience"/);
   assert.match(membership, /label: "WEB3免费", subscribed: false/);
   assert.match(membership, /label: "基础版"/);
   assert.match(membership, /label: "专业版"/);

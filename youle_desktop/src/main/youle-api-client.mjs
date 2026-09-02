@@ -7220,6 +7220,26 @@ function extractSub2ApiBalance(payload) {
   if (!account) return null;
   const activeMembership = account.active_membership || account.activeMembership;
   const pendingMembership = account.pending_membership || account.pendingMembership;
+  const normalizedActiveMembership =
+    activeMembership && typeof activeMembership === "object" && !Array.isArray(activeMembership)
+      ? activeMembership
+      : null;
+  const normalizedPendingMembership =
+    pendingMembership && typeof pendingMembership === "object" && !Array.isArray(pendingMembership)
+      ? pendingMembership
+      : null;
+  const membershipExpiresAt = firstProfileString(
+    account.membership_expires_at,
+    account.membershipExpiresAt,
+    normalizedActiveMembership?.expires_at,
+    normalizedActiveMembership?.expiresAt,
+  ) || null;
+  const membershipPlan = firstProfileString(
+    account.membership_plan,
+    account.membershipPlan,
+    normalizedActiveMembership?.plan_id,
+    normalizedActiveMembership?.planId,
+  ) || null;
   const pointBalance = firstProfileNumber(
     account.balance_points,
     account.balancePoints,
@@ -7289,35 +7309,23 @@ function extractSub2ApiBalance(payload) {
       activeMembership?.refresh_at,
       activeMembership?.refreshAt,
     ),
-    membership_expires_at: firstProfileString(
-      account.membership_expires_at,
-      account.membershipExpiresAt,
-      activeMembership?.expires_at,
-      activeMembership?.expiresAt,
-    ),
-    membership_plan: firstProfileString(
-      account.membership_plan,
-      account.membershipPlan,
-      activeMembership?.plan_id,
-      activeMembership?.planId,
-    ),
     trial_eligible: firstBoolean(account.trial_eligible, account.trialEligible),
-    active_membership:
-      activeMembership && typeof activeMembership === "object" && !Array.isArray(activeMembership)
-        ? activeMembership
-        : undefined,
-    pending_membership:
-      pendingMembership && typeof pendingMembership === "object" && !Array.isArray(pendingMembership)
-        ? pendingMembership
-        : undefined,
   });
   const yuanBalance = resolveYuanBalance(balance);
-  return compactObject({
-    ...balance,
-    balance: yuanBalance,
-    token_balance: yuanBalance,
-    token_balance_label: formatYuanBalance(yuanBalance),
-  });
+  return {
+    ...compactObject({
+      ...balance,
+      balance: yuanBalance,
+      token_balance: yuanBalance,
+      token_balance_label: formatYuanBalance(yuanBalance),
+    }),
+    // These fields are authoritative snapshots. Preserve explicit nulls so a
+    // refresh clears stale paid-plan data from an earlier desktop session.
+    membership_expires_at: membershipExpiresAt,
+    membership_plan: membershipPlan,
+    active_membership: normalizedActiveMembership,
+    pending_membership: normalizedPendingMembership,
+  };
 }
 
 function extractSubscriptionBalanceDetails(payload) {

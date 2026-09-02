@@ -108,16 +108,14 @@ test("trading favorites normalize persisted symbols and remove invalid duplicate
   assert.deepEqual(ordered.map(({ symbol }) => symbol), ["BTCUSDT", "ETHUSDT", "SOLUSDT"]);
 });
 
-test("only a trading pair opened from a non-empty search is auto-favorited", async () => {
+test("every trading pair opened from the picker is auto-favorited", async () => {
   const { shouldAutoFavoriteTradingMarketSelection } = await import(
     "../src/renderer/trading-expert-market.ts"
   );
 
-  assert.equal(shouldAutoFavoriteTradingMarketSelection("symbol", " sol "), true);
-  assert.equal(shouldAutoFavoriteTradingMarketSelection("symbol", ""), false);
-  assert.equal(shouldAutoFavoriteTradingMarketSelection("symbol", "   "), false);
-  assert.equal(shouldAutoFavoriteTradingMarketSelection("favorite-symbol", "sol"), false);
-  assert.equal(shouldAutoFavoriteTradingMarketSelection("favorite", "sol"), false);
+  assert.equal(shouldAutoFavoriteTradingMarketSelection("symbol"), true);
+  assert.equal(shouldAutoFavoriteTradingMarketSelection("favorite-symbol"), false);
+  assert.equal(shouldAutoFavoriteTradingMarketSelection("favorite"), false);
 });
 
 test("official Han-character Binance symbols survive persistence and stay searchable", async () => {
@@ -243,8 +241,8 @@ test("trading candle snapshots are keyed by market context, survive stale refres
       volume24h: 10,
     },
     candleBatch: {
-      candles: [{ time: 1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 3 }],
-      sourceCandles: [{ time: 1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 3 }],
+      candles: [{ time: 1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 3, closed: false }],
+      sourceCandles: [{ time: 1, open: 1, high: 2, low: 0.5, close: 1.5, volume: 3, closed: false }],
       source: { targetMs: 240 * 60_000, sourceInterval: "4h", sourceMs: 240 * 60_000 },
       lastTradeId: 7,
     },
@@ -491,6 +489,67 @@ test("market candle cadence rejects daily data for intraday selections", async (
   assert.equal(tradingCandleSeriesMatchesResolution(fiveMinute, "15"), false);
   assert.equal(tradingCandleSeriesMatchesResolution(daily, "5"), false);
   assert.equal(tradingCandleSeriesMatchesResolution(daily, "1D"), true);
+});
+
+test("cached Binance history rejects expired forming fragments and backfills from the earliest one", async () => {
+  const {
+    tradingCandleBatchHasFinalizedHistory,
+    tradingCandleRefreshStartTime,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const stepMs = 4 * 60 * 60_000;
+  const start = 1_700_000_000;
+  const candles = Array.from({ length: 6 }, (_, index) => ({
+    time: start + index * stepMs / 1_000,
+    open: 100 + index,
+    high: 102 + index,
+    low: 99 + index,
+    close: 101 + index,
+    volume: 10,
+    closed: index !== 1 && index !== 5,
+  }));
+  const batch = {
+    candles,
+    sourceCandles: candles,
+    source: { targetMs: stepMs, sourceInterval: "4h", sourceMs: stepMs },
+  };
+  const now = candles.at(-1).time * 1_000 + stepMs / 2;
+
+  assert.equal(tradingCandleBatchHasFinalizedHistory(batch, now), false);
+  assert.equal(tradingCandleRefreshStartTime(batch, now, 3), candles[1].time * 1_000);
+
+  candles[1].closed = true;
+  assert.equal(tradingCandleBatchHasFinalizedHistory(batch, now), true);
+  assert.equal(tradingCandleRefreshStartTime(batch, now, 3), candles[3].time * 1_000);
+});
+
+test("Binance REST finality distinguishes a closed bar from the current forming bar", async () => {
+  const { fetchTradingCandles } = await import("../src/renderer/trading-expert-market.ts");
+  const originalWindow = globalThis.window;
+  const now = Date.now();
+  globalThis.window = {
+    ...(originalWindow || {}),
+    codexDesktop: {
+      ...(originalWindow?.codexDesktop || {}),
+      async getBinancePublicMarketData() {
+        return {
+          ok: true,
+          status: 200,
+          cached: false,
+          data: [
+            [now - 120_000, "100", "102", "99", "101", "10", now - 60_001],
+            [now - 60_000, "101", "103", "100", "102", "12", now + 59_999],
+          ],
+        };
+      },
+    },
+  };
+  try {
+    const batch = await fetchTradingCandles("BTCUSDT", "1", 2, now, "perpetual");
+    assert.deepEqual(batch.candles.map((candle) => candle.closed), [true, false]);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
 });
 
 test("favorite market resolution preserves live prices over persisted metadata", async () => {

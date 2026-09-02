@@ -197,10 +197,23 @@ test("Youle API client manages the current user's GitHub authorization without e
   }
 });
 
-test("GitHub settings expose connection controls with complete dark-mode states", () => {
+test("GitHub settings remain implemented but are hidden from the desktop UI", () => {
   const renderer = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
   const styles = fs.readFileSync(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
+  const settingsDialog = renderer.slice(
+    renderer.indexOf("function renderSettingsDialog"),
+    renderer.indexOf("function renderGitHubSettingsPanel"),
+  );
+  const settingsOpener = renderer.slice(
+    renderer.indexOf("function openSettingsDialog"),
+    renderer.indexOf("async function refreshGitHubConnection"),
+  );
 
+  assert.match(renderer, /const ENABLE_GITHUB_SETTINGS_UI = false;/);
+  assert.match(settingsDialog, /ENABLE_GITHUB_SETTINGS_UI[\s\S]*data-settings-tab="github"/);
+  assert.match(settingsDialog, /state\.settings\.tab === "github" && !ENABLE_GITHUB_SETTINGS_UI[\s\S]*\? "general"/);
+  assert.match(settingsOpener, /if \(tab === "github" && !ENABLE_GITHUB_SETTINGS_UI\) tab = "general";/);
+  assert.match(renderer, /draft\.status === "active" && ENABLE_GITHUB_SETTINGS_UI \? `<button[^`]+data-personal-strategy-github/);
   assert.match(renderer, /data-settings-tab="github"/);
   assert.match(renderer, /data-action="github-connect"/);
   assert.match(

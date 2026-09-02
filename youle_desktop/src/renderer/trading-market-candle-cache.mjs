@@ -1,11 +1,12 @@
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 const DEFAULT_FRESH_AGE_MS = 5 * 60_000;
 const DEFAULT_STALE_AGE_MS = 7 * 24 * 60 * 60_000;
 const DEFAULT_MAX_ENTRIES = 48;
 const DEFAULT_MAX_CANDLES = 500;
 const DEFAULT_MAX_SOURCE_CANDLES = 1_500;
-const STORAGE_PREFIX = "haolo.trading.market.candles.v1.";
+const STORAGE_PREFIX = "haolo.trading.market.candles.v2.";
 const STORAGE_INDEX_KEY = `${STORAGE_PREFIX}index`;
+const LEGACY_STORAGE_PREFIXES = ["haolo.trading.market.candles.v1."];
 
 function finiteNumber(value, fallback = 0) {
   const number = Number(value);
@@ -20,6 +21,7 @@ function normalizedCandle(value) {
     low: finiteNumber(value?.low),
     close: finiteNumber(value?.close),
     volume: Math.max(0, finiteNumber(value?.volume)),
+    closed: value?.closed === true,
   };
   if (
     candle.time <= 0
@@ -83,7 +85,7 @@ function cloneEntry(entry) {
 }
 
 function candleTuple(candle) {
-  return [candle.time, candle.open, candle.high, candle.low, candle.close, candle.volume];
+  return [candle.time, candle.open, candle.high, candle.low, candle.close, candle.volume, candle.closed ? 1 : 0];
 }
 
 function candleFromTuple(tuple) {
@@ -95,6 +97,7 @@ function candleFromTuple(tuple) {
     low: tuple[3],
     close: tuple[4],
     volume: tuple[5],
+    closed: tuple[6] === 1,
   });
 }
 
@@ -187,10 +190,37 @@ function writeIndex(storage, index) {
   storage.setItem(STORAGE_INDEX_KEY, JSON.stringify(index));
 }
 
-function mergeCandleSeries(current, incoming) {
+function removeLegacyEntries(storage) {
+  for (const prefix of LEGACY_STORAGE_PREFIXES) {
+    const indexKey = `${prefix}index`;
+    try {
+      const index = JSON.parse(storage.getItem(indexKey) || "[]");
+      if (Array.isArray(index)) {
+        for (const item of index) {
+          const key = String(item?.k || "").trim();
+          if (key) storage.removeItem(`${prefix}${encodeURIComponent(key)}`);
+        }
+      }
+    } catch {}
+    try { storage.removeItem(indexKey); } catch {}
+  }
+}
+
+function preferredCandle(current, incoming, closedCandleAuthority = "incoming") {
+  if (current?.closed === true && incoming?.closed === true) {
+    return closedCandleAuthority === "current" ? current : incoming;
+  }
+  if (current?.closed === true && incoming?.closed !== true) return current;
+  if (incoming?.closed === true && current?.closed !== true) return incoming;
+  return incoming;
+}
+
+function mergeCandleSeries(current, incoming, closedCandleAuthority = "incoming") {
   const map = new Map();
   normalizedCandles(current).forEach((candle) => map.set(candle.time, candle));
-  normalizedCandles(incoming).forEach((candle) => map.set(candle.time, candle));
+  normalizedCandles(incoming).forEach((candle) => {
+    map.set(candle.time, preferredCandle(map.get(candle.time), candle, closedCandleAuthority));
+  });
   return [...map.values()].sort((first, second) => first.time - second.time);
 }
 
@@ -207,11 +237,22 @@ function aggregateCandles(candles, targetMs) {
     current.low = Math.min(current.low, candle.low);
     current.close = candle.close;
     current.volume += candle.volume;
+    current.closed = current.closed === true && candle.closed === true;
   }
-  return [...buckets.values()].sort((first, second) => first.time - second.time);
+  const now = Date.now();
+  return [...buckets.values()]
+    .map((candle) => ({
+      ...candle,
+      closed: candle.closed === true && candle.time * 1_000 + targetMs <= now,
+    }))
+    .sort((first, second) => first.time - second.time);
 }
 
-export function mergeTradingCandleBatches(current, incoming, { candleLimit = 500 } = {}) {
+export function mergeTradingCandleBatches(
+  current,
+  incoming,
+  { candleLimit = 500, closedCandleAuthority = "incoming" } = {},
+) {
   const currentBatch = cloneEntry({ cachedAt: 0, stats: {}, candleBatch: current }).candleBatch;
   const incomingBatch = cloneEntry({ cachedAt: 0, stats: {}, candleBatch: incoming }).candleBatch;
   const source = normalizedSource(incomingBatch.source?.targetMs ? incomingBatch.source : currentBatch.source);
@@ -219,8 +260,9 @@ export function mergeTradingCandleBatches(current, incoming, { candleLimit = 500
     && currentBatch.source.sourceInterval === source.sourceInterval
     && currentBatch.source.sourceMs === source.sourceMs;
   const limit = Math.max(1, Math.floor(Number(candleLimit) || DEFAULT_MAX_CANDLES));
+  const closedAuthority = closedCandleAuthority === "current" ? "current" : "incoming";
   let sourceCandles = sameSource
-    ? mergeCandleSeries(currentBatch.sourceCandles, incomingBatch.sourceCandles)
+    ? mergeCandleSeries(currentBatch.sourceCandles, incomingBatch.sourceCandles, closedAuthority)
     : incomingBatch.sourceCandles;
   let candles;
   if (source.sourceInterval && sourceCandles.length) {
@@ -228,12 +270,15 @@ export function mergeTradingCandleBatches(current, incoming, { candleLimit = 500
       ? sourceCandles.map((candle) => ({ ...candle }))
       : aggregateCandles(sourceCandles, source.targetMs);
     candles = mergeCandleSeries(
-      sameSource ? mergeCandleSeries(currentBatch.candles, incomingBatch.candles) : incomingBatch.candles,
+      sameSource
+        ? mergeCandleSeries(currentBatch.candles, incomingBatch.candles, closedAuthority)
+        : incomingBatch.candles,
       recomputed,
+      closedAuthority,
     );
   } else {
     candles = sameSource
-      ? mergeCandleSeries(currentBatch.candles, incomingBatch.candles)
+      ? mergeCandleSeries(currentBatch.candles, incomingBatch.candles, closedAuthority)
       : incomingBatch.candles;
   }
   const ratio = source.sourceMs ? Math.max(1, Math.ceil(source.targetMs / source.sourceMs)) : 1;
@@ -259,6 +304,7 @@ export function createTradingMarketCandleCache({
   maxCandles = DEFAULT_MAX_CANDLES,
   maxSourceCandles = DEFAULT_MAX_SOURCE_CANDLES,
 } = {}) {
+  if (storage) removeLegacyEntries(storage);
   const memory = new Map();
   const limits = {
     maxCandles: Math.max(1, Math.floor(Number(maxCandles) || DEFAULT_MAX_CANDLES)),

@@ -52,6 +52,11 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
     "const fixedPaymentAmount",
     "function rechargePaymentQrDataUrl",
   );
+  const expiredOrderReconciliation = sourceBlock(
+    paymentDetails,
+    "async function reconcileExpiredRechargePaymentOrder",
+    "async function updateRechargePaymentDetails",
+  );
   const productEvents = sourceBlock(
     renderer,
     "function bindRechargeProductCardEvents",
@@ -172,10 +177,10 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentDetails, /panel\.dataset\.rechargePaymentFingerprint = rechargePaymentOrderVisualFingerprint\(order\)/);
   assert.match(paymentDetails, /orderSelectionKey !== expectedSelectionKey/);
   assert.match(paymentDetails, /rechargePaymentSelectionKey\(selection\.product\.id, selection\.network\.id\)/);
-  assert.match(paymentDetails, /createRechargePaymentOrder\(\{ force: true, preserveExisting: true \}\)/);
-  assert.match(renderer, /RECHARGE_PAYMENT_CREATE_AUTO_RETRY_LIMIT = 1/);
-  assert.match(paymentDetails, /retryAttempt: retryAttempt \+ 1/);
-  assert.match(paymentDetails, /rechargePaymentOrderErrorsBySelection\.delete\(selectionKey\)[\s\S]*?createRechargePaymentOrder\(\{ force: true, preserveExisting: true \}\)/);
+  assert.doesNotMatch(paymentDetails, /createRechargePaymentOrder\(\{ force: true, preserveExisting: true \}\)/);
+  assert.doesNotMatch(renderer, /RECHARGE_PAYMENT_CREATE_AUTO_RETRY_LIMIT|shouldAutoRetryRechargePaymentOrderRequest|retryAttempt/);
+  assert.match(paymentDetails, /"idle",[\s\S]*?"确认支付信息",[\s\S]*?"确认套餐和支付方式后，再生成本次支付订单。",[\s\S]*?"生成支付信息"/);
+  assert.match(paymentDetails, /data-recharge-payment-retry[\s\S]*?createRechargePaymentOrder\(\{ force: true \}\)/);
   assert.match(paymentDetails, /rechargePaymentOrderLoadingSelections\.has\(selectionKey\) && !order/);
   assert.match(renderer, /state\.activeView !== "recharge"[\s\S]*?rechargePaymentViewActive = false/);
   assert.doesNotMatch(paymentDetails, /请使用 [^<]+ 支付 USDT，并确保收款账号和三位小数金额完全一致/);
@@ -183,7 +188,9 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentDetails, /status === "expired"/);
   assert.match(paymentDetails, /function reconcileExpiredRechargePaymentOrder/);
   assert.match(paymentDetails, /api\.getWeb3PaymentOrder\(\{ orderNo: order\.order_no \}\)/);
-  assert.match(paymentDetails, /previousOrderNo: order\.order_no/);
+  assert.match(paymentDetails, /rechargePaymentReplacementPreviousOrderNos\.set\(selectionKey, order\.order_no\)/);
+  assert.match(paymentDetails, /previousOrderNo,/);
+  assert.doesNotMatch(expiredOrderReconciliation, /createRechargePaymentOrder\(/);
   assert.match(paymentDetails, /正在确认订单最终状态/);
   assert.match(paymentDetails, /暂时无法确认最后一次到账结果，请勿重复支付/);
   assert.match(paymentDetails, /积分已全部到账/);
@@ -217,6 +224,9 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(styles, /\.recharge-payment-network:has\(input:checked\)/);
   assert.match(styles, /\.recharge-payment-network:has\(input:focus-visible\)/);
   assert.match(styles, /\.recharge-payment-network:has\(input:disabled\)/);
+  assert.match(styles, /\.recharge-payment-state button:hover/);
+  assert.match(styles, /\.recharge-payment-state button:active/);
+  assert.match(styles, /\.recharge-payment-state button:focus-visible/);
   assert.match(styles, /\.recharge-payment-network-grid\s*\{[\s\S]*?grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.recharge-payment-details-main\.internal-transfer/);
   assert.doesNotMatch(styles, /\.recharge-payment-(?:progress|detecting|countdown)\b|--recharge-details-divider/);

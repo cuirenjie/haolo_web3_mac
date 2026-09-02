@@ -1181,8 +1181,8 @@ export function normalizeTradingFavoriteSymbols(value: unknown): string[] {
   return [...symbols];
 }
 
-export function shouldAutoFavoriteTradingMarketSelection(action: string, searchQuery: string) {
-  return action === "symbol" && searchQuery.trim().length > 0;
+export function shouldAutoFavoriteTradingMarketSelection(action: string) {
+  return action === "symbol";
 }
 
 export function reorderTradingFavoriteRecords(
@@ -2548,6 +2548,7 @@ interface TradingCandle {
   low: number;
   close: number;
   volume?: number;
+  closed?: boolean;
 }
 
 interface TradingMarketStats {
@@ -2813,6 +2814,7 @@ interface BinanceOpenInterest {
 
 interface BinanceKlinePayload {
   t?: number;
+  T?: number;
   s?: string;
   i?: string;
   o?: string;
@@ -2820,6 +2822,7 @@ interface BinanceKlinePayload {
   l?: string;
   c?: string;
   v?: string;
+  x?: boolean;
 }
 
 interface BinanceWsMessage {
@@ -3796,7 +3799,7 @@ export async function fetchTradingMarketStructureContexts(
   return results.filter((item): item is TradingMarketStructureContext => Boolean(item));
 }
 
-function normalizeBinanceCandles(items: unknown[][]): TradingCandle[] {
+function normalizeBinanceCandles(items: unknown[][], now = Date.now()): TradingCandle[] {
   return items
     .map((item) => ({
       time: Math.floor(Number(item[0] || 0) / 1000),
@@ -3805,6 +3808,7 @@ function normalizeBinanceCandles(items: unknown[][]): TradingCandle[] {
       low: Number(item[3] || 0),
       close: Number(item[4] || 0),
       volume: Number(item[5] || 0),
+      closed: Number(item[6] || 0) > 0 && Number(item[6]) <= now,
     }))
     .filter((item) =>
       item.time > 0
@@ -3828,8 +3832,19 @@ export function aggregateTradingCandles(items: TradingCandle[], targetMs: number
     current.low = Math.min(current.low, item.low);
     current.close = item.close;
     current.volume = Number(current.volume || 0) + Number(item.volume || 0);
+    if (current.closed !== undefined || item.closed !== undefined) {
+      current.closed = current.closed === true && item.closed === true;
+    }
   });
-  return Array.from(buckets.values()).sort((first, second) => first.time - second.time);
+  const now = Date.now();
+  return Array.from(buckets.values())
+    .map((candle) => candle.closed === undefined
+      ? candle
+      : {
+          ...candle,
+          closed: candle.closed === true && candle.time * 1_000 + targetMs <= now,
+        })
+    .sort((first, second) => first.time - second.time);
 }
 
 function aggregateBinanceTrades(items: BinanceAggregateTrade[], targetMs: number) {
@@ -3845,15 +3860,22 @@ function aggregateBinanceTrades(items: BinanceAggregateTrade[], targetMs: number
       low: price,
       close: price,
       volume,
+      closed: Math.floor(timeMs / targetMs) * targetMs + targetMs <= Date.now(),
     }];
   });
   return aggregateTradingCandles(candles, targetMs);
 }
 
+function preferredTradingCandle(current: TradingCandle | undefined, incoming: TradingCandle) {
+  if (current?.closed === true && incoming.closed !== true) return current;
+  if (incoming.closed === true && current?.closed !== true) return incoming;
+  return incoming;
+}
+
 function mergeCandles(current: TradingCandle[], incoming: TradingCandle[]) {
   const map = new Map<number, TradingCandle>();
   current.forEach((item) => map.set(item.time, item));
-  incoming.forEach((item) => map.set(item.time, item));
+  incoming.forEach((item) => map.set(item.time, preferredTradingCandle(map.get(item.time), item)));
   return Array.from(map.values()).sort((first, second) => first.time - second.time);
 }
 
@@ -4075,6 +4097,47 @@ export function tradingCandleBatchCanRefreshIncrementally(
   if (!latest || stepMs <= 0) return false;
   const missing = Math.max(0, Math.ceil((now - latest.time * 1_000) / stepMs));
   return missing <= Math.max(1, Math.floor(maxMissingSourceCandles));
+}
+
+function tradingCandleBatchSourceSeries(batch: TradingCandleBatch) {
+  return batch.source.sourceInterval && batch.sourceCandles.length
+    ? batch.sourceCandles
+    : batch.candles;
+}
+
+export function tradingCandleBatchHasFinalizedHistory(
+  batch: TradingCandleBatch,
+  now = Date.now(),
+) {
+  const stepMs = Number(batch.source.sourceMs || batch.source.targetMs || 0);
+  const candles = tradingCandleBatchSourceSeries(batch);
+  if (!candles.length || stepMs <= 0) return false;
+  return candles.every((candle) => (
+    candle.time * 1_000 + stepMs > now
+    || candle.closed === true
+  ));
+}
+
+export function tradingCandleRefreshStartTime(
+  batch: TradingCandleBatch,
+  now = Date.now(),
+  overlapSourceCandles = 3,
+) {
+  const candles = tradingCandleBatchSourceSeries(batch);
+  if (!candles.length) return undefined;
+  const stepMs = Number(batch.source.sourceMs || batch.source.targetMs || 0);
+  const overlap = Math.max(1, Math.floor(overlapSourceCandles));
+  let startIndex = Math.max(0, candles.length - overlap);
+  if (stepMs > 0) {
+    const unfinishedHistoricalIndex = candles.findIndex((candle) => (
+      candle.closed !== true
+      && candle.time * 1_000 + stepMs <= now
+    ));
+    if (unfinishedHistoricalIndex >= 0) {
+      startIndex = Math.min(startIndex, unfinishedHistoricalIndex);
+    }
+  }
+  return candles[startIndex]?.time * 1_000;
 }
 
 export function atm1TrendCandles(
@@ -4460,12 +4523,20 @@ function renderMarketChartActions() {
         class="trading-market-chart-action"
         data-market-action="open-chart-settings"
         aria-label="图表设置"
+        aria-describedby="trading-market-chart-settings-tooltip"
         aria-haspopup="dialog"
         aria-expanded="false"
-        title="设置"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
+      <div
+        class="trading-market-chart-settings-tooltip"
+        id="trading-market-chart-settings-tooltip"
+        role="tooltip"
+      >
+        <strong>K线设置</strong>
+        <span>更改样式、图标颜色、开盘时间、工具栏等</span>
+      </div>
       <button
         type="button"
         class="trading-market-chart-action"
@@ -4708,6 +4779,8 @@ class TradingExpertMarketWorkspace {
   private themeObserver: MutationObserver | null = null;
   private marketStreamSubscriptionId: string | null = null;
   private marketSocketLastActivityAt = 0;
+  private marketKlineLastActivityAt = 0;
+  private marketSocketNeedsBackfill = false;
   private liveChartPaintTimer: number | null = null;
   private liveChartPaintFrame: number | null = null;
   private lastLiveChartFullRefreshAt = 0;
@@ -5221,7 +5294,7 @@ class TradingExpertMarketWorkspace {
         || this.renderedMarkets.get(marketId)
         || this.markets.find((candidate) => candidate.id === marketId)
         || this.favoriteMarketFromId(marketId);
-      const autoFavorite = shouldAutoFavoriteTradingMarketSelection(action, this.search.value);
+      const autoFavorite = shouldAutoFavoriteTradingMarketSelection(action);
       if (!market || market.id === this.selectedMarketId) {
         if (market && autoFavorite && this.addFavoriteMarket(market)) {
           this.commitFavoriteMarketChanges();
@@ -11127,7 +11200,11 @@ class TradingExpertMarketWorkspace {
     const cachedSnapshot = getTradingMarketCandleCache(candleCacheKey);
     const cachedSnapshotUsable = cachedSnapshot
       && cachedSnapshot.candleBatch.candles.length > 0
-      && tradingCandleSeriesMatchesResolution(cachedSnapshot.candleBatch.candles, targetInterval);
+      && tradingCandleSeriesMatchesResolution(cachedSnapshot.candleBatch.candles, targetInterval)
+      && (
+        targetProvider !== "binance"
+        || tradingCandleBatchHasFinalizedHistory(cachedSnapshot.candleBatch)
+      );
     let cachedSnapshotApplied = false;
     let binanceSocketStarted = false;
     const keepChart = options.preserveChart === true && this.candles.length > 0;
@@ -11223,9 +11300,7 @@ class TradingExpertMarketWorkspace {
                   await fetchLatestTradingCandles(
                     targetSymbol,
                     targetInterval,
-                    cachedBatch.sourceCandles.at(-1)?.time === undefined
-                      ? undefined
-                      : cachedBatch.sourceCandles.at(-1)!.time * 1_000,
+                    tradingCandleRefreshStartTime(cachedBatch),
                     cachedBatch.lastTradeId === undefined ? undefined : cachedBatch.lastTradeId + 1,
                     targetMarketType === "spot" ? "spot" : "perpetual",
                     marketDataRequestSignal,
@@ -11262,7 +11337,10 @@ class TradingExpertMarketWorkspace {
             sourceCandles: this.sourceCandles,
             source: liveSource,
             lastTradeId: this.lastAggregateTradeId ?? undefined,
-          }, { candleLimit: 500 }) as TradingCandleBatch;
+          }, {
+            candleLimit: 500,
+            closedCandleAuthority: "current",
+          }) as TradingCandleBatch;
         }
       }
       const finalStats = targetProvider === "binance"
@@ -11340,8 +11418,12 @@ class TradingExpertMarketWorkspace {
       return;
     }
     if (binanceMarketRestCooldownRemaining() > 0) return;
-    const silenceMs = Date.now() - this.marketSocketLastActivityAt;
-    if (this.marketSocketLastActivityAt > 0 && silenceMs < MARKET_SOCKET_STALE_MS) return;
+    const source = binanceResolutionSource(this.activeInterval);
+    const relevantActivityAt = source?.sourceInterval
+      ? this.marketKlineLastActivityAt
+      : this.marketSocketLastActivityAt;
+    const silenceMs = Date.now() - relevantActivityAt;
+    if (relevantActivityAt > 0 && silenceMs < MARKET_SOCKET_STALE_MS) return;
     void this.refreshSnapshot(generation);
     void this.refreshLiveCandle(generation);
   }
@@ -11412,11 +11494,18 @@ class TradingExpertMarketWorkspace {
         this.scheduleCurrentMarketCandlePersistence();
         return;
       }
-      const sourceStartTime = this.sourceCandles.at(-1)?.time;
+      const source = binanceResolutionSource(this.activeInterval);
+      if (!source) return;
+      const sourceStartTime = tradingCandleRefreshStartTime({
+        candles: this.candles,
+        sourceCandles: this.sourceCandles,
+        source,
+        lastTradeId: this.lastAggregateTradeId ?? undefined,
+      });
       const batch = await fetchLatestTradingCandles(
         this.selectedSymbol,
         this.activeInterval,
-        sourceStartTime === undefined ? undefined : sourceStartTime * 1000,
+        sourceStartTime,
         this.lastAggregateTradeId === null ? undefined : this.lastAggregateTradeId + 1,
         this.selectedMarketType === "spot" ? "spot" : "perpetual",
         this.marketDataRequestAbortController?.signal,
@@ -11462,8 +11551,16 @@ class TradingExpertMarketWorkspace {
       result = await subscribeBinanceMarketStreams(marketType, streams, (event) => {
         if (this.disposed || generation !== this.loadGeneration) return;
         if (event?.type === "health") {
-          if (event.status === "connected") this.marketSocketLastActivityAt = Date.now();
-          else if (event.status === "reconnecting") this.marketSocketLastActivityAt = 0;
+          if (event.status === "connected") {
+            const needsBackfill = this.marketSocketNeedsBackfill;
+            this.marketSocketLastActivityAt = Date.now();
+            this.marketSocketNeedsBackfill = false;
+            if (needsBackfill) void this.refreshLiveCandle(generation);
+          } else if (event.status === "reconnecting") {
+            this.marketSocketLastActivityAt = 0;
+            this.marketKlineLastActivityAt = 0;
+            this.marketSocketNeedsBackfill = true;
+          }
           return;
         }
         if (event?.type !== "data") return;
@@ -11511,6 +11608,7 @@ class TradingExpertMarketWorkspace {
       return;
     }
     if (payload.e === "kline" && payload.k) {
+      this.marketKlineLastActivityAt = Date.now();
       this.updateFromBinanceKline(payload.k);
       return;
     }
@@ -11532,6 +11630,7 @@ class TradingExpertMarketWorkspace {
       low: Number(kline.l || 0),
       close: Number(kline.c || 0),
       volume: Number(kline.v || 0),
+      closed: kline.x === true,
     };
     this.applyLiveSourceCandle(incoming, source);
     this.commitLoadedSelection();
@@ -11542,7 +11641,7 @@ class TradingExpertMarketWorkspace {
   private upsertLiveCandle(candles: TradingCandle[], incoming: TradingCandle) {
     const latest = candles.at(-1);
     if (latest?.time === incoming.time) {
-      candles[candles.length - 1] = incoming;
+      candles[candles.length - 1] = preferredTradingCandle(latest, incoming);
       return candles;
     }
     if (!latest || incoming.time > latest.time) {
@@ -11587,12 +11686,14 @@ class TradingExpertMarketWorkspace {
       if (sourceMs <= 0) return;
       const sourceTime = Math.floor(timeMs / sourceMs) * sourceMs / 1000;
       const latestSource = this.sourceCandles.at(-1);
+      if (latestSource?.time === sourceTime && latestSource.closed === true) return;
       const incoming = latestSource?.time === sourceTime
         ? {
             ...latestSource,
             high: Math.max(latestSource.high, price),
             low: Math.min(latestSource.low, price),
             close: price,
+            closed: false,
           }
         : {
           time: sourceTime,
@@ -11601,6 +11702,7 @@ class TradingExpertMarketWorkspace {
           low: price,
           close: price,
           volume,
+          closed: false,
         };
       this.applyLiveSourceCandle(incoming, source);
       this.commitLoadedSelection();
@@ -11614,10 +11716,12 @@ class TradingExpertMarketWorkspace {
       ? latest
       : this.candles.find((candle) => candle.time === time);
     if (existing) {
+      if (existing.closed === true) return;
       existing.high = Math.max(existing.high, price);
       existing.low = Math.min(existing.low, price);
       existing.close = price;
       existing.volume = Number(existing.volume || 0) + volume;
+      existing.closed = false;
     } else if (!latest || time > latest.time) {
       this.candles.push({
         time,
@@ -11626,6 +11730,7 @@ class TradingExpertMarketWorkspace {
         low: price,
         close: price,
         volume,
+        closed: false,
       });
     } else {
       this.candles = mergeCandles(this.candles, [{
@@ -11635,6 +11740,7 @@ class TradingExpertMarketWorkspace {
         low: price,
         close: price,
         volume,
+        closed: false,
       }]);
     }
     this.commitLoadedSelection();
@@ -13337,6 +13443,8 @@ class TradingExpertMarketWorkspace {
     unsubscribeBinanceMarketStreams(this.marketStreamSubscriptionId);
     this.marketStreamSubscriptionId = null;
     this.marketSocketLastActivityAt = 0;
+    this.marketKlineLastActivityAt = 0;
+    this.marketSocketNeedsBackfill = false;
   }
 
   private cancelScheduledLiveChartPaint() {
