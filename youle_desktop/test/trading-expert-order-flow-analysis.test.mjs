@@ -508,8 +508,9 @@ test("Trading Expert wires @策略:订单流 through IPC, real Binance inputs, p
 
   assert.match(mainSource, /tradingAnalysis:classifyOrderFlowRequest/);
   assert.match(orderFlowAdapterSource, /deterministicRouting:\s*deterministicOrderFlowChartRequest/);
-  assert.match(coordinatorSource, /deterministicStrategyChartRouting/);
-  assert.match(coordinatorSource, /source: "deterministic-strategy-invocation"/);
+  assert.match(coordinatorSource, /buildGeneralRequestRoutingPrompt/);
+  assert.match(coordinatorSource, /source: "model-first-unified-intent"/);
+  assert.match(coordinatorSource, /source: "deterministic-recovery"/);
   assert.match(mainSource, /tradingAnalysis:runOrderFlow/);
   assert.match(preloadSource, /classifyTradingOrderFlowRequest/);
   assert.match(preloadSource, /runTradingOrderFlowAnalysis/);

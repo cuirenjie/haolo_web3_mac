@@ -18,6 +18,7 @@ import {
 } from "../src/main/trading-strategy-runtime/feature-flags.mjs";
 import { createTradingStrategyRegistry, TradingStrategyRegistry } from "../src/main/trading-strategy-runtime/registry.mjs";
 import { compileConfirmedStrategyDraft, validateStrategyDraft } from "../src/main/trading-strategy-runtime/strategy-draft.mjs";
+import { selectTradingAnalysisInterval } from "../src/renderer/trading-analysis-target.mjs";
 import { normalizeTradingAiDrawingPatch } from "../src/renderer/trading-expert-drawing.ts";
 
 const sampleManifest = Object.freeze({
@@ -756,15 +757,30 @@ test("coordinator refreshes private Binance context after analysis before buildi
   assert.doesNotMatch(englishResult.analysisPlan.report, /原策略报告|[\u3400-\u9fff]/u);
 });
 
-test("every strategy invocation deterministically enters chart analysis and never calls a routing model", async () => {
+test("every strategy request uses model-first intent routing with deterministic recovery and literal targets", async () => {
   let modelCalls = 0;
+  const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
   const coordinator = new TradingStrategyCoordinator({
-    registry: createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS }),
-    providerId: "unused",
+    registry,
+    providerId: "intent-provider",
     modelRegistry: {
       async analyze() {
         modelCalls += 1;
-        throw new Error("strategy invocation must not call a routing model");
+        return {
+          text: JSON.stringify({
+            schemaVersion: 1,
+            mode: "chart-analysis",
+            intent: "chart-drawing",
+            symbol: null,
+            interval: null,
+            lookbackMs: null,
+            lookbackLabel: null,
+            confidence: 0.98,
+          }),
+          providerId: "intent-provider",
+          modelId: "intent-model",
+          latencyMs: 3,
+        };
       },
     },
   });
@@ -778,13 +794,67 @@ test("every strategy invocation deterministically enters chart analysis and neve
   assert.equal(exactIncident.request.interval, "15");
   assert.equal(exactIncident.request.drawingRequested, true);
   assert.equal(exactIncident.request.instruction, "分析SNDK 15min这个盘面并绘图，生成交易策略");
-  assert.equal(exactIncident.classification.source, "deterministic-strategy-invocation");
+  assert.equal(exactIncident.classification.source, "model-first-unified-intent");
 
   const conceptualMention = await coordinator.classify("ict-smc", {
     text: "@策略:ICT/SMC 什么是 FVG",
   });
-  assert.equal(conceptualMention.request.mode, "chart-analysis");
-  assert.equal(conceptualMention.request.drawingRequested, true);
+  assert.equal(conceptualMention.request.mode, "conversation");
+  assert.equal(conceptualMention.request.drawingRequested, false);
+
+  const bareKIncident = await coordinator.classify("price-action", {
+    text: "@策略:裸K分析 看下走势跟给出开单点位",
+    hasCurrentAnalysis: false,
+  });
+  assert.equal(bareKIncident.request.mode, "chart-analysis");
+  assert.equal(bareKIncident.request.instruction, "看下走势跟给出开单点位");
+  assert.equal(bareKIncident.request.symbol, null);
+  assert.equal(bareKIncident.request.interval, null);
+
+  const dowIncident = await coordinator.classify("dow-theory", {
+    text: "@策略:道氏理论 分析下一个小时是多还是空",
+    hasCurrentAnalysis: false,
+  });
+  assert.equal(dowIncident.request.mode, "chart-analysis");
+  assert.equal(dowIncident.request.instruction, "分析下一个小时是多还是空");
+  assert.equal(dowIncident.request.symbol, null);
+  assert.equal(dowIncident.request.interval, null);
+
+  const periodOnlyIncident = await coordinator.classify("chan", {
+    text: "@策略:缠论 分析4小时",
+    hasCurrentAnalysis: false,
+  });
+  assert.equal(periodOnlyIncident.request.mode, "chart-analysis");
+  assert.equal(periodOnlyIncident.request.instruction, "分析4小时");
+  assert.equal(periodOnlyIncident.request.symbol, null);
+  assert.equal(periodOnlyIncident.request.interval, "240");
+  assert.equal(periodOnlyIncident.request.forecastHorizonMs, null);
+  assert.equal(selectTradingAnalysisInterval({
+    interval: periodOnlyIncident.request.interval,
+    currentInterval: "60",
+  }), "240", "the explicit 4H request must not inherit the open 1H chart");
+
+  const enabledStrategies = registry.list({ includeDisabled: false });
+  for (const manifest of enabledStrategies) {
+    const routed = await coordinator.classify(manifest.id, {
+      text: `@策略:${manifest.mentions.canonical} 分析下一个小时是多还是空并给出开单点位`,
+      hasCurrentAnalysis: false,
+    });
+    assert.equal(routed.request.mode, "chart-analysis", manifest.id);
+    assert.equal(routed.request.symbol, null, manifest.id);
+    assert.equal(routed.request.interval, null, manifest.id);
+    assert.equal(routed.request.drawingRequested, true, manifest.id);
+
+    const fourHour = await coordinator.classify(manifest.id, {
+      text: `@策略:${manifest.mentions.canonical} 分析4小时`,
+      hasCurrentAnalysis: false,
+    });
+    assert.equal(fourHour.request.mode, "chart-analysis", manifest.id);
+    assert.equal(fourHour.request.symbol, null, manifest.id);
+    assert.equal(fourHour.request.interval, "240", manifest.id);
+    assert.equal(fourHour.request.forecastHorizonMs, null, manifest.id);
+    assert.equal(fourHour.request.drawingRequested, true, manifest.id);
+  }
 
   const explicitNoDrawing = await coordinator.classify("ict-smc", {
     text: "@策略:ICT/SMC 分析 BTC 1小时，不要画线",
@@ -793,7 +863,37 @@ test("every strategy invocation deterministically enters chart analysis and neve
   assert.equal(explicitNoDrawing.request.symbol, "BTCUSDT");
   assert.equal(explicitNoDrawing.request.interval, "60");
   assert.equal(explicitNoDrawing.request.drawingRequested, false);
-  assert.equal(modelCalls, 0);
+  assert.equal(modelCalls, enabledStrategies.length * 2 + 6);
+});
+
+test("strategy intent routing remains available when the model or JSON response is unavailable", async () => {
+  const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
+  const coordinator = new TradingStrategyCoordinator({
+    registry,
+    providerId: "offline",
+    modelRegistry: {
+      async analyze() {
+        throw new Error("provider offline");
+      },
+    },
+  });
+  const routed = await coordinator.classify("dow-theory", {
+    text: "@策略:道氏理论 分析下一个小时是多还是空",
+  });
+  assert.equal(routed.request.mode, "chart-analysis");
+  assert.equal(routed.request.symbol, null);
+  assert.equal(routed.request.interval, null);
+  assert.equal(routed.request.forecastHorizonMs, 3_600_000);
+  assert.equal(routed.classification.source, "deterministic-recovery");
+
+  const periodOnly = await coordinator.classify("chan", {
+    text: "@策略:缠论 分析4小时",
+  });
+  assert.equal(periodOnly.request.mode, "chart-analysis");
+  assert.equal(periodOnly.request.symbol, null);
+  assert.equal(periodOnly.request.interval, "240");
+  assert.equal(periodOnly.request.forecastHorizonMs, null);
+  assert.equal(periodOnly.classification.source, "deterministic-recovery");
 });
 
 const declarativeManifest = Object.freeze({

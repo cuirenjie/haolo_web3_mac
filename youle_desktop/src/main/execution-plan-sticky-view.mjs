@@ -173,8 +173,8 @@ export function executionPlanStickyHtml(input = {}) {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-haolo-sticky-resize';" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { color-scheme: light; --bg: #f7f8fa; --border: rgba(39,48,64,.13); --text: #18202c; --secondary: #5d6775; --label: #9a6500; --bull: #078c53; --bear: #d63857; --control: rgba(255,255,255,.96); --hover: #eef2f7; --active: #e5ebf3; --focus: #1677ff; --shadow: rgba(28,39,55,.23); }
-    html[data-theme="dark"] { color-scheme: dark; --bg: #1b1e23; --border: rgba(255,255,255,.13); --text: #f3f5f7; --secondary: #c2c8d0; --label: #f1c75b; --bull: #52dc88; --bear: #ff718e; --control: rgba(27,30,35,.96); --hover: #292e36; --active: #323944; --focus: #78aef8; --shadow: rgba(0,0,0,.55); }
+    :root { color-scheme: light; --bg: #f7f8fa; --border: rgba(39,48,64,.13); --text: #18202c; --secondary: #5d6775; --label: #9a6500; --bull: #078c53; --bear: #d63857; --control: rgba(255,255,255,.96); --hover: #eef2f7; --active: #e5ebf3; --focus: #1677ff; }
+    html[data-theme="dark"] { color-scheme: dark; --bg: #1b1e23; --border: rgba(255,255,255,.13); --text: #f3f5f7; --secondary: #c2c8d0; --label: #f1c75b; --bull: #52dc88; --bear: #ff718e; --control: rgba(27,30,35,.96); --hover: #292e36; --active: #323944; --focus: #78aef8; }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; }
     body { padding: 8px; }
@@ -186,8 +186,7 @@ export function executionPlanStickyHtml(input = {}) {
     p strong { color: var(--label); font-weight: 700; }
     .value.bullish, .number.bullish { color: var(--bull); }
     .value.bearish, .number.bearish { color: var(--bear); }
-    .controls { position: absolute; z-index: 5; top: 9px; right: 23px; display: flex; gap: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--control); padding: 2px; box-shadow: 0 5px 16px var(--shadow); opacity: 0; pointer-events: none; transform: translateY(-2px); transition: opacity 130ms ease, transform 130ms ease; -webkit-app-region: no-drag; }
-    .card:hover .controls, .controls:focus-within { opacity: 1; pointer-events: auto; transform: translateY(0); }
+    .controls { position: absolute; z-index: 5; top: 9px; right: 23px; display: flex; gap: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--control); padding: 2px; opacity: 1; pointer-events: auto; transform: none; -webkit-app-region: no-drag; }
     .sticky-action { display: grid; min-width: 34px; height: 27px; place-items: center; border-radius: 5px; padding: 0 6px; color: var(--secondary); font-size: 10px; font-weight: 500; line-height: 1; text-decoration: none; cursor: pointer; -webkit-app-region: no-drag; }
     .sticky-action:hover { background: var(--hover); color: var(--text); }
     .sticky-action:active { background: var(--active); transform: translateY(1px); }
@@ -203,7 +202,6 @@ export function executionPlanStickyHtml(input = {}) {
     .resize-handle:is(.ne, .sw)::before { content: "⤢"; }
     .resize-handle:hover, .resize-handle.active { color: var(--text); opacity: 1; }
     .resize-handle.active::before { transform: scale(.9); }
-    @media (any-hover: none) { .controls { opacity: 1; pointer-events: auto; transform: none; } }
     @media (prefers-reduced-motion: reduce) { .controls, .sticky-action, .resize-handle { transition: none; } }
   </style>
 </head>
@@ -223,6 +221,23 @@ export function executionPlanStickyHtml(input = {}) {
   <span class="resize-handle se" data-resize-corner="se" aria-hidden="true"></span>
   <script nonce="haolo-sticky-resize">
     (() => {
+      const card = document.querySelector(".card");
+      if (!card) return;
+      let wheelDistance = 0;
+      let wheelResetTimer = 0;
+      card.addEventListener("wheel", (event) => {
+        const deltaY = Number(event.deltaY);
+        if (!Number.isFinite(deltaY) || deltaY === 0) return;
+        event.preventDefault();
+        const deltaScale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? Math.max(window.innerHeight, 1) : 1;
+        wheelDistance += deltaY * deltaScale;
+        if (wheelResetTimer) clearTimeout(wheelResetTimer);
+        wheelResetTimer = setTimeout(() => { wheelDistance = 0; }, 180);
+        if (Math.abs(wheelDistance) < 18) return;
+        const action = wheelDistance < 0 ? "zoom-in" : "zoom-out";
+        wheelDistance = 0;
+        document.querySelector('a[href="haolo-execution-plan-sticky://' + action + '"]')?.click();
+      }, { passive: false });
       const resizeApi = window.haoloExecutionPlanSticky;
       if (!resizeApi) return;
       document.querySelectorAll("[data-resize-corner]").forEach((handle) => {
@@ -280,8 +295,7 @@ export function executionPlanStickyHtml(input = {}) {
         window.addEventListener("pointercancel", finish, true);
         window.addEventListener("blur", finish);
       });
-      const card = document.querySelector(".card");
-      if (!card || !resizeApi.moveLive || !resizeApi.moveCommit) return;
+      if (!resizeApi.moveLive || !resizeApi.moveCommit) return;
       let movePointerId = null;
       let moveSessionId = "";
       let moveStartPoint = null;

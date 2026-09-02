@@ -57,15 +57,19 @@ async function capture(theme, fontSize) {
   });
   await window.loadURL(dataUrl(executionPlanStickyHtml(payload)));
   window.showInactive();
-  await window.webContents.executeJavaScript('document.querySelector("a[href*=zoom-in]")?.focus()');
-  window.webContents.sendInputEvent({ type: "mouseMove", x: bounds.width - 2, y: bounds.height - 2 });
   await delay(180);
+  const controlsVisible = await window.webContents.executeJavaScript(`(() => {
+    document.activeElement?.blur();
+    const style = getComputedStyle(document.querySelector(".controls"));
+    return style.opacity === "1" && style.pointerEvents === "auto" && style.boxShadow === "none";
+  })()`);
+  if (!controlsVisible) throw new Error(`Sticky-note controls are not persistently visible and flat in ${theme} at ${fontSize}px.`);
   const image = await window.webContents.capturePage();
   const file = path.join(outputDirectory, `execution-plan-sticky-${theme}-${fontSize}px.png`);
   await writeFile(file, image.toPNG());
-  await window.webContents.executeJavaScript('document.querySelector("a[href*=zoom-out]")?.click()');
+  await window.webContents.executeJavaScript('document.querySelector(".card")?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: 120 }))');
   await delay(40);
-  if (!actionNavigation.includes("zoom-out")) throw new Error("Sticky-note action navigation did not reach the main process.");
+  if (!actionNavigation.includes("zoom-out")) throw new Error("Sticky-note wheel zoom did not reach the main process.");
   window.close();
   return file;
 }
@@ -84,7 +88,7 @@ async function verifyGroupedDesktopInteraction() {
   const [first, second] = BrowserWindow.getAllWindows();
   if (!first || !second) throw new Error("Grouped sticky-note smoke test did not create two windows.");
 
-  await first.webContents.executeJavaScript('document.querySelector("a[href*=zoom-in]")?.click()');
+  await first.webContents.executeJavaScript('document.querySelector(".card")?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }))');
   await delay(160);
   const linkedFontSize = await second.webContents.executeJavaScript('getComputedStyle(document.querySelector(".content")).fontSize');
   if (linkedFontSize !== "13px") throw new Error(`Grouped sticky-note zoom did not synchronize: ${linkedFontSize}`);
