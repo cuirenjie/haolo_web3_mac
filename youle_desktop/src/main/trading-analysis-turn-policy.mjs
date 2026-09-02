@@ -1,4 +1,4 @@
-const ROUTING_TIMEOUT_MS = 60_000;
+const ROUTING_TIMEOUT_MS = 30_000;
 const ALERT_INTENT_IDLE_TIMEOUT_MS = 180_000;
 const THEORY_REVIEW_IDLE_TIMEOUT_MS = 180_000;
 
@@ -9,7 +9,7 @@ export function tradingAnalysisTurnPolicy(taskValue, options = {}) {
   if (task.endsWith("-request-routing")) {
     return Object.freeze({
       kind: "request_routing",
-      reasoningEffort: "medium",
+      reasoningEffort: "low",
       timeoutMs: ROUTING_TIMEOUT_MS,
       resetTimeoutOnActivity: false,
       timeoutRetryable: false,
