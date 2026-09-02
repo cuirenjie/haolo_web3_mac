@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CACHE_VERSION,
   STORAGE_PREFIX,
   createTradingMarketCandleCache,
   mergeTradingCandleBatches,
@@ -57,6 +58,21 @@ test("persistent candle cache restores compact snapshots across renderer restart
   assert.equal(second.get("BINANCE|BTCUSDT|CRYPTO|1|PERPETUAL").candleBatch.candles[0].close, 10);
 });
 
+test("candle cache migrates away from legacy snapshots that cannot prove finality", () => {
+  const storage = new MemoryStorage();
+  const legacyPrefix = "haolo.trading.market.candles.v1.";
+  const key = "BINANCE|BTCUSDT|CRYPTO|240|PERPETUAL";
+  storage.setItem(`${legacyPrefix}${encodeURIComponent(key)}`, JSON.stringify({ v: 1, c: [] }));
+  storage.setItem(`${legacyPrefix}index`, JSON.stringify([{ k: key, a: 1_000 }]));
+
+  createTradingMarketCandleCache({ storage, now: () => 2_000 });
+
+  assert.equal(CACHE_VERSION, 2);
+  assert.equal(STORAGE_PREFIX, "haolo.trading.market.candles.v2.");
+  assert.equal(storage.getItem(`${legacyPrefix}${encodeURIComponent(key)}`), null);
+  assert.equal(storage.getItem(`${legacyPrefix}index`), null);
+});
+
 test("persistent candle cache serves stale data while revalidating and prunes expired data", () => {
   const storage = new MemoryStorage();
   const cache = createTradingMarketCandleCache({
@@ -106,4 +122,58 @@ test("incremental batch merge overwrites the forming candle without dropping cac
   assert.equal(merged.candles.at(-2).close, 999);
   assert.equal(merged.candles.at(-1).close, 1_000);
   assert.equal(merged.lastTradeId, 12);
+});
+
+test("a forming cache fragment can never overwrite an authoritative closed candle", () => {
+  const source = { targetMs: 14_400_000, sourceInterval: "4h", sourceMs: 14_400_000 };
+  const time = 1_787_918_400;
+  const fragment = { ...candle(time, 79_520), closed: false };
+  const authoritative = {
+    time,
+    open: 79_563.2,
+    high: 79_840,
+    low: 78_271,
+    close: 78_309,
+    volume: 67_761.143,
+    closed: true,
+  };
+  const staleBatch = { candles: [fragment], sourceCandles: [fragment], source };
+  const restBatch = { candles: [authoritative], sourceCandles: [authoritative], source };
+
+  const restAfterCache = mergeTradingCandleBatches(staleBatch, restBatch);
+  const cacheAfterRest = mergeTradingCandleBatches(restBatch, staleBatch);
+
+  assert.deepEqual(restAfterCache.candles[0], authoritative);
+  assert.deepEqual(cacheAfterRest.candles[0], authoritative);
+  assert.deepEqual(cacheAfterRest.sourceCandles[0], authoritative);
+});
+
+test("newer forming updates still replace older forming values", () => {
+  const source = { targetMs: 60_000, sourceInterval: "1m", sourceMs: 60_000 };
+  const time = 1_777_564_800;
+  const older = { ...candle(time, 100), closed: false };
+  const newer = { ...candle(time, 101), high: 103, closed: false };
+  const merged = mergeTradingCandleBatches(
+    { candles: [older], sourceCandles: [older], source },
+    { candles: [newer], sourceCandles: [newer], source },
+  );
+
+  assert.equal(merged.candles[0].close, 101);
+  assert.equal(merged.candles[0].high, 103);
+  assert.equal(merged.candles[0].closed, false);
+});
+
+test("startup reconciliation keeps REST authoritative for already closed history", () => {
+  const source = { targetMs: 14_400_000, sourceInterval: "4h", sourceMs: 14_400_000 };
+  const time = 1_787_918_400;
+  const rest = { ...candle(time, 78_309), high: 79_840, low: 78_271, closed: true };
+  const staleClosedCache = { ...candle(time, 79_520), high: 79_638.3, low: 79_505.8, closed: true };
+  const merged = mergeTradingCandleBatches(
+    { candles: [rest], sourceCandles: [rest], source },
+    { candles: [staleClosedCache], sourceCandles: [staleClosedCache], source },
+    { closedCandleAuthority: "current" },
+  );
+
+  assert.deepEqual(merged.candles[0], rest);
+  assert.deepEqual(merged.sourceCandles[0], rest);
 });

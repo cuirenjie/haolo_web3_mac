@@ -1202,9 +1202,9 @@ test("Trading Expert hides the bottom time axis and applies each theme's configu
 
 test("Trading Expert renders the supplied wordmark with transparent, independently scoped masks", async () => {
   const primary = renderTradingChartBrand();
-  const split = renderTradingChartBrand();
+  const nextPrimary = renderTradingChartBrand();
   const primaryMask = primary.match(/<mask id="([^"]+)"/)[1];
-  const splitMask = split.match(/<mask id="([^"]+)"/)[1];
+  const nextPrimaryMask = nextPrimary.match(/<mask id="([^"]+)"/)[1];
 
   assert.match(primary, /class="trading-market-brand"[^>]*role="img"[^>]*aria-label="Haolo\."[^>]*focusable="false"/);
   assert.match(primary, /<image href="[^"]*\/assets\/haolo-chart-wordmark\.png"/);
@@ -1214,25 +1214,26 @@ test("Trading Expert renders the supplied wordmark with transparent, independent
   assert.match(primary, /mask-type: luminance/);
   assert.match(primary, /<rect[^>]*fill="currentColor"/);
   assert.ok(primary.includes(`mask="url(#${primaryMask})"`));
-  assert.ok(split.includes(`mask="url(#${splitMask})"`));
-  assert.notEqual(primaryMask, splitMask, "split charts must not share SVG mask IDs");
+  assert.ok(nextPrimary.includes(`mask="url(#${nextPrimaryMask})"`));
+  assert.notEqual(primaryMask, nextPrimaryMask, "re-rendered charts must not share SVG mask IDs");
   assert.doesNotMatch(primary, /tabindex|<a\b|<button\b/);
 });
 
-test("Trading Expert anchors its black/white wordmark to the full viewport, independent of indicator panes", async () => {
+test("Trading Expert shows its black/white wordmark only in single-screen layout", async () => {
   const [market, split, styles] = await Promise.all([marketSource, splitPaneSource, stylesSource]);
   const brandStyles = sourceBlock(styles, ".trading-market-brand {", ".trading-market-volume-profile-layer {");
   const lightTokens = sourceBlock(styles, "\n.trading-expert-market {", "\n}");
   const darkTokens = sourceBlock(styles, 'html[data-theme="dark"] .trading-expert-market {', "\n}");
 
   assert.match(market, /data-market-chart-viewport>\s*<div[^>]*data-market-chart><\/div>\s*\$\{renderTradingChartBrand\(\)\}/);
-  assert.match(split, /data-split-viewport>\s*<div[^>]*data-split-chart><\/div>\s*\$\{renderTradingChartBrand\(\)\}/);
+  assert.doesNotMatch(split, /renderTradingChartBrand|haolo-chart-wordmark|trading-market-brand/);
   assert.match(brandStyles, /position: absolute;/);
   assert.match(brandStyles, /left: 12px;/);
   assert.match(brandStyles, /bottom: 36px;/);
   assert.match(brandStyles, /pointer-events: none;/);
   assert.match(brandStyles, /user-select: none;/);
   assert.match(brandStyles, /color: var\(--trading-market-brand\);/);
+  assert.match(brandStyles, /\.trading-expert-market\.split-layout-active \.trading-market-brand\s*\{\s*display: none;/s);
   assert.match(lightTokens, /--trading-market-brand: #000000;/);
   assert.match(darkTokens, /--trading-market-brand: #ffffff;/);
 });
@@ -1719,10 +1720,11 @@ test("Trading Expert market picker is compact, neutral-search, left-aligned, and
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-logo-bg: #171a20;[\s\S]*--trading-market-tag-bg: #24282f;/s);
 });
 
-test("Trading Expert auto-favorites only a successfully opened non-empty search result", async () => {
+test("Trading Expert auto-favorites every successfully opened picker result", async () => {
   const source = await marketSource;
 
-  assert.match(source, /shouldAutoFavoriteTradingMarketSelection\(action, this\.search\.value\)/);
+  assert.match(source, /shouldAutoFavoriteTradingMarketSelection\(action\)/);
+  assert.doesNotMatch(source, /shouldAutoFavoriteTradingMarketSelection\(action, this\.search\.value\)/);
   assert.match(source, /market && autoFavorite && this\.addFavoriteMarket\(market\)[\s\S]*?this\.commitFavoriteMarketChanges\(\)/);
   assert.match(source, /if \(!this\.selectMarket\(market\)\)[\s\S]*?const favoriteAdded = autoFavorite && this\.addFavoriteMarket\(market\)[\s\S]*?this\.commitFavoriteMarketChanges\(false\)/);
   assert.match(source, /private addFavoriteMarket\(market: TradingMarket\)[\s\S]*?this\.favoriteSymbols\.has\(market\.id\)[\s\S]*?this\.favoriteMarketRecords\.has\(market\.id\)[\s\S]*?if \(alreadyFavorite && hasStableFavorite\) return false;[\s\S]*?this\.favoriteMarketRecords\.set\(market\.id, tradingFavoriteRecord\(market\)\)/);
@@ -2299,8 +2301,11 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
   );
   assert.match(restartBlock, /fetchTradingCandles\([\s\S]*?targetSymbol,[\s\S]*?targetInterval,[\s\S]*?500,[\s\S]*?targetMarketType === "spot"/);
   assert.match(restartBlock, /tradingCandleBatchCanRefreshIncrementally\(cachedBatch\)/);
+  assert.match(restartBlock, /tradingCandleBatchHasFinalizedHistory\(cachedSnapshot\.candleBatch\)/);
+  assert.match(restartBlock, /tradingCandleRefreshStartTime\(cachedBatch\)/);
   assert.match(restartBlock, /mergeTradingCandleBatches\([\s\S]*?fetchLatestTradingCandles/);
   assert.match(restartBlock, /this\.loadedMarketId === targetMarketId[\s\S]*?mergeTradingCandleBatches\(candleBatch/);
+  assert.match(restartBlock, /closedCandleAuthority: "current"/);
   assert.doesNotMatch(restartBlock, /targetProvider === "binance"\s*&& cachedSnapshotApplied\s*&& generation/);
   assert.doesNotMatch(restartBlock, /Promise\.all\(\[\s*fetchTradingMarketStats/);
   assert.doesNotMatch(restartBlock, /tradingAlertsMarketSubscribe|subscribeAlertMarketData/);
@@ -2361,7 +2366,11 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.match(source, /export function parseBinanceMarketRetryAfterMs[\s\S]*Number\.isFinite\(seconds\)[\s\S]*Date\.parse\(text\)/);
   assert.match(source, /response\?\.status === 418 \|\| response\?\.status === 429[\s\S]*recordBinanceMarketRateLimit\(response\?\.retryAfterMs\)/);
   assert.match(socketBlock, /this\.marketSocketLastActivityAt = Date\.now\(\)/);
+  assert.match(socketBlock, /event\.status === "reconnecting"[\s\S]*?this\.marketSocketNeedsBackfill = true/);
+  assert.match(socketBlock, /const needsBackfill = this\.marketSocketNeedsBackfill[\s\S]*?this\.refreshLiveCandle\(generation\)/);
   assert.match(socketBlock, /`\$\{symbol\}@aggTrade`/);
+  assert.match(klineBlock, /closed: kline\.x === true/);
+  assert.match(klineBlock, /preferredTradingCandle\(latest, incoming\)/);
   assert.match(klineBlock, /this\.scheduleLiveChartPaint\(\)/);
   assert.match(tradeBlock, /if \(source\.sourceInterval\)[\s\S]*?close: price[\s\S]*?this\.applyLiveSourceCandle\(incoming, source\)[\s\S]*?this\.scheduleLiveChartPaint\(\)/);
   assert.match(paintBlock, /if \(document\.hidden\)[\s\S]*?MARKET_BACKGROUND_PAINT_INTERVAL_MS/);
@@ -2371,6 +2380,7 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.doesNotMatch(paintBlock, /this\.candleSeries\.setData/);
   assert.match(fallbackBlock, /binanceMarketRestCooldownRemaining\(\) > 0/);
   assert.match(fallbackBlock, /silenceMs < MARKET_SOCKET_STALE_MS/);
+  assert.match(fallbackBlock, /source\?\.sourceInterval[\s\S]*?this\.marketKlineLastActivityAt/);
   assert.match(fallbackBlock, /this\.refreshSnapshot\(generation\)[\s\S]*?this\.refreshLiveCandle\(generation\)/);
   assert.doesNotMatch(fallbackBlock, /WebSocket|socket\.close/);
   assert.match(favoritePaintBlock, /this\.paintVisibleMarketQuotes\(\)/);
@@ -2380,6 +2390,7 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.match(favoriteFallbackBlock, /for \(const staleMarket of staleMarkets\)[\s\S]*binanceMarketRestCooldownRemaining\(\) > 0[\s\S]*break/);
   assert.match(source, /private async refreshSnapshot\(generation: number\) \{\s*if \(this\.selectedProvider === "binance" && binanceMarketRestCooldownRemaining\(\) > 0\) return/);
   assert.match(source, /private async refreshLiveCandle\(generation: number\) \{\s*if \(this\.selectedProvider === "binance" && binanceMarketRestCooldownRemaining\(\) > 0\) return/);
+  assert.match(source, /const sourceStartTime = tradingCandleRefreshStartTime\(\{/);
   assert.match(restartBlock, /marketRateLimitRetryTimer = window\.setTimeout\([\s\S]*restartMarketData\(\{ preserveChart: true \}\)[\s\S]*cooldownRemaining \+ BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS/);
   assert.match(source, /destroy\(\)[\s\S]*clearTimeout\(this\.marketRateLimitRetryTimer\)/);
   assert.match(source, /data-market-row-price/);

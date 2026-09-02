@@ -501,7 +501,7 @@ export function ensureBrowserDesktopApi() {
       return {
         current_version: "0.1.103",
         update_available: !tradingAlertVisualQa,
-        force_update: false,
+        force_update: !tradingAlertVisualQa,
         latest: { version: "0.1.105", release_notes: "暂无更新说明。" },
         download: {
           url: "https://haolo.com/mock-update.exe",

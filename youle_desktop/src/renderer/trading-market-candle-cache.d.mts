@@ -5,6 +5,7 @@ export interface TradingCacheCandle {
   low: number;
   close: number;
   volume?: number;
+  closed?: boolean;
 }
 
 export interface TradingCacheStats {
@@ -62,7 +63,10 @@ export function createTradingMarketCandleCache(options?: {
 export function mergeTradingCandleBatches(
   current: TradingCacheBatch,
   incoming: TradingCacheBatch,
-  options?: { candleLimit?: number },
+  options?: {
+    candleLimit?: number;
+    closedCandleAuthority?: "current" | "incoming";
+  },
 ): TradingCacheBatch;
 
 export const CACHE_VERSION: number;

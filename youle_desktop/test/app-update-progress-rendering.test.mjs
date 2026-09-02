@@ -72,6 +72,44 @@ test("both update progress surfaces expose incremental patch targets", async () 
   }
 });
 
+test("every available desktop update is mandatory and cannot be dismissed", async () => {
+  const [renderer, main] = await Promise.all([rendererSource, mainSource]);
+  const checkBlock = sourceBlock(
+    renderer,
+    "async function checkForWindowsUpdate",
+    "function normalizeWindowsUpdateProgress",
+  );
+  const dialogBlock = sourceBlock(
+    renderer,
+    "function renderUpdateDialog()",
+    "function renderUpdateDownloadDock()",
+  );
+  const downloadBlock = sourceBlock(
+    renderer,
+    "async function downloadWindowsUpdate",
+    "function closeUpdateDialog",
+  );
+  const listenerBlock = sourceBlock(
+    renderer,
+    "[data-action=\"check-update\"]",
+    "[data-action=\"open-update-dialog\"]",
+  );
+  const normalizeBlock = sourceBlock(
+    main,
+    "function normalizeAppUpdateResponse",
+    "function normalizeAppUpdateDownload",
+  );
+
+  assert.match(checkBlock, /result\.update_available[\s\S]*force_update: true/);
+  assert.match(downloadBlock, /if \(!state\.settings\.update\.result\?\.update_available\)/);
+  assert.match(dialogBlock, /const force = Boolean\(result\?\.update_available\)/);
+  assert.match(dialogBlock, /此版本必须更新后才能继续使用。/);
+  assert.match(dialogBlock, /force \? `<button[^`]*data-action="quit-app"/);
+  assert.match(dialogBlock, /force \? "" : 'data-action="close-update-dialog"'/);
+  assert.match(listenerBlock, /result\?\.update_available\) return/);
+  assert.match(normalizeBlock, /force_update: Boolean\(payload\?\.update_available\)/);
+});
+
 test("main process rate-limits non-final update progress IPC", async () => {
   const source = await mainSource;
   const downloadBlock = sourceBlock(

@@ -2927,6 +2927,56 @@ test("refreshSub2ApiAccount reads balance and marks low balance", async () => {
   }
 });
 
+test("refreshSub2ApiAccount clears stale membership fields for a free account", async () => {
+  const dir = await tempDir("sub2api-clear-stale-membership");
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    enabled: true,
+    account: {
+      email: "free@example.com",
+      real_balance: 0,
+      subscription_balance: 0,
+      total_balance: 0,
+      membership_plan: null,
+      membership_expires_at: null,
+      active_membership: null,
+      pending_membership: null,
+    },
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+
+  try {
+    const client = new YouleApiClient({
+      storagePath: path.join(dir, "session.json"),
+      authPath: path.join(dir, "auth.json"),
+    });
+    client.baseUrl = "https://haolo.com";
+    client.token = "mas_token_free";
+    client.profile = {
+      id: "free-user",
+      email: "free@example.com",
+      membership_plan: "pro",
+      membership_expires_at: "2027-01-01T00:00:00Z",
+      active_membership: { plan_id: "pro" },
+      pending_membership: { plan_id: "flagship" },
+    };
+    client.loaded = true;
+
+    const result = await client.refreshSub2ApiAccount();
+
+    assert.equal(result.session.profile.membership_plan, null);
+    assert.equal(result.session.profile.membership_expires_at, null);
+    assert.equal(result.session.profile.active_membership, null);
+    assert.equal(result.session.profile.pending_membership, null);
+    assert.equal(result.session.profile.total_balance, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("getSubscriptionBalanceDetails reads the authoritative server snapshot", async () => {
   const dir = await tempDir("subscription-balance-details");
   const originalFetch = globalThis.fetch;

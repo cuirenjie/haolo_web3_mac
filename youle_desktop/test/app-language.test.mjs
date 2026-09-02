@@ -90,6 +90,16 @@ test("paid trial and free WEB3 membership copy is localized in all interface lan
     translateAppText("当前没有可用积分，请开通体验版或其他套餐后再提问", "en"),
     "You have no available points. Activate the trial or another plan before asking the model.",
   );
+  assert.equal(
+    translateAppText("当前未开通有效体验版或其他套餐，请先开通后再使用盘面分析", "en"),
+    "Activate a valid trial or another plan before using market analysis.",
+  );
+  assert.equal(
+    translateAppText("暂时无法验证会员权益，请稍后重试", "zh-TW"),
+    "暫時無法驗證會員權益，請稍後重試",
+  );
+  assert.equal(translateAppText("确认支付信息", "en"), "Confirm payment details");
+  assert.equal(translateAppText("生成支付信息", "zh-TW"), "產生支付資訊");
   const planDescriptions = [
     [
       "首次开通专享，体验 AI 行情解读与基础交易分析。",

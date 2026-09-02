@@ -352,6 +352,23 @@ test("settings and split actions are direct buttons wired to persisted settings 
   assert.match(drawing, /setUserDrawingEnabled\(enabled: boolean\)/);
 });
 
+test("chart settings button shows a descriptive tooltip for mouse and keyboard in both themes", async () => {
+  const [market, css] = await Promise.all([marketSource, stylesSource]);
+  const actionStart = market.indexOf("function renderMarketChartActions()");
+  const actionEnd = market.indexOf("export function renderTradingExpertMarketWorkspace()", actionStart);
+  const chartActions = market.slice(actionStart, actionEnd);
+
+  assert.match(chartActions, /aria-describedby="trading-market-chart-settings-tooltip"/);
+  assert.match(chartActions, /id="trading-market-chart-settings-tooltip"[\s\S]*?role="tooltip"[\s\S]*?<strong>K线设置<\/strong>[\s\S]*?<span>更改样式、图标颜色、开盘时间、工具栏等<\/span>/);
+  assert.doesNotMatch(chartActions, /title="设置"/);
+  assert.match(css, /\.trading-market-chart-settings-tooltip\s*\{[\s\S]*?visibility:\s*hidden;[\s\S]*?background:\s*var\(--trading-market-panel\);[\s\S]*?color:\s*var\(--trading-market-text\);[\s\S]*?pointer-events:\s*none;/);
+  assert.match(css, /open-chart-settings"\]:hover:not\(:disabled, \[aria-expanded="true"\]\)[\s\S]*?\+ \.trading-market-chart-settings-tooltip,[\s\S]*?open-chart-settings"\]:focus-visible:not\(:disabled, \[aria-expanded="true"\]\)[\s\S]*?visibility:\s*visible;[\s\S]*?opacity:\s*1;/);
+  assert.match(css, /\.trading-market-chart-settings-tooltip span\s*\{[\s\S]*?color:\s*var\(--trading-market-muted\);/);
+  assert.match(css, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-panel:\s*#0f1014;[\s\S]*?--trading-market-text:\s*#dfe1e3;[\s\S]*?--trading-market-muted:\s*#7e899b;/);
+  assert.match(css, /\.trading-expert-market\s*\{[\s\S]*?--trading-market-panel:\s*#ffffff;[\s\S]*?--trading-market-text:\s*#172033;[\s\S]*?--trading-market-muted:\s*#7b8797;/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.trading-market-chart-settings-tooltip\s*\{[\s\S]*?transition:\s*none;/);
+});
+
 test("new controls cover light and dark themes plus interaction and async states", async () => {
   const css = await stylesSource;
   assert.match(css, /\.trading-market-chart-action:hover:not\(:disabled\)/);
