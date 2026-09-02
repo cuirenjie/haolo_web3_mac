@@ -800,9 +800,9 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(styles, /\.message-execution-plan\s*\{[^}]*text-align:\s*left;[^}]*user-select:\s*text/s);
   assert.match(styles, /\.message-execution-plan\s*\{[^}]*position:\s*relative;[^}]*padding:\s*16px 17px 25px/s);
   assert.match(styles, /\.message-execution-plan h2\s*\{[^}]*color:\s*var\(--text-primary\)[^}]*text-align:\s*left/s);
-  assert.match(styles, /\.message-execution-plan-controls\s*\{[^}]*position:\s*absolute;[^}]*justify-content:\s*flex-end[^}]*min-height:\s*20px[^}]*opacity:\s*0;[^}]*pointer-events:\s*none/s);
-  assert.match(styles, /\.message-execution-plan:hover \.message-execution-plan-controls,[\s\S]*button:focus-visible\)[\s\S]*button\[aria-busy="true"\][\s\S]*opacity:\s*1;[\s\S]*pointer-events:\s*auto/);
-  assert.match(styles, /@media \(hover:\s*none\)\s*\{[\s\S]*\.message-execution-plan-controls\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto/s);
+  assert.match(styles, /\.message-execution-plan-controls\s*\{[^}]*position:\s*absolute;[^}]*justify-content:\s*flex-end[^}]*min-height:\s*20px[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto/s);
+  assert.doesNotMatch(styles, /\.message-execution-plan:hover \.message-execution-plan-controls/);
+  assert.doesNotMatch(styles, /\.message-execution-plan-controls\s*\{[^}]*opacity:\s*0|\.message-execution-plan-controls\s*\{[^}]*pointer-events:\s*none/s);
   assert.match(styles, /\.message-execution-plan-controls button:hover:not\(:disabled\)/);
   assert.match(styles, /\.message-execution-plan-controls button:active:not\(:disabled\)/);
   assert.match(styles, /\.message-execution-plan-controls button:focus-visible/);

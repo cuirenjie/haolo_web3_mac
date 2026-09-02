@@ -242,6 +242,10 @@ import {
   normalizeGeneralRequestRoutingModelResponse,
 } from "./trading-analysis/general-request-router.mjs";
 import {
+  classifyTradingQuestionKinds,
+  normalizeTradingRoutingText,
+} from "./trading-analysis/request-routing-policy.mjs";
+import {
   TRADING_EXPERT_FAST_CHAT_MODEL,
   buildTradingExpertFastChatRequest,
   classifyTradingExpertFastChatRoute,
@@ -15611,21 +15615,6 @@ ipcMain.handle("tradingAnalysis:classifyGeneralRequest", async (event, params = 
   activeTradingRoutingControllers.set(ownerId, controller);
   const requestId = `general-route-${crypto.randomUUID()}`;
   const text = String(params?.text || "").slice(0, 12_000);
-  const deterministic = deterministicGeneralRequestRouting(text, {
-    hasImageAttachment: params?.hasImageAttachment === true,
-    hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
-  });
-  if (deterministic) {
-    if (activeTradingRoutingControllers.get(ownerId) === controller) {
-      activeTradingRoutingControllers.delete(ownerId);
-    }
-    return {
-      ok: true,
-      request: deterministic.request,
-      classification: deterministic.classification,
-      model: { providerId: "deterministic-semantic-guard", modelId: "general-request-v1", latencyMs: 0 },
-    };
-  }
   try {
     await requireFreshTradingPremiumAccess();
     const model = await getTradingAnalysisModelRegistry().analyze(
@@ -15651,7 +15640,10 @@ ipcMain.handle("tradingAnalysis:classifyGeneralRequest", async (event, params = 
     return {
       ok: true,
       request: routed.request,
-      classification: routed.classification,
+      classification: {
+        ...routed.classification,
+        source: "model-first-unified-intent",
+      },
       model: {
         providerId: model.providerId,
         modelId: model.modelId,
@@ -15660,6 +15652,41 @@ ipcMain.handle("tradingAnalysis:classifyGeneralRequest", async (event, params = 
     };
   } catch (error) {
     const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
+    if (!cancelled) {
+      const deterministicFallback = deterministicGeneralRequestRouting(text, {
+        hasImageAttachment: params?.hasImageAttachment === true,
+        hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
+      }) || {
+        request: {
+          mode: "conversation",
+          instruction: normalizeTradingRoutingText(text),
+          symbol: null,
+          interval: null,
+          lookbackMs: null,
+          lookbackLabel: null,
+          forecastHorizonMs: null,
+          questionKinds: classifyTradingQuestionKinds(text),
+          drawingRequested: false,
+          analysisFollowup: false,
+        },
+        classification: {
+          schemaVersion: 1,
+          mode: "conversation",
+          intent: "general-question",
+          confidence: 0.5,
+          source: "deterministic-recovery",
+        },
+      };
+      return {
+        ok: true,
+        request: deterministicFallback.request,
+        classification: {
+          ...deterministicFallback.classification,
+          source: "deterministic-recovery",
+        },
+        model: { providerId: "deterministic-recovery", modelId: "general-request-v2", latencyMs: 0 },
+      };
+    }
     return {
       ok: false,
       error: {

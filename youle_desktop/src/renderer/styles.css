@@ -21384,6 +21384,11 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   --recharge-details-text: #152136;
   --recharge-details-muted: #94a0af;
   --recharge-details-accent: #168ee9;
+  --recharge-tutorial-link: #168ee9;
+  --recharge-tutorial-link-hover: #0878c9;
+  --recharge-tutorial-link-active: #0566ad;
+  --recharge-tutorial-link-disabled: #94a0af;
+  --recharge-tutorial-link-focus: rgba(22, 142, 233, 0.32);
   --recharge-details-warning-text: #8a4b00;
   --recharge-details-warning-bg: rgba(237, 155, 22, 0.14);
   --recharge-details-warning-border: rgba(181, 103, 0, 0.28);
@@ -21777,10 +21782,52 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   font-size: calc(12px + var(--app-font-size-offset));
   line-height: 1.4;
   text-align: center;
+  transform: translateX(-30px);
 }
 
 .recharge-payment-agreement span {
   color: var(--recharge-details-accent);
+}
+
+.recharge-payment-tutorial-link {
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  margin: 0 0 0 6px;
+  padding: 0;
+  color: var(--recharge-tutorial-link);
+  font: inherit;
+  line-height: inherit;
+  text-decoration: none;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.recharge-payment-tutorial-link:hover:not(:disabled) {
+  color: var(--recharge-tutorial-link-hover);
+  text-decoration: underline;
+}
+
+.recharge-payment-tutorial-link:active:not(:disabled) {
+  color: var(--recharge-tutorial-link-active);
+  transform: translateY(1px);
+}
+
+.recharge-payment-tutorial-link:focus-visible {
+  outline: 2px solid var(--recharge-tutorial-link-focus);
+  outline-offset: 2px;
+}
+
+.recharge-payment-tutorial-link:disabled {
+  color: var(--recharge-tutorial-link-disabled);
+  text-decoration: none;
+  cursor: not-allowed;
+  opacity: 0.7;
+  transform: none;
 }
 
 .recharge-payment-state {
@@ -21927,6 +21974,11 @@ html[data-theme="dark"] .recharge-payment-details {
   --recharge-details-text: #f1f5fa;
   --recharge-details-muted: #7f8d9f;
   --recharge-details-accent: #55aaff;
+  --recharge-tutorial-link: #66b5ff;
+  --recharge-tutorial-link-hover: #91cbff;
+  --recharge-tutorial-link-active: #4da8ff;
+  --recharge-tutorial-link-disabled: #7f8d9f;
+  --recharge-tutorial-link-focus: rgba(105, 184, 255, 0.4);
   --recharge-details-warning-text: #ffd27a;
   --recharge-details-warning-bg: rgba(242, 173, 56, 0.15);
   --recharge-details-warning-border: rgba(255, 196, 92, 0.34);
@@ -40060,14 +40112,6 @@ html[data-theme="dark"] .conversation-row-wrap.conversation-row-minimal.active {
   border-radius: 6px;
   background: color-mix(in srgb, var(--surface-primary) 94%, transparent);
   color: var(--text-muted);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
-}
-
-.message-execution-plan:hover .message-execution-plan-controls,
-.message-execution-plan:has(.message-execution-plan-controls button:focus-visible) .message-execution-plan-controls,
-.message-execution-plan:has(.message-execution-plan-controls button[aria-busy="true"]) .message-execution-plan-controls {
   opacity: 1;
   pointer-events: auto;
 }
@@ -40328,11 +40372,6 @@ html[data-theme="dark"] .execution-plan-end-menu button:hover {
 
 @media (hover: none) {
   .execution-plan-card-actions {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .message-execution-plan-controls {
     opacity: 1;
     pointer-events: auto;
   }

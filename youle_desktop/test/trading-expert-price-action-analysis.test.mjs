@@ -288,11 +288,11 @@ test("registry-to-coordinator chain returns ExecutionPlanV1 without calling a re
   assert.match(result.analysisPlan.report, /^## PATEST\/USDT 币安永续 1H/m);
 });
 
-test("short bare-K chart commands stay on the strategy drawing path even after a prior analysis", async () => {
+test("short bare-K chart commands stay on the strategy drawing path when model intent routing is unavailable", async () => {
   const coordinator = new TradingStrategyCoordinator({
     registry: createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS }),
     providerId: "unused",
-    modelRegistry: { async analyze() { throw new Error("short chart commands must not call the routing model"); } },
+    modelRegistry: { async analyze() { throw new Error("intent provider unavailable"); } },
   });
   const routed = await coordinator.classify("price-action", {
     text: "@策略:裸K分析 帮我分析",
@@ -302,7 +302,7 @@ test("short bare-K chart commands stay on the strategy drawing path even after a
   assert.equal(routed.request.drawingRequested, true);
   assert.equal(routed.request.symbol, null);
   assert.equal(routed.request.interval, null);
-  assert.equal(routed.classification.source, "deterministic-strategy-invocation");
+  assert.equal(routed.classification.source, "deterministic-recovery");
 });
 
 test("price-action request router is strict, non-mutating in conversation, and injection-resistant", () => {

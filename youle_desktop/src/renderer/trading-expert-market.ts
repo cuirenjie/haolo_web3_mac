@@ -118,6 +118,14 @@ import {
   tradingAnalysisDrawingFocusRange,
   waitForTradingAnalysisViewportPaint,
 } from "./trading-analysis-viewport.mjs";
+import {
+  selectTradingAnalysisInterval,
+  selectTradingAnalysisMarket,
+} from "./trading-analysis-target.mjs";
+import {
+  buildQuestionAlignedTradingLead,
+  buildRecoverableTradingAnalysis,
+} from "./trading-analysis-recovery.ts";
 
 function activeTradingAnalysisLanguage(): AppLanguage {
   const locale = appLanguageLocale();
@@ -526,6 +534,7 @@ interface TradingChanAnalysisResponse {
     report?: string;
     drawingPatch?: TradingAiDrawingPatch;
     indicatorDrawingPatch?: TradingIndicatorAiDrawingPatch;
+    actionPlan?: Record<string, unknown>;
   };
   model?: {
     providerId?: string;
@@ -656,6 +665,9 @@ export interface TradingGeneralConversationResult {
   interval: string;
   candleCount: number;
   modelName: string;
+  degraded?: boolean;
+  degradationReason?: string | null;
+  drawingDeferred?: boolean;
 }
 export type TradingStrategyConversationRequest = Omit<TradingChanConversationRequest, "onProgress"> & {
   strategyDisplayName?: string | null;
@@ -2467,18 +2479,13 @@ function combineTradingAnalysisReports(
   ];
   if (splitResult.failures.length) {
     sections.push(
-      english ? "## Incomplete panes" : "## 未完成的分屏",
+      english ? "## Auxiliary pane notes" : "## 辅助分屏说明",
       ...splitResult.failures
         .slice()
         .sort((first, second) => first.paneIndex - second.paneIndex)
-        .map((failure) => {
-          const message = english && /[\u3400-\u9fff\uf900-\ufaff]/u.test(failure.message)
-            ? "Pane analysis failed; the primary analysis is still available."
-            : failure.message;
-          return english
-            ? `- ${failure.heading}: ${message}`
-            : `- ${failure.heading}：${message}`;
-        }),
+        .map((failure) => english
+          ? `- ${failure.heading}: This auxiliary pane was not included in the primary chart conclusion; the primary analysis and answer are unaffected.`
+          : `- ${failure.heading}：该辅助分屏暂未纳入主图结论；主图分析和回答不受影响。`),
     );
   }
   return sections.filter(Boolean).join("\n\n");
@@ -8113,7 +8120,7 @@ class TradingExpertMarketWorkspace {
         ? options.drawingProgressPhase
         : options.analysisProgressPhase,
       failed > 0
-        ? `已完成 ${completed} 个辅助分屏，另有 ${failed} 个分屏分析失败；失败原因会写入最终报告。`
+        ? `主图分析继续有效；已纳入 ${completed} 个辅助分屏，另有 ${failed} 个辅助分屏暂未参与结论。`
         : `另外 ${completed} 个可见分屏已完成独立${options.analysisLabel}${options.drawingsRequested ? "和落图" : ""}。`,
     );
     return { completed, failed, reports, failures };
@@ -9681,17 +9688,33 @@ class TradingExpertMarketWorkspace {
     const currentMarket = this.selectedMarketMeta
       || this.markets.find((market) => market.id === this.selectedMarketId)
       || this.favoriteMarketFromId(this.selectedMarketId);
-    const targetMarket = request.symbol
-      ? this.markets.find((market) => market.symbol === normalizedSymbol && market.provider === currentMarket?.provider)
-        || this.markets.find((market) => market.symbol === normalizedSymbol)
-      : currentMarket;
+    const currentIntervalAtStart = this.activeInterval;
+    let targetMarket = selectTradingAnalysisMarket(this.markets, {
+      symbol: normalizedSymbol,
+      currentMarket,
+      explicitSymbol: Boolean(request.symbol),
+      instruction: request.instruction,
+    }) as TradingMarket | null;
     if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
-    const targetInterval = String(request.interval || this.activeInterval).trim().toUpperCase();
+    if (
+      request.symbol
+      && String(targetMarket.symbol || "").trim().toUpperCase() !== normalizedSymbol
+    ) {
+      request.onProgress?.(
+        "loading",
+        `暂未找到 ${normalizedSymbol} 的可用行情，已自动改为分析发送时的当前图表 ${targetMarket.displaySymbol || targetMarket.symbol}。`,
+      );
+    }
+    let targetInterval = selectTradingAnalysisInterval({
+      interval: request.interval,
+      currentInterval: this.activeInterval,
+      explicitSymbol: Boolean(request.symbol),
+    });
     if (!tradingViewResolutionDurationMs(targetInterval)) {
       throw new Error(`暂不支持 ${targetInterval} K 线周期`);
     }
 
-    const marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
+    let marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
     const shouldReload = targetMarket.id !== this.loadedMarketId
       || targetInterval !== this.loadedInterval
       || this.candles.length < 2
@@ -9700,14 +9723,32 @@ class TradingExpertMarketWorkspace {
       ? `正在将左侧行情切换到 ${marketLabel}，加载 ${tradingPeriodLabelForResolution(targetInterval)} K 线。`
       : `正在优先读取左侧当前画布的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线。`);
     if (shouldReload) {
-      this.selectMarket(targetMarket);
-      this.activeInterval = targetInterval;
-      this.updateSymbolUi();
-      this.updateIntervalPressedButtons(targetInterval);
-      this.renderMarkets();
-      this.drawingController?.redraw();
-      this.setPickerOpen(false);
-      await this.restartMarketData();
+      const loadTarget = async () => {
+        this.selectMarket(targetMarket!);
+        this.activeInterval = targetInterval;
+        this.updateSymbolUi();
+        this.updateIntervalPressedButtons(targetInterval);
+        this.renderMarkets();
+        this.drawingController?.redraw();
+        this.setPickerOpen(false);
+        await this.restartMarketData();
+      };
+      try {
+        await loadTarget();
+      } catch (error) {
+        if (!request.symbol || !currentMarket || currentMarket.id === targetMarket.id) throw error;
+        request.onProgress?.(
+          "loading",
+          `指定行情暂时不可用，已自动回到发送时的当前图表 ${currentMarket.displaySymbol || currentMarket.symbol}。`,
+        );
+        targetMarket = currentMarket;
+        targetInterval = selectTradingAnalysisInterval({
+          currentInterval: currentIntervalAtStart,
+          explicitSymbol: false,
+        });
+        marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
+        await loadTarget();
+      }
     }
     if (
       this.disposed
@@ -9936,10 +9977,17 @@ class TradingExpertMarketWorkspace {
         : request.executionPlanRequested === false
           ? `${modelName} 已完成${analysisName}绘图，正在整理支撑、阻力与成交量分布信息。`
           : `${modelName} 已完成${analysisName}绘图，正在整理可执行的条件式方案。`);
-      const primaryReport = String((request.drawingRequested === false
+      const responseReport = String((request.drawingRequested === false
           ? response.analysisPlan.narrative
           : response.analysisPlan.report) || response.analysisPlan.narrative || "盘面分析已完成");
-      const primaryNarrative = String(response.analysisPlan.narrative || "盘面分析已完成");
+      const questionLead = buildQuestionAlignedTradingLead({
+        instruction: request.instruction,
+        interval: job.interval,
+        candles: analysisCandles,
+        actionPlan: response.analysisPlan.actionPlan || null,
+      });
+      const primaryReport = questionLead ? `${questionLead}\n\n${responseReport}` : responseReport;
+      const primaryNarrative = questionLead || String(response.analysisPlan.narrative || "盘面分析已完成");
       const result: TradingGeneralConversationResult = {
         report: combineTradingAnalysisReports(
           tradingAnalysisPaneHeading(targetMarket, job.interval),
@@ -9960,6 +10008,54 @@ class TradingExpertMarketWorkspace {
       tradingAnalysisJobs.complete(job.analysisId);
       return result;
     } catch (error) {
+      const cancelled = !tradingAnalysisJobs.isActive(job.analysisId)
+        || /(?:用户停止|已取消|cancelled|canceled|replaced)/iu.test(String((error as Error)?.message || error));
+      const recovered = cancelled ? null : buildRecoverableTradingAnalysis({
+        analysisId: job.analysisId,
+        marketId: job.marketId,
+        symbol: job.symbol,
+        interval: job.interval,
+        instruction: request.instruction,
+        candles: analysisCandles,
+        reason: error,
+      });
+      if (recovered) {
+        request.onProgress?.(
+          "analyzing",
+          `${analysisName}增强暂不可用，已自动切换到本地确定性价格结构分析。`,
+        );
+        let drawingDeferred = false;
+        if (request.drawingRequested !== false) {
+          try {
+            await commitTradingAnalysisDrawingPatch(
+              job,
+              recovered.drawingPatch as TradingAiDrawingPatch,
+              0,
+            );
+          } catch {
+            drawingDeferred = true;
+          }
+        }
+        tradingAnalysisJobs.complete(job.analysisId);
+        return {
+          report: combineTradingAnalysisReports(
+            tradingAnalysisPaneHeading(targetMarket, job.interval),
+            drawingDeferred
+              ? `${recovered.report}\n\n画布提交暂时不可用，分析结果已保留；图表恢复后可按同一目标重新绘制。`
+              : recovered.report,
+            { completed: 0, failed: 0, reports: [], failures: [] },
+          ),
+          narrative: recovered.narrative,
+          marketId: recovered.marketId,
+          symbol: recovered.symbol,
+          interval: recovered.interval,
+          candleCount: recovered.candleCount,
+          modelName: recovered.modelName,
+          degraded: true,
+          degradationReason: recovered.degradationReason,
+          drawingDeferred,
+        };
+      }
       tradingAnalysisJobs.fail(job.analysisId, error);
       throw error;
     }
@@ -9975,15 +10071,18 @@ class TradingExpertMarketWorkspace {
     const currentMarket = this.selectedMarketMeta
       || this.markets.find((market) => market.id === this.selectedMarketId)
       || this.favoriteMarketFromId(this.selectedMarketId);
-    const targetMarket = request.symbol
-      ? this.markets.find((market) => (
-          market.provider === "binance"
-          && market.symbol === normalizedSymbol
-          && market.marketType === "perpetual"
-        )) || this.markets.find((market) => market.provider === "binance" && market.symbol === normalizedSymbol)
-      : currentMarket;
+    const targetMarket = selectTradingAnalysisMarket(this.markets, {
+      symbol: normalizedSymbol,
+      currentMarket,
+      explicitSymbol: Boolean(request.symbol),
+      instruction: request.instruction,
+    }) as TradingMarket | null;
     if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
-    const targetInterval = String(request.interval || this.activeInterval).trim().toUpperCase();
+    const targetInterval = selectTradingAnalysisInterval({
+      interval: request.interval,
+      currentInterval: this.activeInterval,
+      explicitSymbol: Boolean(request.symbol),
+    });
     if (!tradingViewResolutionDurationMs(targetInterval)) {
       throw new Error(`暂不支持 ${targetInterval} K 线周期`);
     }
@@ -10245,15 +10344,18 @@ class TradingExpertMarketWorkspace {
     const currentMarket = this.selectedMarketMeta
       || this.markets.find((market) => market.id === this.selectedMarketId)
       || this.favoriteMarketFromId(this.selectedMarketId);
-    const targetMarket = request.symbol
-      ? this.markets.find((market) => (
-          market.provider === "binance"
-          && market.symbol === normalizedSymbol
-          && market.marketType === "perpetual"
-        )) || this.markets.find((market) => market.provider === "binance" && market.symbol === normalizedSymbol)
-      : currentMarket;
+    const targetMarket = selectTradingAnalysisMarket(this.markets, {
+      symbol: normalizedSymbol,
+      currentMarket,
+      explicitSymbol: Boolean(request.symbol),
+      instruction: request.instruction,
+    }) as TradingMarket | null;
     if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
-    const targetInterval = String(request.interval || this.activeInterval).trim().toUpperCase();
+    const targetInterval = selectTradingAnalysisInterval({
+      interval: request.interval,
+      currentInterval: this.activeInterval,
+      explicitSymbol: Boolean(request.symbol),
+    });
     if (!tradingViewResolutionDurationMs(targetInterval)) {
       throw new Error(`暂不支持 ${targetInterval} K 线周期`);
     }
@@ -10519,15 +10621,18 @@ class TradingExpertMarketWorkspace {
     const currentMarket = this.selectedMarketMeta
       || this.markets.find((market) => market.id === this.selectedMarketId)
       || this.favoriteMarketFromId(this.selectedMarketId);
-    const targetMarket = request.symbol
-      ? this.markets.find((market) => (
-          market.provider === "binance"
-          && market.symbol === normalizedSymbol
-          && market.marketType === "perpetual"
-        )) || this.markets.find((market) => market.provider === "binance" && market.symbol === normalizedSymbol)
-      : currentMarket;
+    const targetMarket = selectTradingAnalysisMarket(this.markets, {
+      symbol: normalizedSymbol,
+      currentMarket,
+      explicitSymbol: Boolean(request.symbol),
+      instruction: request.instruction,
+    }) as TradingMarket | null;
     if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
-    const targetInterval = String(request.interval || this.activeInterval).trim().toUpperCase();
+    const targetInterval = selectTradingAnalysisInterval({
+      interval: request.interval,
+      currentInterval: this.activeInterval,
+      explicitSymbol: Boolean(request.symbol),
+    });
     if (!tradingViewResolutionDurationMs(targetInterval)) {
       throw new Error(`暂不支持 ${targetInterval} K 线周期`);
     }
@@ -10772,18 +10877,22 @@ class TradingExpertMarketWorkspace {
     const currentMarket = this.selectedMarketMeta
       || this.markets.find((market) => market.id === this.selectedMarketId)
       || this.favoriteMarketFromId(this.selectedMarketId);
-    const targetMarket = request.symbol
-      ? this.markets.find((market) => (
-          market.provider === "binance"
-          && market.symbol === normalizedSymbol
-          && market.marketType === "perpetual"
-        ))
-      : currentMarket;
+    const targetMarket = selectTradingAnalysisMarket(this.markets, {
+      symbol: normalizedSymbol,
+      currentMarket,
+      explicitSymbol: Boolean(request.symbol),
+      instruction: request.instruction,
+      forcePerpetual: true,
+    }) as TradingMarket | null;
     if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 币安永续行情`);
     if (targetMarket.provider !== "binance" || targetMarket.marketType !== "perpetual") {
       throw new Error("订单流首发链路仅支持币安永续合约；当前市场没有统一的真实逐笔、深度和持仓量覆盖");
     }
-    const targetInterval = String(request.interval || this.activeInterval).trim().toUpperCase();
+    const targetInterval = selectTradingAnalysisInterval({
+      interval: request.interval,
+      currentInterval: this.activeInterval,
+      explicitSymbol: Boolean(request.symbol),
+    });
     if (!tradingViewResolutionDurationMs(targetInterval)) {
       throw new Error(`暂不支持 ${targetInterval} K 线周期`);
     }

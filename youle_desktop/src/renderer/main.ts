@@ -100,7 +100,6 @@ import {
   renderTradingMarketAssetLogo,
 } from "./trading-expert-market-identity";
 import {
-  extractTradingCatalogParameters,
   reconcileTradingStrategyCatalog,
   tradingIndicatorCatalog,
   tradingIndicatorMentionOptions,
@@ -113,11 +112,14 @@ import {
   type TradingStrategyPublicManifest,
   type TradingStrategyRequest,
 } from "./trading-strategy-runtime/catalog";
+import {
+  classifyTradingQuestionKinds,
+  deterministicMarketChartRouting,
+  explicitNoDrawingRequested,
+  extractExplicitTradingParameters,
+  normalizeTradingRoutingText,
+} from "../main/trading-analysis/request-routing-policy.mjs";
 import { classifyTradingStrategyForSend } from "./trading-strategy-runtime/client";
-import { stripTradingChanMention, type TradingChanRequest } from "./trading-expert-chan-request";
-import { stripTradingOrderFlowMention, type TradingOrderFlowRequest } from "./trading-expert-order-flow-request";
-import { stripTradingWaveMention, type TradingWaveRequest } from "./trading-expert-wave-request";
-import { stripTradingWyckoffMention, type TradingWyckoffRequest } from "./trading-expert-wyckoff-request";
 import {
   buildTradingAnalysisFollowupPrompt,
   type TradingGeneralRequest,
@@ -675,6 +677,7 @@ const RECHARGE_PAYMENT_NETWORKS = [
     label: "币安内部转账",
     networkName: "币安站内转账",
     kind: "internal",
+    tutorialUrl: "https://haolo.com/help/binance-internal-transfer.html",
   },
   {
     id: "okx_internal",
@@ -682,6 +685,7 @@ const RECHARGE_PAYMENT_NETWORKS = [
     label: "OKX内部转账",
     networkName: "OKX站内转账",
     kind: "internal",
+    tutorialUrl: "https://haolo.com/help/okx-internal-transfer.html",
   },
   {
     id: "bsc",
@@ -689,6 +693,7 @@ const RECHARGE_PAYMENT_NETWORKS = [
     label: "币安链BSC 网络",
     networkName: "BNB Smart Chain",
     kind: "network",
+    tutorialUrl: "https://haolo.com/help/onchain-transfer.html",
   },
   {
     id: "tron",
@@ -696,6 +701,7 @@ const RECHARGE_PAYMENT_NETWORKS = [
     label: "波场TRON 网络",
     networkName: "TRON",
     kind: "network",
+    tutorialUrl: "https://haolo.com/help/onchain-transfer.html",
   },
   {
     id: "arbitrum",
@@ -703,6 +709,7 @@ const RECHARGE_PAYMENT_NETWORKS = [
     label: "Arbitrum One 网络",
     networkName: "Arbitrum One",
     kind: "network",
+    tutorialUrl: "https://haolo.com/help/onchain-transfer.html",
   },
 ] as const;
 type RechargePaymentNetworkId = (typeof RECHARGE_PAYMENT_NETWORKS)[number]["id"];
@@ -26958,12 +26965,10 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     && !tradingAlertCandidateAtSend;
   let tradingStrategyRequestAtSend: TradingStrategyRequest | null = null;
   let tradingGeneralRequestAtSend: TradingGeneralRequest | null = null;
-  let tradingFastChatRouteAtSend: TradingExpertFastChatRoute | null = null;
   if (
     !state.serverReady
     && (
-      tradingStrategyAtSend
-      || personalStrategyCandidateAtSend
+      personalStrategyCandidateAtSend
       || tradingAlertCandidateAtSend
       || (isBlankNewThread(threadId) && !isLocalBlankThreadId(threadId))
     )
@@ -27027,55 +27032,25 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       clearTradingExpertThinkingState(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
     } else if (tradingGeneralCandidateAtSend) {
-      tradingFastChatRouteAtSend = await routeTradingExpertFastChatForSend({
+      updateTradingExpertThinkingState(
+        originalThreadId,
+        "classifying",
+        "正在由大模型理解问题是否需要读取盘面；不可用时会自动采用本地语义保障。",
+      );
+      refreshTradingExpertConversationSurface(originalThreadId);
+      tradingGeneralRequestAtSend = await classifyTradingGeneralRequestForSend(
         text,
-        hasAttachments: snapshotAttachments.length > 0,
-        hasImageAttachment: snapshotAttachments.some(isImageAttachment),
-        hasQuote: Boolean(snapshotQuote),
-        hasThreadReferences: snapshotThreadReferences.length > 0,
-        hasCurrentAnalysis: hasTradingExpertCurrentAnalysis(),
-      });
-      if (
-        tradingFastChatRouteAtSend.route !== "direct"
-        && !state.serverReady
-        && !(await ensureServerReadyForComposerSend())
-      ) {
-        if (pendingSend) failPendingComposerSend(originalThreadId, pendingSend.itemId, "智能体尚未准备完成");
-        return;
-      }
-      if (tradingFastChatRouteAtSend.route === "chart-router") {
-        updateTradingExpertThinkingState(
-          originalThreadId,
-          "classifying",
-          "正在判断是否需要读取左侧当前 K 线并进行盘面分析。",
-        );
-        refreshTradingExpertConversationSurface(originalThreadId);
-        tradingGeneralRequestAtSend = await classifyTradingGeneralRequestForSend(
-          text,
-          snapshotAttachments.some(isImageAttachment),
-          hasTradingExpertCurrentAnalysis(),
-        );
-        clearTradingExpertThinkingState(originalThreadId);
-        refreshTradingExpertConversationSurface(originalThreadId);
-      } else if (tradingFastChatRouteAtSend.route === "agent") {
-        tradingGeneralRequestAtSend = {
-          mode: "conversation",
-          instruction: String(text || "").trim(),
-          symbol: null,
-          interval: null,
-          lookbackMs: null,
-          lookbackLabel: null,
-          drawingRequested: false,
-          analysisFollowup: false,
-        };
-      }
+        snapshotAttachments.some(isImageAttachment),
+        hasTradingExpertCurrentAnalysis(),
+      );
+      clearTradingExpertThinkingState(originalThreadId);
+      refreshTradingExpertConversationSurface(originalThreadId);
     }
     if (
       tradingStrategyRequestAtSend?.mode !== "chart-analysis"
       && !personalStrategyCandidateAtSend
       && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
-      && tradingFastChatRouteAtSend?.route !== "direct"
     ) {
       const initialBaseAgentText = workflowContractAtSend
         ? workflowInvocationExecutionPrompt(text)
@@ -27288,7 +27263,6 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       && !personalStrategyCandidateAtSend
       && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
-      && tradingFastChatRouteAtSend?.route !== "direct"
     ) {
       const currentBudget = await prepareContextBudgetForSend(threadId, agentText, { deferWhileBusy: true });
       if (!currentBudget.ok) {
@@ -27354,39 +27328,6 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       syncComposerMentionHighlights();
     }
     state.error = null;
-    if (tradingFastChatRouteAtSend?.route === "direct") {
-      if (!submittedUserItem) {
-        const message = "找不到待发送的用户消息";
-        state.error = message;
-        if (pendingSend) failPendingComposerSend(threadId, pendingSend.itemId, message);
-        render();
-        return;
-      }
-      const fastChatDisposition = await sendTradingExpertFastChatForSend({
-        threadId,
-        text,
-        submittedUserItem,
-        pendingLocalItemId: pendingSend?.itemId || null,
-        hasCurrentAnalysis: hasTradingExpertCurrentAnalysis(),
-      });
-      if (fastChatDisposition === "completed" || fastChatDisposition === "aborted") {
-        return;
-      }
-      tradingFastChatRouteAtSend = {
-        route: "agent",
-        reason: "direct-request-fell-back-to-agent",
-      };
-      if (
-        businessModelPoolsState.configured
-        && !selectedChatModelValue(threadId)
-      ) {
-        const message = "快速问答不可用，且执行模式暂无可用模型，请联系管理员配置模型池";
-        state.error = message;
-        showToast(message, 5000);
-        render();
-        return;
-      }
-    }
     const isTradingChartAnalysisSend = Boolean(
       tradingStrategyRequestAtSend?.mode === "chart-analysis"
       || personalStrategyCandidateAtSend
@@ -27415,13 +27356,16 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         scheduleThreadListRefresh(0);
       } catch (error) {
         threadId = resolvedTradingAlertThreadId(threadId);
-        const message = `任务未执行：顶层会话保存失败：${errorMessage(error)}`;
-        state.error = message;
-        if (pendingSend) failPendingComposerSend(threadId, pendingSend.itemId, message);
-        else failLatestOptimisticUserItem(threadId, message);
-        showToast(message, 7000);
-        refreshTradingExpertConversationSurface(threadId);
-        return;
+        if (submittedUserItem) {
+          queueTradingExpertTranscriptPersistenceRetry(threadId, [submittedUserItem], {
+            title: conversationTitleFromText(userMessageDisplayText(submittedUserItem)),
+          });
+        }
+        // Conversation storage is not part of the analysis critical path. Keep
+        // the optimistic message and run the chart request; the retry queue will
+        // reconcile the transcript after the store becomes available again.
+        console.warn("[trading-transcript] initial persistence deferred", error);
+        showToast("会话记录将在后台自动重试保存，盘面分析继续。", 4500);
       }
     }
     if (tradingStrategyAtSend && tradingStrategyRequestAtSend?.mode === "chart-analysis") {
@@ -27587,159 +27531,6 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     ) {
       syncTradingExpertCollapseControlsState();
     }
-  }
-}
-
-function discardTradingExpertFastChatStream(
-  threadId: string,
-  interactionId: string,
-) {
-  for (const itemId of [...(state.itemOrder[threadId] || [])]) {
-    const item = state.items[threadId]?.[itemId];
-    if (
-      itemId === questionAnswerStreamItemId(interactionId)
-      || itemId === questionAnswerProgressItemId(interactionId)
-      || (itemTurnId(item) === interactionId && isGptPlanProcessItem(item))
-    ) {
-      removeThreadItem(threadId, itemId);
-    }
-  }
-}
-
-async function sendTradingExpertFastChatForSend(params: {
-  threadId: string;
-  text: string;
-  submittedUserItem: CodexItem;
-  pendingLocalItemId?: string | null;
-  hasCurrentAnalysis: boolean;
-}): Promise<"completed" | "handoff" | "aborted"> {
-  if (typeof api.sendTradingExpertFastChat !== "function") return "handoff";
-  const interactionId = `trading-fast-chat-${crypto.randomUUID()}`;
-  const startedAt = new Date().toISOString();
-  activeProviderInteractionByThreadId.set(params.threadId, interactionId);
-  state.providerBusy[params.threadId] = true;
-  setMessageStreamFollow(params.threadId, true);
-  refreshTradingExpertConversationSurface(params.threadId);
-  void api.reportConsumptionEvent?.({
-    interactionId,
-    conversationId: params.threadId,
-    sourceType: "trading-expert-fast-chat",
-    question: params.text,
-    status: "running",
-    startedAt,
-  }).catch(() => {});
-  try {
-    const result = await api.sendTradingExpertFastChat({
-      text: params.text,
-      threadId: params.threadId,
-      interactionId,
-      hasAttachments: false,
-      hasImageAttachment: false,
-      hasQuote: false,
-      hasThreadReferences: false,
-      hasCurrentAnalysis: params.hasCurrentAnalysis,
-    });
-    if (interruptedProviderInteractionIds.has(interactionId)) {
-      if (params.pendingLocalItemId) {
-        clearPendingComposerSend(params.threadId, params.pendingLocalItemId);
-      }
-      return "aborted";
-    }
-    if (result?.ok !== true || result.route !== "direct") {
-      discardTradingExpertFastChatStream(params.threadId, interactionId);
-      return "handoff";
-    }
-    const answer = firstString(result.text) || "";
-    if (!answer) {
-      discardTradingExpertFastChatStream(params.threadId, interactionId);
-      return "handoff";
-    }
-    finalizeQuestionAnswerStreamAgentMessage({
-      threadId: params.threadId,
-      interactionId,
-      provider: "codex",
-      text: answer,
-    });
-    const assistantItem = state.items[params.threadId]?.[
-      questionAnswerStreamItemId(interactionId)
-    ];
-    if (!assistantItem) {
-      discardTradingExpertFastChatStream(params.threadId, interactionId);
-      return "handoff";
-    }
-    (assistantItem as CodexItem & Record<string, unknown>).__youleExecutionPlanPresentation = "plain";
-    stampCompletedTradingExpertTranscriptTiming([
-      params.submittedUserItem,
-      assistantItem,
-    ]);
-    let completedThreadId = params.threadId;
-    try {
-      const persistenceResult = await persistTradingExpertTranscriptItems(
-        params.threadId,
-        [params.submittedUserItem, assistantItem],
-        {
-          title: conversationTitleFromText(
-            userMessageDisplayText(params.submittedUserItem),
-          ),
-        },
-      );
-      completedThreadId = firstString(
-        persistenceResult?.threadId,
-        params.threadId,
-      ) || params.threadId;
-      localHistoryAheadThreadIds.add(completedThreadId);
-      scheduleThreadListRefresh(0);
-    } catch (error) {
-      const message = `快速回答已完成，但会话记录保存失败：${errorMessage(error)}`;
-      state.error = message;
-      showToast(message, 7000);
-    }
-    rememberThreadLastAssistantProvider(completedThreadId, "codex");
-    markFinalResultUnviewed(completedThreadId);
-    if (params.pendingLocalItemId) {
-      clearPendingComposerSend(completedThreadId, params.pendingLocalItemId);
-    }
-    void api.reportConsumptionEvent?.({
-      interactionId,
-      conversationId: params.threadId,
-      sourceType: "trading-expert-fast-chat",
-      question: params.text,
-      answer,
-      status: "complete",
-      startedAt,
-      endedAt: new Date().toISOString(),
-    }).catch(() => {});
-    return "completed";
-  } catch (error) {
-    if (
-      interruptedProviderInteractionIds.has(interactionId)
-      || String((error as Error)?.name || "") === "AbortError"
-    ) {
-      if (params.pendingLocalItemId) {
-        clearPendingComposerSend(params.threadId, params.pendingLocalItemId);
-      }
-      return "aborted";
-    }
-    discardTradingExpertFastChatStream(params.threadId, interactionId);
-    void api.reportConsumptionEvent?.({
-      interactionId,
-      conversationId: params.threadId,
-      sourceType: "trading-expert-fast-chat",
-      question: params.text,
-      status: "failed",
-      startedAt,
-      endedAt: new Date().toISOString(),
-    }).catch(() => {});
-    return "handoff";
-  } finally {
-    if (
-      activeProviderInteractionByThreadId.get(params.threadId)
-        === interactionId
-    ) {
-      activeProviderInteractionByThreadId.delete(params.threadId);
-    }
-    delete state.providerBusy[params.threadId];
-    refreshTradingExpertConversationSurface(params.threadId);
   }
 }
 
@@ -31594,11 +31385,38 @@ async function persistCompletedTradingExpertTranscript(
     scheduleThreadListRefresh(0);
     return true;
   } catch (error) {
-    const message = `交易会话记录保存失败：${errorMessage(error)}`;
-    state.error = message;
-    showToast(message, 7000);
+    queueTradingExpertTranscriptPersistenceRetry(threadId, items, options);
+    console.warn("[trading-transcript] deferred persistence", error);
+    showToast("会话记录将在后台自动重试保存，不影响本次回答。", 4500);
     return false;
   }
+}
+
+function queueTradingExpertTranscriptPersistenceRetry(
+  threadId: string,
+  items: CodexItem[],
+  options: { title?: string } = {},
+  attempt = 0,
+) {
+  if (!items.length || attempt >= 4) return;
+  const retryItems = [...items];
+  const delays = [1_000, 3_000, 10_000, 30_000];
+  window.setTimeout(async () => {
+    try {
+      let activeThreadId = resolveTradingExpertAnalysisThreadId(threadId);
+      if (isLocalBlankThreadId(activeThreadId)) {
+        const promotedThreadId = await promoteLocalBlankThreadForSend(activeThreadId);
+        if (!promotedThreadId) throw new Error("交易会话任务仍在初始化");
+        activeThreadId = promotedThreadId;
+      }
+      stampCompletedTradingExpertTranscriptTiming(retryItems);
+      await persistTradingExpertTranscriptItems(activeThreadId, retryItems, options);
+      scheduleThreadListRefresh(0);
+    } catch (error) {
+      console.warn(`[trading-transcript] retry ${attempt + 1} deferred`, error);
+      queueTradingExpertTranscriptPersistenceRetry(threadId, retryItems, options, attempt + 1);
+    }
+  }, delays[Math.min(attempt, delays.length - 1)]);
 }
 
 function stampCompletedTradingExpertTranscriptTiming(items: CodexItem[]) {
@@ -31624,6 +31442,21 @@ function stampCompletedTradingExpertTranscriptTiming(items: CodexItem[]) {
     (item as any).__youleTurnStartedAt = startedAt;
     (item as any).__youleTurnCompletedAt = completedAt;
   });
+}
+
+function isTradingAnalysisCancellation(error: unknown) {
+  const code = String((error as Error & { code?: string })?.code || "").trim().toUpperCase();
+  const message = errorMessage(error);
+  return code === "TRADING_ANALYSIS_CANCELLED"
+    || /(?:用户停止|已取消|cancelled|canceled|replaced)/iu.test(message);
+}
+
+function buildTradingAnalysisAvailabilityReport(instruction: string, _technicalReason: string) {
+  const question = normalizeTradingRoutingText(instruction).slice(0, 600) || "当前盘面问题";
+  return [
+    `关于“${question}”：当前无法取得至少两根可核验的实时 K 线，因此现在不能负责任地给出多空、入场价或目标位。`,
+    "我没有用旧行情或臆测数字替代实时盘面。行情连接恢复后，沿用同一问题即可自动读取当前图表并重新计算。",
+  ].join("\n\n");
 }
 
 async function runTradingGeneralChartRequest(
@@ -31652,7 +31485,9 @@ async function runTradingGeneralChartRequest(
   };
   updateProgress(
     "preparing",
-    "正在优先读取左侧当前选择的品种、周期和可见 K 线。",
+    request.symbol
+      ? `正在按你的要求打开 ${request.symbol} 的目标 K 线；未指定周期时继承发送时左侧图表周期，未指定市场类型时优先匹配当前可用市场。`
+      : "正在优先读取左侧当前选择的品种、周期和可见 K 线。",
   );
   try {
     const result = await runTradingExpertGeneralConversation({
@@ -31674,10 +31509,16 @@ async function runTradingGeneralChartRequest(
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
-    updateProgress("error", `盘面分析未完成：${message}`);
-    state.error = message;
-    showToast(message, 5000);
-    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+    if (isTradingAnalysisCancellation(error)) {
+      updateProgress("complete", "已按你的要求停止本次盘面分析。");
+      await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+    } else {
+      const report = buildTradingAnalysisAvailabilityReport(request.instruction, message);
+      updateProgress("complete", "已完成盘面数据可用性检查，并给出与当前可验证信息匹配的回答。");
+      clearTradingExpertThinkingState(targetThreadId());
+      const reportItem = appendTradingExpertReport(targetThreadId(), report, undefined, undefined, "execution-plan");
+      await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
+    }
   } finally {
     finishTradingExpertAnalysisJob(threadId, analysisId);
     if (clearTradingExpertThinkingState(targetThreadId())) {
@@ -31739,11 +31580,48 @@ async function runTradingStrategyChartRequest(
     const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
-    const message = errorMessage(error);
-    updateProgress("error", `${strategy.display.name}盘面分析未完成：${message}`);
-    state.error = message;
-    showToast(message, 5000);
-    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+    const strategyMessage = errorMessage(error);
+    if (isTradingAnalysisCancellation(error)) {
+      updateProgress("complete", "已按你的要求停止本次盘面分析。");
+      await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+    } else {
+      updateProgress(
+        "analyzing",
+        `${strategy.display.name}增强暂不可用，已自动切换到通用价格结构链路继续回答。`,
+      );
+      try {
+        const recovered = await runTradingExpertGeneralConversation({
+          analysisId,
+          instruction: request.instruction,
+          symbol: request.symbol,
+          interval: request.interval,
+          lookbackMs: request.lookbackMs,
+          lookbackLabel: request.lookbackLabel,
+          drawingRequested: request.drawingRequested,
+          strategyDisplayName: "通用价格结构",
+          minimumCandles: Math.min(30, strategy.dataRequirements?.candles?.minCount || 30),
+          preferredCandles: Math.max(100, strategy.dataRequirements?.candles?.preferredCount || 100),
+          executionPlanRequested: true,
+          onProgress: updateProgress,
+        });
+        updateProgress(
+          "complete",
+          `${recovered.modelName} 已完成 ${recovered.symbol} ${recovered.candleCount} 根 K 线的兼容分析${request.drawingRequested ? "与安全绘图" : ""}。`,
+        );
+        clearTradingExpertThinkingState(targetThreadId());
+        const reportItem = appendTradingExpertReport(targetThreadId(), recovered.report, undefined, undefined, "execution-plan");
+        await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
+      } catch (recoveryError) {
+        const report = buildTradingAnalysisAvailabilityReport(
+          request.instruction,
+          `${strategyMessage}；${errorMessage(recoveryError)}`,
+        );
+        updateProgress("complete", "已完成盘面数据可用性检查，并给出与当前可验证信息匹配的回答。");
+        clearTradingExpertThinkingState(targetThreadId());
+        const reportItem = appendTradingExpertReport(targetThreadId(), report, undefined, undefined, "execution-plan");
+        await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
+      }
+    }
   } finally {
     finishTradingExpertAnalysisJob(threadId, analysisId);
     if (clearTradingExpertThinkingState(targetThreadId())) {
@@ -31751,247 +31629,6 @@ async function runTradingStrategyChartRequest(
     }
   }
 }
-
-async function runTradingChanChartRequest(
-  threadId: string,
-  request: TradingStrategyRequest,
-) {
-  const analysisId = beginTradingExpertAnalysisJob(threadId, "chan");
-  const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
-  const progressIdPrefix = `trading-chan-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  let progressSequence = 0;
-  let latestProgress = "";
-  const transcriptItems: CodexItem[] = [];
-  const updateProgress = (phase: string, message: string) => {
-    if (!message || message === latestProgress) return;
-    latestProgress = message;
-    if (phase === "error") clearTradingExpertThinkingState(targetThreadId());
-    else updateTradingExpertThinkingState(targetThreadId(), phase, message);
-    progressSequence += 1;
-    const progressItem = appendTradingExpertProgress(
-      targetThreadId(),
-      `${progressIdPrefix}-${progressSequence}`,
-      phase,
-      message,
-    );
-    transcriptItems.push(progressItem);
-  };
-  updateProgress(
-    "preparing",
-    "正在理解你的缠论看盘指令并读取当前画布。",
-  );
-  try {
-    const result = await runTradingExpertStrategyConversation("chan", {
-      analysisId,
-      instruction: request.instruction,
-      symbol: request.symbol,
-      interval: request.interval,
-      lookbackMs: request.lookbackMs,
-      lookbackLabel: request.lookbackLabel,
-      drawingRequested: request.drawingRequested,
-      onProgress: updateProgress,
-    });
-    updateProgress(
-      "complete",
-      `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的缠论分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
-    );
-    clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
-    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
-  } catch (error) {
-    const message = errorMessage(error);
-    updateProgress("error", `缠论盘面分析未完成：${message}`);
-    state.error = message;
-    showToast(message, 5000);
-    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
-  } finally {
-    finishTradingExpertAnalysisJob(threadId, analysisId);
-    if (clearTradingExpertThinkingState(targetThreadId())) {
-      refreshTradingExpertConversationSurface(targetThreadId());
-    }
-  }
-}
-
-async function runTradingOrderFlowChartRequest(
-  threadId: string,
-  request: TradingStrategyRequest,
-) {
-  const analysisId = beginTradingExpertAnalysisJob(threadId, "order-flow");
-  const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
-  const progressIdPrefix = `trading-order-flow-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  let progressSequence = 0;
-  let latestProgress = "";
-  const transcriptItems: CodexItem[] = [];
-  const updateProgress = (phase: string, message: string) => {
-    if (!message || message === latestProgress) return;
-    latestProgress = message;
-    if (phase === "error") clearTradingExpertThinkingState(targetThreadId());
-    else updateTradingExpertThinkingState(targetThreadId(), phase, message);
-    progressSequence += 1;
-    const progressItem = appendTradingExpertProgress(
-      targetThreadId(),
-      `${progressIdPrefix}-${progressSequence}`,
-      phase,
-      message,
-    );
-    transcriptItems.push(progressItem);
-  };
-  updateProgress(
-    "preparing",
-    "正在理解你的订单流看盘指令并读取当前画布与真实微观结构数据。",
-  );
-  try {
-    const result = await runTradingExpertStrategyConversation("order-flow", {
-      analysisId,
-      instruction: request.instruction,
-      symbol: request.symbol,
-      interval: request.interval,
-      lookbackMs: request.lookbackMs,
-      lookbackLabel: request.lookbackLabel,
-      drawingRequested: request.drawingRequested,
-      onProgress: updateProgress,
-    });
-    updateProgress(
-      "complete",
-      `${result.modelName} 已完成 ${result.symbol} ${result.tradeCount} 笔真实成交的订单流分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
-    );
-    clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
-    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
-  } catch (error) {
-    const message = errorMessage(error);
-    updateProgress("error", `订单流盘面分析未完成：${message}`);
-    state.error = message;
-    showToast(message, 5000);
-    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
-  } finally {
-    finishTradingExpertAnalysisJob(threadId, analysisId);
-    if (clearTradingExpertThinkingState(targetThreadId())) {
-      refreshTradingExpertConversationSurface(targetThreadId());
-    }
-  }
-}
-
-async function runTradingWaveChartRequest(
-  threadId: string,
-  request: TradingStrategyRequest,
-) {
-  const analysisId = beginTradingExpertAnalysisJob(threadId, "wave");
-  const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
-  const progressIdPrefix = `trading-wave-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  let progressSequence = 0;
-  let latestProgress = "";
-  const transcriptItems: CodexItem[] = [];
-  const updateProgress = (phase: string, message: string) => {
-    if (!message || message === latestProgress) return;
-    latestProgress = message;
-    if (phase === "error") clearTradingExpertThinkingState(targetThreadId());
-    else updateTradingExpertThinkingState(targetThreadId(), phase, message);
-    progressSequence += 1;
-    const progressItem = appendTradingExpertProgress(
-      targetThreadId(),
-      `${progressIdPrefix}-${progressSequence}`,
-      phase,
-      message,
-    );
-    transcriptItems.push(progressItem);
-  };
-  updateProgress(
-    "preparing",
-    "正在理解你的波浪理论看盘指令并读取当前画布。",
-  );
-  try {
-    const result = await runTradingExpertStrategyConversation("wave", {
-      analysisId,
-      instruction: request.instruction,
-      symbol: request.symbol,
-      interval: request.interval,
-      lookbackMs: request.lookbackMs,
-      lookbackLabel: request.lookbackLabel,
-      drawingRequested: request.drawingRequested,
-      onProgress: updateProgress,
-    });
-    updateProgress(
-      "wave-complete",
-      `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的波浪理论分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
-    );
-    clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
-    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
-  } catch (error) {
-    const message = errorMessage(error);
-    updateProgress("error", `波浪理论盘面分析未完成：${message}`);
-    state.error = message;
-    showToast(message, 5000);
-    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
-  } finally {
-    finishTradingExpertAnalysisJob(threadId, analysisId);
-    if (clearTradingExpertThinkingState(targetThreadId())) {
-      refreshTradingExpertConversationSurface(targetThreadId());
-    }
-  }
-}
-
-async function runTradingWyckoffChartRequest(
-  threadId: string,
-  request: TradingStrategyRequest,
-) {
-  const analysisId = beginTradingExpertAnalysisJob(threadId, "wyckoff");
-  const targetThreadId = () => resolveTradingExpertAnalysisThreadId(threadId);
-  const progressIdPrefix = `trading-wyckoff-progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  let progressSequence = 0;
-  let latestProgress = "";
-  const transcriptItems: CodexItem[] = [];
-  const updateProgress = (phase: string, message: string) => {
-    if (!message || message === latestProgress) return;
-    latestProgress = message;
-    if (phase === "error") clearTradingExpertThinkingState(targetThreadId());
-    else updateTradingExpertThinkingState(targetThreadId(), phase, message);
-    progressSequence += 1;
-    const progressItem = appendTradingExpertProgress(
-      targetThreadId(),
-      `${progressIdPrefix}-${progressSequence}`,
-      phase,
-      message,
-    );
-    transcriptItems.push(progressItem);
-  };
-  updateProgress(
-    "preparing",
-    "正在理解你的威科夫看盘指令并读取当前画布。",
-  );
-  try {
-    const result = await runTradingExpertStrategyConversation("wyckoff", {
-      analysisId,
-      instruction: request.instruction,
-      symbol: request.symbol,
-      interval: request.interval,
-      lookbackMs: request.lookbackMs,
-      lookbackLabel: request.lookbackLabel,
-      drawingRequested: request.drawingRequested,
-      onProgress: updateProgress,
-    });
-    updateProgress(
-      "wyckoff-complete",
-      `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的威科夫分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
-    );
-    clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
-    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
-  } catch (error) {
-    const message = errorMessage(error);
-    updateProgress("error", `威科夫盘面分析未完成：${message}`);
-    state.error = message;
-    showToast(message, 5000);
-    await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
-  } finally {
-    finishTradingExpertAnalysisJob(threadId, analysisId);
-    if (clearTradingExpertThinkingState(targetThreadId())) {
-      refreshTradingExpertConversationSurface(targetThreadId());
-    }
-  }
-}
-
 
 function hasUploadingAttachments() {
   return state.attachments.some((attachment) => attachment.uploadStatus === "uploading");
@@ -35000,210 +34637,18 @@ function tradingExpertAgentTextForSend(
   return baseAgentText;
 }
 
-async function classifyTradingChanRequestForSend(
-  text: string,
-  hasImageAttachment: boolean,
-  hasCurrentAnalysis = false,
-): Promise<TradingChanRequest> {
-  const fallback: TradingChanRequest = {
-    mode: "conversation",
-    instruction: stripTradingChanMention(text),
-    symbol: null,
-    interval: null,
-    lookbackMs: null,
-    lookbackLabel: null,
-    drawingRequested: false,
-  };
-  if (typeof api.classifyTradingChanRequest !== "function") return fallback;
-  try {
-    const result = await api.classifyTradingChanRequest({
-      text,
-      hasImageAttachment,
-      hasCurrentAnalysis,
-    });
-    const request = result?.ok === true ? result.request : null;
-    if (
-      !request
-      || (request.mode !== "conversation" && request.mode !== "chart-analysis")
-    ) {
-      return fallback;
-    }
-    const chartAnalysis = request.mode === "chart-analysis";
-    return {
-      mode: request.mode,
-      instruction: fallback.instruction,
-      symbol: chartAnalysis && typeof request.symbol === "string" ? request.symbol : null,
-      interval: chartAnalysis && typeof request.interval === "string" ? request.interval : null,
-      lookbackMs: chartAnalysis && Number.isInteger(request.lookbackMs) ? request.lookbackMs : null,
-      lookbackLabel: chartAnalysis && typeof request.lookbackLabel === "string"
-        ? request.lookbackLabel
-        : null,
-      drawingRequested: chartAnalysis && request.drawingRequested === true,
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-async function classifyTradingOrderFlowRequestForSend(
-  text: string,
-  hasImageAttachment: boolean,
-  hasCurrentAnalysis = false,
-): Promise<TradingOrderFlowRequest> {
-  const fallback: TradingOrderFlowRequest = {
-    mode: "conversation",
-    instruction: stripTradingOrderFlowMention(text),
-    symbol: null,
-    interval: null,
-    lookbackMs: null,
-    lookbackLabel: null,
-    drawingRequested: false,
-  };
-  if (typeof api.classifyTradingOrderFlowRequest !== "function") return fallback;
-  try {
-    const result = await api.classifyTradingOrderFlowRequest({
-      text,
-      hasImageAttachment,
-      hasCurrentAnalysis,
-    });
-    const request = result?.ok === true ? result.request : null;
-    if (
-      !request
-      || (request.mode !== "conversation" && request.mode !== "chart-analysis")
-    ) {
-      return fallback;
-    }
-    const chartAnalysis = request.mode === "chart-analysis";
-    return {
-      mode: request.mode,
-      instruction: fallback.instruction,
-      symbol: chartAnalysis && typeof request.symbol === "string" ? request.symbol : null,
-      interval: chartAnalysis && typeof request.interval === "string" ? request.interval : null,
-      lookbackMs: chartAnalysis && Number.isInteger(request.lookbackMs) ? request.lookbackMs : null,
-      lookbackLabel: chartAnalysis && typeof request.lookbackLabel === "string"
-        ? request.lookbackLabel
-        : null,
-      drawingRequested: chartAnalysis && request.drawingRequested === true,
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-async function classifyTradingWaveRequestForSend(
-  text: string,
-  hasImageAttachment: boolean,
-  hasCurrentAnalysis = false,
-): Promise<TradingWaveRequest> {
-  const fallback: TradingWaveRequest = {
-    mode: "conversation",
-    instruction: stripTradingWaveMention(text),
-    symbol: null,
-    interval: null,
-    lookbackMs: null,
-    lookbackLabel: null,
-    drawingRequested: false,
-  };
-  if (typeof api.classifyTradingWaveRequest !== "function") return fallback;
-  try {
-    const result = await api.classifyTradingWaveRequest({
-      text,
-      hasImageAttachment,
-      hasCurrentAnalysis,
-    });
-    const request = result?.ok === true ? result.request : null;
-    if (
-      !request
-      || (request.mode !== "conversation" && request.mode !== "chart-analysis")
-    ) {
-      return fallback;
-    }
-    const chartAnalysis = request.mode === "chart-analysis";
-    return {
-      mode: request.mode,
-      instruction: fallback.instruction,
-      symbol: chartAnalysis && typeof request.symbol === "string" ? request.symbol : null,
-      interval: chartAnalysis && typeof request.interval === "string" ? request.interval : null,
-      lookbackMs: chartAnalysis && Number.isInteger(request.lookbackMs) ? request.lookbackMs : null,
-      lookbackLabel: chartAnalysis && typeof request.lookbackLabel === "string"
-        ? request.lookbackLabel
-        : null,
-      drawingRequested: chartAnalysis && request.drawingRequested === true,
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-async function classifyTradingWyckoffRequestForSend(
-  text: string,
-  hasImageAttachment: boolean,
-  hasCurrentAnalysis = false,
-): Promise<TradingWyckoffRequest> {
-  const fallback: TradingWyckoffRequest = {
-    mode: "conversation",
-    instruction: stripTradingWyckoffMention(text),
-    symbol: null,
-    interval: null,
-    lookbackMs: null,
-    lookbackLabel: null,
-    drawingRequested: false,
-  };
-  if (typeof api.classifyTradingWyckoffRequest !== "function") return fallback;
-  try {
-    const result = await api.classifyTradingWyckoffRequest({
-      text,
-      hasImageAttachment,
-      hasCurrentAnalysis,
-    });
-    const request = result?.ok === true ? result.request : null;
-    if (!request || (request.mode !== "conversation" && request.mode !== "chart-analysis")) {
-      return fallback;
-    }
-    const chartAnalysis = request.mode === "chart-analysis";
-    return {
-      mode: request.mode,
-      instruction: fallback.instruction,
-      symbol: chartAnalysis && typeof request.symbol === "string" ? request.symbol : null,
-      interval: chartAnalysis && typeof request.interval === "string" ? request.interval : null,
-      lookbackMs: chartAnalysis && Number.isInteger(request.lookbackMs) ? request.lookbackMs : null,
-      lookbackLabel: chartAnalysis && typeof request.lookbackLabel === "string"
-        ? request.lookbackLabel
-        : null,
-      drawingRequested: chartAnalysis && request.drawingRequested === true,
-    };
-  } catch {
-    return fallback;
-  }
-}
-
 function deterministicTradingGeneralFallback(text: string): TradingGeneralRequest {
-  const normalizedText = String(text || "")
-    .replace(/([\p{Script=Han}])[\r\n]+\s*([\p{Script=Han}])/gu, "$1$2")
-    .replace(/\s+/g, " ")
-    .trim();
-  const conceptual = /(?:什么是|啥是|定义|概念|原理|区别|如何理解|怎么理解|入门|教程|科普|what\s+is|define|explain)/iu.test(normalizedText);
-  const currentOrActionable = /(?:当前|现在|最新|实时|能不能|是否可以|该不该|做多|做空|买入|卖出|入场|止损|止盈|支撑|压力|阻力|刷新|更新|重画|current|live|latest|entry|stop|target|support|resistance)/iu.test(normalizedText);
-  const explicitMarketAnalysis = !(conceptual && !currentOrActionable) && (
-    /^(?:分析|研判|看盘|复盘|看看|看下|看一下|刷新|更新|重画|画图|绘图|画线)(?:一下|下|吧)?[。.!！?？]*$/iu.test(normalizedText)
-    || /(?:分析|研判|看盘|复盘|解读|看看|看下|判断|预测|扫描|画线|画图|绘图|标注|刷新|更新|analy[sz]e|review|inspect|draw).{0,32}(?:K\s*线|蜡烛|图表|盘面|行情|走势|趋势|价格|结构|支撑|压力|阻力|形态|背离|成交量|订单流|流动性|chart|market|price|trend|support|resistance)/iu.test(normalizedText)
-    || /(?:能不能|是否可以|该不该|现在|当前|最新|实时).{0,24}(?:买|卖|做多|做空|入场|加仓|减仓|止损|止盈|持有|开仓|平仓|怎么走|安全吗|风险)/iu.test(normalizedText)
-    || /(?:仓位健康|持仓健康|强平风险|爆仓风险|仓位安全吗|持仓安全吗|该怎么操作)/iu.test(normalizedText)
-    || /(?:K\s*线|蜡烛|图表|盘面|行情|走势|趋势|价格|结构|支撑|压力|阻力|形态|背离|成交量|订单流|流动性).{0,20}(?:怎么看|如何看|如何分析|在哪|多少|怎么走)/iu.test(normalizedText)
-    || /(?:[A-Z][A-Z0-9]{1,11}|比特币|大饼|以太坊|以太|币安币|狗狗币|瑞波币|索拉纳).{0,16}(?:怎么样|咋样|怎么看|怎么走|能不能|能买吗|能卖吗|能做多吗|能做空吗)/iu.test(normalizedText)
-    || /^[A-Z][A-Z0-9]{1,11}[?？]?$/u.test(normalizedText)
-    || /[A-Za-z0-9\p{Script=Han}]{2,20}\s*(?:\/\s*)?(?:USDT|USDC|USD)?.{0,12}\d+(?:\.\d+)?\s*(?:m|min(?:ute)?s?|分钟|分|h|hours?|小时|d|days?|天|日|w|weeks?|周)/iu.test(normalizedText)
-  );
-  const drawingRequested = !/(?:不要|不用|无需|不需要|别)(?:重新)?(?:绘图|画图|画线|重画|标注)|(?:do\s+not|don't|without)\s+(?:draw|redraw|drawing|mark)/iu.test(normalizedText);
-  const parameters = extractTradingCatalogParameters(normalizedText);
-  const fallback: TradingGeneralRequest = {
-    mode: explicitMarketAnalysis ? "chart-analysis" : "conversation",
+  const normalizedText = normalizeTradingRoutingText(text);
+  const routed = deterministicMarketChartRouting(normalizedText);
+  if (routed) return routed.request;
+  return {
+    mode: "conversation",
     instruction: normalizedText,
-    ...parameters,
-    drawingRequested: explicitMarketAnalysis && drawingRequested,
+    ...extractExplicitTradingParameters(normalizedText),
+    questionKinds: classifyTradingQuestionKinds(normalizedText),
+    drawingRequested: false,
     analysisFollowup: false,
   };
-  return fallback;
 }
 
 async function classifyTradingGeneralRequestForSend(
@@ -35211,8 +34656,9 @@ async function classifyTradingGeneralRequestForSend(
   hasImageAttachment: boolean,
   hasCurrentAnalysis = false,
 ): Promise<TradingGeneralRequest> {
-  const fallback = deterministicTradingGeneralFallback(text);
-  if (typeof api.classifyTradingGeneralRequest !== "function") return fallback;
+  if (typeof api.classifyTradingGeneralRequest !== "function") {
+    return deterministicTradingGeneralFallback(text);
+  }
   try {
     const result = await api.classifyTradingGeneralRequest({
       text,
@@ -35221,58 +34667,28 @@ async function classifyTradingGeneralRequestForSend(
     });
     const request = result?.ok === true ? result.request : null;
     if (!request || (request.mode !== "conversation" && request.mode !== "chart-analysis")) {
-      return fallback;
+      return deterministicTradingGeneralFallback(text);
     }
+    const fallback = deterministicTradingGeneralFallback(text);
     // An explicit market-analysis command must not be downgraded by a stale
-    // classifier response.  The IPC result can enrich parameters, but the
-    // deterministic renderer guard owns the minimum execution mode.
+    // classifier response. The model may classify intent, but target fields
+    // are accepted only when the shared literal parser found them in the user
+    // message; this removes hallucinated symbols/periods from the whole lane.
     const chartAnalysis = fallback.mode === "chart-analysis" || request.mode === "chart-analysis";
     return {
       mode: chartAnalysis ? "chart-analysis" : "conversation",
       instruction: fallback.instruction,
-      symbol: chartAnalysis && typeof request.symbol === "string" ? request.symbol : null,
-      interval: chartAnalysis && typeof request.interval === "string" ? request.interval : null,
-      lookbackMs: chartAnalysis && Number.isInteger(request.lookbackMs) ? request.lookbackMs : null,
-      lookbackLabel: chartAnalysis && typeof request.lookbackLabel === "string"
-        ? request.lookbackLabel
-        : null,
-      drawingRequested: chartAnalysis && fallback.drawingRequested,
+      symbol: chartAnalysis ? fallback.symbol : null,
+      interval: chartAnalysis ? fallback.interval : null,
+      lookbackMs: chartAnalysis ? fallback.lookbackMs : null,
+      lookbackLabel: chartAnalysis ? fallback.lookbackLabel : null,
+      forecastHorizonMs: chartAnalysis ? fallback.forecastHorizonMs : null,
+      questionKinds: fallback.questionKinds,
+      drawingRequested: chartAnalysis && !explicitNoDrawingRequested(fallback.instruction),
       analysisFollowup: !chartAnalysis && request.analysisFollowup === true,
     };
   } catch {
-    return fallback;
-  }
-}
-
-async function routeTradingExpertFastChatForSend(params: {
-  text: string;
-  hasAttachments: boolean;
-  hasImageAttachment: boolean;
-  hasQuote: boolean;
-  hasThreadReferences: boolean;
-  hasCurrentAnalysis: boolean;
-}): Promise<TradingExpertFastChatRoute> {
-  const deterministicChart = deterministicTradingGeneralFallback(params.text).mode === "chart-analysis";
-  const fallback: TradingExpertFastChatRoute = deterministicChart
-    ? { route: "chart-router", reason: "deterministic-market-analysis-fallback" }
-    : { route: "agent", reason: "fast-chat-router-unavailable" };
-  if (typeof api.routeTradingExpertFastChat !== "function") return fallback;
-  try {
-    const result = await api.routeTradingExpertFastChat(params);
-    if (
-      result?.ok !== true
-      || !["direct", "agent", "chart-router"].includes(result.route)
-    ) return fallback;
-    if (deterministicChart) {
-      return { route: "chart-router", reason: "deterministic-market-analysis" };
-    }
-    return {
-      route: result.route,
-      reason: firstString(result.reason) || "unspecified",
-      model: firstString(result.model) || undefined,
-    };
-  } catch {
-    return fallback;
+    return deterministicTradingGeneralFallback(text);
   }
 }
 
@@ -59370,18 +58786,21 @@ function rechargePaymentOrderNetwork(order: Web3PaymentOrder) {
 function renderRechargeMembershipAgreement(
   product: RechargeProductDefinition,
   order: Web3PaymentOrder,
+  network: (typeof RECHARGE_PAYMENT_NETWORKS)[number],
 ) {
   const language = state.settings.language;
   const productName = translateAppText(product.name, language);
   const escapedProductName = escapeHtml(productName);
   const escapedOrderNumber = escapeHtml(order.order_no);
+  const tutorialLabel = language === "en" ? "View tutorial" : language === "zh-TW" ? "查看教學" : "查看教程";
+  const tutorialButton = `<button type="button" class="recharge-payment-tutorial-link" data-recharge-payment-tutorial-url="${escapeAttr(network.tutorialUrl)}">${tutorialLabel}</button>`;
   if (language === "en") {
-    return `<p class="recharge-payment-agreement">By subscribing, you agree to <span>${escapedProductName} Membership Service Agreement</span> · Order number ${escapedOrderNumber}</p>`;
+    return `<p class="recharge-payment-agreement">By subscribing, you agree to <span>${escapedProductName} Membership Service Agreement</span> · Order number ${escapedOrderNumber} ${tutorialButton}</p>`;
   }
   if (language === "zh-TW") {
-    return `<p class="recharge-payment-agreement">開通即視為同意 <span>《${escapedProductName}會員服務協議》</span> · 訂單編號 ${escapedOrderNumber}</p>`;
+    return `<p class="recharge-payment-agreement">開通即視為同意 <span>《${escapedProductName}會員服務協議》</span> · 訂單編號 ${escapedOrderNumber} ${tutorialButton}</p>`;
   }
-  return `<p class="recharge-payment-agreement">开通即视为同意 <span>《${escapedProductName}会员服务协议》</span> · 订单号 ${escapedOrderNumber}</p>`;
+  return `<p class="recharge-payment-agreement">开通即视为同意 <span>《${escapedProductName}会员服务协议》</span> · 订单号 ${escapedOrderNumber} ${tutorialButton}</p>`;
 }
 
 function rechargePaymentStepsAriaLabel(
@@ -59514,7 +58933,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
           <span class="recharge-payment-internal-countdown">订单剩余：<time data-recharge-payment-countdown>30:00</time></span>
         </aside>
       </div>
-      ${renderRechargeMembershipAgreement(product, order)}
+      ${renderRechargeMembershipAgreement(product, order, network)}
     `;
   }
   const fixedPaymentAmount = String(product.priceUsdt);
@@ -59568,7 +58987,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
       </div>
     </div>
     ${chainPaymentNotice}
-    ${renderRechargeMembershipAgreement(product, order)}
+    ${renderRechargeMembershipAgreement(product, order, network)}
   `;
 }
 
@@ -59937,6 +59356,14 @@ async function updateRechargePaymentDetails() {
   syncRechargePaymentSelectionControls();
   const retryButton = panel.querySelector<HTMLElement>("[data-recharge-payment-retry]");
   retryButton?.addEventListener("click", () => void createRechargePaymentOrder({ force: true }));
+  const tutorialButton = panel.querySelector<HTMLButtonElement>("[data-recharge-payment-tutorial-url]");
+  tutorialButton?.addEventListener("click", () => {
+    const tutorialUrl = tutorialButton.dataset.rechargePaymentTutorialUrl;
+    if (!tutorialUrl) return;
+    void api.openExternal(tutorialUrl).catch(() => {
+      showToast("暂时无法打开支付教程，请稍后重试。", 3200);
+    });
+  });
   if (isActiveRechargePaymentOrder(order)) startRechargePaymentPolling(order.order_no, selectionKey);
   else stopRechargePaymentRuntime();
   if (order.status !== "pending" && !uniqueAddressUnderpaid) {

@@ -52,20 +52,22 @@ test("the bundled trading strategies expose real Skill metadata", async () => {
   }
 });
 
-test("strategy mentions cannot fall back to conversation when routing is slow or unavailable", async () => {
+test("strategy routing is model-first, shares literal target parsing, and has a local availability fallback", async () => {
   const [catalog, client, renderer] = await Promise.all([
     catalogSource,
     strategyClientSource,
     rendererSource,
   ]);
   assert.match(catalog, /manifest\.display\.name/);
-  assert.ok(catalog.includes('.replace(/\\s*\\/\\s*/g, "/")'));
-  assert.match(catalog, /const fallback: TradingStrategyRequest = \{\s*mode: "chart-analysis"/s);
-  assert.match(catalog, /drawingRequested: strategyDrawingRequested\(text\)/);
-  assert.match(catalog, /const parameters = extractTradingCatalogParameters\(instruction\)/);
-  assert.match(catalog, /symbol:[\s\S]*?fallback\.symbol/);
-  assert.match(catalog, /interval:[\s\S]*?fallback\.interval/);
-  assert.match(catalog, /return \{\s*mode: "chart-analysis"/s);
+  assert.match(catalog, /resolveExplicitTradingStrategyId\(text, analysisCatalog\)/);
+  assert.match(catalog, /deterministicStrategyRequestRouting/);
+  assert.match(catalog, /extractExplicitTradingParameters/);
+  assert.match(catalog, /isTradingConceptOnlyRequest/);
+  assert.match(catalog, /fallback\.mode === "chart-analysis" \|\| candidateMode === "chart-analysis"/);
+  assert.match(catalog, /const literal = extractExplicitTradingParameters\(fallback\.instruction\)/);
+  assert.match(catalog, /symbol: chartAnalysis \? literal\.symbol : null/);
+  assert.match(catalog, /interval: chartAnalysis \? literal\.interval : null/);
+  assert.doesNotMatch(catalog, /ROUTING_HAN_NON_ASSET_FRAGMENT/);
   assert.match(client, /catch \{\s*return normalizeTradingStrategyRequest\(strategy, text, null\)/s);
   assert.match(renderer, /if \(tradingStrategyAtSend && tradingStrategyRequestAtSend\?\.mode === "chart-analysis"\)/);
   assert.match(renderer, /await runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend, tradingStrategyRequestAtSend\)/);

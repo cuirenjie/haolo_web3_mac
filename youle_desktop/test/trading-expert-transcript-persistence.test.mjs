@@ -442,7 +442,7 @@ test("foreground and background reads hydrate the persisted trading transcript",
   assert.match(background, /withTradingTranscriptHistory\(result, \{/);
 });
 
-test("generic strategy and general chart-analysis branches persist the parent user message before returning", () => {
+test("generic strategy and general chart-analysis start after persistence or a non-blocking retry handoff", () => {
   const dispatch = sourceBlock(
     rendererSource,
     "const isTradingChartAnalysisSend = Boolean(",
@@ -456,20 +456,24 @@ test("generic strategy and general chart-analysis branches persist the parent us
   ]) {
     assert.ok(dispatch.indexOf(`await ${runner}`) > persistIndex, `${runner} must run after parent persistence`);
   }
-  assert.match(dispatch, /任务未执行：顶层会话保存失败/);
+  assert.doesNotMatch(dispatch, /任务未执行：顶层会话保存失败/);
+  assert.match(dispatch, /queueTradingExpertTranscriptPersistenceRetry/);
+  assert.match(dispatch, /会话记录将在后台自动重试保存，盘面分析继续/);
   assert.match(rendererSource, /payload\.slice\(index \* 32, index \* 32 \+ 32\)/);
   assert.match(dispatch, /threadId = persistedThreadId/);
   assert.match(rendererSource, /adoptReplacementCodexThread\(previousThreadId, result\.replacementThread, 0\)/);
   assert.match(rendererSource, /movePendingComposerSend\(previousThreadId, activeThreadId, pending\.itemId\)/);
 });
 
-test("generic strategy and general chart-analysis runners persist progress and terminal messages", () => {
+test("generic strategy and general chart-analysis runners persist every completed or degraded terminal answer", () => {
   const runnerSection = sourceBlock(
     rendererSource,
     "async function runTradingGeneralChartRequest",
-    "async function runTradingChanChartRequest",
+    "function hasUploadingAttachments",
   );
   assert.equal((runnerSection.match(/const transcriptItems: CodexItem\[\] = \[\];/g) || []).length, 2);
-  assert.equal((runnerSection.match(/await persistCompletedTradingExpertTranscript/g) || []).length, 4);
-  assert.equal((runnerSection.match(/const reportItem = appendTradingExpertReport/g) || []).length, 2);
+  assert.ok((runnerSection.match(/await persistCompletedTradingExpertTranscript/g) || []).length >= 6);
+  assert.ok((runnerSection.match(/const reportItem = appendTradingExpertReport/g) || []).length >= 4);
+  assert.match(runnerSection, /自动切换到通用价格结构链路继续回答/);
+  assert.doesNotMatch(runnerSection, /盘面分析未完成/);
 });

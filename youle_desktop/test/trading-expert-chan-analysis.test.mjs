@@ -486,8 +486,11 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend/);
   assert.match(catalogSource, /buildTradingChanExpertPrompt/);
   assert.match(marketSource, /chan: \(request:[\s\S]{0,180}runTradingExpertChanConversation/);
-  assert.match(marketSource, /const targetMarket = request\.symbol[\s\S]{0,520}: currentMarket;/);
-  assert.match(marketSource, /const targetInterval = String\(request\.interval \|\| this\.activeInterval\)/);
+  assert.match(marketSource, /selectTradingAnalysisMarket\(this\.markets,[\s\S]{0,240}explicitSymbol: Boolean\(request\.symbol\)/);
+  assert.match(marketSource, /selectTradingAnalysisInterval\(\{[\s\S]{0,180}currentInterval: this\.activeInterval/);
+  assert.match(marketSource, /targetInterval !== this\.loadedInterval[\s\S]{0,520}this\.activeInterval = targetInterval[\s\S]{0,420}await this\.restartMarketData\(\)/);
+  assert.match(marketSource, /this\.loadedInterval !== targetInterval[\s\S]{0,240}行情加载失败/);
+  assert.match(marketSource, /interval: job\.interval,[\s\S]{0,420}candles: candles\.map/);
   assert.match(
     marketSource,
     /async runChanConversation\([\s\S]*?snapshotTime: Date\.now\(\),\s*language: getCurrentAppLanguage\(\)/,
@@ -544,7 +547,7 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
   const chartSendBlock = rendererSource.slice(chartSendStart, chartSendEnd);
   const progressBlock = rendererSource.slice(
     rendererSource.indexOf("function refreshTradingExpertConversationSurface"),
-    rendererSource.indexOf("async function runTradingChanChartRequest"),
+    rendererSource.indexOf("async function runTradingGeneralChartRequest"),
   );
   const tradingThinkingBlock = rendererSource.slice(
     rendererSource.indexOf("function tradingExpertThinkingStage"),
@@ -579,30 +582,20 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
   assert.match(progressBlock, /appendTradingExpertReport[\s\S]*?phase: "final_answer"/);
   assert.doesNotMatch(progressBlock, /scheduleProtectedRender\(\{ sourceThreadId: threadId \}\)/);
   const requestProgressBlock = rendererSource.slice(
-    rendererSource.indexOf("async function runTradingChanChartRequest"),
+    rendererSource.indexOf("async function runTradingStrategyChartRequest"),
     rendererSource.indexOf("function hasUploadingAttachments"),
   );
   const allChartProgressBlock = rendererSource.slice(
     rendererSource.indexOf("async function runTradingGeneralChartRequest"),
     rendererSource.indexOf("function hasUploadingAttachments"),
   );
-  assert.match(requestProgressBlock, /const progressIdPrefix = `trading-chan-progress-/);
+  assert.match(requestProgressBlock, /const progressIdPrefix = `trading-\$\{strategy\.id\}-progress-/);
   assert.match(requestProgressBlock, /let progressSequence = 0/);
   assert.match(requestProgressBlock, /progressSequence \+= 1/);
   assert.match(requestProgressBlock, /`\$\{progressIdPrefix\}-\$\{progressSequence\}`/);
   assert.match(requestProgressBlock, /appendTradingExpertProgress\([\s\S]*?phase,[\s\S]*?message/);
-  for (const initialMessage of [
-    "正在优先读取左侧当前选择的品种、周期和可见 K 线。",
-    "正在理解你的缠论看盘指令并读取当前画布。",
-    "正在理解你的订单流看盘指令并读取当前画布与真实微观结构数据。",
-    "正在理解你的波浪理论看盘指令并读取当前画布。",
-  ]) {
-    assert.match(
-      allChartProgressBlock,
-      new RegExp(`updateProgress\\(\\s*"preparing",\\s*"${initialMessage}",`),
-      `initial Trading Expert progress must render as a bubble: ${initialMessage}`,
-    );
-  }
+  assert.match(allChartProgressBlock, /正在优先读取左侧当前选择的品种、周期和可见 K 线/);
+  assert.match(allChartProgressBlock, /updateProgress\("preparing", strategy\.ui\.preparingMessage\)/);
   assert.doesNotMatch(
     allChartProgressBlock,
     /updateTradingExpertThinkingState\(\s*threadId,\s*"preparing"/,

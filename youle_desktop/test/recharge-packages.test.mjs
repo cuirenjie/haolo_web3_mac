@@ -95,6 +95,9 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.doesNotMatch(products, /id: "addon_|kind: "addon"/);
   assert.match(products, /id: "binance_internal"[\s\S]*?asset: "BNB"[\s\S]*?label: "币安内部转账"[\s\S]*?kind: "internal"/);
   assert.match(products, /id: "okx_internal"[\s\S]*?asset: "OKB"[\s\S]*?label: "OKX内部转账"[\s\S]*?kind: "internal"/);
+  assert.match(products, /id: "binance_internal"[\s\S]*?tutorialUrl: "https:\/\/haolo\.com\/help\/binance-internal-transfer\.html"/);
+  assert.match(products, /id: "okx_internal"[\s\S]*?tutorialUrl: "https:\/\/haolo\.com\/help\/okx-internal-transfer\.html"/);
+  assert.match(products, /id: "bsc"[\s\S]*?tutorialUrl: "https:\/\/haolo\.com\/help\/onchain-transfer\.html"[\s\S]*?id: "tron"[\s\S]*?tutorialUrl: "https:\/\/haolo\.com\/help\/onchain-transfer\.html"[\s\S]*?id: "arbitrum"[\s\S]*?tutorialUrl: "https:\/\/haolo\.com\/help\/onchain-transfer\.html"/);
   assert.ok(products.indexOf('id: "binance_internal"') < products.indexOf('id: "bsc"'));
   assert.ok(products.indexOf('id: "okx_internal"') < products.indexOf('id: "bsc"'));
   assert.match(products, /id: "bsc"[\s\S]*?asset: "BNB"[\s\S]*?label: "币安链BSC 网络"[\s\S]*?id: "tron"[\s\S]*?asset: "TRX"[\s\S]*?label: "波场TRON 网络"/);
@@ -169,6 +172,10 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentDetails, /data-recharge-payment-countdown/);
   assert.doesNotMatch(paymentDetails, />30:00 剩余</);
   assert.match(paymentDetails, /会员服务协议/);
+  assert.match(paymentDetails, /data-recharge-payment-tutorial-url="\$\{escapeAttr\(network\.tutorialUrl\)\}"/);
+  assert.match(paymentDetails, /查看教程/);
+  assert.match(paymentDetails, /tutorialButton\.dataset\.rechargePaymentTutorialUrl/);
+  assert.match(paymentDetails, /api\.openExternal\(tutorialUrl\)/);
   assert.match(paymentDetails, /api\.createWeb3PaymentOrder/);
   assert.match(paymentDetails, /api\.getWeb3PaymentOrder/);
   assert.match(paymentDetails, /paymentChannel: "web3"/);
@@ -227,6 +234,12 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(styles, /\.recharge-payment-state button:hover/);
   assert.match(styles, /\.recharge-payment-state button:active/);
   assert.match(styles, /\.recharge-payment-state button:focus-visible/);
+  assert.match(styles, /\.recharge-payment-agreement\s*\{[\s\S]*?transform: translateX\(-30px\)/);
+  assert.match(styles, /\.recharge-payment-tutorial-link:hover:not\(:disabled\)/);
+  assert.match(styles, /\.recharge-payment-tutorial-link:active:not\(:disabled\)/);
+  assert.match(styles, /\.recharge-payment-tutorial-link:focus-visible/);
+  assert.match(styles, /\.recharge-payment-tutorial-link:disabled/);
+  assert.match(styles, /html\[data-theme="dark"\] \.recharge-payment-details\s*\{[\s\S]*?--recharge-tutorial-link: #66b5ff;[\s\S]*?--recharge-tutorial-link-hover: #91cbff;[\s\S]*?--recharge-tutorial-link-active: #4da8ff;[\s\S]*?--recharge-tutorial-link-disabled: #7f8d9f;/);
   assert.match(styles, /\.recharge-payment-network-grid\s*\{[\s\S]*?grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.recharge-payment-details-main\.internal-transfer/);
   assert.doesNotMatch(styles, /\.recharge-payment-(?:progress|detecting|countdown)\b|--recharge-details-divider/);

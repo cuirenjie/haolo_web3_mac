@@ -74,7 +74,7 @@ test("chart navigation is detached from analysis cancellation and IPC cancellati
   assert.equal((market.match(/const job = tradingAnalysisJobs\.start\(\{/g) || []).length, 5);
   const activeRunnerSection = renderer.slice(
     renderer.indexOf("async function runTradingGeneralChartRequest"),
-    renderer.indexOf("async function runTradingChanChartRequest"),
+    renderer.indexOf("function hasUploadingAttachments"),
   );
   assert.equal((activeRunnerSection.match(/const analysisId = beginTradingExpertAnalysisJob\(/g) || []).length, 2);
   assert.match(market, /persistTradingAiDrawingPatch\(storageSessionId, patch\)/);

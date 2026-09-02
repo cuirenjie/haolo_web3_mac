@@ -18,6 +18,15 @@ import {
   buildTradingWyckoffExpertPrompt,
   stripTradingWyckoffMention,
 } from "../trading-expert-wyckoff-request";
+import {
+  deterministicStrategyRequestRouting,
+  explicitNoDrawingRequested,
+  extractExplicitTradingParameters,
+  isTradingConceptOnlyRequest,
+  normalizeTradingRoutingText,
+  type TradingQuestionKind,
+} from "../../main/trading-analysis/request-routing-policy.mjs";
+import { resolveExplicitTradingStrategyId } from "../../main/trading-analysis/strategy-selection.mjs";
 
 export interface TradingStrategyRequest {
   mode: "conversation" | "chart-analysis";
@@ -26,6 +35,8 @@ export interface TradingStrategyRequest {
   interval: string | null;
   lookbackMs: number | null;
   lookbackLabel: string | null;
+  forecastHorizonMs?: number | null;
+  questionKinds?: readonly TradingQuestionKind[];
   drawingRequested: boolean;
 }
 
@@ -131,93 +142,11 @@ function parseTradingStrategySkillMetadata(source: string): TradingStrategySkill
 }
 
 function normalizeTradingCatalogText(value: string) {
-  return String(value || "")
-    .replace(/\u0000/g, "")
-    .replace(/([\p{Script=Han}])[\r\n]+\s*([\p{Script=Han}])/gu, "$1$2")
-    .replace(/\r\n?/g, "\n")
-    .replace(/@(?:策略|指标)\s*：\s*/gu, (match) => match.includes("指标") ? "@指标:" : "@策略:")
-    .replace(/\s*\/\s*/g, "/")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-const ROUTING_RESERVED_ASSETS = new Set([
-  "ATR", "BOLL", "BOS", "CHOCH", "EMA", "EQ", "FVG", "ICT", "KDJ", "MACD", "MSS",
-  "OB", "OTE", "RSI", "SMC", "SMA", "SSL", "VPVR",
-]);
-const ROUTING_NAMED_ASSETS = new Map([
-  ["比特币", "BTCUSDT"], ["大饼", "BTCUSDT"], ["以太坊", "ETHUSDT"], ["以太", "ETHUSDT"],
-  ["币安币", "BNBUSDT"], ["狗狗币", "DOGEUSDT"], ["瑞波币", "XRPUSDT"], ["索拉纳", "SOLUSDT"],
-]);
-
-function normalizeTradingCatalogSymbol(value: string) {
-  const compact = String(value || "").trim().toUpperCase().replace(/[\s/_-]/g, "");
-  if (!compact || !/^[A-Z0-9\p{Script=Han}]{2,24}$/u.test(compact)) return null;
-  const quote = ["USDT", "USDC", "USD"].find((asset) => compact.endsWith(asset));
-  if (quote) return compact.length > quote.length ? compact : null;
-  if (compact.length > 12 || ROUTING_RESERVED_ASSETS.has(compact)) return null;
-  return `${compact}USDT`;
+  return normalizeTradingRoutingText(value);
 }
 
 export function extractTradingCatalogParameters(text: string) {
-  const source = normalizeTradingCatalogText(text);
-  const namedSymbol = [...ROUTING_NAMED_ASSETS].find(([name]) => source.includes(name))?.[1] || null;
-  const pairedAfterAction = source.match(/(?:分析|研判|复盘|解读|查看|看下|看一下|看看|帮我看|analy[sz]e|review)\s*(?:一下|下)?\s*([A-Za-z0-9\p{Script=Han}]{1,20})\s*(?:[\/_-]\s*)?(USDT|USDC|USD)\b/iu);
-  const pairedStandalone = source.match(/(?:^|[\s：:,，(（])([A-Za-z0-9\p{Script=Han}]{1,20})\s*(?:[\/_-]\s*)?(USDT|USDC|USD)\b/iu);
-  const pairedBase = pairedAfterAction?.[1] || pairedStandalone?.[1] || null;
-  const pairedQuote = pairedAfterAction?.[2] || pairedStandalone?.[2] || null;
-  const beforeInterval = source.match(/(?:分析|研判|复盘|解读|查看|看下|看一下|看看|帮我看|analy[sz]e|review)\s*([A-Za-z][A-Za-z0-9]{1,11}|[\p{Script=Han}]{2,12}?)(?:的)?\s*(?=\d+(?:\.\d+)?\s*(?:m|min(?:ute)?s?|分钟|分|h|hours?|小时|d|days?|天|日|w|weeks?|周)(?=$|[\s的这当现盘行走图K线，。,.!?！？]))/iu);
-  const standaloneBeforeInterval = source.match(/(?:^|\s)([A-Za-z][A-Za-z0-9]{1,11}|[\p{Script=Han}]{2,12}?)(?:的)?\s*(?=\d+(?:\.\d+)?\s*(?:m|min(?:ute)?s?|分钟|分|h|hours?|小时|d|days?|天|日|w|weeks?|周)(?=$|[\s的这当现盘行走图K线，。,.!?！？]))/iu);
-  const afterAction = source.match(/(?:分析|研判|复盘|解读|查看|看下|看一下|看看|帮我看|analy[sz]e|review)\s*(?:一下|下)?\s*([A-Za-z][A-Za-z0-9]{1,11}|[\p{Script=Han}]{2,12}?)(?=\s*(?:的|当前|现在|行情|盘面|走势|图表|K\s*线|$))/iu);
-  const latinBeforeMarketObject = source.match(/(?:^|[\s：:,，(（])([A-Za-z][A-Za-z0-9]{1,11})(?=\s*(?:的)?\s*(?:当前|现在|行情|盘面|走势|趋势|价格|支撑|压力|阻力|图表|K\s*线|怎么样|咋样|怎么看|怎么走|能不能|能买吗|能卖吗|能做多吗|能做空吗))/iu);
-  const standaloneTicker = source.match(/^([A-Z][A-Z0-9]{1,11})(?:[?？])?$/u);
-  const symbol = namedSymbol || normalizeTradingCatalogSymbol(
-    pairedBase && pairedQuote
-      ? `${pairedBase}${pairedQuote}`
-      : beforeInterval?.[1] || standaloneBeforeInterval?.[1] || afterAction?.[1] || latinBeforeMarketObject?.[1] || standaloneTicker?.[1] || "",
-  );
-
-  const hour = source.match(/(\d+(?:\.\d+)?)\s*(?:h(?:ours?)?|小时)/iu);
-  const minute = source.match(/(\d+)\s*(?:m(?:in(?:ute)?s?)?|分钟|分)/iu);
-  const hourMinutes = hour ? Number(hour[1]) * 60 : null;
-  const interval = Number.isInteger(hourMinutes) && Number(hourMinutes) >= 1 && Number(hourMinutes) <= 1_440
-    ? String(hourMinutes)
-    : minute && Number(minute[1]) >= 1 && Number(minute[1]) <= 1_440
-      ? String(Number(minute[1]))
-      : /(?:1\s*d|日线|日级别|日周期|daily)/iu.test(source)
-        ? "1D"
-        : /(?:1\s*w|周线|周级别|周周期|weekly)/iu.test(source)
-          ? "1W"
-          : null;
-
-  const lookback = source.match(/(?:最近|过去|近|last|past)\s*(\d+)\s*(分钟|分|小时|时|天|日|周|个月|月|minutes?|hours?|days?|weeks?|months?)/iu);
-  const count = Number(lookback?.[1]);
-  const unit = String(lookback?.[2] || "").toLowerCase();
-  const multiplier = /分钟|分|minute/u.test(unit)
-    ? 60_000
-    : /小时|时|hour/u.test(unit)
-      ? 3_600_000
-      : /周|week/u.test(unit)
-        ? 7 * 86_400_000
-        : /个月|月|month/u.test(unit)
-          ? 30 * 86_400_000
-          : 86_400_000;
-  const lookbackMs = lookback && Number.isSafeInteger(count) && count >= 1
-    && Number.isSafeInteger(count * multiplier) && count * multiplier <= 5 * 366 * 86_400_000
-    ? count * multiplier
-    : null;
-  return {
-    symbol,
-    interval,
-    lookbackMs,
-    lookbackLabel: lookbackMs ? `${count}${lookback?.[2]}`.slice(0, 32) : null,
-  };
-}
-
-function strategyDrawingRequested(text: string) {
-  return !/(?:不要|不用|无需|不需要|别)(?:重新)?(?:绘图|画图|画线|重画|标注)|(?:do\s+not|don't|without)\s+(?:draw|redraw|drawing|mark)/iu.test(
-    normalizeTradingCatalogText(text),
-  );
+  return extractExplicitTradingParameters(text);
 }
 
 const BUILTIN_UI_ADAPTERS: Readonly<Record<string, StrategyUiAdapter>> = Object.freeze({
@@ -358,11 +287,10 @@ export function tradingStrategyByDisplayName(displayName: string) {
 }
 
 export function tradingStrategyMentionedByText(text: string) {
-  const source = normalizeTradingCatalogText(text);
-  return analysisCatalog.find((strategy) => (
-    strategy.enabled !== false
-    && strategy.mentionTokens.some((token) => source.includes(normalizeTradingCatalogText(token)))
-  )) || null;
+  const strategyId = resolveExplicitTradingStrategyId(text, analysisCatalog);
+  return strategyId
+    ? analysisCatalog.find((strategy) => strategy.id === strategyId && strategy.enabled !== false) || null
+    : null;
 }
 
 export function tradingStrategyMentionOptions() {
@@ -378,26 +306,29 @@ export function normalizeTradingStrategyRequest(
   text: string,
   candidate: unknown,
 ): TradingStrategyRequest {
-  const instruction = normalizeTradingCatalogText(strategy.ui.stripMention(text));
-  const parameters = extractTradingCatalogParameters(instruction);
-  const fallback: TradingStrategyRequest = {
-    mode: "chart-analysis",
-    instruction,
-    ...parameters,
-    drawingRequested: strategyDrawingRequested(text),
-  };
+  const fallback = deterministicStrategyRequestRouting(text, strategy) as TradingStrategyRequest;
   if (!candidate || typeof candidate !== "object") return fallback;
   const request = candidate as Partial<TradingStrategyRequest>;
-  const chartAnalysis = true;
+  // Re-extract literal targets independently from the fallback mode. The
+  // Renderer is a second safety boundary and must preserve an explicit 4H
+  // target when a model upgrades an ambiguous request to chart analysis.
+  const literal = extractExplicitTradingParameters(fallback.instruction);
+  const candidateMode = request.mode === "conversation" || request.mode === "chart-analysis"
+    ? request.mode
+    : fallback.mode;
+  const chartAnalysis = !isTradingConceptOnlyRequest(fallback.instruction)
+    && (fallback.mode === "chart-analysis" || candidateMode === "chart-analysis");
   return {
-    mode: "chart-analysis",
-    instruction: typeof request.instruction === "string"
-      ? normalizeTradingCatalogText(request.instruction)
-      : fallback.instruction,
-    symbol: chartAnalysis && typeof request.symbol === "string" ? request.symbol : fallback.symbol,
-    interval: chartAnalysis && typeof request.interval === "string" ? request.interval : fallback.interval,
-    lookbackMs: chartAnalysis && Number.isInteger(request.lookbackMs) ? request.lookbackMs ?? null : fallback.lookbackMs,
-    lookbackLabel: chartAnalysis && typeof request.lookbackLabel === "string" ? request.lookbackLabel : fallback.lookbackLabel,
-    drawingRequested: fallback.drawingRequested,
+    mode: chartAnalysis ? "chart-analysis" : "conversation",
+    instruction: fallback.instruction,
+    // Only literal values recovered by the shared parser are authoritative;
+    // model output selects the mode but cannot invent chart targets.
+    symbol: chartAnalysis ? literal.symbol : null,
+    interval: chartAnalysis ? literal.interval : null,
+    lookbackMs: chartAnalysis ? literal.lookbackMs : null,
+    lookbackLabel: chartAnalysis ? literal.lookbackLabel : null,
+    forecastHorizonMs: chartAnalysis ? literal.forecastHorizonMs : null,
+    questionKinds: fallback.questionKinds,
+    drawingRequested: chartAnalysis && !explicitNoDrawingRequested(fallback.instruction),
   };
 }

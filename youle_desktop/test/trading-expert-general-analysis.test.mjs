@@ -67,6 +67,15 @@ test("general semantic router deterministically routes a bare analysis request t
 });
 
 test("general market intent deterministically routes explicit symbols, intervals, live decisions, and drawing defaults", () => {
+  const reportedIncident = deterministicGeneralRequestRouting("帮我分析SNDK一小时走势");
+  assert.equal(reportedIncident?.request.mode, "chart-analysis");
+  assert.equal(reportedIncident?.request.symbol, "SNDKUSDT");
+  assert.equal(reportedIncident?.request.interval, "60");
+
+  const defaultInterval = deterministicGeneralRequestRouting("帮我分析SNDK走势");
+  assert.equal(defaultInterval?.request.symbol, "SNDKUSDT");
+  assert.equal(defaultInterval?.request.interval, null);
+
   const exactIncident = deterministicGeneralRequestRouting("分析SNDK 15min这个盘\r面并绘图");
   assert.equal(exactIncident?.request.mode, "chart-analysis");
   assert.equal(exactIncident?.request.symbol, "SNDKUSDT");
@@ -91,6 +100,7 @@ test("general market intent deterministically routes explicit symbols, intervals
   });
   assert.equal(noDrawing?.request.mode, "chart-analysis");
   assert.equal(noDrawing?.request.drawingRequested, false);
+  assert.match(buildGeneralRequestRoutingPrompt({ text: "帮我分析SNDK一小时走势" }), /SNDKUSDT、60/);
 });
 
 test("general semantic router preserves an official Han-character Binance symbol", () => {
@@ -461,7 +471,7 @@ test("direct analysis mode returns the model's question-specific answer without 
   assert.match(result.analysisPlan.report, /新手执行清单/);
 });
 
-test("renderer route inherits the selected symbol, interval and visible candle range", () => {
+test("renderer route prioritizes explicit targets, verifies the loaded chart, and preserves visible-range analysis", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/renderer/main.ts"), "utf8");
   const marketSource = fs.readFileSync(path.join(root, "src/renderer/trading-expert-market.ts"), "utf8");
   const drawingSource = fs.readFileSync(path.join(root, "src/renderer/trading-expert-drawing.ts"), "utf8");
@@ -472,11 +482,19 @@ test("renderer route inherits the selected symbol, interval and visible candle r
   assert.match(mainSource, /generalRequest\?\.analysisFollowup === true/);
   assert.match(mainSource, /buildTradingAnalysisFollowupPrompt\(baseAgentText\)/);
   assert.match(mainSource, /hasCurrentAnalysis,/);
-  assert.match(mainSource, /drawingRequested: chartAnalysis && request\.drawingRequested === true/);
+  assert.match(mainSource, /drawingRequested: chartAnalysis && !explicitNoDrawingRequested\(fallback\.instruction\)/);
   assert.match(mainSource, /runTradingExpertGeneralConversation\(\{/);
   assert.doesNotMatch(mainSource, /general(?:Analysis)?Mentioned/);
-  assert.match(marketSource, /request\.symbol \|\| this\.selectedSymbol/);
-  assert.match(marketSource, /request\.interval \|\| this\.activeInterval/);
+  assert.match(mainSource, /symbol: chartAnalysis \? fallback\.symbol : null/);
+  assert.match(mainSource, /interval: chartAnalysis \? fallback\.interval : null/);
+  assert.match(mainSource, /正在由大模型理解问题是否需要读取盘面/);
+  assert.doesNotMatch(mainSource, /routeTradingExpertFastChatForSend\(\{/);
+  assert.match(marketSource, /selectTradingAnalysisMarket\(this\.markets/);
+  assert.match(marketSource, /selectTradingAnalysisInterval\(\{/);
+  assert.match(marketSource, /this\.loadedMarketId !== targetMarket\.id/);
+  assert.match(marketSource, /this\.loadedInterval !== targetInterval/);
+  assert.match(marketSource, /await this\.restartMarketData\(\)/);
+  assert.match(marketSource, /指定行情暂时不可用，已自动回到发送时的当前图表/);
   assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles, visibleRange\)/);
   assert.match(marketSource, /canvasCandles\.length\s*\? canvasCandles/);
   assert.match(marketSource, /canvasCandles\.slice\(-\(visibleCandlesOnly \? 600 : analysisWindowCount\)\)/);
@@ -491,6 +509,8 @@ test("renderer route inherits the selected symbol, interval and visible candle r
   assert.match(marketSource, /if \(applied !== true\)[\s\S]*?translateAppText\("Drawing Patch 未能应用到当前图表", currentJob\.language\)/);
   assert.match(marketSource, /request\.drawingRequested === false[\s\S]*?response\.analysisPlan\.narrative/);
   assert.match(marketSource, /左侧原画线保持不变/);
+  assert.match(marketSource, /buildRecoverableTradingAnalysis\(\{/);
+  assert.match(marketSource, /本地确定性价格结构分析/);
   assert.match(marketSource, /hasCurrentAnalysis\([\s\S]*?hasAiAnalysisForCurrentContext\(theory\)/);
   assert.match(drawingSource, /hasAiAnalysisForCurrentContext\([\s\S]*?tradingAiDrawingMatchesContext\(drawing, this\.getSymbol\(\), this\.getInterval\(\)\)/);
   assert.match(preloadSource, /classifyTradingGeneralRequest/);

@@ -5,6 +5,8 @@ export interface TradingGeneralRequest {
   interval: string | null;
   lookbackMs: number | null;
   lookbackLabel: string | null;
+  forecastHorizonMs?: number | null;
+  questionKinds?: readonly string[];
   drawingRequested: boolean;
   /** True only when this message semantically follows a prior chart conclusion. */
   analysisFollowup?: boolean;

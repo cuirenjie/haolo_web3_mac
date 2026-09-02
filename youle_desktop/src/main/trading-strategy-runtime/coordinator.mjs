@@ -1,7 +1,16 @@
 import { createStrategyResultEnvelope } from "./contracts.mjs";
 import { buildExecutionPlanV1, formatExecutionPlanMarkdown } from "./execution-plan-builder.mjs";
 import { containsHanCharacters } from "../assistant-output-language.mjs";
-import { deterministicStrategyChartRouting } from "../trading-analysis/request-routing-policy.mjs";
+import {
+  deterministicStrategyRequestRouting,
+  explicitNoDrawingRequested,
+  extractExplicitTradingParameters,
+  normalizeTradingRoutingText,
+} from "../trading-analysis/request-routing-policy.mjs";
+import {
+  buildGeneralRequestRoutingPrompt,
+  normalizeGeneralRequestRoutingModelResponse,
+} from "../trading-analysis/general-request-router.mjs";
 
 function boundedText(value, max = 12_000) {
   return String(value || "").replace(/\u0000/g, "").slice(0, max);
@@ -63,7 +72,7 @@ export class TradingStrategyCoordinator {
     });
   }
 
-  async classify(strategyId, params = {}) {
+  async classify(strategyId, params = {}, { signal, requestId } = {}) {
     const strategy = this.#registry.require(strategyId);
     const adapter = this.#registry.adapter(strategyId);
     if (!adapter) {
@@ -71,28 +80,89 @@ export class TradingStrategyCoordinator {
       error.code = "TRADING_STRATEGY_IMPLEMENTATION_UNAVAILABLE";
       throw error;
     }
-    // Selecting a strategy/indicator is an execution command.  The model may
-    // review deterministic theory results later, but it must never decide
-    // whether the request is allowed to inspect the chart.  This also makes
-    // transport failures incapable of silently downgrading a strategy turn to
-    // a generic conversation with no Drawing Gateway access.
-    const request = deterministicStrategyChartRouting(
-      boundedText(params?.text),
-      strategy.manifest,
-    );
-    return Object.freeze({
-      ok: true,
-      strategyId: strategy.manifest.id,
-      request,
-      classification: Object.freeze({
+    // Every strategy mention reaches the same model intent router first. The
+    // deterministic policy is evaluated only after a valid model response to
+    // bind literal targets, or inside the recovery branch when the model is
+    // unavailable or returns invalid JSON.
+    const instruction = normalizeTradingRoutingText(boundedText(params?.text));
+    try {
+      const modelResponse = await this.#modelRegistry.analyze(this.#providerId, {
         schemaVersion: 1,
-        mode: "chart-analysis",
-        intent: request.drawingRequested ? "chart-drawing" : "chart-analysis",
+        requestId: String(requestId || `${strategyId}-intent-route`),
+        task: "trading-turn-intent-routing",
+        theoryId: strategy.manifest.id,
+        snapshotId: String(requestId || `${strategyId}-intent-route`),
+        prompt: buildGeneralRequestRoutingPrompt({
+          text: instruction,
+          hasImageAttachment: params?.hasImageAttachment === true,
+          hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
+        }),
+        responseFormat: "json",
+      }, { signal, reasoningEffort: "low" });
+      const routed = normalizeGeneralRequestRoutingModelResponse(
+        modelResponse.text,
+        instruction,
+        { hasCurrentAnalysis: params?.hasCurrentAnalysis === true },
+      );
+      const fallback = deterministicStrategyRequestRouting(instruction, strategy.manifest);
+      // Bind chart targets directly from the literal instruction after the
+      // model decides the semantic mode. Do not depend on fallback.mode:
+      // older or narrower deterministic classifiers may label an otherwise
+      // valid “分析4小时” request as conversation and clear its interval.
+      const literal = extractExplicitTradingParameters(fallback.instruction);
+      const chartAnalysis = fallback.mode === "chart-analysis" || routed.request.mode === "chart-analysis";
+      const request = Object.freeze({
+        ...fallback,
+        mode: chartAnalysis ? "chart-analysis" : "conversation",
+        symbol: chartAnalysis ? literal.symbol : null,
+        interval: chartAnalysis ? literal.interval : null,
+        lookbackMs: chartAnalysis ? literal.lookbackMs : null,
+        lookbackLabel: chartAnalysis ? literal.lookbackLabel : null,
+        forecastHorizonMs: chartAnalysis ? literal.forecastHorizonMs : null,
+        drawingRequested: chartAnalysis && !explicitNoDrawingRequested(fallback.instruction),
+      });
+      const classification = {
+        ...routed.classification,
+        mode: request.mode,
+        intent: request.mode === "chart-analysis"
+          ? request.drawingRequested ? "chart-drawing" : "chart-analysis"
+          : "expert-question",
+        source: "model-first-unified-intent",
+      };
+      const model = {
+        providerId: modelResponse.providerId,
+        modelId: modelResponse.modelId,
+        latencyMs: modelResponse.latencyMs,
+      };
+      return Object.freeze({
+        ok: true,
+        strategyId: strategy.manifest.id,
+        request,
+        classification: Object.freeze(classification),
+        model: Object.freeze(model),
+      });
+    } catch (error) {
+      if (signal?.aborted || String(error?.name || "") === "AbortError") throw error;
+      // The model owns the first semantic decision, but never availability.
+      // A local result keeps the turn routable during provider/JSON failures.
+      const request = deterministicStrategyRequestRouting(instruction, strategy.manifest);
+      const classification = {
+        schemaVersion: 1,
+        mode: request.mode,
+        intent: request.mode === "chart-analysis"
+          ? request.drawingRequested ? "chart-drawing" : "chart-analysis"
+          : "expert-question",
         confidence: 1,
-        source: "deterministic-strategy-invocation",
-      }),
-      model: null,
-    });
+        source: "deterministic-recovery",
+      };
+      return Object.freeze({
+        ok: true,
+        strategyId: strategy.manifest.id,
+        request,
+        classification: Object.freeze(classification),
+        model: null,
+      });
+    }
   }
 
   async run(strategyId, params = {}, { signal } = {}) {

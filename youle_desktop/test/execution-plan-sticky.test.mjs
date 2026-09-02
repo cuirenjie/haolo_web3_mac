@@ -85,10 +85,9 @@ test("desktop execution-plan sticky HTML is escaped, draggable, themed, and full
   assert.match(html, /html\[data-theme="dark"\]/);
   assert.match(html, /\.card\s*\{[^}]*cursor:\s*grab[^}]*-webkit-app-region:\s*no-drag/s);
   assert.doesNotMatch(html, /\.card\s*\{[^}]*box-shadow:/s);
-  assert.match(html, /\.controls\s*\{[^}]*opacity:\s*0[^}]*pointer-events:\s*none/s);
-  assert.match(html, /\.card:hover \.controls/);
-  assert.match(html, /@media \(any-hover: none\)\s*\{\s*\.controls\s*\{[^}]*opacity:\s*1[^}]*pointer-events:\s*auto/s);
-  assert.doesNotMatch(html, /@media \(hover: none\)/);
+  assert.match(html, /\.controls\s*\{[^}]*opacity:\s*1[^}]*pointer-events:\s*auto[^}]*transform:\s*none/s);
+  assert.doesNotMatch(html, /\.controls\s*\{[^}]*box-shadow:/s);
+  assert.doesNotMatch(html, /\.card:hover \.controls|@media \((?:any-)?hover:\s*none\)/);
   assert.match(html, /data-resize-corner="nw"[\s\S]*data-resize-corner="ne"[\s\S]*data-resize-corner="sw"[\s\S]*data-resize-corner="se"/);
   assert.match(html, /\.resize-handle:hover, \.resize-handle\.active[\s\S]*opacity: 1/);
   assert.doesNotMatch(html, /\.resize-handle::before\s*\{[^}]*\b(?:border|border-radius|background|box-shadow):/s);
@@ -100,6 +99,7 @@ test("desktop execution-plan sticky HTML is escaped, draggable, themed, and full
   assert.match(html, /resizeApi\.resizeCommit\(payload\(\)\)[\s\S]*pointerup/);
   assert.match(html, /resizeApi\.moveLive\(movePayload\(\)\)[\s\S]*card\.addEventListener\("pointerdown"/);
   assert.match(html, /resizeApi\.moveCommit\(movePayload\(\)\)[\s\S]*card\.addEventListener\("pointerup"/);
+  assert.match(html, /card\.addEventListener\("wheel"[\s\S]*event\.preventDefault\(\)[\s\S]*wheelDistance < 0 \? "zoom-in" : "zoom-out"[\s\S]*haolo-execution-plan-sticky:\/\/[\s\S]*\{ passive: false \}/);
   assert.match(html, /html\[data-theme="dark"\][\s\S]*--control:/);
   assert.match(html, /p strong \{[^}]*font-weight: 700/s);
   assert.match(html, /haolo-execution-plan-sticky:\/\/zoom-in[\s\S]*放大/);
