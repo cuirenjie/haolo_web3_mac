@@ -9,6 +9,7 @@ const mainProcessSource = readFile(new URL("../src/main/main.mjs", import.meta.u
 const preloadSource = readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8");
 const browserMockSource = readFile(new URL("../src/renderer/browser_mock.ts", import.meta.url), "utf8");
 const prototypeSource = readFile(new URL("../../haolo-ai-recharge.html", import.meta.url), "utf8");
+const binancePaymentLogoSource = readFile(new URL("../src/renderer/assets/binance-bnb-logo.svg", import.meta.url), "utf8");
 
 function sourceBlock(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -19,10 +20,11 @@ function sourceBlock(source, startMarker, endMarker) {
 }
 
 test("recharge page shows subscriptions and selectable crypto payment networks without addon packages", async () => {
-  const [renderer, styles, browserMock] = await Promise.all([
+  const [renderer, styles, browserMock, binancePaymentLogo] = await Promise.all([
     rendererSource,
     stylesSource,
     browserMockSource,
+    binancePaymentLogoSource,
   ]);
   const products = sourceBlock(
     renderer,
@@ -115,8 +117,11 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.doesNotMatch(paymentDetailsStyles, /border-top/);
   assert.match(page, /renderRechargePaymentDetailsShell\(\)/);
   assert.match(page, /type="radio"[\s\S]*?name="recharge-payment-network"/);
-  assert.match(page, /renderTradingMarketAssetLogo\(network\.asset, "binance"\)/);
-  assert.match(page, /function renderRechargePaymentMethodLogo[\s\S]*?network\.id !== "okx_internal"[\s\S]*?recharge-payment-exchange-logo okx/);
+  assert.match(renderer, /const RECHARGE_BINANCE_LOGO_URL = new URL\("\.\/assets\/binance-bnb-logo\.svg", import\.meta\.url\)\.href/);
+  assert.match(page, /function renderRechargePaymentMethodLogo[\s\S]*?network\.id === "binance_internal" \|\| network\.id === "bsc"[\s\S]*?recharge-payment-binance-logo[\s\S]*?network\.id !== "okx_internal"[\s\S]*?recharge-payment-exchange-logo okx/);
+  assert.match(chainPaymentDetails, /recharge-payment-qr-logo[\s\S]*?renderRechargePaymentMethodLogo\(network\)/);
+  assert.match(binancePaymentLogo, /<circle[^>]*fill="#0b0e11"/);
+  assert.match(binancePaymentLogo, /<path fill="#f0b90b"/);
   assert.doesNotMatch(page, /RECHARGE_ADDON_PRODUCTS|recharge-addon-section|积分加油包|临时不够/);
   assert.doesNotMatch(styles, /recharge-addon-|recharge-product-(?:grid\.addon|bonus)/);
   assert.doesNotMatch(productCard, /<button|data-action=|product\.cta/);
@@ -221,6 +226,9 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.doesNotMatch(styles, /recharge-product-card\.payment-locked/);
   assert.match(styles, /\.recharge-payment-network-icon \.trading-market-asset-logo\.loading/);
   assert.match(styles, /\.recharge-payment-network-icon \.trading-market-asset-logo\s*\{[\s\S]*?animation: none;[\s\S]*?transition: none;/);
+  assert.match(styles, /\.recharge-payment-binance-logo\s*\{[\s\S]*?width: 24px;[\s\S]*?height: 24px;[\s\S]*?object-fit: contain;/);
+  assert.match(styles, /\.recharge-payment-internal-logo \.recharge-payment-binance-logo\s*\{[\s\S]*?width: 52px;[\s\S]*?height: 52px;/);
+  assert.match(styles, /\.recharge-payment-qr-logo \.recharge-payment-binance-logo\s*\{[\s\S]*?width: 30px;[\s\S]*?height: 30px;/);
   assert.match(styles, /\.recharge-payment-internal-logo \.trading-market-asset-logo\s*\{[\s\S]*?animation: none;[\s\S]*?transition: none;/);
   assert.match(styles, /\.recharge-payment-qr-logo\s*\{[\s\S]*?animation: none;[\s\S]*?transition: none;/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-payment-shell/);
