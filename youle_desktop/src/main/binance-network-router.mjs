@@ -108,7 +108,6 @@ async function fetchWithDeadline(fetchImpl, input, init, timeoutMs) {
       init.signal.addEventListener("abort", rejectCallerAbort, { once: true });
     })
     : null;
-  timer.unref?.();
   try {
     return await Promise.race([request, deadline, callerAbort].filter(Boolean));
   } finally {
@@ -326,7 +325,6 @@ export class BinanceNetworkRouter {
       openGatewayGate();
     };
     const hedgeTimer = setTimeout(openGateway, this.publicHedgeDelayMs);
-    hedgeTimer.unref?.();
 
     const directPromise = (async () => {
       try {

@@ -975,13 +975,13 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 ## 20. 当前工作焦点
 
-当前任务：无进行中的本地实现任务；M6-007 测试包 `0.1.183` 已完成预构建并通过产物校验，未发布、上传或部署。
-上一完成任务：M1-275 取消交易专家问答直连并统一由智能体处理提示词；保留大模型意图识别，全部用户可见回答改由工具型智能体链路产生。
+当前任务：无进行中的本地实现任务；`windows/dev` 截至 `794bff2` 的九个增量提交已融合到 macOS `dev` 并完成验证，未打包、发布、上传或部署。
+上一完成任务：本轮 Windows→macOS 增量同步；保留 macOS `0.1.164` 版本、Web3 更新通道和平台适配，同时纳入 M1-275、M2-018 等最新业务实现。
 专项执行计划：继续以本文、`docs/trading-strategy-skill-decoupling-plan.zh-CN.md` 和外部模型架构文档的权限边界为准。
 专项进度台账：本任务证据记录在本文 2026-09-02 日志；策略解耦后续任务继续写入 `docs/trading-strategy-skill-decoupling-progress.zh-CN.md`。
 并行任务：M1-274 已完成旧版 K线图偏好到 K线图（HLC）的一次性迁移并冷重启开发版；M1-273 已完成发送时交易分析快照锁定；M1-071 至 M1-090 的已实现交互继续等待开发版确认；M2-013 生产基础设施验收保持受阻。
 下一任务：外部生产基础设施具备后恢复 M2-013；其余交易专家交互继续按新的用户反馈拆分任务。
-当前阻塞：真实多 EIP 容量与故障切换验收仍依赖境外部署环境、私有出口分片子域名/TLS/DNS 接入、Redis、Haolo JWT/稳定分片哈希 Secret/独立监控 Token 的安全注入。本地没有 Docker、Kubernetes 或 Redis 运行时，无法执行镜像构建、Redis Lua 真机和集群实装；桌面全仓 2612 项中 2582 通过，剩余 30 项是本轮行情限流改动范围之外的既存源码形状、主题、国际化和媒体断言，本任务专项 54/54 且新增失败为 0；网关全量 31/31 通过。
+当前阻塞：真实多 EIP 容量与故障切换验收仍依赖境外部署环境、私有出口分片子域名/TLS/DNS 接入、Redis、Haolo JWT/稳定分片哈希 Secret/独立监控 Token 的安全注入。本地没有 Docker、Kubernetes 或 Redis 运行时，无法执行镜像构建、Redis Lua 真机和集群实装；桌面全仓当前 2623 项中 2582 通过、38 项失败、3 项跳过，本轮直接受影响与 macOS 兼容性回归 575/575 通过；网关全量 31/31 通过。
 需要产品确认但不阻塞 M0/M1：首发是否保持 BTC/ETH 永续及 15m/1h/4h 默认范围；若调整，只修改首发范围，不改变核心架构。
 
 ## 21. 架构决策记录
@@ -1872,3 +1872,5 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 - M2-018 网关与验证：公共网关把原始请求突发限制、缓存命中和上游权重准入拆开；缓存命中不消耗 Binance 上游预算，生产准入通过 Redis Lua 在所有副本间原子共享 Spot/Futures 总量和用户额度，并用 Binance 实际 `X-MBX-USED-WEIGHT-1M` 抬升账本下限。桌面定向回归 54/54、旧布局定向契约 1/1、网关全量 31/31、`pnpm run typecheck` 与 Vite production build（184 modules）通过；桌面全量 2612 项中 2582 通过、30 项为本任务开始前或并发工作区已有的 UI/国际化/媒体源码形状失败，M2-018 新增失败为 0。本轮未修改 CSS 或视觉组件，亮色/暗色交付面不变；未打包、发布、部署或重启任何服务。
 - 启动 M6-007 测试包预构建（不发布）：用户要求生成最新 HaoLo Web3 Windows 测试包。`git fetch --prune origin` 后确认本地 `dev` 与 `origin/dev` 同为 `bff5d92`，保留并纳入当前未提交的桌面工作区改动；`C:\Users\Joie\Desktop\好咯最新安装包` 中最高安装包为 `0.1.182`，因此本轮目标版本为 `0.1.183`。范围限定为生产 URL 校验、类型检查、Chrome Native Host、Renderer、win-unpacked、ASAR/运行时校验、NSIS 安装包与哈希复制，明确使用 `-SkipUpload`，不写生产更新记录、不发送飞书/Lark。
 - 完成 M6-007 测试包预构建（不发布）：账号/更新域名 `https://haolo.com` 与模型网关 `https://haolo.pro/v1` 校验通过；`pnpm run typecheck`、Chrome Native Host、Vite production build（184 modules）、Electron x64 解压版、17 个 ASAR 运行时模块校验和 NSIS 安装包全部成功。生成 `release/win-unpacked/haolo_desktop.exe`（210974208 bytes）与 `release/haolo_desktop-0.1.183-Setup.exe`（209627072 bytes，SHA-256 `F62DC8E0C2C8AF037949AC9B904BD805DD582444D62674F02F910C0EE62441DA`）；安装包已复制到 `C:\Users\Joie\Desktop\好咯最新安装包`，源文件与桌面副本大小及哈希一致。构建仅保留既有大 chunk、Node 弃用和重复依赖提示；`-SkipUpload` 生效，未生成 `app-update-release-0.1.183.json`，未写生产发布记录，未发送飞书/Lark。
+- 本轮 Windows→macOS 融合：拉取 `windows/dev` 后确认新基线为 `794bff2`；因两个仓库历史无共同祖先，沿用增量 cherry-pick 策略，将 `d548406..794bff2` 的九个提交依次融合到 macOS `dev`，并创建保护分支 `backup/dev-before-windows-merge-20260902`。冲突处理保留 macOS 桌面版本 `0.1.164`、Web3 更新通道、Dock/托盘/窗口与运行时适配，同时纳入充值、会员权益、图表极值与便利贴、Binance 限流治理、交易目标锁定、故障恢复和智能体问答路由等最新实现。
+- 本轮融合修复与验证：修复远端新增请求超时/竞速定时器被 `unref` 后在挂起网络下提前退出的问题，并稳定构造高精度价格步长；同步更新远端行为已变化但遗漏维护的充值、国际化、分屏绘图、收藏栏和思考状态源码断言。直接受影响与 macOS 兼容性回归 575/575、网关全量 31/31、`pnpm run typecheck`、Vite production build（184 modules）通过；桌面全仓当前 2623 项中 2582 通过、38 项失败、3 项跳过，未打包、发布、上传、部署或推送。

@@ -1547,7 +1547,7 @@ test("every visible split pane runs the requested analysis and plays its own dra
   assert.match(splitPane, /async analysisSnapshot\(lookbackMs: number \| null\)/);
   assert.match(splitPane, /await this\.reload\(true\)/);
   assert.match(splitPane, /paneIndex: this\.paneIndex,[\s\S]*?market: \{ \.\.\.this\.market \},[\s\S]*?interval: this\.interval/);
-  assert.match(splitPane, /playAiDrawingPatch\([\s\S]*?this\.drawingController\?\.playAiDrawingPatch\(patch, options\)/);
+  assert.match(splitPane, /playAiDrawingPatch\([\s\S]*?this\.drawingController\?\.playAiDrawingPatch\(patch, \{[\s\S]*?\.\.\.options,[\s\S]*?beforePlayback:/);
   assert.match(market, /private captureSplitPaneAnalysisSnapshots\([\s\S]*?const panes = \[\.\.\.this\.splitPanes\][\s\S]*?panes\.map\(\(pane\) => pane\.analysisSnapshot\(lookbackMs\)\)/);
   assert.match(market, /snapshotFailures\.push\([\s\S]*?行情快照读取失败/);
   assert.match(market, /private async runSplitPaneAnalyses\([\s\S]*?const snapshots = \[\.\.\.options\.snapshots\]/);
@@ -1556,11 +1556,11 @@ test("every visible split pane runs the requested analysis and plays its own dra
   assert.match(market, /const snapshot = snapshots\[cursor\]/);
   assert.match(market, /const response = await options\.analyze\(snapshot\)/);
   assert.match(market, /await commitTradingAnalysisDrawingPatch\([\s\S]*?snapshot\.paneIndex/);
-  assert.match(market, /失败原因会写入最终报告/);
+  assert.match(market, /主图分析继续有效；已纳入 \$\{completed\} 个辅助分屏，另有 \$\{failed\} 个辅助分屏暂未参与结论/);
   assert.match(market, /analysisProgressPhase: string;[\s\S]*?drawingProgressPhase: string;/);
   assert.match(market, /分析完成，正在逐笔落图/);
   assert.equal((market.match(/await this\.runSplitPaneAnalyses\(\{/g) || []).length, 5);
-  assert.equal((market.match(/report: combineTradingAnalysisReports\(/g) || []).length, 5);
+  assert.equal((market.match(/report: combineTradingAnalysisReports\(/g) || []).length, 6);
   assert.equal((market.match(/narrative: combineTradingAnalysisNarratives\(/g) || []).length, 5);
   assert.match(market, /const api:[\s\S]{0,160}= strategyId[\s\S]{0,240}runTradingStrategyAnalysis/);
   assert.match(market, /runTradingStrategyAnalysis![\s\S]{0,220}strategyId,[\s\S]{0,160}: window\.codexDesktop\.runTradingGeneralAnalysis/);

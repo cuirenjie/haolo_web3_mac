@@ -1052,7 +1052,7 @@ test("Trading Expert mention selection inserts an atomic highlighted category to
   assert.match(placeholderBlock, /isTradingExpertExecutionThreadId\(thread\.id\)[\s\S]*return "点击\+调用策略、指标、预警和文件"/);
   assert.match(applyBlock, /isTradingExpertThreadId\(threadId\)/);
   assert.match(applyBlock, /item\.options\.length > 0 && !option/);
-  assert.match(applyBlock, /const token = `@\$\{item\.label\}\$\{option \? `:\$\{option\}` : ""\}`/);
+  assert.match(applyBlock, /const token = localizedTradingExpertMentionToken\(item\.label, option \|\| ""\)/);
   assert.match(applyBlock, /composerMentionLeadingSpacer\(input\.value, match\.start\)/);
   assert.match(applyBlock, /composerMentionTrailingSpacer\(afterSelection\)/);
   assert.match(applyBlock, /applyTradingExpertCustomIndicatorMentions\(nextValue\)/);
@@ -1061,7 +1061,7 @@ test("Trading Expert mention selection inserts an atomic highlighted category to
   assert.match(bindBlock, /\[data-trading-expert-mention-option\][\s\S]*applyTradingExpertMention/);
   assert.match(highlightTokenBlock, /tradingExpertMentionTokens\(\)/);
   assert.match(atomicTokenBlock, /tradingExpertMentionTokens\(\)[\s\S]*TRADING_EXPERT_MENTION_CATALOG\.flatMap/);
-  assert.match(atomicTokenBlock, /item\.options\.length[\s\S]*\[`@\$\{item\.label\}`\]/);
+  assert.match(atomicTokenBlock, /item\.options\.length[\s\S]*item\.options\.flatMap[\s\S]*localizedTradingExpertMentionToken[\s\S]*\[`@\$\{item\.label\}`, localizedTradingExpertMentionToken/);
   assert.match(composerInputBlock, /state\.composerText = input\.value;\s*applyTradingExpertCustomIndicatorMentions\(input\.value\)/);
   assert.match(pendingSendBlock, /state\.composerText = "";\s*applyTradingExpertCustomIndicatorMentions\(state\.composerText\)/);
   assert.match(atomicDeleteBlock, /state\.composerText = nextValue;\s*applyTradingExpertCustomIndicatorMentions\(nextValue\)/);
@@ -1114,9 +1114,10 @@ test("Trading Expert opens the former mention menu from plus without reacting to
   assert.match(picker, /filesFromDroppedLocalPaths\(paths\)/);
   assert.match(preload, /pickComposerFilesAndFolders: \(\) => ipcRenderer\.invoke\("app:pickComposerFilesAndFolders"\)/);
   assert.match(nativePicker, /process\.platform === "win32" \|\| process\.platform === "linux"/);
-  assert.match(nativePicker, /buttons: \["选择文件", "选择文件夹", "取消"\]/);
+  assert.match(nativePicker, /buttons: \[mainUiText\("selectFiles"\), mainUiText\("selectFolder"\), mainUiText\("cancel"\)\]/);
   assert.match(nativePicker, /\["openFile", "multiSelections"\]/);
   assert.match(nativePicker, /\["openDirectory", "multiSelections"\]/);
+  assert.match(nativePicker, /\["openFile", "openDirectory", "multiSelections"\]/);
   assert.match(styles, /\.composer-upload-button\[aria-expanded="true"\][\s\S]*?background: var\(--surface-hover\);/);
   assert.match(styles, /html\[data-theme="dark"\] \.composer-upload-button\[aria-expanded="true"\][\s\S]*?background: var\(--selection-soft\);/);
   assert.match(styles, /html\[data-theme="dark"\][\s\S]*?\.trading-expert-attachment-item:disabled[\s\S]*?color: var\(--text-disabled\);/);
@@ -1834,7 +1835,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /\.trading-market-favorite-ticker:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.45;/s);
   assert.match(styles, /\.trading-market-favorite-ticker\[data-quote-state="loading"\] > span\s*\{[^}]*opacity: 0\.72;/s);
   assert.match(styles, /\.trading-market-favorite-ticker > strong\s*\{[^}]*text-overflow: ellipsis;/s);
-  assert.match(styles, /\.trading-market-favorite-ticker\s*\{[^}]*padding: 2px 8px;/s);
+  assert.match(styles, /\.trading-market-favorite-ticker\s*\{[^}]*padding: 0 8px;/s);
   assert.match(styles, /\.trading-market-favorite-remove\s*\{[^}]*position: absolute;[^}]*opacity: 0;[^}]*visibility: hidden;[^}]*pointer-events: none;/s);
   assert.match(styles, /\.trading-market-favorite-ticker:hover > \.trading-market-favorite-remove,[\s\S]*?\.trading-market-favorite-ticker:focus-within > \.trading-market-favorite-remove[\s\S]*?opacity: 1;[\s\S]*?visibility: visible;[\s\S]*?pointer-events: auto;/s);
   assert.match(styles, /\.trading-market-favorite-remove\s*\{[^}]*display: flex;[^}]*align-items: center;[^}]*justify-content: center;[^}]*border: 0;[^}]*border-radius: 50%;[^}]*background: var\(--trading-market-muted\);[^}]*color: #fff;/s);

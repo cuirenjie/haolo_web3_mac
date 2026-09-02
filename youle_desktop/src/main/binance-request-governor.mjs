@@ -207,7 +207,6 @@ async function runWithExecutionDeadline(networkFetch, input, init, timeoutMs) {
   });
   if (Number.isFinite(durationMs) && durationMs > 0) {
     timer = setTimeout(() => controller.abort(requestTimeoutError(Math.floor(durationMs))), Math.floor(durationMs));
-    timer.unref?.();
   }
   try {
     return await Promise.race([

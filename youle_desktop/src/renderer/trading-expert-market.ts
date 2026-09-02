@@ -4267,7 +4267,7 @@ export function marketFocusedPriceFormatFor(value: number) {
   return {
     type: "price" as const,
     precision,
-    minMove: 10 ** -precision,
+    minMove: Number(`1e-${precision}`),
   };
 }
 

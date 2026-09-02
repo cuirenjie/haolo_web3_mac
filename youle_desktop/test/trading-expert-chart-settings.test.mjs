@@ -649,7 +649,7 @@ test("split panes keep global titlebar favorite quotes while symbol and period s
   const [market, splitPane, css] = await Promise.all([marketSource, splitPaneSource, stylesSource]);
   assert.match(
     market,
-    /this\.favoriteTickerBar\.hidden = markets\.length === 0/,
+    /this\.favoriteTickerBar\.hidden = false/,
   );
   assert.doesNotMatch(css, /\.trading-expert-market\.split-layout-active \.trading-market-favorite-tickers/);
   assert.match(market, /private splitPaneSelections = new Map<number, TradingSplitPaneSelection>\(\)/);

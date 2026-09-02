@@ -8,7 +8,6 @@ import {
   rechargePaymentOrderSelectionKey,
   rechargePaymentOrderVisualFingerprint,
   rechargePaymentSelectionKey,
-  shouldAutoRetryRechargePaymentOrderRequest,
   shouldReplaceRechargePaymentOrderAfterFinalCheck,
 } from "../src/renderer/recharge-payment-selection.ts";
 
@@ -119,24 +118,6 @@ test("a valid cached order remains visible while its selection is confirmed by t
   assert.equal(canRetainRechargePaymentOrder({ ...order, status: "paid" }, now), true);
   assert.equal(canRetainRechargePaymentOrder({ ...order, status: "manual_review" }, now), true);
   assert.equal(canRetainRechargePaymentOrder({ ...order, status: "expired" }, now), false);
-});
-
-test("only the current selection gets one automatic non-auth retry", () => {
-  const base = {
-    authExpired: false,
-    retryAttempt: 0,
-    retryLimit: 1,
-    requestedSelectionKey: "subscription_pro:bsc:web3",
-    currentSelectionKey: "subscription_pro:bsc:web3",
-  };
-
-  assert.equal(shouldAutoRetryRechargePaymentOrderRequest(base), true);
-  assert.equal(shouldAutoRetryRechargePaymentOrderRequest({ ...base, authExpired: true }), false);
-  assert.equal(shouldAutoRetryRechargePaymentOrderRequest({ ...base, retryAttempt: 1 }), false);
-  assert.equal(
-    shouldAutoRetryRechargePaymentOrderRequest({ ...base, currentSelectionKey: "subscription_basic:bsc:web3" }),
-    false,
-  );
 });
 
 test("a final server check never replaces an order that just became paid", () => {

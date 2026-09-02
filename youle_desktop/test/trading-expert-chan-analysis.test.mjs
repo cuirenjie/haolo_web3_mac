@@ -570,7 +570,7 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
   assert.match(progressBlock, /label: "正在绘制盘面结构"/);
   assert.doesNotMatch(progressBlock, /label: "正在绘制缠论结构"/);
   assert.match(progressBlock, /label: "正在整理分析报告"/);
-  assert.match(tradingThinkingBlock, /function tradingExpertThinkingStage\(phase: string, reasoningSummary = ""\)[\s\S]*?const detail = "";/);
+  assert.match(tradingThinkingBlock, /function tradingExpertThinkingStage\(phase: string, reasoningSummary = "", message = ""\)[\s\S]*?const detail = message \|\| "";/);
   assert.match(tradingThinkingBlock, /phase === "alert-analyzing" \? reasoningSummary\.trim\(\) : detail/);
   assert.doesNotMatch(tradingThinkingBlock, /message\.trim\(\)/);
   assert.match(progressBlock, /function appendTradingExpertProgress/);
@@ -620,12 +620,12 @@ test("Trading Expert keeps the sent bubble and updates analysis progress without
   );
   assert.match(
     rendererSource,
-    /function patchActiveThinkingElapsed\(\)[\s\S]*?const stage = tradingExpertThinking[\s\S]*?tradingExpertThinkingStage\(/,
+    /function patchActiveThinkingElapsed\(\)[\s\S]*?const stage = localizedThinkingStage\(tradingExpertThinking[\s\S]*?tradingExpertThinkingStage\(/,
     "the elapsed timer must retain the Trading Expert execution stage",
   );
   assert.match(
     rendererSource,
-    /stage\.detail \? `<span class="thinking-stage-detail">/,
+    /visibleStage\.detail \? `<span class="thinking-stage-detail">/,
     "blank Trading Expert details must not leave a duplicate gray detail row",
   );
   const pendingSendStart = rendererSource.indexOf(

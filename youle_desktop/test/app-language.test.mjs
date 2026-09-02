@@ -359,7 +359,7 @@ test("strategy cards and dynamic membership agreements render from the active la
   assert.doesNotMatch(englishAgreement, /[\u3400-\u9fff]/u);
   assert.match(englishAgreement, /Membership Service Agreement/);
   assert.match(englishAgreement, /Order number/);
-  assert.equal((source.match(/renderRechargeMembershipAgreement\(product, order\)/g) || []).length, 2);
+  assert.equal((source.match(/renderRechargeMembershipAgreement\(product, order, network\)/g) || []).length, 2);
   assert.match(source, /rechargePaymentAccountCopyAriaLabel\(network\)/);
   assert.match(source, /rechargePaymentQrAlt\(network\)/);
 });
