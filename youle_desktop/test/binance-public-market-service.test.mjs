@@ -149,14 +149,49 @@ test("public market gateway preserves shared cooldown status and Retry-After", a
     path: "/fapi/v1/premiumIndex",
     parameters: { symbol: "BTCUSDT" },
   });
-  assert.deepEqual(result, {
-    ok: false,
-    status: 429,
-    data: null,
-    cached: false,
-    retryAfterMs: 37_000,
-    error: "cooldown",
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 429);
+  assert.equal(result.cached, false);
+  assert.equal(result.retryAfterMs, 37_000);
+  assert.equal(result.error, "cooldown");
+  assert.equal(result.diagnostics.origin, "direct_binance");
+  assert.equal(result.diagnostics.usedWeight, null);
+});
+
+test("public market service serves bounded stale data during a rate limit and preserves provenance", async () => {
+  let currentMs = 1_000_000;
+  let calls = 0;
+  const service = new BinancePublicMarketService({
+    now: () => currentMs,
+    fetch: async () => {
+      calls += 1;
+      if (calls === 1) return new Response(JSON.stringify({ symbol: "BTCUSDT", markPrice: "100" }), { status: 200 });
+      return new Response(JSON.stringify({ error: "RATE_LIMITED", message: "limited" }), {
+        status: 429,
+        headers: {
+          "retry-after": "20",
+          "x-haolo-binance-route": "public-gateway",
+          "x-haolo-binance-egress": "haolo-public",
+          "x-haolo-rate-limit-source": "gateway-downstream",
+        },
+      });
+    },
   });
+  const request = {
+    marketType: "futures",
+    path: "/fapi/v1/premiumIndex",
+    parameters: { symbol: "BTCUSDT" },
+  };
+  assert.equal((await service.request(request)).stale, undefined);
+  currentMs += 2_001;
+  const degraded = await service.request(request);
+  assert.equal(degraded.ok, true);
+  assert.equal(degraded.stale, true);
+  assert.equal(degraded.rateLimited, true);
+  assert.equal(degraded.sourceStatus, 429);
+  assert.equal(degraded.retryAfterMs, 20_000);
+  assert.equal(degraded.diagnostics.origin, "gateway_downstream");
+  assert.deepEqual(degraded.data, { symbol: "BTCUSDT", markPrice: "100" });
 });
 
 test("main-process public service can delegate its deadline and honor renderer cancellation", async () => {

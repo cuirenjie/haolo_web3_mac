@@ -33,6 +33,8 @@ test("auto router uses the current client network when Binance is reachable", as
 
   const response = await router.publicFetch("https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT");
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-haolo-binance-route"), "direct");
+  assert.equal(response.headers.get("x-haolo-binance-egress"), "local");
   assert.deepEqual(directRequests, ["https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT"]);
   assert.deepEqual(gatewayRequests, []);
   assert.equal(router.snapshot()["public:futures"].failures, 0);
@@ -143,6 +145,93 @@ test("public GET starts the gateway after the hedge delay and remembers the fast
   await router.publicFetch(input);
   assert.equal(directAttempts, 1, "remembered route should bypass foreground direct attempts");
   assert.equal(gatewayAttempts, 2);
+});
+
+test("a healthy direct lease avoids repeating the delayed hedge on every public GET", async () => {
+  let directAttempts = 0;
+  let gatewayAttempts = 0;
+  const router = new BinanceNetworkRouter({
+    config: autoConfig(),
+    publicHedgeDelayMs: 25,
+    healthyTtlMs: 60_000,
+    directFetch: async () => {
+      directAttempts += 1;
+      await new Promise((resolve) => setTimeout(resolve, directAttempts === 1 ? 5 : 45));
+      return new Response("[]", { status: 200 });
+    },
+    gatewayClient: {
+      async fetch() { gatewayAttempts += 1; return new Response("[]", { status: 200 }); },
+      async marketStreamEndpoint() { return "wss://market.haolo.example/stream/futures?ticket=one"; },
+    },
+    privateProxyFetch: async () => new Response("{}"),
+  });
+  const input = "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT";
+  assert.equal((await router.publicFetch(input)).headers.get("x-haolo-binance-route"), "direct");
+  assert.equal((await router.publicFetch(input)).headers.get("x-haolo-binance-route"), "direct");
+  assert.equal(directAttempts, 2);
+  assert.equal(gatewayAttempts, 0);
+});
+
+test("a gateway downstream 429 cannot win a hedge while direct Binance is still healthy", async () => {
+  let directAttempts = 0;
+  let gatewayAttempts = 0;
+  const router = new BinanceNetworkRouter({
+    config: autoConfig(),
+    publicHedgeDelayMs: 10,
+    directFetch: async () => {
+      directAttempts += 1;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return new Response("[]", { status: 200 });
+    },
+    gatewayClient: {
+      async fetch() {
+        gatewayAttempts += 1;
+        return new Response(JSON.stringify({ error: "RATE_LIMITED" }), {
+          status: 429,
+          headers: { "retry-after": "20", "x-haolo-rate-limit-source": "gateway-downstream" },
+        });
+      },
+      async marketStreamEndpoint() { return "wss://market.haolo.example/stream/futures?ticket=one"; },
+    },
+    privateProxyFetch: async () => new Response("{}"),
+  });
+  const response = await router.publicFetch("https://fapi.binance.com/fapi/v1/klines?symbol=ETHUSDT");
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-haolo-binance-route"), "direct");
+  assert.equal(directAttempts, 1);
+  assert.equal(gatewayAttempts, 1);
+});
+
+test("gateway stale data waits for a fresh direct hedge and remains the final fallback", async () => {
+  let directMode = "healthy";
+  const router = new BinanceNetworkRouter({
+    config: autoConfig(),
+    publicHedgeDelayMs: 10,
+    directFetch: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      if (directMode === "failed") throw new Error("direct unavailable");
+      return new Response(JSON.stringify({ source: "direct" }), { status: 200 });
+    },
+    gatewayClient: {
+      async fetch() {
+        return new Response(JSON.stringify({ source: "stale" }), {
+          status: 200,
+          headers: { "x-haolo-cache": "STALE" },
+        });
+      },
+      async marketStreamEndpoint() { return "wss://market.haolo.example/stream/futures?ticket=one"; },
+    },
+    privateProxyFetch: async () => new Response("{}"),
+  });
+  const input = "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT";
+  const fresh = await router.publicFetch(input);
+  assert.deepEqual(await fresh.json(), { source: "direct" });
+  assert.equal(fresh.headers.get("x-haolo-binance-route"), "direct");
+
+  directMode = "failed";
+  const fallback = await router.publicHedgedFetch(new URL(input), {}, "futures");
+  assert.deepEqual(await fallback.json(), { source: "stale" });
+  assert.equal(fallback.headers.get("x-haolo-cache"), "STALE");
 });
 
 test("persisted gateway preference survives a router restart and clears after recovery", async () => {

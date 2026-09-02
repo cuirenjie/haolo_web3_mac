@@ -89,6 +89,43 @@ test("chart settings normalize corrupt values and preserve independent light/dar
   assert.notEqual(settings.themes.light, settings.themes.dark);
 });
 
+test("HLC is the default and migrates legacy candlestick while current choices remain authoritative", async () => {
+  assert.equal(DEFAULT_TRADING_CHART_SETTINGS.chartStyle, "hlc");
+  assert.equal(cloneTradingChartSettings().chartStyle, "hlc");
+  assert.equal(normalizeTradingChartSettings({ chartStyle: "invalid" }).chartStyle, "hlc");
+
+  const emptyStorage = memoryStorage();
+  assert.equal(loadTradingChartSettings(emptyStorage).chartStyle, "hlc");
+
+  const legacyDefaultStorage = memoryStorage({
+    [TRADING_CHART_SETTINGS_STORAGE_KEY]: JSON.stringify({
+      version: 2,
+      chartStyle: "candlestick",
+    }),
+  });
+  assert.equal(loadTradingChartSettings(legacyDefaultStorage).chartStyle, "hlc");
+
+  const currentSavedStorage = memoryStorage({
+    [TRADING_CHART_SETTINGS_STORAGE_KEY]: JSON.stringify({
+      version: 3,
+      chartStyle: "candlestick",
+    }),
+  });
+  assert.equal(loadTradingChartSettings(currentSavedStorage).chartStyle, "candlestick");
+  assert.equal(normalizeTradingChartSettings({ version: 2, chartStyle: "bars" }).chartStyle, "bars");
+
+  for (const theme of ["light", "dark"]) {
+    const html = renderTradingChartSettingsDialog(cloneTradingChartSettings(), theme);
+    assert.match(html, /name="chartStyle" value="hlc"[^>]*checked/);
+    assert.doesNotMatch(html, /name="chartStyle" value="candlestick"[^>]*checked/);
+  }
+
+  assert.match(
+    await marketSource,
+    /action === "restore-chart-settings"[\s\S]*?cloneTradingChartSettings\(DEFAULT_TRADING_CHART_SETTINGS\)/,
+  );
+});
+
 test("light chart canvas defaults to white and migrates the former gray default", () => {
   assert.equal(DEFAULT_TRADING_CHART_SETTINGS.themes.light.backgroundColor, "#ffffff");
   assert.equal(DEFAULT_TRADING_CHART_SETTINGS.themes.dark.backgroundColor, "#0b0c0f");
@@ -100,7 +137,7 @@ test("light chart canvas defaults to white and migrates the former gray default"
     [TRADING_CHART_SETTINGS_STORAGE_KEY]: JSON.stringify(legacy),
   });
   const migrated = loadTradingChartSettings(storage);
-  assert.equal(migrated.version, 2);
+  assert.equal(migrated.version, 3);
   assert.equal(migrated.themes.light.backgroundColor, "#ffffff");
   assert.equal(migrated.themes.dark.backgroundColor, "#0B0C0F");
 });

@@ -49,7 +49,7 @@ import {
 } from "./trading-analysis-viewport.mjs";
 
 const CHINA_TIME_OFFSET_SECONDS = 8 * 60 * 60;
-const SPLIT_PANE_REFRESH_INTERVAL_MS = 15_000;
+const SPLIT_PANE_REFRESH_INTERVAL_MS = 30_000;
 const SPLIT_PANE_MARKET_RESULT_LIMIT = 120;
 const HIDDEN_SPLIT_PANE_INDICATORS: ReadonlySet<TradingIndicatorId> = new Set([
   "momentum",

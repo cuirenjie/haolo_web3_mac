@@ -9,6 +9,15 @@ function bindingKey(binding) {
   return Object.entries(binding).sort(([a], [b]) => a.localeCompare(b)).map(([id, value]) => `${id}:${value.marketId}:${value.interval}`).join("|");
 }
 
+export function tradingAlertArmRetryDelayMs(alertId, attemptValue, error = null) {
+  const attempt = Math.max(1, Math.floor(Number(attemptValue) || 1));
+  const exponential = Math.min(60_000, 2_000 * 2 ** Math.min(attempt - 1, 5));
+  const retryAfterMs = Math.max(0, Number(error?.details?.retryAfterMs) || 0);
+  const digest = crypto.createHash("sha256").update(`${String(alertId)}:${attempt}`).digest();
+  const jitterMs = digest.readUInt32BE(0) % 1_001;
+  return Math.max(exponential, retryAfterMs ? retryAfterMs + 500 : 0) + jitterMs;
+}
+
 export function materializeRuleBindings(rule, maxBindings = 256) {
   let bindings = [{}];
   for (const context of rule.contexts) {
@@ -103,7 +112,7 @@ export class TradingAlertEngine {
         catchUpEvaluated: false,
       });
     }
-    for (const alert of alerts) await this.armWithRecovery(alert.alertId);
+    await Promise.all(alerts.map((alert) => this.armWithRecovery(alert.alertId)));
     await this.store.writeHeartbeat(resumedAt);
     this.heartbeatTimer = setInterval(() => void this.store.writeHeartbeat(this.now()).catch(() => {}), this.heartbeatMs);
     this.heartbeatTimer.unref?.();
@@ -116,11 +125,11 @@ export class TradingAlertEngine {
     if (resetAttempt) this.armRetryAttempts.delete(alertId);
   }
 
-  scheduleArmRetry(alertId) {
+  scheduleArmRetry(alertId, error = null) {
     if (!this.started || this.armRetryTimers.has(alertId)) return;
     const attempt = Number(this.armRetryAttempts.get(alertId) || 0) + 1;
     this.armRetryAttempts.set(alertId, attempt);
-    const delay = Math.min(60_000, 2_000 * 2 ** Math.min(attempt - 1, 5));
+    const delay = tradingAlertArmRetryDelayMs(alertId, attempt, error);
     const timer = setTimeout(() => {
       this.armRetryTimers.delete(alertId);
       void this.enqueue(async () => {
@@ -149,7 +158,7 @@ export class TradingAlertEngine {
         rearmState: "unarmed",
         failure: String(error?.message || error || "行情初始化失败").slice(0, 1_000),
       });
-      if (retryable) this.scheduleArmRetry(alertId);
+      if (retryable) this.scheduleArmRetry(alertId, error);
       return { alert, monitoringReady: false, error };
     }
   }
@@ -335,6 +344,7 @@ export class TradingAlertEngine {
       for (const { alertId } of suspension.alertSnapshots) await this.disarm(alertId, { updateStore: false });
       this.dataHub.clearHistory?.();
     }
+    const rearmAlertIds = [];
     for (const item of suspension.alertSnapshots) {
       const alert = await this.store.getAlert(item.alertId);
       if (!alert?.enabled || alert.status === "completed") continue;
@@ -348,8 +358,9 @@ export class TradingAlertEngine {
         resumedAt,
         catchUpEvaluated: false,
       });
-      await this.armWithRecovery(item.alertId);
+      rearmAlertIds.push(item.alertId);
     }
+    await Promise.all(rearmAlertIds.map((alertId) => this.armWithRecovery(alertId)));
     return this.status();
   }
 

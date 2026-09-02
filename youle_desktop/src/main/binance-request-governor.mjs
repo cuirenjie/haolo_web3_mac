@@ -5,6 +5,7 @@ const WINDOW_MS = 60_000;
 const DEFAULT_RETRY_AFTER_MS = 60_000;
 const DEFAULT_BAN_RETRY_AFTER_MS = 5 * 60_000;
 const BINANCE_HOST_PATTERN = /(^|\.)binance\.com$/i;
+const MAX_DIAGNOSTIC_EVENTS = 128;
 
 export const BINANCE_REQUEST_PRIORITIES = Object.freeze({
   accountInteractive: 120,
@@ -46,6 +47,22 @@ export function binanceRequestBucket(input) {
     : "spot";
 }
 
+export function binanceRequestEndpointClass(input) {
+  const url = requestUrl(input);
+  const pathname = String(url?.pathname || "");
+  if (pathname.endsWith("/exchangeInfo")) return "metadata";
+  if (pathname.endsWith("/klines") || pathname.endsWith("/uiKlines")) return "candles";
+  if (pathname.endsWith("/ticker/24hr")) return url?.searchParams?.has("symbol") ? "ticker" : "ticker-catalog";
+  if (pathname.endsWith("/premiumIndex")) return "mark-price";
+  if (pathname.endsWith("/openInterest") || pathname.endsWith("/openInterestHist")) return "open-interest";
+  if (pathname.endsWith("/aggTrades")) return "aggregate-trades";
+  if (pathname.endsWith("/depth")) return "depth";
+  if (/\/(account|positionRisk|openOrders|openAlgoOrders|userTrades|income)$/.test(pathname)) return "account";
+  if (pathname.endsWith("/wallet/balance")) return "wallet";
+  if (pathname.endsWith("/ping") || pathname.endsWith("/time")) return "probe";
+  return "other";
+}
+
 function depthWeight(limit, futures) {
   if (futures) {
     if (limit <= 50) return 2;
@@ -66,8 +83,8 @@ function futuresKlineWeight(limit) {
   return 10;
 }
 
-// Conservative weights: overestimating is intentional because Binance accounts
-// request weight by public IP, shared by every renderer and background service.
+// Conservative weights are used for admission before the route is known. Once
+// the response arrives, only direct traffic remains charged to the local egress.
 export function binanceRequestWeight(input, init = {}) {
   const url = requestUrl(input);
   if (!url || !BINANCE_HOST_PATTERN.test(url.hostname)) return 0;
@@ -102,7 +119,7 @@ export function parseBinanceRetryAfterMs(response, currentMs = Date.now()) {
   return Number.isFinite(dateMs) ? Math.max(0, dateMs - currentMs) : null;
 }
 
-function localRateLimitResponse(retryAfterMs, reason) {
+function localRateLimitResponse(retryAfterMs, reason, source = "local-budget") {
   const safeRetryMs = Math.max(1_000, positiveInteger(retryAfterMs, DEFAULT_RETRY_AFTER_MS));
   return new Response(JSON.stringify({
     code: -1003,
@@ -116,8 +133,34 @@ function localRateLimitResponse(retryAfterMs, reason) {
       "content-type": "application/json",
       "retry-after": String(Math.max(1, Math.ceil(safeRetryMs / 1_000))),
       "x-haolo-binance-governor": reason,
+      "x-haolo-binance-route": "client",
+      "x-haolo-binance-egress": "client",
+      "x-haolo-rate-limit-source": source,
     },
   });
+}
+
+function boundedText(value, fallback = "unknown", max = 64) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return (normalized || fallback).slice(0, max);
+}
+
+function responseRateLimitOrigin(response) {
+  const status = Number(response?.status || 0);
+  const route = boundedText(response?.headers?.get?.("x-haolo-binance-route"), "direct");
+  const egress = boundedText(
+    response?.headers?.get?.("x-haolo-binance-egress"),
+    route === "direct" ? "local" : route,
+  );
+  const source = boundedText(response?.headers?.get?.("x-haolo-rate-limit-source"), "");
+  const governor = boundedText(response?.headers?.get?.("x-haolo-binance-governor"), "");
+  let origin = "none";
+  if (governor === "budget" || source === "local-budget") origin = "local_budget";
+  else if (source === "gateway-downstream") origin = "gateway_downstream";
+  else if (source === "gateway-upstream") origin = "gateway_upstream";
+  else if ((status === 418 || status === 429) && route.includes("gateway")) origin = "gateway_downstream";
+  else if (status === 418 || status === 429 || source === "direct-binance") origin = "direct_binance";
+  return { route, egress, origin };
 }
 
 function responseCopy(response) {
@@ -185,6 +228,7 @@ export class BinanceRequestGovernor {
     maxConcurrency = 4,
     safetyRatio = 0.6,
     limits = {},
+    onDiagnostic = null,
   } = {}) {
     this.statePath = String(statePath || "");
     this.now = now;
@@ -197,12 +241,22 @@ export class BinanceRequestGovernor {
     this.entries = new Map([["futures", []], ["spot", []]]);
     this.observedUsedWeight = new Map();
     this.bucketCooldownUntil = new Map();
-    this.globalCooldownUntil = 0;
     this.queue = [];
     this.running = 0;
     this.sequence = 0;
     this.inflightPublicGets = new Map();
-    this.metrics = { admitted: 0, coalesced: 0, blocked: 0, upstreamRateLimits: 0 };
+    this.metrics = {
+      admitted: 0,
+      coalesced: 0,
+      blocked: 0,
+      upstreamRateLimits: 0,
+      localBudgetBlocks: 0,
+      directRateLimits: 0,
+      gatewayDownstreamRateLimits: 0,
+      gatewayUpstreamRateLimits: 0,
+    };
+    this.diagnostics = [];
+    this.onDiagnostic = typeof onDiagnostic === "function" ? onDiagnostic : null;
     this.loadState();
   }
 
@@ -210,8 +264,12 @@ export class BinanceRequestGovernor {
     if (!this.statePath) return;
     try {
       const state = JSON.parse(fs.readFileSync(this.statePath, "utf8"));
-      const value = Number(state?.globalCooldownUntil);
-      if (Number.isFinite(value) && value > nowValue(this.now)) this.globalCooldownUntil = value;
+      const currentMs = nowValue(this.now);
+      const legacyGlobal = Number(state?.globalCooldownUntil);
+      for (const bucket of ["futures", "spot"]) {
+        const value = Number(state?.bucketCooldownUntil?.[bucket] ?? legacyGlobal);
+        if (Number.isFinite(value) && value > currentMs) this.bucketCooldownUntil.set(bucket, value);
+      }
     } catch {}
   }
 
@@ -219,7 +277,10 @@ export class BinanceRequestGovernor {
     if (!this.statePath) return;
     try {
       fs.mkdirSync(path.dirname(this.statePath), { recursive: true });
-      fs.writeFileSync(this.statePath, JSON.stringify({ version: 1, globalCooldownUntil: this.globalCooldownUntil }), "utf8");
+      fs.writeFileSync(this.statePath, JSON.stringify({
+        version: 2,
+        bucketCooldownUntil: Object.fromEntries(this.bucketCooldownUntil),
+      }), "utf8");
     } catch {}
   }
 
@@ -229,9 +290,17 @@ export class BinanceRequestGovernor {
       ...this.metrics,
       running: this.running,
       queued: this.queue.length,
-      globalCooldownRemainingMs: Math.max(0, this.globalCooldownUntil - currentMs),
+      globalCooldownRemainingMs: Math.max(0, ...[...this.bucketCooldownUntil.values()].map((value) => value - currentMs)),
+      cooldowns: Object.freeze(Object.fromEntries(["futures", "spot"].map((bucket) => [
+        bucket,
+        Math.max(0, Number(this.bucketCooldownUntil.get(bucket) || 0) - currentMs),
+      ]))),
       futuresWeight: this.usedWeight("futures", currentMs),
       spotWeight: this.usedWeight("spot", currentMs),
+      observedWeightByEgress: Object.freeze(Object.fromEntries([...this.observedUsedWeight].flatMap(([key, record]) => (
+        record.at > currentMs - WINDOW_MS ? [[key, record.value]] : []
+      )))),
+      recentDiagnostics: Object.freeze(this.diagnostics.map((entry) => Object.freeze({ ...entry }))),
     });
   }
 
@@ -239,8 +308,8 @@ export class BinanceRequestGovernor {
     const entries = this.entries.get(bucket) || [];
     while (entries.length && entries[0].at <= currentMs - WINDOW_MS) entries.shift();
     const reserved = entries.reduce((total, entry) => total + entry.weight, 0);
-    const observed = this.observedUsedWeight.get(bucket);
-    const observedValue = observed && observed.at > currentMs - WINDOW_MS ? observed.value : 0;
+    const observed = this.observedUsedWeight.get(`local:${bucket}`);
+    const observedValue = observed?.at > currentMs - WINDOW_MS ? observed.value : 0;
     return Math.max(reserved, observedValue);
   }
 
@@ -250,45 +319,83 @@ export class BinanceRequestGovernor {
 
   retryAfterForBudget(bucket, currentMs) {
     const entries = this.entries.get(bucket) || [];
-    const observed = this.observedUsedWeight.get(bucket);
     const candidates = [];
     if (entries[0]) candidates.push(entries[0].at + WINDOW_MS);
+    const observed = this.observedUsedWeight.get(`local:${bucket}`);
     if (observed?.at > currentMs - WINDOW_MS) candidates.push(observed.at + WINDOW_MS);
     return Math.max(1_000, Math.min(...(candidates.length ? candidates : [currentMs + WINDOW_MS])) - currentMs);
   }
 
   reserve(bucket, weight, currentMs) {
     const used = this.usedWeight(bucket, currentMs);
-    if (used + weight > this.budgetLimit(bucket)) return false;
-    this.entries.get(bucket).push({ at: currentMs, weight });
-    return true;
+    if (used + weight > this.budgetLimit(bucket)) return null;
+    const reservation = { at: currentMs, weight };
+    this.entries.get(bucket).push(reservation);
+    return reservation;
+  }
+
+  releaseReservation(bucket, reservation) {
+    const entries = this.entries.get(bucket) || [];
+    const index = entries.indexOf(reservation);
+    if (index >= 0) entries.splice(index, 1);
   }
 
   cooldownRemaining(bucket, currentMs) {
-    return Math.max(0, this.globalCooldownUntil, this.bucketCooldownUntil.get(bucket) || 0) - currentMs;
+    return Math.max(0, Number(this.bucketCooldownUntil.get(bucket) || 0) - currentMs);
   }
 
-  setUpstreamCooldown(until) {
-    if (until <= this.globalCooldownUntil) return;
-    this.globalCooldownUntil = until;
+  setUpstreamCooldown(bucket, until) {
+    if (until <= Number(this.bucketCooldownUntil.get(bucket) || 0)) return;
+    this.bucketCooldownUntil.set(bucket, until);
     this.persistState();
   }
 
   observeResponse(bucket, response, currentMs) {
+    const provenance = responseRateLimitOrigin(response);
     const usedHeader = response?.headers?.get?.("x-mbx-used-weight-1m")
       || response?.headers?.get?.("x-sapi-used-ip-weight-1m")
       || response?.headers?.get?.("x-mbx-used-weight");
-    const used = Number(usedHeader);
+    const used = usedHeader == null || String(usedHeader).trim() === "" ? Number.NaN : Number(usedHeader);
+    const gatewayRemainingHeader = response?.headers?.get?.("x-ratelimit-remaining");
+    const gatewayRemaining = gatewayRemainingHeader == null || String(gatewayRemainingHeader).trim() === ""
+      ? Number.NaN
+      : Number(gatewayRemainingHeader);
     if (Number.isFinite(used) && used >= 0) {
-      this.observedUsedWeight.set(bucket, { at: currentMs, value: used });
-      if (used >= this.budgetLimit(bucket)) this.bucketCooldownUntil.set(bucket, currentMs + WINDOW_MS);
+      this.observedUsedWeight.set(`${provenance.egress}:${bucket}`, { at: currentMs, value: used });
     }
     const status = Number(response?.status || 0);
-    if (status === 429 || status === 418) {
+    const rateLimited = status === 429
+      || status === 418
+      || provenance.origin === "gateway_downstream"
+      || provenance.origin === "gateway_upstream";
+    if (rateLimited) {
       const retryAfterMs = parseBinanceRetryAfterMs(response, currentMs)
         ?? (status === 418 ? DEFAULT_BAN_RETRY_AFTER_MS : DEFAULT_RETRY_AFTER_MS);
       this.metrics.upstreamRateLimits += 1;
-      this.setUpstreamCooldown(currentMs + Math.max(1_000, retryAfterMs));
+      if (provenance.origin === "direct_binance") {
+        this.metrics.directRateLimits += 1;
+        this.setUpstreamCooldown(bucket, currentMs + Math.max(1_000, retryAfterMs));
+      } else if (provenance.origin === "gateway_downstream") {
+        this.metrics.gatewayDownstreamRateLimits += 1;
+      } else if (provenance.origin === "gateway_upstream") {
+        this.metrics.gatewayUpstreamRateLimits += 1;
+      }
+    }
+    return {
+      ...provenance,
+      usedWeight: Number.isFinite(used) && used >= 0 ? used : null,
+      gatewayRemaining: Number.isFinite(gatewayRemaining) && gatewayRemaining >= 0 ? gatewayRemaining : null,
+      cacheStatus: boundedText(response?.headers?.get?.("x-haolo-cache"), "none"),
+      retryAfterMs: parseBinanceRetryAfterMs(response, currentMs),
+    };
+  }
+
+  recordDiagnostic(value) {
+    const entry = Object.freeze({ ...value });
+    this.diagnostics.push(entry);
+    while (this.diagnostics.length > MAX_DIAGNOSTIC_EVENTS) this.diagnostics.shift();
+    if (this.onDiagnostic) {
+      try { this.onDiagnostic(entry); } catch {}
     }
   }
 
@@ -344,7 +451,22 @@ export class BinanceRequestGovernor {
     const cooldownMs = this.cooldownRemaining(bucket, currentMs);
     if (cooldownMs > 0) {
       this.metrics.blocked += 1;
-      return localRateLimitResponse(cooldownMs, "upstream");
+      this.recordDiagnostic({
+        at: currentMs,
+        source: boundedText(context.source, "market"),
+        bucket,
+        endpointClass: binanceRequestEndpointClass(url),
+        pathname: url.pathname,
+        route: "client",
+        egress: "client",
+        origin: "direct_binance",
+        status: 429,
+        retryAfterMs: cooldownMs,
+        weight: 0,
+        running: this.running,
+        queued: this.queue.length,
+      });
+      return localRateLimitResponse(cooldownMs, "upstream", "direct-binance");
     }
 
     const method = String(init?.method || "GET").toUpperCase();
@@ -358,20 +480,88 @@ export class BinanceRequestGovernor {
     }
 
     const weight = Math.max(1, positiveInteger(context.weight, binanceRequestWeight(url, init)));
-    if (!this.reserve(bucket, weight, currentMs)) {
+    const reservation = this.reserve(bucket, weight, currentMs);
+    if (!reservation) {
       this.metrics.blocked += 1;
-      return localRateLimitResponse(this.retryAfterForBudget(bucket, currentMs), "budget");
+      this.metrics.localBudgetBlocks += 1;
+      const retryAfterMs = this.retryAfterForBudget(bucket, currentMs);
+      this.recordDiagnostic({
+        at: currentMs,
+        source: boundedText(context.source, "market"),
+        bucket,
+        endpointClass: binanceRequestEndpointClass(url),
+        pathname: url.pathname,
+        route: "client",
+        egress: "client",
+        origin: "local_budget",
+        status: 429,
+        retryAfterMs,
+        weight,
+        running: this.running,
+        queued: this.queue.length,
+      });
+      return localRateLimitResponse(retryAfterMs, "budget", "local-budget");
     }
 
     this.metrics.admitted += 1;
+    let networkStarted = false;
     const request = this.enqueue(async () => {
-      const response = await runWithExecutionDeadline(networkFetch, input, init, context.timeoutMs);
-      this.observeResponse(bucket, response, nowValue(this.now));
-      return response;
+      const startedAt = nowValue(this.now);
+      try {
+        const response = await runWithExecutionDeadline((...args) => {
+          networkStarted = true;
+          return networkFetch(...args);
+        }, input, init, context.timeoutMs);
+        const finishedAt = nowValue(this.now);
+        const observation = this.observeResponse(bucket, response, finishedAt);
+        if (observation.egress !== "local") this.releaseReservation(bucket, reservation);
+        this.recordDiagnostic({
+          at: finishedAt,
+          source: boundedText(context.source, "market"),
+          bucket,
+          endpointClass: binanceRequestEndpointClass(url),
+          pathname: url.pathname,
+          route: observation.route,
+          egress: observation.egress,
+          origin: observation.origin,
+          status: Number(response?.status || 0),
+          retryAfterMs: observation.retryAfterMs,
+          usedWeight: observation.usedWeight,
+          gatewayRemaining: Number.isFinite(observation.gatewayRemaining) ? observation.gatewayRemaining : null,
+          cacheStatus: observation.cacheStatus,
+          weight,
+          durationMs: Math.max(0, finishedAt - startedAt),
+          running: this.running,
+          queued: this.queue.length,
+        });
+        return response;
+      } catch (error) {
+        const finishedAt = nowValue(this.now);
+        this.recordDiagnostic({
+          at: finishedAt,
+          source: boundedText(context.source, "market"),
+          bucket,
+          endpointClass: binanceRequestEndpointClass(url),
+          pathname: url.pathname,
+          route: "unknown",
+          egress: "unknown",
+          origin: "transport",
+          status: 0,
+          retryAfterMs: null,
+          weight,
+          durationMs: Math.max(0, finishedAt - startedAt),
+          running: this.running,
+          queued: this.queue.length,
+        });
+        throw error;
+      }
     }, context.priority ?? BINANCE_REQUEST_PRIORITIES.market, init?.signal);
     if (dedupeKey) this.inflightPublicGets.set(dedupeKey, request);
     try {
       return responseCopy(await request);
+    } catch (error) {
+      if (!networkStarted) this.releaseReservation(bucket, reservation);
+      throw error;
     } finally {
       if (dedupeKey && this.inflightPublicGets.get(dedupeKey) === request) this.inflightPublicGets.delete(dedupeKey);
     }

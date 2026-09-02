@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { TradingAlertStore, createInitialAlertInstance } from "../src/main/trading-alerts/store.mjs";
 import { TradingAlertMarketDataHub } from "../src/main/trading-alerts/market-data-hub.mjs";
-import { TradingAlertEngine } from "../src/main/trading-alerts/engine.mjs";
+import { TradingAlertEngine, tradingAlertArmRetryDelayMs } from "../src/main/trading-alerts/engine.mjs";
 import { normalizeAlertRule } from "../src/main/trading-alerts/protocol.mjs";
 import { TradingAlertEvaluator } from "../src/main/trading-alerts/evaluator.mjs";
 
@@ -53,6 +53,18 @@ class FakeAdapter {
 async function createAlert(store, rule, id = "alert-engine") {
   await store.createAlert(createInitialAlertInstance({ alertId: id, draftId: `draft-${id}`, rule, simulationId: `simulation-${id}`, confirmationId: `confirmation-${id}`, now: START }));
 }
+
+test("alert rearm delay respects Retry-After and deterministically staggers alert ids", () => {
+  const error = { details: { retryAfterMs: 45_000 } };
+  const first = tradingAlertArmRetryDelayMs("alert-a", 1, error);
+  const repeated = tradingAlertArmRetryDelayMs("alert-a", 1, error);
+  const second = tradingAlertArmRetryDelayMs("alert-b", 1, error);
+  assert.equal(first, repeated);
+  assert.ok(first >= 45_500 && first <= 46_500);
+  assert.ok(second >= 45_500 && second <= 46_500);
+  assert.notEqual(first, second);
+  assert.ok(tradingAlertArmRetryDelayMs("alert-a", 6) >= 60_000);
+});
 
 test("engine establishes a no-catch-up baseline, then triggers once with evidence and notification", async () => {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "haolo-alert-engine-"));

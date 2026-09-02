@@ -27,7 +27,7 @@ export interface TradingOrderDisplaySettings {
 }
 
 export interface TradingChartSettings {
-  version: 2;
+  version: 3;
   chartStyle: TradingChartStyle;
   priceAdjustment: TradingPriceAdjustment;
   verticalPaddingPercent: number;
@@ -111,8 +111,8 @@ export function tradingPriceScaleUsesAutoScale(mode: TradingPriceScaleMode) {
 }
 
 export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
-  version: 2,
-  chartStyle: "candlestick",
+  version: 3,
+  chartStyle: "hlc",
   priceAdjustment: "none",
   verticalPaddingPercent: 2,
   hollowRising: false,
@@ -335,15 +335,19 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
   const source = value && typeof value === "object" ? value as Partial<TradingChartSettings> : {};
   const sourceThemes = source.themes && typeof source.themes === "object" ? source.themes : {} as TradingChartSettings["themes"];
   const sourceVersion = Number((source as { version?: unknown }).version);
+  const sourceChartStyle = chartStyles.has(source.chartStyle as TradingChartStyle)
+    ? source.chartStyle as TradingChartStyle
+    : defaults.chartStyle;
   const lightTheme = normalizeTheme(sourceThemes.light, defaults.themes.light);
-  if (sourceVersion !== 2 && lightTheme.backgroundColor === "#F7F9FC") {
+  if ((!Number.isFinite(sourceVersion) || sourceVersion < 2) && lightTheme.backgroundColor === "#F7F9FC") {
     lightTheme.backgroundColor = defaults.themes.light.backgroundColor;
   }
   return {
-    version: 2,
-    chartStyle: chartStyles.has(source.chartStyle as TradingChartStyle)
-      ? source.chartStyle as TradingChartStyle
-      : defaults.chartStyle,
+    version: 3,
+    chartStyle: (!Number.isFinite(sourceVersion) || sourceVersion < 3)
+      && sourceChartStyle === "candlestick"
+      ? "hlc"
+      : sourceChartStyle,
     priceAdjustment: adjustments.has(source.priceAdjustment as TradingPriceAdjustment)
       ? source.priceAdjustment as TradingPriceAdjustment
       : defaults.priceAdjustment,

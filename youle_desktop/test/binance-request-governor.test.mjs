@@ -47,7 +47,7 @@ test("identical public GETs are coalesced and return independently readable resp
   assert.equal(governor.snapshot().coalesced, 1);
 });
 
-test("an upstream 429 creates one shared, restart-persistent cooldown", async () => {
+test("a direct Binance 429 creates a market-scoped, restart-persistent cooldown", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "haolo-binance-governor-"));
   const statePath = path.join(directory, "state.json");
   let currentMs = 1_000_000;
@@ -58,25 +58,35 @@ test("an upstream 429 creates one shared, restart-persistent cooldown", async ()
     return new Response(JSON.stringify({ code: -1003 }), { status: 429, headers: { "retry-after": "90" } });
   }, "https://fapi.binance.com/fapi/v1/time", {}, { source: "account" });
   assert.equal(response.status, 429);
-  assert.equal(governor.snapshot().globalCooldownRemainingMs, 90_000);
+  assert.equal(governor.snapshot().cooldowns.futures, 90_000);
+  assert.equal(governor.snapshot().cooldowns.spot, 0);
+
+  const spot = await governor.fetch(async () => {
+    calls += 1;
+    return new Response("{}");
+  }, "https://api.binance.com/api/v3/time", {}, { source: "alert" });
+  assert.equal(spot.status, 200);
 
   const blocked = await governor.fetch(async () => {
     calls += 1;
     return new Response("unexpected");
-  }, "https://api.binance.com/api/v3/time", {}, { source: "alert" });
+  }, "https://fapi.binance.com/fapi/v1/ping", {}, { source: "alert" });
   assert.equal(blocked.status, 429);
   assert.equal(blocked.headers.get("x-haolo-binance-governor"), "upstream");
-  assert.equal(calls, 1);
+  assert.equal(blocked.headers.get("x-haolo-rate-limit-source"), "direct-binance");
+  assert.equal(calls, 2);
 
   const persisted = JSON.parse(await readFile(statePath, "utf8"));
-  assert.equal(persisted.globalCooldownUntil, currentMs + 90_000);
+  assert.equal(persisted.version, 2);
+  assert.equal(persisted.bucketCooldownUntil.futures, currentMs + 90_000);
   const restarted = new BinanceRequestGovernor({ statePath, now: () => currentMs + 1_000 });
-  assert.equal(restarted.snapshot().globalCooldownRemainingMs, 89_000);
+  assert.equal(restarted.snapshot().cooldowns.futures, 89_000);
+  assert.equal(restarted.snapshot().cooldowns.spot, 0);
 });
 
-test("observed Binance weight headers stop requests before the upstream rejects them", async () => {
+test("observed gateway weight stays on its egress while the local logical budget remains independent", async () => {
   let calls = 0;
-  let currentMs = 2_000_000;
+  const currentMs = 2_000_000;
   const governor = new BinanceRequestGovernor({
     now: () => currentMs,
     safetyRatio: 0.5,
@@ -84,16 +94,88 @@ test("observed Binance weight headers stop requests before the upstream rejects 
   });
   const fetchImpl = async () => {
     calls += 1;
-    return new Response("{}", { status: 200, headers: { "x-mbx-used-weight-1m": "5" } });
+    return new Response("{}", { status: 200, headers: {
+      "x-mbx-used-weight-1m": "5",
+      "x-haolo-binance-route": "public-gateway",
+      "x-haolo-binance-egress": "haolo-public",
+    } });
   };
   assert.equal((await governor.fetch(fetchImpl, "https://fapi.binance.com/fapi/v1/time")).status, 200);
-  const blocked = await governor.fetch(fetchImpl, "https://fapi.binance.com/fapi/v1/ping");
-  assert.equal(blocked.status, 429);
-  assert.equal(blocked.headers.get("x-haolo-binance-governor"), "upstream");
-  assert.equal(calls, 1);
-  currentMs += 60_001;
   assert.equal((await governor.fetch(fetchImpl, "https://fapi.binance.com/fapi/v1/ping")).status, 200);
+  assert.equal(governor.snapshot().observedWeightByEgress["haolo-public:futures"], 5);
+  assert.equal(governor.snapshot().futuresWeight, 0);
+  for (let index = 0; index < 3; index += 1) {
+    assert.equal((await governor.fetch(fetchImpl, `https://fapi.binance.com/fapi/v1/time?nonce=${index}`)).status, 200);
+  }
+  const admitted = await governor.fetch(fetchImpl, "https://fapi.binance.com/fapi/v1/time?nonce=admitted");
+  assert.equal(admitted.status, 200);
+  assert.equal(governor.snapshot().futuresWeight, 0);
+  assert.equal(governor.snapshot().observedWeightByEgress["haolo-public:futures"], 5);
+  assert.equal(calls, 6);
+});
+
+test("observed direct Binance weight protects only the matching local egress bucket", async () => {
+  let calls = 0;
+  const governor = new BinanceRequestGovernor({ safetyRatio: 0.5, limits: { futures: 10, spot: 10 } });
+  const direct = await governor.fetch(async () => {
+    calls += 1;
+    return new Response("{}", { status: 200, headers: { "x-mbx-used-weight-1m": "5" } });
+  }, "https://fapi.binance.com/fapi/v1/time");
+  assert.equal(direct.status, 200);
+  const blocked = await governor.fetch(async () => {
+    calls += 1;
+    return new Response("{}");
+  }, "https://fapi.binance.com/fapi/v1/ping");
+  assert.equal(blocked.status, 429);
+  assert.equal(blocked.headers.get("x-haolo-rate-limit-source"), "local-budget");
+  assert.equal((await governor.fetch(async () => {
+    calls += 1;
+    return new Response("{}");
+  }, "https://api.binance.com/api/v3/time")).status, 200);
   assert.equal(calls, 2);
+});
+
+test("a public gateway downstream 429 is diagnosed without cooling the direct Binance bucket", async () => {
+  let calls = 0;
+  const governor = new BinanceRequestGovernor();
+  const first = await governor.fetch(async () => {
+    calls += 1;
+    return new Response("{}", { status: 429, headers: {
+      "retry-after": "30",
+      "x-haolo-binance-route": "public-gateway",
+      "x-haolo-binance-egress": "haolo-public",
+      "x-haolo-rate-limit-source": "gateway-downstream",
+    } });
+  }, "https://fapi.binance.com/fapi/v1/ping");
+  assert.equal(first.status, 429);
+  assert.equal(governor.snapshot().cooldowns.futures, 0);
+  assert.equal(governor.snapshot().gatewayDownstreamRateLimits, 1);
+  const second = await governor.fetch(async () => {
+    calls += 1;
+    return new Response("{}", { status: 200, headers: {
+      "x-haolo-binance-route": "direct",
+      "x-haolo-binance-egress": "local",
+    } });
+  }, "https://fapi.binance.com/fapi/v1/time");
+  assert.equal(second.status, 200);
+  assert.equal(calls, 2);
+  assert.equal(governor.snapshot().recentDiagnostics.at(-2).origin, "gateway_downstream");
+});
+
+test("a stale gateway upstream cooldown is attributed even when the cache response is HTTP 200", async () => {
+  const governor = new BinanceRequestGovernor();
+  const response = await governor.fetch(async () => new Response("{}", { status: 200, headers: {
+    "retry-after": "15",
+    "x-haolo-cache": "STALE",
+    "x-haolo-binance-route": "public-gateway",
+    "x-haolo-binance-egress": "haolo-public",
+    "x-haolo-rate-limit-source": "gateway-upstream",
+  } }), "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=2");
+  assert.equal(response.status, 200);
+  assert.equal(governor.snapshot().gatewayUpstreamRateLimits, 1);
+  assert.equal(governor.snapshot().cooldowns.futures, 0);
+  assert.equal(governor.snapshot().futuresWeight, 0);
+  assert.equal(governor.snapshot().recentDiagnostics.at(-1).origin, "gateway_upstream");
 });
 
 test("the governor enforces concurrency and serves queued higher priorities first", async () => {
@@ -181,6 +263,7 @@ test("a queued renderer abort removes stale work before it consumes concurrency"
   await first;
   assert.deepEqual(started, ["FIRST"]);
   assert.equal(governor.snapshot().queued, 0);
+  assert.equal(governor.snapshot().futuresWeight, 2, "aborted queued work must release its unused weight reservation");
 });
 
 test("Retry-After supports seconds and HTTP dates", () => {
