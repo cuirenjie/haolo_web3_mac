@@ -21299,6 +21299,15 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   fill: currentColor;
 }
 
+.recharge-payment-binance-logo {
+  display: block;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  object-fit: contain;
+  user-select: none;
+}
+
 .recharge-payment-network-icon .trading-market-asset-logo {
   width: 24px;
   height: 24px;
@@ -21581,6 +21590,12 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   transition: none;
 }
 
+.recharge-payment-internal-logo .recharge-payment-binance-logo {
+  width: 52px;
+  height: 52px;
+  flex-basis: 52px;
+}
+
 .recharge-payment-internal-logo .recharge-payment-exchange-logo {
   width: 52px;
   height: 52px;
@@ -21709,6 +21724,12 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   flex-basis: 30px;
   animation: none;
   transition: none;
+}
+
+.recharge-payment-qr-logo .recharge-payment-binance-logo {
+  width: 30px;
+  height: 30px;
+  flex-basis: 30px;
 }
 
 .recharge-payment-qr-frame.loaded .recharge-payment-qr-logo {

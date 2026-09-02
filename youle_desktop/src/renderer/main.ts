@@ -498,6 +498,7 @@ const LEGACY_WECHAT_CHANNEL_AVATAR_URLS = [
 ];
 const SKILL_DEFAULT_COVER_URL = new URL("./assets/skills-default-cover.png", import.meta.url).href;
 const SKILL_DEFAULT_ICON_URL = new URL("./assets/skills-default-icon.png", import.meta.url).href;
+const RECHARGE_BINANCE_LOGO_URL = new URL("./assets/binance-bnb-logo.svg", import.meta.url).href;
 const TRADING_STRATEGY_SKILL_CARD_PREFIX = "trading-strategy:";
 const PERSONAL_STRATEGY_SKILL_CARD_PREFIX = "personal-strategy:";
 const TRADING_INDICATOR_SKILL_CARD_PREFIX = "trading-indicator:";
@@ -59170,6 +59171,9 @@ function renderRechargePaymentMethods() {
 }
 
 function renderRechargePaymentMethodLogo(network: (typeof RECHARGE_PAYMENT_NETWORKS)[number]) {
+  if (network.id === "binance_internal" || network.id === "bsc") {
+    return `<img class="recharge-payment-binance-logo" src="${escapeAttr(RECHARGE_BINANCE_LOGO_URL)}" alt="" aria-hidden="true" draggable="false" />`;
+  }
   if (network.id !== "okx_internal") return renderTradingMarketAssetLogo(network.asset, "binance");
   return `
     <span class="recharge-payment-exchange-logo okx" aria-hidden="true">
@@ -59521,7 +59525,7 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
       <div class="recharge-payment-qr-column">
         <div class="recharge-payment-qr-frame loading" data-recharge-payment-qr-frame>
           <img class="recharge-payment-qr-image" data-recharge-payment-qr-image alt="${escapeAttr(rechargePaymentQrAlt(network))}" hidden />
-          <span class="recharge-payment-qr-logo">${renderTradingMarketAssetLogo(network.asset, "binance")}</span>
+          <span class="recharge-payment-qr-logo">${renderRechargePaymentMethodLogo(network)}</span>
           <span class="recharge-payment-qr-loading">正在生成二维码</span>
         </div>
         <span class="recharge-payment-internal-countdown">订单剩余：<time data-recharge-payment-countdown>30:00</time></span>
