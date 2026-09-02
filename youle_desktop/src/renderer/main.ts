@@ -1195,6 +1195,7 @@ type WindowsUpdateDownload = {
   file_name: string;
   size_bytes: number;
   sha256: string;
+  fallback_urls?: string[];
 };
 
 type WindowsUpdateDownloadProgress = {

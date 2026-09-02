@@ -61,7 +61,7 @@ import {
   chromeReleaseExtensionIds,
   readChromeReleasePolicy,
 } from "./chrome/release-policy.mjs";
-import { downloadFileWithResume } from "./app-update-downloader.mjs";
+import { downloadFileFromMirrors } from "./app-update-downloader.mjs";
 import { blockchainTransactionUrl } from "./blockchain-explorer.mjs";
 import { buildServerRequestResult, isToolRequestUserInputMethod, withFixedDefaultServiceTier } from "./codex-server-request.mjs";
 import {
@@ -20211,6 +20211,7 @@ async function checkAppUpdate(version) {
     }
     const response = await fetchWithTimeout(url.toString(), {
       method: "GET",
+      cache: "no-store",
       headers: {
         Accept: "application/json",
         "User-Agent": updateUserAgent(currentVersion, updateTarget),
@@ -20244,6 +20245,10 @@ async function downloadAppUpdate(params = {}, onProgress = null) {
     throw new Error("没有可下载的更新包。");
   }
   const url = validateAppUpdateUrl(download.url, updateTarget);
+  const downloadUrls = Array.from(new Set(
+    [download.url, ...download.fallback_urls]
+      .map((value) => validateAppUpdateUrl(value, updateTarget).toString()),
+  ));
   const fileName = safeAppUpdateFileName(
     download.file_name || path.basename(url.pathname) || defaultUpdatePackageFileName(updateTarget),
     updateTarget,
@@ -20261,8 +20266,8 @@ async function downloadAppUpdate(params = {}, onProgress = null) {
     lastProgressAt = now;
     onProgress({ fileName, downloadedBytes, totalBytes, percent });
   };
-  const result = await downloadFileWithResume({
-    url: url.toString(),
+  const result = await downloadFileFromMirrors({
+    urls: downloadUrls,
     destinationPath: destination,
     partialPath,
     expectedSize: download.size_bytes,
@@ -20276,6 +20281,9 @@ async function downloadAppUpdate(params = {}, onProgress = null) {
     connectTimeoutMs: APP_UPDATE_DOWNLOAD_CONNECT_TIMEOUT_MS,
     stallTimeoutMs: APP_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS,
     onProgress: (progress) => emitProgress(progress),
+    onMirrorError: ({ url: failedUrl, nextUrl }) => {
+      console.warn(`[update] download mirror failed; retrying ${nextUrl}`, failedUrl);
+    },
   });
   const downloadedBytes = result.sizeBytes;
   const actualHash = result.sha256;
@@ -20514,12 +20522,16 @@ function normalizeAppUpdateDownload(value) {
   const fileName = String(value.file_name || value.fileName || "").trim();
   const sizeBytes = Number(value.size_bytes ?? value.sizeBytes ?? 0);
   const sha256 = String(value.sha256 || "").trim();
+  const fallbackUrls = Array.isArray(value.fallback_urls)
+    ? value.fallback_urls.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
   if (!url) return null;
   return {
     url,
     file_name: fileName,
     size_bytes: Number.isFinite(sizeBytes) && sizeBytes > 0 ? sizeBytes : 0,
     sha256,
+    fallback_urls: fallbackUrls,
   };
 }
 

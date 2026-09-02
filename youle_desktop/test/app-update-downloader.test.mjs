@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { downloadFileWithResume } from "../src/main/app-update-downloader.mjs";
+import { downloadFileFromMirrors, downloadFileWithResume } from "../src/main/app-update-downloader.mjs";
 
 const payload = Buffer.from(Array.from({ length: 32_768 }, (_, index) => `update-block-${index.toString(16).padStart(4, "0")}\n`).join(""));
 const payloadSha256 = crypto.createHash("sha256").update(payload).digest("hex");
@@ -107,9 +107,48 @@ test("update downloader retries an interrupted response and resumes the bytes al
   assert.deepEqual(await fs.promises.readFile(fixture.destinationPath), payload);
 });
 
+test("update downloader falls back to the next mirror and preserves verification", async (t) => {
+  const fixture = await updateFixture(t);
+  const requests = [];
+
+  const result = await downloadFileFromMirrors({
+    urls: [
+      "https://assets.example.test/haolo-update.exe",
+      "https://bucket.example.test/haolo-update.exe",
+    ],
+    destinationPath: fixture.destinationPath,
+    partialPath: fixture.partialPath,
+    expectedSize: payload.length,
+    expectedSha256: payloadSha256,
+    maxAttempts: 1,
+    fetchImpl: async (url) => {
+      requests.push(url);
+      if (url.includes("assets.example.test")) {
+        return new Response("unavailable", { status: 503 });
+      }
+      return new Response(payload, {
+        status: 200,
+        headers: { "content-length": String(payload.length) },
+      });
+    },
+  });
+
+  assert.deepEqual(requests, [
+    "https://assets.example.test/haolo-update.exe",
+    "https://bucket.example.test/haolo-update.exe",
+  ]);
+  assert.equal(result.url, "https://bucket.example.test/haolo-update.exe");
+  assert.equal(result.sha256, payloadSha256);
+  assert.deepEqual(await fs.promises.readFile(fixture.destinationPath), payload);
+});
+
 test("main process routes app update requests through Electron net.fetch", async () => {
   const source = await fs.promises.readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
+  const rendererSource = await fs.promises.readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
   assert.match(source, /fetchImpl:\s*appNetworkFetch/);
+  assert.match(source, /const response = await fetchWithTimeout\(url\.toString\(\), \{[\s\S]*?cache: "no-store"/);
+  assert.match(source, /downloadFileFromMirrors\(\{[\s\S]*?urls: downloadUrls/);
+  assert.match(source, /fallback_urls: fallbackUrls/);
   assert.match(source, /function appNetworkFetch[\s\S]*return net\.fetch\(url, options\)/);
   assert.ok(source.includes('const partialPath = `${destination}.part`;'));
   assert.match(source, /WINDOWS_UPDATE_CLIENT_VARIANT = "haolo_windows_web3"/);
@@ -117,6 +156,7 @@ test("main process routes app update requests through Electron net.fetch", async
   assert.match(source, /platform: "mac"[\s\S]*clientVariant: MAC_UPDATE_CLIENT_VARIANT/);
   assert.match(source, /url\.searchParams\.set\("client_variant", updateTarget\.clientVariant\)/);
   assert.match(source, /payload\?\.client_variant[\s\S]*!== updateTarget\.clientVariant/);
+  assert.match(rendererSource, /checkForWindowsUpdate\(\{ silent: true \}\)/);
 });
 
 async function updateFixture(t) {

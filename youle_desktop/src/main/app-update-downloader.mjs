@@ -8,6 +8,31 @@ const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_CONNECT_TIMEOUT_MS = 120_000;
 const DEFAULT_STALL_TIMEOUT_MS = 60_000;
 
+export async function downloadFileFromMirrors(options = {}) {
+  const urls = Array.from(new Set(
+    (Array.isArray(options.urls) ? options.urls : [options.url])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean),
+  ));
+  if (!urls.length) throw new Error("更新包下载地址为空。");
+
+  const { urls: _urls, url: _url, onMirrorError, ...downloadOptions } = options;
+  let lastError = null;
+  for (let index = 0; index < urls.length; index += 1) {
+    const url = urls[index];
+    try {
+      const result = await downloadFileWithResume({ ...downloadOptions, url });
+      return { ...result, url };
+    } catch (error) {
+      lastError = error;
+      if (index < urls.length - 1 && typeof onMirrorError === "function") {
+        onMirrorError({ error, url, index, nextUrl: urls[index + 1] });
+      }
+    }
+  }
+  throw lastError || new Error("更新包下载失败。");
+}
+
 export async function downloadFileWithResume(options = {}) {
   const url = String(options.url || "").trim();
   const destinationValue = String(options.destinationPath || "").trim();
