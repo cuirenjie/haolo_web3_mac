@@ -7,9 +7,15 @@ readonly SECRETS_DIR="${HAOLO_ROOT}/secrets"
 readonly RUNTIME_ENV="${SECRETS_DIR}/gateway-runtime.env"
 readonly COMPOSE_FILE="${GATEWAY_ROOT}/deploy/single-node/docker-compose.production.yml"
 readonly PRIVATE_PROXY_ORIGIN="${PRIVATE_PROXY_ORIGIN:-https://8.219.93.44}"
+readonly ACTIVE_GATEWAY_STATE="/var/lib/haolo/gateway-active.env"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "bootstrap-runtime.sh must run as root" >&2
+  exit 1
+fi
+
+if [[ -s "${ACTIVE_GATEWAY_STATE}" ]]; then
+  echo "an active gateway release exists at ${ACTIVE_GATEWAY_STATE}; refusing bootstrap overwrite" >&2
   exit 1
 fi
 
