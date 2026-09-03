@@ -984,7 +984,7 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 融合任务状态：进行中；正在将 `windows/dev` 的 `41db38b..7762277` 六个提交融合到 macOS `dev`，关联 M1-276 至 M1-290、M2-019。保留本地 `0.1.165` 版本与 macOS 更新/运行时适配，验证完成后登记本机证据。
 
-当前任务：M2-019 已完成：USDⓈ-M 合约 WebSocket 已迁移到按流类分流的 `/market`/`/public` 路由，逐笔行情接收、现价合并、指标绘制和网关背压均已分层；本轮完成代码、测试与执行记录，并提交到远端 `origin/dev`。
+当前任务：M2-019 已完成：USDⓈ-M 合约 WebSocket 已迁移到按流类分流的 `/market`/`/public` 路由，逐笔行情接收、现价合并、指标绘制和网关背压均已分层；本轮完成代码、测试与执行记录，并提交到远端 `origin/dev`。2026-09-04 已修复生产网关仍运行旧镜像/旧 Futures 上游路径的问题，新镜像已通过候选端口接管 HAProxy 流量；旧长连接排空完成前保持 `retirement_pending`，M2-013 的多 EIP/72 小时验收仍未完成。
 上一完成任务：M2-018（彻底优化 Binance 行情限流、出口预算、REST 竞速与降级恢复）；更早为 M1-283（统一同一 Binance 交易对在不同 K 线周期上的当前价格）。
 专项执行计划：继续以本文、`docs/trading-strategy-skill-decoupling-plan.zh-CN.md` 和外部模型架构文档的权限边界为准。
 专项进度台账：本任务证据记录在本文 2026-09-04 日志；策略解耦后续任务继续写入 `docs/trading-strategy-skill-decoupling-progress.zh-CN.md`。
@@ -1984,3 +1984,5 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 - M2-019 高频链路：Hub、网关和预警适配器直连兼容池对订阅意图做短延迟净合并和批量发送，避免收藏/分屏/预警抖动触发 Binance 10 条/秒客户端命令限制；连接打开时以当前流集合发送一次权威 SUBSCRIBE，清理连接建立阶段的待发送命令，防止重复订阅。Renderer 将 `aggTrade`/ticker/形成中 K 线写入内存现价，按动画帧合并图表、OHLC、倒计时和行情标签绘制；`markPrice` 只更新标记价/资金费率，REST 仅用于首屏、断线回补和有限频率收藏回退。选中交易对排除收藏 ticker 重复订阅，分屏按各自交易对和周期增量合并现价。
 - M2-019 背压与验收：网关对慢客户端采用 512 KB 软阈值、2 MB 硬阈值；ticker/miniTicker/markPrice/K 线在软阈值上方合并为最新值，逐笔成交保持有序且达到硬阈值时以 1013 `slow_client` 关闭并让客户端重连回补，指标暴露合并帧和背压断开次数。`pnpm run typecheck`（桌面）和网关语法检查通过；网关 `pnpm test` 为 33/33，桌面行情配置/路由/预警/Hub/缓存专项 45/45，Hub 去重回归包含在其中，Vite production build 为 184 modules 且仅保留既有大 chunk 提示，`git diff --check` 通过。桌面全量 2622 项中 2594 通过、28 项是本轮开始前已有的 UI/国际化/媒体/工作流源码形状或环境断言，行情相关新增失败为 0；本轮未修改 CSS 或主题颜色，亮色/暗色及 default、hover、active/selected、focus、open、loading、disabled 交付面不变，未打包、发布、上传、部署或重启客户端。
 - 提交前复核：网关 `pnpm --filter @haolo/binance-gateway test` 33/33 通过；桌面 `pnpm --filter haolo_desktop typecheck`、Vite 184 modules 生产构建和 `git diff --check` 通过。路由、预警、图表、分屏、现价缓存与 Data Hub 定向测试 116 项中 113 项通过，3 项为工作区既有的源码形状断言（收藏标题栏、提及 token、文件选择器文案），不涉及本轮行情实现；`.tmp`、本地日志和部署归档包未纳入提交。
+- 生产部署修复：复核发现边缘机仍运行 `haolo/binance-gateway:20260822-auth1`，容器内 Futures 上游仍为退役的 `/stream`；以提交 `71758f4fc9a8ddc0f9d7512c7b2587cdf776047d` 构建不可变镜像 `20260904-71758f4`，先在回环 `18787/18788` 启动候选，再原子更新 HAProxy 并 graceful reload。候选直连 Binance `/market` 的 `aggTrade` 与 `/public` 的 `bookTicker` 均收到实时帧，外部双域名 `/health`/`/ready` 返回 200，观察期内无 5xx；旧实例保留自然排空，未强制关闭连接。
+- 发布防回归：watchdog 与发布共用 advisory lock，读取 root-owned 活动状态，只重启当前活动容器，活动状态缺失时拒绝回退旧实例；Compose 已更新为不可变镜像标签并保留 24 小时优雅停止宽限。已创建 Redis/配置备份和发布收据；本次未构建、上传或发布桌面安装包，M2-013 多 EIP/72 小时长稳验收继续跟踪。

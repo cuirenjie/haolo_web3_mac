@@ -2,7 +2,7 @@ name: haolo-binance
 
 services:
   gateway:
-    image: haolo/binance-gateway:20260822-auth1
+    image: haolo/binance-gateway:20260904-71758f4
     pull_policy: never
     env_file:
       - /opt/haolo/secrets/gateway-runtime.env

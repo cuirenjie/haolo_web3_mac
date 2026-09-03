@@ -6,6 +6,16 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
+# This script is the one-time ingress bootstrap. Once a rolling release has
+# recorded an active gateway, regenerating HAProxy from the bootstrap ports
+# would silently move traffic back to the legacy instance. Fail closed and use
+# the release procedure instead.
+ACTIVE_GATEWAY_STATE="/var/lib/haolo/gateway-active.env"
+if [[ -s "${ACTIVE_GATEWAY_STATE}" ]]; then
+  echo "an active gateway release exists at ${ACTIVE_GATEWAY_STATE}; refusing bootstrap overwrite" >&2
+  exit 1
+fi
+
 PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-market.youle.pro}"
 PRIVATE_DOMAIN="${PRIVATE_DOMAIN:-sg-a.binance-egress.waduo.com}"
 CERT_NAME="${CERT_NAME:-haolo-binance-gateway}"
