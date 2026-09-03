@@ -183,9 +183,12 @@ function inferredPreferredSide(actionPlan, theoryResult) {
 function scenario(side, actionPlan, status, evidenceIds, tickSize = null, currentPrice = null) {
   const long = side === "long";
   const configuredTrigger = level(long ? actionPlan?.longTrigger : actionPlan?.shortTrigger, long ? "多头触发价" : "空头触发价", evidenceIds, tickSize);
-  const stop = level(long ? actionPlan?.longInvalidation : actionPlan?.shortInvalidation, long ? "多头失效/止损参考" : "空头失效/止损参考", evidenceIds, tickSize);
+  const stopBasisLabel = String(actionPlan?.stopBasis?.label || "").trim();
+  const stopLabel = `${long ? "多头失效/止损参考" : "空头失效/止损参考"}${stopBasisLabel ? `（${stopBasisLabel}）` : ""}`;
+  const stop = level(long ? actionPlan?.longInvalidation : actionPlan?.shortInvalidation, stopLabel, evidenceIds, tickSize);
   const configuredTargets = long ? actionPlan?.longTargets : actionPlan?.shortTargets;
   const fallbackTarget = long ? actionPlan?.longTarget : actionPlan?.shortTarget;
+  const targetBasis = Array.isArray(actionPlan?.targetBasis) ? actionPlan.targetBasis : [];
   const targetValues = (Array.isArray(configuredTargets) && configuredTargets.length
     ? configuredTargets
     : [fallbackTarget])
@@ -193,7 +196,13 @@ function scenario(side, actionPlan, status, evidenceIds, tickSize = null, curren
     .filter((value) => value !== null);
   const seenTargets = new Set();
   const targets = targetValues.flatMap((value, index) => {
-    const target = level(value, `${long ? "多头" : "空头"}第 ${index + 1} 目标`, evidenceIds, tickSize);
+    const basisLabel = String(targetBasis[index]?.label || "").trim();
+    const target = level(
+      value,
+      `${long ? "多头" : "空头"}第 ${index + 1} 目标${basisLabel ? `（${basisLabel}）` : ""}`,
+      evidenceIds,
+      tickSize,
+    );
     if (!target || seenTargets.has(target.price)) return [];
     seenTargets.add(target.price);
     return [target];
@@ -225,7 +234,10 @@ function scenario(side, actionPlan, status, evidenceIds, tickSize = null, curren
 
 function riskReward(entry, stop, target, side = null, estimatedRoundTripCostRate = 0) {
   const ratio = rawRiskReward(entry, stop, target, side, estimatedRoundTripCostRate);
-  return ratio === null ? null : Number(ratio.toFixed(2));
+  // ExecutionPlanV1 stores ratios in a bounded [0, 100] contract field. Keep
+  // the raw ratio for gates, but cap the display/schema value when a very tight
+  // structural stop makes the theoretical ratio exceed that bound.
+  return ratio === null ? null : Number(Math.min(100, ratio).toFixed(2));
 }
 
 function rawRiskReward(entry, stop, target, side = null, estimatedRoundTripCostRate = 0) {
@@ -288,13 +300,13 @@ function scenarioWithTakeProfitCap(value, maxTakeProfitPercent, tickSize = null)
     const price = beyondCap ? cappedPrice : target.price;
     if (seen.has(price)) return [];
     seen.add(price);
-    return [{
-      ...target,
-      price,
-      label: beyondCap
-        ? `${value.side === "long" ? "多头" : "空头"}目标（用户最大止盈距离 ${maxTakeProfitPercent}%）`
+      return [{
+        ...target,
+        price,
+        label: beyondCap
+        ? `${value.side === "long" ? "多头" : "空头"}目标（用户最大止盈距离 ${maxTakeProfitPercent}%）${waveBasisLabel(target) ? `；依据 ${waveBasisLabel(target)}` : ""}`
         : target.label,
-    }];
+      }];
   });
   return targets.length ? { ...value, targets } : null;
 }
@@ -321,6 +333,51 @@ function scenarioWithThreeTakeProfitTargets(
     estimatedRoundTripCostRate,
   );
   if (entryPrice === null || finalTargetPrice === null || finalRatio === null) return null;
+
+  // Wave action levels are already measured from the approved candidate. Do
+  // not replace their first/second Fib or structural levels with the generic
+  // R-based ladder; doing so would make the displayed plan disagree with the
+  // wave report and drawing. Keep at most three measured levels (nearest,
+  // middle, farthest) so existing plan consumers still receive a compact
+  // ladder without inventing prices.
+  const measuredTargets = value.targets.some((target) => Boolean(waveBasisLabel(target)))
+    ? (() => {
+      const ordered = [...value.targets].sort((left, right) => value.side === "long"
+        ? left.price - right.price
+        : right.price - left.price);
+      if (ordered.length <= 3) return ordered;
+      return [ordered[0], ordered[Math.floor((ordered.length - 1) / 2)], ordered.at(-1)]
+        .filter((target, index, items) => items.findIndex((item) => item.price === target.price) === index);
+    })()
+    : null;
+  if (measuredTargets?.length) {
+    let waveTargets = measuredTargets;
+    const preferredPrice = targetPriceForPercent(
+      entryPrice,
+      value.side,
+      preferredTakeProfitPercent,
+      tickSize,
+    );
+    const preferredInsideWaveRange = preferredPrice !== null && (
+      value.side === "long"
+        ? entryPrice < preferredPrice && preferredPrice < finalTargetPrice
+        : finalTargetPrice < preferredPrice && preferredPrice < entryPrice
+    );
+    if (preferredInsideWaveRange && !waveTargets.some((target) => target.price === preferredPrice)) {
+      const sideLabel = value.side === "long" ? "多头" : "空头";
+      const preferredTarget = {
+        ...finalTarget,
+        price: preferredPrice,
+        label: `${sideLabel}常规止盈目标（用户偏好 ${preferredTakeProfitPercent}%）`,
+      };
+      const ordered = [...waveTargets, preferredTarget].sort((left, right) => value.side === "long"
+        ? left.price - right.price
+        : right.price - left.price);
+      waveTargets = [ordered[0], preferredTarget, ordered.at(-1)]
+        .filter((target, index, items) => items.findIndex((item) => item.price === target.price) === index);
+    }
+    return { ...value, targets: waveTargets };
+  }
 
   const costRate = Number.isFinite(estimatedRoundTripCostRate) && estimatedRoundTripCostRate >= 0
     ? estimatedRoundTripCostRate
@@ -391,7 +448,7 @@ function scenarioWithThreeTakeProfitTargets(
       ...intermediateTargets,
       {
         ...finalTarget,
-        label: /用户最大止盈距离/.test(String(finalTarget.label || ""))
+        label: /用户最大止盈距离|Fib |候选结构投影/.test(String(finalTarget.label || ""))
           ? finalTarget.label
           : `${sideLabel}第 3 目标（原策略止盈位）`,
       },
@@ -606,8 +663,14 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     ["short-invalidation", actionPlan.shortInvalidation, "确定性结果给出的空头失效价"],
     ["short-target", actionPlan.shortTarget, "确定性结果给出的空头目标价"],
   ].flatMap(([id, value, summary]) => finite(value) ? [{ id: `${manifest.id}-${id}`, summary }] : []);
-  const evidence = [...actionLevelEvidence, ...evidenceFromResult(legacyResult)];
-  const evidenceIds = evidence.slice(0, 16).map((item) => item.id);
+  const stopBasisEvidence = Array.isArray(actionPlan.stopBasis?.evidenceIds)
+    ? actionPlan.stopBasis.evidenceIds.slice(0, 8).map((id) => ({
+      id: String(id),
+      summary: `结构${actionPlan.stopBasis.kind === "support_zone" ? "支撑" : "阻力"}区确认触点（${actionPlan.stopBasis.sourceRoles?.join("/") || "确定性摆点"}）`,
+    }))
+    : [];
+  const evidence = [...actionLevelEvidence, ...stopBasisEvidence, ...evidenceFromResult(legacyResult)];
+  const evidenceIds = [...new Set(evidence.map((item) => item.id))].slice(0, 16);
   const tickSize = finite(params.tickSize);
   const estimatedRoundTripCostRate = executionCostRate(params);
   const preferredSide = inferredPreferredSide(actionPlan, theoryResult);
@@ -745,7 +808,10 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     ? { lower: roundedPrice(Math.min(waitZone.lower, waitZone.upper), tickSize), upper: roundedPrice(Math.max(waitZone.lower, waitZone.upper), tickSize) }
     : null;
   const now = Date.now();
-  const intervalMs = intervalMilliseconds(snapshot.interval);
+  const validityInterval = String(
+    actionPlan.validityInterval || actionPlan.executionInterval || snapshot.interval || "",
+  );
+  const intervalMs = intervalMilliseconds(validityInterval);
   const requestedValidityBars = Number(actionPlan.validityBars);
   const validityBars = Number.isInteger(requestedValidityBars) && requestedValidityBars >= 1 && requestedValidityBars <= 64
     ? requestedValidityBars
@@ -777,6 +843,10 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
           : "第三目标保留原策略最终止盈位；不得把目标当作必达价格",
     }))
     : [];
+  const takeProfitsWithBasis = takeProfits.map((item, index) => {
+    const basis = waveBasisLabel(preferredTargetRiskRewards[index]?.target);
+    return basis ? { ...item, condition: `${item.condition}；依据 ${basis}` } : item;
+  });
   const market = {
     marketId: String(snapshot.marketId || params.marketId || "UNKNOWN:UNKNOWN"),
     symbol: marketSymbol(snapshot.marketId || params.marketId),
@@ -786,7 +856,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     accountContext: params.binanceAccountContext,
     market,
     scenario: preferredScenario,
-    takeProfits,
+    takeProfits: takeProfitsWithBasis,
     riskPolicy,
     estimatedRoundTripCostRate,
     sizingBlockedReason: riskClarificationBlocked
@@ -797,6 +867,16 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     now,
   });
   const executionBlocked = minimumRiskRewardBlocked || maxStopDistanceBlocked || riskClarificationBlocked;
+  // The action is the market-state signal, while executionBlocked describes
+  // whether the user's hard risk policy still permits acting on that signal.
+  // Keep those concepts separate: once a preferred trigger is reached the
+  // card must say "做多/做空" even when the candidate is retained as a
+  // non-executable risk-gated estimate. This prevents a reached short setup
+  // from being misreported as if no directional condition existed.
+  const reachedDirectionalAction = preferredTriggerReached
+    && (preferredSide === "long" || preferredSide === "short")
+    ? preferredSide
+    : null;
   const source = {
     schemaVersion: EXECUTION_PLAN_SCHEMA_VERSION,
     planId: "pending",
@@ -810,20 +890,20 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     },
     createdAt: now,
     expiresAt: now + intervalMs * validityBars,
-    action: executionBlocked
-      ? "no_trade"
-      : preferredTriggerReached
-        ? preferredSide
-      : hasScenarios || observationWait
-        ? "wait"
-        : "insufficient_data",
+    action: reachedDirectionalAction
+      || (executionBlocked
+        ? "no_trade"
+        : hasScenarios || observationWait
+          ? "wait"
+          : "insufficient_data"),
+    executionBlocked,
     preferredSide,
     marketAssessment: riskClarificationBlocked
-      ? "已保存的旧版止损百分比缺少账户净值或入场价分母；本方案禁止执行，必须先让用户澄清并移除旧版模糊字段。"
+      ? `${reachedDirectionalAction ? `当前${reachedDirectionalAction === "short" ? "空头" : "多头"}条件已满足，但` : ""}已保存的旧版止损百分比缺少账户净值或入场价分母；本方案暂不可执行，必须先让用户澄清并移除旧版模糊字段。`
       : maxStopDistanceBlocked
-        ? `策略有效止损距离约 ${preferredStopDistancePercent.toFixed(2)}%，超过用户设定的价格止损距离硬上限 ${riskPolicy.maxStopDistancePercent}%；本方案标记为不交易，且不生成账户仓位。`
+        ? `${reachedDirectionalAction ? `当前${reachedDirectionalAction === "short" ? "空头" : "多头"}条件已满足，但` : ""}策略有效止损距离约 ${preferredStopDistancePercent.toFixed(2)}%，超过用户设定的价格止损距离硬上限 ${riskPolicy.maxStopDistancePercent}%；本方案暂不可执行，且不生成账户仓位。`
         : minimumRiskRewardBlocked
-          ? `当前候选场景第三目标扣除预估手续费和滑点后的净盈亏比低于用户设定的最低 1:${riskPolicy.minimumRiskRewardRatio}；本方案标记为不交易，但保留完整候选测算供用户决策。`
+          ? `${reachedDirectionalAction ? `当前${reachedDirectionalAction === "short" ? "空头" : "多头"}条件已满足，但` : ""}当前候选场景第三目标扣除预估手续费和滑点后的净盈亏比低于用户设定的最低 1:${riskPolicy.minimumRiskRewardRatio}；本方案暂不可执行，但保留完整候选测算供用户决策。`
       : hasScenarios
       ? preferredSide === "long"
         ? preferredTriggerReached
@@ -838,7 +918,13 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
         ? "当前存在需要继续观察的结构，但尚未形成完整入场、失效和目标价位；保持等待，不交易。"
         : "当前结果缺少完整入场、失效或目标价位，暂不形成交易执行方案。",
     preconditions: [
-      condition("closed-candle-levels", "触发、止损和目标只从当前周期已收盘 K 线结构产生；执行时价格触达即操作", evidenceIds),
+      condition(
+        "closed-candle-levels",
+        actionPlan.executionInterval
+          ? `触发、结构支撑/阻力区止损和近端目标来自 ${displayExecutionPlanInterval(actionPlan.executionInterval)} 已收盘 K 线结构；缓冲后的触发价被价格触达时才操作`
+          : "触发、止损和目标只从当前周期已收盘 K 线结构产生；执行时价格触达即操作",
+        evidenceIds,
+      ),
       condition("data-coverage", "策略所需行情和数据覆盖必须保持可用，数据降级时取消执行", evidenceIds),
       ...personalRiskPreconditions,
     ],
@@ -848,17 +934,19 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       trigger: scenarios.map((item) => item.conditions[0]),
       confirmation: [condition(
         "confirmation",
-        "价格触达首选方向触发价即执行",
+        String(actionPlan.triggerConfirmation || "价格触达首选方向触发价即执行").slice(0, 500),
         evidenceIds,
       )],
     },
     invalidation: {
       stop: preferredScenario?.stop || null,
       reasons: preferredScenario
-        ? ["价格触及策略确定性失效位，主场景不再成立"]
+        ? [actionPlan.macroInvalidation
+          ? `价格触及低周期结构支撑/阻力区外侧止损位时退出当前执行；主周期宏观失效位 ${actionPlan.macroInvalidation} 用于取消全部同向子浪方案`
+          : "价格触及策略确定性失效位，主场景不再成立"]
         : ["方向触发前不持仓；任一假突破重新回到等待区都取消当次信号"],
     },
-    takeProfits,
+    takeProfits: takeProfitsWithBasis,
     positionSizing: {
       maxAccountRiskPercent: riskPolicy.maxLossPerTradePercent,
       maxPositionPercent: riskPolicy.maxPositionPercent,
@@ -930,9 +1018,18 @@ function displayPrice(level) {
   return level ? String(level.price) : "未形成";
 }
 
+function waveBasisLabel(value) {
+  const source = String(value?.label || value || "");
+  const match = source.match(/(Fib\s+[^）;；]+|候选结构投影|结构风险倍数兜底目标\s*R[\d.]+)/);
+  return match ? match[1].trim() : "";
+}
+
 function displayTargets(scenario) {
   if (!scenario?.targets?.length) return "未形成";
-  return scenario.targets.map((target, index) => `第${index + 1}目标 ${displayPrice(target)}`).join("，");
+  return scenario.targets.map((target, index) => {
+    const basis = waveBasisLabel(target);
+    return `第${index + 1}目标 ${displayPrice(target)}${basis ? `（依据 ${basis}）` : ""}`;
+  }).join("，");
 }
 
 function scenarioRiskRewardText(scenario, costRate) {
@@ -1005,7 +1102,10 @@ function formatExecutionPlanMarkdownEnglish(validated) {
   const title = `${pair} Binance Perpetual ${displayExecutionPlanInterval(validated?.market?.interval)}`;
   const baseAsset = match?.[1] || symbol || "Asset";
   const targetText = (scenario) => scenario?.targets?.length
-    ? scenario.targets.map((target, index) => `Target ${index + 1}: ${price(target)}`).join("; ")
+    ? scenario.targets.map((target, index) => {
+      const basis = waveBasisLabel(target);
+      return `Target ${index + 1}: ${price(target)}${basis ? ` (basis ${basis})` : ""}`;
+    }).join("; ")
     : "Not available";
   const scenarioRiskReward = (scenario) => {
     if (!scenario?.targets?.length) return "Not available";
@@ -1027,18 +1127,20 @@ function formatExecutionPlanMarkdownEnglish(validated) {
   const formatOne = (selectedScenario, bilateral = false) => {
     const selectedSide = selectedScenario?.side || validated.preferredSide;
     const accountPlan = bilateral ? null : validated.positionSizing.accountPlan;
-    const candidateOnly = validated.action === "no_trade";
+    const candidateOnly = validated.action === "no_trade" || validated.executionBlocked === true;
     const directionText = selectedSide === "long" ? "Bullish" : selectedSide === "short" ? "Bearish" : "Neutral";
     const directionOrder = selectedSide === "long" ? "long position" : "short position";
     let actionText = validated.action === "wait"
       ? "Wait for the trigger"
-      : candidateOnly
-        ? "Do not trade"
-        : validated.action === "insufficient_data"
-          ? "Insufficient data or price levels; do not trade"
-          : validated.action === "long"
-            ? "Open a long position at market"
-            : "Open a short position at market";
+      : validated.action === "insufficient_data"
+        ? "Insufficient data or price levels; do not trade"
+        : validated.action === "long"
+          ? "Open a long position at market"
+          : validated.action === "short"
+            ? "Open a short position at market"
+            : candidateOnly
+              ? "Do not trade"
+              : "No directional action";
     let triggerText = selectedScenario ? price(selectedScenario.trigger) : "No clear one-sided setup";
     if (accountPlan?.mode === "new_position") {
       triggerText += candidateOnly
@@ -1068,9 +1170,13 @@ function formatExecutionPlanMarkdownEnglish(validated) {
     const takeProfitText = accountOrdersAvailable
       ? accountPlan.targetOrders
         .filter((target) => target.notional > 0)
-        .map((target) => candidateOnly
-          ? `Take profit at ${target.price}; non-executable candidate allocation ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`
-          : `Conditional market take profit at ${target.price} for ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`)
+        .map((target) => {
+          const basis = waveBasisLabel(validated.takeProfits?.[target.targetIndex]?.condition);
+          const basisText = basis ? ` (basis ${basis})` : "";
+          return candidateOnly
+            ? `Take profit at ${target.price}${basisText}; non-executable candidate allocation ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`
+            : `Conditional market take profit at ${target.price}${basisText} for ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`;
+        })
         .join("; ") || "Not available"
       : targetText(selectedScenario);
     const outcomeText = accountOrdersAvailable
@@ -1149,18 +1255,20 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
   const formatOne = (selectedScenario, bilateral = false) => {
     const selectedSide = selectedScenario?.side || validated.preferredSide;
     const accountPlan = bilateral ? null : validated.positionSizing.accountPlan;
-    const candidateOnly = validated.action === "no_trade";
+    const candidateOnly = validated.action === "no_trade" || validated.executionBlocked === true;
     const directionText = selectedSide === "long" ? "偏多" : selectedSide === "short" ? "偏空" : "中性";
     const directionOrder = selectedSide === "long" ? "多单" : "空单";
     let actionText = validated.action === "wait"
       ? "等待条件触发"
-      : candidateOnly
-        ? "不交易"
-        : validated.action === "insufficient_data"
-          ? "数据/价位不足，不交易"
-          : validated.action === "long"
-            ? "现价做多"
-            : "现价做空";
+      : validated.action === "insufficient_data"
+        ? "数据/价位不足，不交易"
+        : validated.action === "long"
+          ? "现价做多"
+          : validated.action === "short"
+            ? "现价做空"
+            : candidateOnly
+              ? "不交易"
+              : "暂无方向动作";
     let triggerText = displayPrice(selectedScenario?.trigger);
     if (!selectedScenario) triggerText = "未形成明确单侧方案";
     if (accountPlan?.mode === "new_position") {
@@ -1191,9 +1299,13 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
     const takeProfitText = accountOrdersAvailable
       ? accountPlan.targetOrders
         .filter((target) => target.notional > 0)
-        .map((target) => candidateOnly
-          ? `止盈 ${target.price}，候选分批测算（不可执行）${displayMoney(target.notional)} USDT；预计盈利 +${displayMoney(target.estimatedNetProfit)} USDT`
-          : `挂条件委托 ${target.price} 市价止盈 ${displayMoney(target.notional)} USDT；预计盈利 +${displayMoney(target.estimatedNetProfit)} USDT`)
+        .map((target) => {
+          const basis = waveBasisLabel(validated.takeProfits?.[target.targetIndex]?.condition);
+          const basisText = basis ? `（依据 ${basis}）` : "";
+          return candidateOnly
+            ? `止盈 ${target.price}${basisText}，候选分批测算（不可执行）${displayMoney(target.notional)} USDT；预计盈利 +${displayMoney(target.estimatedNetProfit)} USDT`
+            : `挂条件委托 ${target.price}${basisText} 市价止盈 ${displayMoney(target.notional)} USDT；预计盈利 +${displayMoney(target.estimatedNetProfit)} USDT`;
+        })
         .join("，") || "未形成"
       : displayTargets(selectedScenario);
     const outcomeText = accountOrdersAvailable

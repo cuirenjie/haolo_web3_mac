@@ -382,6 +382,10 @@ export function validateExecutionPlan(value) {
     createdAt: finiteNumber(source.createdAt, "executionPlan.createdAt", { min: 1 }),
     expiresAt: finiteNumber(source.expiresAt, "executionPlan.expiresAt", { min: 1, nullable: true }),
     action,
+    // `action` reports the market-state direction. A hard personal risk rule
+    // can still make that directional candidate non-executable; keep this
+    // fact explicit instead of collapsing a reached signal into `no_trade`.
+    executionBlocked: source.executionBlocked === true,
     preferredSide: ["long", "short", "neutral"].includes(source.preferredSide) ? source.preferredSide : "neutral",
     marketAssessment: boundedString(source.marketAssessment, "executionPlan.marketAssessment", { max: 2_000 }),
     preconditions: frozenArray((source.preconditions || []).slice(0, 32).map((item, index) => (

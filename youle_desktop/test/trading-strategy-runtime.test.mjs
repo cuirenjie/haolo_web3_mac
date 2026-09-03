@@ -350,6 +350,66 @@ test("ExecutionPlanV1 keeps displayed SOL net risk/reward consistent with its ne
   assert.match(blockedMarkdown, /目标1为 1:0\.5，目标2为 1:0\.8，目标3为 1:1\.19，如果止损：约 -29\.95 USDT，如果全部止盈：约 \+24\.93 USDT/);
 });
 
+test("ExecutionPlanV1 keeps a reached short action visible when a risk gate blocks execution", () => {
+  const legacyResult = sampleLegacyResult();
+  legacyResult.snapshot.marketId = "BINANCE:FUTURES:MUUSDT";
+  legacyResult.theoryResult.signals = [{ direction: "bearish", strength: 1 }];
+  Object.assign(legacyResult.analysisPlan.actionPlan, {
+    currentPrice: 927.44,
+    shortTrigger: 927.53435714,
+    shortInvalidation: 931.16091214,
+    shortTarget: 920.73,
+    shortTargets: [920.73, 916.39],
+  });
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult, {
+    currentPrice: 927.44,
+    userRiskProfile: { minimumRiskRewardRatio: 2 },
+    binanceAccountContext: {
+      bound: true,
+      available: true,
+      snapshot: {
+        fetchedAt: new Date().toISOString(),
+        marginBalance: 1_000,
+        availableBalance: 500,
+        positions: [],
+        warnings: [],
+      },
+    },
+  });
+  assert.equal(plan.preferredSide, "short");
+  assert.equal(plan.action, "short");
+  assert.equal(plan.executionBlocked, true);
+  assert.match(plan.marketAssessment, /当前空头条件已满足，但/);
+  const markdown = formatExecutionPlanMarkdown(plan);
+  assert.match(markdown, /^当前动作：现价做空/m);
+  assert.match(markdown, /^空头触发：927\.44/m);
+  assert.match(markdown, /候选测算（不可执行）/);
+  assert.doesNotMatch(markdown, /当前动作：不交易/);
+});
+
+test("every execution-plan strategy reports a reached short condition as short", () => {
+  const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
+  const executionStrategies = registry.list().filter((strategy) => strategy.capabilities.includes("execution-plan"));
+  assert.equal(executionStrategies.length, 16);
+  for (const strategy of executionStrategies) {
+    const legacyResult = sampleLegacyResult();
+    legacyResult.theoryResult.signals = [{ direction: "bearish", strength: 1 }];
+    Object.assign(legacyResult.analysisPlan.actionPlan, {
+      currentPrice: 95,
+      shortTrigger: 96,
+      shortInvalidation: 101,
+      shortTarget: 90,
+    });
+    const plan = buildExecutionPlanV1(strategy, legacyResult, {
+      currentPrice: 95,
+      userRiskProfile: { minimumRiskRewardRatio: 2 },
+    });
+    assert.equal(plan.action, "short", strategy.id);
+    assert.equal(plan.executionBlocked, true, strategy.id);
+    assert.match(formatExecutionPlanMarkdown(plan), /^当前动作：现价做空/m, strategy.id);
+  }
+});
+
 test("ExecutionPlanV1 uses direct price-touch execution and fresh read-only Binance sizing", () => {
   const legacyResult = sampleLegacyResult();
   const plan = buildExecutionPlanV1(sampleManifest, legacyResult, {

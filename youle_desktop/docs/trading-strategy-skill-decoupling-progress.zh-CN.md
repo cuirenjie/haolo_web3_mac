@@ -94,6 +94,7 @@
 | M1-186 | RSI 副图小圆点与虚线引导标注 | 已完成 | M1-185 | LOG-20260815-052 |
 | M1-187 | RSI 副图文字下排与空白区避让 | 已完成 | M1-186 | LOG-20260815-053 |
 | M1-196 | VPVR Indicator Skill、可见窗口分析与纯信息结论 | 已完成 | M1-195,TSK-P6-002 | LOG-20260815-058 |
+| M1-281 | 统一“触发已满足”时的方向动作与风控阻断状态 | 已完成 | M1-201,M1-202,M1-255,ADR-021 | LOG-20260903-059 |
 
 ## 5. 四策略切流矩阵
 
@@ -1068,6 +1069,24 @@
 - 回滚：将 `vpvr-analysis` 加入 `HAOLO_DISABLED_TRADING_STRATEGIES` 可单独停用分析 Skill；完整回滚可移除 VPVR 包、Adapter/Router/Engine/Pipeline、注册项、图标主题、可见窗口请求字段和专项测试，不需要回滚 M1-192 至 M1-195 的原生 VPVR，也没有数据库、账户、订单、会话或用户绘图迁移。
 - Git/工作树：未提交；保留并避开用户工作树中其他既有改动。
 - 下一任务：在开发版用 `@指标:VPVR` 抽查 BTC/ETH 15m、1H、4H、1D，验证平移到历史区间后报告确实随屏幕窗口改变、水平线与 POC/价值区一致且没有执行方案字段；随后完成多缩放、双主题和安装版门禁。
+
+### LOG-20260903-059：完成 M1-281 触发方向与风控状态分离
+
+- 日期：2026-09-03。
+- 状态变化：M1-281 `未开始 → 已完成`；P7 状态不变。
+- 目标与实际范围：修复统一 `ExecutionPlanV1` Builder 在首选触发价已达到时被风险门禁覆盖为 `no_trade` 的问题。当前价达到做多/做空触发后，所有声明 `execution-plan` 能力的 16 个策略均保留 `action=long/short`；风险门禁独立输出 `executionBlocked=true`，不放宽下单权限。
+- 修改文件：`src/main/trading-strategy-runtime/execution-plan-builder.mjs`、`src/main/trading-strategy-runtime/contracts.mjs`、`test/trading-strategy-runtime.test.mjs`、`docs/trading-expert-realtime-ai-execution-plan.zh-CN.md`。
+- 未修改边界：未修改策略算法、个人风险参数、账户权限、订单接口、自动下单流程或 UI 颜色/CSS；候选仓位、止损止盈仍明确标为不可执行。
+- 验收项及证据：
+  - [x] MU/USDT 等价快照：927.44 已达到 927.53435714 做空触发，结果为 `action=short`，卡片文案为“当前动作：现价做空”。
+  - [x] 16 个执行方案策略统一回归：触发已达到时均返回 `short`，并保留风险阻断状态。
+  - [x] 未达到触发价的风险阻断仍为 `no_trade`，既有安全门禁语义保持不变。
+- 测试证据：`node --test test/trading-strategy-runtime.test.mjs` 29/29 通过；执行方案/卡片/告警/策略分析联合批次 254/255 通过，唯一失败为既有缠论发送气泡测试的源代码形状断言；`pnpm run typecheck`、`pnpm run build`（184 modules）和 `git diff --check` 通过。
+- 主题与边界：本次为运行时语义修复，没有新增 UI 样式；现有计划卡片亮色/暗色及 default、hover、active、focus、open、loading、disabled 状态保持不变。
+- 风险与遗留：`action=short/long` 在 `executionBlocked=true` 时仅表示方向条件已满足，不代表允许下单；需由后续人工/风控流程确认后执行。
+- 回滚：回退上述四个文件即可；`executionBlocked` 为向后兼容的可选字段，无数据迁移。
+- Git/工作树：未提交；保留并避开用户工作树中其他既有改动。
+- 下一任务：继续 P7 安装版、双主题和多周期人工门禁；不改变本次方向与风控状态分离约束。
 
 ## 9. 后续完成记录模板
 

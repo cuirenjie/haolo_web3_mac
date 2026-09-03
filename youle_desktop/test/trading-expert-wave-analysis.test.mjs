@@ -9,8 +9,12 @@ import {
   evaluateCorrectionWaveRules,
   evaluateMotiveWaveRules,
   runWaveTheoryEngine,
+  waveDegreeIntervals,
 } from "../src/main/trading-analysis/wave-engine.mjs";
 import {
+  buildWaveActionPlan,
+  buildWaveAnalysisReport,
+  buildWaveDrawingPatch,
   buildWaveModelPrompt,
   runTradingWaveAnalysisPipeline,
 } from "../src/main/trading-analysis/wave-pipeline.mjs";
@@ -23,6 +27,10 @@ import {
   validateTradingDrawingPatch,
 } from "../src/main/trading-analysis/protocol.mjs";
 import {
+  buildExecutionPlanV1,
+  formatExecutionPlanMarkdown,
+} from "../src/main/trading-strategy-runtime/execution-plan-builder.mjs";
+import {
   buildTradingWaveExpertPrompt,
   stripTradingWaveMention,
   tradingWaveMentioned,
@@ -33,6 +41,7 @@ import {
   TRADING_WAVE_INSUFFICIENT_DATA_CODE,
   runTradingWaveAnalysisWithAutoExpansion,
 } from "../src/renderer/trading-expert-wave-expansion.ts";
+import { translateAppText } from "../src/renderer/app-language.mjs";
 
 const WAVE_ANCHORS = [
   [0, 101],
@@ -94,6 +103,27 @@ function fixtureCandles(count = 120, anchors = WAVE_ANCHORS, subdivisions = WAVE
       low: Math.min(open, close) - 0.24,
       close,
       volume: 100 + index,
+    };
+  });
+}
+
+function scaledWaveCandles({ count = 120, step = 3_600, scale = 0.2, tail = [] } = {}) {
+  const endTime = fixtureCandles().at(-1).time;
+  const startTime = endTime - (count + tail.length - 1) * step;
+  const prices = [
+    ...Array.from({ length: count }, (_, index) => 126.6 + (hierarchicalPrice(index) - 125) * scale),
+    ...tail,
+  ];
+  return prices.map((close, index) => {
+    const previous = prices[Math.max(0, index - 1)];
+    const open = previous + (close - previous) * 0.35;
+    return {
+      time: startTime + index * step,
+      open,
+      high: Math.max(open, close) + 0.02,
+      low: Math.min(open, close) - 0.02,
+      close,
+      volume: 200 + index,
     };
   });
 }
@@ -304,6 +334,90 @@ test("wave engine deterministically generates rule-checked impulse and correctio
   assert.equal(completeCycle.components.structureVerified, true);
 });
 
+test("wave subdivision evidence rejects arbitrary noisy odd counts", () => {
+  const result = evaluateMotiveWaveRules(
+    rulePoints([100, 115, 108, 132, 123, 145]),
+    { atr: 1, subdivisions: [31, 21, 15, 21, 31] },
+  );
+  assert.equal(result.rules.impulseInternalStructureVerified, false);
+  assert.equal(result.impulseValid, false);
+  assert.ok(result.rejectionReasons.includes("impulse_internal_structure"));
+});
+
+test("wave engine promotes a verified lower-degree candidate when the visible parent window has none", () => {
+  const snapshot = normalizeTradingMarketSnapshot({
+    ...fixtureParams(fixtureCandles(120, SOL_INVALID_ANCHORS, SOL_INVALID_SUBDIVISIONS)),
+    interval: "240",
+    contextCandles: [
+      { interval: "60", candles: fixtureCandles() },
+      { interval: "15", candles: fixtureCandles() },
+    ],
+  }, { maximumCandles: 2_500 });
+  const result = runWaveTheoryEngine(snapshot);
+
+  assert.equal(result.multiTimeframe.structure.status, "succeeded");
+  assert.equal(result.multiTimeframe.execution.status, "succeeded");
+  assert.equal(result.fallback.role, "structure");
+  assert.equal(result.fallback.interval, "60");
+  assert.equal(result.structures.primaryCandidate.sourceRole, "structure");
+  assert.equal(result.structures.primaryCandidate.sourceInterval, "60");
+  assert.equal(result.status, "succeeded");
+  assert.equal(result.statistics.analysisCandidateCount, 0);
+  assert.ok(result.statistics.fallbackCandidateCount > 0);
+  assert.ok(result.structures.candidates.every((candidate) => candidate.sourceInterval === "60"));
+  assert.equal(result.signals[0].sourceInterval, "60");
+  assert.ok(result.structures.primaryCandidate.points.length >= 4);
+  assert.equal(result.hierarchy.parentRole, "structure");
+  assert.equal(result.hierarchy.structure.candidate.id, result.structures.primaryCandidate.id);
+  assert.ok(result.hierarchy.execution.candidate);
+});
+
+test("wave pipeline sends the lower-degree fallback through model review and Drawing Gateway", async () => {
+  const params = {
+    ...fixtureParams(fixtureCandles(120, SOL_INVALID_ANCHORS, SOL_INVALID_SUBDIVISIONS)),
+    interval: "240",
+    contextCandles: [
+      { interval: "60", candles: fixtureCandles() },
+      { interval: "15", candles: fixtureCandles() },
+    ],
+  };
+  const registry = createTradingAnalysisModelProviderRegistry([{
+    providerId: "fixture-provider",
+    modelId: "fixture-model",
+    capabilities: { json: true, theoryReview: true },
+    async analyze() {
+      return {
+        text: JSON.stringify({
+          schemaVersion: 1,
+          verdict: "approve",
+          summary: "主周期暂无候选，采用低周期已验证结构。",
+          report: "当前使用结构周期兜底计数，等待更低周期确认。",
+          marketBias: "neutral",
+          strategyRationale: "候选来自真实低周期 K 线。",
+          primaryCandidateId: "unknown-candidate",
+          alternateCandidateIds: [],
+          showProjectionZone: false,
+          confidence: 0.6,
+        }),
+      };
+    },
+  }]);
+  const result = await runTradingWaveAnalysisPipeline(params, {
+    modelRegistry: registry,
+    providerId: "fixture-provider",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.theoryResult.fallback.role, "structure");
+  assert.equal(result.theoryResult.structures.primaryCandidate.sourceInterval, "60");
+  assert.ok(result.analysisPlan.drawingPatch.operations.length > 0);
+  assert.match(result.analysisPlan.report, /主周期.*未形成|低周期.*兜底/);
+  assert.ok(buildWaveModelPrompt(
+    normalizeTradingMarketSnapshot(params, { maximumCandles: 2_500 }),
+    result.theoryResult,
+  ).length < 120_000);
+});
+
 test("wave engine reports insufficient data when no alternating pivots exist", async () => {
   const monotonic = Array.from({ length: 60 }, (_, index) => ({
     time: 1_720_000_000 + index * 3_600,
@@ -478,12 +592,24 @@ test("wave pipeline stays vendor-neutral and emits a guarded AI wave layer", asy
   assert.ok(result.analysisPlan.drawingPatch.operations.some(({ drawing }) => (
     drawing.tool === "note" && drawing.text === "A"
   )));
-  assert.ok(result.analysisPlan.actionPlan.longTrigger > result.analysisPlan.actionPlan.currentPrice);
-  assert.ok(result.analysisPlan.actionPlan.shortTrigger < result.analysisPlan.actionPlan.currentPrice);
-  assert.match(result.analysisPlan.report, /上破 .* 后偏多/);
-  assert.match(result.analysisPlan.report, /跌破 .* 后偏空/);
-  assert.match(result.analysisPlan.report, /两个触发价之间|之间先等待/);
-  assert.match(result.analysisPlan.report, /当前数浪（可跳过）/);
+  assert.equal(result.analysisPlan.actionPlan.state, "ready");
+  assert.equal(result.analysisPlan.actionPlan.gate.passed, true);
+  assert.equal(result.analysisPlan.actionPlan.executionBasis, "structural_fallback");
+  assert.ok([
+    "confirmed_wave_boundary",
+    "confirmed_wave_pivot",
+    "macro_confirmation_fallback",
+    "atr_volatility_fallback",
+  ].includes(result.analysisPlan.actionPlan.triggerBasis));
+  assert.ok(Number.isFinite(result.analysisPlan.actionPlan.longTrigger));
+  assert.ok(Number.isFinite(result.analysisPlan.actionPlan.longInvalidation));
+  assert.ok(result.analysisPlan.actionPlan.longInvalidation < result.analysisPlan.actionPlan.longTrigger);
+  assert.equal(result.analysisPlan.actionPlan.stopBasis.fallback, true);
+  assert.ok(result.analysisPlan.actionPlan.longTargets.length >= 1);
+  assert.match(result.analysisPlan.report, /可执行条件单已生成/);
+  assert.match(result.analysisPlan.report, /兜底|低周期证据/);
+  assert.match(result.analysisPlan.report, /主周期边界（不是当前入场价）/);
+  assert.match(result.analysisPlan.report, /三级数浪/);
   assert.match(result.analysisPlan.report, /比例参考/);
   assert.match(result.analysisPlan.report, /不是唯一事实/);
   assert.doesNotMatch(result.analysisPlan.report, /倾斜例外/);
@@ -491,19 +617,19 @@ test("wave pipeline stays vendor-neutral and emits a guarded AI wave layer", asy
     .map(({ drawing }) => drawing)
     .filter((drawing) => drawing.colorToken === "wave-alternative");
   assert.ok(alternativeTokenDrawings.some((drawing) => /-invalidation$/.test(drawing.id)));
-  assert.equal(alternativeTokenDrawings.filter((drawing) => /-alternate-\d+$/.test(drawing.id)).length, 2);
+  assert.equal(alternativeTokenDrawings.filter((drawing) => /-alternate-\d+$/.test(drawing.id)).length, 0);
   const alternateLabels = result.analysisPlan.drawingPatch.operations
     .map(({ drawing }) => drawing.text || "")
     .filter((text) => /^备选\d：/.test(text));
-  assert.equal(alternateLabels.length, 2);
-  assert.ok(alternateLabels.some((text) => !text.endsWith("标准5浪 + ABC")));
+  assert.equal(alternateLabels.length, 0);
   assert.equal(result.analysisPlan.drawingPatch.operations.filter(({ drawing }) => (
-    drawing.tool === "note" && /^Fib (0\.382|0\.5|0\.618)$/.test(drawing.text)
+    drawing.tool === "note" && /^Fib (0\.382|0\.5|0\.618|1)$/.test(drawing.text)
   )).length, 3);
   assert.ok(result.analysisPlan.drawingPatch.operations.some(({ drawing }) => (
     drawing.tool === "note" && drawing.text.startsWith("主计数：标准5浪")
   )));
-  assert.doesNotMatch(result.analysisPlan.report, /Fib 0\.382|备选1：|主计数：完整5浪/);
+  assert.match(result.analysisPlan.report, /Fib 0\.382|结构风险倍数兜底目标/);
+  assert.doesNotMatch(result.analysisPlan.report, /备选1：|主计数：完整5浪/);
 
   const prompt = buildWaveModelPrompt(
     normalizeTradingMarketSnapshot(fixtureParams()),
@@ -516,6 +642,124 @@ test("wave pipeline stays vendor-neutral and emits a guarded AI wave layer", asy
   ]);
   assert.doesNotMatch(engineSource, /gpt|deepseek|openai/i);
   assert.doesNotMatch(pipelineSource, /gpt-\d|deepseek|openai/i);
+});
+
+test("4H wave analysis uses real 1H and 15m child waves for a bounded tactical trigger", () => {
+  const mainCandles = fixtureCandles();
+  const structureCandles = scaledWaveCandles({ step: 3_600, scale: 0.2 });
+  const executionCandles = scaledWaveCandles({
+    step: 900,
+    scale: 0.08,
+    tail: [127.08, 127.24, 127.06, 127.2, 126.98, 127.15, 127.0],
+  });
+  executionCandles.push({
+    ...executionCandles.at(-1),
+    time: Math.floor(fixtureParams().snapshotTime / 1_000) + 900,
+    open: 999,
+    close: 999,
+    high: 1_000,
+    low: 998,
+  });
+  const snapshot = normalizeTradingMarketSnapshot({
+    ...fixtureParams(mainCandles),
+    interval: "240",
+    tickSize: 0.01,
+    contextCandles: [
+      { interval: "60", candles: structureCandles },
+      { interval: "15", candles: executionCandles },
+    ],
+  }, { maximumCandles: 2_500 });
+  const result = runWaveTheoryEngine(snapshot);
+  const action = buildWaveActionPlan(snapshot, result.structures.primaryCandidate, result);
+
+  assert.deepEqual(waveDegreeIntervals("240"), { structure: "60", execution: "15" });
+  assert.equal(result.multiTimeframe.structure.interval, "60");
+  assert.equal(result.multiTimeframe.execution.interval, "15");
+  assert.ok(result.multiTimeframe.structure.statistics.candleCount >= 30);
+  assert.equal(result.multiTimeframe.execution.statistics.candleCount, executionCandles.length - 1);
+  assert.ok(
+    result.multiTimeframe.execution.lastClosedBarTime * 1_000 + 15 * 60 * 1_000
+      <= snapshot.snapshotTime,
+  );
+  assert.equal(action.analysisInterval, "240");
+  assert.equal(action.structureInterval, "60");
+  assert.equal(action.executionInterval, "15");
+  assert.equal(action.gate.maximumDistanceAtr, 3);
+  assert.notEqual(action.macroConfirmation, action.longTrigger);
+  assert.notEqual(action.macroConfirmation, action.shortTrigger);
+  assert.equal(action.state, "ready", JSON.stringify(action.gate));
+  const trigger = action.primaryScenario === "bullish" ? action.longTrigger : action.shortTrigger;
+  const stop = action.primaryScenario === "bullish" ? action.longInvalidation : action.shortInvalidation;
+  assert.ok(Math.abs(trigger - action.currentPrice) / result.multiTimeframe.execution.statistics.atr <= 2);
+  assert.ok(
+    Math.abs(trigger - stop) / result.multiTimeframe.execution.statistics.atr
+      <= action.gate.maximumStopDistanceAtr + Number.EPSILON,
+  );
+  assert.ok(Math.abs(trigger - stop) / trigger * 100 <= action.gate.maximumStopDistancePercent + Number.EPSILON);
+  assert.ok(action.stopBasis.sourceRoles.includes("analysis"));
+  assert.equal(action.stopBasis.sourceInterval, "240");
+  assert.notEqual(stop, action.macroInvalidation);
+  assert.ok(action.gate.finalNetRiskReward >= 1.2);
+
+  const review = {
+    primaryCandidateId: result.structures.primaryCandidate.id,
+    alternateCandidateIds: [],
+    showProjectionZone: false,
+    verdict: "approve",
+  };
+  const patch = buildWaveDrawingPatch(snapshot, result, review);
+  assert.ok(patch.operations.some(({ drawing }) => drawing.id.endsWith("-structure-child")));
+  assert.ok(patch.operations.some(({ drawing }) => drawing.id.endsWith("-execution-micro")));
+  assert.ok(patch.operations.some(({ drawing }) => drawing.id.endsWith("-execution-trigger")));
+  assert.ok(patch.operations.filter(({ drawing }) => (
+    drawing.tool === "path" && /structure-child|execution-micro/.test(drawing.id)
+  )).every(({ drawing }) => (
+    ["wave-primary", "wave-correction"].includes(drawing.colorToken)
+      && Number.isFinite(drawing.lineWidth)
+      && ["solid", "dotted"].includes(drawing.lineStyle)
+  )));
+  const report = buildWaveAnalysisReport(snapshot, result, review);
+  assert.match(report, /当前状态：可执行条件已就绪/);
+  assert.match(report, /主周期边界（不是当前入场价）/);
+  assert.match(report, /15分钟.*触发/);
+  assert.equal(action.stopBasis.kind, "support_zone");
+  assert.match(action.stopBasis.label, /结构支撑区下沿/);
+  assert.ok(action.stopBasis.zoneLower < action.currentPrice);
+  assert.ok(action.stopBasis.zoneUpper > action.stopBasis.zoneLower);
+  assert.ok(action.stopBasis.touchCount >= 2);
+  assert.ok(action.stopBasis.evidenceIds.length >= 2);
+  assert.equal(action.stopBasis.tickSize, 0.01);
+  assert.ok(action.stopBasis.buffer >= 0.02);
+  assert.ok(action.targetBasis.length >= 3);
+  assert.ok(action.targetBasis.every((level) => /Fib|候选结构投影/.test(level.label)));
+  assert.match(report, /止盈止损与斐波那契依据/);
+  assert.match(report, /依据.*Fib/);
+
+  const executionPlan = buildExecutionPlanV1(
+    { id: "wave", version: "0.4.0" },
+    {
+      snapshot,
+      theoryResult: result,
+      analysisPlan: {
+        analysisId: "analysis-wave-multi-degree",
+        actionPlan: action,
+      },
+    },
+    { candles: mainCandles, currentPrice: action.currentPrice },
+  );
+  assert.equal(executionPlan.expiresAt - executionPlan.createdAt, 15 * 60 * 1_000 * 12);
+  assert.equal(executionPlan.market.interval, "240");
+  assert.equal(executionPlan.preferredSide, action.primaryScenario === "bullish" ? "long" : "short");
+  assert.ok(executionPlan.riskReward.every((item) => Number.isFinite(item.ratio)));
+  assert.ok(executionPlan.takeProfits.length >= 2);
+  const preferredPlanScenario = executionPlan.scenarios.find((item) => item.side === executionPlan.preferredSide);
+  assert.match(preferredPlanScenario.stop.label, /结构支撑区下沿/);
+  assert.ok(preferredPlanScenario.stop.evidenceIds.some((id) => action.stopBasis.evidenceIds.includes(id)));
+  assert.ok(executionPlan.takeProfits.every((item) => /依据 Fib|依据 候选结构投影|用户偏好/.test(item.condition)));
+  assert.ok(executionPlan.scenarios
+    .find((item) => item.side === executionPlan.preferredSide)
+    .targets.some((target) => /Fib|候选结构投影/.test(target.label)));
+  assert.match(formatExecutionPlanMarkdown(executionPlan), /依据 Fib|依据 候选结构投影/);
 });
 
 test("wave pipeline preserves concrete W-X-Y subwave labels during drawing", async () => {
@@ -666,6 +910,8 @@ test("Trading Expert wires wave analysis through IPC, playback, and light/dark t
 
   assert.match(mainSource, /tradingAnalysis:classifyWaveRequest/);
   assert.match(mainSource, /tradingAnalysis:runWave/);
+  assert.match(mainSource, /tradingAutomationWaveContextIntervals/);
+  assert.match(mainSource, /strategyId === "wave"[\s\S]*?tradingAutomationWaveContextCandles/);
   assert.match(preloadSource, /classifyTradingWaveRequest/);
   assert.match(preloadSource, /runTradingWaveAnalysis/);
   assert.match(rendererSource, /await classifyTradingStrategyForSend\(/);
@@ -676,6 +922,15 @@ test("Trading Expert wires wave analysis through IPC, playback, and light/dark t
   assert.match(rendererSource, /正在分析波浪结构/);
   assert.match(rendererSource, /正在绘制波浪计数/);
   assert.match(marketSource, /runWaveConversation/);
+  assert.match(marketSource, /const capturedTarget = request\.analysisTarget/);
+  assert.match(marketSource, /tradingWaveDegreeContextResolutions/);
+  assert.match(marketSource, /fetchTradingWaveDegreeContexts/);
+  assert.match(marketSource, /contextCandles: await waveDegreeContextsPromise/);
+  assert.match(marketSource, /const analysisEndTimeMs = Number\(analysisCandles\.at\(-1\)\?\.time/);
+  assert.match(marketSource, /endTime: analysisEndTimeMs \|\| request\.analysisTarget\?\.capturedAt/);
+  assert.match(marketSource, /contextCandles: await fetchTradingWaveDegreeContexts\(snapshot\.market\.symbol/);
+  assert.doesNotMatch(translateAppText("K 线及低周期子浪。", "en"), /\p{Script=Han}/u);
+  assert.doesNotMatch(translateAppText("发送时行情快照不足", "en"), /\p{Script=Han}/u);
   assert.match(marketSource, /按价格硬规则与低一级结构验证 0-1-2-3-4-5、A-B-C \/ W-X-Y 候选/);
   assert.match(marketSource, /runTradingWaveAnalysisWithAutoExpansion/);
   assert.match(await readFile(new URL("../src/main/trading-analysis/wave-pipeline.mjs", import.meta.url), "utf8"), /maximumCandles: 2_500/);

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { TRADING_ANALYSIS_SCHEMA_VERSION } from "./protocol.mjs";
 
 export const WAVE_ENGINE_ID = "elliott_wave";
-export const WAVE_ENGINE_VERSION = "0.3.0";
+export const WAVE_ENGINE_VERSION = "0.4.0";
 
 function idFor(prefix, ...parts) {
   return `${prefix}-${crypto.createHash("sha1").update(parts.join(":"), "utf8").digest("hex").slice(0, 16)}`;
@@ -139,16 +139,129 @@ function subdivisionConfirmed(value) {
   return typeof value === "number" ? true : value?.confirmed === true;
 }
 
-function subdivisionMatches(value, expected) {
-  const count = subdivisionCount(value);
-  // Extensions and complex corrections can expose 7/9/... radius-1 segments
-  // while still reducing to a 5- or 3-wave parent form. Require the correct odd
-  // direction parity and a real lower-degree minimum; endpoints alone never pass.
-  return Number.isInteger(count) && count >= expected && count % 2 === 1;
+function strictMotiveSubdivision(points) {
+  if (!Array.isArray(points) || points.length !== 6) return false;
+  const direction = points[0]?.type === "low" ? "bullish" : points[0]?.type === "high" ? "bearish" : null;
+  if (!direction || !points.every((point, index) => point.type === expectedPointTypes(direction, points.length)[index])) {
+    return false;
+  }
+  const lengths = points.slice(1).map((point, index) => Math.abs(point.price - points[index].price));
+  if (!lengths.every((length) => Number.isFinite(length) && length > 0)) return false;
+  const wave2HoldsOrigin = direction === "bullish"
+    ? points[2].price > points[0].price
+    : points[2].price < points[0].price;
+  const wave3MakesProgress = directionMovesBeyond(direction, points[3].price, points[1].price);
+  const wave4HoldsWave3Origin = direction === "bullish"
+    ? points[4].price > points[2].price
+    : points[4].price < points[2].price;
+  const wave3NotShortest = lengths[2] >= Math.min(lengths[0], lengths[4]);
+  const wave4AvoidsWave1 = direction === "bullish"
+    ? points[4].price > points[1].price
+    : points[4].price < points[1].price;
+  const wave5MakesProgress = directionMovesBeyond(direction, points[5].price, points[3].price);
+  return wave2HoldsOrigin
+    && wave3MakesProgress
+    && wave4HoldsWave3Origin
+    && wave3NotShortest
+    && wave4AvoidsWave1
+    && wave5MakesProgress;
 }
 
-function lowerDegreeSubdivision(snapshot, fineSwings, start, end, atr) {
-  const minimumMove = Math.max(atr * 0.08, snapshot.candles.at(-1).close * 0.0002);
+function strictCorrectionSubdivision(points) {
+  if (!Array.isArray(points) || points.length !== 4) return false;
+  const direction = points[0]?.type === "low" ? "bullish" : points[0]?.type === "high" ? "bearish" : null;
+  if (!direction || !points.every((point, index) => point.type === expectedPointTypes(direction, points.length)[index])) {
+    return false;
+  }
+  const lengths = points.slice(1).map((point, index) => Math.abs(point.price - points[index].price));
+  return lengths.every((length) => Number.isFinite(length) && length > 0)
+    && directionMovesBeyond(direction, points[3].price, points[0].price);
+}
+
+function strictExtendedMotiveSubdivision(points) {
+  if (!Array.isArray(points) || points.length !== 10) return false;
+  const partitions = [
+    { inner: points.slice(0, 6), outer: [points[0], points[5], points[6], points[7], points[8], points[9]] },
+    { inner: points.slice(2, 8), outer: [points[0], points[1], points[2], points[7], points[8], points[9]] },
+    { inner: points.slice(4, 10), outer: [points[0], points[1], points[2], points[3], points[4], points[9]] },
+  ];
+  return partitions.some(({ inner, outer }) => (
+    strictMotiveSubdivision(inner) && strictMotiveSubdivision(outer)
+  ));
+}
+
+function strictComplexCorrectionSubdivision(points) {
+  if (!Array.isArray(points) || points.length !== 8) return false;
+  const direction = points[0]?.type === "low" ? "bullish" : points[0]?.type === "high" ? "bearish" : null;
+  const xHoldsOrigin = direction === "bullish"
+    ? points[4].price > points[0].price
+    : points[4].price < points[0].price;
+  return Boolean(direction)
+    && strictCorrectionSubdivision(points.slice(0, 4))
+    && strictCorrectionSubdivision(points.slice(4, 8))
+    && xHoldsOrigin;
+}
+
+function simplifySubdivisionPoints(points, expectedCount) {
+  if (!Array.isArray(points) || points.length <= expectedCount + 1) return points;
+  const validator = expectedCount === 5 ? strictMotiveSubdivision : strictCorrectionSubdivision;
+  const internalCount = expectedCount - 1;
+  if (points.length > 18 || internalCount < 1) return null;
+  let best = null;
+  let bestScore = -Infinity;
+  const selected = [points[0]];
+  const visit = (nextIndex, remaining) => {
+    if (remaining === 0) {
+      const candidate = [...selected, points.at(-1)];
+      if (!validator(candidate)) return;
+      const lengths = candidate.slice(1).map((point, index) => Math.abs(point.price - candidate[index].price));
+      const score = lengths.reduce((total, length) => total + length, 0)
+        + Math.max(...lengths) * 0.01;
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+      return;
+    }
+    const lastAllowed = points.length - 1 - (remaining - 1);
+    for (let index = nextIndex; index <= lastAllowed; index += 1) {
+      selected.push(points[index]);
+      visit(index + 1, remaining - 1);
+      selected.pop();
+    }
+  };
+  visit(1, internalCount);
+  return best;
+}
+
+function subdivisionMatches(value, expected) {
+  const count = subdivisionCount(value);
+  // A raw radius-1 pivot count is not, by itself, an Elliott subdivision. Keep
+  // only canonical 3/5 segments plus the two forms that can be explained by a
+  // single complex correction (7) or a single motive extension (9). Arbitrary
+  // odd counts such as 15/21/31 were previously accepted as "verified" waves.
+  const allowedCounts = expected === 5 ? [5, 9] : [3, 7];
+  if (!Number.isInteger(count) || !allowedCounts.includes(count)) return false;
+  const points = Array.isArray(value?.points) ? value.points : null;
+  if (!points) return true;
+  if (points.length !== count + 1) return false;
+  if (expected === 5) {
+    return count === 5
+      ? strictMotiveSubdivision(points)
+      : strictExtendedMotiveSubdivision(points);
+  }
+  return count === 3
+    ? strictCorrectionSubdivision(points)
+    : strictComplexCorrectionSubdivision(points);
+}
+
+function lowerDegreeSubdivision(snapshot, fineSwings, start, end, atr, expectedCount = null) {
+  // Radius-1 pivots are intentionally sensitive, but using their smallest
+  // fluctuations as separate Elliott subwaves made real lower-timeframe legs
+  // explode into 15/21/31 segments.  Filter only moves that are materially
+  // smaller than the local ATR; the resulting pivots can then be checked as a
+  // canonical 3/5 or a validated extension/complex grouping.
+  const minimumMove = Math.max(atr * 0.3, snapshot.candles.at(-1).close * 0.0005);
   const source = [
     start,
     ...fineSwings.filter((point) => point.index > start.index && point.index < end.index),
@@ -176,17 +289,40 @@ function lowerDegreeSubdivision(snapshot, fineSwings, start, end, atr) {
     points.push(point);
   }
   if (points.at(-1)?.index !== end.index) points.push(end);
+  const simplified = Number.isInteger(expectedCount) && points.length > expectedCount + 1
+    ? simplifySubdivisionPoints(points, expectedCount)
+    : points;
+  if (simplified) points.splice(0, points.length, ...simplified);
   return {
     segmentCount: Math.max(0, points.length - 1),
     confirmed: points.every((point) => point.status === "confirmed"),
     pointIds: points.map((point) => point.id),
-    method: "lower_degree_local_swings",
+    points: points.map((point) => ({ ...point })),
+    method: simplified && simplified !== points ? "lower_degree_local_swings_compressed" : "lower_degree_local_swings",
   };
 }
 
-function subdivisionEvidence(snapshot, fineSwings, points, atr) {
+function subdivisionProfile(value, expected) {
+  const count = subdivisionCount(value);
+  if (expected === 5) return count === 5 ? "canonical_motive" : count === 9 ? "extended_motive" : "invalid";
+  return count === 3 ? "canonical_correction" : count === 7 ? "complex_correction" : "invalid";
+}
+
+function candidateSubdivisionRecords(subdivisions, expectedCounts) {
+  return subdivisions.map(({ points, ...record }, index) => ({
+    ...record,
+    expectedCount: expectedCounts[index],
+    profile: subdivisionProfile(record, expectedCounts[index]),
+  }));
+}
+
+function correctionExpectedCounts(pattern) {
+  return pattern === "zigzag" ? [5, 3, 5] : [3, 3, 5];
+}
+
+function subdivisionEvidence(snapshot, fineSwings, points, atr, expectedCounts = null) {
   return points.slice(0, -1).map((point, index) => (
-    lowerDegreeSubdivision(snapshot, fineSwings, point, points[index + 1], atr)
+    lowerDegreeSubdivision(snapshot, fineSwings, point, points[index + 1], atr, expectedCounts?.[index] || null)
   ));
 }
 
@@ -361,7 +497,7 @@ export function evaluateMotiveWaveRules(points, options = {}) {
 }
 
 function impulseCandidate(snapshot, points, fineSwings, atr) {
-  const subdivisions = subdivisionEvidence(snapshot, fineSwings, points, atr);
+  const subdivisions = subdivisionEvidence(snapshot, fineSwings, points, atr, [5, 3, 5, 3, 5]);
   const evaluation = evaluateMotiveWaveRules(points, { atr, subdivisions });
   if (!evaluation.impulseValid) return null;
   const { direction, ratios, rules } = evaluation;
@@ -400,7 +536,7 @@ function impulseCandidate(snapshot, points, fineSwings, atr) {
     labels: ["0", "1", "2", "3", "4", "5"],
     points: points.map((point, index) => ({ ...point, label: String(index) })),
     ratios,
-    subdivisions,
+    subdivisions: candidateSubdivisionRecords(subdivisions, [5, 3, 5, 3, 5]),
     rules,
     validation: "hard_rules_and_lower_degree_structure",
     invalidationPrice: points[0].price,
@@ -483,10 +619,29 @@ export function evaluateCorrectionWaveRules(points, options = {}) {
   };
 }
 
+function correctionEvaluationWithSubdivisions(snapshot, points, fineSwings, atr) {
+  const subdivisionProfiles = [
+    { expected: [5, 3, 5] },
+    { expected: [3, 3, 5] },
+  ];
+  let subdivisions = null;
+  let evaluation = null;
+  for (const profile of subdivisionProfiles) {
+    const candidateSubdivisions = subdivisionEvidence(snapshot, fineSwings, points, atr, profile.expected);
+    const candidateEvaluation = evaluateCorrectionWaveRules(points, { subdivisions: candidateSubdivisions });
+    if (candidateEvaluation.valid) {
+      subdivisions = candidateSubdivisions;
+      evaluation = candidateEvaluation;
+      break;
+    }
+  }
+  return evaluation && subdivisions ? { evaluation, subdivisions } : null;
+}
+
 function correctionCandidate(snapshot, points, fineSwings, atr) {
-  const subdivisions = subdivisionEvidence(snapshot, fineSwings, points, atr);
-  const evaluation = evaluateCorrectionWaveRules(points, { subdivisions });
-  if (!evaluation.valid) return null;
+  const matched = correctionEvaluationWithSubdivisions(snapshot, points, fineSwings, atr);
+  if (!matched) return null;
+  const { evaluation, subdivisions } = matched;
   const { direction, pattern, ratios, rules } = evaluation;
   const fibonacciScore = average([
     fibonacciCloseness(ratios.waveBRetracement, [0.382, 0.5, 0.618, 0.786, 1], 0.45),
@@ -513,7 +668,7 @@ function correctionCandidate(snapshot, points, fineSwings, atr) {
     labels: ["起点", "A", "B", "C"],
     points: points.map((point, index) => ({ ...point, label: ["起点", "A", "B", "C"][index] })),
     ratios,
-    subdivisions,
+    subdivisions: candidateSubdivisionRecords(subdivisions, correctionExpectedCounts(pattern)),
     rules,
     validation: "hard_rules_and_lower_degree_structure",
     invalidationPrice: points[3].price,
@@ -542,11 +697,18 @@ function doubleThreeCandidate(snapshot, points, fineSwings, atr) {
   if (!waveW || !waveX || !waveY) return null;
   const xHoldsOrigin = bullish ? points[4].price > points[0].price : points[4].price < points[0].price;
   if (!xHoldsOrigin) return null;
-  const subdivisions = subdivisionEvidence(snapshot, fineSwings, points, atr);
-  const wEvaluation = evaluateCorrectionWaveRules(points.slice(0, 4), { subdivisions: subdivisions.slice(0, 3) });
-  const yEvaluation = evaluateCorrectionWaveRules(points.slice(4, 8), { subdivisions: subdivisions.slice(4, 7) });
-  const xInternalStructureVerified = subdivisionMatches(subdivisions[3], 3);
-  if (!wEvaluation.valid || !yEvaluation.valid || !xInternalStructureVerified) return null;
+  const wMatched = correctionEvaluationWithSubdivisions(snapshot, points.slice(0, 4), fineSwings, atr);
+  const yMatched = correctionEvaluationWithSubdivisions(snapshot, points.slice(4, 8), fineSwings, atr);
+  const xSubdivision = lowerDegreeSubdivision(snapshot, fineSwings, points[3], points[4], atr, 3);
+  const xInternalStructureVerified = subdivisionMatches(xSubdivision, 3);
+  if (!wMatched || !yMatched || !xInternalStructureVerified) return null;
+  const wEvaluation = wMatched.evaluation;
+  const yEvaluation = yMatched.evaluation;
+  const subdivisions = [
+    ...wMatched.subdivisions,
+    xSubdivision,
+    ...yMatched.subdivisions,
+  ];
   const yMakesProgress = directionMovesBeyond(direction, points[7].price, points[3].price);
   const ratios = {
     waveXRetracement: waveX / waveW,
@@ -579,7 +741,11 @@ function doubleThreeCandidate(snapshot, points, fineSwings, atr) {
       component: index <= 3 ? "W" : index === 4 ? "X" : "Y",
     })),
     ratios,
-    subdivisions,
+    subdivisions: candidateSubdivisionRecords(subdivisions, [
+      ...correctionExpectedCounts(wEvaluation.pattern),
+      3,
+      ...correctionExpectedCounts(yEvaluation.pattern),
+    ]),
     rules: {
       directionAlternates: true,
       xHoldsOrigin,
@@ -650,6 +816,10 @@ function completeCycleCandidate(snapshot, impulse, correction) {
       correctionPattern: correction.pattern,
       structureVerified: true,
     },
+    subdivisions: {
+      motive: impulse.subdivisions,
+      correction: correction.subdivisions,
+    },
     invalidationPrice: correction.invalidationPrice,
     confirmationPrice: correction.confirmationPrice,
     projection: correction.projection,
@@ -704,7 +874,29 @@ function buildWaveCandidates(snapshot, swings, fineSwings, atr) {
   return sortCandidates(selected).slice(0, 12);
 }
 
-export function runWaveTheoryEngine(snapshot) {
+function intervalMilliseconds(interval) {
+  const normalized = String(interval || "").trim().toUpperCase();
+  if (normalized === "1D") return 86_400_000;
+  if (normalized === "1W") return 604_800_000;
+  const minutes = Number(normalized);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes * 60_000 : 0;
+}
+
+export function waveDegreeIntervals(interval) {
+  const normalized = String(interval || "").trim().toUpperCase();
+  const duration = intervalMilliseconds(normalized);
+  if (normalized === "1W") return { structure: "1D", execution: "240" };
+  if (normalized === "1D") return { structure: "240", execution: "60" };
+  if (duration >= 4 * 60 * 60_000) return { structure: "60", execution: "15" };
+  if (duration >= 2 * 60 * 60_000) return { structure: "30", execution: "5" };
+  if (duration >= 60 * 60_000) return { structure: "15", execution: "5" };
+  if (duration >= 30 * 60_000) return { structure: "15", execution: "5" };
+  if (duration >= 15 * 60_000) return { structure: "5", execution: "1" };
+  if (duration >= 5 * 60_000) return { structure: "1", execution: null };
+  return { structure: null, execution: null };
+}
+
+function runSingleWaveDegreeEngine(snapshot) {
   const atr = averageTrueRange(snapshot.candles);
   const radius = snapshot.candles.length >= 160 ? 3 : 2;
   const rawSwings = rawLocalSwings(snapshot, radius, atr);
@@ -728,6 +920,7 @@ export function runWaveTheoryEngine(snapshot) {
     engineId: WAVE_ENGINE_ID,
     engineVersion: WAVE_ENGINE_VERSION,
     snapshotId: snapshot.snapshotId,
+    lastClosedBarTime: snapshot.lastClosedBarTime || snapshot.candles.at(-1)?.time || null,
     status,
     confidence: {
       structure: primaryCandidate?.score || 0,
@@ -748,6 +941,7 @@ export function runWaveTheoryEngine(snapshot) {
     },
     structures: {
       swings,
+      fineSwings,
       candidates,
       primaryCandidate,
       alternatives,
@@ -763,5 +957,304 @@ export function runWaveTheoryEngine(snapshot) {
     }] : [],
     evidence,
     missingData: [],
+  };
+}
+
+function closedContextSnapshot(parentSnapshot, context) {
+  const intervalMs = intervalMilliseconds(context.interval);
+  const snapshotTime = Math.max(1, Number(parentSnapshot.snapshotTime) || Date.now());
+  const closedCandles = context.candles.filter((candle) => (
+    intervalMs > 0 && candle.time * 1_000 + intervalMs <= snapshotTime
+  ));
+  if (closedCandles.length < 30) return null;
+  const snapshotId = idFor(
+    "wave-degree-snapshot",
+    parentSnapshot.snapshotId,
+    context.interval,
+    closedCandles[0].time,
+    closedCandles.at(-1).time,
+    closedCandles.length,
+  );
+  return {
+    schemaVersion: parentSnapshot.schemaVersion,
+    snapshotId,
+    marketId: parentSnapshot.marketId,
+    interval: context.interval,
+    snapshotTime,
+    lastClosedBarTime: closedCandles.at(-1).time,
+    candles: closedCandles,
+    contextCandles: [],
+    inputHash: snapshotId,
+  };
+}
+
+function compactDegreeResult(role, interval, result) {
+  if (!result) return {
+    role,
+    interval,
+    status: "unavailable",
+    snapshotId: null,
+    lastClosedBarTime: null,
+    confidence: { structure: 0, coverage: 0 },
+    statistics: { candleCount: 0, atr: 0, swingCount: 0, candidateCount: 0 },
+    structures: { swings: [], fineSwings: [], candidates: [], primaryCandidate: null, alternatives: [] },
+    signals: [],
+    evidence: [],
+  };
+  return {
+    role,
+    interval,
+    status: result.status,
+    snapshotId: result.snapshotId,
+    lastClosedBarTime: result.lastClosedBarTime,
+    confidence: result.confidence,
+    statistics: result.statistics,
+    structures: {
+      swings: result.structures.swings,
+      fineSwings: result.structures.fineSwings,
+      candidates: result.structures.candidates.slice(0, 6),
+      primaryCandidate: result.structures.primaryCandidate,
+      alternatives: result.structures.alternatives.slice(0, 2),
+    },
+    signals: result.signals,
+    evidence: result.evidence,
+  };
+}
+
+function annotateDegreeCandidate(candidate, role, interval) {
+  if (!candidate) return null;
+  return {
+    ...candidate,
+    sourceRole: role,
+    sourceInterval: interval,
+    source: "lower_timeframe_fallback",
+  };
+}
+
+function lowerDegreeCandidates(degree) {
+  if (!degree || degree.status === "unavailable" || !degree.interval) return [];
+  return degree.structures.candidates.map((candidate) => annotateDegreeCandidate(
+    candidate,
+    degree.role,
+    degree.interval,
+  )).filter(Boolean);
+}
+
+function scenarioDirection(candidate) {
+  return candidate?.projection?.direction === "bullish" || candidate?.projection?.direction === "bearish"
+    ? candidate.projection.direction
+    : null;
+}
+
+function childCandidateFitsParent(candidate, parentCandidate, snapshot, parentAtr) {
+  if (!candidate || !parentCandidate) return false;
+  const activeStart = parentCandidate.points.at(-3)?.time
+    ?? parentCandidate.points.at(-2)?.time
+    ?? parentCandidate.points[0]?.time
+    ?? 0;
+  if (candidate.points.at(-1)?.time < activeStart) return false;
+  const parentPrices = [
+    ...parentCandidate.points.slice(-4).map((point) => Number(point.price)),
+    Number(snapshot.candles.at(-1)?.close),
+  ].filter(Number.isFinite);
+  const margin = Math.max(Number(parentAtr) * 2, Number(snapshot.candles.at(-1)?.close) * 0.003);
+  const lower = Math.min(...parentPrices) - margin;
+  const upper = Math.max(...parentPrices) + margin;
+  const insideCount = candidate.points.filter((point) => point.price >= lower && point.price <= upper).length;
+  return insideCount / Math.max(1, candidate.points.length) >= 0.8;
+}
+
+function alignedChildCandidate(degree, direction, parentCandidate, snapshot, parentAtr) {
+  if (!degree || degree.status === "unavailable") return null;
+  return degree.structures.candidates
+    .filter((candidate) => (
+      scenarioDirection(candidate) === direction
+      && childCandidateFitsParent(candidate, parentCandidate, snapshot, parentAtr)
+    ))
+    .sort((first, second) => (
+      Number(second.status === "confirmed") - Number(first.status === "confirmed")
+      || second.points.at(-1).time - first.points.at(-1).time
+      || second.score - first.score
+      || first.id.localeCompare(second.id)
+    ))[0] || null;
+}
+
+export function buildWaveHierarchy(snapshot, theoryResult, parentCandidate = theoryResult?.structures?.primaryCandidate) {
+  if (!parentCandidate) return null;
+  const direction = scenarioDirection(parentCandidate);
+  const structureDegree = theoryResult?.multiTimeframe?.structure || null;
+  const executionDegree = theoryResult?.multiTimeframe?.execution || null;
+  const parentAtr = Number(theoryResult?.statistics?.atr) || 0;
+  const parentRole = parentCandidate.sourceRole || "analysis";
+  const structureCandidate = parentRole === "structure"
+    ? parentCandidate
+    : parentRole === "execution"
+      ? null
+      : alignedChildCandidate(
+        structureDegree,
+        direction,
+        parentCandidate,
+        snapshot,
+        parentAtr,
+      );
+  const executionCandidate = parentRole === "execution"
+    ? null
+    : alignedChildCandidate(
+      executionDegree,
+      direction,
+      parentCandidate,
+      snapshot,
+      parentAtr,
+    );
+  return {
+    direction,
+    parentRole,
+    activeParentStartTime: parentCandidate.points.at(-3)?.time
+      ?? parentCandidate.points.at(-2)?.time
+      ?? parentCandidate.points[0]?.time
+      ?? null,
+    analysis: {
+      role: parentRole === "analysis" ? "analysis" : "fallback",
+      interval: snapshot.interval,
+      candidateInterval: parentCandidate.sourceInterval || snapshot.interval,
+      candidate: parentCandidate,
+      macroConfirmation: Number.isFinite(Number(parentCandidate.confirmationPrice))
+        ? Number(parentCandidate.confirmationPrice)
+        : null,
+      macroInvalidation: Number.isFinite(Number(parentCandidate.invalidationPrice))
+        ? Number(parentCandidate.invalidationPrice)
+        : null,
+    },
+    structure: {
+      role: "structure",
+      interval: structureDegree?.interval || null,
+      status: structureDegree?.status || "unavailable",
+      candidate: structureCandidate,
+      aligned: Boolean(structureCandidate),
+    },
+    execution: {
+      role: "execution",
+      interval: executionDegree?.interval || null,
+      status: executionDegree?.status || "unavailable",
+      candidate: executionCandidate,
+      aligned: Boolean(executionCandidate),
+      atr: Number(executionDegree?.statistics?.atr) || 0,
+      swings: executionDegree?.structures?.fineSwings || executionDegree?.structures?.swings || [],
+    },
+  };
+}
+
+export function runWaveTheoryEngine(snapshot) {
+  const analysisResult = runSingleWaveDegreeEngine(snapshot);
+  const intervals = waveDegreeIntervals(snapshot.interval);
+  const contextsByInterval = new Map(
+    (Array.isArray(snapshot.contextCandles) ? snapshot.contextCandles : [])
+      .map((context) => [String(context.interval), context]),
+  );
+  const degreeFor = (role, interval) => {
+    if (!interval) return compactDegreeResult(role, null, null);
+    const context = contextsByInterval.get(interval);
+    const contextSnapshot = context ? closedContextSnapshot(snapshot, context) : null;
+    return compactDegreeResult(
+      role,
+      interval,
+      contextSnapshot ? runSingleWaveDegreeEngine(contextSnapshot) : null,
+    );
+  };
+  const structure = degreeFor("structure", intervals.structure);
+  const execution = degreeFor("execution", intervals.execution);
+  const mainCandidates = analysisResult.structures.candidates;
+  const structureFallbackCandidates = lowerDegreeCandidates(structure);
+  // Keep the fallback ladder strict: a valid structure-period count is the
+  // parent-level substitute, and execution-period candidates are considered
+  // only when that intermediate level has no count at all.
+  const fallbackCandidates = structureFallbackCandidates.length
+    ? structureFallbackCandidates
+    : lowerDegreeCandidates(execution);
+  // A higher-degree count is preferable, but it is not a prerequisite for
+  // using a verified lower-degree count. This is the missing link that caused
+  // a valid 1H/15m wave to be discarded whenever a 4H/1H window had too few
+  // parent pivots.
+  const effectiveCandidates = mainCandidates.length ? mainCandidates : fallbackCandidates;
+  const effectivePrimaryCandidate = analysisResult.structures.primaryCandidate
+    || effectiveCandidates[0]
+    || null;
+  const effectiveAlternatives = effectivePrimaryCandidate
+    ? effectiveCandidates.filter((candidate) => candidate.id !== effectivePrimaryCandidate.id).slice(0, 3)
+    : [];
+  const effectiveSignal = effectivePrimaryCandidate
+    ? {
+      signalId: idFor("wave-signal", snapshot.snapshotId, effectivePrimaryCandidate.id),
+      kind: effectivePrimaryCandidate.projection.direction === "bullish"
+        ? "bullish_scenario"
+        : "bearish_scenario",
+      strength: effectivePrimaryCandidate.score,
+      status: effectivePrimaryCandidate.status,
+      evidenceIds: effectivePrimaryCandidate.points.map((point) => point.id),
+      ...(effectivePrimaryCandidate.sourceRole ? {
+        sourceRole: effectivePrimaryCandidate.sourceRole,
+        sourceInterval: effectivePrimaryCandidate.sourceInterval,
+      } : {}),
+    }
+    : null;
+  const nestedEvidence = [structure, execution].flatMap((degree) => degree.evidence.map((item) => ({
+    ...item,
+    id: item.id || item.evidenceId,
+    evidenceId: item.evidenceId || item.id,
+    interval: degree.interval,
+    role: degree.role,
+  })));
+  const result = {
+    ...analysisResult,
+    status: effectivePrimaryCandidate ? "succeeded" : analysisResult.status,
+    direction: scenarioDirection(analysisResult.structures.primaryCandidate) || "neutral",
+    statistics: {
+      ...analysisResult.statistics,
+      analysisCandidateCount: mainCandidates.length,
+      fallbackCandidateCount: mainCandidates.length ? 0 : fallbackCandidates.length,
+      candidateCount: effectiveCandidates.length,
+    },
+    coverage: {
+      candles: "available",
+      structureCandles: structure.status === "unavailable" ? "unavailable" : "available",
+      executionCandles: execution.status === "unavailable" ? "unavailable" : "available",
+    },
+    multiTimeframe: {
+      analysisInterval: snapshot.interval,
+      structureInterval: intervals.structure,
+      executionInterval: intervals.execution,
+      structure,
+      execution,
+    },
+    fallback: !analysisResult.structures.primaryCandidate && effectivePrimaryCandidate
+      ? {
+        role: effectivePrimaryCandidate.sourceRole,
+        interval: effectivePrimaryCandidate.sourceInterval,
+        candidateId: effectivePrimaryCandidate.id,
+        reason: "analysis_timeframe_candidate_missing",
+      }
+      : null,
+    structures: {
+      ...analysisResult.structures,
+      candidates: effectiveCandidates,
+      primaryCandidate: effectivePrimaryCandidate,
+      alternatives: effectiveAlternatives,
+    },
+    signals: analysisResult.signals.length ? analysisResult.signals : effectiveSignal ? [effectiveSignal] : [],
+    evidence: [
+      ...analysisResult.evidence.map((item) => ({
+        ...item,
+        id: item.id || item.evidenceId,
+        evidenceId: item.evidenceId || item.id,
+        interval: snapshot.interval,
+        role: "analysis",
+      })),
+      ...nestedEvidence,
+    ].slice(0, 96),
+  };
+  return {
+    ...result,
+    direction: scenarioDirection(effectivePrimaryCandidate) || "neutral",
+    hierarchy: buildWaveHierarchy(snapshot, result, effectivePrimaryCandidate),
   };
 }
