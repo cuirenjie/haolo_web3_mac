@@ -3,19 +3,29 @@ set -Eeuo pipefail
 
 readonly COMPOSE_FILE="/opt/haolo/services/haolo-binance-gateway/deploy/single-node/docker-compose.production.yml"
 readonly RUNTIME_ENV="/opt/haolo/secrets/gateway-runtime.env"
+readonly ACTIVE_STATE="/var/lib/haolo/gateway-active.env"
+
+public_port=8787
+private_port=8788
+if [[ -r "${ACTIVE_STATE}" ]]; then
+  value="$(sed -n 's/^PUBLIC_PORT=\([0-9][0-9]*\)$/\1/p' "${ACTIVE_STATE}" | head -n 1)"
+  [[ "${value}" =~ ^[0-9]{1,5}$ ]] && public_port="${value}"
+  value="$(sed -n 's/^PRIVATE_PORT=\([0-9][0-9]*\)$/\1/p' "${ACTIVE_STATE}" | head -n 1)"
+  [[ "${value}" =~ ^[0-9]{1,5}$ ]] && private_port="${value}"
+fi
 
 docker compose -f "${COMPOSE_FILE}" ps
 
 echo "PUBLIC_READY"
 curl --fail --silent --show-error \
   --retry 20 --retry-all-errors --retry-delay 1 --max-time 5 \
-  http://127.0.0.1:8787/ready
+  "http://127.0.0.1:${public_port}/ready"
 echo
 
 echo "PRIVATE_READY"
 curl --fail --silent --show-error \
   --retry 20 --retry-all-errors --retry-delay 1 --max-time 5 \
-  http://127.0.0.1:8788/ready
+  "http://127.0.0.1:${private_port}/ready"
 echo
 
 echo "BINANCE_SPOT"
@@ -35,7 +45,7 @@ head -c 300 /tmp/binance-futures.out
 echo
 
 echo "UNAUTH_CONNECT"
-exec 3<>/dev/tcp/127.0.0.1/8788
+exec 3<>/dev/tcp/127.0.0.1/${private_port}
 printf 'CONNECT api.binance.com:443 HTTP/1.1\r\nHost: api.binance.com:443\r\n\r\n' >&3
 IFS= read -r connect_status_line <&3
 exec 3>&-
