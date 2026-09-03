@@ -15,6 +15,15 @@ function streamValue(value) {
   return normalized;
 }
 
+function streamClassValue(value) {
+  const stream = streamValue(value);
+  return /@bookTicker$/.test(stream) ? "public" : "market";
+}
+
+function channelKey(marketType, streamClass) {
+  return `${marketType}:${streamClass}`;
+}
+
 export class TradingMarketDataHub {
   constructor({
     endpointProvider,
@@ -37,18 +46,24 @@ export class TradingMarketDataHub {
     this.WebSocketImpl = WebSocketImpl;
     this.reconnectBaseMs = Math.max(10, Number(reconnectBaseMs) || 500);
     this.heartbeatMs = Math.max(1_000, Number(heartbeatMs) || 20_000);
+    // Binance limits client-to-server commands to 10 messages/second. A
+    // short debounce absorbs favorite/split-pane churn into one batched
+    // SUBSCRIBE/UNSUBSCRIBE frame without delaying the market feed itself.
+    this.commandDebounceMs = 120;
     this.channels = new Map();
     this.nextSubscriptionId = 1;
     this.nextRequestId = 1;
     this.closed = false;
   }
 
-  channelFor(marketType) {
+  channelFor(marketType, streamClass = "market") {
     const normalized = marketTypeValue(marketType);
-    let channel = this.channels.get(normalized);
+    const key = channelKey(normalized, streamClass);
+    let channel = this.channels.get(key);
     if (!channel) {
       channel = {
         marketType: normalized,
+        streamClass,
         subscriptions: new Map(),
         streamSubscriptions: new Map(),
         socket: null,
@@ -56,10 +71,12 @@ export class TradingMarketDataHub {
         reconnectAttempt: 0,
         reconnectTimer: null,
         heartbeatTimer: null,
+        pendingCommands: [],
+        commandTimer: null,
         alive: true,
         generation: 0,
       };
-      this.channels.set(normalized, channel);
+      this.channels.set(key, channel);
     }
     return channel;
   }
@@ -73,6 +90,28 @@ export class TradingMarketDataHub {
     try {
       channel.socket.send(JSON.stringify({ method, params: streams, id: this.nextRequestId++ }));
     } catch {}
+  }
+
+  queueCommand(channel, method, streams) {
+    if (!streams.length) return;
+    channel.pendingCommands.push({ method, streams });
+    if (channel.commandTimer !== null) return;
+    channel.commandTimer = setTimeout(() => {
+      channel.commandTimer = null;
+      const intents = new Map();
+      for (const command of channel.pendingCommands.splice(0)) {
+        command.streams.forEach((stream) => intents.set(stream, command.method));
+      }
+      const grouped = new Map();
+      for (const [stream, queuedMethod] of intents) {
+        if (!grouped.has(queuedMethod)) grouped.set(queuedMethod, []);
+        grouped.get(queuedMethod).push(stream);
+      }
+      for (const [queuedMethod, queuedStreams] of grouped) {
+        this.sendCommand(channel, queuedMethod, queuedStreams);
+      }
+    }, this.commandDebounceMs);
+    channel.commandTimer.unref?.();
   }
 
   broadcastHealth(channel, health) {
@@ -115,7 +154,11 @@ export class TradingMarketDataHub {
     let endpoint;
     let endpointContext;
     try {
-      const resolved = await this.endpointProvider({ marketType: channel.marketType, combined: true });
+      const resolved = await this.endpointProvider({
+        marketType: channel.marketType,
+        combined: true,
+        streamClass: channel.streamClass,
+      });
       endpointContext = typeof resolved === "string"
         ? { url: resolved, route: null, marketType: channel.marketType }
         : { ...resolved, marketType: resolved?.marketType || channel.marketType };
@@ -152,6 +195,12 @@ export class TradingMarketDataHub {
       openedAt = Date.now();
       channel.reconnectAttempt = 0;
       channel.alive = true;
+      // The open handshake sends the authoritative current stream set. Drop
+      // commands queued while CONNECTING so they cannot replay a duplicate
+      // SUBSCRIBE after the socket has already been initialized.
+      clearTimeout(channel.commandTimer);
+      channel.commandTimer = null;
+      channel.pendingCommands = [];
       this.sendCommand(channel, "SUBSCRIBE", [...channel.streamSubscriptions.keys()]);
       this.armHeartbeat(channel, socket);
       this.broadcastHealth(channel, { status: "connected" });
@@ -207,49 +256,63 @@ export class TradingMarketDataHub {
     if (typeof onEvent !== "function") throw new TypeError("onEvent is required");
     const normalizedStreams = [...new Set((Array.isArray(streams) ? streams : []).map(streamValue))];
     if (!normalizedStreams.length || normalizedStreams.length > 50) throw new TypeError("one to fifty Binance streams are required");
-    const channel = this.channelFor(marketType);
     const subscriptionId = `market-${this.nextSubscriptionId++}`;
-    const addedStreams = [];
-    const subscription = { id: subscriptionId, streams: normalizedStreams, onEvent, onHealth };
-    channel.subscriptions.set(subscriptionId, subscription);
+    const channels = new Map();
     for (const stream of normalizedStreams) {
-      let ids = channel.streamSubscriptions.get(stream);
-      if (!ids) {
-        ids = new Set();
-        channel.streamSubscriptions.set(stream, ids);
-        addedStreams.push(stream);
-      }
-      ids.add(subscriptionId);
+      const streamClass = streamClassValue(stream);
+      const channel = channels.get(streamClass) || this.channelFor(marketType, streamClass);
+      const entry = channels.get(streamClass) || { channel, streams: [] };
+      entry.streams.push(stream);
+      channels.set(streamClass, entry);
     }
-    this.sendCommand(channel, "SUBSCRIBE", addedStreams);
-    if (this.isOpen(channel.socket)) onHealth(Object.freeze({ type: "health", status: "connected", at: Date.now() }));
-    else void this.connect(channel);
+    for (const { channel, streams: groupedStreams } of channels.values()) {
+      const addedStreams = [];
+      const subscription = { id: subscriptionId, streams: groupedStreams, onEvent, onHealth };
+      channel.subscriptions.set(subscriptionId, subscription);
+      for (const stream of groupedStreams) {
+        let ids = channel.streamSubscriptions.get(stream);
+        if (!ids) {
+          ids = new Set();
+          channel.streamSubscriptions.set(stream, ids);
+          addedStreams.push(stream);
+        }
+        ids.add(subscriptionId);
+      }
+      this.queueCommand(channel, "SUBSCRIBE", addedStreams);
+      if (this.isOpen(channel.socket)) onHealth(Object.freeze({ type: "health", status: "connected", at: Date.now() }));
+      else void this.connect(channel);
+    }
     let disposed = false;
     const dispose = async () => {
       if (disposed) return;
       disposed = true;
-      channel.subscriptions.delete(subscriptionId);
-      const removedStreams = [];
-      for (const stream of normalizedStreams) {
-        const ids = channel.streamSubscriptions.get(stream);
-        ids?.delete(subscriptionId);
-        if (!ids?.size) {
-          channel.streamSubscriptions.delete(stream);
-          removedStreams.push(stream);
+      for (const { channel, streams: groupedStreams } of channels.values()) {
+        channel.subscriptions.delete(subscriptionId);
+        const removedStreams = [];
+        for (const stream of groupedStreams) {
+          const ids = channel.streamSubscriptions.get(stream);
+          ids?.delete(subscriptionId);
+          if (!ids?.size) {
+            channel.streamSubscriptions.delete(stream);
+            removedStreams.push(stream);
+          }
         }
-      }
-      this.sendCommand(channel, "UNSUBSCRIBE", removedStreams);
-      if (channel.subscriptions.size) return;
-      channel.generation += 1;
-      clearTimeout(channel.reconnectTimer);
-      clearInterval(channel.heartbeatTimer);
-      channel.reconnectTimer = null;
-      channel.heartbeatTimer = null;
-      const socket = channel.socket;
-      channel.socket = null;
-      this.channels.delete(channel.marketType);
-      if (socket) {
-        try { socket.close(1000, "unused"); } catch {}
+        this.queueCommand(channel, "UNSUBSCRIBE", removedStreams);
+        if (channel.subscriptions.size) continue;
+        channel.generation += 1;
+        clearTimeout(channel.reconnectTimer);
+        clearInterval(channel.heartbeatTimer);
+        clearTimeout(channel.commandTimer);
+        channel.commandTimer = null;
+        channel.pendingCommands = [];
+        channel.reconnectTimer = null;
+        channel.heartbeatTimer = null;
+        const socket = channel.socket;
+        channel.socket = null;
+        this.channels.delete(channelKey(channel.marketType, channel.streamClass));
+        if (socket) {
+          try { socket.close(1000, "unused"); } catch {}
+        }
       }
     };
     return Object.freeze({ subscriptionId, dispose });
@@ -274,6 +337,9 @@ export class TradingMarketDataHub {
       channel.generation += 1;
       clearTimeout(channel.reconnectTimer);
       clearInterval(channel.heartbeatTimer);
+      clearTimeout(channel.commandTimer);
+      channel.commandTimer = null;
+      channel.pendingCommands = [];
       const socket = channel.socket;
       channel.socket = null;
       if (socket) {

@@ -382,7 +382,8 @@ test("settings and split actions are direct buttons wired to persisted settings 
   assert.match(splitPane, /createChart/);
   assert.match(splitPane, /data-split-symbol/);
   assert.match(splitPane, /data-split-interval/);
-  assert.match(splitPane, /this\.loadCandles\(this\.market, this\.interval\)/);
+  assert.match(splitPane, /const targetMarket = this\.market;[\s\S]*?const targetInterval = this\.interval/);
+  assert.match(splitPane, /this\.loadCandles\(targetMarket, targetInterval\)/);
   assert.match(splitPane, /window\.setTimeout\(\(\) => void this\.reload\(false\), SPLIT_PANE_REFRESH_INTERVAL_MS\)/);
   assert.match(splitPane, /this\.settings = cloneTradingChartSettings\(settings\)/);
   assert.match(splitPane, /cursorAnchoredByDefault = this\.settings\.scaleAnchor === "cursor"/);

@@ -1789,7 +1789,8 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.doesNotMatch(tickerRender, /renderTradingMarketAssetLogo/);
   assert.match(source, /action === "symbol" \|\| action === "favorite-symbol"[\s\S]*?this\.selectMarket\(market\)[\s\S]*?this\.restartMarketData\(\{ preserveChart: true \}\)/);
   assert.match(tickerRender, /this\.favoriteTickerMarketsById\.get\(record\.id\)/);
-  assert.match(tickerStreams, /\[\.\.\.this\.favoriteTickerMarketsById\.values\(\)\]/);
+  assert.match(tickerStreams, /const streamMarkets = new Map\(this\.favoriteTickerMarketsById\)/);
+  assert.match(tickerStreams, /\[\.\.\.streamMarkets\.values\(\)\]/);
   assert.match(source, /tradingFavoriteTickerStreams[\s\S]*?`\$\{symbol\}@ticker`/);
   assert.match(tickerStreams, /subscribeBinanceMarketStreams\([\s\S]*?tradingFavoriteTickerStreams\(marketBySymbol\.keys\(\)\)/);
   assert.doesNotMatch(tickerStreams, /new WebSocket|resolveBinanceMarketStreamEndpoint/);
@@ -1824,6 +1825,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /\.trading-market-favorite-ticker\s*\{[^}]*width: 100px;[^}]*min-width: 0;[^}]*max-width: 100px;[^}]*flex: 0 1 100px;[^}]*background: transparent;/s);
   assert.match(styles, /\.trading-market-favorite-ticker\s*\{[^}]*cursor: grab;[^}]*touch-action: none;/s);
   assert.match(styles, /\.trading-market-favorite-ticker\.selected\s*\{[^}]*background: var\(--trading-market-selected-background\);/s);
+  assert.match(styles, /\.trading-market-favorite-ticker\.selected\s*\{[^}]*width: max-content;[^}]*min-width: 132px;[^}]*max-width: 220px;[^}]*flex: 0 0 auto;/s);
   assert.match(styles, /\.trading-market-favorite-ticker\.selected > strong\s*\{[^}]*color: var\(--trading-market-text\);/s);
   assert.match(styles, /\.trading-market-favorite-ticker\.sorting\s*\{[^}]*cursor: grabbing;[^}]*visibility: hidden;/s);
   assert.doesNotMatch(styles, /\.trading-market-favorite-ticker\.sorting\s*\{[^}]*opacity:/s);
@@ -1850,6 +1852,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /--trading-market-favorite-fill: var\(--brand-blue\);[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-favorite-fill: var\(--brand-blue\);/s);
   assert.doesNotMatch(styles, /--trading-market-favorite-(?:fill|soft): #[fF](?:5b800|fd24a|ff5cc)/);
   assert.match(source, /syncTitlebarFavoriteTickerHost\(\)[\s\S]*?\[data-titlebar-market-favorites-host\][\s\S]*?titlebarHost\.append\(this\.favoriteTickerBar\)/);
+  assert.match(source, /private revealSelectedFavoriteTicker\(\)[\s\S]*?favoriteTickerBar\.scrollLeft[\s\S]*?private renderFavoriteTickerBar\(\)[\s\S]*?this\.revealSelectedFavoriteTicker\(\)/);
   assert.match(source, /host === activeWorkspaceHost[\s\S]*?activeWorkspace\.syncTitlebarFavoriteTickerHost\(\)/);
   assert.match(source, /this\.favoriteTickerBar\.addEventListener\("click", this\.handleFavoriteTickerClick\)/);
   assert.match(source, /this\.favoriteTickerBar\.addEventListener\("wheel", this\.handleFavoriteTickerScrollWheel, \{ passive: false \}\)/);
@@ -2300,7 +2303,7 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
   assert.match(restartBlock, /this\.currentPriceElement\.hidden = true/);
   assert.match(
     restartBlock,
-    /if \(!keepChart\) \{[\s\S]*?this\.candles = \[\][\s\S]*?this\.clearChart\(\)/,
+    /this\.stats = null;[\s\S]*?this\.candles = \[\];[\s\S]*?this\.sourceCandles = \[\];[\s\S]*?if \(keepChart\) this\.chartCandles = \[\];[\s\S]*?else this\.clearChart\(\)/,
   );
   assert.match(restartBlock, /fetchTradingCandles\([\s\S]*?targetSymbol,[\s\S]*?targetInterval,[\s\S]*?500,[\s\S]*?targetMarketType === "spot"/);
   assert.match(restartBlock, /tradingCandleBatchCanRefreshIncrementally\(cachedBatch\)/);
@@ -2319,6 +2322,7 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
   assert.match(restartBlock, /if \(targetProvider === "binance"\)[\s\S]*?void this\.connectSocket\(generation\);[\s\S]*?try \{/);
   assert.match(restartBlock, /if \(this\.selectedProvider === "binance"\) void this\.refreshSnapshot\(generation\)/);
   assert.match(commitSnapshotBlock, /this\.loadedSymbol = targetSymbol[\s\S]*?this\.loadedInterval = targetInterval/);
+  assert.match(commitSnapshotBlock, /this\.reconcileCurrentLivePrice\(\);[\s\S]*?this\.updateChartData\(\{ resetViewport: true \}\)/);
   assert.match(commitSnapshotBlock, /this\.updateChartData\(\{ resetViewport: true \}\)/);
   assert.doesNotMatch(restartBlock, /this\.selectedSymbol = this\.loadedSymbol|this\.activeInterval = this\.loadedInterval/);
   assert.match(restartBlock, /this\.candles = \[\];[\s\S]*?this\.clearChart\(\);[\s\S]*?this\.errorElement\.hidden = false/);
@@ -2351,6 +2355,8 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
 test("Trading Expert coalesces live candles while throttling REST fallbacks and rate-limit retries", async () => {
   const source = await marketSource;
   const socketBlock = sourceBlock(source, "private async connectSocket", "private handleSocketMessage");
+  const livePriceBlock = sourceBlock(source, "private recordLatestLivePrice", "private commitMarketSnapshot");
+  const messageBlock = sourceBlock(source, "private handleSocketMessage", "private updateFromBinanceKline");
   const klineBlock = sourceBlock(source, "private updateFromBinanceKline", "private updateFromBinanceTrade");
   const tradeBlock = sourceBlock(source, "private updateFromBinanceTrade", "private scheduleLiveChartPaint");
   const paintBlock = sourceBlock(source, "private scheduleLiveChartPaint", "private commitLoadedSelection");
@@ -2373,7 +2379,13 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.match(socketBlock, /event\.status === "reconnecting"[\s\S]*?this\.marketSocketNeedsBackfill = true/);
   assert.match(socketBlock, /const needsBackfill = this\.marketSocketNeedsBackfill[\s\S]*?this\.refreshLiveCandle\(generation\)/);
   assert.match(socketBlock, /`\$\{symbol\}@aggTrade`/);
+  assert.match(livePriceBlock, /latestLivePricesByMarketId\.set/);
+  assert.match(livePriceBlock, /loadedMarketId !== this\.selectedMarketId[\s\S]*?loadedInterval !== this\.activeInterval/);
+  assert.match(livePriceBlock, /applyTradingLivePriceToBatch/);
+  assert.match(messageBlock, /payload\.e === "24hrTicker"[\s\S]*?recordLatestLivePrice[\s\S]*?reconcileCurrentLivePrice[\s\S]*?scheduleLiveChartPaint/);
   assert.match(klineBlock, /closed: kline\.x === true/);
+  assert.match(klineBlock, /loadedMarketId !== this\.selectedMarketId[\s\S]*?loadedInterval !== this\.activeInterval/);
+  assert.match(klineBlock, /applyLiveSourceCandle\(incoming, source\);[\s\S]*?reconcileCurrentLivePrice\(\)/);
   assert.match(klineBlock, /preferredTradingCandle\(latest, incoming\)/);
   assert.match(klineBlock, /this\.scheduleLiveChartPaint\(\)/);
   assert.match(tradeBlock, /if \(source\.sourceInterval\)[\s\S]*?close: price[\s\S]*?this\.applyLiveSourceCandle\(incoming, source\)[\s\S]*?this\.scheduleLiveChartPaint\(\)/);
@@ -2402,6 +2414,25 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.match(source, /destroy\(\)[\s\S]*clearTimeout\(this\.marketRateLimitRetryTimer\)/);
   assert.match(source, /data-market-row-price/);
   assert.match(source, /data-market-row-change/);
+});
+
+test("Trading Expert split panes share the market-wide live price across intervals", async () => {
+  const [market, split] = await Promise.all([marketSource, splitPaneSource]);
+  const quoteBlock = sourceBlock(market, "private recordLatestLivePrice", "private reconcileCurrentLivePrice");
+  const splitLoadBlock = sourceBlock(market, "private async loadSplitPaneCandles", "private readonly handleMarketListScroll");
+  const splitPriceBlock = sourceBlock(split, "  applyLivePrice(", "  async analysisSnapshot(");
+  const splitSnapshotBlock = sourceBlock(split, "  async analysisSnapshot(", "  cancelAiPlayback(");
+  const streamsBlock = sourceBlock(market, "private syncFavoriteTickerStreams", "private async connectFavoriteTickerGroup");
+
+  assert.match(quoteBlock, /selection\.marketId !== marketId/);
+  assert.match(quoteBlock, /pane\.applyLivePrice\(marketId, price, timestamp, source\.targetMs\)/);
+  assert.match(splitLoadBlock, /applyTradingLivePriceToBatch\(result, quote\.price, quote\.eventTimeMs\)/);
+  assert.match(splitPriceBlock, /this\.market\.id !== marketId/);
+  assert.match(splitPriceBlock, /loadedMarketId !== this\.market\.id[\s\S]*?loadedInterval !== this\.interval/);
+  assert.match(splitPriceBlock, /applyTradingLivePriceToBatch[\s\S]*?this\.updateData\(previousCandles\)/);
+  assert.match(splitSnapshotBlock, /loadedMarketId === this\.market\.id[\s\S]*?loadedInterval === this\.interval/);
+  assert.match(splitSnapshotBlock, /!this\.candles\.length \|\| !loadedContextMatches[\s\S]*?this\.reload\(true\)/);
+  assert.match(streamsBlock, /this\.splitPanes\.forEach[\s\S]*?this\.splitPaneSelections\.get\(index \+ 1\)[\s\S]*?streamMarkets\.set\(selection\.marketId/);
 });
 
 test("Trading Expert trend-band mention toggles the chart without a transient time-axis shift", async () => {

@@ -44,10 +44,12 @@ test("main-process market hub shares one ticketed socket and reference-counts st
   );
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(FakeWebSocket.instances.length, 1);
-  assert.deepEqual(endpoints, [{ marketType: "futures", combined: true }]);
+  assert.deepEqual(endpoints, [{ marketType: "futures", combined: true, streamClass: "market" }]);
   const socket = FakeWebSocket.instances[0];
   socket.open();
   assert.deepEqual(socket.sent[0].params.sort(), ["btcusdt@aggTrade", "btcusdt@ticker"]);
+  await new Promise((resolve) => setTimeout(resolve, 160));
+  assert.equal(socket.sent.filter((command) => command.method === "SUBSCRIBE").length, 1);
   socket.emit("message", JSON.stringify({ stream: "btcusdt@ticker", data: { e: "24hrTicker" } }));
   assert.equal(firstEvents.length, 1);
   assert.equal(secondEvents.length, 1);
@@ -68,6 +70,31 @@ test("main-process market hub validates its read-only public stream boundary", a
   await hub.close();
 });
 
+test("main-process market hub keeps Futures public and market stream classes on separate sockets", async () => {
+  FakeWebSocket.instances = [];
+  const endpoints = [];
+  const hub = new TradingMarketDataHub({
+    WebSocketImpl: FakeWebSocket,
+    endpointProvider: async (params) => {
+      endpoints.push(params);
+      return `wss://fstream.binance.com/${params.streamClass}/stream`;
+    },
+  });
+  const subscription = hub.subscribe(
+    { marketType: "futures", streams: ["btcusdt@aggTrade", "btcusdt@bookTicker"] },
+    () => {},
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(FakeWebSocket.instances.length, 2);
+  assert.deepEqual(endpoints.map((entry) => entry.streamClass).sort(), ["market", "public"]);
+  assert.deepEqual(
+    FakeWebSocket.instances.map((socket) => socket.url).sort(),
+    ["wss://fstream.binance.com/market/stream", "wss://fstream.binance.com/public/stream"],
+  );
+  await subscription.dispose();
+  await hub.close();
+});
+
 test("main-process market hub reports an early direct socket failure for route fallback", async () => {
   FakeWebSocket.instances = [];
   const outcomes = [];
@@ -75,7 +102,7 @@ test("main-process market hub reports an early direct socket failure for route f
     WebSocketImpl: FakeWebSocket,
     reconnectBaseMs: 60_000,
     endpointProvider: async () => ({
-      url: "wss://fstream.binance.com/stream",
+      url: "wss://fstream.binance.com/market/stream",
       route: "direct",
       marketType: "futures",
     }),

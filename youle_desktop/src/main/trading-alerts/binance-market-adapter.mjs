@@ -55,17 +55,40 @@ function createBinanceSocketPool(WebSocketImpl, { resolveWebSocketUrl } = {}) {
   let requestId = 1;
 
   const defaultWebsocketBase = (marketType) => marketType === "FUTURES"
-    ? "wss://fstream.binance.com/ws"
+    ? "wss://fstream.binance.com/market/ws"
     : "wss://data-stream.binance.vision:443/ws";
   const websocketBase = typeof resolveWebSocketUrl === "function"
     ? resolveWebSocketUrl
     : async (marketType) => defaultWebsocketBase(marketType);
   const isOpen = (socket) => socket?.readyState === (WebSocketImpl.OPEN ?? 1);
+  const commandDebounceMs = 120;
   const sendCommand = (channel, method, streams) => {
     if (!isOpen(channel.socket) || !streams.length) return;
     try {
       channel.socket.send(JSON.stringify({ method, params: streams, id: requestId++ }));
     } catch {}
+  };
+  const queueCommand = (channel, method, streams) => {
+    if (!streams.length) return;
+    channel.pendingCommands.push({ method, streams });
+    if (channel.commandTimer !== null) return;
+    channel.commandTimer = setTimeout(() => {
+      channel.commandTimer = null;
+      if (!isOpen(channel.socket)) return;
+      const intents = new Map();
+      for (const command of channel.pendingCommands.splice(0)) {
+        command.streams.forEach((stream) => intents.set(stream, command.method));
+      }
+      const grouped = new Map();
+      for (const [stream, queuedMethod] of intents) {
+        if (!grouped.has(queuedMethod)) grouped.set(queuedMethod, []);
+        grouped.get(queuedMethod).push(stream);
+      }
+      for (const [queuedMethod, queuedStreams] of grouped) {
+        sendCommand(channel, queuedMethod, queuedStreams);
+      }
+    }, commandDebounceMs);
+    channel.commandTimer.unref?.();
   };
   const broadcastHealth = (channel, health) => {
     for (const listeners of channel.streams.values()) {
@@ -103,6 +126,9 @@ function createBinanceSocketPool(WebSocketImpl, { resolveWebSocketUrl } = {}) {
     socket.on("open", () => {
       if (channel.socket !== socket || !channel.active) return;
       channel.reconnectAttempt = 0;
+      clearTimeout(channel.commandTimer);
+      channel.commandTimer = null;
+      channel.pendingCommands = [];
       sendCommand(channel, "SUBSCRIBE", [...channel.streams.keys()]);
       broadcastHealth(channel, { status: "connected", at: Date.now() });
     });
@@ -132,7 +158,17 @@ function createBinanceSocketPool(WebSocketImpl, { resolveWebSocketUrl } = {}) {
     subscribe(marketType, stream, onMessage, onHealth) {
       let channel = channels.get(marketType);
       if (!channel) {
-        channel = { marketType, streams: new Map(), socket: null, connecting: false, reconnectTimer: null, reconnectAttempt: 0, active: true };
+        channel = {
+          marketType,
+          streams: new Map(),
+          socket: null,
+          connecting: false,
+          reconnectTimer: null,
+          reconnectAttempt: 0,
+          pendingCommands: [],
+          commandTimer: null,
+          active: true,
+        };
         channels.set(marketType, channel);
       }
       let listeners = channel.streams.get(stream);
@@ -144,7 +180,7 @@ function createBinanceSocketPool(WebSocketImpl, { resolveWebSocketUrl } = {}) {
       const listener = { onMessage, onHealth };
       listeners.add(listener);
       if (existingStream && isOpen(channel.socket)) onHealth({ status: "connected", at: Date.now() });
-      if (!existingStream) sendCommand(channel, "SUBSCRIBE", [stream]);
+      if (!existingStream) queueCommand(channel, "SUBSCRIBE", [stream]);
       void connect(channel);
 
       return async () => {
@@ -152,11 +188,14 @@ function createBinanceSocketPool(WebSocketImpl, { resolveWebSocketUrl } = {}) {
         current?.delete(listener);
         if (current?.size) return;
         channel.streams.delete(stream);
-        sendCommand(channel, "UNSUBSCRIBE", [stream]);
+        queueCommand(channel, "UNSUBSCRIBE", [stream]);
         if (channel.streams.size) return;
         channel.active = false;
         clearTimeout(channel.reconnectTimer);
+        clearTimeout(channel.commandTimer);
         channel.reconnectTimer = null;
+        channel.commandTimer = null;
+        channel.pendingCommands = [];
         channels.delete(marketType);
         const socket = channel.socket;
         channel.socket = null;

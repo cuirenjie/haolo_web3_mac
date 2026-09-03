@@ -34219,6 +34219,16 @@ html[data-theme="dark"]
   background: var(--trading-market-selected-background);
 }
 
+/* Keep the active market readable in the global titlebar. Regular cards can
+   compress to fit the rail, but the selected card is the user's current
+   context and must retain enough room for its pair, price and change. */
+.trading-market-favorite-ticker.selected {
+  width: max-content;
+  min-width: 132px;
+  max-width: 220px;
+  flex: 0 0 auto;
+}
+
 .trading-market-favorite-ticker > strong {
   min-width: 0;
   overflow: hidden;

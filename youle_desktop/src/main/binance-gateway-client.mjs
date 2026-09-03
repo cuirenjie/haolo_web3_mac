@@ -56,11 +56,14 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
       if (!config.marketGatewayEnabled) throw new Error("Haolo market gateway is not configured");
       return authenticatedFetch(url, init);
     },
-    async marketStreamEndpoint({ marketType, combined = false } = {}) {
+    async marketStreamEndpoint({ marketType, combined = false, streamClass = "market" } = {}) {
       const normalizedMarket = String(marketType || "").toLowerCase();
       if (!["spot", "futures"].includes(normalizedMarket)) throw new TypeError("invalid marketType");
-      const key = combined ? `${normalizedMarket}Combined` : normalizedMarket;
-      const endpoint = config.gatewayPublicWebSocket[key];
+      const normalizedClass = String(streamClass || "market").toLowerCase();
+      if (!["market", "public"].includes(normalizedClass)) throw new TypeError("invalid streamClass");
+      const classSuffix = normalizedClass === "public" && normalizedMarket === "futures" ? "Public" : "";
+      const key = combined ? `${normalizedMarket}${classSuffix}Combined` : `${normalizedMarket}${classSuffix}`;
+      const endpoint = config.gatewayPublicWebSocket[key] || config.gatewayPublicWebSocket[combined ? `${normalizedMarket}Combined` : normalizedMarket];
       if (!endpoint || !config.ticketUrl) throw new Error("Haolo market gateway is not configured");
       const response = await authenticatedFetch(config.ticketUrl, {
         method: "POST",

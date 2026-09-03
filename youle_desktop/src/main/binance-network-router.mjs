@@ -76,8 +76,15 @@ class BinanceGatewayResponseError extends Error {
   }
 }
 
-function websocketKey(marketType, combined) {
-  return combined ? `${marketType}Combined` : marketType;
+function websocketKey(marketType, combined, streamClass = "market") {
+  const suffix = streamClass === "public" && marketType === "futures" ? "Public" : "";
+  return combined ? `${marketType}${suffix}Combined` : `${marketType}${suffix}`;
+}
+
+function normalizedStreamClass(value) {
+  const normalized = String(value || "market").trim().toLowerCase();
+  if (normalized === "market" || normalized === "public") return normalized;
+  throw new TypeError("unsupported Binance WebSocket stream class");
 }
 
 async function fetchWithDeadline(fetchImpl, input, init, timeoutMs) {
@@ -573,16 +580,18 @@ export class BinanceNetworkRouter {
     }
   }
 
-  async marketStreamEndpoint({ marketType: value, combined = false } = {}) {
+  async marketStreamEndpoint({ marketType: value, combined = false, streamClass: streamClassValue = "market" } = {}) {
     const marketType = normalizedMarketType(value);
-    const directEndpoint = this.config.publicWebSocket[websocketKey(marketType, combined)];
+    const streamClass = normalizedStreamClass(streamClassValue);
+    const directEndpoint = this.config.publicWebSocket[websocketKey(marketType, combined, streamClass)]
+      || this.config.publicWebSocket[websocketKey(marketType, combined)];
     const mode = this.config.routingMode || this.config.mode || "direct";
     if (mode === "direct" || !this.fallbackAvailable("public")) {
-      return Object.freeze({ url: directEndpoint, route: "direct", marketType });
+      return Object.freeze({ url: directEndpoint, route: "direct", marketType, streamClass });
     }
     if (mode === "gateway") {
-      const url = await this.gatewayClient.marketStreamEndpoint({ marketType, combined });
-      return Object.freeze({ url, route: "gateway", marketType });
+      const url = await this.gatewayClient.marketStreamEndpoint({ marketType, combined, streamClass });
+      return Object.freeze({ url, route: "gateway", marketType, streamClass });
     }
     const state = this.state(routeKey("public", marketType));
     const currentMs = this.currentTimeMs();
@@ -591,11 +600,11 @@ export class BinanceNetworkRouter {
       || state.cooldownUntil > currentMs
       || state.probing
     ) {
-      const url = await this.gatewayClient.marketStreamEndpoint({ marketType, combined });
-      return Object.freeze({ url, route: "gateway", marketType });
+      const url = await this.gatewayClient.marketStreamEndpoint({ marketType, combined, streamClass });
+      return Object.freeze({ url, route: "gateway", marketType, streamClass });
     }
     if (state.healthyUntil > currentMs) {
-      return Object.freeze({ url: directEndpoint, route: "direct", marketType });
+      return Object.freeze({ url: directEndpoint, route: "direct", marketType, streamClass });
     }
     state.probing = true;
     try {
@@ -611,11 +620,11 @@ export class BinanceNetworkRouter {
         throw new Error(`Binance direct stream probe blocked with HTTP ${response.status}`);
       }
       this.markDirectSuccess("public", marketType);
-      return Object.freeze({ url: directEndpoint, route: "direct", marketType });
+      return Object.freeze({ url: directEndpoint, route: "direct", marketType, streamClass });
     } catch {
       this.markDirectSlow("public", marketType);
-      const url = await this.gatewayClient.marketStreamEndpoint({ marketType, combined });
-      return Object.freeze({ url, route: "gateway", marketType });
+      const url = await this.gatewayClient.marketStreamEndpoint({ marketType, combined, streamClass });
+      return Object.freeze({ url, route: "gateway", marketType, streamClass });
     } finally {
       state.probing = false;
     }

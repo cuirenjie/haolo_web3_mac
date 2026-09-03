@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   CACHE_VERSION,
   STORAGE_PREFIX,
+  applyTradingLivePriceToBatch,
   createTradingMarketCandleCache,
   mergeTradingCandleBatches,
 } from "../src/renderer/trading-market-candle-cache.mjs";
@@ -40,6 +41,70 @@ function snapshot(symbol = "BTCUSDT", start = 1) {
     },
   };
 }
+
+test("one canonical live price produces the same close for every default interval", () => {
+  const eventTimeMs = 1_800_000_000_000;
+  const livePrice = 80_731.7;
+  const intervals = [
+    [604_800_000, "1w", 4 * 86_400_000],
+    [86_400_000, "1d", 0],
+    [300_000, "5m", 0],
+    [900_000, "15m", 0],
+    [3_600_000, "1h", 0],
+    [14_400_000, "4h", 0],
+  ];
+  const batches = intervals.map(([durationMs, sourceInterval, anchorMs], index) => {
+    const bucketStart = Math.floor((eventTimeMs - anchorMs) / durationMs) * durationMs / 1_000
+      + anchorMs / 1_000;
+    const previousPrice = 78_000 + index * 100;
+    const result = applyTradingLivePriceToBatch({
+      candles: [candle(bucketStart, previousPrice)],
+      sourceCandles: [candle(bucketStart, previousPrice)],
+      source: { targetMs: durationMs, sourceInterval, sourceMs: durationMs },
+    }, livePrice, eventTimeMs);
+    assert.equal(result.candles.length, 1, `${sourceInterval} must reuse its native bucket anchor`);
+    return result;
+  });
+
+  batches.forEach((batch) => {
+    assert.equal(batch.candles.at(-1).close, livePrice);
+    assert.equal(batch.sourceCandles.at(-1).close, livePrice);
+    assert.ok(batch.candles.at(-1).high >= livePrice);
+  });
+});
+
+test("canonical live price creates the current long-period bucket when history is stale", () => {
+  const eventTimeMs = 1_800_000_000_000;
+  const targetMs = 8 * 60 * 60_000;
+  const sourceMs = 4 * 60 * 60_000;
+  const eventBucket = Math.floor(eventTimeMs / sourceMs) * sourceMs / 1_000;
+  const staleSource = eventBucket - 2 * sourceMs / 1_000;
+  const patched = applyTradingLivePriceToBatch({
+    candles: [candle(Math.floor(staleSource * 1_000 / targetMs) * targetMs / 1_000, 78_000)],
+    sourceCandles: [candle(staleSource, 78_000)],
+    source: { targetMs, sourceInterval: "4h", sourceMs },
+  }, 80_731.7, eventTimeMs);
+
+  assert.equal(patched.sourceCandles.at(-1).time, eventBucket);
+  assert.equal(patched.sourceCandles.at(-1).close, 80_731.7);
+  assert.equal(patched.candles.at(-1).close, 80_731.7);
+});
+
+test("a delayed canonical quote never rewrites finalized history", () => {
+  const durationMs = 300_000;
+  const historicalTime = 1_700_000_100;
+  const currentTime = historicalTime + durationMs / 1_000;
+  const historical = { ...candle(historicalTime, 100), closed: true };
+  const current = { ...candle(currentTime, 110), closed: false };
+  const patched = applyTradingLivePriceToBatch({
+    candles: [historical, current],
+    sourceCandles: [historical, current],
+    source: { targetMs: durationMs, sourceInterval: "5m", sourceMs: durationMs },
+  }, 105, historicalTime * 1_000 + 1_000);
+
+  assert.deepEqual(patched.candles, [historical, current]);
+  assert.deepEqual(patched.sourceCandles, [historical, current]);
+});
 
 test("persistent candle cache restores compact snapshots across renderer restarts", () => {
   const storage = new MemoryStorage();

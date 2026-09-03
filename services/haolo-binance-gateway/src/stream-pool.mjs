@@ -1,11 +1,16 @@
 import WebSocket from "ws";
 
-const STREAM_PATTERN = /^[a-z0-9]{2,40}@(kline_(?:1s|[1-9]\d*[mhdwM])|ticker|miniTicker|aggTrade|bookTicker|markPrice(?:@1s)?)$/;
+const STREAM_PATTERN = /^[a-z0-9_\p{Script=Han}]{2,40}@(kline_(?:1s|[1-9]\d*[mhdwM])|ticker|miniTicker|aggTrade|bookTicker|markPrice(?:@1s)?)$/u;
 
 export function validateStreamName(value) {
   const stream = String(value || "").trim();
   if (!STREAM_PATTERN.test(stream)) throw new TypeError(`unsupported Binance stream: ${stream}`);
   return stream;
+}
+
+export function streamClassForName(value) {
+  const stream = validateStreamName(value);
+  return /@bookTicker$/.test(stream) ? "public" : "market";
 }
 
 export class BinanceStreamPool {
@@ -18,21 +23,30 @@ export class BinanceStreamPool {
     this.metrics = { messages: 0, reconnects: 0, upstreamSockets: 0, subscriptions: 0 };
   }
 
-  upstreamUrl(marketType) {
+  upstreamUrl(marketType, streamClass = "market") {
+    if (marketType === "futures" && streamClass === "public") {
+      return this.config.futuresPublicWebSocketUrl || this.config.futuresWebSocketUrl;
+    }
     return marketType === "futures" ? this.config.futuresWebSocketUrl : this.config.spotWebSocketUrl;
   }
 
-  channelsFor(marketType) {
-    if (!this.channels.has(marketType)) this.channels.set(marketType, []);
-    return this.channels.get(marketType);
+  channelKey(marketType, streamClass) {
+    return `${marketType}:${streamClass}`;
   }
 
-  selectChannel(marketType) {
-    const channels = this.channelsFor(marketType);
+  channelsFor(marketType, streamClass = "market") {
+    const key = this.channelKey(marketType, streamClass);
+    if (!this.channels.has(key)) this.channels.set(key, []);
+    return this.channels.get(key);
+  }
+
+  selectChannel(marketType, streamClass = "market") {
+    const channels = this.channelsFor(marketType, streamClass);
     const available = channels.find((channel) => channel.streams.size < this.config.maxStreamsPerUpstreamSocket);
     if (available) return available;
     const channel = {
       marketType,
+      streamClass,
       streams: new Map(),
       socket: null,
       reconnectTimer: null,
@@ -49,8 +63,9 @@ export class BinanceStreamPool {
   subscribe(marketType, streamValue, listener) {
     if (!["spot", "futures"].includes(marketType)) throw new TypeError("invalid marketType");
     const stream = validateStreamName(streamValue);
-    let channel = this.channelsFor(marketType).find((entry) => entry.streams.has(stream));
-    if (!channel) channel = this.selectChannel(marketType);
+    const streamClass = streamClassForName(stream);
+    let channel = this.channelsFor(marketType, streamClass).find((entry) => entry.streams.has(stream));
+    if (!channel) channel = this.selectChannel(marketType, streamClass);
     let listeners = channel.streams.get(stream);
     const first = !listeners;
     if (!listeners) {
@@ -83,20 +98,24 @@ export class BinanceStreamPool {
 
   flushCommands(channel) {
     if (channel.socket?.readyState !== (this.WebSocketImpl.OPEN ?? 1)) return;
-    const grouped = new Map();
+    const intents = new Map();
     for (const command of channel.pendingCommands.splice(0)) {
-      if (!grouped.has(command.method)) grouped.set(command.method, new Set());
-      for (const stream of command.streams) grouped.get(command.method).add(stream);
+      command.streams.forEach((stream) => intents.set(stream, command.method));
+    }
+    const grouped = new Map();
+    for (const [stream, method] of intents) {
+      if (!grouped.has(method)) grouped.set(method, []);
+      grouped.get(method).push(stream);
     }
     for (const [method, streams] of grouped) {
-      if (!streams.size) continue;
-      channel.socket.send(JSON.stringify({ method, params: [...streams], id: this.requestId++ }));
+      if (!streams.length) continue;
+      channel.socket.send(JSON.stringify({ method, params: streams, id: this.requestId++ }));
     }
   }
 
   connect(channel) {
     if (channel.closed || channel.socket || !channel.streams.size) return;
-    const socket = new this.WebSocketImpl(this.upstreamUrl(channel.marketType), { perMessageDeflate: false });
+    const socket = new this.WebSocketImpl(this.upstreamUrl(channel.marketType, channel.streamClass), { perMessageDeflate: false });
     channel.socket = socket;
     this.metrics.upstreamSockets += 1;
     socket.on("open", () => {
@@ -151,10 +170,10 @@ export class BinanceStreamPool {
     channel.reconnectTimer = null;
     channel.rotateTimer = null;
     channel.commandTimer = null;
-    const channels = this.channelsFor(channel.marketType);
+    const channels = this.channelsFor(channel.marketType, channel.streamClass);
     const index = channels.indexOf(channel);
     if (index >= 0) channels.splice(index, 1);
-    if (!channels.length) this.channels.delete(channel.marketType);
+    if (!channels.length) this.channels.delete(this.channelKey(channel.marketType, channel.streamClass));
     const socket = channel.socket;
     channel.socket = null;
     if (socket) {
@@ -164,7 +183,15 @@ export class BinanceStreamPool {
   }
 
   stats() {
-    return Object.freeze({ ...this.metrics, markets: this.channels.size });
+    // Keep the legacy `markets` metric as the number of active market types;
+    // the map is now split by market/public stream class, so its raw size can
+    // be larger for one Futures market. This avoids breaking dashboards while
+    // still allowing class-level pooling internally.
+    const marketTypes = new Set();
+    for (const channels of this.channels.values()) {
+      for (const channel of channels) marketTypes.add(channel.marketType);
+    }
+    return Object.freeze({ ...this.metrics, markets: marketTypes.size });
   }
 
   async close() {

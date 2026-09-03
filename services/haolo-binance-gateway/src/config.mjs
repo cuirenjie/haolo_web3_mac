@@ -43,6 +43,16 @@ function absolutePath(value, fallback, field) {
   return normalized;
 }
 
+function migrateFuturesWebSocketUrl(value, fallback, route = "market") {
+  const raw = String(value || fallback).trim().replace(/\/$/, "");
+  // Deployments that still carry the pre-migration default are upgraded in
+  // memory so a restart cannot silently reconnect to the retired route.
+  return raw.replace(
+    /^wss:\/\/fstream\.binance\.com\/(ws|stream)(?=$|\?)/i,
+    `wss://fstream.binance.com/${route}/$1`,
+  );
+}
+
 function privateEgressShards(value, { production, privatePort }) {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -194,6 +204,16 @@ export function loadGatewayConfig(env = process.env) {
     spotRestBaseUrl: String(env.HAOLO_BINANCE_SPOT_REST_BASE_URL || "https://data-api.binance.vision").replace(/\/+$/, ""),
     futuresRestBaseUrl: String(env.HAOLO_BINANCE_FUTURES_REST_BASE_URL || "https://fapi.binance.com").replace(/\/+$/, ""),
     spotWebSocketUrl: String(env.HAOLO_BINANCE_SPOT_WS_URL || "wss://data-stream.binance.vision:443/stream"),
-    futuresWebSocketUrl: String(env.HAOLO_BINANCE_FUTURES_WS_URL || "wss://fstream.binance.com/stream"),
+    // Binance USDⓈ-M market data is served from the routed /market base.
+    // The old /stream endpoint no longer carries all public market streams.
+    futuresWebSocketUrl: migrateFuturesWebSocketUrl(
+      env.HAOLO_BINANCE_FUTURES_WS_URL,
+      "wss://fstream.binance.com/market/stream",
+    ),
+    futuresPublicWebSocketUrl: migrateFuturesWebSocketUrl(
+      env.HAOLO_BINANCE_FUTURES_PUBLIC_WS_URL,
+      "wss://fstream.binance.com/public/stream",
+      "public",
+    ),
   });
 }

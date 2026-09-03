@@ -21,7 +21,7 @@ test("Binance gateway config derives protected REST and WebSocket routes", () =>
   });
   assert.equal(config.mode, "auto");
   assert.equal(config.publicRest.spot, "https://data-api.binance.vision");
-  assert.equal(config.publicWebSocket.futures, "wss://fstream.binance.com/ws");
+  assert.equal(config.publicWebSocket.futures, "wss://fstream.binance.com/market/ws");
   assert.equal(config.gatewayPublicWebSocket.futures, "wss://market.haolo.example/ws/futures");
   assert.equal(config.gatewayPublicWebSocket.spotCombined, "wss://market.haolo.example/stream/spot");
   assert.equal(config.privateProxyEnabled, true);

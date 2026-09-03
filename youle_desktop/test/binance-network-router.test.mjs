@@ -375,8 +375,27 @@ test("websocket routing probes the real target and obtains a one-use gateway tic
     url: "wss://market.haolo.example/stream/futures?ticket=short",
     route: "gateway",
     marketType: "futures",
+    streamClass: "market",
   });
-  assert.deepEqual(ticketRequests, [{ marketType: "futures", combined: true }]);
+  assert.deepEqual(ticketRequests, [{ marketType: "futures", combined: true, streamClass: "market" }]);
+});
+
+test("direct Futures WebSocket routing selects the Binance public base for bookTicker", async () => {
+  const router = new BinanceNetworkRouter({
+    config: resolveBinanceGatewayConfig({ HAOLO_BINANCE_ROUTING_MODE: "direct" }),
+    directFetch: async () => new Response("{}"),
+  });
+  const endpoint = await router.marketStreamEndpoint({
+    marketType: "futures",
+    combined: true,
+    streamClass: "public",
+  });
+  assert.deepEqual(endpoint, {
+    url: "wss://fstream.binance.com/public/stream",
+    route: "direct",
+    marketType: "futures",
+    streamClass: "public",
+  });
 });
 
 test("router rejects arbitrary targets and any private write method", async () => {

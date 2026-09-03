@@ -47,6 +47,7 @@ import {
   tradingAnalysisDrawingFocusRange,
   waitForTradingAnalysisViewportPaint,
 } from "./trading-analysis-viewport.mjs";
+import { applyTradingLivePriceToBatch } from "./trading-market-candle-cache.mjs";
 
 const CHINA_TIME_OFFSET_SECONDS = 8 * 60 * 60;
 const SPLIT_PANE_REFRESH_INTERVAL_MS = 30_000;
@@ -401,6 +402,8 @@ export class TradingExpertSplitPane {
   private candles: TradingChartCandle[] = [];
   private market: TradingSplitPaneMarket;
   private interval: string;
+  private loadedMarketId = "";
+  private loadedInterval = "";
   private markets: readonly TradingSplitPaneMarket[];
   private periods: readonly TradingSplitPanePeriod[];
   private settings: TradingChartSettings;
@@ -1582,6 +1585,32 @@ export class TradingExpertSplitPane {
     return this.market.id === marketId && this.interval === interval;
   }
 
+  applyLivePrice(marketId: string, price: number, eventTimeMs: number, targetMs: number) {
+    if (
+      this.destroyed
+      || this.market.provider !== "binance"
+      || this.market.id !== marketId
+      || this.loadedMarketId !== this.market.id
+      || this.loadedInterval !== this.interval
+      || !this.candles.length
+      || !Number.isFinite(targetMs)
+      || targetMs <= 0
+    ) return false;
+    const previousCandles = this.candles;
+    const batch = applyTradingLivePriceToBatch({
+      candles: this.candles,
+      sourceCandles: [],
+      source: { targetMs, sourceInterval: null, sourceMs: null },
+    }, price, eventTimeMs);
+    const latest = batch.candles.at(-1);
+    if (!latest) return false;
+    this.candles = batch.candles;
+    this.updateData(previousCandles);
+    this.renderOhlc(latest, latest.time + CHINA_TIME_OFFSET_SECONDS);
+    this.drawingController?.redraw();
+    return true;
+  }
+
   async analysisSnapshot(lookbackMs: number | null): Promise<TradingSplitPaneAnalysisSnapshot>;
   async analysisSnapshot(
     lookbackMs: number | null,
@@ -1591,8 +1620,15 @@ export class TradingExpertSplitPane {
     lookbackMs: number | null,
     preferredCandles: number | null = null,
   ): Promise<TradingSplitPaneAnalysisSnapshot> {
-    if (!this.candles.length) await this.reload(true);
-    if (this.destroyed || !this.candles.length) {
+    const loadedContextMatches = this.loadedMarketId === this.market.id
+      && this.loadedInterval === this.interval;
+    if (!this.candles.length || !loadedContextMatches) await this.reload(true);
+    if (
+      this.destroyed
+      || !this.candles.length
+      || this.loadedMarketId !== this.market.id
+      || this.loadedInterval !== this.interval
+    ) {
       throw new Error(`分屏 ${this.paneIndex + 1} 行情尚未就绪`);
     }
     const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
@@ -1673,17 +1709,21 @@ export class TradingExpertSplitPane {
   private async reload(resetViewport: boolean) {
     if (resetViewport) this.invalidateVolumeProfileSnapshot();
     const generation = ++this.loadGeneration;
+    const targetMarket = this.market;
+    const targetInterval = this.interval;
     if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
     this.refreshTimer = null;
     const showLoading = resetViewport || this.candles.length === 0;
     this.loadingElement.hidden = !showLoading;
     this.errorElement.hidden = true;
     try {
-      const candles = await this.loadCandles(this.market, this.interval);
+      const candles = await this.loadCandles(targetMarket, targetInterval);
       if (this.destroyed || generation !== this.loadGeneration) return;
       if (!candles.length) throw new Error("暂无行情");
       const previousCandles = this.candles;
       this.candles = candles;
+      this.loadedMarketId = targetMarket.id;
+      this.loadedInterval = targetInterval;
       this.updateData(previousCandles);
       if (resetViewport) this.chart?.timeScale().fitContent();
       this.renderOhlc(candles[candles.length - 1], candles[candles.length - 1].time + CHINA_TIME_OFFSET_SECONDS);
