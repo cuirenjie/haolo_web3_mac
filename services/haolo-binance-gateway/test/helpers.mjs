@@ -56,7 +56,8 @@ export function baseConfig(overrides = {}) {
     spotRestBaseUrl: "https://data-api.binance.vision",
     futuresRestBaseUrl: "https://fapi.binance.com",
     spotWebSocketUrl: "wss://data-stream.binance.vision/stream",
-    futuresWebSocketUrl: "wss://fstream.binance.com/stream",
+    futuresWebSocketUrl: "wss://fstream.binance.com/market/stream",
+    futuresPublicWebSocketUrl: "wss://fstream.binance.com/public/stream",
     redisUrl: "",
     ...overrides,
   };

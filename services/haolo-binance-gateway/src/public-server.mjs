@@ -7,6 +7,18 @@ import { FixedWindowRateLimiter } from "./rate-limit.mjs";
 import { validateStreamName } from "./stream-pool.mjs";
 import { DrainState, closeHttp } from "./drain.mjs";
 
+// A browser that cannot consume the feed must not turn the gateway into an
+// unbounded memory queue. Quote-like streams are latest-value state, so under
+// pressure we coalesce them; aggTrade remains lossless until the hard limit,
+// after which the client is asked to reconnect and backfill from REST.
+const WS_SOFT_BUFFER_BYTES = 512 * 1024;
+const WS_HARD_BUFFER_BYTES = 2 * 1024 * 1024;
+const WS_BACKPRESSURE_FLUSH_MS = 25;
+
+function coalescableMarketStream(stream) {
+  return /@(ticker|miniTicker|markPrice(?:@1s)?|kline_)/.test(String(stream || ""));
+}
+
 function sendJson(response, statusCode, body, headers = {}) {
   const payload = JSON.stringify(body);
   response.writeHead(statusCode, {
@@ -99,6 +111,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     httpErrors: 0,
     websocketClients: 0,
     websocketRejected: 0,
+    websocketBackpressureDisconnects: 0,
+    websocketCoalescedFrames: 0,
     restCacheHits: 0,
     restCacheMisses: 0,
     restCacheStale: 0,
@@ -288,9 +302,65 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     const disposers = new Map();
     const { route } = context;
     let released = false;
+    let backpressureTimer = null;
+    const pendingMarketFrames = new Map();
+    const clearBackpressure = () => {
+      if (backpressureTimer !== null) clearTimeout(backpressureTimer);
+      backpressureTimer = null;
+      pendingMarketFrames.clear();
+    };
+    const scheduleBackpressureFlush = () => {
+      if (backpressureTimer !== null || websocket.readyState !== 1) return;
+      backpressureTimer = setTimeout(() => {
+        backpressureTimer = null;
+        flushBackpressureFrames();
+      }, WS_BACKPRESSURE_FLUSH_MS);
+      backpressureTimer.unref?.();
+    };
+    const flushBackpressureFrames = () => {
+      if (websocket.readyState !== 1) return;
+      if (Number(websocket.bufferedAmount || 0) > WS_SOFT_BUFFER_BYTES) {
+        if (pendingMarketFrames.size) scheduleBackpressureFlush();
+        return;
+      }
+      for (const [stream, frame] of pendingMarketFrames) {
+        if (Number(websocket.bufferedAmount || 0) > WS_SOFT_BUFFER_BYTES) break;
+        try {
+          websocket.send(frame);
+          pendingMarketFrames.delete(stream);
+        } catch {
+          break;
+        }
+      }
+      if (pendingMarketFrames.size) scheduleBackpressureFlush();
+    };
+    const sendMarketEvent = (stream, payload) => {
+      if (websocket.readyState !== 1) return;
+      const frame = JSON.stringify(payload);
+      const buffered = Number(websocket.bufferedAmount || 0);
+      if (buffered <= WS_SOFT_BUFFER_BYTES) {
+        try { websocket.send(frame); } catch {}
+        return;
+      }
+      if (buffered >= WS_HARD_BUFFER_BYTES) {
+        metrics.websocketBackpressureDisconnects += 1;
+        try { websocket.close(1013, "slow_client"); } catch { try { websocket.terminate(); } catch {} }
+        return;
+      }
+      if (coalescableMarketStream(stream)) {
+        pendingMarketFrames.set(stream, frame);
+        metrics.websocketCoalescedFrames += 1;
+        scheduleBackpressureFlush();
+        return;
+      }
+      // Keep trade events ordered while there is still bounded headroom. Once
+      // the hard limit is reached the branch above closes the slow client.
+      try { websocket.send(frame); } catch {}
+    };
     const release = () => {
       if (released) return;
       released = true;
+      clearBackpressure();
       metrics.websocketClients = Math.max(0, metrics.websocketClients - 1);
       const remaining = Math.max(0, Number(websocketClientsByUser.get(context.identity.userId) || 1) - 1);
       if (remaining) websocketClientsByUser.set(context.identity.userId, remaining);
@@ -305,7 +375,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const dispose = streamPool.subscribe(route.marketType, stream, (event) => {
         if (websocket.readyState !== 1) return;
         const payload = route.mode === "stream" ? { stream: event.stream, data: event.data } : event.data;
-        websocket.send(JSON.stringify(payload));
+        sendMarketEvent(event.stream, payload);
       });
       disposers.set(stream, dispose);
     };

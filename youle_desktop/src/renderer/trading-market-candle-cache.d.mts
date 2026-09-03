@@ -69,6 +69,12 @@ export function mergeTradingCandleBatches(
   },
 ): TradingCacheBatch;
 
+export function applyTradingLivePriceToBatch(
+  current: TradingCacheBatch,
+  price: number,
+  eventTimeMs?: number,
+): TradingCacheBatch;
+
 export const CACHE_VERSION: number;
 export const DEFAULT_FRESH_AGE_MS: number;
 export const DEFAULT_STALE_AGE_MS: number;

@@ -1144,7 +1144,7 @@ export function ensureBrowserDesktopApi() {
       const marketType = String(params?.marketType || "futures").toLowerCase();
       const base = marketType === "spot"
         ? "wss://data-stream.binance.vision:443/stream"
-        : "wss://fstream.binance.com/stream";
+        : "wss://fstream.binance.com/market/stream";
       const url = new URL(base);
       url.searchParams.set("streams", [...new Set(params?.streams || [])].join("/"));
       const subscriptionId = `browser-market-${Date.now()}-${++binanceMarketStreamSequence}`;

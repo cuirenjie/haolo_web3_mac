@@ -248,6 +248,73 @@ function aggregateCandles(candles, targetMs) {
     .sort((first, second) => first.time - second.time);
 }
 
+function upsertLiveCandle(candles, incoming) {
+  const map = new Map(normalizedCandles(candles).map((candle) => [candle.time, candle]));
+  map.set(incoming.time, normalizedCandle(incoming));
+  return [...map.values()].filter(Boolean).sort((first, second) => first.time - second.time);
+}
+
+function liveCandleBucketTime(candles, timestamp, durationMs, sourceInterval = null) {
+  const latestTimeMs = Number(candles.at(-1)?.time || 0) * 1_000;
+  // Native Binance weekly bars open on Monday. Unix duration flooring is
+  // anchored on Thursday, so inherit an existing series anchor whenever
+  // possible and retain the native weekly anchor for an empty source series.
+  const anchorMs = latestTimeMs > 0
+    ? ((latestTimeMs % durationMs) + durationMs) % durationMs
+    : sourceInterval === "1w"
+      ? 4 * 86_400_000
+      : 0;
+  return Math.floor((timestamp - anchorMs) / durationMs) * durationMs / 1_000
+    + anchorMs / 1_000;
+}
+
+/**
+ * Apply one canonical last-traded price to a candle batch regardless of the
+ * displayed interval.  K-line streams are interval-specific, while ticker
+ * and aggregate-trade streams are market-wide; keeping this merge here makes
+ * interval changes and cached snapshots obey the same price invariant.
+ */
+export function applyTradingLivePriceToBatch(current, price, eventTimeMs = Date.now()) {
+  const batch = cloneEntry({ cachedAt: 0, stats: {}, candleBatch: current }).candleBatch;
+  const normalizedPrice = Number(price);
+  const timestamp = Number(eventTimeMs);
+  if (!Number.isFinite(normalizedPrice) || normalizedPrice <= 0 || !Number.isFinite(timestamp) || timestamp <= 0) {
+    return batch;
+  }
+  const source = batch.source;
+  const applyToSeries = (candles, durationMs, sourceInterval = null) => {
+    const bucketTime = liveCandleBucketTime(candles, timestamp, durationMs, sourceInterval);
+    const latest = candles.at(-1);
+    if (latest && bucketTime < latest.time) return candles;
+    const existing = candles.find((candle) => candle.time === bucketTime);
+    if (existing?.closed === true && bucketTime * 1_000 + durationMs <= Date.now()) return candles;
+    return upsertLiveCandle(candles, {
+      ...(existing || {}),
+      time: bucketTime,
+      open: existing?.open || normalizedPrice,
+      high: Math.max(existing?.high || normalizedPrice, normalizedPrice),
+      low: Math.min(existing?.low || normalizedPrice, normalizedPrice),
+      close: normalizedPrice,
+      volume: existing?.volume || 0,
+      closed: bucketTime * 1_000 + durationMs <= Date.now(),
+    });
+  };
+  return {
+    ...batch,
+    // Patch the target and native source independently, preserving history
+    // outside the available source window and all known OHLC/volume values.
+    candles: applyToSeries(
+      batch.candles,
+      source.targetMs,
+      source.sourceMs === source.targetMs ? source.sourceInterval : null,
+    ),
+    sourceCandles: source.sourceInterval
+      ? applyToSeries(batch.sourceCandles, source.sourceMs || source.targetMs, source.sourceInterval)
+      : [],
+    source: { ...source },
+  };
+}
+
 export function mergeTradingCandleBatches(
   current,
   incoming,

@@ -4,9 +4,14 @@ const DEFAULT_DIRECT_ENDPOINTS = Object.freeze({
     spot: "https://data-api.binance.vision",
   }),
   publicWebSocket: Object.freeze({
-    futures: "wss://fstream.binance.com/ws",
+    // USDⓈ-M public market streams moved under the routed /market base.
+    // Keeping this centralized prevents the renderer, alerts and gateway
+    // fallback from silently using the legacy unrouted endpoint.
+    futures: "wss://fstream.binance.com/market/ws",
+    futuresPublic: "wss://fstream.binance.com/public/ws",
     spot: "wss://data-stream.binance.vision:443/ws",
-    futuresCombined: "wss://fstream.binance.com/stream",
+    futuresCombined: "wss://fstream.binance.com/market/stream",
+    futuresPublicCombined: "wss://fstream.binance.com/public/stream",
     spotCombined: "wss://data-stream.binance.vision:443/stream",
   }),
 });
@@ -92,8 +97,10 @@ export function resolveBinanceGatewayConfig(env = process.env, deployment = {}) 
   const gatewayPublicRest = Object.freeze({ futures: marketOrigin, spot: marketOrigin });
   const gatewayPublicWebSocket = Object.freeze({
     futures: gatewayEnabled ? `${websocketOrigin}/ws/futures` : "",
+    futuresPublic: gatewayEnabled ? `${websocketOrigin}/ws/futures` : "",
     spot: gatewayEnabled ? `${websocketOrigin}/ws/spot` : "",
     futuresCombined: gatewayEnabled ? `${websocketOrigin}/stream/futures` : "",
+    futuresPublicCombined: gatewayEnabled ? `${websocketOrigin}/stream/futures` : "",
     spotCombined: gatewayEnabled ? `${websocketOrigin}/stream/spot` : "",
   });
   return Object.freeze({

@@ -34,6 +34,20 @@ test("production config requires a separate strong metrics token", () => {
   assert.equal(config.downstreamBurstRequestsPerMinute, 1_200);
   assert.equal(config.publicFuturesUpstreamWeightPerMinute, 1_440);
   assert.equal(config.publicSpotUpstreamWeightPerMinute, 3_600);
+  assert.equal(config.futuresWebSocketUrl, "wss://fstream.binance.com/market/stream");
+  assert.equal(config.futuresPublicWebSocketUrl, "wss://fstream.binance.com/public/stream");
+});
+
+test("gateway migrates legacy Futures WebSocket environment values to routed bases", () => {
+  const config = loadGatewayConfig({
+    ...productionEnv,
+    HAOLO_GATEWAY_ROLE: "public",
+    HAOLO_GATEWAY_METRICS_TOKEN: "production-metrics-token-at-least-24-chars",
+    HAOLO_BINANCE_FUTURES_WS_URL: "wss://fstream.binance.com/stream",
+    HAOLO_BINANCE_FUTURES_PUBLIC_WS_URL: "wss://fstream.binance.com/ws",
+  });
+  assert.equal(config.futuresWebSocketUrl, "wss://fstream.binance.com/market/stream");
+  assert.equal(config.futuresPublicWebSocketUrl, "wss://fstream.binance.com/public/ws");
 });
 
 test("production config fails closed without Redis or an explicit egress shard directory", () => {

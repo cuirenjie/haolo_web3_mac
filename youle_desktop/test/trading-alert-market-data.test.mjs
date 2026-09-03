@@ -164,7 +164,7 @@ test("Binance live alerts multiplex futures streams over one WebSocket", async (
   );
   assert.equal(FakeWebSocket.instances.length, 1);
   const socket = FakeWebSocket.instances[0];
-  assert.equal(socket.url, "wss://fstream.binance.com/ws");
+  assert.equal(socket.url, "wss://fstream.binance.com/market/ws");
   socket.open();
   assert.deepEqual(socket.sent[0].params.sort(), ["btcusdt@kline_1m", "ethusdt@kline_5m"]);
 

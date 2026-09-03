@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
-import { BinanceStreamPool, validateStreamName } from "../src/stream-pool.mjs";
+import { BinanceStreamPool, streamClassForName, validateStreamName } from "../src/stream-pool.mjs";
 import { baseConfig } from "./helpers.mjs";
 
 class FakeWebSocket extends EventEmitter {
@@ -45,4 +45,18 @@ test("stream pool rejects private, malformed and unsupported stream names", () =
   assert.equal(validateStreamName("btcusdt@aggTrade"), "btcusdt@aggTrade");
   assert.throws(() => validateStreamName("btcusdt@userData"), /unsupported/);
   assert.throws(() => validateStreamName("../../etc@ticker"), /unsupported/);
+});
+
+test("stream pool routes Futures bookTicker to the public base separately from market streams", () => {
+  FakeWebSocket.instances.length = 0;
+  const pool = new BinanceStreamPool({ config: baseConfig(), WebSocketImpl: FakeWebSocket });
+  assert.equal(streamClassForName("btcusdt@bookTicker"), "public");
+  const disposeMarket = pool.subscribe("futures", "btcusdt@aggTrade", () => {});
+  const disposePublic = pool.subscribe("futures", "btcusdt@bookTicker", () => {});
+  assert.equal(FakeWebSocket.instances.length, 2);
+  assert.equal(pool.stats().markets, 1);
+  assert.equal(FakeWebSocket.instances[0].url, "wss://fstream.binance.com/market/stream");
+  assert.equal(FakeWebSocket.instances[1].url, "wss://fstream.binance.com/public/stream");
+  disposeMarket();
+  disposePublic();
 });
