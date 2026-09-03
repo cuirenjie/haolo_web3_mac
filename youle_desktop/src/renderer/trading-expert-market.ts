@@ -173,7 +173,10 @@ const ENGLISH_TRADING_EXPERT_TREND_BAND_MENTION = "@Indicator:Trend band";
 const TRADITIONAL_TRADING_EXPERT_TREND_BAND_MENTION = "@指標:趨勢帶";
 const MAX_TRADING_PERIODS = 10;
 const MAX_TRADING_FAVORITES = 500;
-export const MAX_TRADING_FAVORITE_TICKERS = 12;
+// Keep the titlebar readable while allowing a larger watchlist. The ticker
+// rail compresses each card when this many items are visible, so the cap is a
+// rendering limit rather than a limit on the user's saved favorites.
+export const MAX_TRADING_FAVORITE_TICKERS = 20;
 const DEFAULT_TRADING_FAVORITE_SYMBOLS = ["BTCUSDT", "ETHUSDT"] as const;
 export const DEFAULT_TRADING_FAVORITE_MARKET_IDS = DEFAULT_TRADING_FAVORITE_SYMBOLS
   .map((symbol) => `BINANCE:FUTURES:${symbol}`);
@@ -3822,6 +3825,49 @@ export function tradingMarketStructureContextResolutions(resolution: string) {
   if (duration > 0 && duration <= 4 * 60 * 60_000) return ["1D", "1W"];
   if (duration > 0 && duration <= 24 * 60 * 60_000) return ["1W"];
   return [];
+}
+
+export function tradingWaveDegreeContextResolutions(resolution: string) {
+  const normalized = String(resolution || "").trim().toUpperCase();
+  const duration = tradingViewResolutionDurationMs(normalized) || 0;
+  if (normalized === "1W") return ["1D", "240"];
+  if (normalized === "1D") return ["240", "60"];
+  if (duration >= 4 * 60 * 60_000) return ["60", "15"];
+  if (duration >= 2 * 60 * 60_000) return ["30", "5"];
+  if (duration >= 60 * 60_000) return ["15", "5"];
+  if (duration >= 30 * 60_000) return ["15", "5"];
+  if (duration >= 15 * 60_000) return ["5", "1"];
+  if (duration >= 5 * 60_000) return ["1"];
+  return [];
+}
+
+export async function fetchTradingWaveDegreeContexts(
+  symbol: string,
+  resolution: string,
+  options: {
+    count?: number;
+    endTime?: number;
+    marketType?: Extract<TradingMarketType, "perpetual" | "spot">;
+    signal?: AbortSignal;
+  } = {},
+): Promise<TradingMarketStructureContext[]> {
+  const endTime = Math.max(1, Number(options.endTime) || Date.now());
+  const count = Math.max(30, Math.min(600, Math.floor(Number(options.count) || 600)));
+  const marketType = options.marketType === "spot" ? "spot" : "perpetual";
+  const results = await Promise.all(tradingWaveDegreeContextResolutions(resolution).map(async (interval) => {
+    try {
+      const duration = tradingViewResolutionDurationMs(interval) || 0;
+      const batch = await fetchTradingCandles(symbol, interval, count, endTime, marketType, options.signal);
+      const candles = batch.candles.filter((candle) => (
+        candle.closed === true
+        || (duration > 0 && candle.time * 1_000 + duration <= endTime)
+      ));
+      return candles.length >= 30 ? { interval, candles: candles.slice(-count) } : null;
+    } catch {
+      return null;
+    }
+  }));
+  return results.filter((item): item is TradingMarketStructureContext => Boolean(item));
 }
 
 export async function fetchTradingMarketStructureContexts(
@@ -10453,21 +10499,33 @@ class TradingExpertMarketWorkspace {
   ): Promise<TradingWaveConversationResult> {
     const api = window.codexDesktop.runTradingWaveAnalysis;
     if (typeof api !== "function") throw new Error("当前版本暂不支持波浪理论盘面分析");
-    if (!this.markets.length) await this.loadMarkets();
-    const normalizedSymbol = String(request.symbol || this.selectedSymbol).trim().toUpperCase();
-    const currentMarket = this.selectedMarketMeta
+    const capturedTarget = request.analysisTarget || null;
+    const useCapturedTarget = Boolean(
+      capturedTarget
+      && !request.symbol
+      && (!request.interval || request.interval === capturedTarget.interval),
+    );
+    if (!this.markets.length && !useCapturedTarget) await this.loadMarkets();
+    const capturedMarket = capturedTarget
+      ? marketFromFavoriteRecord(capturedTarget.market as TradingFavoriteMarketRecord)
+      : null;
+    const normalizedSymbol = String(request.symbol || capturedTarget?.symbol || this.selectedSymbol).trim().toUpperCase();
+    const currentMarket = capturedMarket
+      || this.selectedMarketMeta
       || this.markets.find((market) => market.id === this.selectedMarketId)
       || this.favoriteMarketFromId(this.selectedMarketId);
-    const targetMarket = selectTradingAnalysisMarket(this.markets, {
-      symbol: normalizedSymbol,
-      currentMarket,
-      explicitSymbol: Boolean(request.symbol),
-      instruction: request.instruction,
-    }) as TradingMarket | null;
+    const targetMarket = useCapturedTarget
+      ? capturedMarket
+      : selectTradingAnalysisMarket(this.markets, {
+          symbol: normalizedSymbol,
+          currentMarket,
+          explicitSymbol: Boolean(request.symbol),
+          instruction: request.instruction,
+        }) as TradingMarket | null;
     if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
     const targetInterval = selectTradingAnalysisInterval({
       interval: request.interval,
-      currentInterval: this.activeInterval,
+      currentInterval: capturedTarget?.interval || this.activeInterval,
       explicitSymbol: Boolean(request.symbol),
     });
     if (!tradingViewResolutionDurationMs(targetInterval)) {
@@ -10475,13 +10533,15 @@ class TradingExpertMarketWorkspace {
     }
 
     const marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
-    const shouldReload = targetMarket.id !== this.loadedMarketId
+    const shouldReload = !useCapturedTarget && (targetMarket.id !== this.loadedMarketId
       || targetInterval !== this.loadedInterval
       || this.candles.length < 2
-      || this.marketLoading;
-    request.onProgress?.("loading", shouldReload
-      ? `正在将左侧行情切换到 ${marketLabel}，加载 ${tradingPeriodLabelForResolution(targetInterval)} K 线。`
-      : `正在读取左侧当前画布的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线。`);
+      || this.marketLoading);
+    request.onProgress?.("loading", useCapturedTarget
+      ? `正在读取发送时锁定的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线及低周期子浪。`
+      : shouldReload
+        ? `正在将左侧行情切换到 ${marketLabel}，加载 ${tradingPeriodLabelForResolution(targetInterval)} K 线。`
+        : `正在读取左侧当前画布的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线。`);
     if (shouldReload) {
       this.selectMarket(targetMarket);
       this.activeInterval = targetInterval;
@@ -10494,36 +10554,59 @@ class TradingExpertMarketWorkspace {
     }
     if (
       this.disposed
-      || this.loadedMarketId !== targetMarket.id
-      || this.loadedInterval !== targetInterval
-      || this.candles.length < 2
+      || (!useCapturedTarget && (
+        this.loadedMarketId !== targetMarket.id
+        || this.loadedInterval !== targetInterval
+        || this.candles.length < 2
+      ))
     ) {
       throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
     }
 
-    const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
+    const targetCandles = useCapturedTarget
+      ? capturedTarget!.candles.map((candle) => ({ ...candle }))
+      : this.candles;
+    if (targetCandles.length < 2) throw new Error(`${marketLabel} 发送时行情快照不足`);
+    const latestTimeMs = Number(targetCandles.at(-1)?.time || 0) * 1_000;
     const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
-    const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
-    const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
+    const visibleRange = useCapturedTarget ? null : this.chart?.timeScale().getVisibleLogicalRange() || null;
+    const canvasCandles = useCapturedTarget
+      ? capturedTarget!.visibleCandles.map((candle) => ({ ...candle }))
+      : visibleCandlesInLogicalRange(targetCandles, visibleRange);
     let analysisCandles = requestedLookbackMs
-      ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : canvasCandles.length
-        ? canvasCandles
-        : this.candles.slice(-100);
+      ? targetCandles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
+        : canvasCandles.length
+          ? canvasCandles
+        : targetCandles.slice(-100);
+    const analysisEndTimeMs = Number(analysisCandles.at(-1)?.time || 0) * 1_000;
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: "wave",
-      storageSessionId: this.drawingStorageSessionId,
-      marketId: this.selectedMarketId,
-      symbol: this.selectedSymbol,
-      interval: this.activeInterval,
+      storageSessionId: capturedTarget?.storageSessionId || this.drawingStorageSessionId,
+      marketId: targetMarket.id,
+      symbol: targetMarket.symbol,
+      interval: targetInterval,
       language: activeTradingAnalysisLanguage(),
       market: tradingFavoriteRecord(targetMarket),
     });
-    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
-      requestedLookbackMs,
-      TRADING_WAVE_AUTO_EXPANSION_MAX_CANDLES,
-    );
+    const splitSnapshotsPromise = useCapturedTarget
+      ? Promise.resolve({
+          snapshots: [] as TradingSplitPaneAnalysisSnapshot[],
+          snapshotFailures: [] as TradingSplitPaneAnalysisFailure[],
+        })
+      : this.captureSplitPaneAnalysisSnapshots(
+          requestedLookbackMs,
+          TRADING_WAVE_AUTO_EXPANSION_MAX_CANDLES,
+        );
+    const waveDegreeContextsPromise = fetchTradingWaveDegreeContexts(targetMarket.symbol, targetInterval, {
+      count: 600,
+      // Child waves must end no later than the parent window being analysed.
+      // Using send-time here leaked newer 1H/15m candles into a historical
+      // visible-range analysis and could make a fallback look valid only
+      // because it saw the future.
+      endTime: analysisEndTimeMs || request.analysisTarget?.capturedAt || Date.now(),
+      marketType: targetMarket.marketType === "spot" ? "spot" : "perpetual",
+    });
     const rangeDescription = request.lookbackLabel
       ? `最近 ${request.lookbackLabel}`
       : `当前画布可见的 ${analysisCandles.length} 根`;
@@ -10532,7 +10615,7 @@ class TradingExpertMarketWorkspace {
       `已准备 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在按价格硬规则与低一级结构验证 0-1-2-3-4-5、A-B-C / W-X-Y 候选。`,
     );
     try {
-      let waveCandlePool = [...this.candles];
+      let waveCandlePool = [...targetCandles];
       let waveSourceCandlePool: TradingCandle[] = [];
       const focusWaveAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
         if (
@@ -10566,11 +10649,12 @@ class TradingExpertMarketWorkspace {
             analysisJobId: job.analysisId,
             marketId: job.marketId,
             interval: job.interval,
-            snapshotTime: Date.now(),
+            snapshotTime: capturedTarget?.capturedAt || Date.now(),
             language: getCurrentAppLanguage(),
             instruction: request.instruction,
             responseMode: request.drawingRequested === false ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
+            contextCandles: await waveDegreeContextsPromise,
             candles: candles.map((candle) => ({
               time: candle.time,
               open: candle.open,
@@ -10686,6 +10770,11 @@ class TradingExpertMarketWorkspace {
           instruction: request.instruction,
           responseMode: request.drawingRequested === false ? "direct" : "full",
           lookbackMs: requestedLookbackMs,
+          contextCandles: await fetchTradingWaveDegreeContexts(snapshot.market.symbol, snapshot.interval, {
+            count: 600,
+            endTime: Number(snapshot.candles.at(-1)?.time || 0) * 1_000 || Date.now(),
+            marketType: snapshot.market.marketType === "spot" ? "spot" : "perpetual",
+          }),
           candles: snapshot.candles.map((candle) => ({
             time: candle.time,
             open: candle.open,

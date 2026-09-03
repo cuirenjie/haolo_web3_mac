@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 export const TRADING_ANALYSIS_SCHEMA_VERSION = 1;
 const MAX_CANDLES = 600;
 const MAX_CONTEXT_TIMEFRAMES = 3;
-const MAX_CONTEXT_CANDLES = 300;
+const MAX_CONTEXT_CANDLES = 600;
 const MAX_ORDER_FLOW_TRADES = 2_000;
 const MAX_ORDER_BOOK_LEVELS = 200;
 const MAX_OPEN_INTEREST_POINTS = 120;
@@ -220,9 +220,20 @@ export function normalizeTradingMarketSnapshot(value = {}, options = {}) {
     throw new TypeError(`At least ${minimumCandles} valid candles are required`);
   }
   const snapshotTime = Math.max(finiteNumber(value?.snapshotTime ?? Date.now(), "snapshotTime"), 1);
+  const tickSize = value?.tickSize === undefined || value?.tickSize === null || value?.tickSize === ""
+    ? null
+    : finiteNumber(value.tickSize, "tickSize");
+  if (tickSize !== null && tickSize <= 0) throw new TypeError("tickSize must be positive");
   const orderFlow = normalizeOrderFlow(value?.orderFlow);
   const contextCandles = normalizeContextCandles(value?.contextCandles, interval);
-  const inputHash = stableHash({ marketId, interval, candles, contextCandles, orderFlow });
+  const inputHash = stableHash({
+    marketId,
+    interval,
+    candles,
+    contextCandles,
+    orderFlow,
+    ...(tickSize === null ? {} : { tickSize }),
+  });
   return Object.freeze({
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     snapshotId: `snapshot-${inputHash.slice(0, 24)}`,
@@ -233,6 +244,7 @@ export function normalizeTradingMarketSnapshot(value = {}, options = {}) {
     candles: Object.freeze(candles.map((candle) => Object.freeze(candle))),
     contextCandles,
     orderFlow,
+    ...(tickSize === null ? {} : { tickSize }),
     inputHash,
   });
 }

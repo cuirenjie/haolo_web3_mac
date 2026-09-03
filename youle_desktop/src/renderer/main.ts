@@ -529,7 +529,7 @@ const EXTERNAL_CHANNEL_ICON_URLS = {
   telegram: new URL("./assets/channel-icons/telegram.png", import.meta.url).href,
   feishu: new URL("./assets/channel-icons/feishu.png", import.meta.url).href,
 } as const;
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.66";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.1.165";
 // Keep the local BYOK implementation available for a future opt-in release, but
 // do not expose it in the normal Haolo client while model access is centrally
 // configured by the backend.
@@ -1848,6 +1848,17 @@ type DesktopApi = {
       low: number;
       close: number;
       volume?: number;
+    }>;
+    contextCandles?: Array<{
+      interval: string;
+      candles: Array<{
+        time: number;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume?: number;
+      }>;
     }>;
   }): Promise<any>;
   classifyTradingWyckoffRequest?(params: {

@@ -9,7 +9,8 @@
   "implementation": { "kind": "builtin-adapter", "adapterId": "wave" },
   "capabilities": ["conversation", "chart-analysis", "drawing", "execution-plan"],
   "dataRequirements": {
-    "candles": { "required": true, "minCount": 30, "preferredCount": 600, "minimumCoverage": "available" }
+    "candles": { "required": true, "minCount": 30, "preferredCount": 600, "minimumCoverage": "available" },
+    "context-candles": { "required": false, "minCount": 30, "preferredCount": 600, "minimumCoverage": "partial" }
   },
   "drawingPolicyId": "wave-v1",
   "executionPlanPolicyId": "standard-v1",

@@ -10454,10 +10454,36 @@ function tradingAutomationContextIntervals(interval) {
   return [];
 }
 
+function tradingAutomationWaveContextIntervals(interval) {
+  const normalized = String(interval || "").trim().toUpperCase();
+  const duration = tradingAutomationIntervalDurationMs(normalized);
+  if (normalized === "1W") return ["1D", "240"];
+  if (normalized === "1D") return ["240", "60"];
+  if (duration >= 4 * 60 * 60_000) return ["60", "15"];
+  if (duration >= 2 * 60 * 60_000) return ["30", "5"];
+  if (duration >= 60 * 60_000) return ["15", "5"];
+  if (duration >= 30 * 60_000) return ["15", "5"];
+  if (duration >= 15 * 60_000) return ["5", "1"];
+  if (duration >= 5 * 60_000) return ["1"];
+  return [];
+}
+
 async function tradingAutomationContextCandles(route, signal) {
   const rows = await Promise.all(tradingAutomationContextIntervals(route.interval).map(async (interval) => {
     try {
       const candles = await tradingAutomationFetchCandles(route, interval, 240, signal);
+      return candles.length >= 30 ? { interval, candles } : null;
+    } catch {
+      return null;
+    }
+  }));
+  return rows.filter(Boolean);
+}
+
+async function tradingAutomationWaveContextCandles(route, signal) {
+  const rows = await Promise.all(tradingAutomationWaveContextIntervals(route.interval).map(async (interval) => {
+    try {
+      const candles = await tradingAutomationFetchCandles(route, interval, 600, signal);
       return candles.length >= 30 ? { interval, candles } : null;
     } catch {
       return null;
@@ -10666,7 +10692,9 @@ async function executeTradingAutomationAnalysis({ job, run, prompt, abortControl
   const strategyId = route.strategyId || "price-action";
   const strategy = strategies.find((candidate) => candidate.id === strategyId);
   if (strategy?.dataRequirements?.["context-candles"]) {
-    baseParams.contextCandles = await tradingAutomationContextCandles(route, abortController.signal);
+    baseParams.contextCandles = strategyId === "wave"
+      ? await tradingAutomationWaveContextCandles(route, abortController.signal)
+      : await tradingAutomationContextCandles(route, abortController.signal);
   }
   if (strategy?.dataRequirements?.["comparison-candles"]) {
     baseParams.comparisonMarkets = await tradingAutomationComparisonMarkets(route, abortController.signal);

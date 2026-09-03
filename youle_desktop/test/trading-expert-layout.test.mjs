@@ -1754,7 +1754,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(source, /if \(action === "add-favorite"\)[\s\S]*?this\.setPickerOpen\(true\)/);
   assert.match(source, /if \(action === "remove-favorite"\)[\s\S]*?event\.stopPropagation\(\)[\s\S]*?this\.toggleFavoriteMarket\(market\)/);
   assert.match(source, /const TRADING_FAVORITE_MARKETS_STORAGE_KEY = "haolo\.trading-market\.favorite-records\.v1"/);
-  assert.match(source, /export const MAX_TRADING_FAVORITE_TICKERS = 12/);
+  assert.match(source, /export const MAX_TRADING_FAVORITE_TICKERS = 20/);
   assert.match(source, /data-market-favorite-tickers[\s\S]*?data-market-period-controls/);
   assert.match(pickerOpen, /this\.search\.value = ""/);
   assert.match(pickerOpen, /this\.showFavoritesOnly = false/);
@@ -1819,9 +1819,9 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /html\[data-theme="dark"\] \.titlebar-market-favorites-host\s*\{[^}]*--trading-market-positive: #52dc88;[^}]*--trading-market-negative: #ff718e;[^}]*--trading-market-selected-background: #1b1e23;/s);
   assert.match(renderer, /const showTradingExpertFavoriteTickers =\s*state\.activeView === "chat"\s*&& !state\.chatPreview\s*&& !state\.tradingExpertChartCollapsed\s*&& isTradingExpertThreadId\(state\.currentThreadId\)/s);
   assert.match(renderer, /data-titlebar-market-favorites-host\$\{showTradingExpertFavoriteTickers \? "" : " hidden"\}/);
-  assert.match(styles, /\.trading-market-favorite-tickers\s*\{[^}]*flex: 1 1 auto;[^}]*gap: 4px;[^}]*overflow-x: auto;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scrollbar-width: none;[^}]*touch-action: pan-x;/s);
+  assert.match(styles, /\.trading-market-favorite-tickers\s*\{[^}]*flex: 1 1 auto;[^}]*gap: 4px;[^}]*overflow-x: hidden;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scrollbar-width: none;[^}]*touch-action: pan-x;/s);
   assert.match(styles, /\.trading-market-favorite-tickers\.sorting\s*\{[^}]*cursor: grabbing;[^}]*user-select: none;/s);
-  assert.match(styles, /\.trading-market-favorite-ticker\s*\{[^}]*width: 100px;[^}]*min-width: 100px;[^}]*max-width: 100px;[^}]*flex: 0 0 100px;[^}]*background: transparent;/s);
+  assert.match(styles, /\.trading-market-favorite-ticker\s*\{[^}]*width: 100px;[^}]*min-width: 0;[^}]*max-width: 100px;[^}]*flex: 0 1 100px;[^}]*background: transparent;/s);
   assert.match(styles, /\.trading-market-favorite-ticker\s*\{[^}]*cursor: grab;[^}]*touch-action: none;/s);
   assert.match(styles, /\.trading-market-favorite-ticker\.selected\s*\{[^}]*background: var\(--trading-market-selected-background\);/s);
   assert.match(styles, /\.trading-market-favorite-ticker\.selected > strong\s*\{[^}]*color: var\(--trading-market-text\);/s);
@@ -1836,6 +1836,8 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /\.trading-market-favorite-ticker\[data-quote-state="loading"\] > span\s*\{[^}]*opacity: 0\.72;/s);
   assert.match(styles, /\.trading-market-favorite-ticker > strong\s*\{[^}]*text-overflow: ellipsis;/s);
   assert.match(styles, /\.trading-market-favorite-ticker\s*\{[^}]*padding: 0 8px;/s);
+  assert.match(styles, /\.trading-market-favorite-ticker b,[\s\S]*?\.trading-market-favorite-ticker em\s*\{[^}]*min-width: 0;/s);
+  assert.match(styles, /\.trading-market-favorite-ticker em\s*\{[^}]*flex: 0 1 auto;/s);
   assert.match(styles, /\.trading-market-favorite-remove\s*\{[^}]*position: absolute;[^}]*opacity: 0;[^}]*visibility: hidden;[^}]*pointer-events: none;/s);
   assert.match(styles, /\.trading-market-favorite-ticker:hover > \.trading-market-favorite-remove,[\s\S]*?\.trading-market-favorite-ticker:focus-within > \.trading-market-favorite-remove[\s\S]*?opacity: 1;[\s\S]*?visibility: visible;[\s\S]*?pointer-events: auto;/s);
   assert.match(styles, /\.trading-market-favorite-remove\s*\{[^}]*display: flex;[^}]*align-items: center;[^}]*justify-content: center;[^}]*border: 0;[^}]*border-radius: 50%;[^}]*background: var\(--trading-market-muted\);[^}]*color: #fff;/s);

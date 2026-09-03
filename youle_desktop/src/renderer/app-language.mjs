@@ -137,6 +137,8 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "绘图目标工作区已失效": "The drawing target workspace is no longer active",
   "绘图目标与当前行情不一致：": "The drawing target does not match the current market: ",
   "Drawing Patch 未能应用到当前图表": "The drawing patch could not be applied to the current chart",
+  "K 线及低周期子浪。": "candles and lower-timeframe subwaves.",
+  "发送时行情快照不足": "The market snapshot captured at send time is insufficient",
   "下载": "Download",
   "上传": "Upload",
   "导入": "Import",
