@@ -7,14 +7,22 @@ readonly ACTIVE_STATE="/var/lib/haolo/gateway-active.env"
 
 public_port=8787
 private_port=8788
+active_container=""
 if [[ -r "${ACTIVE_STATE}" ]]; then
   value="$(sed -n 's/^PUBLIC_PORT=\([0-9][0-9]*\)$/\1/p' "${ACTIVE_STATE}" | head -n 1)"
   [[ "${value}" =~ ^[0-9]{1,5}$ ]] && public_port="${value}"
   value="$(sed -n 's/^PRIVATE_PORT=\([0-9][0-9]*\)$/\1/p' "${ACTIVE_STATE}" | head -n 1)"
   [[ "${value}" =~ ^[0-9]{1,5}$ ]] && private_port="${value}"
+  active_container="$(sed -n 's/^CONTAINER=\([A-Za-z0-9_.-][A-Za-z0-9_.-]*\)$/\1/p' "${ACTIVE_STATE}" | head -n 1)"
 fi
 
 docker compose -f "${COMPOSE_FILE}" ps
+echo "ACTIVE_GATEWAY"
+if [[ -n "${active_container}" ]] && docker inspect "${active_container}" >/dev/null 2>&1; then
+  docker inspect -f '{{.Name}} image={{.Config.Image}} status={{.State.Status}} restarts={{.RestartCount}} restart={{.HostConfig.RestartPolicy.Name}} started={{.State.StartedAt}}' "${active_container}"
+else
+  echo "No active gateway container is recorded"
+fi
 
 echo "PUBLIC_READY"
 curl --fail --silent --show-error \
