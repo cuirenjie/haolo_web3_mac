@@ -1406,6 +1406,18 @@ test("selection color, line style, and width apply to Fibonacci and every stroke
   assert.match(renderDrawing, /definition\.kind === "polyline"[\s\S]*?svgStrokeAttributes\(lineAppearance, 1\.8\)/);
 });
 
+test("new manual drawings reuse the previous style for each drawing tool", async () => {
+  const drawing = await drawingSource;
+
+  assert.match(drawing, /export interface TradingDrawingStyle/);
+  assert.match(drawing, /private readonly drawingStyles = new Map<TradingDrawingToolId, TradingDrawingStyle>\(\)/);
+  assert.match(drawing, /this\.drawingStyles\.set\(drawing\.tool, tradingDrawingStyleFromModel\(drawing\)\)/);
+  assert.match(drawing, /this\.drawingStyleForTool\(definition\.id\)/);
+  assert.match(drawing, /this\.drawingStyleForTool\(tool\)/);
+  assert.match(drawing, /drawingStyles\?: Partial<Record<TradingDrawingToolId, TradingDrawingStyle>>/);
+  assert.match(drawing, /this\.rememberDrawingStyle\(this\.selectedDrawing\(\)\)/);
+});
+
 test("drawing defaults and toolbar icon weight match the neutral compact treatment", async () => {
   const [drawing, styles] = await Promise.all([drawingSource, stylesSource]);
 

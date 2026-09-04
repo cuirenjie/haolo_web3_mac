@@ -370,6 +370,9 @@ export class TradingExpertSplitPane {
   private chartElement: HTMLElement;
   private viewportElement: HTMLElement;
   private ohlcElement: HTMLElement;
+  private ohlcTimeElement: HTMLTimeElement;
+  private ohlcValueElements: readonly HTMLElement[];
+  private hoveredOhlcSourceTime: number | null = null;
   private indicatorLegendLayer: HTMLElement;
   private mainIndicatorLegendElement: HTMLElement;
   private volumeProfileLayer: SVGSVGElement;
@@ -440,6 +443,8 @@ export class TradingExpertSplitPane {
     this.chartElement = this.requireElement("[data-split-chart]");
     this.viewportElement = this.requireElement("[data-split-viewport]");
     this.ohlcElement = this.requireElement("[data-split-ohlc]");
+    this.ohlcTimeElement = this.requireElement<HTMLTimeElement>("[data-split-ohlc-time]");
+    this.ohlcValueElements = Array.from(this.ohlcElement.querySelectorAll<HTMLElement>("[data-split-ohlc-value]"));
     this.indicatorLegendLayer = this.requireElement("[data-split-indicator-legends]");
     this.mainIndicatorLegendElement = this.requireElement("[data-split-main-indicator-legends]");
     this.volumeProfileLayer = this.requireElement<SVGSVGElement>("[data-split-volume-profile-layer]");
@@ -623,7 +628,15 @@ export class TradingExpertSplitPane {
             data-split-main-indicator-legends
             aria-label="分屏 ${this.paneIndex + 1} 主图指标数据"
           ></div>
-          <div class="trading-market-ohlc trading-market-split-ohlc" data-split-ohlc></div>
+          <div class="trading-market-ohlc trading-market-split-ohlc" data-split-ohlc aria-label="当前K线数据" hidden>
+            <time data-split-ohlc-time></time>
+            <span class="trading-market-ohlc-item"><span>开</span><b data-split-ohlc-value="open"></b></span>
+            <span class="trading-market-ohlc-item"><span>高</span><b data-split-ohlc-value="high"></b></span>
+            <span class="trading-market-ohlc-item"><span>低</span><b data-split-ohlc-value="low"></b></span>
+            <span class="trading-market-ohlc-item"><span>收</span><b data-split-ohlc-value="close"></b></span>
+            <span class="trading-market-ohlc-item"><span>涨幅</span><b data-split-ohlc-value="change"></b></span>
+            <span class="trading-market-ohlc-item"><span>振幅</span><b data-split-ohlc-value="amplitude"></b></span>
+          </div>
           <div class="trading-market-split-loading" data-split-loading><span></span><em>加载行情</em></div>
           <button type="button" class="trading-market-split-error" data-split-error hidden>重试</button>
         </div>
@@ -659,6 +672,7 @@ export class TradingExpertSplitPane {
     this.symbolSearch.addEventListener("input", this.handleSymbolSearchInput);
     this.errorElement.addEventListener("click", this.handleRetry);
     this.chartElement.addEventListener("wheel", this.handleWheel, { passive: true, capture: true });
+    this.viewportElement.addEventListener("pointerleave", this.handleViewportLeave);
     document.addEventListener("pointerdown", this.handleOutsidePointerDown);
     document.addEventListener("keydown", this.handleKeyDown);
   }
@@ -745,6 +759,11 @@ export class TradingExpertSplitPane {
   private readonly handleOutsidePointerDown = (event: PointerEvent) => {
     if (event.target instanceof Node && this.host.contains(event.target)) return;
     this.closeMenus();
+  };
+
+  private readonly handleViewportLeave = () => {
+    this.hoveredOhlcSourceTime = null;
+    this.renderLatestOhlc();
   };
 
   private readonly handleKeyDown = (event: KeyboardEvent) => {
@@ -958,10 +977,13 @@ export class TradingExpertSplitPane {
     this.createMainIndicatorSeries();
     this.rebuildIndicatorPanes();
     this.chart.subscribeCrosshairMove((parameter: any) => {
-      if (typeof parameter?.time === "number") {
+      if (typeof parameter?.time === "number" && Number.isFinite(parameter.time)) {
         const rawTime = parameter.time - CHINA_TIME_OFFSET_SECONDS;
         const candle = this.candles.find((candidate) => candidate.time === rawTime);
-        if (candle) this.renderOhlc(candle, parameter.time);
+        if (candle) {
+          this.hoveredOhlcSourceTime = rawTime;
+          this.renderOhlc(candle, parameter.time);
+        }
       }
       this.updateMainIndicatorLegends(parameter?.time);
       this.updateIndicatorLegends(parameter?.seriesData);
@@ -1606,7 +1628,7 @@ export class TradingExpertSplitPane {
     if (!latest) return false;
     this.candles = batch.candles;
     this.updateData(previousCandles);
-    this.renderOhlc(latest, latest.time + CHINA_TIME_OFFSET_SECONDS);
+    this.renderLatestOhlc();
     this.drawingController?.redraw();
     return true;
   }
@@ -1622,7 +1644,13 @@ export class TradingExpertSplitPane {
   ): Promise<TradingSplitPaneAnalysisSnapshot> {
     const loadedContextMatches = this.loadedMarketId === this.market.id
       && this.loadedInterval === this.interval;
-    if (!this.candles.length || !loadedContextMatches) await this.reload(true);
+    const currentMarketAnalysis = this.market.provider === "binance" && !lookbackMs;
+    if (!this.candles.length || !loadedContextMatches || currentMarketAnalysis) {
+      const refreshed = await this.reload(true);
+      if (currentMarketAnalysis && !refreshed) {
+        throw new Error(`分屏 ${this.paneIndex + 1} 当前行情刷新失败`);
+      }
+    }
     if (
       this.destroyed
       || !this.candles.length
@@ -1644,7 +1672,10 @@ export class TradingExpertSplitPane {
       0,
       Math.min(600, Math.floor(Number(preferredCandles) || 0)),
     );
-    const defaultCandles = normalizedPreferredCandles > 0
+    const useCurrentMarketTail = this.market.provider === "binance" && !lookbackMs;
+    const defaultCandles = useCurrentMarketTail
+      ? this.candles.slice(-Math.min(600, Math.max(visibleCandles.length, normalizedPreferredCandles || 100)))
+      : normalizedPreferredCandles > 0
       ? this.candles.slice(-Math.min(600, Math.max(visibleCandles.length, normalizedPreferredCandles)))
       : visibleCandles.length
         ? visibleCandles
@@ -1706,7 +1737,7 @@ export class TradingExpertSplitPane {
     if (!this.symbolMenu.hidden) this.renderSymbolResults();
   }
 
-  private async reload(resetViewport: boolean) {
+  private async reload(resetViewport: boolean): Promise<boolean> {
     if (resetViewport) this.invalidateVolumeProfileSnapshot();
     const generation = ++this.loadGeneration;
     const targetMarket = this.market;
@@ -1718,7 +1749,7 @@ export class TradingExpertSplitPane {
     this.errorElement.hidden = true;
     try {
       const candles = await this.loadCandles(targetMarket, targetInterval);
-      if (this.destroyed || generation !== this.loadGeneration) return;
+      if (this.destroyed || generation !== this.loadGeneration) return false;
       if (!candles.length) throw new Error("暂无行情");
       const previousCandles = this.candles;
       this.candles = candles;
@@ -1726,14 +1757,16 @@ export class TradingExpertSplitPane {
       this.loadedInterval = targetInterval;
       this.updateData(previousCandles);
       if (resetViewport) this.chart?.timeScale().fitContent();
-      this.renderOhlc(candles[candles.length - 1], candles[candles.length - 1].time + CHINA_TIME_OFFSET_SECONDS);
+      this.renderLatestOhlc();
       window.requestAnimationFrame(() => {
         this.drawingController?.redraw();
         this.extremaOverlay?.update();
       });
+      return true;
     } catch {
-      if (this.destroyed || generation !== this.loadGeneration) return;
+      if (this.destroyed || generation !== this.loadGeneration) return false;
       if (showLoading || this.candles.length === 0) this.errorElement.hidden = false;
+      return false;
     } finally {
       if (!this.destroyed && generation === this.loadGeneration) {
         this.loadingElement.hidden = true;
@@ -1775,18 +1808,36 @@ export class TradingExpertSplitPane {
     const changePercent = candle.open ? (change / candle.open) * 100 : 0;
     const amplitudePercent = candle.open ? ((candle.high - candle.low) / candle.open) * 100 : 0;
     const tone = change >= 0 ? "positive" : "negative";
-    const item = (label: string, value: string) => `
-      <span class="trading-market-ohlc-item"><span>${label}</span><b class="${tone}">${value}</b></span>
-    `;
-    this.ohlcElement.innerHTML = `
-      <time>${formatDateTime(displayTime)}</time>
-      ${item("开", formatPrice(candle.open))}
-      ${item("高", formatPrice(candle.high))}
-      ${item("低", formatPrice(candle.low))}
-      ${item("收", formatPrice(candle.close))}
-      ${item("涨幅", `${changePercent.toFixed(2)}%(${formatPrice(change)})`)}
-      ${item("振幅", `${amplitudePercent.toFixed(2)}%`)}
-    `;
+    const values = [
+      formatPrice(candle.open),
+      formatPrice(candle.high),
+      formatPrice(candle.low),
+      formatPrice(candle.close),
+      `${changePercent.toFixed(2)}%(${formatPrice(change)})`,
+      `${amplitudePercent.toFixed(2)}%`,
+    ];
+    if (this.ohlcElement.hidden) this.ohlcElement.hidden = false;
+    const dateText = formatDateTime(displayTime);
+    if (this.ohlcTimeElement.textContent !== dateText) this.ohlcTimeElement.textContent = dateText;
+    this.ohlcValueElements.forEach((element, index) => {
+      const value = values[index] || "";
+      if (element.textContent !== value) element.textContent = value;
+      element.classList.toggle("positive", tone === "positive");
+      element.classList.toggle("negative", tone === "negative");
+    });
+  }
+
+  private renderLatestOhlc() {
+    if (this.hoveredOhlcSourceTime !== null) {
+      const hovered = this.candles.find((candle) => candle.time === this.hoveredOhlcSourceTime);
+      if (hovered) {
+        this.renderOhlc(hovered, hovered.time + CHINA_TIME_OFFSET_SECONDS);
+        return;
+      }
+      this.hoveredOhlcSourceTime = null;
+    }
+    const latest = this.candles.at(-1);
+    if (latest) this.renderOhlc(latest, latest.time + CHINA_TIME_OFFSET_SECONDS);
   }
 
   private scheduleRefresh() {
@@ -1805,6 +1856,7 @@ export class TradingExpertSplitPane {
     this.symbolSearch.removeEventListener("input", this.handleSymbolSearchInput);
     this.errorElement.removeEventListener("click", this.handleRetry);
     this.chartElement.removeEventListener("wheel", this.handleWheel, { capture: true });
+    this.viewportElement.removeEventListener("pointerleave", this.handleViewportLeave);
     document.removeEventListener("pointerdown", this.handleOutsidePointerDown);
     document.removeEventListener("keydown", this.handleKeyDown);
     this.drawingController?.destroy();

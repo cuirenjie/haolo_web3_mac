@@ -4711,7 +4711,8 @@ async function buildPersonalTradingPreferenceDeveloperInstructions() {
     "- Response policy: answer the current question first and adapt the format to it. Do not turn a normal question into an execution plan, fixed report, checklist, or generic next-step list. Only include an execution-plan block (entry, stop, take-profit, position size) when the user explicitly asks for a trading plan, actionable setup, entry/exit levels, or position management.",
     "- For questions such as whether a position or account is safe, lead with a direct safe/unsafe/uncertain judgment and the observed evidence; do not prepend or replace that answer with a generic execution plan.",
     `- The user-configured per-trade realized-loss cap is ${profile.maxLossPerTradePercent ?? 2}% of current account equity and includes expected fees and slippage. This explicit value may be higher than 3%; preserve it exactly rather than applying a separate product ceiling. Position size must be derived from the valid stop distance, never from margin percentage alone.`,
-    `- Minimum net risk/reward ratio is 1:${profile.minimumRiskRewardRatio ?? 2}.`,
+    `- Minimum net risk/reward ratio is 1:${profile.minimumRiskRewardRatio ?? 0.4}; this explicit user value has priority over the product default, including when it is below 1:0.4.`,
+    "- When the user has not set a different minimum, prefer a three-target net risk/reward ladder of T1 1:0.4–1:0.6, T2 1:0.8–1:1, and T3 1:1.3–1:1.5 when the strategy's measured final target supports it. If no strategy target matches the complete preferred ladder, keep the current strategy ratios for executability and always honor the user's explicit minimum.",
     profile.riskPreference
       ? `- Qualitative risk preference: ${personalPreferenceInstructionValue(profile.riskPreference)}. This may shape explanation and opportunity selection but never overrides numeric hard limits or constitutes a measured win-rate guarantee.`
       : "",

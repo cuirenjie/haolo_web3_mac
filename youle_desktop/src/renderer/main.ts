@@ -46650,11 +46650,11 @@ const TRADING_PREFERENCE_QUESTION_TWO = [
   "",
   "这里的 1R 代表这笔交易最初承担的风险。例如计划最多亏损 200 USDT，那么浮盈达到 200 USDT 就是达到 1R。保本位置会覆盖手续费和预估滑点，避免名义保本但实际仍然亏损。",
   "",
-  "同时，你能接受的最低盈亏比是多少？例如盈亏比 2:1，表示计划盈利空间至少是止损风险的2倍。",
+  "同时，你能接受的最低盈亏比是多少？例如盈亏比 1:0.4，表示计划盈利空间至少是止损风险的0.4倍。",
   "",
-  "**Haolo 推荐：浮盈达到1R后移动保本，最低净盈亏比为2:1。**",
+  "**Haolo 推荐：浮盈达到1R后移动保本，最低净盈亏比为1:0.4。**",
   "",
-  "你可以回复“同意”，也可以自定义，例如“1.5R后保本，最低盈亏比3:1”或“不移动保本”。",
+  "你可以回复“同意”，也可以自定义，例如“1.5R后保本，最低盈亏比1:1.5”或“不移动保本”。",
 ].join("\n");
 
 const TRADING_PREFERENCE_QUESTION_THREE = [
@@ -46858,7 +46858,7 @@ function applyTradingPreferenceRecommendedRemaining(flow: TradingPreferenceOnboa
   flow.answers.maxLossPerTradePercent ??= 2;
   flow.answers.moveStopToBreakEven ??= true;
   flow.answers.breakEvenTriggerR ??= 1;
-  flow.answers.minimumRiskRewardRatio ??= 2;
+  flow.answers.minimumRiskRewardRatio ??= 0.4;
   flow.answers.analysisStyle ??= "concise";
   flow.answers.requiredSections ??= "fixed";
 }
@@ -46874,7 +46874,7 @@ function tradingPreferenceQuestionTwoAnswers(text: string) {
   return {
     moveStopToBreakEven: !noBreakEven,
     breakEvenTriggerR: noBreakEven ? 1 : triggerR ?? 1,
-    minimumRiskRewardRatio: minimumRiskRewardRatio ?? 2,
+    minimumRiskRewardRatio: minimumRiskRewardRatio ?? 0.4,
   };
 }
 
@@ -46934,7 +46934,7 @@ function tradingPreferenceMemoryEntries(answers: TradingPreferenceAnswers) {
     { scope: "trading.profile", kind: "fact", key: "onboarding_completed", value: true, strength: "normal" },
     { scope: "trading.risk", kind: "constraint", key: "max_loss_per_trade_percent", value: answers.maxLossPerTradePercent ?? 2, strength: "hard" },
     { scope: "trading.risk", kind: "constraint", key: "loss_calculation_basis", value: "按当前账户净值计算止损触发后的实际亏损，包含手续费和预估滑点，不按保证金比例计算", strength: "hard" },
-    { scope: "trading.risk", kind: "constraint", key: "minimum_risk_reward_ratio", value: answers.minimumRiskRewardRatio ?? 2, strength: "hard" },
+    { scope: "trading.risk", kind: "constraint", key: "minimum_risk_reward_ratio", value: answers.minimumRiskRewardRatio ?? 0.4, strength: "hard" },
     { scope: "trading.exit", kind: "preference", key: "move_stop_to_break_even", value: answers.moveStopToBreakEven !== false, strength: "normal" },
     { scope: "trading.exit", kind: "preference", key: "break_even_trigger_r", value: answers.breakEvenTriggerR ?? 1, strength: "normal" },
     { scope: "communication", kind: "preference", key: "trading_analysis_style", value: answers.analysisStyle ?? "concise", strength: "normal" },
@@ -46967,7 +46967,7 @@ function tradingPreferenceCompletionText(answers: TradingPreferenceAnswers) {
     "",
     `- 单笔最大风险：当前账户净值的 ${answers.maxLossPerTradePercent ?? 2}%；`,
     `- 浮盈保护：${breakEven}；`,
-    `- 最低净盈亏比：${answers.minimumRiskRewardRatio ?? 2}:1；`,
+    `- 最低净盈亏比：1:${answers.minimumRiskRewardRatio ?? 0.4}；`,
     `- 回答风格：默认${style}；`,
     `- 分析结构：${sections}；`,
     ...(answers.customRules ? [`- 你的补充纪律：${answers.customRules}；`] : []),
@@ -47096,13 +47096,13 @@ async function handleTradingPreferenceOnboardingReply(
     }
   } else if (flow.stage === 2) {
     const answer = tradingPreferenceReplyUsesCurrentRecommendation(reply)
-      ? { moveStopToBreakEven: true, breakEvenTriggerR: 1, minimumRiskRewardRatio: 2 }
+      ? { moveStopToBreakEven: true, breakEvenTriggerR: 1, minimumRiskRewardRatio: 0.4 }
       : tradingPreferenceQuestionTwoAnswers(reply);
     if (!answer) {
       appendTradingPreferenceMessage(
         threadId,
         "assistant",
-        "我还没有识别到保本或盈亏比设置。你可以回复“同意”“1.5R后保本，最低盈亏比3:1”或“不移动保本，最低盈亏比2:1”。",
+        "我还没有识别到保本或盈亏比设置。你可以回复“同意”“1.5R后保本，最低盈亏比1:1.5”或“不移动保本”。",
         flow,
       );
     } else {

@@ -84,6 +84,15 @@ export function formatTradingFibonacciPrice(value: number) {
 
 export type TradingDrawingLineStyle = "solid" | "dashed" | "dotted";
 
+export interface TradingDrawingStyle {
+  color?: string;
+  textBackgroundColor?: string;
+  fontSize?: number;
+  bold?: boolean;
+  lineStyle?: TradingDrawingLineStyle;
+  lineWidth?: number;
+}
+
 const TRADING_DRAWING_COLORS = [
   "#000000", "#4b5563", "#787b86", "#b2b5be", "#ffffff",
   "#ef5350", "#ff9800", "#f6bf26", "#8bc34a", "#22ab94", "#26c6da", "#2962ff", "#7b61ff", "#ab47bc", "#ec407a",
@@ -391,7 +400,7 @@ export interface TradingDrawingPoint {
   price: number;
 }
 
-interface TradingDrawingModel {
+interface TradingDrawingModel extends TradingDrawingStyle {
   id: string;
   strategyId?: string;
   symbol: string;
@@ -400,12 +409,6 @@ interface TradingDrawingModel {
   points: TradingDrawingPoint[];
   text?: string;
   locked?: boolean;
-  color?: string;
-  textBackgroundColor?: string;
-  fontSize?: number;
-  bold?: boolean;
-  lineStyle?: TradingDrawingLineStyle;
-  lineWidth?: number;
   viewportAnchor?: ScreenPoint;
   source?: "manual" | "ai";
   colorToken?: TradingAiDrawingColorToken;
@@ -1053,6 +1056,37 @@ function finitePoint(value: unknown): value is TradingDrawingPoint {
 
 function drawingColor(value: unknown) {
   return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : undefined;
+}
+
+function tradingDrawingStyleFromModel(
+  drawing: Pick<TradingDrawingModel, "color" | "textBackgroundColor" | "fontSize" | "bold" | "lineStyle" | "lineWidth">,
+): TradingDrawingStyle {
+  const color = drawingColor(drawing.color);
+  const textBackgroundColor = drawingColor(drawing.textBackgroundColor);
+  const lineStyle = drawingLineStyle(drawing.lineStyle);
+  const lineWidth = drawingLineWidth(drawing.lineWidth);
+  const fontSize = drawingTextFontSize(drawing.fontSize);
+  return {
+    ...(color ? { color } : {}),
+    ...(textBackgroundColor ? { textBackgroundColor } : {}),
+    ...(fontSize ? { fontSize } : {}),
+    ...(drawing.bold ? { bold: true } : {}),
+    ...(lineStyle ? { lineStyle } : {}),
+    ...(lineWidth !== undefined ? { lineWidth } : {}),
+  };
+}
+
+function normalizeTradingDrawingStyle(value: unknown): TradingDrawingStyle {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const candidate = value as Partial<TradingDrawingStyle>;
+  return tradingDrawingStyleFromModel({
+    color: candidate.color,
+    textBackgroundColor: candidate.textBackgroundColor,
+    fontSize: candidate.fontSize,
+    bold: candidate.bold,
+    lineStyle: candidate.lineStyle,
+    lineWidth: candidate.lineWidth,
+  });
 }
 
 const TRADING_AI_DRAWING_COLOR_VARIABLES: Readonly<Record<TradingAiDrawingColorToken, string>> = {
@@ -1971,6 +2005,7 @@ export interface TradingDrawingSharedToolState {
   activeTool: TradingDrawingToolId;
   stayInDrawingMode: boolean;
   magnetEnabled: boolean;
+  drawingStyles?: Partial<Record<TradingDrawingToolId, TradingDrawingStyle>>;
 }
 
 export function tradingDrawingForwardedWheelEventInit(event: Pick<
@@ -2261,6 +2296,9 @@ export class TradingDrawingController {
   private readonly lastToolByGroup = new Map<TradingDrawingGroupId, TradingDrawingToolId>(
     TRADING_DRAWING_GROUPS.map((group) => [group.id, group.defaultTool]),
   );
+  // Keep manual preferences per tool so selecting a tool again starts with its
+  // most recently used appearance instead of rebuilding the default style.
+  private readonly drawingStyles = new Map<TradingDrawingToolId, TradingDrawingStyle>();
 
   constructor(options: TradingDrawingControllerOptions) {
     this.host = options.host;
@@ -2276,6 +2314,11 @@ export class TradingDrawingController {
     this.storageSessionId = normalizeTradingDrawingStorageSessionId(options.storageSessionId);
     this.drawings = loadStoredDrawings(this.storageSessionId);
     this.aiDrawings = loadStoredAiDrawings(this.storageSessionId);
+    for (const drawing of [...this.drawings].reverse()) {
+      if (!this.drawingStyles.has(drawing.tool)) {
+        this.drawingStyles.set(drawing.tool, tradingDrawingStyleFromModel(drawing));
+      }
+    }
     const orderLineContent = this.overlay.querySelector<SVGGElement>("[data-trading-order-lines]");
     const orderPositionCardLayer = this.host.querySelector<HTMLElement>("[data-trading-order-position-cards]");
     const content = this.overlay.querySelector<SVGGElement>("[data-drawing-content]");
@@ -2340,10 +2383,14 @@ export class TradingDrawingController {
   }
 
   sharedToolState(): TradingDrawingSharedToolState {
+    const drawingStyles = Object.fromEntries(
+      [...this.drawingStyles.entries()].map(([toolId, style]) => [toolId, { ...style }]),
+    ) as Partial<Record<TradingDrawingToolId, TradingDrawingStyle>>;
     return {
       activeTool: this.activeTool,
       stayInDrawingMode: this.stayInDrawingMode,
       magnetEnabled: this.magnetEnabled,
+      drawingStyles,
     };
   }
 
@@ -2379,6 +2426,16 @@ export class TradingDrawingController {
     }
     this.activeTool = definition.id;
     this.lastToolByGroup.set(definition.group, definition.id);
+    if (state.drawingStyles && typeof state.drawingStyles === "object") {
+      this.drawingStyles.clear();
+      for (const candidate of TRADING_DRAWING_TOOLS) {
+        if (!Object.prototype.hasOwnProperty.call(state.drawingStyles, candidate.id)) continue;
+        this.drawingStyles.set(
+          candidate.id,
+          normalizeTradingDrawingStyle(state.drawingStyles[candidate.id]),
+        );
+      }
+    }
     this.stayInDrawingMode = state.stayInDrawingMode;
     this.magnetEnabled = state.magnetEnabled;
     this.overlay.classList.toggle("drawing-active", definition.kind !== "cursor");
@@ -3231,6 +3288,7 @@ export class TradingDrawingController {
       tool: definition.id,
       points: requiredPointCount > 1 ? [drawingPoint, drawingPoint] : [drawingPoint],
       text: definition.id === "price-note" ? formatTradingDrawingAxisPrice(drawingPoint.price) : undefined,
+      ...this.drawingStyleForTool(definition.id),
     };
     this.draftConfirmedPointCount = 1;
     this.draftRequiredPointCount = requiredPointCount;
@@ -3400,6 +3458,17 @@ export class TradingDrawingController {
     return tradingDrawingToolDefinition(this.activeTool)?.label ?? "光标";
   }
 
+  private drawingStyleForTool(tool: TradingDrawingToolId): TradingDrawingStyle {
+    const style = this.drawingStyles.get(tool);
+    return style ? { ...style } : {};
+  }
+
+  private rememberDrawingStyle(drawing: TradingDrawingModel | null) {
+    if (!drawing || drawing.source === "ai") return;
+    this.drawingStyles.set(drawing.tool, tradingDrawingStyleFromModel(drawing));
+    this.emitSharedToolState();
+  }
+
   private beginTextDrawing(
     tool: TradingDrawingToolId,
     point: TradingDrawingPoint,
@@ -3413,6 +3482,7 @@ export class TradingDrawingController {
       tool,
       points: [point],
       text: initialText,
+      ...this.drawingStyleForTool(tool),
       viewportAnchor: tool === "anchored-text"
         ? tradingDrawingViewportAnchor(screenPoint, this.plotBounds())
         : undefined,
@@ -3591,6 +3661,7 @@ export class TradingDrawingController {
 
   private persistDrawingEdit(message: string, closeMenu = true) {
     this.redoStack = [];
+    this.rememberDrawingStyle(this.selectedDrawing());
     this.persistDrawings();
     if (closeMenu) this.closeSelectionMenus();
     this.redraw();

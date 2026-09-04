@@ -1923,27 +1923,49 @@ test("Trading Expert market chart sits flush beneath a shadowless themed divider
   );
 });
 
-test("Trading Expert replaces the floating OHLC card with the reference-style quote strip", async () => {
+test("Trading Expert keeps the quote strip DOM stable while updating hovered OHLC values", async () => {
   const source = await marketSource;
+  const splitPane = await splitPaneSource;
   const styles = await stylesSource;
-  const ohlcMarkup = sourceBlock(
+  const ohlcRenderer = sourceBlock(
     source,
-    'this.ohlcElement.innerHTML = `',
-    "`;",
+    "private renderOhlc",
+    "private clearOhlc",
+  );
+  const splitOhlcRenderer = sourceBlock(
+    splitPane,
+    "private renderOhlc",
+    "private scheduleRefresh",
   );
 
   assert.match(source, /formatOhlcDateTime\(timeValue\)/);
   assert.match(source, /amplitudePercent = open \? \(\(high - low\) \/ open\) \* 100 : 0/);
   assert.match(source, /this\.renderOhlc\(candle, parameter\.time\)/);
   assert.match(source, /this\.renderOhlc\(candle, candle\.time \+ CHINA_TIME_OFFSET_SECONDS\)/);
-  assert.match(ohlcMarkup, /<time>/);
-  assert.match(ohlcMarkup, /item\("开"/);
-  assert.match(ohlcMarkup, /item\("高"/);
-  assert.match(ohlcMarkup, /item\("低"/);
-  assert.match(ohlcMarkup, /item\("收"/);
-  assert.match(ohlcMarkup, /item\("涨幅"/);
-  assert.match(ohlcMarkup, /item\("振幅"/);
-  assert.doesNotMatch(ohlcMarkup, /<button|<svg|row\("[OHLC]"/);
+  assert.match(source, /private hoveredOhlcSourceTime: number \| null = null/);
+  assert.match(source, /this\.hoveredOhlcSourceTime = sourceTime;[\s\S]*?this\.renderOhlc\(candle, parameter\.time\)/);
+  assert.match(source, /private renderLatestOhlc\(\)[\s\S]*?this\.hoveredOhlcSourceTime !== null[\s\S]*?this\.renderOhlc\(hovered, hovered\.time \+ CHINA_TIME_OFFSET_SECONDS\)/);
+  assert.match(source, /this\.hoveredOhlcSourceTime = null;\s*this\.renderLatestOhlc\(\);/);
+  assert.match(source, /private readonly handleViewportLeave = \(\) => \{[\s\S]*?this\.hoveredOhlcSourceTime = null;[\s\S]*?this\.renderLatestOhlc\(\);/);
+  assert.match(source, /data-market-ohlc-time/);
+  assert.equal((source.match(/data-market-ohlc-value=/g) ?? []).length, 6);
+  assert.match(splitPane, /data-split-ohlc-time/);
+  assert.equal((splitPane.match(/data-split-ohlc-value=/g) ?? []).length, 6);
+  assert.match(splitPane, /private hoveredOhlcSourceTime: number \| null = null/);
+  assert.match(splitPane, /this\.hoveredOhlcSourceTime = rawTime;[\s\S]*?this\.renderOhlc\(candle, parameter\.time\)/);
+  assert.match(splitPane, /private renderLatestOhlc\(\)[\s\S]*?this\.hoveredOhlcSourceTime !== null[\s\S]*?this\.renderOhlc\(hovered, hovered\.time \+ CHINA_TIME_OFFSET_SECONDS\)/);
+  assert.match(splitPane, /this\.viewportElement\.addEventListener\("pointerleave", this\.handleViewportLeave\)/);
+  assert.match(splitPane, /private readonly handleViewportLeave = \(\) => \{[\s\S]*?this\.hoveredOhlcSourceTime = null;[\s\S]*?this\.renderLatestOhlc\(\);/);
+  assert.match(ohlcRenderer, /const dateText = formatOhlcDateTime\(timeValue\)/);
+  assert.match(ohlcRenderer, /this\.ohlcTimeElement\.textContent !== dateText/);
+  assert.match(ohlcRenderer, /this\.ohlcValueElements\.forEach/);
+  assert.match(ohlcRenderer, /if \(element\.textContent !== value\) element\.textContent = value/);
+  assert.match(ohlcRenderer, /classList\.toggle\("positive"/);
+  assert.match(ohlcRenderer, /classList\.toggle\("negative"/);
+  assert.doesNotMatch(ohlcRenderer, /innerHTML|replaceChildren/);
+  assert.doesNotMatch(sourceBlock(source, "private renderOhlc", "private async loadMoreHistory"), /innerHTML/);
+  assert.match(splitOhlcRenderer, /this\.ohlcValueElements\.forEach/);
+  assert.doesNotMatch(splitOhlcRenderer, /innerHTML|replaceChildren/);
   assert.match(styles, /\.trading-market-ohlc\s*\{[^}]*display: flex;[^}]*white-space: nowrap;/s);
   assert.doesNotMatch(
     styles,

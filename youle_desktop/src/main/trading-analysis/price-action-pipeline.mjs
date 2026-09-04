@@ -15,6 +15,7 @@ const GENERAL_PRICE_ACTION_EXECUTION_MANIFEST = Object.freeze({
   id: "price-action",
   version: "1.1.0",
 });
+const DEFAULT_MINIMUM_RISK_REWARD_RATIO = 0.4;
 
 function extractJsonObject(text) {
   const source = String(text || "").trim();
@@ -99,7 +100,7 @@ function personalizedTradingSettings(value) {
   };
   return {
     maxLossPerTradePercent: numeric(source.maxLossPerTradePercent, 2),
-    minimumRiskRewardRatio: numeric(source.minimumRiskRewardRatio, 2),
+    minimumRiskRewardRatio: numeric(source.minimumRiskRewardRatio, DEFAULT_MINIMUM_RISK_REWARD_RATIO),
     riskPreference: String(source.riskPreference || "").trim().slice(0, 120),
     preferredStopDistancePercent: numeric(source.preferredStopDistancePercent, null),
     maxStopDistancePercent: numeric(source.maxStopDistancePercent, null),
@@ -197,7 +198,7 @@ export function buildPriceActionReport(snapshot, result, review, context = {}) {
     `- **想做空**：等本周期 K 线收盘跌破 ${formatPrice(levels.shortTrigger)}，最好反抽站不回后再考虑；第一目标 ${formatPrice(levels.shortTarget)}，重新站上 ${formatPrice(levels.shortInvalidation)} 则取消空头方案。`,
     `- **继续等待**：还在 ${formatPrice(levels.waitZone.lower)}–${formatPrice(levels.waitZone.upper)} 内，或突破后很快收回区间，就当成信号未确认。`,
     `- **控制风险**：单笔止损后的实际亏损不得超过当前账户净值的 ${preferences.maxLossPerTradePercent}%；计算时包含手续费和预估滑点，再按入场价到取消价的距离倒推仓位。`,
-    `- **盈亏与保本**：最低净盈亏比为 ${preferences.minimumRiskRewardRatio}:1。${breakEvenText}`,
+    `- **盈亏与保本**：最低净盈亏比为 1:${preferences.minimumRiskRewardRatio}。${breakEvenText}`,
     "",
     "### 为什么这样判断",
     `本次读取左侧画布的 ${candles.length} 根 ${intervalLabel(snapshot.interval)} K 线，范围 ${formatTime(first.time)} 至 ${formatTime(latest.time)}；区间变化 ${change >= 0 ? "+" : ""}${change.toFixed(2)}%。`,

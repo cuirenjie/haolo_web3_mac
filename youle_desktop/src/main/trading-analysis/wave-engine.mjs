@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { TRADING_ANALYSIS_SCHEMA_VERSION } from "./protocol.mjs";
 
 export const WAVE_ENGINE_ID = "elliott_wave";
-export const WAVE_ENGINE_VERSION = "0.4.0";
+export const WAVE_ENGINE_VERSION = "0.5.0";
 
 function idFor(prefix, ...parts) {
   return `${prefix}-${crypto.createHash("sha1").update(parts.join(":"), "utf8").digest("hex").slice(0, 16)}`;
@@ -77,11 +77,11 @@ function rawLocalSwings(snapshot, radius, atr) {
   return swings;
 }
 
-function compactSwings(snapshot, rawSwings, atr) {
+function compactSwings(snapshot, rawSwings, atr, thresholdMultiplier = 3.5, thresholdPercent = 0.0045) {
   const candles = snapshot.candles;
   // Parent-degree anchors must stay materially larger than the radius-1 pivots
   // later used to prove each leg's lower-degree subdivision.
-  const threshold = Math.max(atr * 3.5, candles.at(-1).close * 0.0045);
+  const threshold = Math.max(atr * thresholdMultiplier, candles.at(-1).close * thresholdPercent);
   const compacted = [];
   for (const swing of rawSwings) {
     const previous = compacted.at(-1);
@@ -100,21 +100,59 @@ function compactSwings(snapshot, rawSwings, atr) {
     compacted.push(swing);
   }
 
-  const latest = candles.at(-1);
+  // The radius-based detector cannot confirm the final few bars because
+  // future neighbours do not exist yet. Keep the most extreme point in that
+  // trailing window as a tentative endpoint so a completed fifth wave ending
+  // just before the live bar is not silently dropped.
+  const trailing = candles.slice(-3).map((candle, offset, values) => ({
+    ...candle,
+    index: candles.length - values.length + offset,
+  }));
+  const latest = trailing.length
+    ? trailing.reduce((best, candle) => ({
+      high: candle.high >= best.high ? candle.high : best.high,
+      low: candle.low <= best.low ? candle.low : best.low,
+      highCandle: candle.high >= best.high ? candle : best.highCandle,
+      lowCandle: candle.low <= best.low ? candle : best.lowCandle,
+    }), {
+      high: -Infinity,
+      low: Infinity,
+      highCandle: trailing[0],
+      lowCandle: trailing[0],
+    })
+    : null;
   const previous = compacted.at(-1);
   if (latest && previous) {
-    const nextType = previous.type === "high" ? "low" : "high";
-    const nextPrice = nextType === "high" ? latest.high : latest.low;
-    if (Math.abs(nextPrice - previous.price) >= threshold) {
-      compacted.push({
-        id: idFor("wave-swing", snapshot.snapshotId, candles.length - 1, nextType, nextPrice, "tentative"),
-        index: candles.length - 1,
-        time: latest.time,
-        price: nextPrice,
-        type: nextType,
+    const endpoint = previous.type === "high" ? latest.highCandle : latest.lowCandle;
+    const sameTypePrice = previous.type === "high" ? latest.high : latest.low;
+    const sameTypeMoreExtreme = previous.type === "high"
+      ? endpoint.index > previous.index && sameTypePrice > previous.price
+      : endpoint.index > previous.index && sameTypePrice < previous.price;
+    if (sameTypeMoreExtreme) {
+      compacted[compacted.length - 1] = {
+        ...previous,
+        id: idFor("wave-swing", snapshot.snapshotId, endpoint.index, previous.type, sameTypePrice, "tentative"),
+        index: endpoint.index,
+        time: endpoint.time,
+        price: sameTypePrice,
         status: "tentative",
-        prominenceAtr: atr ? Math.abs(nextPrice - previous.price) / atr : 0,
-      });
+        prominenceAtr: atr ? Math.abs(sameTypePrice - (compacted.at(-2)?.price || previous.price)) / atr : 0,
+      };
+    } else {
+      const nextType = previous.type === "high" ? "low" : "high";
+      const nextCandle = nextType === "high" ? latest.highCandle : latest.lowCandle;
+      const nextPrice = nextType === "high" ? latest.high : latest.low;
+      if (nextCandle.index > previous.index && Math.abs(nextPrice - previous.price) >= threshold) {
+        compacted.push({
+          id: idFor("wave-swing", snapshot.snapshotId, nextCandle.index, nextType, nextPrice, "tentative"),
+          index: nextCandle.index,
+          time: nextCandle.time,
+          price: nextPrice,
+          type: nextType,
+          status: "tentative",
+          prominenceAtr: atr ? Math.abs(nextPrice - previous.price) / atr : 0,
+        });
+      }
     }
   }
   return compacted;
@@ -499,7 +537,24 @@ export function evaluateMotiveWaveRules(points, options = {}) {
 function impulseCandidate(snapshot, points, fineSwings, atr) {
   const subdivisions = subdivisionEvidence(snapshot, fineSwings, points, atr, [5, 3, 5, 3, 5]);
   const evaluation = evaluateMotiveWaveRules(points, { atr, subdivisions });
-  if (!evaluation.impulseValid) return null;
+  const priceRulesVerified = evaluation.rules?.directionAlternates === true
+    && evaluation.rules?.nonZeroWaves === true
+    && evaluation.rules?.wave2HoldsOrigin === true
+    && evaluation.rules?.wave3MakesProgress === true
+    && evaluation.rules?.wave4HoldsWave3Origin === true
+    && evaluation.rules?.wave3NotShortest === true
+    && evaluation.rules?.wave4AvoidsWave1 === true
+    && evaluation.rules?.wave5MakesProgress === true;
+  // Keep strict candidates unchanged. When a clear five-leg price structure is
+  // present but the selected parent bars are too short to expose all 5-3-5-3-5
+  // child pivots, retain it as a tentative observed motive so the chart does
+  // not collapse to an unrelated ABC correction. It remains ineligible for a
+  // completed cycle until lower-degree evidence arrives.
+  const observedMotive = !evaluation.impulseValid
+    && priceRulesVerified
+    && points.every((point) => point && Number.isFinite(Number(point.price)))
+    && evaluation.lengths.every((length) => length >= Math.max(atr * 1.25, snapshot.candles.at(-1).close * 0.001));
+  if (!evaluation.impulseValid && !observedMotive) return null;
   const { direction, ratios, rules } = evaluation;
   const fibonacciScore = average([
     fibonacciCloseness(ratios.wave2Retracement, [0.382, 0.5, 0.618, 0.786]),
@@ -509,13 +564,13 @@ function impulseCandidate(snapshot, points, fineSwings, atr) {
   ]);
   const recency = clamp((points.at(-1).index + 1) / snapshot.candles.length, 0, 1);
   const score = clamp(
-    0.48
-      + fibonacciScore * 0.29
-      + recency * 0.1,
+    (observedMotive ? 0.42 : 0.48)
+      + fibonacciScore * (observedMotive ? 0.24 : 0.29)
+      + recency * (observedMotive ? 0.16 : 0.1),
     0,
     1,
   );
-  const status = rules.allSubdivisionsConfirmed
+  const status = !observedMotive && rules.allSubdivisionsConfirmed
     && points.at(-1).status === "confirmed"
     ? "confirmed"
     : "tentative";
@@ -538,7 +593,9 @@ function impulseCandidate(snapshot, points, fineSwings, atr) {
     ratios,
     subdivisions: candidateSubdivisionRecords(subdivisions, [5, 3, 5, 3, 5]),
     rules,
-    validation: "hard_rules_and_lower_degree_structure",
+    validation: observedMotive
+      ? "hard_price_rules_pending_lower_degree_structure"
+      : "hard_rules_and_lower_degree_structure",
     invalidationPrice: points[0].price,
     confirmationPrice: points[4].price,
     projection: {
@@ -826,12 +883,18 @@ function completeCycleCandidate(snapshot, impulse, correction) {
   };
 }
 
-function buildWaveCandidates(snapshot, swings, fineSwings, atr) {
+function buildWaveCandidates(snapshot, swings, fineSwings, atr, motiveSwings = swings) {
   const motiveCandidates = [];
   const correctionCandidates = [];
-  for (let index = 0; index <= swings.length - 6; index += 1) {
-    const candidate = impulseCandidate(snapshot, swings.slice(index, index + 6), fineSwings, atr);
-    if (candidate) motiveCandidates.push(candidate);
+  const motiveIds = new Set();
+  for (const source of [swings, motiveSwings]) {
+    for (let index = 0; index <= source.length - 6; index += 1) {
+      const candidate = impulseCandidate(snapshot, source.slice(index, index + 6), fineSwings, atr);
+      if (candidate && !motiveIds.has(candidate.id)) {
+        motiveCandidates.push(candidate);
+        motiveIds.add(candidate.id);
+      }
+    }
   }
   for (let index = 0; index <= swings.length - 4; index += 1) {
     const candidate = correctionCandidate(snapshot, swings.slice(index, index + 4), fineSwings, atr);
@@ -874,6 +937,26 @@ function buildWaveCandidates(snapshot, swings, fineSwings, atr) {
   return sortCandidates(selected).slice(0, 12);
 }
 
+function selectPrimaryCandidate(candidates, snapshot) {
+  if (!candidates.length) return null;
+  const completeCycle = candidates.find((candidate) => candidate.kind === "cycle");
+  if (completeCycle) return completeCycle;
+  const latestIndex = snapshot.candles.length - 1;
+  const recentWindow = Math.max(8, Math.ceil(snapshot.candles.length * 0.12));
+  const recentMotive = candidates
+    .filter((candidate) => (
+      (candidate.kind === "impulse" || candidate.kind === "diagonal")
+      && Number(candidate.points.at(-1)?.index) >= latestIndex - recentWindow
+    ))
+    .sort((first, second) => (
+      Number(second.status === "confirmed") - Number(first.status === "confirmed")
+      || second.score - first.score
+      || second.points.at(-1).index - first.points.at(-1).index
+      || first.id.localeCompare(second.id)
+    ));
+  return recentMotive[0] || candidates[0];
+}
+
 function intervalMilliseconds(interval) {
   const normalized = String(interval || "").trim().toUpperCase();
   if (normalized === "1D") return 86_400_000;
@@ -902,15 +985,28 @@ function runSingleWaveDegreeEngine(snapshot) {
   const rawSwings = rawLocalSwings(snapshot, radius, atr);
   const fineSwings = rawLocalSwings(snapshot, 1, atr);
   const swings = compactSwings(snapshot, rawSwings, atr);
-  const candidates = buildWaveCandidates(snapshot, swings, fineSwings, atr);
-  const primaryCandidate = candidates[0] || null;
+  // A single large threshold is useful for correction anchors but can erase
+  // the shallow pullbacks that separate a real 1–5 impulse. Generate motive
+  // candidates from a second, trend-sensitive scale while keeping the base
+  // swing list stable for correction and historical comparisons.
+  const motiveSwings = compactSwings(snapshot, rawSwings, atr, 2, 0.002);
+  const candidates = buildWaveCandidates(snapshot, swings, fineSwings, atr, motiveSwings);
+  const primaryCandidate = selectPrimaryCandidate(candidates, snapshot);
+  const rankedCandidates = primaryCandidate && candidates[0]?.id !== primaryCandidate.id
+    ? [primaryCandidate, ...candidates.filter((candidate) => candidate.id !== primaryCandidate.id)]
+    : candidates;
   const alternatives = primaryCandidate
-    ? candidates.filter((candidate) => candidate.id !== primaryCandidate.id).slice(0, 3)
+    ? rankedCandidates.filter((candidate) => candidate.id !== primaryCandidate.id).slice(0, 3)
     : [];
   const status = primaryCandidate ? "succeeded" : "insufficient_data";
-  const evidence = swings.map((swing) => ({
+  const evidenceSwings = [...new Map(
+    [...swings, ...motiveSwings].map((swing) => [swing.id, swing]),
+  ).values()];
+  const evidence = evidenceSwings.map((swing) => ({
     evidenceId: swing.id,
-    kind: swing.type === "high" ? "confirmed_swing_high" : "confirmed_swing_low",
+    kind: swing.status === "tentative"
+      ? (swing.type === "high" ? "tentative_swing_high" : "tentative_swing_low")
+      : (swing.type === "high" ? "confirmed_swing_high" : "confirmed_swing_low"),
     source: "ohlcv",
     status: swing.status,
   }));
@@ -933,6 +1029,7 @@ function runSingleWaveDegreeEngine(snapshot) {
       rawSwingCount: rawSwings.length,
       lowerDegreeSwingCount: fineSwings.length,
       swingCount: swings.length,
+      motiveSwingCount: motiveSwings.length,
       candidateCount: candidates.length,
       completeCycleCount: candidates.filter((candidate) => candidate.kind === "cycle").length,
       motiveCount: candidates.filter((candidate) => candidate.kind === "impulse" || candidate.kind === "diagonal").length,
@@ -942,7 +1039,7 @@ function runSingleWaveDegreeEngine(snapshot) {
     structures: {
       swings,
       fineSwings,
-      candidates,
+      candidates: rankedCandidates,
       primaryCandidate,
       alternatives,
     },

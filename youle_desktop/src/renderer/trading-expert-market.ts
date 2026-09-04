@@ -2609,6 +2609,44 @@ interface TradingMarketStats {
   volume24h: number;
 }
 
+/**
+ * A chart may temporarily show a persisted cache while its live refresh is in
+ * flight.  That is useful for painting the UI, but it must never be used as
+ * the source for a "current market" analysis.  A candle is considered live
+ * enough while its expected close is no more than a few minutes behind `now`.
+ * The five minute floor prevents a one minute feed from thrashing on normal
+ * REST/WebSocket scheduling jitter while still forcing a refresh when the
+ * current forming candle is missing.
+ */
+export function tradingAnalysisCandlesRequireCurrentRefresh(
+  candles: ReadonlyArray<Pick<TradingCandle, "time">>,
+  resolution: string,
+  now = Date.now(),
+) {
+  const latestTime = Number(candles.at(-1)?.time || 0) * 1_000;
+  const durationMs = tradingViewResolutionDurationMs(resolution);
+  if (!Number.isFinite(latestTime) || latestTime <= 0 || !durationMs) return true;
+  const allowedLagMs = 5 * 60_000;
+  return Number(now) - (latestTime + durationMs) > allowedLagMs;
+}
+
+/**
+ * A current Binance candle can retain its open time while its OHLC values are
+ * still from an earlier REST response. Timestamp checks alone therefore cannot
+ * prove freshness. Current Binance analyses always obtain a new snapshot and
+ * reconcile it with the latest quote; other providers still use the cadence
+ * check because they do not expose the same live quote stream.
+ */
+export function tradingAnalysisShouldForceCurrentRefresh(
+  provider: TradingMarketProvider | string,
+  candles: ReadonlyArray<Pick<TradingCandle, "time">>,
+  resolution: string,
+  now = Date.now(),
+) {
+  return String(provider || "").trim().toLowerCase() === "binance"
+    || tradingAnalysisCandlesRequireCurrentRefresh(candles, resolution, now);
+}
+
 export function tradingMarketStatsFromCandles(
   symbol: string,
   candles: ReadonlyArray<{ close: number }>,
@@ -3563,21 +3601,28 @@ async function fetchTradingMarketStats(
       volume24h: Number(ticker.quoteVolume || 0),
     };
   }
-  const [premium, openInterest, ticker] = await Promise.all([
+  const [premiumResult, openInterestResult, tickerResult] = await Promise.allSettled([
     fetchBinanceFutures<BinancePremiumIndex>("/fapi/v1/premiumIndex", { symbol }),
     fetchBinanceFutures<BinanceOpenInterest>("/fapi/v1/openInterest", { symbol }),
     fetchBinanceFutures<BinanceTicker24h>("/fapi/v1/ticker/24hr", { symbol }),
   ]);
-  const markPrice = Number(premium.markPrice || ticker.lastPrice || 0);
+  // The ticker is the required current-price source. Funding and OI are
+  // supplementary fields; an isolated failure there must not make the whole
+  // current snapshot look unavailable and force analysis back to an old cache.
+  if (tickerResult.status !== "fulfilled") throw tickerResult.reason;
+  const premium = premiumResult.status === "fulfilled" ? premiumResult.value : null;
+  const openInterest = openInterestResult.status === "fulfilled" ? openInterestResult.value : null;
+  const ticker = tickerResult.value;
+  const markPrice = Number(premium?.markPrice || ticker.lastPrice || 0);
   return {
     symbol,
     lastPrice: Number(ticker.lastPrice || markPrice),
     markPrice,
     midPrice: Number(ticker.lastPrice || markPrice),
-    oraclePrice: Number(premium.indexPrice || 0),
-    openInterest: Number(openInterest.openInterest || 0),
-    fundingRate: Number(premium.lastFundingRate || 0),
-    nextFundingTime: Number(premium.nextFundingTime || 0),
+    oraclePrice: Number(premium?.indexPrice || 0),
+    openInterest: Number(openInterest?.openInterest || 0),
+    fundingRate: Number(premium?.lastFundingRate || 0),
+    nextFundingTime: Number(premium?.nextFundingTime || 0),
     prevDayPrice: Number(ticker.openPrice || 0),
     volume24h: Number(ticker.quoteVolume || 0),
   };
@@ -3590,6 +3635,7 @@ export async function fetchTradingCandles(
   endTime = Date.now(),
   marketType: Extract<TradingMarketType, "perpetual" | "spot"> = "perpetual",
   signal?: AbortSignal,
+  options: { forceFresh?: boolean } = {},
 ): Promise<TradingCandleBatch> {
   const source = binanceResolutionSource(resolution);
   if (!source) throw new Error(`Unsupported TradingView resolution: ${resolution}`);
@@ -3610,6 +3656,7 @@ export async function fetchTradingCandles(
     const limit = Math.min(remaining, marketType === "spot" ? 1_000 : 1_500);
     const currentMs = Date.now();
     const latestPage = page === 0
+      && options.forceFresh !== true
       && cursor >= currentMs - 60_000
       && cursor <= currentMs + 5_000;
     const items = await fetchBinanceMarket<unknown[][]>(marketType, "/fapi/v1/klines", "/api/v3/klines", {
@@ -4765,7 +4812,15 @@ export function renderTradingExpertMarketWorkspace() {
               data-market-main-indicator-legends
               aria-label="主图指标数据"
             ></div>
-            <div class="trading-market-ohlc" data-market-ohlc aria-label="当前K线数据"></div>
+            <div class="trading-market-ohlc" data-market-ohlc aria-label="当前K线数据" hidden>
+              <time data-market-ohlc-time></time>
+              <span class="trading-market-ohlc-item"><span>开</span><b data-market-ohlc-value="open"></b></span>
+              <span class="trading-market-ohlc-item"><span>高</span><b data-market-ohlc-value="high"></b></span>
+              <span class="trading-market-ohlc-item"><span>低</span><b data-market-ohlc-value="low"></b></span>
+              <span class="trading-market-ohlc-item"><span>收</span><b data-market-ohlc-value="close"></b></span>
+              <span class="trading-market-ohlc-item"><span>涨幅</span><b data-market-ohlc-value="change"></b></span>
+              <span class="trading-market-ohlc-item"><span>振幅</span><b data-market-ohlc-value="amplitude"></b></span>
+            </div>
             <div class="trading-market-loading" data-market-loading>
               <span></span>
               <p>正在加载实时行情…</p>
@@ -4793,6 +4848,9 @@ class TradingExpertMarketWorkspace {
   private readonly loadingElement: HTMLElement;
   private readonly errorElement: HTMLButtonElement;
   private readonly ohlcElement: HTMLElement;
+  private readonly ohlcTimeElement: HTMLTimeElement;
+  private readonly ohlcValueElements: readonly HTMLElement[];
+  private hoveredOhlcSourceTime: number | null = null;
   private readonly crosshairTimeElement: HTMLTimeElement;
   private readonly crosshairPriceElement: HTMLElement;
   private readonly currentPriceElement: HTMLElement;
@@ -5001,6 +5059,8 @@ class TradingExpertMarketWorkspace {
     this.loadingElement = this.requireElement("[data-market-loading]");
     this.errorElement = this.requireElement<HTMLButtonElement>("[data-market-error]");
     this.ohlcElement = this.requireElement("[data-market-ohlc]");
+    this.ohlcTimeElement = this.requireElement<HTMLTimeElement>("[data-market-ohlc-time]");
+    this.ohlcValueElements = Array.from(this.ohlcElement.querySelectorAll<HTMLElement>("[data-market-ohlc-value]"));
     this.crosshairTimeElement = this.requireElement<HTMLTimeElement>("[data-market-crosshair-time]");
     this.crosshairPriceElement = this.requireElement("[data-market-crosshair-price]");
     this.currentPriceElement = this.requireElement("[data-market-current-price]");
@@ -5987,6 +6047,8 @@ class TradingExpertMarketWorkspace {
         500,
         undefined,
         market.marketType === "spot" ? "spot" : "perpetual",
+        undefined,
+        { forceFresh: true },
       );
       const quote = this.latestLivePricesByMarketId.get(market.id);
       const reconciled = quote && Date.now() - quote.receivedAt <= MARKET_LIVE_PRICE_MAX_AGE_MS
@@ -6055,6 +6117,7 @@ class TradingExpertMarketWorkspace {
   private readonly handleViewportLeave = () => {
     this.hideCrosshairTimeLabel();
     this.hideCrosshairPriceLabel();
+    this.hoveredOhlcSourceTime = null;
     this.renderLatestOhlc();
     this.updateMainIndicatorLegends();
     this.updateIndicatorLegends();
@@ -8296,7 +8359,19 @@ class TradingExpertMarketWorkspace {
       const snapshotFailures: TradingSplitPaneAnalysisFailure[] = [];
       results.forEach((result, index) => {
         if (result.status === "fulfilled") {
-          snapshots.push(result.value);
+          const snapshot = result.value;
+          if (
+            snapshot.market.provider === "binance"
+            && tradingAnalysisCandlesRequireCurrentRefresh(snapshot.candles, snapshot.interval)
+          ) {
+            snapshotFailures.push({
+              paneIndex: snapshot.paneIndex,
+              heading: tradingAnalysisPaneHeading(snapshot.market, snapshot.interval),
+              message: "分屏行情已过期，本次分析跳过该分屏并以主图当前行情为准",
+            });
+            return;
+          }
+          snapshots.push(snapshot);
           return;
         }
         const paneIndex = index + 1;
@@ -9853,7 +9928,7 @@ class TradingExpertMarketWorkspace {
     const analysisName = String(request.strategyDisplayName || (strategyId ? "策略" : "价格结构")).trim();
     const capturedTarget = request.analysisTarget || null;
     const useCapturedTarget = Boolean(capturedTarget && !request.symbol);
-    const useCapturedCandles = Boolean(
+    let useCapturedCandles = Boolean(
       useCapturedTarget
       && (!request.interval || request.interval === capturedTarget?.interval),
     );
@@ -9953,17 +10028,21 @@ class TradingExpertMarketWorkspace {
         ? capturedTarget!.candles.map((candle) => ({ ...candle }))
         : []
       : [...this.candles];
-    if (useCapturedTarget && targetCandles.length < 2) {
-      const loaded = await this.fetchHistoricalCandleBatch({
-        symbol: targetMarket.symbol,
-        provider: targetMarket.provider,
-        assetClass: targetMarket.assetClass,
-        marketType: targetMarket.marketType,
-        interval: targetInterval,
-        count: 500,
-        endTime: capturedTarget!.capturedAt,
-      });
+    let currentSnapshotRefreshed = false;
+    if (
+      targetCandles.length < 2
+      || tradingAnalysisShouldForceCurrentRefresh(targetMarket.provider, targetCandles, targetInterval)
+    ) {
+      request.onProgress?.(
+        "loading",
+        `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
+      );
+      const loaded = await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, targetCandles);
       targetCandles = loaded.candles;
+      currentSnapshotRefreshed = true;
+      // A refreshed snapshot is a current-market analysis.  Do not reuse the
+      // old visible slice by index after the candle series has advanced.
+      useCapturedCandles = false;
     }
     if (
       (!useCapturedTarget && (
@@ -9985,11 +10064,15 @@ class TradingExpertMarketWorkspace {
         ? []
         : visibleCandlesInLogicalRange(targetCandles, visibleRange);
     const analysisWindowCount = Math.min(600, Math.max(canvasCandles.length, preferredCandles));
+    const useCurrentMarketTail = targetMarket.provider === "binance" && !requestedLookbackMs;
     let analysisCandles = requestedLookbackMs
       ? targetCandles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : canvasCandles.length
-        ? canvasCandles.slice(-(visibleCandlesOnly ? 600 : analysisWindowCount))
-        : targetCandles.slice(-analysisWindowCount);
+      : useCurrentMarketTail
+        ? targetCandles.slice(-analysisWindowCount)
+        : canvasCandles.length
+          ? canvasCandles.slice(-(visibleCandlesOnly ? 600 : analysisWindowCount))
+          : targetCandles.slice(-analysisWindowCount);
+    const analysisSnapshotTime = currentSnapshotRefreshed ? Date.now() : (capturedTarget?.capturedAt || Date.now());
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: analysisTheory,
@@ -10110,7 +10193,7 @@ class TradingExpertMarketWorkspace {
         analysisJobId: job.analysisId,
         marketId: job.marketId,
         interval: job.interval,
-        snapshotTime: capturedTarget?.capturedAt || Date.now(),
+        snapshotTime: analysisSnapshotTime,
         language: getCurrentAppLanguage(),
         instruction: request.instruction,
         responseMode: request.drawingRequested === false ? "direct" : "full",
@@ -10342,15 +10425,28 @@ class TradingExpertMarketWorkspace {
       throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
     }
 
+    if (
+      tradingAnalysisShouldForceCurrentRefresh(targetMarket.provider, this.candles, targetInterval)
+    ) {
+      request.onProgress?.(
+        "loading",
+        `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
+      );
+      await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, this.candles);
+    }
+
     const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
     const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
     const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
     const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
+    const useCurrentMarketTail = targetMarket.provider === "binance" && !requestedLookbackMs;
     let analysisCandles = requestedLookbackMs
       ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : canvasCandles.length
-        ? canvasCandles
-        : this.candles.slice(-100);
+      : useCurrentMarketTail
+        ? this.candles.slice(-100)
+        : canvasCandles.length
+          ? canvasCandles
+          : this.candles.slice(-100);
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: "chan",
@@ -10631,22 +10727,41 @@ class TradingExpertMarketWorkspace {
       throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
     }
 
-    const targetCandles = useCapturedTarget
+    let targetCandles = useCapturedTarget
       ? capturedTarget!.candles.map((candle) => ({ ...candle }))
       : this.candles;
-    if (targetCandles.length < 2) throw new Error(`${marketLabel} 发送时行情快照不足`);
+    let useCapturedCandleWindow = useCapturedTarget;
+    let currentSnapshotRefreshed = false;
+    if (
+      targetCandles.length < 2
+      || tradingAnalysisShouldForceCurrentRefresh(targetMarket.provider, targetCandles, targetInterval)
+    ) {
+      request.onProgress?.(
+        "loading",
+        `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
+      );
+      const loaded = await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, targetCandles);
+      targetCandles = loaded.candles;
+      useCapturedCandleWindow = false;
+      currentSnapshotRefreshed = true;
+    }
+    if (targetCandles.length < 2) throw new Error(`${marketLabel} 当前行情快照不足`);
     const latestTimeMs = Number(targetCandles.at(-1)?.time || 0) * 1_000;
     const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
     const visibleRange = useCapturedTarget ? null : this.chart?.timeScale().getVisibleLogicalRange() || null;
-    const canvasCandles = useCapturedTarget
+    const canvasCandles = useCapturedCandleWindow
       ? capturedTarget!.visibleCandles.map((candle) => ({ ...candle }))
       : visibleCandlesInLogicalRange(targetCandles, visibleRange);
+    const useCurrentMarketTail = targetMarket.provider === "binance" && !requestedLookbackMs;
     let analysisCandles = requestedLookbackMs
       ? targetCandles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-        : canvasCandles.length
-          ? canvasCandles
-        : targetCandles.slice(-100);
+        : useCurrentMarketTail
+          ? targetCandles.slice(-100)
+          : canvasCandles.length
+            ? canvasCandles
+            : targetCandles.slice(-100);
     const analysisEndTimeMs = Number(analysisCandles.at(-1)?.time || 0) * 1_000;
+    const analysisSnapshotTime = currentSnapshotRefreshed ? Date.now() : (capturedTarget?.capturedAt || Date.now());
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: "wave",
@@ -10717,7 +10832,7 @@ class TradingExpertMarketWorkspace {
             analysisJobId: job.analysisId,
             marketId: job.marketId,
             interval: job.interval,
-            snapshotTime: capturedTarget?.capturedAt || Date.now(),
+            snapshotTime: analysisSnapshotTime,
             language: getCurrentAppLanguage(),
             instruction: request.instruction,
             responseMode: request.drawingRequested === false ? "direct" : "full",
@@ -10935,15 +11050,28 @@ class TradingExpertMarketWorkspace {
       throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
     }
 
+    if (
+      tradingAnalysisShouldForceCurrentRefresh(targetMarket.provider, this.candles, targetInterval)
+    ) {
+      request.onProgress?.(
+        "loading",
+        `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
+      );
+      await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, this.candles);
+    }
+
     const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
     const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
     const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
     const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
+    const useCurrentMarketTail = targetMarket.provider === "binance" && !requestedLookbackMs;
     let analysisCandles = requestedLookbackMs
       ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : canvasCandles.length >= 60
-        ? canvasCandles
-        : this.candles.slice(-120);
+      : useCurrentMarketTail
+        ? this.candles.slice(-120)
+        : canvasCandles.length >= 60
+          ? canvasCandles
+          : this.candles.slice(-120);
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: "wyckoff",
@@ -11195,15 +11323,28 @@ class TradingExpertMarketWorkspace {
       throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
     }
 
+    if (
+      tradingAnalysisShouldForceCurrentRefresh(targetMarket.provider, this.candles, targetInterval)
+    ) {
+      request.onProgress?.(
+        "loading",
+        `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
+      );
+      await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, this.candles);
+    }
+
     const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
     const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
     const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
     const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
+    const useCurrentMarketTail = targetMarket.provider === "binance" && !requestedLookbackMs;
     let analysisCandles = requestedLookbackMs
       ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : canvasCandles.length
-        ? canvasCandles
-        : this.candles.slice(-100);
+      : useCurrentMarketTail
+        ? this.candles.slice(-100)
+        : canvasCandles.length
+          ? canvasCandles
+          : this.candles.slice(-100);
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: "order-flow",
@@ -11493,6 +11634,177 @@ class TradingExpertMarketWorkspace {
     return true;
   }
 
+  private async refreshCurrentMarketSnapshotForAnalysis(
+    targetMarket: TradingMarket,
+    targetInterval: string,
+    fallbackCandles: ReadonlyArray<TradingCandle> = [],
+  ): Promise<TradingCandleBatch> {
+    let candleBatch: TradingCandleBatch | null = null;
+    let lastError: unknown = null;
+    // A gateway can briefly serve an old response after its route changes. Use
+    // a new endTime on every attempt so each request has a distinct upstream
+    // cache key, and give the live route enough time to recover before falling
+    // back to the ticker/WebSocket price anchor below.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const endTime = Date.now();
+        const candidate = targetMarket.provider === "binance"
+          ? await fetchTradingCandles(
+            targetMarket.symbol,
+            targetInterval,
+            500,
+            endTime,
+            targetMarket.marketType === "spot" ? "spot" : "perpetual",
+            undefined,
+            { forceFresh: true },
+          )
+          : await this.fetchHistoricalCandleBatch({
+            symbol: targetMarket.symbol,
+            provider: targetMarket.provider,
+            assetClass: targetMarket.assetClass,
+            marketType: targetMarket.marketType,
+            interval: targetInterval,
+            count: 500,
+            endTime,
+          });
+        if (candidate.candles.length) candleBatch = candidate;
+        if (
+          candidate.candles.length
+          && (targetMarket.provider !== "binance"
+            || !tradingAnalysisCandlesRequireCurrentRefresh(candidate.candles, targetInterval, Date.now()))
+        ) break;
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < 2) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+    if (!candleBatch?.candles.length) {
+      const cached = getTradingMarketCandleCache(
+        tradingMarketCandleCacheKey({
+          provider: targetMarket.provider,
+          symbol: targetMarket.symbol,
+          assetClass: targetMarket.assetClass,
+          interval: targetInterval,
+          marketType: targetMarket.marketType,
+        }),
+      );
+      const fallback = fallbackCandles.length
+        ? fallbackCandles.map((candle) => ({ ...candle }))
+        : this.loadedMarketId === targetMarket.id && this.loadedInterval === targetInterval
+          ? this.candles.map((candle) => ({ ...candle }))
+          : cached?.candleBatch.candles?.map((candle) => ({ ...candle })) || [];
+      if (fallback.length) {
+        const source = binanceResolutionSource(targetInterval) || {
+          targetMs: tradingViewResolutionDurationMs(targetInterval) || 60_000,
+          sourceInterval: null,
+          sourceMs: null,
+        };
+        candleBatch = { candles: fallback, sourceCandles: [], source };
+      } else {
+        throw lastError instanceof Error ? lastError : new Error("未返回可用的当前 K 线数据");
+      }
+    }
+
+    let liveStats: TradingMarketStats | null = null;
+    if (targetMarket.provider === "binance") {
+      // Keep the analysis executable while a historical candle response is
+      // being recovered: obtain the market-wide live quote and materialize the
+      // current interval bucket on the same series. This prevents an old date
+      // from ever becoming the latest candle sent to the analysis model.
+      for (let statsAttempt = 0; statsAttempt < 2 && !liveStats; statsAttempt += 1) {
+        try {
+          liveStats = await fetchTradingMarketStats(
+            targetMarket.symbol,
+            targetMarket.marketType === "spot" ? "spot" : "perpetual",
+          );
+        } catch {
+          if (statsAttempt < 1) {
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 200));
+          }
+        }
+      }
+      if (!liveStats) {
+        const quote = this.latestLivePricesByMarketId.get(targetMarket.id);
+        const recentQuotePrice = quote
+          && Date.now() - quote.receivedAt <= MARKET_LIVE_PRICE_MAX_AGE_MS
+          ? quote.price
+          : 0;
+        const price = Number(
+          recentQuotePrice
+          || (targetMarket.id === this.selectedMarketId ? this.stats?.midPrice : 0)
+          || targetMarket.markPrice
+          || 0,
+        );
+        if (Number.isFinite(price) && price > 0) {
+          liveStats = tradingMarketStatsFromCandles(targetMarket.symbol, [{ close: price }]);
+        }
+      }
+      const recentQuote = this.latestLivePricesByMarketId.get(targetMarket.id);
+      const recentQuotePrice = recentQuote
+        && Date.now() - recentQuote.receivedAt <= MARKET_LIVE_PRICE_MAX_AGE_MS
+        ? recentQuote.price
+        : 0;
+      const livePrice = Number(
+        liveStats?.lastPrice
+        || liveStats?.midPrice
+        || liveStats?.markPrice
+        || recentQuotePrice
+        || (targetMarket.id === this.selectedMarketId ? this.stats?.midPrice : 0)
+        || targetMarket.markPrice
+        || 0,
+      );
+      if (Number.isFinite(livePrice) && livePrice > 0) {
+        const source = binanceResolutionSource(targetInterval);
+        if (source) {
+          const patched = applyTradingLivePriceToBatch(candleBatch, livePrice, Date.now());
+          candleBatch = {
+            ...candleBatch,
+            candles: patched.candles,
+            sourceCandles: patched.sourceCandles,
+            source: patched.source,
+          };
+        }
+      }
+      if (tradingAnalysisCandlesRequireCurrentRefresh(candleBatch.candles, targetInterval, Date.now())) {
+        throw new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
+      }
+    }
+    const stats = {
+      ...tradingMarketStatsFromCandles(targetMarket.symbol, candleBatch.candles),
+      ...(liveStats || {}),
+    };
+    setTradingMarketCandleCache(
+      tradingMarketCandleCacheKey({
+        provider: targetMarket.provider,
+        symbol: targetMarket.symbol,
+        assetClass: targetMarket.assetClass,
+        interval: targetInterval,
+        marketType: targetMarket.marketType,
+      }),
+      { stats, candleBatch },
+    );
+    if (
+      !this.disposed
+      && this.loadedMarketId === targetMarket.id
+      && this.loadedInterval === targetInterval
+    ) {
+      this.commitMarketSnapshot(
+        targetMarket.symbol,
+        targetMarket.id,
+        targetMarket.provider,
+        targetMarket.assetClass,
+        targetMarket.marketType,
+        targetMarket,
+        targetInterval,
+        stats,
+        candleBatch,
+      );
+    }
+    return candleBatch;
+  }
+
   private commitMarketSnapshot(
     targetSymbol: string,
     targetMarketId: string,
@@ -11632,6 +11944,9 @@ class TradingExpertMarketWorkspace {
         targetProvider !== "binance"
         || tradingCandleBatchHasFinalizedHistory(cachedSnapshot.candleBatch)
       );
+    const cachedSnapshotNeedsCurrentRefresh = targetProvider === "binance"
+      && (!cachedSnapshotUsable
+        || tradingAnalysisCandlesRequireCurrentRefresh(cachedSnapshot!.candleBatch.candles, targetInterval));
     let cachedSnapshotApplied = false;
     let binanceSocketStarted = false;
     const keepChart = options.preserveChart === true && this.candles.length > 0;
@@ -11722,6 +12037,7 @@ class TradingExpertMarketWorkspace {
             // silently fail behind a cached previous interval.
             const cachedBatch = cachedSnapshotUsable ? cachedSnapshot.candleBatch : null;
             const canRefreshIncrementally = cachedBatch
+              && !cachedSnapshotNeedsCurrentRefresh
               ? tradingCandleBatchCanRefreshIncrementally(cachedBatch)
               : false;
             const candleBatch = cachedBatch && canRefreshIncrementally
@@ -11744,6 +12060,7 @@ class TradingExpertMarketWorkspace {
                   Date.now(),
                   targetMarketType === "spot" ? "spot" : "perpetual",
                   marketDataRequestSignal,
+                  { forceFresh: targetProvider === "binance" && cachedSnapshotNeedsCurrentRefresh },
                 );
             if (!candleBatch.candles.length) throw new Error("未返回可用 K 线数据");
             if (!tradingCandleSeriesMatchesResolution(candleBatch.candles, targetInterval)) {
@@ -12609,10 +12926,13 @@ class TradingExpertMarketWorkspace {
     });
     this.createMainIndicatorSeries();
     this.chart.subscribeCrosshairMove((parameter: any) => {
-      if (typeof parameter?.time === "number") {
+      if (typeof parameter?.time === "number" && Number.isFinite(parameter.time)) {
         const sourceTime = parameter.time - CHINA_TIME_OFFSET_SECONDS;
         const candle = this.chartCandles.find((candidate) => candidate.time === sourceTime);
-        if (candle) this.renderOhlc(candle, parameter.time);
+        if (candle) {
+          this.hoveredOhlcSourceTime = sourceTime;
+          this.renderOhlc(candle, parameter.time);
+        }
       }
       this.updateCrosshairTimeLabel(parameter);
       this.updateCrosshairPriceLabel(parameter);
@@ -13400,12 +13720,13 @@ class TradingExpertMarketWorkspace {
     this.mainIndicatorLegendElement.replaceChildren();
     this.updateIndicatorLegends();
     this.chartCandles = [];
+    this.hoveredOhlcSourceTime = null;
     this.lockedPriceRange = null;
     if (this.priceLine && this.candleSeries) {
       this.candleSeries.removePriceLine(this.priceLine);
       this.priceLine = null;
     }
-    this.ohlcElement.innerHTML = "";
+    this.clearOhlc();
   }
 
   private clearMarketError() {
@@ -13648,9 +13969,17 @@ class TradingExpertMarketWorkspace {
   }
 
   private renderLatestOhlc() {
+    if (this.hoveredOhlcSourceTime !== null) {
+      const hovered = this.chartCandles.find((candle) => candle.time === this.hoveredOhlcSourceTime);
+      if (hovered) {
+        this.renderOhlc(hovered, hovered.time + CHINA_TIME_OFFSET_SECONDS);
+        return;
+      }
+      this.hoveredOhlcSourceTime = null;
+    }
     const candle = this.candles[this.candles.length - 1];
     if (!candle) {
-      this.ohlcElement.replaceChildren();
+      this.clearOhlc();
       return;
     }
     this.renderOhlc(candle, candle.time + CHINA_TIME_OFFSET_SECONDS);
@@ -13796,18 +14125,32 @@ class TradingExpertMarketWorkspace {
     const changePercent = open ? (change / open) * 100 : 0;
     const amplitudePercent = open ? ((high - low) / open) * 100 : 0;
     const tone = change >= 0 ? "positive" : "negative";
-    const item = (label: string, value: string) => `
-      <span class="trading-market-ohlc-item"><span>${label}</span><b class="${tone}">${value}</b></span>
-    `;
-    this.ohlcElement.innerHTML = `
-      <time>${formatOhlcDateTime(timeValue)}</time>
-      ${item("开", formatOhlcPrice(open))}
-      ${item("高", formatOhlcPrice(high))}
-      ${item("低", formatOhlcPrice(low))}
-      ${item("收", formatOhlcPrice(close))}
-      ${item("涨幅", `${changePercent.toFixed(2)}%(${formatOhlcPrice(change)})`)}
-      ${item("振幅", `${amplitudePercent.toFixed(2)}%`)}
-    `;
+    const values = [
+      formatOhlcPrice(open),
+      formatOhlcPrice(high),
+      formatOhlcPrice(low),
+      formatOhlcPrice(close),
+      `${changePercent.toFixed(2)}%(${formatOhlcPrice(change)})`,
+      `${amplitudePercent.toFixed(2)}%`,
+    ];
+    if (this.ohlcElement.hidden) this.ohlcElement.hidden = false;
+    const dateText = formatOhlcDateTime(timeValue);
+    if (this.ohlcTimeElement.textContent !== dateText) this.ohlcTimeElement.textContent = dateText;
+    this.ohlcValueElements.forEach((element, index) => {
+      const value = values[index] || "";
+      if (element.textContent !== value) element.textContent = value;
+      element.classList.toggle("positive", tone === "positive");
+      element.classList.toggle("negative", tone === "negative");
+    });
+  }
+
+  private clearOhlc() {
+    this.ohlcElement.hidden = true;
+    this.ohlcTimeElement.textContent = "";
+    this.ohlcValueElements.forEach((element) => {
+      element.textContent = "";
+      element.classList.remove("positive", "negative");
+    });
   }
 
   private async loadMoreHistory() {

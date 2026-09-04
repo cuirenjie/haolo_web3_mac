@@ -331,7 +331,12 @@ export function tradingRiskProfileFromEntries(values) {
     maxLossPerTradePercent: configuredMaxLossPerTradePercent,
     maxPositionPercent: numeric(["trading.risk", "trading"], TRADING_RISK_MEMORY_KEYS.maxPositionPercent, 0.01, 100),
     maxLeverage: numeric(["trading.risk", "trading"], TRADING_RISK_MEMORY_KEYS.maxLeverage, 1, 1_000),
-    minimumRiskRewardRatio: numeric(["trading.risk", "trading"], TRADING_RISK_MEMORY_KEYS.minimumRiskRewardRatio, 0.01, 100),
+    minimumRiskRewardRatio: numeric(
+      ["trading.risk", "trading"],
+      TRADING_RISK_MEMORY_KEYS.minimumRiskRewardRatio,
+      Number.MIN_VALUE,
+      100,
+    ),
     riskPreference: text(["trading.risk", "trading"], TRADING_RISK_MEMORY_KEYS.riskPreference)
       || text(["trading.risk", "trading"], TRADING_RISK_MEMORY_KEYS.legacyRiskRewardPreference),
     preferredStopDistancePercent,
@@ -539,8 +544,8 @@ function validateKnownRiskEntry(entry) {
   if (entry.key === TRADING_RISK_MEMORY_KEYS.maxLeverage && (entry.value < 1 || entry.value > 1_000)) {
     throw new PersonalMemoryError("MEMORY_RISK_VALUE_INVALID", "max_leverage 必须介于 1 和 1000 之间。");
   }
-  if (entry.key === TRADING_RISK_MEMORY_KEYS.minimumRiskRewardRatio && (entry.value < 0.01 || entry.value > 100)) {
-    throw new PersonalMemoryError("MEMORY_RISK_VALUE_INVALID", "minimum_risk_reward_ratio 必须介于 0.01 和 100 之间。");
+  if (entry.key === TRADING_RISK_MEMORY_KEYS.minimumRiskRewardRatio && (entry.value <= 0 || entry.value > 100)) {
+    throw new PersonalMemoryError("MEMORY_RISK_VALUE_INVALID", "minimum_risk_reward_ratio 必须大于 0 且不超过 100。");
   }
   if (entry.key === TRADING_RISK_MEMORY_KEYS.breakEvenTriggerR && (entry.value < 0.01 || entry.value > 100)) {
     throw new PersonalMemoryError("MEMORY_RISK_VALUE_INVALID", "break_even_trigger_r 必须介于 0.01 和 100 之间。");
