@@ -315,6 +315,10 @@ test("the discovery index stores bounded metadata while the transcript stays in 
     }, updated);
     assert.equal(deduplicated.data.length, 1);
     assert.equal(deduplicated.data[0].name, "runtime-visible");
+    const recoveredDefaultTitle = mergeIndexedTradingTranscriptThreads({
+      data: [{ id: "thread-indexed-1", name: "新任务" }],
+    }, updated);
+    assert.equal(recoveredDefaultTitle.data[0].name, "BTC 盘面分析");
     assert.equal(removeTradingTranscriptIndexThread(tempRoot, "thread-indexed-1"), true);
     assert.equal(indexedTradingTranscriptThreads(tempRoot, workspace).length, 0);
   } finally {
@@ -382,6 +386,74 @@ test("thread replacement atomically preserves transcript metadata and durable al
   }
 });
 
+test("thread replacement derives alert titles from the trigger preview", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-trading-title-repair-"));
+  const workspace = path.join(tempRoot, "workspace");
+  const rolloutPath = path.join(tempRoot, "replacement.jsonl");
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.writeFileSync(rolloutPath, "{}\n", "utf8");
+  try {
+    const replaced = replaceTradingTranscriptIndexThread(tempRoot, "thread-missing", {
+      threadId: "thread-replacement",
+      cwd: workspace,
+      rolloutPath,
+      title: "",
+      preview: "预警真实触发：BTC/USDT 币安永续 1H 预警",
+      createdAt: "2026-09-04T12:37:04.000Z",
+      updatedAt: "2026-09-04T12:37:04.000Z",
+    });
+    assert.equal(replaced.title, "BTC/USDT 币安永续 1H 预警");
+    assert.doesNotMatch(replaced.title, /[æåä][^\s]*/u);
+    assert.equal(
+      loadTradingTranscriptIndex(tempRoot).threads["thread-replacement"].title,
+      "BTC/USDT 币安永续 1H 预警",
+    );
+    const fallback = replaceTradingTranscriptIndexThread(tempRoot, "another-missing-thread", {
+      threadId: "generic-replacement",
+      cwd: workspace,
+      rolloutPath,
+      title: "",
+      preview: "普通会话消息",
+      createdAt: "2026-09-04T12:38:04.000Z",
+      updatedAt: "2026-09-04T12:38:04.000Z",
+    });
+    assert.equal(fallback.title, "新任务");
+    assert.doesNotMatch(fallback.title, /[æåä][^\s]*/u);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("legacy mojibake transcript titles are normalized during index loading", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-trading-title-migration-"));
+  const workspace = path.join(tempRoot, "workspace");
+  const rolloutPath = path.join(tempRoot, "legacy.jsonl");
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.writeFileSync(rolloutPath, "{}\n", "utf8");
+  fs.writeFileSync(path.join(tempRoot, "trading-transcript-index.json"), JSON.stringify({
+    version: 1,
+    threads: {
+      "legacy-thread": {
+        threadId: "legacy-thread",
+        cwd: workspace,
+        rolloutPath,
+        title: "\u00e6\u2013\u00b0\u00e4\u00bb\u00bb\u00e5\u0160\u00a1",
+        preview: "预警真实触发：BTC/USDT 币安永续 1H 预警  BTC 价格达到 79617.228 时触发开多预警",
+        createdAt: "2026-09-04T12:37:04.000Z",
+        updatedAt: "2026-09-04T12:37:04.000Z",
+      },
+    },
+    aliases: {},
+  }), "utf8");
+  try {
+    const loaded = loadTradingTranscriptIndex(tempRoot);
+    assert.equal(loaded.threads["legacy-thread"].title, "BTC/USDT 币安永续 1H 预警");
+    assert.equal(indexedTradingTranscriptThreads(tempRoot, workspace)[0].name, "BTC/USDT 币安永续 1H 预警");
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("main process persists and verifies the top-level transcript under the thread lock", () => {
   const handler = sourceBlock(
     mainSource,
@@ -402,8 +474,14 @@ test("main process persists and verifies the top-level transcript under the thre
   assert.match(handler, /requestThreadStart/);
   assert.match(handler, /replaceTradingTranscriptIndexThread/);
   assert.match(handler, /replacementThread/);
+  assert.match(handler, /const effectiveTitle = title \|\| recoveryRecord\?\.title \|\| ""/);
+  assert.match(handler, /if \(effectiveTitle && \(title \|\| requestedItems\.some\(\(item\) => item\.role === "user"\)\)\)/);
   assert.match(handler, /replacedThreadId: requestedThreadId/);
   assert.match(preloadSource, /persistTradingTranscript:.*codex:persistTradingTranscript/);
+  assert.match(
+    rendererSource,
+    /handleTradingAlertTriggered[\s\S]*persistCompletedTradingExpertTranscript\(threadId, \[item\], \{[\s\S]*title: firstString\(payload\?\.title\)/,
+  );
 });
 
 test("thread listing merges indexed top-level trading transcripts", () => {

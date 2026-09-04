@@ -8,12 +8,34 @@ const MAX_TRANSCRIPT_ITEMS_PER_WRITE = 64;
 const MAX_TRANSCRIPT_ITEM_BYTES = 1024 * 1024;
 const MAX_TRANSCRIPT_BATCH_BYTES = 4 * 1024 * 1024;
 const TRADING_TRANSCRIPT_INDEX_FILE_NAME = "trading-transcript-index.json";
+const DEFAULT_TRADING_TRANSCRIPT_TITLE = "新任务";
+// Stored by older builds after the Chinese fallback was decoded as Windows-1252.
+const LEGACY_MOJIBAKE_NEW_TASK_TITLE = "\u00e6\u2013\u00b0\u00e4\u00bb\u00bb\u00e5\u0160\u00a1";
 
 function firstString(...values) {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return "";
+}
+
+function tradingAlertTitleFromPreview(value) {
+  const preview = firstString(value);
+  const marker = "预警真实触发：";
+  if (!preview.startsWith(marker)) return "";
+  const firstLine = preview.split(/\n|\s{2,}/u, 1)[0].trim();
+  return firstLine.startsWith(marker) ? firstLine.slice(marker.length).trim().slice(0, 200) : "";
+}
+
+function normalizedTradingTranscriptTitle(value, preview = "") {
+  const title = firstString(value)
+    .replace(/[\u0000-\u001f]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 200);
+  return title === LEGACY_MOJIBAKE_NEW_TASK_TITLE
+    ? tradingAlertTitleFromPreview(preview) || DEFAULT_TRADING_TRANSCRIPT_TITLE
+    : title;
 }
 
 function normalizedCreatedAt(value) {
@@ -402,12 +424,13 @@ function normalizedIndexRecord(value) {
   const createdAt = firstString(value.createdAt, value.created_at, value.updatedAt, value.updated_at);
   const updatedAt = firstString(value.updatedAt, value.updated_at, createdAt);
   try {
+    const preview = firstString(value.preview).replace(/[\u0000-\u001f]/gu, " ").slice(0, 500);
     return {
       threadId,
       cwd: path.resolve(cwd),
       rolloutPath: path.resolve(rolloutPath),
-      title: firstString(value.title, value.name).replace(/[\u0000-\u001f]/gu, " ").slice(0, 200),
-      preview: firstString(value.preview).replace(/[\u0000-\u001f]/gu, " ").slice(0, 500),
+      title: normalizedTradingTranscriptTitle(firstString(value.title, value.name), preview),
+      preview,
       createdAt: normalizedCreatedAt(createdAt),
       updatedAt: normalizedCreatedAt(updatedAt),
     };
@@ -502,7 +525,7 @@ export function updateTradingTranscriptIndex(codexHome, value) {
   const existing = index.threads[incoming.threadId];
   const record = {
     ...incoming,
-    title: incoming.title || existing?.title || "新任务",
+    title: incoming.title || existing?.title || DEFAULT_TRADING_TRANSCRIPT_TITLE,
     preview: incoming.preview || existing?.preview || "",
     createdAt: existing?.createdAt || incoming.createdAt,
   };
@@ -519,9 +542,10 @@ export function replaceTradingTranscriptIndexThread(codexHome, previousThreadId,
   const canonicalPreviousId = resolveTradingTranscriptIndexAlias(index, previousId) || previousId;
   const previous = index.threads[canonicalPreviousId] || index.threads[previousId];
   const existing = index.threads[incoming.threadId];
+  const incomingTitle = incoming.title || tradingAlertTitleFromPreview(incoming.preview);
   const record = {
     ...incoming,
-    title: incoming.title || previous?.title || existing?.title || "æ–°ä»»åŠ¡",
+    title: incomingTitle || previous?.title || existing?.title || DEFAULT_TRADING_TRANSCRIPT_TITLE,
     preview: incoming.preview || previous?.preview || existing?.preview || "",
     createdAt: previous?.createdAt || existing?.createdAt || incoming.createdAt,
   };
@@ -573,7 +597,7 @@ export function indexedTradingTranscriptThreads(codexHome, cwd) {
     .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
     .map((record) => ({
       id: record.threadId,
-      name: record.title || "新任务",
+      name: record.title || DEFAULT_TRADING_TRANSCRIPT_TITLE,
       preview: record.preview,
       cwd: record.cwd,
       path: record.rolloutPath,
@@ -592,13 +616,21 @@ export function indexedTradingTranscriptThreads(codexHome, cwd) {
 
 export function mergeIndexedTradingTranscriptThreads(result, indexedThreads) {
   const serverThreads = Array.isArray(result?.data) ? result.data : [];
+  const indexedById = new Map((Array.isArray(indexedThreads) ? indexedThreads : []).map((thread) => [thread.id, thread]));
   const serverIds = new Set(serverThreads.map((thread) => firstString(
     thread?.id,
     thread?.threadId,
     thread?.thread_id,
   )));
   const merged = [
-    ...serverThreads,
+    ...serverThreads.map((thread) => {
+      const threadId = firstString(thread?.id, thread?.threadId, thread?.thread_id);
+      const indexed = indexedById.get(threadId);
+      const serverTitle = firstString(thread?.name, thread?.title);
+      const normalizedServerTitle = normalizedTradingTranscriptTitle(serverTitle);
+      if (!indexed?.name || (normalizedServerTitle && normalizedServerTitle !== DEFAULT_TRADING_TRANSCRIPT_TITLE)) return thread;
+      return { ...thread, name: indexed.name };
+    }),
     ...(Array.isArray(indexedThreads) ? indexedThreads : []).filter((thread) => !serverIds.has(thread.id)),
   ].sort((left, right) => {
     const timestamp = (thread) => Date.parse(firstString(
