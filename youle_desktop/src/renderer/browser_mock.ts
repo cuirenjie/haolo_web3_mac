@@ -1032,7 +1032,10 @@ export function ensureBrowserDesktopApi() {
       tradingPreferenceProfile = {
         schemaVersion: 1,
         maxLossPerTradePercent: Number(byKey.get("max_loss_per_trade_percent")) || 2,
-        minimumRiskRewardRatio: Number(byKey.get("minimum_risk_reward_ratio")) || 2,
+        minimumRiskRewardRatio: (() => {
+          const value = Number(byKey.get("minimum_risk_reward_ratio"));
+          return Number.isFinite(value) && value > 0 ? value : 0.4;
+        })(),
         moveStopToBreakEven: byKey.get("move_stop_to_break_even") !== false,
         breakEvenTriggerR: Number(byKey.get("break_even_trigger_r")) || 1,
         analysisStyle: String(byKey.get("trading_analysis_style") || "concise"),

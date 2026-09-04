@@ -94,7 +94,7 @@ test("three-question flow requires every question and supports per-question reco
   assert.match(source, /const TRADING_PREFERENCE_QUESTION_ONE =/);
   assert.match(source, /每笔交易触发止损后，你最多允许亏损当前账户净值的百分之多少/);
   assert.match(source, /const TRADING_PREFERENCE_QUESTION_TWO =/);
-  assert.match(source, /浮盈达到1R后移动保本，最低净盈亏比为2:1/);
+  assert.match(source, /浮盈达到1R后移动保本，最低净盈亏比为1:0\.4/);
   assert.match(source, /const TRADING_PREFERENCE_QUESTION_THREE =/);
   assert.match(source, /仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件/);
   assert.doesNotMatch(flow, /按此项推荐|同意推荐|全部使用推荐|采用全部推荐配置/);
@@ -105,7 +105,9 @@ test("three-question flow requires every question and supports per-question reco
   assert.match(flow, /flow\.stage === 3[\s\S]*saveTradingPreferenceOnboarding/);
   assert.match(flow, /maxLossPerTradePercent \?\?= 2/);
   assert.match(flow, /breakEvenTriggerR \?\?= 1/);
-  assert.match(flow, /minimumRiskRewardRatio \?\?= 2/);
+  assert.match(flow, /minimumRiskRewardRatio \?\?= 0\.4/);
+  assert.match(flow, /minimumRiskRewardRatio: minimumRiskRewardRatio \?\? 0\.4/);
+  assert.doesNotMatch(flow, /minimumRiskRewardRatio:\s*Math\.max\(0\.4/);
   assert.match(source, /Haolo 推荐：单笔风险为2%/);
   assert.match(flow, /percent > 100/);
   assert.match(flow, /例如“2%”或“10%”/);

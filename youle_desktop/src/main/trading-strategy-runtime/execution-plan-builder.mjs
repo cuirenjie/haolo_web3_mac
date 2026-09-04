@@ -2,6 +2,26 @@ import crypto from "node:crypto";
 import { EXECUTION_PLAN_SCHEMA_VERSION, validateExecutionPlan } from "./contracts.mjs";
 
 const DEFAULT_EXECUTION_LEVERAGE = 10;
+// Product default for the first executable take-profit target when the user
+// has not configured a minimum. Ratios are represented as reward:risk in the
+// runtime and displayed as `1:<ratio>`.
+const DEFAULT_MINIMUM_RISK_REWARD_RATIO = 0.4;
+const MINIMUM_FIRST_TARGET_RISK_REWARD_RATIO = DEFAULT_MINIMUM_RISK_REWARD_RATIO;
+// Preferred ladder for the three exits. These are soft defaults: when the
+// strategy's final target cannot support the complete ladder, keep the
+// strategy-owned ratios while enforcing the user's configured minimum.
+const PREFERRED_FIRST_TARGET_RATIO_MIN = 0.4;
+const PREFERRED_FIRST_TARGET_RATIO_MAX = 0.6;
+const PREFERRED_SECOND_TARGET_RATIO_MIN = 0.8;
+const PREFERRED_SECOND_TARGET_RATIO_MAX = 1;
+const PREFERRED_THIRD_TARGET_RATIO_MIN = 1.3;
+const PREFERRED_THIRD_TARGET_RATIO_MAX = 1.5;
+// Keep every strategy's executable entry condition close enough to the live
+// market price to be realistically reachable. This is a shared execution
+// policy, so strategy-specific structural levels remain evidence while the
+// plan uses a bounded tactical trigger.
+const MAX_TRIGGER_DISTANCE_PERCENT = 2;
+const MAX_TRIGGER_DISTANCE_RATE = MAX_TRIGGER_DISTANCE_PERCENT / 100;
 // Conservative fallback for both-side fees plus slippage when the read-only
 // account snapshot does not expose an account-specific commission schedule.
 const DEFAULT_ROUND_TRIP_COST_RATE = 0.002;
@@ -73,11 +93,14 @@ function normalizeUserRiskProfile(value) {
       value: String(entry.value ?? "").trim().slice(0, 300),
     }))
     .filter((entry) => entry.key && entry.value);
+  const configuredMinimumRiskRewardRatio = boundedRiskValue(source.minimumRiskRewardRatio, Number.MIN_VALUE, 100);
   return Object.freeze({
     maxLossPerTradePercent: boundedRiskValue(source.maxLossPerTradePercent, 0.01, 100, 2),
     maxPositionPercent: boundedRiskValue(source.maxPositionPercent, 0.01, 100),
     maxLeverage: boundedRiskValue(source.maxLeverage, 1, 1_000),
-    minimumRiskRewardRatio: boundedRiskValue(source.minimumRiskRewardRatio, 0.01, 100),
+    // An explicit user value has priority, including values below the
+    // product default. Apply the product default only when no value is set.
+    minimumRiskRewardRatio: configuredMinimumRiskRewardRatio ?? DEFAULT_MINIMUM_RISK_REWARD_RATIO,
     preferredStopDistancePercent: boundedRiskValue(source.preferredStopDistancePercent, 0.01, 100),
     maxStopDistancePercent: boundedRiskValue(source.maxStopDistancePercent, 0.01, 100),
     preferredTakeProfitPercent: boundedRiskValue(source.preferredTakeProfitPercent, 0.01, 100),
@@ -134,6 +157,36 @@ function level(price, label, evidenceIds = [], tickSize = null) {
   return normalized === null ? null : { price: normalized, label, evidenceIds };
 }
 
+function triggerPriceWithinCurrentRange(price, currentPrice, tickSize = null) {
+  const trigger = finite(price);
+  const current = finite(currentPrice);
+  if (trigger === null || current === null) return trigger;
+  const lower = current * (1 - MAX_TRIGGER_DISTANCE_RATE);
+  const upper = current * (1 + MAX_TRIGGER_DISTANCE_RATE);
+  const bounded = Math.min(upper, Math.max(lower, trigger));
+  const tick = finite(tickSize);
+  if (!tick) return Number(bounded.toFixed(8));
+
+  // Keep the tick-normalized value inside the percentage envelope. Nearest
+  // rounding can otherwise move a boundary one tick outside the policy.
+  const minimumUnits = Math.ceil(lower / tick - Number.EPSILON);
+  const maximumUnits = Math.floor(upper / tick + Number.EPSILON);
+  if (minimumUnits > maximumUnits) return roundedPrice(bounded, tick);
+  const units = Math.min(
+    maximumUnits,
+    Math.max(minimumUnits, Math.round(bounded / tick)),
+  );
+  return Number((units * tick).toFixed(12));
+}
+
+function triggerWasCapped(price, currentPrice, tickSize = null) {
+  const source = finite(price);
+  const normalized = triggerPriceWithinCurrentRange(price, currentPrice, tickSize);
+  return source !== null
+    && normalized !== null
+    && Math.abs(source - normalized) > Math.max(Number.EPSILON, Math.abs(source) * 1e-12);
+}
+
 function inferredPreferredSide(actionPlan, theoryResult) {
   const normalizedSide = (value) => {
     const normalized = String(value || "").trim().toLowerCase();
@@ -182,7 +235,16 @@ function inferredPreferredSide(actionPlan, theoryResult) {
 
 function scenario(side, actionPlan, status, evidenceIds, tickSize = null, currentPrice = null) {
   const long = side === "long";
-  const configuredTrigger = level(long ? actionPlan?.longTrigger : actionPlan?.shortTrigger, long ? "多头触发价" : "空头触发价", evidenceIds, tickSize);
+  const triggerLabel = long ? "多头触发价" : "空头触发价";
+  const rawTrigger = long ? actionPlan?.longTrigger : actionPlan?.shortTrigger;
+  const normalizedTrigger = triggerPriceWithinCurrentRange(rawTrigger, currentPrice, tickSize);
+  const triggerCapped = triggerWasCapped(rawTrigger, currentPrice, tickSize);
+  const configuredTrigger = level(
+    normalizedTrigger,
+    triggerCapped ? `${triggerLabel}（距现价不超过 ±${MAX_TRIGGER_DISTANCE_PERCENT}%）` : triggerLabel,
+    evidenceIds,
+    tickSize,
+  );
   const stopBasisLabel = String(actionPlan?.stopBasis?.label || "").trim();
   const stopLabel = `${long ? "多头失效/止损参考" : "空头失效/止损参考"}${stopBasisLabel ? `（${stopBasisLabel}）` : ""}`;
   const stop = level(long ? actionPlan?.longInvalidation : actionPlan?.shortInvalidation, stopLabel, evidenceIds, tickSize);
@@ -256,6 +318,37 @@ function rawRiskReward(entry, stop, target, side = null, estimatedRoundTripCostR
     : null;
 }
 
+function ensureMinimumRiskRewardPrice(value, price, side, estimatedRoundTripCostRate, minimumRatio, tickSize = null) {
+  let candidate = finite(price);
+  if (candidate === null) return null;
+  const tick = finite(tickSize);
+  const step = tick || 1e-8;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const ratio = rawRiskReward(
+      value?.trigger,
+      value?.stop,
+      { price: candidate },
+      side,
+      estimatedRoundTripCostRate,
+    );
+    if (ratio !== null && ratio + Number.EPSILON >= minimumRatio) return candidate;
+    candidate = side === "long" ? candidate + step : candidate - step;
+    candidate = tick
+      ? Number((candidate / tick).toFixed(12)) * tick
+      : Number(candidate.toFixed(8));
+  }
+  const finalRatio = rawRiskReward(
+    value?.trigger,
+    value?.stop,
+    { price: candidate },
+    side,
+    estimatedRoundTripCostRate,
+  );
+  return finalRatio !== null && finalRatio + Number.EPSILON >= minimumRatio
+    ? candidate
+    : null;
+}
+
 function roundedIntermediateTargetPrice(value, side, tickSize = null) {
   const price = finite(value);
   if (price === null) return null;
@@ -273,6 +366,25 @@ function roundedIntermediateTargetPrice(value, side, tickSize = null) {
   return Number(normalized.toFixed(8));
 }
 
+function roundedMinimumTargetPrice(value, side, tickSize = null) {
+  const price = finite(value);
+  if (price === null) return null;
+  const tick = finite(tickSize);
+  if (tick) {
+    // For a minimum reward floor, round in the favorable direction so the
+    // normalized price cannot silently fall below the requested ratio.
+    const units = side === "long"
+      ? Math.ceil(price / tick - Number.EPSILON)
+      : Math.floor(price / tick + Number.EPSILON);
+    return Number((units * tick).toFixed(12));
+  }
+  const scale = 10 ** 8;
+  const normalized = side === "long"
+    ? Math.ceil(price * scale - Number.EPSILON) / scale
+    : Math.floor(price * scale + Number.EPSILON) / scale;
+  return Number(normalized.toFixed(8));
+}
+
 function targetPriceForPercent(entryPrice, side, percent, tickSize = null) {
   const entry = finite(entryPrice);
   const normalizedPercent = boundedRiskValue(percent, 0.01, 100);
@@ -283,6 +395,48 @@ function targetPriceForPercent(entryPrice, side, percent, tickSize = null) {
     side,
     tickSize,
   );
+}
+
+function minimumRiskRewardTarget(
+  value,
+  estimatedRoundTripCostRate,
+  tickSize = null,
+  minimumRatio = MINIMUM_FIRST_TARGET_RISK_REWARD_RATIO,
+) {
+  if (!value?.trigger || !value?.stop || !value?.targets?.length) return null;
+  const entryPrice = finite(value.trigger.price);
+  const stopPrice = finite(value.stop.price);
+  if (entryPrice === null || stopPrice === null) return null;
+  const costRate = Number.isFinite(estimatedRoundTripCostRate) && estimatedRoundTripCostRate >= 0
+    ? estimatedRoundTripCostRate
+    : 0;
+  const netRiskRate = Math.abs(entryPrice - stopPrice) / entryPrice + costRate;
+  if (!Number.isFinite(netRiskRate) || netRiskRate <= Number.EPSILON) return null;
+  const requestedRatio = Number(minimumRatio);
+  const requiredRatio = Number.isFinite(requestedRatio) && requestedRatio > 0
+    ? requestedRatio
+    : DEFAULT_MINIMUM_RISK_REWARD_RATIO;
+  const favorableMove = entryPrice * (requiredRatio * netRiskRate + costRate);
+  const rawPrice = value.side === "long"
+    ? entryPrice + favorableMove
+    : entryPrice - favorableMove;
+  const price = ensureMinimumRiskRewardPrice(
+    value,
+    roundedMinimumTargetPrice(rawPrice, value.side, tickSize),
+    value.side,
+    estimatedRoundTripCostRate,
+    requiredRatio,
+    tickSize,
+  );
+  if (price === null) return null;
+  const directional = value.side === "long" ? price > entryPrice : price < entryPrice;
+  if (!directional) return null;
+  const template = value.targets.at(-1);
+  return {
+    ...template,
+    price,
+    label: `${value.side === "long" ? "多头" : "空头"}结构风险倍数兜底目标 R${requiredRatio}（最低净盈亏比）`,
+  };
 }
 
 function scenarioWithTakeProfitCap(value, maxTakeProfitPercent, tickSize = null) {
@@ -300,13 +454,13 @@ function scenarioWithTakeProfitCap(value, maxTakeProfitPercent, tickSize = null)
     const price = beyondCap ? cappedPrice : target.price;
     if (seen.has(price)) return [];
     seen.add(price);
-      return [{
-        ...target,
-        price,
-        label: beyondCap
+    return [{
+      ...target,
+      price,
+      label: beyondCap
         ? `${value.side === "long" ? "多头" : "空头"}目标（用户最大止盈距离 ${maxTakeProfitPercent}%）${waveBasisLabel(target) ? `；依据 ${waveBasisLabel(target)}` : ""}`
         : target.label,
-      }];
+    }];
   });
   return targets.length ? { ...value, targets } : null;
 }
@@ -316,8 +470,13 @@ function scenarioWithThreeTakeProfitTargets(
   estimatedRoundTripCostRate,
   tickSize = null,
   preferredTakeProfitPercent = null,
+  minimumRequiredRatio = DEFAULT_MINIMUM_RISK_REWARD_RATIO,
 ) {
   if (!value?.targets?.length) return value;
+  const requestedRatio = Number(minimumRequiredRatio);
+  const minimumTargetRiskRewardRatio = Number.isFinite(requestedRatio) && requestedRatio > 0
+    ? requestedRatio
+    : DEFAULT_MINIMUM_RISK_REWARD_RATIO;
   const finalTarget = value.targets.reduce((selected, target) => {
     if (!selected) return target;
     if (value.side === "long") return target.price > selected.price ? target : selected;
@@ -332,14 +491,20 @@ function scenarioWithThreeTakeProfitTargets(
     value.side,
     estimatedRoundTripCostRate,
   );
-  if (entryPrice === null || finalTargetPrice === null || finalRatio === null) return null;
+  if (
+    entryPrice === null
+    || finalTargetPrice === null
+    || finalRatio === null
+    || finalRatio + Number.EPSILON < minimumTargetRiskRewardRatio
+  ) return null;
 
-  // Wave action levels are already measured from the approved candidate. Do
-  // not replace their first/second Fib or structural levels with the generic
-  // R-based ladder; doing so would make the displayed plan disagree with the
-  // wave report and drawing. Keep at most three measured levels (nearest,
-  // middle, farthest) so existing plan consumers still receive a compact
-  // ladder without inventing prices.
+  // Wave action levels are already measured from the approved candidate. Keep
+  // at most three measured levels (nearest, middle, farthest) so existing
+  // plan consumers receive a compact ladder. A complete measured ladder stays
+  // authoritative; when one or two measured levels are missing, fill the
+  // available space before the final target with the shared preferred first
+  // and second ratios, even if the final strategy ratio is outside the
+  // preferred third band.
   const measuredTargets = value.targets.some((target) => Boolean(waveBasisLabel(target)))
     ? (() => {
       const ordered = [...value.targets].sort((left, right) => value.side === "long"
@@ -370,49 +535,210 @@ function scenarioWithThreeTakeProfitTargets(
         price: preferredPrice,
         label: `${sideLabel}常规止盈目标（用户偏好 ${preferredTakeProfitPercent}%）`,
       };
-      const ordered = [...waveTargets, preferredTarget].sort((left, right) => value.side === "long"
-        ? left.price - right.price
-        : right.price - left.price);
-      waveTargets = [ordered[0], preferredTarget, ordered.at(-1)]
-        .filter((target, index, items) => items.findIndex((item) => item.price === target.price) === index);
+      const preferredRatio = rawRiskReward(
+        value.trigger,
+        value.stop,
+        preferredTarget,
+        value.side,
+        estimatedRoundTripCostRate,
+      );
+      if (preferredRatio !== null && preferredRatio + Number.EPSILON >= minimumTargetRiskRewardRatio) {
+        const ordered = [...waveTargets, preferredTarget].sort((left, right) => value.side === "long"
+          ? left.price - right.price
+          : right.price - left.price);
+        waveTargets = [ordered[0], preferredTarget, ordered.at(-1)]
+          .filter((target, index, items) => items.findIndex((item) => item.price === target.price) === index);
+      }
     }
-    return { ...value, targets: waveTargets };
+    const validWaveTargets = waveTargets.filter((target) => {
+      const ratio = rawRiskReward(value.trigger, value.stop, target, value.side, estimatedRoundTripCostRate);
+      return ratio !== null && ratio + Number.EPSILON >= minimumTargetRiskRewardRatio;
+    });
+    const finalRatioInPreferredThirdBand = finalRatio + Number.EPSILON >= PREFERRED_THIRD_TARGET_RATIO_MIN
+      && finalRatio - Number.EPSILON <= PREFERRED_THIRD_TARGET_RATIO_MAX;
+    // A complete measured ladder (three valid structural levels) is already
+    // the strategy's best evidence when its final ratio sits outside the soft
+    // third-target band. For one or two measured levels, continue below and
+    // synthesize missing preferred exits whenever the final target leaves room.
+    if ((validWaveTargets.length >= 3 && !finalRatioInPreferredThirdBand) || validWaveTargets.length < 1) {
+      return { ...value, targets: validWaveTargets };
+    }
+
+    const orderedWaveTargets = [...validWaveTargets].sort((left, right) => value.side === "long"
+      ? left.price - right.price
+      : right.price - left.price);
+    const finalWaveTarget = orderedWaveTargets.at(-1) || finalTarget;
+    const ratioFor = (target) => rawRiskReward(
+      value.trigger,
+      value.stop,
+      target,
+      value.side,
+      estimatedRoundTripCostRate,
+    );
+    const pickMeasuredInRange = (minimum, maximum, excluded = new Set()) => orderedWaveTargets
+      .filter((target) => !excluded.has(target.price) && target.price !== finalWaveTarget.price)
+      .map((target) => ({ target, ratio: ratioFor(target) }))
+      .filter(({ ratio }) => ratio !== null && ratio + Number.EPSILON >= minimum && ratio - Number.EPSILON <= maximum)
+      .sort((left, right) => Math.abs(left.ratio - (minimum + maximum) / 2) - Math.abs(right.ratio - (minimum + maximum) / 2))[0]?.target
+      || null;
+    const costRate = Number.isFinite(estimatedRoundTripCostRate) && estimatedRoundTripCostRate >= 0
+      ? estimatedRoundTripCostRate
+      : 0;
+    const netRiskRate = Math.abs(value.trigger.price - value.stop.price) / entryPrice + costRate;
+    const priceForRatio = (ratio) => {
+      if (!Number.isFinite(netRiskRate) || netRiskRate <= Number.EPSILON) return null;
+      const favorableMove = entryPrice * (ratio * netRiskRate + costRate);
+      const rawPrice = value.side === "long"
+        ? entryPrice + favorableMove
+        : entryPrice - favorableMove;
+      const rounded = roundedIntermediateTargetPrice(rawPrice, value.side, tickSize);
+      return rounded === null
+        ? null
+        : ensureMinimumRiskRewardPrice(
+          value,
+          roundedMinimumTargetPrice(rawPrice, value.side, tickSize),
+          value.side,
+          estimatedRoundTripCostRate,
+          ratio,
+          tickSize,
+        );
+    };
+    const makePreferredTarget = (ratio, label) => {
+      const price = priceForRatio(ratio);
+      if (price === null) return null;
+      const target = {
+        ...finalWaveTarget,
+        price,
+        label,
+      };
+      const actualRatio = ratioFor(target);
+      const ordered = value.side === "long"
+        ? entryPrice < price && price < finalTargetPrice
+        : finalTargetPrice < price && price < entryPrice;
+      return actualRatio !== null
+        && actualRatio + Number.EPSILON >= minimumTargetRiskRewardRatio
+        && ordered
+        ? target
+        : null;
+    };
+    const sideLabel = value.side === "long" ? "多头" : "空头";
+    const firstMeasured = pickMeasuredInRange(
+      PREFERRED_FIRST_TARGET_RATIO_MIN,
+      PREFERRED_FIRST_TARGET_RATIO_MAX,
+    );
+    const firstTarget = firstMeasured || makePreferredTarget(
+      (PREFERRED_FIRST_TARGET_RATIO_MIN + PREFERRED_FIRST_TARGET_RATIO_MAX) / 2,
+      `${sideLabel}第 1 目标（结构风险倍数兜底目标 R0.5；优先净盈亏比 1:0.4–1:0.6）`,
+    );
+    const firstPrices = new Set(firstTarget ? [firstTarget.price] : []);
+    const secondMeasured = pickMeasuredInRange(
+      PREFERRED_SECOND_TARGET_RATIO_MIN,
+      PREFERRED_SECOND_TARGET_RATIO_MAX,
+      firstPrices,
+    );
+    const secondTarget = secondMeasured || makePreferredTarget(
+      (PREFERRED_SECOND_TARGET_RATIO_MIN + PREFERRED_SECOND_TARGET_RATIO_MAX) / 2,
+      `${sideLabel}第 2 目标（结构风险倍数兜底目标 R0.9；优先净盈亏比 1:0.8–1:1）`,
+    );
+    const preferredTargets = [firstTarget, secondTarget, finalWaveTarget]
+      .filter(Boolean)
+      .sort((left, right) => value.side === "long" ? left.price - right.price : right.price - left.price)
+      .filter((target, index, items) => items.findIndex((item) => item.price === target.price) === index)
+      .filter((target) => {
+        const ratio = ratioFor(target);
+        return ratio !== null && ratio + Number.EPSILON >= minimumTargetRiskRewardRatio;
+      });
+    // Tick-size rounding or a very compressed structure can make one of the
+    // preferred prices collide with the final target. Keep every valid
+    // preferred level that still fits; fall back to measured levels only when
+    // even a single intermediate exit cannot be retained.
+    if (preferredTargets.length < Math.min(2, validWaveTargets.length + 1)) {
+      return { ...value, targets: validWaveTargets };
+    }
+    const renumberedTargets = preferredTargets.slice(0, 3).map((target, index) => {
+      const basis = waveBasisLabel(target);
+      const originalLabel = String(target.label || "");
+      const preferredText = originalLabel.match(/优先净盈亏比 [^）;；]+/)?.[0] || "";
+      const suffix = preferredText ? `；${preferredText}` : "";
+      return {
+        ...target,
+        label: basis
+          ? `${sideLabel}第 ${index + 1} 目标（${basis}${suffix}）`
+          : originalLabel.replace(/第\s*\d+\s*目标/, `第 ${index + 1} 目标`),
+      };
+    });
+    return { ...value, targets: renumberedTargets };
   }
 
   const costRate = Number.isFinite(estimatedRoundTripCostRate) && estimatedRoundTripCostRate >= 0
     ? estimatedRoundTripCostRate
     : 0;
   const netRiskRate = Math.abs(value.trigger.price - value.stop.price) / entryPrice + costRate;
-  const secondTargetRatio = Math.min(0.8, finalRatio * (2 / 3));
-  const firstTargetRatio = Math.min(0.5, secondTargetRatio * (5 / 8));
-  const priceForRatio = (ratio, fallbackProgress) => {
+  const secondTargetRatio = Math.min(PREFERRED_SECOND_TARGET_RATIO_MIN, finalRatio * (2 / 3));
+  const firstTargetRatio = Math.min(
+    (PREFERRED_FIRST_TARGET_RATIO_MIN + PREFERRED_FIRST_TARGET_RATIO_MAX) / 2,
+    Math.max(PREFERRED_FIRST_TARGET_RATIO_MIN, secondTargetRatio * (5 / 8)),
+  );
+  const priceForRatio = (ratio, fallbackProgress, minimumFloor = false) => {
     const favorableMove = finalRatio > Number.EPSILON
       ? entryPrice * (ratio * netRiskRate + costRate)
       : Math.abs(finalTargetPrice - entryPrice) * fallbackProgress;
     const rawPrice = value.side === "long"
       ? entryPrice + favorableMove
       : entryPrice - favorableMove;
-    return roundedIntermediateTargetPrice(rawPrice, value.side, tickSize);
+    const rounded = roundedIntermediateTargetPrice(rawPrice, value.side, tickSize);
+    if (!minimumFloor || rounded === null) return rounded;
+    const roundedRatio = rawRiskReward(
+      value.trigger,
+      value.stop,
+      { price: rounded },
+      value.side,
+      estimatedRoundTripCostRate,
+    );
+    return roundedRatio !== null && roundedRatio + Number.EPSILON >= minimumTargetRiskRewardRatio
+      ? rounded
+      : ensureMinimumRiskRewardPrice(
+        value,
+        roundedMinimumTargetPrice(rawPrice, value.side, tickSize),
+        value.side,
+        estimatedRoundTripCostRate,
+        minimumTargetRiskRewardRatio,
+        tickSize,
+      );
   };
-  const firstPrice = priceForRatio(firstTargetRatio, 1 / 3);
-  const secondPrice = priceForRatio(secondTargetRatio, 2 / 3);
-  if (firstPrice === null || secondPrice === null) return null;
-  const ordered = value.side === "long"
-    ? entryPrice < firstPrice && firstPrice < secondPrice && secondPrice < finalTargetPrice
-    : finalTargetPrice < secondPrice && secondPrice < firstPrice && firstPrice < entryPrice;
-  if (!ordered) return null;
-
   const sideLabel = value.side === "long" ? "多头" : "空头";
-  const firstTarget = {
-    ...finalTarget,
-    price: firstPrice,
-    label: `${sideLabel}第 1 目标（净盈亏比不超过 1:0.5）`,
-  };
-  const secondTarget = {
-    ...finalTarget,
-    price: secondPrice,
-    label: `${sideLabel}第 2 目标（净盈亏比不超过 1:0.8）`,
-  };
+  let intermediateTargets = [];
+  const candidateTargets = [
+    {
+      price: priceForRatio(firstTargetRatio, 1 / 3, true),
+      ratio: firstTargetRatio,
+      label: `${sideLabel}第 1 目标（优先净盈亏比 1:0.4–1:0.6；最低按用户设定 1:${minimumTargetRiskRewardRatio}）`,
+    },
+    {
+      price: priceForRatio(secondTargetRatio, 2 / 3),
+      ratio: secondTargetRatio,
+      label: `${sideLabel}第 2 目标（优先净盈亏比 1:0.8–1:1）`,
+    },
+  ];
+  for (const candidate of candidateTargets) {
+    if (candidate.price === null) continue;
+    const ratio = rawRiskReward(
+      value.trigger,
+      value.stop,
+      { price: candidate.price },
+      value.side,
+      estimatedRoundTripCostRate,
+    );
+    if (ratio === null || ratio + Number.EPSILON < minimumTargetRiskRewardRatio) continue;
+    const ordered = value.side === "long"
+      ? entryPrice < candidate.price && candidate.price < finalTargetPrice
+      : finalTargetPrice < candidate.price && candidate.price < entryPrice;
+    if (!ordered || intermediateTargets.some((target) => target.price === candidate.price)) continue;
+    intermediateTargets.push({ ...finalTarget, ...candidate });
+  }
+  intermediateTargets.sort((left, right) => value.side === "long"
+    ? left.price - right.price
+    : right.price - left.price);
   const preferredPrice = targetPriceForPercent(
     entryPrice,
     value.side,
@@ -424,49 +750,87 @@ function scenarioWithThreeTakeProfitTargets(
       ? entryPrice < preferredPrice && preferredPrice < finalTargetPrice
       : finalTargetPrice < preferredPrice && preferredPrice < entryPrice
   );
-  let intermediateTargets = [firstTarget, secondTarget];
   if (preferredInsideStrategyRange && !intermediateTargets.some((target) => target.price === preferredPrice)) {
     const preferredTarget = {
       ...finalTarget,
       price: preferredPrice,
       label: `${sideLabel}常规止盈目标（用户偏好 ${preferredTakeProfitPercent}%）`,
     };
-    const orderedIntermediates = [...intermediateTargets, preferredTarget]
-      .sort((left, right) => value.side === "long" ? left.price - right.price : right.price - left.price);
-    const earliest = orderedIntermediates[0];
-    intermediateTargets = [earliest, preferredTarget]
-      .filter((target, index, items) => items.findIndex((item) => item.price === target.price) === index)
-      .sort((left, right) => value.side === "long" ? left.price - right.price : right.price - left.price);
-    if (intermediateTargets.length < 2) {
-      const next = orderedIntermediates.find((target) => target.price !== earliest.price);
-      if (next) intermediateTargets.push(next);
+    const preferredRatio = rawRiskReward(
+      value.trigger,
+      value.stop,
+      preferredTarget,
+      value.side,
+      estimatedRoundTripCostRate,
+    );
+    if (preferredRatio !== null && preferredRatio + Number.EPSILON >= minimumTargetRiskRewardRatio) {
+      const orderedIntermediates = [...intermediateTargets, preferredTarget]
+        .sort((left, right) => value.side === "long" ? left.price - right.price : right.price - left.price);
+      const earliest = orderedIntermediates[0];
+      intermediateTargets = [earliest, preferredTarget]
+        .filter((target, index, items) => items.findIndex((item) => item.price === target.price) === index);
+      if (intermediateTargets.length < 2) {
+        const next = orderedIntermediates.find((target) => target.price !== earliest?.price);
+        if (next) intermediateTargets.push(next);
+      }
+      intermediateTargets.sort((left, right) => value.side === "long"
+        ? left.price - right.price
+        : right.price - left.price);
     }
   }
+  const targets = [...intermediateTargets, {
+    ...finalTarget,
+    label: /用户最大止盈距离|Fib |候选结构投影/.test(String(finalTarget.label || ""))
+      ? finalTarget.label
+      : `${sideLabel}第 ${intermediateTargets.length + 1} 目标（原策略止盈位${finalRatio + Number.EPSILON >= PREFERRED_THIRD_TARGET_RATIO_MIN && finalRatio - Number.EPSILON <= PREFERRED_THIRD_TARGET_RATIO_MAX ? "；优先净盈亏比 1:1.3–1:1.5" : "；优先区间不可用，保留当前比例"}）`,
+  }].filter((target, index, items) => items.findIndex((item) => item.price === target.price) === index);
+  if (!targets.length || targets.some((target) => {
+    const ratio = rawRiskReward(value.trigger, value.stop, target, value.side, estimatedRoundTripCostRate);
+    return ratio === null || ratio + Number.EPSILON < minimumTargetRiskRewardRatio;
+  })) return null;
   return {
     ...value,
-    targets: [
-      ...intermediateTargets,
-      {
-        ...finalTarget,
-        label: /用户最大止盈距离|Fib |候选结构投影/.test(String(finalTarget.label || ""))
-          ? finalTarget.label
-          : `${sideLabel}第 3 目标（原策略止盈位）`,
-      },
-    ],
+    targets,
   };
 }
 
-function scenarioWithValidRiskRewardTargets(value, estimatedRoundTripCostRate) {
+function scenarioWithValidRiskRewardTargets(
+  value,
+  estimatedRoundTripCostRate,
+  tickSize = null,
+  minimumRequiredRatio = MINIMUM_FIRST_TARGET_RISK_REWARD_RATIO,
+) {
   if (!value) return value;
-  const targets = value.targets.filter((target) => {
-    const ratio = riskReward(
+  const finalTarget = value.targets.reduce((selected, target) => {
+    if (!selected) return target;
+    return value.side === "long"
+      ? target.price > selected.price ? target : selected
+      : target.price < selected.price ? target : selected;
+  }, null);
+  const finalRatio = rawRiskReward(
+    value.trigger,
+    value.stop,
+    finalTarget,
+    value.side,
+    estimatedRoundTripCostRate,
+  );
+  const requestedRatio = Number(minimumRequiredRatio);
+  const requiredRatio = Number.isFinite(requestedRatio) && requestedRatio > 0
+    ? requestedRatio
+    : DEFAULT_MINIMUM_RISK_REWARD_RATIO;
+  const fallbackTarget = finalRatio !== null && finalRatio + Number.EPSILON < requiredRatio
+    ? minimumRiskRewardTarget(value, estimatedRoundTripCostRate, tickSize, requiredRatio)
+    : null;
+  const candidates = fallbackTarget ? [...value.targets, fallbackTarget] : value.targets;
+  const targets = candidates.filter((target) => {
+    const ratio = rawRiskReward(
       value.trigger,
       value.stop,
       target,
       value.side,
       estimatedRoundTripCostRate,
     );
-    return ratio !== null;
+    return ratio !== null && ratio + Number.EPSILON >= requiredRatio;
   });
   return targets.length ? { ...value, targets } : null;
 }
@@ -655,6 +1019,13 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
   const theoryResult = legacyResult?.theoryResult || {};
   const actionPlan = analysisPlan.actionPlan || {};
   const riskPolicy = normalizeUserRiskProfile(params.userRiskProfile);
+  // Lower explicit user values may relax the product default. Higher values
+  // remain a final execution gate so the original strategy levels stay
+  // visible for review instead of being replaced by synthetic distant exits.
+  const executionTargetMinimumRiskReward = Math.min(
+    riskPolicy.minimumRiskRewardRatio,
+    DEFAULT_MINIMUM_RISK_REWARD_RATIO,
+  );
   const actionLevelEvidence = [
     ["long-trigger", actionPlan.longTrigger, "确定性结果给出的多头触发价"],
     ["long-invalidation", actionPlan.longInvalidation, "确定性结果给出的多头失效价"],
@@ -685,7 +1056,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     preferredSide === "long" ? "preferred" : "conditional",
     evidenceIds,
     tickSize,
-    preferredSide === "long" ? currentPrice : null,
+    currentPrice,
   );
   const rawShortScenario = scenario(
     "short",
@@ -693,25 +1064,39 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     preferredSide === "short" ? "preferred" : "conditional",
     evidenceIds,
     tickSize,
-    preferredSide === "short" ? currentPrice : null,
+    currentPrice,
   );
   const longScenario = scenarioWithThreeTakeProfitTargets(
-    scenarioWithValidRiskRewardTargets(
-      scenarioWithTakeProfitCap(rawLongScenario, riskPolicy.maxTakeProfitPercent, tickSize),
-      estimatedRoundTripCostRate,
+    scenarioWithTakeProfitCap(
+      scenarioWithValidRiskRewardTargets(
+        scenarioWithTakeProfitCap(rawLongScenario, riskPolicy.maxTakeProfitPercent, tickSize),
+        estimatedRoundTripCostRate,
+        tickSize,
+        executionTargetMinimumRiskReward,
+      ),
+      riskPolicy.maxTakeProfitPercent,
+      tickSize,
     ),
     estimatedRoundTripCostRate,
     tickSize,
     riskPolicy.preferredTakeProfitPercent,
+    executionTargetMinimumRiskReward,
   );
   const shortScenario = scenarioWithThreeTakeProfitTargets(
-    scenarioWithValidRiskRewardTargets(
-      scenarioWithTakeProfitCap(rawShortScenario, riskPolicy.maxTakeProfitPercent, tickSize),
-      estimatedRoundTripCostRate,
+    scenarioWithTakeProfitCap(
+      scenarioWithValidRiskRewardTargets(
+        scenarioWithTakeProfitCap(rawShortScenario, riskPolicy.maxTakeProfitPercent, tickSize),
+        estimatedRoundTripCostRate,
+        tickSize,
+        executionTargetMinimumRiskReward,
+      ),
+      riskPolicy.maxTakeProfitPercent,
+      tickSize,
     ),
     estimatedRoundTripCostRate,
     tickSize,
     riskPolicy.preferredTakeProfitPercent,
+    executionTargetMinimumRiskReward,
   );
   const scenarios = [longScenario, shortScenario].filter(Boolean);
   const preferredScenario = preferredSide === "long"
@@ -732,6 +1117,27 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
         ) || 0,
       }))
     : [];
+  const preferredFinalTargetRawRatio = preferredScenario
+    ? rawRiskReward(
+      preferredScenario.trigger,
+      preferredScenario.stop,
+      preferredScenario.targets.at(-1),
+      preferredScenario.side,
+      estimatedRoundTripCostRate,
+    )
+    : null;
+  const preferredThirdTargetUnavailable = Boolean(
+    preferredScenario
+    && (
+      preferredTargetRiskRewards.length < 3
+      || preferredFinalTargetRawRatio === null
+      || preferredFinalTargetRawRatio + Number.EPSILON < PREFERRED_THIRD_TARGET_RATIO_MIN
+      || preferredFinalTargetRawRatio - Number.EPSILON > PREFERRED_THIRD_TARGET_RATIO_MAX
+    ),
+  );
+  const appendPreferredTargetNote = (text) => preferredThirdTargetUnavailable
+    ? `${text} 最终目标未落在优先净盈亏比 1:${PREFERRED_THIRD_TARGET_RATIO_MIN}–1:${PREFERRED_THIRD_TARGET_RATIO_MAX} 区间，已保留当前策略可用比例。`
+    : text;
   const minimumRiskRewardBlocked = Boolean(
     riskPolicy.minimumRiskRewardRatio !== null
     && preferredTargetRiskRewards.length > 0
@@ -764,9 +1170,14 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     )]),
     ...(riskPolicy.minimumRiskRewardRatio === null ? [] : [condition(
       "user-minimum-risk-reward",
-      `第三目标扣除预估手续费和滑点后的净盈亏比必须不低于 1:${riskPolicy.minimumRiskRewardRatio}；第一、第二目标用于分批降低持仓风险`,
+      `最终止盈目标扣除预估手续费和滑点后的净盈亏比必须不低于 1:${riskPolicy.minimumRiskRewardRatio}；前面的目标用于分批降低持仓风险`,
       evidenceIds,
     )]),
+    condition(
+      "minimum-first-target-risk-reward",
+      `第一止盈目标扣除预估手续费和滑点后的净盈亏比必须不低于 1:${riskPolicy.minimumRiskRewardRatio}`,
+      evidenceIds,
+    ),
     ...(riskPolicy.riskPreference === null ? [] : [condition(
       "user-risk-preference",
       `用户定性风险偏好：${riskPolicy.riskPreference}；该偏好不得覆盖任何数值硬约束，也不得被表述为未经统计验证的胜率保证`,
@@ -840,7 +1251,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
           : "到达第一目标后按计划分批退出，并按用户偏好保留原止损管理方式"
         : index === 1
           ? "到达第二目标后继续分批退出；仅在结构仍有效时保留剩余仓位"
-          : "第三目标保留原策略最终止盈位；不得把目标当作必达价格",
+          : "最终目标保留原策略止盈位；不得把目标当作必达价格",
     }))
     : [];
   const takeProfitsWithBasis = takeProfits.map((item, index) => {
@@ -903,17 +1314,17 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       : maxStopDistanceBlocked
         ? `${reachedDirectionalAction ? `当前${reachedDirectionalAction === "short" ? "空头" : "多头"}条件已满足，但` : ""}策略有效止损距离约 ${preferredStopDistancePercent.toFixed(2)}%，超过用户设定的价格止损距离硬上限 ${riskPolicy.maxStopDistancePercent}%；本方案暂不可执行，且不生成账户仓位。`
         : minimumRiskRewardBlocked
-          ? `${reachedDirectionalAction ? `当前${reachedDirectionalAction === "short" ? "空头" : "多头"}条件已满足，但` : ""}当前候选场景第三目标扣除预估手续费和滑点后的净盈亏比低于用户设定的最低 1:${riskPolicy.minimumRiskRewardRatio}；本方案暂不可执行，但保留完整候选测算供用户决策。`
+          ? `${reachedDirectionalAction ? `当前${reachedDirectionalAction === "short" ? "空头" : "多头"}条件已满足，但` : ""}当前候选场景最终止盈目标扣除预估手续费和滑点后的净盈亏比低于用户设定的最低 1:${riskPolicy.minimumRiskRewardRatio}；本方案暂不可执行，但保留完整候选测算供用户决策。`
       : hasScenarios
       ? preferredSide === "long"
         ? preferredTriggerReached
-          ? "当前结构偏多，现价已满足多头条件，可按计划直接执行。"
-          : "当前结构偏多，价格触达多头触发价即按计划执行。"
+          ? appendPreferredTargetNote("当前结构偏多，现价已满足多头条件，可按计划直接执行。")
+          : appendPreferredTargetNote("当前结构偏多，价格触达多头触发价即按计划执行。")
         : preferredSide === "short"
           ? preferredTriggerReached
-            ? "当前结构偏空，现价已满足空头条件，可按计划直接执行。"
-            : "当前结构偏空，价格触达空头触发价即按计划执行。"
-          : "当前方向未形成单边优势，暂不强行选择方向。"
+            ? appendPreferredTargetNote("当前结构偏空，现价已满足空头条件，可按计划直接执行。")
+            : appendPreferredTargetNote("当前结构偏空，价格触达空头触发价即按计划执行。")
+          : appendPreferredTargetNote("当前方向未形成单边优势，暂不强行选择方向。")
       : observationWait
         ? "当前存在需要继续观察的结构，但尚未形成完整入场、失效和目标价位；保持等待，不交易。"
         : "当前结果缺少完整入场、失效或目标价位，暂不形成交易执行方案。",
@@ -982,9 +1393,14 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       condition("coverage-loss", "策略所需数据变为 partial/unavailable 且不满足最低覆盖要求", evidenceIds),
       ...(riskPolicy.minimumRiskRewardRatio === null ? [] : [condition(
         "minimum-risk-reward-lost",
-        `若执行前重新计算的第三目标净盈亏比低于 1:${riskPolicy.minimumRiskRewardRatio}，取消执行`,
+        `若执行前重新计算的最终止盈目标净盈亏比低于 1:${riskPolicy.minimumRiskRewardRatio}，取消执行`,
         evidenceIds,
       )]),
+      condition(
+        "minimum-first-target-risk-reward-lost",
+        `若执行前重新计算的第一止盈目标净盈亏比低于 1:${riskPolicy.minimumRiskRewardRatio}，取消执行`,
+        evidenceIds,
+      ),
       ...(riskClarificationBlocked ? [condition(
         "ambiguous-stop-loss-memory",
         "止损百分比的分母尚未澄清；确认并更新长期记忆前不得执行",
@@ -1001,12 +1417,19 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     coverage,
     warnings: [
       "本方案是条件式分析计划，不是自动订单或收益承诺。",
+      `所有策略的多空触发价距当前价限制在 ±${MAX_TRIGGER_DISTANCE_PERCENT}% 以内；超过范围的结构触发位按边界价生成执行条件，原结构证据仍保留在分析报告中。`,
       tickSize
         ? `所有执行价已按宿主提供的 tick size ${tickSize} 归一化；执行前仍须核对交易所最新合约规格。`
         : "未提供交易所 tick size 时价格只做有限小数归一化，下单前必须按真实合约规格复核。",
       "永续合约存在杠杆、滑点、资金费率和强平风险。",
       `用户单笔风险按当前账户权益的 ${riskPolicy.maxLossPerTradePercent}% 约束；不得在未获得用户明确授权时为了回本主动提高这一比例。`,
       ...(riskPolicy.maxTakeProfitPercent === null ? [] : [`所有止盈目标已限制在距入场价 ${riskPolicy.maxTakeProfitPercent}% 以内。`]),
+      ...(preferredScenario?.targets.some((target) => /结构风险倍数兜底目标/.test(String(target.label || "")))
+        ? ["原策略近端目标不足最低净盈亏比，已生成结构风险倍数兜底目标；执行前仍须复核该目标与当前结构是否有效。"]
+        : []),
+      ...(preferredThirdTargetUnavailable
+        ? [`当前策略最终止盈目标未落在优先净盈亏比 1:${PREFERRED_THIRD_TARGET_RATIO_MIN}–1:${PREFERRED_THIRD_TARGET_RATIO_MAX} 区间；为保持可执行性，已保留当前策略可用比例。`]
+        : []),
       ...(riskClarificationBlocked ? ["长期记忆中的止损百分比口径冲突尚未解决，本方案禁止执行且不提供账户仓位。"] : []),
     ],
   };

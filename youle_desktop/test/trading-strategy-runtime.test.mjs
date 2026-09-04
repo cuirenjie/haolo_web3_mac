@@ -234,10 +234,35 @@ test("bilateral conditional plans are rendered as independent long and short exe
   assert.match(markdown, /^## BTC\/USDT 币安永续 1H · 多头条件方案$/m);
   assert.match(markdown, /^## BTC\/USDT 币安永续 1H · 空头条件方案$/m);
   assert.match(markdown, /多头触发：102/);
-  assert.match(markdown, /空头触发：96/);
+  assert.match(markdown, /空头触发：98/);
   assert.equal((markdown.match(/^当前动作：等待条件触发$/gm) || []).length, 2);
   assert.equal((markdown.match(/^方向判断：/gm) || []).length, 2);
   assert.doesNotMatch(markdown, /方向触发：未形成明确单侧方案/);
+});
+
+test("ExecutionPlanV1 bounds every long and short trigger to the current price ±2%", () => {
+  const legacyResult = sampleLegacyResult();
+  legacyResult.theoryResult.signals = [{ direction: "neutral", strength: 1 }];
+  legacyResult.analysisPlan.actionPlan.primaryBias = "neutral";
+  Object.assign(legacyResult.analysisPlan.actionPlan, {
+    currentPrice: 100,
+    longTrigger: 110,
+    longInvalidation: 95,
+    longTarget: 115,
+    shortTrigger: 85,
+    shortInvalidation: 105,
+    shortTarget: 80,
+  });
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult, { currentPrice: 100 });
+  const longScenario = plan.scenarios.find((item) => item.side === "long");
+  const shortScenario = plan.scenarios.find((item) => item.side === "short");
+  assert.equal(longScenario.trigger.price, 102);
+  assert.equal(shortScenario.trigger.price, 98);
+  assert.ok(Math.abs(longScenario.trigger.price - 100) / 100 <= 0.02);
+  assert.ok(Math.abs(shortScenario.trigger.price - 100) / 100 <= 0.02);
+  assert.match(plan.warnings.join(" "), /多空触发价距当前价限制在 ±2% 以内/);
+  assert.match(formatExecutionPlanMarkdown(plan), /多头触发：102/);
+  assert.match(formatExecutionPlanMarkdown(plan), /空头触发：98/);
 });
 
 test("ExecutionPlanV1 recognizes nested order-flow bias and signal kinds", () => {
@@ -272,9 +297,161 @@ test("unbound Binance output uses estimated net risk/reward in the requested six
     "方向判断：偏空",
     "空头触发：63007.1",
     "止损与失效：63141.6",
-    "分批止盈：第1目标 62835.09249792，第2目标 62807.49651667，第3目标 62770.701875",
-    "风险收益比：目标1为 1:0.18，目标2为 1:0.28，目标3为 1:0.42",
+    "分批止盈：第1目标 62776.88011999，第2目标 62770.701875",
+    "风险收益比：目标1为 1:0.4，目标2为 1:0.42",
   ].join("\n"));
+});
+
+test("ExecutionPlanV1 finds a product-floor fallback target instead of dropping a low-reward setup", () => {
+  const legacyResult = sampleLegacyResult();
+  Object.assign(legacyResult.analysisPlan.actionPlan, {
+    currentPrice: 100,
+    longTrigger: 100,
+    longInvalidation: 90,
+    longTarget: 102,
+  });
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult, {
+    currentPrice: 100,
+    tickSize: 0.25,
+  });
+  assert.equal(plan.action, "long");
+  assert.ok(plan.takeProfits.length >= 1);
+  assert.ok(plan.riskReward.every(({ ratio }) => ratio >= 0.4));
+  assert.ok(plan.takeProfits[0].price.price > 102);
+  assert.match(plan.takeProfits[0].price.label, /结构风险倍数兜底目标 R0\.4/);
+  assert.match(formatExecutionPlanMarkdown(plan), /风险收益比：目标1为 1:0\.4/);
+
+  const stricter = buildExecutionPlanV1(sampleManifest, legacyResult, {
+    currentPrice: 100,
+    userRiskProfile: { minimumRiskRewardRatio: 1.5 },
+  });
+  assert.equal(stricter.action, "long");
+  assert.equal(stricter.executionBlocked, true);
+  assert.match(stricter.marketAssessment, /低于用户设定的最低 1:1\.5/);
+});
+
+test("ExecutionPlanV1 honors an explicit minimum below the product default", () => {
+  const legacyResult = sampleLegacyResult();
+  Object.assign(legacyResult.analysisPlan.actionPlan, {
+    currentPrice: 100,
+    longTrigger: 100,
+    longInvalidation: 90,
+    longTarget: 102,
+  });
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult, {
+    currentPrice: 100,
+    tickSize: 0.25,
+    userRiskProfile: { minimumRiskRewardRatio: 0.2 },
+  });
+  assert.equal(plan.action, "long");
+  assert.equal(plan.executionBlocked, false);
+  assert.equal(plan.positionSizing.minimumRiskRewardRatio, 0.2);
+  assert.ok(plan.riskReward.every(({ ratio }) => ratio >= 0.2));
+  assert.ok(plan.riskReward.some(({ ratio }) => ratio < 0.4));
+  assert.match(plan.preconditions.map((item) => item.text).join("；"), /净盈亏比.*1:0\.2/);
+});
+
+test("ExecutionPlanV1 prefers the requested three-target ratio bands when the final strategy target fits", () => {
+  const legacyResult = sampleLegacyResult();
+  Object.assign(legacyResult.analysisPlan.actionPlan, {
+    currentPrice: 100,
+    longTrigger: 100,
+    longInvalidation: 90,
+    longTargets: [109.2, 112, 114],
+    longTarget: 114,
+    targetBasis: [
+      { price: 109.2, label: "Fib 0.5" },
+      { price: 112, label: "Fib 0.8" },
+      { price: 114, label: "Fib 1.0" },
+    ],
+  });
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult);
+  assert.deepEqual(plan.riskReward, [
+    { targetIndex: 0, ratio: 0.5 },
+    { targetIndex: 1, ratio: 0.88 },
+    { targetIndex: 2, ratio: 1.35 },
+  ]);
+  assert.ok(plan.riskReward[0].ratio >= 0.4 && plan.riskReward[0].ratio <= 0.6);
+  assert.ok(plan.riskReward[1].ratio >= 0.8 && plan.riskReward[1].ratio <= 1);
+  assert.ok(plan.riskReward[2].ratio >= 1.3 && plan.riskReward[2].ratio <= 1.5);
+  assert.match(plan.scenarios.find((scenario) => scenario.side === "long").targets[0].label, /优先净盈亏比 1:0\.4–1:0\.6/);
+  assert.doesNotMatch(plan.warnings.join(" "), /未落在优先净盈亏比/);
+});
+
+test("ExecutionPlanV1 preserves current measured ratios when the preferred third band is unavailable", () => {
+  const legacyResult = sampleLegacyResult();
+  Object.assign(legacyResult.analysisPlan.actionPlan, {
+    currentPrice: 100,
+    longTrigger: 100,
+    longInvalidation: 90,
+    longTargets: [109.2, 114, 119.9],
+    longTarget: 119.9,
+    targetBasis: [
+      { price: 109.2, label: "Fib 0.5" },
+      { price: 114, label: "Fib 1.0" },
+      { price: 119.9, label: "Fib 1.5" },
+    ],
+  });
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult);
+  const longScenario = plan.scenarios.find((scenario) => scenario.side === "long");
+  assert.deepEqual(longScenario.targets.map((target) => target.price), [109.2, 114, 119.9]);
+  assert.ok(plan.riskReward.at(-1).ratio > 1.5);
+  assert.match(plan.warnings.join(" "), /未落在优先净盈亏比 1:1\.3–1:1\.5 区间；为保持可执行性，已保留当前策略可用比例/);
+});
+
+test("ExecutionPlanV1 fills missing preferred exits when a measured final target is above the third band", () => {
+  const legacyResult = sampleLegacyResult();
+  Object.assign(legacyResult.analysisPlan.actionPlan, {
+    currentPrice: 100,
+    longTrigger: 100,
+    longInvalidation: 90,
+    longTargets: [119.5],
+    longTarget: 119.5,
+    targetBasis: [{ price: 119.5, label: "候选结构投影" }],
+  });
+  const plan = buildExecutionPlanV1(sampleManifest, legacyResult);
+  const longScenario = plan.scenarios.find((item) => item.side === "long");
+  assert.equal(longScenario.targets.length, 3);
+  assert.equal(plan.takeProfits.length, 3);
+  assert.ok(plan.riskReward[0].ratio >= 0.4 && plan.riskReward[0].ratio <= 0.6);
+  assert.ok(plan.riskReward[1].ratio >= 0.8 && plan.riskReward[1].ratio <= 1);
+  assert.ok(plan.riskReward[2].ratio > 1.5);
+  assert.match(longScenario.targets[0].label, /优先净盈亏比 1:0\.4–1:0\.6/);
+  assert.match(longScenario.targets[1].label, /优先净盈亏比 1:0\.8–1:1/);
+  assert.match(plan.warnings.join(" "), /未落在优先净盈亏比 1:1\.3–1:1\.5 区间；为保持可执行性，已保留当前策略可用比例/);
+  assert.match(formatExecutionPlanMarkdown(plan), /分批止盈：第1目标 .*，第2目标 .*，第3目标/);
+
+  const shortResult = sampleLegacyResult();
+  shortResult.theoryResult.signals = [{ direction: "bearish", strength: 0.9 }];
+  Object.assign(shortResult.analysisPlan.actionPlan, {
+    currentPrice: 100,
+    shortTrigger: 100,
+    shortInvalidation: 110,
+    shortTargets: [80.5],
+    shortTarget: 80.5,
+    targetBasis: [{ price: 80.5, label: "候选结构投影" }],
+  });
+  const shortPlan = buildExecutionPlanV1(sampleManifest, shortResult);
+  const shortScenario = shortPlan.scenarios.find((item) => item.side === "short");
+  assert.equal(shortScenario.targets.length, 3);
+  assert.ok(shortPlan.riskReward[0].ratio >= 0.4 && shortPlan.riskReward[0].ratio <= 0.6);
+  assert.ok(shortPlan.riskReward[1].ratio >= 0.8 && shortPlan.riskReward[1].ratio <= 1);
+  assert.ok(shortPlan.riskReward[2].ratio > 1.5);
+
+  const compressedResult = sampleLegacyResult();
+  Object.assign(compressedResult.analysisPlan.actionPlan, {
+    currentPrice: 100,
+    longTrigger: 100,
+    longInvalidation: 90,
+    longTargets: [107],
+    longTarget: 107,
+    targetBasis: [{ price: 107, label: "候选结构投影" }],
+  });
+  const compressedPlan = buildExecutionPlanV1(sampleManifest, compressedResult);
+  const compressedScenario = compressedPlan.scenarios.find((item) => item.side === "long");
+  assert.equal(compressedScenario.targets.length, 2);
+  assert.ok(compressedPlan.riskReward[0].ratio >= 0.4 && compressedPlan.riskReward[0].ratio <= 0.6);
+  assert.ok(compressedPlan.riskReward[1].ratio >= 0.4);
 });
 
 test("ExecutionPlanV1 keeps displayed SOL net risk/reward consistent with its net PnL and gate", () => {
@@ -340,7 +517,7 @@ test("ExecutionPlanV1 keeps displayed SOL net risk/reward consistent with its ne
   assert.equal(blocked.scenarios.find((item) => item.side === "short").trigger.price, 74.61);
   assert.equal(blocked.positionSizing.accountPlan.estimatedStopLoss, 29.95);
   assert.equal(blocked.positionSizing.accountPlan.estimatedTakeProfit, 24.93);
-  assert.match(blocked.marketAssessment, /第三目标.*净盈亏比低于用户设定的最低 1:1\.5/);
+  assert.match(blocked.marketAssessment, /最终止盈目标.*净盈亏比低于用户设定的最低 1:1\.5/);
   const blockedMarkdown = formatExecutionPlanMarkdown(blocked);
   assert.match(blockedMarkdown, /当前动作：不交易/);
   assert.match(blockedMarkdown, /止损与失效：止损 75\.68/);

@@ -18,7 +18,14 @@ const TACTICAL_STOP_MAX_DISTANCE_ATR = 3.5;
 const TACTICAL_STOP_MAX_DISTANCE_PERCENT = 3;
 const TACTICAL_HIGHER_TF_STOP_MAX_DISTANCE_PERCENT = 6;
 const TACTICAL_HIGHER_TF_STOP_NEAR_CURRENT_PERCENT = 5;
-const TACTICAL_MIN_NET_RISK_REWARD = 1.2;
+const TACTICAL_MIN_NET_RISK_REWARD = 0.4;
+
+function normalizedMinimumNetRiskReward(value) {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) && normalized > 0
+    ? normalized
+    : TACTICAL_MIN_NET_RISK_REWARD;
+}
 
 function extractJsonObject(text) {
   const source = String(text || "").trim();
@@ -131,12 +138,15 @@ function compactWaveTheoryResultForModel(theoryResult) {
         },
       }
       : null,
-    evidence: theoryResult.evidence.slice(0, 48),
+    // Keep the prompt below the provider's 120k contract even when the
+    // trend-sensitive motive scale contributes additional swing evidence.
+    evidence: theoryResult.evidence.slice(0, 12),
   };
 }
 
 export function buildWaveModelPrompt(snapshot, theoryResult, context = {}) {
   const directAnswer = context.responseMode === "direct";
+  const minimumNetRiskReward = normalizedMinimumNetRiskReward(context.userRiskProfile?.minimumRiskRewardRatio);
   const compactCandles = snapshot.candles.slice(-120).map((candle) => [
     candle.time,
     candle.open,
@@ -147,12 +157,13 @@ export function buildWaveModelPrompt(snapshot, theoryResult, context = {}) {
   ]);
   return [
     "你是交易分析系统中的艾略特波浪候选复核器，不负责直接操作界面。",
-    "确定性引擎已从真实 OHLCV 识别不同级别摆动点。只有同时通过价格硬规则与低一级内部结构证据的标准推动浪、A-B-C、W-X-Y 及其首尾相接周期才会进入候选；波4重叠绝不会自动改名为倾斜，位置、楔形和内部结构未验证的倾斜不会进入候选；五浪未创新高/新低只有在短缺幅度很小且内部五浪已验证时才按截短候选处理。",
-    "波浪计数具有级别和起点歧义。优先从当前分析周期的 kind=cycle 且 components.structureVerified=true 的完整周期中选择主计数；若当前分析周期没有候选，确定性引擎会按 structureInterval → executionInterval 提供低周期兜底候选，此时必须在 report 中明确说明使用了哪个低周期，不能把它冒充成主周期计数。只有没有完整周期时才选择已通过硬规则的单段候选。你只能选择给定候选 ID，不得创造、删减或重排候选之外的浪点、价格、时间和历史事实，也不得把候选外的重叠结构解释成倾斜例外；末端未确认时必须说明暂定。",
+    "确定性引擎已从真实 OHLCV 识别不同级别摆动点。标准推动浪、A-B-C、W-X-Y 及其首尾相接周期必须同时通过价格硬规则与低一级内部结构证据；若价格硬规则已完整通过但当前父级窗口过短、暂时无法展开全部 5-3-5-3-5 子浪，会保留 validation=hard_price_rules_pending_lower_degree_structure 的 tentative 单段推动候选，用于显示正在走的 1–5，不能包装为已确认或组成完整周期。波4重叠绝不会自动改名为倾斜，位置、楔形和内部结构未验证的倾斜不会进入候选；五浪未创新高/新低只有在短缺幅度很小且内部五浪已验证时才按截短候选处理。",
+    "波浪计数具有级别和起点歧义。优先从当前分析周期的 kind=cycle 且 components.structureVerified=true 的完整周期中选择主计数；没有完整周期时，若存在末端接近最新 K 线且通过价格硬规则的 impulse/diagonal，应优先选择该正在发展或刚完成的 1–5，再考虑较早的 ABC 修正；若当前分析周期没有候选，确定性引擎会按 structureInterval → executionInterval 提供低周期兜底候选，此时必须在 report 中明确说明使用了哪个低周期，不能把它冒充成主周期计数。你只能选择给定候选 ID，不得创造、删减或重排候选之外的浪点、价格、时间和历史事实，也不得把候选外的重叠结构解释成倾斜例外；末端未确认时必须说明暂定。",
     directAnswer
       ? "本次只刷新分析并回答用户的具体问题，不更新画布。report 必须第一句直接作答，后续只写必要依据，不得套用完整盘面报告或固定章节。"
       : "本次需要生成完整盘面分析与受控绘图计划。",
     "面向用户必须先区分主周期结构边界和低周期战术执行价。确定性 actionLevels 在有波浪候选、现价和 ATR 时必须尽量提供单边条件执行单；低周期子浪缺失或暂定时，使用最近可用的已确认结构、波浪失效位或 ATR 波动率锚点兜底，并在 report 明确标注兜底来源，不能把它冒充成已确认微浪。对于 4H/1H 分析，stopBasis 应优先引用当前价格附近的分析/结构周期阻力或支撑，不能用 15m 最近摆点替代主周期结构；macroConfirmation/macroInvalidation 仍只能描述主周期确认与场景失效，不得改写成入场价。stopBasis 若存在，止损只能放在支撑/阻力区外侧或明确波浪失效位外侧并加缓冲；距离只用于识别异常和提示，不得通过缩窄止损迎合价格。只有缺少现价、方向或 ATR 等无法计算条件单的情况才等待。专业浪型和斐波那契比例放在后面的可选依据里，不得让新手先读一串术语；不得把暂定计数写成确定预测。",
+    `止盈默认优先三档净盈亏比：只要最终目标留有足够价格空间，T1 为 1:0.4–1:0.6，T2 为 1:0.8–1:1，并使用最终测量目标作为 T3；最终目标落在 1:1.3–1:1.5 时优先保留第三档区间，超出时保留当前测量比例但仍尽量补齐前两档。若价格空间或用户最低净盈亏比无法容纳完整梯度，则保留当前可用比例；当前最低净盈亏比硬约束为 1:${minimumNetRiskReward}，用户明确设置的值优先，未设置时才使用产品默认 1:0.4。`,
     "输出必须是单个 JSON 对象，不要 Markdown，不要解释 JSON 之外的内容。",
     "JSON 协议：",
     JSON.stringify({
@@ -174,7 +185,7 @@ export function buildWaveModelPrompt(snapshot, theoryResult, context = {}) {
     "确定性 TheoryResult：",
     JSON.stringify(compactWaveTheoryResultForModel(theoryResult)),
     "确定性 actionLevels（只能引用，不能自行改价）：",
-    JSON.stringify(buildWaveActionPlan(snapshot, theoryResult.structures.primaryCandidate, theoryResult)),
+    JSON.stringify(buildWaveActionPlan(snapshot, theoryResult.structures.primaryCandidate, theoryResult, context.userRiskProfile)),
     "最近 K 线 [time,open,high,low,close,volume]：",
     JSON.stringify(compactCandles),
   ].join("\n");
@@ -194,7 +205,20 @@ export function normalizeWaveModelReview(text, theoryResult) {
   const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
   const deterministicPrimary = theoryResult.structures.primaryCandidate;
   const requestedPrimary = candidatesById.get(String(parsed.primaryCandidateId || ""));
-  const primaryCandidateId = requestedPrimary?.id || deterministicPrimary?.id;
+  const latestIndex = Number(theoryResult.statistics?.candleCount) - 1;
+  const recentMotive = deterministicPrimary
+    && (deterministicPrimary.kind === "impulse" || deterministicPrimary.kind === "diagonal")
+    && Number(deterministicPrimary.points.at(-1)?.index) >= latestIndex - Math.max(8, Math.ceil(Math.max(0, latestIndex + 1) * 0.12));
+  const requestedIsStaleCorrection = requestedPrimary?.kind === "correction"
+    && recentMotive
+    && Number(requestedPrimary.points.at(-1)?.index) < Number(deterministicPrimary.points.at(-1)?.index);
+  // A model review may refine among current candidates, but it must not replace
+  // a fresh 1–5 motive with an older unrelated ABC simply because the latter is
+  // confirmed. This was the direct cause of charts showing ABC only while the
+  // latest impulse was already complete.
+  const primaryCandidateId = requestedIsStaleCorrection
+    ? deterministicPrimary.id
+    : requestedPrimary?.id || deterministicPrimary?.id;
   if (!primaryCandidateId) throw new TypeError("Model response did not select a supported wave candidate");
   const alternateCandidateIds = Array.isArray(parsed.alternateCandidateIds)
     ? [...new Set(parsed.alternateCandidateIds.map(String))]
@@ -840,30 +864,37 @@ function fallbackStructuralStopZone(snapshot, hierarchy, direction, referencePri
   };
 }
 
-function riskFallbackTargetLevels(trigger, stop, direction, atr) {
+function riskFallbackTargetLevels(trigger, stop, direction, atr, minimumNetRiskReward = TACTICAL_MIN_NET_RISK_REWARD) {
   const risk = Math.max(Math.abs(Number(trigger) - Number(stop)), atr * TACTICAL_STOP_MIN_DISTANCE_ATR);
+  const costRate = 0.002;
+  const netRiskDistance = risk + Number(trigger) * costRate;
   const sign = direction === "bullish" ? 1 : -1;
-  return [1, 1.5, 2.2].map((multiple) => ({
-    price: Number(trigger) + sign * risk * multiple,
+  const floor = normalizedMinimumNetRiskReward(minimumNetRiskReward);
+  // When the measured wave does not provide a usable target, prefer the
+  // product-wide three-exit ladder. Raise each fallback level only when the
+  // user's explicit minimum requires it.
+  const multiples = [0.5, 0.9, 1.4].map((multiple, index) => Math.max(multiple, floor + index * 0.4));
+  return multiples.map((multiple) => ({
+    price: Number(trigger) + sign * (netRiskDistance * multiple + Number(trigger) * costRate),
     ratio: multiple,
     basis: "risk_multiple_fallback",
-    label: `结构风险倍数兜底目标 R${multiple}`,
+    label: `结构风险倍数兜底目标 R${multiple}（优先三目标区间）`,
     sourcePointIds: [],
   })).filter((level) => level.price > 0);
 }
 
-function ensureWaveTargetLevels(levels, trigger, stop, direction, atr) {
+function ensureWaveTargetLevels(levels, trigger, stop, direction, atr, minimumNetRiskReward = TACTICAL_MIN_NET_RISK_REWARD) {
+  const floor = normalizedMinimumNetRiskReward(minimumNetRiskReward);
   const validLevels = (Array.isArray(levels) ? levels : [])
     .filter((level) => Number.isFinite(Number(level?.price))
-      && directionalPriceIsValid(level.price, direction, trigger));
+      && directionalPriceIsValid(level.price, direction, trigger)
+      && netRiskReward(Number(trigger), Number(stop), Number(level.price), direction) >= floor);
   const existingFinal = validLevels.at(-1)?.price;
-  const risk = Math.abs(Number(trigger) - Number(stop));
-  const minimumReward = risk * 1.35 + Number(trigger) * 0.004;
   if (existingFinal !== undefined
-      && Math.abs(Number(existingFinal) - Number(trigger)) >= minimumReward) {
+      && netRiskReward(Number(trigger), Number(stop), Number(existingFinal), direction) >= floor) {
     return validLevels;
   }
-  const fallback = riskFallbackTargetLevels(trigger, stop, direction, atr);
+  const fallback = riskFallbackTargetLevels(trigger, stop, direction, atr, floor);
   const combined = [...validLevels, ...fallback];
   const seen = new Set();
   return combined
@@ -879,7 +910,8 @@ function ensureWaveTargetLevels(levels, trigger, stop, direction, atr) {
     .slice(0, 4);
 }
 
-function tacticalWaveLevels(snapshot, hierarchy) {
+function tacticalWaveLevels(snapshot, hierarchy, minimumNetRiskReward = TACTICAL_MIN_NET_RISK_REWARD) {
+  const floor = normalizedMinimumNetRiskReward(minimumNetRiskReward);
   const direction = hierarchy?.direction;
   const structureCandidate = hierarchy?.structure?.candidate;
   const executionCandidate = hierarchy?.execution?.candidate;
@@ -937,7 +969,7 @@ function tacticalWaveLevels(snapshot, hierarchy) {
 
   let targetLevels = waveTargetLevels(hierarchy.analysis.candidate, direction, trigger);
   const targetCountBeforeFallback = targetLevels.length;
-  targetLevels = ensureWaveTargetLevels(targetLevels, trigger, structuralStop, direction, atr);
+  targetLevels = ensureWaveTargetLevels(targetLevels, trigger, structuralStop, direction, atr, floor);
   if (!targetCountBeforeFallback) reasons.push("wave_target_fallback");
   else if (targetLevels.some((level) => level.basis === "risk_multiple_fallback")) reasons.push("risk_reward_target_fallback");
 
@@ -965,7 +997,7 @@ function tacticalWaveLevels(snapshot, hierarchy) {
   const targets = targetLevels.map((level) => level.price);
   const finalTarget = targets.at(-1);
   const finalNetRiskReward = netRiskReward(trigger, structuralStop, finalTarget, direction);
-  if (finalNetRiskReward < TACTICAL_MIN_NET_RISK_REWARD) reasons.push("net_risk_reward_below_floor");
+  if (finalNetRiskReward < floor) reasons.push("net_risk_reward_below_floor");
   if (stopDistanceAtr < TACTICAL_STOP_MIN_DISTANCE_ATR - Number.EPSILON) reasons.push("stop_distance_too_tight");
   if (stopDistanceAtr > maximumStopDistanceAtr + Number.EPSILON
       || stopDistancePercent > maximumStopDistancePercent + Number.EPSILON) {
@@ -1044,15 +1076,16 @@ function tacticalWaveLevels(snapshot, hierarchy) {
   };
 }
 
-export function buildWaveActionPlan(snapshot, candidate, theoryResult = null) {
+export function buildWaveActionPlan(snapshot, candidate, theoryResult = null, userRiskProfile = null) {
   if (!candidate) return null;
+  const minimumNetRiskReward = normalizedMinimumNetRiskReward(userRiskProfile?.minimumRiskRewardRatio);
   const currentPrice = Number(snapshot.candles.at(-1)?.close || candidate.points.at(-1)?.price || 0);
   const hierarchy = theoryResult
     ? buildWaveHierarchy(snapshot, theoryResult, candidate)
     : null;
   const direction = hierarchy?.direction || candidate.projection?.direction || "neutral";
   const tactical = hierarchy
-    ? tacticalWaveLevels(snapshot, hierarchy)
+    ? tacticalWaveLevels(snapshot, hierarchy, minimumNetRiskReward)
     : { passed: false, reasons: ["lower_timeframes_not_provided"], state: "observing" };
   const base = {
     currentPrice,
@@ -1089,7 +1122,7 @@ export function buildWaveActionPlan(snapshot, candidate, theoryResult = null) {
         || TACTICAL_STOP_MAX_DISTANCE_ATR,
       maximumStopDistancePercent: Number(tactical.maximumStopDistancePercent)
         || TACTICAL_STOP_MAX_DISTANCE_PERCENT,
-      minimumNetRiskReward: TACTICAL_MIN_NET_RISK_REWARD,
+      minimumNetRiskReward,
       triggerBufferAtr: 0.15,
       executionWaveMaxAgeBars: 12,
       ...(tactical.executionBasis ? { executionBasis: tactical.executionBasis } : {}),
@@ -1173,7 +1206,10 @@ function candidateKindLabel(candidate) {
       : `${motive} + A-B-C 调整周期`;
     return `${label}${descriptor}`;
   }
-  if (candidate.kind === "impulse") return `标准五浪推动结构${descriptor}`;
+  if (candidate.kind === "impulse") {
+    const observed = candidate.validation === "hard_price_rules_pending_lower_degree_structure";
+    return `${observed ? "价格硬规则通过的暂定五浪推动" : "标准五浪推动结构"}${descriptor}`;
+  }
   if (candidate.kind === "diagonal") return `位置与楔形已验证的倾斜三角形${descriptor}`;
   if (candidate.pattern === "double_three") return `W-X-Y 双重三浪调整${descriptor}`;
   if (candidate.pattern === "expanded_flat") return `扩散平台型 A-B-C 调整${descriptor}`;
@@ -1233,8 +1269,8 @@ function candidateRuleText(candidate) {
   return `波2未越波1起点：${candidate.rules.wave2HoldsOrigin ? "通过" : "未通过"}；波3越过波1终点：${candidate.rules.wave3MakesProgress ? "通过" : "未通过"}；波4未完全回撤波3：${candidate.rules.wave4HoldsWave3Origin ? "通过" : "未通过"}；波3不为最短浪：${candidate.rules.wave3NotShortest ? "通过" : "未通过"}；波4不与波1价格区重叠：${candidate.rules.wave4AvoidsWave1 ? "通过" : "未通过"}；波5推进或严格截短验证：${candidate.rules.wave5MakesProgress || candidate.rules.truncatedFifthVerified ? "通过" : "未通过"}；内部 5-3-5-3-5：${candidate.rules.impulseInternalStructureVerified ? "通过" : "未通过"}。`;
 }
 
-function waveGateReasonLabel(reason) {
-  return new Map([
+function waveGateReasonLabel(reason, minimumNetRiskReward = TACTICAL_MIN_NET_RISK_REWARD) {
+  const labels = new Map([
     ["lower_timeframes_not_provided", "尚未取得真实低周期 K 线"],
     ["structure_timeframe_unavailable", "结构周期数据不可用"],
     ["execution_timeframe_unavailable", "执行周期数据不可用"],
@@ -1256,8 +1292,11 @@ function waveGateReasonLabel(reason) {
     ["stop_distance_too_tight", "结构止损距离小于执行周期 0.6 ATR 噪声下限"],
     ["structural_stop_distance_exceeded", "结构止损距离超过当前级别允许包络（低周期 3.5 ATR/3%，高周期 6%）"],
     ["execution_wave_expired", "执行微浪已超过 12 根执行 K 线有效期"],
-    ["net_risk_reward_below_floor", "扣除预估成本后的最终目标风险收益低于 1:1.2"],
-  ]).get(reason) || String(reason || "未知门禁");
+  ]);
+  return labels.get(reason)
+    || (reason === "net_risk_reward_below_floor"
+      ? `扣除预估成本后的最终目标风险收益低于 1:${normalizedMinimumNetRiskReward(minimumNetRiskReward)}`
+      : String(reason || "未知门禁"));
 }
 
 export function buildWaveAnalysisReport(snapshot, theoryResult, review, context = {}) {
@@ -1269,7 +1308,7 @@ export function buildWaveAnalysisReport(snapshot, theoryResult, review, context 
   const instruction = String(context.instruction || "").trim();
   const firstCandle = snapshot.candles[0];
   const lastCandle = snapshot.candles.at(-1);
-  const action = buildWaveActionPlan(snapshot, primary, theoryResult);
+  const action = buildWaveActionPlan(snapshot, primary, theoryResult, context.userRiskProfile);
   const bullish = action.primaryScenario === "bullish";
   const directionText = bullish ? "偏多" : "偏空";
   const structureLabel = action.structureInterval ? plainIntervalLabel(action.structureInterval) : "结构周期";
@@ -1280,7 +1319,7 @@ export function buildWaveAnalysisReport(snapshot, theoryResult, review, context 
   const activeStop = bullish ? action.longInvalidation : action.shortInvalidation;
   const activeTargets = bullish ? action.longTargets : action.shortTargets;
   const ready = action.state === "ready" && action.gate.passed && Number.isFinite(activeTrigger);
-  const gateReasons = action.gate.reasons.map(waveGateReasonLabel);
+  const gateReasons = action.gate.reasons.map((reason) => waveGateReasonLabel(reason, action.gate.minimumNetRiskReward));
   const fallbackExecution = action.executionBasis !== "confirmed_micro";
   const triggerLabel = action.triggerSourceInterval
     ? plainIntervalLabel(action.triggerSourceInterval)
@@ -1324,7 +1363,7 @@ export function buildWaveAnalysisReport(snapshot, theoryResult, review, context 
       : `- 宏观失效：${formatPrice(action.macroInvalidation)}。越过后取消全部子浪计划并重新数浪；实际持仓仍优先使用结构止损 ${ready ? formatPrice(activeStop) : "尚未形成"}。`,
     "",
     "### 三级数浪",
-    `${candidateKindLabel(primary)}，${primary.degree || "当前画布相对级别"}，${statusLabel(primary.status)}。通俗理解：系统只展示已通过价格硬规则和低一级结构证据的计数；${primary.kind === "cycle" ? "当前候选包含动机段与后续调整" : "当前候选只覆盖一个已验证结构段"}，末端仍会随新 K 线变化。`,
+    `${candidateKindLabel(primary)}，${primary.degree || "当前画布相对级别"}，${statusLabel(primary.status)}。通俗理解：${primary.validation === "hard_price_rules_pending_lower_degree_structure" ? "价格已经走出符合波2/波3/波4/波5硬规则的五段，但低一级 5-3-5-3-5 细分尚未全部出现，因此先按暂定推动显示并持续确认。" : "系统只展示已通过价格硬规则和低一级结构证据的计数。"}${primary.kind === "cycle" ? "当前候选包含动机段与后续调整" : "当前候选只覆盖一个已验证结构段"}，末端仍会随新 K 线变化。`,
     `浪点：${primary.points.map((point) => `${point.label} ${formatPrice(point.price)}`).join(" → ")}。`,
     `低周期：${structureLabel} ${action.hierarchy?.structureCandidateId ? "已找到一致子浪" : "无一致子浪"}；${executionLabel} ${action.hierarchy?.executionCandidateId ? "已找到一致微浪" : "无一致微浪"}。${fallback ? `本次兜底来源为 ${fallbackLabel}，` : ""}证据充分时使用确认微浪，证据不足时仍保留结构/ATR 条件执行价并标注其来源。`,
     `规则检查：${candidateRuleText(primary)}`,
@@ -1413,13 +1452,16 @@ function waveDrawingLabel(candidate) {
     const label = candidate.pattern.endsWith("_plus_wxy") ? `${motive} + WXY` : `${motive} + ABC`;
     return `${label}${descriptor}`;
   }
-  if (candidate.kind === "impulse") return `标准5浪推动${descriptor}`;
+  if (candidate.kind === "impulse") {
+    const observed = candidate.validation === "hard_price_rules_pending_lower_degree_structure";
+    return `${observed ? "暂定5浪推动" : "标准5浪推动"}${descriptor}`;
+  }
   if (candidate.kind === "diagonal") return `已验证倾斜5浪${descriptor}`;
   if (candidate.pattern === "double_three") return `WXY调整${descriptor}`;
   return `ABC调整${descriptor}`;
 }
 
-export function buildWaveDrawingPatch(snapshot, theoryResult, review) {
+export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskProfile = null) {
   const primary = candidateById(theoryResult, review.primaryCandidateId)
     || theoryResult.structures.primaryCandidate;
   if (!primary) throw new TypeError("The approved wave drawing plan has no supported primary candidate");
@@ -1574,7 +1616,7 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review) {
       },
     });
   }
-  const action = buildWaveActionPlan(snapshot, primary, theoryResult);
+  const action = buildWaveActionPlan(snapshot, primary, theoryResult, userRiskProfile);
   const hierarchy = buildWaveHierarchy(snapshot, theoryResult, primary);
   const nestedDegrees = [
     {
@@ -1728,6 +1770,7 @@ export async function runTradingWaveAnalysisPipeline(params, options = {}) {
     prompt: buildWaveModelPrompt(snapshot, theoryResult, {
       instruction: params?.instruction,
       responseMode: params?.responseMode,
+      userRiskProfile: params?.userRiskProfile,
     }),
     responseFormat: "json",
   };
@@ -1742,10 +1785,11 @@ export async function runTradingWaveAnalysisPipeline(params, options = {}) {
   const { modelResponse, review: modelReview } = reviewed;
   const primaryCandidate = candidateById(theoryResult, modelReview.primaryCandidateId)
     || theoryResult.structures.primaryCandidate;
-  const actionPlan = buildWaveActionPlan(snapshot, primaryCandidate, theoryResult);
-  const drawingPatch = buildWaveDrawingPatch(snapshot, theoryResult, modelReview);
+  const actionPlan = buildWaveActionPlan(snapshot, primaryCandidate, theoryResult, params?.userRiskProfile);
+  const drawingPatch = buildWaveDrawingPatch(snapshot, theoryResult, modelReview, params?.userRiskProfile);
   const report = buildWaveAnalysisReport(snapshot, theoryResult, modelReview, {
     instruction: params?.instruction,
+    userRiskProfile: params?.userRiskProfile,
   });
   return {
     ok: true,

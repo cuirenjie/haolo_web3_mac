@@ -491,6 +491,94 @@ test("market candle cadence rejects daily data for intraday selections", async (
   assert.equal(tradingCandleSeriesMatchesResolution(daily, "1D"), true);
 });
 
+test("current-market analysis rejects a cache whose latest candle is days behind now", async () => {
+  const {
+    tradingAnalysisCandlesRequireCurrentRefresh,
+    tradingAnalysisShouldForceCurrentRefresh,
+  } = await import("../src/renderer/trading-expert-market.ts");
+  const now = Date.parse("2026-09-04T12:00:00.000Z");
+  const currentHour = Math.floor((now - 30 * 60_000) / 3_600_000) * 3_600;
+  const closedHour = currentHour - 3_600;
+  const staleHour = currentHour - 48 * 3_600;
+
+  assert.equal(
+    tradingAnalysisCandlesRequireCurrentRefresh([{ time: currentHour }], "60", now),
+    false,
+  );
+  assert.equal(
+    tradingAnalysisCandlesRequireCurrentRefresh([{ time: closedHour }], "60", now),
+    true,
+  );
+  assert.equal(
+    tradingAnalysisCandlesRequireCurrentRefresh([{ time: staleHour }], "60", now),
+    true,
+  );
+  assert.equal(
+    tradingAnalysisCandlesRequireCurrentRefresh([], "60", now),
+    true,
+  );
+  // A timestamp-only current forming candle is not enough for Binance: its
+  // OHLC values can still be an old cache hit, so every current analysis must
+  // fetch and reconcile a fresh snapshot.
+  assert.equal(
+    tradingAnalysisShouldForceCurrentRefresh("binance", [{ time: currentHour }], "60", now),
+    true,
+  );
+  assert.equal(
+    tradingAnalysisShouldForceCurrentRefresh("finnhub", [{ time: currentHour }], "60", now),
+    false,
+  );
+  assert.equal(
+    tradingAnalysisShouldForceCurrentRefresh("finnhub", [{ time: staleHour }], "60", now),
+    true,
+  );
+});
+
+test("all strategy chart runners refresh stale current snapshots before analysis", async () => {
+  const source = await readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
+  for (const method of [
+    "runGeneralConversation",
+    "runChanConversation",
+    "runWaveConversation",
+    "runWyckoffConversation",
+    "runOrderFlowConversation",
+  ]) {
+    const start = source.indexOf(`  async ${method}(`);
+    assert.notEqual(start, -1, `${method} must exist`);
+    const next = source.indexOf("\n  async ", start + 8);
+    const block = source.slice(start, next === -1 ? source.length : next);
+    assert.match(block, /tradingAnalysisShouldForceCurrentRefresh/);
+    assert.match(block, /refreshCurrentMarketSnapshotForAnalysis/);
+  }
+});
+
+test("current Binance strategy windows ignore an old chart viewport", async () => {
+  const source = await readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
+  for (const method of [
+    "runGeneralConversation",
+    "runChanConversation",
+    "runWaveConversation",
+    "runWyckoffConversation",
+    "runOrderFlowConversation",
+  ]) {
+    const start = source.indexOf(`  async ${method}(`);
+    const next = source.indexOf("\n  async ", start + 8);
+    const block = source.slice(start, next === -1 ? source.length : next);
+    assert.match(block, /useCurrentMarketTail = targetMarket\.provider === "binance" && !requestedLookbackMs/);
+    assert.match(block, /useCurrentMarketTail[\s\S]*?targetCandles\.slice\(-|useCurrentMarketTail[\s\S]*?this\.candles\.slice\(-/);
+  }
+  const refresh = source.slice(
+    source.indexOf("  private async refreshCurrentMarketSnapshotForAnalysis("),
+    source.indexOf("\n  private commitMarketSnapshot(", source.indexOf("  private async refreshCurrentMarketSnapshotForAnalysis(")),
+  );
+  assert.match(refresh, /if \(targetMarket\.provider === "binance"\)/);
+  assert.match(refresh, /applyTradingLivePriceToBatch\(candleBatch, livePrice/);
+  const splitPane = await readFile(new URL("../src/renderer/trading-expert-split-pane.ts", import.meta.url), "utf8");
+  assert.match(splitPane, /currentMarketAnalysis = this\.market\.provider === "binance" && !lookbackMs/);
+  assert.match(splitPane, /currentMarketAnalysis[\s\S]*?await this\.reload\(true\)/);
+  assert.match(source, /fetchTradingCandles\([\s\S]*?forceFresh: true/);
+});
+
 test("cached Binance history rejects expired forming fragments and backfills from the earliest one", async () => {
   const {
     tradingCandleBatchHasFinalizedHistory,
@@ -785,6 +873,10 @@ test("latest Binance candles share a stable gateway cache key while historical p
     const historicalEndTime = Date.now() - 5 * 60_000;
     await fetchTradingCandles("XRPUSDT", "60", 2, historicalEndTime, "perpetual");
     assert.equal(requests[1].parameters.endTime, historicalEndTime);
+
+    const forceFreshEndTime = Date.now();
+    await fetchTradingCandles("XRPUSDT", "60", 2, forceFreshEndTime, "perpetual", undefined, { forceFresh: true });
+    assert.equal(requests[2].parameters.endTime, forceFreshEndTime);
   } finally {
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;

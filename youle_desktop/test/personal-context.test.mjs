@@ -128,6 +128,14 @@ test("personal memory is encrypted, account-isolated, replaceable, and removable
       }]),
       (error) => error.code === "AMBIGUOUS_STOP_LOSS_MEMORY_KEY",
     );
+    await store.upsert("owner-a", [{
+      scope: "trading.risk",
+      kind: "constraint",
+      key: "minimum_risk_reward_ratio",
+      value: 0.39,
+      strength: "hard",
+    }]);
+    assert.equal((await store.tradingRiskProfile("owner-a")).minimumRiskRewardRatio, 0.39);
     await assert.rejects(
       store.upsert("owner-a", [{
         scope: "trading.risk",

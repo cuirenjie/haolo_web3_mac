@@ -67,7 +67,8 @@ test("price-action execution consumes the send snapshot and persists drawings to
   assert.match(generalRun, /storageSessionId: capturedTarget\?\.storageSessionId \|\| this\.drawingStorageSessionId/);
   assert.match(generalRun, /marketId: targetMarket\.id/);
   assert.match(generalRun, /interval: targetInterval/);
-  assert.match(generalRun, /snapshotTime: capturedTarget\?\.capturedAt \|\| Date\.now\(\)/);
+  assert.match(generalRun, /const analysisSnapshotTime = currentSnapshotRefreshed \? Date\.now\(\) : \(capturedTarget\?\.capturedAt \|\| Date\.now\(\)\)/);
+  assert.match(generalRun, /snapshotTime: analysisSnapshotTime/);
   assert.match(generalRun, /useCapturedTarget[\s\S]*?snapshots: \[\] as TradingSplitPaneAnalysisSnapshot\[\]/);
 
   assert.match(drawingCommit, /patch\.marketId !== currentJob\.marketId \|\| patch\.interval !== currentJob\.interval/);

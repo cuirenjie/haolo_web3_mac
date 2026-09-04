@@ -315,7 +315,7 @@ test("general analysis pipeline stays provider-neutral and emits a small isolate
   assert.match(result.analysisPlan.report, /想做空/);
   assert.match(result.analysisPlan.report, /当前账户净值的 10%/);
   assert.doesNotMatch(result.analysisPlan.report, /绝对不超过 3%/);
-  assert.match(result.analysisPlan.report, /最低净盈亏比为 2:1/);
+  assert.match(result.analysisPlan.report, /最低净盈亏比为 1:2/);
   assert.match(result.analysisPlan.report, /浮盈达到 1R/);
 });
 

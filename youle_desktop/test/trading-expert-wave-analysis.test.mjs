@@ -16,6 +16,7 @@ import {
   buildWaveAnalysisReport,
   buildWaveDrawingPatch,
   buildWaveModelPrompt,
+  normalizeWaveModelReview,
   runTradingWaveAnalysisPipeline,
 } from "../src/main/trading-analysis/wave-pipeline.mjs";
 import {
@@ -169,6 +170,36 @@ function fixtureParams(candles = fixtureCandles()) {
     instruction: "对当前画布数浪并绘制主计数、备选计数和失效位",
     candles,
   };
+}
+
+function fastPushCandles() {
+  const anchors = [
+    [0, 90], [5, 80], [20, 100], [28, 94],
+    [45, 130], [53, 118], [70, 150], [78, 145],
+    [90, 152], [99, 149],
+  ];
+  const valueAt = (index) => {
+    for (let anchorIndex = 1; anchorIndex < anchors.length; anchorIndex += 1) {
+      const [rightIndex, rightPrice] = anchors[anchorIndex];
+      const [leftIndex, leftPrice] = anchors[anchorIndex - 1];
+      if (index > rightIndex) continue;
+      return leftPrice + (rightPrice - leftPrice) * (index - leftIndex) / (rightIndex - leftIndex);
+    }
+    return anchors.at(-1)[1];
+  };
+  return Array.from({ length: 100 }, (_, index) => {
+    const close = valueAt(index);
+    const previous = valueAt(Math.max(0, index - 1));
+    const open = previous + (close - previous) * 0.35;
+    return {
+      time: 1_720_000_000 + index * 3_600,
+      open,
+      high: Math.max(open, close) + 0.2,
+      low: Math.min(open, close) - 0.2,
+      close,
+      volume: 100 + index,
+    };
+  });
 }
 
 function rulePoints(prices, firstType = "low") {
@@ -332,6 +363,93 @@ test("wave engine deterministically generates rule-checked impulse and correctio
   assert.ok(first.statistics.completeCycleCount >= 1);
   assert.equal(completeCycle.components.motiveKind, "impulse");
   assert.equal(completeCycle.components.structureVerified, true);
+});
+
+test("wave engine keeps a fresh five-wave price structure when child pivots are not yet visible", () => {
+  const snapshot = normalizeTradingMarketSnapshot({
+    marketId: "BINANCE:FUTURES:ETHUSDT",
+    interval: "60",
+    snapshotTime: 1_721_000_000_000,
+    candles: fastPushCandles(),
+  });
+  const result = runWaveTheoryEngine(snapshot);
+  const primary = result.structures.primaryCandidate;
+  assert.equal(primary.kind, "impulse");
+  assert.equal(primary.validation, "hard_price_rules_pending_lower_degree_structure");
+  assert.equal(primary.status, "tentative");
+  assert.deepEqual(primary.points.map((point) => point.index), [28, 45, 53, 70, 78, 90]);
+  assert.equal(primary.rules.wave2HoldsOrigin, true);
+  assert.equal(primary.rules.wave3MakesProgress, true);
+  assert.equal(primary.rules.wave4HoldsWave3Origin, true);
+  assert.equal(primary.rules.wave4AvoidsWave1, true);
+  assert.equal(primary.rules.wave5MakesProgress, true);
+  assert.equal(primary.rules.impulseInternalStructureVerified, false);
+  assert.equal(result.statistics.completeCycleCount, 0);
+  assert.ok(primary.points.every((point) => result.evidence.some((item) => item.evidenceId === point.id)));
+});
+
+test("wave drawing renders all 0–5 points for a fresh impulse instead of only ABC", () => {
+  const snapshot = normalizeTradingMarketSnapshot({
+    marketId: "BINANCE:FUTURES:ETHUSDT",
+    interval: "60",
+    snapshotTime: 1_721_000_000_000,
+    candles: fastPushCandles(),
+  });
+  const theoryResult = runWaveTheoryEngine(snapshot);
+  const primary = theoryResult.structures.primaryCandidate;
+  const patch = buildWaveDrawingPatch(snapshot, theoryResult, {
+    primaryCandidateId: primary.id,
+    alternateCandidateIds: [],
+    showProjectionZone: false,
+    verdict: "approve",
+  });
+  const path = patch.operations.find((operation) => operation.drawing.tool === "path");
+  assert.deepEqual(path.drawing.points.map((point) => point.time), primary.points.map((point) => point.time));
+  assert.deepEqual(
+    patch.operations.filter((operation) => operation.drawing.tool === "note" && /^[0-5]$/.test(operation.drawing.text))
+      .map((operation) => operation.drawing.text),
+    ["0", "1", "2", "3", "4", "5"],
+  );
+  assert.match(
+    patch.operations.find((operation) => operation.drawing.text?.startsWith("主计数："))?.drawing.text || "",
+    /暂定5浪推动/,
+  );
+});
+
+test("model review cannot replace a fresh impulse with an older ABC correction", () => {
+  const points = (indices, firstType) => indices.map((index, pointIndex) => ({
+    id: `${firstType}-${index}`,
+    index,
+    time: 1_720_000_000 + index * 3_600,
+    price: 100 + index,
+    type: pointIndex % 2 === 0 ? firstType : firstType === "low" ? "high" : "low",
+  }));
+  const theoryResult = {
+    statistics: { candleCount: 100 },
+    structures: {
+      candidates: [
+        {
+          id: "fresh-impulse",
+          kind: "impulse",
+          points: points([70, 75, 80, 85, 90, 95], "low"),
+        },
+        {
+          id: "old-abc",
+          kind: "correction",
+          points: points([20, 30, 40, 50], "high"),
+        },
+      ],
+      primaryCandidate: null,
+    },
+  };
+  theoryResult.structures.primaryCandidate = theoryResult.structures.candidates[0];
+  const review = normalizeWaveModelReview(JSON.stringify({
+    schemaVersion: 1,
+    verdict: "approve",
+    summary: "旧 ABC",
+    primaryCandidateId: "old-abc",
+  }), theoryResult);
+  assert.equal(review.primaryCandidateId, "fresh-impulse");
 });
 
 test("wave subdivision evidence rejects arbitrary noisy odd counts", () => {
@@ -755,7 +873,7 @@ test("4H wave analysis uses real 1H and 15m child waves for a bounded tactical t
   const preferredPlanScenario = executionPlan.scenarios.find((item) => item.side === executionPlan.preferredSide);
   assert.match(preferredPlanScenario.stop.label, /结构支撑区下沿/);
   assert.ok(preferredPlanScenario.stop.evidenceIds.some((id) => action.stopBasis.evidenceIds.includes(id)));
-  assert.ok(executionPlan.takeProfits.every((item) => /依据 Fib|依据 候选结构投影|用户偏好/.test(item.condition)));
+  assert.ok(executionPlan.takeProfits.every((item) => /依据 Fib|依据 候选结构投影|依据 结构风险倍数|用户偏好/.test(item.condition)));
   assert.ok(executionPlan.scenarios
     .find((item) => item.side === executionPlan.preferredSide)
     .targets.some((target) => /Fib|候选结构投影/.test(target.label)));

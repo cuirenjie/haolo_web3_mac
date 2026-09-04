@@ -38,7 +38,7 @@ Map explicit trading rules to these canonical numeric keys under `trading.risk` 
 - `max_loss_per_trade_percent`: user-configured maximum planned loss as a percentage of account equity. Use 2 only as the onboarding recommendation when the user accepts the default. Preserve an explicit value above 3 (for example 10) exactly; do not apply a separate Haolo product ceiling.
 - `max_position_percent`: maximum position notional as a percentage of total account equity.
 - `max_leverage`: maximum allowed leverage multiplier.
-- `minimum_risk_reward_ratio`: minimum acceptable reward-to-risk ratio.
+- `minimum_risk_reward_ratio`: minimum acceptable reward-to-risk ratio. Preserve the user's explicit value, including values below `1:0.4`; use the product default `1:0.4` only when no value is set.
 - `risk_preference`: a concise text description such as conservative, balanced, or aggressive.
 
 For exit percentages, use these canonical keys under `trading.exit`:
