@@ -272,7 +272,11 @@ test("shared UI translator covers English and full renderer character conversion
   assert.equal(translateTradingPeriodLabel("1时", "en"), "1H");
   assert.equal(translateTradingPeriodLabel("1秒", "en"), "1S");
   assert.equal(translateTradingPeriodLabel("4時", "en"), "4H");
+  assert.equal(translateTradingPeriodLabel("1月", "en"), "1MO");
+  assert.equal(translateTradingPeriodLabel("1年", "en"), "1Y");
   assert.equal(translateTradingPeriodLabel("1时", "zh-TW"), "1時");
+  assert.equal(translateAppText("周期已自动应用。", "en"), "Intervals applied automatically.");
+  assert.equal(translateAppText("周期已自动应用。", "zh-TW"), "週期已自動套用。");
   assert.equal(
     translateAppText("天才交易员，你好！我是 Haolo，你的全能交易助理。接下来我们会通过几段简短对话了解你的交易偏好。现在可以开始吗？", "en"),
     "Hello, trader! I'm Haolo, your all-in-one trading assistant. A few short questions will help me understand your trading preferences. Ready to begin?",

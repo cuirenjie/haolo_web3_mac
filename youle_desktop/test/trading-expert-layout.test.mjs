@@ -1511,6 +1511,13 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
     ".trading-market-symbol:focus-visible",
     ".trading-market-symbol strong",
   );
+  const applyPeriods = sourceBlock(
+    source,
+    "private applyDraftPeriods()",
+    "private clearPeriodDragState()",
+  );
+  const addPeriod = sourceBlock(source, "private addDraftPeriod()", "private applyDraftPeriods()");
+  const removePeriod = sourceBlock(source, 'if (action === "remove-period")', 'if (action === "retry")');
 
   assert.match(source, /function tradingViewResolution/);
   assert.match(source, /period\.unit === "s"\) return `\$\{amount\}S`/);
@@ -1525,15 +1532,25 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
   assert.doesNotMatch(editor, /未添加项/);
   assert.doesNotMatch(editor, />秒</);
   for (const unit of ["分", "时", "日"]) assert.match(editor, new RegExp(`>${unit}<`));
+  for (const unit of ["周", "月", "年"]) assert.match(editor, new RegExp(`>${unit}<`));
+  assert.match(editor, /data-market-action="period-unit" data-market-period-unit="w"/);
+  assert.match(editor, /data-market-action="period-unit" data-market-period-unit="M"/);
+  assert.match(editor, /data-market-action="period-unit" data-market-period-unit="Y"/);
   assert.doesNotMatch(editor, /<select[^>]*data-market-period-unit/);
   assert.match(editor, /class="video-expert-select trading-market-period-unit-picker"/);
   assert.match(editor, /class="video-expert-select-button"/);
   assert.match(editor, /class="video-expert-select-menu trading-market-period-unit-menu"/);
   assert.match(editor, /data-market-action="toggle-period-unit"/);
   assert.match(editor, /data-market-action="period-unit" data-market-period-unit="m"/);
-  assert.match(editor, /data-market-action="restore-periods">恢复默认</);
-  assert.match(editor, /data-market-action="confirm-periods">确定</);
+  assert.doesNotMatch(editor, /trading-market-period-editor-actions/);
+  assert.doesNotMatch(editor, /最多展示|恢复默认|data-market-action="restore-periods"|data-market-action="confirm-periods"/);
   assert.match(source, /const MAX_TRADING_PERIODS = 10/);
+  assert.match(addPeriod, /this\.applyDraftPeriods\(\)/);
+  assert.match(removePeriod, /if \(!nextPeriods\.length\)[\s\S]*?请至少保留一个周期。[\s\S]*?this\.applyDraftPeriods\(\)/);
+  assert.match(applyPeriods, /this\.renderPeriodEditor\(false\)/);
+  assert.match(applyPeriods, /this\.renderPeriodButtons\(\)/);
+  assert.match(applyPeriods, /this\.setPeriodStatus\("周期已自动应用。", "success"\)/);
+  assert.doesNotMatch(applyPeriods, /setPeriodEditorOpen\(false\)/);
   assert.match(source, /this\.periodTimes\.addEventListener\("wheel", this\.handlePeriodScrollWheel, \{ passive: false \}\)/);
   assert.match(source, /this\.periodTimes\.addEventListener\("pointermove", this\.handlePeriodScrollPointerMove\)/);
   assert.match(source, /private readonly handlePeriodScrollWheel = \(event: WheelEvent\) => \{[\s\S]*?this\.periodTimes\.scrollLeft = nextScrollLeft;/);
@@ -1551,6 +1568,7 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
   assert.match(source, /this\.periodItems\.insertBefore\(/);
   assert.match(source, /item\.animate\(/);
   assert.match(source, /this\.draftPeriods = reorderTradingPeriods\(this\.draftPeriods, orderedResolutions\)/);
+  assert.match(source, /finishPeriodPointerDrag\(commit: boolean\)[\s\S]*?this\.applyDraftPeriods\(\)/);
   assert.match(source, /function loadTradingPeriodsFromStorage[\s\S]*storage\.getItem\(TRADING_PERIODS_STORAGE_KEY\)/);
   assert.match(source, /private loadTradingPeriods\(\)[\s\S]*return loadTradingPeriodsFromStorage\(window\.localStorage\)/);
   assert.match(source, /window\.localStorage\.setItem\(TRADING_PERIODS_STORAGE_KEY, JSON\.stringify\(this\.periods\)\)/);
@@ -1560,7 +1578,7 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
   assert.match(styles, /\.trading-market-period-item\s*\{[^}]*touch-action: none;[^}]*user-select: none;/s);
   assert.match(styles, /\.trading-market-period-item\.drag-over\s*\{[^}]*border-color: var\(--trading-market-accent\);/s);
   assert.match(styles, /\.trading-market-period-drag-ghost\s*\{[^}]*position: fixed;[^}]*pointer-events: none;[^}]*cursor: grabbing;/s);
-  assert.match(styles, /\.trading-market-period-add-controls > \[data-market-action="add-period"\]:disabled,[\s\S]*?opacity: 0\.45;/s);
+  assert.match(styles, /\.trading-market-period-add-controls > \[data-market-action="add-period"\]:disabled\s*\{[^}]*opacity: 0\.45;/s);
   assert.match(styles, /\.trading-market-period-unit-menu\s*\{[^}]*top: calc\(100% \+ 6px\);[^}]*bottom: auto;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.copy-context-menu,[\s\S]*?html\[data-theme="dark"\] \.video-expert-select-menu,[\s\S]*?\{[^}]*background: #1b1e23;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-market-period-editor\s*\{[^}]*box-shadow:/s);

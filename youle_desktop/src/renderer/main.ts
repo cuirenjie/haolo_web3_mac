@@ -31168,7 +31168,9 @@ async function handleTradingAlertTriggered(payload: {
   ].filter(Boolean).join("\n\n");
   if (threadId) {
     const item = appendTradingExpertReport(threadId, text, `trading-alert-trigger-${evidenceId}`);
-    await persistCompletedTradingExpertTranscript(threadId, [item]);
+    await persistCompletedTradingExpertTranscript(threadId, [item], {
+      title: firstString(payload?.title) || undefined,
+    });
   }
   showToast(`${firstString(payload?.title) || "交易预警"} 已真实触发`, 5000);
 }

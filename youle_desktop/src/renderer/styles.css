@@ -36707,8 +36707,7 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
   font-weight: 650;
 }
 
-.trading-market-period-editor-head span,
-.trading-market-period-editor-actions > span {
+.trading-market-period-editor-head span {
   color: var(--trading-market-muted);
   font-size: calc(10px + var(--app-font-size-offset));
 }
@@ -36871,8 +36870,7 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
   display: none !important;
 }
 
-.trading-market-period-add-controls > [data-market-action="add-period"],
-.trading-market-period-editor-actions button {
+.trading-market-period-add-controls > [data-market-action="add-period"] {
   height: 34px;
   border: 1px solid var(--trading-market-border);
   border-radius: 5px;
@@ -36885,14 +36883,12 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
   transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
-.trading-market-period-add-controls > [data-market-action="add-period"]:hover,
-.trading-market-period-editor-actions button:hover {
+.trading-market-period-add-controls > [data-market-action="add-period"]:hover {
   border-color: color-mix(in srgb, var(--trading-market-accent) 44%, var(--trading-market-border));
   background: var(--trading-market-control-hover);
 }
 
-.trading-market-period-add-controls > [data-market-action="add-period"]:disabled,
-.trading-market-period-editor-actions button:disabled {
+.trading-market-period-add-controls > [data-market-action="add-period"]:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -36910,30 +36906,6 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
 
 .trading-market-period-add > p[data-tone="success"] {
   color: var(--trading-market-positive);
-}
-
-.trading-market-period-editor-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.trading-market-period-editor-actions > span {
-  margin-right: auto;
-}
-
-.trading-market-period-editor-actions button.primary {
-  border-color: var(--trading-market-accent);
-  background: var(--trading-market-accent);
-  color: #ffffff;
-}
-
-.trading-market-period-editor-actions button.primary:hover {
-  border-color: color-mix(in srgb, var(--trading-market-accent) 82%, #000000);
-  background: color-mix(in srgb, var(--trading-market-accent) 86%, #000000);
-  color: #ffffff;
 }
 
 .trading-market-times {

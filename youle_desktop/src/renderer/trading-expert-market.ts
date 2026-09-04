@@ -717,8 +717,8 @@ export type TradingStrategyConversationRequest = Omit<TradingChanConversationReq
   onProgress?: (phase: string, message: string) => void;
 };
 export type TradingStrategyConversationResult = TradingOrderFlowConversationResult;
-export type TradingPeriodUnit = "s" | "m" | "h" | "d" | "w";
-type AddableTradingPeriodUnit = Extract<TradingPeriodUnit, "m" | "h" | "d">;
+export type TradingPeriodUnit = "s" | "m" | "h" | "d" | "w" | "M" | "Y";
+type AddableTradingPeriodUnit = Extract<TradingPeriodUnit, "m" | "h" | "d" | "w" | "M" | "Y">;
 export interface TradingPeriod {
   amount: number;
   unit: TradingPeriodUnit;
@@ -1090,6 +1090,8 @@ const BINANCE_INTERVAL_MS: Readonly<Record<string, number>> = {
   "1d": 86_400_000,
   "3d": 259_200_000,
   "1w": 604_800_000,
+  // Binance's native monthly kline interval.
+  "1M": 2_592_000_000,
 };
 const TRADING_PERIOD_UNIT_MS: Record<TradingPeriodUnit, number> = {
   s: 1_000,
@@ -1097,6 +1099,10 @@ const TRADING_PERIOD_UNIT_MS: Record<TradingPeriodUnit, number> = {
   h: 3_600_000,
   d: 86_400_000,
   w: 604_800_000,
+  M: 30 * 86_400_000,
+  // TradingView represents a year as twelve monthly bars. Keep the same
+  // fixed duration for range calculations and custom-bar aggregation.
+  Y: 12 * 30 * 86_400_000,
 };
 const TRADING_PERIOD_UNIT_LABEL: Record<TradingPeriodUnit, string> = {
   s: "秒",
@@ -1104,6 +1110,8 @@ const TRADING_PERIOD_UNIT_LABEL: Record<TradingPeriodUnit, string> = {
   h: "时",
   d: "日",
   w: "周",
+  M: "月",
+  Y: "年",
 };
 const CHINA_TIME_OFFSET_SECONDS = 8 * 60 * 60;
 
@@ -1113,18 +1121,28 @@ export function tradingViewResolution(period: TradingPeriod) {
   if (period.unit === "m") return String(amount);
   if (period.unit === "h") return String(amount * 60);
   if (period.unit === "d") return `${amount}D`;
+  if (period.unit === "M") return `${amount}M`;
+  if (period.unit === "Y") return `${amount * 12}M`;
   return `${amount}W`;
 }
 
 export function tradingPeriodFromResolution(resolution: string): TradingPeriod | null {
-  const normalized = String(resolution || "").trim().toUpperCase();
-  const match = /^(\d+)([SDW]?)$/.exec(normalized);
+  const normalized = String(resolution || "").trim();
+  const match = /^(\d+)([sSmMhHdDwWyYM]?)$/.exec(normalized);
   if (!match) return null;
   const amount = Number(match[1]);
   if (!Number.isInteger(amount) || amount < 1 || amount > 10_000) return null;
-  if (match[2] === "S") return { amount, unit: "s" };
-  if (match[2] === "D") return { amount, unit: "d" };
-  if (match[2] === "W") return { amount, unit: "w" };
+  const rawUnit = match[2];
+  if (rawUnit.toUpperCase() === "S") return { amount, unit: "s" };
+  if (rawUnit.toUpperCase() === "H") return { amount, unit: "h" };
+  if (rawUnit.toUpperCase() === "D") return { amount, unit: "d" };
+  if (rawUnit.toUpperCase() === "W") return { amount, unit: "w" };
+  if (rawUnit.toUpperCase() === "Y") return { amount, unit: "Y" };
+  if (rawUnit === "M") {
+    return amount % 12 === 0
+      ? { amount: amount / 12, unit: "Y" }
+      : { amount, unit: "M" };
+  }
   return amount % 60 === 0
     ? { amount: amount / 60, unit: "h" }
     : { amount, unit: "m" };
@@ -1132,20 +1150,32 @@ export function tradingPeriodFromResolution(resolution: string): TradingPeriod |
 
 export function tradingAlertIntervalFromResolution(resolution: string) {
   const period = tradingPeriodFromResolution(resolution);
-  return period ? `${period.amount}${period.unit}` : String(resolution || "").trim().toLowerCase();
+  if (!period) return String(resolution || "").trim().toLowerCase();
+  // Alert protocols use Binance's monthly token (`12M`) rather than a
+  // non-standard yearly token. This keeps a custom year round-trippable
+  // through `tradingResolutionFromAlertInterval`.
+  if (period.unit === "Y") return `${period.amount * 12}M`;
+  return `${period.amount}${period.unit}`;
 }
 
 export function tradingResolutionFromAlertInterval(interval: string) {
-  const match = /^(\d+)(s|m|h|d|w)$/i.exec(String(interval || "").trim());
+  const match = /^(\d+)(s|m|h|d|w|M|Y)$/i.exec(String(interval || "").trim());
   if (!match) return String(interval || "").trim().toUpperCase();
-  return tradingViewResolution({ amount: Number(match[1]), unit: match[2].toLowerCase() as TradingPeriodUnit });
+  const rawUnit = match[2];
+  const unit = rawUnit === "M"
+    ? "M"
+    : rawUnit.toUpperCase() === "Y"
+      ? "Y"
+      : rawUnit.toLowerCase();
+  return tradingViewResolution({ amount: Number(match[1]), unit: unit as TradingPeriodUnit });
 }
 
 export function tradingCandleSeriesMatchesResolution(
   candles: ReadonlyArray<{ time: number }>,
   resolution: string,
 ) {
-  const expectedStepSeconds = (tradingViewResolutionDurationMs(resolution) || 0) / 1_000;
+  const normalizedResolution = String(resolution || "").trim();
+  const expectedStepSeconds = (tradingViewResolutionDurationMs(normalizedResolution) || 0) / 1_000;
   if (!expectedStepSeconds || candles.length < 2) return false;
   const orderedTimes = [...new Set(candles
     .map((candle) => Number(candle.time))
@@ -1154,7 +1184,15 @@ export function tradingCandleSeriesMatchesResolution(
   const recentTimes = orderedTimes.slice(-32);
   const steps = recentTimes.slice(1).map((time, index) => time - recentTimes[index]);
   if (!steps.length) return false;
-  const exactSteps = steps.filter((step) => step === expectedStepSeconds).length;
+  const monthly = /^(\d+)M$/.exec(normalizedResolution);
+  const exactSteps = monthly
+    ? steps.filter((step) => {
+        const monthCount = Number(monthly[1]);
+        const minimum = monthCount * 28 * 86_400;
+        const maximum = monthCount * 31 * 86_400;
+        return step >= minimum && step <= maximum;
+      }).length
+    : steps.filter((step) => step === expectedStepSeconds).length;
   return exactSteps >= Math.ceil(steps.length * 0.8);
 }
 
@@ -1181,7 +1219,7 @@ function isTradingPeriod(value: unknown): value is TradingPeriod {
   return Number.isInteger(candidate.amount)
     && Number(candidate.amount) >= 1
     && Number(candidate.amount) <= 10_000
-    && ["s", "m", "h", "d", "w"].includes(String(candidate.unit));
+    && ["s", "m", "h", "d", "w", "M", "Y"].includes(String(candidate.unit));
 }
 
 export function normalizeTradingPeriods(value: unknown): TradingPeriod[] {
@@ -2448,25 +2486,24 @@ export function reorderTradingPeriods(
 }
 
 export function tradingViewResolutionDurationMs(resolution: string) {
-  const match = /^(\d+)([SDW]?)$/.exec(resolution.trim());
+  const match = /^(\d+)([sSmMhHdDwWyYM]?)$/.exec(String(resolution || "").trim());
   if (!match) return null;
   const amount = Number(match[1]);
   if (!Number.isInteger(amount) || amount < 1) return null;
-  if (match[2] === "S") return amount * 1_000;
-  if (match[2] === "D") return amount * 86_400_000;
-  if (match[2] === "W") return amount * 604_800_000;
+  const unit = match[2];
+  if (unit.toUpperCase() === "S") return amount * 1_000;
+  if (unit.toUpperCase() === "H") return amount * 3_600_000;
+  if (unit.toUpperCase() === "D") return amount * 86_400_000;
+  if (unit.toUpperCase() === "W") return amount * 604_800_000;
+  if (unit.toUpperCase() === "Y") return amount * 12 * 30 * 86_400_000;
+  if (unit === "M") return amount * 30 * 86_400_000;
   return amount * 60_000;
 }
 
 export function tradingPeriodLabelForResolution(resolution: string) {
-  const normalized = String(resolution || "").trim().toUpperCase();
-  const match = /^(\d+)([SDW]?)$/.exec(normalized);
-  if (!match) return normalized || "当前周期";
-  const amount = Number(match[1]);
-  if (match[2] === "S") return `${amount}秒`;
-  if (match[2] === "D") return `${amount}日`;
-  if (match[2] === "W") return `${amount}周`;
-  return amount % 60 === 0 ? `${amount / 60}时` : `${amount}分`;
+  const source = String(resolution || "").trim();
+  const period = tradingPeriodFromResolution(source);
+  return period ? tradingPeriodLabel(period) : source.toUpperCase() || "当前周期";
 }
 
 function tradingPeriodLabelForResolutionEnglish(resolution: string) {
@@ -3685,6 +3722,7 @@ export function hyperliquidIntervalForTradingResolution(resolution: string) {
   const normalized = String(resolution || "").trim().toUpperCase();
   if (normalized === "1D") return "1d";
   if (normalized === "1W") return "1w";
+  if (normalized === "1M") return "1M";
   const minutes = Number(normalized);
   return new Map<number, string>([
     [1, "1m"], [3, "3m"], [5, "5m"], [15, "15m"], [30, "30m"],
@@ -4479,6 +4517,7 @@ function baseAssetFromSymbol(symbol: string) {
 }
 
 function chartTickLabel(timeValue: number, interval: string) {
+  const normalizedInterval = String(interval || "").trim();
   const date = new Date(timeValue * 1000);
   const hour = date.getUTCHours();
   const minute = date.getUTCMinutes();
@@ -4487,20 +4526,26 @@ function chartTickLabel(timeValue: number, interval: string) {
   const pad = (value: number) => String(value).padStart(2, "0");
   const time = `${pad(hour)}:${pad(minute)}`;
   const monthDay = `${pad(month)}/${pad(day)}`;
-  if (interval === "1" || interval === "5") {
+  if (normalizedInterval === "1" || normalizedInterval === "5") {
     if (minute !== 0) return null;
     return hour === 0 ? monthDay : time;
   }
-  if (interval === "15") {
+  if (normalizedInterval === "15") {
     if (minute !== 0 || hour % 6 !== 0) return null;
     return hour === 0 ? monthDay : time;
   }
-  if (interval === "60") {
+  if (normalizedInterval === "60") {
     if (minute !== 0 || hour % 12 !== 0) return null;
     return hour === 0 ? monthDay : time;
   }
-  if (interval === "240") return minute === 0 && hour === 0 ? monthDay : null;
-  if (interval === "1D") {
+  if (normalizedInterval === "240") return minute === 0 && hour === 0 ? monthDay : null;
+  if (normalizedInterval === "1D") {
+    return day === 1 ? `${date.getUTCFullYear()}/${pad(month)}` : null;
+  }
+  const monthly = /^(\d+)M$/.exec(normalizedInterval);
+  if (monthly) {
+    const monthCount = Number(monthly[1]);
+    if (monthCount % 12 === 0) return month === 1 && day === 1 ? String(date.getUTCFullYear()) : null;
     return day === 1 ? `${date.getUTCFullYear()}/${pad(month)}` : null;
   }
   return null;
@@ -4577,17 +4622,15 @@ function renderPeriodEditorShell() {
               <button type="button" class="selected" data-market-action="period-unit" data-market-period-unit="m" role="option" aria-selected="true">分</button>
               <button type="button" data-market-action="period-unit" data-market-period-unit="h" role="option" aria-selected="false">时</button>
               <button type="button" data-market-action="period-unit" data-market-period-unit="d" role="option" aria-selected="false">日</button>
+              <button type="button" data-market-action="period-unit" data-market-period-unit="w" role="option" aria-selected="false">周</button>
+              <button type="button" data-market-action="period-unit" data-market-period-unit="M" role="option" aria-selected="false">月</button>
+              <button type="button" data-market-action="period-unit" data-market-period-unit="Y" role="option" aria-selected="false">年</button>
             </div>
           </div>
           <button type="button" data-market-action="add-period">添加</button>
         </div>
         <p data-market-period-status aria-live="polite"></p>
       </div>
-      <footer class="trading-market-period-editor-actions">
-        <span>最多展示 ${MAX_TRADING_PERIODS} 个</span>
-        <button type="button" data-market-action="restore-periods">恢复默认</button>
-        <button type="button" class="primary" data-market-action="confirm-periods">确定</button>
-      </footer>
     </section>
   `;
 }
@@ -5384,7 +5427,7 @@ class TradingExpertMarketWorkspace {
     }
     if (action === "period-unit") {
       const unit = target.dataset.marketPeriodUnit;
-      if (unit !== "m" && unit !== "h" && unit !== "d") return;
+      if (unit !== "m" && unit !== "h" && unit !== "d" && unit !== "w" && unit !== "M" && unit !== "Y") return;
       this.periodUnit = unit;
       this.updatePeriodUnitPicker();
       this.setPeriodUnitMenuOpen(false);
@@ -5397,21 +5440,15 @@ class TradingExpertMarketWorkspace {
     if (action === "remove-period") {
       const resolution = target.dataset.marketPeriodResolution;
       if (!resolution) return;
-      this.draftPeriods = this.draftPeriods.filter(
+      const nextPeriods = this.draftPeriods.filter(
         (period) => tradingViewResolution(period) !== resolution,
       );
-      this.setPeriodStatus("");
-      this.renderPeriodEditor();
-      return;
-    }
-    if (action === "restore-periods") {
-      this.draftPeriods = cloneTradingPeriods(DEFAULT_TRADING_PERIODS);
-      this.setPeriodStatus("已恢复默认排序，点击确定后生效。", "success");
-      this.renderPeriodEditor(false);
-      return;
-    }
-    if (action === "confirm-periods") {
-      this.confirmDraftPeriods();
+      if (!nextPeriods.length) {
+        this.setPeriodStatus("请至少保留一个周期。", "error");
+        return;
+      }
+      this.draftPeriods = nextPeriods;
+      this.applyDraftPeriods();
       return;
     }
     if (action === "retry") {
@@ -7047,11 +7084,10 @@ class TradingExpertMarketWorkspace {
       return;
     }
     this.draftPeriods = [...this.draftPeriods, period];
-    this.renderPeriodEditor();
-    this.setPeriodStatus(`已添加 ${tradingPeriodLabel(period)}。`, "success");
+    this.applyDraftPeriods();
   }
 
-  private confirmDraftPeriods() {
+  private applyDraftPeriods() {
     if (!this.draftPeriods.length) {
       this.setPeriodStatus("请至少保留一个周期。", "error");
       return;
@@ -7066,6 +7102,8 @@ class TradingExpertMarketWorkspace {
     } catch {
       // Storage failure should not prevent applying this session's configuration.
     }
+    this.draftPeriods = cloneTradingPeriods(this.periods);
+    this.renderPeriodEditor(false);
     if (!this.periods.some((period) => tradingViewResolution(period) === this.activeInterval)) {
       this.activeInterval = tradingViewResolution(this.periods[0]);
     }
@@ -7075,11 +7113,11 @@ class TradingExpertMarketWorkspace {
       return previousResolutions.has(resolution) ? latest : resolution;
     }, null);
     this.revealPeriodButton(addedResolution || this.activeInterval);
-    this.setPeriodEditorOpen(false);
     if (tradingSplitLayout(this.splitLayoutId).count > 1) this.applySplitLayout();
     if (this.activeInterval !== previousInterval) {
       void this.restartMarketData({ preserveChart: true });
     }
+    this.setPeriodStatus("周期已自动应用。", "success");
   }
 
   private clearPeriodDragState() {
@@ -7154,8 +7192,11 @@ class TradingExpertMarketWorkspace {
       this.draftPeriods = reorderTradingPeriods(this.draftPeriods, orderedResolutions);
     }
     this.clearPeriodDragState();
-    this.renderPeriodEditor(false);
-    if (commit) this.setPeriodStatus("排序已更新，点击确定后生效。", "success");
+    if (commit) {
+      this.applyDraftPeriods();
+    } else {
+      this.renderPeriodEditor(false);
+    }
   }
 
   private updateIndicatorButtons() {
@@ -8630,7 +8671,9 @@ class TradingExpertMarketWorkspace {
         : selector.kind === "universe"
           ? String(selector.frozenMarketIds?.[0] || this.selectedMarketId)
           : this.selectedMarketId;
-      const interval = String(context?.intervals?.[0] || tradingAlertIntervalFromResolution(this.activeInterval)).toLowerCase();
+      // Preserve the uppercase `M` month token; lowercasing would turn it into
+      // the minute token and simulate the wrong candle cadence.
+      const interval = String(context?.intervals?.[0] || tradingAlertIntervalFromResolution(this.activeInterval)).trim();
       const resolution = tradingResolutionFromAlertInterval(interval);
       const market = this.markets.find((candidate) => candidate.id.toUpperCase() === marketId.toUpperCase())
         || this.favoriteMarketFromId(marketId)

@@ -26,7 +26,10 @@ test("custom periods use TradingView resolution strings and keep at most ten uni
     DEFAULT_TRADING_PERIODS,
     normalizeTradingPeriods,
     reorderTradingPeriods,
+    tradingAlertIntervalFromResolution,
     tradingPeriodLabel,
+    tradingPeriodFromResolution,
+    tradingResolutionFromAlertInterval,
     tradingViewResolution,
   } = await import("../src/renderer/trading-expert-market.ts");
 
@@ -43,14 +46,29 @@ test("custom periods use TradingView resolution strings and keep at most ten uni
   assert.equal(tradingViewResolution({ amount: 4, unit: "h" }), "240");
   assert.equal(tradingViewResolution({ amount: 2, unit: "d" }), "2D");
   assert.equal(tradingViewResolution({ amount: 1, unit: "w" }), "1W");
+  assert.equal(tradingViewResolution({ amount: 1, unit: "M" }), "1M");
+  assert.equal(tradingViewResolution({ amount: 1, unit: "Y" }), "12M");
+  assert.equal(tradingPeriodLabel({ amount: 2, unit: "M" }), "2月");
+  assert.equal(tradingPeriodLabel({ amount: 1, unit: "Y" }), "1年");
+  assert.deepEqual(tradingPeriodFromResolution("1M"), { amount: 1, unit: "M" });
+  assert.deepEqual(tradingPeriodFromResolution("12M"), { amount: 1, unit: "Y" });
+  assert.equal(tradingAlertIntervalFromResolution("12M"), "12M");
+  assert.equal(tradingResolutionFromAlertInterval("1M"), "1M");
+  assert.equal(tradingResolutionFromAlertInterval("1m"), "1");
 
   const normalized = normalizeTradingPeriods([
     { amount: 60, unit: "m" },
     { amount: 1, unit: "h" },
+    { amount: 1, unit: "M" },
+    { amount: 1, unit: "Y" },
     ...Array.from({ length: 12 }, (_, index) => ({ amount: index + 1, unit: "d" })),
   ]);
   assert.equal(normalized.length, 10);
   assert.equal(normalized.filter((period) => tradingViewResolution(period) === "60").length, 1);
+  assert.deepEqual(normalized.filter((period) => period.unit === "M" || period.unit === "Y"), [
+    { amount: 1, unit: "M" },
+    { amount: 1, unit: "Y" },
+  ]);
 
   const reordered = reorderTradingPeriods(DEFAULT_TRADING_PERIODS, ["5", "1W", "240"]);
   assert.deepEqual(reordered.map(tradingPeriodLabel), [
@@ -1126,6 +1144,8 @@ test("Binance futures resolution adapter selects native sources and aggregates c
   assert.equal(tradingViewResolutionDurationMs("5S"), 5_000);
   assert.equal(tradingViewResolutionDurationMs("240"), 14_400_000);
   assert.equal(tradingViewResolutionDurationMs("2D"), 172_800_000);
+  assert.equal(tradingViewResolutionDurationMs("1M"), 2_592_000_000);
+  assert.equal(tradingViewResolutionDurationMs("12M"), 31_104_000_000);
   assert.deepEqual(binanceResolutionSource("1S"), {
     targetMs: 1_000,
     sourceInterval: null,
@@ -1150,6 +1170,11 @@ test("Binance futures resolution adapter selects native sources and aggregates c
     targetMs: 172_800_000,
     sourceInterval: "1d",
     sourceMs: 86_400_000,
+  });
+  assert.deepEqual(binanceResolutionSource("1M"), {
+    targetMs: 2_592_000_000,
+    sourceInterval: "1M",
+    sourceMs: 2_592_000_000,
   });
 
   const candles = aggregateTradingCandles([

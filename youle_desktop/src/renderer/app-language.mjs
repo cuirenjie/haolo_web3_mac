@@ -382,6 +382,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "请输入任务说明": "Enter the mission statement",
   "交易对": "Trading pair",
   "周期": "Interval",
+  "周期已自动应用。": "Intervals applied automatically.",
   "行情": "Market",
   "现货": "Spot",
   "合约": "Futures",
@@ -702,6 +703,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
 });
 
 const TRADITIONAL_UI_PHRASES = Object.freeze({
+  "周期已自动应用。": "週期已自動套用。",
   "此版本必须更新后才能继续使用。": "此版本必須更新後才能繼續使用。",
   "WEB3免费": "WEB3免費",
   "体验版": "體驗版",
@@ -790,13 +792,15 @@ const TRADITIONAL_UI_PHRASES = Object.freeze({
 
 const HAN_TEXT_PATTERN = /\p{Script=Han}/u;
 const LATIN_BUTTON_TEXT_PATTERN = /[A-Za-z]/u;
-const TRADING_PERIOD_LABEL_PATTERN = /^(\s*)(\d+)\s*(秒|分|时|日|周)(\s*)$/u;
+const TRADING_PERIOD_LABEL_PATTERN = /^(\s*)(\d+)\s*(秒|分|时|日|周|月|年)(\s*)$/u;
 const ENGLISH_TRADING_PERIOD_UNITS = Object.freeze({
   秒: "S",
   分: "M",
   时: "H",
   日: "D",
   周: "W",
+  月: "MO",
+  年: "Y",
 });
 const TRANSLATABLE_ATTRIBUTES = Object.freeze(["aria-label", "title", "placeholder"]);
 const APP_OWNED_LOCALIZATION_SELECTOR = "[data-i18n-owned]";

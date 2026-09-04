@@ -17377,8 +17377,12 @@ ipcMain.handle("codex:persistTradingTranscript", async (_event, params = {}) => 
 
     let titleUpdated = false;
     let titleError = null;
-    const effectiveTitle = recoveryRecord?.title || title;
-    if (effectiveTitle && requestedItems.some((item) => item.role === "user")) {
+    // An explicit title belongs to the new transcript write, including alert
+    // messages that are being recovered into a replacement thread. Keep it
+    // ahead of stale recovery metadata so the replacement row is named from
+    // the event that caused the write.
+    const effectiveTitle = title || recoveryRecord?.title || "";
+    if (effectiveTitle && (title || requestedItems.some((item) => item.role === "user"))) {
       try {
         await requestAppServer(serverClient, "thread/name/set", {
           threadId: targetThreadId,
