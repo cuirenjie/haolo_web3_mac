@@ -339,7 +339,12 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const frame = JSON.stringify(payload);
       const buffered = Number(websocket.bufferedAmount || 0);
       if (buffered <= WS_SOFT_BUFFER_BYTES) {
-        try { websocket.send(frame); } catch {}
+        try {
+          websocket.send(frame);
+          // This value supersedes any older frame queued before the buffer
+          // drained. A pending flush must never send that older value later.
+          pendingMarketFrames.delete(stream);
+        } catch {}
         return;
       }
       if (buffered >= WS_HARD_BUFFER_BYTES) {
@@ -383,6 +388,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const stream = validateStreamName(streamValue);
       disposers.get(stream)?.();
       disposers.delete(stream);
+      pendingMarketFrames.delete(stream);
     };
     try {
       for (const stream of route.initialStreams) subscribe(stream);

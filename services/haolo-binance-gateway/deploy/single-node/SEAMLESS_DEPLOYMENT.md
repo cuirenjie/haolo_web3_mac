@@ -22,6 +22,9 @@
 - **watchdog 已协调**：`gateway-watchdog.sh` 与发布共用 `/run/lock/haolo-gateway-deploy.lock`，读取 root-owned
   `/var/lib/haolo/gateway-active.env`，只重启当前活动实例；活动状态缺失时拒绝回退到旧实例。发布期间 watchdog
   会跳过一个 tick，避免重建候选、覆盖 HAProxy 或误杀正在排空的长连接。
+  状态中的 `CONTAINER`、`PUBLIC_PORT`、`PRIVATE_PORT` 必须各有且仅有一项，端口必须为不同的 1–65535
+  十进制整数，且容器必须存在；缺失、损坏或重复字段时，在任何探测/重启前退出失败。
+  首次初始化或旧部署接入 watchdog 前，也须在确认实际容器与入口端口后登记该状态；watchdog 不自动推断旧实例。
 - 新实例完整版本、启动时间/稳定重启次数、两个 ready、实际授权业务路径、覆盖整个切换时间的 HAProxy 5xx/隧道异常都通过才算验收。旧版本没有新排空控制，首次迁移不可冒用新协议。
 
 ## 2026-09-04 生产修复记录

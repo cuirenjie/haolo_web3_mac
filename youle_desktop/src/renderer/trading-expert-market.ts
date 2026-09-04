@@ -3902,6 +3902,18 @@ export function tradingWaveDegreeContextResolutions(resolution: string) {
   return [];
 }
 
+export function tradingWaveContextEndTime(
+  candles: ReadonlyArray<Pick<TradingCandle, "time">>,
+  resolution: string,
+  snapshotTime: number,
+) {
+  const lastOpenMs = Number(candles.at(-1)?.time || 0) * 1_000;
+  const durationMs = tradingViewResolutionDurationMs(resolution);
+  return lastOpenMs > 0 && durationMs
+    ? Math.min(snapshotTime, lastOpenMs + durationMs)
+    : snapshotTime;
+}
+
 export async function fetchTradingWaveDegreeContexts(
   symbol: string,
   resolution: string,
@@ -3920,8 +3932,9 @@ export async function fetchTradingWaveDegreeContexts(
       const duration = tradingViewResolutionDurationMs(interval) || 0;
       const batch = await fetchTradingCandles(symbol, interval, count, endTime, marketType, options.signal);
       const candles = batch.candles.filter((candle) => (
-        candle.closed === true
-        || (duration > 0 && candle.time * 1_000 + duration <= endTime)
+        // REST's `closed` flag is relative to retrieval time, which may be
+        // later than this historical analysis cutoff.
+        duration > 0 && candle.time * 1_000 + duration <= endTime
       ));
       return candles.length >= 30 ? { interval, candles: candles.slice(-count) } : null;
     } catch {
@@ -10432,7 +10445,16 @@ class TradingExpertMarketWorkspace {
         "loading",
         `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
       );
+      const refreshGeneration = this.loadGeneration;
       await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, this.candles);
+      if (
+        this.disposed
+        || this.loadGeneration !== refreshGeneration
+        || this.selectedMarketId !== targetMarket.id
+        || this.activeInterval !== targetInterval
+        || this.loadedMarketId !== targetMarket.id
+        || this.loadedInterval !== targetInterval
+      ) throw new Error("行情已切换，请重新发起分析");
     }
 
     const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
@@ -10760,8 +10782,8 @@ class TradingExpertMarketWorkspace {
           : canvasCandles.length
             ? canvasCandles
             : targetCandles.slice(-100);
-    const analysisEndTimeMs = Number(analysisCandles.at(-1)?.time || 0) * 1_000;
     const analysisSnapshotTime = currentSnapshotRefreshed ? Date.now() : (capturedTarget?.capturedAt || Date.now());
+    const analysisEndTimeMs = tradingWaveContextEndTime(analysisCandles, targetInterval, analysisSnapshotTime);
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: "wave",
@@ -10783,10 +10805,8 @@ class TradingExpertMarketWorkspace {
         );
     const waveDegreeContextsPromise = fetchTradingWaveDegreeContexts(targetMarket.symbol, targetInterval, {
       count: 600,
-      // Child waves must end no later than the parent window being analysed.
-      // Using send-time here leaked newer 1H/15m candles into a historical
-      // visible-range analysis and could make a fallback look valid only
-      // because it saw the future.
+      // Include closed child bars inside the current parent candle, while
+      // historical windows remain capped at their last parent candle's end.
       endTime: analysisEndTimeMs || request.analysisTarget?.capturedAt || Date.now(),
       marketType: targetMarket.marketType === "spot" ? "spot" : "perpetual",
     });
@@ -10944,29 +10964,32 @@ class TradingExpertMarketWorkspace {
         drawingProgressPhase: "wave-drawing",
         drawingsRequested: request.drawingRequested !== false,
         onProgress: request.onProgress,
-        analyze: async (snapshot) => api({
-          analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
-          marketId: snapshot.market.id,
-          interval: snapshot.interval,
-          snapshotTime: Date.now(),
-          language: getCurrentAppLanguage(),
-          instruction: request.instruction,
-          responseMode: request.drawingRequested === false ? "direct" : "full",
-          lookbackMs: requestedLookbackMs,
-          contextCandles: await fetchTradingWaveDegreeContexts(snapshot.market.symbol, snapshot.interval, {
-            count: 600,
-            endTime: Number(snapshot.candles.at(-1)?.time || 0) * 1_000 || Date.now(),
-            marketType: snapshot.market.marketType === "spot" ? "spot" : "perpetual",
-          }),
-          candles: snapshot.candles.map((candle) => ({
-            time: candle.time,
-            open: candle.open,
-            high: candle.high,
-            low: candle.low,
-            close: candle.close,
-            volume: candle.volume,
-          })),
-        }) as Promise<TradingWaveAnalysisResponse>,
+        analyze: async (snapshot) => {
+          const snapshotTime = Date.now();
+          return api({
+            analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
+            marketId: snapshot.market.id,
+            interval: snapshot.interval,
+            snapshotTime,
+            language: getCurrentAppLanguage(),
+            instruction: request.instruction,
+            responseMode: request.drawingRequested === false ? "direct" : "full",
+            lookbackMs: requestedLookbackMs,
+            contextCandles: await fetchTradingWaveDegreeContexts(snapshot.market.symbol, snapshot.interval, {
+              count: 600,
+              endTime: tradingWaveContextEndTime(snapshot.candles, snapshot.interval, snapshotTime),
+              marketType: snapshot.market.marketType === "spot" ? "spot" : "perpetual",
+            }),
+            candles: snapshot.candles.map((candle) => ({
+              time: candle.time,
+              open: candle.open,
+              high: candle.high,
+              low: candle.low,
+              close: candle.close,
+              volume: candle.volume,
+            })),
+          }) as Promise<TradingWaveAnalysisResponse>;
+        },
       });
       if (!tradingAnalysisJobs.isActive(job.analysisId)) {
         throw new Error("波浪理论分析已由用户停止");
@@ -11057,7 +11080,16 @@ class TradingExpertMarketWorkspace {
         "loading",
         `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
       );
+      const refreshGeneration = this.loadGeneration;
       await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, this.candles);
+      if (
+        this.disposed
+        || this.loadGeneration !== refreshGeneration
+        || this.selectedMarketId !== targetMarket.id
+        || this.activeInterval !== targetInterval
+        || this.loadedMarketId !== targetMarket.id
+        || this.loadedInterval !== targetInterval
+      ) throw new Error("行情已切换，请重新发起分析");
     }
 
     const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
@@ -11330,7 +11362,16 @@ class TradingExpertMarketWorkspace {
         "loading",
         `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
       );
+      const refreshGeneration = this.loadGeneration;
       await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, this.candles);
+      if (
+        this.disposed
+        || this.loadGeneration !== refreshGeneration
+        || this.selectedMarketId !== targetMarket.id
+        || this.activeInterval !== targetInterval
+        || this.loadedMarketId !== targetMarket.id
+        || this.loadedInterval !== targetInterval
+      ) throw new Error("行情已切换，请重新发起分析");
     }
 
     const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
@@ -11639,12 +11680,14 @@ class TradingExpertMarketWorkspace {
     targetInterval: string,
     fallbackCandles: ReadonlyArray<TradingCandle> = [],
   ): Promise<TradingCandleBatch> {
+    const refreshGeneration = this.loadGeneration;
     let candleBatch: TradingCandleBatch | null = null;
+    let candleRequestedAt = 0;
     let lastError: unknown = null;
     // A gateway can briefly serve an old response after its route changes. Use
     // a new endTime on every attempt so each request has a distinct upstream
-    // cache key, and give the live route enough time to recover before falling
-    // back to the ticker/WebSocket price anchor below.
+    // cache key. A quote can update a fresh series, but cannot recover missing
+    // OHLC history or turn an offline cache into a current analysis snapshot.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const endTime = Date.now();
@@ -11667,7 +11710,10 @@ class TradingExpertMarketWorkspace {
             count: 500,
             endTime,
           });
-        if (candidate.candles.length) candleBatch = candidate;
+        if (candidate.candles.length) {
+          candleBatch = candidate;
+          candleRequestedAt = endTime;
+        }
         if (
           candidate.candles.length
           && (targetMarket.provider !== "binance"
@@ -11680,6 +11726,11 @@ class TradingExpertMarketWorkspace {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
       }
     }
+    if (
+      targetMarket.provider === "binance"
+      && (!candleBatch?.candles.length
+        || tradingAnalysisCandlesRequireCurrentRefresh(candleBatch.candles, targetInterval))
+    ) throw new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
     if (!candleBatch?.candles.length) {
       const cached = getTradingMarketCandleCache(
         tradingMarketCandleCacheKey({
@@ -11709,12 +11760,10 @@ class TradingExpertMarketWorkspace {
 
     let liveStats: TradingMarketStats | null = null;
     if (targetMarket.provider === "binance") {
-      // Keep the analysis executable while a historical candle response is
-      // being recovered: obtain the market-wide live quote and materialize the
-      // current interval bucket on the same series. This prevents an old date
-      // from ever becoming the latest candle sent to the analysis model.
+      let statsRequestedAt = 0;
       for (let statsAttempt = 0; statsAttempt < 2 && !liveStats; statsAttempt += 1) {
         try {
+          statsRequestedAt = Date.now();
           liveStats = await fetchTradingMarketStats(
             targetMarket.symbol,
             targetMarket.marketType === "spot" ? "spot" : "perpetual",
@@ -11725,47 +11774,39 @@ class TradingExpertMarketWorkspace {
           }
         }
       }
-      if (!liveStats) {
-        const quote = this.latestLivePricesByMarketId.get(targetMarket.id);
-        const recentQuotePrice = quote
-          && Date.now() - quote.receivedAt <= MARKET_LIVE_PRICE_MAX_AGE_MS
-          ? quote.price
-          : 0;
-        const price = Number(
-          recentQuotePrice
-          || (targetMarket.id === this.selectedMarketId ? this.stats?.midPrice : 0)
-          || targetMarket.markPrice
-          || 0,
-        );
-        if (Number.isFinite(price) && price > 0) {
-          liveStats = tradingMarketStatsFromCandles(targetMarket.symbol, [{ close: price }]);
-        }
-      }
+      const now = Date.now();
       const recentQuote = this.latestLivePricesByMarketId.get(targetMarket.id);
-      const recentQuotePrice = recentQuote
-        && Date.now() - recentQuote.receivedAt <= MARKET_LIVE_PRICE_MAX_AGE_MS
-        ? recentQuote.price
-        : 0;
-      const livePrice = Number(
-        liveStats?.lastPrice
-        || liveStats?.midPrice
-        || liveStats?.markPrice
-        || recentQuotePrice
-        || (targetMarket.id === this.selectedMarketId ? this.stats?.midPrice : 0)
-        || targetMarket.markPrice
-        || 0,
-      );
-      if (Number.isFinite(livePrice) && livePrice > 0) {
-        const source = binanceResolutionSource(targetInterval);
-        if (source) {
-          const patched = applyTradingLivePriceToBatch(candleBatch, livePrice, Date.now());
-          candleBatch = {
-            ...candleBatch,
-            candles: patched.candles,
-            sourceCandles: patched.sourceCandles,
-            source: patched.source,
-          };
+      const recentQuoteUsable = recentQuote
+        && recentQuote.eventTimeMs >= candleRequestedAt
+        && now - recentQuote.receivedAt >= 0
+        && now - recentQuote.receivedAt <= MARKET_LIVE_PRICE_MAX_AGE_MS
+        && now - recentQuote.eventTimeMs >= -5_000
+        && now - recentQuote.eventTimeMs <= MARKET_LIVE_PRICE_MAX_AGE_MS
+        && Number.isFinite(recentQuote.price) && recentQuote.price > 0;
+      const statsPrice = Number(liveStats?.lastPrice || liveStats?.midPrice || 0);
+      const statsQuote = Number.isFinite(statsPrice) && statsPrice > 0
+        && now - statsRequestedAt >= 0 && now - statsRequestedAt <= MARKET_LIVE_PRICE_MAX_AGE_MS
+        ? { price: statsPrice, eventTimeMs: statsRequestedAt }
+        : null;
+      const liveQuote = recentQuoteUsable && (!statsQuote || recentQuote.eventTimeMs >= statsQuote.eventTimeMs)
+        ? recentQuote
+        : statsQuote;
+      const livePrice = liveQuote?.price;
+      if (liveQuote && livePrice && liveQuote.eventTimeMs >= Number(candleBatch.candles.at(-1)?.time) * 1_000) {
+        const patched = applyTradingLivePriceToBatch(candleBatch, livePrice, liveQuote.eventTimeMs);
+        // Crossing one interval boundary is normal; a quote cannot fill a gap
+        // of missing candles. In that case wait for a complete REST snapshot.
+        if (Number(patched.candles.at(-1)?.time) - Number(candleBatch.candles.at(-1)?.time)
+          > candleBatch.source.targetMs / 1_000) {
+          throw new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
         }
+        candleBatch = patched;
+        liveStats = {
+          ...tradingMarketStatsFromCandles(targetMarket.symbol, candleBatch.candles),
+          ...(liveStats || {}),
+          lastPrice: livePrice,
+          midPrice: livePrice,
+        };
       }
       if (tradingAnalysisCandlesRequireCurrentRefresh(candleBatch.candles, targetInterval, Date.now())) {
         throw new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
@@ -11787,6 +11828,9 @@ class TradingExpertMarketWorkspace {
     );
     if (
       !this.disposed
+      && this.loadGeneration === refreshGeneration
+      && this.selectedMarketId === targetMarket.id
+      && this.activeInterval === targetInterval
       && this.loadedMarketId === targetMarket.id
       && this.loadedInterval === targetInterval
     ) {
@@ -11800,6 +11844,7 @@ class TradingExpertMarketWorkspace {
         targetInterval,
         stats,
         candleBatch,
+        false, // Already reconciled for this analysis; do not reapply an older cached quote.
       );
     }
     return candleBatch;
@@ -11815,6 +11860,7 @@ class TradingExpertMarketWorkspace {
     targetInterval: string,
     stats: TradingMarketStats,
     candleBatch: TradingCandleBatch,
+    reconcileLivePrice = true,
   ) {
     this.stats = stats;
     this.candles = candleBatch.candles;
@@ -11827,7 +11873,7 @@ class TradingExpertMarketWorkspace {
     this.loadedMarketType = targetMarketType;
     this.loadedMarketMeta = targetMarketMeta;
     this.loadedInterval = targetInterval;
-    this.reconcileCurrentLivePrice();
+    if (reconcileLivePrice) this.reconcileCurrentLivePrice();
     this.updateStatsUi();
     this.updateChartData({ resetViewport: true });
     this.syncAlertSimulationForCurrentContext();

@@ -17,17 +17,28 @@ if ! flock -n 9; then
   exit 0
 fi
 
-active_public_port=8787
-active_private_port=8788
-active_container=""
-if [[ -r "${ACTIVE_STATE}" ]]; then
-  # The state file is root-owned and contains only validated scalar values.
-  # Never source it as shell code.
-  value="$(sed -n 's/^PUBLIC_PORT=\([0-9][0-9]*\)$/\1/p' "${ACTIVE_STATE}" | head -n 1)"
-  [[ "${value}" =~ ^[0-9]{1,5}$ ]] && active_public_port="${value}"
-  value="$(sed -n 's/^PRIVATE_PORT=\([0-9][0-9]*\)$/\1/p' "${ACTIVE_STATE}" | head -n 1)"
-  [[ "${value}" =~ ^[0-9]{1,5}$ ]] && active_private_port="${value}"
-  active_container="$(sed -n 's/^CONTAINER=\([A-Za-z0-9_.-][A-Za-z0-9_.-]*\)$/\1/p' "${ACTIVE_STATE}" | head -n 1)"
+if [[ ! -s "${ACTIVE_STATE}" || ! -r "${ACTIVE_STATE}" ]]; then
+  echo "Active gateway state is missing or unreadable; refusing legacy fallback" >&2
+  exit 1
+fi
+# Never source state as shell code, and do not silently choose one of duplicate
+# fields. Validate the complete target before health checks or any restart.
+active_public_port="$(sed -n 's/^PUBLIC_PORT=//p' "${ACTIVE_STATE}")"
+active_private_port="$(sed -n 's/^PRIVATE_PORT=//p' "${ACTIVE_STATE}")"
+active_container="$(sed -n 's/^CONTAINER=//p' "${ACTIVE_STATE}")"
+if [[ ! "${active_public_port}" =~ ^[1-9][0-9]{0,4}$ \
+   || ! "${active_private_port}" =~ ^[1-9][0-9]{0,4}$ \
+   || ! "${active_container}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]]; then
+  echo "Active gateway state is incomplete or invalid; refusing legacy fallback" >&2
+  exit 1
+fi
+if (( active_public_port > 65535 || active_private_port > 65535 || active_public_port == active_private_port )); then
+  echo "Active gateway ports are invalid; refusing legacy fallback" >&2
+  exit 1
+fi
+if ! docker inspect "${active_container}" >/dev/null 2>&1; then
+  echo "Active gateway container ${active_container} is missing; refusing legacy fallback" >&2
+  exit 1
 fi
 
 ready() {
@@ -36,15 +47,12 @@ ready() {
 }
 
 restart_active() {
-  if [[ -n "${active_container}" ]] && docker inspect "${active_container}" >/dev/null 2>&1; then
+  if docker inspect "${active_container}" >/dev/null 2>&1; then
     docker restart "${active_container}"
     return
   fi
-  if [[ -n "${active_container}" ]]; then
-    echo "Active gateway container ${active_container} is missing; refusing legacy fallback" >&2
-    return 1
-  fi
-  docker compose --env-file "${RUNTIME_ENV}" -f "${COMPOSE_FILE}" restart gateway
+  echo "Active gateway container ${active_container} is missing; refusing legacy fallback" >&2
+  return 1
 }
 
 if ready; then

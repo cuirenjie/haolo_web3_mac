@@ -46866,10 +46866,13 @@ function applyTradingPreferenceRecommendedRemaining(flow: TradingPreferenceOnboa
 function tradingPreferenceQuestionTwoAnswers(text: string) {
   const noBreakEven = /(?:不|无需|不用|取消).{0,6}(?:移动)?保本|不移动(?:止损|保本)/.test(text);
   const triggerMatch = text.match(/(\d+(?:\.\d+)?)\s*[rR]\b/);
-  const rewardRiskMatch = text.match(/(\d+(?:\.\d+)?)\s*[:：比]\s*1(?:\b|\s|$)/);
-  const riskRewardMatch = text.match(/(?:^|\D)1\s*[:：比]\s*(\d+(?:\.\d+)?)(?:\b|\s|$)/);
+  // Parse both complete numbers before interpreting current 1:x or legacy x:1.
+  // A word boundary also matches a decimal point, so it cannot delimit "1".
+  const ratioMatch = text.match(/(?:^|[^\d.])(\d+(?:\.\d+)?)\s*[:：比]\s*(\d+(?:\.\d+)?)(?![\d.])/);
+  const leftRatio = tradingPreferenceNumber(ratioMatch?.[1]);
+  const rightRatio = tradingPreferenceNumber(ratioMatch?.[2]);
   const triggerR = tradingPreferenceNumber(triggerMatch?.[1]);
-  const minimumRiskRewardRatio = tradingPreferenceNumber(rewardRiskMatch?.[1] || riskRewardMatch?.[1]);
+  const minimumRiskRewardRatio = leftRatio === 1 ? rightRatio : rightRatio === 1 ? leftRatio : null;
   if (!noBreakEven && triggerR === null && minimumRiskRewardRatio === null) return null;
   return {
     moveStopToBreakEven: !noBreakEven,

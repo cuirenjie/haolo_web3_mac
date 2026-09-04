@@ -144,6 +144,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "当前行情快照不足": "The current market snapshot is insufficient",
   "未返回可用的当前 K 线数据": "No usable current candle data was returned",
   "当前行情快照刷新未完成，已阻止使用旧 K 线分析": "The current market snapshot refresh did not complete. Analysis using stale candles was blocked.",
+  "行情已切换，请重新发起分析": "The market or interval has changed. Please start the analysis again.",
   "下载": "Download",
   "上传": "Upload",
   "导入": "Import",

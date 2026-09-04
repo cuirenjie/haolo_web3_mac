@@ -1044,9 +1044,10 @@ test("Trading Expert wires wave analysis through IPC, playback, and light/dark t
   assert.match(marketSource, /tradingWaveDegreeContextResolutions/);
   assert.match(marketSource, /fetchTradingWaveDegreeContexts/);
   assert.match(marketSource, /contextCandles: await waveDegreeContextsPromise/);
-  assert.match(marketSource, /const analysisEndTimeMs = Number\(analysisCandles\.at\(-1\)\?\.time/);
+  assert.match(marketSource, /const analysisEndTimeMs = tradingWaveContextEndTime\(analysisCandles, targetInterval, analysisSnapshotTime\)/);
   assert.match(marketSource, /endTime: analysisEndTimeMs \|\| request\.analysisTarget\?\.capturedAt/);
   assert.match(marketSource, /contextCandles: await fetchTradingWaveDegreeContexts\(snapshot\.market\.symbol/);
+  assert.match(marketSource, /endTime: tradingWaveContextEndTime\(snapshot\.candles, snapshot\.interval, snapshotTime\)/);
   assert.doesNotMatch(translateAppText("K 线及低周期子浪。", "en"), /\p{Script=Han}/u);
   assert.doesNotMatch(translateAppText("发送时行情快照不足", "en"), /\p{Script=Han}/u);
   assert.match(marketSource, /按价格硬规则与低一级结构验证 0-1-2-3-4-5、A-B-C \/ W-X-Y 候选/);

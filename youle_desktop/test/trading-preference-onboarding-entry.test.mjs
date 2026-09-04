@@ -1,9 +1,42 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
 
 const rendererSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
+
+test("onboarding parses complete current and legacy ratios before persisting the risk limit", async () => {
+  const source = await rendererSource;
+  const parsed = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const names = new Set(["tradingPreferenceNumber", "tradingPreferenceQuestionTwoAnswers", "tradingPreferenceMemoryEntries"]);
+  const functions = parsed.statements.filter((node) => ts.isFunctionDeclaration(node) && names.has(node.name?.text));
+  assert.equal(functions.length, names.size);
+  const code = ts.transpileModule(functions.map((node) => node.getText(parsed)).join("\n"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const { parse, entries } = runInNewContext(`${code}\n({ parse: tradingPreferenceQuestionTwoAnswers, entries: tradingPreferenceMemoryEntries })`, {
+    TRADING_PREFERENCE_REQUIRED_SECTIONS: "test sections",
+  });
+  for (const [reply, expected] of [
+    ["1.5R后保本，最低盈亏比1:1.5", 1.5],
+    ["最低盈亏比1:0.4", 0.4],
+    ["最低盈亏比1:1.3", 1.3],
+    ["最低盈亏比1:1.25", 1.25],
+    ["最低盈亏比1:10", 10],
+    ["最低盈亏比3:1", 3],
+    ["最低盈亏比2.5：1", 2.5],
+    ["最低盈亏比0.4比1", 0.4],
+  ]) {
+    const answer = parse(reply);
+    assert.equal(answer.minimumRiskRewardRatio, expected, reply);
+    assert.equal(entries(answer).find((entry) => entry.key === "minimum_risk_reward_ratio").value, expected, reply);
+  }
+  assert.equal(parse("1.5R后保本，最低盈亏比1:1.5").breakEvenTriggerR, 1.5);
+  assert.equal(parse("不移动保本").moveStopToBreakEven, false);
+  assert.equal(parse("最低盈亏比1:1.5.3"), null, "malformed decimals must not be partially accepted");
+});
 
 function sourceBlock(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
