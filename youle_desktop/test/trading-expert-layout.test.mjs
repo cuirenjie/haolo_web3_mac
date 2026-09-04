@@ -1322,7 +1322,7 @@ test("VPVR keeps one volume snapshot through wheel movement in primary and split
   assert.match(splitPane, /private renderVolumeProfile\(recalculate = false\)[\s\S]*?profile: this\.volumeProfileSnapshot/);
   assert.match(splitPane, /private updateMainIndicatorData\(refreshVolumeProfile = false\)[\s\S]*?this\.renderVolumeProfile\(refreshVolumeProfile\)/);
   assert.match(splitPane, /updateIndicatorSettings[\s\S]*?this\.updateMainIndicatorData\(true\)/);
-  assert.match(splitPane, /private async reload\(resetViewport: boolean\) \{\s*if \(resetViewport\) this\.invalidateVolumeProfileSnapshot\(\)/);
+  assert.match(splitPane, /private async reload\(resetViewport: boolean\): Promise<boolean> \{\s*if \(resetViewport\) this\.invalidateVolumeProfileSnapshot\(\)/);
   assert.match(splitPane, /private readonly handleWheel[\s\S]*?this\.trackVolumeProfileThroughWheelScale\(\)/);
   assert.match(splitWheelTracking, /TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES[\s\S]*?this\.renderVolumeProfile\(false\)[\s\S]*?requestAnimationFrame\(redraw\)/);
   assert.doesNotMatch(splitWheelTracking, /calculateTradingVolumeProfile|renderVolumeProfile\(true\)/);
