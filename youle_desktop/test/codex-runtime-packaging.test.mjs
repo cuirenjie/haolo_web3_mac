@@ -8,8 +8,8 @@ test("packages the complete versioned Codex Windows runtime", async () => {
   const mainSource = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
   const mappings = new Map(packageJson.build.extraResources.map((entry) => [entry.from, entry.to]));
 
-  assert.equal(manifest.version, "0.144.1");
-  assert.equal(manifest.releaseTag, "rust-v0.144.1");
+  assert.equal(manifest.version, "0.153.4");
+  assert.equal(manifest.releaseTag, "rust-v0.153.4");
   assert.deepEqual(
     manifest.files.map((file) => file.name).sort(),
     ["codex-command-runner.exe", "codex-windows-sandbox-setup.exe", "haolo_ai.exe"],
