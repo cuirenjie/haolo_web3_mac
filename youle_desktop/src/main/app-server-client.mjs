@@ -79,6 +79,7 @@ const MANAGED_MODEL_CONTEXT_WINDOW = 400_000;
 const MANAGED_MODEL_AUTO_COMPACT_TOKEN_LIMIT = 300_000;
 const MANAGED_MODEL_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 const MANAGED_LONG_CONTEXT_MODEL_SLUGS = new Set([
+  "gpt-6-astra",
   "gpt-5.5",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
@@ -103,7 +104,12 @@ const LEGACY_MANAGED_SECTION_CONFIG_VALUES = [
   { section: "model_providers.haolo_ai", key: "request_max_retries", value: "0" },
   { section: "model_providers.haolo_ai", key: "stream_max_retries", value: "0" },
   { section: "model_providers.haolo_ai", key: "stream_max_retries", value: "1" },
-  { section: "model_providers.haolo_ai", key: "http_headers", value: '{ version = "0.144.1" }' },
+  // Existing installs carry the 0.144.1 header in their managed config. Keep
+  // it in the migration list so the new template can replace it with 0.153.4.
+  // Match the version field rather than one exact header formatting so older
+  // installs with the model-pool/capability fields are migrated as well.
+  { section: "model_providers.haolo_ai", key: "http_headers", value: /version\s*=\s*"0\.144\.1"/ },
+  { section: "model_providers.deepseek", key: "http_headers", value: /version\s*=\s*"0\.144\.1"/ },
 ];
 const FORCED_MANAGED_SECTION_CONFIG_VALUES = [
   { section: "model_providers.haolo_ai", key: "supports_websockets", value: "true" },
@@ -115,10 +121,11 @@ const MANAGED_SECTION_CONFIG_KEYS = [
   { section: "model_providers.haolo_ai", key: "request_max_retries" },
   { section: "model_providers.haolo_ai", key: "stream_max_retries" },
   { section: "model_providers.haolo_ai", key: "http_headers" },
+  { section: "model_providers.deepseek", key: "http_headers" },
 ];
 const DEFAULT_PROVIDER_BASE_URL = HAOLO_GATEWAY_BASE_URL;
 const DEFAULT_PROVIDER_WIRE_API = "responses";
-const DEFAULT_PROVIDER_CODEX_VERSION = "0.144.1";
+const DEFAULT_PROVIDER_CODEX_VERSION = "0.153.4";
 const DEFAULT_PROVIDER_MODEL_POOL = "execution";
 const DEFAULT_PROVIDER_MODEL_CAPABILITY = "root_execution";
 const DEEPSEEK_EXECUTION_DEFAULT_BASE_URL = DEFAULT_PROVIDER_BASE_URL;
@@ -1533,7 +1540,11 @@ function removeExactTopLevelTomlAssignment(text, key, expectedValue) {
     if (!trimmed || trimmed.startsWith("#")) continue;
     if (/^\[\[?/.test(trimmed)) break;
     const match = trimmed.match(assignmentPattern);
-    if (!match || match[1].trim() !== expectedValue) continue;
+    const actualValue = match?.[1]?.trim();
+    const matchesExpected =
+      match
+      && (expectedValue instanceof RegExp ? expectedValue.test(actualValue) : actualValue === expectedValue);
+    if (!matchesExpected) continue;
     lines.splice(index, 1);
     return { text: lines.join(newline), removed: true };
   }
@@ -1604,7 +1615,11 @@ function removeExactTomlSectionAssignment(text, section, key, expectedValue) {
     const trimmed = document.lines[index].trimStart();
     if (!trimmed || trimmed.startsWith("#")) continue;
     const match = trimmed.match(assignmentPattern);
-    if (!match || match[1].trim() !== expectedValue) continue;
+    const actualValue = match?.[1]?.trim();
+    const matchesExpected =
+      match
+      && (expectedValue instanceof RegExp ? expectedValue.test(actualValue) : actualValue === expectedValue);
+    if (!matchesExpected) continue;
     document.lines.splice(index, 1);
     return { text: `${document.bom}${document.lines.join(document.newline)}`, removed: true };
   }

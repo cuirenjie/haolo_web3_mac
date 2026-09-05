@@ -49,7 +49,7 @@ test("late responses after request timeout stay correlated and do not become pro
   assert.equal(protocolErrors[0].error, `response for unknown id ${sent[0].id + 1}`);
 });
 
-const MANAGED_MODEL_SLUGS = ["gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+const MANAGED_MODEL_SLUGS = ["gpt-6-astra", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
 const MANAGED_TOP_LEVEL_CONTEXT_KEYS = [
   "model_context_window",
   "model_auto_compact_token_limit",
@@ -212,7 +212,7 @@ test("bundled runtime config uses per-model context defaults and pins remote plu
   assertWebsocketCompatibilityMode(config);
   assert.match(
     config,
-    /^http_headers\s*=\s*\{\s*version\s*=\s*"0\.144\.1",\s*"X-Haolo-Model-Pool"\s*=\s*"execution",\s*"X-Haolo-Model-Capability"\s*=\s*"root_execution"\s*\}\s*$/m,
+    /^http_headers\s*=\s*\{\s*version\s*=\s*"0\.153\.4",\s*"X-Haolo-Model-Pool"\s*=\s*"execution",\s*"X-Haolo-Model-Capability"\s*=\s*"root_execution"\s*\}\s*$/m,
   );
   assert.match(config, /^\[model_providers\.deepseek\]$/m);
   assert.match(config, /^wire_api\s*=\s*"responses"$/m);
@@ -230,7 +230,7 @@ test("runtime provider overrides always send the bundled Codex version without f
   assert.ok(args.includes("features.network_proxy.enabled=false"));
   assert.ok(args.includes("features.multi_agent_v2.max_concurrent_threads_per_session=1"));
   assert.equal(args.some((arg) => arg.startsWith("agents.max_threads=")), false);
-  assert.ok(args.includes('model_providers.haolo_ai.http_headers.version="0.144.1"'));
+  assert.ok(args.includes('model_providers.haolo_ai.http_headers.version="0.153.4"'));
   assert.ok(args.includes('model_providers.haolo_ai.http_headers.X-Haolo-Model-Pool="execution"'));
   assert.ok(args.includes('model_providers.haolo_ai.http_headers.X-Haolo-Model-Capability="root_execution"'));
   assert.ok(args.includes('model_providers.deepseek.name="DeepSeek"'));
@@ -579,6 +579,35 @@ test("default resource sync removes only legacy Haolo-managed config values", ()
   });
 });
 
+test("default resource sync upgrades the previous Codex provider header", () => {
+  withRuntimeConfigFixture(({ tempRoot }) => {
+    const codexHome = path.join(tempRoot, "legacy-codex-header-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    fs.writeFileSync(
+      path.join(codexHome, "config.toml"),
+      [
+        "[model_providers.haolo_ai]",
+        'http_headers = { version = "0.144.1", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }',
+        "",
+        "[model_providers.deepseek]",
+        'http_headers = { version = "0.144.1", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }',
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const result = syncDefaultCodexResources(codexHome, {
+      includeRuntimeDotCodex: false,
+      skipPlugins: true,
+    });
+    const migrated = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
+
+    assert.equal([...migrated.matchAll(/version = "0\.153\.4"/g)].length, 2);
+    assert.doesNotMatch(migrated, /version = "0\.144\.1"/);
+    assert.ok(result.copied.includes("config.toml:context-defaults"));
+  });
+});
+
 test("default resource sync removes the previous direct-API-sized managed context profile", () => {
   withRuntimeConfigFixture(({ tempRoot }) => {
     const codexHome = path.join(tempRoot, "legacy-million-token-context-home");
@@ -614,7 +643,7 @@ test("default resource sync removes the previous direct-API-sized managed contex
   });
 });
 
-test("managed model catalog fails closed when a required GPT-5.5/5.6 entry is missing", () => {
+test("managed model catalog fails closed when a required GPT-6/5.5/5.6 entry is missing", () => {
   const catalog = bundledModelCatalogFixture();
   catalog.models = catalog.models.filter((model) => model.slug !== "gpt-5.6-luna");
   assert.throws(

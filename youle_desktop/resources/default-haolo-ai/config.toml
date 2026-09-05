@@ -13,9 +13,8 @@ sandbox_mode = "workspace-write"
 [features]
 remote_plugin = false
 
-# Codex 0.144.x can repeatedly invoke the elevated Windows setup helper from a
-# desktop host even after setup succeeds. Haolo keeps the restricted-token
-# sandbox but avoids that broken UAC/helper path.
+# The desktop host keeps the restricted-token sandbox and avoids the elevated
+# Windows setup-helper path, which is not reliable for unattended app sessions.
 [features.network_proxy]
 enabled = false
 
@@ -35,7 +34,7 @@ supports_websockets = true
 request_max_retries = 2
 stream_max_retries = 3
 # Codex injects Responses Lite per model; do not force it provider-wide.
-http_headers = { version = "0.144.1", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }
+http_headers = { version = "0.153.4", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }
 
 [model_providers.deepseek]
 name = "DeepSeek"
@@ -44,4 +43,4 @@ wire_api = "responses"
 requires_openai_auth = false
 env_key = "HAOLO_DEEPSEEK_EXECUTION_TOKEN"
 supports_websockets = false
-http_headers = { version = "0.144.1", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }
+http_headers = { version = "0.153.4", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }

@@ -1525,7 +1525,7 @@ function continuationInjectedItemsPresent(threadResult, items) {
   if (!expectedTexts.length) return false;
   if (expectedTexts.every((text) => observedTexts.has(text))) return true;
 
-  // Injected bootstrap items live outside ordinary turns in Codex 0.144.1, so
+  // Injected bootstrap items live outside ordinary turns in the bundled Codex app-server, so
   // thread/read can legitimately return turns: [] even though the rollout has
   // durably recorded them. Initialization targets cannot receive user turns,
   // which keeps this recovery file small and safe to inspect.
@@ -11741,7 +11741,7 @@ async function resumeThreadForRequestedProvider({
   ) {
     return result;
   }
-  // thread/settings/update cannot change modelProvider in Codex 0.144.1.
+  // thread/settings/update cannot change modelProvider in the bundled Codex app-server.
   // thread/resume supports model + modelProvider atomically, so provider
   // switches must happen here before settings confirmation or compaction.
   result = await requestAppServer(
@@ -18260,7 +18260,7 @@ ipcMain.handle("codex:updateThreadSettings", async (_event, params = {}) => {
 
     // Read effective state first. If the selected provider changed, the helper
     // performs the provider switch with thread/resume because settings/update
-    // has no modelProvider field in Codex 0.144.1. Turns stay excluded because
+    // has no modelProvider field in the bundled Codex app-server. Turns stay excluded because
     // model switching does not consume conversation data.
     const resumeResult = await resumeThreadSettings();
     rememberThreadClient(resumeResult?.thread?.id || threadId, serverClient);
