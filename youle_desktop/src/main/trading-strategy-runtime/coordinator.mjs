@@ -119,13 +119,19 @@ export class TradingStrategyCoordinator {
         lookbackMs: chartAnalysis ? literal.lookbackMs : null,
         lookbackLabel: chartAnalysis ? literal.lookbackLabel : null,
         forecastHorizonMs: chartAnalysis ? literal.forecastHorizonMs : null,
+        ...(chartAnalysis && (
+          fallback.positionManagementRequested === true
+          || routed.request.positionManagementRequested === true
+        ) ? { positionManagementRequested: true } : {}),
         drawingRequested: chartAnalysis && !explicitNoDrawingRequested(fallback.instruction),
       });
       const classification = {
         ...routed.classification,
         mode: request.mode,
         intent: request.mode === "chart-analysis"
-          ? request.drawingRequested ? "chart-drawing" : "chart-analysis"
+          ? request.positionManagementRequested
+            ? "position-management"
+            : request.drawingRequested ? "chart-drawing" : "chart-analysis"
           : "expert-question",
         source: "model-first-unified-intent",
       };
@@ -150,7 +156,9 @@ export class TradingStrategyCoordinator {
         schemaVersion: 1,
         mode: request.mode,
         intent: request.mode === "chart-analysis"
-          ? request.drawingRequested ? "chart-drawing" : "chart-analysis"
+          ? request.positionManagementRequested
+            ? "position-management"
+            : request.drawingRequested ? "chart-drawing" : "chart-analysis"
           : "expert-question",
         confidence: 1,
         source: "deterministic-recovery",

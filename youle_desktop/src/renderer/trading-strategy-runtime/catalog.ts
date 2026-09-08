@@ -37,6 +37,8 @@ export interface TradingStrategyRequest {
   lookbackLabel: string | null;
   forecastHorizonMs?: number | null;
   questionKinds?: readonly TradingQuestionKind[];
+  /** Semantic router classified this turn as position management. */
+  positionManagementRequested?: boolean;
   drawingRequested: boolean;
 }
 
@@ -329,6 +331,10 @@ export function normalizeTradingStrategyRequest(
     lookbackLabel: chartAnalysis ? literal.lookbackLabel : null,
     forecastHorizonMs: chartAnalysis ? literal.forecastHorizonMs : null,
     questionKinds: fallback.questionKinds,
+    ...(chartAnalysis && (
+      fallback.positionManagementRequested === true
+      || request.positionManagementRequested === true
+    ) ? { positionManagementRequested: true } : {}),
     drawingRequested: chartAnalysis && !explicitNoDrawingRequested(fallback.instruction),
   };
 }

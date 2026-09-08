@@ -16,6 +16,11 @@ const GENERAL_PRICE_ACTION_EXECUTION_MANIFEST = Object.freeze({
   version: "1.1.0",
 });
 const DEFAULT_MINIMUM_RISK_REWARD_RATIO = 0.4;
+const POSITION_MANAGEMENT_INSTRUCTION = /(?:仓位|持仓|强平|爆仓|做多|做空|开仓|平仓|加仓|减仓).{0,40}(?:怎么|如何|哪里|多少|建议|操作|管理|风险|止损|止盈|平仓|减仓|加仓|是否|合适|安全|健康|合理|重不重|轻不轻)|(?:怎么|如何|哪里|多少|建议|操作|管理|风险|止损|止盈|是否|合适|安全|健康|合理|重不重|轻不轻).{0,40}(?:仓位|持仓|强平|爆仓|开仓|平仓|加仓|减仓)/iu;
+
+function isPositionManagementInstruction(value) {
+  return POSITION_MANAGEMENT_INSTRUCTION.test(String(value || ""));
+}
 
 function extractJsonObject(text) {
   const source = String(text || "").trim();
@@ -69,27 +74,49 @@ async function loadBinanceAccountContext(params) {
   }
 }
 
-function accountAwareDirectNarrative(narrative, executionPlan) {
-  const answer = String(narrative || "").trim();
+function accountDecisionNarrative(executionPlan, context = {}) {
   const sizing = executionPlan?.positionSizing;
-  if (!sizing || sizing.accountStatus === "unbound") return answer;
+  if (!sizing || sizing.accountStatus === "unbound") return "";
   if (sizing.accountStatus === "unavailable") {
-    return [answer, "账户校验：币安实盘快照不可用或已过期，暂不生成仓位调整或下单数量。"]
-      .filter(Boolean)
-      .join("\n\n");
+    return "账户校验：币安实盘快照不可用或已过期，暂不生成仓位调整或下单数量。";
   }
   const plan = sizing.accountPlan;
-  if (!plan) return answer;
+  if (!plan) return "";
   const money = (value) => Number(value).toFixed(2).replace(/\.00$/u, "").replace(/(\.\d)0$/u, "$1");
   const positionSide = plan.existingSide === "long" ? "多单" : "空单";
-  const accountDecision = plan.mode === "close_opposite"
+  return plan.mode === "close_opposite"
     ? `账户校验：当前已有 ${money(plan.existingNotional)} USDT 的反向${positionSide}，应先平仓，暂不开新仓。`
     : plan.mode === "reduce_existing"
       ? `账户校验：当前${positionSide}约 ${money(plan.existingNotional)} USDT，按风险上限应先减至约 ${money(plan.notional)} USDT。`
       : plan.mode === "manage_existing"
         ? `账户校验：当前已有 ${money(plan.existingNotional)} USDT 的${positionSide}，按现有仓位管理，不重复开仓。`
-        : `账户校验：按当前权益与可用余额测算，候选仓位约 ${money(plan.notional)} USDT，杠杆不超过 ${plan.leverage} 倍。`;
-  return [accountDecision, answer].filter(Boolean).join("\n\n");
+        : context.positionManagementRequested === true
+          ? "账户校验：未发现与本次问题对应的当前仓位，暂不按账户快照生成新的开仓数量。"
+          : `账户校验：按当前权益与可用余额测算，候选仓位约 ${money(plan.notional)} USDT，杠杆不超过 ${plan.leverage} 倍。`;
+}
+
+function accountAwareDirectNarrative(narrative, executionPlan, context = {}) {
+  const answer = String(narrative || "").trim();
+  const accountDecision = accountDecisionNarrative(executionPlan, context);
+  const ordered = context.positionManagementRequested === true
+    ? [answer, accountDecision]
+    : [accountDecision, answer];
+  return ordered.filter(Boolean).join("\n\n");
+}
+
+function positionManagementAnswer(review, result, instruction) {
+  const answer = String(review?.answer || "").trim();
+  const genericPlan = /新手执行清单|想做多|想做空|候选仓位|开仓计划|杠杆|下单数量/iu.test(answer);
+  if (answer && !genericPlan) return answer;
+  const levels = result?.levels || {};
+  const bias = trendLabel(result?.trend);
+  if (/做空|空单|空头/iu.test(String(instruction || ""))) {
+    return `当前盘面${bias}；你问的是空单平仓，反弹并收盘站上压力 ${formatPrice(levels.resistance)} 附近先减仓或平仓，跌破支撑 ${formatPrice(levels.support)} 后再观察是否继续持有。`;
+  }
+  if (/做多|多单|多头/iu.test(String(instruction || ""))) {
+    return `当前盘面${bias}；你问的是多单处理，收盘跌破支撑 ${formatPrice(levels.support)} 附近先减仓或平仓，站上压力 ${formatPrice(levels.resistance)} 后再观察是否继续持有。`;
+  }
+  return `当前盘面${bias}；这是仓位管理问题，先以支撑 ${formatPrice(levels.support)} 和压力 ${formatPrice(levels.resistance)} 作为减仓或继续持有边界。`;
 }
 
 function personalizedTradingSettings(value) {
@@ -119,14 +146,24 @@ function personalizedTradingSettings(value) {
 }
 
 export function buildPriceActionModelPrompt(snapshot, result, context = {}) {
-  const directAnswer = context.responseMode === "direct";
   const preferences = personalizedTradingSettings(context.userRiskProfile);
+  const positionManagementRequested = context.positionManagementRequested === true
+    || isPositionManagementInstruction(context.instruction);
+  const directAnswer = context.responseMode === "direct" || positionManagementRequested;
   return [
     "你是交易分析系统的通用价格行为复核器，不负责直接操作界面，也不得套用或声称使用缠论、波浪、订单流、威科夫等某一种理论。",
     "确定性引擎已从用户当前左侧画布的真实 OHLCV 计算趋势、摆动高低点、支撑压力和条件价位。只可复核给定结果，不得创造新价格、时间或市场事实。",
     directAnswer
-      ? "本次只刷新分析并回答用户的具体问题，不更新画布。answer 必须第一句直接作答，后续只写必要依据，不得套用完整盘面报告或固定章节。"
+      ? positionManagementRequested
+        ? "本次保留受控画线动作，同时直接回答用户的具体仓位问题。answer 必须第一句直接作答，后续只写必要依据，不得套用完整盘面报告或固定章节。"
+        : "本次只刷新分析并回答用户的具体问题，不更新画布。answer 必须第一句直接作答，后续只写必要依据，不得套用完整盘面报告或固定章节。"
       : "本次需要生成完整盘面分析与受控绘图计划。",
+    positionManagementRequested
+      ? "这是仓位管理分析：必须先根据本次目标交易对和周期的确定性 K 线结果判断当前盘面偏多、偏空或震荡，并在回答中明确引用该盘面依据；然后再结合用户提供的方向、开仓价、强平价和只读账户仓位给出减仓、平仓或继续持有建议。禁止只根据仓位数量或用户给出的价格直接判断，也不要把未读取的其他交易对当作分析对象。"
+      : "",
+    positionManagementRequested
+      ? "回答必须第一句直接回应用户问的具体动作（例如在哪里平仓、是否减仓或继续持有），只给与该问题相关的条件和价位；不要输出通用多空开仓计划、杠杆、仓位大小、候选下单数量或新手执行清单。画线是后台辅助动作，不要让绘图计划取代用户问题的答案。"
+      : "",
     "输出必须是单个 JSON 对象，不要 Markdown 或 JSON 之外的文字。",
     JSON.stringify({
       schemaVersion: 1,
@@ -182,6 +219,28 @@ export function buildPriceActionReport(snapshot, result, review, context = {}) {
   const levels = result.levels;
   const change = first.open ? ((latest.close - first.open) / first.open) * 100 : 0;
   const preferences = personalizedTradingSettings(context.userRiskProfile);
+  if (context.positionManagementRequested === true) {
+    const answer = positionManagementAnswer(review, result, context.instruction)
+      || String(review.summary || "").trim();
+    const accountDecision = String(context.accountDecision || "").trim();
+    return [
+      `## ${snapshot.marketId} · ${intervalLabel(snapshot.interval)}仓位管理`,
+      context.instruction ? `你的问题：${String(context.instruction).trim()}` : "",
+      "",
+      "### 直接回答",
+      answer || `当前盘面更接近${trendLabel(result.trend)}，请结合下方关键位置管理现有仓位。`,
+      "",
+      "### 盘面依据",
+      `当前盘面更接近**${trendLabel(result.trend)}**，现价约 ${formatPrice(levels.currentPrice)}。`,
+      review.rationale ? `依据：${review.rationale}` : "",
+      `关键位置：支撑 ${formatPrice(levels.support)}，压力 ${formatPrice(levels.resistance)}；上破 ${formatPrice(levels.longTrigger)} 才确认偏多，跌破 ${formatPrice(levels.shortTrigger)} 才确认偏空。`,
+      accountDecision ? "" : "账户仓位快照未提供，以上仅根据目标交易对的盘面和你消息中的仓位信息回答。",
+      accountDecision ? "### 账户仓位校验" : "",
+      accountDecision,
+      "",
+      "以上条件只适用于本次读取的目标交易对和周期；未收盘 K 线、滑点、资金费率和突发消息都可能改变处理条件，不会自动下单。",
+    ].filter(Boolean).join("\n").replace(/\n{3,}/g, "\n\n");
+  }
   const breakEvenText = preferences.moveStopToBreakEven
     ? `浮盈达到 ${preferences.breakEvenTriggerR}R 后，把止损移动至覆盖手续费和滑点的保本位置。`
     : "按你的偏好，不自动移动保本，继续执行原止损管理方式。";
@@ -330,6 +389,7 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
     prompt: buildPriceActionModelPrompt(snapshot, theoryResult, {
       instruction: params?.instruction,
       responseMode: params?.responseMode,
+      positionManagementRequested: params?.positionManagementRequested === true,
       userRiskProfile: params?.userRiskProfile,
     }),
     responseFormat: "json",
@@ -344,9 +404,13 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
   });
   const { modelResponse, review: modelReview } = reviewed;
   const drawingPatch = buildPriceActionDrawingPatch(snapshot, theoryResult, modelReview);
+  const positionManagementRequested = params?.positionManagementRequested === true
+    || isPositionManagementInstruction(params?.instruction);
+  const directResponseRequested = params?.responseMode === "direct" || positionManagementRequested;
   const baseReport = buildPriceActionReport(snapshot, theoryResult, modelReview, {
     instruction: params?.instruction,
     userRiskProfile: params?.userRiskProfile,
+    positionManagementRequested,
   });
   const result = {
     ok: true,
@@ -366,8 +430,10 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
       snapshotId: snapshot.snapshotId,
       marketId: snapshot.marketId,
       interval: snapshot.interval,
-      narrative: params?.responseMode === "direct"
-        ? (modelReview.answer || modelReview.summary)
+      narrative: directResponseRequested
+        ? positionManagementRequested
+          ? positionManagementAnswer(modelReview, theoryResult, params?.instruction)
+          : (modelReview.answer || modelReview.summary)
         : modelReview.summary,
       report: baseReport,
       confidence: modelReview.confidence,
@@ -408,16 +474,29 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
   const executionReport = formatExecutionPlanMarkdown(executionPlan, {
     language: params?.language,
   });
+  const accountDecision = accountDecisionNarrative(executionPlan, { positionManagementRequested });
+  const targetedReport = positionManagementRequested
+    ? buildPriceActionReport(snapshot, theoryResult, modelReview, {
+        instruction: params?.instruction,
+        userRiskProfile: params?.userRiskProfile,
+        positionManagementRequested: true,
+        accountDecision,
+      })
+    : baseReport;
   return {
     ...result,
     executionPlan,
     analysisPlan: {
       ...result.analysisPlan,
       executionPlan,
-      narrative: params?.responseMode === "direct"
-        ? accountAwareDirectNarrative(result.analysisPlan.narrative, executionPlan)
+      narrative: directResponseRequested
+        ? accountAwareDirectNarrative(result.analysisPlan.narrative, executionPlan, {
+            positionManagementRequested,
+          })
         : result.analysisPlan.narrative,
-      report: `${executionReport}\n\n---\n\n${baseReport}`.trim(),
+      report: positionManagementRequested
+        ? targetedReport
+        : `${executionReport}\n\n---\n\n${baseReport}`.trim(),
     },
   };
 }

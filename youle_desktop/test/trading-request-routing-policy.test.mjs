@@ -66,6 +66,15 @@ test("routing text repair keeps a broken Chinese market request and its paramete
     lookbackLabel: null,
     forecastHorizonMs: null,
   });
+  assert.deepEqual(extractExplicitTradingParameters("SKHYNIX我在1240做空 强平价1462我在哪里平仓?"), {
+    symbol: "SKHYNIXUSDT",
+    interval: null,
+    lookbackMs: null,
+    lookbackLabel: null,
+    forecastHorizonMs: null,
+  });
+  assert.equal(isExplicitMarketAnalysisRequest("SKHYNIX我在1240做空 强平价1462我在哪里平仓?"), true);
+  assert.equal(deterministicMarketChartRouting("SKHYNIX我在1240做空 强平价1462我在哪里平仓?")?.classification.intent, "position-management");
 });
 
 test("named commodity and equity aliases resolve to their canonical USDT markets", () => {

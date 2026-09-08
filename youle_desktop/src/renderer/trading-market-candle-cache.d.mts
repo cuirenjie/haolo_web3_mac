@@ -75,6 +75,12 @@ export function applyTradingLivePriceToBatch(
   eventTimeMs?: number,
 ): TradingCacheBatch;
 
+export function tradingCandleBucketTimeMs(
+  timestampMs: number,
+  durationMs: number,
+  sourceInterval?: string | null,
+): number;
+
 export const CACHE_VERSION: number;
 export const DEFAULT_FRESH_AGE_MS: number;
 export const DEFAULT_STALE_AGE_MS: number;

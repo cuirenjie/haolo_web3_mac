@@ -231,19 +231,38 @@ test("AI drawings are isolated and replaced by market plus interval context", as
   );
 });
 
-test("manual drawings keep every market-period context while legacy records remain compatible", async () => {
+test("manual drawings remain visible across periods while keeping market and pane scopes", async () => {
   const { tradingManualDrawingMatchesContext } = await import(
     "../src/renderer/trading-expert-drawing.ts"
   );
-  const btc15m = { symbol: "BINANCE:FUTURES:BTCUSDT", interval: "15" };
-  const btc4h = { symbol: "BINANCE:FUTURES:BTCUSDT", interval: "240" };
+  const btc15m = { symbol: "BINANCE:FUTURES:BTCUSDT", interval: "15", drawingScope: "main" };
+  const btc4h = { symbol: "BINANCE:FUTURES:BTCUSDT", interval: "240", drawingScope: "main" };
+  const btcVolume = { symbol: "BINANCE:FUTURES:BTCUSDT", interval: "15", drawingScope: "indicator:volume" };
   const legacyBtc = { symbol: "BINANCE:FUTURES:BTCUSDT" };
 
   assert.equal(tradingManualDrawingMatchesContext(btc15m, btc15m.symbol, "15"), true);
-  assert.equal(tradingManualDrawingMatchesContext(btc15m, btc15m.symbol, "240"), false);
-  assert.equal(tradingManualDrawingMatchesContext(btc4h, btc15m.symbol, "15"), false);
+  assert.equal(tradingManualDrawingMatchesContext(btc15m, btc15m.symbol, "240"), true);
+  assert.equal(tradingManualDrawingMatchesContext(btc4h, btc15m.symbol, "15"), true);
+  assert.equal(tradingManualDrawingMatchesContext(btcVolume, btc15m.symbol, "240"), false);
+  assert.equal(tradingManualDrawingMatchesContext(btcVolume, btc15m.symbol, "240", "indicator:volume"), true);
   assert.equal(tradingManualDrawingMatchesContext(btc15m, "BINANCE:FUTURES:ETHUSDT", "15"), false);
   assert.equal(tradingManualDrawingMatchesContext(legacyBtc, btc15m.symbol, "15"), true);
+});
+
+test("main-chart indicator panes expose the shared freehand drawing surface", async () => {
+  const [market, styles, drawing] = await Promise.all([
+    marketSource,
+    stylesSource,
+    drawingSource,
+  ]);
+  assert.match(market, /private indicatorDrawingControllers = new Map/);
+  assert.match(market, /drawingScope: `indicator:\$\{id\}`/);
+  assert.match(market, /getCandleSeries: \(\) => runtime\.series\[0\]\?\.api/);
+  assert.match(market, /this\.indicatorDrawingControllers\.forEach\(\(controller\) => controller\.destroy\(\)\)/);
+  assert.match(drawing, /drawingScope\?: string/);
+  assert.match(drawing, /paneIndex\?: number/);
+  assert.match(drawing, /this\.drawingScope === "main"/);
+  assert.match(styles, /\.trading-indicator-drawing-pane\s*\{[^}]*position: relative;/s);
 });
 
 test("the last successful drawing workspace restores its own layout without dropping other contexts", async () => {
@@ -848,7 +867,7 @@ test("drawing trash confirms before permanently clearing manual, AI, and persist
   assert.match(drawing, /data-drawing-clear-action="cancel">取消<[\s\S]*data-drawing-clear-action="confirm">确认清空</);
   assert.match(drawing, /action === "clear"[\s\S]*this\.openClearDialog\(target\)/);
   assert.match(drawing, /action === "confirm"[\s\S]*this\.clearAllDrawings\(\)[\s\S]*this\.clearDialog\.close\(\)/);
-  assert.match(drawing, /private clearAllDrawings\(\)[\s\S]*this\.aiPlayback\.cancel\(\)[\s\S]*this\.drawings = \[\][\s\S]*this\.aiDrawings = \[\][\s\S]*this\.redoStack = \[\]/);
+  assert.match(drawing, /private clearAllDrawings\(\)[\s\S]*this\.aiPlayback\.cancel\(\)[\s\S]*const scopedClear = this\.drawingScope !== "main"[\s\S]*this\.drawings = scopedClear[\s\S]*this\.aiDrawings = scopedClear \? this\.aiDrawings : \[\][\s\S]*this\.redoStack = \[\]/);
   assert.match(drawing, /window\.localStorage\.removeItem\(tradingDrawingSessionStorageKey\("manual", this\.storageSessionId\)\)[\s\S]*window\.localStorage\.removeItem\(tradingDrawingSessionStorageKey\("ai", this\.storageSessionId\)\)/);
   assert.doesNotMatch(drawing, /private clearCurrentSymbol\(/);
   assert.match(styles, /\.trading-drawing-clear-dialog\s*\{[^}]*background: var\(--trading-market-panel\);[^}]*color: var\(--trading-market-text\);/s);
@@ -1307,7 +1326,7 @@ test("professional AI inline labels remain readable in light and dark themes", a
   assert.match(styles, /\.trading-price-action-candlestick-pattern-ellipse\s*\{[^}]*fill: var\(--trading-price-action-candlestick-label\);[^}]*stroke: var\(--trading-price-action-candlestick-label\);[^}]*stroke-width: 0\.8px;[^}]*stroke-dasharray: none;[^}]*vector-effect: non-scaling-stroke;/s);
 });
 
-test("AI text annotations expose hover controls that resize every label in the current chart", async () => {
+test("AI text annotations keep resize controls pinned to the topmost label", async () => {
   const { positionTradingAiTextSizeToolbar, tradingAiTextNextFontSize } = await import(
     "../src/renderer/trading-expert-drawing.ts"
   );
@@ -1336,23 +1355,40 @@ test("AI text annotations expose hover controls that resize every label in the c
     ),
     { x: 146, y: 8 },
   );
+  assert.deepEqual(
+    positionTradingAiTextSizeToolbar(
+      { x: 20, y: 10, width: 120, height: 20 },
+      { width: 500, height: 300 },
+      { width: 66, height: 34 },
+      "left",
+    ),
+    { x: 8, y: 8 },
+  );
 
   assert.match(drawing, /data-ai-text-hit-content aria-label="AI 文字标注字号调节"/);
   assert.match(drawing, /data-ai-text-size-toolbar role="toolbar" aria-label="当前图表全部 AI 标注字号" hidden/);
   assert.match(drawing, /data-ai-text-size-action="decrease"[\s\S]*?data-ai-text-size-action="increase"/);
+  assert.match(drawing, /class="trading-ai-text-size-toolbar-dismiss" data-ai-text-size-action="dismiss"[\s\S]*?>[\s\S]*?×/);
   assert.match(drawing, /renderAiTextSizeHitTarget\([\s\S]*?data-ai-text-size-trigger/);
   assert.match(drawing, /handleAiTextPointerOver[\s\S]*?showAiTextSizeToolbar/);
   assert.match(drawing, /aiTextDrawingsForCurrentContext\(\)[\s\S]*?this\.aiDrawings\.filter/);
   assert.match(drawing, /adjustAiTextFontSize\([\s\S]*?for \(const textDrawing of this\.aiTextDrawingsForCurrentContext\(\)\)[\s\S]*?textDrawing\.fontSize = next;[\s\S]*?this\.persistAiDrawings\(\);[\s\S]*?this\.redraw\(\);/);
   assert.match(drawing, /tradingAiDrawingMatchesContext\(drawing, symbol, interval\)/);
   assert.match(drawing, /const disabled = textDrawings\.every\([\s\S]*?button\.disabled = disabled/);
-  assert.match(drawing, /positionTradingAiTextSizeToolbar\([\s\S]*?\{ x, y, width, height \}/);
+  assert.match(drawing, /topmostAiTextSizeTarget\(\)[\s\S]*?bounds\.y < topmost\.bounds\.y/);
+  assert.match(drawing, /positionTradingAiTextSizeToolbar\([\s\S]*?\{ x, y, width, height \}[\s\S]*?"left"/);
+  assert.match(drawing, /The controls are pinned to the topmost visible annotation/);
+  assert.match(drawing, /aiTextSizeToolbarDismissed[\s\S]*?dismissAiTextSizeToolbar/);
+  assert.match(drawing, /button\?\.dataset\.aiTextSizeAction[\s\S]*?action === "dismiss"[\s\S]*?dismissAiTextSizeToolbar/);
 
   assert.match(styles, /\.trading-ai-text-size-trigger\s*\{[^}]*pointer-events: all;/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar\s*\{[^}]*background: color-mix\(in srgb, var\(--trading-market-panel\) 96%, transparent\);[^}]*pointer-events: auto;/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:hover,[\s\S]*?background: var\(--trading-market-control\);[\s\S]*?color: var\(--trading-market-text\);/);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:active\s*\{[^}]*background: var\(--trading-market-accent-soft\);[^}]*color: var\(--trading-market-accent\);/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.32;/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar > button\.trading-ai-text-size-toolbar-dismiss\s*\{[^}]*top: -8px;[^}]*right: -8px;[^}]*opacity: 0;[^}]*pointer-events: none;/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar:hover > button\.trading-ai-text-size-toolbar-dismiss,[\s\S]*?opacity: 1;[\s\S]*?pointer-events: auto;/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar > button\.trading-ai-text-size-toolbar-dismiss:active\s*\{[^}]*background: var\(--trading-market-accent-soft\);[^}]*color: var\(--trading-market-accent\);/s);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-ai-text-size-toolbar\s*\{[^}]*background: #14171d;[^}]*box-shadow: 0 16px 42px rgba\(0, 0, 0, 0\.54\);/s);
 });
 

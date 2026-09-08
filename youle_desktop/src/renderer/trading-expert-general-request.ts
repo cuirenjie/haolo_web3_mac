@@ -7,6 +7,8 @@ export interface TradingGeneralRequest {
   lookbackLabel: string | null;
   forecastHorizonMs?: number | null;
   questionKinds?: readonly string[];
+  /** Semantic router classified this turn as position management. */
+  positionManagementRequested?: boolean;
   drawingRequested: boolean;
   /** True only when this message semantically follows a prior chart conclusion. */
   analysisFollowup?: boolean;

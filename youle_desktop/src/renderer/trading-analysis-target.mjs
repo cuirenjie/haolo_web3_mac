@@ -10,9 +10,9 @@ export function explicitTradingAnalysisMarketType(instruction) {
 
 /**
  * User-specified symbols do not inherit the provider/type of the currently
- * visible chart. Binance perpetual is the stable default; an explicit spot
- * request is respected, while non-Binance markets remain a compatibility
- * fallback when no matching Binance contract exists.
+ * visible chart. Binance perpetual is the stable default and an explicit spot
+ * request is respected. An unavailable requested Binance market returns null
+ * so the caller cannot silently analyze a different symbol or venue.
  */
 export function selectTradingAnalysisMarket(markets, params = {}) {
   const candidates = Array.isArray(markets) ? markets : [];
@@ -31,21 +31,16 @@ export function selectTradingAnalysisMarket(markets, params = {}) {
     market?.provider === "binance" && market?.marketType === marketType
   ));
   if (requestedBinanceMarket) return requestedBinanceMarket;
-  const requestedMarket = symbolMarkets.find((market) => market?.marketType === marketType);
-  if (requestedMarket) return requestedMarket;
-  if (marketType === "spot") return currentMarket;
-
-  return symbolMarkets.find((market) => market?.provider === currentMarket?.provider)
-    || symbolMarkets[0]
-    // A syntactically plausible but unavailable market must never terminate
-    // the turn. Fall back to the chart captured at send time; the result uses
-    // that market's real identity and cannot masquerade as the requested one.
-    || currentMarket
-    || null;
+  return null;
 }
 
 export function selectTradingAnalysisInterval(params = {}) {
   const requestedInterval = String(params.interval || "").trim().toUpperCase();
   if (requestedInterval) return requestedInterval;
+  // An explicitly named market is a complete target in its own right. Do not
+  // inherit an unrelated chart interval (for example the BTC 1D chart) when
+  // the user asks to review `SKHYNIX` without writing a period. Binance
+  // perpetual 1H is the stable default for this case.
+  if (params.explicitSymbol) return DEFAULT_TRADING_ANALYSIS_INTERVAL;
   return String(params.currentInterval || DEFAULT_TRADING_ANALYSIS_INTERVAL).trim().toUpperCase();
 }

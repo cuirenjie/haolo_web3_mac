@@ -405,6 +405,8 @@ interface TradingDrawingModel extends TradingDrawingStyle {
   strategyId?: string;
   symbol: string;
   interval?: string;
+  /** The chart pane that owns the drawing. Legacy records default to main. */
+  drawingScope?: string;
   tool: TradingDrawingToolId;
   points: TradingDrawingPoint[];
   text?: string;
@@ -739,11 +741,14 @@ export function positionTradingAiTextSizeToolbar(
   textBounds: TradingDrawingCollisionRect,
   bounds: { width: number; height: number },
   toolbarSize: { width: number; height: number },
+  placement: "auto" | "left" = "auto",
 ): ScreenPoint {
   const inset = 8;
   const gap = 6;
   const left = textBounds.x - toolbarSize.width - gap;
-  const x = left >= inset
+  const x = placement === "left"
+    ? Math.max(inset, left)
+    : left >= inset
     ? left
     : textBounds.x + textBounds.width + gap;
   const y = textBounds.y + (textBounds.height - toolbarSize.height) / 2;
@@ -1030,6 +1035,7 @@ export function renderTradingDrawingLayer() {
     <div class="trading-ai-text-size-toolbar" data-ai-text-size-toolbar role="toolbar" aria-label="当前图表全部 AI 标注字号" hidden>
       <button type="button" data-ai-text-size-action="decrease" aria-label="缩小当前图表全部标注文字" title="缩小当前图表全部标注文字"><span aria-hidden="true">A−</span></button>
       <button type="button" data-ai-text-size-action="increase" aria-label="放大当前图表全部标注文字" title="放大当前图表全部标注文字"><span aria-hidden="true">A+</span></button>
+      <button type="button" class="trading-ai-text-size-toolbar-dismiss" data-ai-text-size-action="dismiss" aria-label="隐藏字号调节" title="隐藏字号调节"><span aria-hidden="true">×</span></button>
     </div>
     ${renderTradingDrawingSelectionToolbar()}
   `;
@@ -1163,11 +1169,21 @@ export function tradingAiDrawingMatchesContext(
 }
 
 export function tradingManualDrawingMatchesContext(
-  drawing: Pick<TradingDrawingModel, "symbol" | "interval">,
+  drawing: Pick<TradingDrawingModel, "symbol" | "interval" | "drawingScope">,
   symbol: string,
-  interval: string,
+  _interval: string,
+  drawingScope = "main",
 ) {
-  return drawing.symbol === symbol && (!drawing.interval || drawing.interval === interval);
+  // Manual drawings are anchored to market time/price coordinates, not to a
+  // particular aggregation period. Keep them visible when the user changes
+  // 15m/1h/4h/etc.; the pane scope still prevents a price drawing from being
+  // rendered over an indicator pane (and vice versa).
+  return drawing.symbol === symbol
+    && (drawing.drawingScope || "main") === normalizeTradingDrawingScope(drawingScope);
+}
+
+function normalizeTradingDrawingScope(value: unknown) {
+  return String(value || "main").trim().slice(0, 80) || "main";
 }
 
 export function replaceTradingAiDrawingContext<T extends TradingAiDrawingContextItem>(
@@ -1252,6 +1268,7 @@ function loadStoredDrawings(storageSessionId: string): TradingDrawingModel[] {
         interval: typeof candidate.interval === "string" && candidate.interval.trim()
           ? candidate.interval.trim().slice(0, 24)
           : undefined,
+        drawingScope: normalizeTradingDrawingScope(candidate.drawingScope),
         tool: definition.id,
         points,
         text: typeof candidate.text === "string" ? candidate.text.slice(0, 240) : undefined,
@@ -2217,6 +2234,8 @@ interface TradingDrawingControllerOptions {
   getCandles: () => Array<{ time: number; open: number; high: number; low: number; close: number }>;
   timeOffsetSeconds: number;
   storageSessionId: string;
+  drawingScope?: string;
+  paneIndex?: number;
   bindControlEvents?: boolean;
   controlActive?: boolean;
   clearScopeLabel?: string;
@@ -2260,6 +2279,8 @@ export class TradingDrawingController {
   private readonly onSurfaceFocus?: TradingDrawingControllerOptions["onSurfaceFocus"];
   private readonly onDrawingStateChanged?: TradingDrawingControllerOptions["onDrawingStateChanged"];
   private readonly timeOffsetSeconds: number;
+  private readonly drawingScope: string;
+  private readonly paneIndex: number;
   private storageSessionId: string;
   private drawings: TradingDrawingModel[] = [];
   private aiDrawings: TradingDrawingModel[] = [];
@@ -2270,6 +2291,7 @@ export class TradingDrawingController {
   private openOrderPositionCardId: string | null = null;
   private hoveredAiTextDrawingId: string | null = null;
   private aiTextSizeToolbarHideTimer: number | null = null;
+  private aiTextSizeToolbarDismissed = false;
   private readonly aiPlayback: TradingAiDrawingPlaybackController;
   private redoStack: TradingDrawingModel[] = [];
   private activeTool: TradingDrawingToolId = "cursor";
@@ -2312,6 +2334,8 @@ export class TradingDrawingController {
     this.onSurfaceFocus = options.onSurfaceFocus;
     this.onDrawingStateChanged = options.onDrawingStateChanged;
     this.storageSessionId = normalizeTradingDrawingStorageSessionId(options.storageSessionId);
+    this.drawingScope = normalizeTradingDrawingScope(options.drawingScope);
+    this.paneIndex = Math.max(0, Math.trunc(options.paneIndex ?? 0));
     this.drawings = loadStoredDrawings(this.storageSessionId);
     this.aiDrawings = loadStoredAiDrawings(this.storageSessionId);
     for (const drawing of [...this.drawings].reverse()) {
@@ -2398,7 +2422,13 @@ export class TradingDrawingController {
     const symbol = this.getSymbol();
     const interval = this.getInterval();
     return this.drawings
-      .filter((drawing) => tradingManualDrawingMatchesContext(drawing, symbol, interval))
+      // Alert rules remain explicitly bound to the interval where the line was
+      // created; visual rendering itself intentionally ignores interval.
+      .filter((drawing) => (
+        tradingManualDrawingMatchesContext(drawing, symbol, interval, this.drawingScope)
+        && this.drawingScope === "main"
+        && (!drawing.interval || drawing.interval === interval)
+      ))
       .map((drawing) => Object.freeze({
         drawingId: drawing.id,
         revision: 1,
@@ -2681,33 +2711,28 @@ export class TradingDrawingController {
     this.aiTextSizeToolbarHideTimer = null;
   }
 
-  private hideAiTextSizeToolbar() {
+  private hideAiTextSizeToolbar(preserveDismissal = false) {
     this.clearAiTextSizeToolbarHideTimer();
+    if (!preserveDismissal) this.aiTextSizeToolbarDismissed = false;
     this.hoveredAiTextDrawingId = null;
     this.aiTextSizeToolbar.hidden = true;
   }
 
   private scheduleAiTextSizeToolbarHide() {
     this.clearAiTextSizeToolbarHideTimer();
-    this.aiTextSizeToolbarHideTimer = window.setTimeout(() => {
-      this.aiTextSizeToolbarHideTimer = null;
-      if (this.aiTextSizeToolbar.matches(":hover, :focus-within")) return;
-      const currentTrigger = [...this.aiTextHitContent.querySelectorAll<SVGGElement>("[data-ai-text-size-trigger]")]
-        .find((trigger) => trigger.dataset.aiTextSizeTrigger === this.hoveredAiTextDrawingId);
-      if (currentTrigger?.matches(":hover, :focus-within")) return;
-      this.hideAiTextSizeToolbar();
-    }, 140);
+    // The controls are pinned to the topmost visible annotation. Pointer/focus
+    // transitions over another annotation must not make the controls disappear.
   }
 
   private showAiTextSizeToolbar(id: string) {
     if (
-      !this.userDrawingEnabled
+      this.aiTextSizeToolbarDismissed
+      || !this.userDrawingEnabled
       || this.drawingsHidden
       || tradingDrawingToolDefinition(this.activeTool)?.kind !== "cursor"
       || !this.aiTextDrawing(id)
     ) return;
     this.clearAiTextSizeToolbarHideTimer();
-    this.hoveredAiTextDrawingId = id;
     this.updateAiTextSizeToolbar(this.plotBounds());
   }
 
@@ -2735,10 +2760,20 @@ export class TradingDrawingController {
     this.setStatus(`当前图表全部 AI 标注已${action === "decrease" ? "缩小" : "放大"}`);
   }
 
+  private dismissAiTextSizeToolbar() {
+    this.aiTextSizeToolbarDismissed = true;
+    this.hideAiTextSizeToolbar(true);
+  }
+
   private readonly handleAiTextPointerOver = (event: PointerEvent) => {
     const trigger = this.aiTextSizeTrigger(event.target);
     const id = trigger?.dataset.aiTextSizeTrigger;
-    if (id) this.showAiTextSizeToolbar(id);
+    if (id) {
+      // A fresh pointer entry is the explicit way to bring the controls back
+      // after the user dismissed them for the current annotation.
+      this.aiTextSizeToolbarDismissed = false;
+      this.showAiTextSizeToolbar(id);
+    }
   };
 
   private readonly handleAiTextPointerOut = (event: PointerEvent) => {
@@ -2749,12 +2784,15 @@ export class TradingDrawingController {
       || this.aiTextSizeToolbar.contains(event.relatedTarget)
     )) return;
     if (trigger.matches(":focus, :focus-within")) return;
-    this.scheduleAiTextSizeToolbarHide();
+    this.updateAiTextSizeToolbar(this.plotBounds());
   };
 
   private readonly handleAiTextFocusIn = (event: FocusEvent) => {
     const id = this.aiTextSizeTrigger(event.target)?.dataset.aiTextSizeTrigger;
-    if (id) this.showAiTextSizeToolbar(id);
+    if (id) {
+      this.aiTextSizeToolbarDismissed = false;
+      this.showAiTextSizeToolbar(id);
+    }
   };
 
   private readonly handleAiTextFocusOut = (event: FocusEvent) => {
@@ -2765,14 +2803,14 @@ export class TradingDrawingController {
       || this.aiTextSizeToolbar.contains(event.relatedTarget)
     )) return;
     if (trigger.matches(":hover")) return;
-    this.scheduleAiTextSizeToolbarHide();
+    this.updateAiTextSizeToolbar(this.plotBounds());
   };
 
   private readonly handleAiTextTriggerKeyDown = (event: KeyboardEvent) => {
     const id = this.aiTextSizeTrigger(event.target)?.dataset.aiTextSizeTrigger;
     if (!id) return;
     if (event.key === "Escape") {
-      this.hideAiTextSizeToolbar();
+      this.updateAiTextSizeToolbar(this.plotBounds());
       return;
     }
     const action = event.key === "+" || event.key === "=" || event.key === "ArrowUp"
@@ -2792,10 +2830,14 @@ export class TradingDrawingController {
       ? event.target.closest<HTMLButtonElement>("[data-ai-text-size-action]")
       : null;
     const action = button?.dataset.aiTextSizeAction;
-    if (action !== "decrease" && action !== "increase") return;
+    if (action !== "decrease" && action !== "increase" && action !== "dismiss") return;
     event.preventDefault();
     event.stopPropagation();
     this.onSurfaceFocus?.(this);
+    if (action === "dismiss") {
+      this.dismissAiTextSizeToolbar();
+      return;
+    }
     this.adjustAiTextFontSize(action);
   };
 
@@ -2808,7 +2850,7 @@ export class TradingDrawingController {
   };
 
   private readonly handleAiTextSizeToolbarPointerLeave = () => {
-    if (!this.aiTextSizeToolbar.matches(":focus-within")) this.scheduleAiTextSizeToolbarHide();
+    this.updateAiTextSizeToolbar(this.plotBounds());
   };
 
   private readonly handleAiTextSizeToolbarFocusIn = () => {
@@ -2818,9 +2860,42 @@ export class TradingDrawingController {
   private readonly handleAiTextSizeToolbarFocusOut = (event: FocusEvent) => {
     if (event.relatedTarget instanceof Node && this.aiTextSizeToolbar.contains(event.relatedTarget)) return;
     const trigger = this.aiTextSizeTrigger(event.relatedTarget);
-    if (trigger?.dataset.aiTextSizeTrigger === this.hoveredAiTextDrawingId) return;
-    if (!this.aiTextSizeToolbar.matches(":hover")) this.scheduleAiTextSizeToolbarHide();
+    if (trigger) return;
+    this.updateAiTextSizeToolbar(this.plotBounds());
   };
+
+  private topmostAiTextSizeTarget() {
+    const textDrawings = new Map(
+      this.aiTextDrawingsForCurrentContext().map((drawing) => [drawing.id, drawing]),
+    );
+    let topmost: {
+      drawing: TradingDrawingModel;
+      bounds: TradingDrawingCollisionRect;
+    } | null = null;
+    for (const trigger of this.aiTextHitContent.querySelectorAll<SVGGElement>("[data-ai-text-size-trigger]")) {
+      const id = trigger.dataset.aiTextSizeTrigger;
+      const drawing = id ? textDrawings.get(id) : undefined;
+      const hitTarget = trigger.querySelector<SVGRectElement>(".trading-ai-text-size-hit-target");
+      if (!drawing || !hitTarget) continue;
+      const bounds = {
+        x: Number(hitTarget.getAttribute("x")),
+        y: Number(hitTarget.getAttribute("y")),
+        width: Number(hitTarget.getAttribute("width")),
+        height: Number(hitTarget.getAttribute("height")),
+      };
+      if (
+        ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)
+        || bounds.width <= 0
+        || bounds.height <= 0
+      ) continue;
+      if (!topmost || bounds.y < topmost.bounds.y || (
+        bounds.y === topmost.bounds.y && bounds.x < topmost.bounds.x
+      )) {
+        topmost = { drawing, bounds };
+      }
+    }
+    return topmost;
+  }
 
   private readonly handleWheel = (event: WheelEvent) => {
     this.setOpenOrderPositionCard(null);
@@ -2880,7 +2955,7 @@ export class TradingDrawingController {
     } else if (action === "toggle-lock") {
       this.drawingsLocked = !this.drawingsLocked;
       this.drawings.forEach((drawing) => {
-        if (tradingManualDrawingMatchesContext(drawing, this.getSymbol(), this.getInterval())) {
+        if (tradingManualDrawingMatchesContext(drawing, this.getSymbol(), this.getInterval(), this.drawingScope)) {
           drawing.locked = this.drawingsLocked;
         }
       });
@@ -3187,7 +3262,7 @@ export class TradingDrawingController {
       const drawing = drawingId
         ? this.drawings.find((candidate) => (
             candidate.id === drawingId
-            && tradingManualDrawingMatchesContext(candidate, this.getSymbol(), this.getInterval())
+            && tradingManualDrawingMatchesContext(candidate, this.getSymbol(), this.getInterval(), this.drawingScope)
           ))
         : null;
       if (!drawing) return;
@@ -3285,6 +3360,7 @@ export class TradingDrawingController {
       id: crypto.randomUUID(),
       symbol: this.getSymbol(),
       interval: this.getInterval(),
+      drawingScope: this.drawingScope,
       tool: definition.id,
       points: requiredPointCount > 1 ? [drawingPoint, drawingPoint] : [drawingPoint],
       text: definition.id === "price-note" ? formatTradingDrawingAxisPrice(drawingPoint.price) : undefined,
@@ -3569,7 +3645,7 @@ export class TradingDrawingController {
     return this.selectedDrawingId
       ? this.drawings.find((drawing) => (
           drawing.id === this.selectedDrawingId
-          && tradingManualDrawingMatchesContext(drawing, this.getSymbol(), this.getInterval())
+          && tradingManualDrawingMatchesContext(drawing, this.getSymbol(), this.getInterval(), this.drawingScope)
         )) ?? null
       : null;
   }
@@ -3711,7 +3787,9 @@ export class TradingDrawingController {
     const time = logicalTime ?? (chartTime === null ? null : chartTime - this.timeOffsetSeconds);
     if (time === null || price === null) return null;
     let point = { time, price };
-    if (applyMagnet && this.magnetEnabled) point = this.snapPointToCandle(point, screen);
+    if (applyMagnet && this.magnetEnabled && this.drawingScope === "main") {
+      point = this.snapPointToCandle(point, screen);
+    }
     return point;
   }
 
@@ -3785,8 +3863,14 @@ export class TradingDrawingController {
 
   private plotBounds() {
     const chart = this.getChart();
-    const priceScaleWidth = Number(chart?.priceScale?.("right", 0)?.width?.() || 0);
-    const paneElement = chart?.panes?.()?.[0]?.getHTMLElement?.() as HTMLElement | null;
+    // Main-chart surfaces span the price axis, while an indicator controller
+    // is mounted inside Lightweight Charts' plot wrapper and already excludes
+    // that axis from its client width.
+    const priceScaleWidth = this.drawingScope === "main"
+      ? Number(chart?.priceScale?.("right", this.paneIndex)?.width?.() || 0)
+      : 0;
+    const paneElement = this.chartElement
+      || chart?.panes?.()?.[this.paneIndex]?.getHTMLElement?.() as HTMLElement | null;
     const chartRect = this.chartElement.getBoundingClientRect();
     const paneRect = paneElement?.getBoundingClientRect();
     return {
@@ -3914,7 +3998,7 @@ export class TradingDrawingController {
     const symbol = this.getSymbol();
     for (let index = this.drawings.length - 1; index >= 0; index -= 1) {
       if (
-        !tradingManualDrawingMatchesContext(this.drawings[index], symbol, this.getInterval())
+        !tradingManualDrawingMatchesContext(this.drawings[index], symbol, this.getInterval(), this.drawingScope)
         || this.drawings[index].locked
       ) continue;
       const [drawing] = this.drawings.splice(index, 1);
@@ -3933,7 +4017,7 @@ export class TradingDrawingController {
   private redo() {
     const symbol = this.getSymbol();
     for (let index = this.redoStack.length - 1; index >= 0; index -= 1) {
-      if (!tradingManualDrawingMatchesContext(this.redoStack[index], symbol, this.getInterval())) continue;
+      if (!tradingManualDrawingMatchesContext(this.redoStack[index], symbol, this.getInterval(), this.drawingScope)) continue;
       const [drawing] = this.redoStack.splice(index, 1);
       this.drawings.push(drawing);
       this.persistDrawings();
@@ -3948,8 +4032,13 @@ export class TradingDrawingController {
     this.cancelDragRedraw();
     this.releasePointer();
     this.finishSelectionToolbarDrag();
-    this.drawings = [];
-    this.aiDrawings = [];
+    const scopedClear = this.drawingScope !== "main";
+    this.drawings = scopedClear
+      ? this.drawings.filter((drawing) => (
+          (drawing.drawingScope || "main") !== this.drawingScope
+        ))
+      : [];
+    this.aiDrawings = scopedClear ? this.aiDrawings : [];
     this.redoStack = [];
     this.draft = null;
     this.aiDraft = null;
@@ -3965,13 +4054,17 @@ export class TradingDrawingController {
     this.drawingsHidden = false;
     this.overlay.classList.remove("dragging-drawing");
     this.closeSelectionMenus();
-    try {
-      window.localStorage.removeItem(tradingDrawingSessionStorageKey("manual", this.storageSessionId));
-      window.localStorage.removeItem(tradingDrawingSessionStorageKey("ai", this.storageSessionId));
-    } catch {
-      // The in-memory drawing history is still cleared when storage is unavailable.
+    if (scopedClear) {
+      this.persistDrawings(false);
+    } else {
+      try {
+        window.localStorage.removeItem(tradingDrawingSessionStorageKey("manual", this.storageSessionId));
+        window.localStorage.removeItem(tradingDrawingSessionStorageKey("ai", this.storageSessionId));
+      } catch {
+        // The in-memory drawing history is still cleared when storage is unavailable.
+      }
+      this.onAiDrawingContextsChanged(null);
     }
-    this.onAiDrawingContextsChanged(null);
     this.redraw();
     this.updateToolbarState();
     this.setStatus("本会话所有绘图及历史记录已清空");
@@ -3982,7 +4075,7 @@ export class TradingDrawingController {
     let selectedIndex = -1;
     let selectedDistance = 16;
     this.drawings.forEach((drawing, index) => {
-      if (!tradingManualDrawingMatchesContext(drawing, symbol, this.getInterval()) || drawing.locked) return;
+      if (!tradingManualDrawingMatchesContext(drawing, symbol, this.getInterval(), this.drawingScope) || drawing.locked) return;
       const bounds = this.plotBounds();
       const screenPoints = drawing.points
         .map((_candidate, pointIndex) => this.drawingPointToScreen(drawing, pointIndex, bounds))
@@ -4065,10 +4158,10 @@ export class TradingDrawingController {
     const undo = this.toolbar.querySelector<HTMLButtonElement>('[data-drawing-action="undo"]');
     const redo = this.toolbar.querySelector<HTMLButtonElement>('[data-drawing-action="redo"]');
     if (undo) undo.disabled = !this.drawings.some((drawing) => (
-      tradingManualDrawingMatchesContext(drawing, symbol, this.getInterval()) && !drawing.locked
+      tradingManualDrawingMatchesContext(drawing, symbol, this.getInterval(), this.drawingScope) && !drawing.locked
     ));
     if (redo) redo.disabled = !this.redoStack.some((drawing) => (
-      tradingManualDrawingMatchesContext(drawing, symbol, this.getInterval())
+      tradingManualDrawingMatchesContext(drawing, symbol, this.getInterval(), this.drawingScope)
     ));
   }
 
@@ -4178,7 +4271,9 @@ export class TradingDrawingController {
     const markers = tradingDrawingAxisMarkerPoints(definition, drawing.points)
       .map((marker) => ({ ...marker, screen: this.pointToScreen(marker.point) }))
       .filter((marker): marker is TradingDrawingAxisMarkerPoint & { screen: ScreenPoint } => Boolean(marker.screen));
-    const priceScaleWidth = Math.max(this.chartElement.clientWidth - bounds.width, 64);
+    const priceScaleWidth = this.drawingScope === "main"
+      ? Math.max(this.chartElement.clientWidth - bounds.width, 64)
+      : 0;
     const priceMarkers = markers.filter((marker, index, entries) => (
       marker.showPrice
       && marker.screen.y >= 0
@@ -4199,10 +4294,10 @@ export class TradingDrawingController {
         && Math.abs(entry.screen.x - marker.screen.x) < 1
       ))
     ));
-    const priceHtml = priceMarkers.map((marker) => {
+    const priceHtml = priceScaleWidth > 0 ? priceMarkers.map((marker) => {
       const top = Math.min(Math.max(marker.screen.y, 12), Math.max(12, bounds.height - 12));
       return `<div class="trading-drawing-axis-marker price" data-drawing-axis-price style="left:${bounds.width}px;top:${top}px;width:${priceScaleWidth}px">${escapeHtml(formatTradingDrawingAxisPrice(marker.point.price))}</div>`;
-    }).join("");
+    }).join("") : "";
     const timeHalfWidth = 70;
     const minimumTimeX = Math.min(timeHalfWidth + 4, bounds.width / 2);
     const maximumTimeX = Math.max(minimumTimeX, bounds.width - timeHalfWidth - 4);
@@ -4492,8 +4587,10 @@ export class TradingDrawingController {
     this.overlay.setAttribute("height", String(bounds.height));
     const candleSeries = this.getCandleSeries();
     const priceToCoordinate = (price: number) => finiteTradingChartCoordinate(candleSeries?.priceToCoordinate(price));
-    const candleObstacles = this.visibleCandleObstacles(bounds);
-    this.orderLineContent.innerHTML = candleSeries
+    const candleObstacles = this.drawingScope === "main"
+      ? this.visibleCandleObstacles(bounds)
+      : [];
+    this.orderLineContent.innerHTML = candleSeries && this.drawingScope === "main"
       ? renderTradingOrderLineSvg(
         this.orderLines,
         this.getSymbol(),
@@ -4502,7 +4599,7 @@ export class TradingDrawingController {
         candleObstacles,
       )
       : "";
-    this.orderPositionCardLayer.innerHTML = candleSeries
+    this.orderPositionCardLayer.innerHTML = candleSeries && this.drawingScope === "main"
       ? renderTradingOrderPositionCards(
         this.orderLines,
         this.getSymbol(),
@@ -4526,13 +4623,13 @@ export class TradingDrawingController {
     const symbol = this.getSymbol();
     const interval = this.getInterval();
     const drawings = this.drawings.filter((drawing) => (
-      tradingManualDrawingMatchesContext(drawing, symbol, interval)
+      tradingManualDrawingMatchesContext(drawing, symbol, interval, this.drawingScope)
     ));
-    if (this.draft && tradingManualDrawingMatchesContext(this.draft, symbol, interval)) drawings.push(this.draft);
+    if (this.draft && tradingManualDrawingMatchesContext(this.draft, symbol, interval, this.drawingScope)) drawings.push(this.draft);
     this.content.innerHTML = drawings.map((drawing) => this.renderDrawing(drawing, bounds, drawing === this.draft)).join("");
-    const aiSourceDrawings = this.aiDrawings.filter((drawing) => (
-      tradingAiDrawingMatchesContext(drawing, symbol, interval)
-    ));
+    const aiSourceDrawings = this.drawingScope === "main"
+      ? this.aiDrawings.filter((drawing) => tradingAiDrawingMatchesContext(drawing, symbol, interval))
+      : [];
     if (this.aiDraft && tradingAiDrawingMatchesContext(this.aiDraft, symbol, interval)) {
       aiSourceDrawings.push(this.aiDraft);
     }
@@ -5058,29 +5155,36 @@ export class TradingDrawingController {
   }
 
   private updateAiTextSizeToolbar(bounds: { width: number; height: number }) {
-    const drawing = this.aiTextDrawing(this.hoveredAiTextDrawingId);
-    const trigger = drawing
-      ? [...this.aiTextHitContent.querySelectorAll<SVGGElement>("[data-ai-text-size-trigger]")]
-          .find((candidate) => candidate.dataset.aiTextSizeTrigger === drawing.id)
-      : null;
-    const hitTarget = trigger?.querySelector<SVGRectElement>(".trading-ai-text-size-hit-target");
-    if (!drawing || !hitTarget) {
+    if (
+      !this.userDrawingEnabled
+      || this.drawingsHidden
+      || tradingDrawingToolDefinition(this.activeTool)?.kind !== "cursor"
+    ) {
       this.hideAiTextSizeToolbar();
       return;
     }
-    const x = Number(hitTarget.getAttribute("x"));
-    const y = Number(hitTarget.getAttribute("y"));
-    const width = Number(hitTarget.getAttribute("width"));
-    const height = Number(hitTarget.getAttribute("height"));
-    if (![x, y, width, height].every(Number.isFinite)) {
+    if (this.aiTextSizeToolbarDismissed) {
+      this.hideAiTextSizeToolbar(true);
+      return;
+    }
+    const target = this.topmostAiTextSizeTarget();
+    if (!target) {
       this.hideAiTextSizeToolbar();
       return;
     }
+    const { drawing, bounds: textBounds } = target;
+    // Keep the existing drawing id as an action anchor (keyboard shortcuts and
+    // toolbar clicks reuse the same all-label adjustment path), while the
+    // visual position is always derived from the topmost visible annotation.
+    this.hoveredAiTextDrawingId = drawing.id;
+    const { x, y, width, height } = textBounds;
     const current = drawing.fontSize ?? (drawing.tool === "note" ? AI_NOTE_FONT_SIZE : DEFAULT_TEXT_FONT_SIZE);
     const textDrawings = this.aiTextDrawingsForCurrentContext();
     this.aiTextSizeToolbar.hidden = false;
     this.aiTextSizeToolbar.setAttribute("aria-label", `当前图表全部 AI 标注字号，所在标注当前 ${current}px`);
-    this.aiTextSizeToolbar.querySelectorAll<HTMLButtonElement>("[data-ai-text-size-action]").forEach((button) => {
+    this.aiTextSizeToolbar.querySelectorAll<HTMLButtonElement>(
+      '[data-ai-text-size-action="decrease"], [data-ai-text-size-action="increase"]',
+    ).forEach((button) => {
       const action = button.dataset.aiTextSizeAction as "decrease" | "increase";
       const disabled = textDrawings.every((textDrawing) => {
         const fontSize = textDrawing.fontSize
@@ -5100,6 +5204,7 @@ export class TradingDrawingController {
       { x, y, width, height },
       bounds,
       toolbarSize,
+      "left",
     );
     this.aiTextSizeToolbar.style.left = `${position.x}px`;
     this.aiTextSizeToolbar.style.top = `${position.y}px`;

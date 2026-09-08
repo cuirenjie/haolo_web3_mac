@@ -2427,7 +2427,9 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.match(klineBlock, /loadedMarketId !== this\.selectedMarketId[\s\S]*?loadedInterval !== this\.activeInterval/);
   assert.match(klineBlock, /applyLiveSourceCandle\(incoming, source\);[\s\S]*?reconcileCurrentLivePrice\(\)/);
   assert.match(klineBlock, /preferredTradingCandle\(latest, incoming\)/);
+  assert.match(klineBlock, /const bucketTime = tradingCandleBucketTimeMs\([\s\S]*?source\.targetMs,[\s\S]*?source\.sourceInterval/);
   assert.match(klineBlock, /this\.scheduleLiveChartPaint\(\)/);
+  assert.match(tradeBlock, /const sourceTime = tradingCandleBucketTimeMs\([\s\S]*?sourceMs,[\s\S]*?source\.sourceInterval/);
   assert.match(tradeBlock, /if \(source\.sourceInterval\)[\s\S]*?close: price[\s\S]*?this\.applyLiveSourceCandle\(incoming, source\)[\s\S]*?this\.scheduleLiveChartPaint\(\)/);
   assert.match(paintBlock, /if \(document\.hidden\)[\s\S]*?MARKET_BACKGROUND_PAINT_INTERVAL_MS/);
   assert.match(paintBlock, /this\.liveChartPaintFrame = window\.requestAnimationFrame/);

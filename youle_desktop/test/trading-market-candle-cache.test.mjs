@@ -6,6 +6,7 @@ import {
   applyTradingLivePriceToBatch,
   createTradingMarketCandleCache,
   mergeTradingCandleBatches,
+  tradingCandleBucketTimeMs,
 } from "../src/renderer/trading-market-candle-cache.mjs";
 
 class MemoryStorage {
@@ -90,6 +91,43 @@ test("canonical live price creates the current long-period bucket when history i
   assert.equal(patched.candles.at(-1).close, 80_731.7);
 });
 
+test("weekly buckets always use Binance's Monday UTC anchor", () => {
+  const thursday = Date.UTC(2026, 8, 3, 12, 0, 0);
+  const monday = Date.UTC(2026, 7, 31, 0, 0, 0);
+  assert.equal(
+    tradingCandleBucketTimeMs(thursday, 604_800_000, "1w"),
+    monday,
+  );
+  const patched = applyTradingLivePriceToBatch({
+    candles: [],
+    sourceCandles: [],
+    source: { targetMs: 604_800_000, sourceInterval: "1w", sourceMs: 604_800_000 },
+  }, 80_731.7, thursday);
+  assert.equal(patched.candles.at(-1).time, monday / 1_000);
+  assert.equal(patched.sourceCandles.at(-1).time, monday / 1_000);
+
+  const badThursday = candle(Date.UTC(2026, 8, 3, 0, 0, 0) / 1_000, 79_000);
+  const repaired = applyTradingLivePriceToBatch({
+    candles: [badThursday],
+    sourceCandles: [badThursday],
+    source: { targetMs: 604_800_000, sourceInterval: "1w", sourceMs: 604_800_000 },
+  }, 80_731.7, thursday);
+  assert.deepEqual(repaired.candles.map((item) => item.time), [monday / 1_000]);
+  assert.deepEqual(repaired.sourceCandles.map((item) => item.time), [monday / 1_000]);
+});
+
+test("weekly cache merges also collapse legacy Thursday bars into the Monday bucket", () => {
+  const monday = Date.UTC(2026, 7, 31, 0, 0, 0) / 1_000;
+  const thursday = Date.UTC(2026, 8, 3, 0, 0, 0) / 1_000;
+  const source = { targetMs: 604_800_000, sourceInterval: "1w", sourceMs: 604_800_000 };
+  const merged = mergeTradingCandleBatches(
+    { candles: [candle(thursday, 79_000)], sourceCandles: [candle(thursday, 79_000)], source },
+    { candles: [candle(monday, 80_000)], sourceCandles: [candle(monday, 80_000)], source },
+  );
+  assert.deepEqual(merged.candles.map((item) => item.time), [monday]);
+  assert.deepEqual(merged.sourceCandles.map((item) => item.time), [monday]);
+});
+
 test("a delayed canonical quote never rewrites finalized history", () => {
   const durationMs = 300_000;
   const historicalTime = 1_700_000_100;
@@ -125,15 +163,15 @@ test("persistent candle cache restores compact snapshots across renderer restart
 
 test("candle cache migrates away from legacy snapshots that cannot prove finality", () => {
   const storage = new MemoryStorage();
-  const legacyPrefix = "haolo.trading.market.candles.v1.";
+  const legacyPrefix = "haolo.trading.market.candles.v2.";
   const key = "BINANCE|BTCUSDT|CRYPTO|240|PERPETUAL";
   storage.setItem(`${legacyPrefix}${encodeURIComponent(key)}`, JSON.stringify({ v: 1, c: [] }));
   storage.setItem(`${legacyPrefix}index`, JSON.stringify([{ k: key, a: 1_000 }]));
 
   createTradingMarketCandleCache({ storage, now: () => 2_000 });
 
-  assert.equal(CACHE_VERSION, 2);
-  assert.equal(STORAGE_PREFIX, "haolo.trading.market.candles.v2.");
+  assert.equal(CACHE_VERSION, 3);
+  assert.equal(STORAGE_PREFIX, "haolo.trading.market.candles.v3.");
   assert.equal(storage.getItem(`${legacyPrefix}${encodeURIComponent(key)}`), null);
   assert.equal(storage.getItem(`${legacyPrefix}index`), null);
 });

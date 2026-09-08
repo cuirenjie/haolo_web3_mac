@@ -1752,6 +1752,7 @@ type DesktopApi = {
     language?: AppLanguage;
     instruction?: string;
     responseMode?: "full" | "direct";
+    positionManagementRequested?: boolean;
     lookbackMs?: number | null;
     candles: Array<{
       time: number;
@@ -1897,6 +1898,7 @@ type DesktopApi = {
     language?: AppLanguage;
     instruction?: string;
     responseMode?: "full" | "direct";
+    positionManagementRequested?: boolean;
     lookbackMs?: number | null;
     candles: Array<{
       time: number;
@@ -27388,7 +27390,6 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         // the optimistic message and run the chart request; the retry queue will
         // reconcile the transcript after the store becomes available again.
         console.warn("[trading-transcript] initial persistence deferred", error);
-        showToast("会话记录将在后台自动重试保存，盘面分析继续。", 4500);
       }
     }
     if (tradingStrategyAtSend && tradingStrategyRequestAtSend?.mode === "chart-analysis") {
@@ -31427,7 +31428,6 @@ async function persistCompletedTradingExpertTranscript(
   } catch (error) {
     queueTradingExpertTranscriptPersistenceRetry(threadId, items, options);
     console.warn("[trading-transcript] deferred persistence", error);
-    showToast("会话记录将在后台自动重试保存，不影响本次回答。", 4500);
     return false;
   }
 }
@@ -31495,7 +31495,7 @@ function buildTradingAnalysisAvailabilityReport(instruction: string, _technicalR
   const question = normalizeTradingRoutingText(instruction).slice(0, 600) || "当前盘面问题";
   return [
     `关于“${question}”：当前无法取得至少两根可核验的实时 K 线，因此现在不能负责任地给出多空、入场价或目标位。`,
-    "我没有用旧行情或臆测数字替代实时盘面。行情连接恢复后，沿用同一问题即可自动读取当前图表并重新计算。",
+    "我没有用旧行情或臆测数字替代实时盘面。目标行情或连接恢复后，沿用同一问题即可重新读取指定交易对并重新计算。",
   ].join("\n\n");
 }
 
@@ -31527,7 +31527,7 @@ async function runTradingGeneralChartRequest(
   updateProgress(
     "preparing",
     request.symbol
-      ? `正在按你的要求打开 ${request.symbol} 的目标 K 线；未指定周期时继承发送时左侧图表周期，未指定市场类型时优先匹配当前可用市场。`
+      ? `正在按你的要求打开 ${request.symbol} 的目标 K 线；未指定周期时使用币安 USDT 永续合约 1 小时周期。`
       : "正在优先读取左侧当前选择的品种、周期和可见 K 线。",
   );
   try {
@@ -31540,6 +31540,7 @@ async function runTradingGeneralChartRequest(
       lookbackMs: request.lookbackMs,
       lookbackLabel: request.lookbackLabel,
       drawingRequested: request.drawingRequested,
+      positionManagementRequested: request.positionManagementRequested,
       onProgress: updateProgress,
     });
     updateProgress(
@@ -31547,7 +31548,13 @@ async function runTradingGeneralChartRequest(
       `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的通用盘面分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
+    const reportItem = appendTradingExpertReport(
+      targetThreadId(),
+      result.report,
+      undefined,
+      undefined,
+      request.positionManagementRequested === true ? "plain" : "execution-plan",
+    );
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const message = errorMessage(error);
@@ -31558,7 +31565,13 @@ async function runTradingGeneralChartRequest(
       const report = buildTradingAnalysisAvailabilityReport(request.instruction, message);
       updateProgress("complete", "已完成盘面数据可用性检查，并给出与当前可验证信息匹配的回答。");
       clearTradingExpertThinkingState(targetThreadId());
-      const reportItem = appendTradingExpertReport(targetThreadId(), report, undefined, undefined, "execution-plan");
+      const reportItem = appendTradingExpertReport(
+        targetThreadId(),
+        report,
+        undefined,
+        undefined,
+        request.positionManagementRequested === true ? "plain" : "execution-plan",
+      );
       await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
     }
   } finally {
@@ -31614,6 +31627,7 @@ async function runTradingStrategyChartRequest(
       executionPlanRequested: strategy.capabilities.includes("execution-plan"),
       contextCandlesRequested: Boolean(strategy.dataRequirements?.["context-candles"]),
       comparisonCandlesRequested: Boolean(strategy.dataRequirements?.["comparison-candles"]),
+      positionManagementRequested: request.positionManagementRequested,
       onProgress: updateProgress,
     });
     updateProgress(
@@ -31621,7 +31635,13 @@ async function runTradingStrategyChartRequest(
       `${result.modelName} 已完成 ${result.symbol} ${strategy.ui.completionMetric(result)}${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
-    const reportItem = appendTradingExpertReport(targetThreadId(), result.report, undefined, undefined, "execution-plan");
+    const reportItem = appendTradingExpertReport(
+      targetThreadId(),
+      result.report,
+      undefined,
+      undefined,
+      request.positionManagementRequested === true ? "plain" : "execution-plan",
+    );
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
     const strategyMessage = errorMessage(error);
@@ -31643,6 +31663,7 @@ async function runTradingStrategyChartRequest(
           lookbackMs: request.lookbackMs,
           lookbackLabel: request.lookbackLabel,
           drawingRequested: request.drawingRequested,
+          positionManagementRequested: request.positionManagementRequested,
           strategyDisplayName: "通用价格结构",
           minimumCandles: Math.min(30, strategy.dataRequirements?.candles?.minCount || 30),
           preferredCandles: Math.max(100, strategy.dataRequirements?.candles?.preferredCount || 100),
@@ -31654,7 +31675,13 @@ async function runTradingStrategyChartRequest(
           `${recovered.modelName} 已完成 ${recovered.symbol} ${recovered.candleCount} 根 K 线的兼容分析${request.drawingRequested ? "与安全绘图" : ""}。`,
         );
         clearTradingExpertThinkingState(targetThreadId());
-        const reportItem = appendTradingExpertReport(targetThreadId(), recovered.report, undefined, undefined, "execution-plan");
+        const reportItem = appendTradingExpertReport(
+          targetThreadId(),
+          recovered.report,
+          undefined,
+          undefined,
+          request.positionManagementRequested === true ? "plain" : "execution-plan",
+        );
         await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
       } catch (recoveryError) {
         const report = buildTradingAnalysisAvailabilityReport(
@@ -31663,7 +31690,13 @@ async function runTradingStrategyChartRequest(
         );
         updateProgress("complete", "已完成盘面数据可用性检查，并给出与当前可验证信息匹配的回答。");
         clearTradingExpertThinkingState(targetThreadId());
-        const reportItem = appendTradingExpertReport(targetThreadId(), report, undefined, undefined, "execution-plan");
+        const reportItem = appendTradingExpertReport(
+          targetThreadId(),
+          report,
+          undefined,
+          undefined,
+          request.positionManagementRequested === true ? "plain" : "execution-plan",
+        );
         await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
       }
     }
@@ -34728,6 +34761,9 @@ async function classifyTradingGeneralRequestForSend(
       lookbackLabel: chartAnalysis ? fallback.lookbackLabel : null,
       forecastHorizonMs: chartAnalysis ? fallback.forecastHorizonMs : null,
       questionKinds: fallback.questionKinds,
+      positionManagementRequested: chartAnalysis
+        && (fallback.positionManagementRequested === true
+          || request.positionManagementRequested === true),
       drawingRequested: chartAnalysis && !explicitNoDrawingRequested(fallback.instruction),
       analysisFollowup: !chartAnalysis && request.analysisFollowup === true,
     };

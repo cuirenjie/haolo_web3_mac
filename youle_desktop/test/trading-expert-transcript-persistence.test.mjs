@@ -536,7 +536,8 @@ test("generic strategy and general chart-analysis start after persistence or a n
   }
   assert.doesNotMatch(dispatch, /任务未执行：顶层会话保存失败/);
   assert.match(dispatch, /queueTradingExpertTranscriptPersistenceRetry/);
-  assert.match(dispatch, /会话记录将在后台自动重试保存，盘面分析继续/);
+  assert.doesNotMatch(dispatch, /会话记录将在后台自动重试保存，盘面分析继续/);
+  assert.doesNotMatch(rendererSource, /会话记录将在后台自动重试保存，不影响本次回答/);
   assert.match(rendererSource, /payload\.slice\(index \* 32, index \* 32 \+ 32\)/);
   assert.match(dispatch, /threadId = persistedThreadId/);
   assert.match(rendererSource, /adoptReplacementCodexThread\(previousThreadId, result\.replacementThread, 0\)/);

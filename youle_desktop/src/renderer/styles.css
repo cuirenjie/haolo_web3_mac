@@ -35573,6 +35573,13 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
   shape-rendering: geometricprecision;
 }
 
+/* Indicator panes are lightweight-charts-owned elements rather than the main
+   viewport. Give each pane its own positioning context so the shared drawing
+   controller can map time/value coordinates locally without covering siblings. */
+.trading-indicator-drawing-pane {
+  position: relative;
+}
+
 .trading-drawing-layer.drawing-active {
   cursor: crosshair;
   pointer-events: auto;
@@ -36239,6 +36246,49 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
   color: var(--trading-market-muted);
   cursor: not-allowed;
   opacity: 0.32;
+}
+
+.trading-ai-text-size-toolbar > button.trading-ai-text-size-toolbar-dismiss {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 17px;
+  min-width: 17px;
+  height: 17px;
+  border: 1px solid var(--trading-market-border);
+  border-radius: 50%;
+  background: var(--trading-market-panel);
+  color: var(--trading-market-muted);
+  font-size: calc(12px + var(--app-font-size-offset));
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.8);
+  transition: opacity 0.14s ease, transform 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+
+.trading-ai-text-size-toolbar:hover > button.trading-ai-text-size-toolbar-dismiss,
+.trading-ai-text-size-toolbar:focus-within > button.trading-ai-text-size-toolbar-dismiss {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.trading-ai-text-size-toolbar > button.trading-ai-text-size-toolbar-dismiss:hover,
+.trading-ai-text-size-toolbar > button.trading-ai-text-size-toolbar-dismiss:focus-visible {
+  background: var(--trading-market-control);
+  color: var(--trading-market-text);
+}
+
+.trading-ai-text-size-toolbar > button.trading-ai-text-size-toolbar-dismiss:focus-visible {
+  outline: 2px solid var(--trading-market-accent);
+  outline-offset: 1px;
+}
+
+.trading-ai-text-size-toolbar > button.trading-ai-text-size-toolbar-dismiss:active {
+  background: var(--trading-market-accent-soft);
+  color: var(--trading-market-accent);
 }
 
 .trading-drawing-selection-mode {
