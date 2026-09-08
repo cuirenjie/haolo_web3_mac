@@ -20434,6 +20434,10 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   gap: 28px;
   margin-bottom: 24px;
 }
+.recharge-cycle-tabs { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 0 18px; border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; }
+.recharge-cycle-tabs button { border: 0; border-right: 1px solid var(--line-strong); padding: 12px 16px; background: transparent; color: var(--text-secondary); font: inherit; font-weight: 700; cursor: pointer; }
+.recharge-cycle-tabs button:last-child { border-right: 0; }
+.recharge-cycle-tabs button[aria-selected="true"] { background: var(--selection-soft); color: var(--text-primary); }
 
 .recharge-page-intro > div:first-child {
   grid-column: 2;

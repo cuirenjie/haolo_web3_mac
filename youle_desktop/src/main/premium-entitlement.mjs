@@ -72,7 +72,10 @@ export function profileAvailableBalanceState(profile) {
 }
 
 export function premiumAccessState(profile, now = Date.now()) {
-  if (!activeMembershipEntitlement(profile, now).active) return "membership-required";
+  if (!activeMembershipEntitlement(profile, now).active) {
+    const permanentBalance = firstNumericProfileValue(profile || {}, ["real_balance", "realBalance", "balance"]);
+    return permanentBalance != null && permanentBalance > 0 ? "available" : "membership-required";
+  }
   const balanceState = profileAvailableBalanceState(profile);
   if (balanceState === "available") return "available";
   if (balanceState === "insufficient") return "insufficient";

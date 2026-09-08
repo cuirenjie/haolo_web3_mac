@@ -546,11 +546,15 @@ export function ensureBrowserDesktopApi() {
         || (existingOrder?.status === "pending" && Date.parse(existingOrder.expires_at) > Date.now())
       ) return existingOrder;
       if (existingOrder?.status === "pending") existingOrder.status = "expired";
-      const products: Record<string, { name: string; price: string; internalPrice: string; tokens: string; months: number; days: number; plan: string }> = {
+      const products: Record<string, { name: string; price: string; internalPrice: string; tokens: string; months: number; days: number; plan: string; billingCycle?: string; kind?: string }> = {
         subscription_trial: { name: "体验版订阅", price: "4.900", internalPrice: "4.873", tokens: "100", months: 0, days: 3, plan: "trial" },
-        subscription_basic: { name: "基础版订阅", price: "99.000", internalPrice: "98.931", tokens: "1000", months: 1, days: 0, plan: "basic" },
-        subscription_pro: { name: "专业版订阅", price: "499.000", internalPrice: "498.956", tokens: "6000", months: 6, days: 0, plan: "pro" },
-        subscription_flagship: { name: "旗舰版订阅", price: "799.000", internalPrice: "798.913", tokens: "12000", months: 12, days: 0, plan: "flagship" },
+        subscription_basic: { name: "基础版订阅", price: "39.000", internalPrice: "38.973", tokens: "300", months: 1, days: 0, plan: "basic" },
+        subscription_pro: { name: "专业版订阅", price: "69.000", internalPrice: "68.952", tokens: "600", months: 1, days: 0, plan: "pro" },
+        subscription_flagship: { name: "旗舰版订阅", price: "99.000", internalPrice: "98.931", tokens: "1000", months: 1, days: 0, plan: "flagship" },
+        subscription_basic_annual: { name: "基础版年付订阅", price: "348.000", internalPrice: "347.756", tokens: "300", months: 12, days: 0, plan: "basic", billingCycle: "annual" },
+        subscription_pro_annual: { name: "专业版年付订阅", price: "588.000", internalPrice: "587.588", tokens: "600", months: 12, days: 0, plan: "pro", billingCycle: "annual" },
+        subscription_flagship_annual: { name: "旗舰版年付订阅", price: "708.000", internalPrice: "707.505", tokens: "1000", months: 12, days: 0, plan: "flagship", billingCycle: "annual" },
+        points_pack_30: { name: "30积分包", price: "10.000", internalPrice: "9.993", tokens: "30", months: 0, days: 0, plan: "permanent", kind: "addon" },
       };
       const product = products[productId] || products.subscription_basic;
       const addresses: Record<string, string> = {

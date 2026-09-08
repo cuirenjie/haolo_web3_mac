@@ -634,14 +634,14 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     name: "基础版",
     orderName: "基础版订阅",
     description: "适合日常看盘、行情问答与基础策略分析。",
-    detail: "总额度 1,000 积分·1个月会员",
-    priceUsdt: 99,
-    amountCents: 9_900,
+    detail: "每月 300 订阅积分·1个月会员",
+    priceUsdt: 39,
+    amountCents: 3_900,
     billingPeriod: "月",
-    tokenAmount: 1000,
+    tokenAmount: 300,
     unitValue: "42.42",
     multiplier: "1:0.023",
-    features: ["支付成功后 1,000 积分立即到账", "1个月有效，未用完到期清零", "支持全部基础 AI 能力"],
+    features: ["每月获得 300 订阅积分", "1个月有效，未用完到期清零", "支持全部基础 AI 能力"],
   },
   {
     id: "subscription_pro",
@@ -649,14 +649,14 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     name: "专业版",
     orderName: "专业版订阅",
     description: "适合持续行情研判、多策略分析与交易计划制定。",
-    detail: "总额度 6,000 积分·半年会员",
-    priceUsdt: 499,
-    amountCents: 49_900,
-    billingPeriod: "半年",
-    tokenAmount: 6000,
+    detail: "每月 600 订阅积分·1个月会员",
+    priceUsdt: 69,
+    amountCents: 6_900,
+    billingPeriod: "月",
+    tokenAmount: 600,
     unitValue: "49.7",
     multiplier: "1:0.02",
-    features: ["支付成功后 6,000 积分立即到账", "6个月有效，未用完到期清零", "提前续费时积分叠加、期限顺延"],
+    features: ["每月获得 600 订阅积分", "1个月有效，未用完到期清零", "提前续费时积分叠加、期限顺延"],
   },
   {
     id: "subscription_flagship",
@@ -664,14 +664,37 @@ const RECHARGE_SUBSCRIPTION_PRODUCTS: readonly RechargeProductDefinition[] = [
     name: "旗舰版",
     orderName: "旗舰版订阅",
     description: "适合高频行情分析、复杂策略研究与专业交易辅助。",
-    detail: "总额度 12,000 积分·1年会员",
-    priceUsdt: 799,
-    amountCents: 79_900,
-    billingPeriod: "年",
-    tokenAmount: 12000,
+    detail: "每月 1,000 订阅积分·1个月会员",
+    priceUsdt: 99,
+    amountCents: 9_900,
+    billingPeriod: "月",
+    tokenAmount: 1000,
     unitValue: "56.1",
     multiplier: "1:0.017",
-    features: ["支付成功后 12,000 积分立即到账", "12个月有效，未用完到期清零", "提前升级时积分叠加、期限顺延"],
+    features: ["每月获得 1,000 订阅积分", "1个月有效，未用完到期清零", "提前升级时积分叠加、期限顺延"],
+  },
+  {
+    id: "subscription_basic_annual", kind: "subscription", name: "基础版", orderName: "基础版年付订阅",
+    description: "年付方案，按月获得订阅积分。", detail: "29 USDT/月·一次支付348 USDT", priceUsdt: 29,
+    amountCents: 34_800, billingPeriod: "月", tokenAmount: 300, unitValue: "116", multiplier: "1:0.0116", billingCycle: "annual",
+    features: ["每月获得300订阅积分，连续12个月", "一次支付 29 × 12 = 348 USDT"],
+  },
+  {
+    id: "subscription_pro_annual", kind: "subscription", name: "专业版", orderName: "专业版年付订阅",
+    description: "年付方案，按月获得订阅积分。", detail: "49 USDT/月·一次支付588 USDT", priceUsdt: 49,
+    amountCents: 58_800, billingPeriod: "月", tokenAmount: 600, unitValue: "98", multiplier: "1:0.0098", billingCycle: "annual",
+    features: ["每月获得600订阅积分，连续12个月", "一次支付 49 × 12 = 588 USDT"],
+  },
+  {
+    id: "subscription_flagship_annual", kind: "subscription", name: "旗舰版", orderName: "旗舰版年付订阅",
+    description: "年付方案，按月获得订阅积分。", detail: "59 USDT/月·一次支付708 USDT", priceUsdt: 59,
+    amountCents: 70_800, billingPeriod: "月", tokenAmount: 1000, unitValue: "59", multiplier: "1:0.0059", billingCycle: "annual",
+    features: ["每月获得1,000订阅积分，连续12个月", "一次支付 59 × 12 = 708 USDT"],
+  },
+  {
+    id: "points_pack_30", kind: "addon", name: "积分包", orderName: "30积分包", description: "永久积分，订阅到期后仍可使用。",
+    detail: "10 USDT获得30永久积分", priceUsdt: 10, amountCents: 1_000, billingPeriod: "次", tokenAmount: 30,
+    unitValue: "0.333", multiplier: "1:0.0333", billingCycle: "points", features: ["支付成功后30永久积分到账", "优先扣除订阅积分，余额不足再扣永久积分"],
   },
 ];
 const RECHARGE_PAYMENT_NETWORKS = [
@@ -767,6 +790,7 @@ const rechargePaymentOrderErrorsBySelection = new Map<string, string>();
 const rechargePaymentReplacementPreviousOrderNos = new Map<string, string>();
 const rechargePaymentExpiryChecksInFlight = new Set<string>();
 let selectedRechargeProductId = "subscription_trial";
+let selectedRechargeBillingCycle: "monthly" | "annual" | "points" = "monthly";
 let selectedRechargePaymentNetwork: RechargePaymentNetworkId | null = "binance_internal";
 let rechargePaymentOrder: Web3PaymentOrder | null = null;
 let rechargePaymentOrderScope = "";
@@ -2885,14 +2909,15 @@ type ConsumptionState = {
 
 type RechargeProductDefinition = {
   id: string;
-  kind: "subscription";
+  kind: "subscription" | "addon";
   name: string;
   orderName: string;
   description: string;
   detail: string;
   priceUsdt: number;
   amountCents: number;
-  billingPeriod: "3天" | "月" | "半年" | "年";
+  billingPeriod: "3天" | "月" | "半年" | "年" | "次";
+  billingCycle?: "monthly" | "annual" | "points";
   tokenAmount: number;
   weeklyTokenAmount?: number;
   unitValue: string;
@@ -58337,7 +58362,7 @@ function renderProfileMenu() {
           <strong>${renderProfileLevelIcons()}</strong>
         </div>
         <div class="profile-token-row">
-          <span>积分余额</span>
+          <span>永久积分</span>
           <div class="profile-token-balance">
             <strong>${escapeHtml(currentProfileBalance())}</strong>
             <button class="profile-recharge-button" data-action="profile-quota">充值</button>
@@ -58395,8 +58420,8 @@ function renderRechargePage() {
             </div>
             <div class="recharge-page-balances">
               ${renderPageHomeButton()}
-              <div class="recharge-page-balance" title="当前积分余额">
-                <span>积分余额</span>
+              <div class="recharge-page-balance" title="当前永久积分余额">
+                <span>永久积分</span>
                 <strong>${escapeHtml(currentProfileBalance())}</strong>
               </div>
               ${membership.subscribed ? renderRechargeSubscriptionBalance() : ""}
@@ -58412,6 +58437,9 @@ function renderRechargePage() {
               </button>
             </div>
           </section>
+          <nav class="recharge-cycle-tabs" role="tablist" aria-label="订阅类型">
+            ${([['monthly','月付'],['annual','年付'],['points','积分包']] as const).map(([cycle,label]) => `<button type="button" role="tab" aria-selected="${selectedRechargeBillingCycle === cycle ? 'true' : 'false'}" data-recharge-cycle="${cycle}">${label}</button>`).join('')}
+          </nav>
           <section class="recharge-product-grid subscription" role="radiogroup" aria-label="选择适合你的订阅" aria-required="true" style="--recharge-product-columns: ${visibleProducts.length}">
             ${visibleProducts.map(renderRechargeProductCard).join("")}
           </section>
@@ -58735,7 +58763,10 @@ function rechargeProductIsUnavailable(product: RechargeProductDefinition) {
 }
 
 function visibleRechargeSubscriptionProducts() {
-  return RECHARGE_SUBSCRIPTION_PRODUCTS.filter((product) => !rechargeProductIsUnavailable(product));
+  return RECHARGE_SUBSCRIPTION_PRODUCTS.filter((product) =>
+    !rechargeProductIsUnavailable(product)
+    && (product.billingCycle || "monthly") === selectedRechargeBillingCycle,
+  );
 }
 
 function ensureRechargeProductSelection() {
@@ -58939,7 +58970,10 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
   const network = rechargePaymentOrderNetwork(order);
   if (!product || !network) return renderRechargePaymentState("error", "订单信息异常", "请重新获取支付订单。", "重新获取");
   if (order.status === "paid") {
-    return `${renderRechargePaymentState("paid", "支付成功", "积分已全部到账，会员期限已更新。", "继续购买")}
+    const paidDetail = product.kind === "addon"
+      ? "永久积分已到账，订阅到期后仍可使用。"
+      : "积分已全部到账，会员期限已更新。";
+    return `${renderRechargePaymentState("paid", "支付成功", paidDetail, "继续购买")}
       <p class="recharge-payment-agreement">订单号：${escapeHtml(order.order_no)}</p>`;
   }
   if (order.status === "manual_review") {
@@ -59017,7 +59051,10 @@ function renderRechargePaymentDetailsContent(order: Web3PaymentOrder) {
       ${renderRechargeMembershipAgreement(product, order, network)}
     `;
   }
-  const fixedPaymentAmount = String(product.priceUsdt);
+  // The backend assigns the exact payable amount (including annual totals and
+  // the per-order precision band); always copy that value into the payment
+  // request instead of the monthly display price.
+  const fixedPaymentAmount = String(order.payable_amount || product.priceUsdt);
   const chainPaymentNotice = uniqueAddressUnderpaid
     ? `<div class="recharge-payment-underpaid" role="status"><strong>已到账 ${escapeHtml(order.amount_received)} USDT</strong><span>还需补付 ${escapeHtml(order.remaining_amount)} USDT · 请继续向同一临时地址补足，系统会累计到账金额。</span></div>`
     : "";
@@ -59769,8 +59806,8 @@ function renderConsumptionPage(): string {
         <header class="consumption-header">
           <div class="consumption-header-balances">
             ${renderPageHomeButton()}
-            <div class="recharge-page-balance" title="当前积分余额">
-              <span>积分余额</span>
+            <div class="recharge-page-balance" title="当前永久积分余额">
+              <span>永久积分</span>
               <strong>${escapeHtml(currentProfileBalance())}</strong>
             </div>
             ${membership.subscribed ? renderRechargeSubscriptionBalance() : ""}
@@ -61392,6 +61429,15 @@ function bindExecutionPlanEvents() {
 }
 
 function bindRechargeProductCardEvents() {
+  root.querySelectorAll<HTMLButtonElement>('[data-recharge-cycle]').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const cycle = tab.dataset.rechargeCycle as "monthly" | "annual" | "points";
+      if (!["monthly", "annual", "points"].includes(cycle)) return;
+      selectedRechargeBillingCycle = cycle;
+      ensureRechargeProductSelection();
+      render();
+    });
+  });
   const cards = Array.from(root.querySelectorAll<HTMLElement>("[data-recharge-product-id]"));
   if (cards.length === 0) return;
   const selectCard = (selectedCard: HTMLElement) => {
