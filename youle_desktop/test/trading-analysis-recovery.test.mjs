@@ -90,3 +90,22 @@ test("question lead uses validated action levels while short-data recovery stays
     candles: candles.slice(0, 1),
   }), null);
 });
+
+test("position recovery answers the close question instead of returning a generic entry plan", async () => {
+  const recovery = await recoveryModule();
+  const result = recovery.buildRecoverableTradingAnalysis({
+    analysisId: "position-fault-injection",
+    marketId: "BINANCE:FUTURES:SKHYNIXUSDT",
+    symbol: "SKHYNIXUSDT",
+    interval: "60",
+    instruction: "SKHYNIX我在1240做空，强平价1462，我在哪里平仓？",
+    positionManagementRequested: true,
+    candles,
+    reason: new Error("model provider offline"),
+  });
+  assert.ok(result);
+  assert.match(result.report, /### 直接回答/);
+  assert.match(result.report, /空单平仓/);
+  assert.match(result.report, /### 盘面依据/);
+  assert.doesNotMatch(result.report, /想做多|想做空|新手执行清单|杠杆|候选仓位/);
+});

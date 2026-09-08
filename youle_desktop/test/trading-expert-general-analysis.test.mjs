@@ -94,6 +94,9 @@ test("general market intent deterministically routes explicit symbols, intervals
   });
   assert.equal(positionHealth?.request.mode, "chart-analysis");
   assert.equal(positionHealth?.request.drawingRequested, true);
+  const positionWeight = deterministicGeneralRequestRouting("我这笔仓位重不重？");
+  assert.equal(positionWeight?.request.mode, "chart-analysis");
+  assert.equal(positionWeight?.classification.intent, "position-management");
 
   const noDrawing = deterministicGeneralRequestRouting("刷新最新行情，只告诉我是否还能做多，不用重画", {
     hasCurrentAnalysis: true,
@@ -101,6 +104,31 @@ test("general market intent deterministically routes explicit symbols, intervals
   assert.equal(noDrawing?.request.mode, "chart-analysis");
   assert.equal(noDrawing?.request.drawingRequested, false);
   assert.match(buildGeneralRequestRoutingPrompt({ text: "帮我分析SNDK一小时走势" }), /SNDKUSDT、60/);
+});
+
+test("position management intent reads the named market before combining account context", () => {
+  const text = "SKHYNIX我在1240做空 强平价1462我在哪里平仓?";
+  const routed = deterministicGeneralRequestRouting(text);
+  assert.equal(routed?.request.mode, "chart-analysis");
+  assert.equal(routed?.request.symbol, "SKHYNIXUSDT");
+  assert.equal(routed?.request.interval, null);
+  assert.equal(routed?.request.positionManagementRequested, true);
+  assert.equal(routed?.classification.intent, "position-management");
+
+  const normalized = normalizeGeneralRequestRoutingModelResponse(JSON.stringify({
+    schemaVersion: 1,
+    mode: "conversation",
+    intent: "general-question",
+    symbol: null,
+    interval: null,
+    lookbackMs: null,
+    lookbackLabel: null,
+    confidence: 0.2,
+  }), text);
+  assert.equal(normalized.request.mode, "chart-analysis");
+  assert.equal(normalized.request.symbol, "SKHYNIXUSDT");
+  assert.equal(normalized.request.positionManagementRequested, true);
+  assert.equal(normalized.classification.intent, "position-management");
 });
 
 test("general semantic router preserves an official Han-character Binance symbol", () => {
@@ -392,6 +420,159 @@ test("general Binance futures analysis merges a fresh account snapshot locally w
   assert.match(result.analysisPlan.report, /未实现盈亏 \+123\.45 USDT/);
 });
 
+test("position-management prompt requires market bias before account advice", async () => {
+  let capturedPrompt = "";
+  await runTradingPriceActionAnalysisPipeline({
+    marketId: "BINANCE:FUTURES:SKHYNIXUSDT",
+    interval: "60",
+    snapshotTime: Date.now(),
+    instruction: "SKHYNIX我在1240做空，强平价1462，我在哪里平仓？",
+    positionManagementRequested: true,
+    candles: fixtureCandles(),
+  }, {
+    providerId: "fixture-provider",
+    modelRegistry: {
+      async analyze(providerId, request) {
+        capturedPrompt = request.prompt;
+        return {
+          providerId,
+          modelId: "fixture-model",
+          requestId: request.requestId,
+          text: JSON.stringify({
+            schemaVersion: 1,
+            verdict: "approve",
+            summary: "盘面偏空，先控制风险。",
+            marketBias: "bearish",
+            rationale: "结构走弱。",
+            confidence: 0.8,
+          }),
+        };
+      },
+    },
+  });
+  assert.match(capturedPrompt, /这是仓位管理分析/);
+  assert.match(capturedPrompt, /必须先根据本次目标交易对和周期/);
+  assert.match(capturedPrompt, /禁止只根据仓位数量或用户给出的价格直接判断/);
+  assert.match(capturedPrompt, /回答必须第一句直接回应用户问的具体动作/);
+  assert.match(capturedPrompt, /不要输出通用多空开仓计划、杠杆、仓位大小/);
+});
+
+test("position-management direct narrative leads with the market conclusion", async () => {
+  const result = await runTradingPriceActionAnalysisPipeline({
+    marketId: "BINANCE:FUTURES:SKHYNIXUSDT",
+    interval: "60",
+    snapshotTime: Date.now(),
+    instruction: "SKHYNIX我在1240做空，强平价1462，我在哪里平仓？",
+    positionManagementRequested: true,
+    responseMode: "direct",
+    candles: fixtureCandles(),
+    async loadBinanceAccountContext() {
+      return {
+        bound: true,
+        available: true,
+        snapshot: {
+          fetchedAt: new Date().toISOString(),
+          marginBalance: 20_000,
+          availableBalance: 10_000,
+          positions: [{
+            symbol: "SKHYNIXUSDT",
+            direction: "SHORT",
+            leverage: 3,
+            amount: 8,
+            notionalValue: 9_000,
+            markPrice: 1_300,
+            entryPrice: 1_240,
+            unrealizedPnl: -480,
+          }],
+          warnings: [],
+        },
+      };
+    },
+  }, {
+    providerId: "fixture-provider",
+    modelRegistry: {
+      async analyze(providerId, request) {
+        return {
+          providerId,
+          modelId: "fixture-model",
+          requestId: request.requestId,
+          text: JSON.stringify({
+            schemaVersion: 1,
+            verdict: "approve",
+            summary: "盘面偏空，先减仓控制风险。",
+            answer: "根据盘面偏空，先减仓一半，再观察支撑位。",
+            marketBias: "bearish",
+            rationale: "高点下移且收盘走弱。",
+            confidence: 0.82,
+          }),
+        };
+      },
+    },
+  });
+  const narrative = result.analysisPlan.narrative;
+  assert.match(narrative, /^根据盘面偏空，先减仓一半，再观察支撑位。/);
+  assert.match(narrative, /账户校验：/);
+  assert.ok(narrative.indexOf("根据盘面偏空") < narrative.indexOf("账户校验："));
+});
+
+test("position-management keeps chart drawings but renders a targeted answer instead of a trading plan", async () => {
+  let capturedPrompt = "";
+  const answer = "先在关键压力附近平掉一半空单，若继续上破则再平剩余仓位。";
+  const result = await runTradingPriceActionAnalysisPipeline({
+    marketId: "BINANCE:FUTURES:SKHYNIXUSDT",
+    interval: "60",
+    snapshotTime: Date.now(),
+    instruction: "SKHYNIX我在1240做空，强平价1462，我在哪里平仓？",
+    // The renderer normally supplies this flag; infer it from the literal
+    // position question as a compatibility guard for older callers.
+    candles: fixtureCandles(),
+    async loadBinanceAccountContext() {
+      return {
+        bound: true,
+        available: true,
+        snapshot: {
+          fetchedAt: new Date().toISOString(),
+          marginBalance: 20_000,
+          availableBalance: 10_000,
+          positions: [],
+          warnings: [],
+        },
+      };
+    },
+  }, {
+    providerId: "fixture-provider",
+    modelRegistry: {
+      async analyze(providerId, request) {
+        capturedPrompt = request.prompt;
+        return {
+          providerId,
+          modelId: "fixture-model",
+          requestId: request.requestId,
+          text: JSON.stringify({
+            schemaVersion: 1,
+            verdict: "approve",
+            summary: "盘面偏空，先控制空单风险。",
+            answer,
+            marketBias: "bearish",
+            rationale: "反弹接近压力后再决定是否继续持有。",
+            confidence: 0.84,
+          }),
+        };
+      },
+    },
+  });
+
+  assert.match(capturedPrompt, /本次保留受控画线动作，同时直接回答用户的具体仓位问题/);
+  assert.match(result.analysisPlan.narrative, new RegExp(`^${answer}`));
+  assert.match(result.analysisPlan.narrative, /账户校验：未发现与本次问题对应的当前仓位/);
+  assert.ok(result.analysisPlan.drawingPatch.operations.length > 0);
+  assert.match(result.analysisPlan.report, /### 直接回答/);
+  assert.match(result.analysisPlan.report, new RegExp(answer));
+  assert.match(result.analysisPlan.report, /### 盘面依据/);
+  assert.match(result.analysisPlan.report, /### 账户仓位校验/);
+  assert.doesNotMatch(result.analysisPlan.report, /新手执行清单|想做多|想做空|候选仓位|杠杆不超过/);
+});
+
 test("general Binance futures analysis safely disables sizing when the refreshed account snapshot fails", async () => {
   const result = await runTradingPriceActionAnalysisPipeline({
     marketId: "BINANCE:FUTURES:BTCUSDT",
@@ -484,6 +665,8 @@ test("renderer route prioritizes explicit targets, verifies the loaded chart, an
   assert.match(mainSource, /hasCurrentAnalysis,/);
   assert.match(mainSource, /drawingRequested: chartAnalysis && !explicitNoDrawingRequested\(fallback\.instruction\)/);
   assert.match(mainSource, /runTradingExpertGeneralConversation\(\{/);
+  assert.match(mainSource, /positionManagementRequested: request\.positionManagementRequested/);
+  assert.match(mainSource, /request\.positionManagementRequested === true \? "plain" : "execution-plan"/);
   assert.doesNotMatch(mainSource, /general(?:Analysis)?Mentioned/);
   assert.match(mainSource, /symbol: chartAnalysis \? fallback\.symbol : null/);
   assert.match(mainSource, /interval: chartAnalysis \? fallback\.interval : null/);
@@ -494,7 +677,12 @@ test("renderer route prioritizes explicit targets, verifies the loaded chart, an
   assert.match(marketSource, /this\.loadedMarketId !== targetMarket\.id/);
   assert.match(marketSource, /this\.loadedInterval !== targetInterval/);
   assert.match(marketSource, /await this\.restartMarketData\(\)/);
-  assert.match(marketSource, /指定行情暂时不可用，已自动回到发送时的当前图表/);
+  assert.match(marketSource, /explicit symbol is an immutable analysis target/);
+  assert.match(marketSource, /positionManagementRequested: request\.positionManagementRequested === true/);
+  assert.match(marketSource, /const directResponseRequested = request\.drawingRequested === false[\s\S]*?request\.positionManagementRequested === true/);
+  assert.match(marketSource, /responseMode: directResponseRequested \? "direct" : "full"/);
+  assert.match(marketSource, /request\.positionManagementRequested === true\s*\n\s*\? ""/);
+  assert.match(marketSource, /request\.positionManagementRequested === true[\s\S]*?response\.analysisPlan\.report/);
   assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles, visibleRange\)/);
   assert.match(marketSource, /canvasCandles\.length\s*\? canvasCandles/);
   assert.match(marketSource, /canvasCandles\.slice\(-\(visibleCandlesOnly \? 600 : analysisWindowCount\)\)/);

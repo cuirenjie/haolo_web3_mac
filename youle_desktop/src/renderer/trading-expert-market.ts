@@ -109,6 +109,7 @@ import {
   createTradingMarketCandleCache,
   applyTradingLivePriceToBatch,
   mergeTradingCandleBatches,
+  tradingCandleBucketTimeMs,
 } from "./trading-market-candle-cache.mjs";
 import {
   tradingAnalysisDrawingFocusRange,
@@ -687,6 +688,8 @@ export interface TradingGeneralConversationRequest {
   executionPlanRequested?: boolean;
   contextCandlesRequested?: boolean;
   comparisonCandlesRequested?: boolean;
+  /** Semantic router classified this turn as position management. */
+  positionManagementRequested?: boolean;
   onProgress?: (phase: TradingGeneralConversationPhase, message: string) => void;
 }
 export interface TradingGeneralConversationResult {
@@ -709,6 +712,7 @@ export type TradingStrategyConversationRequest = Omit<TradingChanConversationReq
   executionPlanRequested?: boolean;
   contextCandlesRequested?: boolean;
   comparisonCandlesRequested?: boolean;
+  positionManagementRequested?: boolean;
   onProgress?: (phase: string, message: string) => void;
 };
 export type TradingStrategyConversationResult = TradingOrderFlowConversationResult;
@@ -3061,6 +3065,7 @@ interface IndicatorSeriesRuntime {
 interface IndicatorPaneRuntime {
   id: TradingIndicatorId;
   pane: any;
+  drawingController: TradingDrawingController | null;
   legend: HTMLElement | null;
   series: IndicatorSeriesRuntime[];
   analysisSeries: any[];
@@ -3686,7 +3691,7 @@ export async function fetchTradingCandles(
   }
   const candles = source.sourceMs === source.targetMs
     ? sourceCandles
-    : aggregateTradingCandles(sourceCandles, source.targetMs);
+    : aggregateTradingCandles(sourceCandles, source.targetMs, source.sourceInterval);
   return { candles: candles.slice(-count), sourceCandles, source };
 }
 
@@ -3976,10 +3981,14 @@ function normalizeBinanceCandles(items: unknown[][], now = Date.now()): TradingC
     );
 }
 
-export function aggregateTradingCandles(items: TradingCandle[], targetMs: number) {
+export function aggregateTradingCandles(
+  items: TradingCandle[],
+  targetMs: number,
+  sourceInterval: string | null = null,
+) {
   const buckets = new Map<number, TradingCandle>();
   items.slice().sort((first, second) => first.time - second.time).forEach((item) => {
-    const bucketTime = Math.floor((item.time * 1000) / targetMs) * targetMs / 1000;
+    const bucketTime = tradingCandleBucketTimeMs(item.time * 1_000, targetMs, sourceInterval) / 1_000;
     const current = buckets.get(bucketTime);
     if (!current) {
       buckets.set(bucketTime, { ...item, time: bucketTime });
@@ -4010,14 +4019,15 @@ function aggregateBinanceTrades(items: BinanceAggregateTrade[], targetMs: number
     const price = Number(item.p || 0);
     const volume = Number(item.q || 0);
     if (timeMs <= 0 || !Number.isFinite(price) || price <= 0) return [];
+    const bucketTimeMs = tradingCandleBucketTimeMs(timeMs, targetMs);
     return [{
-      time: Math.floor(timeMs / targetMs) * targetMs / 1000,
+      time: bucketTimeMs / 1_000,
       open: price,
       high: price,
       low: price,
       close: price,
       volume,
-      closed: Math.floor(timeMs / targetMs) * targetMs + targetMs <= Date.now(),
+      closed: bucketTimeMs + targetMs <= Date.now(),
     }];
   });
   return aggregateTradingCandles(candles, targetMs);
@@ -4236,7 +4246,7 @@ async function fetchLatestTradingCandles(
   return {
     candles: source.sourceMs === source.targetMs
       ? sourceCandles
-      : aggregateTradingCandles(sourceCandles, source.targetMs),
+      : aggregateTradingCandles(sourceCandles, source.targetMs, source.sourceInterval),
     sourceCandles,
     source,
   };
@@ -5048,6 +5058,7 @@ class TradingExpertMarketWorkspace {
   private tdIndicatorDirections: Array<TdSequentialSignal["direction"] | null> = [];
   private tdMarkers: any = null;
   private indicatorPanes = new Map<TradingIndicatorId, IndicatorPaneRuntime>();
+  private indicatorDrawingControllers = new Map<TradingIndicatorId, TradingDrawingController>();
   private indicatorAnalysisPatches = new Map<TradingIndicatorId, TradingIndicatorAiDrawingPatch>();
   private drawingController: TradingDrawingController | null = null;
   private activeDrawingController: TradingDrawingController | null = null;
@@ -5487,7 +5498,7 @@ class TradingExpertMarketWorkspace {
       this.updateSymbolUi();
       this.renderMarkets();
       if (favoriteAdded) this.commitFavoriteMarketChanges(false);
-      this.drawingController?.redraw();
+      this.redrawDrawingControllers();
       this.setPickerOpen(false);
       void this.restartMarketData({ preserveChart: true });
     }
@@ -5674,14 +5685,20 @@ class TradingExpertMarketWorkspace {
     this.host.classList.toggle("drawing-tools-disabled", !enabled);
     this.host.querySelector<HTMLElement>("[data-drawing-toolbar]")?.setAttribute("aria-hidden", String(!enabled));
     this.drawingController?.setUserDrawingEnabled(enabled);
+    this.indicatorDrawingControllers.forEach((controller) => controller.setUserDrawingEnabled(enabled));
     this.splitPanes.forEach((pane) => pane.getDrawingController()?.setUserDrawingEnabled(enabled));
   }
 
   private drawingControllers() {
     return [
       this.drawingController,
+      ...this.indicatorDrawingControllers.values(),
       ...this.splitPanes.map((pane) => pane.getDrawingController()),
     ].filter((controller): controller is TradingDrawingController => Boolean(controller));
+  }
+
+  private redrawDrawingControllers() {
+    this.drawingControllers().forEach((controller) => controller.redraw());
   }
 
   private displayedOrderLines() {
@@ -6031,7 +6048,7 @@ class TradingExpertMarketWorkspace {
       });
       this.positionIndicatorLegends();
       this.updateCurrentPriceLabel();
-      this.drawingController?.redraw();
+      this.redrawDrawingControllers();
       this.splitPanes.forEach((pane) => pane.getDrawingController()?.redraw());
     });
   }
@@ -6981,7 +6998,7 @@ class TradingExpertMarketWorkspace {
     if (!this.selectMarket(market)) return false;
     this.updateSymbolUi();
     this.renderMarkets();
-    this.drawingController?.redraw();
+    this.redrawDrawingControllers();
     this.setPickerOpen(false);
     void this.restartMarketData();
   }
@@ -8462,7 +8479,7 @@ class TradingExpertMarketWorkspace {
     this.updateCurrentPriceLabel();
     this.positionIndicatorLegends();
     this.renderVolumeProfile(true);
-    this.drawingController?.redraw();
+    this.redrawDrawingControllers();
     this.splitPanes.forEach((pane) => pane.getDrawingController()?.redraw());
     return true;
   }
@@ -8512,7 +8529,7 @@ class TradingExpertMarketWorkspace {
       this.updateSymbolUi();
       this.updateIntervalPressedButtons(targetInterval);
       this.renderMarkets();
-      this.drawingController?.redraw();
+      this.redrawDrawingControllers();
       this.setPickerOpen(false);
       await this.restartMarketData();
     }
@@ -9861,7 +9878,7 @@ class TradingExpertMarketWorkspace {
       this.chart.timeScale().setVisibleLogicalRange(previousLogicalRange);
       this.updateVisiblePriceScale();
       this.updateCurrentPriceLabel();
-      this.drawingController?.redraw();
+      this.redrawDrawingControllers();
       return;
     }
     // Persisted overlays from older builds do not have a saved pre-simulation
@@ -9941,6 +9958,8 @@ class TradingExpertMarketWorkspace {
   ): Promise<TradingGeneralConversationResult> {
     const analysisTheory = strategyId || "price-action";
     const analysisName = String(request.strategyDisplayName || (strategyId ? "策略" : "价格结构")).trim();
+    const directResponseRequested = request.drawingRequested === false
+      || request.positionManagementRequested === true;
     const capturedTarget = request.analysisTarget || null;
     const useCapturedTarget = Boolean(capturedTarget && !request.symbol);
     let useCapturedCandles = Boolean(
@@ -10017,25 +10036,18 @@ class TradingExpertMarketWorkspace {
         this.updateSymbolUi();
         this.updateIntervalPressedButtons(targetInterval);
         this.renderMarkets();
-        this.drawingController?.redraw();
+        this.redrawDrawingControllers();
         this.setPickerOpen(false);
         await this.restartMarketData();
       };
       try {
         await loadTarget();
       } catch (error) {
-        if (!request.symbol || !currentMarket || currentMarket.id === targetMarket.id) throw error;
-        request.onProgress?.(
-          "loading",
-          `指定行情暂时不可用，已自动回到发送时的当前图表 ${currentMarket.displaySymbol || currentMarket.symbol}。`,
-        );
-        targetMarket = currentMarket;
-        targetInterval = selectTradingAnalysisInterval({
-          currentInterval: currentIntervalAtStart,
-          explicitSymbol: false,
-        });
-        marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
-        await loadTarget();
+        // An explicit symbol is an immutable analysis target. Falling back to
+        // the visible chart here would produce a valid-looking answer for the
+        // wrong market (the failure mode reported for SKHYNIX on a BTC chart).
+        // Let the caller surface the load error and ask for a retry instead.
+        throw error;
       }
     }
     let targetCandles = useCapturedTarget
@@ -10210,7 +10222,8 @@ class TradingExpertMarketWorkspace {
         interval: job.interval,
         snapshotTime: analysisSnapshotTime,
         instruction: request.instruction,
-        responseMode: request.drawingRequested === false ? "direct" : "full",
+        positionManagementRequested: request.positionManagementRequested === true,
+        responseMode: directResponseRequested ? "direct" : "full",
         lookbackMs: requestedLookbackMs,
         ...(request.contextCandlesRequested === true ? { contextCandles: await contextCandlesPromise } : {}),
         ...(request.comparisonCandlesRequested === true ? { comparisonMarkets: await comparisonMarketsPromise } : {}),
@@ -10277,7 +10290,8 @@ class TradingExpertMarketWorkspace {
             interval: snapshot.interval,
             snapshotTime: Date.now(),
             instruction: request.instruction,
-            responseMode: request.drawingRequested === false ? "direct" : "full",
+            positionManagementRequested: request.positionManagementRequested === true,
+            responseMode: directResponseRequested ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
             ...(request.contextCandlesRequested === true ? { contextCandles } : {}),
             ...(request.comparisonCandlesRequested === true ? { comparisonMarkets } : {}),
@@ -10296,22 +10310,30 @@ class TradingExpertMarketWorkspace {
         throw new Error("盘面分析已由用户停止");
       }
       if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
-      request.onProgress?.("complete", request.drawingRequested === false
-        ? `${modelName} 已按最新行情完成复核，正在直接回答本次问题；左侧原画线保持不变。`
+      request.onProgress?.("complete", directResponseRequested
+        ? request.positionManagementRequested === true
+          ? `${modelName} 已按最新行情完成复核，正在直接回答本次仓位问题。`
+          : `${modelName} 已按最新行情完成复核，正在直接回答本次问题；左侧原画线保持不变。`
         : request.executionPlanRequested === false
           ? `${modelName} 已完成${analysisName}绘图，正在整理支撑、阻力与成交量分布信息。`
           : `${modelName} 已完成${analysisName}绘图，正在整理可执行的条件式方案。`);
-      const responseReport = String((request.drawingRequested === false
-          ? response.analysisPlan.narrative
-          : response.analysisPlan.report) || response.analysisPlan.narrative || "盘面分析已完成");
-      const questionLead = buildQuestionAlignedTradingLead({
-        instruction: request.instruction,
-        interval: job.interval,
-        candles: analysisCandles,
-        actionPlan: response.analysisPlan.actionPlan || null,
-      });
+      const responseReport = String((request.positionManagementRequested === true && !strategyId
+          ? response.analysisPlan.report
+          : directResponseRequested
+            ? response.analysisPlan.narrative
+            : response.analysisPlan.report) || response.analysisPlan.narrative || "盘面分析已完成");
+      const questionLead = request.positionManagementRequested === true
+        ? ""
+        : buildQuestionAlignedTradingLead({
+            instruction: request.instruction,
+            interval: job.interval,
+            candles: analysisCandles,
+            actionPlan: response.analysisPlan.actionPlan || null,
+          });
       const primaryReport = questionLead ? `${questionLead}\n\n${responseReport}` : responseReport;
-      const primaryNarrative = questionLead || String(response.analysisPlan.narrative || "盘面分析已完成");
+      const primaryNarrative = request.positionManagementRequested === true
+        ? String(response.analysisPlan.narrative || responseReport || "盘面分析已完成")
+        : questionLead || String(response.analysisPlan.narrative || "盘面分析已完成");
       const result: TradingGeneralConversationResult = {
         report: combineTradingAnalysisReports(
           tradingAnalysisPaneHeading(targetMarket, job.interval),
@@ -10340,6 +10362,7 @@ class TradingExpertMarketWorkspace {
         symbol: job.symbol,
         interval: job.interval,
         instruction: request.instruction,
+        positionManagementRequested: request.positionManagementRequested === true,
         candles: analysisCandles,
         reason: error,
       });
@@ -10425,7 +10448,7 @@ class TradingExpertMarketWorkspace {
       this.updateSymbolUi();
       this.updateIntervalPressedButtons(targetInterval);
       this.renderMarkets();
-      this.drawingController?.redraw();
+      this.redrawDrawingControllers();
       this.setPickerOpen(false);
       await this.restartMarketData();
     }
@@ -10723,7 +10746,7 @@ class TradingExpertMarketWorkspace {
       this.updateSymbolUi();
       this.updateIntervalPressedButtons(targetInterval);
       this.renderMarkets();
-      this.drawingController?.redraw();
+      this.redrawDrawingControllers();
       this.setPickerOpen(false);
       await this.restartMarketData();
     }
@@ -11046,7 +11069,7 @@ class TradingExpertMarketWorkspace {
       this.updateSymbolUi();
       this.updateIntervalPressedButtons(targetInterval);
       this.renderMarkets();
-      this.drawingController?.redraw();
+      this.redrawDrawingControllers();
       this.setPickerOpen(false);
       await this.restartMarketData();
     }
@@ -11317,7 +11340,7 @@ class TradingExpertMarketWorkspace {
       this.updateSymbolUi();
       this.updateIntervalPressedButtons(targetInterval);
       this.renderMarkets();
-      this.drawingController?.redraw();
+      this.redrawDrawingControllers();
       this.setPickerOpen(false);
       await this.restartMarketData();
     }
@@ -12277,7 +12300,7 @@ class TradingExpertMarketWorkspace {
         this.sourceCandles = mergeCandles(this.sourceCandles, batch.sourceCandles);
         this.candles = batch.source.sourceMs === batch.source.targetMs
           ? [...this.sourceCandles]
-          : aggregateTradingCandles(this.sourceCandles, batch.source.targetMs);
+          : aggregateTradingCandles(this.sourceCandles, batch.source.targetMs, batch.source.sourceInterval);
       } else {
         this.candles = mergeCandles(this.candles, batch.candles);
       }
@@ -12428,14 +12451,22 @@ class TradingExpertMarketWorkspace {
       this.candles = this.upsertLiveCandle(this.candles, { ...incoming });
       return;
     }
-    const bucketTime = Math.floor(incoming.time * 1_000 / source.targetMs) * source.targetMs / 1_000;
+    const bucketTime = tradingCandleBucketTimeMs(
+      incoming.time * 1_000,
+      source.targetMs,
+      source.sourceInterval,
+    ) / 1_000;
     const bucketSourceCandles: TradingCandle[] = [];
     for (let index = this.sourceCandles.length - 1; index >= 0; index -= 1) {
       const candle = this.sourceCandles[index];
       if (candle.time < bucketTime) break;
       if (candle.time < bucketTime + source.targetMs / 1_000) bucketSourceCandles.unshift(candle);
     }
-    const target = aggregateTradingCandles(bucketSourceCandles, source.targetMs).at(-1);
+    const target = aggregateTradingCandles(
+      bucketSourceCandles,
+      source.targetMs,
+      source.sourceInterval,
+    ).at(-1);
     if (target) this.candles = this.upsertLiveCandle(this.candles, target);
   }
 
@@ -12462,7 +12493,11 @@ class TradingExpertMarketWorkspace {
     if (source.sourceInterval) {
       const sourceMs = Number(source.sourceMs || 0);
       if (sourceMs <= 0) return;
-      const sourceTime = Math.floor(timeMs / sourceMs) * sourceMs / 1000;
+      const sourceTime = tradingCandleBucketTimeMs(
+        timeMs,
+        sourceMs,
+        source.sourceInterval,
+      ) / 1_000;
       const latestSource = this.sourceCandles.at(-1);
       if (latestSource?.time === sourceTime && latestSource.closed === true) return;
       const incoming = latestSource?.time === sourceTime
@@ -12488,7 +12523,7 @@ class TradingExpertMarketWorkspace {
       this.scheduleCurrentMarketCandlePersistence();
       return;
     }
-    const time = Math.floor(timeMs / source.targetMs) * source.targetMs / 1000;
+    const time = tradingCandleBucketTimeMs(timeMs, source.targetMs, source.sourceInterval) / 1_000;
     const latest = this.candles.at(-1);
     const existing = latest?.time === time
       ? latest
@@ -12793,7 +12828,7 @@ class TradingExpertMarketWorkspace {
     this.addPrimarySeries();
     this.updateChartData({ preserveViewport: true });
     if (visibleRange) this.chart.timeScale().setVisibleLogicalRange(visibleRange);
-    this.drawingController?.redraw();
+    this.redrawDrawingControllers();
   }
 
   private primarySeriesData(candles: TradingCandle[], trendBars: ReturnType<typeof atm1TrendCandles> | null) {
@@ -12966,7 +13001,7 @@ class TradingExpertMarketWorkspace {
         this.updateCurrentPriceLabel();
         this.paintAlertSimulationMarker();
         this.renderVolumeProfile(false);
-        this.drawingController?.redraw();
+        this.redrawDrawingControllers();
         this.extremaOverlay?.update();
       });
     });
@@ -13271,8 +13306,15 @@ class TradingExpertMarketWorkspace {
     const visibleRange = this.chart.timeScale().getVisibleLogicalRange();
     const restoreAlertSimulationIndicators = this.alertSimulationIndicatorRuntimes.length > 0;
     if (restoreAlertSimulationIndicators) this.detachAlertSimulationIndicators();
+    if (this.activeDrawingController && this.activeDrawingController !== this.drawingController) {
+      this.activeDrawingController.setControlActive(false);
+      this.activeDrawingController = this.drawingController;
+      this.drawingController?.setControlActive(true);
+    }
     this.rebuildingIndicatorPanes = true;
     try {
+      this.indicatorDrawingControllers.forEach((controller) => controller.destroy());
+      this.indicatorDrawingControllers.clear();
       // removePane() only detaches the visual pane in lightweight-charts. Its
       // series must be removed first or their old timestamps remain in the
       // shared time scale and corrupt the next interval's candle spacing.
@@ -13317,7 +13359,7 @@ class TradingExpertMarketWorkspace {
     }
     window.requestAnimationFrame(() => {
       this.positionIndicatorLegends();
-      this.drawingController?.redraw();
+      this.redrawDrawingControllers();
     });
   }
 
@@ -13333,6 +13375,7 @@ class TradingExpertMarketWorkspace {
     const runtime: IndicatorPaneRuntime = {
       id,
       pane,
+      drawingController: null,
       legend: null,
       series: [],
       analysisSeries: [],
@@ -13387,6 +13430,50 @@ class TradingExpertMarketWorkspace {
     });
     runtime.legend = this.createIndicatorLegend(result, setting);
     this.indicatorPanes.set(id, runtime);
+    // Lightweight Charts exposes the pane's table row through getHTMLElement;
+    // the actual plot surface is the middle cell's relative wrapper. Mounting
+    // the drawing layer there keeps it aligned with the pane canvas and avoids
+    // changing the table-row layout owned by the chart library.
+    const paneRow = pane.getHTMLElement?.() as HTMLElement | null;
+    const paneElement = paneRow?.querySelector<HTMLElement>("td:nth-child(2) > div")
+      || (paneRow?.children[1]?.firstElementChild as HTMLElement | null)
+      || paneRow;
+    if (paneElement) {
+      paneElement.classList.add("trading-indicator-drawing-pane");
+      const layerTemplate = document.createElement("template");
+      layerTemplate.innerHTML = renderTradingDrawingLayer().trim();
+      paneElement.append(...Array.from(layerTemplate.content.childNodes));
+      const drawingLayer = paneElement.querySelector<SVGSVGElement>("[data-drawing-layer]");
+      if (drawingLayer) {
+        const paneIndex = Math.max(0, this.chart?.panes?.().indexOf(pane) ?? 0);
+        const controller = new TradingDrawingController({
+          host: paneElement,
+          controlsHost: this.host,
+          chartElement: paneElement,
+          overlay: drawingLayer,
+          getChart: () => this.chart,
+          getCandleSeries: () => runtime.series[0]?.api,
+          getSymbol: () => this.selectedMarketId,
+          getInterval: () => this.activeInterval,
+          getCandles: () => this.chartCandles,
+          timeOffsetSeconds: CHINA_TIME_OFFSET_SECONDS,
+          storageSessionId: this.drawingStorageSessionId,
+          drawingScope: `indicator:${id}`,
+          paneIndex,
+          bindControlEvents: false,
+          controlActive: false,
+          clearScopeLabel: `副图 ${id.toUpperCase()}`,
+          resolveControlTarget: () => this.activeDrawingController ?? this.drawingController,
+          onSharedToolStateChanged: (state, source) => this.syncDrawingSharedToolState(state, source),
+          onSurfaceFocus: (source) => this.activateDrawingController(source),
+          onDrawingStateChanged: () => this.recordLastDrawingWorkspace(),
+        });
+        runtime.drawingController = controller;
+        this.indicatorDrawingControllers.set(id, controller);
+        if (this.drawingController) controller.applySharedToolState(this.drawingController.sharedToolState());
+        controller.setUserDrawingEnabled(this.chartSettings.drawingToolsEnabled);
+      }
+    }
     this.renderIndicatorAnalysisPatch(id);
   }
 
@@ -13691,7 +13778,7 @@ class TradingExpertMarketWorkspace {
     this.updateChartData();
     this.applyAlertSimulationIndicatorTheme();
     this.paintAlertSimulationMarker();
-    this.drawingController?.redraw();
+    this.redrawDrawingControllers();
     this.splitPanes.forEach((pane) => pane.updateSettings(this.chartSettings, themeName));
   }
 
@@ -13822,7 +13909,7 @@ class TradingExpertMarketWorkspace {
     this.updateCurrentPriceLabel();
     this.paintAlertSimulationMarker();
     this.renderVolumeProfile(true);
-    this.drawingController?.redraw();
+    this.redrawDrawingControllers();
   }
 
   private focusChartLookback(lookbackMs: number) {
@@ -13840,7 +13927,7 @@ class TradingExpertMarketWorkspace {
     this.chart.timeScale().setVisibleLogicalRange(logicalRange);
     this.updateVisiblePriceScale();
     this.updateCurrentPriceLabel();
-    this.drawingController?.redraw();
+    this.redrawDrawingControllers();
   }
 
   private async focusAnalysisDrawingPatch(patch: TradingAiDrawingPatch) {
@@ -13854,11 +13941,11 @@ class TradingExpertMarketWorkspace {
     this.updateVisiblePriceScale();
     this.updateCurrentPriceLabel();
     this.renderVolumeProfile(true);
-    this.drawingController?.redraw();
+    this.redrawDrawingControllers();
     this.queueVisiblePriceScaleUpdate();
     await waitForTradingAnalysisViewportPaint(window);
     if (this.disposed) return;
-    this.drawingController?.redraw();
+    this.redrawDrawingControllers();
   }
 
   private updateVisiblePriceScale() {
@@ -13907,7 +13994,7 @@ class TradingExpertMarketWorkspace {
     this.updateCurrentPriceLabel();
     this.paintAlertSimulationMarker();
     this.renderVolumeProfile(false);
-    this.drawingController?.redraw();
+    this.redrawDrawingControllers();
   }
 
   private trackVolumeProfileThroughWheelScale() {
@@ -14341,6 +14428,8 @@ class TradingExpertMarketWorkspace {
     this.activeDrawingController = null;
     this.splitPanes.forEach((pane) => pane.destroy());
     this.splitPanes = [];
+    this.indicatorDrawingControllers.forEach((controller) => controller.destroy());
+    this.indicatorDrawingControllers.clear();
     this.drawingController?.destroy();
     this.drawingController = null;
     this.extremaOverlay?.destroy();

@@ -85,6 +85,17 @@ function alignedLead(
   const kinds = classifyTradingQuestionKinds(instruction);
   const biasLabel = evidence.bias === "bullish" ? "偏多" : evidence.bias === "bearish" ? "偏空" : "震荡等待";
   const direction = `基于当前 ${intervalLabel(interval)} 已收盘 K 线，盘面暂时${biasLabel}`;
+  if (kinds.includes("position_risk")) {
+    const shortPosition = /做空|空单|空头/iu.test(instruction);
+    const longPosition = /做多|多单|多头/iu.test(instruction);
+    if (shortPosition) {
+      return `${direction}；你问的是空单平仓：反弹并收盘站上压力 ${formatPrice(evidence.resistance)} 附近先减仓或平仓，跌破支撑 ${formatPrice(evidence.support)} 后再观察是否继续持有。`;
+    }
+    if (longPosition) {
+      return `${direction}；你问的是多单处理：收盘跌破支撑 ${formatPrice(evidence.support)} 附近先减仓或平仓，站上压力 ${formatPrice(evidence.resistance)} 后再观察是否继续持有。`;
+    }
+    return `${direction}；这是仓位管理问题，先以支撑 ${formatPrice(evidence.support)} 和压力 ${formatPrice(evidence.resistance)} 作为减仓或继续持有边界，不能只按仓位文字判断。`;
+  }
   if (kinds.includes("entry")) {
     if (evidence.bias === "bullish") {
       return `${direction}；做多需等待收盘站上 ${formatPrice(evidence.longTrigger)}，止损失效参考 ${formatPrice(evidence.longInvalidation)}，第一目标参考 ${formatPrice(evidence.longTarget)}。`;
@@ -140,6 +151,7 @@ export function buildRecoverableTradingAnalysis(params: {
   interval: string;
   instruction: string;
   candles: ReadonlyArray<RecoveryCandle>;
+  positionManagementRequested?: boolean;
   reason?: unknown;
 }) {
   const candles = finiteCandles(params.candles);
@@ -147,23 +159,40 @@ export function buildRecoverableTradingAnalysis(params: {
   const evidence = recoveryEvidence(candles);
   const firstTime = candles[Math.max(0, candles.length - 48)].time;
   const lastTime = evidence.latest.time;
+  const positionManagementRequested = params.positionManagementRequested === true
+    || classifyTradingQuestionKinds(params.instruction).includes("position_risk");
   const lead = alignedLead(params.instruction, params.interval, evidence);
   const reason = String((params.reason as Error)?.message || params.reason || "").trim();
   const recoveryNote = reason
     ? "指定分析增强暂时不可用，本次已自动采用本地确定性价格结构引擎；结论和画线只引用当前真实 K 线。"
     : "本次由本地确定性价格结构引擎完成。";
-  const report = [
-    lead,
-    "",
-    `- 当前价：${formatPrice(evidence.latest.close)}`,
-    `- 支撑 / 压力：${formatPrice(evidence.support)} / ${formatPrice(evidence.resistance)}`,
-    `- 多头触发 / 失效 / 目标：${formatPrice(evidence.longTrigger)} / ${formatPrice(evidence.longInvalidation)} / ${formatPrice(evidence.longTarget)}`,
-    `- 空头触发 / 失效 / 目标：${formatPrice(evidence.shortTrigger)} / ${formatPrice(evidence.shortInvalidation)} / ${formatPrice(evidence.shortTarget)}`,
-    `- 数据范围：${candles.length} 根 ${intervalLabel(params.interval)} K 线，最新数据 ${new Date(lastTime * 1_000).toLocaleString("zh-CN")}`,
-    "",
-    recoveryNote,
-    "以上是条件式盘面判断，不是收益承诺；未收盘突破不作为确认。",
-  ].join("\n");
+  const report = positionManagementRequested
+    ? [
+        `## ${params.marketId} · ${intervalLabel(params.interval)}仓位管理`,
+        "",
+        "### 直接回答",
+        lead,
+        "",
+        "### 盘面依据",
+        `当前盘面更接近${evidence.bias === "bullish" ? "偏多" : evidence.bias === "bearish" ? "偏空" : "震荡等待"}，现价约 ${formatPrice(evidence.latest.close)}。`,
+        `关键位置：支撑 ${formatPrice(evidence.support)}，压力 ${formatPrice(evidence.resistance)}。`,
+        `数据范围：${candles.length} 根 ${intervalLabel(params.interval)} K 线，最新数据 ${new Date(lastTime * 1_000).toLocaleString("zh-CN")}`,
+        "",
+        recoveryNote,
+        "以上是条件式盘面判断，不是收益承诺；未收盘突破不作为确认。",
+      ].join("\n")
+    : [
+        lead,
+        "",
+        `- 当前价：${formatPrice(evidence.latest.close)}`,
+        `- 支撑 / 压力：${formatPrice(evidence.support)} / ${formatPrice(evidence.resistance)}`,
+        `- 多头触发 / 失效 / 目标：${formatPrice(evidence.longTrigger)} / ${formatPrice(evidence.longInvalidation)} / ${formatPrice(evidence.longTarget)}`,
+        `- 空头触发 / 失效 / 目标：${formatPrice(evidence.shortTrigger)} / ${formatPrice(evidence.shortInvalidation)} / ${formatPrice(evidence.shortTarget)}`,
+        `- 数据范围：${candles.length} 根 ${intervalLabel(params.interval)} K 线，最新数据 ${new Date(lastTime * 1_000).toLocaleString("zh-CN")}`,
+        "",
+        recoveryNote,
+        "以上是条件式盘面判断，不是收益承诺；未收盘突破不作为确认。",
+      ].join("\n");
   const analysisId = `recovery-${String(params.analysisId || Date.now()).replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 120)}`;
   const line = (
     id: string,

@@ -1177,6 +1177,15 @@ test("Binance futures resolution adapter selects native sources and aggregates c
     sourceMs: 2_592_000_000,
   });
 
+  const monday = Date.UTC(2026, 7, 31, 0, 0, 0) / 1_000;
+  const weekly = aggregateTradingCandles([
+    { time: monday, open: 10, high: 12, low: 9, close: 11, volume: 2, closed: true },
+    { time: monday + 3 * 86_400, open: 11, high: 14, low: 10, close: 13, volume: 3, closed: true },
+  ], 604_800_000, "1w");
+  assert.deepEqual(weekly.map(({ time, close, volume }) => ({ time, close, volume })), [
+    { time: monday, close: 13, volume: 5 },
+  ], "weekly aggregation must not fall back to the Unix Thursday anchor");
+
   const candles = aggregateTradingCandles([
     { time: 0, open: 10, high: 13, low: 9, close: 12, volume: 2 },
     { time: 60, open: 12, high: 15, low: 11, close: 14, volume: 3 },

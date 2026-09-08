@@ -13,6 +13,7 @@ const NAMED_ASSETS = new Map([
   ["布倫特原油", "BZUSDT"],
   ["WTI原油", "CLUSDT"],
   ["美光", "MUUSDT"],
+  ["SKHYNIX", "SKHYNIXUSDT"],
   ["闪迪", "SNDKUSDT"],
   ["閃迪", "SNDKUSDT"],
   ["海力士", "SKHYNIXUSDT"],
@@ -73,6 +74,12 @@ const MARKET_ANALYSIS_ACTION = /(?:分析|研判|看盘|复盘|解读|看看|看
 const MARKET_OBJECT = /(?:K\s*线|蜡烛|图表|盘面|行情|走势|趋势|价格|结构|支撑|压力|阻力|形态|背离|均线|成交量|订单流|流动性|FVG|BOS|CHoCH|MSS|盘口|仓位健康|强平风险|爆仓风险|kline|candlestick|chart|market|price|trend|setup|support|resistance|order\s*flow|liquidity)/iu;
 const ACTIONABLE_MARKET_QUESTION = /(?:能不能|是否可以|该不该|适不适合|现在|当前|最新|实时).{0,24}(?:买|卖|做多|做空|入场|加仓|减仓|止损|止盈|持有|开仓|平仓|怎么走|安全吗|风险)|(?:支撑|压力|阻力|入场位|止损位|止盈位|目标位|失效位).{0,12}(?:在哪|多少|是什么|怎么看)|(?:can|should|is\s+it\s+safe).{0,24}(?:buy|sell|long|short|enter|hold|close)/iu;
 const POSITION_MARKET_REVIEW = /(?:仓位健康|持仓健康|强平风险|爆仓风险|仓位安全吗|持仓安全吗|该怎么操作)/iu;
+// Position questions often contain no explicit "分析" verb (for example,
+// "SKHYNIX 我在 1240 做空，强平价 1462，我在哪里平仓"). They still need a
+// fresh market read before the account context can be interpreted. Keep this
+// matcher narrow enough that static education such as "什么是平仓" remains a
+// conversation request.
+const POSITION_MANAGEMENT_MARKET_REQUEST = /(?:仓位|持仓|强平|爆仓|做多|做空|开仓|平仓|加仓|减仓).{0,40}(?:怎么|如何|哪里|多少|建议|操作|管理|风险|止损|止盈|平仓|减仓|加仓|是否|合适|安全|健康|合理|重不重|轻不轻)|(?:怎么|如何|哪里|多少|建议|操作|管理|风险|止损|止盈|是否|合适|安全|健康|合理|重不重|轻不轻).{0,40}(?:仓位|持仓|强平|爆仓|开仓|平仓|加仓|减仓)/iu;
 const MARKET_DIRECTION_OR_LEVEL_REQUEST = /(?:多还是空|空还是多|偏多|偏空|看多|看空|涨还是跌|跌还是涨|会涨|会跌|上涨|下跌|方向|开单|下单|入场|进场|点位|目标|止损|止盈|支撑|压力|阻力)/iu;
 const MARKET_IDEA_REQUEST = /(?:思路|交易计划|操作计划|交易方案|操作方案|布局|机会|setup)/iu;
 const FRESH_MARKET_REFERENCE = /(?:当前|现在|最新|实时|此刻|今天|未来|后续|接下来|下一|下个|这个盘|这张图|K\s*线|图表|盘面|行情|走势|价格)/iu;
@@ -201,7 +208,17 @@ export function explicitTradingSymbolFromText(text, { excludedTerms = [] } = {})
   const latinBeforeMarketObject = source.match(/(?:^|[\s：:,，(（])([A-Za-z][A-Za-z0-9]{1,11})(?=\s*(?:的)?\s*(?:现货|永续|合约|期货|spot|perpetual|futures?|当前|现在|行情|盘面|走势|趋势|价格|支撑|压力|阻力|图表|K\s*线|怎么样|咋样|怎么看|怎么走|能不能|能买吗|能卖吗|能做多吗|能做空吗))/iu);
   const standaloneTicker = source.match(/^([A-Z][A-Z0-9]{1,11})(?:[?？])?$/u);
   const candidate = actionBeforeInterval?.[1] || standaloneBeforeInterval?.[1] || latinAfterAction?.[1] || hanAfterAction?.[1] || latinBeforeMarketObject?.[1] || standaloneTicker?.[1] || null;
-  if (!candidate) return null;
+  if (!candidate) {
+    // Exchange-native tickers are frequently glued directly to Chinese text,
+    // so a word-boundary based parser misses inputs such as
+    // `SKHYNIX我在1240做空`. Accept an uppercase ticker token at a non-ASCII
+    // boundary, while keeping the existing reserved-token and quote checks.
+    const embeddedTicker = source.match(/(?:^|[^A-Za-z0-9])([A-Z][A-Z0-9]{2,11})(?=$|[^A-Za-z0-9])/u);
+    if (!embeddedTicker) return null;
+    const compactTicker = embeddedTicker[1].toUpperCase();
+    if (excluded.has(compactTicker) || RESERVED_BASE_ASSETS.has(compactTicker)) return null;
+    return normalizeTradingRoutingSymbol(compactTicker);
+  }
   const compactCandidate = String(candidate).toUpperCase().replace(/[^A-Z0-9\p{Script=Han}]/gu, "");
   if (excluded.has(compactCandidate) || RESERVED_BASE_ASSETS.has(compactCandidate)) return null;
   return normalizeTradingRoutingSymbol(candidate);
@@ -296,6 +313,7 @@ export function isExplicitMarketAnalysisRequest(text) {
   if (conceptual) return false;
   if (/^(?:分析|研判|看盘|复盘|看看|看下|看一下|刷新|更新|重画|画图|绘图|画线)(?:一下|下|吧)?[。.!！?？]*$/iu.test(source)) return true;
   if (POSITION_MARKET_REVIEW.test(source)) return true;
+  if (POSITION_MANAGEMENT_MARKET_REQUEST.test(source)) return true;
   if (ACTIONABLE_MARKET_QUESTION.test(source)) return true;
   if (MARKET_DIRECTION_OR_LEVEL_REQUEST.test(source) && (
     MARKET_ANALYSIS_ACTION.test(source)
@@ -350,19 +368,24 @@ export function deterministicMarketChartRouting(text, options = {}) {
   const instruction = normalizeTradingRoutingText(text);
   const parameters = extractExplicitTradingParameters(instruction, options);
   const drawingRequested = !explicitNoDrawingRequested(instruction);
+  const questionKinds = classifyTradingQuestionKinds(instruction);
+  const positionManagementRequested = questionKinds.includes("position_risk");
   return Object.freeze({
     request: Object.freeze({
       mode: "chart-analysis",
       instruction,
       ...parameters,
-      questionKinds: classifyTradingQuestionKinds(instruction),
+      questionKinds,
+      ...(positionManagementRequested ? { positionManagementRequested: true } : {}),
       drawingRequested,
       analysisFollowup: false,
     }),
     classification: Object.freeze({
       schemaVersion: 1,
       mode: "chart-analysis",
-      intent: drawingRequested ? "chart-drawing" : "chart-analysis",
+      intent: positionManagementRequested
+        ? "position-management"
+        : drawingRequested ? "chart-drawing" : "chart-analysis",
       confidence: 1,
       source: "deterministic-market-analysis",
     }),
@@ -390,6 +413,8 @@ export function deterministicStrategyRequestRouting(text, manifest = {}) {
   const bareAnalysisCommand = /^(?:(?:帮我|请)\s*)?(?:分析|研判|看盘|复盘|看看|看下|看一下)(?:一下|下|吧)?[。.!！?？]*$/iu.test(instruction);
   const chartAnalysis = !instruction || bareAnalysisCommand || isExplicitMarketAnalysisRequest(instruction);
   const drawingRequested = chartAnalysis && !explicitNoDrawingRequested(instruction);
+  const questionKinds = classifyTradingQuestionKinds(instruction);
+  const positionManagementRequested = chartAnalysis && questionKinds.includes("position_risk");
   return Object.freeze({
     mode: chartAnalysis ? "chart-analysis" : "conversation",
     instruction,
@@ -398,7 +423,8 @@ export function deterministicStrategyRequestRouting(text, manifest = {}) {
     lookbackMs: chartAnalysis ? parameters.lookbackMs : null,
     lookbackLabel: chartAnalysis ? parameters.lookbackLabel : null,
     forecastHorizonMs: chartAnalysis ? parameters.forecastHorizonMs : null,
-    questionKinds: classifyTradingQuestionKinds(instruction),
+    questionKinds,
+    ...(positionManagementRequested ? { positionManagementRequested: true } : {}),
     drawingRequested,
   });
 }

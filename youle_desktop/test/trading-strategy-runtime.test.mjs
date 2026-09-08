@@ -1103,6 +1103,42 @@ test("every strategy request uses model-first intent routing with deterministic 
   assert.equal(modelCalls, enabledStrategies.length * 2 + 6);
 });
 
+test("model position-management intent survives strategy routing before chart execution", async () => {
+  const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
+  const coordinator = new TradingStrategyCoordinator({
+    registry,
+    providerId: "intent-provider",
+    modelRegistry: {
+      async analyze() {
+        return {
+          text: JSON.stringify({
+            schemaVersion: 1,
+            mode: "chart-analysis",
+            intent: "position-management",
+            symbol: null,
+            interval: null,
+            lookbackMs: null,
+            lookbackLabel: null,
+            confidence: 0.96,
+          }),
+          providerId: "intent-provider",
+          modelId: "intent-model",
+          latencyMs: 2,
+        };
+      },
+    },
+  });
+
+  const routed = await coordinator.classify("ict-smc", {
+    text: "帮我照看这笔仓位",
+    hasCurrentAnalysis: false,
+  });
+  assert.equal(routed.request.mode, "chart-analysis");
+  assert.equal(routed.request.positionManagementRequested, true);
+  assert.equal(routed.classification.intent, "position-management");
+  assert.equal(routed.classification.source, "model-first-unified-intent");
+});
+
 test("strategy intent routing remains available when the model or JSON response is unavailable", async () => {
   const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
   const coordinator = new TradingStrategyCoordinator({

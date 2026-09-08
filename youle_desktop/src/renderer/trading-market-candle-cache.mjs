@@ -1,12 +1,22 @@
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 const DEFAULT_FRESH_AGE_MS = 5 * 60_000;
 const DEFAULT_STALE_AGE_MS = 7 * 24 * 60 * 60_000;
 const DEFAULT_MAX_ENTRIES = 48;
 const DEFAULT_MAX_CANDLES = 500;
 const DEFAULT_MAX_SOURCE_CANDLES = 1_500;
-const STORAGE_PREFIX = "haolo.trading.market.candles.v2.";
+const STORAGE_PREFIX = "haolo.trading.market.candles.v3.";
 const STORAGE_INDEX_KEY = `${STORAGE_PREFIX}index`;
-const LEGACY_STORAGE_PREFIXES = ["haolo.trading.market.candles.v1."];
+// v2 snapshots may contain weekly candles bucketed from the Unix epoch
+// (Thursday) instead of Binance's Monday anchor. They cannot be repaired
+// without the original source candles, so force a fresh snapshot after the
+// alignment fix.
+const LEGACY_STORAGE_PREFIXES = [
+  "haolo.trading.market.candles.v1.",
+  "haolo.trading.market.candles.v2.",
+];
+const DAY_MS = 86_400_000;
+const WEEK_MS = 7 * DAY_MS;
+const BINANCE_WEEK_ANCHOR_MS = 4 * DAY_MS;
 
 function finiteNumber(value, fallback = 0) {
   const number = Number(value);
@@ -224,10 +234,30 @@ function mergeCandleSeries(current, incoming, closedCandleAuthority = "incoming"
   return [...map.values()].sort((first, second) => first.time - second.time);
 }
 
-function aggregateCandles(candles, targetMs) {
+function isWeeklyCadence(durationMs, sourceInterval = null) {
+  const normalizedInterval = String(sourceInterval || "").trim().toLowerCase();
+  return normalizedInterval === "1w"
+    || (durationMs >= WEEK_MS && durationMs % WEEK_MS === 0);
+}
+
+/**
+ * Binance weekly bars open at Monday 00:00 UTC. Flooring Unix timestamps
+ * directly uses the Unix epoch's Thursday anchor, which creates four-day
+ * offsets (for example 8/31 -> 9/3 in the chart). Keep this as the single
+ * bucket definition for REST aggregation and live price reconciliation.
+ */
+export function tradingCandleBucketTimeMs(timestampMs, durationMs, sourceInterval = null) {
+  const timestamp = Number(timestampMs);
+  const duration = Number(durationMs);
+  if (!Number.isFinite(timestamp) || !Number.isFinite(duration) || duration <= 0) return 0;
+  const anchorMs = isWeeklyCadence(duration, sourceInterval) ? BINANCE_WEEK_ANCHOR_MS : 0;
+  return Math.floor((timestamp - anchorMs) / duration) * duration + anchorMs;
+}
+
+function aggregateCandles(candles, targetMs, sourceInterval = null) {
   const buckets = new Map();
   for (const candle of normalizedCandles(candles)) {
-    const bucketTime = Math.floor(candle.time * 1_000 / targetMs) * targetMs / 1_000;
+    const bucketTime = tradingCandleBucketTimeMs(candle.time * 1_000, targetMs, sourceInterval) / 1_000;
     const current = buckets.get(bucketTime);
     if (!current) {
       buckets.set(bucketTime, { ...candle, time: bucketTime });
@@ -254,20 +284,6 @@ function upsertLiveCandle(candles, incoming) {
   return [...map.values()].filter(Boolean).sort((first, second) => first.time - second.time);
 }
 
-function liveCandleBucketTime(candles, timestamp, durationMs, sourceInterval = null) {
-  const latestTimeMs = Number(candles.at(-1)?.time || 0) * 1_000;
-  // Native Binance weekly bars open on Monday. Unix duration flooring is
-  // anchored on Thursday, so inherit an existing series anchor whenever
-  // possible and retain the native weekly anchor for an empty source series.
-  const anchorMs = latestTimeMs > 0
-    ? ((latestTimeMs % durationMs) + durationMs) % durationMs
-    : sourceInterval === "1w"
-      ? 4 * 86_400_000
-      : 0;
-  return Math.floor((timestamp - anchorMs) / durationMs) * durationMs / 1_000
-    + anchorMs / 1_000;
-}
-
 /**
  * Apply one canonical last-traded price to a candle batch regardless of the
  * displayed interval.  K-line streams are interval-specific, while ticker
@@ -283,12 +299,15 @@ export function applyTradingLivePriceToBatch(current, price, eventTimeMs = Date.
   }
   const source = batch.source;
   const applyToSeries = (candles, durationMs, sourceInterval = null) => {
-    const bucketTime = liveCandleBucketTime(candles, timestamp, durationMs, sourceInterval);
-    const latest = candles.at(-1);
-    if (latest && bucketTime < latest.time) return candles;
-    const existing = candles.find((candle) => candle.time === bucketTime);
-    if (existing?.closed === true && bucketTime * 1_000 + durationMs <= Date.now()) return candles;
-    return upsertLiveCandle(candles, {
+    const alignedCandles = isWeeklyCadence(durationMs, sourceInterval)
+      ? aggregateCandles(candles, durationMs, sourceInterval)
+      : candles;
+    const bucketTime = tradingCandleBucketTimeMs(timestamp, durationMs, sourceInterval) / 1_000;
+    const latest = alignedCandles.at(-1);
+    if (latest && bucketTime < latest.time) return alignedCandles;
+    const existing = alignedCandles.find((candle) => candle.time === bucketTime);
+    if (existing?.closed === true && bucketTime * 1_000 + durationMs <= Date.now()) return alignedCandles;
+    return upsertLiveCandle(alignedCandles, {
       ...(existing || {}),
       time: bucketTime,
       open: existing?.open || normalizedPrice,
@@ -331,11 +350,14 @@ export function mergeTradingCandleBatches(
   let sourceCandles = sameSource
     ? mergeCandleSeries(currentBatch.sourceCandles, incomingBatch.sourceCandles, closedAuthority)
     : incomingBatch.sourceCandles;
+  if (source.sourceMs && isWeeklyCadence(source.sourceMs, source.sourceInterval)) {
+    sourceCandles = aggregateCandles(sourceCandles, source.sourceMs, source.sourceInterval);
+  }
   let candles;
   if (source.sourceInterval && sourceCandles.length) {
     const recomputed = source.sourceMs === source.targetMs
       ? sourceCandles.map((candle) => ({ ...candle }))
-      : aggregateCandles(sourceCandles, source.targetMs);
+      : aggregateCandles(sourceCandles, source.targetMs, source.sourceInterval);
     candles = mergeCandleSeries(
       sameSource
         ? mergeCandleSeries(currentBatch.candles, incomingBatch.candles, closedAuthority)
@@ -347,6 +369,9 @@ export function mergeTradingCandleBatches(
     candles = sameSource
       ? mergeCandleSeries(currentBatch.candles, incomingBatch.candles, closedAuthority)
       : incomingBatch.candles;
+  }
+  if (isWeeklyCadence(source.targetMs, source.sourceInterval)) {
+    candles = aggregateCandles(candles, source.targetMs, source.sourceInterval);
   }
   const ratio = source.sourceMs ? Math.max(1, Math.ceil(source.targetMs / source.sourceMs)) : 1;
   const sourceLimit = Math.min(15_000, Math.max(limit * ratio + ratio + 2, DEFAULT_MAX_SOURCE_CANDLES));
