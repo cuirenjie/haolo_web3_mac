@@ -576,7 +576,7 @@ const APP_PREFERENCES_FILE_NAME = "app-preferences.json";
 const CONTINUATION_TRANSACTIONS_FILE_NAME = "thread-continuation-transactions.json";
 const CONTINUATION_LATE_START_RESPONSE_GRACE_MS = 30_000;
 const DEFAULT_APP_PREFERENCES = Object.freeze({
-  theme: "dark",
+  theme: "light",
   language: "zh-CN",
   taskCompletionPopupEnabled: true,
 });
@@ -9329,7 +9329,7 @@ function normalizeAppPreferences(value = {}) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
     ...DEFAULT_APP_PREFERENCES,
-    theme: normalizeAppTheme(source.theme),
+    theme: source.theme === undefined ? DEFAULT_APP_PREFERENCES.theme : normalizeAppTheme(source.theme),
     language: normalizeAppLanguage(source.language),
     taskCompletionPopupEnabled: source.taskCompletionPopupEnabled !== false,
   };

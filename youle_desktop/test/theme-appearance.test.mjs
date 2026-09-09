@@ -14,17 +14,18 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("appearance preference initializes before desktop boot and safely defaults to dark", async () => {
+test("appearance preference initializes before desktop boot and safely defaults to light", async () => {
   const [source, desktopMain] = await Promise.all([rendererSource, desktopMainSource]);
   const initialization = sourceBlock(source, "function loadAppTheme", "ensureBrowserDesktopApi();");
 
   assert.match(source, /const APP_THEME_STORAGE_KEY = "haolo\.appearance\.theme"/);
-  assert.match(initialization, /localStorage\.getItem\(APP_THEME_STORAGE_KEY\) === "light" \? "light" : "dark"/);
-  assert.match(initialization, /catch \{\s*return "dark";/s);
+  assert.match(initialization, /localStorage\.getItem\(APP_THEME_STORAGE_KEY\) === "dark" \? "dark" : "light"/);
+  assert.match(initialization, /catch \{\s*return "light";/s);
   assert.match(initialization, /const INITIAL_APP_THEME = loadAppTheme\(\);\s*applyAppTheme\(INITIAL_APP_THEME\);/s);
   assert.match(source, /setAppTheme\?\(params: \{ theme: AppTheme \}\): Promise<\{ theme\?: AppTheme \}>/);
   assert.match(source, /syncAppThemePreference\(INITIAL_APP_THEME\);/);
-  assert.match(desktopMain, /DEFAULT_APP_PREFERENCES = Object\.freeze\(\{\s*theme: "dark"/s);
+  assert.match(desktopMain, /DEFAULT_APP_PREFERENCES = Object\.freeze\(\{\s*theme: "light"/s);
+  assert.match(desktopMain, /theme: source\.theme === undefined \? DEFAULT_APP_PREFERENCES\.theme : normalizeAppTheme\(source\.theme\)/);
   assert.match(desktopMain, /function normalizeAppTheme\(value\) \{\s*return value === "light" \? "light" : "dark";/s);
   assert.match(desktopMain, /backgroundColor: appTheme\(\) === "dark" \? "#101216" : "#f6f8fa"/);
   assert.ok(source.indexOf("applyAppTheme(INITIAL_APP_THEME);") < source.indexOf("void boot();"));

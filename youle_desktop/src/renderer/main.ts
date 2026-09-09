@@ -4196,9 +4196,9 @@ declare global {
 
 function loadAppTheme(): AppTheme {
   try {
-    return localStorage.getItem(APP_THEME_STORAGE_KEY) === "light" ? "light" : "dark";
+    return localStorage.getItem(APP_THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
   } catch {
-    return "dark";
+    return "light";
   }
 }
 
