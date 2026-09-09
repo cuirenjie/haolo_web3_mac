@@ -2,7 +2,7 @@
 
 > 文档状态：已冻结的实施基线
 > 创建日期：2026-08-08
-> 最近更新：2026-09-08
+> 最近更新：2026-09-09
 > 当前里程碑：M2 统一 Data Hub 与增量特征层
 > 总体状态：M2 进行中（M2-013 生产基础设施验收受阻）
 > 适用仓库：`D:\youle_desktop\youle_desktop`（桌面端）、`D:\youle_agent_ms`（业务后端）、`D:\zhongzhuan`（统一模型中转）
@@ -896,6 +896,8 @@ M0 退出条件：协议、规则模板、错误和功能开关均有自动化�
 | M1-298 | 彻底修复 Binance 周 K 线实时更新后的日期错位 | 已完成 | M1-283,M1-292,M2-019 | 用户实机截图显示原生周线从 2026-08-31 周一跳到 2026-09-03 周四，再回到 2026-09-07 周一；根因是实时逐笔、缓存现价修正和自定义聚合分别按 Unix 周四锚点取整。新增统一的 Binance UTC 周一锚点覆盖 REST 聚合、WebSocket 逐笔、实时现价缓存和缓存批次合并；缓存版本升级到 v3 并清理 v1/v2 错误快照。缓存周线回归 13/13、市场指标 45/45、布局实时取桶契约通过，`pnpm run typecheck`、Vite 184 modules 生产构建和 `git diff --check` 通过。 |
 | M1-299 | 让手工绘图跨周期保留并支持副图自由画线 | 已完成 | M1-081,M1-290,M1-298 | 手工绘图改为按交易品种与绘图 pane 隔离、忽略 K 线周期过滤，切换 15m/1h/4h 等周期仍保留原时间/价格锚点；主图之外的每个可见副图指标挂载独立 SVG 绘图层，复用统一工具栏、样式记忆、选中编辑、撤销/重做和持久化，指标值使用各自 pane 的坐标映射。主图/指标 pane 范围、跨周期和 legacy 绘图兼容回归通过；`pnpm run typecheck`、Vite 184 modules 生产构建、`git diff --check` 通过。亮色/暗色复用现有语义 Token，新增 pane 定位样式覆盖默认、悬停、选中、焦点、禁用交互。 |
 | M1-300 | 移除分析过程及结束后的会话记录后台重试提示语 | 已完成 | M1-091,M1-295 | 保留会话记录失败后的后台重试与日志诊断，分析过程和结束后均不再向用户展示该 Toast；会话持久化专项 20/20、`pnpm run typecheck`、Vite 184 modules 生产构建和 `git diff --check` 通过；未修改 CSS，亮色/暗色及全部交互状态继续复用现有语义。 |
+| M1-301 | 彻底修复英文环境交易策略中文残留 | 已完成 | M1-256,M1-257,M1-268 | 订单流模型提示、报告和 ICT/SMC 确定性报告/标注按英文生成；Coordinator 对所有策略叙述提供英文兜底；图表标注补齐多空、OB/FVG/Breaker、流动性和关键价位短语翻译，并阻止未收录中文标注泄漏。订单流/ICT 专项 14/14、TypeScript、Vite 184 modules 构建通过。 |
+| M1-303 | 修复英文订单流执行计划因中文目标依据降级、导致执行卡片缺失 | 已完成 | M1-301,M1-302 | 英文 ExecutionPlan formatter 将“候选结构投影”“结构风险倍数兜底目标”等目标依据本地化，订单流英文报告保持纯英文并可被执行卡片解析；订单流专项 11/11、ICT/SMC 专项 5/5、TypeScript 和差异检查通过。 |
 
 M1 退出条件：不调用模型也能通过固定行情 Fixture 完成结构化、逐笔动画自动绘图；非法补丁全部被拒绝；默认不会整批瞬间落图；用户绘图和真实鼠标不受影响。
 
@@ -2062,3 +2064,9 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 - M1-299 实现与验证：手工绘图模型新增 `drawingScope`，legacy 记录默认主图；同一交易品种跨周期继续按时间/价格锚点渲染，撤销、重做、锁定、删除、样式编辑和持久化都按 pane 范围工作。每个可见副图指标在其 Lightweight Charts pane 内挂载独立 SVG `TradingDrawingController`，使用指标首个 series 做纵坐标映射，统一绘图工具栏通过 active controller 路由，指标 pane 重建/周期切换后从同一会话存储恢复；副图不启用主图订单线、K 线磁吸或 AI 价格图层。新增跨周期/主图与 `indicator:volume` 范围回归及副图绘图结构契约，`pnpm run typecheck`、Vite 184 modules 生产构建和 `git diff --check` 通过；定向绘图测试 49 项中 48 项通过，剩余 1 项为本轮前既存的分屏分析源码形状断言；亮色/暗色复用现有绘图 Token，新增 pane 定位样式，无硬编码浅色控件。
 - 启动并完成 M1-300：用户要求移除截图圈出的分析过程及结束提示语；确认两条提示均仅用于会话持久化失败后的非阻塞告知。本轮保留后台重试队列与日志诊断，移除分析过程和结束阶段的 Toast，不改变分析结果、持久化行为或主题样式。
 - M1-300 验证：新增回归断言确保两条分析持久化提示语均不再出现在 Renderer，同时保留后台重试队列；会话持久化专项 20/20、`pnpm run typecheck`、Vite 184 modules 生产构建和 `git diff --check` 通过。未修改 CSS，亮色/暗色及 default、hover、active/selected、focus、open、loading、disabled 状态继续复用现有语义；未打包、发布、上传、部署或重启客户端。
+- 启动并完成 M1-301：用户实机截图显示英文环境的订单流和 ICT/SMC 结果仍混入中文，排查确认模型提示要求中文、确定性 ICT/SMC 管线只生成中文、Coordinator 仅覆盖报告而保留中文 narrative，以及图表标注词表缺少“看涨/看跌”和混合 OB/FVG/Breaker 标签。本轮保持策略事实、价格、绘图权限和双主题颜色不变，只修复语言边界。
+- M1-301 实现与验证：订单流 Prompt 根据 `language=en` 强制模型输出英文 summary/report/rationale，订单流确定性报告新增完整英文版本；ICT/SMC 报告、narrative 和绘图标注按语言生成；Coordinator 对所有策略 narrative 做英文兜底；英文图表短语补齐多空、结构、流动性、区域、周期和触发/失效词，并在最终绘图本地化阶段阻断未收录中文标注。订单流与 ICT/SMC 专项 14/14、`pnpm run typecheck`、Vite 184 modules production build 通过；语言专项中唯一失败为工作区既有的充值协议源码形状断言（与本轮无关）。亮色/暗色及 default、hover、active/selected、focus、open、loading、disabled 状态继续复用现有语义，未打包、发布、上传、部署或重启客户端。
+- 启动并完成 M1-302：用户实机截图显示英文 ICT/SMC 已完成图表绘制，但聊天区只有通用完成提示、没有执行卡片。排查确认 Renderer 在英文模式仍追加中文 `questionLead`，`combineTradingAnalysisReports` 检测到汉字后丢弃整份结构化 ExecutionPlan 报告，执行卡片解析因此没有可识别字段。
+- M1-302 实现与验证：英文模式跳过当前仍为中文的确定性问题引导，直接保留 Coordinator 生成的英文 ExecutionPlanV1 报告；中文模式链路不变。新增 ICT/SMC 英文回归，覆盖确定性管线、ExecutionPlanV1、英文 Markdown 和 Renderer 执行卡片解析，专项 5/5；`pnpm run typecheck`、`git diff --check` 通过。绘图工具专项仍有 1 项本轮前既有的分屏源码形状断言失败，执行计划专项仍有 1 项本轮前既有的最终气泡源码形状断言失败，均与本修复无关。未修改 CSS，亮色/暗色及 default、hover、active/selected、focus、open、loading、disabled 状态继续复用现有语义；未打包、发布、上传或重启客户端。
+- 启动并完成 M1-303：用户实机截图显示英文订单流已完成图表绘制，但聊天区仍被通用提示替代。排查确认订单流进入统一 ExecutionPlan formatter 后，目标依据标签“结构风险倍数兜底目标 R0.4”等中文残留被英文清洗器识别，整份结构化报告因此被降级。
+- M1-303 实现与验证：新增英文目标依据本地化映射，保留 Fib 英文依据并将候选结构投影、结构风险倍数兜底目标转换为英文；订单流 11/11、ICT/SMC 5/5 回归通过，覆盖执行计划生成、英文 Markdown 和执行卡片解析；`pnpm run typecheck`、`git diff --check` 通过。未修改 CSS，亮色/暗色及 default、hover、active/selected、focus、open、loading、disabled 状态继续复用现有语义；未打包、发布、上传或重启客户端。

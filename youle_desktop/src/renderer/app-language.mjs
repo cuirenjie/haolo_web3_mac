@@ -1029,6 +1029,21 @@ export function translateTradingPeriodLabel(value, language = currentAppLanguage
 // Chart text must be translated as a complete annotation, before SVG wrapping.
 // Translating individual tspans can split terms such as 中枢 into unrelated UI words.
 const TRADING_ANNOTATION_ENGLISH_ENTRIES = entriesByLength({
+  "看涨": "bullish", "看跌": "bearish", "多头": "bullish", "空头": "bearish", "中性": "neutral",
+  "支撑": "support", "压力": "resistance", "位移": "displacement", "等待收盘确认": "wait for close confirmation",
+  "已确认": "confirmed", "未确认": "unconfirmed", "有效": "active", "失效": "invalidated", "部分回补": "partially filled",
+  "主要订单区": "order block", "关键反转区": "breaker block", "回调缺口": "bullish fair value gap", "反弹缺口": "bearish fair value gap",
+  "上方止损集中区": "buy-side liquidity", "下方止损集中区": "sell-side liquidity", "主动买入失衡区": "buy imbalance zone", "主动卖出失衡区": "sell imbalance zone",
+  "大额主动买入": "large aggressive buys", "大额主动卖出": "large aggressive sells", "成交密集价": "point of control",
+  "趋势转多": "bullish shift", "趋势转空": "bearish shift", "趋势转": "trend shift",
+  "当前结构": "current structure", "关键价位": "key levels", "区间内等待": "wait inside the range", "收盘站稳": "hold above at close", "跌破": "below", "上破": "above",
+  "已收盘 K 线": "closed candle", "已收盘K线": "closed candle", "当前周期": "current timeframe", "当前价格": "current price",
+  "1分钟": "1m", "3分钟": "3m", "5分钟": "5m", "15分钟": "15m", "30分钟": "30m", "1小时": "1H", "2小时": "2H", "4小时": "4H", "6小时": "6H", "12小时": "12H",
+  "盘面暂时偏多": "the market is temporarily bullish", "盘面暂时偏空": "the market is temporarily bearish", "盘面暂时中性": "the market is temporarily neutral",
+  "订单流分析已完成": "order-flow analysis complete", "订单流与市场结构复核": "order-flow and market-structure review",
+  "ICT 市场结构": "ICT market structure", "ICT/SMC 已完成": "ICT/SMC analysis complete", "等待流动性": "wait for liquidity",
+  "多头收盘触发": "bullish close trigger", "空头收盘触发": "bearish close trigger", "多头失效": "bullish invalidation", "空头失效": "bearish invalidation",
+  "扫描已经正常完成": "scan completed", "暂无有效": "no valid", "继续等待": "continue waiting",
   "隐藏看涨背离": "hidden bullish divergence", "隐藏看跌背离": "hidden bearish divergence",
   "顶背离": "bearish divergence", "底背离": "bullish divergence",
   "暂无有效交叉/背离，继续等待": "no valid crossover or divergence; wait",

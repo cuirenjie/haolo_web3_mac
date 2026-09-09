@@ -1623,6 +1623,18 @@ test("every visible split pane runs the requested analysis and plays its own dra
   }
 });
 
+test("English strategy reports keep their structured execution plan", async () => {
+  const market = await marketSource;
+  assert.match(
+    market,
+    /const questionLead = request\.positionManagementRequested === true \|\| activeTradingAnalysisLanguage\(\) === "en"\s*\n\s*\? ""/,
+  );
+  assert.match(
+    market,
+    /combineTradingAnalysisReports\(\s*tradingAnalysisPaneHeading\(targetMarket, job\.interval\),\s*primaryReport/,
+  );
+});
+
 test("successful manual or AI persistence records the active layout and all pane selections", async () => {
   const [drawing, market, splitPane] = await Promise.all([
     drawingSource,

@@ -2184,7 +2184,10 @@ export function localizeTradingAiDrawingPatch<
   const operations = patch.operations.map((operation) => {
     const text = operation.drawing.text;
     if (!text) return operation;
-    const localizedText = translateTradingAnnotationText(text, language);
+    const translated = translateTradingAnnotationText(text, language);
+    const localizedText = language === "en" && /\p{Script=Han}/u.test(translated)
+      ? "Trading analysis annotation"
+      : translated;
     if (localizedText === text) return operation;
     changed = true;
     return { ...operation, drawing: { ...operation.drawing, text: localizedText } };

@@ -48,6 +48,8 @@ import type {
   TradingAiPlaybackPhase,
   TradingIndicatorAiDrawingPatch,
 } from "./trading-expert-ai-playback.ts";
+
+const HAN_TEXT_PATTERN = /\p{Script=Han}/u;
 import {
   TRADING_CHAN_AUTO_EXPANSION_MAX_CANDLES,
   TRADING_CHAN_HISTORY_BATCH_CANDLES,
@@ -2545,15 +2547,20 @@ function combineTradingAnalysisReports(
   primaryReport: string,
   splitResult: TradingSplitPaneAnalysisResult,
 ) {
-  if (!splitResult.reports.length && !splitResult.failures.length) return primaryReport;
-  const english = getCurrentAppLanguage() === "en";
+  const english = activeTradingAnalysisLanguage() === "en";
+  const visiblePrimaryReport = english && HAN_TEXT_PATTERN.test(primaryReport)
+    ? "The market analysis is complete. Review the chart annotations and conditional levels for the detected structure."
+    : primaryReport;
+  if (!splitResult.reports.length && !splitResult.failures.length) return visiblePrimaryReport;
   const sections = [
     `## ${primaryHeading}`,
-    primaryReport.trim(),
+    visiblePrimaryReport.trim(),
     ...splitResult.reports
       .slice()
       .sort((first, second) => first.paneIndex - second.paneIndex)
-      .flatMap((report) => [`## ${report.heading}`, report.report.trim()]),
+      .flatMap((report) => [`## ${report.heading}`, english && HAN_TEXT_PATTERN.test(report.report)
+        ? "The auxiliary analysis is complete. Review its chart annotations for the detected structure."
+        : report.report.trim()]),
   ];
   if (splitResult.failures.length) {
     sections.push(
@@ -10261,8 +10268,8 @@ class TradingExpertMarketWorkspace {
         analysisJobId: job.analysisId,
         marketId: job.marketId,
         interval: job.interval,
+        language: job.language,
         snapshotTime: analysisSnapshotTime,
-        language: getCurrentAppLanguage(),
         instruction: request.instruction,
         positionManagementRequested: request.positionManagementRequested === true,
         responseMode: directResponseRequested ? "direct" : "full",
@@ -10330,8 +10337,8 @@ class TradingExpertMarketWorkspace {
             analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
             marketId: snapshot.market.id,
             interval: snapshot.interval,
+            language: job.language,
             snapshotTime: Date.now(),
-            language: getCurrentAppLanguage(),
             instruction: request.instruction,
             positionManagementRequested: request.positionManagementRequested === true,
             responseMode: directResponseRequested ? "direct" : "full",
@@ -10365,7 +10372,11 @@ class TradingExpertMarketWorkspace {
           : directResponseRequested
             ? response.analysisPlan.narrative
             : response.analysisPlan.report) || response.analysisPlan.narrative || "盘面分析已完成");
-      const questionLead = request.positionManagementRequested === true
+      // The deterministic question lead is currently Chinese.  In English
+      // mode it would contaminate an otherwise English execution-plan report;
+      // combineTradingAnalysisReports would then replace the whole report
+      // with its generic English fallback, hiding the structured plan card.
+      const questionLead = request.positionManagementRequested === true || activeTradingAnalysisLanguage() === "en"
         ? ""
         : buildQuestionAlignedTradingLead({
             instruction: request.instruction,
@@ -11569,8 +11580,8 @@ class TradingExpertMarketWorkspace {
         analysisJobId: job.analysisId,
         marketId: job.marketId,
         interval: job.interval,
+        language: job.language,
         snapshotTime: Date.now(),
-        language: getCurrentAppLanguage(),
         instruction: request.instruction,
         responseMode: request.drawingRequested === false ? "direct" : "full",
         lookbackMs: requestedLookbackMs,
@@ -11638,8 +11649,8 @@ class TradingExpertMarketWorkspace {
             analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
             marketId: snapshot.market.id,
             interval: snapshot.interval,
+            language: job.language,
             snapshotTime: Date.now(),
-            language: getCurrentAppLanguage(),
             instruction: request.instruction,
             responseMode: request.drawingRequested === false ? "direct" : "full",
             lookbackMs: requestedLookbackMs,

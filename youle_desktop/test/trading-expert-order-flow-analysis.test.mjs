@@ -26,6 +26,11 @@ import {
   formatExecutionPlanMarkdown,
 } from "../src/main/trading-strategy-runtime/execution-plan-builder.mjs";
 import {
+  executionPlanHasConcreteTradingPlan,
+  executionPlanHasStructuredTradingFields,
+  executionPlanTextPartitions,
+} from "../src/renderer/execution-plans.ts";
+import {
   buildTradingOrderFlowExpertPrompt,
   stripTradingOrderFlowMention,
   tradingOrderFlowMentioned,
@@ -269,6 +274,42 @@ test("neutral order-flow review keeps both deterministic sides as separate execu
   assert.match(markdown, /^## BTC\/USDT 币安永续 15M · 多头条件方案$/m);
   assert.match(markdown, /^## BTC\/USDT 币安永续 15M · 空头条件方案$/m);
   assert.doesNotMatch(markdown, /未形成明确单侧方案/);
+});
+
+test("English order-flow execution plans keep localized target evidence and remain card-parseable", async () => {
+  const registry = createTradingAnalysisModelProviderRegistry([{
+    providerId: "fixture-provider",
+    modelId: "fixture-model",
+    capabilities: { json: true, theoryReview: true },
+    async analyze() {
+      return {
+        text: JSON.stringify({
+          ...approvedMicroDrawingReview(runOrderFlowTheoryEngine(normalizeTradingMarketSnapshot(fixtureParams()))),
+          summary: "Buyers lead but require confirmation.",
+          report: "Review accepted.",
+          strategyRationale: "Delta confirms the directional condition.",
+          marketBias: "buying",
+        }),
+      };
+    },
+  }]);
+  const result = await runTradingOrderFlowAnalysisPipeline({ ...fixtureParams(), language: "en" }, {
+    modelRegistry: registry,
+    providerId: "fixture-provider",
+  });
+  const plan = buildExecutionPlanV1({ id: "order-flow", version: "1.0.0" }, result, {
+    candles: fixtureParams().candles,
+  });
+  const report = formatExecutionPlanMarkdown(plan, { language: "en" });
+  const partitions = executionPlanTextPartitions(report);
+  assert.ok(partitions);
+  assert.equal(partitions.candidates.length, 1);
+  assert.equal(executionPlanHasStructuredTradingFields(partitions.candidates[0]), true);
+  assert.equal(executionPlanHasConcreteTradingPlan(partitions.candidates[0]), true);
+  assert.match(report, /Direction:/);
+  assert.match(report, /Take-profit targets:/);
+  assert.doesNotMatch(report, /[\p{Script=Han}]/u);
+  assert.doesNotMatch(report, /The market analysis is complete/);
 });
 
 test("order-flow drawing aggregates same-side live evidence on its execution candle", () => {
