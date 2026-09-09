@@ -117,6 +117,7 @@ import {
   applyTradingLivePriceToBatch,
   mergeTradingCandleBatches,
   tradingCandleBucketTimeMs,
+  tradingCandleCloseTimeMs,
 } from "./trading-market-candle-cache.mjs";
 import {
   tradingAnalysisDrawingFocusRange,
@@ -1106,8 +1107,8 @@ const TRADING_PERIOD_UNIT_MS: Record<TradingPeriodUnit, number> = {
   d: 86_400_000,
   w: 604_800_000,
   M: 30 * 86_400_000,
-  // TradingView represents a year as twelve monthly bars. Keep the same
-  // fixed duration for range calculations and custom-bar aggregation.
+  // Approximate durations for sorting/range estimates only. Actual candle
+  // boundaries use calendar months through tradingCandleCloseTimeMs.
   Y: 12 * 30 * 86_400_000,
 };
 const TRADING_PERIOD_UNIT_LABEL: Record<TradingPeriodUnit, string> = {
@@ -2506,6 +2507,12 @@ export function tradingViewResolutionDurationMs(resolution: string) {
   return amount * 60_000;
 }
 
+export function tradingResolutionCloseTimeMs(openTimeMs: number, resolution: string) {
+  const normalized = String(resolution).trim();
+  return tradingCandleCloseTimeMs(openTimeMs, tradingViewResolutionDurationMs(normalized) || 0,
+    /^\d+(?:M|[yY])$/.test(normalized) ? "1M" : null);
+}
+
 export function tradingPeriodLabelForResolution(resolution: string) {
   const source = String(resolution || "").trim();
   const period = tradingPeriodFromResolution(source);
@@ -2546,9 +2553,12 @@ function combineTradingAnalysisReports(
   primaryHeading: string,
   primaryReport: string,
   splitResult: TradingSplitPaneAnalysisResult,
+  preserveContent = false,
 ) {
   const english = activeTradingAnalysisLanguage() === "en";
-  const visiblePrimaryReport = english && HAN_TEXT_PATTERN.test(primaryReport)
+  // A position report can legitimately quote the user's Chinese question or
+  // contain a Han market symbol. Keep its answer even in an English UI.
+  const visiblePrimaryReport = !preserveContent && english && HAN_TEXT_PATTERN.test(primaryReport)
     ? "The market analysis is complete. Review the chart annotations and conditional levels for the detected structure."
     : primaryReport;
   if (!splitResult.reports.length && !splitResult.failures.length) return visiblePrimaryReport;
@@ -2558,7 +2568,7 @@ function combineTradingAnalysisReports(
     ...splitResult.reports
       .slice()
       .sort((first, second) => first.paneIndex - second.paneIndex)
-      .flatMap((report) => [`## ${report.heading}`, english && HAN_TEXT_PATTERN.test(report.report)
+      .flatMap((report) => [`## ${report.heading}`, !preserveContent && english && HAN_TEXT_PATTERN.test(report.report)
         ? "The auxiliary analysis is complete. Review its chart annotations for the detected structure."
         : report.report.trim()]),
   ];
@@ -2580,11 +2590,12 @@ function combineTradingAnalysisNarratives(
   primaryHeading: string,
   primaryNarrative: string,
   splitResult: TradingSplitPaneAnalysisResult,
+  preserveContent = false,
 ) {
   return combineTradingAnalysisReports(primaryHeading, primaryNarrative, {
     ...splitResult,
     reports: splitResult.reports.map((report) => ({ ...report, report: report.narrative })),
-  });
+  }, preserveContent);
 }
 
 export function resolveMarketCrosshairTime(
@@ -2619,8 +2630,11 @@ export function binanceResolutionSource(resolution: string): BinanceResolutionSo
   const targetMs = tradingViewResolutionDurationMs(resolution);
   if (!targetMs) return null;
   if (targetMs < 60_000) return { targetMs, sourceInterval: null, sourceMs: null };
+  if (/^\d+(?:M|[yY])$/.test(String(resolution).trim())) {
+    return { targetMs, sourceInterval: "1M", sourceMs: BINANCE_INTERVAL_MS["1M"] };
+  }
   const source = Object.entries(BINANCE_INTERVAL_MS)
-    .filter(([, duration]) => duration <= targetMs && targetMs % duration === 0)
+    .filter(([interval, duration]) => interval !== "1M" && duration <= targetMs && targetMs % duration === 0)
     .sort((first, second) => second[1] - first[1])[0];
   if (!source) return null;
   return { targetMs, sourceInterval: source[0], sourceMs: source[1] };
@@ -2675,7 +2689,7 @@ export function tradingAnalysisCandlesRequireCurrentRefresh(
   const durationMs = tradingViewResolutionDurationMs(resolution);
   if (!Number.isFinite(latestTime) || latestTime <= 0 || !durationMs) return true;
   const allowedLagMs = 5 * 60_000;
-  return Number(now) - (latestTime + durationMs) > allowedLagMs;
+  return Number(now) - tradingResolutionCloseTimeMs(latestTime, resolution) > allowedLagMs;
 }
 
 /**
@@ -3960,7 +3974,7 @@ export function tradingWaveContextEndTime(
   const lastOpenMs = Number(candles.at(-1)?.time || 0) * 1_000;
   const durationMs = tradingViewResolutionDurationMs(resolution);
   return lastOpenMs > 0 && durationMs
-    ? Math.min(snapshotTime, lastOpenMs + durationMs)
+    ? Math.min(snapshotTime, tradingResolutionCloseTimeMs(lastOpenMs, resolution))
     : snapshotTime;
 }
 
@@ -4056,7 +4070,7 @@ export function aggregateTradingCandles(
       ? candle
       : {
           ...candle,
-          closed: candle.closed === true && candle.time * 1_000 + targetMs <= now,
+          closed: candle.closed === true && tradingCandleCloseTimeMs(candle.time * 1_000, targetMs, sourceInterval) <= now,
         })
     .sort((first, second) => first.time - second.time);
 }
@@ -4287,7 +4301,7 @@ async function fetchLatestTradingCandles(
     if (!batch.length) break;
     sourceCandles = mergeCandles(sourceCandles, batch);
     if (batch.length < limit || cursor === undefined) break;
-    const nextCursor = batch.at(-1)!.time * 1_000 + source.sourceMs;
+    const nextCursor = tradingCandleCloseTimeMs(batch.at(-1)!.time * 1_000, source.sourceMs, source.sourceInterval);
     if (nextCursor <= cursor || nextCursor > Date.now()) break;
     cursor = nextCursor;
   }
@@ -4310,8 +4324,8 @@ export function tradingCandleBatchCanRefreshIncrementally(
     || batch.candles.at(-1);
   const stepMs = Number(source.sourceMs || source.targetMs || 0);
   if (!latest || stepMs <= 0) return false;
-  const missing = Math.max(0, Math.ceil((now - latest.time * 1_000) / stepMs));
-  return missing <= Math.max(1, Math.floor(maxMissingSourceCandles));
+  return now <= tradingCandleCloseTimeMs(latest.time * 1_000,
+    stepMs * Math.max(1, Math.floor(maxMissingSourceCandles)), source.sourceInterval);
 }
 
 function tradingCandleBatchSourceSeries(batch: TradingCandleBatch) {
@@ -4328,7 +4342,7 @@ export function tradingCandleBatchHasFinalizedHistory(
   const candles = tradingCandleBatchSourceSeries(batch);
   if (!candles.length || stepMs <= 0) return false;
   return candles.every((candle) => (
-    candle.time * 1_000 + stepMs > now
+    tradingCandleCloseTimeMs(candle.time * 1_000, stepMs, batch.source.sourceInterval) > now
     || candle.closed === true
   ));
 }
@@ -4346,7 +4360,7 @@ export function tradingCandleRefreshStartTime(
   if (stepMs > 0) {
     const unfinishedHistoricalIndex = candles.findIndex((candle) => (
       candle.closed !== true
-      && candle.time * 1_000 + stepMs <= now
+      && tradingCandleCloseTimeMs(candle.time * 1_000, stepMs, batch.source.sourceInterval) <= now
     ));
     if (unfinishedHistoricalIndex >= 0) {
       startIndex = Math.min(startIndex, unfinishedHistoricalIndex);
@@ -10393,11 +10407,13 @@ class TradingExpertMarketWorkspace {
           tradingAnalysisPaneHeading(targetMarket, job.interval),
           primaryReport,
           splitResult,
+          request.positionManagementRequested === true,
         ),
         narrative: combineTradingAnalysisNarratives(
           tradingAnalysisPaneHeading(targetMarket, job.interval),
           primaryNarrative,
           splitResult,
+          request.positionManagementRequested === true,
         ),
         marketId: job.marketId,
         symbol: job.symbol,
@@ -11717,7 +11733,7 @@ class TradingExpertMarketWorkspace {
       const selection = this.splitPaneSelections.get(index + 1);
       if (!selection || selection.marketId !== marketId) return;
       const source = binanceResolutionSource(selection.interval);
-      if (source) pane.applyLivePrice(marketId, price, timestamp, source.targetMs);
+      if (source) pane.applyLivePrice(marketId, price, timestamp, source.targetMs, source.sourceInterval);
     });
     return true;
   }
@@ -11873,8 +11889,9 @@ class TradingExpertMarketWorkspace {
         const patched = applyTradingLivePriceToBatch(candleBatch, livePrice, liveQuote.eventTimeMs);
         // Crossing one interval boundary is normal; a quote cannot fill a gap
         // of missing candles. In that case wait for a complete REST snapshot.
-        if (Number(patched.candles.at(-1)?.time) - Number(candleBatch.candles.at(-1)?.time)
-          > candleBatch.source.targetMs / 1_000) {
+        if (Number(patched.candles.at(-1)?.time) * 1_000
+          > tradingCandleCloseTimeMs(Number(candleBatch.candles.at(-1)?.time) * 1_000,
+            candleBatch.source.targetMs, candleBatch.source.sourceInterval)) {
           throw new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
         }
         candleBatch = patched;
@@ -12555,7 +12572,7 @@ class TradingExpertMarketWorkspace {
     for (let index = this.sourceCandles.length - 1; index >= 0; index -= 1) {
       const candle = this.sourceCandles[index];
       if (candle.time < bucketTime) break;
-      if (candle.time < bucketTime + source.targetMs / 1_000) bucketSourceCandles.unshift(candle);
+      if (candle.time < tradingCandleCloseTimeMs(bucketTime * 1_000, source.targetMs, source.sourceInterval) / 1_000) bucketSourceCandles.unshift(candle);
     }
     const target = aggregateTradingCandles(
       bucketSourceCandles,
@@ -12794,7 +12811,7 @@ class TradingExpertMarketWorkspace {
     const intervalMs = tradingViewResolutionDurationMs(this.activeInterval);
     if (this.chartSettings.showCountdown && latest && intervalMs !== null && intervalMs > 0) {
       const remainingSeconds = Math.max(
-        Math.ceil((latest.time * 1000 + intervalMs - Date.now()) / 1000),
+        Math.ceil((tradingResolutionCloseTimeMs(latest.time * 1000, this.activeInterval) - Date.now()) / 1000),
         0,
       );
       const hours = Math.floor(remainingSeconds / 3_600);

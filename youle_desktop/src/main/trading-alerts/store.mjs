@@ -1,3 +1,4 @@
+import { normalizeTradingAlertInterval } from "./interval.mjs";
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -37,7 +38,7 @@ function boundedText(value, max = 1_000) {
 function normalizeStoredDrawing(value = {}) {
   const drawingId = boundedText(value.drawingId, 160);
   const marketId = boundedText(value.marketId, 160).toUpperCase();
-  const interval = boundedText(value.interval, 32).toLowerCase();
+  const interval = normalizeTradingAlertInterval(boundedText(value.interval, 32));
   const geometryMode = ["segment", "ray", "extended"].includes(value.geometryMode) ? value.geometryMode : "segment";
   const points = (Array.isArray(value.points) ? value.points : []).slice(0, 16).map((point) => ({ time: Math.floor(Number(point?.time)), price: Number(point?.price) }));
   if (!drawingId || !marketId || !interval || points.length < 2 || points.some((point) => !Number.isFinite(point.time) || point.time <= 0 || !Number.isFinite(point.price) || point.price <= 0)) {
@@ -255,7 +256,7 @@ export class TradingAlertStore {
 
   async replaceDrawings({ marketId, interval, drawings } = {}) {
     const market = boundedText(marketId, 160).toUpperCase();
-    const period = boundedText(interval, 32).toLowerCase();
+    const period = normalizeTradingAlertInterval(boundedText(interval, 32));
     const normalized = (Array.isArray(drawings) ? drawings : []).map((entry) => normalizeStoredDrawing({ ...entry, marketId: market, interval: period }));
     return await this.writeLocked((data) => {
       const previous = data.drawings.filter((entry) => entry.marketId === market && entry.interval === period);

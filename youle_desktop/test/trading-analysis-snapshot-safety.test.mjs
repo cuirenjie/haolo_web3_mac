@@ -5,7 +5,7 @@ import test from "node:test";
 import ts from "typescript";
 import * as market from "../src/renderer/trading-expert-market.ts";
 import { selectTradingAnalysisMarket, selectTradingAnalysisInterval } from "../src/renderer/trading-analysis-target.mjs";
-import { applyTradingLivePriceToBatch } from "../src/renderer/trading-market-candle-cache.mjs";
+import { applyTradingLivePriceToBatch, tradingCandleCloseTimeMs } from "../src/renderer/trading-market-candle-cache.mjs";
 
 // Execute the production methods, replacing only their external boundaries.
 // AST extraction keeps tests independent of source whitespace and private API exports.
@@ -21,7 +21,7 @@ function runtime(name, dependencies) {
       compilerOptions: { target: ts.ScriptTarget.ES2022 },
     }).outputText);
   }
-  return runInNewContext(`${compiledMethods.get(name)}\nHarness`, { ...market, Date, ...dependencies });
+  return runInNewContext(`${compiledMethods.get(name)}\nHarness`, { ...market, tradingCandleCloseTimeMs, Date, ...dependencies });
 }
 
 const NOW = Date.parse("2026-09-04T15:30:01Z");

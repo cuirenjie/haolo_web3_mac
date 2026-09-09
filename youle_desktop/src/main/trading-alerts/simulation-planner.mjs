@@ -1,3 +1,4 @@
+import { normalizeTradingAlertInterval } from "./interval.mjs";
 import crypto from "node:crypto";
 import { TradingAlertEvaluator, UNKNOWN } from "./evaluator.mjs";
 import { normalizeAlertRule, stableHash } from "./protocol.mjs";
@@ -16,7 +17,7 @@ function assertCandle(candle, field = "candle") {
 }
 
 function intervalMs(interval) {
-  const match = String(interval).toLowerCase().match(/^(\d+)(s|m|h|d|w)$/);
+  const match = normalizeTradingAlertInterval(interval).match(/^(\d+)(s|m|h|d|w)$/);
   if (!match) return 60_000;
   const multipliers = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
   return Number(match[1]) * multipliers[match[2]];

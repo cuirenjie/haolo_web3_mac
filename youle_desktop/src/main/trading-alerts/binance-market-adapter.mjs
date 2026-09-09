@@ -1,3 +1,4 @@
+import { normalizeTradingAlertInterval } from "./interval.mjs";
 import WebSocket from "ws";
 import { TradingAlertError } from "./errors.mjs";
 
@@ -23,7 +24,7 @@ function intervalMs(value) {
 }
 
 export function planBinanceInterval(value) {
-  const interval = String(value || "").toLowerCase();
+  const interval = normalizeTradingAlertInterval(value);
   const targetMs = intervalMs(interval);
   if (BINANCE_INTERVALS.has(interval)) return Object.freeze({ interval, sourceInterval: interval, sourceMs: targetMs, targetMs, aggregate: false });
   const candidates = [...BINANCE_INTERVALS]

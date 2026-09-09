@@ -1499,6 +1499,10 @@ function executionPlanBaseAsset(plan) {
 }
 
 function displayExecutionPlanInterval(value) {
+  const calendar = /^(\d+)(M|[yY])$/.exec(String(value || "").trim());
+  // Existing plan titles use M for minutes. Give calendar months a distinct
+  // display token so a saved plan cannot turn a monthly alert into minutes.
+  if (calendar) return `${calendar[1]}${calendar[2] === "M" ? "MO" : "Y"}`;
   const source = String(value || "").trim().toUpperCase();
   if (/^\d+[MHDW]$/.test(source)) return source;
   const minutes = Number(source);

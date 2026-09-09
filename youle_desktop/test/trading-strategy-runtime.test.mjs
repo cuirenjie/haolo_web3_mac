@@ -73,6 +73,15 @@ function sampleLegacyResult() {
   };
 }
 
+test("execution-plan report titles distinguish calendar months from minute periods", () => {
+  for (const [interval, label] of [["1M", "1MO"], ["12M", "12MO"], ["1Y", "1Y"], ["15", "15M"], ["60", "1H"]]) {
+    const legacy = sampleLegacyResult();
+    legacy.snapshot.interval = interval;
+    const plan = buildExecutionPlanV1(sampleManifest, legacy, {});
+    assert.ok(formatExecutionPlanMarkdown(plan, { language: "en" }).includes(`BTC/USDT Binance Perpetual ${label}`));
+  }
+});
+
 test("strategy runtime flags support v1, legacy rollback, per-strategy disable, and shadow mode", () => {
   assert.equal(tradingStrategyRuntimeMode({}), "v1");
   assert.equal(tradingStrategyRuntimeEnabled("chan", {}), true);

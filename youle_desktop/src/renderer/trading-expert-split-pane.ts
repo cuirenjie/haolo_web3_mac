@@ -1607,7 +1607,7 @@ export class TradingExpertSplitPane {
     return this.market.id === marketId && this.interval === interval;
   }
 
-  applyLivePrice(marketId: string, price: number, eventTimeMs: number, targetMs: number) {
+  applyLivePrice(marketId: string, price: number, eventTimeMs: number, targetMs: number, sourceInterval: string | null = null) {
     if (
       this.destroyed
       || this.market.provider !== "binance"
@@ -1622,7 +1622,7 @@ export class TradingExpertSplitPane {
     const batch = applyTradingLivePriceToBatch({
       candles: this.candles,
       sourceCandles: [],
-      source: { targetMs, sourceInterval: null, sourceMs: null },
+      source: { targetMs, sourceInterval: sourceInterval === "1M" ? "1M" : null, sourceMs: sourceInterval === "1M" ? 30 * 86_400_000 : null },
     }, price, eventTimeMs);
     const latest = batch.candles.at(-1);
     if (!latest) return false;

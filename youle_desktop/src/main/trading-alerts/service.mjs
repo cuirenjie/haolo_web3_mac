@@ -1,3 +1,4 @@
+import { normalizeTradingAlertInterval } from "./interval.mjs";
 import crypto from "node:crypto";
 import { TradingAlertStore, createInitialAlertInstance } from "./store.mjs";
 import { TradingAlertMarketDataHub } from "./market-data-hub.mjs";
@@ -262,7 +263,7 @@ export class TradingAlertService {
     for (const subscription of subscriptions) {
       const frame = frames?.[subscription.contextId];
       const frameMarketId = String(frame?.marketId || "").trim().toUpperCase();
-      const frameInterval = String(frame?.interval || "").trim().toLowerCase();
+      const frameInterval = normalizeTradingAlertInterval(frame?.interval);
       const candidates = subscriptionsByContext.get(subscription.contextId) || [];
       const unambiguousMarket = frameMarketId || candidates.filter((entry) => entry.interval === subscription.interval).length === 1;
       if (!frame || frame.coverage !== "available" || frameInterval !== subscription.interval
@@ -379,7 +380,7 @@ export class TradingAlertService {
       if (context.contextId !== contextId) return context;
       if (context.drawingBinding && (params.marketId || params.marketIds || params.interval || params.intervals || params.selectorKind)) throw new TradingAlertError("画线预警不能切换交易对或周期", { code: "TRADING_ALERT_DRAWING_SCOPE_LOCKED", category: "validation" });
       const markets = parseList(params.marketIds || params.marketId, context.marketSelector.marketIds || context.marketSelector.frozenMarketIds || []).map((entry) => entry.toUpperCase());
-      const intervals = parseList(params.intervals || params.interval, context.intervals).map((entry) => entry.toLowerCase());
+      const intervals = parseList(params.intervals || params.interval, context.intervals).map(normalizeTradingAlertInterval);
       const selectorKind = params.selectorKind === "universe" ? "universe" : "fixed";
       const marketSelector = selectorKind === "universe" ? {
         kind: "universe",

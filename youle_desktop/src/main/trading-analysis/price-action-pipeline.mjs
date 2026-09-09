@@ -77,12 +77,23 @@ async function loadBinanceAccountContext(params) {
 function accountDecisionNarrative(executionPlan, context = {}) {
   const sizing = executionPlan?.positionSizing;
   if (!sizing || sizing.accountStatus === "unbound") return "";
+  const english = context.language === "en";
   if (sizing.accountStatus === "unavailable") {
+    if (english) return "Account check: the live Binance snapshot is unavailable or expired. No position adjustment or order quantity is generated.";
     return "账户校验：币安实盘快照不可用或已过期，暂不生成仓位调整或下单数量。";
   }
   const plan = sizing.accountPlan;
   if (!plan) return "";
   const money = (value) => Number(value).toFixed(2).replace(/\.00$/u, "").replace(/(\.\d)0$/u, "$1");
+  if (english) {
+    const side = plan.existingSide === "long" ? "long" : "short";
+    if (plan.mode === "close_opposite") return `Account check: an opposite ${side} position of ${money(plan.existingNotional)} USDT is open. Close it before considering a new position.`;
+    if (plan.mode === "reduce_existing") return `Account check: reduce the existing ${money(plan.existingNotional)} USDT ${side} position to approximately ${money(plan.notional)} USDT under the risk limit.`;
+    if (plan.mode === "manage_existing") return `Account check: manage the existing ${money(plan.existingNotional)} USDT ${side} position without opening another position.`;
+    return context.positionManagementRequested === true
+      ? "Account check: no matching current position was found. No new opening quantity is generated for this position-management question."
+      : `Account check: the candidate position is approximately ${money(plan.notional)} USDT, with leverage no higher than ${plan.leverage}x.`;
+  }
   const positionSide = plan.existingSide === "long" ? "多单" : "空单";
   return plan.mode === "close_opposite"
     ? `账户校验：当前已有 ${money(plan.existingNotional)} USDT 的反向${positionSide}，应先平仓，暂不开新仓。`
@@ -104,11 +115,23 @@ function accountAwareDirectNarrative(narrative, executionPlan, context = {}) {
   return ordered.filter(Boolean).join("\n\n");
 }
 
-function positionManagementAnswer(review, result, instruction) {
+function positionManagementAnswer(review, result, instruction, language) {
   const answer = String(review?.answer || "").trim();
   const genericPlan = /新手执行清单|想做多|想做空|候选仓位|开仓计划|杠杆|下单数量/iu.test(answer);
   if (answer && !genericPlan) return answer;
   const levels = result?.levels || {};
+  if (language === "en") {
+    const bias = result?.trend === "bullish" ? "bullish" : result?.trend === "bearish" ? "bearish" : "range-bound";
+    const support = formatPrice(levels.support);
+    const resistance = formatPrice(levels.resistance);
+    if (/做空|空单|空头|\bshort\b/iu.test(String(instruction || ""))) {
+      return `The current structure is ${bias}. For the existing short, consider reducing or closing if price rebounds and closes above resistance near ${resistance}; below support near ${support}, reassess whether to hold.`;
+    }
+    if (/做多|多单|多头|\blong\b/iu.test(String(instruction || ""))) {
+      return `The current structure is ${bias}. For the existing long, consider reducing or closing if price breaks and closes below support near ${support}; above resistance near ${resistance}, reassess whether to hold.`;
+    }
+    return `The current structure is ${bias}. Use support near ${support} and resistance near ${resistance} as conditional boundaries for managing the existing position.`;
+  }
   const bias = trendLabel(result?.trend);
   if (/做空|空单|空头/iu.test(String(instruction || ""))) {
     return `当前盘面${bias}；你问的是空单平仓，反弹并收盘站上压力 ${formatPrice(levels.resistance)} 附近先减仓或平仓，跌破支撑 ${formatPrice(levels.support)} 后再观察是否继续持有。`;
@@ -151,6 +174,7 @@ export function buildPriceActionModelPrompt(snapshot, result, context = {}) {
     || isPositionManagementInstruction(context.instruction);
   const directAnswer = context.responseMode === "direct" || positionManagementRequested;
   return [
+    context.language === "en" ? "Write all user-facing answer, summary and rationale fields in English. Keep JSON keys unchanged." : "",
     "你是交易分析系统的通用价格行为复核器，不负责直接操作界面，也不得套用或声称使用缠论、波浪、订单流、威科夫等某一种理论。",
     "确定性引擎已从用户当前左侧画布的真实 OHLCV 计算趋势、摆动高低点、支撑压力和条件价位。只可复核给定结果，不得创造新价格、时间或市场事实。",
     directAnswer
@@ -220,9 +244,24 @@ export function buildPriceActionReport(snapshot, result, review, context = {}) {
   const change = first.open ? ((latest.close - first.open) / first.open) * 100 : 0;
   const preferences = personalizedTradingSettings(context.userRiskProfile);
   if (context.positionManagementRequested === true) {
-    const answer = positionManagementAnswer(review, result, context.instruction)
+    const answer = positionManagementAnswer(review, result, context.instruction, context.language)
       || String(review.summary || "").trim();
     const accountDecision = String(context.accountDecision || "").trim();
+    if (context.language === "en") {
+      const bias = result.trend === "bullish" ? "bullish" : result.trend === "bearish" ? "bearish" : "range-bound";
+      return [
+        `## ${snapshot.marketId} · ${snapshot.interval} · Position management`,
+        context.instruction ? `Your question: ${String(context.instruction).trim()}` : "",
+        "### Direct answer", answer,
+        "### Market evidence",
+        `The current structure is **${bias}**, with price near ${formatPrice(levels.currentPrice)}.`,
+        review.rationale ? `Rationale: ${review.rationale}` : "",
+        `Support: ${formatPrice(levels.support)}; resistance: ${formatPrice(levels.resistance)}. A break above ${formatPrice(levels.longTrigger)} confirms a bullish condition; a break below ${formatPrice(levels.shortTrigger)} confirms a bearish condition.`,
+        accountDecision ? "### Account position check" : "No account position snapshot was supplied. This answer uses the target market and the position information in your message.",
+        accountDecision,
+        "These conditions apply only to this market and timeframe. Unclosed candles, slippage, funding and news can change them. No order is placed automatically.",
+      ].filter(Boolean).join("\n\n");
+    }
     return [
       `## ${snapshot.marketId} · ${intervalLabel(snapshot.interval)}仓位管理`,
       context.instruction ? `你的问题：${String(context.instruction).trim()}` : "",
@@ -387,6 +426,7 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
     theoryId: "price_action",
     snapshotId: snapshot.snapshotId,
     prompt: buildPriceActionModelPrompt(snapshot, theoryResult, {
+      language: params?.language,
       instruction: params?.instruction,
       responseMode: params?.responseMode,
       positionManagementRequested: params?.positionManagementRequested === true,
@@ -408,6 +448,7 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
     || isPositionManagementInstruction(params?.instruction);
   const directResponseRequested = params?.responseMode === "direct" || positionManagementRequested;
   const baseReport = buildPriceActionReport(snapshot, theoryResult, modelReview, {
+    language: params?.language,
     instruction: params?.instruction,
     userRiskProfile: params?.userRiskProfile,
     positionManagementRequested,
@@ -432,7 +473,7 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
       interval: snapshot.interval,
       narrative: directResponseRequested
         ? positionManagementRequested
-          ? positionManagementAnswer(modelReview, theoryResult, params?.instruction)
+          ? positionManagementAnswer(modelReview, theoryResult, params?.instruction, params?.language)
           : (modelReview.answer || modelReview.summary)
         : modelReview.summary,
       report: baseReport,
@@ -474,9 +515,10 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
   const executionReport = formatExecutionPlanMarkdown(executionPlan, {
     language: params?.language,
   });
-  const accountDecision = accountDecisionNarrative(executionPlan, { positionManagementRequested });
+  const accountDecision = accountDecisionNarrative(executionPlan, { positionManagementRequested, language: params?.language });
   const targetedReport = positionManagementRequested
     ? buildPriceActionReport(snapshot, theoryResult, modelReview, {
+        language: params?.language,
         instruction: params?.instruction,
         userRiskProfile: params?.userRiskProfile,
         positionManagementRequested: true,
@@ -491,6 +533,7 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
       executionPlan,
       narrative: directResponseRequested
         ? accountAwareDirectNarrative(result.analysisPlan.narrative, executionPlan, {
+            language: params?.language,
             positionManagementRequested,
           })
         : result.analysisPlan.narrative,

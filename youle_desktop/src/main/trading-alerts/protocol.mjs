@@ -1,3 +1,4 @@
+import { normalizeTradingAlertInterval } from "./interval.mjs";
 import crypto from "node:crypto";
 
 export const TRADING_ALERT_SCHEMA_VERSION = 1;
@@ -399,7 +400,7 @@ function normalizeDrawingBinding(value, path) {
     drawingId: identifier(object.drawingId, `${path}.drawingId`),
     drawingRevision: number(object.drawingRevision, `${path}.drawingRevision`, { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true }),
     marketId: identifier(object.marketId, `${path}.marketId`).toUpperCase(),
-    interval: identifier(object.interval, `${path}.interval`).toLowerCase(),
+    interval: normalizeTradingAlertInterval(identifier(object.interval, `${path}.interval`)),
     geometryMode: enumValue(object.geometryMode, new Set(["segment", "ray", "extended"]), `${path}.geometryMode`),
   });
 }
@@ -411,7 +412,7 @@ function normalizeContext(value, index) {
   const intervals = stringArray(object.intervals, `${path}.intervals`, {
     max: TRADING_ALERT_LIMITS.maxIntervalsPerContext,
     identifierItems: true,
-  }).map((entry) => entry.toLowerCase());
+  }).map(normalizeTradingAlertInterval);
   const drawingBinding = normalizeDrawingBinding(object.drawingBinding, `${path}.drawingBinding`);
   const marketSelector = normalizeMarketSelector(object.marketSelector, `${path}.marketSelector`);
   if (drawingBinding) {
@@ -718,7 +719,7 @@ export function normalizeTriggerEvidence(value = {}) {
     if (drawings.length > 32) fail("must contain at most 32 drawings", `${path}.drawings`);
     return Object.freeze({
       marketId: identifier(entry.marketId, `${path}.marketId`).toUpperCase(),
-      interval: identifier(entry.interval, `${path}.interval`).toLowerCase(),
+      interval: normalizeTradingAlertInterval(identifier(entry.interval, `${path}.interval`)),
       eventTime: number(entry.eventTime, `${path}.eventTime`, { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true }),
       ...(entry.candle === undefined ? {} : { candle: structuredClone(entry.candle) }),
       source: text(entry.source, `${path}.source`, { max: 160 }),
@@ -728,7 +729,7 @@ export function normalizeTriggerEvidence(value = {}) {
         const item = plainObject(drawing, drawingPath);
         onlyKeys(item, ["drawingId", "marketId", "interval", "geometryMode", "points", "revision"], drawingPath);
         if (!Array.isArray(item.points) || item.points.length < 2 || item.points.length > 16) fail("must contain 2 to 16 points", `${drawingPath}.points`);
-        return Object.freeze({ drawingId: identifier(item.drawingId, `${drawingPath}.drawingId`), marketId: identifier(item.marketId, `${drawingPath}.marketId`).toUpperCase(), interval: identifier(item.interval, `${drawingPath}.interval`).toLowerCase(), geometryMode: enumValue(item.geometryMode, new Set(["segment", "ray", "extended"]), `${drawingPath}.geometryMode`), revision: number(item.revision, `${drawingPath}.revision`, { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true }), points: Object.freeze(item.points.map((point, pointIndex) => { const value = plainObject(point, `${drawingPath}.points[${pointIndex}]`); onlyKeys(value, ["time", "price"], `${drawingPath}.points[${pointIndex}]`); return Object.freeze({ time: number(value.time, `${drawingPath}.points[${pointIndex}].time`, { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true }), price: number(value.price, `${drawingPath}.points[${pointIndex}].price`, { min: Number.EPSILON }) }); })) });
+        return Object.freeze({ drawingId: identifier(item.drawingId, `${drawingPath}.drawingId`), marketId: identifier(item.marketId, `${drawingPath}.marketId`).toUpperCase(), interval: normalizeTradingAlertInterval(identifier(item.interval, `${drawingPath}.interval`)), geometryMode: enumValue(item.geometryMode, new Set(["segment", "ray", "extended"]), `${drawingPath}.geometryMode`), revision: number(item.revision, `${drawingPath}.revision`, { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true }), points: Object.freeze(item.points.map((point, pointIndex) => { const value = plainObject(point, `${drawingPath}.points[${pointIndex}]`); onlyKeys(value, ["time", "price"], `${drawingPath}.points[${pointIndex}]`); return Object.freeze({ time: number(value.time, `${drawingPath}.points[${pointIndex}].time`, { min: 1, max: Number.MAX_SAFE_INTEGER, integer: true }), price: number(value.price, `${drawingPath}.points[${pointIndex}].price`, { min: Number.EPSILON }) }); })) });
       })) } : {}),
     });
   });

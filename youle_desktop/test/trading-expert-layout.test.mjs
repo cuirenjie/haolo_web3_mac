@@ -2467,7 +2467,7 @@ test("Trading Expert split panes share the market-wide live price across interva
   const streamsBlock = sourceBlock(market, "private syncFavoriteTickerStreams", "private async connectFavoriteTickerGroup");
 
   assert.match(quoteBlock, /selection\.marketId !== marketId/);
-  assert.match(quoteBlock, /pane\.applyLivePrice\(marketId, price, timestamp, source\.targetMs\)/);
+  assert.match(quoteBlock, /pane\.applyLivePrice\(marketId, price, timestamp, source\.targetMs, source\.sourceInterval\)/);
   assert.match(splitLoadBlock, /applyTradingLivePriceToBatch\(result, quote\.price, quote\.eventTimeMs\)/);
   assert.match(splitPriceBlock, /this\.market\.id !== marketId/);
   assert.match(splitPriceBlock, /loadedMarketId !== this\.market\.id[\s\S]*?loadedInterval !== this\.interval/);

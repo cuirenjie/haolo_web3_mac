@@ -170,8 +170,8 @@ test("candle cache migrates away from legacy snapshots that cannot prove finalit
 
   createTradingMarketCandleCache({ storage, now: () => 2_000 });
 
-  assert.equal(CACHE_VERSION, 3);
-  assert.equal(STORAGE_PREFIX, "haolo.trading.market.candles.v3.");
+  assert.equal(CACHE_VERSION, 4);
+  assert.equal(STORAGE_PREFIX, "haolo.trading.market.candles.v4.");
   assert.equal(storage.getItem(`${legacyPrefix}${encodeURIComponent(key)}`), null);
   assert.equal(storage.getItem(`${legacyPrefix}index`), null);
 });

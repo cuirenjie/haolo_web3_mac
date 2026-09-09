@@ -22,6 +22,18 @@ const content = `当前动作：不交易
 分批止盈：止盈 74.28，推荐仓位 2523.21 USDT
 风险收益比：目标1为 1:0.97，如果止损：约 -23.85 USDT，如果全部止盈：约 +23.16 USDT`;
 
+test("calendar plan titles survive saving but cannot create minute alerts", () => {
+  for (const period of ["1MO", "12MO", "1Y"]) {
+    const saved = createSavedExecutionPlan({
+      candidate: { title: `SOL/USDT Binance Perpetual ${period}`, content: `${content}\n参考 1小时 结构。` },
+      analysisLabel: "SOL1M", sourceThreadId: "thread", sourceMessageId: "message", language: "en",
+    });
+    assert.equal(saved.title, `SOL/USDT Binance Perpetual ${period}`);
+    assert.throws(() => parseExecutionPlanAlertInput({ ...saved, planId: saved.id }), error => error.code === "TRADING_ALERT_INTERVAL_UNSUPPORTED");
+  }
+  assert.equal(parseExecutionPlanAlertInput({ planId: "minute", title: "SOL/USDT Binance Perpetual 1M", content, status: "pending" }).interval, "1m");
+});
+
 test("execution-plan parser builds one real rule with three phase-labelled conditions", () => {
   const spec = parseExecutionPlanAlertInput({ planId: "plan-sol-1", title, content, status: "pending" });
   assert.equal(spec.marketId, "BINANCE:FUTURES:SOLUSDT");

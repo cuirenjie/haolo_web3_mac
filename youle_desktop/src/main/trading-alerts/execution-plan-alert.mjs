@@ -1,7 +1,8 @@
 import { createAlertRuleRevision, normalizeAlertRule } from "./protocol.mjs";
 import { TradingAlertError } from "./errors.mjs";
+import { normalizeTradingAlertInterval } from "./interval.mjs";
 
-const PLAN_TITLE_PATTERN = /^([A-Z0-9_\p{Script=Han}]{1,32})\/(USDT|USDC|BUSD)\s+(?:币安永续|BINANCE\s+PERPETUAL)\s+(\d+)(M|H|D|W)(?:\s*(?:·|-)\s*(?:(?:多头|空头)条件方案|(?:LONG|SHORT)\s+SETUP))?$/iu;
+const PLAN_TITLE_PATTERN = /^([A-Z0-9_\p{Script=Han}]{1,32})\/(USDT|USDC|BUSD)\s+(?:币安永续|BINANCE\s+PERPETUAL)\s+(\d+)(MO|Y|M|H|D|W)(?:\s*(?:·|-)\s*(?:(?:多头|空头)条件方案|(?:LONG|SHORT)\s+SETUP))?$/iu;
 const PLAN_STATUSES = new Set(["pending", "executing", "ended"]);
 const PLAN_ALERT_RULE_PREFIX = "execution-plan-alert-";
 
@@ -85,7 +86,8 @@ export function parseExecutionPlanAlertInput(value = {}) {
   const [, baseAssetValue, quoteAssetValue, intervalValue, intervalUnitValue] = titleMatch;
   const baseAsset = baseAssetValue.toUpperCase();
   const quoteAsset = quoteAssetValue.toUpperCase();
-  const interval = `${Number(intervalValue)}${intervalUnitValue.toLowerCase()}`;
+  const interval = normalizeTradingAlertInterval(`${Number(intervalValue)}${intervalUnitValue.toUpperCase() === "MO"
+    ? "M" : intervalUnitValue.toLowerCase()}`);
   const fields = planFields(value.content);
   const directionText = fields.get("方向判断") || fields.get("Direction") || "";
   const triggerEntry = [...fields.entries()].find(([label]) => (

@@ -1,10 +1,10 @@
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 const DEFAULT_FRESH_AGE_MS = 5 * 60_000;
 const DEFAULT_STALE_AGE_MS = 7 * 24 * 60 * 60_000;
 const DEFAULT_MAX_ENTRIES = 48;
 const DEFAULT_MAX_CANDLES = 500;
 const DEFAULT_MAX_SOURCE_CANDLES = 1_500;
-const STORAGE_PREFIX = "haolo.trading.market.candles.v3.";
+const STORAGE_PREFIX = "haolo.trading.market.candles.v4.";
 const STORAGE_INDEX_KEY = `${STORAGE_PREFIX}index`;
 // v2 snapshots may contain weekly candles bucketed from the Unix epoch
 // (Thursday) instead of Binance's Monday anchor. They cannot be repaired
@@ -13,6 +13,8 @@ const STORAGE_INDEX_KEY = `${STORAGE_PREFIX}index`;
 const LEGACY_STORAGE_PREFIXES = [
   "haolo.trading.market.candles.v1.",
   "haolo.trading.market.candles.v2.",
+  // v3 can contain monthly/yearly bars bucketed into fixed 30/360-day spans.
+  "haolo.trading.market.candles.v3.",
 ];
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
@@ -235,9 +237,24 @@ function mergeCandleSeries(current, incoming, closedCandleAuthority = "incoming"
 }
 
 function isWeeklyCadence(durationMs, sourceInterval = null) {
+  if (calendarMonths(durationMs, sourceInterval)) return false;
   const normalizedInterval = String(sourceInterval || "").trim().toLowerCase();
   return normalizedInterval === "1w"
     || (durationMs >= WEEK_MS && durationMs % WEEK_MS === 0);
+}
+
+function calendarMonths(durationMs, sourceInterval) {
+  if (!/^\d+M$/.test(String(sourceInterval || ""))) return 0;
+  const months = Number(durationMs) / (30 * DAY_MS);
+  return Number.isInteger(months) && months > 0 ? months : 0;
+}
+
+/** Actual exclusive close boundary; durationMs is only an estimate for months. */
+export function tradingCandleCloseTimeMs(openTimeMs, durationMs, sourceInterval = null) {
+  const months = calendarMonths(durationMs, sourceInterval);
+  if (!months) return Number(openTimeMs) + Number(durationMs);
+  const date = new Date(Number(openTimeMs));
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1);
 }
 
 /**
@@ -250,6 +267,12 @@ export function tradingCandleBucketTimeMs(timestampMs, durationMs, sourceInterva
   const timestamp = Number(timestampMs);
   const duration = Number(durationMs);
   if (!Number.isFinite(timestamp) || !Number.isFinite(duration) || duration <= 0) return 0;
+  const months = calendarMonths(duration, sourceInterval);
+  if (months) {
+    const date = new Date(timestamp);
+    const monthIndex = (date.getUTCFullYear() - 1970) * 12 + date.getUTCMonth();
+    return Date.UTC(1970, Math.floor(monthIndex / months) * months, 1);
+  }
   const anchorMs = isWeeklyCadence(duration, sourceInterval) ? BINANCE_WEEK_ANCHOR_MS : 0;
   return Math.floor((timestamp - anchorMs) / duration) * duration + anchorMs;
 }
@@ -273,7 +296,7 @@ function aggregateCandles(candles, targetMs, sourceInterval = null) {
   return [...buckets.values()]
     .map((candle) => ({
       ...candle,
-      closed: candle.closed === true && candle.time * 1_000 + targetMs <= now,
+      closed: candle.closed === true && tradingCandleCloseTimeMs(candle.time * 1_000, targetMs, sourceInterval) <= now,
     }))
     .sort((first, second) => first.time - second.time);
 }
@@ -306,7 +329,7 @@ export function applyTradingLivePriceToBatch(current, price, eventTimeMs = Date.
     const latest = alignedCandles.at(-1);
     if (latest && bucketTime < latest.time) return alignedCandles;
     const existing = alignedCandles.find((candle) => candle.time === bucketTime);
-    if (existing?.closed === true && bucketTime * 1_000 + durationMs <= Date.now()) return alignedCandles;
+    if (existing?.closed === true && tradingCandleCloseTimeMs(bucketTime * 1_000, durationMs, sourceInterval) <= Date.now()) return alignedCandles;
     return upsertLiveCandle(alignedCandles, {
       ...(existing || {}),
       time: bucketTime,
@@ -315,7 +338,7 @@ export function applyTradingLivePriceToBatch(current, price, eventTimeMs = Date.
       low: Math.min(existing?.low || normalizedPrice, normalizedPrice),
       close: normalizedPrice,
       volume: existing?.volume || 0,
-      closed: bucketTime * 1_000 + durationMs <= Date.now(),
+      closed: tradingCandleCloseTimeMs(bucketTime * 1_000, durationMs, sourceInterval) <= Date.now(),
     });
   };
   return {
@@ -325,7 +348,7 @@ export function applyTradingLivePriceToBatch(current, price, eventTimeMs = Date.
     candles: applyToSeries(
       batch.candles,
       source.targetMs,
-      source.sourceMs === source.targetMs ? source.sourceInterval : null,
+      source.sourceInterval === "1M" || source.sourceMs === source.targetMs ? source.sourceInterval : null,
     ),
     sourceCandles: source.sourceInterval
       ? applyToSeries(batch.sourceCandles, source.sourceMs || source.targetMs, source.sourceInterval)

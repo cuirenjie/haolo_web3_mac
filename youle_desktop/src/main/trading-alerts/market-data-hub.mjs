@@ -1,3 +1,4 @@
+import { normalizeTradingAlertInterval } from "./interval.mjs";
 import { TradingAlertError } from "./errors.mjs";
 
 function text(value, field, max = 160) {
@@ -10,7 +11,7 @@ export function normalizeMarketDataSubscription(value = {}) {
   return Object.freeze({
     providerId: text(value.providerId || "binance-public", "providerId").toLowerCase(),
     marketId: text(value.marketId, "marketId").toUpperCase(),
-    interval: text(value.interval, "interval", 32).toLowerCase(),
+    interval: normalizeTradingAlertInterval(text(value.interval, "interval", 32)),
     fields: Object.freeze([...new Set((Array.isArray(value.fields) ? value.fields : ["ohlcv"]).map((entry) => text(entry, "field")))]),
   });
 }

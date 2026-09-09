@@ -2252,6 +2252,12 @@ interface TradingDrawingControllerOptions {
   onDrawingStateChanged?: (source: TradingDrawingController) => void;
 }
 
+type ManualDrawingSession = {
+  drawings: TradingDrawingModel[];
+  controllers: Set<TradingDrawingController>;
+};
+const manualDrawingSessions = new Map<string, ManualDrawingSession>();
+
 export class TradingDrawingController {
   private readonly host: HTMLElement;
   private readonly chartElement: HTMLElement;
@@ -2285,7 +2291,9 @@ export class TradingDrawingController {
   private readonly drawingScope: string;
   private readonly paneIndex: number;
   private storageSessionId: string;
-  private drawings: TradingDrawingModel[] = [];
+  private manualDrawingSession!: ManualDrawingSession;
+  private get drawings() { return this.manualDrawingSession.drawings; }
+  private set drawings(value: TradingDrawingModel[]) { this.manualDrawingSession.drawings = value; }
   private aiDrawings: TradingDrawingModel[] = [];
   private aiDraft: TradingDrawingModel | null = null;
   private aiCursorPoint: TradingDrawingPoint | null = null;
@@ -2339,13 +2347,7 @@ export class TradingDrawingController {
     this.storageSessionId = normalizeTradingDrawingStorageSessionId(options.storageSessionId);
     this.drawingScope = normalizeTradingDrawingScope(options.drawingScope);
     this.paneIndex = Math.max(0, Math.trunc(options.paneIndex ?? 0));
-    this.drawings = loadStoredDrawings(this.storageSessionId);
     this.aiDrawings = loadStoredAiDrawings(this.storageSessionId);
-    for (const drawing of [...this.drawings].reverse()) {
-      if (!this.drawingStyles.has(drawing.tool)) {
-        this.drawingStyles.set(drawing.tool, tradingDrawingStyleFromModel(drawing));
-      }
-    }
     const orderLineContent = this.overlay.querySelector<SVGGElement>("[data-trading-order-lines]");
     const orderPositionCardLayer = this.host.querySelector<HTMLElement>("[data-trading-order-position-cards]");
     const content = this.overlay.querySelector<SVGGElement>("[data-drawing-content]");
@@ -2361,6 +2363,12 @@ export class TradingDrawingController {
     const clearDialog = controlsHost.querySelector<HTMLDialogElement>("[data-drawing-clear-dialog]");
     if (!orderLineContent || !orderPositionCardLayer || !content || !aiContent || !aiTextHitContent || !aiCursorContent || !toolbar || !status || !selectionToolbar || !aiTextSizeToolbar || !axisMarkerLayer || !clearDialog) {
       throw new Error("Trading drawing surface is incomplete");
+    }
+    this.joinManualDrawingSession();
+    for (const drawing of [...this.drawings].reverse()) {
+      if (!this.drawingStyles.has(drawing.tool)) {
+        this.drawingStyles.set(drawing.tool, tradingDrawingStyleFromModel(drawing));
+      }
     }
     this.orderLineContent = orderLineContent;
     this.orderPositionCardLayer = orderPositionCardLayer;
@@ -2551,10 +2559,20 @@ export class TradingDrawingController {
     this.aiPlayback.cancel();
     this.releasePointer();
     this.finishSelectionToolbarDrag();
+    this.discardPendingTextDrawing();
+    const pendingIds = new Set([...this.manualDrawingSession.controllers].map((peer) => peer.pendingTextDrawingId));
+    const previousDrawings = this.drawings.filter((drawing) => !pendingIds.has(drawing.id));
+    this.leaveManualDrawingSession();
     this.storageSessionId = nextSessionId;
+    this.joinManualDrawingSession();
     if (migrateCurrentDrawings) {
+      // Move every scope, including indicators that are currently closed.
+      // Later controllers joining this session must not overwrite its newer data.
+      const combined = new Map(previousDrawings.map((drawing) => [drawing.id, drawing]));
+      this.drawings.forEach((drawing) => combined.set(drawing.id, drawing));
+      this.drawings = [...combined.values()];
       const manualPersisted = this.persistDrawings(false);
-      const aiPersisted = this.persistAiDrawings(false);
+      const aiPersisted = this.drawingScope === "main" && this.persistAiDrawings(false);
       try {
         if (manualPersisted) {
           window.localStorage.removeItem(tradingDrawingSessionStorageKey("manual", previousSessionId));
@@ -2566,7 +2584,6 @@ export class TradingDrawingController {
         // Keeping the previous keys is safer if the promoted-session migration cannot finish.
       }
     } else {
-      this.drawings = loadStoredDrawings(this.storageSessionId);
       this.aiDrawings = loadStoredAiDrawings(this.storageSessionId);
     }
 
@@ -3872,8 +3889,9 @@ export class TradingDrawingController {
     const priceScaleWidth = this.drawingScope === "main"
       ? Number(chart?.priceScale?.("right", this.paneIndex)?.width?.() || 0)
       : 0;
-    const paneElement = this.chartElement
-      || chart?.panes?.()?.[this.paneIndex]?.getHTMLElement?.() as HTMLElement | null;
+    const paneElement = (this.drawingScope === "main"
+      ? chart?.panes?.()?.[this.paneIndex]?.getHTMLElement?.()
+      : this.chartElement) as HTMLElement | null;
     const chartRect = this.chartElement.getBoundingClientRect();
     const paneRect = paneElement?.getBoundingClientRect();
     return {
@@ -3966,15 +3984,47 @@ export class TradingDrawingController {
     this.pointerStart = null;
   }
 
+  private joinManualDrawingSession() {
+    let session = manualDrawingSessions.get(this.storageSessionId);
+    if (!session) {
+      session = { drawings: loadStoredDrawings(this.storageSessionId), controllers: new Set() };
+      manualDrawingSessions.set(this.storageSessionId, session);
+    }
+    this.manualDrawingSession = session;
+    session.controllers.add(this);
+  }
+
+  private leaveManualDrawingSession() {
+    this.manualDrawingSession.controllers.delete(this);
+    if (!this.manualDrawingSession.controllers.size) manualDrawingSessions.delete(this.storageSessionId);
+  }
+
+  private refreshManualDrawingPeers(clearHistory = false) {
+    for (const peer of this.manualDrawingSession.controllers) {
+      if (peer === this) continue;
+      if (clearHistory) {
+        peer.redoStack = [];
+        peer.draft = null;
+        peer.pendingTextDrawingId = null;
+        peer.selectedDrawingId = null;
+        peer.dragState = null;
+        peer.releasePointer();
+        peer.closeSelectionMenus();
+      }
+      peer.redraw();
+      peer.updateToolbarState();
+    }
+  }
+
   private persistDrawings(notify = true) {
     try {
-      const persisted = this.pendingTextDrawingId
-        ? this.drawings.filter((drawing) => drawing.id !== this.pendingTextDrawingId)
-        : this.drawings;
+      const pendingIds = new Set([...this.manualDrawingSession.controllers].map((peer) => peer.pendingTextDrawingId));
+      const persisted = this.drawings.filter((drawing) => !pendingIds.has(drawing.id));
       window.localStorage.setItem(
         tradingDrawingSessionStorageKey("manual", this.storageSessionId),
         JSON.stringify(persisted.slice(-600)),
       );
+      this.refreshManualDrawingPeers();
       if (notify) this.onDrawingStateChanged?.(this);
       return true;
     } catch {
@@ -4067,6 +4117,7 @@ export class TradingDrawingController {
         // The in-memory drawing history is still cleared when storage is unavailable.
       }
       this.onAiDrawingContextsChanged(null);
+      this.refreshManualDrawingPeers(true);
     }
     this.redraw();
     this.updateToolbarState();
@@ -5304,6 +5355,8 @@ export class TradingDrawingController {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.discardPendingTextDrawing();
+    this.leaveManualDrawingSession();
     this.aiPlayback.cancel();
     this.hideAiTextSizeToolbar();
     if (this.clearDialog.open && (this.bindControlEvents || this.clearDialogTrigger)) this.clearDialog.close();

@@ -383,7 +383,7 @@ test("manual and AI drawings persist in isolated conversation storage", async ()
   assert.match(drawing, /this\.aiDrawings = loadStoredAiDrawings\(this\.storageSessionId\)/);
   assert.match(drawing, /private persistAiDrawings\(notify = true\)/);
   assert.match(drawing, /tradingDrawingSessionStorageKey\("ai", this\.storageSessionId\)/);
-  assert.match(drawing, /switchStorageSession\([\s\S]*loadStoredDrawings\(this\.storageSessionId\)[\s\S]*loadStoredAiDrawings\(this\.storageSessionId\)/);
+  assert.match(drawing, /switchStorageSession\([\s\S]*this\.joinManualDrawingSession\(\)[\s\S]*loadStoredAiDrawings\(this\.storageSessionId\)/);
   assert.match(drawing, /LEGACY_TRADING_AI_DRAWINGS_STORAGE_KEY[\s\S]*window\.localStorage\.removeItem\(legacyStorageKey\)/);
   assert.match(drawing, /getInterval: \(\) => string/);
   assert.match(drawing, /interval: patch\.interval/);

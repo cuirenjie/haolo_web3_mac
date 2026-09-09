@@ -71,7 +71,7 @@ const PLAN_HEADING = /^(?:(?:标准|推荐|首选|备选|候选|可选)\s*)?(?:(
 // names can contain CJK characters. Keep those headings recognizable so the
 // report body is not mistaken for a plan-only response.
 const BINANCE_SYMBOL = /^[A-Z0-9_\p{Script=Han}]{2,40}$/u;
-const TRADING_PLAN_HEADING = /^[\p{L}\p{N}][\p{L}\p{N}._-]{1,39}\/(?:USDT|USDC|BUSD)\s+(?:币安永续|BINANCE PERPETUAL)\s+\d+(?:M|H|D|W)(?:\s+·\s+(?:(?:多头|空头)条件方案|(?:LONG|SHORT) SETUP))?$/iu;
+const TRADING_PLAN_HEADING = /^[\p{L}\p{N}][\p{L}\p{N}._-]{1,39}\/(?:USDT|USDC|BUSD)\s+(?:币安永续|BINANCE PERPETUAL)\s+\d+(?:MO|Y|M|H|D|W)(?:\s+·\s+(?:(?:多头|空头)条件方案|(?:LONG|SHORT) SETUP))?$/iu;
 const OPTION_LINE = /^(?:(?:方案|候选|选项|路径)\s*(?:[A-C]|[一二三四五六]|\d+)|[A-C]\s*方案|[A-C])\s*[:：、.)-]/i;
 const ORDERED_OR_BULLET_LINE = /^(?:[-*+•▪◦]\s+|(?:\d+|[A-C一二三四五六])[.)、]\s*)/i;
 
@@ -211,7 +211,8 @@ export function executionPlanCardTitle(input: {
   const combined = sources.join("\n").toUpperCase();
   let baseAsset = "";
   let quoteAsset = "USDT";
-  let interval = "";
+  const calendarHeading = String(input.fallbackTitle || "").match(/\/(?:USDT|USDC|BUSD)\s+(?:币安永续|BINANCE PERPETUAL)\s+(\d+)(MO|Y)(?:\s|$)/iu);
+  let interval = calendarHeading ? `${Number(calendarHeading[1])}${calendarHeading[2].toUpperCase()}` : "";
 
   const marketIdMatch = combined.match(/BINANCE:FUTURES:([A-Z0-9_\p{Script=Han}]+?)(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
   const slashMatch = combined.match(/([A-Z0-9_\p{Script=Han}]{1,32})\/(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
@@ -224,7 +225,8 @@ export function executionPlanCardTitle(input: {
   }
 
   for (const source of sources) {
-    const compactMatch = source.toUpperCase().match(/(?:^|[^A-Z0-9_\p{Script=Han}])([A-Z0-9_\p{Script=Han}]{1,32}?)(\d+)([MHDW])(?:[^A-Z0-9_\p{Script=Han}]|$)/u);
+    if (interval) break;
+    const compactMatch = source.toUpperCase().match(/(?:^|[^A-Z0-9_\p{Script=Han}])([A-Z0-9_\p{Script=Han}]{1,32}?)(\d+)(MO|Y|[MHDW])(?:[^A-Z0-9_\p{Script=Han}]|$)/u);
     if (!compactMatch || !/[A-Z\p{Script=Han}]/u.test(compactMatch[1])) continue;
     const compactBase = compactMatch[1];
     const compactQuoteMatch = compactBase.match(/^(.*?)(USDT|USDC|BUSD)$/);
@@ -236,7 +238,7 @@ export function executionPlanCardTitle(input: {
 
   if (!interval) {
     const chineseInterval = combined.match(/(?:^|[^0-9])(\d+)\s*(分钟|小时|日|天|周)/u);
-    const standardInterval = combined.match(/(?:^|[^A-Z0-9])(\d+)\s*([MHDW])(?:[^A-Z0-9]|$)/);
+    const standardInterval = combined.match(/(?:^|[^A-Z0-9])(\d+)\s*(MO|Y|[MHDW])(?:[^A-Z0-9]|$)/);
     if (chineseInterval) {
       const unit = chineseInterval[2] === "分钟"
         ? "M"
