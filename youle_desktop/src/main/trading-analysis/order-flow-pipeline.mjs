@@ -70,6 +70,7 @@ function compactOrderFlowTheoryResultForModel(snapshot, theoryResult) {
 
 export function buildOrderFlowModelPrompt(snapshot, theoryResult, context = {}) {
   const directAnswer = context.responseMode === "direct";
+  const english = context.language === "en";
   const compactCandles = snapshot.candles.slice(-80).map((candle) => [
     candle.time,
     candle.open,
@@ -79,22 +80,32 @@ export function buildOrderFlowModelPrompt(snapshot, theoryResult, context = {}) 
     candle.volume,
   ]);
   return [
-    "你是交易分析系统中的订单流与 ICT/SMC 市场结构复核器，不负责直接操作界面。",
-    "确定性订单流引擎已从真实主动成交、盘口深度快照和可用持仓量计算 CVD/Delta、量价簇、POC、盘口失衡和大额主动成交；独立 ICT/SMC 引擎已从多周期 OHLCV 生成 BOS、CHoCH、MSS、OB、FVG、Breaker、EQ、OTE、BSL/SSL 与 Sweep 候选。",
-    "请只复核给定候选 ID、确定性 actionLevels 与覆盖状态，不得创造候选之外的结构、逐笔、价位、时间、盘口、爆仓、持仓量或交易事实。真实订单流只能确认其微观数据窗口覆盖的结构事件；历史 OB/FVG 等仍属于 OHLCV 市场结构。数据标记 unavailable 时必须明确缺失。",
+    english
+      ? "You are the order-flow and ICT/SMC market-structure reviewer in a trading analysis system. You never operate the UI directly."
+      : "你是交易分析系统中的订单流与 ICT/SMC 市场结构复核器，不负责直接操作界面。",
+    english
+      ? "The deterministic order-flow engine computed CVD/Delta, volume clusters, POC, depth imbalance, and large aggressive trades from real trades, depth snapshots, and available open interest. The independent ICT/SMC engine generated BOS, CHoCH, MSS, OB, FVG, Breaker, EQ, OTE, BSL/SSL, and Sweep candidates from multi-timeframe OHLCV."
+      : "确定性订单流引擎已从真实主动成交、盘口深度快照和可用持仓量计算 CVD/Delta、量价簇、POC、盘口失衡和大额主动成交；独立 ICT/SMC 引擎已从多周期 OHLCV 生成 BOS、CHoCH、MSS、OB、FVG、Breaker、EQ、OTE、BSL/SSL 与 Sweep 候选。",
+    english
+      ? "Review only the supplied candidate IDs, deterministic actionLevels, and coverage. Never invent structures, trades, prices, times, depth, liquidations, open interest, or other facts outside the candidates. Real order flow may confirm only structure events covered by its micro data window; historical OB/FVG items remain OHLCV market-structure facts. State any unavailable data explicitly."
+      : "请只复核给定候选 ID、确定性 actionLevels 与覆盖状态，不得创造候选之外的结构、逐笔、价位、时间、盘口、爆仓、持仓量或交易事实。真实订单流只能确认其微观数据窗口覆盖的结构事件；历史 OB/FVG 等仍属于 OHLCV 市场结构。数据标记 unavailable 时必须明确缺失。",
     directAnswer
-      ? "本次只刷新分析并回答用户的具体问题，不更新画布。report 必须第一句直接作答，后续只写必要依据，不得套用完整盘面报告或固定章节。"
-      : "本次需要生成完整盘面分析与受控绘图计划。",
-    "面向用户必须先说人话和条件：价格上破哪个确定性价位后偏多、跌破哪个价位后偏空、回踩哪个区域可观察止跌、什么区间内不交易。每个专业术语首次出现时用一句普通中文解释，避免连续罗列缩写；给新手的建议必须等待本周期收盘确认、控制单笔风险且不得鼓励追涨杀跌。",
-    "输出必须是单个 JSON 对象，不要 Markdown，不要解释 JSON 之外的内容。",
+      ? (english ? "Answer the user's specific question directly and do not update the canvas. The report must answer in its first sentence and include only necessary evidence; do not use the full report template or fixed headings." : "本次只刷新分析并回答用户的具体问题，不更新画布。report 必须第一句直接作答，后续只写必要依据，不得套用完整盘面报告或固定章节。")
+      : (english ? "Generate a complete market analysis and controlled drawing plan." : "本次需要生成完整盘面分析与受控绘图计划。"),
+    english
+      ? "Write all user-facing summary, report, and strategyRationale text in natural English. Explain each specialist term briefly on first use. State the price that confirms a bullish bias, the price that confirms a bearish bias, the pullback area to watch, and the no-trade range. Require candle-close confirmation, controlled per-trade risk, and never encourage chasing a move."
+      : "面向用户必须先说人话和条件：价格上破哪个确定性价位后偏多、跌破哪个价位后偏空、回踩哪个区域可观察止跌、什么区间内不交易。每个专业术语首次出现时用一句普通中文解释，避免连续罗列缩写；给新手的建议必须等待本周期收盘确认、控制单笔风险且不得鼓励追涨杀跌。",
+    english
+      ? "Output exactly one JSON object, with no Markdown or text outside JSON."
+      : "输出必须是单个 JSON 对象，不要 Markdown，不要解释 JSON 之外的内容。",
     "JSON 协议：",
     JSON.stringify({
       schemaVersion: 1,
       verdict: "approve 或 revise",
-      summary: "不超过80个中文字符的通俗结论，优先描述等待、偏多或偏空条件，不得堆砌术语或承诺收益",
+      summary: english ? "A plain-English conclusion under 80 characters. Prefer waiting, bullish, or bearish conditions; do not promise returns." : "不超过80个中文字符的通俗结论，优先描述等待、偏多或偏空条件，不得堆砌术语或承诺收益",
       report: directAnswer
-        ? "直接回答用户本次问题的自然中文；价格只能引用 actionLevels，结构和长短按问题决定"
-        : "用新手能看懂的中文复核；价格只能引用 actionLevels，先写可执行条件，再用少量括号术语补充依据",
+        ? (english ? "A direct natural-English answer; prices may only come from actionLevels." : "直接回答用户本次问题的自然中文；价格只能引用 actionLevels，结构和长短按问题决定")
+        : (english ? "A beginner-friendly English review; prices may only come from actionLevels. State executable conditions first, then briefly explain the evidence." : "用新手能看懂的中文复核；价格只能引用 actionLevels，先写可执行条件，再用少量括号术语补充依据"),
       marketBias: "buying、selling 或 neutral",
       strategyRationale: "不超过200个中文字符，只解释候选证据和确认/失效条件",
       selectedClusterIds: ["最多选择两个最重要的 cluster id；空数组表示接受确定性推荐"],
@@ -344,6 +355,7 @@ function marketStructureReportLines(theoryResult) {
 }
 
 export function buildOrderFlowAnalysisReport(snapshot, theoryResult, review, context = {}) {
+  if (context.language === "en") return buildOrderFlowAnalysisReportEnglish(snapshot, theoryResult, review, context);
   const stats = theoryResult.statistics;
   const coverage = theoryResult.coverage;
   const poc = theoryResult.structures.pointOfControl;
@@ -408,6 +420,75 @@ export function buildOrderFlowAnalysisReport(snapshot, theoryResult, review, con
     "### 风险说明",
     "关键价位会随新 K 线和订单流变化而重算。以上是条件式观察方案，不是保证成交、保证盈利或经过历史校准的涨跌概率。",
   ].join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+function buildOrderFlowAnalysisReportEnglish(snapshot, theoryResult, review, context = {}) {
+  const stats = theoryResult.statistics;
+  const coverage = theoryResult.coverage;
+  const poc = theoryResult.structures.pointOfControl;
+  const depth = theoryResult.structures.depthSnapshot;
+  const action = buildOrderFlowActionPlan(snapshot, theoryResult);
+  const durationSeconds = Math.max(0, Number(stats.windowEnd) - Number(stats.windowStart));
+  const flowSummary = stats.direction === "buying_pressure"
+    ? `Recent aggressive trades show buyers ahead by ${formatPercent(Math.abs(stats.deltaRatio))}`
+    : stats.direction === "selling_pressure"
+      ? `Recent aggressive trades show sellers ahead by ${formatPercent(Math.abs(stats.deltaRatio))}`
+      : "Recent aggressive buying and selling are roughly balanced";
+  const timeframeSummary = theoryResult.marketStructure?.timeframes?.map((timeframe) => (
+    `${timeframe.label} ${timeframe.currentBias === "bullish" ? "bullish" : timeframe.currentBias === "bearish" ? "bearish" : "range-bound"}`
+  )).join(", ") || "no reliable higher-timeframe bias";
+  const pullback = action.pullbackBuyZone
+    ? `Pullback watch: after price returns to ${formatPrice(action.pullbackBuyZone.lower)}–${formatPrice(action.pullbackBuyZone.upper)}, wait for a hold and renewed buying pressure before considering a small long.`
+    : "Pullback watch: no clear support zone is available; do not buy simply because price fell.";
+  const rebound = action.reboundSellZone
+    ? `Rebound watch: after price reaches ${formatPrice(action.reboundSellZone.lower)}–${formatPrice(action.reboundSellZone.upper)}, wait for rejection and renewed selling pressure before considering a short.`
+    : "Rebound watch: no clear resistance zone is available; do not short simply because price rose.";
+  return [
+    `## ${snapshot.marketId} · Order-flow trading plan`,
+    context.instruction ? `Request: ${context.instruction}` : "",
+    "",
+    "### Outlook",
+    `Current price is about ${formatPrice(action.currentPrice)}. ${flowSummary}. Direction is confirmed only outside the waiting range.`,
+    `- **Bullish above ${formatPrice(action.longTrigger)}**: wait for the current ${plainIntervalLabelEnglish(snapshot.interval)} candle to close above it while buying pressure remains dominant. First target: ${formatPrice(action.longTarget)}. A move back below ${formatPrice(action.shortTrigger)} cancels the bullish plan.`,
+    `- **Bearish below ${formatPrice(action.shortTrigger)}**: wait for a confirming close below it while selling pressure remains dominant. First target: ${formatPrice(action.shortTarget)}. A move back above ${formatPrice(action.longTrigger)} cancels the bearish plan.`,
+    `- **Wait between ${formatPrice(action.shortTrigger)} and ${formatPrice(action.longTrigger)}**: direction is unconfirmed; chasing breakouts or buying dips here is prone to whipsaws.`,
+    `- ${pullback}`,
+    `- ${rebound}`,
+    "",
+    "### Beginner checklist",
+    "1. Do not guess in the middle of the range; wait for a candle close beyond a key level.",
+    "2. If the next candle closes back inside the range, treat the move as a false breakout and do not chase it.",
+    "3. Keep planned loss per trade around 0.5%–1% of account equity; do not average down after a stop.",
+    "4. Prefer low or no leverage on perpetuals. Consider taking partial profit at the first target instead of trying to sell the exact high or low.",
+    "",
+    "### Why this view",
+    `- ${flowSummary}; the point of control is about ${formatPrice(poc?.price)}, a short-term area where both sides have traded heavily.`,
+    `- The first ${Math.floor(depth.levelCount / 2)} depth levels show relatively more ${stats.depthImbalanceRatio >= 0 ? "buy" : "sell"} orders (about ${formatPercent(Math.abs(stats.depthImbalanceRatio))}); orders can be cancelled, so this is supporting evidence only.`,
+    `- Multi-timeframe structure: ${timeframeSummary}. The chart keeps only recent shifts, major support/resistance, and liquidity zones above and below price.`,
+    stats.openInterestChangeRatio == null
+      ? "- Open interest lacks a complete start/end sequence, so it is not used to infer new directional positioning."
+      : `- Open interest changed by ${formatPercent(stats.openInterestChangeRatio)}; supporting evidence only, never a standalone entry reason.`,
+    "",
+    "### Data notes",
+    `Read ${stats.tradeCount} real aggregate trades from ${formatTime(stats.windowStart)} to ${formatTime(stats.windowEnd)} (${durationSeconds.toFixed(0)} seconds). Trades: ${coverageLabelEnglish(coverage.trades)}; depth: ${coverageLabelEnglish(coverage.depth)}; open interest: ${coverageLabelEnglish(coverage.openInterest)}; liquidations: ${coverageLabelEnglish(coverage.liquidations)}.`,
+    "Chart order zones, gaps, and structure breaks come from OHLCV market structure. Order flow confirms a structure only when its real-trade window overlaps the event. Depth is a REST snapshot, not a complete incremental queue.",
+    "",
+    "### Risk",
+    "Key levels are recalculated as new candles and order flow arrive. This is a conditional observation plan, not a promise of execution, profit, or calibrated probability.",
+  ].join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+function plainIntervalLabelEnglish(interval) {
+  if (interval === "1D") return "daily";
+  if (interval === "1W") return "weekly";
+  const minutes = Number(interval);
+  if (!Number.isFinite(minutes)) return String(interval || "current");
+  if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60}H`;
+  return `${minutes}m`;
+}
+
+function coverageLabelEnglish(status) {
+  return ({ available: "available", partial: "partial", delayed: "delayed", unavailable: "unavailable" })[status] || "unavailable";
 }
 
 function smcCandidateMap(marketStructure) {
@@ -1044,6 +1125,7 @@ export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) 
     prompt: buildOrderFlowModelPrompt(snapshot, theoryResult, {
       instruction: params?.instruction,
       responseMode: params?.responseMode,
+      language: params?.language,
     }),
     responseFormat: "json",
   };
@@ -1066,6 +1148,7 @@ export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) 
   const drawingPatch = buildOrderFlowDrawingPatch(snapshot, theoryResult, modelReview);
   const report = buildOrderFlowAnalysisReport(snapshot, theoryResult, modelReview, {
     instruction: params?.instruction,
+    language: params?.language,
   });
   return {
     ok: true,

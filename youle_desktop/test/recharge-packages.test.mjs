@@ -98,6 +98,9 @@ test("recharge page shows monthly and annual subscriptions, points packs, and cr
   assert.match(productCard, /<strong>\$\{product\.priceUsdt\}U<\/strong><small>\/\$\{escapeHtml\(product\.billingPeriod\)\}<\/small>/);
   assert.match(productCard, /const annualSavings = rechargeAnnualSavings\(product\)/);
   assert.match(productCard, /recharge-product-savings/);
+  assert.match(productCard, /function rechargeAnnualSavingsLabel\(savings: \{ amount: number; percent: number \}\)/);
+  assert.match(productCard, /state\.settings\.language === "en"/);
+  assert.match(productCard, /Save \$\{savings\.amount\}U per year \(\$\{savings\.percent\}% off\)/);
   assert.match(productCard, /function rechargeAnnualSavings\(product: RechargeProductDefinition\)/);
   assert.match(productCard, /const regularAnnualPrice = monthlyProduct\.priceUsdt \* 12/);
   assert.match(productCard, /const annualPrice = product\.amountCents \/ 100/);
@@ -213,7 +216,8 @@ test("recharge page shows monthly and annual subscriptions, points packs, and cr
   assert.match(paymentDetails, /rechargePaymentSelectionKey\(selection\.product\.id, selection\.network\.id\)/);
   assert.doesNotMatch(paymentDetails, /createRechargePaymentOrder\(\{ force: true, preserveExisting: true \}\)/);
   assert.doesNotMatch(renderer, /RECHARGE_PAYMENT_CREATE_AUTO_RETRY_LIMIT|shouldAutoRetryRechargePaymentOrderRequest|retryAttempt/);
-  assert.match(paymentDetails, /"idle",[\s\S]*?"确认支付信息",[\s\S]*?"确认套餐和支付方式后，再生成本次支付订单。",[\s\S]*?"生成支付信息"/);
+  assert.doesNotMatch(paymentDetails, /"idle",[\s\S]*?"确认支付信息",[\s\S]*?"确认套餐和支付方式后，再生成本次支付订单。",[\s\S]*?"生成支付信息"/);
+  assert.match(paymentDetails, /void createRechargePaymentOrder\(\);/);
   assert.match(paymentDetails, /data-recharge-payment-retry[\s\S]*?createRechargePaymentOrder\(\{ force: true \}\)/);
   assert.match(paymentDetails, /rechargePaymentOrderLoadingSelections\.has\(selectionKey\) && !order/);
   assert.match(renderer, /state\.activeView !== "recharge"[\s\S]*?rechargePaymentViewActive = false/);

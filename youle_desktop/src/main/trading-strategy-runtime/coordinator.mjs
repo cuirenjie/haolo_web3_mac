@@ -209,11 +209,14 @@ export class TradingStrategyCoordinator {
     const defaultReport = params?.responseMode === "direct" || !exposesExecutionPlan
       ? legacyAnalysisPlan.report
       : `${formatExecutionPlanMarkdown(executionPlan)}\n\n---\n\n${legacyReportWithoutExecutionPlan}`.trim();
-    const englishReport = exposesExecutionPlan
-      ? formatExecutionPlanMarkdown(executionPlan, { language: "en" })
-      : containsHanCharacters(defaultReport)
+    const englishReport = params?.responseMode === "direct" || !exposesExecutionPlan
+      ? containsHanCharacters(defaultReport)
         ? "The market analysis is complete. Review the chart annotations for the detected structure and risk levels."
-        : defaultReport;
+        : defaultReport
+      : formatExecutionPlanMarkdown(executionPlan, { language: "en" });
+    const englishNarrative = containsHanCharacters(legacyAnalysisPlan.narrative)
+      ? "The analysis is complete. Review the chart annotations and conditional levels for the detected structure."
+      : legacyAnalysisPlan.narrative;
     const decoratedResult = {
       ...legacyResult,
       strategy: Object.freeze({ id: strategy.manifest.id, version: strategy.manifest.version }),
@@ -221,6 +224,7 @@ export class TradingStrategyCoordinator {
         ...legacyAnalysisPlan,
         executionPlan,
         report: params?.language === "en" ? englishReport : defaultReport,
+        narrative: params?.language === "en" ? englishNarrative : legacyAnalysisPlan.narrative,
       },
     };
     return createStrategyResultEnvelope(strategy.manifest, decoratedResult, executionPlan);

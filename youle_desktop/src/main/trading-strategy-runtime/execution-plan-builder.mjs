@@ -1447,6 +1447,15 @@ function waveBasisLabel(value) {
   return match ? match[1].trim() : "";
 }
 
+function waveBasisLabelEnglish(value) {
+  const source = String(value?.label || value || "");
+  const fib = source.match(/Fib\s+[^）;；]+/);
+  if (fib) return fib[0].trim();
+  if (source.includes("候选结构投影")) return "candidate structure projection";
+  const riskMultiple = source.match(/结构风险倍数兜底目标\s*R([\d.]+)/);
+  return riskMultiple ? `structural risk-multiple fallback target R${riskMultiple[1]}` : "";
+}
+
 function displayTargets(scenario) {
   if (!scenario?.targets?.length) return "未形成";
   return scenario.targets.map((target, index) => {
@@ -1526,7 +1535,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
   const baseAsset = match?.[1] || symbol || "Asset";
   const targetText = (scenario) => scenario?.targets?.length
     ? scenario.targets.map((target, index) => {
-      const basis = waveBasisLabel(target);
+      const basis = waveBasisLabelEnglish(target);
       return `Target ${index + 1}: ${price(target)}${basis ? ` (basis ${basis})` : ""}`;
     }).join("; ")
     : "Not available";
@@ -1594,7 +1603,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
       ? accountPlan.targetOrders
         .filter((target) => target.notional > 0)
         .map((target) => {
-          const basis = waveBasisLabel(validated.takeProfits?.[target.targetIndex]?.condition);
+          const basis = waveBasisLabelEnglish(validated.takeProfits?.[target.targetIndex]?.condition);
           const basisText = basis ? ` (basis ${basis})` : "";
           return candidateOnly
             ? `Take profit at ${target.price}${basisText}; non-executable candidate allocation ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`

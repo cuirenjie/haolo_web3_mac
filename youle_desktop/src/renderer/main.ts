@@ -1771,6 +1771,7 @@ type DesktopApi = {
     marketId: string;
     interval: string;
     snapshotTime: number;
+    language?: AppLanguage;
     instruction?: string;
     responseMode?: "full" | "direct";
     positionManagementRequested?: boolean;
@@ -1822,6 +1823,7 @@ type DesktopApi = {
     analysisJobId?: string;
     marketId: string;
     interval: string;
+    language?: AppLanguage;
     snapshotTime: number;
     instruction?: string;
     responseMode?: "full" | "direct";
@@ -58872,7 +58874,7 @@ function rechargePaymentQrAlt(
 }
 
 function renderRechargePaymentState(
-  kind: "idle" | "loading" | "error" | "expired" | "confirming" | "paid" | "manual",
+  kind: "loading" | "error" | "expired" | "confirming" | "paid" | "manual",
   title: string,
   detail: string,
   actionLabel = "",
@@ -59133,7 +59135,7 @@ function activateRechargePaymentSelection() {
     void updateRechargePaymentDetails();
     return;
   }
-  void updateRechargePaymentDetails();
+  void createRechargePaymentOrder();
 }
 
 async function refreshRechargeProfileAfterPayment(order: Web3PaymentOrder) {
@@ -59365,17 +59367,10 @@ async function updateRechargePaymentDetails() {
     return;
   }
   if (!order) {
-    delete panel.dataset.rechargePaymentKey;
-    delete panel.dataset.rechargePaymentFingerprint;
-    panel.innerHTML = renderRechargePaymentState(
-      "idle",
-      "确认支付信息",
-      "确认套餐和支付方式后，再生成本次支付订单。",
-      "生成支付信息",
-    );
-    panel.querySelector("[data-recharge-payment-retry]")?.addEventListener("click", () => {
-      void createRechargePaymentOrder({ force: true });
-    });
+    // A valid selection should always have a payment order. This branch can
+    // be reached after a render while the selection cache is being populated;
+    // request the order immediately instead of showing a manual confirmation UI.
+    void createRechargePaymentOrder();
     return;
   }
   const uniqueAddressUnderpaid = order.address_type === "unique_temporary"
@@ -60172,11 +60167,18 @@ function renderRechargeProductCard(product: RechargeProductDefinition) {
         <div class="recharge-product-token"><strong>${product.tokenAmount.toLocaleString("zh-CN")} 积分</strong></div>
       </div>
       ${annualSavings
-        ? `<div class="recharge-product-savings">每年节省 ${annualSavings.amount}U（${annualSavings.percent}% 折扣）</div>`
+        ? `<div class="recharge-product-savings">${escapeHtml(rechargeAnnualSavingsLabel(annualSavings))}</div>`
         : ""}
       <ul>${product.features.map((feature) => `<li><span>✓</span>${escapeHtml(feature)}</li>`).join("")}</ul>
     </article>
   `;
+}
+
+function rechargeAnnualSavingsLabel(savings: { amount: number; percent: number }) {
+  if (state.settings.language === "en") {
+    return `Save ${savings.amount}U per year (${savings.percent}% off)`;
+  }
+  return `每年节省 ${savings.amount}U（${savings.percent}% 折扣）`;
 }
 
 function rechargeAnnualSavings(product: RechargeProductDefinition) {
@@ -61473,7 +61475,10 @@ function bindRechargePaymentMethodEvents() {
     rechargePaymentViewActive = true;
     activateRechargePaymentSelection();
   } else {
+    // Re-rendering after a plan or billing-cycle change must also create the
+    // order for the newly selected combination automatically.
     void updateRechargePaymentDetails();
+    void createRechargePaymentOrder();
   }
 }
 

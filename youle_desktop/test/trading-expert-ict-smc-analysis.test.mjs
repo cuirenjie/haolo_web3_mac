@@ -5,6 +5,13 @@ import test from "node:test";
 import { runIctSmcTheoryEngine } from "../src/main/trading-analysis/ict-smc-engine.mjs";
 import { createTradingAnalysisModelProviderRegistry } from "../src/main/trading-analysis/model-provider.mjs";
 import { runTradingOrderFlowAnalysisPipeline } from "../src/main/trading-analysis/order-flow-pipeline.mjs";
+import { runTradingIctSmcPipeline } from "../src/main/trading-analysis/ict-smc-pipeline.mjs";
+import { buildExecutionPlanV1, formatExecutionPlanMarkdown } from "../src/main/trading-strategy-runtime/execution-plan-builder.mjs";
+import {
+  executionPlanHasConcreteTradingPlan,
+  executionPlanHasStructuredTradingFields,
+  executionPlanTextPartitions,
+} from "../src/renderer/execution-plans.ts";
 import {
   normalizeTradingMarketSnapshot,
   validateTradingDrawingPatch,
@@ -197,6 +204,25 @@ test("combined pipeline lets the model select fixed candidates and emits clear I
   assert.match(result.analysisPlan.report, /多周期价格结构：15m.*4H.*1D/);
   assert.match(result.analysisPlan.report, /图上只保留最近的趋势转折、主要支撑\/压力/);
   assert.doesNotMatch(result.analysisPlan.report, /大额主动买入|大额主动卖出|成交密集价（POC）/);
+});
+
+test("English ICT/SMC output keeps the structured execution card content", async () => {
+  const result = await runTradingIctSmcPipeline({ ...fixtureParams(), language: "en" });
+  const executionPlan = buildExecutionPlanV1(
+    { id: "ict-smc", version: "1.0.0" },
+    result,
+    { candles: fixtureParams().candles },
+  );
+  const report = formatExecutionPlanMarkdown(executionPlan, { language: "en" });
+  const partitions = executionPlanTextPartitions(report);
+  assert.ok(partitions);
+  assert.equal(partitions.candidates.length, 1);
+  assert.equal(executionPlanHasStructuredTradingFields(partitions.candidates[0]), true);
+  assert.equal(executionPlanHasConcreteTradingPlan(partitions.candidates[0]), true);
+  assert.match(report, /Direction:/);
+  assert.match(report, /Stop-loss and invalidation:/);
+  assert.match(report, /Take-profit targets:/);
+  assert.doesNotMatch(report, /The market analysis is complete/);
 });
 
 test("Drawing Gateway accepts only order-flow-owned ICT/SMC tokens", () => {

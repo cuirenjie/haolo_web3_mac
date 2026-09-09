@@ -41,6 +41,12 @@ function zoneLabel(zone) {
   return `[${timeframeLabel(zone.interval)}] ${side} ${kind}`;
 }
 
+function zoneLabelEnglish(zone) {
+  const side = zone.side === "bullish" ? "bullish" : "bearish";
+  const kind = zone.kind === "OB" ? "OB (Order Block)" : zone.kind;
+  return `[${timeframeLabel(zone.interval)}] ${side} ${kind}`;
+}
+
 function operation(analysisId, suffix, role, tool, points, text, appearance = {}, evidenceIds = []) {
   return { op: "upsert", drawing: {
     id: `${analysisId}-${suffix}`, strategyId: STRATEGY_ID, theory: "strategy", layer: `ai/strategy/${STRATEGY_ID}`,
@@ -77,30 +83,31 @@ function actionPlan(snapshot, result) {
   };
 }
 
-export function buildIctSmcDrawingPatch(snapshot, result) {
+export function buildIctSmcDrawingPatch(snapshot, result, language = "zh-CN") {
+  const english = language === "en";
   const analysisId = `ict-smc-analysis-${crypto.createHash("sha1").update(snapshot.snapshotId).digest("hex").slice(0, 18)}`;
   const execution = result.timeframes.find((item) => item.role === "execution") || result.timeframes[0];
   const structures = execution.structures;
   const ops = [];
   const selectedPivots = structures.pivots.slice(-9);
-  if (selectedPivots.length > 1) ops.push(operation(analysisId, "structure", "primary", "path", selectedPivots.map((item) => ({ time: item.time, price: item.price })), "ICT 市场结构", { lineStyle: "solid", lineWidth: 2 }, selectedPivots.map((item) => item.id)));
-  structures.structureEvents.slice(-3).forEach((event, index) => ops.push(operation(analysisId, `event-${index}`, event.direction === "bullish" ? "support" : "resistance", "note", [{ time: event.breakTime, price: event.breakPrice }], `${event.kind} · ${event.direction === "bullish" ? "看涨" : "看跌"}${event.displacement.confirmed ? " · 位移" : ""}`, { fontSize: 11 }, [event.id])));
+  if (selectedPivots.length > 1) ops.push(operation(analysisId, "structure", "primary", "path", selectedPivots.map((item) => ({ time: item.time, price: item.price })), english ? "ICT market structure" : "ICT 市场结构", { lineStyle: "solid", lineWidth: 2 }, selectedPivots.map((item) => item.id)));
+  structures.structureEvents.slice(-3).forEach((event, index) => ops.push(operation(analysisId, `event-${index}`, event.direction === "bullish" ? "support" : "resistance", "note", [{ time: event.breakTime, price: event.breakPrice }], `${event.kind} · ${event.direction === "bullish" ? (english ? "bullish" : "看涨") : (english ? "bearish" : "看跌")}${event.displacement.confirmed ? ` · ${english ? "displacement" : "位移"}` : ""}`, { fontSize: 11 }, [event.id])));
   const zones = [
     ...structures.orderBlocks.filter((item) => item.state !== "invalidated").slice(0, 2).map((item) => ({ ...item, startTime: item.originTime })),
     ...structures.fairValueGaps.filter((item) => item.state === "open" || item.state === "partial").slice(0, 2),
     ...structures.breakers.filter((item) => item.state === "confirmed").slice(0, 1).map((item) => ({ ...item, startTime: item.originTime })),
   ];
-  zones.forEach((zone, index) => ops.push(operation(analysisId, `zone-${index}`, zone.side === "bullish" ? "support" : "resistance", "rectangle", [{ time: zone.startTime, price: zone.lower }, { time: zone.endTime, price: zone.upper }], zoneLabel(zone), { lineStyle: "dashed", lineWidth: 0.8 }, [zone.id])));
+  zones.forEach((zone, index) => ops.push(operation(analysisId, `zone-${index}`, zone.side === "bullish" ? "support" : "resistance", "rectangle", [{ time: zone.startTime, price: zone.lower }, { time: zone.endTime, price: zone.upper }], english ? zoneLabelEnglish(zone) : zoneLabel(zone), { lineStyle: "dashed", lineWidth: 0.8 }, [zone.id])));
   structures.liquidityPools.slice(0, 3).forEach((pool, index) => ops.push(operation(analysisId, `liquidity-${index}`, pool.side === "BSL" ? "resistance" : "support", "path", [{ time: pool.startTime, price: pool.price }, { time: pool.endTime, price: pool.price }], `${pool.side} · ${pool.state}`, { lineStyle: "dotted", lineWidth: 0.8 }, [pool.id])));
   const range = structures.dealingRange;
   if (range) ops.push(operation(analysisId, "equilibrium", "note", "path", [{ time: range.startTime, price: range.equilibrium }, { time: range.endTime, price: range.equilibrium }], `EQ ${price(range.equilibrium)}`, { lineStyle: "dashed", lineWidth: 0.8 }, [range.id]));
   const plan = actionPlan(snapshot, result);
   const endTime = snapshot.candles.at(-1).time;
   const startTime = snapshot.candles.at(-Math.min(80, snapshot.candles.length)).time;
-  [["long", plan.longTrigger, "entry", "多头收盘触发"], ["short", plan.shortTrigger, "entry", "空头收盘触发"], ["long-stop", plan.longInvalidation, "stop", "多头失效"], ["short-stop", plan.shortInvalidation, "stop", "空头失效"]].forEach(([id, value, role, label]) => {
+  [["long", plan.longTrigger, "entry", english ? "bullish close trigger" : "多头收盘触发"], ["short", plan.shortTrigger, "entry", english ? "bearish close trigger" : "空头收盘触发"], ["long-stop", plan.longInvalidation, "stop", english ? "bullish invalidation" : "多头失效"], ["short-stop", plan.shortInvalidation, "stop", english ? "bearish invalidation" : "空头失效"]].forEach(([id, value, role, label]) => {
     if (Number(value) > 0) ops.push(operation(analysisId, `level-${id}`, role, "path", [{ time: startTime, price: Number(value) }, { time: endTime, price: Number(value) }], `${label} ${price(value)}`, { lineStyle: "dashed", lineWidth: 0.8 }));
   });
-  ops.push(operation(analysisId, "summary", "note", "note", [{ time: endTime, price: snapshot.candles.at(-1).close }], `ICT/SMC · ${result.currentBias === "bullish" ? "偏多" : result.currentBias === "bearish" ? "偏空" : "中性"} · 等待收盘确认`, { fontSize: 11 }));
+  ops.push(operation(analysisId, "summary", "note", "note", [{ time: endTime, price: snapshot.candles.at(-1).close }], `ICT/SMC · ${result.currentBias === "bullish" ? (english ? "bullish" : "偏多") : result.currentBias === "bearish" ? (english ? "bearish" : "偏空") : (english ? "neutral" : "中性")} · ${english ? "wait for close confirmation" : "等待收盘确认"}`, { fontSize: 11 }));
   return validateStrategyDrawingPatch({ schemaVersion: 1, analysisId, baseRevision: 0, marketId: snapshot.marketId, interval: snapshot.interval, operations: ops }, snapshot, STRATEGY_ID);
 }
 
@@ -126,11 +133,40 @@ function report(snapshot, result, plan) {
   ].join("\n");
 }
 
+function reportEnglish(snapshot, result, plan) {
+  const s = result.statistics;
+  const activeTf = result.timeframes[0];
+  const latest = activeTf.structures.structureEvents.at(-1);
+  const bias = result.currentBias === "bullish" ? "bullish" : result.currentBias === "bearish" ? "bearish" : "neutral";
+  return [
+    "## ICT / SMC analysis",
+    `- Current structure: **${bias}**; ${latest ? `the latest event is ${latest.kind} (${latest.direction}).` : "no confirmed structure break yet."}`,
+    `- Reproducible evidence: ${s.structureEventCount} structure events, ${s.fairValueGapCount} FVGs, ${s.orderBlockCount} OBs, ${s.breakerCount} Breakers, ${s.liquidityPoolCount} liquidity pools, and ${s.sweepCount} sweeps.`,
+    "- Semantic boundary: an FVG is a three-candle price imbalance; an OB must be tied to a later break or displacement; a liquidity sweep describes price behavior and does not prove institutional intent.",
+    "",
+    "### Conditional execution",
+    `- Current action: wait. Do not chase inside ${plan.waitZone ? `${price(plan.waitZone.lower)}–${price(plan.waitZone.upper)}` : "the unformed range"}.`,
+    `- Confirmation order: ${plan.confirmation || plan.observeTrigger}.`,
+    `- Bullish trigger/invalidation: ${plan.longTrigger ? `${price(plan.longTrigger)} / ${price(plan.longInvalidation)}` : "not formed"}; bearish trigger/invalidation: ${plan.shortTrigger ? `${price(plan.shortTrigger)} / ${price(plan.shortInvalidation)}` : "not formed"}.`,
+    `- Cancellation: ${plan.cancellation || "structure or data invalidation"}.`,
+    "",
+    "### Data and risk",
+    `Uses ${snapshot.candles.length} ${snapshot.interval} candles and ${snapshot.contextCandles.length} higher-timeframe contexts. This Skill does not read individual trades or depth and cannot represent order-flow evidence.`,
+    "This is conditional analysis. It creates no orders and does not guarantee an FVG fill, OB reaction, or target.",
+  ].join("\n");
+}
+
 export async function runTradingIctSmcPipeline(params) {
   const snapshot = normalizeTradingMarketSnapshot(closedCandleParams(params));
   const raw = runIctSmcTheoryEngine(snapshot);
   const theoryResult = { ...raw, coverage: { candles: "available", contextCandles: snapshot.contextCandles.length ? "available" : "unavailable", orderFlow: "unavailable" }, evidence: raw.evidence.map((item) => ({ id: item.evidenceId, summary: `${item.kind} · ${item.source}` })) };
   const plan = actionPlan(snapshot, theoryResult);
-  const drawingPatch = buildIctSmcDrawingPatch(snapshot, theoryResult);
-  return { ok: true, schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION, snapshot: { snapshotId: snapshot.snapshotId, marketId: snapshot.marketId, interval: snapshot.interval, snapshotTime: snapshot.snapshotTime, lastClosedBarTime: snapshot.lastClosedBarTime, inputHash: snapshot.inputHash }, theoryResult, analysisPlan: { schemaVersion: 1, analysisId: drawingPatch.analysisId, revision: 0, snapshotId: snapshot.snapshotId, marketId: snapshot.marketId, interval: snapshot.interval, narrative: `ICT/SMC 已完成：${theoryResult.currentBias}，等待流动性—位移—结构转变—回踩的完整序列。`, report: report(snapshot, theoryResult, plan), actionPlan: plan, drawingPatch }, model: { providerId: "deterministic", modelId: `ict-smc-engine-v${ICT_SMC_ENGINE_VERSION}`, requestId: null, latencyMs: 0, usage: null, finishReason: "deterministic-succeeded" } };
+  const english = params?.language === "en";
+  if (english) {
+    plan.confirmation = "Wait for a liquidity sweep, then a closed-candle displacement and MSS/CHoCH confirmation; consider execution only after a valid FVG, OB, or Breaker retest.";
+    plan.cancellation = "Structure invalidation, a close through the PD Array, degraded data coverage, or plan expiry.";
+    plan.observeTrigger = "Watch for a liquidity sweep, displacement, MSS, and a valid PD Array retest in that order.";
+  }
+  const drawingPatch = buildIctSmcDrawingPatch(snapshot, theoryResult, params?.language);
+  return { ok: true, schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION, snapshot: { snapshotId: snapshot.snapshotId, marketId: snapshot.marketId, interval: snapshot.interval, snapshotTime: snapshot.snapshotTime, lastClosedBarTime: snapshot.lastClosedBarTime, inputHash: snapshot.inputHash }, theoryResult, analysisPlan: { schemaVersion: 1, analysisId: drawingPatch.analysisId, revision: 0, snapshotId: snapshot.snapshotId, marketId: snapshot.marketId, interval: snapshot.interval, narrative: english ? `ICT/SMC analysis complete: ${theoryResult.currentBias}; wait for the full liquidity, displacement, structure-shift, and retest sequence.` : `ICT/SMC 已完成：${theoryResult.currentBias}，等待流动性—位移—结构转变—回踩的完整序列。`, report: english ? reportEnglish(snapshot, theoryResult, plan) : report(snapshot, theoryResult, plan), actionPlan: plan, drawingPatch }, model: { providerId: "deterministic", modelId: `ict-smc-engine-v${ICT_SMC_ENGINE_VERSION}`, requestId: null, latencyMs: 0, usage: null, finishReason: "deterministic-succeeded" } };
 }
