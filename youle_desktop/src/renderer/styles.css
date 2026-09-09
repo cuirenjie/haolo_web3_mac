@@ -20434,10 +20434,12 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   gap: 28px;
   margin-bottom: 24px;
 }
-.recharge-cycle-tabs { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 0 18px; border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; }
-.recharge-cycle-tabs button { border: 0; border-right: 1px solid var(--line-strong); padding: 12px 16px; background: transparent; color: var(--text-secondary); font: inherit; font-weight: 700; cursor: pointer; }
+.recharge-cycle-tabs { display: grid; width: calc(65% - 20px); grid-template-columns: repeat(3, 1fr); margin: 0 auto 18px; border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; }
+.recharge-cycle-tabs button { border: 0; border-right: 1px solid var(--line-strong); padding: calc(12px * 0.85 - 5px) 16px; background: transparent; color: var(--text-secondary); font: inherit; font-size: calc(14px + var(--app-font-size-offset)); font-weight: 700; cursor: pointer; }
 .recharge-cycle-tabs button:last-child { border-right: 0; }
 .recharge-cycle-tabs button[aria-selected="true"] { background: var(--selection-soft); color: var(--text-primary); }
+.recharge-cycle-tabs button:hover { background: var(--surface-interactive-hover); color: var(--text-primary); }
+.recharge-cycle-tabs button:focus-visible { position: relative; z-index: 1; outline: 3px solid color-mix(in srgb, var(--brand-blue) 34%, transparent); outline-offset: -3px; }
 
 .recharge-page-intro > div:first-child {
   grid-column: 2;
@@ -20975,10 +20977,23 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
 }
 
 .recharge-product-grid {
+  --recharge-product-gap: calc(1.25% + 2.266667px);
   display: grid;
   width: 100%;
   grid-template-columns: repeat(var(--recharge-product-columns, 4), minmax(190px, 1fr));
   gap: calc(1.25% + 2.266667px);
+}
+
+/* The points tab has one product. Keep its card at the same width as the
+   subscription layout while centering it in the grid. */
+.recharge-product-grid.subscription.points {
+  grid-template-columns: repeat(var(--recharge-product-columns, 4), minmax(190px, 1fr));
+}
+
+.recharge-product-grid.subscription.points .recharge-product-card {
+  grid-column: 1 / -1;
+  width: calc((100% - ((var(--recharge-product-columns, 4) - 1) * var(--recharge-product-gap))) / var(--recharge-product-columns, 4));
+  justify-self: center;
 }
 
 .recharge-product-card {
@@ -21133,6 +21148,18 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
   color: #2f9bff;
   font-size: calc(15px + var(--app-font-size-offset));
   white-space: nowrap;
+}
+
+.recharge-product-savings {
+  margin-top: 11px;
+  border: 1px solid #b9e3c8;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f1fbf4 0%, #ebf8ef 100%);
+  padding: 7px 12px;
+  color: #16a05d;
+  font-size: calc(12px + var(--app-font-size-offset));
+  line-height: 1.3;
+  text-align: center;
 }
 
 .recharge-product-card ul {
@@ -22123,6 +22150,14 @@ html[data-theme="dark"] .recharge-payment-state.manual .recharge-payment-state-i
   .recharge-product-grid {
     grid-template-columns: repeat(2, minmax(210px, 1fr));
   }
+
+  .recharge-product-grid.subscription.points {
+    grid-template-columns: repeat(2, minmax(210px, 1fr));
+  }
+
+  .recharge-product-grid.subscription.points .recharge-product-card {
+    width: calc((100% - var(--recharge-product-gap)) / 2);
+  }
 }
 
 @media (max-width: 860px) {
@@ -22148,6 +22183,10 @@ html[data-theme="dark"] .recharge-payment-state.manual .recharge-payment-state-i
     justify-self: stretch;
   }
 
+  .recharge-cycle-tabs {
+    width: 100%;
+  }
+
   .recharge-history-action {
     grid-column: 1;
     grid-row: 3;
@@ -22158,6 +22197,15 @@ html[data-theme="dark"] .recharge-payment-state.manual .recharge-payment-state-i
     width: 100%;
     grid-template-columns: 1fr;
     gap: 16px;
+  }
+
+  .recharge-product-grid.subscription.points {
+    grid-template-columns: 1fr;
+  }
+
+  .recharge-product-grid.subscription.points .recharge-product-card {
+    grid-column: auto;
+    width: 100%;
   }
 
   .recharge-product-card {
@@ -22459,6 +22507,12 @@ html[data-theme="dark"] .recharge-product-token {
 
 html[data-theme="dark"] .recharge-product-token strong {
   color: #55aaff;
+}
+
+html[data-theme="dark"] .recharge-product-savings {
+  border-color: rgba(91, 205, 132, 0.38);
+  background: linear-gradient(180deg, rgba(40, 104, 64, 0.28), rgba(31, 76, 49, 0.24));
+  color: #7fe0a0;
 }
 
 html[data-theme="dark"] .recharge-product-card ul {

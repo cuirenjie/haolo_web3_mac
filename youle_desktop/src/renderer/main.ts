@@ -58410,6 +58410,13 @@ function renderRechargePage() {
   ensureRechargeProductSelection();
   const membership = currentMembershipPlan();
   const visibleProducts = visibleRechargeSubscriptionProducts();
+  const subscriptionProductColumns = RECHARGE_SUBSCRIPTION_PRODUCTS.filter((product) =>
+    !rechargeProductIsUnavailable(product)
+    && (product.billingCycle || "monthly") === "monthly",
+  ).length;
+  const productGridColumns = selectedRechargeBillingCycle === "points"
+    ? Math.max(1, subscriptionProductColumns)
+    : visibleProducts.length;
   return `
     <main class="recharge-page">
       <div class="recharge-page-scroll">
@@ -58440,7 +58447,7 @@ function renderRechargePage() {
           <nav class="recharge-cycle-tabs" role="tablist" aria-label="订阅类型">
             ${([['monthly','月付'],['annual','年付'],['points','积分包']] as const).map(([cycle,label]) => `<button type="button" role="tab" aria-selected="${selectedRechargeBillingCycle === cycle ? 'true' : 'false'}" data-recharge-cycle="${cycle}">${label}</button>`).join('')}
           </nav>
-          <section class="recharge-product-grid subscription" role="radiogroup" aria-label="选择适合你的订阅" aria-required="true" style="--recharge-product-columns: ${visibleProducts.length}">
+          <section class="recharge-product-grid subscription ${selectedRechargeBillingCycle === "points" ? "points" : ""}" role="radiogroup" aria-label="选择适合你的订阅" aria-required="true" style="--recharge-product-columns: ${productGridColumns}">
             ${visibleProducts.map(renderRechargeProductCard).join("")}
           </section>
         </div>
@@ -60222,6 +60229,7 @@ function renderRechargeSubscriptionBalance() {
 function renderRechargeProductCard(product: RechargeProductDefinition) {
   const isSelected = product.id === selectedRechargeProductId;
   const unavailable = rechargeProductIsUnavailable(product);
+  const annualSavings = rechargeAnnualSavings(product);
   return `
     <article
       class="recharge-product-card ${isSelected ? "selected" : ""} ${unavailable ? "unavailable" : ""}"
@@ -60244,9 +60252,30 @@ function renderRechargeProductCard(product: RechargeProductDefinition) {
         </div>
         <div class="recharge-product-token"><strong>${product.tokenAmount.toLocaleString("zh-CN")} 积分</strong></div>
       </div>
+      ${annualSavings
+        ? `<div class="recharge-product-savings">每年节省 ${annualSavings.amount}U（${annualSavings.percent}% 折扣）</div>`
+        : ""}
       <ul>${product.features.map((feature) => `<li><span>✓</span>${escapeHtml(feature)}</li>`).join("")}</ul>
     </article>
   `;
+}
+
+function rechargeAnnualSavings(product: RechargeProductDefinition) {
+  if (product.billingCycle !== "annual") return null;
+  const monthlyProduct = RECHARGE_SUBSCRIPTION_PRODUCTS.find((candidate) =>
+    candidate.billingCycle !== "annual"
+    && candidate.billingCycle !== "points"
+    && candidate.name === product.name,
+  );
+  if (!monthlyProduct) return null;
+  const regularAnnualPrice = monthlyProduct.priceUsdt * 12;
+  const annualPrice = product.amountCents / 100;
+  const amount = Math.max(0, Math.round(regularAnnualPrice - annualPrice));
+  if (amount <= 0 || regularAnnualPrice <= 0) return null;
+  return {
+    amount,
+    percent: Math.round((amount / regularAnnualPrice) * 100),
+  };
 }
 
 function openRechargePage() {

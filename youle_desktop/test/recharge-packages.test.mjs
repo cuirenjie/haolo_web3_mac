@@ -19,7 +19,7 @@ function sourceBlock(source, startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-test("recharge page shows subscriptions and selectable crypto payment networks without addon packages", async () => {
+test("recharge page shows monthly and annual subscriptions, points packs, and crypto payment networks", async () => {
   const [renderer, styles, browserMock, binancePaymentLogo] = await Promise.all([
     rendererSource,
     stylesSource,
@@ -72,13 +72,21 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
     ".recharge-page-scroll {",
     ".recharge-subscription-content",
   );
+  const cycleTabStyles = sourceBlock(
+    styles,
+    ".recharge-cycle-tabs {",
+    ".recharge-page-intro > div:first-child",
+  );
 
   assert.match(products, /id: "subscription_trial"[\s\S]*?priceUsdt: 4\.9[\s\S]*?billingPeriod: "3天"[\s\S]*?tokenAmount: 100[\s\S]*?requiresTrialEligibility: true/);
   assert.match(products, /description: "首次开通专享，体验 AI 行情解读与基础交易分析。"/);
   assert.ok(products.indexOf('id: "subscription_trial"') < products.indexOf('id: "subscription_basic"'));
-  assert.match(products, /id: "subscription_basic"[\s\S]*?priceUsdt: 99[\s\S]*?billingPeriod: "月"[\s\S]*?tokenAmount: 1000/);
-  assert.match(products, /id: "subscription_pro"[\s\S]*?priceUsdt: 499[\s\S]*?billingPeriod: "半年"[\s\S]*?tokenAmount: 6000/);
-  assert.match(products, /id: "subscription_flagship"[\s\S]*?priceUsdt: 799[\s\S]*?billingPeriod: "年"[\s\S]*?tokenAmount: 12000/);
+  assert.match(products, /id: "subscription_basic"[^}]*priceUsdt: 39[^}]*billingPeriod: "月"[^}]*tokenAmount: 300/);
+  assert.match(products, /id: "subscription_pro"[^}]*priceUsdt: 69[^}]*billingPeriod: "月"[^}]*tokenAmount: 600/);
+  assert.match(products, /id: "subscription_flagship"[^}]*priceUsdt: 99[^}]*billingPeriod: "月"[^}]*tokenAmount: 1000/);
+  assert.match(products, /id: "subscription_basic_annual"[^}]*amountCents: 34_800[^}]*billingCycle: "annual"/);
+  assert.match(products, /id: "subscription_pro_annual"[^}]*amountCents: 58_800[^}]*billingCycle: "annual"/);
+  assert.match(products, /id: "subscription_flagship_annual"[^}]*amountCents: 70_800[^}]*billingCycle: "annual"/);
   for (const description of [
     "适合日常看盘、行情问答与基础策略分析。",
     "适合持续行情研判、多策略分析与交易计划制定。",
@@ -88,11 +96,18 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(products, /let selectedRechargeProductId = "subscription_trial"/);
   assert.doesNotMatch(products, /featured:\s*true/);
   assert.match(productCard, /<strong>\$\{product\.priceUsdt\}U<\/strong><small>\/\$\{escapeHtml\(product\.billingPeriod\)\}<\/small>/);
+  assert.match(productCard, /const annualSavings = rechargeAnnualSavings\(product\)/);
+  assert.match(productCard, /recharge-product-savings/);
+  assert.match(productCard, /function rechargeAnnualSavings\(product: RechargeProductDefinition\)/);
+  assert.match(productCard, /const regularAnnualPrice = monthlyProduct\.priceUsdt \* 12/);
+  assert.match(productCard, /const annualPrice = product\.amountCents \/ 100/);
+  assert.match(productCard, /percent: Math\.round\(\(amount \/ regularAnnualPrice\) \* 100\)/);
   assert.doesNotMatch(productCard, /<span>¥<\/span>|product\.priceYuan/);
   assert.match(productCard, /class="recharge-product-card \$\{isSelected \? "selected" : ""\} \$\{unavailable \? "unavailable" : ""\}"/);
   assert.match(productCard, /role="radio"[\s\S]*?aria-checked="\$\{isSelected \? "true" : "false"\}"[\s\S]*?aria-disabled="\$\{unavailable \? "true" : "false"\}"[\s\S]*?tabindex="\$\{unavailable \? "-1" : "0"\}"/);
   assert.doesNotMatch(productCard, /recharge-product-help|<summary|查看兑换说明/);
-  assert.doesNotMatch(products, /id: "addon_|kind: "addon"/);
+  assert.doesNotMatch(products, /id: "addon_/);
+  assert.match(products, /id: "points_pack_30"[^}]*kind: "addon"[^}]*priceUsdt: 10[^}]*tokenAmount: 30[^}]*billingCycle: "points"/);
   assert.match(products, /id: "binance_internal"[\s\S]*?asset: "BNB"[\s\S]*?label: "币安内部转账"[\s\S]*?kind: "internal"/);
   assert.match(products, /id: "okx_internal"[\s\S]*?asset: "OKB"[\s\S]*?label: "OKX内部转账"[\s\S]*?kind: "internal"/);
   assert.match(products, /id: "binance_internal"[\s\S]*?tutorialUrl: "https:\/\/haolo\.com\/help\/binance-internal-transfer\.html"/);
@@ -105,14 +120,26 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentDetails, /const recipientAddress = responseRecipient/);
   assert.match(products, /let selectedRechargePaymentNetwork: RechargePaymentNetworkId \| null = "binance_internal"/);
   assert.match(page, /RECHARGE_SUBSCRIPTION_PRODUCTS/);
-  assert.match(page, /class="recharge-product-grid subscription" role="radiogroup"[\s\S]*?aria-required="true"/);
+  assert.match(page, /class="recharge-product-grid subscription \$\{selectedRechargeBillingCycle === "points" \? "points" : ""\}" role="radiogroup"[\s\S]*?aria-required="true"/);
   assert.match(page, /const visibleProducts = visibleRechargeSubscriptionProducts\(\)/);
-  assert.match(page, /style="--recharge-product-columns: \$\{visibleProducts\.length\}"/);
+  assert.match(page, /const productGridColumns = selectedRechargeBillingCycle === "points"\s*\? Math\.max\(1, subscriptionProductColumns\)\s*: visibleProducts\.length/);
+  assert.match(page, /style="--recharge-product-columns: \$\{productGridColumns\}"/);
   assert.match(page, /\$\{visibleProducts\.map\(renderRechargeProductCard\)\.join\(""\)\}/);
   assert.match(page, /class="recharge-subscription-content"/);
   assert.match(page, /class="recharge-history-action"[\s\S]*?class="recharge-support-button" data-action="open-website-support"[\s\S]*?<span>联系客服<\/span>[\s\S]*?class="recharge-history-button"/);
   assert.match(pageScrollStyles, /overflow: hidden/);
   assert.match(pageScrollStyles, /padding: 12px clamp\(22px, 3\.4vw, 48px\) 47px/);
+  assert.match(page, /<nav class="recharge-cycle-tabs" role="tablist"[\s\S]*?\['monthly','月付'\],\['annual','年付'\],\['points','积分包'\][\s\S]*?data-recharge-cycle="\$\{cycle\}"/);
+  assert.match(cycleTabStyles, /width: calc\(65% - 20px\);/);
+  assert.match(cycleTabStyles, /padding: calc\(12px \* 0\.85 - 5px\) 16px/);
+  assert.match(cycleTabStyles, /font-size: calc\(14px \+ var\(--app-font-size-offset\)\);/);
+  assert.match(cycleTabStyles, /\.recharge-cycle-tabs button:hover/);
+  assert.match(cycleTabStyles, /\.recharge-cycle-tabs button:focus-visible/);
+  assert.match(styles, /@media \(max-width: 860px\)[\s\S]*?\.recharge-cycle-tabs\s*\{\s*width: 100%;/);
+  assert.match(styles, /:root\s*\{[\s\S]*?--selection-soft: rgba\(235, 246, 255, 0\.68\)/);
+  assert.match(styles, /html\[data-theme="dark"\]\s*\{[\s\S]*?--selection-soft: rgba\(91, 157, 255, 0\.2\)/);
+  assert.match(styles, /\.recharge-product-savings\s*\{[\s\S]*?background: linear-gradient\(180deg, #f1fbf4 0%, #ebf8ef 100%\)/);
+  assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-savings\s*\{[\s\S]*?color: #7fe0a0/);
   assert.doesNotMatch(styles, /\.recharge-page-scroll\s*\{[^}]*scrollbar-color/);
   assert.match(styles, /\.recharge-subscription-content\s*\{\s*transform: translateY\(15px\)/);
   assert.match(page, /class="recharge-payment-shell"[\s\S]*?renderRechargePaymentMethods\(\)[\s\S]*?renderRechargePaymentDetailsShell\(\)/);
@@ -138,7 +165,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(paymentEvents, /if \(!rechargePaymentViewActive\)[\s\S]*?rechargePaymentViewActive = true;[\s\S]*?activateRechargePaymentSelection\(\)/);
   assert.match(paymentEvents, /updateRechargePaymentDetails\(\)/);
   assert.match(paymentDetails, /支付金额/);
-  assert.match(paymentDetails, /function visibleRechargeSubscriptionProducts\(\)[\s\S]*?RECHARGE_SUBSCRIPTION_PRODUCTS\.filter\(\(product\) => !rechargeProductIsUnavailable\(product\)\)/);
+  assert.match(paymentDetails, /function visibleRechargeSubscriptionProducts\(\)[\s\S]*?RECHARGE_SUBSCRIPTION_PRODUCTS\.filter\(\(product\) =>\s*!rechargeProductIsUnavailable\(product\)\s*&& \(product\.billingCycle \|\| "monthly"\) === selectedRechargeBillingCycle/);
   assert.match(paymentDetails, /function ensureRechargeProductSelection\(\)[\s\S]*?visibleRechargeSubscriptionProducts\(\)[\s\S]*?candidate\.id === "subscription_basic"[\s\S]*?selectedRechargeProductId = product\.id/);
   assert.match(paymentDetails, /function rechargePaymentSelection\(\)[\s\S]*?ensureRechargeProductSelection\(\)/);
   assert.match(paymentDetails, /收款地址/);
@@ -152,7 +179,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(renderer, /normalizeRechargePaymentAmount/);
   assert.match(paymentDetails, /network\.kind === "internal"[\s\S]*?recharge-payment-internal-steps/);
   assert.match(paymentDetails, /收款账号/);
-  assert.match(paymentDetails, /const fixedPaymentAmount = String\(product\.priceUsdt\)/);
+  assert.match(paymentDetails, /const fixedPaymentAmount = String\(order\.payable_amount \|\| product\.priceUsdt\)/);
   assert.match(paymentDetails, /<span class="recharge-payment-step-label">收款地址<\/span>[\s\S]*?class="recharge-payment-internal-field account"/);
   assert.match(paymentDetails, /<strong>\$\{escapeHtml\(fixedPaymentAmount\)\}<small>USDT<\/small><\/strong>/);
   assert.match(paymentDetails, /data-copy-recharge-amount="\$\{escapeAttr\(fixedPaymentAmount\)\}"/);
@@ -275,7 +302,7 @@ test("recharge page shows subscriptions and selectable crypto payment networks w
   assert.match(browserMock, /mockWeb3PaymentOrders\.get\(selectionKey\)/);
   assert.match(browserMock, /mockWeb3PaymentOrders\.set\(selectionKey, order\)/);
   assert.match(browserMock, /subscription_trial: \{ name: "体验版订阅", price: "4\.900", internalPrice: "4\.873", tokens: "100", months: 0, days: 3, plan: "trial" \}/);
-  assert.match(browserMock, /subscription_basic: \{ name: "基础版订阅", price: "99\.000", internalPrice: "98\.931"/);
+  assert.match(browserMock, /subscription_basic: \{ name: "基础版订阅", price: "39\.000", internalPrice: "38\.973"/);
   assert.match(browserMock, /payable_amount: network === "binance_internal" \|\| network === "okx_internal"[\s\S]*?\? product\.internalPrice[\s\S]*?: product\.price/);
   assert.match(browserMock, /binance_internal: "1261385376"/);
   assert.match(browserMock, /okx_internal: "694504753333973132"/);
