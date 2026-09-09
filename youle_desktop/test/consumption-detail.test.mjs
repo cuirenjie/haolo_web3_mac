@@ -243,7 +243,7 @@ test("consumption detail is a standalone API-backed view below profile settings"
     page.indexOf('data-consumption-unit="points"') < page.indexOf('data-consumption-unit="token"'),
     "points consumption must be the first and default unit option",
   );
-  assert.match(page, /title="当前积分余额"[\s\S]*?<span>积分余额<\/span>/);
+  assert.match(page, /title="当前永久积分余额"[\s\S]*?<span>永久积分<\/span>/);
   assert.match(page, /class="\$\{unit === "points" \? "active" : ""\}" data-consumption-unit="points">积分消耗<\/button>/);
   assert.match(page, />Token消耗<\/button>/);
   assert.match(page, /累计\$\{unit === "points" \? "积分" : "Token"\}数/);

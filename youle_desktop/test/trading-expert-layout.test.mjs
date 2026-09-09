@@ -1435,7 +1435,7 @@ test("Trading Expert pans horizontally while locking price to the candles visibl
   assert.match(lockPriceScale, /priceScale\.setAutoScale\(false\)/);
   assert.match(lockPriceScale, /this\.lockedPriceRange = priceRange/);
   assert.match(lockPriceScale, /priceScale\.setVisibleRange\(this\.lockedPriceRange\)/);
-  assert.match(geometrySync, /this\.updateVisiblePriceScale\(\);[\s\S]*?this\.updateCurrentPriceLabel\(\);[\s\S]*?this\.drawingController\?\.redraw\(\)/);
+  assert.match(geometrySync, /this\.updateVisiblePriceScale\(\);[\s\S]*?this\.updateCurrentPriceLabel\(\);[\s\S]*?this\.redrawDrawingControllers\(\)/);
   assert.match(
     queuedGeometrySync,
     /this\.resettingChartViewport[\s\S]*?\|\| this\.updatingChartData[\s\S]*?\|\| this\.priceLockAnimationFrame !== null/,

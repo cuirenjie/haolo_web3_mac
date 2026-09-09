@@ -1828,7 +1828,6 @@ type DesktopApi = {
     interval: string;
     language?: AppLanguage;
     snapshotTime: number;
-    language?: AppLanguage;
     instruction?: string;
     responseMode?: "full" | "direct";
     lookbackMs?: number | null;
@@ -58448,7 +58447,7 @@ function renderRechargePage() {
           <nav class="recharge-cycle-tabs" role="tablist" aria-label="订阅类型">
             ${([['monthly','月付'],['annual','年付'],['points','积分包']] as const).map(([cycle,label]) => `<button type="button" role="tab" aria-selected="${selectedRechargeBillingCycle === cycle ? 'true' : 'false'}" data-recharge-cycle="${cycle}">${label}</button>`).join('')}
           </nav>
-          <section class="recharge-product-grid subscription ${selectedRechargeBillingCycle === "points" ? "points" : ""}" role="radiogroup" aria-label="选择适合你的订阅" aria-required="true" style="--recharge-product-columns: ${productGridColumns}">
+          <section class="recharge-product-grid subscription ${selectedRechargeBillingCycle === "points" ? "points" : ""}" role="radiogroup" aria-label="${escapeHtml(translateAppText("选择适合你的订阅"))}" aria-required="true" style="--recharge-product-columns: ${productGridColumns}">
             ${visibleProducts.map(renderRechargeProductCard).join("")}
           </section>
         </div>

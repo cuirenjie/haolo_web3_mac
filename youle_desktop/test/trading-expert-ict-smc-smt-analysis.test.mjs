@@ -159,5 +159,6 @@ test("SMT wiring is read-only, dual-theme, and cannot create an order-flow depen
   assert.match(styles, /html\[data-theme="dark"\] \.trading-strategy-icon-smt-divergence/);
   assert.doesNotMatch(orderFlowPipeline, /smt-divergence|ict-smc-pipeline/);
   assert.doesNotMatch(smtPipeline, /order-flow/);
-  assert.doesNotMatch(ictPipeline, /order-flow/);
+  assert.doesNotMatch(ictPipeline, /(?:from\s+|import\s*\()["'][^"']*order-flow/);
+  assert.match(ictPipeline, /does not read individual trades or depth and cannot represent order-flow evidence/);
 });

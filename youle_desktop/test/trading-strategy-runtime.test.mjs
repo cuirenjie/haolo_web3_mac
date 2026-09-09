@@ -1353,3 +1353,28 @@ test("strategy runtime and execution plans expose no order-placement or credenti
   assert.doesNotMatch(source, /fapi\/v1\/order|placeOrder|createOrder|executeOrder|apiSecret/i);
   assert.match(source, /suggestedQuantity:\s*null/);
 });
+
+
+test("coordinator keeps English analysis alongside cards and direct position answers without cards", async () => {
+  const report = "### Market evidence\n\nReduce exposure if support at 98 fails.";
+  const adapter = {
+    id: "sample-strategy",
+    errors: {},
+    routing: {},
+    async run() {
+      const result = sampleLegacyResult();
+      result.analysisPlan.report = report;
+      result.analysisPlan.narrative = "Support is holding at 98.";
+      return result;
+    },
+  };
+  const registry = new TradingStrategyRegistry({ adapters: [adapter], manifestRecords: [{ manifest: sampleManifest }] });
+  const coordinator = new TradingStrategyCoordinator({ registry, modelRegistry: { async analyze() { throw new Error("Unexpected model call"); } }, providerId: "stub" });
+  const full = await coordinator.run("sample-strategy", { language: "en" });
+  assert.match(full.analysisPlan.report, /^## BTC\/USDT Binance Perpetual 1H/m);
+  assert.ok(full.analysisPlan.report.includes(report));
+  assert.doesNotMatch(full.analysisPlan.report, /[\u3400-\u9fff]/u);
+  const direct = await coordinator.run("sample-strategy", { language: "en", responseMode: "direct", positionManagementRequested: true });
+  assert.equal(direct.analysisPlan.report, report);
+  assert.equal(direct.analysisPlan.narrative, "Support is holding at 98.");
+});

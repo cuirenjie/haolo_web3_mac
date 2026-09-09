@@ -261,7 +261,7 @@ test("simulation candles stay isolated without chart watermark or future-divider
   assert.doesNotMatch(method, /dataset\.side|labelBounds\.right > chartBounds\.right/);
   assert.doesNotMatch(method, /shape:\s*"arrowDown"/);
   const geometrySync = source.match(/private synchronizeVisibleChartGeometry\(\)[\s\S]*?\n  }/)?.[0] || "";
-  assert.match(geometrySync, /updateVisiblePriceScale\(\)[\s\S]*paintAlertSimulationMarker\(\)[\s\S]*drawingController\?\.redraw\(\)/);
+  assert.match(geometrySync, /updateVisiblePriceScale\(\)[\s\S]*paintAlertSimulationMarker\(\)[\s\S]*redrawDrawingControllers\(\)/);
   assert.match(source, /subscribeVisibleLogicalRangeChange[\s\S]*synchronizeVisibleChartGeometry\(\)/);
   assert.doesNotMatch(method, /fitContent\(\)/);
   assert.doesNotMatch(method, /this\.candles\s*=|this\.candles\.push/);

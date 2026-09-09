@@ -681,7 +681,7 @@ test("renderer route prioritizes explicit targets, verifies the loaded chart, an
   assert.match(marketSource, /positionManagementRequested: request\.positionManagementRequested === true/);
   assert.match(marketSource, /const directResponseRequested = request\.drawingRequested === false[\s\S]*?request\.positionManagementRequested === true/);
   assert.match(marketSource, /responseMode: directResponseRequested \? "direct" : "full"/);
-  assert.match(marketSource, /request\.positionManagementRequested === true\s*\n\s*\? ""/);
+  assert.match(marketSource, /request\.positionManagementRequested === true \|\| activeTradingAnalysisLanguage\(\) === "en"\s*\n\s*\? ""/);
   assert.match(marketSource, /request\.positionManagementRequested === true[\s\S]*?response\.analysisPlan\.report/);
   assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles, visibleRange\)/);
   assert.match(marketSource, /canvasCandles\.length\s*\? canvasCandles/);

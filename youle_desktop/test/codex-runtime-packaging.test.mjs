@@ -6,7 +6,7 @@ test("packages the complete versioned Codex Windows runtime", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const manifest = JSON.parse(await readFile(new URL("../resources/bin/codex-runtime.json", import.meta.url), "utf8"));
   const mainSource = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
-  const mappings = new Map(packageJson.build.extraResources.map((entry) => [entry.from, entry.to]));
+  const mappings = new Map(packageJson.build.win.extraResources.map((entry) => [entry.from, entry.to]));
 
   assert.equal(manifest.version, "0.153.4");
   assert.equal(manifest.releaseTag, "rust-v0.153.4");
