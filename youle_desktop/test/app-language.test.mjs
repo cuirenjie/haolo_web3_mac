@@ -392,7 +392,7 @@ test("language initializes before boot and reconciles renderer and main-process 
   assert.doesNotMatch(sourceBlock(source, "ensureBrowserDesktopApi();", 'document.addEventListener("visibilitychange"'), /api\.setAppLanguage/);
   assert.match(source, /reconcileStartupAppLanguage\(defaults\.language, defaults\.languagePreferenceStored === true\)/);
   assert.match(source, /resolveAppLanguagePreference\(\{[\s\S]*mainPreferenceStored,[\s\S]*rendererLanguage: storedRendererLanguage,[\s\S]*userSelected: appLanguageSelectionRevision > 0/);
-  assert.match(main, /DEFAULT_APP_PREFERENCES = Object\.freeze\(\{\s*theme: "dark",\s*language: "zh-CN"/s);
+  assert.match(main, /DEFAULT_APP_PREFERENCES = Object\.freeze\(\{\s*theme: "light",\s*language: "zh-CN"/s);
   assert.match(main, /function normalizeAppLanguage\(value\) \{\s*return value === "en" \|\| value === "zh-TW" \? value : "zh-CN";\s*\}/s);
   assert.match(main, /function appLanguagePreferenceStored\(\)/);
   assert.match(main, /languagePreferenceStored: appLanguagePreferenceStored\(\)/);
