@@ -12,6 +12,8 @@ test("Binance gateway config keeps direct defaults until a deployment origin is 
   assert.equal(config.backgroundProbeIntervalMs, 45_000);
   assert.equal(config.gatewayRequestTimeoutMs, 8_000);
   assert.deepEqual(config.marketGatewayResolutionCandidates, []);
+  assert.deepEqual(config.privateProxyResolutionCandidates, []);
+  assert.equal(config.gatewayRouteSelection, false);
 });
 
 test("Binance gateway config derives protected REST and WebSocket routes", () => {

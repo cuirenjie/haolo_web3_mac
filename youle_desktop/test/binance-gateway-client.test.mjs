@@ -3,6 +3,36 @@ import test from "node:test";
 import { createBinanceGatewayClient } from "../src/main/binance-gateway-client.mjs";
 import { resolveBinanceGatewayConfig } from "../src/main/binance-gateway-config.mjs";
 
+test("a stalled ticket response cannot hold a market connection for the metadata timeout", async () => {
+  const config = { ...resolveBinanceGatewayConfig({ HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://market.example" }), gatewayControlTimeoutMs: 25 };
+  let calls = 0;
+  let requestSignal;
+  const client = createBinanceGatewayClient({ config,
+    apiClient: { getTrustedAccessToken: async () => "test-token" },
+    fetchImpl: async (_url, init) => {
+      calls++;requestSignal = init.signal;
+      return { json: () => new Promise(() => {}) };
+    },
+  });
+  await assert.rejects(client.marketStreamEndpoint({ marketType: "futures" }), { name: "TimeoutError" });
+  assert.equal(calls, 1, "a timed-out one-use ticket request is not replayed");
+  assert.equal(requestSignal.aborted, true);
+});
+
+test("late credential lookup after the ticket deadline does not send a request", async () => {
+  let releaseToken;
+  let calls = 0;
+  const client = createBinanceGatewayClient({
+    config: { ...resolveBinanceGatewayConfig({ HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://market.example" }), gatewayControlTimeoutMs: 25 },
+    apiClient: { getTrustedAccessToken: () => new Promise((resolve) => { releaseToken = resolve; }) },
+    fetchImpl: async () => { calls++;return new Response("{}"); },
+  });
+  await assert.rejects(client.marketStreamEndpoint({ marketType: "futures" }), { name: "TimeoutError" });
+  releaseToken("test-token");
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls, 0);
+});
+
 test("gateway client keeps Haolo JWT in main process and exposes only one-use WS ticket", async () => {
   const config = resolveBinanceGatewayConfig({
     HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://market.haolo.example",

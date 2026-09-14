@@ -112,6 +112,11 @@ export function resolveBinanceGatewayConfig(env = process.env, deployment = {}) 
       env.HAOLO_BINANCE_MARKET_GATEWAY_RESOLUTION_CANDIDATES
         || deployment.marketGatewayResolutionCandidates,
     ),
+    privateProxyResolutionCandidates: resolutionCandidates(
+      env.HAOLO_BINANCE_PRIVATE_PROXY_RESOLUTION_CANDIDATES || deployment.privateProxyResolutionCandidates,
+    ),
+    gatewayRouteSelection: env.HAOLO_BINANCE_GATEWAY_ROUTE_SELECTION == null
+      ? deployment.gatewayRouteSelection === true : booleanValue(env.HAOLO_BINANCE_GATEWAY_ROUTE_SELECTION),
     ticketUrl: gatewayEnabled ? `${marketOrigin}/api/market/v1/tickets` : "",
     privatePermitUrl: gatewayEnabled ? `${marketOrigin}/api/private/v1/permits` : "",
     privateUsageUrl: gatewayEnabled ? `${marketOrigin}/api/private/v1/usage` : "",
@@ -145,6 +150,11 @@ export function resolveBinanceGatewayConfig(env = process.env, deployment = {}) 
       env.HAOLO_BINANCE_GATEWAY_REQUEST_TIMEOUT_MS || deployment.gatewayRequestTimeoutMs,
       8_000,
       { min: 2_000, max: 60_000 },
+    ),
+    gatewayControlTimeoutMs: durationValue(
+      env.HAOLO_BINANCE_GATEWAY_CONTROL_TIMEOUT_MS || deployment.gatewayControlTimeoutMs,
+      8_000,
+      { min: 1_000, max: 15_000 },
     ),
   });
 }

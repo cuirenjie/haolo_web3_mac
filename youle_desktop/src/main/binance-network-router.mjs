@@ -46,6 +46,10 @@ function isRouteBlockingResponse(response) {
   return ROUTE_BLOCKING_STATUSES.has(Number(response?.status || 0));
 }
 
+function isPublicRouteFailureResponse(response, method = "GET") {
+  return isRouteBlockingResponse(response) || (method === "GET" && Number(response?.status) >= 500);
+}
+
 function decorateRouteResponse(response, route) {
   if (!response || typeof response !== "object") return response;
   const headers = new Headers(response.headers || {});
@@ -341,7 +345,7 @@ export class BinanceNetworkRouter {
           ...init,
           signal: directLink.controller.signal,
         });
-        if (isRouteBlockingResponse(response)) {
+        if (isPublicRouteFailureResponse(response)) {
           directFailed = true;
           this.markDirectFailure("public", marketType);
           openGateway();
@@ -424,7 +428,7 @@ export class BinanceNetworkRouter {
         if (init?.signal?.aborted || mode !== "auto") throw gatewayError;
         try {
           const directResponse = await this.directRequest("public", url.href, init);
-          if (isRouteBlockingResponse(directResponse)) {
+          if (isPublicRouteFailureResponse(directResponse, method)) {
             if (gatewayResponse) return gatewayResponse;
             throw new Error(`Direct Binance market route returned HTTP ${directResponse.status}`);
           }
@@ -437,7 +441,7 @@ export class BinanceNetworkRouter {
       }
       try {
         const directResponse = await this.directRequest("public", url.href, init);
-        if (isRouteBlockingResponse(directResponse)) return gatewayResponse;
+        if (isPublicRouteFailureResponse(directResponse, method)) return gatewayResponse;
         this.markDirectSuccess("public", marketType);
         return decorateRouteResponse(directResponse, "direct");
       } catch {
@@ -450,7 +454,7 @@ export class BinanceNetworkRouter {
     }
     try {
       const response = await this.directRequest("public", url.href, init);
-      if (!isRouteBlockingResponse(response)) {
+      if (!isPublicRouteFailureResponse(response, method)) {
         this.markDirectSuccess("public", marketType);
         return decorateRouteResponse(response, "direct");
       }
@@ -501,7 +505,7 @@ export class BinanceNetworkRouter {
       { method: "GET", cache: "no-store" },
       timeoutMs,
     );
-    if (isRouteBlockingResponse(response)) throw new Error(`Direct Binance probe returned HTTP ${response.status}`);
+    if (Number(response?.status) !== 200) throw new Error(`Direct Binance probe returned HTTP ${response?.status || 0}`);
     return response;
   }
 
@@ -514,7 +518,7 @@ export class BinanceNetworkRouter {
       { method: "GET", cache: "no-store" },
       this.config.directAttemptTimeoutMs || 3_000,
     );
-    if (isRouteBlockingResponse(response)) throw new Error(`Direct Binance account probe returned HTTP ${response.status}`);
+    if (Number(response?.status) !== 200) throw new Error(`Direct Binance account probe returned HTTP ${response?.status || 0}`);
     return response;
   }
 
@@ -618,8 +622,8 @@ export class BinanceNetworkRouter {
         { method: "GET", cache: "no-store" },
         this.publicHedgeDelayMs,
       );
-      if (isRouteBlockingResponse(response)) {
-        throw new Error(`Binance direct stream probe blocked with HTTP ${response.status}`);
+      if (Number(response?.status) !== 200) {
+        throw new Error(`Binance direct stream probe failed with HTTP ${response?.status || 0}`);
       }
       this.markDirectSuccess("public", marketType);
       return Object.freeze({ url: directEndpoint, route: "direct", marketType, streamClass });
