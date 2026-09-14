@@ -152,3 +152,88 @@ test("already cancelled update checks never start networking", async () => {
   controller.abort();
   await assert.rejects(fetchServiceJson(() => assert.fail("No request expected"), `${main}/api/app-updates/windows/check`, { signal: controller.signal }), { name: "AbortError" });
 });
+
+for (const status of [429, 500, 502, 503, 504]) {
+  test(`a primary probe HTTP ${status} validates the alias before sending a cold write once`, async () => {
+    const f = setup(async (url) => url === `${main}/api/auth/config`
+      ? new Response("temporary probe failure", { status })
+      : url.endsWith("/api/auth/config") ? config() : new Response("accepted"));
+    assert.equal((await f.fetch(`${main}/api/auth/otp/send`, { method: "POST", body: "{}" })).status, 200);
+    const writes = f.requests.filter((request) => request.init.method === "POST");
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].url, `${alternate}/api/auth/otp/send`);
+    assert.deepEqual(f.requests.slice(0, 2).map((request) => request.url),
+      [`${main}/api/auth/config`, `${alternate}/api/auth/config`]);
+  });
+}
+
+for (const form of ["seconds", "HTTP date"]) {
+  test(`probe Retry-After in ${form} survives alias cache expiry and permits eventual primary recovery`, async () => {
+    const start = Date.UTC(2026, 8, 14);
+    let clock = start;
+    let limited = true;
+    const retryAfter = form === "seconds" ? "2" : new Date(start + 2000).toUTCString();
+    const f = setup(async (url) => limited && url === `${main}/api/auth/config`
+      ? new Response("limited", { status: 429, headers: { "retry-after": retryAfter } })
+      : url.endsWith("/api/auth/config") ? config() : new Response("ok"),
+    { now: () => clock, routeTtlMs: 100, failureCooldownMs: 10 });
+    await f.fetch(`${main}/api/profile/me`);
+    clock = start + 101;
+    await f.fetch(`${main}/api/contacts`);
+    assert.equal(f.requests.filter((request) => request.url === `${main}/api/auth/config`).length, 1);
+    assert.equal(f.requests.at(-1).url, `${alternate}/api/contacts`);
+    limited = false;
+    clock = start + 2001;
+    await f.fetch(`${main}/api/profile/me`);
+    assert.equal(f.requests.filter((request) => request.url === `${main}/api/auth/config`).length, 2);
+    assert.equal(f.requests.at(-1).url, `${main}/api/profile/me`);
+  });
+}
+
+test("all temporary HTTP probe failures apply cooldown without sending business writes", async () => {
+  let clock = 0;
+  const f = setup(async (url, init) => {
+    assert.equal(init.method, "GET");
+    assert.ok(url.endsWith("/api/auth/config"));
+    return new Response("unavailable", { status: 503, headers: { "retry-after": "invalid" } });
+  }, { now: () => clock });
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(f.fetch(`${main}/api/finance/orders`, { method: "POST", body: "{}" }), /HTTP 503/);
+  }
+  assert.equal(f.requests.length, 2);
+  clock = 3001;
+  await assert.rejects(f.fetch(`${main}/api/finance/orders`, { method: "POST", body: "{}" }), /HTTP 503/);
+  assert.equal(f.requests.length, 4);
+});
+
+test("concurrent business requests share temporary-failure probes and the verified alias", async () => {
+  const f = setup(async (url) => url === `${main}/api/auth/config`
+    ? new Response("unavailable", { status: 503 })
+    : url.endsWith("/api/auth/config") ? config() : new Response("ok"));
+  const replies = await Promise.all(["profile/me", "contacts", "app-updates/mac/check"]
+    .map((path) => f.fetch(`${main}/api/${path}`)));
+  assert.ok(replies.every((response) => response.ok));
+  assert.equal(f.requests.filter((request) => request.url.endsWith("/api/auth/config")).length, 2);
+  assert.ok(f.requests.slice(2).every((request) => request.url.startsWith(alternate)));
+});
+
+test("probe authentication failures and an unverified alias still fail closed", async () => {
+  for (const status of [401, 403, 404]) {
+    const f = setup(async () => new Response("denied", { status }));
+    await assert.rejects(f.fetch(`${main}/api/auth/otp/send`, { method: "POST", body: "{}" }));
+    assert.equal(f.requests.length, 1);
+  }
+  const f = setup(async (url) => url.startsWith(main)
+    ? new Response("unavailable", { status: 503 }) : Response.json({ page: "unrelated" }));
+  await assert.rejects(f.fetch(`${main}/api/auth/otp/send`, { method: "POST", body: "{}" }), /unexpected response/);
+  assert.equal(f.requests.length, 2);
+  assert.ok(f.requests.every((request) => request.init.method === "GET"));
+});
+
+test("an actual business write HTTP 503 is returned once without alias replay", async () => {
+  const f = setup(async (url) => url.endsWith("/api/auth/config") ? config() : new Response("unavailable", { status: 503 }));
+  assert.equal((await f.fetch(`${main}/api/finance/orders`, { method: "POST", body: "{}" })).status, 503);
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.requests.filter((request) => request.init.method === "POST").length, 1);
+  assert.ok(f.requests.every((request) => request.url.startsWith(main)));
+});

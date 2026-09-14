@@ -5,6 +5,21 @@ export const HAOLO_SERVICE_ORIGIN = "https://haolo.com";
 // canonical account URL in settings; never reuse model/invitation hosts or IPs.
 export const HAOLO_SERVICE_FALLBACK_ORIGINS = Object.freeze(["https://www.haolo.com"]);
 
+class ServiceProbeHttpError extends Error {
+  constructor(status, retryAfterMs) {
+    super(`Account route probe returned HTTP ${status}`);
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+function probeCooldownMs(retryAfter, nowMs, fallbackMs) {
+  const value = String(retryAfter || "").trim();
+  const seconds = value ? Number(value) : NaN;
+  const delay = Number.isFinite(seconds) && seconds >= 0
+    ? seconds * 1000 : Date.parse(value) - nowMs;
+  return Math.max(fallbackMs, Number.isFinite(delay) ? Math.max(0, Math.ceil(delay)) : 0);
+}
+
 // Keep the timeout alive until the JSON body finishes, not just until headers.
 export async function fetchServiceJson(fetchImpl, url, init = {}, timeoutMs = 20_000) {
   const controller = new AbortController();
@@ -40,6 +55,7 @@ export function createHaoloServiceFetch({
   let route = null;
   let selection = null;
   let failure = null;
+  const probeFailures = new Map();
 
   function note(event, origin, error) {
     try { onDiagnostic({ event, origin, ...(error ? { code: networkErrorCode(error) || "ROUTE_UNAVAILABLE" } : {}) }); } catch {}
@@ -62,6 +78,10 @@ export function createHaoloServiceFetch({
       });
       if (!response.ok) {
         await response.body?.cancel?.();
+        if (response.status === 429 || (response.status >= 500 && response.status <= 599)) {
+          throw new ServiceProbeHttpError(response.status,
+            probeCooldownMs(response.headers?.get?.("retry-after"), now(), failureCooldownMs));
+        }
         throw new Error(`Account route probe returned HTTP ${response.status}`);
       }
       const config = await response.json();
@@ -88,6 +108,12 @@ export function createHaoloServiceFetch({
     selection = (async () => {
       let lastError = new Error("No reachable HaoLo account route");
       for (const origin of origins.filter((candidate) => candidate !== excludeOrigin)) {
+        const cooling = probeFailures.get(origin);
+        if (cooling && cooling.expiresAt > now()) {
+          lastError = cooling.error;
+          continue;
+        }
+        probeFailures.delete(origin);
         try {
           await probe(origin);
           remember(origin);
@@ -96,6 +122,12 @@ export function createHaoloServiceFetch({
         } catch (error) {
           lastError = error;
           note("service-route-probe-failed", origin, error);
+          if (error instanceof ServiceProbeHttpError) {
+            // Cool only this anonymous probe. A verified alias may still serve
+            // business traffic; HTTP business responses are never replayed here.
+            probeFailures.set(origin, { error, expiresAt: now() + error.retryAfterMs });
+            continue;
+          }
           if (!isRecoverableNetworkError(error) && error?.name !== "TimeoutError") throw error;
         }
       }

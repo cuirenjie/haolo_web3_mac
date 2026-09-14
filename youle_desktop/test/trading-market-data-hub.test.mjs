@@ -26,9 +26,15 @@ test("stalled gateway handshake invalidates its route and reconnects with a fres
   FakeWebSocket.instances = [];
   const invalidated = [];
   let tickets = 0;
-  const lookup = () => {};
+  const lookup = (_host, _options, callback) => callback(null, "203.0.113.5", 4);
   lookup.invalidate = (...args) => invalidated.push(args);
-  const hub = new TradingMarketDataHub({ WebSocketImpl: FakeWebSocket,
+  class ResolvingWebSocket extends FakeWebSocket {
+    constructor(url, options) {
+      super(url, options);
+      options.lookup(new URL(url).hostname, { family: 4 }, () => {});
+    }
+  }
+  const hub = new TradingMarketDataHub({ WebSocketImpl: ResolvingWebSocket,
     handshakeTimeoutMs: 250, reconnectBaseMs: 10,
     endpointProvider: async () => ({ url: `wss://market.example/stream/futures?ticket=${++tickets}`, route: "gateway" }),
     lookupProvider: () => lookup,
@@ -38,7 +44,7 @@ test("stalled gateway handshake invalidates its route and reconnects with a fres
     await new Promise((r) => setTimeout(r, 320));
     assert.ok(tickets >= 2);
     assert.equal(FakeWebSocket.instances[0].options.handshakeTimeout, 250);
-    assert.deepEqual(invalidated[0], ["market.example", undefined]);
+    assert.deepEqual(invalidated[0], ["market.example", "203.0.113.5"]);
     const last = FakeWebSocket.instances.at(-1);
     assert.notEqual(last.url, FakeWebSocket.instances[0].url);
     last.open();

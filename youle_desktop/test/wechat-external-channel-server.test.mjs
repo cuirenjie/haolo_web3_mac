@@ -1032,7 +1032,8 @@ test("local external channel backend supervisor rebuilds unhealthy Feishu websoc
     assert.equal(server.feishuConnection.status, "online");
   } finally {
     await server.stop();
-    await rm(dir, { recursive: true, force: true });
+    // A final asynchronous log write can overlap directory removal after stop.
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
   }
 });
 

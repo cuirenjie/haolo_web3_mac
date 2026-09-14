@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { createConnectionLookup } from "./connection-route-lookup.mjs";
 
 const STREAM_PATTERN = /^[a-z0-9_\p{Script=Han}]{2,40}@(kline_(?:1s|[1-9]\d*[mhdwM])|ticker|miniTicker|aggTrade|bookTicker|markPrice(?:@1s)?)$/u;
 
@@ -179,7 +180,7 @@ export class TradingMarketDataHub {
     let socket;
     let lookup;
     try {
-      lookup = this.lookupProvider?.(endpointContext);
+      lookup = createConnectionLookup(this.lookupProvider?.(endpointContext));
       socket = new this.WebSocketImpl(endpoint, {
         perMessageDeflate: false,
         maxPayload: 1024 * 1024,

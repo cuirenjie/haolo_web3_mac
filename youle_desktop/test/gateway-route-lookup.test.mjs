@@ -169,17 +169,18 @@ test("probe rejects certificate errors, wrong service, 503 and malformed identit
 test("business POST failure invalidates cached route without replaying the request", async () => {
   const invalidated = [];
   let requests = 0;
-  const lookup = () => {};
-  lookup.invalidate = (host) => invalidated.push(host);
+  const lookup = (_host, _options, callback) => callback(null, "203.0.113.8", 4);
+  lookup.invalidate = (host, address) => invalidated.push({ host, address });
   const network = createProxyFreeHttpsFetch({ allowedOrigins: [origin], routeLookup: lookup,
-    requestImpl() {
+    requestImpl(url, options) {
       requests++;
       const request = new PassThrough();
+      options.lookup(url.hostname, { family: 4 }, () => {});
       queueMicrotask(() => request.destroy(Object.assign(new Error("reset"), { code: "ECONNRESET" })));
       return request;
     }, agent: { destroy() {} } });
   await assert.rejects(network(`${origin}/api/market/v1/tickets`, { method: "POST", body: "{}" }), { code: "ECONNRESET" });
   assert.equal(requests, 1);
-  assert.deepEqual(invalidated, ["market.gateway.example"]);
+  assert.deepEqual(invalidated, [{ host: "market.gateway.example", address: "203.0.113.8" }]);
   network.close();
 });

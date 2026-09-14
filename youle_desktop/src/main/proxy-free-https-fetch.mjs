@@ -1,6 +1,7 @@
 import dns from "node:dns";
 import https from "node:https";
 import { isIP } from "node:net";
+import { createConnectionLookup } from "./connection-route-lookup.mjs";
 
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 
@@ -144,6 +145,7 @@ export function createProxyFreeHttpsFetch({
       headers.set("content-length", String(Buffer.byteLength(body)));
     }
 
+    const connectionLookup = createConnectionLookup(lookup);
     return new Promise((resolve, reject) => {
       let settled = false;
       let response = null;
@@ -158,7 +160,7 @@ export function createProxyFreeHttpsFetch({
       };
       const failTransport = (error) => {
         if (settled) return;
-        if (!init.signal?.aborted) lookup.invalidate?.(url.hostname, request?.socket?.remoteAddress);
+        if (!init.signal?.aborted) connectionLookup.invalidate?.(url.hostname, request?.socket?.remoteAddress);
         finish(reject, error);
       };
       const handleAbort = () => {
@@ -172,7 +174,7 @@ export function createProxyFreeHttpsFetch({
         headers: Object.fromEntries(headers.entries()),
         agent: httpsAgent,
         family: 4,
-        lookup,
+        lookup: connectionLookup,
       }, (message) => {
         response = message;
         const chunks = [];

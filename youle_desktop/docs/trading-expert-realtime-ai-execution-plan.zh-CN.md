@@ -1002,15 +1002,16 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 ## 20. 当前工作焦点
 
-融合任务状态：已完成；`windows/dev@526acbb` 的网络韧性增量已移植到 macOS `dev`，导入提交 `f74f471`（关联 M2-020）。保留 Mac 更新架构回退、系统权限、已有绘图/日历周期/行情安全修复，以及原 0.1.167 版本和打包记录。
+融合任务状态：已完成；`windows/dev@526acbb` 的网络韧性增量已移植到 macOS `dev`，导入提交 `f74f471`（关联 M2-020）。保留 Mac 更新架构回退、系统权限、已有绘图/日历周期/行情安全修复，以及原 0.1.167 打包记录。
 
-当前任务：Windows→macOS 网络增量融合及本机验收已完成。新增 8 项更新行为回归，更新一处新增网络参数导致过时的会话测试断言；桌面 2805 项中 2801 通过、0 失败、4 跳过，网关 54/54，Electron 41.10.2 本地代理烟测 5/5，TypeScript、184 modules 构建和 Mac 运行时完整性通过。详情见 `windows-sync-20260914.zh-CN.md`。源码与验收在本地提交，原版本和打包记录保持未提交；本轮没有推送或重新打包。
-上一完成任务：M6-007 macOS 0.1.167 Universal DMG；原产物基线为 `f08676f` 加版本更新，不含本次 `526acbb` 网络增量。R1–R5 修复与既往历史验收记录保留。
+当前任务：M6-007 macOS 0.1.168 源码归档与 origin/dev 同步，状态为进行中；用户已授权提交和推送最新代码。
+本轮发布包：M6-007 macOS 0.1.168 Universal DMG，打包与本机验收已完成。产物 `release/好咯-0.1.168-universal.dmg` 已包含 `dev@d6446c6` 的 Windows 网络融合及工作区 R1/R2 修复，支持 Intel x86_64 和 Apple Silicon arm64；版本、类型检查、Mac/更新 20/20、ASAR 源码一致性、748 个代码对象的签名/启动兼容、DMG 挂载与完整性、包内 Electron 烟测及 SHA-256 均通过。继续采用已授权的 ad-hoc 签名，未做 Developer ID 签名或 Apple 公证，未上传或写生产发布记录。完整生产发布和 M2-020/M2-013 外部验收状态保持原状。
+上一完成任务：M2-020 网络审查 R1/R2 最小风险修复及本机验收；新增 20 项回归，相关 115/115，桌面 2825 项中 2821 通过、0 失败、4 跳过，网关 54/54，Electron 本地代理烟测 5/5，TypeScript、Vite 和差异检查通过。修复详情见 `windows-sync-review-20260914.zh-CN.md`。旧 0.1.167 DMG 不含本次网络增量与修复，历史包及记录保留。
 专项执行计划：继续以本文、`docs/trading-strategy-skill-decoupling-plan.zh-CN.md` 和外部模型架构文档的权限边界为准。
 专项进度台账：本次融合证据记录在本文 2026-09-14 日志和 `windows-sync-20260914.zh-CN.md`；策略解耦后续任务继续写入 `docs/trading-strategy-skill-decoupling-progress.zh-CN.md`。
 并行任务：M1-274 已完成旧版 K线图偏好到 K线图（HLC）的一次性迁移并冷重启开发版；M1-273 已完成发送时交易分析快照锁定；M1-071 至 M1-090 的已实现交互继续等待开发版确认；M2-013 生产基础设施验收保持受阻。
 下一任务：M2-020 后续真实登录 Binance REST/WS/只读 CONNECT 验收和 Hyperliquid 香港转发按后续安排推进；M2-013 生产基础设施验收继续依赖原部署环境。
-当前阻塞：本次代码融合与本机验收无阻塞；M2-013 的真实多 EIP 容量、故障切换和 72 小时生产验收，以及 Developer ID 签名和公证仍沿用原外部依赖状态。本轮仅源代码融合与本地验证。
+当前阻塞：本次已授权的 ad-hoc 打包无阻塞；Developer ID 签名与 Apple 公证尚无凭据。M2-020 真实登录/香港转发及 M2-013 的多 EIP 容量、故障切换和 72 小时生产验收保持原外部依赖状态。
 需要产品确认但不阻塞 M0/M1：首发是否保持 BTC/ETH 永续及 15m/1h/4h 默认范围；若调整，只修改首发范围，不改变核心架构。
 
 ## 21. 架构决策记录
@@ -2118,3 +2119,39 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 - 完成 Windows→macOS 网络增量融合及本机验收（M2-020）：`526acbb→f74f471`；远端 36 个文件中 31 个与来源 Git blob 一致，其余五个保留 Mac 平台标识、更新架构回退、会话缓存/认证隔离、计时器和本地台账。Renderer 与网关服务相对 `f08676f` 未改动，R1–R5 与上一轮行情安全修复保留。
 - 本轮补充与验证：新增 8 项更新行为回归，更新 `auth-session-lifecycle` 的旧构造器源码断言；兼容专项 12/12。最终桌面全量 2805 项中 2801 通过、0 失败、4 项按平台跳过，网关 54/54，Electron 41.10.2 本地代理烟测 5/5，TypeScript、Vite 184 modules、Mac Codex 0.144.1 双架构及 rg 完整性、33 个变更 JavaScript 语法和差异检查通过。中间一轮未改动飞书用例在临时目录清理中出现 ENOTEMPTY，单项及降低并发后的完整复测均通过；完整过程未删除失败日志。日志为 `.git/windows-sync-20260914-*`，详情见 `docs/windows-sync-20260914.zh-CN.md`。
 - 交付核验：Windows `dev` 仍为 `526acbb`，Mac `origin/dev` 仍为 `f08676f`；本轮仅本地提交，未推送、打包、部署或重启现有客户端。原 package.json/package-lock.json 与 stash 逐字节一致，0.1.167 及原打包日志留在工作区；保护分支、stash 和补丁备份保留。旧 0.1.167 DMG 不含本次增量。未使用真实账号/模型，上游生产记录不计作本机验收；M2-020 真实 Binance 登录验收/Hyperliquid 香港转发及 M2-013 多 EIP/三网/72 小时仍未完成。
+
+### 原有 macOS 0.1.167 打包记录（融合前工作区恢复）
+
+- 启动 M6-007 macOS 0.1.167 Universal DMG 打包：用户要求最新发布用 Mac 包、版本 167；fetch 确认 origin/dev 与本地同为 `f08676f6877701061855e66bce40ec94d959e1dd`，工作区原本干净。将 package.json 与 package-lock.json 的应用版本由 0.1.166 更新为 0.1.167，保留所有依赖版本、Mac 双架构运行时与历史 DMG。签名预检为 0 个有效身份，沿用此前明确授权的 `HAOLO_ALLOW_UNTRUSTED_MAC_DMG=1` 路径；产物须完成版本、架构、ASAR 与资源、完整 ad-hoc 签名和 DMG 校验后交付，不宣称 Developer ID 签名或 Apple 公证。
+
+- 完成 M6-007 macOS 0.1.167 Universal DMG：应用版本、package-lock 根版本、包内 package.json、CFBundleVersion 与 CFBundleShortVersionString 均为 0.1.167。构建基线为已同步 origin/dev 的 `f08676f6877701061855e66bce40ec94d959e1dd` 加本轮版本更新；DMG 为 `release/好咯-0.1.167-universal.dmg`，大小 488514796 bytes，SHA-256 `2e897de40f7366e4a9f7b09dbfbfc0743ffafa34db785a91098fa4ecdb801fa7`，同目录提供 `.dmg.sha256` 校验文件；0.1.165 与 0.1.166 历史包保留。
+- M6-007 验证：TypeScript、macOS 兼容 2/2、更新界面 5/5、Mac Codex 0.144.1 两个原始运行时及 rg 的架构/哈希/版本/签名、Vite 184 modules、Universal 合并通过。独立 `verify-mac-adhoc-launch --target universal` 校验 748 个代码对象；Electron、haolo_ai、rg 均含 x86_64 与 arm64。ASAR 全部当前 main/renderer 构建文件、资源、版本、entitlements、候选和最终 DMG 挂载后的双架构 CDHash/版本一致性及 `hdiutil verify` 均通过。包内 Electron Node 模式从 ASAR 加载 qrcode 并生成有效 PNG 通过，未使用真实账户或模型。日志为 `.git/mac-release-0.1.167-{typecheck,tests,update-tests,build,package-verify,dmg-verify,qr-smoke}.log`，制品摘要为同前缀 `artifact.json`。
+- M6-007 交付边界：本轮仅版本和台账改动，沿用上轮业务代码全量验收（桌面 2727 通过/4 跳过、网关 54/54），未重复全量业务测试。沿用已授权 ad-hoc 构建，未进行 Developer ID 签名或 Apple 公证，首次打开可能需要系统手动允许；未安装或重启用户客户端，未上传、修改生产发布记录、部署或再次推送 Git。原大 chunk 与依赖收集提示保留，包内 QR 库烟测通过；既有 `verify:mac:update-artifact` 包装器仍缺少 `src/main/mac-update-artifact.mjs`，本次使用发布收尾脚本、独立包检查与原生 DMG 完整性校验，不将缺失包装器记为通过。
+
+### 2026-09-14：网络融合后代码审查（M2-020）
+
+- 启动融合后完整性与行为审查：用户要求检查漏合和本次融合问题；范围为 Windows `755d29f..526acbb` 与 Mac `f08676f..d6446c6`。保护原版本和打包台账，先核对补丁/文件完整性，再以隔离测试复现网络边界；不将已通过的全量回归替代缺陷审查。
+
+- 完成网络融合完整性审查（M2-020）：再次 fetch 确认 Windows `dev@526acbb`；逐提交 range-diff、36 文件核对和主进程冲突审查未发现漏合提交或业务补丁。31 个文件与来源完全一致，其余五个差异对应 Mac 适配与历史台账；原版本、打包记录和 R1–R5 修复保留。
+- 确认上游新增缺陷 R1/P2、R2/P2：配置探测 429/503 导致业务前置失败且不尝试健康备用/失败冷却；TLS/WS 握手前的旧连接错误无地址归因，会删除并暂缓新健康缓存地址。四个隔离场景均复现，WS 场景使用真实 ws 和本机 TCP 服务；源码与 Windows 一致，并非 Mac 冲突处理漏合。复现及结果为 `.git/windows-sync-review-20260914-repro.{mjs,json,log}`，报告 `docs/windows-sync-review-20260914.zh-CN.md`。
+- 审查验证与边界：相关既有测试 58/58、差异检查通过；沿用此前桌面 2801 通过/4 跳过、网关 54/54、类型/构建和 Electron 本地烟测基线，没有重复全量验收。两项缺陷尚未修复；本轮没有修改业务代码、提交、推送、打包、部署或重启现有客户端，未使用真实账号/模型。M2-020 原实机与线路验收、M2-013 生产依赖继续保留。
+
+### 2026-09-14：网络审查 R1/R2 最小风险修复（M2-020）
+
+- 启动修复：用户授权最小化风险修复两项审查问题。沿用已复现证据，先补正确性回归；账号恢复仅作用于匿名探测，网关失败只归因当前连接选中的 IP，保持协议/权限/平台边界。原工作区差异备份为 `.git/windows-network-fixes-20260914-before.patch`，保留原 0.1.167 版本及打包台账。
+
+- 完成网络 R1/R2 最小风险修复（M2-020）：匿名探测的 429/5xx 按入口冷却并验证备用，支持 Retry-After 秒数/日期，保留业务 HTTP 不重放及 TLS/服务身份校验；共享连接选路包装保存每次连接的 IP，用于私有 TLS、公共 WS 和 HTTPS 失败归因，未知/歧义地址不推断为当前共享缓存，显式缓存失效接口原语义保持。
+- 修复回归：新增 20 项行为测试；修改前定向 30 项中 14 项失败，修改后相关 115/115。两处原网络测试补齐 DNS 选择 fixture 后断言具体失败 IP，保留新票据/重连/写请求不重放要求。全量过程中既有飞书 supervisor 用例的目录清理再次出现 ENOTEMPTY，仅在该测试 rm 中增加最多 3 次、递增 50ms 的有限重试；原业务断言保留，飞书业务未改，单项 1/1。
+- 最终验收与交付：桌面 2825 项中 2821 通过、0 失败、4 项按平台跳过，网关 54/54，TypeScript、Vite 184 modules、Electron 41.10.2 本地代理烟测 5/5、11 个变更 JavaScript 语法和差异检查通过。日志为 `.git/windows-network-fixes-20260914-*`，详情见 `docs/windows-sync-review-20260914.zh-CN.md`。新模块包含在现有打包 glob；原版本文件与 stash 逐字节一致、历史记录保留。代码/回归/记录留在工作区，未提交、推送、打包、部署或重启现有客户端；旧 DMG 不含本次修复，M2-020 真实登录/香港转发及 M2-013 生产验收仍未完成。
+
+### 2026-09-14：macOS 0.1.168 Universal DMG（M6-007）
+
+- 启动打包：用户要求最新用于发布的 Mac 包并指定版本 168。版本由 0.1.167 更新为 0.1.168，依赖不变；构建纳入 `dev@d6446c62df5bc6d6efa6f16bb6da823fd1f811fa` 的 Windows 网络融合及本轮工作区 R1/R2 修复。当前签名身份仍为 0，沿用此前明确授权的 `HAOLO_ALLOW_UNTRUSTED_MAC_DMG=1` 路径，保持双架构、版本、包内容、完整签名及 DMG 校验；保留全部历史产物，构建前差异和文件摘要保存在 `.git/mac-release-0.1.168-before*`。
+
+- 完成 M6-007 macOS 0.1.168 Universal DMG：应用版本、lockfile 根版本、包内 package.json、CFBundleVersion 和 CFBundleShortVersionString 均为 0.1.168。产物为 `release/好咯-0.1.168-universal.dmg`，大小 487973877 bytes，SHA-256 `39b549ac512a7f21aa8a1202368c63beb901756348517c37b3449b989d50b41b`，同目录提供 `.dmg.sha256`。主程序、haolo_ai 与 rg 均包含 x86_64 + arm64；旧 0.1.167 DMG 的 SHA-256 未变，其余历史产物保留。
+- M6-007 本轮验证：TypeScript、Mac 兼容和更新回归 20/20、两个 Mac 架构的 Codex 0.144.1/rg 原始运行时校验、Vite 184 modules 构建和 Universal 合并通过。ASAR 全部当前 main/renderer 文件、资源与 entitlements 校验通过；候选及最终 DMG 挂载后的版本、架构和代码身份比对通过；独立 `verify-mac-adhoc-launch --target universal` 验证 748 个代码对象，`hdiutil verify` 通过。包内 Electron Node 模式验证 0.1.168，五个网络修复模块与当前源码逐字节相同，qrcode PNG 生成成功。619 个源码/脚本/策略/版本文件在构建中哈希未变，打包前未提交的修复及测试完整保留。
+- M6-007 证据与边界：日志为 `.git/mac-release-0.1.168-{typecheck,tests,build,package-verify,dmg-verify,qr-smoke}.log`，源码摘要与制品记录为同前缀 `source.json`、`source.patch`、`artifact.json`。本轮仅更新版本与台账，沿用上一轮最终业务验收（桌面 2821 通过/4 平台跳过/0 失败，网关 54/54，Electron 本地代理 5/5），未重复全量业务测试。既有大 chunk、重复依赖和未使用的 qrcode 命令行 yargs 收集提示保留，包内 QR 库实测通过；既有 `verify:mac:update-artifact` 缺失模块未在本轮修改，以实际收尾脚本、独立包检查和原生 DMG 校验完成本次验收。沿用已授权的 ad-hoc 路径，未经 Developer ID 签名或 Apple 公证，首次打开可能需要手动允许；未安装/重启用户客户端、提交、推送、上传、部署或写生产发布记录。
+
+### 2026-09-15：0.1.168 源码提交与远端 dev 同步（M6-007，关联 M2-020）
+
+- 启动提交与推送：用户明确要求将最新代码提交到远端 dev。fetch 确认 Mac `origin/dev@f08676f` 为本地 `dev@d6446c6` 的祖先，本地两条网络融合/兼容验收提交尚未推送；将本轮 R1/R2 修复、回归、0.1.168 版本和验收台账一并归档。619 个源码/脚本/策略/版本文件及 6 个已变更测试文件与已验证构建基线一致，沿用桌面 2821 通过/4 跳过/0 失败、网关 54/54、Mac/更新 20/20 和签名/DMG 验收；本轮无业务代码调整，不重复全量测试。提交范围不含被忽略的本地安装包和日志，采用普通快进推送，不改写远端历史。

@@ -1,5 +1,6 @@
 import https from "node:https";
 import tls from "node:tls";
+import { createConnectionLookup } from "../connection-route-lookup.mjs";
 
 const ALLOWED_BINANCE_ACCOUNT_ORIGINS = new Set([
   "https://api.binance.com",
@@ -192,6 +193,7 @@ export async function performHttpsConnectRequest({
 } = {}) {
   let outerSocket;
   let innerSocket;
+  const connectionLookup = createConnectionLookup(lookup);
   try {
     outerSocket = await connectTls(tlsModule, {
       host: proxy.hostname,
@@ -200,9 +202,9 @@ export async function performHttpsConnectRequest({
       ALPNProtocols: ["http/1.1"],
       minVersion: "TLSv1.2",
       rejectUnauthorized: true,
-      ...(lookup ? { lookup, family: 4 } : {}),
+      ...(connectionLookup ? { lookup: connectionLookup, family: 4 } : {}),
     }, signal, registerSocket).catch((error) => {
-      if (!signal?.aborted) lookup?.invalidate?.(proxy.hostname);
+      if (!signal?.aborted) connectionLookup?.invalidate?.(proxy.hostname);
       throw error;
     });
     const authority = `${target.hostname}:443`;
