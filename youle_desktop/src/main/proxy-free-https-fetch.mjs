@@ -110,12 +110,18 @@ export function createProxyFreeHttpsFetch({
   maxResponseBytes = 16 * 1024 * 1024,
   requestImpl = https.request,
   lookupImpl = dns.lookup,
+  routeLookup = null,
   agent = null,
 } = {}) {
   const origins = new Set([...allowedOrigins].map((value) => new URL(String(value)).origin));
   const allowedHostnames = new Set([...origins].map((origin) => new URL(origin).hostname.toLowerCase()));
   const hostnameCandidates = resolutionCandidateMap(resolutionCandidatesByHostname, allowedHostnames);
-  const lookup = resilientLookup(hostnameCandidates, lookupImpl);
+  const ordinaryLookup = resilientLookup(hostnameCandidates, lookupImpl);
+  const lookup = routeLookup ? (hostname, options, callback) => {
+    const resolver = routeLookup.handles?.(hostname) === false ? ordinaryLookup : routeLookup;
+    resolver(hostname, options, callback);
+  } : ordinaryLookup;
+  if (routeLookup) lookup.invalidate = (hostname, address) => routeLookup.invalidate?.(hostname, address);
   const requestTimeoutMs = Math.max(500, Number(timeoutMs) || 8_000);
   const responseLimit = Math.max(1_024, Number(maxResponseBytes) || 16 * 1024 * 1024);
   const httpsAgent = agent || new https.Agent({
@@ -150,6 +156,11 @@ export function createProxyFreeHttpsFetch({
         init.signal?.removeEventListener("abort", handleAbort);
         callback(value);
       };
+      const failTransport = (error) => {
+        if (settled) return;
+        if (!init.signal?.aborted) lookup.invalidate?.(url.hostname, request?.socket?.remoteAddress);
+        finish(reject, error);
+      };
       const handleAbort = () => {
         const error = abortError(init.signal?.reason);
         request?.destroy(error);
@@ -178,8 +189,8 @@ export function createProxyFreeHttpsFetch({
           }
           chunks.push(buffer);
         });
-        message.once("error", (error) => finish(reject, error));
-        message.once("aborted", () => finish(reject, new Error("Proxy-free HTTPS response was aborted")));
+        message.once("error", failTransport);
+        message.once("aborted", () => failTransport(Object.assign(new Error("Proxy-free HTTPS response was aborted"), { code: "ECONNRESET" })));
         message.once("end", () => {
           const status = Number(message.statusCode || 0);
           if (status < 100 || status > 599) {
@@ -194,12 +205,12 @@ export function createProxyFreeHttpsFetch({
           }));
         });
       });
-      request.once("error", (error) => finish(reject, error));
+      request.once("error", failTransport);
       deadline = setTimeout(() => {
         const error = timeoutError(requestTimeoutMs);
+        failTransport(error);
         request.destroy(error);
         response?.destroy?.(error);
-        finish(reject, error);
       }, requestTimeoutMs);
       deadline.unref?.();
       init.signal?.addEventListener("abort", handleAbort, { once: true });
@@ -214,7 +225,7 @@ export function createProxyFreeHttpsFetch({
   };
 
   Object.defineProperty(fetchImpl, "close", {
-    value: () => httpsAgent.destroy?.(),
+    value: () => { httpsAgent.destroy?.(); routeLookup?.close?.(); },
     enumerable: false,
   });
   Object.defineProperty(fetchImpl, "lookup", {

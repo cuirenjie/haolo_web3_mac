@@ -15,6 +15,39 @@ function autoConfig() {
   });
 }
 
+test("a failed HTTP ping never selects direct WebSocket or resets gateway preference", async () => {
+  for (const status of [403, 429, 451, 500, 503]) {
+    const router = new BinanceNetworkRouter({
+      config: autoConfig(),
+      directFetch: async () => new Response("unavailable", { status }),
+      gatewayClient: { async marketStreamEndpoint() { return "wss://market.haolo.example/stream/futures?ticket=fresh"; } },
+      privateProxyFetch: async () => new Response("{}"),
+    });
+    assert.equal((await router.marketStreamEndpoint({ marketType: "futures" })).route, "gateway");
+    router.markDirectFailure("private", "futures");
+    await router.runBackgroundProbes();
+    assert.ok(router.snapshot()["public:futures"].gatewayPreferenceRemainingMs > 0);
+    assert.ok(router.snapshot()["private:futures"].gatewayPreferenceRemainingMs > 0);
+    assert.equal(router.snapshot()["public:futures"].healthyRemainingMs, 0);
+    assert.equal(router.snapshot()["private:futures"].healthyRemainingMs, 0);
+  }
+});
+
+test("public server errors cannot beat healthy gateway data in a race or a direct lease", async () => {
+  for (const healthyLease of [false, true]) {
+    const router = new BinanceNetworkRouter({
+      config: autoConfig(),
+      directFetch: async () => new Response("upstream unavailable", { status: 503 }),
+      gatewayClient: { async fetch() { return new Response("[[1,2]]"); } },
+    });
+    if (healthyLease) router.markDirectSuccess("public", "futures");
+    const result = await router.publicFetch("https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT");
+    assert.equal(result.status, 200);
+    assert.equal(result.headers.get("x-haolo-binance-route"), "public-gateway");
+    assert.equal(await result.text(), "[[1,2]]");
+  }
+});
+
 test("auto router uses the current client network when Binance is reachable", async () => {
   const directRequests = [];
   const gatewayRequests = [];

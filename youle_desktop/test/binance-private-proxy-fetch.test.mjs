@@ -50,10 +50,17 @@ test("default transport performs outer proxy TLS, CONNECT and inner Binance TLS"
     headers: { "x-mbx-apikey": "api-key" },
     tlsModule,
     httpsModule,
+    lookup: (host, options, callback) => callback(null, "203.0.113.8", 4),
   });
   assert.equal(result.upstream, true);
   assert.deepEqual(await result.response.json(), { ok: true });
   assert.equal(tlsCalls[0].host, "sg-a.private.haolo.example");
+  assert.equal(tlsCalls[0].servername, "sg-a.private.haolo.example");
+  assert.equal(tlsCalls[0].rejectUnauthorized, true);
+  assert.equal(typeof tlsCalls[0].lookup, "function");
+  assert.equal(tlsCalls[1].lookup, undefined, "only the outer proxy connection uses GA resolution");
+  assert.equal(tlsCalls[1].servername, "fapi.binance.com");
+  assert.equal(tlsCalls[1].rejectUnauthorized, true);
   assert.equal(tlsCalls[1].socket, outer);
   assert.match(writes[0], /^CONNECT fapi\.binance\.com:443 HTTP\/1\.1/);
   assert.match(writes[0], new RegExp(Buffer.from("haolo:single-use-permit").toString("base64")));

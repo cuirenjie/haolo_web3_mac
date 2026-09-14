@@ -84,3 +84,67 @@ test("missing external data can connect later and the deterministic evaluator co
   assert.equal(before.value, false);
   assert.equal(after.value, true);
 });
+
+test("Hyperliquid history deadline covers a stalled body without replaying its POST", async () => {
+  let calls = 0;
+  let requestSignal;
+  const adapter = createHyperliquidMarketAdapter({
+    historyTimeoutMs: 20,
+    fetchImpl: async (_url, options) => {
+      calls++;
+      requestSignal = options.signal;
+      return { ok: true, json: () => calls === 1 ? new Promise(() => {}) : Promise.resolve([]) };
+    },
+  });
+  const subscription = { marketId: "HYPERLIQUID:PERPETUAL:BTC", interval: "1m" };
+  // Keep the event loop active while the production deadline is unref'ed.
+  const alive = setTimeout(() => {}, 1_000);
+  try {
+    await assert.rejects(adapter.loadHistory(subscription), { name: "AbortError" });
+    assert.equal(calls, 1);
+    assert.equal(requestSignal.aborted, true);
+    assert.deepEqual(await adapter.loadHistory(subscription), []);
+    assert.equal(calls, 2);
+  } finally { clearTimeout(alive); }
+});
+
+test("Hyperliquid stalled handshake reconnects and ignores failed-socket events after replacement or disposal", async () => {
+  const sockets = [];
+  class FakeSocket extends EventEmitter {
+    static OPEN = 1; static CONNECTING = 0;
+    constructor(_url, options) { super(); this.options = options; this.readyState = 0; this.sent = []; sockets.push(this); }
+    send(value) { this.sent.push(JSON.parse(value)); }
+    terminate() { this.readyState = 3; this.emit("close"); }
+  }
+  const adapter = createHyperliquidMarketAdapter({ WebSocketImpl: FakeSocket, handshakeTimeoutMs: 30, reconnectBaseMs: 10 });
+  const events = [];
+  const health = [];
+  const dispose = await adapter.subscribe({ marketId: "HYPERLIQUID:PERPETUAL:BTC", interval: "1m" }, e => events.push(e), h => health.push(h));
+  try {
+    const expires = Date.now() + 500;
+    while (sockets.length < 2 && Date.now() < expires) await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(sockets.length, 2);
+    assert.equal(sockets[0].readyState, 3);
+    assert.equal(sockets[1].options.handshakeTimeout, 30);
+    sockets[1].readyState = FakeSocket.OPEN;
+    sockets[1].emit("open");
+    sockets[0].emit("open");
+    sockets[0].emit("error", new Error("late old failure"));
+    sockets[0].emit("close");
+    const candle = JSON.stringify({ channel: "candle", data: { t: 1_000, T: 59_999, o: "1", h: "2", l: "1", c: "2", v: "5" } });
+    sockets[0].emit("message", candle);
+    assert.equal(events.length, 0);
+    sockets[1].emit("message", candle);
+    assert.equal(events.length, 1);
+    await new Promise(resolve => setTimeout(resolve, 60));
+    assert.equal(sockets.length, 2, "open cleared the deadline and old close did not create another retry");
+    assert.equal(sockets[1].sent.length, 1);
+    await dispose();
+    sockets[1].emit("open");
+    sockets[1].emit("message", candle);
+    await new Promise(resolve => setTimeout(resolve, 40));
+    assert.equal(sockets.length, 2);
+    assert.equal(events.length, 1);
+    assert.equal(health.filter(h => h.status === "reconnecting").length, 1);
+  } finally { await dispose(); }
+});

@@ -186,6 +186,7 @@ export async function performHttpsConnectRequest({
   signal,
   tlsModule = tls,
   httpsModule = https,
+  lookup,
   registerSocket,
   unregisterSocket,
 } = {}) {
@@ -199,7 +200,11 @@ export async function performHttpsConnectRequest({
       ALPNProtocols: ["http/1.1"],
       minVersion: "TLSv1.2",
       rejectUnauthorized: true,
-    }, signal, registerSocket);
+      ...(lookup ? { lookup, family: 4 } : {}),
+    }, signal, registerSocket).catch((error) => {
+      if (!signal?.aborted) lookup?.invalidate?.(proxy.hostname);
+      throw error;
+    });
     const authority = `${target.hostname}:443`;
     const basic = Buffer.from(`haolo:${permitToken}`).toString("base64");
     const connectResponse = await readConnectResponse(
@@ -250,7 +255,7 @@ function permitRateLimitResponse(error) {
 }
 
 export class BinancePrivateProxyTransport {
-  constructor({ proxyUrl = "", permitProvider, usageReporter = null, requestImpl = performHttpsConnectRequest } = {}) {
+  constructor({ proxyUrl = "", permitProvider, usageReporter = null, requestImpl = performHttpsConnectRequest, lookup = null } = {}) {
     if (typeof permitProvider !== "function" || typeof requestImpl !== "function") {
       throw new TypeError("permitProvider and requestImpl are required");
     }
@@ -258,6 +263,7 @@ export class BinancePrivateProxyTransport {
     this.permitProvider = permitProvider;
     this.usageReporter = typeof usageReporter === "function" ? usageReporter : null;
     this.requestImpl = requestImpl;
+    this.lookup = lookup;
     this.activeSockets = new Set();
     this.closed = false;
   }
@@ -288,6 +294,7 @@ export class BinancePrivateProxyTransport {
       method,
       headers: requestHeaders(init.headers),
       signal: init.signal,
+      lookup: this.lookup,
       registerSocket: (socket) => socket && this.activeSockets.add(socket),
       unregisterSocket: (socket) => socket && this.activeSockets.delete(socket),
     });

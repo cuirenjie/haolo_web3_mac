@@ -22,6 +22,51 @@ class FakeWebSocket extends EventEmitter {
   terminate() { this.close(); }
 }
 
+test("stalled gateway handshake invalidates its route and reconnects with a fresh ticket", async () => {
+  FakeWebSocket.instances = [];
+  const invalidated = [];
+  let tickets = 0;
+  const lookup = () => {};
+  lookup.invalidate = (...args) => invalidated.push(args);
+  const hub = new TradingMarketDataHub({ WebSocketImpl: FakeWebSocket,
+    handshakeTimeoutMs: 250, reconnectBaseMs: 10,
+    endpointProvider: async () => ({ url: `wss://market.example/stream/futures?ticket=${++tickets}`, route: "gateway" }),
+    lookupProvider: () => lookup,
+  });
+  const sub = hub.subscribe({ marketType: "futures", streams: ["btcusdt@ticker"] }, () => {});
+  try {
+    await new Promise((r) => setTimeout(r, 320));
+    assert.ok(tickets >= 2);
+    assert.equal(FakeWebSocket.instances[0].options.handshakeTimeout, 250);
+    assert.deepEqual(invalidated[0], ["market.example", undefined]);
+    const last = FakeWebSocket.instances.at(-1);
+    assert.notEqual(last.url, FakeWebSocket.instances[0].url);
+    last.open();
+    const count = invalidated.length;
+    await sub.dispose();
+    assert.equal(invalidated.length, count, "ordinary disposal must not evict a healthy route");
+  } finally { await hub.close(); }
+});
+
+test("gateway disconnect passes the actual failed peer to route recovery", async () => {
+  FakeWebSocket.instances = [];
+  const invalidated = [];
+  const lookup = () => {};
+  lookup.invalidate = (...args) => invalidated.push(args);
+  const hub = new TradingMarketDataHub({ WebSocketImpl: FakeWebSocket,
+    endpointProvider: async () => ({ url: "wss://market.example/stream/futures?ticket=one", route: "gateway" }),
+    lookupProvider: () => lookup,
+  });
+  const sub = hub.subscribe({ marketType: "futures", streams: ["btcusdt@ticker"] }, () => {});
+  try {
+    await new Promise((r) => setImmediate(r));
+    const socket = FakeWebSocket.instances[0];
+    socket._socket = { remoteAddress: "203.0.113.5" };
+    socket.open();socket.close();
+    assert.deepEqual(invalidated, [["market.example", "203.0.113.5"]]);
+  } finally { await sub.dispose();await hub.close(); }
+});
+
 test("main-process market hub shares one ticketed socket and reference-counts streams", async () => {
   FakeWebSocket.instances = [];
   const endpoints = [];

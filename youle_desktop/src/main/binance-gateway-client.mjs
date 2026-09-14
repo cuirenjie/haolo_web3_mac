@@ -1,4 +1,5 @@
 import { withMarketTicket } from "./binance-gateway-config.mjs";
+import { withAbort } from "./system-proxy-fetch.mjs";
 
 const HAOLO_DESKTOP_CLIENT_ID = process.platform === "darwin"
   ? "macos-desktop"
@@ -39,17 +40,33 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
   if (!config || !apiClient || typeof fetchImpl !== "function") throw new TypeError("config, apiClient and fetchImpl are required");
   const authorization = async (forceRefresh = false) => `Bearer ${await apiClient.getTrustedAccessToken({ forceRefresh })}`;
   const authenticatedFetch = async (url, init = {}) => {
+    if (init.signal?.aborted) throw init.signal.reason;
+    const token = await authorization();
+    if (init.signal?.aborted) throw init.signal.reason;
     let response = await fetchImpl(url, {
       ...init,
-      headers: mergeHeaders(init.headers, await authorization()),
+      headers: mergeHeaders(init.headers, token),
     });
     if (response.status !== 401 || init.signal?.aborted) return response;
     try { await response.body?.cancel?.(); } catch {}
+    const refreshedToken = await authorization(true);
+    if (init.signal?.aborted) throw init.signal.reason;
     response = await fetchImpl(url, {
       ...init,
-      headers: mergeHeaders(init.headers, await authorization(true)),
+      headers: mergeHeaders(init.headers, refreshedToken),
     });
     return response;
+  };
+  const controlJson = async (url, init = {}) => {
+    const controller = new AbortController();
+    const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
+    const timer = setTimeout(() => controller.abort(new DOMException("Gateway control request timed out", "TimeoutError")),
+      config.gatewayControlTimeoutMs || 8_000);
+    try {
+      const response = await withAbort(authenticatedFetch(url, { ...init, signal }), signal);
+      const payload = await withAbort(response.json().catch(() => null), signal);
+      return { response, payload };
+    } finally { clearTimeout(timer); }
   };
   return Object.freeze({
     async fetch(url, init = {}) {
@@ -65,26 +82,24 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
       const key = combined ? `${normalizedMarket}${classSuffix}Combined` : `${normalizedMarket}${classSuffix}`;
       const endpoint = config.gatewayPublicWebSocket[key] || config.gatewayPublicWebSocket[combined ? `${normalizedMarket}Combined` : normalizedMarket];
       if (!endpoint || !config.ticketUrl) throw new Error("Haolo market gateway is not configured");
-      const response = await authenticatedFetch(config.ticketUrl, {
+      const { response, payload } = await controlJson(config.ticketUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",
         cache: "no-store",
       });
-      const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.ticket) throw new Error(`Haolo market ticket failed: HTTP ${response.status}`);
       return withMarketTicket(endpoint, payload.ticket);
     },
     async privateRequestPermit(targetUrl, { signal } = {}) {
       if (!config.privateProxyEnabled || !config.privatePermitUrl) throw new Error("Haolo private egress is not configured");
-      const response = await authenticatedFetch(config.privatePermitUrl, {
+      const { response, payload } = await controlJson(config.privatePermitUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(privateRouteMetadata(targetUrl)),
         cache: "no-store",
         signal,
       });
-      const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.permitToken || !payload?.proxyUrl || !payload?.permitId) {
         throw new BinancePrivatePermitError(`Haolo private egress permit failed: HTTP ${response.status}`, {
           status: response.status,
@@ -96,7 +111,7 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
     },
     async reportPrivateUsage(report = {}) {
       if (!config.privateUsageUrl) return false;
-      const response = await authenticatedFetch(config.privateUsageUrl, {
+      const { response } = await controlJson(config.privateUsageUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

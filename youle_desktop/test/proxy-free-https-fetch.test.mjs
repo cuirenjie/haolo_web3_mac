@@ -3,6 +3,59 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import { createProxyFreeHttpsFetch } from "../src/main/proxy-free-https-fetch.mjs";
 
+test("an interrupted response body invalidates only its peer and is not replayed", async () => {
+  const invalidated = [];
+  const routeLookup = () => {};
+  routeLookup.invalidate = (...args) => invalidated.push(args);
+  let calls = 0;
+  const network = createProxyFreeHttpsFetch({
+    allowedOrigins: ["https://market.haolo.example"], routeLookup, agent: { destroy() {} },
+    requestImpl(_url, _options, callback) {
+      calls += 1;
+      const request = new PassThrough();
+      request.socket = { remoteAddress: "203.0.113.8" };
+      queueMicrotask(() => {
+        const response = new PassThrough();
+        response.statusCode = 200;
+        response.rawHeaders = [];
+        callback(response);
+        response.write('{"partial":');
+        response.emit("aborted");
+        response.destroy(Object.assign(new Error("reset"), { code: "ECONNRESET" }));
+      });
+      return request;
+    },
+  });
+  await assert.rejects(network("https://market.haolo.example/fapi/v1/klines"), { code: "ECONNRESET" });
+  assert.equal(calls, 1);
+  assert.deepEqual(invalidated, [["market.haolo.example", "203.0.113.8"]]);
+});
+
+test("caller cancellation during body transfer does not invalidate a healthy edge", async () => {
+  const controller = new AbortController();
+  const invalidated = [];
+  const routeLookup = () => {};
+  routeLookup.invalidate = (...args) => invalidated.push(args);
+  const network = createProxyFreeHttpsFetch({
+    allowedOrigins: ["https://market.haolo.example"], routeLookup, agent: { destroy() {} },
+    requestImpl(_url, _options, callback) {
+      const request = new PassThrough();
+      request.socket = { remoteAddress: "203.0.113.8" };
+      queueMicrotask(() => {
+        const response = new PassThrough();
+        response.statusCode = 200;
+        response.rawHeaders = [];
+        callback(response);
+        response.write("[");
+        controller.abort(new Error("caller cancelled"));
+      });
+      return request;
+    },
+  });
+  await assert.rejects(network("https://market.haolo.example/fapi/v1/klines", { signal: controller.signal }), /caller cancelled/);
+  assert.deepEqual(invalidated, []);
+});
+
 test("proxy-free HTTPS transport connects to the approved origin without proxy environment routing", async () => {
   const observations = [];
   const agent = { destroy() {} };

@@ -146,7 +146,7 @@ test("main process routes app update requests through Electron net.fetch", async
   const source = await fs.promises.readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
   const rendererSource = await fs.promises.readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
   assert.match(source, /fetchImpl:\s*appNetworkFetch/);
-  assert.match(source, /const response = await fetchWithTimeout\(url\.toString\(\), \{[\s\S]*?cache: "no-store"/);
+  assert.match(source, /await fetchServiceJson\(haoloServiceFetch, url\.toString\(\), \{[\s\S]*?cache: "no-store"/);
   assert.match(source, /downloadFileFromMirrors\(\{[\s\S]*?urls: downloadUrls/);
   assert.match(source, /fallback_urls: fallbackUrls/);
   assert.match(source, /function appNetworkFetch[\s\S]*return net\.fetch\(url, options\)/);

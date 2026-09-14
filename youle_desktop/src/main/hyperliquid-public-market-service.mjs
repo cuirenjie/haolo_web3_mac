@@ -1,3 +1,5 @@
+import { withAbort } from "./system-proxy-fetch.mjs";
+
 const INFO_URL = "https://api.hyperliquid.xyz/info";
 const SUPPORTED_INTERVALS = new Set([
   "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w", "1M",
@@ -54,6 +56,7 @@ export class HyperliquidPublicMarketService {
     this.now = now;
     this.timeoutMs = Math.max(1_000, Number(timeoutMs) || REQUEST_TIMEOUT_MS);
     this.cache = new Map();
+    this.pending = new Map();
   }
 
   currentTimeMs() {
@@ -70,23 +73,41 @@ export class HyperliquidPublicMarketService {
       return { ok: true, status: 200, data: cloneData(cached.data), cached: true, retryAfterMs: null };
     }
     if (cached) this.cache.delete(cacheKey);
+    let pending = this.pending.get(cacheKey);
+    if (!pending) {
+      pending = this.fetchCandles(request, cacheKey, currentMs);
+      this.pending.set(cacheKey, pending);
+    }
+    try {
+      // Callers share the download, but never share mutable candle arrays.
+      return cloneData(await pending);
+    } finally {
+      if (this.pending.get(cacheKey) === pending) this.pending.delete(cacheKey);
+    }
+  }
+
+  async fetchCandles(request, cacheKey, currentMs) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(new DOMException("Hyperliquid market request timed out", "TimeoutError")), this.timeoutMs);
     timer.unref?.();
     let response;
+    let data = null;
     try {
-      response = await this.fetch(INFO_URL, {
+      response = await withAbort(this.fetch(INFO_URL, {
         method: "POST",
         cache: "no-store",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ type: "candleSnapshot", req: request }),
         signal: controller.signal,
-      });
+      }), controller.signal);
+      try {
+        data = await withAbort(response.json(), controller.signal);
+      } catch (error) {
+        if (controller.signal.aborted) throw controller.signal.reason || error;
+      }
     } finally {
       clearTimeout(timer);
     }
-    let data = null;
-    try { data = await response.json(); } catch {}
     if (!response?.ok || !Array.isArray(data)) {
       return {
         ok: false,

@@ -1,6 +1,6 @@
 import { HAOLO_GATEWAY_BASE_URL, HAOLO_GATEWAY_HOST } from "./haolo-gateway.mjs";
 import { clipboard, nativeImage, shell } from "electron/common";
-import { app, BrowserWindow, dialog, ipcMain, Menu, net, Notification, powerMonitor, safeStorage, screen, systemPreferences, Tray } from "electron/main";
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, Notification, powerMonitor, safeStorage, screen, session, systemPreferences, Tray } from "electron/main";
 import crypto from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -190,6 +190,8 @@ import {
   windowsUtf8DesktopInstruction,
 } from "./windows-utf8-guardrails.mjs";
 import { YouleApiClient, isYouleAuthExpiredError } from "./youle-api-client.mjs";
+import { createSystemProxyFetch } from "./system-proxy-fetch.mjs";
+import { createHaoloServiceFetch, fetchServiceJson } from "./haolo-service-fetch.mjs";
 import { premiumAccessState } from "./premium-entitlement.mjs";
 import { ExternalModelCredentialStore } from "./external-agent/credential-store.mjs";
 import { ExternalModelService } from "./external-agent/service.mjs";
@@ -203,7 +205,7 @@ import { resolveBinanceGatewayConfig } from "./binance-gateway-config.mjs";
 import { createBinanceGatewayClient } from "./binance-gateway-client.mjs";
 import { BinanceNetworkRouter } from "./binance-network-router.mjs";
 import { BinanceRoutePreferenceStore } from "./binance-route-preference-store.mjs";
-import { createProxyFreeHttpsFetch } from "./proxy-free-https-fetch.mjs";
+import { createBinanceGatewayNetworkFetch } from "./binance-gateway-network.mjs";
 import { TradingMarketDataHub } from "./trading-market-data-hub.mjs";
 import { HyperliquidPublicMarketService } from "./hyperliquid-public-market-service.mjs";
 import { normalizeExternalModelProviderId } from "./external-agent/provider-registry.mjs";
@@ -387,6 +389,7 @@ const publishedContinuationThreadIds = new Set();
 const internalSubagentThreads = createInternalSubagentThreadRegistry();
 let continuationTransactionsCache = null;
 let youleApiClient = null;
+let haoloServiceNetworkFetch = null;
 let githubMcpBridge = null;
 let personalContextMcpBridge = null;
 let chromeNativeBroker = null;
@@ -4269,6 +4272,7 @@ function getYouleApiClient() {
       authPath: youleAuthPath(),
       safeStorage,
       networkFetch: appNetworkFetch,
+      serviceFetch: haoloServiceFetch,
     }));
   }
   return youleApiClient;
@@ -4423,14 +4427,7 @@ function getBinanceGatewayClient() {
   if (!binanceGatewayClient) {
     const config = getBinanceGatewayConfig();
     if (!binanceGatewayNetworkFetch) {
-      const gatewayHostname = new URL(config.marketOrigin).hostname;
-      binanceGatewayNetworkFetch = createProxyFreeHttpsFetch({
-        allowedOrigins: [config.marketOrigin],
-        resolutionCandidatesByHostname: {
-          [gatewayHostname]: config.marketGatewayResolutionCandidates,
-        },
-        timeoutMs: config.gatewayRequestTimeoutMs,
-      });
+      binanceGatewayNetworkFetch = createBinanceGatewayNetworkFetch(config);
     }
     binanceGatewayClient = createBinanceGatewayClient({
       config,
@@ -4462,6 +4459,7 @@ function getBinancePrivateProxyTransport() {
       proxyUrl: config.privateProxyUrl,
       permitProvider: (url, options) => gatewayClient.privateRequestPermit(url, options),
       usageReporter: (report) => gatewayClient.reportPrivateUsage(report),
+      lookup: binanceGatewayNetworkFetch?.lookup,
     });
   }
   return binancePrivateProxyTransport;
@@ -20248,15 +20246,14 @@ async function checkAppUpdate(version) {
     if (updateTarget.clientVariant) {
       url.searchParams.set("client_variant", updateTarget.clientVariant);
     }
-    const response = await fetchWithTimeout(url.toString(), {
+    const { response, payload } = await fetchServiceJson(haoloServiceFetch, url.toString(), {
       method: "GET",
       cache: "no-store",
       headers: {
         Accept: "application/json",
         "User-Agent": updateUserAgent(currentVersion, updateTarget),
       },
-    });
-    const payload = await responseJson(response);
+    }, WINDOWS_UPDATE_TIMEOUT_MS);
     if (!response.ok) {
       throw new Error(updateErrorMessage(payload, `检查更新失败：HTTP ${response.status}`));
     }
@@ -20483,6 +20480,18 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = WINDOWS_UPDATE_TI
   } finally {
     clearTimeout(timer);
   }
+}
+
+function haoloServiceFetch(url, options = {}) {
+  if (!haoloServiceNetworkFetch) {
+    const onDiagnostic = (entry) => appendAppServerLogLine("network", JSON.stringify(entry));
+    const systemFetch = createSystemProxyFetch({
+      getSession: () => session.fromPartition("haolo-service-network", { cache: false }),
+      onDiagnostic,
+    });
+    haoloServiceNetworkFetch = createHaoloServiceFetch({ fetchImpl: systemFetch, onDiagnostic });
+  }
+  return haoloServiceNetworkFetch(url, options);
 }
 
 function appNetworkFetch(url, options = {}) {

@@ -23,6 +23,7 @@ import {
 import { fastestServiceTierForModel } from "./codex-server-request.mjs";
 import { gptReasoningEffortForTask } from "./gpt-reasoning-effort.mjs";
 import { prepareCompressedModelRequest } from "./model-request-compression.mjs";
+import { networkErrorCode } from "./system-proxy-fetch.mjs";
 
 const DEFAULT_BASE_URL = "https://haolo.com";
 const modelRequestCompressionRejectedOrigins = new Set();
@@ -148,6 +149,9 @@ export class YouleApiClient {
       || desktopClientId(options.platform || process.platform);
     this.networkFetch = typeof options.networkFetch === "function"
       ? options.networkFetch
+      : (url, init) => fetch(url, init);
+    this.serviceFetch = typeof options.serviceFetch === "function"
+      ? options.serviceFetch
       : (url, init) => fetch(url, init);
     this.baseUrl = normalizeBaseUrl(process.env.HAOLO_API_BASE_URL || DEFAULT_BASE_URL);
     this.identityLookupPath = process.env.YOULE_API_IDENTITY_LOOKUP_PATH || DEFAULT_IDENTITY_LOOKUP_PATH;
@@ -374,7 +378,7 @@ export class YouleApiClient {
 
     let response;
     try {
-      response = await requestJson(joinUrl(this.baseUrl, this.refreshPath), {
+      response = await this.requestJson(joinUrl(this.baseUrl, this.refreshPath), {
         method: "POST",
         headers,
         body,
@@ -691,7 +695,7 @@ export class YouleApiClient {
     await this.load();
     const baseUrl = normalizeBaseUrl(params.baseUrl || this.baseUrl);
     if (!baseUrl) throw new Error("请填写服务地址");
-    const response = await requestJson(joinUrl(baseUrl, this.wechatAuthConfigPath), {
+    const response = await this.requestJson(joinUrl(baseUrl, this.wechatAuthConfigPath), {
       method: "GET",
       logPath: this.logPath,
     });
@@ -704,7 +708,7 @@ export class YouleApiClient {
     if (!baseUrl) throw new Error("请填写服务地址");
     const intent = String(params.intent || "login").trim().toLowerCase() === "register" ? "register" : "login";
     const registrationToken = normalizeRegistrationToken(params);
-    const response = await requestJson(joinUrl(baseUrl, this.wechatAuthFlowsPath), {
+    const response = await this.requestJson(joinUrl(baseUrl, this.wechatAuthFlowsPath), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(compactObject({
@@ -730,7 +734,7 @@ export class YouleApiClient {
     const flowId = requiredWechatFlowId(params);
     const pollToken = requiredWechatPollToken(params);
     const pathValue = `${this.wechatAuthFlowsPath}/${encodeURIComponent(flowId)}/status?_=${Date.now()}`;
-    const response = await requestJson(joinUrl(baseUrl, pathValue), {
+    const response = await this.requestJson(joinUrl(baseUrl, pathValue), {
       method: "GET",
       headers: { "X-Wechat-Poll-Token": pollToken },
       logPath: this.logPath,
@@ -744,7 +748,7 @@ export class YouleApiClient {
     if (!baseUrl) throw new Error("请填写服务地址");
     const flowId = requiredWechatFlowId(params);
     const pollToken = requiredWechatPollToken(params);
-    const response = await requestJson(
+    const response = await this.requestJson(
       joinUrl(baseUrl, `${this.wechatAuthFlowsPath}/${encodeURIComponent(flowId)}/exchange`),
       {
         method: "POST",
@@ -797,7 +801,7 @@ export class YouleApiClient {
     const registrationToken = normalizeRegistrationToken(params);
     const wechatFlowId = normalizeWechatFlowId(params);
     const wechatPollToken = normalizeWechatPollToken(params);
-    const response = await requestJson(joinUrl(baseUrl, this.sendOtpPath), {
+    const response = await this.requestJson(joinUrl(baseUrl, this.sendOtpPath), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(compactObject({
@@ -830,7 +834,7 @@ export class YouleApiClient {
       throw new Error("请输入正确的邮箱或手机号");
     }
 
-    const response = await requestJson(joinUrl(baseUrl, this.identityLookupPath), {
+    const response = await this.requestJson(joinUrl(baseUrl, this.identityLookupPath), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(compactObject({
@@ -885,7 +889,7 @@ export class YouleApiClient {
       if (!bytes.byteLength) {
         throw new Error("澶村儚鏂囦欢鍐呭涓虹┖");
       }
-      response = await requestJson(loginUrl, {
+      response = await this.requestJson(loginUrl, {
         method: "POST",
         body: createVerifyOtpFormData({
           challengeId,
@@ -905,7 +909,7 @@ export class YouleApiClient {
         }),
       });
     } else {
-      response = await requestJson(loginUrl, {
+      response = await this.requestJson(loginUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(compactObject({
@@ -1017,7 +1021,7 @@ export class YouleApiClient {
       if (!bytes.byteLength) {
         throw new Error("头像文件内容为空");
       }
-      response = await requestJson(registerUrl, {
+      response = await this.requestJson(registerUrl, {
         method: "POST",
         body: createRegisterCompleteFormData({
           registrationToken,
@@ -1032,7 +1036,7 @@ export class YouleApiClient {
         }),
       });
     } else {
-      response = await requestJson(registerUrl, {
+      response = await this.requestJson(registerUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(compactObject({
@@ -1106,7 +1110,7 @@ export class YouleApiClient {
     }
 
     const email = normalizeEmail(params.email || params.identifier);
-    const response = await requestJson(joinUrl(baseUrl, this.inviteValidatePath), {
+    const response = await this.requestJson(joinUrl(baseUrl, this.inviteValidatePath), {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(compactObject({
@@ -1245,7 +1249,7 @@ export class YouleApiClient {
     if (canRevokeCurrentSession) {
       const refreshToken = this.refreshToken;
       try {
-        await requestJson(joinUrl(this.baseUrl, this.logoutPath), {
+        await this.requestJson(joinUrl(this.baseUrl, this.logoutPath), {
           method: "POST",
           headers: {
             ...(refreshToken ? { "content-type": "application/json" } : {}),
@@ -1298,14 +1302,14 @@ export class YouleApiClient {
       if (!bytes.byteLength) {
         throw new Error("头像文件内容为空");
       }
-      response = await requestJson(profileUrl, {
+      response = await this.requestJson(profileUrl, {
         method: "PATCH",
         headers: this.authHeaders(),
         body: createProfileFormData({ nickname, avatarStyle, avatarFile, bytes }),
         allowNonJson: true,
       }).catch((error) => {
         if (avatarStyle == null || !isProfilePatchServerError(error)) throw error;
-        return requestJson(profileUrl, {
+        return this.requestJson(profileUrl, {
           method: "PATCH",
           headers: this.authHeaders(),
           body: createProfileFormData({ nickname, avatarStyle: undefined, avatarFile, bytes }),
@@ -1317,7 +1321,7 @@ export class YouleApiClient {
         nickname: nickname || undefined,
         avatar_style: avatarStyle,
       });
-      response = await requestJson(profileUrl, {
+      response = await this.requestJson(profileUrl, {
         method: "PATCH",
         headers: { ...this.authHeaders(), "content-type": "application/json" },
         body: JSON.stringify(payload),
@@ -1325,7 +1329,7 @@ export class YouleApiClient {
       }).catch((error) => {
         if (!isProfilePatchServerError(error)) throw error;
         if (avatarStyle != null) {
-          return requestJson(profileUrl, {
+          return this.requestJson(profileUrl, {
             method: "PATCH",
             headers: { ...this.authHeaders(), "content-type": "application/json" },
             body: JSON.stringify(compactObject({ nickname: nickname || undefined })),
@@ -1334,7 +1338,7 @@ export class YouleApiClient {
             if (!isProfilePatchServerError(retryError)) throw retryError;
             const formData = new FormData();
             if (nickname) formData.append("nickname", nickname);
-            return requestJson(profileUrl, {
+            return this.requestJson(profileUrl, {
               method: "PATCH",
               headers: this.authHeaders(),
               body: formData,
@@ -1344,7 +1348,7 @@ export class YouleApiClient {
         }
         const formData = new FormData();
         if (nickname) formData.append("nickname", nickname);
-        return requestJson(profileUrl, {
+        return this.requestJson(profileUrl, {
           method: "PATCH",
           headers: this.authHeaders(),
           body: formData,
@@ -1377,14 +1381,14 @@ export class YouleApiClient {
     const headers = this.authHeaders();
     let response;
     if (this.conversationsMethod === "POST") {
-      response = await requestJson(joinUrl(this.baseUrl, this.conversationsPath), {
+      response = await this.requestJson(joinUrl(this.baseUrl, this.conversationsPath), {
         method: "POST",
         headers: { ...headers, "content-type": "application/json" },
         body: JSON.stringify({ limit, cursor }),
       });
     } else {
       const separator = this.conversationsPath.includes("?") ? "&" : "?";
-      response = await requestJson(joinUrl(this.baseUrl, `${this.conversationsPath}${separator}${query}`), {
+      response = await this.requestJson(joinUrl(this.baseUrl, `${this.conversationsPath}${separator}${query}`), {
         method: "GET",
         headers,
       });
@@ -1405,7 +1409,7 @@ export class YouleApiClient {
       limit: params.limit ?? 100,
       offset: params.offset ?? 0,
     });
-    return requestJson(joinUrl(this.baseUrl, appendQuery(this.promptFavoritesPath, query)), {
+    return this.requestJson(joinUrl(this.baseUrl, appendQuery(this.promptFavoritesPath, query)), {
       method: "GET",
       headers: this.authHeaders(),
     });
@@ -1414,7 +1418,7 @@ export class YouleApiClient {
   async createPromptFavorite(params = {}) {
     await this.load();
     this.requireAuth();
-    return requestJson(joinUrl(this.baseUrl, this.promptFavoritesPath), {
+    return this.requestJson(joinUrl(this.baseUrl, this.promptFavoritesPath), {
       method: "POST",
       headers: { ...this.authHeaders(), "content-type": "application/json" },
       body: JSON.stringify({ content: String(params.content ?? "") }),
@@ -1428,7 +1432,7 @@ export class YouleApiClient {
     if (!promptFavoriteId) {
       throw new Error("promptFavoriteId is required");
     }
-    return requestJson(joinUrl(this.baseUrl, `${this.promptFavoritesPath}/${encodeURIComponent(promptFavoriteId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.promptFavoritesPath}/${encodeURIComponent(promptFavoriteId)}`), {
       method: "PATCH",
       headers: { ...this.authHeaders(), "content-type": "application/json" },
       body: JSON.stringify({ content: String(params.content ?? "") }),
@@ -1442,7 +1446,7 @@ export class YouleApiClient {
     if (!promptFavoriteId) {
       throw new Error("promptFavoriteId is required");
     }
-    return requestJson(joinUrl(this.baseUrl, `${this.promptFavoritesPath}/${encodeURIComponent(promptFavoriteId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.promptFavoritesPath}/${encodeURIComponent(promptFavoriteId)}`), {
       method: "DELETE",
       headers: this.authHeaders(),
       allowNonJson: true,
@@ -1461,7 +1465,7 @@ export class YouleApiClient {
       muted: params.muted,
       status: params.status,
     });
-    return requestJson(joinUrl(this.baseUrl, `${this.conversationsPath}/${encodeURIComponent(conversationId)}/preferences`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.conversationsPath}/${encodeURIComponent(conversationId)}/preferences`), {
       method: "PATCH",
       headers: { ...this.authHeaders(), "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -1475,7 +1479,7 @@ export class YouleApiClient {
     if (!conversationId) {
       throw new Error("conversationId is required");
     }
-    return requestJson(joinUrl(this.baseUrl, `${this.conversationsPath}/${encodeURIComponent(conversationId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.conversationsPath}/${encodeURIComponent(conversationId)}`), {
       method: "DELETE",
       headers: this.authHeaders(),
       allowNonJson: true,
@@ -1490,7 +1494,7 @@ export class YouleApiClient {
       limit,
       type: params.type || params.channel_type,
     });
-    const response = await requestJson(joinUrl(this.baseUrl, appendQuery(this.channelsPath, query)), {
+    const response = await this.requestJson(joinUrl(this.baseUrl, appendQuery(this.channelsPath, query)), {
       method: "GET",
       headers: this.clientHeaders({ auth: true }),
     });
@@ -1514,7 +1518,7 @@ export class YouleApiClient {
           ? params.participantUserIds
           : [],
     });
-    return requestJson(joinUrl(this.baseUrl, this.channelsPath), {
+    return this.requestJson(joinUrl(this.baseUrl, this.channelsPath), {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify(payload),
@@ -1525,7 +1529,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const channelId = requiredChannelId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}`), {
       method: "GET",
       headers: this.clientHeaders({ auth: true }),
     });
@@ -1535,7 +1539,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const channelId = requiredChannelId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}`), {
       method: "PATCH",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify(compactObject({
@@ -1550,7 +1554,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const channelId = requiredChannelId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/leave`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/leave`), {
       method: "POST",
       headers: this.clientHeaders({ auth: true }),
     });
@@ -1560,7 +1564,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const channelId = requiredChannelId(params);
-    const response = await requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/participants`), {
+    const response = await this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/participants`), {
       method: "GET",
       headers: this.clientHeaders({ auth: true }),
     });
@@ -1578,7 +1582,7 @@ export class YouleApiClient {
     if (!userId) {
       throw new Error("user_id is required");
     }
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/participants`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/participants`), {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify({
@@ -1594,7 +1598,7 @@ export class YouleApiClient {
     this.requireAuth();
     const channelId = requiredChannelId(params);
     const participantId = requiredParticipantId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/participants/${encodeURIComponent(participantId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/participants/${encodeURIComponent(participantId)}`), {
       method: "PATCH",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify({
@@ -1608,7 +1612,7 @@ export class YouleApiClient {
     this.requireAuth();
     const channelId = requiredChannelId(params);
     const participantId = requiredParticipantId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/participants/${encodeURIComponent(participantId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/participants/${encodeURIComponent(participantId)}`), {
       method: "DELETE",
       headers: this.clientHeaders({ auth: true }),
     });
@@ -1622,7 +1626,7 @@ export class YouleApiClient {
       limit: params.limit ?? 50,
       before: params.before || params.before_id || params.beforeId,
     });
-    const response = await requestJson(joinUrl(this.baseUrl, appendQuery(`${this.channelsPath}/${encodeURIComponent(channelId)}/messages`, query)), {
+    const response = await this.requestJson(joinUrl(this.baseUrl, appendQuery(`${this.channelsPath}/${encodeURIComponent(channelId)}/messages`, query)), {
       method: "GET",
       headers: this.clientHeaders({ auth: true }),
     });
@@ -1637,7 +1641,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const channelId = requiredChannelId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/messages`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/messages`), {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify(compactObject({
@@ -1658,7 +1662,7 @@ export class YouleApiClient {
     if (!messageId) {
       throw new Error("message_id is required");
     }
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/agent-claims`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/agent-claims`), {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify({
@@ -1672,7 +1676,7 @@ export class YouleApiClient {
     this.requireAuth();
     const channelId = requiredChannelId(params);
     const messageId = requiredMessageId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`), {
       method: "PATCH",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify(compactObject({
@@ -1687,7 +1691,7 @@ export class YouleApiClient {
     this.requireAuth();
     const channelId = requiredChannelId(params);
     const messageId = requiredMessageId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}`), {
       method: "DELETE",
       headers: this.clientHeaders({ auth: true }),
     });
@@ -1697,7 +1701,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const channelId = requiredChannelId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/read`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.channelsPath}/${encodeURIComponent(channelId)}/read`), {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify({
@@ -1713,7 +1717,7 @@ export class YouleApiClient {
     if (!q) {
       return { data: [], raw: { items: [] } };
     }
-    const response = await requestJson(joinUrl(this.baseUrl, appendQuery(`${this.channelsPath}/users/search`, {
+    const response = await this.requestJson(joinUrl(this.baseUrl, appendQuery(`${this.channelsPath}/users/search`, {
       q,
       channel_id: params.channel_id || params.channelId,
       limit: params.limit ?? 20,
@@ -1734,7 +1738,7 @@ export class YouleApiClient {
     if (!q) {
       return { data: [], raw: { items: [] } };
     }
-    const response = await requestJson(joinUrl(this.baseUrl, appendQuery(`${this.contactsPath.replace(/\/+$/, "")}/search`, {
+    const response = await this.requestJson(joinUrl(this.baseUrl, appendQuery(`${this.contactsPath.replace(/\/+$/, "")}/search`, {
       q,
       limit: params.limit ?? 20,
     })), {
@@ -1750,7 +1754,7 @@ export class YouleApiClient {
   async listContacts(params = {}) {
     await this.load();
     this.requireAuth();
-    const response = await requestJson(joinUrl(this.baseUrl, appendQuery(this.contactsPath, {
+    const response = await this.requestJson(joinUrl(this.baseUrl, appendQuery(this.contactsPath, {
       q: params.q || params.query,
       page: params.page ?? 1,
       page_size: params.page_size ?? params.pageSize ?? 100,
@@ -1768,7 +1772,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const contactUserId = requiredContactUserId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.contactsPath.replace(/\/+$/, "")}/${encodeURIComponent(contactUserId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.contactsPath.replace(/\/+$/, "")}/${encodeURIComponent(contactUserId)}`), {
       method: "GET",
       headers: this.clientHeaders({ auth: true }),
     });
@@ -1778,7 +1782,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const contactUserId = requiredContactUserId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.contactsPath.replace(/\/+$/, "")}/${encodeURIComponent(contactUserId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.contactsPath.replace(/\/+$/, "")}/${encodeURIComponent(contactUserId)}`), {
       method: "PATCH",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify({
@@ -1791,7 +1795,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const contactUserId = requiredContactUserId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.contactsPath.replace(/\/+$/, "")}/${encodeURIComponent(contactUserId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.contactsPath.replace(/\/+$/, "")}/${encodeURIComponent(contactUserId)}`), {
       method: "DELETE",
       headers: this.clientHeaders({ auth: true }),
     });
@@ -1801,7 +1805,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const contactUserId = requiredContactUserId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.contactsPath.replace(/\/+$/, "")}/${encodeURIComponent(contactUserId)}/open-channel`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.contactsPath.replace(/\/+$/, "")}/${encodeURIComponent(contactUserId)}/open-channel`), {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify({}),
@@ -1811,7 +1815,7 @@ export class YouleApiClient {
   async listContactRequests(params = {}) {
     await this.load();
     this.requireAuth();
-    const response = await requestJson(joinUrl(this.baseUrl, appendQuery(this.contactRequestsPath, {
+    const response = await this.requestJson(joinUrl(this.baseUrl, appendQuery(this.contactRequestsPath, {
       box: params.box || "all",
       status: params.status,
       page: params.page ?? 1,
@@ -1833,7 +1837,7 @@ export class YouleApiClient {
     if (!recipientUserId) {
       throw new Error("recipient_user_id is required");
     }
-    return requestJson(joinUrl(this.baseUrl, this.contactRequestsPath), {
+    return this.requestJson(joinUrl(this.baseUrl, this.contactRequestsPath), {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify(compactObject({
@@ -1860,7 +1864,7 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const requestId = requiredContactRequestId(params);
-    return requestJson(joinUrl(this.baseUrl, `${this.contactRequestsPath.replace(/\/+$/, "")}/${encodeURIComponent(requestId)}`), {
+    return this.requestJson(joinUrl(this.baseUrl, `${this.contactRequestsPath.replace(/\/+$/, "")}/${encodeURIComponent(requestId)}`), {
       method: "DELETE",
       headers: this.clientHeaders({ auth: true }),
     });
@@ -1869,7 +1873,7 @@ export class YouleApiClient {
   async archiveHandledContactRequests(params = {}) {
     await this.load();
     this.requireAuth();
-    return requestJson(joinUrl(this.baseUrl, appendQuery(`${this.contactRequestsPath.replace(/\/+$/, "")}/archived`, {
+    return this.requestJson(joinUrl(this.baseUrl, appendQuery(`${this.contactRequestsPath.replace(/\/+$/, "")}/archived`, {
       status: params.status || "accepted,rejected,cancelled",
     })), {
       method: "DELETE",
@@ -1961,7 +1965,7 @@ export class YouleApiClient {
     if (this.consumptionHistorySyncAttempted) return false;
     this.consumptionHistorySyncAttempted = true;
     const syncPromise = (async () => {
-      const response = await requestBinary(joinUrl(this.baseUrl, appendQuery(`${this.consumptionPath}/export`, {
+      const response = await this.requestBinary(joinUrl(this.baseUrl, appendQuery(`${this.consumptionPath}/export`, {
         unit: unit === "points" || unit === "usd" ? "points" : "token",
       })), {
         method: "GET",
@@ -2013,7 +2017,7 @@ export class YouleApiClient {
     this.requireAuth();
     const unit = params.unit === "points" || params.unit === "usd" ? "points" : "token";
     const destinationPath = String(params.destinationPath || params.filePath || "").trim();
-    const response = await requestBinary(joinUrl(this.baseUrl, appendQuery(`${this.consumptionPath}/export`, {
+    const response = await this.requestBinary(joinUrl(this.baseUrl, appendQuery(`${this.consumptionPath}/export`, {
       unit,
     })), {
       method: "GET",
@@ -2348,7 +2352,7 @@ export class YouleApiClient {
       contentType,
       sizeBytes,
     });
-    const signPayload = await requestJson(joinUrl(this.baseUrl, this.uploadSignPath), {
+    const signPayload = await this.requestJson(joinUrl(this.baseUrl, this.uploadSignPath), {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify({
@@ -2388,7 +2392,7 @@ export class YouleApiClient {
       throw new Error(`attachment upload failed: HTTP ${uploadResponse.status} ${await uploadResponse.text()}`);
     }
 
-    const confirmPayload = await requestJson(joinUrl(this.baseUrl, this.uploadConfirmPath), {
+    const confirmPayload = await this.requestJson(joinUrl(this.baseUrl, this.uploadConfirmPath), {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify({
@@ -2618,7 +2622,7 @@ export class YouleApiClient {
       input_params: params,
       body,
     })));
-    const response = await requestJson(url, {
+    const response = await this.requestJson(url, {
       method: "POST",
       headers: this.clientHeaders({ auth: true, json: true }),
       body: JSON.stringify(body),
@@ -2641,7 +2645,7 @@ export class YouleApiClient {
     });
     const url = joinUrl(this.baseUrl, appendQuery(`${this.channelsPath}/events/stream`, query));
     const controller = new AbortController();
-    const fetchStream = () => fetch(url, {
+    const fetchStream = () => this.serviceFetch(url, {
       method: "GET",
       headers: stripYouleAuthRetryHeader({
         ...this.clientHeaders({ auth: true }),
@@ -2876,7 +2880,7 @@ export class YouleApiClient {
     const purpose = String(params.purpose || "material");
     const headers = this.authHeaders();
 
-    const signPayload = await requestJson(joinUrl(this.baseUrl, this.uploadSignPath), {
+    const signPayload = await this.requestJson(joinUrl(this.baseUrl, this.uploadSignPath), {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({
@@ -2900,7 +2904,7 @@ export class YouleApiClient {
       body: Buffer.from(bytes),
     });
 
-    const confirmPayload = await requestJson(joinUrl(this.baseUrl, this.uploadConfirmPath), {
+    const confirmPayload = await this.requestJson(joinUrl(this.baseUrl, this.uploadConfirmPath), {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({
@@ -2913,7 +2917,7 @@ export class YouleApiClient {
     const objectKey = confirmed?.object_key || sign.object_key;
     const confirmedSize = confirmed?.size_bytes ?? sizeBytes;
     const confirmedMime = confirmed?.content_type || contentType;
-    const materialPayload = await requestJson(joinUrl(this.baseUrl, this.materialsPath), {
+    const materialPayload = await this.requestJson(joinUrl(this.baseUrl, this.materialsPath), {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({
@@ -2955,7 +2959,7 @@ export class YouleApiClient {
   async listAuthedResource(pathValue, params = {}) {
     await this.load();
     this.requireAuth();
-    const response = await requestJson(joinUrl(this.baseUrl, appendQuery(pathValue, params)), {
+    const response = await this.requestJson(joinUrl(this.baseUrl, appendQuery(pathValue, params)), {
       method: "GET",
       headers: this.authHeaders(),
     });
@@ -3924,7 +3928,11 @@ export class YouleApiClient {
   }
 
   async requestJson(url, init = {}) {
-    return requestJson(url, { ...init, logPath: this.logPath });
+    return requestJson(url, { ...init, logPath: this.logPath, fetchImpl: this.serviceFetch });
+  }
+
+  async requestBinary(url, init = {}) {
+    return requestBinary(url, { ...init, logPath: this.logPath, fetchImpl: this.serviceFetch });
   }
 
   async load() {
@@ -4145,6 +4153,7 @@ function positiveTimeoutMs(value, fallback) {
 
 async function requestJson(url, init = {}) {
   const {
+    fetchImpl,
     allowNonJson = false,
     logPath,
     timeoutMs = REQUEST_TIMEOUT_MS,
@@ -4184,7 +4193,9 @@ async function requestJson(url, init = {}) {
       controller.abort();
     }, timeoutMs);
     logRequestPayload(method, url, fetchInit);
-    const transportRequest = await fetchModelRequest(url, fetchInit, controller.signal);
+    const transportRequest = typeof fetchImpl === "function"
+      ? { response: await fetchImpl(url, { ...fetchInit, signal: controller.signal }) }
+      : await fetchModelRequest(url, fetchInit, controller.signal);
     logModelRequestCompression(url, transportRequest.compression);
     const response = transportRequest.response;
     logApiDebug("[youle-api]", method, response.status, `${Date.now() - startedAt}ms`, url);
@@ -4240,7 +4251,7 @@ async function requestJson(url, init = {}) {
     if (error instanceof YouleHttpError) {
       throw error;
     }
-    if (error.name === "AbortError") {
+    if (error.name === "AbortError" || error.name === "TimeoutError" || timedOut) {
       if (requestSignal?.aborted && !timedOut) {
         const cancelledError = new Error("请求已取消");
         cancelledError.name = "AbortError";
@@ -4255,10 +4266,10 @@ async function requestJson(url, init = {}) {
       timeoutError.retryable = true;
       throw timeoutError;
     }
-    if (error.message === "fetch failed" || error.code || error.cause?.code) {
+    if (error.message === "fetch failed" || error.code || error.cause?.code || networkErrorCode(error)) {
       safeConsoleLog("[youle-api:error]", method, `${Date.now() - startedAt}ms`, url, error.message || String(error));
       const networkError = new Error(networkErrorMessage(url, error));
-      networkError.code = error.code || error.cause?.code || "NETWORK_ERROR";
+      networkError.code = networkErrorCode(error) || error.code || error.cause?.code || "NETWORK_ERROR";
       networkError.category = "transport";
       networkError.retryable = true;
       networkError.cause = error;
@@ -4638,6 +4649,8 @@ function httpStatusFromMachineError(error) {
 
 async function requestBinary(url, init = {}) {
   const {
+    fetchImpl = fetch,
+    signal: requestSignal,
     logPath: _logPath,
     timeoutMs = REQUEST_TIMEOUT_MS,
     destinationPath,
@@ -4663,7 +4676,8 @@ async function requestBinary(url, init = {}) {
     }
     controller = new AbortController();
     timer = setTimeout(() => controller.abort(), timeoutMs);
-    const response = await fetch(url, { ...fetchInit, signal: controller.signal });
+    const signal = requestSignal ? AbortSignal.any([requestSignal, controller.signal]) : controller.signal;
+    const response = await fetchImpl(url, { ...fetchInit, signal });
     logApiDebug("[youle-api]", method, response.status, `${Date.now() - startedAt}ms`, url);
     if (!response.ok) {
       const text = await response.text();
@@ -4728,18 +4742,30 @@ async function requestBinary(url, init = {}) {
       await fs.rm(destinationPath, { force: true }).catch(() => undefined);
     }
     if (isYouleAuthExpiredError(error) || error instanceof YouleHttpError) throw error;
-    if (error.name === "AbortError") {
+    if (requestSignal?.aborted) {
+      const cancelledError = new Error("请求已取消", { cause: error });
+      cancelledError.name = "AbortError";
+      cancelledError.code = "REQUEST_CANCELLED";
+      cancelledError.category = "cancelled";
+      cancelledError.retryable = false;
+      throw cancelledError;
+    }
+    if (error.name === "AbortError" || error.name === "TimeoutError" || controller?.signal.aborted) {
       const timeoutError = new Error("导出请求超时，请稍后重试");
       timeoutError.code = "REQUEST_TIMEOUT";
       throw timeoutError;
     }
-    const networkCode = error.cause?.code || error.code || "";
+    const networkCode = networkErrorCode(error);
     if (
       error.message === "fetch failed"
-      || ["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT"].includes(networkCode)
+      || networkCode
     ) {
       safeConsoleLog("[youle-api:error]", method, `${Date.now() - startedAt}ms`, url, error.message || String(error));
-      throw new Error(networkErrorMessage(url, error));
+      const networkError = new Error(networkErrorMessage(url, error), { cause: error });
+      networkError.code = networkCode || "NETWORK_ERROR";
+      networkError.category = "transport";
+      networkError.retryable = true;
+      throw networkError;
     }
     throw error;
   } finally {
@@ -4763,11 +4789,11 @@ function hasPayload(value) {
 
 function networkErrorMessage(url, error) {
   const target = new URL(url);
-  const code = error.code || error.cause?.code || "";
-  if (code === "ECONNREFUSED") {
+  const code = networkErrorCode(error);
+  if (code === "ECONNREFUSED" || code === "ERR_CONNECTION_REFUSED") {
     return `${target.origin} 无法连接，请确认服务地址正确或后端服务已启动`;
   }
-  if (code === "ENOTFOUND") {
+  if (code === "ENOTFOUND" || code === "ERR_NAME_NOT_RESOLVED") {
     return `${target.hostname} 无法解析，请检查服务地址`;
   }
   return `${target.origin} 请求失败，请检查服务地址和网络`;

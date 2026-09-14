@@ -18,7 +18,7 @@ test("Binance direct and Haolo gateway requests use separate network transports"
     "direct Binance requests should keep using Electron net.fetch",
   );
 
-  assert.match(source, /createProxyFreeHttpsFetch/);
+  assert.match(source, /createBinanceGatewayNetworkFetch/);
   assert.doesNotMatch(source, /function appGatewayNetworkFetch/);
   assert.match(source, /const developmentRuntime = Boolean\([\s\S]*HAOLO_DESKTOP_DEV_SERVER_URL[\s\S]*app\.isPackaged && !developmentRuntime/);
   assert.match(source, /\[binance-network\] gateway configuration/);
@@ -30,7 +30,7 @@ test("Binance direct and Haolo gateway requests use separate network transports"
     clientBlock.includes("fetchImpl: binanceGatewayNetworkFetch"),
     "gateway client must be wired to the dedicated gateway transport",
   );
-  assert.match(clientBlock, /resolutionCandidatesByHostname:[\s\S]*config\.marketGatewayResolutionCandidates/);
+  assert.match(clientBlock, /createBinanceGatewayNetworkFetch\(config\)/);
 
   const hubStart = source.indexOf("function getTradingMarketDataHub");
   const hubEnd = source.indexOf("function getBinancePrivateProxyTransport", hubStart);

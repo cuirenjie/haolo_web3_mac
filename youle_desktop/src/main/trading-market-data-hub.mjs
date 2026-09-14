@@ -32,6 +32,7 @@ export class TradingMarketDataHub {
     WebSocketImpl = WebSocket,
     reconnectBaseMs = 500,
     heartbeatMs = 20_000,
+    handshakeTimeoutMs = 8_000,
   } = {}) {
     if (typeof endpointProvider !== "function") throw new TypeError("endpointProvider is required");
     if (endpointFailureReporter != null && typeof endpointFailureReporter !== "function") {
@@ -46,6 +47,7 @@ export class TradingMarketDataHub {
     this.WebSocketImpl = WebSocketImpl;
     this.reconnectBaseMs = Math.max(10, Number(reconnectBaseMs) || 500);
     this.heartbeatMs = Math.max(1_000, Number(heartbeatMs) || 20_000);
+    this.handshakeTimeoutMs = Math.max(250, Number(handshakeTimeoutMs) || 8_000);
     // Binance limits client-to-server commands to 10 messages/second. A
     // short debounce absorbs favorite/split-pane churn into one batched
     // SUBSCRIBE/UNSUBSCRIBE frame without delaying the market feed itself.
@@ -71,6 +73,7 @@ export class TradingMarketDataHub {
         reconnectAttempt: 0,
         reconnectTimer: null,
         heartbeatTimer: null,
+        handshakeTimer: null,
         pendingCommands: [],
         commandTimer: null,
         alive: true,
@@ -174,24 +177,36 @@ export class TradingMarketDataHub {
       return;
     }
     let socket;
+    let lookup;
     try {
-      const lookup = this.lookupProvider?.(endpointContext);
+      lookup = this.lookupProvider?.(endpointContext);
       socket = new this.WebSocketImpl(endpoint, {
         perMessageDeflate: false,
         maxPayload: 1024 * 1024,
+        handshakeTimeout: this.handshakeTimeoutMs,
         ...(typeof lookup === "function" ? { family: 4, lookup } : {}),
       });
     } catch (error) {
       channel.connecting = false;
+      if (endpointContext?.route === "gateway") lookup?.invalidate?.(new URL(endpoint).hostname);
       this.reportEndpointOutcome({ ...endpointContext, outcome: "failed", connectedDurationMs: 0 });
       this.scheduleReconnect(channel, String(error?.message || "connect_failed").slice(0, 240));
       return;
     }
     channel.socket = socket;
     channel.connecting = false;
+    // Bound DNS/TCP/TLS/upgrade together; an HTTP socket timeout alone may not
+    // cover a stalled connect on every Node/Electron platform.
+    channel.handshakeTimer = setTimeout(() => {
+      if (channel.socket !== socket || this.isOpen(socket)) return;
+      try { socket.terminate(); } catch { try { socket.close(); } catch {} }
+    }, this.handshakeTimeoutMs);
+    channel.handshakeTimer.unref?.();
     let openedAt = 0;
     socket.on("open", () => {
       if (channel.socket !== socket || this.closed) return;
+      clearTimeout(channel.handshakeTimer);
+      channel.handshakeTimer = null;
       openedAt = Date.now();
       channel.reconnectAttempt = 0;
       channel.alive = true;
@@ -233,8 +248,16 @@ export class TradingMarketDataHub {
     socket.on("close", () => {
       if (channel.socket !== socket) return;
       channel.socket = null;
+      clearTimeout(channel.handshakeTimer);
+      channel.handshakeTimer = null;
       clearInterval(channel.heartbeatTimer);
       channel.heartbeatTimer = null;
+      // A reconnect must re-evaluate the edge route and obtain a new one-use
+      // ticket. Disposing a subscription clears channel.socket before close,
+      // so normal teardown cannot invalidate another subscriber's route.
+      if (endpointContext?.route === "gateway") {
+        lookup?.invalidate?.(new URL(endpoint).hostname, socket._socket?.remoteAddress);
+      }
       this.reportEndpointOutcome({
         ...endpointContext,
         outcome: "failed",
@@ -301,6 +324,7 @@ export class TradingMarketDataHub {
         if (channel.subscriptions.size) continue;
         channel.generation += 1;
         clearTimeout(channel.reconnectTimer);
+        clearTimeout(channel.handshakeTimer);
         clearInterval(channel.heartbeatTimer);
         clearTimeout(channel.commandTimer);
         channel.commandTimer = null;
@@ -336,6 +360,7 @@ export class TradingMarketDataHub {
     for (const channel of this.channels.values()) {
       channel.generation += 1;
       clearTimeout(channel.reconnectTimer);
+      clearTimeout(channel.handshakeTimer);
       clearInterval(channel.heartbeatTimer);
       clearTimeout(channel.commandTimer);
       channel.commandTimer = null;
