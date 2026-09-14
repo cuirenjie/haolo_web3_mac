@@ -9,7 +9,7 @@ const rendererSource = await readFile(new URL("../src/renderer/main.ts", import.
 test("desktop session maintenance covers startup, periodic checks, resume, and unlock", () => {
   assert.match(
     mainSource,
-    /safeStorage,\s*\n\s*networkFetch:\s*appNetworkFetch,\s*\n\s*\}\)\)/,
+    /safeStorage,\s*\n\s*networkFetch:\s*appNetworkFetch,\s*\n\s*serviceFetch:\s*haoloServiceFetch,\s*\n\s*\}\)\)/,
   );
   assert.match(mainSource, /startYouleSessionMaintenance\(\)/);
   assert.match(mainSource, /maintainYouleSession\("app-ready"\)/);
