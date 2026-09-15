@@ -2,6 +2,11 @@ import { createGatewayRouteLookup } from "./gateway-route-lookup.mjs";
 import { createProxyFreeHttpsFetch } from "./proxy-free-https-fetch.mjs";
 
 export function createBinanceGatewayNetworkFetch(config, options = {}) {
+  if (options.network && config.marketOrigin === "https://market.youle.pro") {
+    // The shared policy owns both proxy use and the GA/ordinary decision. Do not
+    // race the old mixed IP candidate list or send a proxy user directly to GA.
+    return options.network.fetch;
+  }
   const routes = [];
   // The existing Hong Kong GA forwards these two exact TLS origins to their
   // existing server. Do not require production health identities on custom hosts.

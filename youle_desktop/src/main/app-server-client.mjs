@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { ModelRequestRelay, modelRequestRelayEnabled } from "./model-request-relay.mjs";
+import { haoloRoute } from "./haolo-network-policy.mjs";
 import { HAOLO_BUILTIN_PLUGIN_IDS, syncBuiltinPluginRegistration } from "./plugin-manager.mjs";
 import {
   isolateHaoloRuntimeEnvironment,
@@ -175,6 +176,7 @@ export class AppServerClient extends EventEmitter {
     this.modelRelayFetch = typeof options.modelRelayFetch === "function"
       ? options.modelRelayFetch
       : null;
+    this.modelRelayWebSocketImpl = options.modelRelayWebSocketImpl || null;
     this.modelRequestRelays = [];
     this.modelTransport = { enabled: false, routes: [] };
     this.providerRuntime = null;
@@ -267,9 +269,8 @@ export class AppServerClient extends EventEmitter {
       command,
     });
     const modelRoutes = await this.startModelRequestRelays({
-      // GPT's Responses WebSocket transport is materially faster than HTTP in
-      // production. Keep it end-to-end and reserve the compression relay for
-      // providers (such as DeepSeek) that already use HTTP Responses.
+      // The Haolo network relay preserves Responses WebSocket frames as well as
+      // HTTP/SSE. Custom GPT origins retain their existing direct transport.
       default: { baseUrl: requestedProviderBaseUrl, relay: false },
       deepSeek: { baseUrl: requestedDeepSeekBaseUrl, relay: true },
     });
@@ -277,6 +278,7 @@ export class AppServerClient extends EventEmitter {
       ...defaultCodexConfigArgs({
         providerBaseUrl: modelRoutes.default.baseUrl,
         deepSeekProviderBaseUrl: modelRoutes.deepSeek.baseUrl,
+        defaultProviderSupportsWebsockets: !modelRoutes.default.relay || Boolean(this.modelRelayWebSocketImpl),
       }),
       "app-server",
       "--listen",
@@ -520,7 +522,8 @@ export class AppServerClient extends EventEmitter {
         ? requestedRoute
         : { baseUrl: requestedRoute, relay: true };
       const baseUrl = normalizeProviderBaseUrl(route.baseUrl);
-      if (!enabled || route.relay === false || !baseUrl) {
+      const routingRequired = Boolean(baseUrl && this.modelRelayFetch && haoloRoute(baseUrl));
+      if (!baseUrl || (!routingRequired && (!enabled || route.relay === false))) {
         result[name] = { baseUrl, relay: false };
         continue;
       }
@@ -531,6 +534,7 @@ export class AppServerClient extends EventEmitter {
           relay = new ModelRequestRelay({
             upstreamBaseUrl: baseUrl,
             fetch: this.modelRelayFetch || undefined,
+            WebSocketImpl: this.modelRelayWebSocketImpl,
           });
           relay.on("request-metrics", (metrics) => this.emitModelRelayMetrics(metrics));
           relay.on("request-error", (error) => {
@@ -542,6 +546,10 @@ export class AppServerClient extends EventEmitter {
           relaysByUpstream.set(key, relay);
           this.modelRequestRelays.push(relay);
         } catch (error) {
+          if (routingRequired) {
+            await this.stopModelRequestRelays();
+            throw Object.assign(new Error("Haolo model routing relay is unavailable"), { code: "HAOLO_MODEL_ROUTE_UNAVAILABLE", cause: error });
+          }
           this.emitLog(
             "system",
             `[model-transport] compression relay unavailable; using direct transport (${error.message})`,

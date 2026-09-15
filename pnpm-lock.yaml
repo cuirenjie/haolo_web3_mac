@@ -71,6 +71,12 @@ importers:
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
+      socks:
+        specifier: 2.8.7
+        version: 2.8.7
+      undici:
+        specifier: 6.27.0
+        version: 6.27.0
       ws:
         specifier: ^8.18.3
         version: 8.20.1
@@ -1683,6 +1689,10 @@ packages:
     resolution: {integrity: sha512-HehCEsotFqbPW9sJ8WVYB6UbmIMv7kUUORIF2Nncq4VQvBfNBLibW9YZR5dlYCSUhwcD628pRllm7n+E+YTzJw==}
     engines: {node: '>= 14'}
 
+  socks@2.8.7:
+    resolution: {integrity: sha512-HLpt+uLy/pxB+bum/9DzAgiKS8CX1EvbWxI4zlmgGCExImLdiad2iCwXT5Z4c9c3Eq8rP2318mPW2c+QbtjK8A==}
+    engines: {node: '>= 10.0.0', npm: '>= 3.0.0'}
+
   socks@2.8.9:
     resolution: {integrity: sha512-LJhUYUvItdQ0LkJTmPeaEObWXAqFyfmP85x0tch/ez9cahmhlBBLbIqDFnvBnUJGagb0JbIQrkBs1wJ+yRYpEw==}
     engines: {node: '>= 10.0.0', npm: '>= 3.0.0'}
@@ -1785,6 +1795,9 @@ packages:
   undici@7.29.0:
     resolution: {integrity: sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==}
     engines: {node: '>=20.18.1'}
+  undici@6.27.0:
+    resolution: {integrity: sha512-YmfV3YnEDzXRC5lZ2jWtWWHKGUm1zIt8AhesR1tens+HTNv+YZlN/dp6G727LOvMJ8xjP9Be7Y2Sdr96LDm+pg==}
+    engines: {node: '>=18.17'}
 
   unique-filename@4.0.0:
     resolution: {integrity: sha512-XSnEewXmQ+veP7xX2dS5Q4yZAvO40cBN2MWkJ7D/6sW4Dg6wYBNwM1Vrnz1FhH5AdeLIlUXRI9e28z1YZi71NQ==}
@@ -3645,6 +3658,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  socks@2.8.7:
+    dependencies:
+      ip-address: 10.2.0
+      smart-buffer: 4.2.0
+
   socks@2.8.9:
     dependencies:
       ip-address: 10.2.0
@@ -3754,6 +3772,7 @@ snapshots:
 
   undici@7.29.0:
     optional: true
+  undici@6.27.0: {}
 
   unique-filename@4.0.0:
     dependencies:

@@ -3,6 +3,7 @@ import http from "node:http";
 import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { WebSocketServer } from "ws";
 import {
   MODEL_REQUEST_COMPRESSION_MIN_BYTES,
   prepareCompressedModelRequest,
@@ -42,6 +43,9 @@ export class ModelRequestRelay extends EventEmitter {
     this.maxRequestBytes = positiveInteger(options.maxRequestBytes, DEFAULT_MAX_REQUEST_BYTES);
     this.compressionOptions = options.compressionOptions || {};
     this.upstreamCompressionSupported = true;
+    this.WebSocketImpl = options.WebSocketImpl || null;
+    this.webSockets = new Set();
+    this.webSocketServer = null;
     this.server = null;
     this.port = null;
     this.activeRequests = new Set();
@@ -52,6 +56,10 @@ export class ModelRequestRelay extends EventEmitter {
     const server = http.createServer((request, response) => {
       void this.handleRequest(request, response);
     });
+    if (this.WebSocketImpl) {
+      this.webSocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: this.maxRequestBytes });
+      server.on("upgrade", (request, socket, head) => this.handleWebSocket(request, socket, head));
+    }
     server.requestTimeout = 0;
     server.headersTimeout = 30_000;
     server.keepAliveTimeout = 65_000;
@@ -83,6 +91,10 @@ export class ModelRequestRelay extends EventEmitter {
     const server = this.server;
     this.server = null;
     this.port = null;
+    for (const socket of this.webSockets) socket.terminate();
+    this.webSockets.clear();
+    this.webSocketServer?.close();
+    this.webSocketServer = null;
     for (const controller of this.activeRequests) controller.abort();
     this.activeRequests.clear();
     if (!server) return;
@@ -100,7 +112,68 @@ export class ModelRequestRelay extends EventEmitter {
       upstreamPath: this.upstream.pathname,
       minCompressBytes: this.minCompressBytes,
       maxRequestBytes: this.maxRequestBytes,
+      supportsWebSockets: Boolean(this.WebSocketImpl),
     };
+  }
+
+  handleWebSocket(request, socket, head) {
+    const target = this.targetUrl(request.url);
+    if (!target || request.method !== "GET") {
+      socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+      return;
+    }
+    const url = new URL(target);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const headers = outboundHeaders(request.headers);
+    for (const name of ["sec-websocket-key", "sec-websocket-version", "sec-websocket-extensions", "sec-websocket-protocol"]) headers.delete(name);
+    let upstream;
+    try {
+      upstream = new this.WebSocketImpl(url.href, { headers: Object.fromEntries(headers),
+        perMessageDeflate: false, maxPayload: this.maxRequestBytes, handshakeTimeout: 12_000, followRedirects: false });
+    } catch {
+      socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+      return;
+    }
+    this.webSockets.add(upstream);
+    let downstream;
+    const abort = () => { upstream.terminate(); downstream?.terminate(); };
+    socket.on("error", abort);
+    socket.once("close", abort);
+    upstream.on("error", () => {
+      if (downstream) downstream.close(1011, "Model transport failed");
+      else socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+    });
+    upstream.once("unexpected-response", (_request, response) => {
+      const status = [401, 403, 404, 429].includes(response.statusCode) ? response.statusCode : 502;
+      response.resume();
+      socket.end(`HTTP/1.1 ${status} Upstream Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+      upstream.terminate();
+    });
+    upstream.once("close", (code, reason) => {
+      this.webSockets.delete(upstream);
+      if (downstream?.readyState === 1) downstream.close(validCloseCode(code), reason);
+      else if (!downstream) socket.destroy();
+    });
+    upstream.once("open", () => {
+      if (socket.destroyed || !this.webSocketServer) { upstream.terminate(); return; }
+      this.webSocketServer.handleUpgrade(request, socket, head, (client) => {
+        downstream = client;
+        this.webSockets.add(client);
+        client.on("error", abort);
+        client.once("close", (code, reason) => {
+          this.webSockets.delete(client);
+          if (upstream.readyState === 1) upstream.close(validCloseCode(code), reason);
+        });
+        const forward = (from, to) => from.on("message", (data, binary) => {
+          this.emit("websocket-frame", { direction: from === client ? "upstream" : "downstream", bytes: data.byteLength, binary });
+          if (to.readyState !== 1) return;
+          from.pause();
+          to.send(data, { binary }, (error) => { if (error) abort(); else from.resume(); });
+        });
+        forward(client, upstream);
+        forward(upstream, client);
+      });
+    });
   }
 
   localBaseUrl() {
@@ -224,6 +297,10 @@ export class ModelRequestRelay extends EventEmitter {
     }
     return target.toString();
   }
+}
+
+function validCloseCode(code) {
+  return code >= 1000 && code <= 4999 && ![1004, 1005, 1006, 1015].includes(code) ? code : 1011;
 }
 
 async function discardFetchResponse(response) {

@@ -21,6 +21,10 @@ const REQUIRED_PACKAGED_NODE_MODULES = [
   "math-intrinsics",
   "qrcode",
   "qs",
+  "undici",
+  "socks",
+  "smart-buffer",
+  "ip-address",
   "ws",
 ];
 

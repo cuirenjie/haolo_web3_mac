@@ -188,6 +188,7 @@ export async function performHttpsConnectRequest({
   tlsModule = tls,
   httpsModule = https,
   lookup,
+  connectOuter,
   registerSocket,
   unregisterSocket,
 } = {}) {
@@ -195,7 +196,7 @@ export async function performHttpsConnectRequest({
   let innerSocket;
   const connectionLookup = createConnectionLookup(lookup);
   try {
-    outerSocket = await connectTls(tlsModule, {
+    outerSocket = connectOuter ? await connectOuter(proxy.href, { signal }) : await connectTls(tlsModule, {
       host: proxy.hostname,
       port: Number(proxy.port || 443),
       servername: proxy.hostname,
@@ -207,6 +208,7 @@ export async function performHttpsConnectRequest({
       if (!signal?.aborted) connectionLookup?.invalidate?.(proxy.hostname);
       throw error;
     });
+    if (connectOuter) registerSocket?.(outerSocket);
     const authority = `${target.hostname}:443`;
     const basic = Buffer.from(`haolo:${permitToken}`).toString("base64");
     const connectResponse = await readConnectResponse(
@@ -257,7 +259,7 @@ function permitRateLimitResponse(error) {
 }
 
 export class BinancePrivateProxyTransport {
-  constructor({ proxyUrl = "", permitProvider, usageReporter = null, requestImpl = performHttpsConnectRequest, lookup = null } = {}) {
+  constructor({ proxyUrl = "", permitProvider, usageReporter = null, requestImpl = performHttpsConnectRequest, lookup = null, connectOuter = null } = {}) {
     if (typeof permitProvider !== "function" || typeof requestImpl !== "function") {
       throw new TypeError("permitProvider and requestImpl are required");
     }
@@ -266,6 +268,7 @@ export class BinancePrivateProxyTransport {
     this.usageReporter = typeof usageReporter === "function" ? usageReporter : null;
     this.requestImpl = requestImpl;
     this.lookup = lookup;
+    this.connectOuter = connectOuter;
     this.activeSockets = new Set();
     this.closed = false;
   }
@@ -297,6 +300,7 @@ export class BinancePrivateProxyTransport {
       headers: requestHeaders(init.headers),
       signal: init.signal,
       lookup: this.lookup,
+      connectOuter: this.connectOuter,
       registerSocket: (socket) => socket && this.activeSockets.add(socket),
       unregisterSocket: (socket) => socket && this.activeSockets.delete(socket),
     });

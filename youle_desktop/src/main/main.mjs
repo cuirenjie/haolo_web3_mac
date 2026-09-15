@@ -8,6 +8,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import zlib from "node:zlib";
+import WebSocket from "ws";
+import { createElectronProxyResolver, createHaoloNetworkTransport } from "./haolo-network-transport.mjs";
 import {
   AppServerClient,
   DEEPSEEK_EXECUTION_MODEL,
@@ -190,7 +192,6 @@ import {
   windowsUtf8DesktopInstruction,
 } from "./windows-utf8-guardrails.mjs";
 import { YouleApiClient, isYouleAuthExpiredError } from "./youle-api-client.mjs";
-import { createSystemProxyFetch } from "./system-proxy-fetch.mjs";
 import { createHaoloServiceFetch, fetchServiceJson } from "./haolo-service-fetch.mjs";
 import { premiumAccessState } from "./premium-entitlement.mjs";
 import { ExternalModelCredentialStore } from "./external-agent/credential-store.mjs";
@@ -390,6 +391,7 @@ const internalSubagentThreads = createInternalSubagentThreadRegistry();
 let continuationTransactionsCache = null;
 let youleApiClient = null;
 let haoloServiceNetworkFetch = null;
+let haoloNetworkTransport = null;
 let githubMcpBridge = null;
 let personalContextMcpBridge = null;
 let chromeNativeBroker = null;
@@ -3739,6 +3741,7 @@ function getClientForCwd(cwd = desktopWorkspace()) {
     authPath: youleAuthPath(),
     providerRuntimeResolver: resolveDeepSeekExecutionProviderRuntime,
     modelRelayFetch: appNetworkFetch,
+    modelRelayWebSocketImpl: getHaoloNetworkTransport().webSocketClass(WebSocket),
   });
   serverClient.__youleWorkspaceKey = key;
   serverClient.__youleWorkspaceCwd = workspace;
@@ -4427,7 +4430,7 @@ function getBinanceGatewayClient() {
   if (!binanceGatewayClient) {
     const config = getBinanceGatewayConfig();
     if (!binanceGatewayNetworkFetch) {
-      binanceGatewayNetworkFetch = createBinanceGatewayNetworkFetch(config);
+      binanceGatewayNetworkFetch = createBinanceGatewayNetworkFetch(config, { network: getHaoloNetworkTransport() });
     }
     binanceGatewayClient = createBinanceGatewayClient({
       config,
@@ -4445,6 +4448,7 @@ function getTradingMarketDataHub() {
       endpointProvider: (params) => router.marketStreamEndpoint(params),
       endpointFailureReporter: (outcome) => router.reportMarketStreamOutcome(outcome),
       lookupProvider: ({ route }) => route === "gateway" ? binanceGatewayNetworkFetch?.lookup : null,
+      WebSocketImpl: getHaoloNetworkTransport().webSocketClass(WebSocket),
     });
   }
   return tradingMarketDataHub;
@@ -4460,6 +4464,7 @@ function getBinancePrivateProxyTransport() {
       permitProvider: (url, options) => gatewayClient.privateRequestPermit(url, options),
       usageReporter: (report) => gatewayClient.reportPrivateUsage(report),
       lookup: binanceGatewayNetworkFetch?.lookup,
+      connectOuter: (url, options) => getHaoloNetworkTransport().connect(url, options),
     });
   }
   return binancePrivateProxyTransport;
@@ -6812,6 +6817,10 @@ async function restartClientAfterAuthChange() {
   appServerClientByThreadId.clear();
   appServerWorkspaceByKey.clear();
   idleStoppingAppServerKeys.clear();
+
+  haoloNetworkTransport?.close();
+  haoloNetworkTransport = null;
+  haoloServiceNetworkFetch = null;
 
   if (githubMcpBridge) {
     try {
@@ -20485,19 +20494,31 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = WINDOWS_UPDATE_TI
 function haoloServiceFetch(url, options = {}) {
   if (!haoloServiceNetworkFetch) {
     const onDiagnostic = (entry) => appendAppServerLogLine("network", JSON.stringify(entry));
-    const systemFetch = createSystemProxyFetch({
-      getSession: () => session.fromPartition("haolo-service-network", { cache: false }),
-      onDiagnostic,
-    });
-    haoloServiceNetworkFetch = createHaoloServiceFetch({ fetchImpl: systemFetch, onDiagnostic });
+    haoloServiceNetworkFetch = createHaoloServiceFetch({ fetchImpl: getHaoloNetworkTransport().fetch, onDiagnostic });
   }
   return haoloServiceNetworkFetch(url, options);
 }
 
 function appNetworkFetch(url, options = {}) {
-  if (typeof net?.fetch === "function") {
-    return net.fetch(url, options);
+  return getHaoloNetworkTransport().fetch(url, options);
+}
+
+function getHaoloNetworkTransport() {
+  if (!haoloNetworkTransport) {
+    const onDiagnostic = (entry) => appendAppServerLogLine("network", JSON.stringify(entry));
+    const getSession = () => session.fromPartition("haolo-service-network", { cache: false });
+    const fallbackFetch = nativeAppNetworkFetch;
+    haoloNetworkTransport = createHaoloNetworkTransport({
+      resolveProxy: createElectronProxyResolver({ getSession }),
+      fallbackFetch,
+      onDiagnostic,
+    });
   }
+  return haoloNetworkTransport;
+}
+
+function nativeAppNetworkFetch(url, options = {}) {
+  if (typeof net?.fetch === "function") return net.fetch(url, options);
   return fetch(url, options);
 }
 

@@ -58,6 +58,8 @@
     "lightweight-charts": "5.1.0",
     "math-intrinsics": "1.1.0",
     "qrcode": "^1.5.4",
+    "socks": "2.8.7",
+    "undici": "6.27.0",
     "ws": "^8.18.3"
   },
   "devDependencies": {
