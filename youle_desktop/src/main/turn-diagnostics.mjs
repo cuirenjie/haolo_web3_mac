@@ -105,6 +105,9 @@ export function failureDiagnosticsFromNotification(message) {
 
 export function classifyTurnFailure(detail, httpStatus = null) {
   const text = String(detail || "");
+  if (/\b(?:list_turns|list_items) is not supported yet|Task history could not be restored automatically/i.test(text)) {
+    return "thread_history_index";
+  }
   if (httpStatus === 401 || httpStatus === 403 || /unauthori[sz]ed|forbidden|authentication|auth(?:entication)? expired/i.test(text)) {
     return "authentication";
   }

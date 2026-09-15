@@ -259,6 +259,7 @@ import {
 } from "./trading-analysis/external-strategy-router.mjs";
 import { createTradingAnalysisModelProviderRegistry } from "./trading-analysis/model-provider.mjs";
 import { tradingAnalysisTurnPolicy } from "./trading-analysis-turn-policy.mjs";
+import { tradingAnalysisFailureDiagnostic } from "./trading-analysis/diagnostics.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
 import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
 import { tradingAlertsEnabled, tradingAlertsShadowMode } from "./trading-alerts/feature-flag.mjs";
@@ -14395,6 +14396,8 @@ async function invokeTradingAnalysisAppServer({
         error: completed.error || "Trading analysis model failed",
         code: completed.errorCode || "TRADING_ANALYSIS_MODEL_FAILED",
         retryable: completed.retryable === true,
+        httpStatus: completed.httpStatus,
+        category: completed.errorClass,
       };
   } catch (error) {
     console.warn("[trading-analysis] model turn failed", {
@@ -15190,8 +15193,8 @@ function tradingStrategyParamsWithReadOnlyBinanceAccount(params = {}) {
   };
 }
 
-function tradingPremiumAccessError(code, message, retryable = false) {
-  const error = new Error(message);
+function tradingPremiumAccessError(code, message, retryable = false, cause) {
+  const error = new Error(message, cause ? { cause } : undefined);
   error.code = code;
   error.retryable = retryable;
   return error;
@@ -15206,12 +15209,13 @@ async function requireFreshTradingPremiumAccess() {
   } catch (cause) {
     const causeCode = String(cause?.code || "");
     if (["HAOLO_AUTH_REQUIRED", "HAOLO_ACCOUNT_ID_REQUIRED"].includes(causeCode)) {
-      throw tradingPremiumAccessError(causeCode, "请先登录 Haolo 后再使用盘面分析");
+      throw tradingPremiumAccessError(causeCode, "请先登录 Haolo 后再使用盘面分析", false, cause);
     }
     throw tradingPremiumAccessError(
       "TRADING_ENTITLEMENT_UNAVAILABLE",
       "暂时无法验证会员权益，请稍后重试",
       true,
+      cause,
     );
   }
   const profile = refreshed?.session?.profile;
@@ -15236,17 +15240,36 @@ async function requireFreshTradingPremiumAccess() {
   );
 }
 
+function recordTradingAnalysisFailure(error, context = {}) {
+  const diagnostic = tradingAnalysisFailureDiagnostic(error, context);
+  // HAOLO-TURN-DIAGNOSTICS-BEGIN: optional trading failure recorder
+  recordTurnDiagnostic("trading.analysis.failed", diagnostic);
+  // HAOLO-TURN-DIAGNOSTICS-END: optional trading failure recorder
+  return diagnostic.diagnosticId;
+}
+
+ipcMain.handle("tradingAnalysis:recordFailure", (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  // Explicit allowlist in tradingAnalysisFailureDiagnostic: never persist
+  // renderer payloads, prompts, model text or account context wholesale.
+  return { diagnosticId: recordTradingAnalysisFailure(params.error, params) };
+});
+
 async function runTradingStrategyRequest(event, strategyId, params = {}) {
   assertExternalModelsIpcSender(event);
   try {
     await requireFreshTradingPremiumAccess();
   } catch (error) {
+    const diagnosticId = recordTradingAnalysisFailure(error, { ...params, strategyId, stage: "entitlement" });
     return {
       ok: false,
       error: {
+        diagnosticId,
         code: String(error?.code || "TRADING_ENTITLEMENT_UNAVAILABLE"),
         message: String(error?.message || "暂时无法验证会员权益，请稍后重试").slice(0, 300),
         retryable: error?.retryable === true,
+        status: error?.status,
+        category: error?.category,
       },
     };
   }
@@ -15254,6 +15277,7 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
     try {
       return await runPersonalStrategyRequest(strategyId, params);
     } catch (error) {
+      recordTradingAnalysisFailure(error, { ...params, strategyId });
       return personalStrategyErrorEnvelope(error, "TRADING_STRATEGY_ANALYSIS_FAILED");
     }
   }
@@ -15285,6 +15309,7 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
     }
     const executionParams = tradingStrategyParamsWithReadOnlyBinanceAccount(personalizedParams);
     const result = await coordinator.run(strategyId, executionParams, { signal: controller.signal });
+    if (result?.ok === false) recordTradingAnalysisFailure(result.error, { ...params, strategyId });
     if (tradingStrategyShadowMode(strategyId)) {
       if (!result?.ok || !result?.strategyResult || !result?.executionPlan) {
         const error = new Error("Strategy shadow validation did not produce the required contracts");
@@ -15295,9 +15320,11 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
     return result;
   } catch (error) {
     const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
+    const diagnosticId = recordTradingAnalysisFailure(error, { ...params, strategyId });
     return {
       ok: false,
       error: {
+        diagnosticId,
         code: cancelled
           ? "TRADING_ANALYSIS_CANCELLED"
           : String(error?.code || errors.analysisCode),
@@ -15305,6 +15332,8 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
           ? errors.analysisCancelledMessage
           : String(error?.message || errors.analysisFailureMessage).slice(0, 300),
         retryable: error?.retryable === true,
+        status: error?.status,
+        category: error?.category,
       },
     };
   } finally {
@@ -15630,12 +15659,15 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
     params,
     "A newer general market analysis replaced this request",
   );
+  let stage = "entitlement";
   try {
     await requireFreshTradingPremiumAccess();
+    stage = "preparation";
     const personalizedParams = await tradingStrategyParamsWithPersonalRisk({
       ...params,
       language: normalizeAppLanguage(params.language || appLanguage()),
     });
+    stage = "analysis";
     return await runTradingPriceActionAnalysisPipeline(
       tradingStrategyParamsWithReadOnlyBinanceAccount(personalizedParams),
       {
@@ -15646,9 +15678,11 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
     );
   } catch (error) {
     const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
+    const diagnosticId = recordTradingAnalysisFailure(error, { ...params, strategyId: "general", stage });
     return {
       ok: false,
       error: {
+        diagnosticId,
         code: cancelled
           ? "TRADING_ANALYSIS_CANCELLED"
           : String(error?.code || "TRADING_GENERAL_ANALYSIS_FAILED"),
@@ -15656,6 +15690,8 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
           ? "盘面分析已取消"
           : String(error?.message || "盘面分析失败").slice(0, 300),
         retryable: error?.retryable === true,
+        status: error?.status,
+        category: error?.category,
       },
     };
   } finally {

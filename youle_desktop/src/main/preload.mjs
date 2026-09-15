@@ -210,6 +210,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   runTradingWyckoffAnalysis: (params) => ipcRenderer.invoke("tradingAnalysis:runWyckoff", params),
   classifyTradingGeneralRequest: (params) => ipcRenderer.invoke("tradingAnalysis:classifyGeneralRequest", params),
   runTradingGeneralAnalysis: (params) => ipcRenderer.invoke("tradingAnalysis:runGeneral", params),
+  recordTradingAnalysisFailure: (params) => ipcRenderer.invoke("tradingAnalysis:recordFailure", params),
   cancelTradingAnalysis: (params = {}) => ipcRenderer.invoke("tradingAnalysis:cancel", params),
   getFinnhubMarketDataStatus: () => ipcRenderer.invoke("marketData:getFinnhubStatus"),
   searchFinnhubMarkets: (params) => ipcRenderer.invoke("marketData:searchFinnhub", params),

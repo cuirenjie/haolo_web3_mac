@@ -623,7 +623,7 @@ test("minimal row hover, selected, focus, menu, and status states share light-da
   const minimalStyles = sourceBlock(
     styles,
     "/* Codex-like conversation history:",
-    "/* Saved and in-chat execution plans",
+    "/* Saved and in-chat execution plans share one semantic palette in both themes. */",
   );
 
   assert.match(lightTokens, /--surface-hover-translucent:/);

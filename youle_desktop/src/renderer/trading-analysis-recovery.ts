@@ -1,4 +1,5 @@
 import { classifyTradingQuestionKinds } from "../main/trading-analysis/request-routing-policy.mjs";
+import { describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
 import type {
   TradingAiDrawingColorToken,
   TradingAiDrawingPatch,
@@ -164,7 +165,7 @@ export function buildRecoverableTradingAnalysis(params: {
   const lead = alignedLead(params.instruction, params.interval, evidence);
   const reason = String((params.reason as Error)?.message || params.reason || "").trim();
   const recoveryNote = reason
-    ? "指定分析增强暂时不可用，本次已自动采用本地确定性价格结构引擎；结论和画线只引用当前真实 K 线。"
+    ? `${describeTradingAnalysisFailure(params.reason).summary}，本次已自动采用本地确定性价格结构引擎；结论和画线只引用当前真实 K 线。`
     : "本次由本地确定性价格结构引擎完成。";
   const report = positionManagementRequested
     ? [

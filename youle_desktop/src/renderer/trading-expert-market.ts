@@ -131,6 +131,17 @@ import {
   buildQuestionAlignedTradingLead,
   buildRecoverableTradingAnalysis,
 } from "./trading-analysis-recovery.ts";
+import { describeTradingAnalysisFailure, settleTradingAnalysisDrawing } from "../main/trading-analysis/failure.mjs";
+
+export function recordTradingRendererFailure(error: unknown, context: Record<string, unknown>) {
+  const failure = error as Error & { code?: string; retryable?: boolean };
+  try {
+    void window.codexDesktop.recordTradingAnalysisFailure?.({
+      ...context,
+      error: { name: failure?.name, code: failure?.code, message: String(failure?.message || error), retryable: failure?.retryable },
+    }).catch(() => {});
+  } catch { /* Failure reporting must not affect analysis or cancellation. */ }
+}
 
 function activeTradingAnalysisLanguage(): AppLanguage {
   const locale = appLanguageLocale();
@@ -552,7 +563,7 @@ export function isBinanceTradFiContract(item: Pick<BinanceExchangeSymbol, "contr
 }
 interface TradingChanAnalysisResponse {
   ok?: boolean;
-  error?: { code?: string; message?: string; retryable?: boolean };
+  error?: { code?: string; message?: string; retryable?: boolean; status?: number; category?: string; diagnosticId?: string };
   analysisPlan?: {
     narrative?: string;
     report?: string;
@@ -723,7 +734,7 @@ export type TradingStrategyConversationRequest = Omit<TradingChanConversationReq
   positionManagementRequested?: boolean;
   onProgress?: (phase: string, message: string) => void;
 };
-export type TradingStrategyConversationResult = TradingOrderFlowConversationResult;
+export type TradingStrategyConversationResult = TradingOrderFlowConversationResult & Pick<TradingGeneralConversationResult, "drawingDeferred">;
 export type TradingPeriodUnit = "s" | "m" | "h" | "d" | "w" | "M" | "Y";
 type AddableTradingPeriodUnit = Extract<TradingPeriodUnit, "m" | "h" | "d" | "w" | "M" | "Y">;
 export interface TradingPeriod {
@@ -10172,6 +10183,7 @@ class TradingExpertMarketWorkspace {
       language: activeTradingAnalysisLanguage(),
       market: tradingFavoriteRecord(targetMarket),
     });
+    let failureStage = "preparation";
     try {
       let analysisCandlePool = [...targetCandles];
       const desiredCandleCount = Math.max(
@@ -10278,6 +10290,7 @@ class TradingExpertMarketWorkspace {
         "analyzing",
         `已读取左侧 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在计算${analysisName}规则、候选结构和条件价位。`,
       );
+      failureStage = "analysis";
       const response = await api({
         analysisJobId: job.analysisId,
         marketId: job.marketId,
@@ -10307,10 +10320,12 @@ class TradingExpertMarketWorkspace {
         || (!response.analysisPlan?.drawingPatch && !response.analysisPlan?.indicatorDrawingPatch)
       ) {
         const error = new Error(response?.error?.message || "盘面分析没有返回可绘制计划");
-        (error as Error & { code?: string }).code = response?.error?.code;
+        Object.assign(error, response?.error);
         throw error;
       }
+      const analysisPlan = response.analysisPlan;
       const modelName = response.model?.modelId || response.model?.providerId || "分析模型";
+      let drawingDeferred = false;
       if (request.drawingRequested !== false) {
         request.onProgress?.(
           "drawing",
@@ -10322,15 +10337,27 @@ class TradingExpertMarketWorkspace {
             request.onProgress?.("drawing", `${modelName} 正在拟人化逐笔落图。`);
           }
         };
-        if (response.analysisPlan.drawingPatch) {
-          await commitTradingAnalysisDrawingPatch(job, response.analysisPlan.drawingPatch, 0, onPhase);
-        } else if (response.analysisPlan.indicatorDrawingPatch) {
-          this.clearCurrentStrategyAnalysisDrawings(analysisTheory);
-        }
-        if (response.analysisPlan.indicatorDrawingPatch) {
-          await commitTradingIndicatorAnalysisDrawingPatch(job, response.analysisPlan.indicatorDrawingPatch);
-        }
+        failureStage = "drawing";
+        ({ drawingDeferred } = await settleTradingAnalysisDrawing({
+          isActive: () => tradingAnalysisJobs.isActive(job.analysisId),
+          onFailure: (error) => recordTradingRendererFailure(error, {
+            analysisJobId: job.analysisId, strategyId: strategyId || "general",
+            marketId: job.marketId, interval: job.interval, candleCount: analysisCandles.length,
+            modelId: modelName, stage: "drawing",
+          }),
+          commit: async () => {
+            if (analysisPlan.drawingPatch) {
+              await commitTradingAnalysisDrawingPatch(job, analysisPlan.drawingPatch, 0, onPhase);
+            } else if (analysisPlan.indicatorDrawingPatch) {
+              this.clearCurrentStrategyAnalysisDrawings(analysisTheory);
+            }
+            if (analysisPlan.indicatorDrawingPatch) {
+              await commitTradingIndicatorAnalysisDrawingPatch(job, analysisPlan.indicatorDrawingPatch);
+            }
+          },
+        }));
       }
+      failureStage = "report";
       const splitResult = await this.runSplitPaneAnalyses({
         job,
         ...(await splitSnapshotsPromise),
@@ -10374,7 +10401,9 @@ class TradingExpertMarketWorkspace {
         throw new Error("盘面分析已由用户停止");
       }
       if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
-      request.onProgress?.("complete", directResponseRequested
+      request.onProgress?.("complete", drawingDeferred
+        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary
+        : directResponseRequested
         ? request.positionManagementRequested === true
           ? `${modelName} 已按最新行情完成复核，正在直接回答本次仓位问题。`
           : `${modelName} 已按最新行情完成复核，正在直接回答本次问题；左侧原画线保持不变。`
@@ -10398,7 +10427,10 @@ class TradingExpertMarketWorkspace {
             candles: analysisCandles,
             actionPlan: response.analysisPlan.actionPlan || null,
           });
-      const primaryReport = questionLead ? `${questionLead}\n\n${responseReport}` : responseReport;
+      const drawingNote = drawingDeferred
+        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary
+        : "";
+      const primaryReport = [questionLead, responseReport, drawingNote].filter(Boolean).join("\n\n");
       const primaryNarrative = request.positionManagementRequested === true
         ? String(response.analysisPlan.narrative || responseReport || "盘面分析已完成")
         : questionLead || String(response.analysisPlan.narrative || "盘面分析已完成");
@@ -10420,13 +10452,18 @@ class TradingExpertMarketWorkspace {
         interval: job.interval,
         candleCount: analysisCandles.length,
         modelName,
+        drawingDeferred,
       };
       tradingAnalysisJobs.complete(job.analysisId);
       return result;
     } catch (error) {
-      const cancelled = !tradingAnalysisJobs.isActive(job.analysisId)
-        || /(?:用户停止|已取消|cancelled|canceled|replaced)/iu.test(String((error as Error)?.message || error));
-      const recovered = cancelled ? null : buildRecoverableTradingAnalysis({
+      const failure = describeTradingAnalysisFailure(error, { stage: failureStage, language: job.language });
+      const cancelled = !tradingAnalysisJobs.isActive(job.analysisId) || failure.cancelled;
+      recordTradingRendererFailure(error, {
+        analysisJobId: job.analysisId, strategyId: strategyId || "general",
+        marketId: job.marketId, interval: job.interval, candleCount: analysisCandles.length, stage: failureStage,
+      });
+      const recovered = cancelled || !failure.allowLocalRecovery ? null : buildRecoverableTradingAnalysis({
         analysisId: job.analysisId,
         marketId: job.marketId,
         symbol: job.symbol,
@@ -10439,19 +10476,18 @@ class TradingExpertMarketWorkspace {
       if (recovered) {
         request.onProgress?.(
           "analyzing",
-          `${analysisName}增强暂不可用，已自动切换到本地确定性价格结构分析。`,
+          `${analysisName}：${failure.summary}，已自动切换到本地确定性价格结构分析。`,
         );
         let drawingDeferred = false;
         if (request.drawingRequested !== false) {
-          try {
-            await commitTradingAnalysisDrawingPatch(
-              job,
-              recovered.drawingPatch as TradingAiDrawingPatch,
-              0,
-            );
-          } catch {
-            drawingDeferred = true;
-          }
+          ({ drawingDeferred } = await settleTradingAnalysisDrawing({
+            isActive: () => tradingAnalysisJobs.isActive(job.analysisId),
+            commit: () => commitTradingAnalysisDrawingPatch(job, recovered.drawingPatch as TradingAiDrawingPatch, 0),
+            onFailure: (drawingError) => recordTradingRendererFailure(drawingError, {
+              analysisJobId: job.analysisId, strategyId: "local-recovery",
+              marketId: job.marketId, interval: job.interval, stage: "drawing",
+            }),
+          }));
         }
         tradingAnalysisJobs.complete(job.analysisId);
         return {

@@ -172,7 +172,8 @@ test("application chrome preserves the original light gray and dark graphite sur
   assert.match(finalDarkPalette, /--app-chrome-background: #0c0d0f/);
   assert.match(styles, /\.app-titlebar\s*\{[^}]*background: var\(--app-chrome-background\)/s);
   assert.match(styles, /\.chat-list\s*\{[^}]*background: var\(--app-chrome-background\)/s);
-  assert.match(styles, /\.conversation-list-footer\s*\{[^}]*background: transparent/s);
+  // The footer shows its sidebar's themed surface, including sidebar-specific overrides.
+  assert.match(styles, /\.conversation-list-footer\s*\{[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.conversation-list-new-sticky\s*\{[^}]*background: var\(--app-chrome-background\)/s);
 });
 

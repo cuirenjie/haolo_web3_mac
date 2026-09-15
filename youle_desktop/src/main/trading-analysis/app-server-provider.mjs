@@ -35,6 +35,9 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
             providerId,
             modelId,
             retryable: result?.retryable === true,
+            status: result?.httpStatus,
+            category: result?.category,
+            requestId: request.requestId,
           },
         );
       }

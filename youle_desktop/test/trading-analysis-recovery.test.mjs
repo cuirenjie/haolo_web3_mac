@@ -16,7 +16,8 @@ const policyUrl = pathToFileURL(
 
 async function recoveryModule() {
   const source = (await readFile(recoveryPath, "utf8"))
-    .replace("../main/trading-analysis/request-routing-policy.mjs", policyUrl);
+    .replace("../main/trading-analysis/request-routing-policy.mjs", policyUrl)
+    .replace("../main/trading-analysis/failure.mjs", pathToFileURL(path.join(root, "src/main/trading-analysis/failure.mjs")).href);
   const javascript = ts.transpileModule(source, {
     compilerOptions: {
       module: ts.ModuleKind.ESNext,

@@ -757,7 +757,10 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(messagePlanBlock, /executionPlanHasStructuredTradingFields\(candidate\)/);
   assert.match(messagePlanBlock, /executionPlanHasConcreteTradingPlan\(candidate\)/);
   assert.match(renderer, /__youleExecutionPlanPresentation: "plain"/);
-  assert.match(renderer, /result\.report,\s*undefined,\s*undefined,\s*request\.positionManagementRequested === true \? "plain" : "execution-plan"/);
+  assert.equal(
+    (renderer.match(/result\.report,\s*undefined,\s*undefined,\s*request\.positionManagementRequested === true \? "plain" : "execution-plan"/g) || []).length,
+    2,
+  );
   assert.match(messagePlanBlock, /executionPlanCardTitle\([\s\S]*titleContext/);
   assert.match(messagePlanBlock, /class="message-execution-plan"/);
   assert.match(messagePlanBlock, /partitions\.candidates\.map\([\s\S]*renderExecutionPlanCardContent\(candidate\.content\)/);

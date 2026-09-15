@@ -1,5 +1,6 @@
 import "./styles.css";
 import QRCode from "qrcode";
+import { describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
 import {
   applyAppLanguage,
   appLanguageLocale,
@@ -73,6 +74,7 @@ import {
   migrateTradingExpertMarketWorkspaceStorageSession,
   renderTradingExpertMarketWorkspace,
   runTradingExpertGeneralConversation,
+  recordTradingRendererFailure,
   hasTradingExpertCurrentAnalysis,
   tradingExpertPersonalStrategyCandles,
   prepareTradingExpertMarketForExternalCapture,
@@ -1914,6 +1916,7 @@ type DesktopApi = {
     hasImageAttachment?: boolean;
     hasCurrentAnalysis?: boolean;
   }): Promise<any>;
+  recordTradingAnalysisFailure?(params: Record<string, unknown>): Promise<{ diagnosticId: string }>;
   runTradingGeneralAnalysis?(params: {
     analysisJobId?: string;
     marketId: string;
@@ -31510,18 +31513,12 @@ function stampCompletedTradingExpertTranscriptTiming(items: CodexItem[]) {
 }
 
 function isTradingAnalysisCancellation(error: unknown) {
-  const code = String((error as Error & { code?: string })?.code || "").trim().toUpperCase();
-  const message = errorMessage(error);
-  return code === "TRADING_ANALYSIS_CANCELLED"
-    || /(?:用户停止|已取消|cancelled|canceled|replaced)/iu.test(message);
+  return describeTradingAnalysisFailure(error).cancelled;
 }
 
-function buildTradingAnalysisAvailabilityReport(instruction: string, _technicalReason: string) {
-  const question = normalizeTradingRoutingText(instruction).slice(0, 600) || "当前盘面问题";
-  return [
-    `关于“${question}”：当前无法取得至少两根可核验的实时 K 线，因此现在不能负责任地给出多空、入场价或目标位。`,
-    "我没有用旧行情或臆测数字替代实时盘面。目标行情或连接恢复后，沿用同一问题即可重新读取指定交易对并重新计算。",
-  ].join("\n\n");
+function buildTradingAnalysisAvailabilityReport(_instruction: string, error: unknown) {
+  const failure = describeTradingAnalysisFailure(error, { language: appLanguageLocale() === "en-US" ? "en" : "zh-CN" });
+  return failure.summary;
 }
 
 async function runTradingGeneralChartRequest(
@@ -31570,7 +31567,9 @@ async function runTradingGeneralChartRequest(
     });
     updateProgress(
       "complete",
-      `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的通用盘面分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
+      result.drawingDeferred
+        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: appLanguageLocale() === "en-US" ? "en" : "zh-CN" }).summary
+        : `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的通用盘面分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
     const reportItem = appendTradingExpertReport(
@@ -31582,13 +31581,13 @@ async function runTradingGeneralChartRequest(
     );
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
-    const message = errorMessage(error);
+    recordTradingRendererFailure(error, { analysisJobId: analysisId, strategyId: "general", stage: "analysis" });
     if (isTradingAnalysisCancellation(error)) {
       updateProgress("complete", "已按你的要求停止本次盘面分析。");
       await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
     } else {
-      const report = buildTradingAnalysisAvailabilityReport(request.instruction, message);
-      updateProgress("complete", "已完成盘面数据可用性检查，并给出与当前可验证信息匹配的回答。");
+      const report = buildTradingAnalysisAvailabilityReport(request.instruction, error);
+      updateProgress("error", report);
       clearTradingExpertThinkingState(targetThreadId());
       const reportItem = appendTradingExpertReport(
         targetThreadId(),
@@ -31657,7 +31656,9 @@ async function runTradingStrategyChartRequest(
     });
     updateProgress(
       strategy.ui.completionPhase,
-      `${result.modelName} 已完成 ${result.symbol} ${strategy.ui.completionMetric(result)}${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
+      result.drawingDeferred
+        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: appLanguageLocale() === "en-US" ? "en" : "zh-CN" }).summary
+        : `${result.modelName} 已完成 ${result.symbol} ${strategy.ui.completionMetric(result)}${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
     );
     clearTradingExpertThinkingState(targetThreadId());
     const reportItem = appendTradingExpertReport(
@@ -31669,10 +31670,16 @@ async function runTradingStrategyChartRequest(
     );
     await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
   } catch (error) {
-    const strategyMessage = errorMessage(error);
+    recordTradingRendererFailure(error, { analysisJobId: analysisId, strategyId: strategy.id, stage: "analysis" });
     if (isTradingAnalysisCancellation(error)) {
       updateProgress("complete", "已按你的要求停止本次盘面分析。");
       await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+    } else if (!describeTradingAnalysisFailure(error).allowLocalRecovery) {
+      const report = buildTradingAnalysisAvailabilityReport(request.instruction, error);
+      updateProgress("error", report);
+      clearTradingExpertThinkingState(targetThreadId());
+      const reportItem = appendTradingExpertReport(targetThreadId(), report, undefined, undefined, "plain");
+      await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
     } else {
       updateProgress(
         "analyzing",
@@ -31697,7 +31704,9 @@ async function runTradingStrategyChartRequest(
         });
         updateProgress(
           "complete",
-          `${recovered.modelName} 已完成 ${recovered.symbol} ${recovered.candleCount} 根 K 线的兼容分析${request.drawingRequested ? "与安全绘图" : ""}。`,
+          recovered.drawingDeferred
+            ? describeTradingAnalysisFailure(null, { stage: "drawing", language: appLanguageLocale() === "en-US" ? "en" : "zh-CN" }).summary
+            : `${recovered.modelName} 已完成 ${recovered.symbol} ${recovered.candleCount} 根 K 线的兼容分析${request.drawingRequested ? "与安全绘图" : ""}。`,
         );
         clearTradingExpertThinkingState(targetThreadId());
         const reportItem = appendTradingExpertReport(
@@ -31709,11 +31718,17 @@ async function runTradingStrategyChartRequest(
         );
         await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
       } catch (recoveryError) {
+        recordTradingRendererFailure(recoveryError, { analysisJobId: analysisId, strategyId: "general-recovery", stage: "analysis" });
+        if (isTradingAnalysisCancellation(recoveryError)) {
+          updateProgress("complete", "已按你的要求停止本次盘面分析。");
+          await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+          return;
+        }
         const report = buildTradingAnalysisAvailabilityReport(
           request.instruction,
-          `${strategyMessage}；${errorMessage(recoveryError)}`,
+          recoveryError,
         );
-        updateProgress("complete", "已完成盘面数据可用性检查，并给出与当前可验证信息匹配的回答。");
+        updateProgress("error", report);
         clearTradingExpertThinkingState(targetThreadId());
         const reportItem = appendTradingExpertReport(
           targetThreadId(),
