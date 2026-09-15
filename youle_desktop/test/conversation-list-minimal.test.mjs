@@ -616,7 +616,11 @@ test("minimal row hover, selected, focus, menu, and status states share light-da
   const styles = await stylesSource;
   const lightTokens = sourceBlock(styles, ":root {", 'html[data-font-size="small"]');
   const darkTokens = sourceBlock(styles, 'html[data-theme="dark"] {', "* {");
-  const minimalStyles = styles.slice(styles.indexOf("/* Codex-like conversation history:"));
+  const minimalStyles = sourceBlock(
+    styles,
+    "/* Codex-like conversation history:",
+    "/* Saved and in-chat execution plans share one semantic palette in both themes. */",
+  );
 
   assert.match(lightTokens, /--surface-hover-translucent:/);
   assert.match(lightTokens, /--surface-active-translucent:/);

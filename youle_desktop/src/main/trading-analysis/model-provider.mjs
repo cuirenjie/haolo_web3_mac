@@ -9,6 +9,9 @@ export class TradingAnalysisModelProviderError extends Error {
     this.providerId = String(options.providerId || "");
     this.modelId = String(options.modelId || "");
     this.retryable = options.retryable === true;
+    this.status = Number(options.status) || null;
+    this.category = String(options.category || "");
+    this.requestId = String(options.requestId || "");
   }
 }
 function requiredText(value, field, maximum = 120) {
@@ -100,6 +103,9 @@ export function createTradingAnalysisModelProviderRegistry(providers = []) {
             providerId: provider.providerId,
             modelId: provider.modelId,
             retryable: error?.retryable === true,
+            status: error?.status,
+            category: error?.category,
+            requestId: normalizedRequest.requestId,
           },
         );
       }

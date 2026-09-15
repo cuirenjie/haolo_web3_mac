@@ -111,6 +111,7 @@ export async function runValidatedTradingModelReview({
   let validationError = null;
   let escalationReason = null;
   let totalLatencyMs = 0;
+  let lastModelId = null;
 
   for (const effort of REVIEW_EFFORTS) {
     if (effort !== "medium") {
@@ -125,11 +126,40 @@ export async function runValidatedTradingModelReview({
         ),
       };
     }
-    const modelResponse = await modelRegistry.analyze(providerId, currentRequest, {
-      signal,
-      reasoningEffort: effort,
-    });
+    let modelResponse;
+    const attemptStartedAt = Date.now();
+    try {
+      modelResponse = await modelRegistry.analyze(providerId, currentRequest, {
+        signal,
+        reasoningEffort: effort,
+      });
+    } catch (error) {
+      // An empty successful turn is invalid model output, just like malformed
+      // JSON. The provider rejects it before validateResponse can see it.
+      // Transport/auth/cancellation errors retain their own recovery policy.
+      if (signal?.aborted || error?.code !== "TRADING_ANALYSIS_MODEL_EMPTY_RESPONSE") {
+        if (error && typeof error === "object" && Object.isExtensible(error)) {
+          error.attempts = Object.freeze([...attempts, Object.freeze({
+            effort, requestId: currentRequest.requestId, valid: false,
+            code: error.code || "TRADING_ANALYSIS_MODEL_FAILED",
+          })]);
+        }
+        throw error;
+      }
+      validationError = error;
+      lastModelId = error.modelId || lastModelId;
+      const latencyMs = Math.max(0, Date.now() - attemptStartedAt);
+      totalLatencyMs += latencyMs;
+      previousResponse = "";
+      escalationReason ||= "response_validation_failed:empty_response";
+      attempts.push(Object.freeze({
+        effort, requestId: currentRequest.requestId, valid: false,
+        latencyMs, code: error.code, error: "Model response was empty",
+      }));
+      continue;
+    }
     totalLatencyMs += Math.max(0, Number(modelResponse.latencyMs) || 0);
+    lastModelId = modelResponse.modelId || lastModelId;
     previousResponse = modelResponse.text;
     try {
       const review = validateResponse(modelResponse.text);
@@ -167,6 +197,9 @@ export async function runValidatedTradingModelReview({
 
   const error = new TypeError(`Trading model review failed validation after medium/high/max: ${validationError?.message || "invalid response"}`);
   error.code = "TRADING_ANALYSIS_MODEL_REVIEW_INVALID";
+  error.providerId = providerId;
+  error.modelId = lastModelId;
+  error.requestId = currentRequest.requestId;
   error.attempts = Object.freeze(attempts);
   throw error;
 }

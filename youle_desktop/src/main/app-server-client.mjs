@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { ModelRequestRelay, modelRequestRelayEnabled } from "./model-request-relay.mjs";
 import { haoloRoute } from "./haolo-network-policy.mjs";
+import { requestWithThreadHistoryRecovery } from "./thread-history-recovery.mjs";
 import { HAOLO_BUILTIN_PLUGIN_IDS, syncBuiltinPluginRegistration } from "./plugin-manager.mjs";
 import {
   isolateHaoloRuntimeEnvironment,
@@ -442,6 +443,17 @@ export class AppServerClient extends EventEmitter {
   }
 
   request(method, params = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+    return requestWithThreadHistoryRecovery({
+      request: (rpcMethod, rpcParams, rpcTimeout) => this.requestRaw(rpcMethod, rpcParams, rpcTimeout),
+      method,
+      params,
+      timeoutMs,
+      codexHome: this.codexHome,
+      onRecovery: (event) => this.emitLog("system", `[thread-history-recovery] ${JSON.stringify(event)}`),
+    });
+  }
+
+  requestRaw(method, params = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error("app-server websocket is not open"));
     }
