@@ -13,12 +13,12 @@ test("both production gateways retain a premium route when all domain lookups ha
   const network = createBinanceGatewayNetworkFetch(config, { routeOptions: {
     lookupImpl() {}, timeoutMs: 100,
     probeImpl: async ({ address }) => {
-      if (address !== "47.75.125.102") throw new Error("unavailable route");
+      if (address !== "47.238.144.244") throw new Error("unavailable route");
     },
   } });
   try {
-    assert.equal(await resolveWith(network, "market.youle.pro"), "47.75.125.102");
-    assert.equal(await resolveWith(network, "sg-a.binance-egress.waduo.com"), "47.75.125.102");
+    assert.equal(await resolveWith(network, "market.youle.pro"), "47.238.144.244");
+    assert.equal(await resolveWith(network, "sg-a.binance-egress.waduo.com"), "47.238.144.244");
   } finally { network.close(); }
 });
 
