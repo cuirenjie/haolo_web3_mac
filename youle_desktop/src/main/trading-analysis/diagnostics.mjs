@@ -39,7 +39,8 @@ export function tradingAnalysisFailureDiagnostic(error, context = {}) {
     retryable: error?.retryable === true,
     candleCount: Math.max(0, Math.min(100_000, Number(context.candleCount ?? context.candles?.length) || 0)),
     attempts: attempts.map((attempt) => ({
-      effort: ["medium", "high", "max"].includes(attempt.effort) ? attempt.effort : null,
+      effort: ["medium", "high", "max", "xhigh"].includes(attempt.effort) ? attempt.effort : null,
+      model: identifier(attempt.modelId),
       valid: attempt.valid === true,
       requestHash: diagnosticHash(attempt.requestId),
       validationRule: validationRule(attempt.error),

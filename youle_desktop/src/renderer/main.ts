@@ -22138,7 +22138,7 @@ function handleNotification(message: JsonRpcMessage) {
       }
       // HAOLO-CONTEXT-RECOVERY-PATCH-END
       let completedTurnFailureMessage = completedTurnFailed
-        ? formatTurnFailureMessage(completedTurnFailureReason)
+        ? formatTurnFailureMessage(completedTurnFailureReason, automaticRecovery)
         : null;
       // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable completed-turn display ID
       const completedTurnDiagnosticId = diagnosticIdForTurn(threadId, completedTurnId, message);
@@ -22308,7 +22308,7 @@ function handleNotification(message: JsonRpcMessage) {
           !duplicateContextRecoveryTerminal
         ) {
           if (!contextWindowExhausted) clearContextWindowRecoveryReplay(threadId, failedTurnId);
-          let failureNotice = formatTurnFailureMessage(reason);
+          let failureNotice = formatTurnFailureMessage(reason, automaticRecovery);
           // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable failed-turn display ID
           failureNotice = withDiagnosticId(failureNotice, failedTurnDiagnosticId);
           // HAOLO-TURN-DIAGNOSTICS-END: removable failed-turn display ID
@@ -22711,7 +22711,10 @@ function markThreadContextWindowExhausted(threadId: string, turnId?: string | nu
   context.usageTurnId = firstString(turnId) || context.usageTurnId;
 }
 
-function formatTurnFailureMessage(reason: string | null | undefined) {
+function formatTurnFailureMessage(reason: string | null | undefined, recovery?: Record<string, unknown> | null) {
+  if (recovery?.status === "exhausted") {
+    return "已尝试 GPT-5.5 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。";
+  }
   if (isContextWindowExhaustedError(reason)) {
     return "当前会话的上下文已满，自动整理与恢复未能完成。请重试；若仍失败，请拆分消息或新建任务。";
   }
@@ -22725,14 +22728,14 @@ function formatTurnFailureMessage(reason: string | null | undefined) {
   if (/(?:concurrency limit|too many concurrent|maximum concurrent|并发(?:限制|上限))/i.test(detail)) {
     return "模型服务当前并发已满，请稍后重试。";
   }
-  if (/(?:\b429\b|rate limit|too many requests|限流|频率限制)/i.test(detail)) {
+  if (/(?:\b429\b|rate limit|too many requests|at capacity|overloaded|slow_down|限流|频率限制|上游过载)/i.test(detail)) {
     return "模型服务请求过于频繁，请稍后重试。";
   }
   if (/(?:\b401\b|\b403\b|unauthori[sz]ed|forbidden|authentication|auth(?:entication)? expired)/i.test(detail)) {
     return "模型服务身份验证失败，请重新登录后重试。";
   }
   if (/(?:responseStreamDisconnected|stream disconnected|stream closed|connection reset|broken pipe|unexpected eof|websocket.{0,20}(?:closed|disconnect))/i.test(detail)) {
-    return "模型响应流意外中断，系统正在自动恢复当前任务。";
+    return "模型响应流意外中断，请稍后重试。";
   }
   if (/(?:timed?\s*out|timeout|超时)/i.test(detail)) {
     return "等待模型响应超时，本轮已停止。请重试。";
@@ -22759,8 +22762,10 @@ function announceAutomaticTurnRecovery(
 ) {
   const status = firstString(meta?.status)?.toLowerCase();
   const chainId = firstString(meta?.chainId) || threadId;
-  const noticeKind = status === "cooling_down"
-    ? "cooling_down"
+  const noticeKind = status === "exhausted"
+    ? "exhausted"
+    : status === "cooling_down"
+      ? "cooling_down"
     : ["scheduled", "starting"].includes(status || "")
       ? "scheduled"
       : null;
@@ -22768,15 +22773,17 @@ function announceAutomaticTurnRecovery(
   const noticeKey = `${chainId}:${noticeKind}`;
   if (automaticTurnRecoveryNoticeKeys.has(noticeKey)) return;
   automaticTurnRecoveryNoticeKeys.add(noticeKey);
-  if (noticeKind === "cooling_down") {
+  if (noticeKind === "exhausted") {
+    appendAgentNotice(threadId, "自动恢复未能启动。任务记录已保留，请检查账户和服务状态后重试。");
+  } else if (noticeKind === "cooling_down") {
     appendAgentNotice(
       threadId,
-      "连接仍不稳定，任务已进入低频自动恢复；系统会继续重试，并在每次续跑前核对子 Agent、文件和已执行操作，避免重复副作用。",
+      "备用模型暂时不可用，稍后将再次使用 GPT-5.5 最高推理模式继续当前任务。",
     );
   } else {
     appendAgentNotice(
       threadId,
-      "检测到连接波动，正在自动恢复当前任务；系统会先核对子 Agent 和已执行操作，再继续未完成部分。",
+      "模型执行异常，正在切换到 GPT-5.5 最高推理模式，保留当前任务进度继续处理。",
     );
   }
 }

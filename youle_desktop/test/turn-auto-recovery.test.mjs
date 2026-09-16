@@ -86,7 +86,7 @@ test("three-agent disconnect recovery starts one deduplicated continuation with 
   assert.equal(events.some((event) => event.event === "started" && event.turnId === "recovery-turn-1"), true);
 });
 
-test("repeated no-progress disconnects enter low-frequency recovery instead of abandoning the task", async () => {
+test("repeated failures cool down and stop after three model recovery attempts", async () => {
   const timers = fakeTimers();
   let startCount = 0;
   const coordinator = new TurnAutoRecoveryCoordinator({
@@ -117,8 +117,8 @@ test("repeated no-progress disconnects enter low-frequency recovery instead of a
   await drainMicrotasks();
 
   const fourth = coordinator.handleTerminalFailure(disconnect("turn-4"));
-  assert.equal(fourth.status, "cooling_down");
-  assert.equal(timers.pending().length, 1);
+  assert.equal(fourth.status, "exhausted");
+  assert.equal(timers.pending().length, 0);
   assert.equal(startCount, 3);
 });
 
@@ -138,6 +138,65 @@ test("durable progress resets the no-progress backoff and a user turn cancels pe
   assert.equal(afterProgress.delayMs, 10);
   coordinator.noteUserTurn("root-thread");
   assert.equal(timers.pending().length, 0);
+});
+
+test("overload and generic failed turns recover but hard failures override transient labels", () => {
+  assert.equal(isRecoverableAutomaticTurnFailure({ errorClass: "overloaded", status: "failed", detail: "Selected model is at capacity" }), true);
+  assert.equal(isRecoverableAutomaticTurnFailure({ errorClass: "unknown", status: "failed" }), true);
+  assert.equal(isRecoverableAutomaticTurnFailure({ errorClass: "stream_disconnected", detail: "INVALID_API_KEY", status: "failed" }), false);
+});
+
+test("late terminals, child activity, cancellation and a new user turn cannot revive old recovery", async () => {
+  const timers = fakeTimers();
+  const events = [];
+  let finishStart, activeCheck;
+  const coordinator = new TurnAutoRecoveryCoordinator({
+    setTimer: timers.setTimer, clearTimer: timers.clearTimer,
+    startRecovery: ({ isCurrent }) => { activeCheck = isCurrent; return new Promise((resolve) => { finishStart = resolve; }); },
+    onEvent: (event) => events.push(event),
+  });
+  coordinator.noteUserTurn("root-thread");
+  assert.equal(coordinator.handleTerminalFailure(disconnect("old-turn")).status, "ignored");
+  coordinator.noteTurnStarted("root-thread", "current-turn");
+  coordinator.registerChild("root-thread", "child");
+  coordinator.noteTurnStarted("child", "child-turn");
+  coordinator.noteSuccessfulTurn("child", "child-turn");
+  assert.equal(coordinator.handleTerminalFailure(disconnect("old-turn")).status, "ignored");
+  const decision = coordinator.handleTerminalFailure(disconnect("current-turn"));
+  assert.equal(decision.status, "scheduled");
+  assert.equal(decision.modelId, "gpt-5.5");
+  assert.equal(decision.reasoningEffort, "xhigh");
+  timers.runNext();
+  await drainMicrotasks();
+  assert.equal(activeCheck(), true);
+  coordinator.cancel("root-thread");
+  assert.equal(activeCheck(), false);
+  finishStart({ turn: { id: "late-recovery" } });
+  await drainMicrotasks();
+  assert.equal(events.some((event) => event.event === "started"), false);
+  assert.equal(coordinator.handleTerminalFailure(disconnect("late-recovery")).status, "ignored");
+  coordinator.noteUserTurn("root-thread");
+  coordinator.noteTurnStarted("root-thread", "new-turn");
+  coordinator.noteSuccessfulTurn("root-thread", "current-turn");
+  assert.equal(coordinator.handleTerminalFailure(disconnect("new-turn")).status, "scheduled");
+  coordinator.noteSuccessfulTurn("root-thread", "new-turn");
+  assert.equal(coordinator.handleTerminalFailure(disconnect("new-turn")).status, "ignored");
+  assert.equal(timers.pending().length, 0);
+});
+
+test("a hard recovery start failure ends the chain and publishes an honest terminal notice", async () => {
+  const timers = fakeTimers(), events = [];
+  const coordinator = new TurnAutoRecoveryCoordinator({
+    setTimer: timers.setTimer, clearTimer: timers.clearTimer,
+    startRecovery: async () => { throw Object.assign(new Error("request failed"), { code: "INVALID_API_KEY" }); },
+    onEvent: (event) => events.push(event),
+  });
+  coordinator.handleTerminalFailure(disconnect("first-turn"));
+  timers.runNext();
+  await drainMicrotasks();
+  assert.equal(timers.pending().length, 0);
+  assert.equal(events.at(-1).status, "exhausted");
+  assert.equal(events.at(-1).failedToStart, true);
 });
 
 function disconnect(failedTurnId) {

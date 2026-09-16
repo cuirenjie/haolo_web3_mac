@@ -28,6 +28,18 @@ const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.
 const mainSource = readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 const userDataTransferSource = readFile(new URL("../src/main/user-data-transfer.mjs", import.meta.url), "utf8");
 const preloadSource = readFile(new URL("../src/main/preload.mjs", import.meta.url), "utf8");
+
+test("model fallback and exhaustion notices translate in English and Traditional Chinese", () => {
+  for (const text of [
+    "模型执行异常，正在切换到 GPT-5.5 最高推理模式，保留当前任务进度继续处理。",
+    "备用模型暂时不可用，稍后将再次使用 GPT-5.5 最高推理模式继续当前任务。",
+    "已尝试 GPT-5.5 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。",
+    "自动恢复未能启动。任务记录已保留，请检查账户和服务状态后重试。",
+  ]) {
+    assert.doesNotMatch(translateAppText(text, "en"), /\p{Script=Han}/u);
+    assert.notEqual(translateAppText(text, "zh-TW"), text);
+  }
+});
 const indexSource = readFile(new URL("../src/renderer/index.html", import.meta.url), "utf8");
 
 test("group selection and encoded UI copy have complete English translations", () => {

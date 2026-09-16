@@ -49,6 +49,15 @@ test("access failures cannot be hidden by local analysis or a second strategy ro
   assert.equal(describeTradingAnalysisFailure({ code: "WORKFLOW_TURN_TIMEOUT" }).category, "timeout");
   assert.equal(describeTradingAnalysisFailure({ code: "ECONNRESET" }).category, "transport");
   assert.equal(describeTradingAnalysisFailure({ status: 429 }).category, "rate_limit");
+  assert.equal(describeTradingAnalysisFailure({ code: "server_is_overloaded" }).category, "rate_limit");
+  assert.equal(describeTradingAnalysisFailure(new Error("Selected model is at capacity")).category, "rate_limit");
+});
+
+test("fallback diagnostics retain the actual model and highest reasoning level", () => {
+  const diagnostic = tradingAnalysisFailureDiagnostic({ modelId: "gpt-5.5", attempts: [{ modelId: "gpt-5.5", effort: "xhigh", valid: false }] });
+  assert.equal(diagnostic.model, "gpt-5.5");
+  assert.equal(diagnostic.attempts[0].model, "gpt-5.5");
+  assert.equal(diagnostic.attempts[0].effort, "xhigh");
 });
 
 test("provider transport preserves HTTP and request metadata through the registry", async () => {
