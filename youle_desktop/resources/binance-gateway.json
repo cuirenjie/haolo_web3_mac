@@ -3,13 +3,13 @@
   "marketGatewayUrl": "https://market.youle.pro",
   "marketGatewayResolutionCandidates": [
     "haolo.com",
-    "47.75.103.197",
-    "47.75.125.102",
+    "47.76.124.53",
+    "47.238.144.244",
     "sg-a.binance-egress.waduo.com",
     "8.219.93.44"
   ],
   "privateProxyUrl": "https://sg-a.binance-egress.waduo.com",
-  "privateProxyResolutionCandidates": ["haolo.com", "47.75.103.197", "47.75.125.102", "8.219.93.44"],
+  "privateProxyResolutionCandidates": ["haolo.com", "47.76.124.53", "47.238.144.244", "8.219.93.44"],
   "gatewayRouteSelection": true,
   "requireGateway": true,
   "directAttemptTimeoutMs": 3000,

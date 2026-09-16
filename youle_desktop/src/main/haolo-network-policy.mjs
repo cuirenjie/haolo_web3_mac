@@ -3,10 +3,11 @@ import { withAbort } from "./system-proxy-fetch.mjs";
 
 export const NETWORK_POLICY_PATH = "/.well-known/haolo-network";
 export const NETWORK_POLICY_VERSION = "20260916.1";
-const singapore = Object.freeze({ ordinary: "8.219.93.44", accelerated: Object.freeze(["47.75.103.197", "47.75.125.102"]) });
+// Hong Kong ordinary BGP trial (2026-09-16); retain the logical TLS/Host identity.
+const singapore = Object.freeze({ ordinary: "8.219.93.44", accelerated: Object.freeze(["47.76.124.53", "47.238.144.244"]) });
 const singaporeOrdinary = Object.freeze({ ordinary: singapore.ordinary, accelerated: Object.freeze([]) });
 const tokyo = Object.freeze({ ordinary: "8.216.43.79", accelerated: Object.freeze([]) });
-// Only market transports may consume premium GA. Website/help pages opened in
+// Only market transports may consume Hong Kong GA. Website/help pages opened in
 // the browser retain their public DNS route; desktop account/model calls do not.
 export const HAOLO_NETWORK_ROUTES = Object.freeze({
   "haolo.com": singaporeOrdinary,

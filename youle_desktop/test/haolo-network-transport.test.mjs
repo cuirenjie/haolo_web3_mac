@@ -233,7 +233,7 @@ test("DIRECT mainland market REST and WebSocket still use GA", async (t) => {
   const response = await f.transport.fetch("https://market.youle.pro/api/v3/time");
   assert.equal(response.status, 200); await response.json();
   assert.equal(f.connections.at(-1).route, "hong-kong-ga");
-  assert.deepEqual(f.connections.at(-1).addresses, ["47.75.103.197", "47.75.125.102"]);
+  assert.deepEqual(f.connections.at(-1).addresses, ["47.76.124.53", "47.238.144.244"]);
   const wss = new WebSocketServer({ server: f.server }); t.after(() => wss.close());
   wss.on("connection", (socket) => socket.send('{"stream":"btcusdt@ticker"}'));
   const Routed = f.transport.webSocketClass(WebSocket);
