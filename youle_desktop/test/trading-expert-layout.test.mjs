@@ -107,8 +107,9 @@ test("the top-level New Task opens the complete Trading Expert workspace in the 
   assert.match(ensureTopLevelBlank, /expandPanel: shouldExpandTradingExpert/);
   assert.match(activation, /initializeTradingExpertTaskThread\(threadId, \{ expandPanel: true \}\)/);
   assert.match(initializer, /tradingExpertThreadIds\.add\(threadId\)/);
-  assert.match(initializer, /model: TRADING_EXPERT_DEFAULT_MODEL_VALUE/);
-  assert.match(initializer, /reasoningEffort: TRADING_EXPERT_REASONING_EFFORT/);
+  assert.match(initializer, /analysisModelPolicySelection\(analysisModelRecoveryState, TRADING_EXPERT_DEFAULT_MODEL_VALUE\)/);
+  assert.match(initializer, /model: initialModel/);
+  assert.match(initializer, /reasoningEffort: tradingExpertReasoningEffort\(initialModel\)/);
   assert.match(initializer, /state\.leftCollapsed = false/);
   assert.match(initializer, /state\.rightCollapsed = false/);
   assert.doesNotMatch(initializer, /tradingExpertPanelTab/);
@@ -587,16 +588,18 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
 
   assert.deepEqual(TRADING_EXPERT_MODEL_VALUES, [
     "gpt-5.6-sol",
+    "gpt-5.5",
     "deepseek-v4-flash",
   ]);
   assert.equal(TRADING_EXPERT_DEFAULT_MODEL_VALUE, "gpt-5.6-sol");
   assert.equal(TRADING_EXPERT_REASONING_EFFORT, "ultra");
   assert.equal(TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT, "max");
   assert.equal(tradingExpertReasoningEffort("gpt-5.6-sol"), "ultra");
+  assert.equal(tradingExpertReasoningEffort("gpt-5.5"), "xhigh");
   assert.equal(tradingExpertReasoningEffort("deepseek-v4-flash"), "max");
   assert.deepEqual(
     tradingExpertModelOptions(catalog).map((option) => option.value),
-    ["gpt-5.6-sol", "deepseek-v4-flash"],
+    ["gpt-5.6-sol", "gpt-5.5", "deepseek-v4-flash"],
   );
   assert.equal(
     defaultTradingExpertModelOption(catalog)?.value,
@@ -651,7 +654,7 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
 
   assert.match(
     selectedRequestOptions,
-    /const model = firstString\([\s\S]*selectedSettings\?\.model,[\s\S]*knownSettings\?\.model,[\s\S]*selected\.value,[\s\S]*TRADING_EXPERT_DEFAULT_MODEL_VALUE/,
+    /const model = analysisModelPolicySelection\(analysisModelRecoveryState, firstString\([\s\S]*selectedSettings\?\.model,[\s\S]*knownSettings\?\.model,[\s\S]*selected\.value,[\s\S]*TRADING_EXPERT_DEFAULT_MODEL_VALUE/,
   );
   assert.match(
     selectedRequestOptions,
@@ -691,7 +694,7 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
   );
   assert.match(
     initializeWorkspace,
-    /newThreadModeByThreadId\.set\(threadId, "execution"\)[\s\S]*if \(!isTradingExpertModelValue\(existingModel\)\)[\s\S]*modelProvider: DEFAULT_EXECUTION_MODEL_PROVIDER_ID[\s\S]*model: TRADING_EXPERT_DEFAULT_MODEL_VALUE[\s\S]*reasoningEffort: TRADING_EXPERT_REASONING_EFFORT/,
+    /newThreadModeByThreadId\.set\(threadId, "execution"\)[\s\S]*if \(!isTradingExpertModelValue\(existingModel\)\)[\s\S]*modelProvider: DEFAULT_EXECUTION_MODEL_PROVIDER_ID[\s\S]*model: initialModel[\s\S]*reasoningEffort: tradingExpertReasoningEffort\(initialModel\)/,
   );
   assert.match(
     lockedModel,

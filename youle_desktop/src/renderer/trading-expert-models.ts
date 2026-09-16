@@ -6,6 +6,7 @@ export const TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT = "max";
 
 export const TRADING_EXPERT_MODEL_VALUES = [
   TRADING_EXPERT_DEFAULT_MODEL_VALUE,
+  "gpt-5.5",
   DEEPSEEK_EXECUTION_MODEL_VALUE,
 ] as const;
 
@@ -30,6 +31,7 @@ export function tradingExpertModelOptions<T extends { value: unknown }>(
 }
 
 export function tradingExpertReasoningEffort(model: unknown) {
+  if (String(model ?? "").trim().toLowerCase() === "gpt-5.5") return "xhigh";
   return String(model ?? "").trim().toLowerCase() ===
     DEEPSEEK_EXECUTION_MODEL_VALUE
     ? TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT

@@ -1,8 +1,7 @@
 import { isRetryableModelTransportError, waitForModelTransportRecovery } from "./model-transport-recovery.mjs";
+import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER } from "./analysis-model-policy.mjs";
+export { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER } from "./analysis-model-policy.mjs";
 
-export const ANALYSIS_RECOVERY_MODEL = "gpt-5.5";
-export const ANALYSIS_RECOVERY_EFFORT = "xhigh";
-export const ANALYSIS_RECOVERY_PROVIDER = "haolo_ai";
 export const ANALYSIS_RECOVERY_ATTEMPTS = 2;
 
 function failureFields(error) {
@@ -69,9 +68,10 @@ export async function runWithAnalysisModelRecovery({ operation, modelId, reasoni
         throw error;
       }
       const delayMs = fallbackAttempts ? 4_000 : 1_500;
+      const failedModelId = selection.modelId;
       fallbackAttempts += 1;
       selection = { modelId: ANALYSIS_RECOVERY_MODEL, modelProvider: ANALYSIS_RECOVERY_PROVIDER, reasoningEffort: ANALYSIS_RECOVERY_EFFORT };
-      try { onRecovery?.({ ...selection, attempt: fallbackAttempts, delayMs }); } catch { /* Observer cannot break recovery. */ }
+      try { onRecovery?.({ ...selection, failedModelId, attempt: fallbackAttempts, delayMs }); } catch { /* Observer cannot break recovery. */ }
       await wait(delayMs, signal);
     }
   }

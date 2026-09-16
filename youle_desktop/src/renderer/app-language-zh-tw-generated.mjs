@@ -1,6 +1,7 @@
 // Generated once from renderer-owned Simplified Chinese UI strings with
 // OpenCC s2twp. Runtime language switching is fully offline.
 export const GENERATED_TRADITIONAL_UI_PHRASES = Object.freeze({
+  "模型执行异常，正在切换到 GPT-5.5 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。": "模型執行異常，正在切換到 GPT-5.5 最高推理模式繼續處理。接下來 24 小時的新任務也會使用該模型。",
   "已尝试 GPT-5.5 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。": "已嘗試 GPT-5.5 最高推理模式，自動恢復仍未完成。任務記錄已保留，請稍後重試。",
   "自动恢复未能启动。任务记录已保留，请检查账户和服务状态后重试。": "自動恢復未能啟動。任務記錄已保留，請檢查帳戶和服務狀態後重試。",
   "备用模型暂时不可用，稍后将再次使用 GPT-5.5 最高推理模式继续当前任务。": "備用模型暫時不可用，稍後將再次使用 GPT-5.5 最高推理模式繼續當前任務。",
