@@ -2,6 +2,8 @@ import "./styles.css";
 import QRCode from "qrcode";
 import { describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
 import { analysisModelPolicySelection, normalizeAnalysisModelRecoveryState, withAnalysisModelRecoveryPolicy, type AnalysisModelRecoveryState } from "../main/analysis-model-policy.mjs";
+import { canonicalDeepSeekModel } from "../main/deepseek-model-policy.mjs";
+import { isRetiredExecutionModel } from "../main/retired-model-policy.mjs";
 import {
   applyAppLanguage,
   appLanguageLocale,
@@ -211,6 +213,13 @@ import {
   isContextWindowExhaustedError,
   isDuplicateContextCompactionEvent,
 } from "./context-budget";
+import {
+  compactionItemStatus,
+  explicitCompactionStatus,
+  isPendingCompaction,
+  mergeCompactionItem,
+  reconcileCompactionItem,
+} from "./context-compaction-lifecycle";
 import {
   buildContextWindowRecoveryReplayText,
   canReplayContextWindowFailure,
@@ -940,7 +949,7 @@ const CHAT_MODEL_STORAGE_KEY = "haolo.chat.selected_model";
 const CHAT_MODEL_PROVIDER_STORAGE_KEY = "haolo.chat.selected_model_provider";
 const CHAT_MODEL_POOL_DEFAULT_STORAGE_KEY = "haolo.chat.execution_pool_default";
 const CHAT_MODEL_DEFAULT_MIGRATION_STORAGE_KEY = "haolo.chat.default_model_migration";
-const CHAT_MODEL_DEFAULT_MIGRATION_VERSION = "gpt-5.5-default";
+const CHAT_MODEL_DEFAULT_MIGRATION_VERSION = "sol-default-deepseek-recovery-v1";
 let chatModelOptions: readonly ChatModelOption[] = [...FIXED_CHAT_MODEL_OPTIONS];
 let businessModelPoolsState: BusinessModelPoolsState =
   createBusinessModelPoolsState();
@@ -5671,6 +5680,7 @@ const latestThreadDiagnosticIds = new Map<string, string>();
 // HAOLO-TURN-DIAGNOSTICS-END: removable renderer correlation state
 const contextCompactionPromises = new Map<string, Promise<boolean>>();
 const contextCompactionStartedAtMs = new Map<string, number>();
+const contextCompactionTerminalTurns = new Map<string, { status: string; error: string | null }>();
 const contextWindowRecoveryReplays = new Map<string, ContextWindowRecoveryReplay>();
 const contextWindowRecoveryPromises = new Map<string, Promise<void>>();
 const localProxyRecoveryPromises = new Map<string, Promise<void>>();
@@ -16628,6 +16638,10 @@ function orderedThreadItems(thread: any, existingItems: CodexItem[] = [], option
       row.sortTime = latestExistingSortTime + untimedOffset;
     });
   }
+  for (const row of rows) {
+    if (!isContextCompactionItem(row.item)) continue;
+    row.item = mergeCompactionItem(existingItems.find((item) => itemStableId(item) === itemStableId(row.item)), row.item);
+  }
   const incomingItems = rows.map((row) => row.item);
   const incomingIds = new Set(incomingItems.map(itemStableId).filter((id): id is string => Boolean(id)));
   existingItems.forEach((item, itemIndex) => {
@@ -17032,7 +17046,7 @@ function loadThread(thread: any, options: { activate?: boolean; preserveListOrde
       upsertItem(threadId, item, { updateThreadPreview: false });
     }
     restoreThreadContinuationPayloadFromItems(threadId, items);
-    restoreThreadContextCompactionsFromItems(threadId);
+    restoreThreadContextCompactionsFromItems(threadId, thread);
     restoreConversationSupplementStatusesFromHistory(threadId);
   } finally {
     suppressCreatedAtStamp = false;
@@ -17985,7 +17999,7 @@ function initializeTradingExpertTaskThread(
     rememberThreadModelSelection(
       threadId,
       {
-        modelProvider: DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
+        modelProvider: initialModel === DEEPSEEK_EXECUTION_MODEL_VALUE ? DEEPSEEK_EXECUTION_PROVIDER_ID : DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
         model: initialModel,
         reasoningEffort: tradingExpertReasoningEffort(initialModel),
         serviceTier: null,
@@ -19281,8 +19295,13 @@ function setCodexThreadBusy(threadId: string | null | undefined, busy: boolean, 
       if (state.currentThreadId === threadId) state.activeTurnId = turnId;
     }
   } else {
-    activeCodexThreadIds.delete(threadId);
     const existingTurnId = state.activeTurnIds[threadId];
+    if (turnId && existingTurnId && turnId !== existingTurnId) {
+      pendingCodexTurns.delete(turnId);
+      rememberTurnCompleted(threadId, turnId);
+      return;
+    }
+    activeCodexThreadIds.delete(threadId);
     rememberTurnCompleted(threadId, turnId || existingTurnId);
     if (existingTurnId) pendingCodexTurns.delete(existingTurnId);
     delete state.activeTurnIds[threadId];
@@ -21794,15 +21813,7 @@ function isContextCompactionItem(item: unknown) {
 }
 
 function contextCompactionUiStatusFromItem(item: CodexItem): ContextCompactionUiStatus {
-  const status = firstString(
-    (item as Record<string, unknown>).__youleContextCompactionStatus,
-    item.status,
-  )?.replace(/[_-]/g, "").toLowerCase();
-  if (status === "requesting" || status === "queued") return "requesting";
-  if (status === "compacting" || status === "inprogress" || status === "running" || status === "started") return "compacting";
-  if (status === "failed" || status === "error" || status === "cancelled" || status === "canceled") return "failed";
-  if (status === "completed" || status === "succeeded" || status === "success") return "completed";
-  return "completed";
+  return compactionItemStatus(item);
 }
 
 function contextCompactionUiErrorFromItem(item: CodexItem) {
@@ -21872,6 +21883,7 @@ function setActiveContextCompactionUiStatus(threadId: string, status: ContextCom
 
 function beginLocalContextCompactionItem(threadId: string) {
   const context = ensureThreadContextUsage(threadId);
+  context.lastCompactionTurnId = null;
   const itemId = `local-context-compaction-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   context.activeCompactionItemId = itemId;
   upsertItem(
@@ -21910,9 +21922,12 @@ function rememberContextCompactionKeys(context: ThreadContextUsageState, keys: s
 }
 
 function beginContextCompactionFromNotification(threadId: string, message: JsonRpcMessage, item: CodexItem) {
+  const settled = settledContextCompactionNotificationItem(threadId, message, item);
+  if (settled) return settled;
   const context = ensureThreadContextUsage(threadId);
   context.compactionStatus = "compacting";
-  context.lastCompactionTurnId = notificationTurnId(message) || context.lastCompactionTurnId;
+  context.lastCompactionTurnId = notificationTurnId(message) || itemTurnId(item) || activeTurnIdForThread(threadId) || context.lastCompactionTurnId;
+  item = { ...item, turnId: context.lastCompactionTurnId };
   context.lastCompactionError = null;
   const itemId = firstString(item.id);
   if (itemId) replaceActiveContextCompactionItemId(threadId, itemId);
@@ -21935,6 +21950,8 @@ function markContextCompactionSucceeded(context: ThreadContextUsageState) {
 }
 
 function completeContextCompactionFromNotification(threadId: string, message: JsonRpcMessage, item?: CodexItem | null) {
+  const settled = settledContextCompactionNotificationItem(threadId, message, item, true);
+  if (settled) return item ? settled : null;
   const context = ensureThreadContextUsage(threadId);
   const keys = contextCompactionEventKeys(message, item);
   const duplicate = isDuplicateContextCompactionEvent({
@@ -22015,17 +22032,87 @@ function failContextCompaction(threadId: string, error: unknown) {
   patchActiveChatSurfaces(threadId) || scheduleProtectedRender({ sourceThreadId: threadId, delayMs: 0 });
 }
 
-function restoreThreadContextCompactionsFromItems(threadId: string) {
+function contextCompactionTurnResult(threadId: string, turnId: string | null) {
+  return turnId ? contextCompactionTerminalTurns.get(`${threadId}:${turnId}`) : undefined;
+}
+
+function settledContextCompactionNotificationItem(threadId: string, message: JsonRpcMessage, item?: CodexItem | null, allowCompletedTurn = false) {
+  const context = state.threadContextUsage[threadId];
+  const turnId = notificationTurnId(message) || itemTurnId(item || undefined);
+  const existing = item?.id ? state.items[threadId]?.[String(item.id)] : null;
+  const existingStatus = existing && explicitCompactionStatus(existing.__youleContextCompactionStatus);
+  if (existingStatus === "failed" || existingStatus === "completed") {
+    return mergeCompactionItem(existing!, item || existing!);
+  }
+  const terminal = contextCompactionTurnResult(threadId, turnId);
+  const activeTurnId = activeTurnIdForThread(threadId);
+  const belongsToOlderTurn = Boolean(turnId && activeTurnId && turnId !== activeTurnId);
+  // Legacy unkeyed completion must not turn a failed attempt into success.
+  if ((!terminal || (allowCompletedTurn && terminal.status === "completed")) && !belongsToOlderTurn && !(context?.compactionStatus === "failed" && (!turnId || turnId === context.lastCompactionTurnId))) return null;
+  return withContextCompactionUiStatus(
+    item || { type: "contextCompaction" },
+    terminal?.status === "completed" ? "completed" : "failed",
+    terminal?.error || context?.lastCompactionError || "上下文压缩已中断，请重试。",
+  );
+}
+
+function settleUnfinishedContextCompactions(threadId: string, turnId: string | null, error: string) {
+  const context = state.threadContextUsage[threadId];
+  let settledActive = false;
+  for (const id of state.itemOrder[threadId] || []) {
+    const item = state.items[threadId]?.[id];
+    if (!isContextCompactionItem(item) || !isPendingCompaction(contextCompactionUiStatusFromItem(item))) continue;
+    const ownerTurnId = itemTurnId(item) || (id === context?.activeCompactionItemId ? context.lastCompactionTurnId : null);
+    if (turnId && ownerTurnId !== turnId) continue;
+    state.items[threadId][id] = withContextCompactionUiStatus(item, "failed", error);
+    settledActive ||= id === context?.activeCompactionItemId;
+  }
+  if (context && (settledActive || (isPendingCompaction(context.compactionStatus)
+    && (!turnId || context.lastCompactionTurnId === turnId)))) {
+    failContextCompaction(threadId, error);
+    resetThreadContinuationAnswerTurn(threadId, turnId);
+    return true;
+  }
+  return false;
+}
+
+function restoreThreadContextCompactionsFromItems(threadId: string, thread?: any) {
+  const turns = Array.isArray(thread?.turns) ? thread.turns : [];
+  for (const id of state.itemOrder[threadId] || []) {
+    const item = state.items[threadId]?.[id];
+    if (!isContextCompactionItem(item)) continue;
+    const turnId = itemTurnId(item);
+    const turn = turns.find((candidate: any) => firstString(candidate.id, candidate.turnId, candidate.turn_id) === turnId);
+    const terminal = contextCompactionTurnResult(threadId, turnId);
+    const turnStatus = terminal?.status || turn?.status || item.__youleTurnStatus;
+    const hasLiveOwner = Boolean(
+      (turnId && activeTurnIdForThread(threadId) === turnId)
+      || (!terminal && thread?.status?.type === "active" && isPendingCompaction(explicitCompactionStatus(turn?.status)))
+      || (!turnId && (contextCompactionPromises.has(threadId) || activeCodexSendSequences.has(threadId))),
+    );
+    state.items[threadId][id] = reconcileCompactionItem(item, {
+      turnStatus,
+      error: terminal?.error || (turn?.error ? formatTurnFailureMessage(turn.error.message) : null),
+      hasLiveOwner,
+    });
+  }
   const compactions = (state.itemOrder[threadId] || [])
     .map((id) => state.items[threadId]?.[id])
     .filter((item): item is CodexItem => isContextCompactionItem(item));
   if (!compactions.length) return;
   const context = ensureThreadContextUsage(threadId);
-  const itemKeys = [...new Set(compactions.map((item) => firstString(item.id)).filter((id): id is string => Boolean(id)).map((id) => `item:${id}`))];
-  const seenHistoryCount = itemKeys.length || compactions.length;
+  const completed = compactions.filter((item) => contextCompactionUiStatusFromItem(item) === "completed");
+  const itemKeys = [...new Set(completed.map((item) => firstString(item.id)).filter((id): id is string => Boolean(id)).map((id) => `item:${id}`))];
+  const seenHistoryCount = itemKeys.length || completed.length;
   context.compactionCount = Math.max(context.compactionCount, seenHistoryCount);
   rememberContextCompactionKeys(context, itemKeys);
-  if (context.compactionStatus === "idle") context.compactionStatus = "completed";
+  const latest = compactions.find((item) => item.id === context.activeCompactionItemId) || compactions.at(-1)!;
+  context.activeCompactionItemId = firstString(latest.id);
+  context.lastCompactionTurnId = itemTurnId(latest);
+  context.compactionStatus = contextCompactionUiStatusFromItem(latest);
+  context.lastCompactionError = contextCompactionUiErrorFromItem(latest);
+  if (isPendingCompaction(context.compactionStatus)) beginContextCompactionTiming(threadId, latest);
+  else finishContextCompactionTiming(threadId);
 }
 
 function handleNotification(message: JsonRpcMessage) {
@@ -22113,6 +22200,13 @@ function handleNotification(message: JsonRpcMessage) {
       }
       break;
     case "turn/started":
+      if (threadId && contextCompactionTurnResult(threadId, notificationTurnId(message))) break;
+      if (threadId && contextCompactionPromises.has(threadId)) {
+        const context = ensureThreadContextUsage(threadId);
+        context.lastCompactionTurnId = notificationTurnId(message);
+        const item = context.activeCompactionItemId ? state.items[threadId]?.[context.activeCompactionItemId] : null;
+        if (item && !itemTurnId(item)) item.turnId = context.lastCompactionTurnId;
+      }
       if (threadId) threadsAwaitingAgentReply.add(threadId);
       if (threadId && !contextCompactionPromises.has(threadId)) {
         bindThreadContinuationAnswerTurn(threadId, notificationTurnId(message));
@@ -22125,8 +22219,19 @@ function handleNotification(message: JsonRpcMessage) {
     case "turn/completed": {
       const completedTurnId = notificationTurnId(message);
       const completedTurnStatus =
-        firstString(message.params?.turn?.status, message.params?.status)?.toLowerCase() || "";
-      const completedTurnFailed = completedTurnStatus === "failed";
+        firstString(message.params?.turn?.status, message.params?.status)?.toLowerCase()
+        || (message.params?.turn?.error || message.params?.error ? "failed" : "");
+      const completedTurnFailed = completedTurnStatus === "failed" || completedTurnStatus === "error";
+      const compactionTerminalError = completedTurnFailed
+        ? formatTurnFailureMessage(notificationFailureReason(message), automaticTurnRecoveryMeta(message))
+        : "上下文压缩已中断，请重试。";
+      if (threadId && (completedTurnFailed || ["interrupted", "cancelled", "canceled"].includes(completedTurnStatus))) {
+        settleUnfinishedContextCompactions(threadId, completedTurnId, compactionTerminalError);
+      }
+      if (threadId && completedTurnId && activeTurnIdForThread(threadId) && activeTurnIdForThread(threadId) !== completedTurnId) {
+        rememberTurnResultStatus(threadId, completedTurnId, completedTurnStatus || "completed", compactionTerminalError);
+        break;
+      }
       // HAOLO-CONTEXT-RECOVERY-PATCH-BEGIN
       const completedTurnFailureReason = completedTurnFailed
         ? notificationFailureReason(message)
@@ -22135,7 +22240,7 @@ function handleNotification(message: JsonRpcMessage) {
       const automaticRecoveryQueued = Boolean(
         completedTurnFailed && automaticTurnRecoveryIsQueued(automaticRecovery),
       );
-      if (threadId && automaticRecoveryQueued) announceAutomaticTurnRecovery(threadId, automaticRecovery);
+      if (threadId && (automaticRecoveryQueued || automaticRecovery?.status === "exhausted")) announceAutomaticTurnRecovery(threadId, automaticRecovery);
       const duplicateContextRecoveryTerminal = Boolean(
         completedTurnFailed &&
           completedTurnId &&
@@ -22167,8 +22272,9 @@ function handleNotification(message: JsonRpcMessage) {
         completedTurnId && interruptedCodexTurnIds.has(completedTurnId),
       );
       const wasInterrupted =
-        completedTurnStatus === "interrupted" ||
+        completedTurnStatus === "interrupted" || ["cancelled", "canceled"].includes(completedTurnStatus) ||
         (!completedTurnStatus && interruptionWasRequested);
+      if (threadId && wasInterrupted) settleUnfinishedContextCompactions(threadId, completedTurnId, "上下文压缩已中断，请重试。");
       if (
         completedTurnId &&
         interruptionWasRequested &&
@@ -22183,11 +22289,13 @@ function handleNotification(message: JsonRpcMessage) {
         wasInterrupted
           ? "interrupted"
           : completedTurnStatus || "completed",
+        completedTurnFailed || wasInterrupted ? compactionTerminalError : null,
       );
       const hadFinalReplyForCompletedTurn = Boolean(threadId && hasAgentReplyForTurn(threadId, completedTurnId));
       const wasPureContextCompactionTurn = wasContextCompactionTurn && !hadFinalReplyForCompletedTurn;
       const compactionCompletedWithoutItemNotification = Boolean(
         !completedTurnFailed &&
+          !wasInterrupted &&
           wasPureContextCompactionTurn &&
           (context?.compactionStatus === "requesting" || context?.compactionStatus === "compacting"),
       );
@@ -22276,7 +22384,12 @@ function handleNotification(message: JsonRpcMessage) {
         JSON.stringify(message.params ?? {});
       const automaticRecovery = automaticTurnRecoveryMeta(message);
       const automaticRecoveryQueued = automaticTurnRecoveryIsQueued(automaticRecovery);
-      if (threadId && automaticRecoveryQueued) announceAutomaticTurnRecovery(threadId, automaticRecovery);
+      if (threadId && failedTurnId && activeTurnIdForThread(threadId) && activeTurnIdForThread(threadId) !== failedTurnId) {
+        settleUnfinishedContextCompactions(threadId, failedTurnId, formatTurnFailureMessage(reason, automaticRecovery));
+        rememberTurnResultStatus(threadId, failedTurnId, "failed", formatTurnFailureMessage(reason, automaticRecovery));
+        break;
+      }
+      if (threadId && (automaticRecoveryQueued || automaticRecovery?.status === "exhausted")) announceAutomaticTurnRecovery(threadId, automaticRecovery);
       // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable failed-turn lookup
       const failedTurnDiagnosticId = diagnosticIdForTurn(threadId, failedTurnId, message);
       // HAOLO-TURN-DIAGNOSTICS-END: removable failed-turn lookup
@@ -22299,7 +22412,7 @@ function handleNotification(message: JsonRpcMessage) {
         scheduleThreadListRefresh();
         break;
       }
-      rememberTurnResultStatus(threadId, failedTurnId, "failed");
+      rememberTurnResultStatus(threadId, failedTurnId, "failed", formatTurnFailureMessage(reason, automaticRecovery));
       if (threadId) {
         resetThreadContinuationAnswerTurn(threadId, failedTurnId);
         threadsAwaitingAgentReply.delete(threadId);
@@ -22339,26 +22452,46 @@ function handleNotification(message: JsonRpcMessage) {
       setMembersWorking(threadId, false);
       void flushQueuedSend();
       if (threadId && failedContextCompaction) {
-        const compactError =
-          firstString(message.params?.error?.message, message.params?.message, message.params?.reason) ||
-          "上下文压缩失败";
-        failContextCompaction(threadId, compactError);
-        failLatestOptimisticUserItem(threadId, `发送失败：${compactError}`);
+        settleUnfinishedContextCompactions(threadId, failedTurnId, formatTurnFailureMessage(reason, automaticRecovery));
       }
       patchActiveChatSurfaces(threadId) || scheduleProtectedRender({ sourceThreadId: threadId, delayMs: 0 });
       scheduleThreadListRefresh();
       break;
     }
     case "haolo/turnAutoRecovery":
-      if (threadId) announceAutomaticTurnRecovery(threadId, automaticTurnRecoveryMeta(message));
+      if (threadId) {
+        const recovery = automaticTurnRecoveryMeta(message);
+        const turnId = notificationTurnId(message);
+        const activeTurnId = activeTurnIdForThread(threadId);
+        if (turnId && activeTurnId && turnId !== activeTurnId) break;
+        if (recovery?.status === "exhausted") {
+          const error = formatTurnFailureMessage(null, recovery);
+          const settled = settleUnfinishedContextCompactions(threadId, turnId, error);
+          if (settled || (turnId && turnId === activeTurnId)) {
+            rememberTurnResultStatus(threadId, turnId, "failed", error);
+            threadsAwaitingAgentReply.delete(threadId);
+            clearContextWindowRecoveryReplay(threadId, turnId);
+            setCodexThreadBusy(threadId, false, turnId);
+            setMembersWorking(threadId, false);
+          }
+        }
+        announceAutomaticTurnRecovery(threadId, recovery);
+      }
       break;
     case "item/started":
     case "item/completed":
+    case "item/failed":
       if (threadId && message.params?.item) {
         let incomingItem = notificationItemWithTurnId(message.params.item, message);
+        if (message.method === "item/failed" && !isContextCompactionItem(incomingItem)) break;
         let completedNewCompaction = false;
         if (isContextCompactionItem(incomingItem)) {
-          if (message.method === "item/started") incomingItem = beginContextCompactionFromNotification(threadId, message, incomingItem);
+          const itemFailed = message.method === "item/failed" || explicitCompactionStatus(incomingItem.status) === "failed" || Boolean(incomingItem.error);
+          if (itemFailed) {
+            const error = formatTurnFailureMessage(contextCompactionUiErrorFromItem(incomingItem) || notificationFailureReason(message));
+            incomingItem = withContextCompactionUiStatus(incomingItem, "failed", error);
+            settleUnfinishedContextCompactions(threadId, notificationTurnId(message), error);
+          } else if (message.method === "item/started") incomingItem = beginContextCompactionFromNotification(threadId, message, incomingItem);
           else {
             const context = ensureThreadContextUsage(threadId);
             const previousCompactionCount = context.compactionCount;
@@ -22730,7 +22863,7 @@ function markThreadContextWindowExhausted(threadId: string, turnId?: string | nu
 
 function formatTurnFailureMessage(reason: string | null | undefined, recovery?: Record<string, unknown> | null) {
   if (recovery?.status === "exhausted") {
-    return "已尝试 GPT-5.5 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。";
+    return "已尝试 GPT-6 Astra 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。";
   }
   if (isContextWindowExhaustedError(reason)) {
     return "当前会话的上下文已满，自动整理与恢复未能完成。请重试；若仍失败，请拆分消息或新建任务。";
@@ -22791,16 +22924,16 @@ function announceAutomaticTurnRecovery(
   if (automaticTurnRecoveryNoticeKeys.has(noticeKey)) return;
   automaticTurnRecoveryNoticeKeys.add(noticeKey);
   if (noticeKind === "exhausted") {
-    appendAgentNotice(threadId, "自动恢复未能启动。任务记录已保留，请检查账户和服务状态后重试。");
+    appendAgentNotice(threadId, formatTurnFailureMessage(null, { status: "exhausted" }));
   } else if (noticeKind === "cooling_down") {
     appendAgentNotice(
       threadId,
-      "备用模型暂时不可用，稍后将再次使用 GPT-5.5 最高推理模式继续当前任务。",
+      "备用模型暂时不可用，稍后将再次使用 GPT-6 Astra 最高推理模式继续当前任务。",
     );
   } else {
     appendAgentNotice(
       threadId,
-      "模型执行异常，正在切换到 GPT-5.5 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。",
+      "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。",
     );
   }
 }
@@ -25688,6 +25821,7 @@ function requestAutomaticThreadContextCompaction(threadId: string) {
         cwd: threadWorkspaceCwd(threadId),
         ...selectedChatModelRequestOptions(threadId),
       });
+      if (ensureThreadContextUsage(threadId).compactionStatus === "failed") return false;
       // The bridge resolves after the compact turn completes. Notifications are
       // authoritative for counting; this fallback only prevents a stuck status.
       if (context.compactionStatus === "requesting" || context.compactionStatus === "compacting") {
@@ -25702,6 +25836,13 @@ function requestAutomaticThreadContextCompaction(threadId: string) {
       return true;
     } catch (error) {
       failContextCompaction(threadId, error);
+      const turnId = context.lastCompactionTurnId;
+      if (turnId && activeTurnIdForThread(threadId) === turnId) {
+        rememberTurnResultStatus(threadId, turnId, "failed", errorMessage(error));
+        threadsAwaitingAgentReply.delete(threadId);
+        setCodexThreadBusy(threadId, false, turnId);
+        setMembersWorking(threadId, false);
+      }
       showToast("消息发送前准备失败，请重试", 5000);
       return false;
     }
@@ -26627,7 +26768,7 @@ async function sendCurrentLocalGroupChatMessage(
 }
 
 const DEEPSEEK_MEDIA_SEND_BLOCKED_MESSAGE =
-  "DeepSeek V4 Flash仅支持文本，请移除图片、视频或切换GPT模型。";
+  "GPT-6 Astra仅支持文本，请移除图片、视频或切换GPT模型。";
 
 function isImageOrVideoAttachment(attachment: MessageAttachment) {
   return isImageAttachment(attachment) || isVideoAttachment(attachment);
@@ -30030,6 +30171,7 @@ async function interruptCurrentTurn(threadIdOverride?: string | null, source: In
 }
 
 function finishInterruptedTurnLocally(threadId: string, turnId: string | null, source: InterruptTurnSource) {
+  settleUnfinishedContextCompactions(threadId, turnId, "上下文压缩已中断，请重试。");
   const sendSequence = activeCodexSendSequences.get(threadId);
   if (sendSequence != null) interruptedCodexSendSequences.set(threadId, sendSequence);
   clearContextWindowRecoveryReplay(threadId, turnId);
@@ -54386,11 +54528,13 @@ function selectedChatModelOption(threadId: string | null | undefined = currentCo
   const provider = providerFromThreadId(threadId);
   const selectedSettings = threadModelSelection(threadId);
   const knownSettings = threadModelSettings(threadId);
-  let effectiveModel = selectedSettings?.model || knownSettings?.model;
+  let effectiveModel = canonicalDeepSeekModel(selectedSettings?.model || knownSettings?.model);
+  if (isRetiredExecutionModel(effectiveModel)) effectiveModel = DEFAULT_CHAT_MODEL_VALUE;
   if (isBlankNewThread(threadId) || isLocalBlankThreadId(threadId)) {
     effectiveModel = analysisModelPolicySelection(analysisModelRecoveryState, effectiveModel || state.settings.model).modelId;
   }
-  const effectiveModelProvider = executionModelProviderId(
+  const effectiveModelProvider = effectiveModel === DEEPSEEK_EXECUTION_MODEL_VALUE ? DEEPSEEK_EXECUTION_PROVIDER_ID
+    : effectiveModel?.startsWith("gpt-") ? DEFAULT_EXECUTION_MODEL_PROVIDER_ID : executionModelProviderId(
     selectedSettings?.modelProvider,
     knownSettings?.modelProvider,
   );
@@ -54572,7 +54716,7 @@ function tradingExpertSelectedModelRequestOptions(
   );
   const modelProvider = model.toLowerCase() === DEEPSEEK_EXECUTION_MODEL_VALUE
     ? DEEPSEEK_EXECUTION_PROVIDER_ID
-    : selectedModelProvider;
+    : model.toLowerCase().startsWith("gpt-") ? DEFAULT_EXECUTION_MODEL_PROVIDER_ID : selectedModelProvider;
   return {
     modelProvider,
     model,
@@ -59859,7 +60003,6 @@ function renderConsumptionPage(): string {
               <button type="button" class="${unit === "points" ? "active" : ""}" data-consumption-unit="points">积分消耗</button>
               <button type="button" class="${unit === "token" ? "active" : ""}" data-consumption-unit="token">Token消耗</button>
             </div>
-            <button type="button" class="consumption-export" data-action="export-consumption" ${state.consumption.exporting || !api.exportConsumptionReport ? "disabled" : ""}>⇩&nbsp; ${state.consumption.exporting ? "导出中…" : "导出"}</button>
           </div>
         </header>
         <section class="consumption-profile-card" aria-busy="${showOverviewSkeleton}">
@@ -62923,11 +63066,6 @@ function bindEvents() {
     .querySelector<HTMLButtonElement>('[data-action="open-consumption"]')
     ?.addEventListener("click", () => {
       openConsumptionPage();
-    });
-  root
-    .querySelector<HTMLButtonElement>('[data-action="export-consumption"]')
-    ?.addEventListener("click", () => {
-      void exportConsumptionReport();
     });
   root
     .querySelectorAll<HTMLButtonElement>("[data-consumption-unit]")
@@ -69201,6 +69339,7 @@ function resetAuthenticatedWorkspace() {
   state.activeTurnId = null;
   state.activeTurnIds = {};
   activeCodexThreadIds.clear();
+  contextCompactionTerminalTurns.clear();
   providerDraftThreadIds.clear();
   providerDraftThreadIdByBlankThreadId.clear();
   blankThreadIdByProviderDraftThreadId.clear();
@@ -74463,11 +74602,17 @@ function rememberTurnResultStatus(
   threadId: string | null | undefined,
   turnId: string | null | undefined,
   status: string | null | undefined,
+  error: string | null = null,
 ) {
   const normalizedThreadId = firstString(threadId);
   const normalizedTurnId = firstString(turnId);
   const normalizedStatus = firstString(status)?.toLowerCase();
   if (!normalizedThreadId || !normalizedTurnId || !normalizedStatus) return;
+  if (["completed", "failed", "interrupted", "cancelled", "canceled"].includes(normalizedStatus)) {
+    const key = `${normalizedThreadId}:${normalizedTurnId}`;
+    if (!contextCompactionTerminalTurns.has(key)) contextCompactionTerminalTurns.set(key, { status: normalizedStatus, error });
+    if (contextCompactionTerminalTurns.size > 1000) contextCompactionTerminalTurns.delete(contextCompactionTerminalTurns.keys().next().value!);
+  }
   for (const itemId of state.itemOrder[normalizedThreadId] || []) {
     const item = state.items[normalizedThreadId]?.[itemId];
     if (item && itemTurnId(item) === normalizedTurnId) item.__youleTurnStatus = normalizedStatus;

@@ -2583,7 +2583,7 @@ test("workflow node titles use regular weight and avatars use rounded-square mod
   assert.deepEqual([
     ["claude-sonnet-5", "claude"],
     ["kimi-k3", "kimi"],
-    ["deepseek-v4-flash", "deepseek"],
+    ["deepseek-flash", "deepseek"],
     ["gemini-3.5-flash", "gemini"],
     ["grok-4.5", "grok"],
     ["mimo-v2.5-pro", "mimo"],

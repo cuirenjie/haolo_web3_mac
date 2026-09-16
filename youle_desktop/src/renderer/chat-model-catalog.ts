@@ -1,3 +1,7 @@
+import { canonicalDeepSeekModel } from "../main/deepseek-model-policy.mjs";
+import { modelDisplayName } from "./model-display-name.ts";
+import { DEFAULT_EXECUTION_MODEL, isRetiredExecutionModel } from "../main/retired-model-policy.mjs";
+
 export const CHAT_REASONING_EFFORTS = [
   "none",
   "minimal",
@@ -39,9 +43,9 @@ export type ChatModelOption = {
   priceLabel?: string;
 };
 
-export const DEFAULT_CHAT_MODEL_VALUE = "gpt-5.5";
+export const DEFAULT_CHAT_MODEL_VALUE = DEFAULT_EXECUTION_MODEL;
 export const LEGACY_DEFAULT_CHAT_MODEL_VALUE = "gpt-5.6-terra";
-export const DEEPSEEK_EXECUTION_MODEL_VALUE = "deepseek-v4-flash";
+export const DEEPSEEK_EXECUTION_MODEL_VALUE = "deepseek-flash";
 export const DEEPSEEK_EXECUTION_PROVIDER_ID = "deepseek";
 
 const PRIORITY_TIER: ChatModelServiceTier = {
@@ -61,6 +65,7 @@ export const FIXED_CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     description: "",
     reasoningEfforts: reasoningOptions(["low", "medium", "high", "xhigh", "max", "ultra"]),
     defaultReasoningEffort: "low",
+    isDefault: true,
     serviceTiers: [PRIORITY_TIER],
     inputModalities: ["text", "image"],
   },
@@ -82,26 +87,13 @@ export const FIXED_CHAT_MODEL_OPTIONS: readonly ChatModelOption[] = [
     serviceTiers: [PRIORITY_TIER],
     inputModalities: ["text", "image"],
   },
-  {
-    value: "gpt-5.5",
-    label: "\u7ecf\u5178\u7a33\u5b9a(5.5 High)",
-    description: "",
-    reasoningEfforts: reasoningOptions(["low", "medium", "high", "xhigh"]),
-    // The old static picker encoded High into this choice. Preserve that
-    // behavior when model/list is unavailable or the preference predates the
-    // separate effort picker.
-    defaultReasoningEffort: "high",
-    serviceTiers: [PRIORITY_TIER],
-    inputModalities: ["text", "image"],
-    isDefault: true,
-  },
 ];
 
 export const DEEPSEEK_EXECUTION_CHAT_MODEL_OPTION: Readonly<ChatModelOption> = {
   value: DEEPSEEK_EXECUTION_MODEL_VALUE,
   providerId: DEEPSEEK_EXECUTION_PROVIDER_ID,
   providerLabel: "DeepSeek",
-  label: "DeepSeek V4 Flash",
+  label: "GPT-6 Astra",
   description: "Latest frontier agentic coding model.",
   reasoningEfforts: reasoningOptions(["low", "high", "max"]),
   defaultReasoningEffort: "high",
@@ -135,8 +127,8 @@ export function chatModelOptionsFromList(payload: unknown): ChatModelOption[] {
     if (!rowValue || typeof rowValue !== "object") continue;
     const row = rowValue as Record<string, unknown>;
     if (row.hidden === true) continue;
-    const value = firstString(row.id, row.model, row.slug);
-    if (!value || seen.has(value)) continue;
+    const value = canonicalDeepSeekModel(firstString(row.id, row.model, row.slug));
+    if (!value || isRetiredExecutionModel(value) || seen.has(value)) continue;
 
     const reasoningRows = firstArray(row.supportedReasoningEfforts, row.supported_reasoning_efforts);
     const reasoningEfforts: ChatModelReasoningOption[] = [];
@@ -172,7 +164,7 @@ export function chatModelOptionsFromList(payload: unknown): ChatModelOption[] {
     options.push({
       value,
       providerId: firstString(row.modelProvider, row.model_provider) || undefined,
-      label: firstString(row.displayName, row.display_name, row.name) || value,
+      label: modelDisplayName(value, firstString(row.displayName, row.display_name, row.name) || value),
       description: firstString(row.description),
       reasoningEfforts,
       defaultReasoningEffort:

@@ -164,8 +164,8 @@ test("late terminals, child activity, cancellation and a new user turn cannot re
   assert.equal(coordinator.handleTerminalFailure(disconnect("old-turn")).status, "ignored");
   const decision = coordinator.handleTerminalFailure(disconnect("current-turn"));
   assert.equal(decision.status, "scheduled");
-  assert.equal(decision.modelId, "gpt-5.5");
-  assert.equal(decision.reasoningEffort, "xhigh");
+  assert.equal(decision.modelId, "deepseek-flash");
+  assert.equal(decision.reasoningEffort, "max");
   timers.runNext();
   await drainMicrotasks();
   assert.equal(activeCheck(), true);

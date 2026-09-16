@@ -1,3 +1,4 @@
+import { canonicalDeepSeekModel } from "../main/deepseek-model-policy.mjs";
 import { canonicalExecutionModelProvider } from "../main/execution-model-provider.mjs";
 
 export type ThreadModelSettings = {
@@ -14,7 +15,7 @@ const CANONICAL_FIXED_MODELS = [
   "gpt-5.5",
 ] as const;
 
-const DEEPSEEK_EXECUTION_MODEL = "deepseek-v4-flash";
+const DEEPSEEK_EXECUTION_MODEL = "deepseek-flash";
 
 function firstString(...values: unknown[]) {
   for (const value of values) {
@@ -33,7 +34,7 @@ function firstString(...values: unknown[]) {
 export function normalizeRuntimeThreadModelSettings(value: unknown): ThreadModelSettings | null {
   if (!value || typeof value !== "object") return null;
   const source = value as Record<string, unknown>;
-  const requestedModel = firstString(source.model);
+  const requestedModel = canonicalDeepSeekModel(firstString(source.model));
   if (!requestedModel) return null;
   const fixedModel = CANONICAL_FIXED_MODELS.find(
     (model) => model.toLowerCase() === requestedModel.toLowerCase(),

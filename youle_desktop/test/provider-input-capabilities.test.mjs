@@ -11,7 +11,7 @@ test("provider input capabilities reflect production-verified image routes", () 
     ["text", "file", "image"],
   );
   assert.deepEqual(
-    providerModelInputCapabilities("deepseek", "deepseek-v4-flash").modalities,
+    providerModelInputCapabilities("deepseek", "deepseek-flash").modalities,
     ["text", "file"],
   );
   assert.deepEqual(

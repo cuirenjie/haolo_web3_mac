@@ -52,7 +52,7 @@ const upstream = http.createServer((request, response) => {
             id: "resp_haolo_transport_smoke",
             object: "response",
             status: "completed",
-            model: "deepseek-v4-flash",
+            model: "deepseek-flash",
             output: [],
             usage: {
               input_tokens: 1,
@@ -111,7 +111,7 @@ try {
     approvalPolicy: "never",
     sandbox: "read-only",
     ephemeral: true,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     modelProvider: "deepseek",
   });
   const threadId = threadResult?.thread?.id;
@@ -120,7 +120,7 @@ try {
     threadId,
     input: [{ type: "text", text: largePrompt, textElements: [] }],
     cwd: workspace,
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     modelProvider: "deepseek",
     approvalPolicy: "never",
     sandboxPolicy: { type: "readOnly" },

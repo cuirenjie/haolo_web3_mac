@@ -4,6 +4,7 @@ import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { WebSocketServer } from "ws";
+import { normalizeModelRequestBody } from "./model-request-policy.mjs";
 import {
   MODEL_REQUEST_COMPRESSION_MIN_BYTES,
   prepareCompressedModelRequest,
@@ -165,6 +166,15 @@ export class ModelRequestRelay extends EventEmitter {
           if (upstream.readyState === 1) upstream.close(validCloseCode(code), reason);
         });
         const forward = (from, to) => from.on("message", (data, binary) => {
+          if (from === client) {
+            try { data = normalizeModelRequestBody(data, "", this.maxRequestBytes); }
+            catch (error) {
+              client.send(JSON.stringify({ type: "error", error: { code: error.code, message: error.message } }));
+              client.close(1008, "Model request rejected");
+              upstream.close(1000);
+              return;
+            }
+          }
           this.emit("websocket-frame", { direction: from === client ? "upstream" : "downstream", bytes: data.byteLength, binary });
           if (to.readyState !== 1) return;
           from.pause();
@@ -200,7 +210,7 @@ export class ModelRequestRelay extends EventEmitter {
         writeJsonError(response, 404, "MODEL_RELAY_ROUTE_NOT_FOUND", "Unknown model relay route.");
         return;
       }
-      const body = await readRequestBody(request, this.maxRequestBytes);
+      const body = normalizeModelRequestBody(await readRequestBody(request, this.maxRequestBytes), request.headers["content-encoding"], this.maxRequestBytes);
       const originalInit = {
         method: request.method,
         headers: request.headers,
@@ -251,12 +261,12 @@ export class ModelRequestRelay extends EventEmitter {
       await pipeline(Readable.fromWeb(upstreamResponse.body), response);
     } catch (error) {
       if (!responseStarted && !response.headersSent && !controller.signal.aborted) {
-        const status = error?.code === "MODEL_RELAY_BODY_TOO_LARGE" ? 413 : 502;
+        const status = error?.code === "MODEL_RETIRED" ? 400 : error?.code === "MODEL_RELAY_BODY_TOO_LARGE" ? 413 : 502;
         writeJsonError(
           response,
           status,
           error?.code || "MODEL_RELAY_UPSTREAM_FAILED",
-          status === 413
+          status === 400 ? error.message : status === 413
             ? "Model request exceeds the local relay safety limit."
             : "Model transport failed before the upstream response started.",
         );

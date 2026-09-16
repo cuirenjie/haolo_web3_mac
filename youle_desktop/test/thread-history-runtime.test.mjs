@@ -58,7 +58,7 @@ for (const separateSqliteHome of [false, true]) {
     });
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
     const settings = [
-      'model_provider="local_history_test"', 'model="gpt-5.5"',
+      'model_provider="local_history_test"', 'model="gpt-5.6-sol"',
       'model_providers.local_history_test.name="Local history test"',
       `model_providers.local_history_test.base_url="http://127.0.0.1:${server.address().port}/v1"`,
       'model_providers.local_history_test.wire_api="responses"',

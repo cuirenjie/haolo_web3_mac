@@ -263,6 +263,9 @@ import { tradingAnalysisTurnPolicy } from "./trading-analysis-turn-policy.mjs";
 import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER, isRecoverableAnalysisModelFailure } from "./analysis-model-recovery.mjs";
 import { ANALYSIS_PRIMARY_MODEL, withAnalysisModelRecoveryPolicy } from "./analysis-model-policy.mjs";
 import { AnalysisModelRecoveryStore } from "./analysis-model-recovery-store.mjs";
+import { canonicalDeepSeekModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
+import { migrateRetiredModelSelection } from "./retired-model-policy.mjs";
+import { applyThreadProviderSwitch, restartIdleProviderRuntime } from "./thread-provider-switch.mjs";
 import { tradingAnalysisFailureDiagnostic } from "./trading-analysis/diagnostics.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
 import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
@@ -3487,6 +3490,7 @@ function requestWorkflowInternalThreadStart(serverClient, params = {}, timeoutMs
 
 async function requestContinuationThreadStart(serverClient, params, capture, timeoutMs) {
   touchAppServerClient(serverClient);
+  if (serverClient.__youleProviderSwitchPromise) await serverClient.__youleProviderSwitchPromise;
   if (serverClient.__youleLocalProxyRecoveryPromise) {
     await serverClient.__youleLocalProxyRecoveryPromise;
   }
@@ -3499,7 +3503,7 @@ async function requestContinuationThreadStart(serverClient, params, capture, tim
   capture.requestId = serverClient.nextId;
   return serverClient.request(
     "thread/start",
-    withFixedDefaultServiceTier("thread/start", params),
+    withFixedDefaultServiceTier("thread/start", migrateDeepSeekModelSelection(migrateRetiredModelSelection(params))),
     timeoutMs,
   );
 }
@@ -3775,6 +3779,7 @@ function getClient() {
 
 async function requestAppServer(serverClient, method, params = {}, timeoutMs) {
   touchAppServerClient(serverClient);
+  if (serverClient.__youleProviderSwitchPromise) await serverClient.__youleProviderSwitchPromise;
   if (serverClient.__youleLocalProxyRecoveryPromise) {
     await serverClient.__youleLocalProxyRecoveryPromise;
   }
@@ -3782,7 +3787,7 @@ async function requestAppServer(serverClient, method, params = {}, timeoutMs) {
     await startAppServerClient(serverClient);
   }
   touchAppServerClient(serverClient);
-  const adaptiveParams = withAdaptiveTurnReasoning(method, params);
+  const adaptiveParams = withAdaptiveTurnReasoning(method, migrateDeepSeekModelSelection(migrateRetiredModelSelection(params)));
   const result = await serverClient.request(
     method,
     withFixedDefaultServiceTier(method, adaptiveParams),
@@ -4290,7 +4295,7 @@ function getYouleApiClient() {
 
 async function resolveDeepSeekExecutionProviderRuntime() {
   const apiClient = getYouleApiClient();
-  const pools = await apiClient.listBusinessModelPools();
+  const pools = await apiClient.listBusinessModelPools({ force: true });
   if (!pools?.configured) return { deepSeek: null };
   const credential = apiClient.businessModelCredential(
     "execution",
@@ -6548,45 +6553,15 @@ function captureWorkflowCodexTurn(serverClient, threadId, options = {}) {
 function workflowCodexTerminalFailure(message) {
   const params = message?.params || {};
   const error = params?.turn?.error || params?.error || {};
-  const detail = firstString(
-    error?.message,
-    error?.additionalDetails,
-    error?.additional_details,
-    error?.codexErrorInfo?.additionalDetails,
-    error?.codexErrorInfo?.additional_details,
-    error?.codex_error_info?.additionalDetails,
-    error?.codex_error_info?.additional_details,
-    params?.message,
-    params?.reason,
-    "Haolo 执行失败。",
-  );
-  const httpStatus = firstFiniteHttpStatus([
-    error?.status,
-    error?.statusCode,
-    error?.status_code,
-    error?.httpStatusCode,
-    error?.http_status_code,
-    error?.codexErrorInfo?.responseStreamDisconnected?.httpStatusCode,
-    error?.codex_error_info?.response_stream_disconnected?.http_status_code,
-    params?.statusCode,
-    params?.status_code,
-  ]);
-  const errorClass = workflowCodexFailureClass(detail, httpStatus);
+  const failure = failureDiagnosticsFromNotification(message);
   return {
     code: firstString(error?.code, error?.type, "CODEX_TURN_FAILED"),
-    detail,
-    errorClass,
-    httpStatus,
-    retryable: isRetryableModelTransportError({
-      ...error,
-      message: detail,
-      status: httpStatus,
-    }) || isRecoverableAutomaticTurnFailure({
-      errorClass,
-      httpStatus,
-      status: "failed",
-      willRetry: false,
-    }),
+    detail: failure.detail || "Haolo 执行失败。",
+    errorClass: failure.errorClass,
+    httpStatus: failure.httpStatus,
+    retryable: isRecoverableAnalysisModelFailure({
+      ...error, ...failure, status: "failed",
+    }, { allowUnknownTerminal: true }),
   };
 }
 
@@ -7871,6 +7846,7 @@ function automaticTurnRecoveryDecision(message, { threadId, turnId } = {}) {
     httpStatus: failure.httpStatus,
     detail: failure.detail,
     willRetry: failure.willRetry,
+    retryable: failure.retryable,
   });
   if (["scheduled", "cooling_down"].includes(decision.status) && !decision.duplicate) {
     getAnalysisModelRecoveryStore().activate(rootRecoveryModelsByThread.get(String(threadId)) || ANALYSIS_PRIMARY_MODEL);
@@ -7908,11 +7884,11 @@ function handleAutomaticTurnRecoveryEvent(event) {
     `${safeLogToken(event?.event)} threadId=${safeLogToken(threadId)} turnId=${safeLogToken(turnId)} attempt=${Number(event?.attempt) || 0} noProgress=${Number(event?.noProgressFailures) || 0}`,
   );
   if (!threadId || !["starting", "started", "start_failed", "cooling_down", "exhausted"].includes(event?.event)) return;
-  if (event.event === "exhausted" && !event.failedToStart) return;
   sendToRenderer("codex:notification", {
     method: "haolo/turnAutoRecovery",
     params: {
       threadId,
+      turnId: turnId || undefined,
       haoloAutoRecovery: {
         status: event.event,
         chainId: event.chainId,
@@ -7949,10 +7925,9 @@ async function startAutomaticTurnRecovery({ threadId, prompt, isCurrent = () => 
     rememberThreadClient(normalizedThreadId, serverClient);
     rememberPendingCodexTurnThread(normalizedThreadId);
     try {
-      await requestAppServer(serverClient, "thread/resume", {
-        threadId: normalizedThreadId,
-        model: ANALYSIS_RECOVERY_MODEL,
-        modelProvider: ANALYSIS_RECOVERY_PROVIDER,
+      await resumeThreadForRequestedProvider({
+        serverClient, threadId: normalizedThreadId, cwd,
+        targetSettings: { model: ANALYSIS_RECOVERY_MODEL, modelProvider: ANALYSIS_RECOVERY_PROVIDER, effort: ANALYSIS_RECOVERY_EFFORT, serviceTier: null },
       });
       if (!isCurrent()) throw new DOMException("Recovery cancelled", "AbortError");
       rootRecoveryModelsByThread.set(normalizedThreadId, ANALYSIS_RECOVERY_MODEL);
@@ -11690,7 +11665,7 @@ function threadModelProviderFromResumeResult(result = {}) {
     result?.thread?.model_provider,
   ));
   if (explicit) return explicit;
-  const model = firstString(result?.model, result?.thread?.model).toLowerCase();
+  const model = canonicalDeepSeekModel(firstString(result?.model, result?.thread?.model)).toLowerCase();
   if (model === DEEPSEEK_EXECUTION_MODEL) return DEEPSEEK_EXECUTION_PROVIDER_ID;
   return model.startsWith("gpt-") ? "haolo_ai" : "";
 }
@@ -11778,28 +11753,25 @@ async function resumeThreadForRequestedProvider({
   ) {
     return result;
   }
-  // thread/settings/update cannot change modelProvider in the bundled Codex app-server.
-  // thread/resume supports model + modelProvider atomically, so provider
-  // switches must happen here before settings confirmation or compaction.
-  result = await requestAppServer(
-    serverClient,
-    "thread/resume",
-    {
-      ...baseParams,
-      model: targetSettings.model,
-      modelProvider: targetProvider,
-      effort: targetSettings.effort ?? undefined,
-      serviceTier: targetSettings.serviceTier ?? null,
-    },
-    30_000,
-  );
-  const appliedProvider = threadModelProviderFromResumeResult(result);
-  if (appliedProvider !== targetProvider) {
-    throw new Error(
-      `Thread provider switch was not applied (expected ${targetProvider}, received ${appliedProvider || "unknown"}).`,
-    );
-  }
-  return result;
+  return applyThreadProviderSwitch({
+    request: (method, params) => requestAppServer(serverClient, method, params, 30_000),
+    baseParams,
+    targetSettings: { ...targetSettings, modelProvider: targetProvider },
+    providerOf: threadModelProviderFromResumeResult,
+    restartIdleRuntime: () => restartIdleProviderRuntime({
+      client: serverClient,
+      isBusy: () => {
+        if (appShuttingDown || appCleanupStarted || Number(serverClient.pending?.size || 0) > 0
+          || Number(serverClient.activeRuntimeTurns?.size || 0) > 0) return true;
+        const key = serverClient.__youleWorkspaceKey;
+        const belongsToClient = (id) => appServerClientByThreadId.get(String(id)) === key;
+        return [...activeCodexTurnsByThread.keys()].some(belongsToClient)
+          || [...pendingCodexTurnThreadIds].some((id) => String(id) !== String(threadId) && belongsToClient(id));
+      },
+      stop: () => stopAppServerClient(serverClient),
+      start: () => startAppServerClient(serverClient),
+    }),
+  });
 }
 
 function withThreadRuntimeSettings(result, settings = threadSettingsFromResumeResult(result)) {
@@ -11845,6 +11817,7 @@ function threadConfigurationParams(params = {}, options = {}) {
 }
 
 function executionProviderSelection(params = {}, options = {}) {
+  params = migrateDeepSeekModelSelection(migrateRetiredModelSelection(params));
   const requestedModel = firstString(params.model);
   const requestedProvider = canonicalExecutionModelProvider(firstString(
     params.modelProvider,
@@ -18576,7 +18549,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
       conversationMode === VIDEO_GENERATION_CONVERSATION_MODE) &&
     executionSelection.isDeepSeek
   ) {
-    throw new Error("图片和视频创作需要使用支持工具调用的 GPT 执行模型，不能使用 DeepSeek V4 Flash。");
+    throw new Error("图片和视频创作需要使用支持工具调用的 GPT 执行模型，不能使用 GPT-6 Astra。");
   }
   if (!executionSelection.isDeepSeek) {
     verifiedDeepSeekTextOnlyThreadIds.delete(originalThreadId);

@@ -234,8 +234,7 @@ test("consumption detail is a standalone API-backed view below profile settings"
   assert.match(opener, /state\.activeView = "consumption"/);
   assert.match(page, /renderPageHomeButton\(\)/);
   assert.doesNotMatch(page, /history\.back/);
-  assert.match(page, /data-action="export-consumption"/);
-  assert.match(page, /state\.consumption\.exporting \|\| !api\.exportConsumptionReport/);
+  assert.doesNotMatch(page, /data-action="export-consumption"|consumption-export/);
   assert.match(renderer, /consumption:\s*\{\s*unit:\s*"points"/);
   assert.match(page, /data-consumption-unit="token"/);
   assert.match(page, /data-consumption-unit="points"/);
@@ -379,15 +378,80 @@ test("consumption detail only scrolls when its content exceeds the viewport", as
   assert.match(styles, /\.consumption-calendar-card,\s*\.consumption-records-card\s*\{[^}]*height:\s*575px/s);
 });
 
-test("consumption export uses the selected unit and a desktop save action", async () => {
+test("consumption export retains its save implementation without exposing a UI action", async () => {
   const renderer = await rendererSource;
   const exporter = sourceBlock(renderer, "async function exportConsumptionReport", "function openConsumptionPage");
   assert.match(exporter, /api\.exportConsumptionReport\(\{ unit: state\.consumption\.unit \}\)/);
   assert.match(exporter, /state\.consumption\.exporting = true/);
   assert.match(exporter, /result\?\.canceled/);
   assert.match(exporter, /使用数据已保存/);
-  assert.match(renderer, /data-action="export-consumption"/);
-  assert.match(renderer, /void exportConsumptionReport\(\)/);
+  assert.doesNotMatch(renderer, /data-action="export-consumption"/);
+  assert.doesNotMatch(renderer, /void exportConsumptionReport\(\)/);
+});
+
+test("consumption model names cover server labels and historical IDs before the catalog loads", () => {
+  const empty = normalizeBusinessModelPoolsState({});
+  const configured = normalizeBusinessModelPoolsState({
+    configured: true,
+    pools: [{ id: "execution", models: [
+      { id: "deepseek-flash", displayName: "DeepSeek V4.1 Flash" },
+      { id: "legacy-flash-alias", displayName: "DeepSeek V4.1 Flash", enabled: false },
+    ] }],
+  });
+  for (const catalog of [empty, configured]) {
+    for (const name of ["deepseek-flash", "deepseek-v4-flash", "DeepSeek V4.1 Flash", " DEEPSEEK V4.1 FLASH "]) {
+      assert.equal(businessModelDisplayName(catalog, name), "GPT-6 Astra");
+    }
+    assert.equal(businessModelDisplayName(catalog, "deepseek-v4-pro"), "deepseek-v4-pro");
+  }
+  assert.equal(businessModelDisplayName(configured, "legacy-flash-alias"), "GPT-6 Astra");
+});
+
+test("consumption export stays absent in light and dark themes for both units and loading states", async () => {
+  const source = sourceBlock(await rendererSource, "function renderConsumptionPage", "function renderConsumptionCalendar");
+  const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  for (const theme of ["light", "dark"]) {
+    for (const unit of ["points", "token"]) {
+      for (const loading of [false, true]) {
+        const dependencies = {
+          state: {
+            auth: { profile: {} },
+            settings: { theme, language: "zh-CN" },
+            consumption: { unit, loading, loaded: !loading, month: "2026-09", range: "30d", exporting: loading },
+          },
+          api: { exportConsumptionReport: () => { throw new Error("Export must not be invoked"); } },
+          consumptionPayload: (value) => value || {},
+          firstString: (...values) => values.find((value) => typeof value === "string" && value) || "",
+          currentMembershipPlan: () => ({ subscribed: false }),
+          currentProfileAvatar: () => "avatar.png",
+          currentProfileName: () => "Haolo",
+          currentProfileShortId: () => "11002",
+          currentProfileBalance: () => "930.89",
+          currentConsumptionMonth: () => "2026-09",
+          escapeHtml: String,
+          escapeAttr: String,
+          builtInAvatarEdgeCropClassAttribute: () => "",
+          renderPageHomeButton: () => "",
+          renderMembershipBadge: () => "",
+          renderConsumptionLevelIcons: () => "",
+          formatConsumptionAmount: () => "0",
+          formatConsumptionDuration: () => "0",
+          formatConsumptionLoginDays: () => "0",
+          consumptionMonthLabel: String,
+          renderConsumptionProfileSkeleton: () => "",
+          renderConsumptionCalendarSkeleton: () => "",
+          renderConsumptionRecordsSkeleton: () => "",
+          renderConsumptionCalendar: () => "",
+          renderConsumptionRecords: () => "",
+        };
+        const html = Function(...Object.keys(dependencies), `${compiled}; return renderConsumptionPage();`)(...Object.values(dependencies));
+        assert.doesNotMatch(html, /export-consumption|consumption-export|导出/);
+        assert.match(html, /data-consumption-unit="points"/);
+        assert.match(html, /data-consumption-unit="token"/);
+        assert.match(html, new RegExp(`class="active" data-consumption-unit="${unit}"`));
+      }
+    }
+  }
 });
 
 test("calendar colors and record rendering preserve the billing contract", async () => {

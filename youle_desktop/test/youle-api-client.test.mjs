@@ -153,7 +153,7 @@ test("large provider chats are zstd-compressed before leaving the desktop main p
   globalThis.fetch = async (url, init = {}) => {
     request = { url: String(url), init };
     return new Response(JSON.stringify({
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       choices: [{ message: { content: "Compressed request accepted." } }],
     }), {
       status: 200,
@@ -196,7 +196,7 @@ test("provider chat falls back once when a route rejects compressed requests", a
       });
     }
     return new Response(JSON.stringify({
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       choices: [{ message: { content: "Fallback accepted." } }],
     }), {
       status: 200,
@@ -755,7 +755,7 @@ test("provider chat rejects unsupported media instead of silently dropping it", 
   await assert.rejects(
     client.sendProviderChat({
       provider: "deepseek",
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       text: "Read the image",
       attachments: [{
         name: "proof.png",
@@ -978,7 +978,7 @@ test("DeepSeek provider uses the advertised V4 Flash model by default", async ()
   globalThis.fetch = async (url, init = {}) => {
     request = { url: String(url), init };
     return new Response(JSON.stringify({
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       choices: [{ message: { content: "DeepSeek reply" } }],
     }), {
       status: 200,
@@ -999,10 +999,10 @@ test("DeepSeek provider uses the advertised V4 Flash model by default", async ()
     const body = JSON.parse(request.init.body);
 
     assert.equal(request.url, "https://transit.example/v1/chat/completions");
-    assert.equal(body.model, "deepseek-v4-flash");
+    assert.equal(body.model, "deepseek-flash");
     assert.deepEqual(body.messages, [{ role: "user", content: "Hello" }]);
     assert.equal(result.provider, "deepseek");
-    assert.equal(result.model, "deepseek-v4-flash");
+    assert.equal(result.model, "deepseek-flash");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1272,7 +1272,7 @@ test("all cluster providers send execution-pool technical ids for display names 
     ["claude", "claude-sonnet-5-202607", "claude-sonnet-5", "claude-latest"],
     ["codex", "gpt-5.6-terra-202607", "gpt-5.6-terra", "terra-current"],
     ["kimi", "kimi-k3-202607", "kimi-k3", "kimi-current"],
-    ["deepseek", "deepseek-v4-flash-202607", "deepseek-v4-flash", "deepseek-current"],
+    ["deepseek", "deepseek-v4-flash-202607", "deepseek-flash", "deepseek-current"],
     ["gemini", "gemini-3.1-pro-preview", "gemini-3.1-pro", "gemini-pro-current"],
     ["grok", "grok-4.5-202607", "grok-4.5", "grok-current"],
     ["mimo", "mimo-v2.5-pro-202607", "mimo-v2.5-pro", "mimo-current"],

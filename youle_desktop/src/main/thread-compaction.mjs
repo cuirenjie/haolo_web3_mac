@@ -1,10 +1,11 @@
+import { canonicalDeepSeekModel } from "./deepseek-model-policy.mjs";
 export const THREAD_COMPACTION_TIMEOUT_MS = 120_000;
 export const THREAD_SETTINGS_UPDATE_TIMEOUT_MS = 30_000;
 export const THREAD_COMPACTION_MAX_SINGLE_ITEM_TOKENS = 400_000;
 const THREAD_COMPACTION_MAX_ATTEMPTS = 2;
 const THREAD_COMPACTION_RETRY_DELAY_MS = 500;
 const THREAD_COMPACTION_EFFORT = "low";
-const DEEPSEEK_EXECUTION_MODEL = "deepseek-v4-flash";
+const DEEPSEEK_EXECUTION_MODEL = "deepseek-flash";
 const THREAD_COMPACTION_INTERRUPT_GRACE_MS = 5_000;
 
 /**
@@ -324,6 +325,7 @@ export async function startThreadCompactionAndWait({
   const cleanup = () => {
     clearTimeout(timer);
     serverClient.off("notification", onNotification);
+    serverClient.off("status", onStatus);
   };
   const finish = (value) => {
     if (settled) return;
@@ -341,6 +343,11 @@ export async function startThreadCompactionAndWait({
     resolveCompletion = resolve;
     rejectCompletion = reject;
   });
+  const onStatus = (status) => {
+    if (["failed", "stopped"].includes(status?.state)) {
+      fail(new Error("Thread compaction interrupted: app server stopped"));
+    }
+  };
   const onNotification = (message) => {
     if (timingOut) return;
     if (!message || notificationThreadId(message) !== normalizedThreadId) return;
@@ -361,7 +368,7 @@ export async function startThreadCompactionAndWait({
       if (!isContextCompactionItem(message.params?.item)) return;
       sawCompactionItem = true;
       if (turnId) compactionTurnId = turnId;
-      if (method === "item/failed") {
+      if (method === "item/failed" || message.params?.item?.error || ["failed", "error", "interrupted", "cancelled", "canceled"].includes(String(message.params?.item?.status || "").toLowerCase())) {
         fail(compactionFailure(message));
       }
       return;
@@ -383,6 +390,7 @@ export async function startThreadCompactionAndWait({
     finish({ method, message });
   };
   serverClient.on("notification", onNotification);
+  serverClient.on("status", onStatus);
   timer = setTimeout(() => {
     if (settled) return;
     timingOut = true;
@@ -459,7 +467,7 @@ function firstThreadSettings(...values) {
 
 function normalizeThreadSettings(value, options = {}) {
   const source = value && typeof value === "object" ? value : {};
-  const model = firstString(source.model);
+  const model = options.requireModel ? canonicalDeepSeekModel(source.model) : firstString(source.model);
   if (options.requireModel && !model) throw new Error("model is required");
   const settings = { model };
   const effort = optionalString(source.effort, source.reasoningEffort, source.reasoning_effort);

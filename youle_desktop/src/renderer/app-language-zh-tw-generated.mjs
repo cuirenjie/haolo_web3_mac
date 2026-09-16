@@ -1,11 +1,12 @@
 // Generated once from renderer-owned Simplified Chinese UI strings with
 // OpenCC s2twp. Runtime language switching is fully offline.
 export const GENERATED_TRADITIONAL_UI_PHRASES = Object.freeze({
-  "模型执行异常，正在切换到 GPT-5.5 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。": "模型執行異常，正在切換到 GPT-5.5 最高推理模式繼續處理。接下來 24 小時的新任務也會使用該模型。",
-  "已尝试 GPT-5.5 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。": "已嘗試 GPT-5.5 最高推理模式，自動恢復仍未完成。任務記錄已保留，請稍後重試。",
+  "上下文压缩已中断，请重试。": "上下文壓縮已中斷，請重試。",
+  "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。": "模型執行異常，正在切換到 GPT-6 Astra 最高推理模式繼續處理。接下來 24 小時的新任務也會使用該模型。",
+  "已尝试 GPT-6 Astra 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。": "已嘗試 GPT-6 Astra 最高推理模式，自動恢復仍未完成。任務記錄已保留，請稍後重試。",
   "自动恢复未能启动。任务记录已保留，请检查账户和服务状态后重试。": "自動恢復未能啟動。任務記錄已保留，請檢查帳戶和服務狀態後重試。",
-  "备用模型暂时不可用，稍后将再次使用 GPT-5.5 最高推理模式继续当前任务。": "備用模型暫時不可用，稍後將再次使用 GPT-5.5 最高推理模式繼續當前任務。",
-  "模型执行异常，正在切换到 GPT-5.5 最高推理模式，保留当前任务进度继续处理。": "模型執行異常，正在切換到 GPT-5.5 最高推理模式，保留當前任務進度繼續處理。",
+  "备用模型暂时不可用，稍后将再次使用 GPT-6 Astra 最高推理模式继续当前任务。": "備用模型暫時不可用，稍後將再次使用 GPT-6 Astra 最高推理模式繼續當前任務。",
+  "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式，保留当前任务进度继续处理。": "模型執行異常，正在切換到 GPT-6 Astra 最高推理模式，保留當前任務進度繼續處理。",
   "模型响应流意外中断，请稍后重试。": "模型回應串流意外中斷，請稍後重試。",
 
   "- 触发条件：": "- 觸發條件：",
@@ -3682,7 +3683,7 @@ export const GENERATED_TRADITIONAL_UI_PHRASES = Object.freeze({
   "data-action=\"toggle-trading-expert-mention-menu\" title=\"添加\" aria-label=\"添加\" aria-haspopup=\"menu\" aria-expanded=\"": "data-action=\"toggle-trading-expert-mention-menu\" title=\"新增\" aria-label=\"新增\" aria-haspopup=\"menu\" aria-expanded=\"",
   "data-tooltip=\"加到新任务\"": "data-tooltip=\"加到新任務\"",
   "Deepseek 擅长代码、数学和逻辑分析，可以协助完成工程任务、推理问题和结构化输出。": "Deepseek 擅長程式碼、數學和邏輯分析，可以協助完成工程任務、推理問題和結構化輸出。",
-  "DeepSeek V4 Flash仅支持文本，请移除图片、视频或切换GPT模型。": "DeepSeek V4 Flash僅支援文字，請移除圖片、影片或切換GPT模型。",
+  "GPT-6 Astra仅支持文本，请移除图片、视频或切换GPT模型。": "GPT-6 Astra僅支援文字，請移除圖片、影片或切換GPT模型。",
   "DeepSeek系列": "DeepSeek系列",
   "Doubao 擅长中文理解、内容创作和通用任务分析，适合文案、总结和方案整理。": "Doubao 擅長中文理解、內容創作和通用任務分析，適合文案、總結和方案整理。",
   "Doubao（不鸣 AI 中转）": "Doubao（不鳴 AI 中轉）",

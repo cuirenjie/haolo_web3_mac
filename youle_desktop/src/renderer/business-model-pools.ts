@@ -1,3 +1,6 @@
+import { LEGACY_DEEPSEEK_FLASH_MODEL } from "../main/deepseek-model-policy.mjs";
+import { isRetiredExecutionModel } from "../main/retired-model-policy.mjs";
+import { modelDisplayName } from "./model-display-name.ts";
 import {
   DEEPSEEK_EXECUTION_CHAT_MODEL_OPTION,
   DEEPSEEK_EXECUTION_MODEL_VALUE,
@@ -109,7 +112,7 @@ export function businessPoolModels(
   if (!pool) return [];
   return pool.models.filter(
     (model) =>
-      model.enabled &&
+      model.enabled && !isRetiredExecutionModel(model.id) && model.id.toLowerCase() !== LEGACY_DEEPSEEK_FLASH_MODEL &&
       (!capability || model.capabilities.includes(capability)),
   );
 }
@@ -127,12 +130,12 @@ export function businessModelDisplayName(
       if (model.id.toLowerCase() !== normalizedID) continue;
       const displayName = safeText(model.displayName);
       if (displayName && displayName.toLowerCase() !== normalizedID) {
-        return displayName;
+        return modelDisplayName(id, displayName);
       }
       matchedDisplayName ||= displayName;
     }
   }
-  return matchedDisplayName || id;
+  return modelDisplayName(id, matchedDisplayName || id);
 }
 
 export function executionChatModelOptions(
@@ -176,7 +179,7 @@ export function executionChatModelOptions(
         routeGroupId: model.routeGroupId,
         credentialAvailable: model.credentialAvailable,
         value: model.id,
-        label: model.displayName || catalogOption?.label || model.id,
+        label: modelDisplayName(model.id, model.displayName || catalogOption?.label || model.id),
         isDefault: model.isDefault,
       };
     },
@@ -264,8 +267,10 @@ function normalizePoolModel(
   if (!id) return null;
   return {
     id,
-    displayName:
+    displayName: modelDisplayName(
+      id,
       safeText(model.displayName ?? model.display_name ?? model.name) || id,
+    ),
     provider: safeText(model.provider).toLowerCase(),
     routeGroupId: positiveIntegerOrNull(
       model.routeGroupId ?? model.route_group_id,

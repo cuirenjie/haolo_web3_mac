@@ -54,7 +54,7 @@ test("late responses after request timeout stay correlated and do not become pro
   assert.equal(protocolErrors[0].error, `response for unknown id ${sent[0].id + 1}`);
 });
 
-const MANAGED_MODEL_SLUGS = ["gpt-6-astra", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+const MANAGED_MODEL_SLUGS = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
 const MANAGED_TOP_LEVEL_CONTEXT_KEYS = [
   "model_context_window",
   "model_auto_compact_token_limit",
@@ -207,7 +207,7 @@ function withBuiltinPluginFixture(run) {
 test("bundled runtime config uses per-model context defaults and pins remote plugin behavior", () => {
   const config = fs.readFileSync(new URL("../resources/default-haolo-ai/config.toml", import.meta.url), "utf8");
 
-  assert.match(config, /^model\s*=\s*"gpt-5\.5"\s*$/m);
+  assert.match(config, /^model\s*=\s*"gpt-5\.6-sol"\s*$/m);
   assert.match(config, /^model_reasoning_effort\s*=\s*"high"\s*$/m);
   assert.doesNotMatch(config, /^disable_response_storage\s*=/m);
   assertManagedTopLevelContextPinsAbsent(config);
@@ -229,7 +229,7 @@ test("bundled runtime config uses per-model context defaults and pins remote plu
 test("runtime provider overrides always send the bundled Codex version without forcing Responses Lite", () => {
   const args = defaultCodexConfigArgs({ providerBaseUrl: "https://relay.example.test/v1" });
 
-  assert.ok(args.includes('model="gpt-5.5"'));
+  assert.ok(args.includes('model="gpt-5.6-sol"'));
   assert.ok(args.includes('model_reasoning_effort="high"'));
   assert.equal(args.includes('windows.sandbox="unelevated"'), process.platform === "win32");
   assert.ok(args.includes("features.network_proxy.enabled=false"));
@@ -246,8 +246,9 @@ test("runtime provider overrides always send the bundled Codex version without f
   assert.ok(args.includes('model_providers.deepseek.env_key="HAOLO_DEEPSEEK_EXECUTION_TOKEN"'));
   assert.ok(args.includes('model_providers.deepseek.supports_websockets=false'));
   assert.equal(args.some((arg) => /model_providers\.haolo_ai\.supports_websockets/i.test(arg)), false);
-  assert.equal(args.some((arg) => /request_max_retries/i.test(arg)), false);
-  assert.equal(args.some((arg) => /stream_max_retries/i.test(arg)), false);
+  assert.ok(args.includes("model_providers.deepseek.request_max_retries=0"));
+  assert.ok(args.includes("model_providers.deepseek.stream_max_retries=0"));
+  assert.equal(args.some((arg) => /model_providers\.haolo_ai\.(?:request|stream)_max_retries/.test(arg)), false);
   assert.equal(args.some((arg) => /responses_websockets_v2/i.test(arg)), false);
   assert.equal(args.some((arg) => /x-openai-internal-codex-responses-lite/i.test(arg)), false);
 });

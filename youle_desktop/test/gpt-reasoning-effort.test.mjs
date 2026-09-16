@@ -70,19 +70,19 @@ test("automatic target ignores user choices and maps to each model's supported t
   }), "xhigh");
 
   assert.equal(adaptiveReasoningEffortForTask({
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     task: "北京的天气",
     requestedEffort: "max",
     supportedReasoningEfforts: ["low", "high", "max"],
   }), "low");
   assert.equal(adaptiveReasoningEffortForTask({
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     task: "把按钮文案改成保存，并更新对应测试",
     requestedEffort: "low",
     supportedReasoningEfforts: ["low", "high", "max"],
   }), "high");
   assert.equal(adaptiveReasoningEffortForTask({
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     task: "全面重构认证系统并迁移数据库，完成安全审计和生产部署",
     supportedReasoningEfforts: ["low", "high", "max"],
   }), "max");
@@ -98,7 +98,7 @@ test("automatic target ignores user choices and maps to each model's supported t
   }), undefined);
   assert.equal(isGptSeriesTextModel("openai/gpt-5.5"), true);
   assert.equal(isGptSeriesTextModel("aihubcc/gpt-image-2"), false);
-  assert.equal(isDeepSeekTextModel("deepseek-v4-flash"), true);
+  assert.equal(isDeepSeekTextModel("deepseek-flash"), true);
 });
 
 test("turn/start applies the policy centrally and strips private metadata", () => {
@@ -117,7 +117,7 @@ test("turn/start applies the policy centrally and strips private metadata", () =
   assert.equal(Object.hasOwn(result, HAOLO_REASONING_SUPPORT_FIELD), false);
 
   const deepSeek = withAdaptiveTurnReasoning("turn/start", {
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     effort: "max",
     input: [{ type: "text", text: "把按钮文案改成保存，并更新对应测试" }],
     [HAOLO_REASONING_SUPPORT_FIELD]: ["low", "high", "max"],

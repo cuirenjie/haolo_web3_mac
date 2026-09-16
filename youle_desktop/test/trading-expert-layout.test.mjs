@@ -580,7 +580,7 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
   const desktopMain = await desktopMainSource;
   const catalog = [
     { value: "gpt-5.6-terra" },
-    { value: "deepseek-v4-flash" },
+    { value: "deepseek-flash" },
     { value: "image2" },
     { value: "gpt-5.6-sol" },
     { value: "gpt-5.5" },
@@ -588,18 +588,15 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
 
   assert.deepEqual(TRADING_EXPERT_MODEL_VALUES, [
     "gpt-5.6-sol",
-    "gpt-5.5",
-    "deepseek-v4-flash",
+    "deepseek-flash",
   ]);
   assert.equal(TRADING_EXPERT_DEFAULT_MODEL_VALUE, "gpt-5.6-sol");
   assert.equal(TRADING_EXPERT_REASONING_EFFORT, "ultra");
   assert.equal(TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT, "max");
-  assert.equal(tradingExpertReasoningEffort("gpt-5.6-sol"), "ultra");
-  assert.equal(tradingExpertReasoningEffort("gpt-5.5"), "xhigh");
-  assert.equal(tradingExpertReasoningEffort("deepseek-v4-flash"), "max");
+  assert.equal(tradingExpertReasoningEffort("gpt-5.6-sol"), "ultra");  assert.equal(tradingExpertReasoningEffort("deepseek-flash"), "max");
   assert.deepEqual(
     tradingExpertModelOptions(catalog).map((option) => option.value),
-    ["gpt-5.6-sol", "gpt-5.5", "deepseek-v4-flash"],
+    ["gpt-5.6-sol", "deepseek-flash"],
   );
   assert.equal(
     defaultTradingExpertModelOption(catalog)?.value,
@@ -694,7 +691,7 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
   );
   assert.match(
     initializeWorkspace,
-    /newThreadModeByThreadId\.set\(threadId, "execution"\)[\s\S]*if \(!isTradingExpertModelValue\(existingModel\)\)[\s\S]*modelProvider: DEFAULT_EXECUTION_MODEL_PROVIDER_ID[\s\S]*model: initialModel[\s\S]*reasoningEffort: tradingExpertReasoningEffort\(initialModel\)/,
+    /newThreadModeByThreadId\.set\(threadId, "execution"\)[\s\S]*if \(!isTradingExpertModelValue\(existingModel\)\)[\s\S]*modelProvider: initialModel === DEEPSEEK_EXECUTION_MODEL_VALUE \? DEEPSEEK_EXECUTION_PROVIDER_ID : DEFAULT_EXECUTION_MODEL_PROVIDER_ID[\s\S]*model: initialModel[\s\S]*reasoningEffort: tradingExpertReasoningEffort\(initialModel\)/,
   );
   assert.match(
     lockedModel,

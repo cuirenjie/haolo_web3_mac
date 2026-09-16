@@ -34,7 +34,7 @@ test("DeepSeek blocks queued images and videos before any composer send side eff
 
   assert.match(
     validation,
-    /DeepSeek V4 Flash仅支持文本，请移除图片、视频或切换GPT模型。/,
+    /GPT-6 Astra仅支持文本，请移除图片、视频或切换GPT模型。/,
   );
   assert.match(
     validation,

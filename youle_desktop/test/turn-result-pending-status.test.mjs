@@ -52,6 +52,6 @@ test("thread snapshots retain turn status for pending-result recovery after rest
   assert.match(flatten, /item as any\)\.__youleTurnStatus = turnStatus/);
   assert.match(completion, /rememberTurnResultStatus/);
   assert.match(completion, /wasInterrupted\s*\? "interrupted"/);
-  assert.match(failure, /rememberTurnResultStatus\(threadId, failedTurnId, "failed"\)/);
+  assert.match(failure, /rememberTurnResultStatus\(threadId, failedTurnId, "failed", formatTurnFailureMessage\(reason, automaticRecovery\)\)/);
   assert.match(localInterrupt, /rememberTurnResultStatus\(threadId, turnId, "interrupted"\)/);
 });

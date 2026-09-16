@@ -16,6 +16,32 @@ function notification(method, params) {
   return { method, params };
 }
 
+for (const state of ["failed", "stopped"]) {
+  test(`manual compaction rejects immediately when the app server is ${state}`, async () => {
+    const serverClient = new EventEmitter();
+    const pending = startThreadCompactionAndWait({
+      serverClient, threadId: "thread", startCompaction: async () => ({}), timeoutMs: 10_000,
+    });
+    serverClient.emit("status", { state });
+    await assert.rejects(pending, /app server stopped/);
+    assert.equal(serverClient.listenerCount("notification"), 0);
+    assert.equal(serverClient.listenerCount("status"), 0);
+  });
+}
+
+test("a failed item/completed notification rejects compaction without waiting for a turn event", async () => {
+  const serverClient = new EventEmitter();
+  const pending = startThreadCompactionAndWait({
+    serverClient, threadId: "thread", startCompaction: async () => ({}), timeoutMs: 10_000,
+  });
+  serverClient.emit("notification", notification("item/completed", {
+    threadId: "thread", turnId: "turn", item: { id: "compact", type: "contextCompaction", status: "failed" },
+  }));
+  await assert.rejects(pending);
+  assert.equal(serverClient.listenerCount("notification"), 0);
+  assert.equal(serverClient.listenerCount("status"), 0);
+});
+
 test("manual compaction waits for its compaction turn to complete", async () => {
   const serverClient = new EventEmitter();
   const appServerResult = { accepted: true };
@@ -373,13 +399,13 @@ test("DeepSeek V4 Flash compaction keeps the forced Max effort", async () => {
     serverClient,
     threadId: "thread-deepseek-max",
     targetSettings: {
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       effort: "max",
       serviceTier: null,
     },
     resumeThread: async () => ({
       thread: { id: "thread-deepseek-max" },
-      model: "deepseek-v4-flash",
+      model: "deepseek-flash",
       reasoningEffort: "high",
       serviceTier: null,
     }),

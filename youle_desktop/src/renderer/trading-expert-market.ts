@@ -132,6 +132,7 @@ import {
   buildRecoverableTradingAnalysis,
 } from "./trading-analysis-recovery.ts";
 import { describeTradingAnalysisFailure, settleTradingAnalysisDrawing } from "../main/trading-analysis/failure.mjs";
+import { tradingAnalysisModelDisplayName } from "./trading-analysis-model-display.ts";
 
 export function recordTradingRendererFailure(error: unknown, context: Record<string, unknown>) {
   const failure = error as Error & { code?: string; retryable?: boolean };
@@ -8418,7 +8419,7 @@ class TradingExpertMarketWorkspace {
             heading: tradingAnalysisPaneHeading(snapshot.market, snapshot.interval),
             report: String(response.analysisPlan.report || response.analysisPlan.narrative || `${options.analysisLabel}已完成`),
             narrative: String(response.analysisPlan.narrative || response.analysisPlan.report || `${options.analysisLabel}已完成`),
-            modelName: response.model?.modelId || response.model?.providerId || "分析模型",
+            modelName: tradingAnalysisModelDisplayName(response.model, options.job.language),
           });
           completed += 1;
         } catch (error) {
@@ -10324,7 +10325,7 @@ class TradingExpertMarketWorkspace {
         throw error;
       }
       const analysisPlan = response.analysisPlan;
-      const modelName = response.model?.modelId || response.model?.providerId || "分析模型";
+      const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
       let drawingDeferred = false;
       if (request.drawingRequested !== false) {
         request.onProgress?.(
@@ -10343,7 +10344,7 @@ class TradingExpertMarketWorkspace {
           onFailure: (error) => recordTradingRendererFailure(error, {
             analysisJobId: job.analysisId, strategyId: strategyId || "general",
             marketId: job.marketId, interval: job.interval, candleCount: analysisCandles.length,
-            modelId: modelName, stage: "drawing",
+            modelId: response.model?.modelId || response.model?.providerId || "分析模型", stage: "drawing",
           }),
           commit: async () => {
             if (analysisPlan.drawingPatch) {
@@ -10738,7 +10739,7 @@ class TradingExpertMarketWorkspace {
       if (analysisCandles.length > initialAnalysisCandleCount) {
         focusChanAnalysisCandles(analysisCandles);
       }
-      const modelName = response.model?.modelId || response.model?.providerId || "分析模型";
+      const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
       if (request.drawingRequested !== false) {
         request.onProgress?.(
           "drawing",
@@ -11070,7 +11071,7 @@ class TradingExpertMarketWorkspace {
         this.updateChartData();
         focusWaveAnalysisCandles(analysisCandles);
       }
-      const modelName = response.model?.modelId || response.model?.providerId || "分析模型";
+      const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
       if (request.drawingRequested !== false) {
         request.onProgress?.(
           "wave-drawing",
@@ -11356,7 +11357,7 @@ class TradingExpertMarketWorkspace {
         (error as Error & { code?: string }).code = response?.error?.code;
         throw error;
       }
-      const modelName = response.model?.modelId || response.model?.providerId || "分析模型";
+      const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
       if (request.drawingRequested !== false) {
         request.onProgress?.(
           "wyckoff-drawing",
@@ -11666,7 +11667,7 @@ class TradingExpertMarketWorkspace {
         (error as Error & { code?: string }).code = response?.error?.code;
         throw error;
       }
-      const modelName = response.model?.modelId || response.model?.providerId || "分析模型";
+      const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
       if (request.drawingRequested !== false) {
         request.onProgress?.(
           "order-flow-drawing",

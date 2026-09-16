@@ -31,9 +31,9 @@ const preloadSource = readFile(new URL("../src/main/preload.mjs", import.meta.ur
 
 test("model fallback and exhaustion notices translate in English and Traditional Chinese", () => {
   for (const text of [
-    "模型执行异常，正在切换到 GPT-5.5 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。",
-    "备用模型暂时不可用，稍后将再次使用 GPT-5.5 最高推理模式继续当前任务。",
-    "已尝试 GPT-5.5 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。",
+    "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。",
+    "备用模型暂时不可用，稍后将再次使用 GPT-6 Astra 最高推理模式继续当前任务。",
+    "已尝试 GPT-6 Astra 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。",
     "自动恢复未能启动。任务记录已保留，请检查账户和服务状态后重试。",
   ]) {
     assert.doesNotMatch(translateAppText(text, "en"), /\p{Script=Han}/u);
@@ -41,6 +41,18 @@ test("model fallback and exhaustion notices translate in English and Traditional
   }
 });
 const indexSource = readFile(new URL("../src/renderer/index.html", import.meta.url), "utf8");
+
+test("legacy client-owned model labels and recovery notices use the current display name in every language", () => {
+  const legacyNotice = "模型执行异常，正在切换到 DeepSeek V4.1 Flash 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。";
+  for (const language of ["zh-CN", "zh-TW", "en"]) {
+    assert.equal(translateAppText("DeepSeek V4.1 Flash", language), "GPT-6 Astra");
+    assert.equal(
+      translateAppText(legacyNotice, language),
+      translateAppText(legacyNotice.replace("DeepSeek V4.1 Flash", "GPT-6 Astra"), language),
+    );
+    assert.doesNotMatch(translateAppText(legacyNotice, language), /DeepSeek/);
+  }
+});
 
 test("group selection and encoded UI copy have complete English translations", () => {
   assert.equal(translateAppText("不选择分组", "en"), "No group");

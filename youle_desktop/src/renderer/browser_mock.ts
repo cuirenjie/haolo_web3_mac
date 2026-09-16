@@ -368,7 +368,7 @@ export function ensureBrowserDesktopApi() {
   }
 
   const threadId = "mock-thread-1";
-  let activeThreadModel = "gpt-5.5";
+  let activeThreadModel = "gpt-5.6-sol";
   let activeThreadReasoningEffort = "high";
   const mockConsumptionTurn = {
     id: "mock-turn-1",

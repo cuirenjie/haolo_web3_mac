@@ -49,7 +49,8 @@ const MODEL_EFFECTIVE_CONTEXT_WINDOWS: Readonly<Record<string, number>> = Object
   "gpt-5.6-terra": GPT_5_6_MODEL_CONTEXT_WINDOW_TOKENS,
   "gpt-5.6-luna": GPT_5_6_MODEL_CONTEXT_WINDOW_TOKENS,
   "gpt-5.5": CURRENT_MODEL_CONTEXT_WINDOW_TOKENS,
-  "deepseek-v4-flash": DEEPSEEK_V4_FLASH_MODEL_CONTEXT_WINDOW_TOKENS,
+  "deepseek-flash": DEEPSEEK_V4_FLASH_MODEL_CONTEXT_WINDOW_TOKENS,
+  "deepseek-v4-flash": DEEPSEEK_V4_FLASH_MODEL_CONTEXT_WINDOW_TOKENS, // Historical task metadata.
 });
 
 const MODEL_DOWNGRADE_SWITCH_THRESHOLDS: Readonly<Record<string, number>> = Object.freeze({

@@ -32,7 +32,7 @@ export const CLUSTER_MODEL_REGISTRY = Object.freeze([
   model("claude", "Claude", "claude-sonnet-5", ["长文阅读", "严谨分析", "结构化写作", "方案审查"]),
   model("codex", "GPT", "gpt-5.6-terra", ["综合推理", "代码与工程", "任务拆解", "跨领域综合"]),
   model("kimi", "Kimi", "kimi-k3", ["长上下文", "本地资料归纳", "中文文档", "信息提取"]),
-  model("deepseek", "DeepSeek", "deepseek-v4-flash", ["代码分析", "数学逻辑", "技术方案", "交叉验证"]),
+  model("deepseek", "DeepSeek", "deepseek-flash", ["代码分析", "数学逻辑", "技术方案", "交叉验证"]),
   model("gemini", "Gemini", "gemini-3.5-flash", ["多模态理解", "跨资料综合", "创意生成", "信息整理"]),
   model("grok", "Grok", "grok-4.5", ["开放问题", "趋势分析", "技术复核", "观点挑战"]),
   model("mimo", "MiMo", "mimo-v2.5-pro", ["代码与 Agent", "复杂推理", "技术审查", "方案评估"]),

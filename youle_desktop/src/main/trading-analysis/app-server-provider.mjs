@@ -1,6 +1,8 @@
 import { TradingAnalysisModelProviderError } from "./model-provider.mjs";
-import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, runWithAnalysisModelRecovery } from "../analysis-model-recovery.mjs";
+import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER, runWithAnalysisModelRecovery } from "../analysis-model-recovery.mjs";
 import { ANALYSIS_PRIMARY_MODEL } from "../analysis-model-policy.mjs";
+import { canonicalDeepSeekModel } from "../deepseek-model-policy.mjs";
+import { migrateRetiredModelSelection } from "../retired-model-policy.mjs";
 
 export const DEFAULT_TRADING_ANALYSIS_PROVIDER_ID = "openai-codex";
 export const DEFAULT_TRADING_ANALYSIS_MODEL_ID = ANALYSIS_PRIMARY_MODEL;
@@ -9,7 +11,7 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
   const invoke = options.invoke;
   if (typeof invoke !== "function") throw new TypeError("invoke is required");
   const providerId = String(options.providerId || DEFAULT_TRADING_ANALYSIS_PROVIDER_ID);
-  const modelId = String(options.modelId || DEFAULT_TRADING_ANALYSIS_MODEL_ID);
+  const modelId = String(migrateRetiredModelSelection({ model: canonicalDeepSeekModel(options.modelId) }).model || DEFAULT_TRADING_ANALYSIS_MODEL_ID);
   const modelProvider = options.modelProvider ? String(options.modelProvider) : undefined;
   return Object.freeze({
     providerId,
@@ -40,7 +42,7 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
               code: String(result?.code || (result?.status === "success" ? "TRADING_ANALYSIS_MODEL_EMPTY_RESPONSE" : "TRADING_ANALYSIS_APP_SERVER_FAILED")),
               providerId,
               modelId: selection.modelId,
-              retryable: result?.retryable === true,
+              retryable: result?.status === "success" || result?.retryable !== false,
               status: result?.httpStatus,
               category: result?.category,
               requestId: request.requestId,
@@ -57,9 +59,10 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
         };
       };
       const policy = recoverableReview ? options.selectModel?.(modelId) : null;
-      const selection = recoverableReview && (recoveryModel === ANALYSIS_RECOVERY_MODEL || policy?.fallback)
-        ? { modelId: ANALYSIS_RECOVERY_MODEL, reasoningEffort: ANALYSIS_RECOVERY_EFFORT }
-        : { modelId: policy?.modelId || modelId, reasoningEffort };
+      const selectedModel = canonicalDeepSeekModel(policy?.modelId || modelId);
+      const selection = recoverableReview && (selectedModel === ANALYSIS_RECOVERY_MODEL || canonicalDeepSeekModel(recoveryModel) === ANALYSIS_RECOVERY_MODEL || policy?.fallback)
+        ? { modelId: ANALYSIS_RECOVERY_MODEL, modelProvider: ANALYSIS_RECOVERY_PROVIDER, reasoningEffort: ANALYSIS_RECOVERY_EFFORT }
+        : { modelId: selectedModel, reasoningEffort, ...(modelId === ANALYSIS_RECOVERY_MODEL && selectedModel === ANALYSIS_PRIMARY_MODEL ? { modelProvider: "haolo_ai" } : {}) };
       if (!recoverableReview) return operation(selection);
       return runWithAnalysisModelRecovery({
         operation, ...selection, signal,

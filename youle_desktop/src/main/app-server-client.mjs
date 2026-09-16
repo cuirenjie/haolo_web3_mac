@@ -12,6 +12,8 @@ import WebSocket from "ws";
 import { ModelRequestRelay, modelRequestRelayEnabled } from "./model-request-relay.mjs";
 import { haoloRoute } from "./haolo-network-policy.mjs";
 import { requestWithThreadHistoryRecovery } from "./thread-history-recovery.mjs";
+import { DEEPSEEK_FLASH_MODEL, LEGACY_DEEPSEEK_FLASH_MODEL, isDeepSeekFlashModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
+import { DEFAULT_EXECUTION_MODEL, assertAllowedModelRequest, isRetiredExecutionModel } from "./retired-model-policy.mjs";
 import { HAOLO_BUILTIN_PLUGIN_IDS, syncBuiltinPluginRegistration } from "./plugin-manager.mjs";
 import {
   isolateHaoloRuntimeEnvironment,
@@ -65,9 +67,9 @@ const PACKAGED_CODEX_BIN = process.platform === "win32" ? "haolo_ai.exe" : "haol
 const PACKAGED_CODEX_PLATFORM_BIN_DIR = process.platform === "darwin" ? `darwin-${process.arch}` : null;
 const DEFAULT_PROVIDER_ID = "haolo_ai";
 export const DEEPSEEK_EXECUTION_PROVIDER_ID = "deepseek";
-export const DEEPSEEK_EXECUTION_MODEL = "deepseek-v4-flash";
+export const DEEPSEEK_EXECUTION_MODEL = DEEPSEEK_FLASH_MODEL;
 export const DEEPSEEK_EXECUTION_ENV_KEY = "HAOLO_DEEPSEEK_EXECUTION_TOKEN";
-const DEFAULT_MODEL = "gpt-5.5";
+const DEFAULT_MODEL = DEFAULT_EXECUTION_MODEL;
 const DEFAULT_MODEL_REASONING_EFFORT = "high";
 const DEFAULT_WINDOWS_SANDBOX_MODE = "unelevated";
 // The root thread occupies the only session slot. This is a runtime backstop
@@ -83,7 +85,6 @@ const MANAGED_MODEL_AUTO_COMPACT_TOKEN_LIMIT = 300_000;
 const MANAGED_MODEL_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 const MANAGED_LONG_CONTEXT_MODEL_SLUGS = new Set([
   "gpt-6-astra",
-  "gpt-5.5",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -187,6 +188,7 @@ export class AppServerClient extends EventEmitter {
     this.ws = null;
     this.nextId = 1;
     this.pending = new Map();
+    this.activeRuntimeTurns = new Map();
     this.timedOutRequests = new Map();
     this.status = "stopped";
   }
@@ -309,6 +311,7 @@ export class AppServerClient extends EventEmitter {
     this.child.once("exit", (code, signal) => {
       const wasReady = this.status === "ready";
       this.status = "stopped";
+      this.activeRuntimeTurns.clear();
       void this.stopModelRequestRelays();
       this.rejectAll(new Error(`app-server exited with code ${code ?? "null"}, signal ${signal ?? "null"}`));
       this.emit("status", this.getStatus({ exitCode: code, signal }));
@@ -441,6 +444,18 @@ export class AppServerClient extends EventEmitter {
     }
 
     if (message.method) {
+      // Observe every turn before UI filtering, including hidden workflow and
+      // trading-analysis sessions, so provider recovery cannot interrupt them.
+      const threadId = message.params?.threadId;
+      const turnId = message.params?.turn?.id || message.params?.turnId;
+      if (threadId && message.method === "turn/started") this.activeRuntimeTurns.set(threadId, turnId || null);
+      if (threadId && ["turn/completed", "turn/failed"].includes(message.method)
+        && (!this.activeRuntimeTurns.get(threadId) || this.activeRuntimeTurns.get(threadId) === turnId)) {
+        this.activeRuntimeTurns.delete(threadId);
+      }
+      if (threadId && message.method === "thread/status/changed" && message.params?.status?.type === "active"
+        && !this.activeRuntimeTurns.has(threadId)) this.activeRuntimeTurns.set(threadId, null);
+      if (threadId && message.method === "thread/closed") this.activeRuntimeTurns.delete(threadId);
       this.emit("notification", message);
       return;
     }
@@ -460,6 +475,8 @@ export class AppServerClient extends EventEmitter {
   }
 
   requestRaw(method, params = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+    params = migrateDeepSeekModelSelection(params);
+    try { assertAllowedModelRequest(params); } catch (error) { return Promise.reject(error); }
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error("app-server websocket is not open"));
     }
@@ -524,6 +541,7 @@ export class AppServerClient extends EventEmitter {
     }
     this.ws = null;
     await stopProcessTree(this.child);
+    this.activeRuntimeTurns.clear();
     this.child = null;
     await this.stopModelRequestRelays();
     this.status = "stopped";
@@ -902,6 +920,7 @@ export function buildManagedLongContextModelCatalog(value) {
     throw new Error("Bundled Haolo model catalog must contain at least one model.");
   }
 
+  catalog.models = catalog.models.filter((model) => !isRetiredExecutionModel(model?.slug));
   const updatedSlugs = new Set();
   for (const model of catalog.models) {
     const slug = typeof model?.slug === "string" ? model.slug : "";
@@ -924,10 +943,12 @@ export function buildManagedLongContextModelCatalog(value) {
   const deepSeekModels = Array.isArray(deepSeekCatalog?.models)
     ? deepSeekCatalog.models
     : [];
-  if (deepSeekModels.length !== 1 || deepSeekModels[0]?.slug !== DEEPSEEK_EXECUTION_MODEL) {
+  if (deepSeekModels.length !== 1 || deepSeekModels[0]?.slug !== LEGACY_DEEPSEEK_FLASH_MODEL) {
     throw new Error("Bundled DeepSeek Codex catalog must contain exactly deepseek-v4-flash.");
   }
   const deepSeekModel = JSON.parse(JSON.stringify(deepSeekModels[0]));
+  deepSeekModel.display_name = "GPT-6 Astra";
+  deepSeekModel.slug = DEEPSEEK_EXECUTION_MODEL;
   if (
     deepSeekModel.minimal_client_version !== "0.144.0" ||
     deepSeekModel.prefer_websockets !== false ||
@@ -940,7 +961,7 @@ export function buildManagedLongContextModelCatalog(value) {
   ) {
     throw new Error("Bundled DeepSeek Codex catalog does not match the required official Flash contract.");
   }
-  catalog.models = catalog.models.filter((model) => model?.slug !== DEEPSEEK_EXECUTION_MODEL);
+  catalog.models = catalog.models.filter((model) => !isDeepSeekFlashModel(model?.slug));
   catalog.models.push(deepSeekModel);
   return catalog;
 }
@@ -2522,6 +2543,12 @@ export function defaultCodexConfigArgs(options = {}) {
     `model_providers.${DEEPSEEK_EXECUTION_PROVIDER_ID}.env_key="${DEEPSEEK_EXECUTION_ENV_KEY}"`,
     "-c",
     `model_providers.${DEEPSEEK_EXECUTION_PROVIDER_ID}.supports_websockets=false`,
+    // Native sampling retries misclassify HTTP 403 as disconnects. The host
+    // owns finite transient recovery and must see terminal denials immediately.
+    "-c",
+    `model_providers.${DEEPSEEK_EXECUTION_PROVIDER_ID}.request_max_retries=0`,
+    "-c",
+    `model_providers.${DEEPSEEK_EXECUTION_PROVIDER_ID}.stream_max_retries=0`,
     "-c",
     `model_providers.${DEEPSEEK_EXECUTION_PROVIDER_ID}.http_headers.version="${DEFAULT_PROVIDER_CODEX_VERSION}"`,
     "-c",

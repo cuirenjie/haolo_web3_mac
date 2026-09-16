@@ -1,3 +1,4 @@
+import { modelFailureFacts } from "./model-failure-policy.mjs";
 const DEFAULT_SHORT_DELAYS_MS = [1_500, 4_000, 8_000, 15_000];
 const DEFAULT_LOW_FREQUENCY_DELAY_MS = 60_000;
 const DEFAULT_LOW_FREQUENCY_AFTER = 3;
@@ -38,6 +39,8 @@ const NON_RETRYABLE_CODES = new Set([
 
 export function isRetryableModelTransportError(error) {
   if (!error || isAbortError(error)) return false;
+  const facts = modelFailureFacts(error);
+  if (facts.hardFailure || facts.retryable === false) return false;
   if (error.retryable === false) return false;
 
   const nestedError = error?.codexErrorInfo || error?.codex_error_info || {};

@@ -22,8 +22,11 @@ import {
 } from "./provider-input-capabilities.mjs";
 import { fastestServiceTierForModel } from "./codex-server-request.mjs";
 import { gptReasoningEffortForTask } from "./gpt-reasoning-effort.mjs";
-import { prepareCompressedModelRequest } from "./model-request-compression.mjs";
+import { prepareCompressedModelRequest, isModelInferenceRequestUrl } from "./model-request-compression.mjs";
 import { networkErrorCode } from "./system-proxy-fetch.mjs";
+import { canonicalDeepSeekModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
+import { assertAllowedModel } from "./retired-model-policy.mjs";
+import { normalizeModelRequestBody } from "./model-request-policy.mjs";
 
 const DEFAULT_BASE_URL = "https://haolo.com";
 const modelRequestCompressionRejectedOrigins = new Set();
@@ -3280,6 +3283,7 @@ export class YouleApiClient {
   }
 
   businessModelCredential(poolID, capability, modelID, providerHint = "") {
+    modelID = canonicalDeepSeekModel(modelID);
     const pools = this.businessModelPoolsCache?.result;
     const model = businessModelPoolModel(
       pools,
@@ -3574,6 +3578,8 @@ export class YouleApiClient {
   }
 
   async sendProviderChat(params = {}) {
+    params = migrateDeepSeekModelSelection(params);
+    assertAllowedModel(params.model);
     await this.load();
     this.requireAuth();
     const poolID = String(params.modelPool || params.model_pool || "").trim();
@@ -3616,6 +3622,7 @@ export class YouleApiClient {
       throw new Error(`未找到 ${provider} 的 api_key，请重新登录`);
     }
     const model = configuredModel?.id || requestedModel || providerDefaultModel(provider);
+    assertAllowedModel(model);
     const inputCapabilities = providerModelInputCapabilities(provider, model);
     const baseUrl = key.baseUrl || this.modelBaseUrl || DEFAULT_TRANSIT_BASE_URL;
     const headers = {
@@ -5047,6 +5054,14 @@ function logModelRequestCompression(url, compression) {
 }
 
 async function fetchModelRequest(url, fetchInit, signal, fetchImpl = globalThis.fetch) {
+  if (isModelInferenceRequestUrl(url)) {
+    const body = normalizeModelRequestBody(fetchInit.body, new Headers(fetchInit.headers || {}).get("content-encoding"));
+    if (body !== fetchInit.body) {
+      const headers = new Headers(fetchInit.headers || {});
+      headers.delete("content-length");
+      fetchInit = { ...fetchInit, body, headers };
+    }
+  }
   const origin = modelRequestOrigin(url);
   const compressionOptions = origin && modelRequestCompressionRejectedOrigins.has(origin)
     ? { env: { HAOLO_DESKTOP_MODEL_REQUEST_COMPRESSION: "0" } }
@@ -6334,7 +6349,7 @@ function providerDefaultModel(provider) {
     case "claude":
       return "claude-sonnet-5";
     case "deepseek":
-      return "deepseek-v4-flash";
+      return "deepseek-flash";
     case "kimi":
       return "kimi-k3";
     case "gemini":

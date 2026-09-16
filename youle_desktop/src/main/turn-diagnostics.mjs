@@ -2,6 +2,7 @@
 // This file is an isolated, removable feature boundary. See docs/turn-diagnostics-removal.md.
 import crypto from "node:crypto";
 import { isModelOverloadFailure } from "./analysis-model-recovery.mjs";
+import { modelFailureFacts } from "./model-failure-policy.mjs";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -71,7 +72,8 @@ export function failureDiagnosticsFromNotification(message) {
     params?.reason,
   ];
   const details = [...new Set(candidates.map((value) => redactDiagnosticText(value)).filter(Boolean))];
-  const httpStatus = firstHttpStatus([
+  const facts = modelFailureFacts({ error: turnError || rootError, message: details.join(" | ") });
+  const httpStatus = facts.httpStatus ?? firstHttpStatus([
     turnError?.status,
     turnError?.statusCode,
     turnError?.status_code,
@@ -95,6 +97,7 @@ export function failureDiagnosticsFromNotification(message) {
     errorClass: classifyTurnFailure(combined, httpStatus),
     httpStatus,
     detail: combined || null,
+    ...(facts.retryable === undefined ? {} : { retryable: facts.retryable }),
     willRetry: Boolean(
       params?.willRetry === true
       || params?.will_retry === true

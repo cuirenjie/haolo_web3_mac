@@ -43,7 +43,7 @@ await new Promise((resolve) => modelStub.listen(0, "127.0.0.1", resolve));
 const env = Object.fromEntries(["SystemRoot", "WINDIR", "PATH", "TEMP", "TMP", "COMSPEC", "PATHEXT"].filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
 Object.assign(env, { CODEX_HOME: codexHome, USERPROFILE: root, HOME: root });
 const settings = [
-  'model_provider="probe"', 'model="gpt-5.5"',
+  'model_provider="probe"', 'model="gpt-5.6-sol"',
   `sqlite_home=${JSON.stringify(sqliteHome.replaceAll("\\", "/"))}`,
   'model_providers.probe.name="Local history recovery test"',
   `model_providers.probe.base_url="http://127.0.0.1:${modelStub.address().port}/v1"`,
@@ -112,7 +112,7 @@ try {
   database = new DatabaseSync(path.join(sqliteHome, "state_5.sqlite"));
   const originalMetadata = database.prepare("SELECT * FROM threads WHERE id=?").get(threadId);
   const corruptTestIndex = () => database.prepare("UPDATE threads SET history_mode='legacy' WHERE id=?").run(threadId);
-  const resumeParams = { threadId, cwd: workspace, model: "gpt-5.5", modelProvider: "probe", developerInstructions: "Preserve history." };
+  const resumeParams = { threadId, cwd: workspace, model: "gpt-5.6-sol", modelProvider: "probe", developerInstructions: "Preserve history." };
   corruptTestIndex();
   await assert.rejects(session.client.requestRaw("thread/resume", resumeParams), /list_turns is not supported yet/);
   const resumed = await session.client.request("thread/resume", resumeParams);

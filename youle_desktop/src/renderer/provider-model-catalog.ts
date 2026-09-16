@@ -1,5 +1,7 @@
 import type { ChatModelOption } from "./chat-model-catalog";
 import { providerModelInputCapabilities } from "../main/provider-input-capabilities.mjs";
+import { isRetiredExecutionModel } from "../main/retired-model-policy.mjs";
+import { modelDisplayName } from "./model-display-name.ts";
 
 export const PROVIDER_MODEL_PROVIDERS = [
   "claude",
@@ -81,14 +83,13 @@ const CURATED_MODEL_META: Partial<
     { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra", preferredDefault: true },
     { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
-    { id: "gpt-5.5", label: "GPT-5.5 High" },
   ],
   kimi: [
     { id: "kimi-k3", label: "Kimi K3", preferredDefault: true },
     { id: "moonshot-v1-128k", label: "Moonshot 128K" },
   ],
   deepseek: [
-    { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", preferredDefault: true },
+    { id: "deepseek-flash", label: "GPT-6 Astra", preferredDefault: true },
     { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
   ],
   gemini: [
@@ -179,8 +180,8 @@ export function providerModelOptions(
   if (!provider) return [];
   const models = (catalog.providers[provider]?.models || []).filter(
     (model) =>
-      catalog.configured ||
-      !CLIENT_HIDDEN_MODEL_IDS.has(model.id.toLowerCase()),
+      !isRetiredExecutionModel(model.id) &&
+      (catalog.configured || !CLIENT_HIDDEN_MODEL_IDS.has(model.id.toLowerCase())),
   );
   if (!models.length) return [];
   const curated = CURATED_MODEL_META[provider] || [];
@@ -207,8 +208,8 @@ export function providerModelOptions(
         : curatedModel?.label || model.id;
     return {
       value: model.id,
-      label: displayName,
-      description: displayName,
+      label: modelDisplayName(model.id, displayName),
+      description: modelDisplayName(model.id, displayName),
       reasoningEfforts: [],
       serviceTiers: [],
       inputModalities: [...providerModelInputCapabilities(provider, model.id).modalities],
@@ -318,9 +319,11 @@ function normalizeProviderModels(value: unknown): ProviderModelCatalogModel[] {
     seen.add(key);
     models.push({
       id,
-      displayName:
-        safeText(item.displayName ?? item.display_name ?? item.label ?? item.name, 160) ||
+      displayName: modelDisplayName(
         id,
+        safeText(item.displayName ?? item.display_name ?? item.label ?? item.name, 160) ||
+          id,
+      ),
       isDefault: item.isDefault === true || item.is_default === true,
     });
   }

@@ -216,6 +216,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "新的请求": "New requests",
   "智能体": "Agents",
   "大模型": "Models",
+  "GPT-6 Astra 大模型": "GPT-6 Astra model",
   "技能": "Skills",
   "技能/插件": "Skills / plugins",
   "技能和插件": "Skills and plugins",
@@ -1027,7 +1028,7 @@ export function configureTraditionalCharacterMap(simplified, traditional) {
 configureTraditionalCharacterMap(SIMPLIFIED_UI_CHARACTERS, TRADITIONAL_UI_CHARACTERS);
 
 export function translateAppText(value, language = currentAppLanguage) {
-  const source = String(value ?? "");
+  const source = String(value ?? "").replace(/\bDeepSeek\s+V4\.1\s+Flash\b/gi, "GPT-6 Astra");
   if (!source || !HAN_TEXT_PATTERN.test(source)) return source;
   const normalized = normalizeAppLanguage(language);
   const canonicalSource = traditionalToSimplifiedCharacters(source);
