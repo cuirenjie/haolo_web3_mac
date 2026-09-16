@@ -1,3 +1,4 @@
+import { withModelToolNetwork } from "./model-tool-network.mjs";
 import { HAOLO_GATEWAY_BASE_URL, HAOLO_GATEWAY_HOST } from "./haolo-gateway.mjs";
 import { clipboard, nativeImage, shell } from "electron/common";
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, Notification, powerMonitor, safeStorage, screen, session, systemPreferences, Tray } from "electron/main";
@@ -16560,16 +16561,16 @@ async function resumeLatestVideoGeneration(params = {}) {
     "--poll-interval",
     String(VIDEO_GENERATION_POLL_INTERVAL_SECONDS),
   ];
-  const result = await runJsonProcess(resolvePythonExecutable(), args, {
-    cwd,
-    env: videoGenerationSkillEnv({
-      conversationId,
-      model,
+  const result = await withModelToolNetwork(
+    videoGenerationSkillEnv({ conversationId, model }),
+    { fetch: appNetworkFetch },
+    (env) => runJsonProcess(resolvePythonExecutable(), args, {
+      cwd, env,
+      timeoutMs: VIDEO_GENERATION_TIMEOUT_MS + 120_000,
+      label: "视频恢复 Skill",
+      signal: params.signal,
     }),
-    timeoutMs: VIDEO_GENERATION_TIMEOUT_MS + 120_000,
-    label: "视频恢复 Skill",
-    signal: params.signal,
-  });
+  );
   throwIfOperationAborted(params.signal, "视频恢复");
   const normalized = normalizeVideoGenerationSkillResult(result, {
     duration: firstString(params.duration) || "10",
@@ -16887,13 +16888,16 @@ function runVideoGenerationSkill(
   if (size) {
     args.push("--size", size);
   }
-  return runJsonProcess(resolvePythonExecutable(), args, {
-    cwd,
-    env: videoGenerationSkillEnv({ interactionId, conversationId, model }),
-    timeoutMs: VIDEO_GENERATION_TIMEOUT_MS + 120_000,
-    label: "视频生成 Skill",
-    signal,
-  });
+  return withModelToolNetwork(
+    videoGenerationSkillEnv({ interactionId, conversationId, model }),
+    { fetch: appNetworkFetch },
+    (env) => runJsonProcess(resolvePythonExecutable(), args, {
+      cwd, env,
+      timeoutMs: VIDEO_GENERATION_TIMEOUT_MS + 120_000,
+      label: "视频生成 Skill",
+      signal,
+    }),
+  );
 }
 
 function videoGenerationSkillEnv({ interactionId, conversationId, model } = {}) {

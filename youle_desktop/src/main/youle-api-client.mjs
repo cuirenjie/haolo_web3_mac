@@ -3394,6 +3394,7 @@ export class YouleApiClient {
 
     try {
       const payload = await requestJson(joinUrl(key.baseUrl, "/models"), {
+        fetchImpl: this.networkFetch,
         method: "GET",
         timeoutMs: this.providerModelCatalogTimeoutMs,
         timeoutMessage: "模型目录请求超时",
@@ -3505,6 +3506,7 @@ export class YouleApiClient {
       const payload = await requestJson(
         joinUrl(key.baseUrl || this.modelBaseUrl || DEFAULT_TRANSIT_BASE_URL, "/models"),
         {
+          fetchImpl: this.networkFetch,
           method: "GET",
           timeoutMs: this.providerModelCatalogTimeoutMs,
           timeoutMessage: "模型目录请求超时",
@@ -3638,6 +3640,7 @@ export class YouleApiClient {
       {
         provider,
         model,
+        fetchImpl: this.networkFetch,
         capabilities: inputCapabilities,
         allowUnsupportedMediaOmission: params.allowUnsupportedMediaOmission === true,
         baseUrl,
@@ -3686,6 +3689,7 @@ export class YouleApiClient {
       gptPlanModeStream?.onEvent || params.onEvent;
     if (provider === "gemini" && mediaAttachments.some((attachment) => attachment.kind === "video")) {
       return requestGeminiNativeMultimodal({
+        fetchImpl: this.networkFetch,
         baseUrl,
         headers,
         provider,
@@ -3728,6 +3732,7 @@ export class YouleApiClient {
         : undefined,
     });
     const request = {
+      fetchImpl: this.networkFetch,
       method: "POST",
       timeoutMessage: "模型响应超时，请稍后重试",
       signal: params.signal,
@@ -4193,9 +4198,7 @@ async function requestJson(url, init = {}) {
       controller.abort();
     }, timeoutMs);
     logRequestPayload(method, url, fetchInit);
-    const transportRequest = typeof fetchImpl === "function"
-      ? { response: await fetchImpl(url, { ...fetchInit, signal: controller.signal }) }
-      : await fetchModelRequest(url, fetchInit, controller.signal);
+    const transportRequest = await fetchModelRequest(url, fetchInit, controller.signal, fetchImpl);
     logModelRequestCompression(url, transportRequest.compression);
     const response = transportRequest.response;
     logApiDebug("[youle-api]", method, response.status, `${Date.now() - startedAt}ms`, url);
@@ -4285,6 +4288,7 @@ async function requestJson(url, init = {}) {
 
 async function requestProviderChatStream(url, init = {}) {
   const {
+    fetchImpl,
     firstByteTimeoutMs = PROVIDER_CHAT_STREAM_FIRST_BYTE_TIMEOUT_MS,
     inactivityTimeoutMs = PROVIDER_CHAT_STREAM_INACTIVITY_TIMEOUT_MS,
     streamFormat = "openai",
@@ -4315,7 +4319,7 @@ async function requestProviderChatStream(url, init = {}) {
   try {
     armTimeout("first_byte", firstByteTimeoutMs);
     logRequestPayload(method, url, fetchInit);
-    const transportRequest = await fetchModelRequest(url, fetchInit, controller.signal);
+    const transportRequest = await fetchModelRequest(url, fetchInit, controller.signal, fetchImpl);
     logModelRequestCompression(url, transportRequest.compression);
     const response = transportRequest.response;
     if (timeoutTimer) clearTimeout(timeoutTimer);
@@ -5042,13 +5046,13 @@ function logModelRequestCompression(url, compression) {
   );
 }
 
-async function fetchModelRequest(url, fetchInit, signal) {
+async function fetchModelRequest(url, fetchInit, signal, fetchImpl = globalThis.fetch) {
   const origin = modelRequestOrigin(url);
   const compressionOptions = origin && modelRequestCompressionRejectedOrigins.has(origin)
     ? { env: { HAOLO_DESKTOP_MODEL_REQUEST_COMPRESSION: "0" } }
     : undefined;
   const prepared = await prepareCompressedModelRequest(url, fetchInit, compressionOptions);
-  let response = await fetch(url, { ...prepared.init, signal });
+  let response = await fetchImpl(url, { ...prepared.init, signal });
   if (!prepared.compression.applied || response.status !== 415) {
     return { response, compression: prepared.compression };
   }
@@ -5059,7 +5063,7 @@ async function fetchModelRequest(url, fetchInit, signal) {
     // The rejected response may already be closed by a custom Fetch implementation.
   }
   if (origin) modelRequestCompressionRejectedOrigins.add(origin);
-  response = await fetch(url, { ...fetchInit, signal });
+  response = await fetchImpl(url, { ...fetchInit, signal });
   return {
     response,
     compression: {
@@ -6519,6 +6523,7 @@ function providerChatContentText(content) {
 }
 
 async function prepareProviderMediaAttachments(value, {
+  fetchImpl,
   provider,
   model,
   capabilities,
@@ -6542,6 +6547,7 @@ async function prepareProviderMediaAttachments(value, {
   const prepared = [];
   for (const attachment of supported) {
     prepared.push(await prepareProviderMediaAttachment(attachment, {
+      fetchImpl,
       provider,
       baseUrl,
       headers,
@@ -6586,6 +6592,7 @@ function normalizeProviderMediaAttachment(value) {
 }
 
 async function prepareProviderMediaAttachment(attachment, {
+  fetchImpl,
   provider,
   baseUrl,
   headers,
@@ -6608,6 +6615,7 @@ async function prepareProviderMediaAttachment(attachment, {
     }
     if (attachment.localPath || /^data:/i.test(attachment.url)) {
       return stageProviderInputMedia(attachment, {
+        fetchImpl,
         baseUrl,
         headers,
         signal,
@@ -6719,6 +6727,7 @@ async function fetchWithMaterialUploadTimeout(networkFetch, url, init) {
 }
 
 async function stageProviderInputMedia(attachment, {
+  fetchImpl,
   baseUrl,
   headers,
   signal,
@@ -6731,6 +6740,7 @@ async function stageProviderInputMedia(attachment, {
     throw new Error(`${attachment.name} 超过豆包视频理解的 50MB 上限`);
   }
   const payload = await requestJson(joinUrl(baseUrl, "/media/input"), {
+    fetchImpl,
     method: "POST",
     timeoutMs: PROVIDER_INPUT_MEDIA_STAGE_TIMEOUT_MS,
     timeoutMessage: "视频提交到模型输入中转超时，请稍后重试",
@@ -6832,6 +6842,7 @@ function providerMessagesWithMediaAttachments(messages, attachments) {
 }
 
 async function requestGeminiNativeMultimodal({
+  fetchImpl,
   baseUrl,
   headers,
   provider,
@@ -6850,6 +6861,7 @@ async function requestGeminiNativeMultimodal({
   const method = stream ? "streamGenerateContent?alt=sse" : "generateContent";
   const url = `${transitApiOrigin(baseUrl)}/v1beta/models/${encodeURIComponent(model)}:${method}`;
   const request = {
+    fetchImpl,
     method: "POST",
     timeoutMessage: "Gemini 视频理解响应超时，请稍后重试",
     signal,

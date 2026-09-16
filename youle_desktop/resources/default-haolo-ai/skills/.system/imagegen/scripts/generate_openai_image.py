@@ -1111,6 +1111,18 @@ def validate_resumable_job(job, payload, model, preset_check, args):
     return job
 
 
+def model_transport_url(value):
+    """Route at the wire boundary; persisted job URLs keep the public origin."""
+    relay_value = os.environ.get("HAOLO_MODEL_RELAY_URL", "").strip()
+    url = urllib.parse.urlsplit(value)
+    if not relay_value or url.scheme != "https" or url.hostname != "haolo.pro" or url.port not in (None, 443) or url.username or url.password:
+        return value
+    relay = urllib.parse.urlsplit(relay_value)
+    if relay.scheme != "http" or relay.hostname != "127.0.0.1" or not relay.port or relay.username or relay.password or relay.query or relay.fragment:
+        raise RuntimeError("Invalid desktop model routing relay")
+    return urllib.parse.urlunsplit((relay.scheme, relay.netloc, url.path, url.query, ""))
+
+
 def build_opener():
     # Image generation holds the connection open for minutes; local HTTP
     # proxies (e.g. Clash) tend to kill held connections around 160s, which
@@ -1222,7 +1234,7 @@ def curl_request_json(
         args.extend(["-H", f"{name}: {value}"])
     if data is not None:
         args.extend(["-X", "POST", "--data-binary", "@-"])
-    args.extend(["--write-out", f"{CURL_STATUS_MARKER}%{{http_code}}", url])
+    args.extend(["--write-out", f"{CURL_STATUS_MARKER}%{{http_code}}", model_transport_url(url)])
     result = run_curl(args, input_bytes=data, timeout=timeout)
     body, status = split_curl_status(result.stdout)
     stderr = result.stderr.decode("utf-8", "replace").strip()
@@ -1387,7 +1399,7 @@ def build_payload(args, prompt, model):
 
 def download_reference_bytes(image_url, max_bytes):
     request = urllib.request.Request(
-        migrate_gateway_url(image_url, preserve_query=True),
+        model_transport_url(migrate_gateway_url(image_url, preserve_query=True)),
         headers={"User-Agent": BROWSER_UA, "Accept": "image/png,image/jpeg,image/webp"},
     )
     with OPENER.open(request, timeout=60) as response:
@@ -1559,7 +1571,7 @@ def http_request_json(
     if extra_headers:
         headers.update(extra_headers)
     request = urllib.request.Request(
-        url,
+        model_transport_url(url),
         data=data,
         method="POST",
         headers=headers,
@@ -1605,7 +1617,7 @@ def http_json(url, api_key, payload=None, timeout=60, include_media_routing=True
     }
     headers.update(haolo_usage_headers(include_media_routing))
     request = urllib.request.Request(
-        url,
+        model_transport_url(url),
         data=data,
         method="POST" if payload is not None else "GET",
         headers=headers,
@@ -1820,7 +1832,7 @@ def download_result(result_url, api_key, base_url, output_dir, basename, output_
     headers = {"User-Agent": BROWSER_UA}
     if urllib.parse.urlparse(result_url).netloc == urllib.parse.urlparse(base_url).netloc:
         headers["Authorization"] = f"Bearer {api_key}"
-    request = urllib.request.Request(result_url, headers=headers)
+    request = urllib.request.Request(model_transport_url(result_url), headers=headers)
     with OPENER.open(request, timeout=300) as response:
         first = response.read(1 << 16)
         if first.lstrip()[:1] in (b"{", b"["):
