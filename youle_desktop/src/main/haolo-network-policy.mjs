@@ -2,13 +2,16 @@ import os from "node:os";
 import { withAbort } from "./system-proxy-fetch.mjs";
 
 export const NETWORK_POLICY_PATH = "/.well-known/haolo-network";
-export const NETWORK_POLICY_VERSION = "20260915.1";
+export const NETWORK_POLICY_VERSION = "20260916.1";
 const singapore = Object.freeze({ ordinary: "8.219.93.44", accelerated: Object.freeze(["47.75.103.197", "47.75.125.102"]) });
-const tokyo = Object.freeze({ ordinary: "8.216.43.79", accelerated: Object.freeze(["47.57.243.152", "47.75.126.250"]) });
+const singaporeOrdinary = Object.freeze({ ordinary: singapore.ordinary, accelerated: Object.freeze([]) });
+const tokyo = Object.freeze({ ordinary: "8.216.43.79", accelerated: Object.freeze([]) });
+// Only market transports may consume premium GA. Website/help pages opened in
+// the browser retain their public DNS route; desktop account/model calls do not.
 export const HAOLO_NETWORK_ROUTES = Object.freeze({
-  "haolo.com": singapore,
-  "www.haolo.com": singapore,
-  "invite.haolo.com": singapore,
+  "haolo.com": singaporeOrdinary,
+  "www.haolo.com": singaporeOrdinary,
+  "invite.haolo.com": singaporeOrdinary,
   "market.youle.pro": singapore,
   "sg-a.binance-egress.waduo.com": singapore,
   "haolo.pro": tokyo,
@@ -76,9 +79,9 @@ export function createHaoloNetworkPolicy({ resolveProxy, probeRegion, now = Date
       const route = haoloRoute(url);
       if (!route) throw new TypeError("Haolo routing requires an allowlisted HTTPS origin");
       const proxyUrl = parseResolvedProxy(await withAbort(resolveProxy(url.href), signal));
-      const egressRegion = proxyUrl ? "PROXY" : await region(url, route, signal);
+      const egressRegion = proxyUrl ? "PROXY" : route.accelerated.length ? await region(url, route, signal) : "UNPROBED";
       signal?.throwIfAborted();
-      const accelerated = !proxyUrl && egressRegion === "CN";
+      const accelerated = route.accelerated.length > 0 && !proxyUrl && egressRegion === "CN";
       const decision = Object.freeze({ hostname: url.hostname, proxyUrl, egressRegion,
         route: accelerated ? "hong-kong-ga" : "ordinary", addresses: accelerated ? route.accelerated : [route.ordinary] });
       emit({ hostname: url.hostname, route: decision.route, egressRegion, proxy: Boolean(proxyUrl) });

@@ -61,19 +61,37 @@ async function fixture(t, { proxy = "DIRECT", egressRegion = "CN", handler } = {
     finish: () => finishStream(), setProxy: (value) => { currentProxy = value === "PROXY" ? `PROXY 127.0.0.1:${proxyPort}` : value; } };
 }
 
-test("real TLS keeps canonical Host/SNI, DIRECT mainland uses GA and streams arrive before completion", async (t) => {
+test("real TLS keeps canonical Host/SNI, DIRECT models stay ordinary and streams arrive before completion", async (t) => {
   const f = await fixture(t);
   const controller = new AbortController();
   const response = await f.transport.fetch("https://haolo.pro/v1/responses", { method: "POST", headers: { authorization: "Bearer test-only" }, body: '{"stream":true}', signal: controller.signal });
   assert.equal(response.status, 200);
   const reader = response.body.getReader();
   assert.equal(new TextDecoder().decode((await reader.read()).value), "data: first\n\n");
-  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
+  assert.equal(f.connections.at(-1).route, "ordinary");
+  assert.deepEqual(f.connections.at(-1).addresses, ["8.216.43.79"]);
+  assert.equal(f.requests.some((r) => r.url === "/.well-known/haolo-network"), false);
   const request = f.requests.at(-1);
   assert.equal(request.host, "haolo.pro"); assert.equal(request.sni, "haolo.pro");
   assert.equal(request.headers.authorization, "Bearer test-only");
   controller.abort(); await assert.rejects(reader.read(), { name: "AbortError" });
   assert.equal(f.requests.filter((r) => r.url === "/v1/responses").length, 1);
+});
+
+test("DIRECT mainland market REST and WebSocket still use GA", async (t) => {
+  const f = await fixture(t);
+  const response = await f.transport.fetch("https://market.youle.pro/api/v3/time");
+  assert.equal(response.status, 200); await response.json();
+  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
+  assert.deepEqual(f.connections.at(-1).addresses, ["47.75.103.197", "47.75.125.102"]);
+  const wss = new WebSocketServer({ server: f.server }); t.after(() => wss.close());
+  wss.on("connection", (socket) => socket.send('{"stream":"btcusdt@ticker"}'));
+  const Routed = f.transport.webSocketClass(WebSocket);
+  const socket = new Routed("wss://market.youle.pro/stream"); t.after(() => socket.terminate());
+  const [frame] = await once(socket, "message");
+  assert.equal(JSON.parse(String(frame)).stream, "btcusdt@ticker");
+  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
+  socket.close(); await once(socket, "close");
 });
 
 test("HTTP proxy CONNECT targets ordinary IP and never receives the origin Authorization header", async (t) => {
