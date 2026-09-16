@@ -12,9 +12,9 @@ import { buildManagedLongContextModelCatalog } from "../src/main/app-server-clie
 import { applyThreadProviderSwitch } from "../src/main/thread-provider-switch.mjs";
 import { requestWithThreadHistoryRecovery } from "../src/main/thread-history-recovery.mjs";
 
-const runtime = fileURLToPath(new URL("../resources/bin/haolo_ai.exe", import.meta.url));
+const runtime = fileURLToPath(new URL(process.platform === "darwin" ? `../resources/bin/darwin-${process.arch}/haolo_ai` : "../resources/bin/haolo_ai.exe", import.meta.url));
 test("bundled runtime changes Sol to DeepSeek in the same task, sends max and completes a market-tool round trip", {
-  skip: process.platform !== "win32" || !fs.existsSync(runtime), timeout: 45_000,
+  skip: !["win32", "darwin"].includes(process.platform) || !fs.existsSync(runtime), timeout: 45_000,
 }, async (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-deepseek-runtime-"));
   const codexHome = path.join(directory, "runtime");
@@ -55,7 +55,7 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
     response.end(stream.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""));
   });
   t.after(async () => {
-    if (child && child.exitCode == null) { const stopped = new Promise((r) => child.once("exit", r)); child.kill(); await stopped; }
+    if (child && child.exitCode == null && child.signalCode == null) await stop();
     for (const slot of pending.values()) clearTimeout(slot.timer);
     server.closeAllConnections(); await new Promise((r) => server.close(r));
     assert.equal(path.dirname(directory), path.resolve(os.tmpdir()));
@@ -100,8 +100,8 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
   };
   const stop = async () => {
     const stopped = new Promise((resolve) => child.once("exit", resolve));
-    child.kill();
-    await stopped;
+    const killTimer = setTimeout(() => child.kill("SIGKILL"), 3_000);
+    try { child.kill(); await stopped; } finally { clearTimeout(killTimer); }
   };
   const start = async () => {
     child = spawn(runtime, [...settings.flatMap((value) => ["-c", value]), "app-server", "--stdio"], { cwd, env, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });

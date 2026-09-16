@@ -14401,7 +14401,10 @@ async function invokeTradingAnalysisAppServer({
         status: "failed",
         error: completed.error || "Trading analysis model failed",
         code: completed.errorCode || "TRADING_ANALYSIS_MODEL_FAILED",
-        retryable: completed.retryable === true,
+        // Exhausting this model's attempt stops same-thread recovery, but a
+        // read-only review may still hand its transient failure to the provider.
+        retryable: completed.retryable === true
+          || (turnPolicy.kind === "theory_review" && completed.recoveryExhausted === true),
         httpStatus: completed.httpStatus,
         category: completed.errorClass,
       };

@@ -446,7 +446,7 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   assert.match(mainSource, /tradingAnalysis:classifyChanRequest/);
   assert.match(mainSource, /tradingAnalysis:runChanTest/);
   assert.match(mainSource, /DEFAULT_TRADING_ANALYSIS_PROVIDER_ID/);
-  assert.match(mainSource, /const turnPolicy = tradingAnalysisTurnPolicy\(request\.task, \{ requestedReasoningEffort \}\)/);
+  assert.match(mainSource, /const turnPolicy = tradingAnalysisTurnPolicy\(request\.task, \{ requestedReasoningEffort, modelId \}\)/);
   assert.match(mainSource, /fixedEffort: reasoningEffort/);
   assert.match(mainSource, /resetTimeoutOnActivity,/);
   assert.match(mainSource, /timeoutRetryable,/);

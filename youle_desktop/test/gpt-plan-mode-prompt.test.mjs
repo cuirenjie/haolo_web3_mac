@@ -221,7 +221,6 @@ test("explicit GPT plan mode sends the planning guidance for configured GPT mode
       "gpt-5.6-sol",
       "gpt-5.6-terra",
       "gpt-5.6-luna",
-      "gpt-5.5",
     ];
     const client = new YouleApiClient({ businessModelPoolsTtlMs: 60_000 });
     client.loaded = true;

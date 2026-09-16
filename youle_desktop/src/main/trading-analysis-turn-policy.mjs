@@ -42,7 +42,8 @@ export function tradingAnalysisTurnPolicy(taskValue, options = {}) {
         : "high",
     timeoutMs: THEORY_REVIEW_TIMEOUT_MS,
     resetTimeoutOnActivity: false,
-    timeoutRetryable: false,
+    // One bounded attempt per model; the provider owns finite model failover.
+    timeoutRetryable: true,
     maxAttempts: 1,
   });
 }

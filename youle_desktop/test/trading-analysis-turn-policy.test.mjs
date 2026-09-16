@@ -24,13 +24,13 @@ test("small request routers use low reasoning and remain hard-bounded", () => {
   });
 });
 
-test("theory review fixes high effort behind a single hard-bounded attempt", () => {
+test("theory review bounds each model attempt while allowing provider failover", () => {
   assert.deepEqual(tradingAnalysisTurnPolicy("trading_theory_review"), {
     kind: "theory_review",
     reasoningEffort: "high",
     timeoutMs: 180_000,
     resetTimeoutOnActivity: false,
-    timeoutRetryable: false,
+    timeoutRetryable: true,
     maxAttempts: 1,
   });
 });

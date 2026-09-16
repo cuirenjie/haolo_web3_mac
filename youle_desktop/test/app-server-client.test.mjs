@@ -663,6 +663,20 @@ test("managed model catalog fails closed when a required GPT-6/5.5/5.6 entry is 
   );
 });
 
+test("macOS catalog keeps DeepSeek max metadata when its older runtime lacks native Astra", () => {
+  const catalog = bundledModelCatalogFixture();
+  catalog.models = catalog.models.filter((model) => model.slug !== "gpt-6-astra");
+  const managed = buildManagedLongContextModelCatalog(catalog, { platform: "darwin" });
+  assert.equal(managed.models.some((model) => model.slug === "gpt-6-astra"), false);
+  assert.equal(managed.models.find((model) => model.slug === "gpt-5.6-sol").context_window, 400_000);
+  const deepseek = managed.models.find((model) => model.slug === "deepseek-flash");
+  assert.ok(deepseek.supported_reasoning_levels.some((level) => level.effort === "max"));
+  assert.equal(deepseek.apply_patch_tool_type, "freeform");
+  assert.throws(() => buildManagedLongContextModelCatalog(catalog, { platform: "win32" }), /missing managed models: gpt-6-astra/);
+  catalog.models = catalog.models.filter((model) => model.slug !== "gpt-5.6-sol");
+  assert.throws(() => buildManagedLongContextModelCatalog(catalog, { platform: "darwin" }), /missing managed models: gpt-5\.6-sol/);
+});
+
 test("builtin plugin sync skips unchanged payloads and mirrors changed managed version directories", () => {
   withBuiltinPluginFixture(({ tempRoot, pluginsRoot }) => {
     const codexHome = path.join(tempRoot, "codex-home");

@@ -54,7 +54,7 @@ test("alert intent uses retryable idle timeout policy while request routing stay
     readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8"),
     readFile(new URL("../src/main/trading-analysis-turn-policy.mjs", import.meta.url), "utf8"),
   ]);
-  assert.match(main, /const turnPolicy = tradingAnalysisTurnPolicy\(request\.task, \{ requestedReasoningEffort \}\)/);
+  assert.match(main, /const turnPolicy = tradingAnalysisTurnPolicy\(request\.task, \{ requestedReasoningEffort, modelId \}\)/);
   assert.match(main, /fixedEffort: reasoningEffort/);
   assert.match(main, /resetTimeoutOnActivity,/);
   assert.match(main, /timeoutRetryable,/);

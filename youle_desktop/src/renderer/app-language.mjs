@@ -54,6 +54,8 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "才确认转弱。": " confirms weakness.",
   "指定分析增强暂时不可用，本次已自动采用本地确定性价格结构引擎；结论和画线只引用当前真实 K 线。": "The requested analysis enhancement is temporarily unavailable, so the local deterministic price-structure engine was used. Conclusions and drawings reference only the current real candles.",
   "本次由本地确定性价格结构引擎完成。": "Completed by the local deterministic price-structure engine.",
+  "，本次已自动采用本地确定性价格结构引擎；结论和画线只引用当前真实 K 线。": ". The local deterministic price-structure engine was used. Conclusions and drawings reference only the current real candles.",
+  "，已自动切换到本地确定性价格结构分析。": ". Switched to local deterministic price-structure analysis.",
   "- 当前价：": "- Current price: ",
   "- 支撑 / 压力：": "- Support / resistance: ",
   "- 多头触发 / 失效 / 目标：": "- Long trigger / invalidation / target: ",

@@ -11,9 +11,9 @@ import { failureDiagnosticsFromNotification } from "../src/main/turn-diagnostics
 import { isRecoverableAnalysisModelFailure } from "../src/main/analysis-model-recovery.mjs";
 import { createAppServerTradingAnalysisProvider } from "../src/main/trading-analysis/app-server-provider.mjs";
 
-const runtime = fileURLToPath(new URL("../resources/bin/haolo_ai.exe", import.meta.url));
+const runtime = fileURLToPath(new URL(process.platform === "darwin" ? `../resources/bin/darwin-${process.arch}/haolo_ai` : "../resources/bin/haolo_ai.exe", import.meta.url));
 test("production AppServerClient migrates a legacy task to max and makes exactly one request on 403", {
-  skip: process.platform !== "win32" || !fs.existsSync(runtime), timeout: 30_000,
+  skip: !["win32", "darwin"].includes(process.platform) || !fs.existsSync(runtime), timeout: 30_000,
 }, async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-deepseek-denial-"));
   const cwd = path.join(directory, "workspace"), codexHome = path.join(directory, "runtime"), authPath = path.join(directory, "auth.json");

@@ -914,7 +914,7 @@ function syncDefaultCodexResourcesInto(codexHome, options = {}) {
   };
 }
 
-export function buildManagedLongContextModelCatalog(value) {
+export function buildManagedLongContextModelCatalog(value, { platform = process.platform } = {}) {
   const catalog = typeof value === "string" ? JSON.parse(value) : JSON.parse(JSON.stringify(value));
   if (!catalog || !Array.isArray(catalog.models) || !catalog.models.length) {
     throw new Error("Bundled Haolo model catalog must contain at least one model.");
@@ -935,7 +935,12 @@ export function buildManagedLongContextModelCatalog(value) {
     model.effective_context_window_percent = MANAGED_MODEL_EFFECTIVE_CONTEXT_WINDOW_PERCENT;
   }
 
-  const missingSlugs = [...MANAGED_LONG_CONTEXT_MODEL_SLUGS].filter((slug) => !updatedSlugs.has(slug));
+  // The retained macOS 0.144.1 runtime predates the native Astra entry. Do not
+  // discard its entire catalog (including DeepSeek's max/tool metadata) or
+  // fabricate native Astra capabilities from another model's metadata.
+  const missingSlugs = [...MANAGED_LONG_CONTEXT_MODEL_SLUGS].filter((slug) => (
+    !updatedSlugs.has(slug) && !(platform === "darwin" && slug === "gpt-6-astra")
+  ));
   if (missingSlugs.length) {
     throw new Error(`Bundled Haolo model catalog is missing managed models: ${missingSlugs.join(", ")}.`);
   }
