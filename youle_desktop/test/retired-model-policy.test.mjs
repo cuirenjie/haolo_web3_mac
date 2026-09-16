@@ -30,7 +30,7 @@ test("retired aliases migrate from saved settings but never pass a model request
   assert.doesNotThrow(() => assertAllowedModelRequest({ model: "gpt-5.6-sol", input: [{ text: "Explain a historical gpt-5.5 failure" }] }));
 });
 
-test("an existing 24-hour window migrates old fallback preferences to DeepSeek max and restores both Sol and its provider", () => {
+test("an existing one-hour window migrates old fallback preferences to DeepSeek max and restores both Sol and its provider", () => {
   const now = 1_800_000_000_000;
   const state = { version: 1, activatedAt: now, fallbackUntil: now + ANALYSIS_RECOVERY_WINDOW_MS };
   const active = withAnalysisModelRecoveryPolicy({ model: "gpt-5.5", modelProvider: "haolo_ai", effort: "xhigh" }, state, now);

@@ -12,7 +12,11 @@ export class AnalysisModelRecoveryStore {
     this.onChange = onChange;
     this.onError = onError;
     this.state = null;
-    try { this.state = normalizeAnalysisModelRecoveryState(JSON.parse(fs.readFileSync(filePath, "utf8"))); }
+    try {
+      const saved = JSON.parse(fs.readFileSync(filePath, "utf8"));
+      this.state = normalizeAnalysisModelRecoveryState(saved);
+      if (this.state && this.state.fallbackUntil !== saved.fallbackUntil) this.persistState();
+    }
     catch (error) { if (error?.code !== "ENOENT") this.reportError(error); }
   }
 
@@ -27,14 +31,18 @@ export class AnalysisModelRecoveryStore {
     const now = this.now();
     if (this.state && now < this.state.fallbackUntil) return false;
     this.state = { version: 1, activatedAt: now, fallbackUntil: now + ANALYSIS_RECOVERY_WINDOW_MS };
+    this.persistState();
+    try { this.onChange(this.snapshot()); } catch { /* Observers cannot break recovery. */ }
+    return true;
+  }
+
+  persistState() {
     const temporaryPath = `${this.filePath}.tmp`;
     try {
       fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
       fs.writeFileSync(temporaryPath, JSON.stringify(this.state), { encoding: "utf8", mode: 0o600 });
       fs.renameSync(temporaryPath, this.filePath);
     } catch (error) { this.reportError(error); }
-    try { this.onChange(this.snapshot()); } catch { /* Observers cannot break recovery. */ }
-    return true;
   }
 
   reportError(error) {
