@@ -878,6 +878,18 @@ def fail_submit_with_fallback(
     )
 
 
+def model_transport_url(value):
+    """Route at the wire boundary; persisted job URLs keep the public origin."""
+    relay_value = os.environ.get("HAOLO_MODEL_RELAY_URL", "").strip()
+    url = urllib.parse.urlsplit(value)
+    if not relay_value or url.scheme != "https" or url.hostname != "haolo.pro" or url.port not in (None, 443) or url.username or url.password:
+        return value
+    relay = urllib.parse.urlsplit(relay_value)
+    if relay.scheme != "http" or relay.hostname != "127.0.0.1" or not relay.port or relay.username or relay.password or relay.query or relay.fragment:
+        raise RuntimeError("Invalid desktop model routing relay")
+    return urllib.parse.urlunsplit((relay.scheme, relay.netloc, url.path, url.query, ""))
+
+
 def build_opener():
     if os.environ.get("HAOLO_GEN_USE_PROXY") == "1":
         return urllib.request.build_opener()
@@ -1232,7 +1244,7 @@ def http_json(
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     headers.update(haolo_usage_headers(include_media_routing=include_media_routing))
     request = urllib.request.Request(
-        url,
+        model_transport_url(url),
         data=data,
         method="POST" if payload is not None else "GET",
         headers=headers,
@@ -1343,7 +1355,7 @@ def curl_json(
     if payload is not None:
         input_bytes = json.dumps(payload).encode("utf-8")
         args.extend(["-X", "POST", "--data-binary", "@-"])
-    args.extend(["--write-out", f"{CURL_STATUS_MARKER}%{{http_code}}", url])
+    args.extend(["--write-out", f"{CURL_STATUS_MARKER}%{{http_code}}", model_transport_url(url)])
     result = run_curl(args, input_bytes=input_bytes, timeout=timeout)
     body, status = split_curl_status(result.stdout)
     stderr = result.stderr.decode("utf-8", "replace").strip()
@@ -1530,7 +1542,7 @@ def download_video(video_url, api_key, base_url, output_dir, basename):
         headers["Authorization"] = f"Bearer {api_key}"
     if resolve_http_transport() == "curl":
         return download_video_curl(video_url, headers, out_path)
-    request = urllib.request.Request(video_url, headers=headers)
+    request = urllib.request.Request(model_transport_url(video_url), headers=headers)
     temp_path = out_path.with_suffix(out_path.suffix + f".{os.getpid()}.part")
     try:
         with get_opener().open(request, timeout=300) as response:
@@ -1563,7 +1575,7 @@ def download_video_curl(video_url, headers, out_path):
     args = curl_base_args(300)
     for name, value in headers.items():
         args.extend(["-H", f"{name}: {value}"])
-    args.extend(["-o", str(temp_path), "--write-out", f"{CURL_STATUS_MARKER}%{{http_code}}", video_url])
+    args.extend(["-o", str(temp_path), "--write-out", f"{CURL_STATUS_MARKER}%{{http_code}}", model_transport_url(video_url)])
     result = run_curl(args, timeout=300)
     _, status = split_curl_status(result.stdout)
     stderr = result.stderr.decode("utf-8", "replace").strip()

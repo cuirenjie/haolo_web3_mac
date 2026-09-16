@@ -3,14 +3,14 @@ import test from "node:test";
 import { createHaoloNetworkPolicy, HAOLO_NETWORK_ROUTES, haoloRoute, parseResolvedProxy } from "../src/main/haolo-network-policy.mjs";
 
 const data = (egressRegion) => ({ schemaVersion: 1, service: "haolo-network-policy", egressRegion, accelerationEnabled: true, ttlSeconds: 30 });
-test("only mainland DIRECT market traffic uses GA; account, invite and model always use ordinary origins", async () => {
+test("only mainland DIRECT market and model traffic use GA; account and invite keep ordinary origins", async () => {
   for (const hostname of Object.keys(HAOLO_NETWORK_ROUTES)) {
     for (const egressRegion of ["CN", "OTHER", "UNKNOWN"]) {
       for (const proxy of ["DIRECT", "PROXY 127.0.0.1:7890", "SOCKS5 127.0.0.1:1080"]) {
         let probes = 0;
         const policy = createHaoloNetworkPolicy({ resolveProxy: async () => proxy, probeRegion: async () => { probes++; return data(egressRegion); } });
         const decision = await policy.resolve(`https://${hostname}/v1/responses`);
-        const eligible = ["market.youle.pro", "sg-a.binance-egress.waduo.com"].includes(hostname);
+        const eligible = ["market.youle.pro", "sg-a.binance-egress.waduo.com", "haolo.pro"].includes(hostname);
         const accelerated = eligible && proxy === "DIRECT" && egressRegion === "CN";
         assert.equal(decision.route, accelerated ? "hong-kong-ga" : "ordinary");
         assert.deepEqual(decision.addresses, accelerated ? HAOLO_NETWORK_ROUTES[hostname].accelerated : [HAOLO_NETWORK_ROUTES[hostname].ordinary]);
@@ -20,15 +20,29 @@ test("only mainland DIRECT market traffic uses GA; account, invite and model alw
   }
 });
 
-test("PAC is per original URL; DIRECT models stay ordinary while DIRECT markets can accelerate", async () => {
+test("PAC is per original URL; DIRECT models and markets can accelerate", async () => {
   const seen = [];
   const policy = createHaoloNetworkPolicy({ resolveProxy: async (url) => { seen.push(url); return url.includes("haolo.com") ? "PROXY localhost:80; DIRECT" : "DIRECT"; }, probeRegion: async () => data("CN") });
   assert.equal((await policy.resolve("https://haolo.com/api/profile/me?q=1")).route, "ordinary");
-  assert.equal((await policy.resolve("https://haolo.pro/v1/responses")).route, "ordinary");
+  assert.equal((await policy.resolve("https://haolo.pro/v1/responses")).route, "hong-kong-ga");
   assert.equal((await policy.resolve("https://market.youle.pro/api/v3/time")).route, "hong-kong-ga");
   assert.deepEqual(seen, ["https://haolo.com/api/profile/me?q=1", "https://haolo.pro/v1/responses", "https://market.youle.pro/api/v3/time"]);
   assert.equal(parseResolvedProxy("DIRECT; PROXY localhost:80"), null);
   assert.equal(parseResolvedProxy("HTTPS localhost:443"), "https://localhost/");
+});
+
+test("all model API paths share the audited BGP targets and model probes keep the Tokyo origin", async () => {
+  let proxy = "DIRECT";
+  const policy = createHaoloNetworkPolicy({ resolveProxy: async () => proxy, probeRegion: async (url, route) => {
+    assert.equal(url.hostname, "haolo.pro"); assert.equal(route.ordinary, "8.216.43.79"); return data("CN");
+  } });
+  for (const pathname of ["/v1/responses", "/v1/chat/completions", "/v1/messages", "/v1/models", "/v1/embeddings", "/v1/images/generations", "/v1/audio/transcriptions", "/v1/media/input"]) {
+    const url = `https://haolo.pro${pathname}`;
+    proxy = "DIRECT";
+    assert.deepEqual((await policy.resolve(url)).addresses, ["47.76.124.53", "47.238.144.244"]);
+    proxy = "PROXY localhost:8080";
+    assert.deepEqual((await policy.resolve(url)).addresses, ["8.216.43.79"]);
+  }
 });
 
 test("proxy errors/unsupported PAC never bypass a configured proxy", async () => {
@@ -42,7 +56,9 @@ test("proxy errors/unsupported PAC never bypass a configured proxy", async () =>
 test("region probe errors and forged policies cannot send credentials to new endpoints", async () => {
   for (const payload of [{}, data("HK"), { ...data("CN"), accelerationEnabled: false }, { ...data("CN"), service: "other" }]) {
     const policy = createHaoloNetworkPolicy({ resolveProxy: async () => "DIRECT", probeRegion: async () => payload });
-    assert.equal((await policy.resolve("https://market.youle.pro/api/v3/time")).route, "ordinary");
+    for (const url of ["https://market.youle.pro/api/v3/time", "https://haolo.pro/v1/responses"]) {
+      assert.equal((await policy.resolve(url)).route, "ordinary");
+    }
   }
   for (const url of ["https://haolo.com.evil.test", "http://haolo.com", "https://haolo.com:8443", "https://user@haolo.com"]) assert.equal(haoloRoute(url), null);
 });

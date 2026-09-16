@@ -1,3 +1,4 @@
+import { modelToolNetworkEnv, modelToolNetworkConfigArgs } from "./model-tool-network.mjs";
 import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, migrateHaoloGatewayConfig, normalizeHaoloGatewayBaseUrl } from "./haolo-gateway.mjs";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -255,7 +256,7 @@ export class AppServerClient extends EventEmitter {
         `removed unavailable local proxy variables from Haolo runtime: ${proxyEnvironment.removed.join(", ")}`,
       );
     }
-    const childEnv = buildAppServerEnv({
+    let childEnv = buildAppServerEnv({
       baseEnv: proxyEnvironment.env,
       codexHome: this.codexHome,
       authEnv: defaultAuth.env,
@@ -274,13 +275,18 @@ export class AppServerClient extends EventEmitter {
       // HTTP/SSE. Custom GPT origins retain their existing direct transport.
       default: { baseUrl: requestedProviderBaseUrl, relay: false },
       deepSeek: { baseUrl: requestedDeepSeekBaseUrl, relay: true },
+      mediaTools: { baseUrl: HAOLO_GATEWAY_BASE_URL, relay: false },
     });
+    if (modelRoutes.mediaTools.relay) {
+      childEnv = modelToolNetworkEnv(childEnv, modelRoutes.mediaTools.baseUrl);
+    }
     const args = [
       ...defaultCodexConfigArgs({
         providerBaseUrl: modelRoutes.default.baseUrl,
         deepSeekProviderBaseUrl: modelRoutes.deepSeek.baseUrl,
         defaultProviderSupportsWebsockets: !modelRoutes.default.relay || Boolean(this.modelRelayWebSocketImpl),
       }),
+      ...modelToolNetworkConfigArgs(childEnv, this.defaultResources.deepSeekMcpConfig?.action),
       "app-server",
       "--listen",
       `ws://127.0.0.1:${port}`,
