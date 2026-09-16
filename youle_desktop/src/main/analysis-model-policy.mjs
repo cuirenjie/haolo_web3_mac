@@ -1,5 +1,5 @@
 // Pure policy shared with the renderer. Persistence and failure handling stay
-// in the host; merely reading the policy never renews its 24-hour window.
+// in the host; merely reading the policy never renews its one-hour window.
 import { canonicalDeepSeekModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
 import { DEFAULT_EXECUTION_MODEL, migrateRetiredModelSelection } from "./retired-model-policy.mjs";
 export const ANALYSIS_PRIMARY_MODEL = DEFAULT_EXECUTION_MODEL;
@@ -7,15 +7,18 @@ export const ANALYSIS_PRIMARY_MODEL = DEFAULT_EXECUTION_MODEL;
 export const ANALYSIS_RECOVERY_MODEL = "deepseek-flash";
 export const ANALYSIS_RECOVERY_EFFORT = "max";
 export const ANALYSIS_RECOVERY_PROVIDER = "deepseek";
-export const ANALYSIS_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const ANALYSIS_RECOVERY_WINDOW_MS = 60 * 60 * 1000;
+const LEGACY_ANALYSIS_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export function normalizeAnalysisModelRecoveryState(value) {
   if (value?.version !== 1) return null;
   const { activatedAt, fallbackUntil } = value;
   if (!Number.isSafeInteger(activatedAt) || activatedAt <= 0
     || !Number.isSafeInteger(fallbackUntil)
-    || fallbackUntil !== activatedAt + ANALYSIS_RECOVERY_WINDOW_MS) return null;
-  return { version: 1, activatedAt, fallbackUntil };
+    || (fallbackUntil !== activatedAt + ANALYSIS_RECOVERY_WINDOW_MS
+      && fallbackUntil !== activatedAt + LEGACY_ANALYSIS_RECOVERY_WINDOW_MS)) return null;
+  // Shorten legacy windows from their original activation, never from upgrade time.
+  return { version: 1, activatedAt, fallbackUntil: activatedAt + ANALYSIS_RECOVERY_WINDOW_MS };
 }
 
 export function analysisModelPolicySelection(state, modelId, now = Date.now()) {

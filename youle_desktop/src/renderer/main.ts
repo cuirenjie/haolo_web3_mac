@@ -22933,7 +22933,7 @@ function announceAutomaticTurnRecovery(
   } else {
     appendAgentNotice(
       threadId,
-      "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。",
+      "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式继续处理。接下来 1 小时的新任务也会使用该模型。",
     );
   }
 }

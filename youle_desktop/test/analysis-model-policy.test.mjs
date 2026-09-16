@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import { AnalysisModelRecoveryStore } from "../src/main/analysis-model-recovery-store.mjs";
-import { ANALYSIS_RECOVERY_WINDOW_MS as DAY, analysisModelPolicySelection, normalizeAnalysisModelRecoveryState, withAnalysisModelRecoveryPolicy } from "../src/main/analysis-model-policy.mjs";
+import { ANALYSIS_RECOVERY_WINDOW_MS as HOUR, analysisModelPolicySelection, normalizeAnalysisModelRecoveryState, withAnalysisModelRecoveryPolicy } from "../src/main/analysis-model-policy.mjs";
 import { createAppServerTradingAnalysisProvider } from "../src/main/trading-analysis/app-server-provider.mjs";
 import { HAOLO_REASONING_FIXED_EFFORT_FIELD, withAdaptiveTurnReasoning } from "../src/main/gpt-reasoning-effort.mjs";
 import { TurnAutoRecoveryCoordinator } from "../src/main/turn-auto-recovery.mjs";
@@ -26,31 +26,32 @@ function fixture(t) {
   return { store, options, filePath, get now() { return now; }, advance(ms) { now += ms; } };
 }
 
-test("new tasks use fallback for exactly 24 hours, then restore Sol including stale saved fallback selections", (t) => {
+test("new tasks use fallback for exactly one hour, then restore Sol including stale saved fallback selections", (t) => {
+  assert.equal(HOUR, 3_600_000);
   const f = fixture(t);
   assert.deepEqual(f.store.select("gpt-5.6-sol"), { modelId: "gpt-5.6-sol", fallback: false });
   assert.equal(f.store.activate("gpt-5.6-sol"), true);
   assert.equal(f.store.select("gpt-5.6-sol").modelId, "deepseek-flash");
-  f.advance(DAY - 1);
+  f.advance(HOUR - 1);
   assert.equal(f.store.select("gpt-5.6-sol").fallback, true);
   f.advance(1);
   assert.deepEqual(f.store.select("deepseek-flash"), { modelId: "gpt-5.6-sol", fallback: false });
   assert.equal(f.store.select("gpt-5.6-sol").fallback, false);
 });
 
-test("ordinary traffic and backup failures do not slide the deadline; a failed primary retry opens another day", (t) => {
+test("ordinary traffic and backup failures do not slide the deadline; a failed primary retry opens another hour", (t) => {
   const f = fixture(t);
   f.store.activate("gpt-5.6-sol");
   const first = f.store.snapshot();
-  f.advance(DAY / 2);
+  f.advance(HOUR / 2);
   for (let i = 0; i < 10; i++) f.store.select("gpt-5.6-sol");
   assert.equal(f.store.activate("deepseek-flash"), false);
   assert.equal(f.store.activate("gpt-5.6-sol"), false);
   assert.deepEqual(f.store.snapshot(), first);
-  f.advance(DAY / 2);
+  f.advance(HOUR / 2);
   assert.equal(f.store.activate("deepseek-flash"), false);
   assert.equal(f.store.activate("gpt-5.6-sol"), true);
-  assert.equal(f.store.snapshot().fallbackUntil, first.fallbackUntil + DAY);
+  assert.equal(f.store.snapshot().fallbackUntil, first.fallbackUntil + HOUR);
 });
 
 test("restart preserves both the remaining window and expiry without rewriting account/model preferences", (t) => {
@@ -58,19 +59,84 @@ test("restart preserves both the remaining window and expiry without rewriting a
   f.store.activate("gpt-5.6-sol");
   const persisted = fs.readFileSync(f.filePath, "utf8");
   assert.deepEqual(Object.keys(JSON.parse(persisted)).sort(), ["activatedAt", "fallbackUntil", "version"]);
-  f.advance(DAY / 3);
+  f.advance(HOUR / 3);
   let restarted = new AnalysisModelRecoveryStore(f.options);
   assert.equal(restarted.select("gpt-5.6-sol").fallback, true);
   assert.deepEqual(restarted.snapshot(), f.store.snapshot());
-  f.advance(DAY);
+  f.advance(HOUR);
   restarted = new AnalysisModelRecoveryStore(f.options);
   assert.equal(restarted.select("deepseek-flash").modelId, "gpt-5.6-sol");
   assert.equal(fs.readFileSync(f.filePath, "utf8"), persisted);
 });
 
+test("legacy 24-hour state keeps only the remainder of its first hour across migration and restart", (t) => {
+  const f = fixture(t);
+  const activatedAt = f.now - 30 * 60_000;
+  const legacy = { version: 1, activatedAt, fallbackUntil: activatedAt + 24 * HOUR };
+  const expected = { version: 1, activatedAt, fallbackUntil: activatedAt + HOUR };
+  fs.writeFileSync(f.filePath, JSON.stringify(legacy));
+  const changes = [];
+  const migrated = new AnalysisModelRecoveryStore({ ...f.options, onChange: (state) => changes.push(state) });
+  assert.deepEqual(migrated.snapshot(), expected);
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.filePath, "utf8")), expected);
+  assert.equal(fs.existsSync(`${f.filePath}.tmp`), false);
+  assert.deepEqual(changes, []);
+  assert.deepEqual(normalizeAnalysisModelRecoveryState(expected), expected);
+  assert.deepEqual(withAnalysisModelRecoveryPolicy({ model: "gpt-5.6-sol" }, legacy, f.now), {
+    model: "deepseek-flash", modelProvider: "deepseek", reasoningEffort: "max",
+    reasoningEffortPolicy: "fixed", supportedReasoningEfforts: ["low", "high", "max"],
+  });
+  f.advance(30 * 60_000 - 1);
+  const restarted = new AnalysisModelRecoveryStore(f.options);
+  assert.deepEqual(restarted.snapshot(), expected);
+  assert.equal(restarted.select("gpt-5.6-sol").fallback, true);
+  f.advance(1);
+  assert.deepEqual(restarted.select("deepseek-flash"), { modelId: "gpt-5.6-sol", fallback: false });
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.filePath, "utf8")), expected);
+});
+
+test("legacy state older than one hour immediately restores Sol and a new failure starts only one hour", (t) => {
+  const f = fixture(t);
+  const activatedAt = f.now - 4 * HOUR;
+  const legacy = { version: 1, activatedAt, fallbackUntil: activatedAt + 24 * HOUR };
+  fs.writeFileSync(f.filePath, JSON.stringify(legacy));
+  const migrated = new AnalysisModelRecoveryStore(f.options);
+  for (const model of ["gpt-5.6-sol", "deepseek-flash", "deepseek-v4-flash"]) {
+    assert.deepEqual(migrated.select(model), { modelId: "gpt-5.6-sol", fallback: false });
+  }
+  const restored = withAnalysisModelRecoveryPolicy({
+    model: "deepseek-v4-flash", modelProvider: "deepseek", reasoningEffort: "max",
+    reasoningEffortPolicy: "fixed", supportedReasoningEfforts: ["low", "high", "max"],
+  }, legacy, f.now);
+  assert.deepEqual(restored, { model: "gpt-5.6-sol", modelProvider: "haolo_ai" });
+  assert.equal(migrated.snapshot().fallbackUntil, activatedAt + HOUR);
+  assert.equal(migrated.activate("deepseek-flash"), false);
+  assert.equal(migrated.activate("gpt-5.6-sol"), true);
+  assert.deepEqual(migrated.snapshot(), { version: 1, activatedAt: f.now, fallbackUntil: f.now + 3_600_000 });
+});
+
+test("a failed migration write preserves the old file and still honors its shortened deadline", (t) => {
+  const f = fixture(t);
+  const activatedAt = f.now - 2 * HOUR;
+  const legacy = { version: 1, activatedAt, fallbackUntil: activatedAt + 24 * HOUR };
+  fs.writeFileSync(f.filePath, JSON.stringify(legacy));
+  const errors = [];
+  const rename = t.mock.method(fs, "renameSync", () => { throw Object.assign(new Error("locked state file"), { code: "EPERM" }); });
+  const migrated = new AnalysisModelRecoveryStore({ ...f.options, onError: (error) => errors.push(error) });
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].code, "EPERM");
+  assert.equal(migrated.select("deepseek-flash").modelId, "gpt-5.6-sol");
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.filePath, "utf8")), legacy);
+  rename.mock.restore();
+  f.advance(HOUR);
+  const restarted = new AnalysisModelRecoveryStore(f.options);
+  assert.equal(restarted.snapshot().fallbackUntil, activatedAt + HOUR);
+  assert.deepEqual(JSON.parse(fs.readFileSync(f.filePath, "utf8")), restarted.snapshot());
+});
+
 test("malformed persisted state does not create an indefinite fallback window", (t) => {
   const f = fixture(t);
-  for (const value of [null, {}, { version: 2 }, { version: 1, activatedAt: f.now, fallbackUntil: f.now + 10 * DAY }]) {
+  for (const value of [null, {}, { version: 2 }, { version: 1, activatedAt: f.now, fallbackUntil: f.now + 10 * HOUR }]) {
     assert.equal(normalizeAnalysisModelRecoveryState(value), null);
   }
   fs.writeFileSync(f.filePath, "broken JSON");
@@ -91,7 +157,7 @@ test("host policy forces max over stale picker effort/support and restores norma
   const wire = withAdaptiveTurnReasoning("turn/start", { ...selected, effort: selected.reasoningEffort, [HAOLO_REASONING_FIXED_EFFORT_FIELD]: selected.reasoningEffort, input: [{ type: "text", text: "你好" }] });
   assert.equal(wire.effort, "max");
   assert.equal(params.model, "gpt-5.6-sol");
-  f.advance(DAY);
+  f.advance(HOUR);
   const restored = withAnalysisModelRecoveryPolicy(selected, f.store.snapshot(), f.now);
   assert.equal(restored.model, "gpt-5.6-sol");
   assert.equal(restored.reasoningEffortPolicy, undefined);
@@ -125,12 +191,12 @@ test("provider integration spans original failure, new tasks, restart, successfu
   assert.deepEqual(calls.map((c) => c.modelId), ["gpt-5.6-sol", "deepseek-flash"]);
   const deadline = store.snapshot().fallbackUntil;
   store = new AnalysisModelRecoveryStore(f.options);
-  f.advance(DAY / 2);
+  f.advance(HOUR / 2);
   await provider.analyze({ ...request, requestId: "new-task" }, { reasoningEffort: "medium" });
   assert.equal(calls.at(-1).modelId, "deepseek-flash");
   assert.equal(calls.at(-1).reasoningEffort, "max");
   assert.equal(store.snapshot().fallbackUntil, deadline);
-  f.advance(DAY / 2);
+  f.advance(HOUR / 2);
   failPrimary = false;
   await provider.analyze(request, { reasoningEffort: "medium" });
   assert.equal(calls.at(-1).modelId, "gpt-5.6-sol");
@@ -139,7 +205,7 @@ test("provider integration spans original failure, new tasks, restart, successfu
   failPrimary = true;
   await provider.analyze(request, { reasoningEffort: "medium" });
   assert.deepEqual(calls.slice(-2).map((c) => c.modelId), ["gpt-5.6-sol", "deepseek-flash"]);
-  assert.equal(store.snapshot().fallbackUntil, f.now + DAY);
+  assert.equal(store.snapshot().fallbackUntil, f.now + HOUR);
   await provider.analyze(request, { reasoningEffort: "medium" });
   assert.equal(calls.at(-1).modelId, "deepseek-flash");
 });
@@ -154,7 +220,7 @@ test("expiry cannot switch an in-flight fallback review or its validation repair
     invoke: async (args) => { calls.push(args); if (calls.length === 1) return new Promise((resolve) => { release = resolve; }); return success; },
   });
   const pending = provider.analyze(request, { reasoningEffort: "medium" });
-  f.advance(DAY);
+  f.advance(HOUR);
   release(success);
   const result = await pending;
   assert.equal(result.modelId, "deepseek-flash");
@@ -163,7 +229,7 @@ test("expiry cannot switch an in-flight fallback review or its validation repair
   assert.equal(calls.at(-1).reasoningEffort, "max");
 });
 
-test("routing and alert compilation are not silently upgraded by the daily model window", async (t) => {
+test("routing and alert compilation are not silently upgraded by the hourly model window", async (t) => {
   const f = fixture(t); f.store.activate("gpt-5.6-sol");
   const calls = [];
   const provider = createAppServerTradingAnalysisProvider({ selectModel: (model) => f.store.select(model), invoke: async (args) => { calls.push(args); return success; } });
@@ -192,7 +258,7 @@ test("production host new-thread handler overrides stale client settings with du
   await handler({}, { model: "gpt-5.6-sol", reasoningEffort: "low", activate: false });
   assert.equal(sent.model, "deepseek-flash");
   assert.equal(sent.reasoningEffort, "max");
-  f.advance(DAY);
+  f.advance(HOUR);
   await handler({}, { model: "deepseek-flash", reasoningEffort: "max", activate: false });
   assert.equal(sent.model, "gpt-5.6-sol");
 });
@@ -204,7 +270,7 @@ test("renderer bootstrap and policy notifications preserve the newest state; bot
   const apply = new Function("normalizeAnalysisModelRecoveryState", `let analysisModelRecoveryState = null; ${js}; return (value) => { acceptAnalysisModelRecoveryState(value); return analysisModelRecoveryState; };`)(normalizeAnalysisModelRecoveryState);
   const current = f.store.snapshot();
   assert.deepEqual(apply(current), current);
-  assert.deepEqual(apply({ ...current, activatedAt: current.activatedAt - DAY, fallbackUntil: current.fallbackUntil - DAY }), current);
+  assert.deepEqual(apply({ ...current, activatedAt: current.activatedAt - HOUR, fallbackUntil: current.fallbackUntil - HOUR }), current);
   assert.deepEqual(apply(null), current);
   assert.match(renderer, /acceptAnalysisModelRecoveryState\(defaults.analysisModelRecovery\)/);
   assert.match(renderer, /message.method === "haolo\/modelRecoveryState"/);
@@ -232,14 +298,14 @@ test("actual renderer new-task initialization follows the window and restores So
   assert.equal(selected.model, "deepseek-flash");
   assert.equal(selected.reasoningEffort, "max");
   assert.equal(selected.modelProvider, "deepseek");
-  f.advance(DAY);
+  f.advance(HOUR);
   initialize("new-2");
   assert.equal(selected.model, "gpt-5.6-sol");
   assert.equal(selected.reasoningEffort, "ultra");
   assert.equal(selected.modelProvider, "haolo_ai");
 });
 
-test("production root terminal recovery activates the daily policy once and respects cancellation", (t) => {
+test("production root terminal recovery activates the hourly policy once and respects cancellation", (t) => {
   const f = fixture(t);
   const coordinator = new TurnAutoRecoveryCoordinator({ startRecovery: async () => ({}), setTimer: () => ({}), clearTimer() {} });
   const source = block(main, "function automaticTurnRecoveryDecision", "function isMeaningfulAutomaticTurnRecoveryProgress");
