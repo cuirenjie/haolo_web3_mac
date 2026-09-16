@@ -144,6 +144,20 @@ test("production root recovery RPC resumes the same thread and sends fixed max o
   assert.equal(harness.released.length, 1);
 });
 
+test("production media recovery RPC retains the GPT provider, effort and original thread", async () => {
+  const harness = recoveryEntry();
+  await harness.start({ threadId: "existing-media", prompt: "continue retained media job", modelId: "gpt-5.6-sol", modelProvider: "haolo_ai", reasoningEffort: "high" });
+  assert.deepEqual(harness.calls[0], ["thread/resume", { threadId: "existing-media", model: "gpt-5.6-sol", modelProvider: "haolo_ai", effort: "high", serviceTier: null }]);
+  const [method, params] = harness.calls[1];
+  assert.equal(method, "turn/start");
+  assert.equal(params.threadId, "existing-media");
+  assert.equal(params.model, "gpt-5.6-sol");
+  assert.equal(params.effort, "high");
+  assert.equal(params.input[0].text, "continue retained media job");
+  assert.equal(HAOLO_REASONING_FIXED_EFFORT_FIELD in params, false);
+  assert.equal(harness.calls.length, 2);
+});
+
 test("production root recovery cannot start after cancellation during resume", async () => {
   const calls = [];
   let current = true;

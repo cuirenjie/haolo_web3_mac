@@ -122,6 +122,35 @@ test("repeated failures cool down and stop after three model recovery attempts",
   assert.equal(startCount, 3);
 });
 
+test("media recovery keeps GPT for all bounded retries and a new ordinary turn restores default recovery", async () => {
+  const timers = fakeTimers(), starts = [], events = [];
+  const coordinator = new TurnAutoRecoveryCoordinator({
+    setTimer: timers.setTimer, clearTimer: timers.clearTimer,
+    startRecovery: async request => { starts.push(request); return { turn: { id: `media-retry-${starts.length}` } }; },
+    onEvent: event => events.push(event),
+  });
+  coordinator.setRecoverySelection("root-thread", { modelId: "gpt-5.6-sol", modelProvider: "haolo_ai", reasoningEffort: "high" });
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const decision = coordinator.handleTerminalFailure(disconnect(`media-${attempt}`));
+    assert.equal(decision.modelId, "gpt-5.6-sol");
+    assert.equal(decision.reasoningEffort, "high");
+    timers.runNext();
+    await drainMicrotasks();
+  }
+  assert.equal(coordinator.handleTerminalFailure(disconnect("media-exhausted")).status, "exhausted");
+  assert.equal(starts.length, 3);
+  assert.ok(starts.every(request => request.modelId === "gpt-5.6-sol" && request.modelProvider === "haolo_ai" && request.reasoningEffort === "high" && request.threadId === "root-thread"));
+  assert.ok(events.filter(event => event.event === "starting").every(event => event.modelId === "gpt-5.6-sol"));
+  assert.equal(timers.pending().length, 0);
+  coordinator.noteUserTurn("root-thread");
+  coordinator.noteTurnStarted("root-thread", "ordinary");
+  const ordinary = coordinator.handleTerminalFailure(disconnect("ordinary"));
+  assert.equal(ordinary.modelId, "deepseek-flash");
+  assert.equal(ordinary.reasoningEffort, "max");
+  coordinator.cancel("root-thread", "user_cancel");
+  assert.equal(timers.pending().length, 0);
+});
+
 test("durable progress resets the no-progress backoff and a user turn cancels pending recovery", () => {
   const timers = fakeTimers();
   const coordinator = new TurnAutoRecoveryCoordinator({

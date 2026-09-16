@@ -1,4 +1,4 @@
-import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, isRecoverableAnalysisModelFailure } from "./analysis-model-recovery.mjs";
+import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER, isRecoverableAnalysisModelFailure } from "./analysis-model-recovery.mjs";
 
 export const AUTOMATIC_TURN_RECOVERY_MARKER = "<haolo_automatic_turn_recovery>";
 
@@ -110,6 +110,14 @@ export class TurnAutoRecoveryCoordinator {
       state.latestTurnId = normalizedId(turnId);
       state.awaitingUserTurnStart = false;
     }
+  }
+
+  setRecoverySelection(threadId, selection) {
+    const root = this.rootThreadId(threadId);
+    if (!root) return;
+    // Host-owned capabilities for this user turn, including replacement threads.
+    // Changing selection must not reset cancellation, generation or retry limits.
+    this.ensureState(root).recoverySelection = selection ? { ...selection } : null;
   }
 
   noteSuccessfulTurn(threadId, turnId) {
@@ -273,8 +281,11 @@ export class TurnAutoRecoveryCoordinator {
       attempt: state.recoveryAttempt,
       noProgressFailures: state.noProgressFailures,
       noProgressFailureLimit: this.noProgressFailureLimit,
-      modelId: ANALYSIS_RECOVERY_MODEL,
-      reasoningEffort: ANALYSIS_RECOVERY_EFFORT,
+      ...(state.recoverySelection || {
+        modelId: ANALYSIS_RECOVERY_MODEL,
+        modelProvider: ANALYSIS_RECOVERY_PROVIDER,
+        reasoningEffort: ANALYSIS_RECOVERY_EFFORT,
+      }),
     };
   }
 
@@ -292,6 +303,9 @@ export class TurnAutoRecoveryCoordinator {
       });
       const result = await this.startRecovery({
         threadId: rootThreadId,
+        modelId: decision.modelId,
+        modelProvider: decision.modelProvider,
+        reasoningEffort: decision.reasoningEffort,
         failedTurnId: decision.failedTurnId,
         attempt: decision.attempt,
         chainId: decision.chainId,

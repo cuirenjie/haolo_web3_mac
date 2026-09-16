@@ -27,7 +27,7 @@ function sourceBlock(startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-function expandedComposerHarness() {
+function expandedComposerHarness({ recoveryState = null } = {}) {
   const names = [
     "newThreadModeForThread", "isMediaCreationMode", "isExpandedTradingExpertConversation",
     "isTradingExpertExecutionThreadId", "usesUnifiedExecutionModelPicker", "composerModelKindForThread",
@@ -87,7 +87,7 @@ function expandedComposerHarness() {
     threadModelSettings: () => null,
     executionModelProviderId: (...values) => values.find(Boolean) || "haolo_ai",
     isQuestionAnswerThreadId: () => false,
-    withAnalysisModelRecoveryPolicy, analysisModelRecoveryState: null,
+    withAnalysisModelRecoveryPolicy, analysisModelRecoveryState: recoveryState,
     DEEPSEEK_EXECUTION_PROVIDER_ID: "deepseek", DEEPSEEK_EXECUTION_MODEL_VALUE: "deepseek-flash",
     tradingExpertSelectedModelRequestOptions: () => ({ model: fixture.selected.value, modelProvider: fixture.selected.providerId, reasoningEffortPolicy: "fixed" }),
     tradingStrategyMentionedByText: () => ({ ui: { buildExpertPrompt: (text) => `strategy:${text}` } }),
@@ -95,6 +95,20 @@ function expandedComposerHarness() {
   };
   return Object.assign(fixture, { gpt, deepSeek }, new Function(...Object.keys(context), `${code}\nreturn { ${names.join(",")} };`)(...Object.values(context)));
 }
+
+test("media creation retains GPT execution throughout an active recovery window", async () => {
+  const now = Date.now();
+  const fixture = expandedComposerHarness({ recoveryState: { version: 1, activatedAt: now, fallbackUntil: now + 3_600_000 } });
+  for (const [kind, model] of [["image", "gpt-image-1"], ["video", "grok-imagine-video-1.5"]]) {
+    assert.equal(await fixture.selectComposerModelForThread(fixture.currentId, { value: model }, kind), true);
+    const settings = fixture.selectedChatModelRequestOptions(fixture.currentId);
+    assert.equal(settings.model, fixture.gpt.value);
+    assert.equal(settings.modelProvider, "haolo_ai");
+    assert.notEqual(settings.reasoningEffort, "max");
+  }
+  await fixture.switchNewThreadMode("execution", fixture.currentId);
+  assert.equal(fixture.selectedChatModelRequestOptions(fixture.currentId).model, fixture.deepSeek.value);
+});
 
 test("expanded trading conversations expose media models without enabling other established tasks or providers", () => {
   const fixture = expandedComposerHarness();

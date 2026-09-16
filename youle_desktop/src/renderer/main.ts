@@ -22863,6 +22863,9 @@ function markThreadContextWindowExhausted(threadId: string, turnId?: string | nu
 
 function formatTurnFailureMessage(reason: string | null | undefined, recovery?: Record<string, unknown> | null) {
   if (recovery?.status === "exhausted") {
+    if (String(recovery.modelId || "").startsWith("gpt-")) {
+      return "媒体任务自动恢复仍未完成。任务记录已保留，请稍后重试。";
+    }
     return "已尝试 GPT-6 Astra 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。";
   }
   if (isContextWindowExhaustedError(reason)) {
@@ -22923,17 +22926,22 @@ function announceAutomaticTurnRecovery(
   const noticeKey = `${chainId}:${noticeKind}`;
   if (automaticTurnRecoveryNoticeKeys.has(noticeKey)) return;
   automaticTurnRecoveryNoticeKeys.add(noticeKey);
+  const mediaRecovery = String(meta?.modelId || "").startsWith("gpt-");
   if (noticeKind === "exhausted") {
-    appendAgentNotice(threadId, formatTurnFailureMessage(null, { status: "exhausted" }));
+    appendAgentNotice(threadId, formatTurnFailureMessage(null, meta));
   } else if (noticeKind === "cooling_down") {
     appendAgentNotice(
       threadId,
-      "备用模型暂时不可用，稍后将再次使用 GPT-6 Astra 最高推理模式继续当前任务。",
+      mediaRecovery
+        ? "媒体任务模型暂时不可用，稍后将使用原 GPT 模型继续当前任务。"
+        : "备用模型暂时不可用，稍后将再次使用 GPT-6 Astra 最高推理模式继续当前任务。",
     );
   } else {
     appendAgentNotice(
       threadId,
-      "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式继续处理。接下来 1 小时的新任务也会使用该模型。",
+      mediaRecovery
+        ? "媒体任务执行异常，正在使用原 GPT 模型继续处理。"
+        : "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式继续处理。接下来 1 小时的新任务也会使用该模型。",
     );
   }
 }
@@ -54765,7 +54773,7 @@ function selectedChatModelRequestOptions(
     // difficulty policy in the main process, never by a saved user setting.
     // Billing safety policy: Haolo never requests the priority/Fast tier.
     serviceTier: null,
-  }, analysisModelRecoveryState);
+  }, analysisModelRecoveryState, Date.now(), { conversationMode });
 }
 
 function selectedChatModelReasoningEffortsForRequest(

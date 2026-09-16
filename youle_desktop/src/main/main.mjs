@@ -6784,10 +6784,6 @@ function youleAuthPath() {
 async function restartClientAfterAuthChange() {
   await resetBinanceNetworkRuntimeAfterAuthChange();
   const clients = [...appServerClients.values()];
-  if (!clients.length && !client) {
-    internalSubagentThreads.clearAll();
-    return;
-  }
   for (const serverClient of clients.length ? clients : [client]) {
     if (!serverClient) continue;
     try {
@@ -6801,9 +6797,7 @@ async function restartClientAfterAuthChange() {
   appServerWorkspaceByKey.clear();
   idleStoppingAppServerKeys.clear();
 
-  haoloNetworkTransport?.close();
-  haoloNetworkTransport = null;
-  haoloServiceNetworkFetch = null;
+  resetHaoloNetworkTransport();
 
   if (githubMcpBridge) {
     try {
@@ -7904,7 +7898,12 @@ function handleAutomaticTurnRecoveryEvent(event) {
   });
 }
 
-async function startAutomaticTurnRecovery({ threadId, prompt, isCurrent = () => true } = {}) {
+async function startAutomaticTurnRecovery({
+  threadId, prompt, isCurrent = () => true,
+  modelId = ANALYSIS_RECOVERY_MODEL,
+  modelProvider = ANALYSIS_RECOVERY_PROVIDER,
+  reasoningEffort = ANALYSIS_RECOVERY_EFFORT,
+} = {}) {
   const normalizedThreadId = String(threadId || "");
   if (!normalizedThreadId || !String(prompt || "").trim()) {
     throw new Error("Automatic turn recovery is missing its thread or recovery context.");
@@ -7927,17 +7926,17 @@ async function startAutomaticTurnRecovery({ threadId, prompt, isCurrent = () => 
     try {
       await resumeThreadForRequestedProvider({
         serverClient, threadId: normalizedThreadId, cwd,
-        targetSettings: { model: ANALYSIS_RECOVERY_MODEL, modelProvider: ANALYSIS_RECOVERY_PROVIDER, effort: ANALYSIS_RECOVERY_EFFORT, serviceTier: null },
+        targetSettings: { model: modelId, modelProvider, effort: reasoningEffort, serviceTier: null },
       });
       if (!isCurrent()) throw new DOMException("Recovery cancelled", "AbortError");
-      rootRecoveryModelsByThread.set(normalizedThreadId, ANALYSIS_RECOVERY_MODEL);
+      rootRecoveryModelsByThread.set(normalizedThreadId, modelId);
       const result = await requestAppServer(serverClient, "turn/start", {
         threadId: normalizedThreadId,
         input: [{ type: "text", text: prompt, textElements: [] }],
         cwd,
-        model: ANALYSIS_RECOVERY_MODEL,
-        effort: ANALYSIS_RECOVERY_EFFORT,
-        [HAOLO_REASONING_FIXED_EFFORT_FIELD]: ANALYSIS_RECOVERY_EFFORT,
+        model: modelId,
+        effort: reasoningEffort,
+        [HAOLO_REASONING_FIXED_EFFORT_FIELD]: reasoningEffort,
         serviceTier: null,
       });
       const recoveryTurnId = result?.turn?.id || result?.turnId || result?.turn_id || result?.id || null;
@@ -18718,6 +18717,10 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
     const startTurn = async () => {
       const turnStartedAt = performanceTimingStart();
       rootRecoveryModelsByThread.set(String(threadId), executionSelection.model || ANALYSIS_PRIMARY_MODEL);
+      turnAutoRecoveryCoordinator.setRecoverySelection(threadId,
+        [IMAGE_GENERATION_CONVERSATION_MODE, VIDEO_GENERATION_CONVERSATION_MODE].includes(conversationMode)
+          ? { modelId: executionSelection.model || ANALYSIS_PRIMARY_MODEL, modelProvider: executionSelection.modelProvider || "haolo_ai", reasoningEffort: turnReasoningEffort }
+          : null);
       try {
         const turnResult = await requestAppServer(serverClient, "turn/start", {
           threadId,
@@ -20595,6 +20598,18 @@ function nativeAppNetworkFetch(url, options = {}) {
   return fetch(url, options);
 }
 
+function resetHaoloNetworkTransport() {
+  const network = haoloNetworkTransport;
+  const gatewayFetch = binanceGatewayNetworkFetch;
+  // Drop every cached consumer before closing the shared transport. This also
+  // runs for auth changes before an App Server has ever been created.
+  haoloNetworkTransport = null;
+  haoloServiceNetworkFetch = null;
+  binanceGatewayNetworkFetch = null;
+  binanceGatewayClient = null;
+  try { gatewayFetch?.close?.(); } finally { network?.close(); }
+}
+
 async function responseJson(response) {
   try {
     return await response.json();
@@ -22265,11 +22280,6 @@ async function cleanupAndExit(exitCode = 0) {
       binancePrivateProxyTransport = null;
     }
   }
-  if (binanceGatewayNetworkFetch) {
-    binanceGatewayNetworkFetch.close?.();
-    binanceGatewayNetworkFetch = null;
-  }
-
   try {
     await withShutdownTimeout(
       "consumption lifecycle reports",
@@ -22294,6 +22304,9 @@ async function cleanupAndExit(exitCode = 0) {
   appServerClientByThreadId.clear();
   appServerWorkspaceByKey.clear();
   idleStoppingAppServerKeys.clear();
+
+  // Keep the transport alive until final lifecycle reports and clients finish.
+  resetHaoloNetworkTransport();
 
   if (pendingWindowsUpdateInstallerPath) {
     const installerPath = pendingWindowsUpdateInstallerPath;

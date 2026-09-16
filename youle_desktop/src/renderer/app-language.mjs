@@ -10,6 +10,9 @@ export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "媒体任务自动恢复仍未完成。任务记录已保留，请稍后重试。": "Automatic recovery of the media task did not complete. Your task history has been kept. Please try again later.",
+  "媒体任务模型暂时不可用，稍后将使用原 GPT 模型继续当前任务。": "The media task model is temporarily unavailable. The current task will resume with its original GPT model shortly.",
+  "媒体任务执行异常，正在使用原 GPT 模型继续处理。": "The media task encountered an error. Continuing with its original GPT model.",
   "正在由大模型识别问题意图；需要盘面时将进入行情分析与画线智能体。": "The model is identifying the intent. Market questions will continue with the market-analysis and chart-drawing agents.",
   "会话记录将在后台自动重试保存，盘面分析继续。": "The conversation will retry saving in the background while market analysis continues.",
   "会话记录将在后台自动重试保存，不影响本次回答。": "The conversation will retry saving in the background without affecting this response.",
@@ -760,6 +763,9 @@ const ENGLISH_UI_PHRASES = Object.freeze({
 });
 
 const TRADITIONAL_UI_PHRASES = Object.freeze({
+  "媒体任务自动恢复仍未完成。任务记录已保留，请稍后重试。": "媒體任務自動恢復仍未完成。任務記錄已保留，請稍後重試。",
+  "媒体任务模型暂时不可用，稍后将使用原 GPT 模型继续当前任务。": "媒體任務模型暫時不可用，稍後將使用原 GPT 模型繼續目前任務。",
+  "媒体任务执行异常，正在使用原 GPT 模型继续处理。": "媒體任務執行異常，正在使用原 GPT 模型繼續處理。",
   "周期已自动应用。": "週期已自動套用。",
   "此版本必须更新后才能继续使用。": "此版本必須更新後才能繼續使用。",
   "WEB3免费": "WEB3免費",

@@ -32,8 +32,29 @@ export function analysisModelPolicySelection(state, modelId, now = Date.now()) {
   };
 }
 
-export function withAnalysisModelRecoveryPolicy(params, state, now = Date.now()) {
+function restoreGptSelection(params, model) {
+  const restored = { ...params, model, modelProvider: "haolo_ai" };
+  delete restored.model_provider;
+  for (const key of [
+    "reasoningEffort", "reasoning_effort", "effort",
+    "reasoningEffortPolicy", "reasoning_effort_policy",
+    "supportedReasoningEfforts", "supported_reasoning_efforts",
+    "__haoloFixedReasoningEffort", "__haoloSupportedReasoningEfforts",
+  ]) delete restored[key];
+  return restored;
+}
+
+export function withAnalysisModelRecoveryPolicy(params, state, now = Date.now(), context = {}) {
   params = migrateDeepSeekModelSelection(migrateRetiredModelSelection(params));
+  const mode = String(context.conversationMode || params.conversationMode || params.conversation_mode || "").trim().toLowerCase().replace(/_/g, "-");
+  if (["image-generation", "video-generation"].includes(mode)) {
+    // Media tools require a GPT root. Repair remembered fallback selections,
+    // but never let the global text fallback override a compatible GPT choice.
+    const model = String(params.model || "").trim();
+    if (!model || model.toLowerCase() === ANALYSIS_RECOVERY_MODEL) return restoreGptSelection(params, ANALYSIS_PRIMARY_MODEL);
+    if (model.toLowerCase().startsWith("gpt-") && String(params.modelProvider || params.model_provider || "").toLowerCase() === ANALYSIS_RECOVERY_PROVIDER) return restoreGptSelection(params, model);
+    return params;
+  }
   const selection = analysisModelPolicySelection(state, params.model, now);
   if (selection.fallback) return {
     ...params, model: selection.modelId, modelProvider: ANALYSIS_RECOVERY_PROVIDER,
@@ -43,9 +64,7 @@ export function withAnalysisModelRecoveryPolicy(params, state, now = Date.now())
   if (normalizeAnalysisModelRecoveryState(state) && selection.modelId !== String(params.model || "")) {
     // A previous fallback may have been remembered by the thread. Let the
     // normal Sol reasoning policy choose the effort again after expiry.
-    const restored = { ...params, model: selection.modelId, modelProvider: "haolo_ai" };
-    for (const key of ["reasoningEffort", "reasoning_effort", "effort", "reasoningEffortPolicy", "reasoning_effort_policy", "supportedReasoningEfforts", "supported_reasoning_efforts"]) delete restored[key];
-    return restored;
+    return restoreGptSelection(params, selection.modelId);
   }
   return params;
 }
