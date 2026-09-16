@@ -31,7 +31,7 @@ const preloadSource = readFile(new URL("../src/main/preload.mjs", import.meta.ur
 
 test("model fallback and exhaustion notices translate in English and Traditional Chinese", () => {
   for (const text of [
-    "模型执行异常，正在切换到 GPT-5.5 最高推理模式，保留当前任务进度继续处理。",
+    "模型执行异常，正在切换到 GPT-5.5 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。",
     "备用模型暂时不可用，稍后将再次使用 GPT-5.5 最高推理模式继续当前任务。",
     "已尝试 GPT-5.5 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。",
     "自动恢复未能启动。任务记录已保留，请检查账户和服务状态后重试。",

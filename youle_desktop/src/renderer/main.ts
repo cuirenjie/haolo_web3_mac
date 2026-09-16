@@ -1,6 +1,7 @@
 import "./styles.css";
 import QRCode from "qrcode";
 import { describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
+import { analysisModelPolicySelection, normalizeAnalysisModelRecoveryState, withAnalysisModelRecoveryPolicy, type AnalysisModelRecoveryState } from "../main/analysis-model-policy.mjs";
 import {
   applyAppLanguage,
   appLanguageLocale,
@@ -1427,6 +1428,7 @@ type DesktopApi = {
   start(): Promise<any>;
   getStatus(): Promise<any>;
   getDefaults(): Promise<{ cwd: string; installDir?: string; approvalPolicy: string; sandbox: string; youleApiBaseUrl?: string; theme?: AppTheme; language?: AppLanguage; languagePreferenceStored?: boolean; taskCompletionPopupEnabled?: boolean;
+    analysisModelRecovery?: AnalysisModelRecoveryState | null;
   }>;
   getSystemIntegrationState?(): Promise<SystemIntegrationSnapshot>;
   setSystemIntegration?(params: { key: SystemIntegrationKey; enabled: boolean;
@@ -4506,6 +4508,14 @@ const threadGroups = [...threadPreferences.groups];
 const threadGroupByThreadId = { ...threadPreferences.threadGroups };
 const threadWorkspaceByThreadId = { ...threadPreferences.threadWorkspaces };
 const threadModelSettingsByThreadId: Record<string, ThreadModelSettings> = { ...threadPreferences.threadModels };
+let analysisModelRecoveryState: AnalysisModelRecoveryState | null = null;
+
+function acceptAnalysisModelRecoveryState(value: unknown) {
+  const next = normalizeAnalysisModelRecoveryState(value);
+  if (next && (!analysisModelRecoveryState || next.activatedAt >= analysisModelRecoveryState.activatedAt)) {
+    analysisModelRecoveryState = next;
+  }
+}
 const threadModelSelectionsByThreadId: Record<string, ThreadModelSettings> = { ...threadPreferences.threadModelSelections };
 const threadContinuationByOperationId: Record<string, ThreadContinuationRecord> = { ...threadPreferences.threadContinuations };
 const threadGroupWorkspaceById: Record<string, string> = {};
@@ -5920,6 +5930,7 @@ async function boot() {
   try {
     const defaults = await api.getDefaults();
     if (seq !== startupAuthSeq) return;
+    acceptAnalysisModelRecoveryState(defaults.analysisModelRecovery);
     state.settings.cwd = defaults.cwd;
     state.settings.installDir = defaults.installDir || defaults.cwd;
     hydrateSelectedChatModel();
@@ -17970,12 +17981,13 @@ function initializeTradingExpertTaskThread(
   const existingModel =
     threadModelSelection(threadId)?.model || threadModelSettings(threadId)?.model;
   if (!isTradingExpertModelValue(existingModel)) {
+    const initialModel = analysisModelPolicySelection(analysisModelRecoveryState, TRADING_EXPERT_DEFAULT_MODEL_VALUE).modelId;
     rememberThreadModelSelection(
       threadId,
       {
         modelProvider: DEFAULT_EXECUTION_MODEL_PROVIDER_ID,
-        model: TRADING_EXPERT_DEFAULT_MODEL_VALUE,
-        reasoningEffort: TRADING_EXPERT_REASONING_EFFORT,
+        model: initialModel,
+        reasoningEffort: tradingExpertReasoningEffort(initialModel),
         serviceTier: null,
       },
       { persist: false },
@@ -22017,6 +22029,11 @@ function restoreThreadContextCompactionsFromItems(threadId: string) {
 }
 
 function handleNotification(message: JsonRpcMessage) {
+  if (message.method === "haolo/modelRecoveryState") {
+    acceptAnalysisModelRecoveryState(message.params?.state);
+    scheduleRender({ protectComposer: true });
+    return;
+  }
   let threadId = notificationThreadId(message);
   if (handleChannelAgentNotification(threadId, message)) return;
   if (message.method === "thread/started" && message.params?.thread) {
@@ -22783,7 +22800,7 @@ function announceAutomaticTurnRecovery(
   } else {
     appendAgentNotice(
       threadId,
-      "模型执行异常，正在切换到 GPT-5.5 最高推理模式，保留当前任务进度继续处理。",
+      "模型执行异常，正在切换到 GPT-5.5 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。",
     );
   }
 }
@@ -54369,7 +54386,10 @@ function selectedChatModelOption(threadId: string | null | undefined = currentCo
   const provider = providerFromThreadId(threadId);
   const selectedSettings = threadModelSelection(threadId);
   const knownSettings = threadModelSettings(threadId);
-  const effectiveModel = selectedSettings?.model || knownSettings?.model;
+  let effectiveModel = selectedSettings?.model || knownSettings?.model;
+  if (isBlankNewThread(threadId) || isLocalBlankThreadId(threadId)) {
+    effectiveModel = analysisModelPolicySelection(analysisModelRecoveryState, effectiveModel || state.settings.model).modelId;
+  }
   const effectiveModelProvider = executionModelProviderId(
     selectedSettings?.modelProvider,
     knownSettings?.modelProvider,
@@ -54538,12 +54558,12 @@ function tradingExpertSelectedModelRequestOptions(
   const selectedSettings = threadModelSelection(threadId);
   const knownSettings = threadModelSettings(threadId);
   const selected = selectedChatModelOption(threadId);
-  const model = firstString(
+  const model = analysisModelPolicySelection(analysisModelRecoveryState, firstString(
     selectedSettings?.model,
     knownSettings?.model,
     selected.value,
     TRADING_EXPERT_DEFAULT_MODEL_VALUE,
-  ) || TRADING_EXPERT_DEFAULT_MODEL_VALUE;
+  ) || TRADING_EXPERT_DEFAULT_MODEL_VALUE).modelId;
   const selectedModelProvider = executionModelProviderId(
     selectedSettings?.modelProvider,
     knownSettings?.modelProvider,
@@ -54592,7 +54612,7 @@ function selectedChatModelRequestOptions(
   const deepSeek =
     modelProvider === DEEPSEEK_EXECUTION_PROVIDER_ID ||
     selected.value.toLowerCase() === DEEPSEEK_EXECUTION_MODEL_VALUE;
-  return {
+  return withAnalysisModelRecoveryPolicy({
     modelProvider: deepSeek ? DEEPSEEK_EXECUTION_PROVIDER_ID : modelProvider,
     model: isQuestionAnswerThreadId(threadId)
       ? selected.value
@@ -54601,7 +54621,7 @@ function selectedChatModelRequestOptions(
     // difficulty policy in the main process, never by a saved user setting.
     // Billing safety policy: Haolo never requests the priority/Fast tier.
     serviceTier: null,
-  };
+  }, analysisModelRecoveryState);
 }
 
 function selectedChatModelReasoningEffortsForRequest(

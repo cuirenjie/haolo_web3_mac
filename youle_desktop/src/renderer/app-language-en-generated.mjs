@@ -1,6 +1,7 @@
 // Generated once from renderer-owned Simplified Chinese UI strings with a
 // local offline translation model. Runtime language switching is fully offline.
 export const GENERATED_ENGLISH_UI_PHRASES = Object.freeze({
+  "模型执行异常，正在切换到 GPT-5.5 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。": "Model execution failed. Switching to GPT-5.5 at its highest reasoning level to continue. New tasks will also use this model for the next 24 hours.",
   "已尝试 GPT-5.5 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。": "Automatic recovery with GPT-5.5 at its highest reasoning level did not complete. Your task history is preserved. Please try again later.",
   "自动恢复未能启动。任务记录已保留，请检查账户和服务状态后重试。": "Automatic recovery could not start. Your task history is preserved. Check your account and service status, then try again.",
   "备用模型暂时不可用，稍后将再次使用 GPT-5.5 最高推理模式继续当前任务。": "The fallback model is temporarily unavailable. Retrying GPT-5.5 at its highest reasoning level shortly to continue this task.",

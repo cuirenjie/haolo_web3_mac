@@ -1,8 +1,9 @@
 import { TradingAnalysisModelProviderError } from "./model-provider.mjs";
 import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, runWithAnalysisModelRecovery } from "../analysis-model-recovery.mjs";
+import { ANALYSIS_PRIMARY_MODEL } from "../analysis-model-policy.mjs";
 
 export const DEFAULT_TRADING_ANALYSIS_PROVIDER_ID = "openai-codex";
-export const DEFAULT_TRADING_ANALYSIS_MODEL_ID = "gpt-5.6-sol";
+export const DEFAULT_TRADING_ANALYSIS_MODEL_ID = ANALYSIS_PRIMARY_MODEL;
 
 export function createAppServerTradingAnalysisProvider(options = {}) {
   const invoke = options.invoke;
@@ -55,9 +56,10 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
           finishReason: result.finishReason || "completed",
         };
       };
-      const selection = recoveryModel === ANALYSIS_RECOVERY_MODEL && recoverableReview
+      const policy = recoverableReview ? options.selectModel?.(modelId) : null;
+      const selection = recoverableReview && (recoveryModel === ANALYSIS_RECOVERY_MODEL || policy?.fallback)
         ? { modelId: ANALYSIS_RECOVERY_MODEL, reasoningEffort: ANALYSIS_RECOVERY_EFFORT }
-        : { modelId, reasoningEffort };
+        : { modelId: policy?.modelId || modelId, reasoningEffort };
       if (!recoverableReview) return operation(selection);
       return runWithAnalysisModelRecovery({
         operation, ...selection, signal,

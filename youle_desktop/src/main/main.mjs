@@ -259,7 +259,9 @@ import {
 } from "./trading-analysis/external-strategy-router.mjs";
 import { createTradingAnalysisModelProviderRegistry } from "./trading-analysis/model-provider.mjs";
 import { tradingAnalysisTurnPolicy } from "./trading-analysis-turn-policy.mjs";
-import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER } from "./analysis-model-recovery.mjs";
+import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER, isRecoverableAnalysisModelFailure } from "./analysis-model-recovery.mjs";
+import { ANALYSIS_PRIMARY_MODEL, withAnalysisModelRecoveryPolicy } from "./analysis-model-policy.mjs";
+import { AnalysisModelRecoveryStore } from "./analysis-model-recovery-store.mjs";
 import { tradingAnalysisFailureDiagnostic } from "./trading-analysis/diagnostics.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
 import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
@@ -450,6 +452,8 @@ let voiceCredentialCache = null;
 let voiceCredentialPromise = null;
 let voiceCredentialGeneration = 0;
 let appPreferencesCache = null;
+let analysisModelRecoveryStore = null;
+const rootRecoveryModelsByThread = new Map();
 let appServerIdleCleanupTimer = null;
 let appServerIdleCleanupRunning = false;
 let legacyDefaultCodexHomeMigrationAttempted = false;
@@ -7858,7 +7862,7 @@ function automaticTurnRecoveryDecision(message, { threadId, turnId } = {}) {
     && hasStructuredResponseStreamDisconnect(message)
     ? "stream_disconnected"
     : failure.errorClass;
-  return turnAutoRecoveryCoordinator.handleTerminalFailure({
+  const decision = turnAutoRecoveryCoordinator.handleTerminalFailure({
     threadId,
     failedTurnId: turnId,
     status,
@@ -7867,6 +7871,10 @@ function automaticTurnRecoveryDecision(message, { threadId, turnId } = {}) {
     detail: failure.detail,
     willRetry: failure.willRetry,
   });
+  if (["scheduled", "cooling_down"].includes(decision.status) && !decision.duplicate) {
+    getAnalysisModelRecoveryStore().activate(rootRecoveryModelsByThread.get(String(threadId)) || ANALYSIS_PRIMARY_MODEL);
+  }
+  return decision;
 }
 
 function hasStructuredResponseStreamDisconnect(message) {
@@ -7946,6 +7954,7 @@ async function startAutomaticTurnRecovery({ threadId, prompt, isCurrent = () => 
         modelProvider: ANALYSIS_RECOVERY_PROVIDER,
       });
       if (!isCurrent()) throw new DOMException("Recovery cancelled", "AbortError");
+      rootRecoveryModelsByThread.set(normalizedThreadId, ANALYSIS_RECOVERY_MODEL);
       const result = await requestAppServer(serverClient, "turn/start", {
         threadId: normalizedThreadId,
         input: [{ type: "text", text: prompt, textElements: [] }],
@@ -12585,6 +12594,7 @@ ipcMain.handle("codex:getStatus", async () => {
 
 ipcMain.handle("codex:getDefaults", async () => {
   return {
+    analysisModelRecovery: getAnalysisModelRecoveryStore().snapshot(),
     cwd: desktopWorkspace(),
     installDir: desktopInstallDir(),
     approvalPolicy: "on-request",
@@ -14625,13 +14635,26 @@ async function tradingAlertIpcCall(event, method, params = {}) {
   }
 }
 
+function getAnalysisModelRecoveryStore() {
+  if (!analysisModelRecoveryStore) analysisModelRecoveryStore = new AnalysisModelRecoveryStore({
+    filePath: path.join(app.getPath("userData"), "analysis-model-recovery.json"),
+    onChange: (state) => sendToRenderer("codex:notification", { method: "haolo/modelRecoveryState", params: { state } }),
+    onError: (error) => console.warn("[analysis-model-recovery] state persistence unavailable", error?.code || error?.name || "unknown"),
+  });
+  return analysisModelRecoveryStore;
+}
+
 function getTradingAnalysisModelRegistry() {
   if (tradingAnalysisModelRegistry) return tradingAnalysisModelRegistry;
   const gptProvider = createAppServerTradingAnalysisProvider({
     providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
     modelId: DEFAULT_TRADING_ANALYSIS_MODEL_ID,
     invoke: invokeTradingAnalysisAppServer,
-    onRecovery: (event) => console.info("[trading-analysis] model fallback", event),
+    selectModel: (modelId) => getAnalysisModelRecoveryStore().select(modelId),
+    onRecovery: (event) => {
+      getAnalysisModelRecoveryStore().activate(event.failedModelId);
+      console.info("[trading-analysis] model fallback", event);
+    },
   });
   tradingAnalysisModelRegistry = createTradingAnalysisModelProviderRegistry([gptProvider]);
   return tradingAnalysisModelRegistry;
@@ -17258,6 +17281,7 @@ ipcMain.handle("codex:deletePlugin", async (_event, params = {}) => {
 });
 
 ipcMain.handle("codex:startThread", async (_event, params = {}) => {
+  params = withAnalysisModelRecoveryPolicy(params, getAnalysisModelRecoveryStore().snapshot());
   const cwd = params.cwd || desktopWorkspace();
   const serverClient = getClientForCwd(cwd);
   ensureThreadGroupWorkspaceDirectory(cwd);
@@ -18538,6 +18562,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
   await persistExplicitMarketAliasMemory(text, {
     fromGroupChat: Boolean(groupChatContext),
   });
+  params = withAnalysisModelRecoveryPolicy(params, getAnalysisModelRecoveryStore().snapshot());
   const executionSelection = executionProviderSelection(params);
   const conversationMode = normalizeConversationMode(
     params.conversationMode || params.conversation_mode,
@@ -18712,6 +18737,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
     };
     const startTurn = async () => {
       const turnStartedAt = performanceTimingStart();
+      rootRecoveryModelsByThread.set(String(threadId), executionSelection.model || ANALYSIS_PRIMARY_MODEL);
       try {
         const turnResult = await requestAppServer(serverClient, "turn/start", {
           threadId,
@@ -18857,6 +18883,9 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
   } catch (error) {
     sendStatus = "error";
     sendError = error;
+    if (isRecoverableAnalysisModelFailure(error)) {
+      getAnalysisModelRecoveryStore().activate(executionSelection.model || ANALYSIS_PRIMARY_MODEL);
+    }
     forgetPendingCodexTurnThread(threadId);
     // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable send failure event
     failTurnDiagnostic(turnDiagnostic, error);

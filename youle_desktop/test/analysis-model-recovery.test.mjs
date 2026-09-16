@@ -120,6 +120,7 @@ function recoveryEntry(overrides = {}) {
     appShuttingDown: false, appCleanupStarted: false,
     acquireSerializedThreadSettingsOperation: async () => () => released.push(true),
     activeCodexTurnsByThread: new Map(), pendingCodexTurnThreadIds: new Set(),
+    rootRecoveryModelsByThread: new Map(),
     getClientForThread: () => ({ __youleWorkspaceCwd: "workspace" }), currentSkillsCwd: "workspace", desktopWorkspace: () => "workspace",
     rememberThreadClient() {}, rememberPendingCodexTurnThread() {}, forgetPendingCodexTurnThread() {},
     rememberActiveCodexTurn: (...args) => active.push(args),
