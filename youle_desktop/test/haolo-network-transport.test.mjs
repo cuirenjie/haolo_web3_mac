@@ -9,6 +9,7 @@ import WebSocket, { WebSocketServer } from "ws";
 import { createHaoloNetworkTransport, openHaoloSocket } from "../src/main/haolo-network-transport.mjs";
 import { ModelRequestRelay } from "../src/main/model-request-relay.mjs";
 import { AppServerClient } from "../src/main/app-server-client.mjs";
+import { TradingMarketDataHub } from "../src/main/trading-market-data-hub.mjs";
 
 // Public test-only key and certificate. Never used by a deployed server.
 const key = fs.readFileSync(new URL("fixtures/haolo-network/server-key.pem", import.meta.url));
@@ -22,14 +23,14 @@ async function listen(server, t) {
   return server.address().port;
 }
 
-async function fixture(t, { proxy = "DIRECT", egressRegion = "CN", handler } = {}) {
+async function fixture(t, { proxy = "DIRECT", egressRegion = "CN", handler, transportOptions = {}, proxyResolver, beforeSocket } = {}) {
   const requests = [], connections = [], proxyConnects = [];
   let finishStream;
   const server = https.createServer({ key, cert }, async (req, res) => {
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     requests.push({ url: req.url, host: req.headers.host, sni: req.socket.servername, headers: req.headers, body: Buffer.concat(chunks) });
     if (handler) return handler(req, res);
-    if (req.url === "/.well-known/haolo-network") return res.end(JSON.stringify(region(egressRegion)));
+    if (req.url === "/.well-known/haolo-network") return res.end(JSON.stringify(region(typeof egressRegion === "function" ? egressRegion() : egressRegion)));
     if (req.url.startsWith("/v1/")) {
       res.writeHead(200, { "content-type": "text/event-stream" }); res.write("data: first\n\n");
       finishStream = () => res.end("data: [DONE]\n\n"); return;
@@ -49,9 +50,11 @@ async function fixture(t, { proxy = "DIRECT", egressRegion = "CN", handler } = {
   });
   const proxyPort = await listen(proxyServer, t);
   let currentProxy = proxy === "PROXY" ? `PROXY 127.0.0.1:${proxyPort}` : proxy;
-  const transport = createHaoloNetworkTransport({ resolveProxy: async () => currentProxy,
+  const transport = createHaoloNetworkTransport({ ...transportOptions,
+    resolveProxy: async (url) => proxyResolver ? proxyResolver(url, currentProxy) : currentProxy,
     fallbackFetch: async () => { throw new Error("unexpected fallback"); },
-    openSocket: (url, decision, options) => {
+    openSocket: async (url, decision, options) => {
+      await beforeSocket?.(url, decision);
       connections.push(decision);
       const target = new URL(url); target.port = String(port);
       return openHaoloSocket(target, { ...decision, addresses: decision.proxyUrl ? decision.addresses : ["127.0.0.1"] }, { ...options, ca: cert });
@@ -60,6 +63,153 @@ async function fixture(t, { proxy = "DIRECT", egressRegion = "CN", handler } = {
   return { transport, server, port, requests, connections, proxyConnects,
     finish: () => finishStream(), setProxy: (value) => { currentProxy = value === "PROXY" ? `PROXY 127.0.0.1:${proxyPort}` : value; } };
 }
+
+async function waitUntil(predicate, message) {
+  const deadline = Date.now() + 3_000;
+  while (!predicate()) {
+    assert.ok(Date.now() < deadline, message);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+test("live market hub follows proxy, interface and egress changes with fresh tickets and shared subscriptions", { timeout: 5_000 }, async (t) => {
+  let network = "wifi-a";
+  let egress = "CN", now = 0;
+  const f = await fixture(t, { egressRegion: () => egress,
+    transportOptions: { marketRoutePollMs: 20, policyOptions: { fingerprint: () => network, now: () => now } } });
+  const wss = new WebSocketServer({ server: f.server }); t.after(() => wss.close());
+  const handshakes = [], subscriptions = [], outcomes = [], health = [], frames = [], sharedFrames = [];
+  wss.on("connection", (socket, request) => {
+    const connection = handshakes.push(request.url);
+    socket.on("message", (bytes) => {
+      const command = JSON.parse(String(bytes));
+      if (command.method !== "SUBSCRIBE") return;
+      subscriptions.push({ connection, streams: command.params });
+      socket.send(JSON.stringify({ stream: "btcusdt@ticker", data: { connection } }));
+    });
+  });
+  let tickets = 0;
+  const hub = new TradingMarketDataHub({ WebSocketImpl: f.transport.webSocketClass(WebSocket), reconnectBaseMs: 10,
+    endpointProvider: async () => ({ url: `wss://market.youle.pro/stream/futures?ticket=${++tickets}`, route: "gateway" }),
+    endpointFailureReporter: (outcome) => outcomes.push(outcome),
+  });
+  t.after(() => hub.close());
+  const first = hub.subscribe({ marketType: "futures", streams: ["btcusdt@ticker", "ethusdt@ticker"] }, (event) => frames.push(event), (event) => health.push(event));
+  const second = hub.subscribe({ marketType: "futures", streams: ["btcusdt@ticker"] }, (event) => sharedFrames.push(event));
+  await waitUntil(() => frames.length === 1, "initial GA feed");
+  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
+  f.setProxy("PROXY");
+  await waitUntil(() => frames.length === 2, "proxy feed after closing GA");
+  assert.equal(f.connections.at(-1).route, "ordinary");
+  assert.equal(f.proxyConnects.at(-1).target, `8.219.93.44:${f.port}`);
+  f.setProxy("DIRECT");
+  await waitUntil(() => frames.length === 3, "GA feed after disabling proxy");
+  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
+  network = "wifi-b";
+  await waitUntil(() => frames.length === 4, "fresh socket after interface change");
+  // TUN routing can change the observed exit without changing interface addresses.
+  egress = "OTHER"; now += 31_000;
+  await waitUntil(() => frames.length === 5, "ordinary route after overseas egress is re-probed");
+  assert.equal(f.connections.at(-1).route, "ordinary");
+  assert.equal(f.connections.at(-1).proxyUrl, null);
+  assert.deepEqual(f.connections.at(-1).addresses, ["8.219.93.44"]);
+  egress = "CN"; now += 31_000;
+  await waitUntil(() => frames.length === 6, "GA after mainland egress returns");
+  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  assert.deepEqual(handshakes, [1, 2, 3, 4, 5, 6].map((id) => `/stream/futures?ticket=${id}`));
+  assert.equal(sharedFrames.length, 6);
+  assert.deepEqual(subscriptions, [1, 2, 3, 4, 5, 6].map((connection) => ({ connection, streams: ["btcusdt@ticker", "ethusdt@ticker"] })));
+  assert.equal(outcomes.filter((event) => event.outcome === "failed").length, 0);
+  assert.equal(health.filter((event) => event.reason === "network_route_changed").length, 5);
+  await first.dispose(); await second.dispose();
+  f.setProxy("PROXY");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(handshakes.length, 6, "disposal must not resurrect a market connection");
+});
+
+test("an unresolved proxy closes the old GA stream instead of retaining direct traffic", { timeout: 5_000 }, async (t) => {
+  let fail = false;
+  const f = await fixture(t, { transportOptions: { marketRoutePollMs: 20 }, proxyResolver: (_url, proxy) => {
+    if (fail) throw new Error("proxy resolution unavailable");
+    return proxy;
+  } });
+  const wss = new WebSocketServer({ server: f.server }); t.after(() => wss.close());
+  const Routed = f.transport.webSocketClass(WebSocket);
+  const socket = new Routed("wss://market.youle.pro/stream"); t.after(() => socket.terminate());
+  await once(socket, "open");
+  let changed = 0; socket.on("haolo-route-change", () => changed++);
+  const closed = once(socket, "close"); fail = true;
+  await closed;
+  assert.equal(changed, 1);
+  const connectionCount = f.connections.length;
+  const retry = new Routed("wss://market.youle.pro/stream?ticket=new");
+  const [error] = await once(retry, "error");
+  assert.match(error.message, /proxy resolution unavailable/);
+  assert.equal(f.connections.length, connectionCount, "no direct fallback when proxy resolution fails");
+});
+
+test("route checks stop on socket or transport disposal even with a pending proxy lookup", { timeout: 5_000 }, async (t) => {
+  for (const disposal of ["socket", "transport"]) {
+    await t.test(disposal, async (t) => {
+      let pending, blocked = false, calls = 0;
+      const f = await fixture(t, { transportOptions: { marketRoutePollMs: 20 }, proxyResolver: (_url, proxy) => {
+        calls++;
+        return blocked ? new Promise((resolve) => { pending = resolve; }) : proxy;
+      } });
+      const wss = new WebSocketServer({ server: f.server }); t.after(() => wss.close());
+      const Routed = f.transport.webSocketClass(WebSocket);
+      const socket = new Routed("wss://market.youle.pro/stream"); t.after(() => socket.terminate());
+      await once(socket, "open");
+      let changed = 0; socket.on("haolo-route-change", () => changed++);
+      blocked = true;
+      await waitUntil(() => pending, "pending proxy lookup");
+      if (disposal === "transport") f.transport.close();
+      else { const closed = once(socket, "close"); socket.terminate(); await closed; }
+      const stoppedAt = calls;
+      pending("PROXY 127.0.0.1:9");
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      assert.equal(changed, 0, "cancelled checks cannot signal a late reconnect");
+      assert.equal(calls, stoppedAt, "disposed watchers must stop polling");
+    });
+  }
+});
+
+test("a proxy change during the initial TLS handshake retires that stale market socket", { timeout: 5_000 }, async (t) => {
+  let release, opening;
+  const f = await fixture(t, { transportOptions: { marketRoutePollMs: 60_000 }, beforeSocket: async (url) => {
+    if (new URL(url).protocol === "wss:") {
+      opening = true;
+      await new Promise((resolve) => { release = resolve; });
+    }
+  } });
+  const wss = new WebSocketServer({ server: f.server }); t.after(() => wss.close());
+  const Routed = f.transport.webSocketClass(WebSocket);
+  const socket = new Routed("wss://market.youle.pro/stream"); t.after(() => socket.terminate());
+  let changed = 0; socket.on("haolo-route-change", () => changed++);
+  const closed = once(socket, "close");
+  await waitUntil(() => opening, "initial route selected before TLS");
+  f.setProxy("PROXY"); release();
+  await closed;
+  assert.equal(changed, 1, "open must check immediately instead of waiting for the polling interval");
+});
+
+test("proxy changes leave an active model WebSocket open without replaying requests", { timeout: 5_000 }, async (t) => {
+  let lookups = 0;
+  const f = await fixture(t, { transportOptions: { marketRoutePollMs: 20 }, proxyResolver: (_url, proxy) => { lookups++; return proxy; } });
+  const wss = new WebSocketServer({ server: f.server }); t.after(() => wss.close());
+  let requests = 0;
+  wss.on("connection", (socket) => socket.on("message", () => { requests++; socket.send("response.completed"); }));
+  const Routed = f.transport.webSocketClass(WebSocket);
+  const socket = new Routed("wss://haolo.pro/v1/responses"); t.after(() => socket.terminate());
+  await once(socket, "open");
+  f.setProxy("PROXY");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(socket.readyState, WebSocket.OPEN);
+  socket.send('{"type":"response.create"}');
+  assert.equal(String((await once(socket, "message"))[0]), "response.completed");
+  assert.equal(requests, 1); assert.equal(lookups, 1);
+});
 
 test("real TLS keeps canonical Host/SNI, DIRECT models stay ordinary and streams arrive before completion", async (t) => {
   const f = await fixture(t);
