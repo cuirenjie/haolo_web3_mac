@@ -203,9 +203,10 @@ export class TradingMarketDataHub {
       try { socket.terminate(); } catch { try { socket.close(); } catch {} }
     }, this.handshakeTimeoutMs);
     channel.handshakeTimer.unref?.();
-    let openedAt = 0;
+    let openedAt = 0, routeChanged = false;
+    socket.on("haolo-route-change", () => { routeChanged = true; });
     socket.on("open", () => {
-      if (channel.socket !== socket || this.closed) return;
+      if (channel.socket !== socket || this.closed || routeChanged) return;
       clearTimeout(channel.handshakeTimer);
       channel.handshakeTimer = null;
       openedAt = Date.now();
@@ -226,7 +227,7 @@ export class TradingMarketDataHub {
       if (channel.socket === socket) channel.alive = true;
     });
     socket.on("message", (payload) => {
-      if (channel.socket !== socket || this.closed) return;
+      if (channel.socket !== socket || this.closed || routeChanged) return;
       channel.alive = true;
       let message;
       try { message = JSON.parse(String(payload)); } catch { return; }
@@ -256,15 +257,19 @@ export class TradingMarketDataHub {
       // A reconnect must re-evaluate the edge route and obtain a new one-use
       // ticket. Disposing a subscription clears channel.socket before close,
       // so normal teardown cannot invalidate another subscriber's route.
-      if (endpointContext?.route === "gateway") {
+      if (!routeChanged && endpointContext?.route === "gateway") {
         lookup?.invalidate?.(new URL(endpoint).hostname, socket._socket?.remoteAddress);
       }
-      this.reportEndpointOutcome({
-        ...endpointContext,
-        outcome: "failed",
-        connectedDurationMs: openedAt ? Math.max(0, Date.now() - openedAt) : 0,
-      });
-      if (!this.closed && channel.subscriptions.size) this.scheduleReconnect(channel);
+      if (!routeChanged) {
+        this.reportEndpointOutcome({
+          ...endpointContext,
+          outcome: "failed",
+          connectedDurationMs: openedAt ? Math.max(0, Date.now() - openedAt) : 0,
+        });
+      }
+      if (!this.closed && channel.subscriptions.size) {
+        this.scheduleReconnect(channel, routeChanged ? "network_route_changed" : "websocket_closed");
+      }
     });
   }
 

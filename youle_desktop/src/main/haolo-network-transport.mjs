@@ -5,7 +5,7 @@ import tls from "node:tls";
 import { once } from "node:events";
 import { SocksClient } from "socks";
 import { Agent, fetch as transportFetch } from "undici";
-import { createHaoloNetworkPolicy, haoloRoute, NETWORK_POLICY_PATH } from "./haolo-network-policy.mjs";
+import { createHaoloNetworkPolicy, haoloRoute, networkFingerprint, NETWORK_POLICY_PATH } from "./haolo-network-policy.mjs";
 import { withAbort } from "./system-proxy-fetch.mjs";
 
 function connectHttpProxy(proxy, address, port, signal) {
@@ -102,8 +102,10 @@ export function createElectronProxyResolver({ getSession, refreshMs = 5_000, tim
   };
 }
 
-export function createHaoloNetworkTransport({ resolveProxy, fallbackFetch = globalThis.fetch, onDiagnostic, policyOptions = {}, socketOptions = {}, fetchImpl = transportFetch, openSocket = openHaoloSocket } = {}) {
+export function createHaoloNetworkTransport({ resolveProxy, fallbackFetch = globalThis.fetch, onDiagnostic, policyOptions = {}, socketOptions = {}, fetchImpl = transportFetch, openSocket = openHaoloSocket, marketRoutePollMs = 5_000 } = {}) {
   const dispatchers = new Map();
+  const marketRouteWatchers = new Set();
+  const fingerprint = policyOptions.fingerprint || networkFingerprint;
   let closed = false;
   function dispatcher(url, decision) {
     const key = `${new URL(url).origin}|${decision.proxyUrl || "DIRECT"}|${decision.addresses.join(",")}`;
@@ -176,22 +178,80 @@ export function createHaoloNetworkTransport({ resolveProxy, fallbackFetch = glob
     const decision = await policy.resolve(url, options);
     return openSocket(url, decision, { ...socketOptions, ...options });
   }
+  async function marketSocketRoute(url, signal) {
+    // Capture before awaiting: a change during the handshake must also cause a
+    // reconnect, even when both networks select the same physical destination.
+    const network = fingerprint();
+    const decision = await policy.resolve(url, { signal });
+    return { decision, key: JSON.stringify([network, decision.proxyUrl, decision.addresses]) };
+  }
+  function watchMarketRoute(socket, url, initialKey) {
+    const controller = new AbortController();
+    let stopped = false, checking = false;
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(timer);
+      controller.abort();
+      marketRouteWatchers.delete(stop);
+    };
+    const check = async () => {
+      if (stopped || checking || socket.readyState !== 1) return;
+      checking = true;
+      let changed = false;
+      try {
+        const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(6_000)]);
+        const route = await marketSocketRoute(url, signal);
+        changed = route.key !== initialKey;
+      } catch {
+        // An unresolved proxy must not leave the old direct GA stream running.
+        changed = true;
+      } finally { checking = false; }
+      if (!changed || stopped || socket.readyState !== 1) return;
+      stop();
+      // Hub owns fresh tickets, subscriptions and recovery. Do not reconnect
+      // this socket with a consumed ticket, or replay any model protocol.
+      try { socket.emit("haolo-route-change"); } finally { socket.terminate(); }
+    };
+    const timer = setInterval(() => { void check(); }, Math.max(10, Number(marketRoutePollMs) || 5_000));
+    timer.unref?.();
+    marketRouteWatchers.add(stop);
+    void check();
+    return stop;
+  }
   function webSocketClass(WebSocketImpl) {
     return class HaoloRoutedWebSocket extends WebSocketImpl {
       constructor(url, options = {}) {
         if (!haoloRoute(url)) { super(url, options); return; }
         const agent = new https.Agent({ keepAlive: false });
         const controller = new AbortController();
+        const watchRoute = new URL(String(url)).hostname === "market.youle.pro";
+        let initialRoute, stopWatching;
         agent.createConnection = (_opts, callback) => {
-          connect(url, { signal: controller.signal }).then((socket) => callback(null, socket), callback);
+          const pending = watchRoute ? marketSocketRoute(url, controller.signal).then((route) => {
+            initialRoute = route;
+            return openSocket(url, route.decision, { ...socketOptions, signal: controller.signal });
+          }) : connect(url, { signal: controller.signal });
+          pending.then((socket) => callback(null, socket), callback);
         };
         super(url, { ...options, agent });
-        this.once("close", () => { controller.abort(); agent.destroy(); });
-        this.once("error", () => { controller.abort(); agent.destroy(); });
+        this.once("open", () => {
+          if (!watchRoute) return;
+          if (closed) { this.terminate(); return; }
+          stopWatching = watchMarketRoute(this, url, initialRoute.key);
+        });
+        const cleanup = () => { stopWatching?.(); controller.abort(); agent.destroy(); };
+        this.once("close", cleanup);
+        this.once("error", cleanup);
       }
     };
   }
   return Object.freeze({ fetch, connect, policy, webSocketClass,
-    close() { closed = true; for (const agent of dispatchers.values()) void agent.destroy().catch(() => {}); dispatchers.clear(); },
+    close() {
+      closed = true;
+      for (const stop of marketRouteWatchers) stop();
+      for (const agent of dispatchers.values()) void agent.destroy().catch(() => {});
+      dispatchers.clear();
+    },
   });
 }

@@ -22,6 +22,50 @@ class FakeWebSocket extends EventEmitter {
   terminate() { this.close(); }
 }
 
+test("route migration drops stale frames, preserves subscriptions and does not penalize a healthy gateway", async (t) => {
+  FakeWebSocket.instances = [];
+  const invalidated = [], outcomes = [], frames = [], health = [];
+  const lookup = () => {};
+  lookup.invalidate = (...args) => invalidated.push(args);
+  let tickets = 0, resolveTicket;
+  const hub = new TradingMarketDataHub({ WebSocketImpl: FakeWebSocket, reconnectBaseMs: 10,
+    endpointProvider: async () => {
+      const ticket = ++tickets;
+      if (ticket === 3) await new Promise((resolve) => { resolveTicket = resolve; });
+      return { url: `wss://market.youle.pro/stream?ticket=${ticket}`, route: "gateway" };
+    },
+    lookupProvider: () => lookup,
+    endpointFailureReporter: (outcome) => outcomes.push(outcome),
+  });
+  t.after(() => hub.close());
+  const sub = hub.subscribe({ marketType: "futures", streams: ["btcusdt@ticker"] }, (event) => frames.push(event), (event) => health.push(event));
+  await new Promise((resolve) => setImmediate(resolve));
+  const old = FakeWebSocket.instances[0]; old.open();
+  const frame = JSON.stringify({ stream: "btcusdt@ticker", data: { c: "1" } });
+  old.emit("message", frame);
+  old.emit("haolo-route-change");
+  old.emit("message", frame);
+  assert.equal(frames.length, 1, "frames arriving after route invalidation are stale");
+  old.close();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const replacement = FakeWebSocket.instances[1]; replacement.open();
+  assert.match(replacement.url, /ticket=2$/);
+  assert.deepEqual(replacement.sent[0].params, ["btcusdt@ticker"]);
+  old.emit("message", frame);
+  replacement.emit("message", frame);
+  assert.equal(frames.length, 2);
+  assert.deepEqual(invalidated, []);
+  assert.deepEqual(outcomes.map((outcome) => outcome.outcome), ["connected", "connected"]);
+  assert.ok(health.some((event) => event.status === "reconnecting" && event.reason === "network_route_changed"));
+  replacement.emit("haolo-route-change"); replacement.close();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(typeof resolveTicket, "function");
+  await sub.dispose(); resolveTicket();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(FakeWebSocket.instances.length, 2, "a late ticket must not recreate a disposed channel");
+  assert.equal(hub.stats().subscriptions, 0);
+});
+
 test("stalled gateway handshake invalidates its route and reconnects with a fresh ticket", async () => {
   FakeWebSocket.instances = [];
   const invalidated = [];
