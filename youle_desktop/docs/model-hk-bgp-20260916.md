@@ -1,6 +1,6 @@
 # Windows 模型接口香港普通线路分流
 
-2026-09-16 用户要求先覆盖 Windows 和移动端全部 `haolo.pro` 模型接口。客户端代码已完成；GA 精确 SNI 转发规则创建被 RAM `NoPermission` 拒绝，东京策略尚未启用。本轮没有构建或发布 Windows 安装包。现网模型仍走普通东京。
+2026-09-16 用户要求先覆盖 Windows 和移动端全部 `haolo.pro` 模型接口。客户端代码已完成；用户补齐 RAM 权限后，GA 精确 SNI 转发规则与东京 `20260916.2` 策略于北京时间 18:52:54 验收上线。本轮没有构建或发布 Windows 安装包，新客户端发版后按下述规则运行，旧客户端继续普通东京。
 
 ## 新规则
 
@@ -21,6 +21,6 @@
 
 ## 验证
 
-297 项相关 Node 回归与类型检查通过，包含真实本机 TLS/SSE/WebSocket、代理切换、不重放付费 POST，以及实际 Python urllib/curl 子进程的媒体提交、轮询和下载。现网香港模型推理验收待云端权限补齐后执行；未把单元测试写成生产验收结论。
+297 项相关 Node 回归与类型检查通过，包含真实本机 TLS/SSE/WebSocket、代理切换、不重放付费 POST，以及实际 Python urllib/curl 子进程的媒体提交、轮询和下载。生产验收已完成：实际 YouleApiClient 的千问 SSE 在国内 DIRECT 经香港、真实系统代理经东京均 HTTP 200 并正常结束；Responses WebSocket 两路均 101。另有 21 项 HTTPS 检查、17 项账号/行情/模型现网回归通过。179 秒观察后 accepted，容器身份和重启数未变，未出现 5xx。WebSocket 握手不等于 GPT 推理验收。
 
 正式基础设施状态见前后端仓库 `docs/model-hk-bgp-20260916.md`。私有验收记录位于 `D:/CodexData/tmp/haolo-model-bgp-20260916/`，不提交会话或凭据。
