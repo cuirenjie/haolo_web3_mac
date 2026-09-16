@@ -51,6 +51,8 @@ test("classifies the failure families needed by the desktop UI", () => {
   assert.equal(classifyTurnFailure("bad gateway", 502), "upstream_5xx");
   assert.equal(classifyTurnFailure("Authentication expired", 401), "authentication");
   assert.equal(classifyTurnFailure("ECONNREFUSED 127.0.0.1"), "connection_refused");
+  assert.equal(classifyTurnFailure("Selected model is at capacity"), "overloaded");
+  assert.equal(failureDiagnosticsFromNotification({ method: "turn/completed", params: { turn: { status: "failed", error: { code: "server_is_overloaded" } } } }).errorClass, "overloaded");
 });
 
 test("redacts local paths, emails, bearer tokens, and API keys", () => {

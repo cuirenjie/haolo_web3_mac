@@ -1,32 +1,25 @@
+import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, isRecoverableAnalysisModelFailure } from "./analysis-model-recovery.mjs";
+
 export const AUTOMATIC_TURN_RECOVERY_MARKER = "<haolo_automatic_turn_recovery>";
 
 const DEFAULT_NO_PROGRESS_FAILURE_LIMIT = 3;
 const DEFAULT_RECOVERY_DELAYS_MS = [1_500, 4_000, 8_000, 15_000];
-const RECOVERABLE_FAILURE_CLASSES = new Set([
-  "stream_disconnected",
-  "timeout",
-  "upstream_5xx",
-  "rate_limit",
-  "concurrency_limit",
-  "connection_refused",
-  "proxy",
-]);
 
 export function isRecoverableAutomaticTurnFailure({
   errorClass,
   httpStatus,
   status,
   willRetry,
+  detail,
 } = {}) {
   const normalizedStatus = String(status || "").trim().toLowerCase();
   if (["cancelled", "canceled", "interrupted", "aborted"].includes(normalizedStatus)) return false;
   // A willRetry notification belongs to Codex's in-place transport retry. A
   // second logical turn here could overlap it and duplicate tool effects.
   if (willRetry === true) return false;
-  const normalizedClass = String(errorClass || "").trim().toLowerCase();
-  if (RECOVERABLE_FAILURE_CLASSES.has(normalizedClass)) return true;
-  const statusCode = Number(httpStatus);
-  return statusCode === 408 || statusCode === 425 || statusCode === 429 || statusCode >= 500;
+  return isRecoverableAnalysisModelFailure({ errorClass, httpStatus, status, willRetry, detail }, {
+    allowUnknownTerminal: ["failed", "error"].includes(normalizedStatus),
+  });
 }
 
 export function buildAutomaticTurnRecoveryPrompt({
@@ -37,7 +30,7 @@ export function buildAutomaticTurnRecoveryPrompt({
   const summary = normalizedChildSummary(childSummary);
   return [
     AUTOMATIC_TURN_RECOVERY_MARKER,
-    "The previous root turn ended because its model transport was interrupted. Continue the same latest unfinished user task and prioritize actually completing it.",
+    "The previous root turn ended because model execution failed. Continue the same latest unfinished user task and prioritize actually completing it, using the original question, attachments, analysis snapshot and existing tool results in this thread.",
     "This is a logical continuation, not a replay of the user's request. Do not ask the user to type continue merely because the prior stream disconnected.",
     "Before doing more work, reconcile durable state: inspect all existing collaboration/sub-agent tasks and collect their results; wait for agents that are still making progress; do not spawn replacements for work that already completed; inspect files and tool results to determine which effects already happened.",
     "Never repeat an irreversible or externally visible action whose outcome is unknown. Reconcile it first, use idempotency evidence when available, and retry only unfinished safe work.",
@@ -56,6 +49,7 @@ export class TurnAutoRecoveryCoordinator {
     clearTimer = clearTimeout,
     recoveryDelaysMs = DEFAULT_RECOVERY_DELAYS_MS,
     noProgressFailureLimit = DEFAULT_NO_PROGRESS_FAILURE_LIMIT,
+    maxRecoveryAttempts = 3,
   } = {}) {
     if (typeof startRecovery !== "function") {
       throw new Error("TurnAutoRecoveryCoordinator requires startRecovery");
@@ -67,6 +61,7 @@ export class TurnAutoRecoveryCoordinator {
     this.recoveryDelaysMs = normalizedRecoveryDelays(recoveryDelaysMs);
     this.noProgressFailureLimit = Math.max(2, Number(noProgressFailureLimit) || DEFAULT_NO_PROGRESS_FAILURE_LIMIT);
     this.states = new Map();
+    this.maxRecoveryAttempts = Math.max(1, Math.floor(Number(maxRecoveryAttempts) || 3));
     this.parentThreadIdsByChild = new Map();
     this.childThreadIdsByParent = new Map();
     this.childStatuses = new Map();
@@ -104,11 +99,25 @@ export class TurnAutoRecoveryCoordinator {
     const root = this.rootThreadId(threadId);
     this.cancel(root, "user_turn", { reset: true });
     this.forgetChildren(root);
+    if (root) this.ensureState(root).awaitingUserTurnStart = true;
   }
 
-  noteSuccessfulTurn(threadId) {
+  noteTurnStarted(threadId, turnId) {
     const root = this.rootThreadId(threadId);
-    this.cancel(root, "completed", { reset: true });
+    if (root && root === normalizedId(threadId) && turnId) {
+      const state = this.ensureState(root);
+      state.latestTurnId = normalizedId(turnId);
+      state.awaitingUserTurnStart = false;
+    }
+  }
+
+  noteSuccessfulTurn(threadId, turnId) {
+    const root = this.rootThreadId(threadId);
+    if (root !== normalizedId(threadId)) return;
+    if (this.states.get(root)?.awaitingUserTurnStart) return;
+    const latestTurnId = this.states.get(root)?.latestTurnId;
+    if (latestTurnId && turnId && latestTurnId !== normalizedId(turnId)) return;
+    this.cancel(root, "completed");
     this.forgetChildren(root);
   }
 
@@ -122,13 +131,21 @@ export class TurnAutoRecoveryCoordinator {
     willRetry = false,
   } = {}) {
     const root = this.rootThreadId(threadId);
-    if (!root || !isRecoverableAutomaticTurnFailure({ errorClass, httpStatus, status, willRetry })) {
+    if (!root || !isRecoverableAutomaticTurnFailure({ errorClass, httpStatus, status, willRetry, detail })) {
       return { status: "ignored" };
     }
     const state = this.ensureState(root);
+    if (state.cancelled || state.awaitingUserTurnStart) return { status: "ignored" };
     const normalizedTurnId = normalizedId(failedTurnId);
     if (normalizedTurnId && state.decisionsByTurnId.has(normalizedTurnId)) {
       return { ...state.decisionsByTurnId.get(normalizedTurnId), duplicate: true };
+    }
+    if (state.latestTurnId && normalizedTurnId && state.latestTurnId !== normalizedTurnId && !normalizedTurnId.startsWith("start-")) return { status: "ignored" };
+    if (state.recoveryAttempt >= this.maxRecoveryAttempts) {
+      const decision = this.publicDecision(state, { status: "exhausted", failedTurnId: normalizedTurnId, errorClass });
+      if (normalizedTurnId) state.decisionsByTurnId.set(normalizedTurnId, decision);
+      this.emit("exhausted", root, decision);
+      return decision;
     }
 
     const failureKey = normalizedFailureKey(errorClass, httpStatus, detail);
@@ -167,6 +184,7 @@ export class TurnAutoRecoveryCoordinator {
     if (!state) return false;
     this.clearScheduledTimer(state);
     state.generation += 1;
+    state.cancelled = true;
     this.emit("cancelled", root, { chainId: state.chainId, reason });
     if (reset) this.states.delete(root);
     return true;
@@ -253,6 +271,8 @@ export class TurnAutoRecoveryCoordinator {
       attempt: state.recoveryAttempt,
       noProgressFailures: state.noProgressFailures,
       noProgressFailureLimit: this.noProgressFailureLimit,
+      modelId: ANALYSIS_RECOVERY_MODEL,
+      reasoningEffort: ANALYSIS_RECOVERY_EFFORT,
     };
   }
 
@@ -275,23 +295,30 @@ export class TurnAutoRecoveryCoordinator {
         chainId: decision.chainId,
         childSummary,
         prompt,
+        isCurrent: () => this.states.get(rootThreadId) === state && state.generation === generation,
       });
+      if (this.states.get(rootThreadId) !== state || state.generation !== generation) return;
       const activeTurnId = normalizedId(result?.turn?.id || result?.turnId || result?.turn_id || result?.id);
       state.activeRecoveryTurnId = activeTurnId || null;
       this.emit("started", rootThreadId, { ...decision, turnId: activeTurnId || null, childSummary });
     } catch (error) {
+      if (this.states.get(rootThreadId) !== state || state.generation !== generation) return;
       this.emit("start_failed", rootThreadId, {
         ...decision,
         detail: String(error?.message || error || "automatic recovery start failed"),
       });
       if (state.generation !== generation) return;
-      this.handleTerminalFailure({
+      const next = this.handleTerminalFailure({
         threadId: rootThreadId,
         failedTurnId: `start-${generation}`,
         errorClass: classifyStartFailure(error),
-        detail: error?.message || error,
+        httpStatus: error?.status || error?.httpStatus,
+        detail: [error?.code, error?.category, error?.message || error].filter(Boolean).join(" "),
         status: "failed",
       });
+      if (next.status === "ignored" || next.status === "exhausted") {
+        this.emit("exhausted", rootThreadId, { ...decision, status: "exhausted", failedToStart: true });
+      }
     }
   }
 

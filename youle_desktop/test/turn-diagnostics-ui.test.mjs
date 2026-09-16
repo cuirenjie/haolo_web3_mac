@@ -110,7 +110,18 @@ test("terminal error formatting recognizes nested operational failure families",
   assert.match(renderer, /notificationFailureReason/);
   assert.match(formatter, /模型服务当前并发已满/);
   assert.match(formatter, /模型服务请求过于频繁/);
-  assert.match(formatter, /模型响应流意外中断，系统正在自动恢复当前任务。/);
+  assert.match(formatter, /模型响应流意外中断，请稍后重试。/);
   assert.match(formatter, /模型服务暂时不可用/);
   assert.match(formatter, /模型服务身份验证失败/);
+});
+
+test("model recovery notices share the light and dark message surface without hard-coded colours", () => {
+  const notices = sourceBlock(renderer, "function announceAutomaticTurnRecovery", "function armContextWindowRecoveryReplay");
+  assert.match(notices, /GPT-5.5 最高推理模式/);
+  assert.match(notices, /appendAgentNotice/);
+  assert.match(notices, /exhausted/);
+  assert.doesNotMatch(notices, /#[0-9a-f]{3,8}\b|(?:background|color)\s*:/iu);
+  const surface = sourceBlock(renderer, "function appendAgentNotice", "function refreshTradingExpertConversationSurface");
+  assert.match(surface, /type: "agentMessage"/);
+  assert.match(surface, /__youleLocalStatus: true/);
 });

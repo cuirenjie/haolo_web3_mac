@@ -92,6 +92,8 @@ export function createTradingAnalysisModelProviderRegistry(providers = []) {
           latencyMs: Math.max(0, Number(result?.latencyMs) || Date.now() - startedAt),
           usage: result?.usage && typeof result.usage === "object" ? { ...result.usage } : null,
           finishReason: String(result?.finishReason || "completed"),
+          ...(result?.reasoningEffort ? { reasoningEffort: result.reasoningEffort } : {}),
+          ...(result?.recovery ? { recovery: result.recovery } : {}),
         };
       } catch (error) {
         if (error instanceof TradingAnalysisModelProviderError) throw error;

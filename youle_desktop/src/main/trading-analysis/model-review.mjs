@@ -112,6 +112,7 @@ export async function runValidatedTradingModelReview({
   let escalationReason = null;
   let totalLatencyMs = 0;
   let lastModelId = null;
+  let recoveryModel;
 
   for (const effort of REVIEW_EFFORTS) {
     if (effort !== "medium") {
@@ -132,15 +133,17 @@ export async function runValidatedTradingModelReview({
       modelResponse = await modelRegistry.analyze(providerId, currentRequest, {
         signal,
         reasoningEffort: effort,
+        recoveryModel,
       });
     } catch (error) {
       // An empty successful turn is invalid model output, just like malformed
       // JSON. The provider rejects it before validateResponse can see it.
       // Transport/auth/cancellation errors retain their own recovery policy.
-      if (signal?.aborted || error?.code !== "TRADING_ANALYSIS_MODEL_EMPTY_RESPONSE") {
+      if (signal?.aborted || error?.recovery?.exhausted || error?.code !== "TRADING_ANALYSIS_MODEL_EMPTY_RESPONSE") {
         if (error && typeof error === "object" && Object.isExtensible(error)) {
           error.attempts = Object.freeze([...attempts, Object.freeze({
-            effort, requestId: currentRequest.requestId, valid: false,
+            effort: error.reasoningEffort || effort, modelId: error.modelId,
+            requestId: currentRequest.requestId, valid: false,
             code: error.code || "TRADING_ANALYSIS_MODEL_FAILED",
           })]);
         }
@@ -160,16 +163,18 @@ export async function runValidatedTradingModelReview({
     }
     totalLatencyMs += Math.max(0, Number(modelResponse.latencyMs) || 0);
     lastModelId = modelResponse.modelId || lastModelId;
+    recoveryModel = modelResponse.recovery?.modelId || recoveryModel;
     previousResponse = modelResponse.text;
     try {
       const review = validateResponse(modelResponse.text);
       attempts.push(Object.freeze({
-        effort,
+        effort: modelResponse.reasoningEffort || effort,
+        modelId: modelResponse.modelId,
         requestId: modelResponse.requestId,
         valid: true,
         latencyMs: Math.max(0, Number(modelResponse.latencyMs) || 0),
       }));
-      if (effort === "medium" && ambiguity.ambiguous) {
+      if (effort === "medium" && ambiguity.ambiguous && !modelResponse.recovery) {
         escalationReason = ambiguity.reason;
         validationError = null;
         continue;
@@ -177,7 +182,7 @@ export async function runValidatedTradingModelReview({
       return Object.freeze({
         modelResponse: Object.freeze({ ...modelResponse, latencyMs: totalLatencyMs }),
         review,
-        reasoningEffort: effort,
+        reasoningEffort: modelResponse.reasoningEffort || effort,
         attempts: Object.freeze(attempts),
         escalationReason,
         ambiguity,
@@ -186,7 +191,8 @@ export async function runValidatedTradingModelReview({
       validationError = error instanceof Error ? error : new TypeError(String(error || "Model response is invalid"));
       escalationReason ||= `response_validation_failed:${boundedText(validationError.message, 240)}`;
       attempts.push(Object.freeze({
-        effort,
+        effort: modelResponse.reasoningEffort || effort,
+        modelId: modelResponse.modelId,
         requestId: modelResponse.requestId,
         valid: false,
         latencyMs: Math.max(0, Number(modelResponse.latencyMs) || 0),
@@ -195,7 +201,7 @@ export async function runValidatedTradingModelReview({
     }
   }
 
-  const error = new TypeError(`Trading model review failed validation after medium/high/max: ${validationError?.message || "invalid response"}`);
+  const error = new TypeError(`Trading model review failed validation after ${attempts.map((attempt) => attempt.effort).join("/")}: ${validationError?.message || "invalid response"}`);
   error.code = "TRADING_ANALYSIS_MODEL_REVIEW_INVALID";
   error.providerId = providerId;
   error.modelId = lastModelId;

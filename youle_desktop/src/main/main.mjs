@@ -259,6 +259,7 @@ import {
 } from "./trading-analysis/external-strategy-router.mjs";
 import { createTradingAnalysisModelProviderRegistry } from "./trading-analysis/model-provider.mjs";
 import { tradingAnalysisTurnPolicy } from "./trading-analysis-turn-policy.mjs";
+import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER } from "./analysis-model-recovery.mjs";
 import { tradingAnalysisFailureDiagnostic } from "./trading-analysis/diagnostics.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
 import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
@@ -5368,6 +5369,7 @@ async function runWorkflowCodexNodeTurnWithRecovery({
   onBeforeTurnStart,
   onTurnStarted,
   onTurnTerminal,
+  maxAttempts = Infinity,
 }) {
   let attempt = 0;
   let noProgressFailures = 0;
@@ -5494,6 +5496,7 @@ async function runWorkflowCodexNodeTurnWithRecovery({
       completed.status === "success"
       || completed.status === "cancelled"
       || completed.retryable !== true
+      || attempt >= maxAttempts
     ) {
       return aggregate;
     }
@@ -5559,7 +5562,7 @@ function scheduleWorkflowInternalCodexCleanup({
     deleteThread: ({ threadId: targetThreadId }) => (
       requestAppServer(serverClient, "thread/delete", { threadId: targetThreadId }, 30_000)
     ),
-  }).then(({ deleted, errors }) => {
+  }).then(({ interrupted, deleted, errors }) => {
     appServerClientByThreadId.delete(threadId);
     if (deleted) {
       workflowInternalThreadIds.delete(threadId);
@@ -5571,6 +5574,7 @@ function scheduleWorkflowInternalCodexCleanup({
         failure.error?.message || failure.error,
       );
     }
+    return { interrupted, deleted, errors };
   });
 }
 
@@ -7710,7 +7714,7 @@ function automaticTurnRecoveryTerminalStatus(message) {
 }
 
 function withAutomaticTurnRecoveryDecision(message, decision) {
-  if (!message || !decision || !["scheduled", "cooling_down"].includes(decision.status)) return message;
+  if (!message || !decision || !["scheduled", "cooling_down", "exhausted"].includes(decision.status)) return message;
   return {
     ...message,
     params: {
@@ -7775,7 +7779,8 @@ function handleAutomaticTurnRecoveryEvent(event) {
     "auto-recovery",
     `${safeLogToken(event?.event)} threadId=${safeLogToken(threadId)} turnId=${safeLogToken(turnId)} attempt=${Number(event?.attempt) || 0} noProgress=${Number(event?.noProgressFailures) || 0}`,
   );
-  if (!threadId || !["starting", "started", "start_failed", "cooling_down"].includes(event?.event)) return;
+  if (!threadId || !["starting", "started", "start_failed", "cooling_down", "exhausted"].includes(event?.event)) return;
+  if (event.event === "exhausted" && !event.failedToStart) return;
   sendToRenderer("codex:notification", {
     method: "haolo/turnAutoRecovery",
     params: {
@@ -7788,12 +7793,14 @@ function handleAutomaticTurnRecoveryEvent(event) {
         noProgressFailureLimit: event.noProgressFailureLimit,
         delayMs: event.delayMs,
         errorClass: event.errorClass,
+        modelId: event.modelId,
+        reasoningEffort: event.reasoningEffort,
       },
     },
   });
 }
 
-async function startAutomaticTurnRecovery({ threadId, prompt } = {}) {
+async function startAutomaticTurnRecovery({ threadId, prompt, isCurrent = () => true } = {}) {
   const normalizedThreadId = String(threadId || "");
   if (!normalizedThreadId || !String(prompt || "").trim()) {
     throw new Error("Automatic turn recovery is missing its thread or recovery context.");
@@ -7801,6 +7808,7 @@ async function startAutomaticTurnRecovery({ threadId, prompt } = {}) {
   if (appShuttingDown || appCleanupStarted) throw new Error("Application is shutting down.");
   const releaseThreadSettingsOperation = await acquireSerializedThreadSettingsOperation(normalizedThreadId);
   try {
+    if (!isCurrent()) throw new DOMException("Recovery cancelled", "AbortError");
     if (appShuttingDown || appCleanupStarted) throw new Error("Application is shutting down.");
     if (activeCodexTurnsByThread.has(normalizedThreadId) || pendingCodexTurnThreadIds.has(normalizedThreadId)) {
       throw new Error("A newer turn is already active for this task.");
@@ -7813,14 +7821,26 @@ async function startAutomaticTurnRecovery({ threadId, prompt } = {}) {
     rememberThreadClient(normalizedThreadId, serverClient);
     rememberPendingCodexTurnThread(normalizedThreadId);
     try {
-      await requestAppServer(serverClient, "thread/resume", { threadId: normalizedThreadId });
+      await requestAppServer(serverClient, "thread/resume", {
+        threadId: normalizedThreadId,
+        model: ANALYSIS_RECOVERY_MODEL,
+        modelProvider: ANALYSIS_RECOVERY_PROVIDER,
+      });
+      if (!isCurrent()) throw new DOMException("Recovery cancelled", "AbortError");
       const result = await requestAppServer(serverClient, "turn/start", {
         threadId: normalizedThreadId,
         input: [{ type: "text", text: prompt, textElements: [] }],
         cwd,
+        model: ANALYSIS_RECOVERY_MODEL,
+        effort: ANALYSIS_RECOVERY_EFFORT,
+        [HAOLO_REASONING_FIXED_EFFORT_FIELD]: ANALYSIS_RECOVERY_EFFORT,
         serviceTier: null,
       });
       const recoveryTurnId = result?.turn?.id || result?.turnId || result?.turn_id || result?.id || null;
+      if (!isCurrent()) {
+        if (recoveryTurnId) await requestAppServer(serverClient, "turn/interrupt", { threadId: normalizedThreadId, turnId: recoveryTurnId }).catch(() => {});
+        throw new DOMException("Recovery cancelled", "AbortError");
+      }
       rememberActiveCodexTurn(normalizedThreadId, recoveryTurnId);
       return result;
     } catch (error) {
@@ -7967,8 +7987,9 @@ function handleClientNotification(message, serverClient = getClient(), options =
     turnAutoRecoveryCoordinator.noteProgress(threadId);
   }
   const terminalStatus = automaticTurnRecoveryTerminalStatus(message);
+  if (threadId && message?.method === "turn/started") turnAutoRecoveryCoordinator.noteTurnStarted(threadId, turnId);
   if (threadId && message?.method === "turn/completed" && !["failed", "error"].includes(terminalStatus)) {
-    turnAutoRecoveryCoordinator.noteSuccessfulTurn(threadId);
+    turnAutoRecoveryCoordinator.noteSuccessfulTurn(threadId, turnId);
   }
   const autoRecoveryDecision = automaticTurnRecoveryDecision(message, { threadId, turnId });
   message = withAutomaticTurnRecoveryDecision(message, autoRecoveryDecision);
@@ -14071,7 +14092,7 @@ async function invokeTradingAnalysisAppServer({
   const serverClient = getClientForCwd(workspace);
   const isRequestRouting = String(request.task || "").endsWith("-request-routing");
   const isAlertIntent = String(request.task || "") === "trading_alert_intent_compile";
-  const turnPolicy = tradingAnalysisTurnPolicy(request.task, { requestedReasoningEffort });
+  const turnPolicy = tradingAnalysisTurnPolicy(request.task, { requestedReasoningEffort, modelId });
   const { reasoningEffort, timeoutMs, resetTimeoutOnActivity, timeoutRetryable } = turnPolicy;
   const diagnosticContext = {
     requestId: String(request.requestId || ""),
@@ -14132,6 +14153,8 @@ async function invokeTradingAnalysisAppServer({
       serverClient,
       threadId,
       initialPrompt: request.prompt,
+      // The provider owns finite model failover for read-only theory reviews.
+      maxAttempts: turnPolicy.kind === "theory_review" ? 1 : undefined,
       workspace,
       model: modelId,
       effort: reasoningEffort,
@@ -14196,13 +14219,16 @@ async function invokeTradingAnalysisAppServer({
     });
     turnId = completed.turnId || turnId;
     turnFinished = completed.turnFinished === true;
-    if (completed.status === "success" && Array.isArray(completed.effects) && completed.effects.length) {
+    if (Array.isArray(completed.effects) && completed.effects.length) {
       return {
         status: "failed",
         error: "Trading analysis model attempted a disallowed side effect",
         code: "TRADING_ANALYSIS_MODEL_SIDE_EFFECT_BLOCKED",
         retryable: false,
       };
+    }
+    if (["cancelled", "canceled", "interrupted", "aborted"].includes(completed.status)) {
+      throw tradingAnalysisAbortError();
     }
     return completed.status === "success"
       ? { status: "success", text: completed.text, finishReason: "completed" }
@@ -14227,12 +14253,17 @@ async function invokeTradingAnalysisAppServer({
     });
     throw error;
   } finally {
-    scheduleWorkflowInternalCodexCleanup({
+    const cleanup = await scheduleWorkflowInternalCodexCleanup({
       serverClient,
       threadId,
       turnId,
       interrupt: !turnFinished,
     });
+    if (!turnFinished && !cleanup.interrupted && !cleanup.deleted) {
+      const error = new Error("The previous analysis turn could not be stopped safely");
+      error.code = "TRADING_ANALYSIS_CLEANUP_INCOMPLETE";
+      throw error;
+    }
   }
 }
 
@@ -14419,6 +14450,7 @@ function getTradingAnalysisModelRegistry() {
     providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
     modelId: DEFAULT_TRADING_ANALYSIS_MODEL_ID,
     invoke: invokeTradingAnalysisAppServer,
+    onRecovery: (event) => console.info("[trading-analysis] model fallback", event),
   });
   tradingAnalysisModelRegistry = createTradingAnalysisModelProviderRegistry([gptProvider]);
   return tradingAnalysisModelRegistry;
@@ -18670,7 +18702,7 @@ ipcMain.handle("codex:interruptTurn", async (_event, params = {}) => {
   if (!threadId) {
     throw new Error("No running turn found to interrupt.");
   }
-  turnAutoRecoveryCoordinator.cancel(threadId, "user_interrupt", { reset: true });
+  turnAutoRecoveryCoordinator.cancel(threadId, "user_interrupt");
   const source = safeLogToken(params.source);
   appendAppServerLogLine(
     "interrupt",

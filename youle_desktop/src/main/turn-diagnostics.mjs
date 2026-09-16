@@ -1,6 +1,7 @@
 // HAOLO-TURN-DIAGNOSTICS-MODULE
 // This file is an isolated, removable feature boundary. See docs/turn-diagnostics-removal.md.
 import crypto from "node:crypto";
+import { isModelOverloadFailure } from "./analysis-model-recovery.mjs";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -50,6 +51,8 @@ export function failureDiagnosticsFromNotification(message) {
   const turnError = params?.turn?.error;
   const rootError = params?.error;
   const candidates = [
+    turnError?.code,
+    rootError?.code,
     turnError?.message,
     turnError?.additionalDetails,
     turnError?.additional_details,
@@ -114,6 +117,7 @@ export function classifyTurnFailure(detail, httpStatus = null) {
   if (/concurrency limit|too many concurrent|maximum concurrent|并发(?:限制|上限)/i.test(text)) {
     return "concurrency_limit";
   }
+  if (isModelOverloadFailure(text)) return "overloaded";
   if (httpStatus === 429 || /rate limit|too many requests|429\b|限流|频率限制/i.test(text)) {
     return "rate_limit";
   }

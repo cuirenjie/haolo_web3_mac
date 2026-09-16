@@ -1,3 +1,5 @@
+import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT } from "./analysis-model-recovery.mjs";
+
 const ROUTING_TIMEOUT_MS = 30_000;
 const ALERT_INTENT_IDLE_TIMEOUT_MS = 180_000;
 const THEORY_REVIEW_IDLE_TIMEOUT_MS = 180_000;
@@ -27,7 +29,9 @@ export function tradingAnalysisTurnPolicy(taskValue, options = {}) {
   const requestedReasoningEffort = String(options.requestedReasoningEffort || "").trim().toLowerCase();
   return Object.freeze({
     kind: "theory_review",
-    reasoningEffort: THEORY_REVIEW_EFFORTS.has(requestedReasoningEffort)
+    reasoningEffort: options.modelId === ANALYSIS_RECOVERY_MODEL && requestedReasoningEffort === ANALYSIS_RECOVERY_EFFORT
+      ? ANALYSIS_RECOVERY_EFFORT
+      : THEORY_REVIEW_EFFORTS.has(requestedReasoningEffort)
       ? requestedReasoningEffort
       : "medium",
     timeoutMs: THEORY_REVIEW_IDLE_TIMEOUT_MS,
