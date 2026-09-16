@@ -4,10 +4,11 @@ import path from "node:path";
 import test from "node:test";
 import ts from "typescript";
 import { describeTradingAnalysisFailure, settleTradingAnalysisDrawing } from "../src/main/trading-analysis/failure.mjs";
+import { tradingAnalysisModelDisplayName } from "../src/renderer/trading-analysis-model-display.ts";
 
 // Execute the actual renderer orchestration with only its I/O replaced. This
 // catches regressions where its outer catch discards a successful model report.
-function harness({ language = "zh-CN", apiError, drawingError, cancelOnDrawing = false } = {}) {
+function harness({ language = "zh-CN", modelId = "validated-model", apiError, drawingError, cancelOnDrawing = false } = {}) {
   const source = fs.readFileSync(path.resolve(import.meta.dirname, "../src/renderer/trading-expert-market.ts"), "utf8");
   const method = source.slice(source.indexOf("  async runGeneralConversation("), source.indexOf("  async runChanConversation("));
   const javascript = ts.transpileModule(`class Harness { ${method} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
@@ -18,7 +19,7 @@ function harness({ language = "zh-CN", apiError, drawingError, cancelOnDrawing =
     window: { codexDesktop: { runTradingGeneralAnalysis: async () => {
       state.apiCalls++;
       if (apiError) return { ok: false, error: apiError };
-      return { ok: true, model: { modelId: "validated-model" }, analysisPlan: { report: "VALIDATED ORIGINAL REPORT", narrative: "VALIDATED ANSWER", drawingPatch: { marketId: market.id, interval: "60" } } };
+      return { ok: true, model: { modelId }, analysisPlan: { report: "VALIDATED ORIGINAL REPORT", narrative: "VALIDATED ANSWER", drawingPatch: { marketId: market.id, interval: "60" } } };
     } } },
     marketFromFavoriteRecord: (value) => value,
     selectTradingAnalysisInterval: ({ currentInterval }) => currentInterval,
@@ -37,7 +38,7 @@ function harness({ language = "zh-CN", apiError, drawingError, cancelOnDrawing =
       await analyze(initialCandles);
       return { candles: initialCandles };
     },
-    describeTradingAnalysisFailure, settleTradingAnalysisDrawing,
+    describeTradingAnalysisFailure, settleTradingAnalysisDrawing, tradingAnalysisModelDisplayName,
     recordTradingRendererFailure: (error, context) => state.failures.push({ error, context }),
     commitTradingAnalysisDrawingPatch: async () => {
       state.drawingCalls++;
@@ -103,4 +104,22 @@ test("actual renderer successful drawing remains successful", async () => {
   assert.equal(result.drawingDeferred, false);
   assert.equal(state.failures.length, 0);
   assert.equal(state.completed, true);
+});
+
+test("analysis progress and completion expose the display alias for DeepSeek Flash", async () => {
+  const { state, run } = harness({ modelId: "deepseek-flash" });
+  const result = await run();
+  assert.equal(result.modelName, "GPT-6 Astra 大模型");
+  assert.equal(result.report, "VALIDATED ORIGINAL REPORT");
+  assert.match(state.progress.find(({ phase }) => phase === "drawing").message, /^GPT-6 Astra 大模型 /);
+  assert.match(state.progress.find(({ phase }) => phase === "complete").message, /^GPT-6 Astra 大模型 /);
+  assert.doesNotMatch(JSON.stringify(state.progress), /deepseek/i);
+});
+
+test("display alias never replaces the real model ID in drawing failure diagnostics", async () => {
+  const { state, run } = harness({ modelId: "deepseek-flash", drawingError: new Error("storage quota exceeded") });
+  const result = await run();
+  assert.equal(result.modelName, "GPT-6 Astra 大模型");
+  assert.equal(state.failures[0].context.modelId, "deepseek-flash");
+  assert.equal(result.drawingDeferred, true);
 });

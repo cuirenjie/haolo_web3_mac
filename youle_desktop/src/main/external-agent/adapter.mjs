@@ -1,5 +1,7 @@
 import { getExternalModelProvider } from "./provider-registry.mjs";
 import { gptReasoningEffortForTask } from "../gpt-reasoning-effort.mjs";
+import { canonicalDeepSeekModel } from "../deepseek-model-policy.mjs";
+import { assertAllowedModel } from "../retired-model-policy.mjs";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -86,6 +88,7 @@ export async function invokeReadOnlyExternalModel({ credential, invocation, fetc
 }
 
 export function buildReadOnlyInvocationRequest({ credential, invocation } = {}) {
+  assertAllowedModel(credential?.model);
   const provider = getExternalModelProvider(credential?.provider?.id);
   const baseUrl = String(credential?.baseUrl || "").replace(/\/+$/, "");
   const allowedBaseUrls = new Set(
@@ -106,7 +109,7 @@ export function buildReadOnlyInvocationRequest({ credential, invocation } = {}) 
     });
   }
   const headers = authenticationHeaders(provider, credential.apiKey);
-  const body = invocationBody(provider, credential.model, invocation);
+  const body = invocationBody(provider, canonicalDeepSeekModel(credential.model), invocation);
   const path = invocationPath(provider);
   return {
     url: joinUrl(baseUrl, path),

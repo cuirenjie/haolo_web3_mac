@@ -55,7 +55,7 @@ const PROVIDERS = Object.freeze([
     vendor: "DeepSeek",
     aliases: ["deepseek-chat"],
     protocol: "openai-chat-completions",
-    defaultModel: "deepseek-v4-flash",
+    defaultModel: "deepseek-flash",
     apiKeyEnvironmentVariable: "DEEPSEEK_API_KEY",
     keyConsoleUrl: "https://platform.deepseek.com/api_keys",
     documentationUrl: "https://api-docs.deepseek.com/",

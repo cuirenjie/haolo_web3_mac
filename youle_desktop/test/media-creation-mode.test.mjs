@@ -1,3 +1,4 @@
+import { withAnalysisModelRecoveryPolicy } from "../src/main/analysis-model-policy.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -40,7 +41,7 @@ function expandedComposerHarness() {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const gpt = { value: "gpt-5.6-sol", providerId: "haolo_ai", reasoningEfforts: [], serviceTiers: [] };
-  const deepSeek = { value: "deepseek-v4-flash", providerId: "deepseek", reasoningEfforts: [], serviceTiers: [] };
+  const deepSeek = { value: "deepseek-flash", providerId: "deepseek", reasoningEfforts: [], serviceTiers: [] };
   const fixture = {
     currentId: "trading-existing", busy: false, locked: false, allowSelection: true,
     selected: deepSeek, selectedImage: null, selectedVideo: null, persisted: [],
@@ -86,7 +87,8 @@ function expandedComposerHarness() {
     threadModelSettings: () => null,
     executionModelProviderId: (...values) => values.find(Boolean) || "haolo_ai",
     isQuestionAnswerThreadId: () => false,
-    DEEPSEEK_EXECUTION_PROVIDER_ID: "deepseek", DEEPSEEK_EXECUTION_MODEL_VALUE: "deepseek-v4-flash",
+    withAnalysisModelRecoveryPolicy, analysisModelRecoveryState: null,
+    DEEPSEEK_EXECUTION_PROVIDER_ID: "deepseek", DEEPSEEK_EXECUTION_MODEL_VALUE: "deepseek-flash",
     tradingExpertSelectedModelRequestOptions: () => ({ model: fixture.selected.value, modelProvider: fixture.selected.providerId, reasoningEffortPolicy: "fixed" }),
     tradingStrategyMentionedByText: () => ({ ui: { buildExpertPrompt: (text) => `strategy:${text}` } }),
     canonicalizeTradingExpertMentionText: (text) => text,

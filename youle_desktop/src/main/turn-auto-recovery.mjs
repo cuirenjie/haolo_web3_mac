@@ -10,6 +10,7 @@ export function isRecoverableAutomaticTurnFailure({
   httpStatus,
   status,
   willRetry,
+  retryable,
   detail,
 } = {}) {
   const normalizedStatus = String(status || "").trim().toLowerCase();
@@ -17,7 +18,7 @@ export function isRecoverableAutomaticTurnFailure({
   // A willRetry notification belongs to Codex's in-place transport retry. A
   // second logical turn here could overlap it and duplicate tool effects.
   if (willRetry === true) return false;
-  return isRecoverableAnalysisModelFailure({ errorClass, httpStatus, status, willRetry, detail }, {
+  return isRecoverableAnalysisModelFailure({ errorClass, httpStatus, status, willRetry, retryable, detail }, {
     allowUnknownTerminal: ["failed", "error"].includes(normalizedStatus),
   });
 }
@@ -129,9 +130,10 @@ export class TurnAutoRecoveryCoordinator {
     detail,
     status = "failed",
     willRetry = false,
+    retryable,
   } = {}) {
     const root = this.rootThreadId(threadId);
-    if (!root || !isRecoverableAutomaticTurnFailure({ errorClass, httpStatus, status, willRetry, detail })) {
+    if (!root || !isRecoverableAutomaticTurnFailure({ errorClass, httpStatus, status, willRetry, retryable, detail })) {
       return { status: "ignored" };
     }
     const state = this.ensureState(root);
@@ -313,6 +315,7 @@ export class TurnAutoRecoveryCoordinator {
         failedTurnId: `start-${generation}`,
         errorClass: classifyStartFailure(error),
         httpStatus: error?.status || error?.httpStatus,
+        retryable: error?.retryable,
         detail: [error?.code, error?.category, error?.message || error].filter(Boolean).join(" "),
         status: "failed",
       });

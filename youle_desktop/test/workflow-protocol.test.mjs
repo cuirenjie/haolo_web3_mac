@@ -172,7 +172,7 @@ test("normalizes model plans to registered executors and removes dependency cycl
   assert.equal(plan.nodes[1].executorCandidates.length, 3);
   assert.deepEqual(plan.nodes[1].executorCandidates[0], {
     provider: "deepseek",
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
   });
   assert.ok(plan.nodes.every((node) => node.needsLocalContext === false));
 });
@@ -298,7 +298,7 @@ test("every configured provider resolves display names and explicit aliases to e
     ["claude", "claude-sonnet-5-202607", "claude-sonnet-5", "claude-latest"],
     ["codex", "gpt-5.6-terra-202607", "gpt-5.6-terra", "terra-current"],
     ["kimi", "kimi-k3-202607", "kimi-k3", "kimi-current"],
-    ["deepseek", "deepseek-v4-flash-202607", "deepseek-v4-flash", "deepseek-current"],
+    ["deepseek", "deepseek-v4-flash-202607", "deepseek-flash", "deepseek-current"],
     ["gemini", "gemini-3.1-pro-preview", "gemini-3.1-pro", "gemini-pro-current"],
     ["grok", "grok-4.5-202607", "grok-4.5", "grok-current"],
     ["mimo", "mimo-v2.5-pro-202607", "mimo-v2.5-pro", "mimo-current"],

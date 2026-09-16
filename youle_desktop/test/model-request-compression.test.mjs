@@ -8,7 +8,7 @@ import {
 
 test("large model JSON requests use zstd and remain byte-for-byte reversible", async () => {
   const body = JSON.stringify({
-    model: "deepseek-v4-flash",
+    model: "deepseek-flash",
     input: "stable-context\n".repeat(20_000),
   });
   const result = await prepareCompressedModelRequest(

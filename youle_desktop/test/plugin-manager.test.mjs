@@ -300,7 +300,7 @@ test("default resource sync registers five installed plugins for the bundled Cod
       const runtimeConfig = await client.request("config/read", {});
       const catalog = JSON.parse(fs.readFileSync(path.join(codexHome, "haolo-model-catalog.json"), "utf8"));
       assert.match(String(runtimeConfig?.config?.model_catalog_json || ""), /haolo-model-catalog\.json$/);
-      for (const slug of ["gpt-6-astra", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]) {
+      for (const slug of ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]) {
         const model = catalog.models.find((candidate) => candidate.slug === slug);
         assert.equal(model.context_window, 400_000);
         assert.equal(model.max_context_window, 400_000);

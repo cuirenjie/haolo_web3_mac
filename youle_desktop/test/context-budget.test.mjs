@@ -62,7 +62,7 @@ test("uses the managed OAuth GPT-5.5/5.6 window and an early compaction threshol
   assert.equal(DEEPSEEK_V4_FLASH_NATIVE_CONTEXT_WINDOW_TOKENS, 1_048_576);
   assert.equal(DEEPSEEK_V4_FLASH_MODEL_CONTEXT_WINDOW_TOKENS, 996_147);
   assert.equal(
-    effectiveContextWindowForModel("deepseek-v4-flash"),
+    effectiveContextWindowForModel("deepseek-flash"),
     DEEPSEEK_V4_FLASH_MODEL_CONTEXT_WINDOW_TOKENS,
   );
   assert.deepEqual(

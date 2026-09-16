@@ -124,7 +124,7 @@ async function main() {
           socket.once("close", (code, reason) => { report.modelClose = { code, reason: String(reason).slice(0, 120) }; save(); });
           await once(socket, "open", { signal: AbortSignal.timeout(22_000) });
           report.modelOpened = true; save();
-          socket.send(JSON.stringify({ type: "response.create", model: "gpt-5.5", instructions: "Respond briefly.", input: [{ role: "user", content: [{ type: "input_text", text: "Reply with OK only." }] }], max_output_tokens: 128, reasoning: { effort: "low" }, store: false }));
+          socket.send(JSON.stringify({ type: "response.create", model: "gpt-5.6-sol", instructions: "Respond briefly.", input: [{ role: "user", content: [{ type: "input_text", text: "Reply with OK only." }] }], max_output_tokens: 128, reasoning: { effort: "low" }, store: false }));
           report.modelSent = true; save();
           const deadline = AbortSignal.timeout(60_000);
           while (true) {

@@ -1,4 +1,5 @@
 import { isRetryableModelTransportError, waitForModelTransportRecovery } from "./model-transport-recovery.mjs";
+import { modelFailureFacts } from "./model-failure-policy.mjs";
 import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER } from "./analysis-model-policy.mjs";
 export { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PROVIDER } from "./analysis-model-policy.mjs";
 
@@ -25,7 +26,9 @@ export function isModelOverloadFailure(error) {
 export function isRecoverableAnalysisModelFailure(error, { allowUnknownTerminal = false } = {}) {
   const text = failureFields(error);
   const status = String(error?.status || "").toLowerCase();
-  const httpStatus = Number(error?.httpStatus || error?.statusCode || error?.status || error?.cause?.httpStatus || error?.cause?.status);
+  const facts = modelFailureFacts(error);
+  const httpStatus = facts.httpStatus;
+  if (facts.hardFailure) return false;
   if (error?.willRetry === true || /cancelled|canceled|interrupted|aborted/.test(status)) return false;
   if (/TRIAL_REQUIRED|ACCOUNT_ID_REQUIRED|CLEANUP_INCOMPLETE/iu.test(text)) return false;
   if (/AbortError|cancelled|canceled|INVOCATION_CANCELLED|ABORT_ERR|TRADING_ANALYSIS_CANCELLED|authentication|auth_failed|auth_expired|unauthori[sz]ed|forbidden|invalid.api.key|permission|entitlement|membership|insufficient.{0,12}(?:quota|balance|credits)|billing|payment|会员|积分|余额不足|权限|鉴权|取消|context[_ ](?:length|window)|too many tokens|content[_ ]filter|policy|side[_ ]effect|invalid[_ ]request|unsupported|invalid.*(?:parameter|argument)|thread[_ ]history|thread_index_missing/iu.test(text)) return false;
@@ -35,6 +38,7 @@ export function isRecoverableAnalysisModelFailure(error, { allowUnknownTerminal 
   // Capacity errors are incorrectly tagged retryable=false by some runtimes.
   // Override that flag only after the hard failure gates above.
   if (isModelOverloadFailure(error)) return true;
+  if (facts.retryable === false) return false;
   if (isRetryableModelTransportError(error) || [408, 425, 429].includes(httpStatus) || httpStatus >= 500) return true;
   if (/stream_disconnected|upstream_5xx|rate_limit|concurrency_limit|connection_refused|timeout|proxy|internal[_ ]server[_ ]error|error occurred while processing your request/iu.test(text)) return true;
   if (/TRADING_ANALYSIS_(?:APP_SERVER_FAILED|MODEL_FAILED|MODEL_EMPTY_RESPONSE)|CODEX_(?:TURN|SUBAGENT)_FAILED/.test(text)) return true;
@@ -47,9 +51,9 @@ function checkCancelled(signal) {
 
 // Only for isolated, read-only model calls. The same request/snapshot remains
 // owned by the caller; no data refresh, drawing or tool effects are replayed.
-export async function runWithAnalysisModelRecovery({ operation, modelId, reasoningEffort, signal, onRecovery, wait = waitForModelTransportRecovery }) {
+export async function runWithAnalysisModelRecovery({ operation, modelId, modelProvider, reasoningEffort, signal, onRecovery, wait = waitForModelTransportRecovery }) {
   let fallbackAttempts = modelId === ANALYSIS_RECOVERY_MODEL && reasoningEffort === ANALYSIS_RECOVERY_EFFORT ? 1 : 0;
-  let selection = { modelId, reasoningEffort, ...(fallbackAttempts ? { modelProvider: ANALYSIS_RECOVERY_PROVIDER } : {}) };
+  let selection = { modelId, reasoningEffort, ...(modelProvider ? { modelProvider } : {}), ...(fallbackAttempts ? { modelProvider: ANALYSIS_RECOVERY_PROVIDER } : {}) };
   for (;;) {
     checkCancelled(signal);
     try {

@@ -48,7 +48,7 @@ function sourceBlock(source, startMarker, endMarker) {
 
 test("media creation uses a GPT root without overwriting a DeepSeek execution preference", () => {
   const deepSeek = {
-    value: "deepseek-v4-flash",
+    value: "deepseek-flash",
     providerId: "deepseek",
     label: "DeepSeek V4 Flash",
     description: "",
@@ -125,24 +125,22 @@ test("model/list metadata drives model, effort, tier, and modality options", () 
   assert.equal(selectedReasoningEffort(options[0], "future-unknown"), "max");
 });
 
-test("fixed catalog contains exactly the four curated models and labels", () => {
+test("fixed catalog contains exactly the three active GPT models and labels", () => {
   assert.deepEqual(
     FIXED_CHAT_MODEL_OPTIONS.map(({ value, label }) => ({ value, label })),
     [
       { value: "gpt-5.6-sol", label: "\u590d\u6742\u63a8\u7406(5.6 Sol)" },
       { value: "gpt-5.6-terra", label: "\u5747\u8861\u4e3b\u529b(5.6 Terra)" },
-      { value: "gpt-5.6-luna", label: "\u65e5\u5e38\u9ad8\u901f(5.6 Luna)" },
-      { value: "gpt-5.5", label: "\u7ecf\u5178\u7a33\u5b9a(5.5 High)" },
-    ],
+      { value: "gpt-5.6-luna", label: "\u65e5\u5e38\u9ad8\u901f(5.6 Luna)" },    ],
   );
 
-  const classic = FIXED_CHAT_MODEL_OPTIONS.find((option) => option.value === "gpt-5.5");
+  const classic = FIXED_CHAT_MODEL_OPTIONS.find((option) => option.value === "gpt-5.6-sol");
   assert.ok(classic);
-  assert.equal(DEFAULT_CHAT_MODEL_VALUE, "gpt-5.5");
+  assert.equal(DEFAULT_CHAT_MODEL_VALUE, "gpt-5.6-sol");
   assert.equal(classic.isDefault, true);
-  assert.equal(selectedReasoningEffort(classic, undefined), "high");
+  assert.equal(selectedReasoningEffort(classic, undefined), "low");
   assert.equal(fastServiceTier(classic)?.id, "priority");
-  assert.equal(normalizeFixedChatModel("gpt-5.4"), "gpt-5.5");
+  assert.equal(normalizeFixedChatModel("gpt-5.4"), "gpt-5.6-sol");
   assert.equal(normalizeFixedChatModel("GPT-5.6-SOL"), "gpt-5.6-sol");
 
   assert.deepEqual(chatModelOptionsFromList(null), []);
@@ -171,7 +169,7 @@ test("runtime thread settings preserve old and private model names", () => {
 test("configured execution default overrides the legacy GPT fallback for new tasks", () => {
   const options = [
     {
-      ...FIXED_CHAT_MODEL_OPTIONS.find((option) => option.value === "gpt-5.5"),
+      ...FIXED_CHAT_MODEL_OPTIONS.find((option) => option.value === "gpt-5.6-sol"),
       providerId: "haolo_ai",
       isDefault: false,
     },
@@ -480,7 +478,7 @@ test("existing execution threads allow GPT-family switches and lock DeepSeek", a
   assert.match(modelState, /threadModelSelectionsByThreadId\[id\]/);
   assert.match(modelState, /function selectedChatModelOption\(threadId:/);
   assert.match(modelState, /const selectedSettings = threadModelSelection\(threadId\)/);
-  assert.match(modelState, /const effectiveModel = selectedSettings\?\.model \|\| knownSettings\?\.model/);
+  assert.match(modelState, /let effectiveModel = canonicalDeepSeekModel\(selectedSettings\?\.model \|\| knownSettings\?\.model\)/);
   assert.match(modelState, /label: effectiveModel/);
   assert.match(modelState, /function rememberThreadModelSettings/);
   assert.match(modelState, /function rememberThreadModelSelection/);
@@ -586,7 +584,7 @@ test("main process automatically selects GPT and DeepSeek effort and fixes the s
     "async function resolveDeepSeekExecutionProviderRuntime",
     "function getExternalModelCredentialStore",
   );
-  assert.match(providerRuntime, /await apiClient\.listBusinessModelPools\(\)/);
+  assert.match(providerRuntime, /await apiClient\.listBusinessModelPools\(\{ force: true \}\)/);
   assert.match(providerRuntime, /businessModelCredential\([\s\S]*"execution"[\s\S]*"root_execution"[\s\S]*DEEPSEEK_EXECUTION_MODEL[\s\S]*DEEPSEEK_EXECUTION_PROVIDER_ID/);
   assert.match(providerRuntime, /credentialAvailable: Boolean\(credential\?\.apiKey\)/);
   assert.match(main, /providerRuntimeResolver: resolveDeepSeekExecutionProviderRuntime/);
@@ -614,7 +612,7 @@ test("main process automatically selects GPT and DeepSeek effort and fixes the s
   assert.match(sendMessage, /serviceTier: null/);
   assert.match(sendMessage, /acquireSerializedThreadSettingsOperation\(originalThreadId\)/);
   assert.doesNotMatch(sendMessage, /thread\/fork|resumeOrForkThreadForExecutionProvider/);
-  assert.match(main, /withAdaptiveTurnReasoning\(method, params\)/);
+  assert.match(main, /withAdaptiveTurnReasoning\(method, migrateDeepSeekModelSelection\(migrateRetiredModelSelection\(params\)\)\)/);
   assert.match(main, /withFixedDefaultServiceTier\(method, adaptiveParams\)/);
   assert.match(main, /function withThreadRuntimeSettings\(result, settings = threadSettingsFromResumeResult\(result\)\)/);
   assert.match(main, /withThreadRuntimeSettings\(await requestThreadStart\(serverClient/);
@@ -660,9 +658,9 @@ test("main process automatically selects GPT and DeepSeek effort and fixes the s
     ),
     false,
   );
-  assert.match(providerSwitch, /"thread\/resume"/);
+  assert.match(providerSwitch, /applyThreadProviderSwitch/);
   assert.match(providerSwitch, /modelProvider: targetProvider/);
-  assert.match(providerSwitch, /Thread provider switch was not applied/);
+  assert.match(providerSwitch, /restartIdleProviderRuntime/);
   const resumeThread = sourceBlock(main, 'ipcMain.handle("codex:resumeThread"', 'ipcMain.handle("codex:updateThreadSettings"');
   assert.match(resumeThread, /runSerializedThreadSettingsOperation\(threadId, async \(\) =>/);
   assert.match(resumeThread, /delete resumeConfiguration\.model/);
@@ -706,8 +704,8 @@ test("provider errors hide IPC implementation names and localize upstream rate l
   assert.match(formatter, /模型上游当前限流，请稍后重试/);
 });
 
-test("GPT-5.5 High is the runtime fallback default", async () => {
+test("GPT-5.6-Sol is the runtime default", async () => {
   const appServerClient = await appServerClientSource;
-  assert.match(appServerClient, /const DEFAULT_MODEL = "gpt-5\.5"/);
+  assert.match(appServerClient, /const DEFAULT_MODEL = DEFAULT_EXECUTION_MODEL/);
   assert.doesNotMatch(appServerClient, /const DEFAULT_MODEL = "gpt-5\.6"/);
 });

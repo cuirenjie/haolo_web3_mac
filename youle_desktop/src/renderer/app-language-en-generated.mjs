@@ -1,11 +1,12 @@
 // Generated once from renderer-owned Simplified Chinese UI strings with a
 // local offline translation model. Runtime language switching is fully offline.
 export const GENERATED_ENGLISH_UI_PHRASES = Object.freeze({
-  "模型执行异常，正在切换到 GPT-5.5 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。": "Model execution failed. Switching to GPT-5.5 at its highest reasoning level to continue. New tasks will also use this model for the next 24 hours.",
-  "已尝试 GPT-5.5 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。": "Automatic recovery with GPT-5.5 at its highest reasoning level did not complete. Your task history is preserved. Please try again later.",
+  "上下文压缩已中断，请重试。": "Context compaction was interrupted. Please try again.",
+  "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式继续处理。接下来 24 小时的新任务也会使用该模型。": "Model execution failed. Switching to GPT-6 Astra at its highest reasoning level to continue. New tasks will also use this model for the next 24 hours.",
+  "已尝试 GPT-6 Astra 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。": "Automatic recovery with GPT-6 Astra at its highest reasoning level did not complete. Your task history is preserved. Please try again later.",
   "自动恢复未能启动。任务记录已保留，请检查账户和服务状态后重试。": "Automatic recovery could not start. Your task history is preserved. Check your account and service status, then try again.",
-  "备用模型暂时不可用，稍后将再次使用 GPT-5.5 最高推理模式继续当前任务。": "The fallback model is temporarily unavailable. Retrying GPT-5.5 at its highest reasoning level shortly to continue this task.",
-  "模型执行异常，正在切换到 GPT-5.5 最高推理模式，保留当前任务进度继续处理。": "Model execution failed. Switching to GPT-5.5 at its highest reasoning level to continue with your current task progress.",
+  "备用模型暂时不可用，稍后将再次使用 GPT-6 Astra 最高推理模式继续当前任务。": "The fallback model is temporarily unavailable. Retrying GPT-6 Astra at its highest reasoning level shortly to continue this task.",
+  "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式，保留当前任务进度继续处理。": "Model execution failed. Switching to GPT-6 Astra at its highest reasoning level to continue with your current task progress.",
   "模型响应流意外中断，请稍后重试。": "The model response stream was interrupted. Please try again later.",
 
   "- 触发条件：": "- Trigger conditions:",
@@ -3682,7 +3683,7 @@ export const GENERATED_ENGLISH_UI_PHRASES = Object.freeze({
   "data-action=\"toggle-trading-expert-mention-menu\" title=\"添加\" aria-label=\"添加\" aria-haspopup=\"menu\" aria-expanded=\"": "Data-action= \"toggle-trading-expert-ment-menu\" title= \"ria-label= \"aria-haspopupup= \"menu\" bia-expanded=\"",
   "data-tooltip=\"加到新任务\"": "Data-tooltip = \"Add to new assignment\"",
   "Deepseek 擅长代码、数学和逻辑分析，可以协助完成工程任务、推理问题和结构化输出。": "Deepseek is good at code, mathematics and logical analysis, and can assist in engineering tasks, reasoning issues and structured outputs.",
-  "DeepSeek V4 Flash仅支持文本，请移除图片、视频或切换GPT模型。": "DeepSeek V4 Flash only supports text, remove pictures, videos or switch GPT models.",
+  "GPT-6 Astra仅支持文本，请移除图片、视频或切换GPT模型。": "GPT-6 Astra only supports text, remove pictures, videos or switch GPT models.",
   "DeepSeek系列": "DeepSeek Series",
   "Doubao 擅长中文理解、内容创作和通用任务分析，适合文案、总结和方案整理。": "Doubao is a master of Chinese understanding, content creation and generic mission analysis, which are suitable for writing, summary and programme preparation.",
   "Doubao（不鸣 AI 中转）": "Doubao (no AI transit)",

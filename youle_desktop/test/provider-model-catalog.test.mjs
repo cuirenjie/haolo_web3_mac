@@ -335,7 +335,7 @@ test("question mode uses the server default across providers and otherwise the f
   );
 });
 
-test("renderer hides only the exact gpt-5.4 model id", () => {
+test("renderer hides the legacy exact model and retired GPT family", () => {
   const catalog = {
     loading: false,
     ...normalizeProviderModelCatalog({
@@ -354,7 +354,7 @@ test("renderer hides only the exact gpt-5.4 model id", () => {
 
   assert.deepEqual(
     providerModelOptions(catalog, "codex").map((model) => model.value),
-    ["gpt-5.4-mini", "gpt-5.5"],
+    ["gpt-5.4-mini"],
   );
   assert.equal(providerForCatalogModel(catalog, "gpt-5.4"), "codex");
 });

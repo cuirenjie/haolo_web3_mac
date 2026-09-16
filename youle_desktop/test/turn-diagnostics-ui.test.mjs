@@ -117,7 +117,7 @@ test("terminal error formatting recognizes nested operational failure families",
 
 test("model recovery notices share the light and dark message surface without hard-coded colours", () => {
   const notices = sourceBlock(renderer, "function announceAutomaticTurnRecovery", "function armContextWindowRecoveryReplay");
-  assert.match(notices, /GPT-5.5 最高推理模式/);
+  assert.match(notices, /GPT-6 Astra 最高推理模式/);
   assert.match(notices, /appendAgentNotice/);
   assert.match(notices, /exhausted/);
   assert.doesNotMatch(notices, /#[0-9a-f]{3,8}\b|(?:background|color)\s*:/iu);
