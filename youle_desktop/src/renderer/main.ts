@@ -4300,6 +4300,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) cancelVoiceInput();
 });
 window.addEventListener("beforeunload", () => {
+  stopAppUpdateChecks();
   cancelVoiceInput();
   persistSubagentActivityStore();
 });
@@ -5875,6 +5876,9 @@ let contactRequestSyncTimer: number | null = null;
 let contactRequestSyncSignature = "";
 let contactRequestSyncFailureCount = 0;
 let contactRequestSyncNextAllowedAt = 0;
+const APP_UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+let appUpdateCheckTimer: number | null = null;
+let appUpdateCheckInFlight = false;
 
 function createAutoTaskDraft(groupId: string | null | undefined = initialNewThreadGroupId): AutoTaskDraftState {
   const now = new Date();
@@ -5963,7 +5967,6 @@ async function boot() {
       render();
       return;
     }
-    void checkForWindowsUpdate({ silent: true });
     state.login.step = "restore";
     state.login.error = null;
     state.loading = true;
@@ -6226,9 +6229,11 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
   state.login.baseUrl = state.auth.baseUrl || state.login.baseUrl;
   syncUserAvatars();
   if (state.auth.authenticated) {
+    startAppUpdateChecks();
     ensureMemberActivityHeartbeat();
     void reportConsumptionAppEntryOnce();
   } else {
+    stopAppUpdateChecks();
     stopMemberActivityHeartbeat();
     resetImageGenerationModelCatalogState();
     resetBusinessModelPoolsState();
@@ -36643,32 +36648,44 @@ async function importUserData() {
   }
 }
 
+function startAppUpdateChecks() {
+  if (!api.checkWindowsUpdate || appUpdateCheckTimer !== null) return;
+  appUpdateCheckTimer = window.setInterval(() => {
+    void checkForWindowsUpdate({ silent: true });
+  }, APP_UPDATE_CHECK_INTERVAL_MS);
+  void checkForWindowsUpdate({ silent: true });
+}
+
+function stopAppUpdateChecks() {
+  if (appUpdateCheckTimer === null) return;
+  window.clearInterval(appUpdateCheckTimer);
+  appUpdateCheckTimer = null;
+}
+
 async function checkForWindowsUpdate(options: { silent?: boolean } = {}) {
-  if (!api.checkWindowsUpdate) {
-    if (!options.silent) showToast("当前版本暂不支持检查更新", 4000);
-    return;
-  }
-  if (state.settings.update.checking) return;
-  state.settings.update.checking = true;
-  state.settings.update.error = null;
-  state.settings.update.downloadProgress = null;
+  if (!api.checkWindowsUpdate) return;
+  const update = state.settings.update;
+  if (appUpdateCheckInFlight || update.downloading || update.dialogOpen) return;
+  appUpdateCheckInFlight = true;
+  // Background checks must not expose a loading state through unrelated renders.
+  update.checking = !options.silent;
+  let openedDialog = false;
   if (!options.silent) render();
   try {
     const result = await api.checkWindowsUpdate({ version: APP_VERSION });
-    state.settings.update.result = result;
     if (result.update_available && result.latest && result.download) {
-      state.settings.update.dialogOpen = true;
-    } else {
-      state.settings.update.dialogOpen = false;
-      if (!options.silent) showToast("当前已是最新版本", 2600);
+      update.result = result;
+      update.error = null;
+      update.downloadProgress = null;
+      update.dialogOpen = true;
+      openedDialog = true;
     }
-  } catch (error) {
-    const message = errorMessage(error);
-    state.settings.update.error = message;
-    if (!options.silent) showToast(`检查更新失败：${message}`, 5000);
+  } catch {
+    // Unavailable update services are silent; the next scheduled check will retry.
   } finally {
-    state.settings.update.checking = false;
-    render();
+    appUpdateCheckInFlight = false;
+    update.checking = false;
+    if (!options.silent || openedDialog) render();
   }
 }
 
@@ -36764,6 +36781,7 @@ async function downloadWindowsUpdate() {
 }
 
 function closeUpdateDialog() {
+  if (state.settings.update.result?.force_update || state.settings.update.downloading) return;
   state.settings.update.dialogOpen = false;
   state.settings.update.error = null;
   if (!state.settings.update.downloading) {
