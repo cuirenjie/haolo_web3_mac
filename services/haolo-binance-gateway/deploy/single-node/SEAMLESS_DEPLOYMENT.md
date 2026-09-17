@@ -1,5 +1,15 @@
 # 行情/私有出口服务：无感发布准备状态
 
+## 2026-09-17 回源与传输降费更新
+
+- 普通香港 GA `ga-bp1n9v1nhuiil4gmkwgiu` 的新加坡目标已从 PublicIp 改为同一边缘 ECS 的私网回源，IP/20 Mbps/真实来源地址保留；普通客户端仍可直连 `8.219.93.44`。
+- HAProxy 新增 `public_gateway_rest`，与 `public_gateway` 指向同一活动实例 `127.0.0.1:18787`；仅允许的公共行情 GET 使用 gzip，票据、私有接口、WebSocket/CONNECT 保持原路由。**今后网关换端口时必须同步这两个 backend 的 server 地址，并在回退时一并恢复。** 不得重新生成历史 ingress 模板覆盖当前完整配置。
+- 官网静态文件和已有移动行情 GET 的压缩配置由官网仓库 `deploy/ga/market_rest_compression.py` 管理；相关 backend `haolo_portal_compressed` 仍指向官网 `127.0.0.1:8084`。
+- 旧 `haolo-binance-gateway-1` 经两次检查均无 8787/8788 下游 ESTABLISHED 连接、WebSocket 客户端为 0 后，以无限等待的正常 stop 退出（exit 0），容器和镜像仍保留。回执 `/opt/haolo/releases/cost-compression-20260917/old-gateway-retirement.json`。活动实例没有重启，不再叠加旧版本驻留。
+- 现有 Windows WebSocket 明确禁用 permessage-deflate；本轮未修改/发布客户端，不能把 HTTP gzip 的降幅当作全部行情的降幅。完整现网验证与配置在官网仓库 `docs/cloud-cost-optimization-20260917.md`。
+
+以下为先前发布时的历史记录；旧实例的 `retirement_pending` 已由上面的 2026-09-17 验收取代。
+
 本服务部署于边缘机 `8.219.93.44`，同时提供行情 HTTP/WebSocket 与私有 CONNECT 代理。虽然源码属于桌面仓库，本次改造只涉及服务器，不构建或发布桌面安装包。
 
 2026-09-04 已完成一次生产单节点修复发布：原线上容器仍为

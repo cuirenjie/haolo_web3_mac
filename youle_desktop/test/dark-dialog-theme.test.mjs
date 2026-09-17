@@ -48,3 +48,28 @@ test("dark dialog actions use blue primary, graphite secondary, and red danger s
   assert.match(styles, /dialog\[open\] \.thread-dialog-danger:not\(:disabled\)\s*\{[\s\S]*?background: #c9363e/);
   assert.match(styles, /dialog\[open\] footer button:disabled,[\s\S]*?background: var\(--dialog-disabled\)/);
 });
+
+test("mandatory update dialogs keep themed text, notes, progress and action states", async () => {
+  const styles = await stylesSource;
+  const start = styles.indexOf(".update-dialog {");
+  const updateStyles = styles.slice(start, styles.indexOf(".update-download-dock {", start));
+  assert.match(updateStyles, /background: var\(--surface-primary\)/);
+  assert.match(updateStyles, /\.update-dialog h2\s*\{[^}]*color: var\(--text-primary\)/);
+  assert.match(updateStyles, /\.update-dialog-notes\s*\{[^}]*color: var\(--text-secondary-strong\)/);
+  assert.match(updateStyles, /\.secondary-button\s*\{[^}]*background: var\(--surface-hover\);[^}]*color: var\(--text-primary\)/);
+  assert.match(styles, /html\[data-theme="dark"\] \.update-dialog-notes\s*\{[^}]*background: var\(--surface-interactive\)/);
+  assert.match(styles, /html\[data-theme="dark"\] \.update-dialog-version,[^{]*\{[^}]*color: #a7adb7/);
+  assert.match(styles, /html\[data-theme="dark"\] \.update-dialog-progress\s*\{[^}]*background: var\(--line\)/);
+  assert.match(styles, /html\[data-theme="dark"\] \.update-dialog-progress > span,[^{]*\{[^}]*background: var\(--brand-blue\)/);
+  assert.match(styles, /html\[data-theme="dark"\] \.update-dialog-error\s*\{[^}]*background: rgba\(255, 107, 107, 0\.12\);[^}]*color: #ff8a8a/);
+  for (const [selector, token] of [
+    [".update-dialog-actions button,", "--dialog-secondary"],
+    [".update-dialog-actions button:hover:not(:disabled),", "--dialog-secondary-hover"],
+    [".update-dialog-actions button:disabled,", "--dialog-disabled"],
+  ]) {
+    const start = styles.lastIndexOf(`html[data-theme="dark"] ${selector}`);
+    assert.notEqual(start, -1, selector);
+    assert.ok(styles.slice(start, styles.indexOf("}", start)).includes(`var(${token})`), selector);
+  }
+  assert.match(styles, /html\[data-theme="dark"\] dialog\[open\] button:focus-visible\s*\{[^}]*outline:/);
+});
