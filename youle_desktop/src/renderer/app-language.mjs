@@ -125,6 +125,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "缩小": "Zoom out",
   "便利贴": "Sticky note",
   "AI 文字标注字号调节": "Adjust AI annotation text size",
+  "拖动可移动字号工具栏": "Drag to move the text size toolbar",
   "缩小当前图表全部标注文字": "Decrease all annotation text on the current chart",
   "放大当前图表全部标注文字": "Increase all annotation text on the current chart",
   "当前图表全部标注文字": "all annotation text on the current chart",

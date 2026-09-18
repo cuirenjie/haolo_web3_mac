@@ -1326,7 +1326,7 @@ test("professional AI inline labels remain readable in light and dark themes", a
   assert.match(styles, /\.trading-price-action-candlestick-pattern-ellipse\s*\{[^}]*fill: var\(--trading-price-action-candlestick-label\);[^}]*stroke: var\(--trading-price-action-candlestick-label\);[^}]*stroke-width: 0\.8px;[^}]*stroke-dasharray: none;[^}]*vector-effect: non-scaling-stroke;/s);
 });
 
-test("AI text annotations keep resize controls pinned to the topmost label", async () => {
+test("AI text annotations initially place resize controls beside the topmost label", async () => {
   const { positionTradingAiTextSizeToolbar, tradingAiTextNextFontSize } = await import(
     "../src/renderer/trading-expert-drawing.ts"
   );
@@ -1377,7 +1377,7 @@ test("AI text annotations keep resize controls pinned to the topmost label", asy
   assert.match(drawing, /const disabled = textDrawings\.every\([\s\S]*?button\.disabled = disabled/);
   assert.match(drawing, /topmostAiTextSizeTarget\(\)[\s\S]*?bounds\.y < topmost\.bounds\.y/);
   assert.match(drawing, /positionTradingAiTextSizeToolbar\([\s\S]*?\{ x, y, width, height \}[\s\S]*?"left"/);
-  assert.match(drawing, /The controls are pinned to the topmost visible annotation/);
+  assert.match(drawing, /The controls stay visible, initially beside the topmost annotation/);
   assert.match(drawing, /aiTextSizeToolbarDismissed[\s\S]*?dismissAiTextSizeToolbar/);
   assert.match(drawing, /button\?\.dataset\.aiTextSizeAction[\s\S]*?action === "dismiss"[\s\S]*?dismissAiTextSizeToolbar/);
 
@@ -1386,6 +1386,10 @@ test("AI text annotations keep resize controls pinned to the topmost label", asy
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:hover,[\s\S]*?background: var\(--trading-market-control\);[\s\S]*?color: var\(--trading-market-text\);/);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:active\s*\{[^}]*background: var\(--trading-market-accent-soft\);[^}]*color: var\(--trading-market-accent\);/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.32;/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar\s*\{[^}]*cursor: grab;[^}]*touch-action: none;/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar > button\s*\{[^}]*color: var\(--trading-market-text\);/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar\.dragging > button\s*\{[^}]*cursor: grabbing;/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar\.dragging\s*\{[^}]*outline: 1px solid var\(--trading-market-accent\);/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button\.trading-ai-text-size-toolbar-dismiss\s*\{[^}]*top: -8px;[^}]*right: -8px;[^}]*opacity: 0;[^}]*pointer-events: none;/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar:hover > button\.trading-ai-text-size-toolbar-dismiss,[\s\S]*?opacity: 1;[\s\S]*?pointer-events: auto;/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button\.trading-ai-text-size-toolbar-dismiss:active\s*\{[^}]*background: var\(--trading-market-accent-soft\);[^}]*color: var\(--trading-market-accent\);/s);
