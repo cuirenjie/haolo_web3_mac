@@ -265,7 +265,7 @@ import { ANALYSIS_PRIMARY_MODEL, withAnalysisModelRecoveryPolicy } from "./analy
 import { AnalysisModelRecoveryStore } from "./analysis-model-recovery-store.mjs";
 import { canonicalDeepSeekModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
 import { migrateRetiredModelSelection } from "./retired-model-policy.mjs";
-import { applyThreadProviderSwitch, restartIdleProviderRuntime } from "./thread-provider-switch.mjs";
+import { applyThreadProviderSwitch, assertThreadProvider, restartIdleProviderRuntime } from "./thread-provider-switch.mjs";
 import { tradingAnalysisFailureDiagnostic } from "./trading-analysis/diagnostics.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
 import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
@@ -6141,20 +6141,17 @@ async function executeClusterRootFinal({
       "multi-model-cluster",
     );
     await injectLatestSkillsInstructions(threadId, developerInstructions);
-    try {
-      await requestAppServer(serverClient, "thread/resume", {
-        ...threadConfigurationParams({
-          cwd: workspace,
-          model,
-          reasoningEffort,
-          approvalPolicy: "never",
-          sandboxPolicy,
-        }, { developerInstructions }),
-        threadId,
-      });
-    } catch (error) {
-      if (!isMissingRolloutErrorMessage(error?.message)) throw error;
-    }
+    const resumeConfiguration = threadConfigurationParams({
+      cwd: workspace,
+      model: model || ANALYSIS_PRIMARY_MODEL,
+      reasoningEffort,
+      approvalPolicy: "never",
+      sandboxPolicy,
+    }, { developerInstructions });
+    await resumeThreadForRequestedProvider({
+      serverClient, threadId, cwd: workspace,
+      targetSettings: resumeConfiguration, resumeConfiguration,
+    });
     let turnId = null;
     let turnFinished = false;
     try {
@@ -10879,18 +10876,19 @@ async function executeAutomationTurn({ job, run, prompt, workspacePath, abortCon
 async function resumeAutomationThread({ threadId, job, workspacePath, developerInstructions, serverClient }) {
   await injectLatestSkillsInstructions(threadId, developerInstructions);
   const targetClient = serverClient || getClientForCwd(workspacePath);
-  await requestAppServer(targetClient, "thread/resume", {
-    ...threadConfigurationParams(
-      {
-        cwd: workspacePath,
-        approvalPolicy: automationRuntimeApprovalPolicy(job),
-        sandbox: automationRuntimeSandbox(job),
-        model: job.model || undefined,
-        reasoningEffort: job.reasoningEffort || undefined,
-      },
-      { developerInstructions },
-    ),
-    threadId,
+  const resumeConfiguration = threadConfigurationParams(
+    {
+      cwd: workspacePath,
+      approvalPolicy: automationRuntimeApprovalPolicy(job),
+      sandbox: automationRuntimeSandbox(job),
+      model: job.model || ANALYSIS_PRIMARY_MODEL,
+      reasoningEffort: job.reasoningEffort || undefined,
+    },
+    { developerInstructions },
+  );
+  await resumeThreadForRequestedProvider({
+    serverClient: targetClient, threadId, cwd: workspacePath,
+    targetSettings: resumeConfiguration, resumeConfiguration,
   });
   rememberThreadClient(threadId, targetClient);
 }
@@ -11523,16 +11521,14 @@ function requestedThreadModelSettings(params = {}) {
 }
 
 function threadModelProviderFromResumeResult(result = {}) {
-  const explicit = canonicalExecutionModelProvider(firstString(
+  // A model override can succeed while the credential provider stays unchanged.
+  // Only runtime provider metadata can prove that the route actually changed.
+  return canonicalExecutionModelProvider(firstString(
     result?.modelProvider,
     result?.model_provider,
     result?.thread?.modelProvider,
     result?.thread?.model_provider,
   ));
-  if (explicit) return explicit;
-  const model = canonicalDeepSeekModel(firstString(result?.model, result?.thread?.model)).toLowerCase();
-  if (model === DEEPSEEK_EXECUTION_MODEL) return DEEPSEEK_EXECUTION_PROVIDER_ID;
-  return model.startsWith("gpt-") ? "haolo_ai" : "";
 }
 
 function threadHistoryContainsImageContent(value, seen = new Set()) {
@@ -11598,19 +11594,25 @@ async function resumeThreadForRequestedProvider({
   threadId,
   cwd,
   targetSettings,
+  resumeConfiguration = {},
 }) {
-  const baseParams = { threadId, cwd, excludeTurns: true };
-  let result = await requestAppServer(
-    serverClient,
-    "thread/resume",
-    baseParams,
-    30_000,
-  );
+  const baseParams = { ...resumeConfiguration, threadId, cwd, excludeTurns: true };
+  let result;
   const targetProvider = firstString(targetSettings?.modelProvider).toLowerCase();
   if (targetProvider === DEEPSEEK_EXECUTION_PROVIDER_ID) {
     await ensureDeepSeekThreadHistoryIsTextOnly(serverClient, threadId);
   } else if (targetProvider) {
     verifiedDeepSeekTextOnlyThreadIds.delete(firstString(threadId));
+  }
+  try {
+    result = await requestAppServer(serverClient, "thread/resume", baseParams, 30_000);
+  } catch (error) {
+    if (!isMissingRolloutErrorMessage(error?.message)) throw error;
+    // Fresh in-memory tasks cannot resume until their first turn. Read their
+    // actual provider instead; never use the requested model as evidence or
+    // detach a task that has no durable history to resume.
+    result = await requestAppServer(serverClient, "thread/read", { threadId, includeTurns: false }, 30_000);
+    return assertThreadProvider(result, targetProvider, threadModelProviderFromResumeResult);
   }
   if (
     !targetProvider ||
@@ -11711,7 +11713,7 @@ function executionProviderSelection(params = {}, options = {}) {
   }
   return {
     model: requestedModel,
-    modelProvider: requestedProvider || undefined,
+    modelProvider: requestedProvider || (requestedModel.toLowerCase().startsWith("gpt-") ? "haolo_ai" : undefined),
     isDeepSeek: false,
   };
 }
@@ -14133,6 +14135,7 @@ async function invokeTradingAnalysisAppServer({
   let turnFinished = false;
   try {
     if (signal?.aborted) throw signal.reason || tradingAnalysisAbortError();
+    assertThreadProvider(started, executionProviderSelection({ model: modelId, modelProvider }).modelProvider, threadModelProviderFromResumeResult);
     const completed = await runWorkflowCodexNodeTurnWithRecovery({
       serverClient,
       threadId,
@@ -18356,7 +18359,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
   await persistExplicitMarketAliasMemory(text, {
     fromGroupChat: Boolean(groupChatContext),
   });
-  params = withAnalysisModelRecoveryPolicy(params, getAnalysisModelRecoveryStore().snapshot());
+  params = withAnalysisModelRecoveryPolicy({ ...params, model: firstString(params.model) || ANALYSIS_PRIMARY_MODEL }, getAnalysisModelRecoveryStore().snapshot());
   const executionSelection = executionProviderSelection(params);
   const conversationMode = normalizeConversationMode(
     params.conversationMode || params.conversation_mode,
@@ -18513,6 +18516,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
         ...threadConfigurationParams({ ...params, cwd }, { developerInstructions }),
         ephemeral: false,
       }));
+      assertThreadProvider(startResult, executionSelection.modelProvider, threadModelProviderFromResumeResult);
       const nextThreadId = startResult?.thread?.id ? String(startResult.thread.id) : "";
       if (!nextThreadId) {
         throw new Error("Replacement thread/start did not return a thread id.");
@@ -18588,9 +18592,12 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
     try {
       const resumeStartedAt = performanceTimingStart();
       try {
-        const resumeResult = await requestAppServer(serverClient, "thread/resume", {
-          ...threadConfigurationParams({ ...params, cwd }, { developerInstructions }),
+        await resumeThreadForRequestedProvider({
+          serverClient,
           threadId,
+          cwd,
+          targetSettings: { ...requestedThreadModelSettings(params), effort: turnReasoningEffort },
+          resumeConfiguration: threadConfigurationParams({ ...params, cwd }, { developerInstructions }),
         });
         if (resumeStartedAt) {
           logPerformanceTiming("codex-send-message-thread-resume", resumeStartedAt, {
@@ -18611,11 +18618,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
         throw error;
       }
     } catch (error) {
-      if (isMissingRolloutErrorMessage(error?.message)) {
-        // A freshly-created empty thread may not have a rollout file until
-        // its first turn starts; keep the original thread and let turn/start
-        // prove whether the in-memory thread is still alive.
-      } else if (isThreadNotFoundError(error)) {
+      if (isThreadNotFoundError(error)) {
         await replaceMissingThread(error);
       } else {
         throw error;

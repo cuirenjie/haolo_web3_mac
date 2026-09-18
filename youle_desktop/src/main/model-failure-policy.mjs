@@ -28,6 +28,6 @@ export function modelFailureFacts(error) {
   const terminalStatus = statuses.find((s) => s < 500 && ![408, 425, 429].includes(s));
   const httpStatus = terminalStatus || statuses[0] || null;
   const hardFailure = Boolean(terminalStatus)
-    || /PERMISSION_DENIED|MODEL_(?:NOT_ENABLED|RETIRED)|TRIAL_REQUIRED|ACCOUNT_ID_REQUIRED|CLEANUP_INCOMPLETE|unauthori[sz]ed|forbidden|auth(?:entication)?[_ ](?:failed|expired)|invalid.api.key|not enabled for|权限|鉴权|余额不足/i.test(detail);
+    || /PERMISSION_DENIED|MODEL_(?:NOT_ENABLED|RETIRED|ROUTE_GROUP_MISMATCH)|THREAD_PROVIDER_MISMATCH|PROVIDER_SWITCH_RUNTIME_BUSY|provider switch was not applied|provider recovery is waiting|API key is not bound to its route group|TRIAL_REQUIRED|ACCOUNT_ID_REQUIRED|CLEANUP_INCOMPLETE|unauthori[sz]ed|forbidden|auth(?:entication)?[_ ](?:failed|expired)|invalid.api.key|not enabled for|权限|鉴权|余额不足/i.test(detail);
   return { httpStatus, retryable, hardFailure, detail };
 }

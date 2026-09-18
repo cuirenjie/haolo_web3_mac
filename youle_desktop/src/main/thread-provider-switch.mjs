@@ -1,13 +1,23 @@
 // 0.153.4 ignores provider overrides on subscribed or systemError sessions.
 // Detach an idle session first; a failed session needs a cold runtime resume.
 // Never archive, fork, truncate history, or restart a busy shared runtime.
+export function assertThreadProvider(result, targetProvider, providerOf) {
+  const appliedProvider = providerOf(result);
+  if (targetProvider && appliedProvider !== targetProvider) {
+    throw Object.assign(new Error(`Thread provider switch was not applied (expected ${targetProvider}, received ${appliedProvider || "unknown"}).`), {
+      code: "THREAD_PROVIDER_MISMATCH", category: "policy", retryable: false,
+    });
+  }
+  return result;
+}
+
 export async function applyThreadProviderSwitch({ request, baseParams, targetSettings, providerOf, restartIdleRuntime }) {
   const targetProvider = targetSettings.modelProvider;
   const params = {
     ...baseParams,
     model: targetSettings.model,
     modelProvider: targetProvider,
-    config: { model_reasoning_effort: targetSettings.effort ?? null },
+    config: { ...baseParams.config, model_reasoning_effort: targetSettings.effort ?? null },
     serviceTier: targetSettings.serviceTier ?? null,
   };
   await request("thread/unsubscribe", { threadId: baseParams.threadId });
@@ -16,11 +26,7 @@ export async function applyThreadProviderSwitch({ request, baseParams, targetSet
     await restartIdleRuntime();
     result = await request("thread/resume", params);
   }
-  const appliedProvider = providerOf(result);
-  if (appliedProvider !== targetProvider) {
-    throw new Error(`Thread provider switch was not applied (expected ${targetProvider}, received ${appliedProvider || "unknown"}).`);
-  }
-  return result;
+  return assertThreadProvider(result, targetProvider, providerOf);
 }
 
 export function restartIdleProviderRuntime({ client, isBusy, stop, start }) {
