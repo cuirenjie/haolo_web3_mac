@@ -61,7 +61,10 @@ export function withAnalysisModelRecoveryPolicy(params, state, now = Date.now(),
     reasoningEffort: ANALYSIS_RECOVERY_EFFORT, reasoningEffortPolicy: "fixed",
     supportedReasoningEfforts: ["low", "high", "max"],
   };
-  if (normalizeAnalysisModelRecoveryState(state) && selection.modelId !== String(params.model || "")) {
+  const staleRecoveryProvider = selection.modelId === ANALYSIS_PRIMARY_MODEL
+    && String(params.modelProvider || params.model_provider || "").trim().toLowerCase() === ANALYSIS_RECOVERY_PROVIDER;
+  if (normalizeAnalysisModelRecoveryState(state)
+    && (selection.modelId !== String(params.model || "") || staleRecoveryProvider)) {
     // A previous fallback may have been remembered by the thread. Let the
     // normal Sol reasoning policy choose the effort again after expiry.
     return restoreGptSelection(params, selection.modelId);

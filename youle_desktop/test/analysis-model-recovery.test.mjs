@@ -10,6 +10,7 @@ import { createTradingAnalysisModelProviderRegistry } from "../src/main/trading-
 import { runValidatedTradingModelReview } from "../src/main/trading-analysis/model-review.mjs";
 import { HAOLO_REASONING_FIXED_EFFORT_FIELD, withAdaptiveTurnReasoning } from "../src/main/gpt-reasoning-effort.mjs";
 import { tradingAnalysisTurnPolicy } from "../src/main/trading-analysis-turn-policy.mjs";
+import { assertThreadProvider } from "../src/main/thread-provider-switch.mjs";
 
 const request = Object.freeze({ schemaVersion: 1, requestId: "request-1", snapshotId: "snapshot-1", task: "wave-theory-review", theoryId: "elliott_wave", prompt: "ETH怎么看\nFROZEN_CANDLES_AND_ATTACHMENTS", responseFormat: "json" });
 const overload = () => ({ status: "failed", error: "Selected model is at capacity. Please try a different model.", retryable: false });
@@ -186,7 +187,10 @@ function reviewEntry(overrides = {}) {
   const starts = [], turns = [], cleanup = [];
   const deps = {
     desktopWorkspace: () => "workspace", getClientForCwd: () => ({}), tradingAnalysisTurnPolicy,
-    requestWorkflowInternalThreadStart: async (_client, params) => { starts.push(params); return { thread: { id: `internal-${starts.length}` } }; },
+    requestWorkflowInternalThreadStart: async (_client, params) => { starts.push(params); return { thread: { id: `internal-${starts.length}` }, modelProvider: params.modelProvider || "haolo_ai" }; },
+    assertThreadProvider,
+    executionProviderSelection: (params) => ({ modelProvider: params.modelProvider || "haolo_ai" }),
+    threadModelProviderFromResumeResult: (result) => result.modelProvider,
     threadConfigurationParams: (params, extra) => ({ ...params, ...extra }),
     rememberThreadClient() {}, tradingAnalysisAbortError: () => new DOMException("Cancelled", "AbortError"),
     runWorkflowCodexNodeTurnWithRecovery: async (params) => {
@@ -238,6 +242,14 @@ test("production review cannot replay a side effect or overlap an unconfirmed ol
     await assert.rejects(provider.analyze(request), { code: sideEffect ? "TRADING_ANALYSIS_MODEL_SIDE_EFFECT_BLOCKED" : "TRADING_ANALYSIS_CLEANUP_INCOMPLETE" });
     assert.equal(calls, 1);
   }
+});
+
+test("production review rejects an unconfirmed provider before model dispatch and still cleans up its temporary thread", async () => {
+  const harness = reviewEntry({ requestWorkflowInternalThreadStart: async () => ({ thread: { id: "wrong-provider" }, modelProvider: "deepseek" }) });
+  await assert.rejects(harness.invoke({ modelId: "gpt-5.6-sol", request, reasoningEffort: "medium" }), { code: "THREAD_PROVIDER_MISMATCH" });
+  assert.equal(harness.turns.length, 0);
+  assert.equal(harness.cleanup.length, 1);
+  assert.equal(harness.cleanup[0].threadId, "wrong-provider");
 });
 
 test("runtime-cancelled reviews remain cancelled even without a caller abort signal", async () => {

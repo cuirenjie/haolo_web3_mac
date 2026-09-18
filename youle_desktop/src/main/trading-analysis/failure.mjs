@@ -1,5 +1,7 @@
 // Shared by the host and renderer. Only fixed descriptions cross into reports
 // or diagnostics; upstream messages can contain credentials or model output.
+import { modelFailureFacts } from "../model-failure-policy.mjs";
+
 const LABELS = {
   cancelled: ["本次分析已停止", "This analysis was stopped"],
   entitlement: ["暂时无法验证会员权益", "Membership verification is unavailable"],
@@ -20,9 +22,10 @@ const LABELS = {
 };
 
 export function describeTradingAnalysisFailure(error, { stage = "analysis", language = "zh-CN" } = {}) {
+  const facts = modelFailureFacts(error);
   const code = String(error?.code || error?.errorCode || "").toUpperCase();
-  const message = String(error?.message || error?.error || error || "");
-  const status = Number(error?.status || error?.httpStatus || error?.cause?.status);
+  const message = facts.detail;
+  const status = facts.httpStatus;
   let category = "analysis";
   if (/CANCEL|ABORT/.test(code) || error?.name === "AbortError" || /用户停止|已取消|cancelled|canceled|replaced/iu.test(message)) category = "cancelled";
   else if (code === "TRADING_ANALYSIS_SNAPSHOT_STALE" || /当前行情快照刷新未完成/u.test(message)) category = "market_refresh";
@@ -31,7 +34,8 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   else if (code === "TRADING_ENTITLEMENT_UNAVAILABLE" || /无法验证会员权益/u.test(message)) category = "entitlement";
   else if (/TRIAL_REQUIRED|INSUFFICIENT_BALANCE/.test(code) || /未开通有效|没有可用积分|积分不足|余额不足/iu.test(message)) category = "membership";
   else if (/AUTH|ACCOUNT_ID_REQUIRED|INVALID_API_KEY/.test(code) || [401, 403].includes(status) || /unauthori[sz]ed|invalid api key|authentication failed|请先登录|未登录/iu.test(message)) category = "authentication";
-  else if (/SIDE_EFFECT|PERMISSION|POLICY/.test(code)) category = "policy";
+  else if (/SIDE_EFFECT|PERMISSION|POLICY/.test(code)
+    || /PERMISSION_DENIED|MODEL_ROUTE_GROUP_MISMATCH|THREAD_PROVIDER_MISMATCH|PROVIDER_SWITCH_RUNTIME_BUSY|provider switch was not applied|provider recovery is waiting|API key is not bound to its route group/i.test(message)) category = "policy";
   else if (stage === "drawing") category = "drawing";
   else if (/EMPTY_RESPONSE/.test(code)) category = "model_empty";
   else if (/MODEL_REVIEW_INVALID/.test(code) || /model response.*(?:JSON|schema|verdict|summary|invalid|required)/iu.test(message)) category = "model_validation";

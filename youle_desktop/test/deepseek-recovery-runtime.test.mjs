@@ -11,6 +11,8 @@ import zlib from "node:zlib";
 import { buildManagedLongContextModelCatalog } from "../src/main/app-server-client.mjs";
 import { applyThreadProviderSwitch } from "../src/main/thread-provider-switch.mjs";
 import { requestWithThreadHistoryRecovery } from "../src/main/thread-history-recovery.mjs";
+import { createProviderSendHost } from "./helpers/provider-send-host.mjs";
+import { ANALYSIS_RECOVERY_WINDOW_MS } from "../src/main/analysis-model-policy.mjs";
 
 const runtime = fileURLToPath(new URL(process.platform === "darwin" ? `../resources/bin/darwin-${process.arch}/haolo_ai` : "../resources/bin/haolo_ai.exe", import.meta.url));
 test("bundled runtime changes Sol to DeepSeek in the same task, sends max and completes a market-tool round trip", {
@@ -24,7 +26,7 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
   const catalogFile = path.join(codexHome, "models.json");
   fs.writeFileSync(catalogFile, JSON.stringify(catalog));
   const calls = [], toolCalls = [], events = [], pending = new Map();
-  let deepSeekCalls = 0, child, nextId = 0;
+  let deepSeekCalls = 0, child, nextId = 0, overloadSol = true;
   const server = http.createServer(async (request, response) => {
     const chunks = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
     if (request.url !== "/v1/responses") { response.writeHead(404).end(); return; }
@@ -35,7 +37,7 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
     calls.push({ payload, provider: request.headers["x-test-provider"] });
     const id = `local_${calls.length}`;
     let stream;
-    if (payload.model === "gpt-5.6-sol") {
+    if (payload.model === "gpt-5.6-sol" && overloadSol) {
       stream = [{ type: "response.failed", response: { id, status: "failed", error: { code: "server_is_overloaded", message: "Selected model is at capacity" }, output: [] } }];
     } else {
       const tool = ++deepSeekCalls === 1;
@@ -70,7 +72,7 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
     `model_providers.${provider}.request_max_retries=0`, `model_providers.${provider}.stream_max_retries=0`, `model_providers.${provider}.http_headers={ "X-Test-Provider" = "${provider}" }`,
   );
   const env = Object.fromEntries(["SystemRoot", "WINDIR", "PATH", "TEMP", "TMP", "COMSPEC", "PATHEXT"].filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
-  Object.assign(env, { CODEX_HOME: codexHome, USERPROFILE: directory, HOME: directory });
+  Object.assign(env, { CODEX_HOME: codexHome, USERPROFILE: directory });
   const onLine = (line) => {
     let message; try { message = JSON.parse(line); } catch { return; }
     events.push(message);
@@ -135,13 +137,32 @@ test("bundled runtime changes Sol to DeepSeek in the same task, sends max and co
   assert.ok(calls.slice(1).every((c) => c.provider === "deepseek" && c.payload.reasoning.effort === "max"));
   assert.ok(JSON.stringify(calls.at(-1).payload.input).includes("closed-eth-1h"));
   assert.ok(JSON.stringify(calls[1].payload.input).includes("retain this task"));
-  const restored = await applyThreadProviderSwitch({
-    request: rpc, baseParams: { threadId, cwd },
-    targetSettings: { model: "gpt-5.6-sol", modelProvider: "haolo_ai", effort: "high" },
-    providerOf: (result) => result.modelProvider,
-    restartIdleRuntime: async () => { restarts += 1; await stop(); await start(); },
-  });
-  assert.equal(restored.modelProvider, "haolo_ai");
-  assert.equal(restored.thread.id, threadId);
-  assert.equal(calls.length, 3, "provider restoration itself must not invoke a model");
+  overloadSol = false;
+  const activatedAt = 1_800_000_000_000;
+  const state = { version: 1, activatedAt, fallbackUntil: activatedAt + ANALYSIS_RECOVERY_WINDOW_MS };
+  // Exercise the production send IPC, not just the switch utility: previously
+  // these ordinary sends changed the model but kept the other provider's key.
+  for (const [now, rememberedModel, expectedModel, expectedProvider] of [
+    [state.fallbackUntil, "deepseek-flash", "gpt-5.6-sol", "haolo_ai"],
+    [activatedAt, "gpt-5.6-sol", "deepseek-flash", "deepseek"],
+    [activatedAt, "deepseek-flash", "deepseek-flash", "deepseek"],
+    [state.fallbackUntil, "deepseek-flash", "gpt-5.6-sol", "haolo_ai"],
+  ]) {
+    const host = createProviderSendHost({ request: rpc, cwd, state, now, stop, start });
+    const before = calls.length;
+    const sent = await host.send({ threadId, model: rememberedModel, text: "Continue the same task without repeating the tool.", approvalPolicy: "never", sandbox: "read-only" });
+    assert.equal((await terminal(sent.turn.id)).status, "completed");
+    assert.equal(calls.length, before + 1, "switching must not send a probe or replay the user turn");
+    assert.equal(calls.at(-1).payload.model, expectedModel);
+    assert.equal(calls.at(-1).provider, expectedProvider);
+    assert.ok(JSON.stringify(calls.at(-1).payload.input).includes("retain this task"));
+    assert.ok(JSON.stringify(calls.at(-1).payload.input).includes("closed-eth-1h"));
+  }
+  const fresh = await rpc("thread/start", { cwd, model: "gpt-5.6-sol", modelProvider: "haolo_ai", approvalPolicy: "never", sandbox: "read-only" });
+  const freshHost = createProviderSendHost({ request: rpc, cwd, stop, start });
+  const firstSend = await freshHost.send({ threadId: fresh.thread.id, model: "gpt-5.6-sol", text: "First message", approvalPolicy: "never", sandbox: "read-only" });
+  assert.equal((await terminal(firstSend.turn.id)).status, "completed");
+  assert.equal(calls.at(-1).provider, "haolo_ai");
+  assert.equal(toolCalls.length, 1, "provider changes must not replay the original tool");
+  assert.ok(calls.every((c) => c.provider === (c.payload.model === "deepseek-flash" ? "deepseek" : "haolo_ai")));
 });
