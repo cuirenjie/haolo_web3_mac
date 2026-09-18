@@ -131,7 +131,7 @@ import {
   buildQuestionAlignedTradingLead,
   buildRecoverableTradingAnalysis,
 } from "./trading-analysis-recovery.ts";
-import { describeTradingAnalysisFailure, settleTradingAnalysisDrawing } from "../main/trading-analysis/failure.mjs";
+import { describeTradingAnalysisFailure, settleTradingAnalysisDrawing, tradingAnalysisSnapshotUnavailable } from "../main/trading-analysis/failure.mjs";
 import { tradingAnalysisModelDisplayName } from "./trading-analysis-model-display.ts";
 
 export function recordTradingRendererFailure(error: unknown, context: Record<string, unknown>) {
@@ -564,6 +564,7 @@ export function isBinanceTradFiContract(item: Pick<BinanceExchangeSymbol, "contr
 }
 interface TradingChanAnalysisResponse {
   ok?: boolean;
+  personalRiskStatus?: "unavailable";
   error?: { code?: string; message?: string; retryable?: boolean; status?: number; category?: string; diagnosticId?: string };
   analysisPlan?: {
     narrative?: string;
@@ -10404,6 +10405,10 @@ class TradingExpertMarketWorkspace {
       if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
       request.onProgress?.("complete", drawingDeferred
         ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary
+        : response.personalRiskStatus === "unavailable"
+        ? job.language === "en"
+          ? "Market analysis is complete; personal risk validation is unavailable."
+          : "盘面分析已完成；个人风险约束暂不可读，执行计划已暂停。"
         : directResponseRequested
         ? request.positionManagementRequested === true
           ? `${modelName} 已按最新行情完成复核，正在直接回答本次仓位问题。`
@@ -10420,7 +10425,7 @@ class TradingExpertMarketWorkspace {
       // mode it would contaminate an otherwise English execution-plan report;
       // combineTradingAnalysisReports would then replace the whole report
       // with its generic English fallback, hiding the structured plan card.
-      const questionLead = request.positionManagementRequested === true || activeTradingAnalysisLanguage() === "en"
+      const questionLead = response.personalRiskStatus === "unavailable" || request.positionManagementRequested === true || activeTradingAnalysisLanguage() === "en"
         ? ""
         : buildQuestionAlignedTradingLead({
             instruction: request.instruction,
@@ -11860,7 +11865,7 @@ class TradingExpertMarketWorkspace {
       targetMarket.provider === "binance"
       && (!candleBatch?.candles.length
         || tradingAnalysisCandlesRequireCurrentRefresh(candleBatch.candles, targetInterval))
-    ) throw new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
+    ) throw tradingAnalysisSnapshotUnavailable("CANDLE_REFRESH_FAILED");
     if (!candleBatch?.candles.length) {
       const cached = getTradingMarketCandleCache(
         tradingMarketCandleCacheKey({
@@ -11929,7 +11934,7 @@ class TradingExpertMarketWorkspace {
         if (Number(patched.candles.at(-1)?.time) * 1_000
           > tradingCandleCloseTimeMs(Number(candleBatch.candles.at(-1)?.time) * 1_000,
             candleBatch.source.targetMs, candleBatch.source.sourceInterval)) {
-          throw new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
+          throw tradingAnalysisSnapshotUnavailable("CANDLE_QUOTE_GAP");
         }
         candleBatch = patched;
         liveStats = {
@@ -11940,7 +11945,7 @@ class TradingExpertMarketWorkspace {
         };
       }
       if (tradingAnalysisCandlesRequireCurrentRefresh(candleBatch.candles, targetInterval, Date.now())) {
-        throw new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
+        throw tradingAnalysisSnapshotUnavailable("CANDLE_SNAPSHOT_EXPIRED");
       }
     }
     const stats = {

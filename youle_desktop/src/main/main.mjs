@@ -267,6 +267,7 @@ import { canonicalDeepSeekModel, migrateDeepSeekModelSelection } from "./deepsee
 import { migrateRetiredModelSelection } from "./retired-model-policy.mjs";
 import { applyThreadProviderSwitch, restartIdleProviderRuntime } from "./thread-provider-switch.mjs";
 import { tradingAnalysisFailureDiagnostic } from "./trading-analysis/diagnostics.mjs";
+import { withPersonalTradingRisk } from "./trading-analysis/personal-risk-context.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
 import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
 import { tradingAlertsEnabled, tradingAlertsShadowMode } from "./trading-alerts/feature-flag.mjs";
@@ -15165,8 +15166,16 @@ async function tradingStrategyParamsWithPersonalRisk(params = {}) {
     }
     throw error;
   }
-  const userRiskProfile = await getPersonalMemoryStore().tradingRiskProfile(owner.ownerId);
-  return { ...params, userRiskProfile };
+  return withPersonalTradingRisk(params, {
+    ownerId: owner.ownerId,
+    memoryStore: getPersonalMemoryStore(),
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: optional personal risk recovery event
+    onUnavailable: (error) => recordTurnDiagnostic("trading.analysis.personal_risk_unavailable", {
+      ...tradingAnalysisFailureDiagnostic(error, { ...params, stage: "preparation" }),
+      recovery: "market_analysis_only",
+    }),
+    // HAOLO-TURN-DIAGNOSTICS-END: optional personal risk recovery event
+  });
 }
 
 async function loadTradingStrategyReadOnlyBinanceAccountContext() {

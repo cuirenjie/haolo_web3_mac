@@ -6,6 +6,7 @@ import ts from "typescript";
 import * as market from "../src/renderer/trading-expert-market.ts";
 import { selectTradingAnalysisMarket, selectTradingAnalysisInterval } from "../src/renderer/trading-analysis-target.mjs";
 import { applyTradingLivePriceToBatch, tradingCandleCloseTimeMs } from "../src/renderer/trading-market-candle-cache.mjs";
+import { describeTradingAnalysisFailure, tradingAnalysisSnapshotUnavailable } from "../src/main/trading-analysis/failure.mjs";
 
 // Execute the production methods, replacing only their external boundaries.
 // AST extraction keeps tests independent of source whitespace and private API exports.
@@ -21,7 +22,7 @@ function runtime(name, dependencies) {
       compilerOptions: { target: ts.ScriptTarget.ES2022 },
     }).outputText);
   }
-  return runInNewContext(`${compiledMethods.get(name)}\nHarness`, { ...market, tradingCandleCloseTimeMs, Date, ...dependencies });
+  return runInNewContext(`${compiledMethods.get(name)}\nHarness`, { ...market, tradingCandleCloseTimeMs, tradingAnalysisSnapshotUnavailable, Date, ...dependencies });
 }
 
 const NOW = Date.parse("2026-09-04T15:30:01Z");
@@ -68,7 +69,14 @@ for (const [label, fallback] of [
 ]) {
   test(`offline current analysis rejects ${label} without writing cache or chart`, async (t) => {
     const h = refreshHarness(t, { fallback });
-    await assert.rejects(h.refresh(), /已阻止使用旧 K 线分析/);
+    await assert.rejects(h.refresh(), (error) => {
+      assert.equal(error.code, "TRADING_ANALYSIS_SNAPSHOT_STALE");
+      assert.equal(error.cause.code, "CANDLE_REFRESH_FAILED");
+      assert.equal(error.retryable, true);
+      assert.equal(describeTradingAnalysisFailure(error).allowLocalRecovery, false);
+      assert.match(describeTradingAnalysisFailure(error).summary, /最新行情/);
+      return true;
+    });
     assert.equal(h.calls.candles, 3);
     assert.equal(h.calls.stats, 0);
     assert.equal(h.writes.length, 0);

@@ -9,3 +9,4 @@ export function settleTradingAnalysisDrawing(options: {
   isActive: () => boolean;
   onFailure?: (error: unknown) => unknown;
 }): Promise<{ drawingDeferred: boolean }>;
+export function tradingAnalysisSnapshotUnavailable(reason: string): Error & { code: string; retryable: boolean };

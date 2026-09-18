@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { runPriceActionEngine } from "./price-action-engine.mjs";
 import { runValidatedTradingModelReview } from "./model-review.mjs";
+import { personalRiskModelRegistry, personalRiskUnavailable, withPersonalRiskNotice } from "./personal-risk-context.mjs";
 import {
   TRADING_ANALYSIS_SCHEMA_VERSION,
   normalizeTradingMarketSnapshot,
@@ -144,6 +145,7 @@ function positionManagementAnswer(review, result, instruction, language) {
 
 function personalizedTradingSettings(value) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  if (source.availability === "unavailable") return { availability: "unavailable", savedRules: [] };
   const numeric = (candidate, fallback, max = 100) => {
     const number = Number(candidate);
     return Number.isFinite(number) && number > 0 && number <= max ? number : fallback;
@@ -170,8 +172,8 @@ function personalizedTradingSettings(value) {
 
 export function buildPriceActionModelPrompt(snapshot, result, context = {}) {
   const preferences = personalizedTradingSettings(context.userRiskProfile);
-  const positionManagementRequested = context.positionManagementRequested === true
-    || isPositionManagementInstruction(context.instruction);
+  const positionManagementRequested = !personalRiskUnavailable(context) && (context.positionManagementRequested === true
+    || isPositionManagementInstruction(context.instruction));
   const directAnswer = context.responseMode === "direct" || positionManagementRequested;
   return [
     context.language === "en" ? "Write all user-facing answer, summary and rationale fields in English. Keep JSON keys unchanged." : "",
@@ -243,6 +245,25 @@ export function buildPriceActionReport(snapshot, result, review, context = {}) {
   const levels = result.levels;
   const change = first.open ? ((latest.close - first.open) / first.open) * 100 : 0;
   const preferences = personalizedTradingSettings(context.userRiskProfile);
+  if (personalRiskUnavailable(context)) {
+    // Preserve the completed model review and real market levels, without
+    // inventing a default personal risk budget or a position-management plan.
+    return context.language === "en" ? [
+      `## ${snapshot.marketId} · ${snapshot.interval} · Market analysis`,
+      review.summary,
+      `Current price: ${formatPrice(levels.currentPrice)}. Support: ${formatPrice(levels.support)}; resistance: ${formatPrice(levels.resistance)}.`,
+      `Bullish confirmation above ${formatPrice(levels.longTrigger)}; bearish confirmation below ${formatPrice(levels.shortTrigger)}. These are market conditions, not executable personal instructions.`,
+      review.rationale,
+      `Data: ${candles.length} candles, ${formatTime(first.time)} to ${formatTime(latest.time)}.`,
+    ].filter(Boolean).join("\n\n") : [
+      `## ${snapshot.marketId} · ${intervalLabel(snapshot.interval)}盘面分析`,
+      `当前更接近**${trendLabel(result.trend)}**。${review.summary}`,
+      `现价 ${formatPrice(levels.currentPrice)}；支撑 ${formatPrice(levels.support)}，压力 ${formatPrice(levels.resistance)}。`,
+      `上破 ${formatPrice(levels.longTrigger)} 确认偏多，跌破 ${formatPrice(levels.shortTrigger)} 确认偏空；这些是盘面条件，尚未通过个人风险约束校验。`,
+      review.rationale ? `模型复核依据：${review.rationale}` : "",
+      `数据范围：${candles.length} 根 K 线，${formatTime(first.time)} 至 ${formatTime(latest.time)}。`,
+    ].filter(Boolean).join("\n\n");
+  }
   if (context.positionManagementRequested === true) {
     const answer = positionManagementAnswer(review, result, context.instruction, context.language)
       || String(review.summary || "").trim();
@@ -435,7 +456,7 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
     responseFormat: "json",
   };
   const reviewed = await runValidatedTradingModelReview({
-    modelRegistry: options.modelRegistry,
+    modelRegistry: personalRiskModelRegistry(options.modelRegistry, params),
     providerId,
     request: modelRequest,
     signal: options.signal,
@@ -471,7 +492,9 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
       snapshotId: snapshot.snapshotId,
       marketId: snapshot.marketId,
       interval: snapshot.interval,
-      narrative: directResponseRequested
+      narrative: personalRiskUnavailable(params)
+        ? modelReview.summary
+        : directResponseRequested
         ? positionManagementRequested
           ? positionManagementAnswer(modelReview, theoryResult, params?.instruction, params?.language)
           : (modelReview.answer || modelReview.summary)
@@ -501,13 +524,13 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
     !supportsBinanceAccountExecutionPlan(snapshot)
     || (!hasAccountContext && typeof params?.loadBinanceAccountContext !== "function")
   ) {
-    return result;
+    return withPersonalRiskNotice(result, params);
   }
 
   // Private account data is deliberately loaded only after the external model
   // review has completed. It is merged by the local deterministic plan builder
   // and is never included in the provider prompt above.
-  const binanceAccountContext = await loadBinanceAccountContext(params);
+  const binanceAccountContext = personalRiskUnavailable(params) ? null : await loadBinanceAccountContext(params);
   const executionPlan = buildExecutionPlanV1(GENERAL_PRICE_ACTION_EXECUTION_MANIFEST, result, {
     ...params,
     binanceAccountContext,
@@ -525,7 +548,7 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
         accountDecision,
       })
     : baseReport;
-  return {
+  return withPersonalRiskNotice({
     ...result,
     executionPlan,
     analysisPlan: {
@@ -541,5 +564,5 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
         ? targetedReport
         : `${executionReport}\n\n---\n\n${baseReport}`.trim(),
     },
-  };
+  }, params);
 }

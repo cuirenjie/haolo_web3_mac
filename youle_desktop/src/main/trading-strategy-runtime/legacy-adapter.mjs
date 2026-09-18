@@ -1,3 +1,6 @@
+import { personalRiskModelRegistry, personalRiskUnavailable, withPersonalRiskNotice } from "../trading-analysis/personal-risk-context.mjs";
+import { buildExecutionPlanV1 } from "./execution-plan-builder.mjs";
+
 export function createLegacyStrategyAdapter(config) {
   const id = String(config?.id || "").trim();
   if (!id) throw new TypeError("Legacy strategy adapter id is required");
@@ -25,8 +28,23 @@ export function createLegacyStrategyAdapter(config) {
       replacementMessage: String(config.replacementMessage || "A newer strategy analysis replaced this request"),
       routingReplacementMessage: String(config.routingReplacementMessage || "A newer strategy request classification replaced this request"),
     }),
-    run(params, options) {
-      return config.runPipeline(params, options);
+    async run(params, options = {}) {
+      const result = await config.runPipeline(params, {
+        ...options,
+        modelRegistry: personalRiskModelRegistry(options.modelRegistry, params),
+      });
+      if (!personalRiskUnavailable(params) || result?.ok === false || options.executionPlanManaged) return result;
+      // The legacy rollback route bypasses the coordinator, but must retain
+      // the same explicit execution gate as the normal route.
+      const executionPlan = buildExecutionPlanV1({ id, version: "1.0.0" }, result, params);
+      return withPersonalRiskNotice({
+        ...result,
+        executionPlan,
+        analysisPlan: {
+          ...result.analysisPlan,
+          executionPlan,
+        },
+      }, params);
     },
   });
 }

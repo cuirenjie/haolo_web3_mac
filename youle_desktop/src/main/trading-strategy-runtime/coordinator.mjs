@@ -1,6 +1,7 @@
 import { createStrategyResultEnvelope } from "./contracts.mjs";
 import { buildExecutionPlanV1, formatExecutionPlanMarkdown } from "./execution-plan-builder.mjs";
 import { containsHanCharacters } from "../assistant-output-language.mjs";
+import { personalRiskModelRegistry, personalRiskUnavailable, withPersonalRiskNotice } from "../trading-analysis/personal-risk-context.mjs";
 import {
   deterministicStrategyRequestRouting,
   explicitNoDrawingRequested,
@@ -187,14 +188,15 @@ export class TradingStrategyCoordinator {
       ...analysisParams
     } = params;
     const legacyResult = await adapter.run(analysisParams, {
-      modelRegistry: this.#modelRegistry,
+      modelRegistry: personalRiskModelRegistry(this.#modelRegistry, analysisParams),
+      executionPlanManaged: true,
       providerId: this.#providerId,
       signal,
     });
     const legacyAnalysisPlan = legacyResult.analysisPlan || {};
     const exposesExecutionPlan = strategy.manifest.capabilities.includes("execution-plan");
     let binanceAccountContext = providedBinanceAccountContext;
-    if (exposesExecutionPlan && typeof loadBinanceAccountContext === "function") {
+    if (exposesExecutionPlan && !personalRiskUnavailable(params) && typeof loadBinanceAccountContext === "function") {
       try {
         binanceAccountContext = await loadBinanceAccountContext();
       } catch {
@@ -231,6 +233,6 @@ export class TradingStrategyCoordinator {
         narrative: params?.language === "en" ? englishNarrative : legacyAnalysisPlan.narrative,
       },
     };
-    return createStrategyResultEnvelope(strategy.manifest, decoratedResult, executionPlan);
+    return withPersonalRiskNotice(createStrategyResultEnvelope(strategy.manifest, decoratedResult, executionPlan), params);
   }
 }

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { EXECUTION_PLAN_SCHEMA_VERSION, validateExecutionPlan } from "./contracts.mjs";
+import { personalRiskUnavailable, personalRiskUnavailableNotice } from "../trading-analysis/personal-risk-context.mjs";
 
 const DEFAULT_EXECUTION_LEVERAGE = 10;
 // Product default for the first executable take-profit target when the user
@@ -1019,6 +1020,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
   const theoryResult = legacyResult?.theoryResult || {};
   const actionPlan = analysisPlan.actionPlan || {};
   const riskPolicy = normalizeUserRiskProfile(params.userRiskProfile);
+  const riskProfileUnavailable = personalRiskUnavailable(params);
   // Lower explicit user values may relax the product default. Higher values
   // remain a final execution gate so the original strategy levels stay
   // visible for review instead of being replaced by synthetic distant exits.
@@ -1270,7 +1272,9 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     takeProfits: takeProfitsWithBasis,
     riskPolicy,
     estimatedRoundTripCostRate,
-    sizingBlockedReason: riskClarificationBlocked
+    sizingBlockedReason: riskProfileUnavailable
+      ? "个人风险约束暂不可读，暂停账户仓位测算"
+      : riskClarificationBlocked
       ? "止损百分比口径存在未澄清冲突，禁止生成账户仓位"
       : maxStopDistanceBlocked
         ? `策略有效止损距离 ${preferredStopDistancePercent.toFixed(2)}% 超过用户硬上限 ${riskPolicy.maxStopDistancePercent}%`
@@ -1433,6 +1437,28 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       ...(riskClarificationBlocked ? ["长期记忆中的止损百分比口径冲突尚未解决，本方案禁止执行且不提供账户仓位。"] : []),
     ],
   };
+  if (riskProfileUnavailable) {
+    const notice = personalRiskUnavailableNotice(params.language);
+    const guard = condition("personal-risk-unavailable", notice);
+    // Unreadable constraints must never be replaced with default sizing or
+    // executable scenarios. Market evidence and drawings remain available.
+    Object.assign(source, {
+      action: "no_trade",
+      executionBlocked: true,
+      marketAssessment: notice,
+      preconditions: [guard],
+      entry: { mode: "none", zone: null, trigger: [], confirmation: [] },
+      invalidation: { stop: null, reasons: [notice] },
+      takeProfits: [],
+      positionSizing: {
+        maxAccountRiskPercent: null, maxPositionPercent: null, maxLeverage: null,
+        minimumRiskRewardRatio: null, estimatedRoundTripCostRate,
+        formula: notice, suggestedQuantity: null, unavailableReason: notice,
+        accountStatus: accountExecution.accountStatus, accountPlan: null,
+      },
+      riskReward: [], scenarios: [], cancelConditions: [guard], warnings: [notice],
+    });
+  }
   source.planId = `plan-${planHash({ ...source, planId: undefined, createdAt: undefined })}`;
   return validateExecutionPlan(source);
 }
@@ -1684,6 +1710,11 @@ function formatExecutionPlanMarkdownEnglish(validated) {
 
 export function formatExecutionPlanMarkdown(plan, options = {}) {
   const validated = validateExecutionPlan(plan);
+  if (validated.preconditions.some((item) => item.id === "personal-risk-unavailable")) {
+    return options.language === "en"
+      ? "## Market observation\n\nPersonal risk validation is unavailable. No executable plan or position size is generated."
+      : "## 盘面观察\n\n个人风险约束暂不可读，本次不生成可执行计划或仓位数量。";
+  }
   if (options?.language === "en") return formatExecutionPlanMarkdownEnglish(validated);
   const bilateralScenarios = validated.preferredSide === "neutral"
     ? validated.scenarios.filter((item) => item.side === "long" || item.side === "short")
