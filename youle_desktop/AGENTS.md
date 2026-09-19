@@ -1,5 +1,12 @@
 # Haolo 项目持久上下文
 
+## Windows 客户端默认 EV 签名
+
+- 用户于 2026-09-19 明确要求：以后 Windows 客户端打包必须主动完成 EV 签名，不再交付未签名的发布包。使用 `haolo-desktop-release` 技能及 `docs/windows-ev-signing.zh-CN.md`。
+- 主程序、安装程序、卸载程序和自有 Chrome native host 使用 `scripts/sign-windows.cjs`；SHA-256、可信时间戳、Windows Authenticode、EV 证书策略及发布者指纹均须通过。保留 OpenAI 等第三方原签名。
+- 许可证仅从本机仓库外的 `~/.codex/secrets/haolo-evsign-license.json` 或 CI 的 `HAOLO_EVSIGN_LICENSE_KEY` 读取。禁止提交、输出或打包许可证；禁止用关闭签名的配置绕过缺失许可证、文件未审核或签名校验失败。
+- 版本遵循用户明确指定值；本次是重做 0.1.170 签名版。只请求打包不等于上传生产更新系统。
+
 涉及外部大模型、子 Agent、多模型路由、API Key 或 Tool Broker 的工作，开始前必须完整阅读：
 
 - `docs/external-model-agents-roadmap.md`

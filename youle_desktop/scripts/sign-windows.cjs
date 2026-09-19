@@ -1,0 +1,23 @@
+const { signFile } = require('./evsign-client.cjs');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const { verifyUnpacked } = require('./verify-windows-release.cjs');
+// electron-builder v26 custom signing hook; NSIS signs its uninstaller and
+// final installer here before generating the update blockmap.
+exports.default = async function signWindows(configuration, packager) {
+  if (configuration.hash !== 'sha256') throw new Error('Windows releases require SHA-256 signing');
+  if (/-Setup\.exe$/i.test(configuration.path)) {
+    // --prepackaged skips afterPack. Verify inner executables before signing
+    // an installer, so an old unsigned directory cannot become a release.
+    const unpacked = packager?.packagerOptions?.prepackaged || path.join(path.dirname(configuration.path), 'win-unpacked');
+    await verifyUnpacked(path.resolve(unpacked));
+  }
+  await signFile(configuration.path);
+  if (/-Setup\.__uninstaller\.exe$/i.test(configuration.path)) {
+    // NSIS deletes its temporary uninstaller after embedding it. Keep the
+    // exact signed bytes as release evidence for the final verification gate.
+    const evidence = path.join(path.dirname(configuration.path), 'ev-signing');
+    await fs.mkdir(evidence, { recursive: true });
+    await fs.copyFile(configuration.path, path.join(evidence, path.basename(configuration.path)));
+  }
+};

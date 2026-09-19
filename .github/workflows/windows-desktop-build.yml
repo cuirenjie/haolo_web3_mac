@@ -76,18 +76,30 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: pnpm --filter youle_desktop typecheck
+        run: pnpm --filter haolo_desktop typecheck
 
       - name: Build renderer
-        run: pnpm --filter youle_desktop build
+        run: pnpm --filter haolo_desktop build
 
-      - name: Package Windows installer
+      - name: Build Chrome native host
         if: ${{ github.event_name != 'pull_request' }}
-        run: pnpm --filter youle_desktop exec electron-builder --win nsis --x64
+        run: pnpm --filter haolo_desktop build:chrome-host
 
       - name: Package Windows unpacked app
-        if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_unpacked) }}
-        run: pnpm --filter youle_desktop exec electron-builder --win --x64 --dir
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          HAOLO_EVSIGN_LICENSE_KEY: ${{ secrets.HAOLO_EVSIGN_LICENSE_KEY }}
+        run: pnpm --filter haolo_desktop exec electron-builder --win --x64 --dir --publish never
+
+      - name: Package signed Windows installer
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          HAOLO_EVSIGN_LICENSE_KEY: ${{ secrets.HAOLO_EVSIGN_LICENSE_KEY }}
+        run: pnpm --filter haolo_desktop exec electron-builder --win nsis --x64 --prepackaged release/win-unpacked --publish never
+
+      - name: Verify release signatures
+        if: ${{ github.event_name != 'pull_request' }}
+        run: pnpm --filter haolo_desktop verify:win-signatures
 
       - name: Archive win-unpacked
         if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.upload_unpacked) }}
@@ -107,6 +119,7 @@ jobs:
           path: |
             youle_desktop/release/*-Setup.exe
             youle_desktop/release/*-Setup.exe.blockmap
+            youle_desktop/release/ev-signatures-*.json
           if-no-files-found: error
           retention-days: 14
 

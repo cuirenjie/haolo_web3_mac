@@ -33,6 +33,14 @@ function restoreWindowsIcon(context = {}) {
     return;
   }
 
+  if (context.packager) {
+    const signing = context.packager.platformSpecificBuildOptions;
+    if (signing.signAndEditExecutable === false || signing.signExecutable === false || !context.packager.forceCodeSigning) {
+      throw new Error("Windows packaging requires EV signing; unsigned overrides are not permitted.");
+    }
+    require("./evsign-client.cjs").loadCredentials();
+  }
+
   assertRequiredPackagedDependencies(context);
 
   const iconPath = path.join(packageRoot, "resources", "haolo-logo.ico");

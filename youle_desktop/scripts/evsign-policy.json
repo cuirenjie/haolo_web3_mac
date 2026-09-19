@@ -1,0 +1,6 @@
+{
+  "endpoint": "https://api.evsign.cn/v1",
+  "certificateThumbprint": "0742580B8EA12653FE3A1E906613268467BAD80A",
+  "publisherName": "NaisNet Technology Co., Ltd.",
+  "ownedExecutableNames": ["haolo_desktop.exe", "haolo-chrome-native-host.exe"]
+}
