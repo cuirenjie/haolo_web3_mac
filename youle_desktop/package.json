@@ -100,8 +100,9 @@
         "to": "bin/codex-runtime.json"
       },
       {
-        "from": "resources/bin/haolo-chrome-native-host.exe",
-        "to": "bin/haolo-chrome-native-host.exe"
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": ["haolo-chrome-native-host.exe"]
       },
       {
         "from": "resources/default-haolo-ai",

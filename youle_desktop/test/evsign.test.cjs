@@ -119,3 +119,31 @@ test('installed electron-builder accepts the configuration, resolves the hook an
   for (const name of ['haolo_desktop.exe', 'resources/bin/haolo-chrome-native-host.exe', 'haolo_desktop-0.1.170-Setup.exe', 'haolo_desktop-0.1.170-Setup.__uninstaller.exe']) assert.equal(shouldSign(name), true, name);
   for (const name of ['resources/bin/haolo_ai.exe', 'codex-command-runner.exe', 'codex-windows-sandbox-setup.exe']) assert.equal(shouldSign(name), false, name);
 });
+
+test('native host resource copy invokes the real builder signing transformer without changing source or vendor files', async t => {
+  const source = await fixture(t), target = await fixture(t);
+  await fs.unlink(target.file);
+  const nativeName = 'haolo-chrome-native-host.exe';
+  await fs.writeFile(path.join(source.root, nativeName), executable());
+  await fs.writeFile(path.join(source.root, 'haolo_ai.exe'), 'vendor signature');
+  const builderRequire = createRequire(require.resolve('electron-builder/package.json'));
+  const { WinPackager } = builderRequire('app-builder-lib');
+  const lib = path.dirname(builderRequire.resolve('app-builder-lib/package.json'));
+  const { FileMatcher, copyFiles } = require(path.join(lib, 'out/fileMatcher.js'));
+  const config = require('../package.json').build;
+  const resource = config.extraResources.find(entry => entry.filter?.includes(nativeName));
+  assert.ok(resource, 'Native host must use a directory filter; individual-file resources bypass signing');
+  const signed = [];
+  const packager = {
+    platformSpecificBuildOptions: config.win,
+    shouldSignFile: WinPackager.prototype.shouldSignFile,
+    signIf: async file => { signed.push(file); await fs.writeFile(file, executable(true)); },
+  };
+  const transformer = WinPackager.prototype.createTransformerForExtraFiles.call(packager, { appOutDir: target.root });
+  await copyFiles([new FileMatcher(source.root, target.root, value => value, resource.filter)], transformer);
+  assert.deepEqual(signed, [path.join(target.root, nativeName)]);
+  assert.deepEqual(await fs.readdir(target.root), [nativeName]);
+  assert.deepEqual(await fs.readFile(path.join(target.root, nativeName)), executable(true));
+  assert.deepEqual(await fs.readFile(path.join(source.root, nativeName)), executable());
+  assert.equal(await fs.readFile(path.join(source.root, 'haolo_ai.exe'), 'utf8'), 'vendor signature');
+});
