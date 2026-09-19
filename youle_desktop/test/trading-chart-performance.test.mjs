@@ -38,7 +38,7 @@ test('navigation overlay geometry does not synchronously measure DOM after label
   const chart = { options: () => ({ height: 800 }),
     timeScale: () => ({ width: () => 700, getVisibleLogicalRange: () => ({ from: 0, to: 1 }), timeToCoordinate: t => t * 500 }),
     panes: () => [{ getHeight: () => 600 }, { getHeight: () => 170 }] };
-  for (const [drawingScope, paneIndex, height] of [['main', 0, 800], ['indicator:volume', 1, 170]]) {
+  for (const [drawingScope, paneIndex, height] of [['main', 0, 600], ['indicator:volume', 1, 170]]) {
     const bounds = TradingDrawingController.prototype.plotBounds.call({ getChart: () => chart, chartElement: noLayout, drawingScope, paneIndex });
     assert.deepEqual(bounds, { width: 700, height });
   }

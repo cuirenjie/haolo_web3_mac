@@ -11,6 +11,7 @@ import {
   createSeriesMarkers,
 } from "lightweight-charts";
 import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
+import { TradingPriceFlash } from "./trading-price-flash.ts";
 import { TradingChartNavigation, TRADING_CHART_NAVIGATION_OPTIONS, captureManualTradingPriceRanges, restoreManualTradingPriceRanges } from "./trading-chart-navigation.ts";
 import {
   TRADING_INDICATORS,
@@ -793,6 +794,7 @@ export class TradingExpertSplitPane {
         if (!this.destroyed && !this.symbolMenu.hidden) this.symbolSearch.focus();
       });
     } else {
+      this.symbolPriceFlash.clear();
       this.symbolList.replaceChildren();
     }
   }
@@ -805,12 +807,15 @@ export class TradingExpertSplitPane {
     this.symbolMenu.style.maxHeight = `${availableHeight}px`;
   }
 
+  private readonly symbolPriceFlash = new TradingPriceFlash();
+
   private renderSymbolResults() {
     const markets = tradingSplitPaneMarketSearchResults(
       this.markets,
       this.symbolSearch.value,
       this.market.id,
     );
+    this.symbolPriceFlash.retain(markets.map(market => market.id));
     if (!markets.length) {
       this.symbolList.innerHTML = '<p class="trading-market-list-empty">未找到匹配品种</p>';
       return;
@@ -843,11 +848,14 @@ export class TradingExpertSplitPane {
             <span class="trading-market-contract-tag">${this.marketTag(market)}</span>
           </span>
           <span class="trading-market-row-venue" title="${escapeHtml(market.venue)}">${escapeHtml(market.venue)}</span>
-          <b>${priceText}</b>
+          <b data-split-price="${escapeHtml(market.id)}">${priceText}</b>
           <em class="${changeClass}">${changeText}</em>
         </div>
       `;
     }).join("");
+    this.symbolList.querySelectorAll<HTMLElement>("[data-split-price]").forEach(price => {
+      this.symbolPriceFlash.paint(price, price.dataset.splitPrice!, price.textContent || "--");
+    });
   }
 
   private setPeriodMenuOpen(open: boolean) {
@@ -1865,6 +1873,7 @@ export class TradingExpertSplitPane {
 
   destroy() {
     if (this.destroyed) return;
+    this.symbolPriceFlash.clear();
     this.destroyed = true;
     this.loadGeneration += 1;
     if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);

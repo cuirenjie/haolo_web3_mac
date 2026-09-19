@@ -9,6 +9,9 @@ export interface TradingFavoriteTickerSortOptions {
   onCommit: (orderedMarketIds: string[]) => void;
   itemSelector?: string;
   statusSelector?: string;
+  axis?: "x" | "y";
+  ghostClassName?: string;
+  onSettled?: () => void;
 }
 
 function clamp(value: number, minimum: number, maximum: number) {
@@ -26,6 +29,9 @@ export class TradingFavoriteTickerSortController {
   private readonly onCommit: (orderedMarketIds: string[]) => void;
   private readonly itemSelector: string;
   private readonly statusSelector: string;
+  private readonly axis: "x" | "y";
+  private readonly ghostClassName: string;
+  private readonly onSettled?: () => void;
   private pointerId: number | null = null;
   private sourceItem: HTMLElement | null = null;
   private ghost: HTMLElement | null = null;
@@ -45,6 +51,9 @@ export class TradingFavoriteTickerSortController {
     this.onCommit = options.onCommit;
     this.itemSelector = options.itemSelector || DEFAULT_ITEM_SELECTOR;
     this.statusSelector = options.statusSelector || DEFAULT_STATUS_SELECTOR;
+    this.axis = options.axis || "x";
+    this.ghostClassName = options.ghostClassName || "trading-market-favorite-ticker-drag-ghost";
+    this.onSettled = options.onSettled;
     this.host.addEventListener("pointerdown", this.handlePointerDown);
     this.host.addEventListener("pointermove", this.handlePointerMove);
     this.host.addEventListener("pointerup", this.handlePointerUp);
@@ -55,11 +64,18 @@ export class TradingFavoriteTickerSortController {
     );
     this.host.addEventListener("click", this.handleClickCapture, true);
     this.host.addEventListener("keydown", this.handleKeyDown);
+    this.host.ownerDocument?.addEventListener("keydown", this.handleGlobalKeyDown);
+    this.host.ownerDocument?.addEventListener("pointerup", this.handlePointerUp);
+    this.host.ownerDocument?.addEventListener("pointercancel", this.handlePointerCancel);
   }
 
   cancel() {
     if (this.pointerId === null) return;
     this.finish(false);
+  }
+
+  get isInteracting() {
+    return this.pointerId !== null;
   }
 
   destroy() {
@@ -75,6 +91,9 @@ export class TradingFavoriteTickerSortController {
     );
     this.host.removeEventListener("click", this.handleClickCapture, true);
     this.host.removeEventListener("keydown", this.handleKeyDown);
+    this.host.ownerDocument?.removeEventListener("keydown", this.handleGlobalKeyDown);
+    this.host.ownerDocument?.removeEventListener("pointerup", this.handlePointerUp);
+    this.host.ownerDocument?.removeEventListener("pointercancel", this.handlePointerCancel);
   }
 
   private items() {
@@ -129,7 +148,7 @@ export class TradingFavoriteTickerSortController {
     }
     event.preventDefault();
     this.positionGhost(event.clientX, event.clientY);
-    this.reorderAt(event.clientX);
+    this.reorderAt(this.axis === "y" ? event.clientY : event.clientX);
     this.startAutoScroll();
   };
 
@@ -156,16 +175,23 @@ export class TradingFavoriteTickerSortController {
   };
 
   private readonly handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && this.isInteracting) {
+      event.preventDefault();
+      this.cancel();
+      return;
+    }
+    const previousKey = this.axis === "y" ? "ArrowUp" : "ArrowLeft";
+    const nextKey = this.axis === "y" ? "ArrowDown" : "ArrowRight";
     if (
       !event.altKey ||
-      (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+      (event.key !== previousKey && event.key !== nextKey)
     )
       return;
     const item = this.itemFromEvent(event);
     if (!item || item.matches(":disabled")) return;
     const items = this.items();
     const currentIndex = items.indexOf(item);
-    const targetIndex = currentIndex + (event.key === "ArrowLeft" ? -1 : 1);
+    const targetIndex = currentIndex + (event.key === previousKey ? -1 : 1);
     if (currentIndex < 0 || targetIndex < 0 || targetIndex >= items.length)
       return;
     event.preventDefault();
@@ -178,8 +204,16 @@ export class TradingFavoriteTickerSortController {
     this.animateReorder(previousRects);
     this.syncItemPositions();
     this.onCommit(this.orderedMarketIds());
-    item.focus({ preventScroll: true });
+    const focusTarget = this.axis === "y" ? item.querySelector<HTMLElement>("button") || item : item;
+    focusTarget.focus({ preventScroll: true });
     this.announce(`${this.itemName(item)}已移动到第${targetIndex + 1}位`);
+  };
+
+  private readonly handleGlobalKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && this.isInteracting) {
+      event.preventDefault();
+      this.cancel();
+    }
   };
 
   private beginDrag() {
@@ -203,11 +237,14 @@ export class TradingFavoriteTickerSortController {
     ghost.removeAttribute("data-market-action");
     ghost.removeAttribute("data-market-id");
     ghost.removeAttribute("data-market-favorite-sort-item");
+    ghost.removeAttribute("data-watchlist-sort-item");
+    ghost.removeAttribute("data-watchlist-row");
     ghost.removeAttribute("aria-current");
     ghost.removeAttribute("aria-busy");
     ghost.removeAttribute("aria-grabbed");
     ghost.classList.remove("sorting", "selected");
-    ghost.classList.add("trading-market-favorite-ticker-drag-ghost");
+    ghost.classList.add(this.ghostClassName);
+    if (this.axis === "y") ghost.classList.add("trading-watchlist");
     ghost.setAttribute("aria-hidden", "true");
     ghost.setAttribute("tabindex", "-1");
     const sourceElements = [item, ...item.querySelectorAll<HTMLElement>("*")];
@@ -219,7 +256,7 @@ export class TradingFavoriteTickerSortController {
       target.style.color = computed.color;
       if (index === 0) {
         const solidBackground = computed
-          .getPropertyValue("--trading-market-selected-background")
+          .getPropertyValue(this.axis === "y" ? "--surface-primary" : "--trading-market-selected-background")
           .trim() || "#fff";
         target.style.setProperty("background-color", solidBackground, "important");
         target.style.setProperty("opacity", "1", "important");
@@ -242,7 +279,7 @@ export class TradingFavoriteTickerSortController {
     this.ghost.style.top = `${clientY - this.pointerOffsetY}px`;
   }
 
-  private reorderAt(clientX: number) {
+  private reorderAt(clientPosition: number) {
     if (!this.sourceItem) return;
     const items = this.items();
     const previousRects = this.itemRects(items);
@@ -250,9 +287,9 @@ export class TradingFavoriteTickerSortController {
       items.find(
         (item) =>
           item !== this.sourceItem &&
-          clientX <
-            item.getBoundingClientRect().left +
-              item.getBoundingClientRect().width / 2,
+          clientPosition < (this.axis === "y"
+            ? item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2
+            : item.getBoundingClientRect().left + item.getBoundingClientRect().width / 2),
       ) ?? null;
     if (before === this.sourceItem.nextElementSibling) return;
     if (!before && this.sourceItem === items.at(-1)) return;
@@ -273,12 +310,12 @@ export class TradingFavoriteTickerSortController {
     previousRects.forEach((previousRect, item) => {
       if (item === this.sourceItem) return;
       const currentRect = item.getBoundingClientRect();
-      const offsetX = previousRect.left - currentRect.left;
-      if (!offsetX) return;
+      const offset = this.axis === "y" ? previousRect.top - currentRect.top : previousRect.left - currentRect.left;
+      if (!offset) return;
       item.animate(
         [
-          { transform: `translateX(${offsetX}px)` },
-          { transform: "translateX(0)" },
+          { transform: `translate${this.axis.toUpperCase()}(${offset}px)` },
+          { transform: `translate${this.axis.toUpperCase()}(0)` },
         ],
         { duration: 150, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
       );
@@ -291,25 +328,31 @@ export class TradingFavoriteTickerSortController {
       return;
     }
     const rect = this.host.getBoundingClientRect();
-    const edge = Math.min(AUTO_SCROLL_EDGE_PX, rect.width / 4);
+    const vertical = this.axis === "y";
+    const start = vertical ? rect.top : rect.left;
+    const end = vertical ? rect.bottom : rect.right;
+    const position = vertical ? this.lastClientY : this.lastClientX;
+    const edge = Math.min(AUTO_SCROLL_EDGE_PX, (vertical ? rect.height : rect.width) / 4);
     let step = 0;
-    if (this.lastClientX < rect.left + edge) {
+    if (position < start + edge) {
       step =
         -AUTO_SCROLL_MAX_STEP_PX *
-        clamp((rect.left + edge - this.lastClientX) / edge, 0, 1);
-    } else if (this.lastClientX > rect.right - edge) {
+        clamp((start + edge - position) / edge, 0, 1);
+    } else if (position > end - edge) {
       step =
         AUTO_SCROLL_MAX_STEP_PX *
-        clamp((this.lastClientX - (rect.right - edge)) / edge, 0, 1);
+        clamp((position - (end - edge)) / edge, 0, 1);
     }
     const maxScrollLeft = Math.max(
       0,
-      this.host.scrollWidth - this.host.clientWidth,
+      vertical ? this.host.scrollHeight - this.host.clientHeight : this.host.scrollWidth - this.host.clientWidth,
     );
-    const nextScrollLeft = clamp(this.host.scrollLeft + step, 0, maxScrollLeft);
-    if (step && nextScrollLeft !== this.host.scrollLeft) {
-      this.host.scrollLeft = nextScrollLeft;
-      this.reorderAt(this.lastClientX);
+    const scrollPosition = vertical ? this.host.scrollTop : this.host.scrollLeft;
+    const nextScrollLeft = clamp(scrollPosition + step, 0, maxScrollLeft);
+    if (step && nextScrollLeft !== scrollPosition) {
+      if (vertical) this.host.scrollTop = nextScrollLeft;
+      else this.host.scrollLeft = nextScrollLeft;
+      this.reorderAt(position);
     }
     this.autoScrollFrame = window.requestAnimationFrame(() =>
       this.autoScrollStep(),
@@ -374,6 +417,7 @@ export class TradingFavoriteTickerSortController {
         this.suppressNextClick = false;
       }, 0);
     }
+    this.onSettled?.();
   }
 
   private syncItemPositions() {
@@ -385,7 +429,7 @@ export class TradingFavoriteTickerSortController {
   }
 
   private itemName(item: HTMLElement) {
-    return item.querySelector("strong")?.textContent?.trim() || "交易对";
+    return item.querySelector("strong, .trading-watchlist-pair > span")?.textContent?.trim() || "交易对";
   }
 
   private announce(message: string) {
