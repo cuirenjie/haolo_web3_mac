@@ -42,6 +42,7 @@ import {
   executionPlanHasStructuredTradingFields,
   executionPlanSignedNumberSegments,
   executionPlanCandidatesFromText,
+  executionPlanCandidateWithSourceText,
   executionPlanTextPartitions,
   loadMessageExecutionPlanFontSize,
   loadExecutionPlans,
@@ -38886,7 +38887,6 @@ function executionPlanBinanceIdentity(plan: SavedExecutionPlan) {
   return executionPlanBinanceMarketDetails({
     title: executionPlanCardTitle({
       fallbackTitle: plan.title,
-      analysisLabel: tradingLastAnalysisLabelForThread(plan.sourceThreadId),
       sourceTitle: plan.sourceTitle,
       sourceText: plan.content,
       language: state.settings.language,
@@ -39086,7 +39086,6 @@ async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan) {
     ...(plan.linkedAlertId ? { alertId: plan.linkedAlertId } : {}),
     title: executionPlanCardTitle({
       fallbackTitle: plan.title,
-      analysisLabel: tradingLastAnalysisLabelForThread(plan.sourceThreadId),
       sourceTitle: plan.sourceTitle,
       sourceText: plan.content,
       language: state.settings.language,
@@ -39187,20 +39186,15 @@ function renderMessageExecutionPlan(
   ) {
     return null;
   }
-  const sourceThread = state.threads.find((thread) => thread.id === message.conversation_id);
-  const titleContext = {
-    analysisLabel: tradingLastAnalysisLabelForThread(message.conversation_id),
-    sourceTitle: sourceThread?.name,
-    sourceText: text,
-  };
   const before = partitions.before
     ? `<div class="message-execution-plan-context before">${formatMessageText(partitions.before, options)}</div>`
     : "";
-  const cards = partitions.candidates.map((candidate, candidateIndex) => {
+  const cards = partitions.candidates.map((rawCandidate, candidateIndex) => {
+    const candidate = executionPlanCandidateWithSourceText(rawCandidate, text);
     const key = executionPlanCandidateKey(message.conversation_id, message.id, candidateIndex);
     executionPlanCandidatesBySource.set(key, candidate);
     const fontSize = loadMessageExecutionPlanFontSize(key);
-    const title = executionPlanCardTitle({ fallbackTitle: candidate.title, ...titleContext, language: state.settings.language });
+    const title = executionPlanCardTitle({ fallbackTitle: candidate.title, language: state.settings.language });
     return `<section
       class="message-execution-plan"
       aria-label="${escapeAttr(title)}"
@@ -39283,7 +39277,6 @@ function renderExecutionPlanCard(plan: SavedExecutionPlan) {
   const status = executionPlanStatusMeta(plan);
   const title = executionPlanCardTitle({
     fallbackTitle: plan.title,
-    analysisLabel: tradingLastAnalysisLabelForThread(plan.sourceThreadId),
     sourceTitle: plan.sourceTitle,
     sourceText: plan.content,
     language: state.settings.language,
@@ -39378,7 +39371,6 @@ async function updateExecutionPlanLifecycle(
       void api.notifyExecutionPlanStatusChanged?.({
         title: executionPlanCardTitle({
           fallbackTitle: updated.title,
-          analysisLabel: tradingLastAnalysisLabelForThread(updated.sourceThreadId),
           sourceTitle: updated.sourceTitle,
           sourceText: updated.content,
           language: state.settings.language,
@@ -52792,7 +52784,8 @@ function renderAddToPlanAction(message: Message, text: string) {
       presentation === "execution-plan"
       || executionPlanHasStructuredTradingFields(candidate)
     ))
-    .filter((candidate) => executionPlanHasConcreteTradingPlan(candidate));
+    .filter((candidate) => executionPlanHasConcreteTradingPlan(candidate))
+    .map((candidate) => executionPlanCandidateWithSourceText(candidate, text));
   if (!candidates.length) return "";
   syncExecutionPlansForCurrentAccount();
   const buttons = candidates.map((candidate, candidateIndex) => {
@@ -66562,14 +66555,12 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
     showToast("暂时无法读取这条执行计划，请刷新后重试");
     return;
   }
-  const sourceThread = state.threads.find((thread) => thread.id === sourceThreadId);
   let plan = createSavedExecutionPlan({
     candidate,
     sourceThreadId,
     sourceMessageId,
     sourcePlanKey,
-    sourceTitle: sourceThread ? threadListDisplayName(sourceThread) : "来自智能体",
-    analysisLabel: tradingLastAnalysisLabelForThread(sourceThreadId),
+    sourceTitle: candidate.title,
     language: state.settings.language,
   });
   button.disabled = true;
@@ -66660,11 +66651,8 @@ async function createExecutionPlanStickyFromMessageCard(card: HTMLElement) {
   if (!api.createExecutionPlanSticky) {
     throw new Error("当前版本暂不支持桌面便利贴");
   }
-  const sourceThread = state.threads.find((thread) => thread.id === source.sourceThreadId);
   const title = executionPlanCardTitle({
     fallbackTitle: candidate.title,
-    analysisLabel: tradingLastAnalysisLabelForThread(source.sourceThreadId),
-    sourceTitle: sourceThread?.name,
     sourceText: candidate.content,
     language: state.settings.language,
   });

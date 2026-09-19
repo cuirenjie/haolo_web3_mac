@@ -744,7 +744,8 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(planEventBlock, /root\.addEventListener\("keydown"[\s\S]*event\.key !== "Escape"/);
   assert.doesNotMatch(renderer, /querySelectorAll<HTMLButtonElement>\("\[data-execution-plan-action\]"\)/);
   assert.match(planCardBlock, /renderExecutionPlanCardContent\(plan\.content\)/);
-  assert.match(planCardBlock, /executionPlanCardTitle\([\s\S]*tradingLastAnalysisLabelForThread\(plan\.sourceThreadId\)/);
+  assert.match(planCardBlock, /executionPlanCardTitle\([\s\S]*fallbackTitle: plan\.title/);
+  assert.doesNotMatch(planCardBlock, /tradingLastAnalysisLabelForThread/);
   assert.doesNotMatch(planCardBlock, /execution-plan-card-mark|<svg/);
   assert.match(planCardContentBlock, /<span class="execution-plan-card-label">/);
   assert.match(planCardContentBlock, /executionPlanDirectionTone\(line\.label, line\.text\)/);
@@ -761,7 +762,8 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
     (renderer.match(/result\.report,\s*undefined,\s*undefined,\s*request\.positionManagementRequested === true \? "plain" : "execution-plan"/g) || []).length,
     2,
   );
-  assert.match(messagePlanBlock, /executionPlanCardTitle\([\s\S]*titleContext/);
+  assert.match(messagePlanBlock, /executionPlanCandidateWithSourceText\(rawCandidate, text\)/);
+  assert.doesNotMatch(messagePlanBlock, /tradingLastAnalysisLabelForThread|state\.threads/);
   assert.match(messagePlanBlock, /class="message-execution-plan"/);
   assert.match(messagePlanBlock, /partitions\.candidates\.map\([\s\S]*renderExecutionPlanCardContent\(candidate\.content\)/);
   assert.match(messagePlanBlock, /data-message-execution-plan-action="increase"[\s\S]*>放大</);

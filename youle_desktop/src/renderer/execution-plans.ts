@@ -121,14 +121,18 @@ export function executionPlanBinanceMarketDetails(input: {
     .map((value) => String(value || "").trim().toUpperCase())
     .filter(Boolean);
   const combined = sources.join("\n");
-  const marketIdMatch = combined.match(/BINANCE\s*:\s*FUTURES\s*:\s*([A-Z0-9_\p{Script=Han}]{2,40})(?![A-Z0-9_\p{Script=Han}])/u);
-  const slashMatch = combined.match(/([A-Z0-9_\p{Script=Han}]{1,32})\s*\/\s*(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
-  const compactMatch = combined.match(/([A-Z0-9_\p{Script=Han}]{2,40})(?:(?:\s+币安)?(?:永续|合约)|\s+BINANCE\s+PERPETUAL)(?![A-Z0-9_\p{Script=Han}])/u);
-  const symbol = normalizedBinanceSymbol(
-    marketIdMatch?.[1]
-      || (slashMatch ? `${slashMatch[1]}${slashMatch[2]}` : "")
-      || compactMatch?.[1],
-  );
+  let symbol: string | null = null;
+  for (const source of sources) {
+    const marketIdMatch = source.match(/BINANCE\s*:\s*FUTURES\s*:\s*([A-Z0-9_\p{Script=Han}]{2,40})(?![A-Z0-9_\p{Script=Han}])/u);
+    const slashMatch = source.match(/([A-Z0-9_\p{Script=Han}]{1,32})\s*\/\s*(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
+    const compactMatch = source.match(/([A-Z0-9_\p{Script=Han}]{2,40})(?:(?:\s+币安)?(?:永续|合约)|\s+BINANCE\s+PERPETUAL)(?![A-Z0-9_\p{Script=Han}])/u);
+    symbol = normalizedBinanceSymbol(
+      marketIdMatch?.[1]
+        || (slashMatch ? `${slashMatch[1]}${slashMatch[2]}` : "")
+        || compactMatch?.[1],
+    );
+    if (symbol && /(?:USDT|USDC|BUSD)$/.test(symbol)) break;
+  }
   const directionLine = String(input.content || "")
     .split(/\r?\n/)
     .map((line) => line.replace(/^\s*(?:[-*+•▪◦]\s+|\d+[.)、]\s*)/, "").trim())
@@ -198,24 +202,19 @@ export function executionPlanSignedNumberSegments(value: unknown): ExecutionPlan
   return segments.length ? segments : [{ text, tone: "" }];
 }
 
-export function executionPlanCardTitle(input: {
-  fallbackTitle?: unknown;
-  analysisLabel?: unknown;
-  sourceTitle?: unknown;
-  sourceText?: unknown;
-  language?: unknown;
-}) {
-  const sources = [input.fallbackTitle, input.analysisLabel, input.sourceTitle, input.sourceText]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-  const combined = sources.join("\n").toUpperCase();
+function executionPlanMarketContext(value: unknown) {
+  const source = String(value || "").trim().toUpperCase();
+  if (!source) return null;
   let baseAsset = "";
   let quoteAsset = "USDT";
-  const calendarHeading = String(input.fallbackTitle || "").match(/\/(?:USDT|USDC|BUSD)\s+(?:币安永续|BINANCE PERPETUAL)\s+(\d+)(MO|Y)(?:\s|$)/iu);
-  let interval = calendarHeading ? `${Number(calendarHeading[1])}${calendarHeading[2].toUpperCase()}` : "";
+  let interval = "";
 
-  const marketIdMatch = combined.match(/BINANCE:FUTURES:([A-Z0-9_\p{Script=Han}]+?)(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
-  const slashMatch = combined.match(/([A-Z0-9_\p{Script=Han}]{1,32})\/(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
+  // A complete card heading is authoritative, including when the surrounding
+  // report discusses other markets, execution timeframes or holding periods.
+  const headingMatch = source.match(/([A-Z0-9_\p{Script=Han}]{1,32})\/(USDT|USDC|BUSD)\s+(?:币安永续|BINANCE PERPETUAL)\s+(\d+)(MO|Y|[MHDW])\b/u);
+  if (headingMatch) return { baseAsset: headingMatch[1], quoteAsset: headingMatch[2], interval: `${Number(headingMatch[3])}${headingMatch[4]}` };
+  const marketIdMatch = source.match(/BINANCE:FUTURES:([A-Z0-9_\p{Script=Han}]+?)(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
+  const slashMatch = source.match(/([A-Z0-9_\p{Script=Han}]{1,32})\/(USDT|USDC|BUSD)(?![A-Z0-9_\p{Script=Han}])/u);
   if (marketIdMatch) {
     baseAsset = marketIdMatch[1];
     quoteAsset = marketIdMatch[2];
@@ -224,21 +223,18 @@ export function executionPlanCardTitle(input: {
     quoteAsset = slashMatch[2];
   }
 
-  for (const source of sources) {
-    if (interval) break;
-    const compactMatch = source.toUpperCase().match(/(?:^|[^A-Z0-9_\p{Script=Han}])([A-Z0-9_\p{Script=Han}]{1,32}?)(\d+)(MO|Y|[MHDW])(?:[^A-Z0-9_\p{Script=Han}]|$)/u);
-    if (!compactMatch || !/[A-Z\p{Script=Han}]/u.test(compactMatch[1])) continue;
+  const compactMatch = source.match(/(?:^|[^A-Z0-9_\p{Script=Han}])([A-Z0-9_\p{Script=Han}]{1,32}?)(\d+)(MO|Y|[MHDW])(?:[^A-Z0-9_\p{Script=Han}]|$)/u);
+  if (compactMatch && /[A-Z\p{Script=Han}]/u.test(compactMatch[1]) && !baseAsset) {
     const compactBase = compactMatch[1];
     const compactQuoteMatch = compactBase.match(/^(.*?)(USDT|USDC|BUSD)$/);
-    if (!baseAsset) baseAsset = compactQuoteMatch?.[1] || compactBase;
+    baseAsset = compactQuoteMatch?.[1] || compactBase;
     if (compactQuoteMatch) quoteAsset = compactQuoteMatch[2];
     interval = `${Number(compactMatch[2])}${compactMatch[3]}`;
-    break;
   }
 
   if (!interval) {
-    const chineseInterval = combined.match(/(?:^|[^0-9])(\d+)\s*(分钟|小时|日|天|周)/u);
-    const standardInterval = combined.match(/(?:^|[^A-Z0-9])(\d+)\s*(MO|Y|[MHDW])(?:[^A-Z0-9]|$)/);
+    const chineseInterval = source.match(/(?:^|[^0-9])(\d+)\s*(分钟|小时|日|天|周)/u);
+    const standardInterval = source.match(/(?:^|[^A-Z0-9])(\d+)\s*(MO|Y|[MHDW])(?:[^A-Z0-9]|$)/);
     if (chineseInterval) {
       const unit = chineseInterval[2] === "分钟"
         ? "M"
@@ -252,14 +248,30 @@ export function executionPlanCardTitle(input: {
       interval = `${Number(standardInterval[1])}${standardInterval[2]}`;
     }
   }
+  return baseAsset && interval ? { baseAsset, quoteAsset, interval } : null;
+}
 
+export function executionPlanCardTitle(input: {
+  fallbackTitle?: unknown;
+  analysisLabel?: unknown;
+  sourceTitle?: unknown;
+  sourceText?: unknown;
+  language?: unknown;
+}) {
+  // Resolve each source independently. Joining them lets a later compact label
+  // replace the period of an earlier heading (or even pair two different markets).
+  let context: ReturnType<typeof executionPlanMarketContext> = null;
+  for (const source of [input.fallbackTitle, input.sourceText, input.analysisLabel, input.sourceTitle]) {
+    context = executionPlanMarketContext(source);
+    if (context) break;
+  }
   const english = input.language === "en";
   const cleanedFallbackTitle = cleanExecutionPlanDisplayText(input.fallbackTitle).slice(0, 120);
   const safeFallbackTitle = english && /[\u3400-\u9fff]/u.test(cleanedFallbackTitle)
     ? "Execution plan"
     : cleanedFallbackTitle;
-  const baseTitle = baseAsset && interval
-    ? `${baseAsset}/${quoteAsset} ${english ? "Binance Perpetual" : "币安永续"} ${interval}`
+  const baseTitle = context
+    ? `${context.baseAsset}/${context.quoteAsset} ${english ? "Binance Perpetual" : "币安永续"} ${context.interval}`
     : safeFallbackTitle || (english ? "Execution plan" : "执行计划");
   const fallback = String(input.fallbackTitle || "");
   const sideSuffix = fallback.match(/(?:·|-)\s*(多头|空头)条件方案/u)?.[1]
@@ -273,6 +285,14 @@ export function executionPlanCardTitle(input: {
     return `${baseTitle} · ${localizedSideSuffix}`;
   }
   return baseTitle;
+}
+
+/** Bind all card actions to this message's original report, never the live thread. */
+export function executionPlanCandidateWithSourceText(candidate: ExecutionPlanCandidate, sourceText: string): ExecutionPlanCandidate {
+  return {
+    ...candidate,
+    title: executionPlanCardTitle({ fallbackTitle: candidate.title, sourceText }),
+  };
 }
 
 export function executionPlanDisplayLines(value: unknown): ExecutionPlanDisplayLine[] {
