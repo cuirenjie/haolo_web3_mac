@@ -18,7 +18,7 @@ function connection(t, streams) {
     },
   });
   const socket = Object.assign(new EventEmitter(), {
-    readyState: 1, bufferedAmount: 600_000, sent: [],
+    readyState: 1, bufferedAmount: 600_000, extensions: "", sent: [],
     send(frame) { this.sent.push(JSON.parse(frame)); },
     close(code) { this.closeCode = code; this.readyState = 3; this.emit("close"); },
   });

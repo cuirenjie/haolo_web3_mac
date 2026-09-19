@@ -100,7 +100,7 @@ test("desktop updates preserve the server mandatory-update decision", async () =
     "function normalizeAppUpdateDownload",
   );
 
-  assert.match(checkBlock, /state\.settings\.update\.result = result/);
+  assert.match(checkBlock, /update\.result = result/);
   assert.doesNotMatch(checkBlock, /force_update: true/);
   assert.match(downloadBlock, /if \(!state\.settings\.update\.result\?\.force_update\)/);
   assert.match(dialogBlock, /const force = Boolean\(result\?\.force_update\)/);

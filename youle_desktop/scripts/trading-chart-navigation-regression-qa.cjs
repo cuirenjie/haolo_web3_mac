@@ -117,10 +117,10 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
         const expectedY = await js('workspace.chart.panes()[0].getHeight()*workspace.chart.priceScale("right").options().scaleMargins.top');
         assert.ok(Number.isFinite(actualY) && Math.abs(actualY - expectedY) < 20, JSON.stringify({ theme, subject, center, amplitude, target, actualY, expectedY, boxed }));
         assert.equal(boxed.mode, 1); assert.equal(boxed.auto, false);
-        // Native Auto must use the original providers again, after repeated zooms.
+        // Reset fits through the original providers, then respects the saved Auto preference.
         await js('workspace.chartNavigation.reset()'); await pause(100);
         const reset = await snapshot();
-        assert.equal(reset.auto, true); assert.ok(Math.abs(reset.y - before.y) < 2, JSON.stringify({ theme, subject, center, amplitude, before, reset }));
+        assert.equal(reset.auto, await js("(workspace.chartSettings || workspace.settings).autoScale")); assert.ok(Math.abs(reset.y - before.y) < 2, JSON.stringify({ theme, subject, center, amplitude, before, reset }));
         report.logarithmic.push({ theme, subject, center, amplitude, before, wheel, actualY, expectedY, reset });
         if (center === 100000 && amplitude === .1) await fs.promises.writeFile(path.join(output, `${theme}-${subject}-log-fixed.png`), (await win.webContents.capturePage()).toPNG());
       }

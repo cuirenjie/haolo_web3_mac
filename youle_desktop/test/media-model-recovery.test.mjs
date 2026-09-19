@@ -70,7 +70,7 @@ test("production host send policy and media guard agree, including legacy mode a
   const selectionDeps = { migrateDeepSeekModelSelection, migrateRetiredModelSelection, firstString,
     canonicalExecutionModelProvider: value => value, DEEPSEEK_EXECUTION_PROVIDER_ID: "deepseek", DEEPSEEK_EXECUTION_MODEL: "deepseek-flash" };
   const executionProviderSelection = new Function(...Object.keys(selectionDeps), `${functions(main, ["executionProviderSelection"])}; return executionProviderSelection;`)(...Object.values(selectionDeps));
-  const deps = { withAnalysisModelRecoveryPolicy, getAnalysisModelRecoveryStore: () => ({ snapshot: () => recovery }),
+  const deps = { firstString, ANALYSIS_PRIMARY_MODEL: "gpt-5.6-sol", withAnalysisModelRecoveryPolicy, getAnalysisModelRecoveryStore: () => ({ snapshot: () => recovery }),
     executionProviderSelection, normalizeConversationMode, IMAGE_GENERATION_CONVERSATION_MODE, VIDEO_GENERATION_CONVERSATION_MODE };
   const send = block(main, "  params = withAnalysisModelRecoveryPolicy", "  if (!executionSelection.isDeepSeek)", main.indexOf('ipcMain.handle("codex:sendMessage"'));
   const select = new Function(...Object.keys(deps), `return params => { ${send}; return executionSelection; };`)(...Object.values(deps));

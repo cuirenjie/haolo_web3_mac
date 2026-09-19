@@ -10,6 +10,7 @@ export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "盘面分析已完成；个人风险约束暂不可读，执行计划已暂停。": "Market analysis is complete; personal risk constraints are temporarily unavailable, so the execution plan is paused.",
   "媒体任务自动恢复仍未完成。任务记录已保留，请稍后重试。": "Automatic recovery of the media task did not complete. Your task history has been kept. Please try again later.",
   "媒体任务模型暂时不可用，稍后将使用原 GPT 模型继续当前任务。": "The media task model is temporarily unavailable. The current task will resume with its original GPT model shortly.",
   "媒体任务执行异常，正在使用原 GPT 模型继续处理。": "The media task encountered an error. Continuing with its original GPT model.",

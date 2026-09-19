@@ -172,7 +172,10 @@ test("truncated HTTP errors preserve status and Retry-After without hiding authe
   }
 });
 
-test("standalone service deadline and cancellation also cover uncooperative body streams", { timeout: 3_000 }, async () => {
+test("standalone service deadline and cancellation also cover uncooperative body streams", { timeout: 3_000 }, async (t) => {
+  // The fake stream owns no socket; keep Node alive for the production unref timer.
+  const keepAlive = setInterval(() => {}, 100);
+  t.after(() => clearInterval(keepAlive));
   for (const cancelled of [false, true]) {
     let bodyCancelled = false;
     const caller = new AbortController();

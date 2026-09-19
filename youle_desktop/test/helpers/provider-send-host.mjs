@@ -38,7 +38,7 @@ export function createProviderSendHost({ request, client = {}, cwd = "workspace"
     withAnalysisModelRecoveryPolicy: (params, value) => withAnalysisModelRecoveryPolicy(params, value, now),
     getAnalysisModelRecoveryStore: () => ({ snapshot: () => state, activate: noop }),
     normalizeConversationMode: () => "execution", IMAGE_GENERATION_CONVERSATION_MODE: "image", VIDEO_GENERATION_CONVERSATION_MODE: "video",
-    adaptiveReasoningEffortForTask: () => "high", turnAutoRecoveryCoordinator: { noteUserTurn: noop },
+    adaptiveReasoningEffortForTask: () => "high", turnAutoRecoveryCoordinator: { noteUserTurn: noop, setRecoverySelection: noop },
     videoGenerationInstructionOptions: () => ({}),
     beginTurnDiagnostic: () => ({ diagnosticId: "test", requestedAtMs: Date.now() }),
     acquireSerializedThreadSettingsOperation: async () => noop,

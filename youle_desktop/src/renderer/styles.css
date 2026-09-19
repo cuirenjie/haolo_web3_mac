@@ -37183,7 +37183,7 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
   color: var(--trading-market-text);
   cursor: pointer;
 }
-.trading-chart-navigation-controls button { width: 28px; height: 26px; font-size: 16px; }
+.trading-chart-navigation-controls button { width: 28px; height: 26px; font-size: calc(16px + var(--app-font-size-offset)); }
 .trading-chart-navigation-controls button[data-navigation-action="lock-vertical"] { display: grid; place-items: center; }
 .trading-chart-navigation-controls button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .trading-chart-navigation-controls button:hover,
@@ -37214,7 +37214,7 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
   color: var(--trading-market-text);
   box-shadow: 0 8px 24px color-mix(in srgb, var(--trading-market-text) 16%, transparent);
 }
-.trading-chart-navigation-menu button { padding: 8px 12px; text-align: left; font-size: 12px; }
+.trading-chart-navigation-menu button { padding: 8px 12px; text-align: left; font-size: calc(12px + var(--app-font-size-offset)); }
 .trading-chart-navigation-menu button[aria-checked="true"] { color: var(--trading-market-accent); background: var(--trading-market-accent-soft); }
 .trading-market-chart-grid.trading-chart-has-expanded { position: relative; }
 .trading-market-chart-grid.trading-chart-has-expanded > :not(.trading-chart-expanded) { visibility: hidden; pointer-events: none; }

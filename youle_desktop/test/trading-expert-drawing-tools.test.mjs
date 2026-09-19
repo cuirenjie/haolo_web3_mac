@@ -1631,7 +1631,7 @@ test("English strategy reports keep their structured execution plan", async () =
   const market = await marketSource;
   assert.match(
     market,
-    /const questionLead = request\.positionManagementRequested === true \|\| activeTradingAnalysisLanguage\(\) === "en"\s*\n\s*\? ""/,
+    /const questionLead = response\.personalRiskStatus === "unavailable" \|\| request\.positionManagementRequested === true \|\| activeTradingAnalysisLanguage\(\) === "en"\s*\n\s*\? ""/,
   );
   assert.match(
     market,

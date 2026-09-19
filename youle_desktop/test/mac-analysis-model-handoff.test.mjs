@@ -1,3 +1,5 @@
+import { assertThreadProvider } from "../src/main/thread-provider-switch.mjs";
+import { createProviderSendHost } from "./helpers/provider-send-host.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -8,16 +10,19 @@ import { createAppServerTradingAnalysisProvider } from "../src/main/trading-anal
 const main = readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 const recoverySource = main.slice(main.indexOf("async function runWorkflowCodexNodeTurnWithRecovery("), main.indexOf("function scheduleWorkflowInternalCodexCleanup("));
 const invokeSource = main.slice(main.indexOf("async function invokeTradingAnalysisAppServer("), main.indexOf("async function notifyTradingAlertTriggered("));
+const providerHelpers = createProviderSendHost({ request: async () => ({}) });
 const request = { task: "wave-theory-review", requestId: "review", snapshotId: "frozen", prompt: "Frozen market facts" };
 
 function harness(firstResult, { timeout = false, alwaysFail = false } = {}) {
   const starts = [], turns = [], captures = [], cleaned = [], waits = [], events = [];
   const deps = {
+    assertThreadProvider, executionProviderSelection: providerHelpers.executionProviderSelection,
+    threadModelProviderFromResumeResult: providerHelpers.threadModelProviderFromResumeResult,
     desktopWorkspace: () => "fixture-workspace", getClientForCwd: () => ({}), tradingAnalysisTurnPolicy,
     requestWorkflowInternalThreadStart: async (_client, params) => {
       const id = `review-${starts.length + 1}`;
       starts.push(params); events.push(`start:${id}`);
-      return { thread: { id } };
+      return { thread: { id }, modelProvider: params.modelProvider || "haolo_ai" };
     },
     threadConfigurationParams: (params, extra) => ({ ...params, ...extra }),
     rememberThreadClient() {}, tradingAnalysisAbortError: () => new DOMException("Cancelled", "AbortError"),
