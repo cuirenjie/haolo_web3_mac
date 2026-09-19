@@ -49,8 +49,9 @@ test("main and split charts keep extrema labels synchronized across data and geo
   const [market, splitPane, styles] = await Promise.all([marketSource, splitPaneSource, stylesSource]);
   assert.match(market, /new TradingChartExtremaOverlay\(\{[\s\S]*?getCandles: \(\) => this\.chartCandles/);
   assert.match(splitPane, /new TradingChartExtremaOverlay\(\{[\s\S]*?getCandles: \(\) => this\.candles/);
-  assert.match(market, /subscribeVisibleLogicalRangeChange[\s\S]*?this\.extremaOverlay\?\.schedule\(\)/);
-  assert.match(splitPane, /subscribeVisibleLogicalRangeChange[\s\S]*?this\.extremaOverlay\?\.schedule\(\)/);
+  assert.match(market, /new TradingChartNavigation\([\s\S]*?this\.synchronizeVisibleChartGeometry\(\)/);
+  assert.match(market, /private synchronizeVisibleChartGeometry\(\)[\s\S]*?this\.extremaOverlay\?\.update\(\)/);
+  assert.match(splitPane, /new TradingChartNavigation\([\s\S]*?this\.extremaOverlay\?\.update\(\)/);
   assert.match(styles, /--trading-market-extrema-label:\s*#111318/);
   assert.match(styles, /html\[data-theme="dark"\][\s\S]*?--trading-market-extrema-label:\s*#f2f4f7/);
   assert.match(styles, /--trading-market-price-label-font-size:\s*calc\(11px \+ var\(--app-font-size-offset\)\)/);
@@ -77,6 +78,6 @@ test("foreground trade ticks paint on the next frame and reuse the current-price
   assert.match(syncLine, /else this\.priceLine = this\.candleSeries\.createPriceLine\(options\)/);
   assert.match(fullRefresh, /this\.syncCurrentPriceLine\(lastRaw\)/);
   assert.doesNotMatch(fullRefresh, /removePriceLine\(this\.priceLine\)[\s\S]*?createPriceLine/);
-  assert.match(market, /latest\.high > this\.lockedPriceRange\.to \|\| latest\.low < this\.lockedPriceRange\.from[\s\S]*?this\.updateVisiblePriceScale\(\)/);
+  assert.doesNotMatch(market, /lockedPriceRange/);
   assert.match(countdown, /else \{[\s\S]*?this\.hideCandleCountdown\(\);[\s\S]*?\}[\s\S]*?this\.updateCurrentPriceLabel\(\);/);
 });

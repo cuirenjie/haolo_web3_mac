@@ -11,6 +11,7 @@ import {
   createSeriesMarkers,
 } from "lightweight-charts";
 import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
+import { TradingChartNavigation, TRADING_CHART_NAVIGATION_OPTIONS, captureManualTradingPriceRanges, restoreManualTradingPriceRanges } from "./trading-chart-navigation.ts";
 import {
   TRADING_INDICATORS,
   calculateTradingIndicator,
@@ -353,10 +354,11 @@ function computeTdSequential(
   return signals;
 }
 
+const compactIndicatorFormatter = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
 function formatIndicatorValue(value: number, id: TradingIndicatorId) {
   if (!Number.isFinite(value)) return "--";
   if (id === "volume" || id === "obv" || Math.abs(value) >= 1_000) {
-    return Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }).format(value);
+    return compactIndicatorFormatter.format(value);
   }
   if (Math.abs(value) > 0 && Math.abs(value) < 0.01) return value.toFixed(4);
   return value.toFixed(2);
@@ -385,6 +387,7 @@ export class TradingExpertSplitPane {
   private periodTrigger: HTMLButtonElement;
   private periodMenu: HTMLElement;
   private chart: ReturnType<typeof createChart> | null = null;
+  private chartNavigation: TradingChartNavigation | null = null;
   private series: any = null;
   private extremaOverlay: TradingChartExtremaOverlay | null = null;
   private tdMarkers: any = null;
@@ -396,8 +399,6 @@ export class TradingExpertSplitPane {
   private drawingController: TradingDrawingController | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private refreshTimer: number | null = null;
-  private volumeProfileWheelAnimationFrame: number | null = null;
-  private volumeProfileWheelFramesRemaining = 0;
   private volumeProfileSnapshot: TradingVolumeProfile | null | undefined;
   private volumeProfileSnapshotCandleCount = 0;
   private loadGeneration = 0;
@@ -410,6 +411,8 @@ export class TradingExpertSplitPane {
   private markets: readonly TradingSplitPaneMarket[];
   private periods: readonly TradingSplitPanePeriod[];
   private settings: TradingChartSettings;
+  private sharedPriceScaleMode: TradingChartSettings["priceScaleMode"];
+  private sharedAutoScale: boolean;
   private themeName: TradingChartThemeName;
   private indicatorSettings: TradingSplitPaneIndicatorSettings;
   private activeMainIndicators: TradingSplitPaneMainIndicatorId[];
@@ -432,6 +435,8 @@ export class TradingExpertSplitPane {
     this.markets = options.markets;
     this.periods = options.periods;
     this.settings = cloneTradingChartSettings(options.settings);
+    this.sharedPriceScaleMode = options.settings.priceScaleMode;
+    this.sharedAutoScale = options.settings.autoScale;
     this.themeName = options.themeName;
     this.loadCandles = options.loadCandles;
     this.onSelectionChange = options.onSelectionChange;
@@ -464,6 +469,7 @@ export class TradingExpertSplitPane {
       controlsHost: options.drawing.controlsHost,
       chartElement: this.chartElement,
       overlay: drawingLayer,
+      getNavigation: () => this.chartNavigation,
       getChart: () => this.chart,
       getCandleSeries: () => this.series,
       getSymbol: () => this.market.id,
@@ -910,10 +916,6 @@ export class TradingExpertSplitPane {
   private readonly handleRetry = () => void this.reload(true);
 
   private readonly handleWheel = (event: WheelEvent) => {
-    const cursorAnchoredByDefault = this.settings.scaleAnchor === "cursor";
-    this.chart?.timeScale().applyOptions({
-      rightBarStaysOnScroll: event.ctrlKey ? !cursorAnchoredByDefault : cursorAnchoredByDefault,
-    });
     this.trackVolumeProfileThroughWheelScale();
   };
 
@@ -954,14 +956,13 @@ export class TradingExpertSplitPane {
         },
       },
       timeScale: {
-        visible: false,
+        visible: true,
         borderColor: this.themeName === "dark" ? "#1a2437" : "#e3e8ef",
         timeVisible: true,
         secondsVisible: false,
-        rightBarStaysOnScroll: this.settings.scaleAnchor === "cursor",
+        rightBarStaysOnScroll: this.settings.scaleAnchor === "right",
       },
-      handleScroll: true,
-      handleScale: true,
+      ...TRADING_CHART_NAVIGATION_OPTIONS,
     });
     this.addSeries();
     this.extremaOverlay?.destroy();
@@ -988,12 +989,24 @@ export class TradingExpertSplitPane {
       this.updateMainIndicatorLegends(parameter?.time);
       this.updateIndicatorLegends(parameter?.seriesData);
     });
-    this.chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-      if (this.rebuildingIndicatorPanes) return;
-      this.renderVolumeProfile(false);
-      this.drawingController?.redraw();
-      this.extremaOverlay?.schedule();
-    });
+    this.chartNavigation = new TradingChartNavigation(
+      this.chartElement, () => this.chart, () => {
+        if (this.rebuildingIndicatorPanes) return;
+        this.renderVolumeProfile(false);
+        this.drawingController?.redraw();
+        this.extremaOverlay?.update();
+      },
+      {
+        onFocus: () => this.drawingController?.focusPane(0),
+        getCandles: () => this.candles,
+        getScaleAnchor: () => this.settings.scaleAnchor,
+        getAutoScale: () => this.settings.autoScale,
+        onAutoScaleChange: (enabled) => { this.settings.autoScale = enabled; },
+        onPriceModeChange: (mode) => {
+          this.applySettings({ ...this.settings, priceScaleMode: mode }, this.themeName);
+        },
+      },
+    );
     this.resizeObserver = new ResizeObserver(() => {
       this.chart?.applyOptions({
         width: Math.max(this.chartElement.clientWidth, 1),
@@ -1002,9 +1015,7 @@ export class TradingExpertSplitPane {
       this.positionSymbolMenu();
       window.requestAnimationFrame(() => {
         this.positionIndicatorLegends();
-        this.renderVolumeProfile(false);
-        this.drawingController?.redraw();
-        this.extremaOverlay?.update();
+        this.chartNavigation?.schedule();
       });
     });
     this.resizeObserver.observe(this.chartElement);
@@ -1045,10 +1056,9 @@ export class TradingExpertSplitPane {
         wickDownColor: this.settings.fallingColor,
       });
     }
-    this.tdMarkers = createSeriesMarkers(this.series, [], {
-      autoScale: true,
-      zOrder: "aboveSeries",
-    });
+    // An empty native marker primitive still scans the entire candle series
+    // during navigation. Create it lazily when TD actually has visible marks.
+    this.tdMarkers = null;
   }
 
   private rebuildSeries() {
@@ -1120,13 +1130,8 @@ export class TradingExpertSplitPane {
       );
       this.volumeProfileSnapshotCandleCount = visibleCandles.length;
     }
-    const priceScaleWidth = Number(this.chart.priceScale("right", 0).width() || 0);
-    const plotWidth = Math.max(this.chartElement.clientWidth - priceScaleWidth, 1);
-    const paneElement = this.chart.panes()[0]?.getHTMLElement?.() as HTMLElement | null;
-    const paneHeight = Math.max(
-      paneElement?.clientHeight || paneElement?.getBoundingClientRect().height || this.chartElement.clientHeight,
-      1,
-    );
+    const plotWidth = Math.max(this.chart.timeScale().width(), 1);
+    const paneHeight = Math.max(this.chart.panes()[0]?.getHeight() ?? 1, 1);
     renderTradingVolumeProfileLayer(this.volumeProfileLayer, {
       candles: visibleCandles,
       profile: this.volumeProfileSnapshot,
@@ -1152,28 +1157,7 @@ export class TradingExpertSplitPane {
 
   private trackVolumeProfileThroughWheelScale() {
     if (!this.chart || !this.activeMainIndicators.includes("vpvr")) return;
-    this.volumeProfileWheelFramesRemaining = TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES;
-    if (this.volumeProfileWheelAnimationFrame !== null) return;
-    const redraw = () => {
-      this.volumeProfileWheelAnimationFrame = null;
-      if (this.destroyed) {
-        this.volumeProfileWheelFramesRemaining = 0;
-        return;
-      }
-      if (!this.rebuildingIndicatorPanes) this.renderVolumeProfile(false);
-      this.volumeProfileWheelFramesRemaining -= 1;
-      if (this.volumeProfileWheelFramesRemaining > 0) {
-        this.volumeProfileWheelAnimationFrame = window.requestAnimationFrame(redraw);
-      }
-    };
-    this.volumeProfileWheelAnimationFrame = window.requestAnimationFrame(redraw);
-  }
-
-  private cancelVolumeProfileWheelTracking() {
-    this.volumeProfileWheelFramesRemaining = 0;
-    if (this.volumeProfileWheelAnimationFrame === null) return;
-    window.cancelAnimationFrame(this.volumeProfileWheelAnimationFrame);
-    this.volumeProfileWheelAnimationFrame = null;
+    this.chartNavigation?.schedule(TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES);
   }
 
   private setMainIndicatorSeriesData(
@@ -1239,18 +1223,26 @@ export class TradingExpertSplitPane {
       this.tdIndicatorDirections[signal.index] = signal.direction;
     });
     this.mainIndicatorValues.set("td", tdSignals.length ? [tdValues] : []);
-    this.tdMarkers?.setMarkers(tdSignals.flatMap((signal) => {
+    const markers = tdSignals.flatMap((signal) => {
       const style = tdSetting.series[signal.direction];
       if (style?.visible === false || !this.candles[signal.index]) return [];
       return [{
         time: (this.candles[signal.index].time + CHINA_TIME_OFFSET_SECONDS) as any,
-        position: signal.direction === "buy" ? "belowBar" : "aboveBar",
+        position: signal.direction === "buy" ? "belowBar" as const : "aboveBar" as const,
         color: style?.color ?? (signal.direction === "buy" ? "#16a873" : "#ef5350"),
         shape: "circle" as const,
         text: String(signal.count),
         size: 0.7,
       }];
-    }));
+    });
+    if (!markers.length) {
+      this.tdMarkers?.detach();
+      this.tdMarkers = null;
+    } else if (this.tdMarkers) {
+      this.tdMarkers.setMarkers(markers);
+    } else if (this.series) {
+      this.tdMarkers = createSeriesMarkers(this.series, markers, { autoScale: true, zOrder: "aboveSeries" });
+    }
     this.updateMainIndicatorLegends();
     this.renderVolumeProfile(refreshVolumeProfile);
   }
@@ -1396,6 +1388,8 @@ export class TradingExpertSplitPane {
       });
     });
     runtime.series[0]?.api?.priceScale()?.applyOptions({
+      mode: PriceScaleMode.Normal,
+      invertScale: false,
       autoScale: true,
       borderColor: this.themeName === "dark" ? "#1a2437" : "#e3e8ef",
       textColor: this.themeName === "dark" ? "#dfe1e3" : "#172033",
@@ -1470,7 +1464,6 @@ export class TradingExpertSplitPane {
           }
         }
       });
-      runtime.series[0]?.api?.priceScale()?.setAutoScale(true);
     });
     this.updateIndicatorLegends();
   }
@@ -1481,7 +1474,8 @@ export class TradingExpertSplitPane {
         const current = seriesData?.get(seriesRuntime.api);
         const value = Number(current?.value ?? current?.high ?? seriesRuntime.latestValue);
         const target = runtime.legend?.querySelectorAll<HTMLElement>("span")[index];
-        if (target) target.textContent = `${seriesRuntime.label}: ${formatIndicatorValue(value, runtime.id)}`;
+        const text = `${seriesRuntime.label}: ${formatIndicatorValue(value, runtime.id)}`;
+        if (target && target.textContent !== text) target.textContent = text;
       });
     });
   }
@@ -1517,8 +1511,24 @@ export class TradingExpertSplitPane {
     trigger?.setAttribute("aria-expanded", String(active));
   }
 
-  updateSettings(settings: TradingChartSettings, themeName: TradingChartThemeName) {
+  updateSettings(settings: TradingChartSettings, themeName: TradingChartThemeName, syncPriceMode = true) {
+    // Theme/style synchronization must not overwrite a pane-local axis choice.
+    // An actual change to the shared mode still applies to all split charts.
+    const priceScaleMode = !syncPriceMode || settings.priceScaleMode === this.sharedPriceScaleMode
+      ? this.settings.priceScaleMode : settings.priceScaleMode;
+    this.sharedPriceScaleMode = settings.priceScaleMode;
+    const autoScale = !syncPriceMode || settings.autoScale === this.sharedAutoScale
+      ? this.settings.autoScale : settings.autoScale;
+    this.sharedAutoScale = settings.autoScale;
+    this.applySettings({ ...settings, priceScaleMode, autoScale }, themeName);
+  }
+
+  private applySettings(settings: TradingChartSettings, themeName: TradingChartThemeName) {
+    const autoScaleChanged = settings.autoScale !== this.settings.autoScale;
+    if (autoScaleChanged) this.chart?.priceScale("right", 0).setAutoScale(settings.autoScale);
+    const manualRanges = captureManualTradingPriceRanges(this.chart);
     const styleChanged = settings.chartStyle !== this.settings.chartStyle;
+    const scaleModeChanged = this.chart?.priceScale("right", 0).options().mode !== priceScaleMode(settings);
     this.settings = cloneTradingChartSettings(settings);
     this.themeName = themeName;
     const theme = settings.themes[themeName];
@@ -1541,19 +1551,20 @@ export class TradingExpertSplitPane {
         horzLine: { color: theme.crosshairColor, labelBackgroundColor: theme.crosshairColor },
       },
       rightPriceScale: {
-        mode: priceScaleMode(settings),
-        autoScale: true,
         borderColor: themeName === "dark" ? "#1a2437" : "#e3e8ef",
         textColor: themeName === "dark" ? "#dfe1e3" : "#172033",
-        scaleMargins: {
-          top: settings.verticalPaddingPercent / 100,
-          bottom: settings.verticalPaddingPercent / 100,
-        },
       },
       timeScale: {
-        visible: false,
+        visible: true,
         borderColor: themeName === "dark" ? "#1a2437" : "#e3e8ef",
-        rightBarStaysOnScroll: settings.scaleAnchor === "cursor",
+        rightBarStaysOnScroll: settings.scaleAnchor === "right",
+      },
+    });
+    this.chart?.priceScale("right", 0).applyOptions({
+      ...(scaleModeChanged ? { mode: priceScaleMode(settings), autoScale: true } : {}),
+      scaleMargins: {
+        top: settings.verticalPaddingPercent / 100,
+        bottom: settings.verticalPaddingPercent / 100,
       },
     });
     this.indicatorPanes.forEach((runtime) => {
@@ -1596,6 +1607,8 @@ export class TradingExpertSplitPane {
       this.updateData();
     }
     this.drawingController?.setUserDrawingEnabled(settings.drawingToolsEnabled);
+    restoreManualTradingPriceRanges(manualRanges);
+    this.chartNavigation?.schedule();
     this.drawingController?.redraw();
   }
 
@@ -1716,6 +1729,7 @@ export class TradingExpertSplitPane {
     const logicalRange = tradingAnalysisDrawingFocusRange(patch, this.candles, plotWidth);
     if (!logicalRange) return;
     this.invalidateVolumeProfileSnapshot();
+    this.chart.priceScale("right", 0).setAutoScale(true);
     this.chart.timeScale().setVisibleLogicalRange(logicalRange);
     this.renderVolumeProfile(true);
     this.drawingController?.redraw();
@@ -1738,6 +1752,7 @@ export class TradingExpertSplitPane {
   }
 
   private async reload(resetViewport: boolean): Promise<boolean> {
+    if (resetViewport) this.chartNavigation?.cancelGesture();
     if (resetViewport) this.invalidateVolumeProfileSnapshot();
     const generation = ++this.loadGeneration;
     const targetMarket = this.market;
@@ -1756,7 +1771,10 @@ export class TradingExpertSplitPane {
       this.loadedMarketId = targetMarket.id;
       this.loadedInterval = targetInterval;
       this.updateData(previousCandles);
-      if (resetViewport) this.chart?.timeScale().fitContent();
+      if (resetViewport) {
+        this.chart?.panes().forEach((pane) => this.chart?.priceScale("right", pane.paneIndex()).setAutoScale(true));
+        this.chart?.timeScale().fitContent();
+      }
       this.renderLatestOhlc();
       window.requestAnimationFrame(() => {
         this.drawingController?.redraw();
@@ -1850,7 +1868,6 @@ export class TradingExpertSplitPane {
     this.destroyed = true;
     this.loadGeneration += 1;
     if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
-    this.cancelVolumeProfileWheelTracking();
     this.resizeObserver?.disconnect();
     this.host.removeEventListener("click", this.handleToolbarClick);
     this.symbolSearch.removeEventListener("input", this.handleSymbolSearchInput);
@@ -1863,6 +1880,8 @@ export class TradingExpertSplitPane {
     this.drawingController = null;
     this.extremaOverlay?.destroy();
     this.extremaOverlay = null;
+    this.chartNavigation?.destroy();
+    this.chartNavigation = null;
     this.chart?.remove();
     this.chart = null;
     this.host.replaceChildren();
