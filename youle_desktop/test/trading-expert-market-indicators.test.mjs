@@ -1059,6 +1059,72 @@ test("Binance TradFi perpetual contracts are catalogued with their underlying ca
   }
 });
 
+test("TradFi metadata and prices are published before the spot catalog finishes", async () => {
+  const { fetchTradingMarkets } = await import("../src/renderer/trading-expert-market.ts");
+  const originalWindow = globalThis.window;
+  let releaseSpot;
+  const spotGate = new Promise(resolve => { releaseSpot = resolve; });
+  let published;
+  let complete = false;
+  globalThis.window = { codexDesktop: { async getBinancePublicMarketData(request) {
+    if (request.path.startsWith("/api/v3/")) await spotGate;
+    const data = request.path === "/fapi/v1/exchangeInfo"
+      ? { symbols: [{ symbol: "XAUUSDT", baseAsset: "XAU", quoteAsset: "USDT", contractType: "TRADIFI_PERPETUAL", underlyingType: "COMMODITY", status: "TRADING" }] }
+      : request.path === "/fapi/v1/ticker/24hr"
+        ? [{ symbol: "XAUUSDT", lastPrice: "2500", priceChangePercent: "1", quoteVolume: "1000" }]
+        : request.path.endsWith("/exchangeInfo") ? { symbols: [] } : [];
+    return { ok: true, status: 200, data };
+  } } };
+  let request;
+  try {
+    request = fetchTradingMarkets({ onFuturesCatalog: (available, markets) => { published = { available, markets }; } }).then(markets => { complete = true; return markets; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(complete, false, "spot request is still pending");
+    assert.equal(published.available, true);
+    assert.equal(published.markets[0].id, "BINANCE:FUTURES:XAUUSDT");
+    assert.equal(published.markets[0].markPrice, 2500);
+    assert.equal(published.markets[0].assetClass, "commodity");
+    releaseSpot();
+    assert.equal((await request).length, 1);
+  } finally {
+    releaseSpot();
+    await request;
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
+test("TradFi catalog availability distinguishes authoritative metadata from ticker fallbacks", async () => {
+  const { fetchTradingMarkets } = await import("../src/renderer/trading-expert-market.ts");
+  const originalWindow = globalThis.window;
+  let metadata = [];
+  globalThis.window = { ...(originalWindow || {}), codexDesktop: {
+    async getBinancePublicMarketData(request) {
+      return { ok: true, status: 200, data: request.path === "/fapi/v1/exchangeInfo"
+        ? { symbols: metadata }
+        : request.path === "/fapi/v1/ticker/24hr"
+          ? [{ symbol: "XAUUSDT", lastPrice: "2500", priceChangePercent: "1", quoteVolume: "1000" }]
+          : request.path.endsWith("/exchangeInfo") ? { symbols: [] } : [] };
+    },
+  } };
+  try {
+    const states = [];
+    const onFuturesCatalog = available => states.push(available);
+    const fallback = await fetchTradingMarkets({ onFuturesCatalog });
+    assert.equal(fallback.length, 1);
+    assert.deepEqual(states, [false]);
+    metadata = [{ symbol: "XAUUSDT", baseAsset: "XAU", quoteAsset: "USDT", contractType: "TRADIFI_PERPETUAL", underlyingType: "COMMODITY", status: "TRADING" }];
+    const recovered = await fetchTradingMarkets({ onFuturesCatalog });
+    assert.equal(recovered[0].assetClass, "commodity");
+    assert.deepEqual(states, [false, true]);
+    await fetchTradingMarkets({ fast: true, onFuturesCatalog });
+    assert.deepEqual(states, [false, true, false]);
+  } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
+  }
+});
+
 test("Binance TradFi spot wrappers inherit Futures categories and keep every live quote", async () => {
   const { fetchTradingMarkets, binanceTradFiSpotAssetClass } = await import("../src/renderer/trading-expert-market.ts");
   assert.equal(binanceTradFiSpotAssetClass("XAUT", new Map([["XAU", "commodity"]])), "commodity");

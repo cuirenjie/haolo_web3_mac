@@ -52,6 +52,7 @@ const ROUTES = new Map([
   ["futures:/fapi/v1/aggTrades", ["symbol", "fromId", "startTime", "endTime", "limit"]],
   ["futures:/fapi/v1/depth", ["symbol", "limit"]],
   ["futures:/futures/data/openInterestHist", ["symbol", "period", "limit", "startTime", "endTime"]],
+  ...["globalLongShortAccountRatio", "topLongShortAccountRatio", "topLongShortPositionRatio"].map(route => [`futures:/futures/data/${route}`, ["symbol", "period", "limit", "startTime", "endTime"]]),
   ["spot:/api/v3/exchangeInfo", ["permissions", "symbolStatus"]],
   ["spot:/api/v3/ticker/24hr", ["symbol", "type"]],
   ["spot:/api/v3/klines", ["symbol", "interval", "limit", "startTime", "endTime"]],
@@ -123,10 +124,16 @@ export function normalizeBinancePublicMarketRequest(value = {}, { baseUrls = res
     const normalized = validateParameter(key, parameters[key]);
     if (normalized !== null) url.searchParams.set(key, normalized);
   }
+  if (/\/futures\/data\/(?:globalLongShortAccountRatio|topLongShortAccountRatio|topLongShortPositionRatio)$/.test(route)) {
+    if (!url.searchParams.has("symbol") || !["5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d"].includes(url.searchParams.get("period")) || Number(url.searchParams.get("limit") || 30) > 500) {
+      throw new BinancePublicMarketRequestError("Invalid Binance ratio parameters");
+    }
+  }
   return Object.freeze({ marketType, path: route, url: url.href });
 }
 
 function cacheTtlMs(request) {
+  if (request.path.endsWith("Ratio")) return 60_000;
   if (request.path.endsWith("/exchangeInfo")) return 6 * 60 * 60_000;
   if (request.path.endsWith("/openInterestHist")) return 60_000;
   if (request.path.endsWith("/ticker/24hr")) return new URL(request.url).searchParams.has("symbol") ? 2_000 : 30_000;
@@ -136,6 +143,7 @@ function cacheTtlMs(request) {
 }
 
 function cacheStaleTtlMs(request) {
+  if (request.path.endsWith("Ratio")) return 5 * 60_000;
   if (request.path.endsWith("/exchangeInfo")) return 24 * 60 * 60_000;
   if (request.path.endsWith("/openInterestHist")) return 5 * 60_000;
   if (request.path.endsWith("/ticker/24hr")) return 60_000;

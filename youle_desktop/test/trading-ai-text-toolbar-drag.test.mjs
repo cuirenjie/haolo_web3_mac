@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TradingDrawingController } from "../src/renderer/trading-expert-drawing.ts";
+import { deferTradingChartShellRender } from "../src/renderer/trading-chart-interaction.ts";
+import { TradingChartToolbarVisibility } from "../src/renderer/trading-chart-toolbar-visibility.ts";
 
 class ElementStub extends EventTarget {
   style = { left: "108px", top: "107px" };
@@ -19,6 +21,9 @@ class ElementStub extends EventTarget {
   querySelector() { return new ElementStub(); }
   querySelectorAll() { return this.buttons; }
   setAttribute() {}
+  focus() {}
+  contains(element) { return element === this || this.buttons.includes(element); }
+  getBoundingClientRect() { return { left: 0, top: 0, right: 500, bottom: 300 }; }
   closest(selector) {
     const action = this.dataset.aiTextSizeAction;
     return action && (selector === "[data-ai-text-size-action]"
@@ -88,7 +93,7 @@ function fixture(t) {
     try { controller.destroy(); }
     finally { restoreGlobals.forEach((restore) => restore()); }
   });
-  return { controller, toolbar, increase, decrease, dismiss, event, down, move, up, click, position, windowStub };
+  return { controller, toolbar, host, increase, decrease, dismiss, event, down, move, up, click, position, windowStub };
 }
 
 test("clicks and small pointer jitter still resize every label without pinning the toolbar", (t) => {
@@ -131,27 +136,69 @@ test("drag position clamps to all edges and reclamps after chart resize", (t) =>
   const f = fixture(t);
   f.down();
   f.move({ clientX: -1000, clientY: -1000 });
-  assert.deepEqual(f.position(), { x: 8, y: 8 });
+  assert.deepEqual(f.position(), { x: 8, y: 12 });
   f.move({ clientX: 1000, clientY: 1000 });
-  assert.deepEqual(f.position(), { x: 426, y: 258 });
+  assert.deepEqual(f.position(), { x: 422, y: 258 });
   f.up({ clientX: 1000, clientY: 1000 });
   f.controller.bounds = { width: 250, height: 150 };
   f.controller.redraw();
-  assert.deepEqual(f.position(), { x: 176, y: 108 });
+  assert.deepEqual(f.position(), { x: 172, y: 108 });
 });
 
-test("close remains clickable and reopening keeps the dragged position", (t) => {
+test("dismissal survives annotation hover/focus, redraws and tool changes until the whole canvas is re-entered", (t) => {
   const f = fixture(t);
+  const initial = f.position();
   f.down(); f.move({ clientX: 180 }); f.up({ clientX: 180 });
-  const position = f.position();
+  assert.notDeepEqual(f.position(), initial);
   f.down({ target: f.dismiss });
   assert.equal(f.controller.aiTextSizeToolbarDrag, null);
   f.click({ target: f.dismiss });
   assert.equal(f.toolbar.hidden, true);
-  f.controller.aiTextSizeToolbarDismissed = false;
+  f.controller.aiTextSizeTrigger = () => ({ dataset: { aiTextSizeTrigger: "first" } });
+  f.controller.handleAiTextPointerOver(f.event());
+  f.controller.handleAiTextFocusIn(f.event());
   f.controller.showAiTextSizeToolbar("first");
+  f.controller.redraw();
+  assert.equal(f.toolbar.hidden, true);
+  f.controller.activeTool = 'trend-line'; f.controller.redraw();
+  f.controller.activeTool = 'cursor'; f.controller.redraw();
+  assert.equal(f.toolbar.hidden, true);
+  f.host.dispatchEvent(new Event('pointerenter'));
+  assert.equal(f.toolbar.hidden, true, 'interior transitions never arm recovery');
+  f.host.dispatchEvent(new Event('pointerleave'));
+  assert.equal(f.toolbar.hidden, true);
+  f.host.dispatchEvent(new Event('pointerenter'));
   assert.equal(f.toolbar.hidden, false);
-  assert.deepEqual(f.position(), position);
+  assert.deepEqual(f.position(), initial, 're-entry restores the default annotation anchor');
+});
+
+test('toolbar drag protects its DOM from shell renders and never changes label data', t => {
+  const f = fixture(t); let renders = 0;
+  f.down(); assert.equal(deferTradingChartShellRender(() => renders++), true);
+  f.move({ clientX: 180 }); assert.equal(renders, 0);
+  f.up({ clientX: 180 }); assert.equal(renders, 1);
+  assert.deepEqual(f.controller.aiDrawings.map(d => d.fontSize), [10, 10]);
+});
+
+test('two toolbars dismiss independently and share viewport recovery without leaking listeners', t => {
+  const f = fixture(t), other = new ElementStub(); let restored = 0;
+  const visibility = new TradingChartToolbarVisibility(other, f.host, f.host, () => { restored++; visibility.setAvailable(true); });
+  t.after(() => visibility.destroy());
+  visibility.setAvailable(true);
+  f.click({ target: f.dismiss });
+  assert.equal(f.toolbar.hidden, true); assert.equal(other.hidden, false);
+  visibility.dismiss();
+  f.controller.hideAiTextSizeToolbar(); f.controller.redraw();
+  assert.equal(f.toolbar.hidden, true); assert.equal(other.hidden, true);
+  f.host.dispatchEvent(new Event('pointerleave')); f.host.dispatchEvent(new Event('pointerenter'));
+  assert.equal(f.toolbar.hidden, false); assert.equal(other.hidden, false); assert.equal(restored, 1);
+  f.controller.destroy(); f.controller.destroy();
+  assert.ok(f.host.classes.has('trading-chart-toolbar-viewport'));
+  visibility.dismiss(); f.host.dispatchEvent(new Event('pointerleave')); f.host.dispatchEvent(new Event('pointerenter'));
+  assert.equal(restored, 2);
+  visibility.destroy(); assert.equal(f.host.classes.has('trading-chart-toolbar-viewport'), false);
+  f.host.dispatchEvent(new Event('pointerleave')); f.host.dispatchEvent(new Event('pointerenter'));
+  assert.equal(restored, 2);
 });
 
 test("secondary input is ignored and cancellation, capture loss, blur and hiding release a drag", (t) => {

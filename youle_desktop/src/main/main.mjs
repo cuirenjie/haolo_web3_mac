@@ -202,6 +202,7 @@ import { BinanceAccountError, BinanceAccountService } from "./binance-account/se
 import { BinancePrivateProxyTransport } from "./binance-account/private-proxy-fetch.mjs";
 import { BinanceRequestGovernor, BINANCE_REQUEST_PRIORITIES } from "./binance-request-governor.mjs";
 import { BinancePublicMarketService } from "./binance-public-market-service.mjs";
+import { PublicMarketIndicesService } from "./public-market-indices.mjs";
 import { BinancePublicRequestCoordinator } from "./binance-public-request-coordinator.mjs";
 import { resolveBinanceGatewayConfig } from "./binance-gateway-config.mjs";
 import { createBinanceGatewayClient } from "./binance-gateway-client.mjs";
@@ -13035,6 +13036,15 @@ ipcMain.handle("youle:verifyOtp", async (_event, params = {}) => {
     await restartClientAfterAuthChange();
   }
   return session;
+});
+
+const publicMarketIndices = new PublicMarketIndicesService({
+  fetch: (url, init) => appNetworkFetch(url, init),
+  binanceRequest: (params, options) => getBinancePublicMarketService().request(params, options),
+});
+ipcMain.handle("marketData:getPublicIndices", async (event) => {
+  assertExternalModelsIpcSender(event);
+  return publicMarketIndices.snapshot();
 });
 
 ipcMain.handle("binanceMarket:publicGet", async (event, params = {}) => {

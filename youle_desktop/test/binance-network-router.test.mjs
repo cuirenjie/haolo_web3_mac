@@ -15,6 +15,56 @@ function autoConfig() {
   });
 }
 
+test("gateway 404 for public indices falls back to Binance, including a gateway-first race", async () => {
+  for (const route of ["globalLongShortAccountRatio", "topLongShortAccountRatio", "topLongShortPositionRatio"]) {
+    for (const preferred of [false, true]) {
+      let directCalls = 0;
+      let gatewayCalls = 0;
+      const router = new BinanceNetworkRouter({ config: autoConfig(), publicHedgeDelayMs: 25,
+        directFetch: async () => {
+          directCalls++;
+          await new Promise(resolve => setTimeout(resolve, 50));
+          return Response.json([{ longShortRatio: "1.23" }]);
+        },
+        gatewayClient: { fetch: async () => { gatewayCalls++; return new Response("Not Found", { status: 404 }); } },
+      });
+      if (preferred) router.markDirectSlow("public", "futures");
+      const response = await router.publicFetch(`https://fapi.binance.com/futures/data/${route}?symbol=BTCUSDT&period=1h&limit=169`);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-haolo-binance-route"), "direct");
+      assert.equal((await response.json())[0].longShortRatio, "1.23");
+      assert.equal(directCalls, 1);
+      assert.equal(gatewayCalls, 1);
+    }
+  }
+});
+
+test("index fallback is scoped to missing index routes and preserves explicit gateway mode and caller cancellation", async () => {
+  for (const [path, status, mode] of [
+    ["/fapi/v1/klines", 404, "auto"],
+    ["/futures/data/globalLongShortAccountRatio", 401, "auto"],
+    ["/futures/data/globalLongShortAccountRatio", 404, "gateway"],
+  ]) {
+    let directCalls = 0;
+    const router = new BinanceNetworkRouter({ config: { ...autoConfig(), routingMode: mode },
+      directFetch: async () => { directCalls++; return Response.json([]); },
+      gatewayClient: { fetch: async () => new Response("Unavailable", { status }) },
+    });
+    router.markDirectSlow("public", "futures");
+    const response = await router.publicFetch(`https://fapi.binance.com${path}`);
+    assert.equal(response.status, status);
+    await response.text();
+    assert.equal(directCalls, 0);
+  }
+  const caller = new AbortController();
+  const router = new BinanceNetworkRouter({ config: autoConfig(),
+    gatewayClient: { fetch: async () => new Response("Not Found", { status: 404 }) },
+    directFetch: async () => { caller.abort(); throw caller.signal.reason; },
+  });
+  router.markDirectSlow("public", "futures");
+  await assert.rejects(router.publicFetch("https://fapi.binance.com/futures/data/topLongShortPositionRatio", { signal: caller.signal }), { name: "AbortError" });
+});
+
 test("route decoration preserves streaming reads and downstream cancellation", { timeout: 2_000 }, async () => {
   for (const route of ["direct", "public-gateway", "private-gateway"]) {
     let source;

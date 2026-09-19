@@ -1,4 +1,6 @@
 import "./styles.css";
+import "./trading-watchlist.css";
+import { renderTradingWatchlistHost, renderTradingWatchlistToggle } from "./trading-watchlist-ui.ts";
 import { deferTradingChartShellRender } from "./trading-chart-interaction.ts";
 import QRCode from "qrcode";
 import { describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
@@ -73,6 +75,7 @@ import { ensureBrowserDesktopApi } from "./browser_mock";
 import {
   applyTradingExpertCustomIndicatorMentions,
   captureTradingExpertAnalysisTarget,
+  collapseTradingExpertWatchlist,
   ensureTradingExpertChartIndicatorVisible,
   TRADING_EXPERT_TREND_BAND_MENTION,
   cancelTradingExpertAnalysis,
@@ -1953,6 +1956,7 @@ type DesktopApi = {
   getFinnhubMarketDataStatus?(): Promise<any>;
   searchFinnhubMarkets?(params: { query: string; limit?: number }): Promise<any>;
   getFinnhubMarketQuotes?(params: { symbols: string[] }): Promise<any>;
+  getPublicMarketIndices?(): Promise<import("./trading-public-indices.ts").PublicIndicesSnapshot>;
   getFinnhubMarketSnapshot?(params: {
     symbol: string;
     assetClass?: string;
@@ -27136,6 +27140,9 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   } else if (!text && !state.attachments.length) {
     return;
   }
+  if (threadId === state.currentThreadId && isTradingExpertSurfaceThreadId(threadId)) {
+    collapseTradingExpertWatchlist();
+  }
   const tradingExpertRoutingText = isTradingExpertExecutionThreadId(threadId)
     ? canonicalizeTradingExpertMentionText(text)
     : text;
@@ -46710,9 +46717,12 @@ function renderTradingExpertConversationHeader(thread: ConversationSummary) {
       <div class="trading-expert-panel-heading">
         <strong class="trading-expert-panel-title" title="${escapeAttr(title)}">${escapeHtml(title)}</strong>
       </div>
-      <button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle ${conversationExpanded ? "expanded" : "collapsed"}" data-action="toggle-right-panel" data-trading-expert-conversation-expansion title="${label}" aria-label="${label}" aria-expanded="${conversationExpanded ? "true" : "false"}">
-        ${renderPanelLayoutIcon("right")}
-      </button>
+      <div class="trading-expert-panel-header-actions">
+        ${renderTradingWatchlistToggle()}
+        <button type="button" class="small-icon-button panel-toggle trading-expert-panel-header-toggle ${conversationExpanded ? "expanded" : "collapsed"}" data-action="toggle-right-panel" data-trading-expert-conversation-expansion title="${label}" aria-label="${label}" aria-expanded="${conversationExpanded ? "true" : "false"}">
+          ${renderPanelLayoutIcon("right")}
+        </button>
+      </div>
     </header>
   `;
 }
@@ -57595,6 +57605,7 @@ function renderAgentPanel(thread: ConversationSummary | null) {
       <aside class="agent-panel ${collapsed ? "collapsed" : "expanded"} trading-expert-panel" aria-hidden="${collapsed ? "true" : "false"}" aria-label="交易专家任务会话">
         <div class="agent-panel-inner">
           ${renderTradingExpertConversationHeader(thread)}
+          ${renderTradingWatchlistHost()}
           ${renderTradingExpertConversationPanel(thread)}
         </div>
         ${renderComposer(thread)}
@@ -57607,6 +57618,7 @@ function renderAgentPanel(thread: ConversationSummary | null) {
       <aside class="agent-panel ${collapsed ? "collapsed" : "expanded"} trading-expert-panel" aria-hidden="${collapsed ? "true" : "false"}" aria-label="交易专家任务会话">
         <div class="agent-panel-inner">
           ${renderTradingExpertConversationHeader(thread)}
+          ${renderTradingWatchlistHost()}
           ${renderTradingExpertConversationPanel(thread)}
         </div>
         ${renderComposer(thread)}

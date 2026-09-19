@@ -100,6 +100,9 @@ import {
   renderTradingMarketAssetLogo,
 } from "./trading-expert-market-identity.ts";
 import { TradingFavoriteTickerSortController } from "./trading-expert-favorite-ticker-sort.ts";
+import { TradingPriceFlash } from "./trading-price-flash.ts";
+import { TradingWatchlistStore } from "./trading-watchlist.ts";
+import { TradingWatchlistPanel } from "./trading-watchlist-ui.ts";
 import {
   buildTradingOrderLines,
   type TradingOrderLine,
@@ -3516,7 +3519,7 @@ function spotExchangeSymbolsFromTickers(tickers: BinanceTicker24h[]): BinanceExc
   });
 }
 
-export async function fetchTradingMarkets(options: { fast?: boolean } = {}) {
+export async function fetchTradingMarkets(options: { fast?: boolean; onFuturesCatalog?: (available: boolean, markets: TradingMarket[]) => void } = {}) {
   // These four responses are the largest public-market payloads. Sending them
   // together can saturate a cold domestic-gateway connection and starve the
   // selected chart. Load them deliberately in sequence; ticker snapshots are
@@ -3544,32 +3547,19 @@ export async function fetchTradingMarkets(options: { fast?: boolean } = {}) {
     () => fetchBinanceFutures<BinanceTicker24h[]>("/fapi/v1/ticker/24hr"),
     [],
   );
+  let futuresCatalogAvailable = false;
   const futuresExchangeInfo = options.fast
     ? { symbols: futuresExchangeSymbolsFromTickers(futuresTickers) }
     : await optionalCatalogRequest(
-      (signal) => fetchBinanceFutures<BinanceExchangeInfo>("/fapi/v1/exchangeInfo", {}, signal),
+      async (signal) => {
+        const catalog = await fetchBinanceFutures<BinanceExchangeInfo>("/fapi/v1/exchangeInfo", {}, signal);
+        if (!Array.isArray(catalog.symbols) || !catalog.symbols.length) throw new Error("Binance futures catalog is unavailable");
+        futuresCatalogAvailable = true;
+        return catalog;
+      },
       { symbols: futuresExchangeSymbolsFromTickers(futuresTickers) },
       15_000,
     );
-  const spotTickers = options.fast
-    ? []
-    : await optionalCatalogRequest(
-      () => fetchBinanceSpot<BinanceTicker24h[]>("/api/v3/ticker/24hr", { type: "MINI" }),
-      [],
-    );
-  const spotExchangeInfo = options.fast
-    ? { symbols: [] }
-    : await optionalCatalogRequest(
-      (signal) => fetchBinanceSpot<BinanceExchangeInfo>("/api/v3/exchangeInfo", {
-        permissions: "SPOT",
-        symbolStatus: "TRADING",
-      }, signal),
-      { symbols: spotExchangeSymbolsFromTickers(spotTickers) },
-      15_000,
-    );
-  if (!(futuresExchangeInfo.symbols?.length || spotExchangeInfo.symbols?.length || futuresTickers.length || spotTickers.length)) {
-    throw firstCatalogError || new Error("Binance market catalog is unavailable");
-  }
   const futuresTickerBySymbol = new Map(
     futuresTickers.map((ticker) => [String(ticker.symbol || ""), ticker]),
   );
@@ -3614,6 +3604,28 @@ export async function fetchTradingMarkets(options: { fast?: boolean } = {}) {
       quoteAvailable: Number(ticker?.lastPrice || 0) > 0,
     }];
   });
+  // Publish the fixed TradFi category immediately; the unrelated spot catalog
+  // can be slow and must not delay data that is already ready to display.
+  options.onFuturesCatalog?.(futuresCatalogAvailable, futuresMarkets);
+  const spotTickers = options.fast
+    ? []
+    : await optionalCatalogRequest(
+      () => fetchBinanceSpot<BinanceTicker24h[]>("/api/v3/ticker/24hr", { type: "MINI" }),
+      [],
+    );
+  const spotExchangeInfo = options.fast
+    ? { symbols: [] }
+    : await optionalCatalogRequest(
+      (signal) => fetchBinanceSpot<BinanceExchangeInfo>("/api/v3/exchangeInfo", {
+        permissions: "SPOT",
+        symbolStatus: "TRADING",
+      }, signal),
+      { symbols: spotExchangeSymbolsFromTickers(spotTickers) },
+      15_000,
+    );
+  if (!(futuresExchangeInfo.symbols?.length || spotExchangeInfo.symbols?.length || futuresTickers.length || spotTickers.length)) {
+    throw firstCatalogError || new Error("Binance market catalog is unavailable");
+  }
   const spotTickerBySymbol = new Map(
     spotTickers.map((ticker) => [String(ticker.symbol || ""), ticker]),
   );
@@ -4843,7 +4855,7 @@ export function renderTradingExpertMarketWorkspace() {
               `).join("")}
             </div>
             <div class="trading-market-picker-head">
-              <span>名称</span><span>平台</span><span>最新价</span><span>24H涨幅</span><span>收藏</span>
+              <span>名称</span><span>平台</span><span>最新价</span><span>24H涨幅</span><span>收藏</span><span data-market-watchlist-heading>自选</span>
             </div>
             <div class="trading-market-list" data-market-list role="list" aria-label="永续合约币种"></div>
           </div>
@@ -4945,6 +4957,12 @@ export function renderTradingExpertMarketWorkspace() {
 }
 
 class TradingExpertMarketWorkspace {
+  private readonly watchlist: TradingWatchlistStore;
+  private readonly watchlistPanel: TradingWatchlistPanel;
+  private watchlistMarketsById = new Map<string, TradingMarket>();
+  private watchlistQuoteTimer: number | null = null;
+  private watchlistTradFiState: "loading" | "ready" | "error" = "loading";
+  private completeCatalogLoading = false;
   private readonly host: HTMLElement;
   private readonly chartElement: HTMLElement;
   private readonly viewport: HTMLElement;
@@ -5167,6 +5185,29 @@ class TradingExpertMarketWorkspace {
     this.picker = this.requireElement("[data-market-picker]");
     this.search = this.requireElement<HTMLInputElement>("[data-market-search]");
     this.marketList = this.requireElement("[data-market-list]");
+    this.watchlist = new TradingWatchlistStore(window.localStorage, favoriteStorageAccountIdentity, normalizeTradingFavoriteMarketRecords);
+    this.watchlistPanel = new TradingWatchlistPanel({
+      store: this.watchlist,
+      resolveMarket: (record) => this.resolveWatchlistMarket(record),
+      formatPrice: formatMarketPrice,
+      selectedMarketId: () => this.selectedMarketId,
+      openPicker: () => {
+        this.marketCategory = "all";
+        this.setPickerOpen(true);
+      },
+      selectMarket: (market) => {
+        if (!this.selectMarket(market)) return;
+        this.updateSymbolUi();
+        this.renderMarkets();
+        this.redrawDrawingControllers();
+        this.setPickerOpen(false);
+        this.syncFavoriteTickerStreams();
+        void this.restartMarketData({ preserveChart: true });
+      },
+      onChange: () => this.syncWatchlistChanges(),
+      tradFiState: () => this.watchlistTradFiState,
+      retryTradFi: () => { void this.loadMarkets({ complete: true }); },
+    });
     this.favoriteTickerBar = this.requireElement("[data-market-favorite-tickers]");
     this.favoriteTickerSortController = new TradingFavoriteTickerSortController({
       host: this.favoriteTickerBar,
@@ -5284,7 +5325,8 @@ class TradingExpertMarketWorkspace {
     this.indicatorCatalog.addEventListener("scroll", this.handleIndicatorEditorScroll, { passive: true });
     this.indicatorDetail.addEventListener("scroll", this.handleIndicatorEditorScroll, { passive: true });
     this.viewport.addEventListener("pointerleave", this.handleViewportLeave);
-    document.addEventListener("pointerdown", this.handleOutsidePointerDown);
+    // Chart gestures can stop propagation before document's bubble phase.
+    document.addEventListener("pointerdown", this.handleOutsidePointerDown, true);
     document.addEventListener("keydown", this.handleKeyDown);
     this.themeObserver = new MutationObserver(() => {
       this.refreshChartSettingsDialog();
@@ -5538,6 +5580,15 @@ class TradingExpertMarketWorkspace {
         || this.favoriteMarketFromId(marketId);
       if (!market) return;
       this.toggleFavoriteMarket(market);
+      return;
+    }
+    if (action === "watchlist-membership") {
+      const market = this.renderedMarkets.get(String(target.dataset.marketId || ""));
+      if (!market || !(target instanceof HTMLInputElement)) return;
+      this.watchlist.setMembership(tradingFavoriteRecord(market), target.checked);
+      this.watchlistMarketsById.set(market.id, market);
+      this.watchlistPanel.refresh();
+      this.syncWatchlistChanges();
       return;
     }
     if (action === "symbol" || action === "favorite-symbol") {
@@ -6273,14 +6324,16 @@ class TradingExpertMarketWorkspace {
     if (
       !this.periodEditor.hidden
       && event.target instanceof Node
-      && !this.periodControls.contains(event.target)
+      && !this.periodEditor.contains(event.target)
+      && !this.host.querySelector('[data-market-action="toggle-period-editor"]')?.contains(event.target)
     ) {
       this.setPeriodEditorOpen(false);
     }
     if (
       !this.primaryPeriodMenu.hidden
       && event.target instanceof Node
-      && !this.periodControls.contains(event.target)
+      && !this.primaryPeriodMenu.contains(event.target)
+      && !this.host.querySelector('[data-market-action="toggle-period-editor"]')?.contains(event.target)
     ) {
       this.setPrimaryPeriodMenuOpen(false);
     }
@@ -6615,6 +6668,69 @@ class TradingExpertMarketWorkspace {
       || (market.provider === "binance" && this.favoriteSymbols.has(market.symbol));
   }
 
+  syncWatchlistHost() {
+    this.watchlistPanel.attach();
+    this.syncWatchlistPicker();
+    if (this.watchlistQuoteTimer === null && this.visibleWatchlistRecords().some((record) => record.provider !== "binance")) {
+      this.syncWatchlistChanges();
+    }
+  }
+
+  collapseWatchlist() {
+    this.watchlistPanel.setExpanded(false);
+  }
+
+  private resolveWatchlistMarket(record: TradingFavoriteMarketRecord) {
+    const candidates = [
+      this.finnhubSearchMarkets.find((market) => market.id === record.id),
+      this.ifindSearchMarkets.find((market) => market.id === record.id),
+      this.markets.find((market) => market.id === record.id),
+      this.favoriteTickerMarketsById.get(record.id),
+      this.watchlistMarketsById.get(record.id),
+      this.finnhubFavoriteMarkets.get(record.id),
+      this.ifindFavoriteMarkets.get(record.id),
+    ];
+    return candidates.reduce<TradingMarket>((current, candidate) => candidate
+      ? preferTradingMarketQuote(current, candidate) : current, marketFromFavoriteRecord(record));
+  }
+
+  private visibleWatchlistRecords() {
+    return this.watchlist.expanded ? this.watchlist.activeGroup.markets : [];
+  }
+
+  private quoteMarketRecords() {
+    return [...new Map([...this.favoriteMarketRecords.values(), ...this.visibleWatchlistRecords()]
+      .map((record) => [record.id, record])).values()];
+  }
+
+  private syncWatchlistPicker() {
+    const heading = this.picker.querySelector<HTMLElement>("[data-market-watchlist-heading]");
+    if (heading) {
+      heading.textContent = this.watchlist.activeGroup.name;
+      heading.title = this.watchlist.activeGroup.name;
+    }
+    this.marketList.querySelectorAll<HTMLInputElement>('[data-market-action="watchlist-membership"]').forEach((input) => {
+      input.checked = this.watchlist.has(input.dataset.marketId || "");
+      input.disabled = this.watchlist.fixedGroup;
+      input.setAttribute("aria-label", `${this.watchlist.activeGroup.name} ${input.dataset.marketName || ""}`);
+    });
+  }
+
+  private syncWatchlistChanges() {
+    this.syncWatchlistPicker();
+    this.syncFavoriteTickerStreams();
+    if (this.watchlistQuoteTimer !== null) window.clearInterval(this.watchlistQuoteTimer);
+    this.watchlistQuoteTimer = null;
+    const refresh = () => {
+      void this.refreshFavoriteFinnhubQuotes().catch(() => {});
+      void this.refreshFavoriteIfindQuotes().catch(() => {});
+    };
+    if (this.visibleWatchlistRecords().some((record) => record.provider !== "binance")) {
+      refresh();
+      this.watchlistQuoteTimer = window.setInterval(refresh, 15_000);
+    }
+  }
+
   private favoriteTickerMarkets() {
     const liveMarkets = new Map(this.markets.map((market) => [market.id, market]));
     return [...this.favoriteMarketRecords.values()]
@@ -6658,7 +6774,20 @@ class TradingExpertMarketWorkspace {
     }
   }
 
+  private readonly favoritePriceFlash = new TradingPriceFlash();
+  private readonly pickerPriceFlash = new TradingPriceFlash();
+
+  private paintFavoritePrices() {
+    this.favoriteTickerBar.querySelectorAll<HTMLElement>("[data-market-favorite-sort-item]").forEach((button) => {
+      const market = this.favoriteTickerMarketsById.get(button.dataset.marketId || "");
+      const price = button.querySelector<HTMLElement>("[data-market-favorite-price]");
+      if (market && price) this.favoritePriceFlash.paint(price, market.id, market.quoteAvailable ? formatMarketPrice(market.markPrice) : "--");
+    });
+    this.favoritePriceFlash.retain(this.favoriteTickerMarketsById.keys());
+  }
+
   private renderFavoriteTickerBar() {
+    this.watchlistPanel.paintQuotes();
     this.favoriteTickerSortController.cancel();
     const markets = this.favoriteTickerMarkets();
     this.favoriteTickerMarketsById = new Map(markets.map((market) => [market.id, market]));
@@ -6715,6 +6844,7 @@ class TradingExpertMarketWorkspace {
         <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M10 4v12M4 10h12" /></svg>
       </button>
       <span class="trading-market-favorite-sort-status" data-market-favorite-sort-status aria-live="polite"></span>`;
+    this.paintFavoritePrices();
     this.favoriteTickerBar.querySelector<HTMLElement>('[data-market-action="add-favorite"]')
       ?.setAttribute("aria-expanded", String(!this.picker.hidden));
     this.revealSelectedFavoriteTicker();
@@ -6725,12 +6855,11 @@ class TradingExpertMarketWorkspace {
     if (this.favoriteTickerPaintFrame !== null) return;
     this.favoriteTickerPaintFrame = window.requestAnimationFrame(() => {
       this.favoriteTickerPaintFrame = null;
+      this.paintFavoritePrices();
       this.favoriteTickerBar.querySelectorAll<HTMLButtonElement>("[data-market-id]").forEach((button) => {
         const market = this.favoriteTickerMarketsById.get(String(button.dataset.marketId || ""));
         if (!market) return;
-        const price = button.querySelector<HTMLElement>("[data-market-favorite-price]");
         const change = button.querySelector<HTMLElement>("[data-market-favorite-change]");
-        if (price) price.textContent = market.quoteAvailable ? formatMarketPrice(market.markPrice) : "--";
         if (change) {
           change.textContent = market.quoteAvailable ? `${market.changePercent.toFixed(2)}%` : "--";
           change.classList.toggle("positive", market.quoteAvailable && market.changePercent >= 0);
@@ -6746,18 +6875,19 @@ class TradingExpertMarketWorkspace {
         );
       });
       if (!this.picker.hidden) this.paintVisibleMarketQuotes();
+      this.watchlistPanel.paintQuotes();
     });
   }
 
-  private paintVisibleMarketQuotes() {
-    this.marketList.querySelectorAll<HTMLButtonElement>('[data-market-action="symbol"][data-market-id]')
+  private paintVisibleMarketQuotes(root: ParentNode = this.marketList) {
+    root.querySelectorAll<HTMLButtonElement>('[data-market-action="symbol"][data-market-id]')
       .forEach((button) => {
         const market = this.renderedMarkets.get(String(button.dataset.marketId || ""));
         const row = button.closest<HTMLElement>(".trading-market-row");
         if (!market || !row) return;
         const price = row.querySelector<HTMLElement>("[data-market-row-price]");
         const change = row.querySelector<HTMLElement>("[data-market-row-change]");
-        if (price) price.textContent = market.quoteAvailable ? formatMarketPrice(market.markPrice) : "--";
+        if (price) this.pickerPriceFlash.paint(price, market.id, market.quoteAvailable ? formatMarketPrice(market.markPrice) : "--");
         if (change) {
           change.textContent = market.quoteAvailable
             ? `${market.changePercent >= 0 ? "+" : ""}${market.changePercent.toFixed(2)}%`
@@ -6775,7 +6905,7 @@ class TradingExpertMarketWorkspace {
       || this.favoriteTickerFallbackPending
     ) return;
     const now = Date.now();
-    const staleMarkets = [...this.favoriteTickerMarketsById.values()].filter((market) => (
+    const staleMarkets = [...new Map([...this.favoriteTickerMarketsById, ...this.watchlistMarketsById]).values()].filter((market) => (
       market.provider === "binance"
       && now - (this.favoriteTickerSocketUpdatesByMarketId.get(market.id) || 0)
         >= FAVORITE_TICKER_SOCKET_STALE_MS
@@ -6816,7 +6946,7 @@ class TradingExpertMarketWorkspace {
           continue;
         }
         if (this.disposed || generation !== this.favoriteTickerGeneration) return;
-        const market = this.favoriteTickerMarketsById.get(staleMarket.id);
+        const market = this.favoriteTickerMarketsById.get(staleMarket.id) || this.watchlistMarketsById.get(staleMarket.id);
         if (!market || market.provider !== "binance" || market.symbol !== staleMarket.symbol) continue;
         const applied = applyTradingMarketTickerQuote(
           market,
@@ -6872,6 +7002,12 @@ class TradingExpertMarketWorkspace {
     this.favoriteTickerSocketUpdatesByMarketId.clear();
     const groups = new Map<Extract<TradingMarketType, "spot" | "perpetual">, TradingMarket[]>();
     const streamMarkets = new Map(this.favoriteTickerMarketsById);
+    this.watchlistMarketsById = new Map(this.visibleWatchlistRecords().map((record) => [record.id, this.resolveWatchlistMarket(record)]));
+    this.watchlistMarketsById.forEach((market, id) => {
+      const sharedMarket = streamMarkets.get(id);
+      if (sharedMarket) this.watchlistMarketsById.set(id, sharedMarket);
+      else streamMarkets.set(id, market);
+    });
     this.splitPanes.forEach((_pane, index) => {
       const selection = this.splitPaneSelections.get(index + 1);
       if (!selection) return;
@@ -7304,7 +7440,7 @@ class TradingExpertMarketWorkspace {
   private async refreshFavoriteFinnhubQuotes() {
     const quoteApi = window.codexDesktop.getFinnhubMarketQuotes;
     if (!this.finnhubConfigured || !quoteApi) return;
-    const records = [...this.favoriteMarketRecords.values()].filter((record) => record.provider === "finnhub");
+    const records = this.quoteMarketRecords().filter((record) => record.provider === "finnhub");
     if (!records.length) return;
     const response = await quoteApi({ symbols: records.map((record) => record.symbol) });
     if (this.disposed || response?.ok !== true || !Array.isArray(response.quotes)) return;
@@ -7395,7 +7531,7 @@ class TradingExpertMarketWorkspace {
   private async refreshFavoriteIfindQuotes() {
     const quoteApi = window.codexDesktop.getIfindMarketQuotes;
     if (!this.ifindConfigured || !quoteApi) return;
-    const records = [...this.favoriteMarketRecords.values()].filter((record) => record.provider === "ifind");
+    const records = this.quoteMarketRecords().filter((record) => record.provider === "ifind");
     if (!records.length) return;
     const response = await quoteApi({ symbols: records.map((record) => record.symbol) });
     if (this.disposed || response?.ok !== true || !Array.isArray(response.quotes)) return;
@@ -7434,6 +7570,7 @@ class TradingExpertMarketWorkspace {
       this.marketList.removeAttribute("aria-busy");
     }
     this.picker.hidden = !open;
+    if (!open) this.pickerPriceFlash.clear();
     this.host.querySelector<HTMLElement>('[data-market-action="toggle-symbols"]')
       ?.setAttribute("aria-expanded", String(open));
     this.favoriteTickerBar.querySelector<HTMLElement>('[data-market-action="add-favorite"]')
@@ -7797,8 +7934,25 @@ class TradingExpertMarketWorkspace {
   }
 
   private async loadMarkets(options: { complete?: boolean } = {}) {
+    if (options.complete && this.completeCatalogLoading) return;
+    if (options.complete) {
+      this.completeCatalogLoading = true;
+      this.watchlistTradFiState = "loading";
+      this.watchlistPanel.refresh();
+    }
     try {
-      this.markets = await fetchTradingMarkets({ fast: options.complete !== true });
+      this.markets = await fetchTradingMarkets({
+        fast: options.complete !== true,
+        onFuturesCatalog: (available, futuresMarkets) => {
+          if (!options.complete || this.disposed) return;
+          this.watchlistTradFiState = available ? "ready" : "error";
+          if (available) {
+            this.markets = [...futuresMarkets, ...this.markets.filter(market => market.marketType === "spot")];
+            this.watchlist.updateTradFiMarkets(futuresMarkets);
+          }
+          this.watchlistPanel.refresh();
+        },
+      });
       let migratedFavorites = false;
       const preferredBinanceBySymbol = new Map<string, TradingMarket>();
       this.markets.forEach((market) => {
@@ -7848,6 +8002,7 @@ class TradingExpertMarketWorkspace {
       }
       if (migratedFavorites) this.saveFavoriteSymbols();
       if (!this.disposed) {
+        this.watchlistPanel.refresh();
         this.syncSplitPaneMarkets();
         this.renderMarkets();
         this.renderFavoriteTickerBar();
@@ -7859,7 +8014,11 @@ class TradingExpertMarketWorkspace {
         }
       }
     } catch (error) {
+      this.watchlistTradFiState = "error";
+      if (!this.disposed) this.watchlistPanel.refresh();
       console.error("加载交易币种失败", error);
+    } finally {
+      if (options.complete) this.completeCatalogLoading = false;
     }
   }
 
@@ -7885,6 +8044,7 @@ class TradingExpertMarketWorkspace {
     );
     const matchingMarkets = tradingMarketsPreferBinance([
       ...favoriteMarkets,
+      ...this.watchlist.activeGroup.markets.map((record) => this.resolveWatchlistMarket(record)),
       ...this.markets,
       ...this.finnhubSearchMarkets,
       ...this.ifindSearchMarkets,
@@ -7901,10 +8061,12 @@ class TradingExpertMarketWorkspace {
     // not among the highest-volume results remain directly selectable.
     const markets = orderedMarkets;
     this.renderedMarkets = new Map(markets.map((market) => [market.id, market]));
+    this.pickerPriceFlash.retain(this.picker.hidden ? [] : this.renderedMarkets.keys());
     // The picker is frequently refreshed while it is closed (market quotes,
     // favorites, and background catalog updates). Avoid building a large DOM
     // tree that the user cannot see; the next open always renders a fresh list.
     if (this.picker.hidden) return;
+    this.syncWatchlistPicker();
     if (!markets.length) {
       const ifindUnavailable = this.marketCategory === "a-share" && !this.ifindConfigured;
       this.marketList.innerHTML = `<p class="trading-market-list-empty">${
@@ -7956,6 +8118,10 @@ class TradingExpertMarketWorkspace {
             aria-pressed="${favorite}"
             title="${favorite ? "取消收藏" : "添加收藏"}"
           >${renderMarketFavoriteIcon()}</button>
+          <input type="checkbox" class="trading-watchlist-checkbox" data-market-action="watchlist-membership"
+            data-market-id="${escapeAttribute(market.id)}" data-market-name="${escapeAttribute(accessibleName)}"
+            aria-label="${escapeAttribute(this.watchlist.activeGroup.name)} ${escapeAttribute(accessibleName)}"
+            ${this.watchlist.has(market.id) ? "checked" : ""} ${this.watchlist.fixedGroup ? "disabled" : ""} />
         </div>
       `;
     };
@@ -7966,10 +8132,10 @@ class TradingExpertMarketWorkspace {
       if (this.disposed || renderGeneration !== this.marketListRenderGeneration) return;
       this.marketListRenderTimer = null;
       if (start === 0) this.marketList.replaceChildren();
-      this.marketList.insertAdjacentHTML(
-        "beforeend",
-        markets.slice(start, start + chunkSize).map(renderRow).join(""),
-      );
+      const chunk = document.createElement("template");
+      chunk.innerHTML = markets.slice(start, start + chunkSize).map(renderRow).join("");
+      this.paintVisibleMarketQuotes(chunk.content);
+      this.marketList.append(chunk.content);
       const nextStart = start + chunkSize;
       if (nextStart < markets.length) {
         this.marketListRenderTimer = window.setTimeout(() => appendChunk(nextStart), 0);
@@ -12827,7 +12993,8 @@ class TradingExpertMarketWorkspace {
       `${changeAmount >= 0 ? "+" : "-"}${currencyPrefix}${formatPrice(Math.abs(changeAmount), priceDigits)} (${changePercent >= 0 ? "+" : ""}${changePercent.toFixed(2)}%)`,
       changeAmount >= 0 ? "positive" : "negative",
     );
-    const selectedFavorite = this.favoriteTickerMarketsById.get(this.selectedMarketId);
+    const selectedFavorite = this.favoriteTickerMarketsById.get(this.selectedMarketId)
+      || this.watchlistMarketsById.get(this.selectedMarketId);
     if (selectedFavorite && this.loadedMarketId === this.selectedMarketId) {
       const latestPrice = this.selectedMarketType === "spot" ? this.stats.markPrice : this.stats.midPrice;
       selectedFavorite.markPrice = latestPrice;
@@ -14478,6 +14645,10 @@ class TradingExpertMarketWorkspace {
   }
 
   destroy() {
+    this.favoritePriceFlash.clear();
+    this.pickerPriceFlash.clear();
+    this.watchlistPanel.destroy();
+    if (this.watchlistQuoteTimer !== null) window.clearInterval(this.watchlistQuoteTimer);
     if (this.disposed) return;
     this.disposed = true;
     this.loadGeneration += 1;
@@ -14553,7 +14724,7 @@ class TradingExpertMarketWorkspace {
     this.indicatorScrollTimers.forEach((timer) => window.clearTimeout(timer));
     this.indicatorScrollTimers.clear();
     this.viewport.removeEventListener("pointerleave", this.handleViewportLeave);
-    document.removeEventListener("pointerdown", this.handleOutsidePointerDown);
+    document.removeEventListener("pointerdown", this.handleOutsidePointerDown, true);
     document.removeEventListener("keydown", this.handleKeyDown);
     this.chartNavigation?.destroy();
     this.chartNavigation = null;
@@ -14674,6 +14845,7 @@ export function syncTradingExpertMarketWorkspace(
     && favoriteStorageAccountIdentity === activeWorkspaceFavoriteStorageAccountIdentity
   ) {
     activeWorkspace.syncTitlebarFavoriteTickerHost();
+    activeWorkspace.syncWatchlistHost();
     activeWorkspace.syncDrawingStorageSession(
       drawingStorageSessionId,
       migrateDrawingsFromSessionId,
@@ -14691,7 +14863,12 @@ export function syncTradingExpertMarketWorkspace(
       favoriteStorageAccountIdentity,
       drawingStorageSessionId,
     );
+    activeWorkspace.syncWatchlistHost();
   }
+}
+
+export function collapseTradingExpertWatchlist() {
+  activeWorkspace?.collapseWatchlist();
 }
 
 export function syncTradingExpertOrderLineSnapshot(

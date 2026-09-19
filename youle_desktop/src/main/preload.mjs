@@ -215,6 +215,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   getFinnhubMarketDataStatus: () => ipcRenderer.invoke("marketData:getFinnhubStatus"),
   searchFinnhubMarkets: (params) => ipcRenderer.invoke("marketData:searchFinnhub", params),
   getFinnhubMarketQuotes: (params) => ipcRenderer.invoke("marketData:getFinnhubQuotes", params),
+  getPublicMarketIndices: () => ipcRenderer.invoke("marketData:getPublicIndices"),
   getFinnhubMarketSnapshot: (params) => ipcRenderer.invoke("marketData:getFinnhubSnapshot", params),
   getFinnhubMarketCandles: (params) => ipcRenderer.invoke("marketData:getFinnhubCandles", params),
   getIfindMarketDataStatus: () => ipcRenderer.invoke("marketData:getIfindStatus"),

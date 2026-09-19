@@ -73,10 +73,13 @@ function decorateRouteResponse(response, route) {
   });
 }
 
-function isGatewayRetryableResponse(response) {
+function isGatewayRetryableResponse(response, url) {
   const status = Number(response?.status || 0);
   const cacheStatus = String(response?.headers?.get?.("x-haolo-cache") || "").trim().toUpperCase();
-  return cacheStatus === "STALE" || status === 429 || status >= 500 || status === 0;
+  // Older market gateways do not expose these public statistics routes. A
+  // gateway 404 must not win the race against a working Binance response.
+  const missingIndexRoute = status === 404 && /^\/futures\/data\/(?:globalLongShortAccountRatio|topLongShortAccountRatio|topLongShortPositionRatio)$/.test(url?.pathname || "");
+  return missingIndexRoute || cacheStatus === "STALE" || status === 429 || status >= 500 || status === 0;
 }
 
 class BinanceGatewayResponseError extends Error {
@@ -389,7 +392,7 @@ export class BinanceNetworkRouter {
       }
       const response = decorateRouteResponse(upstream, "public-gateway");
       gatewayResponse = response;
-      if (isGatewayRetryableResponse(response)) throw new BinanceGatewayResponseError(response);
+      if (isGatewayRetryableResponse(response, url)) throw new BinanceGatewayResponseError(response);
       return { route: "gateway", response };
     })();
 
@@ -451,7 +454,7 @@ export class BinanceNetworkRouter {
       let gatewayResponse = null;
       try {
         gatewayResponse = decorateRouteResponse(await this.publicGatewayFetch(url, init), "public-gateway");
-        if (!isGatewayRetryableResponse(gatewayResponse) || mode !== "auto") return gatewayResponse;
+        if (!isGatewayRetryableResponse(gatewayResponse, url) || mode !== "auto") return gatewayResponse;
       } catch (gatewayError) {
         if (init?.signal?.aborted || mode !== "auto") throw gatewayError;
         try {

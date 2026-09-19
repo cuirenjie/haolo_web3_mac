@@ -1368,7 +1368,7 @@ test("AI text annotations initially place resize controls beside the topmost lab
   assert.match(drawing, /data-ai-text-hit-content aria-label="AI 文字标注字号调节"/);
   assert.match(drawing, /data-ai-text-size-toolbar role="toolbar" aria-label="当前图表全部 AI 标注字号" hidden/);
   assert.match(drawing, /data-ai-text-size-action="decrease"[\s\S]*?data-ai-text-size-action="increase"/);
-  assert.match(drawing, /class="trading-ai-text-size-toolbar-dismiss" data-ai-text-size-action="dismiss"[\s\S]*?>[\s\S]*?×/);
+  assert.match(drawing, /class="trading-ai-text-size-toolbar-dismiss trading-chart-toolbar-close" data-ai-text-size-action="dismiss"[\s\S]*?<svg viewBox="0 0 20 20"[\s\S]*?<path d="m6 6 8 8m0-8-8 8"/);
   assert.match(drawing, /renderAiTextSizeHitTarget\([\s\S]*?data-ai-text-size-trigger/);
   assert.match(drawing, /handleAiTextPointerOver[\s\S]*?showAiTextSizeToolbar/);
   assert.match(drawing, /aiTextDrawingsForCurrentContext\(\)[\s\S]*?this\.aiDrawings\.filter/);
@@ -1377,12 +1377,12 @@ test("AI text annotations initially place resize controls beside the topmost lab
   assert.match(drawing, /const disabled = textDrawings\.every\([\s\S]*?button\.disabled = disabled/);
   assert.match(drawing, /topmostAiTextSizeTarget\(\)[\s\S]*?bounds\.y < topmost\.bounds\.y/);
   assert.match(drawing, /positionTradingAiTextSizeToolbar\([\s\S]*?\{ x, y, width, height \}[\s\S]*?"left"/);
-  assert.match(drawing, /The controls stay visible, initially beside the topmost annotation/);
-  assert.match(drawing, /aiTextSizeToolbarDismissed[\s\S]*?dismissAiTextSizeToolbar/);
+  assert.match(drawing, /new TradingChartToolbarVisibility\(/);
+  assert.match(drawing, /aiTextSizeToolbarVisibility\.dismiss\(\)/);
   assert.match(drawing, /button\?\.dataset\.aiTextSizeAction[\s\S]*?action === "dismiss"[\s\S]*?dismissAiTextSizeToolbar/);
 
   assert.match(styles, /\.trading-ai-text-size-trigger\s*\{[^}]*pointer-events: all;/s);
-  assert.match(styles, /\.trading-ai-text-size-toolbar\s*\{[^}]*background: color-mix\(in srgb, var\(--trading-market-panel\) 96%, transparent\);[^}]*pointer-events: auto;/s);
+  assert.match(styles, /\.trading-ai-text-size-toolbar\s*\{[^}]*background: var\(--trading-market-panel\);/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:hover,[\s\S]*?background: var\(--trading-market-control\);[\s\S]*?color: var\(--trading-market-text\);/);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:active\s*\{[^}]*background: var\(--trading-market-accent-soft\);[^}]*color: var\(--trading-market-accent\);/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar > button:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.32;/s);
@@ -1390,10 +1390,10 @@ test("AI text annotations initially place resize controls beside the topmost lab
   assert.match(styles, /\.trading-ai-text-size-toolbar > button\s*\{[^}]*color: var\(--trading-market-text\);/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar\.dragging > button\s*\{[^}]*cursor: grabbing;/s);
   assert.match(styles, /\.trading-ai-text-size-toolbar\.dragging\s*\{[^}]*outline: 1px solid var\(--trading-market-accent\);/s);
-  assert.match(styles, /\.trading-ai-text-size-toolbar > button\.trading-ai-text-size-toolbar-dismiss\s*\{[^}]*top: -8px;[^}]*right: -8px;[^}]*opacity: 0;[^}]*pointer-events: none;/s);
-  assert.match(styles, /\.trading-ai-text-size-toolbar:hover > button\.trading-ai-text-size-toolbar-dismiss,[\s\S]*?opacity: 1;[\s\S]*?pointer-events: auto;/s);
-  assert.match(styles, /\.trading-ai-text-size-toolbar > button\.trading-ai-text-size-toolbar-dismiss:active\s*\{[^}]*background: var\(--trading-market-accent-soft\);[^}]*color: var\(--trading-market-accent\);/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-ai-text-size-toolbar\s*\{[^}]*background: #14171d;[^}]*box-shadow: 0 16px 42px rgba\(0, 0, 0, 0\.54\);/s);
+  assert.match(styles, /\.trading-chart-floating-toolbar > button\.trading-chart-toolbar-close\s*\{[^}]*top: -10px;[^}]*right: -10px;[^}]*opacity: 0;[^}]*pointer-events: none;/s);
+  assert.match(styles, /\.trading-chart-floating-toolbar:hover > button\.trading-chart-toolbar-close,[\s\S]*?opacity: 1;[\s\S]*?pointer-events: auto;/s);
+  assert.match(styles, /\.trading-chart-floating-toolbar > button\.trading-chart-toolbar-close:active\s*\{[^}]*background: var\(--trading-chart-navigation-close-hover\);[^}]*color: var\(--trading-chart-navigation-close-text\);/s);
+  assert.doesNotMatch(styles, /html\[data-theme="dark"\] \.trading-ai-text-size-toolbar\s*\{/);
 });
 
 test("Fibonacci retracement matches the full-width colored reference in both themes", async () => {

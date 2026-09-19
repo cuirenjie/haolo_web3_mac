@@ -10,6 +10,7 @@ class ElementStub extends EventTarget {
     const classes = new Set();
     this.classList = { add: (...xs) => xs.forEach(x => classes.add(x)), remove: (...xs) => xs.forEach(x => classes.delete(x)), toggle: (x, on) => on ? classes.add(x) : classes.delete(x) };
     this.clientHeight = 610; this.clientWidth = 600;
+    this.offsetWidth = 200; this.offsetHeight = 34; this.hidden = false;
   }
   append(...children) { children.forEach(c => { c.parentElement = this; this.children.push(c); }); }
   remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(c => c !== this); }
@@ -17,7 +18,14 @@ class ElementStub extends EventTarget {
   getAttribute(k) { return this.attrs[k]; }
   contains(n) { return n === this || this.children.some(c => c.contains(n)); }
   focus() { document.activeElement = this; }
-  closest(selector) { return selector.split(", ").includes(this.tag) ? this : null; }
+  closest(selector) {
+    const action = selector.match(/data-navigation-action(?:="([^"]+)")?/);
+    if (action ? this.dataset.navigationAction && (!action[1] || this.dataset.navigationAction === action[1]) : selector.split(", ").includes(this.tag)) return this;
+    return this.parentElement?.closest(selector) ?? null;
+  }
+  setPointerCapture(id) { this.capturedPointer = id; }
+  hasPointerCapture(id) { return this.capturedPointer === id; }
+  releasePointerCapture() { this.capturedPointer = null; }
   querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
   querySelectorAll(selector) {
     const action = selector.match(/data-navigation-action="([^"]+)"/)?.[1];
@@ -69,7 +77,7 @@ function fixture(t) {
 test('A/L controls are absent; price settings and shortcuts still target main after indicator focus', t => {
   const f = fixture(t);
   f.send('pointerdown', { clientY: 400 }); f.send('pointerup');
-  assert.deepEqual(f.navigation.controls.children.map(b => b.dataset.navigationAction), ['zoom-out', 'zoom-in', 'left', 'right', 'reset', 'lock-vertical']);
+  assert.deepEqual(f.navigation.controls.querySelectorAll('button').map(b => b.dataset.navigationAction), ['zoom-out', 'zoom-in', 'left', 'right', 'reset', 'lock-vertical', 'hide']);
   f.navigation.setAutoScale(false); f.paint();
   assert.deepEqual(f.scales.map(s => s.autoScale), [false, true]);
   f.navigation.setAutoScale(true); f.navigation.setMode(1); f.paint();
@@ -302,6 +310,15 @@ test("new controls, measurement and menus use theme tokens in default and intera
   for (const state of [":hover", ":focus-visible", ":active", ":disabled", '[aria-pressed="true"]']) assert.ok(section.includes(state));
   assert.match(section, /color: var\(--trading-market-text\)/); assert.match(section, /background: var\(--trading-market-panel\)/);
   assert.match(section, /stroke: currentColor/);
+  assert.match(section, /\.trading-chart-floating-toolbar\[hidden\] \{ display: none; \}/);
+  assert.match(section, /background: var\(--trading-chart-navigation-close-bg\)/);
+  assert.match(section, /color: var\(--trading-chart-navigation-close-text\)/);
+  assert.match(section, /\.trading-chart-toolbar-close \{[\s\S]*?place-items: center;[\s\S]*?width: 20px;[\s\S]*?height: 20px;[\s\S]*?padding: 0;[\s\S]*?border-radius: 50%;/);
+  const themes = css.match(/(?:^\.trading-expert-market|^html\[data-theme="dark"\] \.trading-expert-market) \{[^}]*--trading-chart-navigation-close-bg:[^}]*\}/gm);
+  assert.equal(themes.length, 2);
+  for (const tokens of themes) {
+    for (const token of ['bg', 'hover', 'text']) assert.ok(tokens.includes(`--trading-chart-navigation-close-${token}:`));
+  }
   const language = readFileSync(new URL("../src/renderer/app-language.mjs", import.meta.url), "utf8");
   assert.match(language, /Measure \(Shift \+ click or drag\)/); assert.doesNotMatch(language, /Shift \+ drag the chart to zoom a selection/);
 });
@@ -336,6 +353,104 @@ test("log ranges delegate raw prices to the native autoscaler and restore every 
   const native = { priceRange: { minValue: 1, maxValue: 2 } };
   assert.equal(series[0].options().autoscaleInfoProvider(() => native), native);
   for (const range of [[NaN, 1], [1, Infinity], [2, 1], [1, 1]]) assert.equal(setTradingLogPriceRange(f.panes[0], scale, ...range), false);
+});
+
+function clickControl(f, action) {
+  const event = new Event('click', { cancelable: true });
+  Object.defineProperty(event, 'target', { value: f.navigation.controls.querySelector(`[data-navigation-action="${action}"]`) });
+  f.navigation.controlClick(event);
+  return event;
+}
+
+test('controls start below the top-left quote row; dragging moves only the controls and suppresses the release click', t => {
+  const f = fixture(t), controls = f.navigation.controls;
+  f.paint(); assert.equal(controls.style.left, '8px'); assert.equal(controls.style.top, '36px');
+  const range = { ...f.range() }, prices = f.scales.map(s => ({ ...s.range })); let renders = 0;
+  f.send('pointerdown', {}, false, controls);
+  assert.equal(deferTradingChartShellRender(() => renders++), true);
+  f.send('pointermove', { clientX: 252, clientY: 101 });
+  assert.equal(controls.dataset.dragging, undefined); assert.equal(controls.style.left, '8px');
+  f.send('pointermove', { clientX: 350, clientY: 170 }, true);
+  assert.equal(controls.style.left, '108px'); assert.equal(controls.style.top, '106px');
+  assert.equal(controls.hasPointerCapture(1), true);
+  f.send('pointerup', { clientX: 350, clientY: 170 }, true);
+  assert.equal(renders, 1); assert.equal(controls.hasPointerCapture(1), false);
+  assert.equal(clickControl(f, 'zoom-in').defaultPrevented, true);
+  assert.deepEqual(f.range(), range); assert.deepEqual(f.scales.map(s => s.range), prices);
+  f.navigation.schedule(); f.paint();
+  assert.equal(controls.style.left, '108px'); assert.equal(controls.style.top, '106px');
+  f.send('pointerleave', {}, false, f.element); f.send('pointerenter', {}, false, f.element);
+  assert.equal(controls.style.left, '108px', 'an undismissed toolbar retains its dragged position');
+  f.send('pointerdown', {}, false, controls); f.send('pointerup'); clickControl(f, 'zoom-in');
+  assert.ok(f.range().to - f.range().from < range.to - range.from, 'ordinary clicks still zoom');
+});
+
+test('dismissal survives all canvas movement and repaints; only leaving and re-entering restores the default location', t => {
+  const f = fixture(t), controls = f.navigation.controls;
+  f.navigation.controlsPosition = { x: 200, y: 200 }; f.paint();
+  clickControl(f, 'hide'); assert.equal(controls.hidden, true);
+  for (const point of [{ clientX: 60, clientY: 50 }, { clientX: 300, clientY: 400 }, { clientX: 590, clientY: 605 }]) {
+    f.send('pointermove', point); f.navigation.schedule(); f.paint(); assert.equal(controls.hidden, true);
+  }
+  f.send('pointerenter', {}, false, f.element); assert.equal(controls.hidden, true, 'no exit yet');
+  f.send('pointerleave', {}, false, f.element); f.paint(); assert.equal(controls.hidden, true);
+  f.send('pointerenter', {}, false, f.element);
+  assert.equal(controls.hidden, false); assert.equal(controls.style.left, '8px'); assert.equal(controls.style.top, '36px');
+  clickControl(f, 'hide'); f.send('pointerleave', {}, false, f.element);
+  f.navigation.destroy(); f.send('pointerenter', {}, false, f.element);
+  assert.equal(controls.hidden, true, 'destroy removes re-entry listeners');
+});
+
+test('toolbar dragging stays inside plot bounds, reclamps on resize and releases capture on cancellation', t => {
+  const f = fixture(t), controls = f.navigation.controls;
+  f.send('pointerdown', {}, false, controls);
+  f.send('pointermove', { clientX: 2000, clientY: 2000 }, true);
+  assert.equal(controls.style.left, '328px'); assert.equal(controls.style.top, '540px');
+  f.chart.timeScale().width = () => 400; f.element.clientHeight = 400;
+  f.navigation.schedule(); f.paint();
+  assert.equal(controls.style.left, '188px'); assert.equal(controls.style.top, '330px');
+  f.send('pointermove', { clientX: -200, clientY: -200 }, true);
+  assert.equal(controls.style.left, '8px'); assert.equal(controls.style.top, '12px');
+  f.send('pointercancel', {}, true);
+  assert.equal(controls.hasPointerCapture(1), false); assert.equal(controls.dataset.dragging, undefined);
+  for (const finish of [() => f.send('blur'), () => f.send('lostpointercapture', {}, false, controls), () => f.navigation.destroy()]) {
+    f.send('pointerdown', {}, false, controls); f.send('pointermove', { clientX: 350 }, true); finish();
+    assert.equal(f.navigation.controlsDrag, null); assert.equal(controls.hasPointerCapture(1), false);
+    f.send('pointermove', { clientX: 400 });
+  }
+});
+
+test('observed viewport exits restore dismissed controls even if native boundary events were retired', t => {
+  const f = fixture(t), controls = f.navigation.controls;
+  const move = (target, clientY = 100) => {
+    const event = new Event('pointermove');
+    Object.defineProperty(event, 'target', { value: target });
+    Object.assign(event, { clientX: 250, clientY }); f.navigation.controlsVisibility.pointerMove(event);
+  };
+  const overlay = new ElementStub();
+  clickControl(f, 'hide');
+  move(overlay); // A sibling overlay at an in-bounds coordinate.
+  assert.equal(f.navigation.controlsVisibility.reentryPending, false); assert.equal(controls.hidden, true);
+  move(overlay, -20);
+  assert.equal(f.navigation.controlsVisibility.reentryPending, true); assert.equal(controls.hidden, true);
+  move(f.element); // Restore from movement even without a native enter event.
+  assert.equal(controls.hidden, false); assert.equal(controls.style.left, '8px'); assert.equal(controls.style.top, '36px');
+});
+
+test('a cancelled toolbar drag does not swallow keyboard activation of the close button', t => {
+  const f = fixture(t), controls = f.navigation.controls;
+  f.send('pointerdown', {}, false, controls); f.send('pointermove', { clientX: 350 }, true); f.send('blur');
+  const event = new Event('click', { cancelable: true });
+  Object.defineProperty(event, 'target', { value: controls.querySelector('[data-navigation-action="hide"]') });
+  Object.assign(event, { detail: 0 }); f.navigation.controlClick(event);
+  assert.equal(controls.hidden, true); assert.equal(event.defaultPrevented, false);
+});
+
+test('the empty chart can still dismiss its toolbar while unavailable navigation stays disabled', t => {
+  const f = fixture(t), controls = f.navigation.controls;
+  f.panes[0].getSeries = () => []; f.paint();
+  assert.ok(controls.querySelectorAll('button').every(b => b.disabled === (b.dataset.navigationAction !== 'hide')));
+  clickControl(f, 'hide'); assert.equal(controls.hidden, true);
 });
 
 test("native layout notifications during a paint cannot enqueue a second paint in the same frame", t => {

@@ -1554,6 +1554,84 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
   );
 });
 
+test("Trading Expert custom periods dismiss outside the popup while preserving editing and trigger clicks", async () => {
+  const source = await marketSource;
+  const handler = sourceBlock(source, "private readonly handleOutsidePointerDown", "private readonly handleKeyDown");
+  const compiled = ts.transpileModule(`class Harness { ${handler} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  class TestNode {
+    constructor(parentElement = null) { this.parentElement = parentElement; }
+    contains(target) {
+      for (let node = target; node; node = node.parentElement) {
+        if (node === this) return true;
+      }
+      return false;
+    }
+  }
+  const controller = new Function("Node", "Element", `${compiled}\nreturn new Harness();`)(TestNode, TestNode);
+  const controls = new TestNode();
+  const trigger = new TestNode(controls);
+  const editor = new TestNode(controls);
+  const menu = new TestNode(controls);
+  const unitPicker = new TestNode(editor);
+  const unitMenu = new TestNode(unitPicker);
+  Object.assign(controller, {
+    chartSettingsBackdrop: { hidden: true },
+    layoutPicker: { hidden: true },
+    indicatorEditor: { hidden: true },
+    picker: { hidden: true },
+    periodControls: controls,
+    periodEditor: editor,
+    primaryPeriodMenu: menu,
+    periodUnitPicker: unitPicker,
+    periodUnitMenu: unitMenu,
+    host: { querySelector: () => trigger },
+    setPeriodEditorOpen(open) { editor.hidden = !open; this.setPeriodUnitMenuOpen(false); },
+    setPrimaryPeriodMenuOpen(open) { menu.hidden = !open; },
+    setPeriodUnitMenuOpen(open) { unitMenu.hidden = !open; },
+  });
+  const outsideTargets = [
+    ["chart canvas", new TestNode()],
+    ["sidebar", new TestNode()],
+    ["toolbar interval", new TestNode(controls)],
+    ["toolbar gap", controls],
+  ];
+  for (const popup of [editor, menu]) {
+    for (const [label, target, remainsOpen] of [
+      ["popup surface", popup, true],
+      ["popup control", new TestNode(popup), true],
+      ["trigger", trigger, true],
+      ["trigger icon", new TestNode(trigger), true],
+      ...outsideTargets.map(([label, target]) => [label, target, false]),
+    ]) {
+      editor.hidden = popup !== editor;
+      menu.hidden = popup !== menu;
+      unitMenu.hidden = true;
+      controller.handleOutsidePointerDown({ target });
+      assert.equal(popup.hidden, !remainsOpen, label);
+    }
+  }
+  editor.hidden = false;
+  menu.hidden = true;
+  unitMenu.hidden = false;
+  controller.handleOutsidePointerDown({ target: new TestNode(unitMenu) });
+  assert.equal(editor.hidden, false, "unit selection keeps the editor open");
+  assert.equal(unitMenu.hidden, false);
+  controller.handleOutsidePointerDown({ target: new TestNode(editor) });
+  assert.equal(editor.hidden, false, "editing closes only the unit dropdown");
+  assert.equal(unitMenu.hidden, true);
+  unitMenu.hidden = false;
+  controller.handleOutsidePointerDown({ target: outsideTargets[0][1] });
+  assert.equal(editor.hidden, true);
+  assert.equal(unitMenu.hidden, true, "outside dismissal also closes the unit dropdown");
+
+  // Chart gesture handlers stop propagation before it reaches document's bubble phase.
+  assert.match(source, /document\.addEventListener\("pointerdown", this\.handleOutsidePointerDown, true\)/);
+  assert.match(source, /document\.removeEventListener\("pointerdown", this\.handleOutsidePointerDown, true\)/);
+  assert.match(await stylesSource, /\.trading-market-period-editor\[hidden\]\s*\{[^}]*display: none !important;/s);
+});
+
 test("Trading Expert custom indicator dialog configures every existing study and applies only on save", async () => {
   const source = await marketSource;
   const styles = await stylesSource;
@@ -2295,7 +2373,7 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
   );
   const preservedSwitches = source.match(/restartMarketData\(\{ preserveChart: true \}\)/g) ?? [];
 
-  assert.equal(preservedSwitches.length, 5);
+  assert.equal(preservedSwitches.length, 6, "watchlist selection also preserves the chart during loading");
   assert.match(restartBlock, /const targetSymbol = this\.selectedSymbol/);
   assert.match(restartBlock, /const targetInterval = this\.activeInterval/);
   assert.match(restartBlock, /const keepChart = options\.preserveChart === true && this\.candles\.length > 0/);

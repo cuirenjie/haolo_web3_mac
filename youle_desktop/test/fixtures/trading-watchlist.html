@@ -1,0 +1,210 @@
+<!doctype html>
+<html data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/trading-watchlist.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+      .qa-titlebar {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+        background: var(--app-chrome-background);
+        color: var(--text-primary);
+      }
+      #layout.desktop-body {
+        height: calc(100% - 34px);
+        min-height: 0;
+        --trading-expert-panel-width: 330px;
+        --trading-expert-panel-min-width: 280px;
+      }
+      #chart-host {
+        flex: 1;
+        min-width: 0;
+        height: 100%;
+      }
+      .qa-task {
+        padding: 14px;
+        color: var(--text-secondary);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="qa-titlebar">
+      Haolo <span data-titlebar-market-favorites-host></span>
+    </div>
+    <div id="layout" class="desktop-body trading-expert-layout"></div>
+    <script>
+      window.addEventListener("error", (e) => (window.qaError = e.message));
+      window.addEventListener(
+        "unhandledrejection",
+        (e) => (window.qaError = String(e.reason)),
+      );
+    </script>
+    <script type="module">
+      import {
+        renderTradingWatchlistHost,
+        renderTradingWatchlistToggle,
+      } from "/trading-watchlist-ui.ts";
+      const source = (
+        await (await fetch("/trading-expert-market.ts")).text()
+      ).replaceAll('from "/', `from "${location.origin}/`);
+      const url = URL.createObjectURL(
+        new Blob([source + "\nexport { TradingExpertMarketWorkspace };"], {
+          type: "text/javascript",
+        }),
+      );
+      const marketModule = await import(url);
+      const symbols = [
+        "BTC",
+        "ETH",
+        "SOL",
+        "XAU",
+        "BNB",
+        "ALPINE",
+        "ORDI",
+        "AXS",
+        "OG",
+      ];
+      const prices = [
+        81526, 2639.12, 111.87, 4381.78, 770.75, 0.346, 4.638, 1.016, 2.77,
+      ];
+      window.qaMarkets = symbols.flatMap((symbol, index) =>
+        ["perpetual", "spot"].map((type) => ({
+          id: `BINANCE:${type === "spot" ? "SPOT" : "FUTURES"}:${symbol}USDT`,
+          provider: "binance",
+          symbol: `${symbol}USDT`,
+          baseAsset: symbol,
+          quoteAsset: "USDT",
+          displaySymbol: `${symbol}/USDT`,
+          description: symbol,
+          venue: "币安",
+          assetClass: symbol === "XAU" ? "commodity" : "crypto",
+          marketType: type,
+          tag: type === "spot" ? "现货" : "永续",
+          markPrice: prices[index],
+          changePercent: index === 2 ? -1.25 : 2.35,
+          volume24h: 10000000,
+          quoteAvailable: true,
+        })),
+      );
+      window.qaStreamSubscriptions = [];
+      window.qaStreamCallbacks = new Map();
+      window.qaIndexCalls = 0;
+      const indexGate = new URLSearchParams(location.search).has('hold-indices')
+        ? new Promise(resolve => { window.qaReleaseIndices = resolve; }) : Promise.resolve();
+      window.qaIndicesFail = false;
+      window.qaSourceLinks = [];
+      window.codexDesktop = {
+        openExternal: async url => { qaSourceLinks.push(url); },
+        getPublicMarketIndices: async () => {
+          qaIndexCalls++;
+          await indexGate;
+          if (qaIndicesFail) throw Error('fixture unavailable');
+          return { fetchedAt: Date.now(), indices: ['恐惧与贪婪指数', 'BTC 多空人数比', 'BTC 大户多空人数比', 'BTC 大户多空持仓比', 'ETH 多空人数比', 'ETH 大户多空人数比', 'ETH 大户多空持仓比'].map((name,i) => {
+            const intervalMs = i === 0 ? 86400000 : 3600000;
+            const updatedAt = Math.floor(Date.now() / intervalMs) * intervalMs;
+            return { id: i === 0 ? 'alternative:fng' : `binance:qa:${i}`, name, code: i === 0 ? 'FGI' : 'BTC/USDT',
+              source: i === 0 ? 'Alternative.me' : 'Binance', sourceUrl: i === 0 ? 'https://alternative.me/crypto/fear-and-greed-index/' : 'https://www.binance.com',
+              description: i === 0 ? '0–100，数值越高表示市场情绪越贪婪；每日更新。' : '多仓账户与空仓账户的比值；按小时采样。',
+              intervalMs, updatedAt, value: i === 0 ? 71 : 0.9535, changePercent: i === 0 ? 26.79 : -1.2,
+              status: 'ready', series: Array.from({length:31},(_,j)=>({time:updatedAt-(30-j)*intervalMs,value:i === 0 ? 55+Math.sin(j)*10+j/2 : 1+Math.sin(j)*0.05-j*0.002})) };
+          }) };
+        },
+        getBinancePublicMarketData: async (request) => {
+          if (request.path.endsWith("/klines")) {
+            const step = 3600000,
+              end = Math.floor(Date.now() / step) * step;
+            return {
+              ok: true,
+              status: 200,
+              data: Array.from({ length: 500 }, (_, i) => {
+                const o = 2600 + Math.sin(i / 9) * 25 + i / 20,
+                  c = o + Math.sin(i) * 4;
+                return [
+                  end - (499 - i) * step,
+                  String(o),
+                  String(Math.max(o, c) + 2),
+                  String(Math.min(o, c) - 2),
+                  String(c),
+                  "100",
+                  end - (498 - i) * step - 1,
+                  "0",
+                  1,
+                  "0",
+                  "0",
+                  "0",
+                ];
+              }),
+            };
+          }
+          if (request.path.endsWith("/exchangeInfo"))
+            return {
+              ok: true,
+              status: 200,
+              data: {
+                symbols: symbols.map((baseAsset) => ({
+                  symbol: `${baseAsset}USDT`,
+                  baseAsset,
+                  quoteAsset: "USDT",
+                  status: "TRADING",
+                  contractType: baseAsset === "XAU" ? "TRADIFI_PERPETUAL" : "PERPETUAL",
+                  isSpotTradingAllowed: true,
+                })),
+              },
+            };
+          if (request.path.endsWith("/ticker/24hr")) {
+            const tickers = symbols.map((s, i) => ({
+              symbol: `${s}USDT`,
+              lastPrice: String(prices[i]),
+              openPrice: String(prices[i] / 1.0235),
+              priceChangePercent: "2.35",
+              quoteVolume: "10000000",
+            }));
+            return {
+              ok: true,
+              status: 200,
+              data: request.parameters.symbol
+                ? tickers.find((t) => t.symbol === request.parameters.symbol) ||
+                  tickers[0]
+                : tickers,
+            };
+          }
+          return { ok: true, status: 200, data: [] };
+        },
+        subscribeBinanceMarketStreams: async (request, callback) => {
+          window.qaStreamSubscriptions.push(request);
+          const subscriptionId = `qa-${qaStreamSubscriptions.length}`;
+          qaStreamCallbacks.set(subscriptionId, { request, callback });
+          return { subscriptionId };
+        },
+        unsubscribeBinanceMarketStreams: async ({ subscriptionId }) => {
+          qaStreamCallbacks.delete(subscriptionId);
+        },
+        onBinanceMarketEvent: () => () => {},
+      };
+      window.qaPanelMarkup = () =>
+        `<aside class="agent-panel expanded trading-expert-panel"><div class="agent-panel-inner"><header class="trading-expert-panel-header"><div class="trading-expert-panel-heading"><strong class="trading-expert-panel-title">新任务</strong></div><div class="trading-expert-panel-header-actions">${renderTradingWatchlistToggle()}<button class="small-icon-button">◫</button></div></header>${renderTradingWatchlistHost()}<section id="trading-expert-panel-chat" class="trading-expert-dashboard chat"><div class="qa-task"></div></section></div><div class="composer"><div class="chat-title-group-picker composer-group-picker composer-context-group-picker"><div class="chat-title-group-wrap"><div class="chat-title-group-control"><button type="button" class="chat-title-group-button"><span>选择分组</span></button></div></div></div><textarea style="width:100%;height:100px;background:transparent;color:var(--text-primary);border:0;resize:none" placeholder="点击+调用策略、指标、预警和文件"></textarea><span style="color:var(--text-secondary)">＋</span></div></aside>`;
+      layout.innerHTML = `<main id="chart-host" class="chat-panel trading-expert-chat-panel">${marketModule.renderTradingExpertMarketWorkspace()}</main>${qaPanelMarkup()}`;
+      window.workspace = new marketModule.TradingExpertMarketWorkspace(
+        document.querySelector("[data-trading-market-workspace]"),
+        "isolated-watchlist-qa",
+        "isolated-watchlist-qa",
+      );
+      workspace.syncWatchlistHost();
+      await workspace.restartMarketData();
+      await workspace.loadMarkets({ complete: true });
+      workspace.markets = qaMarkets;
+      workspace.renderMarkets();
+      window.ready = true;
+    </script>
+  </body>
+</html>
