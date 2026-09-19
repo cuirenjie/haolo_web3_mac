@@ -1,5 +1,14 @@
 # 行情/私有出口服务：无感发布准备状态
 
+## 2026-09-19 公共缓存 OOM 修复（当前活动版本）
+
+- 活动容器为 `haolo-binance-gateway-cache-4e7170bdfe0d`，公共/私有回环端口改为 `28787/28788`。`public_gateway`、`public_gateway_rest`、`private_gateway` 和 watchdog 活动记录均已同步，保留 09-17 的压缩配置及所有其他服务规则。
+- 镜像 ID：`sha256:e59b782bb0bc201ea30d5e823094b212481b225f91485e7e1ed503f1c7677b1e`。精确旧生产镜像上仅覆盖 `cache.mjs` 和 `public-rest-cache.mjs`，源码清单摘要 `4e7170bdfe0d0e76f8d0e6f792ae591268e17eacede380528244f08589f2c100`。
+- 发布目录 `/opt/haolo/releases/gateway-cache-4e7170bdfe0d` 保存 HAProxy/活动状态、Redis RDB、回退脚本与 `activation.json`。完成发布锁、备份、候选预检、独立自动回退保护、切换和 Windows DIRECT 外部 10 项验收，回执 `accepted`、重启次数 0。实际授权合约 WS 和两个 ready 通过。
+- 修复将可重建公共 REST 缓存限制为 Redis 128 MiB/1024 条、进程内 32 MiB/1024 条；缓存读写异常不使成功的公共行情响应变成 500。只回收旧公共行情缓存，Redis `noeviction` 与票据/permit/权重账本保持原语义。
+- **旧实例仍在排空**：`haolo-binance-gateway-candidate-71758f4` 最后检查仍有 71 个 WebSocket 客户端，必须保留直到连接自然归零。不能强杀、不能继续叠加版本；此次未完成旧实例退休。以下 09-17 退休记录仅指更早的 `haolo-binance-gateway-1`。
+- 完整调查、客户端恢复修复与验收边界见 [国内直连与历史恢复记录](../../../../youle_desktop/docs/binance-direct-history-repair-20260919.zh-CN.md)。客户端仅更新开发源码，没有发布安装包；M2-013 多运营商/72 小时长稳验收仍待执行。
+
 ## 2026-09-17 回源与传输降费更新
 
 - 普通香港 GA `ga-bp1n9v1nhuiil4gmkwgiu` 的新加坡目标已从 PublicIp 改为同一边缘 ECS 的私网回源，IP/20 Mbps/真实来源地址保留；普通客户端仍可直连 `8.219.93.44`。

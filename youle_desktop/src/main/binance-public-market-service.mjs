@@ -1,3 +1,5 @@
+import { bufferBinanceResponse, fetchBinanceResponse } from "./binance-response-body.mjs";
+
 /**
  * Binance's public Spot market-data host is intentionally separate from the
  * authenticated Spot API host. Futures keeps Binance's documented default,
@@ -284,32 +286,84 @@ export class BinancePublicMarketService {
         errorCode: error.code,
       };
     }
-    const currentMs = this.currentTimeMs();
-    const cached = this.cached(request.url, currentMs);
-    if (cached) return cached;
     if (callerSignal?.aborted) {
       throw callerSignal.reason || new DOMException("The operation was aborted", "AbortError");
     }
+    const currentMs = this.currentTimeMs();
+    const cached = this.cached(request.url, currentMs);
+    if (cached) return cached;
     const controller = this.timeoutMs > 0 ? new AbortController() : null;
     const forwardAbort = controller && callerSignal
       ? () => controller.abort(callerSignal.reason || new DOMException("The operation was aborted", "AbortError"))
       : null;
     if (forwardAbort) callerSignal.addEventListener("abort", forwardAbort, { once: true });
     const timer = controller
-      ? setTimeout(() => controller.abort(new DOMException("The operation was aborted", "AbortError")), this.timeoutMs)
+      ? setTimeout(() => controller.abort(new DOMException("Binance market request timed out", "TimeoutError")), this.timeoutMs)
       : null;
     timer?.unref?.();
+    const signal = controller?.signal || callerSignal;
     let response;
     try {
-      response = await this.fetch(request.url, {
+      response = await fetchBinanceResponse(this.fetch, request.url, {
         method: "GET",
         cache: "no-store",
-        signal: controller?.signal || callerSignal,
+        signal,
       });
+      const complete = await bufferBinanceResponse(response, { signal });
+      let data;
+      try { data = await complete.json(); } catch (error) {
+        // Non-JSON HTTP errors still carry useful status/Retry-After headers.
+        if (response.ok) throw error;
+        data = null;
+      }
+      signal?.throwIfAborted();
+      if (response.ok && (data === null || typeof data !== "object")) {
+        throw new Error("Binance market response does not contain JSON market data");
+      }
+      const completedAt = this.currentTimeMs();
+      const diagnostics = responseDiagnostics(response);
+      const responseRetryAfterMs = retryAfterMs(response, completedAt);
+      if (!response.ok) {
+        const errorCode = Number(data?.code) === -1121
+          ? "BINANCE_MARKET_SYMBOL_UNAVAILABLE"
+          : null;
+        const status = Number(response.status || 0);
+        const error = String(data?.msg || `Binance market request failed: ${status}`).slice(0, 500);
+        const stale = this.stale(request.url, completedAt);
+        if (stale && (status === 418 || status === 429 || status >= 500 || !status)) {
+          return this.staleResult(stale, completedAt, {
+            status, retryAfter: responseRetryAfterMs, diagnostics, error,
+          });
+        }
+        return {
+          ok: false, status, data: null, cached: false,
+          retryAfterMs: responseRetryAfterMs, error, diagnostics,
+          ...(errorCode ? { errorCode } : {}),
+        };
+      }
+      const gatewayStale = diagnostics.cacheStatus === "STALE";
+      this.store(request.url, data, completedAt, request, { fresh: !gatewayStale });
+      if (gatewayStale) {
+        const entry = this.stale(request.url, completedAt);
+        return this.staleResult(entry, completedAt, {
+          status: Number(response.status || 200), retryAfter: responseRetryAfterMs, diagnostics,
+        });
+      }
+      return {
+        ok: true, status: Number(response.status || 200), data: cloneData(data),
+        cached: false, retryAfterMs: null, diagnostics,
+      };
     } catch (error) {
       if (callerSignal?.aborted) throw callerSignal.reason || error;
       const failedAt = this.currentTimeMs();
-      const diagnostics = Object.freeze({
+      const evidence = response || error?.binanceResponse;
+      const sourceStatus = Number(evidence?.status || 0);
+      const status = sourceStatus >= 400 ? sourceStatus : 0;
+      const retryAfter = retryAfterMs(evidence, failedAt);
+      const diagnostics = evidence ? Object.freeze({
+        ...responseDiagnostics(evidence),
+        ...(sourceStatus < 400 ? { origin: "transport" } : {}),
+      }) : Object.freeze({
         route: "unknown",
         egress: "unknown",
         origin: "transport",
@@ -318,38 +372,9 @@ export class BinancePublicMarketService {
         gatewayRemaining: null,
       });
       const stale = this.stale(request.url, failedAt);
-      if (stale) return this.staleResult(stale, failedAt, { diagnostics, error: error?.message || error });
-      return {
-        ok: false,
-        status: 0,
-        data: null,
-        cached: false,
-        retryAfterMs: null,
-        error: String(error?.message || error || "Binance market request failed").slice(0, 500),
-        diagnostics,
-      };
-    } finally {
-      if (timer) clearTimeout(timer);
-      if (forwardAbort) callerSignal.removeEventListener("abort", forwardAbort);
-    }
-    const completedAt = this.currentTimeMs();
-    const diagnostics = responseDiagnostics(response);
-    const responseRetryAfterMs = retryAfterMs(response, completedAt);
-    let data = null;
-    try { data = await response.json(); } catch {}
-    if (!response?.ok) {
-      const errorCode = Number(data?.code) === -1121
-        ? "BINANCE_MARKET_SYMBOL_UNAVAILABLE"
-        : null;
-      const status = Number(response?.status || 0);
-      const error = String(data?.msg || `Binance market request failed: ${status}`).slice(0, 500);
-      const stale = this.stale(request.url, completedAt);
-      if (stale && (status === 418 || status === 429 || status >= 500 || !status)) {
-        return this.staleResult(stale, completedAt, {
-          status,
-          retryAfter: responseRetryAfterMs,
-          diagnostics,
-          error,
+      if (stale && (!status || status === 418 || status === 429 || status >= 500)) {
+        return this.staleResult(stale, failedAt, {
+          status, retryAfter, diagnostics, error: error?.message || error,
         });
       }
       return {
@@ -357,29 +382,13 @@ export class BinancePublicMarketService {
         status,
         data: null,
         cached: false,
-        retryAfterMs: responseRetryAfterMs,
-        error,
+        retryAfterMs: retryAfter,
+        error: String(error?.message || error || "Binance market request failed").slice(0, 500),
         diagnostics,
-        ...(errorCode ? { errorCode } : {}),
       };
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (forwardAbort) callerSignal.removeEventListener("abort", forwardAbort);
     }
-    const gatewayStale = diagnostics.cacheStatus === "STALE";
-    this.store(request.url, data, completedAt, request, { fresh: !gatewayStale });
-    if (gatewayStale) {
-      const entry = this.stale(request.url, completedAt);
-      return this.staleResult(entry, completedAt, {
-        status: Number(response.status || 200),
-        retryAfter: responseRetryAfterMs,
-        diagnostics,
-      });
-    }
-    return {
-      ok: true,
-      status: Number(response.status || 200),
-      data: cloneData(data),
-      cached: false,
-      retryAfterMs: null,
-      diagnostics,
-    };
   }
 }

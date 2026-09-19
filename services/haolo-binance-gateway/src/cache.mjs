@@ -1,3 +1,5 @@
+import { PublicRestCache } from "./public-rest-cache.mjs";
+
 export class GatewayCache {
   constructor({ redisUrl = "", prefix = "haolo:market:" } = {}) {
     this.redisUrl = redisUrl;
@@ -6,6 +8,7 @@ export class GatewayCache {
     this.budgetMemory = new Map();
     this.inflight = new Map();
     this.redis = null;
+    this.publicRest = new PublicRestCache({ prefix });
   }
 
   async connect() {
@@ -22,6 +25,7 @@ export class GatewayCache {
   }
 
   async get(key, now = Date.now()) {
+    if (key.startsWith("rest:")) return this.publicRest.get(this.key(key), this.redis, now);
     let record = this.memory.get(key);
     if (!record && this.redis) {
       const raw = await this.redis.get(this.key(key));
@@ -41,6 +45,7 @@ export class GatewayCache {
   }
 
   async set(key, value, freshTtlMs, staleTtlMs = freshTtlMs) {
+    if (key.startsWith("rest:")) return this.publicRest.set(this.key(key), value, freshTtlMs, staleTtlMs, this.redis);
     const now = Date.now();
     const record = { value, freshUntil: now + Math.max(0, freshTtlMs), staleUntil: now + Math.max(freshTtlMs, staleTtlMs) };
     this.memory.set(key, record);
@@ -193,6 +198,7 @@ export class GatewayCache {
     await this.redis?.quit().catch(() => {});
     this.redis = null;
     this.memory.clear();
+    this.publicRest.clear();
     this.budgetMemory.clear();
     this.inflight.clear();
   }
