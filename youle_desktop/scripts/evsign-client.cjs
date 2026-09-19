@@ -115,7 +115,7 @@ async function signFile(file, options = {}) {
   if (!thumbprint && !options.bootstrap) throw new Error('EV Sign certificate fingerprint is not configured');
   const credentials = options.credentials || loadCredentials();
   const verify = options.verify || verifySignature;
-  const transfer = options.transfer || requestSignature;
+  const transfer = options.transfer || require('./evsign-cli.cjs').requestCliSignature;
   const candidate = path.join(path.dirname(file), `.${path.basename(file)}.${crypto.randomUUID()}.signed.exe`);
   const before = pePayloadDigest(await fsp.readFile(file));
   let downloaded = false;

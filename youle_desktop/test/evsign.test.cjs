@@ -147,3 +147,48 @@ test('native host resource copy invokes the real builder signing transformer wit
   assert.deepEqual(await fs.readFile(path.join(source.root, nativeName)), executable());
   assert.equal(await fs.readFile(path.join(source.root, 'haolo_ai.exe'), 'utf8'), 'vendor signature');
 });
+
+test('CLI signs an isolated copy with the reviewed filename, SHA-256 and trusted timestamp', async t => {
+  const { file, root } = await fixture(t);
+  const { requestCliSignature } = require('../scripts/evsign-cli.cjs');
+  const output = path.join(root, 'signed.exe');
+  await requestCliSignature(path.relative(process.cwd(), file), path.relative(process.cwd(), output), credentials, {
+    prepare: async () => 'verified-cli.exe', log: () => {},
+    run: async (executable, args, options) => {
+      assert.equal(executable, 'verified-cli.exe');
+      assert.equal(path.basename(args[0]), 'haolo_desktop.exe');
+      assert.equal(path.isAbsolute(args[0]), true);
+      assert.notEqual(args[0], file);
+      assert.deepEqual(args.slice(1), ['-key', KEY, '-sha256', '-t', 'digicert', '-pwd', credentials.password]);
+      assert.equal(options.shell, false); assert.equal(options.windowsHide, true);
+      assert.equal(options.cwd, path.dirname(args[0]));
+      await fs.writeFile(args[0], executableFixture());
+    },
+  });
+  function executableFixture() { return executable(true); }
+  assert.deepEqual(await fs.readFile(file), executable());
+  assert.deepEqual(await fs.readFile(output), executable(true));
+  assert.deepEqual((await fs.readdir(root)).sort(), ['haolo_desktop.exe', 'signed.exe']);
+});
+
+test('CLI failure cannot expose command-line credentials or replace the original', async t => {
+  const { file, root } = await fixture(t);
+  const { requestCliSignature } = require('../scripts/evsign-cli.cjs');
+  const output = path.join(root, 'signed.exe');
+  await assert.rejects(requestCliSignature(file, output, credentials, {
+    prepare: async () => 'verified-cli.exe', log: () => {},
+    run: async () => { const error = new Error(`Command failed -key ${KEY} -pwd ${credentials.password}`); error.stderr = `Denied ${KEY} ${credentials.password}`; throw error; },
+  }), error => /EV Sign CLI failed/.test(error.message) && !error.message.includes(KEY) && !error.message.includes(credentials.password));
+  assert.deepEqual(await fs.readFile(file), executable());
+  assert.deepEqual(await fs.readdir(root), ['haolo_desktop.exe']);
+});
+
+test('normal signing defaults to CLI and rejects an altered CLI binary before execution', async t => {
+  const { file } = await fixture(t);
+  const cli = require('../scripts/evsign-cli.cjs');
+  await assert.rejects(cli.verifyCliBinary(file), /CLI checksum mismatch/);
+  let called = false;
+  t.mock.method(cli, 'requestCliSignature', async (input, output) => { called = true; assert.equal(input, file); await fs.writeFile(output, executable(true)); });
+  await signFile(file, { credentials, verify: async () => ({ subject: 'fixture signer' }) });
+  assert.equal(called, true);
+});

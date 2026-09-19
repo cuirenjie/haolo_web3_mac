@@ -78,12 +78,19 @@ jobs:
       - name: Typecheck
         run: pnpm --filter haolo_desktop typecheck
 
+      - name: Test Windows signing workflow
+        run: pnpm --filter haolo_desktop exec node --test test/evsign.test.cjs test/windows-dev-executable.test.mjs
+
       - name: Build renderer
         run: pnpm --filter haolo_desktop build
 
       - name: Build Chrome native host
         if: ${{ github.event_name != 'pull_request' }}
         run: pnpm --filter haolo_desktop build:chrome-host
+
+      - name: Prepare verified EV Sign CLI
+        if: ${{ github.event_name != 'pull_request' }}
+        run: node youle_desktop/scripts/evsign-cli.cjs
 
       - name: Package Windows unpacked app
         if: ${{ github.event_name != 'pull_request' }}

@@ -2,17 +2,20 @@
 
 用户于 2026-09-19 明确要求以后 Windows 打包主动签名。本仓库默认开启 EV 签名并在失败时中止，不允许退回未签名包。此次重做版本仍为用户指定的 **0.1.170**；打包不等于发布生产更新。
 
-## 接口与凭证
+## CLI 与凭证
 
-- [EV Sign 官方 API](https://wiki.evsign.cn/api-sign)：向固定的 `https://api.evsign.cn/v1` POST 完整二进制，成功响应为已签名文件。使用 SHA-256、自动时间戳、不追加旧签名。禁止携带许可证跟随重定向。
+- 用户于 2026-09-19 根据服务商建议要求使用 [EV Sign 官方 CLI](https://wiki.evsign.cn/cli)。正常打包默认通过 `scripts/evsign-cli.cjs` 调用官方 CLI，使用 `-sha256 -t digicert`，不追加旧签名；失败不会自动回退为完整文件上传 API。
+- CLI 位于仓库外的 `~/.codex/tools/evsign/evsign-client.exe`。`node scripts/evsign-cli.cjs` 可提前准备，打包时也会自动准备。CI 有独立准备步骤；可通过 `HAOLO_EVSIGN_CLI_PATH` 指定同一已验证工具。
+- 当前 CLI 为官方 Windows 1.0.1，工具本身发布者为 **Keroro Software Ltd**。`scripts/evsign-policy.json` 分别固定 CLI 的 SHA-256、工具证书指纹及 HaoLo 产物证书指纹。工具更新须先复核再更新 pin，不自动接受固定下载地址返回的新二进制。
 - 本地许可证：`~/.codex/secrets/haolo-evsign-license.json`，格式为 `{"licenseKey":"许可证 UUID"}`，可含 `password`、`certificateId`。此文件在仓库之外，当前机器已限制文件权限。不要复制到源码、日志或产品资源。
 - CI：仓库加密 Secret `HAOLO_EVSIGN_LICENSE_KEY`，只向非 PR 的打包步骤注入。也可通过 `HAOLO_EVSIGN_LICENSE_FILE` 指定本地凭证文件。
 - 当前许可证实际证书发布者：**NaisNet Technology Co., Ltd.**；颁发者为 Certum Extended Validation Code Signing 2021 CA；证书到期时间 2027-04-14 UTC。发布者指纹保存在 `scripts/evsign-policy.json`。Windows 会显示这个证书发布者名称。
 - 证书更换必须先核对受信链和发布者，再明确更新指纹；不要为通过校验自动接受不同证书。
+- CLI 文档要求通过 `-key` 传许可证，由 Node 直接传给子进程，不经过 shell。禁止打印命令参数、原始 CLI 输出或包含完整命令的进程错误；失败信息先脱敏。CLI 工具和许可证都不打入客户端。
 
 ## 构建顺序
 
-1. 按用户指定版本或发行技能规则确定版本，检查生产地址、类型及运行内核。
+1. 按用户指定版本或发行技能规则确定版本，检查生产地址、类型及运行内核，运行 `node scripts/evsign-cli.cjs` 准备已验证的 CLI。
 2. 编译 native host 和前端资源。
 3. `pnpm exec electron-builder --win --x64 --dir --publish never`：先写入图标、版本与 ASAR 完整性资源，再签主程序和自有 native host。
 4. `pnpm exec electron-builder --win nsis --x64 --prepackaged release/win-unpacked --publish never`：打入已签名文件，签卸载程序，再签安装程序，最后生成 blockmap。
@@ -21,7 +24,7 @@
 
 native host 的 `extraResources` 必须使用 `from: resources/bin` 配合 `filter: [haolo-chrome-native-host.exe]`。electron-builder 26.11.1 的单文件复制分支跳过签名 transformer；直接指定 EXE 为 `from` 会漏签。集成测试通过真实复制流程验证辅助程序触发签名、源文件不变且第三方文件不被处理。
 
-`scripts/sign-windows.cjs` 接入 [electron-builder 26 自定义签名接口](https://www.electron.build/v26/docs/api/app-builder-lib.interface.windowssigntoolconfiguration/)。API 返回先保存为独立候选文件：比较可执行内容（仅允许签名区域、PE 校验和及签名对齐改变），然后验证 Windows Authenticode、固定证书、EV 策略 OID `2.23.140.1.3`、实际文件 SHA-256 签名与时间戳，全部通过才替换原文件。失败保留原文件，完整但未通过的响应仅留在构建目录供诊断，不可分发。
+`scripts/sign-windows.cjs` 接入 [electron-builder 26 自定义签名接口](https://www.electron.build/v26/docs/api/app-builder-lib.interface.windowssigntoolconfiguration/)。CLI 仅操作隔离目录中的同名副本，保留审核时的真实文件名：比较可执行内容（仅允许签名区域、PE 校验和及签名对齐改变），然后验证 Windows Authenticode、固定证书、EV 策略 OID `2.23.140.1.3`、实际文件 SHA-256 签名与时间戳，全部通过才替换原文件。失败保留原文件，未通过校验的候选文件仅留在构建目录供诊断，不可分发。
 
 签名范围：`haolo_desktop.exe`、`haolo-chrome-native-host.exe`、版本化的 `-Setup.exe` 和 `-Setup.__uninstaller.exe`。OpenAI 内核等第三方文件保留原发布者签名。凭证缺失、证书不符、服务拒绝、网络中断或校验失败均中止，禁止关闭 `forceCodeSigning` 或启用 `signAndEditExecutable=false` 来出包。
 
@@ -35,5 +38,5 @@ EV Sign 按许可证审核可签文件。接入时 native host 曾返回 HTTP 40
 
 - 四个自有 EXE 均通过固定证书、EV 策略、SHA-256、可信时间戳和 Windows Authenticode 验证；Windows SDK SignTool `/pa /all /v` 为 4/4 成功、零警告、零错误。
 - 从最终安装包提取主程序、native host 和卸载程序，其 SHA-256 与已经验证的签名文件逐一相同；应用 ASAR 也与构建输入相同。
-- 安装包 `haolo_desktop-0.1.170-Setup.exe`：202629000 字节，SHA-256 `4b66df3f4f48a26830d1d79aa7e5dc72cb634b5f8decc4150f3e9ae80cb0edfe`。
-- 本地构建证据：`release/build-0.1.170-20260919-ev-signed`；四项签名报告：`release/ev-signatures-0.1.170.json`。签名凭证不进入这些报告。
+- 最终四个程序均使用 CLI 签名。安装包 `haolo_desktop-0.1.170-Setup.exe`：202629016 字节，SHA-256 `8eb241ce29422e6a3060ab84e5e5d0fcb23498655459898eb79f88f410fe564f`。
+- 本地 CLI 构建证据：`release/build-0.1.170-20260919-ev-cli`；四项签名报告：`release/ev-signatures-0.1.170.json`。此前 API 验证产物保留于 `release/archive/0.1.170-ev-api-20260919`，最终交付 CLI 版。签名凭证不进入这些报告。

@@ -2,5 +2,11 @@
   "endpoint": "https://api.evsign.cn/v1",
   "certificateThumbprint": "0742580B8EA12653FE3A1E906613268467BAD80A",
   "publisherName": "NaisNet Technology Co., Ltd.",
-  "ownedExecutableNames": ["haolo_desktop.exe", "haolo-chrome-native-host.exe"]
+  "ownedExecutableNames": ["haolo_desktop.exe", "haolo-chrome-native-host.exe"],
+  "cli": {
+    "version": "1.0.1",
+    "downloadUrl": "https://mc.evsign.cn/evsign-client-cli-windows-latest",
+    "sha256": "b1b2168a1d0ea757f26db18ac2e2b14e06fb74021f0d67add5e6be1a47dffd97",
+    "certificateThumbprint": "6DCBCC70A507DCAE74135DCB57047CC3365E9F03"
+  }
 }
