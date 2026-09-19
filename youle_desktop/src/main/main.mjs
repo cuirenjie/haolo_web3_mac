@@ -205,6 +205,7 @@ import { BinancePublicMarketService } from "./binance-public-market-service.mjs"
 import { BinancePublicRequestCoordinator } from "./binance-public-request-coordinator.mjs";
 import { resolveBinanceGatewayConfig } from "./binance-gateway-config.mjs";
 import { createBinanceGatewayClient } from "./binance-gateway-client.mjs";
+import { developmentDirectNetwork } from "./development-network.mjs";
 import { BinanceNetworkRouter } from "./binance-network-router.mjs";
 import { BinanceRoutePreferenceStore } from "./binance-route-preference-store.mjs";
 import { createBinanceGatewayNetworkFetch } from "./binance-gateway-network.mjs";
@@ -20597,7 +20598,7 @@ function getHaoloNetworkTransport() {
     const getSession = () => session.fromPartition("haolo-service-network", { cache: false });
     const fallbackFetch = nativeAppNetworkFetch;
     haoloNetworkTransport = createHaoloNetworkTransport({
-      resolveProxy: createElectronProxyResolver({ getSession }),
+      resolveProxy: developmentDirectNetwork() ? async () => "DIRECT" : createElectronProxyResolver({ getSession }),
       fallbackFetch,
       onDiagnostic,
     });
@@ -20605,7 +20606,16 @@ function getHaoloNetworkTransport() {
   return haoloNetworkTransport;
 }
 
-function nativeAppNetworkFetch(url, options = {}) {
+let developmentDirectSessionReady;
+async function nativeAppNetworkFetch(url, options = {}) {
+  if (developmentDirectNetwork()) {
+    developmentDirectSessionReady ||= (async () => {
+      const directSession = session.fromPartition("haolo-development-direct-network", { cache: false });
+      await directSession.setProxy({ mode: "direct" });
+      return directSession;
+    })();
+    return (await developmentDirectSessionReady).fetch(url, options);
+  }
   if (typeof net?.fetch === "function") return net.fetch(url, options);
   return fetch(url, options);
 }

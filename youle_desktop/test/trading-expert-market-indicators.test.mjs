@@ -1377,7 +1377,7 @@ test("fixed price scale follows the high-low range of the visible candles", asyn
   assert.equal(fixedPriceScaleRange([]), null);
   assert.deepEqual(initialMarketLogicalRange(500, "1W"), { from: 400, to: 505 });
   assert.deepEqual(initialMarketLogicalRange(500, "1D"), { from: 320, to: 505 });
-  assert.deepEqual(initialMarketLogicalRange(80, "1D"), { from: 0, to: 85 });
+  assert.deepEqual(initialMarketLogicalRange(80, "1D"), { from: -100, to: 85 });
   assert.equal(initialMarketLogicalRange(0, "1D"), null);
 });
 

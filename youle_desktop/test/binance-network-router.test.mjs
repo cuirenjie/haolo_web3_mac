@@ -15,6 +15,56 @@ function autoConfig() {
   });
 }
 
+test("route decoration preserves streaming reads and downstream cancellation", { timeout: 2_000 }, async () => {
+  for (const route of ["direct", "public-gateway", "private-gateway"]) {
+    let source;
+    let cancelled;
+    const cancelledPromise = new Promise((resolve) => { cancelled = resolve; });
+    const upstream = new Response(new ReadableStream({
+      start(controller) { source = controller; },
+      cancel(reason) { cancelled(reason); },
+    }), { status: 200, headers: { "x-haolo-cache": "MISS" } });
+    const config = route === "direct" ? { ...autoConfig(), routingMode: "direct" }
+      : { ...autoConfig(), routingMode: "gateway" };
+    const router = new BinanceNetworkRouter({ config,
+      directFetch: async () => upstream,
+      gatewayClient: { fetch: async () => upstream },
+      privateProxyFetch: async () => upstream,
+    });
+    const response = route === "private-gateway"
+      ? await router.privateFetch("https://fapi.binance.com/fapi/v3/account")
+      : await router.publicFetch("https://fapi.binance.com/fapi/v1/klines");
+    assert.equal(response.headers.get("x-haolo-binance-route"), route);
+    assert.equal(response.headers.get("x-haolo-cache"), "MISS");
+    const reader = response.body.getReader();
+    source.enqueue(new TextEncoder().encode("first chunk"));
+    const first = await reader.read();
+    assert.equal(new TextDecoder().decode(first.value), "first chunk", "must deliver data before upstream finishes");
+    assert.equal(first.done, false);
+    await reader.cancel("chart closed");
+    assert.equal(await cancelledPromise, "chart closed");
+  }
+});
+
+test("route decoration preserves upstream body failures and null bodies", { timeout: 2_000 }, async () => {
+  let source;
+  const router = new BinanceNetworkRouter({ config: { ...autoConfig(), routingMode: "direct" },
+    directFetch: async () => new Response(new ReadableStream({ start(controller) { source = controller; } })),
+  });
+  const response = await router.publicFetch("https://fapi.binance.com/fapi/v1/klines");
+  const reading = response.text();
+  const failure = new Error("upstream connection closed");
+  source.error(failure);
+  await assert.rejects(reading, (error) => error === failure);
+  for (const status of [204, 205, 304]) {
+    router.directFetch = async () => new Response(null, { status });
+    const empty = await router.publicFetch("https://fapi.binance.com/fapi/v1/klines");
+    assert.equal(empty.status, status);
+    assert.equal(empty.body, null);
+    assert.equal(await empty.clone().text(), "");
+  }
+});
+
 test("a failed HTTP ping never selects direct WebSocket or resets gateway preference", async () => {
   for (const status of [403, 429, 451, 500, 503]) {
     const router = new BinanceNetworkRouter({

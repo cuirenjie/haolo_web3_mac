@@ -4259,7 +4259,8 @@ export function visibleCandlesInLogicalRange(
 export function initialMarketLogicalRange(candleCount: number, resolution: string) {
   const total = Math.max(0, Math.trunc(candleCount));
   if (!total) return null;
-  const visibleBars = Math.min(total, resolution === "1D" ? 180 : 100);
+  // A partial recovery/new listing must not stretch two bars across the chart.
+  const visibleBars = resolution === "1D" ? 180 : 100;
   return {
     from: total - visibleBars,
     to: total + 5,
@@ -5018,6 +5019,7 @@ class TradingExpertMarketWorkspace {
   private volumeProfileSnapshot: TradingVolumeProfile | null | undefined;
   private volumeProfileSnapshotCandleCount = 0;
   private resettingChartViewport = false;
+  private marketHistoryReady = false;
   private updatingChartData = false;
   private rebuildingIndicatorPanes = false;
   private marketListScrollRestoreFrame: number | null = null;
@@ -12026,6 +12028,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private persistCurrentMarketCandleSnapshot() {
+    if (this.loadedProvider === "binance" && !this.marketHistoryReady) return;
     if (!this.stats || !this.candles.length || !this.loadedSymbol || !this.loadedInterval) return;
     const source = this.loadedProvider === "binance"
       ? binanceResolutionSource(this.loadedInterval)
@@ -12128,6 +12131,7 @@ class TradingExpertMarketWorkspace {
       );
     const cachedSnapshotNeedsCurrentRefresh = targetProvider === "binance"
       && (!cachedSnapshotUsable
+        || cachedSnapshot!.candleBatch.candles.length < 100
         || tradingAnalysisCandlesRequireCurrentRefresh(cachedSnapshot!.candleBatch.candles, targetInterval));
     let cachedSnapshotApplied = false;
     let binanceSocketStarted = false;
@@ -12175,6 +12179,7 @@ class TradingExpertMarketWorkspace {
     this.stats = null;
     this.candles = [];
     this.sourceCandles = [];
+    this.marketHistoryReady = false;
     this.lastAggregateTradeId = null;
     if (keepChart) this.chartCandles = [];
     else this.clearChart();
@@ -12195,6 +12200,7 @@ class TradingExpertMarketWorkspace {
         cachedSnapshot.candleBatch,
       );
       cachedSnapshotApplied = true;
+      this.marketHistoryReady = !cachedSnapshotNeedsCurrentRefresh;
       this.setLoading(false);
     }
     if (targetProvider === "binance") {
@@ -12278,6 +12284,7 @@ class TradingExpertMarketWorkspace {
       setTradingMarketCandleCache(candleCacheKey, { stats: finalStats, candleBatch: finalCandleBatch });
       this.lastCandleCachePersistAt = Date.now();
       if (this.disposed || generation !== this.loadGeneration) return;
+      this.marketHistoryReady = true;
       this.commitMarketSnapshot(
         targetSymbol,
         targetMarketId,
@@ -12347,6 +12354,12 @@ class TradingExpertMarketWorkspace {
       return;
     }
     if (binanceMarketRestCooldownRemaining(Date.now(), this.selectedMarketType) > 0) return;
+    // Live WS traffic proves only that the current bar is arriving. It must not
+    // suppress a full history retry after bootstrap failed.
+    if (!this.marketHistoryReady) {
+      void this.refreshLiveCandle(generation);
+      return;
+    }
     const source = binanceResolutionSource(this.activeInterval);
     const relevantActivityAt = source?.sourceInterval
       ? this.marketKlineLastActivityAt
@@ -12406,6 +12419,10 @@ class TradingExpertMarketWorkspace {
     if (this.refreshingLiveCandleGeneration === generation) return;
     this.refreshingLiveCandleGeneration = generation;
     try {
+      if (this.selectedProvider === "binance" && !this.marketHistoryReady) {
+        await this.recoverMarketHistory(generation);
+        return;
+      }
       if (this.selectedProvider !== "binance") {
         const api = this.selectedProvider === "ifind"
           ? window.codexDesktop.getIfindMarketCandles
@@ -12469,6 +12486,32 @@ class TradingExpertMarketWorkspace {
         this.refreshingLiveCandleGeneration = null;
       }
     }
+  }
+
+  private async recoverMarketHistory(generation: number) {
+    const batch = await fetchTradingCandles(
+      this.selectedSymbol, this.activeInterval, 500, Date.now(),
+      this.selectedMarketType === "spot" ? "spot" : "perpetual",
+      this.marketDataRequestAbortController?.signal, { forceFresh: true },
+    );
+    if (this.disposed || generation !== this.loadGeneration) return;
+    if (!batch.candles.length || !tradingCandleSeriesMatchesResolution(batch.candles, this.activeInterval)) return;
+    // REST owns finalized history; ticks received while it was loading can
+    // update only the forming bar, never replace the recovered history.
+    const recovered = mergeTradingCandleBatches(batch, {
+      candles: this.candles, sourceCandles: this.sourceCandles,
+      source: batch.source, lastTradeId: this.lastAggregateTradeId ?? undefined,
+    }, { candleLimit: 500, closedCandleAuthority: "current" }) as TradingCandleBatch;
+    this.candles = recovered.candles;
+    this.sourceCandles = recovered.sourceCandles;
+    this.lastAggregateTradeId = recovered.lastTradeId ?? null;
+    this.stats = tradingMarketStatsFromCandles(this.selectedSymbol, this.candles);
+    this.commitLoadedSelection();
+    this.marketHistoryReady = true;
+    this.reconcileCurrentLivePrice();
+    this.updateStatsUi();
+    this.updateChartData({ resetViewport: true });
+    this.scheduleCurrentMarketCandlePersistence();
   }
 
   private async connectSocket(generation: number) {

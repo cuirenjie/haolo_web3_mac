@@ -31,6 +31,10 @@ const electronBin = prepareWindowsDevelopmentExecutable({
   setExecutableIcon: restoreWindowsIcon.setWindowsExecutableIcon,
 });
 const devUrl = "http://127.0.0.1:5177";
+if (process.argv.includes("--direct-network")) {
+  process.env.HAOLO_DEV_NETWORK_MODE = "direct";
+  console.log("[dev] app network mode: DIRECT (this development process only)");
+}
 
 const children = [];
 const pendingSourceUpdateFiles = new Set();

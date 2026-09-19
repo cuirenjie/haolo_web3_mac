@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { bufferBinanceResponse, discardBinanceResponse } from "./binance-response-body.mjs";
 
 const WINDOW_MS = 60_000;
 const DEFAULT_RETRY_AFTER_MS = 60_000;
 const DEFAULT_BAN_RETRY_AFTER_MS = 5 * 60_000;
-const BINANCE_HOST_PATTERN = /(^|\.)binance\.com$/i;
+const BINANCE_HOST_PATTERN = /(^|\.)binance\.com$|^data-api\.binance\.vision$/i;
 const MAX_DIAGNOSTIC_EVENTS = 128;
 
 export const BINANCE_REQUEST_PRIORITIES = Object.freeze({
@@ -187,13 +188,10 @@ function awaitWithSignal(promise, signal) {
   });
 }
 
-async function runWithExecutionDeadline(networkFetch, input, init, timeoutMs) {
+async function runWithExecutionDeadline(networkFetch, input, init, timeoutMs, onResponse) {
   const callerSignal = init?.signal;
   if (callerSignal?.aborted) throw abortReason(callerSignal);
-  const durationMs = Number(timeoutMs);
-  if ((!Number.isFinite(durationMs) || durationMs <= 0) && !callerSignal) {
-    return networkFetch(input, init);
-  }
+  const durationMs = Number(timeoutMs ?? 45_000);
   const controller = new AbortController();
   const forwardAbort = callerSignal
     ? () => controller.abort(abortReason(callerSignal))
@@ -208,11 +206,29 @@ async function runWithExecutionDeadline(networkFetch, input, init, timeoutMs) {
   if (Number.isFinite(durationMs) && durationMs > 0) {
     timer = setTimeout(() => controller.abort(requestTimeoutError(Math.floor(durationMs))), Math.floor(durationMs));
   }
+  let response;
+  const request = Promise.resolve().then(async () => {
+    controller.signal.throwIfAborted();
+    response = await networkFetch(input, { ...init, signal: controller.signal });
+    // A transport that ignores abort may still return headers after the race.
+    if (controller.signal.aborted) {
+      discardBinanceResponse(response, controller.signal.reason);
+      throw abortReason(controller.signal);
+    }
+    onResponse(response);
+    return bufferBinanceResponse(response, { signal: controller.signal });
+  });
   try {
     return await Promise.race([
-      Promise.resolve().then(() => networkFetch(input, { ...init, signal: controller.signal })),
+      request,
       aborted,
     ]);
+  } catch (error) {
+    // Preserve HTTP rate-limit/status evidence even if its body is interrupted.
+    if (response && error && typeof error === "object" && Object.isExtensible(error)) {
+      error.binanceResponse = { status: response.status, headers: response.headers };
+    }
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
     if (rejectAbort) controller.signal.removeEventListener("abort", rejectAbort);
@@ -443,6 +459,7 @@ export class BinanceRequestGovernor {
 
   async fetch(networkFetch, input, init = {}, context = {}) {
     if (typeof networkFetch !== "function") throw new TypeError("networkFetch must be a function");
+    if (init?.signal?.aborted) throw abortReason(init.signal);
     if (!isBinanceHttpUrl(input)) return networkFetch(input, init);
     const url = requestUrl(input);
     const bucket = binanceRequestBucket(url);
@@ -475,7 +492,7 @@ export class BinanceRequestGovernor {
     const pending = dedupeKey ? this.inflightPublicGets.get(dedupeKey) : null;
     if (pending) {
       this.metrics.coalesced += 1;
-      return awaitWithSignal(pending.then(responseCopy), init?.signal);
+      return this.joinPublicRequest(pending, dedupeKey, init?.signal);
     }
 
     const weight = Math.max(1, positiveInteger(context.weight, binanceRequestWeight(url, init)));
@@ -503,17 +520,21 @@ export class BinanceRequestGovernor {
     }
 
     this.metrics.admitted += 1;
+    const shared = dedupeKey ? { controller: new AbortController(), consumers: 0, settled: false, promise: null } : null;
+    const networkInit = shared ? { ...init, signal: shared.controller.signal } : init;
     let networkStarted = false;
     const request = this.enqueue(async () => {
       const startedAt = nowValue(this.now);
       try {
+        let observation;
         const response = await runWithExecutionDeadline((...args) => {
           networkStarted = true;
           return networkFetch(...args);
-        }, input, init, context.timeoutMs);
+        }, input, networkInit, context.timeoutMs, (headersResponse) => {
+          observation = this.observeResponse(bucket, headersResponse, nowValue(this.now));
+          if (observation.egress !== "local") this.releaseReservation(bucket, reservation);
+        });
         const finishedAt = nowValue(this.now);
-        const observation = this.observeResponse(bucket, response, finishedAt);
-        if (observation.egress !== "local") this.releaseReservation(bucket, reservation);
         this.recordDiagnostic({
           at: finishedAt,
           source: boundedText(context.source, "market"),
@@ -554,15 +575,34 @@ export class BinanceRequestGovernor {
         });
         throw error;
       }
-    }, context.priority ?? BINANCE_REQUEST_PRIORITIES.market, init?.signal);
-    if (dedupeKey) this.inflightPublicGets.set(dedupeKey, request);
-    try {
-      return responseCopy(await request);
-    } catch (error) {
+    }, context.priority ?? BINANCE_REQUEST_PRIORITIES.market, networkInit?.signal);
+    const tracked = request.catch((error) => {
       if (!networkStarted) this.releaseReservation(bucket, reservation);
       throw error;
+    }).finally(() => {
+      if (shared) shared.settled = true;
+      if (shared && this.inflightPublicGets.get(dedupeKey) === shared) this.inflightPublicGets.delete(dedupeKey);
+    });
+    if (shared) {
+      shared.promise = tracked;
+      this.inflightPublicGets.set(dedupeKey, shared);
+      return this.joinPublicRequest(shared, dedupeKey, init?.signal);
+    }
+    return tracked;
+  }
+
+  async joinPublicRequest(shared, key, signal) {
+    shared.consumers += 1;
+    try {
+      const response = await awaitWithSignal(shared.promise, signal);
+      signal?.throwIfAborted();
+      return responseCopy(response);
     } finally {
-      if (dedupeKey && this.inflightPublicGets.get(dedupeKey) === request) this.inflightPublicGets.delete(dedupeKey);
+      shared.consumers -= 1;
+      if (!shared.settled && shared.consumers === 0) {
+        if (this.inflightPublicGets.get(key) === shared) this.inflightPublicGets.delete(key);
+        shared.controller.abort(abortReason(signal));
+      }
     }
   }
 }

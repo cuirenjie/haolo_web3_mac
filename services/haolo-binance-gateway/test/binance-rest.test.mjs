@@ -56,8 +56,7 @@ test("REST gateway serves stale data during Binance 429 cooldown", async () => {
   const url = "/fapi/v1/openInterest?symbol=BTCUSDT";
   await gateway.get(url);
   const route = resolvePublicMarketRequest(url, config);
-  const record = cache.memory.get(route.cacheKey);
-  record.freshUntil = Date.now() - 1;
+  await cache.set(route.cacheKey, { symbol: "BTCUSDT" }, 0, 30_000);
   mode = "limited";
   const stale = await gateway.get(url);
   assert.equal(stale.cacheStatus, "STALE");
