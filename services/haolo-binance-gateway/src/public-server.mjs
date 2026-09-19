@@ -6,6 +6,8 @@ import { MarketGatewayError } from "./binance-rest.mjs";
 import { FixedWindowRateLimiter } from "./rate-limit.mjs";
 import { validateStreamName } from "./stream-pool.mjs";
 import { DrainState, closeHttp } from "./drain.mjs";
+import { createMarketFrameEncoder } from "./market-frame.mjs";
+import { compressionCohort, compressionOptions } from "./ws-compression.mjs";
 
 // A browser that cannot consume the feed must not turn the gateway into an
 // unbounded memory queue. Quote-like streams are latest-value state, so under
@@ -29,6 +31,7 @@ function sendJson(response, statusCode, body, headers = {}) {
     ...headers,
   });
   response.end(payload);
+  return Buffer.byteLength(payload);
 }
 
 function sendMetrics(response, metrics, streamMetrics, privateEgressMetrics = {}) {
@@ -105,17 +108,22 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     limit: config.downstreamBurstRequestsPerMinute || Math.max(1_200, config.downstreamRequestsPerMinute * 4),
   });
   const upstreamBudgetStates = new Map();
-  const websocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 64 * 1024 });
+  const encodeMarketFrame = createMarketFrameEncoder();
+  const websocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: compressionOptions(config), maxPayload: 64 * 1024 });
   const metrics = {
     httpRequests: 0,
     httpErrors: 0,
     websocketClients: 0,
+    websocketCompressedClients: 0,
+    websocketMarketFrames: 0,
+    websocketMarketPayloadBytes: 0,
     websocketRejected: 0,
     websocketBackpressureDisconnects: 0,
     websocketCoalescedFrames: 0,
     restCacheHits: 0,
     restCacheMisses: 0,
     restCacheStale: 0,
+    restPayloadBytes: 0,
     upstreamAdmissions: 0,
     downstreamRateLimited: 0,
   };
@@ -238,7 +246,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       if (result.cacheStatus === "HIT") metrics.restCacheHits += 1;
       else if (result.cacheStatus === "STALE") metrics.restCacheStale += 1;
       else metrics.restCacheMisses += 1;
-      sendJson(response, result.statusCode, result.value, {
+      metrics.restPayloadBytes += sendJson(response, result.statusCode, result.value, {
         "cache-control": "private, max-age=0",
         "x-haolo-cache": result.cacheStatus,
         ...(upstreamBudget && upstreamBudget.marketType === result.marketType
@@ -285,6 +293,11 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       if (Number(websocketClientsByUser.get(identity.userId) || 0) >= config.maxWebsocketClientsPerUser) {
         throw new GatewayAuthError("user connection limit exceeded", 429);
       }
+      // Opt-in cohorts are chosen after authentication. Existing clients which
+      // do not offer compression continue to negotiate the original protocol.
+      if (!compressionCohort(identity.userId, config.wsCompressionPercent)) {
+        delete request.headers["sec-websocket-extensions"];
+      }
       websocketServer.handleUpgrade(request, socket, head, (websocket) => {
         websocketClientsByUser.set(identity.userId, Number(websocketClientsByUser.get(identity.userId) || 0) + 1);
         websocketServer.emit("connection", websocket, request, { route, identity });
@@ -299,11 +312,19 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
 
   websocketServer.on("connection", (websocket, _request, context) => {
     metrics.websocketClients += 1;
+    const compressed = websocket.extensions.includes("permessage-deflate");
+    if (compressed) metrics.websocketCompressedClients += 1;
     const disposers = new Map();
     const { route } = context;
     let released = false;
     let backpressureTimer = null;
     const pendingMarketFrames = new Map();
+    const sendFrame = (frame) => {
+      websocket.send(frame.text, { binary: false, compress: frame.bytes >= (config.wsCompressionThreshold || 1024) });
+      metrics.websocketMarketFrames += 1;
+      // Application bytes before compression, NOT wire/billing bytes.
+      metrics.websocketMarketPayloadBytes += frame.bytes;
+    };
     const clearBackpressure = () => {
       if (backpressureTimer !== null) clearTimeout(backpressureTimer);
       backpressureTimer = null;
@@ -326,7 +347,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       for (const [stream, frame] of pendingMarketFrames) {
         if (Number(websocket.bufferedAmount || 0) > WS_SOFT_BUFFER_BYTES) break;
         try {
-          websocket.send(frame);
+          sendFrame(frame);
           pendingMarketFrames.delete(stream);
         } catch {
           break;
@@ -334,17 +355,20 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       }
       if (pendingMarketFrames.size) scheduleBackpressureFlush();
     };
-    const sendMarketEvent = (stream, payload) => {
+    const sendMarketEvent = (stream, frame) => {
       if (websocket.readyState !== 1) return;
-      const frame = JSON.stringify(payload);
       const buffered = Number(websocket.bufferedAmount || 0);
       if (buffered <= WS_SOFT_BUFFER_BYTES) {
-        try {
-          websocket.send(frame);
-          // This value supersedes any older frame queued before the buffer
-          // drained. A pending flush must never send that older value later.
-          pendingMarketFrames.delete(stream);
-        } catch {}
+        if (pendingMarketFrames.has(stream)) {
+          pendingMarketFrames.set(stream, frame);
+          metrics.websocketCoalescedFrames += 1;
+          flushBackpressureFrames();
+          return;
+        }
+        // Flush an older pending quote first, so it cannot follow this newer
+        // frame when a slow connection recovers.
+        flushBackpressureFrames();
+        try { sendFrame(frame); } catch {}
         return;
       }
       if (buffered >= WS_HARD_BUFFER_BYTES) {
@@ -360,13 +384,14 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       }
       // Keep trade events ordered while there is still bounded headroom. Once
       // the hard limit is reached the branch above closes the slow client.
-      try { websocket.send(frame); } catch {}
+      try { sendFrame(frame); } catch {}
     };
     const release = () => {
       if (released) return;
       released = true;
       clearBackpressure();
       metrics.websocketClients = Math.max(0, metrics.websocketClients - 1);
+      if (compressed) metrics.websocketCompressedClients = Math.max(0, metrics.websocketCompressedClients - 1);
       const remaining = Math.max(0, Number(websocketClientsByUser.get(context.identity.userId) || 1) - 1);
       if (remaining) websocketClientsByUser.set(context.identity.userId, remaining);
       else websocketClientsByUser.delete(context.identity.userId);
@@ -379,8 +404,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       if (disposers.size >= config.maxSubscriptionsPerClient) throw new TypeError("subscription limit exceeded");
       const dispose = streamPool.subscribe(route.marketType, stream, (event) => {
         if (websocket.readyState !== 1) return;
-        const payload = route.mode === "stream" ? { stream: event.stream, data: event.data } : event.data;
-        sendMarketEvent(event.stream, payload);
+        sendMarketEvent(event.stream, encodeMarketFrame(event, route.mode === "stream"));
       });
       disposers.set(stream, dispose);
     };

@@ -20,8 +20,8 @@ function csv(value, fallback = []) {
 
 function gatewayRole(value) {
   const normalized = String(value || "all").trim().toLowerCase();
-  if (!["all", "public", "private"].includes(normalized)) {
-    throw new Error("HAOLO_GATEWAY_ROLE must be all, public or private");
+  if (!["all", "public", "private", "market"].includes(normalized)) {
+    throw new Error("HAOLO_GATEWAY_ROLE must be all, public, private or market");
   }
   return normalized;
 }
@@ -101,6 +101,8 @@ function optionalReadableFile(value, field) {
 export function loadGatewayConfig(env = process.env) {
   const production = String(env.NODE_ENV || "development").toLowerCase() === "production";
   const role = gatewayRole(env.HAOLO_GATEWAY_ROLE);
+  const marketOnly = role === "market";
+  const startsPrivate = role === "all" || role === "private";
   const jwtSecret = String(env.HAOLO_GATEWAY_JWT_SECRET || env.JWT_SECRET || "").trim();
   const privateShardHashSecret = String(env.HAOLO_PRIVATE_SHARD_HASH_SECRET || (production ? "" : jwtSecret)).trim();
   const metricsToken = String(env.HAOLO_GATEWAY_METRICS_TOKEN || "").trim();
@@ -110,38 +112,41 @@ export function loadGatewayConfig(env = process.env) {
   const privateTlsKeyPath = optionalReadableFile(env.HAOLO_PRIVATE_PROXY_TLS_KEY, "HAOLO_PRIVATE_PROXY_TLS_KEY");
   const privatePort = positiveInteger(env.HAOLO_PRIVATE_PROXY_PORT, 8788, { max: 65535 });
   const redisUrl = String(env.HAOLO_MARKET_REDIS_URL || "").trim();
-  const egressShards = privateEgressShards(env.HAOLO_PRIVATE_EGRESS_SHARDS_JSON, { production, privatePort });
-  const privateEgressShardId = String(env.HAOLO_PRIVATE_EGRESS_SHARD_ID || (production ? "" : egressShards[0].id)).trim().toLowerCase();
+  const egressShards = marketOnly ? [] : privateEgressShards(env.HAOLO_PRIVATE_EGRESS_SHARDS_JSON, { production, privatePort });
+  const privateEgressShardId = String(env.HAOLO_PRIVATE_EGRESS_SHARD_ID || (production ? "" : egressShards[0]?.id || "")).trim().toLowerCase();
   const privateTotalSafetyPercent = positiveInteger(env.HAOLO_PRIVATE_TOTAL_SAFETY_PERCENT, 60, { min: 10, max: 90 });
   const privateBackgroundSafetyPercent = positiveInteger(env.HAOLO_PRIVATE_BACKGROUND_SAFETY_PERCENT, 35, { min: 1, max: 80 });
   const authApiOriginValue = String(env.HAOLO_AUTH_API_ORIGIN || (production && role !== "private" ? "https://haolo.com" : "")).trim();
   const authApiOrigin = authApiOriginValue ? httpsOrigin(authApiOriginValue, "HAOLO_AUTH_API_ORIGIN") : "";
 
-  if (!allowAnonymousPublic && !jwtSecret) {
+  if (marketOnly && (!authApiOrigin || allowAnonymousPublic)) {
+    throw new Error("market role requires remote authentication and cannot allow anonymous access");
+  }
+  if (!marketOnly && !allowAnonymousPublic && !jwtSecret) {
     throw new Error("HAOLO_GATEWAY_JWT_SECRET is required when public gateway authentication is enabled");
   }
-  if (!jwtSecret) {
+  if (!marketOnly && !jwtSecret) {
     throw new Error("HAOLO_GATEWAY_JWT_SECRET is required for the private account proxy");
   }
-  if (production && jwtSecret.length < 24) {
+  if (!marketOnly && production && jwtSecret.length < 24) {
     throw new Error("HAOLO_GATEWAY_JWT_SECRET must contain at least 24 characters in production");
   }
   if (production && metricsToken.length < 24) {
     throw new Error("HAOLO_GATEWAY_METRICS_TOKEN must contain at least 24 characters in production");
   }
-  if (production && role !== "private" && privateShardHashSecret.length < 24) {
+  if (!marketOnly && production && role !== "private" && privateShardHashSecret.length < 24) {
     throw new Error("HAOLO_PRIVATE_SHARD_HASH_SECRET must contain at least 24 characters in production");
   }
-  if (role !== "public" && Boolean(privateTlsCertPath) !== Boolean(privateTlsKeyPath)) {
+  if (startsPrivate && Boolean(privateTlsCertPath) !== Boolean(privateTlsKeyPath)) {
     throw new Error("HAOLO_PRIVATE_PROXY_TLS_CERT and HAOLO_PRIVATE_PROXY_TLS_KEY must be configured together");
   }
-  if (role !== "public" && !privateTlsCertPath && !allowInsecurePrivateProxy) {
+  if (startsPrivate && !privateTlsCertPath && !allowInsecurePrivateProxy) {
     throw new Error("private proxy requires TLS or HAOLO_PRIVATE_PROXY_ALLOW_INSECURE=true behind a trusted TLS load balancer");
   }
   if (production && !redisUrl) {
     throw new Error("HAOLO_MARKET_REDIS_URL is required for production private egress coordination");
   }
-  if (role !== "public" && !egressShards.some((shard) => shard.id === privateEgressShardId && shard.enabled)) {
+  if (startsPrivate && !egressShards.some((shard) => shard.id === privateEgressShardId && shard.enabled)) {
     throw new Error("HAOLO_PRIVATE_EGRESS_SHARD_ID must identify an enabled shard");
   }
   if (privateBackgroundSafetyPercent >= privateTotalSafetyPercent) {
@@ -157,6 +162,9 @@ export function loadGatewayConfig(env = process.env) {
   return Object.freeze({
     production,
     gatewayRole: role,
+    wsCompressionPercent: positiveInteger(env.HAOLO_MARKET_WS_COMPRESSION_PERCENT, 0, { min: 0, max: 100 }),
+    wsCompressionThreshold: positiveInteger(env.HAOLO_MARKET_WS_COMPRESSION_THRESHOLD, 1024, { min: 1024, max: 65536 }),
+    wsCompressionConcurrency: positiveInteger(env.HAOLO_MARKET_WS_COMPRESSION_CONCURRENCY, 2, { min: 1, max: 4 }),
     publicHost: String(env.HAOLO_MARKET_GATEWAY_HOST || "0.0.0.0"),
     publicPort: positiveInteger(env.HAOLO_MARKET_GATEWAY_PORT, 8787, { max: 65535 }),
     privateHost: String(env.HAOLO_PRIVATE_PROXY_HOST || "0.0.0.0"),

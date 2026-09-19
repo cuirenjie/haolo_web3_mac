@@ -238,7 +238,13 @@ export function createHaoloNetworkTransport({ resolveProxy, fallbackFetch = glob
           }) : connect(url, { signal: controller.signal });
           pending.then((socket) => callback(null, socket), callback);
         };
-        super(url, { ...options, agent });
+        // The market server controls the rollout cohort. Offering the extension
+        // does not enable it when the server keeps its default percentage at 0.
+        // Model/business sockets retain their existing compression policy.
+        super(url, { ...options, ...(watchRoute ? { perMessageDeflate: {
+          clientNoContextTakeover: true, serverNoContextTakeover: true,
+          concurrencyLimit: 2, threshold: 1024,
+        } } : {}), agent });
         this.once("open", () => {
           if (!watchRoute) return;
           if (closed) { this.terminate(); return; }

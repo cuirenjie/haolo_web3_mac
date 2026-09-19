@@ -20402,6 +20402,7 @@ async function downloadAppUpdate(params = {}, onProgress = null) {
   };
   const result = await downloadFileFromMirrors({
     urls: downloadUrls,
+    differential: true,
     destinationPath: destination,
     partialPath,
     expectedSize: download.size_bytes,

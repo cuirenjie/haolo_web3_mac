@@ -13,14 +13,14 @@ export async function startGateway(options = {}) {
   const cache = options.cache || new GatewayCache({ redisUrl: config.redisUrl });
   await cache.connect();
   const startsPublic = config.gatewayRole !== "private";
-  const startsPrivate = config.gatewayRole !== "public";
+  const startsPrivate = config.gatewayRole === "all" || config.gatewayRole === "private";
   const restGateway = startsPublic
     ? (options.restGateway || new BinanceRestGateway({ config, cache, fetchImpl: options.fetchImpl || globalThis.fetch }))
     : null;
   const streamPool = startsPublic
     ? (options.streamPool || new BinanceStreamPool({ config, WebSocketImpl: options.WebSocketImpl }))
     : null;
-  const privateEgressCoordinator = startsPublic
+  const privateEgressCoordinator = startsPublic && config.gatewayRole !== "market"
     ? (options.privateEgressCoordinator || new PrivateEgressCoordinator({ config, cache }))
     : null;
   const accessTokenVerifier = startsPublic && config.authApiOrigin
