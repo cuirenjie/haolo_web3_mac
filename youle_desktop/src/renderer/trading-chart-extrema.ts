@@ -18,10 +18,12 @@ export type TradingExtremaLabelSide = "left" | "right";
 
 type TradingChartLike = {
   timeScale(): {
+    width(): number;
     getVisibleLogicalRange(): TradingLogicalRange | null;
     timeToCoordinate(time: any): number | null;
   };
   priceScale(id: string, paneIndex?: number): { width(): number };
+  panes(): Array<{ getHeight(): number }>;
 };
 
 type TradingSeriesLike = {
@@ -150,9 +152,10 @@ export class TradingChartExtremaOverlay {
       this.clear();
       return;
     }
-    const priceScaleWidth = Math.max(Number(chart.priceScale("right", 0).width() || 0), 0);
-    const plotWidth = Math.max(this.options.chartElement.clientWidth - priceScaleWidth, 1);
-    const plotHeight = Math.max(this.options.chartElement.clientHeight, 1);
+    // Read the chart's cached geometry. DOM size reads after changing a label
+    // force the entire desktop's pending styles/layout to flush during a drag.
+    const plotWidth = Math.max(chart.timeScale().width(), 1);
+    const plotHeight = Math.max(chart.panes()[0]?.getHeight() ?? 1, 1);
     this.paintLabel(this.highLabel, extrema.high, "high", plotWidth, plotHeight, chart, series);
     this.paintLabel(this.lowLabel, extrema.low, "low", plotWidth, plotHeight, chart, series);
   }
@@ -190,20 +193,18 @@ export class TradingChartExtremaOverlay {
       return;
     }
     const priceText = this.options.formatPrice(price);
-    element.textContent = priceText;
-    element.hidden = false;
     const estimatedWidth = Math.max(46, priceText.length * 7 + 22);
-    const labelWidth = Math.max(element.offsetWidth, estimatedWidth);
-    const side = tradingExtremaLabelSide(x, plotWidth, labelWidth);
-    element.dataset.side = side;
-    element.textContent = side === "right" ? `← ${priceText}` : `${priceText} →`;
-    const left = side === "right" ? x + 4 : x - labelWidth - 4;
-    const labelHeight = Math.max(element.offsetHeight, 16);
-    // The reference annotation is a horizontal pointer whose text baseline is
-    // centred on the wick tip. Keep the first legend row clear when an extreme
-    // sits very close to the pane's upper edge.
-    const top = y - labelHeight / 2;
-    element.style.left = `${clamp(left, 2, plotWidth - labelWidth - 2)}px`;
-    element.style.top = `${clamp(top, 30, plotHeight - labelHeight - 2)}px`;
+    const side = tradingExtremaLabelSide(x, plotWidth, estimatedWidth);
+    const text = side === "right" ? `← ${priceText}` : `${priceText} →`;
+    if (element.textContent !== text) element.textContent = text;
+    if (element.hidden) element.hidden = false;
+    if (element.dataset.side !== side) element.dataset.side = side;
+    const anchor = clamp(x + (side === "right" ? 4 : -4), 2, plotWidth - 2);
+    // CSS aligns the actual glyph width to its wick; never measure a label
+    // immediately after writing its text. This also follows font-size changes.
+    element.style.left = `${anchor}px`;
+    element.style.maxWidth = `${Math.max(0, side === "right" ? plotWidth - anchor - 2 : anchor - 2)}px`;
+    element.style.transform = `translate(${side === "right" ? "0" : "-100%"}, -50%)`;
+    element.style.top = `${clamp(y, 38, plotHeight - 10)}px`;
   }
 }

@@ -20,6 +20,7 @@ import {
 } from "./app-language.mjs";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
+import { TradingChartNavigation, TRADING_CHART_NAVIGATION_OPTIONS, captureManualTradingPriceRanges, restoreManualTradingPriceRanges } from "./trading-chart-navigation.ts";
 import {
   TRADING_FALLING_BAR_COLOR,
   TRADING_INDICATORS,
@@ -81,7 +82,6 @@ import {
   saveTradingChartSettings,
   saveTradingSplitLayoutId,
   tradingFloatingOverlayPlacement,
-  tradingPriceScaleUsesAutoScale,
   tradingSplitLayout,
   type TradingChartSettings,
   type TradingChartSettingsTab,
@@ -4522,11 +4522,14 @@ function formatOhlcDateTime(timeValue: number) {
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
 }
 
+const compactValueFormatters = new Map<number, Intl.NumberFormat>();
 function formatCompactValue(value: number, digits = 2) {
-  return new Intl.NumberFormat("en-US", {
-    notation: "compact",
-    maximumFractionDigits: digits,
-  }).format(value);
+  let formatter = compactValueFormatters.get(digits);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: digits });
+    compactValueFormatters.set(digits, formatter);
+  }
+  return formatter.format(value);
 }
 
 export function formatFundingCountdown(now: number, nextFundingTime: number) {
@@ -5011,11 +5014,7 @@ class TradingExpertMarketWorkspace {
   private bandUpperSeries: any = null;
   private bandLowerSeries: any = null;
   private priceLine: any = null;
-  private lockedPriceRange: { from: number; to: number } | null = null;
-  private priceLockAnimationFrame: number | null = null;
-  private drawingSettleAnimationFrame: number | null = null;
-  private volumeProfileWheelAnimationFrame: number | null = null;
-  private volumeProfileWheelFramesRemaining = 0;
+  private chartNavigation: TradingChartNavigation | null = null;
   private volumeProfileSnapshot: TradingVolumeProfile | null | undefined;
   private volumeProfileSnapshotCandleCount = 0;
   private resettingChartViewport = false;
@@ -5032,9 +5031,6 @@ class TradingExpertMarketWorkspace {
   private marketListScrollTop = 0;
   private indicatorScrollTimers = new Map<HTMLElement, number>();
   private openIndicatorWidthMenuKey: string | null = null;
-  private chartPanPointerId: number | null = null;
-  private chartPanStartX = 0;
-  private chartPanStartRange: { from: number; to: number } | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private themeObserver: MutationObserver | null = null;
   private marketStreamSubscriptionId: string | null = null;
@@ -5279,10 +5275,6 @@ class TradingExpertMarketWorkspace {
     this.periodTimes.addEventListener("pointercancel", this.handlePeriodScrollPointerCancel);
     this.periodTimes.addEventListener("wheel", this.handlePeriodScrollWheel, { passive: false });
     this.periodTimes.addEventListener("focusin", this.handlePeriodScrollFocusIn);
-    this.chartElement.addEventListener("pointerdown", this.handleChartPanPointerDown);
-    this.chartElement.addEventListener("pointermove", this.handleChartPanPointerMove);
-    this.chartElement.addEventListener("pointerup", this.handleChartPanPointerUp);
-    this.chartElement.addEventListener("pointercancel", this.handleChartPanPointerCancel);
     this.chartElement.addEventListener("wheel", this.handleChartWheel, { passive: true, capture: true });
     document.addEventListener("pointermove", this.handlePeriodPointerMove);
     document.addEventListener("pointerup", this.handlePeriodPointerUp);
@@ -5667,6 +5659,7 @@ class TradingExpertMarketWorkspace {
       || key === "showPriceLine"
       || key === "showPriceLabel"
       || key === "showCountdown"
+      || key === "autoScale"
     ) {
       this.chartSettings[key] = target.checked;
     } else if (key === "risingColor" || key === "fallingColor") {
@@ -5679,6 +5672,10 @@ class TradingExpertMarketWorkspace {
       this.chartSettings.scaleAnchor = target.value as TradingChartSettings["scaleAnchor"];
     } else if (key === "priceScaleMode") {
       this.chartSettings.priceScaleMode = target.value as TradingChartSettings["priceScaleMode"];
+    } else if (key === "logarithmicScale" || key === "percentageScale") {
+      this.chartSettings.priceScaleMode = target.checked
+        ? key === "logarithmicScale" ? "logarithmic" : "percentage"
+        : "linear";
     } else {
       return;
     }
@@ -5688,6 +5685,12 @@ class TradingExpertMarketWorkspace {
   };
 
   private syncChartSettingsControls(changedKey: string) {
+    if (["autoScale", "priceScaleMode", "logarithmicScale", "percentageScale"].includes(changedKey)) {
+      this.chartSettingsBackdrop.querySelectorAll<HTMLInputElement>('[data-chart-setting="autoScale"], [data-chart-setting="logarithmicScale"], [data-chart-setting="percentageScale"]').forEach((input) => {
+        input.checked = input.dataset.chartSetting === "autoScale" ? this.chartSettings.autoScale
+          : this.chartSettings.priceScaleMode === (input.dataset.chartSetting === "logarithmicScale" ? "logarithmic" : "percentage");
+      });
+    }
     if (changedKey === "risingColor" || changedKey === "fallingColor" || changedKey === "riseFallPalette") {
       this.chartSettingsBackdrop.querySelectorAll<HTMLInputElement>('[data-chart-setting="risingColor"]').forEach((input) => {
         input.value = this.chartSettings.risingColor;
@@ -5751,6 +5754,7 @@ class TradingExpertMarketWorkspace {
       // The active session still uses the setting when local storage is unavailable.
     }
     if (options.rebuildSeries) this.rebuildPrimarySeries();
+    this.chartNavigation?.setAutoScale(this.chartSettings.autoScale);
     this.applyChartTheme();
     this.applyDrawingToolsSetting();
     this.applyOrderDisplaySettings();
@@ -5774,8 +5778,11 @@ class TradingExpertMarketWorkspace {
     ].filter((controller): controller is TradingDrawingController => Boolean(controller));
   }
 
-  private redrawDrawingControllers() {
-    this.drawingControllers().forEach((controller) => controller.redraw());
+  private redrawDrawingControllers(includeSplitPanes = true) {
+    const controllers = includeSplitPanes
+      ? this.drawingControllers()
+      : [this.drawingController, ...this.indicatorDrawingControllers.values()];
+    controllers.forEach((controller) => controller?.redraw());
   }
 
   private displayedOrderLines() {
@@ -6010,6 +6017,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private applySplitLayout() {
+    this.chartNavigation?.restoreLayout();
     const layout = tradingSplitLayout(this.splitLayoutId);
     this.splitLayoutId = layout.id;
     if (this.indicatorEditorSplitPane) this.setIndicatorEditorOpen(false);
@@ -6398,56 +6406,7 @@ class TradingExpertMarketWorkspace {
     this.finishPeriodPointerDrag(false);
   };
 
-  private readonly handleChartPanPointerDown = (event: PointerEvent) => {
-    if (event.button !== 0 || this.chartPanPointerId !== null || !this.chart) return;
-    const chartBounds = this.chartElement.getBoundingClientRect();
-    const priceScaleWidth = this.chart.priceScale("right", 0).width();
-    if (event.clientX >= chartBounds.right - priceScaleWidth) {
-      this.queueVisiblePriceScaleUpdate();
-      return;
-    }
-    const visibleRange = this.chart.timeScale().getVisibleLogicalRange();
-    if (!visibleRange) return;
-    this.chartPanPointerId = event.pointerId;
-    this.chartPanStartX = event.clientX;
-    this.chartPanStartRange = { from: visibleRange.from, to: visibleRange.to };
-    this.chartElement.classList.add("horizontal-panning");
-    this.chartElement.setPointerCapture?.(event.pointerId);
-  };
-
-  private readonly handleChartPanPointerMove = (event: PointerEvent) => {
-    if (
-      event.pointerId !== this.chartPanPointerId
-      || !this.chart
-      || !this.chartPanStartRange
-    ) return;
-    const priceScaleWidth = this.chart.priceScale("right", 0).width();
-    const paneWidth = Math.max(this.chartElement.clientWidth - priceScaleWidth, 1);
-    const span = this.chartPanStartRange.to - this.chartPanStartRange.from;
-    const logicalShift = -((event.clientX - this.chartPanStartX) / paneWidth) * span;
-    this.chart.timeScale().setVisibleLogicalRange({
-      from: this.chartPanStartRange.from + logicalShift,
-      to: this.chartPanStartRange.to + logicalShift,
-    });
-    this.queueVisiblePriceScaleUpdate();
-    event.preventDefault();
-  };
-
-  private readonly handleChartPanPointerUp = (event: PointerEvent) => {
-    if (event.pointerId !== this.chartPanPointerId) return;
-    this.finishChartPan();
-  };
-
-  private readonly handleChartPanPointerCancel = (event: PointerEvent) => {
-    if (event.pointerId !== this.chartPanPointerId) return;
-    this.finishChartPan();
-  };
-
   private readonly handleChartWheel = (event: WheelEvent) => {
-    const cursorAnchoredByDefault = this.chartSettings.scaleAnchor === "cursor";
-    this.chart?.timeScale().applyOptions({
-      rightBarStaysOnScroll: event.ctrlKey ? !cursorAnchoredByDefault : cursorAnchoredByDefault,
-    });
     this.queueVisiblePriceScaleUpdate();
     this.trackVolumeProfileThroughWheelScale();
   };
@@ -8552,7 +8511,7 @@ class TradingExpertMarketWorkspace {
   prepareForExternalCapture() {
     if (this.disposed || !this.chart || !this.chartCandles.length) return false;
     this.applyInitialChartViewport();
-    this.updateVisiblePriceScale();
+    this.chart.priceScale("right", 0).setAutoScale(true);
     this.updateCurrentPriceLabel();
     this.positionIndicatorLegends();
     this.renderVolumeProfile(true);
@@ -9255,7 +9214,11 @@ class TradingExpertMarketWorkspace {
         autoScale: true,
         borderColor: marketTheme(isDarkTheme()).border,
         textColor: marketTheme(isDarkTheme()).text,
-        ...(spec.placement === "pane" ? { scaleMargins: { top: 0.22, bottom: 0.12 } } : {}),
+        ...(spec.placement === "pane" ? {
+          mode: PriceScaleMode.Normal,
+          invertScale: false,
+          scaleMargins: { top: 0.22, bottom: 0.12 },
+        } : {}),
       });
       if (pane) {
         result.referenceLines?.forEach((reference) => runtime.series[0]?.api?.createPriceLine({
@@ -9873,7 +9836,7 @@ class TradingExpertMarketWorkspace {
     this.alertSimulationMarkerPaintRetries = 0;
     this.alertSimulationViewportFocusRetries = 0;
     this.chart?.timeScale().applyOptions({
-      rightBarStaysOnScroll: this.chartSettings.scaleAnchor === "cursor",
+      rightBarStaysOnScroll: this.chartSettings.scaleAnchor === "right",
     });
     this.clearAlertEvidenceCandleSeries();
     this.alertEvidencePoint = null;
@@ -9953,7 +9916,7 @@ class TradingExpertMarketWorkspace {
     if (options.restoreViewport === false || !this.chart || !this.chartCandles.length) return;
     if (previousLogicalRange) {
       this.chart.timeScale().setVisibleLogicalRange(previousLogicalRange);
-      this.updateVisiblePriceScale();
+      this.chart.priceScale("right", 0).setAutoScale(true);
       this.updateCurrentPriceLabel();
       this.redrawDrawingControllers();
       return;
@@ -12799,18 +12762,20 @@ class TradingExpertMarketWorkspace {
       this.chartCandles = mergeCandles(this.chartCandles, [{ ...latest }]);
     }
     const trendBars = this.trendBandEnabled ? atm1TrendCandles(this.chartCandles) : null;
-    const display = this.primarySeriesData(this.chartCandles, trendBars).at(-1);
+    // A trade changes the last candle. Only recursive Heikin-Ashi / trend
+    // coloring needs the whole history; HLC needs just the previous close.
+    const liveWindow = trendBars || this.chartSettings.chartStyle === "heikin-ashi"
+      ? this.chartCandles
+      : this.chartSettings.chartStyle === "hlc" ? this.chartCandles.slice(-2) : [latest];
+    const display = this.primarySeriesData(liveWindow, trendBars).at(-1);
     if (!display) return;
     this.candleSeries.update(display);
-    if (
-      this.lockedPriceRange
-      && (latest.high > this.lockedPriceRange.to || latest.low < this.lockedPriceRange.from)
-    ) this.updateVisiblePriceScale();
     this.syncCurrentPriceLine(latest);
     this.renderLatestOhlc();
     this.clearMarketError();
     this.updateCountdown();
     this.extremaOverlay?.update();
+    this.chartNavigation?.schedule();
   }
 
   private syncCurrentPriceLine(candle: TradingCandle) {
@@ -12981,10 +12946,9 @@ class TradingExpertMarketWorkspace {
         wickDownColor: this.chartSettings.fallingColor,
       });
     }
-    this.tdMarkers = createSeriesMarkers(this.candleSeries, [], {
-      autoScale: true,
-      zOrder: "aboveSeries",
-    });
+    // Attach TD markers only when they exist. The native marker primitive
+    // otherwise copies all candle data on every pan, even for an empty list.
+    this.tdMarkers = null;
   }
 
   private applyPrimarySeriesOptions() {
@@ -13100,14 +13064,17 @@ class TradingExpertMarketWorkspace {
       },
       rightPriceScale: {
         mode: this.chartPriceScaleMode(),
-        autoScale: tradingPriceScaleUsesAutoScale(this.chartSettings.priceScaleMode),
+        autoScale: true,
         borderColor: theme.border,
         ensureEdgeTickMarksVisible: true,
         textColor: theme.text,
-        scaleMargins: { top: 0, bottom: 0 },
+        scaleMargins: {
+          top: this.chartSettings.verticalPaddingPercent / 100,
+          bottom: this.chartSettings.verticalPaddingPercent / 100,
+        },
       },
       timeScale: {
-        visible: false,
+        visible: true,
         borderColor: theme.border,
         timeVisible: true,
         secondsVisible: false,
@@ -13115,20 +13082,9 @@ class TradingExpertMarketWorkspace {
         fixRightEdge: false,
         tickMarkFormatter: (timeValue: any) =>
           chartTickLabel(Number(timeValue), this.activeInterval),
-        rightBarStaysOnScroll: this.chartSettings.scaleAnchor === "cursor",
+        rightBarStaysOnScroll: this.chartSettings.scaleAnchor === "right",
       },
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: false,
-        horzTouchDrag: false,
-        vertTouchDrag: false,
-      },
-      handleScale: {
-        axisPressedMouseMove: { time: true, price: false },
-        axisDoubleClickReset: { time: true, price: false },
-        mouseWheel: true,
-        pinch: true,
-      },
+      ...TRADING_CHART_NAVIGATION_OPTIONS,
     });
     this.bandUpperSeries = this.chart.addSeries(AreaSeries, {
       topColor: theme.band,
@@ -13183,10 +13139,38 @@ class TradingExpertMarketWorkspace {
         || this.rebuildingIndicatorPanes
       ) return;
       if (range?.from < 10) void this.loadMoreHistory();
-      this.synchronizeVisibleChartGeometry();
-      this.queueVisiblePriceScaleUpdate();
-      this.extremaOverlay?.schedule();
+      // TradingChartNavigation coalesces native range changes with pointer,
+      // wheel and resize events; do not rebuild overlays inside native layout.
     });
+    this.chartNavigation = new TradingChartNavigation(
+      this.chartElement, () => this.chart, () => this.synchronizeVisibleChartGeometry(),
+      {
+        onFocus: (index) => {
+          this.drawingController?.focusPane(index);
+          this.indicatorDrawingControllers.forEach((controller) => controller.focusPane(index));
+        },
+        getCandles: () => this.chartCandles,
+        getScaleAnchor: () => this.chartSettings.scaleAnchor,
+        getAutoScale: () => this.chartSettings.autoScale,
+        getLockedPriceRange: (range) => fixedPriceScaleRange(
+          visibleCandlesInLogicalRange(this.chartCandles, range),
+          this.chartSettings.verticalPaddingPercent / 100,
+        ),
+        onAutoScaleChange: (enabled) => {
+          if (this.chartSettings.autoScale === enabled) return;
+          this.chartSettings.autoScale = enabled;
+          saveTradingChartSettings(window.localStorage, this.chartSettings);
+          this.syncChartSettingsControls("autoScale");
+          this.splitPanes.forEach(pane => pane.updateSettings(this.chartSettings, isDarkTheme() ? "dark" : "light", false));
+        },
+        onPriceModeChange: (mode) => {
+          this.chartSettings.priceScaleMode = mode;
+          saveTradingChartSettings(window.localStorage, this.chartSettings);
+          this.applyChartTheme(false);
+          this.syncChartSettingsControls("priceScaleMode");
+        },
+      },
+    );
     this.resizeObserver = new ResizeObserver(() => {
       this.chart?.applyOptions({
         width: Math.max(this.chartElement.clientWidth, 1),
@@ -13195,11 +13179,7 @@ class TradingExpertMarketWorkspace {
       window.requestAnimationFrame(() => {
         this.positionLayoutPicker();
         this.positionIndicatorLegends();
-        this.updateCurrentPriceLabel();
-        this.paintAlertSimulationMarker();
-        this.renderVolumeProfile(false);
-        this.redrawDrawingControllers();
-        this.extremaOverlay?.update();
+        this.queueVisiblePriceScaleUpdate();
       });
     });
     this.resizeObserver.observe(this.chartElement);
@@ -13207,6 +13187,7 @@ class TradingExpertMarketWorkspace {
       host: this.host,
       chartElement: this.chartElement,
       overlay: this.drawingLayer,
+      getNavigation: () => this.chartNavigation,
       getChart: () => this.chart,
       getCandleSeries: () => this.candleSeries,
       getSymbol: () => this.selectedMarketId,
@@ -13302,13 +13283,8 @@ class TradingExpertMarketWorkspace {
       );
       this.volumeProfileSnapshotCandleCount = visibleCandles.length;
     }
-    const priceScaleWidth = Number(this.chart.priceScale("right", 0).width() || 0);
-    const plotWidth = Math.max(this.chartElement.clientWidth - priceScaleWidth, 1);
-    const paneElement = this.chart.panes()[0]?.getHTMLElement?.() as HTMLElement | null;
-    const paneHeight = Math.max(
-      paneElement?.clientHeight || paneElement?.getBoundingClientRect().height || this.chartElement.clientHeight,
-      1,
-    );
+    const plotWidth = Math.max(this.chart.timeScale().width(), 1);
+    const paneHeight = Math.max(this.chart.panes()[0]?.getHeight() ?? 1, 1);
     renderTradingVolumeProfileLayer(this.volumeProfileLayer, {
       candles: visibleCandles,
       profile: this.volumeProfileSnapshot,
@@ -13402,13 +13378,20 @@ class TradingExpertMarketWorkspace {
     this.mainIndicatorValues.set("td", tdSignals.length ? [tdValues] : []);
     const markers = tdSignals.filter((signal) => tdSetting.series[signal.direction]?.visible !== false).map((signal) => ({
       time: (candles[signal.index].time + CHINA_TIME_OFFSET_SECONDS) as any,
-      position: signal.direction === "buy" ? "belowBar" : "aboveBar",
+      position: signal.direction === "buy" ? "belowBar" as const : "aboveBar" as const,
       color: tdSetting.series[signal.direction].color,
-      shape: "circle",
+      shape: "circle" as const,
       text: String(signal.count),
       size: 0.7,
     }));
-    this.tdMarkers?.setMarkers(markers);
+    if (!markers.length) {
+      this.tdMarkers?.detach();
+      this.tdMarkers = null;
+    } else if (this.tdMarkers) {
+      this.tdMarkers.setMarkers(markers);
+    } else if (this.candleSeries) {
+      this.tdMarkers = createSeriesMarkers(this.candleSeries, markers, { autoScale: true, zOrder: "aboveSeries" });
+    }
     this.updateMainIndicatorLegends();
   }
 
@@ -13610,6 +13593,10 @@ class TradingExpertMarketWorkspace {
       });
     });
     runtime.series[0]?.api?.priceScale()?.applyOptions({
+      // Native pane creation inherits the chart's last price-scale options.
+      // Indicators always start in their own linear units, even after L / %.
+      mode: PriceScaleMode.Normal,
+      invertScale: false,
       autoScale: true,
       borderColor: theme.border,
       textColor: theme.text,
@@ -13648,6 +13635,7 @@ class TradingExpertMarketWorkspace {
           controlsHost: this.host,
           chartElement: paneElement,
           overlay: drawingLayer,
+          getNavigation: () => this.chartNavigation,
           getChart: () => this.chart,
           getCandleSeries: () => runtime.series[0]?.api,
           getSymbol: () => this.selectedMarketId,
@@ -13842,10 +13830,6 @@ class TradingExpertMarketWorkspace {
           }
         }
       });
-      // The chart's rightPriceScale is intentionally manual for the main K-line
-      // pane. Subchart panes inherit that default, so explicitly restore their
-      // own automatic range after every complete data replacement.
-      runtime.series[0]?.api?.priceScale()?.setAutoScale(true);
     });
     this.updateIndicatorLegends();
   }
@@ -13857,9 +13841,10 @@ class TradingExpertMarketWorkspace {
         const current = seriesData?.get(seriesRuntime.api);
         const value = Number(current?.value ?? current?.high ?? seriesRuntime.latestValue);
         const target = runtime.legend?.querySelectorAll<HTMLElement>("span")[index];
-        if (target) target.textContent = `${seriesRuntime.label}: ${Number.isFinite(value)
+        const text = `${seriesRuntime.label}: ${Number.isFinite(value)
           ? this.formatIndicatorValue(value, runtime.id)
           : "--"}`;
+        if (target && target.textContent !== text) target.textContent = text;
       });
     });
   }
@@ -13872,8 +13857,9 @@ class TradingExpertMarketWorkspace {
     return value.toFixed(2);
   }
 
-  private applyChartTheme() {
+  private applyChartTheme(syncSplitPriceMode = true) {
     if (!this.chart) return;
+    const manualRanges = captureManualTradingPriceRanges(this.chart);
     const theme = marketTheme(isDarkTheme());
     const themeName: TradingChartThemeName = isDarkTheme() ? "dark" : "light";
     const chartTheme = this.chartSettings.themes[themeName];
@@ -13906,20 +13892,24 @@ class TradingExpertMarketWorkspace {
         },
       },
       rightPriceScale: {
-        mode: this.chartPriceScaleMode(),
-        autoScale: tradingPriceScaleUsesAutoScale(this.chartSettings.priceScaleMode),
         borderColor: theme.border,
         ensureEdgeTickMarksVisible: true,
         textColor: theme.text,
-        scaleMargins: {
-          top: this.chartSettings.verticalPaddingPercent / 100,
-          bottom: this.chartSettings.verticalPaddingPercent / 100,
-        },
       },
       timeScale: {
-        visible: false,
+        visible: true,
         borderColor: theme.border,
-        rightBarStaysOnScroll: this.chartSettings.scaleAnchor === "cursor",
+        rightBarStaysOnScroll: this.chartSettings.scaleAnchor === "right",
+      },
+    });
+    // Chart-level scale options broadcast to every pane; price geometry must
+    // only be applied to pane 0, preserving indicator ranges and padding.
+    this.chart.priceScale("right", 0).applyOptions({
+      ...(this.chart.priceScale("right", 0).options().mode !== this.chartPriceScaleMode()
+        ? { mode: this.chartPriceScaleMode(), autoScale: true } : {}),
+      scaleMargins: {
+        top: this.chartSettings.verticalPaddingPercent / 100,
+        bottom: this.chartSettings.verticalPaddingPercent / 100,
       },
     });
     this.indicatorPanes.forEach((runtime) => {
@@ -13973,10 +13963,12 @@ class TradingExpertMarketWorkspace {
     this.applyPrimarySeriesOptions();
     this.applyMainIndicatorSeriesOptions();
     this.updateChartData();
+    restoreManualTradingPriceRanges(manualRanges);
+    this.chartNavigation?.schedule();
     this.applyAlertSimulationIndicatorTheme();
     this.paintAlertSimulationMarker();
     this.redrawDrawingControllers();
-    this.splitPanes.forEach((pane) => pane.updateSettings(this.chartSettings, themeName));
+    this.splitPanes.forEach((pane) => pane.updateSettings(this.chartSettings, themeName, syncSplitPriceMode));
   }
 
   private clearChart() {
@@ -14010,7 +14002,6 @@ class TradingExpertMarketWorkspace {
     this.updateIndicatorLegends();
     this.chartCandles = [];
     this.hoveredOhlcSourceTime = null;
-    this.lockedPriceRange = null;
     if (this.priceLine && this.candleSeries) {
       this.candleSeries.removePriceLine(this.priceLine);
       this.priceLine = null;
@@ -14083,18 +14074,9 @@ class TradingExpertMarketWorkspace {
 
   private prepareChartViewportReset() {
     if (!this.chart) return;
+    this.chartNavigation?.cancelGesture();
     this.resettingChartViewport = true;
-    if (this.priceLockAnimationFrame !== null) {
-      window.cancelAnimationFrame(this.priceLockAnimationFrame);
-      this.priceLockAnimationFrame = null;
-    }
-    if (this.drawingSettleAnimationFrame !== null) {
-      window.cancelAnimationFrame(this.drawingSettleAnimationFrame);
-      this.drawingSettleAnimationFrame = null;
-    }
-    this.cancelVolumeProfileWheelTracking();
-    this.lockedPriceRange = null;
-    this.chart.priceScale("right", 0).setAutoScale(true);
+    this.chart.panes().forEach((pane) => this.chart?.priceScale("right", pane.paneIndex()).setAutoScale(true));
   }
 
   private applyInitialChartViewport() {
@@ -14102,7 +14084,7 @@ class TradingExpertMarketWorkspace {
     const logicalRange = initialMarketLogicalRange(this.chartCandles.length, this.activeInterval);
     if (!logicalRange) return;
     this.chart.timeScale().setVisibleLogicalRange(logicalRange);
-    this.updateVisiblePriceScale();
+    this.chart.priceScale("right", 0).setAutoScale(true);
     this.updateCurrentPriceLabel();
     this.paintAlertSimulationMarker();
     this.renderVolumeProfile(true);
@@ -14122,7 +14104,7 @@ class TradingExpertMarketWorkspace {
       to: this.chartCandles.length + 2,
     };
     this.chart.timeScale().setVisibleLogicalRange(logicalRange);
-    this.updateVisiblePriceScale();
+    this.chart.priceScale("right", 0).setAutoScale(true);
     this.updateCurrentPriceLabel();
     this.redrawDrawingControllers();
   }
@@ -14135,7 +14117,7 @@ class TradingExpertMarketWorkspace {
     if (!logicalRange) return;
     this.invalidateVolumeProfileSnapshot();
     this.chart.timeScale().setVisibleLogicalRange(logicalRange);
-    this.updateVisiblePriceScale();
+    this.chart.priceScale("right", 0).setAutoScale(true);
     this.updateCurrentPriceLabel();
     this.renderVolumeProfile(true);
     this.redrawDrawingControllers();
@@ -14145,83 +14127,22 @@ class TradingExpertMarketWorkspace {
     this.redrawDrawingControllers();
   }
 
-  private updateVisiblePriceScale() {
-    if (!this.chart) return;
-    if (tradingPriceScaleUsesAutoScale(this.chartSettings.priceScaleMode)) {
-      this.lockedPriceRange = null;
-      this.chart.priceScale("right", 0).setAutoScale(true);
-      return;
-    }
-    const logicalRange = this.chart.timeScale().getVisibleLogicalRange();
-    const visibleCandles = visibleCandlesInLogicalRange(this.chartCandles, logicalRange);
-    const priceRange = fixedPriceScaleRange(
-      visibleCandles,
-      this.chartSettings.verticalPaddingPercent / 100,
-    );
-    if (!priceRange) return;
-    this.lockedPriceRange = priceRange;
-    this.enforceLockedPriceScale();
-  }
-
-  private enforceLockedPriceScale() {
-    if (!this.chart) return;
-    const priceScale = this.chart.priceScale("right", 0);
-    if (tradingPriceScaleUsesAutoScale(this.chartSettings.priceScaleMode)) {
-      this.lockedPriceRange = null;
-      priceScale.setAutoScale(true);
-      return;
-    }
-    if (!this.lockedPriceRange) return;
-    priceScale.setAutoScale(false);
-    const currentRange = priceScale.getVisibleRange();
-    if (
-      currentRange?.from === this.lockedPriceRange.from
-      && currentRange.to === this.lockedPriceRange.to
-    ) return;
-    priceScale.setVisibleRange(this.lockedPriceRange);
-  }
-
   private synchronizeVisibleChartGeometry() {
     if (
       this.resettingChartViewport
       || this.updatingChartData
       || this.rebuildingIndicatorPanes
     ) return;
-    this.updateVisiblePriceScale();
     this.updateCurrentPriceLabel();
     this.paintAlertSimulationMarker();
     this.renderVolumeProfile(false);
-    this.redrawDrawingControllers();
+    this.redrawDrawingControllers(false);
+    this.extremaOverlay?.update();
   }
 
   private trackVolumeProfileThroughWheelScale() {
     if (!this.chart || !this.activeMainIndicators.includes("vpvr")) return;
-    this.volumeProfileWheelFramesRemaining = TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES;
-    if (this.volumeProfileWheelAnimationFrame !== null) return;
-    const redraw = () => {
-      this.volumeProfileWheelAnimationFrame = null;
-      if (this.disposed) {
-        this.volumeProfileWheelFramesRemaining = 0;
-        return;
-      }
-      if (
-        !this.resettingChartViewport
-        && !this.updatingChartData
-        && !this.rebuildingIndicatorPanes
-      ) this.renderVolumeProfile(false);
-      this.volumeProfileWheelFramesRemaining -= 1;
-      if (this.volumeProfileWheelFramesRemaining > 0) {
-        this.volumeProfileWheelAnimationFrame = window.requestAnimationFrame(redraw);
-      }
-    };
-    this.volumeProfileWheelAnimationFrame = window.requestAnimationFrame(redraw);
-  }
-
-  private cancelVolumeProfileWheelTracking() {
-    this.volumeProfileWheelFramesRemaining = 0;
-    if (this.volumeProfileWheelAnimationFrame === null) return;
-    window.cancelAnimationFrame(this.volumeProfileWheelAnimationFrame);
-    this.volumeProfileWheelAnimationFrame = null;
+    this.chartNavigation?.schedule(TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES);
   }
 
   private queueVisiblePriceScaleUpdate() {
@@ -14229,32 +14150,8 @@ class TradingExpertMarketWorkspace {
       this.resettingChartViewport
       || this.updatingChartData
       || this.rebuildingIndicatorPanes
-      || this.priceLockAnimationFrame !== null
     ) return;
-    this.priceLockAnimationFrame = window.requestAnimationFrame(() => {
-      this.priceLockAnimationFrame = null;
-      this.synchronizeVisibleChartGeometry();
-      if (this.drawingSettleAnimationFrame !== null) {
-        window.cancelAnimationFrame(this.drawingSettleAnimationFrame);
-      }
-      this.drawingSettleAnimationFrame = window.requestAnimationFrame(() => {
-        this.drawingSettleAnimationFrame = null;
-        this.synchronizeVisibleChartGeometry();
-      });
-    });
-  }
-
-  private finishChartPan() {
-    if (
-      this.chartPanPointerId !== null
-      && this.chartElement.hasPointerCapture?.(this.chartPanPointerId)
-    ) {
-      this.chartElement.releasePointerCapture(this.chartPanPointerId);
-    }
-    this.chartPanPointerId = null;
-    this.chartPanStartRange = null;
-    this.chartElement.classList.remove("horizontal-panning");
-    this.queueVisiblePriceScaleUpdate();
+    this.chartNavigation?.schedule();
   }
 
   private renderLatestOhlc() {
@@ -14288,13 +14185,12 @@ class TradingExpertMarketWorkspace {
       this.activeInterval,
     );
     if (timeValue === null) return;
-    this.crosshairTimeElement.textContent = formatOhlcDateTime(timeValue);
-    this.crosshairTimeElement.hidden = false;
-    const halfWidth = Math.ceil(this.crosshairTimeElement.offsetWidth / 2);
-    const padding = 6;
-    const minimum = halfWidth + padding;
-    const maximum = Math.max(minimum, this.chartElement.clientWidth - halfWidth - padding);
-    this.crosshairTimeElement.style.left = `${Math.min(Math.max(x, minimum), maximum)}px`;
+    const text = formatOhlcDateTime(timeValue);
+    if (this.crosshairTimeElement.textContent !== text) this.crosshairTimeElement.textContent = text;
+    if (this.crosshairTimeElement.hidden) this.crosshairTimeElement.hidden = false;
+    // The font-relative width and edge clamping are resolved by CSS, without
+    // a synchronous text-write -> offsetWidth -> layout cycle on each move.
+    this.crosshairTimeElement.style.left = `clamp(calc(var(--trading-crosshair-half-width) + 6px), ${x}px, calc(100% - var(--trading-crosshair-half-width) - 6px))`;
   }
 
   private hideCrosshairTimeLabel() {
@@ -14341,7 +14237,7 @@ class TradingExpertMarketWorkspace {
       this.hideCandleCountdown();
       return;
     }
-    const chartHeight = this.chartElement.clientHeight;
+    const chartHeight = this.chart.panes()[0]?.getHeight() ?? 0;
     if (!Number.isFinite(y) || chartHeight <= 0) {
       this.hideCandleCountdown();
       return;
@@ -14370,7 +14266,7 @@ class TradingExpertMarketWorkspace {
       }
     }
     this.candleCountdownElement.dataset.placement = placement;
-    this.candleCountdownElement.style.left = `${Math.max(this.chartElement.clientWidth - priceScaleWidth, 0)}px`;
+    this.candleCountdownElement.style.left = `${Math.max(this.chart.timeScale().width(), 0)}px`;
     this.candleCountdownElement.style.width = `${priceScaleWidth}px`;
     this.candleCountdownElement.style.top = `${top}px`;
     this.candleCountdownElement.hidden = false;
@@ -14389,12 +14285,14 @@ class TradingExpertMarketWorkspace {
   private positionFocusPriceLabel(element: HTMLElement, y: number) {
     if (!this.chart) return;
     const priceScaleWidth = Math.max(this.chart.priceScale("right", 0).width(), 64);
+    const plotWidth = this.chart.timeScale().width();
+    const plotHeight = this.chart.panes()[0]?.getHeight() ?? 0;
     const labelHalfHeight = 12;
     const top = Math.min(
       Math.max(y, labelHalfHeight),
-      Math.max(labelHalfHeight, this.chartElement.clientHeight - labelHalfHeight),
+      Math.max(labelHalfHeight, plotHeight - labelHalfHeight),
     );
-    element.style.left = `${Math.max(this.chartElement.clientWidth - priceScaleWidth, 0)}px`;
+    element.style.left = `${Math.max(plotWidth, 0)}px`;
     element.style.width = `${priceScaleWidth}px`;
     element.style.top = `${top}px`;
     element.hidden = false;
@@ -14608,11 +14506,6 @@ class TradingExpertMarketWorkspace {
       window.clearTimeout(this.marketListRenderTimer);
       this.marketListRenderTimer = null;
     }
-    if (this.priceLockAnimationFrame !== null) window.cancelAnimationFrame(this.priceLockAnimationFrame);
-    if (this.drawingSettleAnimationFrame !== null) {
-      window.cancelAnimationFrame(this.drawingSettleAnimationFrame);
-    }
-    this.cancelVolumeProfileWheelTracking();
     if (this.marketListScrollRestoreFrame !== null) {
       window.cancelAnimationFrame(this.marketListScrollRestoreFrame);
     }
@@ -14649,10 +14542,6 @@ class TradingExpertMarketWorkspace {
     this.periodTimes.removeEventListener("pointercancel", this.handlePeriodScrollPointerCancel);
     this.periodTimes.removeEventListener("wheel", this.handlePeriodScrollWheel);
     this.periodTimes.removeEventListener("focusin", this.handlePeriodScrollFocusIn);
-    this.chartElement.removeEventListener("pointerdown", this.handleChartPanPointerDown);
-    this.chartElement.removeEventListener("pointermove", this.handleChartPanPointerMove);
-    this.chartElement.removeEventListener("pointerup", this.handleChartPanPointerUp);
-    this.chartElement.removeEventListener("pointercancel", this.handleChartPanPointerCancel);
     this.chartElement.removeEventListener("wheel", this.handleChartWheel, { capture: true });
     document.removeEventListener("pointermove", this.handlePeriodPointerMove);
     document.removeEventListener("pointerup", this.handlePeriodPointerUp);
@@ -14666,6 +14555,8 @@ class TradingExpertMarketWorkspace {
     this.viewport.removeEventListener("pointerleave", this.handleViewportLeave);
     document.removeEventListener("pointerdown", this.handleOutsidePointerDown);
     document.removeEventListener("keydown", this.handleKeyDown);
+    this.chartNavigation?.destroy();
+    this.chartNavigation = null;
     this.chart?.remove();
     this.chart = null;
   }

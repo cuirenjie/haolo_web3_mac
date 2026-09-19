@@ -425,7 +425,7 @@ test("K-line order overlay stays isolated from manual and AI drawing layers and 
   assert.match(drawing, /data-trading-order-lines[\s\S]*data-drawing-content[\s\S]*data-ai-drawing-content/);
   assert.match(drawing, /data-trading-order-position-cards/);
   assert.match(drawing, /setOrderLines\(lines: readonly TradingOrderLine\[\]\)/);
-  assert.match(drawing, /const candleObstacles = this\.drawingScope === "main"\s*\? this\.visibleCandleObstacles\(bounds\)\s*: \[\]/);
+  assert.match(drawing, /const candleObstacles = \(\) => obstacles \?\?= this\.drawingScope === "main" \? this\.visibleCandleObstacles\(bounds\)/);
   assert.match(drawing, /renderTradingOrderLineSvg\([\s\S]*?priceToCoordinate,[\s\S]*?candleObstacles/);
   assert.match(drawing, /renderTradingOrderPositionCards\(/);
   assert.match(drawing, /fitTradingOrderLineLabels\(this\.orderLineContent, this\.orderPositionCardLayer, bounds\)/);

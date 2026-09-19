@@ -192,8 +192,8 @@ test("drawing mode forwards wheel zoom to the chart surface without changing nat
     /private readonly handleWheel = \(event: WheelEvent\) => \{[\s\S]*?this\.chartElement\.firstElementChild[\s\S]*?new WheelEvent\([\s\S]*?tradingDrawingForwardedWheelEventInit\(event\)[\s\S]*?chartSurface\.dispatchEvent\(forwardedEvent\)[\s\S]*?forwardedEvent\.defaultPrevented[\s\S]*?event\.preventDefault\(\)/,
   );
   assert.match(drawing, /this\.overlay\.removeEventListener\("wheel", this\.handleWheel\)/);
-  assert.match(market, /handleScale:\s*\{[\s\S]*?mouseWheel: true/);
-  assert.match(splitPane, /handleScale: true/);
+  assert.match(market, /TRADING_CHART_NAVIGATION_OPTIONS/);
+  assert.match(splitPane, /TRADING_CHART_NAVIGATION_OPTIONS/);
 });
 
 test("AI drawings are isolated and replaced by market plus interval context", async () => {
@@ -1578,7 +1578,7 @@ test("the shared drawing toolbar targets every split pane with isolated drawing 
   assert.match(drawing, /private controlTarget\(\)[\s\S]*?this\.resolveControlTarget\?\.\(\)/);
   assert.match(drawing, /handleToolbarClick[\s\S]*?controlTarget\.handleToolbarClick\(event\)/);
   assert.match(drawing, /handlePointerDown[\s\S]*?this\.onSurfaceFocus\?\.\(this\)/);
-  assert.match(drawing, /if \(!this\.controlActive \|\| !this\.userDrawingEnabled\) return/);
+  assert.match(drawing, /if \(!this\.controlActive \|\| !this\.userDrawingEnabled \|\| event\.defaultPrevented\) return/);
   assert.match(market, /private activeDrawingController: TradingDrawingController \| null = null/);
   assert.match(market, /private syncDrawingSharedToolState\([\s\S]*?controller\.applySharedToolState\(state\)/);
   assert.match(market, /private activateDrawingController\([\s\S]*?controller\.setControlActive\(true\)/);

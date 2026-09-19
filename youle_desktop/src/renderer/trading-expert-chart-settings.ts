@@ -27,7 +27,7 @@ export interface TradingOrderDisplaySettings {
 }
 
 export interface TradingChartSettings {
-  version: 3;
+  version: 5;
   chartStyle: TradingChartStyle;
   priceAdjustment: TradingPriceAdjustment;
   verticalPaddingPercent: number;
@@ -38,6 +38,7 @@ export interface TradingChartSettings {
   showWicks: boolean;
   scaleAnchor: TradingScaleAnchor;
   priceScaleMode: TradingPriceScaleMode;
+  autoScale: boolean;
   showPriceLine: boolean;
   showPriceLabel: boolean;
   showCountdown: boolean;
@@ -111,7 +112,7 @@ export function tradingPriceScaleUsesAutoScale(mode: TradingPriceScaleMode) {
 }
 
 export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
-  version: 3,
+  version: 5,
   chartStyle: "hlc",
   priceAdjustment: "none",
   verticalPaddingPercent: 2,
@@ -120,8 +121,9 @@ export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
   fallingColor: "#F6465D",
   showCandleBorder: true,
   showWicks: true,
-  scaleAnchor: "cursor",
+  scaleAnchor: "right",
   priceScaleMode: "linear",
+  autoScale: false,
   showPriceLine: true,
   showPriceLabel: true,
   showCountdown: false,
@@ -343,7 +345,7 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
     lightTheme.backgroundColor = defaults.themes.light.backgroundColor;
   }
   return {
-    version: 3,
+    version: 5,
     chartStyle: (!Number.isFinite(sourceVersion) || sourceVersion < 3)
       && sourceChartStyle === "candlestick"
       ? "hlc"
@@ -359,12 +361,14 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
       ? source.showCandleBorder
       : defaults.showCandleBorder,
     showWicks: typeof source.showWicks === "boolean" ? source.showWicks : defaults.showWicks,
-    scaleAnchor: scaleAnchors.has(source.scaleAnchor as TradingScaleAnchor)
+    scaleAnchor: sourceVersion >= 4 && scaleAnchors.has(source.scaleAnchor as TradingScaleAnchor)
       ? source.scaleAnchor as TradingScaleAnchor
       : defaults.scaleAnchor,
-    priceScaleMode: priceScaleModes.has(source.priceScaleMode as TradingPriceScaleMode)
+    // The relocated A/L settings start unchecked when upgrading the old toolbar.
+    priceScaleMode: sourceVersion >= 5 && priceScaleModes.has(source.priceScaleMode as TradingPriceScaleMode)
       ? source.priceScaleMode as TradingPriceScaleMode
       : defaults.priceScaleMode,
+    autoScale: typeof source.autoScale === "boolean" ? source.autoScale : defaults.autoScale,
     showPriceLine: typeof source.showPriceLine === "boolean" ? source.showPriceLine : defaults.showPriceLine,
     showPriceLabel: typeof source.showPriceLabel === "boolean" ? source.showPriceLabel : defaults.showPriceLabel,
     showCountdown: typeof source.showCountdown === "boolean" ? source.showCountdown : defaults.showCountdown,
@@ -643,8 +647,8 @@ export function renderTradingChartSettingsDialog(
             </section>
             <section data-chart-settings-panel="scale" hidden>
               <div class="trading-chart-settings-row"><span>K线缩放</span><div class="trading-chart-settings-options vertical">
-                ${option("scaleAnchor", "cursor", "以光标位置缩放K线（按住 Ctrl 时切换为最右侧）", settings.scaleAnchor === "cursor")}
-                ${option("scaleAnchor", "right", "以最右侧位置缩放K线（按住 Ctrl 时切换为光标位置）", settings.scaleAnchor === "right")}
+                ${option("scaleAnchor", "cursor", "以光标位置缩放 K 线（Ctrl + 滚轮始终聚焦光标）", settings.scaleAnchor === "cursor")}
+                ${option("scaleAnchor", "right", "以最右侧位置缩放 K 线（TradingView 默认，Ctrl + 滚轮聚焦光标）", settings.scaleAnchor === "right")}
               </div></div>
             </section>
             <section data-chart-settings-panel="rise-fall" hidden>
@@ -654,11 +658,12 @@ export function renderTradingChartSettingsDialog(
               </div></div>
             </section>
             <section data-chart-settings-panel="coordinate" hidden>
-              <div class="trading-chart-settings-row"><span>坐标选择</span><div class="trading-chart-settings-options">
-                ${option("priceScaleMode", "linear", "线性坐标", settings.priceScaleMode === "linear")}
-                ${option("priceScaleMode", "logarithmic", "对数坐标", settings.priceScaleMode === "logarithmic")}
-                ${option("priceScaleMode", "percentage", "百分比坐标", settings.priceScaleMode === "percentage")}
+              <div class="trading-chart-settings-row"><span>主图价格坐标</span><div class="trading-chart-settings-options vertical">
+                ${checkbox("autoScale", "自动适配价格", settings.autoScale)}
+                ${checkbox("logarithmicScale", "对数坐标", settings.priceScaleMode === "logarithmic")}
+                ${checkbox("percentageScale", "百分比坐标", settings.priceScaleMode === "percentage")}
               </div></div>
+              <p class="trading-chart-settings-theme-note">默认使用线性坐标，自动适配和对数坐标均关闭；这些设置仅作用于主图价格，不影响成交量等副图。</p>
             </section>
             <section data-chart-settings-panel="live-price" hidden>
               <div class="trading-chart-settings-row"><span>实时价格</span><div class="trading-chart-settings-options">

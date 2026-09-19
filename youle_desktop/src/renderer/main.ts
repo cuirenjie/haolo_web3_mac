@@ -1,4 +1,5 @@
 import "./styles.css";
+import { deferTradingChartShellRender } from "./trading-chart-interaction.ts";
 import QRCode from "qrcode";
 import { describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
 import { analysisModelPolicySelection, normalizeAnalysisModelRecoveryState, withAnalysisModelRecoveryPolicy, type AnalysisModelRecoveryState } from "../main/analysis-model-policy.mjs";
@@ -35996,6 +35997,9 @@ function scheduleRender(options: { sourceThreadId?: string | null; protectCompos
   if (renderFrame !== null) return;
   renderFrame = window.requestAnimationFrame(() => {
     renderFrame = null;
+    // A shell render detaches and reattaches the live chart. Keep its original
+    // DOM in place until the native drag or wheel gesture has finished.
+    if (deferTradingChartShellRender(() => scheduleRender(options))) return;
     render();
   });
 }

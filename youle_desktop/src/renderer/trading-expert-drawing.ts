@@ -1,3 +1,4 @@
+import { zoomTradingChart, type TradingChartNavigation } from "./trading-chart-navigation.ts";
 import {
   TradingAiDrawingPlaybackController,
   type TradingAiDrawing,
@@ -41,6 +42,15 @@ const DRAWING_HANDLE_RADIUS = 5;
 const DRAWING_MAGNET_DISTANCE = 18;
 const FIBONACCI_HANDLE_RADIUS = 7;
 const FIBONACCI_EXPANSION_THRESHOLD = 3;
+
+// Shared toolbar elements can be owned by different chart controllers. Cache
+// per element so switching the active chart cannot reuse another chart's state.
+const drawingMarkup = new WeakMap<Element, string>();
+export function updateTradingDrawingMarkup(element: Element, markup: string) {
+  if (drawingMarkup.get(element) === markup) return;
+  element.innerHTML = markup;
+  drawingMarkup.set(element, markup);
+}
 
 function normalizeTradingDrawingStorageSessionId(value: unknown) {
   return String(value ?? "").trim() || "trading-expert-unassigned";
@@ -896,8 +906,8 @@ export function renderTradingDrawingToolbar() {
           </div>
         `).join("")}
         <div class="trading-drawing-divider" aria-hidden="true"></div>
-        ${toolbarAction("measure", "快速测量", "ruler")}
-        ${toolbarAction("zoom-in", "放大", "zoom")}
+        ${toolbarAction("measure", "快速测量（Shift + 点击或拖动）", "ruler")}
+        ${toolbarAction("zoom-in", "框选放大（点击起点和终点，或拖动框选）", "zoom")}
         ${toolbarAction("zoom-out", "缩小", "zoom-out")}
         <div class="trading-drawing-divider" aria-hidden="true"></div>
         ${toolbarAction("toggle-magnet", "磁吸到K线价格", "magnet", 'aria-pressed="false"')}
@@ -2230,6 +2240,7 @@ interface TradingDrawingControllerOptions {
   controlsHost?: HTMLElement;
   chartElement: HTMLElement;
   overlay: SVGSVGElement;
+  getNavigation?: () => TradingChartNavigation | null;
   getChart: () => any;
   getCandleSeries: () => any;
   getSymbol: () => string;
@@ -2308,6 +2319,7 @@ export class TradingDrawingController {
   private suppressAiTextSizeToolbarClick = false;
   private readonly aiPlayback: TradingAiDrawingPlaybackController;
   private redoStack: TradingDrawingModel[] = [];
+  private readonly getNavigation?: () => TradingChartNavigation | null;
   private activeTool: TradingDrawingToolId = "cursor";
   private activeMenu: TradingDrawingGroupId | null = null;
   private activeSelectionMenu: TradingDrawingSelectionMenu | null = null;
@@ -2337,6 +2349,7 @@ export class TradingDrawingController {
   private readonly drawingStyles = new Map<TradingDrawingToolId, TradingDrawingStyle>();
 
   constructor(options: TradingDrawingControllerOptions) {
+    this.getNavigation = options.getNavigation;
     this.host = options.host;
     this.chartElement = options.chartElement;
     this.overlay = options.overlay;
@@ -2468,6 +2481,7 @@ export class TradingDrawingController {
       if (this.dragState) this.cancelSelectionDrag();
       else this.cancelDraft();
     }
+    if (this.activeTool !== definition.id || definition.kind !== "cursor") this.getNavigation?.()?.setTool(null);
     this.activeTool = definition.id;
     this.lastToolByGroup.set(definition.group, definition.id);
     if (state.drawingStyles && typeof state.drawingStyles === "object") {
@@ -2639,6 +2653,7 @@ export class TradingDrawingController {
     this.aiTextSizeToolbar.addEventListener("pointerleave", this.handleAiTextSizeToolbarPointerLeave);
     this.aiTextSizeToolbar.addEventListener("focusin", this.handleAiTextSizeToolbarFocusIn);
     this.aiTextSizeToolbar.addEventListener("focusout", this.handleAiTextSizeToolbarFocusOut);
+    this.chartElement.addEventListener("trading-navigation-tool-change", this.handleNavigationToolChange);
     this.chartElement.addEventListener("pointerdown", this.handleSurfacePointerDown, { capture: true });
     this.orderLineContent.addEventListener("pointerover", this.handleOrderPositionPointerOver);
     this.orderLineContent.addEventListener("pointerout", this.handleOrderPositionPointerOut);
@@ -2658,6 +2673,12 @@ export class TradingDrawingController {
     const target = this.resolveControlTarget?.();
     return target && !target.destroyed ? target : this;
   }
+
+  focusPane(paneIndex: number) {
+    if (this.paneIndex === paneIndex) this.onSurfaceFocus?.(this);
+  }
+
+  private readonly handleNavigationToolChange = () => this.controlTarget().updateToolbarState();
 
   private readonly handleSurfacePointerDown = () => {
     this.onSurfaceFocus?.(this);
@@ -3032,12 +3053,15 @@ export class TradingDrawingController {
       this.toggleToolMenu(target.dataset.drawingGroupId as TradingDrawingGroupId, target);
       return;
     }
-    if (action === "measure") {
-      this.selectTool("measure");
+    if (action === "measure" || action === "zoom-in") {
+      this.selectTool("cursor");
+      this.getNavigation?.()?.setTool(action === "measure" ? "measure" : "zoom");
+      this.updateToolbarState();
       return;
     }
-    if (action === "zoom-in" || action === "zoom-out") {
-      this.zoomChart(action === "zoom-in" ? 0.72 : 1.38);
+    if (action === "zoom-out") {
+      this.getNavigation?.()?.setTool(null);
+      this.zoomChart(1.25);
       return;
     }
     if (action === "toggle-magnet") {
@@ -3313,7 +3337,8 @@ export class TradingDrawingController {
   };
 
   private readonly handleKeyDown = (event: KeyboardEvent) => {
-    if (!this.controlActive || !this.userDrawingEnabled) return;
+    if (!this.controlActive || !this.userDrawingEnabled || event.defaultPrevented) return;
+    if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
     if (this.clearDialog.open) return;
     if (event.key === "Escape") {
       if (this.activeMenu) this.closeToolMenus();
@@ -3331,9 +3356,15 @@ export class TradingDrawingController {
       this.deleteSelectedDrawing();
       return;
     }
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+    if (event.altKey && !event.ctrlKey && !event.metaKey) {
+      const shortcutTool = ({ t: "trend-line", f: "fib-retracement", h: "horizontal-line", v: "vertical-line" } as const)[event.key.toLowerCase()];
+      if (shortcutTool && event.target instanceof Element && event.target.closest(".trading-chart-navigable")) {
+        event.preventDefault(); this.selectTool(shortcutTool); return;
+      }
+    }
+    if ((event.ctrlKey || event.metaKey) && ["z", "y"].includes(event.key.toLowerCase())) {
       event.preventDefault();
-      if (event.shiftKey) this.redo();
+      if (event.shiftKey || event.key.toLowerCase() === "y") this.redo();
       else this.undo();
       this.updateToolbarState();
     }
@@ -3506,6 +3537,10 @@ export class TradingDrawingController {
     );
     if (!followingMultiClickDraft && event.pointerId !== this.pointerId) return;
     const screenPoint = this.eventScreenPoint(event);
+    if (event.shiftKey && this.dragState?.mode === "drawing" && this.pointerStart) {
+      if (Math.abs(screenPoint.x - this.pointerStart.x) >= Math.abs(screenPoint.y - this.pointerStart.y)) screenPoint.y = this.pointerStart.y;
+      else screenPoint.x = this.pointerStart.x;
+    }
     if (this.dragState) {
       const drawing = this.drawings.find((candidate) => candidate.id === this.dragState?.drawingId);
       if (!drawing || drawing.locked) return;
@@ -3611,6 +3646,7 @@ export class TradingDrawingController {
     if (this.pendingTextDrawingId) this.discardPendingTextDrawing();
     if (this.dragState) this.cancelSelectionDrag();
     else this.cancelDraft();
+    this.getNavigation?.()?.setTool(null);
     this.activeTool = definition.id;
     this.lastToolByGroup.set(definition.group, definition.id);
     this.overlay.classList.toggle("drawing-active", definition.kind !== "cursor");
@@ -3959,20 +3995,20 @@ export class TradingDrawingController {
 
   private plotBounds() {
     const chart = this.getChart();
-    // Main-chart surfaces span the price axis, while an indicator controller
-    // is mounted inside Lightweight Charts' plot wrapper and already excludes
-    // that axis from its client width.
-    const priceScaleWidth = this.drawingScope === "main"
-      ? Number(chart?.priceScale?.("right", this.paneIndex)?.width?.() || 0)
-      : 0;
-    const paneElement = (this.drawingScope === "main"
-      ? chart?.panes?.()?.[this.paneIndex]?.getHTMLElement?.()
-      : this.chartElement) as HTMLElement | null;
-    const chartRect = this.chartElement.getBoundingClientRect();
-    const paneRect = paneElement?.getBoundingClientRect();
+    if (chart) {
+      // Native chart dimensions are already cached. Measuring this DOM surface
+      // after price/legend writes forces a desktop layout for every drag frame.
+      // The main pane can shrink when indicator panes are present. Keep its
+      // drawing bounds inside that pane without forcing a DOM measurement.
+      const height = chart.panes()[this.paneIndex]?.getHeight() || chart.options().height;
+      return {
+        width: Math.max(chart.timeScale().width(), 1),
+        height: Math.max(height || 1, 1),
+      };
+    }
     return {
-      width: Math.max(this.chartElement.clientWidth - priceScaleWidth, 1),
-      height: Math.max(paneRect?.height || chartRect.height || this.chartElement.clientHeight, 1),
+      width: Math.max(this.chartElement.clientWidth, 1),
+      height: Math.max(this.chartElement.clientHeight, 1),
     };
   }
 
@@ -4244,12 +4280,9 @@ export class TradingDrawingController {
   }
 
   private zoomChart(factor: number) {
-    const chart = this.getChart();
-    const range = chart?.timeScale?.().getVisibleLogicalRange?.();
-    if (!range) return;
-    const center = (range.from + range.to) / 2;
-    const halfSpan = Math.max(((range.to - range.from) * factor) / 2, 4);
-    chart.timeScale().setVisibleLogicalRange({ from: center - halfSpan, to: center + halfSpan });
+    const navigation = this.getNavigation?.();
+    if (navigation) navigation.zoom(factor);
+    else if (!zoomTradingChart(this.getChart(), factor)) return;
     this.redraw();
     this.setStatus(factor < 1 ? "已放大" : "已缩小");
   }
@@ -4260,7 +4293,7 @@ export class TradingDrawingController {
     this.toolbar.querySelectorAll<HTMLElement>("[data-drawing-tool]").forEach((button) => {
       const selected = button.dataset.drawingTool === this.activeTool;
       button.classList.toggle("active", selected);
-      if (button.hasAttribute("aria-checked")) button.setAttribute("aria-checked", String(selected));
+      if (button.hasAttribute("aria-checked") && button.getAttribute("aria-checked") !== String(selected)) button.setAttribute("aria-checked", String(selected));
     });
     this.toolbar.querySelectorAll<HTMLElement>("[data-drawing-group]").forEach((group) => {
       group.classList.toggle("active", group.dataset.drawingGroup === definition?.group);
@@ -4268,18 +4301,21 @@ export class TradingDrawingController {
       const current = this.lastToolByGroup.get(group.dataset.drawingGroup as TradingDrawingGroupId);
       const currentDefinition = tradingDrawingToolDefinition(current);
       if (primary && currentDefinition) {
-        primary.dataset.drawingTool = currentDefinition.id;
-        primary.innerHTML = drawingIcon(currentDefinition.icon);
-        primary.title = currentDefinition.label;
-        primary.setAttribute("aria-label", currentDefinition.label);
+        if (primary.dataset.drawingTool !== currentDefinition.id) primary.dataset.drawingTool = currentDefinition.id;
+        updateTradingDrawingMarkup(primary, drawingIcon(currentDefinition.icon));
+        const label = translateAppText(currentDefinition.label);
+        if (primary.title !== label) primary.title = label;
+        if (primary.getAttribute("aria-label") !== label) primary.setAttribute("aria-label", label);
       }
     });
     const setPressed = (action: string, pressed: boolean, icon?: string) => {
       const button = this.toolbar.querySelector<HTMLButtonElement>(`[data-drawing-action="${action}"]`);
-      button?.setAttribute("aria-pressed", String(pressed));
+      if (button && button.getAttribute("aria-pressed") !== String(pressed)) button.setAttribute("aria-pressed", String(pressed));
       button?.classList.toggle("active", pressed);
-      if (button && icon) button.innerHTML = drawingIcon(icon);
+      if (button && icon) updateTradingDrawingMarkup(button, drawingIcon(icon));
     };
+    setPressed("zoom-in", this.getNavigation?.()?.getTool() === "zoom");
+    setPressed("measure", this.getNavigation?.()?.getTool() === "measure");
     setPressed("toggle-magnet", this.magnetEnabled);
     setPressed("toggle-stay", this.stayInDrawingMode);
     setPressed("toggle-lock", this.drawingsLocked, this.drawingsLocked ? "unlock" : "lock");
@@ -4363,7 +4399,7 @@ export class TradingDrawingController {
       button.setAttribute("aria-checked", String(selected));
     });
     this.selectionToolbar.querySelectorAll<HTMLButtonElement>('[data-drawing-selection-action="toggle-lock"]').forEach((lock) => {
-      lock.innerHTML = drawingIcon(drawing.locked ? "unlock" : "lock");
+      updateTradingDrawingMarkup(lock, drawingIcon(drawing.locked ? "unlock" : "lock"));
       lock.setAttribute("aria-pressed", String(Boolean(drawing.locked)));
       lock.setAttribute("aria-label", drawing.locked ? "解锁" : "锁定");
       lock.title = drawing.locked ? "解锁" : "锁定";
@@ -4395,14 +4431,14 @@ export class TradingDrawingController {
     const drawing = this.selectedDrawing();
     const definition = tradingDrawingToolDefinition(drawing?.tool);
     if (!drawing || !definition || this.drawingsHidden) {
-      this.axisMarkerLayer.replaceChildren();
+      updateTradingDrawingMarkup(this.axisMarkerLayer, "");
       return;
     }
     const markers = tradingDrawingAxisMarkerPoints(definition, drawing.points)
       .map((marker) => ({ ...marker, screen: this.pointToScreen(marker.point) }))
       .filter((marker): marker is TradingDrawingAxisMarkerPoint & { screen: ScreenPoint } => Boolean(marker.screen));
     const priceScaleWidth = this.drawingScope === "main"
-      ? Math.max(this.chartElement.clientWidth - bounds.width, 64)
+      ? Math.max(this.getChart()?.priceScale("right", this.paneIndex).width() || 0, 64)
       : 0;
     const priceMarkers = markers.filter((marker, index, entries) => (
       marker.showPrice
@@ -4435,7 +4471,7 @@ export class TradingDrawingController {
       const left = Math.min(Math.max(marker.screen.x, minimumTimeX), maximumTimeX);
       return `<time class="trading-drawing-axis-marker time" data-drawing-axis-time style="left:${left}px">${escapeHtml(formatTradingDrawingAxisTime(marker.point.time, this.timeOffsetSeconds))}</time>`;
     }).join("");
-    this.axisMarkerLayer.innerHTML = priceHtml + timeHtml;
+    updateTradingDrawingMarkup(this.axisMarkerLayer, priceHtml + timeHtml);
   }
 
   async playAiDrawingPatch(
@@ -4544,25 +4580,32 @@ export class TradingDrawingController {
 
   private renderAiCursor(bounds: { width: number; height: number }) {
     if (!this.aiCursorPoint || this.drawingsHidden || this.destroyed) {
-      this.aiCursorContent.replaceChildren();
+      updateTradingDrawingMarkup(this.aiCursorContent, "");
       return;
     }
     const point = this.pointToScreen(this.aiCursorPoint);
     if (!point || point.x < -24 || point.x > bounds.width + 24 || point.y < -24 || point.y > bounds.height + 24) {
-      this.aiCursorContent.replaceChildren();
+      updateTradingDrawingMarkup(this.aiCursorContent, "");
       return;
     }
-    this.aiCursorContent.innerHTML = `<g class="trading-ai-cursor${this.aiCursorPulse ? " pulse" : ""}" transform="translate(${point.x} ${point.y})">`
+    updateTradingDrawingMarkup(this.aiCursorContent, `<g class="trading-ai-cursor${this.aiCursorPulse ? " pulse" : ""}" transform="translate(${point.x} ${point.y})">`
       + `<circle class="trading-ai-cursor-ripple" cx="0" cy="0" r="6" />`
       + `<path class="trading-ai-cursor-pointer" d="M 0 0 L 3.5 16 L 7.2 10.1 L 13.3 9.2 Z" />`
       + `<g class="trading-ai-cursor-badge" transform="translate(11 -15)"><rect x="0" y="0" width="24" height="16" rx="8"/><text x="12" y="11.5" text-anchor="middle">AI</text></g>`
-      + `</g>`;
+      + `</g>`);
     this.aiCursorPulse = false;
   }
 
   private visibleCandleObstacles(bounds: { width: number; height: number }) {
     const candles = this.getCandles();
-    const screenCandles = candles.map((candle) => {
+    const timeScale = this.getChart()?.timeScale();
+    // Include the same 12px edge tolerance used below, including very narrow
+    // bars. Off-screen history cannot collide with a visible annotation.
+    const from = timeScale?.coordinateToLogical(-12);
+    const to = timeScale?.coordinateToLogical(bounds.width + 12);
+    const start = from != null && Number.isFinite(from) ? Math.max(0, Math.floor(from)) : 0;
+    const end = to != null && Number.isFinite(to) ? Math.max(start, Math.min(candles.length, Math.ceil(to) + 1)) : candles.length;
+    const screenCandles = candles.slice(start, end).map((candle) => {
       const high = this.pointToScreen({ time: candle.time, price: candle.high });
       const low = this.pointToScreen({ time: candle.time, price: candle.low });
       if (!high || !low) return null;
@@ -4717,34 +4760,35 @@ export class TradingDrawingController {
     this.overlay.setAttribute("height", String(bounds.height));
     const candleSeries = this.getCandleSeries();
     const priceToCoordinate = (price: number) => finiteTradingChartCoordinate(candleSeries?.priceToCoordinate(price));
-    const candleObstacles = this.drawingScope === "main"
-      ? this.visibleCandleObstacles(bounds)
-      : [];
-    this.orderLineContent.innerHTML = candleSeries && this.drawingScope === "main"
+    // Most charts have no order labels or notes to avoid. Do not scan history
+    // just to render an empty layer, and share the work when both need it.
+    let obstacles: TradingDrawingCollisionRect[] | null = null;
+    const candleObstacles = () => obstacles ??= this.drawingScope === "main" ? this.visibleCandleObstacles(bounds) : [];
+    updateTradingDrawingMarkup(this.orderLineContent, candleSeries && this.drawingScope === "main" && this.orderLines.length
       ? renderTradingOrderLineSvg(
         this.orderLines,
         this.getSymbol(),
         bounds,
         priceToCoordinate,
-        candleObstacles,
+        candleObstacles(),
       )
-      : "";
-    this.orderPositionCardLayer.innerHTML = candleSeries && this.drawingScope === "main"
+      : "");
+    updateTradingDrawingMarkup(this.orderPositionCardLayer, candleSeries && this.drawingScope === "main" && this.orderLines.length
       ? renderTradingOrderPositionCards(
         this.orderLines,
         this.getSymbol(),
         bounds,
         priceToCoordinate,
-        candleObstacles,
+        candleObstacles(),
       )
-      : "";
+      : "");
     fitTradingOrderLineLabels(this.orderLineContent, this.orderPositionCardLayer, bounds);
     this.setOpenOrderPositionCard(this.openOrderPositionCardId);
     if (this.drawingsHidden) {
-      this.content.innerHTML = "";
-      this.aiContent.innerHTML = "";
-      this.aiTextHitContent.innerHTML = "";
-      this.aiCursorContent.innerHTML = "";
+      updateTradingDrawingMarkup(this.content, "");
+      updateTradingDrawingMarkup(this.aiContent, "");
+      updateTradingDrawingMarkup(this.aiTextHitContent, "");
+      updateTradingDrawingMarkup(this.aiCursorContent, "");
       this.hideAiTextSizeToolbar();
       this.updateSelectionToolbar(bounds);
       this.updateAxisMarkers(bounds);
@@ -4756,7 +4800,7 @@ export class TradingDrawingController {
       tradingManualDrawingMatchesContext(drawing, symbol, interval, this.drawingScope)
     ));
     if (this.draft && tradingManualDrawingMatchesContext(this.draft, symbol, interval, this.drawingScope)) drawings.push(this.draft);
-    this.content.innerHTML = drawings.map((drawing) => this.renderDrawing(drawing, bounds, drawing === this.draft)).join("");
+    updateTradingDrawingMarkup(this.content, drawings.map((drawing) => this.renderDrawing(drawing, bounds, drawing === this.draft)).join(""));
     const aiSourceDrawings = this.drawingScope === "main"
       ? this.aiDrawings.filter((drawing) => tradingAiDrawingMatchesContext(drawing, symbol, interval))
       : [];
@@ -4803,7 +4847,7 @@ export class TradingDrawingController {
       ? layoutTradingAiNoteBoxes(
         aiTextLayoutRequests,
         bounds,
-        candleObstacles,
+        candleObstacles(),
         [...orderFlowBoxObstacles, ...priceActionDrawingObstacles, ...gannTheoryBoxObstacles],
       )
       : []
@@ -4812,7 +4856,7 @@ export class TradingDrawingController {
       tradingDrawingPriceActionCandlestickLayerRank(left)
       - tradingDrawingPriceActionCandlestickLayerRank(right)
     ));
-    this.aiContent.innerHTML = orderedAiDrawings
+    updateTradingDrawingMarkup(this.aiContent, orderedAiDrawings
       .map((drawing) => {
         const textLayout = aiTextLayouts.get(drawing.id);
         if (drawing.tool === "note" && !textLayout) return "";
@@ -4825,15 +4869,15 @@ export class TradingDrawingController {
         );
       })
       .map((markup) => `<g data-i18n-skip>${markup}</g>`)
-      .join("");
-    this.aiTextHitContent.innerHTML = orderedAiDrawings
+      .join(""));
+    updateTradingDrawingMarkup(this.aiTextHitContent, orderedAiDrawings
       .map((drawing) => {
         if (drawing.id === this.aiDraft?.id) return "";
         const textLayout = aiTextLayouts.get(drawing.id);
         if (drawing.tool === "note" && !textLayout) return "";
         return this.renderAiTextSizeHitTarget(drawing, bounds, textLayout);
       })
-      .join("");
+      .join(""));
     this.renderAiCursor(bounds);
     this.updateAiTextSizeToolbar(bounds);
     this.updateToolbarState();
@@ -5470,6 +5514,7 @@ export class TradingDrawingController {
     this.aiTextSizeToolbar.removeEventListener("pointerleave", this.handleAiTextSizeToolbarPointerLeave);
     this.aiTextSizeToolbar.removeEventListener("focusin", this.handleAiTextSizeToolbarFocusIn);
     this.aiTextSizeToolbar.removeEventListener("focusout", this.handleAiTextSizeToolbarFocusOut);
+    this.chartElement.removeEventListener("trading-navigation-tool-change", this.handleNavigationToolChange);
     this.chartElement.removeEventListener("pointerdown", this.handleSurfacePointerDown, { capture: true });
     this.orderLineContent.removeEventListener("pointerover", this.handleOrderPositionPointerOver);
     this.orderLineContent.removeEventListener("pointerout", this.handleOrderPositionPointerOut);

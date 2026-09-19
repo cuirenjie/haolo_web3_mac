@@ -593,7 +593,8 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
   assert.equal(TRADING_EXPERT_DEFAULT_MODEL_VALUE, "gpt-5.6-sol");
   assert.equal(TRADING_EXPERT_REASONING_EFFORT, "ultra");
   assert.equal(TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT, "max");
-  assert.equal(tradingExpertReasoningEffort("gpt-5.6-sol"), "ultra");  assert.equal(tradingExpertReasoningEffort("deepseek-flash"), "max");
+  assert.equal(tradingExpertReasoningEffort("gpt-5.6-sol"), "ultra");
+  assert.equal(tradingExpertReasoningEffort("deepseek-flash"), "max");
   assert.deepEqual(
     tradingExpertModelOptions(catalog).map((option) => option.value),
     ["gpt-5.6-sol", "deepseek-flash"],
@@ -1171,7 +1172,7 @@ test("Trading Expert market uses the governed Binance gateway and realtime data"
   assert.doesNotMatch(styles, /trading-market-modes/);
 });
 
-test("Trading Expert hides the bottom time axis and applies each theme's configurable grid", async () => {
+test("Trading Expert exposes the native time axis and applies each theme's configurable grid", async () => {
   const source = await marketSource;
   const settingsSource = await chartSettingsSource;
   const createChartBlock = sourceBlock(
@@ -1181,7 +1182,7 @@ test("Trading Expert hides the bottom time axis and applies each theme's configu
   );
   const applyThemeBlock = sourceBlock(
     source,
-    "private applyChartTheme()",
+    "private applyChartTheme(",
     "private clearChart()",
   );
   const createLayoutBlock = sourceBlock(
@@ -1193,7 +1194,7 @@ test("Trading Expert hides the bottom time axis and applies each theme's configu
   for (const block of [createChartBlock, applyThemeBlock]) {
     assert.match(block, /vertLines: \{ visible: chartTheme\.verticalGridVisible, color: chartTheme\.verticalGridColor \}/);
     assert.match(block, /horzLines: \{ visible: chartTheme\.horizontalGridVisible, color: chartTheme\.horizontalGridColor \}/);
-    assert.match(block, /timeScale: \{[\s\S]*?visible: false,/);
+    assert.match(block, /timeScale: \{[\s\S]*?visible: true,/);
   }
   assert.equal((settingsSource.match(/verticalGridVisible: false/g) ?? []).length, 2);
   assert.equal((settingsSource.match(/horizontalGridVisible: true/g) ?? []).length, 2);
@@ -1258,7 +1259,7 @@ test("Trading Expert uses the shared settings gear for chart settings in both th
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-text:[^;]+;[\s\S]*?--trading-market-muted:[^;]+;/s);
 });
 
-test("Trading Expert gives every split pane the primary pane indicator footer instead of a date axis", async () => {
+test("Trading Expert gives every split pane its native date axis and primary indicator footer", async () => {
   const market = await marketSource;
   const splitPane = await splitPaneSource;
   const styles = await stylesSource;
@@ -1281,8 +1282,8 @@ test("Trading Expert gives every split pane the primary pane indicator footer in
   assert.match(market, /onIndicatorSelectionChange: \(selection\) => \{[\s\S]*?this\.splitPaneIndicatorSelections\.set\(index, selection\)/);
   assert.match(market, /onOpenIndicatorEditor: \(\) => \{[\s\S]*?this\.indicatorEditorSplitPane = pane;[\s\S]*?this\.setIndicatorEditorOpen\(true\)/);
   assert.match(market, /if \(splitTarget\) \{[\s\S]*?nextSettings\[key\]\.enabled = this\.indicatorSettings\[key\]\?\.enabled === true;[\s\S]*?splitTarget\.activateIndicator\(selectedIndicator\.scope, selectedIndicator\.id\)/);
-  assert.match(createSplitChart, /timeScale: \{[\s\S]*?visible: false,/);
-  assert.match(updateSplitSettings, /timeScale: \{[\s\S]*?visible: false,/);
+  assert.match(createSplitChart, /timeScale: \{[\s\S]*?visible: true,/);
+  assert.match(updateSplitSettings, /timeScale: \{[\s\S]*?visible: true,/);
   assert.match(styles, /\.trading-market-split-pane-inner\s*\{[^}]*grid-template-rows: 36\.4px minmax\(0, 1fr\) 32px;/s);
   assert.match(styles, /\.trading-expert-market\.split-layout-active \.trading-market-primary-pane \.trading-market-indicator-bar,\s*\.trading-expert-market\.split-layout-active \.trading-market-split-pane \.trading-market-indicator-bar\s*\{[^}]*z-index: 20;[^}]*height: 32px;[^}]*flex-basis: 32px;/s);
   assert.match(styles, /\.trading-expert-market\.split-layout-active \.trading-market-split-pane \.trading-market-main-indicators button,[\s\S]*?\.trading-market-split-pane \.trading-market-indicators button/);
@@ -1298,12 +1299,12 @@ test("VPVR keeps one volume snapshot through wheel movement in primary and split
   const marketWheelTracking = sourceBlock(
     market,
     "private trackVolumeProfileThroughWheelScale()",
-    "private cancelVolumeProfileWheelTracking()",
+    "private queueVisiblePriceScaleUpdate()",
   );
   const splitWheelTracking = sourceBlock(
     splitPane,
     "private trackVolumeProfileThroughWheelScale()",
-    "private cancelVolumeProfileWheelTracking()",
+    "private setMainIndicatorSeriesData(",
   );
 
   assert.match(market, /data-market-volume-profile-layer/);
@@ -1315,16 +1316,18 @@ test("VPVR keeps one volume snapshot through wheel movement in primary and split
   assert.match(market, /private applyInitialChartViewport\(\)[\s\S]*?this\.renderVolumeProfile\(true\)/);
   assert.match(market, /private updateChartData[\s\S]*?if \(resetViewport\) \{[\s\S]*?this\.invalidateVolumeProfileSnapshot\(\)/);
   assert.match(market, /private readonly handleChartWheel[\s\S]*?this\.trackVolumeProfileThroughWheelScale\(\)/);
-  assert.match(marketWheelTracking, /TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES[\s\S]*?this\.renderVolumeProfile\(false\)[\s\S]*?requestAnimationFrame\(redraw\)/);
+  assert.match(marketWheelTracking, /chartNavigation\?\.schedule\(TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES\)/);
+  assert.doesNotMatch(marketWheelTracking, /requestAnimationFrame/);
   assert.doesNotMatch(marketWheelTracking, /calculateTradingVolumeProfile|renderVolumeProfile\(true\)/);
   assert.match(splitPane, /data-split-volume-profile-layer/);
-  assert.match(splitPane, /subscribeVisibleLogicalRangeChange[\s\S]*?this\.renderVolumeProfile\(false\)/);
+  assert.match(splitPane, /new TradingChartNavigation\([\s\S]*?this\.renderVolumeProfile\(false\)/);
   assert.match(splitPane, /private renderVolumeProfile\(recalculate = false\)[\s\S]*?profile: this\.volumeProfileSnapshot/);
   assert.match(splitPane, /private updateMainIndicatorData\(refreshVolumeProfile = false\)[\s\S]*?this\.renderVolumeProfile\(refreshVolumeProfile\)/);
   assert.match(splitPane, /updateIndicatorSettings[\s\S]*?this\.updateMainIndicatorData\(true\)/);
-  assert.match(splitPane, /private async reload\(resetViewport: boolean\): Promise<boolean> \{\s*if \(resetViewport\) this\.invalidateVolumeProfileSnapshot\(\)/);
+  assert.match(splitPane, /private async reload\(resetViewport: boolean[\s\S]*?if \(resetViewport\) this\.invalidateVolumeProfileSnapshot\(\)/);
   assert.match(splitPane, /private readonly handleWheel[\s\S]*?this\.trackVolumeProfileThroughWheelScale\(\)/);
-  assert.match(splitWheelTracking, /TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES[\s\S]*?this\.renderVolumeProfile\(false\)[\s\S]*?requestAnimationFrame\(redraw\)/);
+  assert.match(splitWheelTracking, /chartNavigation\?\.schedule\(TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES\)/);
+  assert.doesNotMatch(splitWheelTracking, /requestAnimationFrame/);
   assert.doesNotMatch(splitWheelTracking, /calculateTradingVolumeProfile|renderVolumeProfile\(true\)/);
   assert.match(volumeProfile, /requestedValueAreaRatio = 0\.7/);
   assert.match(volumeProfile, /TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES = 12/);
@@ -1393,58 +1396,18 @@ test("Trading Expert matches the reference crosshair, price, and hover-time pres
   assert.match(styles, /\.trading-market-crosshair-time\[hidden\]\s*\{[^}]*display: none !important;/s);
 });
 
-test("Trading Expert pans horizontally while locking price to the candles visible on screen", async () => {
+test("Trading Expert uses native two-axis navigation and keeps overlay paints free of range resets", async () => {
   const source = await marketSource;
-  const createChartBlock = sourceBlock(
-    source,
-    "private createChart()",
-    "private createMainIndicatorSeries()",
-  );
-  const lockPriceScale = sourceBlock(
-    source,
-    "private updateVisiblePriceScale",
-    "private renderLatestOhlc",
-  );
-  const geometrySync = sourceBlock(
-    source,
-    "private synchronizeVisibleChartGeometry()",
-    "private queueVisiblePriceScaleUpdate()",
-  );
-  const queuedGeometrySync = sourceBlock(
-    source,
-    "private queueVisiblePriceScaleUpdate()",
-    "private finishChartPan()",
-  );
-
-  assert.match(source, /export function fixedPriceScaleRange/);
-  assert.match(source, /export function visibleCandlesInLogicalRange/);
-  assert.match(createChartBlock, /rightPriceScale: \{[\s\S]*?autoScale: tradingPriceScaleUsesAutoScale\(this\.chartSettings\.priceScaleMode\),[\s\S]*?ensureEdgeTickMarksVisible: true,[\s\S]*?scaleMargins: \{ top: 0, bottom: 0 \}/);
-  assert.match(createChartBlock, /axisPressedMouseMove: \{ time: true, price: false \}/);
-  assert.match(createChartBlock, /axisDoubleClickReset: \{ time: true, price: false \}/);
-  assert.match(createChartBlock, /handleScroll: \{[\s\S]*?pressedMouseMove: false,[\s\S]*?horzTouchDrag: false,[\s\S]*?vertTouchDrag: false,/);
-  assert.match(source, /addEventListener\("pointerdown", this\.handleChartPanPointerDown\)/);
-  assert.match(source, /this\.chart\.timeScale\(\)\.setVisibleLogicalRange\(\{/);
-  assert.match(source, /const logicalShift = -\(\(event\.clientX - this\.chartPanStartX\) \/ paneWidth\) \* span/);
-  assert.match(source, /this\.chartCandles = deduped/);
-  assert.match(source, /subscribeVisibleLogicalRangeChange\(\(range: any\) => \{[\s\S]*?this\.queueVisiblePriceScaleUpdate\(\)/);
-  assert.match(lockPriceScale, /tradingPriceScaleUsesAutoScale\(this\.chartSettings\.priceScaleMode\)/);
-  assert.match(lockPriceScale, /this\.lockedPriceRange = null;[\s\S]*?setAutoScale\(true\);[\s\S]*?return;/);
-  assert.match(lockPriceScale, /this\.chart\.timeScale\(\)\.getVisibleLogicalRange\(\)/);
-  assert.match(lockPriceScale, /visibleCandlesInLogicalRange\(this\.chartCandles, logicalRange\)/);
-  assert.match(lockPriceScale, /fixedPriceScaleRange\(\s*visibleCandles,\s*this\.chartSettings\.verticalPaddingPercent \/ 100,\s*\)/);
-  assert.match(lockPriceScale, /priceScale\.setAutoScale\(false\)/);
-  assert.match(lockPriceScale, /this\.lockedPriceRange = priceRange/);
-  assert.match(lockPriceScale, /priceScale\.setVisibleRange\(this\.lockedPriceRange\)/);
-  assert.match(geometrySync, /this\.updateVisiblePriceScale\(\);[\s\S]*?this\.updateCurrentPriceLabel\(\);[\s\S]*?this\.redrawDrawingControllers\(\)/);
-  assert.match(
-    queuedGeometrySync,
-    /this\.resettingChartViewport[\s\S]*?\|\| this\.updatingChartData[\s\S]*?\|\| this\.priceLockAnimationFrame !== null/,
-  );
-  assert.doesNotMatch(queuedGeometrySync, /cancelAnimationFrame\(this\.priceLockAnimationFrame\)/);
-  assert.match(queuedGeometrySync, /window\.requestAnimationFrame\(\(\) => \{[\s\S]*?this\.synchronizeVisibleChartGeometry\(\)/);
-  assert.match(queuedGeometrySync, /this\.drawingSettleAnimationFrame = window\.requestAnimationFrame\(\(\) => \{[\s\S]*?this\.synchronizeVisibleChartGeometry\(\)/);
-  assert.match(createChartBlock, /subscribeVisibleLogicalRangeChange\(\(range: any\) => \{[\s\S]*?this\.synchronizeVisibleChartGeometry\(\);[\s\S]*?this\.queueVisiblePriceScaleUpdate\(\)/);
-  assert.match(source, /if \(this\.drawingSettleAnimationFrame !== null\) \{[\s\S]*?window\.cancelAnimationFrame\(this\.drawingSettleAnimationFrame\)/);
+  const createChartBlock = sourceBlock(source, "private createChart()", "private createMainIndicatorSeries()");
+  const geometrySync = sourceBlock(source, "private synchronizeVisibleChartGeometry()", "private trackVolumeProfileThroughWheelScale()");
+  assert.match(createChartBlock, /TRADING_CHART_NAVIGATION_OPTIONS/);
+  assert.match(createChartBlock, /new TradingChartNavigation/);
+  assert.doesNotMatch(source, /handleChartPanPointer|lockedPriceRange/);
+  assert.doesNotMatch(geometrySync, /setAutoScale|setVisibleRange|setVisibleLogicalRange/);
+  assert.match(geometrySync, /updateCurrentPriceLabel/);
+  assert.match(geometrySync, /redrawDrawingControllers/);
+  assert.match(geometrySync, /extremaOverlay\?\.update/);
+  assert.match(source, /chartNavigation\?\.destroy/);
 });
 
 test("Trading Expert market uses the compact pair title and customizable period bar", async () => {
@@ -2007,7 +1970,7 @@ test("Trading Expert uses two-decimal ticks and high-precision highlighted price
   const updateChartData = sourceBlock(
     source,
     "private updateChartData(options:",
-    "private updateVisiblePriceScale()",
+    "private synchronizeVisibleChartGeometry()",
   );
   const syncCurrentPriceLine = sourceBlock(
     source,
@@ -2042,7 +2005,7 @@ test("Trading Expert defaults to solid Binance candles and can apply configured 
   const updateChartData = sourceBlock(
     source,
     "private updateChartData(options:",
-    "private updateVisiblePriceScale()",
+    "private synchronizeVisibleChartGeometry()",
   );
   const primarySeriesData = sourceBlock(
     source,
@@ -2077,7 +2040,7 @@ test("Trading Expert keeps every price scale bright when switching to dark mode"
   );
   const applyTheme = sourceBlock(
     source,
-    "private applyChartTheme()",
+    "private applyChartTheme(",
     "private clearChart()",
   );
 
@@ -2126,12 +2089,12 @@ test("Trading Expert subchart indicators cover pane behavior and both themes", a
     "subchart series must leave the shared time scale before their panes are removed",
   );
   assert.match(rebuildPanes, /finally \{\s*this\.rebuildingIndicatorPanes = false/);
-  assert.match(createPane, /priceScale\(\)\?\.applyOptions\(\{\s*autoScale: true,/);
+  assert.match(createPane, /priceScale\(\)\?\.applyOptions\(\{[\s\S]*?mode: PriceScaleMode\.Normal,[\s\S]*?invertScale: false,[\s\S]*?autoScale: true,/);
   assert.match(createPane, /descriptor\.type === "histogram"[\s\S]*?pane\.addSeries\(HistogramSeries/);
   assert.match(updateIndicatorData, /descriptor\.colors\?\.\[index\][\s\S]*?color: descriptor\.colors\[index\]/);
   assert.doesNotMatch(createPane, /descriptor\.barStyle|rgba\(0, 0, 0, 0\)/);
   assert.doesNotMatch(updateIndicatorData, /descriptor\.barStyle/);
-  assert.match(updateIndicatorData, /priceScale\(\)\?\.setAutoScale\(true\)/);
+  assert.doesNotMatch(updateIndicatorData, /setAutoScale\(true\)/, "routine indicator refreshes preserve a manually adjusted range");
   assert.match(source, /current\?\.value \?\? current\?\.high \?\? seriesRuntime\.latestValue/);
   assert.match(source, /subscribeVisibleLogicalRangeChange\(\(range: any\) => \{[\s\S]*?this\.rebuildingIndicatorPanes/);
 
@@ -2318,7 +2281,7 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
   const viewportResetBlock = sourceBlock(
     source,
     "private updateChartData(options:",
-    "private updateVisiblePriceScale()",
+    "private synchronizeVisibleChartGeometry()",
   );
   const clearMarketErrorBlock = sourceBlock(
     source,
@@ -2375,7 +2338,7 @@ test("Trading Expert switches symbols and periods without exposing stale chart d
   assert.match(viewportResetBlock, /this\.prepareChartViewportReset\(\)/);
   assert.match(viewportResetBlock, /setAutoScale\(true\)/);
   assert.match(viewportResetBlock, /initialMarketLogicalRange\(this\.chartCandles\.length, this\.activeInterval\)/);
-  assert.match(viewportResetBlock, /private applyInitialChartViewport\(\)[\s\S]*?this\.updateVisiblePriceScale\(\)/);
+  assert.match(viewportResetBlock, /private applyInitialChartViewport\(\)[\s\S]*?setAutoScale\(true\)/);
   assert.match(viewportResetBlock, /this\.resettingChartViewport = false;[\s\S]*?this\.queueVisiblePriceScaleUpdate\(\)/);
   assert.match(viewportResetBlock, /this\.clearMarketError\(\);[\s\S]*?this\.updateCountdown\(\)/);
   assert.match(clearMarketErrorBlock, /this\.errorElement\.hidden = true/);

@@ -146,10 +146,10 @@ test("main plot follows its pane height while indicators use their own plot wrap
   const main = h.create("main"), rsi = h.create("indicator:rsi");
   const element = height => ({ clientWidth: 1000, clientHeight: height, getBoundingClientRect: () => ({ height }) });
   main.chartElement = element(600); main.paneIndex = 0;
-  main.getChart = () => ({ priceScale: () => ({ width: () => 60 }), panes: () => [{ getHTMLElement: () => ({ getBoundingClientRect: () => ({ height: paneHeight }) }) }] });
+  main.getChart = () => ({ options: () => ({ height: 600 }), timeScale: () => ({ width: () => 940 }), panes: () => [{ getHeight: () => paneHeight }, { getHeight: () => 180 }] });
   rsi.chartElement = element(180); rsi.getChart = main.getChart; rsi.paneIndex = 1;
   assert.deepEqual(main.plotBounds(), { width: 940, height: 360 });
-  assert.deepEqual(rsi.plotBounds(), { width: 1000, height: 180 });
+  assert.deepEqual(rsi.plotBounds(), { width: 940, height: 180 });
   paneHeight = 240;
   assert.equal(main.plotBounds().height, 240);
   main.getChart = () => null;

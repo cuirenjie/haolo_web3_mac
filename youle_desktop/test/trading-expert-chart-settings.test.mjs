@@ -51,6 +51,7 @@ function memoryStorage(initial = {}) {
 
 test("chart settings normalize corrupt values and preserve independent light/dark palettes", () => {
   const settings = normalizeTradingChartSettings({
+    version: 5,
     chartStyle: "bars",
     verticalPaddingPercent: 99,
     risingColor: "bad",
@@ -87,6 +88,23 @@ test("chart settings normalize corrupt values and preserve independent light/dar
     DEFAULT_TRADING_CHART_SETTINGS.themes.dark.verticalGridColor,
   );
   assert.notEqual(settings.themes.light, settings.themes.dark);
+});
+
+test("relocated price controls default off, migrate old toolbar state, and persist new explicit choices", () => {
+  for (const settings of [cloneTradingChartSettings(), normalizeTradingChartSettings({ version: 4, priceScaleMode: 'logarithmic' })]) {
+    assert.equal(settings.autoScale, false); assert.equal(settings.priceScaleMode, 'linear');
+    for (const theme of ['light', 'dark']) {
+      const html = renderTradingChartSettingsDialog(settings, theme);
+      for (const key of ['autoScale', 'logarithmicScale', 'percentageScale']) {
+        assert.match(html, new RegExp(`type="checkbox" data-chart-setting="${key}"`));
+        assert.doesNotMatch(html, new RegExp(`data-chart-setting="${key}"[^>]*checked`));
+      }
+    }
+  }
+  const settings = cloneTradingChartSettings(); settings.autoScale = true; settings.priceScaleMode = 'logarithmic';
+  const storage = memoryStorage(); saveTradingChartSettings(storage, settings);
+  const restored = loadTradingChartSettings(storage);
+  assert.equal(restored.autoScale, true); assert.equal(restored.priceScaleMode, 'logarithmic');
 });
 
 test("HLC is the default and migrates legacy candlestick while current choices remain authoritative", async () => {
@@ -137,26 +155,22 @@ test("light chart canvas defaults to white and migrates the former gray default"
     [TRADING_CHART_SETTINGS_STORAGE_KEY]: JSON.stringify(legacy),
   });
   const migrated = loadTradingChartSettings(storage);
-  assert.equal(migrated.version, 3);
+  assert.equal(migrated.version, 5);
   assert.equal(migrated.themes.light.backgroundColor, "#ffffff");
   assert.equal(migrated.themes.dark.backgroundColor, "#0B0C0F");
 });
 
-test("nonlinear price scales use native autoscaling while linear mode keeps its fixed range", async () => {
-  assert.equal(tradingPriceScaleUsesAutoScale("linear"), false);
-  assert.equal(tradingPriceScaleUsesAutoScale("logarithmic"), true);
-  assert.equal(tradingPriceScaleUsesAutoScale("percentage"), true);
-
+test("all coordinate modes start with native auto-fit and retain manual ranges during theme changes", async () => {
   const market = await marketSource;
   const splitPane = await splitPaneSource;
-  assert.match(market, /autoScale: tradingPriceScaleUsesAutoScale\(this\.chartSettings\.priceScaleMode\)/);
-  assert.match(
-    market,
-    /if \(tradingPriceScaleUsesAutoScale\(this\.chartSettings\.priceScaleMode\)\) \{[\s\S]*?this\.lockedPriceRange = null;[\s\S]*?setAutoScale\(true\);[\s\S]*?return;/,
-  );
-  assert.match(market, /private applyInitialChartViewport\(\)[\s\S]*?this\.updateVisiblePriceScale\(\)/);
-  assert.match(splitPane, /rightPriceScale: \{[\s\S]*?mode: priceScaleMode\(this\.settings\),[\s\S]*?autoScale: true/);
-  assert.match(splitPane, /rightPriceScale: \{[\s\S]*?mode: priceScaleMode\(settings\),[\s\S]*?autoScale: true/);
+  assert.match(market, /rightPriceScale: \{[\s\S]*?autoScale: true/);
+  for (const source of [market, splitPane]) {
+    assert.match(source, /captureManualTradingPriceRanges\(this\.chart\)/);
+    assert.match(source, /restoreManualTradingPriceRanges\(manualRanges\)/);
+    assert.match(source, /TRADING_CHART_NAVIGATION_OPTIONS/);
+  }
+  assert.match(market, /private applyInitialChartViewport\(\)[\s\S]*?setAutoScale\(true\)/);
+  assert.match(splitPane, /scaleModeChanged \? \{ mode: priceScaleMode\(settings\), autoScale: true \}/);
 });
 
 test("chart settings and selected split layout survive storage round trips", () => {
@@ -373,8 +387,8 @@ test("settings and split actions are direct buttons wired to persisted settings 
   assert.doesNotMatch(market, /setOrderLines\(this\.orderLines\)/);
   assert.match(market, /saveTradingSplitLayoutId\(window\.localStorage/);
   assert.match(market, /rebuildPrimarySeries\(\)/);
-  assert.match(market, /cursorAnchoredByDefault = this\.chartSettings\.scaleAnchor === "cursor"/);
-  assert.match(market, /rightBarStaysOnScroll: event\.ctrlKey \? !cursorAnchoredByDefault : cursorAnchoredByDefault/);
+  assert.match(market, /getScaleAnchor: \(\) => this\.chartSettings\.scaleAnchor/);
+  assert.doesNotMatch(market, /cursorAnchoredByDefault/);
   assert.match(market, /new TradingExpertSplitPane/);
   assert.match(market, /fetchTradingCandles/);
   assert.match(market, /getFinnhubMarketCandles/);
@@ -386,7 +400,7 @@ test("settings and split actions are direct buttons wired to persisted settings 
   assert.match(splitPane, /this\.loadCandles\(targetMarket, targetInterval\)/);
   assert.match(splitPane, /window\.setTimeout\(\(\) => void this\.reload\(false\), SPLIT_PANE_REFRESH_INTERVAL_MS\)/);
   assert.match(splitPane, /this\.settings = cloneTradingChartSettings\(settings\)/);
-  assert.match(splitPane, /cursorAnchoredByDefault = this\.settings\.scaleAnchor === "cursor"/);
+  assert.match(splitPane, /getScaleAnchor: \(\) => this\.settings\.scaleAnchor/);
   assert.match(drawing, /setUserDrawingEnabled\(enabled: boolean\)/);
 });
 
@@ -657,7 +671,16 @@ test("split panes keep global titlebar favorite quotes while symbol and period s
   assert.match(market, /const savedSelection = this\.splitPaneSelections\.get\(index\)/);
   assert.match(market, /onSelectionChange: \(selection\) => \{[\s\S]*?this\.splitPaneSelections\.set\(index, selection\)/);
   assert.match(market, /onOpenGlobalSettings: \(anchor\) => \{[\s\S]*?this\.setChartSettingsOpen\(true, anchor\)/);
-  assert.match(market, /this\.splitPanes\.forEach\(\(pane\) => pane\.updateSettings\(this\.chartSettings, themeName\)\)/);
+  assert.match(market, /this\.splitPanes\.forEach\(\(pane\) => pane\.updateSettings\(this\.chartSettings, themeName, syncSplitPriceMode\)\)/);
   assert.match(splitPane, /this\.onSelectionChange\?\.\(\{[\s\S]*?marketId: this\.market\.id,[\s\S]*?interval: this\.interval,[\s\S]*?market: \{ \.\.\.this\.market \}/);
   assert.match(splitPane, /this\.settings = cloneTradingChartSettings\(settings\)/);
+});
+
+
+test("TradingView navigation migrates legacy anchors and retains new explicit preferences", () => {
+  assert.equal(DEFAULT_TRADING_CHART_SETTINGS.scaleAnchor, "right");
+  assert.equal(normalizeTradingChartSettings({ version: 3, scaleAnchor: "cursor", chartStyle: "bars" }).scaleAnchor, "right");
+  assert.equal(normalizeTradingChartSettings({ version: 4, scaleAnchor: "cursor" }).scaleAnchor, "cursor");
+  assert.equal(normalizeTradingChartSettings({ version: 4, scaleAnchor: "right" }).scaleAnchor, "right");
+  assert.equal(normalizeTradingChartSettings({ version: 3, chartStyle: "candlestick" }).chartStyle, "candlestick");
 });
