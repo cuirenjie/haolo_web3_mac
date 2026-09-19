@@ -2,20 +2,18 @@ import os from "node:os";
 import { withAbort } from "./system-proxy-fetch.mjs";
 
 export const NETWORK_POLICY_PATH = "/.well-known/haolo-network";
-export const NETWORK_POLICY_VERSION = "20260916.2";
+export const NETWORK_POLICY_VERSION = "20260919.1";
 export const MODEL_ACCELERATION_CAPABILITY = "model-hk-bgp-20260916";
-// Hong Kong ordinary BGP trial (2026-09-16); retain the logical TLS/Host identity.
-const singapore = Object.freeze({ ordinary: "8.219.93.44", accelerated: Object.freeze(["47.76.124.53", "47.238.144.244"]) });
-const singaporeOrdinary = Object.freeze({ ordinary: singapore.ordinary, accelerated: Object.freeze([]) });
-const tokyo = Object.freeze({ ordinary: "8.216.43.79", accelerated: singapore.accelerated });
-// Market and model transports can use ordinary Hong Kong BGP on mainland DIRECT.
-// Account/invite traffic keeps its ordinary origin; browsers follow public DNS.
+// Hong Kong edge trial uses ordinary public Internet for every edge service.
+// Keep the Tokyo model gateway's existing mainland DIRECT GA policy separate.
+const hongKongEdge = Object.freeze({ ordinary: "8.217.125.71", accelerated: Object.freeze([]) });
+const tokyo = Object.freeze({ ordinary: "8.216.43.79", accelerated: Object.freeze(["47.76.124.53", "47.238.144.244"]) });
 export const HAOLO_NETWORK_ROUTES = Object.freeze({
-  "haolo.com": singaporeOrdinary,
-  "www.haolo.com": singaporeOrdinary,
-  "invite.haolo.com": singaporeOrdinary,
-  "market.youle.pro": singapore,
-  "sg-a.binance-egress.waduo.com": singapore,
+  "haolo.com": hongKongEdge,
+  "www.haolo.com": hongKongEdge,
+  "invite.haolo.com": hongKongEdge,
+  "market.youle.pro": hongKongEdge,
+  "sg-a.binance-egress.waduo.com": hongKongEdge,
   "haolo.pro": tokyo,
 });
 

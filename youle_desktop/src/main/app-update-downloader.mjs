@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable, Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { fetchBlockMap, rememberDifferentialBase, tryDifferentialDownload } from "./app-update-differential.mjs";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_CONNECT_TIMEOUT_MS = 120_000;
@@ -20,8 +21,31 @@ export async function downloadFileFromMirrors(options = {}) {
   let lastError = null;
   for (let index = 0; index < urls.length; index += 1) {
     const url = urls[index];
+    let blockMap = null;
+    let blockMapRequest = null;
     try {
+      if (options.differential === true && /\.exe$/i.test(new URL(url).pathname) && normalizedSha256(options.expectedSha256)) {
+        // Optional metadata never weakens the final checksum or full-download
+        // fallback. Do not discard an existing resumable full download.
+        try {
+          blockMapRequest = fetchBlockMap(url, options.fetchImpl, options.headers).catch(() => null);
+          // Seed metadata in parallel with a first/full download. A missing
+          // blockmap must not add its timeout before a cold-start download.
+          const hasBase = await fileSize(path.join(path.dirname(options.destinationPath), "differential-base.json"));
+          if (hasBase && !await fileSize(options.partialPath || `${options.destinationPath}.part`)) {
+            blockMap = await blockMapRequest;
+            if (!blockMap) throw new Error("optional blockmap unavailable");
+            const delta = await tryDifferentialDownload({ ...downloadOptions, url }, blockMap);
+            if (delta) {
+              await rememberDifferentialBase(delta, blockMap).catch(() => {});
+              return { ...delta, url };
+            }
+          }
+        } catch { /* Full download remains authoritative. */ }
+      }
       const result = await downloadFileWithResume({ ...downloadOptions, url });
+      if (blockMap) await rememberDifferentialBase(result, blockMap).catch(() => {});
+      else if (blockMapRequest) void blockMapRequest.then((body) => rememberDifferentialBase(result, body)).catch(() => {});
       return { ...result, url };
     } catch (error) {
       lastError = error;

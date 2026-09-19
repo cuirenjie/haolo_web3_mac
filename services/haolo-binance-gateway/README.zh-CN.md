@@ -1,5 +1,7 @@
 # Haolo Binance Gateway
 
+当前生产主机为香港 `8.217.125.71`。部署、权限、Redis 主库及旧机缓冲说明见 [香港生产流程](docs/hong-kong-production.zh-CN.md)；不要将旧新加坡记录或 market-only 候选模板当作现行部署清单。
+
 本服务同时提供两个严格分层的入口：
 
 - `8787`：公共行情 REST/WebSocket 网关。公共数据可集中缓存、合并请求和共享上游订阅。

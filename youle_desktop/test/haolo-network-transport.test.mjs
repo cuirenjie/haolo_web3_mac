@@ -76,7 +76,7 @@ async function waitUntil(predicate, message) {
   }
 }
 
-test("live market hub follows proxy, interface and egress changes with fresh tickets and shared subscriptions", { timeout: 5_000 }, async (t) => {
+test("live market hub follows proxy and interface changes without reconnecting for egress alone with fresh tickets and shared subscriptions", { timeout: 5_000 }, async (t) => {
   let network = "wifi-a";
   let egress = "CN", now = 0;
   const f = await fixture(t, { egressRegion: () => egress,
@@ -100,39 +100,36 @@ test("live market hub follows proxy, interface and egress changes with fresh tic
   t.after(() => hub.close());
   const first = hub.subscribe({ marketType: "futures", streams: ["btcusdt@ticker", "ethusdt@ticker"] }, (event) => frames.push(event), (event) => health.push(event));
   const second = hub.subscribe({ marketType: "futures", streams: ["btcusdt@ticker"] }, (event) => sharedFrames.push(event));
-  await waitUntil(() => frames.length === 1, "initial GA feed");
-  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
-  f.setProxy("PROXY");
-  await waitUntil(() => frames.length === 2, "proxy feed after closing GA");
+  await waitUntil(() => frames.length === 1, "initial HK direct feed");
   assert.equal(f.connections.at(-1).route, "ordinary");
-  assert.equal(f.proxyConnects.at(-1).target, `8.219.93.44:${f.port}`);
+  f.setProxy("PROXY");
+  await waitUntil(() => frames.length === 2, "proxy feed after closing direct transport");
+  assert.equal(f.connections.at(-1).route, "ordinary");
+  assert.equal(f.proxyConnects.at(-1).target, `8.217.125.71:${f.port}`);
   f.setProxy("DIRECT");
-  await waitUntil(() => frames.length === 3, "GA feed after disabling proxy");
-  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
+  await waitUntil(() => frames.length === 3, "direct feed after disabling proxy");
+  assert.equal(f.connections.at(-1).route, "ordinary");
   network = "wifi-b";
   await waitUntil(() => frames.length === 4, "fresh socket after interface change");
-  // TUN routing can change the observed exit without changing interface addresses.
+  // Egress classification alone cannot move market traffic back to GA.
   egress = "OTHER"; now += 31_000;
-  await waitUntil(() => frames.length === 5, "ordinary route after overseas egress is re-probed");
-  assert.equal(f.connections.at(-1).route, "ordinary");
-  assert.equal(f.connections.at(-1).proxyUrl, null);
-  assert.deepEqual(f.connections.at(-1).addresses, ["8.219.93.44"]);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(frames.length, 4);
   egress = "CN"; now += 31_000;
-  await waitUntil(() => frames.length === 6, "GA after mainland egress returns");
-  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
+  assert.deepEqual(f.connections.at(-1).addresses, ["8.217.125.71"]);
   await new Promise((resolve) => setTimeout(resolve, 140));
-  assert.deepEqual(handshakes, [1, 2, 3, 4, 5, 6].map((id) => `/stream/futures?ticket=${id}`));
-  assert.equal(sharedFrames.length, 6);
-  assert.deepEqual(subscriptions, [1, 2, 3, 4, 5, 6].map((connection) => ({ connection, streams: ["btcusdt@ticker", "ethusdt@ticker"] })));
+  assert.deepEqual(handshakes, [1, 2, 3, 4].map((id) => `/stream/futures?ticket=${id}`));
+  assert.equal(sharedFrames.length, 4);
+  assert.deepEqual(subscriptions, [1, 2, 3, 4].map((connection) => ({ connection, streams: ["btcusdt@ticker", "ethusdt@ticker"] })));
   assert.equal(outcomes.filter((event) => event.outcome === "failed").length, 0);
-  assert.equal(health.filter((event) => event.reason === "network_route_changed").length, 5);
+  assert.equal(health.filter((event) => event.reason === "network_route_changed").length, 3);
   await first.dispose(); await second.dispose();
   f.setProxy("PROXY");
   await new Promise((resolve) => setTimeout(resolve, 80));
-  assert.equal(handshakes.length, 6, "disposal must not resurrect a market connection");
+  assert.equal(handshakes.length, 4, "disposal must not resurrect a market connection");
 });
 
-test("an unresolved proxy closes the old GA stream instead of retaining direct traffic", { timeout: 5_000 }, async (t) => {
+test("an unresolved proxy closes the old direct stream instead of retaining direct traffic", { timeout: 5_000 }, async (t) => {
   let fail = false;
   const f = await fixture(t, { transportOptions: { marketRoutePollMs: 20 }, proxyResolver: (_url, proxy) => {
     if (fail) throw new Error("proxy resolution unavailable");
@@ -236,19 +233,35 @@ test("real TLS preserves Host/SNI and streams mainland DIRECT models over GA bef
   assert.equal(f.requests.filter((r) => r.url === "/v1/responses").length, 1);
 });
 
-test("DIRECT mainland market REST and WebSocket still use GA", async (t) => {
+test("DIRECT mainland market REST and WebSocket use HK public Internet without a region probe", async (t) => {
   const f = await fixture(t);
   const response = await f.transport.fetch("https://market.youle.pro/api/v3/time");
   assert.equal(response.status, 200); await response.json();
-  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
-  assert.deepEqual(f.connections.at(-1).addresses, ["47.76.124.53", "47.238.144.244"]);
+  assert.equal(f.connections.at(-1).route, "ordinary");
+  assert.deepEqual(f.connections.at(-1).addresses, ["8.217.125.71"]);
   const wss = new WebSocketServer({ server: f.server }); t.after(() => wss.close());
   wss.on("connection", (socket) => socket.send('{"stream":"btcusdt@ticker"}'));
   const Routed = f.transport.webSocketClass(WebSocket);
   const socket = new Routed("wss://market.youle.pro/stream"); t.after(() => socket.terminate());
   const [frame] = await once(socket, "message");
   assert.equal(JSON.parse(String(frame)).stream, "btcusdt@ticker");
-  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
+  assert.equal(f.connections.at(-1).route, "ordinary");
+  socket.close(); await once(socket, "close");
+});
+
+test("market transport negotiates server-controlled compression and preserves text frames", async (t) => {
+  const f = await fixture(t);
+  const wss = new WebSocketServer({ server: f.server, perMessageDeflate: { serverNoContextTakeover: true } });
+  t.after(() => wss.close());
+  const payload = JSON.stringify({ stream: "btcusdt@ticker", data: { c: "1", padding: "x".repeat(2048) } });
+  wss.on("connection", (socket) => socket.send(payload));
+  const Routed = f.transport.webSocketClass(WebSocket);
+  const socket = new Routed("wss://market.youle.pro/stream", { perMessageDeflate: false });
+  t.after(() => socket.terminate());
+  const [frame, binary] = await once(socket, "message");
+  assert.equal(socket.extensions, "permessage-deflate");
+  assert.equal(binary, false);
+  assert.equal(String(frame), payload);
   socket.close(); await once(socket, "close");
 });
 
@@ -257,7 +270,7 @@ test("HTTP proxy CONNECT targets ordinary IP and never receives the origin Autho
   const response = await f.transport.fetch("https://haolo.com/api/profile/me", { headers: { authorization: "Bearer test-only" } });
   assert.deepEqual(await response.json(), { ok: true });
   assert.equal(f.connections[0].route, "ordinary");
-  assert.equal(f.proxyConnects[0].target, `8.219.93.44:${f.port}`);
+  assert.equal(f.proxyConnects[0].target, `8.217.125.71:${f.port}`);
   assert.equal(f.proxyConnects[0].headers.authorization, undefined);
   assert.equal(f.requests[0].headers.authorization, "Bearer test-only");
   assert.equal(f.requests.length, 1, "a configured proxy must not trigger a direct geolocation probe");
@@ -283,7 +296,7 @@ test("market WebSocket uses the same proxy/ordinary route and receives an actual
   const [message] = await once(socket, "message");
   assert.equal(JSON.parse(message.toString()).stream, "btcusdt@ticker");
   assert.equal(f.connections.at(-1).route, "ordinary");
-  assert.equal(f.proxyConnects.at(-1).target, `8.219.93.44:${f.port}`);
+  assert.equal(f.proxyConnects.at(-1).target, `8.217.125.71:${f.port}`);
   socket.close(); await once(socket, "close");
 });
 

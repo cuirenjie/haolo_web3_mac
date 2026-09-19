@@ -33,7 +33,7 @@ const init = (extra = {}) => ({ signal: AbortSignal.timeout(20_000), ...extra })
 async function main() {
   await app.whenReady();
   if (!process.argv.includes("--live")) throw new Error("Pass --live to run production read-only probes");
-  const ordinary = new Set(["8.219.93.44:443", "8.216.43.79:443"]);
+  const ordinary = new Set(["8.217.125.71:443", "8.216.43.79:443"]);
   const proxy = http.createServer(); servers.push(proxy);
   proxy.on("connection", (socket) => { sockets.add(socket); socket.once("close", () => sockets.delete(socket)); });
   proxy.on("connect", (request, socket, head) => {

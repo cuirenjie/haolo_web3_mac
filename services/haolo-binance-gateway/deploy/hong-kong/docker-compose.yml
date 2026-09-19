@@ -1,0 +1,39 @@
+# Candidate only. TLS/GA/DNS and route cutover are separate operations.
+services:
+  market:
+    image: ${HAOLO_MARKET_IMAGE:?set an immutable verified image tag}
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      HAOLO_GATEWAY_ROLE: market
+      HAOLO_MARKET_REDIS_URL: redis://redis:6379/0
+      HAOLO_GATEWAY_ALLOW_ANONYMOUS_PUBLIC: "false"
+      HAOLO_MARKET_GATEWAY_PORT: "8787"
+    ports: ["127.0.0.1:8787:8787"]
+    cpus: 3
+    mem_limit: 8g
+    restart: unless-stopped
+    stop_grace_period: 2m
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "3"}
+    depends_on:
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+  redis:
+    image: redis:7.4-alpine
+    # Security tickets/budgets must never be silently evicted. Public cache
+    # remains bounded and already degrades to misses on Redis cache failures.
+    command: ["redis-server", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction", "--appendonly", "no", "--save", ""]
+    mem_limit: 768m
+    cpus: 0.5
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

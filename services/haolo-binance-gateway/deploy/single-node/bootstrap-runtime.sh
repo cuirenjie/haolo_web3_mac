@@ -6,7 +6,7 @@ readonly GATEWAY_ROOT="${HAOLO_ROOT}/services/haolo-binance-gateway"
 readonly SECRETS_DIR="${HAOLO_ROOT}/secrets"
 readonly RUNTIME_ENV="${SECRETS_DIR}/gateway-runtime.env"
 readonly COMPOSE_FILE="${GATEWAY_ROOT}/deploy/single-node/docker-compose.production.yml"
-readonly PRIVATE_PROXY_ORIGIN="${PRIVATE_PROXY_ORIGIN:-https://8.219.93.44}"
+readonly PRIVATE_PROXY_ORIGIN="${PRIVATE_PROXY_ORIGIN:-https://sg-a.binance-egress.waduo.com}"
 readonly ACTIVE_GATEWAY_STATE="/var/lib/haolo/gateway-active.env"
 
 if [[ "${EUID}" -ne 0 ]]; then
