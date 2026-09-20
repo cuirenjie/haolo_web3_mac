@@ -7330,12 +7330,28 @@ html[data-theme="dark"] .auto-task-thread-avatar img {
 }
 
 .conversation-list-footer {
+  --recharge-entry-bg: linear-gradient(115deg, #fff1d0, #ffe1a4);
+  --recharge-entry-hover: linear-gradient(115deg, #ffebbc, #ffd78a);
+  --recharge-entry-active: #f9d18c;
+  --recharge-entry-border: #e7c27d;
+  --recharge-entry-text: #744509;
+  --recharge-entry-shadow: 0 2px 5px rgba(125, 81, 14, 0.08);
   display: flex;
-  min-height: 50px;
+  min-height: 54px;
   flex: 0 0 auto;
   align-items: center;
-  padding: 7px 12px 9px;
+  gap: 10px;
+  padding: 9px 12px 11px;
   background: transparent;
+}
+
+html[data-theme="dark"] .conversation-list-footer {
+  --recharge-entry-bg: linear-gradient(115deg, #382c1c, #503a1e);
+  --recharge-entry-hover: linear-gradient(115deg, #4a3720, #634722);
+  --recharge-entry-active: #6b4c23;
+  --recharge-entry-border: #806132;
+  --recharge-entry-text: #ffe0a3;
+  --recharge-entry-shadow: 0 2px 5px rgba(0, 0, 0, 0.16);
 }
 
 .conversation-list-settings-button {
@@ -7376,6 +7392,64 @@ html[data-theme="dark"] .auto-task-thread-avatar img {
   color: var(--text-muted);
   cursor: not-allowed;
   opacity: 0.58;
+}
+
+.conversation-list-recharge-button {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 34px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--recharge-entry-border);
+  border-radius: 9px;
+  background: var(--recharge-entry-bg);
+  padding: 6px 8px;
+  color: var(--recharge-entry-text);
+  box-shadow: var(--recharge-entry-shadow);
+  font-size: calc(13px + var(--app-font-size-offset));
+  font-weight: 600;
+  line-height: 1.35;
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.conversation-list-recharge-button svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.conversation-list-recharge-button:hover:not(:disabled) {
+  background: var(--recharge-entry-hover);
+}
+
+.conversation-list-recharge-button.active,
+.conversation-list-recharge-button:active:not(:disabled) {
+  background: var(--recharge-entry-active);
+  box-shadow: none;
+}
+
+.conversation-list-recharge-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.conversation-list-recharge-button:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 2px;
+}
+
+.conversation-list-recharge-button:disabled {
+  border-color: var(--border-control);
+  background: var(--surface-disabled);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
 }
 
 .update-download-dock {
@@ -20417,10 +20491,42 @@ html[data-theme="dark"] .consumption-loading { color: #a8c7ee; }
 }
 
 .recharge-page-scroll {
+  min-width: 0;
   min-height: 0;
   flex: 1;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   padding: 12px clamp(22px, 3.4vw, 48px) 47px;
+  scrollbar-gutter: stable;
+  /* Use Chromium's custom scrollbar so the thumb stays slim and visible. */
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+
+.recharge-page-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.recharge-page-scroll::-webkit-scrollbar-thumb,
+.recharge-page-scroll:hover::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 1px solid transparent;
+  background-color: var(--text-muted);
+}
+
+.recharge-page-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-secondary);
+}
+
+.recharge-page-scroll::-webkit-scrollbar-thumb:active {
+  background-color: var(--brand-blue);
+}
+
+.recharge-page-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .recharge-subscription-content {

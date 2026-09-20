@@ -611,6 +611,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "上一页": "Previous page",
   "下一页": "Next page",
   "充值": "Top up",
+  "会员充值": "Membership",
   "充值记录": "Payment history",
   "支付方式": "Payment methods",
   "支付步骤": "payment steps",

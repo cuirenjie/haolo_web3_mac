@@ -402,6 +402,70 @@ test("the bottom-left settings icon blends into its sidebar and covers themed in
   assert.match(styles, /\.conversation-list-settings-button:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
 });
 
+test("sidebar membership and settings render as independent buttons with independent active states", async () => {
+  const source = await rendererSource;
+  const footerSource = sourceBlock(source, "function renderConversationListFooter", "function renderChatList");
+  for (const activeView of ["chat", "recharge"]) {
+    for (const settingsOpen of [false, true]) {
+      const markup = runInNewContext(`${footerSource}\nrenderConversationListFooter()`, {
+        state: { activeView, settingsOpen },
+        renderConversationListIcon: () => '<svg aria-hidden="true"></svg>',
+      });
+      const buttons = [...markup.matchAll(/<button\b[^]*?<\/button>/g)].map(([button]) => button);
+      assert.equal(buttons.length, 2);
+      const [settings, recharge] = buttons;
+      assert.equal((markup.match(/<button\b/g) || []).length, 2, "buttons cannot nest");
+      assert.doesNotMatch(markup.match(/<footer[^>]*>/)[0], /data-action|role="button"/);
+      assert.match(settings, /data-action="open-settings"/);
+      assert.match(settings, new RegExp(`aria-expanded="${settingsOpen}"`));
+      assert.doesNotMatch(settings, /profile-quota|会员充值|aria-current/);
+      assert.match(recharge, /data-action="profile-quota"/);
+      assert.match(recharge, /<span>会员充值<\/span>/);
+      assert.doesNotMatch(recharge, /open-settings|aria-haspopup|aria-expanded/);
+      assert.equal(recharge.includes('aria-current="page"'), activeView === "recharge");
+    }
+  }
+});
+
+test("the sidebar reuses recharge navigation and preserves the current chat without opening settings", async () => {
+  const source = await rendererSource;
+  const openPage = sourceBlock(source, "function openRechargePage", "function renderSettingsDialog");
+  const state = { activeView: "chat", profileMenuOpen: true, settingsOpen: false, error: "old error" };
+  const calls = [];
+  runInNewContext(`${openPage}\nopenRechargePage()`, {
+    state,
+    rememberCurrentChatThreadSelection: () => calls.push("remember-chat"),
+    render: () => calls.push("render"),
+    refreshProfileFromApi: () => calls.push("refresh-profile"),
+  });
+  assert.equal(state.activeView, "recharge");
+  assert.equal(state.settingsOpen, false);
+  assert.equal(state.profileMenuOpen, false);
+  assert.equal(state.error, null);
+  assert.deepEqual(calls, ["remember-chat", "render", "refresh-profile"]);
+  assert.match(source, /querySelectorAll<HTMLElement>\('\[data-action="profile-quota"\]'\)[^]*?openRechargePage\(\)/);
+});
+
+test("membership entry separates hit areas and supplies all theme and interaction colors", async () => {
+  const styles = await stylesSource;
+  const footer = sourceBlock(styles, ".conversation-list-footer {", ".conversation-list-settings-button {");
+  const [light, dark] = footer.split('html[data-theme="dark"]');
+  for (const token of ["bg", "hover", "active", "border", "text", "shadow"]) {
+    for (const theme of [light, dark]) assert.match(theme, new RegExp(`--recharge-entry-${token}:`));
+  }
+  assert.match(light, /gap:\s*10px/);
+  const button = sourceBlock(styles, ".conversation-list-recharge-button {", ".update-download-dock {");
+  assert.match(button, /background: var\(--recharge-entry-bg\)/);
+  assert.match(button, /color: var\(--recharge-entry-text\)/);
+  assert.match(button, /:hover:not\(:disabled\)[^}]*var\(--recharge-entry-hover\)/);
+  assert.match(button, /\.active,[^}]*:active:not\(:disabled\)[^}]*var\(--recharge-entry-active\)/);
+  assert.match(button, /:focus-visible[^}]*outline: 2px solid var\(--brand-blue\)/);
+  assert.match(button, /:disabled[^}]*var\(--surface-disabled\)[^}]*var\(--text-muted\)/);
+  assert.doesNotMatch(button, /#[\da-f]{3,8}\b|rgba?\(/i);
+  assert.equal(translateAppText("会员充值", "en"), "Membership");
+  assert.equal(translateAppText("会员充值", "zh-TW"), "會員充值");
+});
+
 test("the titlebar more menu nests channel connections and preserves the automatic-task dialog", async () => {
   const source = await rendererSource;
   const styles = await stylesSource;

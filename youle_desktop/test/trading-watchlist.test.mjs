@@ -302,6 +302,102 @@ test("unavailable or malformed storage remains usable without importing another 
   assert.equal(unavailable.has(record("BTC").id), true);
 });
 
+test("opening trading history collapses before same-thread, pending and cached selection shortcuts", async () => {
+  const source = await readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
+  const start = source.indexOf("async function selectThread(");
+  const end = source.indexOf("  rememberActiveComposerDraft();", start);
+  assert.ok(start >= 0 && end > start);
+  // Exercise the real selection preflight, including reselecting an open task,
+  // without resuming a model or hydrating the rest of its history.
+  const compiled = ts.transpileModule(source.slice(start, end) + "\n}", {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  for (const scenario of [
+    { name: "different history", expected: 1 },
+    { name: "same history", currentThreadId: "history", expected: 1 },
+    { name: "history loading", currentThreadId: "history", pending: true, expected: 1 },
+    { name: "return from account", currentThreadId: "history", activeView: "account", expected: 1 },
+    { name: "blank task", blank: true, expected: 0 },
+    { name: "ordinary conversation", trading: false, expected: 0 },
+    { name: "server not ready", ready: false, expected: 0 },
+  ]) {
+    const collapsedAccounts = [];
+    const context = {
+      state: {
+        serverReady: scenario.ready !== false,
+        currentThreadId: scenario.currentThreadId || "previous",
+        activeView: scenario.activeView || "chat",
+      },
+      threadSwitchTransition: scenario.pending ? { threadId: "history" } : null,
+      pendingThreadHistoryJump: null,
+      activeThreadHistoryJumpHighlight: null,
+      backgroundHydrationSession: 1,
+      pendingAssistantPreviewHydrations: new Set(),
+      pendingThreadDetailPrefetches: new Set(),
+      isTradingExpertSurfaceThreadId: () => scenario.trading !== false,
+      isBlankNewThread: () => scenario.blank === true,
+      tradingExpertFavoriteStorageAccountIdentity: () => "account-a",
+      collapseTradingExpertWatchlist: (account) => collapsedAccounts.push(account),
+      clearUnviewedFinalResult: () => false,
+      isLocalCodexThread: () => false,
+      refreshSkillsForThreadIfNeeded: () => {},
+      channelIdFromThreadId: () => null,
+    };
+    const select = new Function(...Object.keys(context), `${compiled}\nreturn selectThread;`)(...Object.values(context));
+    await select("history");
+    await select("history");
+    assert.deepEqual(collapsedAccounts, Array(scenario.expected * 2).fill("account-a"), scenario.name);
+  }
+});
+
+test("history collapse updates a live workspace or restores a collapsed list for the selected account", async () => {
+  const source = await readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
+  const start = source.indexOf("export function collapseTradingExpertWatchlist(");
+  const end = source.indexOf("export function syncTradingExpertOrderLineSnapshot(", start);
+  assert.ok(start >= 0 && end > start);
+  const compiled = ts.transpileModule(source.slice(start, end).replace("export function", "function"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  for (const activeAccount of [null, "account-a", "account-b"]) {
+    const storage = memoryStorage();
+    const store = new TradingWatchlistStore(storage, "account-a", normalize);
+    store.addGroup("观察组");
+    store.addMarkets([record("ETH"), record("BTC")]);
+    store.save();
+    const initial = storage.getItem(tradingWatchlistStorageKey("account-a"));
+    let liveCollapses = 0;
+    const context = {
+      activeWorkspace: activeAccount && {
+        collapseWatchlist() {
+          liveCollapses++;
+          store.expanded = false;
+          store.save();
+        },
+      },
+      activeWorkspaceFavoriteStorageAccountIdentity: activeAccount || "",
+      TradingWatchlistStore,
+      window: { localStorage: storage },
+      normalizeTradingFavoriteMarketRecords: normalize,
+    };
+    const collapse = new Function(...Object.keys(context), `${compiled}\nreturn collapseTradingExpertWatchlist;`)(...Object.values(context));
+    for (let selection = 0; selection < 2; selection++) {
+      // A manual reopening (including a saved one) must not defeat the next selection.
+      store.expanded = true;
+      store.save();
+      collapse("account-a");
+      const restored = new TradingWatchlistStore(storage, "account-a", normalize);
+      assert.equal(restored.expanded, false);
+      assert.equal(restored.activeGroupId, store.activeGroupId);
+      assert.deepEqual(restored.groups, store.groups);
+    }
+    assert.equal(liveCollapses, activeAccount === "account-a" ? 2 : 0);
+    assert.deepEqual(JSON.parse(storage.getItem(tradingWatchlistStorageKey("account-a"))), {
+      ...JSON.parse(initial), expanded: false,
+    });
+    assert.equal(storage.getItem(tradingWatchlistStorageKey("account-b")), null);
+  }
+});
+
 test("composer sends collapse only the active trading watchlist after content and send guards pass", async () => {
   const source = await readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
   const start = source.indexOf("async function sendCurrentMessage(");
@@ -390,6 +486,9 @@ test("watchlist surfaces cover both themes and checkbox, hover, focus, selected,
     css,
     /\.trading-watchlist\[hidden\][^{]*\{\s*display: none !important/,
   );
+  assert.match(css, /\.trading-watchlist-toggle,\s*\.trading-watchlist button,[^{]+\{[^}]*color: inherit;/s);
+  assert.match(css, /\.trading-watchlist-toggle:hover,[^{]+\{[^}]*background: var\(--surface-hover-translucent\);/s);
+  assert.match(css, /\.trading-watchlist-toggle:focus-visible,[^{]+\{[^}]*outline: 2px solid var\(--watchlist-accent\);/s);
   assert.match(
     css,
     /\.trading-watchlist-dialog[^}]+background: var\(--surface-primary\)/s,

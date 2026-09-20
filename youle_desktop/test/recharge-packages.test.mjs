@@ -130,7 +130,8 @@ test("recharge page shows monthly and annual subscriptions, points packs, and cr
   assert.match(page, /\$\{visibleProducts\.map\(renderRechargeProductCard\)\.join\(""\)\}/);
   assert.match(page, /class="recharge-subscription-content"/);
   assert.match(page, /class="recharge-history-action"[\s\S]*?class="recharge-support-button" data-action="open-website-support"[\s\S]*?<span>联系客服<\/span>[\s\S]*?class="recharge-history-button"/);
-  assert.match(pageScrollStyles, /overflow: hidden/);
+  assert.match(pageScrollStyles, /overflow-x: hidden/);
+  assert.match(pageScrollStyles, /overflow-y: auto/);
   assert.match(pageScrollStyles, /padding: 12px clamp\(22px, 3\.4vw, 48px\) 47px/);
   assert.match(page, /<nav class="recharge-cycle-tabs" role="tablist"[\s\S]*?\['monthly','月付'\],\['annual','年付'\],\['points','积分包'\][\s\S]*?data-recharge-cycle="\$\{cycle\}"/);
   assert.match(cycleTabStyles, /width: calc\(65% - 20px\);/);
@@ -143,7 +144,7 @@ test("recharge page shows monthly and annual subscriptions, points packs, and cr
   assert.match(styles, /html\[data-theme="dark"\]\s*\{[\s\S]*?--selection-soft: rgba\(91, 157, 255, 0\.2\)/);
   assert.match(styles, /\.recharge-product-savings\s*\{[\s\S]*?background: linear-gradient\(180deg, #f1fbf4 0%, #ebf8ef 100%\)/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-savings\s*\{[\s\S]*?color: #7fe0a0/);
-  assert.doesNotMatch(styles, /\.recharge-page-scroll\s*\{[^}]*scrollbar-color/);
+  assert.match(pageScrollStyles, /scrollbar-gutter: stable/);
   assert.match(styles, /\.recharge-subscription-content\s*\{\s*transform: translateY\(15px\)/);
   assert.match(page, /class="recharge-payment-shell"[\s\S]*?renderRechargePaymentMethods\(\)[\s\S]*?renderRechargePaymentDetailsShell\(\)/);
   assert.match(page, /class="recharge-payment-methods" role="radiogroup"/);
@@ -310,6 +311,22 @@ test("recharge page shows monthly and annual subscriptions, points packs, and cr
   assert.match(browserMock, /payable_amount: network === "binance_internal" \|\| network === "okx_internal"[\s\S]*?\? product\.internalPrice[\s\S]*?: product\.price/);
   assert.match(browserMock, /binance_internal: "1261385376"/);
   assert.match(browserMock, /okx_internal: "694504753333973132"/);
+});
+
+test("recharge scrollbar stays slim and visible with theme-aware interaction colors", async () => {
+  const styles = await stylesSource;
+  const scroll = sourceBlock(styles, ".recharge-page-scroll {", ".recharge-subscription-content");
+
+  assert.match(scroll, /scrollbar-width: auto/);
+  assert.match(scroll, /scrollbar-color: auto/);
+  assert.match(scroll, /::-webkit-scrollbar\s*\{\s*width: 6px/);
+  assert.match(scroll, /\.recharge-page-scroll:hover::-webkit-scrollbar-thumb\s*\{[^}]*background-color: var\(--text-muted\)/);
+  assert.match(scroll, /::-webkit-scrollbar-thumb:hover\s*\{[^}]*background-color: var\(--text-secondary\)/);
+  assert.match(scroll, /::-webkit-scrollbar-thumb:active\s*\{[^}]*background-color: var\(--brand-blue\)/);
+  for (const token of ["text-muted", "text-secondary", "brand-blue"]) {
+    assert.match(styles, new RegExp(`:root\\s*\\{[^}]*--${token}:`));
+    assert.match(styles, new RegExp(`html\\[data-theme="dark"\\]\\s*\\{[^}]*--${token}:`));
+  }
 });
 
 test("legacy WeChat and Alipay payment flow is absent from every desktop layer", async () => {

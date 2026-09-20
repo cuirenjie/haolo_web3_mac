@@ -14867,8 +14867,22 @@ export function syncTradingExpertMarketWorkspace(
   }
 }
 
-export function collapseTradingExpertWatchlist() {
-  activeWorkspace?.collapseWatchlist();
+export function collapseTradingExpertWatchlist(
+  favoriteStorageAccountIdentity = activeWorkspaceFavoriteStorageAccountIdentity,
+) {
+  if (activeWorkspace && favoriteStorageAccountIdentity === activeWorkspaceFavoriteStorageAccountIdentity) {
+    activeWorkspace.collapseWatchlist();
+    return;
+  }
+  // A cold history selection can precede construction of the chart workspace.
+  // Persist the visibility for that account before its watchlist is restored.
+  const watchlist = new TradingWatchlistStore(
+    window.localStorage,
+    favoriteStorageAccountIdentity,
+    normalizeTradingFavoriteMarketRecords,
+  );
+  watchlist.expanded = false;
+  watchlist.save();
 }
 
 export function syncTradingExpertOrderLineSnapshot(

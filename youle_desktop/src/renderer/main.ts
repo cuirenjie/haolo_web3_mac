@@ -15643,6 +15643,11 @@ async function selectThread(
   if (!state.serverReady) {
     return;
   }
+  // Apply before same-thread and cached-history shortcuts so every history
+  // selection overrides a watchlist the user previously expanded.
+  if (isTradingExpertSurfaceThreadId(threadId) && !isBlankNewThread(threadId)) {
+    collapseTradingExpertWatchlist(tradingExpertFavoriteStorageAccountIdentity());
+  }
   if (state.workflowNodeDialog && state.workflowNodeDialog.threadId !== threadId) {
     state.workflowNodeDialog = null;
   }
@@ -43119,6 +43124,7 @@ function renderConversationListActions() {
 }
 
 function renderConversationListFooter() {
+  const rechargeActive = state.activeView === "recharge";
   return `
     <footer class="conversation-list-footer">
       <button
@@ -43131,6 +43137,19 @@ function renderConversationListFooter() {
         aria-expanded="${state.settingsOpen ? "true" : "false"}"
       >
         ${renderConversationListIcon("settings")}
+      </button>
+      <button
+        type="button"
+        class="conversation-list-recharge-button ${rechargeActive ? "active" : ""}"
+        data-action="profile-quota"
+        title="会员充值"
+        ${rechargeActive ? 'aria-current="page"' : ""}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="m3 6 4.5 4L12 4l4.5 6L21 6l-2 12H5L3 6Z" />
+          <path d="M6 21h12" />
+        </svg>
+        <span>会员充值</span>
       </button>
     </footer>
   `;
