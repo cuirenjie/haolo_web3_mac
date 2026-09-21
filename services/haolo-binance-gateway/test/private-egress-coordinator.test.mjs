@@ -34,6 +34,53 @@ test("rendezvous assignment is stable and independent of shard list order", () =
   assert.equal(first.selectShard(identity.userId).id, second.selectShard(identity.userId).id);
 });
 
+test("single futures cancellations receive permits while other writes stay forbidden", async () => {
+  const coordinator = new PrivateEgressCoordinator({
+    config: baseConfig({ privateEgressShards: [shard("sg-a", "https://sg-a.example")] }),
+    cache: new GatewayCache(),
+  });
+  for (const metadata of [
+    { marketType: "futures", pathname: "/fapi/v1/order", hasSymbol: true, method: "DELETE" },
+    { marketType: "futures", pathname: "/fapi/v1/algoOrder", hasSymbol: false, method: "DELETE" },
+  ]) {
+    const permit = await coordinator.issuePermit(identity, metadata);
+    assert.equal(permit.weight, 1);
+    assert.equal(permit.priority, "core");
+    assert.equal(permit.targetHost, "fapi.binance.com");
+    assert.ok(permit.permitToken);
+    await assert.rejects(() => coordinator.issuePermit({}, metadata), (error) => error.statusCode === 401);
+  }
+  for (const metadata of [
+    { marketType: "futures", pathname: "/fapi/v1/order", hasSymbol: false, method: "DELETE" },
+    { marketType: "spot", pathname: "/api/v3/order", hasSymbol: true, method: "DELETE" },
+    { marketType: "futures", pathname: "/fapi/v1/allOpenOrders", hasSymbol: true, method: "DELETE" },
+    { marketType: "futures", pathname: "/fapi/v1/algoOpenOrders", method: "DELETE" },
+    { marketType: "futures", pathname: "/fapi/v1/order?symbol=BTCUSDT", hasSymbol: true, method: "DELETE" },
+    ...["POST", "PUT", "PATCH"].map((method) => ({ marketType: "futures", pathname: "/fapi/v1/order", hasSymbol: true, method })),
+    { marketType: "futures", pathname: "/fapi/v1/leverage", hasSymbol: true, method: "POST" },
+    { marketType: "futures", pathname: "/fapi/v3/account", method: "DELETE" },
+  ]) {
+    await assert.rejects(() => coordinator.issuePermit(identity, metadata), (error) => error.code === "PRIVATE_ROUTE_FORBIDDEN");
+  }
+  assert.equal(coordinator.metrics.permitsIssued, 2);
+});
+
+test("cancellation permits retain per-user budgets and upstream cooldowns", async () => {
+  const metadata = { marketType: "futures", pathname: "/fapi/v1/order", hasSymbol: true, method: "DELETE" };
+  const coordinator = new PrivateEgressCoordinator({
+    config: baseConfig({
+      privateEgressShards: [shard("sg-a", "https://sg-a.example")],
+      privateUserFuturesWeightPerMinute: 1,
+    }),
+    cache: new GatewayCache(),
+    now: () => Date.UTC(2026, 8, 21),
+  });
+  const permit = await coordinator.issuePermit(identity, metadata);
+  await assert.rejects(() => coordinator.issuePermit(identity, metadata), (error) => error.code === "EGRESS_USER_BUDGET_EXHAUSTED");
+  await coordinator.reportUsage(identity, { permitId: permit.permitId, status: 429, retryAfterMs: 30_000 });
+  await assert.rejects(() => coordinator.issuePermit(identity, metadata), (error) => error.code === "EGRESS_UPSTREAM_COOLDOWN");
+});
+
 test("rendezvous topology changes move only users affected by the added or removed shard", () => {
   const cache = new GatewayCache();
   const a = shard("sg-a", "https://sg-a.example");
