@@ -259,6 +259,19 @@ test("public control plane issues sanitized private egress permits and shares up
   assert.equal(permit.targetHost, "fapi.binance.com");
   assert.equal(permit.weight, 5);
   assert.doesNotMatch(JSON.stringify(permit), /apiKey|signature|timestamp/i);
+  for (const [pathname, hasSymbol] of [["/fapi/v1/order", true], ["/fapi/v1/algoOrder", false]]) {
+    const cancelled = await fetch(`http://127.0.0.1:${port}/api/private/v1/permits`, {
+      method: "POST", headers,
+      body: JSON.stringify({ marketType: "futures", pathname, hasSymbol, method: "DELETE" }),
+    });
+    assert.equal(cancelled.status, 201);
+    assert.equal((await cancelled.json()).weight, 1);
+  }
+  const forbidden = await fetch(`http://127.0.0.1:${port}/api/private/v1/permits`, {
+    method: "POST", headers,
+    body: JSON.stringify({ marketType: "futures", pathname: "/fapi/v1/order", hasSymbol: true, method: "POST" }),
+  });
+  assert.equal(forbidden.status, 403);
   const report = await fetch(`http://127.0.0.1:${port}/api/private/v1/usage`, {
     method: "POST",
     headers,

@@ -34,6 +34,14 @@ export function classifyPrivateRoute(value = {}) {
   const marketType = String(value.marketType || "").trim().toLowerCase();
   const pathname = String(value.pathname || "").trim();
   const hasSymbol = value.hasSymbol === true;
+  const method = String(value.method || "GET").toUpperCase();
+  if (method === "DELETE" && marketType === "futures"
+      && (pathname === "/fapi/v1/algoOrder" || (pathname === "/fapi/v1/order" && hasSymbol))) {
+    return Object.freeze({ marketType, pathname, hasSymbol, method, weight: 1, priority: "core", targetHost: TARGET_HOSTS.futures });
+  }
+  if (method !== "GET") {
+    throw new PrivateEgressError("private Binance method is not allowed", { statusCode: 403, code: "PRIVATE_ROUTE_FORBIDDEN" });
+  }
   if (!["spot", "futures"].includes(marketType) || !pathname.startsWith("/") || pathname.includes("?") || pathname.length > 160) {
     throw new PrivateEgressError("invalid private route metadata", { code: "INVALID_PRIVATE_ROUTE" });
   }
