@@ -2,6 +2,12 @@
 
 2026-09-19 已从旧新加坡边缘迁移到香港 **`ecs-user@8.217.125.71`**（4 核 16 GiB）。本服务同时提供公共 REST/WS 和私有 HTTPS CONNECT，属于 Windows 仓库中的服务器组件；部署它不构建或发布桌面安装包。
 
+## 当前活动版本（2026-09-21）
+
+自动化计划撤单许可已发布并验收：活动实例 `haolo-binance-gateway-jev-cancel-184b0cf63764`，端口 **48787/48788**，源码提交 `184b0cf63764af895668c80f1d4c088b36eda195`。完整镜像、备份、验收和回退证据见 [本次发布记录](automation-cancellation-release-20260921.zh-CN.md)。下面的迁移日及 9 月 20 日记录是历史状态，实时活动指针仍是最终依据。
+
+上一版 `haolo-binance-gateway-cost-74693cbdee12` 保留存量长连接，退出观察服务为 `haolo-market-jev-cancel-184b0cf63764-drain-watch.service`；状态位于 `/opt/haolo/releases/jev-cancel-184b0cf63764/retirement/retirement-status.json`。下次发布前核验自然排空结果，不能强杀或叠加版本。
+
 ## 访问与当前布局
 
 - 本机部署私钥 `C:/Users/Joie/Downloads/haolo-prod-sg-key.pem`，`sudo -n`；使用已保存 SSH 配置、严格主机密钥检查和固定管理代理。完整访问预检位于官网仓库 `deploy/verify_hk_access.py`，统一说明 `C:/Users/Joie/Documents/ChatGPT/haolo_front_web3/docs/hk-production-deployment.md`。
