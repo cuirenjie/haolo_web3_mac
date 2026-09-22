@@ -34,6 +34,51 @@ function sendJson(response, statusCode, body, headers = {}) {
   return Buffer.byteLength(payload);
 }
 
+function etagMatches(header, etag) {
+  if (!header) return false;
+  return String(header)
+    .split(",")
+    .some((candidate) => candidate.trim() === "*" || candidate.trim().replace(/^W\//, "") === etag);
+}
+
+function publicRestPath(requestUrl) {
+  const pathname = new URL(requestUrl, "http://gateway.local").pathname;
+  const versioned = /^\/api\/market\/v1\/binance\/(?:spot|futures)(\/.*)$/.exec(pathname);
+  return versioned ? versioned[1] : pathname;
+}
+
+function publicRestEtagEnabled(requestUrl) {
+  const pathname = publicRestPath(requestUrl);
+  // Order-flow endpoints are intentionally excluded: their responses are
+  // frequently unique and must retain their existing response semantics.
+  return (pathname.startsWith("/api/") || pathname.startsWith("/fapi/") || pathname.startsWith("/futures/"))
+    && !pathname.endsWith("/depth")
+    && !pathname.endsWith("/aggTrades");
+}
+
+function sendPublicRestJson(request, response, statusCode, body, headers = {}) {
+  const payload = JSON.stringify(body);
+  const etag = `"${crypto.createHash("sha256").update(payload).digest("hex")}"`;
+  const responseHeaders = { ...headers, etag };
+  if (etagMatches(request.headers["if-none-match"], etag)) {
+    response.writeHead(304, {
+      ...responseHeaders,
+      "content-length": "0",
+    });
+    response.end();
+    return 0;
+  }
+  response.writeHead(statusCode, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": Buffer.byteLength(payload),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    ...responseHeaders,
+  });
+  response.end(payload);
+  return Buffer.byteLength(payload);
+}
+
 function sendMetrics(response, metrics, streamMetrics, privateEgressMetrics = {}) {
   const values = {
     ...metrics,
@@ -123,6 +168,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     restCacheHits: 0,
     restCacheMisses: 0,
     restCacheStale: 0,
+    restNotModified: 0,
     restPayloadBytes: 0,
     upstreamAdmissions: 0,
     downstreamRateLimited: 0,
@@ -246,7 +292,20 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       if (result.cacheStatus === "HIT") metrics.restCacheHits += 1;
       else if (result.cacheStatus === "STALE") metrics.restCacheStale += 1;
       else metrics.restCacheMisses += 1;
-      metrics.restPayloadBytes += sendJson(response, result.statusCode, result.value, {
+      // Never turn an error representation (429/5xx) into a cacheable 304;
+      // conditional semantics apply only to successful market JSON.
+      const etagEligible = result.statusCode === 200 && publicRestEtagEnabled(request.url);
+      const responseBytes = etagEligible
+        ? sendPublicRestJson(request, response, result.statusCode, result.value, {
+          "cache-control": "private, max-age=0",
+          "x-haolo-cache": result.cacheStatus,
+          ...(upstreamBudget && upstreamBudget.marketType === result.marketType
+            ? { "x-ratelimit-remaining": String(upstreamBudget.remaining) }
+            : {}),
+          "x-haolo-request-limit-remaining": String(burstRate.remaining),
+          ...result.headers,
+        })
+        : sendJson(response, result.statusCode, result.value, {
         "cache-control": "private, max-age=0",
         "x-haolo-cache": result.cacheStatus,
         ...(upstreamBudget && upstreamBudget.marketType === result.marketType
@@ -255,6 +314,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         "x-haolo-request-limit-remaining": String(burstRate.remaining),
         ...result.headers,
       });
+      if (responseBytes === 0 && etagEligible) metrics.restNotModified += 1;
+      metrics.restPayloadBytes += responseBytes;
     } catch (error) {
       metrics.httpErrors += 1;
       const statusCode = Number(error?.statusCode || 500);

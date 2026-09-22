@@ -111,6 +111,85 @@ test("public gateway requires Haolo auth and forwards only through REST gateway"
   assert.equal(requests.length, 1);
 });
 
+test("public Binance REST responses support conditional ETag requests", async (t) => {
+  const config = baseConfig();
+  const gateway = createPublicGatewayServer({
+    config,
+    restGateway: {
+      cache: { redis: null },
+      async get() {
+        return { statusCode: 200, value: { symbol: "BTCUSDT", price: "100" }, cacheStatus: "HIT", headers: {} };
+      },
+    },
+    streamPool: { stats: () => ({}), subscribe() { return () => {}; } },
+  });
+  await gateway.listen();
+  t.after(() => gateway.close());
+  const origin = `http://127.0.0.1:${gateway.server.address().port}`;
+  const headers = { authorization: `Bearer ${createJwt(config.jwtSecret)}` };
+  const first = await fetch(`${origin}/fapi/v1/premiumIndex?symbol=BTCUSDT`, { headers });
+  assert.equal(first.status, 200);
+  const etag = first.headers.get("etag");
+  assert.match(etag, /^"[a-f0-9]{64}"$/);
+  assert.deepEqual(await first.json(), { symbol: "BTCUSDT", price: "100" });
+
+  const cached = await fetch(`${origin}/fapi/v1/premiumIndex?symbol=BTCUSDT`, {
+    headers: { ...headers, "if-none-match": etag },
+  });
+  assert.equal(cached.status, 304);
+  assert.equal(cached.headers.get("etag"), etag);
+  assert.equal(cached.headers.get("content-length"), "0");
+  assert.equal(cached.headers.get("x-haolo-cache"), "HIT");
+  assert.equal(await cached.text(), "");
+  assert.equal(gateway.metrics.restNotModified, 1);
+  assert.equal(gateway.metrics.restPayloadBytes, Buffer.byteLength(JSON.stringify({ symbol: "BTCUSDT", price: "100" })));
+});
+
+test("public Binance REST errors never become conditional 304 responses", async (t) => {
+  const config = baseConfig();
+  const gateway = createPublicGatewayServer({
+    config,
+    restGateway: {
+      cache: { redis: null },
+      async get() {
+        return { statusCode: 503, value: { error: "UPSTREAM_COOLDOWN" }, cacheStatus: "STALE", headers: {} };
+      },
+    },
+    streamPool: { stats: () => ({}), subscribe() { return () => {}; } },
+  });
+  await gateway.listen();
+  t.after(() => gateway.close());
+  const origin = `http://127.0.0.1:${gateway.server.address().port}`;
+  const headers = { authorization: `Bearer ${createJwt(config.jwtSecret)}`, "if-none-match": '"error"' };
+  const response = await fetch(`${origin}/fapi/v1/premiumIndex?symbol=BTCUSDT`, { headers });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.has("etag"), false);
+  assert.deepEqual(await response.json(), { error: "UPSTREAM_COOLDOWN" });
+  assert.equal(gateway.metrics.restNotModified, 0);
+});
+
+for (const path of ["/fapi/v1/depth?symbol=BTCUSDT&limit=5", "/fapi/v1/aggTrades?symbol=BTCUSDT&limit=5"]) {
+  test(`order-flow REST ${path.split("?")[0]} does not use ETag`, async (t) => {
+    const config = baseConfig();
+    const gateway = createPublicGatewayServer({
+      config,
+      restGateway: {
+        cache: { redis: null },
+        async get() { return { statusCode: 200, value: [{ id: 1 }], cacheStatus: "HIT", headers: {} }; },
+      },
+      streamPool: { stats: () => ({}), subscribe() { return () => {}; } },
+    });
+    await gateway.listen();
+    t.after(() => gateway.close());
+    const url = `http://127.0.0.1:${gateway.server.address().port}${path}`;
+    const headers = { authorization: `Bearer ${createJwt(config.jwtSecret)}`, "if-none-match": '"not-used"' };
+    const response = await fetch(url, { headers });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.has("etag"), false);
+    assert.deepEqual(await response.json(), [{ id: 1 }]);
+  });
+}
+
 test("fresh REST cache hits do not consume the weighted upstream user budget", async (t) => {
   const config = baseConfig({
     downstreamRequestsPerMinute: 10,
