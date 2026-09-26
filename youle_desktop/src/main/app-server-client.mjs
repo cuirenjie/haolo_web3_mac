@@ -108,12 +108,13 @@ const LEGACY_MANAGED_SECTION_CONFIG_VALUES = [
   { section: "model_providers.haolo_ai", key: "request_max_retries", value: "0" },
   { section: "model_providers.haolo_ai", key: "stream_max_retries", value: "0" },
   { section: "model_providers.haolo_ai", key: "stream_max_retries", value: "1" },
-  // Existing installs carry the 0.144.1 header in their managed config. Keep
-  // it in the migration list so the new template can replace it with 0.153.4.
+  // Existing installs carry an older Codex header in their managed config.
+  // Keep known versions in the migration list so the new template replaces
+  // them with the runtime version required by the gateway.
   // Match the version field rather than one exact header formatting so older
   // installs with the model-pool/capability fields are migrated as well.
-  { section: "model_providers.haolo_ai", key: "http_headers", value: /version\s*=\s*"0\.144\.1"/ },
-  { section: "model_providers.deepseek", key: "http_headers", value: /version\s*=\s*"0\.144\.1"/ },
+  { section: "model_providers.haolo_ai", key: "http_headers", value: /version\s*=\s*"(?:0\.144\.1|0\.153\.4)"/ },
+  { section: "model_providers.deepseek", key: "http_headers", value: /version\s*=\s*"(?:0\.144\.1|0\.153\.4)"/ },
 ];
 const FORCED_MANAGED_SECTION_CONFIG_VALUES = [
   { section: "model_providers.haolo_ai", key: "supports_websockets", value: "true" },
@@ -129,7 +130,7 @@ const MANAGED_SECTION_CONFIG_KEYS = [
 ];
 const DEFAULT_PROVIDER_BASE_URL = HAOLO_GATEWAY_BASE_URL;
 const DEFAULT_PROVIDER_WIRE_API = "responses";
-const DEFAULT_PROVIDER_CODEX_VERSION = "0.153.4";
+const DEFAULT_PROVIDER_CODEX_VERSION = "0.157.1";
 const DEFAULT_PROVIDER_MODEL_POOL = "execution";
 const DEFAULT_PROVIDER_MODEL_CAPABILITY = "root_execution";
 const DEEPSEEK_EXECUTION_DEFAULT_BASE_URL = DEFAULT_PROVIDER_BASE_URL;

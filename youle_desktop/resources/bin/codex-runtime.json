@@ -1,24 +1,24 @@
 {
-  "version": "0.153.4",
-  "releaseTag": "rust-v0.153.4",
-  "releaseUrl": "https://github.com/openai/codex/releases/tag/rust-v0.153.4",
+  "version": "0.157.1",
+  "releaseTag": "rust-v0.157.1",
+  "releaseUrl": "https://github.com/openai/codex/releases/tag/rust-v0.157.1",
   "sourceAsset": "codex-x86_64-pc-windows-msvc.exe.zip",
-  "sourceAssetSha256": "c016b0e6968b78586919c720d2685a03712f6d5f11bcd9d6f92c91eb8c41ba16",
+  "sourceAssetSha256": "9b0cbcd72bcbea43433d18b82a50c09a7065f6bd6c503a3d9606a539283b89bf",
   "files": [
     {
       "name": "haolo_ai.exe",
       "sourceName": "codex-x86_64-pc-windows-msvc.exe",
-      "sha256": "444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b"
+      "sha256": "8cb0e69e99ff2a158c54815db82d0f2e524d8f301bc30184722cfd1ae5973574"
     },
     {
       "name": "codex-command-runner.exe",
       "sourceName": "codex-command-runner.exe",
-      "sha256": "3eb267dc1f0d1d80efeacc26a211f26ed0f414466d32a2aa7304a8a0beec170c"
+      "sha256": "3834fec990e505577888605f11b3c9820d1384784b8709861ac7e61122aa2c1c"
     },
     {
       "name": "codex-windows-sandbox-setup.exe",
       "sourceName": "codex-windows-sandbox-setup.exe",
-      "sha256": "0c3eeb7cee8d2bc4c8644def3c818e8b06760979572dcedc919c38d0f38f64c4"
+      "sha256": "c6a5ec12dee7f9563c5d0f2f6e8b82a0528e5cedd4d330dbda091dbb91d58b78"
     }
   ]
 }
