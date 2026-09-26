@@ -1091,20 +1091,20 @@ export class TradingExpertSplitPane {
     const createLines = (id: TradingSplitPaneMainIndicatorId, keys: string[]) => {
       const setting = this.indicatorSettings[indicatorSettingKey("main", id)];
       return keys.map((key, index) => addLine(
-        setting?.series[key]?.color ?? ["#d1ab2e", "#2dccac", "#c935cc"][index] ?? "#5b95e5",
+        setting?.series[key]?.color ?? ["#d1ab2e", "#2dccac", "#c935cc", "#5b95e5", "#f59e0b"][index] ?? "#5b95e5",
         setting?.series[key]?.lineWidth ?? (index === 1 ? 2 : 1),
       )).filter(Boolean);
     };
-    this.mainIndicatorSeries.set("ma", createLines("ma", ["short", "medium", "long"]));
-    this.mainIndicatorSeries.set("ema", createLines("ema", ["short", "medium", "long"]));
+    this.mainIndicatorSeries.set("ma", createLines("ma", ["short", "medium", "long", "extraLong", "ultraLong"]));
+    this.mainIndicatorSeries.set("ema", createLines("ema", ["short", "medium", "long", "extraLong", "ultraLong"]));
     this.mainIndicatorSeries.set("boll", createLines("boll", ["upper", "middle", "lower"]));
     this.mainIndicatorSeries.set("bbi", createLines("bbi", ["bbi"]));
   }
 
   private applyMainIndicatorSeriesOptions() {
     const keys: Partial<Record<TradingSplitPaneMainIndicatorId, string[]>> = {
-      ma: ["short", "medium", "long"],
-      ema: ["short", "medium", "long"],
+      ma: ["short", "medium", "long", "extraLong", "ultraLong"],
+      ema: ["short", "medium", "long", "extraLong", "ultraLong"],
       boll: ["upper", "middle", "lower"],
       bbi: ["bbi"],
     };
@@ -1173,8 +1173,8 @@ export class TradingExpertSplitPane {
     values: number[][],
   ) {
     const keys: Partial<Record<TradingSplitPaneMainIndicatorId, string[]>> = {
-      ma: ["short", "medium", "long"],
-      ema: ["short", "medium", "long"],
+      ma: ["short", "medium", "long", "extraLong", "ultraLong"],
+      ema: ["short", "medium", "long", "extraLong", "ultraLong"],
       boll: ["upper", "middle", "lower"],
       bbi: ["bbi"],
     };
@@ -1291,7 +1291,7 @@ export class TradingExpertSplitPane {
       const current = this.indicatorSettings[indicatorSettingKey("main", id)];
       if (id === "ma" || id === "ema") {
         const prefix = id.toUpperCase();
-        appendRow(id, prefix, ["short", "medium", "long"].flatMap((key, index) =>
+        appendRow(id, prefix, ["short", "medium", "long", "extraLong", "ultraLong"].flatMap((key, index) =>
           current.series[key]?.visible === false ? [] : [{
             label: `${prefix}(${current.parameters[index]})`,
             value: valueAt(id, index),

@@ -1357,7 +1357,7 @@ test("main-chart indicators expose working calculations and VPVR is placed after
   );
   assert.deepEqual(
     TRADING_MAIN_INDICATOR_LINE_COLORS,
-    ["#d1ab2e", "#2dccac", "#c935cc"],
+    ["#d1ab2e", "#2dccac", "#c935cc", "#5b95e5", "#f59e0b"],
   );
   assert.ok(Number.isFinite(bollinger.middle.at(-1)));
   assert.ok((bollinger.upper.at(-1) ?? 0) > (bollinger.middle.at(-1) ?? 0));
@@ -1689,12 +1689,14 @@ test("custom indicator settings normalize all current main and subchart studies"
   assert.equal(TRADING_MARKET_INDICATOR_CATALOG.filter((item) => item.scope === "sub").length, 13);
   assert.equal(Object.keys(settings).length, 19);
   assert.equal(settings["main:ma"].enabled, true);
-  assert.deepEqual(settings["main:ma"].parameters, [2, 500, 20]);
+  assert.deepEqual(settings["main:ma"].parameters, [2, 500, 20, 30, 60]);
   assert.deepEqual(settings["main:ma"].series.short, {
     visible: false,
     color: "#123456",
     lineWidth: 3,
   });
+  assert.equal(settings["main:ma"].series.extraLong.color, "#5b95e5");
+  assert.equal(settings["main:ma"].series.ultraLong.color, "#f59e0b");
   assert.deepEqual(settings["main:vpvr"].parameters, [96]);
   assert.equal(settings["main:vpvr"].series.volume.color, "#5b95e5");
   assert.equal(settings["main:vpvr"].series.poc.color, "#5b95e5");

@@ -42,19 +42,50 @@ export function installDevelopmentSourceUpdatePrompt({
 
   let disposed = false;
   let promptActive = false;
+  let waitingForNextSourceUpdate = false;
+  let promptRetryTimer = null;
+  let promptRetryDelayMs = 1_000;
   const pendingFiles = new Set();
 
   const handleMessage = (message) => {
     if (message?.type !== DEV_SOURCE_UPDATED_MESSAGE) return;
-    for (const filePath of message.changedFiles || []) {
+    const changedFiles = Array.isArray(message.changedFiles)
+      ? message.changedFiles
+      : [];
+    for (const filePath of changedFiles) {
       if (filePath) pendingFiles.add(String(filePath));
     }
-    if (promptActive || disposed) return;
+    // A renderer failure should not cause a permanent deadlock. A later
+    // source event is a safe point to retry the queued batch immediately.
+    clearPromptRetryTimer();
+    waitingForNextSourceUpdate = false;
+    promptRetryDelayMs = 1_000;
+    startRestartPrompt();
+  };
+
+  const startRestartPrompt = () => {
+    if (
+      promptActive ||
+      disposed ||
+      waitingForNextSourceUpdate ||
+      pendingFiles.size === 0
+    ) return;
     promptActive = true;
-    void showRestartPrompt().finally(() => {
-      pendingFiles.clear();
-      promptActive = false;
-    });
+    void showRestartPrompts()
+      .catch((error) => {
+        if (!disposed) {
+          console.warn(
+            "[dev] failed to show source update prompt",
+            error?.message || error,
+          );
+        }
+      })
+      .finally(() => {
+        promptActive = false;
+        // A source update can arrive while the confirmation is open. Keep it
+        // queued so choosing “稍后” does not silently discard that update.
+        startRestartPrompt();
+      });
   };
 
   messageTarget.on?.("message", handleMessage);
@@ -64,49 +95,97 @@ export function installDevelopmentSourceUpdatePrompt({
     // The launcher may already be gone; restart requests will show a warning.
   }
 
-  async function showRestartPrompt() {
-    const changedFiles = [...pendingFiles];
-    const detailLines = changedFiles
-      .slice(0, 6)
-      .map((filePath) => `• ${filePath}`);
-    if (changedFiles.length > detailLines.length) {
-      detailLines.push(
-        `• 另有 ${changedFiles.length - detailLines.length} 个文件`,
-      );
-    }
-    const approved = await requestConfirmation({
-      title: "开发代码已更新",
-      message: "检测到代码更新，是否重启开发客户端？",
-      detail: [
-        "当前客户端不会自动刷新，选择“稍后”可继续保留现有测试状态。",
-        detailLines.length ? `\n本次变化：\n${detailLines.join("\n")}` : "",
-      ].join(""),
-      confirmLabel: "立即重启",
-      cancelLabel: "稍后",
-    });
-    if (!approved || disposed) return;
+  async function showRestartPrompts() {
+    while (!disposed && pendingFiles.size > 0) {
+      // Take one settled batch. Updates arriving while the dialog is open stay
+      // in pendingFiles and are presented by the next iteration.
+      const changedFiles = [...pendingFiles];
+      pendingFiles.clear();
+      const detailLines = changedFiles.slice(0, 6).map((filePath) => `• ${filePath}`);
+      if (changedFiles.length > detailLines.length) {
+        detailLines.push(`• 另有 ${changedFiles.length - detailLines.length} 个文件`);
+      }
+      let confirmation;
+      try {
+        confirmation = await requestConfirmation({
+          title: "开发代码已更新",
+          message: "检测到代码更新，是否重启开发客户端？",
+          detail: [
+            "当前客户端不会自动刷新，选择“稍后”可继续保留现有测试状态。",
+            detailLines.length ? `\n本次变化：\n${detailLines.join("\n")}` : "",
+          ].join(""),
+          confirmLabel: "立即重启",
+          cancelLabel: "稍后",
+        });
+      } catch (error) {
+        requeueAfterPromptFailure(changedFiles, error);
+        return;
+      }
+      const approved = confirmation === true || confirmation?.confirmed === true;
+      const retryable = confirmation?.retryable === true;
+      if (retryable) {
+        requeueAfterPromptFailure(
+          changedFiles,
+          new Error(`renderer confirmation unavailable (${confirmation.reason || "unknown"})`),
+        );
+        return;
+      }
+      if (!approved || disposed) continue;
 
-    const accepted = await requestRestart();
-    if (accepted) {
-      app.quit();
-      return;
+      const accepted = await requestRestart();
+      if (disposed) return;
+      if (accepted) {
+        // The launcher will load every pending change in the replacement.
+        // Stop listening before asynchronous shutdown starts.
+        dispose();
+        app.quit();
+        return;
+      }
+      await showNotice({
+        title: "无法自动重启",
+        message: "开发启动器连接已断开",
+        detail: "请回到开发终端手动停止并重新运行 pnpm dev。",
+        confirmLabel: "知道了",
+      });
     }
-    await showNotice({
-      title: "无法自动重启",
-      message: "开发启动器连接已断开",
-      detail: "请回到开发终端手动停止并重新运行 pnpm dev。",
-      confirmLabel: "知道了",
-    });
   }
 
-  return {
-    enabled: true,
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      messageTarget.off?.("message", handleMessage);
-    },
-  };
+  function requeueAfterPromptFailure(changedFiles, error) {
+    if (disposed) return;
+    for (const filePath of changedFiles) pendingFiles.add(filePath);
+    waitingForNextSourceUpdate = true;
+    if (!promptRetryTimer) {
+      const delayMs = promptRetryDelayMs;
+      promptRetryDelayMs = Math.min(promptRetryDelayMs * 2, 30_000);
+      promptRetryTimer = setTimeout(() => {
+        promptRetryTimer = null;
+        waitingForNextSourceUpdate = false;
+        startRestartPrompt();
+      }, delayMs);
+      promptRetryTimer.unref?.();
+    }
+    console.warn(
+      "[dev] source update prompt is waiting for the renderer to recover",
+      error?.message || error,
+    );
+  }
+
+  function clearPromptRetryTimer() {
+    if (!promptRetryTimer) return;
+    clearTimeout(promptRetryTimer);
+    promptRetryTimer = null;
+  }
+
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    clearPromptRetryTimer();
+    waitingForNextSourceUpdate = false;
+    pendingFiles.clear();
+    messageTarget.off?.("message", handleMessage);
+  }
+
+  return { enabled: true, dispose };
 }
 
 export function requestDevelopmentRestart(

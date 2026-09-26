@@ -72,7 +72,7 @@ export class TradingStrategyCoordinator {
     });
   }
 
-  async classify(strategyId, params = {}, { signal, requestId } = {}) {
+  async classify(strategyId, params = {}, { signal, requestId, modelRegistry, providerId } = {}) {
     const strategy = this.#registry.require(strategyId);
     const adapter = this.#registry.adapter(strategyId);
     if (!adapter) {
@@ -86,7 +86,7 @@ export class TradingStrategyCoordinator {
     // unavailable or returns invalid JSON.
     const instruction = normalizeTradingRoutingText(boundedText(params?.text));
     try {
-      const modelResponse = await this.#modelRegistry.analyze(this.#providerId, {
+      const modelResponse = await (modelRegistry || this.#modelRegistry).analyze(providerId || this.#providerId, {
         schemaVersion: 1,
         requestId: String(requestId || `${strategyId}-intent-route`),
         task: "trading-turn-intent-routing",
@@ -98,7 +98,7 @@ export class TradingStrategyCoordinator {
           hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
         }),
         responseFormat: "json",
-      }, { signal, reasoningEffort: "low" });
+      }, { signal, reasoningEffort: "max" });
       const routed = normalizeGeneralRequestRoutingModelResponse(
         modelResponse.text,
         instruction,
@@ -173,7 +173,7 @@ export class TradingStrategyCoordinator {
     }
   }
 
-  async run(strategyId, params = {}, { signal } = {}) {
+  async run(strategyId, params = {}, { signal, modelRegistry, providerId } = {}) {
     const strategy = this.#registry.require(strategyId);
     const adapter = this.#registry.adapter(strategyId);
     if (!adapter) {
@@ -187,8 +187,8 @@ export class TradingStrategyCoordinator {
       ...analysisParams
     } = params;
     const legacyResult = await adapter.run(analysisParams, {
-      modelRegistry: this.#modelRegistry,
-      providerId: this.#providerId,
+      modelRegistry: modelRegistry || this.#modelRegistry,
+      providerId: providerId || this.#providerId,
       signal,
     });
     const legacyAnalysisPlan = legacyResult.analysisPlan || {};

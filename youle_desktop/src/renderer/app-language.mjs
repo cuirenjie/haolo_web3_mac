@@ -10,6 +10,7 @@ export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "连手机": "Connect phone",
   "请确认": "Please confirm",
   "确定": "Confirm",
   "确认": "Confirm",
@@ -553,6 +554,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "体验版仅限每个账户开通一次": "The trial can be activated only once per account.",
   "请先开通体验版或其他套餐": "Activate the trial or another plan first.",
   "当前没有可用积分，请开通体验版或其他套餐后再提问": "You have no available points. Activate the trial or another plan before asking the model.",
+  "您的积分不足，请充值或开通会员": "You do not have enough points. Recharge or activate a membership.",
   "当前未开通有效体验版或其他套餐，请先开通后再使用盘面分析": "Activate a valid trial or another plan before using market analysis.",
   "暂时无法验证会员权益，请稍后重试": "Unable to verify membership access right now. Please try again shortly.",
   "确认支付信息": "Confirm payment details",
@@ -683,6 +685,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
 });
 
 const TRADITIONAL_UI_PHRASES = Object.freeze({
+  "连手机": "連接手機",
   "周期已自动应用。": "週期已自動套用。",
   "此版本必须更新后才能继续使用。": "此版本必須更新後才能繼續使用。",
   "WEB3免费": "WEB3免費",
@@ -713,6 +716,7 @@ const TRADITIONAL_UI_PHRASES = Object.freeze({
   "体验版仅限每个账户开通一次": "體驗版僅限每個帳戶開通一次",
   "请先开通体验版或其他套餐": "請先開通體驗版或其他套餐",
   "当前没有可用积分，请开通体验版或其他套餐后再提问": "當前沒有可用積分，請開通體驗版或其他套餐後再提問",
+  "您的积分不足，请充值或开通会员": "您的積分不足，請充值或開通會員",
   "当前未开通有效体验版或其他套餐，请先开通后再使用盘面分析": "目前未開通有效體驗版或其他套餐，請先開通後再使用盤面分析",
   "暂时无法验证会员权益，请稍后重试": "暫時無法驗證會員權益，請稍後重試",
   "确认支付信息": "確認支付資訊",

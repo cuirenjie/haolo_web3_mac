@@ -197,7 +197,7 @@ function supportedEffortsForModel(model, supplied) {
   }
   if (normalizedModel === "gpt-5.5") return ["low", "medium", "high", "xhigh"];
   if (normalizedModel === "gpt-5.6-luna") return ["low", "medium", "high", "xhigh", "max"];
-  if (normalizedModel === "gpt-5.6-sol" || normalizedModel === "gpt-5.6-terra") {
+  if (normalizedModel === "gpt-5.6-sol" || normalizedModel === "gpt-5.6-terra" || normalizedModel === "gpt-6-sol" || normalizedModel === "gpt-6-astra") {
     return ["low", "medium", "high", "xhigh", "max", "ultra"];
   }
   return ["low", "medium", "high"];

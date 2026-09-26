@@ -6,9 +6,12 @@ import path from "node:path";
 import test from "node:test";
 import {
   DEV_SOURCE_UPDATED_MESSAGE,
+  DEV_RESTART_ACK_MESSAGE,
+  DEV_RESTART_REQUEST_MESSAGE,
   DEV_UPDATE_PROMPT_READY_MESSAGE,
   installDevelopmentSourceUpdatePrompt,
   isManualDevelopmentRestartEnabled,
+  requestDevelopmentRestart,
 } from "../src/main/dev-source-update.mjs";
 import {
   changedDevelopmentSourceFiles,
@@ -209,6 +212,174 @@ test("choosing later preserves the running development client", async () => {
   assert.equal(restartRequestCount, 0);
   assert.equal(quitCount, 0);
   installation.dispose();
+});
+
+test("source updates arriving while the prompt is open are queued for a later prompt", async () => {
+  const messageTarget = new EventEmitter();
+  const promptOptions = [];
+  const promptResolvers = [];
+  const installation = installDevelopmentSourceUpdatePrompt({
+    app: { isPackaged: false, quit() {} },
+    async requestConfirmation(options) {
+      promptOptions.push(options);
+      return new Promise((resolve) => promptResolvers.push(resolve));
+    },
+    env: developmentEnv,
+    messageTarget,
+    requestRestart: async () => false,
+  });
+
+  try {
+    messageTarget.emit("message", {
+      type: DEV_SOURCE_UPDATED_MESSAGE,
+      changedFiles: ["main/main.mjs"],
+    });
+    await waitFor(() => promptOptions.length === 1);
+
+    messageTarget.emit("message", {
+      type: DEV_SOURCE_UPDATED_MESSAGE,
+      changedFiles: ["renderer/main.ts"],
+    });
+    promptResolvers.shift()(false);
+    await waitFor(() => promptOptions.length === 2);
+
+    assert.match(promptOptions[0].detail, /main\/main\.mjs/);
+    assert.match(promptOptions[1].detail, /renderer\/main\.ts/);
+    promptResolvers.shift()(false);
+  } finally {
+    installation.dispose();
+  }
+});
+
+test("approving restart includes queued changes without showing another prompt during shutdown", async () => {
+  const messageTarget = new EventEmitter();
+  let resolvePrompt;
+  let resolveRestart;
+  let prompts = 0;
+  let quits = 0;
+  const installation = installDevelopmentSourceUpdatePrompt({
+    app: { isPackaged: false, quit() { quits += 1; } },
+    env: developmentEnv,
+    messageTarget,
+    requestConfirmation: () => {
+      prompts += 1;
+      return new Promise((resolve) => { resolvePrompt = resolve; });
+    },
+    requestRestart: () => new Promise((resolve) => { resolveRestart = resolve; }),
+  });
+  try {
+    const update = () => messageTarget.emit("message", {
+      type: DEV_SOURCE_UPDATED_MESSAGE, changedFiles: ["renderer/main.ts"],
+    });
+    update();
+    update();
+    resolvePrompt(true);
+    await waitFor(() => Boolean(resolveRestart));
+    update();
+    resolveRestart(true);
+    await waitFor(() => quits === 1);
+    update();
+    assert.equal(prompts, 1);
+    assert.equal(messageTarget.listenerCount("message"), 0);
+  } finally {
+    installation.dispose();
+  }
+});
+
+test("a disconnected launcher shows an in-app notice and leaves the client running", async () => {
+  const notices = [];
+  let quits = 0;
+  const messageTarget = new EventEmitter();
+  messageTarget.connected = false;
+  const installation = installDevelopmentSourceUpdatePrompt({
+    app: { isPackaged: false, quit() { quits += 1; } },
+    env: developmentEnv,
+    messageTarget,
+    requestConfirmation: async () => true,
+    showNotice: async (options) => { notices.push(options); },
+  });
+  try {
+    messageTarget.emit("message", { type: DEV_SOURCE_UPDATED_MESSAGE, changedFiles: ["main/main.mjs"] });
+    await waitFor(() => notices.length === 1);
+    assert.equal(quits, 0);
+    assert.equal(notices[0].title, "无法自动重启");
+  } finally {
+    installation.dispose();
+  }
+});
+
+test("renderer prompt failures keep the update queued until a later source event", async () => {
+  const messageTarget = new EventEmitter();
+  let prompts = 0;
+  const installation = installDevelopmentSourceUpdatePrompt({
+    app: { isPackaged: false, quit() {} },
+    env: developmentEnv,
+    messageTarget,
+    requestConfirmation: async () => {
+      prompts += 1;
+      throw new Error("renderer unavailable");
+    },
+  });
+  try {
+    messageTarget.emit("message", {
+      type: DEV_SOURCE_UPDATED_MESSAGE,
+      changedFiles: ["main/main.mjs"],
+    });
+    await waitFor(() => prompts === 1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(prompts, 1, "a failed prompt must not spin in a retry loop");
+
+    messageTarget.emit("message", {
+      type: DEV_SOURCE_UPDATED_MESSAGE,
+      changedFiles: ["renderer/main.ts"],
+    });
+    await waitFor(() => prompts === 2);
+  } finally {
+    installation.dispose();
+  }
+});
+
+test("renderer prompt failures retry after the window recovers without another source change", async () => {
+  const messageTarget = new EventEmitter();
+  let prompts = 0;
+  let quits = 0;
+  const installation = installDevelopmentSourceUpdatePrompt({
+    app: { isPackaged: false, quit() { quits += 1; } },
+    env: developmentEnv,
+    messageTarget,
+    requestConfirmation: async () => {
+      prompts += 1;
+      if (prompts === 1) throw new Error("renderer unavailable");
+      return true;
+    },
+    requestRestart: async () => true,
+  });
+  try {
+    messageTarget.emit("message", {
+      type: DEV_SOURCE_UPDATED_MESSAGE,
+      changedFiles: ["main/main.mjs"],
+    });
+    await waitFor(() => quits === 1, 2500);
+    assert.equal(prompts, 2);
+  } finally {
+    installation.dispose();
+  }
+});
+
+test("restart waits for the matching launcher acknowledgement and removes its listener", async () => {
+  const messageTarget = new EventEmitter();
+  let request;
+  messageTarget.send = (message, callback) => { request = message; callback?.(); };
+  let result;
+  const restart = requestDevelopmentRestart(messageTarget).then((accepted) => { result = accepted; });
+  assert.equal(request.type, DEV_RESTART_REQUEST_MESSAGE);
+  messageTarget.emit("message", { type: DEV_RESTART_ACK_MESSAGE, requestId: "wrong-request" });
+  await Promise.resolve();
+  assert.equal(result, undefined);
+  messageTarget.emit("message", { type: DEV_RESTART_ACK_MESSAGE, requestId: request.requestId });
+  await restart;
+  assert.equal(result, true);
+  assert.equal(messageTarget.listenerCount("message"), 0);
 });
 
 test("packaged clients do not install a development update listener", () => {

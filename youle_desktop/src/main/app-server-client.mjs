@@ -84,6 +84,7 @@ const MANAGED_MODEL_AUTO_COMPACT_TOKEN_LIMIT = 300_000;
 const MANAGED_MODEL_EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 const MANAGED_LONG_CONTEXT_MODEL_SLUGS = new Set([
   "gpt-6-astra",
+  "gpt-6-sol",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -936,8 +937,19 @@ export function buildManagedLongContextModelCatalog(value) {
   }
 
   const missingSlugs = [...MANAGED_LONG_CONTEXT_MODEL_SLUGS].filter((slug) => !updatedSlugs.has(slug));
-  if (missingSlugs.length) {
-    throw new Error(`Bundled Haolo model catalog is missing managed models: ${missingSlugs.join(", ")}.`);
+  if (missingSlugs.includes("gpt-6-sol")) {
+    const source = catalog.models.find((model) => model?.slug === "gpt-6-astra") || catalog.models.find((model) => model?.slug === "gpt-5.6-sol");
+    if (source) {
+      const model = JSON.parse(JSON.stringify(source));
+      model.slug = "gpt-6-sol";
+      model.display_name = "GPT-6 Sol";
+      catalog.models.push(model);
+      updatedSlugs.add("gpt-6-sol");
+    }
+  }
+  const unresolvedMissingSlugs = [...MANAGED_LONG_CONTEXT_MODEL_SLUGS].filter((slug) => !updatedSlugs.has(slug));
+  if (unresolvedMissingSlugs.length) {
+    throw new Error(`Bundled Haolo model catalog is missing managed models: ${unresolvedMissingSlugs.join(", ")}.`);
   }
   const deepSeekCatalog = readDeepSeekCodexModelCatalog();
   const deepSeekModels = Array.isArray(deepSeekCatalog?.models)

@@ -46,6 +46,8 @@ export type ModelSwitchContextDecision = {
 
 const MODEL_EFFECTIVE_CONTEXT_WINDOWS: Readonly<Record<string, number>> = Object.freeze({
   "gpt-5.6-sol": GPT_5_6_MODEL_CONTEXT_WINDOW_TOKENS,
+  "gpt-6-sol": GPT_5_6_MODEL_CONTEXT_WINDOW_TOKENS,
+  "gpt-6-astra": GPT_5_6_MODEL_CONTEXT_WINDOW_TOKENS,
   "gpt-5.6-terra": GPT_5_6_MODEL_CONTEXT_WINDOW_TOKENS,
   "gpt-5.6-luna": GPT_5_6_MODEL_CONTEXT_WINDOW_TOKENS,
   "gpt-5.5": CURRENT_MODEL_CONTEXT_WINDOW_TOKENS,

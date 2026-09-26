@@ -301,7 +301,7 @@ test("actual renderer new-task initialization follows the window and restores So
   f.advance(HOUR);
   initialize("new-2");
   assert.equal(selected.model, "gpt-5.6-sol");
-  assert.equal(selected.reasoningEffort, "ultra");
+  assert.equal(selected.reasoningEffort, "max");
   assert.equal(selected.modelProvider, "haolo_ai");
 });
 
