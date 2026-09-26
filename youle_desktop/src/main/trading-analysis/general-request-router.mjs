@@ -19,7 +19,9 @@ const ROUTING_KEYS = Object.freeze([
   "lookbackMs",
   "lookbackLabel",
   "confidence",
+  "context",
 ]);
+const LEGACY_ROUTING_KEYS = Object.freeze(ROUTING_KEYS.filter((key) => key !== "context"));
 const CONVERSATION_INTENTS = new Set(["general-question", "screenshot-question", "non-market-request"]);
 const CHART_INTENTS = new Set(["chart-analysis", "chart-drawing", "position-management"]);
 const MAX_LOOKBACK_MS = 5 * 366 * 24 * 60 * 60 * 1_000;
@@ -115,7 +117,10 @@ function extractJsonObject(text) {
 function assertExactKeys(value) {
   const keys = Object.keys(value || {}).sort();
   const expected = [...ROUTING_KEYS].sort();
-  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+  const legacyExpected = [...LEGACY_ROUTING_KEYS].sort();
+  const matches = (candidate) => keys.length === candidate.length
+    && keys.every((key, index) => key === candidate[index]);
+  if (!matches(expected) && !matches(legacyExpected)) {
     throw new TypeError("General request router returned an invalid JSON shape");
   }
 }
@@ -130,6 +135,11 @@ function normalizeExplicitSymbol(value) {
     || !(symbol.endsWith("USDT") || symbol.endsWith("USDC") || symbol.endsWith("USD"))
   ) {
     throw new TypeError("General request router symbol is invalid");
+  }
+  const quote = symbol.endsWith("USDT") ? "USDT" : symbol.endsWith("USDC") ? "USDC" : "USD";
+  const base = symbol.slice(0, -quote.length);
+  if (/\p{Script=Han}/u.test(base) && /[A-Z0-9]/u.test(base)) {
+    throw new TypeError("General request router symbol contains surrounding prose");
   }
   return symbol;
 }
@@ -162,6 +172,70 @@ function normalizeExplicitLookback(value, label) {
   return { lookbackMs, lookbackLabel };
 }
 
+function normalizeRoutingPosition(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      side: "unknown",
+      entries: [],
+      liquidationPrice: null,
+      requestedActions: [],
+    };
+  }
+  const side = ["long", "short", "unknown"].includes(value.side) ? value.side : "unknown";
+  const entries = Array.isArray(value.entries)
+    ? value.entries.slice(0, 16).map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const price = Number(entry.price);
+        const quantity = Number(entry.quantity);
+        if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(quantity) || quantity <= 0) return null;
+        return { price, quantity };
+      }).filter(Boolean)
+    : [];
+  const liquidationPrice = value.liquidationPrice == null ? null : Number(value.liquidationPrice);
+  return {
+    side,
+    entries,
+    liquidationPrice: Number.isFinite(liquidationPrice) && liquidationPrice > 0 ? liquidationPrice : null,
+    requestedActions: Array.isArray(value.requestedActions)
+      ? value.requestedActions.map((action) => String(action || "").trim()).filter(Boolean).slice(0, 12)
+      : [],
+  };
+}
+
+function normalizeRoutingContext(value, parsed, mode) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const market = source.market && typeof source.market === "object" && !Array.isArray(source.market)
+    ? source.market
+    : {};
+  const symbol = normalizeExplicitSymbol(market.symbol ?? parsed.symbol);
+  const interval = normalizeExplicitInterval(market.interval ?? parsed.interval);
+  const lookback = normalizeExplicitLookback(
+    market.lookbackMs ?? parsed.lookbackMs,
+    market.lookbackLabel ?? parsed.lookbackLabel,
+  );
+  const questionKinds = Array.isArray(source.questionKinds)
+    ? source.questionKinds.map((kind) => String(kind || "").trim()).filter(Boolean).slice(0, 16)
+    : [];
+  return {
+    intent: String(source.intent || parsed.intent || "").trim(),
+    needsMarketData: typeof source.needsMarketData === "boolean"
+      ? source.needsMarketData
+      : mode === "chart-analysis",
+    drawingRequested: typeof source.drawingRequested === "boolean"
+      ? source.drawingRequested
+      : mode === "chart-analysis",
+    directAnswer: source.directAnswer === true || parsed.intent === "position-management",
+    analysisFollowup: source.analysisFollowup === true,
+    questionKinds,
+    market: {
+      symbol,
+      interval,
+      ...lookback,
+    },
+    position: normalizeRoutingPosition(source.position),
+  };
+}
+
 export function buildGeneralRequestRoutingPrompt(params = {}) {
   const payload = {
     text: String(params.text || "").slice(0, 12_000),
@@ -180,7 +254,23 @@ export function buildGeneralRequestRoutingPrompt(params = {}) {
       lookbackMs: "用户明确指定 K 线范围时输出整数毫秒，否则必须为 null",
       lookbackLabel: "与 lookbackMs 对应的简短中文，否则必须为 null",
       confidence: "0 到 1",
+      context: {
+        intent: "本轮语义意图的稳定标识",
+        needsMarketData: "是否必须读取目标行情",
+        drawingRequested: "是否允许生成新的画线计划",
+        directAnswer: "是否优先直接回答问题",
+        analysisFollowup: "是否只追问上一轮分析结论",
+        questionKinds: ["问题类型标签，例如 position_risk"],
+        market: { symbol: "同上", interval: "同上", lookbackMs: "同上", lookbackLabel: "同上" },
+        position: {
+          side: "long、short 或 unknown",
+          entries: [{ price: "用户明确写出的开仓价", quantity: "对应数量" }],
+          liquidationPrice: "用户明确写出的强平价，否则 null",
+          requestedActions: ["用户明确要求的动作，例如 reduce、close、hold"],
+        },
+      },
     }),
+    "context 是下游分析唯一使用的语义上下文，必须存在并严格按对象结构输出；不得把用户原文复制到 market.symbol，也不得从缺失字段推断价格或仓位事实。",
     "分类规则：",
     "1. 任何需要读取当前或指定行情、K 线、价格、趋势、结构、支撑阻力、形态、买卖条件或仓位市场风险的问题，都必须 mode=chart-analysis；不得因为已经存在旧分析而降级为 conversation。",
     "2. 涉及仓位/持仓管理、强平或爆仓风险、加减仓、平仓位置的问题，intent=position-management，mode=chart-analysis。必须先依据目标交易对和周期的最新 K 线判断偏多、偏空或震荡，再结合用户提供的开仓价、方向、强平价和账户只读仓位给出管理建议；不能只根据用户价格或仓位文字直接下结论。",
@@ -226,54 +316,76 @@ export function normalizeGeneralRequestRoutingModelResponse(text, userText, cont
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
     throw new TypeError("General request router confidence is invalid");
   }
-  // Model values are validated for protocol observability, but never become
-  // chart mutation authority. Only literal values present in userText may set
-  // symbol/interval/lookback; explicit symbols with an omitted interval are
-  // resolved to Binance perpetual 1H by the renderer target selector.
-  normalizeExplicitSymbol(parsed.symbol);
-  normalizeExplicitInterval(parsed.interval);
-  normalizeExplicitLookback(parsed.lookbackMs, parsed.lookbackLabel);
-  const literal = extractExplicitTradingParameters(userText);
-  // The model makes the first semantic decision, while a deterministic
-  // high-signal guard prevents a malformed/overly conservative response from
-  // turning an explicit market or position-management request into prose.
-  // Education remains the only hard veto because it must never read or mutate
-  // the chart.
-  const deterministicChart = deterministicMarketChartRouting(userText);
-  const acceptedMode = isTradingConceptOnlyRequest(userText)
-    ? "conversation"
-    : mode === "chart-analysis" || deterministicChart
-      ? "chart-analysis"
-      : mode;
-  const questionKinds = classifyTradingQuestionKinds(userText);
-  const positionManagementRequested = acceptedMode === "chart-analysis"
-    && (questionKinds.includes("position_risk") || intent === "position-management");
-  const analysisFollowup = acceptedMode === "conversation"
-    && context.hasCurrentAnalysis === true
-    && isLikelyAnalysisFollowup(userText);
+  // Keep accepting responses from older providers while they are rolled out.
+  // New responses include `context` and are normalized entirely from that
+  // model-produced structure below; this branch is only a compatibility path.
+  if (parsed.context === undefined) {
+    normalizeExplicitSymbol(parsed.symbol);
+    normalizeExplicitInterval(parsed.interval);
+    normalizeExplicitLookback(parsed.lookbackMs, parsed.lookbackLabel);
+    const literal = extractExplicitTradingParameters(userText);
+    const deterministicChart = deterministicMarketChartRouting(userText);
+    const acceptedMode = isTradingConceptOnlyRequest(userText)
+      ? "conversation"
+      : mode === "chart-analysis" || deterministicChart
+        ? "chart-analysis"
+        : mode;
+    const questionKinds = classifyTradingQuestionKinds(userText);
+    const positionManagementRequested = acceptedMode === "chart-analysis"
+      && (questionKinds.includes("position_risk") || intent === "position-management");
+    const analysisFollowup = acceptedMode === "conversation"
+      && context.hasCurrentAnalysis === true
+      && isLikelyAnalysisFollowup(userText);
+    return {
+      classification: {
+        schemaVersion: TRADING_GENERAL_ROUTING_SCHEMA_VERSION,
+        mode: acceptedMode,
+        intent: acceptedMode === "conversation" && mode !== "conversation"
+          ? "general-question"
+          : acceptedMode === "chart-analysis" && positionManagementRequested
+            ? "position-management"
+            : intent,
+        confidence,
+      },
+      request: {
+        mode: acceptedMode,
+        instruction: normalizeTradingRoutingText(userText),
+        symbol: acceptedMode === "chart-analysis" ? literal.symbol : null,
+        interval: acceptedMode === "chart-analysis" ? literal.interval : null,
+        lookbackMs: acceptedMode === "chart-analysis" ? literal.lookbackMs : null,
+        lookbackLabel: acceptedMode === "chart-analysis" ? literal.lookbackLabel : null,
+        forecastHorizonMs: acceptedMode === "chart-analysis" ? literal.forecastHorizonMs : null,
+        questionKinds,
+        positionManagementRequested,
+        drawingRequested: acceptedMode === "chart-analysis" && !explicitNoDrawingRequested(userText),
+        analysisFollowup,
+      },
+    };
+  }
+  const analysisContext = normalizeRoutingContext(parsed.context, parsed, mode);
+  const positionManagementRequested = mode === "chart-analysis"
+    && (intent === "position-management" || analysisContext.position.side !== "unknown"
+      || analysisContext.questionKinds.includes("position_risk"));
   return {
     classification: {
       schemaVersion: TRADING_GENERAL_ROUTING_SCHEMA_VERSION,
-      mode: acceptedMode,
-      intent: acceptedMode === "conversation" && mode !== "conversation"
-        ? "general-question"
-        : acceptedMode === "chart-analysis" && positionManagementRequested
-          ? "position-management"
-          : intent,
+      mode,
+      intent: positionManagementRequested ? "position-management" : intent,
       confidence,
     },
     request: {
-      mode: acceptedMode,
+      mode,
       instruction: normalizeTradingRoutingText(userText),
-      symbol: acceptedMode === "chart-analysis" ? literal.symbol : null,
-      interval: acceptedMode === "chart-analysis" ? literal.interval : null,
-      lookbackMs: acceptedMode === "chart-analysis" ? literal.lookbackMs : null,
-      lookbackLabel: acceptedMode === "chart-analysis" ? literal.lookbackLabel : null,
-      forecastHorizonMs: acceptedMode === "chart-analysis" ? literal.forecastHorizonMs : null,
-      questionKinds,
+      symbol: mode === "chart-analysis" ? analysisContext.market.symbol : null,
+      interval: mode === "chart-analysis" ? analysisContext.market.interval : null,
+      lookbackMs: mode === "chart-analysis" ? analysisContext.market.lookbackMs : null,
+      lookbackLabel: mode === "chart-analysis" ? analysisContext.market.lookbackLabel : null,
+      forecastHorizonMs: null,
+      questionKinds: analysisContext.questionKinds,
       positionManagementRequested,
-      drawingRequested: acceptedMode === "chart-analysis" && !explicitNoDrawingRequested(userText),
-      analysisFollowup,
+      drawingRequested: mode === "chart-analysis" && analysisContext.drawingRequested,
+      analysisFollowup: mode === "conversation" && analysisContext.analysisFollowup,
+      analysisContext,
     },
   };
 }

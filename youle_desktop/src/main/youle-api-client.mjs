@@ -27,6 +27,13 @@ import { networkErrorCode } from "./system-proxy-fetch.mjs";
 import { canonicalDeepSeekModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
 import { assertAllowedModel } from "./retired-model-policy.mjs";
 import { normalizeModelRequestBody } from "./model-request-policy.mjs";
+import {
+  createPremiumEntitlementCache,
+  isPremiumEntitlementRetryableError,
+  premiumAccessState,
+  premiumEntitlementAccountId,
+  premiumEntitlementCacheAccess,
+} from "./premium-entitlement.mjs";
 
 const DEFAULT_BASE_URL = "https://haolo.com";
 const modelRequestCompressionRejectedOrigins = new Set();
@@ -108,11 +115,12 @@ const LOW_BALANCE_THRESHOLD_YUAN = 5;
 const EXTERNAL_CHANNEL_REPLY_ATTACHMENT_LIMIT = 20;
 const EXTERNAL_CHANNEL_REPLY_ATTACHMENT_UPLOAD_PURPOSE = "external_channel_reply";
 const EXTERNAL_CHANNEL_REPLY_ATTACHMENT_LINK_FALLBACK_MIN_BYTES = 20 * 1024 * 1024;
+const EXTERNAL_CHANNEL_ONLINE_HINT = "连接后请保持电脑在线";
 const YOULE_AUTH_RETRY = Symbol("youleAuthRetry");
 const EXTERNAL_CHANNEL_FALLBACK_ITEMS = [
-  { id: "wechat", name: "微信", description: "扫码授权后开始通信", status: "disconnected", connected: false },
-  { id: "telegram", name: "Telegram", description: "通过Bot Token连接Telegram", status: "disconnected", connected: false },
-  { id: "feishu", name: "飞书", description: "通过AppID+Secret连接飞书", status: "frontend_only", connected: false },
+  { id: "wechat", name: "微信", description: EXTERNAL_CHANNEL_ONLINE_HINT, status: "disconnected", connected: false },
+  { id: "telegram", name: "Telegram", description: EXTERNAL_CHANNEL_ONLINE_HINT, status: "disconnected", connected: false },
+  { id: "feishu", name: "飞书", description: EXTERNAL_CHANNEL_ONLINE_HINT, status: "frontend_only", connected: false },
 ];
 
 export class YouleAuthExpiredError extends Error {
@@ -242,6 +250,7 @@ export class YouleApiClient {
     this.modelBaseUrl = null;
     this.modelKeys = [];
     this.profile = null;
+    this.premiumEntitlementCache = null;
     this.deviceId = null;
     this.safeStorage = options.safeStorage || null;
     this.envTokenActive = false;
@@ -418,6 +427,7 @@ export class YouleApiClient {
       return this.sessionSummary();
     }
     this.profile = mergeProfileLevel(this.profile, profile);
+    this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
     if (refreshedModelKeys) {
       this.modelKeys = refreshedModelKeys;
     }
@@ -460,14 +470,41 @@ export class YouleApiClient {
   async refreshSub2ApiAccount() {
     await this.load();
     this.requireAuth();
-    const response = await this.requestJson(joinUrl(this.baseUrl, this.sub2apiAccountPath), {
-      method: "GET",
-      headers: this.clientHeaders({ auth: true }),
-    });
+    let response;
+    try {
+      response = await this.requestJson(joinUrl(this.baseUrl, this.sub2apiAccountPath), {
+        method: "GET",
+        headers: this.clientHeaders({ auth: true }),
+      });
+    } catch (error) {
+      const cached = this.validPremiumEntitlementCache();
+      if (isPremiumEntitlementRetryableError(error) && cached) {
+        return this.cachedSub2ApiAccountResult(cached);
+      }
+      throw error;
+    }
     const balance = extractSub2ApiBalance(response);
-    if (balance) {
-      this.profile = mergeProfileBalance(this.profile, balance);
+    if (!balance) {
+      const cached = this.validPremiumEntitlementCache();
+      if (cached) return this.cachedSub2ApiAccountResult(cached);
+      const error = new Error("会员接口未返回有效账户权益数据");
+      error.code = "PREMIUM_ENTITLEMENT_RESPONSE_INVALID";
+      error.category = "transport";
+      error.retryable = true;
+      throw error;
+    }
+    this.profile = mergeProfileBalance(this.profile, balance);
+    const accessState = this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
+    try {
       await this.save();
+    } catch (error) {
+      // A successful server entitlement response should still unblock the
+      // current analysis when local persistence is temporarily unavailable.
+      safeConsoleLog("[youle-api] entitlement snapshot persistence deferred", error?.message || String(error));
+    }
+    if (accessState === "unknown") {
+      const cached = this.validPremiumEntitlementCache();
+      if (cached) return this.cachedSub2ApiAccountResult(cached);
     }
     const balanceLabel = balance ? formatYuanBalance(resolveYuanBalance(balance)) : "";
     return {
@@ -476,6 +513,57 @@ export class YouleApiClient {
       lowBalance: isLowBalance(balance),
       threshold: LOW_BALANCE_THRESHOLD_YUAN,
       session: this.sessionSummary(),
+    };
+  }
+
+  getPremiumEntitlementCache() {
+    return this.premiumEntitlementCache;
+  }
+
+  updatePremiumEntitlementCacheFromFreshProfile(profile = this.profile, now = Date.now()) {
+    const accessState = premiumAccessState(profile, now);
+    if (accessState === "available") {
+      const cache = createPremiumEntitlementCache(profile, {
+        baseUrl: this.baseUrl,
+        now,
+      });
+      if (cache) this.premiumEntitlementCache = cache;
+    } else if (accessState === "membership-required" || accessState === "insufficient") {
+      this.premiumEntitlementCache = null;
+    }
+    return accessState;
+  }
+
+  validPremiumEntitlementCache(now = Date.now()) {
+    const accountId = premiumEntitlementAccountId(this.profile);
+    if (!accountId) return null;
+    const result = premiumEntitlementCacheAccess(this.premiumEntitlementCache, {
+      accountId,
+      baseUrl: this.baseUrl,
+      now,
+    });
+    return result.ok ? result : null;
+  }
+
+  cachedSub2ApiAccountResult(cached) {
+    const profile = cached.profile;
+    const balance = resolveYuanBalance(profile);
+    return {
+      ...(balance == null ? {} : {
+        balance,
+        token_balance: balance,
+        token_balance_label: formatYuanBalance(balance),
+      }),
+      balanceLabel: formatYuanBalance(balance),
+      lowBalance: isLowBalance(profile),
+      threshold: LOW_BALANCE_THRESHOLD_YUAN,
+      entitlementSource: "cache",
+      entitlementCacheAgeMs: cached.ageMs,
+      entitlementCacheExpiresAt: cached.expiresAt,
+      session: {
+        ...this.sessionSummary(),
+        profile,
+      },
     };
   }
 
@@ -716,10 +804,12 @@ export class YouleApiClient {
     this.clearRefreshSession();
     this.resetConsumptionHistorySync();
     this.applyAuthResponse(response);
+    this.premiumEntitlementCache = null;
     this.modelApiKey = modelApiKey;
     this.modelBaseUrl = normalizeTransitBaseUrl(extractSub2ApiBaseUrl(response) || this.modelBaseUrl);
     this.modelKeys = extractSub2ApiKeys(response);
     this.profile = await this.fetchProfileWithBalance(token).catch(() => extractAuthProfile(response, ""));
+    this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
     await this.save();
     await this.saveModelAuth();
     return this.sessionSummary();
@@ -915,10 +1005,12 @@ export class YouleApiClient {
     this.clearRefreshSession();
     this.resetConsumptionHistorySync();
     this.applyAuthResponse(response);
+    this.premiumEntitlementCache = null;
     this.modelApiKey = modelApiKey;
     this.modelBaseUrl = normalizeTransitBaseUrl(extractSub2ApiBaseUrl(response) || this.modelBaseUrl);
     this.modelKeys = extractSub2ApiKeys(response);
     this.profile = await this.fetchProfileWithBalance(token).catch(() => extractAuthProfile(response, identity.identifier));
+    this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
     await this.save();
     await this.saveModelAuth();
     const session = {
@@ -1030,9 +1122,11 @@ export class YouleApiClient {
     this.modelApiKey = modelApiKey;
     this.modelBaseUrl = normalizeTransitBaseUrl(extractSub2ApiBaseUrl(response) || this.modelBaseUrl);
     this.modelKeys = extractSub2ApiKeys(response);
+    this.premiumEntitlementCache = null;
     this.profile = await this.fetchProfileWithBalance(token).catch(() =>
       extractRegistrationProfile(response, fallbackIdentity, nickname),
     );
+    this.updatePremiumEntitlementCacheFromFreshProfile(this.profile);
     await this.save();
     await this.saveModelAuth();
     const session = {
@@ -1223,6 +1317,7 @@ export class YouleApiClient {
     this.businessModelPoolsCache = null;
     this.businessModelPoolsPromise = null;
     this.profile = null;
+    this.premiumEntitlementCache = null;
     this.resetConsumptionHistorySync();
     await this.save();
     await this.clearModelAuth();
@@ -3935,6 +4030,7 @@ export class YouleApiClient {
       this.modelApiKey = saved.modelApiKey || saved.sub2api?.api_key || null;
       this.modelBaseUrl = normalizeTransitBaseUrl(saved.modelBaseUrl || saved.sub2api?.transit_base_url || null);
       this.modelKeys = normalizeSub2ApiKeys(saved.modelKeys || saved.sub2api?.keys || []);
+      this.premiumEntitlementCache = saved.premiumEntitlementCache || saved.premium_entitlement_cache || null;
       const savedModelBaseUrl = saved.modelBaseUrl || saved.sub2api?.transit_base_url || null;
       const savedModelKeys = saved.modelKeys || saved.sub2api?.keys || [];
       sessionNeedsRewrite ||= Boolean(savedModelBaseUrl && savedModelBaseUrl !== this.modelBaseUrl);
@@ -3997,6 +4093,7 @@ export class YouleApiClient {
         modelBaseUrl: this.modelBaseUrl,
         modelKeys: this.modelKeys,
         profile: this.profile,
+        premiumEntitlementCache: this.premiumEntitlementCache,
         deviceId: this.deviceId,
       },
       null,

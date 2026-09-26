@@ -972,6 +972,61 @@ test("live account refresh uses low-weight per-symbol order reads and reuses slo
   assert.deepEqual(snapshot.openOrders.map((order) => order.id), ["order:401"]);
 });
 
+test("a first live refresh stays lightweight without a cached full snapshot", async () => {
+  const fetchedAt = Date.parse("2026-08-14T13:45:00.000Z");
+  const paths = [];
+  const service = new BinanceAccountService({
+    credentialStore: {
+      resolve: async () => ({ apiKey: API_KEY, apiSecret: API_SECRET }),
+    },
+    now: () => new Date(fetchedAt),
+    snapshotCacheTtlMs: 0,
+  });
+  service.serverTime = async () => fetchedAt;
+  service.walletBalances = async () => {
+    throw new Error("first live refresh must not read wallet history");
+  };
+  service.recentAccountTrades = async () => {
+    throw new Error("first live refresh must not read account-trade history");
+  };
+  service.signedGet = async ({ pathname }) => {
+    paths.push(pathname);
+    if (pathname === "/fapi/v3/account") {
+      return {
+        totalMarginBalance: "11",
+        totalMaintMargin: "0.11",
+        totalWalletBalance: "9",
+        totalUnrealizedProfit: "2",
+        totalInitialMargin: "1",
+        availableBalance: "10",
+        positions: [{ symbol: "ETHUSDT", positionSide: "BOTH" }],
+      };
+    }
+    if (pathname === "/fapi/v3/positionRisk") {
+      return [{
+        symbol: "ETHUSDT",
+        positionSide: "BOTH",
+        positionAmt: "-0.001",
+        notional: "-1.9",
+        leverage: "50",
+        marginType: "cross",
+        unRealizedProfit: "2",
+      }];
+    }
+    if (pathname === "/fapi/v1/openOrders" || pathname === "/fapi/v1/openAlgoOrders") return [];
+    throw new Error(`unexpected route ${pathname}`);
+  };
+
+  const snapshot = await service.snapshot(OWNER, { force: true, live: true });
+  assert.ok(paths.includes("/fapi/v3/account"));
+  assert.ok(paths.includes("/fapi/v3/positionRisk"));
+  assert.ok(paths.includes("/fapi/v1/openOrders"));
+  assert.ok(paths.includes("/fapi/v1/openAlgoOrders"));
+  assert.equal(paths.includes("/fapi/v1/income"), false);
+  assert.equal(snapshot.availableBalance, 10);
+  assert.equal(snapshot.positions.length, 1);
+});
+
 test("summary account refresh uses one signed account read and preserves detailed data", async () => {
   const fetchedAt = Date.parse("2026-08-14T13:50:00.000Z");
   const previousSnapshot = {

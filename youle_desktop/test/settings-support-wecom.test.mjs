@@ -22,7 +22,7 @@ test("all customer-service entries open the website support flow", async () => {
   const supportEvents = sourceBlock(source, "function bindWebsiteSupportEvents", "function bindAgentPanelEvents");
 
   assert.match(aboutBlock, /renderSettingsLinkRow\("联系客服", "", "open-website-support"\)/);
-  assert.equal((source.match(/data-action="open-website-support"/g) || []).length, 3);
+  assert.equal((source.match(/data-action="open-website-support"/g) || []).length, 4);
   assert.match(supportEvents, /api\.openWebsiteSupport\(\)/);
   assert.match(supportEvents, /HAOLO_HOME_URL\}\/\#support=open/);
   assert.match(supportEvents, /aria-busy/);

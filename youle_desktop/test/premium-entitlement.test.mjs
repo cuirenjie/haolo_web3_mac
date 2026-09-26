@@ -4,7 +4,10 @@ import test from "node:test";
 
 import {
   activeMembershipEntitlement,
+  createPremiumEntitlementCache,
+  isPremiumEntitlementRetryableError,
   premiumAccessState,
+  premiumEntitlementCacheAccess,
 } from "../src/main/premium-entitlement.mjs";
 
 const NOW = Date.parse("2026-09-02T00:00:00Z");
@@ -62,6 +65,58 @@ test("expired, malformed and synthetic experience memberships fail closed", () =
     active_membership: { plan_id: "pro" },
     total_balance: 100,
   }, NOW), "membership-required");
+});
+
+test("available entitlement snapshots can be used for a bounded outage fallback", () => {
+  const now = Date.parse("2026-09-02T00:00:00Z");
+  const profile = {
+    id: "user-cache",
+    active_membership: { plan_id: "pro", status: "active", expires_at: "2026-09-30T00:00:00Z" },
+    total_balance: 100,
+  };
+  const cache = createPremiumEntitlementCache(profile, { baseUrl: "https://haolo.com", now });
+  assert.equal(cache.accountId, "user-cache");
+  assert.equal(cache.membershipExpiresAt, "2026-09-30T00:00:00Z");
+  assert.equal(
+    premiumEntitlementCacheAccess(cache, {
+      accountId: "user-cache",
+      baseUrl: "https://haolo.com",
+      now: now + 6 * 60 * 60 * 1000,
+    }).ok,
+    true,
+  );
+  assert.equal(
+    premiumEntitlementCacheAccess(cache, {
+      accountId: "another-user",
+      baseUrl: "https://haolo.com",
+      now,
+    }).reason,
+    "account-mismatch",
+  );
+  assert.equal(
+    premiumEntitlementCacheAccess(cache, {
+      accountId: "user-cache",
+      baseUrl: "https://haolo.com",
+      now: now + 25 * 60 * 60 * 1000,
+    }).reason,
+    "stale",
+  );
+  assert.equal(
+    premiumEntitlementCacheAccess(cache, {
+      accountId: "user-cache",
+      baseUrl: "https://haolo.com",
+      now: Date.parse("2026-10-01T00:00:00Z"),
+    }).reason,
+    "expired",
+  );
+});
+
+test("cache fallback only accepts retryable entitlement failures", () => {
+  assert.equal(isPremiumEntitlementRetryableError(Object.assign(new Error("timeout"), { code: "REQUEST_TIMEOUT", retryable: true })), true);
+  assert.equal(isPremiumEntitlementRetryableError({ status: 503, retryable: true }), true);
+  assert.equal(isPremiumEntitlementRetryableError({ status: 401, code: "YOULE_AUTH_EXPIRED" }), false);
+  assert.equal(isPremiumEntitlementRetryableError({ code: "AUTH_SESSION_REQUIRED", retryable: true }), false);
+  assert.equal(isPremiumEntitlementRetryableError({ code: "INSUFFICIENT_BALANCE" }), false);
 });
 
 test("renderer and main process both enforce fresh premium access for local analysis", async () => {

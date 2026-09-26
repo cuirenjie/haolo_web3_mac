@@ -119,7 +119,11 @@ export class BinanceAccountService {
       return cached.snapshot;
     }
     const summaryOnly = summary === true && Boolean(cached?.snapshot);
-    const liveOnly = !summaryOnly && live === true && Boolean(cached?.snapshot);
+    // A live refresh is intentionally lightweight even when this is the
+    // account's first read. Falling back to a full snapshot merely because
+    // there is no cache pulls income history, wallet balances and account
+    // trades before a strategy can finish its read-only execution plan.
+    const liveOnly = !summaryOnly && live === true;
     const requestMode = summaryOnly ? "summary" : liveOnly ? "live" : "full";
     const requestKey = `${ownerId}\0${requestMode}`;
     const pending = this.snapshotRequests.get(requestKey);
