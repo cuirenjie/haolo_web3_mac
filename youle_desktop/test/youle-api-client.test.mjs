@@ -3026,6 +3026,96 @@ test("refreshSub2ApiAccount clears stale membership fields for a free account", 
   }
 });
 
+test("refreshSub2ApiAccount persists a usable entitlement cache and reuses it for transient outages", async () => {
+  const dir = await tempDir("sub2api-entitlement-cache");
+  const originalFetch = globalThis.fetch;
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  let mode = "success";
+  globalThis.fetch = async () => {
+    if (mode === "network") {
+      throw Object.assign(new Error("connection reset"), { code: "ECONNRESET" });
+    }
+    return new Response(JSON.stringify({
+      enabled: true,
+      account: {
+        status: "active",
+        total_balance: 100,
+        membership_plan: "pro",
+        membership_expires_at: expiresAt,
+        active_membership: { plan_id: "pro", status: "active", expires_at: expiresAt },
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const client = new YouleApiClient({ storagePath: path.join(dir, "session.json") });
+    client.baseUrl = "https://haolo.com";
+    client.token = "cache-token";
+    client.profile = { id: "cache-user", email: "cache@example.com" };
+    client.loaded = true;
+
+    const fresh = await client.refreshSub2ApiAccount();
+    assert.equal(fresh.entitlementSource, undefined);
+    assert.equal(client.getPremiumEntitlementCache().accountId, "cache-user");
+    const persisted = JSON.parse(await readFile(path.join(dir, "session.json"), "utf8"));
+    assert.equal(persisted.premiumEntitlementCache.accountId, "cache-user");
+
+    mode = "network";
+    const fallback = await client.refreshSub2ApiAccount();
+    assert.equal(fallback.entitlementSource, "cache");
+    assert.equal(fallback.session.profile.id, "cache-user");
+    assert.equal(fallback.session.profile.active_membership.plan_id, "pro");
+    assert.equal(fallback.entitlementCacheExpiresAt, expiresAt);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("refreshSub2ApiAccount does not use entitlement cache for an explicit auth rejection", async () => {
+  const dir = await tempDir("sub2api-entitlement-auth-rejection");
+  const originalFetch = globalThis.fetch;
+  let mode = "success";
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  globalThis.fetch = async () => {
+    if (mode === "auth") {
+      return new Response(JSON.stringify({ code: "SESSION_REVOKED", message: "session revoked" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({
+      enabled: true,
+      account: {
+        total_balance: 100,
+        membership_plan: "pro",
+        membership_expires_at: expiresAt,
+        active_membership: { plan_id: "pro", status: "active", expires_at: expiresAt },
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const client = new YouleApiClient({ storagePath: path.join(dir, "session.json") });
+    client.baseUrl = "https://haolo.com";
+    client.token = "cache-token";
+    client.profile = { id: "auth-user", email: "auth@example.com" };
+    client.loaded = true;
+    await client.refreshSub2ApiAccount();
+    mode = "auth";
+    await assert.rejects(
+      client.refreshSub2ApiAccount(),
+      (error) => error?.code === "YOULE_AUTH_EXPIRED",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("getSubscriptionBalanceDetails reads the authoritative server snapshot", async () => {
   const dir = await tempDir("subscription-balance-details");
   const originalFetch = globalThis.fetch;

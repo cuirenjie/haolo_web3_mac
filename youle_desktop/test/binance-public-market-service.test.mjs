@@ -212,9 +212,44 @@ test("main-process public service can delegate its deadline and honor renderer c
     parameters: { symbol: "ZECUSDT", interval: "4h", limit: 500 },
   }, { signal: controller.signal });
   await Promise.resolve();
-  assert.equal(receivedSignal, controller.signal);
+  assert.notEqual(receivedSignal, controller.signal);
+  assert.equal(receivedSignal?.aborted, false);
   controller.abort(new DOMException("superseded", "AbortError"));
   await assert.rejects(pending, (error) => error?.name === "AbortError");
+});
+
+test("closing the public market service drains requests before the old transport is retired", async () => {
+  let receivedSignal = null;
+  let started;
+  const startedPromise = new Promise((resolve) => { started = resolve; });
+  const service = new BinancePublicMarketService({
+    timeoutMs: 0,
+    fetch: async (_url, init) => {
+      receivedSignal = init.signal;
+      started();
+      return new Promise((resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+      });
+    },
+  });
+  const pending = service.request({
+    marketType: "futures",
+    path: "/fapi/v1/klines",
+    parameters: { symbol: "BTCUSDT", interval: "1m", limit: 500 },
+  });
+  await startedPromise;
+  const closing = service.close();
+  await assert.rejects(pending, (error) => error?.name === "AbortError");
+  await closing;
+  assert.equal(receivedSignal?.aborted, true);
+  await assert.rejects(
+    service.request({
+      marketType: "futures",
+      path: "/fapi/v1/klines",
+      parameters: { symbol: "BTCUSDT", interval: "1m", limit: 500 },
+    }),
+    (error) => error?.name === "AbortError",
+  );
 });
 
 test("renderer market REST is authenticated IPC-only and shares the main governor", async () => {
@@ -233,6 +268,8 @@ test("renderer market REST is authenticated IPC-only and shares the main governo
   assert.match(main, /pathname\.endsWith\("\/ticker\/24hr"\) && !requestUrl\.searchParams\.has\("symbol"\)/);
   assert.match(main, /BINANCE_REQUEST_PRIORITIES\.metadata/);
   assert.match(main, /binancePublicRequestCoordinator\.begin\(ownerId, requestId\)/);
+  assert.match(main, /ipcMain\.handle\("binanceMarket:publicGet"[\s\S]*await waitForAuthChangeRestart\(\)/);
+  assert.match(main, /ipcMain\.handle\("binanceMarket:streamSubscribe"[\s\S]*await waitForAuthChangeRestart\(\)/);
   assert.match(renderer, /marketDataRequestAbortController\?\.abort\(\)/);
   assert.match(renderer, /cancelBinancePublicMarketData/);
   assert.match(renderer, /window\.codexDesktop\?\.getBinancePublicMarketData/);

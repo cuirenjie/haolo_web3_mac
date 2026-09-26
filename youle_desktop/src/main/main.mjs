@@ -447,6 +447,7 @@ const pendingWorkflowInternalStartByClient = new WeakMap();
 let youleSessionMaintenanceTimer = null;
 let youleSessionExpirationPromise = null;
 let youleSessionLogoutOperation = null;
+let authChangeRestartPromise = null;
 let wechatExternalChannelServer = null;
 let wechatExternalChannelBackendPollTimer = null;
 let wechatExternalChannelBackendPollRunning = false;
@@ -4629,6 +4630,11 @@ function getBinanceAccountService() {
 }
 
 async function resetBinanceNetworkRuntimeAfterAuthChange() {
+  const pendingPublicMarketService = binancePublicMarketService;
+  binancePublicMarketService = null;
+  binanceGatewayNetworkFetch = null;
+  binancePublicRequestCoordinator.cancelAll();
+  await pendingPublicMarketService?.close?.();
   const pendingAlertService = tradingAlertServicePromise
     ? await tradingAlertServicePromise.catch(() => null)
     : null;
@@ -4645,7 +4651,6 @@ async function resetBinanceNetworkRuntimeAfterAuthChange() {
     try { await record.dispose?.(); } catch {}
   }
   binanceMarketRendererSubscriptions.clear();
-  binancePublicRequestCoordinator.cancelAll();
   if (tradingMarketDataHub) {
     try { await tradingMarketDataHub.close(); } catch {}
     tradingMarketDataHub = null;
@@ -4661,7 +4666,6 @@ async function resetBinanceNetworkRuntimeAfterAuthChange() {
   }
   binanceRoutePreferenceStore = null;
   binanceGatewayClient = null;
-  binancePublicMarketService = null;
   binanceAccountService = null;
   // The loopback bridge is intentionally long-lived, but its service may have
   // been created before this auth reset. Recreate it on the next invocation as
@@ -6830,37 +6834,50 @@ function youleAuthPath() {
   return path.join(app.getPath("userData"), "default-haolo-ai", "auth.json");
 }
 
+async function waitForAuthChangeRestart() {
+  while (authChangeRestartPromise) await authChangeRestartPromise;
+}
+
 async function restartClientAfterAuthChange() {
-  await resetBinanceNetworkRuntimeAfterAuthChange();
-  const clients = [...appServerClients.values()];
-  for (const serverClient of clients.length ? clients : [client]) {
-    if (!serverClient) continue;
-    try {
-      await stopAppServerClient(serverClient);
-    } catch {
-      // Continue stopping the rest.
+  if (authChangeRestartPromise) return authChangeRestartPromise;
+  const operation = (async () => {
+    await resetBinanceNetworkRuntimeAfterAuthChange();
+    const clients = [...appServerClients.values()];
+    for (const serverClient of clients.length ? clients : [client]) {
+      if (!serverClient) continue;
+      try {
+        await stopAppServerClient(serverClient);
+      } catch {
+        // Continue stopping the rest.
+      }
     }
-  }
-  appServerClients.clear();
-  appServerClientByThreadId.clear();
-  appServerWorkspaceByKey.clear();
-  idleStoppingAppServerKeys.clear();
+    appServerClients.clear();
+    appServerClientByThreadId.clear();
+    appServerWorkspaceByKey.clear();
+    idleStoppingAppServerKeys.clear();
 
-  resetHaoloNetworkTransport();
+    resetHaoloNetworkTransport();
 
-  if (githubMcpBridge) {
-    try {
-      await withShutdownTimeout("GitHub MCP bridge", githubMcpBridge.stop());
-    } catch (error) {
-      console.warn("[github-mcp] failed to stop bridge", error?.message || error);
-    } finally {
-      githubMcpBridge = null;
-      delete process.env.HAOLO_GITHUB_BROKER_URL;
-      delete process.env.HAOLO_GITHUB_BROKER_TOKEN;
+    if (githubMcpBridge) {
+      try {
+        await withShutdownTimeout("GitHub MCP bridge", githubMcpBridge.stop());
+      } catch (error) {
+        console.warn("[github-mcp] failed to stop bridge", error?.message || error);
+      } finally {
+        githubMcpBridge = null;
+        delete process.env.HAOLO_GITHUB_BROKER_URL;
+        delete process.env.HAOLO_GITHUB_BROKER_TOKEN;
+      }
     }
+    internalSubagentThreads.clearAll();
+    client = null;
+  })();
+  authChangeRestartPromise = operation;
+  try {
+    return await operation;
+  } finally {
+    if (authChangeRestartPromise === operation) authChangeRestartPromise = null;
   }
-  internalSubagentThreads.clearAll();
-  client = null;
 }
 
 const consumptionInteractionByTurnId = new Map();
@@ -13102,6 +13119,7 @@ ipcMain.handle("marketData:getPublicIndices", async (event) => {
 
 ipcMain.handle("binanceMarket:publicGet", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
+  await waitForAuthChangeRestart();
   const requestId = String(params.requestId || "").trim();
   if (!requestId) return getBinancePublicMarketService().request(params);
   const ownerId = event.sender.id;
@@ -13123,6 +13141,7 @@ ipcMain.handle("binanceMarket:publicCancel", async (event, params = {}) => {
 });
 ipcMain.handle("binanceMarket:streamSubscribe", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
+  await waitForAuthChangeRestart();
   const subscriptionId = String(params.subscriptionId || "").trim();
   if (!/^renderer-market-[a-z0-9-]{8,80}$/i.test(subscriptionId)) throw new TypeError("invalid market subscription id");
   const existing = binanceMarketRendererSubscriptions.get(subscriptionId);
@@ -15327,8 +15346,11 @@ async function requireFreshTradingPremiumAccess() {
     });
   } catch (cause) {
     const causeCode = String(cause?.code || "");
-    if (["HAOLO_AUTH_REQUIRED", "HAOLO_ACCOUNT_ID_REQUIRED"].includes(causeCode)) {
-      throw tradingPremiumAccessError(causeCode, "请先登录 Haolo 后再使用盘面分析", false, cause);
+    if (
+      ["HAOLO_AUTH_REQUIRED", "HAOLO_ACCOUNT_ID_REQUIRED", "YOULE_AUTH_EXPIRED"].includes(causeCode)
+      || /请先登录|登录已过期|重新登录/iu.test(String(cause?.message || ""))
+    ) {
+      throw tradingPremiumAccessError(causeCode || "HAOLO_AUTH_REQUIRED", "请先登录 Haolo 后再使用盘面分析", false, cause);
     }
     throw tradingPremiumAccessError(
       "TRADING_ENTITLEMENT_UNAVAILABLE",

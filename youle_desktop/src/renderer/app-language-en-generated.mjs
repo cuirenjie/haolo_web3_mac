@@ -1850,6 +1850,7 @@ export const GENERATED_ENGLISH_UI_PHRASES = Object.freeze({
   "请稍等，正在获取飞书授权二维码": "Please wait a minute. We're getting a 2-dimensional clearance.",
   "请使用飞书扫码授权": "Use the flybook scan.",
   "请使用微信扫码授权": "Use the micro-mail scan authorization.",
+  "连接后请保持电脑在线": "Keep your computer online after connecting.",
   "请输入 1–10000 之间的整数。": "Enter the integer between 1 and 10,000.",
   "请输入 6 位邮箱验证码。": "Please enter a 6-bit mailbox authentication code.",
   "请输入两个字的标记名称": "Please enter the name of the tag for two words",

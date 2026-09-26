@@ -333,7 +333,7 @@ test("history conversations render as one-line titles and the blank thread is no
   assert.match(sections, /threads\.filter\(\(thread\) => !isBlankNewThread\(thread\.id\)\)/);
 });
 
-test("sidebar actions follow Codex order, with settings moved from the titlebar to the bottom-left icon", async () => {
+test("sidebar actions follow Codex order, with settings and customer service at the bottom-left", async () => {
   const source = await rendererSource;
   const actions = sourceBlock(source, "function renderConversationListActions", "function renderChatList");
   const titlebarActions = sourceBlock(source, "function renderTitlebarPrimaryActions", "function renderWindowControls");
@@ -367,6 +367,10 @@ test("sidebar actions follow Codex order, with settings moved from the titlebar 
   assert.match(footer, /title="设置"[^]*aria-label="设置"[^]*aria-haspopup="dialog"/);
   assert.match(footer, /aria-expanded="\$\{state\.settingsOpen \? "true" : "false"\}"/);
   assert.match(footer, /renderConversationListIcon\("settings"\)/);
+  assert.match(footer, /class="conversation-list-support-button"/);
+  assert.match(footer, /data-action="open-website-support"/);
+  assert.match(footer, /title="联系客服"[^]*aria-label="联系客服"/);
+  assert.match(footer, /renderConversationListIcon\("support"\)/);
   assert.ok(chatList.indexOf("renderUpdateDownloadDock()") < chatList.indexOf("renderConversationListFooter()"));
   assert.doesNotMatch(actions, /open-group-chat-dialog|renderConversationListIcon\("group-chat"\)|创建群聊/);
   assert.doesNotMatch(source, /renderChatNewMenu|CHAT_NEW_PLUS|create-workflow-canvas|createBlankWorkflowCanvas/);
@@ -391,7 +395,7 @@ test("the sidebar skills action opens the existing skills and plugins page", asy
   );
 });
 
-test("the bottom-left settings icon blends into its sidebar and covers themed interaction states", async () => {
+test("the bottom-left settings and customer-service icons blend into their sidebar and cover themed interaction states", async () => {
   const styles = await stylesSource;
 
   assert.match(styles, /\.conversation-list-footer\s*\{[^}]*flex:\s*0 0 auto;[^}]*background:\s*transparent;/s);
@@ -400,9 +404,14 @@ test("the bottom-left settings icon blends into its sidebar and covers themed in
   assert.match(styles, /\.conversation-list-settings-button:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/s);
   assert.match(styles, /\.conversation-list-settings-button:active:not\(:disabled\)\s*\{[^}]*background:\s*var\(--surface-active-translucent\);/s);
   assert.match(styles, /\.conversation-list-settings-button:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
+  assert.match(styles, /\.conversation-list-support-button\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-secondary\);/s);
+  assert.match(styles, /\.conversation-list-support-button:is\(:hover, :focus-visible\),[\s\S]*?\.conversation-list-support-button\.active\s*\{[^}]*background:\s*var\(--conversation-action-hover\);[^}]*color:\s*var\(--text-primary\);/s);
+  assert.match(styles, /\.conversation-list-support-button:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/s);
+  assert.match(styles, /\.conversation-list-support-button:active:not\(:disabled\)\s*\{[^}]*background:\s*var\(--surface-active-translucent\);/s);
+  assert.match(styles, /\.conversation-list-support-button:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
 });
 
-test("sidebar membership and settings render as independent buttons with independent active states", async () => {
+test("sidebar membership, settings and customer service render as independent buttons", async () => {
   const source = await rendererSource;
   const footerSource = sourceBlock(source, "function renderConversationListFooter", "function renderChatList");
   for (const activeView of ["chat", "recharge"]) {
@@ -412,13 +421,16 @@ test("sidebar membership and settings render as independent buttons with indepen
         renderConversationListIcon: () => '<svg aria-hidden="true"></svg>',
       });
       const buttons = [...markup.matchAll(/<button\b[^]*?<\/button>/g)].map(([button]) => button);
-      assert.equal(buttons.length, 2);
-      const [settings, recharge] = buttons;
-      assert.equal((markup.match(/<button\b/g) || []).length, 2, "buttons cannot nest");
+      assert.equal(buttons.length, 3);
+      const [settings, support, recharge] = buttons;
+      assert.equal((markup.match(/<button\b/g) || []).length, 3, "buttons cannot nest");
       assert.doesNotMatch(markup.match(/<footer[^>]*>/)[0], /data-action|role="button"/);
       assert.match(settings, /data-action="open-settings"/);
       assert.match(settings, new RegExp(`aria-expanded="${settingsOpen}"`));
       assert.doesNotMatch(settings, /profile-quota|会员充值|aria-current/);
+      assert.match(support, /data-action="open-website-support"/);
+      assert.match(support, /title="联系客服"[^]*aria-label="联系客服"/);
+      assert.doesNotMatch(support, /open-settings|profile-quota|aria-expanded|aria-current/);
       assert.match(recharge, /data-action="profile-quota"/);
       assert.match(recharge, /<span>会员充值<\/span>/);
       assert.doesNotMatch(recharge, /open-settings|aria-haspopup|aria-expanded/);
@@ -453,7 +465,9 @@ test("membership entry separates hit areas and supplies all theme and interactio
   for (const token of ["bg", "hover", "active", "border", "text", "shadow"]) {
     for (const theme of [light, dark]) assert.match(theme, new RegExp(`--recharge-entry-${token}:`));
   }
-  assert.match(light, /gap:\s*10px/);
+  assert.match(light, /gap:\s*0/);
+  assert.match(styles, /\.conversation-list-settings-button\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
+  assert.match(styles, /\.conversation-list-support-button\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
   const button = sourceBlock(styles, ".conversation-list-recharge-button {", ".update-download-dock {");
   assert.match(button, /background: var\(--recharge-entry-bg\)/);
   assert.match(button, /color: var\(--recharge-entry-text\)/);

@@ -217,6 +217,9 @@ export class BinancePublicMarketService {
       spot: normalizeBaseUrl(baseUrls?.spot, DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS.spot),
     });
     this.cache = new Map();
+    this.lifecycleController = new AbortController();
+    this.pendingRequests = new Set();
+    this.closePromise = null;
   }
 
   currentTimeMs() {
@@ -278,7 +281,27 @@ export class BinancePublicMarketService {
     while (this.cache.size > MAX_CACHE_ENTRIES) this.cache.delete(this.cache.keys().next().value);
   }
 
-  async request(value = {}, { signal: callerSignal } = {}) {
+  request(value = {}, { signal: callerSignal } = {}) {
+    const lifecycleSignal = this.lifecycleController.signal;
+    if (lifecycleSignal.aborted) return Promise.reject(lifecycleSignal.reason);
+    const signal = callerSignal
+      ? AbortSignal.any([callerSignal, lifecycleSignal])
+      : lifecycleSignal;
+    const pending = this.requestInternal(value, { signal });
+    this.pendingRequests.add(pending);
+    const removePending = () => this.pendingRequests.delete(pending);
+    pending.then(removePending, removePending);
+    return pending;
+  }
+
+  close(reason = new DOMException("The Binance market service is closing", "AbortError")) {
+    if (this.closePromise) return this.closePromise;
+    this.lifecycleController.abort(reason);
+    this.closePromise = Promise.allSettled([...this.pendingRequests]).then(() => undefined);
+    return this.closePromise;
+  }
+
+  async requestInternal(value = {}, { signal: callerSignal } = {}) {
     let request;
     try {
       request = normalizeBinancePublicMarketRequest(value, { baseUrls: this.baseUrls });

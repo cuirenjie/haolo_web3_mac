@@ -152,7 +152,12 @@ export function normalizeTradingRoutingSymbol(value) {
   const quote = QUOTE_ASSETS.find((asset) => compact.endsWith(asset));
   if (quote) {
     const base = compact.slice(0, -quote.length);
-    if (!base || (/\p{Script=Han}/u.test(base) && HAN_NON_ASSET_FRAGMENT.test(base))) return null;
+    // A Han/ASCII mixture before the quote is almost always sentence text
+    // glued to a ticker (for example `根据我的仓位ETHUSDT`). Let the intent
+    // model own normal extraction; this deterministic recovery parser must
+    // fail closed instead of creating an impossible market symbol.
+    if (!base || (/\p{Script=Han}/u.test(base)
+      && (/[A-Z0-9]/u.test(base) || HAN_NON_ASSET_FRAGMENT.test(base)))) return null;
     return compact;
   }
   // Arbitrary Han text is natural language far more often than a ticker. Bare

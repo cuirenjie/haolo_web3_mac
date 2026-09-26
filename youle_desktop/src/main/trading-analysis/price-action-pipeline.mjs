@@ -172,7 +172,13 @@ function personalizedTradingSettings(value) {
 
 export function buildPriceActionModelPrompt(snapshot, result, context = {}) {
   const preferences = personalizedTradingSettings(context.userRiskProfile);
+  const structuredContext = context.analysisContext && typeof context.analysisContext === "object"
+    ? context.analysisContext
+    : null;
   const positionManagementRequested = !personalRiskUnavailable(context) && (context.positionManagementRequested === true
+    || structuredContext?.intent === "position-management"
+    || structuredContext?.position?.side === "long"
+    || structuredContext?.position?.side === "short"
     || isPositionManagementInstruction(context.instruction));
   const directAnswer = context.responseMode === "direct" || positionManagementRequested;
   return [
@@ -204,6 +210,8 @@ export function buildPriceActionModelPrompt(snapshot, result, context = {}) {
     }),
     "用户要求：",
     JSON.stringify(String(context.instruction || "分析当前盘面")),
+    "语义路由上下文（由意图模型生成；只可按字段引用，缺失字段不得补写成事实）：",
+    JSON.stringify(structuredContext || {}),
     "用户已保存的交易配置（所有仓位和计划建议必须遵守；与当前请求冲突时指出风险并给出合规备选）：",
     JSON.stringify(preferences),
     "确定性结果（价位只能引用 levels）：",
@@ -451,6 +459,7 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
       instruction: params?.instruction,
       responseMode: params?.responseMode,
       positionManagementRequested: params?.positionManagementRequested === true,
+      analysisContext: params?.analysisContext || null,
       userRiskProfile: params?.userRiskProfile,
     }),
     responseFormat: "json",
@@ -466,6 +475,9 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
   const { modelResponse, review: modelReview } = reviewed;
   const drawingPatch = buildPriceActionDrawingPatch(snapshot, theoryResult, modelReview);
   const positionManagementRequested = params?.positionManagementRequested === true
+    || params?.analysisContext?.intent === "position-management"
+    || params?.analysisContext?.position?.side === "long"
+    || params?.analysisContext?.position?.side === "short"
     || isPositionManagementInstruction(params?.instruction);
   const directResponseRequested = params?.responseMode === "direct" || positionManagementRequested;
   const baseReport = buildPriceActionReport(snapshot, theoryResult, modelReview, {

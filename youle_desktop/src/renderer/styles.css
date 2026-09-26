@@ -7397,8 +7397,8 @@ html[data-theme="dark"] .auto-task-thread-avatar img {
   min-height: 54px;
   flex: 0 0 auto;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px 11px;
+  gap: 0;
+  padding: 9px 12px 11px 8px;
   background: transparent;
 }
 
@@ -7412,10 +7412,12 @@ html[data-theme="dark"] .conversation-list-footer {
 }
 
 .conversation-list-settings-button {
+  position: relative;
+  left: -7px;
   display: grid;
-  width: 34px;
+  width: 24px;
   height: 34px;
-  flex: 0 0 34px;
+  flex: 0 0 24px;
   place-items: center;
   border-radius: 8px;
   background: transparent;
@@ -7445,6 +7447,48 @@ html[data-theme="dark"] .conversation-list-footer {
 }
 
 .conversation-list-settings-button:disabled {
+  background: transparent;
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.conversation-list-support-button {
+  position: relative;
+  left: -7px;
+  display: grid;
+  width: 24px;
+  height: 34px;
+  flex: 0 0 24px;
+  place-items: center;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.conversation-list-support-button .conversation-list-icon {
+  width: 19px;
+  height: 19px;
+}
+
+.conversation-list-support-button:is(:hover, :focus-visible),
+.conversation-list-support-button.active {
+  background: var(--conversation-action-hover);
+  color: var(--text-primary);
+}
+
+.conversation-list-support-button:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 1px var(--conversation-action-focus);
+}
+
+.conversation-list-support-button:active:not(:disabled) {
+  background: var(--surface-active-translucent);
+  transform: scale(0.96);
+}
+
+.conversation-list-support-button:disabled {
   background: transparent;
   color: var(--text-muted);
   cursor: not-allowed;

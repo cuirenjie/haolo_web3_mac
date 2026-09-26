@@ -8,6 +8,7 @@ const LABELS = {
   authentication: ["分析服务身份验证失败", "Analysis service authentication failed"],
   membership: ["当前套餐或积分不可用", "The current plan or credits are unavailable"],
   policy: ["分析结果未通过权限校验", "The analysis failed permission checks"],
+  model_unavailable: ["当前服务通道不支持所选模型，请联系管理员配置可用通道", "The selected model is unavailable on this service. Contact an administrator to configure a supported route."],
   model_empty: ["分析模型返回了空结果", "The analysis model returned an empty result"],
   model_validation: ["模型结果未通过格式或规则校验", "The model result failed format or rule validation"],
   timeout: ["分析服务响应超时", "The analysis service timed out"],
@@ -34,6 +35,7 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   else if (code === "TRADING_ENTITLEMENT_UNAVAILABLE" || /无法验证会员权益/u.test(message)) category = "entitlement";
   else if (/TRIAL_REQUIRED|INSUFFICIENT_BALANCE/.test(code) || /未开通有效|没有可用积分|积分不足|余额不足/iu.test(message)) category = "membership";
   else if (/AUTH|ACCOUNT_ID_REQUIRED|INVALID_API_KEY/.test(code) || [401, 403].includes(status) || /unauthori[sz]ed|invalid api key|authentication failed|请先登录|未登录/iu.test(message)) category = "authentication";
+  else if (facts.modelUnavailable) category = "model_unavailable";
   else if (/SIDE_EFFECT|PERMISSION|POLICY/.test(code)
     || /PERMISSION_DENIED|MODEL_ROUTE_GROUP_MISMATCH|THREAD_PROVIDER_MISMATCH|PROVIDER_SWITCH_RUNTIME_BUSY|provider switch was not applied|provider recovery is waiting|API key is not bound to its route group/i.test(message)) category = "policy";
   else if (stage === "drawing") category = "drawing";
@@ -47,7 +49,7 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
     category,
     summary: LABELS[category][language === "en" ? 1 : 0],
     cancelled: category === "cancelled",
-    allowLocalRecovery: !["cancelled", "authentication", "membership", "entitlement", "policy", "secure_storage", "personal_memory", "market_refresh"].includes(category),
+    allowLocalRecovery: !["cancelled", "authentication", "membership", "entitlement", "policy", "model_unavailable", "secure_storage", "personal_memory", "market_refresh"].includes(category),
   });
 }
 

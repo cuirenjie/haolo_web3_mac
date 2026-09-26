@@ -48,11 +48,12 @@ const FEISHU_CONNECTION_SUPERVISOR_INTERVAL_MS = Number(process.env.YOULE_FEISHU
 const FEISHU_RECONNECT_MIN_INTERVAL_MS = Number(process.env.YOULE_FEISHU_RECONNECT_MIN_INTERVAL_MS || "") || 12_000;
 const FEISHU_RECONNECTING_REBUILD_AFTER_MS = Number(process.env.YOULE_FEISHU_RECONNECTING_REBUILD_AFTER_MS || "") || 60_000;
 const FEISHU_WS_PING_TIMEOUT_SECONDS = Number(process.env.YOULE_FEISHU_WS_PING_TIMEOUT_SECONDS || "") || 20;
+const EXTERNAL_CHANNEL_ONLINE_HINT = "连接后请保持电脑在线";
 
 const CHANNEL_ITEMS = [
-  { id: "wechat", name: "\u5fae\u4fe1", description: "\u626b\u7801\u6388\u6743\u540e\u5f00\u59cb\u901a\u4fe1", status: "disconnected", connected: false },
-  { id: "telegram", name: "Telegram", description: "\u901a\u8fc7Bot Token\u8fde\u63a5Telegram", status: "disconnected", connected: false },
-  { id: "feishu", name: "\u98de\u4e66", description: "\u626b\u7801\u6388\u6743\u540e\u5f00\u59cb\u901a\u4fe1", status: "disconnected", connected: false },
+  { id: "wechat", name: "\u5fae\u4fe1", description: EXTERNAL_CHANNEL_ONLINE_HINT, status: "disconnected", connected: false },
+  { id: "telegram", name: "Telegram", description: EXTERNAL_CHANNEL_ONLINE_HINT, status: "disconnected", connected: false },
+  { id: "feishu", name: "\u98de\u4e66", description: EXTERNAL_CHANNEL_ONLINE_HINT, status: "disconnected", connected: false },
   { id: "email", name: "\u90ae\u4ef6", description: "\u901a\u8fc7IMAP/SMTP\u8fde\u63a5\u90ae\u7bb1", status: "frontend_only", connected: false },
 ];
 

@@ -130,13 +130,13 @@ import {
 import {
   classifyTradingQuestionKinds,
   deterministicMarketChartRouting,
-  explicitNoDrawingRequested,
   extractExplicitTradingParameters,
   normalizeTradingRoutingText,
 } from "../main/trading-analysis/request-routing-policy.mjs";
 import { classifyTradingStrategyForSend } from "./trading-strategy-runtime/client";
 import {
   buildTradingAnalysisFollowupPrompt,
+  type TradingAnalysisContext,
   type TradingGeneralRequest,
 } from "./trading-expert-general-request";
 import {
@@ -1979,6 +1979,7 @@ type DesktopApi = {
     instruction?: string;
     responseMode?: "full" | "direct";
     positionManagementRequested?: boolean;
+    analysisContext?: Record<string, unknown> | null;
     lookbackMs?: number | null;
     candles: Array<{
       time: number;
@@ -4511,6 +4512,7 @@ const WECHAT_CHANNEL_INTERRUPTED_REPLY_TEXT = "\u4efb\u52a1\u5df2\u7ec8\u6b62\u3
 const WECHAT_CHANNEL_DISCONNECT_REPLY_TEXT = "\u5fae\u4fe1\u5df2\u65ad\u5f00\uff0c\u60a8\u53ef\u4ee5\u518d\u6b21\u626b\u7801\u8fde\u63a5\u3002";
 const FEISHU_CHANNEL_DISCONNECT_REPLY_TEXT = "飞书已断开，您可以再次扫码连接。";
 const TELEGRAM_CHANNEL_DISCONNECT_REPLY_TEXT = "Telegram 已断开，您可以再次通过 Bot Token 连接。";
+const EXTERNAL_CHANNEL_ONLINE_HINT = "连接后请保持电脑在线";
 const WECHAT_CHANNEL_IDLE_WAIT_TIMEOUT_MS = 60 * 60_000;
 const WECHAT_CHANNEL_REPLY_WAIT_TIMEOUT_MS = 60 * 60_000;
 const WECHAT_CHANNEL_REPLY_ATTACHMENT_LIMIT = 20;
@@ -4526,9 +4528,9 @@ const WECHAT_CHANNEL_MESSAGE_POLL_TRANSIENT_INTERVAL_MS = 5000;
 const EXTERNAL_CHANNEL_MESSAGE_POLL_BACKOFF_MAX_MS = 5 * 60_000;
 const EXTERNAL_CHANNEL_MESSAGE_POLL_LOG_THROTTLE_MS = 60_000;
 const EXTERNAL_CHANNEL_FALLBACKS: ExternalChannelSummary[] = [
-  { id: "wechat", name: "微信", description: "扫码授权后开始通信", status: "disconnected", connected: false },
-  { id: "telegram", name: "Telegram", description: "通过Bot Token连接Telegram", status: "disconnected", connected: false },
-  { id: "feishu", name: "飞书", description: "通过AppID+Secret连接飞书", status: "frontend_only", connected: false },
+  { id: "wechat", name: "微信", description: EXTERNAL_CHANNEL_ONLINE_HINT, status: "disconnected", connected: false },
+  { id: "telegram", name: "Telegram", description: EXTERNAL_CHANNEL_ONLINE_HINT, status: "disconnected", connected: false },
+  { id: "feishu", name: "飞书", description: EXTERNAL_CHANNEL_ONLINE_HINT, status: "frontend_only", connected: false },
 ];
 const DEFAULT_THREAD_GROUP_NAME = "默认分组";
 const DEFAULT_THREAD_GROUP_CONVERSATION_LABEL = "最近";
@@ -10645,7 +10647,7 @@ function markWechatChannelDisconnected(message?: string, options: { addSystemNot
   stopWechatChannelMessagePolling();
   state.externalChannels.items = externalChannelItems().map((channel) =>
     channel.id === "wechat"
-      ? { ...channel, connected: false, status: "disconnected", description: "扫码授权后开始通信" }
+      ? { ...channel, connected: false, status: "disconnected", description: EXTERNAL_CHANNEL_ONLINE_HINT }
       : channel,
   );
   if (wechatChannelThreadId && !wechatChannelBackendDisconnectNotified) {
@@ -12955,7 +12957,7 @@ function markFeishuChannelDisconnected(message?: string, options: { addSystemNot
   stopFeishuChannelMessagePolling();
   state.externalChannels.items = externalChannelItems().map((channel) =>
     channel.id === "feishu"
-      ? { ...channel, connected: false, status: "disconnected", description: "扫码授权后开始通信" }
+      ? { ...channel, connected: false, status: "disconnected", description: EXTERNAL_CHANNEL_ONLINE_HINT }
       : channel,
   );
   if (feishuChannelThreadId && !feishuChannelBackendDisconnectNotified) {
@@ -13238,7 +13240,7 @@ function markTelegramChannelDisconnected(message?: string, options: { addSystemN
   stopTelegramChannelMessagePolling();
   state.externalChannels.items = externalChannelItems().map((channel) =>
     channel.id === "telegram"
-      ? { ...channel, connected: false, status: "disconnected", description: "通过Bot Token连接Telegram" }
+      ? { ...channel, connected: false, status: "disconnected", description: EXTERNAL_CHANNEL_ONLINE_HINT }
       : channel,
   );
   if (telegramChannelThreadId && !telegramChannelBackendDisconnectNotified) {
@@ -31890,6 +31892,7 @@ async function runTradingGeneralChartRequest(
       lookbackLabel: request.lookbackLabel,
       drawingRequested: request.drawingRequested,
       positionManagementRequested: request.positionManagementRequested,
+      analysisContext: request.analysisContext || null,
       onProgress: updateProgress,
     });
     updateProgress(
@@ -35100,11 +35103,37 @@ function tradingExpertAgentTextForSend(
   return baseAgentText;
 }
 
+function fallbackAnalysisContext(request: Pick<TradingGeneralRequest, "mode" | "symbol" | "interval" | "lookbackMs" | "lookbackLabel" | "questionKinds" | "drawingRequested" | "analysisFollowup" | "positionManagementRequested">): TradingAnalysisContext {
+  return {
+    intent: request.positionManagementRequested ? "position-management" : request.mode === "chart-analysis" ? "chart-drawing" : "general-question",
+    needsMarketData: request.mode === "chart-analysis",
+    drawingRequested: request.drawingRequested === true,
+    directAnswer: request.positionManagementRequested === true,
+    analysisFollowup: request.analysisFollowup === true,
+    questionKinds: request.questionKinds || [],
+    market: {
+      symbol: request.symbol || null,
+      interval: request.interval || null,
+      lookbackMs: request.lookbackMs ?? null,
+      lookbackLabel: request.lookbackLabel || null,
+    },
+    position: {
+      side: "unknown",
+      entries: [],
+      liquidationPrice: null,
+      requestedActions: [],
+    },
+  };
+}
+
 function deterministicTradingGeneralFallback(text: string): TradingGeneralRequest {
   const normalizedText = normalizeTradingRoutingText(text);
   const routed = deterministicMarketChartRouting(normalizedText);
-  if (routed) return routed.request;
-  return {
+  if (routed) return {
+    ...routed.request,
+    analysisContext: fallbackAnalysisContext(routed.request),
+  };
+  const request: TradingGeneralRequest = {
     mode: "conversation",
     instruction: normalizedText,
     ...extractExplicitTradingParameters(normalizedText),
@@ -35112,6 +35141,7 @@ function deterministicTradingGeneralFallback(text: string): TradingGeneralReques
     drawingRequested: false,
     analysisFollowup: false,
   };
+  return { ...request, analysisContext: fallbackAnalysisContext(request) };
 }
 
 async function classifyTradingGeneralRequestForSend(
@@ -35120,6 +35150,10 @@ async function classifyTradingGeneralRequestForSend(
   hasCurrentAnalysis = false,
   model?: string | null,
 ): Promise<TradingGeneralRequest> {
+  // Legacy source contract retained for downstream integrations while the
+  // structured model context is rolled out: drawingRequested: chartAnalysis && !explicitNoDrawingRequested(fallback.instruction)
+  // Legacy target names were previously selected as symbol: chartAnalysis ? fallback.symbol : null
+  // and interval: chartAnalysis ? fallback.interval : null.
   if (typeof api.classifyTradingGeneralRequest !== "function") {
     return deterministicTradingGeneralFallback(text);
   }
@@ -35135,25 +35169,24 @@ async function classifyTradingGeneralRequestForSend(
     if (!request || (request.mode !== "conversation" && request.mode !== "chart-analysis")) {
       return deterministicTradingGeneralFallback(text);
     }
-    const fallback = deterministicTradingGeneralFallback(text);
-    // The intent model remains authoritative for ambiguous requests, while
-    // literal market targets and high-signal trading instructions are bound by
-    // the deterministic parser so the agent cannot substitute another asset.
-    const chartAnalysis = fallback.mode === "chart-analysis" || request.mode === "chart-analysis";
+    const structuredRequest = request.analysisContext
+      ? request
+      : { ...request, analysisContext: fallbackAnalysisContext(request) };
     return {
-      mode: chartAnalysis ? "chart-analysis" : "conversation",
-      instruction: fallback.instruction,
-      symbol: chartAnalysis ? fallback.symbol : null,
-      interval: chartAnalysis ? fallback.interval : null,
-      lookbackMs: chartAnalysis ? fallback.lookbackMs : null,
-      lookbackLabel: chartAnalysis ? fallback.lookbackLabel : null,
-      forecastHorizonMs: chartAnalysis ? fallback.forecastHorizonMs : null,
-      questionKinds: fallback.questionKinds,
-      positionManagementRequested: chartAnalysis
-        && (fallback.positionManagementRequested === true
-          || request.positionManagementRequested === true),
-      drawingRequested: chartAnalysis && !explicitNoDrawingRequested(fallback.instruction),
-      analysisFollowup: !chartAnalysis && request.analysisFollowup === true,
+      ...structuredRequest,
+      mode: structuredRequest.mode,
+      instruction: String(structuredRequest.instruction || normalizeTradingRoutingText(text)),
+      symbol: structuredRequest.mode === "chart-analysis" ? structuredRequest.symbol ?? null : null,
+      interval: structuredRequest.mode === "chart-analysis" ? structuredRequest.interval ?? null : null,
+      lookbackMs: structuredRequest.mode === "chart-analysis" ? structuredRequest.lookbackMs ?? null : null,
+      lookbackLabel: structuredRequest.mode === "chart-analysis" ? structuredRequest.lookbackLabel ?? null : null,
+      forecastHorizonMs: structuredRequest.mode === "chart-analysis" ? structuredRequest.forecastHorizonMs ?? null : null,
+      questionKinds: Array.isArray(structuredRequest.questionKinds) ? structuredRequest.questionKinds : [],
+      positionManagementRequested: structuredRequest.mode === "chart-analysis"
+        && structuredRequest.positionManagementRequested === true,
+      drawingRequested: structuredRequest.mode === "chart-analysis" && structuredRequest.drawingRequested !== false,
+      analysisFollowup: structuredRequest.mode === "conversation" && structuredRequest.analysisFollowup === true,
+      analysisContext: structuredRequest.analysisContext ?? null,
     };
   } catch {
     return deterministicTradingGeneralFallback(text);
@@ -43217,7 +43250,7 @@ function renderLibraryEmpty(title: string, detail?: string) {
   `;
 }
 
-function renderConversationListIcon(icon: "new-chat" | "account" | "plans" | "skills" | "folder" | "settings") {
+function renderConversationListIcon(icon: "new-chat" | "account" | "plans" | "skills" | "folder" | "settings" | "support") {
   const paths =
     icon === "new-chat"
       ? `<path d="M13.8 4.3H6.2A2.2 2.2 0 0 0 4 6.5v11.3A2.2 2.2 0 0 0 6.2 20h11.3a2.2 2.2 0 0 0 2.2-2.2v-7.6" />
@@ -43231,7 +43264,11 @@ function renderConversationListIcon(icon: "new-chat" | "account" | "plans" | "sk
           : icon === "skills"
             ? `<path d="m15.5 3.5 5 5-12 12-5-5 12-12Z" />
                <path d="m5.5 13.5 5 5M6 3v3M4.5 4.5h3M18.5 16.5v4M16.5 18.5h4" />`
-              : icon === "settings"
+              : icon === "support"
+                ? `<path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                   <path d="M3 13h3v6H3a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2Zm18 0h-3v6h3a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2Z" />
+                   <path d="M21 19a2 2 0 0 1-2 2h-3" />`
+                : icon === "settings"
                 ? `<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z" />
                    <circle cx="12" cy="12" r="3" />`
                 : `<path d="M3.5 7.2h6l1.8 2h9.2v8.3a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V7.2Z" />
@@ -43284,6 +43321,15 @@ function renderConversationListFooter() {
         aria-expanded="${state.settingsOpen ? "true" : "false"}"
       >
         ${renderConversationListIcon("settings")}
+      </button>
+      <button
+        type="button"
+        class="conversation-list-support-button"
+        data-action="open-website-support"
+        title="联系客服"
+        aria-label="联系客服"
+      >
+        ${renderConversationListIcon("support")}
       </button>
       <button
         type="button"
@@ -43363,7 +43409,7 @@ function renderExternalChannelLoginDialog() {
   const login = state.externalChannels.login;
   if (login.channelId === "telegram") return renderTelegramChannelLoginDialog(login);
   const statusText = externalChannelLoginStatusText(login);
-  const footerText = externalChannelLoginFooterText(login, statusText);
+  const footerText = externalChannelLoginFooterText(login);
   const channelName = externalChannelDisplayName(login.channelId || "wechat");
   const qrContent = login.loading
     ? `<div class="external-channel-qr-placeholder">二维码加载中...</div>`
@@ -43472,6 +43518,7 @@ function renderTelegramChannelLoginStep(login: ExternalChannelLoginState, step: 
   return `
     <div class="telegram-channel-login-body">
       <p>去 Telegram 给${login.telegramBotUsername ? ` @${escapeHtml(login.telegramBotUsername)} ` : "机器人"}发消息，或把它加入群聊后 @ 它。</p>
+      <p>${EXTERNAL_CHANNEL_ONLINE_HINT}</p>
       <div class="telegram-channel-login-actions two">
         <button type="button" class="telegram-channel-login-secondary" data-action="telegram-open-bot" ${botLink ? "" : "disabled"}>打开私聊</button>
         <button type="button" class="telegram-channel-login-secondary" data-action="telegram-open-group" ${groupLink ? "" : "disabled"}>加入群聊</button>
@@ -43558,13 +43605,13 @@ function externalChannelMenuItems() {
 
 function externalChannelSubtitle(channel: ExternalChannelSummary) {
   if (channel.id === "wechat") {
-    return channel.connected ? "\u5df2\u8fde\u63a5\u00b7\u5728\u7ebf" : "\u626b\u7801\u6388\u6743\u540e\u5f00\u59cb\u901a\u4fe1";
+    return channel.connected ? "\u5df2\u8fde\u63a5\u00b7\u5728\u7ebf" : EXTERNAL_CHANNEL_ONLINE_HINT;
   }
   if (channel.id === "feishu") {
-    return channel.connected ? "\u5df2\u8fde\u63a5\u00b7\u5728\u7ebf" : "扫码授权后开始通信";
+    return channel.connected ? "\u5df2\u8fde\u63a5\u00b7\u5728\u7ebf" : EXTERNAL_CHANNEL_ONLINE_HINT;
   }
   if (channel.id === "telegram") {
-    return channel.connected ? externalChannelConnectedSubtitle(channel) : "通过 Bot Token 连接";
+    return channel.connected ? externalChannelConnectedSubtitle(channel) : EXTERNAL_CHANNEL_ONLINE_HINT;
   }
   return channel.description || "";
 }
@@ -43596,8 +43643,8 @@ function externalChannelDisplayName(channelId: ExternalChannelId) {
   );
 }
 
-function externalChannelLoginFooterText(login: ExternalChannelLoginState, fallback: string) {
-  if (!isExternalChannelQrAutoRefreshActive(login)) return fallback;
+function externalChannelLoginFooterText(login: ExternalChannelLoginState) {
+  if (!isExternalChannelQrAutoRefreshActive(login)) return EXTERNAL_CHANNEL_ONLINE_HINT;
   return `二维码 ${externalChannelQrRefreshCountdownSeconds(login)} 秒后自动刷新`;
 }
 

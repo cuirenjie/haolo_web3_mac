@@ -18,6 +18,7 @@ import {
   translateAppText,
   type AppLanguage,
 } from "./app-language.mjs";
+import type { TradingAnalysisContext } from "./trading-expert-general-request";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
 import { TradingChartNavigation, TRADING_CHART_NAVIGATION_OPTIONS, captureManualTradingPriceRanges, restoreManualTradingPriceRanges } from "./trading-chart-navigation.ts";
@@ -720,6 +721,8 @@ export interface TradingGeneralConversationRequest extends TradingExecutionModel
   comparisonCandlesRequested?: boolean;
   /** Semantic router classified this turn as position management. */
   positionManagementRequested?: boolean;
+  /** Structured intent context generated once by the routing model. */
+  analysisContext?: TradingAnalysisContext | null;
   onProgress?: (phase: TradingGeneralConversationPhase, message: string) => void;
 }
 export interface TradingGeneralConversationResult {
@@ -10460,6 +10463,7 @@ class TradingExpertMarketWorkspace {
         snapshotTime: analysisSnapshotTime,
         instruction: request.instruction,
         positionManagementRequested: request.positionManagementRequested === true,
+        analysisContext: request.analysisContext || null,
         responseMode: directResponseRequested ? "direct" : "full",
         lookbackMs: requestedLookbackMs,
         ...(request.contextCandlesRequested === true ? { contextCandles: await contextCandlesPromise } : {}),
@@ -10537,12 +10541,17 @@ class TradingExpertMarketWorkspace {
             : [];
           return api({
             analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
+            ...(request.model ? { model: request.model } : {}),
+            ...(request.modelId ? { modelId: request.modelId } : {}),
+            ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            reasoningEffort: "max",
             marketId: snapshot.market.id,
             interval: snapshot.interval,
             language: job.language,
             snapshotTime: Date.now(),
             instruction: request.instruction,
             positionManagementRequested: request.positionManagementRequested === true,
+            analysisContext: request.analysisContext || null,
             responseMode: directResponseRequested ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
             ...(request.contextCandlesRequested === true ? { contextCandles } : {}),
@@ -10825,6 +10834,10 @@ class TradingExpertMarketWorkspace {
           }
           return api({
             analysisJobId: job.analysisId,
+            ...(request.model ? { model: request.model } : {}),
+            ...(request.modelId ? { modelId: request.modelId } : {}),
+            ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            reasoningEffort: "max",
             marketId: job.marketId,
             interval: job.interval,
             snapshotTime: Date.now(),
@@ -10928,6 +10941,10 @@ class TradingExpertMarketWorkspace {
         onProgress: request.onProgress,
         analyze: async (snapshot) => api({
           analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
+          ...(request.model ? { model: request.model } : {}),
+          ...(request.modelId ? { modelId: request.modelId } : {}),
+          ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+          reasoningEffort: "max",
           marketId: snapshot.market.id,
           interval: snapshot.interval,
           snapshotTime: Date.now(),
@@ -11266,6 +11283,10 @@ class TradingExpertMarketWorkspace {
           const snapshotTime = Date.now();
           return api({
             analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
+            ...(request.model ? { model: request.model } : {}),
+            ...(request.modelId ? { modelId: request.modelId } : {}),
+            ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            reasoningEffort: "max",
             marketId: snapshot.market.id,
             interval: snapshot.interval,
             snapshotTime,
@@ -11456,6 +11477,10 @@ class TradingExpertMarketWorkspace {
           }
           return api({
             analysisJobId: job.analysisId,
+            ...(request.model ? { model: request.model } : {}),
+            ...(request.modelId ? { modelId: request.modelId } : {}),
+            ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            reasoningEffort: "max",
             marketId: job.marketId,
             interval: job.interval,
             snapshotTime: Date.now(),
@@ -11550,6 +11575,10 @@ class TradingExpertMarketWorkspace {
         onProgress: request.onProgress,
         analyze: async (snapshot) => api({
           analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
+          ...(request.model ? { model: request.model } : {}),
+          ...(request.modelId ? { modelId: request.modelId } : {}),
+          ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+          reasoningEffort: "max",
           marketId: snapshot.market.id,
           interval: snapshot.interval,
           snapshotTime: Date.now(),
@@ -11872,6 +11901,10 @@ class TradingExpertMarketWorkspace {
           ]);
           return api({
             analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
+            ...(request.model ? { model: request.model } : {}),
+            ...(request.modelId ? { modelId: request.modelId } : {}),
+            ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            reasoningEffort: "max",
             marketId: snapshot.market.id,
             interval: snapshot.interval,
             language: job.language,
