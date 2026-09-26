@@ -195,6 +195,10 @@ import {
 import { YouleApiClient, isYouleAuthExpiredError } from "./youle-api-client.mjs";
 import { createHaoloServiceFetch, fetchServiceJson } from "./haolo-service-fetch.mjs";
 import { premiumAccessState } from "./premium-entitlement.mjs";
+import {
+  modelMembershipAccess,
+  modelMembershipRequirement,
+} from "./model-membership-policy.mjs";
 import { ExternalModelCredentialStore } from "./external-agent/credential-store.mjs";
 import { ExternalModelService } from "./external-agent/service.mjs";
 import { BinanceCredentialStore } from "./binance-account/credential-store.mjs";
@@ -378,6 +382,7 @@ const rendererConfirmationBroker = createRendererConfirmationBroker({ ipcMain })
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow = null;
+let developmentSourceUpdatePrompt = null;
 let appTray = null;
 let taskbarUnreadConversationCount = 0;
 const taskbarUnreadBadgeImages = new Map();
@@ -1839,6 +1844,20 @@ function focusedMainWindow() {
     return window;
   }
   return undefined;
+}
+
+function developmentPromptWindow() {
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) return undefined;
+  try {
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.moveTop();
+    window.focus();
+  } catch {
+    return undefined;
+  }
+  return window;
 }
 
 function scheduleRelaunchForUserDataTransfer() {
@@ -3791,6 +3810,9 @@ async function requestAppServer(serverClient, method, params = {}, timeoutMs) {
   }
   touchAppServerClient(serverClient);
   const adaptiveParams = withAdaptiveTurnReasoning(method, migrateDeepSeekModelSelection(migrateRetiredModelSelection(params)));
+  await assertExecutionModelMembership(
+    firstString(adaptiveParams.model, adaptiveParams.model_id, adaptiveParams.modelId),
+  );
   const result = await serverClient.request(
     method,
     withFixedDefaultServiceTier(method, adaptiveParams),
@@ -3798,6 +3820,33 @@ async function requestAppServer(serverClient, method, params = {}, timeoutMs) {
   );
   if (result?.thread) internalSubagentThreads.remember(serverClient, result.thread);
   return result;
+}
+
+let executionModelEntitlementCache = { accountId: "", checkedAt: 0, profile: null };
+
+async function assertExecutionModelMembership(model) {
+  const requirement = modelMembershipRequirement(model);
+  if (requirement.allowed) return null;
+  const apiClient = getYouleApiClient();
+  const session = apiClient.sessionSummary();
+  const accountId = session.authenticated ? String(session.profile?.id || "").trim() : "";
+  const now = Date.now();
+  let profile = accountId && executionModelEntitlementCache.accountId === accountId &&
+    now - executionModelEntitlementCache.checkedAt < 15_000
+    ? executionModelEntitlementCache.profile
+    : null;
+  if (!profile) {
+    const refreshed = await apiClient.refreshProfile();
+    profile = refreshed?.profile || refreshed?.session?.profile || apiClient.sessionSummary?.()?.profile || null;
+    executionModelEntitlementCache = { accountId, checkedAt: now, profile };
+  }
+  const access = modelMembershipAccess(profile, model, now);
+  if (access.allowed) return access;
+  const error = new Error(`此模型仅限${access.requiredLabel}及以上会员使用`);
+  error.code = "MODEL_MEMBERSHIP_REQUIRED";
+  error.requiredPlan = access.requiredPlan;
+  error.model = String(model || "");
+  throw error;
 }
 
 function touchAppServerClient(serverClient) {
@@ -11872,11 +11921,15 @@ function windowState(window) {
     window?.youleWindowMode === "loginWechat"
       ? window.youleWindowMode
       : "login";
+  const bounds = window && !window.isDestroyed() ? window.getBounds() : null;
+  const appMinimumSize = window && !window.isDestroyed() ? effectiveAppWindowMinimumOuterSize(window) : null;
   return {
     mode,
     maximized: isWindowMaximizedLike(window),
     nativeMaximized: Boolean(window && !window.isDestroyed() && window.isMaximized()),
     pinned: Boolean(window && !window.isDestroyed() && window.isAlwaysOnTop()),
+    bounds,
+    appMinimumSize,
   };
 }
 
@@ -14635,11 +14688,13 @@ function getAnalysisModelRecoveryStore() {
   return analysisModelRecoveryStore;
 }
 
-function getTradingAnalysisModelRegistry() {
-  if (tradingAnalysisModelRegistry) return tradingAnalysisModelRegistry;
+function createTradingAnalysisModelRegistry(modelId = DEFAULT_TRADING_ANALYSIS_MODEL_ID) {
+  const normalizedModelId = firstString(modelId).toLowerCase();
   const gptProvider = createAppServerTradingAnalysisProvider({
     providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-    modelId: DEFAULT_TRADING_ANALYSIS_MODEL_ID,
+    modelId,
+    modelProvider: normalizedModelId.startsWith("gpt-") ? "haolo_ai" : undefined,
+    fixedReasoningEffort: "max",
     invoke: invokeTradingAnalysisAppServer,
     selectModel: (modelId) => getAnalysisModelRecoveryStore().select(modelId),
     onRecovery: (event) => {
@@ -14647,7 +14702,16 @@ function getTradingAnalysisModelRegistry() {
       console.info("[trading-analysis] model fallback", event);
     },
   });
-  tradingAnalysisModelRegistry = createTradingAnalysisModelProviderRegistry([gptProvider]);
+  return createTradingAnalysisModelProviderRegistry([gptProvider]);
+}
+
+function getTradingAnalysisModelRegistry(modelId = null) {
+  const selectedModel = firstString(modelId);
+  if (selectedModel && selectedModel !== DEFAULT_TRADING_ANALYSIS_MODEL_ID) {
+    return createTradingAnalysisModelRegistry(selectedModel);
+  }
+  if (tradingAnalysisModelRegistry) return tradingAnalysisModelRegistry;
+  tradingAnalysisModelRegistry = createTradingAnalysisModelRegistry(DEFAULT_TRADING_ANALYSIS_MODEL_ID);
   return tradingAnalysisModelRegistry;
 }
 
@@ -14999,10 +15063,13 @@ async function classifyTradingStrategyRequest(event, strategyId, params = {}) {
   const controller = new AbortController();
   activeTradingRoutingControllers.set(ownerId, controller);
   try {
+    const selectedModel = firstString(params.model, params.modelId, params.model_id);
+    await assertExecutionModelMembership(selectedModel);
     await requireFreshTradingPremiumAccess();
     return await coordinator.classify(strategyId, params, {
       signal: controller.signal,
       requestId: `${strategyId}-route-${crypto.randomUUID()}`,
+      modelRegistry: getTradingAnalysisModelRegistry(selectedModel),
     });
   } catch (error) {
     const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
@@ -15070,8 +15137,10 @@ async function classifyExternalTradingRequest(event, params = {}) {
     };
   }
   try {
+    const selectedModel = firstString(params.model, params.modelId, params.model_id);
+    await assertExecutionModelMembership(selectedModel);
     await requireFreshTradingPremiumAccess();
-    const model = await getTradingAnalysisModelRegistry().analyze(
+    const model = await getTradingAnalysisModelRegistry(selectedModel).analyze(
       DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
       {
         schemaVersion: 1,
@@ -15308,6 +15377,9 @@ ipcMain.handle("tradingAnalysis:recordFailure", (event, params = {}) => {
 async function runTradingStrategyRequest(event, strategyId, params = {}) {
   assertExternalModelsIpcSender(event);
   try {
+    await assertExecutionModelMembership(
+      firstString(params.model, params.modelId, params.model_id),
+    );
     await requireFreshTradingPremiumAccess();
   } catch (error) {
     const diagnosticId = recordTradingAnalysisFailure(error, { ...params, strategyId, stage: "entitlement" });
@@ -15333,6 +15405,8 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
   }
   const coordinator = getTradingStrategyCoordinator();
   const registry = getTradingStrategyRegistry();
+  const selectedAnalysisModel = firstString(params.model, params.modelId, params.model_id);
+  const selectedModelRegistry = getTradingAnalysisModelRegistry(selectedAnalysisModel);
   const errors = coordinator.strategyErrors(strategyId);
   const { controller, controllerKey } = beginTradingAnalysisRequest(
     event,
@@ -15352,13 +15426,16 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
         throw error;
       }
       return await adapter.run(personalizedParams, {
-        modelRegistry: getTradingAnalysisModelRegistry(),
+        modelRegistry: selectedModelRegistry,
         providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
         signal: controller.signal,
       });
     }
     const executionParams = tradingStrategyParamsWithReadOnlyBinanceAccount(personalizedParams);
-    const result = await coordinator.run(strategyId, executionParams, { signal: controller.signal });
+    const result = await coordinator.run(strategyId, executionParams, {
+      signal: controller.signal,
+      modelRegistry: selectedModelRegistry,
+    });
     if (result?.ok === false) recordTradingAnalysisFailure(result.error, { ...params, strategyId });
     if (tradingStrategyShadowMode(strategyId)) {
       if (!result?.ok || !result?.strategyResult || !result?.executionPlan) {
@@ -15581,8 +15658,10 @@ ipcMain.handle("tradingAnalysis:classifyGeneralRequest", async (event, params = 
   const requestId = `general-route-${crypto.randomUUID()}`;
   const text = String(params?.text || "").slice(0, 12_000);
   try {
+    const selectedModel = firstString(params.model, params.modelId, params.model_id);
+    await assertExecutionModelMembership(selectedModel);
     await requireFreshTradingPremiumAccess();
-    const model = await getTradingAnalysisModelRegistry().analyze(
+    const model = await getTradingAnalysisModelRegistry(selectedModel).analyze(
       DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
       {
         schemaVersion: 1,
@@ -15711,6 +15790,7 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
   );
   let stage = "entitlement";
   try {
+    await assertExecutionModelMembership(firstString(params.model, params.modelId, params.model_id));
     await requireFreshTradingPremiumAccess();
     stage = "preparation";
     const personalizedParams = await tradingStrategyParamsWithPersonalRisk({
@@ -15721,7 +15801,7 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
     return await runTradingPriceActionAnalysisPipeline(
       tradingStrategyParamsWithReadOnlyBinanceAccount(personalizedParams),
       {
-        modelRegistry: getTradingAnalysisModelRegistry(),
+        modelRegistry: getTradingAnalysisModelRegistry(firstString(params.model, params.modelId, params.model_id)),
         providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
         signal: controller.signal,
       },
@@ -22153,6 +22233,9 @@ async function cleanupAndExit(exitCode = 0) {
   if (appCleanupStarted) return;
   appCleanupStarted = true;
   appShuttingDown = true;
+  developmentSourceUpdatePrompt?.dispose();
+  developmentSourceUpdatePrompt = null;
+  rendererConfirmationBroker.dispose();
   turnAutoRecoveryCoordinator.shutdown();
   clearScheduledWork();
   stopChannelEvents();
@@ -22492,10 +22575,10 @@ app.whenReady().then(async () => {
     startWechatExternalChannelBackendPolling(error?.message || "startup failed");
   });
   createWindow();
-  installDevelopmentSourceUpdatePrompt({
+  developmentSourceUpdatePrompt = installDevelopmentSourceUpdatePrompt({
     app,
-    requestConfirmation: (options) => rendererConfirmationBroker.request(mainWindow, options),
-    showNotice: (options) => rendererConfirmationBroker.request(mainWindow, {
+    requestConfirmation: (options) => rendererConfirmationBroker.requestStatus(developmentPromptWindow(), options),
+    showNotice: (options) => rendererConfirmationBroker.request(developmentPromptWindow(), {
       ...options,
       cancelLabel: null,
     }),

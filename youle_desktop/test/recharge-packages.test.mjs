@@ -313,6 +313,25 @@ test("recharge page shows monthly and annual subscriptions, points packs, and cr
   assert.match(browserMock, /okx_internal: "694504753333973132"/);
 });
 
+test("TRON is hidden only for the trial and points-pack selections", async () => {
+  const renderer = await rendererSource;
+  assert.match(renderer, /const RECHARGE_TRON_HIDDEN_PRODUCT_IDS = new Set\(\["subscription_trial", "points_pack_30"\]\)/);
+  assert.match(
+    renderer,
+    /function isRechargePaymentNetworkAvailable\(productId: string, networkId: string\)[\s\S]*?return !\(networkId === "tron" && RECHARGE_TRON_HIDDEN_PRODUCT_IDS\.has\(productId\)\)/,
+  );
+  assert.match(
+    renderer,
+    /function renderRechargePaymentMethods\(\)[\s\S]*?const product = ensureRechargeProductSelection\(\);[\s\S]*?const visibleNetworks = product[\s\S]*?RECHARGE_PAYMENT_NETWORKS\.filter\(\(network\)[\s\S]*?visibleNetworks\.map\(\(network\)/,
+  );
+  assert.match(renderer, /input\.disabled = !networkVisible;[\s\S]*?option\.hidden = !networkVisible;/);
+  assert.match(renderer, /selectedRechargePaymentNetwork = "binance_internal"/);
+  assert.match(
+    renderer,
+    /function bindRechargeProductCardEvents\(\)[\s\S]*?selectedRechargeProductId = product\.id;[\s\S]*?stopRechargePaymentRuntime\(\);[\s\S]*?render\(\);/,
+  );
+});
+
 test("recharge scrollbar stays slim and visible with theme-aware interaction colors", async () => {
   const styles = await stylesSource;
   const scroll = sourceBlock(styles, ".recharge-page-scroll {", ".recharge-subscription-content");

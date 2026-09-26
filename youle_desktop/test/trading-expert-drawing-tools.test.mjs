@@ -719,6 +719,7 @@ test("selected drawing endpoints expose price and date-time axis markers", async
   const {
     formatTradingDrawingAxisPrice,
     formatTradingDrawingAxisTime,
+    tradingDrawingAlwaysVisibleAxisMarkerPoints,
     tradingDrawingAxisMarkerPoints,
     tradingDrawingToolDefinition,
   } = await import("../src/renderer/trading-expert-drawing.ts");
@@ -730,6 +731,14 @@ test("selected drawing endpoints expose price and date-time axis markers", async
   assert.deepEqual(
     tradingDrawingAxisMarkerPoints(tradingDrawingToolDefinition("horizontal-line"), points),
     [{ point: points[0], showPrice: true, showTime: false }],
+  );
+  assert.deepEqual(
+    tradingDrawingAlwaysVisibleAxisMarkerPoints(tradingDrawingToolDefinition("horizontal-line"), points),
+    [{ point: points[0], showPrice: true, showTime: false }],
+  );
+  assert.deepEqual(
+    tradingDrawingAlwaysVisibleAxisMarkerPoints(tradingDrawingToolDefinition("horizontal-ray"), points),
+    [],
   );
   assert.deepEqual(
     tradingDrawingAxisMarkerPoints(tradingDrawingToolDefinition("vertical-line"), points),
@@ -765,6 +774,8 @@ test("selected drawing endpoints expose price and date-time axis markers", async
   const [drawing, styles] = await Promise.all([drawingSource, stylesSource]);
   assert.match(drawing, /class="trading-drawing-axis-markers" data-drawing-axis-markers/);
   assert.match(drawing, /private updateAxisMarkers\(bounds:/);
+  assert.match(drawing, /persistentHorizontalDrawings/);
+  assert.match(drawing, /tradingDrawingAlwaysVisibleAxisMarkerPoints/);
   assert.match(drawing, /data-drawing-axis-price[\s\S]*?formatTradingDrawingAxisPrice\(marker\.point\.price\)/);
   assert.match(drawing, /data-drawing-axis-time[\s\S]*?formatTradingDrawingAxisTime\(marker\.point\.time, this\.timeOffsetSeconds\)/);
   assert.match(drawing, /this\.updateSelectionToolbar\(bounds\);[\s\S]*?this\.updateAxisMarkers\(bounds\)/);

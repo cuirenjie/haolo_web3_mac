@@ -54,7 +54,7 @@ test("late responses after request timeout stay correlated and do not become pro
   assert.equal(protocolErrors[0].error, `response for unknown id ${sent[0].id + 1}`);
 });
 
-const MANAGED_MODEL_SLUGS = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+const MANAGED_MODEL_SLUGS = ["gpt-6-astra", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
 const MANAGED_TOP_LEVEL_CONTEXT_KEYS = [
   "model_context_window",
   "model_auto_compact_token_limit",
@@ -675,6 +675,17 @@ test("macOS catalog keeps DeepSeek max metadata when its older runtime lacks nat
   assert.throws(() => buildManagedLongContextModelCatalog(catalog, { platform: "win32" }), /missing managed models: gpt-6-astra/);
   catalog.models = catalog.models.filter((model) => model.slug !== "gpt-5.6-sol");
   assert.throws(() => buildManagedLongContextModelCatalog(catalog, { platform: "darwin" }), /missing managed models: gpt-5\.6-sol/);
+});
+
+test("managed model catalog projects GPT-6 Sol when the older runtime only ships Astra", () => {
+  const catalog = bundledModelCatalogFixture();
+  catalog.models = catalog.models.filter((model) => model.slug !== "gpt-6-sol");
+  const managed = buildManagedLongContextModelCatalog(catalog);
+  const sol = managed.models.find((model) => model.slug === "gpt-6-sol");
+  assert.ok(sol);
+  assert.equal(sol.display_name, "GPT-6 Sol");
+  assert.equal(sol.context_window, 400_000);
+  assert.equal(sol.preserved, "gpt-6-astra-metadata");
 });
 
 test("builtin plugin sync skips unchanged payloads and mirrors changed managed version directories", () => {

@@ -101,7 +101,8 @@ function normalizePlanId(value) {
   return String(value || "")
     .trim()
     .toLowerCase()
-    .replace(/^subscription[_-]/, "");
+    .replace(/^subscription[_-]/, "")
+    .replace(/[_-](?:monthly|annual|yearly)$/, "");
 }
 
 function normalizeNow(value) {

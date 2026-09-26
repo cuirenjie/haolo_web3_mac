@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const renderer = await readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
+const main = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 
 function sourceBlock(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
@@ -51,4 +52,17 @@ test("login stays visible until core hydration and the model cache are both read
     startup,
     /await Promise\.all\(\[\s*modelCatalogsPromise,\s*workspacePromise/,
   );
+});
+
+test("authenticated startup repairs a stale login-sized app window before revealing the workspace", () => {
+  assert.match(main, /const bounds = window && !window\.isDestroyed\(\) \? window\.getBounds\(\) : null;/);
+  assert.match(main, /appMinimumSize,/);
+  assert.match(renderer, /function appWindowBoundsNeedRepair\(payload: WindowState \| null \| undefined\)/);
+  assert.match(
+    renderer,
+    /if \(payload\?\.mode === "app" && appWindowBoundsNeedRepair\(payload\)\) \{[\s\S]*?api\.setWindowMode\?\.\("app", \{ center: true \}\)/,
+  );
+  assert.match(renderer, /const requestSeq = \+\+windowModeRequestSeq;/);
+  assert.match(renderer, /if \(requestSeq !== windowModeRequestSeq \|\| currentWindowMode !== mode\) return;/);
+  assert.match(renderer, /if \(payload\.mode && currentWindowMode && payload\.mode !== currentWindowMode\) \{/);
 });

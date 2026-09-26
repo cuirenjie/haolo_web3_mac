@@ -21,6 +21,7 @@ import {
   type AppLanguage,
 } from "./app-language.mjs";
 import { confirmInApp, confirmSelectionInApp, type AppConfirmationOptions } from "./app-confirmation";
+import { modelDisplayName } from "./model-display-name.ts";
 import { resolveComposerThreadIdForSend } from "./composer-thread-routing";
 import {
   applyTradingAlertsSnapshot,
@@ -483,6 +484,9 @@ import {
   premiumAccessState,
   type PremiumAccessState,
 } from "../main/premium-entitlement.mjs";
+import {
+  modelMembershipAccess,
+} from "../main/model-membership-policy.mjs";
 import { formatProfileBalancePoints } from "./profile-balance";
 import {
   canRetainRechargePaymentOrder,
@@ -756,6 +760,7 @@ const RECHARGE_PAYMENT_NETWORKS = [
     tutorialUrl: "https://haolo.com/help/onchain-transfer.html",
   },
 ] as const;
+const RECHARGE_TRON_HIDDEN_PRODUCT_IDS = new Set(["subscription_trial", "points_pack_30"]);
 type RechargePaymentNetworkId = (typeof RECHARGE_PAYMENT_NETWORKS)[number]["id"];
 type Web3PaymentOrderStatus = "pending" | "confirming" | "paid" | "expired" | "manual_review";
 type Web3PaymentOrder = {
@@ -974,7 +979,7 @@ const DESKTOP_SANDBOX_POLICY = "danger-full-access";
 const AUTHENTICATED_WORKSPACE_BOOT_TIMEOUT_MS = 12_000;
 const APP_WINDOW_MODE_TRANSITION_REVEAL_DELAY_MS = 50;
 const APP_WINDOW_MODE_TRANSITION_FALLBACK_MS = 1800;
-const INSUFFICIENT_QUOTA_MESSAGE = "当前没有可用积分，请开通体验版或其他套餐后再提问";
+const INSUFFICIENT_QUOTA_MESSAGE = "您的积分不足，请充值或开通会员";
 const RECHARGE_TOKEN_ACTION_ID = "recharge-token";
 const RECHARGE_TOKEN_ACTION_KIND = "recharge_token";
 const LOW_BALANCE_PROFILE_REFRESH_INITIAL_DELAY_MS = 1_000;
@@ -1032,6 +1037,8 @@ type WindowState = {
   maximized?: boolean;
   nativeMaximized?: boolean;
   pinned?: boolean;
+  bounds?: { x?: number; y?: number; width?: number; height?: number } | null;
+  appMinimumSize?: { width?: number; height?: number } | null;
 };
 
 type WindowResizePayload = {
@@ -1780,13 +1787,21 @@ type DesktopApi = {
     text: string;
     hasImageAttachment?: boolean;
     hasCurrentAnalysis?: boolean;
+    model?: string | null;
+    reasoningEffort?: "max";
   }): Promise<any>;
   classifyExternalTradingRequest?(params: {
     text: string;
     pendingContext?: string;
+    model?: string | null;
+    reasoningEffort?: "max";
   }): Promise<any>;
   runTradingStrategyAnalysis?(params: {
     strategyId: string;
+    model?: string | null;
+    modelId?: string | null;
+    modelProvider?: string | null;
+    reasoningEffort?: "max";
     analysisJobId?: string;
     marketId: string;
     interval: string;
@@ -1813,6 +1828,10 @@ type DesktopApi = {
     analysisJobId?: string;
   }): Promise<{ cancelled?: boolean }>;
   runTradingChanTest?(params: {
+    model?: string | null;
+    modelId?: string | null;
+    modelProvider?: string | null;
+    reasoningEffort?: "max";
     analysisJobId?: string;
     marketId: string;
     interval: string;
@@ -1841,6 +1860,10 @@ type DesktopApi = {
     hasCurrentAnalysis?: boolean;
   }): Promise<any>;
   runTradingOrderFlowAnalysis?(params: {
+    model?: string | null;
+    modelId?: string | null;
+    modelProvider?: string | null;
+    reasoningEffort?: "max";
     analysisJobId?: string;
     marketId: string;
     interval: string;
@@ -1876,6 +1899,10 @@ type DesktopApi = {
     hasCurrentAnalysis?: boolean;
   }): Promise<any>;
   runTradingWaveAnalysis?(params: {
+    model?: string | null;
+    modelId?: string | null;
+    modelProvider?: string | null;
+    reasoningEffort?: "max";
     analysisJobId?: string;
     marketId: string;
     interval: string;
@@ -1910,6 +1937,10 @@ type DesktopApi = {
     hasCurrentAnalysis?: boolean;
   }): Promise<any>;
   runTradingWyckoffAnalysis?(params: {
+    model?: string | null;
+    modelId?: string | null;
+    modelProvider?: string | null;
+    reasoningEffort?: "max";
     analysisJobId?: string;
     marketId: string;
     interval: string;
@@ -1931,9 +1962,15 @@ type DesktopApi = {
     text: string;
     hasImageAttachment?: boolean;
     hasCurrentAnalysis?: boolean;
+    model?: string | null;
+    reasoningEffort?: "max";
   }): Promise<any>;
   recordTradingAnalysisFailure?(params: Record<string, unknown>): Promise<{ diagnosticId: string }>;
   runTradingGeneralAnalysis?(params: {
+    model?: string | null;
+    modelId?: string | null;
+    modelProvider?: string | null;
+    reasoningEffort?: "max";
     analysisJobId?: string;
     marketId: string;
     interval: string;
@@ -5854,6 +5891,10 @@ let preserveAppWindowModeDuringBoot = false;
 let appWindowModeTransitionFrame: number | null = null;
 let appWindowModeRevealTimer: number | null = null;
 let appWindowModeTransitionCleanupTimer: number | null = null;
+let windowModeRequestSeq = 0;
+let windowModeRepairTimer: number | null = null;
+let windowModeRepairAttempts = 0;
+let restoringTitlebarChannelTriggerFocus = false;
 let windowResizeDragActive = false;
 type WindowScrollbarCandidate = {
   element: HTMLElement;
@@ -6008,12 +6049,35 @@ async function boot() {
 async function shouldPreserveAppWindowModeForBoot() {
   if (typeof api.getWindowState !== "function") return false;
   try {
-    const payload = (await api.getWindowState()) || null;
+    let payload = (await api.getWindowState()) || null;
+    if (payload?.mode === "app" && appWindowBoundsNeedRepair(payload)) {
+      const repaired = api.setWindowMode?.("app", { center: true });
+      if (repaired && typeof repaired.then === "function") {
+        payload = (await repaired) || payload;
+      }
+    }
     applyWindowState(payload);
     return payload?.mode === "app";
   } catch {
     return false;
   }
+}
+
+function appWindowBoundsNeedRepair(payload: WindowState | null | undefined) {
+  const bounds = payload?.bounds;
+  const minimum = payload?.appMinimumSize;
+  if (!bounds || !minimum) return false;
+  const width = Number(bounds.width);
+  const height = Number(bounds.height);
+  const minimumWidth = Number(minimum.width);
+  const minimumHeight = Number(minimum.height);
+  return (
+    Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    Number.isFinite(minimumWidth) &&
+    Number.isFinite(minimumHeight) &&
+    (width < minimumWidth || height < minimumHeight)
+  );
 }
 
 function isCurrentAuthenticatedStartup(seq: number) {
@@ -6758,7 +6822,7 @@ function commitAppWindowModeTransition() {
   });
 }
 
-function setDesktopWindowMode(mode: WindowMode) {
+function setDesktopWindowMode(mode: WindowMode, options: { repair?: boolean } = {}) {
   const modeChanged = currentWindowMode !== mode;
   applyDesktopWindowModeClass(mode);
   if (!modeChanged) {
@@ -6770,7 +6834,15 @@ function setDesktopWindowMode(mode: WindowMode) {
   if (mode !== "app") {
     finishAppWindowModeTransition({ revealNative: true });
   }
+  if (!options.repair) {
+    windowModeRepairAttempts = 0;
+    if (windowModeRepairTimer !== null) {
+      window.clearTimeout(windowModeRepairTimer);
+      windowModeRepairTimer = null;
+    }
+  }
   const shouldCenter = true;
+  const requestSeq = ++windowModeRequestSeq;
   currentWindowMode = mode;
   if (typeof api.setWindowMode !== "function") {
     if (mode === "app") {
@@ -6778,10 +6850,33 @@ function setDesktopWindowMode(mode: WindowMode) {
     }
     return;
   }
-  const result = api.setWindowMode(mode, { center: shouldCenter });
+  const retry = () => {
+    if (requestSeq !== windowModeRequestSeq || currentWindowMode !== mode) return;
+    currentWindowMode = null;
+    if (windowModeRepairTimer !== null || windowModeRepairAttempts >= 3) {
+      if (mode === "app") finishAppWindowModeTransition();
+      return;
+    }
+    windowModeRepairAttempts += 1;
+    windowModeRepairTimer = window.setTimeout(() => {
+      windowModeRepairTimer = null;
+      if (requestSeq !== windowModeRequestSeq || currentWindowMode !== null) return;
+      setDesktopWindowMode(mode, { repair: true });
+    }, 120);
+  };
+  let result: ReturnType<NonNullable<typeof api.setWindowMode>> | void;
+  try {
+    result = api.setWindowMode(mode, { center: shouldCenter });
+  } catch {
+    retry();
+    return;
+  }
   if (result && typeof result.then === "function") {
     void result
       .then((state) => {
+        if (requestSeq !== windowModeRequestSeq || currentWindowMode !== mode) return;
+        if (state?.ok === false) throw new Error("Window mode transition failed");
+        windowModeRepairAttempts = 0;
         applyWindowState(state);
         if (state?.pendingReveal) {
           scheduleWindowModeReveal();
@@ -6789,12 +6884,9 @@ function setDesktopWindowMode(mode: WindowMode) {
           finishAppWindowModeTransition();
         }
       })
-      .catch(() => {
-        if (mode === "app") {
-          finishAppWindowModeTransition();
-        }
-      });
+      .catch(retry);
   } else if (mode === "app") {
+    windowModeRepairAttempts = 0;
     finishAppWindowModeTransition();
   }
 }
@@ -11678,6 +11770,8 @@ async function runExternalTradingStrategyAnalysis(
   try {
     return await runTradingExpertStrategyConversation(route.strategyId, {
       analysisId,
+      model: selectedChatModelValue(threadId),
+      reasoningEffort: "max",
       instruction,
       symbol: route.symbol,
       interval: route.interval,
@@ -11727,6 +11821,8 @@ async function handleExternalTradingChannelMessage(params: {
       const result = await api.classifyExternalTradingRequest({
         text: combinedText,
         pendingContext: pending?.text || "",
+        model: selectedChatModelValue(params.threadId),
+        reasoningEffort: "max",
       });
       if (!result?.ok || !result.request) {
         if (!pending && !externalTradingRequestLikely(cleanText)) return false;
@@ -24168,14 +24264,20 @@ function addSystemItem(threadId: string, text: string) {
 function appendInsufficientQuotaAgentMessage(
   threadId: string,
   options: { provider?: ProviderChatProvider | string | null; senderLabel?: string | null; turnId?: string | null } = {},
-) {
-  if (!threadId) return;
+) : CodexItem {
+  if (!threadId) throw new Error("Cannot append quota message without a thread");
   const turnId = firstString(options.turnId);
   threadsAwaitingAgentReply.delete(threadId);
   triggerLowBalanceProfileRefresh("insufficient-quota-message");
-  if (hasInsufficientQuotaAgentMessage(threadId, turnId)) return;
+  if (hasInsufficientQuotaAgentMessage(threadId, turnId)) {
+    const existingId = (state.itemOrder[threadId] || []).find((id) => {
+      const item = state.items[threadId]?.[id];
+      return item?.type === "agentMessage" && (item as Record<string, unknown>).__youleInsufficientQuota === true;
+    });
+    return (existingId && state.items[threadId]?.[existingId]) || ({} as CodexItem);
+  }
   localHistoryAheadThreadIds.add(threadId);
-  upsertItem(threadId, {
+  const item = {
     id: `quota-insufficient-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type: "agentMessage",
     role: "ceo_assistant",
@@ -24187,7 +24289,9 @@ function appendInsufficientQuotaAgentMessage(
     actions: [rechargeTokenMessageAction()],
     __youleInsufficientQuota: true,
     __youleInsufficientQuotaTurnId: turnId || undefined,
-  });
+  } as CodexItem;
+  upsertItem(threadId, item);
+  return item;
 }
 
 function hasInsufficientQuotaAgentMessage(threadId: string, turnId: string | null) {
@@ -24224,7 +24328,7 @@ function rechargeTokenMessageAction(): MessageAction {
   return {
     id: RECHARGE_TOKEN_ACTION_ID,
     kind: RECHARGE_TOKEN_ACTION_KIND,
-    label: "查看套餐",
+    label: "充值",
   };
 }
 
@@ -24410,6 +24514,7 @@ async function refreshLowBalanceProfile(reason: string) {
 function isInsufficientQuotaError(value: unknown) {
   const text = insufficientQuotaSignalText(value);
   if (!text) return false;
+  if (/(?:积分不足|積分不足|当前套餐或积分不可用|未开通有效.*(?:体验版|套餐)|会员(?:等级|权益)?不足|会员(?:已)?(?:到期|过期)|會員(?:已)?(?:到期|過期))/iu.test(text)) return true;
   return /(?:TRIAL_REQUIRED|MEMBERSHIP_EXPIRED|请先开通体验版|开通体验版或其他套餐|会员到期|当前没有可用积分|您的额度不足|额度不足|余额不足|没有余额|无可用额度|可用额度为\s*0|Token\s*余额不足|token余额不足|充值\s*Token|insufficient[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|not enough[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|out of[_\s-]*(?:quota|credit|credits|funds?|tokens?)|no[_\s-]*(?:quota|credit|credits|funds?|tokens?)|payment required|\b402\b|quota[_\s-]*exceeded|billing[_\s-]*(?:required|quota|limit))/i.test(text);
 }
 
@@ -25442,6 +25547,11 @@ function clearInFlightPendingComposerSendForThread(threadId: string | null | und
 }
 
 function failPendingComposerSend(threadId: string, itemId: string, error: string) {
+  if (isInsufficientQuotaError(error)) {
+    clearPendingComposerSend(threadId, itemId);
+    appendInsufficientQuotaAgentMessage(threadId);
+    return;
+  }
   const pending = setPendingComposerSendStatus(threadId, itemId, "failed", { error });
   if (pending) {
     delete state.pendingComposerSends[threadId];
@@ -25456,6 +25566,11 @@ function failLatestOptimisticUserItem(threadId: string, error: string) {
     .find((id) => isOptimisticUserItemId(id) && isUserSideThreadItem(state.items[threadId]?.[id]));
   const item = itemId ? state.items[threadId]?.[itemId] : null;
   if (!itemId || !item) return false;
+  if (isInsufficientQuotaError(error)) {
+    clearPendingComposerSend(threadId, itemId);
+    appendInsufficientQuotaAgentMessage(threadId);
+    return true;
+  }
   upsertItem(
     threadId,
     {
@@ -27265,6 +27380,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         tradingExpertRoutingText,
         snapshotAttachments.some(isImageAttachment),
         hasTradingExpertCurrentAnalysis(tradingStrategyAtSend.id),
+        selectedChatModelValue(threadId),
       );
       clearTradingExpertThinkingState(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
@@ -27279,6 +27395,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         text,
         snapshotAttachments.some(isImageAttachment),
         hasTradingExpertCurrentAnalysis(),
+        selectedChatModelValue(threadId),
       );
       clearTradingExpertThinkingState(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
@@ -27397,11 +27514,14 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     if (requiresPremiumTradingAccess) {
       const accessState = await confirmPremiumTradingAccessBeforeSend("trading-analysis-send");
       if (accessState !== "available") {
-        const message = accessState === "membership-required"
-          ? "当前未开通有效体验版或其他套餐，请先开通后再使用盘面分析"
-          : accessState === "insufficient"
-            ? INSUFFICIENT_QUOTA_MESSAGE
-            : "暂时无法验证会员权益，请稍后重试";
+        if (accessState === "membership-required" || accessState === "insufficient") {
+          if (pendingSend) failPendingComposerSend(originalThreadId, pendingSend.itemId, INSUFFICIENT_QUOTA_MESSAGE);
+          else appendInsufficientQuotaAgentMessage(originalThreadId);
+          state.error = null;
+          render();
+          return;
+        }
+        const message = "暂时无法验证会员权益，请稍后重试";
         state.error = message;
         if (pendingSend) failPendingComposerSend(originalThreadId, pendingSend.itemId, message);
         showToast(message, 5000);
@@ -28060,26 +28180,14 @@ async function sendCurrentProviderMessage(params: {
         "failed",
         "当前可用额度不足，本次模型请求未完成",
       );
-      const streamItem = state.items[params.threadId]?.[
-        questionAnswerStreamItemId(interactionId)
-      ];
-      if (streamItem && itemText(streamItem).trim()) {
-        failQuestionAnswerStreamAgentMessage({
-          threadId: params.threadId,
-          interactionId,
-          provider: selectedProvider,
-          message: INSUFFICIENT_QUOTA_MESSAGE,
-        });
-      } else {
-        removeThreadItem(
-          params.threadId,
-          questionAnswerStreamItemId(interactionId),
-        );
-        appendInsufficientQuotaAgentMessage(params.threadId, {
-          provider: selectedProvider,
-          senderLabel: meta.name,
-        });
-      }
+      removeThreadItem(
+        params.threadId,
+        questionAnswerStreamItemId(interactionId),
+      );
+      appendInsufficientQuotaAgentMessage(params.threadId, {
+        provider: selectedProvider,
+        senderLabel: meta.name,
+      });
     } else {
       settleQuestionAnswerProgress(
         params.threadId,
@@ -29396,7 +29504,10 @@ async function sendCurrentChannelMessage(params: {
     scheduleChannelMessageRefresh(params.channelId);
   } catch (error) {
     const item = state.items[params.threadId]?.[localId];
-    if (item) {
+    if (isInsufficientQuotaError(error)) {
+      if (item) upsertItem(params.threadId, item, { updateThreadPreview: false });
+      appendInsufficientQuotaAgentMessage(params.threadId);
+    } else if (item) {
       item.text = `${item.text || ""}\n\n发送失败：${errorMessage(error)}`;
       upsertItem(params.threadId, item, { updateThreadPreview: false });
     } else {
@@ -30463,6 +30574,9 @@ function appendTradingExpertReport(
 ) {
   localHistoryAheadThreadIds.add(threadId);
   const visibleText = String(text || "");
+  if (isTradingAnalysisQuotaFailure({ message: visibleText })) {
+    return appendInsufficientQuotaAgentMessage(threadId);
+  }
   const item: CodexItem = {
     id: itemId || `trading-expert-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type: "agentMessage",
@@ -31193,6 +31307,10 @@ async function runPersonalStrategyConversation(
           { code: (understandingResult as any)?.errorCode, message: (understandingResult as any)?.error },
           "model",
         );
+      if (isInsufficientQuotaError(failure?.userMessage) || isInsufficientQuotaError((understandingResult as any)?.error)) {
+        appendInsufficientQuotaAgentMessage(threadId);
+        return;
+      }
       const reply = [
         "智能体暂时没有完成资料理解，因此没有进入本地规则编译，也没有创建策略。",
         `原因：${failure.userMessage}`,
@@ -31281,6 +31399,10 @@ async function runPersonalStrategyConversation(
         ? "compiler"
         : "model";
     const failure = classifyPersonalStrategyFailure(error, phase);
+    if (isInsufficientQuotaError(error) || isInsufficientQuotaError(failure?.userMessage)) {
+      appendInsufficientQuotaAgentMessage(threadId);
+      return;
+    }
     await persistPersonalStrategyAssistantItem(threadId, [
       "这次策略理解/预演还没有完成，所以没有写入策略列表。",
       `阶段：${failure.phase === "attachments" ? "附件读取" : failure.phase === "compiler" ? "本地规则编译" : "模型理解"}`,
@@ -31516,6 +31638,10 @@ async function runTradingAlertConversation(threadId: string, rawText: string) {
     const code = String((error as Error & { code?: string })?.code || "");
     if (!isCurrentRun() || code === "TRADING_ANALYSIS_CANCELLED") return;
     clearTradingExpertAlertSimulation();
+    if (isInsufficientQuotaError(error)) {
+      appendInsufficientQuotaAgentMessage(threadId);
+      return;
+    }
     const message = errorMessage(error);
     const completionFirst = code === "TRADING_ALERT_SIMULATION_NO_VALID_PATH"
       ? `我还没能在当前历史与模拟预算内构造出经过公式验证的触发路径。请补充条件的优先级、时间窗口或允许的阈值范围，我会继续求解；未确认前不会保存预警。\n\n技术信息：${message}`
@@ -31714,6 +31840,12 @@ function buildTradingAnalysisAvailabilityReport(_instruction: string, error: unk
   return failure.summary;
 }
 
+function isTradingAnalysisQuotaFailure(error: unknown) {
+  if (describeTradingAnalysisFailure(error).category === "membership") return true;
+  const message = String((error as { message?: unknown } | null)?.message || error || "");
+  return /积分不足|没有可用积分|未开通有效.*(?:体验版|套餐)|会员到期|会员权益不可用|当前套餐或积分不可用/iu.test(message);
+}
+
 async function runTradingGeneralChartRequest(
   threadId: string,
   request: TradingGeneralRequest,
@@ -31749,6 +31881,8 @@ async function runTradingGeneralChartRequest(
     const result = await runTradingExpertGeneralConversation({
       analysisId,
       analysisTarget,
+      model: selectedChatModelValue(threadId),
+      reasoningEffort: "max",
       instruction: request.instruction,
       symbol: request.symbol,
       interval: request.interval,
@@ -31778,6 +31912,10 @@ async function runTradingGeneralChartRequest(
     if (isTradingAnalysisCancellation(error)) {
       updateProgress("complete", "已按你的要求停止本次盘面分析。");
       await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+    } else if (isTradingAnalysisQuotaFailure(error)) {
+      clearTradingExpertThinkingState(targetThreadId());
+      const quotaItem = appendInsufficientQuotaAgentMessage(targetThreadId());
+      await persistCompletedTradingExpertTranscript(targetThreadId(), quotaItem ? [...transcriptItems, quotaItem] : transcriptItems);
     } else {
       const report = buildTradingAnalysisAvailabilityReport(request.instruction, error);
       updateProgress("error", report);
@@ -31831,6 +31969,8 @@ async function runTradingStrategyChartRequest(
     const result = await runTradingExpertStrategyConversation(strategy.id, {
       analysisId,
       analysisTarget,
+      model: selectedChatModelValue(threadId),
+      reasoningEffort: "max",
       instruction: request.instruction,
       symbol: request.symbol,
       interval: request.interval,
@@ -31867,6 +32007,10 @@ async function runTradingStrategyChartRequest(
     if (isTradingAnalysisCancellation(error)) {
       updateProgress("complete", "已按你的要求停止本次盘面分析。");
       await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+    } else if (isTradingAnalysisQuotaFailure(error)) {
+      clearTradingExpertThinkingState(targetThreadId());
+      const quotaItem = appendInsufficientQuotaAgentMessage(targetThreadId());
+      await persistCompletedTradingExpertTranscript(targetThreadId(), quotaItem ? [...transcriptItems, quotaItem] : transcriptItems);
     } else if (!describeTradingAnalysisFailure(error).allowLocalRecovery) {
       const report = buildTradingAnalysisAvailabilityReport(request.instruction, error);
       updateProgress("error", report);
@@ -31882,6 +32026,8 @@ async function runTradingStrategyChartRequest(
         const recovered = await runTradingExpertGeneralConversation({
           analysisId,
           analysisTarget,
+          model: selectedChatModelValue(threadId),
+          reasoningEffort: "max",
           instruction: request.instruction,
           symbol: request.symbol,
           interval: request.interval,
@@ -31915,6 +32061,12 @@ async function runTradingStrategyChartRequest(
         if (isTradingAnalysisCancellation(recoveryError)) {
           updateProgress("complete", "已按你的要求停止本次盘面分析。");
           await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
+          return;
+        }
+        if (isTradingAnalysisQuotaFailure(recoveryError)) {
+          clearTradingExpertThinkingState(targetThreadId());
+          const quotaItem = appendInsufficientQuotaAgentMessage(targetThreadId());
+          await persistCompletedTradingExpertTranscript(targetThreadId(), quotaItem ? [...transcriptItems, quotaItem] : transcriptItems);
           return;
         }
         const report = buildTradingAnalysisAvailabilityReport(
@@ -34966,6 +35118,7 @@ async function classifyTradingGeneralRequestForSend(
   text: string,
   hasImageAttachment: boolean,
   hasCurrentAnalysis = false,
+  model?: string | null,
 ): Promise<TradingGeneralRequest> {
   if (typeof api.classifyTradingGeneralRequest !== "function") {
     return deterministicTradingGeneralFallback(text);
@@ -34975,6 +35128,8 @@ async function classifyTradingGeneralRequestForSend(
       text,
       hasImageAttachment,
       hasCurrentAnalysis,
+      model,
+      reasoningEffort: "max",
     });
     const request = result?.ok === true ? result.request : null;
     if (!request || (request.mode !== "conversation" && request.mode !== "chart-analysis")) {
@@ -35685,6 +35840,8 @@ function render() {
   const renderStartedAt = rendererPerformanceTimingStart();
   formFieldFocusRestoreToken += 1;
   const hadTextFieldFocusBeforeRender = isTextFieldElement(document.activeElement);
+  const hadTitlebarChannelTriggerFocus = document.activeElement instanceof HTMLElement
+    && document.activeElement.matches('[data-action="toggle-external-channel-menu"]');
   const composerFocus = captureComposerFocus();
   const autoTaskDialogFocus = captureAutoTaskDialogFocus();
   const threadGroupEditorFocus = captureThreadGroupEditorFocus();
@@ -35953,6 +36110,17 @@ function render() {
   restoreContactsSearchFocus(contactsSearchFocus);
   restoreLibrarySearchFocus(librarySearchFocus);
   restoreActiveWorkflowNodeFormFocus(workflowNodeFormSnapshot);
+  if (hadTitlebarChannelTriggerFocus) {
+    const trigger = root.querySelector<HTMLButtonElement>('[data-action="toggle-external-channel-menu"]');
+    if (trigger) {
+      restoringTitlebarChannelTriggerFocus = true;
+      try {
+        trigger.focus({ preventScroll: true });
+      } finally {
+        restoringTitlebarChannelTriggerFocus = false;
+      }
+    }
+  }
   focusComposerSkillSearchIfOpen();
   lastRenderedThreadId = renderedThreadId;
   lastRenderedMessageSignature = nextMessageSignature;
@@ -36909,33 +37077,12 @@ function renderTitlebarPrimaryActions() {
   const channelMenuOpen = state.externalChannels.menuOpen;
   return `
     <nav class="titlebar-primary-actions" aria-label="应用快捷操作">
-      <div class="titlebar-more-action ${channelMenuOpen ? "menu-open" : ""}">
-        <button type="button" class="titlebar-primary-action titlebar-icon-action ${channelMenuOpen ? "active" : ""}" data-action="toggle-external-channel-menu" aria-haspopup="menu" aria-controls="titlebarMoreMenu" aria-expanded="${channelMenuOpen ? "true" : "false"}" title="更多" aria-label="更多">
-          ${renderTitlebarMoreIcon()}
+      <div class="titlebar-channel-action ${channelMenuOpen ? "menu-open" : ""}">
+        <button type="button" class="titlebar-primary-action titlebar-channel-trigger ${channelMenuOpen ? "active" : ""}" data-action="toggle-external-channel-menu" aria-haspopup="menu" aria-controls="titlebarExternalChannelMenu" aria-expanded="${channelMenuOpen ? "true" : "false"}" title="连手机" aria-label="连手机">
+          ${renderTitlebarPlugIcon()}
+          <span class="titlebar-channel-label">连手机</span>
         </button>
-        <div class="titlebar-more-menu-overlay">
-          <div class="titlebar-more-menu" id="titlebarMoreMenu" role="menu">
-            <div class="titlebar-more-channel-item">
-              <button type="button" class="titlebar-more-menu-button" data-titlebar-channel-trigger role="menuitem" aria-haspopup="menu" aria-expanded="false">
-                ${renderTitlebarPlugIcon()}
-                <span>连接渠道</span>
-                ${renderTitlebarMenuChevron()}
-              </button>
-              ${renderExternalChannelMenu()}
-            </div>
-            <button
-              type="button"
-              class="titlebar-more-menu-button ${state.autoTaskDialogOpen ? "active" : ""}"
-              data-action="open-auto-task-dialog"
-              role="menuitem"
-              aria-haspopup="dialog"
-              aria-expanded="${state.autoTaskDialogOpen ? "true" : "false"}"
-            >
-              ${renderTitlebarAlarmIcon()}
-              <span>自动任务</span>
-            </button>
-          </div>
-        </div>
+        ${channelMenuOpen ? `<div class="external-channel-menu titlebar-external-channel-menu" id="titlebarExternalChannelMenu" role="menu" aria-label="连接渠道">${externalChannelMenuItems().map(renderExternalChannelRow).join("")}${state.externalChannels.error ? `<div class="external-channel-error">${escapeHtml(state.externalChannels.error)}</div>` : ""}</div>` : ""}
       </div>
     </nav>
   `;
@@ -51765,6 +51912,11 @@ function renderMessage(message: Message, conversationMessages: Message[] = [mess
     (message as MessageUiMeta).localGroupThinkingMemberId,
   );
   const fromUser = message.role === "user" || message.kind === "user_text";
+  if (
+    !fromUser
+    && isInsufficientQuotaError(message.text)
+    && !message.actions?.some((action) => isRechargeTokenAction(action))
+  ) return "";
   const alignRight = fromUser || message.align_right === true;
   // Trading surfaces use the chart as the primary visual context while the
   // conversation is split to the right. Keep that compact presentation free
@@ -52882,6 +53034,13 @@ function localSendStatusFromRecord(record: Record<string, unknown> | Message | C
     (record as Record<string, unknown> | null | undefined)?.__youleLocalSendStatus,
     (record as Record<string, unknown> | null | undefined)?.localSendStatus,
   );
+  // Quota and membership notices belong in the assistant recharge bubble.
+  // Read the error metadata here as well so restored legacy sends cannot bring
+  // back a red status below the user's original message.
+  if (status === "failed" && isInsufficientQuotaError(firstString(
+    (record as Record<string, unknown> | null | undefined)?.__youleLocalSendError,
+    (record as Record<string, unknown> | null | undefined)?.localSendError,
+  ))) return null;
   return status === "uploading" || status === "sending" || status === "failed" ? status : null;
 }
 
@@ -54210,9 +54369,7 @@ function usesUnifiedExecutionModelPicker(
 ) {
   const mode = newThreadModeForThread(threadId);
   if (isTradingExpertThreadId(threadId)) {
-    return !providerFromThreadId(threadId) && (
-      isExpandedTradingExpertConversation(threadId) || isMediaCreationMode(mode)
-    );
+    return !providerFromThreadId(threadId) && isMediaCreationMode(mode);
   }
   return (
     isBlankNewThread(threadId) &&
@@ -54609,7 +54766,7 @@ function selectedChatModelOption(threadId: string | null | undefined = currentCo
     return {
       value: effectiveModel,
       providerId: effectiveModelProvider || undefined,
-      label: effectiveModel,
+      label: modelDisplayName(effectiveModel, effectiveModel),
       description: "\u5f53\u524d\u7ebf\u7a0b\u7684\u5b9e\u9645\u751f\u6548\u6a21\u578b",
       reasoningEfforts: [],
       serviceTiers: [],
@@ -54681,6 +54838,19 @@ async function selectComposerModelForThread(
   const id = firstString(threadId);
   if (!id) return false;
   if (isThreadModelSelectionLocked(id) || (isTradingExpertThreadId(id) && isComposerThreadBusy(id))) return false;
+  const membership = modelMembershipAccess(state.auth.profile, selected.value);
+  if (!membership.allowed) {
+    state.composerModelMenuOpen = false;
+    render();
+    const upgraded = await confirmInApp({
+      title: "升级会员",
+      message: `此模型仅限${membership.requiredLabel}及以上会员使用`,
+      confirmLabel: "升级",
+      cancelLabel: "取消",
+    });
+    if (upgraded) openRechargePage(selected.value);
+    return false;
+  }
   if (!usesUnifiedExecutionModelPicker(id)) {
     const currentKind = composerModelKindForThread(id);
     if (currentKind === "image") {
@@ -55180,6 +55350,12 @@ function executionModelGroups(options: readonly ChatModelOption[]) {
     .map(([providerId, group]) => ({ providerId, ...group }));
 }
 
+function renderExecutionModelGroupTitle(label: string) {
+  return label === "Haolo · GPT"
+    ? ""
+    : `<div class="composer-model-group-title">${escapeHtml(label)}</div>`;
+}
+
 function renderTradingExpertModelMenu(
   options: readonly ChatModelOption[],
   selected: ChatModelOption,
@@ -55192,7 +55368,7 @@ function renderTradingExpertModelMenu(
         .map(
           (group) => `
         <section class="composer-model-group" role="group" aria-label="${escapeAttr(group.label)}">
-          <div class="composer-model-group-title">${escapeHtml(group.label)}</div>
+          ${renderExecutionModelGroupTitle(group.label)}
           ${group.options
             .map((option) =>
               renderComposerModelOptionButton(option, selected, disabled),
@@ -55417,7 +55593,7 @@ function renderUnifiedExecutionModelMenu(
         .map(
           (group) => `
         <section class="composer-model-group" role="group" aria-label="${escapeAttr(group.label)}">
-          <div class="composer-model-group-title">${escapeHtml(group.label)}</div>
+          ${renderExecutionModelGroupTitle(group.label)}
           ${group.options
             .map((option) =>
               renderComposerModelOptionButton(
@@ -56305,7 +56481,7 @@ function renderComposer(thread: ConversationSummary) {
   const composerUploadAction = tradingExpertMode && !imageGenerationMode
     ? `data-action="toggle-trading-expert-mention-menu" title="添加" aria-label="添加" aria-haspopup="menu" aria-expanded="${state.composerSkillMention.open ? "true" : "false"}"`
     : `data-action="pick-files" title="${escapeAttr(uploadTitle)}" aria-label="${escapeAttr(uploadTitle)}"`;
-  const composerTrailingPicker = multiAgentMode || (tradingExpertMode && !usesUnifiedExecutionModelPicker(thread.id))
+  const composerTrailingPicker = multiAgentMode
     ? ""
     : renderComposerModelPicker(thread.id);
   const workflowComposerPort = isMultiModelClusterThread(thread.id)
@@ -58953,11 +59129,15 @@ function closeRechargeHistoryModal() {
 }
 
 function renderRechargePaymentMethods() {
+  const product = ensureRechargeProductSelection();
+  const visibleNetworks = product
+    ? RECHARGE_PAYMENT_NETWORKS.filter((network) => isRechargePaymentNetworkAvailable(product.id, network.id))
+    : RECHARGE_PAYMENT_NETWORKS;
   return `
     <section class="recharge-payment-methods" role="radiogroup" aria-labelledby="rechargePaymentMethodsTitle">
       <h2 id="rechargePaymentMethodsTitle">支付方式</h2>
       <div class="recharge-payment-network-grid">
-        ${RECHARGE_PAYMENT_NETWORKS.map((network) => `
+        ${visibleNetworks.map((network) => `
           <label class="recharge-payment-network">
             <input
               type="radio"
@@ -59016,12 +59196,21 @@ function visibleRechargeSubscriptionProducts() {
   );
 }
 
+function isRechargePaymentNetworkAvailable(productId: string, networkId: string) {
+  return !(networkId === "tron" && RECHARGE_TRON_HIDDEN_PRODUCT_IDS.has(productId));
+}
+
 function ensureRechargeProductSelection() {
   const visibleProducts = visibleRechargeSubscriptionProducts();
   const product: RechargeProductDefinition | null = visibleProducts.find(
     (candidate) => candidate.id === selectedRechargeProductId,
   ) || visibleProducts.find((candidate) => candidate.id === "subscription_basic") || visibleProducts[0] || null;
-  if (product) selectedRechargeProductId = product.id;
+  if (product) {
+    selectedRechargeProductId = product.id;
+    if (!isRechargePaymentNetworkAvailable(product.id, selectedRechargePaymentNetwork || "")) {
+      selectedRechargePaymentNetwork = "binance_internal";
+    }
+  }
   return product;
 }
 
@@ -59438,6 +59627,10 @@ function syncRechargePaymentSelectionControls() {
     card.setAttribute("tabindex", unavailable ? "-1" : "0");
   });
   root.querySelectorAll<HTMLInputElement>('input[name="recharge-payment-network"]').forEach((input) => {
+    const networkVisible = isRechargePaymentNetworkAvailable(selectedRechargeProductId, input.value);
+    const option = input.closest<HTMLElement>(".recharge-payment-network");
+    input.disabled = !networkVisible;
+    if (option) option.hidden = !networkVisible;
     input.checked = input.value === selectedRechargePaymentNetwork;
   });
 }
@@ -60517,7 +60710,15 @@ function rechargeAnnualSavings(product: RechargeProductDefinition) {
   };
 }
 
-function openRechargePage() {
+function openRechargePage(targetModel?: string | null) {
+  const normalizedModel = (firstString(targetModel) || "").toLowerCase();
+  if (normalizedModel === "gpt-6-astra") {
+    selectedRechargeBillingCycle = "monthly";
+    selectedRechargeProductId = "subscription_flagship";
+  } else if (normalizedModel === "gpt-6-sol") {
+    selectedRechargeBillingCycle = "monthly";
+    selectedRechargeProductId = "subscription_basic";
+  }
   if (state.activeView === "chat") rememberCurrentChatThreadSelection();
   state.profileMenuOpen = false;
   state.error = null;
@@ -61720,7 +61921,11 @@ function bindRechargeProductCardEvents() {
       card.classList.toggle("selected", isSelected);
       card.setAttribute("aria-checked", isSelected ? "true" : "false");
     });
-    activateRechargePaymentSelection();
+    // Product changes alter which payment networks exist in the DOM. Render
+    // immediately so the newly available TRON option appears before the
+    // replacement order request finishes loading.
+    stopRechargePaymentRuntime();
+    render();
   };
   cards.forEach((card) => {
     card.addEventListener("click", () => {
@@ -61890,7 +62095,7 @@ function bindEvents() {
     }
     if (
       state.externalChannels.menuOpen &&
-      !(target instanceof Element && target.closest(".titlebar-more-action"))
+      !(target instanceof Element && target.closest(".titlebar-channel-action"))
     ) {
       state.externalChannels.menuOpen = false;
       shouldRender = true;
@@ -63310,6 +63515,7 @@ function bindEvents() {
     ?.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (!event.currentTarget || !(event.currentTarget as HTMLElement).isConnected) return;
       state.externalChannels.menuOpen = !state.externalChannels.menuOpen;
       state.profileMenuOpen = false;
       state.skillSortMenuOpen = false;
@@ -63318,11 +63524,43 @@ function bindEvents() {
       if (state.externalChannels.menuOpen) primeExternalChannelMenu();
     });
   root
-    .querySelector<HTMLElement>("[data-titlebar-channel-trigger]")
-    ?.addEventListener("mouseenter", primeExternalChannelMenu);
+    .querySelector<HTMLElement>('[data-action="toggle-external-channel-menu"]')
+    ?.addEventListener("mouseenter", () => {
+      if (!state.externalChannels.menuOpen) {
+        state.externalChannels.menuOpen = true;
+        state.profileMenuOpen = false;
+        state.skillSortMenuOpen = false;
+        state.autoTaskMenuTaskId = null;
+        render();
+      }
+      primeExternalChannelMenu();
+    });
   root
-    .querySelector<HTMLElement>("[data-titlebar-channel-trigger]")
-    ?.addEventListener("focus", primeExternalChannelMenu);
+    .querySelector<HTMLElement>('[data-action="toggle-external-channel-menu"]')
+    ?.addEventListener("focus", () => {
+      if (restoringTitlebarChannelTriggerFocus) {
+        primeExternalChannelMenu();
+        return;
+      }
+      if (!state.externalChannels.menuOpen) {
+        state.externalChannels.menuOpen = true;
+        state.profileMenuOpen = false;
+        state.skillSortMenuOpen = false;
+        state.autoTaskMenuTaskId = null;
+        render();
+      }
+      primeExternalChannelMenu();
+    });
+  root
+    .querySelector<HTMLElement>(".titlebar-channel-action")
+    ?.addEventListener("mouseleave", () => {
+      window.setTimeout(() => {
+        if (root.querySelector<HTMLElement>(".titlebar-channel-action:hover")) return;
+        if (!state.externalChannels.menuOpen) return;
+        state.externalChannels.menuOpen = false;
+        render();
+      }, 160);
+    });
   root
     .querySelectorAll<HTMLButtonElement>("[data-external-channel-id]")
     .forEach((button) => {
@@ -63546,7 +63784,7 @@ function bindEvents() {
     closeThreadHistoryPopover();
     if (state.externalChannels.menuOpen) {
       state.externalChannels.menuOpen = false;
-      root.querySelector(".titlebar-more-menu-overlay")?.remove();
+      root.querySelector("#titlebarExternalChannelMenu")?.remove();
       root
         .querySelector<HTMLButtonElement>('[data-action="toggle-external-channel-menu"]')
         ?.setAttribute("aria-expanded", "false");
@@ -66334,6 +66572,11 @@ function scrollWorkflowToBottom(scroller: HTMLElement, options: { smooth?: boole
 
 function applyWindowState(payload: WindowState | null | undefined) {
   if (!payload) return;
+  if (payload.mode && currentWindowMode && payload.mode !== currentWindowMode) {
+    currentWindowMode = payload.mode;
+    applyDesktopWindowModeClass(payload.mode);
+    if (!windowResizeDragActive) scheduleRender({ protectComposer: true });
+  }
   state.windowMaximized = Boolean(payload.maximized);
   state.windowNativeMaximized = Boolean(payload.nativeMaximized ?? payload.maximized);
   state.windowPinned = Boolean(payload.pinned);
@@ -75333,6 +75576,11 @@ function shouldHideChatItem(item: CodexItem | undefined) {
   if (isInternalProcessItem(item)) return true;
   if (item.type === "system" && !itemHasDisplayAttachments(item)) return true;
   const text = itemText(item);
+  if (
+    !isUserSideThreadItem(item)
+    && isInsufficientQuotaError(text)
+    && !messageActionsFromItem(item)?.some((action) => isRechargeTokenAction(action))
+  ) return true;
   if (text.includes(AUTOMATIC_TURN_RECOVERY_MARKER)) return true;
   return isNoisyReconnectError(text) || isMissingRolloutError(text);
 }

@@ -96,6 +96,88 @@ test("renderer confirmation broker fails closed when the renderer disappears", a
   }
 });
 
+test("renderer confirmation waits for the initial page to load before sending a queued update", async () => {
+  const ipcMain = fakeIpcMain();
+  const window = fakeWindow();
+  window.webContents.isLoadingMainFrame = () => true;
+  const broker = createRendererConfirmationBroker({ ipcMain });
+  try {
+    const result = broker.request(window, { title: "开发代码已更新", message: "重启加载最新代码？" });
+    assert.equal(window.webContents.sent.length, 0);
+    window.webContents.emit("did-finish-load");
+    assert.equal(window.webContents.sent.length, 1);
+    const { requestId } = window.webContents.sent[0].payload;
+    ipcMain.invoke(APP_CONFIRMATION_RESOLVE_CHANNEL, { sender: window.webContents }, { requestId, confirmed: true });
+    assert.equal(await result, true);
+    assert.equal(window.webContents.listenerCount("did-finish-load"), 0);
+
+    const cancelled = broker.request(window, { message: "another update" });
+    window.webContents.emit("destroyed");
+    assert.equal(await cancelled, false);
+    window.webContents.emit("did-finish-load");
+    assert.equal(window.webContents.sent.length, 1, "destroyed windows must not receive a late dialog");
+  } finally {
+    broker.dispose();
+  }
+});
+
+test("renderer confirmation recovers after a transient loading failure", async () => {
+  const ipcMain = fakeIpcMain();
+  const window = fakeWindow();
+  window.webContents.isLoadingMainFrame = () => true;
+  const broker = createRendererConfirmationBroker({ ipcMain, timeoutMs: 1_000 });
+  try {
+    const result = broker.requestStatus(window, { message: "update" });
+    window.webContents.emit("did-fail-load");
+    assert.equal(window.webContents.sent.length, 0);
+    window.webContents.emit("did-finish-load");
+    assert.equal(window.webContents.sent.length, 1);
+    const { requestId } = window.webContents.sent[0].payload;
+    ipcMain.invoke(APP_CONFIRMATION_RESOLVE_CHANNEL, { sender: window.webContents }, { requestId, confirmed: false });
+    assert.deepEqual(await result, { confirmed: false, retryable: false, reason: "cancelled" });
+  } finally {
+    broker.dispose();
+  }
+});
+
+test("renderer confirmation reports unavailable windows as retryable in status mode", async () => {
+  const ipcMain = fakeIpcMain();
+  const broker = createRendererConfirmationBroker({ ipcMain });
+  try {
+    const result = await broker.requestStatus(
+      { isDestroyed: () => true },
+      { message: "update" },
+    );
+    assert.deepEqual(result, {
+      confirmed: false,
+      retryable: true,
+      reason: "unavailable",
+    });
+  } finally {
+    broker.dispose();
+  }
+});
+
+test("renderer confirmation fails closed when loading state setup races window teardown", async () => {
+  const ipcMain = fakeIpcMain();
+  const window = fakeWindow();
+  window.webContents.isLoadingMainFrame = () => true;
+  window.webContents.once = () => {
+    throw new Error("window is tearing down");
+  };
+  const broker = createRendererConfirmationBroker({ ipcMain });
+  try {
+    assert.equal(await broker.request(window, { message: "update" }), false);
+    assert.deepEqual(await broker.requestStatus(window, { message: "update" }), {
+      confirmed: false,
+      retryable: true,
+      reason: "unavailable",
+    });
+  } finally {
+    broker.dispose();
+  }
+});
+
 test("all application confirmations use the shared in-app dialog", async () => {
   const [renderer, main, preload, devUpdate, userDataTransfer] = await Promise.all([
     readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),

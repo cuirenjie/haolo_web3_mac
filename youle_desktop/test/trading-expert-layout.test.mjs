@@ -10,6 +10,7 @@ import {
   TRADING_EXPERT_MODEL_VALUES,
   TRADING_EXPERT_REASONING_EFFORT,
   defaultTradingExpertModelOption,
+  isTradingExpertModelValue,
   tradingExpertReasoningEffort,
   tradingExpertModelOptions,
 } from "../src/renderer/trading-expert-models.ts";
@@ -588,16 +589,18 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
 
   assert.deepEqual(TRADING_EXPERT_MODEL_VALUES, [
     "gpt-5.6-sol",
-    "deepseek-flash",
+    "gpt-6-sol",
+    "gpt-6-astra",
   ]);
   assert.equal(TRADING_EXPERT_DEFAULT_MODEL_VALUE, "gpt-5.6-sol");
-  assert.equal(TRADING_EXPERT_REASONING_EFFORT, "ultra");
+  assert.equal(TRADING_EXPERT_REASONING_EFFORT, "max");
   assert.equal(TRADING_EXPERT_DEEPSEEK_REASONING_EFFORT, "max");
-  assert.equal(tradingExpertReasoningEffort("gpt-5.6-sol"), "ultra");
-  assert.equal(tradingExpertReasoningEffort("deepseek-flash"), "max");
+  assert.equal(isTradingExpertModelValue("deepseek-flash"), true);
+  assert.equal(tradingExpertReasoningEffort("gpt-5.6-sol"), "max");
+  assert.equal(tradingExpertReasoningEffort("gpt-6-sol"), "max");
   assert.deepEqual(
     tradingExpertModelOptions(catalog).map((option) => option.value),
-    ["gpt-5.6-sol", "deepseek-flash"],
+    ["gpt-5.6-sol", "gpt-6-sol", "gpt-6-astra"],
   );
   assert.equal(
     defaultTradingExpertModelOption(catalog)?.value,
@@ -676,7 +679,7 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
   );
   assert.match(
     composer,
-    /const composerTrailingPicker = multiAgentMode \|\| \(tradingExpertMode && !usesUnifiedExecutionModelPicker\(thread\.id\)\)[\s\S]*\? ""[\s\S]*: renderComposerModelPicker\(thread\.id\)/,
+    /const composerTrailingPicker = multiAgentMode[\s\S]*\? ""[\s\S]*: renderComposerModelPicker\(thread\.id\)/,
   );
   assert.doesNotMatch(
     styles,
@@ -2223,8 +2226,8 @@ test("Trading Expert adds functional main-chart studies on the left and moves su
   assert.doesNotMatch(styles, /\.trading-market-main-indicators button\.active::after|\.trading-market-indicators button\.active::after/);
   assert.match(styles, /--trading-market-indicator-selected: #5b95e5;/);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-indicator-selected: #82b6ff;/);
-  assert.match(source, /TRADING_MAIN_INDICATOR_LINE_COLORS = \["#d1ab2e", "#2dccac", "#c935cc"\]/);
-  assert.match(source, /ma: \[\.\.\.TRADING_MAIN_INDICATOR_LINE_COLORS\],[\s\S]*ema: \[\.\.\.TRADING_MAIN_INDICATOR_LINE_COLORS\],[\s\S]*boll: \[\.\.\.TRADING_MAIN_INDICATOR_LINE_COLORS\],/);
+  assert.match(source, /TRADING_MAIN_INDICATOR_LINE_COLORS = \["#d1ab2e", "#2dccac", "#c935cc", "#5b95e5", "#f59e0b"\]/);
+  assert.match(source, /ma: \[\.\.\.TRADING_MAIN_INDICATOR_LINE_COLORS\],[\s\S]*ema: \[\.\.\.TRADING_MAIN_INDICATOR_LINE_COLORS\],[\s\S]*boll: \[\.\.\.TRADING_BOLL_LINE_COLORS\],/);
   assert.match(source, /const addReferenceWidthLines = \(colors: string\[\]\) =>[\s\S]*index === 1 \? 2 : 1/);
   assert.match(source, /set\("ma", addReferenceWidthLines\(palette\.ma\)\)[\s\S]*set\("ema", addReferenceWidthLines\(palette\.ema\)\)[\s\S]*set\("boll", addReferenceWidthLines\(palette\.boll\)\)/);
   assert.doesNotMatch(styles, /trading-market-modes/);
@@ -2242,9 +2245,9 @@ test("Trading Expert shows selected main-indicator values below OHLC in referenc
   assert.match(source, /data-market-main-indicator-legends/);
   assert.match(source, /this\.updateMainIndicatorLegends\(parameter\?\.time\)/);
   assert.match(source, /this\.renderLatestOhlc\(\);\s*this\.updateMainIndicatorLegends\(\);/);
-  assert.match(legendUpdate, /appendRow\("ma", "MA", \["short", "medium", "long"\]\.flatMap/);
+  assert.match(legendUpdate, /appendRow\("ma", "MA", \["short", "medium", "long", "extraLong", "ultraLong"\]\.flatMap/);
   assert.match(legendUpdate, /label: `MA\(\$\{setting\.parameters\[index\]\}\)`/);
-  assert.match(legendUpdate, /appendRow\("ema", "EMA", \["short", "medium", "long"\]\.flatMap/);
+  assert.match(legendUpdate, /appendRow\("ema", "EMA", \["short", "medium", "long", "extraLong", "ultraLong"\]\.flatMap/);
   assert.match(legendUpdate, /label: `EMA\(\$\{setting\.parameters\[index\]\}\)`/);
   assert.match(legendUpdate, /appendRow\("boll", `BOLL\(\$\{setting\.parameters\.join\(","\)\}\)`, \[/);
   assert.match(legendUpdate, /label: "BOLL"[\s\S]*label: "UB"[\s\S]*label: "LB"/);

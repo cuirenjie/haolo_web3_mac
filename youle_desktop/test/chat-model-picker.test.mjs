@@ -129,21 +129,34 @@ test("fixed catalog contains exactly the three active GPT models and labels", ()
   assert.deepEqual(
     FIXED_CHAT_MODEL_OPTIONS.map(({ value, label }) => ({ value, label })),
     [
-      { value: "gpt-5.6-sol", label: "\u590d\u6742\u63a8\u7406(5.6 Sol)" },
-      { value: "gpt-5.6-terra", label: "\u5747\u8861\u4e3b\u529b(5.6 Terra)" },
-      { value: "gpt-5.6-luna", label: "\u65e5\u5e38\u9ad8\u901f(5.6 Luna)" },    ],
+      { value: "gpt-5.6-sol", label: "GPT-5.6-Sol" },
+      { value: "gpt-6-sol", label: "GPT-6-Sol" },
+      { value: "gpt-6-astra", label: "GPT-6-Astra" },
+    ],
   );
 
   const classic = FIXED_CHAT_MODEL_OPTIONS.find((option) => option.value === "gpt-5.6-sol");
   assert.ok(classic);
   assert.equal(DEFAULT_CHAT_MODEL_VALUE, "gpt-5.6-sol");
   assert.equal(classic.isDefault, true);
-  assert.equal(selectedReasoningEffort(classic, undefined), "low");
+  assert.equal(selectedReasoningEffort(classic, undefined), "max");
   assert.equal(fastServiceTier(classic)?.id, "priority");
   assert.equal(normalizeFixedChatModel("gpt-5.4"), "gpt-5.6-sol");
   assert.equal(normalizeFixedChatModel("GPT-5.6-SOL"), "gpt-5.6-sol");
 
   assert.deepEqual(chatModelOptionsFromList(null), []);
+
+  const curated = executionChatModelOptions(normalizeBusinessModelPoolsState({
+    configured: true,
+    pools: [{ id: "execution", capabilities: ["root_execution"], models: [
+      { id: "gpt-6-sol", displayName: "后台自定义名称", provider: "codex", enabled: true },
+      { id: "gpt-6-astra", displayName: "后台另一个名称", provider: "codex", enabled: true },
+    ] }],
+  }));
+  assert.deepEqual(
+    curated.filter((option) => ["gpt-6-sol", "gpt-6-astra"].includes(option.value)).map((option) => option.label).sort(),
+    ["GPT-6-Astra", "GPT-6-Sol"],
+  );
 });
 
 test("runtime thread settings preserve old and private model names", () => {
@@ -274,14 +287,15 @@ test("DeepSeek execution pool exposes the official text-only adaptive reasoning 
       },
     ],
   });
-  const [option] = executionChatModelOptions(state);
+  const option = executionChatModelOptions(state).find((candidate) => candidate.value === DEEPSEEK_EXECUTION_MODEL_VALUE);
 
+  assert.ok(option);
   assert.equal(option.value, DEEPSEEK_EXECUTION_MODEL_VALUE);
   assert.equal(option.providerId, DEEPSEEK_EXECUTION_PROVIDER_ID);
   assert.equal(option.routeGroupId, 17);
   assert.deepEqual(option.inputModalities, ["text"]);
   assert.deepEqual(option.reasoningEfforts.map((effort) => effort.value), ["low", "high", "max"]);
-  assert.equal(option.defaultReasoningEffort, "high");
+  assert.equal(option.defaultReasoningEffort, "max");
   assert.equal(DEEPSEEK_EXECUTION_CHAT_MODEL_OPTION.serviceTiers.length, 0);
   assert.equal(
     normalizeRuntimeThreadModelSettings({
@@ -479,7 +493,7 @@ test("existing execution threads allow GPT-family switches and lock DeepSeek", a
   assert.match(modelState, /function selectedChatModelOption\(threadId:/);
   assert.match(modelState, /const selectedSettings = threadModelSelection\(threadId\)/);
   assert.match(modelState, /let effectiveModel = canonicalDeepSeekModel\(selectedSettings\?\.model \|\| knownSettings\?\.model\)/);
-  assert.match(modelState, /label: effectiveModel/);
+  assert.match(modelState, /label: modelDisplayName\(effectiveModel, effectiveModel\)/);
   assert.match(modelState, /function rememberThreadModelSettings/);
   assert.match(modelState, /function rememberThreadModelSelection/);
   assert.match(modelState, /function lockedExecutionModelForThread/);

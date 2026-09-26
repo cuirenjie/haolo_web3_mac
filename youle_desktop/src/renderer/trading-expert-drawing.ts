@@ -583,6 +583,19 @@ export function tradingDrawingAxisMarkerPoints(
   return endpoints.map((point) => ({ point, showPrice: true, showTime: true }));
 }
 
+/**
+ * Horizontal-line prices stay visible on the price axis after the line is
+ * deselected. Other drawing types keep the existing selected-only markers.
+ */
+export function tradingDrawingAlwaysVisibleAxisMarkerPoints(
+  definition: TradingDrawingToolDefinition,
+  points: ReadonlyArray<TradingDrawingPoint>,
+): TradingDrawingAxisMarkerPoint[] {
+  return definition.kind === "horizontal"
+    ? tradingDrawingAxisMarkerPoints(definition, points)
+    : [];
+}
+
 export function formatTradingDrawingAxisPrice(value: number) {
   return formatTradingFibonacciPrice(value);
 }
@@ -4398,15 +4411,33 @@ export class TradingDrawingController {
   }
 
   private updateAxisMarkers(bounds: { width: number; height: number }) {
-    const drawing = this.selectedDrawing();
-    const definition = tradingDrawingToolDefinition(drawing?.tool);
-    if (!drawing || !definition || this.drawingsHidden) {
+    const selectedDrawing = this.selectedDrawing();
+    if (this.drawingsHidden) {
       updateTradingDrawingMarkup(this.axisMarkerLayer, "");
       return;
     }
-    const markers = tradingDrawingAxisMarkerPoints(definition, drawing.points)
+    const visibleDrawings = this.drawings.filter((drawing) => (
+      tradingManualDrawingMatchesContext(drawing, this.getSymbol(), this.getInterval(), this.drawingScope)
+    ));
+    const persistentHorizontalDrawings = visibleDrawings.filter((drawing) => (
+      tradingDrawingToolDefinition(drawing.tool)?.kind === "horizontal"
+    ));
+    const markerDrawings = [
+      ...persistentHorizontalDrawings,
+      ...(selectedDrawing && !persistentHorizontalDrawings.some((drawing) => drawing.id === selectedDrawing.id)
+        ? [selectedDrawing]
+        : []),
+    ];
+    const markers = markerDrawings.flatMap((drawing) => {
+      const definition = tradingDrawingToolDefinition(drawing.tool);
+      if (!definition) return [];
+      const markerPoints = definition.kind === "horizontal"
+        ? tradingDrawingAlwaysVisibleAxisMarkerPoints(definition, drawing.points)
+        : tradingDrawingAxisMarkerPoints(definition, drawing.points);
+      return markerPoints.map((marker) => ({ ...marker, drawingId: drawing.id }));
+    })
       .map((marker) => ({ ...marker, screen: this.pointToScreen(marker.point) }))
-      .filter((marker): marker is TradingDrawingAxisMarkerPoint & { screen: ScreenPoint } => Boolean(marker.screen));
+      .filter((marker): marker is TradingDrawingAxisMarkerPoint & { drawingId: string; screen: ScreenPoint } => Boolean(marker.screen));
     const priceScaleWidth = this.drawingScope === "main"
       ? Math.max(this.getChart()?.priceScale("right", this.paneIndex).width() || 0, 64)
       : 0;

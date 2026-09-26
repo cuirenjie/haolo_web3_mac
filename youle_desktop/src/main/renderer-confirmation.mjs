@@ -18,36 +18,75 @@ export function createRendererConfirmationBroker({
   });
 
   function request(window, options = {}) {
+    return requestInternal(window, options, false);
+  }
+
+  function requestStatus(window, options = {}) {
+    return requestInternal(window, options, true);
+  }
+
+  function requestInternal(window, options, includeStatus) {
     const webContents = window?.webContents;
     if (!webContents || window.isDestroyed?.() || webContents.isDestroyed?.()) {
-      return Promise.resolve(false);
+      return Promise.resolve(confirmationResult(false, "unavailable", includeStatus));
     }
     const requestId = crypto.randomUUID();
     return new Promise((resolve) => {
       let settled = false;
-      const finish = (confirmed) => {
+      let loadFailed = false;
+      const finishWithReason = (confirmed, reason) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         webContents.off?.("destroyed", onDestroyed);
+        webContents.off?.("did-finish-load", sendRequest);
+        webContents.off?.("did-fail-load", onFailedLoad);
         pending.delete(requestId);
-        resolve(Boolean(confirmed));
+        resolve(confirmationResult(confirmed, reason, includeStatus));
       };
-      const onDestroyed = () => finish(false);
-      const timer = setTimeout(() => finish(false), Math.max(1_000, Number(timeoutMs) || 0));
+      const onDestroyed = () => finishWithReason(false, "unavailable");
+      const onFailedLoad = (_event, _errorCode, _errorDescription, _url, isMainFrame) => {
+        if (isMainFrame === false) return;
+        // Keep the request alive. Vite/Electron can recover from a transient
+        // navigation failure; the next successful main-frame load will send
+        // the dialog to the renderer.
+        loadFailed = true;
+      };
+      const timer = setTimeout(
+        () => finishWithReason(false, loadFailed ? "load-failed" : "timeout"),
+        Math.max(1_000, Number(timeoutMs) || 0),
+      );
       timer.unref?.();
-      webContents.once?.("destroyed", onDestroyed);
       pending.set(requestId, {
         webContentsId: webContents.id,
-        finish,
+        finish: (confirmed) => finishWithReason(
+          confirmed,
+          confirmed ? "confirmed" : "cancelled",
+        ),
       });
+      function sendRequest() {
+        if (settled) return;
+        try {
+          webContents.send(APP_CONFIRMATION_REQUEST_CHANNEL, {
+            requestId,
+            ...normalizeRendererConfirmationOptions(options),
+          });
+        } catch {
+          finishWithReason(false, "unavailable");
+        }
+      }
       try {
-        webContents.send(APP_CONFIRMATION_REQUEST_CHANNEL, {
-          requestId,
-          ...normalizeRendererConfirmationOptions(options),
-        });
+        webContents.once?.("destroyed", onDestroyed);
+        // Development updates may be queued before createWindow has finished
+        // loading. Wait until the renderer has installed its dialog listener.
+        if (webContents.isLoadingMainFrame?.()) {
+          webContents.once("did-finish-load", sendRequest);
+          webContents.on?.("did-fail-load", onFailedLoad);
+        } else {
+          sendRequest();
+        }
       } catch {
-        finish(false);
+        finishWithReason(false, "unavailable");
       }
     });
   }
@@ -57,7 +96,16 @@ export function createRendererConfirmationBroker({
     ipcMain.removeHandler?.(APP_CONFIRMATION_RESOLVE_CHANNEL);
   }
 
-  return { request, dispose };
+  return { request, requestStatus, dispose };
+}
+
+function confirmationResult(confirmed, reason, includeStatus) {
+  if (!includeStatus) return Boolean(confirmed);
+  return {
+    confirmed: Boolean(confirmed),
+    retryable: reason !== "cancelled" && reason !== "confirmed",
+    reason,
+  };
 }
 
 function normalizeRendererConfirmationOptions(options) {

@@ -179,7 +179,7 @@ export function executionChatModelOptions(
         routeGroupId: model.routeGroupId,
         credentialAvailable: model.credentialAvailable,
         value: model.id,
-        label: modelDisplayName(model.id, model.displayName || catalogOption?.label || model.id),
+        label: fixed?.label || modelDisplayName(model.id, model.displayName || catalogOption?.label || model.id),
         isDefault: model.isDefault,
       };
     },

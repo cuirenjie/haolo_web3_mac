@@ -4837,7 +4837,7 @@ select:disabled {
   height: 38px;
   flex-shrink: 0;
   align-items: center;
-  gap: 10px;
+  gap: 5px;
   justify-content: flex-start;
   background: var(--app-chrome-background);
   backdrop-filter: none;
@@ -4848,7 +4848,7 @@ select:disabled {
   border-bottom-right-radius: 0;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
   overflow: visible;
-  padding: 0 0 0 15px;
+  padding: 0 0 0 10px;
   cursor: move;
   -webkit-app-region: no-drag;
   user-select: none;
@@ -5186,6 +5186,63 @@ select:disabled {
   align-items: center;
   cursor: move;
   -webkit-app-region: no-drag;
+}
+
+/* Compact direct channel shortcut in the titlebar. */
+.titlebar-profile {
+  max-width: min(300px, 38vw);
+  gap: 6px;
+  padding-right: 6px;
+  font-size: calc(13px + var(--app-font-size-offset));
+}
+
+.titlebar-profile-avatar {
+  width: 24px;
+  height: 24px;
+}
+
+.titlebar-profile-online-dot {
+  width: 8px;
+  height: 8px;
+  border-width: 1.5px;
+}
+
+.titlebar-primary-actions {
+  gap: 0;
+  margin-left: -12px;
+}
+
+.titlebar-channel-action {
+  position: relative;
+  display: flex;
+  height: 100%;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-channel-trigger {
+  height: 28px;
+  gap: 3px;
+  padding: 0 4px;
+}
+
+.titlebar-channel-trigger .titlebar-action-icon {
+  width: 16px;
+  height: 16px;
+  flex-basis: 16px;
+}
+
+.titlebar-channel-label {
+  color: inherit;
+  font-size: calc(10px + var(--app-font-size-offset));
+  line-height: 1.4;
+}
+
+.titlebar-channel-action > .external-channel-menu {
+  top: calc(100% + 5px);
+  right: auto;
+  left: 0;
+  z-index: 120;
 }
 
 .mac-titlebar .titlebar-drag-region,

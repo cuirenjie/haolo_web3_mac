@@ -42,6 +42,13 @@ test("only an unexpired active membership with positive balance grants premium a
   );
 });
 
+test("annual subscription plan ids retain their membership tier", () => {
+  const entitlement = activeMembershipEntitlement({
+    active_membership: { plan_id: "subscription_flagship_annual", status: "active", expires_at: FUTURE },
+  }, NOW);
+  assert.equal(entitlement.planId, "flagship");
+});
+
 test("expired, malformed and synthetic experience memberships fail closed", () => {
   assert.equal(premiumAccessState({
     active_membership: { plan_id: "pro", expires_at: "2026-09-01T00:00:00Z" },
@@ -71,6 +78,6 @@ test("renderer and main process both enforce fresh premium access for local anal
   assert.match(mainProcess, /tradingAnalysis:runGeneral[\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
   assert.match(mainProcess, /async function tradingAlertIpcCall[\s\S]*?\["compile", "resumeDraft", "simulate", "confirm", "revise"\][\s\S]*?await requireFreshTradingPremiumAccess\(\)/);
   assert.match(mainProcess, /async function classifyTradingStrategyRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)[\s\S]*?coordinator\.classify/);
-  assert.match(mainProcess, /async function classifyExternalTradingRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)[\s\S]*?getTradingAnalysisModelRegistry\(\)\.analyze/);
-  assert.match(mainProcess, /tradingAnalysis:classifyGeneralRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)[\s\S]*?getTradingAnalysisModelRegistry\(\)\.analyze/);
+  assert.match(mainProcess, /async function classifyExternalTradingRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)[\s\S]*?getTradingAnalysisModelRegistry\([^)]*\)\.analyze/);
+  assert.match(mainProcess, /tradingAnalysis:classifyGeneralRequest[\s\S]*?await requireFreshTradingPremiumAccess\(\)[\s\S]*?getTradingAnalysisModelRegistry\([^)]*\)\.analyze/);
 });

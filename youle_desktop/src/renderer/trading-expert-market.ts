@@ -582,6 +582,12 @@ interface TradingChanAnalysisResponse {
     latencyMs?: number;
   };
 }
+export interface TradingExecutionModelSelection {
+  model?: string | null;
+  modelId?: string | null;
+  modelProvider?: string | null;
+  reasoningEffort?: "max";
+}
 export type TradingChanConversationPhase = "loading" | "analyzing" | "drawing" | "complete";
 export interface TradingAnalysisTaskTarget {
   readonly schemaVersion: 1;
@@ -595,7 +601,7 @@ export interface TradingAnalysisTaskTarget {
   readonly candles: ReadonlyArray<Readonly<TradingCandle>>;
   readonly visibleCandles: ReadonlyArray<Readonly<TradingCandle>>;
 }
-export interface TradingChanConversationRequest {
+export interface TradingChanConversationRequest extends TradingExecutionModelSelection {
   analysisId?: string | null;
   analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
@@ -621,7 +627,7 @@ export type TradingOrderFlowConversationPhase =
   | "order-flow-analyzing"
   | "order-flow-drawing"
   | "order-flow-complete";
-export interface TradingOrderFlowConversationRequest {
+export interface TradingOrderFlowConversationRequest extends TradingExecutionModelSelection {
   analysisId?: string | null;
   analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
@@ -648,7 +654,7 @@ export type TradingWaveConversationPhase =
   | "wave-analyzing"
   | "wave-drawing"
   | "wave-complete";
-export interface TradingWaveConversationRequest {
+export interface TradingWaveConversationRequest extends TradingExecutionModelSelection {
   analysisId?: string | null;
   analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
@@ -674,7 +680,7 @@ export type TradingWyckoffConversationPhase =
   | "wyckoff-analyzing"
   | "wyckoff-drawing"
   | "wyckoff-complete";
-export interface TradingWyckoffConversationRequest {
+export interface TradingWyckoffConversationRequest extends TradingExecutionModelSelection {
   analysisId?: string | null;
   analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
@@ -696,7 +702,7 @@ export interface TradingWyckoffConversationResult {
 }
 type TradingGeneralAnalysisResponse = TradingChanAnalysisResponse;
 export type TradingGeneralConversationPhase = "loading" | "analyzing" | "drawing" | "complete";
-export interface TradingGeneralConversationRequest {
+export interface TradingGeneralConversationRequest extends TradingExecutionModelSelection {
   analysisId?: string | null;
   analysisTarget?: TradingAnalysisTaskTarget | null;
   instruction: string;
@@ -768,8 +774,8 @@ export const TRADING_MAIN_INDICATORS: ReadonlyArray<{
   name: string;
   parameters: string;
 }> = [
-  { id: "ma", label: "MA", name: "移动平均线", parameters: "5,10,20" },
-  { id: "ema", label: "EMA", name: "指数移动平均线", parameters: "5,10,20" },
+  { id: "ma", label: "MA", name: "移动平均线", parameters: "5,10,20,30,60" },
+  { id: "ema", label: "EMA", name: "指数移动平均线", parameters: "5,10,20,30,60" },
   { id: "boll", label: "BOLL", name: "布林带", parameters: "20,2" },
   { id: "td", label: "TD", name: "TD序列", parameters: "9" },
   { id: "bbi", label: "BBI", name: "多空指标", parameters: "3,6,12,24" },
@@ -834,22 +840,38 @@ const indicatorParameter = (
 export const TRADING_MARKET_INDICATOR_CATALOG: readonly TradingMarketIndicatorCatalogItem[] = [
   {
     scope: "main", id: "ma", label: "MA", name: "移动平均线",
-    description: "用三个不同周期的简单移动平均线观察价格趋势、支撑阻力与均线排列。",
-    parameters: [indicatorParameter("短周期", 5), indicatorParameter("中周期", 10), indicatorParameter("长周期", 20)],
+    description: "用五个不同周期的简单移动平均线观察价格趋势、支撑阻力与均线排列。",
+    parameters: [
+      indicatorParameter("短周期", 5),
+      indicatorParameter("中周期", 10),
+      indicatorParameter("长周期", 20),
+      indicatorParameter("超长周期", 30),
+      indicatorParameter("极长周期", 60),
+    ],
     display: [
       { key: "short", label: "短周期均线", color: "#d1ab2e", defaultLineWidth: 1 },
       { key: "medium", label: "中周期均线", color: "#2dccac", defaultLineWidth: 2 },
       { key: "long", label: "长周期均线", color: "#c935cc", defaultLineWidth: 1 },
+      { key: "extraLong", label: "超长周期均线", color: "#5b95e5", defaultLineWidth: 1 },
+      { key: "ultraLong", label: "极长周期均线", color: "#f59e0b", defaultLineWidth: 1 },
     ],
   },
   {
     scope: "main", id: "ema", label: "EMA", name: "指数移动平均线",
     description: "对近期价格赋予更高权重的移动平均线，用于更灵敏地识别趋势变化。",
-    parameters: [indicatorParameter("短周期", 5), indicatorParameter("中周期", 10), indicatorParameter("长周期", 20)],
+    parameters: [
+      indicatorParameter("短周期", 5),
+      indicatorParameter("中周期", 10),
+      indicatorParameter("长周期", 20),
+      indicatorParameter("超长周期", 30),
+      indicatorParameter("极长周期", 60),
+    ],
     display: [
       { key: "short", label: "短周期均线", color: "#d1ab2e", defaultLineWidth: 1 },
       { key: "medium", label: "中周期均线", color: "#2dccac", defaultLineWidth: 2 },
       { key: "long", label: "长周期均线", color: "#c935cc", defaultLineWidth: 1 },
+      { key: "extraLong", label: "超长周期均线", color: "#5b95e5", defaultLineWidth: 1 },
+      { key: "ultraLong", label: "极长周期均线", color: "#f59e0b", defaultLineWidth: 1 },
     ],
   },
   {
@@ -3192,12 +3214,13 @@ const ATM1_COLORS: Record<TrendState, string> = {
   unclassified: "#888888",
 };
 
-export const TRADING_MAIN_INDICATOR_LINE_COLORS = ["#d1ab2e", "#2dccac", "#c935cc"] as const;
+export const TRADING_MAIN_INDICATOR_LINE_COLORS = ["#d1ab2e", "#2dccac", "#c935cc", "#5b95e5", "#f59e0b"] as const;
+const TRADING_BOLL_LINE_COLORS = ["#d1ab2e", "#2dccac", "#c935cc"] as const;
 
 const mainIndicatorPalette = (dark: boolean) => ({
   ma: [...TRADING_MAIN_INDICATOR_LINE_COLORS],
   ema: [...TRADING_MAIN_INDICATOR_LINE_COLORS],
-  boll: [...TRADING_MAIN_INDICATOR_LINE_COLORS],
+  boll: [...TRADING_BOLL_LINE_COLORS],
   bbi: [dark ? "#69a8ff" : "#2563eb"],
   tdBuy: dark ? "#41d37c" : "#0d8f60",
   tdSell: dark ? "#ff4f75" : "#d9365d",
@@ -5036,6 +5059,7 @@ class TradingExpertMarketWorkspace {
   private volumeProfileSnapshot: TradingVolumeProfile | null | undefined;
   private volumeProfileSnapshotCandleCount = 0;
   private resettingChartViewport = false;
+  private initialChartViewportPending = false;
   private marketHistoryReady = false;
   private updatingChartData = false;
   private rebuildingIndicatorPanes = false;
@@ -10426,6 +10450,10 @@ class TradingExpertMarketWorkspace {
       failureStage = "analysis";
       const response = await api({
         analysisJobId: job.analysisId,
+        ...(request.model ? { model: request.model } : {}),
+        ...(request.modelId ? { modelId: request.modelId } : {}),
+        ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+        reasoningEffort: "max",
         marketId: job.marketId,
         interval: job.interval,
         language: job.language,
@@ -11116,6 +11144,10 @@ class TradingExpertMarketWorkspace {
           }
           const response = await api({
             analysisJobId: job.analysisId,
+            ...(request.model ? { model: request.model } : {}),
+            ...(request.modelId ? { modelId: request.modelId } : {}),
+            ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            reasoningEffort: "max",
             marketId: job.marketId,
             interval: job.interval,
             snapshotTime: analysisSnapshotTime,
@@ -11767,6 +11799,10 @@ class TradingExpertMarketWorkspace {
       );
       const response = await api({
         analysisJobId: job.analysisId,
+        ...(request.model ? { model: request.model } : {}),
+        ...(request.modelId ? { modelId: request.modelId } : {}),
+        ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+        reasoningEffort: "max",
         marketId: job.marketId,
         interval: job.interval,
         language: job.language,
@@ -13339,11 +13375,19 @@ class TradingExpertMarketWorkspace {
       },
     );
     this.resizeObserver = new ResizeObserver(() => {
+      const width = this.chartElement.clientWidth;
+      const height = this.chartElement.clientHeight;
+      // Parked workspaces have no layout. Do not resize their chart to 1px,
+      // which would clamp even a user's existing zoom to the minimum spacing.
+      if (width <= 1 || height <= 1) return;
       this.chart?.applyOptions({
-        width: Math.max(this.chartElement.clientWidth, 1),
-        height: Math.max(this.chartElement.clientHeight, 1),
+        width,
+        height,
       });
       window.requestAnimationFrame(() => {
+        if (this.disposed) return;
+        // Native chart layout applies the canvas dimensions on its next frame.
+        if (this.initialChartViewportPending) this.applyInitialChartViewport();
         this.positionLayoutPicker();
         this.positionIndicatorLegends();
         this.queueVisiblePriceScaleUpdate();
@@ -13420,8 +13464,8 @@ class TradingExpertMarketWorkspace {
 
   private applyMainIndicatorSeriesOptions() {
     const keys: Partial<Record<TradingMainIndicatorId, string[]>> = {
-      ma: ["short", "medium", "long"],
-      ema: ["short", "medium", "long"],
+      ma: ["short", "medium", "long", "extraLong", "ultraLong"],
+      ema: ["short", "medium", "long", "extraLong", "ultraLong"],
       boll: ["upper", "middle", "lower"],
       bbi: ["bbi"],
     };
@@ -13482,8 +13526,8 @@ class TradingExpertMarketWorkspace {
   ) {
     const runtime = this.mainIndicatorSeries.get(id) ?? [];
     const seriesKeys: Partial<Record<TradingMainIndicatorId, string[]>> = {
-      ma: ["short", "medium", "long"],
-      ema: ["short", "medium", "long"],
+      ma: ["short", "medium", "long", "extraLong", "ultraLong"],
+      ema: ["short", "medium", "long", "extraLong", "ultraLong"],
       boll: ["upper", "middle", "lower"],
       bbi: ["bbi"],
     };
@@ -13603,7 +13647,7 @@ class TradingExpertMarketWorkspace {
     this.activeMainIndicators.forEach((id) => {
       const setting = this.indicatorSettings[tradingIndicatorSettingKey("main", id)];
       if (id === "ma") {
-        appendRow("ma", "MA", ["short", "medium", "long"].flatMap((key, index) =>
+        appendRow("ma", "MA", ["short", "medium", "long", "extraLong", "ultraLong"].flatMap((key, index) =>
           setting.series[key].visible ? [{
             label: `MA(${setting.parameters[index]})`,
             value: valueAt("ma", index),
@@ -13612,7 +13656,7 @@ class TradingExpertMarketWorkspace {
         return;
       }
       if (id === "ema") {
-        appendRow("ema", "EMA", ["short", "medium", "long"].flatMap((key, index) =>
+        appendRow("ema", "EMA", ["short", "medium", "long", "extraLong", "ultraLong"].flatMap((key, index) =>
           setting.series[key].visible ? [{
             label: `EMA(${setting.parameters[index]})`,
             value: valueAt("ema", index),
@@ -14250,7 +14294,15 @@ class TradingExpertMarketWorkspace {
     if (!this.chart) return;
     const logicalRange = initialMarketLogicalRange(this.chartCandles.length, this.activeInterval);
     if (!logicalRange) return;
+    // Defer width-dependent range calculation until the workspace and native
+    // canvas have real dimensions, otherwise candle spacing is clamped to 0.5px.
+    if (this.chartElement.clientWidth <= 1 || this.chartElement.clientHeight <= 1
+      || this.chart.timeScale().width() <= 1) {
+      this.initialChartViewportPending = true;
+      return;
+    }
     this.chart.timeScale().setVisibleLogicalRange(logicalRange);
+    this.initialChartViewportPending = false;
     this.chart.priceScale("right", 0).setAutoScale(true);
     this.updateCurrentPriceLabel();
     this.paintAlertSimulationMarker();
