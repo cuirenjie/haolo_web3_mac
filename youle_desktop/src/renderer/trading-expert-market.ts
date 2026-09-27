@@ -581,6 +581,7 @@ export interface TradingExecutionModelSelection {
   modelId?: string | null;
   modelProvider?: string | null;
   reasoningEffort?: "max";
+  explicitModelSelection?: boolean;
 }
 export type TradingChanConversationPhase = "loading" | "analyzing" | "drawing" | "complete";
 export interface TradingAnalysisTaskTarget {
@@ -10401,6 +10402,7 @@ class TradingExpertMarketWorkspace {
         ...(request.model ? { model: request.model } : {}),
         ...(request.modelId ? { modelId: request.modelId } : {}),
         ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+        ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
         reasoningEffort: "max",
         marketId: job.marketId,
         interval: job.interval,
@@ -10489,6 +10491,7 @@ class TradingExpertMarketWorkspace {
             ...(request.model ? { model: request.model } : {}),
             ...(request.modelId ? { modelId: request.modelId } : {}),
             ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
             reasoningEffort: "max",
             marketId: snapshot.market.id,
             interval: snapshot.interval,
@@ -10769,6 +10772,7 @@ class TradingExpertMarketWorkspace {
             ...(request.model ? { model: request.model } : {}),
             ...(request.modelId ? { modelId: request.modelId } : {}),
             ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
             reasoningEffort: "max",
             marketId: job.marketId,
             interval: job.interval,
@@ -10875,6 +10879,7 @@ class TradingExpertMarketWorkspace {
           ...(request.model ? { model: request.model } : {}),
           ...(request.modelId ? { modelId: request.modelId } : {}),
           ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+          ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
           reasoningEffort: "max",
           marketId: snapshot.market.id,
           interval: snapshot.interval,
@@ -11096,6 +11101,7 @@ class TradingExpertMarketWorkspace {
             ...(request.model ? { model: request.model } : {}),
             ...(request.modelId ? { modelId: request.modelId } : {}),
             ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
             reasoningEffort: "max",
             marketId: job.marketId,
             interval: job.interval,
@@ -11215,6 +11221,7 @@ class TradingExpertMarketWorkspace {
           ...(request.model ? { model: request.model } : {}),
           ...(request.modelId ? { modelId: request.modelId } : {}),
           ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+          ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
           reasoningEffort: "max",
           marketId: snapshot.market.id,
           interval: snapshot.interval,
@@ -11398,6 +11405,7 @@ class TradingExpertMarketWorkspace {
             ...(request.model ? { model: request.model } : {}),
             ...(request.modelId ? { modelId: request.modelId } : {}),
             ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
             reasoningEffort: "max",
             marketId: job.marketId,
             interval: job.interval,
@@ -11495,6 +11503,7 @@ class TradingExpertMarketWorkspace {
           ...(request.model ? { model: request.model } : {}),
           ...(request.modelId ? { modelId: request.modelId } : {}),
           ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+          ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
           reasoningEffort: "max",
           marketId: snapshot.market.id,
           interval: snapshot.interval,
@@ -11738,6 +11747,7 @@ class TradingExpertMarketWorkspace {
         ...(request.model ? { model: request.model } : {}),
         ...(request.modelId ? { modelId: request.modelId } : {}),
         ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+        ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
         reasoningEffort: "max",
         marketId: job.marketId,
         interval: job.interval,
@@ -11811,6 +11821,7 @@ class TradingExpertMarketWorkspace {
             ...(request.model ? { model: request.model } : {}),
             ...(request.modelId ? { modelId: request.modelId } : {}),
             ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
+            ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
             reasoningEffort: "max",
             marketId: snapshot.market.id,
             interval: snapshot.interval,

@@ -164,6 +164,21 @@ test("host policy forces max over stale picker effort/support and restores norma
   assert.equal(restored.supportedReasoningEfforts, undefined);
 });
 
+test("an explicit composer model choice bypasses the temporary recovery window", (t) => {
+  const f = fixture(t);
+  f.store.activate("gpt-5.6-sol");
+  const params = {
+    model: "gpt-5.6-sol",
+    modelProvider: "haolo_ai",
+    reasoningEffort: "low",
+    explicitModelSelection: true,
+  };
+  assert.deepEqual(
+    withAnalysisModelRecoveryPolicy(params, f.store.snapshot(), f.now),
+    params,
+  );
+});
+
 test("third-party and separately selected models keep their explicit selection", (t) => {
   const f = fixture(t);
   assert.equal(f.store.activate("deepseek-flash"), false);

@@ -659,6 +659,7 @@ export function buildHarmonicDevelopingDrawingPatch(snapshot, theoryResult) {
 export async function runTradingHarmonicAnalysisPipeline(params, options = {}) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runHarmonicPatternEngine(snapshot);
+  options.onTheoryReady?.({ stage: "deterministic_theory", strategyId: "harmonic", snapshotId: snapshot.snapshotId, candleCount: snapshot.candles.length, evidenceCount: Array.isArray(theoryResult.evidence) ? theoryResult.evidence.length : 0 });
   if (theoryResult.status === "developing") {
     const candidate = theoryResult.structures.primaryDevelopingCandidate;
     const drawingPatch = buildHarmonicDevelopingDrawingPatch(snapshot, theoryResult);

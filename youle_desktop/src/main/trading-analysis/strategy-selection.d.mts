@@ -9,3 +9,8 @@ export function resolveExplicitTradingStrategyId(
   text: string,
   strategies?: readonly TradingStrategySelectionEntry[],
 ): string | null;
+
+export function resolveExplicitTradingStrategyIds(
+  text: string,
+  strategies?: readonly TradingStrategySelectionEntry[],
+): string[];

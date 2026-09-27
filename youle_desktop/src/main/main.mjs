@@ -5423,6 +5423,7 @@ async function runWorkflowCodexNodeTurnWithRecovery({
   fixedEffort,
   sandboxPolicy,
   timeoutMs = 30 * 60_000,
+  turnStartTimeoutMs,
   resetTimeoutOnActivity = false,
   timeoutRetryable = true,
   recoveryInstructions,
@@ -5474,7 +5475,7 @@ async function runWorkflowCodexNodeTurnWithRecovery({
         serviceTier: null,
         approvalPolicy: "never",
         sandboxPolicy: normalizeSandboxPolicy(sandboxPolicy),
-      });
+      }, turnStartTimeoutMs);
       currentTurnId = firstString(
         turnResult?.turn?.id,
         turnResult?.turnId,
@@ -11583,7 +11584,7 @@ function requestedThreadModelSettings(params = {}) {
     model,
     ...(selection.modelProvider ? { modelProvider: selection.modelProvider } : {}),
     ...(effort ? { effort } : {}),
-    // Billing safety policy: Haolo never requests the priority/Fast tier.
+    // The request boundary applies Fast mode for supported GPT models.
     serviceTier: null,
   };
 }
@@ -14156,13 +14157,21 @@ async function invokeTradingAnalysisAppServer({
   signal,
   reasoningEffort: requestedReasoningEffort,
   onReasoningSummaryDelta,
+  remainingModelTime,
 }) {
+  const modelStartedAt = Date.now();
   const workspace = desktopWorkspace();
   const serverClient = getClientForCwd(workspace);
-  const isRequestRouting = String(request.task || "").endsWith("-request-routing");
+  const isRequestRouting = String(request.task || "").endsWith("-request-routing")
+    || request.task === "trading-turn-intent-routing";
   const isAlertIntent = String(request.task || "") === "trading_alert_intent_compile";
-  const turnPolicy = tradingAnalysisTurnPolicy(request.task, { requestedReasoningEffort, modelId });
-  const { reasoningEffort, timeoutMs, resetTimeoutOnActivity, timeoutRetryable } = turnPolicy;
+  const turnPolicy = tradingAnalysisTurnPolicy(request.task, { requestedReasoningEffort });
+  // Keep this local check self-contained because this function is also source-extracted
+  // by recovery tests; the provider hands us the canonical recovery id.
+  const effectiveTurnPolicy = String(modelId || "").toLowerCase() === "deepseek-flash"
+    ? tradingAnalysisTurnPolicy(request.task, { requestedReasoningEffort, modelId })
+    : turnPolicy;
+  const { reasoningEffort, timeoutMs, resetTimeoutOnActivity, timeoutRetryable } = effectiveTurnPolicy;
   const diagnosticContext = {
     requestId: String(request.requestId || ""),
     snapshotId: String(request.snapshotId || ""),
@@ -14206,7 +14215,7 @@ async function invokeTradingAnalysisAppServer({
       sandboxPolicy: "read-only",
     }, { developerInstructions }),
     ephemeral: true,
-  });
+  }, remainingModelTime ? Math.min(30_000, remainingModelTime()) : undefined);
   const threadId = String(started?.thread?.id || "").trim();
   if (!threadId) throw new Error("Trading analysis model did not return an internal thread id");
   console.info("[trading-analysis] model turn created", {
@@ -14230,7 +14239,8 @@ async function invokeTradingAnalysisAppServer({
       effort: reasoningEffort,
       fixedEffort: reasoningEffort,
       sandboxPolicy: "read-only",
-      timeoutMs,
+      timeoutMs: remainingModelTime ? Math.min(timeoutMs, remainingModelTime()) : timeoutMs,
+      turnStartTimeoutMs: remainingModelTime ? Math.min(timeoutMs, remainingModelTime()) : undefined,
       resetTimeoutOnActivity,
       timeoutRetryable,
       signal,
@@ -14289,6 +14299,18 @@ async function invokeTradingAnalysisAppServer({
     });
     turnId = completed.turnId || turnId;
     turnFinished = completed.turnFinished === true;
+    if (typeof recordTurnDiagnostic === "function") {
+      recordTurnDiagnostic("trading.model.completed", {
+        ...tradingAnalysisFailureDiagnostic(null, {
+          requestId: request.requestId, snapshotId: request.snapshotId,
+          strategyId: request.theoryId, modelId, stage: "model",
+        }),
+        status: completed.status,
+        durationMs: Date.now() - modelStartedAt,
+        reasoningEffort,
+        timeoutMs,
+      });
+    }
     if (Array.isArray(completed.effects) && completed.effects.length) {
       return {
         status: "failed",
@@ -14523,27 +14545,34 @@ function getAnalysisModelRecoveryStore() {
   return analysisModelRecoveryStore;
 }
 
-function createTradingAnalysisModelRegistry(modelId = DEFAULT_TRADING_ANALYSIS_MODEL_ID) {
+function createTradingAnalysisModelRegistry(
+  modelId = DEFAULT_TRADING_ANALYSIS_MODEL_ID,
+  { explicitModelSelection = false } = {},
+) {
   const normalizedModelId = firstString(modelId).toLowerCase();
   const gptProvider = createAppServerTradingAnalysisProvider({
     providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
     modelId,
     modelProvider: normalizedModelId.startsWith("gpt-") ? "haolo_ai" : undefined,
-    fixedReasoningEffort: "max",
     invoke: invokeTradingAnalysisAppServer,
-    selectModel: (modelId) => getAnalysisModelRecoveryStore().select(modelId),
+    selectModel: (modelId) => explicitModelSelection
+      ? { modelId, fallback: false }
+      : getAnalysisModelRecoveryStore().select(modelId),
     onRecovery: (event) => {
-      getAnalysisModelRecoveryStore().activate(event.failedModelId);
+      // A local latency budget is per request; do not mark the provider down
+      // for an hour merely because a long but otherwise healthy review ran out.
+      if (!event.deadlineExceeded) getAnalysisModelRecoveryStore().activate(event.failedModelId);
       console.info("[trading-analysis] model fallback", event);
     },
   });
   return createTradingAnalysisModelProviderRegistry([gptProvider]);
 }
 
-function getTradingAnalysisModelRegistry(modelId = null) {
+function getTradingAnalysisModelRegistry(modelId = null, options = {}) {
   const selectedModel = firstString(modelId);
-  if (selectedModel && selectedModel !== DEFAULT_TRADING_ANALYSIS_MODEL_ID) {
-    return createTradingAnalysisModelRegistry(selectedModel);
+  const explicitModelSelection = options?.explicitModelSelection === true;
+  if (selectedModel && (selectedModel !== DEFAULT_TRADING_ANALYSIS_MODEL_ID || explicitModelSelection)) {
+    return createTradingAnalysisModelRegistry(selectedModel, { explicitModelSelection });
   }
   if (tradingAnalysisModelRegistry) return tradingAnalysisModelRegistry;
   tradingAnalysisModelRegistry = createTradingAnalysisModelRegistry(DEFAULT_TRADING_ANALYSIS_MODEL_ID);
@@ -14904,7 +14933,9 @@ async function classifyTradingStrategyRequest(event, strategyId, params = {}) {
     return await coordinator.classify(strategyId, params, {
       signal: controller.signal,
       requestId: `${strategyId}-route-${crypto.randomUUID()}`,
-      modelRegistry: getTradingAnalysisModelRegistry(selectedModel),
+      modelRegistry: getTradingAnalysisModelRegistry(selectedModel, {
+        explicitModelSelection: params.explicitModelSelection === true,
+      }),
     });
   } catch (error) {
     const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
@@ -14975,7 +15006,9 @@ async function classifyExternalTradingRequest(event, params = {}) {
     const selectedModel = firstString(params.model, params.modelId, params.model_id);
     await assertExecutionModelMembership(selectedModel);
     await requireFreshTradingPremiumAccess();
-    const model = await getTradingAnalysisModelRegistry(selectedModel).analyze(
+    const model = await getTradingAnalysisModelRegistry(selectedModel, {
+      explicitModelSelection: params.explicitModelSelection === true,
+    }).analyze(
       DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
       {
         schemaVersion: 1,
@@ -15234,7 +15267,9 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
   const coordinator = getTradingStrategyCoordinator();
   const registry = getTradingStrategyRegistry();
   const selectedAnalysisModel = firstString(params.model, params.modelId, params.model_id);
-  const selectedModelRegistry = getTradingAnalysisModelRegistry(selectedAnalysisModel);
+  const selectedModelRegistry = getTradingAnalysisModelRegistry(selectedAnalysisModel, {
+    explicitModelSelection: params.explicitModelSelection === true,
+  });
   const errors = coordinator.strategyErrors(strategyId);
   const { controller, controllerKey } = beginTradingAnalysisRequest(
     event,
@@ -15263,6 +15298,34 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
     const result = await coordinator.run(strategyId, executionParams, {
       signal: controller.signal,
       modelRegistry: selectedModelRegistry,
+      onStageTiming: (stage) => {
+        console.info("[trading-analysis] stage completed", {
+          strategyId,
+          analysisJobId: normalizeTradingAnalysisJobId(params),
+          ...stage,
+        });
+        if (!event.sender.isDestroyed()) {
+          event.sender.send("tradingStrategy:progress", {
+            analysisJobId: normalizeTradingAnalysisJobId(params),
+            strategyId,
+            ...stage,
+          });
+        }
+      },
+      onTheoryReady: (stage) => {
+        console.info("[trading-analysis] deterministic theory ready", {
+          strategyId,
+          analysisJobId: normalizeTradingAnalysisJobId(params),
+          ...stage,
+        });
+        if (!event.sender.isDestroyed()) {
+          event.sender.send("tradingStrategy:progress", {
+            analysisJobId: normalizeTradingAnalysisJobId(params),
+            strategyId,
+            ...stage,
+          });
+        }
+      },
     });
     if (result?.ok === false) recordTradingAnalysisFailure(result.error, { ...params, strategyId });
     if (tradingStrategyShadowMode(strategyId)) {
@@ -15489,7 +15552,9 @@ ipcMain.handle("tradingAnalysis:classifyGeneralRequest", async (event, params = 
     const selectedModel = firstString(params.model, params.modelId, params.model_id);
     await assertExecutionModelMembership(selectedModel);
     await requireFreshTradingPremiumAccess();
-    const model = await getTradingAnalysisModelRegistry(selectedModel).analyze(
+    const model = await getTradingAnalysisModelRegistry(selectedModel, {
+      explicitModelSelection: params.explicitModelSelection === true,
+    }).analyze(
       DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
       {
         schemaVersion: 1,
@@ -15629,7 +15694,9 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
     return await runTradingPriceActionAnalysisPipeline(
       tradingStrategyParamsWithReadOnlyBinanceAccount(personalizedParams),
       {
-        modelRegistry: getTradingAnalysisModelRegistry(firstString(params.model, params.modelId, params.model_id)),
+        modelRegistry: getTradingAnalysisModelRegistry(firstString(params.model, params.modelId, params.model_id), {
+          explicitModelSelection: params.explicitModelSelection === true,
+        }),
         providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
         signal: controller.signal,
       },

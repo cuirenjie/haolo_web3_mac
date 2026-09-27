@@ -6,6 +6,8 @@ export type ThreadModelSettings = {
   model: string;
   reasoningEffort?: string | null;
   serviceTier?: string | null;
+  /** True only when the user explicitly picked this model in the composer. */
+  userSelected?: boolean;
 };
 
 const CANONICAL_FIXED_MODELS = [
@@ -59,5 +61,6 @@ export function normalizeRuntimeThreadModelSettings(value: unknown): ThreadModel
     // is adaptive too, so its thread metadata must not be rewritten to Max.
     reasoningEffort,
     serviceTier: rawServiceTier == null ? null : String(rawServiceTier).trim() || null,
+    ...(source.userSelected === true ? { userSelected: true } : {}),
   };
 }

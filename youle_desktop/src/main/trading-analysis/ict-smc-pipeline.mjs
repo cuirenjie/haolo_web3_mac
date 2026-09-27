@@ -156,10 +156,11 @@ function reportEnglish(snapshot, result, plan) {
   ].join("\n");
 }
 
-export async function runTradingIctSmcPipeline(params) {
+export async function runTradingIctSmcPipeline(params, options = {}) {
   const snapshot = normalizeTradingMarketSnapshot(closedCandleParams(params));
   const raw = runIctSmcTheoryEngine(snapshot);
   const theoryResult = { ...raw, coverage: { candles: "available", contextCandles: snapshot.contextCandles.length ? "available" : "unavailable", orderFlow: "unavailable" }, evidence: raw.evidence.map((item) => ({ id: item.evidenceId, summary: `${item.kind} · ${item.source}` })) };
+  options.onTheoryReady?.({ stage: "deterministic_theory", strategyId: "ict-smc", snapshotId: snapshot.snapshotId, candleCount: snapshot.candles.length, evidenceCount: Array.isArray(theoryResult.evidence) ? theoryResult.evidence.length : 0 });
   const plan = actionPlan(snapshot, theoryResult);
   const english = params?.language === "en";
   if (english) {

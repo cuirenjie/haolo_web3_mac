@@ -3,6 +3,7 @@ import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PR
 import { ANALYSIS_PRIMARY_MODEL } from "../analysis-model-policy.mjs";
 import { canonicalDeepSeekModel } from "../deepseek-model-policy.mjs";
 import { migrateRetiredModelSelection } from "../retired-model-policy.mjs";
+import { createTradingModelBudget } from "./model-budget.mjs";
 
 export const DEFAULT_TRADING_ANALYSIS_PROVIDER_ID = "openai-codex";
 export const DEFAULT_TRADING_ANALYSIS_MODEL_ID = ANALYSIS_PRIMARY_MODEL;
@@ -24,11 +25,14 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
       cancellation: true,
       theoryReview: true,
     }),
-    async analyze(request, { signal, reasoningEffort, recoveryModel } = {}) {
+    async analyze(request, { signal, reasoningEffort, recoveryModel, modelBudget = createTradingModelBudget() } = {}) {
       const startedAt = Date.now();
       const recoverableReview = !String(request.task || "").endsWith("-request-routing")
+        && request.task !== "trading-turn-intent-routing"
         && request.task !== "trading_alert_intent_compile";
       const operation = async (selection) => {
+        const remainingModelTime = recoverableReview ? modelBudget.begin(selection.modelId) : undefined;
+        remainingModelTime?.();
         const selectedReasoningEffort = fixedReasoningEffort || selection.reasoningEffort || reasoningEffort;
         const result = await invoke({
           providerId,
@@ -38,7 +42,9 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
           signal,
           reasoningEffort: selectedReasoningEffort,
           ...selection,
+          remainingModelTime,
         });
+        if (signal?.aborted) throw signal.reason || new DOMException("Analysis cancelled", "AbortError");
         if (result?.status !== "success" || !String(result?.text || "").trim()) {
           throw new TradingAnalysisModelProviderError(
             String(result?.error || "Trading analysis app-server turn failed"),
@@ -53,6 +59,7 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
             },
           );
         }
+        remainingModelTime?.();
         return {
           providerId,
           modelId: selection.modelId,

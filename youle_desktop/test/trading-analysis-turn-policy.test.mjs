@@ -26,8 +26,8 @@ test("theory review uses the recoverable medium-effort policy", () => {
   assert.deepEqual(tradingAnalysisTurnPolicy("trading_theory_review"), {
     kind: "theory_review",
     reasoningEffort: "medium",
-    timeoutMs: 180_000,
-    resetTimeoutOnActivity: true,
+    timeoutMs: 120_000,
+    resetTimeoutOnActivity: false,
     timeoutRetryable: true,
   });
 });

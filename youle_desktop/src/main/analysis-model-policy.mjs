@@ -34,6 +34,10 @@ export function analysisModelPolicySelection(state, modelId, now = Date.now()) {
 
 export function withAnalysisModelRecoveryPolicy(params, state, now = Date.now()) {
   params = migrateDeepSeekModelSelection(migrateRetiredModelSelection(params));
+  // A user choosing a model in the composer is an explicit override of the
+  // temporary automatic-recovery window. Keep the marker on the params object
+  // so the renderer and host request boundary make the same decision.
+  if (params.explicitModelSelection === true) return params;
   const selection = analysisModelPolicySelection(state, params.model, now);
   if (selection.fallback) return {
     ...params, model: selection.modelId, modelProvider: ANALYSIS_RECOVERY_PROVIDER,

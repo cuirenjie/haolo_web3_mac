@@ -1111,6 +1111,7 @@ export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) 
     signals: [...orderFlowResult.signals, ...marketStructure.signals],
     evidence: [...orderFlowResult.evidence, ...marketStructure.evidence],
   };
+  options.onTheoryReady?.({ stage: "deterministic_theory", strategyId: "order-flow", snapshotId: snapshot.snapshotId, candleCount: snapshot.candles.length, evidenceCount: Array.isArray(theoryResult.evidence) ? theoryResult.evidence.length : 0 });
   if (!options.modelRegistry || typeof options.modelRegistry.analyze !== "function") {
     throw new TypeError("modelRegistry is required");
   }

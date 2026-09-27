@@ -12,6 +12,7 @@ export interface TradingStrategyDesktopClient {
     hasCurrentAnalysis?: boolean;
     model?: string | null;
     reasoningEffort?: "max";
+    explicitModelSelection?: boolean;
   }): Promise<unknown>;
   listTradingStrategies?(): Promise<unknown>;
 }
@@ -23,6 +24,7 @@ export async function classifyTradingStrategyForSend(
   hasImageAttachment: boolean,
   hasCurrentAnalysis = false,
   model?: string | null,
+  explicitModelSelection = false,
 ): Promise<TradingStrategyRequest> {
   if (typeof client.classifyTradingStrategyRequest !== "function") {
     return normalizeTradingStrategyRequest(strategy, text, null);
@@ -35,6 +37,7 @@ export async function classifyTradingStrategyForSend(
       hasCurrentAnalysis,
       model,
       reasoningEffort: "max",
+      explicitModelSelection,
     }) as { ok?: boolean; request?: unknown } | null;
     return normalizeTradingStrategyRequest(
       strategy,

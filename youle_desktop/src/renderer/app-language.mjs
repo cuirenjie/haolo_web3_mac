@@ -10,6 +10,17 @@ export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "确定性结构已完成": "Deterministic structure is ready",
+  "正在进行模型复核": "Reviewing with the model",
+  "账户只读快照已准备完成": "Read-only account snapshot is ready",
+  "正在合并执行计划": "Merging the execution plan",
+  "账户只读快照暂不可用": "Read-only account snapshot is unavailable",
+  "继续使用无账户上下文分析": "Continuing without account context",
+  "模型复核已完成": "Model review completed",
+  "正在整理结果": "Preparing the result",
+  "最多同时选择3个不同策略": "You can select up to 3 different strategies at once",
+  "最多同时选择3个不同策略。": "You can select up to 3 different strategies at once.",
+  "分析阶段已完成": "Analysis stage completed",
   "连手机": "Connect phone",
   "请确认": "Please confirm",
   "确定": "Confirm",

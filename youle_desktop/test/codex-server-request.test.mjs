@@ -8,15 +8,20 @@ import {
   withFixedDefaultServiceTier,
 } from "../src/main/codex-server-request.mjs";
 
-test("forces Fast mode for GPT-5.6 Sol on every billable app-server request", () => {
+test("forces Fast mode for every supported GPT execution model on every billable app-server request", () => {
   for (const method of ["thread/start", "thread/resume", "thread/settings/update", "turn/start"]) {
-    assert.deepEqual(
-      withFixedDefaultServiceTier(method, { model: "gpt-5.6-sol", serviceTier: null, service_tier: "default" }),
-      { model: "gpt-5.6-sol", serviceTier: "priority" },
-    );
+    for (const model of ["gpt-5.6-sol", "gpt-6-sol", "gpt-6-astra", "openai/gpt-6-sol-high"]) {
+      assert.deepEqual(
+        withFixedDefaultServiceTier(method, { model, serviceTier: null, service_tier: "default" }),
+        { model, serviceTier: "priority" },
+      );
+    }
   }
 
   assert.equal(fastestServiceTierForModel("openai/gpt-5.6-sol-high"), "priority");
+  assert.equal(fastestServiceTierForModel("gpt-6-sol"), "priority");
+  assert.equal(fastestServiceTierForModel("gpt-6-astra"), "priority");
+  assert.equal(fastestServiceTierForModel("deepseek-flash"), null);
   assert.equal(fastestServiceTierForModel("gpt-5.6-terra"), null);
   assert.deepEqual(
     withFixedDefaultServiceTier("turn/start", { model: "gpt-5.6-terra", serviceTier: "priority" }),

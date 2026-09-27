@@ -189,6 +189,9 @@ test("hydration merges injected transcript with later ordinary turns in timestam
     "agentMessage",
   ]);
   assert.equal(hydrated.thread.turns[0].items[1].phase, "final_answer");
+  assert.equal(hydrated.thread.turns[0].status, "completed");
+  assert.equal(hydrated.thread.turns[0].items[1].__youleTurnStatus, "completed");
+  assert.equal(hydrated.thread.turns[0].items[1].__haoloTradingTranscript, true);
   assert.equal(hydrated.thread.turns[0].startedAt, "2026-08-11T08:00:00.000Z");
   assert.equal(hydrated.thread.turns[0].completedAt, "2026-08-11T08:00:02.000Z");
 });
@@ -311,10 +314,22 @@ test("the discovery index stores bounded metadata while the transcript stays in 
     assert.equal(updated[0].createdAt, "2026-08-11T08:00:00.000Z");
 
     const deduplicated = mergeIndexedTradingTranscriptThreads({
-      data: [{ id: "thread-indexed-1", name: "runtime-visible" }],
+      data: [{ id: "thread-indexed-1", name: "runtime-visible", preview: "正在整理结果" }],
     }, updated);
     assert.equal(deduplicated.data.length, 1);
     assert.equal(deduplicated.data[0].name, "runtime-visible");
+    assert.equal(deduplicated.data[0].preview, "最终结论");
+    assert.equal(deduplicated.data[0].updatedAt, "2026-08-11T08:00:03.000Z");
+    const newerActiveServerThread = mergeIndexedTradingTranscriptThreads({
+      data: [{
+        id: "thread-indexed-1",
+        name: "runtime-visible",
+        preview: "用户正在输入新的分析问题",
+        updatedAt: "2026-08-11T08:00:04.000Z",
+      }],
+    }, updated);
+    assert.equal(newerActiveServerThread.data[0].preview, "用户正在输入新的分析问题");
+    assert.equal(newerActiveServerThread.data[0].updatedAt, "2026-08-11T08:00:04.000Z");
     const recoveredDefaultTitle = mergeIndexedTradingTranscriptThreads({
       data: [{ id: "thread-indexed-1", name: "新任务" }],
     }, updated);
@@ -518,6 +533,17 @@ test("foreground and background reads hydrate the persisted trading transcript",
   );
   assert.match(compact, /withTradingTranscriptHistory\(result, \{/);
   assert.match(background, /withTradingTranscriptHistory\(result, \{/);
+});
+
+test("reselecting a trading history always refreshes the durable transcript surface", () => {
+  const refresh = sourceBlock(
+    rendererSource,
+    "async function refreshCachedThreadAfterSelection",
+    "function activateLocalGroupChatThread",
+  );
+  assert.match(refresh, /isTradingExpertSurfaceThreadId\(threadId\)/);
+  assert.match(refresh, /hasFreshThreadDetailCache\(threadId\) && !forceTradingExpertTranscriptRefresh/);
+  assert.match(rendererSource, /payload\?\.status === "completed" && \(stage === "model" \|\| stage === "analysis_pipeline"\)\) return/);
 });
 
 test("generic strategy and general chart-analysis start after persistence or a non-blocking retry handoff", () => {

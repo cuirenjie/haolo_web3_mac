@@ -99,6 +99,6 @@ test("concurrent intent routing keeps each request's selected model registry", a
     coordinator.classify("sample-strategy", { text: "分析当前走势" }, { modelRegistry: registryFor(modelId) }),
   ));
   assert.deepEqual(calls, [GPT_6_SOL_MODEL, GPT_6_ASTRA_MODEL].map((modelId) => ({
-    modelId, providerId: "haolo-ai-test", effort: "max",
+    modelId, providerId: "haolo-ai-test", effort: "low",
   })));
 });
