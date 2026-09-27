@@ -3,6 +3,7 @@ import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, ANALYSIS_RECOVERY_PR
 import { ANALYSIS_PRIMARY_MODEL } from "../analysis-model-policy.mjs";
 import { canonicalDeepSeekModel } from "../deepseek-model-policy.mjs";
 import { migrateRetiredModelSelection } from "../retired-model-policy.mjs";
+import { displayModelAliasForSelection } from "../gpt6-sol-alias-policy.mjs";
 import { createTradingModelBudget } from "./model-budget.mjs";
 
 export const DEFAULT_TRADING_ANALYSIS_PROVIDER_ID = "openai-codex";
@@ -13,6 +14,9 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
   if (typeof invoke !== "function") throw new TypeError("invoke is required");
   const providerId = String(options.providerId || DEFAULT_TRADING_ANALYSIS_PROVIDER_ID);
   const modelId = String(migrateRetiredModelSelection({ model: canonicalDeepSeekModel(options.modelId) }).model || DEFAULT_TRADING_ANALYSIS_MODEL_ID);
+  const displayModelId = String(
+    options.displayModelId || displayModelAliasForSelection(options.modelId) || "",
+  ).trim();
   const modelProvider = options.modelProvider ? String(options.modelProvider) : undefined;
   const fixedReasoningEffort = options.fixedReasoningEffort
     ? String(options.fixedReasoningEffort)
@@ -62,7 +66,7 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
         remainingModelTime?.();
         return {
           providerId,
-          modelId: selection.modelId,
+          modelId: displayModelId || selection.modelId,
           text: result.text,
           latencyMs: Date.now() - startedAt,
           usage: result.usage || null,

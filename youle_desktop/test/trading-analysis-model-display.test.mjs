@@ -12,6 +12,13 @@ test("analysis model display handles current and legacy Flash IDs without mutati
   }
 });
 
+test("GPT-6-Sol analysis results retain the customer-facing alias", () => {
+  assert.equal(
+    tradingAnalysisModelDisplayName({ modelId: "gpt-6-sol", providerId: "haolo_ai" }, "zh-CN"),
+    "GPT-6-Sol",
+  );
+});
+
 test("display alias respects the analysis language and retains unrelated model names", () => {
   const model = { modelId: "deepseek-flash" };
   assert.equal(tradingAnalysisModelDisplayName(model, "en"), "GPT-6 Astra model");

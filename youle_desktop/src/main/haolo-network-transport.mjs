@@ -5,7 +5,7 @@ import tls from "node:tls";
 import { once } from "node:events";
 import { SocksClient } from "socks";
 import { Agent, fetch as transportFetch } from "undici";
-import { createHaoloNetworkPolicy, haoloRoute, networkFingerprint, NETWORK_POLICY_PATH, MODEL_ACCELERATION_CAPABILITY } from "./haolo-network-policy.mjs";
+import { createHaoloNetworkPolicy, haoloRoute, networkFingerprint, NETWORK_POLICY_PATH } from "./haolo-network-policy.mjs";
 import { withAbort } from "./system-proxy-fetch.mjs";
 
 function connectHttpProxy(proxy, address, port, signal) {
@@ -134,10 +134,7 @@ export function createHaoloNetworkTransport({ resolveProxy, fallbackFetch = glob
       } });
       try {
         const response = await fetchImpl(probe, { method: "GET", redirect: "error", credentials: "omit",
-          // Old clients still contain retired model GA IPs. Only a client with
-          // the new audited targets may opt in to the model acceleration policy.
-          headers: { accept: "application/json", ...(url.hostname === "haolo.pro"
-            ? { "x-haolo-network-capability": MODEL_ACCELERATION_CAPABILITY } : {}) },
+          headers: { accept: "application/json" },
           signal: AbortSignal.timeout(3_000), dispatcher: probeAgent });
         if (!response.ok) { await response.body?.cancel(); throw new Error("Network policy unavailable"); }
         let body = "";

@@ -271,6 +271,11 @@ import { ANALYSIS_PRIMARY_MODEL, withAnalysisModelRecoveryPolicy } from "./analy
 import { AnalysisModelRecoveryStore } from "./analysis-model-recovery-store.mjs";
 import { canonicalDeepSeekModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
 import { migrateRetiredModelSelection } from "./retired-model-policy.mjs";
+import {
+  displayModelAliasForSelection,
+  migrateGpt6SolSelection,
+  runtimeModelForSelection,
+} from "./gpt6-sol-alias-policy.mjs";
 import { applyThreadProviderSwitch, assertThreadProvider, restartIdleProviderRuntime } from "./thread-provider-switch.mjs";
 import { tradingAnalysisFailureDiagnostic } from "./trading-analysis/diagnostics.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
@@ -3417,11 +3422,29 @@ async function requestContinuationThreadStart(serverClient, params, capture, tim
   // Capture the JSON-RPC id synchronously with request() so an otherwise
   // unknown late response can still be correlated after request timeout.
   capture.requestId = serverClient.nextId;
-  return serverClient.request(
+  const originalParams = params;
+  const migratedParams = migrateGpt6SolSelection(
+    migrateDeepSeekModelSelection(migrateRetiredModelSelection(params)),
+  );
+  const displayModelAlias = firstString(
+    migratedParams.__haoloModelDisplayAlias,
+    originalParams.modelDisplayAlias,
+    originalParams.model_display_alias,
+    displayModelAliasForSelection(originalParams.model),
+  );
+  const wireParams = { ...migratedParams };
+  delete wireParams.__haoloModelDisplayAlias;
+  delete wireParams.modelDisplayAlias;
+  delete wireParams.model_display_alias;
+  const result = await serverClient.request(
     "thread/start",
-    withFixedDefaultServiceTier("thread/start", migrateDeepSeekModelSelection(migrateRetiredModelSelection(params))),
+    withFixedDefaultServiceTier("thread/start", wireParams),
     timeoutMs,
   );
+  if (result?.thread && displayModelAlias) {
+    result.thread = { ...result.thread, __haoloModelDisplayAlias: displayModelAlias };
+  }
+  return result;
 }
 
 
@@ -3703,6 +3726,21 @@ async function requestAppServer(serverClient, method, params = {}, timeoutMs) {
     await startAppServerClient(serverClient);
   }
   touchAppServerClient(serverClient);
+  const originalParams = params;
+  params = migrateGpt6SolSelection(params);
+  const displayModelAlias = firstString(
+    params.__haoloModelDisplayAlias,
+    originalParams.modelDisplayAlias,
+    originalParams.model_display_alias,
+    displayModelAliasForSelection(originalParams.model),
+    displayModelAliasForSelection(originalParams.modelId),
+    displayModelAliasForSelection(originalParams.model_id),
+  );
+  const wireParams = { ...params };
+  delete wireParams.__haoloModelDisplayAlias;
+  delete wireParams.modelDisplayAlias;
+  delete wireParams.model_display_alias;
+  params = wireParams;
   const adaptiveParams = withAdaptiveTurnReasoning(method, migrateDeepSeekModelSelection(migrateRetiredModelSelection(params)));
   await assertExecutionModelMembership(
     firstString(adaptiveParams.model, adaptiveParams.model_id, adaptiveParams.modelId),
@@ -3712,7 +3750,12 @@ async function requestAppServer(serverClient, method, params = {}, timeoutMs) {
     withFixedDefaultServiceTier(method, adaptiveParams),
     timeoutMs,
   );
-  if (result?.thread) internalSubagentThreads.remember(serverClient, result.thread);
+  if (result?.thread) {
+    internalSubagentThreads.remember(serverClient, result.thread);
+    if (displayModelAlias) {
+      result.thread = { ...result.thread, __haoloModelDisplayAlias: displayModelAlias };
+    }
+  }
   return result;
 }
 
@@ -11712,6 +11755,12 @@ async function resumeThreadForRequestedProvider({
 
 function withThreadRuntimeSettings(result, settings = threadSettingsFromResumeResult(result)) {
   if (!result?.thread || !settings?.model) return result;
+  const displayModelAlias = arguments[2] || "";
+  const alias = firstString(
+    displayModelAlias,
+    result.thread.__haoloModelDisplayAlias,
+  );
+  const { __haoloModelDisplayAlias, ...threadWithoutDisplayAlias } = result.thread;
   const modelProvider = canonicalExecutionModelProvider(firstString(
     result.modelProvider,
     result.model_provider,
@@ -11723,9 +11772,9 @@ function withThreadRuntimeSettings(result, settings = threadSettingsFromResumeRe
   return {
     ...result,
     thread: {
-      ...result.thread,
-      model: settings.model,
-      ...(modelProvider ? { modelProvider } : {}),
+      ...threadWithoutDisplayAlias,
+      model: alias || settings.model,
+      ...(alias ? { modelProvider: "haolo_ai" } : modelProvider ? { modelProvider } : {}),
       reasoningEffort: settings.effort ?? null,
       serviceTier: settings.serviceTier ?? null,
     },
@@ -11746,6 +11795,14 @@ function threadConfigurationParams(params = {}, options = {}) {
     effort: selection.isDeepSeek ? "max" : requestedReasoningEffort(params),
     serviceTier: null,
   };
+  const displayModelAlias = firstString(
+    selection.displayModelAlias,
+    params.__haoloModelDisplayAlias,
+    params.modelDisplayAlias,
+    params.model_display_alias,
+    displayModelAliasForSelection(params.model),
+  );
+  if (displayModelAlias) config.__haoloModelDisplayAlias = displayModelAlias;
   if (options.developerInstructions !== undefined) {
     config.developerInstructions = options.developerInstructions;
   }
@@ -11753,7 +11810,14 @@ function threadConfigurationParams(params = {}, options = {}) {
 }
 
 function executionProviderSelection(params = {}, options = {}) {
-  params = migrateDeepSeekModelSelection(migrateRetiredModelSelection(params));
+  params = migrateGpt6SolSelection(
+    migrateDeepSeekModelSelection(migrateRetiredModelSelection(params)),
+  );
+  const displayModelAlias = firstString(
+    params.__haoloModelDisplayAlias,
+    params.modelDisplayAlias,
+    params.model_display_alias,
+  );
   const requestedModel = firstString(params.model);
   const requestedProvider = canonicalExecutionModelProvider(firstString(
     params.modelProvider,
@@ -11775,15 +11839,17 @@ function executionProviderSelection(params = {}, options = {}) {
       model: DEEPSEEK_EXECUTION_MODEL,
       modelProvider: DEEPSEEK_EXECUTION_PROVIDER_ID,
       isDeepSeek: true,
+      displayModelAlias,
     };
   }
   if (options.requireModel && !requestedModel) {
     throw new Error("model is required");
   }
   return {
-    model: requestedModel,
+    model: runtimeModelForSelection(requestedModel),
     modelProvider: requestedProvider || (requestedModel.toLowerCase().startsWith("gpt-") ? "haolo_ai" : undefined),
     isDeepSeek: false,
+    displayModelAlias,
   };
 }
 
@@ -14549,10 +14615,13 @@ function createTradingAnalysisModelRegistry(
   modelId = DEFAULT_TRADING_ANALYSIS_MODEL_ID,
   { explicitModelSelection = false } = {},
 ) {
-  const normalizedModelId = firstString(modelId).toLowerCase();
+  const displayModelAlias = displayModelAliasForSelection(modelId);
+  const runtimeModelId = runtimeModelForSelection(modelId);
+  const normalizedModelId = firstString(runtimeModelId).toLowerCase();
   const gptProvider = createAppServerTradingAnalysisProvider({
     providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-    modelId,
+    modelId: runtimeModelId,
+    ...(displayModelAlias ? { displayModelId: displayModelAlias } : {}),
     modelProvider: normalizedModelId.startsWith("gpt-") ? "haolo_ai" : undefined,
     invoke: invokeTradingAnalysisAppServer,
     selectModel: (modelId) => explicitModelSelection
@@ -17258,7 +17327,17 @@ ipcMain.handle("codex:deletePlugin", async (_event, params = {}) => {
 });
 
 ipcMain.handle("codex:startThread", async (_event, params = {}) => {
-  params = withAnalysisModelRecoveryPolicy(params, getAnalysisModelRecoveryStore().snapshot());
+  params = withAnalysisModelRecoveryPolicy(
+    String(params?.model || "").trim().toLowerCase() === "gpt-6-sol"
+      ? {
+          ...params,
+          model: "gpt-5.6-sol",
+          modelProvider: "haolo_ai",
+          __haoloModelDisplayAlias: "gpt-6-sol",
+        }
+      : params,
+    getAnalysisModelRecoveryStore().snapshot(),
+  );
   const cwd = params.cwd || desktopWorkspace();
   const serverClient = getClientForCwd(cwd);
   ensureThreadGroupWorkspaceDirectory(cwd);
@@ -18350,7 +18429,11 @@ ipcMain.handle("codex:updateThreadSettings", async (_event, params = {}) => {
       verifySettings: resumeThreadSettings,
     });
     return {
-      ...withThreadRuntimeSettings(resumeResult, applied.threadSettings),
+      ...withThreadRuntimeSettings(
+        resumeResult,
+        applied.threadSettings,
+        displayModelAliasForSelection(params.model),
+      ),
       changed: applied.changed,
       threadSettings: applied.threadSettings,
     };
@@ -18539,7 +18622,18 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
   await persistExplicitMarketAliasMemory(text, {
     fromGroupChat: Boolean(groupChatContext),
   });
-  params = withAnalysisModelRecoveryPolicy({ ...params, model: firstString(params.model) || ANALYSIS_PRIMARY_MODEL }, getAnalysisModelRecoveryStore().snapshot());
+  const billingModelAlias = firstString(
+    displayModelAliasForSelection(params.model),
+    params.modelDisplayAlias,
+    params.model_display_alias,
+    params.__haoloModelDisplayAlias,
+    displayModelAliasForSelection(params.modelId),
+    displayModelAliasForSelection(params.model_id),
+  );
+  params = withAnalysisModelRecoveryPolicy(
+    migrateGpt6SolSelection({ ...params, model: firstString(params.model) || ANALYSIS_PRIMARY_MODEL }),
+    getAnalysisModelRecoveryStore().snapshot(),
+  );
   const executionSelection = executionProviderSelection(params);
   const conversationMode = normalizeConversationMode(
     params.conversationMode || params.conversation_mode,
@@ -18839,6 +18933,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
         question: visibleQuestion,
         status: "running",
         startedAt: interactionStartedAt,
+        ...(billingModelAlias ? { models: [billingModelAlias] } : {}),
       };
       rememberConsumptionInteraction(interaction);
       reportConsumptionFact(interaction);

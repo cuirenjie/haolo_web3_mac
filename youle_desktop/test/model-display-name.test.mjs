@@ -14,6 +14,7 @@ test("Flash display aliases preserve unrelated model names", () => {
   assert.equal(modelDisplayName("deepseek-v4-pro", "DeepSeek V4 Pro"), "DeepSeek V4 Pro");
   assert.equal(modelDisplayName("deepseek-flash-custom"), "deepseek-flash-custom");
   assert.equal(modelDisplayName("gpt-6-astra", "GPT-6 Astra"), "GPT-6 Astra");
+  assert.equal(modelDisplayName("gpt-6-sol", "GPT-6-Sol"), "GPT-6-Sol");
 });
 
 test("execution catalogs apply display aliases without changing routing or capabilities", () => {

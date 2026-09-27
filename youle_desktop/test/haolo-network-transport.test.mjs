@@ -7,7 +7,6 @@ import net from "node:net";
 import { once } from "node:events";
 import WebSocket, { WebSocketServer } from "ws";
 import { createHaoloNetworkTransport, openHaoloSocket } from "../src/main/haolo-network-transport.mjs";
-import { MODEL_ACCELERATION_CAPABILITY } from "../src/main/haolo-network-policy.mjs";
 import { ModelRequestRelay } from "../src/main/model-request-relay.mjs";
 import { AppServerClient } from "../src/main/app-server-client.mjs";
 import { TradingMarketDataHub } from "../src/main/trading-market-data-hub.mjs";
@@ -33,7 +32,7 @@ async function fixture(t, { proxy = "DIRECT", egressRegion = "CN", handler, tran
     if (handler) return handler(req, res);
     if (req.url === "/.well-known/haolo-network") return res.end(JSON.stringify({
       ...region(typeof egressRegion === "function" ? egressRegion() : egressRegion),
-      accelerationEnabled: req.socket.servername !== "haolo.pro" || req.headers["x-haolo-network-capability"] === MODEL_ACCELERATION_CAPABILITY,
+      accelerationEnabled: false,
     }));
     if (req.url.startsWith("/v1/")) {
       res.writeHead(200, { "content-type": "text/event-stream" }); res.write("data: first\n\n");
@@ -212,18 +211,16 @@ test("proxy changes leave an active model WebSocket open without replaying reque
   assert.equal(requests, 1); assert.equal(lookups, 1);
 });
 
-test("real TLS preserves Host/SNI and streams mainland DIRECT models over GA before completion", async (t) => {
+test("real TLS preserves Host/SNI and streams mainland DIRECT models over ordinary Tokyo before completion", async (t) => {
   const f = await fixture(t);
   const controller = new AbortController();
   const response = await f.transport.fetch("https://haolo.pro/v1/responses", { method: "POST", headers: { authorization: "Bearer test-only" }, body: '{"stream":true}', signal: controller.signal });
   assert.equal(response.status, 200);
   const reader = response.body.getReader();
   assert.equal(new TextDecoder().decode((await reader.read()).value), "data: first\n\n");
-  assert.equal(f.connections.at(-1).route, "hong-kong-ga");
-  assert.deepEqual(f.connections.at(-1).addresses, ["47.76.124.53", "47.238.144.244"]);
-  const probe = f.requests.find((r) => r.url === "/.well-known/haolo-network");
-  assert.equal(probe.headers["x-haolo-network-capability"], MODEL_ACCELERATION_CAPABILITY);
-  assert.equal(probe.headers.authorization, undefined);
+  assert.equal(f.connections.at(-1).route, "ordinary");
+  assert.deepEqual(f.connections.at(-1).addresses, ["8.216.43.79"]);
+  assert.equal(f.requests.find((r) => r.url === "/.well-known/haolo-network"), undefined);
   assert.deepEqual(f.connections[0].addresses, ["8.216.43.79"]);
   const request = f.requests.at(-1);
   assert.equal(request.host, "haolo.pro"); assert.equal(request.sni, "haolo.pro");
