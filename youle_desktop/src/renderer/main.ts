@@ -72603,7 +72603,7 @@ function navigateBinanceAccountProfitCalendar(offset: -1 | 1) {
 async function loadBinanceAccountProfitCalendar({ force = false } = {}) {
   const accountState = state.binanceAccount;
   const getProfitCalendar = api.getBinanceAccountProfitCalendar;
-  if (!accountState.status?.bound || accountState.profitCalendarLoading) return;
+  if (!accountState.status?.bound || accountState.status.remoteOnly || accountState.profitCalendarLoading) return;
   if (accountState.profitCalendar?.month === accountState.profitCalendarMonth && !force) return;
   if (!getProfitCalendar) {
     accountState.profitCalendarError = "当前客户端版本不支持收益日历。";
@@ -72673,7 +72673,7 @@ async function loadBinanceAccountPage() {
       if (loadSequence !== binanceAccountLoadSequence) return;
       accountState.status = status;
       let snapshot: BinanceAccountSnapshot | null = null;
-      if (status.bound) {
+      if (status.bound && !status.remoteOnly) {
         if (!getAccountSnapshot) throw new Error("当前客户端无法读取 Binance 账户数据。");
         snapshot = await getAccountSnapshot();
       }
@@ -72687,7 +72687,7 @@ async function loadBinanceAccountPage() {
       binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
       binanceAccountLiveRefreshFailures = 0;
       binanceAccountLiveRetryAfter = 0;
-      if (status.bound && accountState.activeSection === "profit-calendar") {
+      if (status.bound && !status.remoteOnly && accountState.activeSection === "profit-calendar") {
         void loadBinanceAccountProfitCalendar();
       }
     } catch (error) {

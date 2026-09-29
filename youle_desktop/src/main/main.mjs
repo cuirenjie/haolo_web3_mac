@@ -4793,6 +4793,76 @@ async function requireBinanceAccountOwner() {
   };
 }
 
+function sharedBinanceConnectionDeviceId() {
+  const api = getYouleApiClient();
+  return String(api.mobileBindingDeviceId || api.deviceId || "").trim();
+}
+
+function activeSharedBinanceConnection(item) {
+  return item
+    && item.revoked !== true
+    && String(item.venue || "binance") === "binance"
+    && String(item.marketType || "usdm") === "usdm";
+}
+
+async function readSharedBinanceAccountConnections() {
+  const api = getYouleApiClient();
+  await api.load();
+  await api.registerMobileDevice({
+    deviceId: sharedBinanceConnectionDeviceId(),
+    platform: "windows",
+  });
+  const result = await api.listAccountConnections();
+  return (Array.isArray(result?.items) ? result.items : []).filter(activeSharedBinanceConnection);
+}
+
+async function syncSharedBinanceAccountConnection() {
+  const api = getYouleApiClient();
+  const connections = await readSharedBinanceAccountConnections();
+  const deviceId = sharedBinanceConnectionDeviceId();
+  const own = connections.find((item) => String(item.deviceId || "") === deviceId);
+  if (own || connections.length > 0) return own || connections[0];
+  return api.createAccountConnection({
+    deviceId,
+    label: "Windows",
+    analysisConsent: false,
+  });
+}
+
+async function removeSharedBinanceAccountConnection() {
+  const api = getYouleApiClient();
+  const connections = await readSharedBinanceAccountConnections();
+  const deviceId = sharedBinanceConnectionDeviceId();
+  const own = connections.find((item) => String(item.deviceId || "") === deviceId);
+  if (own?.id) await api.deleteAccountConnection(own.id);
+}
+
+async function readBinanceAccountStatusWithSharedBinding(owner) {
+  const local = await getBinanceAccountService().status(owner.ownerId);
+  let connections = [];
+  try {
+    // A locally stored key is authoritative for this process.  If the shared
+    // record is missing, repair it without ever sending the key to the API.
+    if (local.bound) await syncSharedBinanceAccountConnection();
+    connections = await readSharedBinanceAccountConnections();
+  } catch (error) {
+    console.warn("[binance-account] shared binding unavailable", error?.message || String(error));
+  }
+  const remoteBound = connections.length > 0;
+  const localBound = local.bound === true;
+  const sharedDeviceId = sharedBinanceConnectionDeviceId();
+  const own = connections.find((item) => String(item.deviceId || "") === sharedDeviceId);
+  return {
+    ...local,
+    bound: localBound || remoteBound,
+    localBound,
+    remoteBound,
+    remoteOnly: !localBound && remoteBound,
+    connectionId: own?.id || connections[0]?.id || null,
+    emailMasked: maskedEmail(owner.email),
+  };
+}
+
 function maskedEmail(email) {
   const [local, domain] = String(email || "").split("@");
   if (!local || !domain) return "***";
@@ -13085,10 +13155,7 @@ ipcMain.handle("hyperliquidMarket:candles", async (event, params = {}) => {
 ipcMain.handle("binanceAccount:getStatus", async (event) => {
   assertExternalModelsIpcSender(event);
   const owner = await requireBinanceAccountOwner();
-  return {
-    ...(await getBinanceAccountService().status(owner.ownerId)),
-    emailMasked: maskedEmail(owner.email),
-  };
+  return readBinanceAccountStatusWithSharedBinding(owner);
 });
 
 ipcMain.handle("binanceAccount:sendOtp", async (event) => {
@@ -13120,7 +13187,7 @@ ipcMain.handle("binanceAccount:bind", async (event, params = {}) => {
   if (!challengeId) throw new BinanceAccountError("OTP_REQUIRED", "请先发送邮箱验证码。");
   if (!/^\d{6}$/.test(code)) throw new BinanceAccountError("OTP_INVALID", "请输入 6 位邮箱验证码。");
   const ownerBeforeVerification = await requireBinanceAccountOwner();
-  return getBinanceAccountService().bind(ownerBeforeVerification.ownerId, {
+  const result = await getBinanceAccountService().bind(ownerBeforeVerification.ownerId, {
     apiKey: params?.apiKey,
     apiSecret: params?.apiSecret,
   }, {
@@ -13145,6 +13212,14 @@ ipcMain.handle("binanceAccount:bind", async (event, params = {}) => {
       await restartClientAfterAuthChange();
     },
   });
+  try {
+    await syncSharedBinanceAccountConnection();
+  } catch (error) {
+    // Keep the local safe-store bind usable if an older/offline backend is
+    // temporarily unavailable; the next status read retries the sync.
+    console.warn("[binance-account] shared binding sync deferred", error?.message || String(error));
+  }
+  return result;
 });
 
 ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
@@ -13249,7 +13324,23 @@ ipcMain.handle("binanceAccount:remove", async (event, params = {}) => {
   const status = await getBinanceAccountService().remove(ownerBeforeVerification.ownerId);
   clearVoiceCredentialCache();
   await restartClientAfterAuthChange();
-  return status;
+  try {
+    await removeSharedBinanceAccountConnection();
+  } catch (error) {
+    console.warn("[binance-account] shared binding removal deferred", error?.message || String(error));
+  }
+  try {
+    return await readBinanceAccountStatusWithSharedBinding(ownerAfterVerification);
+  } catch {
+    return {
+      ...status,
+      bound: false,
+      localBound: false,
+      remoteBound: false,
+      remoteOnly: false,
+      connectionId: null,
+    };
+  }
 });
 
 ipcMain.handle("youle:completeRegistration", async (_event, params = {}) => {
