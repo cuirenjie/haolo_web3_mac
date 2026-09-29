@@ -28,13 +28,23 @@ test("trading favorites use the shared authenticated server collection", async (
     assert.match(sources.preload, new RegExp(operation));
   }
   assert.match(sources.client, /DEFAULT_TRADING_FAVORITES_PATH = "\/api\/mobile\/v1\/favorites"/);
-  assert.match(sources.market, /syncFavoriteServer\(\)/);
-  assert.match(sources.market, /syncFavoriteServerMembership\(market, !wasFavorite\)/);
-  assert.match(sources.market, /syncFavoriteServerOrder\(orderedMarketIds\)/);
+  assert.match(sources.market, /syncFavoriteServer\(true\)/);
+  assert.match(sources.market, /onMembershipChange: \(record, checked\) => this\.syncWatchlistMembership/);
+  assert.match(sources.market, /onReorder: \(records\) => this\.syncWatchlistOrder/);
+  assert.doesNotMatch(sources.market, /this\.syncFavoriteServerMembership\(market, !wasFavorite\)/);
+  assert.doesNotMatch(sources.market, /this\.syncFavoriteServerOrder\(orderedMarketIds\)/);
+  assert.match(sources.market, /replaceGroupMarkets\("watchlist", remoteRecords\)/);
   assert.match(sources.renderer, /reorderTradingFavorites\?\(params/);
   assert.match(sources.market, /favoriteLocalRevision/);
   assert.match(sources.market, /scheduleFavoriteServerRetry/);
-  assert.match(sources.market, /canApplyRemoteState/);
+  assert.match(sources.market, /replaceGroupMarkets\("watchlist", remoteRecords\)/);
+
+  const readSharedBlock = sources.main.slice(
+    sources.main.indexOf("async function readSharedBinanceAccountConnections"),
+    sources.main.indexOf("async function syncSharedBinanceAccountConnection"),
+  );
+  assert.doesNotMatch(readSharedBlock, /registerMobileDevice/);
+  assert.match(sources.main, /if \(!local\.bound\) throw error/);
 });
 
 test("trading favorite responses accept the supported server envelopes", async () => {

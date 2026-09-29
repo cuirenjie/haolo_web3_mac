@@ -31,7 +31,7 @@ test("Windows account binding uses the shared mobile connection API without secr
     client.loaded = true;
     client.baseUrl = "https://haolo.example";
     client.token = "haolo-session-token";
-    client.mobileBindingDeviceId = "windows-device";
+    client.mobileBindingDeviceId = "97b8e996-c25a-4a8d-a295-d2d68cf898ba";
 
     await client.registerMobileDevice({ platform: "windows" });
     await client.listAccountConnections();
@@ -40,19 +40,23 @@ test("Windows account binding uses the shared mobile connection API without secr
 
     assert.equal(requests[0].url, "https://haolo.example/api/mobile/v1/devices");
     assert.deepEqual(JSON.parse(requests[0].init.body), {
-      id: "windows-device",
+      id: "97b8e996-c25a-4a8d-a295-d2d68cf898ba",
       platform: "windows",
       notifications: false,
     });
     assert.equal(requests[1].url, "https://haolo.example/api/mobile/v1/account-connections");
     assert.equal(requests[1].init.method, "GET");
     assert.deepEqual(JSON.parse(requests[2].init.body), {
-      deviceId: "windows-device",
+      deviceId: "97b8e996-c25a-4a8d-a295-d2d68cf898ba",
       venue: "binance",
       marketType: "usdm",
       label: "Windows",
       analysisConsent: false,
     });
+    assert.equal(
+      requests[2].init.headers["Idempotency-Key"],
+      "windows-account-connection:97b8e996-c25a-4a8d-a295-d2d68cf898ba",
+    );
     assert.match(requests[3].url, /\/api\/mobile\/v1\/account-connections\/connection-windows$/);
     assert.equal(requests.some(({ init }) => String(init.body || "").includes("apiSecret")), false);
   } finally {
