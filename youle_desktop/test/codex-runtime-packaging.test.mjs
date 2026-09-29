@@ -8,8 +8,15 @@ test("packages the complete versioned Codex Windows runtime", async () => {
   const mainSource = await readFile(new URL("../src/main/main.mjs", import.meta.url), "utf8");
   const mappings = new Map(packageJson.build.win.extraResources.map((entry) => [entry.from, entry.to]));
 
-  assert.equal(manifest.version, "0.153.4");
-  assert.equal(manifest.releaseTag, "rust-v0.153.4");
+  assert.equal(manifest.version, "0.157.1");
+  assert.equal(manifest.releaseTag, `rust-v${manifest.version}`);
+  const config = await readFile(new URL("../resources/default-haolo-ai/config.toml", import.meta.url), "utf8");
+  const clientSource = await readFile(new URL("../src/main/app-server-client.mjs", import.meta.url), "utf8");
+  assert.equal([...config.matchAll(/http_headers = \{ version = "([^"]+)"/g)].length, 2);
+  for (const match of config.matchAll(/http_headers = \{ version = "([^"]+)"/g)) {
+    assert.equal(match[1], manifest.version);
+  }
+  assert.ok(clientSource.includes(`const DEFAULT_PROVIDER_CODEX_VERSION = "${manifest.version}";`));
   assert.deepEqual(
     manifest.files.map((file) => file.name).sort(),
     ["codex-command-runner.exe", "codex-windows-sandbox-setup.exe", "haolo_ai.exe"],

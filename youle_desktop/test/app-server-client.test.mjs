@@ -217,7 +217,7 @@ test("bundled runtime config uses per-model context defaults and pins remote plu
   assertWebsocketCompatibilityMode(config);
   assert.match(
     config,
-    /^http_headers\s*=\s*\{\s*version\s*=\s*"0\.153\.4",\s*"X-Haolo-Model-Pool"\s*=\s*"execution",\s*"X-Haolo-Model-Capability"\s*=\s*"root_execution"\s*\}\s*$/m,
+    /^http_headers\s*=\s*\{\s*version\s*=\s*"0\.157\.1",\s*"X-Haolo-Model-Pool"\s*=\s*"execution",\s*"X-Haolo-Model-Capability"\s*=\s*"root_execution"\s*\}\s*$/m,
   );
   assert.match(config, /^\[model_providers\.deepseek\]$/m);
   assert.match(config, /^wire_api\s*=\s*"responses"$/m);

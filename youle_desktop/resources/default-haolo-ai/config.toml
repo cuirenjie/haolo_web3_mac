@@ -34,7 +34,7 @@ supports_websockets = true
 request_max_retries = 2
 stream_max_retries = 3
 # Codex injects Responses Lite per model; do not force it provider-wide.
-http_headers = { version = "0.153.4", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }
+http_headers = { version = "0.157.1", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }
 
 [model_providers.deepseek]
 name = "DeepSeek"
@@ -43,4 +43,4 @@ wire_api = "responses"
 requires_openai_auth = false
 env_key = "HAOLO_DEEPSEEK_EXECUTION_TOKEN"
 supports_websockets = false
-http_headers = { version = "0.153.4", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }
+http_headers = { version = "0.157.1", "X-Haolo-Model-Pool" = "execution", "X-Haolo-Model-Capability" = "root_execution" }

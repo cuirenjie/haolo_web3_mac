@@ -109,10 +109,11 @@ const LEGACY_MANAGED_SECTION_CONFIG_VALUES = [
   { section: "model_providers.haolo_ai", key: "request_max_retries", value: "0" },
   { section: "model_providers.haolo_ai", key: "stream_max_retries", value: "0" },
   { section: "model_providers.haolo_ai", key: "stream_max_retries", value: "1" },
-  // Windows upgraded its runtime independently. Migrate only the other
-  // platform's shipped header, keeping each host aligned with its own binary.
-  { section: "model_providers.haolo_ai", key: "http_headers", value: process.platform === "darwin" ? /version\s*=\s*"0\.153\.4"/ : /version\s*=\s*"0\.144\.1"/ },
-  { section: "model_providers.deepseek", key: "http_headers", value: process.platform === "darwin" ? /version\s*=\s*"0\.153\.4"/ : /version\s*=\s*"0\.144\.1"/ },
+  // Existing installs carry an older Codex header in their managed config.
+  // Keep each host aligned with its shipped runtime while migrating headers
+  // written by the other platform's release as well.
+  { section: "model_providers.haolo_ai", key: "http_headers", value: process.platform === "darwin" ? /version\s*=\s*"(?:0\.153\.4|0\.157\.1)"/ : /version\s*=\s*"(?:0\.144\.1|0\.153\.4)"/ },
+  { section: "model_providers.deepseek", key: "http_headers", value: process.platform === "darwin" ? /version\s*=\s*"(?:0\.153\.4|0\.157\.1)"/ : /version\s*=\s*"(?:0\.144\.1|0\.153\.4)"/ },
 ];
 const FORCED_MANAGED_SECTION_CONFIG_VALUES = [
   { section: "model_providers.haolo_ai", key: "supports_websockets", value: "true" },
@@ -129,7 +130,7 @@ const MANAGED_SECTION_CONFIG_KEYS = [
 const DEFAULT_PROVIDER_BASE_URL = HAOLO_GATEWAY_BASE_URL;
 const DEFAULT_PROVIDER_WIRE_API = "responses";
 // Keep in sync with codex-runtime-macos.json and codex-runtime.json respectively.
-const DEFAULT_PROVIDER_CODEX_VERSION = process.platform === "darwin" ? "0.144.1" : "0.153.4";
+const DEFAULT_PROVIDER_CODEX_VERSION = process.platform === "darwin" ? "0.144.1" : "0.157.1";
 const DEFAULT_PROVIDER_MODEL_POOL = "execution";
 const DEFAULT_PROVIDER_MODEL_CAPABILITY = "root_execution";
 const DEEPSEEK_EXECUTION_DEFAULT_BASE_URL = DEFAULT_PROVIDER_BASE_URL;
