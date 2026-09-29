@@ -73,6 +73,7 @@ const DEFAULT_CONSUMPTION_PATH = "/api/consumption/me";
 const CONSUMPTION_EXPORT_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_CONVERSATIONS_PATH = "/api/conversations";
 const DEFAULT_PROMPT_FAVORITES_PATH = "/api/prompt-favorites";
+const DEFAULT_TRADING_FAVORITES_PATH = "/api/mobile/v1/favorites";
 const DEFAULT_CHANNELS_PATH = "/api/channels";
 const DEFAULT_CONTACTS_PATH = "/api/contacts";
 const DEFAULT_CONTACT_REQUESTS_PATH = "/api/contact-requests";
@@ -199,6 +200,8 @@ export class YouleApiClient {
     this.conversationsPath = process.env.YOULE_API_CONVERSATIONS_PATH || DEFAULT_CONVERSATIONS_PATH;
     this.conversationsMethod = (process.env.YOULE_API_CONVERSATIONS_METHOD || "GET").toUpperCase();
     this.promptFavoritesPath = process.env.YOULE_API_PROMPT_FAVORITES_PATH || DEFAULT_PROMPT_FAVORITES_PATH;
+    this.tradingFavoritesPath =
+      process.env.YOULE_API_TRADING_FAVORITES_PATH || DEFAULT_TRADING_FAVORITES_PATH;
     this.channelsPath = process.env.YOULE_API_CHANNELS_PATH || DEFAULT_CHANNELS_PATH;
     this.contactsPath = process.env.YOULE_API_CONTACTS_PATH || DEFAULT_CONTACTS_PATH;
     this.contactRequestsPath = process.env.YOULE_API_CONTACT_REQUESTS_PATH || DEFAULT_CONTACT_REQUESTS_PATH;
@@ -1550,6 +1553,52 @@ export class YouleApiClient {
       method: "DELETE",
       headers: this.authHeaders(),
       allowNonJson: true,
+    });
+  }
+
+  async listTradingFavorites() {
+    await this.load();
+    this.requireAuth();
+    return this.requestJson(joinUrl(this.baseUrl, this.tradingFavoritesPath), {
+      method: "GET",
+      headers: this.authHeaders(),
+    });
+  }
+
+  async addTradingFavorite(params = {}) {
+    await this.load();
+    this.requireAuth();
+    return this.requestJson(joinUrl(this.baseUrl, this.tradingFavoritesPath), {
+      method: "POST",
+      headers: { ...this.authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify(params),
+    });
+  }
+
+  async removeTradingFavorite(params = {}) {
+    await this.load();
+    this.requireAuth();
+    const marketId = String(params.marketId || params.market_id || params.id || "").trim();
+    if (!marketId) throw new Error("marketId is required");
+    return this.requestJson(
+      joinUrl(this.baseUrl, `${this.tradingFavoritesPath}/${encodeURIComponent(marketId)}`),
+      { method: "DELETE", headers: this.authHeaders() },
+    );
+  }
+
+  async reorderTradingFavorites(params = {}) {
+    await this.load();
+    this.requireAuth();
+    const ids = Array.isArray(params.marketIds || params.market_ids)
+      ? (params.marketIds || params.market_ids)
+      : [];
+    return this.requestJson(joinUrl(this.baseUrl, `${this.tradingFavoritesPath}/order`), {
+      method: "PUT",
+      headers: { ...this.authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        marketIds: ids,
+        ...(Number.isInteger(params.version) && params.version > 0 ? { version: params.version } : {}),
+      }),
     });
   }
 

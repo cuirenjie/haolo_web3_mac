@@ -1530,6 +1530,56 @@ function tradingFavoriteRecord(market: TradingMarket): TradingFavoriteMarketReco
   };
 }
 
+function tradingFavoriteApiPayload(market: TradingMarket) {
+  const marketType = market.provider === "binance"
+    ? market.marketType === "spot" ? "spot" : "perpetual"
+    : "global";
+  const marketKey = market.provider === "binance"
+    ? `binance:${marketType === "spot" ? "spot" : "usdm"}:${market.symbol.toUpperCase()}`
+    : `${market.provider}:${market.symbol.toUpperCase()}`;
+  return {
+    id: marketKey,
+    provider: market.provider,
+    symbol: market.symbol,
+    baseAsset: market.baseAsset,
+    quoteAsset: market.quoteAsset,
+    displaySymbol: market.displaySymbol,
+    description: market.description,
+    venue: market.venue,
+    assetClass: market.assetClass,
+    marketType,
+    perpetual: market.marketType === "perpetual",
+  };
+}
+
+function tradingFavoriteRecordFromApi(value: unknown): TradingFavoriteMarketRecord | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const provider = String(raw.provider || "").trim().toLowerCase();
+  const canonical = String(raw.marketKey || raw.id || "").trim();
+  const symbol = String(raw.symbol || canonical.split(":").at(-1) || "").trim().toUpperCase();
+  if (!provider || !symbol) return null;
+  const marketType = String(raw.marketType || "").trim().toLowerCase();
+  const id = provider === "binance"
+    ? `BINANCE:${marketType === "spot" || canonical.includes(":spot:") ? "SPOT" : "FUTURES"}:${symbol}`
+    : `${provider.toUpperCase()}:${symbol}`;
+  return normalizeTradingFavoriteMarketRecords([{
+    id,
+    provider,
+    symbol,
+    baseAsset: String(raw.baseAsset || symbol).trim(),
+    quoteAsset: String(raw.quoteAsset || (provider === "binance" ? "USDT" : "")).trim(),
+    displaySymbol: String(raw.displaySymbol || raw.baseAsset || symbol).trim(),
+    description: String(raw.description || raw.displaySymbol || symbol).trim(),
+    venue: String(raw.venue || (provider === "binance" ? "币安" : provider)).trim(),
+    assetClass: String(raw.assetClass || (provider === "binance" ? "crypto" : "stock")).trim(),
+    marketType: provider === "binance"
+      ? (marketType === "spot" ? "spot" : "perpetual")
+      : "global",
+    tag: String(raw.tag || (provider === "binance" ? "永续" : "股票")).trim(),
+  }])[0] || null;
+}
+
 function marketFromFavoriteRecord(record: TradingFavoriteMarketRecord): TradingMarket {
   return { ...record, markPrice: 0, changePercent: 0, volume24h: 0, quoteAvailable: false };
 }
@@ -5159,6 +5209,9 @@ class TradingExpertMarketWorkspace {
   private readonly favoriteStorageAccountIdentity: string;
   private drawingStorageSessionId: string;
   private favoriteStorageMigratedFromLegacy = false;
+  private favoriteServerReady = false;
+  private favoriteServerVersion: number | null = null;
+  private favoriteServerQueue: Promise<void> = Promise.resolve();
   private favoriteCandlePrefetchStarted = false;
   private favoriteTickerMarketsById = new Map<string, TradingMarket>();
   private showFavoritesOnly = false;
@@ -5313,6 +5366,7 @@ class TradingExpertMarketWorkspace {
     this.countdownTimer = window.setInterval(() => this.updateCountdown(), 1000);
     void this.loadFinnhubStatus();
     void this.loadIfindStatus();
+    void this.syncFavoriteServer();
     // The selected chart is the critical rendering path. Only start the four
     // large Binance catalogs after it settles so a cold gateway cannot starve
     // the candles the user is waiting to see.
@@ -6691,6 +6745,94 @@ class TradingExpertMarketWorkspace {
     }
   }
 
+  private queueFavoriteServer(operation: () => Promise<void>) {
+    const next = this.favoriteServerQueue.then(operation);
+    this.favoriteServerQueue = next.catch(() => {});
+    return next;
+  }
+
+  private async syncFavoriteServer() {
+    const client = (window as any).codexDesktop;
+    if (!this.favoriteStorageAccountIdentity || typeof client?.listTradingFavorites !== "function") return;
+    return this.queueFavoriteServer(async () => {
+      try {
+        let response = await client.listTradingFavorites();
+        const initialized = response?.initialized === true;
+        if (!initialized && this.favoriteMarketRecords.size && typeof client.addTradingFavorite === "function") {
+          for (const record of this.favoriteMarketRecords.values()) {
+            const market = this.favoriteMarketFromId(record.id);
+            if (market) await client.addTradingFavorite(tradingFavoriteApiPayload(market));
+          }
+          response = await client.listTradingFavorites();
+        }
+        const remoteRecords = Array.isArray(response?.items)
+          ? response.items.map(tradingFavoriteRecordFromApi).filter(Boolean) as TradingFavoriteMarketRecord[]
+          : [];
+        if (response?.initialized === true || initialized === false) {
+          this.favoriteSymbols = new Set(remoteRecords.map((record) => record.id));
+          this.favoriteMarketRecords = new Map(remoteRecords.map((record) => [record.id, record]));
+          this.saveFavoriteSymbols();
+          this.renderMarkets();
+          this.renderFavoriteTickerBar();
+          this.syncFavoriteTickerStreams();
+        }
+        this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : null;
+        this.favoriteServerReady = true;
+      } catch (error) {
+        console.warn(
+          "[trading-favorites] server sync deferred",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    });
+  }
+
+  private syncFavoriteServerMembership(market: TradingMarket, added: boolean) {
+    const client = (window as any).codexDesktop;
+    if (!this.favoriteStorageAccountIdentity) return;
+    return this.queueFavoriteServer(async () => {
+      if (added && typeof client?.addTradingFavorite === "function") {
+        const response = await client.addTradingFavorite(tradingFavoriteApiPayload(market));
+        this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : this.favoriteServerVersion;
+      } else if (!added && typeof client?.removeTradingFavorite === "function") {
+        const marketKey = tradingFavoriteApiPayload(market).id;
+        const response = await client.removeTradingFavorite({ marketId: marketKey });
+        this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : this.favoriteServerVersion;
+      }
+      this.favoriteServerReady = true;
+    }).catch((error) => {
+      console.warn(
+        "[trading-favorites] membership sync failed",
+        error instanceof Error ? error.message : String(error),
+      );
+    });
+  }
+
+  private syncFavoriteServerOrder(orderedMarketIds: string[]) {
+    const client = (window as any).codexDesktop;
+    if (!this.favoriteStorageAccountIdentity || typeof client?.reorderTradingFavorites !== "function") return;
+    const marketIds = orderedMarketIds.map((id) => {
+      const record = this.favoriteMarketRecords.get(id);
+      if (!record) return id;
+      return record.provider === "binance"
+        ? `binance:${record.marketType === "spot" ? "spot" : "usdm"}:${record.symbol.toUpperCase()}`
+        : `${record.provider}:${record.symbol.toUpperCase()}`;
+    });
+    void this.queueFavoriteServer(async () => {
+      const response = await client.reorderTradingFavorites({
+        marketIds,
+        ...(this.favoriteServerVersion ? { version: this.favoriteServerVersion } : {}),
+      });
+      this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : this.favoriteServerVersion;
+      this.favoriteServerReady = true;
+    }).catch((error) => {
+      console.warn(
+        "[trading-favorites] order sync failed",
+        error instanceof Error ? error.message : String(error),
+      );
+    });
+  }
+
   private isMarketFavorite(market: TradingMarket) {
     return this.favoriteSymbols.has(market.id)
       || (market.provider === "binance" && this.favoriteSymbols.has(market.symbol));
@@ -6783,6 +6925,7 @@ class TradingExpertMarketWorkspace {
       }),
     );
     this.saveFavoriteSymbols();
+    this.syncFavoriteServerOrder(orderedMarketIds);
   }
 
   private revealSelectedFavoriteTicker() {
@@ -7113,7 +7256,8 @@ class TradingExpertMarketWorkspace {
   }
 
   private toggleFavoriteMarket(market: TradingMarket) {
-    if (this.isMarketFavorite(market)) {
+    const wasFavorite = this.isMarketFavorite(market);
+    if (wasFavorite) {
       this.favoriteSymbols.delete(market.id);
       if (market.provider === "binance") this.favoriteSymbols.delete(market.symbol);
       this.favoriteMarketRecords.delete(market.id);
@@ -7121,6 +7265,7 @@ class TradingExpertMarketWorkspace {
       this.addFavoriteMarket(market);
     }
     this.commitFavoriteMarketChanges();
+    this.syncFavoriteServerMembership(market, !wasFavorite);
   }
 
   private addFavoriteMarket(market: TradingMarket) {

@@ -13495,6 +13495,22 @@ ipcMain.handle("youle:deletePromptFavorite", async (_event, params = {}) => {
   return getYouleApiClient().deletePromptFavorite(params);
 });
 
+ipcMain.handle("youle:listTradingFavorites", async () => {
+  return getYouleApiClient().listTradingFavorites();
+});
+
+ipcMain.handle("youle:addTradingFavorite", async (_event, params = {}) => {
+  return getYouleApiClient().addTradingFavorite(params);
+});
+
+ipcMain.handle("youle:removeTradingFavorite", async (_event, params = {}) => {
+  return getYouleApiClient().removeTradingFavorite(params);
+});
+
+ipcMain.handle("youle:reorderTradingFavorites", async (_event, params = {}) => {
+  return getYouleApiClient().reorderTradingFavorites(params);
+});
+
 ipcMain.handle("youle:patchConversationPreferences", async (_event, params = {}) => {
   return getYouleApiClient().patchConversationPreferences(params);
 });

@@ -1693,6 +1693,10 @@ type DesktopApi = {
     content: string;
   }): Promise<any>;
   deletePromptFavorite?(params: { promptFavoriteId: string }): Promise<any>;
+  listTradingFavorites?(): Promise<any>;
+  addTradingFavorite?(params: Record<string, unknown>): Promise<any>;
+  removeTradingFavorite?(params: { marketId: string }): Promise<any>;
+  reorderTradingFavorites?(params: { marketIds: string[]; version?: number }): Promise<any>;
   patchConversationPreferences?(params: { conversationId: string; pinned?: boolean; muted?: boolean; status?: string;
   }): Promise<any>;
   deleteConversation?(params: { conversationId: string }): Promise<any>;
