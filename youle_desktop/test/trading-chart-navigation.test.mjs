@@ -285,6 +285,41 @@ test("global keyboard events and editable targets do not navigate a chart", t =>
   const e = new Event("keydown", { cancelable: true }); Object.assign(e, { key: "ArrowLeft" }); Object.defineProperty(e, "target", { value: input });
   f.navigation.keyDown(e); assert.equal(e.defaultPrevented, false); assert.deepEqual(f.range(), { from: 0, to: 300 });
 });
+
+test("Mac Option letters and dead keys trigger the physical chart shortcuts", t => {
+  const f = fixture(t);
+  f.send("keydown", { key: "¬", code: "KeyL", altKey: true }, true);
+  assert.equal(f.scales[0].mode, 1);
+  f.send("keydown", { key: "π", code: "KeyP", altKey: true }, true);
+  assert.equal(f.scales[0].mode, 2);
+  f.send("pointerdown", { clientY: 400 }); f.send("pointerup");
+  f.send("keydown", { key: "Dead", code: "KeyI", altKey: true }, true);
+  assert.deepEqual(f.scales.map(s => s.invertScale), [false, true]);
+  f.send("keydown", { key: "ˆ", code: "KeyI", altKey: true }, true);
+  assert.deepEqual(f.scales.map(s => s.invertScale), [false, false]);
+  f.send("keydown", { key: "®", code: "KeyR", altKey: true }, true);
+  assert.deepEqual(f.range(), { from: 200, to: 500 });
+});
+
+test("Option shortcut normalization preserves composition, modifier and input isolation", t => {
+  const f = fixture(t);
+  for (const props of [
+    { isComposing: true }, { ctrlKey: true }, { metaKey: true }, { altKey: false },
+    { key: "l", code: "KeyQ" },
+  ]) f.send("keydown", { key: "¬", code: "KeyL", altKey: true, ...props });
+  for (const tag of ["input", "textarea", "select", "[contenteditable=true]"]) {
+    const event = new Event("keydown", { cancelable: true });
+    Object.assign(event, { key: "¬", code: "KeyL", altKey: true });
+    Object.defineProperty(event, "target", { value: new ElementStub(tag) });
+    f.navigation.keyDown(event);
+    assert.equal(event.defaultPrevented, false);
+  }
+  f.send("keydown", { key: "¬", code: "KeyL", altKey: true }, false, f.win);
+  assert.equal(f.scales[0].mode, 0);
+  assert.deepEqual(f.range(), { from: 0, to: 300 });
+  f.send("keydown", { key: "l", code: "KeyL", altKey: true }, true);
+  assert.equal(f.scales[0].mode, 1, "Windows/normal-letter events remain supported");
+});
 test("double-click maximizes and restores pane proportions; axes stay native", t => {
   const f = fixture(t); f.send("dblclick", {}, true); assert.deepEqual(f.panes.map(p => p.factor), [1, 0]);
   f.send("dblclick", {}, true); assert.deepEqual(f.panes.map(p => p.factor), [1, 1]);

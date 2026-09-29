@@ -45,7 +45,7 @@ function expandedComposerHarness({ recoveryState = null } = {}) {
   const fixture = {
     currentId: "trading-existing", busy: false, locked: false, allowSelection: true,
     selected: deepSeek, selectedImage: null, selectedVideo: null, persisted: [],
-    state: { tradingExpertChartCollapsed: true, rightCollapsed: false, composerText: "保留这份草稿", attachments: [], composerQuote: { text: "原会话引用" }, composerThreadReferences: [{ threadId: "reference" }] },
+    state: { auth: { profile: null }, tradingExpertChartCollapsed: true, rightCollapsed: false, composerText: "保留这份草稿", attachments: [], composerQuote: { text: "原会话引用" }, composerThreadReferences: [{ threadId: "reference" }] },
     modes: new Map([["trading-existing", "execution"]]),
     tradingIds: new Set(["trading-existing"]),
   };
@@ -58,6 +58,7 @@ function expandedComposerHarness({ recoveryState = null } = {}) {
     isBlankNewThread: (id) => id === "blank",
     isThreadModelSelectionLocked: () => fixture.locked,
     isComposerThreadBusy: () => fixture.busy,
+    modelMembershipAccess: () => ({ allowed: true, requiredLabel: "" }),
     firstString: (...values) => values.find((value) => typeof value === "string" && value) || "",
     mediaCreationExecutionModelOption,
     selectedChatModelOption: () => fixture.selected,

@@ -333,6 +333,19 @@ test("shared UI translator covers English and full renderer character conversion
   assert.equal(translateAppText("均线", "en"), "Moving Averages");
 });
 
+test("generated catalog entries cannot corrupt dynamic watchlist and index copy", () => {
+  for (const [source, expected] of [
+    ["按照当前分组排序", "Sort the current group"],
+    ["每日收盘价", "Daily close price"],
+    ["指数价格", "Index price"],
+    ["请按从左到右顺序查看", "Please view from left to right"],
+    ["按最新价排序", "Sort by latest price"],
+    ["按最新指数排序", "Sort by latest index"],
+    ["1小时", "1 hour"],
+    ["传统金融合约加载失败", "TradFi contracts failed to load"],
+  ]) assert.equal(translateAppText(source, "en"), expected, source);
+});
+
 test("generated offline catalogs cover the renderer-owned global UI", () => {
   assert.ok(Object.keys(GENERATED_ENGLISH_UI_PHRASES).length >= 3_500);
   assert.equal(Object.keys(GENERATED_ENGLISH_UI_PHRASES).length, Object.keys(GENERATED_TRADITIONAL_UI_PHRASES).length);

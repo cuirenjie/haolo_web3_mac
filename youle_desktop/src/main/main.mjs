@@ -4675,7 +4675,8 @@ function getBinanceAccountService() {
 async function resetBinanceNetworkRuntimeAfterAuthChange() {
   const pendingPublicMarketService = binancePublicMarketService;
   binancePublicMarketService = null;
-  binanceGatewayNetworkFetch = null;
+  // Keep the fetch reference until resetHaoloNetworkTransport closes it;
+  // that function performs the final `binanceGatewayNetworkFetch = null`.
   binancePublicRequestCoordinator.cancelAll();
   await pendingPublicMarketService?.close?.();
   const pendingAlertService = tradingAlertServicePromise
@@ -7552,6 +7553,19 @@ function autoTaskPrompt(task) {
 function sendToRenderer(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
+  }
+}
+
+function sendToEventSender(sender, channel, payload) {
+  if (!sender || typeof sender.send !== "function") return false;
+  try {
+    if (sender.isDestroyed?.()) return false;
+    sender.send(channel, payload);
+    return true;
+  } catch {
+    // Progress notifications are best effort. A renderer closing during an
+    // analysis must not turn a successful strategy run into a failed request.
+    return false;
   }
 }
 
@@ -11920,6 +11934,9 @@ function threadConfigurationParams(params = {}, options = {}) {
   const cwd = params.cwd || currentSkillsCwd || desktopWorkspace();
   currentSkillsCwd = cwd;
   const selection = executionProviderSelection(params);
+  const displayModelAliasForSelectionSafe = typeof displayModelAliasForSelection === "function"
+    ? displayModelAliasForSelection
+    : () => "";
   const config = {
     cwd,
     approvalPolicy: params.approvalPolicy || "on-request",
@@ -11929,12 +11946,13 @@ function threadConfigurationParams(params = {}, options = {}) {
     modelProvider: selection.modelProvider || undefined,
     effort: selection.isDeepSeek ? "max" : requestedReasoningEffort(params),
     serviceTier: null,
+  };
   const displayModelAlias = firstString(
     selection.displayModelAlias,
     params.__haoloModelDisplayAlias,
     params.modelDisplayAlias,
     params.model_display_alias,
-    displayModelAliasForSelection(params.model),
+    displayModelAliasForSelectionSafe(params.model),
   );
   if (displayModelAlias) config.__haoloModelDisplayAlias = displayModelAlias;
   if (options.developerInstructions !== undefined) {
@@ -11944,7 +11962,16 @@ function threadConfigurationParams(params = {}, options = {}) {
 }
 
 function executionProviderSelection(params = {}, options = {}) {
-  params = migrateGpt6SolSelection(
+  const migrateGpt6SolSelectionSafe = typeof migrateGpt6SolSelection === "function"
+    ? migrateGpt6SolSelection
+    : (value) => value;
+  const displayModelAliasForSelectionSafe = typeof displayModelAliasForSelection === "function"
+    ? displayModelAliasForSelection
+    : () => "";
+  const runtimeModelForSelectionSafe = typeof runtimeModelForSelection === "function"
+    ? runtimeModelForSelection
+    : (value) => value;
+  params = migrateGpt6SolSelectionSafe(
     migrateDeepSeekModelSelection(migrateRetiredModelSelection(params)),
   );
   const displayModelAlias = firstString(
@@ -11980,7 +12007,7 @@ function executionProviderSelection(params = {}, options = {}) {
     throw new Error("model is required");
   }
   return {
-    model: runtimeModelForSelection(requestedModel),
+    model: runtimeModelForSelectionSafe(requestedModel),
     modelProvider: requestedProvider || (requestedModel.toLowerCase().startsWith("gpt-") ? "haolo_ai" : undefined),
     isDeepSeek: false,
     displayModelAlias,
@@ -14419,19 +14446,14 @@ async function invokeTradingAnalysisAppServer({
   const isRequestRouting = String(request.task || "").endsWith("-request-routing")
     || request.task === "trading-turn-intent-routing";
   const isAlertIntent = String(request.task || "") === "trading_alert_intent_compile";
-  const turnPolicy = tradingAnalysisTurnPolicy(request.task, { requestedReasoningEffort });
-  // Keep this local check self-contained because this function is also source-extracted
-  // by recovery tests; the provider hands us the canonical recovery id.
-  const effectiveTurnPolicy = String(modelId || "").toLowerCase() === "deepseek-flash"
-    ? tradingAnalysisTurnPolicy(request.task, { requestedReasoningEffort, modelId })
-    : turnPolicy;
+  const turnPolicy = tradingAnalysisTurnPolicy(request.task, { requestedReasoningEffort, modelId });
   const {
     reasoningEffort,
     timeoutMs,
     resetTimeoutOnActivity,
     timeoutRetryable,
     maxAttempts,
-  } = effectiveTurnPolicy;
+  } = turnPolicy;
   const diagnosticContext = {
     requestId: String(request.requestId || ""),
     snapshotId: String(request.snapshotId || ""),
@@ -14561,6 +14583,7 @@ async function invokeTradingAnalysisAppServer({
     });
     turnId = completed.turnId || turnId;
     turnFinished = completed.turnFinished === true;
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: optional trading model completion event
     if (typeof recordTurnDiagnostic === "function") {
       recordTurnDiagnostic("trading.model.completed", {
         ...tradingAnalysisFailureDiagnostic(null, {
@@ -14573,6 +14596,7 @@ async function invokeTradingAnalysisAppServer({
         timeoutMs,
       });
     }
+    // HAOLO-TURN-DIAGNOSTICS-END: optional trading model completion event
     if (Array.isArray(completed.effects) && completed.effects.length) {
       return {
         status: "failed",
@@ -15548,6 +15572,7 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
   const selectedModelRegistry = getTradingAnalysisModelRegistry(selectedAnalysisModel, {
     explicitModelSelection: params.explicitModelSelection === true,
   });
+  const analysisJobId = String(params?.analysisJobId || "").trim().slice(0, 200);
   const errors = coordinator.strategyErrors(strategyId);
   const { controller, controllerKey } = beginTradingAnalysisRequest(
     event,
@@ -15579,30 +15604,26 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
       onStageTiming: (stage) => {
         console.info("[trading-analysis] stage completed", {
           strategyId,
-          analysisJobId: normalizeTradingAnalysisJobId(params),
+          analysisJobId,
           ...stage,
         });
-        if (!event.sender.isDestroyed()) {
-          event.sender.send("tradingStrategy:progress", {
-            analysisJobId: normalizeTradingAnalysisJobId(params),
-            strategyId,
-            ...stage,
-          });
-        }
+        sendToEventSender(event.sender, "tradingStrategy:progress", {
+          analysisJobId,
+          strategyId,
+          ...stage,
+        });
       },
       onTheoryReady: (stage) => {
         console.info("[trading-analysis] deterministic theory ready", {
           strategyId,
-          analysisJobId: normalizeTradingAnalysisJobId(params),
+          analysisJobId,
           ...stage,
         });
-        if (!event.sender.isDestroyed()) {
-          event.sender.send("tradingStrategy:progress", {
-            analysisJobId: normalizeTradingAnalysisJobId(params),
-            strategyId,
-            ...stage,
-          });
-        }
+        sendToEventSender(event.sender, "tradingStrategy:progress", {
+          analysisJobId,
+          strategyId,
+          ...stage,
+        });
       },
     });
     if (result?.ok === false) recordTradingAnalysisFailure(result.error, { ...params, strategyId });
@@ -18831,16 +18852,25 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
   await persistExplicitMarketAliasMemory(text, {
     fromGroupChat: Boolean(groupChatContext),
   });
+  const displayModelAliasForSelectionSafe = typeof displayModelAliasForSelection === "function"
+    ? displayModelAliasForSelection
+    : () => "";
+  const migrateGpt6SolSelectionSafe = typeof migrateGpt6SolSelection === "function"
+    ? migrateGpt6SolSelection
+    : (value) => value;
   const billingModelAlias = firstString(
-    displayModelAliasForSelection(params.model),
+    displayModelAliasForSelectionSafe(params.model),
     params.modelDisplayAlias,
     params.model_display_alias,
     params.__haoloModelDisplayAlias,
-    displayModelAliasForSelection(params.modelId),
-    displayModelAliasForSelection(params.model_id),
+    displayModelAliasForSelectionSafe(params.modelId),
+    displayModelAliasForSelectionSafe(params.model_id),
   );
   params = withAnalysisModelRecoveryPolicy(
-    migrateGpt6SolSelection({ ...params, model: firstString(params.model) || ANALYSIS_PRIMARY_MODEL }),
+    (typeof migrateGpt6SolSelection === "function" ? migrateGpt6SolSelection : (value) => value)({
+      ...params,
+      model: firstString(params.model) || ANALYSIS_PRIMARY_MODEL,
+    }),
     getAnalysisModelRecoveryStore().snapshot(),
   );
   const executionSelection = executionProviderSelection(params);

@@ -19,7 +19,7 @@ test("Trading Expert exposes no direct question-answer or fast-chat transport", 
 
 test("the large-model intent classifier remains routing-only before agent dispatch", () => {
   assert.match(main, /tradingAnalysis:classifyGeneralRequest/);
-  assert.match(main, /getTradingAnalysisModelRegistry\(\)\.analyze/);
+  assert.match(main, /getTradingAnalysisModelRegistry\([^)]*\)\.analyze/);
   assert.match(preload, /classifyTradingGeneralRequest/);
   assert.match(renderer, /classifyTradingGeneralRequestForSend|api\.classifyTradingGeneralRequest/);
   assert.match(

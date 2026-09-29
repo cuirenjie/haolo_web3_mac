@@ -30,7 +30,7 @@ test("all CSS cascade menus share the same hover grace behavior", async () => {
   assert.match(bindings, /trigger\.setAttribute\("aria-expanded", "false"\)/);
 
   assert.match(source, /data-action="toggle-external-channel-menu" aria-haspopup="menu"/);
-  assert.match(source, /data-titlebar-channel-trigger role="menuitem" aria-haspopup="menu" aria-expanded="false"/);
+  assert.match(source, /class="titlebar-primary-action titlebar-channel-trigger[\s\S]*data-action="toggle-external-channel-menu" aria-haspopup="menu"/);
   assert.match(source, /class="create thread-group-add-trigger"[\s\S]*?aria-haspopup="menu"/);
   assert.doesNotMatch(source, /thread-group-add-trigger-quick/);
   assert.match(source, /thread-marker-menu-trigger[\s\S]*?aria-haspopup="menu" aria-expanded="false"/);

@@ -23116,7 +23116,9 @@ function announceAutomaticTurnRecovery(
   if (automaticTurnRecoveryNoticeKeys.has(noticeKey)) return;
   automaticTurnRecoveryNoticeKeys.add(noticeKey);
   const mediaRecovery = String(meta?.modelId || "").startsWith("gpt-");
-  const displayModelName = automaticTurnRecoveryDisplayModelName(threadId);
+  const displayModelName = typeof automaticTurnRecoveryDisplayModelName === "function"
+    ? automaticTurnRecoveryDisplayModelName(threadId)
+    : "GPT-6 Astra";
   if (noticeKind === "exhausted") {
     appendAgentNotice(threadId, formatTurnFailureMessage(null, meta, displayModelName));
   } else if (noticeKind === "cooling_down") {
@@ -54568,7 +54570,8 @@ function usesUnifiedExecutionModelPicker(
 ) {
   const mode = newThreadModeForThread(threadId);
   if (isTradingExpertThreadId(threadId)) {
-    return !providerFromThreadId(threadId) && isMediaCreationMode(mode);
+    return !providerFromThreadId(threadId)
+      && (isExpandedTradingExpertConversation(threadId) || isMediaCreationMode(mode));
   }
   return (
     isBlankNewThread(threadId) &&
@@ -55132,12 +55135,24 @@ function tradingExpertSelectedModelRequestOptions(
     selected.value,
     TRADING_EXPERT_DEFAULT_MODEL_VALUE,
   ) || TRADING_EXPERT_DEFAULT_MODEL_VALUE;
-  const explicitModelSelection = explicitModelSelectionForThread(threadId);
-  const runtimeSelection = migrateGpt6SolSelection({ model: requestedModel });
+  const explicitModelSelection = typeof explicitModelSelectionForThread === "function"
+    ? explicitModelSelectionForThread(threadId)
+    : threadModelSelection(threadId)?.userSelected === true;
+  const migrateGpt6SolSelectionSafe = typeof migrateGpt6SolSelection === "function"
+    ? migrateGpt6SolSelection
+    : (value: any) => value;
+  const displayModelAliasForSelectionSafe = typeof displayModelAliasForSelection === "function"
+    ? displayModelAliasForSelection
+    : () => "";
+  const runtimeSelection = migrateGpt6SolSelectionSafe({ model: requestedModel });
   const runtimeRequestedModel = firstString(runtimeSelection.model) || requestedModel;
-  const model = explicitModelSelection
-    ? runtimeRequestedModel
-    : analysisModelPolicySelection(analysisModelRecoveryState, runtimeRequestedModel).modelId;
+  let model = analysisModelPolicySelection(analysisModelRecoveryState, firstString(
+    selectedSettings?.model,
+    knownSettings?.model,
+    selected.value,
+    TRADING_EXPERT_DEFAULT_MODEL_VALUE,
+  )).modelId;
+  if (explicitModelSelection) model = runtimeRequestedModel;
   const selectedModelProvider = executionModelProviderId(
     selectedSettings?.modelProvider,
     knownSettings?.modelProvider,
@@ -55153,7 +55168,7 @@ function tradingExpertSelectedModelRequestOptions(
     reasoningEffort: tradingExpertReasoningEffort(model),
     reasoningEffortPolicy: "fixed",
     serviceTier: null,
-    ...(displayModelAliasForSelection(requestedModel) ? { modelDisplayAlias: displayModelAliasForSelection(requestedModel) } : {}),
+    ...(displayModelAliasForSelectionSafe(requestedModel) ? { modelDisplayAlias: displayModelAliasForSelectionSafe(requestedModel) } : {}),
     ...(explicitModelSelection ? { explicitModelSelection: true } : {}),
   };
 }
@@ -55188,6 +55203,18 @@ function selectedChatModelRequestOptions(
   const deepSeek =
     modelProvider === DEEPSEEK_EXECUTION_PROVIDER_ID ||
     selected.value.toLowerCase() === DEEPSEEK_EXECUTION_MODEL_VALUE;
+  const explicitModelSelection = typeof explicitModelSelectionForThread === "function"
+    ? explicitModelSelectionForThread(threadId)
+    : threadModelSelection(threadId)?.userSelected === true;
+  const migrateGpt6SolSelectionSafe = typeof migrateGpt6SolSelection === "function"
+    ? migrateGpt6SolSelection
+    : (value: any) => value;
+  const isGpt6SolDisplayModelSafe = typeof isGpt6SolDisplayModel === "function"
+    ? isGpt6SolDisplayModel
+    : () => false;
+  const displayModelAliasForSelectionSafe = typeof displayModelAliasForSelection === "function"
+    ? displayModelAliasForSelection
+    : () => "";
   const request: ChatModelRequestOptions = {
     modelProvider: deepSeek ? DEEPSEEK_EXECUTION_PROVIDER_ID : modelProvider,
     model: isQuestionAnswerThreadId(threadId)
@@ -55197,15 +55224,15 @@ function selectedChatModelRequestOptions(
     // difficulty policy in the main process, never by a saved user setting.
     // The main-process request boundary applies Fast mode for supported GPT models.
     serviceTier: null,
-    ...(explicitModelSelectionForThread(threadId) ? { explicitModelSelection: true } : {}),
+    ...(explicitModelSelection ? { explicitModelSelection: true } : {}),
   };
-  if (isGpt6SolDisplayModel(selected.value)) {
+  if (isGpt6SolDisplayModelSafe(selected.value)) {
     request.model = selected.value;
-    request.modelDisplayAlias = displayModelAliasForSelection(selected.value);
+    request.modelDisplayAlias = displayModelAliasForSelectionSafe(selected.value);
   }
   return withAnalysisModelRecoveryPolicy(
-    migrateGpt6SolSelection(request),
-    explicitModelSelectionForThread(threadId) ? null : analysisModelRecoveryState,
+    migrateGpt6SolSelectionSafe(request),
+    explicitModelSelection ? null : analysisModelRecoveryState,
     Date.now(),
     { conversationMode },
   );
@@ -60934,7 +60961,7 @@ function rechargeAnnualSavings(product: RechargeProductDefinition) {
 }
 
 function openRechargePage(targetModel?: string | null) {
-  const normalizedModel = (firstString(targetModel) || "").toLowerCase();
+  const normalizedModel = typeof targetModel === "string" ? targetModel.trim().toLowerCase() : "";
   if (normalizedModel === "gpt-6-astra") {
     selectedRechargeBillingCycle = "monthly";
     selectedRechargeProductId = "subscription_flagship";

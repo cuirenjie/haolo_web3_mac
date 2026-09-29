@@ -279,7 +279,8 @@ test("simulation annotations survive pane-layout races and off-screen trigger co
   assert.match(marker, /queueAlertSimulationViewportFocus\(state, this\.alertSimulationSeries\)/);
   assert.match(focus, /indicatorPanesReady/);
   assert.match(focus, /alertSimulationViewportFocusRetries >= 12/);
-  assert.match(source, /simulation range[\s\S]*authoritative until its isolated overlay is cleared/);
+  const sync = source.match(/private syncAlertSimulationForCurrentContext\(\)[\s\S]*?\n  }/)?.[0] || "";
+  assert.match(sync, /this\.alertSimulationSeries\) this\.focusAlertSimulationViewport/);
 });
 
 test("simulation annotation layout reserves a data-free rail and avoids earlier labels", async () => {
@@ -380,7 +381,8 @@ test("simulation series are isolated by market and interval and restore after re
   assert.match(contextMatch, /state\.marketId === this\.loadedMarketId/);
   assert.match(contextMatch, /state\.interval === this\.loadedInterval/);
   assert.match(restart, /this\.detachAlertSimulation\(\)[\s\S]*await[\s\S]*this\.commitMarketSnapshot\(/);
-  assert.match(source, /private commitMarketSnapshot\([\s\S]*?this\.syncAlertSimulationForCurrentContext\(\)/);
+  const update = source.match(/private updateChartData\([\s\S]*?\n  }/)?.[0] || "";
+  assert.match(update, /this\.applyInitialChartViewport\(\)[\s\S]*?this\.syncAlertSimulationForCurrentContext\(\)/);
   assert.match(source, /expectedMarketId[\s\S]*模拟结果与当前 K 线图的交易对或周期不一致，已拒绝显示/);
   assert.doesNotMatch(source, /queueAlertSimulationLayout|alertSimulationLayoutFrame/);
 });

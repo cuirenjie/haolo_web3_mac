@@ -259,8 +259,8 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.doesNotMatch(sidebarActions, /data-conversation-static-action="knowledge"|renderConversationListIcon\("knowledge"\)|>知识库<\/span>/);
   assert.doesNotMatch(sidebarActions, /data-trading-expert-panel-tab|role="tab"|aria-selected/);
   assert.match(titlebarActions, /toggle-external-channel-menu[\s\S]*renderTitlebarPlugIcon\(\)/);
-  assert.match(titlebarActions, /open-auto-task-dialog[\s\S]*renderTitlebarAlarmIcon\(\)/);
-  assert.ok(titlebarActions.indexOf("toggle-external-channel-menu") < titlebarActions.indexOf("open-auto-task-dialog"));
+  assert.match(titlebarActions, /titlebar-channel-trigger[\s\S]*data-action="toggle-external-channel-menu"[\s\S]*renderTitlebarPlugIcon\(\)/);
+  assert.doesNotMatch(titlebarActions, /open-auto-task-dialog|renderTitlebarAlarmIcon/);
   assert.doesNotMatch(titlebarActions, /自动化|open-auto-tasks|>连接<|data-action="open-settings"|>设置<|>任务<\/button>|renderConversationListIcon/);
   assert.match(source, /class="titlebar-drag-region">[\s\S]*class="titlebar-market-favorites-host" data-titlebar-market-favorites-host/);
   assert.doesNotMatch(source, /trading-expert-task-refresh|data-trading-expert-task-refresh|refreshTradingExpertTask/);
@@ -655,7 +655,7 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
 
   assert.match(
     selectedRequestOptions,
-    /const model = analysisModelPolicySelection\(analysisModelRecoveryState, firstString\([\s\S]*selectedSettings\?\.model,[\s\S]*knownSettings\?\.model,[\s\S]*selected\.value,[\s\S]*TRADING_EXPERT_DEFAULT_MODEL_VALUE/,
+    /(?:const|let) model = analysisModelPolicySelection\(analysisModelRecoveryState, firstString\([\s\S]*selectedSettings\?\.model,[\s\S]*knownSettings\?\.model,[\s\S]*selected\.value,[\s\S]*TRADING_EXPERT_DEFAULT_MODEL_VALUE/,
   );
   assert.match(
     selectedRequestOptions,
@@ -792,7 +792,7 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /\.desktop-body > \.left-panel-toggle\s*\{[^}]*top: 4px;[^}]*left: calc\(var\(--conversation-list-width\) \+ 4px\);[^}]*z-index: 70;[^}]*left 0\.24s ease,/s);
   assert.match(styles, /\.desktop-body\.left-panel-collapsed > \.left-panel-toggle\s*\{[^}]*left: 4px;/s);
   assert.match(styles, /\.desktop-body > \.left-panel-toggle:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 2px var\(--conversation-action-focus\);/s);
-  assert.match(styles, /\.app-titlebar\s*\{[^}]*padding: 0 0 0 15px;/s);
+  assert.match(styles, /\.app-titlebar\s*\{[^}]*z-index: 100;[^}]*background: var\(--app-chrome-background\);[^}]*overflow: visible;/s);
   assert.match(styles, /\.app-titlebar > \.titlebar-left-panel-toggle\s*\{[^}]*margin-left: -7px;[^}]*margin-right: -1px;/s);
   assert.match(styles, /\.titlebar-profile\s*\{[^}]*transform: none;/s);
   assert.match(styles, /\.profile-menu\s*\{[^}]*left: 15px;/s);
@@ -1935,9 +1935,9 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(favoriteTickerSort, /this\.ghost = this\.createGhost\(this\.sourceItem, rect\);\s*this\.sourceItem\.classList\.add\("sorting"\)/);
   assert.match(favoriteTickerSort, /this\.host\.insertBefore\(this\.sourceItem, before\)[\s\S]*?this\.animateReorder\(previousRects\)/);
   assert.match(favoriteTickerSort, /AUTO_SCROLL_EDGE_PX[\s\S]*?requestAnimationFrame\([\s\S]*?this\.autoScrollStep\(\)/);
-  assert.match(favoriteTickerSort, /event\.altKey[\s\S]*?"ArrowLeft"[\s\S]*?"ArrowRight"[\s\S]*?this\.onCommit\(this\.orderedMarketIds\(\)\)/);
+  assert.match(favoriteTickerSort, /"ArrowLeft"[\s\S]*?"ArrowRight"[\s\S]*?event\.altKey[\s\S]*?this\.onCommit\(this\.orderedMarketIds\(\)\)/);
   assert.match(favoriteTickerSort, /addEventListener\("click", this\.handleClickCapture, true\)[\s\S]*?event\.stopImmediatePropagation\(\)/);
-  assert.match(favoriteTickerSort, /getPropertyValue\("--trading-market-selected-background"\)[\s\S]*?\.trim\(\) \|\| "#fff"[\s\S]*?setProperty\("background-color", solidBackground, "important"\)[\s\S]*?setProperty\("opacity", "1", "important"\)/);
+  assert.match(favoriteTickerSort, /getPropertyValue\(this\.axis === "y" \? "--surface-primary" : "--trading-market-selected-background"\)[\s\S]*?\.trim\(\) \|\| "#fff"[\s\S]*?setProperty\("background-color", solidBackground, "important"\)[\s\S]*?setProperty\("opacity", "1", "important"\)/);
 });
 
 test("Trading Expert uses backend-managed Finnhub without a visible provider status row", async () => {

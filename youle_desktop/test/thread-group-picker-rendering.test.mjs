@@ -262,11 +262,8 @@ test("titlebar more menu cascades from channels into WeChat, Feishu, and Telegra
 
   assert.match(actionBlock, /data-action="toggle-external-channel-menu"/);
   assert.match(actionBlock, /aria-haspopup="menu"/);
-  assert.match(actionBlock, /title="更多" aria-label="更多"[\s\S]*renderTitlebarMoreIcon\(\)/);
-  assert.match(actionBlock, /class="titlebar-more-menu"[^>]*role="menu"/);
-  assert.match(actionBlock, /titlebar-more-channel-item[\s\S]*data-titlebar-channel-trigger[\s\S]*renderTitlebarPlugIcon\(\)[\s\S]*<span>连接渠道<\/span>[\s\S]*renderExternalChannelMenu\(\)/);
-  assert.match(actionBlock, /data-action="open-auto-task-dialog"[\s\S]*renderTitlebarAlarmIcon\(\)[\s\S]*<span>自动任务<\/span>/);
-  assert.ok(actionBlock.indexOf("data-titlebar-channel-trigger") < actionBlock.indexOf('data-action="open-auto-task-dialog"'));
+  assert.match(actionBlock, /class="titlebar-primary-action titlebar-channel-trigger[\s\S]*data-action="toggle-external-channel-menu"[\s\S]*renderTitlebarPlugIcon\(\)[\s\S]*<span class="titlebar-channel-label">连手机<\/span>/);
+  assert.doesNotMatch(actionBlock, /titlebar-more-menu|open-auto-task-dialog|renderTitlebarAlarmIcon/);
   assert.doesNotMatch(actionBlock, /renderConversationListIcon|<svg/);
 
   const menuBlock = sourceBlock(
@@ -291,7 +288,7 @@ test("titlebar more menu cascades from channels into WeChat, Feishu, and Telegra
     "'[data-action=\"toggle-external-channel-menu\"]'",
     '"[data-external-channel-id]"',
   );
-  assert.match(bindBlock, /\[data-titlebar-channel-trigger\]/);
+  assert.match(bindBlock, /\[data-action="toggle-external-channel-menu"\]/);
   assert.match(bindBlock, /mouseenter/);
   assert.match(bindBlock, /focus/);
   assert.match(bindBlock, /primeExternalChannelMenu\(\)/);
@@ -1241,7 +1238,7 @@ test("left panel collapse control stays on every conversation-sidebar page", asy
     styles,
     /\.desktop-body > \.left-panel-toggle\s*\{[^}]*top: 4px;[^}]*left: calc\(var\(--conversation-list-width\) \+ 4px\);[^}]*z-index: 70;[^}]*left 0\.24s ease,/s,
   );
-  assert.match(styles, /\.app-titlebar\s*\{[^}]*padding: 0 0 0 15px;/s);
+  assert.match(styles, /\.app-titlebar\s*\{[^}]*z-index: 100;[^}]*background: var\(--app-chrome-background\);[^}]*overflow: visible;/s);
   assert.match(styles, /\.titlebar-profile\s*\{[^}]*transform: none;/s);
   assert.match(styles, /\.profile-menu\s*\{[^}]*left: 15px;/s);
   assert.match(styles, /\.titlebar-more-menu-overlay\s*\{[^}]*position: absolute;[^}]*left: 50%;[^}]*transform: translateX\(-50%\);/s);

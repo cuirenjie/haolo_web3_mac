@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TradingPublicIndices } from "../src/renderer/trading-public-indices.ts";
+import { applyAppLanguage, getCurrentAppLanguage } from "../src/renderer/app-language.mjs";
+import { TradingPublicIndices, indexTime, indexValue, localizedIndexText } from "../src/renderer/trading-public-indices.ts";
 
 function fixture(api) {
   const originalDocument = globalThis.document;
@@ -21,6 +22,20 @@ function fixture(api) {
 }
 const snapshot = { fetchedAt: 1, indices: [{ id: "alternative:fng", value: 0, status: "ready", series: [] }] };
 const flush = () => new Promise(resolve => setImmediate(resolve));
+
+test("public index copy and number/time formatting follow the active application language", () => {
+  const previous = getCurrentAppLanguage();
+  try {
+    applyAppLanguage("en");
+    const index = { id: "alternative:fng", value: 1234.5, changePercent: 1.25, updatedAt: Date.UTC(2026, 0, 2, 3, 4), status: "ready", series: [] };
+    assert.equal(localizedIndexText("恐惧与贪婪指数"), "Fear & Greed Index");
+    assert.equal(indexValue(index), "1,235");
+    assert.match(indexTime(index.updatedAt), /2026|01|02|03|04/);
+    assert.doesNotMatch(indexTime(index.updatedAt), /[\u3400-\u9fff]/u);
+  } finally {
+    applyAppLanguage(previous);
+  }
+});
 
 test("indices preload silently before selecting the category, reuse data on switching and stay warm in the background", async () => {
   let calls = 0;

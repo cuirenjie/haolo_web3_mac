@@ -4,13 +4,14 @@ import type {
 } from "./trading-expert-market.ts";
 import { TradingFavoriteTickerSortController } from "./trading-expert-favorite-ticker-sort.ts";
 import { TradingPriceFlash } from "./trading-price-flash.ts";
-import { TradingPublicIndices, indexValue, indexChange, indexTime, indexSourceLink, openIndexHistory, type PublicMarketIndex } from "./trading-public-indices.ts";
+import { TradingPublicIndices, indexValue, indexChange, indexTime, indexSourceLink, localizedIndexText, openIndexHistory, type PublicMarketIndex } from "./trading-public-indices.ts";
 import {
   TradingWatchlistStore,
   WATCHLIST_NAME_LIMIT,
   WATCHLIST_RECOMMENDED_MARKETS,
   watchlistGroupNameError,
 } from "./trading-watchlist.ts";
+import { getCurrentAppLanguage, translateAppText } from "./app-language.mjs";
 
 const escape = (text: string) =>
   text.replace(
@@ -27,6 +28,9 @@ const escape = (text: string) =>
 const chevron =
   '<svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"/></svg>';
 const removeIcon = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6m0-6-6 6"/></svg>';
+const uiText = (value: string) => translateAppText(value, getCurrentAppLanguage());
+const displayGroupName = (group: { id: string; name: string }) =>
+  group.id.startsWith("custom-") ? group.name : uiText(group.name);
 
 export function renderTradingWatchlistToggle() {
   return `<button type="button" class="trading-watchlist-toggle" data-watchlist-toggle aria-expanded="true" aria-controls="trading-watchlist-panel">收起自选${chevron}</button>`;
@@ -61,6 +65,7 @@ export class TradingWatchlistPanel {
   private menuCloseTimer: number | null = null;
   private readonly indices: TradingPublicIndices;
   private indexDialog: HTMLDialogElement | null = null;
+  private renderedLanguage = getCurrentAppLanguage();
   private readonly recommendationSelections = new Map<string, Set<string>>();
   private readonly priceFlash = new TradingPriceFlash();
 
@@ -128,6 +133,14 @@ export class TradingWatchlistPanel {
 
   refresh() {
     const { store } = this.options;
+    const language = getCurrentAppLanguage();
+    if (this.renderedLanguage !== language) {
+      // The dialog is rendered with localized dynamic index data. Close it on
+      // a language switch so it cannot retain the previous language's copy.
+      this.indexDialog?.close();
+      this.indexDialog = null;
+      this.renderedLanguage = language;
+    }
     const showingIndices = store.activeGroupId === "indices";
     this.indices.setActive(Boolean(this.host && store.expanded && showingIndices));
     if (this.toggle) {
@@ -152,26 +165,28 @@ export class TradingWatchlistPanel {
     const active = store.activeGroup;
     const personalGroups = store.groups.filter((group) => group.id === "watchlist" || group.id.startsWith("custom-"));
     const dropdownGroup = store.fixedGroup ? store.groups[0] : active;
+    const activeGroupName = displayGroupName(active);
+    const dropdownGroupName = displayGroupName(dropdownGroup);
     this.sorter?.destroy();
     this.sorter = null;
     this.deferredRender = false;
     this.host.innerHTML = `
       <nav class="trading-watchlist-tabs" aria-label="自选分组">
         <div class="trading-watchlist-groups" data-watchlist-groups>
-          <button type="button" data-watchlist-action="group" data-group-id="${escape(dropdownGroup.id)}" aria-pressed="${active.id === dropdownGroup.id}">${escape(dropdownGroup.name)}</button>
+          <button type="button" data-watchlist-action="group" data-group-id="${escape(dropdownGroup.id)}" aria-pressed="${active.id === dropdownGroup.id}">${escape(dropdownGroupName)}</button>
           ${
             personalGroups.length > 1
               ? `<button type="button" data-watchlist-action="menu" aria-label="选择自选分组" aria-haspopup="menu" aria-expanded="false">${chevron}</button>
             <div class="trading-watchlist-menu" data-watchlist-menu role="menu" aria-label="自选分组" popover="manual" hidden>${personalGroups
               .map(
                 (group) =>
-                  `<div class="trading-watchlist-menu-row" role="none"><button type="button" role="menuitemradio" aria-checked="${active.id === group.id}" data-watchlist-action="group" data-group-id="${escape(group.id)}">${escape(group.name)}</button>${group.id.startsWith("custom-") ? `<button type="button" class="trading-watchlist-remove-group" role="menuitem" data-watchlist-action="remove-group" data-group-id="${escape(group.id)}" aria-label="删除分组 ${escape(group.name)}" title="删除分组">${removeIcon}</button>` : ""}</div>`,
+                  `<div class="trading-watchlist-menu-row" role="none"><button type="button" role="menuitemradio" aria-checked="${active.id === group.id}" data-watchlist-action="group" data-group-id="${escape(group.id)}">${escape(displayGroupName(group))}</button>${group.id.startsWith("custom-") ? `<button type="button" class="trading-watchlist-remove-group" role="menuitem" data-watchlist-action="remove-group" data-group-id="${escape(group.id)}" aria-label="${escape(`${uiText("删除分组")} ${group.name}`)}" title="${escape(uiText("删除分组"))}">${removeIcon}</button>` : ""}</div>`,
               )
               .join("")}</div>`
               : ""
           }
         </div>
-        ${store.groups.slice(1, 3).map((group) => `<button type="button" data-watchlist-action="group" data-group-id="${escape(group.id)}" aria-pressed="${active.id === group.id}">${escape(group.name)}</button>`).join("")}
+        ${store.groups.slice(1, 3).map((group) => `<button type="button" data-watchlist-action="group" data-group-id="${escape(group.id)}" aria-pressed="${active.id === group.id}">${escape(displayGroupName(group))}</button>`).join("")}
         ${store.fixedGroup ? "" : '<button type="button" class="trading-watchlist-add-group" data-watchlist-action="new-group" aria-label="新建分组" title="新建分组">＋</button>'}
         ${store.fixedGroup ? "" : '<button type="button" class="trading-watchlist-add" data-watchlist-action="add">添加</button>'}
       </nav>
@@ -180,7 +195,7 @@ export class TradingWatchlistPanel {
         <button type="button" data-watchlist-action="sort-price" aria-label="按${showingIndices ? "最新指数" : "最新价"}排序" title="按${showingIndices ? "最新指数" : "最新价"}排序">${showingIndices ? "最新指数" : "最新价"}<span aria-hidden="true">${this.sort?.column === "price" ? (this.sort.direction === 1 ? "↑" : "↓") : "↕"}</span></button>
         <button type="button" data-watchlist-action="sort-change" aria-label="按24H涨幅排序" title="按24H涨幅排序">24H涨幅<span aria-hidden="true">${this.sort?.column === "change" ? (this.sort.direction === 1 ? "↑" : "↓") : "↕"}</span></button>
       </div>
-      <div class="trading-watchlist-rows" data-watchlist-rows role="list" aria-label="${escape(active.name)}交易对">
+      <div class="trading-watchlist-rows" data-watchlist-rows role="list" aria-label="${escape(`${activeGroupName}${uiText("交易对")}`)}">
         ${
           (showingIndices ? this.renderIndices() : this.sortedMarkets()
             .map((market) => this.renderRow(market))
@@ -283,12 +298,26 @@ export class TradingWatchlistPanel {
       const value = (index: PublicMarketIndex) => column === "price" ? index.value : index.changePercent;
       indices.sort((a, b) => Number(value(a) === null) - Number(value(b) === null) || direction * ((value(a) || 0) - (value(b) || 0)));
     }
-    return indices.map(index => `<div class="trading-watchlist-row trading-index-row" data-watchlist-index="${escape(index.id)}" role="listitem">
-      <button type="button" class="trading-watchlist-select" data-watchlist-action="index-detail" data-index-id="${escape(index.id)}" aria-label="查看${escape(index.name)}历史走势" title="${escape(index.description)} 数据时间：${indexTime(index.updatedAt)}"></button>
-      <span class="trading-watchlist-pair"><span>${escape(index.name)}</span><small>${indexSourceLink(index)}<span>${index.status === "stale" ? "更新延迟" : index.status === "error" ? "暂不可用" : index.id === "alternative:fng" ? "每日" : "1小时"}</span></small></span>
+    return indices.map(index => {
+      const name = localizedIndexText(index.name);
+      const description = localizedIndexText(index.description);
+      const history = localizedIndexText("历史走势");
+      const view = localizedIndexText("查看");
+      const dataTime = localizedIndexText("数据时间");
+      const freshness = index.status === "stale"
+        ? localizedIndexText("更新延迟")
+        : index.status === "error"
+          ? localizedIndexText("暂不可用")
+          : index.id === "alternative:fng"
+            ? localizedIndexText("每日更新")
+            : localizedIndexText("每小时采样");
+      return `<div class="trading-watchlist-row trading-index-row" data-watchlist-index="${escape(index.id)}" role="listitem">
+      <button type="button" class="trading-watchlist-select" data-watchlist-action="index-detail" data-index-id="${escape(index.id)}" aria-label="${escape(`${view}${name}${history}`)}" title="${escape(`${description} ${dataTime}: ${indexTime(index.updatedAt)}`)}"></button>
+      <span class="trading-watchlist-pair"><span>${escape(name)}</span><small>${indexSourceLink(index)}<span>${escape(freshness)}</span></small></span>
       <span class="trading-watchlist-price" data-watchlist-price>${indexValue(index)}</span>
       <span class="trading-watchlist-change ${index.changePercent === null ? "" : index.changePercent >= 0 ? "positive" : "negative"}">${indexChange(index)}</span>
-    </div>`).join("");
+    </div>`;
+    }).join("");
   }
 
   private sortedMarkets() {
@@ -318,7 +347,7 @@ export class TradingWatchlistPanel {
       <span class="trading-watchlist-pair"><span>${escape(market.displaySymbol)}</span><small>${escape(`${market.venue} ${market.tag}`)}</small></span>
       <span class="trading-watchlist-price" data-watchlist-price>${market.quoteAvailable ? escape(this.options.formatPrice(market.markPrice)) : "--"}</span>
       <span class="trading-watchlist-change ${market.quoteAvailable ? (market.changePercent >= 0 ? "positive" : "negative") : ""}" data-watchlist-change>${market.quoteAvailable ? `${market.changePercent.toFixed(2)}%` : "--"}</span>
-      ${editable ? `<button type="button" class="trading-watchlist-remove" data-market-favorite-sort-ignore data-watchlist-action="remove" data-market-id="${id}" aria-label="从${escape(this.options.store.activeGroup.name)}移除 ${escape(market.displaySymbol)}" title="从当前分组移除"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6m0-6-6 6"/></svg></button>` : ""}
+      ${editable ? `<button type="button" class="trading-watchlist-remove" data-market-favorite-sort-ignore data-watchlist-action="remove" data-market-id="${id}" aria-label="${escape(`${uiText("从").trim()} ${displayGroupName(this.options.store.activeGroup)} ${uiText("移除")} ${market.displaySymbol}`)}" title="${escape(uiText("从当前分组移除"))}"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 3 6 6m0-6-6 6"/></svg></button>` : ""}
     </div>`;
   }
 

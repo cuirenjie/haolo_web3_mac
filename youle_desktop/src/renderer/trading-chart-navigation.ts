@@ -669,7 +669,12 @@ export class TradingChartNavigation {
   private readonly keyDown = (event: KeyboardEvent) => {
     if (event.defaultPrevented || this.isControl(event.target) || event.isComposing) return;
     const chart = this.getChart(); if (!chart) return;
-    const key = event.key.toLowerCase(); const ctrl = event.ctrlKey || event.metaKey;
+    // Option changes event.key on macOS (e.g. L -> ¬, P -> π, I -> Dead).
+    // Letter shortcuts follow the physical key; named keys and older events
+    // without a code retain their normal key semantics.
+    const key = event.altKey && /^Key[A-Z]$/.test(event.code)
+      ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
+    const ctrl = event.ctrlKey || event.metaKey;
     if (key === "escape" && (this.tool || this.selection || this.measurement || this.menu)) this.setTool(null);
     else if (event.altKey && !ctrl && key === "r") this.reset();
     else if (event.altKey && !ctrl && key === "enter") this.toggleChartExpansion();

@@ -10,7 +10,8 @@ import { initialMarketLogicalRange } from "../src/renderer/trading-expert-market
 const source = fs.readFileSync(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("market.ts", source, ts.ScriptTarget.Latest, true);
 const workspace = ast.statements.find(node => ts.isClassDeclaration(node) && node.name.text === "TradingExpertMarketWorkspace");
-const names = ["refreshMarketDataFallback", "refreshLiveCandle", "recoverMarketHistory", "persistCurrentMarketCandleSnapshot"];
+const names = ["refreshMarketDataFallback", "refreshLiveCandle", "recoverMarketHistory", "persistCurrentMarketCandleSnapshot",
+  "updateChartData", "syncAlertSimulationForCurrentContext", "alertSimulationMatchesCurrentContext", "commitLoadedSelection"];
 const methods = workspace.members.filter(node => names.includes(node.name?.getText(ast))).map(node => node.getText(ast));
 const javascript = ts.transpileModule(`class Harness { ${methods.join("\n")} }; globalThis.Harness = Harness;`, {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
@@ -23,20 +24,96 @@ function fixture(fetchHistory) {
     binanceResolutionSource: () => ({ sourceInterval: "1h", sourceMs: 3600000, targetMs: 3600000 }),
     tradingCandleSeriesMatchesResolution: () => true,
     tradingMarketStatsFromCandles: (_symbol, candles) => ({ midPrice: candles.at(-1).close }),
+    mergeCandles: (_current, incoming) => incoming,
+    atm4MaBand: () => [], atm4BandSeriesData: () => [],
     MARKET_SOCKET_STALE_MS: 30000,
     fetchLatestTradingCandles: () => { throw new Error("must recover full history, not two live bars"); },
   });
   vm.runInContext(javascript, context);
   const harness = new context.Harness();
   Object.assign(harness, { disposed: false, loadGeneration: 1, selectedProvider: "binance", selectedSymbol: "SKHYNIXUSDT",
-    selectedMarketType: "perpetual", activeInterval: "60", candles: [], sourceCandles: [], marketHistoryReady: false,
+    selectedMarketType: "perpetual", selectedMarketId: "BINANCE:FUTURES:SKHYNIXUSDT", activeInterval: "60",
+    candles: [], sourceCandles: [], chartCandles: [], marketHistoryReady: false,
     lastAggregateTradeId: null, marketDataRequestAbortController: new AbortController(),
     marketKlineLastActivityAt: Date.now(), marketSocketLastActivityAt: Date.now(),
-    commitLoadedSelection() {}, reconcileCurrentLivePrice() {}, updateStatsUi() {},
+    reconcileCurrentLivePrice() {}, updateStatsUi() {},
     updateChartData(options) { calls.push(options); }, scheduleCurrentMarketCandlePersistence() {},
   });
   return { harness, calls };
 }
+
+function renderedFixture({ attached = false, matching = true, empty = false } = {}) {
+  const batch = { candles: Array.from({ length: 500 }, (_, i) => bar(i)), sourceCandles: [],
+    source: { sourceInterval: "1h", sourceMs: 3600000, targetMs: 3600000 } };
+  const f = fixture(async () => batch);
+  const h = f.harness, events = [];
+  delete h.updateChartData; // Exercise the real update and simulation lifecycle.
+  Object.assign(h, {
+    candles: empty ? [] : batch.candles.slice(-100), chartCandles: empty ? [] : batch.candles.slice(-100),
+    loadedMarketId: h.selectedMarketId, loadedInterval: h.activeInterval,
+    alertSimulationState: { marketId: matching ? h.selectedMarketId : "BINANCE:FUTURES:BTCUSDT", interval: h.activeInterval },
+    alertSimulationSeries: attached ? {} : null,
+    chart: { timeScale: () => ({ getVisibleLogicalRange: () => ({ from: 20, to: 40 }),
+      setVisibleLogicalRange: () => events.push("preserve") }) },
+    candleSeries: { setData: () => events.push("data") },
+    primarySeriesData: candles => candles, updateMainIndicatorData() {}, updateIndicatorData() {},
+    renderIndicatorAnalysisPatches() {}, applyMarketPriceFormat() {}, syncCurrentPriceLine() {}, renderLatestOhlc() {},
+    clearMarketError() {}, updateCountdown() {}, synchronizeVisibleChartGeometry() {},
+    invalidateVolumeProfileSnapshot() {}, queueVisiblePriceScaleUpdate() {},
+    prepareChartViewportReset() { events.push("reset"); this.resettingChartViewport = true; },
+    applyInitialChartViewport() { events.push("initial"); },
+    attachAlertSimulation({ focus }) { this.alertSimulationSeries = {}; events.push(focus ? "attach-focus" : "attach"); },
+    focusAlertSimulationViewport() { events.push("focus"); },
+    detachAlertSimulation() { this.alertSimulationSeries = null; events.push("detach"); },
+  });
+  return { ...f, events };
+}
+
+test("history recovery preserves an existing simulated view instead of resetting it", async () => {
+  const { harness, events } = renderedFixture({ attached: true });
+  await harness.refreshLiveCandle(1);
+  assert.equal(harness.marketHistoryReady, true);
+  assert.deepEqual(events, ["data", "focus"]);
+});
+
+test("empty history recovery initializes the chart then restores and focuses the retained simulation", async () => {
+  const { harness, events } = renderedFixture({ empty: true });
+  await harness.refreshLiveCandle(1);
+  assert.equal(harness.marketHistoryReady, true);
+  assert.deepEqual(events, ["reset", "data", "initial", "attach-focus"]);
+  assert.ok(harness.alertSimulationSeries);
+});
+
+test("every candle commit focuses existing simulations after reset and restores detached ones", () => {
+  const { harness, events } = renderedFixture({ attached: true });
+  harness.updateChartData({ resetViewport: true });
+  assert.deepEqual(events, ["reset", "data", "initial", "focus"]);
+  events.length = 0;
+  harness.alertSimulationSeries = null;
+  harness.updateChartData();
+  assert.deepEqual(events, ["data", "attach-focus"]);
+});
+
+test("recovery and ordinary updates never reattach another market or interval's simulation", async () => {
+  const { harness, events } = renderedFixture({ matching: false, attached: true });
+  await harness.refreshLiveCandle(1);
+  assert.equal(harness.marketHistoryReady, true);
+  assert.deepEqual(events, ["data", "detach"]);
+  events.length = 0;
+  harness.alertSimulationState.marketId = harness.selectedMarketId;
+  harness.alertSimulationState.interval = "240";
+  harness.updateChartData({ preserveViewport: true });
+  assert.deepEqual(events, ["data", "preserve", "detach"]);
+  assert.equal(harness.alertSimulationSeries, null);
+});
+
+test("history recovery retains cached navigation even when no simulation exists", async () => {
+  const { harness, events } = renderedFixture();
+  harness.alertSimulationState = null;
+  await harness.refreshLiveCandle(1);
+  assert.equal(harness.marketHistoryReady, true);
+  assert.deepEqual(events, ["data"]);
+});
 
 test("after a failed bootstrap, live traffic does not suppress the full 500-bar recovery", async () => {
   let requests = 0;

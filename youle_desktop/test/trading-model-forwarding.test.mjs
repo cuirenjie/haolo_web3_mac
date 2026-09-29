@@ -36,12 +36,14 @@ for (const [method, payloads] of calls) {
           request: { ...selection, instruction: "分析当前盘面", drawingRequested: true },
           job: { analysisId: "test-analysis", marketId: "BTCUSDT", interval: "60", language: "zh-CN" },
           snapshot: { paneIndex: 1, market: { id: "ETHUSDT", symbol: "ETHUSDT", marketType: "perpetual" }, interval: "15", candles },
-          candles, analysisCandles: candles, analysisSnapshotTime: Date.now(),
+          candles, analysisCandles: candles, analysisSnapshotTime: Date.now(), snapshotTime: Date.now(),
           directResponseRequested: false, requestedLookbackMs: null,
           contextCandles: [], contextCandlesPromise: Promise.resolve([]),
           comparisonMarkets: [], comparisonMarketsPromise: Promise.resolve([]),
           waveDegreeContextsPromise: Promise.resolve([]),
           fetchTradingWaveDegreeContexts: async () => [],
+          getCurrentAppLanguage: () => "zh-CN",
+          tradingWaveContextEndTime: (_candles, _interval, now) => now,
           orderFlow: {}, splitOrderFlow: {}, splitContextCandles: [],
         };
         const javascript = ts.transpileModule(`async function payload() { return (${payload}); }`, {

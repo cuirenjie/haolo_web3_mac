@@ -76,7 +76,8 @@ for (const [name, failure, options] of [
   assert.equal(h.turns[1].fixedEffort, "max");
   assert.equal(h.turns.length, 2);
   assert.ok(h.turns.every((entry) => entry.input[0].text === request.prompt && entry.sandboxPolicy === "read-only"));
-  assert.ok(h.captures.every((entry) => entry.timeoutMs === 180_000 && entry.resetTimeoutOnActivity === false));
+  assert.deepEqual(h.captures.map((entry) => entry.timeoutMs), [120_000, 45_000]);
+  assert.ok(h.captures.every((entry) => entry.resetTimeoutOnActivity === false));
   assert.deepEqual(h.events, ["start:review-1", "clean:review-1", "start:review-2", "clean:review-2"]);
 });
 

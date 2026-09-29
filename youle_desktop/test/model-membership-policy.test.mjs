@@ -53,5 +53,6 @@ test("renderer locks the selection before persisting it and maps upgrades to the
   assert.match(source, /if \(upgraded\) openRechargePage\(selected\.value\)/);
   assert.match(source, /gpt-6-astra[\s\S]{0,180}subscription_flagship/);
   assert.match(source, /gpt-6-sol[\s\S]{0,180}subscription_basic/);
-  assert.match(source, /model: selectedChatModelValue\(threadId\)[\s\S]{0,80}reasoningEffort: "max"/);
+  assert.match(source, /model: selected\.value/);
+  assert.match(source, /const reasoningEffort =\s*\n\s*modelProvider === DEEPSEEK_EXECUTION_PROVIDER_ID[\s\S]*\? "max"/);
 });

@@ -114,7 +114,12 @@ export class TradingStrategyCoordinator {
       hasExplicitStrategyMention ? stripInstalledStrategyMentions(rawInstruction, this.#registry) : instruction,
       strategy.manifest,
     );
-    if (hasExplicitStrategyMention && !params?.hasImageAttachment && explicitRequest.mode === "chart-analysis") {
+    if (
+      hasExplicitStrategyMention
+      && !params?.hasImageAttachment
+      && (strategy.manifest.id !== "price-action" || !params?.hasCurrentAnalysis)
+      && explicitRequest.mode === "chart-analysis"
+    ) {
       return Object.freeze({
         ok: true, strategyId: strategy.manifest.id, request: explicitRequest,
         classification: Object.freeze({ schemaVersion: 1, mode: "chart-analysis",

@@ -27,7 +27,8 @@ test("the sidebar and renderer no longer expose group-chat creation", async () =
   assert.doesNotMatch(source, /function openGroupChatDialog/);
   assert.doesNotMatch(source, /local-group-chat:\$\{crypto\.randomUUID/);
   assert.match(titlebarActions, /toggle-external-channel-menu[\s\S]*renderTitlebarPlugIcon\(\)/);
-  assert.match(titlebarActions, /open-auto-task-dialog[\s\S]*renderTitlebarAlarmIcon\(\)/);
+  assert.match(titlebarActions, /titlebar-channel-trigger[\s\S]*data-action="toggle-external-channel-menu"[\s\S]*title="连手机"/);
+  assert.doesNotMatch(titlebarActions, /open-auto-task-dialog|renderTitlebarAlarmIcon/);
   assert.doesNotMatch(titlebarActions, /自动化|open-auto-tasks/);
   assert.doesNotMatch(titlebarActions, /data-action="open-settings"|>设置</);
 });

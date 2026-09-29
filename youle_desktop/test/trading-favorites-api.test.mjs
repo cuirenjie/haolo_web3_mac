@@ -32,4 +32,20 @@ test("trading favorites use the shared authenticated server collection", async (
   assert.match(sources.market, /syncFavoriteServerMembership\(market, !wasFavorite\)/);
   assert.match(sources.market, /syncFavoriteServerOrder\(orderedMarketIds\)/);
   assert.match(sources.renderer, /reorderTradingFavorites\?\(params/);
+  assert.match(sources.market, /favoriteLocalRevision/);
+  assert.match(sources.market, /scheduleFavoriteServerRetry/);
+  assert.match(sources.market, /canApplyRemoteState/);
+});
+
+test("trading favorite responses accept the supported server envelopes", async () => {
+  const { tradingFavoriteApiItems } = await import("../src/renderer/trading-expert-market.ts");
+  const first = { id: "binance:usdm:BTCUSDT" };
+  const second = { id: "binance:usdm:ETHUSDT" };
+  assert.deepEqual(tradingFavoriteApiItems({ items: [first] }), [first]);
+  assert.deepEqual(tradingFavoriteApiItems({ favorites: [first] }), [first]);
+  assert.deepEqual(tradingFavoriteApiItems({ data: [first] }), [first]);
+  assert.deepEqual(tradingFavoriteApiItems({ data: { items: [second] } }), [second]);
+  assert.deepEqual(tradingFavoriteApiItems({ data: { favorites: [second] } }), [second]);
+  assert.deepEqual(tradingFavoriteApiItems([first]), [first]);
+  assert.deepEqual(tradingFavoriteApiItems({}), []);
 });

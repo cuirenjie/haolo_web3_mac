@@ -3983,7 +3983,7 @@ export class TradingDrawingController {
       // after price/legend writes forces a desktop layout for every drag frame.
       // The main pane can shrink when indicator panes are present. Keep its
       // drawing bounds inside that pane without forcing a DOM measurement.
-      const height = chart.panes()[this.paneIndex]?.getHeight() || chart.options().height;
+      const height = chart.panes()[this.paneIndex]?.getHeight();
       return {
         width: Math.max(chart.timeScale().width(), 1),
         height: Math.max(height || 1, 1),

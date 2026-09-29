@@ -210,6 +210,8 @@ const FAVORITE_TICKER_FALLBACK_INTERVAL_MS = 10_000;
 const FAVORITE_TICKER_FALLBACK_TIMEOUT_MS = 8_000;
 const FAVORITE_TICKER_SOCKET_STALE_MS = 10_000;
 const FAVORITE_TICKER_FALLBACK_BATCH_SIZE = 4;
+const FAVORITE_SERVER_RETRY_BASE_MS = 2_000;
+const FAVORITE_SERVER_RETRY_MAX_MS = 60_000;
 const BINANCE_MARKET_RATE_LIMIT_DEFAULT_MS = 60_000;
 const BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS = 500;
 const FINNHUB_SEARCH_DEBOUNCE_MS = 480;
@@ -1550,6 +1552,31 @@ function tradingFavoriteApiPayload(market: TradingMarket) {
     marketType,
     perpetual: market.marketType === "perpetual",
   };
+}
+
+export function tradingFavoriteApiItems(response: unknown): unknown[] {
+  if (Array.isArray(response)) return response;
+  if (!response || typeof response !== "object") return [];
+  const envelope = response as Record<string, unknown>;
+  if (Array.isArray(envelope.items)) return envelope.items;
+  if (Array.isArray(envelope.favorites)) return envelope.favorites;
+  if (Array.isArray(envelope.data)) return envelope.data;
+  if (envelope.data && typeof envelope.data === "object") {
+    const data = envelope.data as Record<string, unknown>;
+    if (Array.isArray(data.items)) return data.items;
+    if (Array.isArray(data.favorites)) return data.favorites;
+  }
+  return [];
+}
+
+function hasTradingFavoriteApiItems(response: unknown) {
+  if (Array.isArray(response)) return true;
+  if (!response || typeof response !== "object") return false;
+  const envelope = response as Record<string, unknown>;
+  if (Array.isArray(envelope.items) || Array.isArray(envelope.favorites) || Array.isArray(envelope.data)) return true;
+  if (!envelope.data || typeof envelope.data !== "object") return false;
+  const data = envelope.data as Record<string, unknown>;
+  return Array.isArray(data.items) || Array.isArray(data.favorites);
 }
 
 function tradingFavoriteRecordFromApi(value: unknown): TradingFavoriteMarketRecord | null {
@@ -5212,6 +5239,12 @@ class TradingExpertMarketWorkspace {
   private favoriteServerReady = false;
   private favoriteServerVersion: number | null = null;
   private favoriteServerQueue: Promise<void> = Promise.resolve();
+  private favoriteLocalRevision = 0;
+  private favoriteServerRetryTimer: number | null = null;
+  private favoriteServerRetryAttempt = 0;
+  private favoriteServerRetryKinds = new Set<"initial" | "mutations">();
+  private favoriteServerPendingMemberships = new Map<string, { market: TradingMarket; added: boolean }>();
+  private favoriteServerPendingOrder: string[] | null = null;
   private favoriteCandlePrefetchStarted = false;
   private favoriteTickerMarketsById = new Map<string, TradingMarket>();
   private showFavoritesOnly = false;
@@ -6751,10 +6784,44 @@ class TradingExpertMarketWorkspace {
     return next;
   }
 
+  private sameFavoriteOrder(left: readonly string[] | null, right: readonly string[] | null) {
+    return Boolean(left && right)
+      && left!.length === right!.length
+      && left!.every((marketId, index) => marketId === right![index]);
+  }
+
+  private scheduleFavoriteServerRetry(kind: "initial" | "mutations") {
+    this.favoriteServerRetryKinds.add(kind);
+    if (this.disposed || this.favoriteServerRetryTimer !== null) return;
+    const delay = Math.min(
+      FAVORITE_SERVER_RETRY_MAX_MS,
+      FAVORITE_SERVER_RETRY_BASE_MS * (2 ** Math.min(this.favoriteServerRetryAttempt, 5)),
+    );
+    this.favoriteServerRetryAttempt += 1;
+    this.favoriteServerRetryTimer = window.setTimeout(() => {
+      this.favoriteServerRetryTimer = null;
+      if (this.disposed) return;
+      const retryInitial = this.favoriteServerRetryKinds.delete("initial");
+      const retryMutations = this.favoriteServerRetryKinds.delete("mutations");
+      if (retryInitial) void this.syncFavoriteServer();
+      if (retryMutations) this.flushFavoriteServerPendingOperations();
+    }, delay);
+  }
+
+  private flushFavoriteServerPendingOperations() {
+    for (const pending of this.favoriteServerPendingMemberships.values()) {
+      void this.syncFavoriteServerMembership(pending.market, pending.added);
+    }
+    if (this.favoriteServerPendingOrder) {
+      this.syncFavoriteServerOrder(this.favoriteServerPendingOrder);
+    }
+  }
+
   private async syncFavoriteServer() {
     const client = (window as any).codexDesktop;
     if (!this.favoriteStorageAccountIdentity || typeof client?.listTradingFavorites !== "function") return;
     return this.queueFavoriteServer(async () => {
+      const localRevisionAtStart = this.favoriteLocalRevision;
       try {
         let response = await client.listTradingFavorites();
         const initialized = response?.initialized === true;
@@ -6765,10 +6832,16 @@ class TradingExpertMarketWorkspace {
           }
           response = await client.listTradingFavorites();
         }
-        const remoteRecords = Array.isArray(response?.items)
-          ? response.items.map(tradingFavoriteRecordFromApi).filter(Boolean) as TradingFavoriteMarketRecord[]
-          : [];
-        if (response?.initialized === true || initialized === false) {
+        if (!hasTradingFavoriteApiItems(response)) {
+          throw new Error("Trading favorites response has no items collection");
+        }
+        const remoteRecords = tradingFavoriteApiItems(response)
+          .map(tradingFavoriteRecordFromApi)
+          .filter(Boolean) as TradingFavoriteMarketRecord[];
+        const canApplyRemoteState = this.favoriteLocalRevision === localRevisionAtStart
+          && this.favoriteServerPendingMemberships.size === 0
+          && this.favoriteServerPendingOrder === null;
+        if (canApplyRemoteState && (response?.initialized === true || initialized === false)) {
           this.favoriteSymbols = new Set(remoteRecords.map((record) => record.id));
           this.favoriteMarketRecords = new Map(remoteRecords.map((record) => [record.id, record]));
           this.saveFavoriteSymbols();
@@ -6778,11 +6851,14 @@ class TradingExpertMarketWorkspace {
         }
         this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : null;
         this.favoriteServerReady = true;
+        this.favoriteServerRetryAttempt = 0;
       } catch (error) {
+        this.favoriteServerReady = false;
         console.warn(
           "[trading-favorites] server sync deferred",
           error instanceof Error ? error.message : String(error),
         );
+        this.scheduleFavoriteServerRetry("initial");
       }
     });
   }
@@ -6790,27 +6866,39 @@ class TradingExpertMarketWorkspace {
   private syncFavoriteServerMembership(market: TradingMarket, added: boolean) {
     const client = (window as any).codexDesktop;
     if (!this.favoriteStorageAccountIdentity) return;
+    const marketId = market.id;
+    this.favoriteServerPendingMemberships.set(marketId, { market, added });
     return this.queueFavoriteServer(async () => {
-      if (added && typeof client?.addTradingFavorite === "function") {
-        const response = await client.addTradingFavorite(tradingFavoriteApiPayload(market));
+      const pending = this.favoriteServerPendingMemberships.get(marketId);
+      const desired = pending?.added ?? added;
+      const currentMarket = pending?.market || market;
+      if (desired && typeof client?.addTradingFavorite === "function") {
+        const response = await client.addTradingFavorite(tradingFavoriteApiPayload(currentMarket));
         this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : this.favoriteServerVersion;
-      } else if (!added && typeof client?.removeTradingFavorite === "function") {
-        const marketKey = tradingFavoriteApiPayload(market).id;
+      } else if (!desired && typeof client?.removeTradingFavorite === "function") {
+        const marketKey = tradingFavoriteApiPayload(currentMarket).id;
         const response = await client.removeTradingFavorite({ marketId: marketKey });
         this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : this.favoriteServerVersion;
       }
+      if (this.favoriteServerPendingMemberships.get(marketId)?.added === desired) {
+        this.favoriteServerPendingMemberships.delete(marketId);
+      }
       this.favoriteServerReady = true;
+      this.favoriteServerRetryAttempt = 0;
     }).catch((error) => {
+      this.favoriteServerReady = false;
       console.warn(
         "[trading-favorites] membership sync failed",
         error instanceof Error ? error.message : String(error),
       );
+      this.scheduleFavoriteServerRetry("mutations");
     });
   }
 
   private syncFavoriteServerOrder(orderedMarketIds: string[]) {
     const client = (window as any).codexDesktop;
     if (!this.favoriteStorageAccountIdentity || typeof client?.reorderTradingFavorites !== "function") return;
+    this.favoriteServerPendingOrder = [...orderedMarketIds];
     const marketIds = orderedMarketIds.map((id) => {
       const record = this.favoriteMarketRecords.get(id);
       if (!record) return id;
@@ -6824,12 +6912,18 @@ class TradingExpertMarketWorkspace {
         ...(this.favoriteServerVersion ? { version: this.favoriteServerVersion } : {}),
       });
       this.favoriteServerVersion = Number.isInteger(response?.version) ? Number(response.version) : this.favoriteServerVersion;
+      if (this.sameFavoriteOrder(this.favoriteServerPendingOrder, orderedMarketIds)) {
+        this.favoriteServerPendingOrder = null;
+      }
       this.favoriteServerReady = true;
+      this.favoriteServerRetryAttempt = 0;
     }).catch((error) => {
+      this.favoriteServerReady = false;
       console.warn(
         "[trading-favorites] order sync failed",
         error instanceof Error ? error.message : String(error),
       );
+      this.scheduleFavoriteServerRetry("mutations");
     });
   }
 
@@ -6924,6 +7018,7 @@ class TradingExpertMarketWorkspace {
         return market ? [[marketId, market] as const] : [];
       }),
     );
+    this.favoriteLocalRevision += 1;
     this.saveFavoriteSymbols();
     this.syncFavoriteServerOrder(orderedMarketIds);
   }
@@ -7280,6 +7375,7 @@ class TradingExpertMarketWorkspace {
 
   private commitFavoriteMarketChanges(renderMarkets = true) {
     if (!this.favoriteSymbols.size) this.showFavoritesOnly = false;
+    this.favoriteLocalRevision += 1;
     this.saveFavoriteSymbols();
     if (renderMarkets) this.renderMarkets();
     this.renderFavoriteTickerBar();
@@ -8173,7 +8269,10 @@ class TradingExpertMarketWorkspace {
         this.selectedMarketMeta = selected;
         if (this.loadedProvider === "binance") this.loadedMarketMeta = selected;
       }
-      if (migratedFavorites) this.saveFavoriteSymbols();
+      if (migratedFavorites) {
+        this.favoriteLocalRevision += 1;
+        this.saveFavoriteSymbols();
+      }
       if (!this.disposed) {
         this.watchlistPanel.refresh();
         this.syncSplitPaneMarkets();
@@ -10209,7 +10308,8 @@ class TradingExpertMarketWorkspace {
       this.detachAlertSimulation();
       return;
     }
-    this.attachAlertSimulation({ focus: true });
+    if (this.alertSimulationSeries) this.focusAlertSimulationViewport(this.alertSimulationState);
+    else this.attachAlertSimulation({ focus: true });
   }
 
   private loadPersistedAlertSimulation() {
@@ -12368,7 +12468,6 @@ class TradingExpertMarketWorkspace {
     if (reconcileLivePrice) this.reconcileCurrentLivePrice();
     this.updateStatsUi();
     this.updateChartData({ resetViewport: true });
-    this.syncAlertSimulationForCurrentContext();
   }
 
   private currentMarketCandleCacheKey() {
@@ -12850,6 +12949,11 @@ class TradingExpertMarketWorkspace {
     );
     if (this.disposed || generation !== this.loadGeneration) return;
     if (!batch.candles.length || !tradingCandleSeriesMatchesResolution(batch.candles, this.activeInterval)) return;
+    // Decide after the request completes: the user may have navigated cached
+    // candles while waiting. Native setData preserves their time/price view,
+    // including logical-index shifts when missing history is prepended.
+    const hasRenderedContext = this.loadedMarketId === this.selectedMarketId
+      && this.loadedInterval === this.activeInterval && this.chartCandles.length > 0;
     // REST owns finalized history; ticks received while it was loading can
     // update only the forming bar, never replace the recovered history.
     const recovered = mergeTradingCandleBatches(batch, {
@@ -12864,7 +12968,7 @@ class TradingExpertMarketWorkspace {
     this.marketHistoryReady = true;
     this.reconcileCurrentLivePrice();
     this.updateStatsUi();
-    this.updateChartData({ resetViewport: true });
+    this.updateChartData({ resetViewport: !hasRenderedContext });
     this.scheduleCurrentMarketCandlePersistence();
   }
 
@@ -14443,14 +14547,7 @@ class TradingExpertMarketWorkspace {
       this.applyMarketPriceFormat(lastRaw.close);
       this.syncCurrentPriceLine(lastRaw);
       this.renderLatestOhlc();
-      if (this.alertSimulationState && this.alertSimulationSeries) {
-        // Live candle refreshes preserve the current viewport by default. A
-        // simulation focus request can still be pending in the chart's render
-        // queue at that moment, so restoring the captured pre-simulation range
-        // would repeatedly push the trigger off-screen. The simulation range
-        // is authoritative until its isolated overlay is cleared.
-        this.focusAlertSimulationViewport(this.alertSimulationState);
-      } else if (preservedLogicalRange) {
+      if (preservedLogicalRange) {
         this.chart.timeScale().setVisibleLogicalRange(preservedLogicalRange);
       }
     } finally {
@@ -14467,6 +14564,10 @@ class TradingExpertMarketWorkspace {
     } else {
       this.synchronizeVisibleChartGeometry();
     }
+    // All successful candle commits (including fallback recovery) restore the
+    // matching overlay. Focus last, after an initial viewport reset, so a
+    // recovered simulation's future trigger cannot be pushed off-screen.
+    this.syncAlertSimulationForCurrentContext();
     this.lastLiveChartFullRefreshAt = Date.now();
     this.updateCountdown();
     this.extremaOverlay?.schedule();
@@ -14902,6 +15003,10 @@ class TradingExpertMarketWorkspace {
     this.cancelScheduledLiveChartPaint();
     this.closeFavoriteTickerStreams();
     if (this.marketRateLimitRetryTimer !== null) window.clearTimeout(this.marketRateLimitRetryTimer);
+    if (this.favoriteServerRetryTimer !== null) {
+      window.clearTimeout(this.favoriteServerRetryTimer);
+      this.favoriteServerRetryTimer = null;
+    }
     if (this.countdownTimer !== null) window.clearInterval(this.countdownTimer);
     if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
     if (this.candlePollTimer !== null) window.clearInterval(this.candlePollTimer);
