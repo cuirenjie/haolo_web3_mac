@@ -7,13 +7,17 @@ const FIXED_DEFAULT_SERVICE_TIER_METHODS = new Set([
 ]);
 
 export const GPT_5_6_SOL_FAST_SERVICE_TIER = "priority";
+const FAST_SERVICE_TIER_MODEL_PREFIXES = Object.freeze([
+  "gpt-5.6-sol",
+  "gpt-6-sol",
+  "gpt-6-astra",
+]);
 
 export function fastestServiceTierForModel(model) {
   const normalized = String(model || "").trim().toLowerCase();
   const slug = normalized.split("/").at(-1) || normalized;
-  return slug === "gpt-5.6-sol" || slug.startsWith("gpt-5.6-sol-")
-    ? GPT_5_6_SOL_FAST_SERVICE_TIER
-    : null;
+  return FAST_SERVICE_TIER_MODEL_PREFIXES.some((prefix) => slug === prefix || slug.startsWith(`${prefix}-`))
+    ? GPT_5_6_SOL_FAST_SERVICE_TIER : null;
 }
 
 export function withFixedDefaultServiceTier(method, params = {}) {
@@ -21,9 +25,10 @@ export function withFixedDefaultServiceTier(method, params = {}) {
   const normalized = params && typeof params === "object" && !Array.isArray(params)
     ? { ...params }
     : {};
-  // The app-server protocol uses camelCase. GPT-5.6 Sol always opts in to
-  // OpenAI Fast mode; other explicitly selected models stay on the standard
-  // tier. Requests without a model inherit the thread's existing tier.
+  // The app-server protocol uses camelCase. All supported GPT execution
+  // models always opt in to OpenAI Fast mode; provider-specific models such
+  // as DeepSeek stay on their own transport. Requests without a model inherit
+  // the thread's existing tier.
   const legacyServiceTier = normalized.service_tier;
   delete normalized.service_tier;
   if (String(normalized.model || "").trim()) {

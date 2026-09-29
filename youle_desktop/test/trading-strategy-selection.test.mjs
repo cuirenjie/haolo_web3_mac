@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 import { deterministicStrategyRequestRouting } from "../src/main/trading-analysis/request-routing-policy.mjs";
-import { resolveExplicitTradingStrategyId } from "../src/main/trading-analysis/strategy-selection.mjs";
+import {
+  resolveExplicitTradingStrategyId,
+  resolveExplicitTradingStrategyIds,
+} from "../src/main/trading-analysis/strategy-selection.mjs";
 
 async function bundledAnalysisCatalog() {
   const root = new URL("../resources/trading-strategies/builtins/", import.meta.url);
@@ -69,4 +72,23 @@ test("negation, replacement, ambiguity, disabled entries, and Latin boundaries f
   assert.equal(resolveExplicitTradingStrategyId("使用停用策略分析", [
     { id: "disabled", enabled: false, display: { name: "停用策略" }, mentions: { canonical: "停用策略", aliases: [] } },
   ]), null);
+});
+
+test("explicit strategy mentions preserve input order and deduplicate aliases", async () => {
+  const catalog = await bundledAnalysisCatalog();
+  assert.deepEqual(
+    resolveExplicitTradingStrategyIds("@策略:裸K分析 @策略:威科夫 @策略:裸K", catalog),
+    ["price-action", "wyckoff"],
+  );
+  assert.deepEqual(
+    resolveExplicitTradingStrategyIds("按裸K分析当前盘面", catalog),
+    [],
+  );
+  assert.equal(
+    resolveExplicitTradingStrategyIds(
+      "@策略:裸K分析 @策略:威科夫 @策略:缠论 @策略:波浪理论",
+      catalog,
+    ).length,
+    4,
+  );
 });

@@ -177,6 +177,10 @@ test("runtime thread settings preserve old and private model names", () => {
     normalizeRuntimeThreadModelSettings({ model: "GPT-5.6-TERRA" })?.model,
     "gpt-5.6-terra",
   );
+  assert.equal(
+    normalizeRuntimeThreadModelSettings({ model: "gpt-5.6-sol", userSelected: true })?.userSelected,
+    true,
+  );
 });
 
 test("configured execution default overrides the legacy GPT fallback for new tasks", () => {

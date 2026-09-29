@@ -81,3 +81,47 @@ export function resolveExplicitTradingStrategyId(text, strategies = []) {
   if (candidates.length > 1 && candidates[0].score === candidates[1].score) return null;
   return candidates[0].strategyId;
 }
+
+function explicitStrategyMentionPosition(source, strategy) {
+  const names = [
+    strategy?.mentions?.canonical,
+    ...(Array.isArray(strategy?.mentions?.aliases) ? strategy.mentions.aliases : []),
+    strategy?.display?.name,
+  ].map((name) => String(name || "").trim()).filter(Boolean);
+  let position = Number.POSITIVE_INFINITY;
+  for (const name of names) {
+    const normalizedName = String(name)
+      .normalize("NFKC")
+      .toLocaleLowerCase("zh-CN")
+      .replace(/\s*\/\s*/gu, "/");
+    for (const prefix of ["@策略:", "@策略："]) {
+      const token = `${prefix}${normalizedName}`;
+      const index = source.indexOf(token);
+      if (index >= 0 && index < position) position = index;
+    }
+  }
+  return position;
+}
+
+/**
+ * Return distinct strategy mentions in the order in which their explicit
+ * @策略 tokens first appear. Natural-language strategy names are deliberately
+ * excluded; this helper is only for multi-strategy composer dispatch.
+ */
+export function resolveExplicitTradingStrategyIds(text, strategies = []) {
+  const source = String(text || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("zh-CN")
+    .replace(/\s*\/\s*/gu, "/")
+    .replace(/@策略\s*：\s*/gu, "@策略:");
+  return strategies
+    .map((strategy, catalogIndex) => ({
+      strategyId: String(strategy?.id || "").trim(),
+      enabled: strategy?.enabled !== false,
+      position: explicitStrategyMentionPosition(source, strategy),
+      catalogIndex,
+    }))
+    .filter((candidate) => candidate.strategyId && candidate.enabled && Number.isFinite(candidate.position))
+    .sort((left, right) => left.position - right.position || left.catalogIndex - right.catalogIndex)
+    .map((candidate) => candidate.strategyId);
+}

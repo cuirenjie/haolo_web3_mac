@@ -1756,6 +1756,7 @@ export async function runTradingWaveAnalysisPipeline(params, options = {}) {
     error.code = "TRADING_WAVE_INSUFFICIENT_DATA";
     throw error;
   }
+  options.onTheoryReady?.({ stage: "deterministic_theory", strategyId: "wave", snapshotId: snapshot.snapshotId, candleCount: snapshot.candles.length, evidenceCount: Array.isArray(theoryResult.evidence) ? theoryResult.evidence.length : 0 });
   if (!options.modelRegistry || typeof options.modelRegistry.analyze !== "function") {
     throw new TypeError("modelRegistry is required");
   }

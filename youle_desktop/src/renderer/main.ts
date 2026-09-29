@@ -122,6 +122,8 @@ import {
   tradingStrategyByDisplayName,
   tradingStrategyCatalog,
   tradingStrategyMentionedByText,
+  tradingStrategiesMentionedByText,
+  MAX_TRADING_STRATEGY_MENTIONS,
   tradingStrategyMentionOptions,
   type TradingStrategyCatalogItem,
   type TradingStrategyPublicManifest,
@@ -1789,12 +1791,14 @@ type DesktopApi = {
     hasCurrentAnalysis?: boolean;
     model?: string | null;
     reasoningEffort?: "max";
+    explicitModelSelection?: boolean;
   }): Promise<any>;
   classifyExternalTradingRequest?(params: {
     text: string;
     pendingContext?: string;
     model?: string | null;
     reasoningEffort?: "max";
+    explicitModelSelection?: boolean;
   }): Promise<any>;
   runTradingStrategyAnalysis?(params: {
     strategyId: string;
@@ -1802,6 +1806,7 @@ type DesktopApi = {
     modelId?: string | null;
     modelProvider?: string | null;
     reasoningEffort?: "max";
+    explicitModelSelection?: boolean;
     analysisJobId?: string;
     marketId: string;
     interval: string;
@@ -1964,6 +1969,7 @@ type DesktopApi = {
     hasCurrentAnalysis?: boolean;
     model?: string | null;
     reasoningEffort?: "max";
+    explicitModelSelection?: boolean;
   }): Promise<any>;
   recordTradingAnalysisFailure?(params: Record<string, unknown>): Promise<{ diagnosticId: string }>;
   runTradingGeneralAnalysis?(params: {
@@ -1971,6 +1977,7 @@ type DesktopApi = {
     modelId?: string | null;
     modelProvider?: string | null;
     reasoningEffort?: "max";
+    explicitModelSelection?: boolean;
     analysisJobId?: string;
     marketId: string;
     interval: string;
@@ -2278,6 +2285,7 @@ type DesktopApi = {
   onLocalArtifactsChanged?(callback: (payload: any) => void): () => void;
   onAutoTasksChanged?(callback: (payload: any) => void): () => void;
   onTradingAlertsChanged?(callback: (payload: any) => void): () => void;
+  onTradingStrategyProgress?(callback: (payload: { analysisJobId?: string; strategyId?: string; stage?: string; status?: string; durationMs?: number; snapshotId?: string; candleCount?: number; evidenceCount?: number }) => void): () => void;
   onTradingAlertIntentProgress?(callback: (payload: { threadId?: string | null; kind?: string | null; delta?: string | null }) => void): () => void;
   onTradingAlertTriggered?(callback: (payload: { threadId?: string | null; alertId?: string | null; evidenceId?: string | null; title?: string | null; summary?: string | null; marketId?: string | null; interval?: string | null; triggeredAt?: number | null }) => void): () => void;
   onTradingAlertOpen?(callback: (payload: { alertId?: string | null; evidenceId?: string | null; marketId?: string | null; interval?: string | null; triggeredAt?: number | null }) => void): () => void;
@@ -4646,6 +4654,7 @@ const TRADING_EXPERT_WORKSPACE_SESSION_ALIASES_KEY = "haolo.trading-market.works
 const tradingExpertThinkingStateByThreadId = new Map<string, TradingExpertThinkingState>();
 const tradingStrategyAnalysisTargetByRequest = new WeakMap<object, TradingAnalysisTaskTarget>();
 const tradingExpertAnalysisJobIdsByThreadId = new Map<string, Set<string>>();
+const tradingExpertAnalysisThreadByJobId = new Map<string, string>();
 const tradingExpertAnalysisThreadAliases = new Map<string, string>();
 type TradingAlertConversationState = {
   draftId: string;
@@ -6993,6 +7002,29 @@ function wireDesktopEvents() {
   api.onTradingAlertsChanged?.((payload) => {
     applyTradingAlertsSnapshot(state.tradingAlerts, payload);
     if (state.activeView === "alerts") scheduleRender({ protectComposer: true });
+  });
+  api.onTradingStrategyProgress?.((payload) => {
+    const analysisJobId = firstString(payload?.analysisJobId);
+    const sourceThreadId = analysisJobId ? tradingExpertAnalysisThreadByJobId.get(analysisJobId) : "";
+    const threadId = sourceThreadId ? resolveTradingExpertAnalysisThreadId(sourceThreadId) : "";
+    if (!analysisJobId || !threadId || !tradingExpertAnalysisJobIdsByThreadId.get(threadId)?.has(analysisJobId)) return;
+    const stage = firstString(payload?.stage);
+    // Terminal stage timing is followed by the runner's final report.
+    if (payload?.status === "completed" && (stage === "model" || stage === "analysis_pipeline")) return;
+    const language = state.settings.language;
+    const message = stage === "deterministic_theory"
+      ? `${translateAppText("确定性结构已完成", language)} (${Number(payload?.candleCount) || 0} ${translateAppText("根 K 线", language)}).`
+      : stage === "account_snapshot"
+        ? payload?.status === "completed"
+          ? `${translateAppText("账户只读快照已准备完成", language)}; ${translateAppText("正在合并执行计划", language)}.`
+          : `${translateAppText("账户只读快照暂不可用", language)}; ${translateAppText("继续使用无账户上下文分析", language)}.`
+        : stage === "model" || stage === "analysis_pipeline"
+          ? `${translateAppText("正在整理结果", language)}.`
+          : `${translateAppText("分析阶段已完成", language)}; ${translateAppText("正在整理结果", language)}.`;
+    updateTradingExpertThinkingState(threadId, "analyzing", message);
+    // Timing notifications are transient. Only the runner owns transcript
+    // progress; otherwise unmatched local stages move behind restored results.
+    refreshTradingExpertConversationSurface(threadId);
   });
   api.onTradingAlertIntentProgress?.((payload) => {
     if (payload?.kind !== "reasoning_summary_delta") return;
@@ -11773,6 +11805,7 @@ async function runExternalTradingStrategyAnalysis(
     return await runTradingExpertStrategyConversation(route.strategyId, {
       analysisId,
       model: selectedChatModelValue(threadId),
+      explicitModelSelection: threadModelSelection(threadId)?.userSelected === true,
       reasoningEffort: "max",
       instruction,
       symbol: route.symbol,
@@ -15684,7 +15717,11 @@ async function refreshCachedThreadAfterSelection(
   // thread/resume, activates the server thread, or rebuilds an identical UI.
   // sendMessage resumes the selected thread immediately before turn/start.
   if (options.renderBeforeRead !== false) render();
-  if (hasFreshThreadDetailCache(threadId)) {
+  // Trading expert history is backed by a local transcript index and rollout.
+  // Always refresh that surface when it is selected so a cache containing only
+  // an intermediate progress item cannot hide the durable final report/card.
+  const forceTradingExpertTranscriptRefresh = isTradingExpertSurfaceThreadId(threadId);
+  if (hasFreshThreadDetailCache(threadId) && !forceTradingExpertTranscriptRefresh) {
     if (!shouldDelayBackgroundHydration()) {
       scheduleMissingAssistantPreviewHydration();
       scheduleRecentThreadDetailPrefetch();
@@ -16954,6 +16991,15 @@ function shouldPreserveExistingThreadItem(item: CodexItem, incomingIds: Set<stri
   if (id && incomingIds.has(id)) {
     return shouldPreserveLocalHistoryAheadItem(item, incomingItems, options);
   }
+  // Older builds retained unpersisted timing events after the durable report.
+  // Once that report is present, retire those events instead of appending them
+  // as a new commentary-only turn after all restored history.
+  if (id?.startsWith("trading-stage-")
+    && !(options.threadId && activeTradingExpertAnalysisJobIds(options.threadId).length)
+    && incomingItems.some((incoming: any) => (
+    incoming.__haoloTradingTranscript === true
+    && agentMessagePhase(incoming) === "final_answer"
+  ))) return false;
   if (id && isExternalChannelBridgeUserMessageId(id) && isUserSideThreadItem(item)) {
     return Boolean(options.preserveUnmatched);
   }
@@ -17673,6 +17719,9 @@ function shouldReplaceThreadTitleFromHydration(thread: ConversationSummary, assi
 }
 
 function assistantPreviewFromThreadRecord(threadId: string, thread: any) {
+  if (thread?.__haoloTradingTranscript === true && firstString(thread.preview)) {
+    return firstPreviewSentence(thread.preview);
+  }
   const candidates = [
     thread?.lastAssistantMessage,
     thread?.last_assistant_message,
@@ -27268,9 +27317,21 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   const tradingExpertRoutingText = isTradingExpertExecutionThreadId(threadId)
     ? canonicalizeTradingExpertMentionText(text)
     : text;
+  const tradingStrategiesAtSend = isTradingExpertExecutionThreadId(threadId)
+    ? tradingStrategiesMentionedByText(tradingExpertRoutingText)
+    : [];
+  if (tradingStrategiesAtSend.length > MAX_TRADING_STRATEGY_MENTIONS) {
+    showToast(translateAppText("最多同时选择3个不同策略。", state.settings.language), 3600);
+    return;
+  }
   const tradingStrategyAtSend = isTradingExpertExecutionThreadId(threadId)
-    ? tradingStrategyMentionedByText(tradingExpertRoutingText)
+    ? tradingStrategiesAtSend[0] || tradingStrategyMentionedByText(tradingExpertRoutingText)
     : null;
+  const tradingStrategiesToRunAtSend = tradingStrategiesAtSend.length
+    ? tradingStrategiesAtSend
+    : tradingStrategyAtSend
+      ? [tradingStrategyAtSend]
+      : [];
   const personalStrategyConversationAtSend = isTradingExpertExecutionThreadId(threadId)
     ? personalStrategyConversationStateForThread(threadId)
     : null;
@@ -27312,6 +27373,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     await refreshTradingAlerts();
   }
   let tradingStrategyRequestAtSend: TradingStrategyRequest | null = null;
+  const tradingStrategyRequestsAtSend: TradingStrategyRequest[] = [];
   let tradingGeneralRequestAtSend: TradingGeneralRequest | null = null;
   if (
     !state.serverReady
@@ -27369,21 +27431,28 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         render();
       }
     }
-    if (tradingStrategyAtSend) {
+    if (tradingStrategiesToRunAtSend.length) {
       updateTradingExpertThinkingState(
         originalThreadId,
         "classifying",
-        tradingStrategyAtSend.ui.classificationMessage,
+        tradingStrategiesToRunAtSend.length === 1
+          ? tradingStrategiesToRunAtSend[0].ui.classificationMessage
+          : `正在按顺序准备 ${tradingStrategiesToRunAtSend.length} 个策略分析。`,
       );
       refreshTradingExpertConversationSurface(originalThreadId);
-      tradingStrategyRequestAtSend = await classifyTradingStrategyForSend(
-        api,
-        tradingStrategyAtSend,
-        tradingExpertRoutingText,
-        snapshotAttachments.some(isImageAttachment),
-        hasTradingExpertCurrentAnalysis(tradingStrategyAtSend.id),
-        selectedChatModelValue(threadId),
-      );
+      for (const strategy of tradingStrategiesToRunAtSend) {
+        tradingStrategyRequestAtSend = await classifyTradingStrategyForSend(
+          api,
+          strategy,
+          tradingExpertRoutingText,
+          snapshotAttachments.some(isImageAttachment),
+          hasTradingExpertCurrentAnalysis(strategy.id),
+          selectedChatModelValue(threadId),
+          threadModelSelection(threadId)?.userSelected === true,
+        );
+        tradingStrategyRequestsAtSend.push(tradingStrategyRequestAtSend);
+      }
+      tradingStrategyRequestAtSend = tradingStrategyRequestsAtSend[0] || null;
       clearTradingExpertThinkingState(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
     } else if (tradingGeneralCandidateAtSend) {
@@ -27398,12 +27467,13 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         snapshotAttachments.some(isImageAttachment),
         hasTradingExpertCurrentAnalysis(),
         selectedChatModelValue(threadId),
+        threadModelSelection(threadId)?.userSelected === true,
       );
       clearTradingExpertThinkingState(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
     }
     if (
-      tradingStrategyRequestAtSend?.mode !== "chart-analysis"
+      !tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")
       && !personalStrategyCandidateAtSend
       && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
@@ -27508,7 +27578,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     }
 
     const requiresPremiumTradingAccess = Boolean(
-      tradingStrategyRequestAtSend?.mode === "chart-analysis"
+      tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")
       || personalStrategyCandidateAtSend
       || tradingAlertCandidateAtSend
       || tradingGeneralRequestAtSend?.mode === "chart-analysis",
@@ -27622,7 +27692,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       tradingGeneralRequestAtSend,
     );
     if (
-      tradingStrategyRequestAtSend?.mode !== "chart-analysis"
+      !tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")
       && !personalStrategyCandidateAtSend
       && !tradingAlertCandidateAtSend
       && tradingGeneralRequestAtSend?.mode !== "chart-analysis"
@@ -27692,7 +27762,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     }
     state.error = null;
     const isTradingChartAnalysisSend = Boolean(
-      tradingStrategyRequestAtSend?.mode === "chart-analysis"
+      tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")
       || personalStrategyCandidateAtSend
       || tradingAlertCandidateAtSend
       || tradingGeneralRequestAtSend?.mode === "chart-analysis",
@@ -27735,17 +27805,35 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
       }
     }
     if (tradingStrategyAtSend && tradingStrategyRequestAtSend?.mode === "chart-analysis") {
-      if (tradingAnalysisTargetAtSend) {
-        tradingStrategyAnalysisTargetByRequest.set(
-          tradingStrategyRequestAtSend,
-          tradingAnalysisTargetAtSend,
-        );
+      if (tradingStrategiesToRunAtSend.length === 1) {
+        if (tradingAnalysisTargetAtSend) {
+          tradingStrategyAnalysisTargetByRequest.set(
+            tradingStrategyRequestAtSend,
+            tradingAnalysisTargetAtSend,
+          );
+        }
+        localHistoryAheadThreadIds.add(threadId);
+        if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
+        clearTradingExpertComposerAfterSend(threadId);
+        refreshTradingExpertConversationSurface(threadId);
+        await runTradingStrategyChartRequest(threadId, tradingStrategyAtSend, tradingStrategyRequestAtSend);
+        return;
       }
-      localHistoryAheadThreadIds.add(threadId);
-      if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
-      clearTradingExpertComposerAfterSend(threadId);
-      refreshTradingExpertConversationSurface(threadId);
-      await runTradingStrategyChartRequest(threadId, tradingStrategyAtSend, tradingStrategyRequestAtSend);
+    }
+    if (tradingStrategiesToRunAtSend.length > 1 && tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")) {
+      for (let index = 0; index < tradingStrategiesToRunAtSend.length; index += 1) {
+        const strategy = tradingStrategiesToRunAtSend[index];
+        const request = tradingStrategyRequestsAtSend[index];
+        if (!request || request.mode !== "chart-analysis") continue;
+        if (tradingAnalysisTargetAtSend) {
+          tradingStrategyAnalysisTargetByRequest.set(request, tradingAnalysisTargetAtSend);
+        }
+        localHistoryAheadThreadIds.add(threadId);
+        if (pendingSend) clearPendingComposerSend(threadId, pendingSend.itemId);
+        clearTradingExpertComposerAfterSend(threadId);
+        refreshTradingExpertConversationSurface(threadId);
+        await runTradingStrategyChartRequest(threadId, strategy, request);
+      }
       return;
     }
     if (personalStrategyCandidateAtSend) {
@@ -29662,7 +29750,10 @@ function adoptReplacementCodexThread(previousThreadId: string, replacementThread
   const activeTradingJobs = tradingExpertAnalysisJobIdsByThreadId.get(previousThreadId);
   if (activeTradingJobs?.size) {
     const nextTradingJobs = tradingExpertAnalysisJobIdsByThreadId.get(nextThreadId) || new Set<string>();
-    activeTradingJobs.forEach((analysisId) => nextTradingJobs.add(analysisId));
+    activeTradingJobs.forEach((analysisId) => {
+      nextTradingJobs.add(analysisId);
+      tradingExpertAnalysisThreadByJobId.set(analysisId, nextThreadId);
+    });
     tradingExpertAnalysisJobIdsByThreadId.set(nextThreadId, nextTradingJobs);
     tradingExpertAnalysisJobIdsByThreadId.delete(previousThreadId);
   }
@@ -29857,6 +29948,9 @@ async function sendAgentText(
         selectedChatModelReasoningEffortsForRequest(activeThreadId),
       ...imageGenerationModelRequestParams(activeThreadId),
       ...videoGenerationModelRequestParams(activeThreadId),
+      ...(threadModelSelection(activeThreadId)?.userSelected === true
+        ? { explicitModelSelection: true }
+        : {}),
       sourceType:
         newThreadModeForThread(activeThreadId) === "video-generation"
           ? "video"
@@ -30512,11 +30606,13 @@ function beginTradingExpertAnalysisJob(threadId: string, theory: string) {
   const jobs = tradingExpertAnalysisJobIdsByThreadId.get(resolvedThreadId) || new Set<string>();
   jobs.add(analysisId);
   tradingExpertAnalysisJobIdsByThreadId.set(resolvedThreadId, jobs);
+  tradingExpertAnalysisThreadByJobId.set(analysisId, resolvedThreadId);
   return analysisId;
 }
 
 function finishTradingExpertAnalysisJob(threadId: string, analysisId: string) {
   const resolvedThreadId = resolveTradingExpertAnalysisThreadId(threadId);
+  tradingExpertAnalysisThreadByJobId.delete(analysisId);
   const jobs = tradingExpertAnalysisJobIdsByThreadId.get(resolvedThreadId);
   if (!jobs) return;
   jobs.delete(analysisId);
@@ -31884,6 +31980,7 @@ async function runTradingGeneralChartRequest(
       analysisId,
       analysisTarget,
       model: selectedChatModelValue(threadId),
+      explicitModelSelection: threadModelSelection(threadId)?.userSelected === true,
       reasoningEffort: "max",
       instruction: request.instruction,
       symbol: request.symbol,
@@ -31973,6 +32070,7 @@ async function runTradingStrategyChartRequest(
       analysisId,
       analysisTarget,
       model: selectedChatModelValue(threadId),
+      explicitModelSelection: threadModelSelection(threadId)?.userSelected === true,
       reasoningEffort: "max",
       instruction: request.instruction,
       symbol: request.symbol,
@@ -32030,6 +32128,7 @@ async function runTradingStrategyChartRequest(
           analysisId,
           analysisTarget,
           model: selectedChatModelValue(threadId),
+          explicitModelSelection: threadModelSelection(threadId)?.userSelected === true,
           reasoningEffort: "max",
           instruction: request.instruction,
           symbol: request.symbol,
@@ -34217,14 +34316,21 @@ function bindComposerSkillMentionItemEvents(container: ParentNode) {
   container
     .querySelectorAll<HTMLButtonElement>("[data-trading-expert-mention-option]")
     .forEach((button) => {
-      button.addEventListener("click", (event) => {
+      const selectTradingExpertMention = (event: Event) => {
+        // Commit before the option steals focus from the composer. The blur
+        // can flush a pending render while the cascade menu is closing, which
+        // would otherwise remove this button before its click event arrives.
+        if (!state.composerSkillMention.open) return;
         event.preventDefault();
         event.stopPropagation();
         applyTradingExpertMention(
           button.dataset.tradingExpertMentionGroup || "",
           button.dataset.tradingExpertMentionOption || "",
         );
-      });
+      };
+      button.addEventListener("pointerdown", selectTradingExpertMention);
+      // Keyboard activation dispatches click without a preceding pointerdown.
+      button.addEventListener("click", selectTradingExpertMention);
     });
   container.querySelectorAll<HTMLButtonElement>("[data-prompt-favorite-index]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -35149,6 +35255,7 @@ async function classifyTradingGeneralRequestForSend(
   hasImageAttachment: boolean,
   hasCurrentAnalysis = false,
   model?: string | null,
+  explicitModelSelection = false,
 ): Promise<TradingGeneralRequest> {
   // Legacy source contract retained for downstream integrations while the
   // structured model context is rolled out: drawingRequested: chartAnalysis && !explicitNoDrawingRequested(fallback.instruction)
@@ -35164,6 +35271,7 @@ async function classifyTradingGeneralRequestForSend(
       hasCurrentAnalysis,
       model,
       reasoningEffort: "max",
+      explicitModelSelection,
     });
     const request = result?.ok === true ? result.request : null;
     if (!request || (request.mode !== "conversation" && request.mode !== "chart-analysis")) {
@@ -54188,20 +54296,33 @@ function threadModelSelection(threadId: string | null | undefined): ThreadModelS
   return selection;
 }
 
+function explicitModelSelectionForThread(threadId: string | null | undefined) {
+  const selectedSettings = threadModelSelection(threadId);
+  if (selectedSettings?.userSelected === true) return true;
+  // New-thread creation asks for settings with a null id. Preserve an
+  // explicit choice made on the active blank thread (or the current thread's
+  // global composer choice) across that IPC boundary.
+  return !threadId && threadModelSelection(state.currentThreadId)?.userSelected === true;
+}
+
 function rememberThreadModelSelection(
   threadId: string | null | undefined,
   value: unknown,
-  options: { persist?: boolean } = {},
+  options: { persist?: boolean; userSelected?: boolean } = {},
 ) {
   const id = firstString(threadId);
-  const settings = normalizeThreadModelSettings(value);
+  const normalized = normalizeThreadModelSettings(value);
+  const settings = normalized && options.userSelected === true
+    ? { ...normalized, userSelected: true }
+    : normalized;
   if (!id || !settings) return false;
   const previous = threadModelSelectionsByThreadId[id];
   const changed =
     (previous?.modelProvider ?? null) !== (settings.modelProvider ?? null) ||
     previous?.model !== settings.model ||
     (previous?.reasoningEffort ?? null) !== (settings.reasoningEffort ?? null) ||
-    (previous?.serviceTier ?? null) !== (settings.serviceTier ?? null);
+    (previous?.serviceTier ?? null) !== (settings.serviceTier ?? null) ||
+    previous?.userSelected !== settings.userSelected;
   threadModelSelectionsByThreadId[id] = settings;
   if (changed) {
     const modelContextWindow = effectiveContextWindowForModel(settings.model);
@@ -54786,7 +54907,10 @@ function selectedChatModelOption(threadId: string | null | undefined = currentCo
   const knownSettings = threadModelSettings(threadId);
   let effectiveModel = canonicalDeepSeekModel(selectedSettings?.model || knownSettings?.model);
   if (isRetiredExecutionModel(effectiveModel)) effectiveModel = DEFAULT_CHAT_MODEL_VALUE;
-  if (isBlankNewThread(threadId) || isLocalBlankThreadId(threadId)) {
+  if (
+    (isBlankNewThread(threadId) || isLocalBlankThreadId(threadId)) &&
+    !explicitModelSelectionForThread(threadId)
+  ) {
     effectiveModel = analysisModelPolicySelection(analysisModelRecoveryState, effectiveModel || state.settings.model).modelId;
   }
   const effectiveModelProvider = effectiveModel === DEEPSEEK_EXECUTION_MODEL_VALUE ? DEEPSEEK_EXECUTION_PROVIDER_ID
@@ -54971,12 +55095,16 @@ function tradingExpertSelectedModelRequestOptions(
   const selectedSettings = threadModelSelection(threadId);
   const knownSettings = threadModelSettings(threadId);
   const selected = selectedChatModelOption(threadId);
-  const model = analysisModelPolicySelection(analysisModelRecoveryState, firstString(
+  const requestedModel = firstString(
     selectedSettings?.model,
     knownSettings?.model,
     selected.value,
     TRADING_EXPERT_DEFAULT_MODEL_VALUE,
-  ) || TRADING_EXPERT_DEFAULT_MODEL_VALUE).modelId;
+  ) || TRADING_EXPERT_DEFAULT_MODEL_VALUE;
+  const explicitModelSelection = explicitModelSelectionForThread(threadId);
+  const model = explicitModelSelection
+    ? requestedModel
+    : analysisModelPolicySelection(analysisModelRecoveryState, requestedModel).modelId;
   const selectedModelProvider = executionModelProviderId(
     selectedSettings?.modelProvider,
     knownSettings?.modelProvider,
@@ -54992,6 +55120,7 @@ function tradingExpertSelectedModelRequestOptions(
     reasoningEffort: tradingExpertReasoningEffort(model),
     reasoningEffortPolicy: "fixed",
     serviceTier: null,
+    ...(explicitModelSelection ? { explicitModelSelection: true } : {}),
   };
 }
 
@@ -55025,16 +55154,23 @@ function selectedChatModelRequestOptions(
   const deepSeek =
     modelProvider === DEEPSEEK_EXECUTION_PROVIDER_ID ||
     selected.value.toLowerCase() === DEEPSEEK_EXECUTION_MODEL_VALUE;
-  return withAnalysisModelRecoveryPolicy({
+  const request = {
     modelProvider: deepSeek ? DEEPSEEK_EXECUTION_PROVIDER_ID : modelProvider,
     model: isQuestionAnswerThreadId(threadId)
       ? selected.value
       : selectedSettings?.model || knownSettings?.model || selected.value,
     // Ordinary execution effort is selected per turn by Haolo's task
     // difficulty policy in the main process, never by a saved user setting.
-    // Billing safety policy: Haolo never requests the priority/Fast tier.
+    // The main-process request boundary applies Fast mode for supported GPT models.
     serviceTier: null,
-  }, analysisModelRecoveryState, Date.now(), { conversationMode });
+    ...(explicitModelSelectionForThread(threadId) ? { explicitModelSelection: true } : {}),
+  };
+  return withAnalysisModelRecoveryPolicy(
+    request,
+    explicitModelSelectionForThread(threadId) ? null : analysisModelRecoveryState,
+    Date.now(),
+    { conversationMode },
+  );
 }
 
 function selectedChatModelReasoningEffortsForRequest(
@@ -55248,11 +55384,13 @@ function selectChatModelForThread(threadId: string | null | undefined, selected:
     model: selected.value,
     reasoningEffort: reasoningEffort || null,
     serviceTier: null,
+    userSelected: true,
   };
 
   if (id && isTradingExpertThreadId(id)) {
     rememberThreadModelSelection(id, desiredSettings, {
       persist: !isBlankNewThread(id) && !isLocalBlankThreadId(id),
+      userSelected: true,
     });
     state.composerModelMenuOpen = false;
     render();
@@ -55261,7 +55399,7 @@ function selectChatModelForThread(threadId: string | null | undefined, selected:
   }
 
   if (id && providerFromThreadId(id)) {
-    rememberThreadModelSelection(id, desiredSettings);
+    rememberThreadModelSelection(id, desiredSettings, { userSelected: true });
     if (selectedProvider) upsertProviderThread(selectedProvider, id);
     state.composerModelMenuOpen = false;
     if (modelChanged) dismissedComposerModelAuroraThreadIds.delete(id);
@@ -55273,7 +55411,7 @@ function selectChatModelForThread(threadId: string | null | undefined, selected:
   if (!id || isBlankNewThread(id) || isLocalBlankThreadId(id)) {
     state.settings.model = selected.value;
     state.settings.modelProvider = modelProvider;
-    if (id) rememberThreadModelSelection(id, desiredSettings, { persist: false });
+    if (id) rememberThreadModelSelection(id, desiredSettings, { persist: false, userSelected: true });
     persistSelectedChatModel();
     if (id && modelChanged) dismissedComposerModelAuroraThreadIds.delete(id);
     render();
@@ -74826,7 +74964,8 @@ function withCollapsedTurnResults(threadId: string, messages: Message[]) {
   for (const [groupIndex, group] of groups.entries()) {
     if (!isTurnResultGroupComplete(threadId, group.turnKey, groupIndex === groups.length - 1)) continue;
     const finalIndex = group.outputIndexes[group.outputIndexes.length - 1];
-    const collapsedIndexes = turnResultProcessIndexes(messages, finalIndex);
+    const collapsedIndexes = turnResultProcessIndexes(messages, finalIndex)
+      .filter((index) => group.processStartIndex == null || index >= group.processStartIndex);
     if (!collapsedIndexes.length) continue;
     const key = turnResultStateKey(threadId, group.turnKey);
     const expanded = state.resultProcessExpanded[key] === true;
@@ -74834,7 +74973,13 @@ function withCollapsedTurnResults(threadId: string, messages: Message[]) {
       ...decorated[finalIndex],
       turnResult: {
         key,
-        elapsedLabel: turnResultElapsedLabel(threadId, group.turnKey, group.outputIndexes, messages),
+        elapsedLabel: turnResultElapsedLabel(
+          threadId,
+          group.turnKey,
+          group.outputIndexes,
+          messages,
+          group.processStartIndex,
+        ),
         status: turnResultDisplayStatus(threadId, group.turnKey, group.outputIndexes, messages),
         expanded,
         collapsedCount: collapsedIndexes.length,
@@ -74877,20 +75022,39 @@ function isTurnResultGroupComplete(threadId: string, turnKey: string, isLatestGr
 }
 
 function turnResultGroups(threadId: string, messages: Message[]) {
-  const groups = new Map<string, { turnKey: string; outputIndexes: number[] }>();
+  const groups = new Map<string, { turnKey: string; outputIndexes: number[]; processStartIndex?: number }>();
   let fallbackTurnIndex = 0;
+  let fallbackSegment = 0;
+  let fallbackProcessStartIndex = 0;
   messages.forEach((message, index) => {
     if (isRenderedUserSideMessage(message)) {
       fallbackTurnIndex += 1;
+      fallbackSegment = 0;
+      fallbackProcessStartIndex = index + 1;
       return;
     }
     if (!isTurnResultOutputMessage(threadId, message)) return;
     const item = state.items[threadId]?.[message.id];
     const turnId = itemTurnId(item);
-    const turnKey = turnId ? `turn:${turnId}` : `after-user:${fallbackTurnIndex}`;
-    const group = groups.get(turnKey) || { turnKey, outputIndexes: [] };
+    const turnKey = turnId
+      ? `turn:${turnId}`
+      : fallbackSegment
+        ? `after-user:${fallbackTurnIndex}:segment:${fallbackSegment}`
+        : `after-user:${fallbackTurnIndex}`;
+    const group = groups.get(turnKey) || {
+      turnKey,
+      outputIndexes: [],
+      ...(turnId ? {} : { processStartIndex: fallbackProcessStartIndex }),
+    };
     group.outputIndexes.push(index);
     groups.set(turnKey, group);
+    // Trading Expert runs append a commentary stream and a final report
+    // without inserting another user message. Start the next fallback group
+    // after each final report so its fold cannot hide the previous strategy.
+    if (!turnId && agentMessagePhase(item) === "final_answer") {
+      fallbackSegment += 1;
+      fallbackProcessStartIndex = index + 1;
+    }
   });
   return [...groups.values()];
 }
@@ -74990,6 +75154,14 @@ function turnResultDisplayStatus(threadId: string, turnKey: string, indexes: num
   // A terminal transport event does not turn progress commentary into a
   // deliverable. Keep the group pending until a final answer is present.
   if (phases.length && !phases.includes("final_answer")) return "pending";
+  // Synthetic turns restored from the durable trading transcript carry their
+  // completed state on every item. Treat that state as authoritative even if
+  // a stale consumption record still says the old transport turn is pending.
+  if (items.some((item: any) => (
+    item.__haoloTradingTranscript === true
+    && normalizedTurnResultStatus(item.__youleTurnStatus) === "completed"
+    && agentMessagePhase(item) === "final_answer"
+  ))) return "handled";
   const consumptionStatus = cachedConsumptionStatusForTurn(threadId, turnId);
   if (consumptionStatus) return consumptionStatus === "pending" ? "pending" : "handled";
   if (turnId && interruptedCodexTurnIds.has(turnId)) return "pending";
@@ -75003,13 +75175,21 @@ function turnResultDisplayStatus(threadId: string, turnKey: string, indexes: num
   return "handled";
 }
 
-function turnResultElapsedLabel(threadId: string, turnKey: string, indexes: number[], messages: Message[]) {
+function turnResultElapsedLabel(
+  threadId: string,
+  turnKey: string,
+  indexes: number[],
+  messages: Message[],
+  processStartIndex?: number,
+) {
   const turnId = turnIdFromResultKey(turnKey);
   const timing = turnId ? turnTiming(threadId, turnId) : null;
   const elapsedIndexes = new Set(indexes);
   const finalIndex = indexes.length ? Math.max(...indexes) : -1;
   if (finalIndex >= 0) {
-    turnResultProcessIndexes(messages, finalIndex).forEach((index) => elapsedIndexes.add(index));
+    turnResultProcessIndexes(messages, finalIndex)
+      .filter((index) => processStartIndex == null || index >= processStartIndex)
+      .forEach((index) => elapsedIndexes.add(index));
   }
   const items = [...elapsedIndexes]
     .map((index) => state.items[threadId]?.[messages[index]?.id])

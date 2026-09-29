@@ -26,7 +26,10 @@ import {
   normalizeTradingRoutingText,
   type TradingQuestionKind,
 } from "../../main/trading-analysis/request-routing-policy.mjs";
-import { resolveExplicitTradingStrategyId } from "../../main/trading-analysis/strategy-selection.mjs";
+import {
+  resolveExplicitTradingStrategyId,
+  resolveExplicitTradingStrategyIds,
+} from "../../main/trading-analysis/strategy-selection.mjs";
 
 export interface TradingStrategyRequest {
   mode: "conversation" | "chart-analysis";
@@ -93,6 +96,8 @@ export interface TradingStrategyConversationResult {
   tradeCount?: number;
   modelName: string;
 }
+
+export const MAX_TRADING_STRATEGY_MENTIONS = 3;
 
 export interface TradingStrategyCatalogItem extends TradingStrategyPublicManifest {
   mentionTokens: readonly string[];
@@ -295,6 +300,23 @@ export function tradingStrategyMentionedByText(text: string) {
     : null;
 }
 
+export function tradingStrategiesMentionedByText(text: string) {
+  const ids = resolveExplicitTradingStrategyIds(text, analysisCatalog);
+  return ids
+    .map((strategyId) => analysisCatalog.find((strategy) => strategy.id === strategyId && strategy.enabled !== false) || null)
+    .filter((strategy): strategy is TradingStrategyCatalogItem => Boolean(strategy));
+}
+
+function stripAllTradingStrategyMentionTokens(text: string) {
+  let source = normalizeTradingCatalogText(text);
+  for (const item of analysisCatalog) {
+    for (const token of [...item.mentionTokens].sort((left, right) => right.length - left.length)) {
+      source = source.split(normalizeTradingCatalogText(token)).join("");
+    }
+  }
+  return normalizeTradingCatalogText(source);
+}
+
 export function tradingStrategyMentionOptions() {
   return tradingStrategyCatalog().map((strategy) => strategy.display.name);
 }
@@ -308,7 +330,13 @@ export function normalizeTradingStrategyRequest(
   text: string,
   candidate: unknown,
 ): TradingStrategyRequest {
-  const fallback = deterministicStrategyRequestRouting(text, strategy) as TradingStrategyRequest;
+  // Multiple explicit strategy tokens are one composer command. Remove all
+  // of them before deterministic intent parsing so a bare “@A @B” still
+  // becomes chart analysis for each selected strategy.
+  const fallback = deterministicStrategyRequestRouting(
+    stripAllTradingStrategyMentionTokens(text),
+    strategy,
+  ) as TradingStrategyRequest;
   if (!candidate || typeof candidate !== "object") return fallback;
   const request = candidate as Partial<TradingStrategyRequest>;
   // Re-extract literal targets independently from the fallback mode. The

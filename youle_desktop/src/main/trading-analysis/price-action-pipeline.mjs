@@ -443,6 +443,7 @@ export function buildPriceActionDrawingPatch(snapshot, result, review) {
 export async function runTradingPriceActionAnalysisPipeline(params, options = {}) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runPriceActionEngine(snapshot);
+  options.onTheoryReady?.({ stage: "deterministic_theory", strategyId: "price-action", snapshotId: snapshot.snapshotId, candleCount: snapshot.candles.length, evidenceCount: Array.isArray(theoryResult.evidence) ? theoryResult.evidence.length : 0 });
   if (!options.modelRegistry || typeof options.modelRegistry.analyze !== "function") {
     throw new TypeError("modelRegistry is required");
   }

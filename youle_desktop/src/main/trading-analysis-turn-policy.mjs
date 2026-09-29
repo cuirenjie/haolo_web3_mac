@@ -1,16 +1,14 @@
 import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT } from "./analysis-model-recovery.mjs";
+import { TRADING_PRIMARY_MODEL_BUDGET_MS, TRADING_BACKUP_MODEL_BUDGET_MS } from "./trading-analysis/model-budget.mjs";
 
 const ROUTING_TIMEOUT_MS = 30_000;
 const ALERT_INTENT_IDLE_TIMEOUT_MS = 180_000;
-// Theory review is an interactive analysis request. Keep this as a wall-clock
-// budget: active reasoning must not extend the user's wait indefinitely.
-const THEORY_REVIEW_TIMEOUT_MS = 180_000;
 
 const THEORY_REVIEW_EFFORTS = new Set(["medium", "high", "max"]);
 
 export function tradingAnalysisTurnPolicy(taskValue, options = {}) {
   const task = String(taskValue || "");
-  if (task.endsWith("-request-routing")) {
+  if (task.endsWith("-request-routing") || task === "trading-turn-intent-routing") {
     return Object.freeze({
       kind: "request_routing",
       reasoningEffort: "low",
@@ -37,12 +35,10 @@ export function tradingAnalysisTurnPolicy(taskValue, options = {}) {
       ? ANALYSIS_RECOVERY_EFFORT
       : THEORY_REVIEW_EFFORTS.has(requestedReasoningEffort)
       ? requestedReasoningEffort
-      : requestedReasoningEffort
-        ? "medium"
-        : "high",
-    timeoutMs: THEORY_REVIEW_TIMEOUT_MS,
+      : "medium",
+    timeoutMs: options.modelId === ANALYSIS_RECOVERY_MODEL
+      ? TRADING_BACKUP_MODEL_BUDGET_MS : TRADING_PRIMARY_MODEL_BUDGET_MS,
     resetTimeoutOnActivity: false,
-    // One bounded attempt per model; the provider owns finite model failover.
     timeoutRetryable: true,
     maxAttempts: 1,
   });

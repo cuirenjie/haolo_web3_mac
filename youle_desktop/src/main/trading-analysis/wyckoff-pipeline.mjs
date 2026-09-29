@@ -500,6 +500,7 @@ export async function runTradingWyckoffAnalysisPipeline(params, options = {}) {
     error.code = "TRADING_WYCKOFF_INSUFFICIENT_DATA";
     throw error;
   }
+  options.onTheoryReady?.({ stage: "deterministic_theory", strategyId: "wyckoff", snapshotId: snapshot.snapshotId, candleCount: snapshot.candles.length, evidenceCount: Array.isArray(theoryResult.evidence) ? theoryResult.evidence.length : 0 });
   if (!options.modelRegistry || typeof options.modelRegistry.analyze !== "function") {
     throw new TypeError("modelRegistry is required");
   }

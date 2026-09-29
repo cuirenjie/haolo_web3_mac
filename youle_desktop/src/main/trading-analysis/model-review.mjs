@@ -1,7 +1,91 @@
+import crypto from "node:crypto";
+import { createTradingModelBudget } from "./model-budget.mjs";
+
 const REVIEW_EFFORTS = Object.freeze(["medium", "high", "max"]);
 const DEFAULT_AMBIGUITY_SCORE_GAP = 0.06;
 const MAX_PREVIOUS_RESPONSE_CHARS = 6_000;
 const MAX_VALIDATION_ERROR_CHARS = 600;
+const REVIEW_CACHE_TTL_MS = 30_000;
+const REVIEW_CACHE_MAX_ENTRIES = 64;
+const REVIEW_CACHE = new Map();
+const MODEL_REGISTRY_IDS = new WeakMap();
+let nextModelRegistryId = 1;
+
+function modelRegistryId(modelRegistry) {
+  let id = MODEL_REGISTRY_IDS.get(modelRegistry);
+  if (!id) {
+    id = String(nextModelRegistryId++);
+    MODEL_REGISTRY_IDS.set(modelRegistry, id);
+  }
+  return id;
+}
+
+function reviewCacheKey({ modelRegistry, providerId, request, ambiguityOptions, theoryResult }) {
+  return crypto.createHash("sha256").update(JSON.stringify({
+    registry: modelRegistryId(modelRegistry),
+    providerId: String(providerId || ""),
+    models: typeof modelRegistry?.list === "function"
+      ? modelRegistry.list().map((entry) => ({ providerId: entry?.providerId, modelId: entry?.modelId }))
+      : null,
+    task: String(request?.task || ""),
+    theoryId: String(request?.theoryId || ""),
+    snapshotId: String(request?.snapshotId || ""),
+    responseMode: String(request?.responseMode || ""),
+    reasoningEffort: String(request?.reasoningEffort || ""),
+    ambiguityOptions,
+    theoryResult,
+    prompt: String(request?.prompt || ""),
+  })).digest("hex");
+}
+
+function hydrateReview(result, request, validateResponse, cacheHit = false) {
+  return Object.freeze({
+    ...result,
+    ...(cacheHit ? { cacheHit: true } : {}),
+    // Validate cached text against this caller's current deterministic facts.
+    review: cacheHit ? validateResponse(result.modelResponse.text) : result.review,
+    modelResponse: Object.freeze({
+      ...result.modelResponse,
+      requestId: request?.requestId || result.modelResponse?.requestId,
+      latencyMs: cacheHit ? 0 : result.modelResponse.latencyMs,
+    }),
+  });
+}
+
+function pruneReviewCache() {
+  const completed = [...REVIEW_CACHE.entries()].filter(([, entry]) => entry.settled);
+  for (const [key, entry] of completed) {
+    if (Date.now() - entry.completedAt > REVIEW_CACHE_TTL_MS || REVIEW_CACHE.size > REVIEW_CACHE_MAX_ENTRIES) {
+      REVIEW_CACHE.delete(key);
+    }
+  }
+}
+
+function reviewAbortError(signal) {
+  return signal?.reason || new DOMException("Analysis cancelled", "AbortError");
+}
+
+function subscribeReview(key, entry, signal) {
+  entry.subscribers += 1;
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const finish = (callback, value) => {
+      if (finished) return;
+      finished = true;
+      signal?.removeEventListener("abort", abort);
+      entry.subscribers -= 1;
+      if (!entry.settled && entry.subscribers === 0) {
+        if (REVIEW_CACHE.get(key) === entry) REVIEW_CACHE.delete(key);
+        entry.controller.abort(reviewAbortError(signal));
+      }
+      callback(value);
+    };
+    const abort = () => finish(reject, reviewAbortError(signal));
+    signal?.addEventListener("abort", abort, { once: true });
+    entry.promise.then((result) => finish(resolve, result), (error) => finish(reject, error));
+    if (signal?.aborted) abort();
+  });
+}
 
 function finiteScore(candidate) {
   const score = Number(candidate?.score);
@@ -88,7 +172,7 @@ export function tradingReviewAmbiguity(theoryResult, options = {}) {
   });
 }
 
-export async function runValidatedTradingModelReview({
+async function runValidatedTradingModelReviewInternal({
   modelRegistry,
   providerId,
   request,
@@ -96,6 +180,7 @@ export async function runValidatedTradingModelReview({
   validateResponse,
   theoryResult,
   ambiguityOptions,
+  modelBudget = createTradingModelBudget(),
 }) {
   if (!modelRegistry || typeof modelRegistry.analyze !== "function") {
     throw new TypeError("modelRegistry is required");
@@ -134,6 +219,7 @@ export async function runValidatedTradingModelReview({
         signal,
         reasoningEffort: effort,
         recoveryModel,
+        modelBudget,
       });
     } catch (error) {
       // An empty successful turn is invalid model output, just like malformed
@@ -208,4 +294,39 @@ export async function runValidatedTradingModelReview({
   error.requestId = currentRequest.requestId;
   error.attempts = Object.freeze(attempts);
   throw error;
+}
+
+export async function runValidatedTradingModelReview(args = {}) {
+  const { modelRegistry, request, signal, validateResponse } = args;
+  if (!modelRegistry || typeof modelRegistry.analyze !== "function") {
+    throw new TypeError("modelRegistry is required");
+  }
+  if (typeof validateResponse !== "function") throw new TypeError("validateResponse is required");
+  if (signal?.aborted) throw reviewAbortError(signal);
+  pruneReviewCache();
+  const key = reviewCacheKey(args);
+  const existing = REVIEW_CACHE.get(key);
+  if (existing && !existing.controller.signal.aborted) {
+    return hydrateReview(await subscribeReview(key, existing, signal), request, validateResponse, true);
+  }
+  const entry = { controller: new AbortController(), subscribers: 0, settled: false, completedAt: 0, promise: null };
+  entry.promise = Promise.resolve().then(() => runValidatedTradingModelReviewInternal({
+    ...args, signal: entry.controller.signal,
+    modelBudget: args.modelBudget || createTradingModelBudget(),
+  })).then((result) => {
+    entry.settled = true;
+    entry.completedAt = Date.now();
+    pruneReviewCache();
+    return result;
+  }, (error) => {
+    entry.settled = true;
+    if (REVIEW_CACHE.get(key) === entry) REVIEW_CACHE.delete(key);
+    throw error;
+  });
+  REVIEW_CACHE.set(key, entry);
+  return hydrateReview(await subscribeReview(key, entry, signal), request, validateResponse);
+}
+
+export function clearTradingModelReviewCache() {
+  REVIEW_CACHE.clear();
 }

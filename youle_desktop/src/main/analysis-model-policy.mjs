@@ -55,6 +55,10 @@ export function withAnalysisModelRecoveryPolicy(params, state, now = Date.now(),
     if (model.toLowerCase().startsWith("gpt-") && String(params.modelProvider || params.model_provider || "").toLowerCase() === ANALYSIS_RECOVERY_PROVIDER) return restoreGptSelection(params, model);
     return params;
   }
+  // A user choosing a model in the composer is an explicit override of the
+  // temporary automatic-recovery window. Keep the marker on the params object
+  // so the renderer and host request boundary make the same decision.
+  if (params.explicitModelSelection === true) return params;
   const selection = analysisModelPolicySelection(state, params.model, now);
   if (selection.fallback) return {
     ...params, model: selection.modelId, modelProvider: ANALYSIS_RECOVERY_PROVIDER,

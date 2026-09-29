@@ -399,6 +399,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   onAutomationOpenThread: (callback) => on("automation:openThread", callback),
   onAutomationThreadNotification: (callback) => on("automation:threadNotification", callback),
   onTradingAlertsChanged: (callback) => on("tradingAlerts:changed", callback),
+  onTradingStrategyProgress: (callback) => on("tradingStrategy:progress", callback),
   onTradingAlertIntentProgress: (callback) => on("tradingAlerts:intentProgress", callback),
   onTradingAlertTriggered: (callback) => on("tradingAlerts:triggered", callback),
   onTradingAlertOpen: (callback) => on("tradingAlerts:open", callback),

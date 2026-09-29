@@ -27,6 +27,10 @@ function tradingAlertTitleFromPreview(value) {
   return firstLine.startsWith(marker) ? firstLine.slice(marker.length).trim().slice(0, 200) : "";
 }
 
+function isTransientTradingTranscriptPreview(value) {
+  return /正在整理结果|正在分析|正在读取|正在绘制|正在准备|正在合并|finalizing|analyzing|reading|drawing|preparing|merging/iu.test(firstString(value));
+}
+
 function normalizedTradingTranscriptTitle(value, preview = "") {
   const title = firstString(value)
     .replace(/[\u0000-\u001f]/gu, " ")
@@ -299,7 +303,7 @@ function markerFromThreadItem(item) {
   return null;
 }
 
-function visibleThreadItem(item, transcriptItem) {
+function visibleThreadItem(item, transcriptItem, transcriptTurnStatus = "") {
   const contentType = transcriptItem.role === "user" ? "input_text" : "output_text";
   return {
     ...item,
@@ -317,6 +321,7 @@ function visibleThreadItem(item, transcriptItem) {
     ...(transcriptItem.executionPlanPresentation
       ? { __youleExecutionPlanPresentation: transcriptItem.executionPlanPresentation }
       : {}),
+    ...(transcriptTurnStatus ? { __youleTurnStatus: transcriptTurnStatus } : {}),
     __haoloTradingTranscript: true,
   };
 }
@@ -343,12 +348,13 @@ function syntheticTranscriptTurn(items) {
   const completedAt = terminalItems.length
     ? transcriptGroupTimestamp(items, ["completedAt"], completedFallback, Math.max)
     : null;
+  const turnStatus = terminalItems.length ? "completed" : "inProgress";
   return {
     id: `haolo-trading-transcript-turn-${userItem?.id || firstItem.id}`,
-    status: terminalItems.length ? "completed" : "inProgress",
+    status: turnStatus,
     startedAt,
     completedAt,
-    items: items.map((item) => visibleThreadItem({}, item)),
+    items: items.map((item) => visibleThreadItem({}, item, turnStatus)),
     __haoloTradingTranscript: true,
   };
 }
@@ -611,6 +617,7 @@ export function indexedTradingTranscriptThreads(codexHome, cwd) {
       hasUserEvent: true,
       has_user_event: true,
       turns: [],
+      __haoloTradingTranscript: true,
     }));
 }
 
@@ -628,8 +635,31 @@ export function mergeIndexedTradingTranscriptThreads(result, indexedThreads) {
       const indexed = indexedById.get(threadId);
       const serverTitle = firstString(thread?.name, thread?.title);
       const normalizedServerTitle = normalizedTradingTranscriptTitle(serverTitle);
-      if (!indexed?.name || (normalizedServerTitle && normalizedServerTitle !== DEFAULT_TRADING_TRANSCRIPT_TITLE)) return thread;
-      return { ...thread, name: indexed.name };
+      if (!indexed) return thread;
+      const mergedThread = { ...thread, __haoloTradingTranscript: true };
+      const serverUpdatedAt = Date.parse(firstString(
+        thread?.updatedAt,
+        thread?.updated_at,
+        thread?.last_message_at,
+      ));
+      const indexedUpdatedAt = Date.parse(firstString(indexed.updatedAt, indexed.updated_at));
+      const indexedIsCurrent = !Number.isFinite(serverUpdatedAt)
+        || (Number.isFinite(indexedUpdatedAt) && indexedUpdatedAt >= serverUpdatedAt);
+      const serverPreviewIsTransient = isTransientTradingTranscriptPreview(thread?.preview);
+      if (indexed.name && (!normalizedServerTitle || normalizedServerTitle === DEFAULT_TRADING_TRANSCRIPT_TITLE)) {
+        mergedThread.name = indexed.name;
+      }
+      // The local transcript index is updated after the final report is persisted.
+      // Prefer its preview so a stale app-server summary such as "正在整理结果"
+      // cannot make a completed historical analysis look unfinished.
+      const shouldUseIndexedPreview = Boolean(indexed.preview && (serverPreviewIsTransient || indexedIsCurrent));
+      if (shouldUseIndexedPreview) mergedThread.preview = indexed.preview;
+      if (shouldUseIndexedPreview && indexed.updatedAt) {
+        mergedThread.updatedAt = indexed.updatedAt;
+        mergedThread.updated_at = indexed.updatedAt;
+        mergedThread.last_message_at = indexed.updatedAt;
+      }
+      return mergedThread;
     }),
     ...(Array.isArray(indexedThreads) ? indexedThreads : []).filter((thread) => !serverIds.has(thread.id)),
   ].sort((left, right) => {

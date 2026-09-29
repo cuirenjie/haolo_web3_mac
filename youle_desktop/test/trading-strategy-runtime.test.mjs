@@ -1040,7 +1040,7 @@ test("every strategy request uses model-first intent routing with deterministic 
   assert.equal(exactIncident.request.interval, "15");
   assert.equal(exactIncident.request.drawingRequested, true);
   assert.equal(exactIncident.request.instruction, "分析SNDK 15min这个盘面并绘图，生成交易策略");
-  assert.equal(exactIncident.classification.source, "model-first-unified-intent");
+  assert.equal(exactIncident.classification.source, "deterministic-explicit-strategy");
 
   const conceptualMention = await coordinator.classify("ict-smc", {
     text: "@策略:ICT/SMC 什么是 FVG",
@@ -1109,7 +1109,32 @@ test("every strategy request uses model-first intent routing with deterministic 
   assert.equal(explicitNoDrawing.request.symbol, "BTCUSDT");
   assert.equal(explicitNoDrawing.request.interval, "60");
   assert.equal(explicitNoDrawing.request.drawingRequested, false);
-  assert.equal(modelCalls, enabledStrategies.length * 2 + 6);
+  assert.equal(modelCalls, 1);
+});
+
+test("multiple explicit strategy mentions remain chart-routable for each selected strategy", async () => {
+  const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
+  let modelCalls = 0;
+  const coordinator = new TradingStrategyCoordinator({
+    registry,
+    providerId: "intent-provider",
+    modelRegistry: {
+      async analyze() {
+        modelCalls += 1;
+        throw new Error("explicit multi-strategy mentions should use deterministic routing");
+      },
+    },
+  });
+  for (const strategyId of ["price-action", "wyckoff"]) {
+    const classified = await coordinator.classify(strategyId, {
+      text: `@策略:裸K分析 @策略:威科夫`,
+      hasCurrentAnalysis: false,
+    });
+    assert.equal(classified.request.mode, "chart-analysis", strategyId);
+    assert.equal(classified.request.instruction, "", strategyId);
+    assert.equal(classified.classification.source, "deterministic-explicit-strategy", strategyId);
+  }
+  assert.equal(modelCalls, 0);
 });
 
 test("model position-management intent survives strategy routing before chart execution", async () => {
@@ -1166,7 +1191,7 @@ test("strategy intent routing remains available when the model or JSON response 
   assert.equal(routed.request.symbol, null);
   assert.equal(routed.request.interval, null);
   assert.equal(routed.request.forecastHorizonMs, 3_600_000);
-  assert.equal(routed.classification.source, "deterministic-recovery");
+  assert.equal(routed.classification.source, "deterministic-explicit-strategy");
 
   const periodOnly = await coordinator.classify("chan", {
     text: "@策略:缠论 分析4小时",
@@ -1175,7 +1200,7 @@ test("strategy intent routing remains available when the model or JSON response 
   assert.equal(periodOnly.request.symbol, null);
   assert.equal(periodOnly.request.interval, "240");
   assert.equal(periodOnly.request.forecastHorizonMs, null);
-  assert.equal(periodOnly.classification.source, "deterministic-recovery");
+  assert.equal(periodOnly.classification.source, "deterministic-explicit-strategy");
 });
 
 const declarativeManifest = Object.freeze({

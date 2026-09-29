@@ -11597,6 +11597,7 @@ html[data-theme="dark"] .message-actions .message-trading-alert-link:active {
   /* Reserve the footer occupied by the absolutely positioned composer controls. */
   padding: 11px 15px 46px;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  -webkit-app-region: no-drag;
 }
 
 .composer-workflow-port {
@@ -12080,6 +12081,7 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   position: relative;
   width: 100%;
   height: 100px;
+  -webkit-app-region: no-drag;
 }
 
 .composer-input-wrap.workflow-main-input-disabled {
@@ -12200,6 +12202,9 @@ html[data-theme="dark"] .composer-model-aurora[data-model-brand="grok"] img {
   background: transparent;
   color: var(--text-primary);
   caret-color: var(--text-primary);
+  /* Keep the pointer visible over the transparent editor layer on Windows. */
+  cursor: default;
+  -webkit-app-region: no-drag;
 }
 
 .composer textarea::placeholder {

@@ -51,7 +51,7 @@ function checkCancelled(signal) {
 
 // Only for isolated, read-only model calls. The same request/snapshot remains
 // owned by the caller; no data refresh, drawing or tool effects are replayed.
-export async function runWithAnalysisModelRecovery({ operation, modelId, modelProvider, reasoningEffort, signal, onRecovery, wait = waitForModelTransportRecovery }) {
+export async function runWithAnalysisModelRecovery({ operation, modelId, modelProvider, reasoningEffort, signal, onRecovery, maxFallbackAttempts = ANALYSIS_RECOVERY_ATTEMPTS, wait = waitForModelTransportRecovery }) {
   let fallbackAttempts = modelId === ANALYSIS_RECOVERY_MODEL && reasoningEffort === ANALYSIS_RECOVERY_EFFORT ? 1 : 0;
   let selection = { modelId, reasoningEffort, ...(modelProvider ? { modelProvider } : {}), ...(fallbackAttempts ? { modelProvider: ANALYSIS_RECOVERY_PROVIDER } : {}) };
   for (;;) {
@@ -63,7 +63,7 @@ export async function runWithAnalysisModelRecovery({ operation, modelId, modelPr
     } catch (error) {
       checkCancelled(signal);
       const recoverable = isRecoverableAnalysisModelFailure(error);
-      if (!recoverable || fallbackAttempts >= ANALYSIS_RECOVERY_ATTEMPTS) {
+      if (!recoverable || fallbackAttempts >= maxFallbackAttempts) {
         if (fallbackAttempts && error && typeof error === "object" && Object.isExtensible(error)) {
           error.modelId = selection.modelId;
           error.reasoningEffort = selection.reasoningEffort;
@@ -71,12 +71,13 @@ export async function runWithAnalysisModelRecovery({ operation, modelId, modelPr
         }
         throw error;
       }
-      const delayMs = fallbackAttempts ? 4_000 : 1_500;
+      const deadlineExceeded = /TRADING_ANALYSIS_MODEL_TIMEOUT|WORKFLOW_TURN_TIMEOUT/.test(String(error?.code || ""));
+      const delayMs = deadlineExceeded ? 0 : fallbackAttempts ? 4_000 : 1_500;
       const failedModelId = selection.modelId;
       fallbackAttempts += 1;
       selection = { modelId: ANALYSIS_RECOVERY_MODEL, modelProvider: ANALYSIS_RECOVERY_PROVIDER, reasoningEffort: ANALYSIS_RECOVERY_EFFORT };
-      try { onRecovery?.({ ...selection, failedModelId, attempt: fallbackAttempts, delayMs }); } catch { /* Observer cannot break recovery. */ }
-      await wait(delayMs, signal);
+      try { onRecovery?.({ ...selection, failedModelId, attempt: fallbackAttempts, delayMs, deadlineExceeded }); } catch { /* Observer cannot break recovery. */ }
+      if (delayMs) await wait(delayMs, signal);
     }
   }
 }

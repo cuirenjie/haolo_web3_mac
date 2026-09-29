@@ -17,6 +17,23 @@ function boundedText(value, max = 12_000) {
   return String(value || "").replace(/\u0000/g, "").slice(0, max);
 }
 
+function stripInstalledStrategyMentions(value, registry) {
+  let source = normalizeTradingRoutingText(value);
+  for (const strategy of registry.list({ includeDisabled: true })) {
+    const names = [
+      strategy?.display?.name,
+      strategy?.mentions?.canonical,
+      ...(Array.isArray(strategy?.mentions?.aliases) ? strategy.mentions.aliases : []),
+    ].map((name) => String(name || "").trim()).filter(Boolean);
+    for (const name of names) {
+      source = source
+        .split(`@策略:${normalizeTradingRoutingText(name)}`).join("")
+        .split(`@策略：${normalizeTradingRoutingText(name)}`).join("");
+    }
+  }
+  return normalizeTradingRoutingText(source);
+}
+
 function stripLegacyExecutionPlanSection(value) {
   const lines = String(value || "").replace(/\r\n?/g, "\n").split("\n");
   const output = [];
@@ -81,11 +98,31 @@ export class TradingStrategyCoordinator {
       error.code = "TRADING_STRATEGY_IMPLEMENTATION_UNAVAILABLE";
       throw error;
     }
-    // Every strategy mention reaches the same model intent router first. The
-    // deterministic policy is evaluated only after a valid model response to
-    // bind literal targets, or inside the recovery branch when the model is
-    // unavailable or returns invalid JSON.
     const instruction = normalizeTradingRoutingText(boundedText(params?.text));
+    const rawInstruction = boundedText(params?.text);
+    if (signal?.aborted) throw signal.reason || new DOMException("Analysis cancelled", "AbortError");
+    // Once the user has explicitly asked for a chart analysis and the
+    // renderer has already resolved the strategy, the deterministic parser
+    // has all routing information needed by the strategy pipeline. Avoid a
+    // second semantic model turn for this hot path. Conceptual questions and
+    // image-assisted requests still use model routing below.
+    const hasExplicitStrategyMention = [
+      strategy.manifest?.mentions?.canonical,
+      ...(Array.isArray(strategy.manifest?.mentions?.aliases) ? strategy.manifest.mentions.aliases : []),
+    ].filter(Boolean).some((name) => rawInstruction.includes(`@策略:${name}`) || rawInstruction.includes(`@策略：${name}`));
+    const explicitRequest = deterministicStrategyRequestRouting(
+      hasExplicitStrategyMention ? stripInstalledStrategyMentions(rawInstruction, this.#registry) : instruction,
+      strategy.manifest,
+    );
+    if (hasExplicitStrategyMention && !params?.hasImageAttachment && explicitRequest.mode === "chart-analysis") {
+      return Object.freeze({
+        ok: true, strategyId: strategy.manifest.id, request: explicitRequest,
+        classification: Object.freeze({ schemaVersion: 1, mode: "chart-analysis",
+          intent: explicitRequest.drawingRequested ? "chart-drawing" : "chart-analysis",
+          confidence: 1, source: "deterministic-explicit-strategy" }),
+        model: null,
+      });
+    }
     try {
       const modelResponse = await (modelRegistry || this.#modelRegistry).analyze(providerId || this.#providerId, {
         schemaVersion: 1,
@@ -99,7 +136,7 @@ export class TradingStrategyCoordinator {
           hasCurrentAnalysis: params?.hasCurrentAnalysis === true,
         }),
         responseFormat: "json",
-      }, { signal, reasoningEffort: "max" });
+      }, { signal, reasoningEffort: "low" });
       const routed = normalizeGeneralRequestRoutingModelResponse(
         modelResponse.text,
         instruction,
@@ -174,7 +211,7 @@ export class TradingStrategyCoordinator {
     }
   }
 
-  async run(strategyId, params = {}, { signal, modelRegistry, providerId } = {}) {
+  async run(strategyId, params = {}, { signal, modelRegistry, providerId, onStageTiming, onTheoryReady } = {}) {
     const strategy = this.#registry.require(strategyId);
     const adapter = this.#registry.adapter(strategyId);
     if (!adapter) {
@@ -187,22 +224,41 @@ export class TradingStrategyCoordinator {
       loadBinanceAccountContext,
       ...analysisParams
     } = params;
-    const legacyResult = await adapter.run(analysisParams, {
-      modelRegistry: modelRegistry || personalRiskModelRegistry(this.#modelRegistry, analysisParams),
-      executionPlanManaged: true,
-      providerId: providerId || this.#providerId,
-      signal,
-    });
-    const legacyAnalysisPlan = legacyResult.analysisPlan || {};
     const exposesExecutionPlan = strategy.manifest.capabilities.includes("execution-plan");
-    let binanceAccountContext = providedBinanceAccountContext;
-    if (exposesExecutionPlan && !personalRiskUnavailable(params) && typeof loadBinanceAccountContext === "function") {
-      try {
-        binanceAccountContext = await loadBinanceAccountContext();
-      } catch {
-        binanceAccountContext = { bound: true, available: false, snapshot: null };
-      }
+    const accountSnapshotPromise = exposesExecutionPlan
+      && !personalRiskUnavailable(params)
+      && typeof loadBinanceAccountContext === "function"
+      ? Promise.resolve().then(() => {
+        const startedAt = Date.now();
+        return Promise.resolve().then(loadBinanceAccountContext).then((context) => {
+          onStageTiming?.({ stage: "account_snapshot", status: "completed", durationMs: Date.now() - startedAt });
+          return context;
+        }).catch((error) => {
+          onStageTiming?.({ stage: "account_snapshot", status: "failed", durationMs: Date.now() - startedAt });
+          return { bound: true, available: false, snapshot: null, errorCode: String(error?.code || "ACCOUNT_SNAPSHOT_UNAVAILABLE") };
+        });
+      })
+      : null;
+    const analysisStartedAt = Date.now();
+    let legacyResult;
+    let analysisStatus = "completed";
+    try {
+      legacyResult = await adapter.run(analysisParams, {
+        modelRegistry: modelRegistry || personalRiskModelRegistry(this.#modelRegistry, analysisParams),
+        executionPlanManaged: true,
+        providerId: providerId || this.#providerId,
+        signal,
+        onTheoryReady,
+      });
+    } catch (error) {
+      analysisStatus = "failed";
+      throw error;
+    } finally {
+      onStageTiming?.({ stage: "analysis_pipeline", status: analysisStatus, durationMs: Date.now() - analysisStartedAt });
     }
+    const legacyAnalysisPlan = legacyResult.analysisPlan || {};
+    let binanceAccountContext = providedBinanceAccountContext;
+    if (accountSnapshotPromise) binanceAccountContext = await accountSnapshotPromise;
     const executionPlan = buildExecutionPlanV1(strategy.manifest, legacyResult, {
       ...analysisParams,
       binanceAccountContext,
