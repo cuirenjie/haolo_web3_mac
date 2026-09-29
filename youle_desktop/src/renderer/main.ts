@@ -489,6 +489,11 @@ import {
 import {
   modelMembershipAccess,
 } from "../main/model-membership-policy.mjs";
+import {
+  displayModelAliasForSelection,
+  isGpt6SolDisplayModel,
+  migrateGpt6SolSelection,
+} from "../main/gpt6-sol-alias-policy.mjs";
 import { formatProfileBalancePoints } from "./profile-balance";
 import {
   canRetainRechargePaymentOrder,
@@ -3560,6 +3565,7 @@ type ChatModelRequestOptions = {
   reasoningEffort?: string;
   reasoningEffortPolicy?: "fixed";
   serviceTier: null;
+  modelDisplayAlias?: string;
 };
 
 type ThreadPreferences = {
@@ -20066,6 +20072,7 @@ async function resumeThreadForSelectionWithRolloutRetry(params: any, stillOwnsSe
 function threadParams(threadId?: string | null, options: { groupId?: string | null } = {}) {
   const groupId = groupIdForThreadContext(threadId, options.groupId);
   const existingThread = Boolean(threadId && !isLocalBlankThreadId(threadId) && !isBlankNewThread(threadId));
+  const modelOptions = selectedChatModelRequestOptions(threadId);
   return {
     cwd: threadWorkspaceCwd(threadId, options),
     conversationMode: codexConversationModeForThread(threadId),
@@ -20074,6 +20081,9 @@ function threadParams(threadId?: string | null, options: { groupId?: string | nu
     // Resume existing threads without a model override so the root response
     // reveals the server's actual setting. New threads still use the default.
     ...(!existingThread ? selectedChatModelRequestOptions(threadId) : {}),
+    ...(existingThread && modelOptions.modelDisplayAlias
+      ? { modelDisplayAlias: modelOptions.modelDisplayAlias }
+      : {}),
     approvalPolicy: DESKTOP_APPROVAL_POLICY,
     sandbox: DESKTOP_SANDBOX_POLICY,
     threadGroupContext: threadGroupAgentContext(groupId),
@@ -23024,12 +23034,18 @@ function markThreadContextWindowExhausted(threadId: string, turnId?: string | nu
   context.usageTurnId = firstString(turnId) || context.usageTurnId;
 }
 
-function formatTurnFailureMessage(reason: string | null | undefined, recovery?: Record<string, unknown> | null) {
+function formatTurnFailureMessage(
+  reason: string | null | undefined,
+  recovery?: Record<string, unknown> | null,
+  displayModelName = "GPT-6 Astra",
+) {
   if (recovery?.status === "exhausted") {
     if (String(recovery.modelId || "").startsWith("gpt-")) {
       return "媒体任务自动恢复仍未完成。任务记录已保留，请稍后重试。";
     }
-    return "已尝试 GPT-6 Astra 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。";
+    return displayModelName === "GPT-6 Astra"
+      ? "已尝试 GPT-6 Astra 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。"
+      : `已尝试 ${displayModelName} 最高推理模式，自动恢复仍未完成。任务记录已保留，请稍后重试。`;
   }
   if (isContextWindowExhaustedError(reason)) {
     return "当前会话的上下文已满，自动整理与恢复未能完成。请重试；若仍失败，请拆分消息或新建任务。";
@@ -23072,6 +23088,12 @@ function automaticTurnRecoveryIsQueued(meta: Record<string, unknown> | null | un
   return status === "scheduled" || status === "cooling_down";
 }
 
+function automaticTurnRecoveryDisplayModelName(threadId: string) {
+  return isGpt6SolDisplayModel(selectedChatModelValue(threadId))
+    ? "GPT-6-Sol"
+    : "GPT-6 Astra";
+}
+
 function announceAutomaticTurnRecovery(
   threadId: string,
   meta: Record<string, unknown> | null | undefined,
@@ -23090,21 +23112,26 @@ function announceAutomaticTurnRecovery(
   if (automaticTurnRecoveryNoticeKeys.has(noticeKey)) return;
   automaticTurnRecoveryNoticeKeys.add(noticeKey);
   const mediaRecovery = String(meta?.modelId || "").startsWith("gpt-");
+  const displayModelName = automaticTurnRecoveryDisplayModelName(threadId);
   if (noticeKind === "exhausted") {
-    appendAgentNotice(threadId, formatTurnFailureMessage(null, meta));
+    appendAgentNotice(threadId, formatTurnFailureMessage(null, meta, displayModelName));
   } else if (noticeKind === "cooling_down") {
     appendAgentNotice(
       threadId,
       mediaRecovery
         ? "媒体任务模型暂时不可用，稍后将使用原 GPT 模型继续当前任务。"
-        : "备用模型暂时不可用，稍后将再次使用 GPT-6 Astra 最高推理模式继续当前任务。",
+        : displayModelName === "GPT-6 Astra"
+          ? "备用模型暂时不可用，稍后将再次使用 GPT-6 Astra 最高推理模式继续当前任务。"
+          : `备用模型暂时不可用，稍后将再次使用 ${displayModelName} 最高推理模式继续当前任务。`,
     );
   } else {
     appendAgentNotice(
       threadId,
       mediaRecovery
         ? "媒体任务执行异常，正在使用原 GPT 模型继续处理。"
-        : "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式继续处理。接下来 1 小时的新任务也会使用该模型。",
+        : displayModelName === "GPT-6 Astra"
+          ? "模型执行异常，正在切换到 GPT-6 Astra 最高推理模式继续处理。接下来 1 小时的新任务也会使用该模型。"
+          : `模型执行异常，正在切换到 ${displayModelName} 最高推理模式继续处理。接下来 1 小时的新任务也会使用该模型。`,
     );
   }
 }
@@ -55102,9 +55129,11 @@ function tradingExpertSelectedModelRequestOptions(
     TRADING_EXPERT_DEFAULT_MODEL_VALUE,
   ) || TRADING_EXPERT_DEFAULT_MODEL_VALUE;
   const explicitModelSelection = explicitModelSelectionForThread(threadId);
+  const runtimeSelection = migrateGpt6SolSelection({ model: requestedModel });
+  const runtimeRequestedModel = firstString(runtimeSelection.model) || requestedModel;
   const model = explicitModelSelection
-    ? requestedModel
-    : analysisModelPolicySelection(analysisModelRecoveryState, requestedModel).modelId;
+    ? runtimeRequestedModel
+    : analysisModelPolicySelection(analysisModelRecoveryState, runtimeRequestedModel).modelId;
   const selectedModelProvider = executionModelProviderId(
     selectedSettings?.modelProvider,
     knownSettings?.modelProvider,
@@ -55120,6 +55149,7 @@ function tradingExpertSelectedModelRequestOptions(
     reasoningEffort: tradingExpertReasoningEffort(model),
     reasoningEffortPolicy: "fixed",
     serviceTier: null,
+    ...(displayModelAliasForSelection(requestedModel) ? { modelDisplayAlias: displayModelAliasForSelection(requestedModel) } : {}),
     ...(explicitModelSelection ? { explicitModelSelection: true } : {}),
   };
 }
@@ -55154,7 +55184,7 @@ function selectedChatModelRequestOptions(
   const deepSeek =
     modelProvider === DEEPSEEK_EXECUTION_PROVIDER_ID ||
     selected.value.toLowerCase() === DEEPSEEK_EXECUTION_MODEL_VALUE;
-  const request = {
+  const request: ChatModelRequestOptions = {
     modelProvider: deepSeek ? DEEPSEEK_EXECUTION_PROVIDER_ID : modelProvider,
     model: isQuestionAnswerThreadId(threadId)
       ? selected.value
@@ -55165,8 +55195,12 @@ function selectedChatModelRequestOptions(
     serviceTier: null,
     ...(explicitModelSelectionForThread(threadId) ? { explicitModelSelection: true } : {}),
   };
+  if (isGpt6SolDisplayModel(selected.value)) {
+    request.model = selected.value;
+    request.modelDisplayAlias = displayModelAliasForSelection(selected.value);
+  }
   return withAnalysisModelRecoveryPolicy(
-    request,
+    migrateGpt6SolSelection(request),
     explicitModelSelectionForThread(threadId) ? null : analysisModelRecoveryState,
     Date.now(),
     { conversationMode },

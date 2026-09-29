@@ -45,6 +45,9 @@ export function buildSubagentConsumptionRecord(parentRecord = {}, child = {}) {
     startedAt: child.startedAt || child.started_at,
     endedAt: child.endedAt || child.ended_at,
     answer: child.answer,
+    ...(Array.isArray(parentRecord.models) && parentRecord.models.length
+      ? { models: [...parentRecord.models] }
+      : {}),
   };
 }
 

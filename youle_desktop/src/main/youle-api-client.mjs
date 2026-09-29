@@ -2006,6 +2006,7 @@ export class YouleApiClient {
         question: params.question,
         answer: params.answer,
         append_question: params.appendQuestion ?? params.append_question,
+        models: Array.isArray(params.models) ? params.models : undefined,
         status: params.status || "running",
         started_at: params.startedAt || params.started_at,
         ended_at: params.endedAt || params.ended_at,

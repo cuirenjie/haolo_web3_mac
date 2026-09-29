@@ -2,12 +2,12 @@ import os from "node:os";
 import { withAbort } from "./system-proxy-fetch.mjs";
 
 export const NETWORK_POLICY_PATH = "/.well-known/haolo-network";
-export const NETWORK_POLICY_VERSION = "20260919.1";
-export const MODEL_ACCELERATION_CAPABILITY = "model-hk-bgp-20260916";
+export const NETWORK_POLICY_VERSION = "20260927.1";
 // Hong Kong edge trial uses ordinary public Internet for every edge service.
-// Keep the Tokyo model gateway's existing mainland DIRECT GA policy separate.
+// Model-specific Hong Kong GA was retired. Keep model traffic on the ordinary
+// Tokyo origin until a new, explicitly audited model edge is commissioned.
 const hongKongEdge = Object.freeze({ ordinary: "8.217.125.71", accelerated: Object.freeze([]) });
-const tokyo = Object.freeze({ ordinary: "8.216.43.79", accelerated: Object.freeze(["47.76.124.53", "47.238.144.244"]) });
+const tokyo = Object.freeze({ ordinary: "8.216.43.79", accelerated: Object.freeze([]) });
 export const HAOLO_NETWORK_ROUTES = Object.freeze({
   "haolo.com": hongKongEdge,
   "www.haolo.com": hongKongEdge,
