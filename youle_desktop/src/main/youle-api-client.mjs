@@ -74,6 +74,8 @@ const CONSUMPTION_EXPORT_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_CONVERSATIONS_PATH = "/api/conversations";
 const DEFAULT_PROMPT_FAVORITES_PATH = "/api/prompt-favorites";
 const DEFAULT_TRADING_FAVORITES_PATH = "/api/mobile/v1/favorites";
+const DEFAULT_MOBILE_DEVICES_PATH = "/api/mobile/v1/devices";
+const DEFAULT_ACCOUNT_CONNECTIONS_PATH = "/api/mobile/v1/account-connections";
 const DEFAULT_CHANNELS_PATH = "/api/channels";
 const DEFAULT_CONTACTS_PATH = "/api/contacts";
 const DEFAULT_CONTACT_REQUESTS_PATH = "/api/contact-requests";
@@ -202,6 +204,10 @@ export class YouleApiClient {
     this.promptFavoritesPath = process.env.YOULE_API_PROMPT_FAVORITES_PATH || DEFAULT_PROMPT_FAVORITES_PATH;
     this.tradingFavoritesPath =
       process.env.YOULE_API_TRADING_FAVORITES_PATH || DEFAULT_TRADING_FAVORITES_PATH;
+    this.mobileDevicesPath =
+      process.env.YOULE_API_MOBILE_DEVICES_PATH || DEFAULT_MOBILE_DEVICES_PATH;
+    this.accountConnectionsPath =
+      process.env.YOULE_API_ACCOUNT_CONNECTIONS_PATH || DEFAULT_ACCOUNT_CONNECTIONS_PATH;
     this.channelsPath = process.env.YOULE_API_CHANNELS_PATH || DEFAULT_CHANNELS_PATH;
     this.contactsPath = process.env.YOULE_API_CONTACTS_PATH || DEFAULT_CONTACTS_PATH;
     this.contactRequestsPath = process.env.YOULE_API_CONTACT_REQUESTS_PATH || DEFAULT_CONTACT_REQUESTS_PATH;
@@ -265,6 +271,10 @@ export class YouleApiClient {
     this.profile = null;
     this.premiumEntitlementCache = null;
     this.deviceId = null;
+    // The legacy client device id is also used by non-mobile endpoints and
+    // may be an arbitrary string.  Account connections use the mobile API's
+    // UUID resource ids, so keep a separate stable UUID for that binding.
+    this.mobileBindingDeviceId = null;
     this.safeStorage = options.safeStorage || null;
     this.envTokenActive = false;
     this.authRevision = 0;
@@ -1599,6 +1609,73 @@ export class YouleApiClient {
         marketIds: ids,
         ...(Number.isInteger(params.version) && params.version > 0 ? { version: params.version } : {}),
       }),
+    });
+  }
+
+  /**
+   * Register the Windows safe-store owner as a device resource.  The mobile
+   * account API intentionally stores only device metadata; Binance keys stay
+   * in this process and are never part of these requests.
+   */
+  async registerMobileDevice(params = {}) {
+    await this.load();
+    this.requireAuth();
+    const deviceId = String(
+      params.deviceId || params.device_id || this.mobileBindingDeviceId || this.deviceId || "",
+    ).trim();
+    if (!deviceId) throw new Error("deviceId is required");
+    return this.requestJson(joinUrl(this.baseUrl, this.mobileDevicesPath), {
+      method: "POST",
+      headers: { ...this.authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        id: deviceId,
+        platform: params.platform || "windows",
+        notifications: false,
+      }),
+    });
+  }
+
+  async listAccountConnections() {
+    await this.load();
+    this.requireAuth();
+    const response = await this.requestJson(joinUrl(this.baseUrl, this.accountConnectionsPath), {
+      method: "GET",
+      headers: this.authHeaders(),
+    });
+    return {
+      items: Array.isArray(response?.items) ? response.items : [],
+      raw: response,
+    };
+  }
+
+  async createAccountConnection(params = {}) {
+    await this.load();
+    this.requireAuth();
+    const deviceId = String(
+      params.deviceId || params.device_id || this.mobileBindingDeviceId || this.deviceId || "",
+    ).trim();
+    if (!deviceId) throw new Error("deviceId is required");
+    return this.requestJson(joinUrl(this.baseUrl, this.accountConnectionsPath), {
+      method: "POST",
+      headers: { ...this.authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({
+        deviceId,
+        venue: "binance",
+        marketType: "usdm",
+        label: String(params.label || "Windows").trim().slice(0, 64) || "Windows",
+        analysisConsent: params.analysisConsent === true,
+      }),
+    });
+  }
+
+  async deleteAccountConnection(connectionId) {
+    await this.load();
+    this.requireAuth();
+    const id = String(connectionId || "").trim();
+    if (!id) throw new Error("connectionId is required");
+    return this.requestJson(joinUrl(this.baseUrl, `${this.accountConnectionsPath}/${encodeURIComponent(id)}`), {
+      method: "DELETE",
+      headers: this.authHeaders(),
     });
   }
 
@@ -4116,6 +4193,7 @@ export class YouleApiClient {
     let sessionNeedsRewrite = false;
     if (!this.storagePath) {
       if (!this.deviceId) this.deviceId = `device_${crypto.randomUUID()}`;
+      if (!this.mobileBindingDeviceId) this.mobileBindingDeviceId = crypto.randomUUID();
       return;
     }
     try {
@@ -4153,6 +4231,7 @@ export class YouleApiClient {
       });
       this.profile = saved.profile || null;
       this.deviceId = saved.deviceId || this.deviceId;
+      this.mobileBindingDeviceId = saved.mobileBindingDeviceId || this.mobileBindingDeviceId;
       if (!envBaseUrl && rawSavedBaseUrl && this.baseUrl !== rawSavedBaseUrl) {
         sessionNeedsRewrite = true;
       }
@@ -4179,6 +4258,10 @@ export class YouleApiClient {
     }
     if (!this.deviceId) {
       this.deviceId = `device_${crypto.randomUUID()}`;
+      sessionNeedsRewrite = true;
+    }
+    if (!this.mobileBindingDeviceId) {
+      this.mobileBindingDeviceId = crypto.randomUUID();
       sessionNeedsRewrite = true;
     }
     if (sessionNeedsRewrite) {
@@ -4208,6 +4291,7 @@ export class YouleApiClient {
         profile: this.profile,
         premiumEntitlementCache: this.premiumEntitlementCache,
         deviceId: this.deviceId,
+        mobileBindingDeviceId: this.mobileBindingDeviceId,
       },
       null,
       2,

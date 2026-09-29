@@ -5,6 +5,10 @@ export type BinanceAccountStatus = {
   updatedAt: string | null;
   secureStorageAvailable: boolean;
   emailMasked?: string | null;
+  localBound?: boolean;
+  remoteBound?: boolean;
+  remoteOnly?: boolean;
+  connectionId?: string | null;
 };
 
 export type BinanceAccountPosition = {
@@ -205,7 +209,9 @@ export function renderBinanceAccountPage(state: BinanceAccountUiState) {
         : state.error && !state.loaded
           ? renderBinanceAccountLoadError(state.error)
           : status?.bound
-            ? renderBoundBinanceAccount(state)
+            ? status.remoteOnly
+              ? renderRemoteOnlyBinanceAccount(state)
+              : renderBoundBinanceAccount(state)
             : renderUnboundBinanceAccount(state)}
     </section>
   `;
@@ -305,6 +311,26 @@ function renderUnboundBinanceAccount(state: BinanceAccountUiState) {
             <button type="button" class="binance-account-bind-button" data-binance-account-action="open-dialog" ${secureStorageAvailable ? "" : "disabled"}>去绑定</button>
             <button type="button" class="binance-account-tutorial-button" data-binance-account-action="open-tutorial">查看教程</button>
           </div>
+        </div>
+        <div class="binance-account-unbound-icon" aria-hidden="true">
+          <svg viewBox="0 0 120 120">
+            <rect x="18" y="26" width="84" height="68" rx="16"></rect>
+            <circle cx="45" cy="60" r="10"></circle>
+            <path d="M55 60h29M75 60v9M66 60v6"></path>
+          </svg>
+        </div>
+      </article>
+    </div>
+  `;
+}
+
+function renderRemoteOnlyBinanceAccount(state: BinanceAccountUiState) {
+  return `
+    <div class="binance-account-unbound-wrap binance-account-remote-only-wrap">
+      <article class="binance-account-unbound-card binance-account-remote-only-card">
+        <div class="binance-account-unbound-copy">
+          <h2>账户已绑定</h2>
+          <p>当前绑定设备不在 Windows，本机没有保存账户密钥。请在绑定设备刷新账户数据。</p>
         </div>
         <div class="binance-account-unbound-icon" aria-hidden="true">
           <svg viewBox="0 0 120 120">

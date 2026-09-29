@@ -101,6 +101,26 @@ test("unbound state and binding dialog match the complete secure flow", () => {
   assert.equal(state.dialog.code, "");
 });
 
+test("a binding owned by another device still renders the bound account state", () => {
+  const state = createBinanceAccountUiState();
+  state.loaded = true;
+  state.status = {
+    bound: true,
+    localBound: false,
+    remoteBound: true,
+    remoteOnly: true,
+    connectionId: "connection-mobile",
+    apiKeyMasked: null,
+    boundAt: null,
+    updatedAt: null,
+    secureStorageAvailable: true,
+  };
+  const page = renderBinanceAccountPage(state);
+  assert.match(page, /账户已绑定/);
+  assert.match(page, /当前绑定设备不在 Windows/);
+  assert.doesNotMatch(page, /还未绑定 API|data-binance-account-action="refresh"/);
+});
+
 test("binding dialog ignores backdrop clicks and Escape so only its close button dismisses it", async () => {
   const source = await rendererSource;
   const bindingBlock = source.slice(
@@ -493,6 +513,10 @@ test("renderer bridge reuses Haolo OTP and exposes no order or credential-read I
   assert.match(binanceHandlers, /assertExternalModelsIpcSender\(event\)/);
   assert.match(binanceHandlers, /getYouleApiClient\(\)\.sendOtp/);
   assert.match(binanceHandlers, /getYouleApiClient\(\)\.verifyOtp/);
+  assert.match(desktopMain, /registerMobileDevice\([\s\S]*platform: "windows"/);
+  assert.match(desktopMain, /syncSharedBinanceAccountConnection\(\)/);
+  assert.match(desktopMain, /removeSharedBinanceAccountConnection\(\)/);
+  assert.match(desktopMain, /remoteOnly: !localBound && remoteBound/);
   assert.match(renderer, /sendBinanceAccountOtp\(\)/);
   assert.match(renderer, /bindBinanceAccount\(\{/);
   assert.match(renderer, /function loadBinanceAccountProfitCalendar[\s\S]*getBinanceAccountProfitCalendar[\s\S]*\{ month, force \}/);
