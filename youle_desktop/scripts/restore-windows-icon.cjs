@@ -52,7 +52,12 @@ function restoreWindowsIcon(context = {}) {
 
 function setWindowsExecutableIcon(exePath, iconPath) {
   const rceditPath = resolveRceditPath();
-  const result = spawnSync(rceditPath, [exePath, "--set-icon", iconPath], {
+  // rcedit cannot reliably open absolute paths containing non-ASCII Windows
+  // user directories. Keep the process rooted at the app and pass relative
+  // paths so packaging also works from localized user profiles.
+  const executableArg = path.relative(packageRoot, exePath) || ".";
+  const iconArg = path.relative(packageRoot, iconPath) || ".";
+  const result = spawnSync(rceditPath, [executableArg, "--set-icon", iconArg], {
     cwd: packageRoot,
     encoding: "utf8",
     windowsHide: true,
