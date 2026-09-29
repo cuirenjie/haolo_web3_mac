@@ -4799,27 +4799,29 @@ function sharedBinanceConnectionDeviceId() {
 }
 
 function activeSharedBinanceConnection(item) {
+  const venue = String(item?.venue || "binance").trim().toLowerCase();
+  const marketType = String(item?.marketType || "usdm").trim().toLowerCase();
   return item
     && item.revoked !== true
-    && String(item.venue || "binance") === "binance"
-    && String(item.marketType || "usdm") === "usdm";
+    && venue === "binance"
+    && (marketType === "usdm" || marketType === "perpetual");
 }
 
 async function readSharedBinanceAccountConnections() {
   const api = getYouleApiClient();
   await api.load();
-  await api.registerMobileDevice({
-    deviceId: sharedBinanceConnectionDeviceId(),
-    platform: "windows",
-  });
   const result = await api.listAccountConnections();
   return (Array.isArray(result?.items) ? result.items : []).filter(activeSharedBinanceConnection);
 }
 
 async function syncSharedBinanceAccountConnection() {
   const api = getYouleApiClient();
-  const connections = await readSharedBinanceAccountConnections();
   const deviceId = sharedBinanceConnectionDeviceId();
+  await api.registerMobileDevice({
+    deviceId,
+    platform: "windows",
+  });
+  const connections = await readSharedBinanceAccountConnections();
   const own = connections.find((item) => String(item.deviceId || "") === deviceId);
   if (own || connections.length > 0) return own || connections[0];
   return api.createAccountConnection({
@@ -4840,13 +4842,24 @@ async function removeSharedBinanceAccountConnection() {
 async function readBinanceAccountStatusWithSharedBinding(owner) {
   const local = await getBinanceAccountService().status(owner.ownerId);
   let connections = [];
+  // A locally stored key is authoritative for this process.  Repairing its
+  // metadata is best effort, but must never prevent the account-wide read
+  // from seeing a connection created on the phone.
+  if (local.bound) {
+    try {
+      await syncSharedBinanceAccountConnection();
+    } catch (error) {
+      console.warn("[binance-account] Windows connection repair deferred", error?.message || String(error));
+    }
+  }
   try {
-    // A locally stored key is authoritative for this process.  If the shared
-    // record is missing, repair it without ever sending the key to the API.
-    if (local.bound) await syncSharedBinanceAccountConnection();
     connections = await readSharedBinanceAccountConnections();
   } catch (error) {
-    console.warn("[binance-account] shared binding unavailable", error?.message || String(error));
+    // An unavailable shared query is an error state for an otherwise unbound
+    // account.  Returning `bound: false` here would make a transient outage
+    // look like an actual unbind and is the failure mode this path protects.
+    if (!local.bound) throw error;
+    console.warn("[binance-account] shared binding query unavailable", error?.message || String(error));
   }
   const remoteBound = connections.length > 0;
   const localBound = local.bound === true;

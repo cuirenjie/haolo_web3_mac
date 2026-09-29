@@ -76,6 +76,7 @@ const DEFAULT_PROMPT_FAVORITES_PATH = "/api/prompt-favorites";
 const DEFAULT_TRADING_FAVORITES_PATH = "/api/mobile/v1/favorites";
 const DEFAULT_MOBILE_DEVICES_PATH = "/api/mobile/v1/devices";
 const DEFAULT_ACCOUNT_CONNECTIONS_PATH = "/api/mobile/v1/account-connections";
+const MOBILE_DEVICE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_CHANNELS_PATH = "/api/channels";
 const DEFAULT_CONTACTS_PATH = "/api/contacts";
 const DEFAULT_CONTACT_REQUESTS_PATH = "/api/contact-requests";
@@ -1557,9 +1558,9 @@ export class YouleApiClient {
   async registerMobileDevice(params = {}) {
     await this.load();
     this.requireAuth();
-    const deviceId = String(
-      params.deviceId || params.device_id || this.mobileBindingDeviceId || this.deviceId || "",
-    ).trim();
+    const requestedDeviceId = String(params.deviceId || params.device_id || "").trim();
+    const deviceId = requestedDeviceId || this.mobileBindingDeviceId || "";
+    if (!MOBILE_DEVICE_UUID_PATTERN.test(deviceId)) throw new Error("deviceId must be a UUID");
     if (!deviceId) throw new Error("deviceId is required");
     return this.requestJson(joinUrl(this.baseUrl, this.mobileDevicesPath), {
       method: "POST",
@@ -1589,12 +1590,19 @@ export class YouleApiClient {
     await this.load();
     this.requireAuth();
     const deviceId = String(
-      params.deviceId || params.device_id || this.mobileBindingDeviceId || this.deviceId || "",
+      params.deviceId || params.device_id || this.mobileBindingDeviceId || "",
     ).trim();
-    if (!deviceId) throw new Error("deviceId is required");
+    if (!MOBILE_DEVICE_UUID_PATTERN.test(deviceId)) throw new Error("deviceId must be a UUID");
+    const idempotencyKey = String(
+      params.idempotencyKey || params.idempotency_key || `windows-account-connection:${deviceId}`,
+    ).trim();
     return this.requestJson(joinUrl(this.baseUrl, this.accountConnectionsPath), {
       method: "POST",
-      headers: { ...this.authHeaders(), "content-type": "application/json" },
+      headers: {
+        ...this.authHeaders(),
+        "content-type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+      },
       body: JSON.stringify({
         deviceId,
         venue: "binance",
@@ -4168,7 +4176,13 @@ export class YouleApiClient {
       });
       this.profile = saved.profile || null;
       this.deviceId = saved.deviceId || this.deviceId;
-      this.mobileBindingDeviceId = saved.mobileBindingDeviceId || this.mobileBindingDeviceId;
+      const savedMobileBindingDeviceId = String(saved.mobileBindingDeviceId || "").trim();
+      if (MOBILE_DEVICE_UUID_PATTERN.test(savedMobileBindingDeviceId)) {
+        this.mobileBindingDeviceId = savedMobileBindingDeviceId;
+      } else if (savedMobileBindingDeviceId) {
+        this.mobileBindingDeviceId = null;
+        sessionNeedsRewrite = true;
+      }
       if (!envBaseUrl && rawSavedBaseUrl && this.baseUrl !== rawSavedBaseUrl) {
         sessionNeedsRewrite = true;
       }

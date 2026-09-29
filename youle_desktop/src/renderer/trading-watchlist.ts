@@ -213,6 +213,18 @@ export class TradingWatchlistStore {
     this.save();
   }
 
+  replaceGroupMarkets(groupId: string, records: readonly TradingFavoriteMarketRecord[]) {
+    const group = this.groups.find((candidate) => candidate.id === groupId);
+    if (!group || group.id === "tradfi" || group.id === "indices") return false;
+    const normalized = this.normalizeRecords(records);
+    const changed = JSON.stringify(group.markets) !== JSON.stringify(normalized);
+    if (changed) {
+      group.markets = normalized;
+      this.save();
+    }
+    return changed;
+  }
+
   move(marketId: string, targetId: string, after: boolean) {
     if (this.fixedGroup) return false;
     const markets = this.activeGroup.markets;

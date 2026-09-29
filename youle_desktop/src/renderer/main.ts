@@ -91,6 +91,7 @@ import {
   releaseTradingExpertAnalysisTarget,
   runTradingExpertStrategyConversation,
   syncTradingExpertMarketWorkspace,
+  refreshTradingExpertSharedFavorites,
   syncTradingExpertOrderLineSnapshot,
   tradingExpertAlertContextSnapshot,
   prepareTradingExpertAlertContext,
@@ -6931,7 +6932,11 @@ function wireDesktopEvents() {
   window.addEventListener("focus", markActiveConversationViewed, { passive: true });
   document.addEventListener("visibilitychange", markActiveConversationViewed, { passive: true });
   window.addEventListener("focus", () => refreshProfileOnAppActivation(), { passive: true });
+  window.addEventListener("focus", refreshTradingExpertSharedFavorites, { passive: true });
   document.addEventListener("visibilitychange", () => refreshProfileOnAppActivation(), { passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshTradingExpertSharedFavorites();
+  }, { passive: true });
   window.addEventListener("focus", resumeBinanceAccountLiveRefresh, { passive: true });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && !executionPlanBinanceMonitoringNeeded()) stopBinanceAccountLiveRefresh();
