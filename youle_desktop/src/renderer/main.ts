@@ -72679,7 +72679,16 @@ async function loadBinanceAccountPage() {
       if (loadSequence !== binanceAccountLoadSequence) return;
       accountState.status = status;
       let snapshot: BinanceAccountSnapshot | null = null;
-      if (status.bound) {
+      // A legacy mobile binding can have server metadata without uploading
+      // encrypted credentials yet. In that state Windows cannot read a
+      // snapshot, but it is still a valid remote-only binding and the UI
+      // should explain how to migrate it instead of showing NOT_BOUND.
+      const remoteOnlyWithoutServerCredentials = Boolean(
+        status.bound
+        && status.remoteOnly
+        && status.serverCredentialsBound !== true,
+      );
+      if (status.bound && !remoteOnlyWithoutServerCredentials) {
         if (!getAccountSnapshot) throw new Error("当前客户端无法读取 Binance 账户数据。");
         snapshot = await getAccountSnapshot();
       }
