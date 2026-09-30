@@ -1624,6 +1624,32 @@ export class YouleApiClient {
     });
   }
 
+  async bindAccountConnectionCredentials(connectionId, params = {}) {
+    await this.load();
+    this.requireAuth();
+    const id = String(connectionId || "").trim();
+    const apiKey = String(params.apiKey || params.api_key || "").trim();
+    const apiSecret = String(params.apiSecret || params.api_secret || "").trim();
+    if (!id) throw new Error("connectionId is required");
+    if (!apiKey || !apiSecret) throw new Error("apiKey and apiSecret are required");
+    return this.requestJson(joinUrl(this.baseUrl, `${this.accountConnectionsPath}/${encodeURIComponent(id)}/credentials`), {
+      method: "PUT",
+      headers: { ...this.authHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ apiKey, apiSecret }),
+    });
+  }
+
+  async getAccountConnectionSnapshot(connectionId) {
+    await this.load();
+    this.requireAuth();
+    const id = String(connectionId || "").trim();
+    if (!id) throw new Error("connectionId is required");
+    return this.requestJson(joinUrl(this.baseUrl, `${this.accountConnectionsPath}/${encodeURIComponent(id)}/snapshot`), {
+      method: "GET",
+      headers: this.authHeaders(),
+    });
+  }
+
   async patchConversationPreferences(params = {}) {
     await this.load();
     this.requireAuth();

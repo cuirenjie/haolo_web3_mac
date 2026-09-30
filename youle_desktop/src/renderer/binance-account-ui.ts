@@ -8,6 +8,8 @@ export type BinanceAccountStatus = {
   localBound?: boolean;
   remoteBound?: boolean;
   remoteOnly?: boolean;
+  serverCredentialsBound?: boolean;
+  serverConnectionId?: string | null;
   connectionId?: string | null;
 };
 
@@ -209,7 +211,7 @@ export function renderBinanceAccountPage(state: BinanceAccountUiState) {
         : state.error && !state.loaded
           ? renderBinanceAccountLoadError(state.error)
           : status?.bound
-            ? status.remoteOnly
+            ? status.remoteOnly && !status.serverCredentialsBound
               ? renderRemoteOnlyBinanceAccount(state)
               : renderBoundBinanceAccount(state)
             : renderUnboundBinanceAccount(state)}
@@ -276,7 +278,7 @@ export function renderBinanceAccountDialog(state: BinanceAccountUiState) {
         </label>
         <p class="binance-account-security-note">${removing
           ? "验证码通过后才会从本机安全存储中删除 API Key 和 Secret Key，此操作无法撤销。"
-          : "API Secret 只在主进程使用系统安全存储加密保存，不会进入聊天、日志或数据导出。"}</p>
+          : "API Secret 会通过 HTTPS 传输，并由 HaoLo 服务器加密保存；客户端不会把密钥放进聊天、日志或数据导出。"}</p>
         ${dialog.error ? `<p class="binance-account-dialog-error" role="alert">${escapeHtml(dialog.error)}</p>` : ""}
         <footer>
           <button type="submit" class="binance-account-submit${removing ? " danger" : ""}" ${canSubmit ? "" : "disabled"}>
