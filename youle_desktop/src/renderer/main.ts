@@ -72751,6 +72751,30 @@ async function refreshBinanceAccountSnapshot() {
   accountState.error = null;
   if (state.activeView === "account") render();
   try {
+    // Refresh the account-level binding before reading a snapshot. A revoke
+    // performed on mobile must clear this renderer's stale bound state.
+    const status = api.getBinanceAccountStatus
+      ? await api.getBinanceAccountStatus()
+      : accountState.status;
+    if (status) accountState.status = status;
+    const remoteOnlyWithoutServerCredentials = Boolean(
+      status?.bound
+      && status.remoteOnly
+      && status.serverCredentialsBound !== true,
+    );
+    if (!status?.bound || remoteOnlyWithoutServerCredentials) {
+      accountState.snapshot = null;
+      syncTradingExpertOrderLineSnapshot(null);
+      accountState.loaded = true;
+      accountState.error = null;
+      accountState.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
+      binanceAccountLiveRefreshFailures = 0;
+      binanceAccountLiveRetryAfter = 0;
+      binanceAccountFullRefreshAfter = 0;
+      stopBinanceAccountLiveRefresh();
+      render();
+      return;
+    }
     const snapshot = await api.getBinanceAccountSnapshot({
       force: true,
       live: true,

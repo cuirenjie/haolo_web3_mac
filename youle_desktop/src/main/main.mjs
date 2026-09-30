@@ -4862,20 +4862,12 @@ async function removeSharedBinanceAccountConnection() {
 }
 
 async function readBinanceAccountStatusWithSharedBinding(owner) {
-  const local = await getBinanceAccountService().status(owner.ownerId);
+  let local = await getBinanceAccountService().status(owner.ownerId);
   let connections = [];
-  // A locally stored key is authoritative for this process.  Repairing its
-  // metadata is best effort, but must never prevent the account-wide read
-  // from seeing a connection created on the phone.
-  if (local.bound) {
-    try {
-      await syncSharedBinanceAccountConnection();
-    } catch (error) {
-      console.warn("[binance-account] Windows connection repair deferred", error?.message || String(error));
-    }
-  }
+  let sharedQuerySucceeded = false;
   try {
     connections = await readSharedBinanceAccountConnections();
+    sharedQuerySucceeded = true;
   } catch (error) {
     // An unavailable shared query is an error state for an otherwise unbound
     // account.  Returning `bound: false` here would make a transient outage
@@ -4883,11 +4875,18 @@ async function readBinanceAccountStatusWithSharedBinding(owner) {
     if (!local.bound) throw error;
     console.warn("[binance-account] shared binding query unavailable", error?.message || String(error));
   }
+  const serverCredentialConnection = connections.find((item) => item.credentialsBound === true);
+  // The account-level server connection is authoritative after a successful
+  // query. If another client revoked it, discard the stale Windows copy so a
+  // later snapshot request cannot surface NOT_BOUND from an old local key.
+  if (sharedQuerySucceeded && local.bound && !serverCredentialConnection) {
+    await getBinanceAccountService().remove(owner.ownerId);
+    local = await getBinanceAccountService().status(owner.ownerId);
+  }
   const remoteBound = connections.length > 0;
   const localBound = local.bound === true;
   const sharedDeviceId = sharedBinanceConnectionDeviceId();
   const own = connections.find((item) => String(item.deviceId || "") === sharedDeviceId);
-  const serverCredentialConnection = connections.find((item) => item.credentialsBound === true);
   return {
     ...local,
     bound: localBound || remoteBound,
