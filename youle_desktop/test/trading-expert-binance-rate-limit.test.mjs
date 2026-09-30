@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   binanceMarketRestCooldownRemaining,
+  binanceMarketRetryAfterMs,
   parseBinanceMarketRetryAfterMs,
   recordBinanceMarketRateLimit,
 } from "../src/renderer/trading-expert-market.ts";
@@ -24,6 +25,19 @@ test("renderer rate-limit cooldowns remain isolated by Binance market", () => {
   assert.equal(binanceMarketRestCooldownRemaining(now, "spot"), 0);
 });
 
+test("gateway stale data bounds the renderer retry probe while preserving direct bans", () => {
+  assert.equal(binanceMarketRetryAfterMs({
+    stale: true,
+    retryAfterMs: 17_643_000,
+    diagnostics: { cacheStatus: "STALE", origin: "gateway_upstream" },
+  }), 60_000);
+  assert.equal(binanceMarketRetryAfterMs({
+    stale: true,
+    retryAfterMs: 17_643_000,
+    diagnostics: { cacheStatus: "STALE", origin: "direct_binance" },
+  }), 17_643_000);
+});
+
 test("WebSocket silence fallbacks are delayed, bounded and do not duplicate the snapshot poll", async () => {
   const [marketSource, splitSource] = await Promise.all([
     import("node:fs/promises").then(({ readFile }) => readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8")),
@@ -33,7 +47,7 @@ test("WebSocket silence fallbacks are delayed, bounded and do not duplicate the 
   assert.match(marketSource, /const FAVORITE_TICKER_SOCKET_STALE_MS = 10_000/);
   assert.match(marketSource, /const FAVORITE_TICKER_FALLBACK_BATCH_SIZE = 4/);
   assert.match(marketSource, /const binanceMarketRestRetryAt = new Map<"futures" \| "spot", number>/);
-  assert.match(marketSource, /recordBinanceMarketRateLimit\(response\?\.retryAfterMs, marketType\)/);
+  assert.match(marketSource, /response\.rateLimited && response\.stale !== true/);
   assert.doesNotMatch(marketSource, /void this\.refreshFavoriteTickerFallback\(generation\);\s*this\.favoriteTickerFallbackTimer/);
   const fallbackBody = /private refreshMarketDataFallback\(generation: number\) \{([\s\S]*?)private async refreshSnapshot/.exec(marketSource)?.[1] || "";
   assert.match(fallbackBody, /refreshLiveCandle\(generation\)/);

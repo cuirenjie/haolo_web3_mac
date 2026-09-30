@@ -171,6 +171,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     restNotModified: 0,
     restPayloadBytes: 0,
     upstreamAdmissions: 0,
+    upstreamRateLimited: 0,
+    upstreamCooldownHits: 0,
     downstreamRateLimited: 0,
   };
   const websocketClientsByUser = new Map();
@@ -252,7 +254,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
             ? config.publicFuturesUpstreamWeightPerMinute || 1_440
             : config.publicSpotUpstreamWeightPerMinute || 3_600;
           const budget = await restGateway.cache.consumeWeightBudget({
-            shardId: "public-egress",
+            shardId: config.publicEgressId || "public-egress",
             marketType: route.marketType,
             windowId: Math.floor(now / 60_000),
             weight: route.weight,
@@ -292,6 +294,9 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       if (result.cacheStatus === "HIT") metrics.restCacheHits += 1;
       else if (result.cacheStatus === "STALE") metrics.restCacheStale += 1;
       else metrics.restCacheMisses += 1;
+      if (result.headers?.["x-haolo-rate-limit-source"] === "gateway-upstream") {
+        metrics.upstreamCooldownHits += 1;
+      }
       // Never turn an error representation (429/5xx) into a cacheable 304;
       // conditional semantics apply only to successful market JSON.
       const etagEligible = result.statusCode === 200 && publicRestEtagEnabled(request.url);
@@ -321,11 +326,14 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const statusCode = Number(error?.statusCode || 500);
       const retryAfterSeconds = Math.ceil(Number(error?.retryAfterMs || 0) / 1_000);
       const errorCode = String(error?.code || "INTERNAL_ERROR");
-      const rateLimitSource = errorCode.startsWith("UPSTREAM_")
+      const rateLimitSource = ["UPSTREAM_RATE_LIMITED", "UPSTREAM_COOLDOWN"].includes(errorCode)
         ? "gateway-upstream"
         : errorCode === "RATE_LIMITED"
           ? "gateway-downstream"
           : "";
+      if (errorCode === "UPSTREAM_RATE_LIMITED" || errorCode === "UPSTREAM_COOLDOWN") {
+        metrics.upstreamRateLimited += 1;
+      }
       sendJson(response, statusCode, {
         error: errorCode,
         message: statusCode >= 500 ? "market gateway unavailable" : String(error?.message || "request rejected"),
@@ -333,6 +341,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       }, {
         ...(retryAfterSeconds > 0 ? { "retry-after": String(retryAfterSeconds) } : {}),
         ...(rateLimitSource ? { "x-haolo-rate-limit-source": rateLimitSource } : {}),
+        ...(Number(error?.upstreamStatus) > 0 ? { "x-haolo-upstream-status": String(Number(error.upstreamStatus)) } : {}),
       });
     }
   }));

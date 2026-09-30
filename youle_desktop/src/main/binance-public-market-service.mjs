@@ -176,6 +176,11 @@ function headerNumber(response, name) {
   return Number.isFinite(value) ? value : null;
 }
 
+function headerStatus(response, name) {
+  const value = headerNumber(response, name);
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
 function responseDiagnostics(response) {
   const status = Number(response?.status || 0);
   const route = String(response?.headers?.get?.("x-haolo-binance-route") || "unknown").slice(0, 32);
@@ -192,11 +197,19 @@ function responseDiagnostics(response) {
     egress,
     origin,
     cacheStatus: String(response?.headers?.get?.("x-haolo-cache") || "none").slice(0, 16).toUpperCase(),
+    upstreamStatus: headerStatus(response, "x-haolo-upstream-status"),
     usedWeight: headerNumber(response, "x-mbx-used-weight-1m")
       ?? headerNumber(response, "x-sapi-used-ip-weight-1m")
       ?? headerNumber(response, "x-mbx-used-weight"),
     gatewayRemaining: headerNumber(response, "x-ratelimit-remaining"),
   });
+}
+
+function isRateLimitedOrigin(diagnostics) {
+  const origin = String(diagnostics?.origin || "");
+  if (["direct_binance", "gateway_downstream", "local_budget"].includes(origin)) return true;
+  return origin === "gateway_upstream"
+    && [418, 429].includes(Number(diagnostics?.upstreamStatus));
 }
 
 export class BinancePublicMarketService {
@@ -238,7 +251,7 @@ export class BinancePublicMarketService {
       data: cloneData(entry.data),
       cached: true,
       retryAfterMs: null,
-      diagnostics: Object.freeze({ route: "memory-cache", egress: "client", origin: "none", cacheStatus: "HIT", usedWeight: null, gatewayRemaining: null }),
+      diagnostics: Object.freeze({ route: "memory-cache", egress: "client", origin: "none", cacheStatus: "HIT", upstreamStatus: null, usedWeight: null, gatewayRemaining: null }),
     };
   }
 
@@ -262,8 +275,8 @@ export class BinancePublicMarketService {
       sourceStatus: Number(status || 0),
       retryAfterMs: retryAfter,
       rateLimited: [418, 429].includes(Number(status))
-        || ["direct_binance", "gateway_downstream", "gateway_upstream", "local_budget"].includes(diagnostics?.origin),
-      diagnostics: diagnostics || Object.freeze({ route: "memory-cache", egress: "client", origin: "transport", cacheStatus: "STALE", usedWeight: null, gatewayRemaining: null }),
+        || isRateLimitedOrigin(diagnostics),
+      diagnostics: diagnostics || Object.freeze({ route: "memory-cache", egress: "client", origin: "transport", cacheStatus: "STALE", upstreamStatus: null, usedWeight: null, gatewayRemaining: null }),
       ...(error ? { degradedReason: String(error).slice(0, 500) } : {}),
     };
   }
@@ -369,6 +382,7 @@ export class BinancePublicMarketService {
         return {
           ok: false, status, data: null, cached: false,
           retryAfterMs: responseRetryAfterMs, error, diagnostics,
+          rateLimited: [418, 429].includes(status) || isRateLimitedOrigin(diagnostics),
           ...(errorCode ? { errorCode } : {}),
         };
       }
@@ -399,6 +413,7 @@ export class BinancePublicMarketService {
         egress: "unknown",
         origin: "transport",
         cacheStatus: "NONE",
+        upstreamStatus: null,
         usedWeight: null,
         gatewayRemaining: null,
       });
@@ -414,6 +429,7 @@ export class BinancePublicMarketService {
         data: null,
         cached: false,
         retryAfterMs: retryAfter,
+        rateLimited: [418, 429].includes(status) || isRateLimitedOrigin(diagnostics),
         error: String(error?.message || error || "Binance market request failed").slice(0, 500),
         diagnostics,
       };

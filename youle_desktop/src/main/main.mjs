@@ -4594,6 +4594,8 @@ function getBinanceNetworkRouter() {
       privateProxyFetch: privateTransport ? privateTransport.fetch.bind(privateTransport) : null,
       initialState: binanceRoutePreferenceStore.load(),
       onStateChange: (state) => binanceRoutePreferenceStore?.schedule(state),
+      directCooldownRemaining: (marketType) => getBinanceRequestGovernor().cooldownRemaining(marketType, Date.now()),
+      onDirectRateLimit: (marketType, response, nowMs) => getBinanceRequestGovernor().observeResponse(marketType, response, nowMs),
     });
     binanceNetworkRouter.startBackgroundProbes();
   }
@@ -4617,6 +4619,7 @@ function getBinancePublicMarketService() {
           init,
           {
             source: metadataRequest ? "metadata" : "market",
+            publicFallbackFetch: router.canUsePublicGateway() ? router.publicGatewayOnlyFetch.bind(router) : null,
             priority: metadataRequest
               ? BINANCE_REQUEST_PRIORITIES.metadata
               : chartRequest
@@ -14851,7 +14854,10 @@ async function getTradingAlertService() {
       router.publicFetch.bind(router),
       url,
       init,
-      { source: "alert", priority: BINANCE_REQUEST_PRIORITIES.alert },
+      {
+        source: "alert", priority: BINANCE_REQUEST_PRIORITIES.alert,
+        publicFallbackFetch: router.canUsePublicGateway() ? router.publicGatewayOnlyFetch.bind(router) : null,
+      },
     );
     const marketAdapter = createBinanceMarketAdapter({
       fetchImpl: alertFetch,

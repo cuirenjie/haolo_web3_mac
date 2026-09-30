@@ -194,6 +194,56 @@ test("public market service serves bounded stale data during a rate limit and pr
   assert.deepEqual(degraded.data, { symbol: "BTCUSDT", markPrice: "100" });
 });
 
+test("public market service classifies gateway upstream cooldown errors as rate limited", async () => {
+  const service = new BinancePublicMarketService({
+    fetch: async () => new Response(JSON.stringify({ error: "UPSTREAM_RATE_LIMITED" }), {
+      status: 503,
+      headers: {
+        "retry-after": "120",
+        "x-haolo-binance-route": "public-gateway",
+        "x-haolo-binance-egress": "haolo-public",
+        "x-haolo-rate-limit-source": "gateway-upstream",
+        "x-haolo-upstream-status": "418",
+      },
+    }),
+  });
+  const result = await service.request({
+    marketType: "futures",
+    path: "/fapi/v1/premiumIndex",
+    parameters: { symbol: "BTCUSDT" },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 503);
+  assert.equal(result.rateLimited, true);
+  assert.equal(result.retryAfterMs, 120_000);
+  assert.equal(result.diagnostics.origin, "gateway_upstream");
+  assert.equal(result.diagnostics.upstreamStatus, 418);
+});
+
+test("ordinary gateway upstream failures are not mislabeled as rate limits", async () => {
+  const service = new BinancePublicMarketService({
+    fetch: async () => new Response(JSON.stringify({ error: "UPSTREAM_UNAVAILABLE" }), {
+      status: 503,
+      headers: {
+        "x-haolo-binance-route": "public-gateway",
+        "x-haolo-binance-egress": "haolo-public",
+        "x-haolo-rate-limit-source": "gateway-upstream",
+        "x-haolo-upstream-status": "502",
+      },
+    }),
+  });
+  const result = await service.request({
+    marketType: "futures",
+    path: "/fapi/v1/premiumIndex",
+    parameters: { symbol: "BTCUSDT" },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 503);
+  assert.equal(result.rateLimited, false);
+  assert.equal(result.diagnostics.origin, "gateway_upstream");
+  assert.equal(result.diagnostics.upstreamStatus, 502);
+});
+
 test("main-process public service can delegate its deadline and honor renderer cancellation", async () => {
   let receivedSignal = null;
   const service = new BinancePublicMarketService({
@@ -261,6 +311,7 @@ test("renderer market REST is authenticated IPC-only and shares the main governo
   ]);
   assert.match(main, /ipcMain\.handle\("binanceMarket:publicGet"[\s\S]*assertExternalModelsIpcSender\(event\)[\s\S]*getBinancePublicMarketService\(\)\.request/);
   assert.match(main, /new BinancePublicMarketService\([\s\S]*getBinanceRequestGovernor\(\)\.fetch\([\s\S]*router\.publicFetch\.bind\(router\)/);
+  assert.match(main, /publicFallbackFetch: router\.canUsePublicGateway\(\) \? router\.publicGatewayOnlyFetch\.bind\(router\) : null/);
   assert.match(preload, /getBinancePublicMarketData: \(params\) => ipcRenderer\.invoke\("binanceMarket:publicGet", params\)/);
   assert.match(preload, /cancelBinancePublicMarketData: \(params\) => ipcRenderer\.invoke\("binanceMarket:publicCancel", params\)/);
   assert.match(main, /new BinancePublicMarketService\([\s\S]*timeoutMs: 0/);

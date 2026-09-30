@@ -33,12 +33,13 @@ const QUERY_KEYS = new Set([
 ]);
 
 export class MarketGatewayError extends Error {
-  constructor(message, { statusCode = 502, code = "MARKET_GATEWAY_ERROR", retryAfterMs = 0 } = {}) {
+  constructor(message, { statusCode = 502, code = "MARKET_GATEWAY_ERROR", retryAfterMs = 0, upstreamStatus = 0 } = {}) {
     super(message);
     this.name = "MarketGatewayError";
     this.statusCode = statusCode;
     this.code = code;
     this.retryAfterMs = retryAfterMs;
+    this.upstreamStatus = Number(upstreamStatus) || 0;
   }
 }
 
@@ -169,22 +170,94 @@ export class BinanceRestGateway {
     this.cache = cache;
     this.fetchImpl = fetchImpl;
     this.cooldownUntil = new Map();
+    this.cooldownStatus = new Map();
+  }
+
+  publicCooldownKey(marketType) {
+    const egressId = String(this.config?.publicEgressId || "").trim();
+    // Keep the historical key for the default single-egress deployment so a
+    // rolling upgrade cannot forget an active cooldown written by the old
+    // gateway. Explicit IDs opt into per-EIP isolation.
+    return egressId && egressId !== "public-egress"
+      ? `public-cooldown:${egressId}:${marketType}`
+      : `public-cooldown:${marketType}`;
+  }
+
+  async rememberCooldown(marketType, status, retryMs) {
+    const safeRetryMs = Math.max(1_000, Number(retryMs) || 60_000);
+    const until = Date.now() + safeRetryMs;
+    const previousUntil = Number(this.cooldownUntil.get(marketType) || 0);
+    const effectiveUntil = Math.max(previousUntil, until);
+    this.cooldownUntil.set(marketType, effectiveUntil);
+    if (until >= previousUntil) this.cooldownStatus.set(marketType, Number(status) || 0);
+    // A public gateway is normally replicated. Keep the upstream cooldown in
+    // the same Redis-backed cache used by the shared weight ledger so one
+    // replica cannot continue probing Binance after another replica receives
+    // a 418/429. The memory cache remains the development fallback.
+    if (typeof this.cache?.set === "function") {
+      try {
+        const cooldownValue = { until, status: Number(status) || 0 };
+        const storedUntil = typeof this.cache?.setCooldownAtLeast === "function"
+          ? await this.cache.setCooldownAtLeast(this.publicCooldownKey(marketType), cooldownValue, safeRetryMs)
+          : (await this.cache.set(this.publicCooldownKey(marketType), cooldownValue, safeRetryMs, safeRetryMs), until);
+        const sharedUntil = Math.max(effectiveUntil, Number(storedUntil) || until);
+        if (sharedUntil > effectiveUntil) this.cooldownStatus.set(marketType, Number(status) || 0);
+        this.cooldownUntil.set(marketType, sharedUntil);
+      } catch {
+        // Keep the local circuit breaker active if Redis is transiently
+        // unavailable. A cache failure must not turn Binance's 429/418 into
+        // a misleading gateway 500 response.
+      }
+    }
+    return Number(this.cooldownUntil.get(marketType) || effectiveUntil);
+  }
+
+  async publicCooldown(marketType, nowMs = Date.now()) {
+    let sharedCooldown = null;
+    try {
+      sharedCooldown = typeof this.cache?.getSharedValue === "function"
+        ? await this.cache.getSharedValue(this.publicCooldownKey(marketType), nowMs)
+        : await this.cache.get(this.publicCooldownKey(marketType), nowMs);
+    } catch {
+      // The local circuit breaker remains authoritative for this process.
+    }
+    const until = Math.max(
+      Number(this.cooldownUntil.get(marketType) || 0),
+      Number(sharedCooldown?.value?.until || 0),
+    );
+    if (until > nowMs) this.cooldownUntil.set(marketType, until);
+    const status = Number(sharedCooldown?.value?.status)
+      || Number(this.cooldownStatus.get(marketType) || 0)
+      || 429;
+    return Object.freeze({ until, status });
   }
 
   async get(requestUrl, { beforeUpstream = null } = {}) {
     const route = resolvePublicMarketRequest(requestUrl, this.config);
     const cached = await this.cache.get(route.cacheKey);
     if (cached?.fresh) return marketResult(route, { value: cached.value, cacheStatus: "HIT", statusCode: 200, headers: {} });
-    const cooldownUntil = Number(this.cooldownUntil.get(route.marketType) || 0);
-    if (cooldownUntil > Date.now()) {
-      const retryAfter = String(Math.max(1, Math.ceil((cooldownUntil - Date.now()) / 1_000)));
+    const nowMs = Date.now();
+    const sharedCooldown = await this.publicCooldown(route.marketType, nowMs);
+    const cooldownUntil = sharedCooldown.until;
+    if (cooldownUntil > nowMs) {
+      this.cooldownUntil.set(route.marketType, cooldownUntil);
+      const retryAfter = String(Math.max(1, Math.ceil((cooldownUntil - nowMs) / 1_000)));
       if (cached) return marketResult(route, {
         value: cached.value,
         cacheStatus: "STALE",
         statusCode: 200,
-        headers: { "retry-after": retryAfter, "x-haolo-rate-limit-source": "gateway-upstream" },
+        headers: {
+          "retry-after": retryAfter,
+          "x-haolo-rate-limit-source": "gateway-upstream",
+          "x-haolo-upstream-status": String(sharedCooldown.status),
+        },
       });
-      throw new MarketGatewayError("Binance upstream is cooling down", { statusCode: 503, code: "UPSTREAM_COOLDOWN", retryAfterMs: cooldownUntil - Date.now() });
+      throw new MarketGatewayError("Binance upstream is cooling down", {
+        statusCode: 503,
+        code: "UPSTREAM_COOLDOWN",
+        retryAfterMs: cooldownUntil - Date.now(),
+        upstreamStatus: sharedCooldown.status,
+      });
     }
     return this.cache.singleFlight(route.cacheKey, async () => {
       const refreshed = await this.cache.get(route.cacheKey);
@@ -209,6 +282,28 @@ export class BinanceRestGateway {
           throw error;
         }
       }
+      // Another replica may have received a Binance 418/429 while this
+      // request was waiting for shared weight admission. Re-read the breaker
+      // immediately before sending anything upstream.
+      const lateCooldown = await this.publicCooldown(route.marketType, Date.now());
+      if (lateCooldown.until > Date.now()) {
+        if (refreshed) return marketResult(route, {
+          value: refreshed.value,
+          cacheStatus: "STALE",
+          statusCode: 200,
+          headers: {
+            "retry-after": String(Math.max(1, Math.ceil((lateCooldown.until - Date.now()) / 1_000))),
+            "x-haolo-rate-limit-source": "gateway-upstream",
+            "x-haolo-upstream-status": String(lateCooldown.status),
+          },
+        });
+        throw new MarketGatewayError("Binance upstream is cooling down", {
+          statusCode: 503,
+          code: "UPSTREAM_COOLDOWN",
+          retryAfterMs: lateCooldown.until - Date.now(),
+          upstreamStatus: lateCooldown.status,
+        });
+      }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.config.requestTimeoutMs);
       timer.unref?.();
@@ -216,12 +311,16 @@ export class BinanceRestGateway {
       try {
         response = await this.fetchImpl(route.upstream, { method: "GET", signal: controller.signal, redirect: "error" });
       } catch (error) {
+        clearTimeout(timer);
         if (refreshed) return marketResult(route, { value: refreshed.value, cacheStatus: "STALE", statusCode: 200, headers: {} });
         throw new MarketGatewayError(`Binance upstream request failed: ${String(error?.message || error)}`, { code: "UPSTREAM_UNAVAILABLE" });
+      }
+      let body;
+      try {
+        body = await response.text();
       } finally {
         clearTimeout(timer);
       }
-      const body = await response.text();
       const headers = Object.fromEntries([...response.headers.entries()].filter(([key]) => /^x-mbx-used-weight|^retry-after$/i.test(key)));
       const observedWeightHeader = response.headers.get("x-mbx-used-weight-1m")
         || response.headers.get("x-mbx-used-weight");
@@ -231,7 +330,7 @@ export class BinanceRestGateway {
       if (Number.isFinite(observedWeight) && observedWeight >= 0 && typeof this.cache.raiseWeightFloor === "function") {
         const observedAt = Date.now();
         await this.cache.raiseWeightFloor({
-          shardId: "public-egress",
+          shardId: this.config?.publicEgressId || "public-egress",
           marketType: route.marketType,
           windowId: Math.floor(observedAt / 60_000),
           value: observedWeight,
@@ -241,7 +340,7 @@ export class BinanceRestGateway {
       if (!response.ok) {
         const retryMs = retryAfterMs(response.headers.get("retry-after"));
         if (response.status === 418 || response.status === 429) {
-          this.cooldownUntil.set(route.marketType, Date.now() + Math.max(1_000, retryMs || 60_000));
+          await this.rememberCooldown(route.marketType, response.status, retryMs || (response.status === 418 ? 300_000 : 60_000));
         }
         if (refreshed && (response.status >= 500 || response.status === 418 || response.status === 429)) {
           return marketResult(route, {
@@ -250,6 +349,7 @@ export class BinanceRestGateway {
             statusCode: 200,
             headers: {
               ...headers,
+              ...(response.status === 418 || response.status === 429 ? { "x-haolo-upstream-status": String(response.status) } : {}),
               ...(response.status === 418 || response.status === 429 ? { "x-haolo-rate-limit-source": "gateway-upstream" } : {}),
             },
           });
@@ -258,6 +358,7 @@ export class BinanceRestGateway {
           statusCode: response.status === 418 || response.status === 429 ? 503 : response.status,
           code: response.status === 418 || response.status === 429 ? "UPSTREAM_RATE_LIMITED" : "UPSTREAM_REJECTED",
           retryAfterMs: retryMs,
+          upstreamStatus: response.status,
         });
       }
       let value;

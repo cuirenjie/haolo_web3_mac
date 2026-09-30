@@ -148,6 +148,39 @@ test("public server errors cannot beat healthy gateway data in a race or a direc
   }
 });
 
+test("a direct public 429/418 is treated as an egress failure and falls back to the market gateway", async () => {
+  for (const status of [418, 429]) {
+    let directCalls = 0;
+    let gatewayCalls = 0;
+    const router = new BinanceNetworkRouter({
+      config: autoConfig(),
+      publicHedgeDelayMs: 100,
+      directFetch: async () => {
+        directCalls += 1;
+        return new Response("rate limited", { status, headers: { "retry-after": "120" } });
+      },
+      gatewayClient: {
+        async fetch() {
+          gatewayCalls += 1;
+          return new Response("[[1,2]]", { status: 200, headers: { "x-haolo-cache": "STALE", "retry-after": "120", "x-haolo-rate-limit-source": "gateway-upstream" } });
+        },
+      },
+    });
+    const response = await router.publicFetch("https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT");
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-haolo-binance-route"), "public-gateway");
+    assert.equal(directCalls, 1);
+    assert.equal(gatewayCalls, 1);
+    assert.ok(router.snapshot()["public:futures"].failures > 0);
+    const second = await router.publicFetch("https://fapi.binance.com/fapi/v1/klines?symbol=ETHUSDT");
+    assert.equal(second.status, 200);
+    assert.equal(directCalls, 1, "a long direct ban must cover later foreground requests");
+    assert.equal(gatewayCalls, 2);
+    await router.runBackgroundProbes();
+    assert.equal(directCalls, 1, "background probes must respect the direct ban");
+  }
+});
+
 test("auto router uses the current client network when Binance is reachable", async () => {
   const directRequests = [];
   const gatewayRequests = [];

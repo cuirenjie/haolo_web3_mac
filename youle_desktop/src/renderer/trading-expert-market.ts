@@ -213,6 +213,7 @@ const FAVORITE_TICKER_FALLBACK_BATCH_SIZE = 4;
 const FAVORITE_SERVER_RETRY_BASE_MS = 2_000;
 const FAVORITE_SERVER_RETRY_MAX_MS = 60_000;
 const BINANCE_MARKET_RATE_LIMIT_DEFAULT_MS = 60_000;
+const BINANCE_MARKET_GATEWAY_STALE_RETRY_CAP_MS = 60_000;
 const BINANCE_MARKET_RATE_LIMIT_RETRY_PADDING_MS = 500;
 const FINNHUB_SEARCH_DEBOUNCE_MS = 480;
 const GLOBAL_MARKET_DATA_UNAVAILABLE_MESSAGE = "目前版本此交易对数据还未接入";
@@ -267,6 +268,25 @@ export function recordBinanceMarketRateLimit(value: unknown, marketType: "future
 
 function binanceMarketRateLimitMessage(retryAfterMs: number) {
   return `Binance 行情请求频率受限，约 ${Math.max(1, Math.ceil(retryAfterMs / 1_000))} 秒后自动重试`;
+}
+
+export function binanceMarketRetryAfterMs(response: {
+  retryAfterMs?: unknown;
+  stale?: boolean;
+  diagnostics?: { cacheStatus?: unknown; origin?: unknown } | null;
+} | null | undefined) {
+  const retryAfterMs = Number(response?.retryAfterMs);
+  if (!Number.isFinite(retryAfterMs) || retryAfterMs <= 0) return retryAfterMs;
+  const cacheStatus = String(response?.diagnostics?.cacheStatus || "").trim().toUpperCase();
+  const origin = String(response?.diagnostics?.origin || "").trim().toLowerCase();
+  // A gateway can safely serve bounded stale market data while Binance is in
+  // an upstream cooldown. Do not copy a multi-hour upstream ban into the
+  // desktop-wide REST block; the gateway already owns that cooldown and the
+  // next probe should happen after a short, bounded interval.
+  if (response?.stale === true && cacheStatus === "STALE" && origin.startsWith("gateway_")) {
+    return Math.min(retryAfterMs, BINANCE_MARKET_GATEWAY_STALE_RETRY_CAP_MS);
+  }
+  return retryAfterMs;
 }
 
 export function normalizeBinanceMarketSymbol(value: unknown) {
@@ -3413,8 +3433,11 @@ async function fetchBinancePublicMarketData<T>(
     })
     : await pending;
   if (!response?.ok) {
-    if (response?.status === 418 || response?.status === 429) {
-      throw new Error(binanceMarketRateLimitMessage(recordBinanceMarketRateLimit(response?.retryAfterMs, marketType)));
+    if (response?.status === 418 || response?.status === 429 || response?.rateLimited === true) {
+      throw new Error(binanceMarketRateLimitMessage(recordBinanceMarketRateLimit(
+        binanceMarketRetryAfterMs(response),
+        marketType,
+      )));
     }
     if (
       BINANCE_MARKET_SYMBOL_ERROR_CODES.has(String(response?.errorCode || "").trim().toUpperCase())
@@ -3426,7 +3449,11 @@ async function fetchBinancePublicMarketData<T>(
     }
     throw new Error(String(response?.error || `Binance ${marketType} request failed: ${response?.status || 0}`));
   }
-  if (response.rateLimited) recordBinanceMarketRateLimit(response.retryAfterMs, marketType);
+  // A gateway stale response is usable data. Keep the breaker on the
+  // gateway/router and let other symbols use their own cached entries.
+  if (response.rateLimited && response.stale !== true) {
+    recordBinanceMarketRateLimit(binanceMarketRetryAfterMs(response), marketType);
+  }
   return response.data as T;
 }
 

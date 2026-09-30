@@ -17,6 +17,11 @@ export const BINANCE_REQUEST_PRIORITIES = Object.freeze({
   metadata: 20,
 });
 
+// Internal marker used to avoid observing the same direct 418/429 twice: the
+// router also sees the response so it can protect background probes, while
+// the governor owns the foreground request's persisted cooldown and metrics.
+export const BINANCE_REQUEST_GOVERNOR_MANAGED = Symbol("binanceRequestGovernorManaged");
+
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
@@ -379,10 +384,11 @@ export class BinanceRequestGovernor {
       this.observedUsedWeight.set(`${provenance.egress}:${bucket}`, { at: currentMs, value: used });
     }
     const status = Number(response?.status || 0);
+    const upstreamStatus = Number(response?.headers?.get?.("x-haolo-upstream-status") || 0);
     const rateLimited = status === 429
       || status === 418
       || provenance.origin === "gateway_downstream"
-      || provenance.origin === "gateway_upstream";
+      || (provenance.origin === "gateway_upstream" && [418, 429].includes(upstreamStatus));
     if (rateLimited) {
       const retryAfterMs = parseBinanceRetryAfterMs(response, currentMs)
         ?? (status === 418 ? DEFAULT_BAN_RETRY_AFTER_MS : DEFAULT_RETRY_AFTER_MS);
@@ -401,6 +407,7 @@ export class BinanceRequestGovernor {
       usedWeight: Number.isFinite(used) && used >= 0 ? used : null,
       gatewayRemaining: Number.isFinite(gatewayRemaining) && gatewayRemaining >= 0 ? gatewayRemaining : null,
       cacheStatus: boundedText(response?.headers?.get?.("x-haolo-cache"), "none"),
+      upstreamStatus: [418, 429].includes(upstreamStatus) ? upstreamStatus : null,
       retryAfterMs: parseBinanceRetryAfterMs(response, currentMs),
     };
   }
@@ -463,9 +470,15 @@ export class BinanceRequestGovernor {
     if (!isBinanceHttpUrl(input)) return networkFetch(input, init);
     const url = requestUrl(input);
     const bucket = binanceRequestBucket(url);
+    const method = String(init?.method || "GET").toUpperCase();
+    const headers = new Headers(init?.headers || {});
+    const isPublicGet = method === "GET" && !headers.has("x-mbx-apikey")
+      && !url.searchParams.has("signature");
+    const publicFallbackFetch = isPublicGet && typeof context.publicFallbackFetch === "function"
+      ? context.publicFallbackFetch : null;
     const currentMs = nowValue(this.now);
     const cooldownMs = this.cooldownRemaining(bucket, currentMs);
-    if (cooldownMs > 0) {
+    if (cooldownMs > 0 && !publicFallbackFetch) {
       this.metrics.blocked += 1;
       this.recordDiagnostic({
         at: currentMs,
@@ -485,9 +498,6 @@ export class BinanceRequestGovernor {
       return localRateLimitResponse(cooldownMs, "upstream", "direct-binance");
     }
 
-    const method = String(init?.method || "GET").toUpperCase();
-    const headers = new Headers(init?.headers || {});
-    const isPublicGet = method === "GET" && !headers.has("x-mbx-apikey");
     const dedupeKey = isPublicGet ? `${method} ${url.href}` : "";
     const pending = dedupeKey ? this.inflightPublicGets.get(dedupeKey) : null;
     if (pending) {
@@ -496,8 +506,8 @@ export class BinanceRequestGovernor {
     }
 
     const weight = Math.max(1, positiveInteger(context.weight, binanceRequestWeight(url, init)));
-    const reservation = this.reserve(bucket, weight, currentMs);
-    if (!reservation) {
+    const reservation = cooldownMs > 0 ? null : this.reserve(bucket, weight, currentMs);
+    if (!reservation && !publicFallbackFetch) {
       this.metrics.blocked += 1;
       this.metrics.localBudgetBlocks += 1;
       const retryAfterMs = this.retryAfterForBudget(bucket, currentMs);
@@ -521,15 +531,29 @@ export class BinanceRequestGovernor {
 
     this.metrics.admitted += 1;
     const shared = dedupeKey ? { controller: new AbortController(), consumers: 0, settled: false, promise: null } : null;
-    const networkInit = shared ? { ...init, signal: shared.controller.signal } : init;
+    const networkInit = {
+      ...init,
+      [BINANCE_REQUEST_GOVERNOR_MANAGED]: true,
+      ...(shared ? { signal: shared.controller.signal } : {}),
+    };
     let networkStarted = false;
     const request = this.enqueue(async () => {
       const startedAt = nowValue(this.now);
       try {
+        // Requests may wait behind another request which receives 418/429.
+        // Recheck at admission; never let a queued request extend that ban.
+        const queuedCooldownMs = this.cooldownRemaining(bucket, startedAt);
+        const needsFallback = !reservation || queuedCooldownMs > 0;
+        if (needsFallback && !publicFallbackFetch) {
+          this.releaseReservation(bucket, reservation);
+          return localRateLimitResponse(queuedCooldownMs, "upstream", "direct-binance");
+        }
+        const transport = needsFallback ? publicFallbackFetch : networkFetch;
+        if (needsFallback) this.releaseReservation(bucket, reservation);
         let observation;
         const response = await runWithExecutionDeadline((...args) => {
           networkStarted = true;
-          return networkFetch(...args);
+          return transport(...args);
         }, input, networkInit, context.timeoutMs, (headersResponse) => {
           observation = this.observeResponse(bucket, headersResponse, nowValue(this.now));
           if (observation.egress !== "local") this.releaseReservation(bucket, reservation);
