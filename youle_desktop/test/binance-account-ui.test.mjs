@@ -461,6 +461,8 @@ test("account re-entry keeps the last successful snapshot and rate-limits automa
   assert.match(desktopMain, /const requestOptions = \{[\s\S]*force: params\?\.force === true,[\s\S]*live: params\?\.live === true,[\s\S]*summary: params\?\.summary === true/);
   assert.match(desktopMain, /snapshot\(owner\.ownerId, requestOptions\)[\s\S]*elapsedMs: Date\.now\(\) - startedAt/);
   assert.match(desktopMain, /error\?\.code !== "BINANCE_RATE_LIMITED"[\s\S]*retryAfterMs: Number\.isFinite\(error\?\.retryAfterMs\)/);
+  assert.match(desktopMain, /sharedQuerySucceeded[\s\S]*serverCredentialConnection[\s\S]*getBinanceAccountService\(\)\.remove\(owner\.ownerId\)/);
+  assert.match(renderer, /const status = api\.getBinanceAccountStatus[\s\S]*remoteOnlyWithoutServerCredentials[\s\S]*syncTradingExpertOrderLineSnapshot\(null\)/);
 });
 
 test("visible account surfaces refresh at scoped intervals and honor bootstrap plus failure backoff", async () => {
