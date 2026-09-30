@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { YouleApiClient } from "../src/main/youle-api-client.mjs";
 
-test("Windows account binding uses the shared mobile connection API without secrets", async () => {
+test("Windows account binding uses the shared encrypted credential API", async () => {
   const originalFetch = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (url, init = {}) => {
@@ -36,6 +36,11 @@ test("Windows account binding uses the shared mobile connection API without secr
     await client.registerMobileDevice({ platform: "windows" });
     await client.listAccountConnections();
     await client.createAccountConnection({ label: "Windows", analysisConsent: false });
+    await client.bindAccountConnectionCredentials("connection-windows", {
+      apiKey: "desktop-api-key",
+      apiSecret: "desktop-api-secret",
+    });
+    await client.getAccountConnectionSnapshot("connection-windows");
     await client.deleteAccountConnection("connection-windows");
 
     assert.equal(requests[0].url, "https://haolo.example/api/mobile/v1/devices");
@@ -57,8 +62,13 @@ test("Windows account binding uses the shared mobile connection API without secr
       requests[2].init.headers["Idempotency-Key"],
       "windows-account-connection:97b8e996-c25a-4a8d-a295-d2d68cf898ba",
     );
-    assert.match(requests[3].url, /\/api\/mobile\/v1\/account-connections\/connection-windows$/);
-    assert.equal(requests.some(({ init }) => String(init.body || "").includes("apiSecret")), false);
+    assert.match(requests[3].url, /\/api\/mobile\/v1\/account-connections\/connection-windows\/credentials$/);
+    assert.deepEqual(JSON.parse(requests[3].init.body), {
+      apiKey: "desktop-api-key",
+      apiSecret: "desktop-api-secret",
+    });
+    assert.match(requests[4].url, /\/api\/mobile\/v1\/account-connections\/connection-windows\/snapshot$/);
+    assert.match(requests[5].url, /\/api\/mobile\/v1\/account-connections\/connection-windows$/);
   } finally {
     globalThis.fetch = originalFetch;
   }

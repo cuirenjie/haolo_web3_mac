@@ -84,8 +84,8 @@ test("unbound state and binding dialog match the complete secure flow", () => {
   assert.match(dialog, /name="apiSecret" type="password"/);
   assert.match(dialog, /name="code"[\s\S]*autocomplete="one-time-code"/);
   assert.match(dialog, /jo\*\*\*\*ec@qq\.com/);
-  assert.match(dialog, /系统安全存储加密保存/);
-  assert.match(dialog, /不会进入聊天、日志或数据导出/);
+  assert.match(dialog, /通过 HTTPS 传输，并由 HaoLo 服务器加密保存/);
+  assert.match(dialog, /客户端不会把密钥放进聊天、日志或数据导出/);
   assert.match(dialog, /class="binance-account-dialog-backdrop" aria-hidden="true"/);
   assert.equal((dialog.match(/data-binance-account-action="close-dialog"/g) || []).length, 1);
   assert.match(dialog, /class="binance-account-dialog-close" data-binance-account-action="close-dialog"/);
@@ -104,6 +104,7 @@ test("unbound state and binding dialog match the complete secure flow", () => {
 test("a binding owned by another device still renders the bound account state", () => {
   const state = createBinanceAccountUiState();
   state.loaded = true;
+  state.loading = false;
   state.status = {
     bound: true,
     localBound: false,
@@ -115,10 +116,16 @@ test("a binding owned by another device still renders the bound account state", 
     updatedAt: null,
     secureStorageAvailable: true,
   };
+  state.snapshot = accountSnapshot();
   const page = renderBinanceAccountPage(state);
   assert.match(page, /账户已绑定/);
   assert.match(page, /当前绑定设备不在 Windows/);
   assert.doesNotMatch(page, /还未绑定 API|data-binance-account-action="refresh"/);
+
+  state.status.serverCredentialsBound = true;
+  const sharedPage = renderBinanceAccountPage(state);
+  assert.doesNotMatch(sharedPage, /当前绑定设备不在 Windows/);
+  assert.match(sharedPage, /data-binance-account-action="refresh"/);
 });
 
 test("binding dialog ignores backdrop clicks and Escape so only its close button dismisses it", async () => {

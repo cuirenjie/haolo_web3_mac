@@ -72812,7 +72812,7 @@ async function loadBinanceAccountPage() {
       if (loadSequence !== binanceAccountLoadSequence) return;
       accountState.status = status;
       let snapshot: BinanceAccountSnapshot | null = null;
-      if (status.bound && !status.remoteOnly) {
+      if (status.bound) {
         if (!getAccountSnapshot) throw new Error("当前客户端无法读取 Binance 账户数据。");
         snapshot = await getAccountSnapshot();
       }

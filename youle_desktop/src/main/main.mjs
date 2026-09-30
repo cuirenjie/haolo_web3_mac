@@ -4942,12 +4942,31 @@ async function syncSharedBinanceAccountConnection() {
   });
 }
 
+async function syncSharedBinanceAccountCredentials(credentials) {
+  const api = getYouleApiClient();
+  const deviceId = sharedBinanceConnectionDeviceId();
+  await api.registerMobileDevice({ deviceId, platform: "windows" });
+  let connections = await readSharedBinanceAccountConnections();
+  let target = connections[0] || null;
+  if (!target?.id) {
+    target = await api.createAccountConnection({
+      deviceId,
+      label: "Windows",
+      analysisConsent: false,
+    });
+  }
+  return api.bindAccountConnectionCredentials(target.id, credentials);
+}
+
 async function removeSharedBinanceAccountConnection() {
   const api = getYouleApiClient();
   const connections = await readSharedBinanceAccountConnections();
-  const deviceId = sharedBinanceConnectionDeviceId();
-  const own = connections.find((item) => String(item.deviceId || "") === deviceId);
-  if (own?.id) await api.deleteAccountConnection(own.id);
+  // The binding is account-scoped. Removing it from Windows must revoke the
+  // same server connection that a phone may have created, otherwise the next
+  // status query would immediately make the account appear bound again.
+  for (const connection of connections) {
+    if (connection?.id) await api.deleteAccountConnection(connection.id);
+  }
 }
 
 async function readBinanceAccountStatusWithSharedBinding(owner) {
@@ -4976,6 +4995,7 @@ async function readBinanceAccountStatusWithSharedBinding(owner) {
   const localBound = local.bound === true;
   const sharedDeviceId = sharedBinanceConnectionDeviceId();
   const own = connections.find((item) => String(item.deviceId || "") === sharedDeviceId);
+  const serverCredentialConnection = connections.find((item) => item.credentialsBound === true);
   return {
     ...local,
     bound: localBound || remoteBound,
@@ -4983,7 +5003,61 @@ async function readBinanceAccountStatusWithSharedBinding(owner) {
     remoteBound,
     remoteOnly: !localBound && remoteBound,
     connectionId: own?.id || connections[0]?.id || null,
+    serverCredentialsBound: Boolean(serverCredentialConnection),
+    serverConnectionId: serverCredentialConnection?.id || null,
     emailMasked: maskedEmail(owner.email),
+  };
+}
+
+function normalizeSharedBinanceSnapshot(snapshot) {
+  const fetchedAt = Number(snapshot?.fetchedAt);
+  const equity = Number(snapshot?.equity) || 0;
+  const available = Number(snapshot?.available) || 0;
+  const margin = Number(snapshot?.margin) || 0;
+  const unrealizedPnl = Number(snapshot?.unrealizedPnl) || 0;
+  return {
+    schemaVersion: 1,
+    currency: "USDT",
+    estimatedTotalAssets: equity,
+    todayPnl: null,
+    todayPnlPercent: null,
+    marginBalance: equity,
+    walletBalance: equity,
+    unrealizedPnl,
+    realizedPnlToday: null,
+    initialMargin: margin,
+    availableBalance: available,
+    positions: (Array.isArray(snapshot?.positions) ? snapshot.positions : []).map((row) => ({
+      symbol: String(row?.symbol || ""),
+      direction: Number(row?.quantity) >= 0 ? "LONG" : "SHORT",
+      positionSide: "BOTH",
+      marginType: "cross",
+      leverage: Number(row?.leverage) || 0,
+      amount: Number(row?.quantity) || 0,
+      notionalValue: 0,
+      margin: 0,
+      unrealizedPnl: Number(row?.unrealizedPnl) || 0,
+      roi: null,
+      marginRatio: null,
+      entryPrice: Number(row?.entryPrice) || 0,
+      markPrice: 0,
+      liquidationPrice: 0,
+      breakEvenPrice: Number(row?.entryPrice) || 0,
+      marginAsset: "USDT",
+      updatedAt: fetchedAt,
+    })),
+    positionHistory: [],
+    openOrders: [],
+    walletBreakdown: [{ walletName: "USDⓈ-M", balance: equity }],
+    sources: {
+      totalAssets: "server",
+      futures: "server",
+      realizedPnl: "unavailable",
+      positionHistory: "unavailable",
+      openOrders: "unavailable",
+    },
+    warnings: ["由 HaoLo 服务器统一读取的账户摘要"],
+    fetchedAt: Number.isFinite(fetchedAt) ? new Date(fetchedAt).toISOString() : new Date().toISOString(),
   };
 }
 
@@ -13427,13 +13501,11 @@ ipcMain.handle("binanceAccount:bind", async (event, params = {}) => {
       await restartClientAfterAuthChange();
     },
   });
-  try {
-    await syncSharedBinanceAccountConnection();
-  } catch (error) {
-    // Keep the local safe-store bind usable if an older/offline backend is
-    // temporarily unavailable; the next status read retries the sync.
-    console.warn("[binance-account] shared binding sync deferred", error?.message || String(error));
-  }
+  await syncSharedBinanceAccountConnection();
+  await syncSharedBinanceAccountCredentials({
+    apiKey: params?.apiKey,
+    apiSecret: params?.apiSecret,
+  });
   return result;
 });
 
@@ -13448,7 +13520,12 @@ ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
   const startedAt = Date.now();
   let outcome = "ok";
   try {
-    const snapshot = await getBinanceAccountService().snapshot(owner.ownerId, requestOptions);
+    const status = await readBinanceAccountStatusWithSharedBinding(owner);
+    const snapshot = status.serverCredentialsBound && status.serverConnectionId
+      ? normalizeSharedBinanceSnapshot(
+          await getYouleApiClient().getAccountConnectionSnapshot(status.serverConnectionId),
+        )
+      : await getBinanceAccountService().snapshot(owner.ownerId, requestOptions);
     return { ok: true, snapshot };
   } catch (error) {
     outcome = String(error?.code || "error");
@@ -13536,26 +13613,11 @@ ipcMain.handle("binanceAccount:remove", async (event, params = {}) => {
   if (!sameBinanceBindingOwner(ownerBeforeVerification, ownerAfterVerification)) {
     throw new BinanceAccountError("ACCOUNT_CHANGED", "验证码对应的 Haolo 账号与当前账号不一致，已拒绝解除绑定。");
   }
-  const status = await getBinanceAccountService().remove(ownerBeforeVerification.ownerId);
+  await getBinanceAccountService().remove(ownerBeforeVerification.ownerId);
   clearVoiceCredentialCache();
   await restartClientAfterAuthChange();
-  try {
-    await removeSharedBinanceAccountConnection();
-  } catch (error) {
-    console.warn("[binance-account] shared binding removal deferred", error?.message || String(error));
-  }
-  try {
-    return await readBinanceAccountStatusWithSharedBinding(ownerAfterVerification);
-  } catch {
-    return {
-      ...status,
-      bound: false,
-      localBound: false,
-      remoteBound: false,
-      remoteOnly: false,
-      connectionId: null,
-    };
-  }
+  await removeSharedBinanceAccountConnection();
+  return await readBinanceAccountStatusWithSharedBinding(ownerAfterVerification);
 });
 
 ipcMain.handle("youle:completeRegistration", async (_event, params = {}) => {
