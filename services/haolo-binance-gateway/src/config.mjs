@@ -184,6 +184,7 @@ export function loadGatewayConfig(env = process.env) {
     requestTimeoutMs: positiveInteger(env.HAOLO_BINANCE_REQUEST_TIMEOUT_MS, 10_000, { min: 1_000, max: 60_000 }),
     downstreamRequestsPerMinute,
     downstreamBurstRequestsPerMinute,
+    publicEgressId: String(env.HAOLO_PUBLIC_EGRESS_ID || "public-egress").trim() || "public-egress",
     publicFuturesUpstreamWeightPerMinute: positiveInteger(env.HAOLO_MARKET_FUTURES_WEIGHT_PER_MINUTE, 1_440, { min: 100, max: 1_000_000 }),
     publicSpotUpstreamWeightPerMinute: positiveInteger(env.HAOLO_MARKET_SPOT_WEIGHT_PER_MINUTE, 3_600, { min: 100, max: 1_000_000 }),
     maxSubscriptionsPerClient: positiveInteger(env.HAOLO_MARKET_MAX_SUBSCRIPTIONS_PER_CLIENT, 50, { min: 1, max: 1_024 }),

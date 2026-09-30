@@ -84,6 +84,29 @@ test("a direct Binance 429 creates a market-scoped, restart-persistent cooldown"
   assert.equal(restarted.snapshot().cooldowns.spot, 0);
 });
 
+test("public requests use the gateway while the direct Binance cooldown is active", async () => {
+  let directCalls = 0;
+  let gatewayCalls = 0;
+  const governor = new BinanceRequestGovernor({ now: () => 1_000_000 });
+  const direct = async () => {
+    directCalls += 1;
+    return new Response("limited", { status: 429, headers: { "retry-after": "90" } });
+  };
+  const gateway = async () => {
+    gatewayCalls += 1;
+    return new Response("{}", { status: 200, headers: {
+      "x-haolo-binance-route": "public-gateway",
+      "x-haolo-binance-egress": "haolo-public",
+    } });
+  };
+  const url = "https://fapi.binance.com/fapi/v1/ping";
+  assert.equal((await governor.fetch(direct, url)).status, 429);
+  const recovered = await governor.fetch(direct, url, {}, { publicFallbackFetch: gateway });
+  assert.equal(recovered.status, 200);
+  assert.equal(directCalls, 1);
+  assert.equal(gatewayCalls, 1);
+});
+
 test("observed gateway weight stays on its egress while the local logical budget remains independent", async () => {
   let calls = 0;
   const currentMs = 2_000_000;
@@ -170,6 +193,7 @@ test("a stale gateway upstream cooldown is attributed even when the cache respon
     "x-haolo-binance-route": "public-gateway",
     "x-haolo-binance-egress": "haolo-public",
     "x-haolo-rate-limit-source": "gateway-upstream",
+    "x-haolo-upstream-status": "418",
   } }), "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=2");
   assert.equal(response.status, 200);
   assert.equal(governor.snapshot().gatewayUpstreamRateLimits, 1);

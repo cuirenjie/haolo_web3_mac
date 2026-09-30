@@ -1591,6 +1591,7 @@ type DesktopApi = {
       egress?: string;
       origin?: "none" | "local_budget" | "direct_binance" | "gateway_downstream" | "gateway_upstream" | "transport";
       cacheStatus?: string;
+      upstreamStatus?: number | null;
       usedWeight?: number | null;
       gatewayRemaining?: number | null;
     };

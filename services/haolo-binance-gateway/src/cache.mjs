@@ -44,6 +44,21 @@ export class GatewayCache {
     return Object.freeze({ value: record.value, fresh: Number(record.freshUntil || 0) > now });
   }
 
+  async getSharedValue(key, now = Date.now()) {
+    if (!this.redis) return this.get(key, now);
+    let raw = null;
+    try { raw = await this.redis.get(this.key(key)); } catch {
+      const record = this.memory.get(key);
+      if (!record || Number(record.staleUntil || 0) <= now) return null;
+      return Object.freeze({ value: record.value, fresh: Number(record.freshUntil || 0) > now });
+    }
+    if (!raw) return null;
+    let record;
+    try { record = JSON.parse(raw); } catch { return null; }
+    if (Number(record.staleUntil || 0) <= now) return null;
+    return Object.freeze({ value: record.value, fresh: Number(record.freshUntil || 0) > now });
+  }
+
   async set(key, value, freshTtlMs, staleTtlMs = freshTtlMs) {
     if (key.startsWith("rest:")) return this.publicRest.set(this.key(key), value, freshTtlMs, staleTtlMs, this.redis);
     const now = Date.now();
@@ -54,6 +69,44 @@ export class GatewayCache {
       await this.redis.set(this.key(key), JSON.stringify(record), { PX: Math.max(1_000, staleTtlMs) });
     }
     return value;
+  }
+
+  async setCooldownAtLeast(key, value, ttlMs) {
+    const safeTtlMs = Math.max(1_000, Math.trunc(Number(ttlMs) || 60_000));
+    const requestedUntil = Math.max(0, Number(value?.until) || 0);
+    const storageKey = this.key(key);
+    const now = Date.now();
+    const record = {
+      value,
+      freshUntil: now + safeTtlMs,
+      staleUntil: now + safeTtlMs,
+    };
+    if (this.redis) {
+      const script = `
+        local currentRaw = redis.call('GET', KEYS[1])
+        local currentUntil = 0
+        if currentRaw then
+          local ok, current = pcall(cjson.decode, currentRaw)
+          if ok and current and current.value then
+            currentUntil = tonumber(current.value['until'] or 0) or 0
+          end
+        end
+        local requestedUntil = tonumber(ARGV[1]) or 0
+        if currentUntil >= requestedUntil then return currentUntil end
+        redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
+        return requestedUntil
+      `;
+      return Number(await this.redis.sendCommand([
+        "EVAL", script, "1", storageKey,
+        String(requestedUntil), JSON.stringify(record), String(safeTtlMs),
+      ]));
+    }
+    const current = this.memory.get(key);
+    const currentUntil = Number(current?.value?.until || 0);
+    if (currentUntil >= requestedUntil && current) return currentUntil;
+    this.memory.set(key, record);
+    if (this.memory.size > 10_000) this.memory.delete(this.memory.keys().next().value);
+    return requestedUntil;
   }
 
   async take(key) {

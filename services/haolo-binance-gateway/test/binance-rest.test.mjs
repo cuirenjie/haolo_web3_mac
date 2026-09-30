@@ -60,11 +60,82 @@ test("REST gateway serves stale data during Binance 429 cooldown", async () => {
   mode = "limited";
   const stale = await gateway.get(url);
   assert.equal(stale.cacheStatus, "STALE");
+  assert.equal(stale.headers["x-haolo-upstream-status"], "429");
   assert.ok(gateway.cooldownUntil.get("futures") > Date.now());
+});
+
+test("REST gateway shares public upstream cooldown across replicas", async () => {
+  const config = baseConfig();
+  const cache = new GatewayCache();
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    return new Response("rate limited", { status: 429, headers: { "retry-after": "30" } });
+  };
+  const first = new BinanceRestGateway({ config, cache, fetchImpl });
+  const second = new BinanceRestGateway({ config, cache, fetchImpl });
+  const url = "/fapi/v1/premiumIndex?symbol=BTCUSDT";
+  await assert.rejects(first.get(url), (error) => error?.code === "UPSTREAM_RATE_LIMITED");
+  await assert.rejects(second.get(url), (error) => error?.code === "UPSTREAM_COOLDOWN" && error?.upstreamStatus === 429);
+  assert.equal(calls, 1, "a shared cache must stop another replica from probing Binance");
+});
+
+test("a shared 418 cooldown keeps the upstream ban status for a cold request", async () => {
+  const config = baseConfig();
+  const cache = new GatewayCache();
+  const first = new BinanceRestGateway({
+    config,
+    cache,
+    fetchImpl: async () => new Response("banned", { status: 418, headers: { "retry-after": "30" } }),
+  });
+  const second = new BinanceRestGateway({ config, cache, fetchImpl: async () => new Response("unexpected") });
+  const url = "/fapi/v1/premiumIndex?symbol=SOLUSDT";
+  await assert.rejects(first.get(url), (error) => error?.code === "UPSTREAM_RATE_LIMITED");
+  await assert.rejects(second.get(url), (error) => error?.code === "UPSTREAM_COOLDOWN" && error?.upstreamStatus === 418);
+});
+
+test("shared public cooldown never gets shortened by a later smaller Retry-After", async () => {
+  const cache = new GatewayCache();
+  const gateway = new BinanceRestGateway({ config: baseConfig(), cache, fetchImpl: async () => new Response("[]") });
+  const firstUntil = await gateway.rememberCooldown("spot", 418, 30_000);
+  const secondUntil = await gateway.rememberCooldown("spot", 429, 1_000);
+  const stored = await cache.get("public-cooldown:spot");
+  assert.ok(firstUntil <= secondUntil);
+  assert.ok(Number(stored.value.until) >= firstUntil);
+});
+
+test("a shared cooldown is rechecked after downstream admission and before upstream I/O", async () => {
+  const cache = new GatewayCache();
+  let calls = 0;
+  const gateway = new BinanceRestGateway({
+    config: baseConfig(),
+    cache,
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response("[]", { status: 200 });
+    },
+  });
+  await assert.rejects(gateway.get("/fapi/v1/premiumIndex?symbol=ETHUSDT", {
+    beforeUpstream: async () => { await gateway.rememberCooldown("futures", 418, 30_000); },
+  }), (error) => error?.code === "UPSTREAM_COOLDOWN" && error?.upstreamStatus === 418);
+  assert.equal(calls, 0, "the late breaker check must stop the upstream request");
 });
 
 test("REST gateway rejects unsupported methods through typed errors", () => {
   const error = new MarketGatewayError("method not allowed", { statusCode: 405, code: "METHOD_NOT_ALLOWED" });
   assert.equal(error.statusCode, 405);
   assert.equal(error.code, "METHOD_NOT_ALLOWED");
+});
+
+test("public cooldown and observed-weight keys are isolated by the configured public egress", async () => {
+  const cache = new GatewayCache();
+  const gateway = new BinanceRestGateway({
+    config: baseConfig({ publicEgressId: "hk-public-b" }),
+    cache,
+    fetchImpl: async () => new Response("[]", { status: 200 }),
+  });
+  assert.equal(gateway.publicCooldownKey("spot"), "public-cooldown:hk-public-b:spot");
+  await gateway.rememberCooldown("spot", 429, 30_000);
+  assert.ok(await cache.get("public-cooldown:hk-public-b:spot"));
+  assert.equal(await cache.get("public-cooldown:spot"), null);
 });

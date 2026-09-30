@@ -128,6 +128,18 @@ kubectl -n haolo-market get pods,svc,ingress
 - 若目标是 1000 个持续每分钟刷新的 Haolo 回退用户，按 60% 安全预算至少准备约 12 个合约私有 EIP，再加 20%–30% 峰值冗余，生产规划为 15–16 个 shard 更稳妥。上线初期两个 shard 足以验证架构，但不是 1000 活跃回退用户的最终容量。
 - 扩容触发线：任一 shard 的一分钟总预算连续 5 分钟超过 50%、后台预算拒绝率超过 1%、核心许可 P95 等待/失败超线，或 429 出现一次，即停止放量并调查；确认是正常业务增长后新增 shard + NAT EIP。禁止在 429/418 后临时轮转现有用户到其他 EIP。
 
+### 5.2 线路与出口专项建议
+
+当前香港生产入口是单机公共/私有服务共用一台主机和 Redis。优先按下面顺序改造：
+
+1. **先拆出口，再买带宽。** 公共行情使用独立、固定的香港 NAT EIP；私有账户按 shard 使用独立固定 EIP，公共与私有不能共用出口。为每个公共 EIP 设置唯一 `HAOLO_PUBLIC_EGRESS_ID`，单独记录 `x-mbx-used-weight-*`、429/418 和 `Retry-After`，共享 Redis 只同步同一出口的冷却与预算。
+2. **把公共行情改成采集器加分发。** 每个市场类型只保留一个上游采集器，写入 Redis/内存热缓存，再通过 WebSocket/发布订阅向 Gateway 副本分发。Gateway 副本只做鉴权、缓存读取和 fan-out；相同 symbol、周期和 endpoint 的请求不能因为副本数增加而重复访问 Binance。
+3. **再做两副本跨可用区。** 两个公共 Gateway 副本放在同区域不同可用区，前置 LB；Redis 主库放在同区域低延迟网段，配置持久化、监控和故障切换。副本数增加不会增加 Binance 配额，必须同时有独立 EIP、独立预算账本和按 EIP 的冷却键。
+4. **高速线路只解决网络质量。** 采购前用移动、联通、电信分别测量到香港入口以及香港到 Binance 的 DNS、TCP、TLS、首包、丢包和重传；优先选择固定公网、低丢包和稳定国际出口。BGP/跨境加速可降低连接失败和 REST fallback，但不会提高 Binance 的 IP 权重额度，CDN 也不适合转发带状态的行情 REST/WSS。
+5. **禁止用代理池或自动换 IP 绕过 429/418。** 收到 429 必须停止并遵守 `Retry-After`，418 要保留该出口的长冷却；自动轮换 IP 会把同一业务的请求扩散到无法观测的出口，导致更难审计和更长的封禁。
+
+扩容验收必须包含：单个固定 EIP 注入 418 后，其他健康 EIP仍可服务；同一 EIP 的所有 Gateway 副本停止直探 Binance；Redis 短暂不可用时不继续放行无法计量的上游请求；恢复后只进行一次受控探测。
+
 ## 6. 分阶段验收
 
 ### 6.1 服务与认证
@@ -144,6 +156,7 @@ kubectl -n haolo-market get pods,svc,ingress
 - 同一 Pod 内 BTC 主图、收藏和告警订阅只建立一个桌面主进程 Hub socket；多个客户端相同 stream 只建立一个 Gateway 上游订阅引用。
 - Spot 与 USDⓈ-M 分别验证 ticker、aggTrade、kline、markPrice；切交易对和周期后旧数据不得串入。
 - 主动断开 Gateway→Binance、Gateway Pod、Redis和公共 LB，验证指数退避、重新取 ticket、REST fallback 和恢复后去重。
+- 在两个公共 Gateway 副本之间注入一次 Binance `418/429`，确认第二个副本读取 Redis 共享 `public-cooldown:<egress-id>:<spot|futures>`（默认单出口保留旧键）后不再探测 Binance；有可用旧缓存时返回 `STALE`，没有缓存时返回带 `Retry-After` 的 `UPSTREAM_COOLDOWN`。
 - 24 小时轮换前后 K 线不断档；至少执行 72 小时 soak。
 
 ### 6.3 私有账户
@@ -173,7 +186,7 @@ kubectl -n haolo-market get pods,svc,ingress
 - 公共 REST 成功率 ≥ 99.95%，Gateway 额外 P95 延迟 < 100ms（不含跨境上游）；
 - WSS 在线率 ≥ 99.9%，事件进入 Gateway 到写入客户端 socket 的 P95 < 50ms；
 - 私有 CONNECT 建连成功率 ≥ 99.9%，Gateway 额外 P95 < 50ms；
-- `private_egress_permitsIssued/permitsRejected/usageReports/upstreamCooldowns`、418、429、Redis not-ready、ticket 失败、WS reconnect、active tunnel、permitRejected 和拒绝量全部告警；
+- `upstreamRateLimited`、`upstreamCooldownHits`、`restCacheStale`、`private_egress_permitsIssued/permitsRejected/usageReports/upstreamCooldowns`、418、429、Redis not-ready、ticket 失败、WS reconnect、active tunnel、permitRejected 和拒绝量全部告警；
 - 每个 shard 的 NAT EIP、入口 LB、TLS、Redis连通、分钟总/后台/单用户预算分别建看板；按 shard ID 观察，禁止只看全集群平均值掩盖热点；
 - 固定 EIP 变更、TLS 证书剩余 30/14/7 天、JWT/Redis Secret 轮换失败必须告警。
 

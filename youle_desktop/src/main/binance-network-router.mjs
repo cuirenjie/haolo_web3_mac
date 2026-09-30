@@ -1,6 +1,10 @@
 import { DEFAULT_DIRECT_ENDPOINTS } from "./binance-gateway-config.mjs";
 import { discardBinanceResponse, fetchBinanceResponse } from "./binance-response-body.mjs";
 import { withAbort } from "./system-proxy-fetch.mjs";
+import {
+  BINANCE_REQUEST_GOVERNOR_MANAGED,
+  parseBinanceRetryAfterMs,
+} from "./binance-request-governor.mjs";
 
 const ACCOUNT_ORIGINS = new Set([
   "https://api.binance.com",
@@ -49,7 +53,17 @@ function isRouteBlockingResponse(response) {
 }
 
 function isPublicRouteFailureResponse(response, method = "GET") {
-  return isRouteBlockingResponse(response) || (method === "GET" && Number(response?.status) >= 500);
+  const status = Number(response?.status || 0);
+  // A direct 418/429 is an egress failure for public market data. Leaving it
+  // as a successful race result prevents the configured market gateway from
+  // taking over, so every renderer sees Binance's cooldown instead of a
+  // cached or separately budgeted market response. Gateway responses use the
+  // separate `isGatewayRetryableResponse` policy below and keep their existing
+  // "healthy direct wins" rule.
+  return isRouteBlockingResponse(response)
+    || status === 418
+    || status === 429
+    || (method === "GET" && status >= 500);
 }
 
 function decorateRouteResponse(response, route) {
@@ -165,6 +179,8 @@ export class BinanceNetworkRouter {
     backgroundProbeIntervalMs = config?.backgroundProbeIntervalMs || 45_000,
     initialState = null,
     onStateChange = null,
+    directCooldownRemaining = null,
+    onDirectRateLimit = null,
   } = {}) {
     if (!config || typeof directFetch !== "function") throw new TypeError("config and directFetch are required");
     this.config = config;
@@ -183,6 +199,9 @@ export class BinanceNetworkRouter {
     this.publicHedgeDelayMs = Math.max(25, Number(publicHedgeDelayMs) || 200);
     this.backgroundProbeIntervalMs = Math.max(1_000, Number(backgroundProbeIntervalMs) || 45_000);
     this.onStateChange = typeof onStateChange === "function" ? onStateChange : null;
+    this.directCooldownRemaining = directCooldownRemaining;
+    this.onDirectRateLimit = onDirectRateLimit;
+    this.directRateLimits = new Map();
     this.states = new Map();
     this.backgroundProbeInitialTimer = null;
     this.backgroundProbeTimer = null;
@@ -223,6 +242,8 @@ export class BinanceNetworkRouter {
     const state = this.state(routeKey(kind, marketType));
     const currentMs = this.currentTimeMs();
     if (
+      (kind === "public" && this.directRateLimitRemaining(marketType) > 0)
+      ||
       state.gatewayPreferredUntil > currentMs
       || state.cooldownUntil > currentMs
       || state.probing
@@ -231,6 +252,7 @@ export class BinanceNetworkRouter {
   }
 
   markDirectSuccess(kind, marketType) {
+    if (this.directRateLimitRemaining(marketType) > 0) return;
     const state = this.state(routeKey(kind, marketType));
     const changed = state.failures > 0 || state.cooldownUntil > 0 || state.gatewayPreferredUntil > 0;
     state.failures = 0;
@@ -326,6 +348,40 @@ export class BinanceNetworkRouter {
   async publicGatewayFetch(url, init) {
     if (!this.gatewayClient) throw new Error("Haolo market gateway is not configured");
     return fetchBinanceResponse(this.gatewayClient.fetch.bind(this.gatewayClient), this.gatewayPublicUrl(url), init);
+  }
+
+  canUsePublicGateway() {
+    return (this.config.routingMode || this.config.mode) !== "direct" && this.fallbackAvailable("public");
+  }
+
+  async publicGatewayOnlyFetch(input, init = {}) {
+    const url = new URL(String(input));
+    publicMarketType(url);
+    if (
+      String(init.method || "GET").toUpperCase() !== "GET"
+      || new Headers(init.headers).has("x-mbx-apikey")
+      || url.searchParams.has("signature")
+    ) {
+      throw new TypeError("public gateway permits unsigned GET only");
+    }
+    if (!this.canUsePublicGateway()) throw new Error("Public gateway fallback unavailable");
+    return decorateRouteResponse(await this.publicGatewayFetch(url, init), "public-gateway");
+  }
+
+  directRateLimitRemaining(marketType) {
+    return Math.max(0,
+      Number(this.directRateLimits.get(marketType) || 0) - this.currentTimeMs(),
+      Number(this.directCooldownRemaining?.(marketType) || 0));
+  }
+
+  observeDirectRateLimit(marketType, response, { managed = false } = {}) {
+    if (![418, 429].includes(Number(response?.status))) return;
+    const nowMs = this.currentTimeMs();
+    const retryMs = parseBinanceRetryAfterMs(response, nowMs) ?? (response.status === 418 ? 300_000 : 60_000);
+    this.directRateLimits.set(marketType, Math.max(Number(this.directRateLimits.get(marketType) || 0), nowMs + Math.max(1_000, retryMs)));
+    if (!managed) {
+      this.onDirectRateLimit?.(marketType, response, nowMs);
+    }
   }
 
   async publicHedgedFetch(url, init, marketType) {
@@ -434,15 +490,25 @@ export class BinanceNetworkRouter {
     }
   }
 
-  directRequest(kind, input, init) {
+  async directRequest(kind, input, init) {
+    init?.signal?.throwIfAborted();
+    const url = new URL(String(input));
+    const marketType = kind === "private" ? privateMarketType(url) : publicMarketType(url);
+    const cooldownMs = this.directRateLimitRemaining(marketType);
+    if (cooldownMs > 0) {
+      return new Response('{"code":-1003,"msg":"Direct Binance egress is cooling down"}', {
+        status: 429,
+        headers: { "retry-after": String(Math.ceil(cooldownMs / 1_000)), "x-haolo-rate-limit-source": "direct-binance" },
+      });
+    }
     const mode = this.config.routingMode || this.config.mode || "direct";
-    if (mode !== "auto" || !this.fallbackAvailable(kind)) return fetchBinanceResponse(this.directFetch, input, init);
-    return fetchWithDeadline(
-      this.directFetch,
-      input,
-      init,
-      this.config.directAttemptTimeoutMs || 3_000,
-    );
+    const response = mode !== "auto" || !this.fallbackAvailable(kind)
+      ? await fetchBinanceResponse(this.directFetch, input, init)
+      : await fetchWithDeadline(this.directFetch, input, init, this.config.directAttemptTimeoutMs || 3_000);
+    this.observeDirectRateLimit(marketType, response, {
+      managed: init?.[BINANCE_REQUEST_GOVERNOR_MANAGED] === true,
+    });
+    return response;
   }
 
   async publicFetch(input, init = {}) {
@@ -456,9 +522,11 @@ export class BinanceNetworkRouter {
       let gatewayResponse = null;
       try {
         gatewayResponse = decorateRouteResponse(await this.publicGatewayFetch(url, init), "public-gateway");
+        if (this.directRateLimitRemaining(marketType) > 0) return gatewayResponse;
         if (!isGatewayRetryableResponse(gatewayResponse, url) || mode !== "auto") return gatewayResponse;
       } catch (gatewayError) {
         if (init?.signal?.aborted || mode !== "auto") throw gatewayError;
+        if (this.directRateLimitRemaining(marketType) > 0) throw gatewayError;
         try {
           const directResponse = await this.directRequest("public", url.href, init);
           if (isPublicRouteFailureResponse(directResponse, method)) {
@@ -544,7 +612,7 @@ export class BinanceNetworkRouter {
     const pingPath = marketType === "futures" ? "/fapi/v1/ping" : "/api/v3/ping";
     const pingUrl = new URL(pingPath, `${this.config.publicRest[marketType]}/`).href;
     const response = await fetchWithDeadline(
-      this.directFetch,
+      (input, init) => this.directRequest("public", input, init),
       pingUrl,
       { method: "GET", cache: "no-store" },
       timeoutMs,
@@ -558,7 +626,7 @@ export class BinanceNetworkRouter {
     const pingPath = marketType === "futures" ? "/fapi/v1/ping" : "/api/v3/ping";
     const origin = marketType === "futures" ? "https://fapi.binance.com" : "https://api.binance.com";
     const response = await fetchWithDeadline(
-      this.directFetch,
+      (input, init) => this.directRequest("private", input, init),
       new URL(pingPath, `${origin}/`).href,
       { method: "GET", cache: "no-store" },
       this.config.directAttemptTimeoutMs || 3_000,
@@ -577,6 +645,7 @@ export class BinanceNetworkRouter {
     for (const kind of ROUTE_KINDS) {
       if (!this.fallbackAvailable(kind)) continue;
       for (const marketType of MARKET_TYPES) {
+        if (this.directRateLimitRemaining(marketType) > 0) continue;
         const state = this.state(routeKey(kind, marketType));
         if (
           state.gatewayPreferredUntil <= currentMs
@@ -661,7 +730,7 @@ export class BinanceNetworkRouter {
     state.probing = true;
     try {
       const response = await fetchWithDeadline(
-        this.directFetch,
+        (input, init) => this.directRequest("public", input, init),
         marketType === "futures"
           ? `${this.config.publicRest.futures}/fapi/v1/ping`
           : `${this.config.publicRest.spot}/api/v3/ping`,
