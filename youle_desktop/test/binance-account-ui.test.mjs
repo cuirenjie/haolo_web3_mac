@@ -444,6 +444,8 @@ test("account re-entry keeps the last successful snapshot and rate-limits automa
     renderer.indexOf("async function refreshBinanceAccountSnapshot"),
   );
   assert.match(loader, /const hasCachedView = Boolean\([\s\S]*accountState\.snapshot/);
+  assert.match(loader, /const remoteOnlyWithoutServerCredentials = Boolean\([\s\S]*status\.remoteOnly[\s\S]*status\.serverCredentialsBound !== true/);
+  assert.match(loader, /if \(status\.bound && !remoteOnlyWithoutServerCredentials\)/);
   assert.match(loader, /Date\.now\(\) < accountState\.autoRefreshAfter[\s\S]*\(hasCachedView \|\| Boolean\(accountState\.error\)\)/);
   assert.match(loader, /if \(binanceAccountLoadPromise\) return binanceAccountLoadPromise/);
   assert.match(loader, /accountState\.loading = !hasCachedView/);
