@@ -3,6 +3,45 @@ import test from "node:test";
 import { createBinanceGatewayClient } from "../src/main/binance-gateway-client.mjs";
 import { resolveBinanceGatewayConfig } from "../src/main/binance-gateway-config.mjs";
 
+test("server route applies to REST and one-use socket tickets, scoped by login token", async () => {
+  const config = resolveBinanceGatewayConfig({ HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://paid.example", HAOLO_BINANCE_MARKET_FREE_URL: "https://free.example" });
+  let token = "free-user";
+  const calls = [];
+  const client = createBinanceGatewayClient({ config, apiClient: { getTrustedAccessToken: async () => token },
+    fetchImpl: async (url, init) => {
+      const target = new URL(url);
+      calls.push(target.origin);
+      assert.equal(init.redirect, "error");
+      assert.equal(new Headers(init.headers).get("x-haolo-market-routing"), "1");
+      assert.equal(new Headers(init.headers).get("authorization"), `Bearer ${token}`);
+      if (token === "free-user" && target.origin === config.marketOrigin) return Response.json({ error: "MARKET_ROUTE_REQUIRED", marketOrigin: config.marketFreeOrigin }, { status: 409 });
+      return Response.json(target.pathname.endsWith("tickets") ? { ticket: "one-use", codec: "hmc1" } : { price: "1" });
+    } });
+  assert.equal(await client.marketStreamEndpoint({ marketType: "futures", combined: true }), "wss://free.example/stream/futures?ticket=one-use");
+  await client.fetch("https://paid.example/fapi/v1/ticker/price?symbol=BTCUSDT");
+  assert.deepEqual(calls, [config.marketOrigin, config.marketFreeOrigin, config.marketFreeOrigin]);
+  token = "paid-user";
+  await client.fetch("https://paid.example/fapi/v1/ticker/price");
+  assert.equal(calls.at(-1), config.marketOrigin, "a different account cannot inherit the free route");
+  assert.equal(await client.marketStreamEndpoint({ marketType: "spot" }), "wss://paid.example/ws/spot?ticket=one-use");
+});
+
+test("unknown targets, redirects with credentials and route loops never forward access tokens", async () => {
+  const config = resolveBinanceGatewayConfig({ HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://paid.example", HAOLO_BINANCE_MARKET_FREE_URL: "https://free.example" });
+  for (const destination of ["https://evil.test", "http://free.example", "https://user@free.example", "https://free.example/path", "https://paid.example"]) {
+    let calls = 0;
+    const client = createBinanceGatewayClient({ config, apiClient: { getTrustedAccessToken: async () => "test" },
+      fetchImpl: async () => { calls++; return Response.json({ error: "MARKET_ROUTE_REQUIRED", marketOrigin: destination }, { status: 409 }); } });
+    await assert.rejects(client.marketStreamEndpoint({ marketType: "futures" }));
+    assert.equal(calls, 1);
+  }
+  let calls = 0;
+  const loop = createBinanceGatewayClient({ config, apiClient: { getTrustedAccessToken: async () => "test" },
+    fetchImpl: async () => Response.json({ error: "MARKET_ROUTE_REQUIRED", marketOrigin: ++calls === 1 ? config.marketFreeOrigin : config.marketOrigin }, { status: 409 }) });
+  await assert.rejects(loop.marketStreamEndpoint({ marketType: "futures" }), /unavailable/);
+  assert.equal(calls, 2);
+});
+
 test("a stalled ticket response cannot hold a market connection for the metadata timeout", async () => {
   const config = { ...resolveBinanceGatewayConfig({ HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://market.example" }), gatewayControlTimeoutMs: 25 };
   let calls = 0;

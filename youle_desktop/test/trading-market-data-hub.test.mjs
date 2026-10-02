@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import { TradingMarketDataHub } from "../src/main/trading-market-data-hub.mjs";
+import { compactMarketPayload } from "../src/main/market-wire-codec.mjs";
 
 class FakeWebSocket extends EventEmitter {
   static OPEN = 1;
@@ -21,6 +22,23 @@ class FakeWebSocket extends EventEmitter {
   close() { this.readyState = 3; this.emit("close"); }
   terminate() { this.close(); }
 }
+
+test("compact gateway frames reach all subscribers intact; corrupt frames trigger recovery", async (t) => {
+  FakeWebSocket.instances = [];
+  const hub = new TradingMarketDataHub({ WebSocketImpl: FakeWebSocket,
+    endpointProvider: async () => "wss://market-free.youle.pro/stream/futures?ticket=one-use" });
+  t.after(() => hub.close());
+  const received = [];
+  hub.subscribe({ marketType: "futures", streams: ["btcusdt@aggTrade"] }, (event) => received.push(event.data));
+  await new Promise((r) => setImmediate(r));
+  const socket = FakeWebSocket.instances[0]; socket.open();
+  const event = { stream: "btcusdt@aggTrade", data: { e: "aggTrade", s: "BTCUSDT", p: "0.00000000100", q: "123.0000", a: 123, m: false } };
+  socket.emit("message", JSON.stringify(compactMarketPayload(event, true)));
+  assert.deepEqual(received, [event.data]);
+  socket.emit("message", JSON.stringify(["hmc1", event.stream, 0, 1]));
+  assert.equal(socket.readyState, 3);
+  assert.equal(received.length, 1);
+});
 
 test("route migration drops stale frames, preserves subscriptions and does not penalize a healthy gateway", async (t) => {
   FakeWebSocket.instances = [];
