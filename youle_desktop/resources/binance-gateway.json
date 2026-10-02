@@ -1,6 +1,7 @@
 {
   "routingMode": "auto",
   "marketGatewayUrl": "https://market.youle.pro",
+  "marketFreeUrl": "https://market-free.youle.pro",
   "marketGatewayResolutionCandidates": [
     "haolo.com",
     "47.76.124.53",

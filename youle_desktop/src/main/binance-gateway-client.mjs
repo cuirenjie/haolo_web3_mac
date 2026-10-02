@@ -1,5 +1,6 @@
 import { withMarketTicket } from "./binance-gateway-config.mjs";
 import { withAbort } from "./system-proxy-fetch.mjs";
+import { MARKET_WIRE_CODEC } from "./market-wire-codec.mjs";
 
 const HAOLO_DESKTOP_CLIENT_ID = process.platform === "darwin"
   ? "macos-desktop"
@@ -39,12 +40,24 @@ function privateRouteMetadata(input) {
 export function createBinanceGatewayClient({ config, apiClient, fetchImpl = globalThis.fetch } = {}) {
   if (!config || !apiClient || typeof fetchImpl !== "function") throw new TypeError("config, apiClient and fetchImpl are required");
   const authorization = async (forceRefresh = false) => `Bearer ${await apiClient.getTrustedAccessToken({ forceRefresh })}`;
-  const authenticatedFetch = async (url, init = {}) => {
+  const allowedOrigins = new Set([config.marketOrigin, config.marketFreeOrigin].filter(Boolean));
+  const validateTarget = (input) => {
+    const url = new URL(String(input));
+    if (url.protocol !== "https:" || url.username || url.password || !allowedOrigins.has(url.origin)) {
+      throw new TypeError("Untrusted market gateway origin");
+    }
+    return url;
+  };
+  let marketRoute = null;
+  const responseOrigins = new WeakMap();
+  const authenticatedFetch = async (url, init = {}, initialToken) => {
+    validateTarget(url);
     if (init.signal?.aborted) throw init.signal.reason;
-    const token = await authorization();
+    const token = initialToken ?? await authorization();
     if (init.signal?.aborted) throw init.signal.reason;
     let response = await fetchImpl(url, {
       ...init,
+      redirect: "error",
       headers: mergeHeaders(init.headers, token),
     });
     if (response.status !== 401 || init.signal?.aborted) return response;
@@ -53,25 +66,48 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
     if (init.signal?.aborted) throw init.signal.reason;
     response = await fetchImpl(url, {
       ...init,
+      redirect: "error",
       headers: mergeHeaders(init.headers, refreshedToken),
     });
     return response;
   };
-  const controlJson = async (url, init = {}) => {
+  const marketFetch = async (input, init = {}, { discovery = false } = {}) => {
+    const url = validateTarget(input);
+    const token = await authorization();
+    const cached = !discovery && marketRoute?.token === token && marketRoute.expiresAt > Date.now() ? marketRoute.origin : url.origin;
+    let target = new URL(url.pathname + url.search, cached);
+    const headers = new Headers(init.headers || {});
+    headers.set("X-Haolo-Market-Routing", "1");
+    for (let hop = 0; hop < 2; hop++) {
+      const response = await authenticatedFetch(target.href, { ...init, headers }, token);
+      if (response.status !== 409) {
+        responseOrigins.set(response, target.origin);
+        return response;
+      }
+      const route = await response.json();
+      if (hop !== 0 || route?.error !== "MARKET_ROUTE_REQUIRED") throw new Error("Market route unavailable");
+      const next = validateTarget(route.marketOrigin);
+      if (next.href !== `${next.origin}/` || next.origin === target.origin) throw new TypeError("Invalid market route");
+      target = new URL(url.pathname + url.search, next.origin);
+      marketRoute = { token, origin: next.origin, expiresAt: Date.now() + 60_000 };
+    }
+    throw new Error("Market route unavailable");
+  };
+  const controlJson = async (url, init = {}, market = false) => {
     const controller = new AbortController();
     const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
     const timer = setTimeout(() => controller.abort(new DOMException("Gateway control request timed out", "TimeoutError")),
       config.gatewayControlTimeoutMs || 8_000);
     try {
-      const response = await withAbort(authenticatedFetch(url, { ...init, signal }), signal);
+      const response = await withAbort(market ? marketFetch(url, { ...init, signal }, { discovery: true }) : authenticatedFetch(url, { ...init, signal }), signal);
       const payload = await withAbort(response.json().catch(() => null), signal);
-      return { response, payload };
+      return { response, payload, origin: responseOrigins.get(response) };
     } finally { clearTimeout(timer); }
   };
   return Object.freeze({
     async fetch(url, init = {}) {
       if (!config.marketGatewayEnabled) throw new Error("Haolo market gateway is not configured");
-      return authenticatedFetch(url, init);
+      return marketFetch(url, init);
     },
     async marketStreamEndpoint({ marketType, combined = false, streamClass = "market" } = {}) {
       const normalizedMarket = String(marketType || "").toLowerCase();
@@ -82,14 +118,17 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
       const key = combined ? `${normalizedMarket}${classSuffix}Combined` : `${normalizedMarket}${classSuffix}`;
       const endpoint = config.gatewayPublicWebSocket[key] || config.gatewayPublicWebSocket[combined ? `${normalizedMarket}Combined` : normalizedMarket];
       if (!endpoint || !config.ticketUrl) throw new Error("Haolo market gateway is not configured");
-      const { response, payload } = await controlJson(config.ticketUrl, {
+      const { response, payload, origin } = await controlJson(config.ticketUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ codecs: [MARKET_WIRE_CODEC] }),
         cache: "no-store",
-      });
+      }, true);
       if (!response.ok || !payload?.ticket) throw new Error(`Haolo market ticket failed: HTTP ${response.status}`);
-      return withMarketTicket(endpoint, payload.ticket);
+      const routedEndpoint = new URL(endpoint);
+      const targetOrigin = new URL(origin || config.marketOrigin);
+      routedEndpoint.host = targetOrigin.host;
+      return withMarketTicket(routedEndpoint.href, payload.ticket);
     },
     async privateRequestPermit(targetUrl, { signal } = {}) {
       if (!config.privateProxyEnabled || !config.privatePermitUrl) throw new Error("Haolo private egress is not configured");

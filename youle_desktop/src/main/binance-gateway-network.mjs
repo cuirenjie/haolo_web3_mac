@@ -20,7 +20,7 @@ export function createBinanceGatewayNetworkFetch(config, options = {}) {
   }
   const routeLookup = routes.length ? createGatewayRouteLookup({ routes, ...options.routeOptions }) : null;
   return createProxyFreeHttpsFetch({
-    allowedOrigins: [config.marketOrigin],
+    allowedOrigins: [config.marketOrigin, config.marketFreeOrigin].filter(Boolean),
     resolutionCandidatesByHostname: {
       [new URL(config.marketOrigin).hostname]: config.marketGatewayResolutionCandidates,
     },

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { GatewayAuthError } from "./auth.mjs";
+import { profileMarketEntitlement } from "./market-routing.mjs";
 
 function tokenCacheKey(token) {
   return `auth-token:${crypto.createHash("sha256").update(token).digest("hex")}`;
@@ -68,9 +69,10 @@ export class HaoloAccessTokenVerifier {
       try { profile = await response.json(); } catch { throw authenticationUnavailable(); }
       const userId = String(profile?.id || profile?.user_id || profile?.userId || profile?.user?.id || "").trim();
       if (!userId || userId.length > 128) throw authenticationUnavailable("Haolo authentication response is invalid");
-      const identity = Object.freeze({ userId, payload: null });
+      const identity = Object.freeze({ userId, payload: null, ...profileMarketEntitlement(profile) });
       const remainingMs = tokenRemainingLifetimeMs(compact);
-      const ttlMs = Math.min(this.config.authCacheTtlMs, remainingMs);
+      const ttlMs = Math.min(this.config.authCacheTtlMs, remainingMs,
+        identity.membershipExpiresAt ? Math.max(0, identity.membershipExpiresAt - Date.now()) : Infinity);
       if (ttlMs >= 1_000) await this.cache.set(key, identity, ttlMs, ttlMs);
       return identity;
     });

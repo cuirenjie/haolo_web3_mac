@@ -13,6 +13,8 @@ export const HAOLO_NETWORK_ROUTES = Object.freeze({
   "www.haolo.com": hongKongEdge,
   "invite.haolo.com": hongKongEdge,
   "market.youle.pro": hongKongEdge,
+  // Separate DNS target; never pin the free node back to the paid ECS IP.
+  "market-free.youle.pro": Object.freeze({ ordinary: "market-free.youle.pro", accelerated: Object.freeze([]) }),
   "sg-a.binance-egress.waduo.com": hongKongEdge,
   "haolo.pro": tokyo,
 });

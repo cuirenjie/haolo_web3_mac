@@ -118,6 +118,15 @@ export function loadGatewayConfig(env = process.env) {
   const privateBackgroundSafetyPercent = positiveInteger(env.HAOLO_PRIVATE_BACKGROUND_SAFETY_PERCENT, 35, { min: 1, max: 80 });
   const authApiOriginValue = String(env.HAOLO_AUTH_API_ORIGIN || (production && role !== "private" ? "https://haolo.com" : "")).trim();
   const authApiOrigin = authApiOriginValue ? httpsOrigin(authApiOriginValue, "HAOLO_AUTH_API_ORIGIN") : "";
+  const marketRoutingMode = String(env.HAOLO_MARKET_ROUTING_MODE || "off");
+  const marketNodeTier = String(env.HAOLO_MARKET_NODE_TIER || "shared");
+  if (!["off", "compatible", "strict"].includes(marketRoutingMode)) throw new Error("invalid HAOLO_MARKET_ROUTING_MODE");
+  if (!["shared", "free", "paid"].includes(marketNodeTier)) throw new Error("invalid HAOLO_MARKET_NODE_TIER");
+  const marketPaidOrigin = env.HAOLO_MARKET_PAID_ORIGIN ? httpsOrigin(env.HAOLO_MARKET_PAID_ORIGIN, "HAOLO_MARKET_PAID_ORIGIN") : "";
+  const marketFreeOrigin = env.HAOLO_MARKET_FREE_ORIGIN ? httpsOrigin(env.HAOLO_MARKET_FREE_ORIGIN, "HAOLO_MARKET_FREE_ORIGIN") : "";
+  if (marketRoutingMode !== "off" && (!authApiOrigin || marketNodeTier === "shared" || !marketPaidOrigin || !marketFreeOrigin || marketPaidOrigin === marketFreeOrigin)) {
+    throw new Error("market routing requires authoritative authentication, a node tier and distinct paid/free HTTPS origins");
+  }
 
   if (marketOnly && (!authApiOrigin || allowAnonymousPublic)) {
     throw new Error("market role requires remote authentication and cannot allow anonymous access");
@@ -162,6 +171,12 @@ export function loadGatewayConfig(env = process.env) {
   return Object.freeze({
     production,
     gatewayRole: role,
+    marketRoutingMode,
+    marketNodeTier,
+    marketPaidOrigin,
+    marketFreeOrigin,
+    marketCompactEnabled: booleanValue(env.HAOLO_MARKET_COMPACT_ENABLED, false),
+    marketSessionMaxMs: positiveInteger(env.HAOLO_MARKET_SESSION_MAX_MS, 15 * 60_000, { min: 60_000, max: 60 * 60_000 }),
     wsCompressionPercent: positiveInteger(env.HAOLO_MARKET_WS_COMPRESSION_PERCENT, 0, { min: 0, max: 100 }),
     wsCompressionThreshold: positiveInteger(env.HAOLO_MARKET_WS_COMPRESSION_THRESHOLD, 1024, { min: 1024, max: 65536 }),
     wsCompressionConcurrency: positiveInteger(env.HAOLO_MARKET_WS_COMPRESSION_CONCURRENCY, 2, { min: 1, max: 4 }),

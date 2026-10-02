@@ -14,7 +14,7 @@ test("edge services use the HK public route while model traffic stays on ordinar
         assert.equal(decision.route, "ordinary");
         assert.deepEqual(decision.addresses, [HAOLO_NETWORK_ROUTES[hostname].ordinary]);
         assert.equal(probes, 0);
-        assert.deepEqual(decision.addresses, [isModel ? "8.216.43.79" : "8.217.125.71"]);
+        assert.deepEqual(decision.addresses, [isModel ? "8.216.43.79" : hostname === "market-free.youle.pro" ? hostname : "8.217.125.71"]);
       }
     }
   }

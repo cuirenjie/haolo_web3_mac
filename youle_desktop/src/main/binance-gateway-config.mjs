@@ -79,6 +79,8 @@ export function resolveBinanceGatewayConfig(env = process.env, deployment = {}) 
     "HAOLO_BINANCE_MARKET_GATEWAY_URL",
   );
   const privateProxyUrl = secureProxyUrl(env.HAOLO_BINANCE_PRIVATE_PROXY_URL || deployment.privateProxyUrl);
+  const marketFreeOrigin = httpsOrigin(env.HAOLO_BINANCE_MARKET_FREE_URL || deployment.marketFreeUrl,
+    "HAOLO_BINANCE_MARKET_FREE_URL");
   const gatewayEnabled = Boolean(marketOrigin);
   const routingMode = routingModeValue(
     env.HAOLO_BINANCE_ROUTING_MODE || deployment.routingMode,
@@ -108,6 +110,7 @@ export function resolveBinanceGatewayConfig(env = process.env, deployment = {}) 
     routingMode,
     requireGateway,
     marketOrigin,
+    marketFreeOrigin,
     marketGatewayResolutionCandidates: resolutionCandidates(
       env.HAOLO_BINANCE_MARKET_GATEWAY_RESOLUTION_CANDIDATES
         || deployment.marketGatewayResolutionCandidates,

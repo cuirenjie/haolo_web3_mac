@@ -74,3 +74,27 @@ HAOLO_BINANCE_REQUIRE_GATEWAY=true
 两个地址均为 HTTPS origin，不允许用户名、密码、路径、query 或 fragment。`auto` 表示当前系统网络能访问 Binance 时直连，真实目标超时或地域阻断时自动回退 Haolo；它不检测 VPN 进程、虚拟网卡或公网 IP。未配置网关时开发版继续使用官方直连，生产国内版应同时配置两项。
 
 Windows 安装包还会读取打包资源 `resources/binance-gateway.json`。正式国内版应在构建前写入两个实际域名、把 `routingMode` 设为 `auto` 并把 `requireGateway` 设为 `true`；后者只保证两条回退地址齐全，不强制所有流量走网关。环境变量只用于运维覆盖，不要求终端用户手工配置。
+# 2026-10-02 公共行情降本接入（M2-026，源码已验证，未发布）
+
+公共行情分流仅使用权威 `/api/auth/me` 的 `is_member` 和 `membership_expires_at`。有效体验版、基础、专业、旗舰均走 `paid`；过期/未开通走 `free`。缺少权威字段为 `unknown`，严格模式拒绝，不从客户端声明、套餐名称或本地 JWT 自定义字段授予会员线路。现有业务后端已提供这些字段，本项无需数据库迁移。
+
+- `HAOLO_MARKET_ROUTING_MODE=off|compatible|strict`：默认 off。compatible 只分流携带新版能力的客户端，旧版仍留原节点，**不是防绕过的权限隔离**；确认旧版升级后才切 strict。strict 在 REST、票据和 WS 握手均检查，直连 IP、Bearer、伪造 tier 头无例外。
+- `HAOLO_MARKET_NODE_TIER=paid|free`；两端配置相同的 `HAOLO_MARKET_PAID_ORIGIN` / `HAOLO_MARKET_FREE_ORIGIN`。建议保留 `https://market.youle.pro` 为会员入口，新免费入口 `https://market-free.youle.pro`；后者尚待 DNS/TLS/节点配置，不代表已开通。
+- 路由不匹配返回业务 HTTP 409 / `MARKET_ROUTE_REQUIRED`。客户端只接受本地配置的两个 HTTPS origin，只允许一次换路，禁止 HTTP 自动重定向携带身份。不要使用 HTTP 421：真实集成复现底层传输自动重放 POST 导致正文长度错误；409 已通过独立两节点实际 HTTP/WS 验证。票据由目标节点独立签发、30 秒一次性消费，两个节点不共享业务密钥或 Redis。
+- `HAOLO_MARKET_COMPACT_ENABLED=false` 默认关闭。灰度通过后设 true：只有明确协商 `hmc1` 的票据使用紧凑结构。旧版维持 JSON；未知字段/事件原样 JSON 回退，价格数量仍是原字符串，字段存在性、顺序及每条事件保持；小于原 JSON 才采用紧凑格式。WS deflate 保持 0%，不引入采样、批处理等待或精度截断。原有慢客户端背压与断线恢复规则保留；“无损”指编码往返，不承诺网络断线不丢包。
+- 已分流会话每 15 分钟重新取得权威身份/票据，遇会员到期则在截止时提前释放订阅并要求重连。取消/升级最迟下个租约重查（认证缓存最多 15 秒），避免永远保留旧线路；更新客户端并不立即搬迁已经打开的连接。`HAOLO_MARKET_SESSION_MAX_MS` 可设 1–60 分钟。
+
+免费 ENS 使用独立 `market` 角色、独立 Redis 和 `HAOLO_PUBLIC_EGRESS_ID=hk-ens-free-a`，自行连接 Binance 上游并共享订阅，不能把免费节点配置为逐用户回源付费 ECS。不得给免费节点配置业务 JWT 签名私钥或私有交易出口。现有 `deploy/hong-kong` 是候选模板，不能直接覆盖现行生产；4 核 8 GiB 候选需把 market 容器内存上限降至 4 GiB，给 Redis（512 MiB 数据上限）、系统与 TLS 留余量，再执行压测。不能将原模板 8 GiB 容器上限直接用在 8 GiB 机器上。
+
+受保护 `/metrics` 新增 `haolo_market_traffic_payload_bytes_total`、`json_bytes_total`、`messages_total`，维度为 node/tier/transport/market/family/codec/legacy。无账号 ID、symbol、JWT 或票据标签。例：
+
+```promql
+sum by (tier, transport, family) (increase(haolo_market_traffic_payload_bytes_total[1d]))
+1 - sum(increase(haolo_market_traffic_payload_bytes_total{transport="ws"}[1d])) / sum(increase(haolo_market_traffic_json_bytes_total{transport="ws"}[1d]))
+```
+
+这是应用正文计数，不包括 WS/TLS/TCP 头、重传、鉴权与错误响应，不是阿里云计费流量。按节点将其与 HAProxy bytes_out、网卡和 CDT/ENS 账单核对；官网、私有账户、模型、其他地域不能按行情 80/20 一并迁走。既有平面 metrics 保留。
+
+验证证据：网关/客户端/实际 TLS、两节点 HTTP/WS、网络路由组合最终 137 通过、1 项真实 Redis 条件跳过；分流安全、兼容/严格、配置与编码边界通过。160 个真实本地 socket × 500 条，JSON/hmc1 各两轮，每轮 80,000 条，零序列或价格精度错误；socket 字节减少约 26.2%，JSON P99 21.49–21.64 ms、hmc1 19.75–22.46 ms。CPU 两组受本机调度影响（3.49–4.63 s / 4.37 s），不声称 CPU 降幅或三网无退化。可复跑 `node services/haolo-binance-gateway/scripts/benchmark-market-codec.mjs 160 json` / `160 hmc1`；两份 wire codec 由字节一致性测试锁定。类型检查与 202 模块 Vite 构建通过，无界面、主题或三语文案变更。
+
+上线顺序：新节点 ready/Binance/认证/订阅/独立出口检查 → 两地同版本网关（routing off）→ 更新客户端 → 开启编码小范围验证 → compatible 灰度并核对 legacy 流量 → 三网对比 P95/P99、CPU、事件序列、断线恢复和 24 小时账单 → strict。至少跑到现有流量峰值的两倍；观察增量延迟、错误和缺口，不以单机回环压测代替 ENS 线路验收。免费节点未通过就保持原线路，不能承诺先采购即无损。回退关闭编码/分流并按现行香港发布规程排空，不切旧新加坡主机、不清 Redis、不强杀旧连接。

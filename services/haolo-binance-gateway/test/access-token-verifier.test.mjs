@@ -52,3 +52,14 @@ test("authoritative Haolo profile verification rejects invalid sessions", async 
   });
   await assert.rejects(() => verifier.verify(twoPartToken()), (error) => error.statusCode === 401);
 });
+
+test("membership comes from authoritative profile, never forged access-token claims", async () => {
+  const expires = new Date(Date.now() + 60000).toISOString();
+  for (const member of [true, false]) {
+    const verifier = new HaoloAccessTokenVerifier({ config: baseConfig({ authApiOrigin: "https://haolo.example", authProfilePath: "/api/auth/me", authRequestTimeoutMs: 1000, authCacheTtlMs: 15000 }), cache: new GatewayCache(),
+      fetchImpl: async () => Response.json({ id: "trial-user", plan: "trial", is_member: member, membership_expires_at: expires }) });
+    const identity = await verifier.verify(twoPartToken({ is_member: !member, marketTier: member ? "free" : "paid" }));
+    assert.equal(identity.marketTier, member ? "paid" : "free");
+    assert.equal(identity.membershipExpiresAt, member ? Date.parse(expires) : null);
+  }
+});
