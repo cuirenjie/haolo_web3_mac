@@ -124,6 +124,11 @@ export function loadGatewayConfig(env = process.env) {
   if (!["shared", "free", "paid"].includes(marketNodeTier)) throw new Error("invalid HAOLO_MARKET_NODE_TIER");
   const marketPaidOrigin = env.HAOLO_MARKET_PAID_ORIGIN ? httpsOrigin(env.HAOLO_MARKET_PAID_ORIGIN, "HAOLO_MARKET_PAID_ORIGIN") : "";
   const marketFreeOrigin = env.HAOLO_MARKET_FREE_ORIGIN ? httpsOrigin(env.HAOLO_MARKET_FREE_ORIGIN, "HAOLO_MARKET_FREE_ORIGIN") : "";
+  const marketDelegationSecret = String(env.HAOLO_MARKET_DELEGATION_SECRET || "").trim();
+  if (marketDelegationSecret && (marketDelegationSecret.length < 32 || marketDelegationSecret === jwtSecret ||
+      marketRoutingMode === "off" || !["paid", "free"].includes(marketNodeTier))) {
+    throw new Error("market delegation requires a strong dedicated secret and active tier routing");
+  }
   if (marketRoutingMode !== "off" && (!authApiOrigin || marketNodeTier === "shared" || !marketPaidOrigin || !marketFreeOrigin || marketPaidOrigin === marketFreeOrigin)) {
     throw new Error("market routing requires authoritative authentication, a node tier and distinct paid/free HTTPS origins");
   }
@@ -175,6 +180,7 @@ export function loadGatewayConfig(env = process.env) {
     marketNodeTier,
     marketPaidOrigin,
     marketFreeOrigin,
+    marketDelegationSecret,
     marketCompactEnabled: booleanValue(env.HAOLO_MARKET_COMPACT_ENABLED, false),
     marketSessionMaxMs: positiveInteger(env.HAOLO_MARKET_SESSION_MAX_MS, 15 * 60_000, { min: 60_000, max: 60 * 60_000 }),
     wsCompressionPercent: positiveInteger(env.HAOLO_MARKET_WS_COMPRESSION_PERCENT, 0, { min: 0, max: 100 }),

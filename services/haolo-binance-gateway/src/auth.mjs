@@ -102,7 +102,7 @@ export function verifyPrivateEgressPermit(token, config, nowSeconds = Math.floor
 
 export function verifyHaoloAccessJwt(token, config, nowSeconds = Math.floor(Date.now() / 1_000)) {
   const identity = verifyHaoloJwt(token, config, nowSeconds);
-  if (identity.payload?.typ === PRIVATE_EGRESS_PERMIT_TYPE) throw new GatewayAuthError("access token required");
+  if ([PRIVATE_EGRESS_PERMIT_TYPE, "haolo-market-delegation"].includes(identity.payload?.typ)) throw new GatewayAuthError("access token required");
   return identity;
 }
 
@@ -134,7 +134,36 @@ export function proxyToken(headers = {}) {
   }
 }
 
-export async function requireHttpIdentity(request, config, accessTokenVerifier = null) {
+export function verifyMarketDelegation(token, config, nowSeconds = Math.floor(Date.now() / 1_000)) {
+  const secret = config.marketDelegationSecret;
+  const origin = config.marketNodeTier === "paid" ? config.marketPaidOrigin : config.marketFreeOrigin;
+  if (!secret || !origin || !["paid", "free"].includes(config.marketNodeTier)) {
+    throw new GatewayAuthError("market delegation is unavailable", 503);
+  }
+  const identity = verifyHaoloJwt(token, {
+    jwtSecret: secret, jwtIssuer: "haolo-mobile-market", jwtAudience: origin,
+  }, nowSeconds);
+  const p = identity.payload;
+  if (p.typ !== "haolo-market-delegation" || p.scope !== "public-market" ||
+      !["paid", "free"].includes(p.tier) || identity.userId.length > 128 ||
+      !Number.isInteger(p.iat) || !Number.isInteger(p.exp) ||
+      p.iat > nowSeconds + 5 || p.exp - p.iat > 60 || p.exp <= p.iat ||
+      (p.tier === "paid" && (!Number.isFinite(p.membershipExpiresAt) || p.membershipExpiresAt <= nowSeconds * 1000))) {
+    throw new GatewayAuthError("invalid market delegation");
+  }
+  return Object.freeze({ userId: identity.userId, payload: null, marketTier: p.tier,
+    membershipExpiresAt: p.tier === "paid" ? p.membershipExpiresAt : null,
+    marketRouting: true, marketDelegated: true });
+}
+
+export async function requireHttpIdentity(request, config, accessTokenVerifier = null, { market = false } = {}) {
+  const delegation = request.headers["x-haolo-market-delegation"];
+  if (delegation) {
+    // This authority is limited to public prices. Never accept it for account
+    // permits, usage reports, CONNECT, or an ordinary Haolo access token.
+    if (!market) throw new GatewayAuthError("account access token required");
+    return verifyMarketDelegation(String(delegation), config);
+  }
   const token = bearerToken(request.headers);
   if (!token && config.allowAnonymousPublic) {
     return Object.freeze({ userId: `anonymous:${request.socket.remoteAddress || "unknown"}`, payload: null });
