@@ -11,7 +11,8 @@ services:
       HAOLO_MARKET_GATEWAY_PORT: "8787"
     ports: ["127.0.0.1:8787:8787"]
     cpus: 3
-    mem_limit: 8g
+    # 4-vCPU / 8-GiB ENS candidate: reserve memory for Redis, TLS and the OS.
+    mem_limit: 4g
     restart: unless-stopped
     stop_grace_period: 2m
     logging:

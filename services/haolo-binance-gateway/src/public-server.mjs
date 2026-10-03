@@ -226,7 +226,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         return;
       }
       if (request.method === "POST" && request.url === "/api/market/v1/tickets") {
-        const identity = await requireHttpIdentity(request, config, accessTokenVerifier);
+        const identity = await requireHttpIdentity(request, config, accessTokenVerifier, { market: true });
         requireMarketRoute(identity, request, config);
         const rate = controlLimiter.consume(`ticket:${identity.userId}:${clientAddress(request, config)}`);
         if (!rate.allowed) {
@@ -238,13 +238,13 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         const codec = config.marketCompactEnabled && Array.isArray(body?.codecs) && body.codecs.includes(MARKET_WIRE_CODEC) ? MARKET_WIRE_CODEC : "json";
         await restGateway.cache.set(`ticket:${ticket}`, {
           userId: identity.userId, marketTier: marketTier(identity), membershipExpiresAt: identity.membershipExpiresAt || null,
-          marketRouting: request.headers["x-haolo-market-routing"] === "1", codec,
+          marketRouting: identity.marketRouting || request.headers["x-haolo-market-routing"] === "1", codec,
         }, expiresInMs, expiresInMs);
         sendJson(response, 201, { ticket, expiresInMs, codec });
         return;
       }
       if (request.method !== "GET") throw new MarketGatewayError("method not allowed", { statusCode: 405, code: "METHOD_NOT_ALLOWED" });
-      const identity = await requireHttpIdentity(request, config, accessTokenVerifier);
+      const identity = await requireHttpIdentity(request, config, accessTokenVerifier, { market: true });
       requireMarketRoute(identity, request, config);
       const address = clientAddress(request, config);
       const requestKey = `${identity.userId}:${address}`;

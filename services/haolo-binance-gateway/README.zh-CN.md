@@ -76,6 +76,12 @@ HAOLO_BINANCE_REQUIRE_GATEWAY=true
 Windows 安装包还会读取打包资源 `resources/binance-gateway.json`。正式国内版应在构建前写入两个实际域名、把 `routingMode` 设为 `auto` 并把 `requireGateway` 设为 `true`；后者只保证两条回退地址齐全，不强制所有流量走网关。环境变量只用于运维覆盖，不要求终端用户手工配置。
 # 2026-10-02 公共行情降本接入（M2-026，源码已验证，未发布）
 
+2026-10-03 移动端补齐：网关新增 `X-Haolo-Market-Delegation`，仅公开 REST / `/api/market/v1/tickets` 接受。后端使用每节点独立 `HAOLO_MARKET_DELEGATION_SECRET`（至少 32 字符随机值，不能与业务 / 私有出口签名密钥相同）签发不超过 60 秒的 HS256 委托，限定 issuer `haolo-mobile-market`、目标 HTTPS origin audience 和 `public-market` scope。会员携带权威到期时间；委托不能用于账户权限、私有 permit、CONNECT 或普通 access token。设此密钥必须同时启用 compatible/strict 和明确 paid/free 节点；routing off 时保持空值。客户端只收到 30 秒单次票据，不接触委托或业务后端密钥。
+
+移动历史与实时的开关由业务后端 `HAOLO_MOBILE_MARKET_ROUTING_ENABLED` 控制，默认关闭；节点密钥分别对应后端 FREE / MEMBER_DELEGATION_SECRET，不能互换。自选按 20 个品种 / 40 流分组，两节点上线配置需将 `HAOLO_MARKET_MAX_WS_CLIENTS_PER_USER` 设为 32、订阅上限至少 50，再做 500 自选和多设备压测；原默认 8 连接不能承载满额移动自选。ENS 候选 Compose 已将 market 内存上限降到 4 GiB，环境模板补充连接限额；这不代表模板已经应用生产，已有香港滚动发布 / Redis 持久化 / 排空规程继续有效。
+
+本轮网关 67 项通过、1 项真实 Redis 条件跳过；独立本地免费 / 会员 HTTP/WS 验证节点隔离、私有接口拒绝、单次票据和报价精度保留，Python 后端签发与 Node 验签互通。用户确认 ENS 仍显示申请开通；节点 API 成功但可售节点 / 规格为空，未购买、未部署本轮候选、未启用生产分流。需要企业需求审核和实际报价后再推进独立免费节点，不把两个域名指向同一出口视为完成。
+
 公共行情分流仅使用权威 `/api/auth/me` 的 `is_member` 和 `membership_expires_at`。有效体验版、基础、专业、旗舰均走 `paid`；过期/未开通走 `free`。缺少权威字段为 `unknown`，严格模式拒绝，不从客户端声明、套餐名称或本地 JWT 自定义字段授予会员线路。现有业务后端已提供这些字段，本项无需数据库迁移。
 
 - `HAOLO_MARKET_ROUTING_MODE=off|compatible|strict`：默认 off。compatible 只分流携带新版能力的客户端，旧版仍留原节点，**不是防绕过的权限隔离**；确认旧版升级后才切 strict。strict 在 REST、票据和 WS 握手均检查，直连 IP、Bearer、伪造 tier 头无例外。
