@@ -5180,6 +5180,7 @@ class TradingExpertMarketWorkspace {
   private favoriteMarketRecords = new Map<string, TradingFavoriteMarketRecord>();
   private readonly favoriteStorageAccountIdentity: string;
   private drawingStorageSessionId: string;
+  private newTaskWorkspace: boolean;
   private favoriteStorageMigratedFromLegacy = false;
   private favoriteServerReady = false;
   private favoriteServerVersion: number | null = null;
@@ -5220,8 +5221,10 @@ class TradingExpertMarketWorkspace {
     host: HTMLElement,
     favoriteStorageAccountIdentity = "",
     drawingStorageSessionId = "",
+    newTaskWorkspace = false,
   ) {
     this.host = host;
+    this.newTaskWorkspace = newTaskWorkspace;
     this.favoriteStorageAccountIdentity = favoriteStorageAccountIdentity;
     this.drawingStorageSessionId = drawingStorageSessionId;
     this.chartElement = this.requireElement("[data-market-chart]");
@@ -6200,6 +6203,7 @@ class TradingExpertMarketWorkspace {
         drawing: {
           controlsHost: this.host,
           storageSessionId: tradingSplitPaneDrawingStorageSessionId(this.drawingStorageSessionId, index),
+          isNewTask: () => this.newTaskWorkspace,
           resolveControlTarget: () => this.activeDrawingController ?? this.drawingController,
           onSharedToolStateChanged: (state, source) => this.syncDrawingSharedToolState(state, source),
           onSurfaceFocus: (source) => this.activateDrawingController(source),
@@ -8357,6 +8361,10 @@ class TradingExpertMarketWorkspace {
   restorePreservedViewState() {
     if (!this.picker.hidden) this.restoreMarketListScroll(this.marketListScrollTop);
   }
+
+  refreshDrawingSyncContext() { this.redrawDrawingControllers(); }
+
+  setNewTaskWorkspace(value: boolean) { this.newTaskWorkspace = value; }
 
   syncDrawingStorageSession(
     drawingStorageSessionId: string,
@@ -13550,6 +13558,7 @@ class TradingExpertMarketWorkspace {
       getCandles: () => this.chartCandles,
       timeOffsetSeconds: CHINA_TIME_OFFSET_SECONDS,
       storageSessionId: this.drawingStorageSessionId,
+      isNewTask: () => this.newTaskWorkspace,
       resolveControlTarget: () => this.activeDrawingController ?? this.drawingController,
       onSharedToolStateChanged: (state, source) => this.syncDrawingSharedToolState(state, source),
       onSurfaceFocus: (source) => this.activateDrawingController(source),
@@ -13998,6 +14007,7 @@ class TradingExpertMarketWorkspace {
           getCandles: () => this.chartCandles,
           timeOffsetSeconds: CHINA_TIME_OFFSET_SECONDS,
           storageSessionId: this.drawingStorageSessionId,
+          isNewTask: () => this.newTaskWorkspace,
           drawingScope: `indicator:${id}`,
           paneIndex,
           bindControlEvents: false,
@@ -15034,6 +15044,7 @@ export function syncTradingExpertMarketWorkspace(
   favoriteStorageAccountIdentity = "",
   drawingStorageSessionId = "",
   migrateDrawingsFromSessionId = "",
+  newTaskWorkspace = false,
 ) {
   if (
     host === activeWorkspaceHost
@@ -15042,11 +15053,13 @@ export function syncTradingExpertMarketWorkspace(
   ) {
     activeWorkspace.syncTitlebarFavoriteTickerHost();
     activeWorkspace.syncWatchlistHost();
+    activeWorkspace.setNewTaskWorkspace(newTaskWorkspace);
     activeWorkspace.syncDrawingStorageSession(
       drawingStorageSessionId,
       migrateDrawingsFromSessionId,
     );
     activeWorkspace.restorePreservedViewState();
+    activeWorkspace.refreshDrawingSyncContext();
     return;
   }
   activeWorkspace?.destroy();
@@ -15058,6 +15071,7 @@ export function syncTradingExpertMarketWorkspace(
       host,
       favoriteStorageAccountIdentity,
       drawingStorageSessionId,
+      newTaskWorkspace,
     );
     activeWorkspace.syncWatchlistHost();
   }
@@ -15104,7 +15118,9 @@ export function migrateTradingExpertMarketWorkspaceStorageSession(
   ) {
     return false;
   }
+  activeWorkspace.setNewTaskWorkspace(false);
   activeWorkspace.syncDrawingStorageSession(nextStorageSessionId, previousStorageSessionId);
+  activeWorkspace.refreshDrawingSyncContext();
   return activeWorkspace.drawingStorageSessionMatches(nextStorageSessionId);
 }
 
