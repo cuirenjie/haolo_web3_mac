@@ -35911,6 +35911,7 @@ function restorePreservedTradingExpertMarketWorkspace(
       sourceStorageSessionId && sourceStorageSessionId !== targetStorageSessionId
         ? sourceStorageSessionId
         : "",
+      isBlankNewThread(targetThreadId || preserved.threadId),
     );
     clearFailedTradingAlertHistorySimulation(targetThreadId || preserved.threadId);
     if (replacementThreadId === targetThreadId && sourceStorageSessionId) {
@@ -35929,6 +35930,7 @@ function restorePreservedTradingExpertMarketWorkspace(
     tradingExpertFavoriteStorageAccountIdentity(),
     targetThreadId || "",
     pendingStorageMigrationSource,
+    isBlankNewThread(targetThreadId),
   );
   clearFailedTradingAlertHistorySimulation(targetThreadId);
   if (pendingStorageMigrationSource) {

@@ -100,6 +100,7 @@ export interface TradingSplitPaneOptions {
   drawing: {
     controlsHost: HTMLElement;
     storageSessionId: string;
+    isNewTask?: () => boolean;
     resolveControlTarget: () => TradingDrawingController | null;
     onSharedToolStateChanged: (
       state: TradingDrawingSharedToolState,
@@ -478,6 +479,7 @@ export class TradingExpertSplitPane {
       getCandles: () => this.candles,
       timeOffsetSeconds: CHINA_TIME_OFFSET_SECONDS,
       storageSessionId: options.drawing.storageSessionId,
+      isNewTask: options.drawing.isNewTask,
       bindControlEvents: false,
       controlActive: false,
       clearScopeLabel: `分屏 ${this.paneIndex + 1}`,

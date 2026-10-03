@@ -1,4 +1,5 @@
 import { zoomTradingChart, type TradingChartNavigation } from "./trading-chart-navigation.ts";
+import { DesktopDrawingSync, drawingSyncText } from './manual-drawing-sync.ts';
 import { TradingChartToolbarVisibility, clampTradingChartToolbarPosition } from "./trading-chart-toolbar-visibility.ts";
 import { beginTradingChartInteraction, endTradingChartInteraction } from "./trading-chart-interaction.ts";
 import {
@@ -412,7 +413,7 @@ export interface TradingDrawingPoint {
   price: number;
 }
 
-interface TradingDrawingModel extends TradingDrawingStyle {
+export interface TradingDrawingModel extends TradingDrawingStyle {
   id: string;
   strategyId?: string;
   symbol: string;
@@ -2263,6 +2264,7 @@ interface TradingDrawingControllerOptions {
   getCandles: () => Array<{ time: number; open: number; high: number; low: number; close: number }>;
   timeOffsetSeconds: number;
   storageSessionId: string;
+  isNewTask?: () => boolean;
   drawingScope?: string;
   paneIndex?: number;
   bindControlEvents?: boolean;
@@ -2320,6 +2322,8 @@ export class TradingDrawingController {
   private manualDrawingSession!: ManualDrawingSession;
   private get drawings() { return this.manualDrawingSession.drawings; }
   private set drawings(value: TradingDrawingModel[]) { this.manualDrawingSession.drawings = value; }
+  private manualSync: DesktopDrawingSync | null = null;
+  private applyingManualSync = false;
   private aiDrawings: TradingDrawingModel[] = [];
   private aiDraft: TradingDrawingModel | null = null;
   private aiCursorPoint: TradingDrawingPoint | null = null;
@@ -2452,6 +2456,23 @@ export class TradingDrawingController {
     this.bindEvents();
     if (this.controlActive) this.updateToolbarState();
     this.redraw();
+    this.manualSync = new DesktopDrawingSync({
+      session: () => this.storageSessionId, symbol: this.getSymbol,
+      isNewTask: options.isNewTask ?? (() => false),
+      interval: this.getInterval, scope: this.drawingScope,
+      snapshot: () => this.drawings.filter(d => d.id !== this.pendingTextDrawingId),
+      busy: () => Boolean(this.draft || this.dragState || this.pendingTextDrawingId),
+      status: message => this.setStatus(message),
+      apply: (drawings, symbol, persist = true) => {
+        if (this.destroyed) return;
+        this.applyingManualSync = true;
+        this.drawings = [...this.drawings.filter(d => d.symbol !== symbol || (d.drawingScope || 'main') !== this.drawingScope), ...drawings];
+        if (!this.drawings.some(d => d.id === this.selectedDrawingId)) this.selectedDrawingId = null;
+        if (persist) this.persistDrawings(false);
+        this.applyingManualSync = false;
+        this.redraw(); this.updateToolbarState();
+      },
+    });
   }
 
   sharedToolState(): TradingDrawingSharedToolState {
@@ -2609,7 +2630,9 @@ export class TradingDrawingController {
       const combined = new Map(previousDrawings.map((drawing) => [drawing.id, drawing]));
       this.drawings.forEach((drawing) => combined.set(drawing.id, drawing));
       this.drawings = [...combined.values()];
+      this.applyingManualSync = true;
       const manualPersisted = this.persistDrawings(false);
+      this.applyingManualSync = false;
       const aiPersisted = this.drawingScope === "main" && this.persistAiDrawings(false);
       try {
         if (manualPersisted) {
@@ -3131,6 +3154,10 @@ export class TradingDrawingController {
     if (description) description.textContent = this.clearScopeLabel
       ? `${this.clearScopeLabel}的手动绘图、AI 绘图及历史记录都将被永久删除，其他分屏不受影响。此操作无法撤销。`
       : "本会话的手动绘图、AI 绘图及历史记录都将被永久删除，其他会话不受影响。此操作无法撤销。";
+    if (this.manualSync?.automatic) {
+      if (title) title.textContent = drawingSyncText('clearTitle');
+      if (description) description.textContent = drawingSyncText('clearDescription');
+    }
     if (!this.clearDialog.open) this.clearDialog.showModal();
     window.requestAnimationFrame(() => {
       this.clearDialog.querySelector<HTMLButtonElement>('[data-drawing-clear-action="cancel"]')?.focus();
@@ -4121,6 +4148,7 @@ export class TradingDrawingController {
       );
       this.refreshManualDrawingPeers();
       if (notify) this.onDrawingStateChanged?.(this);
+      if (!this.applyingManualSync) this.manualSync?.changed();
       return true;
     } catch {
       // Drawing remains available for the current session if storage is unavailable.
@@ -4176,6 +4204,7 @@ export class TradingDrawingController {
   }
 
   private clearAllDrawings() {
+    const clearedManual = this.drawings.slice();
     this.aiPlayback.cancel();
     this.cancelDragRedraw();
     this.releasePointer();
@@ -4217,6 +4246,7 @@ export class TradingDrawingController {
     this.redraw();
     this.updateToolbarState();
     this.setStatus("本会话所有绘图及历史记录已清空");
+    this.manualSync?.clearKnown(clearedManual, scopedClear ? this.drawingScope : undefined);
   }
 
   private eraseNearest(point: ScreenPoint) {
@@ -4755,6 +4785,7 @@ export class TradingDrawingController {
 
   redraw() {
     if (this.destroyed) return;
+    if (!this.applyingManualSync) this.manualSync?.contextChanged();
     const bounds = this.plotBounds();
     this.overlay.setAttribute("viewBox", `0 0 ${bounds.width} ${bounds.height}`);
     this.overlay.setAttribute("width", String(bounds.width));
@@ -5472,6 +5503,7 @@ export class TradingDrawingController {
   }
 
   destroy() {
+    this.manualSync?.destroy();
     this.aiTextSizeToolbarVisibility.destroy();
     if (this.destroyed) return;
     this.destroyed = true;
