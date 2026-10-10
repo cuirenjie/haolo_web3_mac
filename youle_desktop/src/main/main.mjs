@@ -13612,10 +13612,13 @@ ipcMain.handle("binanceAccount:remove", async (event, params = {}) => {
   if (!sameBinanceBindingOwner(ownerBeforeVerification, ownerAfterVerification)) {
     throw new BinanceAccountError("ACCOUNT_CHANGED", "验证码对应的 Haolo 账号与当前账号不一致，已拒绝解除绑定。");
   }
+  // Revoke the device-scoped remote connection first. If the network is
+  // unavailable, keep the local key so the user can retry instead of ending
+  // up with a local unbind and still-live server credentials.
+  await removeSharedBinanceAccountConnection();
   await getBinanceAccountService().remove(ownerBeforeVerification.ownerId);
   clearVoiceCredentialCache();
   await restartClientAfterAuthChange();
-  await removeSharedBinanceAccountConnection();
   return await readBinanceAccountStatusWithSharedBinding(ownerAfterVerification);
 });
 
