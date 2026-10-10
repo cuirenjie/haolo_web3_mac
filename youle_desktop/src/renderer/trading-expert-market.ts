@@ -2695,9 +2695,16 @@ function combineTradingAnalysisReports(
   preserveContent = false,
 ) {
   const english = activeTradingAnalysisLanguage() === "en";
+  // Execution-plan markdown keeps the user's strategy display name in a
+  // dedicated `Strategy:` line. Built-in strategies may have localized names
+  // such as "缠论"; that label must not make us discard an otherwise-English
+  // report when the UI language is English.
+  const hasMeaningfulHanText = (value: string) => HAN_TEXT_PATTERN.test(
+    String(value || "").replace(/^\s*Strategy:\s*.*$/gmi, ""),
+  );
   // A position report can legitimately quote the user's Chinese question or
   // contain a Han market symbol. Keep its answer even in an English UI.
-  const visiblePrimaryReport = !preserveContent && english && HAN_TEXT_PATTERN.test(primaryReport)
+  const visiblePrimaryReport = !preserveContent && english && hasMeaningfulHanText(primaryReport)
     ? "The market analysis is complete. Review the chart annotations and conditional levels for the detected structure."
     : primaryReport;
   if (!splitResult.reports.length && !splitResult.failures.length) return visiblePrimaryReport;
@@ -2707,7 +2714,7 @@ function combineTradingAnalysisReports(
     ...splitResult.reports
       .slice()
       .sort((first, second) => first.paneIndex - second.paneIndex)
-      .flatMap((report) => [`## ${report.heading}`, !preserveContent && english && HAN_TEXT_PATTERN.test(report.report)
+      .flatMap((report) => [`## ${report.heading}`, !preserveContent && english && hasMeaningfulHanText(report.report)
         ? "The auxiliary analysis is complete. Review its chart annotations for the detected structure."
         : report.report.trim()]),
   ];
@@ -6826,6 +6833,10 @@ class TradingExpertMarketWorkspace {
       && left!.every((marketId, index) => marketId === right![index]);
   }
 
+  private watchlistRecordsFingerprint() {
+    return JSON.stringify(this.watchlist.groups.find((group) => group.id === "watchlist")?.markets || []);
+  }
+
   private scheduleFavoriteServerRetry(kind: "initial" | "mutations") {
     this.favoriteServerRetryKinds.add(kind);
     if (this.disposed || this.favoriteServerRetryTimer !== null) return;
@@ -6859,6 +6870,10 @@ class TradingExpertMarketWorkspace {
     if (!force && Date.now() - this.favoriteServerLastSyncAt < 10_000) return;
     return this.queueFavoriteServer(async () => {
       try {
+        // A refresh can overlap a checkbox click or drag reorder. Keep the
+        // response from replacing newer local state; the queued mutation will
+        // upload that state after this read completes.
+        const localWatchlistAtStart = this.watchlistRecordsFingerprint();
         let response = await client.listTradingFavorites();
         const initialized = response?.initialized === true;
         // The mobile collection is the source of truth for the right-side
@@ -6878,7 +6893,10 @@ class TradingExpertMarketWorkspace {
         const remoteRecords = tradingFavoriteApiItems(response)
           .map(tradingFavoriteRecordFromApi)
           .filter(Boolean) as TradingFavoriteMarketRecord[];
-        if (response?.initialized === true || initialized === false) {
+        const canApplyRemoteWatchlist = this.watchlistRecordsFingerprint() === localWatchlistAtStart
+          && this.favoriteServerPendingMemberships.size === 0
+          && this.favoriteServerPendingOrder === null;
+        if ((response?.initialized === true || initialized === false) && canApplyRemoteWatchlist) {
           this.watchlist.replaceGroupMarkets("watchlist", remoteRecords);
           this.syncWatchlistPicker();
           this.watchlistPanel.refresh();

@@ -4950,7 +4950,13 @@ async function syncSharedBinanceAccountCredentials(credentials) {
   const deviceId = sharedBinanceConnectionDeviceId();
   await api.registerMobileDevice({ deviceId, platform: "windows" });
   let connections = await readSharedBinanceAccountConnections();
-  let target = connections[0] || null;
+  // Prefer this desktop's own connection. A shared account may have a phone
+  // connection as well; binding credentials to the first row could otherwise
+  // silently attach Windows credentials to the wrong device.
+  let target = connections.find((item) => String(item.deviceId || "") === deviceId)
+    || connections.find((item) => item.credentialsBound === true)
+    || connections[0]
+    || null;
   if (!target?.id) {
     target = await api.createAccountConnection({
       deviceId,
@@ -4987,10 +4993,17 @@ async function readBinanceAccountStatusWithSharedBinding(owner) {
     console.warn("[binance-account] shared binding query unavailable", error?.message || String(error));
   }
   const serverCredentialConnection = connections.find((item) => item.credentialsBound === true);
+  const allConnectionsExposeCredentialState = connections.length > 0
+    && connections.every((item) => typeof item?.credentialsBound === "boolean");
   // The account-level server connection is authoritative after a successful
   // query. If another client revoked it, discard the stale Windows copy so a
   // later snapshot request cannot surface NOT_BOUND from an old local key.
-  if (sharedQuerySucceeded && local.bound && !serverCredentialConnection) {
+  // Older server responses may contain active metadata rows without the
+  // credentialsBound field. Treat an empty successful result as a revoke, but
+  // preserve a local key while an ambiguous legacy row is still present.
+  const serverBindingRevoked = connections.length === 0
+    || (allConnectionsExposeCredentialState && !serverCredentialConnection);
+  if (sharedQuerySucceeded && local.bound && serverBindingRevoked) {
     await getBinanceAccountService().remove(owner.ownerId);
     local = await getBinanceAccountService().status(owner.ownerId);
   }

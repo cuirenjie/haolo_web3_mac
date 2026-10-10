@@ -77,3 +77,17 @@ test("position reports in auxiliary panes also retain market symbols and quoted 
   assert.ok(report.includes(answer));
   assert.ok(report.includes("币安人生USDT: support held."));
 });
+
+test("English execution plans keep localized strategy labels", () => {
+  const report = combine(
+    "BTC",
+    "Strategy: 缠论\nCurrent action: Wait for support confirmation.",
+    { reports: [{ paneIndex: 1, heading: "ETH", report: "Strategy: 裸K分析\nSupport is holding." }], failures: [] },
+  );
+  assert.match(report, /Strategy: 缠论/);
+  assert.match(report, /Current action: Wait for support confirmation\./);
+  assert.match(report, /Strategy: 裸K分析/);
+  assert.match(report, /Support is holding\./);
+  assert.doesNotMatch(report, /The market analysis is complete/);
+  assert.doesNotMatch(report, /The auxiliary analysis is complete/);
+});
