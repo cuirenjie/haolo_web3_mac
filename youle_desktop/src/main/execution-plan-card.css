@@ -1,0 +1,158 @@
+/* Mobile PlanningCardTheme: white cards and readable ink in both app themes. */
+html .execution-plan-surface,
+html[data-theme] .execution-plan-surface {
+  --plan-text: #18191c;
+  --plan-muted: #6c707a;
+  --plan-line: #e6e7eb;
+  --plan-label: #9a6700;
+  --execution-plan-direction-bullish: #25854c;
+  --execution-plan-direction-bearish: #cb3e50;
+  --text-primary: var(--plan-text);
+  --text-secondary: var(--plan-muted);
+  --text-muted: var(--plan-muted);
+  --conversation-analysis-context: var(--plan-label);
+  --surface-primary: #fff;
+  --surface-hover: #f6f6f8;
+  --surface-hover-translucent: #f6f6f8;
+  --surface-active-translucent: #eceef2;
+  --card-border-subtle: var(--plan-line);
+  --border-control: var(--plan-line);
+  color-scheme: light;
+  color: var(--plan-text);
+}
+html .execution-plan-surface:is(.message-execution-plan, .execution-plan-card),
+html .execution-plan-surface:is(.message-execution-plan, .execution-plan-card):hover {
+  border: 1px solid var(--plan-line);
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px;
+  color: var(--plan-text);
+}
+html .execution-plan-surface.message-execution-plan {
+  gap: 14px;
+  --plan-font-size: calc(var(--message-execution-plan-font-size, 12px) + var(--app-font-size-offset, 0px));
+}
+.execution-plan-surface.execution-plan-card {
+  --plan-font-size: calc(12px + var(--app-font-size-offset, 0px));
+}
+.execution-plan-surface .execution-plan-heading {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.execution-plan-surface .execution-plan-heading h2 {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  color: var(--plan-text);
+  font-size: calc(var(--plan-font-size) + 3px);
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.execution-plan-surface .execution-plan-badge {
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 3px;
+  padding: 3px 6px;
+  color: #fff;
+  font-size: var(--plan-font-size);
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.execution-plan-surface .execution-plan-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.execution-plan-surface .execution-plan-badge:is(.bullish, .bearish) {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.execution-plan-surface .execution-plan-badge.strategy {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.execution-plan-surface .execution-plan-badge.bullish { background: var(--execution-plan-direction-bullish); }
+.execution-plan-surface .execution-plan-badge.bearish { background: var(--execution-plan-direction-bearish); }
+.execution-plan-surface .execution-plan-badge.strategy { background: var(--plan-label); }
+.execution-plan-surface .execution-plan-badge:is(.bullish, .bearish, .strategy) { color: #fff; }
+.execution-plan-surface .execution-plan-card-content {
+  display: grid;
+  grid-template-columns: minmax(min-content, 1fr) minmax(min-content, max-content);
+  gap: 14px 10px;
+  min-width: 0;
+  color: var(--plan-muted);
+  font-size: var(--plan-font-size);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.execution-plan-surface .execution-plan-metrics {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: start;
+  gap: 12px 10px;
+}
+.execution-plan-surface .execution-plan-metric {
+  flex: 1 1 8em;
+  min-width: 0;
+}
+.execution-plan-surface .execution-plan-card-label {
+  color: var(--plan-label);
+  font-weight: 700;
+}
+.execution-plan-surface .execution-plan-metric > .execution-plan-card-label,
+.execution-plan-surface .execution-plan-target-main {
+  font-size: calc(var(--plan-font-size) + 1px);
+}
+.execution-plan-surface .execution-plan-price {
+  margin-top: 5px;
+  font-size: calc(var(--plan-font-size) + 5px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.execution-plan-surface .bullish,
+.execution-plan-surface .execution-plan-card-number-bullish { color: var(--execution-plan-direction-bullish); }
+.execution-plan-surface .bearish,
+.execution-plan-surface .execution-plan-card-number-bearish { color: var(--execution-plan-direction-bearish); }
+.execution-plan-surface .execution-plan-metric-description {
+  margin-top: 4px;
+  font-size: var(--plan-font-size);
+}
+.execution-plan-surface .execution-plan-targets { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; gap: 12px 10px; }
+.execution-plan-surface .execution-plan-target { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; align-items: baseline; gap: 2px 10px; min-width: 0; }
+.execution-plan-surface .execution-plan-target-main { grid-column: 1; min-width: 0; align-self: last baseline; }
+.execution-plan-surface .execution-plan-target-main :is(.execution-plan-card-label, strong) { white-space: nowrap; }
+.execution-plan-surface .execution-plan-target strong { color: var(--plan-text); font-weight: 700; }
+.execution-plan-surface .execution-plan-ratio { grid-column: 2; grid-row: 1; justify-self: start; align-self: last baseline; white-space: nowrap; }
+.execution-plan-surface :is(.execution-plan-ratio, .execution-plan-account-detail) { color: var(--plan-muted); font-size: calc(var(--plan-font-size) - 1px); font-weight: 400; line-height: 1.5; text-align: left; min-width: 0; }
+.execution-plan-surface .execution-plan-metric > .execution-plan-account-detail { margin-top: 4px; }
+.execution-plan-surface .execution-plan-target-amount { grid-column: 1; }
+.execution-plan-surface .execution-plan-target-profit { grid-column: 2; }
+.execution-plan-surface .execution-plan-details { display: grid; grid-column: 1 / -1; gap: 4px; font-size: calc(var(--plan-font-size) - 1px); }
+.execution-plan-surface .execution-plan-card-line { grid-column: 1 / -1; margin: 0; }
+.execution-plan-surface .execution-plan-details .execution-plan-card-label { color: var(--plan-muted); font-weight: 400; }
+html .execution-plan-surface .message-execution-plan-controls {
+  position: static;
+  justify-self: end;
+  flex-wrap: wrap;
+  max-width: 100%;
+  min-height: 24px;
+  margin: -9px -4px -6px 0;
+  background: #fff;
+}
+html .execution-plan-surface .message-execution-plan-controls button { color: var(--plan-muted); }
+.execution-plan-surface.execution-plan-card > header { padding-right: 64px; margin-bottom: 14px; }
+html .execution-plan-surface .execution-plan-card-status.pending { color: var(--plan-muted); }
+html .execution-plan-surface .execution-plan-card-status:is(.executing, .take-profit) { color: var(--execution-plan-direction-bullish); }
+html .execution-plan-surface .execution-plan-card-status.stop-loss { color: var(--execution-plan-direction-bearish); }

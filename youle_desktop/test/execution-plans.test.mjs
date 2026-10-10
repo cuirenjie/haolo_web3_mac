@@ -747,11 +747,8 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(planCardBlock, /executionPlanCardTitle\([\s\S]*fallbackTitle: plan\.title/);
   assert.doesNotMatch(planCardBlock, /tradingLastAnalysisLabelForThread/);
   assert.doesNotMatch(planCardBlock, /execution-plan-card-mark|<svg/);
-  assert.match(planCardContentBlock, /<span class="execution-plan-card-label">/);
-  assert.match(planCardContentBlock, /executionPlanDirectionTone\(line\.label, line\.text\)/);
-  assert.match(planCardContentBlock, /executionPlanSignedNumberSegments\(line\.text\)/);
-  assert.match(planCardContentBlock, /execution-plan-card-number-\$\{segment\.tone\}/);
-  assert.match(planCardContentBlock, /execution-plan-card-value-\$\{directionTone\}/);
+  assert.match(planCardContentBlock, /executionPlanCardBody\(executionPlanDisplayLines\(content\), state\.settings\.language\)/);
+  assert.match(planCardContentBlock, /executionPlanCardHeading\(title, executionPlanDisplayLines\(candidate\.content\), state\.settings\.language\)/);
   assert.doesNotMatch(planCardContentBlock, /<strong class="execution-plan-card-label">/);
   assert.match(messagePlanBlock, /executionPlanTextPartitions\(text\)/);
   assert.match(messagePlanBlock, /presentation !== "execution-plan"/);
@@ -764,7 +761,7 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   );
   assert.match(messagePlanBlock, /executionPlanCandidateWithSourceText\(rawCandidate, text\)/);
   assert.doesNotMatch(messagePlanBlock, /tradingLastAnalysisLabelForThread|state\.threads/);
-  assert.match(messagePlanBlock, /class="message-execution-plan"/);
+  assert.match(messagePlanBlock, /class="message-execution-plan execution-plan-surface"/);
   assert.match(messagePlanBlock, /partitions\.candidates\.map\([\s\S]*renderExecutionPlanCardContent\(candidate\.content\)/);
   assert.match(messagePlanBlock, /data-message-execution-plan-action="increase"[\s\S]*>放大</);
   assert.match(messagePlanBlock, /data-message-execution-plan-action="decrease"[\s\S]*>缩小</);

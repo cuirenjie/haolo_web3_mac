@@ -3,6 +3,7 @@ import fs from "node:fs";
 import test from "node:test";
 import ts from "typescript";
 import * as plans from "../src/renderer/execution-plans.ts";
+import * as planView from "../src/main/execution-plan-card-view.mjs";
 import {
   tradingTranscriptInjectionItems,
   parseTradingTranscriptMarkerText,
@@ -17,6 +18,7 @@ const functionNames = [
   "renderExecutionPlanCard", "executionPlanStatusMeta", "executionPlanCreatedLabel",
   "syncExecutionPlanLinkedAlert", "executionPlanBinanceIdentity", "addExecutionPlanFromMessageAction",
   "updateExecutionPlanLifecycle",
+  "messageExecutionPlanGroupCards", "applyMessageExecutionPlanFontSize", "applyMessageExecutionPlanGroupFontSize",
 ];
 const functions = functionNames.map((name) => {
   const node = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
@@ -33,6 +35,7 @@ function report(interval, symbol = "ETH") {
 ## ${symbol}/USDT 币安永续 ${interval} · ${side}条件方案
 当前动作：等待条件触发
 方向判断：偏${side === "多头" ? "多" : "空"}
+策略：price-action
 ${side}触发：2663.5765
 止损与失效：2621.5635
 分批止盈：2692.5737295
@@ -49,7 +52,7 @@ function harness(theme = "light", language = "zh-CN") {
   const state = { threads: [{ id: "thread", name: "ETH1H 分析" }], settings: { language }, executionPlans: [], executionPlansScope: "qa" };
   const candidates = new Map();
   const deps = {
-    ...plans, state, executionPlanCandidatesBySource: candidates,
+    ...plans, ...planView, state, executionPlanCandidatesBySource: candidates,
     executionPlanDeleteBusyIds: new Set(), executionPlanAlertSyncBusyIds: new Set(),
     escapeHtml, escapeAttr: escapeHtml, formatMessageText: escapeHtml,
     tradingLastAnalysisLabelForThread: () => runtime.latest,
@@ -104,7 +107,7 @@ test("mixed-market reports and late results retain each individual card heading"
   const text = [report("1H"), report("15M", "币安人生"), report("1D", "1INCH")].join("\n\n---\n\n");
   const msg = h.message("late", text);
   const cards = h.renderMessageExecutionPlan(msg, text).cards;
-  const titles = [...cards.matchAll(/<h2>([^<]+)<\/h2>/g)].map((match) => match[1]);
+  const titles = [...cards.matchAll(/<h2 title="([^"]+)">/g)].map((match) => match[1]);
   assert.equal(titles.length, 6);
   for (const [index, context] of ["ETH/USDT 币安永续 1H", "币安人生/USDT 币安永续 15M", "1INCH/USDT 币安永续 1D"].entries()) {
     assert.equal(titles[index * 2], context + " · 多头条件方案");
@@ -165,6 +168,43 @@ for (const theme of ["light", "dark"]) {
     });
   }
 }
+
+test("strategy badges stay bound to original results through switching, saving, sticky and reload", async () => {
+  const h = harness();
+  const first = h.message("strategy-one", report("1H"));
+  const second = h.message("strategy-two", report("4H").replaceAll("price-action", "order-flow"));
+  const initial = h.renderMessageExecutionPlan(first, first.text).cards;
+  assert.match(initial, />做多<\/span><span class="execution-plan-badge strategy"[^>]*>裸K分析<\/span>/);
+  assert.match(h.renderMessageExecutionPlan(second, second.text).cards, />订单流<\/span>/);
+  h.state.threads[0].name = "@策略：缠论";
+  assert.equal(h.renderMessageExecutionPlan(first, first.text).cards, initial);
+  h.renderAddToPlanAction(first, first.text);
+  await h.createExecutionPlanStickyFromMessageCard(h.card(first.id));
+  await h.addExecutionPlanFromMessageAction(h.button(first.id));
+  assert.match(planView.executionPlanCardHeading("", h.runtime.sticky[0].lines), />裸K分析<\/span>/);
+  const [loaded] = plans.loadExecutionPlans("qa", h.store);
+  assert.match(h.renderExecutionPlanCard(loaded), />裸K分析<\/span>/);
+  assert.doesNotMatch(h.renderExecutionPlanCard(loaded), />订单流<\/span>|>缠论<\/span>/);
+});
+
+test("legacy strategy recovery uses only a recognized original report heading", () => {
+  const base = report("1H").split("## ETH/USDT 币安永续 1H · 空头条件方案")[0].replace("策略：price-action\n", "");
+  for (const [header, strategy] of [["裸K / Price Action 分析结论", "price-action"], ["BINANCE:FUTURES:ETHUSDT · 订单流交易计划", "order-flow"], ["BINANCE:FUTURES:ETHUSDT · 1小时缠论分析", "chan"]]) {
+    const text = `## ${header}\n\n${base}`;
+    const candidate = plans.executionPlanCandidateFromText(text);
+    const recovered = plans.executionPlanCandidateWithSourceText(candidate, text);
+    assert.equal(recovered.content, `${candidate.content}\nStrategy: ${strategy}`);
+    assert.equal(plans.executionPlanCandidateWithSourceText(recovered, text).content, recovered.content);
+  }
+  for (const prefix of ["正文参考订单流和裸K分析", "## 普通分析\n裸K分析", "## 裸K / Price Action 分析结论\n\n## 未知策略分析"]) {
+    const text = `${prefix}\n\n${base}`;
+    const candidate = plans.executionPlanCandidateFromText(text);
+    assert.equal(plans.executionPlanCandidateWithSourceText(candidate, text).content, candidate.content);
+  }
+  const explicit = `## BINANCE:FUTURES:ETHUSDT · 订单流交易计划\n\n${report("1H")}`;
+  const candidate = plans.executionPlanCandidateFromText(explicit);
+  assert.equal(plans.executionPlanCandidateWithSourceText(candidate, explicit).content, candidate.content);
+});
 
 test("generic legacy cards derive stable context from their own report for every action", async () => {
   const h = harness();

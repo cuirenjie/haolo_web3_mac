@@ -1,4 +1,5 @@
 import { withModelToolNetwork } from "./model-tool-network.mjs";
+import { sharedSnapshotPosition, sharedSnapshotTime } from "./binance-account/shared-snapshot.mjs";
 import { registerManualDrawingSync } from "./manual-drawing-sync.mjs";
 import { HAOLO_GATEWAY_BASE_URL, HAOLO_GATEWAY_HOST } from "./haolo-gateway.mjs";
 import { clipboard, nativeImage, shell } from "electron/common";
@@ -5027,25 +5028,7 @@ function normalizeSharedBinanceSnapshot(snapshot) {
     realizedPnlToday: null,
     initialMargin: margin,
     availableBalance: available,
-    positions: (Array.isArray(snapshot?.positions) ? snapshot.positions : []).map((row) => ({
-      symbol: String(row?.symbol || ""),
-      direction: Number(row?.quantity) >= 0 ? "LONG" : "SHORT",
-      positionSide: "BOTH",
-      marginType: "cross",
-      leverage: Number(row?.leverage) || 0,
-      amount: Number(row?.quantity) || 0,
-      notionalValue: 0,
-      margin: 0,
-      unrealizedPnl: Number(row?.unrealizedPnl) || 0,
-      roi: null,
-      marginRatio: null,
-      entryPrice: Number(row?.entryPrice) || 0,
-      markPrice: 0,
-      liquidationPrice: 0,
-      breakEvenPrice: Number(row?.entryPrice) || 0,
-      marginAsset: "USDT",
-      updatedAt: fetchedAt,
-    })),
+    positions: (Array.isArray(snapshot?.positions) ? snapshot.positions : []).map((row) => sharedSnapshotPosition(row, fetchedAt)),
     positionHistory: [],
     openOrders: [],
     walletBreakdown: [{ walletName: "USDⓈ-M", balance: equity }],
@@ -5057,7 +5040,7 @@ function normalizeSharedBinanceSnapshot(snapshot) {
       openOrders: "unavailable",
     },
     warnings: ["由 HaoLo 服务器统一读取的账户摘要"],
-    fetchedAt: Number.isFinite(fetchedAt) ? new Date(fetchedAt).toISOString() : new Date().toISOString(),
+    fetchedAt: sharedSnapshotTime(snapshot?.fetchedAt),
   };
 }
 
@@ -15606,13 +15589,21 @@ async function loadTradingStrategyReadOnlyBinanceAccountContext() {
   }
   const accountService = getBinanceAccountService();
   try {
-    const status = await accountService.status(owner.ownerId);
+    const status = await readBinanceAccountStatusWithSharedBinding(owner);
     if (status?.bound !== true) {
       return { bound: false, available: false, snapshot: null };
     }
-    const snapshot = await accountService.snapshot(owner.ownerId, { force: true, live: true });
+    const snapshot = status.serverCredentialsBound && status.serverConnectionId
+      ? normalizeSharedBinanceSnapshot(await getYouleApiClient().getAccountConnectionSnapshot(status.serverConnectionId))
+      : await accountService.snapshot(owner.ownerId, { force: true, live: true });
+    if ((await requireHaoloAccountOwner()).ownerId !== owner.ownerId) {
+      return { bound: true, available: false, snapshot: null };
+    }
     const stale = (Array.isArray(snapshot?.warnings) ? snapshot.warnings : [])
-      .some((warning) => /上次成功读取的数据|stale/i.test(String(warning || "")));
+      .some((warning) => /上次成功读取的数据|stale/i.test(String(warning || "")))
+      || (Array.isArray(snapshot?.positions) ? snapshot.positions : []).some((position) => (
+        position?.amount > 0 && !(position?.markPrice > 0 && position?.notionalValue > 0)
+      ));
     return {
       bound: true,
       available: !stale,

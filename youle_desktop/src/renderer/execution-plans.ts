@@ -289,10 +289,38 @@ export function executionPlanCardTitle(input: {
 
 /** Bind all card actions to this message's original report, never the live thread. */
 export function executionPlanCandidateWithSourceText(candidate: ExecutionPlanCandidate, sourceText: string): ExecutionPlanCandidate {
+  const hasStrategy = executionPlanDisplayLines(candidate.content)
+    .some((line) => /^(?:策略|策略来源|策略來源|strategy)[:：]$/i.test(line.label));
+  const strategy = hasStrategy ? "" : executionPlanOriginalReportStrategy(candidate, sourceText);
   return {
     ...candidate,
     title: executionPlanCardTitle({ fallbackTitle: candidate.title, sourceText }),
+    ...(strategy ? { content: `${candidate.content}\nStrategy: ${strategy}` } : {}),
   };
+}
+
+function executionPlanOriginalReportStrategy(candidate: ExecutionPlanCandidate, sourceText: string) {
+  // Older reports predate the per-plan Strategy field. Only use the closest
+  // report heading in this original message; a prose mention is not ownership.
+  const source = String(sourceText).replace(/\r\n?/g, "\n");
+  const start = source.indexOf(candidate.content);
+  if (start < 0 || source.lastIndexOf(candidate.content) !== start) return "";
+  const headings = Array.from(source.slice(0, start).matchAll(/^##[ \t]+([^\n]+)$/gm), (match) => searchableLine(match[1]))
+    .filter((heading) => !isExecutionPlanHeading(heading));
+  const heading = headings.at(-1) || "";
+  const strategies: Array<[RegExp, string]> = [
+    [/^裸K\s*\/\s*Price Action 分析结论$/i, "price-action"],
+    [/^(?:BINANCE:FUTURES:[^\s]+\s*·\s*)?(?:订单流交易计划|Order-flow trading plan)$/i, "order-flow"],
+    [/^BINANCE:FUTURES:[^\s]+\s*·\s*\S+缠论分析$/i, "chan"],
+    [/^(?:BINANCE:FUTURES:[^\s]+\s*·\s*)?威科夫条件交易计划$/i, "wyckoff"],
+    [/^(?:BINANCE:FUTURES:[^\s]+\s*·\s*)?波浪理论交易计划$/i, "wave"],
+    [/^图表形态(?:扫描)?结论$/, "chart-patterns"],
+    [/^谐波(?:形态|扫描)结论$/, "harmonic"],
+    [/^道氏理论结论$/, "dow-theory"],
+    [/^江恩理论结论$/, "gann-theory"],
+    [/^ICT\s*\/\s*SMC (?:分析|analysis)$/i, "ict-smc"],
+  ];
+  return strategies.find(([pattern]) => pattern.test(heading))?.[1] || "";
 }
 
 export function executionPlanDisplayLines(value: unknown): ExecutionPlanDisplayLine[] {
