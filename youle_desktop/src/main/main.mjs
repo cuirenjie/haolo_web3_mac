@@ -29,6 +29,7 @@ import {
 import {
   closeExecutionPlanStickyWindows,
   createExecutionPlanStickyWindow,
+  updateExecutionPlanStickyTheme,
 } from "./execution-plan-sticky.mjs";
 import {
   HAOLO_RUNTIME_EXECUTABLE,
@@ -9722,10 +9723,12 @@ async function setTaskCompletionPopupEnabled(enabled) {
 }
 
 async function setAppTheme(theme) {
-  return writeAppPreferences({
+  const preferences = await writeAppPreferences({
     ...appPreferences(),
     theme: normalizeAppTheme(theme),
   });
+  await updateExecutionPlanStickyTheme(preferences.theme);
+  return preferences;
 }
 
 async function setAppLanguage(language) {

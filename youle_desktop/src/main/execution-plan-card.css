@@ -1,30 +1,53 @@
-/* Mobile PlanningCardTheme: white cards and readable ink in both app themes. */
+/* Shared palette for chat, saved plans and standalone sticky windows.
+   Dark colors follow the mobile sticky card; badge fills retain white-text contrast. */
+html[data-execution-plan-sticky],
 html .execution-plan-surface,
 html[data-theme] .execution-plan-surface {
+  --plan-bg: #fff;
   --plan-text: #18191c;
   --plan-muted: #6c707a;
   --plan-line: #e6e7eb;
   --plan-label: #9a6700;
+  --plan-hover: #f6f6f8;
+  --plan-active: #eceef2;
+  --plan-focus: #436eef;
+  --plan-bullish-fill: #25854c;
+  --plan-bearish-fill: #cb3e50;
+  --plan-strategy-fill: #9a6700;
   --execution-plan-direction-bullish: #25854c;
   --execution-plan-direction-bearish: #cb3e50;
   --text-primary: var(--plan-text);
   --text-secondary: var(--plan-muted);
   --text-muted: var(--plan-muted);
   --conversation-analysis-context: var(--plan-label);
-  --surface-primary: #fff;
-  --surface-hover: #f6f6f8;
-  --surface-hover-translucent: #f6f6f8;
-  --surface-active-translucent: #eceef2;
+  --surface-primary: var(--plan-bg);
+  --surface-hover: var(--plan-hover);
+  --surface-hover-translucent: var(--plan-hover);
+  --surface-active-translucent: var(--plan-active);
   --card-border-subtle: var(--plan-line);
   --border-control: var(--plan-line);
   color-scheme: light;
   color: var(--plan-text);
 }
+html[data-theme="dark"][data-execution-plan-sticky],
+html[data-theme="dark"] .execution-plan-surface {
+  --plan-bg: #1c2024;
+  --plan-text: #f7f8fa;
+  --plan-muted: #c1c6ce;
+  --plan-line: #30363d;
+  --plan-label: #ffd43b;
+  --plan-hover: #292e34;
+  --plan-active: #343a43;
+  --plan-focus: #89abff;
+  --execution-plan-direction-bullish: #7ae3a2;
+  --execution-plan-direction-bearish: #ff7f9f;
+  color-scheme: dark;
+}
 html .execution-plan-surface:is(.message-execution-plan, .execution-plan-card),
 html .execution-plan-surface:is(.message-execution-plan, .execution-plan-card):hover {
   border: 1px solid var(--plan-line);
   border-radius: 16px;
-  background: #fff;
+  background: var(--plan-bg);
   padding: 16px;
   color: var(--plan-text);
 }
@@ -81,9 +104,9 @@ html .execution-plan-surface.message-execution-plan {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.execution-plan-surface .execution-plan-badge.bullish { background: var(--execution-plan-direction-bullish); }
-.execution-plan-surface .execution-plan-badge.bearish { background: var(--execution-plan-direction-bearish); }
-.execution-plan-surface .execution-plan-badge.strategy { background: var(--plan-label); }
+.execution-plan-surface .execution-plan-badge.bullish { background: var(--plan-bullish-fill); }
+.execution-plan-surface .execution-plan-badge.bearish { background: var(--plan-bearish-fill); }
+.execution-plan-surface .execution-plan-badge.strategy { background: var(--plan-strategy-fill); }
 .execution-plan-surface .execution-plan-badge:is(.bullish, .bearish, .strategy) { color: #fff; }
 .execution-plan-surface .execution-plan-card-content {
   display: grid;
@@ -149,7 +172,7 @@ html .execution-plan-surface .message-execution-plan-controls {
   max-width: 100%;
   min-height: 24px;
   margin: -9px -4px -6px 0;
-  background: #fff;
+  background: var(--plan-bg);
 }
 html .execution-plan-surface .message-execution-plan-controls button { color: var(--plan-muted); }
 .execution-plan-surface.execution-plan-card > header { padding-right: 64px; margin-bottom: 14px; }

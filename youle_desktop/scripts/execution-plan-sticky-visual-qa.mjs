@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import assert from "node:assert/strict";
 import path from "node:path";
 import { app, BrowserWindow } from "electron/main";
 import {
@@ -11,6 +12,7 @@ import {
 import {
   closeExecutionPlanStickyWindows,
   createExecutionPlanStickyWindow,
+  updateExecutionPlanStickyTheme,
 } from "../src/main/execution-plan-sticky.mjs";
 
 const outputDirectory = path.resolve(process.argv[2] || path.join(process.cwd(), ".tmp", "execution-plan-sticky-visual-qa"));
@@ -108,7 +110,9 @@ async function capture(theme, fontSize, account = false, language = "zh-CN") {
     const rightInset = card.getBoundingClientRect().right - rightColumnEdge;
     const estimateStylesMatch = [...document.querySelectorAll('.execution-plan-estimate, .execution-plan-estimate span')].every(el => {
       const style = getComputedStyle(el);
-      return style.color === ratioStyle.color && style.fontSize === ratioStyle.fontSize && style.fontWeight === ratioStyle.fontWeight;
+      const value = el.matches('span') ? Number(el.textContent.replaceAll(',', '')) : 0;
+      const expectedColor = value === 0 ? ratioStyle.color : getComputedStyle(document.querySelector(value > 0 ? '.execution-plan-price.bullish' : '.execution-plan-price.bearish')).color;
+      return style.color === expectedColor && style.fontSize === ratioStyle.fontSize && style.fontWeight === ratioStyle.fontWeight;
     });
     const displayed = document.querySelector('.execution-plan-card-content').textContent;
     const controlsGap = controls.getBoundingClientRect().top - content.getBoundingClientRect().bottom;
@@ -132,11 +136,29 @@ async function capture(theme, fontSize, account = false, language = "zh-CN") {
       && badge.getBoundingClientRect().left > direction.getBoundingClientRect().right
       && Math.abs(badge.getBoundingClientRect().top - direction.getBoundingClientRect().top) < 0.1
       && getComputedStyle(badge).backgroundColor === 'rgb(154, 103, 0)'
-      && getComputedStyle(card).backgroundColor === 'rgb(255, 255, 255)', rightSpace, pricesAndRatiosAlign,
+      && getComputedStyle(card).backgroundColor === '${theme === "dark" ? "rgb(28, 32, 36)" : "rgb(255, 255, 255)"}', rightSpace, pricesAndRatiosAlign,
       width: innerWidth, controlsGap, controlsContentGap, leftInset, rightInset, bottomPadding, ratioLefts: ratios, stopLeft,
       contentHeight: content.clientHeight, scrollHeight: content.scrollHeight, cardWidth: card.clientWidth, scrollWidth: card.scrollWidth };
   })()`);
   if (!layoutFits.fits) throw new Error(`Sticky layout failed in ${theme}/${language}/${account} at ${fontSize}px: ${JSON.stringify(layoutFits)}`);
+  const palette = await window.webContents.executeJavaScript(`(() => {
+    const color = (selector, property = 'color') => getComputedStyle(document.querySelector(selector))[property];
+    return { scheme: color('.card', 'colorScheme'), text: color('h2'), muted: color('.execution-plan-ratio'),
+      label: color('.execution-plan-card-label'), bullish: color('.execution-plan-price.bullish'),
+      bearish: color('.execution-plan-price.bearish'), controls: color('.controls', 'backgroundColor'),
+      control: color('.sticky-action'), handle: color('.resize-handle') };
+  })()`);
+  const dark = theme === "dark";
+  assert.deepEqual(palette, {
+    scheme: theme, text: dark ? "rgb(247, 248, 250)" : "rgb(24, 25, 28)",
+    muted: dark ? "rgb(193, 198, 206)" : "rgb(108, 112, 122)",
+    label: dark ? "rgb(255, 212, 59)" : "rgb(154, 103, 0)",
+    bullish: dark ? "rgb(122, 227, 162)" : "rgb(37, 133, 76)",
+    bearish: dark ? "rgb(255, 127, 159)" : "rgb(203, 62, 80)",
+    controls: dark ? "rgb(28, 32, 36)" : "rgb(255, 255, 255)",
+    control: dark ? "rgb(193, 198, 206)" : "rgb(108, 112, 122)",
+    handle: dark ? "rgb(193, 198, 206)" : "rgb(108, 112, 122)",
+  });
   const image = await window.webContents.capturePage();
   const file = path.join(outputDirectory, `execution-plan-sticky-${theme}-${fontSize}px-${language}-${account ? "account" : "prices"}.png`);
   await writeFile(file, image.toPNG());
@@ -209,6 +231,24 @@ async function verifyGroupedDesktopInteraction() {
   if (preservedBounds.width !== afterResize.width || preservedBounds.height !== afterResize.height) {
     throw new Error("Content fitting overwrote the user's manually resized sticky note.");
   }
+
+  await second.webContents.executeJavaScript('window.themeQaDocument = true');
+  for (const theme of ["light", "dark"]) {
+    await updateExecutionPlanStickyTheme(theme);
+    for (const window of [first, second]) {
+      assert.equal(await window.webContents.executeJavaScript('document.documentElement.dataset.theme'), theme);
+      assert.equal(await window.webContents.executeJavaScript('getComputedStyle(document.querySelector(".card")).backgroundColor'),
+        theme === "dark" ? "rgb(28, 32, 36)" : "rgb(255, 255, 255)");
+    }
+    assert.deepEqual(second.getBounds(), preservedBounds);
+    assert.equal(await second.webContents.executeJavaScript('window.themeQaDocument'), true);
+  }
+  // A zoom navigation must also pick up a theme changed while it is loading.
+  await first.webContents.executeJavaScript('document.querySelector("a[href*=zoom-in]")?.click()');
+  await updateExecutionPlanStickyTheme("light");
+  await delay(180);
+  assert.equal(await second.webContents.executeJavaScript('document.documentElement.dataset.theme'), "light");
+  assert.equal(await second.webContents.executeJavaScript('getComputedStyle(document.querySelector(".execution-plan-card-content")).fontSize'), "16px");
 
   await first.webContents.executeJavaScript('document.querySelector("a[href*=delete]")?.click()');
   await delay(120);

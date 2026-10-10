@@ -194,27 +194,26 @@ export function executionPlanStickyHtml(input = {}) {
   const maxFont = EXECUTION_PLAN_STICKY_FONT_SIZES.at(-1);
   const lines = executionPlanCardBody(payload.lines, payload.language);
   return `<!doctype html>
-<html lang="${copy.lang}" data-theme="${payload.theme}">
+<html lang="${copy.lang}" data-theme="${payload.theme}" data-execution-plan-sticky>
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-haolo-sticky-resize';" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { color-scheme: light; --bg: #fff; --border: #e6e7eb; --text: #18191c; --secondary: #6c707a; --control: #fff; --hover: #f6f6f8; --active: #eceef2; --focus: #436eef; }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; }
     body { padding: 8px; }
-    .card { position: relative; display: flex; width: 100%; height: 100%; flex-direction: column; gap: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); padding: 16px 16px 10px; cursor: grab; -webkit-app-region: no-drag; user-select: none; --plan-font-size: ${payload.fontSize}px; }
+    .card { position: relative; display: flex; width: 100%; height: 100%; flex-direction: column; gap: 0; overflow: hidden; border: 1px solid var(--plan-line); border-radius: 16px; background: var(--plan-bg); color: var(--plan-text); padding: 16px 16px 10px; cursor: grab; -webkit-app-region: no-drag; user-select: none; --plan-font-size: ${payload.fontSize}px; }
     .card.dragging { cursor: grabbing; }
-    .content { flex: 1; min-height: 0; overflow: auto; scrollbar-color: color-mix(in srgb, var(--secondary) 42%, transparent) transparent; scrollbar-width: thin; }
+    .content { flex: 1; min-height: 0; overflow: auto; scrollbar-color: color-mix(in srgb, var(--plan-muted) 42%, transparent) transparent; scrollbar-width: thin; }
     .content > .execution-plan-heading { margin-bottom: 14px; }
-    .controls { position: relative; z-index: 5; display: flex; flex-wrap: wrap; justify-content: flex-end; align-self: flex-end; flex-shrink: 0; gap: 6px; border-radius: 7px; background: var(--control); padding: 0; opacity: 1; pointer-events: auto; transform: none; -webkit-app-region: no-drag; }
-    .sticky-action { display: grid; min-width: 34px; height: 24px; place-items: center; border-radius: 5px; padding: 0 6px; color: var(--secondary); font-size: 10px; font-weight: 500; line-height: 1; text-decoration: none; cursor: pointer; -webkit-app-region: no-drag; }
-    .sticky-action:hover { background: var(--hover); color: var(--text); }
-    .sticky-action:active { background: var(--active); transform: translateY(1px); }
-    .sticky-action:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; color: var(--text); }
-    .sticky-action.disabled { color: var(--secondary); cursor: not-allowed; opacity: .38; }
-    .resize-handle { position: fixed; z-index: 6; display: grid; width: 28px; height: 28px; place-items: center; border: 0; color: var(--secondary); background: none; opacity: 0; pointer-events: auto; transition: opacity 120ms ease, color 120ms ease; -webkit-app-region: no-drag; touch-action: none; }
+    .controls { position: relative; z-index: 5; display: flex; flex-wrap: wrap; justify-content: flex-end; align-self: flex-end; flex-shrink: 0; gap: 6px; border-radius: 7px; background: var(--plan-bg); padding: 0; opacity: 1; pointer-events: auto; transform: none; -webkit-app-region: no-drag; }
+    .sticky-action { display: grid; min-width: 34px; height: 24px; place-items: center; border-radius: 5px; padding: 0 6px; color: var(--plan-muted); font-size: 10px; font-weight: 500; line-height: 1; text-decoration: none; cursor: pointer; -webkit-app-region: no-drag; }
+    .sticky-action:hover { background: var(--plan-hover); color: var(--plan-text); }
+    .sticky-action:active { background: var(--plan-active); transform: translateY(1px); }
+    .sticky-action:focus-visible { outline: 2px solid var(--plan-focus); outline-offset: 0; color: var(--plan-text); }
+    .sticky-action.disabled { color: var(--plan-muted); cursor: not-allowed; opacity: .38; }
+    .resize-handle { position: fixed; z-index: 6; display: grid; width: 28px; height: 28px; place-items: center; border: 0; color: var(--plan-muted); background: none; opacity: 0; pointer-events: auto; transition: opacity 120ms ease, color 120ms ease; -webkit-app-region: no-drag; touch-action: none; }
     .resize-handle::before { display: block; font: 18px/1 "Segoe UI Symbol", "Segoe UI", sans-serif; transition: transform 90ms ease; }
     .resize-handle.nw { top: 0; left: 0; cursor: nwse-resize; }
     .resize-handle.ne { top: 0; right: 0; cursor: nesw-resize; }
@@ -222,7 +221,7 @@ export function executionPlanStickyHtml(input = {}) {
     .resize-handle.se { right: 0; bottom: 0; cursor: nwse-resize; }
     .resize-handle:is(.nw, .se)::before { content: "⤡"; }
     .resize-handle:is(.ne, .sw)::before { content: "⤢"; }
-    .resize-handle:hover, .resize-handle.active { color: var(--text); opacity: 1; }
+    .resize-handle:hover, .resize-handle.active { color: var(--plan-text); opacity: 1; }
     .resize-handle.active::before { transform: scale(.9); }
     @media (prefers-reduced-motion: reduce) { .controls, .sticky-action, .resize-handle { transition: none; } }
     ${cardStyles}

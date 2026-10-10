@@ -85,9 +85,25 @@ test("same-report account amounts and cumulative target profit are displayed tog
   const before = JSON.stringify(rich);
   const body = executionPlanCardBody(rich);
   for (const text of ["建议开仓", "100.00", "预计止损", "-5.00", "止盈仓位", "33.00", "+1.11", "+3.33", "+6.66", "1:0.50", "1:0.80", "1:1.42"]) assert.ok(body.includes(text), text);
-  assert.doesNotMatch(body, /USDT|隐藏的账户汇总|仓位大小|可能盈亏|execution-plan-card-number/);
+  assert.doesNotMatch(body, /USDT|隐藏的账户汇总|仓位大小|可能盈亏/);
+  assert.match(body, /execution-plan-card-number-bearish">-5\.00</);
+  for (const profit of ["+1.11", "+3.33", "+6.66"]) {
+    assert.ok(body.includes(`execution-plan-card-number-bullish">${profit}</span>`));
+  }
   assert.equal((body.match(/class="execution-plan-target"/g) || []).length, 3);
   assert.equal(JSON.stringify(rich), before);
+  // Color follows cumulative P&L, even when a long/short target starts at a loss.
+  const mixed = rich.map((line) => ({ ...line }));
+  mixed[4].text = mixed[4].text.replace("+1.11", "-2.22");
+  mixed[5].text = mixed[5].text.replace("-5.00", "5.00");
+  for (const direction of ["偏多", "偏空"]) {
+    mixed[1].text = direction;
+    const mixedBody = executionPlanCardBody(mixed);
+    assert.match(mixedBody, /execution-plan-card-number-bullish">\+5\.00</);
+    assert.match(mixedBody, /execution-plan-card-number-bearish">-2\.22</);
+    assert.match(mixedBody, /execution-plan-estimate">预计盈利 <span>0\.00</);
+    assert.match(mixedBody, /execution-plan-card-number-bullish">\+3\.33</);
+  }
   // A legacy report that omitted an exit must not attach the next exit to its ratio.
   rich[4].text = rich[4].text.split("，").slice(1).join("，");
   assert.doesNotMatch(executionPlanCardBody(rich), /class="execution-plan-target"/);

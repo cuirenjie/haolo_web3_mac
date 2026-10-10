@@ -166,6 +166,24 @@ function zoomExecutionPlanStickyGroup(sourceState, delta) {
   }
 }
 
+function applyStickyTheme(state) {
+  if (state.window.isDestroyed()) return Promise.resolve();
+  return state.window.webContents.executeJavaScript(
+    `document.documentElement.dataset.theme = ${JSON.stringify(state.payload.theme)}`,
+  ).catch(() => {}); // Closing or zooming a note may interrupt its current document.
+}
+
+export async function updateExecutionPlanStickyTheme(theme) {
+  const normalized = theme === "light" ? "light" : "dark";
+  await Promise.all([...stickyWindows.values()].map((state) => {
+    state.payload.theme = normalized;
+    // Change only the palette, preserving manual bounds, zoom and scroll position.
+    // Electron queues execution during navigation; did-finish-load also reapplies
+    // the current theme if a newer zoom navigation replaces that document.
+    return applyStickyTheme(state);
+  }));
+}
+
 export function createExecutionPlanStickyWindow(input = {}) {
   const payload = normalizeExecutionPlanStickyPayload(input);
   const bounds = executionPlanStickyBounds(payload);
@@ -206,6 +224,7 @@ export function createExecutionPlanStickyWindow(input = {}) {
   window.removeMenu();
   window.setAlwaysOnTop(true, "screen-saver");
 
+  window.webContents.on("did-finish-load", () => { void applyStickyTheme(state); });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
     if (String(url || "").startsWith("data:text/html")) return;
