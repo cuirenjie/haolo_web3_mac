@@ -94,7 +94,8 @@ function metricHtml(line, label, tone, detail = "") {
 function moneyDetail(label, value, className = "", signed = false) {
   const amount = Number(String(value).replace(/,/g, ""));
   const text = `${signed && amount > 0 ? "+" : ""}${fixed(value)}`;
-  return `<div class="execution-plan-account-detail ${className}">${escape(label)} <span>${escape(text)}</span></div>`;
+  const tone = signed && amount !== 0 ? (amount > 0 ? "bullish" : "bearish") : "";
+  return `<div class="execution-plan-account-detail ${className}">${escape(label)} <span${tone ? ` class="execution-plan-card-number-${tone}"` : ""}>${escape(text)}</span></div>`;
 }
 
 function entryAmount(text) {

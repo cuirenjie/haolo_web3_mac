@@ -110,6 +110,33 @@ void 0;
     await js(`document.querySelector('[data-message-execution-plan-action="decrease"]').focus()`);
     const appearance = await js(`(() => {const card=document.querySelector('.message-execution-plan'), title=card.querySelector('h2'), control=card.querySelector('button');return {card:getComputedStyle(card).backgroundColor,title:getComputedStyle(title).color,control:getComputedStyle(control).color,focus:document.activeElement.dataset.messageExecutionPlanAction}})()`);
     assert.equal(appearance.focus, 'decrease');
+    const dark = theme === 'dark';
+    assert.equal(appearance.card, dark ? 'rgb(28, 32, 36)' : 'rgb(255, 255, 255)');
+    assert.equal(appearance.title, dark ? 'rgb(247, 248, 250)' : 'rgb(24, 25, 28)');
+    const palette = await js(`(() => {
+      const card = document.querySelector('.message-execution-plan');
+      const color = (selector, property = 'color') => getComputedStyle(card.querySelector(selector))[property];
+      return { label: color('.execution-plan-card-label'), bullish: color('.execution-plan-price.bullish'),
+        bearish: color('.execution-plan-price.bearish'), muted: color('.execution-plan-ratio'),
+        controls: color('.message-execution-plan-controls', 'backgroundColor') };
+    })()`);
+    assert.deepEqual(palette, {
+      label: dark ? 'rgb(255, 212, 59)' : 'rgb(154, 103, 0)',
+      bullish: dark ? 'rgb(122, 227, 162)' : 'rgb(37, 133, 76)',
+      bearish: dark ? 'rgb(255, 127, 159)' : 'rgb(203, 62, 80)',
+      muted: dark ? 'rgb(193, 198, 206)' : 'rgb(108, 112, 122)',
+      controls: appearance.card,
+    });
+    // Saved cards use the production renderer and must share the chat palette.
+    const saved = await js(`(() => {
+      const host = document.createElement('div');
+      host.innerHTML = h.renderExecutionPlanCard(h.state.executionPlans[0]);
+      document.body.append(host);
+      const card = host.querySelector('.execution-plan-card');
+      const result = { background: getComputedStyle(card).backgroundColor, text: getComputedStyle(card.querySelector('h2')).color };
+      host.remove(); return result;
+    })()`);
+    assert.deepEqual(saved, { background: appearance.card, text: appearance.title });
     await pause(150);
     const screenshot = path.join(output, theme + '.png');
     fs.writeFileSync(screenshot, (await win.webContents.capturePage()).toPNG());
@@ -154,7 +181,9 @@ void 0;
           }));
           const estimateStylesMatch = [...card.querySelectorAll('.execution-plan-estimate, .execution-plan-estimate span')].every(el => {
             const style = getComputedStyle(el);
-            return style.color === ratioStyle.color && style.fontSize === ratioStyle.fontSize && style.fontWeight === ratioStyle.fontWeight;
+            const value = el.matches('span') ? Number(el.textContent.replaceAll(',', '')) : 0;
+            const expectedColor = value === 0 ? ratioStyle.color : getComputedStyle(card.querySelector(value > 0 ? '.execution-plan-price.bullish' : '.execution-plan-price.bearish')).color;
+            return style.color === expectedColor && style.fontSize === ratioStyle.fontSize && style.fontWeight === ratioStyle.fontWeight;
           });
           return { width: box.width, fontSize: getComputedStyle(card.querySelector('.execution-plan-card-content')).fontSize,
             priceRatioOffsets,
