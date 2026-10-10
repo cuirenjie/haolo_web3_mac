@@ -90,21 +90,29 @@ test("chart settings normalize corrupt values and preserve independent light/dar
   assert.notEqual(settings.themes.light, settings.themes.dark);
 });
 
-test("relocated price controls default off, migrate old toolbar state, and persist new explicit choices", () => {
+test("price controls default to Auto, migrate frozen legacy defaults and persist explicit manual choices", () => {
   for (const settings of [cloneTradingChartSettings(), normalizeTradingChartSettings({ version: 4, priceScaleMode: 'logarithmic' })]) {
-    assert.equal(settings.autoScale, false); assert.equal(settings.priceScaleMode, 'linear');
+    assert.equal(settings.autoScale, true); assert.equal(settings.priceScaleMode, 'linear');
     for (const theme of ['light', 'dark']) {
       const html = renderTradingChartSettingsDialog(settings, theme);
-      for (const key of ['autoScale', 'logarithmicScale', 'percentageScale']) {
+      assert.match(html, /data-chart-setting="autoScale"[^>]*checked/);
+      for (const key of ['logarithmicScale', 'percentageScale']) {
         assert.match(html, new RegExp(`type="checkbox" data-chart-setting="${key}"`));
         assert.doesNotMatch(html, new RegExp(`data-chart-setting="${key}"[^>]*checked`));
       }
     }
   }
-  const settings = cloneTradingChartSettings(); settings.autoScale = true; settings.priceScaleMode = 'logarithmic';
+  const settings = cloneTradingChartSettings(); settings.autoScale = false; settings.priceScaleMode = 'logarithmic';
   const storage = memoryStorage(); saveTradingChartSettings(storage, settings);
   const restored = loadTradingChartSettings(storage);
-  assert.equal(restored.autoScale, true); assert.equal(restored.priceScaleMode, 'logarithmic');
+  assert.equal(restored.autoScale, false); assert.equal(restored.priceScaleMode, 'logarithmic');
+  const legacy = { ...settings, version: 6, chartStyle: 'bars', scaleAnchor: 'right' };
+  const migrated = normalizeTradingChartSettings(legacy);
+  assert.equal(migrated.autoScale, true);
+  assert.equal(migrated.version, 7);
+  assert.equal(migrated.chartStyle, 'bars'); assert.equal(migrated.scaleAnchor, 'cursor');
+  assert.equal(migrated.priceScaleMode, 'logarithmic');
+  assert.deepEqual(migrated.themes, normalizeTradingChartSettings(settings).themes);
 });
 
 test("HLC is the default and migrates legacy candlestick while current choices remain authoritative", async () => {
@@ -155,7 +163,7 @@ test("light chart canvas defaults to white and migrates the former gray default"
     [TRADING_CHART_SETTINGS_STORAGE_KEY]: JSON.stringify(legacy),
   });
   const migrated = loadTradingChartSettings(storage);
-  assert.equal(migrated.version, 5);
+  assert.equal(migrated.version, 7);
   assert.equal(migrated.themes.light.backgroundColor, "#ffffff");
   assert.equal(migrated.themes.dark.backgroundColor, "#0B0C0F");
 });
@@ -677,10 +685,14 @@ test("split panes keep global titlebar favorite quotes while symbol and period s
 });
 
 
-test("TradingView navigation migrates legacy anchors and retains new explicit preferences", () => {
-  assert.equal(DEFAULT_TRADING_CHART_SETTINGS.scaleAnchor, "right");
-  assert.equal(normalizeTradingChartSettings({ version: 3, scaleAnchor: "cursor", chartStyle: "bars" }).scaleAnchor, "right");
-  assert.equal(normalizeTradingChartSettings({ version: 4, scaleAnchor: "cursor" }).scaleAnchor, "cursor");
-  assert.equal(normalizeTradingChartSettings({ version: 4, scaleAnchor: "right" }).scaleAnchor, "right");
+test("cursor navigation migrates legacy anchors and retains new explicit preferences", () => {
+  assert.equal(DEFAULT_TRADING_CHART_SETTINGS.scaleAnchor, "cursor");
+  for (const version of [3, 4, 5, 6]) {
+    for (const scaleAnchor of ['cursor', 'right']) {
+      assert.equal(normalizeTradingChartSettings({ version, scaleAnchor }).scaleAnchor, "cursor");
+    }
+  }
+  assert.equal(normalizeTradingChartSettings({ version: 7, scaleAnchor: "cursor" }).scaleAnchor, "cursor");
+  assert.equal(normalizeTradingChartSettings({ version: 7, scaleAnchor: "right" }).scaleAnchor, "right");
   assert.equal(normalizeTradingChartSettings({ version: 3, chartStyle: "candlestick" }).chartStyle, "candlestick");
 });

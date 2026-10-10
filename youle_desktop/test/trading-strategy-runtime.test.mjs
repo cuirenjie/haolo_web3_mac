@@ -203,7 +203,8 @@ test("ExecutionPlanV1 derives prices from deterministic action levels and remain
   assert.match(englishMarkdown, /^Stop-loss and invalidation: 98/m);
   assert.match(englishMarkdown, /^Take-profit targets: Target 1: /m);
   assert.match(englishMarkdown, /^Risk\/reward: /m);
-  assert.doesNotMatch(englishMarkdown, /[\u3400-\u9fff]/u);
+  assert.match(englishMarkdown, /^Strategy: 示例策略$/m);
+  assert.doesNotMatch(englishMarkdown.replace(/^Strategy: .*\n/m, ""), /[\u3400-\u9fff]/u);
   assert.deepEqual(validateExecutionPlan(plan), plan);
   const tickNormalized = buildExecutionPlanV1(sampleManifest, sampleLegacyResult(), { tickSize: 0.25 });
   assert.equal(tickNormalized.scenarios[0].targets.every((target) => target.price % 0.25 === 0), true);
@@ -295,6 +296,7 @@ test("unbound Binance output uses estimated net risk/reward in the requested six
     "",
     "当前动作：等待条件触发",
     "方向判断：偏空",
+    "策略：示例策略",
     "空头触发：63007.1",
     "止损与失效：63141.6",
     "分批止盈：第1目标 62776.88011999，第2目标 62770.701875",
@@ -991,7 +993,9 @@ test("coordinator refreshes private Binance context after analysis before buildi
   });
   assert.match(englishResult.analysisPlan.report, /^## BTC\/USDT Binance Perpetual 1H/m);
   assert.match(englishResult.analysisPlan.report, /open a .* USDT long position with \d+x leverage/);
-  assert.doesNotMatch(englishResult.analysisPlan.report, /原策略报告|[\u3400-\u9fff]/u);
+  // User-named strategies retain their proper name; generated prose is English.
+  assert.match(englishResult.analysisPlan.report, /^Strategy: 示例策略$/m);
+  assert.doesNotMatch(englishResult.analysisPlan.report.replace(/^Strategy: .*\n/m, ""), /原策略报告|[\u3400-\u9fff]/u);
 });
 
 test("every strategy request uses model-first intent routing with deterministic recovery and literal targets", async () => {

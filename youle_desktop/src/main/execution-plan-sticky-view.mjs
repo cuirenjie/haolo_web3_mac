@@ -1,10 +1,42 @@
+import { readFileSync } from "node:fs";
+import { executionPlanCardHeading, executionPlanCardBody } from "./execution-plan-card-view.mjs";
+
+const cardStyles = readFileSync(new URL("./execution-plan-card.css", import.meta.url), "utf8");
+// Measure intrinsic content width offscreen, including the header and controls.
+// Long prose may wrap in the final note; it must not force a wide empty column.
+export const EXECUTION_PLAN_STICKY_WIDTH_SCRIPT = `(() => {
+  const probe = document.querySelector('.card').cloneNode(true);
+  probe.setAttribute('aria-hidden', 'true');
+  Object.assign(probe.style, { position: 'fixed', left: '-10000px', top: '0', width: 'max-content', maxWidth: 'none', height: 'auto', visibility: 'hidden', pointerEvents: 'none' });
+  probe.querySelector('.execution-plan-details')?.remove();
+  document.body.append(probe);
+  try {
+    const bodyStyle = getComputedStyle(document.body);
+    return Math.ceil(probe.getBoundingClientRect().width + parseFloat(bodyStyle.paddingLeft) + parseFloat(bodyStyle.paddingRight));
+  } finally { probe.remove(); }
+})()`;
+// Read-only measurement of our own template, shared with the visual fixture.
+export const EXECUTION_PLAN_STICKY_HEIGHT_SCRIPT = `(() => {
+  const content = document.querySelector('.content');
+  const controls = document.querySelector('.controls');
+  const last = content.querySelector('.execution-plan-card-content');
+  const contentHeight = last.getBoundingClientRect().bottom - content.getBoundingClientRect().top + content.scrollTop;
+  const card = document.querySelector('.card');
+  const verticalInsets = (element) => {
+    const style = getComputedStyle(element);
+    return ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth']
+      .reduce((total, key) => total + (parseFloat(style[key]) || 0), 0);
+  };
+  return Math.ceil(contentHeight + controls.offsetHeight + verticalInsets(document.body)
+    + verticalInsets(card) + (parseFloat(getComputedStyle(card).rowGap) || 0));
+})()`;
 export const EXECUTION_PLAN_STICKY_FONT_SIZES = Object.freeze([11, 12, 13, 14, 16, 18, 20]);
 
 const MAX_TITLE_LENGTH = 180;
 const MAX_LINE_LABEL_LENGTH = 80;
 const MAX_LINE_TEXT_LENGTH = 600;
 const MAX_LINES = 24;
-export const EXECUTION_PLAN_STICKY_MIN_WIDTH = 280;
+export const EXECUTION_PLAN_STICKY_MIN_WIDTH = 240;
 export const EXECUTION_PLAN_STICKY_MIN_HEIGHT = 180;
 const STICKY_UI_COPY = Object.freeze({
   en: Object.freeze({ lang: "en", defaultTitle: "Execution plan", controls: "Sticky-note controls", zoomIn: "Zoom in", zoomOut: "Zoom out", delete: "Delete" }),
@@ -66,7 +98,7 @@ export function executionPlanStickyFontSize(value, delta) {
 
 export function executionPlanStickyBounds(input = {}) {
   const payload = normalizeExecutionPlanStickyPayload(input);
-  const width = Math.max(350, Math.min(520, Math.round(350 + (payload.fontSize - 12) * 18)));
+  const width = Math.max(EXECUTION_PLAN_STICKY_MIN_WIDTH, Math.min(440, Math.round(300 + (payload.fontSize - 12) * 16)));
   const contentWidth = width - 40;
   const approximateCharactersPerLine = Math.max(12, Math.floor(contentWidth / (payload.fontSize * 0.95)));
   const visualLines = payload.lines.reduce((count, line) => (
@@ -160,12 +192,7 @@ export function executionPlanStickyHtml(input = {}) {
   const copy = STICKY_UI_COPY[payload.language];
   const minFont = EXECUTION_PLAN_STICKY_FONT_SIZES[0];
   const maxFont = EXECUTION_PLAN_STICKY_FONT_SIZES.at(-1);
-  const lines = payload.lines.map((line) => {
-    const segments = line.segments.map((segment) => (
-      `<span class="number ${segment.tone}">${escapeHtml(segment.text)}</span>`
-    )).join("");
-    return `<p><strong>${escapeHtml(line.label)}</strong><span class="value ${line.directionTone}">${segments}</span></p>`;
-  }).join("");
+  const lines = executionPlanCardBody(payload.lines, payload.language);
   return `<!doctype html>
 <html lang="${copy.lang}" data-theme="${payload.theme}">
 <head>
@@ -173,21 +200,16 @@ export function executionPlanStickyHtml(input = {}) {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-haolo-sticky-resize';" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { color-scheme: light; --bg: #f7f8fa; --border: rgba(39,48,64,.13); --text: #18202c; --secondary: #5d6775; --label: #9a6500; --bull: #078c53; --bear: #d63857; --control: rgba(255,255,255,.96); --hover: #eef2f7; --active: #e5ebf3; --focus: #1677ff; }
-    html[data-theme="dark"] { color-scheme: dark; --bg: #1b1e23; --border: rgba(255,255,255,.13); --text: #f3f5f7; --secondary: #c2c8d0; --label: #f1c75b; --bull: #52dc88; --bear: #ff718e; --control: rgba(27,30,35,.96); --hover: #292e36; --active: #323944; --focus: #78aef8; }
+    :root { color-scheme: light; --bg: #fff; --border: #e6e7eb; --text: #18191c; --secondary: #6c707a; --control: #fff; --hover: #f6f6f8; --active: #eceef2; --focus: #436eef; }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; }
     body { padding: 8px; }
-    .card { position: relative; display: flex; width: 100%; height: 100%; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: var(--bg); color: var(--text); padding: 18px 17px 14px; cursor: grab; -webkit-app-region: no-drag; user-select: none; }
+    .card { position: relative; display: flex; width: 100%; height: 100%; flex-direction: column; gap: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--bg); color: var(--text); padding: 16px 16px 10px; cursor: grab; -webkit-app-region: no-drag; user-select: none; --plan-font-size: ${payload.fontSize}px; }
     .card.dragging { cursor: grabbing; }
-    h1 { margin: 0 126px 11px 0; color: var(--text); font-size: ${payload.fontSize + 1}px; font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; }
-    .content { min-height: 0; overflow: auto; color: var(--secondary); font-size: ${payload.fontSize}px; line-height: 1.72; scrollbar-color: color-mix(in srgb, var(--secondary) 42%, transparent) transparent; scrollbar-width: thin; }
-    p { margin: 0 0 3px; overflow-wrap: anywhere; }
-    p strong { color: var(--label); font-weight: 700; }
-    .value.bullish, .number.bullish { color: var(--bull); }
-    .value.bearish, .number.bearish { color: var(--bear); }
-    .controls { position: absolute; z-index: 5; top: 9px; right: 23px; display: flex; gap: 2px; border: 1px solid var(--border); border-radius: 7px; background: var(--control); padding: 2px; opacity: 1; pointer-events: auto; transform: none; -webkit-app-region: no-drag; }
-    .sticky-action { display: grid; min-width: 34px; height: 27px; place-items: center; border-radius: 5px; padding: 0 6px; color: var(--secondary); font-size: 10px; font-weight: 500; line-height: 1; text-decoration: none; cursor: pointer; -webkit-app-region: no-drag; }
+    .content { flex: 1; min-height: 0; overflow: auto; scrollbar-color: color-mix(in srgb, var(--secondary) 42%, transparent) transparent; scrollbar-width: thin; }
+    .content > .execution-plan-heading { margin-bottom: 14px; }
+    .controls { position: relative; z-index: 5; display: flex; flex-wrap: wrap; justify-content: flex-end; align-self: flex-end; flex-shrink: 0; gap: 6px; border-radius: 7px; background: var(--control); padding: 0; opacity: 1; pointer-events: auto; transform: none; -webkit-app-region: no-drag; }
+    .sticky-action { display: grid; min-width: 34px; height: 24px; place-items: center; border-radius: 5px; padding: 0 6px; color: var(--secondary); font-size: 10px; font-weight: 500; line-height: 1; text-decoration: none; cursor: pointer; -webkit-app-region: no-drag; }
     .sticky-action:hover { background: var(--hover); color: var(--text); }
     .sticky-action:active { background: var(--active); transform: translateY(1px); }
     .sticky-action:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; color: var(--text); }
@@ -203,17 +225,20 @@ export function executionPlanStickyHtml(input = {}) {
     .resize-handle:hover, .resize-handle.active { color: var(--text); opacity: 1; }
     .resize-handle.active::before { transform: scale(.9); }
     @media (prefers-reduced-motion: reduce) { .controls, .sticky-action, .resize-handle { transition: none; } }
+    ${cardStyles}
   </style>
 </head>
 <body>
-  <article class="card" aria-label="${escapeHtml(payload.title)}">
+  <article class="card execution-plan-surface" aria-label="${escapeHtml(payload.title)}">
+    <div class="content">
+      ${executionPlanCardHeading(payload.title, payload.lines, payload.language)}
+      <div class="execution-plan-card-content">${lines}</div>
+    </div>
     <nav class="controls" aria-label="${copy.controls}">
       ${actionLink("zoom-in", copy.zoomIn, payload.fontSize >= maxFont)}
       ${actionLink("zoom-out", copy.zoomOut, payload.fontSize <= minFont)}
       ${actionLink("delete", copy.delete, false)}
     </nav>
-    <h1>${escapeHtml(payload.title)}</h1>
-    <div class="content">${lines}</div>
   </article>
   <span class="resize-handle nw" data-resize-corner="nw" aria-hidden="true"></span>
   <span class="resize-handle ne" data-resize-corner="ne" aria-hidden="true"></span>

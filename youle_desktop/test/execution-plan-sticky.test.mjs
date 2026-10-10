@@ -82,7 +82,7 @@ test("desktop execution-plan sticky HTML is escaped, draggable, themed, and full
   });
 
   assert.match(html, /html lang="zh-CN" data-theme="dark"/);
-  assert.match(html, /html\[data-theme="dark"\]/);
+  assert.match(html, /html\[data-theme\] \.execution-plan-surface/);
   assert.match(html, /\.card\s*\{[^}]*cursor:\s*grab[^}]*-webkit-app-region:\s*no-drag/s);
   assert.doesNotMatch(html, /\.card\s*\{[^}]*box-shadow:/s);
   assert.match(html, /\.controls\s*\{[^}]*opacity:\s*1[^}]*pointer-events:\s*auto[^}]*transform:\s*none/s);
@@ -100,8 +100,8 @@ test("desktop execution-plan sticky HTML is escaped, draggable, themed, and full
   assert.match(html, /resizeApi\.moveLive\(movePayload\(\)\)[\s\S]*card\.addEventListener\("pointerdown"/);
   assert.match(html, /resizeApi\.moveCommit\(movePayload\(\)\)[\s\S]*card\.addEventListener\("pointerup"/);
   assert.match(html, /card\.addEventListener\("wheel"[\s\S]*event\.preventDefault\(\)[\s\S]*wheelDistance < 0 \? "zoom-in" : "zoom-out"[\s\S]*haolo-execution-plan-sticky:\/\/[\s\S]*\{ passive: false \}/);
-  assert.match(html, /html\[data-theme="dark"\][\s\S]*--control:/);
-  assert.match(html, /p strong \{[^}]*font-weight: 700/s);
+  assert.match(html, /--control: #fff/);
+  assert.match(html, /\.execution-plan-card-label \{[^}]*font-weight: 700/s);
   assert.match(html, /haolo-execution-plan-sticky:\/\/zoom-in[\s\S]*放大/);
   assert.match(html, /haolo-execution-plan-sticky:\/\/zoom-out[\s\S]*缩小/);
   assert.match(html, /haolo-execution-plan-sticky:\/\/delete[\s\S]*删除/);

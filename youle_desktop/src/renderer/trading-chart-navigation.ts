@@ -3,7 +3,7 @@ import { translateAppText } from "./app-language.mjs";
 import { beginTradingChartInteraction, endTradingChartInteraction } from "./trading-chart-interaction.ts";
 import { TradingChartToolbarVisibility, clampTradingChartToolbarPosition } from "./trading-chart-toolbar-visibility.ts";
 
-/** Native gestures own the axes, pan and pinch; the coordinator owns TV modifiers. */
+/** Native gestures own axes, drag and pinch; wheel zoom uses the same bounds as buttons. */
 export const TRADING_CHART_NAVIGATION_OPTIONS = {
   handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
   handleScale: {
@@ -13,23 +13,29 @@ export const TRADING_CHART_NAVIGATION_OPTIONS = {
   kineticScroll: { mouse: false, touch: false },
 };
 
-/** Explicit zoom controls fit prices again after a box zoom or a manual drag.
- * Clamp the requested span before submitting it: the native scale clamps bar
- * spacing but still applies the requested right edge, which otherwise pans the
- * chart farther into empty future space on every click at the zoom-out limit.
+/** Clamp before submitting: the native scale limits spacing but can still move
+ * the right edge at a zoom limit. The navigation controller also restores Auto
+ * so newly visible candle highs/lows cannot remain outside a manual price range.
  */
-export function zoomTradingChart(chart: IChartApi | null, factor: number) {
-  if (!chart || !Number.isFinite(factor) || factor <= 0 || factor === 1) return false;
+export function zoomTradingChart(chart: IChartApi | null, factor: number, anchor = 1, candleCount?: number) {
+  if (!chart || !Number.isFinite(factor) || factor <= 0 || factor === 1 || !Number.isFinite(anchor) || candleCount === 0) return false;
   const ts = chart.timeScale(), range = ts.getVisibleLogicalRange(), width = ts.width();
   if (!range || ![range.from, range.to, width].every(Number.isFinite) || range.to <= range.from || width <= 0) return false;
   const options = ts.options();
-  const maxSpan = Math.max(1, width / options.minBarSpacing - 1);
+  const availableSpan = candleCount && Number.isFinite(candleCount) ? Math.max(4, candleCount * 1.25 - 1) : Infinity;
+  const maxSpan = Math.min(availableSpan, Math.max(1, width / options.minBarSpacing - 1));
   const minSpan = Math.min(maxSpan, Math.max(4, width / (options.maxBarSpacing || width / 2) - 1));
   const span = Math.min(maxSpan, Math.max(minSpan, (range.to - range.from) * factor));
-  const center = (range.from + range.to) / 2;
-  chart.panes().forEach(pane => chart.priceScale("right", pane.paneIndex()).setAutoScale(true));
-  if (Math.abs(span - (range.to - range.from)) > 1e-6) {
-    ts.setVisibleLogicalRange({ from: center - span / 2, to: center + span / 2 });
+  const ratio = Math.max(0, Math.min(1, anchor));
+  let from = range.from + ((range.to - range.from) - span) * ratio;
+  if (candleCount && Number.isFinite(candleCount)) {
+    // Keep real candles in view, including zooming back from a blank future
+    // area. Allow a small margin and historical backfill at the left edge.
+    const overlap = Math.min(candleCount - 1, span * 0.8);
+    from = Math.max(overlap - span, Math.min(candleCount - 1 - overlap, from));
+  }
+  if (Math.abs(from - range.from) > 1e-6 || Math.abs(from + span - range.to) > 1e-6) {
+    ts.setVisibleLogicalRange({ from, to: from + span });
   }
   return true;
 }
@@ -105,6 +111,7 @@ export class TradingChartNavigation {
   private suppressControlClick = false;
   private verticalLocked = false;
   private freezeAutoNextFrame = false;
+  private pendingWheelZoom: { logFactor: number; anchor: number } | null = null;
   private tool: Tool = null;
   private drag: { pointerId: number; x: number; y: number; scale: IPriceScaleApi | null; moved: boolean;
     axis?: { scale: IPriceScaleApi; range: { from: number; to: number }; height: number; y: number };
@@ -327,6 +334,7 @@ export class TradingChartNavigation {
   private readonly pointerDown = (event: PointerEvent) => {
     if (!event.isPrimary) { this.cancelGesture(); return; }
     if (event.button !== 0 || this.drag || this.isControl(event.target)) return;
+    this.flushWheelZoom();
     if (!this.tool && event.target instanceof Element && event.target.closest(".drawing-active, [data-drawing-id], [data-drawing-handle-index]")) return;
     const pane = this.paneAt(event, false);
     if (!pane) {
@@ -574,6 +582,7 @@ export class TradingChartNavigation {
   };
 
   readonly cancelGesture = () => {
+    this.pendingWheelZoom = null;
     this.finishControlsDrag();
     this.finishSelection(); this.drag = null; this.clearMeasurement(); this.closeMenu(); this.schedule();
     if (this.interactionTimer !== null) clearTimeout(this.interactionTimer);
@@ -589,10 +598,15 @@ export class TradingChartNavigation {
 
   private readonly wheel = (event: WheelEvent) => {
     if (event.target instanceof Node && this.controls.contains(event.target)) { this.consume(event); return; }
-    this.cancelGesture();
+    if (this.isControl(event.target) || !Number.isFinite(event.deltaX) || !Number.isFinite(event.deltaY)) return;
     const chart = this.getChart(); if (!chart) return;
+    // Retain ownership across a burst. Releasing it on every wheel event lets
+    // a deferred shell render detach the chart halfway through scrolling.
+    if (this.interactionTimer === null) this.setTool(null);
+    else clearTimeout(this.interactionTimer);
     beginTradingChartInteraction(this);
     this.interactionTimer = setTimeout(() => {
+      this.flushWheelZoom();
       this.interactionTimer = null;
       if (!this.drag) endTradingChartInteraction(this);
     }, 120);
@@ -600,6 +614,7 @@ export class TradingChartNavigation {
     const plot = this.paneAt(event);
     const factor = event.deltaMode === 1 ? 32 : event.deltaMode === 2 ? this.element.clientHeight : 1;
     if (pane && !plot && event.deltaY) {
+      this.flushWheelZoom();
       const scale = chart.priceScale("right", pane.paneIndex());
       const zoom = Math.exp(Math.max(-1, Math.min(1, event.deltaY * factor / 500)));
       if (scale.options().mode === 1) {
@@ -622,16 +637,28 @@ export class TradingChartNavigation {
       // Some browsers convert Shift+wheel into deltaX already. Consume once.
       this.pan((event.deltaY || event.deltaX) * factor / Math.max(chart.timeScale().options().barSpacing, 0.5));
       this.consume(event);
-    } else {
-      const rightBarStaysOnScroll = !(event.ctrlKey || event.metaKey) && this.options.getScaleAnchor?.() !== "cursor";
+    } else if (event.deltaY) {
+      const rightBarStaysOnScroll = !(event.ctrlKey || event.metaKey) && this.options.getScaleAnchor?.() === "right";
       if (chart.timeScale().options().rightBarStaysOnScroll !== rightBarStaysOnScroll) {
         chart.timeScale().applyOptions({ rightBarStaysOnScroll });
       }
+      const bounds = this.element.getBoundingClientRect();
+      const x = event.clientX - bounds.left - chart.priceScale("left", 0).width();
+      const anchor = rightBarStaysOnScroll ? 1 : Math.max(0, Math.min(1, x / chart.timeScale().width()));
+      if (this.pendingWheelZoom && this.pendingWheelZoom.anchor !== anchor) this.flushWheelZoom();
+      const delta = Math.max(-0.5, Math.min(0.5, event.deltaY * factor / 500));
+      this.pendingWheelZoom = { anchor, logFactor: Math.max(-20, Math.min(20, (this.pendingWheelZoom?.logFactor ?? 0) + delta)) };
+      // Capture owns the wheel: do not let the native listener zoom a second time.
+      this.consume(event);
+    } else if (event.deltaX) {
+      this.pan(event.deltaX * factor / Math.max(chart.timeScale().options().barSpacing, 0.5));
+      this.consume(event);
     }
     this.schedule();
   };
 
   private pan(bars: number) {
+    this.flushWheelZoom();
     this.clearMeasurement();
     const ts = this.getChart()?.timeScale(); const range = ts?.getVisibleLogicalRange();
     if (range && Number.isFinite(bars)) ts!.setVisibleLogicalRange({ from: range.from + bars, to: range.to + bars });
@@ -640,10 +667,24 @@ export class TradingChartNavigation {
 
   zoom(factor: number) {
     if (!Number.isFinite(factor) || factor <= 0 || factor === 1) return;
+    this.flushWheelZoom();
     this.setTool(null);
-    this.freezeAutoNextFrame = false;
-    zoomTradingChart(this.getChart(), factor);
+    this.applyZoom(factor, this.options.getScaleAnchor?.() === "right" ? 1 : 0.5);
     this.schedule();
+  }
+
+  private flushWheelZoom() {
+    const pending = this.pendingWheelZoom;
+    this.pendingWheelZoom = null;
+    if (pending) this.applyZoom(Math.exp(pending.logFactor), pending.anchor);
+  }
+
+  private applyZoom(factor: number, anchor: number) {
+    if (!zoomTradingChart(this.getChart(), factor, anchor, this.options.getCandles?.().length)) return;
+    // A previous vertical drag, box selection or saved Auto=false must not clip
+    // the next zoom. Persist this before syncAutoScale can freeze the new range.
+    // Only the candle pane changes; indicator axes and other charts stay local.
+    this.setAutoScale(true);
   }
 
   reset() {
@@ -651,6 +692,7 @@ export class TradingChartNavigation {
     this.freezeAutoNextFrame = false;
     const chart = this.getChart(); if (!chart) return;
     this.restoreCollapsedPanes();
+    this.options.onAutoScaleChange?.(true);
     chart.panes().forEach((pane) => chart.priceScale("right", pane.paneIndex()).setAutoScale(true));
     chart.timeScale().resetTimeScale();
     chart.timeScale().scrollToPosition(chart.timeScale().options().rightOffset, false);
@@ -686,6 +728,13 @@ export class TradingChartNavigation {
 
   private readonly doubleClick = (event: MouseEvent) => {
     const pane = this.paneAt(event);
+    const axisPane = !pane && this.paneAt(event, false);
+    if (axisPane && !this.isControl(event.target)) {
+      this.flushWheelZoom();
+      this.setAutoScale(true, axisPane.paneIndex());
+      this.consume(event);
+      return;
+    }
     if (pane && !this.isControl(event.target) && !this.tool && !(event.target instanceof Element && event.target.closest("[data-drawing-id]"))) {
       const chart = this.getChart()!;
       if (chart.panes().length > 1) {
@@ -818,6 +867,7 @@ export class TradingChartNavigation {
       if (this.destroyed) return;
       // Keep the frame reserved during painting: native lazy layout may emit
       // another viewport change while an overlay reads its coordinates.
+      this.flushWheelZoom();
       this.flushLockedScroll();
       this.syncAutoScale();
       this.redraw();

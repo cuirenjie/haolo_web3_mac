@@ -27,7 +27,7 @@ export interface TradingOrderDisplaySettings {
 }
 
 export interface TradingChartSettings {
-  version: 5;
+  version: 7;
   chartStyle: TradingChartStyle;
   priceAdjustment: TradingPriceAdjustment;
   verticalPaddingPercent: number;
@@ -112,7 +112,7 @@ export function tradingPriceScaleUsesAutoScale(mode: TradingPriceScaleMode) {
 }
 
 export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
-  version: 5,
+  version: 7,
   chartStyle: "hlc",
   priceAdjustment: "none",
   verticalPaddingPercent: 2,
@@ -121,9 +121,9 @@ export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
   fallingColor: "#F6465D",
   showCandleBorder: true,
   showWicks: true,
-  scaleAnchor: "right",
+  scaleAnchor: "cursor",
   priceScaleMode: "linear",
-  autoScale: false,
+  autoScale: true,
   showPriceLine: true,
   showPriceLabel: true,
   showCountdown: false,
@@ -345,7 +345,7 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
     lightTheme.backgroundColor = defaults.themes.light.backgroundColor;
   }
   return {
-    version: 5,
+    version: 7,
     chartStyle: (!Number.isFinite(sourceVersion) || sourceVersion < 3)
       && sourceChartStyle === "candlestick"
       ? "hlc"
@@ -361,14 +361,18 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
       ? source.showCandleBorder
       : defaults.showCandleBorder,
     showWicks: typeof source.showWicks === "boolean" ? source.showWicks : defaults.showWicks,
-    scaleAnchor: sourceVersion >= 4 && scaleAnchors.has(source.scaleAnchor as TradingScaleAnchor)
+    // Older defaults pinned the right edge. Upgrade existing users to cursor
+    // zoom too, while retaining explicit choices made with the new behavior.
+    scaleAnchor: sourceVersion >= 7 && scaleAnchors.has(source.scaleAnchor as TradingScaleAnchor)
       ? source.scaleAnchor as TradingScaleAnchor
       : defaults.scaleAnchor,
     // The relocated A/L settings start unchecked when upgrading the old toolbar.
     priceScaleMode: sourceVersion >= 5 && priceScaleModes.has(source.priceScaleMode as TradingPriceScaleMode)
       ? source.priceScaleMode as TradingPriceScaleMode
       : defaults.priceScaleMode,
-    autoScale: typeof source.autoScale === "boolean" ? source.autoScale : defaults.autoScale,
+    // Clear stale frozen ranges on upgrade; later manual choices persist until
+    // the next zoom, which explicitly restores automatic price fitting.
+    autoScale: sourceVersion >= 7 && typeof source.autoScale === "boolean" ? source.autoScale : defaults.autoScale,
     showPriceLine: typeof source.showPriceLine === "boolean" ? source.showPriceLine : defaults.showPriceLine,
     showPriceLabel: typeof source.showPriceLabel === "boolean" ? source.showPriceLabel : defaults.showPriceLabel,
     showCountdown: typeof source.showCountdown === "boolean" ? source.showCountdown : defaults.showCountdown,
@@ -648,7 +652,7 @@ export function renderTradingChartSettingsDialog(
             <section data-chart-settings-panel="scale" hidden>
               <div class="trading-chart-settings-row"><span>K线缩放</span><div class="trading-chart-settings-options vertical">
                 ${option("scaleAnchor", "cursor", "以光标位置缩放 K 线（Ctrl + 滚轮始终聚焦光标）", settings.scaleAnchor === "cursor")}
-                ${option("scaleAnchor", "right", "以最右侧位置缩放 K 线（TradingView 默认，Ctrl + 滚轮聚焦光标）", settings.scaleAnchor === "right")}
+                ${option("scaleAnchor", "right", "以最右侧位置缩放 K 线（Ctrl + 滚轮聚焦光标）", settings.scaleAnchor === "right")}
               </div></div>
             </section>
             <section data-chart-settings-panel="rise-fall" hidden>
@@ -663,7 +667,7 @@ export function renderTradingChartSettingsDialog(
                 ${checkbox("logarithmicScale", "对数坐标", settings.priceScaleMode === "logarithmic")}
                 ${checkbox("percentageScale", "百分比坐标", settings.priceScaleMode === "percentage")}
               </div></div>
-              <p class="trading-chart-settings-theme-note">默认使用线性坐标，自动适配和对数坐标均关闭；这些设置仅作用于主图价格，不影响成交量等副图。</p>
+              <p class="trading-chart-settings-theme-note">默认以鼠标位置缩放；滚轮或加减按钮缩放时，价格轴随可见 K 线自动适配，完整显示最高价和最低价。手动调轴后，下次缩放或双击价格轴会恢复自动适配，不影响成交量等副图。</p>
             </section>
             <section data-chart-settings-panel="live-price" hidden>
               <div class="trading-chart-settings-row"><span>实时价格</span><div class="trading-chart-settings-options">

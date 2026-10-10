@@ -16,7 +16,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   await app.whenReady();
   const win = new BrowserWindow({ show: false, width: 1200, height: 800, webPreferences: { offscreen: true, backgroundThrottling: false } });
   const js = source => win.webContents.executeJavaScript(source, true);
-  const report = { recovery: [], limits: [], themes: [], errors: [], nativeClicks: 0 };
+  const report = { recovery: [], limits: [], themes: [], context: [], errors: [], nativeClicks: 0 };
   win.webContents.on('console-message', event => {
     if (event.level === 'error' && !event.message.includes('Binance market catalog is unavailable')) report.errors.push(event.message);
   });
@@ -37,7 +37,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
       visible:data.length,inside:data.filter(d=>source.priceToCoordinate(d.high)>=-1&&source.priceToCoordinate(d.low)<=h+1).length};
   })()`);
   const assertFit = (state, label) => {
-    assert.equal(state.auto, false, label); // Default is fit once, then free dragging.
+    assert.equal(state.auto, true, label);
     assert.ok(state.visible > 0, `${label}: no candles`);
     assert.equal(state.inside, state.visible, `${label}: clipped candle highs/lows`);
     assert.ok([state.range.from, state.range.to, state.price.from, state.price.to, state.spacing].every(Number.isFinite), label);
@@ -74,10 +74,13 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
           await js('workspace.chartNavigation.reset()'); await settle();
           const before = await box();
           await click(selector);
+          const zoomed = await snapshot();
+          assertFit(zoomed, 'zoom restores visible candle highs/lows after box selection');
+          await click(nav('reset'));
           const after = await snapshot();
           assertFit(after, `${theme}/${subject}/${mode}/${entry}`);
           assert.equal(after.mode, mode);
-          report.recovery.push({ theme, subject, mode, entry, before, after });
+          report.recovery.push({ theme, subject, mode, entry, before, zoomed, after });
         }
         // Changing this chart must leave the other split chart's manual view alone.
         await js(`window.other=${subject === 'main' ? 'primary.splitPanes[0]' : 'primary'};other.chart.priceScale('right').setAutoScale(false);window.otherRange=other.chart.timeScale().getVisibleLogicalRange();window.otherPrice=other.chart.priceScale('right').getVisibleRange()`);
@@ -101,11 +104,29 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
       }
       console.log('zoom passed', theme, subject);
     }
-    await js(`window.workspace=primary;primary.activateDrawingController(primary.drawingController);primary.chartNavigation.reset();primary.splitPanes[0].chartNavigation.reset()`); await settle();
-    await box(); await click(nav('zoom-out'));
+    await js(`window.workspace=primary;window.source=primary.candleSeries;primary.activateDrawingController(primary.drawingController);primary.chartNavigation.reset();primary.splitPanes[0].chartNavigation.reset()`); await settle();
+    await box(); await click(nav('zoom-out')); await click(nav('reset'));
     const tones = await js(`(()=>{const c=workspace.chartNavigation.controls,b=c.querySelector('button'),s=getComputedStyle(b),p=getComputedStyle(c);return {color:s.color,panel:p.backgroundColor,hover:s.backgroundColor,focus:s.outlineColor,pressed:c.querySelector('[data-navigation-action=lock-vertical]').getAttribute('aria-pressed')}})()`);
     assert.equal(tones.pressed, 'false');
     report.themes.push({ theme, ...tones });
+    // The real history-prepend path and manual overlays must retain market coordinates.
+    await js(`workspace.chart.timeScale().setVisibleLogicalRange({from:200,to:380});workspace.drawingController.selectTool('horizontal-line')`); await settle();
+    const drawPoint = await js(`(()=>{const r=workspace.chart.panes()[0].getHTMLElement().getBoundingClientRect();return {x:Math.round(r.left+workspace.chart.timeScale().width()/2),y:Math.round(r.top+workspace.chart.panes()[0].getHeight()/2)}})()`);
+    win.webContents.sendInputEvent({type:'mouseMove',...drawPoint});
+    for (const type of ['mouseDown','mouseUp']) win.webContents.sendInputEvent({type,...drawPoint,button:'left',clickCount:1});
+    await settle();
+    const drawing = await js(`(()=>{const d=workspace.drawingController.drawings.at(-1);return d&&{id:d.id,tool:d.tool,price:d.points[0].price}})()`);
+    assert.equal(drawing?.tool,'horizontal-line');
+    await click(nav('zoom-out'));
+    const drawingGeometry = await js(`(()=>{const e=workspace.drawingController.overlay.querySelector('[data-drawing-id="${drawing.id}"] line');return {y:Number(e.getAttribute('y1')),expected:source.priceToCoordinate(${drawing.price})}})()`);
+    assert.ok(Math.abs(drawingGeometry.y-drawingGeometry.expected)<1,JSON.stringify(drawingGeometry));
+    const historyBefore = await js('({range:workspace.chart.timeScale().getVisibleRange(),count:workspace.candles.length})');
+    await js(`window.originalHistoryFetch=workspace.fetchHistoricalCandleBatch;workspace.fetchHistoricalCandleBatch=async()=>{const first=workspace.candles[0],candles=Array.from({length:60},(_,i)=>({...first,time:first.time-(60-i)*3600}));return {candles,sourceCandles:candles,source:{targetMs:3600000,sourceInterval:'1h',sourceMs:3600000}}};workspace.loadingHistory=false;workspace.loadMoreHistory()`); await settle();
+    const historyAfter = await js('({range:workspace.chart.timeScale().getVisibleRange(),count:workspace.candles.length})');
+    assert.equal(historyAfter.count,historyBefore.count+60);
+    assert.deepEqual(historyAfter.range,historyBefore.range,'history prepend must retain the observed timestamps');
+    await js('workspace.fetchHistoricalCandleBatch=originalHistoryFetch;clearTimeout(workspace.historyCooldownTimer);workspace.historyCooldownTimer=null;workspace.loadingHistory=true');
+    report.context.push({theme,drawing,drawingGeometry,historyBefore,historyAfter});
     await fs.promises.writeFile(path.join(output, `${theme}-recovered.png`), (await win.webContents.capturePage()).toPNG());
     assert.equal(await js('window.qaError ?? null'), null);
     await js('primary.destroy()');
@@ -114,6 +135,6 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.notEqual(report.themes[0].panel, report.themes[1].panel);
   assert.deepEqual(report.errors, []);
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2));
-  console.log(JSON.stringify({ passed: true, recovery: report.recovery.length, limits: report.limits.length, nativeClicks: report.nativeClicks, output }));
+  console.log(JSON.stringify({ passed: true, recovery: report.recovery.length, limits: report.limits.length, context:report.context.length, nativeClicks: report.nativeClicks, output }));
   win.destroy(); app.exit(0);
 })().catch(error => { console.error(error); app.exit(1); });

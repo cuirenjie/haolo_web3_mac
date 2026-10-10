@@ -3,6 +3,8 @@ import { BrowserWindow, ipcMain, screen } from "electron/main";
 import {
   EXECUTION_PLAN_STICKY_MIN_HEIGHT,
   EXECUTION_PLAN_STICKY_MIN_WIDTH,
+  EXECUTION_PLAN_STICKY_HEIGHT_SCRIPT,
+  EXECUTION_PLAN_STICKY_WIDTH_SCRIPT,
   executionPlanStickyBounds,
   executionPlanStickyFontSize,
   executionPlanStickyHtml,
@@ -44,7 +46,28 @@ function renderStickyWindow(state) {
     });
     state.bounds = nextBounds;
   }
-  void window.loadURL(dataUrl(executionPlanStickyHtml(state.payload)));
+  const renderedPayload = state.payload;
+  void window.loadURL(dataUrl(executionPlanStickyHtml(renderedPayload))).then(async () => {
+    if (window.isDestroyed() || !state.autoSize || state.payload !== renderedPayload) return;
+    const measuredWidth = await window.webContents.executeJavaScript(EXECUTION_PLAN_STICKY_WIDTH_SCRIPT);
+    if (window.isDestroyed() || !state.autoSize || state.payload !== renderedPayload || !Number.isFinite(measuredWidth)) return;
+    const before = window.getBounds();
+    const widthArea = screen.getDisplayMatching(before).workArea;
+    const width = Math.max(EXECUTION_PLAN_STICKY_MIN_WIDTH, Math.min(520, widthArea.width, measuredWidth));
+    if (width !== before.width) {
+      window.setBounds({ ...before, width, x: Math.max(widthArea.x, Math.min(before.x, widthArea.x + widthArea.width - width)) });
+      state.bounds = { width, height: before.height };
+    }
+    // The new viewport width must settle before measuring wrapped content.
+    const measuredHeight = await window.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(${EXECUTION_PLAN_STICKY_HEIGHT_SCRIPT}))))`);
+    if (window.isDestroyed() || !state.autoSize || state.payload !== renderedPayload || !Number.isFinite(measuredHeight)) return;
+    const current = window.getBounds();
+    const workArea = screen.getDisplayMatching(current).workArea;
+    const height = Math.max(EXECUTION_PLAN_STICKY_MIN_HEIGHT, Math.min(720, workArea.height, measuredHeight));
+    if (height === current.height) return;
+    window.setBounds({ ...current, height, y: Math.max(workArea.y, Math.min(current.y, workArea.y + workArea.height - height)) });
+    state.bounds = { width: current.width, height };
+  }).catch(() => {}); // A newer zoom render or a closed note can abort the load.
 }
 
 function stickyResizePoint(value) {

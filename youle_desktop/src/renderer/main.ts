@@ -1,4 +1,6 @@
 import "./styles.css";
+import "../main/execution-plan-card.css";
+import { executionPlanCardHeading, executionPlanCardBody } from "../main/execution-plan-card-view.mjs";
 import "./trading-watchlist.css";
 import { renderTradingWatchlistHost, renderTradingWatchlistToggle } from "./trading-watchlist-ui.ts";
 import { deferTradingChartShellRender } from "./trading-chart-interaction.ts";
@@ -39408,23 +39410,7 @@ function executionPlanCreatedLabel(createdAt: string) {
 }
 
 function renderExecutionPlanCardContent(content: string) {
-  const visibleContent = String(content || "");
-  return executionPlanDisplayLines(visibleContent)
-    .map((line) => {
-      const directionTone = executionPlanDirectionTone(line.label, line.text);
-      const valueClass = directionTone ? ` execution-plan-card-value-${directionTone}` : "";
-      const value = executionPlanSignedNumberSegments(line.text)
-        .map((segment) => segment.tone
-          ? `<span class="execution-plan-card-number-${segment.tone}">${escapeHtml(segment.text)}</span>`
-          : escapeHtml(segment.text))
-        .join("");
-      return `
-        <p class="execution-plan-card-line">
-          ${line.label ? `<span class="execution-plan-card-label">${escapeHtml(line.label)}</span>` : ""}${line.text ? `<span class="execution-plan-card-value${valueClass}">${value}</span>` : ""}
-        </p>
-      `;
-    })
-    .join("");
+  return executionPlanCardBody(executionPlanDisplayLines(content), state.settings.language);
 }
 
 function renderMessageExecutionPlan(
@@ -39455,14 +39441,14 @@ function renderMessageExecutionPlan(
     const fontSize = loadMessageExecutionPlanFontSize(key);
     const title = executionPlanCardTitle({ fallbackTitle: candidate.title, language: state.settings.language });
     return `<section
-      class="message-execution-plan"
+      class="message-execution-plan execution-plan-surface"
       aria-label="${escapeAttr(title)}"
       data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}"
       data-execution-plan-message-id="${escapeAttr(message.id)}"
       data-execution-plan-index="${candidateIndex}"
       style="--message-execution-plan-font-size: ${fontSize}px"
     >
-      <h2>${escapeHtml(title)}</h2>
+      ${executionPlanCardHeading(title, executionPlanDisplayLines(candidate.content), state.settings.language)}
       <div class="execution-plan-card-content">${renderExecutionPlanCardContent(candidate.content)}</div>
       <footer class="message-execution-plan-controls" aria-label="执行卡片文字与便利贴操作">
         <button type="button" data-message-execution-plan-action="increase"${fontSize >= MESSAGE_EXECUTION_PLAN_FONT_SIZES[MESSAGE_EXECUTION_PLAN_FONT_SIZES.length - 1] ? ' disabled aria-disabled="true"' : ""}>放大</button>
@@ -39530,9 +39516,9 @@ function renderExecutionPlanCard(plan: SavedExecutionPlan) {
     language: state.settings.language,
   });
   return `
-    <article class="execution-plan-card" data-execution-plan-id="${escapeAttr(plan.id)}">
+    <article class="execution-plan-card execution-plan-surface" data-execution-plan-id="${escapeAttr(plan.id)}">
       <header>
-        <h2>${escapeHtml(title)}</h2>
+        ${executionPlanCardHeading(title, executionPlanDisplayLines(plan.content), state.settings.language)}
         <span class="execution-plan-card-status ${escapeAttr(status.tone)}">${escapeHtml(status.label)}</span>
       </header>
       <div class="execution-plan-card-content">${renderExecutionPlanCardContent(plan.content)}</div>

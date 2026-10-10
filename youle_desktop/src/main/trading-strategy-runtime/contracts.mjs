@@ -278,9 +278,32 @@ function validatePriceLevel(value, field, { nullable = false } = {}) {
 function validateScenario(value, field) {
   const source = plainObject(value, field);
   const side = source.side === "long" || source.side === "short" ? source.side : fail(`${field}.side is invalid`);
+  const sizing = source.positionSizing;
+  let positionSizing;
+  if (sizing != null) {
+    plainObject(sizing, `${field}.positionSizing`);
+    if (sizing.side !== side || sizing.entry !== source.trigger?.price || sizing.stop !== source.stop?.price
+      || !Array.isArray(sizing.targets) || sizing.targets.length !== source.targets?.length
+      || sizing.targets.some((price, index) => price !== source.targets[index]?.price)) {
+      fail(`${field}.positionSizing must match its scenario side and levels`);
+    }
+    const accountStatus = ["unbound", "unavailable", "available"].includes(sizing.accountStatus) ? sizing.accountStatus : "unavailable";
+    const accountPlan = validateAccountPlan(sizing.accountPlan, `${field}.positionSizing.accountPlan`);
+    if (accountPlan && (accountStatus !== "available" || sizing.executionBlocked === true)) fail(`${field}.positionSizing is not available for execution`);
+    if (accountPlan && (new Set(accountPlan.targetOrders.map((order) => order.targetIndex)).size !== accountPlan.targetOrders.length
+      || accountPlan.targetOrders.some((order) => !Number.isInteger(order.targetIndex) || order.price !== sizing.targets[order.targetIndex]))) {
+      fail(`${field}.positionSizing target orders must match scenario targets`);
+    }
+    positionSizing = Object.freeze({
+      side, entry: sizing.entry, stop: sizing.stop, targets: frozenArray([...sizing.targets]),
+      accountStatus, accountPlan, executionBlocked: sizing.executionBlocked === true,
+      unavailableReason: String(sizing.unavailableReason || "").slice(0, 500),
+    });
+  }
   return Object.freeze({
     id: boundedString(source.id, `${field}.id`, { max: 160 }),
     side,
+    ...(positionSizing ? { positionSizing } : {}),
     status: ["preferred", "alternative", "conditional"].includes(source.status) ? source.status : "conditional",
     trigger: validatePriceLevel(source.trigger, `${field}.trigger`),
     stop: validatePriceLevel(source.stop, `${field}.stop`),
@@ -368,6 +391,7 @@ export function validateExecutionPlan(value) {
     strategy: Object.freeze({
       id: boundedString(source.strategy?.id, "executionPlan.strategy.id", { max: 64, pattern: STRATEGY_ID_PATTERN }),
       version: boundedString(source.strategy?.version, "executionPlan.strategy.version", { max: 80, pattern: SEMVER_PATTERN }),
+      ...(source.strategy?.name ? { name: boundedString(source.strategy.name, "executionPlan.strategy.name", { max: 40 }) } : {}),
     }),
     market: Object.freeze({
       marketId: boundedString(source.market?.marketId, "executionPlan.market.marketId", { max: 120 }),

@@ -1278,6 +1278,32 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     now,
   });
   const executionBlocked = minimumRiskRewardBlocked || maxStopDistanceBlocked || riskClarificationBlocked;
+  // Bilateral cards are alternative conditions. Size each from this same
+  // frozen account snapshot and its own levels; never borrow a preferred side.
+  const scenariosWithSizing = preferredSide !== "neutral" ? scenarios : scenarios.map((scenario) => {
+    const stopDistance = Math.abs(scenario.trigger.price - scenario.stop.price) / scenario.trigger.price * 100;
+    const finalRatio = riskReward(scenario.trigger, scenario.stop, scenario.targets.at(-1), scenario.side, estimatedRoundTripCostRate) || 0;
+    const reason = riskClarificationBlocked
+      ? "止损百分比口径存在未澄清冲突，禁止生成账户仓位"
+      : riskPolicy.maxStopDistancePercent !== null && stopDistance > riskPolicy.maxStopDistancePercent + Number.EPSILON
+        ? `策略有效止损距离 ${stopDistance.toFixed(2)}% 超过用户硬上限 ${riskPolicy.maxStopDistancePercent}%`
+        : riskPolicy.minimumRiskRewardRatio !== null && finalRatio < riskPolicy.minimumRiskRewardRatio
+          ? `净盈亏比低于用户硬下限 1:${riskPolicy.minimumRiskRewardRatio}`
+          : null;
+    const sizing = accountExecutionPlan({
+      accountContext: params.binanceAccountContext, market, scenario, riskPolicy, estimatedRoundTripCostRate, now,
+      sizingBlockedReason: reason,
+      takeProfits: scenario.targets.map((price, index, targets) => ({
+        price,
+        allocationPercent: index === targets.length - 1 ? 100 - Math.floor(100 / targets.length) * (targets.length - 1) : Math.floor(100 / targets.length),
+      })),
+    });
+    return { ...scenario, positionSizing: {
+      side: scenario.side, entry: scenario.trigger.price, stop: scenario.stop.price, targets: scenario.targets.map((target) => target.price),
+      accountStatus: sizing.accountStatus, accountPlan: sizing.accountPlan,
+      executionBlocked: Boolean(reason), unavailableReason: reason,
+    } };
+  });
   // The action is the market-state signal, while executionBlocked describes
   // whether the user's hard risk policy still permits acting on that signal.
   // Keep those concepts separate: once a preferred trigger is reached the
@@ -1292,7 +1318,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     schemaVersion: EXECUTION_PLAN_SCHEMA_VERSION,
     planId: "pending",
     analysisId: String(analysisPlan.analysisId || `analysis-${crypto.randomUUID()}`),
-    strategy: { id: manifest.id, version: manifest.version },
+    strategy: { id: manifest.id, version: manifest.version, ...(manifest.display?.name ? { name: manifest.display.name } : {}) },
     market,
     snapshot: {
       id: String(snapshot.snapshotId || `snapshot-${crypto.randomUUID()}`),
@@ -1412,7 +1438,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
         evidenceIds,
       )] : []),
     ],
-    scenarios,
+    scenarios: scenariosWithSizing,
     evidence,
     coverage,
     warnings: [
@@ -1558,8 +1584,9 @@ function formatExecutionPlanMarkdownEnglish(validated) {
     : [];
   const formatOne = (selectedScenario, bilateral = false) => {
     const selectedSide = selectedScenario?.side || validated.preferredSide;
-    const accountPlan = bilateral ? null : validated.positionSizing.accountPlan;
-    const candidateOnly = validated.action === "no_trade" || validated.executionBlocked === true;
+    const sizing = bilateral ? selectedScenario?.positionSizing : validated.positionSizing;
+    const accountPlan = sizing?.accountPlan || null;
+    const candidateOnly = validated.action === "no_trade" || validated.executionBlocked === true || sizing?.executionBlocked === true;
     const directionText = selectedSide === "long" ? "Bullish" : selectedSide === "short" ? "Bearish" : "Neutral";
     const directionOrder = selectedSide === "long" ? "long position" : "short position";
     let actionText = validated.action === "wait"
@@ -1574,6 +1601,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
               ? "Do not trade"
               : "No directional action";
     let triggerText = selectedScenario ? price(selectedScenario.trigger) : "No clear one-sided setup";
+    if (sizing?.executionBlocked) actionText = "Do not trade";
     if (accountPlan?.mode === "new_position") {
       triggerText += candidateOnly
         ? `; non-executable candidate estimate: ${accountPlan.leverage}x leverage and ${displayMoney(accountPlan.notional)} USDT ${directionOrder}`
@@ -1631,8 +1659,10 @@ function formatExecutionPlanMarkdownEnglish(validated) {
     const accountPnlText = accountOrdersAvailable
       ? `Potential P&L: approximately -${displayMoney(accountPlan.estimatedStopLoss)} USDT at the stop and +${displayMoney(accountPlan.estimatedTakeProfit)} USDT if all targets fill; estimated fees and slippage are included`
       : "";
-    const accountUnavailableText = !accountPlan && validated.positionSizing.accountStatus === "unavailable"
+    const accountUnavailableText = !accountPlan && sizing?.accountStatus === "unavailable"
       ? "Position size: the live account snapshot is unavailable or stale. Refresh the account and run the analysis again"
+      : !accountPlan && bilateral && sizing?.executionBlocked
+        ? "Position size: this scenario exceeds the saved risk limits; no account size may be generated"
       : !accountPlan && validated.positionSizing.accountStatus === "available" && validated.positionSizing.unavailableReason
         ? /口径|澄清/.test(validated.positionSizing.unavailableReason)
           ? "Position size: the stop-loss percentage denominator is unresolved; no account size may be generated"
@@ -1656,6 +1686,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
       "",
       `Current action: ${actionText}`,
       `Direction: ${directionText}`,
+      `Strategy: ${(validated.strategy.name || validated.strategy.id).replace(/\s+/g, " ")}`,
       `${triggerLabel}: ${triggerText}`,
       `Stop-loss and invalidation: ${stopText}`,
       `Take-profit targets: ${takeProfitText}`,
@@ -1686,8 +1717,9 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
     : [];
   const formatOne = (selectedScenario, bilateral = false) => {
     const selectedSide = selectedScenario?.side || validated.preferredSide;
-    const accountPlan = bilateral ? null : validated.positionSizing.accountPlan;
-    const candidateOnly = validated.action === "no_trade" || validated.executionBlocked === true;
+    const sizing = bilateral ? selectedScenario?.positionSizing : validated.positionSizing;
+    const accountPlan = sizing?.accountPlan || null;
+    const candidateOnly = validated.action === "no_trade" || validated.executionBlocked === true || sizing?.executionBlocked === true;
     const directionText = selectedSide === "long" ? "偏多" : selectedSide === "short" ? "偏空" : "中性";
     const directionOrder = selectedSide === "long" ? "多单" : "空单";
     let actionText = validated.action === "wait"
@@ -1702,6 +1734,7 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
               ? "不交易"
               : "暂无方向动作";
     let triggerText = displayPrice(selectedScenario?.trigger);
+    if (sizing?.executionBlocked) actionText = "不交易";
     if (!selectedScenario) triggerText = "未形成明确单侧方案";
     if (accountPlan?.mode === "new_position") {
       triggerText += candidateOnly
@@ -1761,8 +1794,10 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
     const accountPnlText = accountOrdersAvailable
       ? `可能盈亏：止损约 -${displayMoney(accountPlan.estimatedStopLoss)} USDT；全部止盈约 +${displayMoney(accountPlan.estimatedTakeProfit)} USDT；已计入预估手续费和滑点`
       : "";
-    const accountUnavailableText = !accountPlan && validated.positionSizing.accountStatus === "unavailable"
+    const accountUnavailableText = !accountPlan && sizing?.accountStatus === "unavailable"
       ? "仓位大小：实盘账户快照不可用或已过期，暂不生成推荐下单数量及盈亏金额；请刷新账户后重新分析"
+      : !accountPlan && bilateral && sizing?.executionBlocked
+        ? `仓位大小：${sizing.unavailableReason}`
       : !accountPlan && validated.positionSizing.accountStatus === "available" && validated.positionSizing.unavailableReason
         ? `仓位大小：${validated.positionSizing.unavailableReason}`
         : "";
@@ -1784,6 +1819,7 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
       "",
       `当前动作：${actionText}`,
       `方向判断：${directionText}`,
+      `策略：${(validated.strategy.name || validated.strategy.id).replace(/\s+/g, " ")}`,
       `${triggerLabel}：${triggerText}`,
       `止损与失效：${stopText}`,
       `分批止盈：${takeProfitText}`,
