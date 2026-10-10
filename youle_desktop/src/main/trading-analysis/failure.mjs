@@ -47,6 +47,25 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   });
 }
 
+// An explicitly selected strategy owns the report, drawings and execution
+// plan for the whole request. Failure is not permission to run another engine.
+export function buildTradingStrategyFailureReport(strategy, error, { language = "zh-CN" } = {}) {
+  const english = language === "en";
+  const name = String(strategy?.display?.name || strategy?.id || (english ? "Selected strategy" : "所选策略"))
+    .replace(/[\r\n]/g, " ").slice(0, 120);
+  const failure = describeTradingAnalysisFailure(error, { language });
+  const candleCount = Number(error?.candleCount);
+  const count = Number.isInteger(candleCount) && candleCount > 0 && candleCount <= 100_000 ? candleCount : null;
+  if (strategy?.id === "wyckoff" && error?.code === "TRADING_WYCKOFF_INSUFFICIENT_DATA") {
+    return english
+      ? `${name}: ${count ? `After checking ${count} candles, no` : "No"} trading range met the Wyckoff rules. There is insufficient evidence to confirm accumulation/distribution or the associated events. No entry, stop-loss or take-profit plan was generated. Wait for further range tests, or select another timeframe and run Wyckoff again.`
+      : `${name}：${count ? `已检查 ${count} 根 K 线，仍未识别到` : "当前未识别到"}符合威科夫规则的交易区间。上下沿测试与量价事件证据不足，暂不能确认吸筹、派发及其阶段。本次不生成入场、止损、止盈计划；可等待区间测试形成，或切换周期后重新进行威科夫分析。`;
+  }
+  return english
+    ? `${name}: ${failure.summary}. This strategy analysis did not complete, so no new execution plan was generated. Retry the selected strategy when available.`
+    : `${name}：${failure.summary}。本次策略分析未完成，未生成新的执行计划；恢复后可重新运行该策略。`;
+}
+
 export async function settleTradingAnalysisDrawing({ commit, isActive, onFailure }) {
   try {
     await commit();

@@ -570,7 +570,7 @@ test("generic strategy and general chart-analysis start after persistence or a n
   assert.match(rendererSource, /movePendingComposerSend\(previousThreadId, activeThreadId, pending\.itemId\)/);
 });
 
-test("generic strategy and general chart-analysis runners persist every completed or degraded terminal answer", () => {
+test("strategy and general chart-analysis runners persist completed, unavailable and degraded terminal answers", () => {
   const runnerSection = sourceBlock(
     rendererSource,
     "async function runTradingGeneralChartRequest",
@@ -579,6 +579,7 @@ test("generic strategy and general chart-analysis runners persist every complete
   assert.equal((runnerSection.match(/const transcriptItems: CodexItem\[\] = \[\];/g) || []).length, 2);
   assert.ok((runnerSection.match(/await persistCompletedTradingExpertTranscript/g) || []).length >= 6);
   assert.ok((runnerSection.match(/const reportItem = appendTradingExpertReport/g) || []).length >= 4);
-  assert.match(runnerSection, /自动切换到通用价格结构链路继续回答/);
-  assert.doesNotMatch(runnerSection, /盘面分析未完成/);
+  const strategyRunner = sourceBlock(rendererSource, "async function runTradingStrategyChartRequest", "function hasUploadingAttachments");
+  assert.match(strategyRunner, /buildTradingStrategyFailureReport\(strategy, error/);
+  assert.doesNotMatch(strategyRunner, /runTradingExpertGeneralConversation|自动切换到通用价格结构/);
 });

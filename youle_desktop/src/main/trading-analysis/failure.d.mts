@@ -9,3 +9,8 @@ export function settleTradingAnalysisDrawing(options: {
   isActive: () => boolean;
   onFailure?: (error: unknown) => unknown;
 }): Promise<{ drawingDeferred: boolean }>;
+export function buildTradingStrategyFailureReport(
+  strategy: { id: string; display?: { name?: string } },
+  error: unknown,
+  options?: { language?: string },
+): string;

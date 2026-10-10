@@ -5,23 +5,29 @@ import test from "node:test";
 import ts from "typescript";
 import { describeTradingAnalysisFailure, settleTradingAnalysisDrawing } from "../src/main/trading-analysis/failure.mjs";
 import { tradingAnalysisModelDisplayName } from "../src/renderer/trading-analysis-model-display.ts";
+import * as expansion from "../src/renderer/trading-expert-wave-expansion.ts";
 
 // Execute the actual renderer orchestration with only its I/O replaced. This
 // catches regressions where its outer catch discards a successful model report.
-function harness({ language = "zh-CN", modelId = "validated-model", apiError, drawingError, cancelOnDrawing = false } = {}) {
+function harness({ language = "zh-CN", modelId = "validated-model", strategyId, wyckoff = false, apiError, drawingError, cancelOnDrawing = false } = {}) {
   const source = fs.readFileSync(path.resolve(import.meta.dirname, "../src/renderer/trading-expert-market.ts"), "utf8");
-  const method = source.slice(source.indexOf("  async runGeneralConversation("), source.indexOf("  async runChanConversation("));
+  const method = wyckoff
+    ? source.slice(source.indexOf("  async runWyckoffConversation("), source.indexOf("  async runOrderFlowConversation("))
+    : source.slice(source.indexOf("  async runGeneralConversation("), source.indexOf("  async runChanConversation("));
   const javascript = ts.transpileModule(`class Harness { ${method} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
   const market = { id: "BINANCE:FUTURES:SNDKUSDT", provider: "binance", symbol: "SNDKUSDT", baseAsset: "SNDK", quoteAsset: "USDT" };
   const candles = Array.from({ length: 600 }, (_, i) => ({ time: 1_800_000_000 + i * 3600, open: 100, high: 102, low: 99, close: 101, volume: 100 }));
   const state = { active: true, completed: false, apiCalls: 0, drawingCalls: 0, recoveryCalls: 0, failures: [], progress: [] };
   const deps = {
+    ...expansion,
     window: { codexDesktop: { runTradingGeneralAnalysis: async () => {
       state.apiCalls++;
       if (apiError) return { ok: false, error: apiError };
       return { ok: true, model: { modelId }, analysisPlan: { report: "VALIDATED ORIGINAL REPORT", narrative: "VALIDATED ANSWER", drawingPatch: { marketId: market.id, interval: "60" } } };
     } } },
     marketFromFavoriteRecord: (value) => value,
+    selectTradingAnalysisMarket: () => market,
+    visibleCandlesInLogicalRange: (value) => value,
     selectTradingAnalysisInterval: ({ currentInterval }) => currentInterval,
     tradingViewResolutionDurationMs: () => 3_600_000,
     tradingPeriodLabelForResolution: () => "1h",
@@ -34,10 +40,8 @@ function harness({ language = "zh-CN", modelId = "validated-model", apiError, dr
     },
     TRADING_CANDLE_WINDOW_AUTO_EXPANSION_MAX_CANDLES: 2500,
     TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE: "TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA",
-    runTradingAnalysisWithAutoExpansion: async ({ initialCandles, analyze }) => {
-      await analyze(initialCandles);
-      return { candles: initialCandles };
-    },
+    runTradingAnalysisWithAutoExpansion: wyckoff ? expansion.runTradingAnalysisWithAutoExpansion
+      : async ({ initialCandles, analyze }) => ({ candles: initialCandles, response: await analyze(initialCandles) }),
     describeTradingAnalysisFailure, settleTradingAnalysisDrawing, tradingAnalysisModelDisplayName,
     recordTradingRendererFailure: (error, context) => state.failures.push({ error, context }),
     commitTradingAnalysisDrawingPatch: async () => {
@@ -52,9 +56,15 @@ function harness({ language = "zh-CN", modelId = "validated-model", apiError, dr
     combineTradingAnalysisNarratives: (_heading, narrative) => narrative,
     buildRecoverableTradingAnalysis: () => { state.recoveryCalls++; throw new Error("Unexpected local fallback"); },
   };
+  deps.window.codexDesktop.runTradingStrategyAnalysis = deps.window.codexDesktop.runTradingGeneralAnalysis;
+  deps.window.codexDesktop.runTradingWyckoffAnalysis = deps.window.codexDesktop.runTradingGeneralAnalysis;
   const Harness = new Function(...Object.keys(deps), `${javascript}; return Harness;`)(...Object.values(deps));
   const workspace = Object.assign(new Harness(), {
-    markets: [], loadedMarketId: market.id, loadedInterval: "60",
+    markets: [market], loadedMarketId: market.id, loadedInterval: "60",
+    selectedMarketId: market.id, selectedSymbol: market.symbol, selectedMarketMeta: market,
+    activeInterval: "60", candles, drawingStorageSessionId: "task-one",
+    chart: { timeScale: () => ({ getVisibleLogicalRange: () => null, setVisibleRange() {} }) },
+    captureSplitPaneAnalysisSnapshots: async () => ({}),
     drawingStorageSessionMatches: () => true,
     runSplitPaneAnalyses: async () => ({ completed: 0, failed: 0, reports: [], failures: [] }),
   });
@@ -63,8 +73,52 @@ function harness({ language = "zh-CN", modelId = "validated-model", apiError, dr
     analysisTarget: { market, marketId: market.id, symbol: market.symbol, interval: "60", capturedAt: Date.now(), storageSessionId: "task-one", candles, visibleCandles: candles },
     onProgress: (phase, message) => state.progress.push({ phase, message }),
   };
-  return { state, run: () => workspace.runGeneralConversation(request) };
+  return { state, run: () => wyckoff ? workspace.runWyckoffConversation(request) : workspace.runGeneralConversation(request, strategyId) };
 }
+
+test("Wyckoff renderer preserves checked candle count after exhausting same-strategy expansion", async () => {
+  const { state, run } = harness({ wyckoff: true, apiError: { code: expansion.TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE, message: "No valid range" } });
+  await assert.rejects(run(), (error) => error.code === expansion.TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE && error.candleCount === 600);
+  assert.equal(state.apiCalls, 4); // 120, 240, 480, 600 from the available pool
+  assert.equal(state.drawingCalls, 0);
+  assert.equal(state.recoveryCalls, 0);
+  assert.equal(state.completed, false);
+});
+
+test("Wyckoff drawing failures preserve the validated strategy report instead of replacing it", async () => {
+  for (const language of ["zh-CN", "en"]) {
+    const { state, run } = harness({ wyckoff: true, language, drawingError: new Error("storage quota exceeded") });
+    const result = await run();
+    assert.match(result.report, /VALIDATED ORIGINAL REPORT/);
+    assert.equal(result.drawingDeferred, true);
+    assert.equal(state.apiCalls, 1);
+    assert.equal(state.recoveryCalls, 0);
+    assert.equal(state.completed, true);
+    assert.equal(state.failures[0].context.strategyId, "wyckoff");
+    assert.equal(state.failures[0].context.stage, "drawing");
+    if (language === "en") assert.doesNotMatch(result.report, /\p{Script=Han}/u);
+  }
+});
+
+test("Wyckoff drawing cancellation remains cancelled", async () => {
+  const { state, run } = harness({ wyckoff: true, drawingError: new DOMException("stopped", "AbortError"), cancelOnDrawing: true });
+  await assert.rejects(run(), (error) => error.name === "AbortError");
+  assert.equal(state.completed, false);
+  assert.equal(state.recoveryCalls, 0);
+});
+
+test("explicit strategies using the shared renderer cannot fall back to local price action", async () => {
+  for (const strategyId of ["price-action", "harmonic", "ict-smc", "macd-analysis", "personal:fixture"]) {
+    for (const code of ["TRADING_ANALYSIS_MODEL_REVIEW_INVALID", "TRADING_ANALYSIS_MODEL_TIMEOUT", "TRADING_STRATEGY_INSUFFICIENT_DATA"]) {
+      const { state, run } = harness({ strategyId, apiError: { code, message: "fixture failure" } });
+      await assert.rejects(run(), (error) => error.code === code);
+      assert.equal(state.apiCalls, 1);
+      assert.equal(state.recoveryCalls, 0, strategyId);
+      assert.equal(state.drawingCalls, 0);
+      assert.equal(state.completed, false);
+    }
+  }
+});
 
 test("actual renderer retains validated analysis when drawing/storage fails in Chinese and English", async () => {
   for (const language of ["zh-CN", "en"]) {

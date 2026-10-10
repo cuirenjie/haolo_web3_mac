@@ -5,7 +5,7 @@ import "./trading-watchlist.css";
 import { renderTradingWatchlistHost, renderTradingWatchlistToggle } from "./trading-watchlist-ui.ts";
 import { deferTradingChartShellRender } from "./trading-chart-interaction.ts";
 import QRCode from "qrcode";
-import { describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
+import { buildTradingStrategyFailureReport, describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
 import { analysisModelPolicySelection, normalizeAnalysisModelRecoveryState, withAnalysisModelRecoveryPolicy, type AnalysisModelRecoveryState } from "../main/analysis-model-policy.mjs";
 import { canonicalDeepSeekModel } from "../main/deepseek-model-policy.mjs";
 import { isRetiredExecutionModel } from "../main/retired-model-policy.mjs";
@@ -32128,80 +32128,14 @@ async function runTradingStrategyChartRequest(
       clearTradingExpertThinkingState(targetThreadId());
       const quotaItem = appendInsufficientQuotaAgentMessage(targetThreadId());
       await persistCompletedTradingExpertTranscript(targetThreadId(), quotaItem ? [...transcriptItems, quotaItem] : transcriptItems);
-    } else if (!describeTradingAnalysisFailure(error).allowLocalRecovery) {
-      const report = buildTradingAnalysisAvailabilityReport(request.instruction, error);
+    } else {
+      const report = buildTradingStrategyFailureReport(strategy, error, {
+        language: appLanguageLocale() === "en-US" ? "en" : "zh-CN",
+      });
       updateProgress("error", report);
       clearTradingExpertThinkingState(targetThreadId());
       const reportItem = appendTradingExpertReport(targetThreadId(), report, undefined, undefined, "plain");
       await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
-    } else {
-      updateProgress(
-        "analyzing",
-        `${strategy.display.name}增强暂不可用，已自动切换到通用价格结构链路继续回答。`,
-      );
-      try {
-        const recovered = await runTradingExpertGeneralConversation({
-          analysisId,
-          analysisTarget,
-          model: selectedChatModelValue(threadId),
-          explicitModelSelection: threadModelSelection(threadId)?.userSelected === true,
-          reasoningEffort: "max",
-          instruction: request.instruction,
-          symbol: request.symbol,
-          interval: request.interval,
-          lookbackMs: request.lookbackMs,
-          lookbackLabel: request.lookbackLabel,
-          drawingRequested: request.drawingRequested,
-          positionManagementRequested: request.positionManagementRequested,
-          strategyDisplayName: "通用价格结构",
-          minimumCandles: Math.min(30, strategy.dataRequirements?.candles?.minCount || 30),
-          preferredCandles: Math.max(100, strategy.dataRequirements?.candles?.preferredCount || 100),
-          executionPlanRequested: true,
-          onProgress: updateProgress,
-        });
-        updateProgress(
-          "complete",
-          recovered.drawingDeferred
-            ? describeTradingAnalysisFailure(null, { stage: "drawing", language: appLanguageLocale() === "en-US" ? "en" : "zh-CN" }).summary
-            : `${recovered.modelName} 已完成 ${recovered.symbol} ${recovered.candleCount} 根 K 线的兼容分析${request.drawingRequested ? "与安全绘图" : ""}。`,
-        );
-        clearTradingExpertThinkingState(targetThreadId());
-        const reportItem = appendTradingExpertReport(
-          targetThreadId(),
-          recovered.report,
-          undefined,
-          undefined,
-          request.positionManagementRequested === true ? "plain" : "execution-plan",
-        );
-        await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
-      } catch (recoveryError) {
-        recordTradingRendererFailure(recoveryError, { analysisJobId: analysisId, strategyId: "general-recovery", stage: "analysis" });
-        if (isTradingAnalysisCancellation(recoveryError)) {
-          updateProgress("complete", "已按你的要求停止本次盘面分析。");
-          await persistCompletedTradingExpertTranscript(targetThreadId(), transcriptItems);
-          return;
-        }
-        if (isTradingAnalysisQuotaFailure(recoveryError)) {
-          clearTradingExpertThinkingState(targetThreadId());
-          const quotaItem = appendInsufficientQuotaAgentMessage(targetThreadId());
-          await persistCompletedTradingExpertTranscript(targetThreadId(), quotaItem ? [...transcriptItems, quotaItem] : transcriptItems);
-          return;
-        }
-        const report = buildTradingAnalysisAvailabilityReport(
-          request.instruction,
-          recoveryError,
-        );
-        updateProgress("error", report);
-        clearTradingExpertThinkingState(targetThreadId());
-        const reportItem = appendTradingExpertReport(
-          targetThreadId(),
-          report,
-          undefined,
-          undefined,
-          request.positionManagementRequested === true ? "plain" : "execution-plan",
-        );
-        await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
-      }
     }
   } finally {
     finishTradingExpertAnalysisJob(threadId, analysisId);

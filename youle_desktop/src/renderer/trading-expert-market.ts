@@ -714,6 +714,7 @@ export interface TradingWyckoffConversationResult {
   interval: string;
   candleCount: number;
   modelName: string;
+  drawingDeferred?: boolean;
 }
 type TradingGeneralAnalysisResponse = TradingChanAnalysisResponse;
 export type TradingGeneralConversationPhase = "loading" | "analyzing" | "drawing" | "complete";
@@ -10788,7 +10789,9 @@ class TradingExpertMarketWorkspace {
         analysisJobId: job.analysisId, strategyId: strategyId || "general",
         marketId: job.marketId, interval: job.interval, candleCount: analysisCandles.length, stage: failureStage,
       });
-      const recovered = cancelled || !failure.allowLocalRecovery ? null : buildRecoverableTradingAnalysis({
+      // Generic local price analysis cannot satisfy an explicitly selected
+      // strategy (including indicators and personal strategies).
+      const recovered = cancelled || !failure.allowLocalRecovery || Boolean(strategyId) ? null : buildRecoverableTradingAnalysis({
         analysisId: job.analysisId,
         marketId: job.marketId,
         symbol: job.symbol,
@@ -11679,10 +11682,11 @@ class TradingExpertMarketWorkspace {
       }
       if (!response?.ok || !response.analysisPlan?.drawingPatch) {
         const error = new Error(response?.error?.message || "威科夫分析没有返回可绘制计划");
-        (error as Error & { code?: string }).code = response?.error?.code;
+        Object.assign(error, response?.error, { candleCount: analysisCandles.length });
         throw error;
       }
       const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
+      let drawingDeferred = false;
       if (request.drawingRequested !== false) {
         request.onProgress?.(
           "wyckoff-drawing",
@@ -11694,7 +11698,15 @@ class TradingExpertMarketWorkspace {
             request.onProgress?.("wyckoff-drawing", `${modelName} 正在逐项绘制区间边界、Phase A–E 和关键量价事件。`);
           }
         };
-        await commitTradingAnalysisDrawingPatch(job, response.analysisPlan.drawingPatch, 0, onPhase);
+        ({ drawingDeferred } = await settleTradingAnalysisDrawing({
+          isActive: () => tradingAnalysisJobs.isActive(job.analysisId),
+          commit: () => commitTradingAnalysisDrawingPatch(job, response.analysisPlan!.drawingPatch!, 0, onPhase),
+          onFailure: (error) => recordTradingRendererFailure(error, {
+            analysisJobId: job.analysisId, strategyId: "wyckoff",
+            marketId: job.marketId, interval: job.interval, candleCount: analysisCandles.length,
+            modelId: response.model?.modelId || response.model?.providerId, stage: "drawing",
+          }),
+        }));
       }
       const splitResult = await this.runSplitPaneAnalyses({
         job,
@@ -11732,7 +11744,9 @@ class TradingExpertMarketWorkspace {
         throw new Error("威科夫分析已由用户停止");
       }
       if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
-      request.onProgress?.("wyckoff-complete", request.drawingRequested === false
+      request.onProgress?.("wyckoff-complete", drawingDeferred
+        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary
+        : request.drawingRequested === false
         ? `${modelName} 已按最新行情完成威科夫复核，正在直接回答本次问题；左侧原画线保持不变。`
         : `${modelName} 已完成威科夫拟人落图，正在整理新手可执行的突破、跌破与等待条件。`);
       const primaryReport = String((request.drawingRequested === false
@@ -11741,13 +11755,17 @@ class TradingExpertMarketWorkspace {
       const primaryNarrative = String(response.analysisPlan.narrative || "威科夫分析已完成");
       const primaryHeading = tradingAnalysisPaneHeading(targetMarket, job.interval);
       const result: TradingWyckoffConversationResult = {
-        report: combineTradingAnalysisReports(primaryHeading, primaryReport, splitResult),
+        report: combineTradingAnalysisReports(primaryHeading, [
+          primaryReport,
+          drawingDeferred ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary : "",
+        ].filter(Boolean).join("\n\n"), splitResult),
         narrative: combineTradingAnalysisNarratives(primaryHeading, primaryNarrative, splitResult),
         marketId: job.marketId,
         symbol: job.symbol,
         interval: job.interval,
         candleCount: analysisCandles.length,
         modelName,
+        drawingDeferred,
       };
       tradingAnalysisJobs.complete(job.analysisId);
       return result;
