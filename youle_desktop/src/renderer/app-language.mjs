@@ -863,6 +863,14 @@ const ENGLISH_UI_PHRASES = Object.freeze({
 // watchlist renderer. Keep them in exact-match translations only: replacing
 // them inside arbitrary prose would turn e.g. “按照当前…” into “Sort by照…”.
 const ENGLISH_UI_EXACT_ONLY = Object.freeze({
+  "API Secret 会通过 HTTPS 传输，并由 HaoLo 服务器加密保存；客户端不会把密钥放进聊天、日志或数据导出。": "The API Secret is sent over HTTPS and encrypted by the HaoLo server; the client never puts the key in chats, logs, or exports.",
+  "账户已绑定": "Account connected",
+  "当前绑定设备不在 Windows，本机没有保存账户密钥。请在绑定设备刷新账户数据。": "The bound device is not Windows; this device does not store the account key. Refresh account data on the bound device.",
+  "清空绘图？": "Clear drawings?",
+  "将清空所选范围的绘图及历史记录，手工画线的删除也会同步到其他设备的新任务。历史任务不受影响。此操作无法撤销。": "Clear drawings and drawing history in the selected scope. Manual drawing deletions also sync to New task on other devices. Historical tasks are unaffected. This cannot be undone.",
+  "画线已保留在本机，等待同步": "Drawings saved on this device; waiting to sync",
+  "画线本机保存失败": "Could not save drawings on this device",
+  "暂时无法同步，请稍后重试": "Unable to sync; try again shortly",
   "升级": "Upgrade",
   "按": "Sort by ",
   "每日": "Daily",

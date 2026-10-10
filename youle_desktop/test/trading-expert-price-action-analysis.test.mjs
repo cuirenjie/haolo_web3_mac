@@ -215,7 +215,8 @@ test("English Price Action keeps the full analysis report alongside the executio
   assert.match(result.analysisPlan.report, /^## Price Action Analysis/m);
   assert.match(result.analysisPlan.report, /### Market structure/);
   assert.match(result.analysisPlan.report, /### Conditional execution/);
-  assert.doesNotMatch(result.analysisPlan.report, /[\u3400-\u9fff]/u);
+  assert.match(result.analysisPlan.report, /^Strategy: 裸K分析$/m);
+  assert.doesNotMatch(result.analysisPlan.report.replace(/^Strategy: .*\n/m, ""), /[\u3400-\u9fff]/u);
   const drawingTexts = result.analysisPlan.drawingPatch.operations
     .map((operation) => operation.drawing.text || "")
     .join(" ");
@@ -235,7 +236,8 @@ test("English Price Action keeps the full analysis report alongside the executio
   });
   assert.match(coordinated.analysisPlan.report, /Current action:/);
   assert.match(coordinated.analysisPlan.report, /---[\s\S]*## Price Action Analysis/);
-  assert.doesNotMatch(coordinated.analysisPlan.report, /[\u3400-\u9fff]/u);
+  assert.match(coordinated.analysisPlan.report, /^Strategy: 裸K分析$/m);
+  assert.doesNotMatch(coordinated.analysisPlan.report.replace(/^Strategy: .*\n/m, ""), /[\u3400-\u9fff]/u);
 });
 
 test("expired historical setup is not promoted into a current execution plan", async () => {

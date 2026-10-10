@@ -569,7 +569,7 @@ test("client-owned chat notices are localized while user and model content remai
   assert.match(bubbleBlock, /data-i18n-owned/);
   assert.match(reportBlock, /const visibleText = String\(text \|\| ""\)/);
   assert.doesNotMatch(reportBlock, /englishSafeAssistantText/);
-  assert.match(planCardBlock, /const visibleContent = String\(content \|\| ""\)/);
+  assert.match(planCardBlock, /executionPlanDisplayLines\(content\)/);
   assert.doesNotMatch(planCardBlock, /englishSafeAssistantText/);
   assert.match(skipBlock, /closest\?\.\(APP_OWNED_LOCALIZATION_SELECTOR\).*return false/s);
   assert.match(language, /\.message-text/);

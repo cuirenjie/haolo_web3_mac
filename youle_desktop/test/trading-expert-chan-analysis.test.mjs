@@ -338,7 +338,8 @@ test("English Chan coordination returns plan cards plus a complete parseable ana
   assert.match(coordinated.analysisPlan.report, /Current action:/);
   assert.match(coordinated.analysisPlan.report, /---[\s\S]*## BINANCE:FUTURES:BTCUSDT · 1H Chan analysis/);
   assert.match(coordinated.analysisPlan.report, /### Overall assessment/);
-  assert.doesNotMatch(coordinated.analysisPlan.report, /\p{Script=Han}/u);
+  assert.match(coordinated.analysisPlan.report, /^Strategy: 缠论$/m);
+  assert.doesNotMatch(coordinated.analysisPlan.report.replace(/^Strategy: .*\n/m, ""), /\p{Script=Han}/u);
 
   const partitions = executionPlanTextPartitions(coordinated.analysisPlan.report);
   assert.ok(partitions);

@@ -2458,7 +2458,7 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.match(source, /const FAVORITE_TICKER_SOCKET_STALE_MS = 10_000/);
   assert.match(source, /const FAVORITE_TICKER_FALLBACK_BATCH_SIZE = 4/);
   assert.match(source, /export function parseBinanceMarketRetryAfterMs[\s\S]*Number\.isFinite\(seconds\)[\s\S]*Date\.parse\(text\)/);
-  assert.match(source, /response\?\.status === 418 \|\| response\?\.status === 429[\s\S]*recordBinanceMarketRateLimit\(response\?\.retryAfterMs, marketType\)/);
+  assert.match(source, /response\?\.status === 418 \|\| response\?\.status === 429[\s\S]*recordBinanceMarketRateLimit\(binanceMarketRetryAfterMs\(response\), marketType\)/);
   assert.match(socketBlock, /this\.marketSocketLastActivityAt = Date\.now\(\)/);
   assert.match(socketBlock, /event\.status === "reconnecting"[\s\S]*?this\.marketSocketNeedsBackfill = true/);
   assert.match(socketBlock, /const needsBackfill = this\.marketSocketNeedsBackfill[\s\S]*?this\.refreshLiveCandle\(generation\)/);
