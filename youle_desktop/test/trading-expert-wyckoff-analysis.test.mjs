@@ -4,6 +4,11 @@ import test from "node:test";
 
 import { createTradingAnalysisModelProviderRegistry } from "../src/main/trading-analysis/model-provider.mjs";
 import { runWyckoffTheoryEngine } from "../src/main/trading-analysis/wyckoff-engine.mjs";
+import { TradingStrategyCoordinator } from "../src/main/trading-strategy-runtime/coordinator.mjs";
+import { createTradingStrategyRegistry } from "../src/main/trading-strategy-runtime/registry.mjs";
+import { BUILTIN_TRADING_STRATEGY_ADAPTERS } from "../src/main/trading-strategy-runtime/builtins/index.mjs";
+import { executionPlanCandidatesFromText, executionPlanDisplayLines } from "../src/renderer/execution-plans.ts";
+import { executionPlanCardHeading } from "../src/main/execution-plan-card-view.mjs";
 import {
   buildWyckoffModelPrompt,
   runTradingWyckoffAnalysisPipeline,
@@ -184,6 +189,24 @@ test("Wyckoff pipeline keeps the model provider neutral and only draws trusted c
     && drawing.locked === true
     && drawing.colorToken.startsWith("wyckoff-")
   )));
+
+  const coordinator = new TradingStrategyCoordinator({
+    registry: createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS }),
+    modelRegistry: registry,
+    providerId: "fixture-provider",
+  });
+  const coordinated = await coordinator.run("wyckoff", fixtureParams());
+  assert.equal(coordinated.executionPlan.strategy.id, "wyckoff");
+  assert.equal(coordinated.executionPlan.strategy.name, "威科夫");
+  const cards = executionPlanCandidatesFromText(coordinated.analysisPlan.report);
+  assert.ok(cards.length > 0);
+  for (const card of cards) {
+    const heading = executionPlanCardHeading(card.title, executionPlanDisplayLines(card.content));
+    assert.match(heading, /class="execution-plan-badge strategy" title="威科夫">威科夫</);
+    assert.doesNotMatch(heading, /裸K|price-action/i);
+  }
+  await assert.rejects(coordinator.run("wyckoff", fixtureParams(monotonicCandles(600))),
+    (error) => error.code === "TRADING_WYCKOFF_INSUFFICIENT_DATA");
   assert.ok(result.analysisPlan.drawingPatch.operations.some(({ drawing }) => drawing.tool === "rectangle"));
   assert.ok(result.analysisPlan.drawingPatch.operations.some(({ drawing }) => drawing.tool === "path"));
   assert.ok(result.analysisPlan.drawingPatch.operations.some(({ drawing }) => (
