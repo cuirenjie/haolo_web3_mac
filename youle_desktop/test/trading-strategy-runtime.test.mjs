@@ -1411,7 +1411,9 @@ test("coordinator keeps English analysis alongside cards and direct position ans
   const full = await coordinator.run("sample-strategy", { language: "en" });
   assert.match(full.analysisPlan.report, /^## BTC\/USDT Binance Perpetual 1H/m);
   assert.ok(full.analysisPlan.report.includes(report));
-  assert.doesNotMatch(full.analysisPlan.report, /[\u3400-\u9fff]/u);
+  // User-named strategies retain their proper name; generated prose is English.
+  assert.match(full.analysisPlan.report, /^Strategy: 示例策略$/m);
+  assert.doesNotMatch(full.analysisPlan.report.replace(/^Strategy: .*\n/m, ""), /[\u3400-\u9fff]/u);
   const direct = await coordinator.run("sample-strategy", { language: "en", responseMode: "direct", positionManagementRequested: true });
   assert.equal(direct.analysisPlan.report, report);
   assert.equal(direct.analysisPlan.narrative, "Support is holding at 98.");
