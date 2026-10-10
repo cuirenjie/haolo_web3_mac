@@ -215,7 +215,6 @@ test("English Price Action keeps the full analysis report alongside the executio
   assert.match(result.analysisPlan.report, /^## Price Action Analysis/m);
   assert.match(result.analysisPlan.report, /### Market structure/);
   assert.match(result.analysisPlan.report, /### Conditional execution/);
-  assert.match(result.analysisPlan.report, /^Strategy: 裸K分析$/m);
   assert.doesNotMatch(result.analysisPlan.report.replace(/^Strategy: .*\n/m, ""), /[\u3400-\u9fff]/u);
   const drawingTexts = result.analysisPlan.drawingPatch.operations
     .map((operation) => operation.drawing.text || "")

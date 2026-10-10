@@ -871,6 +871,10 @@ const ENGLISH_UI_EXACT_ONLY = Object.freeze({
   "画线已保留在本机，等待同步": "Drawings saved on this device; waiting to sync",
   "画线本机保存失败": "Could not save drawings on this device",
   "暂时无法同步，请稍后重试": "Unable to sync; try again shortly",
+  "將清空所選範圍的繪圖及歷史記錄，手工畫線的刪除也會同步到其他裝置的新任務。歷史任務不受影響。此操作無法復原。": "Clear drawings and drawing history in the selected scope. Manual drawing deletions also sync to New task on other devices. Historical tasks are unaffected. This cannot be undone.",
+  "畫線已保留在本機，等待同步": "Drawings saved on this device; waiting to sync",
+  "畫線本機儲存失敗": "Could not save drawings on this device",
+  "暫時無法同步，請稍後重試": "Unable to sync; try again shortly",
   "升级": "Upgrade",
   "按": "Sort by ",
   "每日": "Daily",
@@ -1232,10 +1236,9 @@ export function translateAppText(value, language = currentAppLanguage) {
   const cacheKey = `${normalized}\u0000${source}`;
   const cached = translationCache.get(cacheKey);
   if (cached !== undefined) return cached;
-  const exact = exactTranslation(
-    canonicalSource,
-    normalized === "zh-TW" ? TRADITIONAL_UI_EXACT : ENGLISH_UI_EXACT,
-  );
+  const translationRecord = normalized === "zh-TW" ? TRADITIONAL_UI_EXACT : ENGLISH_UI_EXACT;
+  const exact = exactTranslation(source, translationRecord)
+    ?? exactTranslation(canonicalSource, translationRecord);
   const translated = exact ?? (normalized === "zh-TW"
     ? simplifiedToTraditionalCharacters(replacePhrases(canonicalSource, TRADITIONAL_UI_ENTRIES))
     : replacePhrases(canonicalSource, ENGLISH_UI_ENTRIES));
