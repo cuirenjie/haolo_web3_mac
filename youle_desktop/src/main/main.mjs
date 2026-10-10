@@ -4937,7 +4937,10 @@ async function syncSharedBinanceAccountConnection() {
   });
   const connections = await readSharedBinanceAccountConnections();
   const own = connections.find((item) => String(item.deviceId || "") === deviceId);
-  if (own || connections.length > 0) return own || connections[0];
+  // Connections are device-scoped resources. Never reuse a phone's row for
+  // Windows: doing so makes a Windows bind overwrite credentials owned by a
+  // different device and leaves no safe target for a device-local unbind.
+  if (own) return own;
   return api.createAccountConnection({
     deviceId,
     label: "Windows",
@@ -4949,14 +4952,11 @@ async function syncSharedBinanceAccountCredentials(credentials) {
   const api = getYouleApiClient();
   const deviceId = sharedBinanceConnectionDeviceId();
   await api.registerMobileDevice({ deviceId, platform: "windows" });
-  let connections = await readSharedBinanceAccountConnections();
+  const connections = await readSharedBinanceAccountConnections();
   // Prefer this desktop's own connection. A shared account may have a phone
-  // connection as well; binding credentials to the first row could otherwise
-  // silently attach Windows credentials to the wrong device.
-  let target = connections.find((item) => String(item.deviceId || "") === deviceId)
-    || connections.find((item) => item.credentialsBound === true)
-    || connections[0]
-    || null;
+  // connection as well; binding credentials to another row would otherwise
+  // silently overwrite credentials owned by the wrong device.
+  let target = connections.find((item) => String(item.deviceId || "") === deviceId) || null;
   if (!target?.id) {
     target = await api.createAccountConnection({
       deviceId,
@@ -4969,13 +4969,13 @@ async function syncSharedBinanceAccountCredentials(credentials) {
 
 async function removeSharedBinanceAccountConnection() {
   const api = getYouleApiClient();
+  const deviceId = sharedBinanceConnectionDeviceId();
   const connections = await readSharedBinanceAccountConnections();
-  // The binding is account-scoped. Removing it from Windows must revoke the
-  // same server connection that a phone may have created, otherwise the next
-  // status query would immediately make the account appear bound again.
-  for (const connection of connections) {
-    if (connection?.id) await api.deleteAccountConnection(connection.id);
-  }
+  const own = connections.find((item) => String(item.deviceId || "") === deviceId);
+  // Unbinding Windows must not revoke a phone's connection. A legacy row that
+  // lacks deviceId is intentionally left remote-only because its ownership
+  // cannot be proven from this client.
+  if (own?.id) await api.deleteAccountConnection(own.id);
 }
 
 async function readBinanceAccountStatusWithSharedBinding(owner) {
