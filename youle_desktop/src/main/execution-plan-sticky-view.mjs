@@ -249,7 +249,8 @@ export function executionPlanStickyHtml(input = {}) {
       if (!card) return;
       let wheelDistance = 0;
       let wheelResetTimer = 0;
-      card.addEventListener("wheel", (event) => {
+      // This document belongs to one note, including its corner resize handles.
+      document.addEventListener("wheel", (event) => {
         const deltaY = Number(event.deltaY);
         if (!Number.isFinite(deltaY) || deltaY === 0) return;
         event.preventDefault();

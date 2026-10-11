@@ -27,7 +27,7 @@ function delay(milliseconds) {
 
 async function capture(theme, fontSize, account = false, language = "zh-CN") {
   const payload = {
-    title: "BTC/USDT 币安永续 1H · 多头条件方案",
+    title: "龙虾/USDT 币安永续 1H · 多头条件方案",
     theme,
     language,
     fontSize,
@@ -35,11 +35,11 @@ async function capture(theme, fontSize, account = false, language = "zh-CN") {
       { label: "当前动作：", text: "等待条件触发", directionTone: "", segments: [] },
       { label: "方向判断：", text: "偏多", directionTone: "bullish", segments: [] },
       { label: "策略：", text: "price-action" },
-      { label: "多头触发：", text: account ? "82849.635，用 3 倍杠杆开仓 100 USDT 的多单" : "82849.635" },
-      { label: "止损与失效：", text: "82620.422" },
+      { label: "多头触发：", text: account ? "0.04343021，用 3 倍杠杆开仓 100 USDT 的多单" : "0.04343021" },
+      { label: "止损与失效：", text: "0.0415244" },
       { label: "分批止盈：", text: account
-        ? "挂条件委托 83173.299178 市价止盈 33 USDT；预计盈利 +1.11 USDT，挂条件委托 83210.48542333 市价止盈 33 USDT；预计盈利 +2.22 USDT，挂条件委托 83308.061 市价止盈 34 USDT；预计盈利 +3.33 USDT"
-        : "第1目标 83173.299178，第2目标 83210.48542333，第3目标 83308.061" },
+        ? "挂条件委托 0.0456574 市价止盈 33 USDT；预计盈利 +1.11 USDT，挂条件委托 0.0475085 市价止盈 33 USDT；预计盈利 +2.22 USDT，挂条件委托 0.05 市价止盈 34 USDT；预计盈利 +3.33 USDT"
+        : "第1目标 0.0456574，第2目标 0.0475085，第3目标 0.05" },
       { label: "风险收益比：", text: "目标1为 1:0.4，目标2为 1:0.49，目标3为 1:0.74" + (account ? "，如果止损：约 -5.00 USDT，如果全部止盈：约 +6.66 USDT" : "") },
       ...(account ? [
         { label: "仓位大小：", text: "推荐下单 0.001 BTC；名义金额 100 USDT；3 倍杠杆；账户权益 50.51 USDT" },
@@ -62,6 +62,9 @@ async function capture(theme, fontSize, account = false, language = "zh-CN") {
     actionNavigation = url;
   });
   await window.loadURL(dataUrl(executionPlanStickyHtml(payload)));
+  assert.equal(await window.webContents.executeJavaScript('document.querySelector("h2").textContent'), "龙虾 · 1H");
+  assert.deepEqual(await window.webContents.executeJavaScript('Array.from(document.querySelectorAll(".execution-plan-price, .execution-plan-target strong"), el => el.textContent)'),
+    ["0.043430", "0.041524", "0.045657", "0.047509", "0.050000"]);
   const measuredWidth = await window.webContents.executeJavaScript(EXECUTION_PLAN_STICKY_WIDTH_SCRIPT);
   const fittedWidth = Math.max(EXECUTION_PLAN_STICKY_MIN_WIDTH, Math.min(520, measuredWidth));
   window.setSize(fittedWidth, bounds.height);
@@ -169,24 +172,68 @@ async function capture(theme, fontSize, account = false, language = "zh-CN") {
   return file;
 }
 
-async function verifyGroupedDesktopInteraction() {
+async function verifyIndependentDesktopInteraction(theme) {
   const base = {
+    // Legacy callers may still send a shared group ID; it must not link zoom.
     groupId: "execution-plan-sticky-visual-qa-group",
-    theme: "dark",
+    theme,
     language: "zh-CN",
     fontSize: 12,
     lines: [{ label: "当前动作：", text: "等待条件触发", directionTone: "", segments: [] }],
   };
-  createExecutionPlanStickyWindow({ ...base, title: "桌面联动便利贴 A" });
-  createExecutionPlanStickyWindow({ ...base, title: "桌面联动便利贴 B" });
+  createExecutionPlanStickyWindow({ ...base, title: "桌面独立便利贴 A" });
+  createExecutionPlanStickyWindow({ ...base, title: "桌面独立便利贴 B" });
   await delay(260);
   const [first, second] = BrowserWindow.getAllWindows();
-  if (!first || !second) throw new Error("Grouped sticky-note smoke test did not create two windows.");
-
-  await first.webContents.executeJavaScript('document.querySelector(".card")?.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 }))');
-  await delay(160);
-  const linkedFontSize = await second.webContents.executeJavaScript('getComputedStyle(document.querySelector(".execution-plan-card-content")).fontSize');
-  if (linkedFontSize !== "13px") throw new Error(`Grouped sticky-note zoom did not synchronize: ${linkedFontSize}`);
+  if (!first || !second) throw new Error("Independent sticky-note smoke test did not create two windows.");
+  first.setPosition(80, 180);
+  second.setPosition(480, 180);
+  await delay(100);
+  const fontSize = (window) => window.webContents.executeJavaScript('getComputedStyle(document.querySelector(".execution-plan-card-content")).fontSize');
+  const assertFonts = async (expected) => assert.deepEqual(await Promise.all([fontSize(first), fontSize(second)]), expected);
+  const input = async (target, kind, direction, wheelSelector = ".card") => {
+    const sibling = target === first ? second : first;
+    const siblingBounds = sibling.getBounds();
+    const siblingFont = await fontSize(sibling);
+    await sibling.webContents.executeJavaScript('window.independentQaDocument = true');
+    const selector = kind === "wheel" ? wheelSelector : `.controls .sticky-action:nth-child(${direction > 0 ? 1 : 2})`;
+    const point = await target.webContents.executeJavaScript(`(() => {
+      const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+    })()`);
+    target.webContents.sendInputEvent({ type: "mouseMove", ...point });
+    if (kind === "wheel") {
+      target.webContents.sendInputEvent({ type: "mouseWheel", ...point, deltaX: 0, deltaY: direction * 120 });
+    } else {
+      for (const type of ["mouseDown", "mouseUp"]) target.webContents.sendInputEvent({ type, ...point, button: "left", clickCount: 1 });
+    }
+    await delay(240);
+    assert.equal(await fontSize(sibling), siblingFont, "Sibling font changed");
+    assert.deepEqual(sibling.getBounds(), siblingBounds, "Sibling bounds changed");
+    assert.equal(await sibling.webContents.executeJavaScript('window.independentQaDocument'), true, "Sibling reloaded");
+  };
+  await input(first, "wheel", 1);
+  await assertFonts(["13px", "12px"]);
+  await input(second, "wheel", -1);
+  await assertFonts(["13px", "11px"]);
+  await input(first, "button", -1);
+  await assertFonts(["12px", "11px"]);
+  await input(second, "button", 1);
+  await assertFonts(["12px", "12px"]);
+  for (const expected of ["13px", "14px", "16px", "18px", "20px", "20px"]) {
+    await input(first, "wheel", 1);
+    await assertFonts([expected, "12px"]);
+  }
+  for (const kind of ["button", "wheel", "button"]) {
+    await input(second, kind, -1);
+    await assertFonts(["20px", "11px"]);
+  }
+  await input(first, "wheel", -1);
+  await assertFonts(["18px", "11px"]);
+  await input(second, "wheel", 1, '.resize-handle.nw');
+  await assertFonts(["18px", "12px"]);
+  await input(second, "wheel", -1, '.controls');
+  await assertFonts(["18px", "11px"]);
 
   second.setPosition(480, 180);
   await delay(80);
@@ -225,8 +272,8 @@ async function verifyGroupedDesktopInteraction() {
   ))) {
     throw new Error(`Sticky-note live resize did not follow each pointer frame: ${JSON.stringify(observedBounds)}`);
   }
-  await first.webContents.executeJavaScript('document.querySelector("a[href*=zoom-in]")?.click()');
-  await delay(180);
+  await input(second, "button", 1);
+  await assertFonts(["18px", "12px"]);
   const preservedBounds = second.getBounds();
   if (preservedBounds.width !== afterResize.width || preservedBounds.height !== afterResize.height) {
     throw new Error("Content fitting overwrote the user's manually resized sticky note.");
@@ -248,11 +295,11 @@ async function verifyGroupedDesktopInteraction() {
   await updateExecutionPlanStickyTheme("light");
   await delay(180);
   assert.equal(await second.webContents.executeJavaScript('document.documentElement.dataset.theme'), "light");
-  assert.equal(await second.webContents.executeJavaScript('getComputedStyle(document.querySelector(".execution-plan-card-content")).fontSize'), "16px");
+  await assertFonts(["20px", "12px"]);
 
   await first.webContents.executeJavaScript('document.querySelector("a[href*=delete]")?.click()');
   await delay(120);
-  if (!first.isDestroyed() || second.isDestroyed()) throw new Error("Deleting one sticky note affected its grouped sibling.");
+  if (!first.isDestroyed() || second.isDestroyed()) throw new Error("Deleting one sticky note affected its sibling.");
   closeExecutionPlanStickyWindows();
 }
 
@@ -269,8 +316,8 @@ async function run() {
       }
     }
   }
-  await verifyGroupedDesktopInteraction();
-  await writeFile(path.join(outputDirectory, "report.json"), JSON.stringify({ completedAt: new Date().toISOString(), files, groupedInteraction: "passed" }, null, 2));
+  for (const theme of ["light", "dark"]) await verifyIndependentDesktopInteraction(theme);
+  await writeFile(path.join(outputDirectory, "report.json"), JSON.stringify({ completedAt: new Date().toISOString(), files, independentInteraction: "passed", interactionThemes: ["light", "dark"] }, null, 2));
   process.stdout.write(`${files.join("\n")}\n`);
 }
 

@@ -10,6 +10,16 @@ const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</
 const matches = (line, pattern) => pattern.test(labelOf(line));
 const fixed = (value) => Number(String(value).replace(/,/g, "")).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: String(value).includes(",") });
 
+function priceText(value) {
+  const amount = Number(String(value).replace(/,/g, ""));
+  // Count the leading zero below 1. Preserve all integer digits above 7.
+  const fractionDigits = (price) => Math.max(0, 7 - Math.trunc(Math.abs(price)).toLocaleString("en-US", { useGrouping: false }).length);
+  // Rounding can add an integer digit (99.999999 -> 100.0000).
+  const rounded = Number(amount.toLocaleString("en-US", { maximumFractionDigits: fractionDigits(amount), useGrouping: false }));
+  const digits = fractionDigits(rounded);
+  return amount.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: String(value).includes(",") });
+}
+
 // Format decimal tokens only in freeform text: indices, dates, periods and
 // leverage counts are not prices. Structured price/money fields also pad integers.
 function displayText(value) {
@@ -73,7 +83,7 @@ export function executionPlanCardHeading(title, lines = [], language = "zh-CN") 
   const labels = copy[language] || copy["zh-CN"];
   const tone = direction(lines);
   const market = String(title).match(/^(.+?\/(?:USDT|USDC|BUSD))\s+(?:币安永续|幣安永續|Binance Perpetual)\s+(\d+[MHDW])(?:\s|$)/i);
-  const heading = market ? `${market[1]} · ${market[2]}` : title;
+  const heading = market ? `${market[1].replace(/\/USDT$/i, "")} · ${market[2]}` : title;
   const strategy = lines.find((line) => matches(line, /^(?:策略|策略来源|策略來源|strategy)$/i));
   const name = strategyLabel(strategy?.text, language);
   const badges = `${tone ? `<span class="execution-plan-badge ${tone}">${labels[tone === "bullish" ? "long" : "short"]}</span>` : ""}${name ? `<span class="execution-plan-badge strategy" title="${escape(name)}">${escape(name)}</span>` : ""}`;
@@ -88,7 +98,7 @@ function metricHtml(line, label, tone, detail = "") {
     return `<div class="execution-plan-metric"><div class="execution-plan-card-label">${escape(line.label)}</div><div class="execution-plan-metric-description">${signedText(line.text)}</div></div>`;
   }
   const suffix = match[2].trim().replace(/^[，,;；]\s*/, "");
-  return `<div class="execution-plan-metric"><div class="execution-plan-card-label">${label}</div><div class="execution-plan-price ${tone}">${escape(fixed(match[1]))}</div>${detail || (suffix ? `<div class="execution-plan-metric-description">${signedText(suffix)}</div>` : "")}</div>`;
+  return `<div class="execution-plan-metric"><div class="execution-plan-card-label">${label}</div><div class="execution-plan-price ${tone}">${escape(priceText(match[1]))}</div>${detail || (suffix ? `<div class="execution-plan-metric-description">${signedText(suffix)}</div>` : "")}</div>`;
 }
 
 function moneyDetail(label, value, className = "", signed = false) {
@@ -174,7 +184,7 @@ export function executionPlanCardBody(lines = [], language = "zh-CN") {
   if (targets) {
     consumed.add(targetLine);
     if (ratios) consumed.add(ratioLine);
-    html += `<div class="execution-plan-targets">${targets.map((target) => `<div class="execution-plan-target"><span class="execution-plan-target-main"><span class="execution-plan-card-label">${labels.target(target.index)}:</span> <strong>${escape(fixed(target.price))}</strong></span>${ratios?.values.has(target.index) ? `<span class="execution-plan-ratio">${labels.ratio} ${escape(ratios.values.get(target.index))}</span>` : ""}${target.amount != null ? moneyDetail(labels.amount, target.amount, "execution-plan-target-amount") + moneyDetail(labels.profit, target.profit, "execution-plan-target-profit execution-plan-estimate", true) : ""}</div>`).join("")}</div>`;
+    html += `<div class="execution-plan-targets">${targets.map((target) => `<div class="execution-plan-target"><span class="execution-plan-target-main"><span class="execution-plan-card-label">${labels.target(target.index)}:</span> <strong>${escape(priceText(target.price))}</strong></span>${ratios?.values.has(target.index) ? `<span class="execution-plan-ratio">${labels.ratio} ${escape(ratios.values.get(target.index))}</span>` : ""}${target.amount != null ? moneyDetail(labels.amount, target.amount, "execution-plan-target-amount") + moneyDetail(labels.profit, target.profit, "execution-plan-target-profit execution-plan-estimate", true) : ""}</div>`).join("")}</div>`;
   }
   // The heading carries the direction/strategy; retain conditions and
   // unrecognized target formats after the presentation-only omissions above.
