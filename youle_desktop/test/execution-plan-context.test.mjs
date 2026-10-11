@@ -18,7 +18,8 @@ const functionNames = [
   "renderExecutionPlanCard", "executionPlanStatusMeta", "executionPlanCreatedLabel",
   "syncExecutionPlanLinkedAlert", "executionPlanBinanceIdentity", "addExecutionPlanFromMessageAction",
   "updateExecutionPlanLifecycle",
-  "messageExecutionPlanGroupCards", "applyMessageExecutionPlanFontSize", "applyMessageExecutionPlanGroupFontSize",
+  "applyMessageExecutionPlanFontSize", "adjustMessageExecutionPlanFontSize",
+  "createExecutionPlanStickyFromMessageAction", "bindMessageContentEvents",
 ];
 const functions = functionNames.map((name) => {
   const node = ast.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === name);
@@ -58,9 +59,13 @@ function harness(theme = "light", language = "zh-CN") {
     tradingLastAnalysisLabelForThread: () => runtime.latest,
     syncExecutionPlansForCurrentAccount() {}, render() {}, renderExecutionPlanActions: () => "",
     threadListDisplayName: (thread) => thread.name, showToast() {}, openExecutionPlansPage() {},
+    bindAttachmentPreviewEvents() {}, bindLocalFileDragEvents() {},
+    RECHARGE_TOKEN_ACTION_ID: "recharge", RECHARGE_TOKEN_ACTION_KIND: "recharge",
     errorMessage: (error) => { runtime.errors.push(String(error)); return String(error); },
     tradingAlertResponseData: (value) => value, document: { documentElement: { dataset: { theme } } },
     saveExecutionPlans: (scope, values) => plans.saveExecutionPlans(scope, values, store),
+    loadMessageExecutionPlanFontSize: (key) => plans.loadMessageExecutionPlanFontSize(key, store),
+    saveMessageExecutionPlanFontSize: (key, value) => plans.saveMessageExecutionPlanFontSize(key, value, store),
     api: {
       createExecutionPlanSticky: async (payload) => { runtime.sticky.push(payload); return { created: true }; },
       tradingAlertsSyncExecutionPlan: async (payload) => { runtime.alerts.push(payload); return { alert: { alertId: "qa-alert" } }; },
@@ -71,8 +76,96 @@ function harness(theme = "light", language = "zh-CN") {
   const message = (id, text) => ({ id, conversation_id: "thread", executionPlanPresentation: "execution-plan", text });
   const card = (id, index = 0) => ({ dataset: { executionPlanThreadId: "thread", executionPlanMessageId: id, executionPlanIndex: String(index) } });
   const button = (id, index = 0) => ({ ...card(id, index), setAttribute() {}, removeAttribute() {} });
-  return { ...api, state, runtime, store, candidates, message, card, button };
+  return { ...api, state, runtime, store, candidates, message, card, button, transport: deps.api };
 }
+
+function interactiveCards(h) {
+  const cards = [h.card("one", 0), h.card("one", 1), h.card("other", 0)];
+  for (const id of ["one", "other"]) {
+    const message = h.message(id, report("1H"));
+    h.renderMessageExecutionPlan(message, message.text);
+  }
+  for (const card of cards) {
+    card.style = { setProperty(name, value) { this[name] = value; } };
+    card.buttons = ["increase", "decrease", "sticky"].map((action) => ({
+      dataset: { messageExecutionPlanAction: action }, disabled: false, attributes: {}, listeners: [],
+      getAttribute(name) { return this.attributes[name] ?? null; },
+      setAttribute(name, value) { this.attributes[name] = value; },
+      removeAttribute(name) { delete this.attributes[name]; },
+      closest: () => card,
+      addEventListener(type, listener) { if (type === "click") this.listeners.push(listener); },
+      click() {
+        if (!this.disabled) this.listeners.forEach(listener => listener({ preventDefault() {}, stopPropagation() {} }));
+      },
+    }));
+    card.querySelectorAll = (selector) => card.buttons.filter(button => selector.includes(`"${button.dataset.messageExecutionPlanAction}"`));
+    card.querySelector = (selector) => card.querySelectorAll(selector)[0];
+    card.closest = () => ({ querySelectorAll: () => cards.filter(other => other.dataset.executionPlanMessageId === card.dataset.executionPlanMessageId) });
+  }
+  const container = { querySelectorAll: selector => selector === "[data-message-execution-plan-action]" ? cards.flatMap(card => card.buttons) : [] };
+  h.bindMessageContentEvents(container);
+  h.bindMessageContentEvents(container); // Incremental rebind must not duplicate actions.
+  assert.ok(cards.flatMap(card => card.buttons).every(button => button.listeners.length === 1));
+  return cards;
+}
+
+test("clicking either plan pins only that candidate with its own zoom and persisted card size", async () => {
+  const h = harness();
+  const [long, short, other] = interactiveCards(h);
+  long.buttons[0].click();
+  short.buttons[1].click();
+  assert.equal(long.style["--message-execution-plan-font-size"], "13px");
+  assert.equal(short.style["--message-execution-plan-font-size"], "11px");
+  assert.equal(other.style["--message-execution-plan-font-size"], undefined);
+  short.buttons[2].click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.runtime.sticky.length, 1);
+  assert.match(h.runtime.sticky[0].title, /空头/);
+  assert.equal(h.runtime.sticky[0].fontSize, 11);
+  long.buttons[2].click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.runtime.sticky.length, 2);
+  assert.match(h.runtime.sticky[1].title, /多头/);
+  assert.equal(h.runtime.sticky[1].fontSize, 13);
+  for (let i = 0; i < 10; i++) long.buttons[0].click();
+  assert.equal(long.style["--message-execution-plan-font-size"], "20px");
+  assert.equal(long.buttons[0].disabled, true);
+  assert.equal(short.buttons[1].disabled, true);
+  assert.equal(short.buttons[0].disabled, false);
+  const message = h.message("one", report("1H"));
+  const html = h.renderMessageExecutionPlan(message, message.text).cards;
+  assert.deepEqual([...html.matchAll(/--message-execution-plan-font-size:\s*(\d+)px/g)].map(match => Number(match[1])), [20, 11]);
+  assert.deepEqual(h.runtime.errors, []);
+});
+
+test("pending or failed sticky creation only locks its own card and permits retry", async () => {
+  const h = harness();
+  const [long, short] = interactiveCards(h);
+  const pending = [];
+  h.transport.createExecutionPlanSticky = (payload) => new Promise((resolve, reject) => pending.push({ payload, resolve, reject }));
+  const first = h.createExecutionPlanStickyFromMessageAction(long);
+  assert.equal(long.buttons[2].getAttribute("aria-busy"), "true");
+  assert.equal(short.buttons[2].disabled, false);
+  await h.createExecutionPlanStickyFromMessageAction(long);
+  assert.equal(pending.length, 1);
+  const second = h.createExecutionPlanStickyFromMessageAction(short);
+  assert.equal(pending.length, 2);
+  assert.match(pending[0].payload.title, /多头/);
+  assert.match(pending[1].payload.title, /空头/);
+  pending[0].reject(new Error("fixture create failure"));
+  await first;
+  assert.equal(long.buttons[2].disabled, false);
+  assert.equal(long.buttons[2].getAttribute("aria-busy"), null);
+  assert.equal(short.buttons[2].disabled, true);
+  pending[1].resolve({ created: true });
+  await second;
+  const retry = h.createExecutionPlanStickyFromMessageAction(long);
+  assert.equal(pending.length, 3);
+  pending[2].resolve({ created: true });
+  await retry;
+  assert.ok([long, short].every(card => !card.buttons[2].disabled && card.buttons[2].getAttribute("aria-busy") === null));
+  assert.deepEqual(h.runtime.errors, ["Error: fixture create failure"]);
+});
 
 test("a historical plan heading wins over newer compact labels and conflicting report intervals", () => {
   for (const interval of ["1H", "4H", "15M", "1D", "1W"]) {

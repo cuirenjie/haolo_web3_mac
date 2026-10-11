@@ -99,7 +99,7 @@ test("desktop execution-plan sticky HTML is escaped, draggable, themed, and full
   assert.match(html, /resizeApi\.resizeCommit\(payload\(\)\)[\s\S]*pointerup/);
   assert.match(html, /resizeApi\.moveLive\(movePayload\(\)\)[\s\S]*card\.addEventListener\("pointerdown"/);
   assert.match(html, /resizeApi\.moveCommit\(movePayload\(\)\)[\s\S]*card\.addEventListener\("pointerup"/);
-  assert.match(html, /card\.addEventListener\("wheel"[\s\S]*event\.preventDefault\(\)[\s\S]*wheelDistance < 0 \? "zoom-in" : "zoom-out"[\s\S]*haolo-execution-plan-sticky:\/\/[\s\S]*\{ passive: false \}/);
+  assert.match(html, /document\.addEventListener\("wheel"[\s\S]*event\.preventDefault\(\)[\s\S]*wheelDistance < 0 \? "zoom-in" : "zoom-out"[\s\S]*haolo-execution-plan-sticky:\/\/[\s\S]*\{ passive: false \}/);
   assert.match(html, /data-execution-plan-sticky/);
   assert.match(html, /\.execution-plan-card-label \{[^}]*font-weight: 700/s);
   assert.match(html, /haolo-execution-plan-sticky:\/\/zoom-in[\s\S]*放大/);
@@ -114,7 +114,7 @@ test("desktop execution-plan sticky HTML is escaped, draggable, themed, and full
   assert.match(english, />Zoom in<[^]*>Zoom out<[^]*>Delete</);
 });
 
-test("desktop execution-plan sticky windows stay above the desktop, synchronize grouped zoom, resize, and delete individually", async () => {
+test("desktop execution-plan sticky windows stay above the desktop and zoom, resize, and delete individually", async () => {
   const [main, preload, sticky, stickyPreload] = await Promise.all([mainSource, preloadSource, stickySource, stickyPreloadSource]);
 
   assert.match(preload, /createExecutionPlanSticky: \(params\) => ipcRenderer\.invoke\("executionPlanSticky:create", params\)/);
@@ -131,8 +131,7 @@ test("desktop execution-plan sticky windows stay above the desktop, synchronize 
   assert.match(sticky, /window\.setAlwaysOnTop\(true, "screen-saver"\)/);
   assert.match(sticky, /movable: true/);
   assert.match(sticky, /window\.showInactive\(\)/);
-  assert.match(sticky, /function zoomExecutionPlanStickyGroup[\s\S]*state\.payload\.groupId !== sourceState\.payload\.groupId[\s\S]*renderStickyWindow\(state\)/);
-  assert.match(sticky, /action === "zoom-in"[\s\S]*zoomExecutionPlanStickyGroup\(state, action === "zoom-in" \? 1 : -1\)/);
+  assert.match(sticky, /action === "zoom-in"[\s\S]*zoomExecutionPlanStickyWindow\(state, action === "zoom-in" \? 1 : -1\)/);
   assert.match(sticky, /ipcMain\.on\("executionPlanSticky:resize-live"[\s\S]*resizeStickyWindowFromSender/);
   assert.match(sticky, /ipcMain\.on\("executionPlanSticky:resize-commit"[\s\S]*resizeStickyWindowFromSender\(event\.sender, params, true\)/);
   assert.match(sticky, /executionPlanStickyResizedBounds/);

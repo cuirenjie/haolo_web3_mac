@@ -38,7 +38,7 @@ class MemoryStorage {
   }
 }
 
-test("in-message execution-plan font sizing is bounded and can persist one synchronized size per card", () => {
+test("in-message execution-plan font sizing is bounded and persists independently per card", () => {
   const storage = new MemoryStorage();
   const firstKey = "thread-a\u0000message-a\u00000";
   const secondKey = "thread-a\u0000message-a\u00001";
@@ -712,9 +712,8 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(renderer, /renderMessageExecutionPlan\(message, content\.text/);
   assert.match(textBubbleBlock, /<\/div>\s*\$\{executionPlanPresentation\?\.cards \|\| ""\}\s*\$\{actionsBelowBubble/s);
   assert.match(renderer, /querySelectorAll<HTMLButtonElement>\("\[data-message-execution-plan-action\]"\)/);
-  assert.match(renderer, /function messageExecutionPlanGroupCards[\s\S]*closest<HTMLElement>\("\.message-execution-plan-list"\)[\s\S]*querySelectorAll<HTMLElement>\("\.message-execution-plan"\)/);
-  assert.match(renderer, /function applyMessageExecutionPlanGroupFontSize[\s\S]*messageExecutionPlanGroupCards\(card\)\.forEach[\s\S]*applyMessageExecutionPlanFontSize\(groupCard, next\)/);
-  assert.match(renderer, /function createExecutionPlanStickyFromMessageGroup[\s\S]*Promise\.allSettled\(cards\.map[\s\S]*createExecutionPlanStickyFromMessageCard\(groupCard\)/);
+  assert.match(renderer, /function adjustMessageExecutionPlanFontSize[\s\S]*applyMessageExecutionPlanFontSize\(card, next\)/);
+  assert.match(renderer, /function createExecutionPlanStickyFromMessageAction[\s\S]*await createExecutionPlanStickyFromMessageCard\(card\)/);
   assert.match(renderer, /button\.dataset\.messageExecutionPlanActionBound === "true"[\s\S]*button\.dataset\.messageExecutionPlanActionBound = "true"/);
   assert.match(renderer, /api\.createExecutionPlanSticky\([\s\S]*executionPlanDisplayLines\(candidate\.content\)/);
   assert.match(planCardBlock, /<footer>[\s\S]*<time/);

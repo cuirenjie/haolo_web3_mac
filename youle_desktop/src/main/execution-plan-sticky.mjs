@@ -156,14 +156,11 @@ ipcMain.on("executionPlanSticky:resize-commit", (event, params = {}) => {
   resizeStickyWindowFromSender(event.sender, params, true);
 });
 
-function zoomExecutionPlanStickyGroup(sourceState, delta) {
-  const nextFontSize = executionPlanStickyFontSize(sourceState.payload.fontSize, delta);
-  for (const state of stickyWindows.values()) {
-    if (sourceState.payload.groupId && state.payload.groupId !== sourceState.payload.groupId) continue;
-    if (!sourceState.payload.groupId && state !== sourceState) continue;
-    state.payload = { ...state.payload, fontSize: nextFontSize };
-    renderStickyWindow(state);
-  }
+function zoomExecutionPlanStickyWindow(state, delta) {
+  const nextFontSize = executionPlanStickyFontSize(state.payload.fontSize, delta);
+  if (nextFontSize === state.payload.fontSize) return;
+  state.payload = { ...state.payload, fontSize: nextFontSize };
+  renderStickyWindow(state);
 }
 
 function applyStickyTheme(state) {
@@ -243,7 +240,7 @@ export function createExecutionPlanStickyWindow(input = {}) {
       return;
     }
     if (action === "zoom-in" || action === "zoom-out") {
-      zoomExecutionPlanStickyGroup(state, action === "zoom-in" ? 1 : -1);
+      zoomExecutionPlanStickyWindow(state, action === "zoom-in" ? 1 : -1);
       return;
     }
   });

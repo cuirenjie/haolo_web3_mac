@@ -12,13 +12,13 @@ const lines = [
   { label: "风险收益比：", text: "目标1为 1:0.5，目标2为 1:0.8，目标3为 1:1.42" },
 ];
 
-test("chat and sticky cards round display to two decimals without changing source values", () => {
+test("chat, saved and sticky card prices use seven digits without changing source values", () => {
   const before = JSON.stringify(lines);
   const body = executionPlanCardBody(lines);
-  assert.match(body, /execution-plan-price bullish">2566\.40</);
-  assert.match(body, /execution-plan-price bearish">2403\.33</);
+  assert.match(body, /execution-plan-price bullish">2566\.400</);
+  assert.match(body, /execution-plan-price bearish">2403\.330</);
   assert.equal((body.match(/class="execution-plan-target"/g) || []).length, 3);
-  for (const [price, ratio] of [["2655.63", "1:0.50"], ["2706.10", "1:0.80"], ["2811.01", "1:1.42"]]) {
+  for (const [price, ratio] of [["2655.634", "1:0.50"], ["2706.095", "1:0.80"], ["2811.005", "1:1.42"]]) {
     assert.ok(body.includes(`<strong>${price}</strong></span><span class="execution-plan-ratio">盈亏比 ${ratio}</span>`));
   }
   assert.ok(executionPlanStickyHtml({ lines }).includes(body));
@@ -28,12 +28,46 @@ test("chat and sticky cards round display to two decimals without changing sourc
 
 test("short prices reverse colors and full original market heading remains available", () => {
   const short = lines.map((line) => line.label === "方向判断：" ? { ...line, text: "偏空" } : line);
-  assert.match(executionPlanCardBody(short), /execution-plan-price bearish">2566\.40</);
-  assert.match(executionPlanCardBody(short), /execution-plan-price bullish">2403\.33</);
+  assert.match(executionPlanCardBody(short), /execution-plan-price bearish">2566\.400</);
+  assert.match(executionPlanCardBody(short), /execution-plan-price bullish">2403\.330</);
   const title = "ETH/USDT 币安永续 1D · 空头条件方案";
   const header = executionPlanCardHeading(title, short);
-  assert.ok(header.includes(`title="${title}">ETH/USDT · 1D</h2>`));
+  assert.ok(header.includes(`title="${title}">ETH · 1D</h2>`));
   assert.match(header, /execution-plan-badge bearish">做空</);
+});
+
+test("USDT headings are shortened for Chinese symbols and localized market names", () => {
+  for (const market of ["币安永续", "幣安永續", "Binance Perpetual"]) {
+    const title = `龙虾/USDT ${market} 1H · 空头条件方案`;
+    const heading = executionPlanCardHeading(title, lines);
+    assert.ok(heading.includes(`title="${title}">龙虾 · 1H</h2>`));
+    assert.ok(executionPlanStickyHtml({ title, lines }).includes(heading));
+  }
+  assert.match(executionPlanCardHeading("BTC/usdt Binance Perpetual 4H"), />BTC · 4H<\/h2>/);
+  assert.match(executionPlanCardHeading("ETH/USDC 币安永续 1H"), />ETH\/USDC · 1H<\/h2>/);
+  assert.match(executionPlanCardHeading("自定义计划"), />自定义计划<\/h2>/);
+});
+
+test("seven-digit prices count leading zeros, pad integers and handle rounding across powers of ten", () => {
+  for (const [input, expected] of [
+    ["0.045657", "0.045657"], ["0.0456574", "0.045657"], ["0.0456575", "0.045658"],
+    ["0.04", "0.040000"], ["0.000001", "0.000001"], ["0", "0.000000"],
+    ["1", "1.000000"], ["12.345678", "12.34568"], ["123.45678", "123.4568"],
+    ["2693.24", "2693.240"], ["85264.40", "85264.40"], ["123456.78", "123456.8"],
+    ["1234567.8", "1234568"], ["12345678.9", "12345679"],
+    ["0.9999999", "1.000000"], ["9.9999995", "10.00000"], ["99.999995", "100.0000"],
+    ["999999.95", "1000000"], ["9999999.5", "10000000"], ["2,480.5466", "2,480.547"],
+  ]) {
+    const sample = [
+      { label: "方向判断：", text: "偏空" },
+      { label: "入场触发价：", text: input },
+      { label: "止损价：", text: `挂条件委托 ${input} 市价止损` },
+      { label: "分批止盈：", text: `第1目标 ${input}，第2目标 ${input}，第3目标 ${input}` },
+    ];
+    const body = executionPlanCardBody(sample);
+    const prices = [...body.matchAll(/(?:class="execution-plan-price (?:bullish|bearish)"|<strong)>?([^<>]+)</g)].map((match) => match[1]);
+    assert.deepEqual(prices, Array(5).fill(expected), input);
+  }
 });
 
 test("conditional prices, account details and complex target descriptions remain intact", () => {
@@ -69,7 +103,7 @@ test("English and Traditional Chinese labels also reach sticky windows", () => {
     { label: "Risk/reward:", text: "Target 1: 1:0.5; Target 2: 1:0.8" },
   ];
   const html = executionPlanStickyHtml({ language: "en", lines: en });
-  for (const text of ["Entry trigger", "Stop loss", "Take profit 1", "R/R 1:0.50", "2,480.55"]) assert.ok(html.includes(text));
+  for (const text of ["Entry trigger", "Stop loss", "Take profit 1", "R/R 1:0.50", "2,480.547"]) assert.ok(html.includes(text));
   assert.match(executionPlanCardBody(lines, "zh-TW"), /入場觸發價/);
 });
 
@@ -84,6 +118,7 @@ test("same-report account amounts and cumulative target profit are displayed tog
   }
   const before = JSON.stringify(rich);
   const body = executionPlanCardBody(rich);
+  for (const price of ["2655.634", "2706.095", "2811.005"]) assert.ok(body.includes(`<strong>${price}</strong>`), price);
   for (const text of ["建议开仓", "100.00", "预计止损", "-5.00", "止盈仓位", "33.00", "+1.11", "+3.33", "+6.66", "1:0.50", "1:0.80", "1:1.42"]) assert.ok(body.includes(text), text);
   assert.doesNotMatch(body, /USDT|隐藏的账户汇总|仓位大小|可能盈亏/);
   assert.match(body, /execution-plan-card-number-bearish">-5\.00</);

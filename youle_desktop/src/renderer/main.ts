@@ -1473,7 +1473,6 @@ type DesktopApi = {
     alertId?: string | null;
   }): Promise<{ ok?: boolean; shown?: boolean }>;
   createExecutionPlanSticky?(params: {
-    groupId: string;
     title: string;
     theme: AppTheme;
     language: AppLanguage;
@@ -66922,13 +66921,6 @@ function messageExecutionPlanCardKey(card: HTMLElement) {
   };
 }
 
-function messageExecutionPlanGroupCards(card: HTMLElement) {
-  const group = card.closest<HTMLElement>(".message-execution-plan-list");
-  if (!group) return [card];
-  const cards = Array.from(group.querySelectorAll<HTMLElement>(".message-execution-plan"));
-  return cards.length ? cards : [card];
-}
-
 function applyMessageExecutionPlanFontSize(card: HTMLElement, fontSize: number) {
   const normalized = saveMessageExecutionPlanFontSize(
     messageExecutionPlanCardKey(card)?.key || "",
@@ -66950,14 +66942,12 @@ function applyMessageExecutionPlanFontSize(card: HTMLElement, fontSize: number) 
   return normalized;
 }
 
-function applyMessageExecutionPlanGroupFontSize(card: HTMLElement, delta: number) {
+function adjustMessageExecutionPlanFontSize(card: HTMLElement, delta: number) {
   const source = messageExecutionPlanCardKey(card);
   if (!source) return;
   const current = loadMessageExecutionPlanFontSize(source.key);
   const next = stepMessageExecutionPlanFontSize(current, delta);
-  messageExecutionPlanGroupCards(card).forEach((groupCard) => {
-    applyMessageExecutionPlanFontSize(groupCard, next);
-  });
+  applyMessageExecutionPlanFontSize(card, next);
 }
 
 async function createExecutionPlanStickyFromMessageCard(card: HTMLElement) {
@@ -66977,7 +66967,6 @@ async function createExecutionPlanStickyFromMessageCard(card: HTMLElement) {
   });
   const fontSize = loadMessageExecutionPlanFontSize(source.key);
   const result = await api.createExecutionPlanSticky({
-    groupId: `${source.sourceThreadId}\u0000${source.sourceMessageId}`,
     title,
     theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
     language: state.settings.language,
@@ -66992,32 +66981,21 @@ async function createExecutionPlanStickyFromMessageCard(card: HTMLElement) {
   if (!result?.created) throw new Error("便利贴窗口未创建");
 }
 
-async function createExecutionPlanStickyFromMessageGroup(card: HTMLElement) {
-  const cards = messageExecutionPlanGroupCards(card);
-  const buttons = cards.flatMap((groupCard) => Array.from(
-    groupCard.querySelectorAll<HTMLButtonElement>('[data-message-execution-plan-action="sticky"]'),
-  ));
-  if (buttons.some((groupButton) => groupButton.getAttribute("aria-busy") === "true")) return;
-  buttons.forEach((groupButton) => {
-    groupButton.disabled = true;
-    groupButton.setAttribute("aria-disabled", "true");
-    groupButton.setAttribute("aria-busy", "true");
-  });
+async function createExecutionPlanStickyFromMessageAction(card: HTMLElement) {
+  const button = card.querySelector<HTMLButtonElement>('[data-message-execution-plan-action="sticky"]');
+  if (!button || button.getAttribute("aria-busy") === "true") return;
+  button.disabled = true;
+  button.setAttribute("aria-disabled", "true");
+  button.setAttribute("aria-busy", "true");
   try {
-    const results = await Promise.allSettled(cards.map((groupCard) => (
-      createExecutionPlanStickyFromMessageCard(groupCard)
-    )));
-    const rejected = results.find((result) => result.status === "rejected");
-    if (rejected?.status === "rejected") throw rejected.reason;
+    await createExecutionPlanStickyFromMessageCard(card);
     showToast("执行卡片便利贴已固定到桌面");
   } catch (error) {
     showToast(`创建便利贴失败：${errorMessage(error)}`, 5000);
   } finally {
-    buttons.forEach((groupButton) => {
-      groupButton.disabled = false;
-      groupButton.removeAttribute("aria-disabled");
-      groupButton.removeAttribute("aria-busy");
-    });
+    button.disabled = false;
+    button.removeAttribute("aria-disabled");
+    button.removeAttribute("aria-busy");
   }
 }
 
@@ -67045,10 +67023,10 @@ function bindMessageContentEvents(container: ParentNode = root) {
       if (!card || !source) return;
       const action = button.dataset.messageExecutionPlanAction;
       if (action === "sticky") {
-        void createExecutionPlanStickyFromMessageGroup(card);
+        void createExecutionPlanStickyFromMessageAction(card);
         return;
       }
-      applyMessageExecutionPlanGroupFontSize(card, action === "increase" ? 1 : -1);
+      adjustMessageExecutionPlanFontSize(card, action === "increase" ? 1 : -1);
     });
   });
   container.querySelectorAll<HTMLButtonElement>("[data-message-action]").forEach((button) => {
