@@ -116,11 +116,10 @@ test("ordinary valid reviews use exactly one fixed medium attempt", async () => 
   assert.equal(result.escalationReason, null);
 });
 
-test("close competing deterministic candidates trigger one high review", async () => {
+test("close candidates start at high and accept the first valid result without a second pass", async () => {
   const calls = [];
   const result = await runValidatedTradingModelReview({
     modelRegistry: registryFor([
-      '{"valid":true,"selection":"medium"}',
       '{"valid":true,"selection":"high"}',
     ], calls),
     providerId: "stub",
@@ -129,11 +128,28 @@ test("close competing deterministic candidates trigger one high review", async (
     validateResponse,
   });
 
-  assert.deepEqual(calls.map((call) => call.options.reasoningEffort), ["medium", "high"]);
+  assert.deepEqual(calls.map((call) => call.options.reasoningEffort), ["high"]);
   assert.equal(result.reasoningEffort, "high");
   assert.equal(result.review.selection, "high");
   assert.match(result.escalationReason, /deterministic_candidates_close/);
-  assert.match(calls[1].request.prompt, /Previous untrusted response/);
+  assert.match(calls[0].request.prompt, /DETERMINISTIC_CANDIDATE_AMBIGUITY/);
+  assert.match(calls[0].request.prompt, /primary=primary.*competitor=competitor/);
+  assert.doesNotMatch(calls[0].request.prompt, /SECOND_PASS_REVIEW|Previous untrusted response/);
+  assert.equal(calls[0].request.requestId, baseRequest.requestId);
+});
+
+test("invalid ambiguous output repairs at max with the original evidence and ambiguity retained", async () => {
+  const calls = [];
+  const result = await runValidatedTradingModelReview({
+    modelRegistry: registryFor(["not-json", '{"valid":true}'], calls),
+    providerId: "stub", request: baseRequest, theoryResult: theory(0.82, 0.79), validateResponse,
+  });
+  assert.deepEqual(calls.map((call) => call.options.reasoningEffort), ["high", "max"]);
+  assert.equal(result.review.valid, true);
+  assert.match(calls[1].request.prompt, /DETERMINISTIC_CANDIDATE_AMBIGUITY/);
+  assert.match(calls[1].request.prompt, /SECOND_PASS_REVIEW/);
+  assert.match(calls[1].request.prompt, /Previous untrusted response:\nnot-json/);
+  assert.equal(calls[0].options.modelBudget, calls[1].options.modelBudget);
 });
 
 test("invalid medium output retries at high, and max is only used if high is also invalid", async () => {

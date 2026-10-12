@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { registerStrategyModelRecoveryTests } from "./helpers/strategy-model-recovery.mjs";
+
+registerStrategyModelRecoveryTests({
+  name: "wyckoff",
+  strategyId: "wyckoff",
+  params: () => fixtureParams(),
+  compactReport: true,
+});
 
 import { createTradingAnalysisModelProviderRegistry } from "../src/main/trading-analysis/model-provider.mjs";
 import { runWyckoffTheoryEngine } from "../src/main/trading-analysis/wyckoff-engine.mjs";
@@ -123,6 +131,28 @@ test("Wyckoff engine deterministically identifies a trading range and evidence-b
   assert.ok(accumulation.phases.some((phase) => phase.code === "B"));
 });
 
+test("Wyckoff prompt references the full primary once and avoids an unused report without losing facts", () => {
+  const snapshot = normalizeTradingMarketSnapshot(fixtureParams());
+  const theory = runWyckoffTheoryEngine(snapshot);
+  const before = JSON.stringify(theory);
+  const prompt = buildWyckoffModelPrompt(snapshot, theory);
+  const lines = prompt.split("\n");
+  const supplied = JSON.parse(lines[lines.findIndex((line) => line.startsWith("确定性 TheoryResult")) + 1]);
+  const { structures, ...facts } = supplied;
+  const { structures: originalStructures, ...originalFacts } = theory;
+  assert.deepEqual(facts, JSON.parse(JSON.stringify(originalFacts)));
+  assert.deepEqual(structures.candidates, JSON.parse(JSON.stringify(originalStructures.candidates)));
+  assert.equal(structures.primaryCandidateId, originalStructures.primaryCandidate.id);
+  assert.equal(structures.primaryCandidate, undefined);
+  assert.equal(JSON.stringify(theory), before);
+  assert.ok(JSON.stringify(supplied).length < before.length);
+  const schema = JSON.parse(lines[lines.indexOf("JSON 协议：") + 1]);
+  assert.equal(schema.report, "");
+  const direct = buildWyckoffModelPrompt(snapshot, theory, { responseMode: "direct" }).split("\n");
+  const directSchema = JSON.parse(direct[direct.indexOf("JSON 协议：") + 1]);
+  assert.match(directSchema.report, /直接回答用户本次问题/);
+});
+
 test("Wyckoff engine fails closed when price only trends and no rotational range exists", () => {
   const snapshot = normalizeTradingMarketSnapshot(fixtureParams(monotonicCandles()));
   const result = runWyckoffTheoryEngine(snapshot);
@@ -159,7 +189,7 @@ test("Wyckoff pipeline keeps the model provider neutral and only draws trusted c
           schemaVersion: 1,
           verdict: "approve",
           summary: "价格仍在区间附近，等待收盘突破后再跟随。",
-          report: "只使用给定区间和事件。",
+          report: "",
           marketBias: "neutral",
           strategyRationale: "区间上下沿和量价事件已由本地规则确认。",
           primaryCandidateId: "unknown-candidate",

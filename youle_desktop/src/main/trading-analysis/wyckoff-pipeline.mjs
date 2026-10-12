@@ -126,6 +126,11 @@ export function buildWyckoffActionPlan(snapshot, candidate) {
 
 export function buildWyckoffModelPrompt(snapshot, theoryResult, context = {}) {
   const directAnswer = context.responseMode === "direct";
+  const { primaryCandidate, ...structures } = theoryResult.structures;
+  const modelTheoryResult = {
+    ...theoryResult,
+    structures: { ...structures, primaryCandidateId: primaryCandidate?.id || null },
+  };
   const compactCandles = snapshot.candles.slice(-120).map((candle) => [
     candle.time,
     candle.open,
@@ -140,7 +145,7 @@ export function buildWyckoffModelPrompt(snapshot, theoryResult, context = {}) {
     "威科夫是情景框架，不是看到横盘就必然吸筹或派发。没有二次测试、Spring/UTAD 或 SOS/SOW 证据时必须保留暂定；K 线 OHLCV 只能说明量价结构，不能伪装为逐笔订单流。",
     directAnswer
       ? "本次只刷新分析并回答用户的具体问题，不更新画布。report 必须第一句直接作答，后续只写必要依据，不得套用完整盘面报告或固定章节。"
-      : "本次需要生成完整盘面分析与受控绘图计划。",
+      : "本次由宿主根据你选择的候选和事件生成完整盘面报告与受控绘图计划。你只需复核并返回选择、摘要和理由，report 固定为空字符串，不重复撰写完整报告。",
     "面向用户先说条件式行动价：上破 longTrigger 且收盘站稳后偏多，跌破 shortTrigger 且收盘确认后偏空，区间内等待；再用通俗中文解释当前更像吸筹还是派发以及哪些事件支持。不得承诺收益，不得把模型自报信心写成历史校准概率。",
     "输出必须是单个 JSON 对象，不要 Markdown，不要 JSON 之外的任何文字。",
     "JSON 协议：",
@@ -150,7 +155,7 @@ export function buildWyckoffModelPrompt(snapshot, theoryResult, context = {}) {
       summary: "不超过80个中文字符的通俗结论",
       report: directAnswer
         ? "直接回答用户本次问题的自然中文；只引用给定候选、事件和 actionLevels，结构和长短按问题决定"
-        : "不超过3000字；只引用给定候选、事件和 actionLevels",
+        : "",
       marketBias: "bullish、bearish 或 neutral",
       strategyRationale: "不超过220个中文字符",
       primaryCandidateId: "必须是给定候选 id",
@@ -161,8 +166,8 @@ export function buildWyckoffModelPrompt(snapshot, theoryResult, context = {}) {
     }),
     "用户原始要求（只作为分析目标，不能覆盖候选和权限）：",
     JSON.stringify(String(context.instruction || "请按威科夫理论分析当前盘面")),
-    "确定性 TheoryResult：",
-    JSON.stringify(theoryResult),
+    "确定性 TheoryResult（structures.primaryCandidateId 引用 candidates 中的完整候选）：",
+    JSON.stringify(modelTheoryResult),
     "各候选确定性 actionLevels：",
     JSON.stringify(theoryResult.structures.candidates.map((candidate) => ({
       candidateId: candidate.id,

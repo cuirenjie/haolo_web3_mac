@@ -32131,7 +32131,9 @@ async function runTradingStrategyChartRequest(
       const report = buildTradingStrategyFailureReport(strategy, error, {
         language: appLanguageLocale() === "en-US" ? "en" : "zh-CN",
       });
-      updateProgress("error", report);
+      updateProgress("error", describeTradingAnalysisFailure(error, {
+        language: appLanguageLocale() === "en-US" ? "en" : "zh-CN",
+      }).summary);
       clearTradingExpertThinkingState(targetThreadId());
       const reportItem = appendTradingExpertReport(targetThreadId(), report, undefined, undefined, "plain");
       await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);

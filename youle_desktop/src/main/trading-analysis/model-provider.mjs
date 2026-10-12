@@ -12,6 +12,8 @@ export class TradingAnalysisModelProviderError extends Error {
     this.status = Number(options.status) || null;
     this.category = String(options.category || "");
     this.requestId = String(options.requestId || "");
+    if (options.reasoningEffort) this.reasoningEffort = options.reasoningEffort;
+    if (options.recovery) this.recovery = { ...options.recovery };
   }
 }
 function requiredText(value, field, maximum = 120) {
@@ -80,7 +82,9 @@ export function createTradingAnalysisModelProviderRegistry(providers = []) {
           throw new TradingAnalysisModelProviderError("Trading analysis model returned an empty response", {
             code: "TRADING_ANALYSIS_MODEL_EMPTY_RESPONSE",
             providerId: provider.providerId,
-            modelId: provider.modelId,
+            modelId: result?.modelId || provider.modelId,
+            reasoningEffort: result?.reasoningEffort,
+            recovery: result?.recovery,
           });
         }
         return {
@@ -103,7 +107,9 @@ export function createTradingAnalysisModelProviderRegistry(providers = []) {
             cause: error,
             code: String(error?.code || "TRADING_ANALYSIS_MODEL_FAILED"),
             providerId: provider.providerId,
-            modelId: provider.modelId,
+            modelId: error?.modelId || provider.modelId,
+            reasoningEffort: error?.reasoningEffort,
+            recovery: error?.recovery,
             retryable: error?.retryable === true,
             status: error?.status,
             category: error?.category,

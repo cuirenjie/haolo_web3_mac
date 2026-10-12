@@ -10,6 +10,71 @@ import {
   clearTradingModelReviewCache,
   runValidatedTradingModelReview,
 } from "../src/main/trading-analysis/model-review.mjs";
+import { createAppServerTradingAnalysisProvider } from "../src/main/trading-analysis/app-server-provider.mjs";
+import { createTradingAnalysisModelProviderRegistry } from "../src/main/trading-analysis/model-provider.mjs";
+
+const reviewRequest = {
+  schemaVersion: 1, requestId: "incident-20261012", snapshotId: "frozen-btc-1h",
+  task: "wyckoff-theory-review-and-drawing-plan", theoryId: "wyckoff",
+  prompt: "Frozen Wyckoff candidates and market evidence", responseFormat: "json",
+};
+
+test("incident replay: a valid 63-second ambiguous review completes without wasting another 102 seconds", async () => {
+  let clock = 0;
+  const calls = [];
+  const provider = createAppServerTradingAnalysisProvider({
+    modelId: "gpt-5.6-sol",
+    invoke: async (args) => {
+      calls.push({ model: args.modelId, effort: args.reasoningEffort, remaining: args.remainingModelTime() });
+      if (calls.length === 1) {
+        clock += 63_018;
+        return { status: "success", text: '{"valid":true}' };
+      }
+      // This was the production failure: high exhausted the remaining 57s,
+      // then the backup exhausted 45s, after a valid response already existed.
+      clock += args.remainingModelTime() + 1;
+      args.remainingModelTime();
+    },
+    waitForRecovery: async () => {},
+  });
+  const primary = { id: "accumulation", score: 0.8, direction: "bullish" };
+  const result = await runValidatedTradingModelReview({
+    modelRegistry: createTradingAnalysisModelProviderRegistry([provider]), providerId: provider.providerId,
+    request: reviewRequest, modelBudget: createTradingModelBudget({ now: () => clock }),
+    theoryResult: { structures: { primaryCandidate: primary, candidates: [primary, { id: "distribution", score: 0.79, direction: "bearish" }] } },
+    validateResponse: JSON.parse,
+  });
+  assert.equal(result.review.valid, true);
+  assert.deepEqual(calls, [{ model: "gpt-5.6-sol", effort: "high", remaining: 120_000 }]);
+  assert.equal(clock, 63_018);
+  assert.equal(result.attempts.length, 1);
+});
+
+test("exhausted fallback budget retains its actual model and terminal recovery through the registry", async () => {
+  let clock = 0;
+  const calls = [];
+  const provider = createAppServerTradingAnalysisProvider({
+    invoke: async (args) => {
+      calls.push(args.modelId);
+      clock += args.remainingModelTime() + 1;
+      args.remainingModelTime();
+    },
+    waitForRecovery: async () => {},
+  });
+  await assert.rejects(runValidatedTradingModelReview({
+    modelRegistry: createTradingAnalysisModelProviderRegistry([provider]), providerId: provider.providerId,
+    request: reviewRequest, modelBudget: createTradingModelBudget({ now: () => clock }), validateResponse: JSON.parse,
+  }), (error) => {
+    assert.equal(error.code, "TRADING_ANALYSIS_MODEL_TIMEOUT");
+    assert.equal(error.modelId, "deepseek-flash");
+    assert.equal(error.reasoningEffort, "max");
+    assert.equal(error.recovery.exhausted, true);
+    assert.equal(error.attempts.at(-1).modelId, "deepseek-flash");
+    assert.equal(error.attempts.at(-1).effort, "max");
+    return true;
+  });
+  assert.deepEqual(calls, ["gpt-5.6-sol", "deepseek-flash"]);
+});
 
 test("model budgets are monotonic and shared across validation passes", () => {
   let clock = 0;

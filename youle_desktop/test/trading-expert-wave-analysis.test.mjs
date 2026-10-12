@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { registerStrategyModelRecoveryTests } from "./helpers/strategy-model-recovery.mjs";
+
+registerStrategyModelRecoveryTests({
+  name: "wave",
+  strategyId: "wave",
+  params: () => fixtureParams(),
+  compactReport: true,
+});
 
 import {
   createTradingAnalysisModelProviderRegistry,
@@ -679,8 +687,8 @@ test("wave pipeline stays vendor-neutral and emits a guarded AI wave layer", asy
     providerId: "fixture-provider",
   });
 
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls.map((call) => call.options.reasoningEffort), ["medium", "high"]);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls.map((call) => call.options.reasoningEffort), ["high"]);
   assert.equal(calls[0].request.theoryId, "elliott_wave");
   assert.equal(calls[0].request.task, "wave-theory-review-and-drawing-plan");
   assert.match(calls[0].request.prompt, /确定性 TheoryResult/);
@@ -688,7 +696,7 @@ test("wave pipeline stays vendor-neutral and emits a guarded AI wave layer", asy
   assert.match(calls[0].request.prompt, /波4重叠绝不会自动改名为倾斜/);
   assert.equal(result.model.providerId, "fixture-provider");
   assert.equal(result.model.reasoningEffort, "high");
-  assert.equal(result.model.reviewAttempts, 2);
+  assert.equal(result.model.reviewAttempts, 1);
   assert.match(result.model.escalationReason, /deterministic_candidates_close/);
   assert.ok(result.analysisPlan.drawingPatch.operations.length >= 24);
   assert.ok(result.analysisPlan.drawingPatch.operations.length <= 32);

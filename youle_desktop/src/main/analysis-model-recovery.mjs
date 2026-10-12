@@ -67,7 +67,7 @@ export async function runWithAnalysisModelRecovery({ operation, modelId, modelPr
         if (fallbackAttempts && error && typeof error === "object" && Object.isExtensible(error)) {
           error.modelId = selection.modelId;
           error.reasoningEffort = selection.reasoningEffort;
-          error.recovery = { modelId: selection.modelId, reasoningEffort: selection.reasoningEffort, attempts: fallbackAttempts, exhausted: recoverable };
+          error.recovery = { modelId: selection.modelId, reasoningEffort: selection.reasoningEffort, attempts: fallbackAttempts, exhausted: error.recovery?.exhausted === true || recoverable };
         }
         throw error;
       }
