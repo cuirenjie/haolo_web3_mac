@@ -953,6 +953,7 @@ M1 退出条件：不调用模型也能通过固定行情 Fixture 完成结构�
 | M1-340 | 修复有效分析被重复复核拖成超时并优化威科夫模型负载 | 已完成（源码与验证） | M1-328,M1-336 | 候选歧义首轮 high，合格即完成；威科夫输入去重与非 direct 冗余报告移除，预算耗尽/真实模型诊断修正，错误正文不重复。77/77 专项、类型检查、205 modules 构建通过；真实模型隔离夹具分别 10.2 秒/16.0 秒完成。扩展 322/324，两项旧源码断言 HEAD 同样失败。 |
 | M1-341 | 全策略超时修复覆盖核验及冗余模型输出精简 | 已完成（源码与验证） | M1-340 | 17 个内置策略加通用分析全部入口核验；新增 84 项跨入口/本地执行回归，452/452 策略专项与 3/3 原生恢复测试通过，类型检查与构建通过；订单流、波浪实模夹具分别 78.3 秒/16.9 秒单次复核成功。 |
 | M1-342 | 提交全策略超时修复并制作 0.1.175 正式签名包 | 已完成（推送与正式包验收） | M1-340,M1-341 | 源码 9760b51 已推送 dev；0.1.175 主程序/辅助程序/安装包/卸载程序 EV 验证全部通过，412 个应用文件与 248 个资源及安装包提取内容一致；已交付桌面 Web3 子目录，未上传生产。 |
+| M1-343 | 官网发布 0.1.175 Windows Web3 正式包 | 已完成（发布与公网验收） | M1-342 | 已发布到官网 Web3 通道；完整下载 209689984 字节及 SHA-256 一致，blockmap、Range 206、官网下载入口和版本更新检查全部通过，标准通道不变。 |
 
 ### M2：统一 Data Hub 与增量特征层
 
@@ -1064,7 +1065,7 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 
 ## 20. 当前工作焦点
 
-2026-10-12 当前专项：M1-342 已完成。全策略超时修复、版本 0.1.175 和原生宿主源码提交为 9760b51321b1415f2c564af6a9cb60203bd4c3df，已推送 origin/dev。正式 Windows x64 安装包 209689984 字节，SHA-256 d5182dcc4afdb86c8041543dcc8888b8640d6fb16c7a75f8ffe268acb16865a1；官方 EV CLI 签名和最终内容验收通过。桌面副本位于“好咯最新安装包/haolo_windows_web3”，保留其他项目已有同号包；本次未上传生产更新系统。
+2026-10-12 当前专项：M1-343 已完成。M1-342 已验收的 0.1.175 Windows Web3 正式包已发布到 Haolo 官网，12:21:49 北京时间完成公网验收。完整下载 209689984 字节，SHA-256 d5182dcc4afdb86c8041543dcc8888b8640d6fb16c7a75f8ffe268acb16865a1 与签名原包一致；blockmap、Range 206、官网最新下载入口和版本更新检查全部通过。标准版通道与发布前基线相同。
 
 2026-10-12 当前专项：M1-339 已完成发布验收。0.1.174 源码 a671ace 已推送 dev；四项 EV、包内比对、官网完整下载哈希/长度、差分与 Range 验证通过。用户追加明确要求等“排查国内直连合约交易对搜索”会话完成实际修复后再关机，排查结束不算；目前保持电脑开机，关机条件和后续回执保存在 release-summary-0.1.174.json。
 
@@ -2692,3 +2693,13 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 - 412 个应用文件、248 个附带资源与源码/构建输入一致。由最终安装包分别提取主程序、app.asar、native host 和卸载程序，四项 SHA-256 与已验证输入完全一致。blockmap 可解压解析，桌面安装包及 blockmap 副本哈希一致。
 - 最终安装包 `release/haolo_desktop-0.1.175-Setup.exe`：209689984 字节，SHA-256 `d5182dcc4afdb86c8041543dcc8888b8640d6fb16c7a75f8ffe268acb16865a1`。桌面副本为 `C:\Users\潘艳芳\Desktop\好咯最新安装包\haolo_windows_web3\haolo_desktop-0.1.175-Setup.exe`，未覆盖桌面根目录其他项目已有的 0.1.175。
 - 验收回执为 `release/ev-signatures-0.1.175.json`、`package-verification-0.1.175.json`、`installer-content-verification-0.1.175.json`、`third-party-signatures-0.1.175.json`、`release-summary-0.1.175.json`。本轮未安装覆盖用户客户端、未上传 OSS/生产更新记录，未触发任何历史任务中的关机动作；正式包可用于后续发布。
+
+### 2026-10-12 12:21：M1-343 官网发布 0.1.175 Windows Web3 正式包
+
+- 用户明确授权将最新 175 Windows 包发布官网。固定工作区及 Git 根均为 `C:\Users\潘艳芳\Documents\ChatGPT\haolo_windows_web3`，dev 与 origin/dev 为包验收记录提交 e7a8ef0；原始包源码提交 9760b51321b1415f2c564af6a9cb60203bd4c3df。沿用 M1-342 已验收的正式包，未重新构建、改版本或替换包内容。
+- 发布前再次确认安装包 Authenticode 为 Valid，大小 209689984 字节及 SHA-256 `d5182dcc4afdb86c8041543dcc8888b8640d6fb16c7a75f8ffe268acb16865a1` 匹配 EV 验收记录。基线 Web3 为 0.1.174、标准版为 0.1.171；回执保存在 `release/baseline-0.1.175-*.json`。
+- 按现行项目配置通过 haolo.com 更新管理 API 上传，显式指定 arch=x64、client_variant=haolo_windows_web3、force_update=false；更新说明涵盖重复复核超时修复、模型输出精简、失败恢复及诊断。本地上传凭据仅在进程内读取，没有写入源码、日志或安装包。
+- 上传请求返回 HTTP 504 后未重复上传。通过业务机当前健康 API 容器只读核对发布记录与事务锁，确认唯一记录 `f7770c40-beb5-4ed4-bd84-c03a51d5e9dc` 已发布、锁已释放、哈希和大小匹配，恢复回执后成功上传 blockmap。未修改数据库、部署后端或重启服务。
+- 官网下载地址为 `https://assets.haolo.com/app-updates/windows/0.1.175/haolo_windows_web3/haolo_desktop-0.1.175-Setup.exe`，OSS key 为 `app-updates/windows/0.1.175/haolo_windows_web3/haolo_desktop-0.1.175-Setup.exe`。官网下载按钮所用 latest/download 入口返回 302 且 no-store，准确指向该包；0.1.174 检测到更新，0.1.175 不重复更新。
+- 12:21:49 北京时间完成全量公网下载，文件长度和 SHA-256 与已签原包完全一致；blockmap 与本地逐字节一致且可解析，SHA-256 `1fb9db7b2a44a5e3223661ea632f17451feb2cca53e00ef532b9b10634caf19b`；Range 请求返回 206、正确 Content-Range 且内容一致。标准版通道响应与发布前基线完全相同。
+- 证据：`release/app-update-release-0.1.175.json`、`upload-504-recovery-0.1.175.json`、`app-update-blockmap-0.1.175.json`、`publication-verification-0.1.175.json`、`release-summary-0.1.175.json`。本次没有源码变更，复用 M1-342 的 470 项通过记录；新增发布验收全部通过。开发版保持运行，未触发历史任务中的关机动作。
