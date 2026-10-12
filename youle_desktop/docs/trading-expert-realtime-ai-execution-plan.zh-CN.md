@@ -953,7 +953,8 @@ M1 退出条件：不调用模型也能通过固定行情 Fixture 完成结构�
 
 | M1-340 | 修复有效分析被重复复核拖成超时并优化威科夫模型负载 | 已完成（源码与验证） | M1-328,M1-336 | 候选歧义首轮 high，合格即完成；威科夫输入去重与非 direct 冗余报告移除，预算耗尽/真实模型诊断修正，错误正文不重复。77/77 专项、类型检查、205 modules 构建通过；真实模型隔离夹具分别 10.2 秒/16.0 秒完成。扩展 322/324，两项旧源码断言 HEAD 同样失败。 |
 | M1-341 | 全策略超时修复覆盖核验及冗余模型输出精简 | 已完成（源码与验证） | M1-340 | 17 个内置策略加通用分析全部入口核验；新增 84 项跨入口/本地执行回归，452/452 策略专项与 3/3 原生恢复测试通过，类型检查与构建通过；订单流、波浪实模夹具分别 78.3 秒/16.9 秒单次复核成功。 |
-| M1-342 | 提交全策略超时修复并制作 0.1.175 正式签名包 | 已完成（推送与正式包验收） | M1-340,M1-341 | 源码 9760b51 已推送 dev；0.1.175 主程序/辅助程序/安装包/卸载程序 EV 验证全部通过，412 个应用文件与 248 个资源及安装包提取内容一致；已交付桌面 Web3 子目录，未上传生产。 |
+| M1-342 |
+| M1-343 | 构建并发布 macOS 0.1.175 Universal 包 | 构建完成，官网发布待签名与管理员凭据 | M1-342,M6-007 | 已基于远端 `bd4cff4` 完成 Universal DMG；包内容、双架构、版本字段、`hdiutil` 与全量测试通过。当前本机无 Developer ID 身份，官网 Mac 发布还需要签名公证环境和 `APP_UPDATE_ADMIN_KEY`。 | 提交全策略超时修复并制作 0.1.175 正式签名包 | 已完成（推送与正式包验收） | M1-340,M1-341 | 源码 9760b51 已推送 dev；0.1.175 主程序/辅助程序/安装包/卸载程序 EV 验证全部通过，412 个应用文件与 248 个资源及安装包提取内容一致；已交付桌面 Web3 子目录，未上传生产。 |
 
 ### M2：统一 Data Hub 与增量特征层
 
@@ -1065,6 +1066,8 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 以 1 名桌面工程师、1 名量化/数据工程师和兼职 AI/后端支持估算：M1 可演示纵向切片约 1–2 周；包含四引擎、GPT 和真实订单流的内部 MVP 约 6–8 周；完成概率校准、稳定性和发布灰度约 8–12 周。实际日期以数据授权、专家标注和测试结果为准，不以工期压力绕过验收。
 
 ## 20. 当前工作焦点
+
+2026-10-12 当前专项：M1-343 进行中。已完成远端源码审查、修复、推送和 macOS 0.1.175 Universal DMG 构建；正式官网发布需 Developer ID 签名/公证与 `APP_UPDATE_ADMIN_KEY`，当前环境均未配置。
 
 2026-10-12 当前专项：M1-342 已完成。全策略超时修复、版本 0.1.175 和原生宿主源码提交为 9760b51321b1415f2c564af6a9cb60203bd4c3df，已推送 origin/dev。正式 Windows x64 安装包 209689984 字节，SHA-256 d5182dcc4afdb86c8041543dcc8888b8640d6fb16c7a75f8ffe268acb16865a1；官方 EV CLI 签名和最终内容验收通过。桌面副本位于“好咯最新安装包/haolo_windows_web3”，保留其他项目已有同号包；本次未上传生产更新系统。
 
@@ -2938,3 +2941,10 @@ Windows 上游历史记录（原平台验收）：
 - 412 个应用文件、248 个附带资源与源码/构建输入一致。由最终安装包分别提取主程序、app.asar、native host 和卸载程序，四项 SHA-256 与已验证输入完全一致。blockmap 可解压解析，桌面安装包及 blockmap 副本哈希一致。
 - 最终安装包 `release/haolo_desktop-0.1.175-Setup.exe`：209689984 字节，SHA-256 `d5182dcc4afdb86c8041543dcc8888b8640d6fb16c7a75f8ffe268acb16865a1`。桌面副本为 `C:\Users\潘艳芳\Desktop\好咯最新安装包\haolo_windows_web3\haolo_desktop-0.1.175-Setup.exe`，未覆盖桌面根目录其他项目已有的 0.1.175。
 - 验收回执为 `release/ev-signatures-0.1.175.json`、`package-verification-0.1.175.json`、`installer-content-verification-0.1.175.json`、`third-party-signatures-0.1.175.json`、`release-summary-0.1.175.json`。本轮未安装覆盖用户客户端、未上传 OSS/生产更新记录，未触发任何历史任务中的关机动作；正式包可用于后续发布。
+
+### 2026-10-12：M1-343 macOS 0.1.175 Universal 构建与发布前验收
+
+- 源码基线：远端 `origin/dev` 已确认指向 `bd4cff40afe9fe4044c09b3d245d171ae4e774e5`；完整桌面测试 3431 通过、6 项 Windows 平台条件跳过、0 失败；TypeScript、Vite 205 modules 构建和 `git diff --check` 通过。
+- 产物：`release/好咯-0.1.175-universal.dmg`，488935152 bytes，SHA-256 `814a9ffb029ea2277916b14f6724b18a2843f7d2817f575956f4c9316615454e`。包内 Universal App、ASAR、主进程/Renderer 源文件、双架构运行时和资源校验通过；`hdiutil verify` 通过。
+- 构建使用 `HAOLO_ALLOW_UNTRUSTED_MAC_DMG=1`，本机 `security find-identity -v -p codesigning` 为 0 个有效身份；产物为 ad-hoc 签名，不能通过 `scripts/mac-release-trust.mjs` 的 Developer ID/公证发布门禁。未上传、未写官网发布记录。
+- 官网可用发布入口为 `POST https://haolo.com/api/app-updates/admin/mac/release`，需要 `X-App-Update-Admin-Key`。当前执行环境没有 `APP_UPDATE_ADMIN_KEY`，因此未提交外部发布请求；待签名公证环境和管理员密钥准备好后，以 `arch=universal`、版本 `0.1.175` 重新验收并发布。
