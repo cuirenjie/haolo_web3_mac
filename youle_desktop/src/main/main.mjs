@@ -280,7 +280,10 @@ import {
   runtimeModelForSelection,
 } from "./gpt6-sol-alias-policy.mjs";
 import { applyThreadProviderSwitch, assertThreadProvider, restartIdleProviderRuntime } from "./thread-provider-switch.mjs";
-import { tradingAnalysisFailureDiagnostic, tradingAnalysisModelDiagnostic } from "./trading-analysis/diagnostics.mjs";
+import { tradingAnalysisFailureDiagnostic } from "./trading-analysis/diagnostics.mjs";
+// HAOLO-TURN-DIAGNOSTICS-BEGIN: optional model diagnostic import
+import { tradingAnalysisModelDiagnostic } from "./trading-analysis/diagnostics.mjs";
+// HAOLO-TURN-DIAGNOSTICS-END: optional model diagnostic import
 import { withPersonalTradingRisk } from "./trading-analysis/personal-risk-context.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
 import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
@@ -14765,6 +14768,7 @@ async function invokeTradingAnalysisAppServer({
     if (["cancelled", "canceled", "interrupted", "aborted"].includes(completed.status)) {
       throw tradingAnalysisAbortError();
     }
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: optional trading model completion event
     if (typeof recordTurnDiagnostic === "function") {
       recordTurnDiagnostic("trading.model.completed", tradingAnalysisModelDiagnostic(
         completed.status === "success" ? null : {
@@ -14779,6 +14783,7 @@ async function invokeTradingAnalysisAppServer({
         },
       ));
     }
+    // HAOLO-TURN-DIAGNOSTICS-END: optional trading model completion event
     return completed.status === "success"
       ? { status: "success", text: completed.text, finishReason: "completed" }
       : {
@@ -14793,12 +14798,14 @@ async function invokeTradingAnalysisAppServer({
         category: completed.errorClass,
       };
   } catch (error) {
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: optional trading model failure event
     if (typeof recordTurnDiagnostic === "function") {
       recordTurnDiagnostic("trading.model.completed", tradingAnalysisModelDiagnostic(error, {
         ...diagnosticContext, strategyId: request.theoryId,
         durationMs: Date.now() - modelStartedAt,
       }));
     }
+    // HAOLO-TURN-DIAGNOSTICS-END: optional trading model failure event
     console.warn("[trading-analysis] model turn failed", {
       ...diagnosticContext,
       threadId,
