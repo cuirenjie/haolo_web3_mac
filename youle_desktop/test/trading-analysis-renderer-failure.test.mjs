@@ -34,6 +34,7 @@ function harness({ language = "zh-CN", modelId = "validated-model", strategyId, 
     tradingAnalysisShouldForceCurrentRefresh: () => false,
     tradingFavoriteRecord: (value) => value,
     activeTradingAnalysisLanguage: () => language,
+    getCurrentAppLanguage: () => language,
     tradingAnalysisJobs: {
       start: (job) => job, isActive: () => state.active,
       complete: () => { state.completed = true; state.active = false; }, fail: () => {},
