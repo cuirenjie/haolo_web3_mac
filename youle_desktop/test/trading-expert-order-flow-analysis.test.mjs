@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { registerStrategyModelRecoveryTests } from "./helpers/strategy-model-recovery.mjs";
+
+registerStrategyModelRecoveryTests({
+  name: "order-flow",
+  strategyId: "order-flow",
+  params: () => fixtureParams(),
+  compactReport: true,
+});
 
 import {
   createTradingAnalysisModelProviderRegistry,

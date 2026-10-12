@@ -77,6 +77,8 @@ test("explicit strategy errors never silently change engines or create executabl
       assert.equal(state.generalCalls, 0, `${id}/${code}`);
       assert.equal(state.reports[0].presentation, "plain");
       assert.ok(state.reports[0].report.startsWith(`${id}：`));
+      assert.notEqual(state.progress.at(-1).message, state.reports[0].report);
+      assert.equal(state.progress.at(-1).message, describeTradingAnalysisFailure({ code }).summary);
       assert.doesNotMatch(state.reports[0].report, /private upstream/);
       assert.equal(state.finished, 1);
     }

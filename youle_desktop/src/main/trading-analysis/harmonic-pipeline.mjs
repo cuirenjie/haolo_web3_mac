@@ -155,13 +155,13 @@ export function buildHarmonicModelPrompt(snapshot, theoryResult, context = {}) {
     "你只能从给定 candidate id 中选择一个主候选和最多两个备选；不得新增、删除、移动 candidate.points 中的任何形态点，不得改写 PRZ、确认、止损、目标或历史 K 线。Terminal Bar 后尚无已收盘反转确认时必须保持等待，不能把到达终点/PRZ 本身写成入场确认。summary、report、rationale 不得输出任何阿拉伯数字，全部数值由宿主确定性报告生成。",
     context.responseMode === "direct"
       ? "本次是直接回答模式。report 第一行回答用户问题，只能引用候选和 actionLevels 中的事实，不更新画布。"
-      : "本次是完整分析模式。summary 用通俗中文说明形态、方向和当前是等待还是已确认；专业比例放在依据中。",
+      : "本次是完整分析模式。完整报告与受控绘图由宿主根据确定性事实生成。只需返回候选取舍、简短 summary 和 rationale；report 必须为空字符串，不要重复撰写完整报告。summary 用通俗中文说明形态、方向和当前是等待还是已确认。",
     "输出单个 JSON 对象，不要 Markdown，不要 JSON 外文字。",
     JSON.stringify({
       schemaVersion: 1,
       verdict: "approve 或 revise",
       summary: "不超过100个中文字符",
-      report: "直接回答模式下的自然中文；完整模式可简短补充候选差异",
+      report: context.responseMode === "direct" ? "直接回答用户本次问题的自然中文" : "",
       rationale: "不超过240个中文字符，只解释候选证据和确认/失效",
       primaryCandidateId: "必须是 candidate id",
       alternateCandidateIds: ["最多两个 candidate id"],

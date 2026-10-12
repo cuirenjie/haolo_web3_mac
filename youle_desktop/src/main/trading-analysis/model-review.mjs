@@ -190,22 +190,37 @@ async function runValidatedTradingModelReviewInternal({
   }
 
   const ambiguity = tradingReviewAmbiguity(theoryResult, ambiguityOptions);
+  // Ambiguity is known before dispatch. Review it in the first call instead
+  // of discarding a valid medium result and spending the remaining budget on
+  // a mandatory second pass. Only invalid output needs another model call.
+  const efforts = ambiguity.ambiguous ? REVIEW_EFFORTS.slice(1) : REVIEW_EFFORTS;
+  const initialRequest = ambiguity.ambiguous ? {
+    ...request,
+    prompt: [
+      request.prompt,
+      "",
+      "DETERMINISTIC_CANDIDATE_AMBIGUITY:",
+      boundedText(ambiguity.reason, MAX_VALIDATION_ERROR_CHARS),
+      "Compare these competing candidates against the supplied evidence in this review.",
+      "Close scores do not confirm either scenario. Preserve uncertainty and supported alternatives under the original JSON protocol.",
+    ].join("\n"),
+  } : request;
   const attempts = [];
-  let currentRequest = { ...request };
+  let currentRequest = { ...initialRequest };
   let previousResponse = "";
   let validationError = null;
-  let escalationReason = null;
+  let escalationReason = ambiguity.reason;
   let totalLatencyMs = 0;
   let lastModelId = null;
   let recoveryModel;
 
-  for (const effort of REVIEW_EFFORTS) {
-    if (effort !== "medium") {
+  for (const effort of efforts) {
+    if (attempts.length) {
       currentRequest = {
-        ...request,
+        ...initialRequest,
         requestId: retryRequestId(request.requestId, effort),
         prompt: retryPrompt(
-          request,
+          initialRequest,
           previousResponse,
           escalationReason,
           validationError?.message,
@@ -260,11 +275,6 @@ async function runValidatedTradingModelReviewInternal({
         valid: true,
         latencyMs: Math.max(0, Number(modelResponse.latencyMs) || 0),
       }));
-      if (effort === "medium" && ambiguity.ambiguous && !modelResponse.recovery) {
-        escalationReason = ambiguity.reason;
-        validationError = null;
-        continue;
-      }
       return Object.freeze({
         modelResponse: Object.freeze({ ...modelResponse, latencyMs: totalLatencyMs }),
         review,

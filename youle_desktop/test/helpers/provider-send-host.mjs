@@ -5,6 +5,7 @@ import { migrateRetiredModelSelection } from "../../src/main/retired-model-polic
 import { withAnalysisModelRecoveryPolicy } from "../../src/main/analysis-model-policy.mjs";
 import { applyThreadProviderSwitch, assertThreadProvider, restartIdleProviderRuntime } from "../../src/main/thread-provider-switch.mjs";
 import { isRecoverableAnalysisModelFailure } from "../../src/main/analysis-model-recovery.mjs";
+import { displayModelAliasForSelection, runtimeModelForSelection, migrateGpt6SolSelection } from "../../src/main/gpt6-sol-alias-policy.mjs";
 
 // Execute the real Electron host handlers without starting Electron or loading
 // the user's account. Native tests inject the bundled app-server RPC transport.
@@ -24,6 +25,7 @@ export function createProviderSendHost({ request, client = {}, cwd = "workspace"
   const deps = {
     firstString: (...values) => values.find((v) => typeof v === "string" && v.trim())?.trim() || "",
     canonicalExecutionModelProvider, migrateDeepSeekModelSelection, migrateRetiredModelSelection,
+    displayModelAliasForSelection, runtimeModelForSelection, migrateGpt6SolSelection,
     DEEPSEEK_EXECUTION_MODEL: "deepseek-flash", DEEPSEEK_EXECUTION_PROVIDER_ID: "deepseek",
     ANALYSIS_PRIMARY_MODEL: "gpt-5.6-sol", applyThreadProviderSwitch, assertThreadProvider, restartIdleProviderRuntime,
     currentSkillsCwd: cwd, desktopWorkspace: () => cwd, currentThreadId: null,

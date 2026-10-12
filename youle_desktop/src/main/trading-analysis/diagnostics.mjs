@@ -50,3 +50,18 @@ export function tradingAnalysisFailureDiagnostic(error, context = {}) {
     })),
   };
 }
+
+// Persist outcome metadata, never prompts, partial responses or upstream text.
+export function tradingAnalysisModelDiagnostic(error, context = {}) {
+  const diagnostic = tradingAnalysisFailureDiagnostic(error, { ...context, stage: "model" });
+  const milliseconds = (value) => Number.isFinite(value) ? Math.max(0, Math.round(value)) : null;
+  return {
+    ...diagnostic,
+    ...(!error ? { errorClass: null, detail: null } : {}),
+    status: error ? diagnostic.errorClass === "cancelled" ? "cancelled" : "failed" : "success",
+    durationMs: milliseconds(context.durationMs),
+    timeoutMs: milliseconds(context.timeoutMs),
+    reasoningEffort: ["low", "medium", "high", "max", "xhigh"].includes(context.reasoningEffort)
+      ? context.reasoningEffort : null,
+  };
+}

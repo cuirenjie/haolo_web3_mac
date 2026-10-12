@@ -91,7 +91,7 @@ export function buildOrderFlowModelPrompt(snapshot, theoryResult, context = {}) 
       : "请只复核给定候选 ID、确定性 actionLevels 与覆盖状态，不得创造候选之外的结构、逐笔、价位、时间、盘口、爆仓、持仓量或交易事实。真实订单流只能确认其微观数据窗口覆盖的结构事件；历史 OB/FVG 等仍属于 OHLCV 市场结构。数据标记 unavailable 时必须明确缺失。",
     directAnswer
       ? (english ? "Answer the user's specific question directly and do not update the canvas. The report must answer in its first sentence and include only necessary evidence; do not use the full report template or fixed headings." : "本次只刷新分析并回答用户的具体问题，不更新画布。report 必须第一句直接作答，后续只写必要依据，不得套用完整盘面报告或固定章节。")
-      : (english ? "Generate a complete market analysis and controlled drawing plan." : "本次需要生成完整盘面分析与受控绘图计划。"),
+      : (english ? "The host generates the complete report and controlled drawings from deterministic facts. Return candidate choices, a concise summary and strategyRationale; leave report empty and do not repeat the full report." : "完整报告与受控绘图由宿主根据确定性事实生成。你只需返回候选取舍、简短 summary 和 strategyRationale；report 必须为空字符串，不要重复撰写完整报告。"),
     english
       ? "Write all user-facing summary, report, and strategyRationale text in natural English. Explain each specialist term briefly on first use. State the price that confirms a bullish bias, the price that confirms a bearish bias, the pullback area to watch, and the no-trade range. Require candle-close confirmation, controlled per-trade risk, and never encourage chasing a move."
       : "面向用户必须先说人话和条件：价格上破哪个确定性价位后偏多、跌破哪个价位后偏空、回踩哪个区域可观察止跌、什么区间内不交易。每个专业术语首次出现时用一句普通中文解释，避免连续罗列缩写；给新手的建议必须等待本周期收盘确认、控制单笔风险且不得鼓励追涨杀跌。",
@@ -105,7 +105,7 @@ export function buildOrderFlowModelPrompt(snapshot, theoryResult, context = {}) 
       summary: english ? "A plain-English conclusion under 80 characters. Prefer waiting, bullish, or bearish conditions; do not promise returns." : "不超过80个中文字符的通俗结论，优先描述等待、偏多或偏空条件，不得堆砌术语或承诺收益",
       report: directAnswer
         ? (english ? "A direct natural-English answer; prices may only come from actionLevels." : "直接回答用户本次问题的自然中文；价格只能引用 actionLevels，结构和长短按问题决定")
-        : (english ? "A beginner-friendly English review; prices may only come from actionLevels. State executable conditions first, then briefly explain the evidence." : "用新手能看懂的中文复核；价格只能引用 actionLevels，先写可执行条件，再用少量括号术语补充依据"),
+        : "",
       marketBias: "buying、selling 或 neutral",
       strategyRationale: "不超过200个中文字符，只解释候选证据和确认/失效条件",
       selectedClusterIds: ["最多选择两个最重要的 cluster id；空数组表示接受确定性推荐"],

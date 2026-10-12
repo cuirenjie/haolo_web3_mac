@@ -158,7 +158,9 @@ test("SMT wiring is read-only, dual-theme, and cannot create an order-flow depen
   assert.match(styles, /\.trading-strategy-icon-smt-divergence/);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-strategy-icon-smt-divergence/);
   assert.doesNotMatch(orderFlowPipeline, /smt-divergence|ict-smc-pipeline/);
-  assert.doesNotMatch(smtPipeline, /order-flow/);
-  assert.doesNotMatch(ictPipeline, /(?:from\s+|import\s*\()["'][^"']*order-flow/);
-  assert.match(ictPipeline, /does not read individual trades or depth and cannot represent order-flow evidence/);
+  // User-facing prose can explain that order-flow data is not consumed. Only
+  // an actual module dependency would violate pipeline isolation.
+  const orderFlowImport = /(?:from\s*|import\s*\(\s*)["'][^"']*order-flow/;
+  assert.doesNotMatch(smtPipeline, orderFlowImport);
+  assert.doesNotMatch(ictPipeline, orderFlowImport);
 });

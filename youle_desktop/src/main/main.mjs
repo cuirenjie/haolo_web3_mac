@@ -280,7 +280,7 @@ import {
   runtimeModelForSelection,
 } from "./gpt6-sol-alias-policy.mjs";
 import { applyThreadProviderSwitch, assertThreadProvider, restartIdleProviderRuntime } from "./thread-provider-switch.mjs";
-import { tradingAnalysisFailureDiagnostic } from "./trading-analysis/diagnostics.mjs";
+import { tradingAnalysisFailureDiagnostic, tradingAnalysisModelDiagnostic } from "./trading-analysis/diagnostics.mjs";
 import { withPersonalTradingRisk } from "./trading-analysis/personal-risk-context.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
 import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
@@ -14684,6 +14684,7 @@ async function invokeTradingAnalysisAppServer({
   try {
     if (signal?.aborted) throw signal.reason || tradingAnalysisAbortError();
     assertThreadProvider(started, executionProviderSelection({ model: modelId, modelProvider }).modelProvider, threadModelProviderFromResumeResult);
+    diagnosticContext.timeoutMs = remainingModelTime ? Math.min(timeoutMs, remainingModelTime()) : timeoutMs;
     const completed = await runWorkflowCodexNodeTurnWithRecovery({
       serverClient,
       threadId,
@@ -14694,7 +14695,7 @@ async function invokeTradingAnalysisAppServer({
       fixedReasoningEffort: reasoningEffort,
       fixedEffort: reasoningEffort,
       sandboxPolicy: "read-only",
-      timeoutMs: remainingModelTime ? Math.min(timeoutMs, remainingModelTime()) : timeoutMs,
+      timeoutMs: diagnosticContext.timeoutMs,
       turnStartTimeoutMs: remainingModelTime ? Math.min(timeoutMs, remainingModelTime()) : undefined,
       resetTimeoutOnActivity,
       timeoutRetryable,
@@ -14755,30 +14756,28 @@ async function invokeTradingAnalysisAppServer({
     });
     turnId = completed.turnId || turnId;
     turnFinished = completed.turnFinished === true;
-    // HAOLO-TURN-DIAGNOSTICS-BEGIN: optional trading model completion event
-    if (typeof recordTurnDiagnostic === "function") {
-      recordTurnDiagnostic("trading.model.completed", {
-        ...tradingAnalysisFailureDiagnostic(null, {
-          requestId: request.requestId, snapshotId: request.snapshotId,
-          strategyId: request.theoryId, modelId, stage: "model",
-        }),
-        status: completed.status,
-        durationMs: Date.now() - modelStartedAt,
-        reasoningEffort,
-        timeoutMs,
-      });
-    }
-    // HAOLO-TURN-DIAGNOSTICS-END: optional trading model completion event
     if (Array.isArray(completed.effects) && completed.effects.length) {
-      return {
-        status: "failed",
-        error: "Trading analysis model attempted a disallowed side effect",
+      throw Object.assign(new Error("Trading analysis model attempted a disallowed side effect"), {
         code: "TRADING_ANALYSIS_MODEL_SIDE_EFFECT_BLOCKED",
         retryable: false,
-      };
+      });
     }
     if (["cancelled", "canceled", "interrupted", "aborted"].includes(completed.status)) {
       throw tradingAnalysisAbortError();
+    }
+    if (typeof recordTurnDiagnostic === "function") {
+      recordTurnDiagnostic("trading.model.completed", tradingAnalysisModelDiagnostic(
+        completed.status === "success" ? null : {
+          message: completed.error,
+          code: completed.errorCode || "TRADING_ANALYSIS_MODEL_FAILED",
+          httpStatus: completed.httpStatus,
+          category: completed.errorClass,
+          retryable: completed.retryable === true,
+        }, {
+          ...diagnosticContext, strategyId: request.theoryId,
+          durationMs: Date.now() - modelStartedAt,
+        },
+      ));
     }
     return completed.status === "success"
       ? { status: "success", text: completed.text, finishReason: "completed" }
@@ -14794,6 +14793,12 @@ async function invokeTradingAnalysisAppServer({
         category: completed.errorClass,
       };
   } catch (error) {
+    if (typeof recordTurnDiagnostic === "function") {
+      recordTurnDiagnostic("trading.model.completed", tradingAnalysisModelDiagnostic(error, {
+        ...diagnosticContext, strategyId: request.theoryId,
+        durationMs: Date.now() - modelStartedAt,
+      }));
+    }
     console.warn("[trading-analysis] model turn failed", {
       ...diagnosticContext,
       threadId,

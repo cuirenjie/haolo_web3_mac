@@ -11,6 +11,7 @@ import { runValidatedTradingModelReview } from "../src/main/trading-analysis/mod
 import { HAOLO_REASONING_FIXED_EFFORT_FIELD, withAdaptiveTurnReasoning } from "../src/main/gpt-reasoning-effort.mjs";
 import { tradingAnalysisTurnPolicy } from "../src/main/trading-analysis-turn-policy.mjs";
 import { assertThreadProvider } from "../src/main/thread-provider-switch.mjs";
+import { tradingAnalysisModelDiagnostic } from "../src/main/trading-analysis/diagnostics.mjs";
 
 const request = Object.freeze({ schemaVersion: 1, requestId: "request-1", snapshotId: "snapshot-1", task: "wave-theory-review", theoryId: "elliott_wave", prompt: "ETH怎么看\nFROZEN_CANDLES_AND_ATTACHMENTS", responseFormat: "json" });
 const overload = () => ({ status: "failed", error: "Selected model is at capacity. Please try a different model.", retryable: false });
@@ -187,6 +188,7 @@ function reviewEntry(overrides = {}) {
   const starts = [], turns = [], cleanup = [];
   const deps = {
     desktopWorkspace: () => "workspace", getClientForCwd: () => ({}), tradingAnalysisTurnPolicy,
+    tradingAnalysisModelDiagnostic,
     requestWorkflowInternalThreadStart: async (_client, params) => { starts.push(params); return { thread: { id: `internal-${starts.length}` }, modelProvider: params.modelProvider || "haolo_ai" }; },
     assertThreadProvider,
     executionProviderSelection: (params) => ({ modelProvider: params.modelProvider || "haolo_ai" }),
@@ -257,4 +259,39 @@ test("runtime-cancelled reviews remain cancelled even without a caller abort sig
   const provider = createAppServerTradingAnalysisProvider({ invoke: harness.invoke, waitForRecovery: async () => assert.fail("cancelled review must not retry") });
   await assert.rejects(provider.analyze(request), { name: "AbortError" });
   assert.equal(harness.starts.length, 1);
+});
+
+test("production model diagnostics record success, HTTP failures and actual remaining deadlines accurately", async () => {
+  for (const outcome of [
+    { status: "success", text: "PRIVATE_RESPONSE" },
+    { status: "failed", error: "PRIVATE_UPSTREAM", errorCode: "CODEX_TURN_FAILED", httpStatus: 503, retryable: true },
+    Object.assign(new Error("PRIVATE_TIMEOUT"), { code: "WORKFLOW_TURN_TIMEOUT", category: "timeout", retryable: true }),
+  ]) {
+    const events = [];
+    const harness = reviewEntry({
+      recordTurnDiagnostic: (event, detail) => events.push({ event, detail }),
+      runWorkflowCodexNodeTurnWithRecovery: async () => {
+        if (outcome instanceof Error) throw outcome;
+        return { ...outcome, turnFinished: true };
+      },
+    });
+    const pending = harness.invoke({ modelId: "gpt-5.6-sol", request, reasoningEffort: "high", remainingModelTime: () => 56_982 });
+    if (outcome instanceof Error) await assert.rejects(pending, (error) => error === outcome);
+    else await pending;
+    assert.equal(events.length, 1);
+    const { detail } = events[0];
+    assert.equal(detail.timeoutMs, 56_982);
+    assert.equal(detail.reasoningEffort, "high");
+    assert.equal(detail.model, "gpt-5.6-sol");
+    assert.doesNotMatch(JSON.stringify(events), /PRIVATE_|FROZEN_CANDLES/);
+    if (outcome.status === "success") {
+      assert.equal(detail.status, "success");
+      assert.equal(detail.errorClass, null);
+      assert.equal(detail.detail, null);
+    } else {
+      assert.equal(detail.status, "failed");
+      assert.equal(detail.errorClass, outcome instanceof Error ? "timeout" : "transport");
+      assert.equal(detail.httpStatus, outcome.httpStatus || null);
+    }
+  }
 });
