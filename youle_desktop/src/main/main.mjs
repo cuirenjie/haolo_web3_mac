@@ -1,4 +1,5 @@
 import { withModelToolNetwork } from "./model-tool-network.mjs";
+import { errorSignals } from "./error-signals.mjs";
 import { sharedSnapshotPosition, sharedSnapshotTime } from "./binance-account/shared-snapshot.mjs";
 import { registerManualDrawingSync } from "./manual-drawing-sync.mjs";
 import { HAOLO_GATEWAY_BASE_URL, HAOLO_GATEWAY_HOST } from "./haolo-gateway.mjs";
@@ -106,6 +107,11 @@ import {
   normalizeTurnDiagnosticId,
   redactDiagnosticText,
 } from "./turn-diagnostics.mjs";
+import {
+  collectDiagnosticSupportEvidence,
+  transcriptDiagnosticPayload,
+  TRANSCRIPT_DIAGNOSTIC_LOG,
+} from "./diagnostic-support-evidence.mjs";
 // HAOLO-TURN-DIAGNOSTICS-END: removable imports
 import {
   collectVisibleThreadPage,
@@ -3880,6 +3886,37 @@ function recordTurnDiagnostic(event, payload = {}) {
   }
 }
 
+let transcriptDiagnosticRecorder = null;
+function recordTradingTranscriptDiagnostic(stage, context = {}) {
+  try {
+    const payload = transcriptDiagnosticPayload(stage, context);
+    if (!payload) return;
+    transcriptDiagnosticRecorder ||= new TurnDiagnosticRecorder({
+      logPath: path.join(app.getPath("userData"), "logs", TRANSCRIPT_DIAGNOSTIC_LOG),
+      appVersion: app.getVersion?.() || "",
+      maxBytes: 1024 * 1024,
+    });
+    transcriptDiagnosticRecorder.record(`trading.transcript.${stage}`, payload);
+  } catch { /* Diagnostics must never interrupt saving or restoring a conversation. */ }
+}
+
+async function diagnosticTranscriptHomes() {
+  const homes = new Set([
+    workspaceCodexHome(currentSkillsCwd || desktopWorkspace()),
+    workspaceCodexHome(desktopWorkspace()),
+    desktopCodexHome(),
+  ]);
+  try {
+    const groups = await fs.promises.readdir(threadGroupsRootPath(), { withFileTypes: true });
+    for (const group of groups.slice(0, 64)) {
+      if (group.isDirectory() && !group.isSymbolicLink()) {
+        homes.add(path.join(threadGroupsRootPath(), group.name, "haolo-ai-home"));
+      }
+    }
+  } catch { /* Default and current homes remain available. */ }
+  return [...homes];
+}
+
 function beginTurnDiagnostic(params, { threadId, cwd, textLength = 0 } = {}) {
   const diagnosticId =
     normalizeTurnDiagnosticId(params?.clientRequestId || params?.client_request_id)
@@ -6688,13 +6725,14 @@ function workflowCodexTerminalFailure(message) {
 
 function workflowCodexFailureClass(detail, httpStatus) {
   const text = String(detail || "");
+  const { statuses } = errorSignals({ message: text, status: httpStatus });
   if (/responseStreamDisconnected|stream disconnected|stream closed|connection reset|broken pipe|unexpected eof|websocket.{0,20}(?:closed|disconnect)/i.test(text)) {
     return "stream_disconnected";
   }
   if (/timed?\s*out|timeout|deadline exceeded|超时/i.test(text)) return "timeout";
-  if (httpStatus === 429 || /rate limit|too many requests|429\b|限流|频率限制/i.test(text)) return "rate_limit";
-  if (httpStatus != null && httpStatus >= 500) return "upstream_5xx";
-  if (/\b(?:500|502|503|504|529)\b|internal server error|bad gateway|service unavailable|gateway timeout/i.test(text)) {
+  if (statuses.includes(429) || /rate limit|too many requests|限流|频率限制/i.test(text)) return "rate_limit";
+  if (statuses.some((status) => status >= 500)) return "upstream_5xx";
+  if (/internal server error|bad gateway|service unavailable|gateway timeout/i.test(text)) {
     return "upstream_5xx";
   }
   return "unknown";
@@ -14547,6 +14585,7 @@ async function invokeTradingAnalysisAppServer({
     if (["cancelled", "canceled", "interrupted", "aborted"].includes(completed.status)) {
       throw tradingAnalysisAbortError();
     }
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: trading model completion
     if (typeof recordTurnDiagnostic === "function") {
       recordTurnDiagnostic("trading.model.completed", tradingAnalysisModelDiagnostic(
         completed.status === "success" ? null : {
@@ -14561,6 +14600,7 @@ async function invokeTradingAnalysisAppServer({
         },
       ));
     }
+    // HAOLO-TURN-DIAGNOSTICS-END: trading model completion
     return completed.status === "success"
       ? { status: "success", text: completed.text, finishReason: "completed" }
       : {
@@ -14572,12 +14612,14 @@ async function invokeTradingAnalysisAppServer({
         category: completed.errorClass,
       };
   } catch (error) {
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: trading model failure
     if (typeof recordTurnDiagnostic === "function") {
       recordTurnDiagnostic("trading.model.completed", tradingAnalysisModelDiagnostic(error, {
         ...diagnosticContext, strategyId: request.theoryId,
         durationMs: Date.now() - modelStartedAt,
       }));
     }
+    // HAOLO-TURN-DIAGNOSTICS-END: trading model failure
     console.warn("[trading-analysis] model turn failed", {
       ...diagnosticContext,
       threadId,
@@ -16270,7 +16312,17 @@ ipcMain.handle("app:listThreadGroupWorkspaces", async (_event, params = {}) => {
 });
 
 // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable report export IPC
-ipcMain.handle("app:exportDiagnostics", async () => {
+ipcMain.handle("app:recordTradingTranscriptDiagnostic", (_event, params = {}) => {
+  if (!String(params.stage || "").startsWith("renderer.")) return { ok: false };
+  recordTradingTranscriptDiagnostic(params.stage, {
+    threadId: String(params.threadId || "").slice(0, 300),
+    itemCount: params.itemCount, finalCount: params.finalCount, textChars: params.textChars, attempt: params.attempt,
+    ...(typeof params.detail === "string" ? { error: { message: params.detail.slice(0, 4_000), code: params.code } } : {}),
+  });
+  return { ok: true };
+});
+
+ipcMain.handle("app:exportDiagnostics", async (_event, params = {}) => {
   const window = focusedMainWindow();
   const timestamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
   const result = await dialog.showSaveDialog(window || undefined, {
@@ -16280,9 +16332,20 @@ ipcMain.handle("app:exportDiagnostics", async () => {
     properties: ["createDirectory", "showOverwriteConfirmation"],
   });
   if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+  let supportEvidence;
+  try {
+    supportEvidence = await collectDiagnosticSupportEvidence({
+      homes: await diagnosticTranscriptHomes(),
+      logPath: path.join(app.getPath("userData"), "logs", TRANSCRIPT_DIAGNOSTIC_LOG),
+      selectedThreadId: params.threadId || currentThreadId,
+    });
+  } catch {
+    supportEvidence = { schemaVersion: 1, includesConversationText: false, omissions: [{ reason: "collection_failed" }] };
+  }
   const exported = getTurnDiagnosticRecorder().exportReport(
     result.filePath,
     turnDiagnosticsRuntimeSnapshot(),
+    { supportEvidence },
   );
   recordTurnDiagnostic("diagnostics.exported", {
     eventCount: exported.eventCount,
@@ -17472,9 +17535,16 @@ ipcMain.handle("codex:listThreads", async (_event, params = {}) => {
   try {
     mergedResult = mergeIndexedTradingTranscriptThreads(
       result,
-      indexedTradingTranscriptThreads(workspaceCodexHome(cwd), cwd),
+      indexedTradingTranscriptThreads(workspaceCodexHome(cwd), cwd, {
+        // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript index discovery
+        onDiagnostic: (stage, detail) => recordTradingTranscriptDiagnostic(stage, { ...detail, cwd }),
+        // HAOLO-TURN-DIAGNOSTICS-END: transcript index discovery
+      }),
     );
   } catch (error) {
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript index discovery failure
+    recordTradingTranscriptDiagnostic("index.discovery_failed", { cwd, error });
+    // HAOLO-TURN-DIAGNOSTICS-END: transcript index discovery failure
     console.warn("[trading-transcript] indexed thread discovery failed", {
       cwdHash: diagnosticsHash(cwd),
       error: safeLogToken(error?.message || error),
@@ -17559,19 +17629,29 @@ ipcMain.handle("codex:startThread", async (_event, params = {}) => {
 ipcMain.handle("codex:persistTradingTranscript", async (_event, params = {}) => {
   const requestedThreadId = String(params.threadId || "").trim();
   if (!requestedThreadId) throw new Error("threadId is required");
+  // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript persistence outcome
+  recordTradingTranscriptDiagnostic("persist.started", {
+    threadId: requestedThreadId, itemCount: Array.isArray(params.items) ? params.items.length : 0,
+  });
+  try {
+  // HAOLO-TURN-DIAGNOSTICS-END: transcript persistence outcome
   const requestedItems = normalizeTradingTranscriptItems(params.items);
   const title = String(params.title || "")
     .replace(/[\u0000-\u001f]/gu, " ")
     .replace(/\s+/gu, " ")
     .trim()
     .slice(0, 200);
-  return runSerializedThreadSettingsOperation(requestedThreadId, async () => {
+  return await runSerializedThreadSettingsOperation(requestedThreadId, async () => {
     const fallbackCwd = params.cwd || currentSkillsCwd || desktopWorkspace();
     let serverClient = getClientForThread(requestedThreadId, fallbackCwd);
     const cwd = serverClient.__youleWorkspaceCwd || fallbackCwd;
     ensureThreadGroupWorkspaceDirectory(cwd);
     const codexHome = workspaceCodexHome(cwd);
-    let targetThreadId = resolveTradingTranscriptIndexThreadAlias(codexHome, requestedThreadId)
+    let targetThreadId = resolveTradingTranscriptIndexThreadAlias(codexHome, requestedThreadId, {
+      // HAOLO-TURN-DIAGNOSTICS-BEGIN: persistence index read
+      onDiagnostic: (stage, detail) => recordTradingTranscriptDiagnostic(stage, { ...detail, threadId: requestedThreadId, cwd }),
+      // HAOLO-TURN-DIAGNOSTICS-END: persistence index read
+    })
       || requestedThreadId;
     if (targetThreadId !== requestedThreadId) {
       serverClient = getClientForThread(targetThreadId, cwd);
@@ -17663,6 +17743,9 @@ ipcMain.handle("codex:persistTradingTranscript", async (_event, params = {}) => 
           }, 30_000);
         } catch (error) {
           injectionError = error;
+          // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript injection error
+          recordTradingTranscriptDiagnostic("persist.injection_failed", { threadId: targetThreadId, cwd, error });
+          // HAOLO-TURN-DIAGNOSTICS-END: transcript injection error
           break;
         }
       }
@@ -17689,6 +17772,12 @@ ipcMain.handle("codex:persistTradingTranscript", async (_event, params = {}) => 
           }
         }
         if (missingVerifiedIds.length) {
+          // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript verification failure
+          recordTradingTranscriptDiagnostic("persist.verification_failed", {
+            threadId: targetThreadId, cwd, missingItemCount: missingVerifiedIds.length,
+            error: injectionError || verificationReadError,
+          });
+          // HAOLO-TURN-DIAGNOSTICS-END: transcript verification failure
           if (injectionError) throw injectionError;
           if (verificationReadError && isThreadNotFoundError(verificationReadError)) {
             throw verificationReadError;
@@ -17732,6 +17821,9 @@ ipcMain.handle("codex:persistTradingTranscript", async (_event, params = {}) => 
         titleUpdated = true;
       } catch (error) {
         titleError = error?.message || String(error);
+        // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript title error
+        recordTradingTranscriptDiagnostic("persist.title_failed", { threadId: targetThreadId, cwd, error });
+        // HAOLO-TURN-DIAGNOSTICS-END: transcript title error
         console.warn("[trading-transcript] thread title update failed", {
           threadHash: diagnosticsHash(targetThreadId),
           error: safeLogToken(titleError),
@@ -17769,6 +17861,12 @@ ipcMain.handle("codex:persistTradingTranscript", async (_event, params = {}) => 
     if (targetThreadId !== requestedThreadId && hydratedThread) {
       replacementThread = { ...(replacementThread || {}), ...hydratedThread };
     }
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript persistence success
+    recordTradingTranscriptDiagnostic("persist.completed", {
+      threadId: targetThreadId, cwd, itemCount: requestedItems.length,
+      finalCount: requestedItems.filter((item) => item.phase === "final_answer").length,
+    });
+    // HAOLO-TURN-DIAGNOSTICS-END: transcript persistence success
     return {
       ok: true,
       thread: hydratedThread,
@@ -17786,6 +17884,12 @@ ipcMain.handle("codex:persistTradingTranscript", async (_event, params = {}) => 
         : {}),
     };
   });
+  // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript persistence outcome
+  } catch (error) {
+    recordTradingTranscriptDiagnostic("persist.failed", { threadId: requestedThreadId, cwd: params.cwd, error });
+    throw error;
+  }
+  // HAOLO-TURN-DIAGNOSTICS-END: transcript persistence outcome
 });
 
 ipcMain.handle("codex:stageContinuationPrompt", async (_event, params = {}) => {
@@ -18480,8 +18584,14 @@ async function compactActiveThreadReadResultWithContextUsage(result, cwd = "") {
   try {
     hydrated = await withTradingTranscriptHistory(result, {
       codexHome: workspaceCodexHome(cwd || currentSkillsCwd || desktopWorkspace()),
+      // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript history diagnostics
+      onDiagnostic: (stage, detail) => recordTradingTranscriptDiagnostic(stage, { ...detail, threadId: result?.thread?.id, cwd }),
+      // HAOLO-TURN-DIAGNOSTICS-END: transcript history diagnostics
     });
   } catch (error) {
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript history failure
+    recordTradingTranscriptDiagnostic("history.failed", { threadId: result?.thread?.id, cwd, error });
+    // HAOLO-TURN-DIAGNOSTICS-END: transcript history failure
     console.warn("[trading-transcript] history hydration failed", {
       threadHash: diagnosticsHash(result?.thread?.id || ""),
       error: safeLogToken(error?.message || error),
@@ -18513,8 +18623,14 @@ ipcMain.handle("codex:readThreadForBackgroundHydration", async (_event, params =
   try {
     hydrated = await withTradingTranscriptHistory(result, {
       codexHome: workspaceCodexHome(cwd),
+      // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript background history diagnostics
+      onDiagnostic: (stage, detail) => recordTradingTranscriptDiagnostic(stage, { ...detail, threadId, cwd }),
+      // HAOLO-TURN-DIAGNOSTICS-END: transcript background history diagnostics
     });
   } catch (error) {
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript background history failure
+    recordTradingTranscriptDiagnostic("history.failed", { threadId, cwd, error });
+    // HAOLO-TURN-DIAGNOSTICS-END: transcript background history failure
     console.warn("[trading-transcript] background history hydration failed", {
       threadHash: diagnosticsHash(threadId),
       error: safeLogToken(error?.message || error),

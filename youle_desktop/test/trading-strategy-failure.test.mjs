@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { isQuotaFailure } from "../src/main/error-signals.mjs";
 import { buildTradingStrategyFailureReport, describeTradingAnalysisFailure } from "../src/main/trading-analysis/failure.mjs";
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
@@ -17,6 +18,7 @@ const javascript = ts.transpileModule(names.map((name) => {
 function harness(error, result, language = "zh-CN") {
   const state = { strategyCalls: [], generalCalls: 0, reports: [], persisted: [], progress: [], finished: 0, quotas: 0 };
   const deps = {
+    isQuotaFailure,
     tradingStrategyAnalysisTargetByRequest: new WeakMap(),
     beginTradingExpertAnalysisJob: (_thread, strategy) => `analysis-${strategy}`,
     resolveTradingExpertAnalysisThreadId: (id) => id,

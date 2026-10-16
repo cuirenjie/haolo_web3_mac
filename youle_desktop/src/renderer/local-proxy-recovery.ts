@@ -4,7 +4,7 @@ export const LOCAL_PROXY_RECOVERY_REPLAY_END = "</haolo_local_proxy_recovery_rep
 
 export function isLocalProxyConnectionRefusedError(value: unknown) {
   const detail = String(value || "").trim();
-  return /(?:\b10061\b|\bECONNREFUSED\b|connection refused|actively refused|failed to connect to (?:websocket|server))/i.test(
+  return /(?:os error 10061(?![\w]|[.,]\d)|\bECONNREFUSED\b|connection refused|actively refused|failed to connect to (?:websocket|server))/i.test(
     detail,
   );
 }

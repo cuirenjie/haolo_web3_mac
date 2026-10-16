@@ -44,9 +44,6 @@ export function isRetryableModelTransportError(error) {
   if (error.retryable === false) return false;
 
   const nestedError = error?.codexErrorInfo || error?.codex_error_info || {};
-  const disconnected = nestedError?.responseStreamDisconnected
-    || nestedError?.response_stream_disconnected
-    || {};
   const hasStructuredDisconnect = Boolean(
     nestedError?.responseStreamDisconnected
     || nestedError?.response_stream_disconnected
@@ -56,17 +53,7 @@ export function isRetryableModelTransportError(error) {
   const code = normalizedCode(error.code || error.type || error.cause?.code);
   if (NON_RETRYABLE_CODES.has(code)) return false;
 
-  const status = Number(
-    error.status
-    ?? error.statusCode
-    ?? error.status_code
-    ?? error.httpStatus
-    ?? error.httpStatusCode
-    ?? error.http_status_code
-    ?? disconnected.httpStatusCode
-    ?? disconnected.http_status_code
-    ?? error.cause?.status,
-  );
+  const status = facts.httpStatus;
   if (![408, 425, 429].includes(status) && status >= 400 && status < 500) return false;
 
   const category = String(error.category || "").trim().toLowerCase();

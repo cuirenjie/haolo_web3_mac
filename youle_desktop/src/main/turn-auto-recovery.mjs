@@ -1,4 +1,5 @@
 import { ANALYSIS_RECOVERY_MODEL, ANALYSIS_RECOVERY_EFFORT, isRecoverableAnalysisModelFailure } from "./analysis-model-recovery.mjs";
+import { errorSignals } from "./error-signals.mjs";
 
 export const AUTOMATIC_TURN_RECOVERY_MARKER = "<haolo_automatic_turn_recovery>";
 
@@ -357,7 +358,7 @@ function normalizedFailureKey(errorClass, httpStatus, detail) {
 
 function classifyStartFailure(error) {
   const text = String(error?.message || error || "");
-  if (/rate limit|too many requests|\b429\b/i.test(text)) return "rate_limit";
+  if (errorSignals(error).statuses.includes(429) || /rate limit|too many requests/i.test(text)) return "rate_limit";
   if (/concurren|too many concurrent/i.test(text)) return "concurrency_limit";
   if (/timed?\s*out|timeout|deadline/i.test(text)) return "timeout";
   if (/connection refused|ECONNREFUSED|proxy/i.test(text)) return "connection_refused";

@@ -25576,6 +25576,23 @@ html[data-theme="dark"] .app-confirmation-dialog.app-selection-confirmation-dial
 }
 
 /* HAOLO-TURN-DIAGNOSTICS-BEGIN: removable settings button sizing */
+.settings-diagnostics-action {
+  display: flex;
+  flex: 0 1 228px;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.settings-diagnostics-action small {
+  color: var(--text-muted);
+  font-size: calc(11px + var(--app-font-size-offset));
+  line-height: 1.5;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 .settings-diagnostics-button {
   flex: 0 0 auto;
   min-width: 112px;

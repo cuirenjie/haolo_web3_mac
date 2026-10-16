@@ -3,6 +3,7 @@
 import crypto from "node:crypto";
 import { isModelOverloadFailure } from "./analysis-model-recovery.mjs";
 import { modelFailureFacts } from "./model-failure-policy.mjs";
+import { errorSignals } from "./error-signals.mjs";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -111,17 +112,18 @@ export function failureDiagnosticsFromNotification(message) {
 
 export function classifyTurnFailure(detail, httpStatus = null) {
   const text = String(detail || "");
+  const { statuses } = errorSignals({ message: text, status: httpStatus });
   if (/\b(?:list_turns|list_items) is not supported yet|Task history could not be restored automatically/i.test(text)) {
     return "thread_history_index";
   }
-  if (httpStatus === 401 || httpStatus === 403 || /unauthori[sz]ed|forbidden|authentication|auth(?:entication)? expired/i.test(text)) {
+  if (statuses.some((status) => [401, 403].includes(status)) || /unauthori[sz]ed|forbidden|authentication|auth(?:entication)? expired/i.test(text)) {
     return "authentication";
   }
   if (/concurrency limit|too many concurrent|maximum concurrent|并发(?:限制|上限)/i.test(text)) {
     return "concurrency_limit";
   }
   if (isModelOverloadFailure(text)) return "overloaded";
-  if (httpStatus === 429 || /rate limit|too many requests|429\b|限流|频率限制/i.test(text)) {
+  if (statuses.includes(429) || /rate limit|too many requests|限流|频率限制/i.test(text)) {
     return "rate_limit";
   }
   if (/context window|maximum context|too many tokens|上下文.{0,8}(?:满|超|限制)/i.test(text)) {
@@ -130,14 +132,14 @@ export function classifyTurnFailure(detail, httpStatus = null) {
   if (/responseStreamDisconnected|stream disconnected|stream closed|connection reset|broken pipe|unexpected eof|websocket.{0,20}(?:closed|disconnect)/i.test(text)) {
     return "stream_disconnected";
   }
-  if (/\b10061\b|ECONNREFUSED|connection refused|actively refused|failed to connect/i.test(text)) {
+  if (/os error 10061(?![\w]|[.,]\d)|ECONNREFUSED|connection refused|actively refused|failed to connect/i.test(text)) {
     return "connection_refused";
   }
   if (/timed?\s*out|timeout|deadline exceeded|超时/i.test(text)) {
     return "timeout";
   }
-  if (httpStatus != null && httpStatus >= 500) return "upstream_5xx";
-  if (/\b(?:500|502|503|504|529)\b|internal server error|bad gateway|service unavailable|gateway timeout/i.test(text)) {
+  if (statuses.some((status) => status >= 500)) return "upstream_5xx";
+  if (/internal server error|bad gateway|service unavailable|gateway timeout/i.test(text)) {
     return "upstream_5xx";
   }
   if (/proxy|代理/i.test(text)) return "proxy";
@@ -213,6 +215,16 @@ export class TurnDiagnosticRecorder {
       summary: sanitizeDiagnosticValue(summarizeEvents(sanitizedEvents)),
       events: sanitizedEvents,
     };
+    // This evidence is built by the dedicated read-only allowlist collector.
+    // Generic diagnostic sanitization would truncate JSONL and index arrays.
+    if (options.supportEvidence) {
+      report.supportEvidence = options.supportEvidence;
+      report.privacy.includesPromptText = options.supportEvidence.includesConversationText === true;
+      report.privacy.includesResponseText = options.supportEvidence.includesConversationText === true;
+      report.privacy.includesTranscriptIndexes = true;
+      report.privacy.includesRelatedSessionJsonl = true;
+      report.privacy.note = "包含近期相关会话的脱敏内容、转录索引和保存／恢复事件；不采集账户凭据文件、工具输出或附件。请仅发送给官方客服。";
+    }
     const target = path.resolve(destinationPath);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     const temporary = `${target}.tmp-${process.pid}-${Date.now()}`;

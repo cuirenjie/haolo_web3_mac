@@ -85,7 +85,8 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   pickComposerFilesAndFolders: () => ipcRenderer.invoke("app:pickComposerFilesAndFolders"),
   createThreadGroupFolder: (params) => ipcRenderer.invoke("app:createThreadGroupFolder", params),
   // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable report export bridge
-  exportDiagnostics: () => ipcRenderer.invoke("app:exportDiagnostics"),
+  exportDiagnostics: (params) => ipcRenderer.invoke("app:exportDiagnostics", params),
+  recordTradingTranscriptDiagnostic: (params) => ipcRenderer.invoke("app:recordTradingTranscriptDiagnostic", params),
   // HAOLO-TURN-DIAGNOSTICS-END: removable report export bridge
   exportUserData: (params) => ipcRenderer.invoke("app:exportUserData", params),
   importUserData: (params) => ipcRenderer.invoke("app:importUserData", params),

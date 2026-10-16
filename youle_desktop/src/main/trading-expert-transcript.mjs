@@ -203,14 +203,24 @@ function threadRolloutPath(result) {
   );
 }
 
-export async function readTradingTranscriptItemsFromRollout(rolloutPath) {
+function notifyTranscriptDiagnostic(options, stage, details = {}) {
+  try { options?.onDiagnostic?.(stage, details); } catch { /* Optional observer only. */ }
+}
+
+export async function readTradingTranscriptItemsFromRollout(rolloutPath, options = {}) {
   const filePath = firstString(rolloutPath);
-  if (!filePath) return [];
+  if (!filePath) {
+    notifyTranscriptDiagnostic(options, "history.rollout_missing");
+    return [];
+  }
   let stat;
   try {
     stat = await fs.promises.stat(filePath);
   } catch (error) {
-    if (error?.code === "ENOENT") return [];
+    if (error?.code === "ENOENT") {
+      notifyTranscriptDiagnostic(options, "history.rollout_missing");
+      return [];
+    }
     throw error;
   }
   if (!stat.isFile()) return [];
@@ -271,7 +281,7 @@ export async function tradingTranscriptItemsFromThreadResult(result, options = {
     result?.thread?.thread_id,
   );
   const indexRecord = codexHome && threadId
-    ? loadTradingTranscriptIndex(codexHome).threads[threadId]
+    ? loadTradingTranscriptIndex(codexHome, options).threads[threadId]
     : null;
   if (
     !byId.size
@@ -280,13 +290,14 @@ export async function tradingTranscriptItemsFromThreadResult(result, options = {
     && threadId
     && !indexRecord
   ) {
+    notifyTranscriptDiagnostic(options, "history.skipped_unindexed", { rawTurnCount: result?.thread?.turns?.length || 0 });
     return [];
   }
   let rolloutPath = threadRolloutPath(result) || indexRecord?.rolloutPath || "";
   if (!rolloutPath && scanUnindexed && codexHome && threadId) {
     rolloutPath = await findTradingTranscriptRolloutPath(codexHome, threadId);
   }
-  const rolloutItems = await readTradingTranscriptItemsFromRollout(rolloutPath);
+  const rolloutItems = await readTradingTranscriptItemsFromRollout(rolloutPath, options);
   for (const item of rolloutItems) {
     if (!byId.has(item.id)) byId.set(item.id, item);
   }
@@ -414,6 +425,11 @@ export function withTradingTranscriptItems(result, transcriptItems) {
 
 export async function withTradingTranscriptHistory(result, options = {}) {
   const items = await tradingTranscriptItemsFromThreadResult(result, options);
+  notifyTranscriptDiagnostic(options, "history.loaded", {
+    rawTurnCount: result?.thread?.turns?.length || 0,
+    restoredCount: items.length,
+    finalCount: items.filter((item) => item.phase === "final_answer").length,
+  });
   return items.length ? withTradingTranscriptItems(result, items) : result;
 }
 
@@ -451,13 +467,17 @@ export function tradingTranscriptIndexPath(codexHome) {
   return path.join(path.resolve(root), TRADING_TRANSCRIPT_INDEX_FILE_NAME);
 }
 
-export function loadTradingTranscriptIndex(codexHome) {
+export function loadTradingTranscriptIndex(codexHome, options = {}) {
   const filePath = tradingTranscriptIndexPath(codexHome);
   let parsed;
   try {
     parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
   } catch (error) {
-    if (error?.code === "ENOENT") return emptyTradingTranscriptIndex();
+    if (error?.code === "ENOENT") {
+      notifyTranscriptDiagnostic(options, "index.missing");
+      return emptyTradingTranscriptIndex();
+    }
+    notifyTranscriptDiagnostic(options, "index.corrupt", { error });
     const quarantinePath = `${filePath}.corrupt-${Date.now()}`;
     try {
       fs.renameSync(filePath, quarantinePath);
@@ -468,6 +488,7 @@ export function loadTradingTranscriptIndex(codexHome) {
     return emptyTradingTranscriptIndex();
   }
   if (!parsed || parsed.version !== 1 || !parsed.threads || typeof parsed.threads !== "object") {
+    notifyTranscriptDiagnostic(options, "index.invalid");
     return emptyTradingTranscriptIndex();
   }
   const threads = {};
@@ -498,8 +519,8 @@ function resolveTradingTranscriptIndexAlias(index, threadId) {
   return current;
 }
 
-export function resolveTradingTranscriptIndexThreadAlias(codexHome, threadId) {
-  return resolveTradingTranscriptIndexAlias(loadTradingTranscriptIndex(codexHome), threadId);
+export function resolveTradingTranscriptIndexThreadAlias(codexHome, threadId, options = {}) {
+  return resolveTradingTranscriptIndexAlias(loadTradingTranscriptIndex(codexHome, options), threadId);
 }
 
 function writeTradingTranscriptIndex(codexHome, index) {
@@ -596,9 +617,9 @@ function comparablePath(value) {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
-export function indexedTradingTranscriptThreads(codexHome, cwd) {
+export function indexedTradingTranscriptThreads(codexHome, cwd, options = {}) {
   const expectedCwd = comparablePath(cwd);
-  return Object.values(loadTradingTranscriptIndex(codexHome).threads)
+  return Object.values(loadTradingTranscriptIndex(codexHome, options).threads)
     .filter((record) => comparablePath(record.cwd) === expectedCwd && fs.existsSync(record.rolloutPath))
     .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
     .map((record) => ({

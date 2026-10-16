@@ -10,6 +10,7 @@ export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "包含近期会话内容，请仅发送给官方客服。": "Includes recent conversation content. Share only with official support.",
   "确定性结构已完成": "Deterministic structure is ready",
   "正在进行模型复核": "Reviewing with the model",
   "账户只读快照已准备完成": "Read-only account snapshot is ready",
@@ -696,6 +697,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
 });
 
 const TRADITIONAL_UI_PHRASES = Object.freeze({
+  "包含近期会话内容，请仅发送给官方客服。": "包含近期對話內容，請僅傳送給官方客服。",
   "连手机": "連接手機",
   "周期已自动应用。": "週期已自動套用。",
   "此版本必须更新后才能继续使用。": "此版本必須更新後才能繼續使用。",

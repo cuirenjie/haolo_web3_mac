@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { translateAppText } from "../src/renderer/app-language.mjs";
 
 const main = fs.readFileSync(new URL("../src/main/main.mjs", import.meta.url), "utf8");
 const preload = fs.readFileSync(new URL("../src/main/preload.mjs", import.meta.url), "utf8");
@@ -68,15 +69,24 @@ test("removing tagged blocks leaves no diagnostic feature references", () => {
     /exportDiagnostics|diagnosticsExporting|turnDiagnosticIds|latestThreadDiagnosticIds|normalizeTurnDiagnosticId|createTurnDiagnosticId|notificationDiagnosticId|rememberTurnDiagnosticId|diagnosticIdForTurn|withDiagnosticId|clientRequestId: diagnosticId|renderSettingsDiagnosticsButton|data-action="export-diagnostics"/,
   );
   assert.doesNotMatch(strippedStyles, /settings-diagnostics-button/);
+  assert.doesNotMatch(strippedMain, /recordTradingTranscriptDiagnostic|transcriptDiagnosticPayload|collectDiagnosticSupportEvidence|diagnosticTranscriptHomes|TRANSCRIPT_DIAGNOSTIC_LOG/);
+  assert.doesNotMatch(strippedPreload, /recordTradingTranscriptDiagnostic/);
+  assert.doesNotMatch(strippedRenderer, /recordRendererTranscriptDiagnostic|recordTradingTranscriptDiagnostic|settings-diagnostics-content-note/);
 });
 
 test("settings exposes privacy-safe diagnostic export through preload", () => {
-  assert.match(preload, /exportDiagnostics: \(\) => ipcRenderer\.invoke\("app:exportDiagnostics"\)/);
+  assert.match(preload, /exportDiagnostics: \(params\) => ipcRenderer\.invoke\("app:exportDiagnostics", params\)/);
   assert.match(main, /ipcMain\.handle\("app:exportDiagnostics"/);
+  assert.match(renderer, /api\.exportDiagnostics\(\{ threadId: state\.currentThreadId \}\)/);
+  assert.match(main, /supportEvidence = await collectDiagnosticSupportEvidence/);
   assert.match(renderer, /data-action="export-diagnostics"/);
   assert.doesNotMatch(renderer, /<span>故障诊断<\/span>/);
   assert.doesNotMatch(renderer, /仅包含脱敏运行状态、时延、错误分类和诊断编号，不包含对话正文或密钥/);
   assert.match(renderer, /诊断报告已导出/);
+  assert.match(renderer, /aria-describedby="settings-diagnostics-content-note"/);
+  for (const language of ["en", "zh-TW"]) {
+    assert.notEqual(translateAppText("包含近期会话内容，请仅发送给官方客服。", language), "包含近期会话内容，请仅发送给官方客服。");
+  }
 });
 
 test("general settings places diagnostic export at the right of the final install path row", () => {

@@ -6,6 +6,7 @@ import { renderTradingWatchlistHost, renderTradingWatchlistToggle } from "./trad
 import { deferTradingChartShellRender } from "./trading-chart-interaction.ts";
 import QRCode from "qrcode";
 import { buildTradingStrategyFailureReport, describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
+import { errorSignals, isQuotaFailure } from "../main/error-signals.mjs";
 import { analysisModelPolicySelection, normalizeAnalysisModelRecoveryState, withAnalysisModelRecoveryPolicy, type AnalysisModelRecoveryState } from "../main/analysis-model-policy.mjs";
 import { canonicalDeepSeekModel } from "../main/deepseek-model-policy.mjs";
 import { isRetiredExecutionModel } from "../main/retired-model-policy.mjs";
@@ -1520,7 +1521,11 @@ type DesktopApi = {
   createThreadGroupFolder?(params: { name: string;
   }): Promise<{ ok?: boolean; path?: string; name?: string }>;
   // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable desktop API type
-  exportDiagnostics?(): Promise<{ ok?: boolean; canceled?: boolean; path?: string; eventCount?: number }>;
+  exportDiagnostics?(params?: { threadId?: string | null }): Promise<{ ok?: boolean; canceled?: boolean; path?: string; eventCount?: number }>;
+  recordTradingTranscriptDiagnostic?(params: {
+    stage: string; threadId: string; itemCount?: number; finalCount?: number; textChars?: number;
+    attempt?: number; detail?: string; code?: string;
+  }): Promise<unknown>;
   // HAOLO-TURN-DIAGNOSTICS-END: removable desktop API type
   exportUserData?(params: { groups: ThreadGroupWorkspaceRequest[];
   }): Promise<UserDataTransferResult>;
@@ -23050,7 +23055,8 @@ function formatTurnFailureMessage(
     return "当前会话的上下文已满，自动整理与恢复未能完成。请重试；若仍失败，请拆分消息或新建任务。";
   }
   const detail = String(reason || "").trim();
-  if (/(?:\b10061\b|ECONNREFUSED|connection refused|actively refused|failed to connect to (?:websocket|server))/i.test(detail)) {
+  const { statuses } = errorSignals(reason);
+  if (/(?:os error 10061(?![\w]|[.,]\d)|ECONNREFUSED|connection refused|actively refused|failed to connect to (?:websocket|server))/i.test(detail)) {
     return "网络连接被拒绝。请检查代理或网络后重试。";
   }
   if (/(?:proxy|代理)/i.test(detail)) {
@@ -23059,10 +23065,10 @@ function formatTurnFailureMessage(
   if (/(?:concurrency limit|too many concurrent|maximum concurrent|并发(?:限制|上限))/i.test(detail)) {
     return "模型服务当前并发已满，请稍后重试。";
   }
-  if (/(?:\b429\b|rate limit|too many requests|at capacity|overloaded|slow_down|限流|频率限制|上游过载)/i.test(detail)) {
+  if (statuses.includes(429) || /(?:rate limit|too many requests|at capacity|overloaded|slow_down|限流|频率限制|上游过载)/i.test(detail)) {
     return "模型服务请求过于频繁，请稍后重试。";
   }
-  if (/(?:\b401\b|\b403\b|unauthori[sz]ed|forbidden|authentication|auth(?:entication)? expired)/i.test(detail)) {
+  if (statuses.some((status) => [401, 403].includes(status)) || /(?:unauthori[sz]ed|forbidden|authentication|auth(?:entication)? expired)/i.test(detail)) {
     return "模型服务身份验证失败，请重新登录后重试。";
   }
   if (/(?:responseStreamDisconnected|stream disconnected|stream closed|connection reset|broken pipe|unexpected eof|websocket.{0,20}(?:closed|disconnect))/i.test(detail)) {
@@ -23071,7 +23077,7 @@ function formatTurnFailureMessage(
   if (/(?:timed?\s*out|timeout|超时)/i.test(detail)) {
     return "等待模型响应超时，本轮已停止。请重试。";
   }
-  if (/(?:\b500\b|\b502\b|\b503\b|\b504\b|\b529\b|internal server error|bad gateway|service unavailable|gateway timeout)/i.test(detail)) {
+  if (statuses.some((status) => status >= 500) || /(?:internal server error|bad gateway|service unavailable|gateway timeout)/i.test(detail)) {
     return "模型服务暂时不可用，请稍后重试。";
   }
   return "本轮执行失败，请重试。";
@@ -24578,14 +24584,12 @@ async function refreshLowBalanceProfile(reason: string) {
 }
 
 function isInsufficientQuotaError(value: unknown) {
-  const text = insufficientQuotaSignalText(value);
-  if (!text) return false;
-  if (/(?:积分不足|積分不足|当前套餐或积分不可用|未开通有效.*(?:体验版|套餐)|会员(?:等级|权益)?不足|会员(?:已)?(?:到期|过期)|會員(?:已)?(?:到期|過期))/iu.test(text)) return true;
-  return /(?:TRIAL_REQUIRED|MEMBERSHIP_EXPIRED|请先开通体验版|开通体验版或其他套餐|会员到期|当前没有可用积分|您的额度不足|额度不足|余额不足|没有余额|无可用额度|可用额度为\s*0|Token\s*余额不足|token余额不足|充值\s*Token|insufficient[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|not enough[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|out of[_\s-]*(?:quota|credit|credits|funds?|tokens?)|no[_\s-]*(?:quota|credit|credits|funds?|tokens?)|payment required|\b402\b|quota[_\s-]*exceeded|billing[_\s-]*(?:required|quota|limit))/i.test(text);
+  return isQuotaFailure(value);
 }
 
 function isInsufficientQuotaTurnSignal(message: JsonRpcMessage) {
   if (!message || (message.method !== "turn/completed" && message.method !== "turn/failed")) return false;
+  if (message.method === "turn/failed" && isInsufficientQuotaError(message.params)) return true;
   return (
     isInsufficientQuotaSignalFields(message.params) || isInsufficientQuotaSignalFields(message.params?.turn)
   );
@@ -24603,72 +24607,24 @@ function threadHasInsufficientQuotaTurnSignal(thread: any, turnId?: string | nul
 }
 
 function isInsufficientQuotaSignalFields(value: unknown) {
-  if (!value || typeof value !== "object") return isInsufficientQuotaError(value);
+  if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
-  return [
-    record.error,
-    record.message,
-    record.reason,
-    record.detail,
-    record.details,
-    record.summary,
-    record.code,
-    record.errorCode,
-    record.error_code,
-    record.type,
-    record.status,
-    record.statusCode,
-    record.status_code,
-    record.statusText,
-    record.status_text,
-    record.lastError,
-    record.last_error,
-    record.errorMessage,
-    record.error_message,
-  ].some((part) => isInsufficientQuotaError(part));
+  // Turn envelopes can also contain successful summaries or generated text.
+  // Only explicit error fields, or a failed envelope, belong to this boundary.
+  if (["failed", "error", "errored"].includes(String(record.status || record.type || "").toLowerCase())) {
+    return isInsufficientQuotaError(record);
+  }
+  return isInsufficientQuotaError({
+    error: record.error, lastError: record.lastError ?? record.last_error,
+    errorMessage: record.errorMessage ?? record.error_message,
+    code: record.code ?? record.errorCode ?? record.error_code,
+    status: record.status, statusCode: record.statusCode ?? record.status_code,
+    httpStatus: record.httpStatus ?? record.httpStatusCode ?? record.http_status_code,
+  });
 }
 
 function insufficientQuotaSignalText(value: unknown) {
-  const parts = new Set<string>();
-  const add = (part: unknown) => {
-    if (typeof part === "string" && part.trim()) parts.add(part.trim());
-    if (typeof part === "number" && Number.isFinite(part)) parts.add(String(part));
-  };
-  add(value);
-  if (value instanceof Error) {
-    add(value.name);
-    add(value.message);
-    add(value.stack);
-  } else if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    add(record.message);
-    add(record.reason);
-    add(record.detail);
-    add(record.code);
-    add(record.type);
-    add(record.status);
-    add(record.statusCode);
-    const nestedError = record.error;
-    if (nestedError && typeof nestedError === "object") {
-      const errorRecord = nestedError as Record<string, unknown>;
-      add(errorRecord.message);
-      add(errorRecord.reason);
-      add(errorRecord.detail);
-      add(errorRecord.code);
-      add(errorRecord.type);
-      add(errorRecord.status);
-      add(errorRecord.statusCode);
-    } else {
-      add(nestedError);
-    }
-    try {
-      add(JSON.stringify(value));
-    } catch {
-      // Some thrown payloads can be cyclic; the explicit fields above are enough.
-    }
-  }
-  add(errorMessage(value));
-  return [...parts].join(" ");
+  return errorSignals(value).detail;
 }
 
 function patchThreadPreviewFromItem(threadId: string, item: CodexItem, options: { forceTitle?: boolean } = {}) {
@@ -27817,6 +27773,9 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         // the optimistic message and run the chart request; the retry queue will
         // reconcile the transcript after the store becomes available again.
         console.warn("[trading-transcript] initial persistence deferred", error);
+        // HAOLO-TURN-DIAGNOSTICS-BEGIN: initial transcript persistence failure
+        recordRendererTranscriptDiagnostic("renderer.initial_deferred", threadId, error, { itemCount: 1 });
+        // HAOLO-TURN-DIAGNOSTICS-END: initial transcript persistence failure
       }
     }
     if (tradingStrategyAtSend && tradingStrategyRequestAtSend?.mode === "chart-analysis") {
@@ -30687,9 +30646,6 @@ function appendTradingExpertReport(
 ) {
   localHistoryAheadThreadIds.add(threadId);
   const visibleText = String(text || "");
-  if (isTradingAnalysisQuotaFailure({ message: visibleText })) {
-    return appendInsufficientQuotaAgentMessage(threadId);
-  }
   const item: CodexItem = {
     id: itemId || `trading-expert-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type: "agentMessage",
@@ -30703,6 +30659,9 @@ function appendTradingExpertReport(
   setMessageStreamFollow(threadId, true);
   patchConversationRow(threadId);
   refreshTradingExpertConversationSurface(threadId);
+  // HAOLO-TURN-DIAGNOSTICS-BEGIN: final transcript report creation
+  recordRendererTranscriptDiagnostic("renderer.report_created", threadId, null, { itemCount: 1, finalCount: 1, textChars: visibleText.length });
+  // HAOLO-TURN-DIAGNOSTICS-END: final transcript report creation
   return item;
 }
 
@@ -31888,6 +31847,9 @@ async function persistCompletedTradingExpertTranscript(
   } catch (error) {
     queueTradingExpertTranscriptPersistenceRetry(threadId, items, options);
     console.warn("[trading-transcript] deferred persistence", error);
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: completed transcript persistence failure
+    recordRendererTranscriptDiagnostic("renderer.completed_deferred", threadId, error, { itemCount: items.length });
+    // HAOLO-TURN-DIAGNOSTICS-END: completed transcript persistence failure
     return false;
   }
 }
@@ -31898,6 +31860,12 @@ function queueTradingExpertTranscriptPersistenceRetry(
   options: { title?: string } = {},
   attempt = 0,
 ) {
+  // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript retry scheduling
+  if (items.length) recordRendererTranscriptDiagnostic(
+    attempt >= 4 ? "renderer.retry_exhausted" : "renderer.retry_scheduled",
+    threadId, null, { attempt, itemCount: items.length },
+  );
+  // HAOLO-TURN-DIAGNOSTICS-END: transcript retry scheduling
   if (!items.length || attempt >= 4) return;
   const retryItems = [...items];
   const delays = [1_000, 3_000, 10_000, 30_000];
@@ -31914,6 +31882,9 @@ function queueTradingExpertTranscriptPersistenceRetry(
       scheduleThreadListRefresh(0);
     } catch (error) {
       console.warn(`[trading-transcript] retry ${attempt + 1} deferred`, error);
+      // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript retry failure
+      recordRendererTranscriptDiagnostic("renderer.retry_failed", threadId, error, { attempt: attempt + 1, itemCount: retryItems.length });
+      // HAOLO-TURN-DIAGNOSTICS-END: transcript retry failure
       queueTradingExpertTranscriptPersistenceRetry(threadId, retryItems, options, attempt + 1);
     }
   }, delays[Math.min(attempt, delays.length - 1)]);
@@ -31954,9 +31925,7 @@ function buildTradingAnalysisAvailabilityReport(_instruction: string, error: unk
 }
 
 function isTradingAnalysisQuotaFailure(error: unknown) {
-  if (describeTradingAnalysisFailure(error).category === "membership") return true;
-  const message = String((error as { message?: unknown } | null)?.message || error || "");
-  return /积分不足|没有可用积分|未开通有效.*(?:体验版|套餐)|会员到期|会员权益不可用|当前套餐或积分不可用/iu.test(message);
+  return isQuotaFailure(error);
 }
 
 async function runTradingGeneralChartRequest(
@@ -36794,6 +36763,18 @@ async function showLastUserDataTransferStatus() {
 }
 
 // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable report export action
+function recordRendererTranscriptDiagnostic(
+  stage: string, threadId: string, error: unknown,
+  counts: { itemCount?: number; finalCount?: number; textChars?: number; attempt?: number } = {},
+) {
+  try {
+    const detail = error ? String((error as any)?.message || error) : undefined;
+    void api.recordTradingTranscriptDiagnostic?.({
+      stage, threadId, ...counts, detail, code: typeof (error as any)?.code === "string" ? (error as any).code : undefined,
+    }).catch(() => {});
+  } catch { /* Diagnostics do not interrupt the user's conversation. */ }
+}
+
 async function exportDiagnostics() {
   if (!api.exportDiagnostics) {
     showToast("当前版本暂不支持导出故障诊断报告", 4000);
@@ -36803,7 +36784,7 @@ async function exportDiagnostics() {
   state.settings.diagnosticsExporting = true;
   render();
   try {
-    const result = await api.exportDiagnostics();
+    const result = await api.exportDiagnostics({ threadId: state.currentThreadId });
     if (result?.canceled) return;
     if (!result?.ok) throw new Error("诊断报告未导出");
     showToast(`诊断报告已导出：${result.path || "已完成"}`, 8000);
@@ -51933,11 +51914,6 @@ function renderMessage(message: Message, conversationMessages: Message[] = [mess
     (message as MessageUiMeta).localGroupThinkingMemberId,
   );
   const fromUser = message.role === "user" || message.kind === "user_text";
-  if (
-    !fromUser
-    && isInsufficientQuotaError(message.text)
-    && !message.actions?.some((action) => isRechargeTokenAction(action))
-  ) return "";
   const alignRight = fromUser || message.align_right === true;
   // Trading surfaces use the chart as the primary visual context while the
   // conversation is split to the right. Keep that compact presentation free
@@ -60970,12 +60946,16 @@ function renderGitHubSettingsPanel() {
 function renderSettingsDiagnosticsButton() {
   const exporting = state.settings.diagnosticsExporting;
   return `
+    <div class="settings-diagnostics-action">
     <button
       type="button"
       class="settings-data-button settings-diagnostics-button"
       data-action="export-diagnostics"
+      aria-describedby="settings-diagnostics-content-note"
       ${exporting ? "disabled" : ""}
     >${exporting ? "导出中…" : "导出诊断报告"}</button>
+    <small id="settings-diagnostics-content-note">包含近期会话内容，请仅发送给官方客服。</small>
+    </div>
   `;
 }
 // HAOLO-TURN-DIAGNOSTICS-END: removable settings action
@@ -66073,7 +66053,7 @@ function loginActivationErrorMessage(error: unknown) {
   if (/NICKNAME_REQUIRED/i.test(message)) return "请输入昵称";
   if (/NICKNAME_TOO_LONG/i.test(message)) return "昵称不能超过 50 字";
   if (/INVALID_INVITE|INVITE_INVALID|invite code invalid/i.test(message)) return "邀请码不存在";
-  if (/CODE_MISMATCH|HTTP\s*401/i.test(message)) return "验证码不正确";
+  if (errorSignals(error).statuses.includes(401) || /CODE_MISMATCH/i.test(message)) return "验证码不正确";
   if (/verification code invalid or expired|CHALLENGE_NOT_FOUND|CHALLENGE_EXPIRED|OTP_EXPIRED/i.test(message)) return "验证码已失效，请重新发送";
   if (/AVATAR_ONLY_FOR_REGISTRATION/i.test(message)) return "头像只能在注册时上传";
   return loginAuthErrorMessage(error);
@@ -66081,7 +66061,7 @@ function loginActivationErrorMessage(error: unknown) {
 
 function loginOtpErrorMessage(error: unknown) {
   const message = errorMessage(error);
-  if (/CODE_MISMATCH|OTP_MISMATCH|INVALID_CODE|CODE_INVALID|HTTP\s*401/i.test(message)) return "验证码不正确";
+  if (errorSignals(error).statuses.includes(401) || /CODE_MISMATCH|OTP_MISMATCH|INVALID_CODE|CODE_INVALID/i.test(message)) return "验证码不正确";
   if (/CHALLENGE_NOT_FOUND|CHALLENGE_EXPIRED|OTP_EXPIRED/i.test(message)) return "验证码已失效，请重新发送";
   return message;
 }
@@ -75676,11 +75656,6 @@ function shouldHideChatItem(item: CodexItem | undefined) {
   if (isInternalProcessItem(item)) return true;
   if (item.type === "system" && !itemHasDisplayAttachments(item)) return true;
   const text = itemText(item);
-  if (
-    !isUserSideThreadItem(item)
-    && isInsufficientQuotaError(text)
-    && !messageActionsFromItem(item)?.some((action) => isRechargeTokenAction(action))
-  ) return true;
   if (text.includes(AUTOMATIC_TURN_RECOVERY_MARKER)) return true;
   return isNoisyReconnectError(text) || isMissingRolloutError(text);
 }
@@ -79945,7 +79920,7 @@ function cleanIpcError(message: string) {
     .replace(/^Error:\s*/i, "")
     .replace(/^BinanceAccountError:\s*/i, "")
     .replace(/^YouleHttpError:\s*/i, "");
-  if (/^(?:Upstream rate limit exceeded|HTTP 429)/i.test(cleaned)) {
+  if (/^Upstream rate limit exceeded/i.test(cleaned) || errorSignals(cleaned).statuses.includes(429)) {
     return "模型上游当前限流，请稍后重试";
   }
   return cleaned;
