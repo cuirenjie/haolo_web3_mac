@@ -179,8 +179,8 @@ export class TradingWatchlistPanel {
       </nav>
       <div class="trading-watchlist-head">
         <span>名称</span>
-        <button type="button" data-watchlist-action="sort-price" aria-label="按${showingIndices ? "最新指数" : "最新价"}排序" title="按${showingIndices ? "最新指数" : "最新价"}排序">${showingIndices ? "最新指数" : "最新价"}<span aria-hidden="true">${this.sort?.column === "price" ? (this.sort.direction === 1 ? "↑" : "↓") : "↕"}</span></button>
-        <button type="button" data-watchlist-action="sort-change" aria-label="按24H涨幅排序" title="按24H涨幅排序">24H涨幅<span aria-hidden="true">${this.sort?.column === "change" ? (this.sort.direction === 1 ? "↑" : "↓") : "↕"}</span></button>
+        <button type="button" data-i18n-wrap data-watchlist-action="sort-price" aria-label="按${showingIndices ? "最新指数" : "最新价"}排序" title="按${showingIndices ? "最新指数" : "最新价"}排序">${showingIndices ? "最新指数" : "最新价"}<span aria-hidden="true">${this.sort?.column === "price" ? (this.sort.direction === 1 ? "↑" : "↓") : "↕"}</span></button>
+        <button type="button" data-i18n-wrap data-watchlist-action="sort-change" aria-label="按24H涨幅排序" title="按24H涨幅排序">24H涨幅<span aria-hidden="true">${this.sort?.column === "change" ? (this.sort.direction === 1 ? "↑" : "↓") : "↕"}</span></button>
       </div>
       <div class="trading-watchlist-rows" data-watchlist-rows role="list" aria-label="${escape(active.name)}交易对">
         ${
@@ -258,7 +258,7 @@ export class TradingWatchlistPanel {
         <input type="checkbox" data-watchlist-recommendation="${escape(market.id)}" aria-label="添加 ${escape(market.displaySymbol)}" ${selected.has(market.id) ? "checked" : ""}>
         <span><strong>${escape(market.displaySymbol)}</strong><small>${escape(`${market.venue} USDT永续`)}</small></span>
       </label>`).join("")}</div>
-      <button type="button" class="trading-watchlist-add-recommended" data-watchlist-action="add-recommended" ${selected.size ? "" : "disabled"}>一键添加到${escape(store.activeGroup.name)}</button>
+      <button type="button" class="trading-watchlist-add-recommended" data-i18n-wrap data-watchlist-action="add-recommended" ${selected.size ? "" : "disabled"}>一键添加到${escape(store.activeGroup.name)}</button>
     </div>`;
   }
 

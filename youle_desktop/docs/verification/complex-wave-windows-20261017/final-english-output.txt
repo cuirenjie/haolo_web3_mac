@@ -1,0 +1,77 @@
+### Configured price-touch plan
+
+## BTC/USDT Binance Perpetual 1H
+
+Current action: Wait for the trigger
+Direction: Bullish
+Strategy: Elliott Wave
+Long trigger: 128.53
+Stop-loss and invalidation: 125.95
+Take-profit targets: Target 1: 130.21 (basis: fallback target at 0.5R); Target 2: 130.56 (basis: Fib 0.618)
+Risk/reward: Target 1: 1:0.5; Target 2: 1:0.62
+
+---
+
+### Structural reference
+
+The analysis and chart annotations below describe the original market structure and its conditional scenarios. Their trigger and projection levels are structural references. The execution plan above applies the configured entry-distance limit, staged targets and risk rules, so its planned prices may differ. Use that plan for execution levels; its risk/reward ratios include estimated fees and slippage. The plan uses price-touch entry: a market-entry action means its price condition is already met, and the displayed trigger is then an entry reference. The candle-close confirmation and retest criteria below describe the original structural scenario. No order has been submitted.
+
+---
+
+## BINANCE:FUTURES:BTCUSDT · Elliott Wave Trade Plan
+Analysis request: 请分析当前走势，说明结构、确认条件和失效风险。 本轮重新核验，请依据本次提供的数据独立分析。
+
+### Current assessment
+Current price is approximately 127. The 1h primary count is bearish. The primary timeframe defines direction and scenario boundaries; execution prioritizes confirmed 15m → 5m micro waves, with the nearest available structure / ATR as fallback when evidence is insufficient.
+- **Status: conditional plan prepared; entry still requires its trigger**. Lower-timeframe evidence is not fully aligned. Use the nearest available 1h structure / volatility anchor and recalculate after a new candle closes.
+- **1h bullish conditional trigger: 128.5289**. The level includes a 0.15-ATR buffer; execution requires price to reach it. Unconfirmed lower-timeframe pivots are not represented as confirmed micro waves.
+- **Structural stop: 125.9451**; targets: T1 130.5626. Trigger distance from current price: approximately 1.20% / 1.78 ATR; stop distance from trigger: 2.01% / 3.01 ATR; final target net risk/reward: approximately 1:0.63.
+- **Stop and target basis:** stop: structural support / wave-invalidation fallback stop (confirmed_structural_pivot) (1h 126.1169–126.3231; 1 confirmed touch; anchor 126.1169; buffer 0.171821); targets measured from candidate waves using completed impulse retracement Fib 0.618 130.5626. If target-direction or net-risk/reward concerns remain, retain the conditional plan without opening immediately and recalculate after the next candle closes. Never tighten the structural stop merely to meet a threshold.
+- **Execution considerations:** structure-timeframe data unavailable; execution-timeframe data unavailable; no valid subwave aligned with the primary direction on the structure timeframe; no valid micro wave aligned with the primary direction on the execution timeframe; no standard structural zone was selected for the stop; the fallback uses the latest confirmed pivot, wave invalidation or ATR. This is a conditional plan, not an instruction to chase at the current price.
+- Valid for 12 candles on the 5-minute timeframe. Cancel and recalculate after expiry, parent-wave invalidation or a return to the waiting zone after triggering.
+- Waiting zone: 127–128.5289; minimum net risk/reward: 1:0.4.
+
+### Primary-timeframe boundaries (not entry prices)
+- Macro confirmation reference: 128.4. This is a primary-scenario boundary, not the entry trigger or proof that all internal subdivisions are verified. Keep it at its structural price, even when distant.
+- Macro invalidation: 137.24. A breach cancels all subwave plans and requires a recount. Manage actual positions with structural stop 125.9451.
+
+### Three-level wave count
+Count: provisional five-wave impulse passing hard price rules. Degree: Local degree on the current chart. Status: provisional candidate. Interpretation: Five price legs meet the hard wave 2/3/4/5 rules, but the lower-degree 5-3-5-3-5 subdivision is not fully established. The impulse is provisional pending confirmation. This single impulse satisfies the price rules but still lacks verified internal subdivisions; the endpoint may still change with new candles.
+Wave points: 0 137.24 → 1 131.32 → 2 133.33 → 3 126.22 → 4 128.4 → 5 119.76.
+Lower timeframes: 15m no aligned subwave; 5m no aligned micro wave. Use confirmed micro waves when supported; otherwise retain conditional structure / ATR levels with their source explicitly identified.
+Rule checks: Wave 2 holds the wave 1 origin: passed; wave 3 exceeds wave 1: passed; wave 4 does not fully retrace wave 3: passed; wave 3 is not shortest: passed; wave 4 avoids wave 1 territory: passed; wave 5 advances or meets strict truncation rules: passed; internal 5-3-5-3-5: Unconfirmed.
+Ratio references: 2/1 retracement 0.340, 3/1 extension 1.201, 4/3 retracement 0.307, 5/1 length ratio 1.459. Ratios assess candidate plausibility; they do not guarantee price targets.
+
+### Stops, targets and Fibonacci basis
+Stop: structural support / wave-invalidation fallback stop (confirmed_structural_pivot) (1h 126.1169–126.3231; 1 confirmed touch; anchor 126.1169; buffer 0.171821). The structural stop protects the position and is distinct from macro invalidation.
+Targets: completed impulse retracement Fib 0.618 130.5626. Fibonacci levels are candidate measurements only. Do not execute before the trigger, after invalidation, or below the net-risk/reward threshold.
+
+### Alternative counts and historical context
+1. Alternative count: zigzag A-B-C correction, historical endpoint approximately 119.76. This is another count of the supplied historical price action, not a future target. Revalidate the count and execution conditions before using it.
+2. Historical reference count: zigzag A-B-C correction, historical endpoint approximately 145.24. This count ended before the current primary count began. It does not overlap the primary count and is neither a future target nor a replacement execution plan.
+
+### Data and uncertainty
+The primary timeframe uses 100 candles on the 60-minute timeframe, from 2024-07-04 05:46:40 UTC to 2024-07-08 08:46:40 UTC, identifying 9 alternating extremes and 7 rule-constrained candidates. The structure timeframe uses 0 closed candles; execution uses 0.
+Wave origins and degrees are inherently ambiguous. Provisional means the latest rule-valid endpoint may move with new candles, not that hard rules may be violated. Wave 4 overlap is not automatically reclassified as a diagonal; insufficient internal-structure or diagonal-position evidence prevents plotting.
+
+### Risk
+Lower timeframes improve trigger proximity, not necessarily win rates. Levels change with new swings. These are conditional scenarios, not unique facts, automatic orders, guaranteed returns or historically calibrated probabilities.
+Original structural assessment (confirmation levels below are separate from the configured plan's entry prices): The primary count is the recent bearish 1–5 impulse, retained as tentative because its lower-degree structure is unverified.
+Lower-timeframe wave counts remain unconfirmed. This conditional plan uses available structure and ATR as fallback; execution requires price to reach the buffered trigger
+Watch for price to reach the structural fallback trigger derived from 1h; recalculate if it does not trigger within 12 execution candles
+0
+1
+2
+3
+4
+5
+Primary count: provisional five-wave impulse
+Fib 0.382
+Fib 0.5
+Fib 0.618
+Primary-timeframe invalidation 137.24
+Primary-timeframe structural confirmation (not an entry) 128.4
+1h Long trigger 128.5289
+Structural stop 125.9451
+Structural target T1 completed impulse retracement Fib 0.618 130.5626
+1h Long trigger 128.5289 | structural stop 125.9451 | primary-timeframe invalidation 137.24

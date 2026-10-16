@@ -3,6 +3,9 @@ import test from "node:test";
 import { BUILTIN_TRADING_STRATEGY_ADAPTERS } from "../src/main/trading-strategy-runtime/builtins/index.mjs";
 import { TradingStrategyCoordinator } from "../src/main/trading-strategy-runtime/coordinator.mjs";
 import { createTradingStrategyRegistry } from "../src/main/trading-strategy-runtime/registry.mjs";
+import { combineTradingAnalysisReports } from "../src/renderer/trading-expert-market.ts";
+import { applyAppLanguage } from "../src/renderer/app-language.mjs";
+import { executionPlanTextPartitions } from "../src/renderer/execution-plans.ts";
 
 const reviewedStrategies = ["chan", "order-flow", "wave", "wyckoff", "harmonic"];
 const localStrategies = [
@@ -53,12 +56,14 @@ for (const strategy of registry.list()) {
 }
 
 for (const strategyId of localStrategies) {
-  test(`${strategyId}: real analysis completes while model service is unavailable`, async () => {
+ for (const language of ["zh-CN", "en", "zh-TW"]) {
+  test(`${strategyId}/${language}: real analysis completes while model service is unavailable`, async () => {
+    applyAppLanguage(language);
     let modelCalls = 0;
     const coordinator = new TradingStrategyCoordinator({ registry, providerId: "unavailable", modelRegistry: {
       async analyze() { modelCalls += 1; throw new Error("Model service unavailable"); },
     } });
-    const result = await coordinator.run(strategyId, marketParams());
+    const result = await coordinator.run(strategyId, { ...marketParams(), language });
     assert.equal(result.ok, true);
     assert.equal(result.strategy.id, strategyId);
     assert.equal(result.model.providerId, "deterministic");
@@ -68,5 +73,12 @@ for (const strategyId of localStrategies) {
     assert.ok(result.analysisPlan.drawingPatch?.operations.length > 0
       || result.analysisPlan.indicatorDrawingPatch?.operations.length > 0);
     assert.equal(modelCalls, 0);
+    const report = combineTradingAnalysisReports("BTC/USDT", result.analysisPlan.report, { reports: [], failures: [] });
+    assert.equal(report, result.analysisPlan.report);
+    assert.doesNotMatch(report, /The market analysis is complete\. Review/);
+    if (registry.get(strategyId).manifest.capabilities.includes("execution-plan")) {
+      assert.ok(executionPlanTextPartitions(report)?.candidates.length, "Every real strategy report must keep its plan card");
+    }
   });
+ }
 }

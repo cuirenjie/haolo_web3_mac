@@ -3,6 +3,8 @@ import {
   TRADITIONAL_UI_CHARACTERS,
 } from "./app-language-traditional-map.mjs";
 import { GENERATED_ENGLISH_UI_PHRASES } from "./app-language-en-generated.mjs";
+import { REVIEWED_ENGLISH_UI_PHRASES } from "./app-language-en-reviewed.mjs";
+import { PRODUCT_ENGLISH_UI_PHRASES } from "./app-language-en-product.mjs";
 import { GENERATED_TRADITIONAL_UI_PHRASES } from "./app-language-zh-tw-generated.mjs";
 
 export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
@@ -827,6 +829,7 @@ const SKIP_LOCALIZATION_SELECTOR = [
 let currentAppLanguage = "zh-CN";
 let traditionalCharacterMap = null;
 let simplifiedCharacterMap = null;
+let traditionalEnglishPhrases = null;
 let languageObserver = null;
 const translationCache = new Map();
 const textLocalizationSources = new WeakMap();
@@ -839,10 +842,14 @@ function entriesByLength(record) {
 const ENGLISH_UI_ENTRIES = entriesByLength({
   ...GENERATED_ENGLISH_UI_PHRASES,
   ...ENGLISH_UI_PHRASES,
-});
+  ...REVIEWED_ENGLISH_UI_PHRASES,
+  ...PRODUCT_ENGLISH_UI_PHRASES,
+}).filter(([source]) => !/\b(?:aria-[\w-]+|data-[\w-]+|class|role|title|style)=|<\/?[a-z][^>]*>/iu.test(source));
 const ENGLISH_UI_EXACT = Object.freeze({
   ...GENERATED_ENGLISH_UI_PHRASES,
   ...ENGLISH_UI_PHRASES,
+  ...REVIEWED_ENGLISH_UI_PHRASES,
+  ...PRODUCT_ENGLISH_UI_PHRASES,
 });
 const TRADITIONAL_UI_ENTRIES = entriesByLength({
   ...GENERATED_TRADITIONAL_UI_PHRASES,
@@ -961,9 +968,25 @@ export function configureTraditionalCharacterMap(simplified, traditional) {
   }
   traditionalCharacterMap = map;
   simplifiedCharacterMap = reverseMap;
+  traditionalEnglishPhrases = null;
+  translationCache.clear();
 }
 
 configureTraditionalCharacterMap(SIMPLIFIED_UI_CHARACTERS, TRADITIONAL_UI_CHARACTERS);
+
+function reviewedTraditionalEnglish() {
+  if (traditionalEnglishPhrases) return traditionalEnglishPhrases;
+  const phrases = Object.create(null);
+  for (const catalog of [ENGLISH_UI_PHRASES, REVIEWED_ENGLISH_UI_PHRASES, PRODUCT_ENGLISH_UI_PHRASES]) {
+    for (const [source, english] of Object.entries(catalog)) {
+      const traditional = exactTranslation(source, TRADITIONAL_UI_EXACT)
+        ?? simplifiedToTraditionalCharacters(replacePhrases(source, TRADITIONAL_UI_ENTRIES));
+      phrases[traditional] = english;
+    }
+  }
+  traditionalEnglishPhrases = phrases;
+  return phrases;
+}
 
 export function translateAppText(value, language = currentAppLanguage) {
   const source = String(value ?? "").replace(/\bDeepSeek\s+V4\.1\s+Flash\b/gi, "GPT-6 Astra");
@@ -974,7 +997,9 @@ export function translateAppText(value, language = currentAppLanguage) {
   const cacheKey = `${normalized}\u0000${source}`;
   const cached = translationCache.get(cacheKey);
   if (cached !== undefined) return cached;
-  const exact = exactTranslation(
+  const exact = (normalized === "en"
+    ? exactTranslation(source, ENGLISH_UI_EXACT) ?? exactTranslation(source, reviewedTraditionalEnglish())
+    : null) ?? exactTranslation(
     canonicalSource,
     normalized === "zh-TW" ? TRADITIONAL_UI_EXACT : ENGLISH_UI_EXACT,
   );
@@ -1130,6 +1155,7 @@ function syncEnglishButtonLayout(node, language) {
   if (!button) return;
   const labels = simpleButtonLabelNodes(button);
   const isSingleEnglishLabel = language === "en"
+    && !button.hasAttribute("data-i18n-wrap")
     && labels.length === 1
     && LATIN_BUTTON_TEXT_PATTERN.test(String(labels[0].nodeValue ?? ""));
   button.toggleAttribute("data-i18n-single-line", isSingleEnglishLabel);

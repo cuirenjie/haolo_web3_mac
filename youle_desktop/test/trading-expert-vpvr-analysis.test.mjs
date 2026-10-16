@@ -108,6 +108,14 @@ test("VPVR report contains only support, resistance, and volume-distribution ins
   assert.equal("shortTrigger" in result.analysisPlan.actionPlan, false);
 });
 
+test("VPVR location does not assert price acceptance or guarantee future support", async () => {
+  const result = await runVpvrAnalysisPipeline({ ...params(), language: "en" });
+  assert.match(result.analysisPlan.report, /position relative to the value area only/);
+  assert.match(result.analysisPlan.narrative, /does not confirm acceptance or rejection/);
+  assert.doesNotMatch(result.analysisPlan.report, /classified as.*acceptance|higher price acceptance/);
+  assert.doesNotMatch(result.analysisPlan.report + result.analysisPlan.narrative, /\p{Script=Han}/u);
+});
+
 test("VPVR drawings are thin dashed support/resistance lines on the main price chart", async () => {
   const result = await runVpvrAnalysisPipeline(params());
   const patch = result.analysisPlan.drawingPatch;

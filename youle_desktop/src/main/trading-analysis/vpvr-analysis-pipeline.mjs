@@ -1,3 +1,4 @@
+import { localizeTradingAnalysisResult, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { runVpvrAnalysisEngine } from "./vpvr-analysis-engine.mjs";
 import { TRADING_ANALYSIS_SCHEMA_VERSION, normalizeTradingMarketSnapshot, validateStrategyDrawingPatch } from "./protocol.mjs";
@@ -10,12 +11,6 @@ const LOCATION_LABELS = Object.freeze({
   "inside-upper-value-area": "价值区上半部",
   "inside-lower-value-area": "价值区下半部",
 });
-const ACCEPTANCE_LABELS = Object.freeze({
-  accepted: "高接受/均衡区域",
-  "low-acceptance": "低接受区域",
-  transition: "价值区内的过渡区域",
-});
-
 function number(value) {
   return Number.isFinite(Number(value))
     ? Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 8 })
@@ -33,21 +28,21 @@ function levelName(level) {
 function levelLines(levels, fallback) {
   if (!levels.length) return fallback;
   return levels.map((level, index) => (
-    `- ${index + 1}. **${number(level.priceLow)}–${number(level.priceHigh)}**（${levelName(level)}，中心 ${number(level.price)}）`
+    tradingReportText("- {0}. **{1}–{2}**（{3}，中心 {4}）", index + 1, number(level.priceLow), number(level.priceHigh), levelName(level), number(level.price))
   )).join("\n");
 }
 
 function compactLevelSummary(levels) {
   return levels.length
     ? levels.map((level) => `${number(level.priceLow)}–${number(level.priceHigh)}（${levelName(level)}）`).join("；")
-    : "当前可见范围没有独立于现价区的显著节点";
+    : tradingReportText("当前可见范围没有独立于现价区的显著节点");
 }
 
 export function buildVpvrAnalysisNarrative(result) {
   return [
-    `支撑位：${compactLevelSummary(result.levels.supports)}。`,
-    `阻力位：${compactLevelSummary(result.levels.resistances)}。`,
-    `VPVR 市场信息：POC ${number(result.profile.pocPrice)}，70% 价值区 ${number(result.profile.valueAreaLow)}–${number(result.profile.valueAreaHigh)}，当前价位于${LOCATION_LABELS[result.marketInsights.location]}，属于${ACCEPTANCE_LABELS[result.marketInsights.acceptance]}。`,
+    tradingReportText("支撑位：{0}。", compactLevelSummary(result.levels.supports)),
+    tradingReportText("阻力位：{0}。", compactLevelSummary(result.levels.resistances)),
+    tradingReportText("VPVR 市场信息：POC {0}，70% 价值区 {1}–{2}，当前价位于{3}。这只描述成交分布位置，不确认价格接受或拒绝。", number(result.profile.pocPrice), number(result.profile.valueAreaLow), number(result.profile.valueAreaHigh), LOCATION_LABELS[result.marketInsights.location]),
   ].join("\n");
 }
 
@@ -55,27 +50,28 @@ export function buildVpvrAnalysisReport(snapshot, result) {
   const profile = result.profile;
   const insights = result.marketInsights;
   const nearestHvn = insights.nearestHvn
-    ? `最近 HVN 位于 **${number(insights.nearestHvn.priceLow)}–${number(insights.nearestHvn.priceHigh)}**，代表可见范围内成交更集中、市场接受度较高的价格区。`
-    : "当前可见范围没有形成独立且显著的 HVN 峰值。";
+    ? tradingReportText("最近 HVN 位于 **{0}–{1}**，代表可见范围内历史成交更集中的价格区，不保证未来支撑或阻力。", number(insights.nearestHvn.priceLow), number(insights.nearestHvn.priceHigh))
+    : tradingReportText("当前可见范围没有形成独立且显著的 HVN 峰值。");
   const nearestLvn = insights.nearestLvn
-    ? `最近 LVN 位于 **${number(insights.nearestLvn.priceLow)}–${number(insights.nearestLvn.priceHigh)}**，代表成交稀疏、价格更可能快速穿越或快速拒绝的低接受区。`
-    : "当前可见范围没有形成独立且显著的 LVN 谷值。";
+    ? tradingReportText("最近 LVN 位于 **{0}–{1}**，代表历史成交稀疏的价格区；仅凭位置不能确认未来快速穿越或拒绝。", number(insights.nearestLvn.priceLow), number(insights.nearestLvn.priceHigh))
+    : tradingReportText("当前可见范围没有形成独立且显著的 LVN 谷值。");
   return [
-    "## VPVR 成交量分布结论",
+    tradingReportText("## VPVR 成交量分布结论"),
     "",
-    "### 支撑位",
-    levelLines(result.levels.supports, "- 当前价下方未形成独立于现价区的显著 VPVR 支撑节点。"),
+    tradingReportText("### 支撑位"),
+    levelLines(result.levels.supports, tradingReportText("- 当前价下方未形成独立于现价区的显著 VPVR 支撑节点。")),
     "",
-    "### 阻力位",
-    levelLines(result.levels.resistances, "- 当前价上方未形成独立于现价区的显著 VPVR 阻力节点。"),
+    tradingReportText("### 阻力位"),
+    levelLines(result.levels.resistances, tradingReportText("- 当前价上方未形成独立于现价区的显著 VPVR 阻力节点。")),
     "",
-    "### VPVR 市场信息",
-    `- 当前价 **${number(insights.currentPrice)}** 位于 **${LOCATION_LABELS[insights.location]}**，当前所处位置归类为 **${ACCEPTANCE_LABELS[insights.acceptance]}**。`,
-    `- POC 为 **${number(profile.pocPrice)}**；70% 价值区为 **${number(profile.valueAreaLow)}–${number(profile.valueAreaHigh)}**，实际覆盖 ${percent(profile.valueAreaShare)} 的估算成交量，价值区宽度占整个可见价格范围 ${percent(insights.valueAreaWidthShare)}。`,
+    tradingReportText("### VPVR 市场信息"),
+    tradingReportText("- 当前价 **{0}** 位于 **{1}**；这只描述价格相对价值区的位置。", number(insights.currentPrice), LOCATION_LABELS[insights.location]),
+    tradingReportText("- 价值区外不等于已确认 LVN，也不能单独证明价格会被接受或拒绝。"),
+    tradingReportText("- POC 为 **{0}**；70% 价值区为 **{1}–{2}**，实际覆盖 {3} 的估算成交量，价值区宽度占整个可见价格范围 {4}。", number(profile.pocPrice), number(profile.valueAreaLow), number(profile.valueAreaHigh), percent(profile.valueAreaShare), percent(insights.valueAreaWidthShare)),
     `- ${nearestHvn}`,
     `- ${nearestLvn}`,
-    `- 当前价下方累计成交量占 ${percent(insights.belowVolumeShare)}，上方占 ${percent(insights.aboveVolumeShare)}；这描述成交分布重心，不代表买卖方向。`,
-    `- 本次按当前可见窗口的 ${result.candleCount} 根 ${snapshot.interval} K 线、${result.rowCount} 个价格档位计算；包含 ${result.developingCandleCount} 根尚在发展的 K 线。由于输入只有 OHLCV、没有更低周期或逐笔成交价，档位成交量是按每根 K 线高低区间重叠比例分配的估算值；缩放、平移或新成交都会使 VPVR、POC、VAH/VAL 与节点重新计算。`,
+    tradingReportText("- 当前价下方累计成交量占 {0}，上方占 {1}；这描述成交分布重心，不代表买卖方向。", percent(insights.belowVolumeShare), percent(insights.aboveVolumeShare)),
+    tradingReportText("- 本次按当前可见窗口的 {0} 根 {1} K 线、{2} 个价格档位计算；包含 {3} 根尚在发展的 K 线。由于输入只有 OHLCV、没有更低周期或逐笔成交价，档位成交量是按每根 K 线高低区间重叠比例分配的估算值；缩放、平移或新成交都会使 VPVR、POC、VAH/VAL 与节点重新计算。", result.candleCount, snapshot.interval, result.rowCount, result.developingCandleCount),
   ].join("\n");
 }
 
@@ -144,7 +140,7 @@ export function buildVpvrAnalysisDrawingPatch(snapshot, result) {
   }, snapshot, STRATEGY_ID);
 }
 
-export async function runVpvrAnalysisPipeline(params) {
+async function runVpvrAnalysisPipelineInternal(params) {
   const snapshot = normalizeTradingMarketSnapshot(params, { minimumCandles: 8 });
   const theoryResult = runVpvrAnalysisEngine(snapshot);
   const drawingPatch = buildVpvrAnalysisDrawingPatch(snapshot, theoryResult);
@@ -182,4 +178,8 @@ export async function runVpvrAnalysisPipeline(params) {
       finishReason: "deterministic-succeeded",
     },
   };
+}
+
+export async function runVpvrAnalysisPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runVpvrAnalysisPipelineInternal(params, options), params?.language));
 }

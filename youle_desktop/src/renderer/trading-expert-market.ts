@@ -12,7 +12,7 @@ import {
   createSeriesMarkers,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { appLanguageLocale, translateAppText, type AppLanguage } from "./app-language.mjs";
+import { appLanguageLocale, translateAppText, translateTradingPeriodLabel, type AppLanguage } from "./app-language.mjs";
 import type { TradingAnalysisContext } from "./trading-expert-general-request";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
@@ -46,7 +46,6 @@ import type {
   TradingIndicatorAiDrawingPatch,
 } from "./trading-expert-ai-playback.ts";
 
-const HAN_TEXT_PATTERN = /\p{Script=Han}/u;
 import {
   TRADING_CHAN_AUTO_EXPANSION_MAX_CANDLES,
   TRADING_CHAN_HISTORY_BATCH_CANDLES,
@@ -2626,42 +2625,43 @@ function tradingAnalysisPaneHeading(
   const marketLabel = market.displaySymbol
     || [market.baseAsset, market.quoteAsset].filter(Boolean).join("/")
     || market.symbol;
-  return `${marketLabel} · ${tradingPeriodLabelForResolution(interval)} K线`;
+  const language = activeTradingAnalysisLanguage();
+  const period = translateTradingPeriodLabel(tradingPeriodLabelForResolution(interval), language);
+  return `${marketLabel} · ${period} ${language === "en" ? "candlesticks" : translateAppText("K线", language)}`;
 }
 
-function combineTradingAnalysisReports(
+export function combineTradingAnalysisReports(
   primaryHeading: string,
   primaryReport: string,
   splitResult: TradingSplitPaneAnalysisResult,
 ) {
   const english = activeTradingAnalysisLanguage() === "en";
-  const visiblePrimaryReport = english && HAN_TEXT_PATTERN.test(primaryReport)
-    ? "The market analysis is complete. Review the chart annotations and conditional levels for the detected structure."
-    : primaryReport;
-  if (!splitResult.reports.length && !splitResult.failures.length) return visiblePrimaryReport;
+  // Reports are business results, not UI copy: preserve prices, evidence,
+  // custom strategy names and official Han tickers in every app language.
+  if (!splitResult.reports.length && !splitResult.failures.length) return primaryReport;
   const sections = [
     `## ${primaryHeading}`,
-    visiblePrimaryReport.trim(),
+    primaryReport.trim(),
     ...splitResult.reports
       .slice()
       .sort((first, second) => first.paneIndex - second.paneIndex)
-      .flatMap((report) => [`## ${report.heading}`, english && HAN_TEXT_PATTERN.test(report.report)
-        ? "The auxiliary analysis is complete. Review its chart annotations for the detected structure."
-        : report.report.trim()]),
+      .flatMap((report) => [`## ${report.heading}`, report.report.trim()]),
   ];
   if (splitResult.failures.length) {
     sections.push(
-      "## 辅助分屏说明",
+      english ? "## Auxiliary chart notes" : translateAppText("## 辅助分屏说明", activeTradingAnalysisLanguage()),
       ...splitResult.failures
         .slice()
         .sort((first, second) => first.paneIndex - second.paneIndex)
-        .map((failure) => `- ${failure.heading}：该辅助分屏暂未纳入主图结论；主图分析和回答不受影响。`),
+        .map((failure) => english
+          ? `- ${failure.heading}: This auxiliary chart was not included; the primary analysis and answer remain available.`
+          : translateAppText(`- ${failure.heading}：该辅助分屏暂未纳入主图结论；主图分析和回答不受影响。`, activeTradingAnalysisLanguage())),
     );
   }
   return sections.filter(Boolean).join("\n\n");
 }
 
-function combineTradingAnalysisNarratives(
+export function combineTradingAnalysisNarratives(
   primaryHeading: string,
   primaryNarrative: string,
   splitResult: TradingSplitPaneAnalysisResult,
@@ -6976,7 +6976,7 @@ class TradingExpertMarketWorkspace {
       const changeClass = market.quoteAvailable
         ? market.changePercent >= 0 ? "positive" : "negative"
         : "";
-      const name = `${market.displaySymbol}${market.tag}`;
+      const name = `${market.displaySymbol} ${market.tag}`;
       return `
         <button
           type="button"
@@ -7047,7 +7047,7 @@ class TradingExpertMarketWorkspace {
         button.setAttribute("aria-busy", String(!market.quoteAvailable));
         button.setAttribute(
           "aria-label",
-          `切换至 ${market.displaySymbol}${market.tag}，价格 ${priceText}，24小时涨幅 ${changeText}；拖动调整顺序，Alt+左右键可移动`,
+          `切换至 ${market.displaySymbol} ${market.tag}，价格 ${priceText}，24小时涨幅 ${changeText}；拖动调整顺序，Alt+左右键可移动`,
         );
       });
       if (!this.picker.hidden) this.paintVisibleMarketQuotes();
@@ -10741,10 +10741,8 @@ class TradingExpertMarketWorkspace {
           : directResponseRequested
             ? response.analysisPlan.narrative
             : response.analysisPlan.report) || response.analysisPlan.narrative || "盘面分析已完成");
-      // The deterministic question lead is currently Chinese.  In English
-      // mode it would contaminate an otherwise English execution-plan report;
-      // combineTradingAnalysisReports would then replace the whole report
-      // with its generic English fallback, hiding the structured plan card.
+      // This optional deterministic lead currently has only a Chinese template.
+      // English requests use the pipeline's answer without adding that lead.
       /* Legacy source contract: request.positionManagementRequested === true
          ? "" : buildQuestionAlignedTradingLead(...) */
       const questionLead = request.positionManagementRequested === true || activeTradingAnalysisLanguage() === "en"

@@ -1,3 +1,5 @@
+import { completeTradingModelProse } from "./model-output-language.mjs";
+import { localizeTradingAnalysisResult, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { containsHanCharacters } from "../assistant-output-language.mjs";
 import { runChanTheoryEngine } from "./chan-engine.mjs";
@@ -38,7 +40,7 @@ export function buildChanModelPrompt(snapshot, theoryResult, context = {}) {
       schemaVersion: 1,
       verdict: "approve 或 revise",
       summary: english
-        ? "English-only chart summary, at most 80 characters; no profit guarantees or Chinese characters"
+        ? "A concise, complete English chart summary; no profit guarantees or Chinese prose"
         : "不超过80个中文字符的盘面结构说明，不得承诺收益",
       report: english
         ? "Answer in English only. Describe the confirmed/tentative structures, central zones, invalidation and risk; no invented prices or profit guarantees. In direct mode, answer only the user's question."
@@ -76,7 +78,7 @@ export function normalizeChanModelReview(text, theoryResult) {
   if (parsed?.verdict !== "approve" && parsed?.verdict !== "revise") {
     throw new TypeError("Model response verdict is invalid");
   }
-  const summary = String(parsed?.summary || "").trim().slice(0, 80);
+  const summary = completeTradingModelProse(parsed?.summary, "summary", 2_000);
   if (!summary) throw new TypeError("Model response summary is required");
   const candidatePenIds = new Set(theoryResult.structures.penPoints.map((point) => point.penPointId));
   const candidateCenterIds = new Set(theoryResult.structures.centers.map((center) => center.id));
@@ -107,7 +109,7 @@ export function normalizeChanModelReview(text, theoryResult) {
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     verdict: parsed.verdict,
     summary,
-    report: String(parsed?.report || "").replace(/\u0000/g, "").trim().slice(0, 6_000),
+    report: completeTradingModelProse(parsed?.report, "report", 24_000),
     selectedPenPointIds,
     selectedCenterIds,
     showFractals: parsed.showFractals !== false,
@@ -115,7 +117,7 @@ export function normalizeChanModelReview(text, theoryResult) {
     marketBias,
     riseProbability: hasProbabilities ? rawRiseProbability / probabilityTotal : null,
     fallProbability: hasProbabilities ? rawFallProbability / probabilityTotal : null,
-    strategyRationale: String(parsed?.strategyRationale || "").replace(/\u0000/g, "").trim().slice(0, 200),
+    strategyRationale: completeTradingModelProse(parsed?.strategyRationale, "strategyRationale", 2_000),
   };
 }
 
@@ -137,9 +139,9 @@ function intervalReportLabel(interval) {
   const match = /^(\d+)([DW]?)$/.exec(source);
   if (!match) return source;
   const amount = Number(match[1]);
-  if (match[2] === "D") return `${amount}日`;
-  if (match[2] === "W") return `${amount}周`;
-  return amount % 60 === 0 ? `${amount / 60}小时` : `${amount}分钟`;
+  if (match[2] === "D") return tradingReportText("{0}日", amount);
+  if (match[2] === "W") return tradingReportText("{0}周", amount);
+  return amount % 60 === 0 ? tradingReportText("{0}小时", amount / 60) : tradingReportText("{0}分钟", amount);
 }
 
 function clamp(value, minimum, maximum) {
@@ -287,44 +289,44 @@ export function buildChanAnalysisReport(snapshot, theoryResult, review, context 
     ? ((latest.close - first.open) / first.open) * 100
     : 0;
   const segmentDirection = latestPoint && previousPoint
-    ? latestPoint.price >= previousPoint.price ? "向上笔" : "向下笔"
-    : "尚未形成可判断的末笔";
+    ? latestPoint.price >= previousPoint.price ? tradingReportText("向上笔") : tradingReportText("向下笔")
+    : tradingReportText("尚未形成可判断的末笔");
   const centerText = latestCenter
-    ? `最近确认中枢区间为 ${formatReportPrice(latestCenter.lower)}–${formatReportPrice(latestCenter.upper)}，形成于 ${formatReportTime(latestCenter.startTime)} 至 ${formatReportTime(latestCenter.endTime)}。`
-    : "当前样本尚未识别出满足重叠条件的确认中枢，走势判断应降低确定性。";
+    ? tradingReportText("最近确认中枢区间为 {0}–{1}，形成于 {2} 至 {3}。", formatReportPrice(latestCenter.lower), formatReportPrice(latestCenter.upper), formatReportTime(latestCenter.startTime), formatReportTime(latestCenter.endTime))
+    : tradingReportText("当前样本尚未识别出满足重叠条件的确认中枢，走势判断应降低确定性。");
   const modelNarrative = review.report || review.summary;
   const outlook = buildChanMarketOutlook(snapshot, theoryResult, review);
   const instruction = String(context.instruction || "").trim();
   return [
-    `## ${snapshot.marketId} · ${intervalReportLabel(snapshot.interval)}缠论分析`,
-    instruction ? `分析要求：${instruction}` : "",
+    tradingReportText("## {0} · {1}缠论分析", snapshot.marketId, intervalReportLabel(snapshot.interval)),
+    instruction ? tradingReportText("分析要求：{0}", instruction) : "",
     "",
-    "### 数据范围",
-    `本次使用 ${candles.length} 根 K 线，时间范围 ${formatReportTime(first?.time)} 至 ${formatReportTime(latest?.time)}。区间开盘 ${formatReportPrice(first?.open)}，最新收盘 ${formatReportPrice(latest?.close)}，区间变动 ${changePercent >= 0 ? "+" : ""}${changePercent.toFixed(2)}%。`,
+    tradingReportText("### 数据范围"),
+    tradingReportText("本次使用 {0} 根 K 线，时间范围 {1} 至 {2}。区间开盘 {3}，最新收盘 {4}，区间变动 {5}{6}%。", candles.length, formatReportTime(first?.time), formatReportTime(latest?.time), formatReportPrice(first?.open), formatReportPrice(latest?.close), changePercent >= 0 ? "+" : "", changePercent.toFixed(2)),
     "",
-    "### 缠论结构",
-    `确定性引擎在原始 ${theoryResult.statistics.sourceCandleCount} 根 K 线中，合并后得到 ${theoryResult.statistics.mergedCandleCount} 根，识别 ${theoryResult.statistics.fractalCount} 个分型、${theoryResult.statistics.penPointCount} 个笔端点和 ${theoryResult.statistics.centerCount} 个中枢候选。本次画布展示最近 ${penPoints.length} 个已选笔端点和 ${centers.length} 个中枢。`,
-    `当前末端结构为${segmentDirection}；最近笔端点位于 ${formatReportTime(latestPoint?.time)}、价格 ${formatReportPrice(latestPoint?.price)}。${centerText}`,
+    tradingReportText("### 缠论结构"),
+    tradingReportText("确定性引擎在原始 {0} 根 K 线中，合并后得到 {1} 根，识别 {2} 个分型、{3} 个笔端点和 {4} 个中枢候选。本次画布展示最近 {5} 个已选笔端点和 {6} 个中枢。", theoryResult.statistics.sourceCandleCount, theoryResult.statistics.mergedCandleCount, theoryResult.statistics.fractalCount, theoryResult.statistics.penPointCount, theoryResult.statistics.centerCount, penPoints.length, centers.length),
+    tradingReportText("当前末端结构为{0}；最近笔端点位于 {1}、价格 {2}。{3}", segmentDirection, formatReportTime(latestPoint?.time), formatReportPrice(latestPoint?.price), centerText),
     "",
-    "### 综合判断",
+    tradingReportText("### 综合判断"),
     modelNarrative,
     "",
-    "### 当下行情判断与涨跌情景概率",
-    `当前结构判断为**${outlook.bias}**。在本次 ${intervalReportLabel(snapshot.interval)} K 线样本和当前已确认结构不变的前提下，上涨情景权重约 ${outlook.risePercent}%，下跌情景权重约 ${outlook.fallPercent}%。`,
-    `主要依据：${outlook.basis}。${outlook.modelRationale ? `模型复核补充：${outlook.modelRationale}` : ""}`,
-    "上述概率是当前结构的启发式情景权重，不是经过历史回测校准的胜率；新 K 线、假突破或结构重构会使概率变化。",
+    tradingReportText("### 当下行情判断与涨跌情景概率"),
+    tradingReportText("当前结构判断为**{0}**。在本次 {1} K 线样本和当前已确认结构不变的前提下，上涨情景权重约 {2}%，下跌情景权重约 {3}%。", outlook.bias, intervalReportLabel(snapshot.interval), outlook.risePercent, outlook.fallPercent),
+    tradingReportText("主要依据：{0}。{1}", outlook.basis, outlook.modelRationale ? tradingReportText("模型复核补充：{0}", outlook.modelRationale) : ""),
+    tradingReportText("上述概率是当前结构的启发式情景权重，不是经过历史回测校准的胜率；新 K 线、假突破或结构重构会使概率变化。"),
     "",
-    "### 条件交易计划",
-    `- **多头方案**：等待本周期已收盘 K 线有效站上 ${formatReportPrice(outlook.longTrigger)}，并确认回踩不重新跌回该价位下方后再考虑做多；结构失效参考 ${formatReportPrice(outlook.longInvalidation)}，第一目标参考 ${formatReportPrice(outlook.longTarget)}。`,
-    `- **空头方案**：等待本周期已收盘 K 线有效跌破 ${formatReportPrice(outlook.shortTrigger)}，并确认反抽无法重新站回该价位上方后再考虑做空；结构失效参考 ${formatReportPrice(outlook.shortInvalidation)}，第一目标参考 ${formatReportPrice(outlook.shortTarget)}。`,
-    `- **观望条件**：价格仍处于 ${formatReportPrice(outlook.shortTrigger)}–${formatReportPrice(outlook.longTrigger)} 之间时，优先按震荡处理，不在区间中部追涨杀跌；若上下触发后很快收回区间，按假突破处理。`,
-    "- **风险控制**：只使用已收盘 K 线确认，不把盘中瞬时刺破当成有效信号；仓位应以失效位对应的最大可承受亏损倒推，永续合约还需考虑杠杆、资金费率、滑点和强平风险。",
+    tradingReportText("### 条件交易计划"),
+    tradingReportText("- **多头方案**：等待本周期已收盘 K 线有效站上 {0}，并确认回踩不重新跌回该价位下方后再考虑做多；结构失效参考 {1}，第一目标参考 {2}。", formatReportPrice(outlook.longTrigger), formatReportPrice(outlook.longInvalidation), formatReportPrice(outlook.longTarget)),
+    tradingReportText("- **空头方案**：等待本周期已收盘 K 线有效跌破 {0}，并确认反抽无法重新站回该价位上方后再考虑做空；结构失效参考 {1}，第一目标参考 {2}。", formatReportPrice(outlook.shortTrigger), formatReportPrice(outlook.shortInvalidation), formatReportPrice(outlook.shortTarget)),
+    tradingReportText("- **观望条件**：价格仍处于 {0}–{1} 之间时，优先按震荡处理，不在区间中部追涨杀跌；若上下触发后很快收回区间，按假突破处理。", formatReportPrice(outlook.shortTrigger), formatReportPrice(outlook.longTrigger)),
+    tradingReportText("- **风险控制**：只使用已收盘 K 线确认，不把盘中瞬时刺破当成有效信号；仓位应以失效位对应的最大可承受亏损倒推，永续合约还需考虑杠杆、资金费率、滑点和强平风险。"),
     "",
-    "### 观察与失效条件",
+    tradingReportText("### 观察与失效条件"),
     latestCenter
-      ? `后续重点观察价格能否有效离开中枢 ${formatReportPrice(latestCenter.lower)}–${formatReportPrice(latestCenter.upper)}，以及离开后是否出现力度衰减或重新回到中枢。回到并持续停留在中枢内，应视为原离开方向尚未确认。`
-      : "后续需要等待更多已收盘 K 线确认新的分型、笔和重叠区间；未完成结构可能随新 K 线变化。",
-    "本报告区分结构识别与涨跌预测，不构成收益承诺或自动交易指令。未收盘 K 线、数据覆盖和缠论口径差异都可能使暂定结构发生变化。",
+      ? tradingReportText("后续重点观察价格能否有效离开中枢 {0}–{1}，以及离开后是否出现力度衰减或重新回到中枢。回到并持续停留在中枢内，应视为原离开方向尚未确认。", formatReportPrice(latestCenter.lower), formatReportPrice(latestCenter.upper))
+      : tradingReportText("后续需要等待更多已收盘 K 线确认新的分型、笔和重叠区间；未完成结构可能随新 K 线变化。"),
+    tradingReportText("本报告区分结构识别与涨跌预测，不构成收益承诺或自动交易指令。未收盘 K 线、数据覆盖和缠论口径差异都可能使暂定结构发生变化。"),
   ].join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
@@ -387,8 +389,8 @@ export function buildChanDrawingPatch(snapshot, theoryResult, review, context = 
   const latestCandle = snapshot.candles.at(-1);
   const latestCenter = centers.at(-1);
   const noteStatus = review.verdict === "approve" ? "confirmed" : "tentative";
-  const penDirection = latestPoint.price >= previousPoint.price ? "向上" : "向下";
-  const pointTypeLabel = (point) => point.type === "top" ? "顶分型" : "底分型";
+  const penDirection = latestPoint.price >= previousPoint.price ? tradingReportText("向上") : tradingReportText("向下");
+  const pointTypeLabel = (point) => point.type === "top" ? tradingReportText("顶分型") : tradingReportText("底分型");
   const englishDirection = latestPoint.price >= previousPoint.price ? "up" : "down";
   const englishPointType = (point) => point.type === "top" ? "top" : "bottom";
   const englishSummary = containsHanCharacters(review.summary)
@@ -397,29 +399,29 @@ export function buildChanDrawingPatch(snapshot, theoryResult, review, context = 
   const annotations = [{
     id: "summary",
     point: { time: latestCandle.time, price: latestCandle.close },
-    text: english ? englishSummary : `盘面结论：${review.summary}`,
+    text: english ? englishSummary : tradingReportText("盘面结论：{0}", review.summary),
     evidenceIds: [latestPoint.penPointId],
   }, {
     id: "latest-pen",
     point: { time: latestPoint.time, price: latestPoint.price },
     text: english
       ? `Latest ${englishDirection} stroke: ${formatReportPrice(previousPoint.price)} → ${formatReportPrice(latestPoint.price)}; confirmed ${englishPointType(latestPoint)} fractal.`
-      : `末端${penDirection}笔：${formatReportPrice(previousPoint.price)} → ${formatReportPrice(latestPoint.price)}；最新确认为${pointTypeLabel(latestPoint)}。`,
+      : tradingReportText("末端{0}笔：{1} → {2}；最新确认为{3}。", penDirection, formatReportPrice(previousPoint.price), formatReportPrice(latestPoint.price), pointTypeLabel(latestPoint)),
     evidenceIds: [previousPoint.penPointId, latestPoint.penPointId],
   }, {
     id: "previous-fractal",
     point: { time: referencePoint.time, price: referencePoint.price },
     text: english
       ? `Prior ${englishPointType(referencePoint)} fractal ${formatReportPrice(referencePoint.price)} (${referencePoint === previousPoint ? "stroke origin" : "structure reference"}). ${englishDirection === "up" ? "Below the key low weakens the up structure" : "Above the key high weakens the down structure"}.`
-      : `前序关键${pointTypeLabel(referencePoint)} ${formatReportPrice(referencePoint.price)}：${referencePoint === previousPoint ? "末笔起点" : "最近结构参照"}；${penDirection === "向上" ? "跌回关键低点下方则上行结构转弱" : "升回关键高点上方则下行结构转弱"}。`,
+      : tradingReportText("前序关键{0} {1}：{2}；{3}。", pointTypeLabel(referencePoint), formatReportPrice(referencePoint.price), referencePoint === previousPoint ? tradingReportText("末笔起点") : tradingReportText("最近结构参照"), penDirection === tradingReportText("向上") ? tradingReportText("跌回关键低点下方则上行结构转弱") : tradingReportText("升回关键高点上方则下行结构转弱")),
     evidenceIds: [referencePoint.penPointId, previousPoint.penPointId],
   }];
   if (latestCenter) {
     const centerPosition = latestCandle.close > latestCenter.upper
-      ? "位于中枢上方"
+      ? tradingReportText("位于中枢上方")
       : latestCandle.close < latestCenter.lower
-        ? "位于中枢下方"
-        : "仍在中枢内部";
+        ? tradingReportText("位于中枢下方")
+        : tradingReportText("仍在中枢内部");
     annotations.splice(1, 0, {
       id: "latest-center",
       point: {
@@ -428,7 +430,7 @@ export function buildChanDrawingPatch(snapshot, theoryResult, review, context = 
       },
       text: english
         ? `Latest central zone ${formatReportPrice(latestCenter.lower)}–${formatReportPrice(latestCenter.upper)}; close ${latestCandle.close > latestCenter.upper ? "above" : latestCandle.close < latestCenter.lower ? "below" : "inside"} the zone. Watch the post-breakout retest.`
-        : `最近中枢 ${formatReportPrice(latestCenter.lower)}–${formatReportPrice(latestCenter.upper)}：最新收盘${centerPosition}；关注离开后的回抽确认。`,
+        : tradingReportText("最近中枢 {0}–{1}：最新收盘{2}；关注离开后的回抽确认。", formatReportPrice(latestCenter.lower), formatReportPrice(latestCenter.upper), centerPosition),
       evidenceIds: latestCenter.penPointIds,
     });
   }
@@ -456,7 +458,7 @@ export function buildChanDrawingPatch(snapshot, theoryResult, review, context = 
   }, snapshot);
 }
 
-export async function runTradingChanAnalysisPipeline(params, options = {}) {
+async function runTradingChanAnalysisPipelineInternal(params, options = {}) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runChanTheoryEngine(snapshot, options.chanEngineOptions);
   if (theoryResult.status !== "succeeded") {
@@ -471,6 +473,8 @@ export async function runTradingChanAnalysisPipeline(params, options = {}) {
   const providerId = String(options.providerId || "").trim();
   const requestId = `chan-request-${crypto.randomUUID()}`;
   const modelRequest = {
+    language: params?.language,
+    allowedLanguageLiterals: [snapshot.marketId, snapshot.marketId.split(":").at(-1), snapshot.marketId.split(":").at(-1)?.replace(/USDT$/, "")],
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     requestId,
     task: "chan-theory-review-and-drawing-plan",
@@ -535,4 +539,8 @@ export async function runTradingChanAnalysisPipeline(params, options = {}) {
       escalationReason: reviewed.escalationReason,
     },
   };
+}
+
+export async function runTradingChanAnalysisPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingChanAnalysisPipelineInternal(params, options), params?.language));
 }

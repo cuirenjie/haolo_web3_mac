@@ -1,3 +1,4 @@
+import { localizeTradingAnalysisResult, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { runIctSmcTheoryEngine } from "./ict-smc-engine.mjs";
 import { normalizeTradingMarketSnapshot, TRADING_ANALYSIS_SCHEMA_VERSION, validateStrategyDrawingPatch } from "./protocol.mjs";
@@ -78,25 +79,25 @@ function report(snapshot, smt, plan) {
   const correlation = smt.statistics?.correlation;
   const signal = smt.currentSignal;
   return [
-    "## SMT 背离分析",
-    `- 配对：${smt.pair ? `${smt.pair.primaryMarketId} ↔ ${smt.pair.comparisonMarketId}` : "不可用"}。`,
-    `- 数据门槛：${smt.statistics ? `对齐 ${smt.statistics.alignedCandleCount} 根、收益相关系数 ${correlation?.toFixed(3) ?? "不可用"}（门槛 0.45）` : smt.reason}。`,
-    `- 结论：${signal ? `${signal.type === "bullish" ? "看涨" : "看跌"} SMT 已确认；${signal.explanation}` : smt.reason}。`,
-    `- 跨场所校验：${smt.statistics?.venueCorrelation == null ? "Hyperliquid 同品种数据不可用" : `Binance/Hyperliquid 同品种收益相关系数 ${smt.statistics.venueCorrelation.toFixed(3)}`}；该项仅校验数据与跨场所错位，不冒充经典跨资产 SMT。`,
+    tradingReportText("## SMT 背离分析"),
+    tradingReportText("- 配对：{0}。", smt.pair ? `${smt.pair.primaryMarketId} ↔ ${smt.pair.comparisonMarketId}` : tradingReportText("不可用")),
+    tradingReportText("- 数据门槛：{0}。", smt.statistics ? tradingReportText("对齐 {0} 根、收益相关系数 {1}（门槛 0.45）", smt.statistics.alignedCandleCount, correlation?.toFixed(3) ?? tradingReportText("不可用")) : smt.reason),
+    tradingReportText("- 结论：{0}。", signal ? tradingReportText("{0} SMT 已确认；{1}", signal.type === "bullish" ? tradingReportText("看涨") : tradingReportText("看跌"), signal.explanation) : smt.reason),
+    tradingReportText("- 跨场所校验：{0}；该项仅校验数据与跨场所错位，不冒充经典跨资产 SMT。", smt.statistics?.venueCorrelation == null ? tradingReportText("Hyperliquid 同品种数据不可用") : tradingReportText("Binance/Hyperliquid 同品种收益相关系数 {0}", smt.statistics.venueCorrelation.toFixed(3))),
     "",
-    "### 条件式执行",
-    "- 当前动作：等待。SMT 是方向确认线索，不是独立入场信号。",
-    `- 下一层确认：${plan.confirmation}。`,
-    `- 观察：${plan.observeTrigger}。`,
-    `- 取消：${plan.cancellation || "相关性、背离或主市场结构不再成立"}。`,
+    tradingReportText("### 条件式执行"),
+    tradingReportText("- 当前动作：等待。SMT 是方向确认线索，不是独立入场信号。"),
+    tradingReportText("- 下一层确认：{0}。", plan.confirmation),
+    tradingReportText("- 观察：{0}。", plan.observeTrigger),
+    tradingReportText("- 取消：{0}。", plan.cancellation || tradingReportText("相关性、背离或主市场结构不再成立")),
     "",
-    "### 数据与风险",
-    `主市场使用当前画布 ${snapshot.interval} 已收盘 K 线；对照数据来自只读公开市场快照。任何数据缺口、周期错位或相关性不足都会降级为数据不足。`,
-    "SMT 描述的是相关市场未同步确认，不能证明机构操纵、不能自动创建订单，也不保证反转。",
+    tradingReportText("### 数据与风险"),
+    tradingReportText("主市场使用当前画布 {0} 已收盘 K 线；对照数据来自只读公开市场快照。任何数据缺口、周期错位或相关性不足都会降级为数据不足。", snapshot.interval),
+    tradingReportText("SMT 描述的是相关市场未同步确认，不能证明机构操纵、不能自动创建订单，也不保证反转。"),
   ].join("\n");
 }
 
-export async function runTradingSmtDivergencePipeline(params) {
+async function runTradingSmtDivergencePipelineInternal(params) {
   const comparisons = normalizedComparisonMarkets(params.comparisonMarkets);
   const baseSnapshot = normalizeTradingMarketSnapshot(closedCandleParams(params));
   const combinedHash = crypto.createHash("sha256").update(JSON.stringify({ primary: baseSnapshot.inputHash, comparisons })).digest("hex");
@@ -107,4 +108,8 @@ export async function runTradingSmtDivergencePipeline(params) {
   const patch = drawingPatch(snapshot, smt, plan);
   const theoryResult = { ...smt, ictConfirmation: { currentBias: ict.currentBias, latestStructureEvent: ict.timeframes[0]?.structures?.structureEvents?.at(-1) || null }, direction: smt.currentSignal?.type || "neutral", signals: smt.currentSignal ? [{ ...smt.currentSignal, direction: smt.currentSignal.type, strength: 0.75 }] : [] };
   return { ok: true, schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION, snapshot: { snapshotId: snapshot.snapshotId, marketId: snapshot.marketId, interval: snapshot.interval, snapshotTime: snapshot.snapshotTime, lastClosedBarTime: snapshot.lastClosedBarTime, inputHash: snapshot.inputHash }, theoryResult, analysisPlan: { schemaVersion: 1, analysisId: patch.analysisId, revision: 0, snapshotId: snapshot.snapshotId, marketId: snapshot.marketId, interval: snapshot.interval, narrative: smt.currentSignal ? `识别到${smt.currentSignal.type === "bullish" ? "看涨" : "看跌"} SMT，等待主市场 MSS 与回踩确认。` : `SMT 分析完成：${smt.reason}。`, report: report(snapshot, smt, plan), actionPlan: plan, drawingPatch: patch }, model: { providerId: "deterministic", modelId: `smt-divergence-engine-v${SMT_DIVERGENCE_ENGINE_VERSION}`, requestId: null, latencyMs: 0, usage: null, finishReason: "deterministic-succeeded" } };
+}
+
+export async function runTradingSmtDivergencePipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingSmtDivergencePipelineInternal(params, options), params?.language));
 }

@@ -5197,7 +5197,7 @@ select:disabled {
 
 .titlebar-primary-actions {
   gap: 0;
-  margin-left: -12px;
+  margin-left: 0;
 }
 
 .titlebar-channel-action {
@@ -5224,6 +5224,7 @@ select:disabled {
   color: inherit;
   font-size: calc(10px + var(--app-font-size-offset));
   line-height: 1.4;
+  white-space: nowrap;
 }
 
 .titlebar-channel-action > .external-channel-menu {
@@ -5248,10 +5249,11 @@ select:disabled {
   --trading-market-positive: #078c53;
   --trading-market-negative: #d63857;
   --trading-market-selected-background: #fff;
-  position: absolute;
-  right: 144px;
-  left: var(--conversation-list-width);
+  /* Flow after the profile and phone action; translated labels can be wider
+     than the sidebar. Absolute placement used to cover those controls. */
+  position: relative;
   display: flex;
+  flex: 1 1 0;
   min-width: 0;
   height: 100%;
   align-items: center;
@@ -34122,11 +34124,13 @@ html[data-theme="dark"]
   position: relative;
   z-index: 30;
   display: flex;
-  height: 36.4px;
+  height: auto;
+  min-height: 36.4px;
   min-width: 0;
-  flex: 0 0 36.4px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 0 12px;
   overflow: visible;
   border-bottom: 0;
   background: var(--trading-market-panel);
@@ -36900,11 +36904,13 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
 .trading-market-period-controls {
   position: relative;
   display: flex;
-  min-width: 210px;
-  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 210px;
   align-items: center;
   gap: 2px;
   margin-left: auto;
+  justify-content: flex-end;
 }
 
 .trading-market-period-trigger {

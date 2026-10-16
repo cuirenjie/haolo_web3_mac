@@ -1,3 +1,5 @@
+import { completeTradingModelProse } from "./model-output-language.mjs";
+import { localizeTradingAnalysisResult, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { runOrderFlowTheoryEngine } from "./order-flow-engine.mjs";
 import { runValidatedTradingModelReview } from "./model-review.mjs";
@@ -102,7 +104,7 @@ export function buildOrderFlowModelPrompt(snapshot, theoryResult, context = {}) 
     JSON.stringify({
       schemaVersion: 1,
       verdict: "approve 或 revise",
-      summary: english ? "A plain-English conclusion under 80 characters. Prefer waiting, bullish, or bearish conditions; do not promise returns." : "不超过80个中文字符的通俗结论，优先描述等待、偏多或偏空条件，不得堆砌术语或承诺收益",
+      summary: english ? "A concise conclusion in complete English sentences. Prefer waiting, bullish, or bearish conditions; do not promise returns." : "不超过80个中文字符的通俗结论，优先描述等待、偏多或偏空条件，不得堆砌术语或承诺收益",
       report: directAnswer
         ? (english ? "A direct natural-English answer; prices may only come from actionLevels." : "直接回答用户本次问题的自然中文；价格只能引用 actionLevels，结构和长短按问题决定")
         : "",
@@ -133,7 +135,7 @@ export function normalizeOrderFlowModelReview(text, theoryResult) {
   if (parsed?.verdict !== "approve" && parsed?.verdict !== "revise") {
     throw new TypeError("Model response verdict is invalid");
   }
-  const summary = String(parsed?.summary || "").trim().slice(0, 80);
+  const summary = completeTradingModelProse(parsed?.summary, "summary", 2_000);
   if (!summary) throw new TypeError("Model response summary is required");
   const candidateClusterIds = new Set(
     theoryResult.structures.imbalanceClusters.map((cluster) => cluster.id),
@@ -164,11 +166,11 @@ export function normalizeOrderFlowModelReview(text, theoryResult) {
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     verdict: parsed.verdict,
     summary,
-    report: String(parsed?.report || "").replace(/\u0000/g, "").trim().slice(0, 6_000),
+    report: completeTradingModelProse(parsed?.report, "report", 24_000),
     marketBias: ["buying", "selling", "neutral"].includes(parsed?.marketBias)
       ? parsed.marketBias
       : "neutral",
-    strategyRationale: String(parsed?.strategyRationale || "").replace(/\u0000/g, "").trim().slice(0, 200),
+    strategyRationale: completeTradingModelProse(parsed?.strategyRationale, "strategyRationale", 2_000),
     selectedClusterIds: clusterPool
       .slice()
       .sort((first, second) => (
@@ -269,62 +271,62 @@ function formatTime(seconds) {
 }
 
 function plainIntervalLabel(interval) {
-  if (interval === "1D") return "日线";
-  if (interval === "1W") return "周线";
+  if (interval === "1D") return tradingReportText("日线");
+  if (interval === "1W") return tradingReportText("周线");
   const minutes = Number(interval);
-  if (!Number.isFinite(minutes)) return String(interval || "当前周期");
-  if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60}小时`;
-  return `${minutes}分钟`;
+  if (!Number.isFinite(minutes)) return String(interval || tradingReportText("当前周期"));
+  if (minutes >= 60 && minutes % 60 === 0) return tradingReportText("{0}小时", minutes / 60);
+  return tradingReportText("{0}分钟", minutes);
 }
 
 function coverageLabel(status) {
-  if (status === "available") return "可用";
-  if (status === "partial") return "部分覆盖";
-  if (status === "delayed") return "延迟";
-  return "不可用";
+  if (status === "available") return tradingReportText("可用");
+  if (status === "partial") return tradingReportText("部分覆盖");
+  if (status === "delayed") return tradingReportText("延迟");
+  return tradingReportText("不可用");
 }
 
 function orderFlowDirectionLabel(direction) {
-  if (direction === "buying_pressure") return "主动买方占优";
-  if (direction === "selling_pressure") return "主动卖方占优";
-  return "主动买卖暂时均衡";
+  if (direction === "buying_pressure") return tradingReportText("主动买方占优");
+  if (direction === "selling_pressure") return tradingReportText("主动卖方占优");
+  return tradingReportText("主动买卖暂时均衡");
 }
 
 function smcDirectionLabel(direction) {
-  if (direction === "bullish") return "看涨";
-  if (direction === "bearish") return "看跌";
-  return "中性";
+  if (direction === "bullish") return tradingReportText("看涨");
+  if (direction === "bearish") return tradingReportText("看跌");
+  return tradingReportText("中性");
 }
 
 function smcStateLabel(state) {
   return ({
-    active: "有效",
-    mitigated: "已回踩",
-    invalidated: "已失效",
-    open: "未触及",
-    partial: "部分回补",
-    filled: "已回补",
-    swept: "已扫并收回",
-    consumed: "已消耗",
-    confirmed: "已确认",
-  })[state] || String(state || "未知");
+    active: tradingReportText("有效"),
+    mitigated: tradingReportText("已回踩"),
+    invalidated: tradingReportText("已失效"),
+    open: tradingReportText("未触及"),
+    partial: tradingReportText("部分回补"),
+    filled: tradingReportText("已回补"),
+    swept: tradingReportText("已扫并收回"),
+    consumed: tradingReportText("已消耗"),
+    confirmed: tradingReportText("已确认"),
+  })[state] || String(state || tradingReportText("未知"));
 }
 
 function marketStructureReportLines(theoryResult) {
   const marketStructure = theoryResult.marketStructure;
   if (!marketStructure || marketStructure.status !== "succeeded") {
-    return ["当前 K 线没有形成足够的 ICT/SMC 确定性结构，本轮不输出 OB、FVG 或流动性标签。"];
+    return [tradingReportText("当前 K 线没有形成足够的 ICT/SMC 确定性结构，本轮不输出 OB、FVG 或流动性标签。")];
   }
   const structures = marketStructure.structures;
   const timeframeSummary = marketStructure.timeframes.map((timeframe) => (
-    `${timeframe.label}（${timeframe.role === "execution" ? "执行周期" : "上下文周期"}）${smcDirectionLabel(timeframe.currentBias)}：`
-    + `${timeframe.statistics.structureEventCount} 个结构突破、${timeframe.statistics.orderBlockCount} 个 OB、`
-    + `${timeframe.statistics.fairValueGapCount} 个 FVG、${timeframe.statistics.liquidityPoolCount} 个流动性池。`
+    `${timeframe.label}（${timeframe.role === "execution" ? tradingReportText("执行周期") : tradingReportText("上下文周期")}）${smcDirectionLabel(timeframe.currentBias)}：`
+    + tradingReportText("{0} 个结构突破、{1} 个 OB、", timeframe.statistics.structureEventCount, timeframe.statistics.orderBlockCount)
+    + tradingReportText("{0} 个 FVG、{1} 个流动性池。", timeframe.statistics.fairValueGapCount, timeframe.statistics.liquidityPoolCount)
   )).join("\n");
   const latestEvents = structures.structureEvents.slice(-5).map((event) => (
     `${event.interval} ${event.kind} ${event.direction === "bullish" ? "↑" : "↓"} @ ${formatPrice(event.pivotPrice)}`
-    + `${event.displacement.confirmed ? "（位移确认）" : ""}`
-    + `${event.orderFlowConfirmation && event.orderFlowConfirmation !== "not_covered" ? `，订单流 ${event.orderFlowConfirmation}` : ""}`
+    + `${event.displacement.confirmed ? tradingReportText("（位移确认）") : ""}`
+    + `${event.orderFlowConfirmation && event.orderFlowConfirmation !== "not_covered" ? tradingReportText("，订单流 {0}", event.orderFlowConfirmation) : ""}`
   ));
   const zones = [
     ...structures.orderBlocks.filter((block) => block.state !== "invalidated").slice(0, 4).map((block) => (
@@ -335,7 +337,7 @@ function marketStructureReportLines(theoryResult) {
     )),
   ];
   const liquidity = structures.liquidityPools.slice(0, 5).map((pool) => (
-    `${pool.interval} ${pool.side}${pool.side === "BSL" ? "/EQH" : "/EQL"} ${formatPrice(pool.price)}（${pool.touchCount} 次触及，${smcStateLabel(pool.state)}）`
+    tradingReportText("{0} {1}{2} {3}（{4} 次触及，{5}）", pool.interval, pool.side, pool.side === "BSL" ? "/EQH" : "/EQL", formatPrice(pool.price), pool.touchCount, smcStateLabel(pool.state))
   ));
   const ranges = structures.dealingRanges.map((range) => (
     `${range.interval} Dealing Range ${formatPrice(range.low)}–${formatPrice(range.high)}，`
@@ -344,13 +346,13 @@ function marketStructureReportLines(theoryResult) {
   const confirmation = marketStructure.orderFlowConfirmation;
   return [
     timeframeSummary,
-    latestEvents.length ? `最近结构事件：${latestEvents.join("；")}。` : "没有已确认 BOS/CHoCH/MSS。",
-    zones.length ? `当前重点区域：${zones.join("；")}。` : "没有仍有效或部分回补的 OB/FVG 区域。",
-    liquidity.length ? `流动性：${liquidity.join("；")}。` : "没有达到容差和触及次数要求的 BSL/SSL。",
+    latestEvents.length ? tradingReportText("最近结构事件：{0}。", latestEvents.join("；")) : tradingReportText("没有已确认 BOS/CHoCH/MSS。"),
+    zones.length ? tradingReportText("当前重点区域：{0}。", zones.join("；")) : tradingReportText("没有仍有效或部分回补的 OB/FVG 区域。"),
+    liquidity.length ? tradingReportText("流动性：{0}。", liquidity.join("；")) : tradingReportText("没有达到容差和触及次数要求的 BSL/SSL。"),
     ...ranges,
     confirmation
-      ? `结构与当前真实订单流关系：${confirmation.state}。${confirmation.note}`
-      : "本轮未形成结构与真实订单流的可比较关系。",
+      ? tradingReportText("结构与当前真实订单流关系：{0}。{1}", confirmation.state, confirmation.note)
+      : tradingReportText("本轮未形成结构与真实订单流的可比较关系。"),
   ];
 }
 
@@ -364,13 +366,13 @@ export function buildOrderFlowAnalysisReport(snapshot, theoryResult, review, con
   const durationSeconds = Math.max(0, Number(stats.windowEnd) - Number(stats.windowStart));
   const action = buildOrderFlowActionPlan(snapshot, theoryResult);
   const flowSummary = stats.direction === "buying_pressure"
-    ? `最近这段真实成交里，主动买单比主动卖单多 ${formatPercent(Math.abs(stats.deltaRatio))}`
+    ? tradingReportText("最近这段真实成交里，主动买单比主动卖单多 {0}", formatPercent(Math.abs(stats.deltaRatio)))
     : stats.direction === "selling_pressure"
-      ? `最近这段真实成交里，主动卖单比主动买单多 ${formatPercent(Math.abs(stats.deltaRatio))}`
-      : "最近这段真实成交里，买卖双方暂时接近平衡";
+      ? tradingReportText("最近这段真实成交里，主动卖单比主动买单多 {0}", formatPercent(Math.abs(stats.deltaRatio)))
+      : tradingReportText("最近这段真实成交里，买卖双方暂时接近平衡");
   const timeframeSummary = theoryResult.marketStructure?.timeframes?.map((timeframe) => (
-    `${timeframe.label}${timeframe.currentBias === "bullish" ? "偏多" : timeframe.currentBias === "bearish" ? "偏空" : "横盘"}`
-  )).join("、") || "暂无可靠的大周期方向";
+    `${timeframe.label}${timeframe.currentBias === "bullish" ? tradingReportText("偏多") : timeframe.currentBias === "bearish" ? tradingReportText("偏空") : tradingReportText("横盘")}`
+  )).join("、") || tradingReportText("暂无可靠的大周期方向");
   const insidePullbackZone = action.pullbackBuyZone
     && action.currentPrice >= action.pullbackBuyZone.lower
     && action.currentPrice <= action.pullbackBuyZone.upper;
@@ -379,46 +381,46 @@ export function buildOrderFlowAnalysisReport(snapshot, theoryResult, review, con
     && action.currentPrice <= action.reboundSellZone.upper;
   const pullbackLine = action.pullbackBuyZone
     ? insidePullbackZone
-      ? `回调观察：当前已进入 ${formatPrice(action.pullbackBuyZone.lower)}–${formatPrice(action.pullbackBuyZone.upper)} 支撑区，必须先出现止跌和主动买单重新占优，不能直接抄底。`
-      : `回调观察：价格回到 ${formatPrice(action.pullbackBuyZone.lower)}–${formatPrice(action.pullbackBuyZone.upper)} 后止跌，并重新出现主动买单占优时，才考虑小仓位试多。`
-    : "回调观察：当前没有足够清晰的支撑区，不建议因为价格下跌就直接抄底。";
+      ? tradingReportText("回调观察：当前已进入 {0}–{1} 支撑区，必须先出现止跌和主动买单重新占优，不能直接抄底。", formatPrice(action.pullbackBuyZone.lower), formatPrice(action.pullbackBuyZone.upper))
+      : tradingReportText("回调观察：价格回到 {0}–{1} 后止跌，并重新出现主动买单占优时，才考虑小仓位试多。", formatPrice(action.pullbackBuyZone.lower), formatPrice(action.pullbackBuyZone.upper))
+    : tradingReportText("回调观察：当前没有足够清晰的支撑区，不建议因为价格下跌就直接抄底。");
   const reboundLine = action.reboundSellZone
     ? insideReboundZone
-      ? `反弹观察：当前已进入 ${formatPrice(action.reboundSellZone.lower)}–${formatPrice(action.reboundSellZone.upper)} 压力区，必须先看到冲高受阻和主动卖单重新占优，不能直接做空。`
-      : `反弹观察：价格反弹到 ${formatPrice(action.reboundSellZone.lower)}–${formatPrice(action.reboundSellZone.upper)} 后受阻，并重新出现主动卖单占优时，才考虑偏空方案。`
-    : "反弹观察：当前没有足够清晰的压力区，不建议只因短线冲高就直接做空。";
+      ? tradingReportText("反弹观察：当前已进入 {0}–{1} 压力区，必须先看到冲高受阻和主动卖单重新占优，不能直接做空。", formatPrice(action.reboundSellZone.lower), formatPrice(action.reboundSellZone.upper))
+      : tradingReportText("反弹观察：价格反弹到 {0}–{1} 后受阻，并重新出现主动卖单占优时，才考虑偏空方案。", formatPrice(action.reboundSellZone.lower), formatPrice(action.reboundSellZone.upper))
+    : tradingReportText("反弹观察：当前没有足够清晰的压力区，不建议只因短线冲高就直接做空。");
   return [
-    `## ${snapshot.marketId} · 订单流交易计划`,
-    instruction ? `分析要求：${instruction}` : "",
+    tradingReportText("## {0} · 订单流交易计划", snapshot.marketId),
+    instruction ? tradingReportText("分析要求：{0}", instruction) : "",
     "",
-    "### 先看结论",
-    `当前价格约 ${formatPrice(action.currentPrice)}。${flowSummary}，但只有离开下面的等待区才算方向确认。`,
-    `- **上破 ${formatPrice(action.longTrigger)} 后偏多**：等待当前 ${plainIntervalLabel(snapshot.interval)} K 线收盘站稳该价位，同时主动买单继续占优；第一关注目标 ${formatPrice(action.longTarget)}。若随后跌回 ${formatPrice(action.shortTrigger)} 下方，多头方案取消。`,
-    `- **跌破 ${formatPrice(action.shortTrigger)} 后偏空**：等待当前 ${plainIntervalLabel(snapshot.interval)} K 线收盘确认，同时主动卖单继续占优；第一关注目标 ${formatPrice(action.shortTarget)}。若随后重新站上 ${formatPrice(action.longTrigger)}，空头方案取消。`,
-    `- **${formatPrice(action.shortTrigger)}–${formatPrice(action.longTrigger)} 之间先等待**：这里方向没有确认，追涨和抄底都容易来回止损。`,
+    tradingReportText("### 先看结论"),
+    tradingReportText("当前价格约 {0}。{1}，但只有离开下面的等待区才算方向确认。", formatPrice(action.currentPrice), flowSummary),
+    tradingReportText("- **上破 {0} 后偏多**：等待当前 {1} K 线收盘站稳该价位，同时主动买单继续占优；第一关注目标 {2}。若随后跌回 {3} 下方，多头方案取消。", formatPrice(action.longTrigger), plainIntervalLabel(snapshot.interval), formatPrice(action.longTarget), formatPrice(action.shortTrigger)),
+    tradingReportText("- **跌破 {0} 后偏空**：等待当前 {1} K 线收盘确认，同时主动卖单继续占优；第一关注目标 {2}。若随后重新站上 {3}，空头方案取消。", formatPrice(action.shortTrigger), plainIntervalLabel(snapshot.interval), formatPrice(action.shortTarget), formatPrice(action.longTrigger)),
+    tradingReportText("- **{0}–{1} 之间先等待**：这里方向没有确认，追涨和抄底都容易来回止损。", formatPrice(action.shortTrigger), formatPrice(action.longTrigger)),
     `- ${pullbackLine}`,
     `- ${reboundLine}`,
     "",
-    "### 新手执行清单",
-    "1. 不在区间中间猜方向，只等 K 线收盘确认关键价位。",
-    "2. 突破后如果下一根 K 线马上收回区间，按假突破处理，不追单。",
-    "3. 单笔预设亏损建议控制在账户的 0.5%–1%，止损触发后不补仓摊平。",
-    "4. 永续合约优先低杠杆或不用杠杆；第一目标到达后可分批止盈，而不是等待一次卖在最高点。",
+    tradingReportText("### 新手执行清单"),
+    tradingReportText("1. 不在区间中间猜方向，只等 K 线收盘确认关键价位。"),
+    tradingReportText("2. 突破后如果下一根 K 线马上收回区间，按假突破处理，不追单。"),
+    tradingReportText("3. 单笔预设亏损建议控制在账户的 0.5%–1%，止损触发后不补仓摊平。"),
+    tradingReportText("4. 永续合约优先低杠杆或不用杠杆；第一目标到达后可分批止盈，而不是等待一次卖在最高点。"),
     "",
-    "### 为什么这样看（通俗版）",
-    `- ${flowSummary}；主要成交密集价约 ${formatPrice(poc?.price)}，可把它理解为短线多空反复争夺的成本区。`,
-    `- 盘口前 ${Math.floor(depth.levelCount / 2)} 档目前${stats.depthImbalanceRatio >= 0 ? "买单相对更多" : "卖单相对更多"}，差异约 ${formatPercent(Math.abs(stats.depthImbalanceRatio))}；挂单随时可能撤走，所以只作辅助确认。`,
-    `- 多周期价格结构：${timeframeSummary}。图上只保留最近的趋势转折、主要支撑/压力和上下方止损集中区。`,
+    tradingReportText("### 为什么这样看（通俗版）"),
+    tradingReportText("- {0}；主要成交密集价约 {1}，可把它理解为短线多空反复争夺的成本区。", flowSummary, formatPrice(poc?.price)),
+    tradingReportText("- 盘口前 {0} 档目前{1}，差异约 {2}；挂单随时可能撤走，所以只作辅助确认。", Math.floor(depth.levelCount / 2), stats.depthImbalanceRatio >= 0 ? tradingReportText("买单相对更多") : tradingReportText("卖单相对更多"), formatPercent(Math.abs(stats.depthImbalanceRatio))),
+    tradingReportText("- 多周期价格结构：{0}。图上只保留最近的趋势转折、主要支撑/压力和上下方止损集中区。", timeframeSummary),
     stats.openInterestChangeRatio == null
-      ? "- 持仓量没有完整的起止序列，本轮不据此判断新增资金方向。"
-      : `- 持仓量变化 ${formatPercent(stats.openInterestChangeRatio)}，只作辅助，不单独作为开仓理由。`,
+      ? tradingReportText("- 持仓量没有完整的起止序列，本轮不据此判断新增资金方向。")
+      : tradingReportText("- 持仓量变化 {0}，只作辅助，不单独作为开仓理由。", formatPercent(stats.openInterestChangeRatio)),
     "",
-    "### 数据说明（可跳过）",
-    `本次读取 ${stats.tradeCount} 笔真实聚合成交，覆盖 ${formatTime(stats.windowStart)} 至 ${formatTime(stats.windowEnd)}，约 ${durationSeconds.toFixed(0)} 秒；主动成交 ${coverageLabel(coverage.trades)}、盘口 ${coverageLabel(coverage.depth)}、持仓量 ${coverageLabel(coverage.openInterest)}、爆仓数据 ${coverageLabel(coverage.liquidations)}。`,
-    "图上的订单区、缺口和结构突破来自 K 线市场结构；只有最近真实成交窗口与事件重叠时，订单流才可用于确认。盘口是 REST 快照，不是完整增量队列。",
+    tradingReportText("### 数据说明（可跳过）"),
+    tradingReportText("本次读取 {0} 笔真实聚合成交，覆盖 {1} 至 {2}，约 {3} 秒；主动成交 {4}、盘口 {5}、持仓量 {6}、爆仓数据 {7}。", stats.tradeCount, formatTime(stats.windowStart), formatTime(stats.windowEnd), durationSeconds.toFixed(0), coverageLabel(coverage.trades), coverageLabel(coverage.depth), coverageLabel(coverage.openInterest), coverageLabel(coverage.liquidations)),
+    tradingReportText("图上的订单区、缺口和结构突破来自 K 线市场结构；只有最近真实成交窗口与事件重叠时，订单流才可用于确认。盘口是 REST 快照，不是完整增量队列。"),
     "",
-    "### 风险说明",
-    "关键价位会随新 K 线和订单流变化而重算。以上是条件式观察方案，不是保证成交、保证盈利或经过历史校准的涨跌概率。",
+    tradingReportText("### 风险说明"),
+    tradingReportText("关键价位会随新 K 线和订单流变化而重算。以上是条件式观察方案，不是保证成交、保证盈利或经过历史校准的涨跌概率。"),
   ].join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
@@ -459,7 +461,7 @@ function buildOrderFlowAnalysisReportEnglish(snapshot, theoryResult, review, con
     "1. Do not guess in the middle of the range; wait for a candle close beyond a key level.",
     "2. If the next candle closes back inside the range, treat the move as a false breakout and do not chase it.",
     "3. Keep planned loss per trade around 0.5%–1% of account equity; do not average down after a stop.",
-    "4. Prefer low or no leverage on perpetuals. Consider taking partial profit at the first target instead of trying to sell the exact high or low.",
+    "4. Prefer low or no leverage on perpetuals. Consider taking partial profit at the first target instead of trying to exit at the exact high or low.",
     "",
     "### Why this view",
     `- ${flowSummary}; the point of control is about ${formatPrice(poc?.price)}, a short-term area where both sides have traded heavily.`,
@@ -971,7 +973,7 @@ export function buildOrderFlowDrawingPatch(snapshot, theoryResult, review) {
         theory: "order-flow",
         tool: "note",
         points: [{ time: microWindow.anchorTime, price: poc.price }],
-        text: `成交密集价（POC）${formatPrice(poc.price)}`,
+        text: tradingReportText("成交密集价（POC）{0}", formatPrice(poc.price)),
         colorToken: "order-flow-poc",
         status: "confirmed",
         evidenceIds: [poc.id],
@@ -982,7 +984,7 @@ export function buildOrderFlowDrawingPatch(snapshot, theoryResult, review) {
     const upper = Math.max(...evidence.map((cluster) => cluster.upper));
     const lower = Math.min(...evidence.map((cluster) => cluster.lower));
     const evidenceIds = evidence.map((cluster) => cluster.id);
-    const label = side === "buy" ? "主动买入失衡区" : "主动卖出失衡区";
+    const label = side === "buy" ? tradingReportText("主动买入失衡区") : tradingReportText("主动卖出失衡区");
     for (const cluster of evidence) {
       operations.push({
         op: "upsert",
@@ -1007,7 +1009,7 @@ export function buildOrderFlowDrawingPatch(snapshot, theoryResult, review) {
         theory: "order-flow",
         tool: "note",
         points: [{ time: microWindow.anchorTime, price: side === "buy" ? upper : lower }],
-        text: evidence.length > 1 ? `${label}（${evidence.length}处）` : label,
+        text: evidence.length > 1 ? tradingReportText("{0}（{1}处）", label, evidence.length) : label,
         colorToken: side === "buy" ? "order-flow-buy" : "order-flow-sell",
         status: "confirmed",
         evidenceIds,
@@ -1019,7 +1021,7 @@ export function buildOrderFlowDrawingPatch(snapshot, theoryResult, review) {
       second.notional - first.notional || second.time - first.time
     ))[0];
     const evidenceIds = evidence.map((event) => event.id);
-    const label = side === "buy" ? "大额主动买入" : "大额主动卖出";
+    const label = side === "buy" ? tradingReportText("大额主动买入") : tradingReportText("大额主动卖出");
     for (const event of evidence) {
       operations.push({
         op: "upsert",
@@ -1053,7 +1055,7 @@ export function buildOrderFlowDrawingPatch(snapshot, theoryResult, review) {
   const notes = [{
     id: "action",
     point: { time: latestCandle.time, price: latestCandle.close },
-    text: `关键价位：上破 ${formatPrice(action.longTrigger)} 偏多｜跌破 ${formatPrice(action.shortTrigger)} 偏空｜区间内等待`,
+    text: tradingReportText("关键价位：上破 {0} 偏多｜跌破 {1} 偏空｜区间内等待", formatPrice(action.longTrigger), formatPrice(action.shortTrigger)),
     evidenceIds: [
       ...(theoryResult.signals[0]?.evidenceIds || []),
       ...(theoryResult.marketStructure?.signals?.[0]?.evidenceIds || []),
@@ -1084,7 +1086,7 @@ export function buildOrderFlowDrawingPatch(snapshot, theoryResult, review) {
   }, snapshot);
 }
 
-export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) {
+async function runTradingOrderFlowAnalysisPipelineInternal(params, options = {}) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const orderFlowResult = runOrderFlowTheoryEngine(snapshot);
   if (orderFlowResult.status !== "succeeded") {
@@ -1118,6 +1120,8 @@ export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) 
   const providerId = String(options.providerId || "").trim();
   const requestId = `order-flow-request-${crypto.randomUUID()}`;
   const modelRequest = {
+    language: params?.language,
+    allowedLanguageLiterals: [snapshot.marketId, snapshot.marketId.split(":").at(-1), snapshot.marketId.split(":").at(-1)?.replace(/USDT$/, "")],
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     requestId,
     task: "order-flow-theory-review-and-drawing-plan",
@@ -1190,4 +1194,8 @@ export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) 
       escalationReason: reviewed.escalationReason,
     },
   };
+}
+
+export async function runTradingOrderFlowAnalysisPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingOrderFlowAnalysisPipelineInternal(params, options), params?.language));
 }

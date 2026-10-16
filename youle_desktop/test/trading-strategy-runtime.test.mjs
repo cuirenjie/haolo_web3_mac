@@ -995,7 +995,8 @@ test("coordinator refreshes private Binance context after analysis before buildi
   assert.match(englishResult.analysisPlan.report, /open a .* USDT long position with \d+x leverage/);
   // User-named strategies retain their proper name; generated prose is English.
   assert.match(englishResult.analysisPlan.report, /^Strategy: 示例策略$/m);
-  assert.doesNotMatch(englishResult.analysisPlan.report.replace(/^Strategy: .*\n/m, ""), /原策略报告|[\u3400-\u9fff]/u);
+  assert.match(englishResult.analysisPlan.report, /原策略报告/, "Language selection must not discard the underlying analysis");
+  assert.doesNotMatch(englishResult.analysisPlan.report, /标准执行方案|^[•*-]\s+/m);
 });
 
 test("every strategy request uses model-first intent routing with deterministic recovery and literal targets", async () => {

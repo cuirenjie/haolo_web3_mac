@@ -50,6 +50,9 @@
       );
     </script>
     <script type="module">
+      import { applyAppLanguage, observeAppLanguage } from "/app-language.mjs";
+      window.qaSetLanguage = language => applyAppLanguage(language, { root: document.body });
+      observeAppLanguage(document.body);
       import {
         renderTradingWatchlistHost,
         renderTradingWatchlistToggle,

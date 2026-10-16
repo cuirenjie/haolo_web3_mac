@@ -1,3 +1,5 @@
+import { completeTradingModelProse } from "./model-output-language.mjs";
+import { localizeTradingAnalysisResult, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { runPriceActionEngine } from "./price-action-engine.mjs";
 import { runValidatedTradingModelReview } from "./model-review.mjs";
@@ -45,17 +47,17 @@ function formatTime(seconds) {
 }
 
 function intervalLabel(interval) {
-  if (interval === "1D") return "日线";
-  if (interval === "1W") return "周线";
+  if (interval === "1D") return tradingReportText("日线");
+  if (interval === "1W") return tradingReportText("周线");
   const minutes = Number(interval);
-  if (!Number.isFinite(minutes)) return String(interval || "当前周期");
-  return minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60}小时` : `${minutes}分钟`;
+  if (!Number.isFinite(minutes)) return String(interval || tradingReportText("当前周期"));
+  return minutes >= 60 && minutes % 60 === 0 ? tradingReportText("{0}小时", minutes / 60) : tradingReportText("{0}分钟", minutes);
 }
 
 function trendLabel(trend) {
-  if (trend === "bullish") return "偏多";
-  if (trend === "bearish") return "偏空";
-  return "震荡等待";
+  if (trend === "bullish") return tradingReportText("偏多");
+  if (trend === "bearish") return tradingReportText("偏空");
+  return tradingReportText("震荡等待");
 }
 
 function supportsBinanceAccountExecutionPlan(snapshot) {
@@ -78,21 +80,21 @@ function accountDecisionNarrative(executionPlan, context = {}) {
   const sizing = executionPlan?.positionSizing;
   if (!sizing || sizing.accountStatus === "unbound") return "";
   if (sizing.accountStatus === "unavailable") {
-    return "账户校验：币安实盘快照不可用或已过期，暂不生成仓位调整或下单数量。";
+    return tradingReportText("账户校验：币安实盘快照不可用或已过期，暂不生成仓位调整或下单数量。");
   }
   const plan = sizing.accountPlan;
   if (!plan) return "";
   const money = (value) => Number(value).toFixed(2).replace(/\.00$/u, "").replace(/(\.\d)0$/u, "$1");
-  const positionSide = plan.existingSide === "long" ? "多单" : "空单";
+  const positionSide = plan.existingSide === "long" ? tradingReportText("多单") : tradingReportText("空单");
   return plan.mode === "close_opposite"
-    ? `账户校验：当前已有 ${money(plan.existingNotional)} USDT 的反向${positionSide}，应先平仓，暂不开新仓。`
+    ? tradingReportText("账户校验：当前已有 {0} USDT 的反向{1}，应先平仓，暂不开新仓。", money(plan.existingNotional), positionSide)
     : plan.mode === "reduce_existing"
-      ? `账户校验：当前${positionSide}约 ${money(plan.existingNotional)} USDT，按风险上限应先减至约 ${money(plan.notional)} USDT。`
+      ? tradingReportText("账户校验：当前{0}约 {1} USDT，按风险上限应先减至约 {2} USDT。", positionSide, money(plan.existingNotional), money(plan.notional))
       : plan.mode === "manage_existing"
-        ? `账户校验：当前已有 ${money(plan.existingNotional)} USDT 的${positionSide}，按现有仓位管理，不重复开仓。`
+        ? tradingReportText("账户校验：当前已有 {0} USDT 的{1}，按现有仓位管理，不重复开仓。", money(plan.existingNotional), positionSide)
         : context.positionManagementRequested === true
-          ? "账户校验：未发现与本次问题对应的当前仓位，暂不按账户快照生成新的开仓数量。"
-          : `账户校验：按当前权益与可用余额测算，候选仓位约 ${money(plan.notional)} USDT，杠杆不超过 ${plan.leverage} 倍。`;
+          ? tradingReportText("账户校验：未发现与本次问题对应的当前仓位，暂不按账户快照生成新的开仓数量。")
+          : tradingReportText("账户校验：按当前权益与可用余额测算，候选仓位约 {0} USDT，杠杆不超过 {1} 倍。", money(plan.notional), plan.leverage);
 }
 
 function accountAwareDirectNarrative(narrative, executionPlan, context = {}) {
@@ -205,17 +207,17 @@ export function normalizePriceActionModelReview(text) {
   if (parsed?.verdict !== "approve" && parsed?.verdict !== "revise") {
     throw new TypeError("Model response verdict is invalid");
   }
-  const summary = String(parsed?.summary || "").replace(/\u0000/g, "").trim().slice(0, 80);
+  const summary = completeTradingModelProse(parsed?.summary, "summary", 2_000);
   if (!summary) throw new TypeError("Model response summary is required");
   return {
     schemaVersion: 1,
     verdict: parsed.verdict,
     summary,
-    answer: String(parsed?.answer || "").replace(/\u0000/g, "").trim().slice(0, 6_000),
+    answer: completeTradingModelProse(parsed?.answer, "answer", 24_000),
     marketBias: ["bullish", "bearish", "neutral"].includes(parsed?.marketBias)
       ? parsed.marketBias
       : "neutral",
-    rationale: String(parsed?.rationale || "").replace(/\u0000/g, "").trim().slice(0, 200),
+    rationale: completeTradingModelProse(parsed?.rationale, "rationale", 2_000),
     confidence: Math.min(1, Math.max(0, Number(parsed?.confidence) || 0)),
   };
 }
@@ -232,49 +234,49 @@ export function buildPriceActionReport(snapshot, result, review, context = {}) {
       || String(review.summary || "").trim();
     const accountDecision = String(context.accountDecision || "").trim();
     return [
-      `## ${snapshot.marketId} · ${intervalLabel(snapshot.interval)}仓位管理`,
-      context.instruction ? `你的问题：${String(context.instruction).trim()}` : "",
+      tradingReportText("## {0} · {1}仓位管理", snapshot.marketId, intervalLabel(snapshot.interval)),
+      context.instruction ? tradingReportText("你的问题：{0}", String(context.instruction).trim()) : "",
       "",
-      "### 直接回答",
-      answer || `当前盘面更接近${trendLabel(result.trend)}，请结合下方关键位置管理现有仓位。`,
+      tradingReportText("### 直接回答"),
+      answer || tradingReportText("当前盘面更接近{0}，请结合下方关键位置管理现有仓位。", trendLabel(result.trend)),
       "",
-      "### 盘面依据",
-      `当前盘面更接近**${trendLabel(result.trend)}**，现价约 ${formatPrice(levels.currentPrice)}。`,
-      review.rationale ? `依据：${review.rationale}` : "",
-      `关键位置：支撑 ${formatPrice(levels.support)}，压力 ${formatPrice(levels.resistance)}；上破 ${formatPrice(levels.longTrigger)} 才确认偏多，跌破 ${formatPrice(levels.shortTrigger)} 才确认偏空。`,
-      accountDecision ? "" : "账户仓位快照未提供，以上仅根据目标交易对的盘面和你消息中的仓位信息回答。",
-      accountDecision ? "### 账户仓位校验" : "",
+      tradingReportText("### 盘面依据"),
+      tradingReportText("当前盘面更接近**{0}**，现价约 {1}。", trendLabel(result.trend), formatPrice(levels.currentPrice)),
+      review.rationale ? tradingReportText("依据：{0}", review.rationale) : "",
+      tradingReportText("关键位置：支撑 {0}，压力 {1}；上破 {2} 才确认偏多，跌破 {3} 才确认偏空。", formatPrice(levels.support), formatPrice(levels.resistance), formatPrice(levels.longTrigger), formatPrice(levels.shortTrigger)),
+      accountDecision ? "" : tradingReportText("账户仓位快照未提供，以上仅根据目标交易对的盘面和你消息中的仓位信息回答。"),
+      accountDecision ? tradingReportText("### 账户仓位校验") : "",
       accountDecision,
       "",
-      "以上条件只适用于本次读取的目标交易对和周期；未收盘 K 线、滑点、资金费率和突发消息都可能改变处理条件，不会自动下单。",
+      tradingReportText("以上条件只适用于本次读取的目标交易对和周期；未收盘 K 线、滑点、资金费率和突发消息都可能改变处理条件，不会自动下单。"),
     ].filter(Boolean).join("\n").replace(/\n{3,}/g, "\n\n");
   }
   const breakEvenText = preferences.moveStopToBreakEven
-    ? `浮盈达到 ${preferences.breakEvenTriggerR}R 后，把止损移动至覆盖手续费和滑点的保本位置。`
-    : "按你的偏好，不自动移动保本，继续执行原止损管理方式。";
+    ? tradingReportText("浮盈达到 {0}R 后，把止损移动至覆盖手续费和滑点的保本位置。", preferences.breakEvenTriggerR)
+    : tradingReportText("按你的偏好，不自动移动保本，继续执行原止损管理方式。");
   return [
-    `## ${snapshot.marketId} · ${intervalLabel(snapshot.interval)}盘面分析`,
-    context.instruction ? `你的要求：${String(context.instruction).trim()}` : "",
+    tradingReportText("## {0} · {1}盘面分析", snapshot.marketId, intervalLabel(snapshot.interval)),
+    context.instruction ? tradingReportText("你的要求：{0}", String(context.instruction).trim()) : "",
     "",
-    "### 先看结论",
-    `当前更接近**${trendLabel(result.trend)}**。${review.summary}`,
-    `价格在 ${formatPrice(levels.shortTrigger)}–${formatPrice(levels.longTrigger)} 之间时，先按震荡处理，不在区间中间追涨杀跌。`,
+    tradingReportText("### 先看结论"),
+    tradingReportText("当前更接近**{0}**。{1}", trendLabel(result.trend), review.summary),
+    tradingReportText("价格在 {0}–{1} 之间时，先按震荡处理，不在区间中间追涨杀跌。", formatPrice(levels.shortTrigger), formatPrice(levels.longTrigger)),
     "",
-    "### 新手执行清单",
-    `- **想做多**：等本周期 K 线收盘站上 ${formatPrice(levels.longTrigger)}，最好回踩不破后再考虑；第一目标 ${formatPrice(levels.longTarget)}，跌回 ${formatPrice(levels.longInvalidation)} 下方则取消多头方案。`,
-    `- **想做空**：等本周期 K 线收盘跌破 ${formatPrice(levels.shortTrigger)}，最好反抽站不回后再考虑；第一目标 ${formatPrice(levels.shortTarget)}，重新站上 ${formatPrice(levels.shortInvalidation)} 则取消空头方案。`,
-    `- **继续等待**：还在 ${formatPrice(levels.waitZone.lower)}–${formatPrice(levels.waitZone.upper)} 内，或突破后很快收回区间，就当成信号未确认。`,
-    `- **控制风险**：单笔止损后的实际亏损不得超过当前账户净值的 ${preferences.maxLossPerTradePercent}%；计算时包含手续费和预估滑点，再按入场价到取消价的距离倒推仓位。`,
-    `- **盈亏与保本**：最低净盈亏比为 1:${preferences.minimumRiskRewardRatio}。${breakEvenText}`,
+    tradingReportText("### 新手执行清单"),
+    tradingReportText("- **想做多**：等本周期 K 线收盘站上 {0}，最好回踩不破后再考虑；第一目标 {1}，跌回 {2} 下方则取消多头方案。", formatPrice(levels.longTrigger), formatPrice(levels.longTarget), formatPrice(levels.longInvalidation)),
+    tradingReportText("- **想做空**：等本周期 K 线收盘跌破 {0}，最好反抽站不回后再考虑；第一目标 {1}，重新站上 {2} 则取消空头方案。", formatPrice(levels.shortTrigger), formatPrice(levels.shortTarget), formatPrice(levels.shortInvalidation)),
+    tradingReportText("- **继续等待**：还在 {0}–{1} 内，或突破后很快收回区间，就当成信号未确认。", formatPrice(levels.waitZone.lower), formatPrice(levels.waitZone.upper)),
+    tradingReportText("- **控制风险**：单笔止损后的实际亏损不得超过当前账户净值的 {0}%；计算时包含手续费和预估滑点，再按入场价到取消价的距离倒推仓位。", preferences.maxLossPerTradePercent),
+    tradingReportText("- **盈亏与保本**：最低净盈亏比为 1:{0}。{1}", preferences.minimumRiskRewardRatio, breakEvenText),
     "",
-    "### 为什么这样判断",
-    `本次读取左侧画布的 ${candles.length} 根 ${intervalLabel(snapshot.interval)} K 线，范围 ${formatTime(first.time)} 至 ${formatTime(latest.time)}；区间变化 ${change >= 0 ? "+" : ""}${change.toFixed(2)}%。`,
-    `短期均价约 ${formatPrice(result.indicators.ema20)}，中期均价约 ${formatPrice(result.indicators.ema50)}，最近动量 ${(result.indicators.recentReturn * 100).toFixed(2)}%，当前量能约为近期均值的 ${result.indicators.volumeRatio.toFixed(2)} 倍。`,
-    review.rationale ? `模型复核补充：${review.rationale}` : "",
-    `当前上涨/下跌情景权重约 ${result.riseWeight}% / ${result.fallWeight}%。这是基于当前结构的启发式权重，不是历史回测胜率。`,
+    tradingReportText("### 为什么这样判断"),
+    tradingReportText("本次读取左侧画布的 {0} 根 {1} K 线，范围 {2} 至 {3}；区间变化 {4}{5}%。", candles.length, intervalLabel(snapshot.interval), formatTime(first.time), formatTime(latest.time), change >= 0 ? "+" : "", change.toFixed(2)),
+    tradingReportText("短期均价约 {0}，中期均价约 {1}，最近动量 {2}%，当前量能约为近期均值的 {3} 倍。", formatPrice(result.indicators.ema20), formatPrice(result.indicators.ema50), (result.indicators.recentReturn * 100).toFixed(2), result.indicators.volumeRatio.toFixed(2)),
+    review.rationale ? tradingReportText("模型复核补充：{0}", review.rationale) : "",
+    tradingReportText("当前上涨/下跌情景权重约 {0}% / {1}%。这是基于当前结构的启发式权重，不是历史回测胜率。", result.riseWeight, result.fallWeight),
     "",
-    "### 数据与风险",
-    "分析以发送消息时左侧已选择的品种、周期和可见 K 线为准；新 K 线会改变支撑、压力和方向判断。未收盘 K 线、跳空、滑点、资金费率和突发消息都会使计划失效。本内容不构成收益承诺或自动下单指令。",
+    tradingReportText("### 数据与风险"),
+    tradingReportText("分析以发送消息时左侧已选择的品种、周期和可见 K 线为准；新 K 线会改变支撑、压力和方向判断。未收盘 K 线、跳空、滑点、资金费率和突发消息都会使计划失效。本内容不构成收益承诺或自动下单指令。"),
   ].filter(Boolean).join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
@@ -337,7 +339,7 @@ export function buildPriceActionDrawingPatch(snapshot, result, review) {
         theory: "price-action",
         tool: "note",
         points: [{ time: lastTime, price: result.levels.currentPrice }],
-        text: `结论：${trendLabel(result.trend)}；上破 ${formatPrice(result.levels.longTrigger)} 偏多，跌破 ${formatPrice(result.levels.shortTrigger)} 偏空`,
+        text: tradingReportText("结论：{0}；上破 {1} 偏多，跌破 {2} 偏空", trendLabel(result.trend), formatPrice(result.levels.longTrigger), formatPrice(result.levels.shortTrigger)),
         colorToken: "price-action-note",
         status,
         evidenceIds: ["trend", "support", "resistance"],
@@ -350,7 +352,7 @@ export function buildPriceActionDrawingPatch(snapshot, result, review) {
         theory: "price-action",
         tool: "note",
         points: [{ time: firstTime, price: result.levels.resistance }],
-        text: `上方压力 ${formatPrice(result.levels.resistance)}：收盘站稳后再考虑偏多`,
+        text: tradingReportText("上方压力 {0}：收盘站稳后再考虑偏多", formatPrice(result.levels.resistance)),
         colorToken: "price-action-resistance",
         status: "confirmed",
         evidenceIds: ["resistance"],
@@ -363,7 +365,7 @@ export function buildPriceActionDrawingPatch(snapshot, result, review) {
         theory: "price-action",
         tool: "note",
         points: [{ time: firstTime, price: result.levels.support }],
-        text: `下方支撑 ${formatPrice(result.levels.support)}：收盘跌破后再考虑偏空`,
+        text: tradingReportText("下方支撑 {0}：收盘跌破后再考虑偏空", formatPrice(result.levels.support)),
         colorToken: "price-action-support",
         status: "confirmed",
         evidenceIds: ["support"],
@@ -380,7 +382,7 @@ export function buildPriceActionDrawingPatch(snapshot, result, review) {
   }, snapshot);
 }
 
-export async function runTradingPriceActionAnalysisPipeline(params, options = {}) {
+async function runTradingPriceActionAnalysisPipelineInternal(params, options = {}) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runPriceActionEngine(snapshot);
   options.onTheoryReady?.({ stage: "deterministic_theory", strategyId: "price-action", snapshotId: snapshot.snapshotId, candleCount: snapshot.candles.length, evidenceCount: Array.isArray(theoryResult.evidence) ? theoryResult.evidence.length : 0 });
@@ -390,6 +392,8 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
   const providerId = String(options.providerId || "").trim();
   const requestId = `price-action-request-${crypto.randomUUID()}`;
   const modelRequest = {
+    language: params?.language,
+    allowedLanguageLiterals: [snapshot.marketId, snapshot.marketId.split(":").at(-1), snapshot.marketId.split(":").at(-1)?.replace(/USDT$/, "")],
     schemaVersion: 1,
     requestId,
     task: "price-action-review-and-drawing-plan",
@@ -512,4 +516,8 @@ export async function runTradingPriceActionAnalysisPipeline(params, options = {}
         : `${executionReport}\n\n---\n\n${baseReport}`.trim(),
     },
   };
+}
+
+export async function runTradingPriceActionAnalysisPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingPriceActionAnalysisPipelineInternal(params, options), params?.language));
 }

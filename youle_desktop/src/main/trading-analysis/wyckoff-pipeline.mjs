@@ -1,3 +1,5 @@
+import { completeTradingModelProse } from "./model-output-language.mjs";
+import { localizeTradingAnalysisResult, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { runWyckoffTheoryEngine } from "./wyckoff-engine.mjs";
 import { runValidatedTradingModelReview } from "./model-review.mjs";
@@ -45,16 +47,16 @@ function formatTime(seconds) {
 }
 
 function intervalLabel(interval) {
-  if (interval === "1D") return "日线";
-  if (interval === "1W") return "周线";
+  if (interval === "1D") return tradingReportText("日线");
+  if (interval === "1W") return tradingReportText("周线");
   const minutes = Number(interval);
-  if (!Number.isFinite(minutes)) return String(interval || "当前周期");
-  if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60}小时`;
-  return `${minutes}分钟`;
+  if (!Number.isFinite(minutes)) return String(interval || tradingReportText("当前周期"));
+  if (minutes >= 60 && minutes % 60 === 0) return tradingReportText("{0}小时", minutes / 60);
+  return tradingReportText("{0}分钟", minutes);
 }
 
 function patternLabel(pattern) {
-  return pattern === "accumulation" ? "吸筹候选" : "派发候选";
+  return pattern === "accumulation" ? tradingReportText("吸筹候选") : tradingReportText("派发候选");
 }
 
 function phaseLabel(candidate) {
@@ -65,19 +67,19 @@ function phaseLabel(candidate) {
 
 function plainEventLabel(event) {
   const labels = {
-    PS: "初步支撑",
-    PSY: "初步供应",
-    SC: "恐慌抛售",
-    BC: "抢购高潮",
-    AR: "自动反应",
-    ST: "二次测试",
-    Spring: "假跌破后收回",
-    UTAD: "假上破后回落",
-    Test: "缩量确认",
-    SOS: "放量上破",
-    SOW: "放量下破",
-    LPS: "回踩支撑",
-    LPSY: "反抽受压",
+    PS: tradingReportText("初步支撑"),
+    PSY: tradingReportText("初步供应"),
+    SC: tradingReportText("恐慌抛售"),
+    BC: tradingReportText("抢购高潮"),
+    AR: tradingReportText("自动反应"),
+    ST: tradingReportText("二次测试"),
+    Spring: tradingReportText("假跌破后收回"),
+    UTAD: tradingReportText("假上破后回落"),
+    Test: tradingReportText("缩量确认"),
+    SOS: tradingReportText("放量上破"),
+    SOW: tradingReportText("放量下破"),
+    LPS: tradingReportText("回踩支撑"),
+    LPSY: tradingReportText("反抽受压"),
   };
   return labels[event.code] || event.label || event.code;
 }
@@ -186,7 +188,7 @@ export function normalizeWyckoffModelReview(text, theoryResult) {
   if (parsed?.verdict !== "approve" && parsed?.verdict !== "revise") {
     throw new TypeError("Model response verdict is invalid");
   }
-  const summary = String(parsed?.summary || "").trim().slice(0, 80);
+  const summary = completeTradingModelProse(parsed?.summary, "summary", 2_000);
   if (!summary) throw new TypeError("Model response summary is required");
   const deterministicPrimary = theoryResult.structures.primaryCandidate;
   const requestedPrimary = candidateById(theoryResult, String(parsed.primaryCandidateId || ""));
@@ -206,11 +208,11 @@ export function normalizeWyckoffModelReview(text, theoryResult) {
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     verdict: parsed.verdict,
     summary,
-    report: String(parsed?.report || "").replace(/\u0000/g, "").trim().slice(0, 6_000),
+    report: completeTradingModelProse(parsed?.report, "report", 24_000),
     marketBias: ["bullish", "bearish", "neutral"].includes(parsed?.marketBias)
       ? parsed.marketBias
       : "neutral",
-    strategyRationale: String(parsed?.strategyRationale || "").replace(/\u0000/g, "").trim().slice(0, 220),
+    strategyRationale: completeTradingModelProse(parsed?.strategyRationale, "strategyRationale", 2_000),
     primaryCandidateId: primary.id,
     alternateCandidateIds,
     selectedEventIds,
@@ -232,46 +234,46 @@ export function buildWyckoffAnalysisReport(snapshot, theoryResult, review, conte
   const lastCandle = snapshot.candles.at(-1);
   const instruction = String(context.instruction || "").trim();
   const primaryText = primary.pattern === "accumulation"
-    ? "当前结构更接近吸筹候选，但只有有效站上区间上沿才算真正转强"
-    : "当前结构更接近派发候选，但只有有效跌破区间下沿才算真正转弱";
+    ? tradingReportText("当前结构更接近吸筹候选，但只有有效站上区间上沿才算真正转强")
+    : tradingReportText("当前结构更接近派发候选，但只有有效跌破区间下沿才算真正转弱");
   const currentLocation = action.currentPrice > action.longTrigger
-    ? "价格已在上沿外，重点看回踩是否守住"
+    ? tradingReportText("价格已在上沿外，重点看回踩是否守住")
     : action.currentPrice < action.shortTrigger
-      ? "价格已在下沿外，重点看反抽是否受压"
-      : "价格仍在交易区间内";
+      ? tradingReportText("价格已在下沿外，重点看反抽是否受压")
+      : tradingReportText("价格仍在交易区间内");
   return [
-    `## ${snapshot.marketId} · 威科夫条件交易计划`,
-    instruction ? `分析要求：${instruction}` : "",
+    tradingReportText("## {0} · 威科夫条件交易计划", snapshot.marketId),
+    instruction ? tradingReportText("分析要求：{0}", instruction) : "",
     "",
-    "### 先看结论",
-    `当前价格约 ${formatPrice(action.currentPrice)}，${currentLocation}。${primaryText}。`,
-    `- **上破 ${formatPrice(action.longTrigger)} 后偏多**：等待当前 ${intervalLabel(snapshot.interval)} K 线收盘站稳，最好随后回踩不破 ${formatPrice(action.resistance)}；第一关注目标 ${formatPrice(action.longTarget)}。若重新跌回 ${formatPrice(action.shortTrigger)} 下方，本次多头方案取消。`,
-    `- **跌破 ${formatPrice(action.shortTrigger)} 后偏空**：等待当前 ${intervalLabel(snapshot.interval)} K 线收盘确认，最好随后反抽不过 ${formatPrice(action.support)}；第一关注目标 ${formatPrice(action.shortTarget)}。若重新站上 ${formatPrice(action.longTrigger)}，本次空头方案取消。`,
-    `- **${formatPrice(action.shortTrigger)}–${formatPrice(action.longTrigger)} 之间先等待**：区间内部容易反复，不在中间位置猜吸筹或派发。`,
+    tradingReportText("### 先看结论"),
+    tradingReportText("当前价格约 {0}，{1}。{2}。", formatPrice(action.currentPrice), currentLocation, primaryText),
+    tradingReportText("- **上破 {0} 后偏多**：等待当前 {1} K 线收盘站稳，最好随后回踩不破 {2}；第一关注目标 {3}。若重新跌回 {4} 下方，本次多头方案取消。", formatPrice(action.longTrigger), intervalLabel(snapshot.interval), formatPrice(action.resistance), formatPrice(action.longTarget), formatPrice(action.shortTrigger)),
+    tradingReportText("- **跌破 {0} 后偏空**：等待当前 {1} K 线收盘确认，最好随后反抽不过 {2}；第一关注目标 {3}。若重新站上 {4}，本次空头方案取消。", formatPrice(action.shortTrigger), intervalLabel(snapshot.interval), formatPrice(action.support), formatPrice(action.shortTarget), formatPrice(action.longTrigger)),
+    tradingReportText("- **{0}–{1} 之间先等待**：区间内部容易反复，不在中间位置猜吸筹或派发。", formatPrice(action.shortTrigger), formatPrice(action.longTrigger)),
     "",
-    "### 新手执行清单",
-    "1. 先等本周期收盘确认；盘中刺破后又回到区间，按假突破处理。",
-    "2. 突破后优先等一次回踩/反抽，不追第一根大阳线或大阴线。",
-    "3. 单笔预设亏损建议不超过账户约 0.5%–1%，止损触发后不补仓摊平。",
-    "4. 永续合约谨慎使用杠杆，到达第一目标后可分批止盈。",
+    tradingReportText("### 新手执行清单"),
+    tradingReportText("1. 先等本周期收盘确认；盘中刺破后又回到区间，按假突破处理。"),
+    tradingReportText("2. 突破后优先等一次回踩/反抽，不追第一根大阳线或大阴线。"),
+    tradingReportText("3. 单笔预设亏损建议不超过账户约 0.5%–1%，止损触发后不补仓摊平。"),
+    tradingReportText("4. 永续合约谨慎使用杠杆，到达第一目标后可分批止盈。"),
     "",
-    "### 图上结构怎么理解（可跳过）",
-    `主情景：${patternLabel(primary.pattern)}，目前处于约 Phase ${phaseLabel(primary)}，${primary.status === "confirmed" ? "关键方向事件已有确认" : "仍是暂定结构"}。区间下沿约 ${formatPrice(primary.range.support)}，上沿约 ${formatPrice(primary.range.resistance)}。`,
+    tradingReportText("### 图上结构怎么理解（可跳过）"),
+    tradingReportText("主情景：{0}，目前处于约 Phase {1}，{2}。区间下沿约 {3}，上沿约 {4}。", patternLabel(primary.pattern), phaseLabel(primary), primary.status === "confirmed" ? tradingReportText("关键方向事件已有确认") : tradingReportText("仍是暂定结构"), formatPrice(primary.range.support), formatPrice(primary.range.resistance)),
     events.length
-      ? events.map((event) => `- ${event.code}（${plainEventLabel(event)}）约 ${formatPrice(event.price)}：量能相对基准 ${event.evidence.relativeVolume.toFixed(2)} 倍，价差约 ${event.evidence.spreadInAtr.toFixed(2)} ATR，${event.status === "confirmed" ? "证据已满足" : "仍待后续确认"}。`).join("\n")
-      : "当前没有足够证据标注 Spring、UTAD、SOS 或 SOW 等关键事件，因此只保留交易区间。",
+      ? events.map((event) => tradingReportText("- {0}（{1}）约 {2}：量能相对基准 {3} 倍，价差约 {4} ATR，{5}。", event.code, plainEventLabel(event), formatPrice(event.price), event.evidence.relativeVolume.toFixed(2), event.evidence.spreadInAtr.toFixed(2), event.status === "confirmed" ? tradingReportText("证据已满足") : tradingReportText("仍待后续确认"))).join("\n")
+      : tradingReportText("当前没有足够证据标注 Spring、UTAD、SOS 或 SOW 等关键事件，因此只保留交易区间。"),
     "",
-    "### 如果主情景不成立",
+    tradingReportText("### 如果主情景不成立"),
     alternatives.length
-      ? alternatives.map((candidate, index) => `${index + 1}. 备选 ${index + 1}：${patternLabel(candidate.pattern)}，方向确认价 ${formatPrice(candidate.confirmationPrice)}，失效价 ${formatPrice(candidate.invalidationPrice)}。`).join("\n")
-      : `相反方向候选仍存在；上破 ${formatPrice(action.longTrigger)} 与跌破 ${formatPrice(action.shortTrigger)} 之前，不把任何一边当成既定事实。`,
+      ? alternatives.map((candidate, index) => tradingReportText("{0}. 备选 {1}：{2}，方向确认价 {3}，失效价 {4}。", index + 1, index + 1, patternLabel(candidate.pattern), formatPrice(candidate.confirmationPrice), formatPrice(candidate.invalidationPrice))).join("\n")
+      : tradingReportText("相反方向候选仍存在；上破 {0} 与跌破 {1} 之前，不把任何一边当成既定事实。", formatPrice(action.longTrigger), formatPrice(action.shortTrigger)),
     "",
-    "### 数据说明",
-    `本次使用 ${snapshot.candles.length} 根 ${snapshot.interval} OHLCV K 线，覆盖 ${formatTime(firstCandle.time)} 至 ${formatTime(lastCandle.time)}；确定性引擎识别 ${theoryResult.statistics.rangeCount} 个交易区间、${theoryResult.statistics.candidateCount} 个吸筹/派发候选和 ${theoryResult.statistics.eventCount} 个候选事件。主区间价格包含率 ${formatPercent(primary.range.containment)}。`,
-    "这些标记来自 K 线价差、成交量、上下沿测试与突破质量，不等同于逐笔订单流。没有足够证据的事件不会强行命名。",
+    tradingReportText("### 数据说明"),
+    tradingReportText("本次使用 {0} 根 {1} OHLCV K 线，覆盖 {2} 至 {3}；确定性引擎识别 {4} 个交易区间、{5} 个吸筹/派发候选和 {6} 个候选事件。主区间价格包含率 {7}。", snapshot.candles.length, snapshot.interval, formatTime(firstCandle.time), formatTime(lastCandle.time), theoryResult.statistics.rangeCount, theoryResult.statistics.candidateCount, theoryResult.statistics.eventCount, formatPercent(primary.range.containment)),
+    tradingReportText("这些标记来自 K 线价差、成交量、上下沿测试与突破质量，不等同于逐笔订单流。没有足够证据的事件不会强行命名。"),
     "",
-    "### 风险说明",
-    "威科夫阶段会随新 K 线重新判断。以上是条件式观察方案，不是自动交易指令、收益承诺或经过历史校准的涨跌概率。",
+    tradingReportText("### 风险说明"),
+    tradingReportText("威科夫阶段会随新 K 线重新判断。以上是条件式观察方案，不是自动交易指令、收益承诺或经过历史校准的涨跌概率。"),
   ].join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
@@ -357,7 +359,7 @@ export function buildWyckoffDrawingPatch(snapshot, theoryResult, review) {
         theory: "wyckoff",
         tool: "note",
         points: [{ time: rangeEnd, price: range.resistance }],
-        text: `区间上沿 ${formatPrice(range.resistance)}`,
+        text: tradingReportText("区间上沿 {0}", formatPrice(range.resistance)),
         colorToken: "wyckoff-supply",
         status: "confirmed",
         evidenceIds: [range.evidenceId],
@@ -370,7 +372,7 @@ export function buildWyckoffDrawingPatch(snapshot, theoryResult, review) {
         theory: "wyckoff",
         tool: "note",
         points: [{ time: rangeEnd, price: range.support }],
-        text: `区间下沿 ${formatPrice(range.support)}`,
+        text: tradingReportText("区间下沿 {0}", formatPrice(range.support)),
         colorToken: "wyckoff-demand",
         status: "confirmed",
         evidenceIds: [range.evidenceId],
@@ -466,7 +468,7 @@ export function buildWyckoffDrawingPatch(snapshot, theoryResult, review) {
         theory: "wyckoff",
         tool: "note",
         points: [{ time: futureTime(snapshot, 9), price: targetPrice }],
-        text: `${patternLabel(primary.pattern)}条件目标 ${formatPrice(targetPrice)}`,
+        text: tradingReportText("{0}条件目标 {1}", patternLabel(primary.pattern), formatPrice(targetPrice)),
         colorToken: "wyckoff-projection",
         status: "tentative",
         evidenceIds: primary.evidenceIds,
@@ -480,7 +482,7 @@ export function buildWyckoffDrawingPatch(snapshot, theoryResult, review) {
       theory: "wyckoff",
       tool: "note",
       points: [{ time: snapshot.candles.at(-1).time, price: snapshot.candles.at(-1).close }],
-      text: `上破 ${formatPrice(action.longTrigger)} 偏多｜跌破 ${formatPrice(action.shortTrigger)} 偏空｜区间内等待`,
+      text: tradingReportText("上破 {0} 偏多｜跌破 {1} 偏空｜区间内等待", formatPrice(action.longTrigger), formatPrice(action.shortTrigger)),
       colorToken: "wyckoff-note",
       status: primary.status === "confirmed" && review.verdict === "approve" ? "confirmed" : "tentative",
       evidenceIds: primary.evidenceIds,
@@ -496,7 +498,7 @@ export function buildWyckoffDrawingPatch(snapshot, theoryResult, review) {
   }, snapshot);
 }
 
-export async function runTradingWyckoffAnalysisPipeline(params, options = {}) {
+async function runTradingWyckoffAnalysisPipelineInternal(params, options = {}) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runWyckoffTheoryEngine(snapshot);
   if (theoryResult.status !== "succeeded") {
@@ -512,6 +514,8 @@ export async function runTradingWyckoffAnalysisPipeline(params, options = {}) {
   const providerId = String(options.providerId || "").trim();
   const requestId = `wyckoff-request-${crypto.randomUUID()}`;
   const modelRequest = {
+    language: params?.language,
+    allowedLanguageLiterals: [snapshot.marketId, snapshot.marketId.split(":").at(-1), snapshot.marketId.split(":").at(-1)?.replace(/USDT$/, "")],
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     requestId,
     task: "wyckoff-theory-review-and-drawing-plan",
@@ -577,4 +581,8 @@ export async function runTradingWyckoffAnalysisPipeline(params, options = {}) {
       escalationReason: reviewed.escalationReason,
     },
   };
+}
+
+export async function runTradingWyckoffAnalysisPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingWyckoffAnalysisPipelineInternal(params, options), params?.language));
 }

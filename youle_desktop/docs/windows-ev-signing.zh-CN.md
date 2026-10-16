@@ -1,6 +1,6 @@
 # Windows 客户端 EV 签名
 
-用户于 2026-09-19 明确要求以后 Windows 打包主动签名。本仓库默认开启 EV 签名并在失败时中止，不允许退回未签名包。此次重做版本仍为用户指定的 **0.1.170**；打包不等于发布生产更新。
+用户于 2026-09-19 明确要求以后 Windows 打包主动签名。本仓库默认开启 EV 签名并在失败时中止，不允许退回未签名包。版本遵循用户当次明确要求；2026-10-16 本次重做保持 **0.1.175**，仅打包、不上传或发布生产更新。
 
 ## CLI 与凭证
 
@@ -9,9 +9,17 @@
 - 当前 CLI 为官方 Windows 1.0.1，工具本身发布者为 **Keroro Software Ltd**。`scripts/evsign-policy.json` 分别固定 CLI 的 SHA-256、工具证书指纹及 HaoLo 产物证书指纹。工具更新须先复核再更新 pin，不自动接受固定下载地址返回的新二进制。
 - 本地许可证：`~/.codex/secrets/haolo-evsign-license.json`，格式为 `{"licenseKey":"许可证 UUID"}`，可含 `password`、`certificateId`。此文件在仓库之外，当前机器已限制文件权限。不要复制到源码、日志或产品资源。
 - CI：仓库加密 Secret `HAOLO_EVSIGN_LICENSE_KEY`，只向非 PR 的打包步骤注入。也可通过 `HAOLO_EVSIGN_LICENSE_FILE` 指定本地凭证文件。
-- 当前许可证实际证书发布者：**NaisNet Technology Co., Ltd.**；颁发者为 Certum Extended Validation Code Signing 2021 CA；证书到期时间 2027-04-14 UTC。发布者指纹保存在 `scripts/evsign-policy.json`。Windows 会显示这个证书发布者名称。
+- 当前许可证实际证书发布者：**Keroro Software Ltd**；颁发者为 GlobalSign GCC R45 EV CodeSigning CA 2020；证书到期时间 2027-08-27 03:38:41 UTC；产物指纹为 `EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD`，固定在 `scripts/evsign-policy.json`。Windows 会显示这个证书发布者名称。
+- 2026-10-16 服务商默认证书从NaisNet更换为Keroro，首次构建按旧指纹正确中止。用户明确确认“已确认更换为 Keroro，允许更新固定证书”后才更新产物pin；候选已复核受信Authenticode、EV策略、SHA256、DigiCert时间戳及PE正文一致。旧NaisNet指纹 `0742580B8EA12653FE3A1E906613268467BAD80A` 仅用于历史记录，不作为新产物允许列表。CLI工具自身的哈希与证书pin保持原值。
 - 证书更换必须先核对受信链和发布者，再明确更新指纹；不要为通过校验自动接受不同证书。
 - CLI 文档要求通过 `-key` 传许可证，由 Node 直接传给子进程，不经过 shell。禁止打印命令参数、原始 CLI 输出或包含完整命令的进程错误；失败信息先脱敏。CLI 工具和许可证都不打入客户端。
+
+## 自动更新与证书轮换
+
+- 用户于2026-10-16明确要求：客户端自动更新不绑定证书公司名称，以兼容服务商证书轮换；不要在更新流程新增发布者名称或证书指纹固定比较。
+- 本次核查0.1.175：客户端使用自有 `checkAppUpdate` → `downloadAppUpdate` → Windows安装器启动链路，没有使用 `electron-updater`，也没有运行时发布者名称／指纹校验。下载入口要求HTTPS及支持的安装包后缀，全量／续传／差分下载依据服务端发布元数据校验大小和SHA256；成功后退出客户端并启动NSIS安装器。应用更新逻辑不调用构建签名策略，NSIS定制脚本也没有公司名比较。
+- 构建时的固定证书校验用于确认服务商按已批准证书签署本次产物，与客户端自动更新独立。证书更换按上方确认记录更新构建pin；保留安装包签名、可信时间戳及下载完整性校验，不因证书轮换关闭这些检查。Windows系统自身的安装提示／信任处理由系统负责。
+- 验证：更新检查、全量／断点续传／差分下载和安装器启动相关30/30测试通过；本次仅核查并记录既有行为，没有修改运行时或重打安装包。
 
 ## 构建顺序
 

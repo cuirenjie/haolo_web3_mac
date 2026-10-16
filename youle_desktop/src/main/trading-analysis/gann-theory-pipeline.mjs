@@ -1,3 +1,4 @@
+import { localizeTradingAnalysisResult, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { runGannTheoryEngine } from "./gann-theory-engine.mjs";
 import {
@@ -17,16 +18,16 @@ function formatPrice(value) {
 }
 
 function directionLabel(direction) {
-  return direction === "bullish" ? "低点锚定的上升投影" : "高点锚定的下降投影";
+  return direction === "bullish" ? tradingReportText("低点锚定的上升投影") : tradingReportText("高点锚定的下降投影");
 }
 
 function calibrationLabel(result) {
   const method = result.calibration.method === "same-type-pivot"
-    ? "同类确认转折点"
+    ? tradingReportText("同类确认转折点")
     : result.calibration.method === "opposite-pivot-fallback"
-      ? "相邻反向摆动（降级校准）"
-      : "近期中位波幅（保底校准）";
-  return `${method}：1x1=${formatPrice(result.calibration.pricePerBar)} 价格单位/Bar，基础周期 ${result.calibration.cycleBars} Bar`;
+      ? tradingReportText("相邻反向摆动（降级校准）")
+      : tradingReportText("近期中位波幅（保底校准）");
+  return tradingReportText("{0}：1x1={1} 价格单位/Bar，基础周期 {2} Bar", method, formatPrice(result.calibration.pricePerBar), result.calibration.cycleBars);
 }
 
 export function buildGannTheoryReport(snapshot, result) {
@@ -39,39 +40,39 @@ export function buildGannTheoryReport(snapshot, result) {
     .map((level) => `${level.side === "up" ? "+" : "-"}${level.angle}° ${formatPrice(level.price)}`)
     .join("；");
   return [
-    "## 江恩理论结论",
+    tradingReportText("## 江恩理论结论"),
     "",
-    `当前使用 **${directionLabel(result.direction)}**。锚点为 ${result.anchor.type === "low" ? "确认低点" : "确认高点"} ${formatPrice(result.anchor.price)}；当前价相对 1x1 为 **${result.fan.relativeToOneByOne === "above" ? "上方" : "下方"}**。`,
+    tradingReportText("当前使用 **{0}**。锚点为 {1} {2}；当前价相对 1x1 为 **{3}**。", directionLabel(result.direction), result.anchor.type === "low" ? tradingReportText("确认低点") : tradingReportText("确认高点"), formatPrice(result.anchor.price), result.fan.relativeToOneByOne === "above" ? tradingReportText("上方") : tradingReportText("下方")),
     "",
-    "### 标尺与锚点",
-    `- 校准：${calibrationLabel(result)}。1x1 是数学上的价格/Bar 斜率，不以屏幕是否呈 45° 判断。`,
-    `- 锚点质量：${result.anchorQuality === "confirmed-local-extreme" ? "局部确认转折点" : "分段确认极值（降级）"}；本轮投影 ${result.projection.turns} 个基础周期。`,
-    `- 最后已收盘价：${formatPrice(result.lastClosedCandle.close)}；排除 ${result.excludedLiveCandles} 根未收盘 K 线。`,
+    tradingReportText("### 标尺与锚点"),
+    tradingReportText("- 校准：{0}。1x1 是数学上的价格/Bar 斜率，不以屏幕是否呈 45° 判断。", calibrationLabel(result)),
+    tradingReportText("- 锚点质量：{0}；本轮投影 {1} 个基础周期。", result.anchorQuality === "confirmed-local-extreme" ? tradingReportText("局部确认转折点") : tradingReportText("分段确认极值（降级）"), result.projection.turns),
+    tradingReportText("- 最后已收盘价：{0}；排除 {1} 根未收盘 K 线。", formatPrice(result.lastClosedCandle.close), result.excludedLiveCandles),
     "",
-    "### 江恩角度线",
-    `- 已绘制九条角度线：${result.fan.lines.map((line) => line.ratio).join("、")}；1x1 当前投影价 ${formatPrice(result.fan.oneByOneAtLatest)}。`,
-    "- 角度线只提供动态支撑/阻力候选。单独触线、盘中穿越或视觉上的 45° 均不是交易信号。",
+    tradingReportText("### 江恩角度线"),
+    tradingReportText("- 已绘制九条角度线：{0}；1x1 当前投影价 {1}。", result.fan.lines.map((line) => line.ratio).join("、"), formatPrice(result.fan.oneByOneAtLatest)),
+    tradingReportText("- 角度线只提供动态支撑/阻力候选。单独触线、盘中穿越或视觉上的 45° 均不是交易信号。"),
     "",
-    "### 江恩方格与轮中轮",
-    `- 外层方格覆盖 ${result.projection.spanBars} Bar 与 ${formatPrice(result.projection.priceRange)} 价格范围，并按 1/4、1/2、3/4 同时分割价格和时间。`,
-    "- 轮中轮以同一锚点的 1/2 与 1/4 嵌套方格表达，共享同一标尺；不把普通缩放矩形冒充另一套周期。",
+    tradingReportText("### 江恩方格与轮中轮"),
+    tradingReportText("- 外层方格覆盖 {0} Bar 与 {1} 价格范围，并按 1/4、1/2、3/4 同时分割价格和时间。", result.projection.spanBars, formatPrice(result.projection.priceRange)),
+    tradingReportText("- 轮中轮以同一锚点的 1/2 与 1/4 嵌套方格表达，共享同一标尺；不把普通缩放矩形冒充另一套周期。"),
     "",
-    "### Square of Nine / 数字螺旋",
-    `- 锚点 ${formatPrice(result.spiral.anchorPrice)} 先按 priceUnit=${formatPrice(result.spiral.priceUnit)} 移动小数尺度，再按 ((√标准化锚点 ± 因子)² × priceUnit) 计算。`,
-    `- 图上最近层级：${visibleSpiral || "无可用层级"}。完整角度表为 45° 至 360°；这些是候选价位，不是保证反转的预测。`,
+    tradingReportText("### Square of Nine / 数字螺旋"),
+    tradingReportText("- 锚点 {0} 先按 priceUnit={1} 移动小数尺度，再按 ((√标准化锚点 ± 因子)² × priceUnit) 计算。", formatPrice(result.spiral.anchorPrice), formatPrice(result.spiral.priceUnit)),
+    tradingReportText("- 图上最近层级：{0}。完整角度表为 45° 至 360°；这些是候选价位，不是保证反转的预测。", visibleSpiral || tradingReportText("无可用层级")),
     "",
-    "### 标准执行方案",
-    `- 当前动作：等待条件触发；方向为${bullish ? "偏多" : "偏空"}。`,
-    `- 条件触发：已收盘 K 线${bullish ? "站上" : "跌破"} ${formatPrice(trigger)}，随后回踩/反抽不重新收回。`,
-    `- 结构失效/止损参考：${formatPrice(invalidation)}；分批目标：T1 ${formatPrice(targets[0])}，T2 ${formatPrice(targets[1])}。`,
-    `- 共振检查：当前${action.confluence.nearOneByOne ? "接近" : "未接近"} 1x1，${action.confluence.nearSquareOfNine ? "接近" : "未接近"}数字螺旋层级；共振也必须由已收盘价格行为确认。`,
-    `- 确认要求：${action.confirmation}`,
-    `- 取消条件：${action.cancellation}。方案最多有效 ${action.validityBars} 个当前周期。`,
-    "- 仓位与风险：由统一执行计划把单笔预设亏损限制在账户权益约 1%；缺少账户权益、合约乘数和最小下单单位时不生成数量。",
+    tradingReportText("### 标准执行方案"),
+    tradingReportText("- 当前动作：等待条件触发；方向为{0}。", bullish ? tradingReportText("偏多") : tradingReportText("偏空")),
+    tradingReportText("- 条件触发：已收盘 K 线{0} {1}，随后回踩/反抽不重新收回。", bullish ? tradingReportText("站上") : tradingReportText("跌破"), formatPrice(trigger)),
+    tradingReportText("- 结构失效/止损参考：{0}；分批目标：T1 {1}，T2 {2}。", formatPrice(invalidation), formatPrice(targets[0]), formatPrice(targets[1])),
+    tradingReportText("- 共振检查：当前{0} 1x1，{1}数字螺旋层级；共振也必须由已收盘价格行为确认。", action.confluence.nearOneByOne ? tradingReportText("接近") : tradingReportText("未接近"), action.confluence.nearSquareOfNine ? tradingReportText("接近") : tradingReportText("未接近")),
+    tradingReportText("- 确认要求：{0}", action.confirmation),
+    tradingReportText("- 取消条件：{0}。方案最多有效 {1} 个当前周期。", action.cancellation, action.validityBars),
+    tradingReportText("- 仓位与风险：由统一执行计划把单笔预设亏损限制在账户权益约 1%；缺少账户权益、合约乘数和最小下单单位时不生成数量。"),
     "",
-    "### 数据与限制",
-    `本次使用 ${result.closedCandleCount} 根 ${snapshot.interval} 已收盘 K 线。所有锚点、标尺、方格与价位均可由相同输入复算。`,
-    "未使用占星、行星日期或不可复算的神秘数规则；江恩工具属于条件框架，不承诺转折、目标到达或收益，也不会自动创建订单。",
+    tradingReportText("### 数据与限制"),
+    tradingReportText("本次使用 {0} 根 {1} 已收盘 K 线。所有锚点、标尺、方格与价位均可由相同输入复算。", result.closedCandleCount, snapshot.interval),
+    tradingReportText("未使用占星、行星日期或不可复算的神秘数规则；江恩工具属于条件框架，不承诺转折、目标到达或收益，也不会自动创建订单。"),
   ].join("\n");
 }
 
@@ -129,7 +130,7 @@ export function buildGannTheoryDrawingPatch(snapshot, result) {
       line.ratio === "1x1" ? "primary" : "note",
       "path",
       [line.start, line.end],
-      LABELED_FAN_RATIOS.has(line.ratio) ? `江恩 ${line.ratio}` : undefined,
+      LABELED_FAN_RATIOS.has(line.ratio) ? tradingReportText("江恩 {0}", line.ratio) : undefined,
       { lineStyle: line.ratio === "1x1" ? "solid" : "dotted", lineWidth: line.ratio === "1x1" ? 2 : 0.8 },
       [result.anchor.id, "gann-scale-calibration"],
     ));
@@ -140,7 +141,7 @@ export function buildGannTheoryDrawingPatch(snapshot, result) {
     "primary",
     "rectangle",
     [result.square.outer.start, result.square.outer.end],
-    `江恩方格 · ${result.projection.spanBars} Bar`,
+    tradingReportText("江恩方格 · {0} Bar", result.projection.spanBars),
     { lineStyle: "dashed", lineWidth: 1.2 },
     [result.anchor.id, "gann-scale-calibration"],
   ));
@@ -151,7 +152,7 @@ export function buildGannTheoryDrawingPatch(snapshot, result) {
       "note",
       "rectangle",
       [nested.start, nested.end],
-      nested.fraction === 0.5 ? "轮中轮 1/2" : undefined,
+      nested.fraction === 0.5 ? tradingReportText("轮中轮 1/2") : undefined,
       { lineStyle: "dotted", lineWidth: 0.8 },
       [result.anchor.id, "gann-scale-calibration"],
     ));
@@ -163,7 +164,7 @@ export function buildGannTheoryDrawingPatch(snapshot, result) {
       "note",
       "path",
       [{ time: result.square.outer.start.time, price: level.price }, { time: result.square.outer.end.time, price: level.price }],
-      level.fraction === 0.5 ? "价格 1/2" : undefined,
+      level.fraction === 0.5 ? tradingReportText("价格 1/2") : undefined,
       { lineStyle: "dotted", lineWidth: 0.8 },
       ["gann-scale-calibration"],
     ));
@@ -177,7 +178,7 @@ export function buildGannTheoryDrawingPatch(snapshot, result) {
       "note",
       "path",
       [{ time: level.time, price: lowerPrice }, { time: level.time, price: upperPrice }],
-      level.fraction === 0.5 ? "时间 1/2" : undefined,
+      level.fraction === 0.5 ? tradingReportText("时间 1/2") : undefined,
       { lineStyle: "dotted", lineWidth: 0.8 },
       ["gann-scale-calibration"],
     ));
@@ -201,15 +202,15 @@ export function buildGannTheoryDrawingPatch(snapshot, result) {
       `spiral-${level.side}-${level.angle}`,
       role,
       level.price,
-      `数字螺旋 ${level.side === "up" ? "+" : "-"}${level.angle}° ${formatPrice(level.price)}`,
+      tradingReportText("数字螺旋 {0}{1}° {2}", level.side === "up" ? "+" : "-", level.angle, formatPrice(level.price)),
       [result.anchor.id, "gann-square-of-nine-scale"],
     );
   }
   const action = result.actionPlan;
-  appendHorizontalLevel(operations, analysis, result, "long-trigger", "entry", action.longTrigger, `多头收盘触发 ${formatPrice(action.longTrigger)}`, evidenceIds);
-  appendHorizontalLevel(operations, analysis, result, "short-trigger", "entry", action.shortTrigger, `空头收盘触发 ${formatPrice(action.shortTrigger)}`, evidenceIds);
-  appendHorizontalLevel(operations, analysis, result, "long-stop", "stop", action.longInvalidation, `多头结构失效 ${formatPrice(action.longInvalidation)}`, evidenceIds);
-  appendHorizontalLevel(operations, analysis, result, "short-stop", "stop", action.shortInvalidation, `空头结构失效 ${formatPrice(action.shortInvalidation)}`, evidenceIds);
+  appendHorizontalLevel(operations, analysis, result, "long-trigger", "entry", action.longTrigger, tradingReportText("多头收盘触发 {0}", formatPrice(action.longTrigger)), evidenceIds);
+  appendHorizontalLevel(operations, analysis, result, "short-trigger", "entry", action.shortTrigger, tradingReportText("空头收盘触发 {0}", formatPrice(action.shortTrigger)), evidenceIds);
+  appendHorizontalLevel(operations, analysis, result, "long-stop", "stop", action.longInvalidation, tradingReportText("多头结构失效 {0}", formatPrice(action.longInvalidation)), evidenceIds);
+  appendHorizontalLevel(operations, analysis, result, "short-stop", "stop", action.shortInvalidation, tradingReportText("空头结构失效 {0}", formatPrice(action.shortInvalidation)), evidenceIds);
   (action.longTargets || action.shortTargets || []).forEach((price, index) => appendHorizontalLevel(
     operations,
     analysis,
@@ -226,7 +227,7 @@ export function buildGannTheoryDrawingPatch(snapshot, result) {
     "note",
     "note",
     [{ time: result.lastClosedCandle.time, price: result.lastClosedCandle.close }],
-    `江恩：${directionLabel(result.direction)} · 1x1 ${formatPrice(result.fan.oneByOneAtLatest)} · 等待收盘确认`,
+    tradingReportText("江恩：{0} · 1x1 {1} · 等待收盘确认", directionLabel(result.direction), formatPrice(result.fan.oneByOneAtLatest)),
     { fontSize: 11, bold: false },
     evidenceIds,
   ));
@@ -251,7 +252,7 @@ function snapshotSummary(snapshot, result) {
   };
 }
 
-export async function runTradingGannTheoryPipeline(params) {
+async function runTradingGannTheoryPipelineInternal(params) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runGannTheoryEngine(snapshot);
   const drawingPatch = buildGannTheoryDrawingPatch(snapshot, theoryResult);
@@ -284,3 +285,7 @@ export async function runTradingGannTheoryPipeline(params) {
 }
 
 export const GANN_THEORY_MODEL_ID = "gann-time-price-geometry-engine-v1";
+
+export async function runTradingGannTheoryPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingGannTheoryPipelineInternal(params, options), params?.language));
+}

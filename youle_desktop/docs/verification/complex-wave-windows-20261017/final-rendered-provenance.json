@@ -1,0 +1,7 @@
+{
+  "realModelSource": "native-final2/matrix.json",
+  "nativeLatencyMs": 12415,
+  "promptSha256": "f07aaced64f42d62a2ba074c411cdc27bda6e52f20dd9978430704aa83d800c2",
+  "paidModelCalls": 0,
+  "reason": "Reformat the exact paid model response after a display-only macro-boundary wording correction; the model prompt is identical."
+}

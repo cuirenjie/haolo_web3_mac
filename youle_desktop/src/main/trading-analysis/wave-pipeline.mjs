@@ -1,6 +1,9 @@
+import { completeTradingModelProse } from "./model-output-language.mjs";
+import { localizeTradingAnalysisResult, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { buildWaveHierarchy, runWaveTheoryEngine } from "./wave-engine.mjs";
 import { runValidatedTradingModelReview } from "./model-review.mjs";
+import { deduplicateWaveModelEvidence } from "./wave-model-evidence.mjs";
 import {
   TRADING_ANALYSIS_SCHEMA_VERSION,
   normalizeTradingMarketSnapshot,
@@ -161,20 +164,26 @@ export function buildWaveModelPrompt(snapshot, theoryResult, context = {}) {
     "波浪计数具有级别和起点歧义。优先从当前分析周期的 kind=cycle 且 components.structureVerified=true 的完整周期中选择主计数；没有完整周期时，若存在末端接近最新 K 线且通过价格硬规则的 impulse/diagonal，应优先选择该正在发展或刚完成的 1–5，再考虑较早的 ABC 修正；若当前分析周期没有候选，确定性引擎会按 structureInterval → executionInterval 提供低周期兜底候选，此时必须在 summary 或 strategyRationale 中明确说明使用了哪个低周期，不能把它冒充成主周期计数。你只能选择给定候选 ID，不得创造、删减或重排候选之外的浪点、价格、时间和历史事实，也不得把候选外的重叠结构解释成倾斜例外；末端未确认时必须说明暂定。",
     directAnswer
       ? "本次只刷新分析并回答用户的具体问题，不更新画布。report 必须第一句直接作答，后续只写必要依据，不得套用完整盘面报告或固定章节。"
-      : "完整报告与受控绘图由宿主根据确定性事实生成。你只需返回主/备候选取舍、简短 summary 和 strategyRationale；report 必须为空字符串，不要重复撰写完整报告。",
-    "面向用户必须先区分主周期结构边界和低周期战术执行价。确定性 actionLevels 在有波浪候选、现价和 ATR 时必须尽量提供单边条件执行单；低周期子浪缺失或暂定时，使用最近可用的已确认结构、波浪失效位或 ATR 波动率锚点兜底，并在 summary 或 strategyRationale 明确标注兜底来源，不能把它冒充成已确认微浪。对于 4H/1H 分析，stopBasis 应优先引用当前价格附近的分析/结构周期阻力或支撑，不能用 15m 最近摆点替代主周期结构；macroConfirmation/macroInvalidation 仍只能描述主周期确认与场景失效，不得改写成入场价。stopBasis 若存在，止损只能放在支撑/阻力区外侧或明确波浪失效位外侧并加缓冲；距离只用于识别异常和提示，不得通过缩窄止损迎合价格。只有缺少现价、方向或 ATR 等无法计算条件单的情况才等待。专业浪型和斐波那契比例放在后面的可选依据里，不得让新手先读一串术语；不得把暂定计数写成确定预测。",
-    `止盈默认优先三档净盈亏比：只要最终目标留有足够价格空间，T1 为 1:0.4–1:0.6，T2 为 1:0.8–1:1，并使用最终测量目标作为 T3；最终目标落在 1:1.3–1:1.5 时优先保留第三档区间，超出时保留当前测量比例但仍尽量补齐前两档。若价格空间或用户最低净盈亏比无法容纳完整梯度，则保留当前可用比例；当前最低净盈亏比硬约束为 1:${minimumNetRiskReward}，用户明确设置的值优先，未设置时才使用产品默认 1:0.4。`,
+      : "本次仅复核候选计数。宿主会在选定主候选后重新计算该候选的 actionLevels并生成完整报告、绘图和最终执行方案。不要提前撰写报告或推导交易计划。summary 和 strategyRationale 只解释主/备计数、内部结构证据与暂定状态，不得给出入场、止损、止盈或场景确认/失效价；这些价位由宿主按最终选定候选计算。report 必须为空字符串。",
+    ...(directAnswer ? [
+      "面向用户必须先区分主周期结构边界和低周期战术执行价。确定性 actionLevels 在有波浪候选、现价和 ATR 时必须尽量提供单边条件执行单；低周期子浪缺失或暂定时，使用最近可用的已确认结构、波浪失效位或 ATR 波动率锚点兜底，并在 report 明确标注兜底来源，不能把它冒充成已确认微浪。对于 4H/1H 分析，stopBasis 应优先引用当前价格附近的分析/结构周期阻力或支撑，不能用 15m 最近摆点替代主周期结构；macroConfirmation/macroInvalidation 仍只能描述主周期确认与场景失效，不得改写成入场价。stopBasis 若存在，止损只能放在支撑/阻力区外侧或明确波浪失效位外侧并加缓冲；距离只用于识别异常和提示，不得通过缩窄止损迎合价格。只有缺少现价、方向或 ATR 等无法计算条件单的情况才等待。专业浪型和斐波那契比例放在后面的可选依据里，不得让新手先读一串术语；不得把暂定计数写成确定预测。",
+      "actionLevels 仅属于确定性 primaryCandidate；若选择了其他候选，不得把这些价位当成所选候选的交易计划。",
+      `止盈默认优先三档净盈亏比：只要最终目标留有足够价格空间，T1 为 1:0.4–1:0.6，T2 为 1:0.8–1:1，并使用最终测量目标作为 T3；最终目标落在 1:1.3–1:1.5 时优先保留第三档区间，超出时保留当前测量比例但仍尽量补齐前两档。若价格空间或用户最低净盈亏比无法容纳完整梯度，则保留当前可用比例；当前最低净盈亏比硬约束为 1:${minimumNetRiskReward}，用户明确设置的值优先，未设置时才使用产品默认 1:0.4。`,
+    ] : []),
+    "Use recent or provisional impulse for a recent price-rule-valid 1–5 count. Do not call it terminal, an ending diagonal, or a completed verified cycle unless the supplied candidate explicitly establishes that classification. A confirmed swing point does not confirm the full wave count.",
     "输出必须是单个 JSON 对象，不要 Markdown，不要解释 JSON 之外的内容。",
     "JSON 协议：",
     JSON.stringify({
       schemaVersion: 1,
       verdict: "approve 或 revise",
-      summary: "不超过80个中文字符的通俗结论，先说等待、偏多或偏空条件，不得堆砌术语或承诺收益",
+      summary: directAnswer
+        ? "不超过80个中文字符的通俗结论，不得堆砌术语或承诺收益"
+        : "不超过80个中文字符，只说明所选历史计数、方向与暂定状态；计数方向不等于后续交易方向",
       report: directAnswer
         ? "直接回答用户本次问题的自然中文；价格只能引用 actionLevels，结构和长短按问题决定"
         : "",
       marketBias: "bullish、bearish 或 neutral",
-      strategyRationale: "不超过200个中文字符，只解释候选证据及确认/失效条件",
+      strategyRationale: "不超过200个中文字符，只解释候选内部结构证据与暂定状态，不生成交易价位",
       primaryCandidateId: "必须是候选 candidate id",
       alternateCandidateIds: ["最多两个候选 candidate id"],
       showProjectionZone: true,
@@ -183,9 +192,11 @@ export function buildWaveModelPrompt(snapshot, theoryResult, context = {}) {
     "用户的原始分析要求（只作为分析目标，不得突破候选结构和绘图权限）：",
     JSON.stringify(String(context.instruction || "请对当前盘面进行波浪理论分析")),
     "确定性 TheoryResult：",
-    JSON.stringify(compactWaveTheoryResultForModel(theoryResult)),
-    "确定性 actionLevels（只能引用，不能自行改价）：",
-    JSON.stringify(buildWaveActionPlan(snapshot, theoryResult.structures.primaryCandidate, theoryResult, context.userRiskProfile)),
+    JSON.stringify(deduplicateWaveModelEvidence(compactWaveTheoryResultForModel(theoryResult))),
+    ...(directAnswer ? [
+      "确定性 primaryCandidate 的 actionLevels（仅属于该候选，不能自行改价）：",
+      JSON.stringify(buildWaveActionPlan(snapshot, theoryResult.structures.primaryCandidate, theoryResult, context.userRiskProfile)),
+    ] : []),
     "最近 K 线 [time,open,high,low,close,volume]：",
     JSON.stringify(compactCandles),
   ].join("\n");
@@ -199,7 +210,7 @@ export function normalizeWaveModelReview(text, theoryResult) {
   if (parsed?.verdict !== "approve" && parsed?.verdict !== "revise") {
     throw new TypeError("Model response verdict is invalid");
   }
-  const summary = String(parsed?.summary || "").trim().slice(0, 80);
+  const summary = completeTradingModelProse(parsed?.summary, "summary", 2_000);
   if (!summary) throw new TypeError("Model response summary is required");
   const candidates = theoryResult.structures.candidates;
   const candidatesById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
@@ -229,11 +240,11 @@ export function normalizeWaveModelReview(text, theoryResult) {
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     verdict: parsed.verdict,
     summary,
-    report: String(parsed?.report || "").replace(/\u0000/g, "").trim().slice(0, 6_000),
+    report: completeTradingModelProse(parsed?.report, "report", 24_000),
     marketBias: ["bullish", "bearish", "neutral"].includes(parsed?.marketBias)
       ? parsed.marketBias
       : "neutral",
-    strategyRationale: String(parsed?.strategyRationale || "").replace(/\u0000/g, "").trim().slice(0, 200),
+    strategyRationale: completeTradingModelProse(parsed?.strategyRationale, "strategyRationale", 2_000),
     primaryCandidateId,
     alternateCandidateIds,
     showProjectionZone: parsed.showProjectionZone !== false,
@@ -264,12 +275,12 @@ function formatTime(seconds) {
 }
 
 function plainIntervalLabel(interval) {
-  if (interval === "1D") return "日线";
-  if (interval === "1W") return "周线";
+  if (interval === "1D") return tradingReportText("日线");
+  if (interval === "1W") return tradingReportText("周线");
   const minutes = Number(interval);
-  if (!Number.isFinite(minutes)) return String(interval || "当前周期");
-  if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60}小时`;
-  return `${minutes}分钟`;
+  if (!Number.isFinite(minutes)) return String(interval || tradingReportText("当前周期"));
+  if (minutes >= 60 && minutes % 60 === 0) return tradingReportText("{0}小时", minutes / 60);
+  return tradingReportText("{0}分钟", minutes);
 }
 
 function nearestPriceAbove(values, reference) {
@@ -354,10 +365,10 @@ function waveProjectionMeasurement(candidate) {
 
 function waveMeasurementLabel(measurement, ratio) {
   const basis = new Map([
-    ["prior_impulse_projection", "前一推动段投影"],
-    ["completed_correction_retracement", "已完成调整段回撤"],
-    ["motive_move_retracement", "已完成推动段回撤"],
-  ]).get(measurement?.basis) || "候选浪段测量";
+    ["prior_impulse_projection", tradingReportText("前一推动段投影")],
+    ["completed_correction_retracement", tradingReportText("已完成调整段回撤")],
+    ["motive_move_retracement", tradingReportText("已完成推动段回撤")],
+  ]).get(measurement?.basis) || tradingReportText("候选浪段测量");
   return `${basis} Fib ${ratio}`;
 }
 
@@ -844,18 +855,19 @@ function fallbackStructuralStopZone(snapshot, hierarchy, direction, referencePri
     rawUpper: safeAnchor,
     width: zonePadding * 2,
     sourceRoles: [selected?.role || "volatility"],
-    sourceIntervals: [selected?.interval || executionInterval].filter(Boolean),
+    sourceIntervals: [selected?.sourceInterval || selected?.interval
+      || (contextCandlesFor(snapshot, executionInterval).length ? executionInterval : snapshot.interval)].filter(Boolean),
     highestWeight: selected?.role === "analysis" ? 5 : 2,
     touchCount: selected ? 1 : 0,
     higherDegreeEvidence: selectedHigherDegree,
     broken: false,
     score: selected ? 1 : 0,
-    evidenceIds: selected?.evidenceIds || [],
+    evidenceIds: selected?.evidenceIds || (selected?.id ? [selected.id] : []),
     latestTime: 0,
     bufferFloor: Math.max(atr * 0.2, tickSize * 2, currentPrice * 0.00005),
     tickSize: tickSize || null,
     fallback: true,
-    fallbackReason: selected?.basis || "atr_volatility_fallback",
+    fallbackReason: selected?.basis || (selected ? "confirmed_structural_pivot" : "atr_volatility_fallback"),
     maximumStopDistancePercent,
     maximumStopDistanceAtr: Math.max(
       TACTICAL_STOP_MAX_DISTANCE_ATR,
@@ -1101,13 +1113,19 @@ export function buildWaveActionPlan(snapshot, candidate, theoryResult = null, us
     macroConfirmation: hierarchy?.analysis?.macroConfirmation ?? Number(candidate.confirmationPrice),
     macroInvalidation: hierarchy?.analysis?.macroInvalidation ?? Number(candidate.invalidationPrice),
     currentWaveEnd: candidate.points.at(-1)?.price ?? null,
-    confirmation: "低周期浪点只使用已收盘 K 线确认；进入 ready 后，价格触达带 ATR 缓冲的微浪突破价才执行",
-    triggerConfirmation: "低周期浪点已由收盘 K 线确认；价格触达带 ATR 缓冲的首选方向微浪突破价即执行",
+    confirmation: tactical.executionBasis === "structural_fallback"
+      ? "低周期浪型尚未全部确认；本条件方案采用可用结构与 ATR 兜底，价格触达带缓冲的触发价才执行"
+      : "低周期浪点只使用已收盘 K 线确认；进入 ready 后，价格触达带 ATR 缓冲的微浪突破价才执行",
+    triggerConfirmation: tactical.executionBasis === "structural_fallback"
+      ? "采用可用结构与 ATR 兜底触发价，不将其描述为已确认微浪；价格触达首选方向触发价即执行"
+      : "低周期浪点已由收盘 K 线确认；价格触达带 ATR 缓冲的首选方向微浪突破价即执行",
     observeTrigger: tactical.state === "observing"
       ? "等待结构周期形成与主周期方向一致、通过硬规则的子浪"
       : tactical.state === "armed"
         ? "结构子浪已经激活，等待执行周期形成距离与净风险收益均合格的微浪突破"
-        : `观察价格是否触达 ${plainIntervalLabel(hierarchy.execution.interval)} 微浪突破价；超过 12 根执行 K 线未触发即重算`,
+        : tactical.executionBasis === "structural_fallback"
+          ? `观察价格是否触达 ${plainIntervalLabel(tactical.triggerSourceInterval || snapshot.interval)} 结构兜底触发价；超过 12 根执行 K 线未触发即重算`
+          : `观察价格是否触达 ${plainIntervalLabel(hierarchy.execution.interval)} 微浪突破价；超过 12 根执行 K 线未触发即重算`,
     gate: {
       passed: tactical.passed,
       reasons: tactical.reasons,
@@ -1200,32 +1218,32 @@ function candidateSubdivisionDescriptor(candidate) {
 function candidateKindLabel(candidate) {
   const descriptor = candidateSubdivisionDescriptor(candidate);
   if (candidate.kind === "cycle") {
-    const motive = candidate.components?.motiveKind === "diagonal" ? "倾斜三角形" : "标准五浪推动";
+    const motive = candidate.components?.motiveKind === "diagonal" ? tradingReportText("倾斜三角形") : tradingReportText("标准五浪推动");
     const label = candidate.pattern.endsWith("_plus_wxy")
-      ? `${motive} + W-X-Y 双重三浪周期`
-      : `${motive} + A-B-C 调整周期`;
+      ? tradingReportText("{0} + W-X-Y 双重三浪周期", motive)
+      : tradingReportText("{0} + A-B-C 调整周期", motive);
     return `${label}${descriptor}`;
   }
   if (candidate.kind === "impulse") {
     const observed = candidate.validation === "hard_price_rules_pending_lower_degree_structure";
-    return `${observed ? "价格硬规则通过的暂定五浪推动" : "标准五浪推动结构"}${descriptor}`;
+    return `${observed ? tradingReportText("价格硬规则通过的暂定五浪推动") : tradingReportText("标准五浪推动结构")}${descriptor}`;
   }
-  if (candidate.kind === "diagonal") return `位置与楔形已验证的倾斜三角形${descriptor}`;
-  if (candidate.pattern === "double_three") return `W-X-Y 双重三浪调整${descriptor}`;
-  if (candidate.pattern === "expanded_flat") return `扩散平台型 A-B-C 调整${descriptor}`;
-  if (candidate.pattern === "running_flat") return `顺势平台型 A-B-C 调整${descriptor}`;
-  if (candidate.pattern === "flat") return `平台型 A-B-C 调整${descriptor}`;
-  return `锯齿型 A-B-C 调整${descriptor}`;
+  if (candidate.kind === "diagonal") return tradingReportText("位置与楔形已验证的倾斜三角形{0}", descriptor);
+  if (candidate.pattern === "double_three") return tradingReportText("W-X-Y 双重三浪调整{0}", descriptor);
+  if (candidate.pattern === "expanded_flat") return tradingReportText("扩散平台型 A-B-C 调整{0}", descriptor);
+  if (candidate.pattern === "running_flat") return tradingReportText("顺势平台型 A-B-C 调整{0}", descriptor);
+  if (candidate.pattern === "flat") return tradingReportText("平台型 A-B-C 调整{0}", descriptor);
+  return tradingReportText("锯齿型 A-B-C 调整{0}", descriptor);
 }
 
 function directionLabel(direction) {
-  if (direction === "bullish") return "向上";
-  if (direction === "bearish") return "向下";
-  return "横向";
+  if (direction === "bullish") return tradingReportText("向上");
+  if (direction === "bearish") return tradingReportText("向下");
+  return tradingReportText("横向");
 }
 
 function statusLabel(status) {
-  return status === "confirmed" ? "已确认候选" : "暂定候选";
+  return status === "confirmed" ? tradingReportText("已确认候选") : tradingReportText("暂定候选");
 }
 
 function candidateRatioText(candidate) {
@@ -1235,19 +1253,19 @@ function candidateRatioText(candidate) {
     const correctionText = candidate.pattern.endsWith("_plus_wxy")
       ? `X/W ${formatRatio(correction.waveXRetracement)}，Y/W ${formatRatio(correction.waveYToWaveW)}`
       : `B/A ${formatRatio(correction.waveBRetracement)}，C/A ${formatRatio(correction.waveCToWaveA)}`;
-    return `2/1 ${formatRatio(impulse.wave2Retracement)}，3/1 ${formatRatio(impulse.wave3Extension)}，4/3 ${formatRatio(impulse.wave4Retracement)}，5/1 ${formatRatio(impulse.wave5ToWave1)}；${correctionText}；调整/推动净幅 ${formatRatio(candidate.ratios.correctionToImpulse)}`;
+    return tradingReportText("2/1 {0}，3/1 {1}，4/3 {2}，5/1 {3}；{4}；调整/推动净幅 {5}", formatRatio(impulse.wave2Retracement), formatRatio(impulse.wave3Extension), formatRatio(impulse.wave4Retracement), formatRatio(impulse.wave5ToWave1), correctionText, formatRatio(candidate.ratios.correctionToImpulse));
   }
   if (candidate.pattern === "double_three") {
-    return `X/W 回撤 ${formatRatio(candidate.ratios.waveXRetracement)}，Y/W 长度比 ${formatRatio(candidate.ratios.waveYToWaveW)}，W 内部 b/a ${formatRatio(candidate.ratios.waveWInternalB)}，Y 内部 b/a ${formatRatio(candidate.ratios.waveYInternalB)}`;
+    return tradingReportText("X/W 回撤 {0}，Y/W 长度比 {1}，W 内部 b/a {2}，Y 内部 b/a {3}", formatRatio(candidate.ratios.waveXRetracement), formatRatio(candidate.ratios.waveYToWaveW), formatRatio(candidate.ratios.waveWInternalB), formatRatio(candidate.ratios.waveYInternalB));
   }
   if (candidate.kind === "correction") {
-    return `B/A 回撤 ${formatRatio(candidate.ratios.waveBRetracement)}，C/A 长度比 ${formatRatio(candidate.ratios.waveCToWaveA)}`;
+    return tradingReportText("B/A 回撤 {0}，C/A 长度比 {1}", formatRatio(candidate.ratios.waveBRetracement), formatRatio(candidate.ratios.waveCToWaveA));
   }
   return [
-    `2/1 回撤 ${formatRatio(candidate.ratios.wave2Retracement)}`,
-    `3/1 延伸 ${formatRatio(candidate.ratios.wave3Extension)}`,
-    `4/3 回撤 ${formatRatio(candidate.ratios.wave4Retracement)}`,
-    `5/1 长度比 ${formatRatio(candidate.ratios.wave5ToWave1)}`,
+    tradingReportText("2/1 回撤 {0}", formatRatio(candidate.ratios.wave2Retracement)),
+    tradingReportText("3/1 延伸 {0}", formatRatio(candidate.ratios.wave3Extension)),
+    tradingReportText("4/3 回撤 {0}", formatRatio(candidate.ratios.wave4Retracement)),
+    tradingReportText("5/1 长度比 {0}", formatRatio(candidate.ratios.wave5ToWave1)),
   ].join("，");
 }
 
@@ -1256,47 +1274,47 @@ function candidateRuleText(candidate) {
     const impulse = candidate.rules.impulse || {};
     const correction = candidate.rules.correction || {};
     const correctionRule = candidate.pattern.endsWith("_plus_wxy")
-      ? `W/X/Y 内部结构已验证：${correction.structureVerified ? "通过" : "未通过"}；X 浪未完全回撤 W：${correction.xHoldsOrigin ? "通过" : "未通过"}`
-      : `A-B-C 内部结构已验证：${correction.internalStructureVerified ? "通过" : "未通过"}；浪型：${candidate.components?.correctionPattern || "未分类"}`;
-    return `推动段：波2未越起点 ${impulse.wave2HoldsOrigin ? "通过" : "未通过"}、波3越过波1终点 ${impulse.wave3MakesProgress ? "通过" : "未通过"}、波4未完全回撤波3 ${impulse.wave4HoldsWave3Origin ? "通过" : "未通过"}、波3不为最短浪 ${impulse.wave3NotShortest ? "通过" : "未通过"}、波4不进入波1价格区 ${impulse.wave4AvoidsWave1 ? "通过" : "未通过"}、波5推进或严格截短验证 ${impulse.wave5MakesProgress || impulse.truncatedFifthVerified ? "通过" : "未通过"}、内部 5-3-5-3-5 ${impulse.impulseInternalStructureVerified ? "通过" : "未通过"}；调整段：${correctionRule}。`;
+      ? tradingReportText("W/X/Y 内部结构已验证：{0}；X 浪未完全回撤 W：{1}", correction.structureVerified ? tradingReportText("通过") : tradingReportText("未通过"), correction.xHoldsOrigin ? tradingReportText("通过") : tradingReportText("未通过"))
+      : tradingReportText("A-B-C 内部结构已验证：{0}；浪型：{1}", correction.internalStructureVerified ? tradingReportText("通过") : tradingReportText("未通过"), candidate.components?.correctionPattern || tradingReportText("未分类"));
+    return tradingReportText("推动段：波2未越起点 {0}、波3越过波1终点 {1}、波4未完全回撤波3 {2}、波3不为最短浪 {3}、波4不进入波1价格区 {4}、波5推进或严格截短验证 {5}、内部 5-3-5-3-5 {6}；调整段：{7}。", impulse.wave2HoldsOrigin ? tradingReportText("通过") : tradingReportText("未通过"), impulse.wave3MakesProgress ? tradingReportText("通过") : tradingReportText("未通过"), impulse.wave4HoldsWave3Origin ? tradingReportText("通过") : tradingReportText("未通过"), impulse.wave3NotShortest ? tradingReportText("通过") : tradingReportText("未通过"), impulse.wave4AvoidsWave1 ? tradingReportText("通过") : tradingReportText("未通过"), impulse.wave5MakesProgress || impulse.truncatedFifthVerified ? tradingReportText("通过") : tradingReportText("未通过"), impulse.impulseInternalStructureVerified ? tradingReportText("通过") : tradingReportText("未通过"), correctionRule);
   }
   if (candidate.pattern === "double_three") {
-    return `W、X、Y 的内部调整结构均已验证：${candidate.rules.structureVerified ? "通过" : "未通过"}；X 浪未完全回撤 W：${candidate.rules.xHoldsOrigin ? "通过" : "未通过"}；Y 是否超过 W 终点只作排序参考，不作为硬规则。`;
+    return tradingReportText("W、X、Y 的内部调整结构均已验证：{0}；X 浪未完全回撤 W：{1}；Y 是否超过 W 终点只作排序参考，不作为硬规则。", candidate.rules.structureVerified ? tradingReportText("通过") : tradingReportText("未通过"), candidate.rules.xHoldsOrigin ? tradingReportText("通过") : tradingReportText("未通过"));
   }
   if (candidate.kind === "correction") {
-    return `A-B-C 内部结构：${candidate.rules.internalStructureVerified ? "通过" : "未通过"}；B/A 与 C/A 的价格关系已按 ${candidate.pattern} 规则分类。`;
+    return tradingReportText("A-B-C 内部结构：{0}；B/A 与 C/A 的价格关系已按 {1} 规则分类。", candidate.rules.internalStructureVerified ? tradingReportText("通过") : tradingReportText("未通过"), candidate.pattern);
   }
-  return `波2未越波1起点：${candidate.rules.wave2HoldsOrigin ? "通过" : "未通过"}；波3越过波1终点：${candidate.rules.wave3MakesProgress ? "通过" : "未通过"}；波4未完全回撤波3：${candidate.rules.wave4HoldsWave3Origin ? "通过" : "未通过"}；波3不为最短浪：${candidate.rules.wave3NotShortest ? "通过" : "未通过"}；波4不与波1价格区重叠：${candidate.rules.wave4AvoidsWave1 ? "通过" : "未通过"}；波5推进或严格截短验证：${candidate.rules.wave5MakesProgress || candidate.rules.truncatedFifthVerified ? "通过" : "未通过"}；内部 5-3-5-3-5：${candidate.rules.impulseInternalStructureVerified ? "通过" : "未通过"}。`;
+  return tradingReportText("波2未越波1起点：{0}；波3越过波1终点：{1}；波4未完全回撤波3：{2}；波3不为最短浪：{3}；波4不与波1价格区重叠：{4}；波5推进或严格截短验证：{5}；内部 5-3-5-3-5：{6}。", candidate.rules.wave2HoldsOrigin ? tradingReportText("通过") : tradingReportText("未通过"), candidate.rules.wave3MakesProgress ? tradingReportText("通过") : tradingReportText("未通过"), candidate.rules.wave4HoldsWave3Origin ? tradingReportText("通过") : tradingReportText("未通过"), candidate.rules.wave3NotShortest ? tradingReportText("通过") : tradingReportText("未通过"), candidate.rules.wave4AvoidsWave1 ? tradingReportText("通过") : tradingReportText("未通过"), candidate.rules.wave5MakesProgress || candidate.rules.truncatedFifthVerified ? tradingReportText("通过") : tradingReportText("未通过"), candidate.rules.impulseInternalStructureVerified ? tradingReportText("通过") : candidate.validation === "hard_price_rules_pending_lower_degree_structure" ? tradingReportText("待确认") : tradingReportText("未通过"));
 }
 
 function waveGateReasonLabel(reason, minimumNetRiskReward = TACTICAL_MIN_NET_RISK_REWARD) {
   const labels = new Map([
-    ["lower_timeframes_not_provided", "尚未取得真实低周期 K 线"],
-    ["structure_timeframe_unavailable", "结构周期数据不可用"],
-    ["execution_timeframe_unavailable", "执行周期数据不可用"],
-    ["aligned_structure_wave_missing", "结构周期没有与主方向一致的有效子浪"],
-    ["structure_wave_tentative", "结构子浪末端仍未确认"],
-    ["aligned_execution_wave_missing", "执行周期没有与主方向一致的有效微浪"],
-    ["execution_wave_tentative", "执行微浪末端仍未确认"],
-    ["execution_metrics_unavailable", "执行周期 ATR 或方向证据不足"],
-    ["trigger_fallback", "低周期触发证据不足，已采用最近可用结构/波动率锚点"],
-    ["macro_confirmation_fallback", "低周期触发证据不足，已采用主周期确认边界作为条件价来源"],
-    ["future_micro_break_missing", "现价附近没有尚未触发的微浪突破位"],
-    ["wave_target_missing", "没有得到符合波浪测量方向的斐波那契或结构目标"],
-    ["wave_target_fallback", "波浪目标不足，已用结构风险倍数补足条件目标"],
-    ["risk_reward_target_fallback", "原目标净风报不足，已补充风险倍数条件目标"],
-    ["trigger_distance_exceeded", "触发价距离超过执行周期 3 ATR 提示范围，条件单仍保留"],
-    ["structural_stop_missing", "没有找到有效的支撑/阻力结构区"],
-    ["structural_stop_fallback", "有效结构区不足，已采用最近确认摆点/波浪失效位/ATR 兜底止损"],
-    ["stop_distance_floor_applied", "结构区过近，止损向外扩展至 0.6 ATR 噪声缓冲"],
-    ["stop_distance_too_tight", "结构止损距离小于执行周期 0.6 ATR 噪声下限"],
-    ["structural_stop_distance_exceeded", "结构止损距离超过当前级别允许包络（低周期 3.5 ATR/3%，高周期 6%）"],
-    ["execution_wave_expired", "执行微浪已超过 12 根执行 K 线有效期"],
+    ["lower_timeframes_not_provided", tradingReportText("尚未取得真实低周期 K 线")],
+    ["structure_timeframe_unavailable", tradingReportText("结构周期数据不可用")],
+    ["execution_timeframe_unavailable", tradingReportText("执行周期数据不可用")],
+    ["aligned_structure_wave_missing", tradingReportText("结构周期没有与主方向一致的有效子浪")],
+    ["structure_wave_tentative", tradingReportText("结构子浪末端仍未确认")],
+    ["aligned_execution_wave_missing", tradingReportText("执行周期没有与主方向一致的有效微浪")],
+    ["execution_wave_tentative", tradingReportText("执行微浪末端仍未确认")],
+    ["execution_metrics_unavailable", tradingReportText("执行周期 ATR 或方向证据不足")],
+    ["trigger_fallback", tradingReportText("低周期触发证据不足，已采用最近可用结构/波动率锚点")],
+    ["macro_confirmation_fallback", tradingReportText("低周期触发证据不足，已采用主周期确认边界作为条件价来源")],
+    ["future_micro_break_missing", tradingReportText("现价附近没有尚未触发的微浪突破位")],
+    ["wave_target_missing", tradingReportText("没有得到符合波浪测量方向的斐波那契或结构目标")],
+    ["wave_target_fallback", tradingReportText("波浪目标不足，已用结构风险倍数补足条件目标")],
+    ["risk_reward_target_fallback", tradingReportText("原目标净风报不足，已补充风险倍数条件目标")],
+    ["trigger_distance_exceeded", tradingReportText("触发价距离超过执行周期 3 ATR 提示范围，条件单仍保留")],
+    ["structural_stop_missing", tradingReportText("没有找到有效的支撑/阻力结构区")],
+    ["structural_stop_fallback", tradingReportText("有效结构区不足，已采用最近确认摆点/波浪失效位/ATR 兜底止损")],
+    ["stop_distance_floor_applied", tradingReportText("结构区过近，止损向外扩展至 0.6 ATR 噪声缓冲")],
+    ["stop_distance_too_tight", tradingReportText("结构止损距离小于执行周期 0.6 ATR 噪声下限")],
+    ["structural_stop_distance_exceeded", tradingReportText("结构止损距离超过当前级别允许包络（低周期 3.5 ATR/3%，高周期 6%）")],
+    ["execution_wave_expired", tradingReportText("执行微浪已超过 12 根执行 K 线有效期")],
   ]);
   return labels.get(reason)
     || (reason === "net_risk_reward_below_floor"
-      ? `扣除预估成本后的最终目标风险收益低于 1:${normalizedMinimumNetRiskReward(minimumNetRiskReward)}`
-      : String(reason || "未知门禁"));
+      ? tradingReportText("扣除预估成本后的最终目标风险收益低于 1:{0}", normalizedMinimumNetRiskReward(minimumNetRiskReward))
+      : String(reason || tradingReportText("未知门禁")));
 }
 
 export function buildWaveAnalysisReport(snapshot, theoryResult, review, context = {}) {
@@ -1310,11 +1328,12 @@ export function buildWaveAnalysisReport(snapshot, theoryResult, review, context 
   const lastCandle = snapshot.candles.at(-1);
   const action = buildWaveActionPlan(snapshot, primary, theoryResult, context.userRiskProfile);
   const bullish = action.primaryScenario === "bullish";
-  const directionText = bullish ? "偏多" : "偏空";
-  const structureLabel = action.structureInterval ? plainIntervalLabel(action.structureInterval) : "结构周期";
-  const executionLabel = action.executionInterval ? plainIntervalLabel(action.executionInterval) : "执行周期";
+  const directionText = bullish ? tradingReportText("偏多") : tradingReportText("偏空");
+  const countDirectionText = primary.direction === "bullish" ? tradingReportText("偏多") : tradingReportText("偏空");
+  const structureLabel = action.structureInterval ? plainIntervalLabel(action.structureInterval) : tradingReportText("结构周期");
+  const executionLabel = action.executionInterval ? plainIntervalLabel(action.executionInterval) : tradingReportText("执行周期");
   const fallback = theoryResult.fallback;
-  const fallbackLabel = fallback?.interval ? plainIntervalLabel(fallback.interval) : "低周期";
+  const fallbackLabel = fallback?.interval ? plainIntervalLabel(fallback.interval) : tradingReportText("低周期");
   const activeTrigger = bullish ? action.longTrigger : action.shortTrigger;
   const activeStop = bullish ? action.longInvalidation : action.shortInvalidation;
   const activeTargets = bullish ? action.longTargets : action.shortTargets;
@@ -1326,64 +1345,70 @@ export function buildWaveAnalysisReport(snapshot, theoryResult, review, context 
     : executionLabel;
   const targetBasisText = action.targetBasis?.length
     ? action.targetBasis.map((item) => `${item.label} ${formatPrice(item.price)}`).join("、")
-    : "未形成";
+    : tradingReportText("未形成");
   const stopBasisText = action.stopBasis?.label
-    ? `${action.stopBasis.label}（${action.stopBasis.sourceInterval ? `${plainIntervalLabel(action.stopBasis.sourceInterval)} ` : ""}${formatPrice(action.stopBasis.zoneLower)}–${formatPrice(action.stopBasis.zoneUpper)}，${action.stopBasis.touchCount || 0} 个确认触点，锚点 ${formatPrice(action.stopBasis.anchorPrice)}，缓冲 ${formatPrice(action.stopBasis.buffer)}）`
-    : "未形成";
+    ? tradingReportText("{0}（{1}{2}–{3}，{4} 个确认触点，锚点 {5}，缓冲 {6}）", action.stopBasis.label, action.stopBasis.sourceInterval ? `${plainIntervalLabel(action.stopBasis.sourceInterval)} ` : "", formatPrice(action.stopBasis.zoneLower), formatPrice(action.stopBasis.zoneUpper), action.stopBasis.touchCount || 0, formatPrice(action.stopBasis.anchorPrice), formatPrice(action.stopBasis.buffer))
+    : tradingReportText("未形成");
   const tacticalLines = ready
     ? [
-        `- **当前状态：可执行条件已就绪；可执行条件单已生成**。${fallbackExecution ? `低周期证据尚未全部对齐，采用 ${triggerLabel} 的最近可用结构/波动率锚点，并在新收盘 K 线后重算。` : `${structureLabel} 子浪与 ${executionLabel} 微浪均和 ${plainIntervalLabel(snapshot.interval)} 主方向一致。`}`,
-        `- **${triggerLabel}${directionText}条件触发：${formatPrice(activeTrigger)}**。该价位加入 ${action.gate.triggerBufferAtr} ATR 缓冲；价格触达才执行，${fallbackExecution ? "当前不把未确认的低周期摆点包装成确定微浪。" : `不使用 ${formatPrice(action.macroConfirmation)} 的主周期边界作为入场。`}`,
-        `- **结构止损：${formatPrice(activeStop)}**；目标：${activeTargets.map((target, index) => `T${index + 1} ${formatPrice(target)}`).join("、")}。触发距现价约 ${action.gate.distancePercent.toFixed(2)}% / ${action.gate.distanceAtr.toFixed(2)} ATR，止损距触发约 ${action.gate.stopDistancePercent.toFixed(2)}% / ${action.gate.stopDistanceAtr.toFixed(2)} ATR，最终目标净风报约 1:${action.gate.finalNetRiskReward.toFixed(2)}。`,
-        `- **止损与目标依据：**止损采用${stopBasisText}；止盈按候选浪段的${targetBasisText}计算。触发前若目标方向或净风报提示仍未消除，保留条件单但不立即建仓，并在下一根收盘 K 线后重算；不得通过缩窄结构止损来迎合门槛。`,
-        ...(gateReasons.length ? [`- **执行依据提示：**${gateReasons.join("；")}。以上为条件单，不代表当前价立即追单。`] : []),
-        `- 本计划只保持 ${action.validityBars} 根 ${executionLabel} K 线有效；过期、父浪失效或触发后重新收回等待区都要取消并重算。`,
+        tradingReportText("- **当前状态：可执行条件已就绪；可执行条件单已生成**。{0}", fallbackExecution ? tradingReportText("低周期证据尚未全部对齐，采用 {0} 的最近可用结构/波动率锚点，并在新收盘 K 线后重算。", triggerLabel) : tradingReportText("{0} 子浪与 {1} 微浪均和 {2} 主方向一致。", structureLabel, executionLabel, plainIntervalLabel(snapshot.interval))),
+        tradingReportText("- **{0}{1}条件触发：{2}**。该价位加入 {3} ATR 缓冲；价格触达才执行，{4}", triggerLabel, directionText, formatPrice(activeTrigger), action.gate.triggerBufferAtr, fallbackExecution ? tradingReportText("当前不把未确认的低周期摆点包装成确定微浪。") : tradingReportText("不使用 {0} 的主周期边界作为入场。", formatPrice(action.macroConfirmation))),
+        tradingReportText("- **结构止损：{0}**；目标：{1}。触发距现价约 {2}% / {3} ATR，止损距触发约 {4}% / {5} ATR，最终目标净风报约 1:{6}。", formatPrice(activeStop), activeTargets.map((target, index) => `T${index + 1} ${formatPrice(target)}`).join("、"), action.gate.distancePercent.toFixed(2), action.gate.distanceAtr.toFixed(2), action.gate.stopDistancePercent.toFixed(2), action.gate.stopDistanceAtr.toFixed(2), action.gate.finalNetRiskReward.toFixed(2)),
+        tradingReportText("- **止损与目标依据：**止损采用{0}；止盈按候选浪段的{1}计算。触发前若目标方向或净风报提示仍未消除，保留条件单但不立即建仓，并在下一根收盘 K 线后重算；不得通过缩窄结构止损来迎合门槛。", stopBasisText, targetBasisText),
+        ...(gateReasons.length ? [tradingReportText("- **执行依据提示：**{0}。以上为条件单，不代表当前价立即追单。", gateReasons.join("；"))] : []),
+        tradingReportText("- 本计划只保持 {0} 根 {1} K 线有效；过期、父浪失效或触发后重新收回等待区都要取消并重算。", action.validityBars, executionLabel),
+        tradingReportText("- 等待区：{0}–{1}；最低净盈亏比：1:{2}。", formatPrice(action.waitZone.lower), formatPrice(action.waitZone.upper), action.gate.minimumNetRiskReward),
       ]
     : [
-        `- **当前状态：${action.state === "armed" ? "已激活，等待微浪" : "观察中"}，不交易**。${plainIntervalLabel(snapshot.interval)} 主周期方向清楚不等于已经有近端入场条件。`,
-        `- 当前未通过：${gateReasons.join("；") || "低周期执行条件尚未完成"}。系统不会为了靠近现价而移动真实摆点。`,
-        `- 下一步：${action.observeTrigger}。`,
+        tradingReportText("- **当前状态：{0}，不交易**。{1} 主周期方向清楚不等于已经有近端入场条件。", action.state === "armed" ? tradingReportText("已激活，等待微浪") : tradingReportText("观察中"), plainIntervalLabel(snapshot.interval)),
+        tradingReportText("- 当前未通过：{0}。系统不会为了靠近现价而移动真实摆点。", gateReasons.join("；") || tradingReportText("低周期执行条件尚未完成")),
+        tradingReportText("- 下一步：{0}。", action.observeTrigger),
       ];
   return [
-    `## ${snapshot.marketId} · 波浪理论交易计划`,
-    instruction ? `分析要求：${instruction}` : "",
+    tradingReportText("## {0} · 波浪理论交易计划", snapshot.marketId),
+    instruction ? tradingReportText("分析要求：{0}", instruction) : "",
     "",
-    "### 先看结论",
+    tradingReportText("### 先看结论"),
     fallback
-      ? `当前价格约 ${formatPrice(action.currentPrice)}。${plainIntervalLabel(snapshot.interval)} 暂未形成可复核主周期计数，已切换到 ${fallbackLabel} 的合格${primary.kind === "cycle" ? "周期" : "结构"}作为临时主计数，方向为${directionText}；它不能冒充 ${plainIntervalLabel(snapshot.interval)} 主周期结论，执行单采用可用结构与波动率锚点并持续重算。`
-      : `当前价格约 ${formatPrice(action.currentPrice)}。${plainIntervalLabel(snapshot.interval)} 主计数方向为${directionText}；主周期负责方向和场景边界，执行单优先使用 ${structureLabel} → ${executionLabel} 的确认微浪，证据不足时使用最近可用结构/ATR 兜底。`,
+      ? tradingReportText("当前价格约 {0}。{1} 暂未形成可复核主周期计数，已切换到 {2} 的合格{3}作为临时主计数，方向为{4}；它不能冒充 {5} 主周期结论，执行单采用可用结构与波动率锚点并持续重算。", formatPrice(action.currentPrice), plainIntervalLabel(snapshot.interval), fallbackLabel, primary.kind === "cycle" ? tradingReportText("周期") : tradingReportText("结构"), countDirectionText, plainIntervalLabel(snapshot.interval))
+      : tradingReportText("当前价格约 {0}。{1} 主计数方向为{2}；主周期负责方向和场景边界，执行单优先使用 {3} → {4} 的确认微浪，证据不足时使用最近可用结构/ATR 兜底。", formatPrice(action.currentPrice), plainIntervalLabel(snapshot.interval), countDirectionText, structureLabel, executionLabel),
     ...tacticalLines,
     "",
-    fallback ? "### 当前计数边界（低周期兜底，不是主周期结论）" : "### 主周期边界（不是当前入场价）",
+    fallback ? tradingReportText("### 当前计数边界（低周期兜底，不是主周期结论）") : tradingReportText("### 主周期边界（不是当前入场价）"),
     fallback
-      ? `- ${fallbackLabel} 确认：${formatPrice(action.macroConfirmation)}；${fallbackLabel} 失效：${formatPrice(action.macroInvalidation)}。主周期恢复合格计数后，以上边界必须重新复核。`
-      : `- 宏观确认：${formatPrice(action.macroConfirmation)}。它确认主周期结构发展，不因距离很远就自动改成近端触发。`,
+      ? tradingReportText("- {0} 确认：{1}；{2} 失效：{3}。主周期恢复合格计数后，以上边界必须重新复核。", fallbackLabel, formatPrice(action.macroConfirmation), fallbackLabel, formatPrice(action.macroInvalidation))
+      : tradingReportText("- 宏观确认：{0}。它确认主周期结构发展，不因距离很远就自动改成近端触发。", formatPrice(action.macroConfirmation)),
     fallback
-      ? `- 任何低周期兜底计数都不能替代主周期失效边界；实际持仓仍优先使用结构止损 ${ready ? formatPrice(activeStop) : "尚未形成"}。`
-      : `- 宏观失效：${formatPrice(action.macroInvalidation)}。越过后取消全部子浪计划并重新数浪；实际持仓仍优先使用结构止损 ${ready ? formatPrice(activeStop) : "尚未形成"}。`,
+      ? tradingReportText("- 任何低周期兜底计数都不能替代主周期失效边界；实际持仓仍优先使用结构止损 {0}。", ready ? formatPrice(activeStop) : tradingReportText("尚未形成"))
+      : tradingReportText("- 宏观失效：{0}。越过后取消全部子浪计划并重新数浪；实际持仓仍优先使用结构止损 {1}。", formatPrice(action.macroInvalidation), ready ? formatPrice(activeStop) : tradingReportText("尚未形成")),
     "",
-    "### 三级数浪",
-    `${candidateKindLabel(primary)}，${primary.degree || "当前画布相对级别"}，${statusLabel(primary.status)}。通俗理解：${primary.validation === "hard_price_rules_pending_lower_degree_structure" ? "价格已经走出符合波2/波3/波4/波5硬规则的五段，但低一级 5-3-5-3-5 细分尚未全部出现，因此先按暂定推动显示并持续确认。" : "系统只展示已通过价格硬规则和低一级结构证据的计数。"}${primary.kind === "cycle" ? "当前候选包含动机段与后续调整" : "当前候选只覆盖一个已验证结构段"}，末端仍会随新 K 线变化。`,
-    `浪点：${primary.points.map((point) => `${point.label} ${formatPrice(point.price)}`).join(" → ")}。`,
-    `低周期：${structureLabel} ${action.hierarchy?.structureCandidateId ? "已找到一致子浪" : "无一致子浪"}；${executionLabel} ${action.hierarchy?.executionCandidateId ? "已找到一致微浪" : "无一致微浪"}。${fallback ? `本次兜底来源为 ${fallbackLabel}，` : ""}证据充分时使用确认微浪，证据不足时仍保留结构/ATR 条件执行价并标注其来源。`,
-    `规则检查：${candidateRuleText(primary)}`,
-    `比例参考：${candidateRatioText(primary)}。这些比例用于比较候选是否合理，不代表价格一定按比例到达。`,
+    tradingReportText("### 三级数浪"),
+    tradingReportText("{0}，{1}，{2}。通俗理解：{3}{4}，末端仍会随新 K 线变化。", candidateKindLabel(primary), primary.degree || tradingReportText("当前画布相对级别"), statusLabel(primary.status), primary.validation === "hard_price_rules_pending_lower_degree_structure" ? tradingReportText("价格已经走出符合波2/波3/波4/波5硬规则的五段，但低一级 5-3-5-3-5 细分尚未全部出现，因此先按暂定推动显示并持续确认。") : tradingReportText("系统只展示已通过价格硬规则和低一级结构证据的计数。"), primary.kind === "cycle" ? tradingReportText("当前候选包含动机段与后续调整") : primary.validation === "hard_price_rules_pending_lower_degree_structure" ? tradingReportText("当前候选只覆盖一个价格硬规则通过、内部结构待验证的暂定推动段") : tradingReportText("当前候选只覆盖一个已验证结构段")),
+    tradingReportText("浪点：{0}。", primary.points.map((point) => `${point.label} ${formatPrice(point.price)}`).join(" → ")),
+    tradingReportText("低周期：{0} {1}；{2} {3}。{4}证据充分时使用确认微浪，证据不足时仍保留结构/ATR 条件执行价并标注其来源。", structureLabel, action.hierarchy?.structureCandidateId ? tradingReportText("已找到一致子浪") : tradingReportText("无一致子浪"), executionLabel, action.hierarchy?.executionCandidateId ? tradingReportText("已找到一致微浪") : tradingReportText("无一致微浪"), fallback ? tradingReportText("本次兜底来源为 {0}，", fallbackLabel) : ""),
+    tradingReportText("规则检查：{0}", candidateRuleText(primary)),
+    tradingReportText("比例参考：{0}。这些比例用于比较候选是否合理，不代表价格一定按比例到达。", candidateRatioText(primary)),
     "",
-    "### 止盈止损与斐波那契依据",
-    `止损：${stopBasisText}；结构止损位用于保护持仓，不等同于主周期宏观失效位。`,
-    `目标：${targetBasisText}；Fib 只作为候选测量依据，价格未到触发位、候选失效或净风报低于门槛时不执行。`,
+    tradingReportText("### 止盈止损与斐波那契依据"),
+    tradingReportText("止损：{0}；结构止损位用于保护持仓，不等同于主周期宏观失效位。", stopBasisText),
+    tradingReportText("目标：{0}；Fib 只作为候选测量依据，价格未到触发位、候选失效或净风报低于门槛时不执行。", targetBasisText),
     "",
-    "### 如果主计数不成立",
+    tradingReportText("### 备选计数与历史参考"),
     alternatives.length
-      ? alternatives.map((candidate, index) => `${index + 1}. 备选 ${index + 1}：${candidateKindLabel(candidate)}，末端约 ${formatPrice(candidate.points.at(-1).price)}；只有主计数宏观失效后才转看该方案。`).join("\n")
-      : "没有额外绘制备选路径。主计数一旦越过取消价，就停止沿用本次结论并等待重新数浪。",
+      ? alternatives.map((candidate, index) => tradingReportText(
+        candidate.points.at(-1).time < primary.points[0].time
+          ? "{0}. 历史参考计数：{1}，历史末端约 {2}。该计数早于当前主计数起点结束，不与主计数重叠，也不是未来目标或替代执行方案。"
+          : "{0}. 备选计数：{1}，历史末端约 {2}。它是已提供历史行情的另一种计数，不能把历史末端当成未来目标；采用前须重新核验计数与执行条件。",
+        index + 1, candidateKindLabel(candidate), formatPrice(candidate.points.at(-1).price),
+      )).join("\n")
+      : tradingReportText("没有额外绘制备选路径。主计数一旦越过取消价，就停止沿用本次结论并等待重新数浪。"),
     "",
-    "### 数据与不确定性",
-    `本次主周期使用 ${snapshot.candles.length} 根 ${snapshot.interval} K 线，覆盖 ${formatTime(firstCandle.time)} 至 ${formatTime(lastCandle.time)}，识别 ${theoryResult.statistics.swingCount} 个交替高低点和 ${theoryResult.statistics.candidateCount} 个受规则约束的候选。结构周期读取 ${theoryResult.multiTimeframe.structure.statistics.candleCount} 根，执行周期读取 ${theoryResult.multiTimeframe.execution.statistics.candleCount} 根已收盘 K 线。`,
-    "波浪理论对起点和级别存在天然歧义；“暂定”只表示最后一个已通过结构规则的浪点还可能随新 K 线移动，不表示允许违反硬规则。波4重叠不会被自动解释为倾斜，内部结构或倾斜位置证据不足时不会落图。",
+    tradingReportText("### 数据与不确定性"),
+    tradingReportText("本次主周期使用 {0} 根 {1} K 线，覆盖 {2} 至 {3}，识别 {4} 个交替高低点和 {5} 个受规则约束的候选。结构周期读取 {6} 根，执行周期读取 {7} 根已收盘 K 线。", snapshot.candles.length, snapshot.interval, formatTime(firstCandle.time), formatTime(lastCandle.time), theoryResult.statistics.swingCount, theoryResult.statistics.candidateCount, theoryResult.multiTimeframe.structure.statistics.candleCount, theoryResult.multiTimeframe.execution.statistics.candleCount),
+    tradingReportText("波浪理论对起点和级别存在天然歧义；“暂定”只表示最后一个已通过结构规则的浪点还可能随新 K 线移动，不表示允许违反硬规则。波4重叠不会被自动解释为倾斜，内部结构或倾斜位置证据不足时不会落图。"),
     "",
-    "### 风险说明",
-    "低周期会提高触发可达性，但不会自动提高胜率。关键价位会随新摆动点重新计算；以上是条件式观察方案，不是唯一事实、自动交易指令、收益承诺或经过历史校准的涨跌概率。",
+    tradingReportText("### 风险说明"),
+    tradingReportText("低周期会提高触发可达性，但不会自动提高胜率。关键价位会随新摆动点重新计算；以上是条件式观察方案，不是唯一事实、自动交易指令、收益承诺或经过历史校准的涨跌概率。"),
   ].join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
@@ -1448,17 +1473,17 @@ function wavePointColorToken(candidate, index) {
 function waveDrawingLabel(candidate) {
   const descriptor = candidateSubdivisionDescriptor(candidate);
   if (candidate.kind === "cycle") {
-    const motive = candidate.components?.motiveKind === "diagonal" ? "倾斜5浪" : "标准5浪";
+    const motive = candidate.components?.motiveKind === "diagonal" ? tradingReportText("倾斜5浪") : tradingReportText("标准5浪");
     const label = candidate.pattern.endsWith("_plus_wxy") ? `${motive} + WXY` : `${motive} + ABC`;
     return `${label}${descriptor}`;
   }
   if (candidate.kind === "impulse") {
     const observed = candidate.validation === "hard_price_rules_pending_lower_degree_structure";
-    return `${observed ? "暂定5浪推动" : "标准5浪推动"}${descriptor}`;
+    return `${observed ? tradingReportText("暂定5浪推动") : tradingReportText("标准5浪推动")}${descriptor}`;
   }
-  if (candidate.kind === "diagonal") return `已验证倾斜5浪${descriptor}`;
-  if (candidate.pattern === "double_three") return `WXY调整${descriptor}`;
-  return `ABC调整${descriptor}`;
+  if (candidate.kind === "diagonal") return tradingReportText("已验证倾斜5浪{0}", descriptor);
+  if (candidate.pattern === "double_three") return tradingReportText("WXY调整{0}", descriptor);
+  return tradingReportText("ABC调整{0}", descriptor);
 }
 
 export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskProfile = null) {
@@ -1499,8 +1524,8 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskPr
       tool: "note",
       points: [{ time: primary.points[0].time, price: primary.points[0].price }],
       text: primary.sourceRole && primary.sourceRole !== "analysis"
-        ? `${plainIntervalLabel(primary.sourceInterval)}兜底计数：${waveDrawingLabel(primary)}`
-        : `主计数：${waveDrawingLabel(primary)}`,
+        ? tradingReportText("{0}兜底计数：{1}", plainIntervalLabel(primary.sourceInterval), waveDrawingLabel(primary))
+        : tradingReportText("主计数：{0}", waveDrawingLabel(primary)),
       colorToken: "wave-note",
       status: primary.status === "confirmed" ? "confirmed" : "tentative",
       evidenceIds: primary.points.map((point) => point.id),
@@ -1581,7 +1606,7 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskPr
       theory: "wave",
       tool: "note",
       points: [{ time: projectionEnd, price: primary.invalidationPrice }],
-      text: `主周期失效 ${formatPrice(primary.invalidationPrice)}`,
+      text: tradingReportText("主周期失效 {0}", formatPrice(primary.invalidationPrice)),
       colorToken: "wave-alternative",
       status: "tentative",
       evidenceIds: [primary.points[0].id],
@@ -1609,7 +1634,7 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskPr
         theory: "wave",
         tool: "note",
         points: [{ time: projectionEnd, price: primary.confirmationPrice }],
-        text: `主周期结构确认（非入场）${formatPrice(primary.confirmationPrice)}`,
+        text: tradingReportText("主周期结构确认（非入场）{0}", formatPrice(primary.confirmationPrice)),
         colorToken: "wave-fibonacci",
         status: "tentative",
         evidenceIds: [primary.points.at(-1).id],
@@ -1622,7 +1647,7 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskPr
     {
       node: hierarchy?.structure,
       suffix: "structure-child",
-      label: hierarchy?.structure?.interval ? `${plainIntervalLabel(hierarchy.structure.interval)} 子浪` : "结构子浪",
+      label: hierarchy?.structure?.interval ? tradingReportText("{0} 子浪", plainIntervalLabel(hierarchy.structure.interval)) : tradingReportText("结构子浪"),
       colorToken: "wave-correction",
       lineWidth: 1.5,
       lineStyle: "solid",
@@ -1630,7 +1655,7 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskPr
     {
       node: hierarchy?.execution,
       suffix: "execution-micro",
-      label: hierarchy?.execution?.interval ? `${plainIntervalLabel(hierarchy.execution.interval)} 微浪` : "执行微浪",
+      label: hierarchy?.execution?.interval ? tradingReportText("{0} 微浪", plainIntervalLabel(hierarchy.execution.interval)) : tradingReportText("执行微浪"),
       colorToken: "wave-primary",
       lineWidth: 1,
       lineStyle: "dotted",
@@ -1682,7 +1707,7 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskPr
         theory: "wave",
         tool: "path",
         points: [{ time: tacticalStart, price: trigger }, { time: projectionEnd, price: trigger }],
-        text: `${plainIntervalLabel(action.executionInterval)}${bullish ? "多" : "空"}触发 ${formatPrice(trigger)}`,
+        text: tradingReportText("{0}{1}触发 {2}", plainIntervalLabel(action.triggerSourceInterval || action.executionInterval), bullish ? tradingReportText("多") : tradingReportText("空"), formatPrice(trigger)),
         colorToken: bullish ? "wave-primary" : "wave-correction",
         status: "confirmed",
         evidenceIds: tacticalEvidence,
@@ -1696,7 +1721,7 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskPr
         theory: "wave",
         tool: "path",
         points: [{ time: tacticalStart, price: stop }, { time: projectionEnd, price: stop }],
-        text: `结构止损 ${formatPrice(stop)}`,
+        text: tradingReportText("结构止损 {0}", formatPrice(stop)),
         colorToken: "wave-alternative",
         status: "confirmed",
         evidenceIds: tacticalEvidence,
@@ -1713,7 +1738,7 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskPr
           theory: "wave",
           tool: "path",
           points: [{ time: tacticalStart, price: targets[0] }, { time: projectionEnd, price: targets[0] }],
-          text: `低周期 T1${firstTargetBasis?.label ? ` ${firstTargetBasis.label}` : ""} ${formatPrice(targets[0])}`,
+          text: tradingReportText(action.executionBasis === "structural_fallback" ? "结构目标 T1{0} {1}" : "低周期 T1{0} {1}", firstTargetBasis?.label ? ` ${firstTargetBasis.label}` : "", formatPrice(targets[0])),
           colorToken: "wave-fibonacci",
           status: "tentative",
           evidenceIds: tacticalEvidence,
@@ -1731,8 +1756,8 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskPr
       tool: "note",
       points: [{ time: latestCandle.time, price: latestCandle.close }],
       text: action.state === "ready"
-        ? `${plainIntervalLabel(action.executionInterval)}${bullish ? "多" : "空"}触发 ${formatPrice(trigger)}｜结构止损 ${formatPrice(stop)}｜主周期失效 ${formatPrice(action.macroInvalidation)}`
-        : `${plainIntervalLabel(snapshot.interval)}${bullish ? "偏多" : "偏空"}｜低周期${action.state === "armed" ? "已激活待确认" : "未形成"}｜主周期确认 ${formatPrice(action.macroConfirmation)}`,
+        ? tradingReportText("{0}{1}触发 {2}｜结构止损 {3}｜主周期失效 {4}", plainIntervalLabel(action.triggerSourceInterval || action.executionInterval), bullish ? tradingReportText("多") : tradingReportText("空"), formatPrice(trigger), formatPrice(stop), formatPrice(action.macroInvalidation))
+        : tradingReportText("{0}{1}｜低周期{2}｜主周期确认 {3}", plainIntervalLabel(snapshot.interval), bullish ? tradingReportText("偏多") : tradingReportText("偏空"), action.state === "armed" ? tradingReportText("已激活待确认") : tradingReportText("未形成"), formatPrice(action.macroConfirmation)),
       colorToken: "wave-note",
       status: review.verdict === "approve" && primary.status === "confirmed" ? "confirmed" : "tentative",
       evidenceIds: primary.points.map((point) => point.id),
@@ -1748,7 +1773,7 @@ export function buildWaveDrawingPatch(snapshot, theoryResult, review, userRiskPr
   }, snapshot);
 }
 
-export async function runTradingWaveAnalysisPipeline(params, options = {}) {
+async function runTradingWaveAnalysisPipelineInternal(params, options = {}) {
   const snapshot = normalizeTradingMarketSnapshot(params, { maximumCandles: 2_500 });
   const theoryResult = runWaveTheoryEngine(snapshot);
   if (theoryResult.status !== "succeeded") {
@@ -1763,6 +1788,8 @@ export async function runTradingWaveAnalysisPipeline(params, options = {}) {
   const providerId = String(options.providerId || "").trim();
   const requestId = `wave-request-${crypto.randomUUID()}`;
   const modelRequest = {
+    language: params?.language,
+    allowedLanguageLiterals: [snapshot.marketId, snapshot.marketId.split(":").at(-1), snapshot.marketId.split(":").at(-1)?.replace(/USDT$/, "")],
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     requestId,
     task: "wave-theory-review-and-drawing-plan",
@@ -1830,4 +1857,8 @@ export async function runTradingWaveAnalysisPipeline(params, options = {}) {
       escalationReason: reviewed.escalationReason,
     },
   };
+}
+
+export async function runTradingWaveAnalysisPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingWaveAnalysisPipelineInternal(params, options), params?.language));
 }

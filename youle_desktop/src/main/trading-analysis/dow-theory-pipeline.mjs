@@ -1,3 +1,4 @@
+import { localizeTradingAnalysisResult, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { runDowTheoryEngine } from "./dow-theory-engine.mjs";
 import {
@@ -16,41 +17,41 @@ function formatPrice(value) {
 }
 
 function directionLabel(direction) {
-  if (direction === "bullish") return "上升趋势";
-  if (direction === "bearish") return "下降趋势";
-  if (direction === "transition") return "趋势转换/分歧";
-  return "趋势未确认";
+  if (direction === "bullish") return tradingReportText("上升趋势");
+  if (direction === "bearish") return tradingReportText("下降趋势");
+  if (direction === "transition") return tradingReportText("趋势转换/分歧");
+  return tradingReportText("趋势未确认");
 }
 
 function confirmationLabel(result) {
   const confirmation = result.closeConfirmation;
   if (confirmation.state === "close-breakout") {
-    return `已收盘 K 线${confirmation.direction === "bullish" ? "向上" : "向下"}越过主级别反应点，形成收盘确认`;
+    return tradingReportText("已收盘 K 线{0}越过主级别反应点，形成收盘确认", confirmation.direction === "bullish" ? tradingReportText("向上") : tradingReportText("向下"));
   }
-  if (confirmation.state === "wick-only-unconfirmed") return "只有影线越过结构边界，收盘未确认";
-  if (confirmation.state === "inside-structure") return "收盘仍在最近主级别反应高低点之间";
-  return "主级别反应高低点不足，尚不能确认延续或反转";
+  if (confirmation.state === "wick-only-unconfirmed") return tradingReportText("只有影线越过结构边界，收盘未确认");
+  if (confirmation.state === "inside-structure") return tradingReportText("收盘仍在最近主级别反应高低点之间");
+  return tradingReportText("主级别反应高低点不足，尚不能确认延续或反转");
 }
 
 function higherTimeframeLabel(value) {
-  if (value.status === "aligned") return "已提供的高周期与当前主趋势同向";
-  if (value.status === "contradicted") return "已提供的高周期与当前主趋势冲突";
-  if (value.status === "mixed") return "高周期方向相互分歧";
-  if (value.status === "partial") return "高周期结构尚未形成明确方向";
-  return "未获得合格高周期数据";
+  if (value.status === "aligned") return tradingReportText("已提供的高周期与当前主趋势同向");
+  if (value.status === "contradicted") return tradingReportText("已提供的高周期与当前主趋势冲突");
+  if (value.status === "mixed") return tradingReportText("高周期方向相互分歧");
+  if (value.status === "partial") return tradingReportText("高周期结构尚未形成明确方向");
+  return tradingReportText("未获得合格高周期数据");
 }
 
 function volumeLabel(value) {
-  if (value.status === "supporting") return `成交量对当前方向形成辅助确认（方向量比 ${value.ratio}）`;
-  if (value.status === "opposing") return `成交量未配合当前方向（方向量比 ${value.ratio}）`;
-  if (value.status === "neutral") return `成交量辅助证据中性（方向量比 ${value.ratio}）`;
-  if (value.status === "partial") return "有效成交量样本不足，只能降级观察";
-  return "未获得足够成交量数据";
+  if (value.status === "supporting") return tradingReportText("成交量对当前方向形成辅助确认（方向量比 {0}）", value.ratio);
+  if (value.status === "opposing") return tradingReportText("成交量未配合当前方向（方向量比 {0}）", value.ratio);
+  if (value.status === "neutral") return tradingReportText("成交量辅助证据中性（方向量比 {0}）", value.ratio);
+  if (value.status === "partial") return tradingReportText("有效成交量样本不足，只能降级观察");
+  return tradingReportText("未获得足够成交量数据");
 }
 
 function scaleLine(scale) {
   const recent = scale.pivots.slice(-4).map((pivot) => `${pivot.label} ${formatPrice(pivot.price)}`).join(" → ");
-  return `${directionLabel(scale.direction)}${recent ? `；最近摆动 ${recent}` : "；确认摆动不足"}`;
+  return `${directionLabel(scale.direction)}${recent ? tradingReportText("；最近摆动 {0}", recent) : tradingReportText("；确认摆动不足")}`;
 }
 
 export function buildDowTheoryReport(snapshot, result) {
@@ -58,45 +59,45 @@ export function buildDowTheoryReport(snapshot, result) {
   const direction = result.scales.primary.direction;
   const contextLines = result.confirmations.higherTimeframes.contexts.length
     ? result.confirmations.higherTimeframes.contexts.map((context) => `${context.interval} ${directionLabel(context.direction)}`).join("；")
-    : "无";
+    : tradingReportText("无");
   const levelLines = direction === "bullish" && action.longTrigger
     ? [
-      `- 多头触发：已收盘 K 线站上 ${formatPrice(action.longTrigger)}，回踩不重新跌破后才考虑执行。`,
-      `- 失效/止损参考：${formatPrice(action.longInvalidation)}；分批目标：T1 ${formatPrice(action.longTargets[0])}，T2 ${formatPrice(action.longTargets[1])}。`,
+      tradingReportText("- 多头触发：已收盘 K 线站上 {0}，回踩不重新跌破后才考虑执行。", formatPrice(action.longTrigger)),
+      tradingReportText("- 失效/止损参考：{0}；分批目标：T1 {1}，T2 {2}。", formatPrice(action.longInvalidation), formatPrice(action.longTargets[0]), formatPrice(action.longTargets[1])),
     ]
     : direction === "bearish" && action.shortTrigger
       ? [
-        `- 空头触发：已收盘 K 线跌破 ${formatPrice(action.shortTrigger)}，反抽不重新站回后才考虑执行。`,
-        `- 失效/止损参考：${formatPrice(action.shortInvalidation)}；分批目标：T1 ${formatPrice(action.shortTargets[0])}，T2 ${formatPrice(action.shortTargets[1])}。`,
+        tradingReportText("- 空头触发：已收盘 K 线跌破 {0}，反抽不重新站回后才考虑执行。", formatPrice(action.shortTrigger)),
+        tradingReportText("- 失效/止损参考：{0}；分批目标：T1 {1}，T2 {2}。", formatPrice(action.shortInvalidation), formatPrice(action.shortTargets[0]), formatPrice(action.shortTargets[1])),
       ]
-      : ["- 当前主趋势未确认：不生成虚假入场、止损或目标价，继续等待完整高低点序列。"];
+      : [tradingReportText("- 当前主趋势未确认：不生成虚假入场、止损或目标价，继续等待完整高低点序列。")];
   return [
-    "## 道氏理论结论",
+    tradingReportText("## 道氏理论结论"),
     "",
-    `当前主级别为 **${directionLabel(direction)}**；${confirmationLabel(result)}。`,
+    tradingReportText("当前主级别为 **{0}**；{1}。", directionLabel(direction), confirmationLabel(result)),
     "",
-    "### 三层趋势",
-    `- 主要趋势：${scaleLine(result.scales.primary)}。`,
-    `- 次级运动：${scaleLine(result.scales.secondary)}。`,
-    `- 小级别波动：${scaleLine(result.scales.minor)}。`,
+    tradingReportText("### 三层趋势"),
+    tradingReportText("- 主要趋势：{0}。", scaleLine(result.scales.primary)),
+    tradingReportText("- 次级运动：{0}。", scaleLine(result.scales.secondary)),
+    tradingReportText("- 小级别波动：{0}。", scaleLine(result.scales.minor)),
     "",
-    "### 确认与边界",
-    `- 收盘价：${confirmationLabel(result)}；影线刺破不计作确认。`,
-    `- 高周期上下文：${higherTimeframeLabel(result.confirmations.higherTimeframes)}；明细：${contextLines}。这是产品化的多周期证据，不是经典双指数确认。`,
-    `- 成交量：${volumeLabel(result.confirmations.volume)}；成交量只作辅助，不能单独改写价格趋势。`,
-    `- 经典市场相互确认：不可用。${result.confirmations.classicAverages.reason}。`,
-    `- 市场阶段：不自动命名。${result.phase.reason}。`,
+    tradingReportText("### 确认与边界"),
+    tradingReportText("- 收盘价：{0}；影线刺破不计作确认。", confirmationLabel(result)),
+    tradingReportText("- 高周期上下文：{0}；明细：{1}。这是产品化的多周期证据，不是经典双指数确认。", higherTimeframeLabel(result.confirmations.higherTimeframes), contextLines),
+    tradingReportText("- 成交量：{0}；成交量只作辅助，不能单独改写价格趋势。", volumeLabel(result.confirmations.volume)),
+    tradingReportText("- 经典市场相互确认：不可用。{0}。", result.confirmations.classicAverages.reason),
+    tradingReportText("- 市场阶段：不自动命名。{0}。", result.phase.reason),
     "",
-    "### 条件式执行",
-    `- 当前动作：等待条件触发；方向判断为${direction === "bullish" ? "偏多" : direction === "bearish" ? "偏空" : "中性"}。`,
+    tradingReportText("### 条件式执行"),
+    tradingReportText("- 当前动作：等待条件触发；方向判断为{0}。", direction === "bullish" ? tradingReportText("偏多") : direction === "bearish" ? tradingReportText("偏空") : tradingReportText("中性")),
     ...levelLines,
-    `- 确认要求：${action.confirmation}`,
-    "- 仓位与风险：单笔预设亏损上限由统一执行计划按账户权益约 1% 约束；没有账户权益和合约规格时不生成数量。",
-    "- 取消条件：结构失效、高周期冲突扩大、数据覆盖下降、触发后重新收回结构内或方案超过六个当前周期。",
+    tradingReportText("- 确认要求：{0}", action.confirmation),
+    tradingReportText("- 仓位与风险：单笔预设亏损上限由统一执行计划按账户权益约 1% 约束；没有账户权益和合约规格时不生成数量。"),
+    tradingReportText("- 取消条件：结构失效、高周期冲突扩大、数据覆盖下降、触发后重新收回结构内或方案超过六个当前周期。"),
     "",
-    "### 数据与限制",
-    `本次使用 ${result.closedCandleCount} 根 ${snapshot.interval} 已收盘 K 线；排除 ${result.excludedLiveCandles} 根未收盘 K 线。结构、触发和价格可由相同输入复算。`,
-    "道氏理论用于判断趋势环境和确认条件，不承诺趋势持续、目标到达或收益，也不创建自动订单。",
+    tradingReportText("### 数据与限制"),
+    tradingReportText("本次使用 {0} 根 {1} 已收盘 K 线；排除 {2} 根未收盘 K 线。结构、触发和价格可由相同输入复算。", result.closedCandleCount, snapshot.interval, result.excludedLiveCandles),
+    tradingReportText("道氏理论用于判断趋势环境和确认条件，不承诺趋势持续、目标到达或收益，也不创建自动订单。"),
   ].join("\n");
 }
 
@@ -182,10 +183,10 @@ export function buildDowTheoryDrawingPatch(snapshot, result) {
   ));
   const evidenceIds = result.evidence.slice(0, 12).map((item) => item.id);
   const action = result.actionPlan;
-  appendLevel(operations, analysis, snapshot, "long-trigger", "entry", action.longTrigger, `多头收盘触发 ${formatPrice(action.longTrigger)}`, evidenceIds);
-  appendLevel(operations, analysis, snapshot, "short-trigger", "entry", action.shortTrigger, `空头收盘触发 ${formatPrice(action.shortTrigger)}`, evidenceIds);
-  appendLevel(operations, analysis, snapshot, "long-stop", "stop", action.longInvalidation, `多头失效 ${formatPrice(action.longInvalidation)}`, evidenceIds);
-  appendLevel(operations, analysis, snapshot, "short-stop", "stop", action.shortInvalidation, `空头失效 ${formatPrice(action.shortInvalidation)}`, evidenceIds);
+  appendLevel(operations, analysis, snapshot, "long-trigger", "entry", action.longTrigger, tradingReportText("多头收盘触发 {0}", formatPrice(action.longTrigger)), evidenceIds);
+  appendLevel(operations, analysis, snapshot, "short-trigger", "entry", action.shortTrigger, tradingReportText("空头收盘触发 {0}", formatPrice(action.shortTrigger)), evidenceIds);
+  appendLevel(operations, analysis, snapshot, "long-stop", "stop", action.longInvalidation, tradingReportText("多头失效 {0}", formatPrice(action.longInvalidation)), evidenceIds);
+  appendLevel(operations, analysis, snapshot, "short-stop", "stop", action.shortInvalidation, tradingReportText("空头失效 {0}", formatPrice(action.shortInvalidation)), evidenceIds);
   (action.longTargets || action.shortTargets || []).forEach((price, index) => appendLevel(
     operations,
     analysis,
@@ -203,7 +204,7 @@ export function buildDowTheoryDrawingPatch(snapshot, result) {
     "note",
     "note",
     [{ time: latest.time, price: latest.close }],
-    `道氏：${directionLabel(result.scales.primary.direction)} · ${confirmationLabel(result)}`,
+    tradingReportText("道氏：{0} · {1}", directionLabel(result.scales.primary.direction), confirmationLabel(result)),
     { status: result.closeConfirmation.state === "close-breakout" ? "confirmed" : "tentative" },
     evidenceIds,
   ));
@@ -228,7 +229,7 @@ function snapshotSummary(snapshot, result) {
   };
 }
 
-export async function runTradingDowTheoryPipeline(params) {
+async function runTradingDowTheoryPipelineInternal(params) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runDowTheoryEngine(snapshot);
   const drawingPatch = buildDowTheoryDrawingPatch(snapshot, theoryResult);
@@ -261,3 +262,7 @@ export async function runTradingDowTheoryPipeline(params) {
 }
 
 export const DOW_THEORY_MODEL_ID = "dow-theory-trend-context-engine-v1";
+
+export async function runTradingDowTheoryPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingDowTheoryPipelineInternal(params, options), params?.language));
+}

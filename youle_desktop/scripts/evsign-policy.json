@@ -1,7 +1,7 @@
 {
   "endpoint": "https://api.evsign.cn/v1",
-  "certificateThumbprint": "0742580B8EA12653FE3A1E906613268467BAD80A",
-  "publisherName": "NaisNet Technology Co., Ltd.",
+  "certificateThumbprint": "EC6346287B2F343CB7BFA4CF4CAB7DB02379A0AD",
+  "publisherName": "Keroro Software Ltd",
   "ownedExecutableNames": ["haolo_desktop.exe", "haolo-chrome-native-host.exe"],
   "cli": {
     "version": "1.0.1",

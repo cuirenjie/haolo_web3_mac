@@ -1,0 +1,22 @@
+{
+  "verifiedAt": "2026-10-16T16:30:19.847Z",
+  "files": [
+    {
+      "file": "haolo_desktop.exe",
+      "sha256": "d610d120c0b872ae9ddf1f8f7ec97c9fddfde4eb2371bf3ab38872117494b1ab"
+    },
+    {
+      "file": "resources/app.asar",
+      "sha256": "a31cd76a3767d8d4d4582b114995d8accd8e81bc7c6c34405d33ccea80d0e2e1"
+    },
+    {
+      "file": "resources/bin/haolo-chrome-native-host.exe",
+      "sha256": "acd1bcabe1c5eb05c90bbca78940d1f4324e4a807e19ef5aa4d407631feb7809"
+    },
+    {
+      "file": "resources/bin/haolo_ai.exe",
+      "sha256": "8cb0e69e99ff2a158c54815db82d0f2e524d8f301bc30184722cfd1ae5973574"
+    }
+  ],
+  "uninstallerVerification": "Signed pre-embedding file retained by EV signing hook; not independently extracted"
+}
