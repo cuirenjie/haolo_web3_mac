@@ -26935,7 +26935,7 @@ async function sendCurrentLocalGroupChatMessage(
 }
 
 const DEEPSEEK_MEDIA_SEND_BLOCKED_MESSAGE =
-  "GPT-6 Astra仅支持文本，请移除图片、视频或切换GPT模型。";
+  "此模型暂不支持视频，请移除视频或切换模型。";
 
 function isImageOrVideoAttachment(attachment: MessageAttachment) {
   return isImageAttachment(attachment) || isVideoAttachment(attachment);
@@ -26951,7 +26951,7 @@ function deepSeekMediaComposerValidationError(threadId: string) {
   const executionSettings = selectedChatModelRequestOptions(threadId);
   if (
     executionSettings.modelProvider !== DEEPSEEK_EXECUTION_PROVIDER_ID ||
-    !composerAttachmentsForThread(threadId).some(isImageOrVideoAttachment)
+    !composerAttachmentsForThread(threadId).some(isVideoAttachment)
   ) {
     return null;
   }
@@ -55143,11 +55143,11 @@ function persistSelectedChatModel() {
   }
 }
 
-function threadHasNativeMediaHistory(threadId: string) {
+function threadHasNativeVideoHistory(threadId: string) {
   return (state.itemOrder[threadId] || []).some((itemId) => {
     const item = state.items[threadId]?.[itemId];
     return Boolean(
-      item && itemAttachments(item).some(isImageOrVideoAttachment),
+      item && itemAttachments(item).some(isVideoAttachment),
     );
   });
 }
@@ -55157,16 +55157,16 @@ function canSelectExecutionModelForThread(
   selected: ChatModelOption,
 ) {
   if (selected.providerId !== DEEPSEEK_EXECUTION_PROVIDER_ID) return true;
-  if (composerAttachmentsForThread(threadId).some(isImageOrVideoAttachment)) {
+  if (composerAttachmentsForThread(threadId).some(isVideoAttachment)) {
     showToast(DEEPSEEK_MEDIA_SEND_BLOCKED_MESSAGE, 4200);
     return false;
   }
   if (
     !isBlankNewThread(threadId) &&
     !isLocalBlankThreadId(threadId) &&
-    threadHasNativeMediaHistory(threadId)
+    threadHasNativeVideoHistory(threadId)
   ) {
-    showToast("当前任务包含图片或视频历史，无法无损切换到 DeepSeek；请新建任务后使用", 5200);
+    showToast("当前任务包含视频历史，无法无损切换到 DeepSeek；请新建任务后使用", 5200);
     return false;
   }
   return true;

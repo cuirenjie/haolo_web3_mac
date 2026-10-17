@@ -1,0 +1,123 @@
+{
+  "status": "passed",
+  "mode": "live",
+  "at": "2026-10-17T11:45:14.523Z",
+  "sourceHash": "527a5f84ccf580664646aa9e9b5d7fd0ac271f85d11d4ba96a6ac67f3dab0045",
+  "runtimeHash": "8cb0e69e99ff2a158c54815db82d0f2e524d8f301bc30184722cfd1ae5973574",
+  "runtimeVersion": "codex-cli 0.157.1",
+  "catalogImage": [
+    "text",
+    "image"
+  ],
+  "marker": "windows-1017:ba4a77aa-28ca-4302-af73-29fb28b0088f",
+  "threadId": "01a149ae-1038-7ff1-8ad5-533f25153c45",
+  "firstTurn": "01a149ae-114e-7591-8c9b-e83fc7d72f99",
+  "terminal": {
+    "turnId": "01a149ae-170d-70e3-8666-be3692fb08be",
+    "status": "completed"
+  },
+  "toolCalls": [
+    {
+      "tool": "read_fixture_code",
+      "threadId": "01a149ae-1038-7ff1-8ad5-533f25153c45",
+      "arguments": {}
+    }
+  ],
+  "answers": "Red; numeric value: 731.",
+  "calls": [
+    {
+      "model": "gpt-5.6-sol",
+      "effort": "low",
+      "hasImage": true,
+      "hasToolResult": false,
+      "inputHash": "dc44b115eae7d7ec8f8cf67bf48154af6ca40856083893dfb70bbcaa2ab4a37d",
+      "injected": true
+    },
+    {
+      "model": "deepseek-flash",
+      "effort": "max",
+      "hasImage": true,
+      "hasToolResult": false,
+      "inputHash": "3e64eb9b40985874b575fc9d2d76cfc06ebfb7973c0633474625d9b37569f052",
+      "httpStatus": 200,
+      "requestId": "5f80211c-ec53-4353-963d-0b5851dee3ba"
+    },
+    {
+      "model": "deepseek-flash",
+      "effort": "max",
+      "hasImage": true,
+      "hasToolResult": true,
+      "inputHash": "9c8297647bfbb82cd7307fd0a0c8aa54754257084937b02109bc5c872bf54699",
+      "httpStatus": 200,
+      "requestId": "b8dc54d0-c222-4126-9d8c-8cf89e8d57c7"
+    }
+  ],
+  "restarts": 1,
+  "recoveryEvents": [
+    {
+      "event": "scheduled",
+      "threadId": "01a149ae-1038-7ff1-8ad5-533f25153c45",
+      "status": "scheduled",
+      "failedTurnId": "01a149ae-114e-7591-8c9b-e83fc7d72f99",
+      "errorClass": "upstream_5xx",
+      "delayMs": 1,
+      "chainId": "recovery-1",
+      "attempt": 1,
+      "noProgressFailures": 1,
+      "noProgressFailureLimit": 3,
+      "modelId": "deepseek-flash",
+      "reasoningEffort": "max"
+    },
+    {
+      "event": "starting",
+      "threadId": "01a149ae-1038-7ff1-8ad5-533f25153c45",
+      "status": "scheduled",
+      "failedTurnId": "01a149ae-114e-7591-8c9b-e83fc7d72f99",
+      "errorClass": "upstream_5xx",
+      "delayMs": 1,
+      "chainId": "recovery-1",
+      "attempt": 1,
+      "noProgressFailures": 1,
+      "noProgressFailureLimit": 3,
+      "modelId": "deepseek-flash",
+      "reasoningEffort": "max"
+    },
+    {
+      "event": "started",
+      "threadId": "01a149ae-1038-7ff1-8ad5-533f25153c45",
+      "status": "scheduled",
+      "failedTurnId": "01a149ae-114e-7591-8c9b-e83fc7d72f99",
+      "errorClass": "upstream_5xx",
+      "delayMs": 1,
+      "chainId": "recovery-1",
+      "attempt": 1,
+      "noProgressFailures": 1,
+      "noProgressFailureLimit": 3,
+      "modelId": "deepseek-flash",
+      "reasoningEffort": "max",
+      "turnId": "01a149ae-170d-70e3-8666-be3692fb08be",
+      "childSummary": {
+        "total": 0,
+        "running": 0,
+        "completed": 0,
+        "failed": 0,
+        "unknown": 0
+      }
+    },
+    {
+      "event": "cancelled",
+      "threadId": "01a149ae-1038-7ff1-8ad5-533f25153c45",
+      "chainId": "recovery-1",
+      "reason": "completed"
+    }
+  ],
+  "credentialGroup": 15,
+  "poolVersion": 49,
+  "evidenceScope": "Real native runtime with production host functions; no Electron UI interaction or installer release",
+  "billing": {
+    "upstream_model": "deepseek-flash",
+    "dedup_rows_per_request": 1,
+    "usage_rows": 2,
+    "real_requests": 2
+  }
+}

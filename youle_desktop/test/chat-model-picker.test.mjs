@@ -269,7 +269,7 @@ test("switching from DeepSeek to a GPT pool model uses the registered Haolo runt
   );
 });
 
-test("DeepSeek execution pool exposes the official text-only adaptive reasoning contract", () => {
+test("DeepSeek execution pool exposes the verified image and adaptive reasoning contract", () => {
   const state = normalizeBusinessModelPoolsState({
     configured: true,
     pools: [
@@ -297,7 +297,7 @@ test("DeepSeek execution pool exposes the official text-only adaptive reasoning 
   assert.equal(option.value, DEEPSEEK_EXECUTION_MODEL_VALUE);
   assert.equal(option.providerId, DEEPSEEK_EXECUTION_PROVIDER_ID);
   assert.equal(option.routeGroupId, 17);
-  assert.deepEqual(option.inputModalities, ["text"]);
+  assert.deepEqual(option.inputModalities, ["text", "image"]);
   assert.deepEqual(option.reasoningEfforts.map((effort) => effort.value), ["low", "high", "max"]);
   assert.equal(option.defaultReasoningEffort, "max");
   assert.equal(DEEPSEEK_EXECUTION_CHAT_MODEL_OPTION.serviceTiers.length, 0);
@@ -625,8 +625,8 @@ test("main process automatically selects GPT and DeepSeek effort and fixes the s
   assert.match(sendMessage, /effort: turnReasoningEffort/);
   assert.match(sendMessage, /\[HAOLO_REASONING_SUPPORT_FIELD\]:/);
   assert.match(sendMessage, /model: executionSelection\.model \|\| undefined/);
-  assert.match(sendMessage, /only accepts text input/);
-  assert.match(sendMessage, /ensureDeepSeekThreadHistoryIsTextOnly\(serverClient, threadId\)/);
+  assert.match(sendMessage, /does not accept video input/);
+  assert.match(sendMessage, /ensureDeepSeekThreadHistoryHasSupportedMedia\(serverClient, threadId\)/);
   assert.match(sendMessage, /serviceTier: null/);
   assert.match(sendMessage, /acquireSerializedThreadSettingsOperation\(originalThreadId\)/);
   assert.doesNotMatch(sendMessage, /thread\/fork|resumeOrForkThreadForExecutionProvider/);
@@ -642,14 +642,14 @@ test("main process automatically selects GPT and DeepSeek effort and fixes the s
   );
   const deepSeekHistoryGate = sourceBlock(
     main,
-    "async function ensureDeepSeekThreadHistoryIsTextOnly",
+    "async function ensureDeepSeekThreadHistoryHasSupportedMedia",
     "async function resumeThreadForRequestedProvider",
   );
   assert.match(providerSwitch, /threadModelProviderFromResumeResult\(result\) === targetProvider/);
   assert.match(providerSwitch, /targetProvider === DEEPSEEK_EXECUTION_PROVIDER_ID/);
-  assert.match(providerSwitch, /ensureDeepSeekThreadHistoryIsTextOnly\(serverClient, threadId\)/);
-  assert.match(deepSeekHistoryGate, /threadHistoryContainsImageContent\(threadResult\?\.thread\)/);
-  assert.match(deepSeekHistoryGate, /history contains images/);
+  assert.match(providerSwitch, /ensureDeepSeekThreadHistoryHasSupportedMedia\(serverClient, threadId\)/);
+  assert.match(deepSeekHistoryGate, /threadHistoryContainsVideoContent\(threadResult\?\.thread\)/);
+  assert.match(deepSeekHistoryGate, /history contains video/);
   const missingRolloutGate = sourceBlock(
     main,
     "function isMissingRolloutErrorMessage",

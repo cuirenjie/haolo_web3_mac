@@ -1,4 +1,5 @@
 import { canonicalDeepSeekModel } from "../main/deepseek-model-policy.mjs";
+import { providerModelInputCapabilities } from "../main/provider-input-capabilities.mjs";
 import { modelDisplayName } from "./model-display-name.ts";
 import { DEFAULT_EXECUTION_MODEL, isRetiredExecutionModel } from "../main/retired-model-policy.mjs";
 
@@ -98,7 +99,8 @@ export const DEEPSEEK_EXECUTION_CHAT_MODEL_OPTION: Readonly<ChatModelOption> = {
   reasoningEfforts: reasoningOptions(["low", "high", "max"]),
   defaultReasoningEffort: "max",
   serviceTiers: [],
-  inputModalities: ["text"],
+  inputModalities: providerModelInputCapabilities("deepseek", DEEPSEEK_EXECUTION_MODEL_VALUE)
+    .modalities.filter((modality) => modality !== "file"),
 };
 
 export function normalizeFixedChatModel(value: unknown): string {

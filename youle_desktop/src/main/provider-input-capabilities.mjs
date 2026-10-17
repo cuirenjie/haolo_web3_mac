@@ -1,4 +1,7 @@
+import { canonicalDeepSeekModel } from "./deepseek-model-policy.mjs";
+
 const IMAGE_INPUT_MODELS = new Set([
+  "deepseek/deepseek-flash",
   "codex/gpt-5.6-sol",
   "codex/gpt-6-sol",
   "codex/gpt-6-astra",
@@ -44,7 +47,7 @@ export function normalizeInputCapabilityProvider(value) {
 
 export function providerModelInputCapabilities(providerValue, modelValue) {
   const provider = normalizeInputCapabilityProvider(providerValue);
-  const model = String(modelValue || "").trim().toLowerCase();
+  const model = canonicalDeepSeekModel(String(modelValue || "").trim().toLowerCase());
   const key = `${provider}/${model}`;
   const image = IMAGE_INPUT_MODELS.has(key);
   const video = VIDEO_INPUT_MODELS.has(key);

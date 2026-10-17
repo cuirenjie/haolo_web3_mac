@@ -11828,18 +11828,18 @@ function threadModelProviderFromResumeResult(result = {}) {
   ));
 }
 
-function threadHistoryContainsImageContent(value, seen = new Set()) {
+function threadHistoryContainsVideoContent(value, seen = new Set()) {
   if (value == null) return false;
-  if (typeof value === "string") return /^data:image\//i.test(value.trim());
+  if (typeof value === "string") return /^data:video\//i.test(value.trim());
   if (typeof value !== "object" || seen.has(value)) return false;
   seen.add(value);
   if (Array.isArray(value)) {
-    return value.some((item) => threadHistoryContainsImageContent(item, seen));
+    return value.some((item) => threadHistoryContainsVideoContent(item, seen));
   }
   const type = firstString(value.type, value.kind)
     .toLowerCase()
     .replace(/[^a-z]/g, "");
-  if (["image", "inputimage", "outputimage", "localimage"].includes(type)) {
+  if (["video", "inputvideo", "outputvideo", "localvideo", "videourl"].includes(type)) {
     return true;
   }
   const mime = firstString(
@@ -11849,17 +11849,17 @@ function threadHistoryContainsImageContent(value, seen = new Set()) {
     value.contentType,
     value.content_type,
   ).toLowerCase();
-  if (mime.startsWith("image/")) return true;
+  if (mime.startsWith("video/")) return true;
   return Object.values(value).some((item) =>
-    threadHistoryContainsImageContent(item, seen),
+    threadHistoryContainsVideoContent(item, seen),
   );
 }
 
-const verifiedDeepSeekTextOnlyThreadIds = new Set();
+const verifiedDeepSeekMediaThreadIds = new Set();
 
-async function ensureDeepSeekThreadHistoryIsTextOnly(serverClient, threadId) {
+async function ensureDeepSeekThreadHistoryHasSupportedMedia(serverClient, threadId) {
   const normalizedThreadId = firstString(threadId);
-  if (!normalizedThreadId || verifiedDeepSeekTextOnlyThreadIds.has(normalizedThreadId)) {
+  if (!normalizedThreadId || verifiedDeepSeekMediaThreadIds.has(normalizedThreadId)) {
     return;
   }
   let threadResult;
@@ -11875,15 +11875,15 @@ async function ensureDeepSeekThreadHistoryIsTextOnly(serverClient, threadId) {
     // sendMessage will either use that empty thread or replace it atomically.
     if (isMissingRolloutErrorMessage(error?.message)) return;
     throw new Error(
-      `Cannot verify that this task is text-only before using ${DEEPSEEK_EXECUTION_MODEL}: ${error?.message || error}`,
+      `Cannot verify this task’s media compatibility before using ${DEEPSEEK_EXECUTION_MODEL}: ${error?.message || error}`,
     );
   }
-  if (threadHistoryContainsImageContent(threadResult?.thread)) {
+  if (threadHistoryContainsVideoContent(threadResult?.thread)) {
     throw new Error(
-      `Cannot use ${DEEPSEEK_EXECUTION_MODEL} for this task because its history contains images. Start a new text-only task instead.`,
+      `Cannot use ${DEEPSEEK_EXECUTION_MODEL} for this task because its history contains video. Start a new task without video instead.`,
     );
   }
-  verifiedDeepSeekTextOnlyThreadIds.add(normalizedThreadId);
+  verifiedDeepSeekMediaThreadIds.add(normalizedThreadId);
 }
 
 async function resumeThreadForRequestedProvider({
@@ -11897,9 +11897,9 @@ async function resumeThreadForRequestedProvider({
   let result;
   const targetProvider = firstString(targetSettings?.modelProvider).toLowerCase();
   if (targetProvider === DEEPSEEK_EXECUTION_PROVIDER_ID) {
-    await ensureDeepSeekThreadHistoryIsTextOnly(serverClient, threadId);
+    await ensureDeepSeekThreadHistoryHasSupportedMedia(serverClient, threadId);
   } else if (targetProvider) {
-    verifiedDeepSeekTextOnlyThreadIds.delete(firstString(threadId));
+    verifiedDeepSeekMediaThreadIds.delete(firstString(threadId));
   }
   try {
     result = await requestAppServer(serverClient, "thread/resume", baseParams, 30_000);
@@ -18945,7 +18945,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
     throw new Error("图片和视频创作需要使用支持工具调用的 GPT 执行模型，不能使用 GPT-6 Astra。");
   }
   if (!executionSelection.isDeepSeek) {
-    verifiedDeepSeekTextOnlyThreadIds.delete(originalThreadId);
+    verifiedDeepSeekMediaThreadIds.delete(originalThreadId);
   }
   const fixedReasoningEffort = String(
     params.reasoningEffortPolicy || params.reasoning_effort_policy || "",
@@ -18999,7 +18999,7 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
     let serverClient = getClientForCwd(cwd);
     rememberThreadClient(threadId, serverClient);
     if (executionSelection.isDeepSeek) {
-      await ensureDeepSeekThreadHistoryIsTextOnly(serverClient, threadId);
+      await ensureDeepSeekThreadHistoryHasSupportedMedia(serverClient, threadId);
     }
     ensureThreadGroupWorkspaceDirectory(cwd);
     const developerInstructions = await refreshSkillsDeveloperInstructions(
@@ -19037,10 +19037,10 @@ ipcMain.handle("codex:sendMessage", async (_event, params = {}) => {
     if (
       executionSelection.isDeepSeek &&
       Array.isArray(threadReferenceContext?.mediaInputs) &&
-      threadReferenceContext.mediaInputs.length > 0
+      threadHistoryContainsVideoContent(threadReferenceContext.mediaInputs)
     ) {
       throw new Error(
-        `${DEEPSEEK_EXECUTION_MODEL} only accepts text input. Start a new task without image attachments.`,
+        `${DEEPSEEK_EXECUTION_MODEL} does not accept video input. Remove video attachments before continuing.`,
       );
     }
     const mediaRequestId = `media:${crypto.randomUUID()}`;
