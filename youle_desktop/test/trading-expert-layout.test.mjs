@@ -24,7 +24,9 @@ import {
 } from "../src/renderer/trading-expert-panel-resize.ts";
 
 const mainSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
-const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
+const stylesSource = Promise.all(["styles.css", "trading-drawing-toolbar.css"].map((file) =>
+  readFile(new URL(`../src/renderer/${file}`, import.meta.url), "utf8"),
+)).then((sources) => sources.join("\n"));
 const marketSource = readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
 const strategyCatalogSource = readFile(new URL("../src/renderer/trading-strategy-runtime/catalog.ts", import.meta.url), "utf8");
 const favoriteTickerSortSource = readFile(new URL("../src/renderer/trading-expert-favorite-ticker-sort.ts", import.meta.url), "utf8");
@@ -222,8 +224,9 @@ test("Trading Expert message action opens its dedicated two-pane presentation", 
   assert.doesNotMatch(sidebarActions, /data-conversation-static-action="knowledge"|renderConversationListIcon\("knowledge"\)|>知识库<\/span>/);
   assert.doesNotMatch(sidebarActions, /data-trading-expert-panel-tab|role="tab"|aria-selected/);
   assert.match(titlebarActions, /toggle-external-channel-menu[\s\S]*renderTitlebarPlugIcon\(\)/);
-  assert.match(titlebarActions, /open-auto-task-dialog[\s\S]*renderTitlebarAlarmIcon\(\)/);
-  assert.ok(titlebarActions.indexOf("toggle-external-channel-menu") < titlebarActions.indexOf("open-auto-task-dialog"));
+  assert.match(titlebarActions, /titlebar-channel-label">连手机<\/span>/);
+  assert.doesNotMatch(titlebarActions, /open-auto-task-dialog|titlebar-more-menu/);
+  assert.match(sourceBlock(source, "function renderAutoTasksPage", "function renderAutoTaskItem"), /data-action="open-auto-task-dialog"/);
   assert.doesNotMatch(titlebarActions, /自动化|open-auto-tasks|>连接<|data-action="open-settings"|>设置<|>任务<\/button>|renderConversationListIcon/);
   assert.match(source, /class="titlebar-drag-region">[\s\S]*class="titlebar-market-favorites-host" data-titlebar-market-favorites-host/);
   assert.doesNotMatch(source, /trading-expert-task-refresh|data-trading-expert-task-refresh|refreshTradingExpertTask/);
@@ -367,7 +370,7 @@ test("collapsed Trading Expert progress cannot replace the restore control mid-c
 
   assert.match(
     pointerBlock,
-    /\.trading-expert-layout \[data-action="toggle-left-panel"\][\s\S]*?\.trading-expert-layout \[data-action="toggle-right-panel"\][\s\S]*?\.trading-expert-layout \[data-action="toggle-trading-expert-chart"\]/,
+    /\.trading-expert-shell \[data-action="toggle-left-panel"\][\s\S]*?\.trading-expert-layout \[data-action="toggle-right-panel"\][\s\S]*?\.trading-expert-layout \[data-action="toggle-trading-expert-chart"\]/,
   );
   assert.match(pointerBlock, /tradingExpertLayoutControlPointerActive = true/);
   assert.match(pointerBlock, /finishTradingExpertLayoutControlPointerInteraction/);
@@ -618,15 +621,17 @@ test("Trading Expert keeps Sol as the default and exposes media models in the ex
 
   assert.match(
     selectedRequestOptions,
-    /const model = analysisModelPolicySelection\(analysisModelRecoveryState, firstString\([\s\S]*selectedSettings\?\.model,[\s\S]*knownSettings\?\.model,[\s\S]*selected\.value,[\s\S]*TRADING_EXPERT_DEFAULT_MODEL_VALUE/,
+    /const requestedModel = firstString\([\s\S]*selectedSettings\?\.model,[\s\S]*knownSettings\?\.model,[\s\S]*selected\.value,[\s\S]*TRADING_EXPERT_DEFAULT_MODEL_VALUE/,
   );
+  assert.match(selectedRequestOptions, /migrateGpt6SolSelection\(\{ model: requestedModel \}\)/);
+  assert.match(selectedRequestOptions, /const model = explicitModelSelection\s*\? runtimeRequestedModel\s*:\s*analysisModelPolicySelection\(analysisModelRecoveryState, runtimeRequestedModel\)\.modelId/);
   assert.match(
     selectedRequestOptions,
     /modelProvider,[\s\S]*model,[\s\S]*reasoningEffort: tradingExpertReasoningEffort\(model\),[\s\S]*reasoningEffortPolicy: "fixed"/,
   );
   assert.match(
     selectedRequestOptions,
-    /model\.toLowerCase\(\) === DEEPSEEK_EXECUTION_MODEL_VALUE[\s\S]*\? DEEPSEEK_EXECUTION_PROVIDER_ID[\s\S]*: selectedModelProvider/,
+    /model\.toLowerCase\(\) === DEEPSEEK_EXECUTION_MODEL_VALUE\s*\? DEEPSEEK_EXECUTION_PROVIDER_ID\s*:\s*model\.toLowerCase\(\)\.startsWith\("gpt-"\) \? DEFAULT_EXECUTION_MODEL_PROVIDER_ID : selectedModelProvider/,
   );
   assert.match(
     requestOptions,
@@ -1018,7 +1023,7 @@ test("Trading Expert mention selection inserts an atomic highlighted category to
   assert.match(placeholderBlock, /isTradingExpertExecutionThreadId\(thread\.id\)[\s\S]*return "点击\+调用策略、指标、预警和文件"/);
   assert.match(applyBlock, /isTradingExpertThreadId\(threadId\)/);
   assert.match(applyBlock, /item\.options\.length > 0 && !option/);
-  assert.match(applyBlock, /const token = `@\$\{item\.label\}\$\{option \? `:\$\{option\}` : ""\}`/);
+  assert.match(applyBlock, /const token = localizedTradingExpertMentionToken\(item\.label, option \|\| ""\)/);
   assert.match(applyBlock, /composerMentionLeadingSpacer\(input\.value, match\.start\)/);
   assert.match(applyBlock, /composerMentionTrailingSpacer\(afterSelection\)/);
   assert.match(applyBlock, /applyTradingExpertCustomIndicatorMentions\(nextValue\)/);
@@ -1027,7 +1032,8 @@ test("Trading Expert mention selection inserts an atomic highlighted category to
   assert.match(bindBlock, /\[data-trading-expert-mention-option\][\s\S]*applyTradingExpertMention/);
   assert.match(highlightTokenBlock, /tradingExpertMentionTokens\(\)/);
   assert.match(atomicTokenBlock, /tradingExpertMentionTokens\(\)[\s\S]*TRADING_EXPERT_MENTION_CATALOG\.flatMap/);
-  assert.match(atomicTokenBlock, /item\.options\.length[\s\S]*\[`@\$\{item\.label\}`\]/);
+  assert.match(atomicTokenBlock, /item\.options\.length[\s\S]*`@\$\{item\.label\}:\$\{option\}`,[\s\S]*localizedTradingExpertMentionToken\(item\.label, option\)/);
+  assert.match(atomicTokenBlock, /\[`@\$\{item\.label\}`, localizedTradingExpertMentionToken\(item\.label\)\]/);
   assert.match(composerInputBlock, /state\.composerText = input\.value;\s*applyTradingExpertCustomIndicatorMentions\(input\.value\)/);
   assert.match(pendingSendBlock, /state\.composerText = "";\s*applyTradingExpertCustomIndicatorMentions\(state\.composerText\)/);
   assert.match(atomicDeleteBlock, /state\.composerText = nextValue;\s*applyTradingExpertCustomIndicatorMentions\(nextValue\)/);
@@ -1080,7 +1086,8 @@ test("Trading Expert opens the former mention menu from plus without reacting to
   assert.match(picker, /filesFromDroppedLocalPaths\(paths\)/);
   assert.match(preload, /pickComposerFilesAndFolders: \(\) => ipcRenderer\.invoke\("app:pickComposerFilesAndFolders"\)/);
   assert.match(nativePicker, /process\.platform === "win32" \|\| process\.platform === "linux"/);
-  assert.match(nativePicker, /buttons: \["选择文件", "选择文件夹", "取消"\]/);
+  assert.match(nativePicker, /buttons: \[mainUiText\("selectFiles"\), mainUiText\("selectFolder"\), mainUiText\("cancel"\)\]/);
+  assert.match(nativePicker, /cancelId: 2,[\s\S]*choice\.response === 2\) return \{ canceled: true, paths: \[\] \}/);
   assert.match(nativePicker, /\["openFile", "multiSelections"\]/);
   assert.match(nativePicker, /\["openDirectory", "multiSelections"\]/);
   assert.match(styles, /\.composer-upload-button\[aria-expanded="true"\][\s\S]*?background: var\(--surface-hover\);/);
@@ -1407,7 +1414,7 @@ test("Trading Expert market uses the compact pair title and customizable period 
   assert.match(styles, /\.trading-market-indicator-heading\s*\{[^}]*height: 32px;[^}]*gap: 5px;[^}]*padding: 0 8px;[^}]*font-size: calc\(12px \+ var\(--app-font-size-offset\)\);[^}]*font-weight: 400;/s);
   assert.doesNotMatch(styles, /\.trading-market-indicator-heading\s*\{[^}]*border-right:/s);
   assert.match(styles, /\.trading-market-indicator-heading svg\s*\{[^}]*width: 8px;[^}]*height: 5px;[^}]*stroke: currentColor;[^}]*stroke-width: 1\.5;/s);
-  assert.match(styles, /\.trading-market-period-controls\s*\{[^}]*min-width: 210px;[^}]*flex: 0 1 auto;[^}]*margin-left: auto;/s);
+  assert.match(styles, /\.trading-market-period-controls\s*\{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*flex: 1 1 210px;[^}]*margin-left: auto;/s);
   assert.match(styles, /\.trading-market-times\s*\{[^}]*flex: 0 1 auto;[^}]*margin-left: 0;/s);
   assert.match(styles, /\.trading-market-times\s*\{[^}]*overflow-x: auto;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scroll-padding-inline: 4px;[^}]*touch-action: pan-x;/s);
   assert.match(styles, /\.trading-market-times\.dragging\s*\{[^}]*cursor: grabbing;[^}]*user-select: none;/s);
@@ -1419,7 +1426,8 @@ test("Trading Expert market uses the compact pair title and customizable period 
   assert.match(styles, /\.trading-market-symbol\s*\{[^}]*min-width: 212px;/s);
   assert.match(styles, /\.trading-market-symbol > svg\s*\{[^}]*margin-left: 3px;/s);
   assert.doesNotMatch(styles, /\.trading-market-symbol > svg\s*\{[^}]*margin-left: auto;/s);
-  assert.match(styles, /\.trading-market-overview\s*\{[^}]*height: 36\.4px;[^}]*flex: 0 0 36\.4px;/s);
+  assert.match(styles, /--trading-market-header-height: 36px;/);
+  assert.match(styles, /\.trading-market-overview\s*\{[^}]*height: auto;[^}]*min-height: var\(--trading-market-header-height\);[^}]*flex: 0 0 auto;[^}]*flex-wrap: wrap;/s);
   assert.match(styles, /--trading-market-accent: #2f80ed;[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-accent: #69a8ff;/);
   assert.doesNotMatch(indicatorBar, /普通|升级|trading-market-modes|data-market-mode/);
   assert.doesNotMatch(styles, /trading-market-modes/);
@@ -1896,9 +1904,13 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(favoriteTickerSort, /this\.ghost = this\.createGhost\(this\.sourceItem, rect\);\s*this\.sourceItem\.classList\.add\("sorting"\)/);
   assert.match(favoriteTickerSort, /this\.host\.insertBefore\(this\.sourceItem, before\)[\s\S]*?this\.animateReorder\(previousRects\)/);
   assert.match(favoriteTickerSort, /AUTO_SCROLL_EDGE_PX[\s\S]*?requestAnimationFrame\([\s\S]*?this\.autoScrollStep\(\)/);
-  assert.match(favoriteTickerSort, /event\.altKey[\s\S]*?"ArrowLeft"[\s\S]*?"ArrowRight"[\s\S]*?this\.onCommit\(this\.orderedMarketIds\(\)\)/);
+  const keyboardSort = sourceBlock(favoriteTickerSort, "private readonly handleKeyDown", "private readonly handleGlobalKeyDown");
+  assert.match(keyboardSort, /const previousKey = this\.axis === "y" \? "ArrowUp" : "ArrowLeft"/);
+  assert.match(keyboardSort, /const nextKey = this\.axis === "y" \? "ArrowDown" : "ArrowRight"/);
+  assert.match(keyboardSort, /!event\.altKey[\s\S]*event\.key !== previousKey && event\.key !== nextKey/);
+  assert.match(keyboardSort, /this\.onCommit\(this\.orderedMarketIds\(\)\)/);
   assert.match(favoriteTickerSort, /addEventListener\("click", this\.handleClickCapture, true\)[\s\S]*?event\.stopImmediatePropagation\(\)/);
-  assert.match(favoriteTickerSort, /getPropertyValue\("--trading-market-selected-background"\)[\s\S]*?\.trim\(\) \|\| "#fff"[\s\S]*?setProperty\("background-color", solidBackground, "important"\)[\s\S]*?setProperty\("opacity", "1", "important"\)/);
+  assert.match(favoriteTickerSort, /getPropertyValue\(this\.axis === "y" \? "--surface-primary" : "--trading-market-selected-background"\)[\s\S]*?\.trim\(\) \|\| "#fff"[\s\S]*?setProperty\("background-color", solidBackground, "important"\)[\s\S]*?setProperty\("opacity", "1", "important"\)/);
 });
 
 test("Trading Expert uses backend-managed Finnhub without a visible provider status row", async () => {
@@ -2174,13 +2186,15 @@ test("Trading Expert adds functional main-chart studies on the left and moves su
   assert.match(source, /createSeriesMarkers\(this\.candleSeries/);
   assert.match(source, /const tdSignals = isActive\("td"\) \? computeTdSequential\(candles, tdSetting\.parameters\[0\]\) : \[\]/);
   assert.ok(indicatorBar.indexOf("data-market-main-indicators") < indicatorBar.indexOf("data-market-indicators"));
-  assert.match(styles, /\.trading-drawing-toolbar\s*\{[^}]*width: 41\.6px;[^}]*flex: 0 0 41\.6px;[^}]*margin-bottom: 42px;/s);
+  assert.match(styles, /^@import "\.\/trading-drawing-toolbar\.css";/);
+  assert.match(styles, /--trading-drawing-toolbar-width: 52px;/);
+  assert.match(styles, /\.trading-drawing-toolbar\s*\{[^}]*width: var\(--trading-drawing-toolbar-width\);[^}]*flex: 0 0 var\(--trading-drawing-toolbar-width\);[^}]*margin-bottom: 42px;/s);
   assert.match(styles, /\.trading-expert-market\.split-layout-active \.trading-drawing-toolbar\s*\{[^}]*margin-bottom: 32px;/s);
   assert.doesNotMatch(styles, /\.desktop-body\.trading-expert-layout[^,{]*\s+\.trading-drawing-toolbar\s*\{\s*display: none;/s);
   assert.match(styles, /\.trading-market-chart-panel\s*\{[^}]*overflow: visible;/s);
   assert.match(styles, /\.trading-market-chart-viewport\s*\{[^}]*overflow: hidden;/s);
   assert.match(styles, /\.trading-expert-market:not\(\.split-layout-active\) \.trading-market-chart-grid,[\s\S]*?\.trading-market-chart-grid > \.trading-market-primary-pane\s*\{[^}]*overflow: visible;/s);
-  assert.match(styles, /\.trading-market-indicator-bar\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding: 0 11px 0 10px;/s);
+  assert.match(styles, /\.trading-market-indicator-bar\s*\{[^}]*width: calc\(100% \+ 52px\);[^}]*margin-left: -52px;[^}]*padding: 0 11px 0 10px;/s);
   assert.doesNotMatch(styles, /\.desktop-body\.trading-expert-layout:not\(\.left-panel-collapsed\)\s+\.trading-market-indicator-bar\s*\{/s);
   assert.match(styles, /\.trading-market-indicators\s*\{[^}]*justify-content: flex-end;[^}]*margin-left: auto;/s);
   assert.match(styles, /\.trading-market-main-indicators button\.active,[\s\S]*?border-color: transparent;[\s\S]*?background: transparent;[\s\S]*?color: var\(--trading-market-indicator-selected\);/);
@@ -2419,7 +2433,7 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.match(source, /const FAVORITE_TICKER_SOCKET_STALE_MS = 10_000/);
   assert.match(source, /const FAVORITE_TICKER_FALLBACK_BATCH_SIZE = 4/);
   assert.match(source, /export function parseBinanceMarketRetryAfterMs[\s\S]*Number\.isFinite\(seconds\)[\s\S]*Date\.parse\(text\)/);
-  assert.match(source, /response\?\.status === 418 \|\| response\?\.status === 429[\s\S]*recordBinanceMarketRateLimit\(response\?\.retryAfterMs, marketType\)/);
+  assert.match(source, /response\?\.status === 418 \|\| response\?\.status === 429 \|\| response\?\.rateLimited === true[\s\S]*recordBinanceMarketRateLimit\(\s*binanceMarketRetryAfterMs\(response\),\s*marketType,/);
   assert.match(socketBlock, /this\.marketSocketLastActivityAt = Date\.now\(\)/);
   assert.match(socketBlock, /event\.status === "reconnecting"[\s\S]*?this\.marketSocketNeedsBackfill = true/);
   assert.match(socketBlock, /const needsBackfill = this\.marketSocketNeedsBackfill[\s\S]*?this\.refreshLiveCandle\(generation\)/);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 
 const mainSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const marketSource = readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
@@ -1589,7 +1590,7 @@ test("every visible split pane runs the requested analysis and plays its own dra
   assert.match(splitPane, /async analysisSnapshot\(lookbackMs: number \| null\)/);
   assert.match(splitPane, /await this\.reload\(true\)/);
   assert.match(splitPane, /paneIndex: this\.paneIndex,[\s\S]*?market: \{ \.\.\.this\.market \},[\s\S]*?interval: this\.interval/);
-  assert.match(splitPane, /playAiDrawingPatch\([\s\S]*?this\.drawingController\?\.playAiDrawingPatch\(patch, options\)/);
+  assert.match(splitPane, /async playAiDrawingPatch\([\s\S]*?await \(this\.drawingController\?\.playAiDrawingPatch\(patch, \{\s*\.\.\.options,\s*beforePlayback: \(\) => this\.focusAnalysisDrawingPatch\(patch\),\s*\}\) \?\? Promise\.resolve\(\)\)/);
   assert.match(market, /private captureSplitPaneAnalysisSnapshots\([\s\S]*?const panes = \[\.\.\.this\.splitPanes\][\s\S]*?panes\.map\(\(pane\) => pane\.analysisSnapshot\(lookbackMs\)\)/);
   assert.match(market, /snapshotFailures\.push\([\s\S]*?行情快照读取失败/);
   assert.match(market, /private async runSplitPaneAnalyses\([\s\S]*?const snapshots = \[\.\.\.options\.snapshots\]/);
@@ -1598,12 +1599,38 @@ test("every visible split pane runs the requested analysis and plays its own dra
   assert.match(market, /const snapshot = snapshots\[cursor\]/);
   assert.match(market, /const response = await options\.analyze\(snapshot\)/);
   assert.match(market, /await commitTradingAnalysisDrawingPatch\([\s\S]*?snapshot\.paneIndex/);
-  assert.match(market, /失败原因会写入最终报告/);
+  assert.match(market, /failures\.push\(\{\s*paneIndex: snapshot\.paneIndex,[\s\S]*?message: String\(\(error as Error\)\?\.message/);
+  assert.match(market, /主图分析继续有效；已纳入 \$\{completed\} 个辅助分屏，另有 \$\{failed\} 个辅助分屏暂未参与结论/);
+  assert.match(market, /splitResult\.failures\.length[\s\S]*?This auxiliary chart was not included; the primary analysis and answer remain available/);
   assert.match(market, /analysisProgressPhase: string;[\s\S]*?drawingProgressPhase: string;/);
   assert.match(market, /分析完成，正在逐笔落图/);
-  assert.equal((market.match(/await this\.runSplitPaneAnalyses\(\{/g) || []).length, 5);
-  assert.equal((market.match(/report: combineTradingAnalysisReports\(/g) || []).length, 5);
-  assert.equal((market.match(/narrative: combineTradingAnalysisNarratives\(/g) || []).length, 5);
+  // Check each analysis entry independently. A separate local-recovery report
+  // must neither inflate this count nor conceal a missing split-pane entry.
+  const parsed = ts.createSourceFile("market.ts", market, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const entries = new Set([
+    "runGeneralConversation", "runChanConversation", "runWaveConversation",
+    "runWyckoffConversation", "runOrderFlowConversation",
+  ]);
+  const visit = (node) => {
+    if (ts.isMethodDeclaration(node) && entries.has(node.name.getText(parsed))) {
+      const name = node.name.getText(parsed);
+      entries.delete(name);
+      const calls = [];
+      const collect = (child) => {
+        if (ts.isCallExpression(child)) calls.push(child);
+        ts.forEachChild(child, collect);
+      };
+      collect(node);
+      assert.equal(calls.filter((call) => call.expression.getText(parsed) === "this.runSplitPaneAnalyses").length, 1, name);
+      for (const combine of ["combineTradingAnalysisReports", "combineTradingAnalysisNarratives"]) {
+        assert.equal(calls.filter((call) => call.expression.getText(parsed) === combine
+          && call.arguments.some((argument) => argument.getText(parsed) === "splitResult")).length, 1, `${name}: ${combine}`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  assert.deepEqual([...entries], [], "all five analysis entry points must exist");
   assert.match(market, /const api:[\s\S]{0,160}= strategyId[\s\S]{0,240}runTradingStrategyAnalysis/);
   assert.match(market, /runTradingStrategyAnalysis![\s\S]{0,220}strategyId,[\s\S]{0,160}: window\.codexDesktop\.runTradingGeneralAnalysis/);
   assert.doesNotMatch(market, /strategyId === "price-action"[\s\S]{0,160}runTradingGeneralAnalysis/);
