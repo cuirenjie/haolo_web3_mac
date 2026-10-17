@@ -138,7 +138,7 @@ function personalizedTradingSettings(value) {
     riskClarificationRequired: source.riskClarificationRequired === true,
     moveStopToBreakEven: source.moveStopToBreakEven !== false,
     breakEvenTriggerR: numeric(source.breakEvenTriggerR, 1),
-    analysisStyle: source.analysisStyle === "detailed" ? "detailed" : "concise",
+    analysisStyle: String(source.analysisStyle || "concise").trim().slice(0, 2000),
     requiredAnalysisSections: String(source.requiredAnalysisSections || "").trim().slice(0, 500),
     savedRules: (Array.isArray(source.entries) ? source.entries : [])
       .filter((entry) => entry?.scope?.startsWith?.("trading."))

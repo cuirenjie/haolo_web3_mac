@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { withTradingPreferenceDefaults } from "./trading-preference-defaults.mjs";
+import { readTradingPreferenceForm } from "./trading-preference-compiler.mjs";
 
 const STORE_VERSION = 1;
 const MEMORY_SCHEMA_VERSION = 1;
@@ -70,11 +72,12 @@ export class PersonalMemoryStore {
     };
   }
 
-  async list(ownerId, filters = {}) {
+  async list(ownerId, filters = {}, { includeTradingDefaults = false } = {}) {
     const profile = await this.resolveProfile(ownerId);
     const scopes = normalizeFilterValues(filters.scopes, normalizeScope);
     const keys = normalizeFilterValues(filters.keys, normalizeKey);
-    const entries = profile.entries.filter((entry) => (
+    const effectiveEntries = includeTradingDefaults ? withTradingPreferenceDefaults(profile.entries) : profile.entries;
+    const entries = effectiveEntries.filter((entry) => (
       (!scopes.size || scopes.has(entry.scope))
       && (!keys.size || keys.has(entry.key))
     ));
@@ -277,7 +280,7 @@ export class PersonalMemoryStore {
 }
 
 export function tradingRiskProfileFromEntries(values) {
-  const entries = Array.isArray(values) ? values : [];
+  const entries = withTradingPreferenceDefaults(values);
   const tradingEntries = entries.filter((entry) => (
     entry.scope === "trading"
     || entry.scope.startsWith("trading.")
@@ -351,6 +354,7 @@ export function tradingRiskProfileFromEntries(values) {
     requiredAnalysisSections: text(["trading.analysis", "trading"], TRADING_RISK_MEMORY_KEYS.requiredAnalysisSections),
     conflictHandling: text(["trading.behavior", "trading"], TRADING_RISK_MEMORY_KEYS.conflictHandling),
     onboardingCompleted: boolean(["trading.profile", "trading"], TRADING_RISK_MEMORY_KEYS.onboardingCompleted) === true,
+    preferenceForm: readTradingPreferenceForm(entries),
     entries: Object.freeze(activeEntries),
   });
 }
@@ -569,7 +573,7 @@ function publicEntry(entry) {
     key: entry.key,
     value: entry.value,
     strength: entry.strength,
-    source: "user_explicit",
+    source: entry.source === "product_default" ? "product_default" : "user_explicit",
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
   });

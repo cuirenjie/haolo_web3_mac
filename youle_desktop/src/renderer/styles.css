@@ -24820,6 +24820,94 @@ html[data-theme="dark"] .app-confirmation-dialog.app-selection-confirmation-dial
   line-height: 20px;
 }
 
+.settings-trading-nav-icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.settings-trading-loading {
+  margin-top: 28px;
+  color: var(--text-secondary);
+  font-size: calc(13px + var(--app-font-size-offset));
+}
+
+.settings-main .settings-trading-preferences {
+  display: block;
+  width: 100%;
+  max-width: none;
+  margin-top: 18px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.settings-trading-intro,
+.settings-trading-hint {
+  margin: 0 0 18px;
+  color: var(--text-secondary);
+  font-size: calc(12px + var(--app-font-size-offset));
+  line-height: 1.65;
+}
+
+.settings-trading-group {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 20px;
+  margin-top: 22px;
+}
+
+.settings-trading-group h4 {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: calc(14px + var(--app-font-size-offset));
+}
+
+.settings-trading-preferences .settings-trading-group fieldset {
+  margin: 0 0 22px;
+}
+
+.settings-trading-preferences .trading-preference-choice-option:has(input:checked) {
+  border-color: var(--text-primary);
+  background: var(--surface-soft);
+}
+
+.settings-trading-preferences .trading-preference-choice-option:has(input:focus-visible) {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.settings-trading-actions {
+  position: sticky;
+  bottom: -30px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+  padding: 14px 0;
+  background: var(--surface-primary);
+}
+
+.settings-trading-actions .trading-preference-choice-error {
+  flex-basis: 100%;
+}
+
+html[data-theme="dark"] .settings-trading-actions {
+  background: var(--dialog-surface);
+}
+
+.settings-trading-status,
+.settings-trading-extra {
+  color: var(--text-secondary);
+  font-size: calc(12px + var(--app-font-size-offset));
+}
+
 .settings-close-button {
   position: absolute;
   top: 18px;
@@ -33331,6 +33419,144 @@ html[data-theme="dark"] .github-settings-actions button:disabled {
   justify-content: flex-start;
   margin-top: 8px;
   padding-left: 2px;
+}
+
+.message-stack.trading-preference-choice-stack {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.trading-preference-choices {
+  --preference-option-bg: #fff;
+  --preference-option-border: #d9e0ea;
+  --preference-option-accent: #3275d5;
+  --preference-option-text: #243247;
+  --preference-option-muted: #65758a;
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 12px;
+  color: var(--preference-option-text);
+  font-size: calc(13px + var(--app-font-size-offset));
+  line-height: 1.55;
+}
+
+.trading-preference-choice-progress {
+  color: var(--preference-option-accent);
+  font-weight: 600;
+}
+
+.trading-preference-choice-progress span,
+.trading-preference-choices legend span {
+  margin-left: 6px;
+  color: var(--preference-option-muted);
+  font-size: calc(12px + var(--app-font-size-offset));
+  font-weight: 400;
+}
+
+.trading-preference-choices fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.trading-preference-choices legend {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.trading-preference-choice-options {
+  display: grid;
+  gap: 7px;
+}
+
+.trading-preference-choice-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--preference-option-border);
+  border-radius: 9px;
+  background: var(--preference-option-bg);
+  cursor: pointer;
+}
+
+.trading-preference-choice-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.trading-preference-choice-option input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--preference-option-accent);
+}
+
+.trading-preference-choice-custom {
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  margin-top: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--preference-option-border);
+  border-radius: 9px;
+  background: var(--preference-option-bg);
+  color: var(--preference-option-text);
+  font: inherit;
+  resize: vertical;
+}
+
+.trading-preference-choice-custom:focus {
+  border-color: var(--preference-option-border);
+  outline: none;
+  box-shadow: none;
+}
+
+.trading-preference-choice-custom::placeholder {
+  color: var(--preference-option-muted);
+}
+
+.trading-preference-choice-custom[hidden],
+.trading-preference-choice-error[hidden] {
+  display: none;
+}
+
+.trading-preference-choice-error {
+  color: #ba3345;
+  overflow-wrap: anywhere;
+}
+
+.trading-preference-choice-submit {
+  justify-self: start;
+}
+
+.trading-preference-choices fieldset:disabled {
+  opacity: 0.65;
+}
+
+.trading-preference-choices fieldset:disabled label {
+  cursor: wait;
+}
+
+html[data-theme="dark"] .trading-preference-choices {
+  --preference-option-bg: #1b212a;
+  --preference-option-border: #3b4656;
+  --preference-option-accent: #8dbdff;
+  --preference-option-text: #e1e7f0;
+  --preference-option-muted: #a6b3c5;
+}
+
+html[data-theme="dark"] .trading-preference-choice-error {
+  color: #ff9ba7;
 }
 
 .trading-preference-onboarding-start,

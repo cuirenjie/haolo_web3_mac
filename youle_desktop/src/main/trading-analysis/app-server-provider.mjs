@@ -33,7 +33,8 @@ export function createAppServerTradingAnalysisProvider(options = {}) {
       const startedAt = Date.now();
       const recoverableReview = !String(request.task || "").endsWith("-request-routing")
         && request.task !== "trading-turn-intent-routing"
-        && request.task !== "trading_alert_intent_compile";
+        && request.task !== "trading_alert_intent_compile"
+        && request.task !== "trading_preference_compile";
       const operation = async (selection) => {
         const remainingModelTime = recoverableReview ? modelBudget.begin(selection.modelId) : undefined;
         remainingModelTime?.();

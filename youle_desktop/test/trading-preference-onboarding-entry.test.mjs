@@ -51,12 +51,12 @@ test("empty Trading Expert conversations show Haolo's preference onboarding bubb
   assert.match(activeScrollerState, /"new-thread-scroller",[\s\S]*!isTradingExpertThreadId\(thread\.id\)/);
 });
 
-test("preference start keeps the chart layout and immediately asks question one", async () => {
+test("preference start opens trading settings without changing the conversation or chart layout", async () => {
   const source = await rendererSource;
   const handler = sourceBlock(
     source,
     "function startTradingPreferenceOnboarding",
-    "function workflowRevisionNodePayload",
+    "function scrollTradingPreferenceQuestionIntoView",
   );
 
   assert.match(source, /const TRADING_PREFERENCE_ONBOARDING_GREETING =[\s\S]*天才交易员/);
@@ -64,13 +64,8 @@ test("preference start keeps the chart layout and immediately asks question one"
   assert.doesNotMatch(handler, /state\.rightCollapsed\s*=/);
   assert.doesNotMatch(handler, /state\.tradingExpertChartCollapsed\s*=/);
   assert.doesNotMatch(handler, /restoreTradingExpertChartFocusLayout/);
-  assert.match(handler, /text: TRADING_PREFERENCE_ONBOARDING_GREETING/);
-  assert.match(handler, /text: TRADING_PREFERENCE_QUESTION_ONE/);
-  assert.match(handler, /stage: 1/);
-  assert.match(handler, /tradingPreferenceOnboardingByThreadId\.set/);
-  assert.match(handler, /sender_label: "Haolo"/);
-  assert.match(handler, /threadNameOverrides\[threadId\] = TRADING_PREFERENCE_THREAD_TITLE/);
-  assert.match(handler, /name: TRADING_PREFERENCE_THREAD_TITLE/);
+  assert.match(handler, /openSettingsDialog\("trading"\)/);
+  assert.doesNotMatch(handler, /upsertItem|tradingPreferenceOnboardingByThreadId\.set|threadNameOverrides/);
   assert.doesNotMatch(handler, /api\.sendMessage/);
   assert.match(
     source,
@@ -94,7 +89,7 @@ test("three-question flow requires every question and supports per-question reco
   assert.match(source, /const TRADING_PREFERENCE_QUESTION_ONE =/);
   assert.match(source, /每笔交易触发止损后，你最多允许亏损当前账户净值的百分之多少/);
   assert.match(source, /const TRADING_PREFERENCE_QUESTION_TWO =/);
-  assert.match(source, /浮盈达到1R后移动保本，最低净盈亏比为1:0\.4/);
+  assert.match(source, /请分别选择保本条件和最低净盈亏比/);
   assert.match(source, /const TRADING_PREFERENCE_QUESTION_THREE =/);
   assert.match(source, /仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件/);
   assert.doesNotMatch(flow, /按此项推荐|同意推荐|全部使用推荐|采用全部推荐配置/);
@@ -108,7 +103,7 @@ test("three-question flow requires every question and supports per-question reco
   assert.match(flow, /minimumRiskRewardRatio \?\?= 0\.4/);
   assert.match(flow, /minimumRiskRewardRatio: minimumRiskRewardRatio \?\? 0\.4/);
   assert.doesNotMatch(flow, /minimumRiskRewardRatio:\s*Math\.max\(0\.4/);
-  assert.match(source, /Haolo 推荐：单笔风险为2%/);
+  assert.match(source, /请选择下方的风险比例/);
   assert.match(flow, /percent > 100/);
   assert.match(flow, /例如“2%”或“10%”/);
   assert.doesNotMatch(flow, /percent > 3|absolute_max_loss_per_trade_percent|单笔绝对上限 3/);

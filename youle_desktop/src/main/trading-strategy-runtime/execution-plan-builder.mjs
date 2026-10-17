@@ -90,9 +90,16 @@ function normalizeUserRiskProfile(value) {
     .slice(0, 24)
     .map((entry) => Object.freeze({
       key: String(entry.key || "").trim().slice(0, 96),
-      value: String(entry.value ?? "").trim().slice(0, 300),
+      value: String(entry.value ?? "").trim().slice(0, 500),
     }))
     .filter((entry) => entry.key && entry.value);
+  // Compiled qualifiers must survive deterministic strategies too. Carry the
+  // complete requirements as plan preconditions, within each condition's bound.
+  const customRequirements = (Array.isArray(source.entries) ? source.entries : [])
+    .filter(entry => entry.scope === "trading.profile" && ["user_preference_notes", "additional_preferences"].includes(entry.key))
+    .map(entry => String(entry.value || "").trim())
+    .filter(value => value && value !== "无自定义补充说明")
+    .flatMap(value => value.match(/[\s\S]{1,500}/gu) || []);
   const configuredMinimumRiskRewardRatio = boundedRiskValue(source.minimumRiskRewardRatio, Number.MIN_VALUE, 100);
   return Object.freeze({
     maxLossPerTradePercent: boundedRiskValue(source.maxLossPerTradePercent, 0.01, 100, 2),
@@ -113,6 +120,7 @@ function normalizeUserRiskProfile(value) {
       ? source.riskPreference.trim().slice(0, 120) || null
       : null,
     customHardConstraints: Object.freeze(customHardConstraints),
+    customRequirements: Object.freeze(customRequirements),
   });
 }
 
@@ -1211,6 +1219,11 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     ...riskPolicy.customHardConstraints.map((entry, index) => condition(
       `user-custom-risk-${index + 1}`,
       `用户硬性交易约束 ${entry.key}：${entry.value}`,
+      evidenceIds,
+    )),
+    ...riskPolicy.customRequirements.map((text, index) => condition(
+      `user-custom-requirement-${index + 1}`,
+      `用户交易要求（无法核实时不得视为满足）：${text}`,
       evidenceIds,
     )),
   ];

@@ -1,4 +1,5 @@
 import { createStrategyResultEnvelope } from "./contracts.mjs";
+import { withTradingPreferenceContext } from "../personal-context/trading-preference-context.mjs";
 import { buildExecutionPlanV1, formatExecutionPlanMarkdown } from "./execution-plan-builder.mjs";
 import {
   deterministicStrategyRequestRouting,
@@ -248,7 +249,7 @@ export class TradingStrategyCoordinator {
     let analysisStatus = "completed";
     try {
       legacyResult = await adapter.run(analysisParams, {
-        modelRegistry: modelRegistry || this.#modelRegistry,
+        modelRegistry: withTradingPreferenceContext(modelRegistry || this.#modelRegistry, analysisParams.userRiskProfile),
         providerId: providerId || this.#providerId,
         signal,
         onTheoryReady,

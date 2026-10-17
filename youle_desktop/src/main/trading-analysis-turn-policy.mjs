@@ -8,6 +8,9 @@ const THEORY_REVIEW_EFFORTS = new Set(["medium", "high", "max"]);
 
 export function tradingAnalysisTurnPolicy(taskValue, options = {}) {
   const task = String(taskValue || "");
+  if (task === "trading_preference_compile") {
+    return Object.freeze({ kind: "preference_compile", reasoningEffort: "medium", timeoutMs: 90_000, resetTimeoutOnActivity: false, timeoutRetryable: false });
+  }
   if (task.endsWith("-request-routing") || task === "trading-turn-intent-routing") {
     return Object.freeze({
       kind: "request_routing",

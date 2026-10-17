@@ -1,4 +1,5 @@
 import type { MessageAttachment } from "./domain";
+import { buildTradingPreferenceChoiceAnswer } from "./trading-preference-choices.ts";
 
 type Listener<T> = (payload: T) => void;
 
@@ -412,6 +413,12 @@ export function ensureBrowserDesktopApi() {
   let tradingPreferenceProfile: any = {
     schemaVersion: 1,
     onboardingCompleted: false,
+    maxLossPerTradePercent: 2,
+    minimumRiskRewardRatio: 0.4,
+    moveStopToBreakEven: true,
+    breakEvenTriggerR: 1,
+    analysisStyle: "concise",
+    requiredAnalysisSections: "仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件",
     entries: [],
   };
   const mockWeb3PaymentOrders = new Map<string, any>();
@@ -1031,7 +1038,25 @@ export function ensureBrowserDesktopApi() {
       };
     },
     async saveTradingPreferenceProfile(params: any = {}) {
-      const entries = Array.isArray(params.entries) ? params.entries : [];
+      if (params.choices && (params.extraNotes || Object.values(params.choices).some((choice: any) => choice?.selected?.includes("custom")))) {
+        return { ok: false, error: { message: "浏览器预览无法使用大模型，请在桌面客户端保存自定义偏好。" } };
+      }
+      let entries = Array.isArray(params.entries) ? params.entries : [];
+      if (params.choices) {
+        const results = ([1, 2, 3] as const).map(stage => buildTradingPreferenceChoiceAnswer(stage, params.choices));
+        if (results.some(result => !result.ok)) return { ok: false };
+        const answers = Object.assign({}, ...results.map(result => result.ok ? result.answers : {}));
+        entries = [
+          ["trading.profile", "onboarding_completed", true],
+          ["trading.risk", "max_loss_per_trade_percent", answers.maxLossPerTradePercent],
+          ["trading.risk", "minimum_risk_reward_ratio", answers.minimumRiskRewardRatio],
+          ["trading.exit", "move_stop_to_break_even", answers.moveStopToBreakEven],
+          ["trading.exit", "break_even_trigger_r", answers.breakEvenTriggerR],
+          ["communication", "trading_analysis_style", answers.analysisStyle],
+          ["trading.analysis", "required_analysis_sections", answers.requiredSections === "adaptive" ? "根据问题按需选择栏目" : "仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件"],
+          ["trading.discipline", "user_custom_rules", answers.customRules || "暂无补充，沿用基础交易纪律"],
+        ].map(([scope, key, value]) => ({ scope, key, value, kind: "preference", strength: "normal" }));
+      }
       const byKey = new Map(entries.map((entry: any) => [entry.key, entry.value]));
       tradingPreferenceProfile = {
         schemaVersion: 1,
@@ -1046,6 +1071,7 @@ export function ensureBrowserDesktopApi() {
         requiredAnalysisSections: String(byKey.get("required_analysis_sections") || ""),
         conflictHandling: String(byKey.get("risk_conflict_handling") || ""),
         onboardingCompleted: byKey.get("onboarding_completed") === true,
+        preferenceForm: params.choices ? structuredClone(params) : null,
         entries,
       };
       return { ok: true, completed: tradingPreferenceProfile.onboardingCompleted, profile: tradingPreferenceProfile };
