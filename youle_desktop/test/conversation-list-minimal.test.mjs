@@ -367,7 +367,7 @@ test("sidebar actions follow Codex order, with settings and customer service at 
   assert.match(footer, /title="设置"[^]*aria-label="设置"[^]*aria-haspopup="dialog"/);
   assert.match(footer, /aria-expanded="\$\{state\.settingsOpen \? "true" : "false"\}"/);
   assert.match(footer, /renderConversationListIcon\("settings"\)/);
-  assert.match(footer, /class="conversation-list-support-button"/);
+  assert.match(footer, /class="conversation-list-support-button conversation-list-footer-button"/);
   assert.match(footer, /data-action="open-website-support"/);
   assert.match(footer, /title="联系客服"[^]*aria-label="联系客服"/);
   assert.match(footer, /renderConversationListIcon\("support"\)/);
@@ -395,20 +395,18 @@ test("the sidebar skills action opens the existing skills and plugins page", asy
   );
 });
 
-test("the bottom-left settings and customer-service icons blend into their sidebar and cover themed interaction states", async () => {
+test("the bottom-left actions share the same neutral button and interaction styles", async () => {
   const styles = await stylesSource;
 
   assert.match(styles, /\.conversation-list-footer\s*\{[^}]*flex:\s*0 0 auto;[^}]*background:\s*transparent;/s);
-  assert.match(styles, /\.conversation-list-settings-button\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-secondary\);/s);
-  assert.match(styles, /\.conversation-list-settings-button:is\(:hover, :focus-visible\),[\s\S]*?\.conversation-list-settings-button\.active\s*\{[^}]*background:\s*var\(--conversation-action-hover\);[^}]*color:\s*var\(--text-primary\);/);
-  assert.match(styles, /\.conversation-list-settings-button:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/s);
-  assert.match(styles, /\.conversation-list-settings-button:active:not\(:disabled\)\s*\{[^}]*background:\s*var\(--surface-active-translucent\);/s);
-  assert.match(styles, /\.conversation-list-settings-button:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
-  assert.match(styles, /\.conversation-list-support-button\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-secondary\);/s);
-  assert.match(styles, /\.conversation-list-support-button:is\(:hover, :focus-visible\),[\s\S]*?\.conversation-list-support-button\.active\s*\{[^}]*background:\s*var\(--conversation-action-hover\);[^}]*color:\s*var\(--text-primary\);/s);
-  assert.match(styles, /\.conversation-list-support-button:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/s);
-  assert.match(styles, /\.conversation-list-support-button:active:not\(:disabled\)\s*\{[^}]*background:\s*var\(--surface-active-translucent\);/s);
-  assert.match(styles, /\.conversation-list-support-button:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
+  const button = sourceBlock(styles, ".conversation-list-footer-button {", ".update-download-dock {");
+  assert.match(button, /background: var\(--footer-button-bg\)/);
+  assert.match(button, /color: var\(--text-secondary\)/);
+  assert.match(button, /:is\(:hover, :focus-visible\):not\(:disabled\)[^}]*var\(--footer-button-hover\)/);
+  assert.match(button, /:active:not\(:disabled\)[^}]*var\(--footer-button-active\)/);
+  assert.match(button, /:focus-visible[^}]*outline: 2px solid var\(--brand-blue\)/);
+  assert.match(button, /:disabled[^}]*var\(--surface-disabled\)[^}]*var\(--text-muted\)/);
+  assert.doesNotMatch(button, /linear-gradient|box-shadow|left:\s*-/);
 });
 
 test("sidebar membership, settings and customer service render as independent buttons", async () => {
@@ -417,18 +415,21 @@ test("sidebar membership, settings and customer service render as independent bu
   for (const activeView of ["chat", "recharge"]) {
     for (const settingsOpen of [false, true]) {
       const markup = runInNewContext(`${footerSource}\nrenderConversationListFooter()`, {
-        state: { activeView, settingsOpen },
+        state: { activeView, settingsOpen, settings: { language: "zh-CN" } },
         renderConversationListIcon: () => '<svg aria-hidden="true"></svg>',
       });
       const buttons = [...markup.matchAll(/<button\b[^]*?<\/button>/g)].map(([button]) => button);
       assert.equal(buttons.length, 3);
+      assert.ok(buttons.every((button) => button.includes("conversation-list-footer-button")));
       const [settings, support, recharge] = buttons;
       assert.equal((markup.match(/<button\b/g) || []).length, 3, "buttons cannot nest");
       assert.doesNotMatch(markup.match(/<footer[^>]*>/)[0], /data-action|role="button"/);
       assert.match(settings, /data-action="open-settings"/);
+      assert.match(settings, /<span>设置<\/span>/);
       assert.match(settings, new RegExp(`aria-expanded="${settingsOpen}"`));
       assert.doesNotMatch(settings, /profile-quota|会员充值|aria-current/);
       assert.match(support, /data-action="open-website-support"/);
+      assert.match(support, /<span>客服<\/span>/);
       assert.match(support, /title="联系客服"[^]*aria-label="联系客服"/);
       assert.doesNotMatch(support, /open-settings|profile-quota|aria-expanded|aria-current/);
       assert.match(recharge, /data-action="profile-quota"/);
@@ -458,24 +459,17 @@ test("the sidebar reuses recharge navigation and preserves the current chat with
   assert.match(source, /querySelectorAll<HTMLElement>\('\[data-action="profile-quota"\]'\)[^]*?openRechargePage\(\)/);
 });
 
-test("membership entry separates hit areas and supplies all theme and interaction colors", async () => {
+test("the footer divides its width equally and supplies neutral colors for both themes", async () => {
   const styles = await stylesSource;
-  const footer = sourceBlock(styles, ".conversation-list-footer {", ".conversation-list-settings-button {");
+  const footer = sourceBlock(styles, ".conversation-list-footer {", ".conversation-list-footer-button {");
   const [light, dark] = footer.split('html[data-theme="dark"]');
-  for (const token of ["bg", "hover", "active", "border", "text", "shadow"]) {
-    for (const theme of [light, dark]) assert.match(theme, new RegExp(`--recharge-entry-${token}:`));
+  for (const token of ["bg", "hover", "active"]) {
+    for (const theme of [light, dark]) assert.match(theme, new RegExp(`--footer-button-${token}:`));
   }
-  assert.match(light, /gap:\s*0/);
-  assert.match(styles, /\.conversation-list-settings-button\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
-  assert.match(styles, /\.conversation-list-support-button\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
-  const button = sourceBlock(styles, ".conversation-list-recharge-button {", ".update-download-dock {");
-  assert.match(button, /background: var\(--recharge-entry-bg\)/);
-  assert.match(button, /color: var\(--recharge-entry-text\)/);
-  assert.match(button, /:hover:not\(:disabled\)[^}]*var\(--recharge-entry-hover\)/);
-  assert.match(button, /\.active,[^}]*:active:not\(:disabled\)[^}]*var\(--recharge-entry-active\)/);
-  assert.match(button, /:focus-visible[^}]*outline: 2px solid var\(--brand-blue\)/);
-  assert.match(button, /:disabled[^}]*var\(--surface-disabled\)[^}]*var\(--text-muted\)/);
-  assert.doesNotMatch(button, /#[\da-f]{3,8}\b|rgba?\(/i);
+  assert.match(light, /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(light, /gap:\s*4px/);
+  assert.doesNotMatch(styles, /--recharge-entry-/);
+  assert.equal(translateAppText("客服", "en"), "Support");
   assert.equal(translateAppText("会员充值", "en"), "Membership");
   assert.equal(translateAppText("会员充值", "zh-TW"), "會員充值");
 });

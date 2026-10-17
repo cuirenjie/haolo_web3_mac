@@ -58,8 +58,10 @@ function fixture(t) {
     subscribeVisibleLogicalRangeChange: fn => rangeListeners.add(fn), unsubscribeVisibleLogicalRangeChange: fn => rangeListeners.delete(fn),
     subscribeSizeChange: fn => sizeListeners.add(fn), unsubscribeSizeChange: fn => sizeListeners.delete(fn),
     options: () => tsOptions, applyOptions: o => Object.assign(tsOptions, o), height: () => 28, width: () => 540,
-    resetTimeScale: () => { range = { from: 200, to: 500 }; }, scrollToPosition: () => {} };
-  const chart = { panes: () => panes, priceScale: (side, i) => side === "left" ? { width: () => 0 } : scales[i], timeScale: () => ts, applyOptions() {} };
+    resetTimeScale: () => { range = { from: 200, to: 500 }; }, scrollPosition: () => 0, scrollToPosition: () => {} };
+  const nativeScroll = [];
+  const chart = { panes: () => panes, priceScale: (side, i) => side === "left" ? { width: () => 0 } : scales[i], timeScale: () => ts,
+    applyOptions(options) { if (options.handleScroll) nativeScroll.push(options.handleScroll); } };
   const element = new ElementStub(); let paints = 0; let focus = null;
   const options = { getScaleAnchor: () => "right", onFocus: i => { focus = i; }, getCandles: () => Array.from({ length: 301 }, (_, i) => ({ time: i * 3600, volume: 1 })) };
   const navigation = new TradingChartNavigation(element, () => chart, () => paints++, options);
@@ -71,11 +73,22 @@ function fixture(t) {
     assert.equal(event.defaultPrevented, consumed, `${type} event ownership`);
   };
   const paint = () => { const batch = [...frames.values()]; frames.clear(); batch.forEach(fn => fn()); };
-  return { win, chart, scales, panes, element, navigation, options, frames, rangeListeners, sizeListeners, send, paint, paints: () => paints, range: () => range, focus: () => focus };
+  return { win, chart, scales, panes, element, navigation, options, frames, rangeListeners, sizeListeners, nativeScroll, send, paint, paints: () => paints, range: () => range, focus: () => focus };
+}
+
+// Tests for manual gestures explicitly choose free dragging; fixture() keeps
+// the production default so the lock tests exercise constructor behavior.
+function freeDragFixture(t) {
+  const f = fixture(t);
+  f.options.getAutoScale = () => true;
+  f.navigation.runAction('lock-vertical');
+  delete f.options.getAutoScale;
+  f.scales[0].changes.length = 0;
+  return f;
 }
 
 test('A/L controls are absent; price settings and shortcuts still target main after indicator focus', t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   f.send('pointerdown', { clientY: 400 }); f.send('pointerup');
   assert.deepEqual(f.navigation.controls.querySelectorAll('button').map(b => b.dataset.navigationAction), ['zoom-out', 'zoom-in', 'left', 'right', 'reset', 'lock-vertical', 'hide']);
   f.navigation.setAutoScale(false); f.paint();
@@ -90,7 +103,7 @@ test('A/L controls are absent; price settings and shortcuts still target main af
 });
 
 test('indicator menu keeps local auto and inversion but cannot change indicator units', t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   f.send('contextmenu', { clientY: 400 }, true, f.element);
   const buttons = f.navigation.menu.children;
   assert.equal(buttons.length, 3);
@@ -101,14 +114,14 @@ test('indicator menu keeps local auto and inversion but cannot change indicator 
   assert.equal(f.scales[0].autoScale, true);
 });
 
-test('lock keeps native auto-fit active during coalesced scrolling; unlock restores free dragging', t => {
-  const f = fixture(t), ts = f.chart.timeScale(), positions = [], native = [];
+test('price lock starts enabled, fits during coalesced scrolling, and can be unlocked and relocked', t => {
+  const f = fixture(t), ts = f.chart.timeScale(), positions = [], native = f.nativeScroll;
   f.options.getAutoScale = () => false;
   f.options.onAutoScaleChange = () => assert.fail('lock must not change the saved A setting');
   f.scales[0].autoScale = false;
   ts.scrollPosition = () => 8; ts.scrollToPosition = position => positions.push(position);
-  f.chart.applyOptions = options => native.push(options.handleScroll);
-  f.navigation.runAction('lock-vertical'); f.paint();
+  assert.deepEqual(native, [{ pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false }]);
+  f.paint();
   const lock = f.navigation.controls.querySelector('[data-navigation-action="lock-vertical"]');
   assert.equal(lock.getAttribute('aria-pressed'), 'true');
   assert.match(lock.getAttribute('title'), /随可见 K 线自动适配价格/);
@@ -127,13 +140,16 @@ test('lock keeps native auto-fit active during coalesced scrolling; unlock resto
   delete f.options.onAutoScaleChange;
   f.send('pointerdown'); f.send('pointermove', { clientY: 160 }); f.send('pointerup');
   assert.equal(f.scales[0].autoScale, false);
+  f.navigation.runAction('lock-vertical'); f.paint();
+  assert.equal(lock.getAttribute('aria-pressed'), 'true');
+  assert.equal(f.scales[0].autoScale, true);
 });
 
 test('linear lock refits every visible range and data update, while unlocked prices remain manual', t => {
   const f = fixture(t), ts = f.chart.timeScale(); let revision = 0;
   f.options.getAutoScale = () => false;
   f.options.getLockedPriceRange = range => range && ({ from: 100 + range.from + revision, to: 200 + range.to + revision });
-  f.navigation.runAction('lock-vertical'); f.paint();
+  f.paint();
   assert.deepEqual(f.scales[0].range, { from: 100, to: 500 });
   ts.setVisibleLogicalRange({ from: 40, to: 100 });
   f.navigation.schedule(); f.paint();
@@ -152,7 +168,7 @@ test('locked log and percentage use native auto-fit without linear range writes 
   f.options.onAutoScaleChange = value => { auto = value; };
   f.options.getLockedPriceRange = () => assert.fail('linear prices cannot be written into transformed axes');
   f.scales[0].mode = 1;
-  f.navigation.runAction('lock-vertical'); f.paint(); f.paint();
+  f.paint(); f.paint();
   assert.equal(f.scales[0].autoScale, true); assert.equal(auto, false);
   f.navigation.setMode(2); f.navigation.setAutoScale(false); f.paint(); f.paint();
   assert.equal(f.scales[0].autoScale, true); assert.equal(auto, false);
@@ -162,7 +178,7 @@ test('locked log and percentage use native auto-fit without linear range writes 
 });
 
 test('explicit auto-off fits initially, manual override persists, and reset restores Auto', t => {
-  const f = fixture(t); let auto = false;
+  const f = freeDragFixture(t); let auto = false;
   f.options.getAutoScale = () => auto; f.options.onAutoScaleChange = enabled => { auto = enabled; };
   f.paint(); assert.equal(f.scales[0].autoScale, true); f.paint(); assert.deepEqual(f.scales.map(s => s.autoScale), [false, true]);
   f.navigation.setAutoScale(true); f.paint(); assert.equal(f.scales[0].autoScale, true);
@@ -173,7 +189,7 @@ test('explicit auto-off fits initially, manual override persists, and reset rest
 });
 
 test('shell renders cannot detach a chart mid-drag and are released by up, cancel, blur and destruction', t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   let resumed = 0;
   for (const finish of [() => f.send('pointerup'), () => f.send('pointercancel'), () => f.win.dispatchEvent(new Event('blur')), () => f.navigation.destroy()]) {
     f.send('pointerdown');
@@ -188,7 +204,7 @@ test('shell renders cannot detach a chart mid-drag and are released by up, cance
 });
 
 test('continuous wheel input holds the shell until scrolling settles', async t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   let resumed = 0;
   f.send('wheel', { deltaY: 10 }, true);
   assert.equal(deferTradingChartShellRender(() => resumed++), true);
@@ -201,14 +217,14 @@ test('continuous wheel input holds the shell until scrolling settles', async t =
 });
 
 test("horizontal pan preserves Auto, deliberate vertical drag freezes just the target pane", t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   f.send("pointerdown"); f.send("pointermove", { clientX: 450, clientY: 102 }); f.send("pointerup");
   assert.equal(f.scales[0].autoScale, true);
   f.send("pointerdown"); f.send("pointermove", { clientY: 140 }); f.send("pointermove", { clientY: 170 });
   assert.deepEqual(f.scales.map(s => s.changes), [[false], []]);
 });
 test("axis and separator gestures stay native; indicator drag targets its own scale", t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   f.send("pointerdown", { clientX: 580 }); f.send("pointermove", { clientY: 240 }); f.send("pointerup");
   f.send("pointerdown", { clientY: 305 }); f.send("pointermove", { clientY: 400 }); f.send("pointerup");
   assert.deepEqual(f.scales.map(s => s.changes), [[], []]);
@@ -216,7 +232,7 @@ test("axis and separator gestures stay native; indicator drag targets its own sc
   assert.equal(f.focus(), 1); assert.deepEqual(f.scales.map(s => s.changes), [[], [false]]);
 });
 test("Shift measures without changing the viewport, keeps its result, and next click clears it", t => {
-  const f = fixture(t); const before = { ...f.range() };
+  const f = freeDragFixture(t); const before = { ...f.range() };
   f.send("pointerdown", { shiftKey: true }, true);
   f.send("pointermove", { clientX: 450, clientY: 200 }, true);
   f.send("pointerup", { clientX: 450, clientY: 200 }, true);
@@ -226,7 +242,7 @@ test("Shift measures without changing the viewport, keeps its result, and next c
   f.send("pointerdown"); assert.equal(f.navigation.measurement, null);
 });
 test("zoom tool supports reversed drags, clamps endpoints, and returns to cursor", t => {
-  const f = fixture(t); f.navigation.setTool("zoom");
+  const f = freeDragFixture(t); f.navigation.setTool("zoom");
   f.send("pointerdown", {}, true); f.send("pointermove", { clientX: -100, clientY: 250 }, true);
   f.send("pointerup", { clientX: -100, clientY: 250 }, true);
   assert.deepEqual(f.range(), { from: 0, to: 120 });
@@ -234,7 +250,7 @@ test("zoom tool supports reversed drags, clamps endpoints, and returns to cursor
   assert.equal(f.scales[0].autoScale, false); assert.equal(f.navigation.getTool(), null);
 });
 test("two-click zoom previews after first release and completes on second click", t => {
-  const f = fixture(t); f.navigation.setTool("zoom");
+  const f = freeDragFixture(t); f.navigation.setTool("zoom");
   f.send("pointerdown", {}, true); f.send("pointerup");
   assert.equal(f.navigation.selection.awaitingClick, true);
   f.send("pointermove", { clientX: 450, clientY: 250 });
@@ -243,7 +259,7 @@ test("two-click zoom previews after first release and completes on second click"
   assert.deepEqual(f.range(), { from: 120, to: 220 });
 });
 test("Escape, cancel, blur, second touch and reload release selections without applying them", t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   for (const cancel of [() => f.send("keydown", { key: "Escape" }, true), () => f.send("pointercancel"), () => f.win.dispatchEvent(new Event("blur")), () => f.send("pointerdown", { pointerId: 2, isPrimary: false }), () => f.navigation.cancelGesture()]) {
     f.navigation.setTool("zoom"); f.send("pointerdown", {}, true); cancel();
     f.send("pointermove", { clientX: 450, clientY: 240 }); f.send("pointerup");
@@ -251,7 +267,7 @@ test("Escape, cancel, blur, second touch and reload release selections without a
   }
 });
 test("Ctrl wheel always focuses cursor, ordinary wheel uses the configured default", t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   f.send("wheel", { deltaY: -100 }, true); assert.equal(f.chart.timeScale().options().rightBarStaysOnScroll, true);
   f.send("wheel", { deltaY: -100, ctrlKey: true }, true); assert.equal(f.chart.timeScale().options().rightBarStaysOnScroll, false);
   f.options.getScaleAnchor = () => "cursor";
@@ -259,19 +275,19 @@ test("Ctrl wheel always focuses cursor, ordinary wheel uses the configured defau
   f.send("wheel", { deltaY: -100 }, true); assert.equal(f.chart.timeScale().options().rightBarStaysOnScroll, false);
 });
 test("Shift wheel pans once, preserves bar spacing and Auto, and normalizes line deltas", t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   f.send("wheel", { deltaY: 100, shiftKey: true }, true); assert.deepEqual(f.range(), { from: 50, to: 350 });
   f.send("wheel", { deltaX: -100, shiftKey: true }, true); assert.deepEqual(f.range(), { from: 0, to: 300 });
   f.send("wheel", { deltaY: 1, deltaMode: 1, shiftKey: true }, true); assert.deepEqual(f.range(), { from: 16, to: 316 });
   assert.equal(f.scales[0].autoScale, true);
 });
 test("wheel on price axis changes only the price span", t => {
-  const f = fixture(t); f.send("wheel", { clientX: 580, deltaY: -100 }, true);
+  const f = freeDragFixture(t); f.send("wheel", { clientX: 580, deltaY: -100 }, true);
   assert.deepEqual(f.range(), { from: 0, to: 300 });
   assert.ok(f.scales[0].range.to - f.scales[0].range.from < 100); assert.equal(f.scales[0].autoScale, false);
 });
 test("focused chart navigation keys pan, zoom, reset and toggle scales", t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   f.send("keydown", { key: "ArrowLeft" }, true); assert.deepEqual(f.range(), { from: -1, to: 299 });
   f.send("keydown", { key: "ArrowRight", ctrlKey: true }, true); assert.deepEqual(f.range(), { from: 9, to: 309 });
   f.send("keydown", { key: "ArrowUp", ctrlKey: true }, true); assert.equal(f.range().to - f.range().from, 240);
@@ -281,25 +297,25 @@ test("focused chart navigation keys pan, zoom, reset and toggle scales", t => {
   f.send("keydown", { key: "r", altKey: true }, true); assert.equal(f.scales[0].autoScale, true); assert.deepEqual(f.range(), { from: 200, to: 500 });
 });
 test("global keyboard events and editable targets do not navigate a chart", t => {
-  const f = fixture(t); f.send("keydown", { key: "r", altKey: true }, false, f.win);
+  const f = freeDragFixture(t); f.send("keydown", { key: "r", altKey: true }, false, f.win);
   const input = new ElementStub("input");
   const e = new Event("keydown", { cancelable: true }); Object.assign(e, { key: "ArrowLeft" }); Object.defineProperty(e, "target", { value: input });
   f.navigation.keyDown(e); assert.equal(e.defaultPrevented, false); assert.deepEqual(f.range(), { from: 0, to: 300 });
 });
 test("double-click maximizes and restores pane proportions; axes stay native", t => {
-  const f = fixture(t); f.send("dblclick", {}, true); assert.deepEqual(f.panes.map(p => p.factor), [1, 0]);
+  const f = freeDragFixture(t); f.send("dblclick", {}, true); assert.deepEqual(f.panes.map(p => p.factor), [1, 0]);
   f.send("dblclick", {}, true); assert.deepEqual(f.panes.map(p => p.factor), [1, 1]);
   f.send("dblclick", { clientX: 580 }, true); assert.deepEqual(f.panes.map(p => p.factor), [1, 1]);
 });
 test("manual theme snapshots preserve scale ownership and ignore changed modes", t => {
-  const f = fixture(t); f.scales[0].autoScale = false;
+  const f = freeDragFixture(t); f.scales[0].autoScale = false;
   const snapshot = captureManualTradingPriceRanges(f.chart); f.scales[0].range = { from: 0, to: 1 };
   restoreManualTradingPriceRanges(snapshot); assert.deepEqual(f.scales[0].range, { from: 100, to: 200 });
   f.scales[0].mode = 1; assert.deepEqual(captureManualTradingPriceRanges(f.chart), []);
   f.scales[0].range = { from: 50, to: 150 }; restoreManualTradingPriceRanges(snapshot); assert.deepEqual(f.scales[0].range, { from: 50, to: 150 });
 });
 test("bursts coalesce overlay paints and destroy removes listeners and pending frames", t => {
-  const f = fixture(t); f.send("wheel"); f.send("wheel"); assert.equal(f.frames.size, 1);
+  const f = freeDragFixture(t); f.send("wheel"); f.send("wheel"); assert.equal(f.frames.size, 1);
   f.paint(); f.paint(); assert.equal(f.paints(), 2); assert.equal(f.frames.size, 0);
   f.send("pointerdown"); f.navigation.destroy(); f.send("pointermove", { clientY: 200 });
   assert.deepEqual(f.scales[0].changes, []); assert.equal(f.frames.size, 0);
@@ -326,7 +342,7 @@ test("new controls, measurement and menus use theme tokens in default and intera
 
 
 test("percentage axis drag scales manually and double-click collapse restores proportions", t => {
-  const f = fixture(t); f.scales[0].mode = 2;
+  const f = freeDragFixture(t); f.scales[0].mode = 2;
   f.send("pointerdown", { clientX: 580 }, true);
   f.send("pointermove", { clientX: 580, clientY: 170 }, true); f.send("pointerup", { clientX: 580, clientY: 170 });
   assert.equal(f.scales[0].autoScale, false); assert.ok(f.scales[0].range.to - f.scales[0].range.from > 100);
@@ -335,7 +351,7 @@ test("percentage axis drag scales manually and double-click collapse restores pr
 });
 
 test("log ranges delegate raw prices to the native autoscaler and restore every provider", t => {
-  const f = fixture(t), scale = f.scales[0]; scale.mode = 1;
+  const f = freeDragFixture(t), scale = f.scales[0]; scale.mode = 1;
   const customProvider = () => ({ priceRange: { minValue: 10, maxValue: 20 } });
   const original = [undefined, customProvider];
   const series = original.map(provider => {
@@ -364,7 +380,7 @@ function clickControl(f, action) {
 }
 
 test('controls start below the top-left quote row; dragging moves only the controls and suppresses the release click', t => {
-  const f = fixture(t), controls = f.navigation.controls;
+  const f = freeDragFixture(t), controls = f.navigation.controls;
   f.paint(); assert.equal(controls.style.left, '8px'); assert.equal(controls.style.top, '36px');
   const range = { ...f.range() }, prices = f.scales.map(s => ({ ...s.range })); let renders = 0;
   f.send('pointerdown', {}, false, controls);
@@ -387,7 +403,7 @@ test('controls start below the top-left quote row; dragging moves only the contr
 });
 
 test('dismissal survives all canvas movement and repaints; only leaving and re-entering restores the default location', t => {
-  const f = fixture(t), controls = f.navigation.controls;
+  const f = freeDragFixture(t), controls = f.navigation.controls;
   f.navigation.controlsPosition = { x: 200, y: 200 }; f.paint();
   clickControl(f, 'hide'); assert.equal(controls.hidden, true);
   for (const point of [{ clientX: 60, clientY: 50 }, { clientX: 300, clientY: 400 }, { clientX: 590, clientY: 605 }]) {
@@ -403,7 +419,7 @@ test('dismissal survives all canvas movement and repaints; only leaving and re-e
 });
 
 test('toolbar dragging stays inside plot bounds, reclamps on resize and releases capture on cancellation', t => {
-  const f = fixture(t), controls = f.navigation.controls;
+  const f = freeDragFixture(t), controls = f.navigation.controls;
   f.send('pointerdown', {}, false, controls);
   f.send('pointermove', { clientX: 2000, clientY: 2000 }, true);
   assert.equal(controls.style.left, '328px'); assert.equal(controls.style.top, '540px');
@@ -422,7 +438,7 @@ test('toolbar dragging stays inside plot bounds, reclamps on resize and releases
 });
 
 test('observed viewport exits restore dismissed controls even if native boundary events were retired', t => {
-  const f = fixture(t), controls = f.navigation.controls;
+  const f = freeDragFixture(t), controls = f.navigation.controls;
   const move = (target, clientY = 100) => {
     const event = new Event('pointermove');
     Object.defineProperty(event, 'target', { value: target });
@@ -439,7 +455,7 @@ test('observed viewport exits restore dismissed controls even if native boundary
 });
 
 test('a cancelled toolbar drag does not swallow keyboard activation of the close button', t => {
-  const f = fixture(t), controls = f.navigation.controls;
+  const f = freeDragFixture(t), controls = f.navigation.controls;
   f.send('pointerdown', {}, false, controls); f.send('pointermove', { clientX: 350 }, true); f.send('blur');
   const event = new Event('click', { cancelable: true });
   Object.defineProperty(event, 'target', { value: controls.querySelector('[data-navigation-action="hide"]') });
@@ -448,14 +464,14 @@ test('a cancelled toolbar drag does not swallow keyboard activation of the close
 });
 
 test('the empty chart can still dismiss its toolbar while unavailable navigation stays disabled', t => {
-  const f = fixture(t), controls = f.navigation.controls;
+  const f = freeDragFixture(t), controls = f.navigation.controls;
   f.panes[0].getSeries = () => []; f.paint();
   assert.ok(controls.querySelectorAll('button').every(b => b.disabled === (b.dataset.navigationAction !== 'hide')));
   clickControl(f, 'hide'); assert.equal(controls.hidden, true);
 });
 
 test("native layout notifications during a paint cannot enqueue a second paint in the same frame", t => {
-  const f = fixture(t); let paints = 0;
+  const f = freeDragFixture(t); let paints = 0;
   f.navigation.redraw = () => {
     if (++paints === 1) f.rangeListeners.forEach(fn => fn({ from: 5, to: 305 }));
   };
@@ -467,7 +483,7 @@ test("native layout notifications during a paint cannot enqueue a second paint i
 });
 
 test("repeated wheels reuse the configured anchor without forcing native options/layout updates", t => {
-  const f = fixture(t), ts = f.chart.timeScale(); let applied = 0;
+  const f = freeDragFixture(t), ts = f.chart.timeScale(); let applied = 0;
   const apply = ts.applyOptions;
   ts.applyOptions = options => { applied++; apply(options); };
   for (let i = 0; i < 100; i++) f.send("wheel", { deltaY: 12 }, true);
@@ -478,7 +494,7 @@ test("repeated wheels reuse the configured anchor without forcing native options
 });
 
 test("wheel and zoom buttons restore candle Auto after box/axis adjustment, leaving indicator axes alone", t => {
-  const f = fixture(t); let auto = false;
+  const f = freeDragFixture(t); let auto = false;
   f.options.getAutoScale = () => auto;
   f.options.onAutoScaleChange = enabled => { auto = enabled; };
   f.navigation.setTool("zoom");
@@ -506,7 +522,7 @@ test("wheel and zoom buttons restore candle Auto after box/axis adjustment, leav
 });
 
 test("zoom buttons cancel pending box selections so a later pointer cannot re-freeze prices", t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   f.navigation.setTool("zoom");
   f.send("pointerdown", {}, true); f.send("pointerup");
   f.send("pointermove", { clientX: 450, clientY: 125 });
@@ -519,7 +535,7 @@ test("zoom buttons cancel pending box selections so a later pointer cannot re-fr
 });
 
 test("repeated zoom is reversible within limits and cannot pan past either spacing limit", t => {
-  const f = fixture(t), ts = f.chart.timeScale(), initial = { ...f.range() };
+  const f = freeDragFixture(t), ts = f.chart.timeScale(), initial = { ...f.range() };
   for (let i = 0; i < 100; i++) { f.navigation.zoom(0.8); f.navigation.zoom(1.25); }
   assert.deepEqual(f.range(), initial);
   for (const [factor, span] of [[1.25, 375.25], [0.8, 4]]) {
@@ -536,7 +552,7 @@ test("repeated zoom is reversible within limits and cannot pan past either spaci
 });
 
 test("invalid zoom requests and unavailable geometry leave the view untouched", t => {
-  const f = fixture(t), ts = f.chart.timeScale();
+  const f = freeDragFixture(t), ts = f.chart.timeScale();
   f.scales[0].setAutoScale(false);
   for (const factor of [0, -1, NaN, Infinity, 1]) f.navigation.zoom(factor);
   const width = ts.width;
@@ -546,7 +562,7 @@ test("invalid zoom requests and unavailable geometry leave the view untouched", 
 });
 
 test("temporary measurements are invalidated by axes, navigation, viewport and price geometry changes", t => {
-  const f = fixture(t);
+  const f = freeDragFixture(t);
   const measure = () => {
     f.send("pointerdown", { shiftKey: true }, true);
     f.send("pointerup", { clientX: 450, clientY: 200 }, true);
@@ -567,7 +583,7 @@ test("temporary measurements are invalidated by axes, navigation, viewport and p
 });
 
 test("log range setup restores custom providers and Auto after a native failure", t => {
-  const f = fixture(t), scale = f.scales[0]; scale.mode = 1;
+  const f = freeDragFixture(t), scale = f.scales[0]; scale.mode = 1;
   const provider = base => base(), options = { autoscaleInfoProvider: provider };
   const series = { options: () => options, applyOptions: o => Object.assign(options, o), coordinateToPrice: () => 1 };
   f.panes[0].getSeries = () => [series];
@@ -577,7 +593,7 @@ test("log range setup restores custom providers and Auto after a native failure"
 });
 
 test("measurement data subscriptions are retired after updates, cancellation and destroy", t => {
-  const f = fixture(t), listeners = new Set();
+  const f = freeDragFixture(t), listeners = new Set();
   const series = { options: () => ({}), coordinateToPrice: y => 200 - y / 3,
     subscribeDataChanged: fn => listeners.add(fn), unsubscribeDataChanged: fn => listeners.delete(fn) };
   f.panes[0].getSeries = () => [series];
@@ -590,7 +606,7 @@ test("measurement data subscriptions are retired after updates, cancellation and
 });
 
 test('wheel bursts change the time range once per paint and match button zoom', t => {
-  const f = fixture(t), ts = f.chart.timeScale(), start = { ...f.range() };
+  const f = freeDragFixture(t), ts = f.chart.timeScale(), start = { ...f.range() };
   let writes = 0; const set = ts.setVisibleLogicalRange;
   ts.setVisibleLogicalRange = range => { writes++; set(range); };
   for (let i = 0; i < 10; i++) f.send('wheel', { deltaY: -10 }, true);
@@ -604,7 +620,7 @@ test('wheel bursts change the time range once per paint and match button zoom', 
 });
 
 test('cursor anchor survives ordinary and Ctrl zoom while pixel and line wheel units agree', t => {
-  const f = fixture(t), ts = f.chart.timeScale();
+  const f = freeDragFixture(t), ts = f.chart.timeScale();
   f.options.getScaleAnchor = () => 'cursor';
   const start = { ...f.range() }, ratio = 240 / 540, anchor = 300 * ratio;
   f.send('wheel', { deltaY: -32 }, true); f.paint();
@@ -617,7 +633,7 @@ test('cursor anchor survives ordinary and Ctrl zoom while pixel and line wheel u
 });
 
 test('missing anchor preference defaults to cursor and accounts for the left price axis', t => {
-  const f = fixture(t), ts = f.chart.timeScale();
+  const f = freeDragFixture(t), ts = f.chart.timeScale();
   delete f.options.getScaleAnchor;
   const priceScale = f.chart.priceScale;
   f.chart.priceScale = (side, i) => side === 'left' ? { width: () => 40 } : priceScale(side, i);
@@ -632,7 +648,7 @@ test('missing anchor preference defaults to cursor and accounts for the left pri
 });
 
 test('zoom at a spacing limit still restores Auto after a vertical drag', t => {
-  const f = fixture(t); let auto = false;
+  const f = freeDragFixture(t); let auto = false;
   f.options.getAutoScale = () => auto;
   f.options.onAutoScaleChange = enabled => { auto = enabled; };
   for (let i = 0; i < 50; i++) { f.send('wheel', { deltaY: -100 }, true); f.paint(); }
@@ -643,7 +659,7 @@ test('zoom at a spacing limit still restores Auto after a vertical drag', t => {
 });
 
 test('wheel limits stop drift, reverse immediately, and recover from empty future space', t => {
-  const f = fixture(t), ts = f.chart.timeScale();
+  const f = freeDragFixture(t), ts = f.chart.timeScale();
   for (const direction of [1, -1]) {
     for (let i = 0; i < 100; i++) { f.send('wheel', { deltaY: direction * 100 }, true); f.paint(); }
     const limit = { ...f.range() };
@@ -659,7 +675,7 @@ test('wheel limits stop drift, reverse immediately, and recover from empty futur
 });
 
 test('price-axis reset persists Auto and does not affect other panes', t => {
-  const f = fixture(t); let auto = false;
+  const f = freeDragFixture(t); let auto = false;
   f.options.getAutoScale = () => auto;
   f.options.onAutoScaleChange = enabled => { auto = enabled; };
   f.scales.forEach(s => s.setAutoScale(false));
@@ -670,7 +686,7 @@ test('price-axis reset persists Auto and does not affect other panes', t => {
 });
 
 test('continuous wheels do not release a deferred shell render between events', t => {
-  const f = fixture(t); let resumed = 0;
+  const f = freeDragFixture(t); let resumed = 0;
   f.send('wheel', { deltaY: 10 }, true);
   assert.equal(deferTradingChartShellRender(() => resumed++), true);
   for (let i = 0; i < 20; i++) f.send('wheel', { deltaY: 10 }, true);
@@ -680,7 +696,7 @@ test('continuous wheels do not release a deferred shell render between events', 
 });
 
 test('cancel, reset and destroy discard pending wheel work; inputs and no data do not zoom', t => {
-  const f = fixture(t), ts = f.chart.timeScale();
+  const f = freeDragFixture(t), ts = f.chart.timeScale();
   for (const cancel of [() => f.win.dispatchEvent(new Event('blur')), () => f.navigation.cancelGesture()]) {
     const before = { ...f.range() };
     f.send('wheel', { deltaY: 20 }, true); cancel(); f.paint();
@@ -697,7 +713,7 @@ test('cancel, reset and destroy discard pending wheel work; inputs and no data d
 });
 
 test('new history and refresh leave a settled view alone until the next requested zoom', t => {
-  const f = fixture(t), ts = f.chart.timeScale();
+  const f = freeDragFixture(t), ts = f.chart.timeScale();
   f.send('wheel', { deltaY: -40 }, true); f.paint(); f.paint();
   const before = { ...f.range() };
   f.options.getCandles = () => Array.from({ length: 501 }, (_, i) => ({time:i}));

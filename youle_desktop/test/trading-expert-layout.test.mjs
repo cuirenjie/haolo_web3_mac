@@ -121,43 +121,6 @@ test("the top-level New Task opens the complete Trading Expert workspace in the 
   assert.match(modeSwitch, /mode !== "execution"\) tradingExpertThreadIds\.delete\(sourceThreadId\)/);
 });
 
-test("Trading Expert workspace switch keeps a forgiving hover path through the drawing toolbar", async () => {
-  const source = await mainSource;
-  const styles = await stylesSource;
-  const bindingBlock = sourceBlock(
-    source,
-    'root.querySelectorAll<HTMLElement>("[data-trading-expert-workspace-switch]")',
-    'root.querySelector<HTMLElement>(".skills-plaza-page")',
-  );
-  const switchBlock = sourceBlock(
-    styles,
-    ".trading-expert-workspace-switch-trigger {",
-    ".trading-expert-workspace-switch-trigger:hover:not(:disabled)",
-  );
-  const bridgeBlock = sourceBlock(
-    styles,
-    ".trading-expert-workspace-switch-menu::before {",
-    ".trading-expert-workspace-switch:hover",
-  );
-
-  assert.match(switchBlock, /z-index:\s*5;/);
-  assert.match(bridgeBlock, /top:\s*-4px;/);
-  assert.match(bridgeBlock, /left:\s*-12px;/);
-  assert.match(bridgeBlock, /width:\s*12px;/);
-  assert.match(bridgeBlock, /height:\s*calc\(100% \+ 8px\);/);
-  assert.match(bridgeBlock, /pointer-events:\s*auto;/);
-  assert.match(bindingBlock, /root\.querySelector<HTMLElement>\("\[data-drawing-toolbar\]"\)/);
-  assert.match(bindingBlock, /host\.contains\(target\) \|\| drawingToolbar\?\.contains\(target\) === true/);
-  assert.match(bindingBlock, /host\.addEventListener\("mouseleave"[\s\S]*event\.relatedTarget[\s\S]*setExpanded\(false\)/);
-  assert.match(bindingBlock, /drawingToolbar\?\.addEventListener\("mouseleave"[\s\S]*event\.relatedTarget[\s\S]*setExpanded\(false\)/);
-  assert.match(bindingBlock, /host\.classList\.toggle\("menu-open", expanded\)/);
-  assert.match(bindingBlock, /event\.key !== "Escape"[\s\S]*setExpanded\(false\)[\s\S]*trigger\.focus/);
-  assert.match(styles, /\.trading-expert-workspace-switch\.menu-open\s*> \.trading-expert-workspace-switch-menu\s*\{[^}]*display:\s*grid;/s);
-  assert.match(styles, /\.trading-expert-workspace-switch-trigger\[aria-expanded="true"\]\s*\{[^}]*background:\s*var\(--surface-hover-translucent\);/s);
-  assert.match(styles, /\.trading-expert-workspace-switch-menu\s*\{[\s\S]*background:\s*var\(--surface-glass-strong\);[\s\S]*color:\s*var\(--text-primary\);/);
-  assert.match(styles, /\.trading-expert-workspace-switch-option\.active\s*\{[\s\S]*background:\s*var\(--conversation-action-selected\);/);
-});
-
 test("Trading Expert message action opens its dedicated two-pane presentation", async () => {
   const source = await mainSource;
   const messageBlock = sourceBlock(source, "async function messageContact", "async function openHaoloContactNewThread");
@@ -740,7 +703,7 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /--trading-expert-panel-divider: #e3e8ef;/);
   assert.match(styles, /\.chat-list\.trading-expert-task-list\s*\{[^}]*--trading-expert-panel-divider: #e3e8ef;[^}]*border-right: 0;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.chat-list\.trading-expert-task-list\s*\{[^}]*--trading-expert-panel-divider: #1a2437;/s);
-  assert.match(styles, /\.trading-market-overview\s*\{[^}]*height: 36\.4px;[^}]*border-bottom: 0;/s);
+  assert.match(styles, /\.trading-market-overview\s*\{[^}]*min-height: var\(--trading-market-header-height\);[^}]*border-bottom: 0;/s);
   assert.match(styles, /\.desktop-body\.trading-expert-layout\s*> \.trading-expert-panel\s+\.trading-expert-panel-header\s*\{[^}]*display: grid;[^}]*height: 36\.4px;[^}]*flex: 0 0 36\.4px;[^}]*grid-template-columns: minmax\(0, 1fr\) auto;[^}]*border-bottom: 0;[^}]*background: inherit;[^}]*padding: 0 14px;/s);
   assert.match(styles, /\.trading-expert-panel-title\s*\{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s);
   assert.match(styles, /\.trading-expert-panel-heading\s*\{[^}]*display: grid;[^}]*height: 100%;[^}]*grid-template-columns: minmax\(0, 1fr\);[^}]*grid-template-rows: 1fr;/s);
@@ -792,14 +755,13 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /\.desktop-body > \.left-panel-toggle\s*\{[^}]*top: 4px;[^}]*left: calc\(var\(--conversation-list-width\) \+ 4px\);[^}]*z-index: 70;[^}]*left 0\.24s ease,/s);
   assert.match(styles, /\.desktop-body\.left-panel-collapsed > \.left-panel-toggle\s*\{[^}]*left: 4px;/s);
   assert.match(styles, /\.desktop-body > \.left-panel-toggle:focus-visible\s*\{[^}]*box-shadow: inset 0 0 0 2px var\(--conversation-action-focus\);/s);
-  assert.match(styles, /\.app-titlebar\s*\{[^}]*padding: 0 0 0 15px;/s);
-  assert.match(styles, /\.app-titlebar > \.titlebar-left-panel-toggle\s*\{[^}]*margin-left: -7px;[^}]*margin-right: -1px;/s);
+  assert.match(styles, /\.app-titlebar\s*\{[^}]*padding: 0 0 0 10px;/s);
+  assert.match(styles, /\.titlebar-drawing-controls > \.titlebar-left-panel-toggle\s*\{[^}]*width: 34px;[^}]*margin-left: 1px;/s);
   assert.match(styles, /\.titlebar-profile\s*\{[^}]*transform: none;/s);
   assert.match(styles, /\.profile-menu\s*\{[^}]*left: 15px;/s);
   assert.doesNotMatch(styles, /\.desktop-shell\.trading-expert-shell \.titlebar-profile/);
   assert.match(styles, /\.desktop-body\.trading-expert-layout \.trading-market-content > \.trading-market-overview\s*\{[^}]*padding-right: 64px;[^}]*padding-left: 0;/s);
   assert.match(styles, /\.desktop-body\.trading-expert-layout \.trading-market-symbol-wrap\s*\{[^}]*margin-left: 0;/s);
-  assert.match(styles, /\.desktop-body\.trading-expert-layout\.left-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?\.trading-market-content > \.trading-market-overview\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding-left: 36px;/s);
   assert.match(styles, /\.desktop-body\.trading-expert-layout\.trading-expert-chart-collapsed\s*> \.trading-expert-chat-panel\s*\{\s*display: none;/s);
   assert.doesNotMatch(styles, /binance-account-page-expansion-toggle/);
   assert.match(styles, /\.trading-expert-chart-collapsed:not\(\.right-panel-collapsed\)[\s\S]*?> \.trading-expert-panel\s*\{[^}]*width: auto;[^}]*max-width: none;[^}]*flex: 1 1 auto;[^}]*border-top-left-radius: 16px;/s);
@@ -1868,11 +1830,11 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /\.trading-market-favorite:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.45;/s);
   assert.match(
     styles,
-    /\.app-titlebar:has\(\.titlebar-market-favorites-host:not\(\[hidden\]\)\)[\s\S]*?> \.titlebar-drag-region\s*\{[^}]*position: static;/s,
+    /\.desktop-shell\.trading-expert-shell > \.app-titlebar\s*> \.titlebar-sidebar-controls\s*\{[^}]*width: var\(--conversation-list-width\);/s,
   );
   assert.match(
     styles,
-    /\.titlebar-market-favorites-host\s*\{[^}]*position: absolute;[^}]*right: 144px;[^}]*left: var\(--conversation-list-width\);[^}]*margin: 0;[^}]*overflow: hidden;/s,
+    /\.titlebar-market-favorites-host\s*\{[^}]*position: relative;[^}]*margin: 0;[^}]*overflow: hidden;/s,
   );
   assert.match(styles, /\.desktop-shell:has\(\.titlebar-market-favorites-host:not\(\[hidden\]\)\)\s*> \.desktop-body\.trading-expert-layout\s*> \.trading-expert-chat-panel\s*\{\s*border-top-left-radius: 0;/s);
   assert.match(styles, /\.desktop-body > :is\([\s\S]*?\.trading-expert-chat-panel,[\s\S]*?\.binance-account-page,[\s\S]*?\.trading-alerts-page[\s\S]*?\)\s*\{\s*border-top-left-radius: 16px;/s);

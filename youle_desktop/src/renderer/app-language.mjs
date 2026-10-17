@@ -6,6 +6,7 @@ import { GENERATED_ENGLISH_UI_PHRASES } from "./app-language-en-generated.mjs";
 import { REVIEWED_ENGLISH_UI_PHRASES } from "./app-language-en-reviewed.mjs";
 import { PRODUCT_ENGLISH_UI_PHRASES } from "./app-language-en-product.mjs";
 import { GENERATED_TRADITIONAL_UI_PHRASES } from "./app-language-zh-tw-generated.mjs";
+import { englishDrawingText } from "./app-language-en-drawing.mjs";
 
 export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 
@@ -163,6 +164,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "客服微信": "WeChat support",
   "联系Telegram": "Contact Telegram",
   "联系客服": "Contact support",
+  "客服": "Support",
   "暂时无法打开网页版客服，请稍后重试。": "Unable to open web support right now. Please try again later.",
   "当前版本": "Current version",
   "暂无更新说明。": "No release notes available.",
@@ -1011,6 +1013,13 @@ export function translateAppText(value, language = currentAppLanguage) {
   return translated;
 }
 
+export function translateDrawingText(value, language = currentAppLanguage, section = false) {
+  const source = String(value ?? "");
+  if (!HAN_TEXT_PATTERN.test(source)) return source;
+  if (normalizeAppLanguage(language) !== "en") return translateAppText(source, language);
+  return englishDrawingText(traditionalToSimplifiedCharacters(source), section) ?? translateAppText(source, language);
+}
+
 export function translateTradingPeriodLabel(value, language = currentAppLanguage) {
   const source = String(value ?? "");
   const normalized = normalizeAppLanguage(language);
@@ -1166,7 +1175,9 @@ function localizeTextNode(node, language) {
   const current = String(node.nodeValue ?? "");
   const previous = textLocalizationSources.get(node);
   const source = !previous || current !== previous.rendered ? current : previous.source;
-  const translated = node.parentElement?.closest?.("[data-i18n-trading-period-label]")
+  const translated = node.parentElement?.closest?.("[data-i18n-drawing]")
+    ? translateDrawingText(source, language, Boolean(node.parentElement.closest("[data-i18n-drawing-section]")))
+    : node.parentElement?.closest?.("[data-i18n-trading-period-label]")
     ? translateTradingPeriodLabel(source, language)
     : translateAppText(source, language);
   textLocalizationSources.set(node, { source, rendered: translated });
@@ -1186,7 +1197,9 @@ function localizeElementAttributes(element, language) {
     if (!value) continue;
     const previous = sources.get(name);
     const source = !previous || value !== previous.rendered ? value : previous.source;
-    const translated = translateAppText(source, language);
+    const translated = element.closest?.("[data-i18n-drawing]")
+      ? translateDrawingText(source, language)
+      : translateAppText(source, language);
     sources.set(name, { source, rendered: translated });
     if (translated !== value) element.setAttribute(name, translated);
   }

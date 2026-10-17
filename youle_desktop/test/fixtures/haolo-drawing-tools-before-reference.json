@@ -1,0 +1,390 @@
+{
+  "revision": "48d4a0aed9bd27c05c8533acf7896954a608b533",
+  "tools": [
+    {
+      "id": "cursor",
+      "kind": "cursor",
+      "freehand": false
+    },
+    {
+      "id": "crosshair",
+      "kind": "cursor",
+      "freehand": false
+    },
+    {
+      "id": "eraser",
+      "kind": "eraser",
+      "freehand": false
+    },
+    {
+      "id": "trend-line",
+      "kind": "line",
+      "freehand": false
+    },
+    {
+      "id": "ray",
+      "kind": "ray",
+      "freehand": false
+    },
+    {
+      "id": "extended-line",
+      "kind": "extended",
+      "freehand": false
+    },
+    {
+      "id": "info-line",
+      "kind": "measure",
+      "freehand": false
+    },
+    {
+      "id": "trend-angle",
+      "kind": "measure",
+      "freehand": false
+    },
+    {
+      "id": "horizontal-line",
+      "kind": "horizontal",
+      "freehand": false
+    },
+    {
+      "id": "horizontal-ray",
+      "kind": "horizontal-ray",
+      "freehand": false
+    },
+    {
+      "id": "vertical-line",
+      "kind": "vertical",
+      "freehand": false
+    },
+    {
+      "id": "cross-line",
+      "kind": "cross",
+      "freehand": false
+    },
+    {
+      "id": "arrow",
+      "kind": "arrow",
+      "freehand": false
+    },
+    {
+      "id": "parallel-channel",
+      "kind": "channel",
+      "freehand": false
+    },
+    {
+      "id": "regression-trend",
+      "kind": "channel",
+      "freehand": false
+    },
+    {
+      "id": "flat-top-bottom",
+      "kind": "channel",
+      "freehand": false
+    },
+    {
+      "id": "disjoint-channel",
+      "kind": "channel",
+      "freehand": false
+    },
+    {
+      "id": "pitchfork",
+      "kind": "pitchfork",
+      "freehand": false
+    },
+    {
+      "id": "schiff-pitchfork",
+      "kind": "pitchfork",
+      "freehand": false
+    },
+    {
+      "id": "modified-schiff-pitchfork",
+      "kind": "pitchfork",
+      "freehand": false
+    },
+    {
+      "id": "inside-pitchfork",
+      "kind": "pitchfork",
+      "freehand": false
+    },
+    {
+      "id": "gann-box",
+      "kind": "gann",
+      "freehand": false
+    },
+    {
+      "id": "gann-square",
+      "kind": "gann",
+      "freehand": false
+    },
+    {
+      "id": "gann-fan",
+      "kind": "gann",
+      "freehand": false
+    },
+    {
+      "id": "fib-retracement",
+      "kind": "fib",
+      "freehand": false
+    },
+    {
+      "id": "fib-trend-extension",
+      "kind": "fib",
+      "freehand": false
+    },
+    {
+      "id": "fib-speed-fan",
+      "kind": "gann",
+      "freehand": false
+    },
+    {
+      "id": "fib-time-zone",
+      "kind": "fib-time",
+      "freehand": false
+    },
+    {
+      "id": "fib-circles",
+      "kind": "fib-circle",
+      "freehand": false
+    },
+    {
+      "id": "fib-spiral",
+      "kind": "fib-circle",
+      "freehand": false
+    },
+    {
+      "id": "fib-channel",
+      "kind": "fib",
+      "freehand": false
+    },
+    {
+      "id": "fib-wedge",
+      "kind": "gann",
+      "freehand": false
+    },
+    {
+      "id": "pitchfan",
+      "kind": "gann",
+      "freehand": false
+    },
+    {
+      "id": "brush",
+      "kind": "freehand",
+      "freehand": true
+    },
+    {
+      "id": "highlighter",
+      "kind": "freehand",
+      "freehand": true
+    },
+    {
+      "id": "path",
+      "kind": "freehand",
+      "freehand": true
+    },
+    {
+      "id": "rectangle",
+      "kind": "rectangle",
+      "freehand": false
+    },
+    {
+      "id": "rotated-rectangle",
+      "kind": "rotated-rectangle",
+      "freehand": false
+    },
+    {
+      "id": "circle",
+      "kind": "ellipse",
+      "freehand": false
+    },
+    {
+      "id": "ellipse",
+      "kind": "ellipse",
+      "freehand": false
+    },
+    {
+      "id": "triangle",
+      "kind": "triangle",
+      "freehand": false
+    },
+    {
+      "id": "arc",
+      "kind": "arc",
+      "freehand": false
+    },
+    {
+      "id": "curve",
+      "kind": "curve",
+      "freehand": false
+    },
+    {
+      "id": "double-curve",
+      "kind": "curve",
+      "freehand": false
+    },
+    {
+      "id": "polyline",
+      "kind": "polyline",
+      "freehand": false
+    },
+    {
+      "id": "text",
+      "kind": "text",
+      "freehand": false
+    },
+    {
+      "id": "anchored-text",
+      "kind": "text",
+      "freehand": false
+    },
+    {
+      "id": "note",
+      "kind": "text",
+      "freehand": false
+    },
+    {
+      "id": "price-note",
+      "kind": "text",
+      "freehand": false
+    },
+    {
+      "id": "signpost",
+      "kind": "marker",
+      "freehand": false
+    },
+    {
+      "id": "callout",
+      "kind": "text",
+      "freehand": false
+    },
+    {
+      "id": "comment",
+      "kind": "marker",
+      "freehand": false
+    },
+    {
+      "id": "arrow-marker",
+      "kind": "marker",
+      "freehand": false
+    },
+    {
+      "id": "arrow-up",
+      "kind": "marker",
+      "freehand": false
+    },
+    {
+      "id": "arrow-down",
+      "kind": "marker",
+      "freehand": false
+    },
+    {
+      "id": "flag",
+      "kind": "marker",
+      "freehand": false
+    },
+    {
+      "id": "xabcd",
+      "kind": "pattern",
+      "freehand": false
+    },
+    {
+      "id": "cypher",
+      "kind": "pattern",
+      "freehand": false
+    },
+    {
+      "id": "head-shoulders",
+      "kind": "pattern",
+      "freehand": false
+    },
+    {
+      "id": "abcd",
+      "kind": "pattern",
+      "freehand": false
+    },
+    {
+      "id": "triangle-pattern",
+      "kind": "pattern",
+      "freehand": false
+    },
+    {
+      "id": "three-drives",
+      "kind": "pattern",
+      "freehand": false
+    },
+    {
+      "id": "elliott-impulse",
+      "kind": "pattern",
+      "freehand": false
+    },
+    {
+      "id": "elliott-correction",
+      "kind": "pattern",
+      "freehand": false
+    },
+    {
+      "id": "elliott-triangle",
+      "kind": "pattern",
+      "freehand": false
+    },
+    {
+      "id": "cyclic-lines",
+      "kind": "fib-time",
+      "freehand": false
+    },
+    {
+      "id": "long-position",
+      "kind": "position",
+      "freehand": false
+    },
+    {
+      "id": "short-position",
+      "kind": "position",
+      "freehand": false
+    },
+    {
+      "id": "forecast",
+      "kind": "projection",
+      "freehand": false
+    },
+    {
+      "id": "date-range",
+      "kind": "range",
+      "freehand": false
+    },
+    {
+      "id": "price-range",
+      "kind": "range",
+      "freehand": false
+    },
+    {
+      "id": "date-price-range",
+      "kind": "measure",
+      "freehand": false
+    },
+    {
+      "id": "bars-pattern",
+      "kind": "projection",
+      "freehand": false
+    },
+    {
+      "id": "ghost-feed",
+      "kind": "projection",
+      "freehand": false
+    },
+    {
+      "id": "projection",
+      "kind": "projection",
+      "freehand": false
+    },
+    {
+      "id": "fixed-range-volume",
+      "kind": "range",
+      "freehand": false
+    },
+    {
+      "id": "measure",
+      "kind": "measure",
+      "freehand": false
+    }
+  ]
+}

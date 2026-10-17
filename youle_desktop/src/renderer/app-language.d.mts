@@ -17,6 +17,7 @@ export function appLanguageLocale(language?: AppLanguage): "en-US" | "zh-CN" | "
 export function appLanguageOptions(): Array<{ value: AppLanguage; label: string }>;
 export function configureTraditionalCharacterMap(simplified: string, traditional: string): void;
 export function translateAppText(value: unknown, language?: AppLanguage): string;
+export function translateDrawingText(value: unknown, language?: AppLanguage, section?: boolean): string;
 export function translateTradingPeriodLabel(value: unknown, language?: AppLanguage): string;
 export function translateTradingAnnotationText(value: unknown, language?: AppLanguage): string;
 export function localizeAppTree(root: Node | null, language?: AppLanguage): void;
