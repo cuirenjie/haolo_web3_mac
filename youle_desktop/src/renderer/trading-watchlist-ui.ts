@@ -1,3 +1,4 @@
+import { tradingMarketAvailable } from "../shared/trading-market-availability.mjs";
 import type {
   TradingMarket,
   TradingFavoriteMarketRecord,
@@ -295,7 +296,7 @@ export class TradingWatchlistPanel {
   }
 
   private sortedMarkets() {
-    const markets = this.options.store.activeGroup.markets.map(
+    const markets = this.options.store.activeGroup.markets.filter(tradingMarketAvailable).map(
       this.options.resolveMarket,
     );
     if (this.sort) {

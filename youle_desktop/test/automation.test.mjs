@@ -442,8 +442,10 @@ test("runner enforces startup and no-output timeouts", async () => {
     runDir: path.join(dir, "no-output"),
     sandboxMode: "read-only",
     approvalPolicy: "never",
-    timeoutMs: 5000,
-    startupTimeoutMs: 500,
+      timeoutMs: 10000,
+      // This case checks silence after startup; allow a loaded CI host to
+      // launch Node. The separate case above still asserts the 80ms startup cap.
+      startupTimeoutMs: 5000,
     noOutputTimeoutMs: 80,
   });
   assert.equal(noOutput.status, "timed_out");

@@ -1,5 +1,6 @@
 import {cloudAnalysisWindow} from "../src/renderer/cloud-analysis-window.ts";
 import {cloudAnalysisText} from "../src/renderer/cloud-analysis-text.ts";
+import {tradingMarketAvailable,tradingMarketUnavailableMessage} from "../src/shared/trading-market-availability.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -21,7 +22,7 @@ function harness({ language = "zh-CN", modelId = "validated-model", strategyId, 
   const candles = Array.from({ length: 600 }, (_, i) => ({ time: 1_800_000_000 + i * 3600, open: 100, high: 102, low: 99, close: 101, volume: 100 }));
   const state = { active: true, completed: false, apiCalls: 0, drawingCalls: 0, recoveryCalls: 0, failures: [], progress: [] };
   const deps = {
-    ...expansion, cloudAnalysisWindow, cloudAnalysisText, cloudReportFromResponse:()=>[],
+    ...expansion, tradingMarketAvailable, tradingMarketUnavailableMessage, cloudAnalysisWindow, cloudAnalysisText, cloudReportFromResponse:()=>[],
     window: { codexDesktop: { runTradingGeneralAnalysis: async () => {
       state.apiCalls++;
       if (apiError) return { ok: false, error: apiError };

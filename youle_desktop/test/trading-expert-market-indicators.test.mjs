@@ -929,7 +929,7 @@ test("Binance TradFi perpetual contracts are catalogued with their underlying ca
   assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "etf"), true);
   assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "preipo"), true);
   assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "index"), false);
-  assert.equal(tradingMarketCategoryLabel("a-share"), "A股");
+  assert.equal(tradingMarketCategoryLabel("a-share"), "其他");
   assert.equal(tradingMarketCategoryIncludesAssetClass("a-share", "a-share"), true);
   assert.equal(tradingMarketCategoryIncludesAssetClass("a-share", "stock"), false);
   assert.deepEqual(TRADING_MARKET_CATEGORY_OPTIONS, [
@@ -937,7 +937,6 @@ test("Binance TradFi perpetual contracts are catalogued with their underlying ca
     { id: "crypto", label: "加密货币" },
     { id: "commodity", label: "大宗商品" },
     { id: "stock", label: "美股" },
-    { id: "a-share", label: "A股" },
   ]);
   const originalWindow = globalThis.window;
   globalThis.window = {

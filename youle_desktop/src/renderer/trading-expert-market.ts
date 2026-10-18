@@ -1,3 +1,4 @@
+import { IFIND_BUSINESS_ENABLED, tradingMarketAvailable, tradingMarketUnavailableMessage } from "../shared/trading-market-availability.mjs";
 import {chartTickLabel} from "./trading-chart-time.ts";
 import {cloudAnalysisText} from './cloud-analysis-text.ts';
 import {normalizeTradingIndicatorAiDrawingPatch,storeCloudIndicatorPatch,loadCloudIndicatorPatch,migrateCloudIndicatorPatches,clearIndicatorAnalysisRuntime,renderIndicatorAnalysisPatch} from './cloud-indicator-drawings.ts';
@@ -377,7 +378,6 @@ export const TRADING_MARKET_CATEGORY_OPTIONS: ReadonlyArray<{
   { id: "crypto", label: "加密货币" },
   { id: "commodity", label: "大宗商品" },
   { id: "stock", label: "美股" },
-  { id: "a-share", label: "A股" },
 ];
 
 const TRADING_STOCK_CATEGORY_ASSET_CLASSES: ReadonlySet<TradingAssetClass> = new Set([
@@ -2404,6 +2404,7 @@ export function tradingMarketVisibleInPicker(
   favoriteSymbols: ReadonlySet<string>,
   favoritesOnly: boolean,
 ) {
+  if (!tradingMarketAvailable(market)) return false;
   const normalizedQuery = query.trim().toUpperCase();
   const normalizedSymbol = market.symbol.toUpperCase();
   if (normalizedQuery) {
@@ -5982,7 +5983,7 @@ class TradingExpertMarketWorkspace {
     const unique = new Map<string, TradingSplitPaneMarket>();
     [...current, ...restoredSelections, ...favorites, ...common, ...catalog]
       .forEach((market) => unique.set(market.id, market));
-    return [...unique.values()];
+    return [...unique.values()].filter(tradingMarketAvailable);
   }
 
   private syncSplitPaneMarkets() {
@@ -6036,7 +6037,7 @@ class TradingExpertMarketWorkspace {
         : periods[index % Math.max(periods.length, 1)]?.resolution || this.activeInterval;
       const savedSelection = this.splitPaneSelections.get(index);
       const market = markets.find((candidate) => candidate.id === savedSelection?.marketId)
-        ?? savedSelection?.market
+        ?? (tradingMarketAvailable(savedSelection?.market) ? savedSelection?.market : undefined)
         ?? markets[0]
         ?? this.splitPaneMarket(defaultBinancePerpetualMarket());
       const interval = savedSelection
@@ -6732,7 +6733,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private visibleWatchlistRecords() {
-    return this.watchlist.expanded ? this.watchlist.activeGroup.markets : [];
+    return this.watchlist.expanded ? this.watchlist.activeGroup.markets.filter(tradingMarketAvailable) : [];
   }
 
   private quoteMarketRecords() {
@@ -6771,6 +6772,7 @@ class TradingExpertMarketWorkspace {
   private favoriteTickerMarkets() {
     const liveMarkets = new Map(this.markets.map((market) => [market.id, market]));
     return [...this.favoriteMarketRecords.values()]
+      .filter(tradingMarketAvailable)
       .filter((record) => (record.assetClass === "crypto" || record.provider === "binance") && this.favoriteSymbols.has(record.id))
       .map((record) => liveMarkets.get(record.id)
         || this.finnhubFavoriteMarkets.get(record.id)
@@ -7169,6 +7171,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private selectMarket(market: TradingMarket) {
+    if (!tradingMarketAvailable(market)) return false;
     const selectedMarket = market.provider === "binance"
       ? normalizeBinanceTradingMarket(market)
       : market;
@@ -7500,6 +7503,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private async loadIfindStatus() {
+    if (!IFIND_BUSINESS_ENABLED) return;
     const api = window.codexDesktop.getIfindMarketDataStatus;
     if (!api) {
       this.ifindConfigured = false;
@@ -7521,6 +7525,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private scheduleIfindSearch(immediate = false) {
+    if (!IFIND_BUSINESS_ENABLED) return;
     this.ifindSearchGeneration += 1;
     const generation = this.ifindSearchGeneration;
     if (this.ifindSearchTimer !== null) {
@@ -7567,6 +7572,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private async refreshFavoriteIfindQuotes() {
+    if (!IFIND_BUSINESS_ENABLED) return;
     const quoteApi = window.codexDesktop.getIfindMarketQuotes;
     if (!this.ifindConfigured || !quoteApi) return;
     const records = this.quoteMarketRecords().filter((record) => record.provider === "ifind");
@@ -8321,7 +8327,7 @@ class TradingExpertMarketWorkspace {
 
   private restoreLastDrawingWorkspace(workspace: TradingLastDrawingWorkspace) {
     const primary = workspace.panes.find((pane) => pane.paneIndex === 0);
-    if (!primary) return false;
+    if (!primary || !tradingMarketAvailable(primary.market)) return false;
     const ensurePeriod = (interval: string) => {
       if (this.periods.some((period) => tradingViewResolution(period) === interval)) return;
       const period = tradingPeriodFromResolution(interval);
@@ -8333,7 +8339,7 @@ class TradingExpertMarketWorkspace {
     this.splitPaneIndicatorSelections.clear();
     workspace.panes.forEach((pane) => {
       ensurePeriod(pane.interval);
-      if (pane.paneIndex === 0) return;
+      if (pane.paneIndex === 0 || !tradingMarketAvailable(pane.market)) return;
       const market = this.splitPaneMarket(marketFromFavoriteRecord(pane.market));
       this.splitPaneSelections.set(pane.paneIndex, {
         marketId: market.id,
@@ -8751,6 +8757,7 @@ class TradingExpertMarketWorkspace {
       || this.favoriteMarketFromId(normalizedMarketId)
       || this.markets.find((market) => market.symbol.toUpperCase() === normalizedMarketId.replace(/^.*:/, ""));
     if (!targetMarket) throw new Error(`未找到可用的行情：${normalizedMarketId}`);
+    if (!tradingMarketAvailable(targetMarket)) throw new Error(tradingMarketUnavailableMessage(activeTradingAnalysisLanguage()));
     const targetInterval = tradingResolutionFromAlertInterval(interval || tradingAlertIntervalFromResolution(this.activeInterval));
     if (!tradingViewResolutionDurationMs(targetInterval)) throw new Error(`暂不支持 ${interval || targetInterval} K 线周期`);
     const shouldReload = targetMarket.id !== this.loadedMarketId
@@ -10094,13 +10101,13 @@ class TradingExpertMarketWorkspace {
             interval: state.interval,
             updatedAt: state.updatedAt,
           });
-    if (!market) return false;
+    if (!market || !tradingMarketAvailable(market)) return false;
     if (!this.periods.some((period) => tradingViewResolution(period) === state.interval)) {
       const period = tradingPeriodFromResolution(state.interval);
       if (period && this.periods.length < MAX_TRADING_PERIODS) this.periods = [...this.periods, period];
     }
+    if (!this.selectMarket(market)) return false;
     this.activeInterval = state.interval;
-    this.selectMarket(market);
     this.updateSymbolUi();
     return true;
   }
@@ -10240,6 +10247,7 @@ class TradingExpertMarketWorkspace {
           instruction: request.instruction,
         }) as TradingMarket | null;
     if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
+    if (!tradingMarketAvailable(targetMarket)) throw new Error(tradingMarketUnavailableMessage(activeTradingAnalysisLanguage()));
     if (request.symbol && String(targetMarket.symbol).toUpperCase() !== normalizedSymbol) {
       throw new Error(`未找到指定的 ${normalizedSymbol} 行情`);
     }

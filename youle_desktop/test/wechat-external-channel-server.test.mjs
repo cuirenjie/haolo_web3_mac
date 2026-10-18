@@ -1036,6 +1036,47 @@ test("local external channel backend supervisor rebuilds unhealthy Feishu websoc
   }
 });
 
+test("server shutdown drains an in-flight Feishu supervisor before disconnecting", async () => {
+  const dir = await tempDir("feishu-supervisor-drain");
+  const channels = [];
+  const server = new WechatExternalChannelServer({
+    port: 0, statePath: path.join(dir, "state.json"), logPath: path.join(dir, "server.log"),
+    feishuSupervisorIntervalMs: 20, feishuReconnectMinIntervalMs: 0,
+    lark: { LoggerLevel: {warn: "warn"}, createLarkChannel() {
+      const channel = new FakeFeishuChannel(); channels.push(channel); return channel;
+    } },
+  });
+  let release, entered;
+  const gate = new Promise(resolve => {release = resolve;});
+  const rebuilding = new Promise(resolve => {entered = resolve;});
+  const writeLog = server.writeLog.bind(server);
+  server.writeLog = async (event, payload) => {
+    if (event === "feishu.channel.rebuild_ok") { entered(); await gate; }
+    await writeLog(event, payload);
+  };
+  try {
+    await server.start();
+    await server.attachFeishuSession({payload: {app_id: "cli_drain", app_secret: "fixture-secret"}});
+    channels[0].connectionState = "failed";
+    await rebuilding;
+    let stopped = false;
+    const stopping = server.stop().then(() => {stopped = true;});
+    try {
+      await new Promise(resolve => setTimeout(resolve, 30));
+      assert.equal(stopped, false);
+      assert.equal(channels[1].disconnected, false);
+    } finally { release(); }
+    await stopping;
+    assert.equal(channels[1].disconnected, true);
+    assert.equal(server.feishuSupervisorRunning, false);
+    assert.equal(server.feishuSupervisorPromise, null);
+  } finally {
+    release();
+    await server.stop();
+    await rm(dir, {recursive: true, force: true});
+  }
+});
+
 test("local external channel backend downloads inbound Feishu file resources", async () => {
   const dir = await tempDir("feishu-inbound-file");
   const fileBytes = Buffer.from("hello from feishu file", "utf8");

@@ -97,6 +97,7 @@ export class WechatExternalChannelServer {
     this.feishuPendingMessageBatches = new Map();
     this.feishuSupervisorTimer = null;
     this.feishuSupervisorRunning = false;
+    this.feishuSupervisorPromise = null;
     this.feishuReconnectPromise = null;
     this.feishuLastReconnectAttemptAt = 0;
     this.feishuReconnectingSince = 0;
@@ -157,6 +158,9 @@ export class WechatExternalChannelServer {
       return;
     }
     this.stopFeishuConnectionSupervisor();
+    // A health tick may still be rebuilding/persisting a channel after its
+    // timer is cleared. Drain it before disconnecting or releasing the server.
+    await this.feishuSupervisorPromise;
     await this.closeFeishuChannel({ reason: "server stopped" });
     await new Promise((resolve) => server.close(() => resolve()));
     this.status = "stopped";
@@ -769,7 +773,10 @@ export class WechatExternalChannelServer {
   startFeishuConnectionSupervisor() {
     if (this.feishuSupervisorTimer || this.feishuSupervisorIntervalMs <= 0) return;
     this.feishuSupervisorTimer = setInterval(() => {
-      void this.checkFeishuConnectionHealth();
+      if (this.feishuSupervisorPromise) return;
+      this.feishuSupervisorPromise = this.checkFeishuConnectionHealth().finally(() => {
+        this.feishuSupervisorPromise = null;
+      });
     }, this.feishuSupervisorIntervalMs);
     this.feishuSupervisorTimer.unref?.();
   }
