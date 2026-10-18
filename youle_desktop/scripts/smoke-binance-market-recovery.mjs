@@ -29,7 +29,7 @@ const save=()=>{if(argument("report"))fs.writeFileSync(argument("report"),JSON.s
 const request=marketType=>({marketType,path:marketType==="spot"?"/api/v3/klines":"/fapi/v1/klines",
   parameters:{symbol:"BTCUSDT",interval:"1m",limit:20},freshness:"live"});
 function validate(result) {
-  assert.equal(result.ok,true);assert.equal(result.stale===true,false);
+  assert.equal(result.ok,true);assert.equal(result.stale===true,false,`Unexpected stale response: ${JSON.stringify(result.diagnostics)}`);
   assert.equal(result.data.length,20);
   for(let i=0;i<result.data.length;i++) {
     const row=result.data[i], [open,high,low,close,volume]=row.slice(1,6).map(Number);
@@ -40,14 +40,28 @@ function validate(result) {
   const tail=result.data.at(-1);
   assert.ok(tail[0]<=Date.now()&&tail[6]>=Date.now()-1500,`latest candle must cover current minute: tail=${tail[0]}, close=${tail[6]}, now=${Date.now()}`);
 }
+async function currentBatch(marketType, consumers) {
+  for(let attempt=0;attempt<3;attempt++) {
+    const before=gatewayReads;
+    const values=await Promise.all(Array.from({length:consumers},()=>service.request(request(marketType),{signal:AbortSignal.timeout(35000)})));
+    assert.equal(gatewayReads-before,1);
+    if(values.every(value=>value.ok && !value.stale && value.data.at(-1)?.[6]>=Date.now()-1500))return {values,attempts:attempt+1};
+    report.freshnessRetries ||= [];
+    report.freshnessRetries.push({marketType,attempt:attempt+1,stale:values[0].stale===true,dataAgeMs:Date.now()-values[0].fetchedAt,diagnostics:values[0].diagnostics});save();
+    if(attempt===2 || values.some(value=>Number(value.retryAfterMs)>2000)) {values.forEach(validate);throw new Error('No current candle after bounded freshness retries');}
+    // Match the analysis refresh policy: cross the one-second cache TTL,
+    // preserve the freshness guard, and never hammer a server cooldown.
+    await new Promise(resolve=>setTimeout(resolve,1100*(attempt+1)));
+  }
+}
 try {
   for(const marketType of ["futures","spot"]) {
     const before=gatewayReads,started=Date.now();
-    const values=await Promise.all(Array.from({length:12},()=>service.request(request(marketType),{signal:AbortSignal.timeout(35000)})));
+    const {values,attempts}=await currentBatch(marketType,12);
     values.forEach(validate);
-    assert.equal(gatewayReads-before,1);
+    assert.equal(gatewayReads-before,attempts);
     report.checks.push({check:"concurrent current candles",marketType,consumers:12,gatewayReads:gatewayReads-before,
-      rows:values[0].data.length,elapsedMs:Date.now()-started,diagnostics:values[0].diagnostics});save();
+      attempts,rows:values[0].data.length,elapsedMs:Date.now()-started,diagnostics:values[0].diagnostics});save();
   }
   const endpoint=new URL(await client.marketStreamEndpoint({marketType:"futures",combined:true}));
   endpoint.searchParams.set("streams","btcusdt@kline_1m");
@@ -70,7 +84,7 @@ try {
   socket.close();
   report.stream={events:lags.length,maxEventLagMs:Math.max(...lags),closedOpenTime:closed.t};save();
   await new Promise(resolve=>setTimeout(resolve,1500));
-  const result=await service.request(request("futures"),{signal:AbortSignal.timeout(35000)});
+  const {values:[result]}=await currentBatch("futures",1);
   report.finalRest={at:Date.now(),tail:result.data?.at(-1)?.[0],diagnostics:result.diagnostics,stale:result.stale===true};save();
   validate(result);
   const row=result.data.find(row=>Number(row[0])===Number(closed.t));
