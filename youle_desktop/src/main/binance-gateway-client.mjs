@@ -91,7 +91,7 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
     const controller = new AbortController();
     const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
     const timer = setTimeout(() => controller.abort(new DOMException("Gateway control request timed out", "TimeoutError")),
-      config.gatewayControlTimeoutMs || 8_000);
+      config.gatewayControlTimeoutMs || 12_000);
     try {
       const response = await withAbort(market ? marketFetch(url, { ...init, signal }, { discovery: true }) : authenticatedFetch(url, { ...init, signal }), signal);
       const payload = await withAbort(response.json().catch(() => null), signal);

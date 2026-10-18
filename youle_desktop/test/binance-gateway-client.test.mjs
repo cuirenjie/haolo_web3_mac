@@ -1,7 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { createBinanceGatewayClient } from "../src/main/binance-gateway-client.mjs";
 import { resolveBinanceGatewayConfig } from "../src/main/binance-gateway-config.mjs";
+
+test("ticket deadline allows the measured 8.851s auth tail within the gateway 10s budget", async () => {
+  const config = resolveBinanceGatewayConfig({ HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://market.example" });
+  let calls = 0;
+  const client = createBinanceGatewayClient({ config,
+    apiClient: { getTrustedAccessToken: async () => "fixture-token" },
+    fetchImpl: async (_url, init) => {
+      calls++;
+      await delay(8_851, undefined, { signal: init.signal });
+      return Response.json({ ticket: "one-use" });
+    },
+  });
+  assert.equal(await client.marketStreamEndpoint({ marketType: "futures" }), "wss://market.example/ws/futures?ticket=one-use");
+  assert.equal(calls, 1, "successful ticket creation must not be replayed");
+});
 
 test("server route applies to REST and one-use socket tickets, scoped by login token", async () => {
   const config = resolveBinanceGatewayConfig({ HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://paid.example", HAOLO_BINANCE_MARKET_FREE_URL: "https://free.example" });
