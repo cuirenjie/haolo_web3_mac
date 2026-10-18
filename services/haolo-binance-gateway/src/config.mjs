@@ -204,6 +204,9 @@ export function loadGatewayConfig(env = process.env) {
     redisUrl,
     requestTimeoutMs: positiveInteger(env.HAOLO_BINANCE_REQUEST_TIMEOUT_MS, 10_000, { min: 1_000, max: 60_000 }),
     downstreamRequestsPerMinute,
+    // Retain the legacy default while separating inbound calls from Binance
+    // weighted MISSes. This does not increase either production allowance.
+    publicUserWeightPerMinute: positiveInteger(env.HAOLO_MARKET_USER_WEIGHT_PER_MINUTE, downstreamRequestsPerMinute, { min: 10, max: 100_000 }),
     downstreamBurstRequestsPerMinute,
     publicEgressId: String(env.HAOLO_PUBLIC_EGRESS_ID || "public-egress").trim() || "public-egress",
     publicFuturesUpstreamWeightPerMinute: positiveInteger(env.HAOLO_MARKET_FUTURES_WEIGHT_PER_MINUTE, 1_440, { min: 100, max: 1_000_000 }),

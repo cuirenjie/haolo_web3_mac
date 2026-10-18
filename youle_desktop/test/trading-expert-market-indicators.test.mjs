@@ -866,7 +866,8 @@ test("latest Binance candles share a stable gateway cache key while historical p
 
     const forceFreshEndTime = Date.now();
     await fetchTradingCandles("XRPUSDT", "60", 2, forceFreshEndTime, "perpetual", undefined, { forceFresh: true });
-    assert.equal(requests[2].parameters.endTime, forceFreshEndTime);
+    assert.equal(requests[2].parameters.endTime, undefined);
+    assert.equal(requests[2].freshness, "live");
   } finally {
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;

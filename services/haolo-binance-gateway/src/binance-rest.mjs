@@ -33,13 +33,14 @@ const QUERY_KEYS = new Set([
 ]);
 
 export class MarketGatewayError extends Error {
-  constructor(message, { statusCode = 502, code = "MARKET_GATEWAY_ERROR", retryAfterMs = 0, upstreamStatus = 0 } = {}) {
+  constructor(message, { statusCode = 502, code = "MARKET_GATEWAY_ERROR", retryAfterMs = 0, upstreamStatus = 0, limitScope = "" } = {}) {
     super(message);
     this.name = "MarketGatewayError";
     this.statusCode = statusCode;
     this.code = code;
     this.retryAfterMs = retryAfterMs;
     this.upstreamStatus = Number(upstreamStatus) || 0;
+    this.limitScope = limitScope;
   }
 }
 
@@ -83,7 +84,10 @@ function validateQuery(url) {
 function cachePolicy(pathname, url) {
   if (pathname.endsWith("exchangeInfo")) return { fresh: 6 * 60 * 60_000, stale: 24 * 60 * 60_000 };
   if (pathname.endsWith("klines") || pathname.endsWith("uiKlines")) {
-    return url.searchParams.has("endTime")
+    const match = /^(\d+)([mhdwM])$/.exec(url.searchParams.get("interval") || "");
+    const duration = match ? Number(match[1]) * ({m:60_000,h:3_600_000,d:86_400_000,w:604_800_000,M:32*86_400_000}[match[2]]) : Infinity;
+    const end = Number(url.searchParams.get("endTime"));
+    return end > 0 && end + duration < Date.now()
       ? { fresh: 60 * 60_000, stale: 24 * 60 * 60_000 }
       : { fresh: 1_000, stale: 30_000 };
   }
@@ -232,10 +236,13 @@ export class BinanceRestGateway {
     return Object.freeze({ until, status });
   }
 
-  async get(requestUrl, { beforeUpstream = null } = {}) {
+  async get(requestUrl, { beforeUpstream = null, freshness = "default" } = {}) {
     const route = resolvePublicMarketRequest(requestUrl, this.config);
-    const cached = await this.cache.get(route.cacheKey);
-    if (cached?.fresh) return marketResult(route, { value: cached.value, cacheStatus: "HIT", statusCode: 200, headers: {} });
+    const usable = (entry) => entry?.fresh && (freshness !== "live" || Date.now() - entry.storedAt <= 1_000);
+    const readCache = () => this.cache.get(route.cacheKey, Date.now(), { maxAgeMs: freshness === "live" ? 1_000 : Infinity });
+    const cached = await readCache();
+    if (usable(cached)) return marketResult(route, { value: cached.value, cacheStatus: "HIT", statusCode: 200,
+      headers: { "x-haolo-data-fetched-at": String(cached.storedAt || 0) } });
     const nowMs = Date.now();
     const sharedCooldown = await this.publicCooldown(route.marketType, nowMs);
     const cooldownUntil = sharedCooldown.until;
@@ -247,6 +254,7 @@ export class BinanceRestGateway {
         cacheStatus: "STALE",
         statusCode: 200,
         headers: {
+          "x-haolo-data-fetched-at": String(cached.storedAt || 0),
           "retry-after": retryAfter,
           "x-haolo-rate-limit-source": "gateway-upstream",
           "x-haolo-upstream-status": String(sharedCooldown.status),
@@ -259,9 +267,10 @@ export class BinanceRestGateway {
         upstreamStatus: sharedCooldown.status,
       });
     }
-    return this.cache.singleFlight(route.cacheKey, async () => {
-      const refreshed = await this.cache.get(route.cacheKey);
-      if (refreshed?.fresh) return marketResult(route, { value: refreshed.value, cacheStatus: "HIT", statusCode: 200, headers: {} });
+    return this.cache.sharedSingleFlight(route.cacheKey, async (leaseSignal) => {
+      const refreshed = await readCache();
+      if (usable(refreshed)) return marketResult(route, { value: refreshed.value, cacheStatus: "HIT", statusCode: 200,
+        headers: { "x-haolo-data-fetched-at": String(refreshed.storedAt || 0) } });
       if (typeof beforeUpstream === "function") {
         try {
           await beforeUpstream(route);
@@ -274,7 +283,9 @@ export class BinanceRestGateway {
               cacheStatus: "STALE",
               statusCode: 200,
               headers: {
+                "x-haolo-data-fetched-at": String(refreshed.storedAt || 0),
                 ...(rateLimited ? { "x-haolo-rate-limit-source": "gateway-downstream" } : {}),
+                ...(error?.limitScope ? { "x-haolo-rate-limit-scope": error.limitScope } : {}),
                 ...(retryMs ? { "retry-after": String(Math.max(1, Math.ceil(retryMs / 1_000))) } : {}),
               },
             });
@@ -292,6 +303,7 @@ export class BinanceRestGateway {
           cacheStatus: "STALE",
           statusCode: 200,
           headers: {
+            "x-haolo-data-fetched-at": String(refreshed.storedAt || 0),
             "retry-after": String(Math.max(1, Math.ceil((lateCooldown.until - Date.now()) / 1_000))),
             "x-haolo-rate-limit-source": "gateway-upstream",
             "x-haolo-upstream-status": String(lateCooldown.status),
@@ -309,10 +321,13 @@ export class BinanceRestGateway {
       timer.unref?.();
       let response;
       try {
-        response = await this.fetchImpl(route.upstream, { method: "GET", signal: controller.signal, redirect: "error" });
+        leaseSignal?.throwIfAborted();
+        const signal = leaseSignal ? AbortSignal.any([leaseSignal, controller.signal]) : controller.signal;
+        response = await this.fetchImpl(route.upstream, { method: "GET", signal, redirect: "error" });
       } catch (error) {
         clearTimeout(timer);
-        if (refreshed) return marketResult(route, { value: refreshed.value, cacheStatus: "STALE", statusCode: 200, headers: {} });
+        if (refreshed) return marketResult(route, { value: refreshed.value, cacheStatus: "STALE", statusCode: 200,
+          headers: { "x-haolo-data-fetched-at": String(refreshed.storedAt || 0) } });
         throw new MarketGatewayError(`Binance upstream request failed: ${String(error?.message || error)}`, { code: "UPSTREAM_UNAVAILABLE" });
       }
       let body;
@@ -329,10 +344,12 @@ export class BinanceRestGateway {
         : Number(observedWeightHeader);
       if (Number.isFinite(observedWeight) && observedWeight >= 0 && typeof this.cache.raiseWeightFloor === "function") {
         const observedAt = Date.now();
+        const serverAt = Date.parse(response.headers.get("date") || "");
+        const weightWindow = Math.floor((Number.isFinite(serverAt) ? serverAt : observedAt) / 60_000);
         await this.cache.raiseWeightFloor({
           shardId: this.config?.publicEgressId || "public-egress",
           marketType: route.marketType,
-          windowId: Math.floor(observedAt / 60_000),
+          windowId: weightWindow,
           value: observedWeight,
           ttlMs: 60_000 - (observedAt % 60_000) + 5_000,
         }).catch(() => {});
@@ -349,6 +366,7 @@ export class BinanceRestGateway {
             statusCode: 200,
             headers: {
               ...headers,
+              "x-haolo-data-fetched-at": String(refreshed.storedAt || 0),
               ...(response.status === 418 || response.status === 429 ? { "x-haolo-upstream-status": String(response.status) } : {}),
               ...(response.status === 418 || response.status === 429 ? { "x-haolo-rate-limit-source": "gateway-upstream" } : {}),
             },
@@ -366,7 +384,18 @@ export class BinanceRestGateway {
         throw new MarketGatewayError("Binance upstream returned invalid JSON", { code: "UPSTREAM_INVALID_RESPONSE" });
       }
       await this.cache.set(route.cacheKey, value, route.policy.fresh, route.policy.stale);
+      headers["x-haolo-data-fetched-at"] = String(Date.now());
       return marketResult(route, { value, cacheStatus: "MISS", statusCode: 200, headers });
+    }, { leaseMs: this.config.requestTimeoutMs + 5_000, readResult: async () => {
+      const entry = await readCache();
+      return usable(entry) ? marketResult(route, { value: entry.value, cacheStatus: "HIT", statusCode: 200,
+        headers: { "x-haolo-data-fetched-at": String(entry.storedAt || 0) } }) : null;
+    } }).catch((error) => {
+      if (cached && ["MARKET_COORDINATION_UNAVAILABLE", "MARKET_REFRESH_PENDING"].includes(error?.code)) {
+        return marketResult(route, { value: cached.value, cacheStatus: "STALE", statusCode: 200,
+          headers: { "x-haolo-data-fetched-at": String(cached.storedAt || 0), "retry-after": "1" } });
+      }
+      throw error;
     });
   }
 }

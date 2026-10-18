@@ -66,22 +66,29 @@ export class PublicRestCache {
     this.memory.delete(key);
   }
 
-  async get(key, redis, now = Date.now()) {
+  async get(key, redis, now = Date.now(), { maxAgeMs = Infinity } = {}) {
     let raw = this.memory.get(key)?.raw;
-    if (!raw && redis) {
-      try { raw = await redis.get(key); } catch { this.note("read"); }
+    // A replica's expired local copy must not hide another replica's refresh.
+    let localFresh = false;
+    try {
+      const record = JSON.parse(raw);
+      localFresh = Number(record.freshUntil) > now && now - Number(record.storedAt || 0) <= maxAgeMs;
+    } catch {}
+    if (!localFresh && redis) {
+      try { raw = await redis.get(key) || raw; } catch { this.note("read"); }
     }
     if (!raw) return null;
     let record;
     try { record = JSON.parse(raw); } catch { this.forget(key); return null; }
     if (Number(record.staleUntil || 0) <= now) { this.forget(key); return null; }
     this.remember(key, raw);
-    return Object.freeze({ value: record.value, fresh: Number(record.freshUntil || 0) > now });
+    return Object.freeze({ value: record.value, fresh: Number(record.freshUntil || 0) > now,
+      storedAt: Number(record.storedAt) || 0 });
   }
 
   async set(key, value, freshTtlMs, staleTtlMs, redis) {
     const now = Date.now();
-    const raw = JSON.stringify({ value, freshUntil: now + Math.max(0, freshTtlMs),
+    const raw = JSON.stringify({ value, storedAt: now, freshUntil: now + Math.max(0, freshTtlMs),
       staleUntil: now + Math.max(freshTtlMs, staleTtlMs) });
     this.remember(key, raw);
     if (redis) {

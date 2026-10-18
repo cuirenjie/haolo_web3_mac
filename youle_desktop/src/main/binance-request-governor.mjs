@@ -319,7 +319,7 @@ export class BinanceRequestGovernor {
       futuresWeight: this.usedWeight("futures", currentMs),
       spotWeight: this.usedWeight("spot", currentMs),
       observedWeightByEgress: Object.freeze(Object.fromEntries([...this.observedUsedWeight].flatMap(([key, record]) => (
-        record.at > currentMs - WINDOW_MS ? [[key, record.value]] : []
+        record.expiresAt > currentMs ? [[key, record.value]] : []
       )))),
       recentDiagnostics: Object.freeze(this.diagnostics.map((entry) => Object.freeze({ ...entry }))),
     });
@@ -330,7 +330,7 @@ export class BinanceRequestGovernor {
     while (entries.length && entries[0].at <= currentMs - WINDOW_MS) entries.shift();
     const reserved = entries.reduce((total, entry) => total + entry.weight, 0);
     const observed = this.observedUsedWeight.get(`local:${bucket}`);
-    const observedValue = observed?.at > currentMs - WINDOW_MS ? observed.value : 0;
+    const observedValue = observed?.expiresAt > currentMs ? observed.value : 0;
     return Math.max(reserved, observedValue);
   }
 
@@ -343,7 +343,7 @@ export class BinanceRequestGovernor {
     const candidates = [];
     if (entries[0]) candidates.push(entries[0].at + WINDOW_MS);
     const observed = this.observedUsedWeight.get(`local:${bucket}`);
-    if (observed?.at > currentMs - WINDOW_MS) candidates.push(observed.at + WINDOW_MS);
+    if (observed?.expiresAt > currentMs) candidates.push(observed.expiresAt);
     return Math.max(1_000, Math.min(...(candidates.length ? candidates : [currentMs + WINDOW_MS])) - currentMs);
   }
 
@@ -382,7 +382,19 @@ export class BinanceRequestGovernor {
       ? Number.NaN
       : Number(gatewayRemainingHeader);
     if (Number.isFinite(used) && used >= 0) {
-      this.observedUsedWeight.set(`${provenance.egress}:${bucket}`, { at: currentMs, value: used });
+      const serverDate = Date.parse(response?.headers?.get?.("date") || "");
+      const measuredAt = Number.isFinite(serverDate) ? serverDate : currentMs;
+      // Binance reports a fixed minute window. Do not retain its last sample
+      // for another rolling minute after that window has reset. One second
+      // covers HTTP Date precision; own reservations remain conservative.
+      const expiresAt = currentMs + WINDOW_MS - (measuredAt % WINDOW_MS) + 1_000;
+      const key = `${provenance.egress}:${bucket}`;
+      const previous = this.observedUsedWeight.get(key);
+      const windowId = Math.floor(measuredAt / WINDOW_MS);
+      if (!previous || windowId >= previous.windowId) {
+        this.observedUsedWeight.set(key, { at: currentMs, expiresAt,
+          windowId, value: previous?.windowId === windowId ? Math.max(previous.value, used) : used });
+      }
     }
     const status = Number(response?.status || 0);
     const upstreamStatus = Number(response?.headers?.get?.("x-haolo-upstream-status") || 0);
@@ -408,6 +420,7 @@ export class BinanceRequestGovernor {
       usedWeight: Number.isFinite(used) && used >= 0 ? used : null,
       gatewayRemaining: Number.isFinite(gatewayRemaining) && gatewayRemaining >= 0 ? gatewayRemaining : null,
       cacheStatus: boundedText(response?.headers?.get?.("x-haolo-cache"), "none"),
+      limitScope: boundedText(response?.headers?.get?.("x-haolo-rate-limit-scope"), "unknown"),
       upstreamStatus: [418, 429].includes(upstreamStatus) ? upstreamStatus : null,
       retryAfterMs: parseBinanceRetryAfterMs(response, currentMs),
     };
@@ -507,28 +520,7 @@ export class BinanceRequestGovernor {
     }
 
     const weight = Math.max(1, positiveInteger(context.weight, binanceRequestWeight(url, init)));
-    const reservation = cooldownMs > 0 ? null : this.reserve(bucket, weight, currentMs);
-    if (!reservation && !publicFallbackFetch) {
-      this.metrics.blocked += 1;
-      this.metrics.localBudgetBlocks += 1;
-      const retryAfterMs = this.retryAfterForBudget(bucket, currentMs);
-      this.recordDiagnostic({
-        at: currentMs,
-        source: boundedText(context.source, "market"),
-        bucket,
-        endpointClass: binanceRequestEndpointClass(url),
-        pathname: url.pathname,
-        route: "client",
-        egress: "client",
-        origin: "local_budget",
-        status: 429,
-        retryAfterMs,
-        weight,
-        running: this.running,
-        queued: this.queue.length,
-      });
-      return localRateLimitResponse(retryAfterMs, "budget", "local-budget");
-    }
+    let reservation = null;
 
     this.metrics.admitted += 1;
     const shared = dedupeKey ? { controller: new AbortController(), consumers: 0, settled: false, promise: null } : null;
@@ -544,10 +536,22 @@ export class BinanceRequestGovernor {
         // Requests may wait behind another request which receives 418/429.
         // Recheck at admission; never let a queued request extend that ban.
         const queuedCooldownMs = this.cooldownRemaining(bucket, startedAt);
+        // Reserve when work actually starts, after priority ordering. Queued
+        // prefetches cannot spend the chart's capacity or age out before I/O.
+        reservation = queuedCooldownMs > 0 ? null : this.reserve(bucket, weight, startedAt);
         const needsFallback = !reservation || queuedCooldownMs > 0;
         if (needsFallback && !publicFallbackFetch) {
           this.releaseReservation(bucket, reservation);
-          return localRateLimitResponse(queuedCooldownMs, "upstream", "direct-binance");
+          const budgetBlocked = queuedCooldownMs <= 0;
+          const retryAfterMs = queuedCooldownMs || this.retryAfterForBudget(bucket, startedAt);
+          this.metrics.blocked += 1;
+          if (budgetBlocked) this.metrics.localBudgetBlocks += 1;
+          this.recordDiagnostic({ at: startedAt, source: boundedText(context.source, "market"), bucket,
+            endpointClass: binanceRequestEndpointClass(url), pathname: url.pathname,
+            route: "client", egress: "client", origin: budgetBlocked ? "local_budget" : "direct_binance",
+            status: 429, retryAfterMs, weight, running: this.running, queued: this.queue.length });
+          return localRateLimitResponse(retryAfterMs, budgetBlocked ? "budget" : "upstream",
+            budgetBlocked ? "local-budget" : "direct-binance");
         }
         const transport = needsFallback ? publicFallbackFetch : networkFetch;
         if (needsFallback) this.releaseReservation(bucket, reservation);
@@ -574,6 +578,7 @@ export class BinanceRequestGovernor {
           usedWeight: observation.usedWeight,
           gatewayRemaining: Number.isFinite(observation.gatewayRemaining) ? observation.gatewayRemaining : null,
           cacheStatus: observation.cacheStatus,
+          limitScope: observation.limitScope,
           weight,
           durationMs: Math.max(0, finishedAt - startedAt),
           running: this.running,

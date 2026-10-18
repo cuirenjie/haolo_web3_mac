@@ -1114,7 +1114,7 @@ test("Trading Expert market uses the governed Binance gateway and realtime data"
   assert.match(source, /"\/fapi\/v1\/klines"/);
   assert.match(source, /async function fetchLatestTradingCandles/);
   assert.match(source, /startTime: cursor/);
-  assert.match(source, /const maxPages = sourceStartTime === undefined \? 1 : 4/);
+  assert.match(source, /const maxPages = sourceStartTime === undefined \? 1 : 13/);
   assert.match(source, /fromId: options\.fromId/);
   assert.match(source, /this\.lastAggregateTradeId === null \? undefined : this\.lastAggregateTradeId \+ 1/);
   assert.match(source, /!tradFi && quoteAsset !== MARKET_QUOTE[\s\S]*?contractType !== "PERPETUAL"[\s\S]*?contractType !== "TRADIFI_PERPETUAL"[\s\S]*?item\.status !== "TRADING"/);

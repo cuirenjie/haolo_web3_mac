@@ -1,4 +1,5 @@
 import { IFIND_BUSINESS_ENABLED, tradingMarketAvailable, tradingMarketUnavailableMessage } from "../shared/trading-market-availability.mjs";
+import { binanceCandleBackfillLimit, binanceCandleHistoryComplete } from "../shared/binance-candle-request.mjs";
 import {chartTickLabel} from "./trading-chart-time.ts";
 import { accountSettingsSync, flattenSettings, applySettingValues, type SettingValues } from './account-settings-sync.ts';
 import { sharedDefaultIndicatorColor } from './shared-indicator-defaults.ts';
@@ -265,8 +266,11 @@ export function recordBinanceMarketRateLimit(value: unknown, marketType: "future
   return retryAfterMs;
 }
 
-function binanceMarketRateLimitMessage(retryAfterMs: number) {
-  return `Binance 行情请求频率受限，约 ${Math.max(1, Math.ceil(retryAfterMs / 1_000))} 秒后自动重试`;
+export function binanceMarketRateLimitMessage(retryAfterMs: number, diagnostics?: { origin?: string; limitScope?: string }) {
+  const reason = diagnostics?.origin === "gateway_downstream"
+    ? diagnostics.limitScope === "egress-weight" ? "行情网关繁忙" : "行情网关请求频率受限"
+    : diagnostics?.origin === "local_budget" ? "客户端行情请求正在排队" : "Binance 行情请求频率受限";
+  return `${reason}，约 ${Math.max(1, Math.ceil(retryAfterMs / 1_000))} 秒后自动重试`;
 }
 
 export function binanceMarketRetryAfterMs(response: {
@@ -3215,24 +3219,20 @@ async function fetchBinanceFutures<T>(
   path: string,
   parameters: Record<string, string | number | undefined> = {},
   signal?: AbortSignal,
+  freshness?: "live",
+  demand?: "prefetch",
 ): Promise<T> {
-  const cooldownRemaining = binanceMarketRestCooldownRemaining(Date.now(), "futures");
-  if (cooldownRemaining > 0) {
-    throw new Error(binanceMarketRateLimitMessage(cooldownRemaining));
-  }
-  return fetchBinancePublicMarketData<T>("futures", path, parameters, signal);
+  return fetchBinancePublicMarketData<T>("futures", path, parameters, signal, freshness, demand);
 }
 
 async function fetchBinanceSpot<T>(
   path: string,
   parameters: Record<string, string | number | undefined> = {},
   signal?: AbortSignal,
+  freshness?: "live",
+  demand?: "prefetch",
 ): Promise<T> {
-  const cooldownRemaining = binanceMarketRestCooldownRemaining(Date.now(), "spot");
-  if (cooldownRemaining > 0) {
-    throw new Error(binanceMarketRateLimitMessage(cooldownRemaining));
-  }
-  return fetchBinancePublicMarketData<T>("spot", path, parameters, signal);
+  return fetchBinancePublicMarketData<T>("spot", path, parameters, signal, freshness, demand);
 }
 
 async function fetchBinancePublicMarketData<T>(
@@ -3240,6 +3240,8 @@ async function fetchBinancePublicMarketData<T>(
   path: string,
   parameters: Record<string, string | number | undefined>,
   signal?: AbortSignal,
+  freshness?: "live",
+  demand?: "prefetch",
 ): Promise<T> {
   const request = window.codexDesktop?.getBinancePublicMarketData;
   if (typeof request !== "function") throw new Error("Binance market gateway is unavailable");
@@ -3253,7 +3255,7 @@ async function fetchBinancePublicMarketData<T>(
   const requestId = signal
     ? `renderer-market-rest-${Date.now().toString(36)}-${(++binancePublicMarketRequestSequence).toString(36)}`
     : undefined;
-  const pending = request({ marketType, path, parameters: normalizedParameters, requestId });
+  const pending = request({ marketType, path, parameters: normalizedParameters, requestId, freshness, demand });
   const response = signal
     ? await new Promise<Awaited<ReturnType<typeof request>>>((resolve, reject) => {
       const abort = () => {
@@ -3268,10 +3270,13 @@ async function fetchBinancePublicMarketData<T>(
     : await pending;
   if (!response?.ok) {
     if (response?.status === 418 || response?.status === 429 || response?.rateLimited === true) {
-      throw new Error(binanceMarketRateLimitMessage(recordBinanceMarketRateLimit(
+      const retryAfterMs = recordBinanceMarketRateLimit(
         binanceMarketRetryAfterMs(response),
         marketType,
-      )));
+      );
+      throw Object.assign(new Error(binanceMarketRateLimitMessage(retryAfterMs, response.diagnostics)), {
+        code: "BINANCE_MARKET_RATE_LIMITED", retryAfterMs, diagnostics: response.diagnostics,
+      });
     }
     if (
       BINANCE_MARKET_SYMBOL_ERROR_CODES.has(String(response?.errorCode || "").trim().toUpperCase())
@@ -3288,6 +3293,11 @@ async function fetchBinancePublicMarketData<T>(
   if (response.rateLimited && response.stale !== true) {
     recordBinanceMarketRateLimit(binanceMarketRetryAfterMs(response), marketType);
   }
+  if (freshness === "live" && response.stale === true) {
+    throw Object.assign(new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析"), {
+      code: "MARKET_SNAPSHOT_STALE", retryAfterMs: response.retryAfterMs || 1_000,
+    });
+  }
   return response.data as T;
 }
 
@@ -3299,10 +3309,12 @@ function fetchBinanceMarket<T>(
   spotPath: string,
   parameters: Record<string, string | number | undefined> = {},
   signal?: AbortSignal,
+  freshness?: "live",
+  demand?: "prefetch",
 ) {
   return marketType === "spot"
-    ? fetchBinanceSpot<T>(spotPath, parameters, signal)
-    : fetchBinanceFutures<T>(futuresPath, parameters, signal);
+    ? fetchBinanceSpot<T>(spotPath, parameters, signal, freshness, demand)
+    : fetchBinanceFutures<T>(futuresPath, parameters, signal, freshness, demand);
 }
 
 export interface TradingAlertAnnotationRect {
@@ -3637,9 +3649,10 @@ export async function fetchTradingMarkets(options: { fast?: boolean; onFuturesCa
 async function fetchTradingMarketStats(
   symbol: string,
   marketType: Extract<TradingMarketType, "perpetual" | "spot"> = "perpetual",
+  freshness?: "live",
 ): Promise<TradingMarketStats> {
   if (marketType === "spot") {
-    const ticker = await fetchBinanceSpot<BinanceTicker24h>("/api/v3/ticker/24hr", { symbol });
+    const ticker = await fetchBinanceSpot<BinanceTicker24h>("/api/v3/ticker/24hr", { symbol }, undefined, freshness);
     const markPrice = Number(ticker.lastPrice || 0);
     return {
       symbol,
@@ -3655,9 +3668,9 @@ async function fetchTradingMarketStats(
     };
   }
   const [premiumResult, openInterestResult, tickerResult] = await Promise.allSettled([
-    fetchBinanceFutures<BinancePremiumIndex>("/fapi/v1/premiumIndex", { symbol }),
-    fetchBinanceFutures<BinanceOpenInterest>("/fapi/v1/openInterest", { symbol }),
-    fetchBinanceFutures<BinanceTicker24h>("/fapi/v1/ticker/24hr", { symbol }),
+    fetchBinanceFutures<BinancePremiumIndex>("/fapi/v1/premiumIndex", { symbol }, undefined, freshness),
+    fetchBinanceFutures<BinanceOpenInterest>("/fapi/v1/openInterest", { symbol }, undefined, freshness),
+    fetchBinanceFutures<BinanceTicker24h>("/fapi/v1/ticker/24hr", { symbol }, undefined, freshness),
   ]);
   // The ticker is the required current-price source. Funding and OI are
   // supplementary fields; an isolated failure there must not make the whole
@@ -3688,12 +3701,17 @@ export async function fetchTradingCandles(
   endTime = Date.now(),
   marketType: Extract<TradingMarketType, "perpetual" | "spot"> = "perpetual",
   signal?: AbortSignal,
-  options: { forceFresh?: boolean } = {},
+  options: { forceFresh?: boolean; demand?: "prefetch" } = {},
 ): Promise<TradingCandleBatch> {
   const source = binanceResolutionSource(resolution);
   if (!source) throw new Error(`Unsupported TradingView resolution: ${resolution}`);
   if (!source.sourceInterval || !source.sourceMs) {
-    const trades = await fetchBinanceAggregateTrades(symbol, marketType, { endTime }, signal);
+    const latest = endTime >= Date.now() - 60_000 && endTime <= Date.now() + 5_000;
+    const trades = await fetchBinanceAggregateTrades(symbol, marketType, {
+      endTime: latest ? undefined : endTime,
+      freshness: latest && options.forceFresh ? "live" : undefined,
+      demand: options.demand,
+    }, signal);
     return {
       candles: aggregateBinanceTrades(trades, source.targetMs).slice(-count),
       sourceCandles: [],
@@ -3709,7 +3727,6 @@ export async function fetchTradingCandles(
     const limit = Math.min(remaining, marketType === "spot" ? 1_000 : 1_500);
     const currentMs = Date.now();
     const latestPage = page === 0
-      && options.forceFresh !== true
       && cursor >= currentMs - 60_000
       && cursor <= currentMs + 5_000;
     const items = await fetchBinanceMarket<unknown[][]>(marketType, "/fapi/v1/klines", "/api/v3/klines", {
@@ -3720,7 +3737,7 @@ export async function fetchTradingCandles(
       // forcing a unique domestic-gateway miss on every screen load.
       endTime: latestPage ? undefined : cursor,
       limit,
-    }, signal);
+    }, signal, latestPage && options.forceFresh ? "live" : undefined, options.demand);
     const batch = normalizeBinanceCandles(items);
     if (!batch.length) break;
     sourceCandles = mergeCandles(batch, sourceCandles);
@@ -3820,7 +3837,7 @@ export async function fetchTradingSmtComparisonMarkets(
 async function fetchBinanceAggregateTrades(
   symbol: string,
   marketType: Extract<TradingMarketType, "perpetual" | "spot">,
-  options: { endTime?: number; fromId?: number } = {},
+  options: { endTime?: number; fromId?: number; freshness?: "live"; demand?: "prefetch" } = {},
   signal?: AbortSignal,
 ) {
   return fetchBinanceMarket<BinanceAggregateTrade[]>(marketType, "/fapi/v1/aggTrades", "/api/v3/aggTrades", {
@@ -3828,7 +3845,7 @@ async function fetchBinanceAggregateTrades(
     endTime: options.endTime === undefined ? undefined : Math.floor(options.endTime),
     fromId: options.fromId,
     limit: 1_000,
-  }, signal);
+  }, signal, options.freshness, options.demand);
 }
 
 function binanceOpenInterestPeriod(resolution: string) {
@@ -4231,7 +4248,7 @@ export function initialMarketLogicalRange(candleCount: number, resolution: strin
   };
 }
 
-async function fetchLatestTradingCandles(
+export async function fetchLatestTradingCandles(
   symbol: string,
   resolution: string,
   sourceStartTime?: number,
@@ -4264,11 +4281,11 @@ async function fetchLatestTradingCandles(
       lastTradeId: Number(trades.at(-1)?.a || 0) || undefined,
     };
   }
-  const limit = sourceStartTime === undefined ? 2 : marketType === "spot" ? 1_000 : 1_500;
-  const maxPages = sourceStartTime === undefined ? 1 : 4;
+  const maxPages = sourceStartTime === undefined ? 1 : 13;
   let cursor = sourceStartTime;
   let sourceCandles: TradingCandle[] = [];
   for (let page = 0; page < maxPages; page += 1) {
+    const limit = binanceCandleBackfillLimit(cursor, source.sourceMs, marketType);
     const items = await fetchBinanceMarket<unknown[][]>(marketType, "/fapi/v1/klines", "/api/v3/klines", {
       symbol,
       interval: source.sourceInterval,
@@ -10733,10 +10750,9 @@ class TradingExpertMarketWorkspace {
   ): Promise<TradingCandleBatch> {
     let candleBatch: TradingCandleBatch | null = null;
     let lastError: unknown = null;
-    // A gateway can briefly serve an old response after its route changes. Use
-    // a new endTime on every attempt so each request has a distinct upstream
-    // cache key, and give the live route enough time to recover before falling
-    // back to the ticker/WebSocket price anchor below.
+    // Freshness is a data requirement, not a unique URL. All consumers share
+    // the same latest request; a delayed history cannot be made current by
+    // attaching a recent quote to its tail.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const endTime = Date.now();
@@ -10763,16 +10779,29 @@ class TradingExpertMarketWorkspace {
         if (
           candidate.candles.length
           && (targetMarket.provider !== "binance"
-            || !tradingAnalysisCandlesRequireCurrentRefresh(candidate.candles, targetInterval, Date.now()))
+            || (!tradingAnalysisCandlesRequireCurrentRefresh(candidate.candles, targetInterval, Date.now())
+              && binanceCandleHistoryComplete(
+                candidate.sourceCandles.length ? candidate.sourceCandles : candidate.candles,
+                candidate.sourceCandles.length ? candidate.source.sourceMs : candidate.source.targetMs,
+                Date.now(), candidate.sourceCandles.length ? candidate.source.sourceInterval : targetInterval === "1M" ? "1M" : null,
+              )))
         ) break;
       } catch (error) {
         lastError = error;
+        // A long server cooldown cannot recover inside this bounded refresh.
+        // Keep its retry deadline instead of issuing three immediate attempts.
+        if (Number((error as { retryAfterMs?: number })?.retryAfterMs) > 2_000) break;
       }
       if (attempt < 2) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+        // Cross the one-second live cache TTL when waiting for a new minute's
+        // bar. Shorter sleeps repeatedly read the same not-yet-current tail.
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 1_100 * (attempt + 1)));
       }
     }
     if (!candleBatch?.candles.length) {
+      if (targetMarket.provider === "binance") {
+        throw lastError instanceof Error ? lastError : new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
+      }
       const cached = getTradingMarketCandleCache(
         tradingMarketCandleCacheKey({
           provider: targetMarket.provider,
@@ -10801,15 +10830,21 @@ class TradingExpertMarketWorkspace {
 
     let liveStats: TradingMarketStats | null = null;
     if (targetMarket.provider === "binance") {
-      // Keep the analysis executable while a historical candle response is
-      // being recovered: obtain the market-wide live quote and materialize the
-      // current interval bucket on the same series. This prevents an old date
-      // from ever becoming the latest candle sent to the analysis model.
+      const history = candleBatch.sourceCandles.length ? candleBatch.sourceCandles : candleBatch.candles;
+      const sourceMs = candleBatch.sourceCandles.length ? candleBatch.source.sourceMs : candleBatch.source.targetMs;
+      if (tradingAnalysisCandlesRequireCurrentRefresh(candleBatch.candles, targetInterval, Date.now())
+        || !binanceCandleHistoryComplete(history, sourceMs, Date.now(),
+          candleBatch.sourceCandles.length ? candleBatch.source.sourceInterval : targetInterval === "1M" ? "1M" : null)) {
+        throw new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
+      }
+      // A recent trade can refine the forming bar only after history passes
+      // freshness, closed-bar and gap checks. It cannot manufacture history.
       for (let statsAttempt = 0; statsAttempt < 2 && !liveStats; statsAttempt += 1) {
         try {
           liveStats = await fetchTradingMarketStats(
             targetMarket.symbol,
             targetMarket.marketType === "spot" ? "spot" : "perpetual",
+            "live",
           );
         } catch {
           if (statsAttempt < 1) {
@@ -10820,13 +10855,11 @@ class TradingExpertMarketWorkspace {
       if (!liveStats) {
         const quote = this.latestLivePricesByMarketId.get(targetMarket.id);
         const recentQuotePrice = quote
-          && Date.now() - quote.receivedAt <= MARKET_LIVE_PRICE_MAX_AGE_MS
+          && Date.now() - quote.receivedAt <= 5_000
           ? quote.price
           : 0;
         const price = Number(
           recentQuotePrice
-          || (targetMarket.id === this.selectedMarketId ? this.stats?.midPrice : 0)
-          || targetMarket.markPrice
           || 0,
         );
         if (Number.isFinite(price) && price > 0) {
@@ -10835,7 +10868,7 @@ class TradingExpertMarketWorkspace {
       }
       const recentQuote = this.latestLivePricesByMarketId.get(targetMarket.id);
       const recentQuotePrice = recentQuote
-        && Date.now() - recentQuote.receivedAt <= MARKET_LIVE_PRICE_MAX_AGE_MS
+        && Date.now() - recentQuote.receivedAt <= 5_000
         ? recentQuote.price
         : 0;
       const livePrice = Number(
@@ -10843,8 +10876,6 @@ class TradingExpertMarketWorkspace {
         || liveStats?.midPrice
         || liveStats?.markPrice
         || recentQuotePrice
-        || (targetMarket.id === this.selectedMarketId ? this.stats?.midPrice : 0)
-        || targetMarket.markPrice
         || 0,
       );
       if (Number.isFinite(livePrice) && livePrice > 0) {

@@ -1599,6 +1599,8 @@ type DesktopApi = {
     path: string;
     parameters?: Record<string, string | number | undefined>;
     requestId?: string;
+    freshness?: "live";
+    demand?: "prefetch";
   }): Promise<{
     ok: boolean;
     status: number;
@@ -1607,6 +1609,7 @@ type DesktopApi = {
     retryAfterMs?: number | null;
     stale?: boolean;
     staleAgeMs?: number;
+    fetchedAt?: number;
     sourceStatus?: number;
     rateLimited?: boolean;
     diagnostics?: {
@@ -1617,6 +1620,7 @@ type DesktopApi = {
       upstreamStatus?: number | null;
       usedWeight?: number | null;
       gatewayRemaining?: number | null;
+      limitScope?: string;
     };
     error?: string;
     errorCode?: string;

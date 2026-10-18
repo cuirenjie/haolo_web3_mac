@@ -178,6 +178,9 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     upstreamRateLimited: 0,
     upstreamCooldownHits: 0,
     downstreamRateLimited: 0,
+    ingressRateLimited: 0,
+    userWeightRateLimited: 0,
+    egressWeightRateLimited: 0,
   };
   const websocketClientsByUser = new Map();
   const drain = new DrainState();
@@ -251,7 +254,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const burstRate = requestBurstLimiter.consume(requestKey);
       if (!burstRate.allowed) {
         metrics.downstreamRateLimited += 1;
-        throw new MarketGatewayError("request rate limit exceeded", { statusCode: 429, code: "RATE_LIMITED", retryAfterMs: burstRate.resetAt - Date.now() });
+        metrics.ingressRateLimited += 1;
+        throw new MarketGatewayError("request rate limit exceeded", { statusCode: 429, code: "RATE_LIMITED", limitScope: "ingress", retryAfterMs: burstRate.resetAt - Date.now() });
       }
       let upstreamBudget = upstreamBudgetStates.get(requestKey) || null;
       if (upstreamBudget?.resetAt <= Date.now()) {
@@ -259,6 +263,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         upstreamBudget = null;
       }
       const result = await restGateway.get(request.url, {
+        freshness: request.headers["x-haolo-market-freshness"] === "live" ? "live" : "default",
         async beforeUpstream(route) {
           const now = Date.now();
           const totalLimit = route.marketType === "futures"
@@ -273,12 +278,12 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
             backgroundLimit: totalLimit,
             background: false,
             userKey: crypto.createHash("sha256").update(requestKey).digest("hex").slice(0, 32),
-            userLimit: config.downstreamRequestsPerMinute,
+            userLimit: config.publicUserWeightPerMinute || config.downstreamRequestsPerMinute,
             ttlMs: 60_000 - (now % 60_000) + 5_000,
           });
           upstreamBudget = Object.freeze({
             marketType: route.marketType,
-            remaining: Math.max(0, config.downstreamRequestsPerMinute - budget.usedByUser),
+            remaining: Math.max(0, (config.publicUserWeightPerMinute || config.downstreamRequestsPerMinute) - budget.usedByUser),
             resetAt: now + budget.retryAfterMs,
           });
           upstreamBudgetStates.delete(requestKey);
@@ -288,6 +293,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
           }
           if (!budget.allowed) {
             metrics.downstreamRateLimited += 1;
+            if (budget.rejectedBy === "user") metrics.userWeightRateLimited += 1;
+            else metrics.egressWeightRateLimited += 1;
             throw new MarketGatewayError(
               budget.rejectedBy === "user"
                 ? "upstream request-weight budget exceeded"
@@ -295,6 +302,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
               {
                 statusCode: 429,
                 code: "RATE_LIMITED",
+                limitScope: budget.rejectedBy === "user" ? "user-weight" : "egress-weight",
                 retryAfterMs: budget.retryAfterMs,
               },
             );
@@ -355,6 +363,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       }, {
         ...(retryAfterSeconds > 0 ? { "retry-after": String(retryAfterSeconds) } : {}),
         ...(rateLimitSource ? { "x-haolo-rate-limit-source": rateLimitSource } : {}),
+        ...(error?.limitScope ? { "x-haolo-rate-limit-scope": error.limitScope } : {}),
         ...(Number(error?.upstreamStatus) > 0 ? { "x-haolo-upstream-status": String(Number(error.upstreamStatus)) } : {}),
       });
     }

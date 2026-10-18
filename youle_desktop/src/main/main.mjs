@@ -4545,6 +4545,7 @@ function getBinancePublicMarketService() {
         const requestUrl = new URL(String(url));
         const pathname = requestUrl.pathname;
         const chartRequest = /\/(?:fapi\/v\d+|api\/v3)\/(?:klines|aggTrades)$/.test(pathname);
+        const prefetchRequest = new Headers(init?.headers).get("x-haolo-market-demand") === "prefetch";
         const metadataRequest = pathname.endsWith("/exchangeInfo")
           || (pathname.endsWith("/ticker/24hr") && !requestUrl.searchParams.has("symbol"));
         return getBinanceRequestGovernor().fetch(
@@ -4552,9 +4553,9 @@ function getBinancePublicMarketService() {
           url,
           init,
           {
-            source: metadataRequest ? "metadata" : "market",
+            source: prefetchRequest ? "prefetch" : metadataRequest ? "metadata" : "market",
             publicFallbackFetch: router.canUsePublicGateway() ? router.publicGatewayOnlyFetch.bind(router) : null,
-            priority: metadataRequest
+            priority: prefetchRequest ? BINANCE_REQUEST_PRIORITIES.metadata : metadataRequest
               ? BINANCE_REQUEST_PRIORITIES.metadata
               : chartRequest
                 ? BINANCE_REQUEST_PRIORITIES.chart
