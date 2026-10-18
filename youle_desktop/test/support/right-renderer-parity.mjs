@@ -19,7 +19,13 @@ function harness(source,language) {
   const deps={...plans,...view,...cloud,state:{settings:{language},executionPlans:[]},executionPlanCandidatesBySource:candidates,
     escapeHtml:escape,escapeAttr:escape,formatMessageText:escape,syncExecutionPlansForCurrentAccount:()=>{},
     loadMessageExecutionPlanFontSize:()=>13,MESSAGE_EXECUTION_PLAN_FONT_SIZES:[11,12,13,14,16,18,20]};
-  return Function(...Object.keys(deps),source+`;return {${names.join(',')}};`)(...Object.values(deps));
+  return Function(...Object.keys(deps),source+`;return {${names.join(',')},candidates:executionPlanCandidatesBySource};`)(...Object.values(deps));
+}
+export function renderCurrentReports(reports) {
+  const runtime=harness(current,reports[0].locale==='zh-Hant'?'zh-TW':reports[0].locale);
+  const message={id:'mixed-message',conversation_id:'mixed-thread',cloudReports:reports,executionPlanPresentation:'execution-plan'};
+  const text=reports.map(report=>report.report).join('\n\n---\n\n');
+  return {rendered:runtime.renderMessageExecutionPlan(message,text),actions:runtime.renderAddToPlanAction(message,text),bindings:[...runtime.candidates]};
 }
 export function verifyRendererParity(report) {
   if(!original)return;

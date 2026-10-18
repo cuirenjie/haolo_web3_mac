@@ -3,7 +3,7 @@ import test from 'node:test';
 import {createHash} from 'node:crypto';
 import {bindLegacyCloudCandidate,legacyReportCandidates,normalizeCloudReports,cloudReportFromResponse} from '../src/main/cloud-plan-contract.mjs';
 import {validateCloudResult} from '../src/main/trading-strategy-runtime/cloud-runtime.mjs';
-import {verifyRendererParity} from './support/right-renderer-parity.mjs';
+import {verifyRendererParity,renderCurrentReports} from './support/right-renderer-parity.mjs';
 
 const uuid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const text=`### SOL/USDT 币安永续 1H
@@ -61,5 +61,23 @@ test('right selected-card history cannot relabel or replace the original candida
   for(const mutate of [r=>r.planRecords[0].cardIndex=1,r=>r.planRecords[0].card.title='different',r=>r.selectedCardIndex=1]) {
     const changed=structuredClone(report);mutate(changed);
     assert.throws(()=>normalizeCloudReports([changed]),/CLOUD_REPORT_INVALID/);
+  }
+});
+
+test('mixed pre-upgrade V2 and original right cards retain separate actions on history recovery',()=>{
+  const legacy=fixture().report,planId=uuid(700),runId=uuid(701);
+  const condition={conditionId:uuid(702),revision:1,direction:'long',interval:'1h',confirmation:'touch',trigger:{operator:'at_or_above',lower:80},expiresAt:1900000000000};
+  const scenario={stop:75,targets:[90],conditionHash:'d'.repeat(64)};
+  const v2={schemaVersion:1,runId,resultHash:'e'.repeat(64),locale:'zh-CN',marketId:legacy.marketId,interval:legacy.interval,strategyId:'price-action',report:'Existing V2 analysis',
+    executionPlan:{schemaVersion:2,planId,entryCondition:condition,requestedMode:'right',selectedMode:'right',conditionHash:scenario.conditionHash,scenarios:[scenario],outcome:{action:'plan'}},
+    planRecords:[{id:planId,runId,confirmationHash:'f'.repeat(64),monitoringPolicy:'entry_v2',version:1,scenario}]};
+  for(const reports of [[legacy,v2],[v2,legacy]]) {
+    const {rendered,actions,bindings}=renderCurrentReports(reports);
+    assert.equal((rendered.cards.match(/data-execution-plan-index=/g)||[]).length,2);
+    assert.match(rendered.bubbleContent,/Existing V2 analysis/);
+    assert.equal((actions.match(/data-execution-plan-index=/g)||[]).length,2);
+    assert.equal(bindings.length,2);
+    assert.deepEqual(bindings.map(([,candidate])=>candidate.cloudReport.runId),reports.map(report=>report.runId));
+    assert.deepEqual(bindings.map(([key])=>key.split('\u0000').at(-1)),['0','1']);
   }
 });

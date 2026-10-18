@@ -39328,15 +39328,26 @@ function renderMessageExecutionPlan(
   message: Message,
   text: string,
   options: FormatMessageTextOptions = {},
-) {
+  candidateOffset = 0,
+): {bubbleContent:string; cards:string} | null {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
   const rawReports=(message as MessageUiMeta).cloudReports;
   let legacyReports:CloudTradingReport[]=[];
   try {legacyReports=rawReports?.length?normalizeCloudReports(rawReports).filter(report=>report.executionPolicy==='right-legacy-v1'):[];} catch {return null;}
+  if (legacyReports.length && legacyReports.length < (rawReports?.length || 0)) {
+    let offset = candidateOffset;
+    const parts = normalizeCloudReports(rawReports).map(report => {
+      const rendered = renderMessageExecutionPlan({...message, cloudReports:[report]} as Message & MessageUiMeta, report.report, options, offset);
+      offset += Math.max(1, report.planRecords.length);
+      return rendered || {bubbleContent:formatMessageText(report.report,options), cards:""};
+    });
+    return {bubbleContent:parts.map(part=>part.bubbleContent).join("\n"), cards:parts.map(part=>part.cards).join("")};
+  }
   if (rawReports?.length && !legacyReports.length) {
     let reports:CloudTradingReport[]=[];
     try {reports=normalizeCloudReports((message as MessageUiMeta).cloudReports);} catch {return null;}
     const cards=reports.map((report,index)=>{
+      index += candidateOffset;
       const card=cloudPlanCard(report);
       if(!card) return '';
       const key=executionPlanCandidateKey(message.conversation_id,message.id,index);
@@ -39371,6 +39382,7 @@ function renderMessageExecutionPlan(
     : "";
   const legacyCardIds = new Set<string>();
   const cards = partitions.candidates.map((rawCandidate, candidateIndex) => {
+    candidateIndex += candidateOffset;
     const parsed = executionPlanCandidateWithSourceText(rawCandidate, text);
     const candidate = legacyReports.length ? bindLegacyCloudCandidate(legacyReports,parsed,legacyCardIds) : parsed;
     const key = executionPlanCandidateKey(message.conversation_id, message.id, candidateIndex);
@@ -53076,16 +53088,25 @@ function executionPlanCandidateKey(threadId: string, messageId: string, candidat
   return `${threadId}\u0000${messageId}\u0000${candidateIndex}`;
 }
 
-function renderAddToPlanAction(message: Message, text: string) {
+function renderAddToPlanAction(message: Message, text: string, candidateOffset = 0): string {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
   const rawReports=(message as MessageUiMeta).cloudReports;
   let legacyReports:CloudTradingReport[]=[];
   try {legacyReports=rawReports?.length?normalizeCloudReports(rawReports).filter(report=>report.executionPolicy==='right-legacy-v1'):[];} catch {return "";}
+  if (legacyReports.length && legacyReports.length < (rawReports?.length || 0)) {
+    let offset = candidateOffset;
+    return normalizeCloudReports(rawReports).map(report => {
+      const actions = renderAddToPlanAction({...message, cloudReports:[report]} as Message & MessageUiMeta, report.report, offset);
+      offset += Math.max(1, report.planRecords.length);
+      return actions;
+    }).join("");
+  }
   if (rawReports?.length && !legacyReports.length) {
     let reports:CloudTradingReport[]=[];
     try {reports=normalizeCloudReports((message as MessageUiMeta).cloudReports);} catch {return '';}
     syncExecutionPlansForCurrentAccount();
     const buttons=reports.map((report,index)=>{
+      index += candidateOffset;
       const card=cloudPlanCard(report),remote=report.planRecords[0];
       if(!card||!remote)return '';
       executionPlanCandidatesBySource.set(executionPlanCandidateKey(message.conversation_id,message.id,index),{title:card.title,content:card.content,cloudReport:report});
@@ -53111,6 +53132,7 @@ function renderAddToPlanAction(message: Message, text: string) {
   if (!candidates.length) return "";
   syncExecutionPlansForCurrentAccount();
   const buttons = candidates.map((candidate, candidateIndex) => {
+    candidateIndex += candidateOffset;
     const key = executionPlanCandidateKey(message.conversation_id, message.id, candidateIndex);
     executionPlanCandidatesBySource.set(key, candidate);
     const sourcePlanKey = String(candidateIndex);
