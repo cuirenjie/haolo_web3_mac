@@ -29,6 +29,12 @@ export class GatewayCache {
   async get(key, now = Date.now(), options = {}) {
     if (key.startsWith("rest:")) return this.publicRest.get(this.key(key), this.redis, now, options);
     let record = this.memory.get(key);
+    // An expired local identity must not hide a fresh verification published
+    // by another replica. Re-read Redis in this call before hitting auth again.
+    if (record && Number(record.staleUntil || 0) <= now) {
+      this.memory.delete(key);
+      record = null;
+    }
     if (!record && this.redis) {
       const raw = await this.redis.get(this.key(key));
       if (raw) {

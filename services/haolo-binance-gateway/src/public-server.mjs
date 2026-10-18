@@ -2,7 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { WebSocketServer } from "ws";
 import { GatewayAuthError, requireHttpIdentity, verifyHaoloAccessJwt, bearerToken, metricsAuthorized } from "./auth.mjs";
-import { MarketGatewayError } from "./binance-rest.mjs";
+import { MarketGatewayError, PUBLIC_FUTURES_PATHS, PUBLIC_SPOT_PATHS } from "./binance-rest.mjs";
 import { FixedWindowRateLimiter } from "./rate-limit.mjs";
 import { validateStreamName } from "./stream-pool.mjs";
 import { DrainState, closeHttp } from "./drain.mjs";
@@ -150,7 +150,8 @@ async function readJsonBody(request, maxBytes = 4 * 1024) {
   }
 }
 
-export function createPublicGatewayServer({ config, restGateway, streamPool, privateEgressCoordinator = null, accessTokenVerifier = null } = {}) {
+export function createPublicGatewayServer({ config, restGateway, streamPool, privateEgressCoordinator = null, accessTokenVerifier = null,
+  onDiagnostic = entry => console.warn(JSON.stringify(entry)) } = {}) {
   const controlLimiter = new FixedWindowRateLimiter({ limit: config.downstreamRequestsPerMinute });
   const requestBurstLimiter = new FixedWindowRateLimiter({
     limit: config.downstreamBurstRequestsPerMinute || Math.max(1_200, config.downstreamRequestsPerMinute * 4),
@@ -181,6 +182,9 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     ingressRateLimited: 0,
     userWeightRateLimited: 0,
     egressWeightRateLimited: 0,
+    authenticationUnavailable: 0,
+    authenticationTimeouts: 0,
+    marketCoordinationUnavailable: 0,
   };
   const websocketClientsByUser = new Map();
   const drain = new DrainState();
@@ -209,6 +213,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       return;
     }
     metrics.httpRequests += 1;
+    const requestStartedAt = Date.now();
     try {
       if (request.method === "POST" && request.url === "/api/private/v1/permits") {
         if (!privateEgressCoordinator) throw new MarketGatewayError("private egress control plane is disabled", { statusCode: 503, code: "PRIVATE_EGRESS_DISABLED" });
@@ -347,6 +352,31 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const statusCode = Number(error?.statusCode || 500);
       const retryAfterSeconds = Math.ceil(Number(error?.retryAfterMs || 0) / 1_000);
       const errorCode = String(error?.code || "INTERNAL_ERROR");
+      const requestId = statusCode >= 500 ? crypto.randomUUID() : "";
+      const authUnavailable = errorCode === "AUTHENTICATION_UNAVAILABLE";
+      if (authUnavailable) {
+        metrics.authenticationUnavailable += 1;
+        if (error.failureKind === "timeout") metrics.authenticationTimeouts += 1;
+      }
+      if (["MARKET_COORDINATION_UNAVAILABLE", "MARKET_REFRESH_PENDING"].includes(errorCode)) metrics.marketCoordinationUnavailable += 1;
+      if (requestId) {
+        // Only known route names and fixed error categories are recorded. Never
+        // log queries, bearer tokens, tickets, user IDs, or dependency bodies.
+        let route = "other";
+        try {
+          const candidate = publicRestPath(request.url);
+          if (PUBLIC_FUTURES_PATHS.has(candidate) || PUBLIC_SPOT_PATHS.has(candidate)
+            || ["/api/private/v1/permits", "/api/private/v1/usage", "/api/market/v1/tickets"].includes(candidate)) route = candidate;
+        } catch {}
+        const knownCodes = ["AUTHENTICATION_UNAVAILABLE", "MARKET_COORDINATION_UNAVAILABLE", "MARKET_REFRESH_PENDING",
+          "UPSTREAM_UNAVAILABLE", "UPSTREAM_INVALID_RESPONSE", "UPSTREAM_REJECTED", "UPSTREAM_RATE_LIMITED", "UPSTREAM_COOLDOWN", "PRIVATE_EGRESS_DISABLED"];
+        const failureKind = ["timeout", "network", "upstream-status", "invalid-response", "invalid-profile"].includes(error.failureKind) ? error.failureKind : "unknown";
+        try { onDiagnostic({ event: "market_gateway_error", requestId, route, status: statusCode,
+          code: knownCodes.includes(errorCode) ? errorCode : "INTERNAL_ERROR", elapsedMs: Date.now() - requestStartedAt,
+          ...(authUnavailable ? { dependency: "haolo-auth", failureKind, dependencyStatus: Number(error.dependencyStatus) || 0,
+            dependencyElapsedMs: Number(error.dependencyElapsedMs) || 0 } : {}),
+        }); } catch {}
+      }
       const rateLimitSource = ["UPSTREAM_RATE_LIMITED", "UPSTREAM_COOLDOWN"].includes(errorCode)
         ? "gateway-upstream"
         : errorCode === "RATE_LIMITED"
@@ -361,6 +391,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         message: statusCode >= 500 ? "market gateway unavailable" : String(error?.message || "request rejected"),
         retryAfterMs: Number(error?.retryAfterMs || 0),
       }, {
+        ...(requestId ? { "x-haolo-request-id": requestId } : {}),
+        ...(authUnavailable ? { "x-haolo-error-source": "haolo-auth" } : {}),
         ...(retryAfterSeconds > 0 ? { "retry-after": String(retryAfterSeconds) } : {}),
         ...(rateLimitSource ? { "x-haolo-rate-limit-source": rateLimitSource } : {}),
         ...(error?.limitScope ? { "x-haolo-rate-limit-scope": error.limitScope } : {}),

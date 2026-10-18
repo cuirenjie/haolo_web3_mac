@@ -18,9 +18,13 @@ function tokenRemainingLifetimeMs(token, now = Date.now()) {
     return Number.POSITIVE_INFINITY;
   }
 }
-function authenticationUnavailable(message = "Haolo authentication service unavailable") {
-  const error = new GatewayAuthError(message, 503);
+function authenticationUnavailable(kind, dependencyStatus = 0) {
+  const error = new GatewayAuthError("Haolo authentication service unavailable", 503);
   error.code = "AUTHENTICATION_UNAVAILABLE";
+  error.dependency = "haolo-auth";
+  error.failureKind = kind;
+  error.dependencyStatus = dependencyStatus;
+  error.retryAfterMs = 1_000;
   return error;
 }
 
@@ -41,34 +45,52 @@ export class HaoloAccessTokenVerifier {
       const secondRead = await this.cache.get(key);
       if (secondRead?.fresh && secondRead.value?.userId) return Object.freeze(secondRead.value);
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), this.config.authRequestTimeoutMs);
+      const startedAt = Date.now();
+      let timeout;
+      const deadline = new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          const error = authenticationUnavailable("timeout");
+          controller.abort(error);
+          reject(error);
+        }, this.config.authRequestTimeoutMs);
+      });
       timeout.unref?.();
-      let response;
+      let response, profile;
       try {
-        response = await this.fetchImpl(`${this.config.authApiOrigin}${this.config.authProfilePath}`, {
-          method: "GET",
-          headers: {
-            accept: "application/json",
-            authorization: `Bearer ${compact}`,
-            "user-agent": "haolo-binance-gateway/1.0",
-          },
-          redirect: "error",
-          signal: controller.signal,
-        });
+        profile = await Promise.race([deadline, (async () => {
+          response = await this.fetchImpl(`${this.config.authApiOrigin}${this.config.authProfilePath}`, {
+            method: "GET",
+            headers: {
+              accept: "application/json",
+              authorization: `Bearer ${compact}`,
+              "user-agent": "haolo-binance-gateway/1.0",
+            },
+            redirect: "error",
+            signal: controller.signal,
+          });
+          if ([401, 403, 404].includes(response.status)) {
+            throw new GatewayAuthError("invalid or expired Haolo access token");
+          }
+          if (!response.ok) throw authenticationUnavailable("upstream-status", response.status);
+          try { return await response.json(); }
+          catch {
+            if (controller.signal.aborted) throw controller.signal.reason;
+            throw authenticationUnavailable("invalid-response", response.status);
+          }
+        })()]);
       } catch (error) {
-        if (error instanceof GatewayAuthError) throw error;
-        throw authenticationUnavailable();
+        // Abort covers headers AND body; never leave a hung JSON read waiting
+        // for HAProxy's much longer timeout. Do not log bearer/profile content.
+        controller.abort();
+        void response?.body?.cancel?.().catch(() => {});
+        const failure = error instanceof GatewayAuthError ? error : authenticationUnavailable("network");
+        failure.dependencyElapsedMs = Date.now() - startedAt;
+        throw failure;
       } finally {
         clearTimeout(timeout);
       }
-      if ([401, 403, 404].includes(response.status)) {
-        throw new GatewayAuthError("invalid or expired Haolo access token");
-      }
-      if (!response.ok) throw authenticationUnavailable();
-      let profile;
-      try { profile = await response.json(); } catch { throw authenticationUnavailable(); }
       const userId = String(profile?.id || profile?.user_id || profile?.userId || profile?.user?.id || "").trim();
-      if (!userId || userId.length > 128) throw authenticationUnavailable("Haolo authentication response is invalid");
+      if (!userId || userId.length > 128) throw authenticationUnavailable("invalid-profile", response.status);
       const identity = Object.freeze({ userId, payload: null, ...profileMarketEntitlement(profile) });
       const remainingMs = tokenRemainingLifetimeMs(compact);
       const ttlMs = Math.min(this.config.authCacheTtlMs, remainingMs,

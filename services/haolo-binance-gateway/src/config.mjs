@@ -197,7 +197,9 @@ export function loadGatewayConfig(env = process.env) {
     jwtAudience: String(env.HAOLO_GATEWAY_JWT_AUDIENCE || "").trim(),
     authApiOrigin,
     authProfilePath: absolutePath(env.HAOLO_AUTH_PROFILE_PATH, "/api/auth/me", "HAOLO_AUTH_PROFILE_PATH"),
-    authRequestTimeoutMs: positiveInteger(env.HAOLO_AUTH_REQUEST_TIMEOUT_MS, 5_000, { min: 1_000, max: 30_000 }),
+    // Production profile reads have measured 5.06–8.85s tails. Keep a bounded
+    // complete-response budget; a five-second cutoff rejected valid sessions.
+    authRequestTimeoutMs: positiveInteger(env.HAOLO_AUTH_REQUEST_TIMEOUT_MS, 10_000, { min: 1_000, max: 30_000 }),
     authCacheTtlMs: positiveInteger(env.HAOLO_AUTH_CACHE_TTL_MS, 15_000, { min: 1_000, max: 60_000 }),
     allowAnonymousPublic,
     trustProxy: booleanValue(env.HAOLO_GATEWAY_TRUST_PROXY, false),
