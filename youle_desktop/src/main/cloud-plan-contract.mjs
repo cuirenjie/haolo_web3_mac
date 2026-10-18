@@ -1,6 +1,9 @@
 // Public presentation contract shared with the renderer and durable history.
 // Contains no strategy decisions. The main process validates the server receipt;
 // activation always re-reads the account-owned plan on the server.
+import {executionPlanCandidatesFromText,executionPlanCandidateWithSourceText,executionPlanDisplayLines,
+  executionPlanHasStructuredTradingFields,executionPlanHasConcreteTradingPlan} from './legacy-execution-plan-presentation.mjs';
+import {executionPlanCardHeading,executionPlanCardBody} from './execution-plan-card-view.mjs';
 const uuid = value => typeof value==='string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 const hash = value => typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
 const positive=value=>typeof value==='number'&&Number.isFinite(value)&&value>0;
@@ -12,14 +15,35 @@ export function normalizeCloudReports(value) {
   if(!Array.isArray(value)||value.length>8) fail();
   const json=JSON.stringify(value);
   if(new TextEncoder().encode(json).length>2*1024*1024) fail();
-  const rows=JSON.parse(json), seen=new Set();
+  const rows=JSON.parse(json), seen=new Set(), seenPlans=new Set();
   return rows.map(row=>{
     if(row?.schemaVersion!==1||!uuid(row.runId)||seen.has(row.runId)||!hash(row.resultHash)
       ||!['zh-CN','en','zh-Hant'].includes(row.locale)||typeof row.marketId!=='string'||typeof row.interval!=='string'
       ||typeof row.strategyId!=='string'||typeof row.report!=='string'||row.report.length>500000
-      ||row.executionPlan?.schemaVersion!==2||!Array.isArray(row.executionPlan.scenarios)||row.executionPlan.scenarios.length>1
-      ||!Array.isArray(row.planRecords)||row.planRecords.length!==row.executionPlan.scenarios.length) fail();
+      ||!Array.isArray(row.planRecords)) fail();
     seen.add(row.runId);
+    if(row.executionPolicy==='right-legacy-v1') {
+      const candidates=legacyReportCandidates(row.report);
+      if(row.executionPlan?.schemaVersion!==1||!Array.isArray(row.executionPlan.scenarios)
+        ||row.executionPlan.scenarios.length>8||candidates.length>8)fail();
+      const selected=row.selectedCardIndex;
+      if(selected!==undefined&&(!Number.isSafeInteger(selected)||selected<0||selected>=candidates.length))fail();
+      if(row.planRecords.length!==(selected===undefined?candidates.length:1))fail();
+      for(const [index,remote] of row.planRecords.entries()) {
+        const expectedIndex=selected??index,candidate=candidates[expectedIndex];
+        if(!uuid(remote.id)||seenPlans.has(remote.id)||remote.runId!==row.runId||!hash(remote.confirmationHash)
+          ||remote.executionPolicy!=='right-legacy-v1'||remote.monitoringPolicy!=='windows_v1'
+          ||remote.cardIndex!==expectedIndex||!Number.isSafeInteger(remote.version)||remote.version<1
+          ||remote.card?.title!==candidate.title||remote.card?.content!==candidate.content)fail();
+        seenPlans.add(remote.id);
+      }
+      return {schemaVersion:1,executionPolicy:'right-legacy-v1',...(selected===undefined?{}:{selectedCardIndex:selected}),
+        runId:row.runId,resultHash:row.resultHash,locale:row.locale,marketId:row.marketId,interval:row.interval,
+        strategyId:row.strategyId,report:row.report,executionPlan:row.executionPlan,planRecords:row.planRecords,
+        origin:row.origin||null,drawingPatch:row.drawingPatch||null,indicatorDrawingPatch:row.indicatorDrawingPatch||null};
+    }
+    if(row.executionPlan?.schemaVersion!==2||!Array.isArray(row.executionPlan.scenarios)||row.executionPlan.scenarios.length>1
+      ||row.planRecords.length!==row.executionPlan.scenarios.length)fail();
     const plan=row.executionPlan;
     if(plan.scenarios.length) {
       const condition=plan.entryCondition,scenario=plan.scenarios[0];
@@ -42,11 +66,34 @@ export function normalizeCloudReports(value) {
   });
 }
 export function cloudReportFromResponse(response) {
-  if(response?.cloud?.executionPolicy!=='entry-v2') return [];
-  return normalizeCloudReports([{schemaVersion:1,runId:response.cloud.runId,resultHash:response.cloud.resultHash,locale:response.cloud.locale,
+  if(!['entry-v2','right-legacy-v1'].includes(response?.cloud?.executionPolicy)) return [];
+  return normalizeCloudReports([{schemaVersion:1,executionPolicy:response.cloud.executionPolicy,runId:response.cloud.runId,resultHash:response.cloud.resultHash,locale:response.cloud.locale,
     marketId:response.snapshot?.marketId,interval:response.snapshot?.interval,strategyId:response.strategy?.id,
     report:response.analysisPlan?.report,executionPlan:response.executionPlan,planRecords:response.cloud.planRecords,
     origin:response.cloud.origin,drawingPatch:response.analysisPlan?.drawingPatch,indicatorDrawingPatch:response.analysisPlan?.indicatorDrawingPatch}]);
+}
+
+export function legacyReportCandidates(report) {
+  return executionPlanCandidatesFromText(report)
+    .filter(candidate=>executionPlanHasConcreteTradingPlan(candidate))
+    .map(candidate=>executionPlanCandidateWithSourceText(candidate,report));
+}
+
+// A selected card keeps the entire original report/plan and binds only its own
+// account-owned lifecycle. Two alternative cards must never share a plan ID.
+export function selectCloudPlan(report,remote) {
+  return normalizeCloudReports([{...report,planRecords:[remote],
+    ...(report.executionPolicy==='right-legacy-v1'?{selectedCardIndex:remote.cardIndex}:{})}])[0];
+}
+export function bindLegacyCloudCandidate(reports,candidate,usedPlanIds) {
+  const matches=reports.filter(report=>report.executionPolicy==='right-legacy-v1').flatMap(report=>
+    report.planRecords.filter(remote=>!usedPlanIds?.has(remote.id)&&remote.card?.title===candidate.title&&remote.card?.content===candidate.content)
+      .map(remote=>selectCloudPlan(report,remote)));
+  // Identical reports can appear in separate chart panes. Bind each occurrence
+  // in report order to its own run, never collapse two cards to the same plan.
+  if(!matches.length||(!usedPlanIds&&matches.length!==1))fail();
+  usedPlanIds?.add(matches[0].planRecords[0].id);
+  return {...candidate,cloudReport:matches[0]};
 }
 
 const words={
@@ -66,6 +113,13 @@ const words={
 };
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function cloudPlanCard(report) {
+  if(report.executionPolicy==='right-legacy-v1') {
+    const remote=report.planRecords.find(plan=>plan.cardIndex===(report.selectedCardIndex??0));
+    if(!remote)return null;
+    const {title,content}=remote.card,lines=executionPlanDisplayLines(content);
+    const language=report.locale==='zh-Hant'?'zh-TW':report.locale;
+    return {title,content,html:executionPlanCardHeading(title,lines,language)+executionPlanCardBody(lines,language)};
+  }
   const index=report.locale==='en'?1:report.locale==='zh-Hant'?2:0,t=key=>words[key]?.[index]||key;
   const plan=report.executionPlan,condition=plan.entryCondition,scenario=plan.scenarios[0];
   if(plan.outcome?.action!=='plan'||!condition||!scenario) return null;

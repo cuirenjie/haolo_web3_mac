@@ -1,7 +1,7 @@
 import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
 import {createCloudReportRestorer} from './cloud-report-restore';
 import { openCloudRecoveryDialog, cloudTaskText, type CloudRecoveryApi } from "./cloud-task-recovery.ts";
-import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
+import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, bindLegacyCloudCandidate, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
 import {restoreRecoveredTradingDrawings} from './trading-expert-market.ts';
 import {createCloudAlertPanelController} from './cloud-alert-panel.ts';
 import "./styles.css";
@@ -39330,7 +39330,10 @@ function renderMessageExecutionPlan(
   options: FormatMessageTextOptions = {},
 ) {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
-  if ((message as MessageUiMeta).cloudReports?.length) {
+  const rawReports=(message as MessageUiMeta).cloudReports;
+  let legacyReports:CloudTradingReport[]=[];
+  try {legacyReports=rawReports?.length?normalizeCloudReports(rawReports).filter(report=>report.executionPolicy==='right-legacy-v1'):[];} catch {return null;}
+  if (rawReports?.length && !legacyReports.length) {
     let reports:CloudTradingReport[]=[];
     try {reports=normalizeCloudReports((message as MessageUiMeta).cloudReports);} catch {return null;}
     const cards=reports.map((report,index)=>{
@@ -39366,8 +39369,10 @@ function renderMessageExecutionPlan(
   const before = partitions.before
     ? `<div class="message-execution-plan-context before">${formatMessageText(partitions.before, options)}</div>`
     : "";
+  const legacyCardIds = new Set<string>();
   const cards = partitions.candidates.map((rawCandidate, candidateIndex) => {
-    const candidate = executionPlanCandidateWithSourceText(rawCandidate, text);
+    const parsed = executionPlanCandidateWithSourceText(rawCandidate, text);
+    const candidate = legacyReports.length ? bindLegacyCloudCandidate(legacyReports,parsed,legacyCardIds) : parsed;
     const key = executionPlanCandidateKey(message.conversation_id, message.id, candidateIndex);
     executionPlanCandidatesBySource.set(key, candidate);
     const fontSize = loadMessageExecutionPlanFontSize(key);
@@ -39439,7 +39444,7 @@ function renderExecutionPlanActions(plan: SavedExecutionPlan) {
 }
 
 function renderExecutionPlanCard(plan: SavedExecutionPlan) {
-  const cloudCard=plan.cloudReport?cloudPlanCard(plan.cloudReport):null;
+  const cloudCard=plan.cloudReport?.executionPolicy!=='right-legacy-v1'&&plan.cloudReport?cloudPlanCard(plan.cloudReport):null;
   const createdLabel = executionPlanCreatedLabel(plan.createdAt);
   const status = executionPlanStatusMeta(plan);
   const title = executionPlanCardTitle({
@@ -53073,7 +53078,10 @@ function executionPlanCandidateKey(threadId: string, messageId: string, candidat
 
 function renderAddToPlanAction(message: Message, text: string) {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
-  if ((message as MessageUiMeta).cloudReports?.length) {
+  const rawReports=(message as MessageUiMeta).cloudReports;
+  let legacyReports:CloudTradingReport[]=[];
+  try {legacyReports=rawReports?.length?normalizeCloudReports(rawReports).filter(report=>report.executionPolicy==='right-legacy-v1'):[];} catch {return "";}
+  if (rawReports?.length && !legacyReports.length) {
     let reports:CloudTradingReport[]=[];
     try {reports=normalizeCloudReports((message as MessageUiMeta).cloudReports);} catch {return '';}
     syncExecutionPlansForCurrentAccount();
@@ -53081,7 +53089,7 @@ function renderAddToPlanAction(message: Message, text: string) {
       const card=cloudPlanCard(report),remote=report.planRecords[0];
       if(!card||!remote)return '';
       executionPlanCandidatesBySource.set(executionPlanCandidateKey(message.conversation_id,message.id,index),{title:card.title,content:card.content,cloudReport:report});
-      const added=state.executionPlans.some(plan=>plan.cloudReport?.executionPlan.planId===remote.id);
+      const added=state.executionPlans.some(plan=>plan.cloudReport?.planRecords[0]?.id===remote.id);
       const expired=report.executionPlan.expiresAt<=Date.now();
       return `<button type="button" class="message-action-button message-add-to-plan" data-message-action="add-to-plan"
         data-message-action-kind="add-to-plan" data-message-action-destination="execution-plans"
@@ -53091,13 +53099,15 @@ function renderAddToPlanAction(message: Message, text: string) {
     return buttons?`<div class="message-actions message-actions-below-bubble execution-plan-message-actions">${buttons}</div>`:'';
   }
   if (presentation === "plain") return "";
+  const legacyCardIds = new Set<string>();
   const candidates = executionPlanCandidatesFromText(text)
     .filter((candidate) => (
       presentation === "execution-plan"
       || executionPlanHasStructuredTradingFields(candidate)
     ))
     .filter((candidate) => executionPlanHasConcreteTradingPlan(candidate))
-    .map((candidate) => executionPlanCandidateWithSourceText(candidate, text));
+    .map((candidate) => executionPlanCandidateWithSourceText(candidate, text))
+    .map(candidate=>legacyReports.length?bindLegacyCloudCandidate(legacyReports,candidate,legacyCardIds):candidate);
   if (!candidates.length) return "";
   syncExecutionPlansForCurrentAccount();
   const buttons = candidates.map((candidate, candidateIndex) => {
@@ -53105,6 +53115,7 @@ function renderAddToPlanAction(message: Message, text: string) {
     executionPlanCandidatesBySource.set(key, candidate);
     const sourcePlanKey = String(candidateIndex);
     const alreadyAdded = state.executionPlans.some((plan) => (
+      (candidate.cloudReport && plan.id===candidate.cloudReport.planRecords[0]?.id) ||
       plan.sourceThreadId === message.conversation_id
       && plan.sourceMessageId === message.id
       && String(plan.sourcePlanKey || "0") === sourcePlanKey

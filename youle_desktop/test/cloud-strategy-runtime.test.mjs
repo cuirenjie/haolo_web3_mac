@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {createHash} from 'node:crypto';
 import {createCloudStrategyRuntime,cloudMarketContext} from '../src/main/trading-strategy-runtime/cloud-runtime.mjs';
 
 const configHash='a'.repeat(64);
@@ -62,6 +63,15 @@ test('new runs require entry-mode and worker acceptance; legacy availability doe
   }
 });
 
+test('right compatibility requires its own worker and strategy gates without Entry V2 fallback',async()=>{
+  for(const [rightLegacyWorkerReady,rightLegacy,code] of [[false,true,'ENTRY_WORKER_UNAVAILABLE'],[true,false,'ENTRY_POLICY_UNAVAILABLE']]) {
+    const {runtime,calls}=setup(({operation})=>operation==='capabilities'?{windowsContract:'windows-v1',windowsWorkerReady:true,entryV2WorkerReady:true,rightLegacyWorkerReady,
+      strategies:[{id:'moving-average-analysis',legacyWindows:true,rightLegacy,entryModes:['right']}]}:undefined);
+    await assert.rejects(runtime.run('moving-average-analysis',{...params,entryMode:'right'}),e=>e.code===code);
+    assert.equal(calls.some(c=>c.operation==='marketSnapshot'||c.operation==='createRun'),false);
+  }
+});
+
 test('original thread and pane identities survive recovery without being accepted as server input',async()=>{
   const {runtime,calls}=setup();
   const result=await runtime.run('moving-average-analysis',{...params,sourceThreadId:'original-thread',storageSessionId:'original-pane'});
@@ -95,6 +105,27 @@ test('an uncertain admission is explicitly retried with identical body/key, with
   assert.deepEqual(submissions[0].payload,submissions[1].payload);
   assert.equal(submissions[0].options.idempotencyKey,submissions[1].options.idempotencyKey);
   assert.equal(calls.filter(c=>c.operation==='marketSnapshot').length,1);
+});
+
+test('a pre-upgrade right Entry V2 admission retries the same paid job without capability negotiation',async()=>{
+  let first=true;
+  const {runtime,journal,calls}=setup(({operation,run})=>{
+    if(operation==='createRun'&&first){first=false;throw Error('uncertain original admission');}
+    if(operation==='run')return {...run,state:'cancelled'};
+  });
+  const input={windowCount:null,lookbackMs:null,strategyId:'moving-average-analysis',marketKey:'binance:usdm:BTCUSDT',interval:'1h',instruction:'分析当前行情',
+    executionPolicy:'entry-v2',requestedEntryMode:'right',origin:{sourceThreadId:'',storageSessionId:'',analysisJobId:params.analysisJobId},
+    visibleRange:null,analysisKind:'strategy',positionManagementRequested:false,analysisContext:null,locale:'zh-CN',modelId:null,
+    explicitModelSelection:false,preferencesRevision:3,preferencesHash:configHash,responseMode:'combined'};
+  const runId='00000000-0000-0000-0000-000000000009';
+  const body={clientContract:'windows-v1',clientRunId:runId,executionPolicy:'entry-v2',context:{taskId:'old-task'},strategy:'moving-average-analysis',locale:'zh-CN',preferencesRevision:3};
+  await journal.put(account.ownerId,params.analysisJobId,{key:params.analysisJobId,runId,state:'prepared',body,requestedEntryMode:'right',
+    inputHash:createHash('sha256').update(JSON.stringify(input)).digest('hex'),preferencesHash:configHash,marketId:params.marketId,interval:params.interval});
+  await assert.rejects(runtime.run('moving-average-analysis',{...params,entryMode:'right'}),/uncertain original admission/);
+  await assert.rejects(runtime.run('moving-average-analysis',{...params,entryMode:'right'}),e=>e.code==='TRADING_ANALYSIS_CANCELLED');
+  const submissions=calls.filter(c=>c.operation==='createRun');
+  assert.equal(submissions.length,2);assert.deepEqual(submissions[0].payload,body);assert.deepEqual(submissions[1].payload,body);
+  assert.equal(calls.some(c=>c.operation==='capabilities'||c.operation==='marketSnapshot'),false);
 });
 
 test('abort after an uncertain POST sends cancellation for the already journaled run ID',async()=>{

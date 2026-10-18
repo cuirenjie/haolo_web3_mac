@@ -8,6 +8,7 @@ import {tradingTranscriptInjectionItems,parseTradingTranscriptMarkerText} from '
 import {executionPlanStickyHtml} from '../../src/main/execution-plan-sticky-view.mjs';
 import {normalizeTradingAiDrawingPatch,persistTradingAiDrawingPatch,tradingDrawingSessionStorageKey} from '../../src/renderer/trading-expert-drawing.ts';
 import {restoreRecoveredTradingDrawings,normalizeTradingIndicatorAiDrawingPatch} from '../../src/renderer/trading-expert-market.ts';
+import {verifyRightChain} from './right-cloud-roundtrip.mjs';
 
 const [baseUrl,accountId,strategyId,analysisKind='strategy',entryMode='auto',language='en',windowJson='{}']=process.argv.slice(2);
 const url=new URL(baseUrl);
@@ -17,25 +18,27 @@ api.loaded=true;api.baseUrl=baseUrl;api.profile={id:accountId};api.token='isolat
 const account={ownerId:`${baseUrl}::${accountId}`,accountId,baseUrl};
 const prefs=await api.tradingCloudRequest('preferences',{}, {expectedAccountId:accountId,expectedBaseUrl:baseUrl});
 const records=new Map();
+const {testConnectionId,testAccountUnavailable,...windowInput}=JSON.parse(windowJson);
 const journal={async get(owner,key){return structuredClone(records.get(`${owner}:${key}`)??null);},async put(owner,key,value){records.set(`${owner}:${key}`,structuredClone(value));},async list(){return [...records.values()];}};
-const runtime=createCloudStrategyRuntime({owner:async()=>account,api:()=>api,journal,pollMs:50});
+const runtime=createCloudStrategyRuntime({owner:async()=>account,api:()=>api,journal,pollMs:50,
+  connection:async()=>testConnectionId?{id:testConnectionId}:testAccountUnavailable?{unavailable:true}:null});
 const result=await runtime.run(strategyId,{analysisJobId:'http-chain-fixture',marketId:'BINANCE:FUTURES:BTCUSDT',interval:'60',
-  ...JSON.parse(windowJson),
+  ...windowInput,
   analysisKind,positionManagementRequested:analysisKind==='general',
   analysisContext:analysisKind==='general'?{intent:'position-management',position:{side:'long',entries:[{price:130,quantity:1}],requestedActions:['reduce']}}:null,
   entryMode,sourceThreadId:'original-sdk-thread',storageSessionId:'original-sdk-pane',
   language,instruction:'Analyze this chart and provide the validated strategy report.',preferencesRevision:prefs.revision,preferencesHash:prefs.configHash});
 assert.equal(result.strategy.id,strategyId);
-assert.ok(result.analysisPlan.drawingPatch.operations.length);
+if(entryMode!=='right')assert.ok(result.analysisPlan.drawingPatch.operations.length);
 assert.equal(result.cloud.appliedPreferences.configHash,prefs.configHash);
-assert.equal(result.executionPlan.schemaVersion,2);
-assert.equal(result.executionPlan.requestedMode,entryMode);
+assert.equal(result.executionPlan.schemaVersion,entryMode==='right'?1:2);
+if(entryMode!=='right')assert.equal(result.executionPlan.requestedMode,entryMode);
 assert.equal(result.cloud.origin.sourceThreadId,'original-sdk-thread');
-const drawn=normalizeTradingAiDrawingPatch(result.analysisPlan.drawingPatch);
+const drawn=result.analysisPlan.drawingPatch?normalizeTradingAiDrawingPatch(result.analysisPlan.drawingPatch):[];
 const drawingStorage=new Map();
 globalThis.window={localStorage:{getItem:k=>drawingStorage.get(k)??null,setItem:(k,v)=>drawingStorage.set(k,v),removeItem:k=>drawingStorage.delete(k)}};
-persistTradingAiDrawingPatch('original-sdk-pane',result.analysisPlan.drawingPatch);
-if(analysisKind!=='general') {
+if(result.analysisPlan.drawingPatch)persistTradingAiDrawingPatch('original-sdk-pane',result.analysisPlan.drawingPatch);
+if(analysisKind!=='general'&&entryMode!=='right') {
   assert.deepEqual(drawn[0].entryConditionRef,result.analysisPlan.drawingPatch.entryConditionRef);
   assert.deepEqual(JSON.parse(drawingStorage.get(tradingDrawingSessionStorageKey('ai','original-sdk-pane')))[0].entryConditionRef,drawn[0].entryConditionRef);
 }
@@ -44,16 +47,18 @@ assert.deepEqual(recovered,result);
 const reports=cloudReportFromResponse(result);
 if(result.analysisPlan.indicatorDrawingPatch) {
   const indicator=normalizeTradingIndicatorAiDrawingPatch(result.analysisPlan.indicatorDrawingPatch);
-  if(result.executionPlan.scenarios.length)assert.deepEqual(indicator.entryConditionRef,result.analysisPlan.drawingPatch.entryConditionRef);
+  if(result.executionPlan.scenarios.length&&entryMode!=='right')assert.deepEqual(indicator.entryConditionRef,result.analysisPlan.drawingPatch.entryConditionRef);
 }
 restoreRecoveredTradingDrawings(reports[0],'restored-original-pane');
-assert.ok(drawingStorage.has(tradingDrawingSessionStorageKey('ai','restored-original-pane')));
+if(drawn.length)assert.ok(drawingStorage.has(tradingDrawingSessionStorageKey('ai','restored-original-pane')));
 restoreRecoveredTradingDrawings({...reports[0],origin:{...reports[0].origin,analysisJobId:'original:pane:2'}},'restored-original-pane');
-assert.ok(drawingStorage.has(tradingDrawingSessionStorageKey('ai','restored-original-pane::split-pane:2')));
+if(drawn.length)assert.ok(drawingStorage.has(tradingDrawingSessionStorageKey('ai','restored-original-pane::split-pane:2')));
 const history=tradingTranscriptInjectionItems([{id:'report',role:'assistant',text:result.analysisPlan.report,createdAt:new Date().toISOString(),cloudReports:reports}]);
 assert.deepEqual(parseTradingTranscriptMarkerText(history[0].content[0].text).cloudReports,reports);
 const plans=createCloudPlans({owner:async()=>account,api:()=>api});
-if(analysisKind!=='general') {
+if(entryMode==='right') {
+  await verifyRightChain({result,reports,plans,record:await journal.get(account.ownerId,'http-chain-fixture')});
+} else if(analysisKind!=='general') {
   const original=result.cloud.planRecords[0];
   const reference={planId:original.id,runId:original.runId,version:original.version,confirmationHash:original.confirmationHash,conditionHash:original.scenario.conditionHash};
   const card=cloudPlanCard(reports[0]);assert.ok(card.html.includes(String(original.scenario.stop)));
@@ -86,4 +91,4 @@ if(analysisKind!=='general') {
 } else {assert.equal(cloudPlanCard(reports[0]),null);assert.deepEqual((await plans.perform('list')).reports,[]);}
 await runtime.acknowledge('http-chain-fixture');
 assert.deepEqual(await runtime.pending(),[]);
-console.log(JSON.stringify({ok:true,runId:result.cloud.runId,strategyId,drawingCount:result.analysisPlan.drawingPatch.operations.length,planIds:result.cloud.planIds}));
+console.log(JSON.stringify({ok:true,runId:result.cloud.runId,strategyId,drawingCount:(result.analysisPlan.drawingPatch?.operations.length||0)+(result.analysisPlan.indicatorDrawingPatch?.operations.length||0),planIds:result.cloud.planIds}));

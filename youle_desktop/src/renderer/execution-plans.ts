@@ -717,7 +717,7 @@ export function createSavedExecutionPlan(input: {
   const cloudReport=input.candidate.cloudReport?normalizeCloudReports([input.candidate.cloudReport])[0]:undefined;
   return {
     schemaVersion: 2,
-    id: cloudReport?.executionPlan.planId || `execution-plan-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+    id: cloudReport?.planRecords[0]?.id || `execution-plan-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
     title: cloudReport ? input.candidate.title : executionPlanCardTitle({
       fallbackTitle: input.candidate.title,
       analysisLabel: input.analysisLabel,

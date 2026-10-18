@@ -2,6 +2,7 @@ import {createHash, randomUUID} from 'node:crypto';
 import {setTimeout as delay} from 'node:timers/promises';
 import {isDeepStrictEqual} from 'node:util';
 import {validateCloudEntryResult} from './cloud-entry-result.mjs';
+import {validateCloudRightResult} from './cloud-right-result.mjs';
 
 const intervals = {'1':'1m','3':'3m','5':'5m','15':'15m','30':'30m','60':'1h','120':'2h','240':'4h','360':'6h','480':'8h','720':'12h','1D':'1d','1W':'1w'};
 const fail = (code, detail={}) => Object.assign(new Error(code), {code,...detail});
@@ -35,11 +36,16 @@ export function validateCloudResult(run, record) {
   }
   for (const patch of [result.analysisPlan.drawingPatch, result.analysisPlan.indicatorDrawingPatch].filter(Boolean)) {
     if (patch.marketId !== record.marketId || patch.interval !== record.interval
-      || patch.analysisId !== result.analysisPlan.analysisId || !Array.isArray(patch.operations)
+      || (record.body.executionPolicy!=='right-legacy-v1' && patch.analysisId !== result.analysisPlan.analysisId) || !Array.isArray(patch.operations)
       || patch.operations.length > 5000) throw fail('CLOUD_RESULT_CONTEXT_INVALID');
   }
   // Rendering still uses the existing allowlisted chart patch validator.
+  if (record.body.executionPolicy==='right-legacy-v1'
+    && (run.executionPolicy!=='right-legacy-v1'||run.locale!==record.body.locale||result.cloud.locale!==record.body.locale)) {
+    throw fail('CLOUD_RESULT_CONTEXT_INVALID');
+  }
   if (record.body.executionPolicy==='entry-v2') validateCloudEntryResult(result,record);
+  if (record.body.executionPolicy==='right-legacy-v1') validateCloudRightResult(result,record);
   return {...result,cloud:{...result.cloud,...(record.origin ? {origin:record.origin} : {})}};
 }
 
@@ -130,7 +136,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
       const lookbackMs=Number(params.lookbackMs)>0?Number(params.lookbackMs):null;
       if(lookbackMs!==null&&(!Number.isSafeInteger(lookbackMs)||lookbackMs>315360000000))throw fail('ANALYSIS_WINDOW_INVALID');
       const input = {windowCount:requestedCount,lookbackMs,strategyId,...target,instruction:String(params.instruction || '分析当前行情').slice(0,8000),
-        executionPolicy:'entry-v2',requestedEntryMode:params.entryMode || 'auto',
+        executionPolicy:params.entryMode==='right'?'right-legacy-v1':'entry-v2',requestedEntryMode:params.entryMode || 'auto',
         origin:{sourceThreadId:String(params.sourceThreadId || '').slice(0,300),
           storageSessionId:String(params.storageSessionId || '').slice(0,300),analysisJobId:key},
         visibleRange,analysisKind:params.analysisKind === 'general' ? 'general' : 'strategy',
@@ -144,15 +150,24 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
       if (!Number.isSafeInteger(input.preferencesRevision) || !/^[a-f0-9]{64}$/.test(input.preferencesHash || '')) throw fail('PREFERENCE_REVISION_REQUIRED');
       if (!['left','right','auto'].includes(input.requestedEntryMode)) throw fail('ENTRY_MODE_INVALID');
       record = await journal.get(captured.ownerId,key);
-      if (record && record.inputHash !== fingerprint(input)) throw fail('CLOUD_RUN_ID_REUSED');
+      // An interrupted pre-upgrade job retains its frozen V2 protocol. Never
+      // replay it as a new compatibility run or charge for the same job twice.
+      if (record && record.inputHash !== fingerprint(input)
+        && !(input.requestedEntryMode==='right' && record.body.executionPolicy==='entry-v2'
+          && record.inputHash===fingerprint({...input,executionPolicy:'entry-v2'}))) throw fail('CLOUD_RUN_ID_REUSED');
       options.signal?.throwIfAborted();
       if (record?.cancelRequested && record.state !== 'succeeded') { await cancelRecord(captured,record); if(record.state!=='succeeded')throw fail('TRADING_ANALYSIS_CANCELLED'); }
       if (!record) {
         const capabilities = await request(captured,'capabilities',{}, {signal:options.signal});
         if (capabilities.windowsContract !== 'windows-v1' || !capabilities.windowsWorkerReady) throw fail('WINDOWS_WORKER_UNAVAILABLE');
         if (!capabilities.strategies?.some(s => s.id === strategyId && s.legacyWindows)) throw fail('WINDOWS_STRATEGY_UNSUPPORTED');
-        if (!capabilities.entryV2WorkerReady) throw fail('ENTRY_WORKER_UNAVAILABLE');
-        if (!capabilities.strategies?.some(s => s.id === strategyId && s.entryModes?.includes(input.requestedEntryMode))) throw fail('ENTRY_POLICY_UNAVAILABLE');
+        if(input.executionPolicy==='right-legacy-v1') {
+          if(!capabilities.rightLegacyWorkerReady)throw fail('ENTRY_WORKER_UNAVAILABLE');
+          if(!capabilities.strategies?.some(s=>s.id===strategyId&&s.rightLegacy))throw fail('ENTRY_POLICY_UNAVAILABLE');
+        } else {
+          if (!capabilities.entryV2WorkerReady) throw fail('ENTRY_WORKER_UNAVAILABLE');
+          if (!capabilities.strategies?.some(s => s.id === strategyId && s.entryModes?.includes(input.requestedEntryMode))) throw fail('ENTRY_POLICY_UNAVAILABLE');
+        }
         const snapshot = await request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(requestedCount?{windowCount:requestedCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:options.signal});
         if (snapshot.marketKey !== target.marketKey || snapshot.interval !== target.interval || !snapshot.snapshotId) throw fail('CLOUD_MARKET_CONTEXT_INVALID');
         const account = await connection?.(captured,target);
@@ -161,7 +176,7 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         record = {key,runId,inputHash:fingerprint(input),preferencesHash:input.preferencesHash,
           requestedEntryMode:input.requestedEntryMode,origin:input.origin,
           marketId:params.marketId,interval:params.interval,state:'prepared',
-          body:{clientContract:'windows-v1',clientRunId:runId,executionPolicy:'entry-v2',
+          body:{clientContract:'windows-v1',clientRunId:runId,executionPolicy:input.executionPolicy,
             context:{taskId:randomUUID(),marketKey:target.marketKey,interval:target.interval,snapshotId:snapshot.snapshotId,version:1},
             strategy:strategyId,prompt:input.instruction,locale:input.locale,preferencesRevision:input.preferencesRevision,analysisKind:input.analysisKind,
             positionManagementRequested:input.positionManagementRequested,analysisContext:input.analysisContext,

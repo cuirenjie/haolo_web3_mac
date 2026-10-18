@@ -95,6 +95,7 @@
       "src/main/trading-strategy-runtime/cloud-alert-feed.mjs",
       "src/main/trading-strategy-runtime/cloud-catalog.mjs",
       "src/main/trading-strategy-runtime/cloud-entry-result.mjs",
+      "src/main/trading-strategy-runtime/cloud-right-result.mjs",
       "src/main/trading-strategy-runtime/cloud-error.mjs",
       "src/main/trading-strategy-runtime/cloud-plans.mjs",
       "src/main/trading-strategy-runtime/cloud-run-journal.mjs",

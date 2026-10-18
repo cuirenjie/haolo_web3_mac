@@ -1,8 +1,9 @@
 import {isDeepStrictEqual as equal} from 'node:util';
 import {validateCloudResult} from './cloud-runtime.mjs';
-import {cloudReportFromResponse} from '../cloud-plan-contract.mjs';
+import {cloudReportFromResponse,selectCloudPlan} from '../cloud-plan-contract.mjs';
 
 const fail = code => {throw Object.assign(new Error(code),{code});};
+const right=plan=>plan.executionPolicy==='right-legacy-v1'&&plan.monitoringPolicy==='windows_v1';
 export function createCloudPlans({owner,api}) {
   const active=new Set();
   async function request(captured,operation,payload={},key) {
@@ -19,14 +20,14 @@ export function createCloudPlans({owner,api}) {
         const response=await request(captured,'plans',after?{after}:{});
         if(!Array.isArray(response.items)||response.items.length>50)fail('CLOUD_RESULT_CONTEXT_INVALID');
         for(const plan of response.items) {
-        if(plan.monitoringPolicy!=='entry_v2'||!plan.saved||plan.deleted||seen.has(plan.id))fail('CLOUD_RESULT_CONTEXT_INVALID');
+        if((plan.monitoringPolicy!=='entry_v2'&&!right(plan))||!plan.saved||plan.deleted||seen.has(plan.id))fail('CLOUD_RESULT_CONTEXT_INVALID');
         seen.add(plan.id);items.push(plan);
         const run=response.receipts?.[plan.id]||await request(captured,'run',{runId:plan.runId});
         const result=validateCloudResult(run,{runId:run.id,body:{...run,preferencesRevision:plan.appliedPreferences.revision},
-          preferencesHash:plan.appliedPreferences.configHash,requestedEntryMode:plan.executionPlan.requestedMode,
+          preferencesHash:plan.appliedPreferences.configHash,requestedEntryMode:right(plan)?'right':plan.executionPlan.requestedMode,
           marketId:run.desktopResult?.snapshot?.marketId,interval:run.desktopResult?.snapshot?.interval});
         if(!equal(result.executionPlan,plan.executionPlan))fail('CLOUD_RESULT_CONTEXT_INVALID');
-        reports.push({...cloudReportFromResponse(result)[0],planRecords:[plan]});
+        reports.push(selectCloudPlan(cloudReportFromResponse(result)[0],plan));
         }
         after=response.nextCursor;
         if(after&&(cursors.has(after)||items.length>=5000))fail('CLOUD_PLAN_LIMIT');
@@ -48,14 +49,14 @@ export function createCloudPlans({owner,api}) {
         if(!Number.isSafeInteger(input.version)||input.version<1)fail('PLAN_VERSION_CONFLICT');
         return request(captured,'deletePlan',{planId,version:input.version},`delete:${planId}:${input.version}::`);
       }
-      if(plan.id!==planId||plan.monitoringPolicy!=='entry_v2')fail('ENTRY_POLICY_UNAVAILABLE');
+      if(plan.id!==planId||(plan.monitoringPolicy!=='entry_v2'&&!right(plan)))fail('ENTRY_POLICY_UNAVAILABLE');
       if(action==='read')return {plan};
       if(plan.confirmationHash!==input.confirmationHash||plan.scenario?.conditionHash!==input.conditionHash||plan.runId!==input.runId)fail('CLOUD_RESULT_CONTEXT_INVALID');
       let result;
       if(action==='activate') {
         if(plan.saved && plan.linkedAlertId)return {plan,alreadyActive:true};
         if(!Number.isSafeInteger(input.version)||input.version<1)fail('PLAN_VERSION_CONFLICT');
-        result=await request(captured,'activatePlan',{planId,version:input.version,confirmationHash:plan.confirmationHash,monitoringPolicy:'entry_v2'},`activate:${planId}:${plan.confirmationHash}`);
+        result=await request(captured,'activatePlan',{planId,version:input.version,confirmationHash:plan.confirmationHash,monitoringPolicy:plan.monitoringPolicy},`activate:${planId}:${plan.confirmationHash}`);
       } else {
         if(!Number.isSafeInteger(input.version)||input.version<1)fail('PLAN_VERSION_CONFLICT');
         // Use the caller's frozen version for an uncertain retry. Never replay
@@ -63,15 +64,16 @@ export function createCloudPlans({owner,api}) {
         const payload={planId,version:input.version};
         if(action==='lifecycle') {
           if(!['pending','executing','ended'].includes(input.status)|| (input.status==='ended')!==['take_profit','stop_loss','cancelled','expired'].includes(input.endReason))fail('PLAN_STATUS_INVALID');
-          Object.assign(payload,{status:input.status,endReason:input.status==='ended'?input.endReason:null,monitoringPolicy:'entry_v2'});
+          Object.assign(payload,{status:input.status,endReason:input.status==='ended'?input.endReason:null,monitoringPolicy:plan.monitoringPolicy});
         }
         result=await request(captured,action==='delete'?'deletePlan':'planLifecycle',payload,
           `${action}:${planId}:${input.version}:${input.status||''}:${input.endReason||''}`);
         if(action==='delete')return result;
       }
       if(result.plan?.id!==planId||!equal(result.plan.executionPlan,plan.executionPlan)||result.plan.confirmationHash!==plan.confirmationHash
-        ||result.alert?.planId!==planId||result.alert?.rule?.monitoringPolicy!=='entry_v2'
-        ||!equal(result.alert.rule.entryCondition,plan.scenario.entryCondition)||result.alert.rule.conditionHash!==input.conditionHash)fail('CLOUD_RESULT_CONTEXT_INVALID');
+        ||result.alert?.planId!==planId||result.alert?.rule?.monitoringPolicy!==plan.monitoringPolicy
+        ||(!right(plan)&&(!equal(result.alert.rule.entryCondition,plan.scenario.entryCondition)||result.alert.rule.conditionHash!==input.conditionHash))
+        ||(right(plan)&&['side','entry','stop','targets','confirmation','exitConfirmation','marketKey','interval'].some(key=>!equal(result.alert.rule[key],plan.alertPreview[key]))))fail('CLOUD_RESULT_CONTEXT_INVALID');
       const latest=await request(captured,'plan',{planId});
       if(latest.id!==planId||latest.confirmationHash!==plan.confirmationHash||!equal(latest.executionPlan,plan.executionPlan))fail('CLOUD_RESULT_CONTEXT_INVALID');
       return {...result,plan:latest};
