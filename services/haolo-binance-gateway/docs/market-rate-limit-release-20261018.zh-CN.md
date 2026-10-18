@@ -1,5 +1,7 @@
 # M2-027 行情网关发布记录
 
+后续更新：最初 12 次 503 已通过鉴权依赖时间线完成归因，扩展窗口与新的候选、旧实例自然排空状态见 [2026-10-19 追查记录](auth-503-followup-20261019.zh-CN.md)。下文“原因尚待观察”保留为首次验收时的历史状态；新候选未切换前，当前活动版本仍为本文所列 `8935f3a`。
+
 2026-10-18 23:56 +08 在香港 `8.217.125.71` 切换，随后完成公网验证并接受发布。用户授权服务端部署和 Windows 开发版重启，未授权客户端安装包发布，本次没有打包客户端。
 
 ## 版本与来源
@@ -26,7 +28,7 @@
 
 候选双 `/health`、`/ready` 和无凭证 401 检查通过后，使用现有真实会话执行授权 REST、WS、private permit 和 CONNECT 验证。切换前设置独立 600 秒自动回退任务，验证完整 HAProxy 未漂移，成组修改 `public_gateway`、`public_gateway_rest`、`private_gateway`，校验配置并平滑 reload，原子更新活动指针。公网业务通过后执行 accept，撤销回退计时器。
 
-当前状态 `accepted_retirement_pending`。旧活动实例 `haolo-binance-gateway-53badfa` 保留存量连接，最后记录约 212 个，未强制断开；在旧连接归零之前不叠加下一版。更早的 `haolo-binance-gateway-rate-limit-97de46e5` 已在两次零连接检查及确认不被路由引用后正常无限等待 stop，镜像和容器保留。
+本轮验收时状态为 `accepted_retirement_pending`。旧活动实例 `haolo-binance-gateway-53badfa` 保留存量连接，当时约 212 个，未强制断开。2026-10-19 用户随后明确授权“不必等到排空，直接切换”，新鉴权修复版本 `916b92c` 已上线并验收，当前状态见 [503 修复跟进](auth-503-followup-20261019.zh-CN.md)。更早的 `haolo-binance-gateway-rate-limit-97de46e5` 已在两次零连接检查及确认不被路由引用后正常无限等待 stop，镜像和容器保留。
 
 需要回退时先持同一锁核验当前活动指针和完整配置，按 `active.before` / `haproxy.before` 成组恢复旧后端，配置校验后平滑 reload，并同步活动指针；保留候选存量连接。不得恢复旧 Redis RDB、重建 Redis 或清空票据、许可与权重账本。`deploy_market.py recover` 只自动处理未接受的 switched/observing 阶段，accepted 阶段不能直接调用它声称已回退。
 
