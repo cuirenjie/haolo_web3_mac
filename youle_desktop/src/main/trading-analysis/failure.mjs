@@ -4,6 +4,9 @@ import { modelFailureFacts } from "../model-failure-policy.mjs";
 import { isQuotaFailure } from "../error-signals.mjs";
 
 const LABELS = {
+  preferences_review: ["交易偏好尚未完成迁移，请到“设置 → 交易偏好”核对原设置", "Trading preferences need migration review. Open Settings → Trading preferences to review your saved settings", "交易偏好尚未完成遷移，請到「設定 → 交易偏好」核對原設定"],
+  preferences_changed: ["交易偏好已在其他设备更新，请重新加载后再分析", "Trading preferences changed on another device. Reload them before running the analysis", "交易偏好已在其他裝置更新，請重新載入後再分析"],
+  preferences_pending: ["交易偏好正在保存，请等待保存完成后再分析", "Trading preferences are being saved. Wait for the save to finish before running the analysis", "交易偏好正在儲存，請等待儲存完成後再分析"],
   cancellation_pending: ["云端取消尚未确认，任务记录已保留", "Cloud cancellation is not yet confirmed; the task record was retained"],
   pending: ["云端任务仍在处理中，可继续查看原任务", "The cloud task is still running; resume the original task to check it"],
   cloud_unavailable: ["云端策略服务暂不可用", "The cloud strategy service is unavailable"],
@@ -26,11 +29,14 @@ const LABELS = {
 
 export function describeTradingAnalysisFailure(error, { stage = "analysis", language = "zh-CN" } = {}) {
   const facts = modelFailureFacts(error);
-  const code = String(error?.code || error?.errorCode || "").toUpperCase();
+  const code = String(error?.code || error?.errorCode || error?.payload?.detail?.code || error?.detail?.code || "").toUpperCase();
   const message = facts.detail;
   const status = facts.httpStatus;
   let category = "analysis";
-  if (code === "CLOUD_CANCEL_PENDING") category = "cancellation_pending";
+  if (["PREFERENCE_IMPORT_RESOLUTION_REQUIRED", "PREFERENCE_IMPORT_REVIEW_REQUIRED", "PREFERENCE_IMPORT_CONFLICT"].includes(code)) category = "preferences_review";
+  else if (code === "PREFERENCE_VERSION_CONFLICT") category = "preferences_changed";
+  else if (["PREFERENCE_SAVE_PENDING", "TRADING_PREFERENCE_SAVE_PENDING"].includes(code)) category = "preferences_pending";
+  else if (code === "CLOUD_CANCEL_PENDING") category = "cancellation_pending";
   else if (code === "CLOUD_RUN_PENDING") category = "pending";
   else if (code === "WINDOWS_WORKER_UNAVAILABLE") category = "cloud_unavailable";
   else if (["WINDOWS_STRATEGY_UNSUPPORTED", "CLOUD_MARKET_UNSUPPORTED"].includes(code)) category = "cloud_unsupported";
@@ -50,7 +56,7 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   else if (/INSUFFICIENT_DATA|SNAPSHOT|CANDLE/.test(code) || /candles?.*(?:invalid|required)|K 线.*(?:不足|至少需要|仅有)|行情加载失败/iu.test(message)) category = "data";
   return Object.freeze({
     category,
-    summary: LABELS[category][language === "en" ? 1 : 0],
+    summary: LABELS[category][language === "en" ? 1 : ["zh-Hant", "zh-TW"].includes(language) && LABELS[category][2] ? 2 : 0],
     cancelled: category === "cancelled",
     allowLocalRecovery: false,
   });
@@ -63,6 +69,13 @@ export function buildTradingStrategyFailureReport(strategy, error, { language = 
   const name = String(strategy?.display?.name || strategy?.id || (english ? "Selected strategy" : "所选策略"))
     .replace(/[\r\n]/g, " ").slice(0, 120);
   const failure = describeTradingAnalysisFailure(error, { language });
+  if (failure.category.startsWith("preferences_")) {
+    return language === "en"
+      ? `${name}: ${failure.summary}. Analysis has not started. Your original local settings are retained; no new execution plan was generated.`
+      : ["zh-Hant", "zh-TW"].includes(language)
+        ? `${name}：${failure.summary}。本次分析尚未開始，原本的本地設定仍保留，未產生新的執行計畫。`
+        : `${name}：${failure.summary}。本次分析尚未开始，原来的本地设置仍保留，未生成新的执行计划。`;
+  }
   const candleCount = Number(error?.candleCount);
   const count = Number.isInteger(candleCount) && candleCount > 0 && candleCount <= 100_000 ? candleCount : null;
   if (strategy?.id === "wyckoff" && error?.code === "TRADING_WYCKOFF_INSUFFICIENT_DATA") {

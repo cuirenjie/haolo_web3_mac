@@ -3,7 +3,29 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { describeTradingAnalysisFailure, settleTradingAnalysisDrawing } from "../src/main/trading-analysis/failure.mjs";
+import { describeTradingAnalysisFailure, buildTradingStrategyFailureReport, settleTradingAnalysisDrawing } from "../src/main/trading-analysis/failure.mjs";
+
+test("preference migration failures explain the remedy and retained settings in all three locales", () => {
+  for (const code of ["PREFERENCE_IMPORT_RESOLUTION_REQUIRED", "PREFERENCE_IMPORT_REVIEW_REQUIRED", "PREFERENCE_IMPORT_CONFLICT"]) {
+    for (const language of ["zh-CN", "zh-Hant", "en"]) {
+      const error = {payload:{detail:{code, reason:"private source data"}}};
+      const failure = describeTradingAnalysisFailure(error, {language});
+      assert.equal(failure.category, "preferences_review");
+      assert.equal(failure.allowLocalRecovery, false);
+      const report = buildTradingStrategyFailureReport({id:"price-action"}, error, {language});
+      assert.match(report, language === "en" ? /Settings → Trading preferences/ : language === "zh-Hant" ? /設定 → 交易偏好/ : /设置 → 交易偏好/);
+      assert.match(report, language === "en" ? /original local settings are retained/ : language === "zh-Hant" ? /本地設定仍保留/ : /本地设置仍保留/);
+      assert.doesNotMatch(report, /private source data|分析流程未能完成|恢复后/);
+      if (language === "en") assert.doesNotMatch(report, /\p{Script=Han}/u);
+      if (language === "zh-Hant") assert.doesNotMatch(report, /迁移|设置|开始|执行计划/);
+    }
+  }
+  assert.equal(describeTradingAnalysisFailure({code:"PREFERENCE_VERSION_CONFLICT"}).category,"preferences_changed");
+  assert.equal(describeTradingAnalysisFailure({code:"PREFERENCE_SAVE_PENDING"}).category,"preferences_pending");
+  const error = {code:"PREFERENCE_IMPORT_RESOLUTION_REQUIRED"};
+  assert.equal(buildTradingStrategyFailureReport({id:"price-action"},error,{language:"zh-TW"}),
+    buildTradingStrategyFailureReport({id:"price-action"},error,{language:"zh-Hant"}));
+});
 import { tradingAnalysisFailureDiagnostic } from "../src/main/trading-analysis/diagnostics.mjs";
 import { createAppServerTradingAnalysisProvider } from "../src/main/trading-analysis/app-server-provider.mjs";
 import { createTradingAnalysisModelProviderRegistry } from "../src/main/trading-analysis/model-provider.mjs";
