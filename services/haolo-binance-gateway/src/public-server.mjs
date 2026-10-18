@@ -477,6 +477,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     diagnostic({ event: "market_ws_connected", sessionId, userRef, market: route.marketType,
       userConnections: websocketClientsByUser.get(context.identity.userId), connections: metrics.websocketClients });
     let released = false;
+    let sessionExpired = false;
     let alive = true;
     let closeReason = "peer_closed";
     // A lost TCP path can otherwise retain a user's slot indefinitely. Keep
@@ -505,6 +506,10 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         ? context.identity.membershipExpiresAt - Date.now() : Infinity;
       leaseTimer = setTimeout(() => {
         closeReason = "market_route_refresh";
+        sessionExpired = true;
+        clearBackpressure();
+        for (const dispose of disposers.values()) dispose();
+        disposers.clear();
         websocket.close(1000, "market_route_refresh");
       }, Math.max(1, Math.min(config.marketSessionMaxMs || 900_000, remaining)));
       leaseTimer.unref?.();
@@ -598,13 +603,13 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         durationMs: Date.now() - connectedAt, userConnections: remaining, connections: metrics.websocketClients });
     };
     const subscribe = (streamValue) => {
-      if (released) throw new TypeError("market session expired");
+      if (released || sessionExpired) throw new TypeError("market session expired");
       const stream = validateStreamName(streamValue);
       if (disposers.has(stream)) return;
       if (disposers.size >= config.maxSubscriptionsPerClient) throw new TypeError("subscription limit exceeded");
       const dispose = streamPool.subscribe(route.marketType, stream, (event) => {
         if (websocket.readyState !== 1) return;
-        if (released) return;
+        if (released || sessionExpired) return;
         sendMarketEvent(event.stream, encodeMarketFrame(event, route.mode === "stream", context.identity.codec));
       });
       disposers.set(stream, dispose);
@@ -622,7 +627,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       return;
     }
     websocket.on("message", (payload) => {
-      if (released) return;
+      if (released || sessionExpired) return;
       let command;
       try { command = JSON.parse(String(payload)); } catch {
         websocket.send(JSON.stringify({ code: 3, msg: "Invalid JSON" }));
