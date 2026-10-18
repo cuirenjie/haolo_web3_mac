@@ -151,7 +151,11 @@ async function readJsonBody(request, maxBytes = 4 * 1024) {
 }
 
 export function createPublicGatewayServer({ config, restGateway, streamPool, privateEgressCoordinator = null, accessTokenVerifier = null,
-  onDiagnostic = entry => console.warn(JSON.stringify(entry)) } = {}) {
+  onDiagnostic = entry => console.warn(JSON.stringify(entry)), websocketHeartbeatMs = 30_000 } = {}) {
+  const diagnosticSalt = crypto.randomBytes(32);
+  const userReference = identity => identity?.userId
+    ? crypto.createHmac("sha256", diagnosticSalt).update(identity.userId).digest("hex").slice(0, 16) : undefined;
+  const diagnostic = entry => { try { onDiagnostic(entry); } catch {} };
   const controlLimiter = new FixedWindowRateLimiter({ limit: config.downstreamRequestsPerMinute });
   const requestBurstLimiter = new FixedWindowRateLimiter({
     limit: config.downstreamBurstRequestsPerMinute || Math.max(1_200, config.downstreamRequestsPerMinute * 4),
@@ -168,6 +172,11 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     websocketMarketFrames: 0,
     websocketMarketPayloadBytes: 0,
     websocketRejected: 0,
+    websocketUserConnectionLimited: 0,
+    websocketConnectionRateLimited: 0,
+    websocketTotalConnectionLimited: 0,
+    websocketHeartbeatTimeouts: 0,
+    websocketCommandRejected: 0,
     websocketBackpressureDisconnects: 0,
     websocketCoalescedFrames: 0,
     restCacheHits: 0,
@@ -408,16 +417,25 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       socket.destroy();
       return;
     }
+    let identity;
     try {
-      const identity = await websocketIdentity(request, config, restGateway.cache, accessTokenVerifier);
+      identity = await websocketIdentity(request, config, restGateway.cache, accessTokenVerifier);
       requireMarketRoute(identity, request, config);
       const rate = controlLimiter.consume(`ws:${identity.userId}:${clientAddress(request, config)}`);
-      if (!rate.allowed) throw new GatewayAuthError("connection rate limit exceeded", 429);
+      if (!rate.allowed) {
+        metrics.websocketConnectionRateLimited += 1;
+        throw Object.assign(new GatewayAuthError("connection rate limit exceeded", 429), {
+          code: "WS_CONNECTION_RATE_LIMIT", retryAfterMs: rate.resetAt - Date.now(), limit: config.downstreamRequestsPerMinute });
+      }
       if (metrics.websocketClients >= config.maxWebsocketClientsTotal) {
-        throw new GatewayAuthError("gateway connection capacity exceeded", 503);
+        metrics.websocketTotalConnectionLimited += 1;
+        throw Object.assign(new GatewayAuthError("gateway connection capacity exceeded", 503), {
+          code: "WS_TOTAL_CONNECTION_LIMIT", retryAfterMs: 2_000, limit: config.maxWebsocketClientsTotal });
       }
       if (Number(websocketClientsByUser.get(identity.userId) || 0) >= config.maxWebsocketClientsPerUser) {
-        throw new GatewayAuthError("user connection limit exceeded", 429);
+        metrics.websocketUserConnectionLimited += 1;
+        throw Object.assign(new GatewayAuthError("user connection limit exceeded", 429), {
+          code: "WS_USER_CONNECTION_LIMIT", retryAfterMs: 2_000, limit: config.maxWebsocketClientsPerUser });
       }
       // Opt-in cohorts are chosen after authentication. Existing clients which
       // do not offer compression continue to negotiate the original protocol.
@@ -431,8 +449,19 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     } catch (error) {
       metrics.websocketRejected += 1;
       const statusCode = Number(error?.statusCode || 401);
-      socket.write(`HTTP/1.1 ${statusCode} Rejected\r\nConnection: close\r\n\r\n`);
-      socket.destroy();
+      const admissionCodes = new Set(["WS_CONNECTION_RATE_LIMIT", "WS_USER_CONNECTION_LIMIT", "WS_TOTAL_CONNECTION_LIMIT"]);
+      const knownCodes = new Set([...admissionCodes, "AUTHENTICATION_UNAVAILABLE", "AUTHENTICATION_REQUIRED", "MARKET_ROUTE_REQUIRED", "MARKET_ENTITLEMENT_UNAVAILABLE"]);
+      const code = knownCodes.has(error?.code) ? error.code : "WS_AUTHENTICATION_REJECTED";
+      if (code === "AUTHENTICATION_UNAVAILABLE") {
+        metrics.authenticationUnavailable += 1;
+        if (error.failureKind === "timeout") metrics.authenticationTimeouts += 1;
+      }
+      const retryAfter = Math.max(1, Math.ceil(Number(error?.retryAfterMs || 1_000) / 1_000));
+      diagnostic({ event: "market_ws_rejected", status: statusCode, code, market: route.marketType,
+        userRef: userReference(identity), userConnections: websocketClientsByUser.get(identity?.userId) || 0,
+        connections: metrics.websocketClients, ...(admissionCodes.has(code) ? { limit: error.limit } : {}) });
+      // end() flushes the bounded response before closing; never log the URL/ticket.
+      socket.end(`HTTP/1.1 ${statusCode} Rejected\r\nConnection: close\r\nContent-Length: 0\r\nX-Haolo-Error-Code: ${code}\r\nRetry-After: ${retryAfter}\r\n\r\n`);
     }
   }));
 
@@ -442,7 +471,29 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     if (compressed) metrics.websocketCompressedClients += 1;
     const disposers = new Map();
     const { route } = context;
+    const sessionId = crypto.randomUUID();
+    const userRef = userReference(context.identity);
+    const connectedAt = Date.now();
+    diagnostic({ event: "market_ws_connected", sessionId, userRef, market: route.marketType,
+      userConnections: websocketClientsByUser.get(context.identity.userId), connections: metrics.websocketClients });
     let released = false;
+    let alive = true;
+    let closeReason = "peer_closed";
+    // A lost TCP path can otherwise retain a user's slot indefinitely. Keep
+    // healthy streams alive, including during deployment drain.
+    const heartbeatTimer = setInterval(() => {
+      if (websocket.readyState !== 1) return;
+      if (!alive) {
+        closeReason = "heartbeat_timeout";
+        metrics.websocketHeartbeatTimeouts += 1;
+        websocket.terminate();
+        return;
+      }
+      alive = false;
+      try { websocket.ping(); } catch { websocket.terminate(); }
+    }, Math.max(10, Number(websocketHeartbeatMs) || 30_000));
+    heartbeatTimer.unref?.();
+    websocket.on("pong", () => { alive = true; });
     // Reconnect obtains a fresh authoritative entitlement and one-use ticket.
     // Enforce the exact paid/trial expiry, with a bounded recheck lease for
     // cancellations or upgrades while a socket is open. Legacy off mode keeps
@@ -453,7 +504,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const remaining = context.identity.membershipExpiresAt
         ? context.identity.membershipExpiresAt - Date.now() : Infinity;
       leaseTimer = setTimeout(() => {
-        release();
+        closeReason = "market_route_refresh";
         websocket.close(1000, "market_route_refresh");
       }, Math.max(1, Math.min(config.marketSessionMaxMs || 900_000, remaining)));
       leaseTimer.unref?.();
@@ -533,6 +584,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     const release = () => {
       if (released) return;
       released = true;
+      clearInterval(heartbeatTimer);
       clearTimeout(leaseTimer);
       clearBackpressure();
       metrics.websocketClients = Math.max(0, metrics.websocketClients - 1);
@@ -542,6 +594,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       else websocketClientsByUser.delete(context.identity.userId);
       for (const dispose of disposers.values()) dispose();
       disposers.clear();
+      diagnostic({ event: "market_ws_closed", sessionId, userRef, market: route.marketType, reason: closeReason,
+        durationMs: Date.now() - connectedAt, userConnections: remaining, connections: metrics.websocketClients });
     };
     const subscribe = (streamValue) => {
       if (released) throw new TypeError("market session expired");
@@ -585,6 +639,9 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         } else throw new TypeError("unsupported command");
         websocket.send(JSON.stringify({ result: null, id: command?.id ?? null }));
       } catch (error) {
+        metrics.websocketCommandRejected += 1;
+        diagnostic({ event: "market_ws_command_rejected", sessionId, userRef, market: route.marketType,
+          subscriptions: disposers.size, limit: config.maxSubscriptionsPerClient });
         websocket.send(JSON.stringify({ code: 2, msg: String(error?.message || "invalid command"), id: command?.id ?? null }));
       }
     });
