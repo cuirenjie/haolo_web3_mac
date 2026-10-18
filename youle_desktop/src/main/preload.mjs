@@ -154,6 +154,7 @@ contextBridge.exposeInMainWorld("codexDesktop", {
   deletePromptFavorite: (params) => ipcRenderer.invoke("youle:deletePromptFavorite", params),
   listTradingFavorites: () => ipcRenderer.invoke("youle:listTradingFavorites"),
   manualDrawings: (params) => ipcRenderer.invoke("youle:manualDrawings", params),
+  clientSettings: (params) => ipcRenderer.invoke("youle:clientSettings", params),
   addTradingFavorite: (params) => ipcRenderer.invoke("youle:addTradingFavorite", params),
   removeTradingFavorite: (params) => ipcRenderer.invoke("youle:removeTradingFavorite", params),
   reorderTradingFavorites: (params) => ipcRenderer.invoke("youle:reorderTradingFavorites", params),

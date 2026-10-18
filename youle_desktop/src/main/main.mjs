@@ -2,6 +2,7 @@ import { withModelToolNetwork } from "./model-tool-network.mjs";
 import { errorSignals } from "./error-signals.mjs";
 import { sharedSnapshotPosition, sharedSnapshotTime } from "./binance-account/shared-snapshot.mjs";
 import { registerManualDrawingSync } from "./manual-drawing-sync.mjs";
+import { registerClientSettingsSync } from "./client-settings-sync.mjs";
 import { HAOLO_GATEWAY_BASE_URL, HAOLO_GATEWAY_HOST } from "./haolo-gateway.mjs";
 import { clipboard, nativeImage, shell } from "electron/common";
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, Notification, powerMonitor, safeStorage, screen, session, Tray } from "electron/main";
@@ -13494,6 +13495,7 @@ ipcMain.handle("youle:listTradingFavorites", async () => {
   return getYouleApiClient().listTradingFavorites();
 });
 registerManualDrawingSync(ipcMain, getYouleApiClient);
+registerClientSettingsSync(ipcMain, getYouleApiClient);
 
 ipcMain.handle("youle:addTradingFavorite", async (_event, params = {}) => {
   return getYouleApiClient().addTradingFavorite(params);

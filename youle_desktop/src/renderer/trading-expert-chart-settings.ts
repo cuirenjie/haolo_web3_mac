@@ -42,6 +42,7 @@ export interface TradingChartSettings {
   showPriceLine: boolean;
   showPriceLabel: boolean;
   showCountdown: boolean;
+  hideKlineAnnotations: boolean;
   drawingToolsEnabled: boolean;
   orderDisplay: TradingOrderDisplaySettings;
   themes: Record<TradingChartThemeName, TradingChartThemeSettings>;
@@ -127,6 +128,7 @@ export const DEFAULT_TRADING_CHART_SETTINGS: Readonly<TradingChartSettings> = {
   showPriceLine: true,
   showPriceLabel: true,
   showCountdown: false,
+  hideKlineAnnotations: false,
   drawingToolsEnabled: true,
   orderDisplay: {
     currentOrders: true,
@@ -376,6 +378,9 @@ export function normalizeTradingChartSettings(value: unknown): TradingChartSetti
     showPriceLine: typeof source.showPriceLine === "boolean" ? source.showPriceLine : defaults.showPriceLine,
     showPriceLabel: typeof source.showPriceLabel === "boolean" ? source.showPriceLabel : defaults.showPriceLabel,
     showCountdown: typeof source.showCountdown === "boolean" ? source.showCountdown : defaults.showCountdown,
+    hideKlineAnnotations: typeof source.hideKlineAnnotations === "boolean"
+      ? source.hideKlineAnnotations
+      : defaults.hideKlineAnnotations,
     drawingToolsEnabled: typeof source.drawingToolsEnabled === "boolean"
       ? source.drawingToolsEnabled
       : defaults.drawingToolsEnabled,
@@ -647,6 +652,10 @@ export function renderTradingChartSettingsDialog(
               <div class="trading-chart-settings-row"><span>水平辅助线</span><div class="trading-chart-settings-options">${checkbox("theme.horizontalGridVisible", "显示", theme.horizontalGridVisible)}${colorInput("theme.horizontalGridColor", "颜色", theme.horizontalGridColor)}</div></div>
               <div class="trading-chart-settings-row"><span>十字线</span><div class="trading-chart-settings-options">${colorInput("theme.crosshairColor", "颜色", theme.crosshairColor)}<span class="trading-chart-settings-line-preview dashed"></span></div></div>
               <div class="trading-chart-settings-row"><span>背景颜色</span><div class="trading-chart-settings-options">${colorInput("theme.backgroundColor", "颜色", theme.backgroundColor)}</div></div>
+              <div class="trading-chart-settings-row"><span>隐藏数据标注</span><label class="trading-chart-settings-switch">
+                <input type="checkbox" role="switch" data-chart-setting="hideKlineAnnotations" ${settings.hideKlineAnnotations ? "checked" : ""} aria-label="隐藏数据标注"/>
+                <span aria-hidden="true"></span>
+              </label><small>隐藏主图左上角的行情数据和指标数值。</small></div>
               <p class="trading-chart-settings-theme-note">当前正在编辑${themeName === "dark" ? "暗色" : "亮色"}主题；切换主题后可分别设置另一套颜色。</p>
             </section>
             <section data-chart-settings-panel="scale" hidden>

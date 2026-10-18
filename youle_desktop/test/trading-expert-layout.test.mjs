@@ -1415,7 +1415,7 @@ test("Trading Expert market uses the compact pair title and customizable period 
   assert.doesNotMatch(styles, /\.trading-market-indicator-heading\s*\{[^}]*border-right:/s);
   assert.match(styles, /\.trading-market-indicator-heading svg\s*\{[^}]*width: 8px;[^}]*height: 5px;[^}]*stroke: currentColor;[^}]*stroke-width: 1\.5;/s);
   assert.match(styles, /\.trading-market-period-controls\s*\{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*flex: 1 1 210px;[^}]*margin-left: auto;/s);
-  assert.match(styles, /\.trading-market-times\s*\{[^}]*flex: 0 1 auto;[^}]*margin-left: 0;/s);
+  assert.match(styles, /\.trading-market-times\s*\{[^}]*flex: 1 1 0;[^}]*margin-left: 0;/s);
   assert.match(styles, /\.trading-market-times\s*\{[^}]*overflow-x: auto;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scroll-padding-inline: 4px;[^}]*touch-action: pan-x;/s);
   assert.match(styles, /\.trading-market-times\.dragging\s*\{[^}]*cursor: grabbing;[^}]*user-select: none;/s);
   assert.match(styles, /\.trading-market-times button\s*\{[^}]*border: 0;[^}]*background: transparent;/s);
@@ -1479,7 +1479,7 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
   assert.match(editor, /data-market-action="period-unit" data-market-period-unit="m"/);
   assert.doesNotMatch(editor, /trading-market-period-editor-actions/);
   assert.doesNotMatch(editor, /最多展示|恢复默认|data-market-action="restore-periods"|data-market-action="confirm-periods"/);
-  assert.match(source, /const MAX_TRADING_PERIODS = 10/);
+  assert.doesNotMatch(source, /MAX_TRADING_PERIODS/);
   assert.match(addPeriod, /this\.applyDraftPeriods\(\)/);
   assert.match(removePeriod, /if \(!nextPeriods\.length\)[\s\S]*?请至少保留一个周期。[\s\S]*?this\.applyDraftPeriods\(\)/);
   assert.match(applyPeriods, /this\.renderPeriodEditor\(false\)/);
@@ -2040,8 +2040,8 @@ test("Trading Expert uses two-decimal ticks and high-precision highlighted price
   assert.match(syncCurrentPriceLine, /const lineColor = candle\.close >= candle\.open[\s\S]*?\? this\.chartSettings\.risingColor[\s\S]*?: this\.chartSettings\.fallingColor/);
   assert.match(syncCurrentPriceLine, /lineStyle: LineStyle\.Dashed/);
   assert.match(syncCurrentPriceLine, /axisLabelVisible: false/);
-  assert.match(source, /this\.currentPriceElement\.textContent = formatFocusedPrice\(candle\.close\)/);
-  assert.match(source, /this\.crosshairPriceElement\.textContent = formatFocusedPrice\(price\)/);
+  assert.match(source, /const text = formatFocusedPrice\(candle\.close\);\s*if \(this\.currentPriceElement\.textContent !== text\) this\.currentPriceElement\.textContent = text/);
+  assert.match(source, /const text = formatFocusedPrice\(price\);\s*if \(this\.crosshairPriceElement\.textContent !== text\) this\.crosshairPriceElement\.textContent = text/);
   assert.match(styles, /--trading-market-current-price: #269d4d;/);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-current-price: #45c979;/);
   assert.match(syncCurrentPriceLine, /axisLabelColor: lineColor/);
@@ -2145,7 +2145,7 @@ test("Trading Expert subchart indicators cover pane behavior and both themes", a
   assert.match(rebuildPanes, /finally \{\s*this\.rebuildingIndicatorPanes = false/);
   assert.match(createPane, /priceScale\(\)\?\.applyOptions\(\{[\s\S]*?mode: PriceScaleMode\.Normal,[\s\S]*?invertScale: false,[\s\S]*?autoScale: true,/);
   assert.match(createPane, /descriptor\.type === "histogram"[\s\S]*?pane\.addSeries\(HistogramSeries/);
-  assert.match(updateIndicatorData, /descriptor\.colors\?\.\[index\][\s\S]*?color: descriptor\.colors\[index\]/);
+  assert.match(updateIndicatorData, /setTradingChartSeriesValues\(seriesRuntime\.api, candles, descriptor\.values, CHINA_TIME_OFFSET_SECONDS, descriptor\.colors\)/);
   assert.doesNotMatch(createPane, /descriptor\.barStyle|rgba\(0, 0, 0, 0\)/);
   assert.doesNotMatch(updateIndicatorData, /descriptor\.barStyle/);
   assert.doesNotMatch(updateIndicatorData, /setAutoScale\(true\)/, "routine indicator refreshes preserve a manually adjusted range");
@@ -2180,9 +2180,10 @@ test("Trading Expert adds functional main-chart studies on the left and moves su
   assert.match(source, /\{ id: "vpvr", label: "VPVR"/);
   assert.match(source, /data-market-action="main-indicator"/);
   assert.match(source, /setting\.enabled = !setting\.enabled;[\s\S]*this\.syncActiveIndicatorsFromSettings\(\)/);
-  assert.match(source, /setting\("ma"\)\.parameters\.map\([\s\S]*computeSma\(closes, period\)[\s\S]*setting\("ema"\)\.parameters\.map\([\s\S]*computeEma\(closes, period\)/);
-  assert.match(source, /computeBollingerBands\(closes, setting\("boll"\)\.parameters\[0\], setting\("boll"\)\.parameters\[1\]\)/);
-  assert.match(source, /computeBbi\(closes, setting\("bbi"\)\.parameters\)/);
+  assert.match(source, /cache\.update\(closes, candles\)/);
+  assert.match(source, /setting\("ma"\)\.parameters\.map\([\s\S]*cache\.sma\(period\)[\s\S]*setting\("ema"\)\.parameters\.map\([\s\S]*cache\.ema\(period\)/);
+  assert.match(source, /cache\.boll\(setting\("boll"\)\.parameters\[0\], setting\("boll"\)\.parameters\[1\]\)/);
+  assert.match(source, /cache\.bbi\(setting\("bbi"\)\.parameters\)/);
   assert.match(source, /createSeriesMarkers\(this\.candleSeries/);
   assert.match(source, /const tdSignals = isActive\("td"\) \? computeTdSequential\(candles, tdSetting\.parameters\[0\]\) : \[\]/);
   assert.ok(indicatorBar.indexOf("data-market-main-indicators") < indicatorBar.indexOf("data-market-indicators"));
@@ -2453,7 +2454,7 @@ test("Trading Expert coalesces live candles while throttling REST fallbacks and 
   assert.match(paintBlock, /if \(document\.hidden\)[\s\S]*?MARKET_BACKGROUND_PAINT_INTERVAL_MS/);
   assert.match(paintBlock, /this\.liveChartPaintFrame = window\.requestAnimationFrame/);
   assert.match(paintBlock, /Date\.now\(\) - this\.lastLiveChartFullRefreshAt >= MARKET_LIVE_FULL_REFRESH_INTERVAL_MS[\s\S]*?this\.updateChartData\(\)/);
-  assert.match(paintBlock, /private paintLatestCandle\(\)[\s\S]*?this\.candleSeries\.update\(display\)/);
+  assert.match(paintBlock, /private paintLatestCandle\(\)[\s\S]*?updateTradingChartSeriesTail\(this\.candleSeries, display\)/);
   assert.doesNotMatch(paintBlock, /this\.candleSeries\.setData/);
   assert.match(fallbackBlock, /binanceMarketRestCooldownRemaining\(Date\.now\(\), this\.selectedMarketType\) > 0/);
   assert.match(fallbackBlock, /silenceMs < MARKET_SOCKET_STALE_MS/);

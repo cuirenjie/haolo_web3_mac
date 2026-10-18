@@ -1,5 +1,11 @@
 // Reviewed terminology shared across account, billing, chart and task surfaces.
 export const PRODUCT_ENGLISH_UI_PHRASES = Object.freeze({
+  "设置已同步": "Settings synced",
+  "設定已同步": "Settings synced",
+  "设置已保存在本机，正在同步": "Settings saved locally. Syncing…",
+  "設定已儲存在本機，正在同步": "Settings saved locally. Syncing…",
+  "设置尚未同步，将自动重试": "Settings have not synced yet. Retrying automatically…",
+  "設定尚未同步，將自動重試": "Settings have not synced yet. Retrying automatically…",
   "预警创建成功": "Alert created successfully",
   "预警创建失败": "Alert creation failed",
   "返回会话": "Back to conversation",
@@ -19,6 +25,8 @@ export const PRODUCT_ENGLISH_UI_PHRASES = Object.freeze({
   "到账积分": "Points credited",
   "已复制": "Copied",
   "指标设置": "Indicator settings",
+  "隐藏数据标注": "Hide data annotations",
+  "隐藏主图左上角的行情数据和指标数值。": "Hide market data and indicator values in the upper-left corner of the main chart.",
   "恢复默认": "Restore defaults",
   "自定义颜色": "Custom color",
   "已发放人数": "Members rewarded",

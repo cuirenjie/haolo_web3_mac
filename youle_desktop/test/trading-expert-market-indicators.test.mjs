@@ -21,10 +21,11 @@ test("trend-band indicator mention is recognized from composer text", async () =
   assert.equal(hasTradingExpertTrendBandMention("@策略:缠论"), false);
 });
 
-test("custom periods use TradingView resolution strings and keep at most ten unique items", async () => {
+test("custom periods use TradingView resolutions and retain all unique items", async () => {
   const {
     DEFAULT_TRADING_PERIODS,
     normalizeTradingPeriods,
+    loadTradingPeriodsFromStorage,
     reorderTradingPeriods,
     tradingAlertIntervalFromResolution,
     tradingPeriodLabel,
@@ -63,7 +64,9 @@ test("custom periods use TradingView resolution strings and keep at most ten uni
     { amount: 1, unit: "Y" },
     ...Array.from({ length: 12 }, (_, index) => ({ amount: index + 1, unit: "d" })),
   ]);
-  assert.equal(normalized.length, 10);
+  assert.equal(normalized.length, 15);
+  const manyPeriods = Array.from({ length: 2000 }, (_, index) => ({ amount: index + 1, unit: "m" }));
+  assert.deepEqual(loadTradingPeriodsFromStorage({ getItem: () => JSON.stringify(manyPeriods) }), manyPeriods);
   assert.equal(normalized.filter((period) => tradingViewResolution(period) === "60").length, 1);
   assert.deepEqual(normalized.filter((period) => period.unit === "M" || period.unit === "Y"), [
     { amount: 1, unit: "M" },

@@ -825,7 +825,7 @@ test("drawing toolbar stays in the chart after removing the legacy vertical navi
   assert.match(market, /renderTradingDrawingLayer\(\)/);
   assert.match(market, /new TradingDrawingController\(\{/);
   assert.match(market, /timeOffsetSeconds: CHINA_TIME_OFFSET_SECONDS/);
-  assert.match(drawing, /timeScale\.coordinateToLogical\(screen\.x\)/);
+  assert.match(drawing, /tradingDrawingCoordinateToLogical\(screen\.x,[\s\S]*?timeScale\.coordinateToLogical\(x\)/);
   assert.match(drawing, /candleSeries\.coordinateToPrice\(screen\.y\)/);
   assert.match(drawing, /timeScale\.logicalToCoordinate/);
   assert.match(drawing, /candleSeries\.priceToCoordinate/);
@@ -881,7 +881,7 @@ test("selected drawings expose endpoints, whole-line dragging, and the requested
   assert.match(drawing, /finiteTradingChartCoordinate\(timeScale\.coordinateToTime\(screen\.x\)\)/);
   assert.match(drawing, /document\.addEventListener\("pointermove", this\.handlePointerMove\)/);
   assert.match(drawing, /this\.queueDragRedraw\(\)/);
-  assert.match(drawing, /timeScale\.coordinateToLogical\(screen\.x\)/);
+  assert.match(drawing, /tradingDrawingCoordinateToLogical\(screen\.x,[\s\S]*?timeScale\.coordinateToLogical\(x\)/);
   assert.match(drawing, /tradingDrawingLogicalToCoordinate\([\s\S]*?timeScale\.logicalToCoordinate\(integerLogical as any\)/);
   assert.match(drawing, /class="trading-drawing-handle" data-drawing-handle-index=/);
   assert.match(drawing, /class="trading-drawing-hit-target"/);

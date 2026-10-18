@@ -62,7 +62,7 @@ test("main and split charts keep extrema labels synchronized across data and geo
   assert.match(extremaLabel, /font-feature-settings:\s*"zero" 0/);
   assert.match(extremaLabel, /font-variant-numeric:\s*tabular-nums/);
   assert.doesNotMatch(extremaLabel, /var\(--font-sans\)/);
-  assert.match(styles, /\.trading-market-focus-price\s*\{[\s\S]*?font-size:\s*var\(--trading-market-price-label-font-size\)/);
+  assert.match(styles, /\.trading-market-focus-price\s*\{[\s\S]*?font-size:\s*var\(--trading-market-axis-font-size, var\(--trading-market-price-label-font-size\)\)/);
 });
 
 test("foreground trade ticks paint on the next frame and reuse the current-price line", async () => {
