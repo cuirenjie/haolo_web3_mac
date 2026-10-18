@@ -34,7 +34,7 @@ export const canonicalDrawingScope = (value: string) => value === 'main' ? value
 export function canonicalDrawingInterval(value: string) { const map: Record<string, string> = { '1': '1m', '3': '3m', '5': '5m', '15': '15m', '30': '30m', '60': '1h', '120': '2h', '240': '4h', '360': '6h', '480': '8h', '720': '12h', '1D': '1d', '1W': '1w', '1Y': '1y' }; return map[value] || value; }
 export function drawingToWire(d: TradingDrawingModel): WireDrawing {
     const result: WireDrawing = { id: d.id, tool: d.tool, symbol: canonicalDrawingMarket(d.symbol), drawingScope: canonicalDrawingScope(d.drawingScope || 'main'), points: d.points.map(p => ({ time: Math.round(p.time * 1000), price: p.price })), source: 'manual' };
-    for (const key of ['interval', 'text', 'locked', 'color', 'lineWidth', 'lineStyle', 'fontSize', 'bold', 'textBackgroundColor', 'viewportAnchor'] as const)
+    for (const key of ['interval', 'text', 'locked', 'color', 'lineWidth', 'lineStyle', 'fontSize', 'bold', 'textBackgroundColor', 'viewportAnchor', 'textColor', 'italic', 'textAlign', 'textVerticalAlign', 'showPriceLabel'] as const)
         if (d[key] !== undefined)
             Object.assign(result, { [key]: key === 'interval' ? canonicalDrawingInterval(d.interval!) : d[key] });
     return result;

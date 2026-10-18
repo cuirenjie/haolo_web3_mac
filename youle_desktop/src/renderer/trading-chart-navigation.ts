@@ -795,6 +795,10 @@ export class TradingChartNavigation {
   private readonly doubleClick = (event: MouseEvent) => {
     // Active drawing tools own double-click completion; do not maximize their pane.
     if (event.target instanceof Element && event.target.closest('.trading-drawing-layer.drawing-active')) return;
+    // Pointer capture makes a completed drawing's double click target its SVG
+    // root. Let the drawing editor handle the actual shape under that pointer.
+    if (event.target instanceof Element && event.target.closest('.trading-drawing-layer')
+      && document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-drawing-id]')) return;
     const pane = this.paneAt(event);
     const axisPane = !pane && this.paneAt(event, false);
     if (axisPane && !this.isControl(event.target)) {

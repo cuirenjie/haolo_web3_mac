@@ -888,7 +888,8 @@ test("selected drawings expose endpoints, whole-line dragging, and the requested
   for (const action of ["reset", "toggle-color", "toggle-style", "toggle-width", "toggle-lock", "delete"]) {
     assert.match(drawing, new RegExp(`selectionAction\\("${action}"`));
   }
-  assert.doesNotMatch(drawing, /data-drawing-selection-action="settings?"/);
+  assert.match(drawing, /selectionAction\("settings", "水平线设置"/);
+  assert.match(drawing, /settings\.hidden = drawing\.tool !== 'horizontal-line'/);
   assert.match(drawing, /color\?: string/);
   assert.match(drawing, /lineStyle\?: TradingDrawingLineStyle/);
   assert.match(drawing, /lineWidth\?: number/);
@@ -967,7 +968,7 @@ test("text annotations use an in-chart editor and dedicated formatting toolbar",
   assert.match(selectionMarkup, /selectionAction\("reset-text"[\s\S]*?selectionAction\("edit-text"/);
   assert.match(selectionMarkup, /data-drawing-text-input[\s\S]*?>清空<[\s\S]*?>确定</);
   assert.match(selectionMarkup, /toggle-text-color[\s\S]*?toggle-text-background[\s\S]*?toggle-font-size[\s\S]*?toggle-bold[\s\S]*?toggle-lock[\s\S]*?delete/);
-  assert.doesNotMatch(selectionMarkup, /data-drawing-selection-action="settings?"/);
+  assert.doesNotMatch(selectionMarkup.split('data-drawing-selection-mode="text"')[1], /selectionAction\("settings"/);
   assert.match(drawing, /const DEFAULT_TEXT_COLOR_LIGHT = "#4b5563"/);
   assert.match(drawing, /textBackgroundColor\?: string[\s\S]*?fontSize\?: number[\s\S]*?bold\?: boolean/);
   assert.match(drawing, /if \(action === "clear-text"\)[\s\S]*?input\.value = "";[\s\S]*?if \(action === "confirm-text"\)[\s\S]*?this\.confirmTextInput\(drawing\)/);

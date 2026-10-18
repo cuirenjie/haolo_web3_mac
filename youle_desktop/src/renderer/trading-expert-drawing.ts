@@ -22,6 +22,7 @@ import { renderExtraDrawingGeometry, renderExtraAnnotation, storeDrawingImage, t
 import { manualDrawingDefaults, manualFibLevelColor, DRAWING_SELECTION_COLOR, type ManualDrawingDefaults } from './trading-drawing-defaults.ts';
 import { TradingDrawingLayer } from './trading-drawing-layer.ts';
 import { TradingDrawingCrosshair } from './trading-drawing-crosshair.ts';
+import { HorizontalLineSettingsDialog, horizontalLineSettingsIcon, normalizeHorizontalLineTextStyle, type HorizontalLineTextStyle } from './trading-horizontal-line-settings.ts';
 
 const LEGACY_TRADING_DRAWINGS_STORAGE_KEY = "haolo.trading-market.drawings.v1";
 const LEGACY_TRADING_AI_DRAWINGS_STORAGE_KEY = "haolo.trading-market.ai-drawings.v1";
@@ -102,7 +103,7 @@ export function formatTradingFibonacciPrice(value: number) {
 
 export type TradingDrawingLineStyle = "solid" | "dashed" | "dotted";
 
-export interface TradingDrawingStyle {
+export interface TradingDrawingStyle extends HorizontalLineTextStyle {
   color?: string;
   textBackgroundColor?: string;
   fontSize?: number;
@@ -994,6 +995,7 @@ function renderTradingDrawingSelectionToolbar() {
             ${[1, 2, 3, 4].map((width) => `<button type="button" data-drawing-selection-action="set-width" data-drawing-width="${width}" role="menuitemradio" aria-checked="false" aria-label="${width} 像素"><span class="trading-drawing-width-preview" style="--drawing-width:${width}px"></span></button>`).join("")}
           </div>
         </div>
+        ${selectionAction("settings", "水平线设置", horizontalLineSettingsIcon, 'data-horizontal-line-settings hidden aria-haspopup="dialog"')}
         ${selectionAction("toggle-lock", "锁定", drawingIcon("lock"), 'aria-pressed="false"')}
         ${selectionAction("delete", "删除", drawingIcon("trash"))}
       </div>
@@ -1092,7 +1094,7 @@ function drawingColor(value: unknown) {
 }
 
 function tradingDrawingStyleFromModel(
-  drawing: Pick<TradingDrawingModel, "color" | "textBackgroundColor" | "fontSize" | "bold" | "lineStyle" | "lineWidth">,
+  drawing: TradingDrawingStyle,
 ): TradingDrawingStyle {
   const color = drawingColor(drawing.color);
   const textBackgroundColor = drawingColor(drawing.textBackgroundColor);
@@ -1100,6 +1102,7 @@ function tradingDrawingStyleFromModel(
   const lineWidth = drawingLineWidth(drawing.lineWidth);
   const fontSize = drawingTextFontSize(drawing.fontSize);
   return {
+    ...normalizeHorizontalLineTextStyle(drawing),
     ...(color ? { color } : {}),
     ...(textBackgroundColor ? { textBackgroundColor } : {}),
     ...(fontSize ? { fontSize } : {}),
@@ -1113,6 +1116,7 @@ function normalizeTradingDrawingStyle(value: unknown): TradingDrawingStyle {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const candidate = value as Partial<TradingDrawingStyle>;
   return tradingDrawingStyleFromModel({
+    ...normalizeHorizontalLineTextStyle(candidate),
     color: candidate.color,
     textBackgroundColor: candidate.textBackgroundColor,
     fontSize: candidate.fontSize,
@@ -1307,6 +1311,7 @@ function loadStoredDrawings(storageSessionId: string): TradingDrawingModel[] {
         tool: definition.id,
         points,
         text: typeof candidate.text === "string" ? candidate.text.slice(0, 240) : undefined,
+        ...normalizeHorizontalLineTextStyle(candidate),
         locked: candidate.locked === true,
         color: drawingColor(candidate.color),
         textBackgroundColor: drawingColor(candidate.textBackgroundColor),
@@ -1535,6 +1540,30 @@ export function tradingDrawingTextLayout(
     width,
     height: Math.max(fontSize, normalizedLines.length * lineHeight),
   };
+}
+
+export function tradingHorizontalLineTextGeometry(drawing: TradingDrawingModel, y: number, width: number) {
+  if (!drawing.text?.trim() || width <= 16) return null;
+  const fontSize = drawingTextFontSize(drawing.fontSize) ?? 12;
+  const layout = tradingDrawingTextLayout(drawing.text, fontSize, width - 24);
+  const align = drawing.textAlign ?? 'center';
+  const vertical = drawing.textVerticalAlign ?? 'top';
+  const x = align === 'left' ? 8 : align === 'right' ? width - 8 : width / 2;
+  const left = align === 'left' ? x : align === 'right' ? x - layout.width : x - layout.width / 2;
+  const top = vertical === 'middle' ? y - layout.height / 2 : vertical === 'bottom' ? y + 6 : y - layout.height - 6;
+  return { x, left, top, fontSize, layout, anchor: align === 'left' ? 'start' : align === 'right' ? 'end' : 'middle', vertical };
+}
+
+export function renderTradingHorizontalLineText(drawing: TradingDrawingModel, y: number, width: number, color: string, interactive = false) {
+  const geometry = tradingHorizontalLineTextGeometry(drawing, y, width);
+  if (!geometry) return '';
+  const { x, left, top, fontSize, layout, anchor, vertical } = geometry;
+  const background = vertical === 'middle'
+    ? `<rect x="${left - 4}" y="${top - 2}" width="${layout.width + 8}" height="${layout.height + 4}" fill="var(--trading-market-panel)"/>`
+    : '';
+  const text = `<text class="trading-horizontal-line-text" data-i18n-skip fill="${drawingColor(drawing.textColor) ?? color}" font-size="${fontSize}" font-weight="${drawing.bold ? 700 : 400}" font-style="${drawing.italic ? 'italic' : 'normal'}" text-anchor="${anchor}">${layout.lines.map((line, index) => `<tspan x="${x}" y="${top + fontSize + index * layout.lineHeight}">${escapeHtml(line)}</tspan>`).join('')}</text>`;
+  const hit = interactive ? `<rect class="trading-drawing-hit-target area" x="${left - 4}" y="${top - 2}" width="${layout.width + 8}" height="${layout.height + 4}"/>` : '';
+  return background + text + hit;
 }
 
 export function tradingDrawingRegionLabelGeometry(
@@ -2305,6 +2334,7 @@ export class TradingDrawingController {
   private readonly aiTextSizeToolbar: HTMLElement;
   private readonly axisMarkerLayer: HTMLElement;
   private readonly clearDialog: HTMLDialogElement;
+  private readonly horizontalLineSettings = new HorizontalLineSettingsDialog();
   private readonly getChart: () => any;
   private readonly getCandleSeries: () => any;
   private readonly getSymbol: () => string;
@@ -2494,7 +2524,7 @@ export class TradingDrawingController {
       isNewTask: options.isNewTask ?? (() => false),
       interval: this.getInterval, scope: this.drawingScope,
       snapshot: () => this.drawings.filter(d => d.id !== this.pendingTextDrawingId),
-      busy: () => Boolean(this.draft || this.dragState || this.pendingTextDrawingId),
+      busy: () => Boolean(this.draft || this.dragState || this.pendingTextDrawingId || this.horizontalLineSettings.open),
       status: message => this.setStatus(message),
       apply: (drawings, symbol, persist = true) => {
         if (this.destroyed) return;
@@ -2648,6 +2678,7 @@ export class TradingDrawingController {
     const nextSessionId = normalizeTradingDrawingStorageSessionId(storageSessionId);
     if (nextSessionId === this.storageSessionId) return;
     const previousSessionId = this.storageSessionId;
+    this.horizontalLineSettings.close();
     const migrateFromSessionId = options.migrateFromSessionId
       ? normalizeTradingDrawingStorageSessionId(options.migrateFromSessionId)
       : "";
@@ -3308,6 +3339,10 @@ export class TradingDrawingController {
       this.selectionToolbar.hidden = true;
       return;
     }
+    if (action === "settings") {
+      this.openHorizontalLineSettings(drawing, target);
+      return;
+    }
     const menuByAction: Partial<Record<string, TradingDrawingSelectionMenu>> = {
       "toggle-color": "color",
       "toggle-style": "style",
@@ -3411,6 +3446,7 @@ export class TradingDrawingController {
 
   private readonly handleOutsidePointerDown = (event: Event) => {
     if (!(event.target instanceof Node)) return;
+    if (this.horizontalLineSettings.open) return;
     if (this.activeMenu && !this.toolbar.contains(event.target)) this.closeToolMenus();
     if (this.selectionToolbar.contains(event.target)) return;
     if (this.activeSelectionMenu) this.closeSelectionMenus();
@@ -3420,7 +3456,7 @@ export class TradingDrawingController {
   private readonly handleKeyDown = (event: KeyboardEvent) => {
     if (!this.controlActive || !this.userDrawingEnabled || event.defaultPrevented) return;
     if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
-    if (this.clearDialog.open) return;
+    if (this.clearDialog.open || this.horizontalLineSettings.open) return;
     if (this.activeMenu && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       const menu = this.toolbar.querySelector<HTMLElement>(`[data-drawing-tool-menu="${this.activeMenu}"]`);
       const items = Array.from(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"], [role="menuitem"]') ?? []);
@@ -3785,7 +3821,22 @@ export class TradingDrawingController {
   };
 
   private readonly handleDrawingDoubleClick = (event: MouseEvent) => {
-    if (!this.userDrawingEnabled || !this.draft || !tradingDrawingIsMultiPoint(this.draft.tool)) return;
+    if (!this.userDrawingEnabled) return;
+    if (!this.draft) {
+      // Drag capture retargets Chromium's dblclick to the SVG root. Resolve the
+      // actual hit after pointerup instead of treating that root as blank space.
+      const target = (event.target instanceof Element ? event.target.closest<SVGElement>('[data-drawing-id]') : null)
+        ?? document.elementFromPoint(event.clientX, event.clientY)?.closest<SVGElement>('[data-drawing-id]');
+      if (!target || !this.overlay.contains(target)) return;
+      const drawing = this.drawings.find(item => item.id === target?.dataset.drawingId);
+      if (drawing?.tool !== 'horizontal-line') return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.selectDrawing(drawing.id);
+      this.openHorizontalLineSettings(drawing);
+      return;
+    }
+    if (!tradingDrawingIsMultiPoint(this.draft.tool)) return;
     event.preventDefault();
     event.stopPropagation();
     this.finishMultiPointDrawing();
@@ -4009,6 +4060,18 @@ export class TradingDrawingController {
     return this.selectionToolbar.querySelector<HTMLTextAreaElement>("[data-drawing-text-input]");
   }
 
+  private openHorizontalLineSettings(drawing: TradingDrawingModel, trigger?: HTMLElement) {
+    if (drawing.tool !== 'horizontal-line' || drawing.source === 'ai') return;
+    this.cancelSelectionDrag();
+    this.closeSelectionMenus();
+    this.horizontalLineSettings.show(drawing, next => {
+      const current = this.selectedDrawing();
+      if (!current || current.id !== next.id) return;
+      Object.assign(current, next);
+      this.persistDrawingEdit('已更新水平线');
+    }, this.chartElement.closest<HTMLElement>('.trading-expert-market') ?? this.host, trigger);
+  }
+
   private openTextInput(drawing: TradingDrawingModel, trigger: HTMLElement) {
     this.toggleSelectionMenu("text-input", trigger);
     if (this.activeSelectionMenu !== "text-input") return;
@@ -4057,6 +4120,7 @@ export class TradingDrawingController {
   }
 
   private selectDrawing(id: string | null) {
+    if (id !== this.selectedDrawingId) this.horizontalLineSettings.close();
     this.dismissedSelectionToolbarDrawingId = null;
     if (this.pendingTextDrawingId && id !== this.pendingTextDrawingId) {
       this.discardPendingTextDrawing();
@@ -4594,6 +4658,8 @@ export class TradingDrawingController {
     }
     const definition = tradingDrawingToolDefinition(drawing.tool);
     const textMode = definition?.kind === "text";
+    const settings = this.selectionToolbar.querySelector<HTMLElement>('[data-horizontal-line-settings]');
+    if (settings) settings.hidden = drawing.tool !== 'horizontal-line';
     this.selectionToolbar.querySelectorAll<HTMLElement>("[data-drawing-selection-mode]").forEach((mode) => {
       mode.hidden = (mode.dataset.drawingSelectionMode === "text") !== textMode;
     });
@@ -4702,6 +4768,7 @@ export class TradingDrawingController {
     ));
     const persistentHorizontalDrawings = visibleDrawings.filter((drawing) => (
       tradingDrawingToolDefinition(drawing.tool)?.kind === "horizontal"
+      && drawing.showPriceLabel !== false
     ));
     const markerDrawings = [
       ...persistentHorizontalDrawings,
@@ -4712,6 +4779,7 @@ export class TradingDrawingController {
     const markers = markerDrawings.flatMap((drawing) => {
       const definition = tradingDrawingToolDefinition(drawing.tool);
       if (!definition) return [];
+      if (definition.kind === 'horizontal' && drawing.showPriceLabel === false) return [];
       const markerPoints = definition.kind === "horizontal"
         ? tradingDrawingAlwaysVisibleAxisMarkerPoints(definition, drawing.points)
         : tradingDrawingAxisMarkerPoints(definition, drawing.points);
@@ -5252,7 +5320,8 @@ export class TradingDrawingController {
     else if (definition.kind === "line") body = svgLine(segmentLine[0], segmentLine[1], color, lineAppearance);
     else if (definition.kind === "ray") body = svgLine(rayLine[0], rayLine[1], color, lineAppearance);
     else if (definition.kind === "extended") body = svgLine(extendedLine[0], extendedLine[1], color, lineAppearance);
-    else if (definition.kind === "horizontal") body = svgLine({ x: 0, y: first.y }, { x: bounds.width, y: first.y }, color, lineAppearance);
+    else if (definition.kind === "horizontal") body = svgLine({ x: 0, y: first.y }, { x: bounds.width, y: first.y }, color, lineAppearance)
+      + renderTradingHorizontalLineText(drawing, first.y, bounds.width, color, interactive && !draft);
     else if (definition.kind === "horizontal-ray") body = svgLine(first, { x: bounds.width, y: first.y }, color, lineAppearance);
     else if (definition.kind === "vertical") body = svgLine({ x: first.x, y: 0 }, { x: first.x, y: bounds.height }, color, lineAppearance);
     else if (definition.kind === "cross") {
@@ -5814,6 +5883,7 @@ export class TradingDrawingController {
     this.aiTextSizeToolbarVisibility.destroy();
     if (this.destroyed) return;
     this.destroyed = true;
+    this.horizontalLineSettings.close();
     this.aiPlayback.cancel();
     this.hideAiTextSizeToolbar();
     if (this.clearDialog.open && (this.bindControlEvents || this.clearDialogTrigger)) this.clearDialog.close();

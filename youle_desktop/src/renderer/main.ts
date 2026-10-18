@@ -27412,6 +27412,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   submittingComposerThreadIds.add(originalThreadId);
   expandSystemDashboardForNewMessage();
   let pendingSend: PendingComposerSendState | null = null;
+  let tradingSendThinkingState: TradingExpertThinkingState | undefined;
   try {
     const snapshotAttachments = cloneLocalAttachments(state.attachments);
     const submissionSnapshotAttachments =
@@ -27447,6 +27448,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
           ? tradingStrategiesToRunAtSend[0].ui.classificationMessage
           : `正在按顺序准备 ${tradingStrategiesToRunAtSend.length} 个策略分析。`,
       );
+      tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
       for (const strategy of tradingStrategiesToRunAtSend) {
         tradingStrategyRequestAtSend = await classifyTradingStrategyForSend(
@@ -27461,7 +27463,14 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         tradingStrategyRequestsAtSend.push(tradingStrategyRequestAtSend);
       }
       tradingStrategyRequestAtSend = tradingStrategyRequestsAtSend[0] || null;
-      clearTradingExpertThinkingState(originalThreadId);
+      if (tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")) {
+        // Keep immediate feedback visible while access, thread creation and
+        // transcript persistence finish. The analysis runner takes over next.
+        updateTradingExpertThinkingState(originalThreadId, "preparing", tradingStrategiesToRunAtSend[0].ui.preparingMessage);
+        tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
+      } else {
+        clearTradingExpertThinkingState(originalThreadId);
+      }
       refreshTradingExpertConversationSurface(originalThreadId);
     } else if (tradingGeneralCandidateAtSend) {
       updateTradingExpertThinkingState(
@@ -27469,6 +27478,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         "classifying",
         "正在由大模型识别问题意图；需要盘面时将进入行情分析与画线智能体。",
       );
+      tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
       tradingGeneralRequestAtSend = await classifyTradingGeneralRequestForSend(
         text,
@@ -27477,7 +27487,12 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         selectedChatModelValue(threadId),
         threadModelSelection(threadId)?.userSelected === true,
       );
-      clearTradingExpertThinkingState(originalThreadId);
+      if (tradingGeneralRequestAtSend?.mode === "chart-analysis") {
+        updateTradingExpertThinkingState(originalThreadId, "preparing", "");
+        tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
+      } else {
+        clearTradingExpertThinkingState(originalThreadId);
+      }
       refreshTradingExpertConversationSurface(originalThreadId);
     }
     if (
@@ -28000,6 +28015,13 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     releaseTradingExpertAnalysisTarget(tradingAnalysisTargetAtSend);
     submittingComposerThreadIds.delete(originalThreadId);
     submittingComposerThreadIds.delete(threadId);
+    // A failed preflight must not leave a spinner behind, including when a
+    // new/recovered thread inherited it. Never clear a later analysis status.
+    const thinkingThreadId = resolveTradingExpertAnalysisThreadId(threadId);
+    if (tradingSendThinkingState && tradingExpertThinkingStateByThreadId.get(thinkingThreadId) === tradingSendThinkingState) {
+      clearTradingExpertThinkingState(thinkingThreadId);
+      refreshTradingExpertConversationSurface(thinkingThreadId);
+    }
     syncComposerSendButton();
     if (
       isTradingExpertThreadId(state.currentThreadId)
