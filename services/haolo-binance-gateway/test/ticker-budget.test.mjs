@@ -16,7 +16,7 @@ test("ticker weights follow distinct Futures and Spot endpoint contracts", () =>
     ["/api/v3/ticker/24hr",80],
     ...[1,20,21,100].map(n=>["/api/v3/ticker/24hr?symbols="+encodeURIComponent(JSON.stringify(Array.from({length:n},(_,i)=>`COIN${i}USDT`))),n<=20?2:40]),
   ]) assert.equal(resolvePublicMarketRequest(url,config).weight,expected,url);
-  for(const url of [batch([]),batch(["BTCUSDT"])+"&symbol=ETHUSDT"])
+  for(const url of [batch([]),batch([123]),batch(["BTCUSDT"])+"&symbol=ETHUSDT","/fapi/v1/ticker/24hr?symbols=","/fapi/v1/ticker/24hr?symbol="])
     assert.throws(()=>resolvePublicMarketRequest(url,config),e=>e.statusCode===400);
 });
 

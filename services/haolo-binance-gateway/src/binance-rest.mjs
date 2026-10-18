@@ -58,12 +58,12 @@ function validateQuery(url) {
     if (!QUERY_KEYS.has(key)) throw new MarketGatewayError(`unsupported query parameter: ${key}`, { statusCode: 400, code: "INVALID_QUERY" });
   }
   const symbol = url.searchParams.get("symbol");
-  if (symbol && !SYMBOL_PATTERN.test(symbol)) throw new MarketGatewayError("invalid symbol", { statusCode: 400, code: "INVALID_SYMBOL" });
+  if (symbol != null && !SYMBOL_PATTERN.test(symbol)) throw new MarketGatewayError("invalid symbol", { statusCode: 400, code: "INVALID_SYMBOL" });
   const symbols = url.searchParams.get("symbols");
-  if (symbols) {
+  if (symbols != null) {
     let parsed;
     try { parsed = JSON.parse(symbols); } catch {}
-    if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 100 || parsed.some((entry) => !SYMBOL_PATTERN.test(String(entry)))) {
+    if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 100 || parsed.some((entry) => typeof entry !== "string" || !SYMBOL_PATTERN.test(entry))) {
       throw new MarketGatewayError("invalid symbols", { statusCode: 400, code: "INVALID_SYMBOLS" });
     }
   }
