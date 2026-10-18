@@ -54,6 +54,71 @@ test('official analysis sends identities and preferences, never local core input
   assert.equal((await runtime.pending()).length,0);
 });
 
+test('host repairs undersized viewport hints before admission without changing frozen retries',async()=>{
+  for(const strategyId of ['order-flow','dow-theory']) {
+    let first=true;
+    const {runtime,calls}=setup(({operation,run})=>{
+      if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:strategyId,legacyWindows:true,entryModes:['auto']}]};
+      if(operation==='createRun'&&first){first=false;throw Object.assign(Error('unknown admission'),{status:503});}
+      if(operation==='run')return {...run,state:'cancelled'};
+    });
+    const input={...params,analysisWindowCount:100};
+    await assert.rejects(runtime.run(strategyId,input),/unknown admission/);
+    await assert.rejects(runtime.run(strategyId,input),e=>e.code==='TRADING_ANALYSIS_CANCELLED');
+    const snapshots=calls.filter(c=>c.operation==='marketSnapshot');
+    assert.equal(snapshots.length,1);
+    assert.equal(snapshots[0].payload.windowCount,120);
+    const admissions=calls.filter(c=>c.operation==='createRun');
+    assert.deepEqual(admissions[0].payload,admissions[1].payload);
+    assert.equal(admissions[0].options.idempotencyKey,admissions[1].options.idempotencyKey);
+  }
+});
+
+test('explicit time ranges stay exact and insufficient history does not trigger another admission',async()=>{
+  const {runtime,calls}=setup(({operation})=>{
+    if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'order-flow',legacyWindows:true,entryModes:['auto']}]};
+    if(operation==='createRun')throw Object.assign(Error('history'),{code:'MARKET_HISTORY_INSUFFICIENT',status:409});
+  });
+  await assert.rejects(runtime.run('order-flow',{...params,analysisWindowCount:100,lookbackMs:86400000}),e=>e.code==='MARKET_HISTORY_INSUFFICIENT');
+  assert.equal(calls.find(c=>c.operation==='marketSnapshot').payload.lookbackMs,86400000);
+  assert.equal(calls.filter(c=>c.operation==='createRun').length,1);
+});
+
+test('new snapshots follow published server history and reject incompatible metadata before admission',async()=>{
+  for(const history of [
+    {minimumCandles:150,minimumClosedCandles:149,windowCount:150},
+    {minimumCandles:150,minimumClosedCandles:150,windowCount:150},
+    {minimumCandles:700,minimumClosedCandles:699,windowCount:700},
+    {minimumCandles:90,minimumClosedCandles:90,windowCount:'91'},
+  ]) {
+    const {runtime,calls}=setup(({operation})=>{
+      if(operation==='capabilities')return {windowsWorkerReady:true,entryV2WorkerReady:true,windowsContract:'windows-v1',strategies:[{id:'moving-average-analysis',legacyWindows:true,entryModes:['auto'],history}]};
+    });
+    if(history.windowCount===150&&history.minimumClosedCandles===149){
+      await runtime.run('moving-average-analysis',{...params,analysisWindowCount:100});
+      assert.equal(calls.find(c=>c.operation==='marketSnapshot').payload.windowCount,150);
+    }else{
+      await assert.rejects(runtime.run('moving-average-analysis',{...params,analysisWindowCount:100}),e=>e.code==='CLOUD_HISTORY_REQUIREMENTS_INVALID');
+      assert.equal(calls.some(c=>['marketSnapshot','createRun'].includes(c.operation)),false);
+    }
+  }
+});
+
+test('failed runs preserve bounded server error codes in string and object forms through resume',async()=>{
+  for(const [serverError,code] of [
+    ['ORDER_FLOW_DATA_UNAVAILABLE','ORDER_FLOW_DATA_UNAVAILABLE'],
+    [{code:'MARKET_HISTORY_INSUFFICIENT'},'MARKET_HISTORY_INSUFFICIENT'],
+    ['private upstream text with a token','CLOUD_ANALYSIS_FAILED'],
+    [{code:'x'.repeat(200)},'CLOUD_ANALYSIS_FAILED'],
+    [null,'CLOUD_ANALYSIS_FAILED'],
+  ]) {
+    const {runtime,calls}=setup(({operation,run})=>operation==='run'?{...run,state:'failed',error:serverError}:undefined);
+    await assert.rejects(runtime.run('moving-average-analysis',params),e=>e.code===code&&!!e.runId);
+    await assert.rejects(runtime.resume(params.analysisJobId),e=>e.code===code);
+    assert.equal(calls.filter(c=>c.operation==='createRun').length,1);
+  }
+});
+
 test('new runs require entry-mode and worker acceptance; legacy availability does not bypass either gate',async()=>{
   for(const [entryV2WorkerReady,entryModes,code] of [[false,['auto'],'ENTRY_WORKER_UNAVAILABLE'],[true,[],'ENTRY_POLICY_UNAVAILABLE']]) {
     const {runtime,calls}=setup(({operation})=>operation==='capabilities'?{windowsContract:'windows-v1',windowsWorkerReady:true,entryV2WorkerReady,

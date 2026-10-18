@@ -11,6 +11,7 @@ const LABELS = {
   pending: ["云端任务仍在处理中，可继续查看原任务", "The cloud task is still running; resume the original task to check it"],
   cloud_unavailable: ["云端策略服务暂不可用", "The cloud strategy service is unavailable"],
   cloud_unsupported: ["此策略或市场的云端版本尚未启用", "The cloud version of this strategy or market is not enabled yet"],
+  cloud_history_contract: ["云端行情要求与当前客户端不兼容，请更新客户端或稍后重试", "Cloud history requirements are incompatible with this client. Update the client or try again later", "雲端行情要求與目前客戶端不相容，請更新客戶端或稍後重試"],
   cancelled: ["本次分析已停止", "This analysis was stopped"],
   entitlement: ["暂时无法验证会员权益", "Membership verification is unavailable"],
   authentication: ["分析服务身份验证失败", "Analysis service authentication failed"],
@@ -23,6 +24,10 @@ const LABELS = {
   rate_limit: ["分析服务繁忙或触发限流", "The analysis service is busy or rate limited"],
   transport: ["分析服务连接中断", "The analysis service connection was interrupted"],
   data: ["当前行情数据不足或未通过校验", "Market data is insufficient or failed validation"],
+  history: ["云端可用 K 线不足以完成此策略分析，请扩大分析时段或稍后重试", "There are not enough cloud candles for this strategy. Expand the analysis range or try again later", "雲端可用 K 線不足以完成此策略分析，請擴大分析時段或稍後重試"],
+  order_flow_data: ["订单流成交或盘口数据暂不可用，请稍后重试", "Order flow trades or depth data are unavailable. Please try again later", "訂單流成交或訂單簿資料暫不可用，請稍後重試"],
+  order_flow_market: ["订单流分析仅支持币安永续市场，请切换市场后重试", "Order flow analysis requires a Binance perpetual market. Switch markets and try again", "訂單流分析僅支援幣安永續市場，請切換市場後重試"],
+  analysis_window: ["请求的分析时段超出云端可用行情，请缩短时段或调整周期", "The requested range exceeds available cloud history. Shorten the range or change the timeframe", "請求的分析時段超出雲端可用行情，請縮短時段或調整週期"],
   drawing: ["分析已完成，图表绘制未完成", "Analysis completed, but chart drawing did not complete"],
   analysis: ["分析流程未能完成", "The analysis could not complete"],
 };
@@ -38,6 +43,11 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   else if (["PREFERENCE_SAVE_PENDING", "TRADING_PREFERENCE_SAVE_PENDING"].includes(code)) category = "preferences_pending";
   else if (code === "CLOUD_CANCEL_PENDING") category = "cancellation_pending";
   else if (code === "CLOUD_RUN_PENDING") category = "pending";
+  else if (code === "MARKET_HISTORY_INSUFFICIENT") category = "history";
+  else if (code === "ORDER_FLOW_DATA_UNAVAILABLE") category = "order_flow_data";
+  else if (code === "ORDER_FLOW_MARKET_UNSUPPORTED") category = "order_flow_market";
+  else if (code === "CLOUD_HISTORY_REQUIREMENTS_INVALID") category = "cloud_history_contract";
+  else if (code === "ANALYSIS_WINDOW_INSUFFICIENT") category = "analysis_window";
   else if (code === "WINDOWS_WORKER_UNAVAILABLE") category = "cloud_unavailable";
   else if (["WINDOWS_STRATEGY_UNSUPPORTED", "CLOUD_MARKET_UNSUPPORTED"].includes(code)) category = "cloud_unsupported";
   else if (/CANCEL|ABORT/.test(code) || error?.name === "AbortError" || /用户停止|已取消|cancelled|canceled|replaced/iu.test(message)) category = "cancelled";
@@ -85,7 +95,9 @@ export function buildTradingStrategyFailureReport(strategy, error, { language = 
   }
   return english
     ? `${name}: ${failure.summary}. This strategy analysis did not complete, so no new execution plan was generated. Retry the selected strategy when available.`
-    : `${name}：${failure.summary}。本次策略分析未完成，未生成新的执行计划；恢复后可重新运行该策略。`;
+    : ["zh-Hant", "zh-TW"].includes(language)
+      ? `${name}：${failure.summary}。本次策略分析未完成，未產生新的執行計畫；恢復後可重新執行該策略。`
+      : `${name}：${failure.summary}。本次策略分析未完成，未生成新的执行计划；恢复后可重新运行该策略。`;
 }
 
 export async function settleTradingAnalysisDrawing({ commit, isActive, onFailure }) {

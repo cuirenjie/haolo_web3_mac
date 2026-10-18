@@ -1,4 +1,8 @@
 const messages = {
+  ORDER_FLOW_DATA_UNAVAILABLE: ['订单流成交或盘口数据暂不可用，请稍后重试。','Order flow trades or depth data are unavailable. Please try again later.','訂單流成交或訂單簿資料暫不可用，請稍後重試。'],
+  ORDER_FLOW_MARKET_UNSUPPORTED: ['订单流分析仅支持币安永续市场，请切换市场后重试。','Order flow analysis requires a Binance perpetual market. Switch markets and try again.','訂單流分析僅支援幣安永續市場，請切換市場後重試。'],
+  CLOUD_HISTORY_REQUIREMENTS_INVALID: ['云端行情要求与当前客户端不兼容，请更新客户端或稍后重试。','Cloud history requirements are incompatible with this client. Update the client or try again later.','雲端行情要求與目前客戶端不相容，請更新客戶端或稍後重試。'],
+  MARKET_HISTORY_INSUFFICIENT: ['云端可用 K 线不足以完成此策略分析，请扩大分析时段或稍后重试。','There are not enough cloud candles for this strategy. Expand the analysis range or try again later.','雲端可用 K 線不足以完成此策略分析，請擴大分析時段或稍後重試。'],
   ANALYSIS_QUEUE_FULL: ['云端分析队列已满，请稍后重试。','The cloud analysis queue is full. Please try again later.','雲端分析佇列已滿，請稍後重試。'],
   MODEL_OUTCOME_UNKNOWN: ['模型请求结果尚未确认，系统已停止自动重试以避免重复费用。原任务记录已保留。','The model request outcome is unknown. Automatic retries stopped to avoid duplicate charges. The original task record is retained.','模型請求結果尚未確認，系統已停止自動重試以避免重複費用。原任務記錄已保留。'],
   MODEL_SELECTION_INVALID: ['云端策略暂不支持所选模型，请选择其他模型。','Cloud strategies do not support the selected model. Select another model.','雲端策略暫不支援所選模型，請選擇其他模型。'],
