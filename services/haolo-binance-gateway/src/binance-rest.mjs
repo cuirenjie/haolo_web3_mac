@@ -63,10 +63,11 @@ function validateQuery(url) {
   if (symbols) {
     let parsed;
     try { parsed = JSON.parse(symbols); } catch {}
-    if (!Array.isArray(parsed) || parsed.length > 100 || parsed.some((entry) => !SYMBOL_PATTERN.test(String(entry)))) {
+    if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 100 || parsed.some((entry) => !SYMBOL_PATTERN.test(String(entry)))) {
       throw new MarketGatewayError("invalid symbols", { statusCode: 400, code: "INVALID_SYMBOLS" });
     }
   }
+  if (symbol && symbols) throw new MarketGatewayError("symbol and symbols cannot be combined", { statusCode: 400, code: "INVALID_SYMBOLS" });
   const interval = url.searchParams.get("interval") || url.searchParams.get("period");
   if (interval && !INTERVAL_PATTERN.test(interval)) throw new MarketGatewayError("invalid interval", { statusCode: 400, code: "INVALID_INTERVAL" });
   const limit = url.searchParams.get("limit");
@@ -123,7 +124,17 @@ export function publicMarketRequestWeight(marketType, pathname, url) {
     if (limit <= 1_000) return 5;
     return 10;
   }
-  if (pathname.endsWith("/ticker/24hr")) return hasSymbol ? 2 : 80;
+  if (pathname.endsWith("/ticker/24hr")) {
+    // Futures accepts only symbol; Spot also has tiered symbols batches.
+    if (marketType === "futures") return hasSymbol ? 1 : 40;
+    if (hasSymbol) return 2;
+    const symbols = url.searchParams.get("symbols");
+    if (symbols) {
+      const count = JSON.parse(symbols).length;
+      return count <= 20 ? 2 : count <= 100 ? 40 : 80;
+    }
+    return 80;
+  }
   if (pathname.endsWith("/exchangeInfo")) return marketType === "spot" ? 20 : 1;
   return 1;
 }
@@ -151,6 +162,15 @@ export function resolvePublicMarketRequest(requestUrl, config) {
   const allowed = marketType === "futures" ? FUTURES_PATHS : SPOT_PATHS;
   if (!allowed.has(pathname)) throw new MarketGatewayError("market route is not allowed", { statusCode: 404, code: "ROUTE_NOT_ALLOWED" });
   validateQuery(url);
+  let selectedSymbols = null;
+  if (pathname.endsWith("/ticker/24hr") && url.searchParams.has("symbols")) {
+    selectedSymbols = [...new Set(JSON.parse(url.searchParams.get("symbols")))].sort();
+    if (marketType === "futures") {
+      // Binance ignores a Futures symbols parameter and returns the catalogue.
+      // Share that actual upstream read; project each caller's subset afterwards.
+      url.searchParams.delete("symbols");
+    } else url.searchParams.set("symbols", JSON.stringify(selectedSymbols));
+  }
   const baseUrl = marketType === "futures" ? config.futuresRestBaseUrl : config.spotRestBaseUrl;
   const upstream = new URL(`${baseUrl}${pathname}`);
   upstream.search = url.search;
@@ -161,6 +181,7 @@ export function resolvePublicMarketRequest(requestUrl, config) {
     policy: cachePolicy(pathname, url),
     cacheKey: canonicalCacheKey(marketType, pathname, url.searchParams),
     weight: publicMarketRequestWeight(marketType, pathname, url),
+    selectedSymbols: marketType === "futures" ? selectedSymbols : null,
   });
 }
 
@@ -236,8 +257,15 @@ export class BinanceRestGateway {
     return Object.freeze({ until, status });
   }
 
-  async get(requestUrl, { beforeUpstream = null, freshness = "default" } = {}) {
+  async get(requestUrl, options = {}) {
     const route = resolvePublicMarketRequest(requestUrl, this.config);
+    const result = await this.getResolved(route, options);
+    if (!route.selectedSymbols || !Array.isArray(result.value)) return result;
+    const selected = new Set(route.selectedSymbols);
+    return Object.freeze({ ...result, value: result.value.filter((row) => selected.has(row?.symbol)) });
+  }
+
+  async getResolved(route, { beforeUpstream = null, freshness = "default" } = {}) {
     const usable = (entry) => entry?.fresh && (freshness !== "live" || Date.now() - entry.storedAt <= 1_000);
     const readCache = () => this.cache.get(route.cacheKey, Date.now(), { maxAgeMs: freshness === "live" ? 1_000 : Infinity });
     const cached = await readCache();

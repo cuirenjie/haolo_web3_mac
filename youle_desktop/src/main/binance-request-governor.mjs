@@ -110,7 +110,15 @@ export function binanceRequestWeight(input, init = {}) {
   if (/\/api\/v3\/depth$/.test(pathname)) return depthWeight(limit, false);
   if (/\/fapi\/v\d+\/klines$/.test(pathname)) return futuresKlineWeight(limit);
   if (/\/api\/v3\/klines$/.test(pathname)) return 2;
-  if (/\/(fapi\/v\d+|api\/v3)\/ticker\/24hr$/.test(pathname)) return hasSymbol ? 2 : 80;
+  if (/\/fapi\/v\d+\/ticker\/24hr$/.test(pathname)) return hasSymbol ? 1 : 40;
+  if (/\/api\/v3\/ticker\/24hr$/.test(pathname)) {
+    if (hasSymbol) return 2;
+    try {
+      const symbols = JSON.parse(url.searchParams.get("symbols") || "null");
+      if (Array.isArray(symbols) && symbols.length > 0) return symbols.length <= 20 ? 2 : symbols.length <= 100 ? 40 : 80;
+    } catch {}
+    return 80;
+  }
   if (pathname === "/fapi/v1/exchangeInfo" || pathname === "/api/v3/exchangeInfo") return futures ? 1 : 20;
   if (method !== "GET" && pathname.includes("/listenKey")) return 1;
   return 1;

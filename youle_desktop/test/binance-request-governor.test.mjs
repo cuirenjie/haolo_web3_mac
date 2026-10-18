@@ -24,6 +24,12 @@ test("Binance request weights cover expensive account and market endpoints", () 
   assert.equal(binanceRequestWeight("https://fapi.binance.com/fapi/v1/klines?limit=1500"), 10);
   assert.equal(binanceRequestWeight("https://fapi.binance.com/fapi/v1/depth?limit=1000"), 20);
   assert.equal(binanceRequestWeight("https://api.binance.com/api/v3/ticker/24hr"), 80);
+  assert.equal(binanceRequestWeight("https://fapi.binance.com/fapi/v1/ticker/24hr"), 40);
+  assert.equal(binanceRequestWeight("https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=BTCUSDT"), 1);
+  for (const count of [1,20,21,100]) {
+    const symbols=encodeURIComponent(JSON.stringify(Array.from({length:count},(_,i)=>`COIN${i}USDT`)));
+    assert.equal(binanceRequestWeight(`https://api.binance.com/api/v3/ticker/24hr?symbols=${symbols}`),count<=20?2:40);
+  }
 });
 
 test("identical public GETs are coalesced and return independently readable responses", async () => {
@@ -287,7 +293,7 @@ test("a queued renderer abort removes stale work before it consumes concurrency"
   await first;
   assert.deepEqual(started, ["FIRST"]);
   assert.equal(governor.snapshot().queued, 0);
-  assert.equal(governor.snapshot().futuresWeight, 2, "aborted queued work must release its unused weight reservation");
+  assert.equal(governor.snapshot().futuresWeight, 1, "aborted queued work must release its unused weight reservation");
 });
 
 test("Retry-After supports seconds and HTTP dates", () => {
