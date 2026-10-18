@@ -34,7 +34,7 @@ test("account navigation uses the same full-width workspace layout as strategy",
   assert.match(source, /const accountActive = state\.activeView === "account"/);
   assert.match(source, /tradingExpertLayout \? "trading-expert-layout" : ""/);
   assert.doesNotMatch(source, /tradingExpertPanelLayout/);
-  assert.match(source, /workspaceHasConversationList \? renderLeftPanelToggle\(\) : ""/);
+  assert.match(source, /workspaceHasConversationList && !tradingExpertLayout \? renderLeftPanelToggle\(\) : ""/);
   assert.doesNotMatch(
     source.slice(source.indexOf("function renderWindowControls"), source.indexOf("function renderLeftPanelToggle")),
     /renderLeftPanelToggle\(\)/,

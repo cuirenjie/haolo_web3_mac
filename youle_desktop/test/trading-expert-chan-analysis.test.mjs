@@ -403,17 +403,7 @@ test("Trading Expert routes @策略:缠论 through model JSON or controlled char
   assert.match(catalogSource, /buildTradingChanExpertPrompt/);
   assert.match(marketSource, /chan: \(request:[\s\S]{0,180}runTradingExpertChanConversation/);
   assert.match(marketSource, /selectTradingAnalysisMarket\(this\.markets,[\s\S]{0,240}explicitSymbol: Boolean\(request\.symbol\)/);
-  assert.match(marketSource, /selectTradingAnalysisInterval\(\{[\s\S]{0,180}currentInterval: this\.activeInterval/);
-  assert.match(marketSource, /targetInterval !== this\.loadedInterval[\s\S]{0,520}this\.activeInterval = targetInterval[\s\S]{0,420}await this\.restartMarketData\(\)/);
-  assert.match(marketSource, /this\.loadedInterval !== targetInterval[\s\S]{0,240}行情加载失败/);
-  assert.match(marketSource, /interval: job\.interval,[\s\S]{0,420}candles: candles\.map/);
-  assert.match(marketSource, /当前画布可见的 \$\{analysisCandles\.length\} 根/);
-  assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles, visibleRange\)/);
-  assert.match(marketSource, /runTradingAnalysisWithAutoExpansion\(\{/);
-  assert.match(marketSource, /insufficientDataCode: TRADING_CHAN_INSUFFICIENT_DATA_CODE/);
-  assert.match(marketSource, /focusChanAnalysisCandles[\s\S]*?timeScale\(\)\.setVisibleRange\(\{[\s\S]*?from: first\.time[\s\S]*?to: last\.time/);
-  assert.match(marketSource, /当前 \$\{event\.fromCount\} 根 K 线不足，正在自动扩大画布到 \$\{event\.toCount\} 根并继续缠论分析/);
-  assert.match(marketSource, /自动加载更早历史，最多检查 \$\{event\.maxCandleCount\} 根/);
+  assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles,\s*visibleRange\)/);
   assert.doesNotMatch(marketSource, /所选范围"\}仅有 \$\{analysisCandles\.length\} 根 K 线，不足以形成可靠的缠论笔结构/);
   assert.match(marketSource, /playAiDrawingPatch/);
   assert.equal(JSON.parse(strategySource).dataRequirements.candles.preferredCount, 600);
@@ -681,10 +671,7 @@ test("Chan request router accepts only fixed model JSON and preserves unspecifie
   assert.match(routingPrompt, /所有行情参数为 null/);
 
   const expertPrompt = buildTradingChanExpertPrompt("附件：chart.png");
-  assert.match(expertPrompt, /专业缠论交易专家/);
-  assert.match(expertPrompt, /认真查看附件中的盘面/);
-  assert.ok(expertPrompt.includes(TRADING_CHAN_EXPERT_PROMPT_START));
-  assert.ok(expertPrompt.includes(TRADING_CHAN_EXPERT_PROMPT_END));
+  assert.equal(expertPrompt,"附件：chart.png");
   assert.ok(
     expertPrompt.indexOf("附件：chart.png") > expertPrompt.indexOf(TRADING_CHAN_EXPERT_PROMPT_END),
     "the visible user content must remain outside the redacted internal prompt block",
@@ -704,4 +691,12 @@ test("Trading Expert redacts its internal Chan prompt from visible message bubbl
     rendererSource,
     /cleanVisibleMessageText\(text: string\)[\s\S]{0,180}stripInternalTurnGroupMemoryText\(text\)/,
   );
+});
+
+test('cloud chan uses server evidence and persists both panes',async()=>{
+  const {setup}=await import('./helpers/cloud-renderer-harness.mjs');
+  const s=setup();await s.workspace.runChanConversation({instruction:'Analyze this market',sourceThreadId:'origin'},"chan");
+  assert.equal(s.calls.length,2);
+  for(const request of s.calls){assert.equal(request.strategyId,"chan");assert.equal(request.sourceThreadId,'origin');for(const key of ['candles','contextCandles','comparisonMarkets','orderFlow'])assert.equal(request[key],undefined);}
+  assert.deepEqual(s.drawings.map(x=>x.pane),[0,1]);
 });

@@ -553,48 +553,17 @@ test("current-market analysis rejects a cache whose latest candle is days behind
 });
 
 test("all strategy chart runners refresh stale current snapshots before analysis", async () => {
-  const source = await readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
-  for (const method of [
-    "runGeneralConversation",
-    "runChanConversation",
-    "runWaveConversation",
-    "runWyckoffConversation",
-    "runOrderFlowConversation",
-  ]) {
-    const start = source.indexOf(`  async ${method}(`);
-    assert.notEqual(start, -1, `${method} must exist`);
-    const next = source.indexOf("\n  async ", start + 8);
-    const block = source.slice(start, next === -1 ? source.length : next);
-    assert.match(block, /tradingAnalysisShouldForceCurrentRefresh/);
-    assert.match(block, /refreshCurrentMarketSnapshotForAnalysis/);
+  const {setup}=await import('./helpers/cloud-renderer-harness.mjs');
+  for(const method of ['runGeneralConversation','runChanConversation','runWaveConversation','runWyckoffConversation','runOrderFlowConversation']){
+    const s=setup();await s.workspace[method]({instruction:'analyze'});assert.equal(s.calls.length,2);assert.ok(s.calls.every(call=>!('candles' in call)));
   }
 });
 
 test("current Binance strategy windows ignore an old chart viewport", async () => {
-  const source = await readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
-  for (const method of [
-    "runGeneralConversation",
-    "runChanConversation",
-    "runWaveConversation",
-    "runWyckoffConversation",
-    "runOrderFlowConversation",
-  ]) {
-    const start = source.indexOf(`  async ${method}(`);
-    const next = source.indexOf("\n  async ", start + 8);
-    const block = source.slice(start, next === -1 ? source.length : next);
-    assert.match(block, /useCurrentMarketTail = targetMarket\.provider === "binance" && !requestedLookbackMs/);
-    assert.match(block, /useCurrentMarketTail[\s\S]*?targetCandles\.slice\(-|useCurrentMarketTail[\s\S]*?this\.candles\.slice\(-/);
-  }
-  const refresh = source.slice(
-    source.indexOf("  private async refreshCurrentMarketSnapshotForAnalysis("),
-    source.indexOf("\n  private commitMarketSnapshot(", source.indexOf("  private async refreshCurrentMarketSnapshotForAnalysis(")),
-  );
-  assert.match(refresh, /if \(targetMarket\.provider === "binance"\)/);
-  assert.match(refresh, /applyTradingLivePriceToBatch\(candleBatch, livePrice/);
-  const splitPane = await readFile(new URL("../src/renderer/trading-expert-split-pane.ts", import.meta.url), "utf8");
-  assert.match(splitPane, /currentMarketAnalysis = this\.market\.provider === "binance" && !lookbackMs/);
-  assert.match(splitPane, /currentMarketAnalysis[\s\S]*?await this\.reload\(true\)/);
-  assert.match(source, /fetchTradingCandles\([\s\S]*?forceFresh: true/);
+  const {cloudAnalysisWindow}=await import('../src/renderer/cloud-analysis-window.ts');
+  const old=Array.from({length:120},(_,i)=>({time:1600000000+i*60}));
+  assert.deepEqual(cloudAnalysisWindow('wave',old,600),{analysisWindowCount:600});
+  assert.equal(cloudAnalysisWindow('vpvr-analysis',old).visibleRange.visibleFrom,1600000000000);
 });
 
 test("cached Binance history rejects expired forming fragments and backfills from the earliest one", async () => {

@@ -561,8 +561,9 @@ test("main process owns the bridge, injects risk memory, and keeps encrypted mem
   const preload = fs.readFileSync(new URL("../src/main/preload.mjs", import.meta.url), "utf8");
   const transfer = fs.readFileSync(new URL("../src/main/user-data-transfer.mjs", import.meta.url), "utf8");
   assert.match(main, /new PersonalContextMcpBridge/);
-  assert.match(main, /getPersonalMemoryStore\(\)\.tradingRiskProfile/);
   assert.match(main, /personalContext:getTradingPreferences/);
+  assert.match(main, /cloudTradingPreferences\.effective\(\)/);
+  assert.match(main, /getCloudStrategyRuntime\(\)\.run/);
   assert.match(main, /personalContext:saveTradingPreferences/);
   assert.match(main, /buildPersonalTradingPreferenceDeveloperInstructions/);
   assert.match(main, /Apply these preferences to every trading-related answer, position review, trading plan, trading Skill, and strategy result/);
@@ -574,13 +575,10 @@ test("main process owns the bridge, injects risk memory, and keeps encrypted mem
   assert.match(main, /explicit value may be higher than 3%; preserve it exactly/);
   assert.match(main, /BLOCKING RISK-PREFERENCE CONFLICT/);
   assert.match(main, /Preferred ordinary take-profit distance/);
-  assert.match(main, /tradingStrategyParamsWithReadOnlyBinanceAccount\(personalizedParams\)/);
   assert.match(main, /getAccountService: getBinanceAccountService/);
   assert.match(main, /binanceAccountService = null;[\s\S]*personalContextService = null;/);
   assert.match(main, /loadBinanceAccountContext: loadTradingStrategyReadOnlyBinanceAccountContext/);
   assert.match(main, /snapshot\(owner\.ownerId, \{ force: true, live: true \}\)/);
-  assert.match(main, /coordinator\.run\(strategyId, executionParams/);
-  assert.match(main, /runTradingPriceActionAnalysisPipeline\([\s\S]*tradingStrategyParamsWithReadOnlyBinanceAccount\(personalizedParams\)/);
   assert.match(preload, /getTradingPreferenceProfile: \(\) => ipcRenderer\.invoke\("personalContext:getTradingPreferences"\)/);
   assert.match(preload, /saveTradingPreferenceProfile: \(params\) => ipcRenderer\.invoke\("personalContext:saveTradingPreferences", params\)/);
   assert.match(main, /withShutdownTimeout\("Personal context MCP bridge", personalContextMcpBridge\.stop\(\)\)/);

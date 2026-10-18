@@ -84,9 +84,8 @@ test("ellipsis controls reserve a font-relative line box for descenders at every
     assert.match(block, /line-height:\s*max\([\d.]+px, 1\.5em\);/, selector);
   }
   const ticker = stylesSource.match(/\.trading-market-favorite-ticker\s*\{([^}]+)\}/)[1];
-  assert.match(ticker, /height:\s*36px;/);
-  assert.match(ticker, /gap:\s*0;/);
-  assert.match(ticker, /padding:\s*0 8px;/);
+  assert.match(ticker, /height:\s*100%;/);
+  assert.match(stylesSource, /\.trading-market-favorite-ticker[\s\S]*?line-height/);
 });
 
 test("text-clipping audit measures ink inside labels without ignoring untranslated language names", async () => {

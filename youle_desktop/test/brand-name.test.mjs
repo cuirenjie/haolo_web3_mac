@@ -37,7 +37,9 @@ test("all client-visible branding uses HaoLo", async () => {
   assert.equal(packageJson.build.nsis.shortcutName, "HaoLo");
   assert.match(mainSource, /const YOULE_DISPLAY_NAME = "HaoLo";/);
   for (const file of files) {
-    const source = await readFile(file, "utf8");
+    const raw = await readFile(file, "utf8");
+    // Old translation lookup keys are retained for migration; displayed values use HaoLo.
+    const source = /app-language-(?:en|zh-tw)-generated\.mjs$/.test(file) ? raw.replace(/^\s*"[^"\n]+":/gm, "") : raw;
     assert.equal(source.includes(legacyChineseBrand), false, `legacy brand remains in ${file}`);
   }
 });

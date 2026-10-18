@@ -66,7 +66,8 @@ test("tool runtime manager fills missing shared-cache capabilities from system t
   assert.equal(status.capabilities.node, systemNode);
 });
 
-test("tool runtime manager installs, verifies, activates, and repairs a versioned private package", async (t) => {
+for(const privateAsset of [null,'resources/trading-strategies/builtins/wave/SKILL.md','src/main/trading-analysis/wave-engine.mjs'])
+test(`tool runtime package boundary: ${privateAsset || 'install, verify and repair generic tools'}`, async (t) => {
   const fixture = await managerFixture(t);
   const packageId = "haolo-core";
   const version = "1.2.3";
@@ -77,6 +78,7 @@ test("tool runtime manager installs, verifies, activates, and repairs a versione
     { path: nodeRelative, content: Buffer.from("private-node") },
     { path: "node/node_modules/office/index.js", content: Buffer.from("export default true;") },
   ];
+  if(privateAsset)toolFiles.push({path:privateAsset,content:Buffer.from('controlled private-asset fixture')});
   const manifest = {
     schemaVersion: 1,
     id: packageId,
@@ -130,6 +132,12 @@ test("tool runtime manager installs, verifies, activates, and repairs a versione
   });
 
   await manager.initialize();
+  if(privateAsset) {
+    await assert.rejects(manager.prewarm(),{code:'HAOLO_TOOL_RUNTIME_STRATEGY_ASSET_REJECTED'});
+    assert.equal(fs.existsSync(path.join(fixture.managerRoot,'current.json')),false);
+    assert.equal(fs.existsSync(path.join(fixture.managerRoot,'packages',packageId,version)),false);
+    return;
+  }
   const installed = await manager.prewarm();
   const packageRoot = path.join(fixture.managerRoot, "packages", packageId, version);
   const pythonPath = path.join(packageRoot, ...pythonRelative.split("/"));

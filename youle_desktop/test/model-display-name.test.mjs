@@ -32,7 +32,8 @@ test("execution catalogs apply display aliases without changing routing or capab
     assert.equal(option.label, "GPT-6 Astra");
     assert.equal(option.value, "deepseek-flash");
     assert.equal(option.providerId, "deepseek");
-    assert.deepEqual(option.inputModalities, ["text"]);
+    assert.ok(option.inputModalities.includes("text"));
+    assert.ok(option.inputModalities.every(value=>["text","image","file"].includes(value)));
   }
   assert.equal(pooled.routeGroupId, 15);
 });

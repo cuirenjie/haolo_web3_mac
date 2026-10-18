@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { withTradingPreferenceDefaults } from "./trading-preference-defaults.mjs";
-import { readTradingPreferenceForm } from "./trading-preference-compiler.mjs";
+import { readTradingPreferenceForm } from "./trading-preference-form.mjs";
 
 const STORE_VERSION = 1;
 const MEMORY_SCHEMA_VERSION = 1;

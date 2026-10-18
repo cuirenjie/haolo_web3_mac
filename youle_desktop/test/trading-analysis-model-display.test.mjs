@@ -40,7 +40,7 @@ test("all chart analysis paths share the same theme-neutral display boundary", a
     assert.ok(start >= 0, method);
     const end = market.indexOf("\n  async ", start + 1);
     const body = market.slice(start, end < 0 ? undefined : end);
-    assert.match(body, /const modelName = tradingAnalysisModelDisplayName\(response\.model, job\.language\)/, method);
+    assert.match(body, method === "runGeneralConversation" ? /const modelName = tradingAnalysisModelDisplayName\(response\.model, job\.language\)/ : /return this\.runGeneralConversation/, method);
   }
   assert.match(market, /modelName: tradingAnalysisModelDisplayName\(response\.model, options\.job\.language\)/);
   // The alias is plain text on the existing shared light/dark message surface.

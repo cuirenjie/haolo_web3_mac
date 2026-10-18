@@ -520,12 +520,7 @@ test("order-flow request routing preserves the current canvas unless fields are 
   assert.match(routingPrompt, /不得根据常见默认值、上下文猜测或补全 BTC、日线、时间范围/);
 
   const expertPrompt = buildTradingOrderFlowExpertPrompt("附件：order-flow.png");
-  assert.match(expertPrompt, /不得把普通 OHLCV、K 线形态或截图猜测冒充真实订单流/);
-  assert.match(expertPrompt, /盘面只标记最重要的趋势转折、主要支撑\/压力区/);
-  assert.match(expertPrompt, /上破哪个确定性价位后偏多、跌破哪个价位后偏空/);
-  assert.ok(expertPrompt.includes(TRADING_ORDER_FLOW_EXPERT_PROMPT_START));
-  assert.ok(expertPrompt.includes(TRADING_ORDER_FLOW_EXPERT_PROMPT_END));
-  assert.ok(expertPrompt.indexOf("附件：order-flow.png") > expertPrompt.indexOf(TRADING_ORDER_FLOW_EXPERT_PROMPT_END));
+  assert.equal(expertPrompt,"附件：order-flow.png");
 });
 
 test("Trading Expert wires @策略:订单流 through IPC, real Binance inputs, playback, and both themes", async () => {
@@ -580,11 +575,7 @@ test("Trading Expert wires @策略:订单流 through IPC, real Binance inputs, p
   assert.match(marketSource, /trade\.m === true \? "sell" as const : "buy" as const/);
   assert.match(marketSource, /liquidations: "unavailable"/);
   assert.match(marketSource, /runOrderFlowConversation/);
-  assert.match(marketSource, /runTradingAnalysisWithAutoExpansion\(\{/);
-  assert.match(marketSource, /focusOrderFlowAnalysisCandles[\s\S]*timeScale\(\)\.setVisibleRange/);
   assert.doesNotMatch(marketSource, /所选范围"\}仅有 \$\{analysisCandles\.length\} 根 K 线，不足以提供订单流所需的价格背景/);
-  assert.match(marketSource, /只绘制最关键的转折、支撑\/压力、流动性与成交证据/);
-  assert.match(marketSource, /整理新手可读的上破、跌破、回踩与等待方案/);
   assert.match(marketSource, /playAiDrawingPatch/);
   assert.match(drawingSource, /data-ai-drawing-content/);
   assert.match(playbackSource, /"chan" \| "order-flow"/);
@@ -595,4 +586,12 @@ test("Trading Expert wires @策略:订单流 through IPC, real Binance inputs, p
     stylesSource,
     /html\[data-theme="dark"\] \.trading-expert-market[\s\S]*?--trading-ai-order-flow-buy: #52dc88;[\s\S]*?--trading-ai-order-flow-sell: #ff718e;/,
   );
+});
+
+test('cloud order-flow uses server evidence and persists both panes',async()=>{
+  const {setup}=await import('./helpers/cloud-renderer-harness.mjs');
+  const s=setup();await s.workspace.runOrderFlowConversation({instruction:'Analyze this market',sourceThreadId:'origin'},"order-flow");
+  assert.equal(s.calls.length,2);
+  for(const request of s.calls){assert.equal(request.strategyId,"order-flow");assert.equal(request.sourceThreadId,'origin');for(const key of ['candles','contextCandles','comparisonMarkets','orderFlow'])assert.equal(request[key],undefined);}
+  assert.deepEqual(s.drawings.map(x=>x.pane),[0,1]);
 });

@@ -929,7 +929,7 @@ test("Trading Expert shows its mention catalog with left-opening submenus", asyn
   assert.match(source, /label: "指标",[\s\S]*?"趋势带",[\s\S]*?tradingIndicatorMentionOptions\(\)\.filter/);
   assert.match(source, /label: "预警", options: \[\]/);
   assert.doesNotMatch(source, /label: "知识库", options: \[\]|label: "自定义指标", options:/);
-  assert.match(catalog, /import\.meta\.glob<TradingStrategyPublicManifest>/);
+  assert.match(catalog, /OFFICIAL_TRADING_CATALOG/);
   assert.match(catalog, /sort\(\(left, right\) => left\.display\.sortOrder - right\.display\.sortOrder/);
   assert.match(menuBlock, /class="composer-mention-root trading-expert-mention-root"/);
   assert.match(menuBlock, /class="composer-mention-submenu trading-expert-mention-submenu"/);

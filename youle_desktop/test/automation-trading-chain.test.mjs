@@ -180,8 +180,8 @@ test("scheduled and immediate auto-task triggers converge on the trading worker"
   assert.match(mainSource, /tradingStrategyParamsWithReadOnlyBinanceAccount/);
   assert.match(mainSource, /tradingAutomationContextCandles/);
   assert.match(mainSource, /tradingAutomationComparisonMarkets/);
-  assert.match(mainSource, /coordinator\.run\([\s\S]*?tradingStrategyParamsWithReadOnlyBinanceAccount/);
-  assert.match(mainSource, /runTradingPriceActionAnalysisPipeline/);
+  assert.match(mainSource, /await getCloudStrategyRuntime\(\)\.run\(\s*strategyId/);
+  assert.doesNotMatch(mainSource, /runTradingPriceActionAnalysisPipeline/);
   assert.match(mainSource, /trading-analysis\.json/);
 
   assert.match(rendererSource, /tradingContext: currentAutoTaskTradingContext\(\) \|\| existing\?\.tradingContext \|\| null/);

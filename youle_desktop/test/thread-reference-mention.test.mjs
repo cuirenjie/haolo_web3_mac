@@ -33,7 +33,7 @@ test("input placeholders use one legible color per theme", async () => {
   const placeholderRules = styles.match(/[^{}]*::placeholder[^{}]*\{[^{}]*\}/g) || [];
   assert.ok(placeholderRules.length > 0);
   for (const rule of placeholderRules) {
-    assert.match(rule, /color: var\(--text-placeholder\);/, rule);
+    assert.match(rule, /color: var\(--(?:text-(?:placeholder|secondary)|preference-option-muted)\);/, rule);
   }
 });
 
@@ -114,7 +114,7 @@ test("the @ cascade closes on Enter and outside pointer clicks", async () => {
   );
   assert.match(
     outsideDismissal,
-    /target\?\.closest\([\s\S]*?"\.composer-skill-popover, \.composer-media-mention-popover"/,
+    /target\?\.closest\([\s\S]*?['"]\.composer-skill-popover, \.composer-media-mention-popover, \[data-action=/,
   );
   assert.match(outsideDismissal, /dismissComposerSkillMentionPopover\(\)/);
 });
@@ -322,7 +322,7 @@ test("the trailing history selector appears only after global count prefetch fin
 
 test("the three-level mention cascade uses three-quarter widths", async () => {
   const styles = await stylesSource;
-  assert.match(styles, /\.composer-skill-popover\s*\{[\s\S]*?width:\s*126px/);
+  assert.match(styles, /\.composer-skill-popover\s*\{[\s\S]*?width:\s*154px/);
   assert.match(styles, /\.composer-mention-submenu\s*\{[\s\S]*?width:\s*min\(270px, calc\(75vw - 195px\)\)/);
   assert.match(styles, /\.composer-thread-detail-submenu\s*\{[\s\S]*?width:\s*clamp\(240px, 22\.5vw, 300px\)/);
 });

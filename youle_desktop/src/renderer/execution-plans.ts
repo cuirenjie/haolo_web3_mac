@@ -1,6 +1,8 @@
+import {normalizeCloudReports, cloudPlanCard, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
 export type ExecutionPlanCandidate = {
   title: string;
   content: string;
+  cloudReport?: CloudTradingReport;
 };
 
 export type ExecutionPlanTextPartition = {
@@ -630,6 +632,8 @@ export function executionPlanTextPartition(value: unknown): ExecutionPlanTextPar
 function savedExecutionPlanFromUnknown(value: unknown): SavedExecutionPlan | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Partial<SavedExecutionPlan>;
+  let cloudReport:CloudTradingReport|undefined;
+  try {cloudReport=record.cloudReport?normalizeCloudReports([record.cloudReport])[0]:undefined;} catch {return null;}
   const title = String(record.title || "").trim().slice(0, 120);
   const content = String(record.content || "").trim().slice(0, MAX_PLAN_CONTENT_LENGTH);
   const narrowedCandidate = executionPlanCandidateFromText(content);
@@ -651,12 +655,13 @@ function savedExecutionPlanFromUnknown(value: unknown): SavedExecutionPlan | nul
   return {
     schemaVersion: 2,
     id,
-    title: executionPlanCardTitle({
+    title: cloudReport ? cloudPlanCard(cloudReport)?.title || title : executionPlanCardTitle({
       fallbackTitle: title || narrowedCandidate?.title,
       sourceTitle,
       sourceText: content,
     }),
-    content: narrowedCandidate?.content || content,
+    content: cloudReport ? cloudPlanCard(cloudReport)?.content || content : narrowedCandidate?.content || content,
+    ...(cloudReport?{cloudReport}:{}),
     sourceThreadId,
     sourceMessageId,
     ...(sourcePlanKey ? { sourcePlanKey } : {}),
@@ -709,10 +714,11 @@ export function createSavedExecutionPlan(input: {
   createdAt?: string;
 }): SavedExecutionPlan {
   const createdAt = input.createdAt || new Date().toISOString();
+  const cloudReport=input.candidate.cloudReport?normalizeCloudReports([input.candidate.cloudReport])[0]:undefined;
   return {
     schemaVersion: 2,
-    id: `execution-plan-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
-    title: executionPlanCardTitle({
+    id: cloudReport?.executionPlan.planId || `execution-plan-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+    title: cloudReport ? input.candidate.title : executionPlanCardTitle({
       fallbackTitle: input.candidate.title,
       analysisLabel: input.analysisLabel,
       sourceTitle: input.sourceTitle,
@@ -720,6 +726,7 @@ export function createSavedExecutionPlan(input: {
       language: input.language,
     }),
     content: input.candidate.content,
+    ...(cloudReport?{cloudReport}:{}),
     sourceThreadId: input.sourceThreadId,
     sourceMessageId: input.sourceMessageId,
     ...(String(input.sourcePlanKey || "").trim() ? { sourcePlanKey: String(input.sourcePlanKey).trim().slice(0, 120) } : {}),

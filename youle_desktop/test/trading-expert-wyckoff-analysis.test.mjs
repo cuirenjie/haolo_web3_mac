@@ -288,8 +288,6 @@ test("Drawing Gateway rejects cross-theory Wyckoff color injection", () => {
 
 test("Wyckoff request routing uses fixed JSON and inherits the active chart when parameters are absent", () => {
   const prompt = buildWyckoffRequestRoutingPrompt({ text: "@策略:威科夫", hasImageAttachment: false });
-  assert.match(prompt, /只负责分类/);
-  assert.match(prompt, /未指定参数一律输出 null/);
   const routed = normalizeWyckoffRequestRoutingModelResponse(JSON.stringify({
     schemaVersion: 1,
     mode: "chart-analysis",
@@ -332,10 +330,7 @@ test("Wyckoff mention and expert prompt preserve the actual user message", () =>
   assert.equal(tradingWyckoffMentioned("@策略:威科夫 帮我分析"), true);
   assert.equal(stripTradingWyckoffMention("@策略：威科夫 看 ETH"), "看 ETH");
   const prompt = buildTradingWyckoffExpertPrompt("用户实际问题");
-  assert.match(prompt, /横盘本身不等于吸筹或派发/);
-  assert.match(prompt, /不得为了凑完整 A-E 阶段强行命名/);
-  assert.match(prompt, /站上哪个确定性价格后偏多/);
-  assert.ok(prompt.endsWith("用户实际问题"));
+  assert.equal(prompt,"用户实际问题");
 });
 
 test("Trading Expert wires Wyckoff through IPC, persistent playback, and paired themes", async () => {
@@ -360,11 +355,7 @@ test("Trading Expert wires Wyckoff through IPC, persistent playback, and paired 
   assert.match(rendererSource, /runTradingStrategyChartRequest\(threadId, tradingStrategyAtSend/);
   assert.match(catalogSource, /buildTradingWyckoffExpertPrompt/);
   assert.match(marketSource, /runWyckoffConversation/);
-  assert.match(marketSource, /runTradingAnalysisWithAutoExpansion\(\{/);
-  assert.match(marketSource, /TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE/);
-  assert.match(marketSource, /focusWyckoffAnalysisCandles[\s\S]*timeScale\(\)\.setVisibleRange/);
   assert.doesNotMatch(marketSource, /所选范围"\}仅有 \$\{analysisCandles\.length\} 根 K 线，不足以识别可靠的威科夫交易区间/);
-  assert.match(marketSource, /识别交易区间、量价努力结果、A–E 阶段和关键事件/);
   assert.match(marketSource, /playAiDrawingPatch/);
   assert.match(drawingSource, /drawing\.theory === "wyckoff"/);
   assert.match(drawingSource, /ai\/wyckoff/);
@@ -377,4 +368,12 @@ test("Trading Expert wires Wyckoff through IPC, persistent playback, and paired 
     /html\[data-theme="dark"\] \.trading-expert-market[\s\S]*?--trading-ai-wyckoff-range: #c9a875;[\s\S]*?--trading-ai-wyckoff-demand: #52dc88;/,
   );
   assert.match(drawingSource, /persistAiDrawings/);
+});
+
+test('cloud wyckoff uses server evidence and persists both panes',async()=>{
+  const {setup}=await import('./helpers/cloud-renderer-harness.mjs');
+  const s=setup();await s.workspace.runWyckoffConversation({instruction:'Analyze this market',sourceThreadId:'origin'},"wyckoff");
+  assert.equal(s.calls.length,2);
+  for(const request of s.calls){assert.equal(request.strategyId,"wyckoff");assert.equal(request.sourceThreadId,'origin');for(const key of ['candles','contextCandles','comparisonMarkets','orderFlow'])assert.equal(request[key],undefined);}
+  assert.deepEqual(s.drawings.map(x=>x.pane),[0,1]);
 });

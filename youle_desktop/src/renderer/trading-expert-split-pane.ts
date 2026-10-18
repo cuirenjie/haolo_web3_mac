@@ -1,3 +1,5 @@
+import {chartTickLabel} from "./trading-chart-time.ts";
+import {normalizeTradingIndicatorAiDrawingPatch,storeCloudIndicatorPatch,loadCloudIndicatorPatch,migrateCloudIndicatorPatches,clearIndicatorAnalysisRuntime,renderIndicatorAnalysisPatch,type IndicatorAnalysisRuntime} from './cloud-indicator-drawings.ts';
 import {
   BarSeries,
   CandlestickSeries,
@@ -37,7 +39,7 @@ import {
   renderTradingDrawingLayer,
   type TradingDrawingSharedToolState,
 } from "./trading-expert-drawing.ts";
-import type { TradingAiDrawingPatch, TradingAiPlaybackPhase } from "./trading-expert-ai-playback.ts";
+import type { TradingAiDrawingPatch, TradingIndicatorAiDrawingPatch, TradingAiPlaybackPhase } from "./trading-expert-ai-playback.ts";
 import {
   TRADING_VOLUME_PROFILE_WHEEL_TRACKING_FRAMES,
   calculateTradingVolumeProfile,
@@ -164,7 +166,7 @@ interface SplitPaneIndicatorSeriesRuntime {
   latestValue: number;
 }
 
-interface SplitPaneIndicatorRuntime {
+interface SplitPaneIndicatorRuntime extends IndicatorAnalysisRuntime {
   id: TradingIndicatorId;
   pane: any;
   legend: HTMLElement | null;
@@ -396,6 +398,7 @@ export class TradingExpertSplitPane {
   private mainIndicatorSeries = new Map<TradingSplitPaneMainIndicatorId, any[]>();
   private mainIndicatorValues = new Map<TradingSplitPaneMainIndicatorId, number[][]>();
   private tdIndicatorDirections: Array<SplitPaneTdSignal["direction"] | null> = [];
+  private drawingStorageSessionId: string;
   private indicatorPanes = new Map<TradingIndicatorId, SplitPaneIndicatorRuntime>();
   private rebuildingIndicatorPanes = false;
   private drawingController: TradingDrawingController | null = null;
@@ -427,6 +430,7 @@ export class TradingExpertSplitPane {
 
   constructor(options: TradingSplitPaneOptions) {
     this.host = options.host;
+    this.drawingStorageSessionId=options.drawing.storageSessionId;
     this.paneIndex = options.paneIndex;
     this.market = options.market;
     this.interval = options.interval;
@@ -970,6 +974,7 @@ export class TradingExpertSplitPane {
         borderColor: this.themeName === "dark" ? "#1a2437" : "#e3e8ef",
         timeVisible: true,
         secondsVisible: false,
+        tickMarkFormatter: (timeValue: any) => chartTickLabel(Number(timeValue), this.interval),
         rightBarStaysOnScroll: this.settings.scaleAnchor === "right",
       },
       ...TRADING_CHART_NAVIGATION_OPTIONS,
@@ -1335,6 +1340,7 @@ export class TradingExpertSplitPane {
     this.rebuildingIndicatorPanes = true;
     try {
       this.indicatorPanes.forEach((runtime) => {
+        clearIndicatorAnalysisRuntime(this.chart,runtime);
         runtime.series.forEach((series) => this.chart?.removeSeries(series.api));
       });
       const panes = this.chart.panes();
@@ -1367,7 +1373,7 @@ export class TradingExpertSplitPane {
     if (!visibleSeries.length) return;
     const pane = this.chart.addPane(false);
     pane.setStretchFactor(1);
-    const runtime: SplitPaneIndicatorRuntime = { id, pane, legend: null, series: [] };
+    const runtime: SplitPaneIndicatorRuntime = { id, pane, legend: null, series: [], analysisSeries:[], analysisMarkers:null, analysisSignature:"" };
     visibleSeries.forEach((descriptor) => {
       const style = current.series[descriptor.key];
       const common = {
@@ -1417,6 +1423,7 @@ export class TradingExpertSplitPane {
     });
     runtime.legend = this.createIndicatorLegend(result, current);
     this.indicatorPanes.set(id, runtime);
+    this.renderCloudIndicatorPatch(id);
   }
 
   private createIndicatorLegend(
@@ -1475,6 +1482,7 @@ export class TradingExpertSplitPane {
         }
       });
     });
+    this.indicatorPanes.forEach((_runtime,id)=>this.renderCloudIndicatorPatch(id));
     this.updateIndicatorLegends();
   }
 
@@ -1541,6 +1549,7 @@ export class TradingExpertSplitPane {
     const scaleModeChanged = this.chart?.priceScale("right", 0).options().mode !== priceScaleMode(settings);
     this.settings = cloneTradingChartSettings(settings);
     this.themeName = themeName;
+    this.indicatorPanes.forEach((_runtime,id)=>this.renderCloudIndicatorPatch(id));
     const theme = settings.themes[themeName];
     this.chart?.applyOptions({
       layout: {
@@ -1656,6 +1665,15 @@ export class TradingExpertSplitPane {
     return true;
   }
 
+  cloudAnalysisSnapshot(visibleOnly=false): TradingSplitPaneAnalysisSnapshot {
+    if(this.destroyed)throw new Error('Chart pane is no longer available');
+    const matching=this.loadedMarketId===this.market.id&&this.loadedInterval===this.interval;
+    const range=this.chart?.timeScale().getVisibleLogicalRange();
+    const candles=!matching?[]:range?this.candles.slice(Math.max(0,Math.floor(Number(range.from))),Math.ceil(Number(range.to))+1)
+      :visibleOnly?[]:this.candles.slice(-100);
+    return {paneIndex:this.paneIndex,market:{...this.market},interval:this.interval,candles:candles.slice(-600).map(c=>({...c}))};
+  }
+
   async analysisSnapshot(lookbackMs: number | null): Promise<TradingSplitPaneAnalysisSnapshot>;
   async analysisSnapshot(
     lookbackMs: number | null,
@@ -1748,7 +1766,36 @@ export class TradingExpertSplitPane {
     this.drawingController?.redraw();
   }
 
+  private renderCloudIndicatorPatch(id:TradingIndicatorId) {
+    const runtime=this.indicatorPanes.get(id);if(!runtime)return;
+    renderIndicatorAnalysisPatch({chart:this.chart,runtime,host:this.host,dark:this.themeName==='dark',timeOffsetSeconds:CHINA_TIME_OFFSET_SECONDS,
+      patch:loadCloudIndicatorPatch(this.drawingStorageSessionId,this.market.id,this.interval,id)});
+  }
+
+  private restoreCloudIndicatorSelection() {
+    let changed=false;
+    for(const {id} of TRADING_INDICATORS)if(!this.activeIndicators.includes(id)&&loadCloudIndicatorPatch(this.drawingStorageSessionId,this.market.id,this.interval,id)) {
+      this.activeIndicators.push(id);changed=true;
+    }
+    if(changed){this.rebuildIndicatorPanes();this.updateIndicatorButtons();this.notifyIndicatorSelectionChange();}
+    this.indicatorPanes.forEach((_runtime,id)=>this.renderCloudIndicatorPatch(id));
+  }
+
+  acceptIndicatorAnalysisDrawingPatch(value:TradingIndicatorAiDrawingPatch) {
+    if(this.destroyed)return false;
+    const patch=normalizeTradingIndicatorAiDrawingPatch(value);
+    if(!this.analysisContextMatches(patch.marketId,patch.interval))return false;
+    if(!TRADING_INDICATORS.some(item=>item.id===patch.indicatorId))throw new Error('Unsupported indicator drawing target');
+    storeCloudIndicatorPatch(this.drawingStorageSessionId,patch);
+    const id=patch.indicatorId as TradingIndicatorId;
+    if(!this.indicatorPanes.has(id))this.activateIndicator('sub',id);
+    this.renderCloudIndicatorPatch(id);return true;
+  }
+
   updateDrawingStorageSession(storageSessionId: string, migrateFromSessionId = "") {
+    if(migrateFromSessionId)migrateCloudIndicatorPatches(migrateFromSessionId,storageSessionId);
+    this.drawingStorageSessionId=storageSessionId;
+    this.restoreCloudIndicatorSelection();
     this.drawingController?.switchStorageSession(storageSessionId, {
       migrateFromSessionId: migrateFromSessionId || undefined,
     });
@@ -1762,6 +1809,7 @@ export class TradingExpertSplitPane {
   }
 
   private async reload(resetViewport: boolean): Promise<boolean> {
+    if (resetViewport) this.restoreCloudIndicatorSelection();
     if (resetViewport) this.chartNavigation?.cancelGesture();
     if (resetViewport) this.invalidateVolumeProfileSnapshot();
     const generation = ++this.loadGeneration;

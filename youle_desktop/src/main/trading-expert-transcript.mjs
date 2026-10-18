@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
+import {normalizeCloudReports} from './cloud-plan-contract.mjs';
 
 const TRADING_TRANSCRIPT_OPEN = "<haolo_trading_transcript_item>";
 const TRADING_TRANSCRIPT_CLOSE = "</haolo_trading_transcript_item>";
@@ -117,6 +118,7 @@ function normalizeTradingTranscriptItem(value) {
     && (value.executionPlanPresentation === "execution-plan" || value.executionPlanPresentation === "plain")
     ? value.executionPlanPresentation
     : "";
+  const cloudReports = role === 'assistant' ? normalizeCloudReports(value.cloudReports) : [];
   return {
     version: 1,
     id,
@@ -128,6 +130,7 @@ function normalizeTradingTranscriptItem(value) {
     ...(completedAt ? { completedAt } : {}),
     ...(actions.length ? { actions } : {}),
     ...(executionPlanPresentation ? { executionPlanPresentation } : {}),
+    ...(cloudReports.length ? {cloudReports} : {}),
   };
 }
 
@@ -329,6 +332,7 @@ function visibleThreadItem(item, transcriptItem, transcriptTurnStatus = "") {
     ...(transcriptItem.startedAt ? { __youleTurnStartedAt: transcriptItem.startedAt } : {}),
     ...(transcriptItem.completedAt ? { __youleTurnCompletedAt: transcriptItem.completedAt } : {}),
     ...(transcriptItem.actions?.length ? { actions: transcriptItem.actions } : {}),
+    ...(transcriptItem.cloudReports?.length ? {__youleCloudReports:transcriptItem.cloudReports} : {}),
     ...(transcriptItem.executionPlanPresentation
       ? { __youleExecutionPlanPresentation: transcriptItem.executionPlanPresentation }
       : {}),

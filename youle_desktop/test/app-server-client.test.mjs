@@ -895,8 +895,8 @@ test("app server preserves reachable local proxies and non-local proxies", async
 test("Windows app server starts outside a Unicode workspace while keeping the workspace logical path unchanged", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "haolo-app-server-cwd-"));
   try {
-    const runtimeHome = path.join(tempRoot, "runtime-home");
-    fs.mkdirSync(runtimeHome, { recursive: true });
+    const runtimeHome = path.parse(tempRoot).root;
+    if (!fs.existsSync(runtimeHome)) fs.mkdirSync(runtimeHome, { recursive: true });
     const workspace = path.join(path.parse(tempRoot).root, "Users", "Tester", "Desktop", "翻译");
 
     assert.equal(

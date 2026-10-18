@@ -272,11 +272,8 @@ test("renderer fetches higher-timeframe context and defines ICT/SMC colors in bo
 
   assert.match(marketSource, /fetchTradingMarketStructureContexts/);
   assert.match(marketSource, /return \["60", "240", "1D"\]/);
-  assert.match(marketSource, /contextCandles: contextCandles\.map/);
   assert.match(playbackSource, /"order-flow-ob-bear"/);
   assert.match(drawingSource, /--trading-ai-order-flow-ob-bear/);
-  assert.match(expertSource, /不要把 BOS、CHoCH、MSS、OB、FVG、Breaker、EQ、BSL\/SSL、Sweep、OTE 全部堆到图上/);
-  assert.match(expertSource, /上破哪个确定性价位后偏多、跌破哪个价位后偏空/);
   assert.match(routerSource, /OB、FVG、BOS、CHoCH、MSS、EQ、BSL\/SSL、Sweep、Breaker、OTE/);
   assert.match(stylesSource, /--trading-ai-order-flow-ob-bear: #bd3f58;/);
   assert.match(stylesSource, /--trading-ai-order-flow-fvg-bull: #0f8a72;/);
@@ -284,4 +281,12 @@ test("renderer fetches higher-timeframe context and defines ICT/SMC colors in bo
     stylesSource,
     /html\[data-theme="dark"\] \.trading-expert-market[\s\S]*?--trading-ai-order-flow-ob-bear: #ff718e;[\s\S]*?--trading-ai-order-flow-fvg-bull: #54d6b6;/,
   );
+});
+
+test('cloud ict-smc uses server evidence and persists both panes',async()=>{
+  const {setup}=await import('./helpers/cloud-renderer-harness.mjs');
+  const s=setup();await s.workspace.runGeneralConversation({instruction:'Analyze this market',sourceThreadId:'origin'},"ict-smc");
+  assert.equal(s.calls.length,2);
+  for(const request of s.calls){assert.equal(request.strategyId,"ict-smc");assert.equal(request.sourceThreadId,'origin');for(const key of ['candles','contextCandles','comparisonMarkets','orderFlow'])assert.equal(request[key],undefined);}
+  assert.deepEqual(s.drawings.map(x=>x.pane),[0,1]);
 });

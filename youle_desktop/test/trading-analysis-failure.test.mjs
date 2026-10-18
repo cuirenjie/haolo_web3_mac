@@ -119,7 +119,7 @@ test("renderer wiring keeps drawing failure outside the local model fallback in 
   const source = fs.readFileSync(path.join(root, "src/renderer/trading-expert-market.ts"), "utf8");
   const general = source.slice(source.indexOf("  async runGeneralConversation("), source.indexOf("  async runChanConversation("));
   assert.match(general, /settleTradingAnalysisDrawing\([\s\S]*?commitTradingAnalysisDrawingPatch/);
-  assert.match(general, /const recovered = cancelled \|\| !failure\.allowLocalRecovery \|\| Boolean\(strategyId\) \? null/);
+  assert.doesNotMatch(general, /buildRecoverableTradingAnalysis|runTradingAnalysisWithAutoExpansion/);
   assert.match(general, /\[questionLead, responseReport, drawingNote\]/);
   assert.match(general, /modelName,\s*drawingDeferred/);
   // Both modes use the same existing message surface and semantic drawing

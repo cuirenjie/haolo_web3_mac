@@ -242,5 +242,5 @@ test("normal streaming still patches locally while stale scroll callbacks cannot
 test("the revealing cover is solid and hides the entire message scroller until removal", async () => {
   const styles = await stylesSource;
   assert.match(styles, /\.thread-revealing \.message-scroller \{[\s\S]*visibility: hidden;/);
-  assert.match(styles, /\.thread-revealing \.message-area::after \{[\s\S]*position: absolute;[\s\S]*inset: 0;[\s\S]*z-index: 6;[\s\S]*background: var\(--surface-primary\);[\s\S]*content: "正在加载会话\.\.\.";/);
+  assert.match(styles, /\.thread-revealing \.message-area::after \{[\s\S]*position: absolute;[\s\S]*inset: 0;[\s\S]*z-index: 6;[\s\S]*background: var\(--surface-primary\);[\s\S]*content: var\(--i18n-loading-conversation\);/);
 });

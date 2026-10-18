@@ -14,6 +14,22 @@ const profileFor = answers => tradingRiskProfileFromEntries(entriesFor(answers))
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const controller = overrides => createTradingPreferenceSettings({ load: async () => ({ ok: true, profile: profileFor({}) }), save: async () => ({ ok: true, completed: true }), memoryEntries: entriesFor, render() {}, onSaved() {}, ...overrides });
 
+test("entry approach is the first question, defaults to auto and has no custom answer", async () => {
+  const editor = controller();
+  await editor.load();
+  const view = editor.render();
+  assert.ok(view.indexOf('data-preference-field="entryMode"') < view.indexOf('data-preference-field="risk"'));
+  const field = view.match(/<fieldset data-preference-field="entryMode"[\s\S]*?<\/fieldset>/)[0];
+  assert.equal((field.match(/type="radio"/g) || []).length, 3);
+  assert.match(field, /value="auto" checked/);
+  assert.doesNotMatch(field, /textarea|value="custom"/);
+  assert.match(field, /产品默认值/);
+  assert.equal(tradingPreferenceSettingsDraft({entryMode:'right'}).entryMode, 'right');
+  const saved = controller({load:async()=>({ok:true,profile:{entryMode:'auto',fieldSources:{entryMode:'user_saved'}}})});
+  await saved.load();
+  assert.match(saved.render(), /data-preference-source="entryMode">已保存的偏好/);
+});
+
 test("saved onboarding answers restore preset, custom and multiple selections", () => {
   const answers = {
     maxLossPerTradePercent: 1.25, moveStopToBreakEven: false, breakEvenTriggerR: 1,
@@ -155,4 +171,37 @@ test("natural-language custom answers reach the model boundary and rejected fiel
   assert.equal(completions, 0);
   assert.match(editor.render(), /保存失败/);
   assert.match(editor.render(), /每笔止损最多亏账户净值百分之一点五/);
+});
+
+test("migration conflict displays both answers, escapes content and blocks ordinary saves", async () => {
+  let saves = 0;
+  const editor = controller({
+    load: async () => ({ ok: true, profile: profileFor({}), migration: {
+      code: "PREFERENCE_IMPORT_CONFLICT", fields: [{ fieldId: "risk",
+        local: { selected: ["custom"], custom: '<img src=x onerror="bad()">' }, cloud: { selected: ["2"], custom: "" } }],
+    } }),
+    save: async () => { saves++; return { ok: true, completed: true }; },
+  });
+  await editor.load();
+  const view = editor.render();
+  assert.match(view, /核对本地与云端/);
+  assert.match(view, /本地保存的答案/);
+  assert.match(view, /云端保存的答案/);
+  assert.doesNotMatch(view, /<img src=x/);
+  assert.match(view, /data-migration-resolve disabled/);
+  assert.doesNotMatch(view, /data-migration-field="risk"[^>]+checked/);
+  await editor.save();
+  assert.equal(saves, 0);
+});
+
+test("unknown legacy provenance stays reviewable and never preselects import", async () => {
+  const editor = controller({ load: async () => ({ ok: true, profile: profileFor({}), migration: {
+    code: "PREFERENCE_IMPORT_REVIEW_REQUIRED", fields: [], localEntries: [{ key: "max_leverage", value: 3 }],
+  } }) });
+  await editor.load();
+  const view = editor.render();
+  assert.match(view, /max_leverage：3/);
+  assert.match(view, /原始记录仍保留在本机/);
+  assert.match(view, /data-migration-keep-cloud/);
+  assert.doesNotMatch(view, /data-migration-resolve/);
 });

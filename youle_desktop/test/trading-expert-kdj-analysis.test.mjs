@@ -153,12 +153,13 @@ test("KDJ card, Chinese metadata, pane, reference lines and both icon themes are
     readFile(new URL("../resources/trading-strategies/builtins/kdj-analysis/references/rules.md", import.meta.url), "utf8"),
     readFile(new URL("../resources/trading-strategies/builtins/kdj-analysis/agents/openai.yaml", import.meta.url), "utf8"),
   ]);
+  const indicatorRenderer=await readFile(new URL("../src/renderer/cloud-indicator-drawings.ts",import.meta.url),"utf8");
   assert.match(renderer, /trading-indicator-icon-kdj/);
   assert.match(renderer, /data-trading-indicator-icon="kdj-analysis"/);
   assert.match(renderer, /ensureTradingExpertChartIndicatorVisible\(strategy\.chartIndicator\)/);
   assert.match(indicators, /if \(id === "kdj"\)[\s\S]*value: 80[\s\S]*value: 50[\s\S]*value: 20/);
-  assert.match(market, /id === "rsi" \|\| id === "kdj" \? -16 : -8/);
-  assert.match(market, /strictlyAscendingTradingIndicatorPathPoints\(drawing\.points\)/);
+  assert.match(indicatorRenderer, /id === "rsi" \|\| id === "kdj" \? -16 : -8/);
+  assert.match(indicatorRenderer, /strictlyAscendingTradingIndicatorPathPoints\(drawing\.points\)/);
   assert.match(css, /\.trading-indicator-icon-kdj/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-indicator-icon-kdj/);
   assert.match(metadata, /display_name: "KDJ"/);

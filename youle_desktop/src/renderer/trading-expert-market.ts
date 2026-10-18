@@ -1,3 +1,9 @@
+import {chartTickLabel} from "./trading-chart-time.ts";
+import {cloudAnalysisText} from './cloud-analysis-text.ts';
+import {normalizeTradingIndicatorAiDrawingPatch,storeCloudIndicatorPatch,loadCloudIndicatorPatch,migrateCloudIndicatorPatches,clearIndicatorAnalysisRuntime,renderIndicatorAnalysisPatch} from './cloud-indicator-drawings.ts';
+export {normalizeTradingIndicatorAiDrawingPatch,strictlyAscendingTradingIndicatorPathPoints} from './cloud-indicator-drawings.ts';
+import {cloudAnalysisWindow} from './cloud-analysis-window.ts';
+import {cloudReportFromResponse, normalizeCloudReports, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
 import {
   AreaSeries,
   BarSeries,
@@ -124,10 +130,6 @@ import {
   selectTradingAnalysisInterval,
   selectTradingAnalysisMarket,
 } from "./trading-analysis-target.mjs";
-import {
-  buildQuestionAlignedTradingLead,
-  buildRecoverableTradingAnalysis,
-} from "./trading-analysis-recovery.ts";
 import { describeTradingAnalysisFailure, settleTradingAnalysisDrawing } from "../main/trading-analysis/failure.mjs";
 import { tradingAnalysisModelDisplayName } from "./trading-analysis-model-display.ts";
 
@@ -338,142 +340,27 @@ export function hasTradingExpertTrendBandMention(text: string) {
   );
 }
 
-const TRADING_INDICATOR_AI_TOOLS = new Set(["path", "note", "text"]);
-const TRADING_INDICATOR_AI_COLOR_TOKENS = new Set([
-  "strategy-primary", "strategy-support", "strategy-resistance", "strategy-entry",
-  "strategy-stop", "strategy-target", "strategy-note",
-]);
-const TRADING_INDICATOR_AI_COLOR_VARIABLES: Record<TradingAiDrawingColorToken, string> = {
-  "chan-pen": "--trading-ai-chan-pen",
-  "chan-center": "--trading-ai-chan-center",
-  "chan-top": "--trading-ai-chan-top",
-  "chan-bottom": "--trading-ai-chan-bottom",
-  "chan-note": "--trading-ai-chan-note",
-  "order-flow-buy": "--trading-ai-order-flow-buy",
-  "order-flow-sell": "--trading-ai-order-flow-sell",
-  "order-flow-poc": "--trading-ai-order-flow-poc",
-  "order-flow-note": "--trading-ai-order-flow-note",
-  "order-flow-structure-bull": "--trading-ai-order-flow-structure-bull",
-  "order-flow-structure-bear": "--trading-ai-order-flow-structure-bear",
-  "order-flow-ob-bull": "--trading-ai-order-flow-ob-bull",
-  "order-flow-ob-bear": "--trading-ai-order-flow-ob-bear",
-  "order-flow-fvg-bull": "--trading-ai-order-flow-fvg-bull",
-  "order-flow-fvg-bear": "--trading-ai-order-flow-fvg-bear",
-  "order-flow-liquidity": "--trading-ai-order-flow-liquidity",
-  "order-flow-equilibrium": "--trading-ai-order-flow-equilibrium",
-  "order-flow-ote": "--trading-ai-order-flow-ote",
-  "wave-primary": "--trading-ai-wave-primary",
-  "wave-correction": "--trading-ai-wave-correction",
-  "wave-alternative": "--trading-ai-wave-alternative",
-  "wave-fibonacci": "--trading-ai-wave-fibonacci",
-  "wave-note": "--trading-ai-wave-note",
-  "wyckoff-range": "--trading-ai-wyckoff-range",
-  "wyckoff-demand": "--trading-ai-wyckoff-demand",
-  "wyckoff-supply": "--trading-ai-wyckoff-supply",
-  "wyckoff-phase": "--trading-ai-wyckoff-phase",
-  "wyckoff-event-bull": "--trading-ai-wyckoff-event-bull",
-  "wyckoff-event-bear": "--trading-ai-wyckoff-event-bear",
-  "wyckoff-projection": "--trading-ai-wyckoff-projection",
-  "wyckoff-note": "--trading-ai-wyckoff-note",
-  "price-action-trend": "--trading-ai-price-action-trend",
-  "price-action-support": "--trading-ai-price-action-support",
-  "price-action-resistance": "--trading-ai-price-action-resistance",
-  "price-action-note": "--trading-ai-price-action-note",
-  "strategy-primary": "--trading-ai-strategy-primary",
-  "strategy-support": "--trading-ai-strategy-support",
-  "strategy-resistance": "--trading-ai-strategy-resistance",
-  "strategy-entry": "--trading-ai-strategy-entry",
-  "strategy-stop": "--trading-ai-strategy-stop",
-  "strategy-target": "--trading-ai-strategy-target",
-  "strategy-note": "--trading-ai-strategy-note",
-};
-
-function tradingIndicatorAiLineStyle(style?: string) {
-  if (style === "dotted") return LineStyle.Dotted;
-  if (style === "dashed") return LineStyle.Dashed;
-  return LineStyle.Solid;
-}
-
-export function normalizeTradingIndicatorAiDrawingPatch(value: unknown): TradingIndicatorAiDrawingPatch {
-  const patch = value as Partial<TradingIndicatorAiDrawingPatch> | null;
-  const indicatorId = String(patch?.indicatorId || "").trim().toLowerCase();
-  if (
-    Number(patch?.schemaVersion) !== 1
-    || !String(patch?.analysisId || "").trim()
-    || !String(patch?.marketId || "").trim()
-    || !String(patch?.interval || "").trim()
-    || !/^[a-z][a-z0-9-]{1,63}$/.test(indicatorId)
-    || !Array.isArray(patch?.operations)
-    || !patch.operations.length
-    || patch.operations.length > 64
-  ) throw new TypeError("Indicator drawing patch is invalid");
-  const operations = patch.operations.map((operation, index) => {
-    const drawing = operation?.drawing;
-    const strategyId = String(drawing?.strategyId || "");
-    const points = Array.isArray(drawing?.points) ? drawing.points : [];
-    if (
-      operation?.op !== "upsert"
-      || !drawing
-      || drawing.theory !== "strategy"
-      || !/^[a-z][a-z0-9-]{1,63}$/.test(strategyId)
-      || drawing.layer !== `ai/strategy/${strategyId}`
-      || !TRADING_INDICATOR_AI_TOOLS.has(drawing.tool)
-      || !TRADING_INDICATOR_AI_COLOR_TOKENS.has(drawing.colorToken)
-      || !points.length
-      || points.length > 64
-      || !points.every((point) => Number.isFinite(point?.time) && point.time > 0 && Number.isFinite(point?.value))
-      || (drawing.tool === "path" && points.length < 2)
-      || ((drawing.tool === "note" || drawing.tool === "text") && points.length !== 1)
-    ) throw new TypeError(`Indicator drawing operation ${index} is invalid`);
-    return {
-      op: "upsert" as const,
-      drawing: {
-        id: String(drawing.id || `indicator-ai-${index}`).slice(0, 160),
-        strategyId,
-        theory: "strategy" as const,
-        layer: `ai/strategy/${strategyId}` as const,
-        tool: drawing.tool,
-        points: points.map((point) => ({ time: Number(point.time), value: Number(point.value) })),
-        text: typeof drawing.text === "string" ? drawing.text.slice(0, 120) : undefined,
-        colorToken: drawing.colorToken,
-        lineStyle: drawing.lineStyle === "solid" || drawing.lineStyle === "dashed" || drawing.lineStyle === "dotted" ? drawing.lineStyle : undefined,
-        lineWidth: Number.isFinite(drawing.lineWidth) && Number(drawing.lineWidth) >= 0.5 && Number(drawing.lineWidth) <= 4 ? Number(drawing.lineWidth) : undefined,
-        fontSize: Number.isFinite(drawing.fontSize) ? Number(drawing.fontSize) : undefined,
-        bold: drawing.bold === true,
-        markerSize: Number.isFinite(drawing.markerSize)
-          && Number(drawing.markerSize) >= (drawing.tool === "text" ? 0 : 0.1)
-          && Number(drawing.markerSize) <= 2
-          ? Number(drawing.markerSize)
-          : undefined,
-        locked: true as const,
-        status: drawing.status === "tentative" ? "tentative" as const : "confirmed" as const,
-        evidenceIds: Array.isArray(drawing.evidenceIds) ? drawing.evidenceIds.map(String).slice(0, 32) : [],
-      },
-    };
+export function restoreRecoveredTradingDrawings(value:CloudTradingReport,storageSessionId:string) {
+  const report=normalizeCloudReports([value])[0];
+  if(!storageSessionId)throw new Error('CLOUD_DRAWING_ORIGIN_REQUIRED');
+  const paneIndex=Number(/:pane:(\d+)$/.exec(report.origin?.analysisJobId||'')?.[1]||0);
+  if(paneIndex<0||paneIndex>7)throw new Error('CLOUD_DRAWING_PANE_INVALID');
+  const target=paneIndex?tradingSplitPaneDrawingStorageSessionId(storageSessionId,paneIndex):storageSessionId;
+  if(report.drawingPatch) {
+    const patch=report.drawingPatch as TradingAiDrawingPatch;
+    if(patch.marketId!==report.marketId||patch.interval!==report.interval)throw new Error('CLOUD_DRAWING_CONTEXT_INVALID');
+    persistTradingAiDrawingPatch(target,patch);
+    if(activeWorkspace?.drawingStorageSessionMatches(storageSessionId))activeWorkspace.storeAnalysisDrawingPatch(patch,paneIndex);
+  }
+  if(report.indicatorDrawingPatch) {
+    const patch=storeCloudIndicatorPatch(target,report.indicatorDrawingPatch);
+    if(activeWorkspace?.drawingStorageSessionMatches(storageSessionId)&&activeWorkspace.analysisDrawingTargetMatches(patch,paneIndex))activeWorkspace.acceptIndicatorAnalysisDrawingPatch(patch,paneIndex);
+  }
+  const updatedAt=Number(report.executionPlan.createdAt);
+  const previous=loadTradingLastAnalysisContext(window.localStorage,storageSessionId);
+  if(!paneIndex&&Number.isFinite(updatedAt)&&updatedAt>(previous?.updatedAt||0))saveTradingLastAnalysisContext(window.localStorage,storageSessionId,{
+    schemaVersion:1,marketId:report.marketId,interval:report.interval,updatedAt,
   });
-  return {
-    schemaVersion: 1,
-    analysisId: String(patch.analysisId).slice(0, 160),
-    baseRevision: Math.max(0, Number(patch.baseRevision) || 0),
-    marketId: String(patch.marketId),
-    interval: String(patch.interval),
-    indicatorId,
-    operations,
-  };
-}
-
-export function strictlyAscendingTradingIndicatorPathPoints(
-  points: Array<{ time: number; value: number }>,
-) {
-  let previousTime = Number.NEGATIVE_INFINITY;
-  return points
-    .slice()
-    .sort((first, second) => first.time - second.time)
-    .map((point) => {
-      const time = point.time <= previousTime ? previousTime + 1 : point.time;
-      previousTime = time;
-      return { time, value: point.value };
-    });
 }
 
 type TradingMarketProvider = "binance" | "finnhub" | "ifind";
@@ -580,6 +467,7 @@ export function isBinanceTradFiContract(item: Pick<BinanceExchangeSymbol, "contr
     || underlyingSubTypes.some((value) => String(value).trim().toLowerCase() === "tradfi");
 }
 interface TradingChanAnalysisResponse {
+  snapshot?: {candles?: unknown[]; orderFlow?: {trades?: unknown[]}};
   ok?: boolean;
   error?: { code?: string; message?: string; retryable?: boolean; status?: number; category?: string; diagnosticId?: string };
   analysisPlan?: {
@@ -596,6 +484,7 @@ interface TradingChanAnalysisResponse {
   };
 }
 export interface TradingExecutionModelSelection {
+  sourceThreadId?: string;
   model?: string | null;
   modelId?: string | null;
   modelProvider?: string | null;
@@ -627,6 +516,7 @@ export interface TradingChanConversationRequest extends TradingExecutionModelSel
   onProgress?: (phase: TradingChanConversationPhase, message: string) => void;
 }
 export interface TradingChanConversationResult {
+  cloudReports?: CloudTradingReport[];
   report: string;
   narrative: string;
   marketId: string;
@@ -653,6 +543,7 @@ export interface TradingOrderFlowConversationRequest extends TradingExecutionMod
   onProgress?: (phase: TradingOrderFlowConversationPhase, message: string) => void;
 }
 export interface TradingOrderFlowConversationResult {
+  cloudReports?: CloudTradingReport[];
   report: string;
   narrative: string;
   marketId: string;
@@ -680,6 +571,7 @@ export interface TradingWaveConversationRequest extends TradingExecutionModelSel
   onProgress?: (phase: TradingWaveConversationPhase, message: string) => void;
 }
 export interface TradingWaveConversationResult {
+  cloudReports?: CloudTradingReport[];
   report: string;
   narrative: string;
   marketId: string;
@@ -706,6 +598,7 @@ export interface TradingWyckoffConversationRequest extends TradingExecutionModel
   onProgress?: (phase: TradingWyckoffConversationPhase, message: string) => void;
 }
 export interface TradingWyckoffConversationResult {
+  cloudReports?: CloudTradingReport[];
   report: string;
   narrative: string;
   marketId: string;
@@ -740,6 +633,8 @@ export interface TradingGeneralConversationRequest extends TradingExecutionModel
   onProgress?: (phase: TradingGeneralConversationPhase, message: string) => void;
 }
 export interface TradingGeneralConversationResult {
+  tradeCount: number;
+  cloudReports?: CloudTradingReport[];
   report: string;
   narrative: string;
   marketId: string;
@@ -2226,6 +2121,7 @@ function normalizeTradingLastDrawingWorkspace(value: unknown): TradingLastDrawin
   };
 }
 interface TradingSplitPaneAnalysisReport {
+  cloudReports?: CloudTradingReport[];
   paneIndex: number;
   heading: string;
   report: string;
@@ -4626,40 +4522,6 @@ function baseAssetFromSymbol(symbol: string) {
     : symbol;
 }
 
-function chartTickLabel(timeValue: number, interval: string) {
-  const normalizedInterval = String(interval || "").trim();
-  const date = new Date(timeValue * 1000);
-  const hour = date.getUTCHours();
-  const minute = date.getUTCMinutes();
-  const day = date.getUTCDate();
-  const month = date.getUTCMonth() + 1;
-  const pad = (value: number) => String(value).padStart(2, "0");
-  const time = `${pad(hour)}:${pad(minute)}`;
-  const monthDay = `${pad(month)}/${pad(day)}`;
-  if (normalizedInterval === "1" || normalizedInterval === "5") {
-    if (minute !== 0) return null;
-    return hour === 0 ? monthDay : time;
-  }
-  if (normalizedInterval === "15") {
-    if (minute !== 0 || hour % 6 !== 0) return null;
-    return hour === 0 ? monthDay : time;
-  }
-  if (normalizedInterval === "60") {
-    if (minute !== 0 || hour % 12 !== 0) return null;
-    return hour === 0 ? monthDay : time;
-  }
-  if (normalizedInterval === "240") return minute === 0 && hour === 0 ? monthDay : null;
-  if (normalizedInterval === "1D") {
-    return day === 1 ? `${date.getUTCFullYear()}/${pad(month)}` : null;
-  }
-  const monthly = /^(\d+)M$/.exec(normalizedInterval);
-  if (monthly) {
-    const monthCount = Number(monthly[1]);
-    if (monthCount % 12 === 0) return month === 1 && day === 1 ? String(date.getUTCFullYear()) : null;
-    return day === 1 ? `${date.getUTCFullYear()}/${pad(month)}` : null;
-  }
-  return null;
-}
 
 function renderTimeButtons(
   periods: ReadonlyArray<TradingPeriod> = DEFAULT_TRADING_PERIODS,
@@ -5206,7 +5068,6 @@ class TradingExpertMarketWorkspace {
   private tdMarkers: any = null;
   private indicatorPanes = new Map<TradingIndicatorId, IndicatorPaneRuntime>();
   private indicatorDrawingControllers = new Map<TradingIndicatorId, TradingDrawingController>();
-  private indicatorAnalysisPatches = new Map<TradingIndicatorId, TradingIndicatorAiDrawingPatch>();
   private drawingController: TradingDrawingController | null = null;
   private activeDrawingController: TradingDrawingController | null = null;
   private orderLines: TradingOrderLine[] = [];
@@ -8390,6 +8251,7 @@ class TradingExpertMarketWorkspace {
         drawingStorageSessionId,
       );
     }
+    if(migrateFromSessionId)migrateCloudIndicatorPatches(migrateFromSessionId,drawingStorageSessionId);
     this.drawingStorageSessionId = drawingStorageSessionId;
     this.drawingController?.switchStorageSession(drawingStorageSessionId, {
       migrateFromSessionId: migrateFromSessionId || undefined,
@@ -8689,7 +8551,7 @@ class TradingExpertMarketWorkspace {
     }
     options.onProgress?.(
       options.analysisProgressPhase,
-      `首窗已完成，正在为另外 ${snapshots.length} 个提交时可见分屏分别计算${options.analysisLabel}。`,
+      cloudAnalysisText('splitStart',options.job.language,{count:snapshots.length}),
     );
     let cursor = 0;
     let completed = 0;
@@ -8714,7 +8576,7 @@ class TradingExpertMarketWorkspace {
           if (options.drawingsRequested && response.analysisPlan.drawingPatch) {
             options.onProgress?.(
               options.drawingProgressPhase,
-              `${tradingAnalysisPaneHeading(snapshot.market, snapshot.interval)} 分析完成，正在逐笔落图。`,
+              cloudAnalysisText('splitDrawing',options.job.language,{market:tradingAnalysisPaneHeading(snapshot.market,snapshot.interval)}),
             );
             await commitTradingAnalysisDrawingPatch(
               options.job,
@@ -8722,8 +8584,10 @@ class TradingExpertMarketWorkspace {
               snapshot.paneIndex,
             );
           }
+          if(options.drawingsRequested&&response.analysisPlan.indicatorDrawingPatch)await commitTradingIndicatorAnalysisDrawingPatch(options.job,response.analysisPlan.indicatorDrawingPatch,snapshot.paneIndex);
           if (!tradingAnalysisJobs.isActive(options.job.analysisId)) return;
           reports.push({
+            cloudReports: cloudReportFromResponse(response),
             paneIndex: snapshot.paneIndex,
             heading: tradingAnalysisPaneHeading(snapshot.market, snapshot.interval),
             report: String(response.analysisPlan.report || response.analysisPlan.narrative || `${options.analysisLabel}已完成`),
@@ -8751,8 +8615,8 @@ class TradingExpertMarketWorkspace {
         ? options.drawingProgressPhase
         : options.analysisProgressPhase,
       failed > 0
-        ? `主图分析继续有效；已纳入 ${completed} 个辅助分屏，另有 ${failed} 个辅助分屏暂未参与结论。`
-        : `另外 ${completed} 个可见分屏已完成独立${options.analysisLabel}${options.drawingsRequested ? "和落图" : ""}。`,
+        ? cloudAnalysisText('splitPartial',options.job.language,{count:completed,failed})
+        : cloudAnalysisText('splitDone',options.job.language,{count:completed}),
     );
     return { completed, failed, reports, failures };
   }
@@ -8760,11 +8624,10 @@ class TradingExpertMarketWorkspace {
   private captureSplitPaneAnalysisSnapshots(
     lookbackMs: number | null,
     preferredCandles: number | null = null,
+    visibleOnly=false,
   ) {
     const panes = [...this.splitPanes];
-    const snapshotRequests = preferredCandles === null
-      ? panes.map((pane) => pane.analysisSnapshot(lookbackMs))
-      : panes.map((pane) => pane.analysisSnapshot(lookbackMs, preferredCandles));
+    const snapshotRequests = panes.map(pane=>Promise.resolve().then(()=>pane.cloudAnalysisSnapshot(visibleOnly)));
     return Promise.allSettled(
       snapshotRequests,
     ).then((results) => {
@@ -8773,17 +8636,6 @@ class TradingExpertMarketWorkspace {
       results.forEach((result, index) => {
         if (result.status === "fulfilled") {
           const snapshot = result.value;
-          if (
-            snapshot.market.provider === "binance"
-            && tradingAnalysisCandlesRequireCurrentRefresh(snapshot.candles, snapshot.interval)
-          ) {
-            snapshotFailures.push({
-              paneIndex: snapshot.paneIndex,
-              heading: tradingAnalysisPaneHeading(snapshot.market, snapshot.interval),
-              message: "分屏行情已过期，本次分析跳过该分屏并以主图当前行情为准",
-            });
-            return;
-          }
           snapshots.push(snapshot);
           return;
         }
@@ -10281,7 +10133,7 @@ class TradingExpertMarketWorkspace {
     return this.drawingStorageSessionId;
   }
 
-  analysisDrawingTargetMatches(patch: TradingAiDrawingPatch, paneIndex = 0) {
+  analysisDrawingTargetMatches(patch: Pick<TradingAiDrawingPatch,'marketId'|'interval'>, paneIndex = 0) {
     if (this.disposed) return false;
     if (paneIndex > 0) {
       return this.splitPanes[paneIndex - 1]?.analysisContextMatches(
@@ -10369,7 +10221,7 @@ class TradingExpertMarketWorkspace {
         : undefined
       : window.codexDesktop.runTradingGeneralAnalysis;
     if (typeof api !== "function") throw new Error("当前版本暂不支持通用盘面分析");
-    if (!this.markets.length && !useCapturedTarget) await this.loadMarkets();
+    if (!this.markets.length && !useCapturedTarget && !this.selectedMarketMeta) await this.loadMarkets();
     const capturedMarket = capturedTarget
       ? marketFromFavoriteRecord(capturedTarget.market as TradingFavoriteMarketRecord)
       : null;
@@ -10388,14 +10240,8 @@ class TradingExpertMarketWorkspace {
           instruction: request.instruction,
         }) as TradingMarket | null;
     if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
-    if (
-      request.symbol
-      && String(targetMarket.symbol || "").trim().toUpperCase() !== normalizedSymbol
-    ) {
-      request.onProgress?.(
-        "loading",
-        `暂未找到 ${normalizedSymbol} 的可用行情，已自动改为分析发送时的当前图表 ${targetMarket.displaySymbol || targetMarket.symbol}。`,
-      );
+    if (request.symbol && String(targetMarket.symbol).toUpperCase() !== normalizedSymbol) {
+      throw new Error(`未找到指定的 ${normalizedSymbol} 行情`);
     }
     let targetInterval = selectTradingAnalysisInterval({
       interval: request.interval,
@@ -10406,87 +10252,29 @@ class TradingExpertMarketWorkspace {
       throw new Error(`暂不支持 ${targetInterval} K 线周期`);
     }
 
-    let marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
-    const shouldReload = !useCapturedTarget && (targetMarket.id !== this.loadedMarketId
-      || targetInterval !== this.loadedInterval
-      || this.candles.length < 2
-      || this.marketLoading);
-    request.onProgress?.("loading", useCapturedTarget
-      ? `已锁定发送时的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线快照；切换交易对或会话不会改变本次任务目标。`
-      : shouldReload
-        ? `正在将左侧行情切换到 ${marketLabel}，加载 ${tradingPeriodLabelForResolution(targetInterval)} K 线。`
-        : `正在优先读取左侧当前画布的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线。`);
-    if (shouldReload) {
-      const loadTarget = async () => {
-        this.selectMarket(targetMarket!);
-        this.activeInterval = targetInterval;
-        this.updateSymbolUi();
-        this.updateIntervalPressedButtons(targetInterval);
-        this.renderMarkets();
-        this.redrawDrawingControllers();
-        this.setPickerOpen(false);
-        await this.restartMarketData();
-      };
-      try {
-        await loadTarget();
-      } catch (error) {
-        // An explicit symbol is an immutable analysis target. Falling back to
-        // the visible chart here would produce a valid-looking answer for the
-        // wrong market (the failure mode reported for SKHYNIX on a BTC chart).
-        // Let the caller surface the load error and ask for a retry instead.
-        throw error;
-      }
+    const marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
+    const requestedLookbackMs = Number(request.lookbackMs)>0 ? Number(request.lookbackMs) : null;
+    const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
+    // Cached candles are used only to capture the requested viewport. They are
+    // never submitted as authoritative market data or expanded locally.
+    const analysisCandles = useCapturedCandles
+      ? [...capturedTarget!.visibleCandles]
+      : targetMarket.id===this.loadedMarketId && targetInterval===this.loadedInterval
+        ? visibleCandlesInLogicalRange(this.candles,visibleRange) : [];
+    const windowHint = cloudAnalysisWindow(strategyId,analysisCandles,preferredCandles);
+    const analysisSnapshotTime = Date.now();
+    const splitSnapshotsPromise = useCapturedTarget
+      ? Promise.resolve({snapshots:[] as TradingSplitPaneAnalysisSnapshot[],snapshotFailures:[] as TradingSplitPaneAnalysisFailure[]})
+      : this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs,preferredCandles,strategyId==='vpvr-analysis');
+    if (!useCapturedTarget && (targetMarket.id!==this.loadedMarketId || targetInterval!==this.loadedInterval)) {
+      this.selectMarket(targetMarket);this.activeInterval=targetInterval;
+      this.updateSymbolUi();this.updateIntervalPressedButtons(targetInterval);this.renderMarkets();
+      this.redrawDrawingControllers();this.setPickerOpen(false);
+      // Chart refresh is independent; canonical drawing patches are persisted
+      // even if the local connection cannot currently display the chart.
+      void this.restartMarketData().catch(()=>undefined);
     }
-    let targetCandles = useCapturedTarget
-      ? useCapturedCandles
-        ? capturedTarget!.candles.map((candle) => ({ ...candle }))
-        : []
-      : [...this.candles];
-    let currentSnapshotRefreshed = false;
-    if (
-      targetCandles.length < 2
-      || tradingAnalysisShouldForceCurrentRefresh(targetMarket.provider, targetCandles, targetInterval)
-    ) {
-      request.onProgress?.(
-        "loading",
-        `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
-      );
-      const loaded = await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, targetCandles);
-      targetCandles = loaded.candles;
-      currentSnapshotRefreshed = true;
-      // A refreshed snapshot is a current-market analysis.  Do not reuse the
-      // old visible slice by index after the candle series has advanced.
-      useCapturedCandles = false;
-    }
-    if (
-      (!useCapturedTarget && (
-        this.disposed
-        || this.loadedMarketId !== targetMarket.id
-        || this.loadedInterval !== targetInterval
-      ))
-      || targetCandles.length < 2
-    ) {
-      throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
-    }
-
-    const latestTimeMs = Number(targetCandles.at(-1)?.time || 0) * 1_000;
-    const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
-    const visibleRange = useCapturedTarget ? null : this.chart?.timeScale().getVisibleLogicalRange() || null;
-    const canvasCandles = useCapturedCandles
-      ? capturedTarget!.visibleCandles.map((candle) => ({ ...candle }))
-      : useCapturedTarget
-        ? []
-        : visibleCandlesInLogicalRange(targetCandles, visibleRange);
-    const analysisWindowCount = Math.min(600, Math.max(canvasCandles.length, preferredCandles));
-    const useCurrentMarketTail = targetMarket.provider === "binance" && !requestedLookbackMs;
-    let analysisCandles = requestedLookbackMs
-      ? targetCandles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : useCurrentMarketTail
-        ? targetCandles.slice(-analysisWindowCount)
-        : canvasCandles.length
-          ? canvasCandles.slice(-(visibleCandlesOnly ? 600 : analysisWindowCount))
-          : targetCandles.slice(-analysisWindowCount);
-    const analysisSnapshotTime = currentSnapshotRefreshed ? Date.now() : (capturedTarget?.capturedAt || Date.now());
+    request.onProgress?.('loading',cloudAnalysisText('submit',activeTradingAnalysisLanguage(),{market:marketLabel,interval:targetInterval}));
     const job = tradingAnalysisJobs.start({
       analysisId: request.analysisId,
       theory: analysisTheory,
@@ -10499,114 +10287,10 @@ class TradingExpertMarketWorkspace {
     });
     let failureStage = "preparation";
     try {
-      let analysisCandlePool = [...targetCandles];
-      const desiredCandleCount = Math.max(
-        minimumCandles,
-        Math.min(TRADING_CANDLE_WINDOW_AUTO_EXPANSION_MAX_CANDLES, preferredCandles),
-      );
-      const focusAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
-        if (
-          this.disposed
-          || !this.drawingStorageSessionMatches(job.storageSessionId)
-          || this.loadedMarketId !== job.marketId
-          || this.loadedInterval !== job.interval
-          || !candles.length
-        ) return;
-        const first = candles[0];
-        const last = candles[candles.length - 1];
-        this.chart?.timeScale().setVisibleRange({
-          from: first.time as UTCTimestamp,
-          to: last.time as UTCTimestamp,
-        });
-      };
-      const expansion = await runTradingAnalysisWithAutoExpansion({
-        initialCandles: analysisCandles,
-        getAvailableCandles: () => analysisCandlePool,
-        insufficientDataCode: TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE,
-        analyze: async (candles) => {
-          focusAnalysisCandles(candles);
-          return candles.length >= desiredCandleCount
-            ? { ok: true }
-            : {
-                ok: false,
-                error: {
-                  code: TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE,
-                  message: `当前分析窗口仅有 ${candles.length} 根 K 线`,
-                },
-              };
-        },
-        loadMoreHistory: async () => {
-          const oldestTime = Number(analysisCandlePool[0]?.time || 0) * 1_000;
-          if (!oldestTime) return;
-          const history = await this.fetchHistoricalCandleBatch({
-            symbol: targetMarket.symbol,
-            provider: targetMarket.provider,
-            assetClass: targetMarket.assetClass,
-            marketType: targetMarket.marketType,
-            interval: targetInterval,
-            count: TRADING_CANDLE_WINDOW_HISTORY_BATCH_CANDLES,
-            endTime: oldestTime - 1,
-          });
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-            throw new Error("盘面分析已由用户停止");
-          }
-          analysisCandlePool = mergeCandles(history.candles, analysisCandlePool);
-          if (
-            !this.disposed
-            && this.drawingStorageSessionMatches(job.storageSessionId)
-            && this.loadedMarketId === job.marketId
-            && this.loadedInterval === job.interval
-          ) {
-            this.sourceCandles = mergeCandles(history.sourceCandles, this.sourceCandles);
-            this.candles = mergeCandles(history.candles, this.candles);
-            this.updateChartData();
-          }
-        },
-        onExpansion: (event) => {
-          if (event.type === "history") {
-            request.onProgress?.(
-              "loading",
-              `当前仅有 ${event.candleCount} 根 K 线，正在自动加载更早历史，最多扩展到 ${event.maxCandleCount} 根。`,
-            );
-            return;
-          }
-          request.onProgress?.(
-            "analyzing",
-            `当前 ${event.fromCount} 根 K 线不足，正在自动扩大画布到 ${event.toCount} 根再计算${analysisName}。`,
-          );
-        },
-        maxCandleCount: TRADING_CANDLE_WINDOW_AUTO_EXPANSION_MAX_CANDLES,
-      });
-      analysisCandles = expansion.candles;
-      if (analysisCandles.length < minimumCandles) {
-        throw new Error(`${request.lookbackLabel || "当前可用数据窗口"}仅有 ${analysisCandles.length} 根 K 线，${analysisName}至少需要 ${minimumCandles} 根`);
-      }
-      focusAnalysisCandles(analysisCandles);
-      const splitSnapshotsPromise = useCapturedTarget
-        ? Promise.resolve({
-            snapshots: [] as TradingSplitPaneAnalysisSnapshot[],
-            snapshotFailures: [] as TradingSplitPaneAnalysisFailure[],
-          })
-        : this.captureSplitPaneAnalysisSnapshots(
-            requestedLookbackMs,
-            preferredCandles,
-          );
-      const contextCandlesPromise = request.contextCandlesRequested === true
-        ? fetchTradingMarketStructureContexts(targetMarket.symbol, targetInterval)
-        : Promise.resolve([] as TradingMarketStructureContext[]);
-      const comparisonMarketsPromise = request.comparisonCandlesRequested === true
-        ? fetchTradingSmtComparisonMarkets(targetMarket, targetInterval, preferredCandles, Date.now())
-        : Promise.resolve([] as TradingSmtComparisonMarket[]);
-      const rangeDescription = request.lookbackLabel
-        ? `以最近 ${request.lookbackLabel} 为起点自动扩展后的 ${analysisCandles.length} 根`
-        : `自动扩展后的 ${analysisCandles.length} 根`;
-      request.onProgress?.(
-        "analyzing",
-        `已读取左侧 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在计算${analysisName}规则、候选结构和条件价位。`,
-      );
       failureStage = "analysis";
       const response = await api({
         analysisJobId: job.analysisId,
+        sourceThreadId: request.sourceThreadId, storageSessionId: job.storageSessionId,
         ...(request.model ? { model: request.model } : {}),
         ...(request.modelId ? { modelId: request.modelId } : {}),
         ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
@@ -10621,16 +10305,7 @@ class TradingExpertMarketWorkspace {
         analysisContext: request.analysisContext || null,
         responseMode: directResponseRequested ? "direct" : "full",
         lookbackMs: requestedLookbackMs,
-        ...(request.contextCandlesRequested === true ? { contextCandles: await contextCandlesPromise } : {}),
-        ...(request.comparisonCandlesRequested === true ? { comparisonMarkets: await comparisonMarketsPromise } : {}),
-        candles: analysisCandles.map((candle) => ({
-          time: candle.time,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-          volume: candle.volume,
-        })),
+        ...windowHint,
       }) as TradingGeneralAnalysisResponse;
       if (!tradingAnalysisJobs.isActive(job.analysisId)) {
         throw new Error("盘面分析已由用户停止");
@@ -10649,12 +10324,12 @@ class TradingExpertMarketWorkspace {
       if (request.drawingRequested !== false) {
         request.onProgress?.(
           "drawing",
-          `${modelName} 已完成${analysisName}复核，正在左侧图表逐项绘制形态、确认、失效和目标价位。`,
+          `${modelName} ${cloudAnalysisText('drawing',job.language)}`,
         );
         const onPhase = (phase: TradingAiPlaybackPhase) => {
           if (!tradingAnalysisJobs.isActive(job.analysisId)) return;
           if (phase === "moving" || phase === "drawing" || phase === "committing") {
-            request.onProgress?.("drawing", `${modelName} 正在拟人化逐笔落图。`);
+            request.onProgress?.("drawing", cloudAnalysisText('drawingStep',job.language));
           }
         };
         failureStage = "drawing";
@@ -10681,21 +10356,16 @@ class TradingExpertMarketWorkspace {
       const splitResult = await this.runSplitPaneAnalyses({
         job,
         ...(await splitSnapshotsPromise),
-        minimumCandles,
+        minimumCandles: 0,
         analysisLabel: `${analysisName}分析`,
         analysisProgressPhase: "analyzing",
         drawingProgressPhase: "drawing",
         drawingsRequested: request.drawingRequested !== false,
         onProgress: request.onProgress,
         analyze: async (snapshot) => {
-          const contextCandles = request.contextCandlesRequested === true
-            ? await fetchTradingMarketStructureContexts(snapshot.market.symbol, snapshot.interval)
-            : [];
-          const comparisonMarkets = request.comparisonCandlesRequested === true
-            ? await fetchTradingSmtComparisonMarkets(snapshot.market, snapshot.interval, preferredCandles, Date.now())
-            : [];
           return api({
             analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
+            sourceThreadId: request.sourceThreadId, storageSessionId: job.storageSessionId,
             ...(request.model ? { model: request.model } : {}),
             ...(request.modelId ? { modelId: request.modelId } : {}),
             ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
@@ -10710,16 +10380,7 @@ class TradingExpertMarketWorkspace {
             analysisContext: request.analysisContext || null,
             responseMode: directResponseRequested ? "direct" : "full",
             lookbackMs: requestedLookbackMs,
-            ...(request.contextCandlesRequested === true ? { contextCandles } : {}),
-            ...(request.comparisonCandlesRequested === true ? { comparisonMarkets } : {}),
-            candles: snapshot.candles.map((candle) => ({
-              time: candle.time,
-              open: candle.open,
-              high: candle.high,
-              low: candle.low,
-              close: candle.close,
-              volume: candle.volume,
-            })),
+            ...cloudAnalysisWindow(strategyId,snapshot.candles,preferredCandles),
           }) as Promise<TradingGeneralAnalysisResponse>;
         },
       });
@@ -10727,32 +10388,22 @@ class TradingExpertMarketWorkspace {
         throw new Error("盘面分析已由用户停止");
       }
       if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
-      request.onProgress?.("complete", drawingDeferred
+      request.onProgress?.("complete", `${modelName} ${drawingDeferred
         ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary
         : directResponseRequested
         ? request.positionManagementRequested === true
-          ? `${modelName} 已按最新行情完成复核，正在直接回答本次仓位问题。`
-          : `${modelName} 已按最新行情完成复核，正在直接回答本次问题；左侧原画线保持不变。`
+          ? cloudAnalysisText('position',job.language)
+          : cloudAnalysisText('direct',job.language)
         : request.executionPlanRequested === false
-          ? `${modelName} 已完成${analysisName}绘图，正在整理支撑、阻力与成交量分布信息。`
-          : `${modelName} 已完成${analysisName}绘图，正在整理可执行的条件式方案。`);
+          ? cloudAnalysisText('complete',job.language)
+          : cloudAnalysisText('complete',job.language)}`);
       const responseReport = String((request.positionManagementRequested === true && !strategyId
           ? response.analysisPlan.report
           : directResponseRequested
             ? response.analysisPlan.narrative
             : response.analysisPlan.report) || response.analysisPlan.narrative || "盘面分析已完成");
-      // This optional deterministic lead currently has only a Chinese template.
-      // English requests use the pipeline's answer without adding that lead.
-      /* Legacy source contract: request.positionManagementRequested === true
-         ? "" : buildQuestionAlignedTradingLead(...) */
-      const questionLead = request.positionManagementRequested === true || activeTradingAnalysisLanguage() === "en"
-        ? ""
-        : buildQuestionAlignedTradingLead({
-            instruction: request.instruction,
-            interval: job.interval,
-            candles: analysisCandles,
-            actionPlan: response.analysisPlan.actionPlan || null,
-          });
+      // The server owns trading conclusions and levels for the frozen snapshot.
+      const questionLead = "";
       const drawingNote = drawingDeferred
         ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary
         : "";
@@ -10761,6 +10412,7 @@ class TradingExpertMarketWorkspace {
         ? String(response.analysisPlan.narrative || responseReport || "盘面分析已完成")
         : questionLead || String(response.analysisPlan.narrative || "盘面分析已完成");
       const result: TradingGeneralConversationResult = {
+        cloudReports: [...cloudReportFromResponse(response), ...splitResult.reports.flatMap(row=>row.cloudReports||[])],
         report: combineTradingAnalysisReports(
           tradingAnalysisPaneHeading(targetMarket, job.interval),
           primaryReport,
@@ -10774,1336 +10426,38 @@ class TradingExpertMarketWorkspace {
         marketId: job.marketId,
         symbol: job.symbol,
         interval: job.interval,
-        candleCount: analysisCandles.length,
+        candleCount: response.snapshot?.candles?.length || 0,
+        tradeCount: response.snapshot?.orderFlow?.trades?.length || 0,
         modelName,
         drawingDeferred,
       };
       tradingAnalysisJobs.complete(job.analysisId);
       return result;
     } catch (error) {
-      const failure = describeTradingAnalysisFailure(error, { stage: failureStage, language: job.language });
-      const cancelled = !tradingAnalysisJobs.isActive(job.analysisId) || failure.cancelled;
       recordTradingRendererFailure(error, {
         analysisJobId: job.analysisId, strategyId: strategyId || "general",
         marketId: job.marketId, interval: job.interval, candleCount: analysisCandles.length, stage: failureStage,
       });
-      // Generic local price analysis cannot satisfy an explicitly selected
-      // strategy (including indicators and personal strategies).
-      const recovered = cancelled || !failure.allowLocalRecovery || Boolean(strategyId) ? null : buildRecoverableTradingAnalysis({
-        analysisId: job.analysisId,
-        marketId: job.marketId,
-        symbol: job.symbol,
-        interval: job.interval,
-        instruction: request.instruction,
-        positionManagementRequested: request.positionManagementRequested === true,
-        candles: analysisCandles,
-        reason: error,
-      });
-      if (recovered) {
-        request.onProgress?.(
-          "analyzing",
-          `${analysisName}：${failure.summary}，已自动切换到本地确定性价格结构分析。`,
-        );
-        let drawingDeferred = false;
-        if (request.drawingRequested !== false) {
-          ({ drawingDeferred } = await settleTradingAnalysisDrawing({
-            isActive: () => tradingAnalysisJobs.isActive(job.analysisId),
-            commit: () => commitTradingAnalysisDrawingPatch(job, recovered.drawingPatch as TradingAiDrawingPatch, 0),
-            onFailure: (drawingError) => recordTradingRendererFailure(drawingError, {
-              analysisJobId: job.analysisId, strategyId: "local-recovery",
-              marketId: job.marketId, interval: job.interval, stage: "drawing",
-            }),
-          }));
-        }
-        tradingAnalysisJobs.complete(job.analysisId);
-        return {
-          report: combineTradingAnalysisReports(
-            tradingAnalysisPaneHeading(targetMarket, job.interval),
-            drawingDeferred
-              ? `${recovered.report}\n\n画布提交暂时不可用，分析结果已保留；图表恢复后可按同一目标重新绘制。`
-              : recovered.report,
-            { completed: 0, failed: 0, reports: [], failures: [] },
-          ),
-          narrative: recovered.narrative,
-          marketId: recovered.marketId,
-          symbol: recovered.symbol,
-          interval: recovered.interval,
-          candleCount: recovered.candleCount,
-          modelName: recovered.modelName,
-          degraded: true,
-          degradationReason: recovered.degradationReason,
-          drawingDeferred,
-        };
-      }
+      // Official analysis failures never invoke a local strategy fallback.
       tradingAnalysisJobs.fail(job.analysisId, error);
       throw error;
     }
   }
 
-  async runChanConversation(
-    request: TradingChanConversationRequest,
-  ): Promise<TradingChanConversationResult> {
-    const api = window.codexDesktop.runTradingChanTest;
-    if (typeof api !== "function") throw new Error("当前版本暂不支持缠论盘面分析");
-    if (!this.markets.length) await this.loadMarkets();
-    const normalizedSymbol = String(request.symbol || this.selectedSymbol).trim().toUpperCase();
-    const currentMarket = this.selectedMarketMeta
-      || this.markets.find((market) => market.id === this.selectedMarketId)
-      || this.favoriteMarketFromId(this.selectedMarketId);
-    const targetMarket = selectTradingAnalysisMarket(this.markets, {
-      symbol: normalizedSymbol,
-      currentMarket,
-      explicitSymbol: Boolean(request.symbol),
-      instruction: request.instruction,
-    }) as TradingMarket | null;
-    if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
-    const targetInterval = selectTradingAnalysisInterval({
-      interval: request.interval,
-      currentInterval: this.activeInterval,
-      explicitSymbol: Boolean(request.symbol),
-    });
-    if (!tradingViewResolutionDurationMs(targetInterval)) {
-      throw new Error(`暂不支持 ${targetInterval} K 线周期`);
-    }
-
-    const marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
-    const shouldReload = targetMarket.id !== this.loadedMarketId
-      || targetInterval !== this.loadedInterval
-      || this.candles.length < 2
-      || this.marketLoading;
-    request.onProgress?.("loading", shouldReload
-      ? `正在将左侧行情切换到 ${marketLabel}，加载 ${tradingPeriodLabelForResolution(targetInterval)} K 线。`
-      : `正在读取左侧当前画布的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线。`);
-    if (shouldReload) {
-      this.selectMarket(targetMarket);
-      this.activeInterval = targetInterval;
-      this.updateSymbolUi();
-      this.updateIntervalPressedButtons(targetInterval);
-      this.renderMarkets();
-      this.redrawDrawingControllers();
-      this.setPickerOpen(false);
-      await this.restartMarketData();
-    }
-    if (
-      this.disposed
-      || this.loadedMarketId !== targetMarket.id
-      || this.loadedInterval !== targetInterval
-      || this.candles.length < 2
-    ) {
-      throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
-    }
-
-    if (
-      tradingAnalysisShouldForceCurrentRefresh(targetMarket.provider, this.candles, targetInterval)
-    ) {
-      request.onProgress?.(
-        "loading",
-        `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
-      );
-      await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, this.candles);
-    }
-
-    const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
-    const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
-    const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
-    const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
-    const useCurrentMarketTail = targetMarket.provider === "binance" && !requestedLookbackMs;
-    let analysisCandles = requestedLookbackMs
-      ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : useCurrentMarketTail
-        ? this.candles.slice(-100)
-        : canvasCandles.length
-          ? canvasCandles
-          : this.candles.slice(-100);
-    const job = tradingAnalysisJobs.start({
-      analysisId: request.analysisId,
-      theory: "chan",
-      storageSessionId: this.drawingStorageSessionId,
-      marketId: this.selectedMarketId,
-      symbol: this.selectedSymbol,
-      interval: this.activeInterval,
-      language: activeTradingAnalysisLanguage(),
-      market: tradingFavoriteRecord(targetMarket),
-    });
-    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
-      requestedLookbackMs,
-      TRADING_CHAN_AUTO_EXPANSION_MAX_CANDLES,
-    );
-    if (requestedLookbackMs) this.focusChartLookback(requestedLookbackMs);
-    const rangeDescription = request.lookbackLabel
-      ? `最近 ${request.lookbackLabel}`
-      : `当前画布可见的 ${analysisCandles.length} 根`;
-    request.onProgress?.(
-      "analyzing",
-      `已准备 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在识别包含关系、分型、笔和中枢。`,
-    );
-    try {
-      const initialAnalysisCandleCount = analysisCandles.length;
-      let chanCandlePool = [...this.candles];
-      let chanSourceCandlePool: TradingCandle[] = [];
-      let expandCanvasBeforeAnalysis = false;
-      const focusChanAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
-        if (
-          !expandCanvasBeforeAnalysis
-          || this.disposed
-          || this.loadedMarketId !== job.marketId
-          || this.loadedInterval !== job.interval
-        ) return;
-        const first = candles[0];
-        const last = candles.at(-1);
-        if (!first || !last) return;
-        this.chart?.timeScale().setVisibleRange({
-          from: first.time as UTCTimestamp,
-          to: last.time as UTCTimestamp,
-        });
-      };
-      const expansion = await runTradingAnalysisWithAutoExpansion({
-        initialCandles: analysisCandles,
-        getAvailableCandles: () => chanCandlePool,
-        insufficientDataCode: TRADING_CHAN_INSUFFICIENT_DATA_CODE,
-        analyze: async (candles) => {
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-            throw new Error("缠论分析已由用户停止");
-          }
-          focusChanAnalysisCandles(candles);
-          if (candles.length < 30) {
-            return {
-              ok: false,
-              error: {
-                code: TRADING_CHAN_INSUFFICIENT_DATA_CODE,
-                message: `当前范围仅有 ${candles.length} 根 K 线`,
-              },
-            } as TradingChanAnalysisResponse;
-          }
-          return api({
-            analysisJobId: job.analysisId,
-            ...(request.model ? { model: request.model } : {}),
-            ...(request.modelId ? { modelId: request.modelId } : {}),
-            ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
-            ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
-            reasoningEffort: "max",
-            marketId: job.marketId,
-            interval: job.interval,
-            snapshotTime: Date.now(),
-            instruction: request.instruction,
-            responseMode: request.drawingRequested === false ? "direct" : "full",
-            lookbackMs: requestedLookbackMs,
-            candles: candles.map((candle) => ({
-              time: candle.time,
-              open: candle.open,
-              high: candle.high,
-              low: candle.low,
-              close: candle.close,
-              volume: candle.volume,
-            })),
-          }) as Promise<TradingChanAnalysisResponse>;
-        },
-        loadMoreHistory: async () => {
-          const oldestTime = Number(chanCandlePool[0]?.time || 0) * 1_000;
-          if (!oldestTime) return;
-          let history: TradingCandleBatch;
-          try {
-            history = await this.fetchHistoricalCandleBatch({
-              symbol: targetMarket.symbol,
-              provider: targetMarket.provider,
-              assetClass: targetMarket.assetClass,
-              marketType: targetMarket.marketType,
-              interval: targetInterval,
-              count: TRADING_CHAN_HISTORY_BATCH_CANDLES,
-              endTime: oldestTime - 1,
-            });
-          } catch (error) {
-            throw new Error(`自动扩大缠论分析范围时加载历史 K 线失败：${String((error as Error)?.message || error)}`);
-          }
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-            throw new Error("缠论分析已由用户停止");
-          }
-          chanCandlePool = mergeCandles(history.candles, chanCandlePool);
-          chanSourceCandlePool = mergeCandles(history.sourceCandles, chanSourceCandlePool);
-          if (
-            !this.disposed
-            && this.loadedMarketId === job.marketId
-            && this.loadedInterval === job.interval
-          ) {
-            this.sourceCandles = mergeCandles(chanSourceCandlePool, this.sourceCandles);
-            this.candles = mergeCandles(chanCandlePool, this.candles);
-            this.updateChartData();
-          }
-        },
-        onExpansion: (event: TradingAnalysisExpansionEvent) => {
-          if (event.type === "history") {
-            request.onProgress?.(
-              "loading",
-              `已检查 ${event.candleCount} 根 K 线仍未形成缠论笔结构，正在自动加载更早历史，最多检查 ${event.maxCandleCount} 根。`,
-            );
-            return;
-          }
-          expandCanvasBeforeAnalysis = true;
-          request.onProgress?.(
-            "analyzing",
-            `当前 ${event.fromCount} 根 K 线不足，正在自动扩大画布到 ${event.toCount} 根并继续缠论分析。`,
-          );
-        },
-        maxCandleCount: TRADING_CHAN_AUTO_EXPANSION_MAX_CANDLES,
-      });
-      const response = expansion.response;
-      analysisCandles = expansion.candles;
-      if (!response?.ok || !response.analysisPlan?.drawingPatch) {
-        const responseMessage = response?.error?.message || "缠论分析没有返回可绘制计划";
-        const error = new Error(expansion.exhausted && response?.error?.code === TRADING_CHAN_INSUFFICIENT_DATA_CODE
-          ? `已自动扩大画布并检查 ${analysisCandles.length} 根 K 线，仍未形成可复核的缠论笔结构：${responseMessage}`
-          : responseMessage);
-        (error as Error & { code?: string }).code = response?.error?.code;
-        throw error;
-      }
-      if (analysisCandles.length > initialAnalysisCandleCount) {
-        focusChanAnalysisCandles(analysisCandles);
-      }
-      const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
-      if (request.drawingRequested !== false) {
-        request.onProgress?.(
-          "drawing",
-          `${modelName} 已完成结构复核，正在左侧图表逐笔绘制已通过校验的缠论结构。`,
-        );
-        const onPhase = (phase: TradingAiPlaybackPhase) => {
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) return;
-          if (phase === "moving" || phase === "drawing" || phase === "committing") {
-            request.onProgress?.("drawing", `${modelName} 正在逐笔绘制分型、笔与中枢。`);
-          }
-        };
-        await commitTradingAnalysisDrawingPatch(job, response.analysisPlan.drawingPatch, 0, onPhase);
-      }
-      const splitResult = await this.runSplitPaneAnalyses({
-        job,
-        ...(await splitSnapshotsPromise),
-        minimumCandles: 30,
-        analysisLabel: "缠论结构",
-        analysisProgressPhase: "analyzing",
-        drawingProgressPhase: "drawing",
-        drawingsRequested: request.drawingRequested !== false,
-        onProgress: request.onProgress,
-        analyze: async (snapshot) => api({
-          analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
-          ...(request.model ? { model: request.model } : {}),
-          ...(request.modelId ? { modelId: request.modelId } : {}),
-          ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
-          ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
-          reasoningEffort: "max",
-          marketId: snapshot.market.id,
-          interval: snapshot.interval,
-          snapshotTime: Date.now(),
-          instruction: request.instruction,
-          responseMode: request.drawingRequested === false ? "direct" : "full",
-          lookbackMs: requestedLookbackMs,
-          candles: snapshot.candles.map((candle) => ({
-            time: candle.time,
-            open: candle.open,
-            high: candle.high,
-            low: candle.low,
-            close: candle.close,
-            volume: candle.volume,
-          })),
-        }) as Promise<TradingChanAnalysisResponse>,
-      });
-      if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-        throw new Error("缠论分析已由用户停止");
-      }
-      if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
-      request.onProgress?.("complete", request.drawingRequested === false
-        ? `${modelName} 已按最新行情完成缠论复核，正在直接回答本次问题；左侧原画线保持不变。`
-        : `${modelName} 已完成缠论绘图，正在整理完整分析报告。`);
-      const primaryReport = String((request.drawingRequested === false
-          ? response.analysisPlan.narrative
-          : response.analysisPlan.report) || response.analysisPlan.narrative || "缠论分析已完成");
-      const primaryNarrative = String(response.analysisPlan.narrative || "缠论分析已完成");
-      const primaryHeading = tradingAnalysisPaneHeading(targetMarket, job.interval);
-      const result: TradingChanConversationResult = {
-        report: combineTradingAnalysisReports(primaryHeading, primaryReport, splitResult),
-        narrative: combineTradingAnalysisNarratives(primaryHeading, primaryNarrative, splitResult),
-        marketId: job.marketId,
-        symbol: job.symbol,
-        interval: job.interval,
-        candleCount: analysisCandles.length,
-        modelName,
-      };
-      tradingAnalysisJobs.complete(job.analysisId);
-      return result;
-    } catch (error) {
-      tradingAnalysisJobs.fail(job.analysisId, error);
-      throw error;
-    }
+  async runChanConversation(request: TradingChanConversationRequest): Promise<TradingChanConversationResult> {
+    return this.runGeneralConversation({...request,onProgress:(phase,message)=>request.onProgress?.((phase==='loading'?'loading':''+phase) as TradingChanConversationPhase,message)},'chan');
   }
 
-  async runWaveConversation(
-    request: TradingWaveConversationRequest,
-  ): Promise<TradingWaveConversationResult> {
-    const api = window.codexDesktop.runTradingWaveAnalysis;
-    if (typeof api !== "function") throw new Error("当前版本暂不支持波浪理论盘面分析");
-    const capturedTarget = request.analysisTarget || null;
-    const useCapturedTarget = Boolean(
-      capturedTarget
-      && !request.symbol
-      && (!request.interval || request.interval === capturedTarget.interval),
-    );
-    if (!this.markets.length && !useCapturedTarget) await this.loadMarkets();
-    const capturedMarket = capturedTarget
-      ? marketFromFavoriteRecord(capturedTarget.market as TradingFavoriteMarketRecord)
-      : null;
-    const normalizedSymbol = String(request.symbol || capturedTarget?.symbol || this.selectedSymbol).trim().toUpperCase();
-    const currentMarket = capturedMarket
-      || this.selectedMarketMeta
-      || this.markets.find((market) => market.id === this.selectedMarketId)
-      || this.favoriteMarketFromId(this.selectedMarketId);
-    const targetMarket = useCapturedTarget
-      ? capturedMarket
-      : selectTradingAnalysisMarket(this.markets, {
-          symbol: normalizedSymbol,
-          currentMarket,
-          explicitSymbol: Boolean(request.symbol),
-          instruction: request.instruction,
-        }) as TradingMarket | null;
-    if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
-    const targetInterval = selectTradingAnalysisInterval({
-      interval: request.interval,
-      currentInterval: capturedTarget?.interval || this.activeInterval,
-      explicitSymbol: Boolean(request.symbol),
-    });
-    if (!tradingViewResolutionDurationMs(targetInterval)) {
-      throw new Error(`暂不支持 ${targetInterval} K 线周期`);
-    }
-
-    const marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
-    const shouldReload = !useCapturedTarget && (targetMarket.id !== this.loadedMarketId
-      || targetInterval !== this.loadedInterval
-      || this.candles.length < 2
-      || this.marketLoading);
-    request.onProgress?.("loading", useCapturedTarget
-      ? `正在读取发送时锁定的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线及低周期子浪。`
-      : shouldReload
-        ? `正在将左侧行情切换到 ${marketLabel}，加载 ${tradingPeriodLabelForResolution(targetInterval)} K 线。`
-        : `正在读取左侧当前画布的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线。`);
-    if (shouldReload) {
-      this.selectMarket(targetMarket);
-      this.activeInterval = targetInterval;
-      this.updateSymbolUi();
-      this.updateIntervalPressedButtons(targetInterval);
-      this.renderMarkets();
-      this.redrawDrawingControllers();
-      this.setPickerOpen(false);
-      await this.restartMarketData();
-    }
-    if (
-      this.disposed
-      || (!useCapturedTarget && (
-        this.loadedMarketId !== targetMarket.id
-        || this.loadedInterval !== targetInterval
-        || this.candles.length < 2
-      ))
-    ) {
-      throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
-    }
-
-    let targetCandles = useCapturedTarget
-      ? capturedTarget!.candles.map((candle) => ({ ...candle }))
-      : this.candles;
-    let useCapturedCandleWindow = useCapturedTarget;
-    let currentSnapshotRefreshed = false;
-    if (
-      targetCandles.length < 2
-      || tradingAnalysisShouldForceCurrentRefresh(targetMarket.provider, targetCandles, targetInterval)
-    ) {
-      request.onProgress?.(
-        "loading",
-        `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
-      );
-      const loaded = await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, targetCandles);
-      targetCandles = loaded.candles;
-      useCapturedCandleWindow = false;
-      currentSnapshotRefreshed = true;
-    }
-    if (targetCandles.length < 2) throw new Error(`${marketLabel} 当前行情快照不足`);
-    const latestTimeMs = Number(targetCandles.at(-1)?.time || 0) * 1_000;
-    const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
-    const visibleRange = useCapturedTarget ? null : this.chart?.timeScale().getVisibleLogicalRange() || null;
-    const canvasCandles = useCapturedCandleWindow
-      ? capturedTarget!.visibleCandles.map((candle) => ({ ...candle }))
-      : visibleCandlesInLogicalRange(targetCandles, visibleRange);
-    const useCurrentMarketTail = targetMarket.provider === "binance" && !requestedLookbackMs;
-    let analysisCandles = requestedLookbackMs
-      ? targetCandles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-        : useCurrentMarketTail
-          ? targetCandles.slice(-100)
-          : canvasCandles.length
-            ? canvasCandles
-            : targetCandles.slice(-100);
-    const analysisEndTimeMs = Number(analysisCandles.at(-1)?.time || 0) * 1_000;
-    const analysisSnapshotTime = currentSnapshotRefreshed ? Date.now() : (capturedTarget?.capturedAt || Date.now());
-    const job = tradingAnalysisJobs.start({
-      analysisId: request.analysisId,
-      theory: "wave",
-      storageSessionId: capturedTarget?.storageSessionId || this.drawingStorageSessionId,
-      marketId: targetMarket.id,
-      symbol: targetMarket.symbol,
-      interval: targetInterval,
-      language: activeTradingAnalysisLanguage(),
-      market: tradingFavoriteRecord(targetMarket),
-    });
-    const splitSnapshotsPromise = useCapturedTarget
-      ? Promise.resolve({
-          snapshots: [] as TradingSplitPaneAnalysisSnapshot[],
-          snapshotFailures: [] as TradingSplitPaneAnalysisFailure[],
-        })
-      : this.captureSplitPaneAnalysisSnapshots(
-          requestedLookbackMs,
-          TRADING_WAVE_AUTO_EXPANSION_MAX_CANDLES,
-        );
-    const waveDegreeContextsPromise = fetchTradingWaveDegreeContexts(targetMarket.symbol, targetInterval, {
-      count: 600,
-      // Child waves must end no later than the parent window being analysed.
-      // Using send-time here leaked newer 1H/15m candles into a historical
-      // visible-range analysis and could make a fallback look valid only
-      // because it saw the future.
-      endTime: analysisEndTimeMs || request.analysisTarget?.capturedAt || Date.now(),
-      marketType: targetMarket.marketType === "spot" ? "spot" : "perpetual",
-    });
-    const rangeDescription = request.lookbackLabel
-      ? `最近 ${request.lookbackLabel}`
-      : `当前画布可见的 ${analysisCandles.length} 根`;
-    request.onProgress?.(
-      "wave-analyzing",
-      `已准备 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在按价格硬规则与低一级结构验证 0-1-2-3-4-5、A-B-C / W-X-Y 候选。`,
-    );
-    try {
-      let waveCandlePool = [...targetCandles];
-      let waveSourceCandlePool: TradingCandle[] = [];
-      const focusWaveAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
-        if (
-          this.disposed
-          || this.loadedMarketId !== job.marketId
-          || this.loadedInterval !== job.interval
-          || !candles.length
-        ) return;
-        const first = candles[0];
-        const last = candles[candles.length - 1];
-        this.chart?.timeScale().setVisibleRange({
-          from: first.time as UTCTimestamp,
-          to: last.time as UTCTimestamp,
-        });
-      };
-      const expansion = await runTradingWaveAnalysisWithAutoExpansion({
-        initialCandles: analysisCandles,
-        getAvailableCandles: () => waveCandlePool,
-        analyze: async (candles) => {
-          focusWaveAnalysisCandles(candles);
-          if (candles.length < 30) {
-            return {
-              ok: false,
-              error: {
-                code: "TRADING_WAVE_INSUFFICIENT_DATA",
-                message: `当前范围仅有 ${candles.length} 根 K 线`,
-              },
-            } as TradingWaveAnalysisResponse;
-          }
-          const response = await api({
-            analysisJobId: job.analysisId,
-            ...(request.model ? { model: request.model } : {}),
-            ...(request.modelId ? { modelId: request.modelId } : {}),
-            ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
-            ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
-            reasoningEffort: "max",
-            marketId: job.marketId,
-            interval: job.interval,
-            snapshotTime: analysisSnapshotTime,
-            instruction: request.instruction,
-            responseMode: request.drawingRequested === false ? "direct" : "full",
-            lookbackMs: requestedLookbackMs,
-            contextCandles: await waveDegreeContextsPromise,
-            candles: candles.map((candle) => ({
-              time: candle.time,
-              open: candle.open,
-              high: candle.high,
-              low: candle.low,
-              close: candle.close,
-              volume: candle.volume,
-            })),
-          }) as TradingWaveAnalysisResponse;
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-            throw new Error("波浪理论分析已由用户停止");
-          }
-          return response;
-        },
-        loadMoreHistory: async () => {
-          const oldestTime = Number(waveCandlePool[0]?.time || 0) * 1_000;
-          if (!oldestTime) return;
-          let history: TradingCandleBatch;
-          try {
-            history = await this.fetchHistoricalCandleBatch({
-              symbol: targetMarket.symbol,
-              provider: targetMarket.provider,
-              assetClass: targetMarket.assetClass,
-              marketType: targetMarket.marketType,
-              interval: targetInterval,
-              count: TRADING_WAVE_HISTORY_BATCH_CANDLES,
-              endTime: oldestTime - 1,
-            });
-          } catch (error) {
-            throw new Error(`自动扩大波浪分析范围时加载历史 K 线失败：${String((error as Error)?.message || error)}`);
-          }
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-            throw new Error("波浪理论分析已由用户停止");
-          }
-          waveCandlePool = mergeCandles(history.candles, waveCandlePool);
-          waveSourceCandlePool = mergeCandles(history.sourceCandles, waveSourceCandlePool);
-          if (
-            !this.disposed
-            && this.loadedMarketId === job.marketId
-            && this.loadedInterval === job.interval
-          ) {
-            this.sourceCandles = mergeCandles(history.sourceCandles, this.sourceCandles);
-            this.candles = mergeCandles(history.candles, this.candles);
-            this.updateChartData();
-          }
-        },
-        onExpansion: (event: TradingWaveExpansionEvent) => {
-          if (event.type === "history") {
-            request.onProgress?.(
-              "loading",
-              `已检查 ${event.candleCount} 根 K 线仍无合格浪型，正在自动加载更早历史，最多检查 ${event.maxCandleCount} 根。`,
-            );
-            return;
-          }
-          request.onProgress?.(
-            "wave-analyzing",
-            `当前 ${event.fromCount} 根 K 线未形成合格浪型，正在自动扩大到 ${event.toCount} 根继续验证。`,
-          );
-        },
-        maxCandleCount: TRADING_WAVE_AUTO_EXPANSION_MAX_CANDLES,
-      });
-      const response = expansion.response;
-      analysisCandles = expansion.candles;
-      focusWaveAnalysisCandles(analysisCandles);
-      if (!response?.ok || !response.analysisPlan?.drawingPatch) {
-        const responseMessage = response?.error?.message || "波浪理论分析没有返回可绘制计划";
-        const error = new Error(expansion.exhausted && response?.error?.code === "TRADING_WAVE_INSUFFICIENT_DATA"
-          ? `已自动扩大到 ${analysisCandles.length} 根 K 线，仍未形成可复核浪型：${responseMessage}`
-          : responseMessage);
-        (error as Error & { code?: string }).code = response?.error?.code;
-        throw error;
-      }
-      if (
-        !this.disposed
-        && this.loadedMarketId === job.marketId
-        && this.loadedInterval === job.interval
-        && waveCandlePool.length > this.candles.length
-      ) {
-        this.sourceCandles = mergeCandles(waveSourceCandlePool, this.sourceCandles);
-        this.candles = mergeCandles(waveCandlePool, this.candles);
-        this.updateChartData();
-        focusWaveAnalysisCandles(analysisCandles);
-      }
-      const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
-      if (request.drawingRequested !== false) {
-        request.onProgress?.(
-          "wave-drawing",
-          `${modelName} 已完成严格波浪规则复核，正在左侧图表绘制已验证主计数与关键确认/失效区域。`,
-        );
-        const onPhase = (phase: TradingAiPlaybackPhase) => {
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) return;
-          if (phase === "moving" || phase === "drawing" || phase === "committing") {
-            request.onProgress?.("wave-drawing", `${modelName} 正在逐笔绘制简短浪标、主路径和关键价位。`);
-          }
-        };
-        await commitTradingAnalysisDrawingPatch(job, response.analysisPlan.drawingPatch, 0, onPhase);
-      }
-      const splitResult = await this.runSplitPaneAnalyses({
-        job,
-        ...(await splitSnapshotsPromise),
-        minimumCandles: 30,
-        analysisLabel: "波浪结构",
-        analysisProgressPhase: "wave-analyzing",
-        drawingProgressPhase: "wave-drawing",
-        drawingsRequested: request.drawingRequested !== false,
-        onProgress: request.onProgress,
-        analyze: async (snapshot) => api({
-          analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
-          ...(request.model ? { model: request.model } : {}),
-          ...(request.modelId ? { modelId: request.modelId } : {}),
-          ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
-          ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
-          reasoningEffort: "max",
-          marketId: snapshot.market.id,
-          interval: snapshot.interval,
-          snapshotTime: Date.now(),
-          instruction: request.instruction,
-          responseMode: request.drawingRequested === false ? "direct" : "full",
-          lookbackMs: requestedLookbackMs,
-          contextCandles: await fetchTradingWaveDegreeContexts(snapshot.market.symbol, snapshot.interval, {
-            count: 600,
-            endTime: Number(snapshot.candles.at(-1)?.time || 0) * 1_000 || Date.now(),
-            marketType: snapshot.market.marketType === "spot" ? "spot" : "perpetual",
-          }),
-          candles: snapshot.candles.map((candle) => ({
-            time: candle.time,
-            open: candle.open,
-            high: candle.high,
-            low: candle.low,
-            close: candle.close,
-            volume: candle.volume,
-          })),
-        }) as Promise<TradingWaveAnalysisResponse>,
-      });
-      if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-        throw new Error("波浪理论分析已由用户停止");
-      }
-      if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
-      request.onProgress?.("wave-complete", request.drawingRequested === false
-        ? `${modelName} 已按最新行情完成波浪复核，正在直接回答本次问题；左侧原画线保持不变。`
-        : `${modelName} 已完成精简波浪绘图，正在整理新手可读的多空触发价与风险条件。`);
-      const primaryReport = String((request.drawingRequested === false
-          ? response.analysisPlan.narrative
-          : response.analysisPlan.report) || response.analysisPlan.narrative || "波浪理论分析已完成");
-      const primaryNarrative = String(response.analysisPlan.narrative || "波浪理论分析已完成");
-      const primaryHeading = tradingAnalysisPaneHeading(targetMarket, job.interval);
-      const result: TradingWaveConversationResult = {
-        report: combineTradingAnalysisReports(primaryHeading, primaryReport, splitResult),
-        narrative: combineTradingAnalysisNarratives(primaryHeading, primaryNarrative, splitResult),
-        marketId: job.marketId,
-        symbol: job.symbol,
-        interval: job.interval,
-        candleCount: analysisCandles.length,
-        modelName,
-      };
-      tradingAnalysisJobs.complete(job.analysisId);
-      return result;
-    } catch (error) {
-      tradingAnalysisJobs.fail(job.analysisId, error);
-      throw error;
-    }
+  async runWaveConversation(request: TradingWaveConversationRequest): Promise<TradingWaveConversationResult> {
+    return this.runGeneralConversation({...request,onProgress:(phase,message)=>request.onProgress?.((phase==='loading'?'loading':'wave-'+phase) as TradingWaveConversationPhase,message)},'wave');
   }
 
-  async runWyckoffConversation(
-    request: TradingWyckoffConversationRequest,
-  ): Promise<TradingWyckoffConversationResult> {
-    const api = window.codexDesktop.runTradingWyckoffAnalysis;
-    if (typeof api !== "function") throw new Error("当前版本暂不支持威科夫盘面分析");
-    if (!this.markets.length) await this.loadMarkets();
-    const normalizedSymbol = String(request.symbol || this.selectedSymbol).trim().toUpperCase();
-    const currentMarket = this.selectedMarketMeta
-      || this.markets.find((market) => market.id === this.selectedMarketId)
-      || this.favoriteMarketFromId(this.selectedMarketId);
-    const targetMarket = selectTradingAnalysisMarket(this.markets, {
-      symbol: normalizedSymbol,
-      currentMarket,
-      explicitSymbol: Boolean(request.symbol),
-      instruction: request.instruction,
-    }) as TradingMarket | null;
-    if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
-    const targetInterval = selectTradingAnalysisInterval({
-      interval: request.interval,
-      currentInterval: this.activeInterval,
-      explicitSymbol: Boolean(request.symbol),
-    });
-    if (!tradingViewResolutionDurationMs(targetInterval)) {
-      throw new Error(`暂不支持 ${targetInterval} K 线周期`);
-    }
-
-    const marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
-    const shouldReload = targetMarket.id !== this.loadedMarketId
-      || targetInterval !== this.loadedInterval
-      || this.candles.length < 2
-      || this.marketLoading;
-    request.onProgress?.("loading", shouldReload
-      ? `正在将左侧行情切换到 ${marketLabel}，加载 ${tradingPeriodLabelForResolution(targetInterval)} K 线。`
-      : `正在读取左侧当前画布的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线。`);
-    if (shouldReload) {
-      this.selectMarket(targetMarket);
-      this.activeInterval = targetInterval;
-      this.updateSymbolUi();
-      this.updateIntervalPressedButtons(targetInterval);
-      this.renderMarkets();
-      this.redrawDrawingControllers();
-      this.setPickerOpen(false);
-      await this.restartMarketData();
-    }
-    if (
-      this.disposed
-      || this.loadedMarketId !== targetMarket.id
-      || this.loadedInterval !== targetInterval
-      || this.candles.length < 2
-    ) {
-      throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
-    }
-
-    if (
-      tradingAnalysisShouldForceCurrentRefresh(targetMarket.provider, this.candles, targetInterval)
-    ) {
-      request.onProgress?.(
-        "loading",
-        `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
-      );
-      await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, this.candles);
-    }
-
-    const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
-    const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
-    const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
-    const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
-    const useCurrentMarketTail = targetMarket.provider === "binance" && !requestedLookbackMs;
-    let analysisCandles = requestedLookbackMs
-      ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : useCurrentMarketTail
-        ? this.candles.slice(-120)
-        : canvasCandles.length >= 60
-          ? canvasCandles
-          : this.candles.slice(-120);
-    const job = tradingAnalysisJobs.start({
-      analysisId: request.analysisId,
-      theory: "wyckoff",
-      storageSessionId: this.drawingStorageSessionId,
-      marketId: this.selectedMarketId,
-      symbol: this.selectedSymbol,
-      interval: this.activeInterval,
-      language: activeTradingAnalysisLanguage(),
-      market: tradingFavoriteRecord(targetMarket),
-    });
-    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
-      requestedLookbackMs,
-      TRADING_WYCKOFF_AUTO_EXPANSION_MAX_CANDLES,
-    );
-    const rangeDescription = request.lookbackLabel
-      ? `最近 ${request.lookbackLabel}`
-      : `当前画布可见的 ${analysisCandles.length} 根`;
-    request.onProgress?.(
-      "wyckoff-analyzing",
-      `已准备 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在识别交易区间、量价努力结果、A–E 阶段和关键事件。`,
-    );
-    try {
-      let wyckoffCandlePool = [...this.candles];
-      const focusWyckoffAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
-        if (
-          this.disposed
-          || this.loadedMarketId !== job.marketId
-          || this.loadedInterval !== job.interval
-          || !candles.length
-        ) return;
-        const first = candles[0];
-        const last = candles[candles.length - 1];
-        this.chart?.timeScale().setVisibleRange({
-          from: first.time as UTCTimestamp,
-          to: last.time as UTCTimestamp,
-        });
-      };
-      const expansion = await runTradingAnalysisWithAutoExpansion({
-        initialCandles: analysisCandles,
-        getAvailableCandles: () => wyckoffCandlePool,
-        insufficientDataCode: TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE,
-        analyze: async (candles) => {
-          focusWyckoffAnalysisCandles(candles);
-          if (candles.length < 60) {
-            return {
-              ok: false,
-              error: {
-                code: TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE,
-                message: `当前范围仅有 ${candles.length} 根 K 线`,
-              },
-            } as TradingWyckoffAnalysisResponse;
-          }
-          return api({
-            analysisJobId: job.analysisId,
-            ...(request.model ? { model: request.model } : {}),
-            ...(request.modelId ? { modelId: request.modelId } : {}),
-            ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
-            ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
-            reasoningEffort: "max",
-            marketId: job.marketId,
-            interval: job.interval,
-            snapshotTime: Date.now(),
-            instruction: request.instruction,
-            responseMode: request.drawingRequested === false ? "direct" : "full",
-            lookbackMs: requestedLookbackMs,
-            candles: candles.map((candle) => ({
-              time: candle.time,
-              open: candle.open,
-              high: candle.high,
-              low: candle.low,
-              close: candle.close,
-              volume: candle.volume,
-            })),
-          }) as Promise<TradingWyckoffAnalysisResponse>;
-        },
-        loadMoreHistory: async () => {
-          const oldestTime = Number(wyckoffCandlePool[0]?.time || 0) * 1_000;
-          if (!oldestTime) return;
-          const history = await this.fetchHistoricalCandleBatch({
-            symbol: targetMarket.symbol,
-            provider: targetMarket.provider,
-            assetClass: targetMarket.assetClass,
-            marketType: targetMarket.marketType,
-            interval: targetInterval,
-            count: TRADING_WYCKOFF_HISTORY_BATCH_CANDLES,
-            endTime: oldestTime - 1,
-          });
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-            throw new Error("威科夫分析已由用户停止");
-          }
-          wyckoffCandlePool = mergeCandles(history.candles, wyckoffCandlePool);
-          if (
-            !this.disposed
-            && this.loadedMarketId === job.marketId
-            && this.loadedInterval === job.interval
-          ) {
-            this.sourceCandles = mergeCandles(history.sourceCandles, this.sourceCandles);
-            this.candles = mergeCandles(history.candles, this.candles);
-            this.updateChartData();
-          }
-        },
-        onExpansion: (event) => {
-          if (event.type === "history") {
-            request.onProgress?.(
-              "loading",
-              `已检查 ${event.candleCount} 根 K 线仍未形成威科夫区间，正在自动加载更早历史，最多检查 ${event.maxCandleCount} 根。`,
-            );
-            return;
-          }
-          request.onProgress?.(
-            "wyckoff-analyzing",
-            `当前 ${event.fromCount} 根 K 线不足，正在自动扩大画布到 ${event.toCount} 根继续威科夫分析。`,
-          );
-        },
-        maxCandleCount: TRADING_WYCKOFF_AUTO_EXPANSION_MAX_CANDLES,
-      });
-      const response = expansion.response;
-      analysisCandles = expansion.candles;
-      focusWyckoffAnalysisCandles(analysisCandles);
-      if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-        throw new Error("威科夫分析已由用户停止");
-      }
-      if (!response?.ok || !response.analysisPlan?.drawingPatch) {
-        const error = new Error(response?.error?.message || "威科夫分析没有返回可绘制计划");
-        Object.assign(error, response?.error, { candleCount: analysisCandles.length });
-        throw error;
-      }
-      const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
-      let drawingDeferred = false;
-      if (request.drawingRequested !== false) {
-        request.onProgress?.(
-          "wyckoff-drawing",
-          `${modelName} 已完成威科夫候选复核，正在左侧图表绘制交易区间、阶段、关键事件与条件路径。`,
-        );
-        const onPhase = (phase: TradingAiPlaybackPhase) => {
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) return;
-          if (phase === "moving" || phase === "drawing" || phase === "committing") {
-            request.onProgress?.("wyckoff-drawing", `${modelName} 正在逐项绘制区间边界、Phase A–E 和关键量价事件。`);
-          }
-        };
-        ({ drawingDeferred } = await settleTradingAnalysisDrawing({
-          isActive: () => tradingAnalysisJobs.isActive(job.analysisId),
-          commit: () => commitTradingAnalysisDrawingPatch(job, response.analysisPlan!.drawingPatch!, 0, onPhase),
-          onFailure: (error) => recordTradingRendererFailure(error, {
-            analysisJobId: job.analysisId, strategyId: "wyckoff",
-            marketId: job.marketId, interval: job.interval, candleCount: analysisCandles.length,
-            modelId: response.model?.modelId || response.model?.providerId, stage: "drawing",
-          }),
-        }));
-      }
-      const splitResult = await this.runSplitPaneAnalyses({
-        job,
-        ...(await splitSnapshotsPromise),
-        minimumCandles: 60,
-        analysisLabel: "威科夫结构",
-        analysisProgressPhase: "wyckoff-analyzing",
-        drawingProgressPhase: "wyckoff-drawing",
-        drawingsRequested: request.drawingRequested !== false,
-        onProgress: request.onProgress,
-        analyze: async (snapshot) => api({
-          analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
-          ...(request.model ? { model: request.model } : {}),
-          ...(request.modelId ? { modelId: request.modelId } : {}),
-          ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
-          ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
-          reasoningEffort: "max",
-          marketId: snapshot.market.id,
-          interval: snapshot.interval,
-          snapshotTime: Date.now(),
-          instruction: request.instruction,
-          responseMode: request.drawingRequested === false ? "direct" : "full",
-          lookbackMs: requestedLookbackMs,
-          candles: snapshot.candles.map((candle) => ({
-            time: candle.time,
-            open: candle.open,
-            high: candle.high,
-            low: candle.low,
-            close: candle.close,
-            volume: candle.volume,
-          })),
-        }) as Promise<TradingWyckoffAnalysisResponse>,
-      });
-      if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-        throw new Error("威科夫分析已由用户停止");
-      }
-      if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
-      request.onProgress?.("wyckoff-complete", drawingDeferred
-        ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary
-        : request.drawingRequested === false
-        ? `${modelName} 已按最新行情完成威科夫复核，正在直接回答本次问题；左侧原画线保持不变。`
-        : `${modelName} 已完成威科夫拟人落图，正在整理新手可执行的突破、跌破与等待条件。`);
-      const primaryReport = String((request.drawingRequested === false
-          ? response.analysisPlan.narrative
-          : response.analysisPlan.report) || response.analysisPlan.narrative || "威科夫分析已完成");
-      const primaryNarrative = String(response.analysisPlan.narrative || "威科夫分析已完成");
-      const primaryHeading = tradingAnalysisPaneHeading(targetMarket, job.interval);
-      const result: TradingWyckoffConversationResult = {
-        report: combineTradingAnalysisReports(primaryHeading, [
-          primaryReport,
-          drawingDeferred ? describeTradingAnalysisFailure(null, { stage: "drawing", language: job.language }).summary : "",
-        ].filter(Boolean).join("\n\n"), splitResult),
-        narrative: combineTradingAnalysisNarratives(primaryHeading, primaryNarrative, splitResult),
-        marketId: job.marketId,
-        symbol: job.symbol,
-        interval: job.interval,
-        candleCount: analysisCandles.length,
-        modelName,
-        drawingDeferred,
-      };
-      tradingAnalysisJobs.complete(job.analysisId);
-      return result;
-    } catch (error) {
-      tradingAnalysisJobs.fail(job.analysisId, error);
-      throw error;
-    }
+  async runWyckoffConversation(request: TradingWyckoffConversationRequest): Promise<TradingWyckoffConversationResult> {
+    return this.runGeneralConversation({...request,onProgress:(phase,message)=>request.onProgress?.((phase==='loading'?'loading':'wyckoff-'+phase) as TradingWyckoffConversationPhase,message)},'wyckoff');
   }
 
-  async runOrderFlowConversation(
-    request: TradingOrderFlowConversationRequest,
-  ): Promise<TradingOrderFlowConversationResult> {
-    const api = window.codexDesktop.runTradingOrderFlowAnalysis;
-    if (typeof api !== "function") throw new Error("当前版本暂不支持订单流盘面分析");
-    if (!this.markets.length) await this.loadMarkets();
-    const normalizedSymbol = String(request.symbol || this.selectedSymbol).trim().toUpperCase();
-    const currentMarket = this.selectedMarketMeta
-      || this.markets.find((market) => market.id === this.selectedMarketId)
-      || this.favoriteMarketFromId(this.selectedMarketId);
-    const targetMarket = selectTradingAnalysisMarket(this.markets, {
-      symbol: normalizedSymbol,
-      currentMarket,
-      explicitSymbol: Boolean(request.symbol),
-      instruction: request.instruction,
-      forcePerpetual: true,
-    }) as TradingMarket | null;
-    if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 币安永续行情`);
-    if (targetMarket.provider !== "binance" || targetMarket.marketType !== "perpetual") {
-      throw new Error("订单流首发链路仅支持币安永续合约；当前市场没有统一的真实逐笔、深度和持仓量覆盖");
-    }
-    const targetInterval = selectTradingAnalysisInterval({
-      interval: request.interval,
-      currentInterval: this.activeInterval,
-      explicitSymbol: Boolean(request.symbol),
-    });
-    if (!tradingViewResolutionDurationMs(targetInterval)) {
-      throw new Error(`暂不支持 ${targetInterval} K 线周期`);
-    }
-
-    const marketLabel = targetMarket.displaySymbol || `${targetMarket.baseAsset}/${targetMarket.quoteAsset}`;
-    const shouldReload = targetMarket.id !== this.loadedMarketId
-      || targetInterval !== this.loadedInterval
-      || this.candles.length < 2
-      || this.marketLoading;
-    request.onProgress?.("loading", shouldReload
-      ? `正在将左侧行情切换到 ${marketLabel}，加载 ${tradingPeriodLabelForResolution(targetInterval)} K 线。`
-      : `正在读取左侧当前画布的 ${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} K 线。`);
-    if (shouldReload) {
-      this.selectMarket(targetMarket);
-      this.activeInterval = targetInterval;
-      this.updateSymbolUi();
-      this.updateIntervalPressedButtons(targetInterval);
-      this.renderMarkets();
-      this.redrawDrawingControllers();
-      this.setPickerOpen(false);
-      await this.restartMarketData();
-    }
-    if (
-      this.disposed
-      || this.loadedMarketId !== targetMarket.id
-      || this.loadedInterval !== targetInterval
-      || this.candles.length < 2
-    ) {
-      throw new Error(`${marketLabel} ${tradingPeriodLabelForResolution(targetInterval)} 行情加载失败`);
-    }
-
-    if (
-      tradingAnalysisShouldForceCurrentRefresh(targetMarket.provider, this.candles, targetInterval)
-    ) {
-      request.onProgress?.(
-        "loading",
-        `${marketLabel} 正在强制刷新当前行情快照（忽略缓存）后再分析。`,
-      );
-      await this.refreshCurrentMarketSnapshotForAnalysis(targetMarket, targetInterval, this.candles);
-    }
-
-    const latestTimeMs = Number(this.candles.at(-1)?.time || 0) * 1_000;
-    const requestedLookbackMs = Number(request.lookbackMs) > 0 ? Number(request.lookbackMs) : null;
-    const visibleRange = this.chart?.timeScale().getVisibleLogicalRange() || null;
-    const canvasCandles = visibleCandlesInLogicalRange(this.candles, visibleRange);
-    const useCurrentMarketTail = targetMarket.provider === "binance" && !requestedLookbackMs;
-    let analysisCandles = requestedLookbackMs
-      ? this.candles.filter((candle) => candle.time * 1_000 >= latestTimeMs - requestedLookbackMs)
-      : useCurrentMarketTail
-        ? this.candles.slice(-100)
-        : canvasCandles.length
-          ? canvasCandles
-          : this.candles.slice(-100);
-    const job = tradingAnalysisJobs.start({
-      analysisId: request.analysisId,
-      theory: "order-flow",
-      storageSessionId: this.drawingStorageSessionId,
-      marketId: this.selectedMarketId,
-      symbol: this.selectedSymbol,
-      interval: this.activeInterval,
-      language: activeTradingAnalysisLanguage(),
-      market: tradingFavoriteRecord(targetMarket),
-    });
-    const capturedOpenInterest = this.stats?.openInterest ?? null;
-    const splitSnapshotsPromise = this.captureSplitPaneAnalysisSnapshots(
-      requestedLookbackMs,
-      120,
-    );
-    const rangeDescription = request.lookbackLabel
-      ? `最近 ${request.lookbackLabel}`
-      : `当前画布可见的 ${analysisCandles.length} 根`;
-    request.onProgress?.(
-      "order-flow-analyzing",
-      `已准备 ${marketLabel} ${rangeDescription} ${tradingPeriodLabelForResolution(targetInterval)} K 线，正在读取真实主动成交、盘口深度和持仓量覆盖。`,
-    );
-    try {
-      let orderFlowCandlePool = [...this.candles];
-      const focusOrderFlowAnalysisCandles = (candles: ReadonlyArray<TradingCandle>) => {
-        if (
-          this.disposed
-          || this.loadedMarketId !== job.marketId
-          || this.loadedInterval !== job.interval
-          || !candles.length
-        ) return;
-        const first = candles[0];
-        const last = candles[candles.length - 1];
-        this.chart?.timeScale().setVisibleRange({
-          from: first.time as UTCTimestamp,
-          to: last.time as UTCTimestamp,
-        });
-      };
-      const expansion = await runTradingAnalysisWithAutoExpansion({
-        initialCandles: analysisCandles,
-        getAvailableCandles: () => orderFlowCandlePool,
-        insufficientDataCode: TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE,
-        analyze: async (candles) => {
-          focusOrderFlowAnalysisCandles(candles);
-          return candles.length >= 120
-            ? { ok: true }
-            : {
-                ok: false,
-                error: {
-                  code: TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE,
-                  message: `当前订单流背景窗口仅有 ${candles.length} 根 K 线`,
-                },
-              };
-        },
-        loadMoreHistory: async () => {
-          const oldestTime = Number(orderFlowCandlePool[0]?.time || 0) * 1_000;
-          if (!oldestTime) return;
-          const history = await this.fetchHistoricalCandleBatch({
-            symbol: targetMarket.symbol,
-            provider: targetMarket.provider,
-            assetClass: targetMarket.assetClass,
-            marketType: targetMarket.marketType,
-            interval: targetInterval,
-            count: TRADING_CANDLE_WINDOW_HISTORY_BATCH_CANDLES,
-            endTime: oldestTime - 1,
-          });
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-            throw new Error("订单流分析已由用户停止");
-          }
-          orderFlowCandlePool = mergeCandles(history.candles, orderFlowCandlePool);
-          if (
-            !this.disposed
-            && this.loadedMarketId === job.marketId
-            && this.loadedInterval === job.interval
-          ) {
-            this.sourceCandles = mergeCandles(history.sourceCandles, this.sourceCandles);
-            this.candles = mergeCandles(history.candles, this.candles);
-            this.updateChartData();
-          }
-        },
-        onExpansion: (event) => {
-          if (event.type === "history") {
-            request.onProgress?.(
-              "loading",
-              `当前仅有 ${event.candleCount} 根 K 线，正在自动加载更早历史，最多扩展到 ${event.maxCandleCount} 根。`,
-            );
-            return;
-          }
-          request.onProgress?.(
-            "order-flow-analyzing",
-            `当前 ${event.fromCount} 根 K 线不足，正在自动扩大画布到 ${event.toCount} 根继续订单流分析。`,
-          );
-        },
-        maxCandleCount: TRADING_CANDLE_WINDOW_AUTO_EXPANSION_MAX_CANDLES,
-      });
-      analysisCandles = expansion.candles;
-      focusOrderFlowAnalysisCandles(analysisCandles);
-      const orderFlow = await fetchTradingOrderFlowWindow(
-        job.symbol,
-        job.interval,
-        capturedOpenInterest,
-      );
-      const contextCandles = await fetchTradingMarketStructureContexts(
-        job.symbol,
-        job.interval,
-      );
-      if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-        throw new Error("订单流分析已由用户停止");
-      }
-      request.onProgress?.(
-        "order-flow-analyzing",
-        `已读取 ${orderFlow.trades.length} 笔真实聚合成交、${Math.min(orderFlow.depth.bids.length, orderFlow.depth.asks.length)} 档双边深度和 ${contextCandles.length} 个高周期上下文，正在计算 Delta、ICT/SMC 结构与流动性。`,
-      );
-      const response = await api({
-        analysisJobId: job.analysisId,
-        ...(request.model ? { model: request.model } : {}),
-        ...(request.modelId ? { modelId: request.modelId } : {}),
-        ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
-        ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
-        reasoningEffort: "max",
-        marketId: job.marketId,
-        interval: job.interval,
-        language: job.language,
-        snapshotTime: Date.now(),
-        instruction: request.instruction,
-        responseMode: request.drawingRequested === false ? "direct" : "full",
-        lookbackMs: requestedLookbackMs,
-        candles: analysisCandles.map((candle) => ({
-          time: candle.time,
-          open: candle.open,
-          high: candle.high,
-          low: candle.low,
-          close: candle.close,
-          volume: candle.volume,
-        })),
-        contextCandles: contextCandles.map((context) => ({
-          interval: context.interval,
-          candles: context.candles.map((candle) => ({
-            time: candle.time,
-            open: candle.open,
-            high: candle.high,
-            low: candle.low,
-            close: candle.close,
-            volume: candle.volume,
-          })),
-        })),
-        orderFlow,
-      }) as TradingOrderFlowAnalysisResponse;
-      if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-        throw new Error("订单流分析已由用户停止");
-      }
-      if (!response?.ok || !response.analysisPlan?.drawingPatch) {
-        const error = new Error(response?.error?.message || "订单流分析没有返回可绘制计划");
-        (error as Error & { code?: string }).code = response?.error?.code;
-        throw error;
-      }
-      const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
-      if (request.drawingRequested !== false) {
-        request.onProgress?.(
-          "order-flow-drawing",
-          `${modelName} 已完成订单流与市场结构复核，正在左侧图表只绘制最关键的转折、支撑/压力、流动性与成交证据。`,
-        );
-        const onPhase = (phase: TradingAiPlaybackPhase) => {
-          if (!tradingAnalysisJobs.isActive(job.analysisId)) return;
-          if (phase === "moving" || phase === "drawing" || phase === "committing") {
-            request.onProgress?.("order-flow-drawing", `${modelName} 正在逐项绘制精简后的关键结构和多空触发价。`);
-          }
-        };
-        await commitTradingAnalysisDrawingPatch(job, response.analysisPlan.drawingPatch, 0, onPhase);
-      }
-      const splitResult = await this.runSplitPaneAnalyses({
-        job,
-        ...(await splitSnapshotsPromise),
-        minimumCandles: 30,
-        analysisLabel: "订单流与市场结构",
-        analysisProgressPhase: "order-flow-analyzing",
-        drawingProgressPhase: "order-flow-drawing",
-        drawingsRequested: request.drawingRequested !== false,
-        onProgress: request.onProgress,
-        analyze: async (snapshot) => {
-          if (snapshot.market.provider !== "binance" || snapshot.market.marketType !== "perpetual") {
-            throw new Error("订单流仅支持币安永续合约分屏");
-          }
-          const [splitOrderFlow, splitContextCandles] = await Promise.all([
-            fetchTradingOrderFlowWindow(snapshot.market.symbol, snapshot.interval, null),
-            fetchTradingMarketStructureContexts(snapshot.market.symbol, snapshot.interval),
-          ]);
-          return api({
-            analysisJobId: `${job.analysisId}:pane:${snapshot.paneIndex}`,
-            ...(request.model ? { model: request.model } : {}),
-            ...(request.modelId ? { modelId: request.modelId } : {}),
-            ...(request.modelProvider ? { modelProvider: request.modelProvider } : {}),
-            ...(request.explicitModelSelection ? { explicitModelSelection: true } : {}),
-            reasoningEffort: "max",
-            marketId: snapshot.market.id,
-            interval: snapshot.interval,
-            language: job.language,
-            snapshotTime: Date.now(),
-            instruction: request.instruction,
-            responseMode: request.drawingRequested === false ? "direct" : "full",
-            lookbackMs: requestedLookbackMs,
-            candles: snapshot.candles.map((candle) => ({
-              time: candle.time,
-              open: candle.open,
-              high: candle.high,
-              low: candle.low,
-              close: candle.close,
-              volume: candle.volume,
-            })),
-            contextCandles: splitContextCandles.map((context) => ({
-              interval: context.interval,
-              candles: context.candles.map((candle) => ({
-                time: candle.time,
-                open: candle.open,
-                high: candle.high,
-                low: candle.low,
-                close: candle.close,
-                volume: candle.volume,
-              })),
-            })),
-            orderFlow: splitOrderFlow,
-          }) as Promise<TradingOrderFlowAnalysisResponse>;
-        },
-      });
-      if (!tradingAnalysisJobs.isActive(job.analysisId)) {
-        throw new Error("订单流分析已由用户停止");
-      }
-      if (request.drawingRequested !== false) rememberTradingAnalysisJobContext(job);
-      request.onProgress?.("order-flow-complete", request.drawingRequested === false
-        ? `${modelName} 已按最新行情完成订单流复核，正在直接回答本次问题；左侧原画线保持不变。`
-        : `${modelName} 已完成精简订单流绘图，正在整理新手可读的上破、跌破、回踩与等待方案。`);
-      const primaryReport = String((request.drawingRequested === false
-          ? response.analysisPlan.narrative
-          : response.analysisPlan.report) || response.analysisPlan.narrative || "订单流分析已完成");
-      const primaryNarrative = String(response.analysisPlan.narrative || "订单流分析已完成");
-      const primaryHeading = tradingAnalysisPaneHeading(targetMarket, job.interval);
-      const result: TradingOrderFlowConversationResult = {
-        report: combineTradingAnalysisReports(primaryHeading, primaryReport, splitResult),
-        narrative: combineTradingAnalysisNarratives(primaryHeading, primaryNarrative, splitResult),
-        marketId: job.marketId,
-        symbol: job.symbol,
-        interval: job.interval,
-        candleCount: analysisCandles.length,
-        tradeCount: orderFlow.trades.length,
-        modelName,
-      };
-      tradingAnalysisJobs.complete(job.analysisId);
-      return result;
-    } catch (error) {
-      tradingAnalysisJobs.fail(job.analysisId, error);
-      throw error;
-    }
+  async runOrderFlowConversation(request: TradingOrderFlowConversationRequest): Promise<TradingOrderFlowConversationResult> {
+    return this.runGeneralConversation({...request,onProgress:(phase,message)=>request.onProgress?.((phase==='loading'?'loading':'order-flow-'+phase) as TradingOrderFlowConversationPhase,message)},'order-flow');
   }
 
   private recordLatestLivePrice(marketId: string, price: number, eventTimeMs = Date.now()) {
@@ -14043,99 +12397,21 @@ class TradingExpertMarketWorkspace {
     this.renderIndicatorAnalysisPatch(id);
   }
 
-  private indicatorAnalysisColor(colorToken: TradingAiDrawingColorToken) {
-    const variable = TRADING_INDICATOR_AI_COLOR_VARIABLES[colorToken];
-    const hostColor = variable ? getComputedStyle(this.host).getPropertyValue(variable).trim() : "";
-    if (hostColor) return hostColor;
-    const rootColor = variable ? getComputedStyle(document.documentElement).getPropertyValue(variable).trim() : "";
-    if (rootColor) return rootColor;
-    return isDarkTheme() ? "#c3a7ff" : "#6d4acb";
-  }
-
-  private clearIndicatorAnalysisRuntime(runtime: IndicatorPaneRuntime) {
-    runtime.analysisMarkers?.setMarkers([]);
-    runtime.analysisMarkers = null;
-    runtime.analysisSeries.forEach((series) => {
-      this.chart?.removeSeries(series);
-    });
-    runtime.analysisSeries = [];
-    runtime.analysisSignature = "";
-  }
+  private clearIndicatorAnalysisRuntime(runtime: IndicatorPaneRuntime) {clearIndicatorAnalysisRuntime(this.chart,runtime);}
 
   private renderIndicatorAnalysisPatch(id: TradingIndicatorId, force = false) {
-    const runtime = this.indicatorPanes.get(id);
-    if (!runtime || !this.chart || !runtime.series[0]) return;
-    const patch = this.indicatorAnalysisPatches.get(id);
-    const matchesContext = patch
-      && patch.marketId === this.selectedMarketId
-      && patch.interval === this.activeInterval;
-    const signature = matchesContext
-      ? `${patch.analysisId}:${isDarkTheme() ? "dark" : "light"}:${appLanguageLocale()}`
-      : "";
-    if (!force && runtime.analysisSignature === signature) return;
-    this.clearIndicatorAnalysisRuntime(runtime);
-    if (!patch || !matchesContext) return;
-
-    const markers: any[] = [];
-    patch.operations.forEach(({ drawing }, operationIndex) => {
-      const color = this.indicatorAnalysisColor(drawing.colorToken);
-      if (drawing.tool === "path") {
-        const lineWidth = Math.max(1, Math.min(4, Math.round(Number(drawing.lineWidth) || 1))) as 1 | 2 | 3 | 4;
-        const series = runtime.pane.addSeries(LineSeries, {
-          color,
-          lineWidth,
-          lineStyle: tradingIndicatorAiLineStyle(drawing.lineStyle),
-          priceLineVisible: false,
-          lastValueVisible: false,
-          crosshairMarkerVisible: false,
-          title: "",
-          priceFormat: { type: "price" as const, precision: 4, minMove: 0.0001 },
-        });
-        series.setData(
-          strictlyAscendingTradingIndicatorPathPoints(drawing.points)
-            .map((point) => ({
-              time: (point.time + CHINA_TIME_OFFSET_SECONDS) as UTCTimestamp,
-              value: point.value,
-            })),
-        );
-        runtime.analysisSeries.push(series);
-        return;
-      }
-      const point = drawing.points[0];
-      if (!point || (!drawing.text && drawing.markerSize === undefined)) return;
-      const usesExactIndicatorAnchor = drawing.markerSize !== undefined;
-      markers.push({
-        time: (point.time + CHINA_TIME_OFFSET_SECONDS) as UTCTimestamp,
-        position: usesExactIndicatorAnchor
-          ? drawing.markerSize === 0
-            ? "atPriceMiddle"
-            : drawing.text
-            ? operationIndex % 2 === 0 ? "atPriceTop" : "atPriceBottom"
-            : "atPriceMiddle"
-          : operationIndex % 2 === 0 ? "aboveBar" : "belowBar",
-        ...(usesExactIndicatorAnchor ? { price: point.value } : {}),
-        color,
-        shape: "circle",
-        ...(drawing.text ? { text: drawing.text } : {}),
-        ...(drawing.markerSize !== undefined ? { size: drawing.markerSize } : {}),
-      });
-    });
-    if (markers.length) {
-      markers.sort((first, second) => Number(first.time) - Number(second.time));
-      runtime.analysisMarkers = createSeriesMarkers(runtime.series[0].api, markers.slice(id === "rsi" || id === "kdj" ? -16 : -8), {
-        autoScale: false,
-        zOrder: "aboveSeries",
-      });
-    }
-    runtime.analysisSignature = signature;
-    runtime.series[0]?.api?.priceScale()?.setAutoScale(true);
+    const runtime=this.indicatorPanes.get(id);if(!runtime)return;
+    renderIndicatorAnalysisPatch({chart:this.chart,runtime,
+      patch:loadCloudIndicatorPatch(this.drawingStorageSessionId,this.selectedMarketId,this.activeInterval,id),
+      host:this.host,dark:isDarkTheme(),force,timeOffsetSeconds:CHINA_TIME_OFFSET_SECONDS});
   }
 
   private renderIndicatorAnalysisPatches(force = false) {
     this.indicatorPanes.forEach((_runtime, id) => this.renderIndicatorAnalysisPatch(id, force));
   }
 
-  acceptIndicatorAnalysisDrawingPatch(value: TradingIndicatorAiDrawingPatch) {
+  acceptIndicatorAnalysisDrawingPatch(value: TradingIndicatorAiDrawingPatch, paneIndex = 0) {
+    if(paneIndex>0)return this.splitPanes[paneIndex-1]?.acceptIndicatorAnalysisDrawingPatch(value)??false;
     if (this.disposed) return false;
     const patch = normalizeTradingIndicatorAiDrawingPatch(value);
     const indicatorId = patch.indicatorId as TradingIndicatorId;
@@ -14143,7 +12419,8 @@ class TradingExpertMarketWorkspace {
       item.scope === "sub" && item.id === indicatorId
     ));
     if (!definition) throw new TypeError(`Unsupported indicator drawing target: ${patch.indicatorId}`);
-    this.indicatorAnalysisPatches.set(indicatorId, patch);
+    if(!this.analysisDrawingTargetMatches(patch,0))return false;
+    storeCloudIndicatorPatch(this.drawingStorageSessionId,patch);
     if (!this.indicatorPanes.has(indicatorId)) {
       this.ensureChartIndicatorVisible("sub", indicatorId);
     }
@@ -15025,6 +13302,7 @@ async function commitTradingAnalysisDrawingPatch(
 async function commitTradingIndicatorAnalysisDrawingPatch(
   job: TradingAnalysisJobContext,
   patch: TradingIndicatorAiDrawingPatch,
+  paneIndex = 0,
 ) {
   const currentJob = tradingAnalysisJobs.get(job.analysisId);
   if (!currentJob || currentJob.status !== "running") {
@@ -15032,13 +13310,14 @@ async function commitTradingIndicatorAnalysisDrawingPatch(
   }
   patch = localizeTradingAiDrawingPatch(patch, currentJob.language);
   const targetWorkspace = activeWorkspace;
+  storeCloudIndicatorPatch(paneIndex?tradingSplitPaneDrawingStorageSessionId(currentJob.storageSessionId,paneIndex):currentJob.storageSessionId,patch);
   if (
     !targetWorkspace
     || !targetWorkspace.drawingStorageSessionMatches(currentJob.storageSessionId)
   ) {
-    throw new Error("MACD 副图绘制目标已失效");
+    return;
   }
-  targetWorkspace.acceptIndicatorAnalysisDrawingPatch(patch);
+  if(targetWorkspace.analysisDrawingTargetMatches(patch,paneIndex))targetWorkspace.acceptIndicatorAnalysisDrawingPatch(patch,paneIndex);
   const latestJob = tradingAnalysisJobs.get(job.analysisId);
   if (!latestJob || latestJob.status !== "running") {
     throw new Error("交易分析已由用户停止");

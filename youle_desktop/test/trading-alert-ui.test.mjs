@@ -22,7 +22,7 @@ test("saved plans and alerts share one top-level workspace while automatic tasks
   assert.match(source, /function openTradingAlertsPage[\s\S]*state\.activeView = "alerts"/);
   assert.match(source, /function openExecutionPlansPage[\s\S]*state\.activeView = "plans"/);
   assert.match(source, /function openAutoTasksPage[\s\S]*state\.activeView = "autoTasks"/);
-  assert.match(source, /renderTradingAlertsPage\(state\.tradingAlerts\)/);
+  assert.match(source, /renderTradingAlertsPage\(state\.tradingAlerts,\s*cloudAlertsUi/);
   assert.match(source, /data-conversation-static-action="plans"/);
   assert.match(source, /\[data-planning-section\][\s\S]*openExecutionPlansPage\(\)[\s\S]*openTradingAlertsPage\(\)/);
   assert.match(renderPlanningNavigation("plans"), /data-planning-section="plans"[\s\S]*data-planning-section="alerts"/);
@@ -261,7 +261,7 @@ test("simulation candles stay isolated without chart watermark or future-divider
   assert.doesNotMatch(method, /dataset\.side|labelBounds\.right > chartBounds\.right/);
   assert.doesNotMatch(method, /shape:\s*"arrowDown"/);
   const geometrySync = source.match(/private synchronizeVisibleChartGeometry\(\)[\s\S]*?\n  }/)?.[0] || "";
-  assert.match(geometrySync, /updateVisiblePriceScale\(\)[\s\S]*paintAlertSimulationMarker\(\)[\s\S]*drawingController\?\.redraw\(\)/);
+  assert.match(geometrySync, /updateCurrentPriceLabel\(\)[\s\S]*paintAlertSimulationMarker\(\)[\s\S]*redrawDrawingControllers\(false\)/);
   assert.match(source, /subscribeVisibleLogicalRangeChange[\s\S]*synchronizeVisibleChartGeometry\(\)/);
   assert.doesNotMatch(method, /fitContent\(\)/);
   assert.doesNotMatch(method, /this\.candles\s*=|this\.candles\.push/);

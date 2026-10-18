@@ -335,7 +335,7 @@ test("shared UI translator covers English and full renderer character conversion
 
 test("generated offline catalogs cover the renderer-owned global UI", () => {
   assert.ok(Object.keys(GENERATED_ENGLISH_UI_PHRASES).length >= 3_500);
-  assert.equal(Object.keys(GENERATED_ENGLISH_UI_PHRASES).length, Object.keys(GENERATED_TRADITIONAL_UI_PHRASES).length);
+  assert.deepEqual(Object.keys(GENERATED_ENGLISH_UI_PHRASES).sort(), Object.keys(GENERATED_TRADITIONAL_UI_PHRASES).sort());
   for (const value of Object.values(GENERATED_ENGLISH_UI_PHRASES)) {
     assert.doesNotMatch(value, /[\u3400-\u9fff]/u);
   }

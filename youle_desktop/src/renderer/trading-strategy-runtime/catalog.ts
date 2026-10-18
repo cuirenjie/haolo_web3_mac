@@ -1,3 +1,4 @@
+import { OFFICIAL_TRADING_CATALOG } from '../../shared/official-trading-catalog.mjs';
 import {
   buildTradingChanExpertPrompt,
   stripTradingChanMention,
@@ -51,7 +52,7 @@ export interface TradingStrategyPublicManifest {
   version: string;
   display: { name: string; group: "strategy" | "indicator"; sortOrder: number };
   mentions: { canonical: string; aliases?: string[] };
-  implementation: { kind: "builtin-adapter" | "declarative-v1"; adapterId?: string };
+  implementation: { kind: "builtin-adapter" | "declarative-v1" | "cloud-v1"; adapterId?: string };
   capabilities: string[];
   dataRequirements?: Record<string, {
     required?: boolean;
@@ -103,49 +104,6 @@ export interface TradingStrategyCatalogItem extends TradingStrategyPublicManifes
   mentionTokens: readonly string[];
   skill: TradingStrategySkillMetadata;
   ui: StrategyUiAdapter;
-}
-
-const manifestModules = import.meta.glob<TradingStrategyPublicManifest>(
-  "../../../resources/trading-strategies/builtins/*/strategy.json",
-  { eager: true, import: "default" },
-);
-
-const skillMetadataModules = import.meta.glob<string>(
-  "../../../resources/trading-strategies/builtins/*/agents/openai.yaml",
-  { eager: true, query: "?raw", import: "default" },
-);
-
-const bundledSkillMetadata = new Map(
-  Object.entries(skillMetadataModules).flatMap(([modulePath, source]) => {
-    const strategyId = modulePath.match(/\/builtins\/([^/]+)\/agents\/openai\.yaml$/)?.[1];
-    return strategyId ? [[strategyId, parseTradingStrategySkillMetadata(source)] as const] : [];
-  }),
-);
-
-function yamlString(source: string, key: string): string {
-  const match = source.match(new RegExp(`^\\s*${key}:\\s*(.+?)\\s*$`, "m"));
-  if (!match) return "";
-  const value = match[1].trim();
-  if (value.startsWith('"') && value.endsWith('"')) {
-    try {
-      const parsed = JSON.parse(value);
-      return typeof parsed === "string" ? parsed : value.slice(1, -1);
-    } catch {
-      return value.slice(1, -1);
-    }
-  }
-  if (value.startsWith("'") && value.endsWith("'")) {
-    return value.slice(1, -1).replace(/''/g, "'");
-  }
-  return value;
-}
-
-function parseTradingStrategySkillMetadata(source: string): TradingStrategySkillMetadata {
-  return {
-    displayName: yamlString(source, "display_name"),
-    shortDescription: yamlString(source, "short_description"),
-    defaultPrompt: yamlString(source, "default_prompt"),
-  };
 }
 
 function normalizeTradingCatalogText(value: string) {
@@ -220,7 +178,7 @@ function declarativeUiAdapter(manifest: TradingStrategyPublicManifest): Strategy
   };
   return {
     stripMention,
-    buildExpertPrompt: (baseAgentText) => [
+    buildExpertPrompt: (baseAgentText) => manifest.implementation.kind === "cloud-v1" ? baseAgentText : [
       `<haolo_trading_strategy_prompt id="${manifest.id}">`,
       `你现在以 Haolo 的${manifest.display.name}策略分析师身份回答。只使用宿主提供的已验证策略规则和市场数据，不虚构价格、指标或执行结果。`,
       "区分事实、推断和待确认条件；不承诺收益；只有桌面端返回结构化绘图结果时才可声称已经绘图。",
@@ -244,22 +202,21 @@ function declarativeUiAdapter(manifest: TradingStrategyPublicManifest): Strategy
 
 function buildCatalogItem(manifest: TradingStrategyPublicManifest): TradingStrategyCatalogItem {
   const builtinUi = BUILTIN_UI_ADAPTERS[manifest.implementation.adapterId || manifest.id];
-  const bundledSkill = bundledSkillMetadata.get(manifest.id);
   return Object.freeze({
     ...manifest,
     enabled: manifest.enabled !== false,
     disabledReason: manifest.disabledReason || manifest.diagnostic || null,
     mentionTokens: Object.freeze(mentionTokens(manifest)),
     skill: Object.freeze({
-      displayName: bundledSkill?.displayName || manifest.display.name,
-      shortDescription: bundledSkill?.shortDescription || `${manifest.display.name}交易策略 Skill`,
-      defaultPrompt: bundledSkill?.defaultPrompt || `Use the ${manifest.display.name} strategy skill to analyze the current chart.`,
+      displayName: manifest.display.name,
+      shortDescription: `${manifest.display.name}交易策略 Skill`,
+      defaultPrompt: `Use the ${manifest.display.name} strategy skill to analyze the current chart.`,
     }),
     ui: builtinUi || declarativeUiAdapter(manifest),
   });
 }
 
-const bundledManifests = Object.values(manifestModules)
+const bundledManifests = (OFFICIAL_TRADING_CATALOG as TradingStrategyPublicManifest[])
   .filter((manifest) => manifest?.schemaVersion === 1 && ["strategy", "indicator"].includes(manifest.display?.group))
   .sort((left, right) => left.display.sortOrder - right.display.sortOrder || left.id.localeCompare(right.id));
 

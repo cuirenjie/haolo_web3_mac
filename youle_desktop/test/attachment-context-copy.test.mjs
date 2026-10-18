@@ -88,6 +88,6 @@ test("standalone image preview has a copy-only context menu", async () => {
   assert.match(openBlock, /wireImagePreviewContextMenu\(previewWindow, image\)/);
   assert.match(menuBlock, /params\.mediaType !== "image"/);
   assert.equal((menuBlock.match(/label:/g) || []).length, 1);
-  assert.match(menuBlock, /label: "复制"/);
+  assert.match(menuBlock, /label: mainUiText\("copy"\)/);
   assert.match(menuBlock, /clipboard\.writeImage\(image\)/);
 });

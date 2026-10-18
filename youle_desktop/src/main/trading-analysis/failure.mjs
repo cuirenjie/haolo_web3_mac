@@ -4,6 +4,10 @@ import { modelFailureFacts } from "../model-failure-policy.mjs";
 import { isQuotaFailure } from "../error-signals.mjs";
 
 const LABELS = {
+  cancellation_pending: ["云端取消尚未确认，任务记录已保留", "Cloud cancellation is not yet confirmed; the task record was retained"],
+  pending: ["云端任务仍在处理中，可继续查看原任务", "The cloud task is still running; resume the original task to check it"],
+  cloud_unavailable: ["云端策略服务暂不可用", "The cloud strategy service is unavailable"],
+  cloud_unsupported: ["此策略或市场的云端版本尚未启用", "The cloud version of this strategy or market is not enabled yet"],
   cancelled: ["本次分析已停止", "This analysis was stopped"],
   entitlement: ["暂时无法验证会员权益", "Membership verification is unavailable"],
   authentication: ["分析服务身份验证失败", "Analysis service authentication failed"],
@@ -26,7 +30,11 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   const message = facts.detail;
   const status = facts.httpStatus;
   let category = "analysis";
-  if (/CANCEL|ABORT/.test(code) || error?.name === "AbortError" || /用户停止|已取消|cancelled|canceled|replaced/iu.test(message)) category = "cancelled";
+  if (code === "CLOUD_CANCEL_PENDING") category = "cancellation_pending";
+  else if (code === "CLOUD_RUN_PENDING") category = "pending";
+  else if (code === "WINDOWS_WORKER_UNAVAILABLE") category = "cloud_unavailable";
+  else if (["WINDOWS_STRATEGY_UNSUPPORTED", "CLOUD_MARKET_UNSUPPORTED"].includes(code)) category = "cloud_unsupported";
+  else if (/CANCEL|ABORT/.test(code) || error?.name === "AbortError" || /用户停止|已取消|cancelled|canceled|replaced/iu.test(message)) category = "cancelled";
   else if (code === "TRADING_ENTITLEMENT_UNAVAILABLE" || /无法验证会员权益/u.test(message)) category = "entitlement";
   else if (isQuotaFailure(error)) category = "membership";
   else if (/AUTH|ACCOUNT_ID_REQUIRED|INVALID_API_KEY/.test(code) || [401, 403].includes(status) || /unauthori[sz]ed|invalid api key|authentication failed|请先登录|未登录/iu.test(message)) category = "authentication";
@@ -44,7 +52,7 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
     category,
     summary: LABELS[category][language === "en" ? 1 : 0],
     cancelled: category === "cancelled",
-    allowLocalRecovery: !["cancelled", "authentication", "membership", "entitlement", "policy", "model_unavailable"].includes(category),
+    allowLocalRecovery: false,
   });
 }
 

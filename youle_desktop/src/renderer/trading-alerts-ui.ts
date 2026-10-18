@@ -451,7 +451,7 @@ export function renderPlanningNavigation(activeSection: PlanningSection) {
   return `<nav class="planning-primary-tabs" aria-label="计划分类">${tabs.map(([id, label]) => `<button type="button" class="${activeSection === id ? "active" : ""}" data-planning-section="${id}" aria-pressed="${activeSection === id}">${label}</button>`).join("")}</nav>`;
 }
 
-export function renderTradingAlertsPage(state: TradingAlertsUiState) {
+export function renderTradingAlertsPage(state: TradingAlertsUiState,cloudPanel='') {
   const editor = state.alerts.find((alert) => (
     alert.alertId === state.editorAlertId
     && !tradingAlertHasDrawingContext(alert)
@@ -471,6 +471,7 @@ export function renderTradingAlertsPage(state: TradingAlertsUiState) {
     ${renderPlanningNavigation("alerts")}
     ${alertSubfilters}
     <div class="trading-alert-list-scroll" role="region" aria-label="预警列表" tabindex="0">
+      ${cloudPanel}
       ${state.loading ? `<div class="trading-alert-loading" role="status"><span></span>正在读取预警…</div>` : alerts.length ? `<section class="trading-alert-card-grid">${alerts.map((alert) => renderAlertCard(state, alert)).join("")}</section>` : `<section class="trading-alert-empty"><p>当前筛选下没有预警</p></section>`}
     </div>
     ${editor ? renderEditor(state, editor) : ""}

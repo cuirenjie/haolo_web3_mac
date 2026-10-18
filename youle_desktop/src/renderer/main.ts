@@ -1,3 +1,9 @@
+import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
+import {createCloudReportRestorer} from './cloud-report-restore';
+import { openCloudRecoveryDialog, cloudTaskText, type CloudRecoveryApi } from "./cloud-task-recovery.ts";
+import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
+import {restoreRecoveredTradingDrawings} from './trading-expert-market.ts';
+import {createCloudAlertPanelController} from './cloud-alert-panel.ts';
 import "./styles.css";
 import {
   TRADING_PREFERENCE_CHOICE_FIELDS,
@@ -1483,6 +1489,7 @@ type DesktopApi = {
     alertId?: string | null;
   }): Promise<{ ok?: boolean; shown?: boolean }>;
   createExecutionPlanSticky?(params: {
+    cloudReport?: CloudTradingReport;
     title: string;
     theme: AppTheme;
     language: AppLanguage;
@@ -1832,6 +1839,8 @@ type DesktopApi = {
     reasoningEffort?: "max";
     explicitModelSelection?: boolean;
     analysisJobId?: string;
+    sourceThreadId?: string;
+    storageSessionId?: string;
     marketId: string;
     interval: string;
     snapshotTime: number;
@@ -1855,6 +1864,8 @@ type DesktopApi = {
   cancelTradingStrategyAnalysis?(params?: {
     strategyId?: string;
     analysisJobId?: string;
+    sourceThreadId?: string;
+    storageSessionId?: string;
   }): Promise<{ cancelled?: boolean }>;
   runTradingChanTest?(params: {
     model?: string | null;
@@ -1862,6 +1873,8 @@ type DesktopApi = {
     modelProvider?: string | null;
     reasoningEffort?: "max";
     analysisJobId?: string;
+    sourceThreadId?: string;
+    storageSessionId?: string;
     marketId: string;
     interval: string;
     snapshotTime: number;
@@ -1893,6 +1906,8 @@ type DesktopApi = {
     modelProvider?: string | null;
     reasoningEffort?: "max";
     analysisJobId?: string;
+    sourceThreadId?: string;
+    storageSessionId?: string;
     marketId: string;
     interval: string;
     language?: AppLanguage;
@@ -1932,6 +1947,8 @@ type DesktopApi = {
     modelProvider?: string | null;
     reasoningEffort?: "max";
     analysisJobId?: string;
+    sourceThreadId?: string;
+    storageSessionId?: string;
     marketId: string;
     interval: string;
     snapshotTime: number;
@@ -1969,6 +1986,8 @@ type DesktopApi = {
     modelProvider?: string | null;
     reasoningEffort?: "max";
     analysisJobId?: string;
+    sourceThreadId?: string;
+    storageSessionId?: string;
     marketId: string;
     interval: string;
     snapshotTime: number;
@@ -2000,6 +2019,8 @@ type DesktopApi = {
     reasoningEffort?: "max";
     explicitModelSelection?: boolean;
     analysisJobId?: string;
+    sourceThreadId?: string;
+    storageSessionId?: string;
     marketId: string;
     interval: string;
     snapshotTime: number;
@@ -2017,6 +2038,10 @@ type DesktopApi = {
       volume?: number;
     }>;
   }): Promise<any>;
+  tradingCloudRecovery?: CloudRecoveryApi;
+  tradingCloudPlans?: (action:'list'|'read'|'activate'|'lifecycle'|'delete',input?:Record<string,unknown>)=>Promise<any>;
+  getCloudAlertFeed?:()=>Promise<any>;
+  onCloudAlertFeed?:(callback:(value:any)=>void)=>()=>void;
   cancelTradingAnalysis?(params?: { analysisJobId?: string }): Promise<{ cancelled?: boolean }>;
   getFinnhubMarketDataStatus?(): Promise<any>;
   searchFinnhubMarkets?(params: { query: string; limit?: number }): Promise<any>;
@@ -2189,7 +2214,8 @@ type DesktopApi = {
   }): Promise<{ cancelled?: boolean }>;
   listThreads(params?: any): Promise<any>;
   getTradingPreferenceProfile?(): Promise<any>;
-  saveTradingPreferenceProfile?(params: { choices: TradingPreferenceChoiceDraft; extraNotes: string } | {
+  resolveTradingPreferenceImport?(resolutions: Record<string, string | boolean>): Promise<any>;
+  saveTradingPreferenceProfile?(params: { choices: TradingPreferenceChoiceDraft; extraNotes: string; entryMode?: "left" | "right" | "auto"; changedFields?: string[] } | {
     userStatement: string;
     entries: Array<{
       scope: string;
@@ -2346,6 +2372,7 @@ type CodexItem = {
   __youleTurnCompletedAt?: string | number | null;
   __youleTurnStatus?: string | null;
   __youleExecutionPlanPresentation?: "execution-plan" | "plain" | null;
+  __youleCloudReports?: CloudTradingReport[];
   [key: string]: unknown;
 };
 
@@ -4008,6 +4035,7 @@ type MessageUiMeta = Message & {
   localGroupMemberId?: string | null;
   localGroupThinkingMemberId?: string | null;
   executionPlanPresentation?: "execution-plan" | "plain" | null;
+  cloudReports?: CloudTradingReport[];
 };
 
 type QuestionAnswerProgressStatus = "running" | "completed" | "failed";
@@ -7053,6 +7081,7 @@ function wireDesktopEvents() {
   api.onTradingAlertTriggered?.((payload) => {
     void handleTradingAlertTriggered(payload);
   });
+  api.onCloudAlertFeed?.(value=>{cloudAlertsUi.apply(value);if(state.activeView==='plans')void refreshCloudExecutionPlans();});
   api.onTradingAlertOpen?.((payload) => {
     void openTradingAlertSourceConversation(payload?.alertId || null, payload?.evidenceId || null);
   });
@@ -30649,6 +30678,7 @@ function appendTradingExpertReport(
   itemId?: string,
   actions?: MessageAction[],
   presentation: "execution-plan" | "plain" = "plain",
+  cloudReports?: CloudTradingReport[],
 ) {
   localHistoryAheadThreadIds.add(threadId);
   const visibleText = String(text || "");
@@ -30660,6 +30690,7 @@ function appendTradingExpertReport(
     createdAt: new Date().toISOString(),
     ...(actions?.length ? { actions } : {}),
     ...(presentation ? { __youleExecutionPlanPresentation: presentation } : {}),
+    ...(cloudReports?.length ? {__youleCloudReports:normalizeCloudReports(cloudReports)} : {}),
   };
   upsertItem(threadId, item);
   setMessageStreamFollow(threadId, true);
@@ -31753,6 +31784,7 @@ function tradingTranscriptPayloadFromItem(item: CodexItem) {
     ...(startedAt ? { startedAt } : {}),
     ...(completedAt ? { completedAt } : {}),
     ...(role === "assistant" && actions?.length ? { actions } : {}),
+    ...(role === 'assistant' && item.__youleCloudReports?.length ? {cloudReports:normalizeCloudReports(item.__youleCloudReports)} : {}),
     ...(role === "assistant" && (executionPlanPresentation === "execution-plan" || executionPlanPresentation === "plain")
       ? { executionPlanPresentation }
       : {}),
@@ -31967,6 +31999,7 @@ async function runTradingGeneralChartRequest(
   );
   try {
     const result = await runTradingExpertGeneralConversation({
+      sourceThreadId:targetThreadId(),
       analysisId,
       analysisTarget,
       model: selectedChatModelValue(threadId),
@@ -31995,8 +32028,11 @@ async function runTradingGeneralChartRequest(
       undefined,
       undefined,
       request.positionManagementRequested === true ? "plain" : "execution-plan",
+      result.cloudReports,
     );
-    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
+    if(await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem])) {
+      await api.tradingCloudRecovery?.("acknowledgeGroup",analysisId).catch(()=>{});
+    }
   } catch (error) {
     recordTradingRendererFailure(error, { analysisJobId: analysisId, strategyId: "general", stage: "analysis" });
     if (isTradingAnalysisCancellation(error)) {
@@ -32057,6 +32093,7 @@ async function runTradingStrategyChartRequest(
   try {
     ensureTradingExpertChartIndicatorVisible(strategy.chartIndicator);
     const result = await runTradingExpertStrategyConversation(strategy.id, {
+      sourceThreadId:targetThreadId(),
       analysisId,
       analysisTarget,
       model: selectedChatModelValue(threadId),
@@ -32091,8 +32128,11 @@ async function runTradingStrategyChartRequest(
       undefined,
       undefined,
       request.positionManagementRequested === true ? "plain" : "execution-plan",
+      result.cloudReports,
     );
-    await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
+    if(await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem])) {
+      await api.tradingCloudRecovery?.("acknowledgeGroup",analysisId).catch(()=>{});
+    }
   } catch (error) {
     recordTradingRendererFailure(error, { analysisJobId: analysisId, strategyId: strategy.id, stage: "analysis" });
     if (isTradingAnalysisCancellation(error)) {
@@ -35932,7 +35972,7 @@ function render() {
             : state.activeView === "alerts"
               ? `
                 ${renderChatList()}
-                ${renderTradingAlertsPage(state.tradingAlerts)}
+                ${renderTradingAlertsPage(state.tradingAlerts,cloudAlertsUi.render())}
               `
             : state.activeView === "skillsPlaza"
               ? `
@@ -38993,6 +39033,7 @@ function syncExecutionPlansForCurrentAccount() {
 
 function executionPlanBinanceMonitoringNeeded() {
   return state.auth.authenticated && state.executionPlans.some((plan) => {
+    if(plan.cloudReport)return false;
     if (plan.status !== "pending" && plan.status !== "executing") return false;
     const identity = executionPlanBinanceIdentity(plan);
     return Boolean(identity.symbol && identity.direction);
@@ -39126,6 +39167,7 @@ async function reconcileExecutionPlansWithBinanceSnapshot(
     const plan = state.executionPlans.find((item) => item.id === stalePlan.id);
     if (
       !plan
+      || Boolean(plan.cloudReport)
       || plan.status === "ended"
       || executionPlanAlertSyncBusyIds.has(plan.id)
       || executionPlanDeleteBusyIds.has(plan.id)
@@ -39196,6 +39238,20 @@ async function reconcileExecutionPlansWithBinanceSnapshot(
 }
 
 async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan) {
+  if(plan.cloudReport) {
+    if(!api.tradingCloudPlans)throw new Error('云端计划服务不可用');
+    const remote=plan.cloudReport.planRecords[0];
+    const response=await api.tradingCloudPlans(remote.saved?'lifecycle':'activate',{
+      planId:remote.id,runId:remote.runId,version:remote.version,confirmationHash:remote.confirmationHash,
+      conditionHash:remote.scenario.conditionHash,status:plan.status,endReason:plan.endReason,
+    });
+    if(!response?.ok||!response.plan?.linkedAlertId)throw new Error(response?.error?.message||'云端计划未确认保存');
+    const saved=response.plan;
+    const cloudReport=normalizeCloudReports([{...plan.cloudReport,planRecords:[saved]}])[0];
+    const cloudPlan:SavedExecutionPlan={...plan,cloudReport,linkedAlertId:saved.linkedAlertId,status:saved.status,
+      endReason:saved.endReason||null,statusUpdatedAt:new Date(saved.statusUpdatedAt||saved.activatedAt||Date.now()).toISOString()};
+    return {alertId:saved.linkedAlertId as string,warning:'',created:!remote.saved,cloudPlan};
+  }
   if (!api.tradingAlertsSyncExecutionPlan) throw new Error("当前版本不支持计划预警联动");
   const result = tradingAlertResponseData(await api.tradingAlertsSyncExecutionPlan({
     planId: plan.id,
@@ -39212,13 +39268,13 @@ async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan) {
   }));
   const alertId = String(result?.alert?.alertId || "").trim();
   if (!alertId) throw new Error("计划预警创建后未能读回，请稍后重试");
-  return { alertId, warning: String(result?.warning || "").trim(), created: result?.created === true };
+  return { alertId, warning: String(result?.warning || "").trim(), created: result?.created === true,cloudPlan:undefined as SavedExecutionPlan|undefined };
 }
 
 async function reconcileMissingExecutionPlanAlerts(scope: string) {
   if (executionPlanAlertReconciledScopes.has(scope)) return;
   executionPlanAlertReconciledScopes.add(scope);
-  const missing = state.executionPlans.filter((plan) => !plan.linkedAlertId && !executionPlanDeleteBusyIds.has(plan.id));
+  const missing = state.executionPlans.filter((plan) => !plan.cloudReport && !plan.linkedAlertId && !executionPlanDeleteBusyIds.has(plan.id));
   if (!missing.length) return;
   const linked = new Map<string, string>();
   const createdAlertIds: string[] = [];
@@ -39274,6 +39330,27 @@ function renderMessageExecutionPlan(
   options: FormatMessageTextOptions = {},
 ) {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
+  if ((message as MessageUiMeta).cloudReports?.length) {
+    let reports:CloudTradingReport[]=[];
+    try {reports=normalizeCloudReports((message as MessageUiMeta).cloudReports);} catch {return null;}
+    const cards=reports.map((report,index)=>{
+      const card=cloudPlanCard(report);
+      if(!card) return '';
+      const key=executionPlanCandidateKey(message.conversation_id,message.id,index);
+      executionPlanCandidatesBySource.set(key,{title:card.title,content:card.content,cloudReport:report});
+      const fontSize=loadMessageExecutionPlanFontSize(key);
+      return `<section class="message-execution-plan execution-plan-surface" aria-label="${escapeAttr(card.title)}"
+        data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}" data-execution-plan-message-id="${escapeAttr(message.id)}"
+        data-execution-plan-index="${index}" style="--message-execution-plan-font-size: ${fontSize}px">
+        <div class="execution-plan-card-content">${card.html}</div>
+        <footer class="message-execution-plan-controls" aria-label="执行卡片文字与便利贴操作">
+          <button type="button" data-message-execution-plan-action="increase"${fontSize>=MESSAGE_EXECUTION_PLAN_FONT_SIZES.at(-1)!?' disabled':''}>放大</button>
+          <button type="button" data-message-execution-plan-action="decrease"${fontSize<=MESSAGE_EXECUTION_PLAN_FONT_SIZES[0]?' disabled':''}>缩小</button>
+          <button type="button" data-message-execution-plan-action="sticky">便利贴</button>
+        </footer></section>`;
+    }).join('');
+    return {bubbleContent:formatMessageText(text,options),cards:cards?`<div class="message-execution-plan-list">${cards}</div>`:''};
+  }
   const partitions = executionPlanTextPartitions(text);
   if (
     !partitions
@@ -39362,6 +39439,7 @@ function renderExecutionPlanActions(plan: SavedExecutionPlan) {
 }
 
 function renderExecutionPlanCard(plan: SavedExecutionPlan) {
+  const cloudCard=plan.cloudReport?cloudPlanCard(plan.cloudReport):null;
   const createdLabel = executionPlanCreatedLabel(plan.createdAt);
   const status = executionPlanStatusMeta(plan);
   const title = executionPlanCardTitle({
@@ -39373,10 +39451,10 @@ function renderExecutionPlanCard(plan: SavedExecutionPlan) {
   return `
     <article class="execution-plan-card execution-plan-surface" data-execution-plan-id="${escapeAttr(plan.id)}">
       <header>
-        ${executionPlanCardHeading(title, executionPlanDisplayLines(plan.content), state.settings.language)}
+        ${cloudCard?'':executionPlanCardHeading(title, executionPlanDisplayLines(plan.content), state.settings.language)}
         <span class="execution-plan-card-status ${escapeAttr(status.tone)}">${escapeHtml(status.label)}</span>
       </header>
-      <div class="execution-plan-card-content">${renderExecutionPlanCardContent(plan.content)}</div>
+      <div class="execution-plan-card-content">${cloudCard?.html||renderExecutionPlanCardContent(plan.content)}</div>
       <footer>
         ${createdLabel ? `<time datetime="${escapeAttr(plan.createdAt)}">${escapeHtml(createdLabel)}</time>` : "<span></span>"}
         ${renderExecutionPlanActions(plan)}
@@ -39405,6 +39483,7 @@ function renderExecutionPlansPage() {
   return `
     <main class="execution-plans-page">
       ${renderPlanningNavigation("plans")}
+      <button type="button" class="trading-preference-onboarding-start" data-action="open-cloud-tasks">${escapeHtml(cloudTaskText("title",state.settings.language))}</button>
       ${executionPlanSubfilters}
       ${
         plans.length
@@ -39443,9 +39522,10 @@ async function updateExecutionPlanLifecycle(
       : options.binanceTracking;
     let updated = transitionExecutionPlan(plan, status, { endReason, binanceTracking });
     const alertResult = await syncExecutionPlanLinkedAlert(updated);
-    updated = { ...updated, linkedAlertId: alertResult.alertId };
+    updated = alertResult.cloudPlan || { ...updated, linkedAlertId: alertResult.alertId };
     const nextPlans = state.executionPlans.map((item) => item.id === planId ? updated : item);
     if (!saveExecutionPlans(state.executionPlansScope, nextPlans)) {
+      if(plan.cloudReport){state.executionPlans=nextPlans;throw new Error('云端状态已保存，本机缓存写入失败，请刷新计划列表核对');}
       void syncExecutionPlanLinkedAlert(plan).catch(() => {});
       throw new Error("计划状态保存失败，预警状态已回退");
     }
@@ -39504,6 +39584,16 @@ async function deleteExecutionPlan(planId: string) {
   const previousPlans = state.executionPlans;
   const nextPlans = previousPlans.filter((item) => item.id !== planId);
   try {
+    if(plan.cloudReport) {
+      const remote=plan.cloudReport.planRecords[0];
+      const response=await api.tradingCloudPlans?.('delete',{planId:remote.id,runId:remote.runId,version:remote.version,
+        confirmationHash:remote.confirmationHash,conditionHash:remote.scenario.conditionHash});
+      if(!response?.ok)throw new Error(response?.error?.message||'云端删除未确认');
+      state.executionPlans=nextPlans;
+      if(!saveExecutionPlans(state.executionPlansScope,nextPlans))showToast('云端计划已删除，本机缓存写入失败',5000);
+      else showToast('计划及其关联预警已删除',5000);
+      return;
+    }
     if (!saveExecutionPlans(state.executionPlansScope, nextPlans)) throw new Error("计划删除失败，未能保存计划列表");
     state.executionPlans = nextPlans;
     if (linkedAlertId) {
@@ -47056,11 +47146,35 @@ type TradingPreferenceOnboardingFlow = {
   choiceDraft: TradingPreferenceChoiceDraft;
 };
 
+let closeCloudRecoveryDialog: (()=>void) | null = null;
+const cloudAlertsUi=createCloudAlertPanelController({
+  owner:()=>state.auth.authenticated&&state.auth.profile?.id?{accountId:String(state.auth.profile.id),baseUrl:state.auth.baseUrl||state.login.baseUrl}:null,
+  language:()=>state.settings.language,load:async()=>api.getCloudAlertFeed?.(),
+  changed:()=>{if(state.activeView==='alerts')render();},
+});
+const restoreCloudReportToOriginalThread=createCloudReportRestorer({
+  scope:currentExecutionPlanStorageScope,resolve:resolvedTradingAlertThreadId,
+  read:async threadId=>{
+    const history=await api.readThreadForBackgroundHydration({threadId,cwd:threadWorkspaceCwd(threadId),displayCache:false});
+    return (history?.thread?.turns||history?.turns||[]).flatMap((turn:any)=>turn.items||[]);
+  },
+  upsert:(threadId,item)=>upsertItem(threadId,item as CodexItem),
+  persist:async(threadId,report)=>{
+    const item=appendTradingExpertReport(threadId,report.report,`trading-cloud-report-${report.runId}`,undefined,
+      report.executionPlan.kind==='position_assessment'?'plain':'execution-plan',[report]);
+    item.createdAt=new Date(report.executionPlan.createdAt).toISOString();
+    return (await persistTradingExpertTranscriptItems(threadId,[item])).threadId;
+  },restoreDrawings:restoreRecoveredTradingDrawings,refresh:refreshTradingExpertConversationSurface,
+});
 let tradingPreferenceProfileLoadStatus: "idle" | "loading" | "loaded" | "error" = "idle";
 let tradingPreferenceProfileCompleted = false;
 let tradingPreferenceProfileLoadGeneration = 0;
 const tradingPreferenceOnboardingByThreadId = new Map<string, TradingPreferenceOnboardingFlow>();
 const tradingPreferenceSettings = createTradingPreferenceSettings({
+  resolveMigration: async (resolutions) => {
+    if (!state.auth.authenticated || !api.resolveTradingPreferenceImport) throw new Error("Trading preferences unavailable");
+    return api.resolveTradingPreferenceImport(resolutions);
+  },
   load: async () => {
     if (!state.auth.authenticated || !api.getTradingPreferenceProfile) throw new Error("Trading preferences unavailable");
     return api.getTradingPreferenceProfile();
@@ -47081,6 +47195,8 @@ const tradingPreferenceSettings = createTradingPreferenceSettings({
 });
 
 function resetTradingPreferenceProfileState() {
+  closeCloudRecoveryDialog?.();closeCloudRecoveryDialog=null;
+  cloudAlertsUi.reset();
   tradingPreferenceSettings.reset();
   tradingPreferenceProfileLoadGeneration += 1;
   tradingPreferenceProfileLoadStatus = "idle";
@@ -52957,6 +53073,23 @@ function executionPlanCandidateKey(threadId: string, messageId: string, candidat
 
 function renderAddToPlanAction(message: Message, text: string) {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
+  if ((message as MessageUiMeta).cloudReports?.length) {
+    let reports:CloudTradingReport[]=[];
+    try {reports=normalizeCloudReports((message as MessageUiMeta).cloudReports);} catch {return '';}
+    syncExecutionPlansForCurrentAccount();
+    const buttons=reports.map((report,index)=>{
+      const card=cloudPlanCard(report),remote=report.planRecords[0];
+      if(!card||!remote)return '';
+      executionPlanCandidatesBySource.set(executionPlanCandidateKey(message.conversation_id,message.id,index),{title:card.title,content:card.content,cloudReport:report});
+      const added=state.executionPlans.some(plan=>plan.cloudReport?.executionPlan.planId===remote.id);
+      const expired=report.executionPlan.expiresAt<=Date.now();
+      return `<button type="button" class="message-action-button message-add-to-plan" data-message-action="add-to-plan"
+        data-message-action-kind="add-to-plan" data-message-action-destination="execution-plans"
+        data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}" data-execution-plan-message-id="${escapeAttr(message.id)}"
+        data-execution-plan-index="${index}" ${added||expired?'disabled aria-disabled="true"':''}>${added?'已添加到计划':expired?'计划已过期':'添加到计划'}</button>`;
+    }).join('');
+    return buttons?`<div class="message-actions message-actions-below-bubble execution-plan-message-actions">${buttons}</div>`:'';
+  }
   if (presentation === "plain") return "";
   const candidates = executionPlanCandidatesFromText(text)
     .filter((candidate) => (
@@ -62724,6 +62857,10 @@ function bindEvents() {
   root.querySelector<HTMLElement>('[data-action="save-profile-edit"]')?.addEventListener("click", () => {
     void saveProfileEdit();
   });
+  root.querySelector('[data-action="open-cloud-tasks"]')?.addEventListener('click',()=>{
+    closeCloudRecoveryDialog?.();
+    if(api.tradingCloudRecovery)closeCloudRecoveryDialog=openCloudRecoveryDialog(api.tradingCloudRecovery,state.settings.language,restoreCloudReportToOriginalThread);
+  });
   root.querySelectorAll<HTMLElement>('[data-action="open-settings"]').forEach((element) => {
     element.addEventListener("click", () => {
       openSettingsDialog();
@@ -66825,9 +66962,10 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
   button.textContent = "正在创建计划与预警…";
   try {
     const alertResult = await syncExecutionPlanLinkedAlert(plan);
-    plan = { ...plan, linkedAlertId: alertResult.alertId };
+    plan = alertResult.cloudPlan || { ...plan, linkedAlertId: alertResult.alertId };
     const nextPlans = [plan, ...state.executionPlans];
     if (!saveExecutionPlans(state.executionPlansScope, nextPlans)) {
+      if(plan.cloudReport){state.executionPlans=nextPlans;throw new Error('云端计划已创建，本机缓存写入失败，请刷新计划列表核对');}
       void api.tradingAlertsDelete?.({ alertId: alertResult.alertId })?.catch(() => {});
       throw new Error("计划保存失败，已撤销对应预警");
     }
@@ -66906,6 +67044,7 @@ async function createExecutionPlanStickyFromMessageCard(card: HTMLElement) {
   });
   const fontSize = loadMessageExecutionPlanFontSize(source.key);
   const result = await api.createExecutionPlanSticky({
+    ...(candidate.cloudReport?{cloudReport:candidate.cloudReport}:{}),
     title,
     theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
     language: state.settings.language,
@@ -72380,7 +72519,16 @@ function openExecutionPlansPage() {
   state.chatPreview = null;
   state.closingPreviewSource = null;
   render();
+  void refreshCloudExecutionPlans();
 }
+
+const refreshCloudExecutionPlans=createCloudPlanRefresher({
+  scope:()=>api.tradingCloudPlans&&state.auth.authenticated?currentExecutionPlanStorageScope():null,
+  load:()=>api.tradingCloudPlans!('list'),read:()=>state.executionPlans,apply:plans=>{state.executionPlans=plans;},save:saveExecutionPlans,
+  changed:()=>{if(state.activeView==='plans')render();},
+  cacheFailure:()=>showToast(cloudPlanSyncMessage('cache',state.settings.language),5000),
+  failure:error=>showToast(cloudPlanSyncMessage('failed',state.settings.language,errorMessage(error)),5000),
+});
 
 function openTradingAlertsPage() {
   if (state.activeView === "chat") rememberCurrentChatThreadSelection();
@@ -73138,6 +73286,7 @@ async function removeBinanceAccountBinding() {
 }
 
 async function refreshTradingAlerts() {
+  void cloudAlertsUi.refresh();
   if (!api.tradingAlertsSnapshot) return;
   state.tradingAlerts.loading = true;
   state.tradingAlerts.error = null;
@@ -75892,6 +76041,7 @@ function itemToMessage(threadId: string, id: string, item: CodexItem): Message {
       item.__youleExecutionPlanPresentation === "plain"
         ? item.__youleExecutionPlanPresentation
         : null,
+    cloudReports:item.__youleCloudReports,
   } as MessageUiMeta;
 }
 
