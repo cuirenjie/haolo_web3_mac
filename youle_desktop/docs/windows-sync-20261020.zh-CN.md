@@ -13,7 +13,7 @@
 
 ## 整体审查与融合规划
 
-主要变化：官方策略/通用分析迁到云端；版本化交易偏好、加密恢复及计划协议；新绘图工具和图表性能路径；账户设置跨设备同步；行情鉴权、限流、WebSocket 复用与过期；计划保存和显式激活提醒。
+主要变化：官方策略/通用分析迁到云端；版本化交易偏好、加密恢复及计划协议；新绘图工具和图表性能路径；账户设置跨设备同步；行情鉴权、限流、WebSocket 复用与过期；计划保存、自动激活提醒及失败重试。
 
 风险与控制：
 
@@ -32,7 +32,7 @@
 | S4 | 88eb63e..58abf63 | 多窗分析、扩展绘图、指数、云端计划展示 | 完成 |
 | S5 | 58abf63..08cc4fd | 左侧条件卡、三档止盈、保存/激活、精度及设置 | 完成 |
 | S6 | 全部融合代码 | 整体深度 review、修复、全量与真实 Electron 验收 | 完成 |
-| S7 | 已验收源码 | Mac Universal 测试包、ASAR/签名/DMG/启动验收 | 进行中 |
+| S7 | 已验收源码 | Mac Universal 测试包、ASAR/签名/DMG/启动验收 | 完成 |
 
 每阶段门禁：三方冲突逐块审查；相关行为测试；TypeScript 和构建（涉及应用代码）；Mac 保留项复查；缺陷修复并复验；提交检查点后再进入下一阶段。最终运行完整桌面与网关测试，覆盖实际 Electron 图表/计划/设置和打包后主进程启动，记录未验证的外部依赖，不作“永远无故障”的承诺。
 
@@ -107,3 +107,17 @@
 - 多语言最终验收汇总：432 个界面状态、240 个下拉状态、2336 个字形样本全部通过（`final-ui-acceptance.json`）。英文静态矩阵 120 状态通过后，单独修复并复验用量日历剩余 24 状态；未重跑的简繁中文 288 状态沿用本轮已通过结果。最后日历几何复验使用 DOM 点击，语言切换原生交互已由完整矩阵覆盖。
 
 - 最终打包候选全量复验：`final-desktop-package.log` **4530/0/6**；`final-language-verified.log` 32/32；`final-build-package.log` 通过。S6 已关闭全部本轮发现项，进入 S7。本机 codesigning identity 为 0，交付 ad-hoc 本地测试包，不作已公证声明。
+
+### S7 Universal 成品与交付
+
+- 构建源码提交：`f0bdd25763e0109002522a01d3ea4889deadde91`；Windows 远端交付前再次核对仍为 `08cc4fdc237098af2022cf987e0094e36bc3d5b2`。版本 **0.1.181 Universal（arm64 + x64）**。
+- prepare:mac、electron-builder、finalize-mac-dmg 全部成功；使用本仓既有显式本地测试开关，不上传、不安装覆盖用户现有客户端。无 Developer ID，本包为 ad-hoc、未公证。
+- 三个构建包均通过 G3 的 1340 文件私有资产/导入闭包检查；Universal ASAR SHA-256：`83a9b8632c1f0d6fba463ed4a7dfb265222170daa1616b5610ec034aba441759`。`verify-mac-package`、`verify-mac-adhoc-launch` 通过，后者验证 748 个代码对象。DMG 挂载内容与 `hdiutil verify` 校验通过。
+- 实际启动最终 `.app`：原生 arm64、Rosetta x64 均通过主进程、登录页、预加载桥接、未登录状态及 qrcode API 生成 PNG 验收。独立短路径 profile 未使用真实账户。Intel 初次 Rosetta 翻译超过测试脚本原 10 秒预检窗口，保留失败证据并延长至 60 秒后通过，未修改产品超时。
+- 打包器的 qrcode CLI/yargs 提示经两架构成品二维码生成验证不影响应用 API 路径。旧版非致命 `setIcon(ICNS)` 日志仍存在；Mac Dock 使用独立 PNG 图标，原生包图标校验通过，无新增启动崩溃。
+- 产物：`youle_desktop/release/好咯-0.1.181-universal.dmg`，488175129 字节。SHA-256：`336b9e7581fd07adc1c92d19e83805a70f2ee2d7a5d5607141f0745fd29e01e9`。
+- 已复制并核对相同哈希到 `/Users/binanfei/Desktop/好咯-Mac-0.1.181-融合测试-20261020/`，同时提供测试说明、校验文件、构建信息及本报告副本。所有阶段与最终源码提交保留，旧安装包未删除。
+- 日志：`package-build.log`、`package-finalize.log`、`package-verify.log`、`package-signature.log`、`dmg-integrity.log`、`packaged-arm64-launch/report.json`、`packaged-x64-launch/report.json`，均位于 `.git/integration-20261020/`。
+- 验证边界：6 个 Windows 平台条件用例、3 个 Redis 环境用例未在本机运行；Intel 使用 Rosetta 验收，未使用物理 Intel Mac；真实生产云策略/API/Worker 和账号权限未在线联调。未保存真实计划或发起订单、未部署服务。本轮发现的融合阻断问题均已修复并复验，不能据此承诺所有外部环境绝无故障。
+
+本次融合与本地测试包交付已完成。
