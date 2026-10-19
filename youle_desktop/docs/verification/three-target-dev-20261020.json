@@ -1,0 +1,28 @@
+{
+  "verifiedAt": "2026-10-19T17:10:13.1901540Z",
+  "commit": "f66f7ed5253f909de6b716ef6fecf482ae86a71e",
+  "launcherPid": 11620,
+  "mainPid": 32364,
+  "startedAt": "2026-10-19T17:09:22.1911550Z",
+  "responding": true,
+  "mainWindowPresent": true,
+  "viteHttpStatus": 200,
+  "sourceFrozenAt": "2026-10-19T17:08:18.537Z",
+  "verifiedFiles": 12,
+  "files": {
+    "src/main/cloud-plan-contract.mjs": "3b2ba0794236cf8195c6ca7e3fa067ac0e4159f8c9ad34a8393072571984b595",
+    "src/main/execution-plan-card-view.mjs": "8feea12b8b0d9999493e458f2593570d3ccbccf232dab808c50c4b9985c4ca32",
+    "src/main/execution-plan-card.css": "43bd989aaba0f3e62a7908511170c76eaa586a56030a97432745ed5a4590df6c",
+    "src/main/trading-strategy-runtime/cloud-runtime.mjs": "8acd151627a067172422f34bfd36f638289b71b6b1d0058d713cb2d6ad5e6eac",
+    "src/main/trading-strategy-runtime/cloud-plans.mjs": "0855d69b84c226703f9c5e9aa9de73a46729742b843e7bf8044d21028a8fa548",
+    "src/main/youle-api-client.mjs": "714fc2ec85e4785c8ff2091a750884c49166569b2bde222881d7787f60fc59a5",
+    "src/renderer/main.ts": "9bd161c10ca2b90fb57b58e8fc3dc37f0f5e6c853eab571c3fbf1988029a235b",
+    "src/renderer/styles.css": "a82e87ae36cb4ef3bd7a4a4bf6e7942a316e06793e3affc257d8a6fb7ca369a6",
+    "src/renderer/execution-plans.ts": "0a292c84a717b4098458d13ab7076e8e6ce9495d802a9af32ba38d0ab8b88df1",
+    "src/renderer/cloud-plan-sync.ts": "1382ad978b7980c2eed3dffa47ddec5750331408e500743a9be28f0bb51dfd33",
+    "test/support/right-renderer-parity.mjs": "3f8939eba05f4d2d982cc455d88e3636b9f4494e61b32b8a46960626b7ce693c",
+    "scripts/cloud-plan-card-visual-qa.mjs": "c43ece8853735d8bc488b44567eb75b0c5edf188c38e2772e1da3e05d9cd13c9"
+  },
+  "uiInteraction": false,
+  "scope": "M1-387 committed source plus coordinated authorized uncommitted spacing/typography; no UI interaction or installer release"
+}
