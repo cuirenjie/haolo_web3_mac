@@ -40350,6 +40350,19 @@ html[data-theme="dark"] .conversation-row-wrap.conversation-row-minimal.active {
   color: var(--conversation-analysis-context);
 }
 
+.execution-plan-surface.execution-plan-card > header:has(.execution-plan-card-status.inactive) {
+  padding-right: 0;
+}
+
+.execution-plan-card-status.inactive {
+  position: static;
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+  white-space: normal;
+  text-align: right;
+}
+
 .execution-plan-card-status:is(.executing, .take-profit) {
   color: var(--execution-plan-direction-bullish);
 }

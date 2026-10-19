@@ -39536,7 +39536,9 @@ function executionPlanStatusMeta(plan: SavedExecutionPlan) {
     if (plan.endReason === "expired") return { label: "已过期", tone: "expired" };
     return { label: "已取消", tone: "cancelled" };
   }
-  return { label: executionPlanNeedsActivation(plan) ? executionPlanActivationText('inactive',state.settings.language) : "待执行", tone: "pending" };
+  return executionPlanNeedsActivation(plan)
+    ? { label: executionPlanActivationText('inactive',state.settings.language), tone: "pending inactive" }
+    : { label: "待执行", tone: "pending" };
 }
 
 function renderExecutionPlanEndMenu(plan: SavedExecutionPlan) {
