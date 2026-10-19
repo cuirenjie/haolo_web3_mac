@@ -38,3 +38,13 @@ test('cloud error envelopes use bounded fixed messages and no local strategy rec
     assert.equal(describeTradingAnalysisFailure(error).allowLocalRecovery,false);
   }
 });
+
+test('an ambiguous model completion retains a specific safe explanation in three languages',()=>{
+  for(const language of ['zh-CN','en','zh-Hant']) {
+    const error=cloudStrategyFailure({code:'MODEL_OUTCOME_UNKNOWN',message:'private upstream response'},{language});
+    assert.equal(describeTradingAnalysisFailure(error,{language}).category,'model_unknown');
+    const report=buildTradingStrategyFailureReport({id:'wave',display:{name:'Wave'}},error,{language});
+    assert.doesNotMatch(report,/private|分析流程未能完成|The analysis could not complete/);
+    assert.match(report,language==='en'?/without an automatic repeat/:language==='zh-Hant'?/未自動重複請求/:/未自动重复请求/);
+  }
+});

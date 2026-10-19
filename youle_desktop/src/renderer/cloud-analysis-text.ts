@@ -1,4 +1,7 @@
 const words={
+  splitPane:['分屏 {count}','Chart {count}','分屏 {count}'],
+  snapshotUnavailable:['此分屏的行情快照尚未就绪。','This chart snapshot is not ready.','此分屏的行情快照尚未就緒。'],
+  drawingDeferred:['分析已完成，图表绘制未完成。','Analysis completed, but chart drawing did not complete.','分析已完成，圖表繪製未完成。'],
   submit:['正在向云端提交 {market} {interval} 分析；行情与策略证据由服务端读取。','Submitting {market} {interval} analysis. The server will retrieve market data and strategy evidence.','正在向雲端提交 {market} {interval} 分析；行情與策略證據由伺服器讀取。'],
   drawing:['云端分析已完成，正在绘制冻结的结构与条件价位。','Cloud analysis completed. Drawing the frozen structures and conditional levels.','雲端分析已完成，正在繪製凍結的結構與條件價位。'],
   drawingStep:['正在逐笔绘制分析标注。','Drawing the analysis annotations.','正在逐筆繪製分析標註。'],

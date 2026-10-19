@@ -18,7 +18,7 @@ api.loaded=true;api.baseUrl=baseUrl;api.profile={id:accountId};api.token='isolat
 const account={ownerId:`${baseUrl}::${accountId}`,accountId,baseUrl};
 const prefs=await api.tradingCloudRequest('preferences',{}, {expectedAccountId:accountId,expectedBaseUrl:baseUrl});
 const records=new Map();
-const {testConnectionId,testAccountUnavailable,...windowInput}=JSON.parse(windowJson);
+const {testConnectionId,testAccountUnavailable,testObservationOnly,...windowInput}=JSON.parse(windowJson);
 const journal={async get(owner,key){return structuredClone(records.get(`${owner}:${key}`)??null);},async put(owner,key,value){records.set(`${owner}:${key}`,structuredClone(value));},async list(){return [...records.values()];}};
 const runtime=createCloudStrategyRuntime({owner:async()=>account,api:()=>api,journal,pollMs:50,
   connection:async()=>testConnectionId?{id:testConnectionId}:testAccountUnavailable?{unavailable:true}:null});
@@ -58,7 +58,7 @@ assert.deepEqual(parseTradingTranscriptMarkerText(history[0].content[0].text).cl
 const plans=createCloudPlans({owner:async()=>account,api:()=>api});
 if(entryMode==='right') {
   await verifyRightChain({result,reports,plans,record:await journal.get(account.ownerId,'http-chain-fixture')});
-} else if(analysisKind!=='general') {
+} else if(analysisKind!=='general'&&!testObservationOnly) {
   const original=result.cloud.planRecords[0];
   const reference={planId:original.id,runId:original.runId,version:original.version,confirmationHash:original.confirmationHash,conditionHash:original.scenario.conditionHash};
   const card=cloudPlanCard(reports[0]);
@@ -93,6 +93,10 @@ if(entryMode==='right') {
   assert.equal((await plans.perform('delete',{...reference,version:ended.plan.version})).status,'deleted');
   assert.deepEqual((await plans.perform('list')).reports,[]);
 } else {assert.equal(cloudPlanCard(reports[0]),null);assert.deepEqual((await plans.perform('list')).reports,[]);}
+if(testObservationOnly) {
+  assert.deepEqual(result.executionPlan.scenarios,[]);assert.deepEqual(result.cloud.planIds,[]);
+  assert.match(result.analysisPlan.report,language==='en'?/No trading range/:language==='zh-Hant'?/未識別到/:/未识别到/);
+}
 await runtime.acknowledge('http-chain-fixture');
 assert.deepEqual(await runtime.pending(),[]);
 console.log(JSON.stringify({ok:true,runId:result.cloud.runId,strategyId,drawingCount:(result.analysisPlan.drawingPatch?.operations.length||0)+(result.analysisPlan.indicatorDrawingPatch?.operations.length||0),planIds:result.cloud.planIds}));

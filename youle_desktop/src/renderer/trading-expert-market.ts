@@ -7,6 +7,7 @@ import {cloudAnalysisText} from './cloud-analysis-text.ts';
 import {normalizeTradingIndicatorAiDrawingPatch,storeCloudIndicatorPatch,loadCloudIndicatorPatch,migrateCloudIndicatorPatches,clearIndicatorAnalysisRuntime,renderIndicatorAnalysisPatch} from './cloud-indicator-drawings.ts';
 export {normalizeTradingIndicatorAiDrawingPatch,strictlyAscendingTradingIndicatorPathPoints} from './cloud-indicator-drawings.ts';
 import {cloudAnalysisWindow} from './cloud-analysis-window.ts';
+import {captureCloudAnalysisPanes} from './cloud-analysis-panes.ts';
 import {cloudReportFromResponse, normalizeCloudReports, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
 import {
   AreaSeries,
@@ -512,6 +513,7 @@ export interface TradingAnalysisTaskTarget {
   readonly market: Readonly<TradingFavoriteMarketRecord>;
   readonly candles: ReadonlyArray<Readonly<TradingCandle>>;
   readonly visibleCandles: ReadonlyArray<Readonly<TradingCandle>>;
+  readonly splitPanes?: ReturnType<typeof captureCloudAnalysisPanes<TradingSplitPaneAnalysisSnapshot>>;
 }
 export interface TradingChanConversationRequest extends TradingExecutionModelSelection {
   analysisId?: string | null;
@@ -2560,8 +2562,8 @@ export function combineTradingAnalysisReports(
         .slice()
         .sort((first, second) => first.paneIndex - second.paneIndex)
         .map((failure) => english
-          ? `- ${failure.heading}: This auxiliary chart was not included; the primary analysis and answer remain available.`
-          : translateAppText(`- ${failure.heading}：该辅助分屏暂未纳入主图结论；主图分析和回答不受影响。`, activeTradingAnalysisLanguage())),
+          ? `- ${failure.heading}: ${failure.message}. This auxiliary chart was not included; the primary analysis and answer remain available.`
+          : `${translateAppText(`- ${failure.heading}：该辅助分屏暂未纳入主图结论；主图分析和回答不受影响。`, activeTradingAnalysisLanguage())} ${failure.message}`),
     );
   }
   return sections.filter(Boolean).join("\n\n");
@@ -8807,27 +8809,37 @@ class TradingExpertMarketWorkspace {
             !response?.ok
             || (!response.analysisPlan?.drawingPatch && !response.analysisPlan?.indicatorDrawingPatch)
           ) {
-            throw new Error(response?.error?.message || `${options.analysisLabel}没有返回绘图计划`);
+            throw Object.assign(new Error(response?.error?.message || `${options.analysisLabel}没有返回绘图计划`), {code: response?.error?.code});
           }
-          if (options.drawingsRequested && response.analysisPlan.drawingPatch) {
-            options.onProgress?.(
-              options.drawingProgressPhase,
-              cloudAnalysisText('splitDrawing',options.job.language,{market:tradingAnalysisPaneHeading(snapshot.market,snapshot.interval)}),
-            );
-            await commitTradingAnalysisDrawingPatch(
-              options.job,
-              response.analysisPlan.drawingPatch,
-              snapshot.paneIndex,
-            );
-          }
-          if(options.drawingsRequested&&response.analysisPlan.indicatorDrawingPatch)await commitTradingIndicatorAnalysisDrawingPatch(options.job,response.analysisPlan.indicatorDrawingPatch,snapshot.paneIndex);
+          const analysisPlan = response.analysisPlan;
+          const {drawingDeferred} = await settleTradingAnalysisDrawing({
+            isActive: () => tradingAnalysisJobs.isActive(options.job.analysisId),
+            onFailure: error => recordTradingRendererFailure(error, {
+              analysisJobId: options.job.analysisId, marketId: snapshot.market.id,
+              interval: snapshot.interval, stage: 'drawing',
+            }),
+            commit: async () => {
+              if (options.drawingsRequested && analysisPlan.drawingPatch) {
+                options.onProgress?.(
+                  options.drawingProgressPhase,
+                  cloudAnalysisText('splitDrawing',options.job.language,{market:tradingAnalysisPaneHeading(snapshot.market,snapshot.interval)}),
+                );
+                await commitTradingAnalysisDrawingPatch(options.job, analysisPlan.drawingPatch, snapshot.paneIndex);
+              }
+              if (options.drawingsRequested && analysisPlan.indicatorDrawingPatch) {
+                await commitTradingIndicatorAnalysisDrawingPatch(options.job, analysisPlan.indicatorDrawingPatch, snapshot.paneIndex);
+              }
+            },
+          });
           if (!tradingAnalysisJobs.isActive(options.job.analysisId)) return;
           reports.push({
             cloudReports: cloudReportFromResponse(response),
             paneIndex: snapshot.paneIndex,
             heading: tradingAnalysisPaneHeading(snapshot.market, snapshot.interval),
-            report: String(response.analysisPlan.report || response.analysisPlan.narrative || `${options.analysisLabel}已完成`),
-            narrative: String(response.analysisPlan.narrative || response.analysisPlan.report || `${options.analysisLabel}已完成`),
+            report: [String(response.analysisPlan.report || response.analysisPlan.narrative || `${options.analysisLabel}已完成`),
+              drawingDeferred ? cloudAnalysisText('drawingDeferred', options.job.language) : ''].filter(Boolean).join('\n\n'),
+            narrative: [String(response.analysisPlan.narrative || response.analysisPlan.report || `${options.analysisLabel}已完成`),
+              drawingDeferred ? cloudAnalysisText('drawingDeferred', options.job.language) : ''].filter(Boolean).join('\n\n'),
             modelName: tradingAnalysisModelDisplayName(response.model, options.job.language),
           });
           completed += 1;
@@ -8836,7 +8848,7 @@ class TradingExpertMarketWorkspace {
           failures.push({
             paneIndex: snapshot.paneIndex,
             heading: tradingAnalysisPaneHeading(snapshot.market, snapshot.interval),
-            message: String((error as Error)?.message || error || `${options.analysisLabel}失败`).slice(0, 300),
+            message: describeTradingAnalysisFailure(error, {language: options.job.language}).summary,
           });
           failed += 1;
         }
@@ -8882,9 +8894,7 @@ class TradingExpertMarketWorkspace {
           heading: selection
             ? tradingAnalysisPaneHeading(selection.market, selection.interval)
             : `分屏 ${paneIndex + 1}`,
-          message: String(
-            (result.reason as Error)?.message || result.reason || "行情快照读取失败",
-          ).slice(0, 300),
+          message: cloudAnalysisText('snapshotUnavailable', activeTradingAnalysisLanguage()),
         });
       });
       return { snapshots, snapshotFailures };
@@ -8912,6 +8922,11 @@ class TradingExpertMarketWorkspace {
       : null;
     const visibleCandles = visibleCandlesInLogicalRange(candles, visibleRange);
     const freezeCandle = (candle: TradingCandle) => Object.freeze({ ...candle });
+    const splitPanes = captureCloudAnalysisPanes(this.splitPanes, paneIndex => {
+      const selection = this.splitPaneSelections.get(paneIndex);
+      return selection ? tradingAnalysisPaneHeading(selection.market, selection.interval)
+        : cloudAnalysisText('splitPane', activeTradingAnalysisLanguage(), {count: paneIndex + 1});
+    }, true, cloudAnalysisText('snapshotUnavailable', activeTradingAnalysisLanguage()));
     return Object.freeze({
       schemaVersion: 1 as const,
       targetId,
@@ -8923,6 +8938,7 @@ class TradingExpertMarketWorkspace {
       market: Object.freeze(tradingFavoriteRecord(market)),
       candles: Object.freeze(candles.map(freezeCandle)),
       visibleCandles: Object.freeze(visibleCandles.map(freezeCandle)),
+      splitPanes,
     });
   }
 
@@ -10502,7 +10518,7 @@ class TradingExpertMarketWorkspace {
     const windowHint = cloudAnalysisWindow(strategyId,analysisCandles,preferredCandles);
     const analysisSnapshotTime = Date.now();
     const splitSnapshotsPromise = useCapturedTarget
-      ? Promise.resolve({snapshots:[] as TradingSplitPaneAnalysisSnapshot[],snapshotFailures:[] as TradingSplitPaneAnalysisFailure[]})
+      ? Promise.resolve(capturedTarget!.splitPanes || {snapshots:[] as TradingSplitPaneAnalysisSnapshot[],snapshotFailures:[] as TradingSplitPaneAnalysisFailure[]})
       : this.captureSplitPaneAnalysisSnapshots(requestedLookbackMs,preferredCandles,strategyId==='vpvr-analysis');
     if (!useCapturedTarget && (targetMarket.id!==this.loadedMarketId || targetInterval!==this.loadedInterval)) {
       this.selectMarket(targetMarket);this.activeInterval=targetInterval;
@@ -13533,7 +13549,7 @@ async function commitTradingAnalysisDrawingPatch(
   const targetWorkspace = activeWorkspace?.drawingStorageSessionMatches(currentJob.storageSessionId)
     ? activeWorkspace
     : null;
-  if (targetWorkspace) {
+  if (targetWorkspace && (paneIndex === 0 || targetWorkspace.analysisDrawingTargetMatches(patch, paneIndex))) {
     const applied = await targetWorkspace.acceptAnalysisDrawingPatch(patch, paneIndex, onPhase);
     if (applied !== true) {
       throw new Error(translateAppText("Drawing Patch 未能应用到目标会话", currentJob.language));
