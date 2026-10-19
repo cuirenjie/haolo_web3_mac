@@ -4,6 +4,7 @@ export function executionPlanCardBody(lines?: ExecutionPlanCardLine[], language?
 export function executionPlanStructuredCardBody(input: {
   entry: { lower: number; upper?: number };
   entryMode?: 'left' | 'right';
+  entryBasisMismatch?: boolean;
   stop: number;
   targets: number[];
   direction: 'long' | 'short';

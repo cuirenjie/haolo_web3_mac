@@ -36,7 +36,7 @@ test('real server sizing uses legacy allocations without changing frozen quantit
       // not from the adapter's R/R-to-money conversion or rounded prices.
       const order=account.targetEstimates[index];
       const expected=order.notional*(sign*(target-scenario.entry)/scenario.entry-sizing.estimatedRoundTripCostRate);
-      assert.equal(order.estimatedNetProfit,Math.floor((expected+Number.EPSILON)*100)/100);
+      assert.ok(Math.abs(order.estimatedNetProfit-expected)<1e-12,'keep the full estimate until cumulative display');
     }
     assert.deepEqual(report,before,'presentation must not rewrite the frozen result');
   }
@@ -50,7 +50,7 @@ for(const strategy of OFFICIAL_TRADING_CATALOG)test(`${strategy.id}: server acco
     const saved=mergeCloudExecutionPlans([report],[])[0];
     for(const html of [renderCurrentReports([report]).rendered.cards,
       renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})]){
-      for(const value of [...words[locale].slice(0,4),'146.61','73.30','73.31','-1.38','+0.66','+1.60'])assert.ok(html.includes(value),value);
+      for(const value of [...words[locale].slice(0,4),'146.61','73.30','73.31','-1.38','+0.67','+1.61'])assert.ok(html.includes(value),value);
       assert.ok(!html.includes(words[locale][5]));
       assert.equal((html.match(/class="execution-plan-account-detail execution-plan-target-profit execution-plan-estimate"/g)||[]).length,2);
       assert.equal((html.match(/class="execution-plan-account-detail execution-plan-target-amount"/g)||[]).length,2);
@@ -60,7 +60,7 @@ for(const strategy of OFFICIAL_TRADING_CATALOG)test(`${strategy.id}: server acco
       assert.doesNotMatch(amounts.join(''),/USDT|BTC|×|计划仓位|計畫倉位|Planned size|全仓净盈亏|全倉淨盈虧|Net P&amp;L/);
       assert.doesNotMatch(html,/class="execution-plan-(?:account-summary|quantity)"/);
       assert.match(html,/execution-plan-card-number-bearish">-1\.38</);
-      assert.match(html,/execution-plan-card-number-bullish">\+0\.66</);
+      assert.match(html,/execution-plan-card-number-bullish">\+0\.67</);
     }
     const executing=renderCurrentSavedPlan({...saved,status:'executing'},language);
     assert.doesNotMatch(executing,/class="execution-plan-expiry"/);

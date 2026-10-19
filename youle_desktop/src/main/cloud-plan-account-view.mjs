@@ -10,10 +10,23 @@ function equal(a, b) {
   return keys.length === Object.keys(b).length && keys.every(key => Object.hasOwn(b, key) && equal(a[key], b[key]));
 }
 
+function valuationEntry(plan) {
+  const condition = plan.entryCondition;
+  const predicate = condition?.confirmation === 'breakout_retest' ? condition.retest : condition?.trigger;
+  if (predicate?.operator !== 'in_zone') return predicate?.lower;
+  const lower = plan.selectedMode === 'left' ? condition.direction === 'long' : condition.direction === 'short';
+  return lower ? predicate.lower : predicate.upper;
+}
+
+export function cloudPlanEntryBasisMismatch(plan) {
+  return plan.selectedMode === 'left' && positive(plan.scenarios?.[0]?.entry)
+    && plan.scenarios[0].entry !== valuationEntry(plan);
+}
+
 export function cloudPlanAccountView(plan, marketId, record) {
   const scenario = plan.scenarios?.[0], condition = plan.entryCondition;
   const perScenario = scenario?.positionSizing, sizing = perScenario || plan.positionSizing;
-  if (!condition || !scenario || !sizing || plan.outcome?.action !== 'plan'
+  if (!condition || !scenario || !sizing || cloudPlanEntryBasisMismatch(plan) || plan.outcome?.action !== 'plan'
     || scenario.eligible !== true || plan.executionBlocked === true || sizing.executionBlocked === true
     || sizing.accountStatus !== 'available' || !sizing.accountPlan) return undefined;
 
@@ -32,8 +45,7 @@ export function cloudPlanAccountView(plan, marketId, record) {
   // V2 binds sizing through its enclosing, receipt-validated scenario, not
   // duplicate side/price fields. Check that binding again for restored cards.
   const account = sizing.accountPlan;
-  const predicate = condition.confirmation === 'breakout_retest' ? condition.retest : condition.trigger;
-  const expectedEntry = predicate?.operator === 'in_zone' && condition.direction === 'long' ? predicate.upper : predicate?.lower;
+  const expectedEntry = valuationEntry(plan);
   const market = /^BINANCE:FUTURES:(.+)(USDT)$/.exec(String(marketId));
   if (plan.schemaVersion !== 2 || plan.scenarios.length !== 1 || !market
     || record?.id !== plan.planId || !equal(record.scenario, scenario)
@@ -58,7 +70,9 @@ export function cloudPlanAccountView(plan, marketId, record) {
     const profit = nonnegative(account.estimatedStopLoss) && Array.isArray(ratios) && ratios.length === scenario.targets.length
       && Number.isFinite(ratios[targetIndex]) ? account.estimatedStopLoss * ratios[targetIndex] * notional / account.notional : undefined;
     return {price: scenario.targets[targetIndex], targetIndex, notional,
-      estimatedNetProfit: Number.isFinite(profit) ? Math.floor((profit + Number.EPSILON) * 100) / 100 : undefined};
+      // These are estimates, not settled cents. Rounding each exit before
+      // summing loses up to a cent per target, especially on small positions.
+      estimatedNetProfit: Number.isFinite(profit) ? profit : undefined};
   });
   return {...account, baseAsset: market[1], currency: market[2], allocationNotional: allocation?.notional, targetEstimates};
 }

@@ -135,9 +135,11 @@ function targetsHtml(targets, labels, ratios) {
 
 // Typed cloud prices bypass the legacy prose parser. Match mobile's compact
 // price/expiry/ratio layout; full conditions remain in the frozen report/content.
-export function executionPlanStructuredCardBody({ entry, entryMode, stop, targets, direction, expiresAt, riskReward = [], account, action }, language = "zh-CN") {
+export function executionPlanStructuredCardBody({ entry, entryMode, stop, targets, direction, expiresAt, riskReward = [], account, action, entryBasisMismatch = false }, language = "zh-CN") {
   const labels = copy[language] || copy["zh-CN"];
   const tone = direction === "long" ? "bullish" : "bearish";
+  // Left valuation and display both use the favorable zone endpoint:
+  // long at the lower edge, short at the upper edge.
   const entryPrice = entry.upper == null || entryMode === 'left'
     ? priceText(entryMode === 'left' && direction === 'short' ? entry.upper ?? entry.lower : entry.lower)
     : `${priceText(entry.lower)} – ${priceText(entry.upper)}`;
@@ -161,8 +163,14 @@ export function executionPlanStructuredCardBody({ entry, entryMode, stop, target
   const actions = actionCopy[language] || actionCopy['zh-CN'];
   const actionHtml = Object.hasOwn(actions, action) && action !== 'label' && action !== 'wait'
     ? `<div class="execution-plan-details">${lineHtml({label: actions.label, text: actions[action]})}</div>` : '';
+  const basisNotice = {
+    'zh-CN': '此计划使用旧入场口径，请重新分析以更新盈亏测算。',
+    'zh-TW': '此計畫使用舊入場口徑，請重新分析以更新盈虧測算。',
+    en: 'This plan uses the previous entry basis. Run a new analysis to update its risk and profit estimates.',
+  };
+  const basisHtml = entryBasisMismatch ? `<div class="execution-plan-details">${lineHtml({label: '', text: basisNotice[language] || basisNotice['zh-CN']})}</div>` : '';
   return `<div class="execution-plan-metrics" data-conditional-plan>${priceMetricHtml(labels.entry, entryPrice, tone, amount)}${priceMetricHtml(labels.stop, priceText(stop), tone === "bullish" ? "bearish" : "bullish", loss)}</div>`
-    + targetsHtml(rows, labels, { values }) + actionHtml + expiryHtml(expiresAt, language);
+    + targetsHtml(rows, labels, { values }) + actionHtml + basisHtml + expiryHtml(expiresAt, language);
 }
 
 function moneyDetail(label, value, className = "", signed = false) {

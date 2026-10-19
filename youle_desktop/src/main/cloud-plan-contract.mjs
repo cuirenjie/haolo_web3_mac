@@ -4,7 +4,7 @@
 import {executionPlanCandidatesFromText,executionPlanCandidateWithSourceText,executionPlanDisplayLines,
   executionPlanHasStructuredTradingFields,executionPlanHasConcreteTradingPlan} from './legacy-execution-plan-presentation.mjs';
 import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCardBody} from './execution-plan-card-view.mjs';
-import {cloudPlanAccountView} from './cloud-plan-account-view.mjs';
+import {cloudPlanAccountView,cloudPlanEntryBasisMismatch} from './cloud-plan-account-view.mjs';
 import {validLeftObservation,leftWatchView,leftRouteView} from './price-action-left-card.mjs';
 const uuid = value => typeof value==='string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 const hash = value => typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
@@ -146,7 +146,9 @@ export function cloudPlanCard(report, { hideExpiry = false, language: displayLan
   const heading=executionPlanCardHeading(title,[{label:'Direction',text:condition.direction},{label:'Strategy',text:report.strategyId}],language);
   // Mobile's engine-first ratio rule: never derive ratios or account amounts
   // from displayed prices, or borrow the other scenario's account sizing.
+  const entryBasisMismatch=cloudPlanEntryBasisMismatch(plan);
   const riskReward=scenario.targets.map((_,index)=>{
+    if(entryBasisMismatch)return null;
     const engine=plan.preferredSide===condition.direction&&Array.isArray(plan.riskReward)
       ? plan.riskReward.find(item=>item?.targetIndex===index&&Number.isFinite(item.ratio))?.ratio:undefined;
     return engine??(Array.isArray(scenario.riskReward)&&Number.isFinite(scenario.riskReward[index])?scenario.riskReward[index]:null);
@@ -154,7 +156,7 @@ export function cloudPlanCard(report, { hideExpiry = false, language: displayLan
   const account=cloudPlanAccountView(plan,report.marketId,report.planRecords?.[0]);
   const entry=condition.confirmation==='breakout_retest'?condition.retest:condition.trigger;
   const body=executionPlanStructuredCardBody({entry,entryMode:plan.selectedMode,stop:scenario.stop,targets:scenario.targets,direction:condition.direction,
-    expiresAt:hideExpiry?undefined:condition.expiresAt,riskReward,account,
+    expiresAt:hideExpiry?undefined:condition.expiresAt,riskReward,account,entryBasisMismatch,
     action:plan.executionBlocked===true||(scenario.positionSizing||plan.positionSizing)?.executionBlocked===true||scenario.eligible===false?'blocked':route?.action||'wait'},language);
   return {title,content:[title,...fields.map(([label,value])=>`${label}: ${value}`),t('notice'),...(route?[route.content]:[]),...(watch?[watch.content]:[])].join('\n'),
     html:heading+body};
