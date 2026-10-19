@@ -487,6 +487,41 @@ function deduplicatePatterns(patterns) {
   return selected;
 }
 
+function isFractal(pattern) {
+  return pattern.patternId === "top-fractal" || pattern.patternId === "bottom-fractal";
+}
+
+function patternsOverlap(first, second) {
+  return Math.max(first.startIndex, second.startIndex) <= Math.min(first.endIndex, second.endIndex);
+}
+
+function selectDrawableFractals(patterns, shapes) {
+  const candidates = patterns.filter(isFractal).map((pattern) => {
+    // Use only the local history available when this three-candle fractal formed.
+    // A small dip near a high is not a drawable bottom (and vice versa).
+    const context = shapes.slice(Math.max(0, pattern.startIndex - 8), pattern.endIndex + 1);
+    const low = Math.min(...context.map((candle) => candle.low));
+    const high = Math.max(...context.map((candle) => candle.high));
+    const middle = shapes[pattern.startIndex + 1];
+    const pivot = pattern.patternId === "top-fractal" ? middle.high : middle.low;
+    const position = high > low ? (pivot - low) / (high - low) : 0.5;
+    const strength = pattern.patternId === "top-fractal" ? position : 1 - position;
+    return { pattern, strength };
+  }).filter(({ strength }) => strength >= 0.6);
+  candidates.sort((first, second) => (
+    Number(second.pattern.complete) - Number(first.pattern.complete)
+    || second.strength - first.strength
+    || second.pattern.quality - first.pattern.quality
+    || second.pattern.endIndex - first.pattern.endIndex
+  ));
+  const selected = [];
+  for (const { pattern } of candidates) {
+    // Fractals sharing candles are mutually exclusive, regardless of quality.
+    if (!selected.some((item) => patternsOverlap(item, pattern))) selected.push(pattern);
+  }
+  return new Set(selected.map((pattern) => pattern.id));
+}
+
 export function runPriceActionCandlestickPatternEngine(snapshot, structure) {
   const shapes = snapshot.candles.map((_, index) => candleShape(snapshot.candles, index));
   const lastClosedCandleIndex = priceActionLastClosedCandleIndex(snapshot);
@@ -501,15 +536,17 @@ export function runPriceActionCandlestickPatternEngine(snapshot, structure) {
   const patterns = deduplicatePatterns(raw);
   const latestIndex = shapes.length - 1;
   const recentPatterns = patterns.filter((pattern) => pattern.endIndex >= latestIndex - 24);
+  const drawableFractals = selectDrawableFractals(recentPatterns, shapes);
   const drawablePatterns = [];
   for (const pattern of recentPatterns) {
+    if (isFractal(pattern) && !drawableFractals.has(pattern.id)) continue;
     if (drawablePatterns.length >= 4) break;
-    const conflicts = drawablePatterns.some((item) => Math.max(item.startIndex, pattern.startIndex) <= Math.min(item.endIndex, pattern.endIndex));
+    const conflicts = drawablePatterns.some((item) => patternsOverlap(item, pattern));
     if (!conflicts || pattern.quality >= 0.82) drawablePatterns.push(pattern);
   }
   return Object.freeze({
     engineId: "price-action-candlestick-pattern",
-    engineVersion: "1.1.0",
+    engineVersion: "1.1.1",
     lastClosedCandleIndex,
     catalog: PRICE_ACTION_CANDLESTICK_PATTERN_CATALOG,
     patterns: Object.freeze(patterns),
