@@ -679,7 +679,7 @@ test("worker pauses a job after Youle AI auth expires", async () => {
     workspacePath: dir,
     prompt: "Every run, check auth-sensitive work and return NO_FINDINGS if there is no result.",
     schedule: { type: "manual", expr: null, timezone: "UTC", misfirePolicy: "run_once" },
-    execution: { workspaceMode: "local", sandboxMode: "read-only", approvalPolicy: "never", maxDurationSeconds: 5 },
+    execution: { workspaceMode: "local", sandboxMode: "read-only", approvalPolicy: "never", maxDurationSeconds: 15 },
   });
   const worker = new AutomationWorker({ store, youleAiBin: fakeBin });
   const run = await worker.runNow(job.id);

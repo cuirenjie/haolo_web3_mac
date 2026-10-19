@@ -583,6 +583,7 @@ async function main() {
     await delay(500);
     await verifyTextClippingDetector(targetWindow);
     typography = await targetWindow.webContents.executeJavaScript(`(${inspectClippedLabelStyles.toString()})(${inspectTextClipping.toString()})`, true);
+    await writeFile(path.join(OUTPUT, "typography-report.json"), JSON.stringify(typography, null, 2));
     process.stdout.write(`Typography: ${typography.checks} samples, ${typography.issues.length} clipped\n`);
     if (typography.issues.length) failures.push({ name: "clipped-label-typography", issues: typography.issues.map((issue) => `glyph clipped: ${issue.selector} ${issue.fontSize} ${issue.text}`), result: { textClipping: typography.issues } });
     if (process.env.HAOLO_I18N_QA_SKIP_LANGUAGE_TRANSITIONS !== "1") {
@@ -591,7 +592,7 @@ async function main() {
       }
       await verifyLanguageTransitionMatrix(targetWindow);
     }
-    const languages = QUICK_ENGLISH_BUTTON_AUDIT ? ["en"] : ["en", "zh-CN", "zh-TW"];
+    const languages = process.env.HAOLO_I18N_QA_ENGLISH_ONLY === "1" || QUICK_ENGLISH_BUTTON_AUDIT ? ["en"] : ["en", "zh-CN", "zh-TW"];
     const zooms = QUICK_ENGLISH_BUTTON_AUDIT ? [1, 1.5] : [1, 1.25, 1.5];
     const fontSizes = QUICK_ENGLISH_BUTTON_AUDIT ? ["large"] : ["small", "default", "medium", "large"];
     // Scheduled-task creation is not exposed by current builds. Do not attempt
@@ -600,12 +601,14 @@ async function main() {
     if (await targetWindow.webContents.executeJavaScript('Boolean(document.querySelector(\'[data-action="open-auto-task-dialog"]\'))')) {
       surfaces.push("auto-task", "auto-task-frequency");
     }
+    const selectedSurface = process.env.HAOLO_I18N_QA_SURFACE;
+    if (selectedSurface && !surfaces.includes(selectedSurface)) throw new Error("Unknown QA surface: " + selectedSurface);
     for (const language of languages) {
       await returnHome(targetWindow);
       const transitionSource = language === "en" ? "zh-TW" : language === "zh-CN" ? "en" : "zh-CN";
       await switchLanguage(targetWindow, transitionSource);
       await switchLanguage(targetWindow, language);
-      for (const surface of surfaces) {
+      for (const surface of selectedSurface ? [selectedSurface] : surfaces) {
         process.stdout.write(`Auditing ${language} ${surface}\n`);
         const scopeSelector = await openSurface(targetWindow, surface);
         for (const zoom of zooms) {

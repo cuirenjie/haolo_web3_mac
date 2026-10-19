@@ -1420,6 +1420,23 @@ function reviewedTraditionalEnglish() {
   return phrases;
 }
 
+// Dynamic accessibility labels must translate complete templates so captions
+// and names are not partially rewritten by short phrase substitutions.
+function englishDynamicUiLabel(source) {
+  let match;
+  if ((match = /^打开个人资料[:：](.+)$/.exec(source))) return `Open profile: ${match[1].trim()}`;
+  if ((match = /^当前套餐[:：](.+)，查看充值方案$/.exec(source))) return `Current plan: ${translateAppText(match[1], "en")}; view top-up options`;
+  if ((match = /^查看(.+)的(?:用量详情|使用明细|消耗明细|Usage details)$/.exec(source))) return `View usage details for ${translateAppText(match[1], "en")}`;
+  if ((match = /^切换至 (.+)，价格 (.+)，24小时涨幅 (.+)；拖动调整顺序，Alt\+左右键可移动$/.exec(source))) {
+    return `Switch to ${translateAppText(match[1], "en")}, price ${match[2]}, 24h change ${match[3]}; drag to reorder, or press Alt+Left/Right`;
+  }
+  if (/^Lv\d+ (?:蛋猫|猫王|猫|蛋)\d/.test(source)) {
+    const names = {"蛋猫":"Egg cat", "猫王":"Cat king", "猫":"Cat", "蛋":"Egg"};
+    return source.replace(/蛋猫|猫王|猫|蛋/g, name => names[name] + " ");
+  }
+  return null;
+}
+
 export function translateAppText(value, language = currentAppLanguage) {
   const source = String(value ?? "").replace(/\bDeepSeek\s+V4\.1\s+Flash\b/gi, "GPT-6 Astra");
   if (!source || !HAN_TEXT_PATTERN.test(source)) return source;
@@ -1430,7 +1447,8 @@ export function translateAppText(value, language = currentAppLanguage) {
   const cached = translationCache.get(cacheKey);
   if (cached !== undefined) return cached;
   const translationRecord = normalized === "zh-TW" ? TRADITIONAL_UI_EXACT : ENGLISH_UI_EXACT;
-  const exact = exactTranslation(source, translationRecord)
+  const exact = (normalized === "en" ? englishDynamicUiLabel(canonicalSource) : null)
+    ?? exactTranslation(source, translationRecord)
     ?? (normalized === "en" ? exactTranslation(source, reviewedTraditionalEnglish()) : null)
     ?? exactTranslation(canonicalSource, translationRecord);
   const translated = exact ?? (normalized === "zh-TW"

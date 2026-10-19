@@ -1692,7 +1692,7 @@ html.window-maximized body.desktop-app-window-mode #app {
   overflow: hidden;
   color: #9aa2b1;
   font-size: calc(9.24px + var(--app-font-size-offset));
-  line-height: 11.88px;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1744,7 +1744,7 @@ html.window-maximized body.desktop-app-window-mode #app {
   padding-top: 5.28px;
   color: #a0a8b5;
   font-size: calc(9.24px + var(--app-font-size-offset));
-  line-height: 11.88px;
+  line-height: 1.3;
 }
 
 .workflow-node-foot span {

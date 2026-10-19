@@ -45,12 +45,16 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     // Recovery must preserve a user's candle and price coordinates even when
     // completing the cache prepends 400 bars and changes native logical indices.
     for (const mode of [0, 1, 2]) {
-      await js(`workspace.clearAlertSimulation();workspace.chartNavigation.setMode(${mode});
+      await js(`workspace.clearAlertSimulation();workspace.chartNavigation.setVerticalLocked(false);workspace.chartNavigation.setMode(${mode});
         workspace.candles=fullCandles.slice(-100);workspace.sourceCandles=workspace.candles;
         workspace.updateChartData({resetViewport:true});workspace.chart.timeScale().setVisibleLogicalRange({from:20,to:60});void 0`);
       await settle();
       const axis = await js(`(()=>{const r=workspace.chart.panes()[0].getHTMLElement().getBoundingClientRect();return {x:Math.round(r.right-20),y:Math.round(r.top+60)}})()`);
-      win.webContents.sendInputEvent({ type: 'mouseWheel', ...axis, deltaY: 60, deltaX: 0 });
+      // Axis wheels now resize typography. Drag the native axis to establish
+      // a manual price range before testing history recovery.
+      win.webContents.sendInputEvent({ type: 'mouseDown', ...axis, button: 'left', clickCount: 1 });
+      win.webContents.sendInputEvent({ type: 'mouseMove', x: axis.x, y: axis.y + 60 });
+      win.webContents.sendInputEvent({ type: 'mouseUp', x: axis.x, y: axis.y + 60, button: 'left', clickCount: 1 });
       await settle();
       await js(`window.anchorTime=workspace.candles[50].time+28800;
         window.anchorPrice=workspace.candleSeries.coordinateToPrice(workspace.chart.panes()[0].getHeight()*0.4);void 0`);
@@ -58,6 +62,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
         y:workspace.candleSeries.priceToCoordinate(anchorPrice),auto:workspace.chart.priceScale('right',0).options().autoScale,
         range:workspace.chart.timeScale().getVisibleLogicalRange(),candles:workspace.candles.length})`);
       const before = await view();
+      assert.equal(before.auto, false, "native axis drag must establish a manual price range");
       await js('workspace.marketHistoryReady=false;workspace.recoverMarketHistory(workspace.loadGeneration)');
       await settle();
       const after = await view();

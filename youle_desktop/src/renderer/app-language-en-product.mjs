@@ -1,5 +1,18 @@
 // Reviewed terminology shared across account, billing, chart and task surfaces.
 export const PRODUCT_ENGLISH_UI_PHRASES = Object.freeze({
+  "调整左侧栏宽度": "Resize left sidebar",
+  "调整右侧任务会话宽度": "Resize right task panel",
+  "移动平均线": "Moving averages",
+  "TD序列": "TD Sequential",
+  "可见范围成交量分布": "Visible range volume profile",
+  "成交量": "Volume",
+  "相对强弱指标": "Relative Strength Index",
+  "随机指标": "Stochastic oscillator",
+  "随机震荡指标": "Stochastic RSI",
+  "顺势指标": "Commodity Channel Index",
+  "平均真实波幅": "Average True Range",
+  "平均趋向指标": "Average Directional Index",
+
   "入场": "Entry", "入場": "Entry",
   "已保存 · 未激活提醒": "Saved · Reminder inactive",
   "已儲存 · 未啟用提醒": "Saved · Reminder inactive",

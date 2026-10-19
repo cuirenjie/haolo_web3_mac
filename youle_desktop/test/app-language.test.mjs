@@ -3,6 +3,21 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
 
+test("dynamic accessibility labels translate complete templates and preserve names", () => {
+  for (const [source, expected] of [
+    ["打开个人资料：Alexandria Montgomery", "Open profile: Alexandria Montgomery"],
+    ["打开个人资料：小猫", "Open profile: 小猫"],
+    ["当前套餐：WEB3免费，查看充值方案", "Current plan: WEB3 Free; view top-up options"],
+    ["查看Oct 1, 2026的使用明细", "View usage details for Oct 1, 2026"],
+    ["查看Oct 20 2026的用量详情", "View usage details for Oct 20 2026"],
+    ["查看Oct 1, 2026的Usage details", "View usage details for Oct 1, 2026"],
+    ["Lv16 蛋猫2 蛋1", "Lv16 Egg cat 2 Egg 1"],
+    ["移动平均线 (5,10,20)", "Moving averages (5,10,20)"],
+    ["可见范围成交量分布 (96)", "Visible range volume profile (96)"],
+    ["切换至 BTC/USDT 永续，价格 81,970.70，24小时涨幅 1.40%；拖动调整顺序，Alt+左右键可移动", "Switch to BTC/USDT Perpetual, price 81,970.70, 24h change 1.40%; drag to reorder, or press Alt+Left/Right"],
+  ]) assert.equal(translateAppText(source, "en"), expected);
+});
+
 import {
   APP_LANGUAGE_STORAGE_KEY,
   appLanguageLocale,

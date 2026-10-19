@@ -37331,7 +37331,7 @@ function renderTitlebarPrimaryActions() {
   return `
     <nav class="titlebar-primary-actions" aria-label="应用快捷操作">
       <div class="titlebar-channel-action ${channelMenuOpen ? "menu-open" : ""}">
-        <button type="button" class="titlebar-primary-action titlebar-channel-trigger ${channelMenuOpen ? "active" : ""}" data-action="toggle-external-channel-menu" aria-haspopup="menu" aria-controls="titlebarExternalChannelMenu" aria-expanded="${channelMenuOpen ? "true" : "false"}" title="连手机" aria-label="连手机">
+        <button type="button" class="titlebar-primary-action titlebar-channel-trigger ${channelMenuOpen ? "active" : ""}" data-i18n-wrap data-action="toggle-external-channel-menu" aria-haspopup="menu" aria-controls="titlebarExternalChannelMenu" aria-expanded="${channelMenuOpen ? "true" : "false"}" title="连手机" aria-label="连手机">
           ${renderTitlebarPlugIcon()}
           <span class="titlebar-channel-label">连手机</span>
         </button>
