@@ -93,7 +93,8 @@ test("every history popover option keeps its message time aligned at the right",
   assert.match(styles, /\.thread-history-option\s*\{[\s\S]*display: flex;[\s\S]*align-items: center;[\s\S]*gap: 10px/);
   assert.match(styles, /\.thread-history-option-text\s*\{[\s\S]*flex: 1 1 auto/);
   assert.match(styles, /\.thread-history-option-time\s*\{[\s\S]*flex: 0 0 auto;[\s\S]*margin-left: auto;[\s\S]*color: #b6bcc6/);
-  assert.match(styles, /\.bubble-time\s*\{[\s\S]*font-size: calc\(11px \+ var\(--app-font-size-offset\)\);[\s\S]*font-weight: 400;[\s\S]*line-height: 1\.4/);
+  assert.match(styles, /--message-action-font-size: calc\(11px \+ var\(--app-font-size-offset\)\);\s*--message-action-font-weight: 400;\s*--message-action-line-height: 1\.4;/);
+  assert.match(styles, /\.bubble-time\s*\{[^}]*font-size: var\(--message-action-font-size\);[^}]*font-weight: var\(--message-action-font-weight\);[^}]*line-height: var\(--message-action-line-height\)/);
 });
 
 test("local history jumps select the message and keep the outline highlight", async () => {

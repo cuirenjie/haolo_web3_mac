@@ -775,7 +775,8 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(renderer, /function createExecutionPlanStickyFromMessageAction[\s\S]*await createExecutionPlanStickyFromMessageCard\(card\)/);
   assert.match(renderer, /button\.dataset\.messageExecutionPlanActionBound === "true"[\s\S]*button\.dataset\.messageExecutionPlanActionBound = "true"/);
   assert.match(renderer, /api\.createExecutionPlanSticky\([\s\S]*executionPlanDisplayLines\(candidate\.content\)/);
-  assert.match(planCardBlock, /<footer>[\s\S]*<time/);
+  assert.match(planCardBlock, /executionPlanCardFooter\([\s\S]*<time class="execution-plan-created-at"/);
+  assert.doesNotMatch(planCardBlock, /renderExecutionPlanActions\(plan\)/);
   assert.doesNotMatch(planCardBlock, /sourceLabel|footer span/);
   assert.match(addPlanBlock, /saveExecutionPlans[\s\S]*openExecutionPlansPage\(\)[\s\S]*showToast\("已添加到计划"\)/);
   assert.doesNotMatch(autoTaskBlock, /renderPlanningNavigation|execution-plan|当前没有计划/);

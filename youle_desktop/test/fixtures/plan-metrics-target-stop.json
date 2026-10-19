@@ -1,0 +1,25 @@
+{
+  "source": "Screenshot targets fixed, long lower entry, first-target net 1:1 stop rounded to 0.01, original risk budget retained.",
+  "direction": "long",
+  "entryZone": {
+    "lower": 80681.26,
+    "upper": 81490.77
+  },
+  "entry": 80681.26,
+  "stop": 79464.96,
+  "targets": [
+    82268.7,
+    82454.1,
+    82559.15
+  ],
+  "quantity": 0.00006153,
+  "notional": 4.9643179278,
+  "estimatedStopLoss": 0.08625687023393928,
+  "estimatedRoundTripCostRate": 0.0023,
+  "netRiskReward": [
+    1.0000044255271472,
+    1.132256638818234,
+    1.2071924263383338
+  ],
+  "riskBudget": 0.0862584518375
+}

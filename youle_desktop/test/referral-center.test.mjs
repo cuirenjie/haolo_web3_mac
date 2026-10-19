@@ -79,7 +79,7 @@ function styleRule(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const body = stylesSource.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]+)\\}`, "m"))?.[1];
   assert.ok(body, `missing style rule: ${selector}`);
-  return Object.fromEntries(body.split(";").filter((part) => part.includes(":")).map((part) => {
+  return Object.fromEntries(body.replace(/\/\*[\s\S]*?\*\//g, "").split(";").filter((part) => part.includes(":")).map((part) => {
     const colon = part.indexOf(":");
     return [part.slice(0, colon).trim(), part.slice(colon + 1).trim()];
   }));
@@ -100,29 +100,29 @@ function contrast(foreground, background) {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
+function rgb(value, background = [255,255,255]) {
+  if (value.startsWith('#')) {
+    let hex=value.slice(1);if(hex.length===3)hex=[...hex].map(c=>c+c).join('');
+    return hex.match(/../g).map(c=>parseInt(c,16));
+  }
+  const [r,g,b,a=1]=value.match(/[\d.]+/g).map(Number);
+  return [r,g,b].map((v,i)=>Math.round(v*a+background[i]*(1-a)));
+}
+function hex(values) {return '#'+values.map(v=>v.toString(16).padStart(2,'0')).join('');}
 for (const theme of ["light", "dark"]) {
   test(`referral entry stays legible in ${theme} mode across default, hover, active and focus states`, () => {
-    const selector = ".settings-referral-entry";
-    const prefix = theme === "dark" ? 'html[data-theme="dark"] ' : "";
-    const base = styleRule(selector);
-    const themedBase = { ...base, ...styleRule(prefix + selector) };
-    const subtitle = styleRule(prefix + selector + " > span small").color;
-    for (const state of ["", ":hover", ":active"]) {
-      const rule = { ...themedBase, ...styleRule(prefix + selector + state) };
-      const backgrounds = rule.background.match(/#[0-9a-f]{3,6}\b/gi);
-      assert.ok(backgrounds?.length);
-      for (const background of backgrounds) {
-        assert.ok(contrast(rule.color, background) >= 4.5, `${theme}${state}: title contrast`);
-        assert.ok(contrast(subtitle, background) >= 4.5, `${theme}${state}: subtitle contrast`);
-      }
+    const tokens={...styleRule(':root'),...(theme==='dark'?styleRule('html[data-theme="dark"]'):{})};
+    const resolve=value=>value.replace(/var\((--[\w-]+)\)/g,(_,key)=>tokens[key]);
+    const selector='.settings-side-actions > button',base=styleRule(selector);
+    const surface=rgb(tokens['--surface-primary']);
+    for(const state of ['',':hover:not(:disabled)',':active:not(:disabled)']) {
+      const rule={...base,...(state?styleRule(selector+state):{})};
+      assert.ok(contrast(hex(rgb(resolve(rule.color))),hex(rgb(resolve(rule.background),surface)))>=4.5,theme+state);
     }
-    const icon = { ...styleRule(selector + "-icon"), ...styleRule(prefix + selector + "-icon") };
-    assert.ok(contrast(icon.color, icon.background) >= 3, `${theme}: icon contrast`);
-    const focus = { ...styleRule(selector + ":focus-visible"), ...styleRule(prefix + selector + ":focus-visible") };
-    assert.match(focus.outline, /3px solid/);
-    const focusColor = focus["outline-color"] || focus.outline.match(/#[0-9a-f]{3,6}\b/i)?.[0];
-    for (const background of themedBase.background.match(/#[0-9a-f]{3,6}\b/gi)) {
-      assert.ok(contrast(focusColor, background) >= 3, `${theme}: focus contrast`);
-    }
+    assert.equal(styleRule(selector+' svg').stroke,'currentColor');
+    const focus=styleRule(selector+':focus-visible');
+    assert.match(focus.outline,/2px solid var\(--interaction-accent\)/);
+    assert.ok(contrast(hex(rgb(tokens['--interaction-accent'],surface)),hex(surface))>=3,theme+' focus');
+    assert.match(rendererSource,/class="settings-side-actions"[\s\S]*data-action="settings-referrals"/);
   });
 }

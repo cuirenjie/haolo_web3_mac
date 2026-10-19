@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { EXECUTION_PLAN_SCHEMA_VERSION, validateExecutionPlan } from "./contracts.mjs";
 import { personalRiskUnavailable, personalRiskUnavailableNotice } from "../trading-analysis/personal-risk-context.mjs";
 import { defaultTakeProfitPercent } from "../take-profit-allocation.mjs";
+import { reviewThreeTakeProfitTargets } from "./three-target-review.mjs";
 
 const DEFAULT_EXECUTION_LEVERAGE = 10;
 // Product default for the first executable take-profit target when the user
@@ -475,7 +476,12 @@ function scenarioWithTakeProfitCap(value, maxTakeProfitPercent, tickSize = null)
   return targets.length ? { ...value, targets } : null;
 }
 
-function scenarioWithThreeTakeProfitTargets(
+function scenarioWithThreeTakeProfitTargets(value, costRate, tickSize, preferredPercent, minimumRatio, candles = []) {
+  const preferred = scenarioWithPreferredTakeProfitTargets(value, costRate, tickSize, preferredPercent, minimumRatio);
+  return reviewThreeTakeProfitTargets(preferred, {costRate, tickSize, minimumRatio, candles});
+}
+
+function scenarioWithPreferredTakeProfitTargets(
   value,
   estimatedRoundTripCostRate,
   tickSize = null,
@@ -1092,6 +1098,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     tickSize,
     riskPolicy.preferredTakeProfitPercent,
     executionTargetMinimumRiskReward,
+    params.candles || snapshot.candles || [],
   );
   const shortScenario = scenarioWithThreeTakeProfitTargets(
     scenarioWithTakeProfitCap(
@@ -1108,6 +1115,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     tickSize,
     riskPolicy.preferredTakeProfitPercent,
     executionTargetMinimumRiskReward,
+    params.candles || snapshot.candles || [],
   );
   const scenarios = [longScenario, shortScenario].filter(Boolean);
   const preferredScenario = preferredSide === "long"
@@ -1695,7 +1703,6 @@ function formatExecutionPlanMarkdownEnglish(validated) {
       : price(selectedScenario?.stop);
     const takeProfitText = accountOrdersAvailable
       ? accountPlan.targetOrders
-        .filter((target) => target.notional > 0)
         .map((target) => {
           const basis = waveBasisLabelEnglish(validated.takeProfits?.[target.targetIndex]?.condition);
           const basisText = basis ? ` (basis: ${basis})` : "";
@@ -1834,7 +1841,6 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
       : displayPrice(selectedScenario?.stop);
     const takeProfitText = accountOrdersAvailable
       ? accountPlan.targetOrders
-        .filter((target) => target.notional > 0)
         .map((target) => {
           const basis = waveBasisLabel(validated.takeProfits?.[target.targetIndex]?.condition);
           const basisText = basis ? `（依据 ${basis}）` : "";

@@ -12,6 +12,16 @@ const lines = [
   { label: "风险收益比：", text: "目标1为 1:0.5，目标2为 1:0.8，目标3为 1:1.42" },
 ];
 
+test('legacy expiry rows are omitted from compact and freeform cards without changing saved text', () => {
+  for (const label of ['有效至（UTC）:', '有效期：', '有效時間：', '到期時間：', 'Valid until (UTC):', 'Expires at:']) {
+    const source = [...lines, { label, text: '2026-10-20T06:43:00+08:00' }], original = structuredClone(source);
+    assert.doesNotMatch(executionPlanCardBody(source), /06:43|有效至|有效期|有效時間|到期時間|Valid until|Expires at/);
+    assert.doesNotMatch(executionPlanCardBody(source.slice(-1)), /06:43/);
+    assert.doesNotMatch(executionPlanStickyHtml({ lines: source }), /06:43/);
+    assert.deepEqual(source, original);
+  }
+});
+
 test("chat, saved and sticky card prices use seven digits without changing source values", () => {
   const before = JSON.stringify(lines);
   const body = executionPlanCardBody(lines);
@@ -22,7 +32,7 @@ test("chat, saved and sticky card prices use seven digits without changing sourc
     assert.ok(body.includes(`<strong>${price}</strong></span><span class="execution-plan-ratio">盈亏比 ${ratio}</span>`));
   }
   assert.ok(executionPlanStickyHtml({ lines }).includes(body));
-  assert.match(body, /当前动作：<\/span><span class="execution-plan-card-value">等待条件触发/);
+  assert.doesNotMatch(body, /当前动作|等待条件触发/);
   assert.equal(JSON.stringify(lines), before);
 });
 
@@ -150,6 +160,6 @@ test("current actions and risk restrictions stay visible, with no invented accou
     assert.ok(body.includes(action));
     assert.doesNotMatch(body, /建议开仓|止盈仓位|预计盈利/);
   }
-  assert.match(executionPlanCardBody([{ label: "Current action:", text: "Wait for the trigger" }]), /Wait for the trigger/);
-  assert.match(executionPlanCardBody([{ label: "當前動作：", text: "等待條件觸發" }]), /等待條件觸發/);
+  assert.equal(executionPlanCardBody([{ label: "Current action:", text: "Wait for the trigger" }]), '');
+  assert.equal(executionPlanCardBody([{ label: "當前動作：", text: "等待條件觸發" }]), '');
 });

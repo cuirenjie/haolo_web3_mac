@@ -1,0 +1,68 @@
+{
+  "verifiedAt": "2026-10-19T18:34:31.229Z",
+  "backendCommit": "91fc0013c56b7b5030197f07658a38d53135e376",
+  "windowsCommit": "ec1ff1faf52223618b3c92522ef20da313d6f46f",
+  "apiAcceptance": {
+    "samples": 32,
+    "requests": 12459,
+    "proxy_5xx": 0,
+    "stream_errors": 0
+  },
+  "workerAcceptance": {
+    "requests": 11103,
+    "proxy_5xx": 0,
+    "stream_errors": 0
+  },
+  "apiJournal": "/opt/haolo-backend/bluegreen-releases/20261019T182349Z-e02454c3/state.json",
+  "workerJournal": "/opt/haolo-backend/mobile-worker-releases/20261020-plan-metrics-91fc0013/state.json",
+  "scope": "Real signed-in Windows SDK call to deployed API and Worker, newly generated plans, persisted readback and shared card markup; no app-window interaction",
+  "checks": {
+    "verified_at": "2026-10-19T18:34:31.229Z",
+    "strategy": "price-action",
+    "cases": 1,
+    "entry_and_account_basis_equal": true,
+    "first_target_net_rr": [
+      1.0000554585383312
+    ],
+    "position_stop_loss_and_cumulative_profit_recomputed": true,
+    "persisted_readback": true,
+    "shared_card_markup_matches": true,
+    "preferences_unchanged": true,
+    "saved": false,
+    "activated": false,
+    "orders": 0,
+    "analysis_requests": 2,
+    "first_attempt": "Omitted existing account connection in test harness; service correctly returned accountStatus=unbound. Corrected harness to use the existing authorized binding.",
+    "scope": "Real signed-in Windows SDK call to deployed API and Worker, newly generated plans, persisted readback and shared card markup; no app-window interaction"
+  },
+  "geometry": [
+    {
+      "side": "long",
+      "entryZone": {
+        "lower": 80681.26,
+        "upper": 81490.77
+      },
+      "entry": 80681.26,
+      "stop": 80033.7,
+      "targets": [
+        {
+          "price": 81700,
+          "netRiskReward": 1.0000554585383312
+        },
+        {
+          "price": 82128.9,
+          "netRiskReward": 1.514862987895036
+        },
+        {
+          "price": 82559.15,
+          "netRiskReward": 2.031290918661474
+        }
+      ],
+      "cardHtmlMatches": true,
+      "persistedReadback": true
+    }
+  ],
+  "desktopRestarted": false,
+  "desktopWindowVerified": false,
+  "userStoppedComputerUse": true
+}

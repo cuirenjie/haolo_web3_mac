@@ -53,6 +53,18 @@ test('an ambiguous model completion retains a specific safe explanation in three
     assert.equal(describeTradingAnalysisFailure(error,{language}).category,'model_unknown');
     const report=buildTradingStrategyFailureReport({id:'wave',display:{name:'Wave'}},error,{language});
     assert.doesNotMatch(report,/private|分析流程未能完成|The analysis could not complete/);
-    assert.match(report,language==='en'?/without an automatic repeat/:language==='zh-Hant'?/未自動重複請求/:/未自动重复请求/);
+    assert.match(report,language==='en'?/original task record was retained/:language==='zh-Hant'?/原任務記錄已保留/:/原任务记录已保留/);
+    assert.doesNotMatch(report,/without an automatic repeat|未自動重複請求|未自动重复请求/);
+  }
+});
+
+test('model deadlines remain timeouts through cloud errors, reports and diagnostics in all locales',()=>{
+  for(const language of ['zh-CN','en','zh-Hant']) {
+    const error=cloudStrategyFailure({code:'MODEL_TIMEOUT',message:'private upstream response'},{language});
+    assert.equal(describeTradingAnalysisFailure(error,{language}).category,'timeout');
+    assert.equal(tradingAnalysisFailureDiagnostic(error).errorClass,'timeout');
+    const report=buildTradingStrategyFailureReport({id:'wave',display:{name:'Wave'}},error,{language});
+    assert.match(report,language==='en'?/timed out/:language==='zh-Hant'?/逾時/:/超时/);
+    assert.doesNotMatch(report,/private|未自动重复请求|模型响应结果尚未确认/);
   }
 });

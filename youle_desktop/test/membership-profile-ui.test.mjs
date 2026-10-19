@@ -100,8 +100,8 @@ test("profile menu keeps recharge beside the balance and omits My Config", async
   );
 });
 
-test("referral entry and logout live at the bottom of settings", async () => {
-  const [source, styles] = await Promise.all([rendererSource, stylesSource]);
+test("referral entry and logout share the settings action row", async () => {
+  const source = await rendererSource;
   const settings = sourceBlock(
     source,
     "function renderSettingsDialog",
@@ -109,35 +109,16 @@ test("referral entry and logout live at the bottom of settings", async () => {
   );
 
   const navEnd = settings.indexOf("</nav>");
+  const actions = settings.indexOf('<div class="settings-side-actions">');
+  const actionsEnd = settings.indexOf("</div>", actions);
   const referral = settings.indexOf('class="settings-referral-entry" data-action="settings-referrals"');
   const logout = settings.indexOf('class="settings-logout-button" data-action="logout"');
   assert.ok(
-    navEnd >= 0 && referral > navEnd && logout > referral,
-    "the referral entry and logout should be separate controls below settings navigation",
+    navEnd >= 0 && actions > navEnd && referral > actions && logout > referral && logout < actionsEnd,
+    "both actions should remain in the same row below settings navigation",
   );
   assert.match(settings, /state\.loggingOut \? "退出中\.\.\." : "退出登录"/);
-  assert.match(styles, /\.settings-side\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;/s);
-  assert.match(
-    styles,
-    /\.settings-referral-entry\s*\{[^}]*margin-top:\s*auto;/s,
-  );
-  assert.match(
-    styles,
-    /\.settings-logout-button\s*\{[^}]*margin-top:\s*12px;[^}]*border:\s*1px solid rgba\(220, 38, 38, 0\.16\);/s,
-  );
-  assert.match(
-    styles,
-    /\.settings-logout-button\s*\{[^}]*transform:\s*translateY\(10px\) scale\(0\.8\);[^}]*transform-origin:\s*center bottom;/s,
-  );
-  assert.match(
-    styles,
-    /\.settings-logout-button\s*\{[^}]*font-size:\s*calc\(16\.25px \+ var\(--app-font-size-offset\)\);/s,
-  );
-  assert.match(styles, /\.settings-logout-button\s*\{[^}]*font-weight:\s*400;/s);
-  assert.match(styles, /\.settings-logout-button:hover:not\(:disabled\)\s*\{/);
-  assert.match(styles, /\.settings-logout-button:active:not\(:disabled\)\s*\{/);
-  assert.match(styles, /\.settings-logout-button:focus-visible\s*\{/);
-  assert.match(styles, /\.settings-logout-button:disabled\s*\{/);
+  assert.match(settings, /data-action="logout" \$\{state\.loggingOut \? "disabled" : ""\}/);
 });
 
 test("membership badges replace the profile pencil without opening a details popover", async () => {

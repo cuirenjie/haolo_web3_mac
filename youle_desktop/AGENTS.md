@@ -1,5 +1,11 @@
 # Haolo 项目持久上下文
 
+## Haolo Mac 客户端工作目录与发布
+
+- 在当前 `haolo_web3_mac` 仓库及其 `youle_desktop` 子目录执行客户端修改、启动、测试和打包；遵守[仓库级协作规范](../AGENTS.md)。Windows 上游的固定目录、EV 签名工具和旧发布版本不适用于 Mac。
+- Mac 交付保留 Universal（arm64 + x64）运行时、原生资源、entitlements、包审计和签名校验。生产发布需要有效 Developer ID 及适用的公证；本地测试包可按既有显式开关采用 ad-hoc 签名，必须明确标注，不得宣称已经公证。
+- 版本遵循当前版本配置及用户要求；本地打包不等于上传生产更新系统。
+
 涉及外部大模型、子 Agent、多模型路由、API Key 或 Tool Broker 的工作，开始前必须完整阅读：
 
 - `docs/external-model-agents-roadmap.md`

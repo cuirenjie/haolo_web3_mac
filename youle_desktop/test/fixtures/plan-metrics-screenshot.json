@@ -1,0 +1,13 @@
+{
+  "source": "2026-10-20 user screenshot and matching frozen transcript; only price and calculation inputs retained",
+  "direction": "long",
+  "entryZone": {"lower": 80681.26, "upper": 81490.77},
+  "entry": 81490.77,
+  "stop": 80472.51999999999,
+  "targets": [82268.7, 82454.1, 82559.15],
+  "quantity": 0.00007154,
+  "notional": 5.8298496858,
+  "estimatedStopLoss": 0.08625425927734104,
+  "estimatedRoundTripCostRate": 0.0023,
+  "netRiskReward": [0.4897666303854875, 0.6435389323115089, 0.7306682759864065]
+}

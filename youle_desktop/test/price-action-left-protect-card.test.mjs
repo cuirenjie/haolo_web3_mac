@@ -11,7 +11,8 @@ for(const locale of ['zh-CN','en','zh-Hant'])for(const side of ['','-short'])tes
  const report=cloudReportFromResponse(fixtures[locale+side])[0],p=report.executionPlan,language=locale==='zh-Hant'?'zh-TW':locale;
  assert.equal(p.outcome.reason,'LEFT_QUALIFIED_CONDITION');assert.equal(p.positionSizing.leftPolicy.routeProfile,'protect-only-v1');
  assert.equal(leftRouteView(p,language,p.createdAt+1).action,'wait');
- const card=cloudPlanCard(report);assert.ok(!card.readOnly);assert.ok(card.html.includes(locale==='en'?'condition is retained':'保留已通'));
+ const card=cloudPlanCard(report);assert.ok(!card.readOnly);assert.ok(!card.html.includes(locale==='en'?'condition is retained':'保留已通'));
+ assert.ok(card.content.includes(locale==='en'?'condition is retained':'保留已通'));
  const savedReport=structuredClone(report);savedReport.planRecords[0].status='pending';
  const saved=mergeCloudExecutionPlans([savedReport],[])[0];
  for(const html of [renderCurrentReports([report]).rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})])assert.ok(html.includes(card.html));

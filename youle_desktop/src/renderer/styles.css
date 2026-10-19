@@ -92,6 +92,10 @@
   --scrollbar-thumb-hover: rgba(229, 231, 235, 0.82);
   --font-wechat: "PingFang SC", "Microsoft YaHei", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --app-font-size-offset: 0px;
+  --message-action-font-size: calc(11px + var(--app-font-size-offset));
+  --message-action-font-weight: 400;
+  --message-action-line-height: 1.4;
+  --message-action-color: #b6bcc6;
   --settings-font-size-offset: -1px;
   --avatar-radius: 24%;
   --window-radius: 16px;
@@ -24691,9 +24695,10 @@ html[data-theme="dark"] .app-confirmation-dialog.app-selection-confirmation-dial
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   overflow-x: clip;
   border-right: 1px solid var(--border-subtle);
-  padding: 30px 20px;
+  padding: 30px 20px 20px;
 }
 
 .settings-side h2 {
@@ -24707,6 +24712,8 @@ html[data-theme="dark"] .app-confirmation-dialog.app-selection-confirmation-dial
 
 .settings-nav {
   display: grid;
+  min-height: 0;
+  overflow-y: auto;
   gap: 8px;
   margin-top: 28px;
 }
@@ -24747,119 +24754,42 @@ html[data-theme="dark"] .app-confirmation-dialog.app-selection-confirmation-dial
   object-fit: contain;
 }
 
-.settings-referral-entry {
+.settings-side-actions {
   display: grid;
-  width: 100%;
-  min-height: 58px;
-  grid-template-columns: 32px minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex-shrink: 0;
   gap: 8px;
   margin-top: auto;
-  border: 1px solid #dedfe3;
-  border-radius: 12px;
-  padding: 7px 8px;
-  color: #172033;
-  background: linear-gradient(135deg, #f7f7f8, #f1f2f4);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    background-color 0.16s ease,
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    transform 0.16s ease;
+  padding-top: 24px;
 }
 
-.settings-referral-entry:hover {
-  border-color: #bfc3ca;
-  background: #eceef1;
-  box-shadow: 0 7px 18px rgba(17, 24, 39, 0.08);
-  transform: translateY(-1px);
-}
-
-.settings-referral-entry:active {
-  border-color: #aeb3bc;
-  background: #e3e5e8;
-  box-shadow: none;
-  transform: translateY(0);
-}
-
-.settings-referral-entry:focus-visible {
-  outline: 3px solid #667085;
-  outline-offset: 2px;
-}
-
-.settings-referral-entry-icon {
-  display: grid;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border-radius: 9px;
-  color: #fff;
-  background: #0f1115;
-  box-shadow: 0 6px 14px rgba(15, 17, 21, 0.18);
-}
-
-.settings-referral-entry-icon svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.7;
-}
-
-.settings-referral-entry > span:nth-child(2) {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-}
-
-.settings-referral-entry > span strong {
-  overflow: hidden;
-  color: inherit;
-  font-size: calc(12px + var(--app-font-size-offset));
-  line-height: 17px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-referral-entry > span small {
-  overflow: hidden;
-  color: #58677d;
-  font-size: calc(8px + var(--app-font-size-offset));
-  line-height: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-logout-button {
+.settings-side-actions > button {
   display: flex;
-  width: 100%;
-  min-height: 42px;
+  min-width: 0;
+  min-height: 68px;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 12px;
-  border: 1px solid rgba(220, 38, 38, 0.16);
+  justify-content: flex-start;
+  gap: 7px;
+  border: 1px solid transparent;
   border-radius: 10px;
-  background: rgba(254, 242, 242, 0.78);
-  color: #b42318;
-  font-size: calc(16.25px + var(--app-font-size-offset));
+  padding: 10px 4px;
+  background: var(--surface-interactive);
+  color: var(--text-secondary);
+  font-size: calc(12px + var(--app-font-size-offset));
   font-weight: 400;
-  line-height: 18px;
-  transform: translateY(10px) scale(0.8);
-  transform-origin: center bottom;
+  line-height: 1.4;
+  text-align: center;
+  cursor: pointer;
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease,
-    box-shadow 0.15s ease,
     color 0.15s ease;
 }
 
-.settings-logout-button svg {
-  width: 18px;
-  height: 18px;
+.settings-side-actions > button svg {
+  width: 20px;
+  height: 20px;
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
@@ -24868,20 +24798,34 @@ html[data-theme="dark"] .app-confirmation-dialog.app-selection-confirmation-dial
   stroke-width: 1.65;
 }
 
-.settings-logout-button:hover:not(:disabled) {
+.settings-side-actions > button > span {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.settings-side-actions > button:hover:not(:disabled) {
+  background: var(--surface-interactive-hover);
+  color: var(--text-primary);
+}
+
+.settings-side-actions > button:active:not(:disabled) {
+  background: var(--surface-active-translucent);
+}
+
+.settings-side-actions > button:focus-visible {
+  outline: 2px solid var(--interaction-accent);
+  outline-offset: 2px;
+}
+
+.settings-side-actions > .settings-logout-button:hover:not(:disabled) {
   border-color: rgba(220, 38, 38, 0.28);
   background: #fff1f2;
   color: #9f1f16;
 }
 
-.settings-logout-button:active:not(:disabled) {
+.settings-side-actions > .settings-logout-button:active:not(:disabled) {
   border-color: rgba(220, 38, 38, 0.34);
   background: #ffe4e6;
-}
-
-.settings-logout-button:focus-visible {
-  outline: 0;
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.14);
 }
 
 .settings-logout-button:disabled {
@@ -26264,9 +26208,10 @@ html[data-theme="dark"] .settings-trading-actions {
   display: flex;
   gap: 10px;
   align-items: center;
-  font-size: calc(11px + var(--app-font-size-offset));
-  line-height: 1.4;
-  color: #b6bcc6;
+  font-size: var(--message-action-font-size);
+  font-weight: var(--message-action-font-weight);
+  line-height: var(--message-action-line-height);
+  color: var(--message-action-color);
   background: transparent;
   white-space: nowrap;
   opacity: 0;
@@ -26291,9 +26236,9 @@ html[data-theme="dark"] .settings-trading-actions {
 }
 
 .bubble-time {
-  font-size: calc(11px + var(--app-font-size-offset));
-  font-weight: 400;
-  line-height: 1.4;
+  font-size: var(--message-action-font-size);
+  font-weight: var(--message-action-font-weight);
+  line-height: var(--message-action-line-height);
   white-space: nowrap;
 }
 
@@ -26306,9 +26251,9 @@ html[data-theme="dark"] .settings-trading-actions {
   padding: 0;
   cursor: pointer;
   font: inherit;
-  font-size: calc(11px + var(--app-font-size-offset));
-  font-weight: 400;
-  line-height: 1.4;
+  font-size: var(--message-action-font-size);
+  font-weight: var(--message-action-font-weight);
+  line-height: var(--message-action-line-height);
   letter-spacing: 0;
 }
 
@@ -26317,9 +26262,9 @@ html[data-theme="dark"] .settings-trading-actions {
 .bubble-hover-bar button[data-action="quote-message"],
 .bubble-hover-bar button[data-action="edit-message"] {
   font: inherit;
-  font-size: calc(11px + var(--app-font-size-offset));
-  font-weight: 400;
-  line-height: 1.4;
+  font-size: var(--message-action-font-size);
+  font-weight: var(--message-action-font-weight);
+  line-height: var(--message-action-line-height);
   letter-spacing: 0;
 }
 
@@ -27984,12 +27929,6 @@ html[data-theme="dark"] .profile-recharge-button:disabled {
   opacity: 0.55;
 }
 
-html[data-theme="dark"] .settings-logout-button {
-  border-color: rgba(248, 113, 113, 0.22);
-  background: rgba(239, 68, 68, 0.08);
-  color: #fca5a5;
-}
-
 html[data-theme="dark"] .settings-logout-button:hover:not(:disabled) {
   border-color: rgba(248, 113, 113, 0.36);
   background: rgba(239, 68, 68, 0.14);
@@ -27999,10 +27938,6 @@ html[data-theme="dark"] .settings-logout-button:hover:not(:disabled) {
 html[data-theme="dark"] .settings-logout-button:active:not(:disabled) {
   border-color: rgba(248, 113, 113, 0.42);
   background: rgba(239, 68, 68, 0.2);
-}
-
-html[data-theme="dark"] .settings-logout-button:focus-visible {
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.2);
 }
 
 /* Repair light-theme black overlays that become invisible on a dark surface. */
@@ -34129,6 +34064,7 @@ html[data-theme="dark"]
   --trading-order-pnl-loss: #d63857;
   --trading-order-long: #078c53;
   --trading-order-short: #d63857;
+  --trading-order-plan-entry: #2f80ed;
   --trading-order-take-profit: #078c53;
   --trading-order-stop-loss: #d63857;
   --trading-order-liquidation: #ff6739;
@@ -35684,6 +35620,7 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 .trading-order-line-limit-short { color: var(--trading-order-short); }
 .trading-order-line-take-profit { color: var(--trading-order-take-profit); }
 .trading-order-line-stop-loss { color: var(--trading-order-stop-loss); }
+.trading-order-line-plan-entry { color: var(--trading-order-plan-entry); }
 .trading-order-line-liquidation { color: var(--trading-order-liquidation); }
 
 .trading-order-line-stroke,
@@ -39553,6 +39490,7 @@ html[data-theme="dark"] .trading-expert-market {
   --trading-price-action-candlestick-label: #ffffff;
   --trading-ai-cursor: #7fb5ff;
   --trading-ai-cursor-contrast: #0b1525;
+  --trading-order-plan-entry: #7fb5ff;
   --trading-order-position-long: #52dc88;
   --trading-order-position-short: #ff718e;
   --trading-order-pnl-profit: #52dc88;
@@ -40413,6 +40351,19 @@ html[data-theme="dark"] .conversation-row-wrap.conversation-row-minimal.active {
 
 .execution-plan-card-status.pending {
   color: var(--conversation-analysis-context);
+}
+
+.execution-plan-surface.execution-plan-card > header:has(.execution-plan-card-status.inactive) {
+  padding-right: 0;
+}
+
+.execution-plan-card-status.inactive {
+  position: static;
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+  white-space: normal;
+  text-align: right;
 }
 
 .execution-plan-card-status:is(.executing, .take-profit) {
@@ -42048,12 +41999,6 @@ html[data-theme="dark"] .personal-strategy-feedback-actions .ghost-button { colo
 html[data-theme="dark"] .personal-strategy-feedback-actions .ghost-button:hover, html[data-theme="dark"] .personal-strategy-feedback-actions .ghost-button:focus-visible { color: var(--interaction-accent); border-color: var(--interaction-accent); background: var(--selection-strong); }
 html[data-theme="dark"] .personal-strategy-error { color: #ffb5b0; background: #4b2528; }
 
-html[data-theme="dark"] .settings-referral-entry { border-color: #343942; color: #f0f2f5; background: linear-gradient(135deg, #25282e, #202329); }
-html[data-theme="dark"] .settings-referral-entry:hover { border-color: #555c66; background: #2b2f35; box-shadow: 0 8px 20px rgba(0, 0, 0, .24); }
-html[data-theme="dark"] .settings-referral-entry:active { border-color: #656c76; background: #31353c; box-shadow: none; }
-html[data-theme="dark"] .settings-referral-entry:focus-visible { outline-color: #9ca3ad; }
-html[data-theme="dark"] .settings-referral-entry-icon { border: 1px solid rgba(255, 255, 255, .14); background: #08090b; box-shadow: 0 6px 14px rgba(0, 0, 0, .34); }
-html[data-theme="dark"] .settings-referral-entry > span small { color: #9ca3ad; }
 
 /* One surface for desktop dropdowns, including the browser's select picker.
    Keep each feature's positioning, sizing, grouping and semantic action colors. */

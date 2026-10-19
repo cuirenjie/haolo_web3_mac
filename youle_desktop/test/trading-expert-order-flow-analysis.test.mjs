@@ -256,6 +256,12 @@ test("order-flow pipeline stays model-neutral and emits a guarded AI drawing lay
   assert.doesNotMatch(pipelineSource, /gpt-\d|deepseek|openai/i);
 });
 
+function executableOrderFlowFixtureLevels(action) {
+  const longTarget = action.longTrigger + Math.abs(action.longTrigger - action.longInvalidation) * 1.5;
+  const shortTarget = action.shortTrigger - Math.abs(action.shortTrigger - action.shortInvalidation) * 1.5;
+  return {...action,longTarget,shortTarget,longTargets:[longTarget],shortTargets:[shortTarget]};
+}
+
 test("neutral order-flow review keeps both deterministic sides as separate execution plans", async () => {
   const registry = createTradingAnalysisModelProviderRegistry([{
     providerId: "fixture-provider",
@@ -275,6 +281,11 @@ test("neutral order-flow review keeps both deterministic sides as separate execu
     providerId: "fixture-provider",
   });
   assert.equal(result.analysisPlan.actionPlan.primaryBias, "neutral");
+  // The original micro-range ends exactly at the risk floor: it cannot safely
+  // fit three distinct exits. Preserve that refusal, then exercise the neutral
+  // routing/card contract with explicit, sufficiently separated fixture levels.
+  assert.deepEqual(buildExecutionPlanV1({ id: "order-flow", version: "1.0.0" }, result).scenarios, []);
+  result.analysisPlan.actionPlan = executableOrderFlowFixtureLevels(result.analysisPlan.actionPlan);
   const plan = buildExecutionPlanV1({ id: "order-flow", version: "1.0.0" }, result);
   assert.equal(plan.preferredSide, "neutral");
   assert.deepEqual(plan.scenarios.map((scenario) => scenario.side), ["long", "short"]);
@@ -305,6 +316,7 @@ test("English order-flow execution plans keep localized target evidence and rema
     modelRegistry: registry,
     providerId: "fixture-provider",
   });
+  result.analysisPlan.actionPlan = executableOrderFlowFixtureLevels(result.analysisPlan.actionPlan);
   const plan = buildExecutionPlanV1({ id: "order-flow", version: "1.0.0" }, result, {
     candles: fixtureParams().candles,
   });

@@ -22,6 +22,7 @@ import {
   renderTradingOrderPositionCards,
   type TradingOrderLine,
 } from "./trading-expert-order-lines.ts";
+import { buildTradingPlanPriceLines } from './trading-plan-price-lines.ts';
 import { translateAppText, translateDrawingText, translateTradingAnnotationText, type AppLanguage } from "./app-language.mjs";
 import { DRAWING_MENU_SECTIONS, DRAWING_SHORTCUTS, DRAWING_SYMBOLS, renderDrawingIcon as drawingIcon, drawingMenuGroup } from './trading-drawing-catalog.ts';
 import { renderExtraDrawingGeometry, renderExtraAnnotation, drawingImageUrl, type DrawingCandle } from './trading-drawing-extra-tools.ts';
@@ -1818,12 +1819,12 @@ export function renderTradingDrawingLabel(drawing: TradingDrawingModel, geometry
 
 // Cut only this drawing's geometry, preserving candles and grid lines behind
 // the text. The gap shares the label's local coordinates and rotation.
-function renderTradingDrawingLabelMask(id: string, geometry: NonNullable<ReturnType<typeof tradingDrawingLabelGeometry>>, bounds: { width: number; height: number }) {
+function renderTradingDrawingLabelMask(id: string, geometry: NonNullable<ReturnType<typeof tradingDrawingLabelGeometry>>, bounds: { width: number; height: number }, placeholder = false) {
   const { x, y, left, top, angle, fontSize, layout } = geometry;
   const padding = Math.max(4, fontSize * .3);
   return `<defs><mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="${bounds.width}" height="${bounds.height}" style="mask-type:luminance">`
     + `<rect width="${bounds.width}" height="${bounds.height}" fill="white"/>`
-    + `<rect x="${left - padding}" y="${top - 2}" width="${layout.width + padding * 2}" height="${layout.height + 4}" fill="black" transform="rotate(${angle} ${x} ${y})"/>`
+    + `<rect${placeholder ? ' class="trading-drawing-add-text-mask"' : ''} x="${left - padding}" y="${top - 2}" width="${layout.width + padding * 2}" height="${layout.height + 4}" fill="black" transform="rotate(${angle} ${x} ${y})"/>`
     + `</mask></defs>`;
 }
 
@@ -6695,22 +6696,33 @@ export class TradingDrawingController {
     if (this.overlay.getAttribute("height") !== String(bounds.height)) this.overlay.setAttribute("height", String(bounds.height));
     const candleSeries = this.getCandleSeries();
     const priceToCoordinate = (price: number) => finiteTradingChartCoordinate(candleSeries?.priceToCoordinate(price));
+    const symbol = this.getSymbol();
+    const interval = this.getInterval();
+    const aiSourceDrawings = !this.drawingsHidden && this.drawingScope === "main" && !this.drawingVisibility.aiHidden
+      ? this.aiDrawings.filter((drawing) => tradingAiDrawingMatchesContext(drawing, symbol, interval))
+      : [];
+    if (!this.drawingsHidden && this.drawingScope === "main" && !this.drawingVisibility.aiHidden
+      && this.aiDraft && tradingAiDrawingMatchesContext(this.aiDraft, symbol, interval)) {
+      aiSourceDrawings.push(this.aiDraft);
+    }
+    const planPriceLines = buildTradingPlanPriceLines(aiSourceDrawings);
+    const displayedOrderLines = [...this.orderLines, ...planPriceLines.lines];
     // Most charts have no order labels or notes to avoid. Do not scan history
     // just to render an empty layer, and share the work when both need it.
     let obstacles: TradingDrawingCollisionRect[] | null = null;
     const candleObstacles = () => obstacles ??= this.drawingScope === "main" ? this.visibleCandleObstacles(bounds) : [];
-    updateTradingDrawingMarkup(this.orderLineContent, candleSeries && this.drawingScope === "main" && this.orderLines.length
+    updateTradingDrawingMarkup(this.orderLineContent, candleSeries && this.drawingScope === "main" && displayedOrderLines.length
       ? renderTradingOrderLineSvg(
-        this.orderLines,
+        displayedOrderLines,
         this.getSymbol(),
         bounds,
         priceToCoordinate,
         candleObstacles(),
       )
       : "");
-    updateTradingDrawingMarkup(this.orderPositionCardLayer, candleSeries && this.drawingScope === "main" && this.orderLines.length
+    updateTradingDrawingMarkup(this.orderPositionCardLayer, candleSeries && this.drawingScope === "main" && displayedOrderLines.length
       ? renderTradingOrderPositionCards(
-        this.orderLines,
+        displayedOrderLines,
         this.getSymbol(),
         bounds,
         priceToCoordinate,
@@ -6730,8 +6742,6 @@ export class TradingDrawingController {
       this.updateToolbarState();
       return;
     }
-    const symbol = this.getSymbol();
-    const interval = this.getInterval();
     const drawings = this.drawings.filter((drawing) => (
       tradingManualDrawingMatchesContext(drawing, symbol, interval, this.drawingScope)
       && !this.drawingVisibility.manualHidden
@@ -6753,13 +6763,8 @@ export class TradingDrawingController {
       }
       return { id: drawing.id, render };
     }));
-    const aiSourceDrawings = this.drawingScope === "main" && !this.drawingVisibility.aiHidden
-      ? this.aiDrawings.filter((drawing) => tradingAiDrawingMatchesContext(drawing, symbol, interval))
-      : [];
-    if (!this.drawingVisibility.aiHidden && this.aiDraft && tradingAiDrawingMatchesContext(this.aiDraft, symbol, interval)) {
-      aiSourceDrawings.push(this.aiDraft);
-    }
-    const aiDrawings = aiSourceDrawings.map((drawing) => tradingAiDrawingDisplayModel(drawing));
+    const aiDrawings = aiSourceDrawings.filter(drawing => !planPriceLines.drawingIds.has(drawing.id))
+      .map((drawing) => tradingAiDrawingDisplayModel(drawing));
     const aiCandlestickLabelRequests = aiDrawings.flatMap((drawing): TradingAiNoteLayoutRequest[] => {
       if (!tradingDrawingIsPriceActionCandlestickPatternLabel(drawing) || !drawing.points[0]) return [];
       const anchor = this.pointToScreen(drawing.points[0]);
@@ -7178,8 +7183,10 @@ export class TradingDrawingController {
         && tradingDrawingToolDefinition(this.activeTool)?.kind === 'cursor') : '';
     const maskId = `${this.labelMaskPrefix}-${Array.from(drawing.id, character => character.codePointAt(0)!.toString(16)).join('-')}`;
     const hideLineNodes = drawing.source !== 'ai' && tradingDrawingHidesLineNodes(drawing.tool);
-    const mask = label?.vertical === 'middle' && hideLineNodes
-      ? renderTradingDrawingLabelMask(maskId, label, bounds) : '';
+    const maskedLabel = label?.vertical === 'middle' ? label : centerAddText && centerAnchor
+      ? { ...centerAnchor, layout: { ...centerAnchor.layout, width: 84, height: 22 } } : null;
+    const mask = maskedLabel && hideLineNodes
+      ? renderTradingDrawingLabelMask(maskId, maskedLabel, bounds, !label) : '';
     const geometryClass = interactive && this.userDrawingEnabled && drawing.source !== 'ai' ? ' class="trading-drawing-geometry"' : '';
     const geometry = geometryClass || mask ? `<g${geometryClass}${mask ? ` mask="url(#${maskId})"` : ''}>${body}</g>` : body;
     return `<g data-drawing-id="${escapeHtml(drawing.id)}" data-drawing-source="${drawing.source ?? "manual"}" data-selected="${selected}" data-locked="${Boolean(drawing.locked)}"${hideLineNodes ? ' data-hide-line-nodes="true"' : ''}${authoredText}>${mask}${geometry}${hitTargets}${extra}${lineText}${addText}${centerAddText}${handles}</g>`;

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {spawnSync} from 'node:child_process';
 import {cloudPlanCard,normalizeCloudReports} from '../src/main/cloud-plan-contract.mjs';
 import {executionPlanStickyHtml} from '../src/main/execution-plan-sticky-view.mjs';
 import {mergeCloudExecutionPlans} from '../src/renderer/cloud-plan-sync.ts';
@@ -37,9 +36,10 @@ for(const locale of ['zh-CN','zh-Hant','en'])test(`restored ${locale} cards shar
   const {rendered,actions,bindings}=renderCurrentReports([report]);
   const saved=mergeCloudExecutionPlans([report],[])[0];
   for(const html of [rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language,title:card.title})]){
-    assert.ok(html.includes(card.html));
+    assert.ok(html.includes(card.html), 'prices and account content are unchanged across surfaces');
+    assert.doesNotMatch(html,/class="execution-plan-expiry"|>Valid until |有效至/);
     assert.equal((html.match(/<h2 /g)||[]).length,1);
-    assert.match(html,/class="execution-plan-details/);
+    assert.doesNotMatch(html,/等待条件触发|等待條件觸發|Wait for the trigger/);
   }
   assert.match(actions,/data-execution-plan-index="0"/);
   assert.equal(bindings[0][1].cloudReport.planRecords[0].id,original.executionPlan.planId);
@@ -60,9 +60,10 @@ test('all predicates, sides and modes preserve exact conditional prices and boun
     const card=cloudPlanCard(normalizeCloudReports([report])[0]);
     assert.ok(card.content.includes('0.04565741'));
     assert.ok(card.content.includes('0.04152439'));
-    assert.ok(card.html.includes(`execution-plan-price ${direction==='long'?'bullish':'bearish'}">0.045657`));
+    const leftZone=mode==='left'&&operator==='in_zone';
+    assert.ok(card.html.includes(`execution-plan-price ${direction==='long'?'bullish':'bearish'}">${leftZone&&direction==='short'?'0.047509':'0.045657'}`));
     if(operator==='in_zone'){
-      assert.ok(card.html.includes('0.045657 – 0.047509'));
+      assert.equal(card.html.includes('0.045657 – 0.047509'),!leftZone);
       assert.ok(card.content.includes('[0.04565741, 0.04750929]'));
     }
     assert.doesNotMatch(card.html,/建议开仓|预计盈利/);
@@ -78,7 +79,7 @@ test('breakout-retest keeps confirmation, zone, snapshot and live-evidence requi
     const entry=card.content.split('\n').find(line=>/^(入场条件|入場條件|Entry condition):/.test(line));
     assert.ok(entry);
     assert.ok(entry.includes(locale==='en'?'Fresh trades':locale==='zh-Hant'?'重新核驗':'重新核验'));
-    assert.match(card.html,/class="execution-plan-details/);
+    assert.doesNotMatch(card.html,/等待条件触发|等待條件觸發|Wait for the trigger/);
   }
 });
 
@@ -91,7 +92,7 @@ test('optional invalidation stays absent and non-plan outcomes never produce car
 
 test('headings retain market identity, month/minute distinctions and escape untrusted metadata',()=>{
   for(const interval of ['1m','1M']){
-    const report=cloudPlanCardFixture();report.marketId='BINANCE:FUTURES:ETHUSDC';report.executionPlan.entryCondition.interval=interval;
+    const report=cloudPlanCardFixture();report.marketId='BINANCE:FUTURES:ETHUSDC';report.interval=interval;report.executionPlan.entryCondition.interval=interval;
     assert.ok(cloudPlanCard(report).html.includes(`>ETH/USDC · ${interval}</h2>`));
   }
   const report=cloudPlanCardFixture();report.marketId='BINANCE:SPOT:BTCUSDT';
@@ -113,8 +114,7 @@ for(const strategy of OFFICIAL_TRADING_CATALOG)test(`${strategy.id}: both cloud 
       assert.equal((html.match(/class="execution-plan-target"/g)||[]).length,2);
       assert.ok(html.includes(`execution-plan-badge ${direction==='long'?'bullish':'bearish'}`));
       assert.match(html,/execution-plan-badge strategy/);
-      assert.equal((html.match(/class="execution-plan-expiry"/g)||[]).length,1);
-      assert.match(html,/<time datetime="2026-10-18T15:32:21\.009Z"/);
+      assert.doesNotMatch(html,/class="execution-plan-expiry"|>Valid until |有效至/);
       assert.ok(html.includes('<strong>83207.45</strong>'));
       if(policy==='entry-v2')assert.doesNotMatch(html,/入场方式|入場方式|Entry mode|Condition invalidation/);
     }
@@ -125,46 +125,19 @@ for(const strategy of OFFICIAL_TRADING_CATALOG)test(`${strategy.id}: both cloud 
   }
 });
 
-test('expiry uses device local time with an offset; executing list alone hides it for both policies',()=>{
-  for(const report of [cloudPlanCardFixture(),legacyCloudPlanCardFixture('wyckoff')]){
-    const date=new Date(report.planRecords[0].expiresAt),pad=n=>String(n).padStart(2,'0');
-    const local=`${pad(date.getMonth()+1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-    const html=cloudPlanCard(report).html;
-    assert.ok(html.includes(`>${local} (UTC`));
-    assert.doesNotMatch(html.match(/<time[^>]*>([^<]+)<\/time>/)[1],/\d{4}-/);
-    assert.ok(html.indexOf('execution-plan-expiry')<html.indexOf('execution-plan-price'));
+test('all card statuses omit expiry while frozen deadlines remain available to execution',()=>{
+  for(const locale of ['zh-CN','zh-Hant','en'])for(const report of [cloudPlanCardFixture(locale),legacyCloudPlanCardFixture('wyckoff',locale)]){
+    const before=structuredClone(report),language=locale==='zh-Hant'?'zh-TW':locale;
     const saved=mergeCloudExecutionPlans([report],[])[0];
     for(const status of ['pending','ended','executing']){
-      const markup=renderCurrentSavedPlan({...saved,status});
-      assert.equal(markup.includes('class="execution-plan-expiry"'),status!=='executing');
+      const markup=renderCurrentSavedPlan({...saved,status},language);
+      assert.doesNotMatch(markup,/class="execution-plan-expiry"|>Valid until |有效至/);
     }
-    assert.match(executionPlanStickyHtml({cloudReport:report}),/class="execution-plan-expiry"/);
-    assert.match(cloudPlanCard(report,{language:'en'}).html,/>Valid until /);
-  }
-  const legacy=legacyCloudPlanCardFixture('price-action');
-  for(const invalid of [undefined,null,NaN,Infinity,-1,8640000000000001,'bad']){
-    legacy.planRecords[0].expiresAt=invalid;
-    assert.doesNotMatch(cloudPlanCard(legacy).html,/class="execution-plan-expiry"|Invalid Date/);
-  }
-});
-
-test('expiry offsets match the displayed local date, fractional zones and daylight saving at the deadline',()=>{
-  const contract=new URL('../src/main/cloud-plan-contract.mjs',import.meta.url).href;
-  const fixture=new URL('./support/cloud-plan-card-fixture.mjs',import.meta.url).href;
-  for(const [zone,iso,expected] of [
-    ['Asia/Shanghai','2026-10-18T16:34:15.116Z','10-19 00:34 (UTC+8)'],
-    ['UTC','2026-10-18T16:34:15.116Z','10-18 16:34 (UTC+0)'],
-    ['Asia/Kolkata','2026-10-18T16:34:15.116Z','10-18 22:04 (UTC+5:30)'],
-    ['Asia/Kathmandu','2026-10-18T16:34:15.116Z','10-18 22:19 (UTC+5:45)'],
-    ['America/St_Johns','2026-01-18T16:34:15.116Z','01-18 13:04 (UTC-3:30)'],
-    ['America/New_York','2026-07-18T16:34:15.116Z','07-18 12:34 (UTC-4)'],
-    ['America/New_York','2026-01-18T16:34:15.116Z','01-18 11:34 (UTC-5)'],
-  ]){
-    const source=`import {cloudPlanCard} from ${JSON.stringify(contract)};import {cloudPlanCardFixture} from ${JSON.stringify(fixture)};const report=cloudPlanCardFixture();report.executionPlan.entryCondition.expiresAt=Date.parse(${JSON.stringify(iso)});process.stdout.write(cloudPlanCard(report).html);`;
-    const run=spawnSync(process.execPath,['--input-type=module','-e',source],{env:{...process.env,TZ:zone},encoding:'utf8',windowsHide:true});
-    assert.equal(run.status,0,run.stderr);
-    assert.ok(run.stdout.includes(`>${expected}</time>`),`${zone}: ${expected}`);
-    assert.ok(run.stdout.includes(`datetime="${iso}"`));
+    assert.doesNotMatch(executionPlanStickyHtml({cloudReport:report,language}),/class="execution-plan-expiry"|>Valid until |有效至/);
+    assert.doesNotMatch(cloudPlanCard(report,{language}).html,/class="execution-plan-expiry"|>Valid until |有效至/);
+    assert.deepEqual(report,before);
+    assert.deepEqual(saved.cloudReport.executionPlan,report.executionPlan);
+    assert.equal(saved.cloudReport.planRecords[0].expiresAt,report.planRecords[0].expiresAt);
   }
 });
 

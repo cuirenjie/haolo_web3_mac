@@ -310,12 +310,12 @@ test("unbound Binance output uses estimated net risk/reward in the requested six
     "策略：示例策略",
     "空头触发：63007.1",
     "止损与失效：63141.6",
-    "分批止盈：第1目标 62776.88011999，第2目标 62770.701875",
-    "风险收益比：目标1为 1:0.4，目标2为 1:0.42",
+    "分批止盈：第1目标 62774.81，第2目标 62772.75，第3目标 62770.701875",
+    "风险收益比：目标1为 1:0.41，目标2为 1:0.42，目标3为 1:0.42",
   ].join("\n"));
 });
 
-test("ExecutionPlanV1 finds a product-floor fallback target instead of dropping a low-reward setup", () => {
+test("ExecutionPlanV1 does not publish a lone product-floor exit without room for three targets", () => {
   const legacyResult = sampleLegacyResult();
   Object.assign(legacyResult.analysisPlan.actionPlan, {
     currentPrice: 100,
@@ -327,20 +327,16 @@ test("ExecutionPlanV1 finds a product-floor fallback target instead of dropping 
     currentPrice: 100,
     tickSize: 0.25,
   });
-  assert.equal(plan.action, "long");
-  assert.ok(plan.takeProfits.length >= 1);
-  assert.ok(plan.riskReward.every(({ ratio }) => ratio >= 0.4));
-  assert.ok(plan.takeProfits[0].price.price > 102);
-  assert.match(plan.takeProfits[0].price.label, /结构风险倍数兜底目标 R0\.4/);
-  assert.match(formatExecutionPlanMarkdown(plan), /风险收益比：目标1为 1:0\.4/);
+  assert.equal(plan.action, "wait");
+  assert.equal(plan.scenarios.some(s => s.side === 'long'), false);
+  assert.equal(plan.takeProfits.length, 0);
 
   const stricter = buildExecutionPlanV1(sampleManifest, legacyResult, {
     currentPrice: 100,
     userRiskProfile: { minimumRiskRewardRatio: 1.5 },
   });
-  assert.equal(stricter.action, "long");
-  assert.equal(stricter.executionBlocked, true);
-  assert.match(stricter.marketAssessment, /低于用户设定的最低 1:1\.5/);
+  assert.equal(stricter.action, "wait");
+  assert.equal(stricter.scenarios.some(s => s.side === 'long'), false);
 });
 
 test("ExecutionPlanV1 honors an explicit minimum below the product default", () => {
@@ -349,7 +345,7 @@ test("ExecutionPlanV1 honors an explicit minimum below the product default", () 
     currentPrice: 100,
     longTrigger: 100,
     longInvalidation: 90,
-    longTarget: 102,
+    longTarget: 103.5,
   });
   const plan = buildExecutionPlanV1(sampleManifest, legacyResult, {
     currentPrice: 100,
@@ -462,7 +458,7 @@ test("ExecutionPlanV1 fills missing preferred exits when a measured final target
   });
   const compressedPlan = buildExecutionPlanV1(sampleManifest, compressedResult);
   const compressedScenario = compressedPlan.scenarios.find((item) => item.side === "long");
-  assert.equal(compressedScenario.targets.length, 2);
+  assert.equal(compressedScenario.targets.length, 3);
   assert.ok(compressedPlan.riskReward[0].ratio >= 0.4 && compressedPlan.riskReward[0].ratio <= 0.6);
   assert.ok(compressedPlan.riskReward[1].ratio >= 0.4);
 });
