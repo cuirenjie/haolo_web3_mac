@@ -4,7 +4,7 @@ import { modelFailureFacts } from "../model-failure-policy.mjs";
 import { isQuotaFailure } from "../error-signals.mjs";
 
 const LABELS = {
-  model_unknown: ["模型响应结果尚未确认，原任务已保留，未自动重复请求", "The model response outcome is unconfirmed. The original task was retained without an automatic repeat request", "模型回應結果尚未確認，原任務已保留，未自動重複請求"],
+  model_unknown: ["模型响应未能确认完成，本次分析已停止，原任务记录已保留", "The model response could not be confirmed as complete. Analysis stopped and the original task record was retained", "模型回應未能確認完成，本次分析已停止，原任務記錄已保留"],
   preferences_review: ["交易偏好尚未完成迁移，请到“设置 → 交易偏好”核对原设置", "Trading preferences need migration review. Open Settings → Trading preferences to review your saved settings", "交易偏好尚未完成遷移，請到「設定 → 交易偏好」核對原設定"],
   preferences_changed: ["交易偏好已在其他设备更新，请重新加载后再分析", "Trading preferences changed on another device. Reload them before running the analysis", "交易偏好已在其他裝置更新，請重新載入後再分析"],
   preferences_pending: ["交易偏好正在保存，请等待保存完成后再分析", "Trading preferences are being saved. Wait for the save to finish before running the analysis", "交易偏好正在儲存，請等待儲存完成後再分析"],
@@ -21,7 +21,7 @@ const LABELS = {
   model_unavailable: ["当前服务通道不支持所选模型，请联系管理员配置可用通道", "The selected model is unavailable on this service. Contact an administrator to configure a supported route."],
   model_empty: ["分析模型返回了空结果", "The analysis model returned an empty result"],
   model_validation: ["模型结果未通过格式或规则校验", "The model result failed format or rule validation"],
-  timeout: ["分析服务响应超时", "The analysis service timed out"],
+  timeout: ["分析服务响应超时", "The analysis service timed out", "分析服務回應逾時"],
   rate_limit: ["分析服务繁忙或触发限流", "The analysis service is busy or rate limited"],
   transport: ["分析服务连接中断", "The analysis service connection was interrupted"],
   data: ["当前行情数据不足或未通过校验", "Market data is insufficient or failed validation"],

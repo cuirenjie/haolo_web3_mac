@@ -5,7 +5,6 @@ const copy = {
   en: { entry: "Entry trigger", stop: "Stop loss", long: "Long", short: "Short", target: (n) => `Take profit ${n}`, ratio: "R/R", new: "Suggested position", existing: "Existing position", reduce: "Reduce position to", amount: "Target position", profit: "Est. profit", loss: "Est. loss" },
 };
 const number = String.raw`\d+(?:,\d{3})*(?:\.\d+)?`;
-const expiryLabels = { 'zh-CN': '有效至', 'zh-TW': '有效至', en: 'Valid until' };
 const actionCopy = {
   'zh-CN': {label: '当前动作：', wait: '等待条件触发', blocked: '暂不交易', long:'报价时满足做多条件', short:'报价时满足做空条件'},
   'zh-TW': {label: '當前動作：', wait: '等待條件觸發', blocked: '暫不交易', long:'報價時滿足做多條件', short:'報價時滿足做空條件'},
@@ -25,6 +24,8 @@ function priceText(value) {
   const digits = fractionDigits(rounded);
   return amount.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: String(value).includes(",") });
 }
+
+export { priceText as executionPlanPriceText };
 
 // Format decimal tokens only in freeform text: indices, dates, periods and
 // leverage counts are not prices. Structured price/money fields also pad integers.
@@ -110,15 +111,10 @@ function metricHtml(line, label, tone, detail = "") {
   return priceMetricHtml(label, priceText(match[1]), tone, detail || (suffix ? `<div class="execution-plan-metric-description">${signedText(suffix)}</div>` : ""));
 }
 
-function expiryHtml(value, language) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 8640000000000000) return '';
-  const date = new Date(value), pad = value => String(value).padStart(2, '0');
-  // Month/day and local time stay stable across midnight in sticky windows.
-  // Keep the complete year and instant in the hover title and datetime value.
-  const local = `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  const offset = -date.getTimezoneOffset(), minutes = Math.abs(offset) % 60;
-  const zone = `UTC${offset < 0 ? '-' : '+'}${Math.floor(Math.abs(offset) / 60)}${minutes ? `:${pad(minutes)}` : ''}`;
-  return `<span class="execution-plan-expiry">${expiryLabels[language] || expiryLabels['zh-CN']} <time datetime="${date.toISOString()}" title="${escape(date.toString())}">${local} (${zone})</time></span>`;
+// Both arguments are trusted card markup. The footer contains only each
+// surface's controls/creation time; expiry remains part of the frozen plan data.
+export function executionPlanCardFooter(content, trailing) {
+  return content + (trailing ? `<div class="execution-plan-inline-footer">${trailing}</div>` : '');
 }
 
 function priceMetricHtml(label, price, tone, detail = "") {
@@ -134,8 +130,8 @@ function targetsHtml(targets, labels, ratios) {
 }
 
 // Typed cloud prices bypass the legacy prose parser. Match mobile's compact
-// price/expiry/ratio layout; full conditions remain in the frozen report/content.
-export function executionPlanStructuredCardBody({ entry, entryMode, stop, targets, direction, expiresAt, riskReward = [], account, action, entryBasisMismatch = false }, language = "zh-CN") {
+// price/ratio layout; full conditions remain in the frozen report/content.
+export function executionPlanStructuredCardBody({ entry, entryMode, stop, targets, direction, riskReward = [], account, action, entryBasisMismatch = false }, language = "zh-CN") {
   const labels = copy[language] || copy["zh-CN"];
   const tone = direction === "long" ? "bullish" : "bearish";
   // Left valuation and display both use the favorable zone endpoint:
@@ -170,7 +166,7 @@ export function executionPlanStructuredCardBody({ entry, entryMode, stop, target
   };
   const basisHtml = entryBasisMismatch ? `<div class="execution-plan-details">${lineHtml({label: '', text: basisNotice[language] || basisNotice['zh-CN']})}</div>` : '';
   return `<div class="execution-plan-metrics" data-conditional-plan>${priceMetricHtml(labels.entry, entryPrice, tone, amount)}${priceMetricHtml(labels.stop, priceText(stop), tone === "bullish" ? "bearish" : "bullish", loss)}</div>`
-    + targetsHtml(rows, labels, { values }) + actionHtml + basisHtml + expiryHtml(expiresAt, language);
+    + targetsHtml(rows, labels, { values }) + actionHtml + basisHtml;
 }
 
 function moneyDetail(label, value, className = "", signed = false) {
@@ -232,10 +228,10 @@ function simpleRatios(text, targets) {
   return { values: new Map(indexed.map((item) => [item.index, `1:${fixed(item.value.split(/[:：]/)[1].trim())}`])), loss: outcome?.[2] ?? outcome?.[4] };
 }
 
-export function executionPlanCardBody(lines = [], language = "zh-CN", { expiresAt } = {}) {
+export function executionPlanCardBody(lines = [], language = "zh-CN", _options = {}) {
   // Presentation only: hide the verbose account summaries, keeping the report
   // and saved/alert inputs intact. Per-level amounts remain beside their prices.
-  lines = lines.filter((line) => !matches(line, /^(?:仓位大小|倉位大小|可能盈亏|可能盈虧|position size|potential P&L)$/i));
+  lines = lines.filter((line) => !matches(line, /^(?:仓位大小|倉位大小|可能盈亏|可能盈虧|position size|potential P&L|有效至|有效期|有效时间|有效時間|到期时间|到期時間|valid until|expiry|expires at)(?:\s*[（(][^）)]*[）)])?$/i));
   lines = lines.filter((line) => !(matches(line, /^(?:当前动作|當前動作|current action)$/i)
     && /^(?:等待条件触发|等待條件觸發|wait for the trigger)$/i.test(String(line.text || '').trim())));
   const labels = copy[language] || copy["zh-CN"];
@@ -263,5 +259,5 @@ export function executionPlanCardBody(lines = [], language = "zh-CN", { expiresA
   // unrecognized target formats after the presentation-only omissions above.
   const remainder = lines.filter((line) => !consumed.has(line) && !matches(line, /^(?:方向判断|方向判斷|direction|策略|策略来源|策略來源|strategy)$/i));
   if (remainder.length) html += `<div class="execution-plan-details">${remainder.map(lineHtml).join("")}</div>`;
-  return html + expiryHtml(expiresAt, language);
+  return html;
 }

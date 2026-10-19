@@ -33,9 +33,11 @@ test('every SVG drawing layer uses pane bounds, including hidden drawings and or
     const controller = Object.assign(Object.create(TradingDrawingController.prototype), {
       destroyed: false, drawingScope, paneIndex: drawingScope === 'main' ? 0 : 1,
       dragRedrawFrame: null, pendingPointerMoves: [], drawingHandlesHideTimer: null,
+      volumeCalculations: new Map(),
       getChart: () => ({ panes: () => [{ getHeight: () => 480 }, { getHeight: () => 160 }],
         options: () => ({ height: 670 }), timeScale: () => ({ width: () => 900 }) }),
       getCandleSeries: () => null, orderLines: [], drawingVisibility: { aiHidden: true, manualHidden: true },
+      getSymbol: () => 'BINANCE:FUTURES:BTCUSDT', getInterval: () => '1h',
       overlay: { classList: { remove() {} }, getAttribute: key => attributes.get(key), setAttribute: (key, value) => attributes.set(key, value) },
       manualLayer: { render(entries) { assert.deepEqual(entries, []); clearedManualLayer = true; } },
       content: layer(), aiContent: layer(), aiTextHitContent: layer(), aiCursorContent: layer(),

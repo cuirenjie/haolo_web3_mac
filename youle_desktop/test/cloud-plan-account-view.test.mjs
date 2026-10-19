@@ -180,7 +180,7 @@ test('waiting copy is omitted in each language while blocked plans retain their 
     const html=cloudPlanCard(report).html;
     assert.ok(!html.includes(words[locale][4]));assert.ok(!html.includes(words[locale][5]));
     assert.doesNotMatch(html,/现价做多|现价做空|at market/);
-    assert.ok(html.lastIndexOf('execution-plan-expiry')>html.lastIndexOf('execution-plan-target-profit'));
+    assert.doesNotMatch(html,/class="execution-plan-expiry"/);
     report.executionPlan.executionBlocked=true;
     assert.ok(cloudPlanCard(report).html.includes(locale==='en'?'Do not trade':locale==='zh-Hant'?'暫不交易':'暂不交易'));
   }

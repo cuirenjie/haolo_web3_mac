@@ -3,6 +3,7 @@ export type TradingOrderLineKind =
   | "position-short"
   | "conditional-long"
   | "conditional-short"
+  | "plan-entry"
   | "limit-long"
   | "limit-short"
   | "take-profit"
@@ -16,6 +17,8 @@ export interface TradingOrderLine {
   kind: TradingOrderLineKind;
   label: string;
   shortLabel: string;
+  /** AI plan levels show their price, without implying an account quantity/PnL. */
+  labelMode?: "price";
   quantityUsdt?: number | null;
   pnl?: number | null;
   ariaLabel?: string;
@@ -454,16 +457,19 @@ function measuredOrderLineLabelTextWidth(label: string) {
   return Math.max(context.measureText(label).width, fallbackOrderLineLabelTextWidth(label));
 }
 
-function orderLineLabelKeyWidth(kind: TradingOrderLineKind) {
-  return kind === "liquidation" ? 32 : ORDER_LINE_DEFAULT_KEY_WIDTH;
+function orderLineLabelKeyWidth(line: Pick<TradingOrderLine, "kind" | "labelMode" | "shortLabel">) {
+  if (line.kind === "liquidation") return 32;
+  return line.labelMode === "price"
+    ? Math.max(ORDER_LINE_DEFAULT_KEY_WIDTH, Math.ceil(measuredOrderLineLabelTextWidth(line.shortLabel) + 12))
+    : ORDER_LINE_DEFAULT_KEY_WIDTH;
 }
 
 export function tradingOrderLineLabelWidth(
-  line: Pick<TradingOrderLine, "kind" | "label">,
+  line: Pick<TradingOrderLine, "kind" | "label" | "labelMode"> & Partial<Pick<TradingOrderLine, "shortLabel">>,
   measureText: (label: string) => number = measuredOrderLineLabelTextWidth,
 ) {
   return Math.ceil(
-    orderLineLabelKeyWidth(line.kind)
+    orderLineLabelKeyWidth({ ...line, shortLabel: line.shortLabel ?? "" })
       + ORDER_LINE_LABEL_TEXT_GAP
       + Math.max(0, measureText(line.label))
       + ORDER_LINE_LABEL_RIGHT_PADDING,
@@ -847,7 +853,7 @@ export function renderTradingOrderLineSvg(
   }) => {
     const position = line.kind === "position-long" || line.kind === "position-short";
     const liquidation = line.kind === "liquidation";
-    const keyWidth = orderLineLabelKeyWidth(line.kind);
+    const keyWidth = orderLineLabelKeyWidth(line);
     const labelTextX = left + keyWidth + ORDER_LINE_LABEL_TEXT_GAP;
     const lineEnd = Math.max(0, left - 6);
     const connector = priceLevelIndex === 0 && Math.abs(lineY - labelY) > 0.5
@@ -867,7 +873,9 @@ export function renderTradingOrderLineSvg(
     const quantityText = quantityUsdtLabel(line.quantityUsdt ?? null);
     const pnlText = line.pnl === null || line.pnl === undefined ? "" : signedUsdt(line.pnl);
     const labelText = `<text class="trading-order-line-label-text" x="${labelTextX}" y="${labelY + 0.5}">`
-      + (liquidation
+      + (line.labelMode === "price"
+        ? `<tspan class="trading-order-line-price">${escapeXml(line.label)}</tspan>`
+        : liquidation
         ? `<tspan class="trading-order-line-liquidation-price">${escapeXml(line.label)}</tspan>`
         : `<tspan class="trading-order-line-quantity">${escapeXml(quantityText)}</tspan>`
           + (pnlText
@@ -880,7 +888,7 @@ export function renderTradingOrderLineSvg(
     const hitboxClass = !liquidation && (line.position || line.order)
       ? " trading-order-line-card-hitbox trading-order-line-position-hitbox"
       : "";
-    return `<g class="trading-order-line trading-order-line-${line.kind}" data-trading-order-line="${escapeXml(line.id)}" data-order-label-left="${left}" data-order-price-level="${escapeXml(String(line.price))}" data-order-price-level-index="${priceLevelIndex}" data-order-price-level-count="${priceLevelCount}" aria-label="${title}"${cardTrigger}>`
+    return `<g class="trading-order-line trading-order-line-${line.kind}"${line.labelMode === "price" ? ' data-trading-plan-price-line data-i18n-skip' : ''} data-trading-order-line="${escapeXml(line.id)}" data-order-label-left="${left}" data-order-price-level="${escapeXml(String(line.price))}" data-order-price-level-index="${priceLevelIndex}" data-order-price-level-count="${priceLevelCount}" aria-label="${title}"${cardTrigger}>`
       + `<title>${title}</title>`
       + connector
       + `<rect class="trading-order-line-label-bg${hitboxClass}" x="${left}" y="${top}" width="${width}" height="${ORDER_LINE_LABEL_HEIGHT}" rx="3" />`

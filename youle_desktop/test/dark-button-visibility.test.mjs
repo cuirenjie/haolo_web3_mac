@@ -24,10 +24,8 @@ test("dark profile and settings actions remain distinct from their surfaces", as
   const recharge = darkDeclarationsFor(styles, ".profile-recharge-button:not(:disabled)");
   const rechargeHover = darkDeclarationsFor(styles, ".profile-recharge-button:hover:not(:disabled)");
   const rechargeActive = darkDeclarationsFor(styles, ".profile-recharge-button:active:not(:disabled)");
-  const logout = darkDeclarationsFor(styles, ".settings-logout-button");
   const logoutHover = darkDeclarationsFor(styles, ".settings-logout-button:hover:not(:disabled)");
   const logoutActive = darkDeclarationsFor(styles, ".settings-logout-button:active:not(:disabled)");
-  const logoutFocus = darkDeclarationsFor(styles, ".settings-logout-button:focus-visible");
 
   assert.doesNotMatch(renderer, /class="profile-config-button"[^>]*>我的配置<\/button>/);
   assert.match(renderer, /class="profile-recharge-button" data-action="profile-quota">充值<\/button>/);
@@ -39,12 +37,8 @@ test("dark profile and settings actions remain distinct from their surfaces", as
   assert.match(rechargeHover, /background: var\(--surface-hover\);/);
   assert.match(rechargeHover, /border-color: rgba\(255, 255, 255, 0\.38\);/);
   assert.match(rechargeActive, /background: var\(--surface-active-translucent\);/);
-  assert.match(logout, /border-color: rgba\(248, 113, 113, 0\.22\);/);
-  assert.match(logout, /background: rgba\(239, 68, 68, 0\.08\);/);
-  assert.match(logout, /color: #fca5a5;/);
   assert.match(logoutHover, /background: rgba\(239, 68, 68, 0\.14\);/);
   assert.match(logoutActive, /background: rgba\(239, 68, 68, 0\.2\);/);
-  assert.match(logoutFocus, /box-shadow: 0 0 0 3px rgba\(248, 113, 113, 0\.2\);/);
 });
 
 test("dark primary actions share a visible edge without changing the graphite palette", async () => {

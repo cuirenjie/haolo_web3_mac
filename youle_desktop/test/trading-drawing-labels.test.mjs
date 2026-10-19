@@ -1,10 +1,29 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TRADING_DRAWING_TOOLS, tradingDrawingSupportsSettings, tradingDrawingHidesLineNodes, tradingDrawingLabelGeometry, tradingDrawingLabelSpan, renderTradingDrawingLabel } from '../src/renderer/trading-expert-drawing.ts';
+import { TradingDrawingController, TRADING_DRAWING_TOOLS, tradingDrawingSupportsSettings, tradingDrawingHidesLineNodes, tradingDrawingLabelGeometry, tradingDrawingLabelSpan, renderTradingDrawingLabel } from '../src/renderer/trading-expert-drawing.ts';
 import { drawingToWire, drawingFromWire } from '../src/renderer/manual-drawing-sync.ts';
 
 const bounds = { width: 800, height: 600 };
 const model = { id: 'label', tool: 'trend-line', symbol: 'BINANCE:FUTURES:BTCUSDT', text: '支撑 <b>', points: [{ time: 1700000000, price: 1300 }, { time: 1700010000, price: 1310 }] };
+
+test('center add-text placeholders use the authored label gap on the drawing geometry only',()=>{
+  const controller=Object.assign(Object.create(TradingDrawingController.prototype),{userDrawingEnabled:true,labelMaskPrefix:'test',activeTool:'cursor'});
+  const points=[{x:100,y:100},{x:500,y:300}],body='<path id="stroke"/>',hit='<path id="hit"/>';
+  const render=drawing=>controller.renderDrawingFrame(drawing,points,bounds,false,true,body,hit,'');
+  for(const tool of ['trend-line','ray','horizontal-line','vertical-line','multi-point-path']){
+    const drawing={...model,tool,text:''},html=render(drawing);
+    assert.match(html,/class="trading-drawing-add-text-mask"/);
+    assert.match(html,/<g class="trading-drawing-geometry" mask="url\(#[^)]+\)"><path id="stroke"\/><\/g><path id="hit"\/>/);
+    const center=tradingDrawingLabelGeometry({...drawing,text:'＋ 添加文字',fontSize:12,textAlign:'center',textVerticalAlign:'middle'},points,bounds,{width:84,height:22});
+    assert.ok(html.includes(`transform="rotate(${center.angle} ${center.x} ${center.y})"`));
+    assert.ok(html.includes(`x="${center.left-4}" y="${center.top-2}" width="92" height="26"`));
+  }
+  assert.match(render({...model,textVerticalAlign:'middle'}),/ mask="url\(/);
+  assert.doesNotMatch(render({...model,textVerticalAlign:'middle'}),/trading-drawing-add-text-mask/);
+  for(const drawing of [{...model,text:'',locked:true},{...model,text:'',source:'ai'},{...model,text:'',tool:'rectangle'}]){
+    assert.doesNotMatch(render(drawing),/trading-drawing-add-text-mask/);
+  }
+});
 
 test('line node policy preserves closed-shape adjustment handles', () => {
   for (const tool of ['trend-line', 'ray', 'horizontal-line', 'arrow', 'curve', 'double-curve', 'multi-point-path', 'multi-point-polyline', 'path', 'polyline', 'brush', 'highlighter', 'pitchfork', 'parallel-channel', 'regression-trend', 'fib-retracement', 'fib-spiral', 'elliott-impulse', 'anchored-vwap', 'forecast']) {

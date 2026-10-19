@@ -115,6 +115,19 @@ const words={
   cross_up:['价格从下方向上穿越','Price crosses upward through','價格從下方向上穿越'],cross_down:['价格从上方向下穿越','Price crosses downward through','價格從上方向下穿越'],in_zone:['价格进入闭区间','Price enters the inclusive zone','價格進入閉區間'],
   invalidation:['条件失效','Condition invalidation','條件失效'],notice:['条件满足仅提醒，不表示成交，不会自动下单。','A satisfied condition only sends a reminder; it is not a fill and does not place an order.','條件滿足僅提醒，不表示成交，不會自動下單。'],
 };
+// The snapshot/context is the analysis timeframe. The entry condition can use
+// a lower confirmation timeframe and must never replace that report identity.
+function cardInterval(value) {
+  const text=String(value??'').trim();
+  if (/^[1-9]\d*[mhdwM]$/.test(text)) return text;
+  if (/^[1-9]\d*[HDW]$/.test(text)) return text.toLowerCase();
+  if (/^[1-9]\d{0,4}$/.test(text)) {
+    const minutes=Number(text);
+    return minutes%1440===0?`${minutes/1440}d`:minutes%60===0?`${minutes/60}h`:`${minutes}m`;
+  }
+  return '';
+}
+
 export function cloudPlanCard(report, { hideExpiry = false, language: displayLanguage } = {}) {
   if(report.executionPolicy==='right-legacy-v1') {
     const remote=report.planRecords.find(plan=>plan.cardIndex===(report.selectedCardIndex??0));
@@ -142,7 +155,8 @@ export function cloudPlanCard(report, { hideExpiry = false, language: displayLan
     ...(condition.invalidation?[[t('invalidation'),predicate(condition.invalidation)]]:[]),
     [t('expiry'),new Date(condition.expiresAt).toISOString()],
   ];
-  const title=`${report.marketId} · ${condition.interval} · ${t('title')}`;
+  const analysisInterval=cardInterval(plan.context?.interval)||cardInterval(report.interval)||cardInterval(condition.interval);
+  const title=`${report.marketId} · ${analysisInterval} · ${t('title')}`;
   const heading=executionPlanCardHeading(title,[{label:'Direction',text:condition.direction},{label:'Strategy',text:report.strategyId}],language);
   // Mobile's engine-first ratio rule: never derive ratios or account amounts
   // from displayed prices, or borrow the other scenario's account sizing.

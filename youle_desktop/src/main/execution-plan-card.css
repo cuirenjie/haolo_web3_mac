@@ -53,7 +53,7 @@ html .execution-plan-surface:is(.message-execution-plan, .execution-plan-card):h
 }
 html .execution-plan-surface.message-execution-plan,
 html .execution-plan-surface.message-execution-plan:hover {
-  gap: 8px;
+  gap: 0;
   border: 0;
   padding: 0;
   background: transparent;
@@ -184,6 +184,33 @@ html .execution-plan-surface.message-execution-plan > .execution-plan-card-conte
   color: var(--plan-text);
   font-weight: 700;
 }
+.execution-plan-surface .execution-plan-inline-footer {
+  --plan-footer-font-size: min(calc(var(--plan-font-size) - 1px), 4cqi);
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  container-type: inline-size;
+}
+.execution-plan-surface .execution-plan-inline-footer > .execution-plan-expiry {
+  flex: 1 1 auto;
+  font-size: var(--plan-footer-font-size);
+}
+html:lang(en) .execution-plan-surface .execution-plan-inline-footer {
+  --plan-footer-font-size: min(calc(var(--plan-font-size) - 1px), 3.3cqi);
+  gap: 8px;
+}
+.execution-plan-surface .execution-plan-created-at {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--plan-muted);
+  font-size: var(--plan-footer-font-size);
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: nowrap;
+}
 .execution-plan-surface .execution-plan-metric {
   flex: 1 1 8em;
   min-width: 0;
@@ -224,16 +251,89 @@ html .execution-plan-surface.message-execution-plan > .execution-plan-card-conte
 .execution-plan-surface .execution-plan-details { display: grid; grid-column: 1 / -1; gap: 4px; font-size: calc(var(--plan-font-size) - 1px); }
 .execution-plan-surface .execution-plan-card-line { grid-column: 1 / -1; margin: 0; }
 .execution-plan-surface .execution-plan-details .execution-plan-card-label { color: var(--plan-muted); font-weight: 400; }
+.message-execution-plan-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 4px 12px 0;
+}
+.message-execution-plan-footer > .execution-plan-message-actions {
+  align-self: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
 html .execution-plan-surface .message-execution-plan-controls {
   position: static;
   justify-self: end;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
   max-width: 100%;
-  min-height: 24px;
-  margin: 0 12px 0 0;
+  min-height: 0;
+  margin: 0 0 0 auto;
   background: transparent;
 }
-html .execution-plan-surface .message-execution-plan-controls button { color: var(--plan-muted); }
+html .execution-plan-surface .message-execution-plan-footer :is(.message-add-to-plan, .message-execution-plan-controls button) {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 24px;
+  height: auto;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 2px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--message-action-color, #b6bcc6);
+  font: inherit;
+  font-family: var(--font-wechat, "Microsoft YaHei", "Segoe UI", sans-serif);
+  font-size: var(--message-action-font-size, calc(11px + var(--app-font-size-offset, 0px)));
+  font-weight: var(--message-action-font-weight, 400);
+  line-height: 1.5;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  transform: none;
+  transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+html .execution-plan-surface .message-execution-plan-footer .message-add-to-plan::before {
+  content: "";
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
+  background:
+    linear-gradient(currentColor, currentColor) center / 8px 1px no-repeat,
+    linear-gradient(currentColor, currentColor) center / 1px 8px no-repeat;
+}
+html .execution-plan-surface .message-execution-plan-footer :is(.message-add-to-plan, .message-execution-plan-controls button):hover:not(:disabled) {
+  background: var(--plan-hover);
+  color: var(--plan-text);
+  box-shadow: none;
+  transform: none;
+}
+html .execution-plan-surface .message-execution-plan-footer :is(.message-add-to-plan, .message-execution-plan-controls button):active:not(:disabled) {
+  background: var(--plan-active);
+}
+html .execution-plan-surface .message-execution-plan-footer :is(.message-add-to-plan, .message-execution-plan-controls button):focus-visible {
+  outline: 2px solid var(--plan-focus);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+html .execution-plan-surface .message-execution-plan-footer :is(.message-add-to-plan, .message-execution-plan-controls button):is(:disabled, [aria-busy="true"]) {
+  background: transparent;
+  color: var(--message-action-color, #b6bcc6);
+  opacity: .42;
+  cursor: not-allowed;
+}
+html .execution-plan-surface .message-execution-plan-footer button.message-add-to-plan:is(:disabled, [aria-busy="true"]) {
+  opacity: 1;
+}
 .execution-plan-surface.execution-plan-card > header { padding-right: 64px; margin-bottom: 14px; }
 html .execution-plan-surface .execution-plan-card-status.pending { color: var(--plan-muted); }
 html .execution-plan-surface .execution-plan-card-status:is(.executing, .take-profit) { color: var(--execution-plan-direction-bullish); }

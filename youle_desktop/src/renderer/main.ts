@@ -1,4 +1,5 @@
 import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
+import {createExecutionPlanAutoActivator} from './execution-plan-auto-activation';
 import { accountSettingsSync, type SettingValues } from './account-settings-sync.ts';
 import type { CloudRecoveryApi } from "./cloud-task-recovery.ts";
 import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, bindLegacyCloudCandidate, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
@@ -13,7 +14,7 @@ import {
 } from "./trading-preference-choices";
 import { createTradingPreferenceSettings } from "./trading-preference-settings.ts";
 import "../main/execution-plan-card.css";
-import { executionPlanCardHeading, executionPlanCardBody } from "../main/execution-plan-card-view.mjs";
+import { executionPlanCardHeading, executionPlanCardBody, executionPlanCardFooter } from "../main/execution-plan-card-view.mjs";
 import "./trading-watchlist.css";
 import { renderTradingWatchlistHost, renderTradingWatchlistToggle } from "./trading-watchlist-ui.ts";
 import { deferTradingChartShellRender } from "./trading-chart-interaction.ts";
@@ -5696,7 +5697,7 @@ const state: UiState = {
 const executionPlanCandidatesBySource = new Map<string, ExecutionPlanCandidate>();
 const executionPlanAlertSyncBusyIds = new Set<string>();
 const executionPlanDeleteBusyIds = new Set<string>();
-const executionPlanAlertReconciledScopes = new Set<string>();
+let executionPlanCloudLoadedScope: string | null = null;
 const executionPlanMonitorFullRefreshAt = new Map<string, number>();
 
 let loginCounterTimer: number | null = null;
@@ -6354,6 +6355,7 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
   if (state.auth.authenticated && state.auth.profile) {
     persistLastLoginIdentity(state.auth.profile);
     syncExecutionPlansForCurrentAccount();
+    void refreshCloudExecutionPlans();
   }
   state.auth.modelProviders = Array.isArray(session?.modelProviders)
     ? Array.from(new Set<string>(
@@ -7007,6 +7009,8 @@ function wireDesktopEvents() {
         }
         refreshProfileOnAppActivation({ force: true });
         resumeBinanceAccountLiveRefresh();
+        void refreshCloudExecutionPlans();
+        void reconcileMissingExecutionPlanAlerts(state.executionPlansScope || '');
         await api.tradingAlertsLifecycle?.({ phase: "resume", reason: "network_offline" });
       })();
     },
@@ -39134,6 +39138,7 @@ function syncExecutionPlansForCurrentAccount() {
   const scope = currentExecutionPlanStorageScope();
   if (state.executionPlansScope === scope) return;
   executionPlanMonitorFullRefreshAt.clear();
+  executionPlanCloudLoadedScope = null;
   state.executionPlans = loadExecutionPlans(scope);
   state.executionPlansScope = scope;
   state.executionPlanFilter = "pending";
@@ -39356,7 +39361,7 @@ async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan, action: 's
       planId:remote.id,runId:remote.runId,version:remote.version,confirmationHash:remote.confirmationHash,
       conditionHash:remote.scenario.conditionHash,status:plan.status,endReason:plan.endReason,
     });
-    if(!response?.ok||!response.plan?.saved||(action==='activate'&&!response.plan.linkedAlertId))throw new Error(response?.error?.message||'云端计划未确认保存');
+    if(!response?.ok||!response.plan?.saved||(action==='activate'&&!response.plan.linkedAlertId))throw Object.assign(new Error(response?.error?.message||'云端计划未确认保存'),response?.error);
     const saved=response.plan;
     const cloudReport=normalizeCloudReports([{...plan.cloudReport,planRecords:[saved]}])[0];
     const cloudPlan:SavedExecutionPlan={...plan,cloudReport,linkedAlertId:saved.linkedAlertId,status:saved.status,
@@ -39384,47 +39389,14 @@ async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan, action: 's
 }
 
 async function reconcileMissingExecutionPlanAlerts(scope: string) {
-  if (executionPlanAlertReconciledScopes.has(scope)) return;
-  executionPlanAlertReconciledScopes.add(scope);
-  const missing = state.executionPlans.filter((plan) => !plan.cloudReport && !plan.linkedAlertId && plan.reminderActivation!=='manual' && !executionPlanDeleteBusyIds.has(plan.id));
-  if (!missing.length) return;
-  const linked = new Map<string, string>();
-  const createdAlertIds: string[] = [];
-  let firstError = "";
-  for (const plan of missing) {
-    try {
-      const result = await syncExecutionPlanLinkedAlert(plan);
-      if(!result.alertId)throw new Error(executionPlanActivationText('unconfirmed',state.settings.language));
-      linked.set(plan.id, result.alertId);
-      if (result.created) createdAlertIds.push(result.alertId);
-    } catch (error) {
-      firstError ||= errorMessage(error);
-    }
-  }
-  if (state.executionPlansScope !== scope || !linked.size) {
-    if (firstError) showToast(`计划预警同步失败：${firstError}`, 5000);
-    return;
-  }
-  const nextPlans = state.executionPlans
-    .filter((plan) => !executionPlanDeleteBusyIds.has(plan.id))
-    .map((plan) => linked.has(plan.id)
-      ? { ...plan, linkedAlertId: linked.get(plan.id) || null }
-      : plan);
-  if (!saveExecutionPlans(scope, nextPlans)) {
-    for (const alertId of createdAlertIds) void api.tradingAlertsDelete?.({ alertId })?.catch(() => {});
-    showToast("计划预警已创建，但计划关联保存失败，已撤销预警", 5000);
-    return;
-  }
-  state.executionPlans = nextPlans;
-  if (firstError) showToast(`部分计划无法创建预警：${firstError}`, 5000);
-  if (state.activeView === "plans" || state.activeView === "alerts") render();
+  if (scope !== state.executionPlansScope) return;
+  await executionPlanAutoActivation.reconcile();
 }
 
 function executionPlanCreatedLabel(createdAt: string) {
   const date = new Date(createdAt);
   if (!Number.isFinite(date.getTime())) return "";
   return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -39440,7 +39412,7 @@ function renderExecutionPlanCardContent(content: string) {
 function renderMessageExecutionPlan(
   message: Message,
   text: string,
-  options: FormatMessageTextOptions = {},
+  options: FormatMessageTextOptions & { allowPlanAction?: boolean } = {},
   candidateOffset = 0,
 ): {bubbleContent:string; cards:string} | null {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
@@ -39470,11 +39442,13 @@ function renderMessageExecutionPlan(
         data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}" data-execution-plan-message-id="${escapeAttr(message.id)}"
         data-execution-plan-index="${index}" style="--message-execution-plan-font-size: ${fontSize}px">
         <div class="execution-plan-card-content">${card.html}</div>
+        <div class="message-execution-plan-footer">
+        ${options.allowPlanAction ? renderAddToPlanAction(message, text, candidateOffset, index) : ""}
         <footer class="message-execution-plan-controls" aria-label="执行卡片文字与便利贴操作">
           <button type="button" data-message-execution-plan-action="increase"${fontSize>=MESSAGE_EXECUTION_PLAN_FONT_SIZES.at(-1)!?' disabled':''}>放大</button>
           <button type="button" data-message-execution-plan-action="decrease"${fontSize<=MESSAGE_EXECUTION_PLAN_FONT_SIZES[0]?' disabled':''}>缩小</button>
           ${card.readOnly?'':'<button type="button" data-message-execution-plan-action="sticky">便利贴</button>'}
-        </footer></section>`;
+        </footer></div></section>`;
     }).join('');
     return {bubbleContent:formatMessageText(text,options),cards:cards?`<div class="message-execution-plan-list">${cards}</div>`:''};
   }
@@ -39512,11 +39486,14 @@ function renderMessageExecutionPlan(
       style="--message-execution-plan-font-size: ${fontSize}px"
     >
       <div class="execution-plan-card-content">${cloudCard?.html || executionPlanCardHeading(title, executionPlanDisplayLines(candidate.content), state.settings.language) + renderExecutionPlanCardContent(candidate.content)}</div>
+      <div class="message-execution-plan-footer">
+      ${options.allowPlanAction ? renderAddToPlanAction(message, text, candidateOffset, candidateIndex) : ""}
       <footer class="message-execution-plan-controls" aria-label="执行卡片文字与便利贴操作">
         <button type="button" data-message-execution-plan-action="increase"${fontSize >= MESSAGE_EXECUTION_PLAN_FONT_SIZES[MESSAGE_EXECUTION_PLAN_FONT_SIZES.length - 1] ? ' disabled aria-disabled="true"' : ""}>放大</button>
         <button type="button" data-message-execution-plan-action="decrease"${fontSize <= MESSAGE_EXECUTION_PLAN_FONT_SIZES[0] ? ' disabled aria-disabled="true"' : ""}>缩小</button>
         <button type="button" data-message-execution-plan-action="sticky">便利贴</button>
       </footer>
+      </div>
     </section>`;
   }).join("");
   const after = partitions.after
@@ -39565,9 +39542,7 @@ function renderExecutionPlanActions(plan: SavedExecutionPlan) {
   const actions = plan.status === "ended"
     ? `<button type="button" data-execution-plan-action="reopen" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${busy ? busyLabel : "重新打开"}</button>`
     : `<button type="button" data-execution-plan-action="open-end-menu" data-execution-plan-id="${escapeAttr(plan.id)}" aria-haspopup="menu" aria-expanded="${menuOpen}"${disabled}>${busy ? busyLabel : "结束"}</button>`;
-  const activate=plan.status==='pending'&&executionPlanNeedsActivation(plan)
-    ? `<button type="button" data-execution-plan-action="activate" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${escapeHtml(executionPlanActivationText(syncing?'activating':'activate',state.settings.language))}</button>` : '';
-  return `<div class="execution-plan-card-actions ${menuOpen ? "open" : ""}">${activate}${actions}
+  return `<div class="execution-plan-card-actions ${menuOpen ? "open" : ""}">${actions}
     <button type="button" class="danger" data-execution-plan-action="delete" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${deleting ? "删除中…" : "删除"}</button>
   </div>${renderExecutionPlanEndMenu(plan)}`;
 }
@@ -39584,15 +39559,14 @@ function renderExecutionPlanCard(plan: SavedExecutionPlan) {
   });
   return `
     <article class="execution-plan-card execution-plan-surface" data-execution-plan-id="${escapeAttr(plan.id)}">
-      <header>
+      ${!cloudCard || plan.status !== 'pending' ? `<header>
         ${cloudCard?'':executionPlanCardHeading(title, executionPlanDisplayLines(plan.content), state.settings.language)}
-        <span class="execution-plan-card-status ${escapeAttr(status.tone)}">${escapeHtml(status.label)}</span>
-      </header>
-      <div class="execution-plan-card-content">${cloudCard?.html||renderExecutionPlanCardContent(plan.content)}</div>
-      <footer>
-        ${createdLabel ? `<time datetime="${escapeAttr(plan.createdAt)}">${escapeHtml(createdLabel)}</time>` : "<span></span>"}
-        ${renderExecutionPlanActions(plan)}
-      </footer>
+        ${plan.status !== 'pending' ? `<span class="execution-plan-card-status ${escapeAttr(status.tone)}">${escapeHtml(status.label)}</span>` : ''}
+      </header>` : ''}
+      <div class="execution-plan-card-content">${executionPlanCardFooter(
+        cloudCard?.html || renderExecutionPlanCardContent(plan.content),
+        createdLabel ? `<time class="execution-plan-created-at" datetime="${escapeAttr(plan.createdAt)}">${escapeHtml(createdLabel)}</time>` : '',
+      )}</div>
     </article>
   `;
 }
@@ -39627,26 +39601,31 @@ function renderExecutionPlansPage() {
   `;
 }
 
-async function activateExecutionPlanReminder(planId: string) {
+async function activateExecutionPlanReminder(planId: string, automatic = false) {
   const plan=state.executionPlans.find(item=>item.id===planId);
-  if(!plan||plan.status!=='pending'||!executionPlanNeedsActivation(plan)||executionPlanAlertSyncBusyIds.has(planId)||executionPlanDeleteBusyIds.has(planId))return;
+  if(!plan||plan.status!=='pending'||plan.linkedAlertId||(!automatic&&!executionPlanNeedsActivation(plan))||executionPlanAlertSyncBusyIds.has(planId)||executionPlanDeleteBusyIds.has(planId))return;
   const scope=state.executionPlansScope;
-  executionPlanAlertSyncBusyIds.add(planId);render();
+  executionPlanAlertSyncBusyIds.add(planId);
+  if (!automatic || state.activeView === 'plans') render();
   let activated=false;
   try {
     const response=await syncExecutionPlanLinkedAlert(plan,'activate');
-    if(scope!==state.executionPlansScope)return;
+    if(scope!==state.executionPlansScope || automatic && state.auth?.authenticated===false)return;
     activated=true;
     const updated=response.cloudPlan||{...plan,linkedAlertId:response.alertId};
     const next=state.executionPlans.map(item=>item.id===planId?updated:item);
     state.executionPlans=next;
     if(!saveExecutionPlans(state.executionPlansScope,next))throw new Error(executionPlanActivationText('activationCacheFailed',state.settings.language));
-    showToast(executionPlanActivationText('activated',state.settings.language),5000);
+    if (!automatic) showToast(executionPlanActivationText('activated',state.settings.language),5000);
   } catch(error) {
-    if(scope!==state.executionPlansScope)return;
-    showToast(activated?errorMessage(error):`${executionPlanActivationText('failed',state.settings.language)}：${errorMessage(error)}`,5000);
+    if(scope!==state.executionPlansScope || automatic && state.auth?.authenticated===false)return;
+    if (automatic) throw error;
+    if (activated) showToast(errorMessage(error),5000);
     if(plan.cloudReport)void refreshCloudExecutionPlans();
-  } finally {executionPlanAlertSyncBusyIds.delete(planId);render();}
+  } finally {
+    executionPlanAlertSyncBusyIds.delete(planId);
+    if (!automatic || state.activeView === 'plans') render();
+  }
 }
 
 async function updateExecutionPlanLifecycle(
@@ -53141,6 +53120,7 @@ function renderTextBubble(
         searchKeyword: options.searchHighlightKeyword,
         assistantSkillDisplayAliases: true,
         hideLeadingThematicBreak: true,
+        allowPlanAction: options.allowPlanAction,
       })
     : null;
   const messageTextMarkup = fromUser
@@ -53153,10 +53133,10 @@ function renderTextBubble(
         assistantSkillDisplayAliases: true,
         hideLeadingThematicBreak: true,
       });
-  const addToPlanMarkup = options.allowPlanAction
+  const addToPlanMarkup = options.allowPlanAction && !executionPlanPresentation?.cards
     ? renderAddToPlanAction(message, content.text)
     : "";
-  const actionsBelowBubble = Boolean(addToPlanMarkup) || Boolean(message.actions?.some((action) => (
+  const actionsBelowBubble = Boolean(addToPlanMarkup) || Boolean(options.allowPlanAction && executionPlanPresentation?.cards) || Boolean(message.actions?.some((action) => (
     action.destination === "trading-alerts" || action.destination === "binance-account" || action.destination === "strategies"
   )));
   return `
@@ -53206,7 +53186,7 @@ function executionPlanCandidateKey(threadId: string, messageId: string, candidat
   return `${threadId}\u0000${messageId}\u0000${candidateIndex}`;
 }
 
-function renderAddToPlanAction(message: Message, text: string, candidateOffset = 0): string {
+function renderAddToPlanAction(message: Message, text: string, candidateOffset = 0, selectedCandidateIndex?: number): string {
   const presentation = (message as MessageUiMeta).executionPlanPresentation;
   const rawReports=(message as MessageUiMeta).cloudReports;
   let legacyReports:CloudTradingReport[]=[];
@@ -53214,7 +53194,7 @@ function renderAddToPlanAction(message: Message, text: string, candidateOffset =
   if (legacyReports.length && legacyReports.length < (rawReports?.length || 0)) {
     let offset = candidateOffset;
     return normalizeCloudReports(rawReports).map(report => {
-      const actions = renderAddToPlanAction({...message, cloudReports:[report]} as Message & MessageUiMeta, report.report, offset);
+      const actions = renderAddToPlanAction({...message, cloudReports:[report]} as Message & MessageUiMeta, report.report, offset, selectedCandidateIndex);
       offset += Math.max(1, report.planRecords.length);
       return actions;
     }).join("");
@@ -53225,14 +53205,16 @@ function renderAddToPlanAction(message: Message, text: string, candidateOffset =
     syncExecutionPlansForCurrentAccount();
     const buttons=reports.map((report,index)=>{
       index += candidateOffset;
+      if (selectedCandidateIndex !== undefined && index !== selectedCandidateIndex) return '';
       const card=cloudPlanCard(report),remote=report.planRecords[0];
       if(!card||!remote)return '';
       executionPlanCandidatesBySource.set(executionPlanCandidateKey(message.conversation_id,message.id,index),{title:card.title,content:card.content,cloudReport:report});
-      const added=state.executionPlans.some(plan=>plan.cloudReport?.planRecords[0]?.id===remote.id);
+      const added=state.executionPlans.find(plan=>plan.cloudReport?.planRecords[0]?.id===remote.id);
+      const busy=added&&executionPlanAlertSyncBusyIds.has(added.id);
       return `<button type="button" class="message-action-button message-add-to-plan" data-message-action="add-to-plan"
         data-message-action-kind="add-to-plan" data-message-action-destination="execution-plans"
         data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}" data-execution-plan-message-id="${escapeAttr(message.id)}"
-        data-execution-plan-index="${index}" ${added?'disabled aria-disabled="true"':''}>${added?'已添加到计划':'添加到计划'}</button>`;
+        data-execution-plan-index="${index}" ${added?'disabled aria-disabled="true"':''}>${busy?escapeHtml(executionPlanActivationText('activating',state.settings.language)):added?'已添加到计划':'添加到计划'}</button>`;
     }).join('');
     return buttons?`<div class="message-actions message-actions-below-bubble execution-plan-message-actions">${buttons}</div>`:'';
   }
@@ -53250,15 +53232,17 @@ function renderAddToPlanAction(message: Message, text: string, candidateOffset =
   syncExecutionPlansForCurrentAccount();
   const buttons = candidates.map((candidate, candidateIndex) => {
     candidateIndex += candidateOffset;
+    if (selectedCandidateIndex !== undefined && candidateIndex !== selectedCandidateIndex) return "";
     const key = executionPlanCandidateKey(message.conversation_id, message.id, candidateIndex);
     executionPlanCandidatesBySource.set(key, candidate);
     const sourcePlanKey = String(candidateIndex);
-    const alreadyAdded = state.executionPlans.some((plan) => (
+    const alreadyAdded = state.executionPlans.find((plan) => (
       (candidate.cloudReport && plan.id===candidate.cloudReport.planRecords[0]?.id) ||
       plan.sourceThreadId === message.conversation_id
       && plan.sourceMessageId === message.id
       && String(plan.sourcePlanKey || "0") === sourcePlanKey
     ));
+    const busy=alreadyAdded&&executionPlanAlertSyncBusyIds.has(alreadyAdded.id);
     const side = executionPlanBinanceMarketDetails({ content: candidate.content }).direction;
     const sideLabel = candidates.length > 1
       ? side === "LONG" ? "多头" : side === "SHORT" ? "空头" : `方案${candidateIndex + 1}`
@@ -53273,7 +53257,7 @@ function renderAddToPlanAction(message: Message, text: string, candidateOffset =
         data-execution-plan-message-id="${escapeAttr(message.id)}"
         data-execution-plan-index="${candidateIndex}"
         ${alreadyAdded ? 'disabled aria-disabled="true"' : ""}
-      >${alreadyAdded ? `已添加到计划${sideLabel ? `（${sideLabel}）` : ""}` : `添加到计划${sideLabel ? `（${sideLabel}）` : ""}`}</button>`;
+      >${busy ? escapeHtml(executionPlanActivationText('activating',state.settings.language)) : alreadyAdded ? `已添加到计划${sideLabel ? `（${sideLabel}）` : ""}` : `添加到计划${sideLabel ? `（${sideLabel}）` : ""}`}</button>`;
   }).join("");
   return `
     <div class="message-actions message-actions-below-bubble trading-preference-onboarding-actions execution-plan-message-actions">
@@ -61101,7 +61085,7 @@ function renderSettingsDialog() {
               <span>通用设置</span>
             </button>
             <button type="button" class="settings-nav-item ${activeTab === "trading" ? "active" : ""}" data-settings-tab="trading">
-              <svg class="settings-nav-icon settings-trading-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h7m4 0h5M4 17h3m4 0h9M11 4v6M7 14v6" /></svg>
+              <svg class="settings-nav-icon settings-trading-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z" /></svg>
               <span>交易偏好</span>
             </button>
             <button type="button" class="settings-nav-item ${activeTab === "about" ? "active" : ""}" data-settings-tab="about">
@@ -61109,19 +61093,19 @@ function renderSettingsDialog() {
               <span>关于&反馈</span>
             </button>
           </nav>
-          <button type="button" class="settings-referral-entry" data-action="settings-referrals">
-            <span class="settings-referral-entry-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M20 12v8H4v-8M2 7h20v5H2zM12 7v13M12 7H7.5A2.5 2.5 0 1 1 10 4.5L12 7Zm0 0h4.5A2.5 2.5 0 1 0 14 4.5L12 7Z" /></svg>
-            </span>
-            <span><strong>邀请有礼</strong><small>推广会员，获得 USDT 返佣</small></span>
-          </button>
-          <button type="button" class="settings-logout-button" data-action="logout" ${state.loggingOut ? "disabled" : ""}>
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M8.25 3.5H5.5A1.5 1.5 0 0 0 4 5v10a1.5 1.5 0 0 0 1.5 1.5h2.75" />
-              <path d="m11.5 6.75 3.25 3.25-3.25 3.25M14.5 10H8" />
-            </svg>
-            <span>${state.loggingOut ? "退出中..." : "退出登录"}</span>
-          </button>
+          <div class="settings-side-actions">
+            <button type="button" class="settings-referral-entry" data-action="settings-referrals" data-i18n-wrap>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12v8H4v-8M2 7h20v5H2zM12 7v13M12 7H7.5A2.5 2.5 0 1 1 10 4.5L12 7Zm0 0h4.5A2.5 2.5 0 1 0 14 4.5L12 7Z" /></svg>
+              <span>邀请有礼</span>
+            </button>
+            <button type="button" class="settings-logout-button" data-action="logout" ${state.loggingOut ? "disabled" : ""} data-i18n-wrap>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4" />
+                <path d="m16 8 4 4-4 4M20 12H10" />
+              </svg>
+              <span>${state.loggingOut ? "退出中..." : "退出登录"}</span>
+            </button>
+          </div>
         </aside>
         <section class="settings-main">
           <button type="button" class="settings-close-button" data-action="close-settings" aria-label="关闭">
@@ -62185,8 +62169,7 @@ function bindExecutionPlanEvents() {
       const action = actionButton.dataset.executionPlanAction;
       const planId = actionButton.dataset.executionPlanId || "";
       if (!planId) return;
-      if (action === "activate") void activateExecutionPlanReminder(planId);
-      else if (action === "reopen") void updateExecutionPlanLifecycle(planId, "pending");
+      if (action === "reopen") void updateExecutionPlanLifecycle(planId, "pending");
       else if (action === "open-end-menu") {
         state.executionPlanEndMenuId = state.executionPlanEndMenuId === planId ? null : planId;
         render();
@@ -67080,20 +67063,22 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
   const sourcePlanKey = button.dataset.executionPlanIndex || "0";
   if (!sourceThreadId || !sourceMessageId) return;
   syncExecutionPlansForCurrentAccount();
-  if (state.executionPlans.some((plan) => (
-    plan.sourceThreadId === sourceThreadId
+  const candidate = executionPlanCandidatesBySource.get(
+    executionPlanCandidateKey(sourceThreadId, sourceMessageId, Number(sourcePlanKey) || 0),
+  );
+  const existing = state.executionPlans.find((plan) => (
+    (candidate?.cloudReport && plan.id === candidate.cloudReport.planRecords[0]?.id)
+    || plan.sourceThreadId === sourceThreadId
     && plan.sourceMessageId === sourceMessageId
     && String(plan.sourcePlanKey || "0") === sourcePlanKey
-  ))) {
+  ));
+  if (existing) {
     button.disabled = true;
     button.setAttribute("aria-disabled", "true");
     button.textContent = "已添加到计划";
     showToast("该计划已经添加");
     return;
   }
-  const candidate = executionPlanCandidatesBySource.get(
-    executionPlanCandidateKey(sourceThreadId, sourceMessageId, Number(sourcePlanKey) || 0),
-  );
   if (!candidate) {
     showToast("暂时无法读取这条执行计划，请刷新后重试");
     return;
@@ -67109,8 +67094,10 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
   button.disabled = true;
   button.setAttribute("aria-disabled", "true");
   button.textContent = executionPlanActivationText('saving',state.settings.language);
+  const scope = state.executionPlansScope;
   try {
     const alertResult = await syncExecutionPlanLinkedAlert(plan,'save');
+    if (scope !== state.executionPlansScope) return;
     plan = alertResult.cloudPlan || { ...plan, linkedAlertId: alertResult.alertId };
     const nextPlans = [plan, ...state.executionPlans];
     if (!saveExecutionPlans(state.executionPlansScope, nextPlans)) {
@@ -67122,9 +67109,10 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
     state.executionPlanEndMenuId = null;
     button.textContent = `已添加到计划${candidate.content.includes("偏多") ? "（多头）" : candidate.content.includes("偏空") ? "（空头）" : ""}`;
     openExecutionPlansPage();
-    if (alertResult.warning) showToast("已添加到计划，入场预警正在等待行情重连", 5000);
+    if (executionPlanNeedsActivation(plan)) await activateExecutionPlanReminder(plan.id);
     else showToast("已添加到计划");
   } catch (error) {
+    if (scope !== state.executionPlansScope) return;
     button.disabled = false;
     button.removeAttribute("aria-disabled");
     const sideSuffix = candidate.content.includes("偏多") ? "（多头）" : candidate.content.includes("偏空") ? "（空头）" : "";
@@ -72670,10 +72658,22 @@ function openExecutionPlansPage() {
   void refreshCloudExecutionPlans();
 }
 
+const executionPlanAutoActivation=createExecutionPlanAutoActivator({
+  scope:()=>state.auth.authenticated&&state.executionPlansScope===currentExecutionPlanStorageScope()?state.executionPlansScope:null,
+  read:()=>state.executionPlans.filter(plan=>!plan.cloudReport||executionPlanCloudLoadedScope===state.executionPlansScope),
+  busy:id=>executionPlanAlertSyncBusyIds.has(id)||executionPlanDeleteBusyIds.has(id),
+  activate:id=>activateExecutionPlanReminder(id,true),
+  failure:(error,plan)=>{
+    const linked=state.executionPlans.find(item=>item.id===plan.id)?.linkedAlertId;
+    if (linked) showToast(`${plan.title}：${errorMessage(error)}`,5000);
+    if(plan.cloudReport)void refreshCloudExecutionPlans();
+  },
+});
+
 const refreshCloudExecutionPlans=createCloudPlanRefresher({
   scope:()=>api.tradingCloudPlans&&state.auth.authenticated?currentExecutionPlanStorageScope():null,
-  load:()=>api.tradingCloudPlans!('list'),read:()=>state.executionPlans,apply:plans=>{state.executionPlans=plans;},save:saveExecutionPlans,
-  changed:()=>{if(state.activeView==='plans')render();},
+  load:()=>api.tradingCloudPlans!('list'),read:()=>state.executionPlans,apply:plans=>{state.executionPlans=plans;executionPlanCloudLoadedScope=state.executionPlansScope;},save:saveExecutionPlans,
+  changed:()=>{if(state.activeView==='plans')render();void reconcileMissingExecutionPlanAlerts(state.executionPlansScope||'');},
   cacheFailure:()=>showToast(cloudPlanSyncMessage('cache',state.settings.language),5000),
   failure:error=>showToast(cloudPlanSyncMessage('failed',state.settings.language,errorMessage(error)),5000),
 });

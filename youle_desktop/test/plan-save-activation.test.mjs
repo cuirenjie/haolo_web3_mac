@@ -87,31 +87,33 @@ function savedFixture(locale='zh-CN',right=false) {
   return mergeCloudExecutionPlans([report],[])[0];
 }
 
-for(const language of ['zh-CN','en','zh-TW'])for(const right of [false,true])test(`saved cards and activation control survive cloud refresh and cache: ${language}/${right}`,()=>{
+for(const language of ['zh-CN','en','zh-TW'])for(const right of [false,true])test(`saved cards retain activation state without manual controls after refresh: ${language}/${right}`,()=>{
   const saved=savedFixture(language==='zh-TW'?'zh-Hant':language,right),data=new Map();
   const storage={getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value)};
   assert.equal(plans.saveExecutionPlans('owner',[saved],storage),true);
   const restored=plans.loadExecutionPlans('owner',storage)[0];
   assert.equal(plans.executionPlanNeedsActivation(restored),true);
-  assert.ok(renderCurrentSavedPlan(restored,language).includes(plans.executionPlanActivationText('inactive',language)));
+  const html=renderCurrentSavedPlan(restored,language);
+  assert.ok(!html.includes(plans.executionPlanActivationText('inactive',language)));
+  assert.doesNotMatch(html,/data-execution-plan-action=|execution-plan-card-status/);
   const deps={...plans,state:{settings:{language},executionPlanEndMenuId:null},escapeAttr:String,escapeHtml:String,
     executionPlanAlertSyncBusyIds:new Set(),executionPlanDeleteBusyIds:new Set(),renderExecutionPlanEndMenu:()=>''};
   const actions=rendererFunction('renderExecutionPlanActions',deps);
-  assert.match(actions(restored),/data-execution-plan-action="activate"/);
-  assert.ok(actions(restored).includes(plans.executionPlanActivationText('activate',language)));
+  assert.doesNotMatch(actions(restored),/data-execution-plan-action="activate"/);
+  assert.ok(!actions(restored).includes(plans.executionPlanActivationText('activate',language)));
   deps.executionPlanAlertSyncBusyIds.add(saved.id);assert.match(actions(restored),/disabled aria-disabled="true"/);
   assert.doesNotMatch(actions({...restored,linkedAlertId:'alert'}),/data-execution-plan-action="activate"/);
   assert.doesNotMatch(actions({...restored,status:'ended'}),/data-execution-plan-action="activate"/);
 });
 
-test('legacy local plans save without creating a reminder and keep manual activation on reload',async()=>{
+test('legacy save stays independent and old manual markers are handled by automatic reconciliation',async()=>{
   const card=cloudPlanCard(cloudPlanCardFixture()),local=plans.createSavedExecutionPlan({candidate:card,sourceThreadId:'thread',sourceMessageId:'message'});
   let calls=0;
   const sync=rendererFunction('syncExecutionPlanLinkedAlert',{...plans,api:{tradingAlertsSyncExecutionPlan:()=>{calls++;throw Error('unexpected activation');}}});
   assert.equal((await sync(local,'save')).alertId,null);
   assert.equal((await sync(local,'lifecycle')).alertId,null);assert.equal(calls,0);
   assert.equal(plans.executionPlanNeedsActivation(local),true);
-  assert.match(functionSource('reconcileMissingExecutionPlanAlerts'),/reminderActivation!==['"]manual['"]/);
+  assert.match(functionSource('reconcileMissingExecutionPlanAlerts'),/executionPlanAutoActivation\.reconcile\(\)/);
   assert.match(functionSource('executionPlanBinanceMonitoringNeeded'),/executionPlanNeedsActivation\(plan\)/);
   assert.match(functionSource('addExecutionPlanFromMessageAction'),/syncExecutionPlanLinkedAlert\(plan,'save'\)/);
 });
@@ -127,7 +129,7 @@ test('activation failure leaves the saved card in state and starts a cloud recon
   const activate=rendererFunction('activateExecutionPlanReminder',{...plans,state,executionPlanAlertSyncBusyIds:busy,executionPlanDeleteBusyIds:new Set(),render:()=>{},
     syncExecutionPlanLinkedAlert:async()=>{throw Error('LEFT_ZONE_ATTEMPT_LIMIT');},showToast:text=>toasts.push(text),errorMessage:e=>e.message,refreshCloudExecutionPlans:()=>{refreshed++;}});
   await activate(saved.id);assert.equal(state.executionPlans[0],saved);assert.equal(refreshed,1);assert.equal(busy.size,0);
-  assert.match(toasts[0],/plan remains saved.*LEFT_ZONE_ATTEMPT_LIMIT/);
+  assert.deepEqual(toasts,[], 'activation refusal is silent while the saved card is retained');
 });
 
 test('late activation response cannot write into another account cache',async()=>{
@@ -136,4 +138,47 @@ test('late activation response cannot write into another account cache',async()=
     syncExecutionPlanLinkedAlert:async()=>{state.executionPlansScope='B';state.executionPlans=[];return {cloudPlan:{...saved,linkedAlertId:'alert'}};},
     saveExecutionPlans:()=>assert.fail('must not cache in B'),showToast:()=>assert.fail('must not show A status in B')});
   await activate(saved.id);assert.deepEqual(state.executionPlans,[]);
+});
+
+test('automatic activation discards a late response after logout even before the storage scope changes',async()=>{
+  const saved=savedFixture(),state={auth:{authenticated:true},executionPlans:[saved],executionPlansScope:'A',settings:{language:'en'}};
+  const activate=rendererFunction('activateExecutionPlanReminder',{...plans,state,executionPlanAlertSyncBusyIds:new Set(),executionPlanDeleteBusyIds:new Set(),render:()=>{},
+    syncExecutionPlanLinkedAlert:async()=>{state.auth.authenticated=false;return {cloudPlan:{...saved,linkedAlertId:'alert'}};},
+    saveExecutionPlans:()=>assert.fail('must not write after logout'),showToast:()=>assert.fail('must not show a late result')});
+  await activate(saved.id,true);assert.equal(state.executionPlans[0].linkedAlertId,null);
+});
+
+for(const failure of [null,'save','activate','switch-account'])test(`Add automatically activates the saved version and preserves failures: ${failure||'success'}`,async()=>{
+  const saved=savedFixture(),candidate={...cloudPlanCard(saved.cloudReport),cloudReport:saved.cloudReport};
+  const state={executionPlans:[],executionPlansScope:'A',settings:{language:'en'}},calls=[],toasts=[],cached=[];
+  const deps={...plans,normalizeCloudReports,state,executionPlanCandidatesBySource:new Map([['candidate',candidate]]),
+    executionPlanCandidateKey:()=> 'candidate',syncExecutionPlansForCurrentAccount:()=>{},
+    executionPlanAlertSyncBusyIds:new Set(),executionPlanDeleteBusyIds:new Set(),render:()=>{},
+    openExecutionPlansPage:()=>{},showToast:text=>toasts.push(text),errorMessage:e=>e.message,
+    refreshCloudExecutionPlans:()=>{},saveExecutionPlans:(scope,values)=>{cached.push({scope,values});return true;},
+    api:{tradingCloudPlans:async(action,reference)=>{
+      calls.push({action,reference});
+      if(failure===action)throw Error(action==='save'?'SAVE_FAILED':'LEFT_ZONE_ATTEMPT_LIMIT');
+      if(failure==='switch-account'){state.executionPlansScope='B';state.executionPlans=[];}
+      return {ok:true,plan:{...saved.cloudReport.planRecords[0],version:action==='save'?2:3,
+        linkedAlertId:action==='activate'?'auto-alert':null}};
+    }}};
+  deps.syncExecutionPlanLinkedAlert=rendererFunction('syncExecutionPlanLinkedAlert',deps);
+  deps.activateExecutionPlanReminder=rendererFunction('activateExecutionPlanReminder',deps);
+  const add=rendererFunction('addExecutionPlanFromMessageAction',deps);
+  const button={dataset:{executionPlanThreadId:'thread',executionPlanMessageId:'message',executionPlanIndex:'0'},setAttribute(){},removeAttribute(){}};
+  await add(button);
+  if(failure==='save'||failure==='switch-account'){
+    assert.deepEqual(calls.map(c=>c.action),['save']);assert.equal(state.executionPlans.length,0);assert.equal(cached.length,0);
+  } else {
+    assert.deepEqual(calls.map(c=>c.action),['save','activate']);
+    assert.equal(calls[1].reference.version,2,'activation must use the saved version');
+    assert.equal(state.executionPlans.length,1);
+    assert.equal(state.executionPlans[0].linkedAlertId,failure==='activate'?null:'auto-alert');
+    assert.ok(cached.every(c=>c.scope==='A'));
+    if(failure==='activate')assert.ok(toasts.every(text=>!/plan remains saved|LEFT_ZONE_ATTEMPT_LIMIT/.test(text)));
+    await add(button);
+    assert.deepEqual(calls.map(c=>c.action),['save','activate'],
+      'duplicate Add is disabled; background reconciliation owns recovery');
+  }
 });
