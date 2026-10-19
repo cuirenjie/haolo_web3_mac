@@ -2206,7 +2206,7 @@ test("workflow canvas exposes model and agent creation that commits only after s
   assert.match(styles, /\.workflow-canvas-history-option:hover,[^}]*background:\s*var\(--surface-hover\)/s);
   assert.match(styles, /html\[data-theme="dark"\] \.workflow-canvas-history-submenu\s*\{[^}]*background:\s*rgba\(27, 30, 35, 0\.98\)/s);
   assert.match(styles, /html\[data-theme="dark"\] \.workflow-canvas-history-option:hover,[^}]*background:\s*rgba\(255, 255, 255, 0\.07\)/s);
-  assert.match(styles, /\.workflow-node-attachment-trigger:hover:not\(:disabled\)\s*\{[^}]*background:\s*rgba\(73, 91, 126, 0\.07\)/s);
+  assert.match(styles, /\.workflow-node-attachment-trigger:hover:not\(:disabled\)\s*\{[^}]*background:\s*rgba\(var\(--interaction-rgb\), 0\.07\)/s);
   assert.match(styles, /\.workflow-node-attachment-trigger\s*\{[^}]*display:\s*inline-flex;[^}]*width:\s*auto;[^}]*gap:\s*4px;[^}]*padding:\s*0 7px;[^}]*white-space:\s*nowrap;/s);
   assert.match(styles, /\.workflow-node-executor-picker select\s*\{[^}]*display:\s*none/s);
   assert.match(styles, /\.workflow-node-executor-picker \.chat-title-group-button\s*\{[^}]*max-width:\s*184px;[^}]*height:\s*28px;[^}]*gap:\s*3px;[^}]*padding:\s*0 6px/s);
@@ -2254,7 +2254,7 @@ test("workflow canvas exposes model and agent creation that commits only after s
   );
   assert.match(styles, /\.workflow-node-editor-section\.prompt\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent;[^}]*padding:\s*0;[^}]*box-shadow:\s*none/s);
   assert.match(styles, /\.workflow-node-prompt-control\s*\{[^}]*border:\s*1px solid rgba\(91, 109, 140, 0\.16\);[^}]*border-radius:\s*11px;[^}]*background:\s*transparent/s);
-  assert.match(styles, /\.workflow-node-prompt-control:focus-within\s*\{[^}]*border-color:\s*#6688dc;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/s);
+  assert.match(styles, /\.workflow-node-prompt-control:focus-within\s*\{[^}]*border-color:\s*var\(--interaction-accent\);[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/s);
   assert.match(styles, /\.workflow-node-prompt-toolbar\s*\{[^}]*padding:\s*0 8px 8px;/s);
   assert.match(styles, /\.workflow-node-prompt-field textarea\s*\{[^}]*min-height:\s*138px;[^}]*resize:\s*none;/s);
   assert.match(styles, /\.workflow-node-prompt-input-wrap\s*\{[^}]*min-height:\s*138px;/s);
@@ -2266,9 +2266,9 @@ test("workflow canvas exposes model and agent creation that commits only after s
   assert.match(styles, /\.workflow-node-prompt-highlight mark\s*\{[^}]*background:\s*rgba\(0, 136, 255, 0\.1\);[^}]*color:\s*transparent/s);
   assert.match(styles, /\.workflow-node-prompt-field \.workflow-node-prompt-input-wrap > textarea,[\s\S]*border:\s*0;[^}]*background:\s*transparent;[^}]*line-height:\s*normal;[^}]*caret-color:\s*currentColor;[^}]*caret-shape:\s*bar;[^}]*cursor:\s*text;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.workflow-node-attachment-trigger:hover:not\(:disabled\)\s*\{[^}]*background:\s*rgba\(255, 255, 255, 0\.07\)/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.workflow-node-executor-picker \.chat-title-group-button:hover,[\s\S]*background:\s*rgba\(129, 158, 193, 0\.09\)/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.workflow-node-executor-picker \.chat-title-group-button:hover,[\s\S]*background:\s*rgba\(var\(--interaction-rgb\), 0\.09\)/s);
   assert.match(styles, /html\[data-theme="dark"\] \.workflow-node-mention-popover,[\s\S]*html\[data-theme="dark"\] \.workflow-node-mention-submenu\s*\{[^}]*background:\s*rgba\(29, 32, 39, 0\.99\)/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.workflow-node-mention-root-item:hover:not\(:disabled\),[\s\S]*background:\s*rgba\(129, 158, 193, 0\.11\)/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.workflow-node-mention-root-item:hover:not\(:disabled\),[\s\S]*background:\s*rgba\(var\(--interaction-rgb\), 0\.11\)/s);
   assert.match(styles, /html\[data-theme="dark"\][\s\S]*\.workflow-node-mention-popover[\s\S]*\.composer-prompt-favorite-row\[role="option"\]:is\(:hover, \.active\)\s*\{[^}]*background:\s*var\(--selection-soft\)/s);
   assert.match(styles, /html\[data-theme="dark"\] \.workflow-node-editor-section\.prompt\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/s);
   assert.match(styles, /html\[data-theme="dark"\] \.workflow-node-prompt-control:focus-within\s*\{[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/s);
@@ -2477,7 +2477,7 @@ test("workflow canvas exposes editable composer connections to any visible node 
   assert.match(styles, /\.composer-workflow-port > i\s*\{[^}]*width:\s*7\.92px;[^}]*height:\s*7\.92px;[^}]*border:\s*2\.64px solid #f8faff;[^}]*background:\s*#a9b4c7;[^}]*pointer-events:\s*auto/s);
   assert.match(styles, /html\[data-theme="dark"\] \.cluster-workflow-shell\s*\{[^}]*--workflow-composer-connector-color:\s*#96b6dd/s);
   assert.match(styles, /html\[data-theme="dark"\] \.composer-workflow-port > i\s*\{\s*border-color:\s*#22252c;/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.composer-workflow-port:hover > i,[\s\S]*rgba\(137, 166, 255, 0\.72\)/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.composer-workflow-port:hover > i,[\s\S]*rgba\(var\(--interaction-rgb\), 0\.72\)/s);
 });
 
 test("terminal workflow restores exact composer entry connections from its frozen invocation metadata", async () => {

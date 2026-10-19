@@ -1,10 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TRADING_DRAWING_TOOLS, tradingDrawingSupportsSettings, tradingDrawingLabelGeometry, tradingDrawingLabelSpan, renderTradingDrawingLabel } from '../src/renderer/trading-expert-drawing.ts';
+import { TRADING_DRAWING_TOOLS, tradingDrawingSupportsSettings, tradingDrawingHidesLineNodes, tradingDrawingLabelGeometry, tradingDrawingLabelSpan, renderTradingDrawingLabel } from '../src/renderer/trading-expert-drawing.ts';
 import { drawingToWire, drawingFromWire } from '../src/renderer/manual-drawing-sync.ts';
 
 const bounds = { width: 800, height: 600 };
 const model = { id: 'label', tool: 'trend-line', symbol: 'BINANCE:FUTURES:BTCUSDT', text: '支撑 <b>', points: [{ time: 1700000000, price: 1300 }, { time: 1700010000, price: 1310 }] };
+
+test('line node policy preserves closed-shape adjustment handles', () => {
+  for (const tool of ['trend-line', 'ray', 'horizontal-line', 'arrow', 'curve', 'double-curve', 'multi-point-path', 'multi-point-polyline', 'path', 'polyline', 'brush', 'highlighter', 'pitchfork', 'parallel-channel', 'regression-trend', 'fib-retracement', 'fib-spiral', 'elliott-impulse', 'anchored-vwap', 'forecast']) {
+    assert.equal(tradingDrawingHidesLineNodes(tool), true, tool);
+  }
+  for (const tool of ['rectangle', 'rotated-rectangle', 'circle', 'ellipse', 'triangle', 'arc', 'arrow-up', 'arrow-down', 'sector', 'gann-box', 'long-position', 'price-range', 'fixed-range-volume', 'emoji']) {
+    assert.equal(tradingDrawingHidesLineNodes(tool), false, tool);
+  }
+});
+
+test('freehand and segmented line text uses the actual half-length point', () => {
+  const points = [{ x: 100, y: 100 }, { x: 400, y: 100 }, { x: 400, y: 500 }];
+  for (const tool of ['brush', 'highlighter', 'multi-point-path', 'multi-point-polyline', 'anchored-vwap']) {
+    const g = tradingDrawingLabelGeometry({ ...model, tool, textAlign: 'center', textVerticalAlign: 'middle' }, points, bounds);
+    assert.equal(g.x, 400, tool); assert.equal(g.y, 150, tool); assert.equal(g.angle, 90, tool);
+  }
+});
+
+test('channel center labels sit between the two edges', () => {
+  const points = [{ x: 100, y: 100 }, { x: 500, y: 300 }, { x: 500, y: 400 }];
+  const g = tradingDrawingLabelGeometry({ ...model, tool: 'parallel-channel', textAlign: 'center', textVerticalAlign: 'middle' }, points, bounds);
+  assert.equal(g.x, 300); assert.equal(g.y, 250);
+  assert.equal(g.angle, Math.atan2(200, 400) * 180 / Math.PI);
+});
 
 test('every geometric tool supports labels, while text and symbol tools retain their own editors', () => {
   for (const definition of TRADING_DRAWING_TOOLS) {
@@ -39,7 +63,7 @@ test('sloping line labels align relative to the visible line, independent of end
 test('ray labels follow clipped ray direction and vertical labels follow their line', () => {
   const span = tradingDrawingLabelSpan({ ...model, tool: 'ray' }, [{ x: 400, y: 200 }, { x: 300, y: 100 }], bounds);
   assert.deepEqual(span, [{ x: 200, y: 0 }, { x: 400, y: 200 }]);
-  const g = tradingDrawingLabelGeometry({ ...model, tool: 'vertical-line' }, [{ x: 600, y: 200 }], bounds);
+  const g = tradingDrawingLabelGeometry({ ...model, tool: 'vertical-line', textVerticalAlign: 'middle' }, [{ x: 600, y: 200 }], bounds);
   assert.equal(g.x, 600); assert.equal(g.top + g.layout.height / 2, 300);
   assert.equal(tradingDrawingLabelGeometry(model, [{ x: -200, y: 100 }, { x: -100, y: 200 }], bounds), null);
   assert.equal(tradingDrawingLabelGeometry({ ...model, text: '' }, [{ x: 100, y: 100 }, { x: 500, y: 300 }], bounds), null);
@@ -85,5 +109,21 @@ test('path labels follow the segment beneath them and curve labels follow the lo
   for(const tool of ['arc','curve','double-curve']) {
     const g=tradingDrawingLabelGeometry({...model,tool},[points[0],points[2]],bounds);
     assert.ok(Math.abs(g.angle-Math.atan2(200,600)*180/Math.PI)<1e-9,tool);
+  }
+});
+
+test('default labels sit above the local slope and all nine alignments preserve that local frame', () => {
+  for (const points of [[{ x: 100, y: 100 }, { x: 700, y: 400 }], [{ x: 100, y: 500 }, { x: 700, y: 100 }]]) {
+    const defaultLabel = tradingDrawingLabelGeometry(model, points, bounds);
+    assert.deepEqual(defaultLabel, tradingDrawingLabelGeometry({ ...model, textAlign: 'center', textVerticalAlign: 'top' }, points, bounds));
+    for (const textAlign of ['left', 'center', 'right']) for (const textVerticalAlign of ['top', 'middle', 'bottom']) {
+      const drawing = { ...model, textAlign, textVerticalAlign };
+      const g = tradingDrawingLabelGeometry(drawing, points, bounds);
+      assert.deepEqual(g, tradingDrawingLabelGeometry(drawing, points.toReversed(), bounds));
+      assert.ok(Math.abs(g.left - g.x - { left: 0, center: -g.layout.width / 2, right: -g.layout.width }[textAlign]) < 1e-9);
+      if (textVerticalAlign === 'top') assert.ok(Math.abs(g.top + g.layout.height - g.y + 6) < 1e-9);
+      if (textVerticalAlign === 'middle') assert.equal(g.top + g.layout.height / 2, g.y);
+      if (textVerticalAlign === 'bottom') assert.equal(g.top - g.y, 6);
+    }
   }
 });

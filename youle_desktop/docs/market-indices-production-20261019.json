@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-10-19T10:35:47.729Z",
+  "sourceCommit": "0fcd83d731bc6432cdd501bc0c9b6f8bbde3df54",
+  "endpoint": "/api/market-data/indices",
+  "count": 450,
+  "validQuotes": 209,
+  "priorityReady": 9,
+  "desktopAdapter": true,
+  "catalogueCache": true,
+  "neutralFields": true,
+  "requests": 2,
+  "retiredBusiness": {
+    "search": 410,
+    "quotes": 410,
+    "snapshot": 410,
+    "candles": 410
+  }
+}

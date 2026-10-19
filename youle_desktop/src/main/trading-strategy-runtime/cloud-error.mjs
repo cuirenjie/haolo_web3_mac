@@ -1,4 +1,10 @@
 const messages = {
+  LEFT_DUAL_NOT_ENABLED: ['两套裸K左侧方案尚未启用，当前不能激活新计划。','The two Price Action left-side setups are not enabled; new plans cannot be activated.','兩套裸K左側方案尚未啟用，目前不能啟用新計畫。'],
+  LEFT_DUPLICATE_MARKET_PLAN: ['该交易对已有待执行或执行中的左侧计划，请先处理现有计划。','This market already has a pending or active left-side plan. Resolve it first.','該交易對已有待執行或執行中的左側計畫，請先處理現有計畫。'],
+  LEFT_ZONE_ATTEMPT_LIMIT: ['该区域已达到左侧尝试次数限制，请等待新的有效结构。','This zone has reached its left-side attempt limit. Wait for a new valid structure.','該區域已達到左側嘗試次數限制，請等待新的有效結構。'],
+  LEFT_OPEN_RISK_BUDGET: ['现有左侧计划已达到同时承担风险的上限。','Existing left-side plans have reached the concurrent risk limit.','現有左側計畫已達到同時承擔風險的上限。'],
+  LEFT_DAILY_RISK_BUDGET: ['今天的左侧计划风险预算已用完，取消计划不会恢复预算。','Today’s left-side risk budget is exhausted. Cancelling a plan does not restore it.','今天的左側計畫風險預算已用完，取消計畫不會恢復預算。'],
+  LEFT_PLAN_ALREADY_USED: ['此左侧计划已使用，请重新分析，不要重复激活。','This left-side plan has already been used. Reanalyse instead of reactivating it.','此左側計畫已使用，請重新分析，不要重複啟用。'],
   ORDER_FLOW_DATA_UNAVAILABLE: ['订单流成交或盘口数据暂不可用，请稍后重试。','Order flow trades or depth data are unavailable. Please try again later.','訂單流成交或訂單簿資料暫不可用，請稍後重試。'],
   ORDER_FLOW_MARKET_UNSUPPORTED: ['订单流分析仅支持币安永续市场，请切换市场后重试。','Order flow analysis requires a Binance perpetual market. Switch markets and try again.','訂單流分析僅支援幣安永續市場，請切換市場後重試。'],
   CLOUD_HISTORY_REQUIREMENTS_INVALID: ['云端行情要求与当前客户端不兼容，请更新客户端或稍后重试。','Cloud history requirements are incompatible with this client. Update the client or try again later.','雲端行情要求與目前客戶端不相容，請更新客戶端或稍後重試。'],

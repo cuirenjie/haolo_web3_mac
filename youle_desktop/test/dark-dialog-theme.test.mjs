@@ -21,18 +21,18 @@ test("dark dialog fields and composite controls share the marker-dialog treatmen
 
   assert.match(styles, /html\[data-theme="dark"\] \.thread-group-dialog input,[\s\S]*?\.auto-task-input-wrap textarea\s*\{[\s\S]*?border: 1px solid var\(--dialog-field-border\)/);
   assert.match(styles, /html\[data-theme="dark"\] \.thread-group-select-button,[\s\S]*?\.auto-task-picker-trigger\.active\s*\{[\s\S]*?background: var\(--dialog-field\)/);
-  assert.match(styles, /html\[data-theme="dark"\] \.add-friend-search-form:focus-within\s*\{[\s\S]*?border-color: #5b9dff;[\s\S]*?box-shadow: none/);
+  assert.match(styles, /html\[data-theme="dark"\] \.add-friend-search-form:focus-within\s*\{[\s\S]*?border-color: var\(--interaction-accent\);[\s\S]*?box-shadow: none/);
   assert.match(styles, /html\[data-theme="dark"\] dialog\[open\] input:focus-visible,[\s\S]*?textarea:focus-visible\s*\{[\s\S]*?outline: 0/);
 });
 
-test("dark dialog focus uses one blue border without stacked rings", async () => {
+test("dark dialog focus uses one neutral border without stacked rings", async () => {
   const styles = await stylesSource;
   const unifiedStart = styles.indexOf("/* Unified dark dialogs:");
   const unifiedStyles = styles.slice(unifiedStart);
 
   assert.notEqual(unifiedStart, -1);
-  assert.match(unifiedStyles, /\.auto-task-input-wrap textarea:focus\s*\{[\s\S]*?border-color: #5b9dff;[\s\S]*?box-shadow: none/);
-  assert.match(unifiedStyles, /\.auto-task-picker-trigger\.active\s*\{[\s\S]*?border-color: #5b9dff;[\s\S]*?box-shadow: none/);
+  assert.match(unifiedStyles, /\.auto-task-input-wrap textarea:focus\s*\{[\s\S]*?border-color: var\(--interaction-accent\);[\s\S]*?box-shadow: none/);
+  assert.match(unifiedStyles, /\.auto-task-picker-trigger\.active\s*\{[\s\S]*?border-color: var\(--interaction-accent\);[\s\S]*?box-shadow: none/);
   assert.doesNotMatch(
     unifiedStyles,
     /dialog\[open\] input:focus-visible,[^{]*\{[^}]*outline: 2px solid/,

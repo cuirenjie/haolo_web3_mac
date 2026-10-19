@@ -232,7 +232,7 @@ test("custom markers require exactly two characters and persist per thread", asy
   );
   assert.match(
     styles,
-    /html\[data-theme="dark"\] \.thread-marker-dialog #threadMarkerNameInput:focus\s*\{[\s\S]*?border-color: #5b9dff/,
+    /html\[data-theme="dark"\] \.thread-marker-dialog #threadMarkerNameInput:focus\s*\{[\s\S]*?border-color: var\(--interaction-accent\)/,
   );
   assert.match(
     styles,

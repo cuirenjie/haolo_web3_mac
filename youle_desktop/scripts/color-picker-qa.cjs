@@ -1,0 +1,65 @@
+const { app, BrowserWindow } = require('electron');
+const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
+const root=path.resolve(__dirname,'..'), output=path.join(root,'.cache','color-picker-qa');
+fs.mkdirSync(output,{recursive:true});app.setPath('userData',path.join(output,'profile'));app.disableHardwareAcceleration();
+let win;
+(async()=>{
+ await app.whenReady();win=new BrowserWindow({show:false,width:1400,height:950,webPreferences:{offscreen:true,backgroundThrottling:false}});
+ const js=code=>win.webContents.executeJavaScript(code,true), pause=ms=>new Promise(r=>setTimeout(r,ms));
+ const settle=async()=>{await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');await pause(50)};
+ const click=async selector=>{const p=await js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing '+${JSON.stringify(selector)});const r=e.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()`);win.webContents.sendInputEvent({type:'mouseDown',...p,button:'left',clickCount:1});win.webContents.sendInputEvent({type:'mouseUp',...p,button:'left',clickCount:1});await settle()};
+ const input=async(selector,value)=>{await js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('input',{bubbles:true}))})()`);await settle()};
+ const shot=async name=>fs.writeFileSync(path.join(output,name+'.png'),(await win.webContents.capturePage()).toPNG());
+ await win.loadURL(`http://127.0.0.1:${process.env.HAOLO_QA_PORT || 5196}/@fs/${path.join(root,'test/fixtures/trading-chart-navigation.html').replaceAll('\\','/')}`);
+ for(let i=0;i<120&&!await js('Boolean(window.ready)');i++) await pause(100);
+ assert.equal(await js('Boolean(window.ready)'),true,await js('String(window.qaError)'));
+ await js(`(async()=>{document.querySelector('#host').style.cssText='width:100%;height:100%';window.d=workspace.drawingController;workspace.loadingHistory=true;window.cp=await import('/color-picker.ts');window.lang=await import('/app-language.mjs');lang.observeAppLanguage(document.body);localStorage.removeItem(cp.CUSTOM_COLORS_KEY);d.drawings=[{id:'color-qa',tool:'trend-line',symbol:d.getSymbol(),interval:d.getInterval(),points:[{time:workspace.candles.at(-100).time,price:1330},{time:workspace.candles.at(-40).time,price:1305}],color:'#2962ff'}];d.selectDrawing('color-qa')})()`);await settle();
+ await click('[data-drawing-selection-action="toggle-color"]');
+ assert.equal(await js('document.querySelectorAll("[data-color-presets] button").length'),80);
+ await shot('palette-light');
+ await pause(3200);assert.equal(await js('document.querySelector(".haolo-color-picker")?.matches(":popover-open")'),true);
+ await input('[data-color-percent]','50');
+ assert.equal(await js('d.drawings[0].color'),'#2962ff80');
+ await click('[data-color-add]');await input('[data-color-hex]','#12ab34');
+ await shot('custom-light');await click('[data-color-save]');
+ assert.equal(await js('d.drawings[0].color'),'#12ab3480');
+ assert.deepEqual(await js('JSON.parse(localStorage.getItem(cp.CUSTOM_COLORS_KEY))'),['#12ab34']);
+ await click('[data-color-add]');await input('[data-color-hex]','#bad');
+ assert.equal(await js('document.querySelector("[data-color-save]").disabled'),true);
+ await click('[data-color-back]');assert.equal(await js('d.drawings[0].color'),'#12ab3480');
+ await js('cp.closeColorPicker()');await click('[data-horizontal-line-settings]');
+ await click('[name="color"]');assert.equal(await js('document.querySelector("[data-color-percent]").value'),'50');
+ await click('[data-color-swatch="#f23645"]');await input('[data-color-percent]','25');
+ // Escape closes the topmost color panel, preserving the outer draft.
+ win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});await settle();
+ assert.equal(await js('document.querySelector(".trading-horizontal-line-dialog").open'),true);
+ await click('.trading-horizontal-line-dialog footer [data-line-cancel]');assert.equal(await js('d.drawings[0].color'),'#12ab3480');
+ await click('[data-horizontal-line-settings]');await click('[data-line-tab="text"]');await click('[name="textColor"]');
+ assert.equal(await js('document.querySelectorAll("[data-color-custom] button").length'),1);
+ await click('[data-color-swatch="#12ab34"]');await input('[data-color-percent]','0');await js('cp.closeColorPicker()');await click('.trading-horizontal-line-dialog [type="submit"]');
+ assert.equal(await js('d.drawings[0].textColor'),'#12ab3400');
+ await js(`workspace.setChartSettingsOpen(true);workspace.setChartSettingsTab('main-style')`);await settle();
+ await click('[data-chart-settings-panel="main-style"] [data-chart-setting="risingColor"]');
+ await input('[data-color-percent]','50');await click('[data-color-swatch="#2962ff"]');
+ assert.equal(await js('workspace.chartSettings.risingColor'),'#2962FF80');
+ await js(`cp.closeColorPicker();workspace.setChartSettingsTab('background')`);await settle();
+ await click('[data-chart-setting="theme.verticalGridColor"]');await input('[data-color-percent]','25');
+ assert.equal(await js('workspace.chartSettings.themes.light.verticalGridColor.slice(-2)'),'40');
+ await js(`cp.closeColorPicker();workspace.setChartSettingsOpen(false);workspace.setIndicatorEditorOpen(true)`);await settle();
+ await click('[data-market-indicator-series-color]');await input('[data-color-percent]','50');await click('[data-color-swatch="#12ab34"]');
+ assert.equal(await js('document.querySelector("[data-market-indicator-series-color]").value'),'#12ab3480');
+ assert.equal(await js('Object.values(workspace.draftIndicatorSettings[workspace.selectedIndicatorSettingKey].series)[0].color'),'#12ab3480');
+ await js(`cp.closeColorPicker();workspace.setIndicatorEditorOpen(false)`);
+ // Reuse the component at the viewport edge and audit every locale/theme.
+ await js(`(async()=>{const settings=await import('/trading-expert-chart-settings.ts');window.fixture=document.createElement('div');fixture.style.cssText='position:fixed;left:20px;top:20px;z-index:1000';fixture.innerHTML=cp.colorPickerInput('#2962ff80','aria-label="test color"');document.body.append(fixture)})()`);
+ for(const theme of ['light','dark']) for(const language of ['zh-CN','en','zh-TW']) {
+  await js(`document.documentElement.dataset.theme='${theme}';lang.applyAppLanguage('${language}',{root:document.body})`);
+  await click('[aria-label="test color"]');await settle();await shot('palette-'+theme+'-'+language);
+  const box=await js(`(()=>{const r=document.querySelector('.haolo-color-picker').getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom}})()`);
+  assert.ok(box.x>=0&&box.y>=0&&box.right<=1400&&box.bottom<=950);
+  await js('cp.closeColorPicker()');
+ }
+ await js('fixture.remove();d.destroy()');assert.equal(await js('document.querySelector(".haolo-color-picker")'),null);
+ fs.writeFileSync(path.join(output,'result.json'),JSON.stringify({result:'PASS',presets:80,custom:true,opacity:true,cancel:true,locales:3,themes:2}));
+ console.log('PASS: color picker palette, custom storage, alpha, modal cancellation, themes and languages');app.exit(0);
+})().catch(e=>{console.error(e);app.exit(1)});

@@ -3356,6 +3356,34 @@ export class YouleApiClient {
     });
   }
 
+  async getMarketIndices() {
+    await this.load();
+    this.requireAuth();
+    return this.requestJson(joinUrl(this.baseUrl, "/api/market-data/indices"), {
+      method: "GET",
+      headers: this.clientHeaders({ auth: true }),
+      timeoutMs: 45_000,
+      timeoutMessage: "指数服务响应超时",
+    });
+  }
+
+  async getIndexChart(params = {}) {
+    await this.load();
+    this.requireAuth();
+    const id = String(params.indexId || "");
+    if (!/^index:[a-z0-9-]{1,64}$/.test(id)) throw new Error("INVALID_INDEX");
+    const period = params.period;
+    if (period !== undefined && !["1m", "5m", "15m", "1h", "4h", "1d", "1w"].includes(period)) throw new Error("INVALID_PERIOD");
+    if (params.before !== undefined && (!Number.isSafeInteger(params.before) || params.before <= 1)) throw new Error("INVALID_CURSOR");
+    const url = appendQuery(`/api/market-data/indices/${encodeURIComponent(id)}/${period ? "candles" : "chart"}`, {
+      period, before: params.before, limit: period ? 300 : undefined,
+    });
+    return this.requestJson(joinUrl(this.baseUrl, url), {
+      method: "GET", headers: this.clientHeaders({ auth: true }), timeoutMs: 65_000,
+      timeoutMessage: "INDEX_CHART_UNAVAILABLE",
+    });
+  }
+
   async searchFinnhubMarkets(params = {}) {
     await this.load();
     this.requireAuth();

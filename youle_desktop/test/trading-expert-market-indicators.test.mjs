@@ -941,6 +941,7 @@ test("Binance TradFi perpetual contracts are catalogued with their underlying ca
     { id: "crypto", label: "加密货币" },
     { id: "commodity", label: "大宗商品" },
     { id: "stock", label: "美股" },
+    { id: "index", label: "指数" },
   ]);
   const originalWindow = globalThis.window;
   globalThis.window = {

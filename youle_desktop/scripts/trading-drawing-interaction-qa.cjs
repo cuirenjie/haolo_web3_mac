@@ -109,6 +109,55 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     d.drawings=[];d.selectedDrawingId=null;d.redraw();w.chartNavigation.reset();await settle();
     const event=(type,x,y,target=d.overlay)=>{const r=d.chartElement.getBoundingClientRect();const e=new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:42,isPrimary:true,button:0,buttons:type==='pointerup'?0:1,clientX:r.left+x,clientY:r.top+y});target.dispatchEvent(e);return e};
     const close=(a,b)=>Math.abs(a-b)<0.01;
+    for(const cursor of ['crosshair','cursor'])for(const stay of [false,true])for(const tool of ['trend-line','parallel-channel','multi-point-path','multi-point-polyline']){
+      d.selectTool(cursor);d.stayInDrawingMode=stay;
+      const selectTool=()=>d.toolbar.querySelector('[data-drawing-action="select-tool"][data-drawing-tool="'+tool+'"]').click();
+      selectTool();event('pointerdown',160,160);event('pointerup',160,160);
+      event('pointermove',260,220);await settle();
+      const draftId=d.draft?.id,label=tool+'/'+cursor+'/stay='+stay;
+      check(!!draftId&&!!d.content.querySelector('[data-drawing-id="'+draftId+'"]'),'first endpoint displays preview '+label);
+      // Cancel while another preview update is queued, before the next frame.
+      event('pointermove',280,240);
+      const r=d.chartElement.getBoundingClientRect();
+      const cancel=new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:r.left+280,clientY:r.top+240});
+      d.overlay.dispatchEvent(cancel);await settle();
+      check(cancel.defaultPrevented&&!d.draft&&!d.content.querySelector('[data-drawing-id="'+draftId+'"]'),'right click removes draft '+label);
+      check(d.activeTool===cursor&&!d.overlay.classList.contains('drawing-active')
+        &&d.host.dataset.drawingCursor===cursor&&d.overlay.dataset.drawingTool===cursor
+        &&!d.toolbar.querySelector('[data-drawing-action="select-tool"][data-drawing-tool="'+tool+'"]').classList.contains('active'),
+        'right click exits drawing mode '+label);
+      event('pointermove',300,250);event('pointerdown',300,250);event('pointerup',300,250);await settle();
+      check(!d.draft&&d.drawings.length===0,'chart click cannot restart cancelled tool '+label);
+      selectTool();event('pointerdown',160,160);event('pointerup',160,160);
+      event('pointermove',260,220);await settle();
+      check(d.draft?.tool===tool&&d.overlay.classList.contains('drawing-active'),'toolbar explicitly restarts drawing '+label);
+      d.selectTool(cursor);
+    }
+    for(const stay of [false,true])for(const [tool,count] of [['triangle',2],['xabcd',4],['multi-point-path',3],['multi-point-polyline',3]]){
+      d.selectTool('crosshair');d.stayInDrawingMode=stay;d.selectTool(tool);
+      for(let i=0;i<count;i++){event('pointerdown',160+i*60,160+i*20);event('pointerup',160+i*60,160+i*20);}
+      check(d.draft?.tool===tool&&d.draftConfirmedPointCount===count,'multi-point draft is ready '+tool+'/stay='+stay);
+      const confirmed=JSON.stringify(d.draft.points.slice(0,count)),label=tool+'/stay='+stay;
+      for(let remaining=count-1;remaining>=0;remaining--){
+        event('pointermove',460,300);
+        const r=d.chartElement.getBoundingClientRect();
+        d.overlay.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2,clientX:r.left+460,clientY:r.top+300}));
+        await settle();
+        check(d.drawings.length===0,'right click never commits a partial drawing '+label+'/'+remaining);
+        if(remaining){
+          check(d.draftConfirmedPointCount===remaining&&d.activeTool===tool&&d.overlay.classList.contains('drawing-active')
+            &&JSON.stringify(d.draft.points.slice(0,remaining))===JSON.stringify(JSON.parse(confirmed).slice(0,remaining)),
+            'right click retains earlier endpoints and drawing mode '+label+'/'+remaining);
+          event('pointermove',420,280);await settle();
+          check(close(d.pointToScreen(d.draft.points[remaining]).x,420),'remaining preview still follows pointer '+label+'/'+remaining);
+        }else{
+          check(!d.draft&&d.activeTool==='crosshair'&&!d.overlay.classList.contains('drawing-active'),'last endpoint cancellation exits drawing '+label);
+          event('pointerdown',300,240);event('pointerup',300,240);await settle();
+          check(!d.draft&&d.drawings.length===0,'fully cancelled multi-point tool stays inactive '+label);
+        }
+      }
+    }
+    d.stayInDrawingMode=false;
     d.selectTool('trend-line');event('pointerdown',160,160);event('pointerup',160,160);
     const old=d.draft.points[1];for(let i=0;i<100;i++)event('pointermove',200+i,210);
     check(d.pendingPointerMoves.length===1&&d.draft.points[1]===old,'100 moves coalesce before paint');

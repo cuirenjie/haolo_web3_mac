@@ -2,6 +2,7 @@ import type { AutoscaleInfoProvider, IChartApi, IPaneApi, IPriceScaleApi, Time }
 import { translateAppText } from "./app-language.mjs";
 import { beginTradingChartInteraction, endTradingChartInteraction } from "./trading-chart-interaction.ts";
 import { withTradingChartSeriesBatch } from './trading-chart-series-data.ts';
+import { rangeMeasurement } from './trading-range-tools.ts';
 
 /** Native gestures own axes, drag and pinch; wheel zoom uses the same bounds as buttons. */
 export const TRADING_CHART_NAVIGATION_OPTIONS = {
@@ -304,7 +305,15 @@ export class TradingChartNavigation {
       const label = document.createElement("div");
       overlay.className = kind === "zoom" ? "trading-chart-zoom-selection" : "trading-chart-measurement";
       label.className = "trading-chart-measurement-label";
+      label.dataset.i18nSkip = "";
       overlay.append(label);
+      if (kind === "measure") {
+        for (const direction of ["horizontal", "vertical"]) {
+          const arrow = document.createElement("span");
+          arrow.className = `trading-chart-measurement-${direction}`;
+          overlay.append(arrow);
+        }
+      }
       this.selection = { pane: plot, element: overlay, label, kind, autoScale: scale.options().autoScale,
         awaitingClick: false, start: { x: event.clientX, y: event.clientY }, end: { x: event.clientX, y: event.clientY },
         bounds: { left: bounds.left + chart.priceScale("left", plot.paneIndex()).width(),
@@ -395,7 +404,6 @@ export class TradingChartNavigation {
     const from = ts.coordinateToLogical(s.start.x - b.left);
     const to = ts.coordinateToLogical(s.end.x - b.left);
     if (start == null || end == null || from == null || to == null) return;
-    const delta = end - start, percent = start ? delta / Math.abs(start) * 100 : 0;
     const count = Math.round(to) - Math.round(from);
     const candles = this.options.getCandles?.() ?? [];
     const secondsPerBar = candles.length > 1 ? candles[1].time - candles[0].time : 0;
@@ -403,16 +411,23 @@ export class TradingChartNavigation {
       const rounded = Math.round(index), bounded = Math.max(0, Math.min(candles.length - 1, rounded));
       return (candles[bounded]?.time ?? 0) + (rounded - bounded) * secondsPerBar;
     };
-    const seconds = timeAt(to) - timeAt(from);
-    const duration = Math.abs(seconds) >= 86400 ? `${(seconds / 86400).toFixed(1)}d`
-      : Math.abs(seconds) >= 3600 ? `${(seconds / 3600).toFixed(1)}h` : `${Math.round(seconds / 60)}m`;
-    const volume = candles.slice(Math.max(0, Math.min(Math.round(from), Math.round(to))), Math.max(0, Math.max(Math.round(from), Math.round(to)) + 1))
-      .reduce((sum, candle) => sum + (candle.volume ?? 0), 0);
-    s.label.textContent = `${delta >= 0 ? "+" : ""}${Number(delta.toPrecision(7))} (${percent.toFixed(2)}%)\n${count} ${translateAppText("根 K 线")} · ${duration}${volume ? `\nVol ${volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : ""}`;
-    s.element.classList.toggle("negative", delta < 0);
-    // Keep the measurement card inside the chart, including reversed drags.
-    s.label.style.transform = rect.left + 200 > b.right ? "translateX(calc(-100% + 16px))" : "none";
-    s.label.style.top = rect.top - b.top > 80 ? "-72px" : "4px";
+    const format = series!.options().priceFormat;
+    const measurement = rangeMeasurement({
+      start: { time: timeAt(from), price: start }, end: { time: timeAt(to), price: end },
+      candles, bars: count, precision: format && 'precision' in format ? format.precision ?? 2 : 2, minMove: format?.minMove ?? .01,
+    });
+    s.label.textContent = [measurement.priceText, measurement.dateText, measurement.volumeText].join("\n");
+    s.element.classList.toggle("negative", measurement.delta < 0);
+    s.element.classList.toggle("backwards", s.end.x < s.start.x);
+    const downward = s.end.y > s.start.y;
+    s.element.classList.toggle("downward", downward);
+    // Center the card outside the destination edge; clamp within this pane only.
+    // Small split panes scale the complete card instead of clipping its three rows.
+    const scale = Math.max(0, Math.min(1, (b.right - b.left - 8) / s.label.offsetWidth, (b.bottom - b.top - 8) / s.label.offsetHeight));
+    const width = s.label.offsetWidth * scale, height = s.label.offsetHeight * scale;
+    const x = Math.max(b.left + 4, Math.min(b.right - width - 4, rect.left + (rect.width - width) / 2));
+    const y = Math.max(b.top + 4, Math.min(b.bottom - height - 4, downward ? rect.top + rect.height + 15 : rect.top - height - 15));
+    Object.assign(s.label.style, { left: `${x - rect.left}px`, top: `${y - rect.top}px`, transform: `scale(${scale})` });
   }
 
   private selectionRect() {
@@ -766,7 +781,8 @@ export class TradingChartNavigation {
     this.consume(event); this.setTool(null); this.activePane = pane.paneIndex();
     this.options.onFocus?.(this.activePane);
     const menu = document.createElement("div"); menu.className = "trading-chart-navigation-menu"; menu.setAttribute("role", "menu");
-    const actions = [["reset", "重置图表（Alt + R）"], ["auto", this.activePane === 0 ? "自动适配主图价格" : "自动适配副图"]];
+    const actions = [["reset", "重置图表（Alt + R）"]];
+    if (this.activePane !== 0) actions.push(["auto", "自动适配副图"]);
     if (this.activePane === 0) actions.push(["log", "对数坐标（Alt + L）"], ["percent", "百分比坐标（Alt + P）"]);
     actions.push(["invert", "反转坐标（Alt + I）"]);
     for (const [action, label] of actions) {
@@ -792,6 +808,14 @@ export class TradingChartNavigation {
 
   private closeMenu() { this.menu?.remove(); this.menu = null; }
   private readonly outsidePointerDown = (event: PointerEvent) => {
+    const action = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-drawing-action]') : null;
+    if (action && (action.dataset.drawingAction === 'measure' || action.dataset.drawingAction === 'zoom-in')
+      && action.closest('[data-drawing-toolbar]')
+      && this.element.closest('[data-trading-market-workspace]')?.contains(action)) {
+      // The shared toolbar sits outside the chart root. Preserve the armed tool
+      // until click decides whether to cancel it or switch to the other tool.
+      return;
+    }
     if (event.target instanceof Node && !this.root.contains(event.target)) { this.cancelGesture(); if (this.tool) this.setTool(null); }
   };
 

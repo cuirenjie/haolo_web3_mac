@@ -1,10 +1,13 @@
 // Run with Electron while this checkout's Vite server listens on 127.0.0.1:5183.
+// Add --volume to exercise the same settings and rendering contract for VOLUME.
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '..');
-const output = path.join(root, '.cache', 'macd-hollow');
+const study = process.argv.includes('--volume') ? 'volume' : 'macd';
+const seriesKey = study === 'volume' ? 'volume' : 'histogram';
+const output = path.join(root, '.cache', `${study}-hollow`);
 fs.mkdirSync(output, { recursive: true });
 app.setPath('userData', path.join(output, 'profile'));
 app.disableHardwareAcceleration();
@@ -14,7 +17,10 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   await app.whenReady();
   const win = new BrowserWindow({ show: false, width: 1200, height: 900,
     webPreferences: { offscreen: true, backgroundThrottling: false } });
-  const js = code => win.webContents.executeJavaScript(code, true);
+  const js = async code => {
+    try { return await win.webContents.executeJavaScript(code, true); }
+    catch (error) { console.error('Fixture script failed:', code); throw error; }
+  };
   const settle = async () => { await pause(80); await js('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))'); };
   const screenshot = async name => fs.promises.writeFile(path.join(output, `${name}.png`), (await win.webContents.capturePage()).toPNG());
   const fixture = `http://127.0.0.1:5183/@fs/${path.join(root, 'test/fixtures/trading-chart-navigation.html').replaceAll('\\', '/')}`;
@@ -26,7 +32,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     await settle();
   };
   const openEditor = async () => {
-    await js("workspace.selectedIndicatorSettingKey='sub:macd';workspace.setIndicatorEditorOpen(true)");
+    await js(`workspace.selectedIndicatorSettingKey='sub:${study}';workspace.setIndicatorEditorOpen(true)`);
     await settle();
   };
   const selectStyle = async style => {
@@ -39,8 +45,8 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     await settle();
   };
   const action = async name => { await js(`workspace.host.querySelector('[data-market-action="${name}"]').click()`); await settle(); };
-  const style = () => js("workspace.indicatorSettings['sub:macd'].series.histogram.histogramStyle");
-  const histogram = subject => `${subject}.indicatorPanes.get('macd').series.find(s=>s.key==='histogram').api`;
+  const style = () => js(`workspace.indicatorSettings['sub:${study}'].series.${seriesKey}.histogramStyle`);
+  const histogram = subject => `${subject}.indicatorPanes.get('${study}').series.find(s=>s.key==='${seriesKey}').api`;
   const seriesType = subject => js(`${histogram(subject)}.seriesType()`);
   await win.webContents.session.clearStorageData();
   await load();
@@ -61,7 +67,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   assert.equal(await seriesType('workspace'), 'Custom');
   await js("workspace.splitLayoutId='2-columns';workspace.applySplitLayout();void 0");
   for (let i = 0; i < 150 && !await js('workspace.splitPanes[0]?.candles.length'); i++) await pause(100);
-  await js("workspace.splitPanes[0].activateIndicator('sub','macd');void 0");
+  await js(`workspace.splitPanes[0].activateIndicator('sub','${study}');void 0`);
   await settle();
   assert.equal(await seriesType('workspace.splitPanes[0]'), 'Custom');
   const report = { pixels: [], persistence: true, split: true };
@@ -74,25 +80,30 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     await screenshot(`${theme}-settings-options`);
     await action('close-indicator-editor');
     await screenshot(`${theme}-split-hollow`);
-    // Compare actual canvas pixels at the bar interior and border. Both signs
+    // Compare actual canvas pixels at the bar interior and border. Both colors
     // must retain colored edges while exposing the background in the center.
     for (const subject of ['workspace', 'workspace.splitPanes[0]']) {
       const pixels = await js(`(() => {
-        const w=${subject}, runtime=w.indicatorPanes.get('macd'), api=${histogram(subject)};
-        if(!runtime.pane.getSeries().includes(api))throw new Error('Histogram must belong to the MACD pane');
+        const w=${subject}, runtime=w.indicatorPanes.get('${study}'), api=${histogram(subject)};
+        if(!runtime.pane.getSeries().includes(api))throw new Error('Histogram must belong to the ${study} pane');
         const plot=runtime.pane.getHTMLElement().querySelector('td:nth-child(2)>div');
         const canvas=plot.querySelector('canvas'), ctx=canvas.getContext('2d'), ratio=canvas.width/canvas.getBoundingClientRect().width;
         const sample=(x,y)=>Array.from(ctx.getImageData(Math.round(x*ratio),Math.round(y*ratio),1,1).data);
         return [-1,1].map(sign=>{
-          const point=api.data().find(d=>Math.sign(d.value)===sign&&Math.abs(d.value)>0.5&&w.chart.timeScale().timeToCoordinate(d.time)>40&&w.chart.timeScale().timeToCoordinate(d.time)<w.chart.timeScale().width()-40);
+          const point=api.data().find(d=>{
+            const candle=w.candles.find(c=>c.time+8*3600===d.time);
+            const direction=${JSON.stringify(study)}==='volume'?(candle?.close>=candle?.open?1:-1):Math.sign(d.value);
+            return direction===sign&&Math.abs(d.value)>0.5&&w.chart.timeScale().timeToCoordinate(d.time)>40&&w.chart.timeScale().timeToCoordinate(d.time)<w.chart.timeScale().width()-40;
+          });
           if(!point)throw new Error('Missing visible histogram sign '+sign);
           const x=w.chart.timeScale().timeToCoordinate(point.time),zero=api.priceToCoordinate(0),tip=api.priceToCoordinate(point.value);
-          return {sign,center:sample(x,(zero+tip)/2),edge:sample(x,Math.min(tip,zero)+0.5),value:point.value};
+          return {sign,center:sample(x,(zero+tip)/2),edge:sample(x,Math.max(tip,zero)),value:point.value,format:api.options().priceFormat.type};
         });
       })()`);
       for (const pixel of pixels) {
         assert.notDeepEqual(pixel.center, pixel.edge, `${theme} ${subject}: interior must be hollow`);
         assert.ok(Math.max(...pixel.edge.slice(0,3))-Math.min(...pixel.edge.slice(0,3))>60, 'border retains sign color');
+        assert.equal(pixel.format, study === 'volume' ? 'volume' : 'price');
       }
       report.pixels.push({ theme, subject, pixels });
     }
@@ -111,6 +122,6 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   await screenshot('dark-split-solid-restored');
   assert.equal(await js('window.qaError || null'), null);
   fs.writeFileSync(path.join(output,'report.json'),JSON.stringify(report,null,2));
-  console.log(`PASS: MACD hollow settings, cancel/save/reload/reset, main/split, light/dark pixels and live updates. ${output}`);
+  console.log(`PASS: ${study.toUpperCase()} hollow settings, cancel/save/reload/reset, main/split, light/dark pixels and live updates. ${output}`);
   win.destroy(); app.exit(0);
 })().catch(error => { console.error(error); app.exit(1); });

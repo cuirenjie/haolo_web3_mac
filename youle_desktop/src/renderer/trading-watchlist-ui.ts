@@ -5,7 +5,7 @@ import type {
 } from "./trading-expert-market.ts";
 import { TradingFavoriteTickerSortController } from "./trading-expert-favorite-ticker-sort.ts";
 import { TradingPriceFlash } from "./trading-price-flash.ts";
-import { TradingPublicIndices, indexValue, indexChange, indexTime, indexSourceLink, openIndexHistory, type PublicMarketIndex } from "./trading-public-indices.ts";
+import { TradingPublicIndices, indexValue, indexFullValue, indexChange, indexName, indexCopy, indexStatus, indexTiming, indexPeriodNote, type PublicMarketIndex } from "./trading-public-indices.ts";
 import {
   TradingWatchlistStore,
   WATCHLIST_NAME_LIMIT,
@@ -44,6 +44,9 @@ interface WatchlistOptions {
   selectedMarketId: () => string;
   openPicker: () => void;
   selectMarket: (market: TradingMarket) => void;
+  selectIndex: (index: PublicMarketIndex) => void;
+  onIndicesChange?: (indices: PublicMarketIndex[]) => void;
+  hasIndexFavorites?: () => boolean;
   onChange: () => void;
   onMembershipChange?: (record: TradingFavoriteMarketRecord, checked: boolean) => void;
   onReorder?: (records: TradingFavoriteMarketRecord[]) => void;
@@ -58,18 +61,21 @@ export class TradingWatchlistPanel {
   private dialog: HTMLDialogElement | null = null;
   private bindings: AbortController | null = null;
   private rowSizeObserver: ResizeObserver | null = null;
+  private indexLanguageObserver: MutationObserver | null = null;
   private sorter: TradingFavoriteTickerSortController | null = null;
   private sort: { column: "price" | "change"; direction: 1 | -1 } | null = null;
   private deferredRender = false;
   private menuCloseTimer: number | null = null;
   private readonly indices: TradingPublicIndices;
-  private indexDialog: HTMLDialogElement | null = null;
   private readonly recommendationSelections = new Map<string, Set<string>>();
   private readonly priceFlash = new TradingPriceFlash();
 
   constructor(options: WatchlistOptions) {
     this.options = options;
-    this.indices = new TradingPublicIndices(() => this.refresh());
+    this.indices = new TradingPublicIndices(() => {
+      this.options.onIndicesChange?.(this.indices.indices);
+      this.refresh();
+    });
   }
 
   attach(root: ParentNode = document) {
@@ -79,6 +85,7 @@ export class TradingWatchlistPanel {
     );
     if (host === this.host && toggle === this.toggle) return;
     this.rowSizeObserver?.disconnect();
+    this.indexLanguageObserver?.disconnect();
     this.closeMenu();
     this.bindings?.abort();
     this.sorter?.destroy();
@@ -88,6 +95,10 @@ export class TradingWatchlistPanel {
     // Leaving the workspace entirely still releases the retained elements.
     if (!host) this.priceFlash.clear();
     this.host = host;
+    if (host) {
+      this.indexLanguageObserver = new MutationObserver(() => { if (this.options.store.activeGroupId === "indices") this.refresh(); });
+      this.indexLanguageObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-language"] });
+    }
     if (host) this.indices.start();
     this.toggle = toggle;
     this.bindings = new AbortController();
@@ -129,10 +140,21 @@ export class TradingWatchlistPanel {
     this.options.onChange();
   }
 
+  indexById(id: string) {
+    return this.indices.indices.find(index => index.id === id);
+  }
+
+  get indexCatalogue() { return this.indices.indices; }
+
+  ensureIndexCatalogue() {
+    this.indices.start();
+    if (!this.indices.indices.length) void this.indices.refresh();
+  }
+
   refresh() {
     const { store } = this.options;
     const showingIndices = store.activeGroupId === "indices";
-    this.indices.setActive(Boolean(this.host && store.expanded && showingIndices));
+    this.indices.setActive(Boolean(this.host && ((store.expanded && showingIndices) || this.options.hasIndexFavorites?.())));
     if (this.toggle) {
       this.toggle.innerHTML = `${store.expanded ? "收起自选" : "展开自选"}${chevron}`;
       this.toggle.setAttribute("aria-expanded", String(store.expanded));
@@ -285,12 +307,12 @@ export class TradingWatchlistPanel {
     if (this.sort) {
       const { column, direction } = this.sort;
       const value = (index: PublicMarketIndex) => column === "price" ? index.value : index.changePercent;
-      indices.sort((a, b) => Number(value(a) === null) - Number(value(b) === null) || direction * ((value(a) || 0) - (value(b) || 0)));
+      indices.sort((a, b) => (a.priority ?? Infinity) - (b.priority ?? Infinity) || Number(value(a) === null) - Number(value(b) === null) || direction * ((value(a) || 0) - (value(b) || 0)));
     }
     return indices.map(index => `<div class="trading-watchlist-row trading-index-row" data-watchlist-index="${escape(index.id)}" role="listitem">
-      <button type="button" class="trading-watchlist-select" data-watchlist-action="index-detail" data-index-id="${escape(index.id)}" aria-label="查看${escape(index.name)}历史走势" title="${escape(index.description)} 数据时间：${indexTime(index.updatedAt)}"></button>
-      <span class="trading-watchlist-pair"><span>${escape(index.name)}</span><small>${indexSourceLink(index)}<span>${index.status === "stale" ? "更新延迟" : index.status === "error" ? "暂不可用" : index.id === "alternative:fng" ? "每日" : "1小时"}</span></small></span>
-      <span class="trading-watchlist-price" data-watchlist-price>${indexValue(index)}</span>
+      <button type="button" class="trading-watchlist-select" data-watchlist-action="index-detail" data-index-id="${escape(index.id)}" aria-label="${escape(indexName(index))} ${indexCopy("指数详情", "Index details")}" title="${escape(indexName(index))}\n${escape(indexTiming(index))}\n${escape(indexPeriodNote())}"></button>
+      <span class="trading-watchlist-pair"><span>${escape(indexName(index))}</span>${indexStatus(index) ? `<small><span>${indexStatus(index)}</span></small>` : ""}</span>
+      <span class="trading-watchlist-price" data-watchlist-price title="${indexFullValue(index)}">${indexValue(index)}</span>
       <span class="trading-watchlist-change ${index.changePercent === null ? "" : index.changePercent >= 0 ? "positive" : "negative"}">${indexChange(index)}</span>
     </div>`).join("");
   }
@@ -442,12 +464,6 @@ export class TradingWatchlistPanel {
   }
 
   private readonly handleClick = (event: MouseEvent) => {
-    const source = (event.target as Element).closest<HTMLAnchorElement>("[data-index-source]");
-    if (source) {
-      event.preventDefault();
-      void window.codexDesktop?.openExternal(source.dataset.indexSource!).catch(() => {});
-      return;
-    }
     const button = (event.target as Element).closest<HTMLElement>(
       "[data-watchlist-action]",
     );
@@ -456,10 +472,7 @@ export class TradingWatchlistPanel {
     const { store } = this.options;
     if (action === "index-detail") {
       const index = this.indices.indices.find(item => item.id === button.dataset.indexId);
-      if (index && !this.indexDialog) this.indexDialog = openIndexHistory(index, () => {
-        this.indexDialog = null;
-        this.host?.querySelector<HTMLElement>(`[data-index-id="${CSS.escape(index.id)}"]`)?.focus();
-      });
+      if (index) this.options.selectIndex(index);
     } else if (action === "menu") {
       const menu = this.host!.querySelector<HTMLElement>(
         "[data-watchlist-menu]",
@@ -616,12 +629,12 @@ export class TradingWatchlistPanel {
 
   destroy() {
     this.rowSizeObserver?.disconnect();
+    this.indexLanguageObserver?.disconnect();
+    this.indexLanguageObserver = null;
     this.rowSizeObserver = null;
     this.priceFlash.clear();
     this.closeMenu();
     this.indices.destroy();
-    this.indexDialog?.remove();
-    this.indexDialog = null;
     this.sorter?.destroy();
     this.sorter = null;
     this.deferredRender = false;

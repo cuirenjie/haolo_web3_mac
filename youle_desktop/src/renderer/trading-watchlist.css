@@ -1,7 +1,7 @@
 .trading-watchlist,
 .trading-watchlist-dialog,
 .trading-watchlist-toggle {
-  --watchlist-accent: #2563c5;
+  --watchlist-accent: var(--interaction-accent);
   --watchlist-positive: #07834e;
   --watchlist-negative: #cd3451;
   --watchlist-border: color-mix(
@@ -20,7 +20,7 @@ html[data-theme="dark"]
     .trading-watchlist-dialog,
     .trading-watchlist-toggle
   ) {
-  --watchlist-accent: #82b6ff;
+  --watchlist-accent: var(--interaction-accent);
   --watchlist-positive: #52dc88;
   --watchlist-negative: #ff718e;
   --watchlist-shadow: 0 8px 28px rgb(0 0 0 / 48%);
@@ -145,6 +145,7 @@ html[data-theme="dark"]
 .trading-watchlist [aria-pressed="true"],
 .trading-watchlist [aria-checked="true"] {
   color: var(--watchlist-accent);
+  font-weight: 700;
 }
 .trading-watchlist-groups {
   position: relative;
@@ -743,7 +744,7 @@ html[data-theme="dark"] .trading-watchlist-dialog::backdrop {
   /* Share content-sized action columns with the header and every scrollable row. */
   grid-template-columns:
     minmax(0, 1.65fr) minmax(0, 0.65fr) minmax(0, 1fr)
-    minmax(0, 0.8fr) minmax(32px, max-content) minmax(27px, max-content);
+    minmax(0, 0.8fr) minmax(32px, max-content);
   grid-template-rows: auto auto auto minmax(0, 1fr);
   column-gap: clamp(4px, 1.5%, 10px);
 }
@@ -861,38 +862,3 @@ html[data-theme="dark"] .trading-market-row .trading-watchlist-checkbox {
   outline: 2px solid var(--text-secondary);
   outline-offset: 2px;
 }
-.trading-index-dialog {
-  width: min(600px, calc(100vw - 44px));
-  padding: 24px;
-  overflow-y: auto;
-  box-sizing: border-box;
-}
-.trading-index-summary {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
-  margin-top: 16px;
-  font-variant-numeric: tabular-nums;
-}
-.trading-index-summary strong {
-  font-size: calc(28px + var(--app-font-size-offset));
-}
-.trading-index-summary .positive { color: var(--watchlist-positive); }
-.trading-index-summary .negative { color: var(--watchlist-negative); }
-.trading-index-meta,
-.trading-index-description,
-.trading-index-attribution,
-.trading-index-empty {
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-.trading-index-chart {
-  display: block;
-  width: 100%;
-  margin: 16px 0;
-  overflow: visible;
-}
-.trading-index-chart line { stroke: var(--watchlist-border); }
-.trading-index-chart text { fill: var(--text-secondary); font-size: 12px; }
-.trading-index-chart path { fill: none; stroke: var(--watchlist-accent); stroke-width: 2; }
-.trading-index-chart circle { fill: var(--watchlist-accent); }

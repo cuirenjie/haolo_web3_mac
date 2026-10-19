@@ -541,7 +541,8 @@ test("drawing tools expose single, two, three, multi-click, and drag placement m
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("horizontal-line")), "single-click");
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("text")), "single-click");
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("anchored-text")), "single-click");
-  assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("note")), "single-click");
+  assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("note")), "two-click");
+  assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("callout")), "two-click");
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("price-note")), "two-click");
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("brush")), "drag");
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("xabcd")), "multi-click");
@@ -847,7 +848,7 @@ test("drawing controls retain keyboard focus, disclosure and dark-theme states",
   const styles = await stylesSource;
   assert.ok(styles.includes('.trading-drawing-group:focus-within .trading-drawing-disclosure'));
   assert.ok(styles.includes('.trading-drawing-disclosure[aria-expanded="true"]'));
-  assert.match(styles, /\.trading-drawing-toolbar button:focus-visible,[\s\S]*?outline: 2px solid #2da6f7/);
+  assert.match(styles, /\.trading-drawing-toolbar button:focus-visible,[\s\S]*?outline: 2px solid var\(--interaction-accent\)/);
   assert.ok(styles.includes('--drawing-ink: #d1d4dc'));
   // Actual hover colors, clipping, row sizes and menu access are checked by trading-drawing-reference-qa.cjs.
 });
@@ -866,7 +867,7 @@ test("drawing trash confirms before permanently clearing manual, AI, and persist
   assert.doesNotMatch(drawing, /private clearCurrentSymbol\(/);
   assert.match(styles, /\.trading-drawing-clear-dialog\s*\{[^}]*background: var\(--trading-market-panel\);[^}]*color: var\(--trading-market-text\);/s);
   assert.match(styles, /\.trading-drawing-clear-dialog button:hover:not\(:disabled\)[\s\S]*background: var\(--trading-market-control-hover\);/s);
-  assert.match(styles, /\.trading-drawing-clear-dialog button:focus-visible\s*\{[^}]*outline: 2px solid #2da6f7;/s);
+  assert.match(styles, /\.trading-drawing-clear-dialog button:focus-visible\s*\{[^}]*outline: 2px solid var\(--interaction-accent\);/s);
   assert.match(styles, /\.trading-drawing-clear-dialog button:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.46;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-drawing-clear-backdrop: rgba\(0, 0, 0, 0\.66\);[\s\S]*--trading-drawing-clear-danger: #f0526c;/s);
 });
@@ -1623,14 +1624,14 @@ test("every visible split pane runs the requested analysis and plays its own dra
   assert.match(splitPane, /paneIndex: this\.paneIndex,[\s\S]*?market: \{ \.\.\.this\.market \},[\s\S]*?interval: this\.interval/);
   assert.match(splitPane, /async playAiDrawingPatch\([\s\S]*?await \(this\.drawingController\?\.playAiDrawingPatch\(patch, \{\s*\.\.\.options,\s*beforePlayback: \(\) => this\.focusAnalysisDrawingPatch\(patch\),\s*\}\) \?\? Promise\.resolve\(\)\)/);
   assert.match(market, /private captureSplitPaneAnalysisSnapshots\([\s\S]*?pane\.cloudAnalysisSnapshot\(visibleOnly\)/);
-  assert.match(market, /snapshotFailures\.push\([\s\S]*?行情快照读取失败/);
+  assert.match(market, /snapshotFailures\.push\([\s\S]*?message: cloudAnalysisText\('snapshotUnavailable', activeTradingAnalysisLanguage\(\)\)/);
   assert.match(market, /private async runSplitPaneAnalyses\([\s\S]*?const snapshots = \[\.\.\.options\.snapshots\]/);
   assert.match(market, /const failures: TradingSplitPaneAnalysisFailure\[\] = \[\.\.\.options\.snapshotFailures\]/);
   assert.match(market, /Array\.from\(\{ length: Math\.min\(2, snapshots\.length\) \}, \(\) => worker\(\)\)/);
   assert.match(market, /const snapshot = snapshots\[cursor\]/);
   assert.match(market, /const response = await options\.analyze\(snapshot\)/);
   assert.match(market, /await commitTradingAnalysisDrawingPatch\([\s\S]*?snapshot\.paneIndex/);
-  assert.match(market, /failures\.push\(\{\s*paneIndex: snapshot\.paneIndex,[\s\S]*?message: String\(\(error as Error\)\?\.message/);
+  assert.match(market, /failures\.push\(\{\s*paneIndex: snapshot\.paneIndex,[\s\S]*?message: describeTradingAnalysisFailure\(error, \{language: options\.job\.language\}\)\.summary/);
   assert.match(market, /cloudAnalysisText\('splitPartial',options\.job\.language,\{count:completed,failed\}\)/);
   assert.match(market, /splitResult\.failures\.length[\s\S]*?This auxiliary chart was not included; the primary analysis and answer remain available/);
   assert.match(market, /analysisProgressPhase: string;[\s\S]*?drawingProgressPhase: string;/);

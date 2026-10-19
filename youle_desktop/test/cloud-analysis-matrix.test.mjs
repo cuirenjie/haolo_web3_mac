@@ -47,15 +47,22 @@ for(const [index,{id}] of OFFICIAL_TRADING_CATALOG.entries())for(const [interval
   });
 }
 
-test('a missing captured pane is reported while the other captured panes finish',async()=>{
+for(const [language,message] of [
+  ['zh-CN','此分屏的行情快照尚未就绪。'],
+  ['en','This chart snapshot is not ready.'],
+  ['zh-TW','此分屏的行情快照尚未就緒。'],
+])test(`a missing captured pane is localized while the other captured panes finish: ${language}`,async()=>{
   let split;
-  const s=setup({dependencyOverrides:{combineTradingAnalysisReports:(_heading,report,result)=>{split=result;return report;}}});
+  const s=setup({dependencyOverrides:{activeTradingAnalysisLanguage:()=>language,
+    combineTradingAnalysisReports:(_heading,report,result)=>{split=result;return report;}}});
   layout(s,[target('BTCUSDT','15',0),target('ETHUSDT','240',1),target('SOLUSDT','1D',2)]);
   s.workspace.splitPanes[0]={cloudAnalysisSnapshot:()=>{throw Error('Chart snapshot unavailable');}};
   const captured=s.workspace.captureAnalysisTaskTarget();
   await s.workspace.runOrderFlowConversation({instruction:'analyze',analysisTarget:captured});
   assert.deepEqual(s.calls.map(c=>c.marketId),['BINANCE:FUTURES:BTCUSDT','BINANCE:FUTURES:SOLUSDT']);
   assert.equal(split.completed,1);assert.equal(split.failed,1);assert.equal(split.failures[0].paneIndex,1);
+  assert.equal(split.failures[0].message,message);
+  assert.deepEqual(s.failed,[]);assert.equal(s.finished.length,1);
   assert.deepEqual(s.drawings.map(d=>d.pane),[0,2]);
 });
 

@@ -57,7 +57,7 @@ export function inspectTextClipping(scope) {
       }
     }
   }
-  for (const input of scope.querySelectorAll('input:not([type="hidden"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="image"])')) {
+  for (const input of scope.querySelectorAll('input:not([data-color-picker-input]):not([type="hidden"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not([type="image"])')) {
     if (!shown(input)) continue;
     const text = input.value || input.placeholder;
     if (!text) continue;

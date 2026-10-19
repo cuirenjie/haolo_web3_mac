@@ -93,6 +93,38 @@ function freeDragFixture(t) {
   return f;
 }
 
+test('shared navigation buttons preserve the armed tool until click; unrelated controls still cancel', t => {
+  const f = fixture(t);
+  const workspace = new ElementStub('[data-trading-market-workspace]');
+  const toolbar = new ElementStub('[data-drawing-toolbar]');
+  workspace.append(f.element, toolbar);
+  const control = new ElementStub('[data-drawing-action]'); toolbar.append(control);
+  for (const tool of ['measure', 'zoom']) {
+    f.navigation.setTool(tool);
+    f.send('pointerdown', {}, true); f.send('pointerup');
+    const selection = f.navigation.selection;
+    assert.ok(selection);
+    for (const action of ['measure', 'zoom-in']) {
+      control.dataset.drawingAction = action;
+      f.navigation.outsidePointerDown({target: control});
+      assert.equal(f.navigation.getTool(), tool);
+      assert.equal(f.navigation.selection, selection);
+    }
+    control.dataset.drawingAction = 'select-group-tool';
+    f.navigation.outsidePointerDown({target: control});
+    assert.equal(f.navigation.getTool(), null);
+    assert.equal(f.navigation.selection, null);
+    // A matching button in another workspace is still outside this chart.
+    const foreign = new ElementStub('[data-drawing-toolbar]'); foreign.append(control);
+    control.dataset.drawingAction = 'measure';
+    toolbar.children = [];
+    f.navigation.setTool(tool);
+    f.navigation.outsidePointerDown({target: control});
+    assert.equal(f.navigation.getTool(), null);
+    toolbar.append(control);
+  }
+});
+
 test('A/L controls are absent; price settings and shortcuts still target main after indicator focus', t => {
   const f = freeDragFixture(t);
   f.send('pointerdown', { clientY: 400 }); f.send('pointerup');
@@ -241,8 +273,7 @@ test("Shift measures without changing the viewport, keeps its result, and next c
   f.send("pointermove", { clientX: 450, clientY: 200 }, true);
   f.send("pointerup", { clientX: 450, clientY: 200 }, true);
   assert.deepEqual(f.range(), before); assert.equal(f.scales[0].autoScale, true);
-  assert.match(f.navigation.measurement.children[0].textContent, /-20.00%/);
-  assert.match(f.navigation.measurement.children[0].textContent, /100.*4.2d/);
+  assert.equal(f.navigation.measurement.children[0].textContent, '−33.33 (−20.00%) −3,333\n100根K线, 4天 4小时\n成交量 101');
   f.send("pointerdown"); assert.equal(f.navigation.measurement, null);
 });
 test("zoom tool supports reversed drags, clamps endpoints, and returns to cursor", t => {

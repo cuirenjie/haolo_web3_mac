@@ -71,16 +71,23 @@ let win;
     }
   }
   // Independent coordinates, retained drafts when switching points, closed paths.
-  await js(`d.drawings=[{id:'generic-qa',tool:'multi-point-polyline',symbol:d.getSymbol(),interval:d.getInterval(),points:[{time:workspace.candles.at(-100).time,price:1330},{time:workspace.candles.at(-70).time,price:1300},{time:workspace.candles.at(-40).time,price:1310},{time:workspace.candles.at(-100).time,price:1330}]}];d.selectDrawing('generic-qa');d.redraw()`);await settle();
+  await js(`d.drawings=[{id:'generic-qa',tool:'multi-point-polyline',symbol:d.getSymbol(),interval:d.getInterval(),points:[{time:Date.parse('2026-10-15T16:48:18.375Z')/1000,price:1330},{time:workspace.candles.at(-70).time,price:1300},{time:workspace.candles.at(-40).time+0.625,price:1310},{time:Date.parse('2026-10-15T16:48:18.375Z')/1000,price:1330}]}];d.selectDrawing('generic-qa');d.redraw()`);await settle();
   const original = await js('d.drawings[0].points');
   await click('[data-horizontal-line-settings]'); await click('[data-line-tab="coordinates"]');
   assert.equal(await js(`document.querySelector('[name="coordinatePoint"]').options.length`),3);
+  assert.equal(await js(`document.querySelector('[name="time"]').value`),'2026-10-16T00:48:18','Beijing display crosses midnight');
+  assert.equal(await js(`document.querySelector('[name="time"]').getAttribute('aria-label')`),'时间 (UTC+8)');
   await field('price','1332'); await field('coordinatePoint','1'); await field('price','1302'); await field('time','2026-10-18T08:15:00');
   await field('coordinatePoint','0'); assert.equal(await js(`document.querySelector('[name="price"]').value`),'1332');
   await confirm();
   const points = await js('d.drawings[0].points');
-  assert.equal(points[0].price,1332);assert.deepEqual(points[3],points[0]);assert.deepEqual(points[2],original[2]);
-  assert.equal(points[1].price,1302);assert.equal(points[1].time,Date.parse('2026-10-18T08:15:00Z')/1000);
+  assert.equal(points[0].price,1332);assert.equal(points[0].time,original[0].time);assert.deepEqual(points[3],points[0]);assert.deepEqual(points[2],original[2]);
+  assert.equal(points[1].price,1302);assert.equal(points[1].time,Date.parse('2026-10-18T00:15:00Z')/1000);
+  await click('[data-horizontal-line-settings]'); await click('[data-line-tab="coordinates"]');
+  await field('coordinatePoint','1');
+  assert.equal(await js(`document.querySelector('[name="time"]').value`),'2026-10-18T08:15','saved Beijing time reopens without drift');
+  await field('coordinatePoint','2'); await confirm();
+  assert.deepEqual(await js('d.drawings[0].points'),points,'unchanged times preserve subsecond precision, including zero seconds');
   // A native double click on the sloping stroke opens settings without maximizing panes.
   await js(`d.drawings=[{id:'generic-qa',tool:'trend-line',symbol:d.getSymbol(),interval:d.getInterval(),points:[{time:workspace.candles.at(-100).time,price:1330},{time:workspace.candles.at(-40).time,price:1305}],text:'趋势线备注'}];d.selectDrawing(null);d.redraw()`);await settle();
   const heights = await js('d.getChart().panes().map(p=>p.getHeight())');
@@ -92,6 +99,8 @@ let win;
     await js(`document.documentElement.dataset.theme='${theme}';workspace.applyChartTheme();lang.applyAppLanguage('${language}',{root:document.body})`);
     await click('[data-horizontal-line-settings]'); await click('[data-line-tab="coordinates"]');
     const text = await js(`document.querySelector('.trading-horizontal-line-dialog').innerText`);
+    assert.match(text,/UTC\+8/);
+    assert.equal(await js(`(()=>{const range=document.createRange();range.selectNodeContents(document.querySelector('[name="time"]').previousElementSibling);return range.getClientRects().length})()`),1,'timezone label stays on one line');
     if(language==='en') assert.doesNotMatch(text,/[\u4e00-\u9fff]/);
     assert.equal(await js(`(()=>{const e=document.querySelector('.trading-horizontal-line-dialog');return e.scrollWidth===e.clientWidth})()`),true);
     await capture(`coordinates-${language}-${theme}`);await click('[data-line-tab="text"]');await capture(`text-${language}-${theme}`);await cancel();

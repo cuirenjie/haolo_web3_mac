@@ -1,6 +1,6 @@
 type Point = { x: number; y: number };
 type StrokeAnchor = { point: Point; angle: number; distance: number; color: string };
-const promptSelector = '[data-horizontal-line-add-text]';
+const promptSelector = '[data-horizontal-line-add-text]:not([data-drawing-text-position="center"])';
 const geometrySelector = '.trading-drawing-geometry :is(line,polyline,polygon,rect,circle,ellipse,path)[stroke]';
 
 function segmentDistance(pointer: Point, a: Point, b: Point) {
@@ -27,7 +27,8 @@ function visibleSegment(a: Point, b: Point, bounds: DOMRect): [Point, Point] | n
 export function drawingHoverStroke(group: Element, pointer: Point, bounds: DOMRect): StrokeAnchor | null {
   let nearest: StrokeAnchor | null = null;
   let nearestPriority = -1;
-  const geometries = group.querySelectorAll<SVGGeometryElement>(geometrySelector);
+  const geometries = [...group.querySelectorAll<SVGGeometryElement>(geometrySelector)]
+    .filter(element => getComputedStyle(element).stroke !== 'none');
   for (const element of geometries) {
     const style = getComputedStyle(element);
     if (style.stroke === 'none' || style.stroke === 'transparent' || +style.opacity === 0 || style.visibility === 'hidden') continue;
@@ -135,9 +136,23 @@ export class TradingDrawingHoverText {
     if (!group || !prompt) { this.clear(); return; }
     // Moving from a stroke into its action must not move the action away.
     if (prompt === this.active && prompt.contains(target) && !invalidated) return;
-    const stroke = drawingHoverStroke(group, this.pointer, this.overlay.getBoundingClientRect());
+    // The action is above the stroke, with a transparent bridge down to it.
+    // After a redraw, re-anchor from the stroke beneath the active action so
+    // hovering its text does not make it disappear.
+    const promptMatrix = prompt.getScreenCTM();
+    const pointer = prompt === this.active && prompt.contains(target) && promptMatrix
+      ? new DOMPoint(0, 0).matrixTransform(promptMatrix) : this.pointer;
+    const stroke = drawingHoverStroke(group, pointer, this.overlay.getBoundingClientRect());
     const matrix = prompt.parentNode instanceof SVGGraphicsElement ? prompt.parentNode.getScreenCTM() : null;
     if (!stroke || !matrix) { this.clear(); return; }
+    const centerPrompt = group.querySelector<SVGGElement>('[data-drawing-text-position="center"]');
+    const centerMatrix = centerPrompt?.getScreenCTM();
+    if (centerPrompt && centerMatrix && +getComputedStyle(centerPrompt).opacity > 0) {
+      const center = new DOMPoint(0, 0).matrixTransform(centerMatrix);
+      // A line's edge midpoint can coincide with its fixed center action.
+      // Keep one readable action there, while retaining the separate edges of shapes.
+      if (Math.hypot(center.x - stroke.point.x, center.y - stroke.point.y) < 24) { this.clear(); return; }
+    }
     const local = new DOMPoint(stroke.point.x, stroke.point.y).matrixTransform(matrix.inverse());
     if (prompt !== this.active) this.clear();
     this.active = prompt;

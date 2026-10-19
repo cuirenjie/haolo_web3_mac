@@ -7,9 +7,9 @@ const copy = {
 const number = String.raw`\d+(?:,\d{3})*(?:\.\d+)?`;
 const expiryLabels = { 'zh-CN': '有效至', 'zh-TW': '有效至', en: 'Valid until' };
 const actionCopy = {
-  'zh-CN': {label: '当前动作：', wait: '等待条件触发', blocked: '暂不交易'},
-  'zh-TW': {label: '當前動作：', wait: '等待條件觸發', blocked: '暫不交易'},
-  en: {label: 'Current action: ', wait: 'Wait for the trigger', blocked: 'Do not trade'},
+  'zh-CN': {label: '当前动作：', wait: '等待条件触发', blocked: '暂不交易', long:'报价时满足做多条件', short:'报价时满足做空条件'},
+  'zh-TW': {label: '當前動作：', wait: '等待條件觸發', blocked: '暫不交易', long:'報價時滿足做多條件', short:'報價時滿足做空條件'},
+  en: {label: 'Current action: ', wait: 'Wait for the trigger', blocked: 'Do not trade', long:'Long conditions met at the quote', short:'Short conditions met at the quote'},
 };
 const labelOf = (line) => String(line.label || "").replace(/[：:]\s*$/, "").trim();
 const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");

@@ -1,3 +1,4 @@
+import { colorPickerInput } from './color-picker.ts';
 import type { TradingDrawingLayerVisibility } from './trading-drawing-visibility.ts';
 
 export type TradingChartStyle =
@@ -266,7 +267,7 @@ const chartStyles = new Set<TradingChartStyle>([
 const adjustments = new Set<TradingPriceAdjustment>(["none", "forward", "backward"]);
 const scaleAnchors = new Set<TradingScaleAnchor>(["cursor", "right"]);
 const priceScaleModes = new Set<TradingPriceScaleMode>(["linear", "logarithmic", "percentage"]);
-const hexColorPattern = /^#[0-9a-f]{6}$/i;
+const hexColorPattern = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i;
 
 function cloneTheme(theme: TradingChartThemeSettings): TradingChartThemeSettings {
   return { ...theme };
@@ -596,7 +597,7 @@ const orderDisplaySwitch = (
 `;
 
 const colorInput = (key: string, label: string, value: string) => `
-  <label class="trading-chart-settings-color"><input type="color" data-chart-setting="${key}" value="${value}"/><span>${label}</span></label>
+  <label class="trading-chart-settings-color">${colorPickerInput(value, `data-chart-setting="${key}" aria-label="${label}"`)}<span>${label}</span></label>
 `;
 
 export function renderTradingChartSettingsDialog(

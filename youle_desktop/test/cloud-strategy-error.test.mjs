@@ -5,6 +5,14 @@ import {describeTradingAnalysisFailure} from '../src/main/trading-analysis/failu
 import {buildTradingStrategyFailureReport} from '../src/main/trading-analysis/failure.mjs';
 import {tradingAnalysisFailureDiagnostic} from '../src/main/trading-analysis/diagnostics.mjs';
 
+test('dual-left rollout and budget failures retain specific three-language explanations',()=>{
+  for(const code of ['LEFT_DUAL_NOT_ENABLED','LEFT_DUPLICATE_MARKET_PLAN','LEFT_ZONE_ATTEMPT_LIMIT','LEFT_OPEN_RISK_BUDGET','LEFT_DAILY_RISK_BUDGET','LEFT_PLAN_ALREADY_USED'])for(const language of ['zh-CN','en','zh-TW']){
+    const error=cloudStrategyFailure({code},{language});
+    assert.equal(error.code,code);assert.doesNotMatch(error.message,/Cloud analysis did not complete|云端分析未完成|雲端分析未完成/);
+    if(language==='en')assert.doesNotMatch(error.message,/\p{Script=Han}/u);
+  }
+});
+
 test('an unconfirmed cancellation never becomes confirmed merely because the local signal aborted',()=>{
   for(const language of ['en','zh-CN','zh-TW']) {
     const error=cloudStrategyFailure({code:'CLOUD_CANCEL_PENDING',message:'private upstream content'},{aborted:true,language});

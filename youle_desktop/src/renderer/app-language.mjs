@@ -13,7 +13,10 @@ export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 export const APP_LANGUAGES = Object.freeze(["en", "zh-CN", "zh-TW"]);
 
 const ENGLISH_UI_PHRASES = Object.freeze({
+  "添加自定义颜色": "Add custom color", "不透明度": "Opacity", "不透明度百分比": "Opacity percentage",
+  "十六进制颜色": "Hex color", "饱和度和明度": "Saturation and brightness", "色相": "Hue", "增加": "Add", "返回色板": "Back to palette",
   "MACD柱样式": "MACD histogram style",
+  "成交量样式": "Volume bar style",
   "实心柱": "Solid bars",
   "空心柱": "Hollow bars",
   "空心柱仅显示边框，柱高和颜色保持不变。": "Hollow bars show only an outline, keeping the same height and colors.",

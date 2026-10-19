@@ -1,14 +1,20 @@
+import { appLanguageLocale, translateAppText } from "./app-language.mjs";
+
 export interface PublicMarketIndex {
   id: string;
   name: string;
+  enName?: string;
+  priority?: number | null;
   code: string;
-  source: string;
-  sourceUrl: string;
+  source?: string;
+  sourceUrl?: string;
   description: string;
   intervalMs: number;
   value: number | null;
   changePercent: number | null;
+  change24H?: number | null;
   updatedAt: number | null;
+  fetchedAt?: number | null;
   status: "ready" | "stale" | "error";
   series: { time: number; value: number }[];
 }
@@ -63,7 +69,7 @@ export class TradingPublicIndices {
       this.indices = this.indices.map(index => ({ ...index, status: index.value === null ? "error" : "stale" }));
     } finally {
       this.loading = false;
-      if (!this.disposed && this.active) this.onChange();
+      if (!this.disposed) this.onChange();
     }
   }
   destroy() {
@@ -74,52 +80,30 @@ export class TradingPublicIndices {
   }
 }
 
-export const indexValue = (index: PublicMarketIndex) => index.value === null ? "--" : index.value.toLocaleString("zh-CN", { maximumFractionDigits: index.id === "alternative:fng" ? 0 : 4 });
+const fearGreed = (index: PublicMarketIndex) => index.id === "alternative:fng" || index.id === "index:fear-greed";
+export const indexCopy = (zh: string, en: string) => appLanguageLocale() === "en-US" ? en : translateAppText(zh);
+export const indexName = (index: PublicMarketIndex) => {
+  if (appLanguageLocale() !== "en-US") return translateAppText(index.name);
+  const name = index.enName || translateAppText(index.name);
+  // A few provider en_name fields still contain Chinese. Retain the verifiable
+  // symbol when an English name is absent rather than inventing a translation.
+  return /\p{Script=Han}/u.test(name) ? (/\p{Script=Han}/u.test(index.code) ? index.id : index.code) : name;
+};
+export const indexFullValue = (index: PublicMarketIndex) => index.value === null ? "--" : index.value.toLocaleString(appLanguageLocale(), { maximumFractionDigits: 12 });
+export const indexValue = (index: PublicMarketIndex) => {
+  if (index.value === null) return "--";
+  const magnitude = Math.abs(index.value);
+  if (magnitude > 0 && magnitude < 0.0001) return index.value.toExponential(2);
+  if (magnitude >= 10_000) return index.value.toLocaleString(appLanguageLocale(), { notation: "compact", maximumSignificantDigits: 5 });
+  return index.value.toLocaleString(appLanguageLocale(), { maximumFractionDigits: fearGreed(index) ? 0 : 4, maximumSignificantDigits: 6 });
+};
 export const indexChange = (index: PublicMarketIndex) => index.changePercent === null ? "--" : `${index.changePercent >= 0 ? "+" : ""}${index.changePercent.toFixed(2)}%`;
-export const indexTime = (time: number | null) => time ? new Date(time).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : "暂无数据";
-
-const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
-export function indexSourceLink(index: PublicMarketIndex) {
-  return `<a href="${escape(index.sourceUrl)}" data-index-source="${escape(index.sourceUrl)}">${escape(index.source)}</a>`;
-}
-
-function renderHistory(index: PublicMarketIndex) {
-  const series = index.series;
-  if (!series.length) return '<p class="trading-index-empty">暂无历史数据</p>';
-  const minimum = Math.min(...series.map(point => point.value));
-  const maximum = Math.max(...series.map(point => point.value));
-  const padding = Math.max((maximum - minimum) * 0.12, maximum * 0.01, 0.01);
-  const lo = index.id === "alternative:fng" ? 0 : Math.max(0, minimum - padding);
-  const hi = index.id === "alternative:fng" ? 100 : maximum + padding;
-  const first = series[0].time;
-  const last = series.at(-1)!.time;
-  const x = (time: number) => 54 + (time - first) / Math.max(last - first, 1) * 516;
-  const y = (value: number) => 18 + (hi - value) / (hi - lo) * 182;
-  const path = series.map((point, i) => `${i ? "L" : "M"}${x(point.time).toFixed(2)},${y(point.value).toFixed(2)}`).join(" ");
-  const label = (n: number) => n.toLocaleString("zh-CN", { maximumFractionDigits: index.id === "alternative:fng" ? 0 : 3 });
-  return `<svg class="trading-index-chart" viewBox="0 0 600 238" role="img" aria-label="${escape(index.name)}历史走势，最低${label(minimum)}，最高${label(maximum)}">
-    ${[lo, (hi + lo) / 2, hi].map(value => `<line x1="54" x2="570" y1="${y(value)}" y2="${y(value)}"/><text x="46" y="${y(value) + 4}" text-anchor="end">${label(value)}</text>`).join("")}
-    <path d="${path}"/><circle cx="${x(last)}" cy="${y(series.at(-1)!.value)}" r="3"/>
-    <text x="54" y="226">${escape(indexTime(first))}</text><text x="570" y="226" text-anchor="end">${escape(indexTime(last))}</text>
-  </svg>`;
-}
-
-export function openIndexHistory(index: PublicMarketIndex, onClose: () => void) {
-  const dialog = document.createElement("dialog");
-  dialog.className = "trading-watchlist-dialog trading-index-dialog";
-  dialog.setAttribute("aria-label", `${index.name}历史走势`);
-  dialog.innerHTML = `<header><h2>${escape(index.name)}</h2><button type="button" data-index-close aria-label="关闭">×</button></header>
-    <div class="trading-index-summary"><strong>${indexValue(index)}</strong><span class="${(index.changePercent || 0) < 0 ? "negative" : "positive"}">24H ${indexChange(index)}</span></div>
-    <p class="trading-index-meta">${index.status === "stale" ? "更新延迟 · " : index.status === "error" ? "暂时无法获取 · " : ""}数据时间 ${indexTime(index.updatedAt)} · ${index.intervalMs === 86_400_000 ? "每日更新" : "每小时采样"}</p>
-    ${renderHistory(index)}<p class="trading-index-description">${escape(index.description)}</p>
-    <p class="trading-index-attribution">数据来源：${indexSourceLink(index)}</p>`;
-  dialog.querySelector("[data-index-close]")!.addEventListener("click", () => dialog.close());
-  dialog.querySelector<HTMLAnchorElement>("[data-index-source]")!.addEventListener("click", event => {
-    event.preventDefault();
-    void window.codexDesktop?.openExternal(index.sourceUrl).catch(() => {});
-  });
-  dialog.addEventListener("close", () => { dialog.remove(); onClose(); }, { once: true });
-  document.body.append(dialog);
-  dialog.showModal();
-  return dialog;
-}
+export const indexTime = (time: number | null) => time ? new Date(time).toLocaleString(appLanguageLocale(), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : indexCopy("暂无数据", "No data");
+export const indexStatus = (index: PublicMarketIndex) => {
+  const frequency = { 60_000: ["每分钟", "Every minute"], 3_600_000: ["每时", "Hourly"], 86_400_000: ["每日", "Daily"], 604_800_000: ["每周", "Weekly"] }[index.intervalMs];
+  return frequency ? indexCopy(frequency[0], frequency[1]) : "";
+};
+export const indexTiming = (index: PublicMarketIndex) => index.updatedAt
+  ? `${indexCopy("数据时间", "Data time")} ${indexTime(index.updatedAt)}`
+  : `${indexCopy("获取时间", "Fetched")} ${indexTime(index.fetchedAt ?? null)}`;
+export const indexPeriodNote = () => indexCopy("涨跌幅为24小时口径。", "Changes cover 24 hours.");

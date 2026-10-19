@@ -42,7 +42,7 @@ test('complete placement messages retain counts and technical labels without par
       assert.doesNotMatch(translateDrawingText(source, 'en'), /\p{Script=Han}/u, source);
     }
   }
-  for (const source of ['已设置 3 个端点 · 点击继续，双击、右键、Enter 或 Esc 完成 · 点击起点闭合', '平行通道 · 已设置 2/3 个端点 · 再次点击继续 · 右键撤销上一端点', '清空副图 MACD的所有绘图？', '副图 MACD的手动绘图、AI 绘图及历史记录都将被永久删除，其他分屏不受影响。此操作无法撤销。', '依次点击图表设置 5 个端点；完成后可拖动端点调整']) {
+  for (const source of ['已设置 3 个端点 · 点击继续，双击、Enter 或 Esc 完成 · 右键撤销上一端点 · 点击起点闭合', '连续点击设置端点；右键撤销上一端点；双击、Enter 或 Esc 完成；折线点击起点闭合', '平行通道 · 已设置 2/3 个端点 · 再次点击继续 · 右键撤销上一端点', '清空副图 MACD的所有绘图？', '副图 MACD的手动绘图、AI 绘图及历史记录都将被永久删除，其他分屏不受影响。此操作无法撤销。', '依次点击图表设置 5 个端点；完成后可拖动端点调整']) {
     assert.doesNotMatch(translateDrawingText(source, 'en'), /\p{Script=Han}/u, source);
   }
 });

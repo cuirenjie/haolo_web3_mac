@@ -9,7 +9,7 @@ export const EXECUTION_PLAN_STICKY_WIDTH_SCRIPT = `(() => {
   const probe = document.querySelector('.card').cloneNode(true);
   probe.setAttribute('aria-hidden', 'true');
   Object.assign(probe.style, { position: 'fixed', left: '-10000px', top: '0', width: 'max-content', maxWidth: 'none', height: 'auto', visibility: 'hidden', pointerEvents: 'none' });
-  probe.querySelector('.execution-plan-details')?.remove();
+  probe.querySelectorAll('.execution-plan-details').forEach(element => element.remove());
   document.body.append(probe);
   try {
     const bodyStyle = getComputedStyle(document.body);

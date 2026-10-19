@@ -471,9 +471,9 @@ test("new controls cover light and dark themes plus interaction and async states
   assert.match(css, /\.trading-chart-settings-switch:has\(input:disabled\)/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-chart-settings-dialog/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-control:\s*#212224/);
-  assert.match(css, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-chart-switch-off:\s*#3a3f47[\s\S]*?--trading-chart-switch-on:\s*#69a8ff/);
+  assert.match(css, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-chart-switch-off:\s*#3a3f47[\s\S]*?--trading-chart-switch-on:\s*var\(--interaction-accent\)/);
   assert.match(css, /\.trading-expert-market\s*\{[\s\S]*?--trading-market-control:\s*#f0f3f7/);
-  assert.match(css, /\.trading-expert-market\s*\{[\s\S]*?--trading-chart-switch-off:\s*#d7d8da[\s\S]*?--trading-chart-switch-on:\s*#2f80ed/);
+  assert.match(css, /\.trading-expert-market\s*\{[\s\S]*?--trading-chart-switch-off:\s*#d7d8da[\s\S]*?--trading-chart-switch-on:\s*var\(--interaction-accent\)/);
   assert.match(css, /html\[data-theme="light"\] \.trading-chart-settings-dialog/);
   assert.match(css, /color-scheme: dark/);
   assert.match(css, /color-scheme: light/);

@@ -10,7 +10,7 @@ let win;
 (async () => {
   await app.whenReady();
   win = new BrowserWindow({ show: false, width: 1400, height: 1050, webPreferences: { offscreen: true, backgroundThrottling: false } });
-  const js = code => win.webContents.executeJavaScript(code, true);
+  const js = async code => { try { return await win.webContents.executeJavaScript(code, true); } catch (error) { console.error('Failed script:', code); console.error(await win.webContents.executeJavaScript('String(window.qaError??"")')); throw error; } };
   const settle = async () => { await js('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))'); await pause(30); };
   const pointer = async (type, p, extra = {}) => { win.webContents.sendInputEvent({ type, x: Math.round(p.x), y: Math.round(p.y), ...extra }); await settle(); };
   const click = async p => { await pointer('mouseMove', p); await pointer('mouseDown', p, { button: 'left', clickCount: 1 }); await pointer('mouseUp', p, { button: 'left', clickCount: 1 }); };
@@ -61,7 +61,7 @@ let win;
   await pointer('mouseUp', { x: endpoint.x - 90, y: endpoint.y - 70 }, { button: 'left', clickCount: 1 });
   assert.notEqual(await js('JSON.stringify(d.drawings[0].points)'), old); await verify();
   await js(`d.selectDrawing(null);const r=d.getChart().timeScale().getVisibleLogicalRange();d.getChart().timeScale().setVisibleLogicalRange({from:r.from+15,to:r.to-15});d.redraw()`); await settle(); await verify();
-  await js(`d.selectDrawing(d.drawings[0].id); d.selectionToolbar.querySelector('[data-drawing-color="#ff9800"]').click();d.selectionToolbar.querySelector('[data-drawing-width="4"]').click();d.selectionToolbar.querySelector('[data-drawing-style="dashed"]').click();d.persistDrawings()`); await settle();
+  await js(`d.selectDrawing(d.drawings[0].id); d.selectionToolbar.querySelector('[data-drawing-selection-action="toggle-color"]').click();document.querySelector('[data-color-swatch="#ff9800"]').click();d.selectionToolbar.querySelector('[data-drawing-width="4"]').click();d.selectionToolbar.querySelector('[data-drawing-style="dashed"]').click();d.persistDrawings()`); await settle();
   await load(); await verify();
   assert.deepEqual(await js(`({color:d.drawings[0].color,width:d.drawings[0].lineWidth,style:d.drawings[0].lineStyle})`), { color: '#ff9800', width: 4, style: 'dashed' });
   assert.equal(await js(`[...d.content.querySelectorAll('.trading-fibonacci-band')].every(e => e.getAttribute('fill') === '#ff9800')`), true);

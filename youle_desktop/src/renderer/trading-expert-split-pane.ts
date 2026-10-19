@@ -1,4 +1,5 @@
 import {chartTickLabel} from "./trading-chart-time.ts";
+import type { VolumeHistoryRequest, VolumeHistoryResult } from './trading-volume-history.ts';
 import {normalizeTradingIndicatorAiDrawingPatch,storeCloudIndicatorPatch,loadCloudIndicatorPatch,migrateCloudIndicatorPatches,clearIndicatorAnalysisRuntime,renderIndicatorAnalysisPatch,type IndicatorAnalysisRuntime} from './cloud-indicator-drawings.ts';
 import {
   BarSeries,
@@ -104,6 +105,7 @@ export interface TradingSplitPaneOptions {
   settings: TradingChartSettings;
   themeName: TradingChartThemeName;
   loadCandles: (market: TradingSplitPaneMarket, interval: string) => Promise<TradingChartCandle[]>;
+  loadVolumeHistory?: (market: TradingSplitPaneMarket, request: VolumeHistoryRequest, signal: AbortSignal) => Promise<VolumeHistoryResult>;
   drawing: {
     controlsHost: HTMLElement;
     storageSessionId: string;
@@ -487,9 +489,12 @@ export class TradingExpertSplitPane {
       getNavigation: () => this.chartNavigation,
       getChart: () => this.chart,
       getCandleSeries: () => this.series,
+      getMagnetIndicatorSeries: () => this.activeMainIndicators.flatMap(id => this.mainIndicatorSeries.get(id) ?? []),
       getSymbol: () => this.market.id,
       getInterval: () => this.interval,
       getCandles: () => this.candles,
+      volumeFutures: () => this.market.marketType === 'perpetual' || this.market.assetClass === 'commodity',
+      loadVolumeHistory: options.loadVolumeHistory ? (request, signal) => options.loadVolumeHistory!(this.market, request, signal) : undefined,
       timeOffsetSeconds: CHINA_TIME_OFFSET_SECONDS,
       storageSessionId: options.drawing.storageSessionId,
       isNewTask: options.drawing.isNewTask,
@@ -1388,7 +1393,7 @@ export class TradingExpertSplitPane {
           : { type: "price" as const, precision: 2, minMove: 0.01 },
       };
       const api = descriptor.type === "histogram"
-        ? id === 'macd' && style?.histogramStyle === 'hollow'
+        ? style?.histogramStyle === 'hollow'
           // v5.1 PaneApi.addCustomSeries defaults to pane 0; supply the actual pane explicitly.
           ? chart.addCustomSeries(new TradingHollowHistogram(), {
               ...common,

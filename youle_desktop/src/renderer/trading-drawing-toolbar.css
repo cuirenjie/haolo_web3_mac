@@ -2,7 +2,59 @@
   --trading-drawing-toolbar-width: 52px;
   --trading-drawing-toolbar-background: #ffffff;
   --trading-market-header-height: 36px;
+  --trading-note-background: #ffffff;
+  --trading-note-text: #131722;
 }
+
+html[data-theme="dark"] { --trading-note-background: #242832; --trading-note-text: #e5e7eb; }
+.trading-manual-note-card, .trading-pin-note-bubble { filter: drop-shadow(0 2px 2px #0003); }
+.trading-drawing-layer .trading-inline-annotation-hit { cursor: text; }
+.trading-drawing-layer [data-locked="true"] .trading-inline-annotation-hit { cursor: not-allowed; }
+.trading-drawing-layer.drawing-handles-idle [data-note-handle] { visibility: visible !important; pointer-events: all !important; }
+.trading-horizontal-line-inline-input.trading-plain-text-input { padding: 2px 4px; outline: 1.5px solid #2962ff; outline-offset: -1.5px; }
+.trading-horizontal-line-inline-input.trading-note-inline-input { padding: 6px 10px; border-radius: 4px; box-shadow: 0 2px 4px #0003; }
+.trading-horizontal-line-inline-input.trading-pin-inline-input { padding: 12px 16px; }
+.trading-horizontal-line-inline-input.trading-bubble-inline-input { padding: 10px 16px; }
+.trading-horizontal-line-inline-input.trading-signpost-inline-input { padding: 6px 12px; }
+.trading-horizontal-line-inline-input.trading-table-inline-input { padding: 8px 10px; background: var(--trading-note-background); outline: 2px solid #2962ff; outline-offset: -2px; }
+.trading-horizontal-line-inline-input::placeholder { color: currentColor; opacity: .5; }
+.trading-chart-capturing :is(.trading-horizontal-line-inline-input, .trading-plain-text-frame) { outline: none !important; }
+
+.trading-drawing-image-dialog { box-sizing: border-box; width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; padding: 0; border: 1px solid #eeeeee; border-radius: 9px; background: var(--trading-note-background); color: var(--trading-note-text); box-shadow: 0 2px 7px #0003; font: 16px/1.5 Arial, "Microsoft YaHei", sans-serif; }
+.trading-drawing-image-dialog::backdrop { background: transparent; }
+.trading-drawing-image-dialog form { margin: 0; }
+.trading-drawing-image-dialog header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 28px; }
+.trading-drawing-image-dialog h2 { margin: 0; font-size: 24px; }
+.trading-drawing-image-dialog header button { border: 0; background: transparent; color: inherit; font-size: 32px; cursor: pointer; }
+.trading-drawing-image-dialog .trading-image-select { display: grid; place-items: center; box-sizing: border-box; width: calc(100% - 48px); height: 230px; margin: 0 24px; padding: 0; border: 1px dashed #dedede; border-radius: 5px; background: #88888808; color: inherit; cursor: pointer; font: inherit; }
+.trading-image-select img { max-width: 100%; max-height: 228px; object-fit: contain; }
+.trading-image-select [hidden] { display: none; }
+.trading-image-select strong { display: block; font-size: 19px; font-weight: 400; margin-bottom: 20px; }
+.trading-image-select small { color: #999; font-size: 16px; }
+.trading-image-opacity { display: flex; justify-content: space-between; align-items: center; padding: 24px 24px 38px; }
+.trading-image-opacity input { appearance: none; width: 54%; height: 10px; margin: 0; border: 1px solid #798bcb; border-radius: 6px; cursor: pointer; background: linear-gradient(90deg, transparent, #2962ff), repeating-conic-gradient(#aeb5c2 0% 25%, #fff 0% 50%) 0 0 / 10px 10px; }
+.trading-image-opacity input::-webkit-slider-thumb { appearance: none; width: 15px; height: 15px; border: 2px solid #131722; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0003; }
+.trading-image-opacity input:focus-visible { outline: 2px solid #2962ff; outline-offset: 4px; }
+.trading-drawing-selection[data-annotation-media="true"] [data-drawing-selection-mode="text"] > :is([data-drawing-selection-action="reset-text"], [data-drawing-selection-action="toggle-bold"], .trading-drawing-selection-menu-wrap:not(:has([data-drawing-selection-action="edit-text"]))) { display: none; }
+.trading-drawing-image-dialog footer { display: flex; justify-content: flex-end; gap: 14px; border-top: 1px solid #eeeeee; padding: 18px 24px; }
+.trading-drawing-image-dialog footer button { padding: 7px 16px; border: 1px solid #333; border-radius: 10px; background: var(--trading-note-background); color: inherit; font: inherit; cursor: pointer; }
+.trading-drawing-image-dialog footer [type="submit"] { color: white; background: #303030; font-weight: 600; }
+.trading-drawing-image-dialog footer button:disabled { opacity: .35; cursor: default; }
+.trading-drawing-image-dialog [data-image-error] { margin: 12px 24px 0; color: #f23645; }
+
+.trading-x-post-dialog { box-sizing: border-box; width: min(576px, calc(100vw - 32px)); padding: 40px 48px 46px; border: 1px solid #eeeeee; border-radius: 9px; background: var(--trading-note-background); color: var(--trading-note-text); box-shadow: 0 2px 7px #0003; font: 17px/1.5 Arial, "Microsoft YaHei", sans-serif; }
+.trading-x-post-dialog::backdrop { background: transparent; }
+.trading-x-post-dialog h2 { margin: 0 0 18px; font-size: 24px; }
+.trading-x-post-dialog .trading-x-post-close { position: absolute; top: 8px; right: 14px; border: 0; padding: 0; font-size: 32px; color: inherit; background: transparent; cursor: pointer; }
+.trading-x-post-dialog input { box-sizing: border-box; width: 100%; padding: 7px 9px; border: 1px solid #dedede; border-radius: 8px; background: transparent; color: inherit; font: inherit; outline: none; }
+.trading-x-post-dialog input:focus { border-color: #2962ff; box-shadow: 0 0 0 1px #2962ff; }
+.trading-x-post-dialog footer { display: flex; justify-content: flex-end; gap: 14px; margin-top: 30px; }
+.trading-x-post-dialog footer button { padding: 7px 16px; border: 1px solid #e5e5e5; border-radius: 10px; font: inherit; color: inherit; background: transparent; cursor: pointer; }
+.trading-x-post-dialog footer [type="submit"] { background: #303030; color: #fff; font-weight: 600; }
+.trading-x-post-dialog footer button:disabled { opacity: .3; cursor: default; }
+.trading-x-post-dialog [data-post-error] { color: #f23645; margin: 10px 0 0; font-size: 14px; }
+.trading-drawing-layer .trading-x-post-link { pointer-events: all; cursor: pointer; }
+.trading-drawing-layer .trading-x-post-link:focus-visible { outline: 1px solid #2962ff; }
 
 .trading-drawing-selection-action[data-horizontal-line-settings][hidden] { display: none; }
 .trading-ai-text-size-toolbar > button[data-ai-text-size-action="toggle-visibility"] > svg {
@@ -13,13 +65,33 @@
 .trading-drawing-selection-action[data-drawing-selection-action="toggle-visibility"][aria-pressed="true"] {
   color: var(--trading-market-accent); background: var(--trading-market-accent-soft);
 }
-.trading-drawing-layer.drawing-handles-idle [data-selected="true"] > .trading-drawing-handle {
+.trading-drawing-layer.drawing-handles-idle [data-selected="true"] > .trading-drawing-handle:not([data-info-line-handle]):not([data-trend-angle-handle]):not([data-harmonic-handle]):not([data-elliott-handle]):not([data-cycle-handle]):not([data-position-handle]):not([data-range-handle]):not([data-volume-handle]) {
   visibility: hidden;
   pointer-events: none;
 }
 .trading-horizontal-line-add-text { opacity: 0; pointer-events: none; cursor: pointer; }
+/* Invisible line endpoints remain usable as drag targets; shape handles keep
+   their existing appearance. This also covers dedicated tool renderers. */
+.trading-drawing-layer [data-hide-line-nodes="true"] .trading-drawing-handle {
+  opacity: 0 !important;
+}
+.trading-info-line-card { color: #131722; pointer-events: none; }
+.trading-info-line-card * { pointer-events: none; }
+.trading-info-line-background { fill: #f0f0f0; fill-opacity: .9; }
+html[data-theme="dark"] .trading-info-line-card { color: #d1d4dc; }
+html[data-theme="dark"] .trading-info-line-background { fill: #2a2e39; }
+.trading-info-line-axis-range, .trading-trend-angle-axis-range { position: absolute; opacity: .24; pointer-events: none; }
+.trading-harmonic-axis-range { position: absolute; background: #2962ff; opacity: .24; pointer-events: none; }
+.trading-range-card { color: #131722; pointer-events: none; }
+.trading-range-card > rect { fill: #fff; filter: drop-shadow(0 1px 3px #0003); }
+html[data-theme="dark"] .trading-range-card { color: #d1d4dc; }
+html[data-theme="dark"] .trading-range-card > rect { fill: #2a2e39; }
+.trading-drawing-layer.drawing-handles-idle [data-selected="true"] > [data-range-handle],
+.trading-drawing-layer.drawing-handles-idle [data-selected="true"] > [data-volume-handle] { opacity: 1; pointer-events: auto; }
+.trading-drawing-selection-action[data-harmonic-style-control][hidden] { display: none; }
 .trading-horizontal-line-add-text text { opacity: .7; }
 .trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) .trading-horizontal-line-add-text:is([data-line-hover="true"], :focus-within) { opacity: 1; pointer-events: all; }
+.trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-id]:is(:hover, [data-selected="true"]) > .trading-horizontal-line-add-text[data-drawing-text-position="center"] { opacity: 1; pointer-events: all; }
 .trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-source="manual"] > .trading-drawing-geometry :is(line,polyline,polygon,rect,circle,ellipse,path)[stroke]:not([stroke="none"]) { pointer-events: stroke; cursor: move; }
 .trading-drawing-layer:not(.drawing-active):not(.dragging-drawing) [data-drawing-source="manual"][data-locked="true"] > .trading-drawing-geometry :is(line,polyline,polygon,rect,circle,ellipse,path)[stroke]:not([stroke="none"]) { cursor: not-allowed; }
 .trading-horizontal-line-add-text:is(:hover, :focus-visible) text { opacity: 1; }
@@ -53,29 +125,43 @@
 .trading-horizontal-line-dialog button { cursor: pointer; min-height: 34px; padding: 6px 12px; }
 .trading-horizontal-line-dialog button:hover { background: var(--trading-market-control, #f0f0f0); }
 .trading-horizontal-line-dialog svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.trading-horizontal-line-dialog :is(button, input, select, textarea):focus-visible { outline: 2px solid #2962ff; outline-offset: 2px; }
+.trading-horizontal-line-dialog :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--interaction-accent); outline-offset: 2px; }
 .trading-horizontal-line-dialog header button { display: grid; place-items: center; width: 30px; min-height: 30px; flex: 0 0 30px; border: 0; padding: 0; background: transparent; color: var(--trading-market-muted, #787b86); }
 .trading-horizontal-line-dialog header button:hover { background: var(--trading-market-control, #f0f0f0); color: var(--trading-market-text, #131722); }
 .trading-line-settings-tabs { display: flex; gap: 24px; padding: 0 20px; }
 .trading-line-settings-tabs button { position: relative; min-height: 42px; border: 0; border-radius: 0; padding: 10px 2px; font-size: 14px; font-weight: 400; background: transparent; color: var(--trading-market-muted, #787b86); }
-.trading-line-settings-tabs button[aria-selected="true"] { color: #2962ff; }
+.trading-line-settings-tabs button[aria-selected="true"] { color: var(--interaction-accent); }
 .trading-line-settings-tabs button[aria-selected="true"]::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; border-radius: 2px; background: currentColor; }
 .trading-horizontal-line-dialog section { box-sizing: border-box; min-height: 148px; padding: 20px; }
 .trading-horizontal-line-dialog [hidden] { display: none; }
+.trading-regression-dialog { width: min(460px, calc(100vw - 32px)); }
+.trading-regression-dialog .trading-line-settings-row { grid-template-columns: 120px minmax(0, 1fr); }
+.trading-regression-dialog [data-line-panel="style"] > div.trading-line-settings-row {
+  grid-template-columns: 84px 34px 76px minmax(80px, 1fr); gap: 10px;
+}
+.trading-regression-dialog [data-line-panel="style"] select { min-width: 0; }
+.trading-regression-dialog .trading-line-settings-check { white-space: nowrap; }
+.trading-regression-dialog [data-line-panel="coordinates"] .trading-line-settings-row { grid-template-columns: 136px minmax(0, 1fr); }
 .trading-line-settings-row { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: center; gap: 12px; margin-bottom: 18px; }
+.trading-horizontal-line-dialog [data-line-panel="coordinates"] .trading-line-settings-row { grid-template-columns: 96px minmax(0, 1fr); }
 .trading-line-settings-row:last-child { margin-bottom: 0; }
+.trading-volume-settings-dialog { width: min(480px, calc(100vw - 32px)); }
+.trading-volume-settings-dialog .trading-line-settings-row,
+.trading-volume-settings-dialog [data-line-panel="coordinates"] .trading-line-settings-row {
+  grid-template-columns: minmax(144px, 1fr) minmax(0, 1.5fr);
+}
 .trading-line-settings-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .trading-line-settings-check { display: flex; align-items: center; gap: 8px; width: fit-content; min-height: 32px; cursor: pointer; }
 .trading-horizontal-line-dialog input[type="color"] { width: 34px; height: 34px; flex: 0 0 34px; padding: 5px; cursor: pointer; }
 .trading-horizontal-line-dialog input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 .trading-horizontal-line-dialog input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 3px; }
-.trading-horizontal-line-dialog input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: #2962ff; }
+.trading-horizontal-line-dialog input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--interaction-accent); }
 .trading-horizontal-line-dialog select { appearance: none; min-width: 76px; max-width: 100%; height: 34px; padding: 0 30px 0 10px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23787b86' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E"); background-position: right 8px center; background-repeat: no-repeat; }
 .trading-horizontal-line-dialog input[type="number"] { width: 100%; max-width: 200px; height: 34px; padding: 6px 10px; }
 .trading-horizontal-line-dialog input[type="datetime-local"] { min-width: 0; width: 100%; max-width: 220px; height: 34px; padding: 6px 8px; }
 .trading-line-text-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
 .trading-line-text-controls button { display: grid; place-items: center; width: 34px; padding: 0; }
-.trading-line-text-controls button[aria-pressed="true"] { color: #2962ff; border-color: #2962ff; background: #2962ff12; }
+.trading-line-text-controls button[aria-pressed="true"] { color: var(--interaction-accent); border-color: var(--interaction-accent); background: rgba(var(--interaction-rgb), 0.071); }
 .trading-horizontal-line-dialog textarea { display: block; width: 100%; min-height: 96px; resize: vertical; padding: 10px 12px; margin-bottom: 16px; line-height: 1.5; }
 .trading-horizontal-line-dialog textarea:focus-visible { outline: none; box-shadow: none; }
 .trading-horizontal-line-dialog footer { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; }
@@ -86,8 +172,8 @@ html[data-theme="dark"] .trading-horizontal-line-dialog { color-scheme: dark; }
 /* Keep chart controls compact despite the application's generic dialog rules. */
 html[data-theme="dark"] dialog.trading-horizontal-line-dialog[open] form > footer button { min-height: 34px; border-radius: 7px; }
 html[data-theme="dark"] dialog.trading-horizontal-line-dialog[open] form > footer button.primary[type="submit"]:not(:disabled) { box-shadow: none; }
-html[data-theme="dark"] dialog.trading-horizontal-line-dialog[open] :is(input, select):focus-visible { outline: 2px solid #7298ff; outline-offset: 2px; }
-html[data-theme="dark"] .trading-line-settings-tabs button[aria-selected="true"] { color: #7298ff; }
+html[data-theme="dark"] dialog.trading-horizontal-line-dialog[open] :is(input, select):focus-visible { outline: 2px solid var(--interaction-accent); outline-offset: 2px; }
+html[data-theme="dark"] .trading-line-settings-tabs button[aria-selected="true"] { color: var(--interaction-accent); }
 @media (max-width: 420px) {
   .trading-line-settings-row { grid-template-columns: 64px minmax(0, 1fr); gap: 8px; }
 }
@@ -103,6 +189,8 @@ html[data-theme="dark"] {
   --drawing-border: #e0e3eb;
   --drawing-muted: #787b86;
   --drawing-hover: #f0f0f0;
+  --drawing-selected-background: var(--drawing-hover);
+  --drawing-selected-ink: var(--drawing-ink);
   position: relative; display: flex; width: var(--trading-drawing-toolbar-width); min-width: var(--trading-drawing-toolbar-width); flex: 0 0 var(--trading-drawing-toolbar-width);
   flex-direction: column; margin-bottom: 42px; overflow: visible;
   border-right: 1px solid var(--drawing-border);
@@ -139,11 +227,23 @@ html[data-theme="dark"] {
 .trading-drawing-disclosure > svg { width: 8px; height: 8px; fill: none; stroke: currentColor; stroke-width: 1.1; }
 .trading-drawing-primary:hover, .trading-drawing-action:hover, .trading-drawing-disclosure:hover,
 .trading-drawing-disclosure[aria-expanded="true"], .trading-drawing-primary:focus-visible,
-.trading-drawing-action:focus-visible { background: var(--drawing-hover); }
-.trading-drawing-primary.active, .trading-drawing-action.active,
-.trading-drawing-action[aria-pressed="true"] { color: #2962ff; background: transparent; }
-.trading-drawing-group[data-drawing-group="cursor"] .trading-drawing-primary.active { color: var(--drawing-ink); background: var(--drawing-hover); }
+.trading-drawing-action:focus-visible { background: var(--drawing-hover); --drawing-icon-fill: var(--drawing-hover); }
+.trading-drawing-primary.active,
+.trading-drawing-action.active,
+.trading-drawing-action[aria-pressed="true"] {
+  color: var(--drawing-selected-ink); background: var(--drawing-selected-background);
+  --drawing-icon-fill: var(--drawing-selected-background);
+}
 .trading-drawing-action:disabled { opacity: .32; cursor: default; }
+.trading-chart-capturing :is(.trading-drawing-selection, .trading-ai-text-size-toolbar, .trading-horizontal-line-add-text) { visibility: hidden !important; }
+.trading-chart-screenshot-notice {
+  position: absolute; z-index: 150; top: 64px; left: 50%; transform: translateX(-50%);
+  max-width: calc(100% - 32px); box-sizing: border-box; padding: 12px 20px;
+  border: 1px solid var(--trading-market-border, #e0e3eb); border-radius: 8px;
+  background: var(--trading-market-panel, #fff); color: var(--trading-market-text, #131722);
+  box-shadow: 0 4px 20px #0002; font-size: 14px; line-height: 1.5; pointer-events: none;
+}
+.trading-chart-screenshot-notice[hidden] { display: none; }
 .trading-drawing-divider { width: 36px; height: 1px; min-height: 1px; flex: 0 0 1px; margin: 6px 0; background: var(--drawing-border); }
 .trading-drawing-tool-menu {
   position: fixed; top: 4px; left: 52px; z-index: 110; display: flex;
@@ -164,6 +264,22 @@ html[data-language="en"] .trading-drawing-tool-menu[data-drawing-tool-menu="pred
 html[data-language="en"] .trading-drawing-tool-menu[data-drawing-tool-menu="brush"] { width: 254px; }
 html[data-language="en"] .trading-drawing-tool-menu[data-drawing-tool-menu="annotation"] { width: 254px; }
 .trading-drawing-tool-menu[hidden], .trading-drawing-favorites-bar[hidden] { display: none !important; }
+.trading-drawing-magnet-group > .trading-drawing-action { margin-left: 9px; height: 34px; min-height: 34px; flex-basis: 34px; }
+.trading-drawing-tool-menu.trading-drawing-magnet-menu { width: 160px; box-sizing: border-box; padding: 6px; border-radius: 7px; overflow-y: auto; }
+.trading-drawing-magnet-menu > button { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; width: 100%; min-height: 40px; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: 14px/1.5 Arial, 'Microsoft YaHei', sans-serif; text-align: left; cursor: pointer; white-space: nowrap; }
+.trading-drawing-magnet-menu > button:hover { background: var(--drawing-hover); }
+.trading-drawing-magnet-menu > button[role="menuitemradio"][aria-checked="true"] { background: var(--drawing-selected-background); color: var(--drawing-selected-ink); }
+.trading-drawing-magnet-menu > button:focus-visible { outline: 2px solid var(--interaction-accent); outline-offset: -2px; }
+.trading-drawing-magnet-menu > button > svg { flex: 0 0 24px; }
+.trading-drawing-magnet-divider { flex: 0 0 1px; height: 1px; margin: 6px 0; background: var(--drawing-border); }
+.trading-drawing-magnet-menu > [data-drawing-action="toggle-magnet-indicators"] { min-height: 32px; justify-content: space-between; background: var(--drawing-hover); }
+.trading-drawing-magnet-switch { position: relative; flex: 0 0 38px; width: 38px; height: 20px; border-radius: 11px; background: #a0a0a0; }
+.trading-drawing-magnet-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .12s; }
+[aria-checked="true"] > .trading-drawing-magnet-switch { background: var(--interaction-accent); }
+[aria-checked="true"] > .trading-drawing-magnet-switch::after { transform: translateX(18px); }
+html[data-language="en"] .trading-drawing-tool-menu.trading-drawing-magnet-menu { width: 220px; }
+html[data-theme="dark"] .trading-drawing-magnet-menu { --selection-strong: #e5e7eb; }
+html[data-theme="dark"] .trading-drawing-magnet-menu [aria-checked="true"] > .trading-drawing-magnet-switch::after { background: #131722; }
 .trading-drawing-menu-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 6px; scrollbar-width: thin; scrollbar-color: #d1d4dc transparent; }
 .trading-drawing-menu-section { padding: 2px 0 6px; }
 .trading-drawing-menu-section + .trading-drawing-menu-section { border-top: 1px solid var(--drawing-border); padding-top: 6px; }
@@ -183,7 +299,11 @@ html[data-language="en"] .trading-drawing-tool-menu[data-drawing-tool-menu="anno
 .trading-drawing-menu-row:hover .trading-drawing-tool-help, .trading-drawing-menu-row:focus-within .trading-drawing-tool-help { opacity: 1; }
 .trading-drawing-menu-row kbd { justify-self: end; white-space: nowrap; color: var(--drawing-muted); font: 12px Arial, sans-serif; }
 .trading-drawing-menu-row:hover, .trading-drawing-menu-row:focus-within { background: var(--drawing-hover); --drawing-icon-fill: var(--drawing-hover); }
-.trading-drawing-menu-row > button[aria-checked="true"] { color: #2962ff; }
+.trading-drawing-menu-row > button[aria-checked="true"] {
+  color: var(--drawing-selected-ink); background: var(--drawing-selected-background);
+  --drawing-icon-fill: var(--drawing-selected-background);
+}
+.trading-drawing-menu-row > button[aria-checked="true"] kbd { color: inherit; }
 .trading-drawing-menu-row > .trading-drawing-favorite {
   position: absolute; right: 4px; top: 6px; display: grid; place-items: center; width: 26px; height: 28px;
   border: 0; padding: 0; border-radius: 4px; color: var(--drawing-muted); background: transparent; opacity: 0; cursor: pointer;
@@ -200,7 +320,11 @@ html[data-language="en"] .trading-drawing-tool-menu[data-drawing-tool-menu="anno
   background: var(--drawing-panel); box-shadow: 0 2px 5px #0002; overflow-x: auto;
 }
 .trading-drawing-favorites-bar button { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; border: 0; border-radius: 3px; color: inherit; background: transparent; cursor: pointer; }
-.trading-drawing-favorites-bar button:hover { background: var(--drawing-hover); }
+.trading-drawing-favorites-bar button:hover { background: var(--drawing-hover); --drawing-icon-fill: var(--drawing-hover); }
+.trading-drawing-favorites-bar button[aria-pressed="true"] {
+  color: var(--drawing-selected-ink); background: var(--drawing-selected-background);
+  --drawing-icon-fill: var(--drawing-selected-background);
+}
 .trading-drawing-symbol-menu { width: 354px; height: 550px; }
 .trading-drawing-symbol-categories, .trading-drawing-symbol-menu footer { display: flex; justify-content: space-around; padding: 8px 4px; flex: 0 0 auto; border-bottom: 1px solid var(--drawing-border); }
 .trading-drawing-symbol-menu button { background: transparent; color: inherit; border: 0; cursor: pointer; border-radius: 4px; }
@@ -210,7 +334,22 @@ html[data-language="en"] .trading-drawing-tool-menu[data-drawing-tool-menu="anno
 .trading-drawing-symbol-menu button:hover { background: var(--drawing-hover); }
 .trading-drawing-symbol-menu footer { border-top: 1px solid var(--drawing-border); border-bottom: 0; padding: 0 30px; }
 .trading-drawing-symbol-menu footer button { height: 40px; font-size: 14px; border-radius: 0; }
-.trading-drawing-symbol-menu footer button[aria-selected="true"] { color: #2962ff; border-bottom: 2px solid #2962ff; }
+.trading-drawing-symbol-menu footer button[aria-selected="true"] { color: var(--interaction-accent); border-bottom: 2px solid var(--interaction-accent); }
 html[data-theme="dark"] .trading-drawing-toolbar { --drawing-ink: #d1d4dc; --drawing-border: #2a2e39; --drawing-muted: #9598a1; --drawing-hover: #2a2e39; }
-[data-drawing-cursor="dot"] .trading-chart-navigable { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9'%3E%3Ccircle cx='4' cy='4' r='3' fill='%23131722' stroke='white'/%3E%3C/svg%3E") 4 4, crosshair; }
+/* Explicit pointer artwork keeps these tools consistent across Windows cursor schemes. */
+[data-drawing-cursor="crosshair"] .trading-chart-navigable {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='25' height='25' viewBox='0 0 25 25'%3E%3Cpath d='M12 1V23M1 12H23' fill='none' stroke='white' stroke-opacity='.8' stroke-width='3'/%3E%3Cpath d='M12 1V23M1 12H23' fill='none' stroke='%23131722' stroke-width='2'/%3E%3C/svg%3E") 12 12, crosshair;
+}
+[data-drawing-cursor="dot"] .trading-chart-navigable {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='19' height='19' viewBox='0 0 19 19'%3E%3Ccircle cx='9' cy='9' r='7' fill='%23787b86' fill-opacity='.4'/%3E%3Ccircle cx='9' cy='9' r='3.5' fill='%23131722'/%3E%3C/svg%3E") 9 9, crosshair;
+}
+.trading-drawing-layer.drawing-active[data-drawing-tool="eraser"] {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M14 3a2 2 0 0 1 3 0l4 4a2 2 0 0 1 0 3L10 21H7l-4-4a2 2 0 0 1 0-3Z' fill='white' stroke='%23131722' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='m7 10 7 7M10 21h11' fill='none' stroke='%23131722' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 8 21, default;
+}
 [data-drawing-cursor="demonstration"] .trading-chart-navigable { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Ccircle cx='18' cy='18' r='16' fill='%232962ff' fill-opacity='.25'/%3E%3Ccircle cx='18' cy='18' r='3' fill='%232962ff'/%3E%3C/svg%3E") 18 18, crosshair; }
+
+/* Selected control points stay neutral even when the drawing uses a custom color. */
+.trading-drawing-handle { stroke: var(--interaction-accent); }
+.trading-drawing-selection-menu-wrap[hidden] {
+  display: none !important;
+}

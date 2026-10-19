@@ -29,7 +29,7 @@ test('line labels use independent text appearance, escape user text and expose a
   assert.match(markup, /font-size="20" font-weight="700" font-style="italic"/);
   assert.match(markup, /&lt;script&gt;&amp;&quot;/);
   assert.match(markup, /trading-drawing-hit-target area/);
-  assert.match(markup, /fill="var\(--trading-market-panel\)"/);
+  assert.doesNotMatch(markup, /fill="var\(--trading-market-panel\)"/, 'labels do not paint over chart candles');
   assert.doesNotMatch(renderTradingHorizontalLineText({ ...line, text: '' }, 200, 800, '#2962ff'), /<text/);
 });
 

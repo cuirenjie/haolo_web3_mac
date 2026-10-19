@@ -4,21 +4,27 @@ import { TradingHollowHistogram } from '../src/renderer/trading-hollow-histogram
 import { normalizeTradingIndicatorSettings } from '../src/renderer/trading-expert-market.ts';
 import { flattenSettings, applySettingValues } from '../src/renderer/account-settings-sync.ts';
 
-test('MACD hollow preference survives storage and account settings, with solid legacy defaults', () => {
+for (const [id, seriesKey, otherId, otherSeriesKey] of [
+  ['macd', 'histogram', 'volume', 'volume'],
+  ['volume', 'volume', 'macd', 'histogram'],
+]) test(`${id} hollow preference survives storage and account settings independently, with solid legacy defaults`, () => {
+  const key = `sub:${id}`;
   const defaults = normalizeTradingIndicatorSettings(null);
-  assert.equal(defaults['sub:macd'].series.histogram.histogramStyle, 'solid');
+  assert.equal(defaults[key].series[seriesKey].histogramStyle, 'solid');
   for (const histogramStyle of [undefined, null, 'invalid', true]) {
-    const settings = normalizeTradingIndicatorSettings({ 'sub:macd': { series: { histogram: { histogramStyle } } } });
-    assert.equal(settings['sub:macd'].series.histogram.histogramStyle, 'solid');
+    const settings = normalizeTradingIndicatorSettings({ [key]: { series: { [seriesKey]: { histogramStyle } } } });
+    assert.equal(settings[key].series[seriesKey].histogramStyle, 'solid');
   }
-  defaults['sub:macd'].series.histogram.histogramStyle = 'hollow';
-  defaults['sub:macd'].series.histogram.visible = false;
+  defaults[key].series[seriesKey].histogramStyle = 'hollow';
+  defaults[key].series[seriesKey].visible = false;
   const restored = normalizeTradingIndicatorSettings(JSON.parse(JSON.stringify(defaults)));
   const synced = normalizeTradingIndicatorSettings(applySettingValues(
     normalizeTradingIndicatorSettings(null), flattenSettings(restored, 'indicator'), 'indicator',
   ));
-  assert.deepEqual(synced['sub:macd'], defaults['sub:macd']);
-  assert.equal(synced['sub:volume'].series.volume.histogramStyle, undefined);
+  assert.deepEqual(synced[key], defaults[key]);
+  assert.equal(synced[`sub:${otherId}`].series[otherSeriesKey].histogramStyle, 'solid');
+  assert.equal(synced['main:vpvr'].series.volume.histogramStyle, undefined);
+  assert.equal(synced['sub:volume'].series.ma5.histogramStyle, undefined);
 });
 
 function paint({ ratio = 1, spacing = 10, values = [10, -10, 0], visibleRange, converter } = {}) {

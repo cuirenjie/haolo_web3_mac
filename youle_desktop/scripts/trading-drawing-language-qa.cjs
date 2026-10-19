@@ -109,11 +109,12 @@ let win;
   const authored=await js(`[...d.content.querySelectorAll('[data-i18n-skip]')].map(e=>e.textContent)`);
   assert.ok(authored.some(t=>t.includes('中文交易计划')));
   assert.ok(authored.some(t=>t.includes('项目')));
+  await js("d.selectTool('parallel-channel');d.selectTool('crosshair')");
   for(const lang of ['zh-CN','en','zh-TW','en']) {
     await js(`language.applyAppLanguage('${lang}',{root:document.body});d.updateToolbarState()`);await settle();
     assert.deepEqual(await js(`[...d.content.querySelectorAll('[data-i18n-skip]')].map(e=>e.textContent)`),authored,`${lang}: user text must stay verbatim`);
     const title=await js(`d.toolbar.querySelector('[data-drawing-group="trend"] .trading-drawing-primary').title`);
-    assert.equal(title,lang==='en'?'Trendline':lang==='zh-TW'?'趨勢線':'趋势线');
+    assert.equal(title,lang==='en'?'Parallel channel':'平行通道');
     if(lang==='en') assert.deepEqual(await js('untranslated()'),[], 'language round trip');
   }
   await js('d.closeToolMenus();d.openClearDialog()');await settle();

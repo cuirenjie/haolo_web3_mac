@@ -77,7 +77,7 @@ test("contact directory group controls retain readable dark interaction states",
   assert.match(styles, /html\[data-theme="dark"\] \.contacts-group-toggle,\s*[\s\S]*color: var\(--text-primary-soft\);/);
   assert.match(styles, /html\[data-theme="dark"\] \.contacts-group-toggle:hover,\s*html\[data-theme="dark"\] \.contacts-group-toggle:focus-visible,[\s\S]*background: rgba\(255, 255, 255, 0\.055\);/);
   assert.match(styles, /html\[data-theme="dark"\] \.contacts-group-toggle:active\s*\{\s*background: var\(--surface-active-translucent\);/);
-  assert.match(styles, /html\[data-theme="dark"\] \.contacts-group-toggle:focus-visible\s*\{\s*outline-color: #5b9dff;/);
+  assert.match(styles, /html\[data-theme="dark"\] \.contacts-group-toggle:focus-visible\s*\{\s*outline-color: var\(--interaction-accent\);/);
   assert.match(styles, /html\[data-theme="dark"\] \.contacts-group-toggle\[aria-expanded="true"\]\s*\{\s*color: var\(--text-primary-soft\);/);
 });
 

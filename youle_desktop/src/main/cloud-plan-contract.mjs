@@ -5,6 +5,7 @@ import {executionPlanCandidatesFromText,executionPlanCandidateWithSourceText,exe
   executionPlanHasStructuredTradingFields,executionPlanHasConcreteTradingPlan} from './legacy-execution-plan-presentation.mjs';
 import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCardBody} from './execution-plan-card-view.mjs';
 import {cloudPlanAccountView} from './cloud-plan-account-view.mjs';
+import {validLeftObservation,leftWatchView,leftRouteView} from './price-action-left-card.mjs';
 const uuid = value => typeof value==='string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 const hash = value => typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
 const positive=value=>typeof value==='number'&&Number.isFinite(value)&&value>0;
@@ -46,6 +47,8 @@ export function normalizeCloudReports(value) {
     if(row.executionPlan?.schemaVersion!==2||!Array.isArray(row.executionPlan.scenarios)||row.executionPlan.scenarios.length>1
       ||row.planRecords.length!==row.executionPlan.scenarios.length)fail();
     const plan=row.executionPlan;
+    if(plan.leftObservation!==undefined&&(!validLeftObservation(plan.leftObservation)||row.strategyId!=='price-action'
+      ||!['left',null].includes(plan.selectedMode)))fail();
     if(plan.scenarios.length) {
       const condition=plan.entryCondition,scenario=plan.scenarios[0];
       if(plan.outcome?.action!=='plan'||!uuid(condition?.conditionId)||condition.revision!==1||!hash(plan.conditionHash)
@@ -123,7 +126,9 @@ export function cloudPlanCard(report, { hideExpiry = false, language: displayLan
   }
   const index=report.locale==='en'?1:report.locale==='zh-Hant'?2:0,t=key=>words[key]?.[index]||key;
   const plan=report.executionPlan,condition=plan.entryCondition,scenario=plan.scenarios[0];
-  if(plan.outcome?.action!=='plan'||!condition||!scenario) return null;
+  const language=displayLanguage||(report.locale==='zh-Hant'?'zh-TW':report.locale);
+  const watch=leftWatchView(report,language),route=leftRouteView(plan,language);
+  if(plan.outcome?.action!=='plan'||!condition||!scenario) return watch;
   const predicate=p=>p ? `${t(p.operator)} ${p.operator==='in_zone'?`[${p.lower}, ${p.upper}]`:p.lower}` : '';
   const details=[t(condition.confirmation),predicate(condition.trigger)];
   if(condition.confirmation==='breakout_retest') details.push(condition.breakoutConfirmation==='bar_close'?t('bar_close'):t('touch'),predicate(condition.retest));
@@ -138,7 +143,6 @@ export function cloudPlanCard(report, { hideExpiry = false, language: displayLan
     [t('expiry'),new Date(condition.expiresAt).toISOString()],
   ];
   const title=`${report.marketId} · ${condition.interval} · ${t('title')}`;
-  const language=displayLanguage||(report.locale==='zh-Hant'?'zh-TW':report.locale);
   const heading=executionPlanCardHeading(title,[{label:'Direction',text:condition.direction},{label:'Strategy',text:report.strategyId}],language);
   // Mobile's engine-first ratio rule: never derive ratios or account amounts
   // from displayed prices, or borrow the other scenario's account sizing.
@@ -151,7 +155,7 @@ export function cloudPlanCard(report, { hideExpiry = false, language: displayLan
   const entry=condition.confirmation==='breakout_retest'?condition.retest:condition.trigger;
   const body=executionPlanStructuredCardBody({entry,stop:scenario.stop,targets:scenario.targets,direction:condition.direction,
     expiresAt:hideExpiry?undefined:condition.expiresAt,riskReward,account,
-    action:plan.executionBlocked===true||(scenario.positionSizing||plan.positionSizing)?.executionBlocked===true||scenario.eligible===false?'blocked':'wait'},language);
-  return {title,content:[title,...fields.map(([label,value])=>`${label}: ${value}`),t('notice')].join('\n'),
-    html:heading+body};
+    action:plan.executionBlocked===true||(scenario.positionSizing||plan.positionSizing)?.executionBlocked===true||scenario.eligible===false?'blocked':route?.action||'wait'},language);
+  return {title,content:[title,...fields.map(([label,value])=>`${label}: ${value}`),t('notice'),...(route?[route.content]:[]),...(watch?[watch.content]:[])].join('\n'),
+    html:heading+body+(route?.html||'')+(watch?.html||'')};
 }

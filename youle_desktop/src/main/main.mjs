@@ -2,6 +2,8 @@ import { withModelToolNetwork } from "./model-tool-network.mjs";
 import { errorSignals } from "./error-signals.mjs";
 import { sharedSnapshotPosition, sharedSnapshotTime } from "./binance-account/shared-snapshot.mjs";
 import { registerManualDrawingSync } from "./manual-drawing-sync.mjs";
+import { captureTradingChart } from './trading-chart-capture.mjs';
+import { getTradingXPost } from './trading-x-post.mjs';
 import { registerClientSettingsSync } from "./client-settings-sync.mjs";
 import { HAOLO_GATEWAY_BASE_URL, HAOLO_GATEWAY_HOST } from "./haolo-gateway.mjs";
 import { clipboard, nativeImage, shell } from "electron/common";
@@ -224,7 +226,7 @@ import { binanceCredentialErrorResult } from "../shared/binance-account-errors.m
 import { BinancePrivateProxyTransport } from "./binance-account/private-proxy-fetch.mjs";
 import { BinanceRequestGovernor, BINANCE_REQUEST_PRIORITIES } from "./binance-request-governor.mjs";
 import { BinancePublicMarketService } from "./binance-public-market-service.mjs";
-import { PublicMarketIndicesService } from "./public-market-indices.mjs";
+import { MarketIndicesService } from "./market-indices.mjs";
 import { BinancePublicRequestCoordinator } from "./binance-public-request-coordinator.mjs";
 import { resolveBinanceGatewayConfig } from "./binance-gateway-config.mjs";
 import { createBinanceGatewayClient } from "./binance-gateway-client.mjs";
@@ -13163,13 +13165,19 @@ ipcMain.handle("youle:verifyOtp", async (_event, params = {}) => {
   return session;
 });
 
-const publicMarketIndices = new PublicMarketIndicesService({
+const publicMarketIndices = new MarketIndicesService({
+  indicesRequest: () => getYouleApiClient().getMarketIndices(),
   fetch: (url, init) => appNetworkFetch(url, init),
   binanceRequest: (params, options) => getBinancePublicMarketService().request(params, options),
 });
 ipcMain.handle("marketData:getPublicIndices", async (event) => {
   assertExternalModelsIpcSender(event);
   return publicMarketIndices.snapshot();
+});
+ipcMain.handle("marketData:getIndexChart", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  await waitForAuthChangeRestart();
+  return getYouleApiClient().getIndexChart(params);
 });
 
 ipcMain.handle("binanceMarket:publicGet", async (event, params = {}) => {
@@ -19301,6 +19309,7 @@ ipcMain.handle("codex:openExternal", async (_event, url) => {
   await shell.openExternal(url);
   return { ok: true };
 });
+ipcMain.handle('tradingDrawing:getXPost', (_event, url) => getTradingXPost(url, { fetchImpl: appNetworkFetch }));
 
 ipcMain.handle("youle:openBlockchainTransaction", async (_event, params = {}) => {
   const url = blockchainTransactionUrl(params);
@@ -19334,29 +19343,7 @@ ipcMain.handle("window:control", async (event, action) => {
 });
 
 ipcMain.handle("trading:captureChart", async (event, params = {}) => {
-  const window = BrowserWindow.fromWebContents(event.sender);
-  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) {
-    return { ok: false, message: "交易图表窗口不可用" };
-  }
-  const rect = normalizeTradingChartCaptureRect(window, params?.rect);
-  if (!rect) return { ok: false, message: "交易图表截图区域无效" };
-  const image = await window.webContents.capturePage(rect);
-  if (!image || image.isEmpty()) return { ok: false, message: "交易图表截图为空" };
-  const buffer = image.toPNG();
-  const captureDirectory = path.join(app.getPath("temp"), "haolo-trading-captures");
-  await fs.promises.mkdir(captureDirectory, { recursive: true });
-  const name = `haolo-kline-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.png`;
-  const filePath = path.join(captureDirectory, name);
-  await fs.promises.writeFile(filePath, buffer);
-  return {
-    ok: true,
-    path: filePath,
-    name,
-    mime: "image/png",
-    size: buffer.length,
-    width: image.getSize().width,
-    height: image.getSize().height,
-  };
+  return captureTradingChart(BrowserWindow.fromWebContents(event.sender), params, { app, clipboard });
 });
 
 ipcMain.handle("window:resize", async (event, params) => {
@@ -19466,26 +19453,6 @@ ipcMain.handle("window:getState", async (event) => {
 ipcMain.handle("window:revealModeTransition", async (event) => {
   return revealPendingWindowModeTransition(BrowserWindow.fromWebContents(event.sender));
 });
-
-function normalizeTradingChartCaptureRect(window, value) {
-  const source = value && typeof value === "object" ? value : {};
-  const [contentWidth, contentHeight] = window.getContentSize();
-  const widthLimit = Math.max(1, Math.trunc(Number(contentWidth) || 0));
-  const heightLimit = Math.max(1, Math.trunc(Number(contentHeight) || 0));
-  const rawX = Number(source.x);
-  const rawY = Number(source.y);
-  const rawWidth = Number(source.width);
-  const rawHeight = Number(source.height);
-  if (![rawX, rawY, rawWidth, rawHeight].every(Number.isFinite) || rawWidth <= 0 || rawHeight <= 0) {
-    return null;
-  }
-  const x = Math.max(0, Math.min(widthLimit - 1, Math.round(rawX)));
-  const y = Math.max(0, Math.min(heightLimit - 1, Math.round(rawY)));
-  const width = Math.min(widthLimit - x, Math.max(1, Math.round(rawWidth)));
-  const height = Math.min(heightLimit - y, Math.max(1, Math.round(rawHeight)));
-  if (width <= 0 || height <= 0) return null;
-  return { x, y, width, height };
-}
 
 function applyWindowControl(window, action) {
   if (!window) return { ok: false };

@@ -1508,8 +1508,11 @@ type DesktopApi = {
   }): Promise<{ ok?: boolean; shown?: boolean }>;
   captureTradingChart?(params: {
     rect: { x: number; y: number; width: number; height: number };
+    destination?: 'desktop';
   }): Promise<{
     ok?: boolean;
+    copied?: boolean;
+    message?: string;
     path?: string;
     name?: string;
     mime?: string;
@@ -1593,6 +1596,7 @@ type DesktopApi = {
   lookupIdentity(params: any): Promise<any>;
   sendOtp(params: any): Promise<any>;
   verifyOtp(params: any): Promise<any>;
+  getTradingXPost?(url: string): Promise<{ url: string; authorName: string; handle: string; body?: string; html?: string; createdAt: string; avatarUrl: string }>;
   getBinancePublicMarketData?(params: {
     marketType: "futures" | "spot";
     path: string;
@@ -2051,6 +2055,7 @@ type DesktopApi = {
   searchFinnhubMarkets?(params: { query: string; limit?: number }): Promise<any>;
   getFinnhubMarketQuotes?(params: { symbols: string[] }): Promise<any>;
   getPublicMarketIndices?(): Promise<import("./trading-public-indices.ts").PublicIndicesSnapshot>;
+  getIndexChart?(params: {indexId: string; period?: string; before?: number}): Promise<import("./trading-index-chart.ts").IndexChartResponse>;
   getFinnhubMarketSnapshot?(params: {
     symbol: string;
     assetClass?: string;
@@ -39451,10 +39456,10 @@ function renderMessageExecutionPlan(
     try {reports=normalizeCloudReports((message as MessageUiMeta).cloudReports);} catch {return null;}
     const cards=reports.map((report,index)=>{
       index += candidateOffset;
-      const card=cloudPlanCard(report);
+      const card=cloudPlanCard(report,{language:state.settings.language});
       if(!card) return '';
       const key=executionPlanCandidateKey(message.conversation_id,message.id,index);
-      executionPlanCandidatesBySource.set(key,{title:card.title,content:card.content,cloudReport:report});
+      if(!card.readOnly)executionPlanCandidatesBySource.set(key,{title:card.title,content:card.content,cloudReport:report});
       const fontSize=loadMessageExecutionPlanFontSize(key);
       return `<section class="message-execution-plan execution-plan-surface" aria-label="${escapeAttr(card.title)}"
         data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}" data-execution-plan-message-id="${escapeAttr(message.id)}"
@@ -39463,7 +39468,7 @@ function renderMessageExecutionPlan(
         <footer class="message-execution-plan-controls" aria-label="执行卡片文字与便利贴操作">
           <button type="button" data-message-execution-plan-action="increase"${fontSize>=MESSAGE_EXECUTION_PLAN_FONT_SIZES.at(-1)!?' disabled':''}>放大</button>
           <button type="button" data-message-execution-plan-action="decrease"${fontSize<=MESSAGE_EXECUTION_PLAN_FONT_SIZES[0]?' disabled':''}>缩小</button>
-          <button type="button" data-message-execution-plan-action="sticky">便利贴</button>
+          ${card.readOnly?'':'<button type="button" data-message-execution-plan-action="sticky">便利贴</button>'}
         </footer></section>`;
     }).join('');
     return {bubbleContent:formatMessageText(text,options),cards:cards?`<div class="message-execution-plan-list">${cards}</div>`:''};

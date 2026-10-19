@@ -1,3 +1,9 @@
+import { fibonacciWedgeEndpoint } from './trading-fibonacci-radial.ts';
+import { rotatedRectangleGeometry, rotatedRectangleWidthPoint, moveRotatedRectangleHandle } from './trading-rotated-rectangle.ts';
+import { isPositionDrawing, isPredictionDrawing, positionAnchors, movePositionAnchor, normalizePositionOptions, renderPositionDrawing, renderForecastDrawing, type PositionOptions } from './trading-position-tools.ts';
+import { isPredictionShape, normalizeBarsSnapshot, nearestPatternBar, patternPreviewPoint, captureBarsPattern, sectorEndpoint, renderPredictionShape, type BarsPatternSnapshot } from './trading-prediction-shapes.ts';
+import { openColorPicker, closeColorPicker } from './color-picker.ts';
+import { readTradingMagnetPreferences, writeTradingMagnetPreferences, snapTradingDrawingMagnet, type TradingMagnetMode, type TradingMagnetSeries } from './trading-drawing-magnet.ts';
 import { zoomTradingChart, type TradingChartNavigation } from "./trading-chart-navigation.ts";
 import { DesktopDrawingSync, drawingSyncText } from './manual-drawing-sync.ts';
 import { TradingChartToolbarVisibility, clampTradingChartToolbarPosition } from "./trading-chart-toolbar-visibility.ts";
@@ -16,15 +22,33 @@ import {
   renderTradingOrderPositionCards,
   type TradingOrderLine,
 } from "./trading-expert-order-lines.ts";
-import { translateAppText, translateTradingAnnotationText, type AppLanguage } from "./app-language.mjs";
+import { translateAppText, translateDrawingText, translateTradingAnnotationText, type AppLanguage } from "./app-language.mjs";
 import { DRAWING_MENU_SECTIONS, DRAWING_SHORTCUTS, DRAWING_SYMBOLS, renderDrawingIcon as drawingIcon, drawingMenuGroup } from './trading-drawing-catalog.ts';
-import { renderExtraDrawingGeometry, renderExtraAnnotation, storeDrawingImage, type DrawingCandle } from './trading-drawing-extra-tools.ts';
+import { renderExtraDrawingGeometry, renderExtraAnnotation, drawingImageUrl, type DrawingCandle } from './trading-drawing-extra-tools.ts';
+import { DrawingImageDialog, type DrawingImageSelection } from './trading-drawing-image-dialog.ts';
+import { TradingXPostDialog, readTradingXPost } from './trading-x-post.ts';
+import { normalizeXPostUrl } from '../shared/trading-x-post.mjs';
+import { isRangeDrawing, rangeFillColor, rangeMeasurement, renderRangeDrawing } from './trading-range-tools.ts';
+import { isVolumeDrawing, isVolumeProfile, volumeProfilePoints, calculateFixedVolume, volumeBarIndex, vwapSourcePrice, volumeDrawingAnchors, calculateAnchoredVwap, normalizeAnchoredVwapOptions, normalizeFixedVolumeOptions, renderAnchoredVwap, renderFixedVolume, type AnchoredVwapOptions, type FixedVolumeOptions } from './trading-volume-drawings.ts';
+import { VolumeProfileHistory, volumeBarEnd, volumeProfileResolution, volumeResolutionSeconds, type VolumeHistoryLoader } from './trading-volume-history.ts';
+import { isCycleDrawing, cycleAnchorPoints, moveCycleAnchor, cycleFillColor, renderCycleDrawing, cycleHitDistance } from './trading-cycle-tools.ts';
 import { manualDrawingDefaults, manualFibLevelColor, DRAWING_SELECTION_COLOR, type ManualDrawingDefaults } from './trading-drawing-defaults.ts';
 import { TradingDrawingLayer } from './trading-drawing-layer.ts';
 import { TradingDrawingHoverText } from './trading-drawing-hover-text.ts';
+import { isPlainTextDrawing, isManualNote, isManualPriceNote, isPinNote, isCallout, isComment, isSignpost, isAnnotationTable, isInlineAnnotation, annotationTextGeometry, annotationPrice, priceLabelGeometry, calloutPath, PLAIN_TEXT_FONT_SIZE, PLAIN_TEXT_COLOR, PLAIN_TEXT_FONT_FAMILY } from './trading-plain-text.ts';
+import { annotationTableCells, annotationTableGeometry, annotationTableCellAt, updateAnnotationTableCell, type TableCell } from './trading-annotation-table.ts';
 import { TradingDrawingCrosshair } from './trading-drawing-crosshair.ts';
 import { TradingDrawingVisibility } from './trading-drawing-visibility.ts';
+import { tradingInfoLineRows, renderTradingInfoLineCard } from './trading-info-line.ts';
+import { renderTradingTrendAngleAnnotation } from './trading-trend-angle.ts';
+import { isTradingPitchfork, renderTradingPitchfork } from './trading-pitchfork.ts';
+import { isReferencePatternDrawing, renderReferencePattern, harmonicFillColor, HARMONIC_BLUE } from './trading-patterns.ts';
+import { isElliottWave, renderElliottWave, ELLIOTT_FONT_SIZE, ELLIOTT_HANDLE_COLOR } from './trading-elliott-wave.ts';
+import { captureTradingChartToDesktop } from './trading-chart-screenshot.ts';
+import { calculateRegressionTrend, normalizeRegressionTrendOptions, regressionBarIndex, renderRegressionTrend, type RegressionTrendOptions } from './trading-regression-trend.ts';
 import { HorizontalLineSettingsDialog, horizontalLineSettingsIcon, normalizeHorizontalLineTextStyle, type HorizontalLineTextStyle } from './trading-horizontal-line-settings.ts';
+import { normalizeFibonacciOptions, fibonacciOptionsForDrawing, fibonacciVisibleAtInterval, renderFibonacci, type FibonacciOptions } from './trading-fibonacci.ts';
+import { isThreePointFibonacci, isFibonacciProjection, renderFibonacciProjection } from './trading-fibonacci-projections.ts';
 
 const LEGACY_TRADING_DRAWINGS_STORAGE_KEY = "haolo.trading-market.drawings.v1";
 const LEGACY_TRADING_AI_DRAWINGS_STORAGE_KEY = "haolo.trading-market.ai-drawings.v1";
@@ -49,7 +73,6 @@ const TRADING_TEXT_FONT_SIZES = [10, 11, 12, 14, 16, 18, 20, 24, 28, 36] as cons
 const TRADING_AI_TEXT_FONT_SIZES = [8, 9, ...TRADING_TEXT_FONT_SIZES] as const;
 const DEFAULT_DRAWING_LINE_WIDTH = 1;
 const DRAWING_HANDLE_RADIUS = 5;
-const DRAWING_MAGNET_DISTANCE = 18;
 const FIBONACCI_HANDLE_RADIUS = 7;
 const FIBONACCI_EXPANSION_THRESHOLD = 3;
 
@@ -99,6 +122,12 @@ export function formatTradingFibonacciPrice(value: number, useGrouping = false) 
 export type TradingDrawingLineStyle = "solid" | "dashed" | "dotted";
 
 export interface TradingDrawingStyle extends HorizontalLineTextStyle {
+  imageOpacity?: number;
+  vwap?: AnchoredVwapOptions;
+  volumeProfile?: FixedVolumeOptions;
+  position?: PositionOptions;
+  fibonacci?: FibonacciOptions;
+  regression?: RegressionTrendOptions;
   color?: string;
   textBackgroundColor?: string;
   fontSize?: number;
@@ -107,14 +136,6 @@ export interface TradingDrawingStyle extends HorizontalLineTextStyle {
   lineWidth?: number;
 }
 
-const TRADING_DRAWING_COLORS = [
-  "#000000", "#4b5563", "#787b86", "#b2b5be", "#ffffff",
-  "#ef5350", "#ff9800", "#f6bf26", "#8bc34a", "#22ab94", "#26c6da", "#2962ff", "#7b61ff", "#ab47bc", "#ec407a",
-  "#b71c1c", "#e65100", "#9e6c00", "#33691e", "#00695c", "#00838f", "#0d47a1", "#4527a0", "#6a1b9a", "#ad1457",
-  "#808080", "#f23645", "#089981", "#00bcd4", "#9c27b0",
-  "#4caf50", "#e91e63", "#673ab7", "#3d85c6", "#6aa84f",
-  "#159980", "#1e88e5", "#1e53e5", "#cc2f3c", "#153899",
-] as const;
 
 export type TradingDrawingToolId =
   | "magic" | "multi-point-path" | "multi-point-polyline"
@@ -263,12 +284,15 @@ const TRADING_PATTERN_POINT_COUNTS: Readonly<Partial<Record<TradingDrawingToolId
 export function tradingDrawingRequiredPointCount(
   definition: TradingDrawingToolDefinition,
 ) {
+  if (definition.id === 'ghost-feed') return 6;
   if (definition.freehand || tradingDrawingIsMultiPoint(definition.id)) return 0;
-  if (definition.id === "fib-trend-time" || definition.id === "sector") return 3;
+  if (isTradingPitchfork(definition.id)) return 3;
+  if (isThreePointFibonacci(definition.id)) return 3;
+  if (definition.id === "sector" || definition.id === "parallel-channel" || definition.id === 'rotated-rectangle' || tradingDrawingIsShapedChannel(definition.id)) return 3;
   if (["anchored-vwap", "anchored-volume-profile", "price-label"].includes(definition.id)) return 1;
   const patternPointCount = TRADING_PATTERN_POINT_COUNTS[definition.id];
   if (patternPointCount) return patternPointCount;
-  if (definition.id === "price-note" || definition.id === "arrow-marker") return 2;
+  if (definition.id === "price-note" || definition.id === "note" || definition.id === "callout" || definition.id === "arrow-marker") return 2;
   if (definition.kind === "triangle") return 3;
   if (
     definition.kind === "horizontal"
@@ -387,9 +411,9 @@ export const TRADING_DRAWING_TOOLS: ReadonlyArray<TradingDrawingToolDefinition> 
   tool("anchored-text", "锚定文本", "annotation", "text", "anchored-text"),
   tool("note", "笔记", "annotation", "text", "note"),
   tool("price-note", "价格笔记", "annotation", "text", "price-note"),
-  tool("signpost", "指示牌", "annotation", "marker", "signpost"),
+  tool("signpost", "指示牌", "annotation", "text", "signpost"),
   tool("callout", "标注", "annotation", "text", "callout"),
-  tool("comment", "评论", "annotation", "marker", "comment"),
+  tool("comment", "评论", "annotation", "text", "comment"),
   tool("arrow-marker", "箭头标记", "annotation", "marker", "arrow-marker"),
   tool("arrow-up", "向上箭头", "annotation", "marker", "arrow-up"),
   tool("arrow-down", "向下箭头", "annotation", "marker", "arrow-down"),
@@ -458,12 +482,26 @@ export function tradingDrawingSupportsSettings(toolId: string | null | undefined
     && !['emoji', 'sticker', 'icon'].includes(definition.id));
 }
 
+// Lines keep their endpoint hit targets for resizing, without painting circles.
+// Closed shapes and point annotations retain their visible adjustment handles.
+export function tradingDrawingHidesLineNodes(toolId: string | null | undefined) {
+  const definition = tradingDrawingToolDefinition(toolId);
+  return Boolean(definition
+    && ['line', 'ray', 'extended', 'horizontal', 'horizontal-ray', 'vertical', 'cross',
+      'arrow', 'channel', 'pitchfork', 'gann', 'fib', 'fib-time', 'freehand',
+      'polyline', 'curve', 'pattern', 'projection', 'measure'].includes(definition.kind)
+    && !['gann-box', 'gann-square', 'gann-square-fixed', 'sector', 'bars-pattern',
+      'ghost-feed', 'date-price-range'].includes(definition.id))
+    || toolId === 'fib-spiral' || toolId === 'fib-speed-arcs';
+}
+
 export interface TradingDrawingPoint {
   time: number;
   price: number;
 }
 
 export interface TradingDrawingModel extends TradingDrawingStyle {
+  barsPattern?: BarsPatternSnapshot;
   entryConditionRef?: {conditionId:string;revision:number;conditionHash:string};
   id: string;
   strategyId?: string;
@@ -625,8 +663,12 @@ export function tradingDrawingAxisMarkerPoints(
   if (definition.kind === "horizontal-ray" || definition.kind === "cross") {
     return [{ point: first, showPrice: true, showTime: true }];
   }
-  if (definition.kind === "triangle" || definition.kind === "pattern") {
+  if (definition.kind === "triangle" || definition.kind === "pattern" || definition.id === 'rotated-rectangle' || isTradingPitchfork(definition.id) || isThreePointFibonacci(definition.id)) {
     return points.map((point) => ({ point, showPrice: true, showTime: true }));
+  }
+  if (tradingDrawingIsShapedChannel(definition.id) && points.length >= 3) {
+    const corners = [0, 1, 2, 3].map(index => tradingDrawingShapedChannelHandlePoint(definition.id, points, index));
+    return corners.map(point => ({ point, showPrice: true, showTime: true }));
   }
   const last = points[points.length - 1] ?? first;
   const endpoints = first.time === last.time && first.price === last.price
@@ -666,6 +708,7 @@ interface DrawingDragState {
   handleIndex: number;
   startPoint: TradingDrawingPoint;
   handleGrabOffset: ScreenPoint;
+  magnetAnchorIndex?: number;
   originalPoints: TradingDrawingPoint[];
   originalViewportAnchor?: ScreenPoint;
 }
@@ -877,7 +920,7 @@ function renderDrawingToolMenu(group: TradingDrawingGroupDefinition) {
         ${sections.map(section => `<div class="trading-drawing-menu-section">${section.label ? `<h3 data-i18n-drawing-section>${section.label}</h3>` : ''}${section.tools.map(id => {
           const candidate = tradingDrawingToolDefinition(id)!;
           const shortcut = DRAWING_SHORTCUTS[id];
-          const help = tradingDrawingIsMultiPoint(id) ? '连续点击设置端点；双击、右键、Enter 或 Esc 完成；折线点击起点闭合' : candidate.freehand ? '按住鼠标拖动绘制' : `依次点击图表设置 ${tradingDrawingRequiredPointCount(candidate)} 个端点；完成后可拖动端点调整`;
+          const help = tradingDrawingIsMultiPoint(id) ? '连续点击设置端点；右键撤销上一端点；双击、Enter 或 Esc 完成；折线点击起点闭合' : candidate.freehand ? '按住鼠标拖动绘制' : `依次点击图表设置 ${tradingDrawingRequiredPointCount(candidate)} 个端点；完成后可拖动端点调整`;
           return `<div class="trading-drawing-menu-row">
             <button type="button" role="menuitemradio" aria-checked="false" data-drawing-action="select-tool" data-drawing-tool="${id}" title="${candidate.label}">
               ${drawingIcon(candidate.icon)}<span>${candidate.label}${shortcut ? `<i class="trading-drawing-tool-help" title="${help}" aria-label="${help}">?</i>` : ''}</span><kbd>${shortcut ?? ''}</kbd>
@@ -916,7 +959,7 @@ export function renderTradingDrawingToolbar() {
       <div class="trading-drawing-toolbar-scroll">
         ${TRADING_DRAWING_GROUPS.map((group) => `
           <div class="trading-drawing-group" data-drawing-group="${group.id}">
-            <button type="button" class="trading-drawing-primary" data-drawing-action="select-group-tool" data-drawing-group-id="${group.id}" data-drawing-tool="${group.defaultTool}" aria-label="${group.label}" title="${group.label}">
+            <button type="button" class="trading-drawing-primary" data-drawing-action="select-group-tool" data-drawing-group-id="${group.id}" data-drawing-tool="${group.defaultTool}" aria-pressed="false" aria-label="${group.label}" title="${group.label}">
               ${drawingIcon(group.icon)}
             </button>
             <button type="button" class="trading-drawing-disclosure" data-drawing-action="toggle-tool-menu" data-drawing-group-id="${group.id}" aria-label="展开${group.label}" aria-haspopup="menu" aria-expanded="false">
@@ -925,17 +968,27 @@ export function renderTradingDrawingToolbar() {
           </div>
         `).join("")}
         <div class="trading-drawing-divider" aria-hidden="true"></div>
-        ${toolbarAction("measure", "快速测量（Shift + 点击或拖动）", "ruler")}
-        ${toolbarAction("zoom-in", "框选放大（点击起点和终点，或拖动框选）", "zoom")}
+        ${toolbarAction("measure", "快速测量（Shift + 点击或拖动）", "ruler", 'aria-pressed="false"')}
+        ${toolbarAction("zoom-in", "框选放大（点击起点和终点，或拖动框选）", "zoom", 'aria-pressed="false"')}
         <div class="trading-drawing-divider" aria-hidden="true"></div>
-        ${toolbarAction("toggle-magnet", "磁吸到K线价格", "magnet", 'aria-pressed="false"')}
+        <div class="trading-drawing-group trading-drawing-magnet-group" data-drawing-group="magnet">
+          ${toolbarAction("toggle-magnet", "弱磁铁", "magnet", 'aria-pressed="false"')}
+          <button type="button" class="trading-drawing-disclosure" data-drawing-action="toggle-tool-menu" data-drawing-group-id="magnet" aria-label="磁铁模式" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 8 8" aria-hidden="true"><path d="m3 2 2 2-2 2"/></svg></button>
+        </div>
         ${toolbarAction("toggle-stay", "保持绘图模式", "pin", 'aria-pressed="false"')}
         ${toolbarAction("toggle-lock", "锁定全部绘图", "unlock", 'aria-pressed="false"')}
+        ${toolbarAction("screenshot", "截图并保存到桌面", "camera")}
         ${toolbarAction("toggle-visibility", "隐藏全部绘图", "drawings-visible", 'aria-pressed="false"')}
         <div class="trading-drawing-divider" aria-hidden="true"></div>
         ${toolbarAction("clear", "清空本会话所有绘图", "trash")}
       </div>
       ${TRADING_DRAWING_GROUPS.map(renderDrawingToolMenu).join("")}
+      <section class="trading-drawing-tool-menu trading-drawing-magnet-menu" data-drawing-tool-menu="magnet" role="menu" aria-label="磁铁模式" hidden>
+        <button type="button" role="menuitemradio" aria-checked="false" data-drawing-action="set-magnet-mode" data-magnet-mode="weak">${drawingIcon('magnet')}<span>弱磁铁</span></button>
+        <button type="button" role="menuitemradio" aria-checked="false" data-drawing-action="set-magnet-mode" data-magnet-mode="strong">${drawingIcon('magnet-strong')}<span>强磁铁</span></button>
+        <div class="trading-drawing-magnet-divider" role="separator"></div>
+        <button type="button" role="menuitemcheckbox" aria-checked="false" data-drawing-action="toggle-magnet-indicators"><span>吸附到指标</span><span class="trading-drawing-magnet-switch" aria-hidden="true"></span></button>
+      </section>
       <div class="trading-drawing-favorites-bar" data-drawing-favorites-bar aria-label="收藏的绘图工具" hidden></div>
       <p class="trading-drawing-status" data-drawing-status aria-live="polite">光标</p>
     </aside>
@@ -992,13 +1045,7 @@ function renderTradingDrawingSelectionToolbar() {
       <div class="trading-drawing-selection-mode" data-drawing-selection-mode="drawing">
         ${selectionAction("reset", "恢复默认", selectionIcon("reset"))}
         <div class="trading-drawing-selection-menu-wrap">
-          ${selectionAction("toggle-color", "选择颜色", selectionIcon("color") + '<span class="trading-drawing-color-indicator" data-drawing-current-color></span>', 'aria-haspopup="menu" aria-expanded="false"')}
-          <div class="trading-drawing-selection-popover color" data-drawing-selection-popover="color" role="menu" aria-label="选择颜色" hidden>
-            <strong>选择颜色</strong>
-            <div class="trading-drawing-color-grid">
-              ${TRADING_DRAWING_COLORS.map((color) => `<button type="button" data-drawing-selection-action="set-color" data-drawing-color="${color}" role="menuitemradio" aria-checked="false" aria-label="颜色 ${color}" style="--drawing-swatch:${color}"><span></span></button>`).join("")}
-            </div>
-          </div>
+          ${selectionAction("toggle-color", "选择颜色", selectionIcon("color") + '<span class="trading-drawing-color-indicator" data-drawing-current-color></span>', 'aria-haspopup="dialog" aria-expanded="false"')}
         </div>
         <div class="trading-drawing-selection-menu-wrap">
           ${selectionAction("toggle-style", "选择样式", '<span class="trading-drawing-line-preview" data-drawing-style-preview></span>', 'aria-haspopup="menu" aria-expanded="false"')}
@@ -1009,10 +1056,12 @@ function renderTradingDrawingSelectionToolbar() {
         <div class="trading-drawing-selection-menu-wrap">
           ${selectionAction("toggle-width", "选择线宽", '<span class="trading-drawing-width-preview" data-drawing-width-preview></span><span class="trading-drawing-width-value" data-drawing-width-value>2px</span>', 'aria-haspopup="menu" aria-expanded="false"')}
           <div class="trading-drawing-selection-popover compact" data-drawing-selection-popover="width" role="menu" aria-label="选择线宽" hidden>
-            ${[1, 2, 3, 4].map((width) => `<button type="button" data-drawing-selection-action="set-width" data-drawing-width="${width}" role="menuitemradio" aria-checked="false" aria-label="${width} 像素"><span class="trading-drawing-width-preview" style="--drawing-width:${width}px"></span></button>`).join("")}
+            ${[1, 2, 3, 4].map((width) => `<button type="button" class="line-width-option" style="--line-width:${width}px" data-drawing-selection-action="set-width" data-drawing-width="${width}" role="menuitemradio" aria-checked="false" aria-label="${width} 像素">${width}px</button>`).join("")}
           </div>
         </div>
         ${selectionAction("settings", "绘图设置", horizontalLineSettingsIcon, 'data-horizontal-line-settings hidden aria-haspopup="dialog"')}
+        ${selectionAction('pattern-fill', '背景颜色', '<span class="trading-drawing-background-symbol"></span><span class="trading-drawing-color-indicator" data-pattern-fill-color></span>', 'data-harmonic-style-control hidden aria-haspopup="dialog"')}
+        ${selectionAction('pattern-label', '文本颜色', '<span class="trading-drawing-text-symbol">T</span>', 'data-harmonic-style-control hidden aria-haspopup="dialog"')}
         ${selectionAction("toggle-lock", "锁定", selectionIcon("lock"), 'aria-pressed="false"')}
         ${selectionAction("toggle-visibility", "隐藏此画线", selectionIcon("eye"), 'aria-pressed="false"')}
         ${selectionAction("delete", "删除", selectionIcon("trash"))}
@@ -1031,23 +1080,10 @@ function renderTradingDrawingSelectionToolbar() {
           </div>
         </div>
         <div class="trading-drawing-selection-menu-wrap">
-          ${selectionAction("toggle-text-color", "文本颜色", '<span class="trading-drawing-text-symbol">A</span>', 'aria-haspopup="menu" aria-expanded="false"')}
-          <div class="trading-drawing-selection-popover color" data-drawing-selection-popover="text-color" role="menu" aria-label="文本颜色" hidden>
-            <strong>文本颜色</strong>
-            <div class="trading-drawing-color-grid">
-              ${TRADING_DRAWING_COLORS.map((color) => `<button type="button" data-drawing-selection-action="set-text-color" data-drawing-text-color="${color}" role="menuitemradio" aria-checked="false" aria-label="文本颜色 ${color}" style="--drawing-swatch:${color}"><span></span></button>`).join("")}
-            </div>
-          </div>
+          ${selectionAction("toggle-text-color", "文本颜色", '<span class="trading-drawing-text-symbol">A</span>', 'aria-haspopup="dialog" aria-expanded="false"')}
         </div>
         <div class="trading-drawing-selection-menu-wrap">
-          ${selectionAction("toggle-text-background", "背景颜色", '<span class="trading-drawing-background-symbol"></span>', 'aria-haspopup="menu" aria-expanded="false"')}
-          <div class="trading-drawing-selection-popover color" data-drawing-selection-popover="text-background" role="menu" aria-label="背景颜色" hidden>
-            <strong>背景颜色</strong>
-            <div class="trading-drawing-color-grid">
-              <button type="button" class="transparent" data-drawing-selection-action="set-text-background" data-drawing-background-color="transparent" role="menuitemradio" aria-checked="false" aria-label="透明背景"><span></span></button>
-              ${TRADING_DRAWING_COLORS.map((color) => `<button type="button" data-drawing-selection-action="set-text-background" data-drawing-background-color="${color}" role="menuitemradio" aria-checked="false" aria-label="背景颜色 ${color}" style="--drawing-swatch:${color}"><span></span></button>`).join("")}
-            </div>
-          </div>
+          ${selectionAction("toggle-text-background", "背景颜色", '<span class="trading-drawing-background-symbol"></span>', 'aria-haspopup="dialog" aria-expanded="false"')}
         </div>
         <div class="trading-drawing-selection-menu-wrap font-size">
           ${selectionAction("toggle-font-size", "字体大小", '<span class="trading-drawing-font-size" data-drawing-font-size-label>16</span>', 'aria-haspopup="menu" aria-expanded="false"')}
@@ -1110,11 +1146,11 @@ function finitePoint(value: unknown): value is TradingDrawingPoint {
 }
 
 function drawingColor(value: unknown) {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : undefined;
+  return typeof value === "string" && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value) ? value.toLowerCase() : undefined;
 }
 
 function tradingDrawingStyleFromModel(
-  drawing: TradingDrawingStyle,
+  drawing: TradingDrawingStyle & { tool?: string },
 ): TradingDrawingStyle {
   const color = drawingColor(drawing.color);
   const textBackgroundColor = drawingColor(drawing.textBackgroundColor);
@@ -1123,6 +1159,11 @@ function tradingDrawingStyleFromModel(
   const fontSize = drawingTextFontSize(drawing.fontSize);
   return {
     ...normalizeHorizontalLineTextStyle(drawing),
+    ...(drawing.regression ? { regression: normalizeRegressionTrendOptions(drawing.regression) } : {}),
+    ...(drawing.vwap ? { vwap: normalizeAnchoredVwapOptions(drawing.vwap) } : {}),
+    ...(drawing.volumeProfile ? { volumeProfile: normalizeFixedVolumeOptions(drawing.volumeProfile) } : {}),
+    ...(drawing.position ? { position: normalizePositionOptions(drawing.position) } : {}),
+    ...(drawing.fibonacci ? { fibonacci: normalizeFibonacciOptions(drawing.fibonacci, drawing.tool) } : {}),
     ...(color ? { color } : {}),
     ...(textBackgroundColor ? { textBackgroundColor } : {}),
     ...(fontSize ? { fontSize } : {}),
@@ -1132,11 +1173,17 @@ function tradingDrawingStyleFromModel(
   };
 }
 
-function normalizeTradingDrawingStyle(value: unknown): TradingDrawingStyle {
+function normalizeTradingDrawingStyle(value: unknown, tool?: string): TradingDrawingStyle {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const candidate = value as Partial<TradingDrawingStyle>;
   return tradingDrawingStyleFromModel({
+    tool,
     ...normalizeHorizontalLineTextStyle(candidate),
+    regression: candidate.regression,
+    vwap: candidate.vwap,
+    volumeProfile: candidate.volumeProfile,
+    position: candidate.position,
+    fibonacci: candidate.fibonacci,
     color: candidate.color,
     textBackgroundColor: candidate.textBackgroundColor,
     fontSize: candidate.fontSize,
@@ -1317,7 +1364,7 @@ function loadStoredDrawings(storageSessionId: string): TradingDrawingModel[] {
       const storedPoints = Array.isArray(candidate.points)
         ? candidate.points.filter(finitePoint).slice(0, 4000)
         : [];
-      const points = tradingDrawingPlacementMode(definition) === "single-click"
+      const points = tradingDrawingPlacementMode(definition) === "single-click" && !['table', 'image'].includes(definition.id)
         ? storedPoints.slice(0, 1)
         : storedPoints;
       if (!points.length) return [];
@@ -1329,9 +1376,16 @@ function loadStoredDrawings(storageSessionId: string): TradingDrawingModel[] {
           : undefined,
         drawingScope: normalizeTradingDrawingScope(candidate.drawingScope),
         tool: definition.id,
-        points,
+        points: isPositionDrawing(definition.id) ? positionAnchors({ tool: definition.id, points, position: candidate.position }) : isCycleDrawing(definition.id) ? cycleAnchorPoints(definition.id, points) : points,
         text: typeof candidate.text === "string" ? candidate.text.slice(0, 240) : undefined,
+        ...(typeof candidate.imageOpacity === 'number' && Number.isFinite(candidate.imageOpacity) ? { imageOpacity: Math.max(0, Math.min(1, candidate.imageOpacity)) } : {}),
         ...normalizeHorizontalLineTextStyle(candidate),
+        ...(candidate.regression ? { regression: normalizeRegressionTrendOptions(candidate.regression) } : {}),
+        ...(candidate.vwap ? { vwap: normalizeAnchoredVwapOptions(candidate.vwap) } : {}),
+        ...(candidate.volumeProfile ? { volumeProfile: normalizeFixedVolumeOptions(candidate.volumeProfile) } : {}),
+        ...(candidate.position ? { position: normalizePositionOptions(candidate.position) } : {}),
+        ...(candidate.barsPattern ? { barsPattern: normalizeBarsSnapshot(candidate.barsPattern) } : {}),
+        ...(candidate.fibonacci ? { fibonacci: normalizeFibonacciOptions(candidate.fibonacci, definition.id) } : {}),
         locked: candidate.locked === true,
         color: drawingColor(candidate.color),
         textBackgroundColor: drawingColor(candidate.textBackgroundColor),
@@ -1480,6 +1534,68 @@ function perpendicularOffset(first: ScreenPoint, second: ScreenPoint, magnitude:
   return { x: (-dy / length) * magnitude, y: (dx / length) * magnitude };
 }
 
+export function tradingDrawingChannelPoints(first: ScreenPoint, second: ScreenPoint, widthPoint?: ScreenPoint): ScreenPoint[] {
+  const dx = second.x - first.x;
+  const dy = second.y - first.y;
+  // The third point sets only the offset. Both edges retain the baseline's
+  // time span, including when the pointer moves beyond either endpoint.
+  // Keep the original appearance of saved two-point channels.
+  const offset = widthPoint
+    ? Math.abs(dx) < 1e-6
+      ? { x: widthPoint.x - first.x, y: 0 }
+      : { x: 0, y: widthPoint.y - (first.y + dy * (widthPoint.x - first.x) / dx) }
+    : perpendicularOffset(first, second, Math.max(20, Math.min(Math.hypot(dx, dy) * 0.2, 72)));
+  return [first, second,
+    { x: second.x + offset.x, y: second.y + offset.y },
+    { x: first.x + offset.x, y: first.y + offset.y }];
+}
+
+// Two anchors define the primary line; the third sets an absolute price, not
+// a parallel offset. Both boundaries share the primary line's time span.
+export function tradingDrawingFlatTopBottomPoints(first: ScreenPoint, second: ScreenPoint, level: ScreenPoint = second): ScreenPoint[] {
+  return [first, second, { x: second.x, y: level.y }, { x: first.x, y: level.y }];
+}
+
+export function tradingDrawingIsShapedChannel(tool: TradingDrawingToolId) {
+  return tool === 'flat-top-bottom' || tool === 'disjoint-channel';
+}
+
+// TradingView's three-click disjoint channel mirrors the first edge's price
+// change. The placement pointer sets the opposite END price, ignoring its x.
+export function tradingDrawingDisjointChannelPoints(first: ScreenPoint, second: ScreenPoint, level: ScreenPoint = second, oppositeStart?: ScreenPoint): ScreenPoint[] {
+  return [first, second, { x: second.x, y: level.y }, oppositeStart ?? { x: first.x, y: level.y + second.y - first.y }];
+}
+
+export function tradingDrawingShapedChannelHandlePoint(tool: TradingDrawingToolId, points: ReadonlyArray<TradingDrawingPoint>, index: number): TradingDrawingPoint {
+  if (index < 2) return points[index];
+  const level = (points[2] ?? points[1]).price;
+  return { time: points[index === 3 ? 0 : 1].time,
+    price: index === 3 && tool === 'disjoint-channel' ? level + points[1].price - points[0].price : level };
+}
+
+export function tradingDrawingMoveShapedChannelHandle(tool: TradingDrawingToolId, points: TradingDrawingPoint[], index: number, point: TradingDrawingPoint): TradingDrawingPoint[] {
+  const next = points.map(p => ({ ...p }));
+  if (tool === 'disjoint-channel') {
+    // Circular corners resize symmetrically about the existing center price;
+    // the opposite end handle moves the second edge without moving the first.
+    if (index === 1) next[2].price -= point.price - next[1].price;
+    if (index < 2) next[index] = { ...point };
+    else if (index === 3) next[0] = { time: point.time, price: next[1].price + next[2].price - point.price };
+    else next[2].price = point.price;
+    next[2].time = next[1].time;
+    return next;
+  }
+  if (index < 2) next[index] = { ...point };
+  else {
+    // Either flat corner adjusts the shared price and its corresponding end
+    // time. The primary line's two prices remain independently editable.
+    next[index === 3 ? 0 : 1].time = point.time;
+    next[2] = { time: next[1].time, price: point.price };
+  }
+  next[2] = { time: next[1].time, price: (next[2] ?? next[1]).price };
+  return next;
+}
+
 function patternPoints(first: ScreenPoint, second: ScreenPoint, count = 6) {
   const left = Math.min(first.x, second.x);
   const right = Math.max(first.x, second.x);
@@ -1562,12 +1678,26 @@ export function tradingDrawingTextLayout(
   };
 }
 
+let drawingLabelMeasure: CanvasRenderingContext2D | null | undefined;
+function tradingDrawingLabelLayout(drawing: TradingDrawingModel, fontSize: number, maxWidth: number) {
+  const layout = tradingDrawingTextLayout(drawing.text ?? '', fontSize, maxWidth);
+  if (drawingLabelMeasure === undefined && typeof document !== 'undefined') {
+    drawingLabelMeasure = document.createElement('canvas').getContext('2d');
+  }
+  if (drawingLabelMeasure) {
+    drawingLabelMeasure.font = `${drawing.italic ? 'italic' : 'normal'} ${drawing.bold ? 700 : 400} ${fontSize}px Inter, "Segoe UI", "Microsoft YaHei", sans-serif`;
+    layout.lineWidths = layout.lines.map(line => drawingLabelMeasure!.measureText(line).width);
+    layout.width = Math.max(8, ...layout.lineWidths);
+  }
+  return layout;
+}
+
 export function tradingHorizontalLineTextGeometry(drawing: TradingDrawingModel, y: number, width: number) {
   if (!drawing.text?.trim() || width <= 16) return null;
   const fontSize = drawingTextFontSize(drawing.fontSize) ?? 12;
-  const layout = tradingDrawingTextLayout(drawing.text, fontSize, width - 24);
+  const layout = tradingDrawingLabelLayout(drawing, fontSize, width - 24);
   const align = drawing.textAlign ?? 'center';
-  const vertical = drawing.textVerticalAlign ?? 'middle';
+  const vertical = drawing.textVerticalAlign ?? 'top';
   const x = align === 'left' ? 8 : align === 'right' ? width - 8 : width / 2;
   const left = align === 'left' ? x : align === 'right' ? x - layout.width : x - layout.width / 2;
   const top = vertical === 'middle' ? y - layout.height / 2 : vertical === 'bottom' ? y + 6 : y - layout.height - 6;
@@ -1581,8 +1711,19 @@ export function tradingDrawingLabelSpan(drawing: TradingDrawingModel, points: Sc
   if (kind === 'horizontal' || kind === 'cross') return [{ x: 0, y: first.y }, { x: bounds.width, y: first.y }];
   if (kind === 'horizontal-ray') return first.x <= bounds.width ? [{ x: Math.max(0, first.x), y: first.y }, { x: bounds.width, y: first.y }] : null;
   if (kind === 'vertical') return first.x >= 0 && first.x <= bounds.width ? [{ x: first.x, y: 0 }, { x: first.x, y: bounds.height }] : null;
-  if (['line', 'ray', 'extended', 'arrow', 'channel', 'pitchfork', 'measure', 'rotated-rectangle'].includes(kind) || drawing.tool === 'arrow-marker') {
-    const clipped = points.length > 1 ? clipTradingDrawingLine(first, last, bounds, kind === 'ray' ? 'ray' : kind === 'extended' ? 'extended' : 'segment') : [first, first] as [ScreenPoint, ScreenPoint];
+  if (drawing.textVerticalAlign === 'middle' && kind === 'channel' && points.length >= 3) {
+    const corners = drawing.tool === 'parallel-channel' ? tradingDrawingChannelPoints(first, points[1], points[2])
+      : drawing.tool === 'flat-top-bottom' ? tradingDrawingFlatTopBottomPoints(first, points[1], points[2])
+      : drawing.tool === 'disjoint-channel' ? tradingDrawingDisjointChannelPoints(first, points[1], points[2], points[3]) : null;
+    if (corners) {
+      const middle = (a: ScreenPoint, b: ScreenPoint) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      const span = clipTradingDrawingLine(middle(corners[0], corners[3]), middle(corners[1], corners[2]), bounds, 'segment');
+      if (span) return span[0].x > span[1].x || span[0].x === span[1].x && span[0].y > span[1].y ? [span[1], span[0]] : span;
+    }
+  }
+  if (drawing.tool !== 'anchored-vwap' && (['line', 'ray', 'extended', 'arrow', 'channel', 'pitchfork', 'measure', 'rotated-rectangle'].includes(kind) || drawing.tool === 'arrow-marker')) {
+    const end = drawing.tool === 'parallel-channel' || drawing.tool === 'rotated-rectangle' || tradingDrawingIsShapedChannel(drawing.tool) ? points[1] ?? first : last;
+    const clipped = points.length > 1 ? clipTradingDrawingLine(first, end, bounds, kind === 'ray' ? 'ray' : kind === 'extended' ? 'extended' : 'segment') : [first, first] as [ScreenPoint, ScreenPoint];
     return clipped && (clipped[0].x > clipped[1].x || clipped[0].x === clipped[1].x && clipped[0].y > clipped[1].y) ? [clipped[1], clipped[0]] : clipped;
   }
   if (['arc', 'curve', 'double-curve'].includes(drawing.tool)) {
@@ -1594,7 +1735,7 @@ export function tradingDrawingLabelSpan(drawing: TradingDrawingModel, points: Sc
     const scale = 8 / (Math.hypot(dx, dy) || 1);
     return [{ x: point.x - dx * scale, y: point.y - dy * scale }, { x: point.x + dx * scale, y: point.y + dy * scale }];
   }
-  if (kind === 'freehand' || kind === 'polyline' || kind === 'pattern') {
+  if (kind === 'freehand' || kind === 'polyline' || kind === 'pattern' || drawing.tool === 'anchored-vwap') {
     const path = kind === 'polyline' && !tradingDrawingIsMultiPoint(drawing.tool) ? patternPoints(first, last, 5) : points;
     const ordered = path[0].x > path.at(-1)!.x ? [...path].reverse() : path;
     const segments = ordered.slice(1).flatMap((point, index) => {
@@ -1606,6 +1747,13 @@ export function tradingDrawingLabelSpan(drawing: TradingDrawingModel, points: Sc
     for (const segment of segments) {
       if (distance <= segment.length) {
         const [a, b] = segment.span;
+        if (!drawing.textAlign || drawing.textAlign === 'center') {
+          const ratio = distance / segment.length;
+          const point = { x: a.x + (b.x - a.x) * ratio, y: a.y + (b.y - a.y) * ratio };
+          const direction = a.x > b.x || a.x === b.x && a.y > b.y ? -1 : 1;
+          const dx = (b.x - a.x) / segment.length * 8 * direction, dy = (b.y - a.y) / segment.length * 8 * direction;
+          return [{ x: point.x - dx, y: point.y - dy }, { x: point.x + dx, y: point.y + dy }];
+        }
         return a.x > b.x || a.x === b.x && a.y > b.y ? [b, a] : [a, b];
       }
       distance -= segment.length;
@@ -1627,9 +1775,9 @@ export function tradingDrawingLabelGeometry(drawing: TradingDrawingModel, points
   const span = tradingDrawingLabelSpan(drawing, points, bounds);
   if (!span || !drawing.text?.trim() || bounds.width <= 24) return null;
   const fontSize = drawingTextFontSize(drawing.fontSize) ?? 12;
-  const layout = tradingDrawingTextLayout(drawing.text, fontSize, bounds.width - 24);
+  const layout = tradingDrawingLabelLayout(drawing, fontSize, bounds.width - 24);
   const width = measured?.width ?? layout.width, height = measured?.height ?? layout.height;
-  const align = drawing.textAlign ?? 'center', vertical = drawing.textVerticalAlign ?? 'middle';
+  const align = drawing.textAlign ?? 'center', vertical = drawing.textVerticalAlign ?? 'top';
   const [start, end] = span;
   const dx = end.x - start.x, dy = end.y - start.y, length = Math.hypot(dx, dy);
   const ux = length ? dx / length : 1, uy = length ? dy / length : 0;
@@ -1661,13 +1809,21 @@ export function renderTradingHorizontalLineText(drawing: TradingDrawingModel, y:
 
 export function renderTradingDrawingLabel(drawing: TradingDrawingModel, geometry: ReturnType<typeof tradingDrawingLabelGeometry>, color: string, interactive = false) {
   if (!geometry) return '';
-  const { x, y, left, top, angle, fontSize, layout, anchor, vertical } = geometry;
-  const background = vertical === 'middle'
-    ? `<rect x="${left - 4}" y="${top - 2}" width="${layout.width + 8}" height="${layout.height + 4}" fill="var(--trading-market-panel)"/>`
-    : '';
+  const { x, y, left, top, angle, fontSize, layout, anchor } = geometry;
   const text = `<text class="trading-horizontal-line-text" data-i18n-skip fill="${drawingColor(drawing.textColor) ?? color}" font-size="${fontSize}" font-weight="${drawing.bold ? 700 : 400}" font-style="${drawing.italic ? 'italic' : 'normal'}" text-anchor="${anchor}">${layout.lines.map((line, index) => `<tspan x="${x}" y="${top + fontSize + index * layout.lineHeight}">${escapeHtml(line)}</tspan>`).join('')}</text>`;
   const hit = interactive ? `<rect class="trading-drawing-hit-target area" data-horizontal-line-edit-text="${escapeHtml(drawing.id)}" role="button" tabindex="0" aria-label="${escapeHtml(translateAppText('文本输入'))}" x="${left - 4}" y="${top - 2}" width="${layout.width + 8}" height="${layout.height + 4}"/>` : '';
-  return `<g class="trading-drawing-label" transform="rotate(${angle} ${x} ${y})">${background}${text}${hit}</g>`;
+  return `<g class="trading-drawing-label" transform="rotate(${angle} ${x} ${y})">${text}${hit}</g>`;
+}
+
+// Cut only this drawing's geometry, preserving candles and grid lines behind
+// the text. The gap shares the label's local coordinates and rotation.
+function renderTradingDrawingLabelMask(id: string, geometry: NonNullable<ReturnType<typeof tradingDrawingLabelGeometry>>, bounds: { width: number; height: number }) {
+  const { x, y, left, top, angle, fontSize, layout } = geometry;
+  const padding = Math.max(4, fontSize * .3);
+  return `<defs><mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="${bounds.width}" height="${bounds.height}" style="mask-type:luminance">`
+    + `<rect width="${bounds.width}" height="${bounds.height}" fill="white"/>`
+    + `<rect x="${left - padding}" y="${top - 2}" width="${layout.width + padding * 2}" height="${layout.height + 4}" fill="black" transform="rotate(${angle} ${x} ${y})"/>`
+    + `</mask></defs>`;
 }
 
 export function tradingDrawingRegionLabelGeometry(
@@ -2100,6 +2256,14 @@ export function tradingDrawingArrowMarkerPoints(tail: ScreenPoint, tip: ScreenPo
   return [tail, offset(0.8, -0.075), offset(0.76, -0.16), tip, offset(0.76, 0.16), offset(0.8, 0.075)];
 }
 
+// Fixed-size directional arrows: 21 x 22 CSS px, with a 10 px wide stem.
+// Use the same silhouette for the visible fill and the whole-arrow drag target.
+export function tradingDrawingDirectionalArrowPoints(point: ScreenPoint, direction: 'arrow-up' | 'arrow-down'): ScreenPoint[] {
+  const sign = direction === 'arrow-up' ? 1 : -1;
+  return [[0, -11], [10.5, 1], [5, 1], [5, 11], [-5, 11], [-5, 1], [-10.5, 1]]
+    .map(([x, y]) => ({ x: point.x + x, y: point.y + y * sign }));
+}
+
 export type TradingDrawingClosedHitArea =
   | { type: "rect"; x: number; y: number; width: number; height: number }
   | { type: "ellipse"; cx: number; cy: number; rx: number; ry: number }
@@ -2114,6 +2278,9 @@ export function tradingDrawingClosedHitArea(
 ): TradingDrawingClosedHitArea | null {
   if (definition.id === "arrow-marker") {
     return { type: "polygon", points: tradingDrawingArrowMarkerPoints(first, second) };
+  }
+  if (definition.id === 'arrow-up' || definition.id === 'arrow-down') {
+    return { type: 'polygon', points: tradingDrawingDirectionalArrowPoints(first, definition.id) };
   }
   const left = Math.min(first.x, second.x);
   const top = Math.min(first.y, second.y);
@@ -2152,35 +2319,15 @@ export function tradingDrawingClosedHitArea(
     };
   }
   if (definition.kind === "rotated-rectangle") {
-    const offset = perpendicularOffset(
-      first,
-      second,
-      Math.max(16, Math.min(Math.hypot(second.x - first.x, second.y - first.y) * 0.18, 50)),
-    );
-    return {
-      type: "polygon",
-      points: [
-        { x: first.x - offset.x, y: first.y - offset.y },
-        { x: second.x - offset.x, y: second.y - offset.y },
-        { x: second.x + offset.x, y: second.y + offset.y },
-        { x: first.x + offset.x, y: first.y + offset.y },
-      ],
-    };
+    return { type: 'polygon', points: rotatedRectangleGeometry(first, second, third).corners };
   }
   if (definition.kind === "channel") {
-    const offset = perpendicularOffset(
-      first,
-      second,
-      Math.max(20, Math.min(Math.hypot(second.x - first.x, second.y - first.y) * 0.2, 72)),
-    );
     return {
       type: "polygon",
-      points: [
-        first,
-        second,
-        { x: second.x + offset.x, y: second.y + offset.y },
-        { x: first.x + offset.x, y: first.y + offset.y },
-      ],
+      points: definition.id === 'disjoint-channel' ? tradingDrawingDisjointChannelPoints(first, second, third)
+        : definition.id === 'flat-top-bottom'
+        ? tradingDrawingFlatTopBottomPoints(first, second, third)
+        : tradingDrawingChannelPoints(first, second, definition.id === 'parallel-channel' ? third : undefined),
     };
   }
   if (definition.kind === "fib-circle" && definition.id !== "fib-spiral") {
@@ -2209,8 +2356,11 @@ function renderTradingDrawingClosedHitArea(area: TradingDrawingClosedHitArea) {
 
 export interface TradingDrawingSharedToolState {
   activeTool: TradingDrawingToolId;
+  lastToolByGroup?: Partial<Record<TradingDrawingGroupId, TradingDrawingToolId>>;
   stayInDrawingMode: boolean;
   magnetEnabled: boolean;
+  magnetMode?: TradingMagnetMode;
+  snapToIndicators?: boolean;
   drawingStyles?: Partial<Record<TradingDrawingToolId, TradingDrawingStyle>>;
   symbolGlyph?: string;
   favoriteTools?: TradingDrawingToolId[];
@@ -2417,9 +2567,13 @@ interface TradingDrawingControllerOptions {
   getNavigation?: () => TradingChartNavigation | null;
   getChart: () => any;
   getCandleSeries: () => any;
+  getMagnetIndicatorSeries?: () => readonly TradingMagnetSeries[];
   getSymbol: () => string;
   getInterval: () => string;
   getCandles: () => DrawingCandle[];
+  getVolumeCandles?: () => DrawingCandle[];
+  volumeFutures?: () => boolean;
+  loadVolumeHistory?: VolumeHistoryLoader;
   timeOffsetSeconds: number;
   storageSessionId: string;
   isNewTask?: () => boolean;
@@ -2455,18 +2609,26 @@ export class TradingDrawingController {
   private readonly axisMarkerLayer: HTMLElement;
   private readonly clearDialog: HTMLDialogElement;
   private readonly horizontalLineSettings = new HorizontalLineSettingsDialog();
+  private fibonacciSettingsPreview: TradingDrawingModel | null = null;
+  private readonly labelMaskPrefix = `drawing-label-${crypto.randomUUID()}`;
   private horizontalLineTextEdit: {
     drawing: TradingDrawingModel;
     session: string;
     input: HTMLTextAreaElement;
     measure: CanvasRenderingContext2D | null;
     composing: boolean;
+    cell?: TableCell;
   } | null = null;
   private readonly getChart: () => any;
   private readonly getCandleSeries: () => any;
+  private readonly getMagnetIndicatorSeries: () => readonly TradingMagnetSeries[];
   private readonly getSymbol: () => string;
   private readonly getInterval: () => string;
   private readonly getCandles: TradingDrawingControllerOptions["getCandles"];
+  private readonly getVolumeCandles: () => DrawingCandle[];
+  private readonly volumeFutures: () => boolean;
+  private readonly volumeHistory?: VolumeProfileHistory;
+  private readonly volumeCalculations = new Map<string, ReturnType<typeof calculateFixedVolume>>();
   private readonly onAiDrawingContextsChanged: NonNullable<TradingDrawingControllerOptions["onAiDrawingContextsChanged"]>;
   private readonly bindControlEvents: boolean;
   private controlActive: boolean;
@@ -2498,15 +2660,18 @@ export class TradingDrawingController {
   private redoStack: TradingDrawingModel[] = [];
   private readonly getNavigation?: () => TradingChartNavigation | null;
   private activeTool: TradingDrawingToolId = "crosshair";
-  private activeMenu: TradingDrawingGroupId | null = null;
+  private activeMenu: TradingDrawingGroupId | 'magnet' | null = null;
   private activeSelectionMenu: TradingDrawingSelectionMenu | null = null;
   private draft: TradingDrawingModel | null = null;
   private draftConfirmedPointCount = 0;
   private draftRequiredPointCount = 0;
   private pendingTextDrawingId: string | null = null;
+  private openPinNoteId: string | null = null;
   private selectedDrawingId: string | null = null;
   private drawingHandlesHideTimer: number | null = null;
+  private readonly volumeProfileTimers = new Map<string, number>();
   private selectionToolbarHideTimer: number | null = null;
+  private selectionToolbarInteractedDrawingId: string | null = null;
   private dismissedSelectionToolbarDrawingId: string | null = null;
   private dragState: DrawingDragState | null = null;
   private selectionToolbarPosition: ScreenPoint | null = null;
@@ -2525,6 +2690,10 @@ export class TradingDrawingController {
   private readonly selectionToolbarResizeObserver: ResizeObserver | null;
   private stayInDrawingMode = false;
   private magnetEnabled = false;
+  private magnetMode: TradingMagnetMode = 'weak';
+  private snapToIndicators = false;
+  private magnetModifierHeld = false;
+  private lastMagnetPointerEvent: PointerEvent | null = null;
   private drawingsLocked = false;
   private get drawingsHidden() { return this.drawingVisibility.aiHidden && this.drawingVisibility.manualHidden; }
   private userDrawingEnabled = true;
@@ -2538,11 +2707,18 @@ export class TradingDrawingController {
   private readonly drawingStyles = new Map<TradingDrawingToolId, TradingDrawingStyle>();
   private symbolGlyph = '🙂';
   private pendingImageReference = '';
+  private pendingImageSelection: DrawingImageSelection | null = null;
+  private readonly imageDialog = new DrawingImageDialog();
+  private readonly xPostDialog = new TradingXPostDialog();
   private favoriteTools = new Set<TradingDrawingToolId>();
   private magicTrail: HTMLDivElement | null = null;
   private magicTrailTime = 0;
 
   constructor(options: TradingDrawingControllerOptions) {
+    const magnet = readTradingMagnetPreferences();
+    this.magnetEnabled = magnet.enabled;
+    this.magnetMode = magnet.mode;
+    this.snapToIndicators = magnet.snapToIndicators;
     try {
       const saved: unknown = JSON.parse(window.localStorage.getItem('haolo.drawing-favorites.v1') ?? '[]');
       if (Array.isArray(saved)) this.favoriteTools = new Set(saved.filter(id => tradingDrawingToolDefinition(id)));
@@ -2609,9 +2785,13 @@ export class TradingDrawingController {
     this.clearDialog = clearDialog;
     this.getChart = options.getChart;
     this.getCandleSeries = options.getCandleSeries;
+    this.getMagnetIndicatorSeries = options.getMagnetIndicatorSeries ?? (() => []);
     this.getSymbol = options.getSymbol;
     this.getInterval = options.getInterval;
     this.getCandles = options.getCandles;
+    this.getVolumeCandles = options.getVolumeCandles ?? options.getCandles;
+    this.volumeFutures = options.volumeFutures ?? (() => /:(FUTURES|USDM):/i.test(this.getSymbol()));
+    if (options.loadVolumeHistory) this.volumeHistory = new VolumeProfileHistory(options.loadVolumeHistory, () => { if (!this.destroyed) this.redraw(); });
     this.aiTextSizeToolbarVisibility = new TradingChartToolbarVisibility(
       this.aiTextSizeToolbar, this.chartElement.parentElement ?? this.chartElement, this.chartElement,
       () => {
@@ -2644,6 +2824,7 @@ export class TradingDrawingController {
         this.renderAiCursor(this.plotBounds());
       },
     });
+    this.host.dataset.drawingCursor = this.activeTool;
     this.crosshair = new TradingDrawingCrosshair(this.overlay, () => {
       const pane = this.getChart()?.panes()[this.paneIndex]?.getHTMLElement() as HTMLElement | null;
       // The middle table cell holds the plot; side cells hold price axes.
@@ -2679,8 +2860,11 @@ export class TradingDrawingController {
     ) as Partial<Record<TradingDrawingToolId, TradingDrawingStyle>>;
     return {
       activeTool: this.activeTool,
+      lastToolByGroup: Object.fromEntries(this.lastToolByGroup),
       stayInDrawingMode: this.stayInDrawingMode,
       magnetEnabled: this.magnetEnabled,
+      magnetMode: this.magnetMode,
+      snapToIndicators: this.snapToIndicators,
       drawingStyles,
       symbolGlyph: this.symbolGlyph,
       favoriteTools: [...this.favoriteTools],
@@ -2725,6 +2909,12 @@ export class TradingDrawingController {
     }
     if (this.activeTool !== definition.id || definition.kind !== "cursor") this.getNavigation?.()?.setTool(null);
     this.activeTool = definition.id;
+    for (const group of TRADING_DRAWING_GROUPS) {
+      const remembered = tradingDrawingToolDefinition(state.lastToolByGroup?.[group.id]);
+      if (remembered && drawingMenuGroup(remembered.id) === group.id) {
+        this.lastToolByGroup.set(group.id, remembered.id);
+      }
+    }
     this.lastToolByGroup.set(drawingMenuGroup(definition.id), definition.id);
     this.host.dataset.drawingCursor = definition.id;
     if (state.symbolGlyph) this.symbolGlyph = state.symbolGlyph;
@@ -2735,12 +2925,14 @@ export class TradingDrawingController {
         if (!Object.prototype.hasOwnProperty.call(state.drawingStyles, candidate.id)) continue;
         this.drawingStyles.set(
           candidate.id,
-          normalizeTradingDrawingStyle(state.drawingStyles[candidate.id]),
+          normalizeTradingDrawingStyle(state.drawingStyles[candidate.id], candidate.id),
         );
       }
     }
     this.stayInDrawingMode = state.stayInDrawingMode;
     this.magnetEnabled = state.magnetEnabled;
+    this.magnetMode = state.magnetMode === 'strong' ? 'strong' : 'weak';
+    this.snapToIndicators = state.snapToIndicators === true;
     this.overlay.classList.toggle("drawing-active", definition.kind !== "cursor");
     if (definition.kind !== "cursor") this.hideAiTextSizeToolbar();
     this.overlay.dataset.drawingTool = definition.id;
@@ -2773,6 +2965,7 @@ export class TradingDrawingController {
 
   setUserDrawingEnabled(enabled: boolean) {
     this.userDrawingEnabled = enabled;
+    if (!enabled) { this.imageDialog.close(); this.xPostDialog.close(); }
     if (this.bindControlEvents) {
       this.toolbar.toggleAttribute("inert", !enabled);
       this.toolbar.setAttribute("aria-hidden", String(!enabled));
@@ -2814,6 +3007,8 @@ export class TradingDrawingController {
     const nextSessionId = normalizeTradingDrawingStorageSessionId(storageSessionId);
     if (nextSessionId === this.storageSessionId) return;
     const previousSessionId = this.storageSessionId;
+    this.imageDialog.close();
+    this.xPostDialog.close();
     this.finishHorizontalLineTextEdit(false);
     this.horizontalLineSettings.close();
     const migrateFromSessionId = options.migrateFromSessionId
@@ -2905,12 +3100,15 @@ export class TradingDrawingController {
     document.addEventListener("pointermove", this.handlePointerMove);
     document.addEventListener("pointerup", this.handlePointerUp);
     document.addEventListener("pointercancel", this.handlePointerCancel);
+    document.addEventListener('paste', this.handleDrawingImagePaste);
     this.overlay.addEventListener("lostpointercapture", this.handlePointerCancel);
     window.addEventListener("blur", this.cancelPointerInteraction);
     document.addEventListener("pointerdown", this.handleChartBackgroundPointerDown, true);
     document.addEventListener("pointerdown", this.handleToolMenuOutsidePointerDown, true);
     document.addEventListener("pointerdown", this.handleOutsidePointerDown);
     document.addEventListener("keydown", this.handleKeyDown);
+    document.addEventListener('keydown', this.handleMagnetModifierChange, true);
+    document.addEventListener('keyup', this.handleMagnetModifierChange, true);
   }
 
   private controlTarget() {
@@ -2951,6 +3149,11 @@ export class TradingDrawingController {
       }
     }
     if (!this.selectedDrawingId) return;
+    const selected = this.selectedDrawing();
+    if (selected && (isElliottWave(selected.tool) || isPredictionDrawing(selected.tool))) {
+      this.selectDrawing(null);
+      return;
+    }
     // Navigation consumes chart presses in capture. Observe them beforehand
     // without consuming the event or interrupting the native pan gesture.
     this.dismissSelectionToolbar();
@@ -3286,6 +3489,11 @@ export class TradingDrawingController {
     const action = target?.dataset.drawingAction;
     if (!target || !action) return;
     event.stopPropagation();
+    if (action === 'screenshot') {
+      this.closeToolMenus();
+      void captureTradingChartToDesktop(this.toolbar);
+      return;
+    }
     if (action === 'toggle-favorite') {
       const id = target.dataset.favoriteTool as TradingDrawingToolId;
       if (this.favoriteTools.has(id)) this.favoriteTools.delete(id); else this.favoriteTools.add(id);
@@ -3311,30 +3519,41 @@ export class TradingDrawingController {
       return;
     }
     if (action === 'select-symbol') {
-      this.symbolGlyph = target.dataset.symbolGlyph ?? '🙂';
-      this.selectTool(target.dataset.symbolTool as TradingDrawingToolId);
+      const glyph = target.dataset.symbolGlyph ?? '🙂';
+      const sameGlyph = this.symbolGlyph === glyph;
+      this.symbolGlyph = glyph;
+      if (sameGlyph) this.toggleToolbarTool(target.dataset.symbolTool as TradingDrawingToolId);
+      else this.selectTool(target.dataset.symbolTool as TradingDrawingToolId);
       this.closeToolMenus();
       return;
     }
     if (action === "select-tool") {
       if (target.dataset.drawingTool === 'image') { this.closeToolMenus(); this.pickDrawingImage(); return; }
-      this.selectTool(target.dataset.drawingTool as TradingDrawingToolId);
+      if (target.dataset.drawingTool === 'tweet') { this.closeToolMenus(); this.pickXPost(); return; }
+      this.toggleToolbarTool(target.dataset.drawingTool as TradingDrawingToolId);
       this.closeToolMenus();
       return;
     }
     if (action === "select-group-tool") {
       const group = target.dataset.drawingGroupId as TradingDrawingGroupId;
-      if (group === 'icons') { this.toggleToolMenu(group, target); return; }
-      this.selectTool(target.dataset.drawingTool as TradingDrawingToolId);
+      if (group === 'icons' && (this.activeTool !== target.dataset.drawingTool || this.getNavigation?.()?.getTool())) {
+        this.toggleToolMenu(group, target); return;
+      }
+      this.toggleToolbarTool(target.dataset.drawingTool as TradingDrawingToolId);
+      this.closeToolMenus();
       return;
     }
     if (action === "toggle-tool-menu") {
-      this.toggleToolMenu(target.dataset.drawingGroupId as TradingDrawingGroupId, target);
+      this.toggleToolMenu(target.dataset.drawingGroupId as TradingDrawingGroupId | 'magnet', target);
       return;
     }
     if (action === "measure" || action === "zoom-in") {
-      this.selectTool(this.lastToolByGroup.get("cursor") ?? "crosshair");
-      this.getNavigation?.()?.setTool(action === "measure" ? "measure" : "zoom");
+      const navigation = this.getNavigation?.();
+      const tool = action === "measure" ? "measure" : "zoom";
+      const selected = navigation?.getTool() === tool;
+      this.selectTool(this.toolbarCursorTool());
+      if (!selected) navigation?.setTool(tool);
+      this.closeToolMenus();
       this.updateToolbarState();
       return;
     }
@@ -3346,6 +3565,19 @@ export class TradingDrawingController {
     if (action === "toggle-magnet") {
       this.magnetEnabled = !this.magnetEnabled;
       this.setStatus(this.magnetEnabled ? "磁吸已开启" : "磁吸已关闭");
+      this.saveMagnetPreferences();
+      this.emitSharedToolState();
+    } else if (action === 'set-magnet-mode') {
+      const mode = target.dataset.magnetMode === 'strong' ? 'strong' : 'weak';
+      this.magnetEnabled = !this.magnetEnabled || this.magnetMode !== mode;
+      this.magnetMode = mode;
+      this.saveMagnetPreferences();
+      this.closeToolMenus();
+      this.setStatus(this.magnetEnabled ? this.magnetMode === 'strong' ? '强磁铁' : '弱磁铁' : '磁吸已关闭');
+      this.emitSharedToolState();
+    } else if (action === 'toggle-magnet-indicators') {
+      this.snapToIndicators = !this.snapToIndicators;
+      this.saveMagnetPreferences();
       this.emitSharedToolState();
     } else if (action === "toggle-stay") {
       this.stayInDrawingMode = !this.stayInDrawingMode;
@@ -3515,6 +3747,10 @@ export class TradingDrawingController {
     if (!target || !action || !drawing) return;
     event.preventDefault();
     event.stopPropagation();
+    if (action !== "hide-toolbar" && action !== "toggle-visibility" && action !== "delete") {
+      this.selectionToolbarInteractedDrawingId = drawing.id;
+      this.clearSelectionToolbarHideTimer();
+    }
     if (action === "hide-toolbar") {
       this.dismissSelectionToolbar();
       return;
@@ -3528,6 +3764,42 @@ export class TradingDrawingController {
     }
     if (action === "settings") {
       this.openHorizontalLineSettings(drawing, target);
+      return;
+    }
+    if (action === 'pattern-label' && (isReferencePatternDrawing(drawing.tool) || isRangeDrawing(drawing.tool))) {
+      this.openHorizontalLineSettings(drawing, target, 'text');
+      return;
+    }
+    if (action === 'pattern-fill' && (isReferencePatternDrawing(drawing.tool) || drawing.tool === 'time-cycles' || drawing.tool === 'sector' || isRangeDrawing(drawing.tool))) {
+      this.closeSelectionMenus();
+      openColorPicker({ anchor: target, value: isRangeDrawing(drawing.tool) ? rangeFillColor(drawing) : drawing.tool === 'sector' ? drawing.textBackgroundColor ?? '#9c6ade33' : drawing.tool === 'time-cycles' ? cycleFillColor(drawing) : harmonicFillColor(drawing),
+        onChange: color => {
+          if (this.selectedDrawingId !== drawing.id) return;
+          drawing.textBackgroundColor = color;
+          this.persistDrawingEdit('已更新颜色', false);
+        },
+        onClose: () => this.restartSelectionToolbarHideTimer(),
+      });
+      return;
+    }
+    if (['toggle-color', 'toggle-text-color', 'toggle-text-background'].includes(action)) {
+      const background = action === 'toggle-text-background';
+      const field = background ? 'textBackgroundColor' : action === 'toggle-text-color' && !isPlainTextDrawing(drawing) && (isInlineAnnotation(drawing) || isManualPriceNote(drawing)) ? 'textColor' : 'color';
+      const menuName = background ? 'text-background' : action === 'toggle-text-color' ? 'text-color' : 'color';
+      const wasOpen = this.activeSelectionMenu === menuName;
+      this.closeSelectionMenus();
+      if (wasOpen) return;
+      this.activeSelectionMenu = menuName;
+      this.clearSelectionToolbarHideTimer();
+      openColorPicker({ anchor: target,
+        value: drawing[field] ?? (background ? '#ffffff00' : manualDrawingDefaults(drawing.tool).color),
+        onChange: color => {
+          if (this.selectedDrawingId !== drawing.id) return;
+          drawing[field] = color;
+          this.persistDrawingEdit('已更新颜色', false);
+        },
+        onClose: () => { this.activeSelectionMenu = null; this.restartSelectionToolbarHideTimer(); },
+      });
       return;
     }
     const menuByAction: Partial<Record<string, TradingDrawingSelectionMenu>> = {
@@ -3564,9 +3836,23 @@ export class TradingDrawingController {
       return;
     }
     if (action === "reset") {
+      if (isReferencePatternDrawing(drawing.tool) || isElliottWave(drawing.tool) || isRangeDrawing(drawing.tool)) {
+        delete drawing.textBackgroundColor;
+        delete drawing.textColor;
+        delete drawing.fontSize;
+        delete drawing.bold;
+        delete drawing.italic;
+      }
+      if (drawing.tool === 'fib-retracement' || isFibonacciProjection(drawing.tool)) delete drawing.fibonacci;
+      if (drawing.tool === 'anchored-vwap') delete drawing.vwap;
+      if (isVolumeProfile(drawing.tool)) delete drawing.volumeProfile;
       delete drawing.color;
       delete drawing.lineStyle;
       delete drawing.lineWidth;
+      if (drawing.tool === 'regression-trend' && drawing.regression) {
+        const { source, upperDeviation, lowerDeviation, useUpperDeviation, useLowerDeviation } = drawing.regression;
+        drawing.regression = normalizeRegressionTrendOptions({ source, upperDeviation, lowerDeviation, useUpperDeviation, useLowerDeviation });
+      }
       this.persistDrawingEdit("已恢复默认样式");
       return;
     }
@@ -3575,6 +3861,7 @@ export class TradingDrawingController {
       delete drawing.textBackgroundColor;
       delete drawing.fontSize;
       delete drawing.bold;
+      if (isInlineAnnotation(drawing) || isManualPriceNote(drawing)) delete drawing.textColor;
       this.persistDrawingEdit("已恢复默认文本样式");
       return;
     }
@@ -3586,7 +3873,10 @@ export class TradingDrawingController {
     }
     if (action === "set-text-color") {
       const color = drawingColor(target.dataset.drawingTextColor);
-      if (color) drawing.color = color;
+      if (color) {
+        if (!isPlainTextDrawing(drawing) && (isInlineAnnotation(drawing) || isManualPriceNote(drawing))) drawing.textColor = color;
+        else drawing.color = color;
+      }
       this.persistDrawingEdit("已更新文本颜色");
       return;
     }
@@ -3632,6 +3922,17 @@ export class TradingDrawingController {
   };
 
   private readonly handleToolMenuOutsidePointerDown = (event: PointerEvent) => {
+    if (this.horizontalLineTextEdit && event.target instanceof Node && !this.horizontalLineTextEdit.input.contains(event.target)) {
+      this.finishHorizontalLineTextEdit(true);
+    }
+    if (this.openPinNoteId && event.target instanceof Element
+      && !this.horizontalLineTextEdit?.input.contains(event.target)
+      && !this.selectionToolbar.contains(event.target)
+      && event.target.closest<SVGElement>('[data-drawing-id]')?.dataset.drawingId !== this.openPinNoteId) {
+      this.finishHorizontalLineTextEdit(true);
+      this.openPinNoteId = null;
+      this.redraw();
+    }
     // Chart navigation can stop propagation before the document bubble phase.
     // Only dismiss the tool menu here; keep selection and text edits on their existing path.
     if (this.activeMenu && event.target instanceof Node && !this.toolbar.contains(event.target)) {
@@ -3651,13 +3952,47 @@ export class TradingDrawingController {
     if (this.selectedDrawingId && !this.overlay.contains(event.target)) this.selectDrawing(null);
   };
 
+  private saveMagnetPreferences() {
+    writeTradingMagnetPreferences({ enabled: this.magnetEnabled, mode: this.magnetMode, snapToIndicators: this.snapToIndicators });
+  }
+
+  private rememberMagnetPointer(event: PointerEvent) {
+    this.lastMagnetPointerEvent = event;
+    const held = event.ctrlKey || event.metaKey;
+    if (held !== this.magnetModifierHeld) {
+      this.magnetModifierHeld = held;
+      this.updateToolbarState();
+    }
+  }
+
+  private readonly handleMagnetModifierChange = (event: KeyboardEvent) => {
+    if (!['Control', 'Meta'].includes(event.key)) return;
+    const held = (event.ctrlKey || event.metaKey) && !(event.target instanceof Element
+      && event.target.closest('input, textarea, select, [contenteditable=true], [role=dialog], dialog'));
+    if (held === this.magnetModifierHeld) return;
+    this.flushPointerMoves();
+    this.magnetModifierHeld = held;
+    this.updateToolbarState();
+    const last = this.lastMagnetPointerEvent;
+    // Switching Ctrl/Command must update a stationary preview/handle as well.
+    // Do not append extra freehand samples just because a key was pressed.
+    if (last && this.controlActive && this.userDrawingEnabled && (this.dragState || this.draft)
+      && !tradingDrawingToolDefinition(this.draft?.tool)?.freehand) {
+      this.applyPointerMove(new PointerEvent('pointermove', {
+        pointerId: last.pointerId, clientX: last.clientX, clientY: last.clientY,
+        ctrlKey: held && event.ctrlKey, metaKey: held && event.metaKey, shiftKey: event.shiftKey,
+      }));
+      this.redraw();
+    }
+  };
+
   private readonly handleKeyDown = (event: KeyboardEvent) => {
     if (!this.controlActive || !this.userDrawingEnabled || event.defaultPrevented) return;
     if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
     if (this.clearDialog.open || this.horizontalLineSettings.open) return;
     if (this.activeMenu && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       const menu = this.toolbar.querySelector<HTMLElement>(`[data-drawing-tool-menu="${this.activeMenu}"]`);
-      const items = Array.from(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"], [role="menuitem"]') ?? []);
+      const items = Array.from(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"], [role="menuitem"], [role="menuitemcheckbox"]') ?? []);
       if (items.length) {
         const current = items.indexOf(document.activeElement as HTMLButtonElement);
         const index = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
@@ -3666,7 +4001,11 @@ export class TradingDrawingController {
       }
     }
     if (event.key === "Escape") {
-      if (this.activeMenu) this.closeToolMenus();
+      if (this.activeMenu) {
+        const trigger = this.toolbar.querySelector<HTMLButtonElement>(`[data-drawing-action="toggle-tool-menu"][data-drawing-group-id="${this.activeMenu}"]`);
+        this.closeToolMenus();
+        trigger?.focus();
+      }
       else if (this.activeSelectionMenu === "text-input") this.closeTextInput();
       else if (this.activeSelectionMenu) this.closeSelectionMenus();
       else if (this.dragState) this.cancelSelectionDrag();
@@ -3676,7 +4015,7 @@ export class TradingDrawingController {
       else this.selectTool(this.lastToolByGroup.get("cursor") ?? "crosshair");
       return;
     }
-    if (event.key === 'Enter' && this.draft && tradingDrawingIsMultiPoint(this.draft.tool)) {
+    if (event.key === 'Enter' && this.draft && (tradingDrawingIsMultiPoint(this.draft.tool) || this.draft.tool === 'ghost-feed')) {
       event.preventDefault();
       this.finishMultiPointDrawing();
       return;
@@ -3703,15 +4042,26 @@ export class TradingDrawingController {
     }
   };
 
+  private readonly handleDrawingImagePaste = (event: ClipboardEvent) => {
+    if (!this.controlActive || !this.userDrawingEnabled || this.imageDialog.open || event.defaultPrevented) return;
+    if (!(event.target instanceof Element) || !this.host.contains(event.target)
+      || event.target.closest('input, textarea, [contenteditable=true], [role=dialog], dialog')) return;
+    const file = Array.from(event.clipboardData?.files ?? []).find(file => file.type.startsWith('image/'));
+    if (!file) return;
+    event.preventDefault(); this.pickDrawingImage(undefined, file);
+  };
+
   private readonly handlePointerDown = (event: PointerEvent) => {
     this.flushPointerMoves();
     this.onSurfaceFocus?.(this);
+    this.rememberMagnetPointer(event);
     if (this.orderPositionTrigger(event.target)) {
       event.stopPropagation();
       return;
     }
     if (!this.userDrawingEnabled) return;
     if (event.button !== 0 || this.pointerId !== null) return;
+    if (event.target instanceof Element && event.target.closest('[data-x-post-link]')) { event.preventDefault(); event.stopPropagation(); return; }
     // The inline text action owns the click; it must never start a line drag.
     if (event.target instanceof Element && event.target.closest('[data-horizontal-line-add-text], [data-horizontal-line-edit-text]')
       && tradingDrawingToolDefinition(this.activeTool)?.kind === 'cursor') {
@@ -3750,14 +4100,21 @@ export class TradingDrawingController {
       const parsedHandleIndex = handleValue === undefined ? -1 : Number.parseInt(handleValue, 10);
       const handleIndex = Number.isInteger(parsedHandleIndex)
         && parsedHandleIndex >= 0
-        && parsedHandleIndex < drawing.points.length
+        && (parsedHandleIndex < drawing.points.length
+          || drawing.tool === 'rotated-rectangle' && parsedHandleIndex <= 5
+          || tradingDrawingIsShapedChannel(drawing.tool) && drawing.points.length === 3 && parsedHandleIndex === 3
+          || (drawing.tool === 'gann-box' || isAnnotationTable(drawing) || drawing.tool === 'image') && drawing.points.length === 2 && parsedHandleIndex <= 3)
         ? parsedHandleIndex
         : -1;
       const handleScreenPoint = handleIndex >= 0
-        ? this.drawingPointToScreen(drawing, handleIndex, this.plotBounds())
+        ? drawing.tool === 'rotated-rectangle'
+          ? this.rotatedRectangleGeometry(drawing)?.handles[handleIndex] ?? null
+          : this.drawingPointToScreen(drawing, handleIndex, this.plotBounds())
         : null;
-      const startPoint = handleIndex >= 0
-        ? { ...drawing.points[handleIndex] }
+      const startPoint = (drawing.tool === 'rotated-rectangle' || (drawing.tool === 'gann-box' || isAnnotationTable(drawing) || drawing.tool === 'image') && handleIndex >= 2) && handleScreenPoint
+        ? this.screenToDrawingPoint(handleScreenPoint, false)
+        : handleIndex >= 0
+        ? { ...(tradingDrawingIsShapedChannel(drawing.tool) ? tradingDrawingShapedChannelHandlePoint(drawing.tool, drawing.points, handleIndex) : drawing.points[handleIndex]) }
         : this.screenToDrawingPoint(screenPoint, false);
       if (!startPoint) return;
       this.pointerId = event.pointerId;
@@ -3771,6 +4128,10 @@ export class TradingDrawingController {
           ? { x: handleScreenPoint.x - screenPoint.x, y: handleScreenPoint.y - screenPoint.y }
           : { x: 0, y: 0 },
         originalPoints: drawing.points.map((point) => ({ ...point })),
+        magnetAnchorIndex: drawing.points.reduce((nearest, point, index, points) => {
+          const a = this.pointToScreen(point), b = this.pointToScreen(points[nearest]);
+          return a && (!b || Math.hypot(a.x - screenPoint.x, a.y - screenPoint.y) < Math.hypot(b.x - screenPoint.x, b.y - screenPoint.y)) ? index : nearest;
+        }, 0),
         originalViewportAnchor: drawing.viewportAnchor ? { ...drawing.viewportAnchor } : undefined,
       };
       this.clearDrawingHandlesHideTimer();
@@ -3781,7 +4142,7 @@ export class TradingDrawingController {
       return;
     }
     if (this.draft && this.hasPendingDraftPoint()) {
-      const drawingPoint = this.eventDrawingPoint(screenPoint);
+      const drawingPoint = this.eventDrawingPoint(screenPoint, this.draft, this.draftConfirmedPointCount);
       if (!drawingPoint) return;
       event.preventDefault();
       event.stopPropagation();
@@ -3796,7 +4157,28 @@ export class TradingDrawingController {
       const previewIndex = this.draftConfirmedPointCount;
       const referenceScreen = this.pointToScreen(this.draft.points[referenceIndex]);
       this.draft.points[previewIndex] = drawingPoint;
-      if (!referenceScreen || Math.hypot(screenPoint.x - referenceScreen.x, screenPoint.y - referenceScreen.y) >= 3) {
+      const baselineStart = this.draft.tool === 'parallel-channel' && previewIndex === 2
+        ? this.pointToScreen(this.draft.points[0]) : null;
+      const widthEnd = baselineStart && referenceScreen
+        ? tradingDrawingChannelPoints(baselineStart, referenceScreen, this.pointToScreen(drawingPoint) ?? screenPoint)[2] : null;
+      let placementDistance = referenceScreen
+        ? Math.hypot((widthEnd ?? screenPoint).x - referenceScreen.x, (widthEnd ?? screenPoint).y - referenceScreen.y)
+        : Infinity;
+      if (this.draft.tool === 'rotated-rectangle' && previewIndex === 2) {
+        placementDistance = this.rotatedRectangleGeometry(this.draft)?.halfWidth ?? 0;
+      }
+      if ((this.draft.tool === 'fib-time-zone' || isCycleDrawing(this.draft.tool)) && referenceScreen) {
+        placementDistance = Math.abs((this.pointToScreen(drawingPoint) ?? screenPoint).x - referenceScreen.x);
+      }
+      if (tradingDrawingIsShapedChannel(this.draft.tool) && referenceScreen) {
+        const start = this.pointToScreen(this.draft.points[0])!;
+        const end = this.pointToScreen(drawingPoint) ?? screenPoint;
+        // A horizontal primary line needs a nonzero height. An angled line
+        // may meet the flat edge at either end (a valid triangle).
+        placementDistance = previewIndex === 1 ? Math.abs(end.x - start.x)
+          : Math.max(Math.abs(end.y - start.y), Math.abs(end.y - referenceScreen.y));
+      }
+      if (placementDistance >= 3) {
         const progress = tradingDrawingAdvanceDraftPoints(
           this.draft.points,
           this.draftConfirmedPointCount,
@@ -3859,15 +4241,12 @@ export class TradingDrawingController {
     event.preventDefault();
     event.stopPropagation();
     this.onSurfaceFocus?.(this);
-    if (tradingDrawingIsMultiPoint(this.draft.tool)) {
-      this.finishMultiPointDrawing();
-      return;
-    }
     const definition = tradingDrawingToolDefinition(this.draft.tool);
     const cancelledPointNumber = this.draftConfirmedPointCount;
     if (cancelledPointNumber <= 1) {
-      this.cancelDraft();
-      this.setStatus(`${definition?.label ?? "绘图"} · 已取消起点，请点击图表重新设置`);
+      // Cancel the tool only after its last confirmed point is removed,
+      // including when stay-in-drawing mode is enabled.
+      this.selectTool(this.lastToolByGroup.get("cursor") ?? "crosshair");
       return;
     }
     const previewPoint = this.eventDrawingPoint(this.eventScreenPoint(event))
@@ -3919,6 +4298,34 @@ export class TradingDrawingController {
   }
 
   private applyPointerMove(event: PointerEvent, screenPoint = this.eventScreenPoint(event)) {
+    this.rememberMagnetPointer(event);
+    if (this.dragState && this.pointerStart && Math.hypot(screenPoint.x - this.pointerStart.x, screenPoint.y - this.pointerStart.y) < 3) {
+      const drawing = this.drawings.find(candidate => candidate.id === this.dragState?.drawingId);
+      if (drawing && !drawing.locked) {
+        drawing.points = this.dragState.originalPoints.map(point => ({ ...point }));
+        if (this.dragState.originalViewportAnchor) drawing.viewportAnchor = { ...this.dragState.originalViewportAnchor };
+      }
+      // Merely selecting a drawing/handle must never move it to a price.
+      return;
+    }
+    const constrainedDrawing = this.dragState?.mode === 'handle' ? this.drawings.find(d => d.id === this.dragState?.drawingId) : this.draft;
+    if (event.shiftKey && constrainedDrawing?.tool === 'gann-square') {
+      const index=this.dragState?.mode === 'handle'?this.dragState.handleIndex:1;
+      const original=this.dragState?.originalPoints??constrainedDrawing.points;
+      const a=this.pointToScreen(original[0]),b=this.pointToScreen(original[1]),anchor=this.pointToScreen(constrainedDrawing.points[1-index]);
+      if(a&&b&&anchor&&Math.abs(b.x-a.x)>1e-6&&Math.abs(b.y-a.y)>1e-6){
+        const ratio=Math.abs((b.y-a.y)/(b.x-a.x)),dx=screenPoint.x-anchor.x,dy=screenPoint.y-anchor.y;
+        screenPoint=Math.abs(dx)*ratio>=Math.abs(dy)?{x:screenPoint.x,y:anchor.y+(dy<0?-1:1)*Math.abs(dx)*ratio}:{x:anchor.x+(dx<0?-1:1)*Math.abs(dy)/ratio,y:screenPoint.y};
+      }
+    }
+    if (event.shiftKey && constrainedDrawing?.tool === 'fib-circles') {
+      const index = this.dragState?.mode === 'handle' ? this.dragState.handleIndex : 1;
+      const opposite = this.pointToScreen(constrainedDrawing.points[1-index]);
+      if (opposite) {
+        const size = Math.max(Math.abs(screenPoint.x-opposite.x),Math.abs(screenPoint.y-opposite.y));
+        screenPoint = {x:opposite.x+(screenPoint.x<opposite.x?-1:1)*size,y:opposite.y+(screenPoint.y<opposite.y?-1:1)*size};
+      }
+    }
     if (event.shiftKey && this.dragState?.mode === "drawing" && this.pointerStart) {
       if (Math.abs(screenPoint.x - this.pointerStart.x) >= Math.abs(screenPoint.y - this.pointerStart.y)) screenPoint.y = this.pointerStart.y;
       else screenPoint.x = this.pointerStart.x;
@@ -3948,10 +4355,29 @@ export class TradingDrawingController {
         const point = this.eventDrawingPoint({
           x: screenPoint.x + this.dragState.handleGrabOffset.x,
           y: screenPoint.y + this.dragState.handleGrabOffset.y,
-        });
-        if (point && this.dragState.handleIndex >= 0 && this.dragState.handleIndex < drawing.points.length) {
+        }, drawing, this.dragState.handleIndex);
+        if (point && drawing.tool === 'rotated-rectangle') {
+          const original = this.dragState.originalPoints.map(p => this.pointToScreen(p));
+          const pointer = this.pointToScreen(point);
+          if (pointer && original.every((p): p is ScreenPoint => p !== null)) {
+            const next = moveRotatedRectangleHandle(original, this.dragState.handleIndex, pointer).map(p => this.screenToDrawingPoint(p, false));
+            if (next.every((p): p is TradingDrawingPoint => p !== null)) drawing.points = next;
+          }
+        } else if (point && (drawing.tool === 'gann-box' || isAnnotationTable(drawing) || drawing.tool === 'image') && this.dragState.handleIndex >= 2) {
+          const i=this.dragState.handleIndex;
+          drawing.points = i===2 ? [{...drawing.points[0],price:point.price},{...drawing.points[1],time:point.time}]
+            : [{...drawing.points[0],time:point.time},{...drawing.points[1],price:point.price}];
+        } else if (point && isPositionDrawing(drawing.tool)) {
+          drawing.points = movePositionAnchor(drawing, this.dragState.handleIndex, point);
+        } else if (point && isCycleDrawing(drawing.tool)) {
+          drawing.points = moveCycleAnchor(drawing.tool, drawing.points, this.dragState.handleIndex, point);
+        } else if (point && tradingDrawingIsShapedChannel(drawing.tool)) {
+          drawing.points = tradingDrawingMoveShapedChannelHandle(drawing.tool, drawing.points, this.dragState.handleIndex, point);
+        } else if (point && this.dragState.handleIndex >= 0 && this.dragState.handleIndex < drawing.points.length) {
+          if (drawing.tool === 'regression-trend' && point.time === drawing.points[1 - this.dragState.handleIndex]?.time) return;
           const closed = tradingDrawingIsClosedPolyline(drawing);
           drawing.points[this.dragState.handleIndex] = point;
+          this.normalizeWedgeAnchors(drawing);
           if (closed && this.dragState.handleIndex === 0) drawing.points[drawing.points.length - 1] = { ...point };
         }
       } else {
@@ -3959,15 +4385,52 @@ export class TradingDrawingController {
         if (!currentPoint) return;
         const deltaTime = currentPoint.time - this.dragState.startPoint.time;
         const deltaPrice = currentPoint.price - this.dragState.startPoint.price;
-        drawing.points = this.dragState.originalPoints.map((point) => ({
+        if (drawing.tool === 'regression-trend' || isVolumeDrawing(drawing.tool)) {
+          const candles = this.getCandles();
+          const original = this.dragState.originalPoints.map(p => regressionBarIndex(candles, p.time));
+          const from = tradingDrawingLogicalIndexAtTime(candles, this.dragState.startPoint.time);
+          const to = tradingDrawingLogicalIndexAtTime(candles, currentPoint.time);
+          if (from !== null && to !== null && original.every(i => i >= 0)) {
+            const shift = Math.max(-Math.min(...original), Math.min(candles.length - 1 - Math.max(...original), Math.round(to - from)));
+            drawing.points = this.dragState.originalPoints.map((p, i) => ({ ...p, time: candles[original[i] + shift].time }));
+          }
+        } else if ((drawing.tool === 'rotated-rectangle' || isFibonacciProjection(drawing.tool) || isCycleDrawing(drawing.tool) || isElliottWave(drawing.tool) || isPredictionDrawing(drawing.tool) || isRangeDrawing(drawing.tool)) && this.pointerStart) {
+          const original = { ...drawing, points: this.dragState.originalPoints };
+          const bounds = this.plotBounds();
+          let dx = screenPoint.x - this.pointerStart.x;
+          const dy = screenPoint.y - this.pointerStart.y;
+          if (isCycleDrawing(drawing.tool) || isElliottWave(drawing.tool) || isPredictionDrawing(drawing.tool) || isRangeDrawing(drawing.tool)) {
+            const from = this.screenToDrawingPoint(this.pointerStart, false);
+            const to = this.screenToDrawingPoint(screenPoint, false);
+            const candles = this.getCandles();
+            const i = from && tradingDrawingLogicalIndexAtTime(candles, from.time);
+            const j = to && tradingDrawingLogicalIndexAtTime(candles, to.time);
+            if (i != null && j != null && Math.abs(j - i) > 1e-6) dx *= Math.round(j - i) / (j - i);
+          }
+          // Translate visible geometry consistently, including on logarithmic axes.
+          drawing.points = original.points.map((point, index) => {
+            const screen = this.drawingPointToScreen(original, index, bounds);
+            const moved = screen ? this.screenToDrawingPoint({ x: screen.x + dx, y: screen.y + dy }, false) ?? point : point;
+            if (isPositionDrawing(drawing.tool)) {
+              const tick = normalizePositionOptions(drawing.position).tickSize;
+              return { ...moved, price: Math.round(moved.price / tick) * tick };
+            }
+            if (isRangeDrawing(drawing.tool)) {
+              const tick = this.getCandleSeries()?.options?.().priceFormat?.minMove;
+              if (typeof tick === 'number' && tick > 0) return { ...moved, price: Math.round(moved.price / tick) * tick };
+            }
+            return moved;
+          });
+        } else drawing.points = this.dragState.originalPoints.map((point) => ({
           time: point.time + deltaTime,
           price: point.price + deltaPrice,
         }));
+        if (drawing.tool !== 'regression-trend' && !isVolumeDrawing(drawing.tool)) this.snapMovedDrawing(drawing);
       }
       return;
     }
     if (!this.draft) return;
-    const point = this.eventDrawingPoint(screenPoint);
+    const point = this.eventDrawingPoint(screenPoint, this.draft, this.draftConfirmedPointCount);
     if (!point) return;
     const definition = tradingDrawingToolDefinition(this.draft.tool);
     if (definition?.freehand) {
@@ -3991,6 +4454,28 @@ export class TradingDrawingController {
     this.applyPointerMove(event);
     if (this.dragState) {
       const mode = this.dragState.mode;
+      const moved = this.drawings.find(d => d.id === this.dragState?.drawingId);
+      const end = this.eventScreenPoint(event);
+      const editText = moved && isInlineAnnotation(moved) && mode === 'drawing' && this.pointerStart
+        && Math.hypot(end.x - this.pointerStart.x, end.y - this.pointerStart.y) < 3;
+      if (editText) {
+        moved.points = this.dragState.originalPoints;
+        this.dragState = null;
+        this.releasePointer();
+        this.overlay.classList.remove('dragging-drawing');
+        const points = moved.points.map((_point, index) => this.drawingPointToScreen(moved, index, this.plotBounds())).filter((point): point is ScreenPoint => Boolean(point));
+        this.beginInlineTextEdit(moved, isAnnotationTable(moved) ? annotationTableCellAt(moved, points, end) : undefined);
+        return;
+      }
+      if (moved?.tool === 'regression-trend') {
+        const fit = calculateRegressionTrend(this.getCandles(), moved.points, moved.regression);
+        moved.points = fit?.anchors ?? this.dragState.originalPoints;
+      }
+      if (moved && isVolumeDrawing(moved.tool)) {
+        const changed = moved.points.some((p, i) => p.time !== this.dragState!.originalPoints[i]?.time);
+        moved.points = this.volumeAnchors(moved);
+        if (changed && isVolumeProfile(moved.tool)) this.scheduleVolumeProfile(moved.id);
+      }
       this.dragState = null;
       this.redoStack = [];
       this.persistDrawings();
@@ -4004,6 +4489,25 @@ export class TradingDrawingController {
     }
     if (!this.draft) return;
     if (this.hasPendingDraftPoint()) {
+      if ((['note', 'price-note', 'callout'].includes(this.draft.tool) || this.draft.tool === 'regression-trend' || this.draft.tool === 'fixed-range-volume' || isRangeDrawing(this.draft.tool) || isPredictionDrawing(this.draft.tool) && this.draftRequiredPointCount === 2) && this.pointerStart
+        && (['note', 'price-note', 'callout'].includes(this.draft.tool) || isRangeDrawing(this.draft.tool)
+          ? Math.hypot(this.eventScreenPoint(event).x - this.pointerStart.x, this.eventScreenPoint(event).y - this.pointerStart.y)
+          : Math.abs(this.eventScreenPoint(event).x - this.pointerStart.x)) >= 3) {
+        this.commitDraft();
+        return;
+      }
+      // Also allow press-drag-release to confirm the baseline before the
+      // pointer starts adjusting width, alongside the usual two clicks.
+      if ((this.draft.tool === 'parallel-channel' || this.draft.tool === 'rotated-rectangle' || tradingDrawingIsShapedChannel(this.draft.tool) || isTradingPitchfork(this.draft.tool) || isThreePointFibonacci(this.draft.tool)) && this.draftConfirmedPointCount === 1 && this.pointerStart) {
+        const end = this.eventScreenPoint(event);
+        const distance = tradingDrawingIsShapedChannel(this.draft.tool) ? Math.abs(end.x - this.pointerStart.x)
+          : Math.hypot(end.x - this.pointerStart.x, end.y - this.pointerStart.y);
+        if (distance >= 3) {
+          const progress = tradingDrawingAdvanceDraftPoints(this.draft.points, 1, 3, this.draft.points[1]);
+          this.draft.points = progress.points;
+          this.draftConfirmedPointCount = progress.confirmedPointCount;
+        }
+      }
       this.releasePointer();
       this.redraw();
       this.setStatus(this.draftPlacementStatus());
@@ -4025,6 +4529,9 @@ export class TradingDrawingController {
   };
 
   private readonly cancelPointerInteraction = () => {
+    this.magnetModifierHeld = false;
+    this.lastMagnetPointerEvent = null;
+    this.updateToolbarState();
     this.finishSelectionToolbarDrag();
     if (this.dragState) this.cancelSelectionDrag();
     else if (this.draft) this.cancelDraft();
@@ -4046,6 +4553,8 @@ export class TradingDrawingController {
       if (!target || !this.overlay.contains(target)) return;
       const drawing = this.drawings.find(item => item.id === target?.dataset.drawingId);
       if (!drawing) return;
+      if (isManualPriceNote(drawing)) return;
+      if (drawing.tool === 'image') { event.preventDefault(); event.stopPropagation(); this.pickDrawingImage(drawing); return; }
       const textDrawing = tradingDrawingToolDefinition(drawing.tool)?.kind === "text";
       if (!textDrawing && !tradingDrawingSupportsSettings(drawing.tool)) return;
       event.preventDefault();
@@ -4059,14 +4568,14 @@ export class TradingDrawingController {
       }
       return;
     }
-    if (!tradingDrawingIsMultiPoint(this.draft.tool)) return;
+    if (!tradingDrawingIsMultiPoint(this.draft.tool) && this.draft.tool !== 'ghost-feed') return;
     event.preventDefault();
     event.stopPropagation();
     this.finishMultiPointDrawing();
   };
 
   private finishMultiPointDrawing(close = false) {
-    if (!this.draft || !tradingDrawingIsMultiPoint(this.draft.tool)) return;
+    if (!this.draft || !tradingDrawingIsMultiPoint(this.draft.tool) && this.draft.tool !== 'ghost-feed') return;
     this.flushPointerMoves();
     const minimum = close ? 3 : 2;
     if (this.draftConfirmedPointCount < minimum) { this.cancelDraft(); return; }
@@ -4105,9 +4614,24 @@ export class TradingDrawingController {
     animation.onfinish = () => spark.remove();
   }
 
+  private toolbarCursorTool(): TradingDrawingToolId {
+    const remembered = this.lastToolByGroup.get('cursor');
+    // The cursor group also contains the eraser. Cancelling must not arm it.
+    return remembered && tradingDrawingToolDefinition(remembered)?.kind === 'cursor' ? remembered : 'crosshair';
+  }
+
+  private toggleToolbarTool(id: TradingDrawingToolId) {
+    const definition = tradingDrawingToolDefinition(id);
+    if (!definition) return;
+    const selected = !this.getNavigation?.()?.getTool() && this.activeTool === id;
+    this.selectTool(selected ? definition.group === 'cursor' ? 'crosshair' : this.toolbarCursorTool() : id);
+  }
+
   private selectTool(id: TradingDrawingToolId) {
     const definition = tradingDrawingToolDefinition(id);
     if (!definition) return;
+    if (id === 'image') { this.pickDrawingImage(); return; }
+    if (id === 'tweet') { this.pickXPost(); return; }
     this.finishHorizontalLineTextEdit(true);
     if (this.pendingTextDrawingId) this.discardPendingTextDrawing();
     if (this.dragState) this.cancelSelectionDrag();
@@ -4119,6 +4643,7 @@ export class TradingDrawingController {
     this.overlay.classList.toggle("drawing-active", definition.kind !== "cursor");
     this.overlay.dataset.drawingTool = definition.id;
     if (definition.id === "price-note") this.setStatus("价格注释 · 请点击图表确定价格锚点");
+    else if (definition.id === 'note') this.setStatus('笔记 · 拖出线段后输入文字，也可依次点击两个端点');
     else if (definition.kind === "text") this.setStatus(`${definition.label} · 请点击图表放置文本`);
     else this.setStatus(definition.label);
     this.updateToolbarState();
@@ -4135,29 +4660,55 @@ export class TradingDrawingController {
 
   private drawingStyleForTool(tool: TradingDrawingToolId): TradingDrawingStyle {
     const style = this.drawingStyles.get(tool);
-    return style ? { ...style } : {};
+    return { ...(['text', 'note', 'pin-note', 'table', 'callout', 'comment', 'signpost'].includes(tool) ? { fontSize: PLAIN_TEXT_FONT_SIZE } : {}), ...style };
   }
 
-  private pickDrawingImage() {
-    const input = document.createElement('input');
-    input.type = 'file'; input.accept = 'image/png,image/jpeg,image/webp,image/gif';
-    input.addEventListener('change', async () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      try {
-        if (file.size > 20_000_000) throw new Error('请选择小于 20 MB 的图片');
-        const bitmap = await createImageBitmap(file);
-        const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-        canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-        bitmap.close();
-        this.pendingImageReference = storeDrawingImage(canvas.toDataURL('image/webp', .85));
-        this.selectTool('image'); this.setStatus('图片已载入 · 点击图表放置');
-      } catch (error) { this.setStatus(error instanceof Error ? error.message : '无法载入图片'); }
-    }, { once: true });
-    input.click();
+  private pickDrawingImage(drawing?: TradingDrawingModel, pastedFile?: File) {
+    if (drawing?.locked || !this.userDrawingEnabled) return;
+    this.selectTool(this.lastToolByGroup.get('cursor') ?? 'crosshair');
+    this.lastToolByGroup.set(drawingMenuGroup('image'), 'image');
+    this.updateToolbarState();
+    const bounds = this.plotBounds();
+    const session = this.storageSessionId, symbol = this.getSymbol();
+    const points = drawing?.points.map(p => this.pointToScreen(p)).filter((p): p is ScreenPoint => Boolean(p));
+    const initial = drawing ? { reference: drawing.text ?? '', opacity: drawing.imageOpacity ?? 1,
+      width: points?.[1] ? Math.abs(points[1].x - points[0].x) : 240,
+      height: points?.[1] ? Math.abs(points[1].y - points[0].y) : 160 } : undefined;
+    this.imageDialog.show(this.chartElement.closest<HTMLElement>('.trading-expert-market') ?? this.host, selection => {
+      if (this.destroyed || session !== this.storageSessionId || symbol !== this.getSymbol()) return;
+      if (drawing) {
+        if (!this.drawings.includes(drawing) || drawing.locked) return;
+        drawing.text = selection.reference; drawing.imageOpacity = selection.opacity;
+        this.selectDrawing(drawing.id); this.persistDrawingEdit('已更新图片');
+      } else {
+        this.pendingImageSelection = selection;
+        const screen = { x: Math.max(0, (bounds.width - selection.width) / 2), y: Math.max(0, (bounds.height - selection.height) / 2) };
+        const point = this.screenToDrawingPoint(screen, false);
+        if (point) this.beginTextDrawing('image', point, screen, selection.reference);
+        this.pendingImageSelection = null;
+      }
+    }, initial, pastedFile);
+  }
+
+  private pickXPost(drawing?: TradingDrawingModel) {
+    if (drawing?.locked || !this.userDrawingEnabled) return;
+    this.selectTool(this.lastToolByGroup.get('cursor') ?? 'crosshair');
+    this.lastToolByGroup.set(drawingMenuGroup('tweet'), 'tweet');
+    this.updateToolbarState();
+    const session = this.storageSessionId, symbol = this.getSymbol();
+    this.xPostDialog.show(this.chartElement.closest<HTMLElement>('.trading-expert-market') ?? this.host, post => {
+      if (this.destroyed || session !== this.storageSessionId || symbol !== this.getSymbol()) return;
+      if (drawing) {
+        if (!this.drawings.includes(drawing) || drawing.locked) return;
+        drawing.text = post.url;
+        if (this.pendingTextDrawingId === drawing.id) this.pendingTextDrawingId = null;
+        this.selectDrawing(drawing.id); this.persistDrawingEdit('已更新帖子');
+      } else {
+        const bounds = this.plotBounds(), screen = { x: bounds.width / 2, y: Math.max(20, bounds.height / 2 - 100) };
+        const point = this.screenToDrawingPoint(screen, false);
+        if (point) this.beginTextDrawing('tweet', point, screen, post.url);
+      }
+    }, drawing?.text ?? '');
   }
 
   private rememberDrawingStyle(drawing: TradingDrawingModel | null) {
@@ -4191,7 +4742,16 @@ export class TradingDrawingController {
     this.selectionToolbarPosition = null;
     if (!this.stayInDrawingMode) this.selectTool(this.lastToolByGroup.get("cursor") ?? "crosshair");
     if (tool === 'image' && initialText.startsWith('haolo-image:')) {
+      const image = this.pendingImageSelection;
+      if (image) {
+        const second = this.screenToDrawingPoint({ x: screenPoint.x + image.width, y: screenPoint.y + image.height }, false);
+        if (second) drawing.points = [point, second];
+        drawing.imageOpacity = image.opacity;
+      }
       this.persistDrawings(); this.redraw(); this.setStatus('图片已放置'); return;
+    }
+    if (tool === 'tweet' && normalizeXPostUrl(initialText)) {
+      this.persistDrawings(); this.redraw(); this.setStatus('帖子已添加'); return;
     }
     this.pendingTextDrawingId = drawing.id;
     this.redraw();
@@ -4201,7 +4761,8 @@ export class TradingDrawingController {
 
   private openPendingTextEditor(drawing: TradingDrawingModel) {
     window.requestAnimationFrame(() => {
-      if (this.selectedDrawingId !== drawing.id) return;
+      if (this.destroyed || this.selectedDrawingId !== drawing.id) return;
+      if (isInlineAnnotation(drawing)) { this.beginInlineTextEdit(drawing); return; }
       const trigger = this.selectionToolbar.querySelector<HTMLElement>('[data-drawing-selection-action="edit-text"]');
       if (trigger) this.openTextInput(drawing, trigger);
     });
@@ -4217,14 +4778,55 @@ export class TradingDrawingController {
 
   private draftPlacementStatus() {
     const definition = tradingDrawingToolDefinition(this.draft?.tool);
+    if (definition?.id === 'ghost-feed') return `已确定 ${Math.max(0,this.draftConfirmedPointCount-1)} / 5 段 · 点击添加下一段 · Enter 或双击完成 · 右键撤销上一端点`;
+    if (definition?.id === 'bars-pattern') return '选择结束 K 线，点击生成 K 线形态 · Esc 取消';
+    if (definition?.id === 'fib-trend-extension') return this.draftConfirmedPointCount >= 2
+      ? '趋势幅度已确定 · 移动鼠标选择第三点作为 0 位，点击完成 · 右键撤销上一端点'
+      : '移动鼠标选择趋势终点，点击确定第一段 · 右键撤销上一端点';
+    if (definition?.id === 'fib-channel') return this.draftConfirmedPointCount >= 2
+      ? '基准线已确定 · 移动鼠标选择 1 倍通道起点，点击完成 · 右键撤销上一端点'
+      : '移动鼠标选择第二点，点击确定通道方向 · 右键撤销上一端点';
+    if (definition?.id === 'fib-time-zone') return '起始时间已确定 · 横向移动鼠标设置时间间隔，点击完成 · 右键撤销上一端点';
+    if (definition?.id === 'cyclic-lines' || definition?.id === 'time-cycles') return '起点已确定 · 横向移动鼠标设置循环间隔，点击完成 · Esc 取消';
+    if (definition?.id === 'sine-line') return '起点已确定 · 移动鼠标设置半周期和振幅，点击完成 · Esc 取消';
+    if (definition?.id === 'fib-trend-time') return this.draftConfirmedPointCount >= 2
+      ? '趋势时间已确定 · 移动鼠标选择时间投射起点，点击完成 · 右键撤销上一端点'
+      : '移动鼠标选择第二点，点击确定趋势时间 · 右键撤销上一端点';
+    if (definition?.id === 'fib-speed-fan') return '扇形起点已确定 · 移动鼠标设置价格和时间范围，点击完成 · 右键撤销上一端点';
+    if (definition && isTradingPitchfork(definition.id)) {
+      return this.draftConfirmedPointCount >= 2
+        ? '前两点已确定 · 移动鼠标选择第三点，调整叉口与方向，点击完成 · 右键撤销上一端点'
+        : '移动鼠标选择第二点，点击确定第一段 · 右键撤销上一端点';
+    }
     if (definition && tradingDrawingIsMultiPoint(definition.id)) {
-      return `已设置 ${this.draftConfirmedPointCount} 个端点 · 点击继续，双击、右键、Enter 或 Esc 完成${definition.id === 'multi-point-polyline' ? ' · 点击起点闭合' : ''}`;
+      return `已设置 ${this.draftConfirmedPointCount} 个端点 · 点击继续，双击、Enter 或 Esc 完成 · 右键撤销上一端点${definition.id === 'multi-point-polyline' ? ' · 点击起点闭合' : ''}`;
     }
     if (definition?.kind === "triangle") {
       return this.draftConfirmedPointCount >= 2
         ? "第二个端点已设置 · 移动鼠标选择第三个端点，再次点击完成 · 右键撤销上一端点"
         : "移动鼠标选择第二个端点，再次点击确定一边 · 右键撤销上一端点";
     }
+    if (definition?.id === 'rotated-rectangle') {
+      return this.draftConfirmedPointCount >= 2
+        ? '中轴线已确定 · 移动鼠标调整矩形宽度，点击完成 · 右键撤销上一端点'
+        : '移动鼠标选择终点，点击确定中轴线 · 右键撤销上一端点';
+    }
+    if (definition?.id === 'parallel-channel') {
+      return this.draftConfirmedPointCount >= 2
+        ? "线段已确定 · 上下移动鼠标调整通道宽度，点击完成 · 右键撤销上一端点"
+        : "移动鼠标选择终点，点击确定线段 · 右键撤销上一端点";
+    }
+    if (definition?.id === 'flat-top-bottom') {
+      return this.draftConfirmedPointCount >= 2
+        ? "线段已确定 · 上下移动鼠标放置水平边界，点击完成 · 右键撤销上一端点"
+        : "移动鼠标选择终点，点击确定线段 · 右键撤销上一端点";
+    }
+    if (definition?.id === 'disjoint-channel') {
+      return this.draftConfirmedPointCount >= 2
+        ? "线段已确定 · 上下移动鼠标放置反向边界，点击完成 · 右键撤销上一端点"
+        : "移动鼠标选择终点，点击确定线段 · 右键撤销上一端点";
+    }
+    if (definition?.id === 'regression-trend') return '选择结束 K 线，点击后自动计算回归通道 · 右键撤销上一端点';
     if (definition?.id === "price-note") {
       return "价格锚点已设置 · 移动鼠标选择标签位置，再次点击后输入注释 · 右键撤销上一端点";
     }
@@ -4244,7 +4846,7 @@ export class TradingDrawingController {
     this.status.textContent = message;
   }
 
-  private toggleToolMenu(group: TradingDrawingGroupId, trigger: HTMLElement) {
+  private toggleToolMenu(group: TradingDrawingGroupId | 'magnet', trigger: HTMLElement) {
     const open = this.activeMenu !== group;
     this.closeToolMenus();
     if (!open) return;
@@ -4289,8 +4891,8 @@ export class TradingDrawingController {
     const edit = this.horizontalLineTextEdit;
     return Boolean(edit && !this.destroyed && this.userDrawingEnabled && !this.drawingVisibility.manualHidden
       && edit.session === this.storageSessionId && this.drawings.includes(edit.drawing)
-      && tradingDrawingSupportsSettings(edit.drawing.tool) && !edit.drawing.locked && !this.drawingVisibility.isHidden(edit.drawing)
-      && tradingDrawingToolDefinition(this.activeTool)?.kind === 'cursor'
+      && (tradingDrawingSupportsSettings(edit.drawing.tool) || isInlineAnnotation(edit.drawing)) && !edit.drawing.locked && !this.drawingVisibility.isHidden(edit.drawing)
+      && (tradingDrawingToolDefinition(this.activeTool)?.kind === 'cursor' || isInlineAnnotation(edit.drawing) && this.activeTool === edit.drawing.tool)
       && tradingManualDrawingMatchesContext(edit.drawing, this.getSymbol(), this.getInterval(), this.drawingScope));
   }
 
@@ -4301,29 +4903,62 @@ export class TradingDrawingController {
     const drawing = this.drawings.find(candidate => candidate.id === trigger.dataset.horizontalLineEditText
       && tradingManualDrawingMatchesContext(candidate, this.getSymbol(), this.getInterval(), this.drawingScope));
     if (!drawing || !tradingDrawingSupportsSettings(drawing.tool) || drawing.source === 'ai' || drawing.locked || !drawing.text?.trim()) return false;
+    return this.beginInlineTextEdit(drawing);
+  }
+
+  private beginInlineTextEdit(drawing: TradingDrawingModel, cell?: TableCell) {
+    if (drawing.locked || drawing.source === 'ai' || !this.userDrawingEnabled || this.destroyed) return false;
+    if (this.horizontalLineTextEdit?.drawing === drawing && (!cell || this.horizontalLineTextEdit.cell?.row === cell.row && this.horizontalLineTextEdit.cell?.column === cell.column)) {
+      this.horizontalLineTextEdit.input.focus({ preventScroll: true });
+      return true;
+    }
     this.finishHorizontalLineTextEdit(true);
     this.onSurfaceFocus?.(this);
     this.selectDrawing(drawing.id);
     this.closeSelectionMenus();
+    if (isPinNote(drawing)) this.openPinNoteId = drawing.id;
     const input = document.createElement('textarea');
     input.className = 'trading-horizontal-line-inline-input';
+    if (isInlineAnnotation(drawing)) {
+      input.classList.add(isAnnotationTable(drawing) ? 'trading-table-inline-input' : isSignpost(drawing) ? 'trading-signpost-inline-input' : isCallout(drawing) || isComment(drawing) ? 'trading-bubble-inline-input' : isPinNote(drawing) ? 'trading-pin-inline-input' : isManualNote(drawing) ? 'trading-note-inline-input' : 'trading-plain-text-input');
+      input.placeholder = isAnnotationTable(drawing) ? '' : translateAppText('添加文字');
+    }
     input.setAttribute('data-i18n-skip', '');
     input.setAttribute('aria-label', translateAppText('文本输入'));
     input.maxLength = 240;
     input.wrap = 'off';
     input.spellcheck = false;
-    input.value = drawing.text;
-    const edit = { drawing, input, session: this.storageSessionId, measure: document.createElement('canvas').getContext('2d'), composing: false };
+    const tableCell = isAnnotationTable(drawing) ? cell ?? { row: 0, column: 0 } : undefined;
+    input.value = tableCell ? annotationTableCells(drawing.text)[tableCell.row][tableCell.column] : drawing.text ?? '';
+    if (tableCell) {
+      const current = updateAnnotationTableCell(drawing.text ?? '', tableCell, '');
+      input.maxLength = Math.max(0, 240 - current.length);
+      input.setAttribute('aria-label', `${translateAppText('表格')} ${tableCell.row + 1}, ${tableCell.column + 1}`);
+    }
+    const edit = { drawing, input, session: this.storageSessionId, measure: document.createElement('canvas').getContext('2d'), composing: false, cell: tableCell };
     this.horizontalLineTextEdit = edit;
+    this.clearSelectionToolbarHideTimer();
     // Keep the native input outside the SVG diff so quote ticks and viewport
     // redraws never replace the focused node or interrupt an IME composition.
     this.overlay.parentElement?.append(input);
-    input.addEventListener('input', () => this.positionHorizontalLineTextEdit(this.plotBounds()));
+    input.addEventListener('input', () => {
+      if (isPinNote(drawing) || isCallout(drawing) || isComment(drawing) || isSignpost(drawing)) this.redraw();
+      else this.positionHorizontalLineTextEdit(this.plotBounds());
+    });
     input.addEventListener('compositionstart', () => { edit.composing = true; });
     input.addEventListener('compositionend', () => { edit.composing = false; });
     input.addEventListener('keydown', event => {
       event.stopPropagation();
       if (event.isComposing || edit.composing || event.keyCode === 229) return;
+      if (edit.cell && (event.key === 'Tab' || event.key === 'Enter')) {
+        event.preventDefault();
+        const rows = annotationTableCells(drawing.text), columns = rows[0].length;
+        const index = edit.cell.row * columns + edit.cell.column;
+        const next = (index + (event.key === 'Enter' ? columns : event.shiftKey ? -1 : 1) + rows.length * columns) % (rows.length * columns);
+        this.finishHorizontalLineTextEdit(true);
+        this.beginInlineTextEdit(drawing, { row: Math.floor(next / columns), column: next % columns });
+        return;
+      }
       if (event.key === 'Escape' || (event.key === 'Enter' && !event.shiftKey)) {
         event.preventDefault();
         this.finishHorizontalLineTextEdit(event.key === 'Enter');
@@ -4347,9 +4982,34 @@ export class TradingDrawingController {
     if (!edit) return;
     if (!this.horizontalLineTextEditIsValid()) { this.finishHorizontalLineTextEdit(false, false); return; }
     const { drawing, input, measure } = edit;
-    const points = drawing.points.map((_point, index) => this.drawingPointToScreen(drawing, index, bounds)).filter((point): point is ScreenPoint => Boolean(point));
+    const points = this.drawingLabelPoints(drawing, bounds);
     if (!points.length || bounds.width < 32) {
       this.finishHorizontalLineTextEdit(true, false);
+      return;
+    }
+    if (isInlineAnnotation(drawing)) {
+      if (edit.cell) {
+        const table = annotationTableGeometry(drawing, points);
+        const width = table.width / table.columns, height = table.height / table.rows.length;
+        Object.assign(input.style, {
+          left: `${table.x + edit.cell.column * width}px`, top: `${table.y + edit.cell.row * height}px`,
+          width: `${width}px`, height: `${height}px`, font: `${drawing.bold ? 700 : 400} ${drawing.fontSize ?? PLAIN_TEXT_FONT_SIZE}px ${PLAIN_TEXT_FONT_FAMILY}`,
+          lineHeight: `${Math.max(20, height - 16)}px`, color: drawing.textColor ?? 'var(--trading-note-text)',
+        });
+        return;
+      }
+      const geometry = annotationTextGeometry(drawing, points, input.value || input.placeholder);
+      const width = Math.min(geometry.width, bounds.width);
+      const height = Math.min(geometry.height, bounds.height);
+      Object.assign(input.style, {
+        left: `${Math.max(0, Math.min(geometry.x, bounds.width - width))}px`,
+        top: `${Math.max(0, Math.min(geometry.y, bounds.height - height))}px`,
+        width: `${width}px`, height: `${height}px`, font: geometry.font,
+        lineHeight: `${geometry.lineHeight}px`,
+        color: isCallout(drawing) || isComment(drawing) ? drawing.textColor ?? '#ffffff' : isManualNote(drawing) || isPinNote(drawing) || isSignpost(drawing) ? drawing.textColor ?? 'var(--trading-note-text)' : drawing.color ?? PLAIN_TEXT_COLOR,
+        background: isPinNote(drawing) || isCallout(drawing) || isComment(drawing) || isSignpost(drawing) ? 'transparent' : drawing.textBackgroundColor ?? (isManualNote(drawing) ? 'var(--trading-note-background)' : 'transparent'),
+        overflow: geometry.width > width || geometry.height > height ? 'auto' : 'hidden',
+      });
       return;
     }
     const fontSize = drawingTextFontSize(drawing.fontSize) ?? 12;
@@ -4375,16 +5035,22 @@ export class TradingDrawingController {
   private finishHorizontalLineTextEdit(save: boolean, redraw = true) {
     const edit = this.horizontalLineTextEdit;
     if (!edit) return;
-    const text = edit.input.value.slice(0, 240);
-    const changed = save && this.horizontalLineTextEditIsValid() && text !== edit.drawing.text;
+    const text = edit.cell ? updateAnnotationTableCell(edit.drawing.text ?? '', edit.cell, edit.input.value).slice(0, 240) : edit.input.value.slice(0, 240);
+    const validSave = save && this.horizontalLineTextEditIsValid();
+    const pending = this.pendingTextDrawingId === edit.drawing.id;
+    const changed = validSave && text !== edit.drawing.text;
     this.horizontalLineTextEdit = null;
     edit.input.remove();
-    if (changed) {
+    if (pending && (!validSave || !text.trim())) {
+      this.discardPendingTextDrawing();
+    } else if (changed || pending && validSave) {
       edit.drawing.text = text;
+      if (pending) this.pendingTextDrawingId = null;
       this.redoStack = [];
       this.persistDrawings();
       this.setStatus('已确定文本');
     }
+    this.restartSelectionToolbarHideTimer();
     if (redraw) this.redraw();
   }
 
@@ -4397,18 +5063,35 @@ export class TradingDrawingController {
     if (!drawing || !tradingDrawingSupportsSettings(drawing.tool) || drawing.source === 'ai' || drawing.locked || drawing.text?.trim()) return false;
     this.onSurfaceFocus?.(this);
     this.selectDrawing(drawing.id);
-    this.openHorizontalLineSettings(drawing,
+    const centered = trigger.dataset.drawingTextPosition === 'center';
+    this.openHorizontalLineSettings(centered ? { ...drawing, textAlign: 'center', textVerticalAlign: 'middle' } : drawing,
       this.selectionToolbar.querySelector<HTMLButtonElement>('[data-horizontal-line-settings]') ?? undefined, 'text');
     return true;
   }
 
   private readonly handleHorizontalLineAddTextClick = (event: MouseEvent) => {
+    const link = event.target instanceof Element ? event.target.closest<SVGElement>('[data-x-post-link]') : null;
+    const post = link && normalizeXPostUrl(link.dataset.xPostLink);
+    if (post && event.button === 0) {
+      event.preventDefault(); event.stopPropagation(); void window.codexDesktop.openExternal(post.url); return;
+    }
     if (event.button !== 0 || !(this.activateHorizontalLineTextEdit(event.target) || this.activateHorizontalLineAddText(event.target))) return;
     event.preventDefault();
     event.stopPropagation();
   };
 
   private readonly handleHorizontalLineAddTextKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Enter' && event.target instanceof Element) {
+      const post = normalizeXPostUrl(event.target.closest<SVGElement>('[data-x-post-link]')?.dataset.xPostLink);
+      if (post) { event.preventDefault(); event.stopPropagation(); void window.codexDesktop.openExternal(post.url); return; }
+    }
+    if (['Enter', ' '].includes(event.key) && event.target instanceof Element) {
+      const id = event.target.closest<SVGElement>('[data-inline-annotation]')?.dataset.inlineAnnotation;
+      const drawing = this.drawings.find(item => item.id === id);
+      if (drawing && isInlineAnnotation(drawing) && this.beginInlineTextEdit(drawing)) {
+        event.preventDefault(); event.stopPropagation(); return;
+      }
+    }
     if (!['Enter', ' '].includes(event.key) || !(this.activateHorizontalLineTextEdit(event.target) || this.activateHorizontalLineAddText(event.target))) return;
     event.preventDefault();
     event.stopPropagation();
@@ -4422,12 +5105,29 @@ export class TradingDrawingController {
     this.horizontalLineSettings.show(drawing, next => {
       const current = this.selectedDrawing();
       if (!current || current.id !== next.id) return;
+      if (initialTab !== 'text' && next.tool === 'regression-trend') {
+        const fit = calculateRegressionTrend(this.getCandles(), next.points, next.regression);
+        if (!fit) { this.setStatus('回归趋势至少需要两根有效 K 线'); return; }
+        next.points = fit.anchors;
+      }
+      if (initialTab !== 'text' && isVolumeDrawing(next.tool)) {
+        next.points = this.volumeAnchors(next);
+        if (isVolumeProfile(next.tool)) this.scheduleVolumeProfile(next.id);
+      }
+      if (initialTab !== 'text') this.normalizeWedgeAnchors(next);
       Object.assign(current, next);
       this.persistDrawingEdit('已更新绘图');
-    }, this.chartElement.closest<HTMLElement>('.trading-expert-market') ?? this.host, trigger, initialTab, tradingDrawingToolDefinition(drawing.tool)!.label);
+    }, this.chartElement.closest<HTMLElement>('.trading-expert-market') ?? this.host, trigger, initialTab, tradingDrawingToolDefinition(drawing.tool)!.label, next => {
+      this.fibonacciSettingsPreview = next;
+      this.redraw();
+    });
   }
 
   private openTextInput(drawing: TradingDrawingModel, trigger: HTMLElement) {
+    if (drawing.tool === 'tweet') { this.pickXPost(drawing); return; }
+    if (drawing.tool === 'image') { this.pickDrawingImage(drawing); return; }
+    if (isManualPriceNote(drawing)) return;
+    if (isInlineAnnotation(drawing)) { this.beginInlineTextEdit(drawing); return; }
     this.toggleSelectionMenu("text-input", trigger);
     if (this.activeSelectionMenu !== "text-input") return;
     const definition = tradingDrawingToolDefinition(drawing.tool);
@@ -4436,8 +5136,7 @@ export class TradingDrawingController {
     const input = this.textInputElement();
     if (!input) return;
     input.value = drawing.text ?? "";
-    input.placeholder = drawing.tool === 'table' ? '每行一行表格，用 | 分隔列'
-      : drawing.tool === 'image' ? '粘贴 https:// 图片链接' : '请输入内容…';
+    input.placeholder = drawing.tool === 'table' ? '每行一行表格，用 | 分隔列' : '请输入内容…';
     window.requestAnimationFrame(() => {
       input.focus();
       input.setSelectionRange(input.value.length, input.value.length);
@@ -4475,6 +5174,10 @@ export class TradingDrawingController {
   }
 
   private selectDrawing(id: string | null) {
+    if (id !== this.openPinNoteId) this.openPinNoteId = null;
+    if (id !== this.selectedDrawingId || this.selectionToolbar.hidden) {
+      this.selectionToolbarInteractedDrawingId = null;
+    }
     if (id !== this.selectedDrawingId) this.finishHorizontalLineTextEdit(true);
     if (id !== this.selectedDrawingId) this.horizontalLineSettings.close();
     this.dismissedSelectionToolbarDrawingId = null;
@@ -4504,9 +5207,12 @@ export class TradingDrawingController {
   private restartSelectionToolbarHideTimer() {
     this.clearSelectionToolbarHideTimer();
     const drawingId = this.selectedDrawingId;
+    const selected = this.selectedDrawing();
+    if (selected && (isElliottWave(selected.tool) || isPredictionDrawing(selected.tool))) return;
     if (!drawingId || this.destroyed || this.drawingsHidden
+      || this.selectionToolbarInteractedDrawingId === drawingId
       || this.dismissedSelectionToolbarDrawingId === drawingId
-      || this.dragState || this.selectionToolbarDrag || this.activeSelectionMenu === 'text-input') return;
+      || this.dragState || this.horizontalLineTextEdit || this.selectionToolbarDrag || ['text-input', 'color', 'text-color', 'text-background'].includes(this.activeSelectionMenu ?? '')) return;
     this.selectionToolbarHideTimer = window.setTimeout(() => {
       this.selectionToolbarHideTimer = null;
       if (this.destroyed || this.selectedDrawingId !== drawingId) return;
@@ -4519,6 +5225,7 @@ export class TradingDrawingController {
     this.finishSelectionToolbarDrag();
     this.closeSelectionMenus();
     this.clearSelectionToolbarHideTimer();
+    this.selectionToolbarInteractedDrawingId = null;
     this.selectionToolbar.hidden = true;
   }
 
@@ -4561,6 +5268,7 @@ export class TradingDrawingController {
   }
 
   private closeSelectionMenus() {
+    closeColorPicker(this.selectionToolbar);
     const wasEditingText = this.activeSelectionMenu === 'text-input';
     this.activeSelectionMenu = null;
     this.selectionToolbar.querySelectorAll<HTMLElement>("[data-drawing-selection-popover]").forEach((menu) => {
@@ -4604,8 +5312,127 @@ export class TradingDrawingController {
     };
   }
 
-  private eventDrawingPoint(screen: ScreenPoint): TradingDrawingPoint | null {
-    return this.screenToDrawingPoint(screen, true);
+  private drawingBarSpan(drawing:TradingDrawingModel) {
+    if (drawing.tool !== 'gann-square' || drawing.points.length < 2) return 0;
+    const a=tradingDrawingLogicalIndexAtTime(this.getCandles(),drawing.points[0].time),b=tradingDrawingLogicalIndexAtTime(this.getCandles(),drawing.points[1].time);
+    return a!==null&&b!==null?b-a:0;
+  }
+
+  private normalizeWedgeAnchors(drawing:TradingDrawingModel) {
+    if (drawing.tool === 'sector' && drawing.points.length >= 3) {
+      const [a,b,c] = drawing.points.map(p=>this.pointToScreen(p));
+      if (a && b && c) { const point=this.screenToDrawingPoint(sectorEndpoint(a,b,c),false);if(point)drawing.points[2]=point; }
+      return;
+    }
+    if(drawing.tool !== 'fib-wedge' || drawing.points.length < 3)return;
+    const [a,b,c]=drawing.points.map(p=>this.pointToScreen(p));
+    if(a&&b&&c){const p=this.screenToDrawingPoint(fibonacciWedgeEndpoint(a,b,c),false);if(p)drawing.points[2]=p;}
+  }
+
+  private volumeProfileForDrawing(drawing: TradingDrawingModel) {
+    if (this.projectionTimes && this.volumeCalculations.has(drawing.id)) return this.volumeCalculations.get(drawing.id)!;
+    const candles = this.getVolumeCandles(), points = volumeProfilePoints(drawing, candles);
+    const from = volumeBarIndex(candles, Math.min(...points.map(p => p.time))), to = volumeBarIndex(candles, Math.max(...points.map(p => p.time)));
+    if (from < 0 || to < 0 || points.length < 2) return null;
+    const chart = this.getInterval(), end = volumeBarEnd(candles[to].time, chart);
+    const resolution = volumeProfileResolution(drawing.tool, chart, end - candles[from].time, this.volumeFutures());
+    const tick = this.getCandleSeries()?.options?.().priceFormat?.minMove ?? .01;
+    this.volumeHistory?.useContext(`${this.getSymbol()}|${chart}`);
+    const history = volumeResolutionSeconds(resolution) <= volumeResolutionSeconds(chart)
+      ? this.volumeHistory?.get({ market: this.getSymbol(), resolution, start: candles[from].time, end }, candles.slice(from, to + 1), chart, tick,
+        drawing !== this.draft && this.dragState?.drawingId !== drawing.id) : undefined;
+    const sourceLabel = history ? `计算周期 ${history.resolution} · 低周期覆盖 ${history.covered}/${history.total} · ${history.state === 'loading' ? '加载中' : history.state === 'lower' ? '完整' : history.state === 'mixed' ? '缺失部分使用图表周期' : '使用图表周期'}` : `计算周期 ${chart}`;
+    const profile = calculateFixedVolume(candles, points, drawing.volumeProfile, { candles: history?.candles, tickSize: history?.tickSize ?? tick, sourceLabel: translateDrawingText(sourceLabel) });
+    if (this.projectionTimes) this.volumeCalculations.set(drawing.id, profile);
+    return profile;
+  }
+
+  private volumeAnchors(drawing: TradingDrawingModel) {
+    return volumeDrawingAnchors(drawing, isVolumeProfile(drawing.tool) ? this.getVolumeCandles() : this.getCandles(), isVolumeProfile(drawing.tool) ? this.volumeProfileForDrawing(drawing) : undefined);
+  }
+
+  private eventDrawingPoint(screen: ScreenPoint, drawing?: TradingDrawingModel, pointIndex?: number): TradingDrawingPoint | null {
+    const regression = (drawing?.tool ?? this.activeTool) === 'regression-trend';
+    const volumeTool = isVolumeDrawing(drawing?.tool ?? this.activeTool);
+    const point = this.screenToDrawingPoint(screen, !regression && !volumeTool);
+    if (point && isRangeDrawing(drawing?.tool ?? this.activeTool)) {
+      const candles = this.getCandles(), logical = tradingDrawingLogicalIndexAtTime(candles, point.time);
+      if (logical !== null) point.time = tradingDrawingTimeAtLogicalIndex(candles, Math.round(logical)) ?? point.time;
+      const format = this.getCandleSeries()?.options?.().priceFormat;
+      const tick = format?.minMove;
+      if (typeof tick === 'number' && tick > 0) point.price = Math.round(point.price / tick) * tick;
+      return point;
+    }
+    if (point && volumeTool) {
+      const candles = this.getCandles(), index = volumeBarIndex(candles, point.time);
+      if (index < 0) return null;
+      const candle = candles[index];
+      return { time: candle.time, price: (drawing?.tool ?? this.activeTool) === 'anchored-vwap'
+        ? vwapSourcePrice(candle, normalizeAnchoredVwapOptions(drawing?.vwap).source) : point.price };
+    }
+    if (point && (drawing?.tool ?? this.activeTool) === 'bars-pattern' && (!drawing || drawing === this.draft)) {
+      const bar = nearestPatternBar(this.getCandles(), point.time);
+      if (!bar) return null;
+      const clamped = { ...point, time: bar.time };
+      return drawing && pointIndex === 1 ? patternPreviewPoint(drawing, clamped, this.getCandles()) : clamped;
+    }
+    if (point && drawing?.tool === 'sector' && pointIndex === 2) {
+      const [a,b]=drawing.points.map(p=>this.pointToScreen(p));
+      if(a&&b)return this.screenToDrawingPoint(sectorEndpoint(a,b,screen),false);
+    }
+    if (point && isCycleDrawing(drawing?.tool ?? this.activeTool)) {
+      const candles = this.getCandles(), logical = tradingDrawingLogicalIndexAtTime(candles, point.time);
+      if (logical !== null) point.time = tradingDrawingTimeAtLogicalIndex(candles, Math.round(logical)) ?? point.time;
+      if (drawing?.tool === 'time-cycles' && drawing === this.draft && pointIndex === 1) point.price = drawing.points[0].price;
+      return point;
+    }
+    if (point && (isElliottWave(drawing?.tool ?? this.activeTool) || isPredictionDrawing(drawing?.tool ?? this.activeTool))) {
+      // TradingView anchors wave time to a bar even with the price magnet off.
+      // The shared conversion also extrapolates bars in the future blank area.
+      const candles = this.getCandles(), logical = tradingDrawingLogicalIndexAtTime(candles, point.time);
+      if (logical !== null) point.time = tradingDrawingTimeAtLogicalIndex(candles, Math.round(logical)) ?? point.time;
+      if (isPositionDrawing(drawing?.tool ?? this.activeTool)) {
+        const tick = normalizePositionOptions(drawing?.position).tickSize;
+        point.price = Math.round(point.price / tick) * tick;
+      }
+      if (drawing?.tool === 'ghost-feed' && pointIndex !== undefined) {
+        const step=tradingDrawingEdgeInterval(candles,'end');
+        const before=drawing.points[pointIndex-1],after=drawing===this.draft?null:drawing.points[pointIndex+1];
+        if(before)point.time=Math.max(before.time+step,point.time);
+        if(after)point.time=Math.min(after.time-step,point.time);
+      }
+      return point;
+    }
+    if (point && drawing?.tool === 'fib-wedge' && pointIndex === 2) {
+      const a=this.pointToScreen(drawing.points[0]),b=this.pointToScreen(drawing.points[1]);
+      if(a&&b)return this.screenToDrawingPoint(fibonacciWedgeEndpoint(a,b,screen),false);
+    }
+    if (point && regression) {
+      const candles = this.getCandles(), index = regressionBarIndex(candles, point.time);
+      return index < 0 ? null : { ...point, time: candles[index].time };
+    }
+    if (point && drawing && tradingDrawingIsShapedChannel(drawing.tool) && drawing === this.draft && pointIndex === 2) {
+      return { time: drawing.points[1].time, price: point.price };
+    }
+    if (point && drawing?.tool === 'rotated-rectangle' && drawing === this.draft && pointIndex === 2) {
+      const first = this.pointToScreen(drawing.points[0]), second = this.pointToScreen(drawing.points[1]), width = this.pointToScreen(point);
+      if (first && second && width) return this.screenToDrawingPoint(rotatedRectangleWidthPoint(first, second, width), false);
+    }
+    if (point && drawing?.tool === 'parallel-channel' && pointIndex === 2) {
+      const first = this.pointToScreen(drawing.points[0]);
+      const second = this.pointToScreen(drawing.points[1]);
+      const widthPoint = this.pointToScreen(point);
+      if (first && second && widthPoint) {
+        const endpoint = tradingDrawingChannelPoints(first, second, widthPoint)[2];
+        const anchor = this.screenToDrawingPoint(endpoint, false);
+        // Persist the actual handle anchor so axis labels and reloads agree
+        // with the channel endpoint, not the mouse's arbitrary click time.
+        if (anchor) return Math.abs(second.x - first.x) < 1e-6
+          ? { ...anchor, price: drawing.points[1].price }
+          : { ...anchor, time: drawing.points[1].time };
+      }
+    }
+    return point;
   }
 
   private screenToDrawingPoint(screen: ScreenPoint, applyMagnet: boolean): TradingDrawingPoint | null {
@@ -4625,37 +5452,55 @@ export class TradingDrawingController {
     const time = logicalTime ?? (chartTime === null ? null : chartTime - this.timeOffsetSeconds);
     if (time === null || price === null) return null;
     let point = { time, price };
-    if (applyMagnet && this.magnetEnabled && this.drawingScope === "main") {
+    if (applyMagnet && this.magnetEnabled !== this.magnetModifierHeld) {
       point = this.snapPointToCandle(point, screen);
     }
     return point;
   }
 
+  private snapMovedDrawing(drawing: TradingDrawingModel) {
+    if (this.magnetEnabled === this.magnetModifierHeld) return;
+    const index = this.dragState?.magnetAnchorIndex ?? 0;
+    const point = drawing.points[index], screen = point && this.pointToScreen(point);
+    if (!screen) return;
+    const snapped = this.snapPointToCandle(point, screen);
+    if (snapped === point) return;
+    const target = this.pointToScreen(snapped);
+    if (!target) return;
+    // Translate the whole object by one anchor's snap delta. Snapping each
+    // vertex independently would distort channels, patterns and freehand paths.
+    drawing.points = drawing.points.map((candidate, i) => {
+      if (i === index) return snapped;
+      const position = this.pointToScreen(candidate);
+      return position ? this.screenToDrawingPoint({
+        x: position.x + target.x - screen.x, y: position.y + target.y - screen.y,
+      }, false) ?? candidate : candidate;
+    });
+  }
+
   private snapPointToCandle(point: TradingDrawingPoint, screen: ScreenPoint) {
     const candles = this.getCandles();
     if (!candles.length) return point;
-    const logical = tradingDrawingLogicalIndexAtTime(candles, point.time) ?? 0;
-    const lower = candles[Math.max(0, Math.min(candles.length - 1, Math.floor(logical)))];
-    const upper = candles[Math.max(0, Math.min(candles.length - 1, Math.ceil(logical)))];
-    const nearest = Math.abs(lower.time - point.time) <= Math.abs(upper.time - point.time) ? lower : upper;
+    const logical = tradingDrawingLogicalIndexAtTime(candles, point.time);
+    if (logical === null) return point;
+    const index = Math.round(logical);
+    // A strong magnet removes the distance threshold, not the requirement for
+    // a real bar under the pointer. Never pull future space back to the last bar.
+    if (index < 0 || index >= candles.length) return point;
+    const nearest = candles[index];
     const chart = this.getChart();
+    const chartTime = nearest.time + this.timeOffsetSeconds;
     const nearestX = finiteTradingChartCoordinate(
-      chart?.timeScale?.().timeToCoordinate((nearest.time + this.timeOffsetSeconds) as any),
+      chart?.timeScale?.().timeToCoordinate(chartTime as any),
     );
-    if (nearestX === null || Math.abs(nearestX - screen.x) > DRAWING_MAGNET_DISTANCE) return point;
-    const prices = [nearest.open, nearest.high, nearest.low, nearest.close];
-    const candleSeries = this.getCandleSeries();
-    const nearestPrice = prices.reduce((selected, candidate) => {
-      const selectedY = finiteTradingChartCoordinate(candleSeries.priceToCoordinate(selected));
-      const candidateY = finiteTradingChartCoordinate(candleSeries.priceToCoordinate(candidate));
-      if (candidateY === null) return selected;
-      if (selectedY === null) return candidate;
-      return Math.abs(candidateY - screen.y) < Math.abs(selectedY - screen.y) ? candidate : selected;
-    }, prices[0]);
-    const nearestY = finiteTradingChartCoordinate(candleSeries.priceToCoordinate(nearestPrice));
-    return nearestY !== null && Math.abs(nearestY - screen.y) <= DRAWING_MAGNET_DISTANCE
-      ? { time: nearest.time, price: nearestPrice }
-      : { time: nearest.time, price: point.price };
+    if (nearestX === null) return point;
+    const timeScale = chart?.timeScale();
+    return snapTradingDrawingMagnet({
+      point, screen, mode: this.magnetMode ?? 'weak', candle: nearest, candleX: nearestX, chartTime,
+      dataIndex: timeScale?.timeToIndex ? timeScale.timeToIndex(chartTime, false) : index,
+      priceSeries: this.getCandleSeries(), includeCandle: !this.drawingScope || this.drawingScope === 'main',
+      indicatorSeries: this.snapToIndicators ? this.getMagnetIndicatorSeries() : [],
+    });
   }
 
   private pointToScreen(point: TradingDrawingPoint): ScreenPoint | null {
@@ -4688,8 +5533,43 @@ export class TradingDrawingController {
     pointIndex: number,
     bounds: { width: number; height: number },
   ): ScreenPoint | null {
+    if (isVolumeDrawing(drawing.tool) && drawing !== this.draft && this.dragState?.drawingId !== drawing.id) {
+      const point = this.volumeAnchors(drawing)[pointIndex];
+      return point ? this.pointToScreen(point) : null;
+    }
+    if (drawing.tool === 'sector' && pointIndex === 2) {
+      const [a,b,c]=drawing.points.map(p=>this.pointToScreen(p));return a&&b&&c?sectorEndpoint(a,b,c):null;
+    }
+    if (drawing.tool === 'time-cycles' && pointIndex === 1 && drawing.points[1]) {
+      return this.pointToScreen({ ...drawing.points[1], price: drawing.points[0].price });
+    }
+    if (drawing.tool === 'fib-wedge' && pointIndex === 2) {
+      const [a, b, c] = drawing.points.map(point => this.pointToScreen(point));
+      // Reproject the angular handle after zooming or changing the price scale.
+      return a && b && c ? fibonacciWedgeEndpoint(a, b, c) : null;
+    }
+    if ((drawing.tool === 'gann-box' || isAnnotationTable(drawing) || drawing.tool === 'image') && pointIndex >= 2) {
+      const [a,b]=drawing.points;
+      if(!a||!b)return null;
+      return this.pointToScreen(pointIndex===2?{time:b.time,price:a.price}:{time:a.time,price:b.price});
+    }
+    if (tradingDrawingIsShapedChannel(drawing.tool)) {
+      return this.pointToScreen(tradingDrawingShapedChannelHandlePoint(drawing.tool, drawing.points, pointIndex));
+    }
+    if (drawing.tool === 'regression-trend' && drawing !== this.draft) {
+      const fit = calculateRegressionTrend(this.getCandles(), drawing.points, drawing.regression);
+      return fit?.anchors[pointIndex] ? this.pointToScreen(fit.anchors[pointIndex]) : null;
+    }
     if (["anchored-text", "anchored-note"].includes(drawing.tool) && pointIndex === 0 && drawing.viewportAnchor) {
       return tradingDrawingAnchoredScreenPoint(drawing.viewportAnchor, bounds);
+    }
+    if (drawing.tool === 'parallel-channel' && pointIndex === 2) {
+      const first = this.pointToScreen(drawing.points[0]);
+      const second = this.pointToScreen(drawing.points[1]);
+      const widthPoint = this.pointToScreen(drawing.points[2]);
+      // Display the width handle on the parallel edge's endpoint, even if
+      // its original placement click was outside the channel's time span.
+      if (first && second && widthPoint) return tradingDrawingChannelPoints(first, second, widthPoint)[2];
     }
     return this.pointToScreen(drawing.points[pointIndex]);
   }
@@ -4711,6 +5591,11 @@ export class TradingDrawingController {
     if (tip && (tip.time !== drawing.points[0].time || tip.price !== drawing.points[0].price)) {
       drawing.points.push(tip);
     }
+  }
+
+  private rotatedRectangleGeometry(drawing: TradingDrawingModel) {
+    const [first, second, width] = drawing.points.map(point => this.pointToScreen(point));
+    return first && second ? rotatedRectangleGeometry(first, second, width ?? undefined) : null;
   }
 
   private plotBounds() {
@@ -4736,8 +5621,30 @@ export class TradingDrawingController {
   private commitDraft() {
     if (!this.draft) return;
     const completed = this.draft;
+    if (isVolumeDrawing(completed.tool)) {
+      completed.points = this.volumeAnchors(completed);
+      if (isVolumeProfile(completed.tool)) this.scheduleVolumeProfile(completed.id);
+    }
+    if (isPositionDrawing(completed.tool)) completed.points = positionAnchors(completed);
+    if (completed.tool === 'bars-pattern') {
+      const capture = captureBarsPattern(completed, this.getCandles());
+      if (!capture) { this.releasePointer(); this.setStatus('请选择至少两根 K 线'); return; }
+      Object.assign(completed, capture);
+    }
+    this.normalizeWedgeAnchors(completed);
+    if (completed.tool === 'regression-trend') {
+      const fit = calculateRegressionTrend(this.getCandles(), completed.points, completed.regression);
+      if (!fit) {
+        this.draftConfirmedPointCount = 1;
+        this.releasePointer();
+        this.redraw();
+        this.setStatus('回归趋势至少需要两根有效 K 线');
+        return;
+      }
+      completed.points = fit.anchors;
+    }
     const definition = tradingDrawingToolDefinition(completed.tool);
-    const pendingText = definition?.kind === "text";
+    const pendingText = definition?.kind === "text" && !isManualPriceNote(completed);
     this.draftConfirmedPointCount = 0;
     this.draftRequiredPointCount = 0;
     this.drawings.push(completed);
@@ -4761,6 +5668,15 @@ export class TradingDrawingController {
       this.updateToolbarState();
       this.redraw();
     }
+  }
+
+  private scheduleVolumeProfile(id: string) {
+    const previous = this.volumeProfileTimers.get(id);
+    if (previous !== undefined) window.clearTimeout(previous);
+    this.volumeProfileTimers.set(id, window.setTimeout(() => {
+      this.volumeProfileTimers.delete(id);
+      if (!this.destroyed && this.drawings.some(d => d.id === id)) this.redraw();
+    }, 1000));
   }
 
   private cancelDraft() {
@@ -4962,7 +5878,25 @@ export class TradingDrawingController {
           selectedDistance = distance;
         }
       }
-      if (screenPoints.length >= 2) {
+      if (isCycleDrawing(drawing.tool)) {
+        const distance = cycleHitDistance(drawing.tool, screenPoints, point, bounds.width);
+        if (distance < selectedDistance) { selectedIndex = index; selectedDistance = distance; }
+      } else if (isFibonacciProjection(drawing.tool) && screenPoints.length >= 2) {
+        const projection = renderFibonacciProjection(drawing, screenPoints, bounds,
+          price => finiteTradingChartCoordinate(this.getCandleSeries()?.priceToCoordinate(price)),
+          y => finiteTradingChartCoordinate(this.getCandleSeries()?.coordinateToPrice(y)),
+          price => formatTradingFibonacciPrice(price, true), clipTradingDrawingLine, this.drawingBarSpan(drawing));
+        for (const [first, second] of projection.segments) {
+          const distance = distanceToSegment(point, first, second);
+          if (distance < selectedDistance) { selectedIndex = index; selectedDistance = distance; }
+        }
+      } else if (isTradingPitchfork(drawing.tool) && screenPoints.length >= 3) {
+        const fork = renderTradingPitchfork(drawing.tool, screenPoints, bounds, drawing, clipTradingDrawingLine);
+        for (const [first, second] of fork.segments) {
+          const distance = distanceToSegment(point, first, second);
+          if (distance < selectedDistance) { selectedIndex = index; selectedDistance = distance; }
+        }
+      } else if (screenPoints.length >= 2) {
         const first = screenPoints[0];
         const second = screenPoints[screenPoints.length - 1];
         const distance = distanceToSegment(point, first, second);
@@ -5001,23 +5935,21 @@ export class TradingDrawingController {
     const symbol = this.getSymbol(), interval = this.getInterval();
     const canUndo = this.drawings.some(drawing => tradingManualDrawingMatchesContext(drawing, symbol, interval, this.drawingScope) && !drawing.locked);
     const canRedo = this.redoStack.some(drawing => tradingManualDrawingMatchesContext(drawing, symbol, interval, this.drawingScope));
-    const state = JSON.stringify([this.activeTool, this.getNavigation?.()?.getTool(), this.magnetEnabled,
+    const navigationTool = this.getNavigation?.()?.getTool();
+    const state = JSON.stringify([this.activeTool, navigationTool, this.magnetEnabled, this.magnetMode, this.snapToIndicators, this.magnetModifierHeld,
       this.stayInDrawingMode, this.drawingsLocked, this.drawingsHidden, canUndo, canRedo,
-      this.lastToolByGroup.get('cursor'), [...this.favoriteTools]]);
+      [...this.lastToolByGroup], [...this.favoriteTools]]);
     if (drawingToolbarState.get(this.toolbar) === state) return;
     drawingToolbarState.set(this.toolbar, state);
-    const definition = tradingDrawingToolDefinition(this.activeTool);
-    this.toolbar.querySelectorAll<HTMLElement>("[data-drawing-tool]").forEach((button) => {
-      const selected = button.dataset.drawingTool === this.activeTool;
-      button.classList.toggle("active", selected);
-      if (button.hasAttribute("aria-checked") && button.getAttribute("aria-checked") !== String(selected)) button.setAttribute("aria-checked", String(selected));
-    });
+    // Navigation temporarily owns the chart even though the remembered drawing
+    // tool is a cursor. Only the tool actually accepting input is selected.
+    const definition = navigationTool ? undefined : tradingDrawingToolDefinition(this.activeTool);
     this.toolbar.querySelectorAll<HTMLElement>("[data-drawing-group]").forEach((group) => {
       group.classList.toggle("active", !!definition && group.dataset.drawingGroup === drawingMenuGroup(definition.id));
       const primary = group.querySelector<HTMLElement>("[data-drawing-action=\"select-group-tool\"]");
       const menuGroup = DRAWING_MENU_SECTIONS.find(item => item.id === group.dataset.drawingGroup);
-      // Stable category affordances: a rectangle/callout must never replace the brush/T entry.
-      const current = menuGroup?.id === 'cursor' ? this.lastToolByGroup.get('cursor') : menuGroup?.defaultTool;
+      // Keep each primary button on its last selected tool after drawing or switching groups.
+      const current = menuGroup ? this.lastToolByGroup.get(menuGroup.id) ?? menuGroup.defaultTool : undefined;
       const currentDefinition = tradingDrawingToolDefinition(current);
       if (primary && currentDefinition) {
         if (primary.dataset.drawingTool !== currentDefinition.id) primary.dataset.drawingTool = currentDefinition.id;
@@ -5030,7 +5962,6 @@ export class TradingDrawingController {
           primary.title = label;
           primary.setAttribute("aria-label", label);
         }
-        primary.classList.toggle('active', !!definition && drawingMenuGroup(definition.id) === menuGroup?.id);
       }
     });
     const setPressed = (action: string, pressed: boolean, icon?: string, label?: string) => {
@@ -5044,9 +5975,14 @@ export class TradingDrawingController {
         button.setAttribute("aria-label", label);
       }
     };
-    setPressed("zoom-in", this.getNavigation?.()?.getTool() === "zoom");
-    setPressed("measure", this.getNavigation?.()?.getTool() === "measure");
-    setPressed("toggle-magnet", this.magnetEnabled);
+    setPressed("zoom-in", navigationTool === "zoom");
+    setPressed("measure", navigationTool === "measure");
+    setPressed("toggle-magnet", this.magnetEnabled !== this.magnetModifierHeld,
+      this.magnetMode === 'strong' ? 'magnet-strong' : 'magnet', this.magnetMode === 'strong' ? '强磁铁' : '弱磁铁');
+    this.toolbar.querySelectorAll<HTMLElement>('[data-magnet-mode]').forEach(button => {
+      button.setAttribute('aria-checked', String(this.magnetEnabled && button.dataset.magnetMode === this.magnetMode));
+    });
+    this.toolbar.querySelector('[data-drawing-action="toggle-magnet-indicators"]')?.setAttribute('aria-checked', String(this.snapToIndicators));
     setPressed("toggle-stay", this.stayInDrawingMode, this.stayInDrawingMode ? "pin-locked" : "pin");
     setPressed("toggle-lock", this.drawingsLocked, this.drawingsLocked ? "lock" : "unlock", this.drawingsLocked ? "解锁全部绘图" : "锁定全部绘图");
     setPressed("toggle-visibility", this.drawingsHidden, this.drawingsHidden ? "drawings-hidden" : "drawings-visible", this.drawingsHidden ? "显示全部绘图" : "隐藏全部绘图");
@@ -5069,9 +6005,17 @@ export class TradingDrawingController {
       favorites.hidden = !this.favoriteTools.size;
       updateTradingDrawingMarkup(favorites, [...this.favoriteTools].map(id => {
         const tool = tradingDrawingToolDefinition(id)!;
-        return `<button type="button" data-drawing-action="select-tool" data-drawing-tool="${id}" title="${tool.label}" aria-label="${tool.label}">${drawingIcon(tool.icon)}</button>`;
+        return `<button type="button" data-drawing-action="select-tool" data-drawing-tool="${id}" aria-pressed="false" title="${tool.label}" aria-label="${tool.label}">${drawingIcon(tool.icon)}</button>`;
       }).join(''));
     }
+    // Update after remembered primary tools and favorite buttons are rendered;
+    // otherwise new/rebuilt buttons lose their selection until another change.
+    this.toolbar.querySelectorAll<HTMLElement>("[data-drawing-tool]").forEach((button) => {
+      const selected = !navigationTool && button.dataset.drawingTool === this.activeTool;
+      button.classList.toggle("active", selected);
+      const attribute = button.hasAttribute("aria-checked") ? "aria-checked" : "aria-pressed";
+      if (button.getAttribute(attribute) !== String(selected)) button.setAttribute(attribute, String(selected));
+    });
   }
 
   private updateSelectionToolbar(bounds: { width: number; height: number }) {
@@ -5079,13 +6023,14 @@ export class TradingDrawingController {
     if (!drawing) this.dismissedSelectionToolbarDrawingId = null;
     if (!drawing || this.drawingVisibility.manualHidden || this.dismissedSelectionToolbarDrawingId === drawing.id) {
       this.clearSelectionToolbarHideTimer();
+      this.selectionToolbarInteractedDrawingId = null;
       this.selectionToolbar.hidden = true;
       this.selectionToolbarStyleKey = '';
       return;
     }
     const styleKey = JSON.stringify([drawing.id, drawing.tool, drawing.source, drawing.color,
       drawing.lineStyle, drawing.lineWidth, drawing.textBackgroundColor, drawing.fontSize,
-      drawing.bold, drawing.locked, this.drawingVisibility.isHidden(drawing), isDarkTheme()]);
+      drawing.bold, drawing.locked, drawing.fibonacci, this.drawingVisibility.isHidden(drawing), isDarkTheme()]);
     if (this.selectionToolbarStyleKey === styleKey && this.selectionToolbarPosition) {
       this.showSelectionToolbar();
       this.positionSelectionToolbar(bounds);
@@ -5093,11 +6038,27 @@ export class TradingDrawingController {
     }
     const definition = tradingDrawingToolDefinition(drawing.tool);
     const textMode = definition?.kind === "text";
+    this.selectionToolbar.dataset.annotationMedia = String(drawing.tool === 'image' || drawing.tool === 'tweet');
+    const editAction = this.selectionToolbar.querySelector<HTMLElement>('[data-drawing-selection-action="edit-text"]');
+    if (editAction) {
+      const media = drawing.tool === 'image' || drawing.tool === 'tweet';
+      editAction.innerHTML = media ? horizontalLineSettingsIcon : selectionIcon('color');
+      editAction.setAttribute('aria-label', translateAppText(media ? '绘图设置' : '文本输入'));
+      editAction.title = translateAppText(media ? '绘图设置' : '文本输入');
+    }
+    const textEntry = this.selectionToolbar.querySelector('[data-drawing-selection-action="edit-text"]')?.closest<HTMLElement>('.trading-drawing-selection-menu-wrap');
+    if (textEntry) textEntry.hidden = isManualPriceNote(drawing);
+    this.selectionToolbar.querySelectorAll<HTMLElement>('[data-harmonic-style-control]').forEach(control => {
+      control.hidden = !isReferencePatternDrawing(drawing.tool) || ['abcd', 'three-drives'].includes(drawing.tool) && control.dataset.drawingSelectionAction === 'pattern-fill';
+      if ((isRangeDrawing(drawing.tool) || drawing.tool === 'time-cycles' || drawing.tool === 'sector') && control.dataset.drawingSelectionAction === 'pattern-fill') control.hidden = false;
+      if (isRangeDrawing(drawing.tool) && control.dataset.drawingSelectionAction === 'pattern-label') control.hidden = false;
+    });
     const settings = this.selectionToolbar.querySelector<HTMLElement>('[data-horizontal-line-settings]');
     if (settings) settings.hidden = !tradingDrawingSupportsSettings(drawing.tool);
     this.selectionToolbar.querySelectorAll<HTMLElement>("[data-drawing-selection-mode]").forEach((mode) => {
       mode.hidden = (mode.dataset.drawingSelectionMode === "text") !== textMode;
     });
+    this.selectionToolbar.querySelectorAll<HTMLElement>('[data-drawing-selection-mode="drawing"] > .trading-drawing-selection-menu-wrap').forEach(control => { control.hidden = isVolumeProfile(drawing.tool); });
     this.selectionToolbar.dataset.mode = textMode ? "text" : "drawing";
     const pointEntries = drawing.points
       .map((_point, index) => ({ index, point: this.drawingPointToScreen(drawing, index, bounds) }))
@@ -5113,9 +6074,19 @@ export class TradingDrawingController {
     const color = drawing.color ?? defaults?.color ?? (textMode
       ? isDarkTheme() ? DEFAULT_TEXT_COLOR_DARK : DEFAULT_TEXT_COLOR_LIGHT
       : isDarkTheme() ? DEFAULT_DRAWING_COLOR_DARK : DEFAULT_DRAWING_COLOR_LIGHT);
-    const style = drawing.lineStyle ?? defaults?.lineStyle ?? "solid";
-    const width = drawing.lineWidth ?? defaults?.lineWidth ?? DEFAULT_DRAWING_LINE_WIDTH;
+    const style = drawing.lineStyle ?? drawing.fibonacci?.lineStyle ?? defaults?.lineStyle ?? "solid";
+    const width = drawing.lineWidth ?? drawing.fibonacci?.lineWidth ?? defaults?.lineWidth ?? DEFAULT_DRAWING_LINE_WIDTH;
     this.selectionToolbar.style.setProperty('--drawing-current-color', color);
+    const patternFillIndicator = this.selectionToolbar.querySelector<HTMLElement>('[data-pattern-fill-color]');
+    if (patternFillIndicator && drawing.tool === 'sector') patternFillIndicator.style.background = drawing.textBackgroundColor ?? '#9c6ade33';
+    if (patternFillIndicator && isRangeDrawing(drawing.tool)) patternFillIndicator.style.background = rangeFillColor(drawing);
+    if (patternFillIndicator && drawing.tool === 'time-cycles') patternFillIndicator.style.background = cycleFillColor(drawing);
+    if (patternFillIndicator && isReferencePatternDrawing(drawing.tool)) patternFillIndicator.style.background = harmonicFillColor(drawing);
+    const colorIndicator = this.selectionToolbar.querySelector<HTMLElement>('[data-drawing-current-color]');
+    const levelColors = isFibonacciProjection(drawing.tool) && drawing.tool !== 'fib-spiral'
+      ? [...new Set(fibonacciOptionsForDrawing(drawing).levels.filter(level => level.enabled).map(level => level.color))] : [];
+    if (colorIndicator) colorIndicator.style.background = levelColors.length > 1
+      ? `linear-gradient(90deg, ${levelColors.join(', ')})` : levelColors[0] ?? color;
     const stylePreview = this.selectionToolbar.querySelector<HTMLElement>("[data-drawing-style-preview]");
     if (stylePreview) stylePreview.className = `trading-drawing-line-preview ${style}`;
     const widthPreview = this.selectionToolbar.querySelector<HTMLElement>("[data-drawing-width-preview]");
@@ -5124,7 +6095,7 @@ export class TradingDrawingController {
     if (widthLabel) widthLabel.textContent = `${width}px`;
     const widthMenu = this.selectionToolbar.querySelector<HTMLElement>('[data-drawing-selection-popover="width"]');
     if (widthMenu) updateTradingDrawingMarkup(widthMenu, (drawing.tool === 'highlighter' ? [10, 20, 30, 40] : [1, 2, 3, 4]).map(value =>
-      `<button type="button" data-drawing-selection-action="set-width" data-drawing-width="${value}" role="menuitemradio" aria-checked="false" aria-label="${value} 像素"><span class="trading-drawing-width-preview" style="--drawing-width:${value}px"></span><span>${value}px</span></button>`).join(''));
+      `<button type="button" class="line-width-option" style="--line-width:${drawing.tool === 'highlighter' ? value / 10 : value}px" data-drawing-selection-action="set-width" data-drawing-width="${value}" role="menuitemradio" aria-checked="false" aria-label="${value} 像素">${value}px</button>`).join(''));
     this.selectionToolbar.querySelectorAll<HTMLElement>("[data-drawing-color]").forEach((button) => {
       const selected = button.dataset.drawingColor?.toLowerCase() === color.toLowerCase();
       button.classList.toggle("active", selected);
@@ -5143,7 +6114,7 @@ export class TradingDrawingController {
       button.classList.toggle("active", selected);
       button.setAttribute("aria-checked", String(selected));
     });
-    const fontSize = drawing.fontSize ?? DEFAULT_TEXT_FONT_SIZE;
+    const fontSize = drawing.fontSize ?? (isInlineAnnotation(drawing) ? PLAIN_TEXT_FONT_SIZE : DEFAULT_TEXT_FONT_SIZE);
     const fontSizeLabel = this.selectionToolbar.querySelector<HTMLElement>("[data-drawing-font-size-label]");
     if (fontSizeLabel) fontSizeLabel.textContent = String(fontSize);
     this.selectionToolbar.querySelectorAll<HTMLElement>("[data-drawing-font-size]").forEach((button) => {
@@ -5180,11 +6151,18 @@ export class TradingDrawingController {
     this.showSelectionToolbar();
     this.selectionToolbarStyleKey = styleKey;
     const { width: panelWidth, height: panelHeight } = this.selectionToolbarSize;
+    if (!this.selectionToolbarPosition && (isVolumeDrawing(drawing.tool) || isRangeDrawing(drawing.tool) || isCycleDrawing(drawing.tool) || isPredictionDrawing(drawing.tool))) {
+      this.selectionToolbarPosition = { x: (bounds.width - panelWidth) / 2, y: isPredictionDrawing(drawing.tool) ? 38 : 18 };
+    }
     if (!this.selectionToolbarPosition) {
+      if (isInlineAnnotation(drawing) && !isAnnotationTable(drawing)) {
+        const box = annotationTextGeometry(drawing, points, drawing.text || translateAppText('添加文字'));
+        points.push({ x: box.x, y: box.y }, { x: box.x + box.width, y: box.y + box.height });
+      }
       // Curves and rotated labels can extend above their control points.
       // Include the label when initially placing the toolbar so it stays editable.
       const hasText = Boolean(drawing.text?.trim());
-      const label = tradingDrawingLabelGeometry(hasText ? drawing : { ...drawing, text: '＋ 添加文字', fontSize: 12, textAlign: 'center', textVerticalAlign: 'middle' }, points, bounds, hasText ? undefined : { width: 84, height: 22 });
+      const label = tradingDrawingLabelGeometry(hasText ? drawing : { ...drawing, text: '＋ 添加文字', fontSize: 12, textAlign: 'center', textVerticalAlign: 'top' }, points, bounds, hasText ? undefined : { width: 84, height: 22 });
       if (label) {
         const radians = label.angle * Math.PI / 180;
         const width = hasText ? label.layout.width : 84, height = hasText ? label.layout.height : 22;
@@ -5192,13 +6170,16 @@ export class TradingDrawingController {
           points.push({ x: label.x + (x - label.x) * Math.cos(radians) - (y - label.y) * Math.sin(radians), y: label.y + (x - label.x) * Math.sin(radians) + (y - label.y) * Math.cos(radians) });
         }
       }
+      if (drawing.tool === 'rotated-rectangle') points.push(...(this.rotatedRectangleGeometry(drawing)?.corners ?? []));
       const minimumX = Math.min(...points.map((point) => point.x));
       const maximumX = Math.max(...points.map((point) => point.x));
       const minimumY = Math.min(...points.map((point) => point.y));
       const maximumY = Math.max(...points.map((point) => point.y));
       const centeredLeft = (minimumX + maximumX - panelWidth) / 2;
-      const preferredTop = minimumY - panelHeight - 18;
-      const belowTop = maximumY + 18;
+      const patternLabelGap = isElliottWave(drawing.tool) ? (drawing.fontSize ?? ELLIOTT_FONT_SIZE) + 20
+        : isReferencePatternDrawing(drawing.tool) ? (drawing.fontSize ?? 14) + 20 : 18;
+      const preferredTop = minimumY - panelHeight - patternLabelGap;
+      const belowTop = maximumY + patternLabelGap;
       this.selectionToolbarPosition = { x: centeredLeft, y: preferredTop >= 8 ? preferredTop : belowTop };
     }
     this.positionSelectionToolbar(bounds);
@@ -5213,8 +6194,9 @@ export class TradingDrawingController {
   }
 
   private updateAxisMarkers(bounds: { width: number; height: number }) {
-    const selected = this.selectedDrawing();
-    const selectedDrawing = selected && !this.drawingVisibility.isHidden(selected) ? selected : null;
+    const selected = this.fibonacciSettingsPreview ?? (this.draft && (isRangeDrawing(this.draft.tool) || isVolumeDrawing(this.draft.tool) || isReferencePatternDrawing(this.draft.tool) || isElliottWave(this.draft.tool) || isCycleDrawing(this.draft.tool) || isPredictionDrawing(this.draft.tool)) ? this.draft : this.selectedDrawing());
+    const selectedDrawing = selected && !this.drawingVisibility.isHidden(selected)
+      && (!selected.fibonacci || fibonacciVisibleAtInterval(selected.fibonacci, this.getInterval())) ? selected : null;
     if (this.drawingVisibility.manualHidden) {
       updateTradingDrawingMarkup(this.axisMarkerLayer, "");
       return;
@@ -5224,7 +6206,7 @@ export class TradingDrawingController {
       && !this.drawingVisibility.isHidden(drawing)
     ));
     const persistentHorizontalDrawings = visibleDrawings.filter((drawing) => (
-      tradingDrawingToolDefinition(drawing.tool)?.kind === "horizontal"
+      (tradingDrawingToolDefinition(drawing.tool)?.kind === "horizontal" || drawing.tool === 'anchored-vwap' || drawing.tool === 'anchored-volume-profile')
       && drawing.showPriceLabel !== false
     ));
     const markerDrawings = [
@@ -5235,12 +6217,48 @@ export class TradingDrawingController {
     ];
     const markers = markerDrawings.flatMap((drawing) => {
       const definition = tradingDrawingToolDefinition(drawing.tool);
+      if (drawing.tool === 'anchored-volume-profile') {
+        const profile = this.volumeProfileForDrawing(drawing);
+        const anchor = this.volumeAnchors(drawing)[0];
+        const pending = drawing === this.draft || this.dragState?.drawingId === drawing.id || this.volumeProfileTimers.has(drawing.id);
+        const markers = profile?.total && profile.options.showPoc && drawing.showPriceLabel !== false && !pending
+          ? [{ point: { time: profile.startTime, price: profile.poc }, showPrice: true, showTime: false, drawingId: drawing.id, markerColor: '#131722' }] : [];
+        if (anchor && drawing.id === selectedDrawing?.id) markers.push({ point: anchor, showPrice: false, showTime: true, drawingId: drawing.id, markerColor: '#2962ff' });
+        return markers;
+      }
+      if (drawing.tool === 'anchored-vwap') {
+        const latest = calculateAnchoredVwap(this.getCandles(), drawing.points[0].time, drawing.vwap).at(-1);
+        const anchor = this.volumeAnchors(drawing)[0];
+        const markers = latest && drawing.showPriceLabel !== false ? [{ point: latest as TradingDrawingPoint, showPrice: true, showTime: false, drawingId: drawing.id, markerColor: drawing.color ?? '#1e88e5' }] : [];
+        if (anchor && drawing.id === selectedDrawing?.id) markers.push({ point: anchor, showPrice: false, showTime: true, drawingId: drawing.id, markerColor: '#2962ff' });
+        return markers;
+      }
       if (!definition) return [];
+      if (isPositionDrawing(drawing.tool)) {
+        const points = positionAnchors(drawing), options = normalizePositionOptions(drawing.position);
+        return points.map((point, i) => ({ point, showPrice: i !== 1 && drawing.showPriceLabel !== false, showTime: false,
+          drawingId: drawing.id, markerColor: i === 2 ? options.profitColor : i === 3 ? options.lossColor : '#808080' }))
+          .concat(points.slice(0, 2).map(point => ({ point, showPrice: false, showTime: true, drawingId: drawing.id, markerColor: '#2962ff' })));
+      }
+      const axisPoints = drawing.tool === 'fixed-range-volume' ? (drawing === this.draft || this.dragState?.drawingId === drawing.id ? drawing.points : this.volumeAnchors(drawing))
+        : isCycleDrawing(drawing.tool) ? cycleAnchorPoints(drawing.tool, drawing.points)
+        : drawing.tool === 'fib-wedge' || drawing.tool === 'sector'
+        ? drawing.points.map((point, index) => {
+            const screen = this.drawingPointToScreen(drawing, index, bounds);
+            return screen ? this.screenToDrawingPoint(screen, false) ?? point : point;
+          })
+        : drawing.tool === 'regression-trend'
+        ? calculateRegressionTrend(this.getCandles(), drawing.points, drawing.regression)?.anchors ?? []
+        : (isTradingPitchfork(drawing.tool) || isReferencePatternDrawing(drawing.tool) || isElliottWave(drawing.tool)) && drawing === this.draft
+          ? drawing.points.slice(0, this.draftConfirmedPointCount) : drawing.points;
       const markerPoints = definition.kind === "horizontal"
         ? tradingDrawingAlwaysVisibleAxisMarkerPoints(definition, drawing.points)
-        : tradingDrawingAxisMarkerPoints(definition, drawing.points);
+        : drawing.tool === 'sector' ? axisPoints.map(point => ({ point, showPrice: true, showTime: true }))
+        : tradingDrawingAxisMarkerPoints(definition, axisPoints);
       const active = drawing.id === selectedDrawing?.id;
-      const markerColor = active ? DRAWING_SELECTION_COLOR : drawing.color ?? manualDrawingDefaults(drawing.tool).color;
+      const markerColor = isRangeDrawing(drawing.tool) || isVolumeDrawing(drawing.tool) || isPredictionDrawing(drawing.tool) || isCycleDrawing(drawing.tool) || isTradingPitchfork(drawing.tool) || isFibonacciProjection(drawing.tool) || isReferencePatternDrawing(drawing.tool) || isElliottWave(drawing.tool) ? '#2962ff'
+        : drawing.tool === 'info-line' || drawing.tool === 'trend-angle' || drawing.tool === 'regression-trend' ? drawing.color ?? manualDrawingDefaults(drawing.tool).color
+        : active ? DRAWING_SELECTION_COLOR : drawing.color ?? manualDrawingDefaults(drawing.tool).color;
       return markerPoints.map((marker) => ({ ...marker, showPrice: marker.showPrice && drawing.showPriceLabel !== false, drawingId: drawing.id, markerColor }));
     })
       .map((marker) => ({ ...marker, screen: this.pointToScreen(marker.point) }))
@@ -5268,18 +6286,55 @@ export class TradingDrawingController {
         && Math.abs(entry.screen.x - marker.screen.x) < 1
       ))
     ));
+    const patternMarkerTops = new Map<(typeof priceMarkers)[number], number>();
+    if (selectedDrawing && isReferencePatternDrawing(selectedDrawing.tool)) {
+      const ordered = [...priceMarkers].sort((a, b) => a.screen.y - b.screen.y);
+      const spacing = Math.min(24, bounds.height / Math.max(ordered.length, 1));
+      let previous = -spacing / 2;
+      for (const marker of ordered) {
+        previous = Math.max(marker.screen.y, previous + spacing);
+        patternMarkerTops.set(marker, previous);
+      }
+      let next = bounds.height + spacing / 2;
+      for (const marker of ordered.reverse()) {
+        next = Math.min(patternMarkerTops.get(marker)!, next - spacing);
+        patternMarkerTops.set(marker, next);
+      }
+    }
     const priceHtml = priceScaleWidth > 0 ? priceMarkers.map((marker) => {
-      const top = Math.min(Math.max(marker.screen.y, 12), Math.max(12, bounds.height - 12));
-      return `<div class="trading-drawing-axis-marker price" data-drawing-axis-price style="--trading-drawing-axis-marker:${marker.markerColor};--trading-drawing-axis-marker-text:#fff;left:${bounds.width}px;top:${top}px;width:${priceScaleWidth}px">${escapeHtml(formatTradingDrawingAxisPrice(marker.point.price))}</div>`;
+      const top = patternMarkerTops.get(marker) ?? Math.min(Math.max(marker.screen.y, 12), Math.max(12, bounds.height - 12));
+      return `<div class="trading-drawing-axis-marker price" data-drawing-axis-price style="--trading-drawing-axis-marker:${marker.markerColor};--trading-drawing-axis-marker-text:${marker.markerColor === DRAWING_SELECTION_COLOR ? "var(--interaction-on-accent)" : "#fff"};left:${bounds.width}px;top:${top}px;width:${priceScaleWidth}px">${escapeHtml(formatTradingDrawingAxisPrice(marker.point.price))}</div>`;
     }).join("") : "";
     const timeHalfWidth = 70;
     const minimumTimeX = Math.min(timeHalfWidth + 4, bounds.width / 2);
     const maximumTimeX = Math.max(minimumTimeX, bounds.width - timeHalfWidth - 4);
     const timeHtml = timeMarkers.map((marker) => {
       const left = Math.min(Math.max(marker.screen.x, minimumTimeX), maximumTimeX);
-      return `<time class="trading-drawing-axis-marker time" data-drawing-axis-time style="--trading-drawing-axis-marker:${marker.markerColor};--trading-drawing-axis-marker-text:#fff;left:${left}px">${escapeHtml(formatTradingDrawingAxisTime(marker.point.time, this.timeOffsetSeconds))}</time>`;
+      return `<time class="trading-drawing-axis-marker time" data-drawing-axis-time style="--trading-drawing-axis-marker:${marker.markerColor};--trading-drawing-axis-marker-text:${marker.markerColor === DRAWING_SELECTION_COLOR ? "var(--interaction-on-accent)" : "#fff"};left:${left}px">${escapeHtml(formatTradingDrawingAxisTime(marker.point.time, this.timeOffsetSeconds))}</time>`;
     }).join("");
-    updateTradingDrawingMarkup(this.axisMarkerLayer, priceHtml + timeHtml);
+    let infoLineRange = '';
+    if ((selectedDrawing?.tool === 'info-line' || selectedDrawing?.tool === 'trend-angle') && priceScaleWidth > 0) {
+      const endpoints = selectedDrawing.points.map(point => this.pointToScreen(point)).filter((point): point is ScreenPoint => point !== null);
+      if (endpoints.length === 2) {
+        const top = Math.max(0, Math.min(endpoints[0].y, endpoints[1].y));
+        const bottom = Math.min(bounds.height, Math.max(endpoints[0].y, endpoints[1].y));
+        const color = selectedDrawing.color ?? manualDrawingDefaults(selectedDrawing.tool).color;
+        const rangeClass = selectedDrawing.tool === 'trend-angle' ? 'trading-trend-angle-axis-range' : 'trading-info-line-axis-range';
+        if (bottom > top) infoLineRange = `<div class="${rangeClass}" style="left:${bounds.width}px;top:${top}px;width:${priceScaleWidth}px;height:${bottom - top}px;background:${color}"></div>`;
+      }
+    }
+    let harmonicRange = '';
+    if (selectedDrawing && (isRangeDrawing(selectedDrawing.tool) || selectedDrawing.tool === 'fixed-range-volume' || isCycleDrawing(selectedDrawing.tool) || isReferencePatternDrawing(selectedDrawing.tool) || isFibonacciProjection(selectedDrawing.tool) || isElliottWave(selectedDrawing.tool) || isPredictionDrawing(selectedDrawing.tool))) {
+      const endpoints = (isPositionDrawing(selectedDrawing.tool) ? positionAnchors(selectedDrawing).map(p => this.pointToScreen(p))
+        : selectedDrawing.points.map((_point, index) => this.drawingPointToScreen(selectedDrawing, index, bounds))).filter((p): p is ScreenPoint => p !== null);
+      if (endpoints.length > 1) {
+        const top = Math.max(0, Math.min(...endpoints.map(p => p.y))), bottom = Math.min(bounds.height, Math.max(...endpoints.map(p => p.y)));
+        const left = Math.max(0, Math.min(...endpoints.map(p => p.x))), right = Math.min(bounds.width, Math.max(...endpoints.map(p => p.x)));
+        if (priceScaleWidth && bottom > top) harmonicRange += `<div class="trading-harmonic-axis-range" style="left:${bounds.width}px;top:${top}px;width:${priceScaleWidth}px;height:${bottom - top}px"></div>`;
+        if (right > left) harmonicRange += `<div class="trading-harmonic-axis-range" data-pattern-time-range style="left:${left}px;bottom:0;width:${right - left}px;height:28px"></div>`;
+      }
+    }
+    updateTradingDrawingMarkup(this.axisMarkerLayer, infoLineRange + harmonicRange + priceHtml + timeHtml);
   }
 
   async playAiDrawingPatch(
@@ -5562,6 +6617,8 @@ export class TradingDrawingController {
 
   redraw() {
     if (this.destroyed) return;
+    this.volumeCalculations.clear();
+    this.volumeHistory?.useContext(`${this.getSymbol()}|${this.getInterval()}`);
     if (!this.selectedDrawing()) {
       this.clearDrawingHandlesHideTimer();
       this.overlay.classList.remove('drawing-handles-idle');
@@ -5729,6 +6786,8 @@ export class TradingDrawingController {
     interactive = true,
     resolvedTextGeometry?: ReturnType<typeof tradingDrawingNoteBoxGeometry>,
   ) {
+    if (this.fibonacciSettingsPreview?.id === drawing.id) drawing = this.fibonacciSettingsPreview;
+    if ((drawing.tool === 'fib-retracement' || isFibonacciProjection(drawing.tool)) && drawing.fibonacci && !fibonacciVisibleAtInterval(drawing.fibonacci, this.getInterval())) return '';
     const definition = tradingDrawingToolDefinition(drawing.tool);
     if (!definition) return "";
     if (
@@ -5737,13 +6796,57 @@ export class TradingDrawingController {
     ) return "";
     this.ensureAnchoredViewportAnchor(drawing);
     this.ensureArrowMarkerEndpoints(drawing);
+    if ((isManualNote(drawing) || isCallout(drawing) || isAnnotationTable(drawing)) && drawing.points.length === 1) {
+      const anchor = this.pointToScreen(drawing.points[0]);
+      const label = anchor && this.screenToDrawingPoint(isAnnotationTable(drawing)
+        ? { x: anchor.x + Math.min(540, Math.max(180, bounds.width - anchor.x - 8)), y: anchor.y + 144 }
+        : { x: anchor.x + 60, y: anchor.y - 40 }, false);
+      if (label) drawing.points.push(label);
+    }
+    if (isAnnotationTable(drawing)) return this.renderAnnotationTable(drawing, bounds, draft, interactive);
+    if (drawing.tool === 'image' && drawing.source !== 'ai') return this.renderImageDrawing(drawing, bounds, interactive);
+    if (drawing.tool === 'tweet' && drawing.source !== 'ai') return this.renderXPostDrawing(drawing, bounds, interactive);
+    if (isRangeDrawing(drawing.tool) && drawing.points.length) {
+      const points = drawing.points.map(p => this.pointToScreen(p)).filter((p): p is ScreenPoint => p !== null);
+      const first = drawing.points[0], last = drawing.points.at(-1)!;
+      const candles = this.getCandles(), from = tradingDrawingLogicalIndexAtTime(candles, first.time), to = tradingDrawingLogicalIndexAtTime(candles, last.time);
+      const format = this.getCandleSeries()?.options?.().priceFormat;
+      const measurements = rangeMeasurement({ start: first, end: last, candles, bars: from === null || to === null ? null : to - from, precision: format?.precision ?? 2, minMove: format?.minMove ?? .01 });
+      const selected = interactive && drawing.id === this.selectedDrawingId;
+      const result = renderRangeDrawing(drawing, points, bounds, measurements, selected, draft && interactive);
+      return this.renderDrawingFrame(drawing, points, bounds, draft, interactive, result.body, interactive && !draft ? result.hit : '', result.handles);
+    }
+    if (isVolumeDrawing(drawing.tool) && drawing.points.length) {
+      const selected = interactive && drawing.id === this.selectedDrawingId;
+      const preview = draft || this.dragState?.drawingId === drawing.id || this.volumeProfileTimers.has(drawing.id);
+      const result = drawing.tool === 'anchored-vwap'
+        ? renderAnchoredVwap(drawing, this.getCandles(), p => this.pointToScreen(p), interactive && (selected || draft), bounds)
+        : renderFixedVolume(drawing, this.getVolumeCandles(), p => this.pointToScreen(p), interactive && (selected || draft), preview, bounds, this.volumeProfileForDrawing(drawing));
+      return this.renderDrawingFrame(drawing, drawing.points.map(p => this.pointToScreen(p)).filter((p): p is ScreenPoint => Boolean(p)), bounds, draft, interactive, result.body, interactive && !draft ? result.hit : '', result.handles);
+    }
+    if (isPredictionDrawing(drawing.tool)) {
+      if (!draft && isPositionDrawing(drawing.tool) && drawing.points.length < 4) drawing.points = positionAnchors(drawing);
+      if (!draft && drawing.tool === 'bars-pattern' && !drawing.barsPattern) {
+        const capture=captureBarsPattern(drawing,this.getCandles());if(capture)Object.assign(drawing,capture);
+      }
+      const selected = interactive && drawing.id === this.selectedDrawingId;
+      const result = isPredictionShape(drawing.tool)
+        ? renderPredictionShape(drawing, p=>this.pointToScreen(p), this.getCandles(), bounds, selected, draft, draft ? this.draftConfirmedPointCount : drawing.points.length)
+        : isPositionDrawing(drawing.tool)
+        ? renderPositionDrawing(drawing, p => this.pointToScreen(p), this.getCandles(), bounds, selected, draft, translateDrawingText)
+        : renderForecastDrawing(drawing, drawing.points.map(p => this.pointToScreen(p)).filter((p): p is ScreenPoint => Boolean(p)), this.getCandles(), bounds, selected, draft, this.timeOffsetSeconds, translateDrawingText);
+      return this.renderDrawingFrame(drawing, drawing.points.map(p => this.pointToScreen(p)).filter((p): p is ScreenPoint => Boolean(p)), bounds, draft, interactive, result.body, interactive && !draft ? result.hit : '', result.handles);
+    }
+    // Legacy two-point records have no saved opposite price. Retain both
+    // anchors and use the endpoint price until the user adjusts the other edge.
+    if (!draft && tradingDrawingIsShapedChannel(drawing.tool) && drawing.points.length === 2) drawing.points.push({ ...drawing.points[1] });
     const pointEntries = drawing.points
       .map((_point, index) => ({ index, point: this.drawingPointToScreen(drawing, index, bounds) }))
       .filter((entry): entry is { index: number; point: ScreenPoint } => Boolean(entry.point));
     const points = pointEntries.map((entry) => entry.point);
     if (!points.length) return "";
     const first = points[0];
-    const second = points[points.length - 1] ?? first;
+    const second = (drawing.tool === 'parallel-channel' || drawing.tool === 'rotated-rectangle' || tradingDrawingIsShapedChannel(drawing.tool) ? points[1] : points[points.length - 1]) ?? first;
     const defaults = drawing.source === 'ai' ? undefined : manualDrawingDefaults(drawing.tool);
     const color = drawing.color ?? tradingAiDrawingColor(drawing.colorToken) ?? defaults?.color ?? (definition.kind === "text"
       ? isDarkTheme() ? DEFAULT_TEXT_COLOR_DARK : DEFAULT_TEXT_COLOR_LIGHT
@@ -5752,6 +6855,17 @@ export class TradingDrawingController {
     const dx = second.x - first.x;
     const dy = second.y - first.y;
     const selected = interactive && drawing.id === this.selectedDrawingId;
+    // Preserve legacy two-anchor extension/channel records. New drafts always
+    // enter the dedicated renderer and acquire the third anchor explicitly.
+    const projection = isFibonacciProjection(drawing.tool) && (draft || !isThreePointFibonacci(drawing.tool) || points.length >= 3)
+      ? renderFibonacciProjection(drawing, points, bounds,
+        price => finiteTradingChartCoordinate(this.getCandleSeries()?.priceToCoordinate(price)),
+        y => finiteTradingChartCoordinate(this.getCandleSeries()?.coordinateToPrice(y)),
+        price => formatTradingFibonacciPrice(price, true), clipTradingDrawingLine, this.drawingBarSpan(drawing)) : null;
+    const fibonacci = drawing.tool === 'fib-retracement' && drawing.source !== 'ai'
+      ? renderFibonacci(drawing, first, second, bounds,
+        price => finiteTradingChartCoordinate(this.getCandleSeries()?.priceToCoordinate(price)),
+        price => formatTradingFibonacciPrice(price, true), opacity) : null;
     const lineAppearance: TradingDrawingStrokeAppearance = {
       opacity,
       width: drawing.lineWidth ?? defaults?.lineWidth,
@@ -5764,7 +6878,17 @@ export class TradingDrawingController {
     const segmentLine = clipTradingDrawingLine(first, second, bounds, "segment") ?? [first, second];
     const rayLine = clipTradingDrawingLine(first, second, bounds, "ray") ?? [first, second];
     const extendedLine = clipTradingDrawingLine(first, second, bounds, "extended") ?? [first, second];
-    const handleEntries = definition.kind === "fib"
+    if (tradingDrawingIsShapedChannel(drawing.tool) && points.length >= 3) {
+      const oppositeStart = this.drawingPointToScreen(drawing, 3, bounds);
+      if (oppositeStart) {
+        pointEntries.push({ index: 3, point: oppositeStart });
+        points.push(oppositeStart);
+      }
+    }
+    if (drawing.tool === 'gann-box' && points.length >= 2) {
+      for (const index of [2,3]) { const point=this.drawingPointToScreen(drawing,index,bounds);if(point)pointEntries.push({index,point}); }
+    }
+    const handleEntries = definition.kind === "fib" || isTradingPitchfork(drawing.tool) || drawing.tool === 'parallel-channel' || tradingDrawingIsShapedChannel(drawing.tool)
       ? pointEntries.filter(({ point }, index, entries) => !entries.slice(0, index).some((entry) => (
         Math.hypot(entry.point.x - point.x, entry.point.y - point.y) < 1
       )))
@@ -5773,16 +6897,76 @@ export class TradingDrawingController {
         : tradingDrawingIsMultiPoint(drawing.tool)
           ? tradingDrawingIsClosedPolyline(drawing) ? pointEntries.slice(0, -1) : pointEntries
           : pointEntries.slice(0, 12);
-    const handles = interactive && (draft || selected)
+    const measurementHandles = drawing.tool === 'info-line' || drawing.tool === 'trend-angle' || drawing.tool === 'regression-trend';
+    // Brush samples form a continuous stroke, not individually editable anchors.
+    const showPointHandles = drawing.tool !== 'brush' && drawing.tool !== 'highlighter' && drawing.tool !== 'price-label' && !isPlainTextDrawing(drawing);
+    let handles = interactive && (draft || selected) && showPointHandles
       ? definition.kind === "fib"
         ? handleEntries.map(({ point, index }) => `<circle class="trading-drawing-handle fibonacci" data-drawing-handle-index="${index}" data-fibonacci-endpoint="${index === 0 ? "100" : "0"}" cx="${point.x}" cy="${point.y}" r="${defaults ? DRAWING_HANDLE_RADIUS : FIBONACCI_HANDLE_RADIUS}" fill="var(--trading-market-panel)" stroke="${defaults ? DRAWING_SELECTION_COLOR : drawing.color ?? "var(--trading-fibonacci-handle-stroke)"}" stroke-width="${defaults ? 1.5 : 2}" vector-effect="non-scaling-stroke" />`).join("")
-        : handleEntries.map(({ point, index }) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" cx="${point.x}" cy="${point.y}" r="${DRAWING_HANDLE_RADIUS}" fill="var(--trading-market-panel)" stroke="${defaults ? DRAWING_SELECTION_COLOR : color}" stroke-width="${defaults ? 1.5 : 2}" vector-effect="non-scaling-stroke" />`).join("")
+        : handleEntries.map(({ point, index }) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" ${measurementHandles ? `data-${drawing.tool}-handle style="stroke:${color}"` : ''} cx="${point.x}" cy="${point.y}" r="${measurementHandles ? 6 : DRAWING_HANDLE_RADIUS}" fill="var(--trading-market-panel)" stroke="${defaults ? DRAWING_SELECTION_COLOR : color}" stroke-width="${defaults && !measurementHandles ? 1.5 : 2}" vector-effect="non-scaling-stroke" />`).join("")
       : "";
+    if ((isManualNote(drawing) || isManualPriceNote(drawing)) && interactive && (draft || selected)) {
+      handles = handleEntries.map(({ point, index }) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" data-note-handle cx="${point.x}" cy="${point.y}" r="6" fill="var(--trading-note-background)" style="stroke:#2962ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join('');
+    }
+    if ((isCallout(drawing) || isComment(drawing)) && interactive && (draft || selected)) {
+      handles = `<circle class="trading-drawing-handle" data-drawing-handle-index="0" data-note-handle cx="${first.x}" cy="${first.y}" r="6" fill="var(--trading-note-background)" style="stroke:#2962ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+    }
+    if (isSignpost(drawing) && interactive && (draft || selected)) {
+      handles = `<rect class="trading-drawing-handle" data-drawing-handle-index="0" data-note-handle x="${first.x - 6}" y="${first.y - 6}" width="12" height="12" rx="3" fill="var(--trading-note-background)" style="stroke:#2962ff" stroke-width="1.5"/>`;
+    }
+    if (isTradingPitchfork(drawing.tool) && interactive && (draft || selected)) {
+      handles = handleEntries.filter(({ index }) => !draft || index < this.draftConfirmedPointCount)
+        .map(({ point, index }) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" data-pitchfork-handle cx="${point.x}" cy="${point.y}" r="6" fill="var(--trading-market-panel)" style="stroke:#2962ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join('');
+    }
+    if (projection && interactive && (draft || selected)) {
+      handles = handleEntries.filter(({ index }) => !draft || index < this.draftConfirmedPointCount || drawing.tool === 'fib-time-zone' || drawing.tool === 'gann-box')
+        .map(({ point, index }) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" data-fibonacci-projection-handle="${index}" cx="${point.x}" cy="${point.y}" r="6" fill="var(--trading-market-panel)" style="stroke:#2962ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join('');
+    }
+    if (isReferencePatternDrawing(drawing.tool) && interactive && (draft || selected)) {
+      handles = handleEntries.filter(({ index }) => !draft || index < this.draftConfirmedPointCount)
+        .map(({ point, index }) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" data-harmonic-handle cx="${point.x}" cy="${point.y}" r="6" fill="var(--trading-market-panel)" style="stroke:${HARMONIC_BLUE}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join('');
+    }
+    if (isElliottWave(drawing.tool) && drawing.source !== 'ai' && interactive && (draft || selected)) {
+      handles = handleEntries.filter(({ index }) => !draft || index < this.draftConfirmedPointCount)
+        .map(({ point, index }) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" data-elliott-handle cx="${point.x}" cy="${point.y}" r="6" fill="var(--trading-market-panel)" style="stroke:${ELLIOTT_HANDLE_COLOR}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join('');
+    }
+    if (isCycleDrawing(drawing.tool) && interactive && (draft || selected)) {
+      handles = handleEntries.filter(({ index }) => !draft || drawing.tool === 'cyclic-lines' || index < this.draftConfirmedPointCount)
+        .map(({ point, index }) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" data-cycle-handle cx="${point.x}" cy="${point.y}" r="6" fill="var(--trading-market-panel)" style="stroke:#2962ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join('');
+    }
+    if (drawing.tool === 'rotated-rectangle' && interactive && (draft || selected)) {
+      const entries = draft && this.draftConfirmedPointCount < 2 ? [first, second]
+        : rotatedRectangleGeometry(first, second, points[2]).handles;
+      handles = entries.map((point, index) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" data-rotated-rectangle-handle cx="${point.x}" cy="${point.y}" r="6" fill="var(--trading-market-panel)" style="stroke:#2962ff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join('');
+    }
     let body = "";
-    const extra = renderExtraDrawingGeometry({ drawing, points, bounds, color, candles: this.getCandles(), project: point => this.pointToScreen(point) });
+    const cycle = renderCycleDrawing(drawing, points, bounds, draft || selected);
+    const extra = cycle ? null : renderExtraDrawingGeometry({ drawing, points, bounds, color, candles: this.getCandles(), project: point => this.pointToScreen(point) });
     const extraAnnotation = renderExtraAnnotation(drawing, first, color);
+    const regressionFit = drawing.tool === 'regression-trend' && !draft
+      ? calculateRegressionTrend(this.getCandles(), drawing.points, drawing.regression) : null;
+    const regressionGeometry = regressionFit ? renderRegressionTrend(regressionFit, drawing, p => this.pointToScreen(p), bounds.width) : null;
+    // Old two-anchor records retain their original appearance. New forks store
+    // the three actual swing points, never an inferred pixel-width handle.
+    const fork = isTradingPitchfork(drawing.tool) && (draft || points.length >= 3)
+      ? renderTradingPitchfork(drawing.tool, points, bounds, drawing, clipTradingDrawingLine) : null;
+    const harmonic = isReferencePatternDrawing(drawing.tool)
+      ? renderReferencePattern(drawing, points, draft ? this.draftConfirmedPointCount : drawing.points.length, bounds, translateDrawingText) : null;
+    const elliott = isElliottWave(drawing.tool) && drawing.source !== 'ai'
+      ? renderElliottWave(drawing, points, { draft, selected, confirmedPointCount: draft ? this.draftConfirmedPointCount : drawing.points.length }) : null;
+    if (regressionGeometry && interactive && selected && regressionFit?.options.showUpper) {
+      handles += regressionGeometry.upper.map((point, i) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${drawing.points[0].time <= drawing.points[1].time ? i : 1 - i}" cx="${point.x}" cy="${point.y}" r="3.5" fill="var(--trading-market-panel)" style="stroke:${color}" stroke-width="1.5"/>`).join('');
+    }
 
-    if (extra) body = `<g opacity="${opacity}">${extra.body}</g>`;
+    if (drawing.tool === 'regression-trend') body = draft
+      ? svgLine(first, second, '#787b86', { width: 1, opacity: 1, style: 'solid' })
+      : regressionGeometry?.body ?? '';
+    else if (cycle) body = cycle.body;
+    else if (projection) body = projection.body;
+    else if (fork) body = fork.body;
+    else if (harmonic) body = harmonic.body;
+    else if (elliott) body = elliott.body;
+    else if (extra) body = `<g opacity="${opacity}">${extra.body}</g>`;
     else if (extraAnnotation !== null) body = extraAnnotation;
     else if (definition.kind === "line") body = svgLine(segmentLine[0], segmentLine[1], color, lineAppearance);
     else if (definition.kind === "ray") body = svgLine(rayLine[0], rayLine[1], color, lineAppearance);
@@ -5794,9 +6978,17 @@ export class TradingDrawingController {
       body = svgLine({ x: 0, y: first.y }, { x: bounds.width, y: first.y }, color, { ...lineAppearance, dashed: true })
         + svgLine({ x: first.x, y: 0 }, { x: first.x, y: bounds.height }, color, { ...lineAppearance, dashed: true });
     } else if (definition.kind === "arrow") body = svgLine(segmentLine[0], segmentLine[1], color, { ...lineAppearance, arrow: true });
-    else if (definition.kind === "channel") body = this.renderChannel(first, second, color, lineAppearance);
+    else if (tradingDrawingIsShapedChannel(drawing.tool)) body = points.length < 3
+      ? svgLine(first, second, color, lineAppearance)
+      : this.renderShapedChannel(drawing.tool === 'flat-top-bottom'
+        ? tradingDrawingFlatTopBottomPoints(first, second, points[2])
+        : tradingDrawingDisjointChannelPoints(first, second, points[2], points[3]), color, lineAppearance);
+    else if (definition.kind === "channel") body = drawing.tool === 'parallel-channel' && draft && points.length < 3
+      ? svgLine(first, second, color, lineAppearance)
+      : this.renderChannel(first, second, color, lineAppearance, drawing.tool === 'parallel-channel' ? points[2] : undefined);
     else if (definition.kind === "pitchfork") body = this.renderPitchfork(first, second, color, lineAppearance);
     else if (definition.kind === "gann") body = this.renderGann(first, second, color, lineAppearance, drawing.tool);
+    else if (fibonacci) body = fibonacci.body;
     else if (definition.kind === "fib") body = this.renderFib(
       first,
       second,
@@ -5816,7 +7008,9 @@ export class TradingDrawingController {
         + (drawing.text && drawing.source === 'ai'
           ? renderTradingDrawingRegionLabel(first, second, drawing.text, color, bounds, drawing.fontSize ?? AI_NOTE_FONT_SIZE)
           : "");
-    } else if (definition.kind === "rotated-rectangle") body = this.renderRotatedRectangle(first, second, color, lineAppearance);
+    } else if (definition.kind === "rotated-rectangle") body = draft && this.draftConfirmedPointCount < 2
+      ? svgLine(first, second, color, { ...lineAppearance, width: 1 })
+      : this.renderRotatedRectangle(first, second, color, lineAppearance, points[2]);
     else if (definition.kind === "ellipse") {
       if (definition.id === "circle") {
         const circle = tradingDrawingCircleGeometry(first, second);
@@ -5853,37 +7047,98 @@ export class TradingDrawingController {
     else if (drawing.tool === "arrow-marker") {
       body = `<polygon class="trading-drawing-arrow-marker" points="${pointsAttribute(tradingDrawingArrowMarkerPoints(first, second))}" fill="${color}" stroke="${color}" ${svgStrokeAttributes(lineAppearance)} stroke-linejoin="round" opacity="${opacity}" />`;
     }
+    else if ((drawing.tool === 'arrow-up' || drawing.tool === 'arrow-down') && drawing.source !== 'ai') {
+      body = `<polygon class="trading-drawing-directional-arrow" points="${pointsAttribute(tradingDrawingDirectionalArrowPoints(first, drawing.tool))}" fill="${color}" stroke="none" />`;
+    }
     else if (definition.kind === "marker") body = this.renderMarker(first, definition, color);
     else if (definition.kind === "pattern") body = this.renderPattern(points, definition, color, lineAppearance);
     else if (definition.kind === "position") body = this.renderPosition(first, second, drawing.tool === "long-position", color, Boolean(drawing.color), lineAppearance);
     else if (definition.kind === "range") body = this.renderRange(first, second, definition, color, lineAppearance);
     else if (definition.kind === "projection") body = this.renderProjection(first, second, definition, color, lineAppearance);
+    else if (drawing.tool === 'info-line') body = svgLine(segmentLine[0], segmentLine[1], color, lineAppearance);
+    else if (drawing.tool === 'trend-angle') body = svgLine(segmentLine[0], segmentLine[1], color, lineAppearance)
+      + renderTradingTrendAngleAnnotation(first, second, color, opacity);
     else if (definition.kind === "measure") body = this.renderMeasurement(drawing, first, second, color, lineAppearance);
+
+    const infoLineCard = drawing.tool === 'info-line' && clipTradingDrawingLine(first, second, bounds, 'segment')
+      ? this.renderInfoLineCard(drawing, first, second, bounds, opacity) : '';
 
     const hitTargets = !interactive || draft
       ? ""
+      : drawing.tool === 'regression-trend' ? regressionGeometry?.hit ?? ''
+      : cycle ? cycle.hit
+      : projection ? projection.hit
+      : fibonacci ? fibonacci.hit
+      : fork ? fork.hit
+      : harmonic ? harmonic.hit
+      : elliott ? elliott.hit
       : extra ? extra.hit
+      : drawing.tool === 'price-label' && drawing.source !== 'ai'
+        ? (() => { const box = priceLabelGeometry(drawing, first); return `<rect class="trading-drawing-hit-target area" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}"/>`; })()
+      : drawing.tool === 'flag' && drawing.source !== 'ai'
+        ? `<rect class="trading-drawing-hit-target area" x="${first.x - 4}" y="${first.y - 34}" width="34" height="38"/>`
       : definition.kind === "text"
         ? this.renderTextHitTargets(points, drawing, bounds)
         : this.renderDrawingHitTargets(definition, points, bounds);
-    const addAnchor = interactive && !draft && this.userDrawingEnabled && tradingDrawingSupportsSettings(drawing.tool)
-      && drawing.source !== 'ai' && !drawing.locked && !drawing.text?.trim()
-      ? tradingDrawingLabelGeometry({ ...drawing, text: '＋ 添加文字', fontSize: 12, textAlign: 'center', textVerticalAlign: 'middle' }, points, bounds, { width: 84, height: 22 })
-        ?? { x: bounds.width / 2, y: bounds.height / 2, angle: 0 } : null;
+    return this.renderDrawingFrame(drawing, points, bounds, draft, interactive, body, hitTargets, handles, infoLineCard, color);
+  }
+
+  // All manual geometry, including dedicated range/volume/prediction renderers,
+  // shares the same text actions, editing layer and handle visibility policy.
+  private renderDrawingFrame(drawing: TradingDrawingModel, points: ScreenPoint[], bounds: { width: number; height: number },
+    draft: boolean, interactive: boolean, body: string, hitTargets: string, handles: string, extra = '',
+    color = drawing.color ?? manualDrawingDefaults(drawing.tool).color) {
+    if (isVolumeDrawing(drawing.tool)) points = this.drawingLabelPoints(drawing, bounds);
+    const selected = interactive && drawing.id === this.selectedDrawingId;
+    const canAdd = interactive && !draft && this.userDrawingEnabled && tradingDrawingSupportsSettings(drawing.tool)
+      && drawing.source !== 'ai' && !drawing.locked && !drawing.text?.trim();
+    const addAnchor = canAdd
+      ? tradingDrawingLabelGeometry({ ...drawing, text: '＋ 添加文字', fontSize: 12, textAlign: 'center', textVerticalAlign: 'top' }, points, bounds, { width: 84, height: 22 })
+        : null;
     const addText = addAnchor && bounds.width >= 96
       && addAnchor.y >= 0 && addAnchor.y <= bounds.height
       ? `<g class="trading-horizontal-line-add-text" data-horizontal-line-add-text="${escapeHtml(drawing.id)}" role="button" tabindex="0" aria-label="添加文字" aria-haspopup="dialog" style="color:${color}" transform="translate(${addAnchor.x} ${addAnchor.y}) rotate(${addAnchor.angle})">`
+        + `<rect x="-42" y="-22.5" width="84" height="29.5" fill="transparent"/>`
+        + `<text x="0" y="-11.5" dominant-baseline="central" text-anchor="middle" font-size="12" font-weight="400" fill="currentColor">＋ 添加文字</text></g>`
+      : '';
+    const centerAnchor = canAdd
+      ? tradingDrawingLabelGeometry({ ...drawing, text: '＋ 添加文字', fontSize: 12, textAlign: 'center', textVerticalAlign: 'middle' }, points, bounds, { width: 84, height: 22 }) : null;
+    const centerAddText = centerAnchor && bounds.width >= 96
+      ? `<g class="trading-horizontal-line-add-text" data-horizontal-line-add-text="${escapeHtml(drawing.id)}" data-drawing-text-position="center" role="button" tabindex="0" aria-label="添加文字" aria-haspopup="dialog" style="color:${color}" transform="translate(${centerAnchor.x} ${centerAnchor.y}) rotate(${centerAnchor.angle})">`
         + `<rect x="-42" y="-11" width="84" height="22" fill="transparent"/>`
         + `<text x="0" y="0" dominant-baseline="central" text-anchor="middle" font-size="12" font-weight="400" fill="currentColor">＋ 添加文字</text></g>`
       : '';
     const authoredText = drawing.text?.trim() && drawing.tool !== "image" ? " data-i18n-skip" : "";
-    // Label hit targets sit above geometry and handles for every manual tool.
-    const lineText = tradingDrawingSupportsSettings(drawing.tool) && drawing.source !== 'ai' && this.horizontalLineTextEdit?.drawing !== drawing
-      ? renderTradingDrawingLabel(drawing, tradingDrawingLabelGeometry(drawing, points, bounds), color,
+    // Labels stay above geometry, but visible handles must win overlapping
+    // label/add-text hit areas so grabbing an endpoint always starts a drag.
+    const label = tradingDrawingSupportsSettings(drawing.tool) && drawing.source !== 'ai'
+      ? tradingDrawingLabelGeometry(drawing, points, bounds) : null;
+    const lineText = this.horizontalLineTextEdit?.drawing !== drawing
+      ? renderTradingDrawingLabel(drawing, label, color,
         interactive && !draft && this.userDrawingEnabled && !drawing.locked
         && tradingDrawingToolDefinition(this.activeTool)?.kind === 'cursor') : '';
-    const geometry = interactive && this.userDrawingEnabled && drawing.source !== 'ai' ? `<g class="trading-drawing-geometry">${body}</g>` : body;
-    return `<g data-drawing-id="${escapeHtml(drawing.id)}" data-drawing-source="${drawing.source ?? "manual"}" data-selected="${selected}" data-locked="${Boolean(drawing.locked)}"${authoredText}>${geometry}${hitTargets}${handles}${lineText}${addText}</g>`;
+    const maskId = `${this.labelMaskPrefix}-${Array.from(drawing.id, character => character.codePointAt(0)!.toString(16)).join('-')}`;
+    const hideLineNodes = drawing.source !== 'ai' && tradingDrawingHidesLineNodes(drawing.tool);
+    const mask = label?.vertical === 'middle' && hideLineNodes
+      ? renderTradingDrawingLabelMask(maskId, label, bounds) : '';
+    const geometryClass = interactive && this.userDrawingEnabled && drawing.source !== 'ai' ? ' class="trading-drawing-geometry"' : '';
+    const geometry = geometryClass || mask ? `<g${geometryClass}${mask ? ` mask="url(#${maskId})"` : ''}>${body}</g>` : body;
+    return `<g data-drawing-id="${escapeHtml(drawing.id)}" data-drawing-source="${drawing.source ?? "manual"}" data-selected="${selected}" data-locked="${Boolean(drawing.locked)}"${hideLineNodes ? ' data-hide-line-nodes="true"' : ''}${authoredText}>${mask}${geometry}${hitTargets}${extra}${lineText}${addText}${centerAddText}${handles}</g>`;
+  }
+
+  private drawingLabelPoints(drawing: TradingDrawingModel, bounds: { width: number; height: number }) {
+    if (drawing.tool === 'anchored-vwap' && drawing.points.length) {
+      const points = calculateAnchoredVwap(this.getCandles(), drawing.points[0].time, drawing.vwap)
+        .map(point => this.pointToScreen(point)).filter((point): point is ScreenPoint => Boolean(point));
+      if (points.length) return points;
+    }
+    if (isVolumeProfile(drawing.tool)) {
+      const profile = this.volumeProfileForDrawing(drawing);
+      if (profile) return [{ time: profile.startTime, price: profile.high }, { time: profile.endTime, price: profile.low }]
+        .map(point => this.pointToScreen(point)).filter((point): point is ScreenPoint => Boolean(point));
+    }
+    return drawing.points.map((_point, index) => this.drawingPointToScreen(drawing, index, bounds))
+      .filter((point): point is ScreenPoint => Boolean(point));
   }
 
   private renderDrawingHitTargets(
@@ -5893,9 +7148,13 @@ export class TradingDrawingController {
   ) {
     const first = points[0];
     const last = points[points.length - 1] ?? first;
-    const second = definition.kind === "triangle" ? points[1] ?? last : last;
-    const third = definition.kind === "triangle" ? points[2] : undefined;
+    const hasThirdPoint = definition.kind === "triangle" || definition.id === 'parallel-channel' || definition.id === 'rotated-rectangle' || tradingDrawingIsShapedChannel(definition.id);
+    const second = hasThirdPoint ? points[1] ?? last : last;
+    const third = hasThirdPoint ? points[2] : undefined;
     if (!first) return "";
+    if (definition.id === 'disjoint-channel') return renderTradingDrawingClosedHitArea({
+      type: 'polygon', points: tradingDrawingDisjointChannelPoints(first, second, third, points[3]),
+    });
     const closedArea = tradingDrawingClosedHitArea(definition, first, second, third);
     if (closedArea) return renderTradingDrawingClosedHitArea(closedArea);
     let segments: Array<[ScreenPoint, ScreenPoint]> = [];
@@ -5945,10 +7204,15 @@ export class TradingDrawingController {
     return segments.map(([start, end]) => `<line class="trading-drawing-hit-target" x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" />`).join("");
   }
 
-  private renderChannel(first: ScreenPoint, second: ScreenPoint, color: string, appearance: TradingDrawingStrokeAppearance) {
-    const offset = perpendicularOffset(first, second, Math.max(20, Math.min(Math.hypot(second.x - first.x, second.y - first.y) * 0.2, 72)));
-    const third = { x: first.x + offset.x, y: first.y + offset.y };
-    const fourth = { x: second.x + offset.x, y: second.y + offset.y };
+  private renderShapedChannel(corners: ScreenPoint[], color: string, appearance: TradingDrawingStrokeAppearance) {
+    return `<polygon points="${pointsAttribute(corners)}" fill="${color}" fill-opacity="${appearance.manualDefaults?.fillOpacity ?? 0.2}" />`
+      + svgLine(corners[0], corners[1], color, appearance)
+      + svgLine(corners[3], corners[2], color, appearance);
+  }
+
+  private renderChannel(first: ScreenPoint, second: ScreenPoint, color: string, appearance: TradingDrawingStrokeAppearance, widthPoint?: ScreenPoint) {
+    const [, , fourth, third] = tradingDrawingChannelPoints(first, second, widthPoint);
+    if (Math.hypot(fourth.x - second.x, fourth.y - second.y) < 0.01) return svgLine(first, second, color, appearance);
     return `<polygon points="${pointsAttribute([first, second, fourth, third])}" fill="${color}" fill-opacity="${appearance.manualDefaults?.fillOpacity ?? 0.055}" />`
       + svgLine(first, second, color, appearance)
       + svgLine(third, fourth, color, appearance)
@@ -6062,15 +7326,9 @@ export class TradingDrawingController {
     return [0.236, 0.382, 0.5, 0.618, 1].map((ratio) => `<circle cx="${first.x}" cy="${first.y}" r="${radius * ratio}" fill="none" stroke="${appearance.manualDefaults && !appearance.customColor ? manualFibLevelColor(ratio) : color}" ${svgStrokeAttributes(appearance, 1.2)} opacity="${appearance.manualDefaults ? appearance.opacity : appearance.opacity * (0.45 + ratio * 0.45)}" />`).join("");
   }
 
-  private renderRotatedRectangle(first: ScreenPoint, second: ScreenPoint, color: string, appearance: TradingDrawingStrokeAppearance) {
-    const offset = perpendicularOffset(first, second, Math.max(16, Math.min(Math.hypot(second.x - first.x, second.y - first.y) * 0.18, 50)));
-    const points = [
-      { x: first.x - offset.x, y: first.y - offset.y },
-      { x: second.x - offset.x, y: second.y - offset.y },
-      { x: second.x + offset.x, y: second.y + offset.y },
-      { x: first.x + offset.x, y: first.y + offset.y },
-    ];
-    return `<polygon points="${pointsAttribute(points)}" fill="${color}" fill-opacity="${appearance.manualDefaults?.fillOpacity ?? 0.06}" stroke="${color}" ${svgStrokeAttributes(appearance, 1.6)} opacity="${appearance.opacity}" />`;
+  private renderRotatedRectangle(first: ScreenPoint, second: ScreenPoint, color: string, appearance: TradingDrawingStrokeAppearance, widthPoint?: ScreenPoint) {
+    const points = rotatedRectangleGeometry(first, second, widthPoint).corners;
+    return `<polygon class="trading-rotated-rectangle" points="${pointsAttribute(points)}" fill="${color}" fill-opacity="${appearance.manualDefaults?.fillOpacity ?? 0.06}" stroke="${color}" ${svgStrokeAttributes(appearance, 1.6)} opacity="${appearance.opacity}" />`;
   }
 
   private renderCurve(first: ScreenPoint, second: ScreenPoint, color: string, appearance: TradingDrawingStrokeAppearance, double: boolean) {
@@ -6079,6 +7337,74 @@ export class TradingDrawingController {
     return double
       ? path + `<path d="M ${first.x} ${first.y} Q ${(first.x + second.x) / 2} ${Math.max(first.y, second.y) + Math.abs(second.x - first.x) * 0.28} ${second.x} ${second.y}" fill="none" stroke="${color}" ${svgStrokeAttributes(appearance, 1.4)} opacity="${appearance.manualDefaults ? appearance.opacity : appearance.opacity * 0.65}" />`
       : path;
+  }
+
+  private renderXPostDrawing(drawing: TradingDrawingModel, bounds: { width: number; height: number }, interactive: boolean) {
+    const point = this.pointToScreen(drawing.points[0]);
+    if (!point) return '';
+    const post = readTradingXPost(drawing.text ?? ''), url = normalizeXPostUrl(drawing.text);
+    const width = Math.min(416, bounds.width - 16), x = Math.max(4, Math.min(point.x - width / 2, bounds.width - width - 4)), y = point.y;
+    const bodyText = post?.body ?? translateAppText('帖子内容暂不可用，双击重新加载');
+    const layout = tradingDrawingTextLayout(bodyText, 16, width - 40);
+    const lines = layout.lines.slice(0, 14), height = 150 + lines.length * 21;
+    const avatar = post?.avatarUrl && /^https:\/\/pbs\.twimg\.com\/profile_images\//.test(post.avatarUrl) ? post.avatarUrl : '';
+    const avatarClip = `x-post-avatar-${drawing.id.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+    const date = post?.createdAt && Number.isFinite(Date.parse(post.createdAt))
+      ? new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false }).format(new Date(post.createdAt)).replaceAll('/', '-') : '';
+    const body = `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="10" fill="var(--trading-note-background)" stroke="#e5e5e5" stroke-width="1.5"/>`
+      + `<circle cx="${x + 41}" cy="${y + 37}" r="21" fill="#16181c"/><text x="${x + 41}" y="${y + 43}" text-anchor="middle" fill="#fff" font-size="20">𝕏</text>`
+      + (avatar ? `<svg x="${x + 20}" y="${y + 16}" width="42" height="42"><defs><clipPath id="${avatarClip}"><circle cx="21" cy="21" r="21"/></clipPath></defs><image href="${escapeHtml(avatar)}" width="42" height="42" clip-path="url(#${avatarClip})"/></svg>` : '')
+      + `<text x="${x + 72}" y="${y + 32}" fill="var(--trading-note-text)" font-size="16" font-weight="700">${escapeHtml(post?.authorName ?? url?.handle ?? 'X')}</text>`
+      + `<text x="${x + 72}" y="${y + 52}" fill="#888" font-size="14">@${escapeHtml(post?.handle ?? url?.handle ?? '')}</text>`
+      + `<text fill="var(--trading-note-text)" font-size="16">${lines.map((line, index) => `<tspan x="${x + 20}" y="${y + 82 + index * 21}">${escapeHtml(line)}${index === 13 && layout.lines.length > 14 ? '…' : ''}</tspan>`).join('')}</text>`
+      + `<line x1="${x + 20}" y1="${y + height - 38}" x2="${x + width - 20}" y2="${y + height - 38}" stroke="#e5e5e5"/><text x="${x + 20}" y="${y + height - 15}" fill="#888" font-size="14">${escapeHtml(date)}</text>`;
+    const link = url ? `<g data-x-post-link="${escapeHtml(url.url)}" role="link" tabindex="0" aria-label="${translateAppText('链接到帖子')}" class="trading-x-post-link"><rect x="${x + 16}" y="${y + height - 76}" width="130" height="30" fill="transparent"/><text x="${x + 20}" y="${y + height - 55}" fill="#2962ff" font-size="16">${translateAppText('链接到帖子')}</text></g>` : '';
+    const hit = interactive ? `<rect class="trading-drawing-hit-target area" x="${x}" y="${y}" width="${width}" height="${height}"/>` : '';
+    const handles = interactive && this.selectedDrawingId === drawing.id ? `<circle class="trading-drawing-handle" data-drawing-handle-index="0" data-note-handle cx="${point.x}" cy="${point.y}" r="6" fill="var(--trading-note-background)" style="stroke:#2962ff" stroke-width="1.5"/>` : '';
+    return this.renderDrawingFrame(drawing, [point], bounds, false, interactive, body, hit, handles, link);
+  }
+
+  private renderImageDrawing(drawing: TradingDrawingModel, bounds: { width: number; height: number }, interactive: boolean) {
+    const first = this.pointToScreen(drawing.points[0]);
+    if (!first) return '';
+    if (drawing.points.length === 1) {
+      const second = this.screenToDrawingPoint({ x: first.x + 240, y: first.y + 160 }, false);
+      if (second) drawing.points.push(second);
+    }
+    const second = this.pointToScreen(drawing.points[1]) ?? { x: first.x + 240, y: first.y + 160 };
+    const x = Math.min(first.x, second.x), y = Math.min(first.y, second.y);
+    const width = Math.max(16, Math.abs(second.x - first.x)), height = Math.max(16, Math.abs(second.y - first.y));
+    const url = drawingImageUrl(drawing.text ?? '');
+    const body = url ? `<image href="${escapeHtml(url)}" x="${x}" y="${y}" width="${width}" height="${height}" opacity="${drawing.imageOpacity ?? 1}" preserveAspectRatio="none"/>`
+      : `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="var(--trading-note-background)" stroke="#d9d9d9"/><text x="${x + 12}" y="${y + 24}" fill="var(--trading-note-text)">${translateAppText('图片不可用')}</text>`;
+    const hit = interactive ? `<rect class="trading-drawing-hit-target area" x="${x}" y="${y}" width="${width}" height="${height}"/>` : '';
+    const handles = interactive && this.selectedDrawingId === drawing.id ? [0,1,2,3].map(index => {
+      const point = this.drawingPointToScreen(drawing, index, bounds);
+      return point ? `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" data-note-handle cx="${point.x}" cy="${point.y}" r="6" fill="var(--trading-note-background)" style="stroke:#2962ff" stroke-width="1.5"/>` : '';
+    }).join('') : '';
+    return this.renderDrawingFrame(drawing, [first, second], bounds, false, interactive, body, hit, handles);
+  }
+
+  private renderAnnotationTable(drawing: TradingDrawingModel, bounds: { width: number; height: number }, draft: boolean, interactive: boolean) {
+    const points = drawing.points.map((_point, index) => this.drawingPointToScreen(drawing, index, bounds)).filter((point): point is ScreenPoint => Boolean(point));
+    if (!points.length) return '';
+    const box = annotationTableGeometry(drawing, points), width = box.width / box.columns, height = box.height / box.rows.length;
+    const fontSize = drawing.fontSize ?? PLAIN_TEXT_FONT_SIZE;
+    const edit = this.horizontalLineTextEdit?.drawing === drawing ? this.horizontalLineTextEdit.cell : undefined;
+    let body = '', hit = '';
+    box.rows.forEach((row, r) => row.forEach((value, c) => {
+      const x = box.x + c * width, y = box.y + r * height;
+      body += `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${drawing.textBackgroundColor ?? 'var(--trading-note-background)'}" stroke="#d9d9d9" stroke-width="1"/>`;
+      if (edit?.row !== r || edit.column !== c) {
+        body += `<svg x="${x + 10}" y="${y}" width="${Math.max(0, width - 20)}" height="${height}" overflow="hidden"><text x="0" y="${height / 2}" dominant-baseline="central" style="font-family:${escapeHtml(PLAIN_TEXT_FONT_FAMILY)}" fill="${drawing.textColor ?? 'var(--trading-note-text)'}" font-size="${fontSize}" font-weight="${drawing.bold ? 700 : 400}">${escapeHtml(value)}</text></svg>`;
+      }
+      if (interactive) hit += `<rect class="trading-drawing-hit-target area trading-inline-annotation-hit" data-inline-annotation="${escapeHtml(drawing.id)}" data-table-row="${r}" data-table-column="${c}" role="button" tabindex="0" aria-label="${translateAppText('表格')} ${r + 1}, ${c + 1}" x="${x}" y="${y}" width="${width}" height="${height}"/>`;
+    }));
+    const handles = interactive && (draft || this.selectedDrawingId === drawing.id) ? [0, 1, 2, 3].map(index => {
+      const point = this.drawingPointToScreen(drawing, index, bounds);
+      return point ? `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" data-note-handle cx="${point.x}" cy="${point.y}" r="6" fill="var(--trading-note-background)" style="stroke:#2962ff" stroke-width="1.5"/>` : '';
+    }).join('') : '';
+    return this.renderDrawingFrame(drawing, points, bounds, draft, interactive, body, hit, handles);
   }
 
   private renderText(
@@ -6091,6 +7417,63 @@ export class TradingDrawingController {
     labelPoint: ScreenPoint = point,
     resolvedTextGeometry?: ReturnType<typeof tradingDrawingNoteBoxGeometry>,
   ) {
+    if (isSignpost(drawing)) {
+      const edit = this.horizontalLineTextEdit?.drawing === drawing ? this.horizontalLineTextEdit : null;
+      const value = (edit ? edit.input.value : text) || translateAppText('添加文字');
+      const box = annotationTextGeometry(drawing, [point], value);
+      const candles = this.getCandles();
+      const index = tradingDrawingLogicalIndexAtTime(candles, drawing.points[0].time);
+      const candle = index === null ? undefined : candles[Math.max(0, Math.min(candles.length - 1, Math.round(index)))];
+      const price = candle ? drawing.points[0].price > candle.high ? candle.high : candle.low : drawing.points[0].price;
+      const anchor = this.pointToScreen({ time: drawing.points[0].time, price });
+      const line = anchor ? svgLine({ x: point.x, y: anchor.y }, { x: point.x, y: anchor.y < box.y ? box.y : box.y + box.height }, drawing.color ?? '#787878', { ...appearance, width: drawing.lineWidth ?? 1 }) : '';
+      return line + `<rect class="trading-signpost-card" x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" rx="7" fill="${drawing.textBackgroundColor ?? 'var(--trading-note-background)'}" stroke="#e0e0e0" stroke-width="1.5"/>`
+        + (edit ? '' : `<text style="font-family:${escapeHtml(PLAIN_TEXT_FONT_FAMILY)}" fill="${drawing.textColor ?? 'var(--trading-note-text)'}" font-size="${box.fontSize}" font-weight="${drawing.bold ? 700 : 400}" opacity="${text ? 1 : .5}">${box.lines.map((line, i) => `<tspan x="${box.x + box.padding}" y="${box.y + box.baseline + i * box.lineHeight}">${escapeHtml(line)}</tspan>`).join('')}</text>`);
+    }
+    if (isCallout(drawing) || isComment(drawing)) {
+      const edit = this.horizontalLineTextEdit?.drawing === drawing ? this.horizontalLineTextEdit : null;
+      const value = (edit ? edit.input.value : text) || translateAppText('添加文字');
+      const geometry = annotationTextGeometry(drawing, [point, labelPoint], value);
+      const { x, y, width, height, padding, baseline, lineHeight, lines, fontSize } = geometry;
+      const comment = isComment(drawing), color = drawing.color ?? (comment ? PLAIN_TEXT_COLOR : '#0097a7');
+      const path = comment
+        ? `M ${x} ${y + height} V ${y + height / 2} Q ${x} ${y} ${x + height / 2} ${y} H ${x + width - height / 2} A ${height / 2} ${height / 2} 0 0 1 ${x + width - height / 2} ${y + height} Z`
+        : calloutPath(geometry, point);
+      const bubble = `<path class="${comment ? 'trading-comment-bubble' : 'trading-callout-bubble'}" d="${path}" fill="${drawing.textBackgroundColor ?? color}" fill-opacity="${drawing.textBackgroundColor || comment ? 1 : .7}" stroke="${color}" stroke-width="${comment ? 0 : drawing.lineWidth ?? 2}" stroke-linejoin="round"/>`;
+      return bubble + (edit ? '' : `<text style="font-family:${escapeHtml(PLAIN_TEXT_FONT_FAMILY)}" fill="${drawing.textColor ?? '#ffffff'}" font-size="${fontSize}" font-weight="${drawing.bold ? 700 : 400}" opacity="${text ? 1 : .5}">${lines.map((line, i) => `<tspan x="${x + padding}" y="${y + baseline + i * lineHeight}">${escapeHtml(line)}</tspan>`).join('')}</text>`);
+    }
+    if (isPinNote(drawing)) {
+      const pinColor = drawing.color ?? PLAIN_TEXT_COLOR;
+      const icon = `<g class="trading-pin-note-icon"><path d="M ${point.x} ${point.y} C ${point.x - 5} ${point.y - 7} ${point.x - 16} ${point.y - 17} ${point.x - 16} ${point.y - 25} A 16 16 0 1 1 ${point.x + 16} ${point.y - 25} C ${point.x + 16} ${point.y - 17} ${point.x + 5} ${point.y - 7} ${point.x} ${point.y} Z" fill="${pinColor}"/><circle cx="${point.x}" cy="${point.y - 25}" r="6.5" fill="#fff"/></g>`;
+      if (this.openPinNoteId !== drawing.id && this.pendingTextDrawingId !== drawing.id) return icon;
+      const edit = this.horizontalLineTextEdit?.drawing === drawing ? this.horizontalLineTextEdit : null;
+      const value = (edit ? edit.input.value : text) || translateAppText('添加文字');
+      const geometry = annotationTextGeometry(drawing, [point], value);
+      const width = Math.min(geometry.width, bounds.width);
+      const x = Math.max(0, Math.min(geometry.x, bounds.width - width));
+      const y = Math.max(0, geometry.y), bottom = y + geometry.height;
+      const tail = Math.max(x + 12, Math.min(point.x, x + width - 12));
+      const bubble = `<path class="trading-pin-note-bubble" d="M ${x + 5} ${y} H ${x + width - 5} Q ${x + width} ${y} ${x + width} ${y + 5} V ${bottom - 5} Q ${x + width} ${bottom} ${x + width - 5} ${bottom} H ${tail + 9} L ${tail} ${bottom + 10} L ${tail - 9} ${bottom} H ${x + 5} Q ${x} ${bottom} ${x} ${bottom - 5} V ${y + 5} Q ${x} ${y} ${x + 5} ${y} Z" fill="${drawing.textBackgroundColor ?? 'var(--trading-note-background)'}"/>`;
+      return icon + bubble + (edit ? '' : `<text style="font-family:${escapeHtml(PLAIN_TEXT_FONT_FAMILY)}" fill="${drawing.textColor ?? 'var(--trading-note-text)'}" font-size="${geometry.fontSize}" font-weight="${drawing.bold ? 700 : 400}" opacity="${text ? 1 : .5}">${geometry.lines.map((line, index) => `<tspan x="${x + geometry.padding}" y="${y + geometry.baseline + index * geometry.lineHeight}">${escapeHtml(line)}</tspan>`).join('')}</text>`);
+    }
+    if (isInlineAnnotation(drawing) || isManualPriceNote(drawing)) {
+      const note = isManualNote(drawing), price = isManualPriceNote(drawing);
+      const value = price ? annotationPrice(drawing.points[0].price) : text || translateAppText('添加文字');
+      const geometry = annotationTextGeometry(drawing, [point, labelPoint], value);
+      const { x, y, width, height, fontSize, lineHeight, lines, baseline, padding } = geometry;
+      const connector = note || price ? svgLine(point, labelPoint, drawing.color ?? (note ? '#787878' : PLAIN_TEXT_COLOR), {
+        ...appearance, width: drawing.lineWidth ?? (note ? 1 : 1.5),
+      }) : '';
+      if (this.horizontalLineTextEdit?.drawing === drawing) return connector;
+      const selected = drawing.id === this.selectedDrawingId;
+      const background = note ? drawing.textBackgroundColor ?? 'var(--trading-note-background)'
+        : price ? drawing.textBackgroundColor ?? color : drawing.textBackgroundColor ?? 'transparent';
+      const textColor = note ? drawing.textColor ?? 'var(--trading-note-text)' : price ? drawing.textColor ?? '#ffffff' : color;
+      const frame = `<rect class="${note ? 'trading-manual-note-card' : price ? 'trading-manual-price-card' : 'trading-plain-text-frame'}" x="${x}" y="${y}" width="${width}" height="${height}" rx="${note ? 4 : price ? 7 : 0}" fill="${background}" stroke="${!note && !price && selected ? PLAIN_TEXT_COLOR : 'none'}" stroke-width="1.5"/>`;
+      const content = `<text class="trading-inline-annotation-text" style="font-family:${escapeHtml(PLAIN_TEXT_FONT_FAMILY)}" fill="${textColor}" font-size="${fontSize}" font-weight="${drawing.bold ?? price ? 700 : 400}" font-style="${drawing.italic ? 'italic' : 'normal'}" opacity="${!text && !price ? .5 : 1}">`
+        + lines.map((line, i) => `<tspan x="${x + padding}" y="${y + baseline + i * lineHeight}">${escapeHtml(line)}</tspan>`).join('') + '</text>';
+      return connector + frame + content;
+    }
     if (!text) return "";
     const toolId = drawing.tool;
     const fontSize = drawing.fontSize ?? DEFAULT_TEXT_FONT_SIZE;
@@ -6156,6 +7539,21 @@ export class TradingDrawingController {
   ) {
     const point = points[0];
     if (!point) return "";
+    if (isPinNote(drawing)) {
+      const icon = `<rect class="trading-drawing-hit-target area trading-inline-annotation-hit" data-inline-annotation="${escapeHtml(drawing.id)}" role="button" tabindex="0" aria-label="${translateAppText('置顶')}" aria-expanded="${this.openPinNoteId === drawing.id}" x="${point.x - 18}" y="${point.y - 43}" width="36" height="45"/>`;
+      if (this.openPinNoteId !== drawing.id) return icon;
+      const geometry = annotationTextGeometry(drawing, [point], drawing.text || translateAppText('添加文字'));
+      return icon + `<rect class="trading-drawing-hit-target area trading-inline-annotation-hit" x="${Math.max(0, Math.min(geometry.x, bounds.width - geometry.width))}" y="${Math.max(0, geometry.y)}" width="${Math.min(geometry.width, bounds.width)}" height="${geometry.height}"/>`;
+    }
+    if (isInlineAnnotation(drawing) || isManualPriceNote(drawing)) {
+      const price = isManualPriceNote(drawing);
+      const text = price ? annotationPrice(drawing.points[0].price) : drawing.text || translateAppText('添加文字');
+      const geometry = annotationTextGeometry(drawing, points, text);
+      const last = points.at(-1)!;
+      const line = isManualNote(drawing) || price
+        ? `<line class="trading-drawing-hit-target" x1="${point.x}" y1="${point.y}" x2="${last.x}" y2="${last.y}"/>` : '';
+      return line + `<rect class="trading-drawing-hit-target area trading-inline-annotation-hit" data-inline-annotation="${escapeHtml(drawing.id)}" tabindex="0" role="button" aria-label="${translateAppText(price ? '价格笔记' : '文本输入')}" x="${geometry.x}" y="${geometry.y}" width="${geometry.width}" height="${geometry.height}"/>`;
+    }
     const fontSize = drawing.fontSize ?? DEFAULT_TEXT_FONT_SIZE;
     const text = drawing.text ?? "";
     if (drawing.tool === 'image') return `<rect class="trading-drawing-hit-target area" x="${point.x}" y="${point.y}" width="240" height="160"/>`;
@@ -6358,11 +7756,6 @@ export class TradingDrawingController {
     const top = Math.min(first.y, second.y);
     const width = Math.abs(second.x - first.x);
     const height = Math.abs(second.y - first.y);
-    if (definition.id === "fixed-range-volume") {
-      const bars = [0.25, 0.56, 0.8, 0.42, 0.66, 0.34, 0.9, 0.52];
-      return `<rect x="${left}" y="${top}" width="${width}" height="${height}" fill="${color}" fill-opacity="0.025" stroke="${color}" ${svgStrokeAttributes({ ...appearance, dashed: true }, 1.4)} opacity="${appearance.opacity}"/>`
-        + bars.map((value, index) => `<rect x="${left}" y="${top + (height * index) / bars.length}" width="${width * value}" height="${Math.max(height / bars.length - 1, 1)}" fill="${color}" fill-opacity="0.22" />`).join("");
-    }
     return `<rect x="${left}" y="${top}" width="${width}" height="${height}" fill="${color}" fill-opacity="${appearance.manualDefaults?.fillOpacity ?? 0.06}" stroke="${color}" ${svgStrokeAttributes({ ...appearance, dashed: true }, 1.4)} opacity="${appearance.opacity}" />`;
   }
 
@@ -6371,6 +7764,19 @@ export class TradingDrawingController {
     const fallbackDash = definition.id === "ghost-feed" ? "4 5" : "7 4";
     const customDash = tradingDrawingStrokeDashArray(appearance.style);
     return `<polyline points="${pointsAttribute(points)}" fill="none" stroke="${color}" stroke-width="${appearance.width ?? 2}" stroke-dasharray="${appearance.style ? customDash : fallbackDash}" marker-end="url(#trading-drawing-arrow)" opacity="${appearance.opacity}" vector-effect="non-scaling-stroke" />`;
+  }
+
+  private renderInfoLineCard(drawing: TradingDrawingModel, first: ScreenPoint, second: ScreenPoint, bounds: { width: number; height: number }, opacity: number) {
+    const start = drawing.points[0], end = drawing.points[drawing.points.length - 1];
+    const candles = this.getCandles();
+    const startIndex = tradingDrawingLogicalIndexAtTime(candles, start.time);
+    const endIndex = tradingDrawingLogicalIndexAtTime(candles, end.time);
+    const format = this.getCandleSeries()?.options?.().priceFormat;
+    const rows = tradingInfoLineRows({ start, end, first, second,
+      bars: startIndex === null || endIndex === null ? null : endIndex - startIndex,
+      precision: format?.precision ?? 2, minMove: format?.minMove ?? .01,
+    });
+    return renderTradingInfoLineCard(rows, first, second, bounds, opacity);
   }
 
   private renderMeasurement(drawing: TradingDrawingModel, first: ScreenPoint, second: ScreenPoint, color: string, appearance: TradingDrawingStrokeAppearance) {
@@ -6386,6 +7792,10 @@ export class TradingDrawingController {
   }
 
   destroy() {
+    for (const timer of this.volumeProfileTimers.values()) window.clearTimeout(timer);
+    this.volumeHistory?.destroy();
+    this.volumeProfileTimers.clear();
+    closeColorPicker(this.selectionToolbar);
     this.crosshair.destroy();
     this.selectionToolbarResizeObserver?.disconnect();
     this.manualSync?.destroy();
@@ -6445,12 +7855,17 @@ export class TradingDrawingController {
     document.removeEventListener("pointermove", this.handlePointerMove);
     document.removeEventListener("pointerup", this.handlePointerUp);
     document.removeEventListener("pointercancel", this.handlePointerCancel);
+    document.removeEventListener('paste', this.handleDrawingImagePaste);
+    this.imageDialog.close();
+    this.xPostDialog.close();
     this.overlay.removeEventListener("lostpointercapture", this.handlePointerCancel);
     window.removeEventListener("blur", this.cancelPointerInteraction);
     document.removeEventListener("pointerdown", this.handleOutsidePointerDown);
     document.removeEventListener("pointerdown", this.handleToolMenuOutsidePointerDown, true);
     document.removeEventListener("pointerdown", this.handleChartBackgroundPointerDown, true);
     document.removeEventListener("keydown", this.handleKeyDown);
+    document.removeEventListener('keydown', this.handleMagnetModifierChange, true);
+    document.removeEventListener('keyup', this.handleMagnetModifierChange, true);
   }
 }
 
