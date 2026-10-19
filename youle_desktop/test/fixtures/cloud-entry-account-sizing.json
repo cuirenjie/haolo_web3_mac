@@ -1,0 +1,71 @@
+{
+  "source": "haolo_front_web3/youle_mas-dev/backend/app/mobile/entry_policy.py:risk_check",
+  "sourceSha256": "9241141797d1d2c83cfcde6cf7bed9854cc16839fa935c4b3e6670843a6f6e49",
+  "note": "Generated from the actual server risk_check with synthetic screenshot-matching inputs; no credentials or account identifiers.",
+  "scenarios": {
+    "long": {
+      "side": "long",
+      "entry": 82292.21,
+      "stop": 81682.29,
+      "targets": [
+        83207.09,
+        83512.05
+      ],
+      "positionSizing": {
+        "accountStatus": "available",
+        "accountPlan": {
+          "mode": "new_position",
+          "snapshotAt": 1792326741009,
+          "equity": 68.99492675,
+          "quantity": 0.00178165,
+          "notional": 146.61591594650002,
+          "leverage": 10,
+          "entryPrice": 82292.21,
+          "estimatedStopLoss": 1.379895799893023
+        },
+        "maxLossPerTradePercent": 2,
+        "estimatedRoundTripCostRate": 0.002,
+        "netRiskReward": [
+          0.9687427994277652,
+          1.3624913593133257
+        ],
+        "moveStopToBreakEven": true,
+        "breakEvenTriggerR": 1,
+        "breakEvenPrice": 82456.79442,
+        "quantityIsOrder": false
+      }
+    },
+    "short": {
+      "side": "short",
+      "entry": 82292.21,
+      "stop": 82902.13,
+      "targets": [
+        81377.33,
+        81072.37
+      ],
+      "positionSizing": {
+        "accountStatus": "available",
+        "accountPlan": {
+          "mode": "new_position",
+          "snapshotAt": 1792326741009,
+          "equity": 68.99492675,
+          "quantity": 0.00178165,
+          "notional": 146.61591594650002,
+          "leverage": 10,
+          "entryPrice": 82292.21,
+          "estimatedStopLoss": 1.379895799892997
+        },
+        "maxLossPerTradePercent": 2,
+        "estimatedRoundTripCostRate": 0.002,
+        "netRiskReward": [
+          0.9687427994278023,
+          1.36249135931337
+        ],
+        "moveStopToBreakEven": true,
+        "breakEvenTriggerR": 1,
+        "breakEvenPrice": 82127.62558,
+        "quantityIsOrder": false
+      }
+    }
+  }
+}

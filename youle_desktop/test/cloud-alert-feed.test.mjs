@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createCloudAlertFeed} from '../src/main/trading-strategy-runtime/cloud-alert-feed.mjs';
-import {renderCloudAlertPanel,cloudAlertNotification} from '../src/main/cloud-alert-view.mjs';
-import {createCloudAlertPanelController} from '../src/renderer/cloud-alert-panel.ts';
+import {cloudAlertNotification} from '../src/main/cloud-alert-view.mjs';
 const account={ownerId:'owner-a',accountId:'a',baseUrl:'https://service.example'};
 const alert={id:'alert',rule:{monitoringPolicy:'entry_v2',marketKey:'binance:usdm:BTCUSDT',interval:'5m',conditionHash:'a'.repeat(64),
   entryCondition:{schemaVersion:2,conditionId:'condition',revision:1,confirmation:'touch',trigger:{operator:'at_or_below',lower:95},expiresAt:2000000000000}}};
@@ -40,20 +39,11 @@ test('mismatched condition evidence cannot be notified or acknowledged',async()=
   await assert.rejects(createCloudAlertFeed(s.args).refresh(),e=>e.code==='CLOUD_ALERT_FEED_INVALID');
   assert.equal(s.saved.get(account.ownerId).cursor,10);assert.deepEqual(s.notifications,[]);
 });
-test('reminder presentation preserves conditions, escapes text and states that a trigger is not a fill in three languages',()=>{
-  const malicious={...alert,rule:{...alert.rule,marketKey:'<img src=x onerror=alert(1)>'}};
+test('plan notifications preserve trigger details in three languages',()=>{
   for(const language of ['zh-CN','en','zh-Hant']) {
-    const html=renderCloudAlertPanel({items:[malicious],recentEvents:[event]},language);
-    assert.ok(html.includes('&lt;img'));assert.ok(!html.includes('<img'));assert.ok(html.includes('95'));
     const note=cloudAlertNotification({alert,event},language);assert.ok(note.body.includes('95'));
     assert.match(note.body,language==='en'?/do not indicate fills/:/不表示成交/);
   }
-});
-test('renderer discards a feed response that arrived after an account switch',async()=>{
-  let current=account,finish;const ui=createCloudAlertPanelController({owner:()=>current,language:()=> 'en',changed:()=>{},load:()=>new Promise(r=>{finish=r;})});
-  const pending=ui.refresh();current={...account,accountId:'b'};finish({ok:true,...account,items:[alert],recentEvents:[]});await pending;
-  assert.ok(!ui.render().includes('BTCUSDT'));
-  ui.apply({...account,items:[alert],recentEvents:[]});assert.ok(!ui.render().includes('BTCUSDT'));
 });
 
 test('invalid recent history and malformed predicates fail before notification or cursor changes',async()=>{

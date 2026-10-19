@@ -9,7 +9,7 @@ const LABELS = {
   preferences_changed: ["交易偏好已在其他设备更新，请重新加载后再分析", "Trading preferences changed on another device. Reload them before running the analysis", "交易偏好已在其他裝置更新，請重新載入後再分析"],
   preferences_pending: ["交易偏好正在保存，请等待保存完成后再分析", "Trading preferences are being saved. Wait for the save to finish before running the analysis", "交易偏好正在儲存，請等待儲存完成後再分析"],
   cancellation_pending: ["云端取消尚未确认，任务记录已保留", "Cloud cancellation is not yet confirmed; the task record was retained"],
-  pending: ["云端任务仍在处理中，可继续查看原任务", "The cloud task is still running; resume the original task to check it"],
+  pending: ["分析结果尚未确认，原任务记录已保留", "The analysis result has not been confirmed; the original task record has been retained", "分析結果尚未確認，原任務記錄已保留"],
   cloud_unavailable: ["云端策略服务暂不可用", "The cloud strategy service is unavailable"],
   cloud_unsupported: ["此策略或市场的云端版本尚未启用", "The cloud version of this strategy or market is not enabled yet"],
   cloud_history_contract: ["云端行情要求与当前客户端不兼容，请更新客户端或稍后重试", "Cloud history requirements are incompatible with this client. Update the client or try again later", "雲端行情要求與目前客戶端不相容，請更新客戶端或稍後重試"],

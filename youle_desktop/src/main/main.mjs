@@ -220,6 +220,7 @@ import { ExternalModelCredentialStore } from "./external-agent/credential-store.
 import { ExternalModelService } from "./external-agent/service.mjs";
 import { BinanceCredentialStore } from "./binance-account/credential-store.mjs";
 import { BinanceAccountError, BinanceAccountService } from "./binance-account/service.mjs";
+import { binanceCredentialErrorResult } from "../shared/binance-account-errors.mjs";
 import { BinancePrivateProxyTransport } from "./binance-account/private-proxy-fetch.mjs";
 import { BinanceRequestGovernor, BINANCE_REQUEST_PRIORITIES } from "./binance-request-governor.mjs";
 import { BinancePublicMarketService } from "./binance-public-market-service.mjs";
@@ -13300,12 +13301,14 @@ ipcMain.handle("binanceAccount:bind", async (event, params = {}) => {
       }
       clearVoiceCredentialCache();
       await restartClientAfterAuthChange();
+      // Validate and replace the shared credentials before committing the
+      // local copy. A failed rebind must preserve the previous binding.
+      await syncSharedBinanceAccountConnection();
+      await syncSharedBinanceAccountCredentials({
+        apiKey: params?.apiKey,
+        apiSecret: params?.apiSecret,
+      });
     },
-  });
-  await syncSharedBinanceAccountConnection();
-  await syncSharedBinanceAccountCredentials({
-    apiKey: params?.apiKey,
-    apiSecret: params?.apiSecret,
   });
   return result;
 });
@@ -13330,6 +13333,8 @@ ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
     return { ok: true, snapshot };
   } catch (error) {
     outcome = String(error?.code || "error");
+    const credentialFailure = binanceCredentialErrorResult(error);
+    if (credentialFailure) return credentialFailure;
     if (error?.code !== "BINANCE_RATE_LIMITED") throw error;
     return {
       ok: false,
@@ -13369,6 +13374,8 @@ ipcMain.handle("binanceAccount:getProfitCalendar", async (event, params = {}) =>
     return { ok: true, calendar };
   } catch (error) {
     outcome = String(error?.code || "error");
+    const credentialFailure = binanceCredentialErrorResult(error);
+    if (credentialFailure) return credentialFailure;
     if (error?.code !== "BINANCE_RATE_LIMITED") throw error;
     return {
       ok: false,

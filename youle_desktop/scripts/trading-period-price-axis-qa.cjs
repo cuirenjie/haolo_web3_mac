@@ -42,6 +42,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   };
   const state = () => js(`(() => {const w=primary, r=w.periodTimes.getBoundingClientRect(),m=w.periodMoreButton.getBoundingClientRect();return {
     count:w.periods.length, active:w.activeInterval, open:!w.periodOverflow.hidden, more:!w.periodMoreButton.hidden,
+    moreLabel:w.periodMoreLabel.textContent.trim(), moreSelected:w.periodMoreButton.classList.contains('selected'),
     visible:[...w.periodTimes.querySelectorAll('button:not([hidden])')].map(b=>b.dataset.marketInterval),
     overflow:w.overflowPeriods.map(p=>p.unit==='m'?String(p.amount):p.unit==='h'?String(p.amount*60):p.amount+p.unit.toUpperCase()),
     fits:[...w.periodTimes.querySelectorAll('button:not([hidden])')].every(b=>{const bR=b.getBoundingClientRect();return bR.left>=r.left-1&&bR.right<=r.right+1}),
@@ -79,9 +80,15 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
       const open = await state(); assert.equal(open.open, true); assert.equal(open.popupCount, open.overflow.length);
       await screenshot(`${theme}-${width}-more`);
       const next = open.overflow.at(-1);
+      const nextLabel = await js(`primary.periodOverflowItems.querySelector('[data-market-interval="${next}"]').textContent.trim()`);
       await js(`primary.periodOverflowItems.querySelector('[data-market-interval="${next}"]').click()`); await settle();
       const chosen = await state(); assert.equal(chosen.active, next); assert.equal(chosen.open, false);
-      assert.ok(chosen.visible.includes(next));
+      assert.ok(chosen.overflow.includes(next));
+      assert.equal(chosen.moreLabel, nextLabel);
+      assert.equal(chosen.moreSelected, true);
+      assert.equal(chosen.fits, true); assert.equal(chosen.moreFits, true);
+      assert.equal(await js('document.activeElement===primary.periodMoreButton'), true);
+      await screenshot(`${theme}-${width}-selected-period`);
       assert.equal(await js('primary.errorElement.hidden'), true, 'custom resolution loads successfully');
       await click('[data-market-action="toggle-more-periods"]');
       win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
@@ -91,6 +98,12 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
       await click('[data-market-action="toggle-more-periods"]');
       await js("primary.chartElement.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))");
       assert.equal((await state()).open, false);
+      if (chosen.visible.length) {
+        await js(`primary.periodTimes.querySelector('[data-market-interval="${chosen.visible[0]}"]').click()`); await settle();
+        const reset = await state();
+        assert.equal(reset.moreLabel, '更多');
+        assert.equal(reset.moreSelected, false);
+      }
       report.periods.push({ theme, width, before, chosen });
     }
   }

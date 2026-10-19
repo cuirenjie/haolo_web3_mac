@@ -32,17 +32,17 @@ test('every SVG drawing layer uses pane bounds, including hidden drawings and or
     const layer = () => ({ innerHTML: '' });
     const controller = Object.assign(Object.create(TradingDrawingController.prototype), {
       destroyed: false, drawingScope, paneIndex: drawingScope === 'main' ? 0 : 1,
-      dragRedrawFrame: null, pendingPointerMoves: [],
+      dragRedrawFrame: null, pendingPointerMoves: [], drawingHandlesHideTimer: null,
       getChart: () => ({ panes: () => [{ getHeight: () => 480 }, { getHeight: () => 160 }],
         options: () => ({ height: 670 }), timeScale: () => ({ width: () => 900 }) }),
-      getCandleSeries: () => null, orderLines: [], drawingsHidden: true,
-      overlay: { getAttribute: key => attributes.get(key), setAttribute: (key, value) => attributes.set(key, value) },
+      getCandleSeries: () => null, orderLines: [], drawingVisibility: { aiHidden: true, manualHidden: true },
+      overlay: { classList: { remove() {} }, getAttribute: key => attributes.get(key), setAttribute: (key, value) => attributes.set(key, value) },
       manualLayer: { render(entries) { assert.deepEqual(entries, []); clearedManualLayer = true; } },
       content: layer(), aiContent: layer(), aiTextHitContent: layer(), aiCursorContent: layer(),
       orderLineContent: Object.assign(layer(), { querySelectorAll: () => [] }),
       orderPositionCardLayer: Object.assign(layer(), { querySelectorAll: () => [] }),
-      setOpenOrderPositionCard() {}, hideAiTextSizeToolbar() {},
-      updateSelectionToolbar() {}, updateAxisMarkers() {},
+      setOpenOrderPositionCard() {}, updateAiTextSizeToolbar() {},
+      updateSelectionToolbar() {}, updateAxisMarkers() {}, updateToolbarState() {},
     });
     controller.redraw();
     const height = drawingScope === 'main' ? '480' : '160';

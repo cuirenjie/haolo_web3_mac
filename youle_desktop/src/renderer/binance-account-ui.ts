@@ -1,3 +1,5 @@
+import { translateAppText } from "./app-language.mjs";
+
 export type BinanceAccountStatus = {
   bound: boolean;
   apiKeyMasked: string | null;
@@ -120,7 +122,7 @@ export type BinanceAccountProfitCalendar = {
 
 type BinanceAccountDialogState = {
   open: boolean;
-  mode: "bind" | "remove";
+  mode: "bind" | "rebind" | "remove";
   busy: "send" | "bind" | "remove" | null;
   error: string | null;
   apiKey: string;
@@ -135,6 +137,7 @@ type BinanceAccountDialogState = {
 export type BinanceAccountSection = "assets" | "positions" | "open-orders" | "history" | "profit-calendar";
 
 export type BinanceAccountUiState = {
+  rebindRequired: boolean;
   loading: boolean;
   loaded: boolean;
   refreshing: boolean;
@@ -153,6 +156,7 @@ export type BinanceAccountUiState = {
 
 export function createBinanceAccountUiState(): BinanceAccountUiState {
   return {
+    rebindRequired: false,
     loading: false,
     loaded: false,
     refreshing: false,
@@ -206,7 +210,9 @@ export function renderBinanceAccountPage(state: BinanceAccountUiState) {
   const initialLoading = state.loading && !state.loaded;
   return `
     <section class="binance-account-page" aria-label="Binance 账户" aria-busy="${initialLoading}">
-      ${initialLoading
+      ${state.rebindRequired
+        ? renderBinanceAccountLoadError(state.error || "API Key 无效，请重新绑定", true, state.dialog.open)
+        : initialLoading
         ? renderBinanceAccountLoading()
         : state.error && !state.loaded
           ? renderBinanceAccountLoadError(state.error)
@@ -226,6 +232,7 @@ export function renderBinanceAccountDialog(state: BinanceAccountUiState) {
   const sending = dialog.busy === "send";
   const binding = dialog.busy === "bind";
   const removing = dialog.mode === "remove";
+  const rebinding = dialog.mode === "rebind";
   const removingBusy = dialog.busy === "remove";
   const busy = Boolean(dialog.busy);
   const canSubmit = Boolean(
@@ -239,7 +246,7 @@ export function renderBinanceAccountDialog(state: BinanceAccountUiState) {
     <dialog class="binance-account-dialog" open aria-modal="true" aria-labelledby="binanceAccountDialogTitle">
       <header>
         <div>
-          <h2 id="binanceAccountDialogTitle">${removing ? "验证邮箱并解除绑定" : "绑定 Binance API"}</h2>
+          <h2 id="binanceAccountDialogTitle">${removing ? "验证邮箱并解除绑定" : rebinding ? "重新绑定 Binance API" : "绑定 Binance API"}</h2>
           <p>${removing ? "为保护账户安全，请先验证当前 Haolo 账号的邮箱。" : "仅申请账户读取权限，Haolo 不会通过此连接下单。"}</p>
         </div>
         <button type="button" class="binance-account-dialog-close" data-binance-account-action="close-dialog" aria-label="关闭" ${busy ? "disabled" : ""}>×</button>
@@ -272,7 +279,7 @@ export function renderBinanceAccountDialog(state: BinanceAccountUiState) {
           <div class="binance-account-otp-field">
             <input name="code" value="${escapeAttr(dialog.code)}" placeholder="请输入 6 位验证码" inputmode="numeric" maxlength="6" autocomplete="one-time-code" ${busy ? "disabled" : ""} />
             <button type="button" data-binance-account-action="send-otp" data-binance-account-resend ${busy || countdown > 0 ? "disabled" : ""}>
-              ${sending ? "发送中…" : countdown > 0 ? `<span data-binance-account-countdown>${countdown}s 后重试</span>` : "重新发送"}
+              ${sending ? "发送中…" : countdown > 0 ? `<span data-binance-account-countdown>${translateAppText("{seconds}s 后重试").replace("{seconds}", String(countdown))}</span>` : "重新发送"}
             </button>
           </div>
         </label>
@@ -288,7 +295,7 @@ export function renderBinanceAccountDialog(state: BinanceAccountUiState) {
                 : "验证并解除绑定"
               : binding
                 ? '<span class="binance-account-button-spinner" aria-hidden="true"></span>校验并绑定…'
-                : "提交"}
+                : rebinding ? "验证并重新绑定" : "提交"}
           </button>
         </footer>
       </form>
@@ -398,12 +405,14 @@ function renderBinanceAccountLoading() {
   `;
 }
 
-function renderBinanceAccountLoadError(message: string) {
+function renderBinanceAccountLoadError(message: string, rebindRequired = false, busy = false) {
   return `
     <div class="binance-account-loading error" role="alert">
       <strong>账户数据加载失败</strong>
       <p>${escapeHtml(message)}</p>
-      <button type="button" class="binance-account-quiet-button" data-binance-account-action="retry-load">重试</button>
+      ${rebindRequired
+        ? `<button type="button" class="binance-account-bind-button" data-binance-account-action="rebind" ${busy ? "disabled" : ""}>重新绑定</button>`
+        : '<button type="button" class="binance-account-quiet-button" data-binance-account-action="retry-load">重试</button>'}
     </div>
   `;
 }

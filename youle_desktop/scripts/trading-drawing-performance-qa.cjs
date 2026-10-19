@@ -41,7 +41,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const perf = async () => Object.fromEntries((await debug.sendCommand('Performance.getMetrics')).metrics.map(m => [m.name, m.value]));
   const report = { label, hardwareAcceleration: process.argv.includes('--gpu'), cases: [], errors: [] };
   win.webContents.on('console-message', e => { if (e.level === 'error' && !e.message.includes('Binance market catalog')) report.errors.push(e.message); });
-  await win.loadURL('http://127.0.0.1:5183/@fs/' + path.join(root, 'test/fixtures/trading-chart-navigation.html').replaceAll('\\', '/'));
+  await win.loadURL(`http://127.0.0.1:${process.env.HAOLO_QA_PORT || 5183}/@fs/` + path.join(root, 'test/fixtures/trading-chart-navigation.html').replaceAll('\\', '/'));
   console.log('drawing fixture loaded');
   for (let i = 0; i < 150 && !await js('Boolean(window.ready)'); i++) await pause(100);
   assert.equal(await js('Boolean(window.ready)'), true, await js('String(window.qaError)'));

@@ -12,7 +12,7 @@ const messages = {
   ENTRY_POLICY_UNAVAILABLE: ['此策略的入场方式尚未通过云端验收，暂不能发起新分析。','Entry modes for this strategy have not passed cloud acceptance; new analysis is unavailable.','此策略的入場方式尚未通過雲端驗收，暫不能發起新分析。'],
   ANALYSIS_WINDOW_INSUFFICIENT: ['请求的分析时段超出云端可用行情，请缩短时段或调整周期。','The requested range exceeds available cloud history. Shorten the range or change the timeframe.','請求的分析時段超出雲端可用行情，請縮短時段或調整週期。'],
   CLOUD_CANCEL_PENDING: ['已停止接收结果，但尚未确认云端取消。恢复连接后可继续核对。','Result delivery stopped, but cloud cancellation is not yet confirmed. Reconnect to check its status.','已停止接收結果，但尚未確認雲端取消。恢復連線後可繼續核對。'],
-  CLOUD_RUN_PENDING: ['云端任务尚未在本机确认，可在执行计划的“云端任务”中继续查看。','The cloud task has not been confirmed on this device. Open Cloud tasks in Plans to check its result.','雲端任務尚未在本機確認，可在執行計畫的「雲端任務」中繼續查看。'],
+  CLOUD_RUN_PENDING: ['分析结果尚未确认，原任务记录已保留。','The analysis result has not been confirmed. The original task record has been retained.','分析結果尚未確認，原任務記錄已保留。'],
   WINDOWS_WORKER_UNAVAILABLE: ['云端策略服务暂不可用，请稍后重试。','The cloud strategy service is unavailable. Please try again later.','雲端策略服務暫不可用，請稍後重試。'],
   WINDOWS_STRATEGY_UNSUPPORTED: ['此策略的云端版本尚未启用。','The cloud version of this strategy is not enabled yet.','此策略的雲端版本尚未啟用。'],
   CLOUD_MARKET_UNSUPPORTED: ['云端策略暂不支持此市场或周期。','Cloud strategies do not yet support this market or timeframe.','雲端策略暫不支援此市場或週期。'],

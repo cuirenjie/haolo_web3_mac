@@ -1,5 +1,6 @@
 import { HAOLO_GATEWAY_BASE_URL, migrateHaoloGatewayAuth, normalizeHaoloGatewayBaseUrl } from "./haolo-gateway.mjs";
 import crypto from "node:crypto";
+import { BINANCE_REBIND_MESSAGE } from "../shared/binance-account-errors.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
@@ -5190,7 +5191,7 @@ function httpErrorFromResponse(status, payload, headers = null) {
   );
   const code = extractErrorCode(payload) || headerText(headers, "x-haolo-error-code");
   const membershipAccessError = code === "MEMBERSHIP_EXPIRED" || code === "TRIAL_REQUIRED";
-  const message = membershipAccessError
+  const message = code === "BINANCE_CREDENTIALS_INVALID" ? BINANCE_REBIND_MESSAGE : membershipAccessError
     ? firstProfileString(
         payload?.message,
         payload?.error?.message,

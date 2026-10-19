@@ -5,6 +5,12 @@ const copy = {
   en: { entry: "Entry trigger", stop: "Stop loss", long: "Long", short: "Short", target: (n) => `Take profit ${n}`, ratio: "R/R", new: "Suggested position", existing: "Existing position", reduce: "Reduce position to", amount: "Target position", profit: "Est. profit", loss: "Est. loss" },
 };
 const number = String.raw`\d+(?:,\d{3})*(?:\.\d+)?`;
+const expiryLabels = { 'zh-CN': '有效至', 'zh-TW': '有效至', en: 'Valid until' };
+const actionCopy = {
+  'zh-CN': {label: '当前动作：', wait: '等待条件触发', blocked: '暂不交易'},
+  'zh-TW': {label: '當前動作：', wait: '等待條件觸發', blocked: '暫不交易'},
+  en: {label: 'Current action: ', wait: 'Wait for the trigger', blocked: 'Do not trade'},
+};
 const labelOf = (line) => String(line.label || "").replace(/[：:]\s*$/, "").trim();
 const escape = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 const matches = (line, pattern) => pattern.test(labelOf(line));
@@ -27,11 +33,6 @@ function displayText(value) {
     if (/[\w./]/.test(source[offset - 1] || "") || /[\w./]/.test(source[offset + token.length] || "")) return token;
     return fixed(token);
   }).replace(/(\d+(?:,\d{3})*(?:\.\d+)?)\s+(USDT|USDC|BUSD)\b/gi, (_, value, unit) => `${fixed(value)}${unit.toUpperCase() === "USDT" ? "" : ` ${unit}`}`);
-}
-
-function waitingAction(line) {
-  return matches(line, /^(?:当前动作|當前動作|current action)$/i)
-    && /^(?:等待条件触发|等待條件觸發|wait for the trigger)[。.!！]?$/i.test(String(line.text).trim());
 }
 
 function direction(lines) {
@@ -74,6 +75,12 @@ function strategyLabel(value, language) {
     ["gann-theory|gann|Gann Theory|江恩理论|江恩理論", "江恩理论", "江恩理論", "Gann Theory"],
     ["smt-divergence|SMT Divergence|SMT 背离|SMT 背離|SMT", "SMT 背离", "SMT 背離", "SMT Divergence"],
     ["ict-smc|ict_smc|ICT/SMC|ICT / SMC", "ICT / SMC", "ICT / SMC", "ICT / SMC"],
+    ["moving-average-analysis", "均线分析", "均線分析", "Moving Averages"],
+    ["bollinger-bands-analysis", "布林带", "布林帶", "Bollinger Bands"],
+    ["macd-analysis", "MACD", "MACD", "MACD"],
+    ["rsi-analysis", "RSI", "RSI", "RSI"],
+    ["kdj-analysis", "KDJ", "KDJ", "KDJ"],
+    ["vpvr-analysis", "VPVR", "VPVR", "VPVR"],
   ];
   const match = names.find(([aliases]) => aliases.split("|").some((alias) => alias.toLowerCase() === raw.toLowerCase()));
   return match ? match[language === "en" ? 3 : language === "zh-TW" ? 2 : 1] : raw;
@@ -83,7 +90,9 @@ export function executionPlanCardHeading(title, lines = [], language = "zh-CN") 
   const labels = copy[language] || copy["zh-CN"];
   const tone = direction(lines);
   const market = String(title).match(/^(.+?\/(?:USDT|USDC|BUSD))\s+(?:币安永续|幣安永續|Binance Perpetual)\s+(\d+[MHDW])(?:\s|$)/i);
-  const heading = market ? `${market[1].replace(/\/USDT$/i, "")} · ${market[2]}` : title;
+  const cloudMarket = String(title).match(/^BINANCE:FUTURES:(.+?)(USDT|USDC|BUSD) · (\d+[mhdwM]) · /);
+  const heading = market ? `${market[1].replace(/\/USDT$/i, "")} · ${market[2]}`
+    : cloudMarket ? `${cloudMarket[1]}${cloudMarket[2] === "USDT" ? "" : `/${cloudMarket[2]}`} · ${cloudMarket[3]}` : title;
   const strategy = lines.find((line) => matches(line, /^(?:策略|策略来源|策略來源|strategy)$/i));
   const name = strategyLabel(strategy?.text, language);
   const badges = `${tone ? `<span class="execution-plan-badge ${tone}">${labels[tone === "bullish" ? "long" : "short"]}</span>` : ""}${name ? `<span class="execution-plan-badge strategy" title="${escape(name)}">${escape(name)}</span>` : ""}`;
@@ -98,7 +107,60 @@ function metricHtml(line, label, tone, detail = "") {
     return `<div class="execution-plan-metric"><div class="execution-plan-card-label">${escape(line.label)}</div><div class="execution-plan-metric-description">${signedText(line.text)}</div></div>`;
   }
   const suffix = match[2].trim().replace(/^[，,;；]\s*/, "");
-  return `<div class="execution-plan-metric"><div class="execution-plan-card-label">${label}</div><div class="execution-plan-price ${tone}">${escape(priceText(match[1]))}</div>${detail || (suffix ? `<div class="execution-plan-metric-description">${signedText(suffix)}</div>` : "")}</div>`;
+  return priceMetricHtml(label, priceText(match[1]), tone, detail || (suffix ? `<div class="execution-plan-metric-description">${signedText(suffix)}</div>` : ""));
+}
+
+function expiryHtml(value, language) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 8640000000000000) return '';
+  const date = new Date(value), pad = value => String(value).padStart(2, '0');
+  // Month/day and local time stay stable across midnight in sticky windows.
+  // Keep the complete year and instant in the hover title and datetime value.
+  const local = `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const offset = -date.getTimezoneOffset(), minutes = Math.abs(offset) % 60;
+  const zone = `UTC${offset < 0 ? '-' : '+'}${Math.floor(Math.abs(offset) / 60)}${minutes ? `:${pad(minutes)}` : ''}`;
+  return `<span class="execution-plan-expiry">${expiryLabels[language] || expiryLabels['zh-CN']} <time datetime="${date.toISOString()}" title="${escape(date.toString())}">${local} (${zone})</time></span>`;
+}
+
+function priceMetricHtml(label, price, tone, detail = "") {
+  return `<div class="execution-plan-metric"><div class="execution-plan-card-label">${escape(label)}</div><div class="execution-plan-price ${tone}">${escape(price)}</div>${detail}</div>`;
+}
+
+function targetsHtml(targets, labels, ratios) {
+  return `<div class="execution-plan-targets">${targets.map((target) => {
+    const detail = target.amount != null ? moneyDetail(labels.amount, target.amount, 'execution-plan-target-amount')
+        + (target.profit != null ? moneyDetail(labels.profit, target.profit, 'execution-plan-target-profit execution-plan-estimate', true) : '') : '';
+    return `<div class="execution-plan-target"><span class="execution-plan-target-main"><span class="execution-plan-card-label">${labels.target(target.index)}:</span> <strong>${escape(priceText(target.price))}</strong></span>${ratios?.values.has(target.index) ? `<span class="execution-plan-ratio">${labels.ratio} ${escape(ratios.values.get(target.index))}</span>` : ""}${detail}</div>`;
+  }).join("")}</div>`;
+}
+
+// Typed cloud prices bypass the legacy prose parser. Match mobile's compact
+// price/expiry/ratio layout; full conditions remain in the frozen report/content.
+export function executionPlanStructuredCardBody({ entry, stop, targets, direction, expiresAt, riskReward = [], account, action }, language = "zh-CN") {
+  const labels = copy[language] || copy["zh-CN"];
+  const tone = direction === "long" ? "bullish" : "bearish";
+  const entryPrice = entry.upper == null ? priceText(entry.lower) : `${priceText(entry.lower)} – ${priceText(entry.upper)}`;
+  const values = new Map(targets.map((_, index) => [index + 1, Number.isFinite(riskReward[index]) ? `1:${fixed(riskReward[index])}` : '—']));
+  const modes = { new_position: 'new', manage_existing: 'existing', reduce_existing: 'reduce' };
+  const mode = Object.hasOwn(modes, account?.mode) ? modes[account.mode] : null;
+  const notional = account?.allocationNotional ?? account?.notional;
+  const amount = mode && Number.isFinite(notional) && notional > 0 ? moneyDetail(labels[mode], notional) : '';
+  // The structured DTO stores a nonnegative loss magnitude, as on mobile;
+  // legacy prose already contains its sign and follows its own parser below.
+  const loss = mode && Number.isFinite(account?.estimatedStopLoss) && account.estimatedStopLoss >= 0 ? moneyDetail(labels.loss, -account.estimatedStopLoss, 'execution-plan-estimate', true) : '';
+  let cumulative = 0;
+  const targetOrders = account && Object.hasOwn(account, 'targetOrders') ? account.targetOrders : account?.targetEstimates;
+  const rows = targets.map((price, index) => {
+    const orders = mode && Array.isArray(targetOrders) ? targetOrders.filter(order => order?.targetIndex === index && order.price === price) : [];
+    const order = orders.length === 1 ? orders[0] : null;
+    const amount = Number.isFinite(order?.notional) && order.notional >= 0 ? order.notional : undefined;
+    cumulative = amount != null && Number.isFinite(order?.estimatedNetProfit) ? cumulative + order.estimatedNetProfit : NaN;
+    return { price, index: index + 1, amount, profit: Number.isFinite(cumulative) ? cumulative : undefined };
+  });
+  const actions = actionCopy[language] || actionCopy['zh-CN'];
+  const actionHtml = Object.hasOwn(actions, action) && action !== 'label'
+    ? `<div class="execution-plan-details">${lineHtml({label: actions.label, text: actions[action]})}</div>` : '';
+  return `<div class="execution-plan-metrics" data-conditional-plan>${expiryHtml(expiresAt, language)}${priceMetricHtml(labels.entry, entryPrice, tone, amount)}${priceMetricHtml(labels.stop, priceText(stop), tone === "bullish" ? "bearish" : "bullish", loss)}</div>`
+    + targetsHtml(rows, labels, { values }) + actionHtml;
 }
 
 function moneyDetail(label, value, className = "", signed = false) {
@@ -160,11 +222,10 @@ function simpleRatios(text, targets) {
   return { values: new Map(indexed.map((item) => [item.index, `1:${fixed(item.value.split(/[:：]/)[1].trim())}`])), loss: outcome?.[2] ?? outcome?.[4] };
 }
 
-export function executionPlanCardBody(lines = [], language = "zh-CN") {
+export function executionPlanCardBody(lines = [], language = "zh-CN", { expiresAt } = {}) {
   // Presentation only: hide the verbose account summaries, keeping the report
   // and saved/alert inputs intact. Per-level amounts remain beside their prices.
-  lines = lines.filter((line) => !waitingAction(line)
-    && !matches(line, /^(?:仓位大小|倉位大小|可能盈亏|可能盈虧|position size|potential P&L)$/i));
+  lines = lines.filter((line) => !matches(line, /^(?:仓位大小|倉位大小|可能盈亏|可能盈虧|position size|potential P&L)$/i));
   const labels = copy[language] || copy["zh-CN"];
   const entry = lines.find((line) => matches(line, /^(?:(?:多头|空头|首选方向|方向)?触发|入场触发价|(?:long|short|entry) trigger)$/i));
   const stop = lines.find((line) => matches(line, /^(?:止损(?:与失效)?|止损价|stop-loss(?: and invalidation)?)$/i));
@@ -180,11 +241,11 @@ export function executionPlanCardBody(lines = [], language = "zh-CN") {
   const ratios = targets && ratioLine && simpleRatios(ratioLine.text, targets);
   // Older reports could omit zero-sized target orders. Never shift their ratios.
   if (account && (!ratios || ratios.values.size !== account.length)) targets = null;
-  let html = `<div class="execution-plan-metrics">${metricHtml(entry, labels.entry, tone, amount ? moneyDetail(labels[amount.mode], amount.value) : "")}${metricHtml(stop, labels.stop, tone === "bullish" ? "bearish" : "bullish", ratios?.loss ? moneyDetail(labels.loss, ratios.loss, "execution-plan-estimate", true) : "")}</div>`;
+  let html = `<div class="execution-plan-metrics">${expiryHtml(expiresAt, language)}${metricHtml(entry, labels.entry, tone, amount ? moneyDetail(labels[amount.mode], amount.value) : "")}${metricHtml(stop, labels.stop, tone === "bullish" ? "bearish" : "bullish", ratios?.loss ? moneyDetail(labels.loss, ratios.loss, "execution-plan-estimate", true) : "")}</div>`;
   if (targets) {
     consumed.add(targetLine);
     if (ratios) consumed.add(ratioLine);
-    html += `<div class="execution-plan-targets">${targets.map((target) => `<div class="execution-plan-target"><span class="execution-plan-target-main"><span class="execution-plan-card-label">${labels.target(target.index)}:</span> <strong>${escape(priceText(target.price))}</strong></span>${ratios?.values.has(target.index) ? `<span class="execution-plan-ratio">${labels.ratio} ${escape(ratios.values.get(target.index))}</span>` : ""}${target.amount != null ? moneyDetail(labels.amount, target.amount, "execution-plan-target-amount") + moneyDetail(labels.profit, target.profit, "execution-plan-target-profit execution-plan-estimate", true) : ""}</div>`).join("")}</div>`;
+    html += targetsHtml(targets, labels, ratios);
   }
   // The heading carries the direction/strategy; retain conditions and
   // unrecognized target formats after the presentation-only omissions above.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {createCloudRecoveryController,cloudTaskText} from '../src/renderer/cloud-task-recovery.ts';
+import {createCloudRecoveryController} from '../src/renderer/cloud-task-recovery.ts';
 
 test('closing or switching accounts discards late recovery data and never acknowledges it',async()=>{
   let resolve; const calls=[];
@@ -22,11 +22,6 @@ test('a recovered report is retained until explicitly acknowledged; pending work
   await c.act('acknowledge','key');assert.equal(c.state.report,'');
 });
 
-test('cloud recovery labels cover Simplified Chinese, English and Traditional Chinese',()=>{
-  for(const locale of ['zh-CN','en','zh-TW'])for(const key of ['title','note','resume','cancelPending','succeeded'])assert.ok(cloudTaskText(key,locale));
-  assert.equal(cloudTaskText('title','en'),'Cloud tasks');
-  assert.equal(cloudTaskText('title','zh-TW'),'雲端任務');
-});
 
 test('recovery acknowledges only after the original transcript and chart save succeeds',async()=>{
   for(const saved of [false,true]) {

@@ -60,6 +60,15 @@ export const ENGLISH_DRAWING_SECTIONS = Object.freeze({
 });
 
 const PHRASES = Object.freeze({
+  "绘图设置": "Drawing settings", "已更新绘图": "Drawing updated", "端点": "Point", "时间 (UTC)": "Time (UTC)",
+  "隐藏此画线": "Hide drawing", "显示此画线": "Show drawing",
+  "隐藏当前会话 AI 画线": "Hide AI drawings in this conversation",
+  "显示当前会话 AI 画线": "Show AI drawings in this conversation",
+  "当前会话 AI 画线已隐藏": "AI drawings hidden in this conversation",
+  "当前会话 AI 画线已显示": "AI drawings shown in this conversation",
+  "画线已隐藏，点击画布可恢复": "Drawing hidden. Click the chart to restore it.",
+  "画线已显示": "Drawing shown", "AI 画线显示与字号": "AI drawing visibility and text size",
+  "添加文字": "Add text", "＋ 添加文字": "+ Add text",
   "水平线设置": "Horizontal line settings", "样式": "Style", "坐标": "Coordinates",
   "线条": "Line", "线条颜色": "Line color", "斜体": "Italic", "确认": "OK", "关闭": "Close",
   "文字对齐": "Text alignment", "文字垂直对齐": "Vertical text alignment", "文字水平对齐": "Horizontal text alignment",

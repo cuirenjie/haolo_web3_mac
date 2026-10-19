@@ -22,7 +22,7 @@ test("saved plans and alerts share one top-level workspace while automatic tasks
   assert.match(source, /function openTradingAlertsPage[\s\S]*state\.activeView = "alerts"/);
   assert.match(source, /function openExecutionPlansPage[\s\S]*state\.activeView = "plans"/);
   assert.match(source, /function openAutoTasksPage[\s\S]*state\.activeView = "autoTasks"/);
-  assert.match(source, /renderTradingAlertsPage\(state\.tradingAlerts,\s*cloudAlertsUi/);
+  assert.match(source, /renderTradingAlertsPage\(state\.tradingAlerts\)/);
   assert.match(source, /data-conversation-static-action="plans"/);
   assert.match(source, /\[data-planning-section\][\s\S]*openExecutionPlansPage\(\)[\s\S]*openTradingAlertsPage\(\)/);
   assert.match(renderPlanningNavigation("plans"), /data-planning-section="plans"[\s\S]*data-planning-section="alerts"/);

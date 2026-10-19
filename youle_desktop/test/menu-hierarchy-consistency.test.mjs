@@ -78,7 +78,7 @@ test("second- and third-level menus expose forgiving pointer bridges", async () 
 
 test("compact option menus use one shared surface treatment", async () => {
   const styles = await stylesSource;
-  const shared = styles.slice(styles.indexOf("/* Shared surface treatment for compact first-, second-, and third-level option menus. */"));
+  const shared = styles.slice(styles.indexOf("/* One surface for desktop dropdowns, including the browser's select picker."));
 
   for (const className of [
     "thread-group-add-submenu",
@@ -95,10 +95,10 @@ test("compact option menus use one shared surface treatment", async () => {
     assert.match(shared, new RegExp(`\\.${className.replaceAll("-", "\\-")}`));
   }
 
-  assert.match(shared, /border-radius:\s*10px/);
-  assert.match(shared, /box-shadow:\s*0 16px 42px rgba\(17, 24, 39, 0\.14\)/);
-  assert.match(shared, /html\[data-theme="dark"\][\s\S]*?background:\s*#1b1e23/);
-  assert.match(shared, /html:not\(\[data-theme="dark"\]\)[\s\S]*?background:\s*var\(--surface-hover\)/);
+  assert.match(shared, /border-radius:\s*var\(--dropdown-radius\)/);
+  assert.match(shared, /box-shadow:\s*var\(--dropdown-shadow\)/);
+  assert.match(shared, /html\[data-theme="dark"\][\s\S]*?--dropdown-surface:\s*#1b1e23/);
+  assert.match(styles, /html:not\(\[data-theme="dark"\]\)[\s\S]*?background:\s*var\(--surface-hover\)/);
   assert.match(styles, /\.external-channel-menu\s*\{[\s\S]*?border-radius:\s*10px/);
   assert.doesNotMatch(styles, /\.thread-group-add-menu-item\.quick/);
 });

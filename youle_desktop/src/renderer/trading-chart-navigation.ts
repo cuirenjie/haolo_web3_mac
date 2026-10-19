@@ -1,7 +1,6 @@
 import type { AutoscaleInfoProvider, IChartApi, IPaneApi, IPriceScaleApi, Time } from "lightweight-charts";
 import { translateAppText } from "./app-language.mjs";
 import { beginTradingChartInteraction, endTradingChartInteraction } from "./trading-chart-interaction.ts";
-import { TradingChartToolbarVisibility, clampTradingChartToolbarPosition } from "./trading-chart-toolbar-visibility.ts";
 import { withTradingChartSeriesBatch } from './trading-chart-series-data.ts';
 
 /** Native gestures own axes, drag and pinch; wheel zoom uses the same bounds as buttons. */
@@ -105,12 +104,6 @@ export class TradingChartNavigation {
   private readonly redraw: () => void;
   private readonly options: NavigationOptions;
   private readonly root: HTMLElement;
-  private readonly controls: HTMLDivElement;
-  private controlsPosition: Point | null = null;
-  private controlsSize: { width: number; height: number } | null = null;
-  private readonly controlsVisibility: TradingChartToolbarVisibility;
-  private controlsDrag: { pointerId: number; start: Point; origin: Point; moved: boolean } | null = null;
-  private suppressControlClick = false;
   private verticalLocked = true;
   private freezeAutoNextFrame = false;
   private pendingWheelZoom: { logFactor: number; anchor: number } | null = null;
@@ -156,48 +149,6 @@ export class TradingChartNavigation {
     element.classList.add("trading-chart-navigable");
     element.tabIndex = 0;
     element.setAttribute("aria-label", translateAppText("K 线图表"));
-    this.controls = document.createElement("div");
-    this.controls.className = "trading-chart-navigation-controls";
-    this.controls.setAttribute("role", "group");
-    this.controls.setAttribute("aria-label", translateAppText("图表操作栏"));
-    this.controls.title = translateAppText("拖动可移动图表操作栏");
-    const grip = document.createElement("span");
-    grip.className = "trading-chart-navigation-grip";
-    grip.setAttribute("aria-hidden", "true");
-    grip.innerHTML = '<svg viewBox="0 0 12 20"><path d="M4 5h0m4 0h0M4 10h0m4 0h0M4 15h0m4 0h0"/></svg>';
-    this.controls.append(grip);
-    const buttons = [
-      ["zoom-out", "−", "缩小"], ["zoom-in", "+", "放大"],
-      ["left", "‹", "向左移动"], ["right", "›", "向右移动"], ["reset", "↺", "重置图表（Alt + R）"],
-      ["lock-vertical", "", "锁定并自动适配价格"],
-    ];
-    for (const [action, text, label] of buttons) {
-      const button = document.createElement("button");
-      button.type = "button"; button.dataset.navigationAction = action;
-      button.textContent = text; button.title = translateAppText(label);
-      button.setAttribute("aria-label", button.title);
-      if (action === "lock-vertical") {
-        button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="9" rx="2"/><path data-lock-shackle d="M7 9V6a3 3 0 0 1 6 0v3"/><path d="M10 12v3"/></svg>';
-        button.setAttribute("aria-pressed", String(this.verticalLocked));
-      }
-      this.controls.append(button);
-    }
-    const close = document.createElement("button");
-    close.type = "button"; close.dataset.navigationAction = "hide";
-    close.className = "trading-chart-navigation-close trading-chart-toolbar-close";
-    close.title = translateAppText("隐藏图表操作栏（移出图表后重新进入可恢复）");
-    close.setAttribute("aria-label", close.title);
-    close.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 6 8 8m0-8-8 8"/></svg>';
-    this.controls.append(close);
-    this.controls.addEventListener("pointerdown", this.controlsPointerDown);
-    this.controls.addEventListener("lostpointercapture", this.controlsCaptureLost);
-    this.controls.addEventListener("click", this.controlClick);
-    element.append(this.controls);
-    this.controlsVisibility = new TradingChartToolbarVisibility(this.controls, this.root, element, () => {
-      this.controlsPosition = null;
-      this.controlsVisibility.setAvailable(true);
-      this.positionControls();
-    });
     this.root.addEventListener("pointerdown", this.pointerDown, true);
     element.addEventListener("wheel", this.wheel, { capture: true, passive: false });
     this.root.addEventListener("dblclick", this.doubleClick, true);
@@ -211,61 +162,12 @@ export class TradingChartNavigation {
     this.timeScale = getChart()?.timeScale();
     this.timeScale?.subscribeVisibleLogicalRangeChange(this.viewportChanged);
     this.timeScale?.subscribeSizeChange(this.viewportChanged);
-    this.resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(entries => {
-      for (const entry of entries) {
-        const size = entry.borderBoxSize?.[0];
-        if (entry.target === this.controls && size?.inlineSize && size.blockSize) {
-          this.controlsSize = { width: size.inlineSize, height: size.blockSize };
-        }
-      }
-      this.viewportChanged();
-    });
+    this.resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(this.viewportChanged);
     this.resizeObserver?.observe(element);
-    this.resizeObserver?.observe(this.controls);
     this.applyVerticalLock();
   }
 
   getTool() { return this.tool; }
-
-  private positionControls() {
-    const chart = this.getChart();
-    if (this.controls.hidden || !chart?.panes().length) return null;
-    const left = chart.priceScale("left", 0).width();
-    const bottom = (chart.options?.().height ?? this.element.clientHeight) - chart.timeScale().height();
-    const requested = this.controlsPosition ?? { x: left + 8, y: 36 };
-    // Leave room for the close button, including after a split-pane resize.
-    const position = clampTradingChartToolbarPosition(requested,
-      { left, width: chart.timeScale().width(), height: bottom },
-      this.controlsSize ??= { width: this.controls.offsetWidth, height: this.controls.offsetHeight });
-    if (this.controls.style.left !== `${position.x}px`) this.controls.style.left = `${position.x}px`;
-    if (this.controls.style.top !== `${position.y}px`) this.controls.style.top = `${position.y}px`;
-    if (this.controlsPosition) this.controlsPosition = position;
-    return position;
-  }
-
-  private readonly controlsPointerDown = (event: PointerEvent) => {
-    event.stopPropagation();
-    if (!event.isPrimary || event.button !== 0 || this.controls.hidden) return;
-    this.suppressControlClick = false;
-    if ((event.target as Element).closest('[data-navigation-action="hide"]')) return;
-    this.cancelGesture();
-    const origin = this.positionControls(); if (!origin) return;
-    this.controlsDrag = { pointerId: event.pointerId, start: { x: event.clientX, y: event.clientY }, origin, moved: false };
-    beginTradingChartInteraction(this);
-  };
-
-  private finishControlsDrag() {
-    const drag = this.controlsDrag; if (!drag) return;
-    this.controlsDrag = null;
-    this.suppressControlClick = drag.moved;
-    delete this.controls.dataset.dragging;
-    if (this.controls.hasPointerCapture(drag.pointerId)) this.controls.releasePointerCapture(drag.pointerId);
-    endTradingChartInteraction(this);
-  }
-
-  private readonly controlsCaptureLost = (event: PointerEvent) => {
-    if (event.pointerId === this.controlsDrag?.pointerId) this.finishControlsDrag();
-  };
 
   setAutoScale(enabled: boolean, paneIndex = 0) {
     const chart = this.getChart(); if (!chart) return;
@@ -310,9 +212,12 @@ export class TradingChartNavigation {
     this.getChart()?.timeScale().scrollToPosition(position, false);
   }
 
-  private toggleVerticalLock() {
+  isVerticalLocked() { return this.verticalLocked; }
+
+  setVerticalLocked(locked: boolean) {
+    if (this.verticalLocked === locked) return;
     this.cancelGesture();
-    this.verticalLocked = !this.verticalLocked;
+    this.verticalLocked = locked;
     this.applyVerticalLock();
   }
 
@@ -420,22 +325,6 @@ export class TradingChartNavigation {
   };
 
   private readonly pointerMove = (event: PointerEvent) => {
-    if (this.controlsDrag) {
-      const drag = this.controlsDrag;
-      if (event.pointerId !== drag.pointerId) return;
-      const dx = event.clientX - drag.start.x, dy = event.clientY - drag.start.y;
-      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
-      if (!drag.moved) {
-        drag.moved = true;
-        this.controls.dataset.dragging = "true";
-        // Capture only after the drag threshold so ordinary button clicks
-        // retain their original target and keyboard focus behavior.
-        this.controls.setPointerCapture(event.pointerId);
-      }
-      this.controlsPosition = { x: drag.origin.x + dx, y: drag.origin.y + dy };
-      this.positionControls();
-      this.consume(event); return;
-    }
     if (this.selection?.awaitingClick) { this.paintSelection(event); return; }
     if (!this.drag || event.pointerId !== this.drag.pointerId) return;
     if (this.selection) { this.paintSelection(event); this.consume(event); return; }
@@ -461,10 +350,6 @@ export class TradingChartNavigation {
   };
 
   private readonly pointerEnd = (event: PointerEvent) => {
-    if (event.pointerId === this.controlsDrag?.pointerId) {
-      if (this.controlsDrag.moved) this.consume(event);
-      this.finishControlsDrag(); return;
-    }
     if (event.pointerId !== this.drag?.pointerId) return;
     if (event.type === "pointercancel") { this.cancelGesture(); return; }
     this.flushLockedScroll();
@@ -603,7 +488,6 @@ export class TradingChartNavigation {
   readonly cancelGesture = () => {
     this.finishPriceAxisResize();
     this.pendingWheelZoom = null;
-    this.finishControlsDrag();
     this.finishSelection(); this.drag = null; this.clearMeasurement(); this.closeMenu(); this.schedule();
     if (this.interactionTimer !== null) clearTimeout(this.interactionTimer);
     this.interactionTimer = null;
@@ -612,12 +496,10 @@ export class TradingChartNavigation {
 
   private consume(event: Event) { event.preventDefault(); event.stopPropagation(); }
   private isControl(target: EventTarget | null) {
-    return target instanceof Element && (this.controls.contains(target)
-      || !!target.closest("button, input, textarea, select, [contenteditable=true], [role=menu], [role=dialog]"));
+    return target instanceof Element && !!target.closest("button, input, textarea, select, [contenteditable=true], [role=menu], [role=dialog]");
   }
 
   private readonly wheel = (event: WheelEvent) => {
-    if (event.target instanceof Node && this.controls.contains(event.target)) { this.consume(event); return; }
     if (this.isControl(event.target) || !Number.isFinite(event.deltaX) || !Number.isFinite(event.deltaY)) return;
     const chart = this.getChart(); if (!chart) return;
     const pane = this.paneAt(event, false);
@@ -862,23 +744,6 @@ export class TradingChartNavigation {
     this.schedule();
   }
 
-  private readonly controlClick = (event: Event) => {
-    event.stopPropagation();
-    const suppress = this.suppressControlClick; this.suppressControlClick = false;
-    if (suppress && (event as MouseEvent).detail !== 0) { event.preventDefault(); return; }
-    const action = (event.target as Element).closest<HTMLElement>("[data-navigation-action]")?.dataset.navigationAction;
-    if (!action) return;
-    if (action === "hide") {
-      this.finishControlsDrag();
-      this.controlsVisibility.dismiss();
-      this.element.focus({ preventScroll: true });
-      return;
-    }
-    const paneIndex = this.activePane;
-    this.options.onFocus?.(paneIndex);
-    this.runAction(action, paneIndex); this.element.focus({ preventScroll: true });
-  };
-
   private runAction(action?: string, paneIndex = this.activePane) {
     this.clearMeasurement();
     const chart = this.getChart(); if (!chart) return;
@@ -886,7 +751,6 @@ export class TradingChartNavigation {
     const scale = chart.priceScale("right", Math.min(paneIndex, chart.panes().length - 1));
     if (action === "reset") this.reset();
     else if (action === "auto") this.setAutoScale(!scale.options().autoScale, paneIndex);
-    else if (action === "lock-vertical") this.toggleVerticalLock();
     else if (action === "log") this.setMode(chart.priceScale("right", 0).options().mode === 1 ? 0 : 1);
     else if (action === "percent") this.setMode(chart.priceScale("right", 0).options().mode === 2 ? 0 : 2);
     else if (action === "invert") scale.applyOptions({ invertScale: !scale.options().invertScale });
@@ -953,23 +817,6 @@ export class TradingChartNavigation {
       const chart = this.getChart();
       if (chart?.panes().length) {
         this.activePane = Math.min(this.activePane, chart.panes().length - 1);
-        this.positionControls();
-        const empty = !this.priceSeries(chart.panes()[0]);
-        this.controls.querySelectorAll("button").forEach(button => {
-          const disabled = empty && button.dataset.navigationAction !== "hide";
-          if (button.disabled !== disabled) button.disabled = disabled;
-        });
-        const button = this.controls.querySelector('[data-navigation-action="lock-vertical"]');
-        if (button) {
-          const state = String(this.verticalLocked);
-          if (button.getAttribute("aria-pressed") !== state) button.setAttribute("aria-pressed", state);
-          const label = translateAppText(this.verticalLocked ? "已锁定：随可见 K 线自动适配价格（点击恢复自由拖动）" : "自由拖动（点击锁定并自动适配价格）");
-          if (button.getAttribute("title") !== label) button.setAttribute("title", label);
-          if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
-          const shackle = button.querySelector('[data-lock-shackle]');
-          const path = this.verticalLocked ? "M7 9V6a3 3 0 0 1 6 0v3" : "M7 9V6a3 3 0 0 1 6 0";
-          if (shackle?.getAttribute("d") !== path) shackle?.setAttribute("d", path);
-        }
       }
       this.frame = null;
       if (--this.framesRemaining > 0) this.frame = window.requestAnimationFrame(paint);
@@ -984,11 +831,7 @@ export class TradingChartNavigation {
     this.timeScale?.unsubscribeSizeChange(this.viewportChanged);
     this.resizeObserver?.disconnect();
     if (this.frame !== null) window.cancelAnimationFrame(this.frame);
-    this.frame = null; this.controls.remove();
-    this.controls.removeEventListener("pointerdown", this.controlsPointerDown);
-    this.controls.removeEventListener("lostpointercapture", this.controlsCaptureLost);
-    this.controls.removeEventListener("click", this.controlClick);
-    this.controlsVisibility.destroy();
+    this.frame = null;
     this.root.removeEventListener("pointerdown", this.pointerDown, true);
     this.element.removeEventListener("wheel", this.wheel, true);
     this.root.removeEventListener("dblclick", this.doubleClick, true);

@@ -27,8 +27,11 @@ import { appLanguageLocale, translateAppText, translateTradingPeriodLabel, type 
 import type { TradingAnalysisContext } from "./trading-expert-general-request";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
+import { TradingDrawingVisibility } from './trading-drawing-visibility.ts';
 import { TradingChartFrameUpdate } from "./trading-chart-frame-update.ts";
 import { TradingChartCalculationCache } from "./trading-chart-calculation-cache.ts";
+import { TradingHollowHistogram, type TradingHistogramStyle } from './trading-hollow-histogram.ts';
+import { bindHaoloSelects, renderHaoloSelect } from './haolo-select.ts';
 import { setTradingChartSeriesData, setTradingChartSeriesValues, setTradingChartPriceData, setTradingChartWhitespaceData, updateTradingChartSeriesTail, withTradingChartSeriesBatch } from "./trading-chart-series-data.ts";
 import { tradingChartCandleIndex, updateTradingChartLegendRows, type TradingChartLegendRow } from "./trading-chart-legend.ts";
 import { TradingChartNavigation, TRADING_CHART_NAVIGATION_OPTIONS, captureManualTradingPriceRanges, restoreManualTradingPriceRanges } from "./trading-chart-navigation.ts";
@@ -738,6 +741,7 @@ export interface TradingIndicatorSeriesSetting {
   visible: boolean;
   color: string;
   lineWidth: 1 | 2 | 3;
+  histogramStyle?: TradingHistogramStyle;
 }
 
 export interface TradingIndicatorSetting {
@@ -943,6 +947,7 @@ function defaultTradingIndicatorSettings(): TradingIndicatorSettings {
         visible: true,
         color: series.color,
         lineWidth: series.defaultLineWidth ?? 2,
+        ...(indicator.id === 'macd' && series.key === 'histogram' ? { histogramStyle: 'solid' as const } : {}),
       }])),
     },
   ]));
@@ -994,6 +999,9 @@ export function normalizeTradingIndicatorSettings(value: unknown): TradingIndica
         visible: typeof savedRecord.visible === "boolean" ? savedRecord.visible : true,
         color,
         lineWidth,
+        ...(indicator.id === 'macd' && field.key === 'histogram'
+          ? { histogramStyle: savedRecord.histogramStyle === 'hollow' ? 'hollow' as const : 'solid' as const }
+          : {}),
       }];
     }));
     defaults[key] = {
@@ -4668,7 +4676,7 @@ function renderTradingMarketIndicatorBar() {
         aria-haspopup="dialog"
         aria-expanded="false"
       >
-        自定义指标
+        指标设置
         <svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"/></svg>
       </button>
       <div class="trading-market-main-indicators" data-market-main-indicators aria-label="主图指标">
@@ -4692,12 +4700,12 @@ function renderIndicatorEditorShell() {
       >
         <header class="trading-market-indicator-editor-header">
           <div>
-            <strong id="trading-market-indicator-editor-title">自定义指标</strong>
+            <strong id="trading-market-indicator-editor-title">指标设置</strong>
             <span>选择指标并调整参数与显示</span>
           </div>
           <div class="trading-market-indicator-editor-header-actions">
             <button type="button" data-market-action="restore-indicator-settings">恢复默认</button>
-            <button type="button" class="close" data-market-action="close-indicator-editor" aria-label="关闭自定义指标">
+            <button type="button" class="close" data-market-action="close-indicator-editor" aria-label="关闭指标设置">
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 3 10 10M13 3 3 13"/></svg>
             </button>
           </div>
@@ -4812,20 +4820,20 @@ export function renderTradingExpertMarketWorkspace() {
             aria-haspopup="dialog"
             aria-expanded="false"
           >
-            自定义周期
+            周期设置
             <svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"/></svg>
           </button>
           <div
             class="trading-market-split-period-menu trading-market-primary-period-menu"
             data-market-primary-period-menu
             role="listbox"
-            aria-label="图表 1 自定义周期"
+            aria-label="图表 1 周期设置"
             hidden
           >${renderTimeButtons()}</div>
           <div class="trading-market-times" data-market-times aria-label="K线周期">${renderTimeButtons()}</div>
           <button type="button" class="trading-market-period-trigger trading-market-period-more"
             data-market-action="toggle-more-periods" aria-haspopup="dialog" aria-expanded="false" hidden>
-            更多
+            <span data-market-period-more-label data-i18n-trading-period-label>更多</span>
             <svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"/></svg>
           </button>
           <section class="trading-market-period-overflow" data-market-period-overflow role="dialog" aria-label="更多周期" hidden>
@@ -4938,6 +4946,7 @@ class TradingExpertMarketWorkspace {
   private readonly periodControls: HTMLElement;
   private readonly periodTimes: HTMLElement;
   private readonly periodMoreButton: HTMLButtonElement;
+  private readonly periodMoreLabel: HTMLElement;
   private readonly periodOverflow: HTMLElement;
   private readonly periodOverflowItems: HTMLElement;
   private periodOverflowObserver: ResizeObserver | null = null;
@@ -5121,6 +5130,7 @@ class TradingExpertMarketWorkspace {
   private activeDrawingController: TradingDrawingController | null = null;
   private orderLines: TradingOrderLine[] = [];
   private chartSettings = cloneTradingChartSettings();
+  private readonly drawingVisibilitySettings: TradingDrawingVisibility;
   private chartSettingsTab: TradingChartSettingsTab = "main-style";
   private splitLayoutId = "1-single";
   private splitPanes: TradingExpertSplitPane[] = [];
@@ -5138,6 +5148,7 @@ class TradingExpertMarketWorkspace {
     this.newTaskWorkspace = newTaskWorkspace;
     this.favoriteStorageAccountIdentity = favoriteStorageAccountIdentity;
     this.drawingStorageSessionId = drawingStorageSessionId;
+    this.drawingVisibilitySettings = new TradingDrawingVisibility(drawingStorageSessionId, () => this.syncDrawingVisibilityControls());
     this.chartElement = this.requireElement("[data-market-chart]");
     this.viewport = this.requireElement("[data-market-chart-viewport]");
     this.drawingLayer = this.requireElement<SVGSVGElement>("[data-drawing-layer]");
@@ -5190,6 +5201,7 @@ class TradingExpertMarketWorkspace {
     this.periodControls = this.requireElement("[data-market-period-controls]");
     this.periodTimes = this.requireElement("[data-market-times]");
     this.periodMoreButton = this.requireElement<HTMLButtonElement>('[data-market-action="toggle-more-periods"]');
+    this.periodMoreLabel = this.requireElement("[data-market-period-more-label]");
     this.periodOverflow = this.requireElement("[data-market-period-overflow]");
     this.periodOverflowItems = this.requireElement("[data-market-period-overflow-items]");
     this.primaryPeriodMenu = this.requireElement("[data-market-primary-period-menu]");
@@ -5353,10 +5365,16 @@ class TradingExpertMarketWorkspace {
       return;
     }
     if (action === "restore-chart-settings") {
+      this.chartSettingsNavigation()?.setVerticalLocked(true);
+      this.drawingVisibilitySettings.setLayers({ aiHidden: false, manualHidden: false });
       this.chartSettings = cloneTradingChartSettings(DEFAULT_TRADING_CHART_SETTINGS);
       this.persistAndApplyChartSettings({ rebuildSeries: true });
       this.refreshChartSettingsDialog();
       this.setChartSettingsOpen(true);
+      return;
+    }
+    if (action === "reset-chart") {
+      this.chartSettingsNavigation()?.reset();
       return;
     }
     if (action === "open-split-layouts") {
@@ -5667,6 +5685,8 @@ class TradingExpertMarketWorkspace {
     } else if (target.dataset.marketIndicatorSeriesWidth !== undefined) {
       const width = Number(target.value);
       if (width === 1 || width === 2 || width === 3) series.lineWidth = width;
+    } else if (target.dataset.marketIndicatorHistogramStyle !== undefined && key === 'sub:macd' && seriesKey === 'histogram') {
+      series.histogramStyle = target.value === 'hollow' ? 'hollow' : 'solid';
     }
     this.setIndicatorStatus("有未保存的更改");
   };
@@ -5676,6 +5696,16 @@ class TradingExpertMarketWorkspace {
     if (!target || !key || !this.chartSettingsBackdrop.contains(target)) return;
     const continuousInput = target.type === "color" || target.type === "number";
     if ((event.type === "input") !== continuousInput) return;
+    if (key === "verticalLocked") {
+      this.chartSettingsNavigation()?.setVerticalLocked(target.checked);
+      this.syncChartNavigationControls();
+      return;
+    }
+    if (key === 'drawingVisibility.aiHidden' || key === 'drawingVisibility.manualHidden') {
+      const layer = key === 'drawingVisibility.aiHidden' ? 'aiHidden' : 'manualHidden';
+      this.drawingVisibilitySettings.setLayers({ [layer]: target.checked });
+      return;
+    }
     const previousStyle = this.chartSettings.chartStyle;
     const themeName: TradingChartThemeName = isDarkTheme() ? "dark" : "light";
     const theme = this.chartSettings.themes[themeName];
@@ -5741,6 +5771,13 @@ class TradingExpertMarketWorkspace {
     this.persistAndApplyChartSettings({ rebuildSeries: previousStyle !== this.chartSettings.chartStyle });
     this.syncChartSettingsControls(key);
   };
+
+  private syncDrawingVisibilityControls() {
+    const state = this.drawingVisibilitySettings.layers();
+    this.chartSettingsBackdrop?.querySelectorAll<HTMLInputElement>('[data-chart-setting^="drawingVisibility."]').forEach(input => {
+      input.checked = input.dataset.chartSetting === 'drawingVisibility.aiHidden' ? state.aiHidden : state.manualHidden;
+    });
+  }
 
   private syncChartSettingsControls(changedKey: string) {
     if (["autoScale", "priceScaleMode", "logarithmicScale", "percentageScale"].includes(changedKey)) {
@@ -5885,6 +5922,8 @@ class TradingExpertMarketWorkspace {
     template.innerHTML = renderTradingChartSettingsDialog(
       this.chartSettings,
       isDarkTheme() ? "dark" : "light",
+      this.drawingVisibilitySettings.layers(),
+      this.chartSettingsNavigation()?.isVerticalLocked() ?? true,
     ).trim();
     const next = template.content.firstElementChild as HTMLElement | null;
     if (!next) return;
@@ -5894,9 +5933,28 @@ class TradingExpertMarketWorkspace {
     this.chartSettingsBackdrop.hidden = !wasOpen;
   }
 
+  private chartSettingsNavigation() {
+    const splitHost = this.chartSettingsAnchor?.closest<HTMLElement>("[data-market-split-pane]");
+    return splitHost
+      ? this.splitPanes[Number(splitHost.dataset.marketSplitPane) - 2]?.getChartNavigation() ?? null
+      : this.chartNavigation;
+  }
+
+  private syncChartNavigationControls() {
+    const navigation = this.chartSettingsNavigation();
+    const lock = this.chartSettingsBackdrop.querySelector<HTMLInputElement>('[data-chart-setting="verticalLocked"]');
+    if (lock) {
+      lock.checked = navigation?.isVerticalLocked() ?? true;
+      lock.disabled = !navigation;
+    }
+    const reset = this.chartSettingsBackdrop.querySelector<HTMLButtonElement>('[data-market-action="reset-chart"]');
+    if (reset) reset.disabled = !navigation;
+  }
+
   private setChartSettingsTab(tab: TradingChartSettingsTab) {
     const allowed: TradingChartSettingsTab[] = [
       "main-style", "background", "scale", "rise-fall", "coordinate", "live-price", "drawing-tools",
+      "drawing-visibility",
       "order-display",
     ];
     if (!allowed.includes(tab)) return;
@@ -5912,6 +5970,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private setChartSettingsOpen(open: boolean, anchor: HTMLElement | null = null) {
+    if (open) this.syncDrawingVisibilityControls();
     this.chartSettingsBackdrop.hidden = !open;
     this.chartSettingsBackdrop.classList.toggle("open", open);
     const primaryTrigger = this.host.querySelector<HTMLElement>('[data-market-action="open-chart-settings"]');
@@ -5928,6 +5987,7 @@ class TradingExpertMarketWorkspace {
       : this.chartSettingsAnchor?.isConnected
         ? this.chartSettingsAnchor
         : primaryTrigger;
+    this.syncChartNavigationControls();
     const primaryOpen = this.chartSettingsAnchor === primaryTrigger;
     primaryTrigger?.setAttribute("aria-expanded", String(primaryOpen));
     primaryTrigger?.classList.toggle("active", primaryOpen);
@@ -7397,9 +7457,12 @@ class TradingExpertMarketWorkspace {
       return;
     }
     if (!this.periodControls.clientWidth) return;
+    const restoreMoreFocus = document.activeElement === this.periodMoreButton;
     const buttons = [...this.periodTimes.querySelectorAll<HTMLButtonElement>("[data-market-interval]")];
     buttons.forEach(button => { button.hidden = false; });
     this.periodMoreButton.hidden = true;
+    const moreLabel = translateAppText("更多");
+    if (this.periodMoreLabel.textContent !== moreLabel) this.periodMoreLabel.textContent = moreLabel;
     const gap = Number.parseFloat(getComputedStyle(this.periodTimes).columnGap) || 0;
     const widths = buttons.map(button => button.getBoundingClientRect().width);
     const totalWidth = widths.reduce((sum, width) => sum + width, 0) + Math.max(0, widths.length - 1) * gap;
@@ -7409,22 +7472,23 @@ class TradingExpertMarketWorkspace {
     } else {
       this.periodMoreButton.hidden = false;
       const available = this.periodTimes.clientWidth;
-      let used = 0;
-      for (let index = 0; index < buttons.length; index += 1) {
-        const next = used + (visible.size ? gap : 0) + widths[index];
-        if (next > available) break;
-        visible.add(index);
-        used = next;
-      }
-      // Keep the chosen period visible, without changing the user's saved order.
-      const activeIndex = buttons.findIndex(button => button.dataset.marketInterval === this.activeInterval);
-      if (activeIndex >= 0 && !visible.has(activeIndex) && widths[activeIndex] <= available) {
-        while (visible.size && used + gap + widths[activeIndex] > available) {
-          const last = [...visible].at(-1)!;
-          visible.delete(last);
-          used -= widths[last] + (visible.size ? gap : 0);
+      const fitPeriods = (width: number) => {
+        visible.clear();
+        let used = 0;
+        for (let index = 0; index < buttons.length; index += 1) {
+          const next = used + (visible.size ? gap : 0) + widths[index];
+          if (next > width) break;
+          visible.add(index);
+          used = next;
         }
-        visible.add(activeIndex);
+      };
+      fitPeriods(available);
+      const activeIndex = buttons.findIndex(button => button.dataset.marketInterval === this.activeInterval);
+      if (activeIndex >= 0 && !visible.has(activeIndex)) {
+        this.periodMoreLabel.textContent = translateTradingPeriodLabel(tradingPeriodLabel(this.periods[activeIndex]));
+        // A longer selected label may need room; a shorter one must not move
+        // that period out of the menu and flip the label back to More.
+        fitPeriods(Math.min(available, this.periodTimes.clientWidth));
       }
     }
     buttons.forEach((button, index) => { button.hidden = !visible.has(index); });
@@ -7433,6 +7497,12 @@ class TradingExpertMarketWorkspace {
     if (!this.overflowPeriods.length) this.setPeriodOverflowOpen(false);
     if (!this.periodOverflow.hidden) this.renderPeriodOverflow();
     this.periodMoreButton.classList.toggle("selected", this.overflowPeriods.some(period => tradingViewResolution(period) === this.activeInterval));
+    if (restoreMoreFocus) {
+      const focusTarget = this.periodMoreButton.hidden
+        ? buttons.find(button => button.dataset.marketInterval === this.activeInterval && !button.hidden)
+        : this.periodMoreButton;
+      focusTarget?.focus({ preventScroll: true });
+    }
   }
 
   private renderPeriodOverflow() {
@@ -8049,7 +8119,19 @@ class TradingExpertMarketWorkspace {
       : '<p class="trading-market-indicator-empty-parameters">该指标无需设置计算参数</p>';
     const displayRows = indicator.display.map((field) => {
       const series = setting.series[field.key];
-      const colorControl = field.type === "histogram" ? '<span class="trading-market-indicator-display-kind">柱状图</span>' : `
+      const isMacdHistogram = key === 'sub:macd' && field.key === 'histogram';
+      const colorControl = isMacdHistogram ? renderHaoloSelect({
+        id: `${this.drawingStorageSessionId}-macd-histogram-style`,
+        className: 'trading-market-indicator-histogram-style',
+        value: series.histogramStyle ?? 'solid',
+        ariaLabel: 'MACD柱样式',
+        options: [{ value: 'solid', label: '实心柱' }, { value: 'hollow', label: '空心柱' }],
+        inputAttributes: {
+          'data-market-indicator-setting': key,
+          'data-market-indicator-series': field.key,
+          'data-market-indicator-histogram-style': true,
+        },
+      }) : field.type === "histogram" ? '<span class="trading-market-indicator-display-kind">柱状图</span>' : `
         <label class="trading-market-indicator-color" title="${field.label}颜色">
           <input
             type="color"
@@ -8120,6 +8202,7 @@ class TradingExpertMarketWorkspace {
           </label>
           <div>${widthControl}${colorControl}</div>
         </div>
+        ${isMacdHistogram ? '<p class="trading-market-indicator-histogram-hint">空心柱仅显示边框，柱高和颜色保持不变。</p>' : ''}
       `;
     }).join("");
     this.indicatorDetail.innerHTML = `
@@ -8143,6 +8226,9 @@ class TradingExpertMarketWorkspace {
         <p>${indicator.description}</p>
       </section>
     `;
+    // Bind to the newly rendered list so old picker listeners are discarded with it.
+    const displayList = this.indicatorDetail.querySelector<HTMLElement>('.trading-market-indicator-display-list');
+    if (displayList) bindHaoloSelects(displayList);
     if (resetStatus) this.setIndicatorStatus("修改将在保存后应用到图表");
   }
 
@@ -8491,6 +8577,8 @@ class TradingExpertMarketWorkspace {
     }
     if(migrateFromSessionId)migrateCloudIndicatorPatches(migrateFromSessionId,drawingStorageSessionId);
     this.drawingStorageSessionId = drawingStorageSessionId;
+    this.drawingVisibilitySettings.switchSession(drawingStorageSessionId, Boolean(migrateFromSessionId) && migrateFromSessionId === previousStorageSessionId);
+    this.syncDrawingVisibilityControls();
     this.drawingController?.switchStorageSession(drawingStorageSessionId, {
       migrateFromSessionId: migrateFromSessionId || undefined,
     });
@@ -11040,6 +11128,8 @@ class TradingExpertMarketWorkspace {
           500,
           Date.now(),
           marketType,
+          this.marketDataRequestAbortController?.signal,
+          { demand: "prefetch" },
         );
         if (!candleBatch.candles.length || !tradingCandleSeriesMatchesResolution(candleBatch.candles, interval)) continue;
         setTradingMarketCandleCache(key, {
@@ -12542,13 +12632,14 @@ class TradingExpertMarketWorkspace {
   }
 
   private createIndicatorPane(id: TradingIndicatorId) {
-    if (!this.chart) return;
+    const chart = this.chart;
+    if (!chart) return;
     const theme = marketTheme(isDarkTheme());
     const setting = this.indicatorSettings[tradingIndicatorSettingKey("sub", id)];
     const result = calculateTradingIndicator(id, this.candles, setting.parameters);
     const visibleSeries = result.series.filter((descriptor) => setting.series[descriptor.key]?.visible !== false);
     if (!visibleSeries.length) return;
-    const pane = this.chart.addPane(false);
+    const pane = chart.addPane(false);
     pane.setStretchFactor(1);
     const runtime: IndicatorPaneRuntime = {
       id,
@@ -12571,7 +12662,13 @@ class TradingExpertMarketWorkspace {
           : { type: "price" as const, precision: 2, minMove: 0.01 },
       };
       const api = descriptor.type === "histogram"
-        ? pane.addSeries(HistogramSeries, {
+        ? id === 'macd' && seriesSetting?.histogramStyle === 'hollow'
+          // v5.1 PaneApi.addCustomSeries defaults to pane 0; supply the actual pane explicitly.
+          ? chart.addCustomSeries(new TradingHollowHistogram(), {
+              ...commonOptions,
+              color: seriesSetting?.color ?? descriptor.color,
+            }, pane.paneIndex())
+          : pane.addSeries(HistogramSeries, {
             ...commonOptions,
             color: seriesSetting?.color ?? descriptor.color,
             base: descriptor.baseValue ?? 0,
@@ -13414,6 +13511,7 @@ class TradingExpertMarketWorkspace {
   }
 
   destroy() {
+    this.drawingVisibilitySettings.destroy();
     this.unregisterSettingsSync?.();
     this.favoritePriceFlash.clear();
     this.pickerPriceFlash.clear();

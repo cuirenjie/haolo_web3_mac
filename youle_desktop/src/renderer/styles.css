@@ -30385,63 +30385,6 @@ html[data-theme="dark"] .composer-paste-context-menu button:is(:hover, :focus-vi
   color: var(--text-primary);
 }
 
-/* Shared surface treatment for compact first-, second-, and third-level option menus. */
-:is(
-  .copy-context-menu,
-  .composer-paste-context-menu,
-  .thread-group-add-submenu,
-  .thread-marker-submenu,
-  .thread-group-move-submenu,
-  .titlebar-more-menu,
-  .external-channel-menu,
-  .thread-context-menu,
-  .thread-group-context-menu,
-  .contact-context-menu,
-  .chat-title-group-menu,
-  .video-expert-select-menu,
-  .auto-task-card-menu,
-  .plugin-marketplace-action-menu,
-  .skills-sort-menu,
-  .library-group-filter-menu,
-  .composer-skill-popover,
-  .composer-mention-submenu,
-  .composer-thread-detail-submenu,
-  .thread-group-select-menu
-) {
-  border: 1px solid rgba(17, 24, 39, 0.08);
-  border-radius: 10px;
-  background: var(--surface-primary);
-  box-shadow: 0 16px 42px rgba(17, 24, 39, 0.14);
-}
-
-html[data-theme="dark"]
-  :is(
-    .copy-context-menu,
-    .composer-paste-context-menu,
-    .thread-group-add-submenu,
-    .thread-marker-submenu,
-    .thread-group-move-submenu,
-    .titlebar-more-menu,
-    .external-channel-menu,
-    .thread-context-menu,
-    .thread-group-context-menu,
-    .contact-context-menu,
-    .chat-title-group-menu,
-    .video-expert-select-menu,
-    .auto-task-card-menu,
-    .plugin-marketplace-action-menu,
-    .skills-sort-menu,
-    .library-group-filter-menu,
-    .composer-skill-popover,
-    .composer-mention-submenu,
-    .composer-thread-detail-submenu,
-    .thread-group-select-menu
-  ) {
-  border-color: rgba(255, 255, 255, 0.085);
-  background: #1b1e23;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
-}
-
 html:not([data-theme="dark"])
   :is([role="menu"], [role="listbox"])
   :is([role="menuitem"], [role="menuitemradio"], [role="option"], [role="checkbox"]):not(
@@ -34043,13 +33986,7 @@ html[data-theme="dark"]
   --trading-market-favorite-fill: var(--brand-blue);
   --trading-market-scrollbar-thumb: rgba(91, 108, 132, 0.52);
   --trading-market-scrollbar-thumb-hover: rgba(63, 82, 108, 0.72);
-  --trading-fibonacci-level-pink: #c61ca4;
-  --trading-fibonacci-level-blue: #246dcc;
-  --trading-fibonacci-level-purple: #8f35cf;
-  --trading-fibonacci-level-magenta: #a92dd4;
-  --trading-fibonacci-connector: #3697ed;
   --trading-fibonacci-handle-stroke: #46505e;
-  --trading-fibonacci-label-outline: rgba(255, 255, 255, 0.94);
   --trading-ai-chan-pen: #7b61ff;
   --trading-ai-chan-center: #d97706;
   --trading-ai-chan-top: #dc3658;
@@ -36043,15 +35980,12 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 }
 
 .trading-fibonacci-label {
-  paint-order: stroke fill;
-  stroke: var(--trading-fibonacci-label-outline);
-  stroke-width: 3px;
-  stroke-linejoin: round;
-  font-size: calc(11px + var(--app-font-size-offset));
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  stroke: none;
+  font-size: calc(12px + var(--app-font-size-offset));
+  font-weight: 400;
 }
 
+.trading-fibonacci-band,
 .trading-fibonacci-level-line,
 .trading-fibonacci-connector {
   pointer-events: none;
@@ -36147,14 +36081,17 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 .trading-drawing-selection {
   position: absolute;
   z-index: 12;
+  box-sizing: border-box;
   display: flex;
   height: 42px;
-  align-items: stretch;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
   border: 1px solid var(--trading-market-border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--trading-market-panel);
-  box-shadow: 0 10px 28px rgba(25, 43, 68, 0.18);
-  color: var(--trading-market-muted);
+  box-shadow: 0 3px 12px rgba(25, 43, 68, 0.12);
+  color: var(--trading-market-text);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -36255,13 +36192,13 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 
 .trading-drawing-selection-grip {
   display: grid;
-  width: 16px;
-  flex: 0 0 16px;
+  width: 14px;
+  height: 34px;
+  flex: 0 0 14px;
   grid-template-columns: repeat(2, 2px);
   grid-template-rows: repeat(3, 2px);
   place-content: center;
   gap: 3px;
-  border-right: 1px solid var(--trading-market-border);
   cursor: grab;
   touch-action: none;
 }
@@ -36286,24 +36223,32 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 .trading-drawing-selection-action {
   position: relative;
   display: grid;
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
   place-items: center;
   border: 0;
-  border-right: 1px solid var(--trading-market-border);
-  border-radius: 0;
+  border-radius: 5px;
   background: transparent;
-  color: var(--trading-market-muted);
+  color: var(--trading-market-text);
   padding: 0;
   font: inherit;
   cursor: pointer;
   transition: background 0.14s ease, color 0.14s ease, opacity 0.14s ease;
 }
 
-.trading-drawing-selection-mode > .trading-drawing-selection-action:last-child {
-  border-right: 0;
-  border-radius: 0 5px 5px 0;
+.trading-drawing-selection-action[data-drawing-selection-action="toggle-lock"] {
+  margin-left: 6px;
+}
+
+.trading-drawing-selection-action[data-drawing-selection-action="toggle-lock"]::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 8px;
+  width: 1px;
+  height: 18px;
+  background: var(--trading-market-border);
 }
 
 .trading-drawing-selection-action:hover,
@@ -36337,11 +36282,15 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
   stroke-width: 1.25;
 }
 
+.trading-drawing-selection-action[data-drawing-selection-action="toggle-color"] > svg {
+  transform: translateY(-2px);
+}
+
 .trading-drawing-text-symbol,
 .trading-drawing-bold-symbol,
 .trading-drawing-font-size {
   font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
-  font-size: calc(18px + var(--app-font-size-offset));
+  font-size: calc(16px + var(--app-font-size-offset));
   line-height: 1;
 }
 
@@ -36354,8 +36303,8 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 }
 
 .trading-drawing-selection-menu-wrap.font-size > .trading-drawing-selection-action {
-  width: 48px;
-  min-width: 48px;
+  width: 42px;
+  min-width: 42px;
 }
 
 .trading-drawing-background-symbol {
@@ -36374,7 +36323,7 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 .trading-drawing-line-preview,
 .trading-drawing-width-preview {
   display: block;
-  width: 24px;
+  width: 20px;
   height: 0;
   border-top: var(--drawing-width, 1px) solid currentcolor;
 }
@@ -36382,8 +36331,8 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 .trading-drawing-color-indicator {
   position: absolute;
   bottom: 4px;
-  width: 22px;
-  height: 4px;
+  width: 16px;
+  height: 3px;
   border-radius: 2px;
   background: var(--drawing-current-color, #2962ff);
 }
@@ -36392,13 +36341,13 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
   display: flex;
   justify-content: center;
   gap: 6px;
-  width: 76px;
-  min-width: 76px;
+  width: 64px;
+  min-width: 64px;
   color: var(--trading-market-text);
 }
 
 .trading-drawing-width-value {
-  font: 14px Arial, sans-serif;
+  font: 400 13px/1 "Segoe UI", Arial, sans-serif;
   white-space: nowrap;
 }
 
@@ -36938,7 +36887,7 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
 .trading-market-times {
   display: flex;
   min-width: 0;
-  flex: 1 1 0;
+  flex: 0 1 auto;
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
@@ -37144,22 +37093,7 @@ html[data-theme="dark"] .trading-market-period-overflow {
   box-shadow: 0 3px 10px color-mix(in srgb, var(--trading-market-text) 12%, transparent);
 }
 .trading-chart-zoom-selection > .trading-chart-measurement-label { display: none; }
-.trading-chart-navigation-controls {
-  position: absolute;
-  z-index: 15;
-  left: 8px;
-  top: 36px;
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--trading-market-border);
-  border-radius: 5px;
-  background: var(--trading-market-panel);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--trading-market-text) 10%, transparent);
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-}
+
 .trading-chart-floating-toolbar {
   visibility: hidden;
   opacity: 0;
@@ -37173,11 +37107,6 @@ html[data-theme="dark"] .trading-market-period-overflow {
   opacity: 1;
   pointer-events: auto;
 }
-.trading-chart-navigation-controls[data-dragging="true"],
-.trading-chart-navigation-controls[data-dragging="true"] button { cursor: grabbing; }
-.trading-chart-navigation-grip { display: grid; place-items: center; width: 12px; color: var(--trading-market-muted); }
-.trading-chart-navigation-grip svg { width: 12px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.trading-chart-navigation-controls button,
 .trading-chart-navigation-menu button {
   border: 0;
   border-radius: 3px;
@@ -37185,25 +37114,17 @@ html[data-theme="dark"] .trading-market-period-overflow {
   color: var(--trading-market-text);
   cursor: pointer;
 }
-.trading-chart-navigation-controls button { width: 28px; height: 26px; font-size: calc(16px + var(--app-font-size-offset)); }
-.trading-chart-navigation-controls button[data-navigation-action="lock-vertical"] { display: grid; place-items: center; }
-.trading-chart-navigation-controls button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.trading-chart-navigation-controls button:hover,
 .trading-chart-navigation-menu button:hover {
   background: var(--trading-market-accent-soft);
 }
-.trading-chart-navigation-controls button[aria-pressed="true"],
-.trading-chart-navigation-controls button:active,
 .trading-chart-navigation-menu button:active {
   color: var(--trading-market-accent);
   background: var(--trading-market-accent-soft);
 }
-.trading-chart-navigation-controls button:focus-visible,
 .trading-chart-navigation-menu button:focus-visible {
   outline: 2px solid var(--trading-market-accent);
   outline-offset: -2px;
 }
-.trading-chart-navigation-controls button:disabled { opacity: .45; cursor: default; }
 .trading-drawing-selection > button.trading-chart-toolbar-close,
 .trading-chart-floating-toolbar > button.trading-chart-toolbar-close {
   position: absolute;
@@ -38165,6 +38086,23 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   color: var(--trading-market-muted);
   font-size: calc(11px + var(--app-font-size-offset));
   text-align: right;
+}
+
+.trading-market-indicator-histogram-style {
+  grid-column: 1 / -1;
+}
+
+.trading-market-indicator-histogram-style .haolo-select-trigger {
+  height: 36px;
+  background: var(--surface-soft);
+  font: inherit;
+}
+
+.trading-market-indicator-histogram-hint {
+  margin: 0;
+  color: var(--trading-market-muted);
+  font-size: calc(11px + var(--app-font-size-offset));
+  line-height: 1.6;
 }
 
 .trading-market-indicator-display-row > div > .trading-market-indicator-color:only-child {
@@ -39341,6 +39279,7 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   padding: 0 28px;
 }
 
+.trading-chart-settings-action,
 .trading-chart-settings-dialog > footer button {
   height: 34px;
   border: 1px solid var(--trading-market-border);
@@ -39353,6 +39292,17 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   font-size: calc(12px + var(--app-font-size-offset));
 }
 
+.trading-chart-settings-action:hover {
+  background: var(--trading-market-accent-soft);
+  color: var(--trading-market-accent);
+}
+
+.trading-chart-settings-action:focus-visible {
+  outline: 2px solid var(--trading-market-accent);
+  outline-offset: 2px;
+}
+
+.trading-chart-settings-action:disabled,
 .trading-chart-settings-dialog > footer button:disabled,
 .trading-chart-settings-dialog > header button:disabled,
 .trading-chart-settings-color input:disabled,
@@ -39428,13 +39378,7 @@ html[data-theme="dark"] .trading-expert-market {
   --trading-market-favorite-fill: var(--brand-blue);
   --trading-market-scrollbar-thumb: rgba(148, 161, 181, 0.5);
   --trading-market-scrollbar-thumb-hover: rgba(190, 201, 218, 0.72);
-  --trading-fibonacci-level-pink: #ff72d5;
-  --trading-fibonacci-level-blue: #78adff;
-  --trading-fibonacci-level-purple: #d08aff;
-  --trading-fibonacci-level-magenta: #e47cff;
-  --trading-fibonacci-connector: #69b8ff;
   --trading-fibonacci-handle-stroke: #d9e0ea;
-  --trading-fibonacci-label-outline: rgba(15, 16, 20, 0.94);
   --trading-ai-chan-pen: #a994ff;
   --trading-ai-chan-center: #ffb34d;
   --trading-ai-chan-top: #ff718e;
@@ -39539,6 +39483,10 @@ html[data-theme="dark"] .trading-drawing-selection-popover {
   border-color: #2a3446;
   background: #14171d;
   box-shadow: 0 16px 42px rgba(0, 0, 0, 0.54);
+}
+
+html[data-theme="dark"] .trading-drawing-selection {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.32);
 }
 
 html[data-theme="dark"] .trading-market-period-editor {
@@ -41977,3 +41925,203 @@ html[data-theme="dark"] .settings-referral-entry:active { border-color: #656c76;
 html[data-theme="dark"] .settings-referral-entry:focus-visible { outline-color: #9ca3ad; }
 html[data-theme="dark"] .settings-referral-entry-icon { border: 1px solid rgba(255, 255, 255, .14); background: #08090b; box-shadow: 0 6px 14px rgba(0, 0, 0, .34); }
 html[data-theme="dark"] .settings-referral-entry > span small { color: #9ca3ad; }
+
+/* One surface for desktop dropdowns, including the browser's select picker.
+   Keep each feature's positioning, sizing, grouping and semantic action colors. */
+:root {
+  --dropdown-surface: var(--surface-primary);
+  --dropdown-text: var(--text-primary);
+  --dropdown-border: #dfe5ee;
+  --dropdown-radius: 10px;
+  --dropdown-item-radius: 6px;
+  --dropdown-hover: #f0f3f7;
+  --dropdown-selected: #edf4ff;
+  --dropdown-accent: #1677ff;
+  --dropdown-shadow: 0 18px 50px rgba(28, 45, 67, 0.18);
+}
+
+html[data-theme="dark"] {
+  --dropdown-surface: #1b1e23;
+  --dropdown-text: #f2f5fa;
+  --dropdown-border: #353d49;
+  --dropdown-hover: #292f39;
+  --dropdown-selected: #243650;
+  --dropdown-accent: #8bbaff;
+  --dropdown-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+}
+
+html:root :is(
+  .haolo-select-menu,
+  .video-expert-select-menu,
+  .copy-context-menu,
+  .composer-paste-context-menu,
+  .titlebar-more-menu,
+  .external-channel-menu,
+  .thread-context-menu,
+  .thread-group-context-menu,
+  .thread-group-add-submenu,
+  .thread-marker-submenu,
+  .thread-group-move-submenu,
+  .thread-group-select-menu,
+  .thread-history-popover,
+  .contact-context-menu,
+  .chat-title-group-menu,
+  .composer-mode-menu,
+  .composer-mention-popover,
+  .composer-skill-popover,
+  .composer-mention-submenu,
+  .composer-media-mention-popover,
+  .composer-thread-detail-submenu,
+  .auto-task-card-menu,
+  .auto-task-popover,
+  .plugin-marketplace-action-menu,
+  .skills-sort-menu,
+  .library-group-filter-menu,
+  .group-chat-quantity-menu,
+  .local-group-chat-member-menu,
+  .profile-menu,
+  .workflow-canvas-context-menu,
+  .workflow-canvas-history-submenu,
+  .workflow-node-mention-popover,
+  .workflow-node-mention-submenu,
+  .trading-market-picker,
+  .trading-market-layout-picker,
+  .trading-market-period-editor,
+  .trading-market-period-overflow,
+  .trading-market-split-period-menu,
+  .trading-drawing-tool-menu,
+  .trading-drawing-selection-popover,
+  .trading-chart-navigation-menu,
+  .trading-watchlist-menu,
+  .trading-alert-market-menu,
+  .execution-plan-end-menu
+) {
+  border: 1px solid var(--dropdown-border);
+  border-radius: var(--dropdown-radius);
+  background: var(--dropdown-surface);
+  box-shadow: var(--dropdown-shadow);
+}
+
+/* Single-choice rows share the same neutral hover and soft blue selection.
+   Grid pickers, color palettes and destructive actions retain their own states. */
+html:root :is(.haolo-select-option, .video-expert-select-menu [role="option"], .group-chat-quantity-menu button) {
+  border-radius: var(--dropdown-item-radius);
+  color: var(--dropdown-text);
+}
+
+html:root :is(.haolo-select-option, .video-expert-select-menu [role="option"], .group-chat-quantity-menu button):is(:hover, :focus-visible):not(:disabled) {
+  background: var(--dropdown-hover);
+  outline: none;
+}
+
+html:root :is(.haolo-select-option, .video-expert-select-menu [role="option"], .group-chat-quantity-menu button):is(.selected, .active, [aria-selected="true"], [aria-checked="true"]):not(:disabled) {
+  background: var(--dropdown-selected);
+  color: var(--dropdown-accent);
+}
+
+/* Electron 39 supports customizable select. Both halves must opt in so Windows
+   never draws the rectangular OS popup. Native form values, change/input events,
+   typeahead, keyboard selection and top-layer placement remain browser-managed. */
+@supports (appearance: base-select) {
+  html:root select:not([multiple]):where(:not([size]:not([size="1"]))):not([hidden]):not([aria-hidden="true"]),
+  html:root select:not([multiple]):where(:not([size]:not([size="1"]))):not([hidden]):not([aria-hidden="true"])::picker(select) {
+    appearance: base-select;
+    box-sizing: border-box;
+    color: var(--dropdown-text);
+    font: inherit;
+  }
+
+  html:root select:not([multiple]):where(:not([size]:not([size="1"]))):not([hidden]):not([aria-hidden="true"]) {
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--dropdown-border);
+    border-radius: 8px;
+    background: var(--surface-field-neutral);
+    padding: 0 10px;
+    cursor: pointer;
+  }
+
+  html:root select:not([multiple]):where(:not([size]:not([size="1"]))):not([hidden]):not([aria-hidden="true"])::picker-icon {
+    content: "";
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+    background: currentColor;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+
+  html:root select:not([multiple]):open::picker-icon { rotate: 180deg; }
+
+  html:root select:not([multiple]):not([hidden]):not([aria-hidden="true"]):hover:not(:disabled) {
+    background-color: var(--dropdown-hover);
+  }
+
+  html:root select:not([multiple]):focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--dropdown-accent) 35%, transparent);
+    outline-offset: 2px;
+  }
+
+  html:root select:not([multiple]):disabled {
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  html:root select:not([multiple])::picker(select) {
+    width: max-content;
+    min-width: anchor-size(width);
+    max-width: calc(100vw - 24px);
+    max-height: min(264px, calc(100dvh - 24px));
+    overflow: auto;
+    overscroll-behavior: contain;
+    margin-block: 6px;
+    padding: 5px;
+    border: 1px solid var(--dropdown-border);
+    border-radius: var(--dropdown-radius);
+    background: var(--dropdown-surface);
+    box-shadow: var(--dropdown-shadow);
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+
+  html:root select:not([multiple]) option {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 32px;
+    padding: 6px 10px;
+    border: 0;
+    border-radius: var(--dropdown-item-radius);
+    background: transparent;
+    color: var(--dropdown-text);
+    font: inherit;
+    line-height: 1.5;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+
+  html:root select:not([multiple]) option:is(:hover, :focus-visible):not(:disabled) {
+    outline: none;
+    background: var(--dropdown-hover);
+  }
+
+  html:root select:not([multiple]) option:checked {
+    background: var(--dropdown-selected);
+    color: var(--dropdown-accent);
+  }
+
+  html:root select:not([multiple]) option::checkmark {
+    order: 1;
+    margin-left: auto;
+    color: var(--dropdown-accent);
+  }
+
+  html:root select:not([multiple]) option:disabled {
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  html:root select:not([multiple]) option[hidden] { display: none; }
+}

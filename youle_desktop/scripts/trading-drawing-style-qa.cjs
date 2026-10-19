@@ -80,7 +80,7 @@ const report={themes:[],tools:[],errors:[]};let win;
   await js(`d.selectionToolbar.querySelector('[data-drawing-selection-action="reset"]').click()`);await settle();assert.equal((await stroke())[0].width,'20');
   // Colors selected explicitly continue to override multicolor Fibonacci levels.
   await js(`d.drawings[0].tool='fib-retracement';d.redraw()`);await settle();
-  assert.deepEqual(await js(`[...d.content.querySelectorAll('.trading-fibonacci-level-line')].map(e=>e.getAttribute('stroke'))`),['#808080','#00bcd4','#089981','#4caf50','#ff9800','#f23645','#808080']);
+  assert.deepEqual(await js(`[...d.content.querySelectorAll('.trading-fibonacci-level-line')].map(e=>e.getAttribute('stroke'))`),['#e91e63','#9c27b0','#f23645','#2962ff','#808080','#00bcd4','#089981','#4caf50','#ff9800','#f23645','#808080']);
   await js(`d.selectionToolbar.querySelector('[data-drawing-color="#ff9800"]').click()`);await settle();
   assert.ok((await js(`[...d.content.querySelectorAll('.trading-fibonacci-level-line')].map(e=>e.getAttribute('stroke'))`)).every(c=>c==='#ff9800'));
   await capture('custom-fibonacci');

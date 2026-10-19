@@ -192,7 +192,7 @@ function actionLink(action, label, disabled) {
 
 export function executionPlanStickyHtml(input = {}) {
   const payload = normalizeExecutionPlanStickyPayload(input);
-  const cloudCard=payload.cloudReport?.executionPolicy!=='right-legacy-v1'&&payload.cloudReport?cloudPlanCard(payload.cloudReport):null;
+  const cloudCard=payload.cloudReport?cloudPlanCard(payload.cloudReport,{language:payload.language}):null;
   const copy = STICKY_UI_COPY[payload.language];
   const minFont = EXECUTION_PLAN_STICKY_FONT_SIZES[0];
   const maxFont = EXECUTION_PLAN_STICKY_FONT_SIZES.at(-1);

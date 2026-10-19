@@ -1408,14 +1408,14 @@ test("Trading Expert market uses the compact pair title and customizable period 
     indicatorBar.indexOf("data-market-main-indicators")
       < indicatorBar.indexOf("data-market-indicators"),
   );
-  assert.match(indicatorBar, /class="trading-market-indicator-heading"[\s\S]*?data-market-action="toggle-indicator-editor"[\s\S]*?aria-haspopup="dialog"[\s\S]*?>\s*自定义指标\s*<svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"\/><\/svg>/);
+  assert.match(indicatorBar, /class="trading-market-indicator-heading"[\s\S]*?data-market-action="toggle-indicator-editor"[\s\S]*?aria-haspopup="dialog"[\s\S]*?>\s*指标设置\s*<svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"\/><\/svg>/);
   assert.doesNotMatch(indicatorBar, /trading-market-indicator-count|data-market-indicator-count|未选择/);
   assert.doesNotMatch(indicatorBar, />\s*指标\s*<\/span>/);
   assert.match(styles, /\.trading-market-indicator-heading\s*\{[^}]*height: 32px;[^}]*gap: 5px;[^}]*padding: 0 8px;[^}]*font-size: calc\(12px \+ var\(--app-font-size-offset\)\);[^}]*font-weight: 400;/s);
   assert.doesNotMatch(styles, /\.trading-market-indicator-heading\s*\{[^}]*border-right:/s);
   assert.match(styles, /\.trading-market-indicator-heading svg\s*\{[^}]*width: 8px;[^}]*height: 5px;[^}]*stroke: currentColor;[^}]*stroke-width: 1\.5;/s);
   assert.match(styles, /\.trading-market-period-controls\s*\{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*flex: 1 1 210px;[^}]*margin-left: auto;/s);
-  assert.match(styles, /\.trading-market-times\s*\{[^}]*flex: 1 1 0;[^}]*margin-left: 0;/s);
+  assert.match(styles, /\.trading-market-times\s*\{[^}]*flex: 0 1 auto;[^}]*margin-left: 0;/s);
   assert.match(styles, /\.trading-market-times\s*\{[^}]*overflow-x: auto;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scroll-padding-inline: 4px;[^}]*touch-action: pan-x;/s);
   assert.match(styles, /\.trading-market-times\.dragging\s*\{[^}]*cursor: grabbing;[^}]*user-select: none;/s);
   assert.match(styles, /\.trading-market-times button\s*\{[^}]*border: 0;[^}]*background: transparent;/s);
@@ -1460,7 +1460,7 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
   assert.match(source, /period\.unit === "h"\) return String\(amount \* 60\)/);
   assert.match(source, /period\.unit === "d"\) return `\$\{amount\}D`/);
   assert.match(source, /return `\$\{amount\}W`/);
-  assert.match(source, />\s*自定义周期\s*/);
+  assert.match(source, />\s*周期设置\s*/);
   assert.match(editor, />已添加项</);
   assert.match(editor, />拖动可排序</);
   assert.match(editor, />新增周期</);
