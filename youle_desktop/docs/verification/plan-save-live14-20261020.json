@@ -1,0 +1,709 @@
+{
+  "task": "M1-388",
+  "verifiedAt": "2026-10-19T17:15:30.178Z",
+  "status": "passed",
+  "backendCommit": "ae3f8ca8146db4f34611ac53551d6ce54b25dd21",
+  "windowsRuntimeCommit": "f66f7ed5253f909de6b716ef6fecf482ae86a71e",
+  "production": "https://haolo.com",
+  "market": "BTCUSDT perpetual",
+  "interval": "1h",
+  "entryMode": "left",
+  "languages": [
+    "zh-CN",
+    "en",
+    "zh-Hant"
+  ],
+  "analysisRuns": 14,
+  "formalPlanStrategies": 14,
+  "savedStrategies": 14,
+  "finalSavedReadback": [
+    {
+      "planId": "ab6c33b2-69fc-5e00-aac5-ddc32bd969f0",
+      "present": true
+    },
+    {
+      "planId": "3f9fe22c-257f-576b-9209-c9c972196a22",
+      "present": true
+    },
+    {
+      "planId": "7d64720c-1c0d-5634-aa89-1b86452ec19b",
+      "present": true
+    },
+    {
+      "planId": "e02f93d9-af10-5222-a153-786b2791792d",
+      "present": true
+    },
+    {
+      "planId": "7b529ea4-69dc-57e3-ac78-c124c03513bb",
+      "present": true
+    },
+    {
+      "planId": "4e70f0c3-ee72-5d8f-a129-f6f97a63a1bd",
+      "present": true
+    },
+    {
+      "planId": "cc9678c0-bb65-5aa4-b286-fb2edeae96a0",
+      "present": true
+    },
+    {
+      "planId": "e3c711e1-8640-5d6b-9fc1-b394762e4457",
+      "present": true
+    },
+    {
+      "planId": "0f8122e6-3186-5a4f-aec9-a1ac982de22c",
+      "present": true
+    },
+    {
+      "planId": "33300520-204a-549e-94fa-ff90b36cd35d",
+      "present": true
+    },
+    {
+      "planId": "0d4f8228-74d3-539b-bc1b-eeb0b13cd190",
+      "present": true
+    },
+    {
+      "planId": "9597a997-abbd-59cf-9918-8bb9952686e1",
+      "present": true
+    },
+    {
+      "planId": "f354252b-9365-551e-89c9-20ce2b08f9b3",
+      "present": true
+    },
+    {
+      "planId": "dcbfee0d-4f2c-5666-a167-178657ea0bb1",
+      "present": true
+    }
+  ],
+  "preferencesUnchanged": true,
+  "remindersActivated": 0,
+  "orderCalls": 0,
+  "scope": "Real authenticated production analysis, independent save, cloud list/read, frozen result resume, cache serialize/reload; actual production renderers and isolated Electron screenshots. No interaction with the user window. Current chart sample only; not every possible market condition.",
+  "cases": [
+    {
+      "name": "均线",
+      "strategyId": "moving-average-analysis",
+      "locale": "zh-CN",
+      "runId": "4f28e958-b19d-4217-9bbc-82955d4fe3b8",
+      "planIds": [
+        "ab6c33b2-69fc-5e00-aac5-ddc32bd969f0"
+      ],
+      "result": "passed",
+      "modelEvaluated": true,
+      "outcome": {
+        "action": "plan",
+        "reason": "SELECTED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "6e5da6afc7636ac1059bd8b430a18d6b8a17b4791f14f8aeb0fc74710d7aba88",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "道氏理论",
+      "strategyId": "dow-theory",
+      "locale": "en",
+      "runId": "eaa0c823-f092-4d7b-845a-a36b55dafa0b",
+      "planIds": [
+        "3f9fe22c-257f-576b-9209-c9c972196a22"
+      ],
+      "result": "passed",
+      "modelEvaluated": false,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "c8ca9010872730ff2f353223f67f46f3c4ca45cf08818d1d7b63f3d10dcbb8ad",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "布林带",
+      "strategyId": "bollinger-bands-analysis",
+      "locale": "zh-Hant",
+      "runId": "17879699-cf5c-4bc9-9b18-74882aab11e0",
+      "planIds": [
+        "7d64720c-1c0d-5634-aa89-1b86452ec19b"
+      ],
+      "result": "passed",
+      "modelEvaluated": true,
+      "outcome": {
+        "action": "plan",
+        "reason": "SELECTED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "ede888f345c03ef8e7819c64775d47a59a29ecfb4170e2181f85ad5dcc3feb31",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "RSI",
+      "strategyId": "rsi-analysis",
+      "locale": "zh-CN",
+      "runId": "107e8b44-e66f-46e8-b200-5d7a032c10d4",
+      "planIds": [
+        "e02f93d9-af10-5222-a153-786b2791792d"
+      ],
+      "result": "passed",
+      "modelEvaluated": false,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "ab1a2d82bf4329b8ddb240b2dfccd664be37c8651aff013c3cdc11e3f35ab8e5",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "KDJ",
+      "strategyId": "kdj-analysis",
+      "locale": "en",
+      "runId": "22d68774-5249-41f4-b6ce-8cdc06599b26",
+      "planIds": [
+        "7b529ea4-69dc-57e3-ac78-c124c03513bb"
+      ],
+      "result": "passed",
+      "modelEvaluated": false,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "fcf3dd91f01cc06cd29cb6f10391842f17219c95db8e4410d469a41dac62987d",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "形态分析",
+      "strategyId": "chart-patterns",
+      "locale": "zh-Hant",
+      "runId": "d3594250-0ed9-4d37-9b13-41301d8c775b",
+      "planIds": [
+        "4e70f0c3-ee72-5d8f-a129-f6f97a63a1bd"
+      ],
+      "result": "passed",
+      "modelEvaluated": false,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "24c66ea2ef65a0c5da4a64aa8cdefef6f2ff9a8b07c353165f29a336a956caad",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "缠论",
+      "strategyId": "chan",
+      "locale": "zh-CN",
+      "runId": "52fee1ec-5f25-4d4a-98a7-e96974a8d7ea",
+      "planIds": [
+        "cc9678c0-bb65-5aa4-b286-fb2edeae96a0"
+      ],
+      "result": "passed",
+      "modelEvaluated": false,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "b86aede9061e5a6a110257c9e70dd5b44d05dc5e16df03eea11fdf73766c0e9d",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "威科夫",
+      "strategyId": "wyckoff",
+      "locale": "en",
+      "runId": "b35e8d03-bc2d-42aa-ad65-d49340190c05",
+      "planIds": [
+        "e3c711e1-8640-5d6b-9fc1-b394762e4457"
+      ],
+      "result": "passed",
+      "modelEvaluated": true,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "7a867b9b8f01ec12da32f967f3f44e5e0f9b55a352b5f9070623e79cdea22391",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "谐波",
+      "strategyId": "harmonic",
+      "locale": "zh-Hant",
+      "runId": "8b3f8083-6f24-4199-ad60-516679c98827",
+      "planIds": [
+        "0f8122e6-3186-5a4f-aec9-a1ac982de22c"
+      ],
+      "result": "passed",
+      "modelEvaluated": false,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "f8de2d7b84346aba8404151c1f08bca53cff72edb07242de3d2d750e5d6f60ae",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "ICT/SMC",
+      "strategyId": "ict-smc",
+      "locale": "zh-CN",
+      "runId": "eee3a1dd-7de2-4de3-9332-0cca260a6fe6",
+      "planIds": [
+        "33300520-204a-549e-94fa-ff90b36cd35d"
+      ],
+      "result": "passed",
+      "modelEvaluated": false,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "e86227a2038a8b4e9645d5d046076a90f21e5316dec775d4e4a3e7e3e535fdee",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "SMT背离",
+      "strategyId": "smt-divergence",
+      "locale": "en",
+      "runId": "11926c1c-f55f-4f04-8587-8b9acbbe0caa",
+      "planIds": [
+        "0d4f8228-74d3-539b-bc1b-eeb0b13cd190"
+      ],
+      "result": "passed",
+      "modelEvaluated": false,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "559a787d9aee727aa23d49a70031817e7bcd7214c7292fa6d22b9c23b64eb421",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "订单流",
+      "strategyId": "order-flow",
+      "locale": "zh-Hant",
+      "runId": "bd8b03b8-4457-49fc-87bb-fc1c03928753",
+      "planIds": [
+        "9597a997-abbd-59cf-9918-8bb9952686e1"
+      ],
+      "result": "passed",
+      "modelEvaluated": false,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "1fb3a8628742340561d5a71ac3645ced319a9e128c58e39706965184c77d80ae",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "江恩",
+      "strategyId": "gann-theory",
+      "locale": "zh-CN",
+      "runId": "150ea111-71fb-4af2-a540-ea836ff49fc6",
+      "planIds": [
+        "f354252b-9365-551e-89c9-20ce2b08f9b3"
+      ],
+      "result": "passed",
+      "modelEvaluated": true,
+      "outcome": {
+        "action": "plan",
+        "reason": "SELECTED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "81a91add5dddec2e38c0f90b5c86423ba02a34cd70d27c7d970a0a2854421474",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    },
+    {
+      "name": "VPVR",
+      "strategyId": "vpvr-analysis",
+      "locale": "en",
+      "runId": "f4c1771c-08fc-49e0-a0c6-800cb646275d",
+      "planIds": [
+        "dcbfee0d-4f2c-5666-a167-178657ea0bb1"
+      ],
+      "result": "passed",
+      "modelEvaluated": true,
+      "outcome": {
+        "action": "plan",
+        "reason": "LEFT_CONDITIONAL_PLAN",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "reportSha256": "cb396c0fa239060f2b448681668682ebb7e1ed520e64a67392d1c91dccb17a40",
+      "formalCard": true,
+      "threeTargets": true,
+      "targetsMatchDrawings": true,
+      "resume": true,
+      "checks": [
+        {
+          "generatedReadback": true,
+          "reminderActivated": false,
+          "saved": true,
+          "statusAfterSave": "pending",
+          "linkedAlertId": null,
+          "cacheReload": true,
+          "inactiveLabel": true,
+          "activationButton": true,
+          "savedListReadback": true,
+          "savedRenderer": true,
+          "stickyRenderer": true,
+          "independentSave": true
+        }
+      ]
+    }
+  ],
+  "riskActivationProbe": {
+    "checkedAt": "2026-10-19T17:09:05.792Z",
+    "commit": "ae3f8ca8146db4f34611ac53551d6ce54b25dd21",
+    "source": "Previously blocked Bollinger plan; save now succeeds while same-zone activation remains refused",
+    "runId": "390f1d50-3485-49be-b5ea-0184ac7ffdd0",
+    "planId": "a32062a2-3ec7-53a5-955b-cdd69537e220",
+    "saved": true,
+    "reminderActivated": false,
+    "activationRefusal": {
+      "code": "LEFT_ZONE_ATTEMPT_LIMIT",
+      "status": 409
+    },
+    "preservedAfterRefusal": true,
+    "cloudListReadback": true,
+    "savedRenderer": true,
+    "newAnalysisCalls": 0,
+    "orderCalls": 0
+  },
+  "expirationScope": "Expired formal plan saving and activation refusal were covered by real PostgreSQL integration tests. No successful production expired-plan probe is claimed: the recent candidate had not expired, and the older unsaved candidate returned 404; neither attempt mutated it.",
+  "visual": {
+    "fixtures": 28,
+    "surfaces": 84,
+    "activationControlsVisible": 28,
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "width": 410,
+    "manualImageReview": [
+      "moving-average zh-CN light",
+      "bollinger zh-Hant dark",
+      "vpvr en light",
+      "vpvr activation control en light"
+    ],
+    "localEvidence": "output/plan-save-live14-20261020/visual"
+  },
+  "development": {
+    "sourceFiles": 12,
+    "responding": true,
+    "sourceFrozenAt": "2026-10-19T17:12:34.598Z",
+    "verifiedAt": "2026-10-19T17:13:44.7641967Z",
+    "viteStatus": 200,
+    "notes": "Startup logs contain native-host/plugin and unauthenticated settings warnings; authenticated plan APIs and actual renderer were independently verified. No interaction with the user window.",
+    "uiInteraction": false,
+    "mainPid": 3476,
+    "launcherPid": 40488,
+    "sourceFrozen": {
+      "capturedAt": "2026-10-19T17:12:34.598Z",
+      "commit": "f66f7ed5253f909de6b716ef6fecf482ae86a71e",
+      "files": {
+        "src/main/cloud-plan-contract.mjs": "3b2ba0794236cf8195c6ca7e3fa067ac0e4159f8c9ad34a8393072571984b595",
+        "src/main/execution-plan-card-view.mjs": "8feea12b8b0d9999493e458f2593570d3ccbccf232dab808c50c4b9985c4ca32",
+        "src/main/execution-plan-card.css": "083c8d5af6ec90f74ffc901f135bef60dc131cc3b0d8ac25cca35437d5a02d94",
+        "src/main/trading-strategy-runtime/cloud-runtime.mjs": "8acd151627a067172422f34bfd36f638289b71b6b1d0058d713cb2d6ad5e6eac",
+        "src/main/trading-strategy-runtime/cloud-plans.mjs": "0855d69b84c226703f9c5e9aa9de73a46729742b843e7bf8044d21028a8fa548",
+        "src/main/youle-api-client.mjs": "714fc2ec85e4785c8ff2091a750884c49166569b2bde222881d7787f60fc59a5",
+        "src/renderer/main.ts": "9bd161c10ca2b90fb57b58e8fc3dc37f0f5e6c853eab571c3fbf1988029a235b",
+        "src/renderer/styles.css": "07e6d2db4a261d23b64f625b90bc46142776c7d0eda010ff17a3d50ee7ff127f",
+        "src/renderer/execution-plans.ts": "0a292c84a717b4098458d13ab7076e8e6ce9495d802a9af32ba38d0ab8b88df1",
+        "src/renderer/cloud-plan-sync.ts": "1382ad978b7980c2eed3dffa47ddec5750331408e500743a9be28f0bb51dfd33",
+        "test/support/right-renderer-parity.mjs": "3f8939eba05f4d2d982cc455d88e3636b9f4494e61b32b8a46960626b7ce693c",
+        "scripts/cloud-plan-card-visual-qa.mjs": "c43ece8853735d8bc488b44567eb75b0c5edf188c38e2772e1da3e05d9cd13c9"
+      },
+      "previousCapturedAt": "2026-10-19T17:08:18.537Z",
+      "scope": "Committed M1-388 and M1-387 plus authorized uncommitted spacing and typography from coordinated UI sessions"
+    },
+    "uncommittedOtherTaskUiPreserved": true
+  },
+  "tests": {
+    "backendRegression": 103,
+    "realWindowsSdk": 63,
+    "dualBudget": 13,
+    "saveIntegrationSubset": 41,
+    "controller": 28,
+    "controllerSubtests": 5,
+    "clientRegression": 139,
+    "typecheck": true,
+    "build": true
+  },
+  "history": "Previous M1-386 real14 had 14 formal cards but only 4 actual saves; ten saves hit LEFT_ZONE_ATTEMPT_LIMIT. That evidence is preserved separately. This run validates the new save/activate separation."
+}
