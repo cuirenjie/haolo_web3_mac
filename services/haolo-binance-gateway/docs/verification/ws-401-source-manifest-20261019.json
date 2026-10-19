@@ -1,0 +1,107 @@
+{
+  "commit": "bdb7ad5a1dd7a24ad7f5a3477d429e2860f703ea",
+  "baseImage": "sha256:edcf22b68e2a207e54c41965b85015aa30074e9b97161085bec2d408e65ca80b",
+  "changed": [
+    "market-tickets.mjs",
+    "public-server.mjs"
+  ],
+  "patchSha256": "95bb8c269c69a090a05bd58d03a28b6efa5153cedd322a9228884981a70a9684",
+  "files": [
+    {
+      "file": "access-token-verifier.mjs",
+      "sha256": "deee3f4f449e03da6e0bb20081c6f55355d6756ce553450a0e85821e5943b61a",
+      "baselineSha256": "deee3f4f449e03da6e0bb20081c6f55355d6756ce553450a0e85821e5943b61a"
+    },
+    {
+      "file": "auth.mjs",
+      "sha256": "240683686dd3b517142e98aaa2767c044d7e783dd88eb73fde610b5463559576",
+      "baselineSha256": "240683686dd3b517142e98aaa2767c044d7e783dd88eb73fde610b5463559576"
+    },
+    {
+      "file": "binance-rest.mjs",
+      "sha256": "a86b31ca4eff4d0d449eafa7567144498ac6c01d881fcf4209f26df50779b9c6",
+      "baselineSha256": "a86b31ca4eff4d0d449eafa7567144498ac6c01d881fcf4209f26df50779b9c6"
+    },
+    {
+      "file": "cache.mjs",
+      "sha256": "20f22726ff208bf85cc2b4ceb38b47471571e5eb06a2094bcd745a87a1466265",
+      "baselineSha256": "20f22726ff208bf85cc2b4ceb38b47471571e5eb06a2094bcd745a87a1466265"
+    },
+    {
+      "file": "config.mjs",
+      "sha256": "d13aab57b4d6e780a5c6febe02fe25ab23c355f7e85335fb42bf370b9517e1c2",
+      "baselineSha256": "d13aab57b4d6e780a5c6febe02fe25ab23c355f7e85335fb42bf370b9517e1c2"
+    },
+    {
+      "file": "drain.mjs",
+      "sha256": "6bd9803d4eb0b7fa3d31aa373200eb2f3f05c98519bac0ff2c6b4f5c275bfff7",
+      "baselineSha256": "6bd9803d4eb0b7fa3d31aa373200eb2f3f05c98519bac0ff2c6b4f5c275bfff7"
+    },
+    {
+      "file": "market-frame.mjs",
+      "sha256": "b34ce65b7a7f473e8cbe3aabfabf7a7adfbf18c1b554e8159fa8a06d440c4f11",
+      "baselineSha256": "b34ce65b7a7f473e8cbe3aabfabf7a7adfbf18c1b554e8159fa8a06d440c4f11"
+    },
+    {
+      "file": "market-routing.mjs",
+      "sha256": "cdd72fe966ba24abd87957199f0d6d7feae0975baa4e057b0525c92904dbc7cb",
+      "baselineSha256": "cdd72fe966ba24abd87957199f0d6d7feae0975baa4e057b0525c92904dbc7cb"
+    },
+    {
+      "file": "market-tickets.mjs",
+      "sha256": "c293c51b2a4342f518b1e376d13af7f7af9211229299532ed14c86a2ff9812a3",
+      "baselineSha256": null
+    },
+    {
+      "file": "market-wire-codec.mjs",
+      "sha256": "35064bf15393fff133113267f906472765fbbf69d814e9cae2a77ee467076a15",
+      "baselineSha256": "35064bf15393fff133113267f906472765fbbf69d814e9cae2a77ee467076a15"
+    },
+    {
+      "file": "private-egress-coordinator.mjs",
+      "sha256": "102802c3dce146fbf024d19a4fa0202b9324edf17689c58fb303b2332921a63b",
+      "baselineSha256": "102802c3dce146fbf024d19a4fa0202b9324edf17689c58fb303b2332921a63b"
+    },
+    {
+      "file": "private-proxy.mjs",
+      "sha256": "2d87f820cc1c2f6288b0ec089eb56f70cc353504ff1a983ce2b4836eecf47887",
+      "baselineSha256": "2d87f820cc1c2f6288b0ec089eb56f70cc353504ff1a983ce2b4836eecf47887"
+    },
+    {
+      "file": "public-rest-cache.mjs",
+      "sha256": "de7329cfcf5509dac27d57d4989228f65f3dda6f19b3aa2c2a1aefb93803482c",
+      "baselineSha256": "de7329cfcf5509dac27d57d4989228f65f3dda6f19b3aa2c2a1aefb93803482c"
+    },
+    {
+      "file": "public-server.mjs",
+      "sha256": "74f02dfdf51168479c7a8b0a026762d2b2e148102680846d14d6fbd141710a43",
+      "baselineSha256": "73847580fa1eb68d8ea77eddb76b8068c4484ee37e7284bdb38883031f3c1bf7"
+    },
+    {
+      "file": "rate-limit.mjs",
+      "sha256": "afe77a953c231527ed3c3ccfd395360db6f0d43bdafb3dcea648de58515ab4cc",
+      "baselineSha256": "afe77a953c231527ed3c3ccfd395360db6f0d43bdafb3dcea648de58515ab4cc"
+    },
+    {
+      "file": "server.mjs",
+      "sha256": "2cf2e9084c1e6035e3147e50f9806b8ffb9f17c02dde74b3e9357a25c2be4d6e",
+      "baselineSha256": "2cf2e9084c1e6035e3147e50f9806b8ffb9f17c02dde74b3e9357a25c2be4d6e"
+    },
+    {
+      "file": "stream-pool.mjs",
+      "sha256": "a353cff8629d9841a98583b6bcbb158e8e8cded33e6c51ab25d7d64afcbbfa12",
+      "baselineSha256": "a353cff8629d9841a98583b6bcbb158e8e8cded33e6c51ab25d7d64afcbbfa12"
+    },
+    {
+      "file": "traffic-metrics.mjs",
+      "sha256": "b6ab57e8d83413453aaf63372ad6f4e203a2819e8461cfc30736bd676d20a2f8",
+      "baselineSha256": "b6ab57e8d83413453aaf63372ad6f4e203a2819e8461cfc30736bd676d20a2f8"
+    },
+    {
+      "file": "ws-compression.mjs",
+      "sha256": "3d5115f0319df391385587f957acae9ce73ad2efa9eba3bddf615adf6a343955",
+      "baselineSha256": "3d5115f0319df391385587f957acae9ce73ad2efa9eba3bddf615adf6a343955"
+    }
+  ],
+  "scope": "Accepted ws-9c67921 source plus atomic one-use ticket lifecycle and noncredential diagnostics. Authorization lifetime and limits unchanged."
+}

@@ -1,0 +1,656 @@
+{
+  "task": "M2-027",
+  "at": 1792357563.879602,
+  "readOnlyProduction": true,
+  "scope": "Retirement monitoring and one interim public ticker recovery probe; no deployment or final post-retirement validation",
+  "audit": {
+    "at": 1792357376.040207,
+    "candidate": "haolo-binance-gateway-ws-9c67921",
+    "image": "sha256:edcf22b68e2a207e54c41965b85015aa30074e9b97161085bec2d408e65ca80b",
+    "switchedAt": 1792347233.3571644,
+    "acceptedAt": 1792347593.5740228,
+    "phase": "accepted_retirement_pending",
+    "activePointerAndHaproxyExact": true,
+    "candidateIdentityUnchanged": true,
+    "metrics": {
+      "httpRequests": 90385,
+      "httpErrors": 5203,
+      "websocketClients": 49,
+      "websocketCompressedClients": 0,
+      "websocketMarketFrames": 4795875,
+      "websocketMarketPayloadBytes": 1146417580,
+      "websocketRejected": 1,
+      "websocketUserConnectionLimited": 0,
+      "websocketConnectionRateLimited": 0,
+      "websocketTotalConnectionLimited": 0,
+      "websocketHeartbeatTimeouts": 222,
+      "websocketCommandRejected": 0,
+      "websocketBackpressureDisconnects": 0,
+      "websocketCoalescedFrames": 0,
+      "restCacheHits": 31920,
+      "restCacheMisses": 52358,
+      "restCacheStale": 19,
+      "restNotModified": 0,
+      "restPayloadBytes": 258456667,
+      "upstreamAdmissions": 51487,
+      "upstreamRateLimited": 0,
+      "upstreamCooldownHits": 0,
+      "downstreamRateLimited": 15,
+      "ingressRateLimited": 0,
+      "userWeightRateLimited": 0,
+      "egressWeightRateLimited": 15,
+      "authenticationUnavailable": 0,
+      "authenticationTimeouts": 0,
+      "marketCoordinationUnavailable": 0,
+      "stream_messages": 1379722,
+      "stream_reconnects": 0,
+      "stream_upstreamSockets": 1,
+      "stream_subscriptions": 112,
+      "stream_markets": 1,
+      "private_egress_permitsIssued": 3,
+      "private_egress_permitsRejected": 0,
+      "private_egress_usageReports": 2,
+      "private_egress_upstreamCooldowns": 0
+    },
+    "retirement": [
+      {
+        "release": "market-m2-027-8935f3a",
+        "phase": "accepted_retirement_pending",
+        "container": "haolo-binance-gateway-53badfa",
+        "status": "running",
+        "exitCode": 0,
+        "restarts": 0,
+        "identityMatches": true,
+        "noOldPortRoute": true,
+        "watcher": "haolo-market-m2-027-drain-watch.service",
+        "watcherStatus": "active",
+        "established": 60,
+        "websocketClients": 60,
+        "receipt": {
+          "phase": "waiting_for_natural_zero",
+          "container": "haolo-binance-gateway-53badfa",
+          "snapshots": [
+            {
+              "at": 1792357355.2231138,
+              "established": 60,
+              "websocketClients": 60
+            }
+          ]
+        }
+      },
+      {
+        "release": "market-auth-916b92c",
+        "phase": "accepted_retirement_pending",
+        "container": "haolo-binance-gateway-m2-027-8935f3a",
+        "status": "running",
+        "exitCode": 0,
+        "restarts": 0,
+        "identityMatches": true,
+        "noOldPortRoute": true,
+        "watcher": "haolo-market-auth-916b92c-drain-watch.service",
+        "watcherStatus": "active",
+        "established": 12,
+        "websocketClients": 12,
+        "receipt": {
+          "phase": "waiting_for_natural_zero",
+          "container": "haolo-binance-gateway-m2-027-8935f3a",
+          "snapshots": [
+            {
+              "at": 1792357375.367938,
+              "established": 12,
+              "websocketClients": 12
+            }
+          ]
+        }
+      },
+      {
+        "release": "market-quota-738ae82",
+        "phase": "accepted_retirement_pending",
+        "container": "haolo-binance-gateway-auth-916b92c",
+        "status": "running",
+        "exitCode": 0,
+        "restarts": 0,
+        "identityMatches": true,
+        "noOldPortRoute": true,
+        "watcher": "haolo-market-quota-738ae82-drain-watch.service",
+        "watcherStatus": "active",
+        "established": 6,
+        "websocketClients": 6,
+        "receipt": {
+          "phase": "waiting_for_natural_zero",
+          "container": "haolo-binance-gateway-auth-916b92c",
+          "snapshots": [
+            {
+              "at": 1792357345.212655,
+              "established": 6,
+              "websocketClients": 6
+            }
+          ]
+        }
+      },
+      {
+        "release": "market-ws-9c67921",
+        "phase": "accepted_retirement_pending",
+        "container": "haolo-binance-gateway-quota-738ae82",
+        "status": "running",
+        "exitCode": 0,
+        "restarts": 0,
+        "identityMatches": true,
+        "noOldPortRoute": true,
+        "watcher": "haolo-market-ws-9c67921-drain-watch.service",
+        "watcherStatus": "active",
+        "established": 5,
+        "websocketClients": 5,
+        "receipt": {
+          "phase": "waiting_for_natural_zero",
+          "container": "haolo-binance-gateway-quota-738ae82",
+          "snapshots": [
+            {
+              "at": 1792357362.848184,
+              "established": 5,
+              "websocketClients": 5
+            }
+          ]
+        }
+      }
+    ],
+    "access": {
+      "seconds": 10142.683042526245,
+      "statuses": {
+        "public_gateway_rest:200": 84659,
+        "public_gateway_rest:404": 5211,
+        "public_gateway:201": 884,
+        "public_gateway:200": 266,
+        "public_gateway:101": 801,
+        "public_gateway:202": 2,
+        "private_gateway:200": 2,
+        "public_gateway_rest:429": 6,
+        "public_gateway:401": 2
+      },
+      "totalCompletedNewRequests": 91833,
+      "new429Or5xx": [
+        {
+          "at": 1792347777.653,
+          "backend": "public_gateway_rest",
+          "status": 429,
+          "elapsedMs": 3
+        },
+        {
+          "at": 1792347777.671,
+          "backend": "public_gateway_rest",
+          "status": 429,
+          "elapsedMs": 4
+        },
+        {
+          "at": 1792347777.696,
+          "backend": "public_gateway_rest",
+          "status": 429,
+          "elapsedMs": 80
+        },
+        {
+          "at": 1792347777.918,
+          "backend": "public_gateway_rest",
+          "status": 429,
+          "elapsedMs": 84
+        },
+        {
+          "at": 1792347777.93,
+          "backend": "public_gateway_rest",
+          "status": 429,
+          "elapsedMs": 72
+        },
+        {
+          "at": 1792347779.34,
+          "backend": "public_gateway_rest",
+          "status": 429,
+          "elapsedMs": 1
+        }
+      ],
+      "tickerSubsetStatusCounts": {
+        "200": 996
+      },
+      "successfulOpenWebSocketsNotIncludedUntilClose": true
+    },
+    "auth": {
+      "samples": 22000,
+      "completionMarginSeconds": 30,
+      "statuses": {
+        "200": 22000
+      },
+      "p50Ms": 78,
+      "p95Ms": 87,
+      "p99Ms": 118,
+      "maxMs": 1241
+    },
+    "websocketDiagnostics": {
+      "events": {
+        "market_ws_connected": 871,
+        "market_ws_closed": 823,
+        "market_ws_rejected": 1
+      },
+      "reasonsAndCodes": {
+        "peer_closed": 600,
+        "heartbeat_timeout": 223,
+        "AUTHENTICATION_REQUIRED": 1
+      },
+      "maxObservedUserConnections": 6
+    },
+    "policy": {
+      "publicUserWeightPerMinute": 300,
+      "publicFuturesUpstreamWeightPerMinute": 1440,
+      "publicSpotUpstreamWeightPerMinute": 3600,
+      "authCacheTtlMs": 15000,
+      "authRequestTimeoutMs": 10000,
+      "downstreamRequestsPerMinute": 300,
+      "maxWebsocketClientsPerUser": 8,
+      "maxWebsocketClientsTotal": 10000
+    },
+    "redisIdentityUnchanged": true,
+    "environmentUnchanged": true,
+    "rollbackTimerStatus": "inactive",
+    "candidateTests": {
+      "passed": true,
+      "testFiles": 18,
+      "nodeExitCode": 0,
+      "retirementExitCode": 0,
+      "image": "sha256:edcf22b68e2a207e54c41965b85015aa30074e9b97161085bec2d408e65ca80b",
+      "isolatedRedis": true,
+      "productionCandidateStarted": false
+    },
+    "candidateTestFooter": [
+      "1..80",
+      "# tests 80",
+      "# suites 0",
+      "# pass 80",
+      "# fail 0",
+      "# cancelled 0",
+      "# skipped 0",
+      "# todo 0",
+      "# duration_ms 54663.390304"
+    ],
+    "passed": false,
+    "recentAuth": {
+      "since": 1792356473.278359,
+      "samples": 1832,
+      "non200": 0,
+      "p95Ms": 84,
+      "p99Ms": 99,
+      "maxMs": 313,
+      "over500ms": [],
+      "over5s": 0
+    }
+  },
+  "source": {
+    "authRuntime": {
+      "authRequestTimeoutMs": 10000,
+      "authCacheTtlMs": 15000
+    },
+    "phase": "accepted_retirement_pending",
+    "image": "sha256:edcf22b68e2a207e54c41965b85015aa30074e9b97161085bec2d408e65ca80b",
+    "restarts": 0,
+    "source": {
+      "files": 18,
+      "mismatches": [],
+      "manifestSha256": "89aa65c0373a808c2a4530f1463167537a74a9d7f9d02bf4e434065743fb5c80"
+    },
+    "activePointerAndHaproxyExact": true,
+    "bothReady": true
+  },
+  "staleInvestigation": {
+    "at": 1792357481.766531,
+    "since": 1792356473.278359,
+    "responseCaptureConfig": [],
+    "counts": [
+      {
+        "route": "/fapi/v1/ticker/24hr",
+        "status": 200,
+        "count": 4517
+      },
+      {
+        "route": "/fapi/v1/klines",
+        "status": 200,
+        "count": 400
+      },
+      {
+        "route": "/fapi/v1/premiumIndex",
+        "status": 200,
+        "count": 1617
+      },
+      {
+        "route": "/fapi/v1/openInterest",
+        "status": 200,
+        "count": 1618
+      },
+      {
+        "route": "other",
+        "status": 404,
+        "count": 468
+      },
+      {
+        "route": "/api/v3/ticker/24hr",
+        "status": 200,
+        "count": 17
+      },
+      {
+        "route": "/api/v3/klines",
+        "status": 200,
+        "count": 7
+      },
+      {
+        "route": "/api/v3/exchangeInfo",
+        "status": 200,
+        "count": 3
+      },
+      {
+        "route": "/fapi/v1/exchangeInfo",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "route": "/futures/data/openInterestHist",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "route": "/fapi/v1/depth",
+        "status": 200,
+        "count": 1
+      },
+      {
+        "route": "/fapi/v1/aggTrades",
+        "status": 200,
+        "count": 1
+      }
+    ],
+    "slowOver5s": [
+      {
+        "at": 1792357201.181,
+        "route": "/fapi/v1/ticker/24hr",
+        "status": 200,
+        "timings": "0/0/0/10083/10083"
+      },
+      {
+        "at": 1792357202.251,
+        "route": "/fapi/v1/ticker/24hr",
+        "status": 200,
+        "timings": "0/0/0/9013/9013"
+      },
+      {
+        "at": 1792357204.554,
+        "route": "/fapi/v1/ticker/24hr",
+        "status": 200,
+        "timings": "0/0/1/6710/6711"
+      },
+      {
+        "at": 1792357206.169,
+        "route": "/fapi/v1/ticker/24hr",
+        "status": 200,
+        "timings": "0/0/0/5096/5096"
+      }
+    ],
+    "staleLogRows": [],
+    "diagnosticEvents": {
+      "market_ws_connected": 95,
+      "market_ws_closed": 90
+    },
+    "diagnostics": [],
+    "nonJsonDiagnosticLines": 1,
+    "metrics": {
+      "httpRequests": 91270,
+      "httpErrors": 5259,
+      "websocketClients": 50,
+      "websocketCompressedClients": 0,
+      "websocketMarketFrames": 4866109,
+      "websocketMarketPayloadBytes": 1163609281,
+      "websocketRejected": 1,
+      "websocketUserConnectionLimited": 0,
+      "websocketConnectionRateLimited": 0,
+      "websocketTotalConnectionLimited": 0,
+      "websocketHeartbeatTimeouts": 223,
+      "websocketCommandRejected": 0,
+      "websocketBackpressureDisconnects": 0,
+      "websocketCoalescedFrames": 0,
+      "restCacheHits": 32202,
+      "restCacheMisses": 52893,
+      "restCacheStale": 19,
+      "restNotModified": 0,
+      "restPayloadBytes": 261016494,
+      "upstreamAdmissions": 52006,
+      "upstreamRateLimited": 0,
+      "upstreamCooldownHits": 0,
+      "downstreamRateLimited": 15,
+      "ingressRateLimited": 0,
+      "userWeightRateLimited": 0,
+      "egressWeightRateLimited": 15,
+      "authenticationUnavailable": 0,
+      "authenticationTimeouts": 0,
+      "marketCoordinationUnavailable": 0,
+      "stream_messages": 1396086,
+      "stream_reconnects": 0,
+      "stream_upstreamSockets": 2,
+      "stream_subscriptions": 122,
+      "stream_markets": 2,
+      "private_egress_permitsIssued": 3,
+      "private_egress_permitsRejected": 0,
+      "private_egress_usageReports": 2,
+      "private_egress_upstreamCooldowns": 0
+    }
+  },
+  "matchingCompletionCluster": {
+    "cluster": [
+      {
+        "at": 1792357201.181,
+        "completedAt": 1792357211.264,
+        "status": 200,
+        "elapsedMs": 10083,
+        "timings": "0/0/0/10083/10083",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "at": 1792357202.251,
+        "completedAt": 1792357211.264,
+        "status": 200,
+        "elapsedMs": 9013,
+        "timings": "0/0/0/9013/9013",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "at": 1792357204.554,
+        "completedAt": 1792357211.2649999,
+        "status": 200,
+        "elapsedMs": 6711,
+        "timings": "0/0/1/6710/6711",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "at": 1792357206.169,
+        "completedAt": 1792357211.2649999,
+        "status": 200,
+        "elapsedMs": 5096,
+        "timings": "0/0/0/5096/5096",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "at": 1792357206.674,
+        "completedAt": 1792357211.264,
+        "status": 200,
+        "elapsedMs": 4590,
+        "timings": "0/0/0/4590/4590",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "at": 1792357206.703,
+        "completedAt": 1792357211.265,
+        "status": 200,
+        "elapsedMs": 4562,
+        "timings": "0/0/1/4561/4562",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "at": 1792357208.839,
+        "completedAt": 1792357211.264,
+        "status": 200,
+        "elapsedMs": 2425,
+        "timings": "0/0/0/2425/2425",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "at": 1792357210.074,
+        "completedAt": 1792357211.2649999,
+        "status": 200,
+        "elapsedMs": 1191,
+        "timings": "0/0/0/1191/1191",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "at": 1792357209.97,
+        "completedAt": 1792357211.264,
+        "status": 200,
+        "elapsedMs": 1294,
+        "timings": "0/0/1/1293/1294",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "at": 1792357210.685,
+        "completedAt": 1792357211.2649999,
+        "status": 200,
+        "elapsedMs": 580,
+        "timings": "0/0/0/580/580",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      }
+    ],
+    "afterCount": 672,
+    "afterStatuses": {
+      "200": 672
+    },
+    "firstAfter": [
+      {
+        "at": 1792357211.964,
+        "completedAt": 1792357212.026,
+        "status": 200,
+        "elapsedMs": 62,
+        "timings": "0/0/1/61/62",
+        "params": null
+      },
+      {
+        "at": 1792357211.892,
+        "completedAt": 1792357212.034,
+        "status": 200,
+        "elapsedMs": 142,
+        "timings": "0/0/0/142/142",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      },
+      {
+        "at": 1792357211.933,
+        "completedAt": 1792357212.0730002,
+        "status": 200,
+        "elapsedMs": 140,
+        "timings": "0/0/1/139/140",
+        "params": {
+          "symbol": "ZECUSDT"
+        }
+      },
+      {
+        "at": 1792357211.964,
+        "completedAt": 1792357212.109,
+        "status": 200,
+        "elapsedMs": 145,
+        "timings": "0/0/0/145/145",
+        "params": {
+          "symbol": "CLUSDT"
+        }
+      },
+      {
+        "at": 1792357212.068,
+        "completedAt": 1792357212.127,
+        "status": 200,
+        "elapsedMs": 59,
+        "timings": "0/0/0/59/59",
+        "params": {
+          "symbol": "ETHUSDT"
+        }
+      },
+      {
+        "at": 1792357212.285,
+        "completedAt": 1792357212.364,
+        "status": 200,
+        "elapsedMs": 79,
+        "timings": "0/0/0/79/79",
+        "params": {
+          "symbol": "BTCUSDT"
+        }
+      }
+    ],
+    "afterMaxElapsedMs": 312
+  },
+  "recovery": {
+    "at": "2026-10-18T21:05:36.945Z",
+    "scope": "One exact BTCUSDT 24h ticker GET with live freshness, interim STALE recovery check only",
+    "path": "/fapi/v1/ticker/24hr",
+    "params": {
+      "symbol": "BTCUSDT"
+    },
+    "status": 200,
+    "elapsedMs": 3017,
+    "cache": "MISS",
+    "fetchedAt": 1792357539303,
+    "rateLimitSource": null,
+    "rateLimitScope": null,
+    "upstreamStatus": null,
+    "symbol": "BTCUSDT",
+    "closeTime": 1792357537901,
+    "numericFieldsValid": true,
+    "fetchedAgeMs": 661,
+    "tickerAgeMs": 2063,
+    "passed": true
+  },
+  "finalMetrics": {
+    "requestTimeoutMs": 10000,
+    "authRequestTimeoutMs": 10000,
+    "metrics": {
+      "websocketRejected": 1,
+      "restCacheStale": 19,
+      "upstreamRateLimited": 0,
+      "upstreamCooldownHits": 0,
+      "ingressRateLimited": 0,
+      "userWeightRateLimited": 0,
+      "egressWeightRateLimited": 15,
+      "authenticationUnavailable": 0,
+      "authenticationTimeouts": 0,
+      "marketCoordinationUnavailable": 0
+    },
+    "at": 1792357563.879602
+  },
+  "assessment": {
+    "confirmed": "Ten additional STALE responses; quota, upstream cooldown, authentication error and WebSocket rejection metrics unchanged. Ten BTCUSDT ticker requests completed together at 05:00:11.264–265, with leading duration 10083 ms; runtime upstream timeout remains 10000 ms.",
+    "inference": "Shared refresh wait followed by an upstream fetch timeout/cache fallback is consistent with the timing and deployed single-flight code.",
+    "limitations": "No response-header capture or branch-specific STALE diagnostics; cluster-to-STALE correlation and precise transport failure cannot be proven. Do not attribute to DNS, TLS, Binance HTTP status, or a particular user.",
+    "recovery": "Exact symbol=BTCUSDT live GET returned 200/MISS, fetched age 661 ms and ticker age 2063 ms. No new STALE through 05:06:03. This verifies current recovery only."
+  },
+  "allRetired": false,
+  "finalPostRetirementVerification": "pending",
+  "automation": "ACTIVE; unchanged; every 15 minutes",
+  "clientBuiltOrRestarted": false
+}
