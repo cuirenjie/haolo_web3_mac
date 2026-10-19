@@ -1,4 +1,6 @@
 import { PublicRestCache } from "./public-rest-cache.mjs";
+import crypto from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 export class GatewayCache {
   constructor({ redisUrl = "", prefix = "haolo:market:" } = {}) {
@@ -14,7 +16,7 @@ export class GatewayCache {
   async connect() {
     if (!this.redisUrl || this.redis) return;
     const { createClient } = await import("redis");
-    const client = createClient({ url: this.redisUrl });
+    const client = createClient({ url: this.redisUrl, disableOfflineQueue: true });
     client.on("error", () => {});
     await client.connect();
     this.redis = client;
@@ -24,9 +26,15 @@ export class GatewayCache {
     return `${this.prefix}${key}`;
   }
 
-  async get(key, now = Date.now()) {
-    if (key.startsWith("rest:")) return this.publicRest.get(this.key(key), this.redis, now);
+  async get(key, now = Date.now(), options = {}) {
+    if (key.startsWith("rest:")) return this.publicRest.get(this.key(key), this.redis, now, options);
     let record = this.memory.get(key);
+    // An expired local identity must not hide a fresh verification published
+    // by another replica. Re-read Redis in this call before hitting auth again.
+    if (record && Number(record.staleUntil || 0) <= now) {
+      this.memory.delete(key);
+      record = null;
+    }
     if (!record && this.redis) {
       const raw = await this.redis.get(this.key(key));
       if (raw) {
@@ -245,6 +253,63 @@ export class GatewayCache {
     const promise = Promise.resolve().then(factory).finally(() => this.inflight.delete(key));
     this.inflight.set(key, promise);
     return promise;
+  }
+
+  async sharedSingleFlight(key, factory, { leaseMs = 65_000, readResult = null } = {}) {
+    return this.singleFlight(key, async () => {
+      if (!this.redisUrl) return factory();
+      // Coordination and budget state fail closed. Never turn a Redis outage
+      // into one upstream fetch per replica; callers can still use stale data.
+      if (!this.redis?.isReady) throw Object.assign(new Error("Market coordination unavailable"), {
+        statusCode: 503, code: "MARKET_COORDINATION_UNAVAILABLE", retryAfterMs: 1_000,
+      });
+      const lockKey = this.key(`rest-flight:${crypto.createHash("sha256").update(key).digest("hex")}`);
+      const token = crypto.randomUUID();
+      const duration = Math.max(100, Math.trunc(leaseMs));
+      const deadline = Date.now() + duration;
+      while (Date.now() < deadline) {
+        const ready = await readResult?.();
+        if (ready !== undefined && ready !== null) return ready;
+        let acquired;
+        try { acquired = await this.redis.set(lockKey, token, { NX: true, PX: duration }); }
+        catch { throw Object.assign(new Error("Market coordination unavailable"), {
+          statusCode: 503, code: "MARKET_COORDINATION_UNAVAILABLE", retryAfterMs: 1_000,
+        }); }
+        if (acquired) {
+          const controller = new AbortController();
+          let renewing = false;
+          const renew = setInterval(async () => {
+            if (renewing || controller.signal.aborted) return;
+            renewing = true;
+            try {
+              const owned = await this.redis.sendCommand(["EVAL",
+                "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], ARGV[2]) end return 0",
+                "1", lockKey, token, String(duration)]);
+              if (Number(owned) !== 1) throw new Error("Market refresh lease lost");
+            } catch {
+              controller.abort(Object.assign(new Error("Market coordination unavailable"), {
+                statusCode: 503, code: "MARKET_COORDINATION_UNAVAILABLE", retryAfterMs: 1_000,
+              }));
+            } finally { renewing = false; }
+          }, Math.max(25, Math.floor(duration / 3)));
+          renew.unref?.();
+          try {
+            const result = await factory(controller.signal);
+            controller.signal.throwIfAborted();
+            return result;
+          } finally {
+            clearInterval(renew);
+            await this.redis.sendCommand(["EVAL",
+              "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0",
+              "1", lockKey, token]).catch(() => {});
+          }
+        }
+        await delay(Math.min(100, Math.max(1, deadline - Date.now())));
+      }
+      throw Object.assign(new Error("Market refresh already in progress"), {
+        statusCode: 503, code: "MARKET_REFRESH_PENDING", retryAfterMs: 1_000,
+      });
+    });
   }
 
   async close() {

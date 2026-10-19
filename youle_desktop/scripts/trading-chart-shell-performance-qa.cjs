@@ -62,11 +62,11 @@ function installMarketFixture() {
   await debug.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: `(${installMarketFixture})()` });
   console.log('market fixture installed');
   await win.webContents.session.clearStorageData();
-  await win.loadURL('http://127.0.0.1:5177/?i18n-layout-qa=1');
+  await win.loadURL((process.env.CHART_QA_URL || 'http://127.0.0.1:5177') + '/?i18n-layout-qa=1');
   console.log('desktop loaded');
   await delay(3500);
   const attachCharts = async () => {
-    const { result } = await debug.sendCommand('Runtime.evaluate', { expression: "import('/trading-chart-navigation.ts').then(m=>m.TradingChartNavigation.prototype)", awaitPromise: true });
+    const { result } = await debug.sendCommand('Runtime.evaluate', { expression: "import(window.qaNavigationModuleUrl??=performance.getEntriesByType('resource').find(e=>e.name.includes('/trading-chart-navigation.ts'))?.name??'/trading-chart-navigation.ts').then(m=>m.TradingChartNavigation.prototype)", awaitPromise: true });
     const { objects } = await debug.sendCommand('Runtime.queryObjects', { prototypeObjectId: result.objectId });
     await debug.sendCommand('Runtime.callFunctionOn', { objectId: objects.objectId, functionDeclaration: 'function(){window.qaNavs=this.filter(n=>n.element.isConnected).sort((a,b)=>a.element.getBoundingClientRect().left-b.element.getBoundingClientRect().left)}' });
     await debug.sendCommand('Runtime.releaseObject', { objectId: objects.objectId });
@@ -78,24 +78,28 @@ function installMarketFixture() {
   await delay(1800); await attachCharts();
   console.log('split charts attached');
   assert.equal(await js('qaNavs.length'), 2);
-  await js(`window.qaRunning=false;window.qaFrames=[];window.qaEvents=[];window.qaLong=[];window.qaPaints=[];
-    new PerformanceObserver(l=>{if(qaRunning)qaLong.push(...l.getEntries().map(e=>({start:e.startTime,duration:e.duration})))}).observe({type:'longtask'});
+  await js(`window.qaRunning=false;window.qaStartTime=0;window.qaFrames=[];window.qaEvents=[];window.qaLong=[];window.qaPaints=[];
+    window.qaRecordLong=entries=>qaLong.push(...entries.filter(e=>e.startTime>=qaStartTime).map(e=>({start:e.startTime,duration:e.duration})));
+    window.qaObserver=new PerformanceObserver(l=>{if(qaRunning)qaRecordLong(l.getEntries())});qaObserver.observe({type:'longtask'});
     window.addEventListener('pointermove',e=>{if(qaRunning)qaEvents.push({t:performance.now(),x:e.clientX,y:e.clientY,lag:performance.now()-e.timeStamp})},true);
     window.qaFrameNumber=0;
     const originalFill=CanvasRenderingContext2D.prototype.fillRect;
     CanvasRenderingContext2D.prototype.fillRect=function(...args){if(qaRunning&&this.canvas===window.qaCanvas&&qaPaints.at(-1)!==qaFrameNumber)qaPaints.push(qaFrameNumber);return originalFill.apply(this,args)};
     function tick(t){qaFrameNumber++;if(qaRunning){const last=qaEvents.at(-1);qaFrames.push({t,x:qaChart.timeScale().timeToCoordinate(qaAnchorTime),y:qaPriceSeries.priceToCoordinate(qaAnchorPrice),pointerX:last?.x,pointerY:last?.y,lag:last?t-last.t:0})}requestAnimationFrame(tick)}requestAnimationFrame(tick);void 0`);
   const report = { cases: [], labels: [], markerLifecycle: [], output };
-  for (const theme of ['light', 'dark']) {
+  for (const theme of process.env.CHART_QA_THEMES?.split(',') || ['light', 'dark']) {
     await js(`document.documentElement.dataset.theme='${theme}';document.documentElement.style.setProperty('--app-font-size-offset','${theme === 'dark' ? 3 : 0}px')`);
     await delay(250);
     for (const subject of [0, 1]) {
       await js(`window.qaNav=qaNavs[${subject}];window.qaChart=qaNav.getChart();qaNav.reset();window.qaAnchorTime=qaNav.options.getCandles().at(-50).time+28800;window.qaAnchorPrice=qaNav.options.getCandles().at(-50).close;window.qaPriceSeries=qaChart.panes()[0].getSeries().find(s=>s.seriesType()==='Candlestick');window.qaCanvas=qaChart.panes()[0].getHTMLElement().querySelector('td:nth-child(2) canvas');void 0`);
+      // The product now defaults to vertical lock. This suite explicitly tests
+      // the free-drag mode, including its vertical tracking assertion.
+      await js('if(qaNav.verticalLocked)qaNav.toggleVerticalLock()');
       await delay(250);
       const p = await js(`(()=>{const r=qaChart.panes()[0].getHTMLElement().getBoundingClientRect();return {x:Math.round(r.left+100),y:Math.round(r.top+150)}})()`);
       for (const action of ['horizontal', 'diagonal', 'wheel']) {
-        await js('qaFrames=[];qaEvents=[];qaLong=[];qaPaints=[];qaRunning=true;window.qaStartTicks=fixtureTicks');
         if (process.argv.includes('--profile')) { await debug.sendCommand('Profiler.enable'); await debug.sendCommand('Profiler.start'); }
+        await js('qaFrames=[];qaEvents=[];qaLong=[];qaPaints=[];qaStartTime=performance.now();qaRunning=true;window.qaStartTicks=fixtureTicks');
         win.webContents.sendInputEvent({ type: 'mouseMove', ...p });
         if (action !== 'wheel') win.webContents.sendInputEvent({ type: 'mouseDown', ...p, button: 'left', clickCount: 1 });
         for (let i = 1; i <= 120; i++) {
@@ -104,7 +108,7 @@ function installMarketFixture() {
           await delay(8);
         }
         // Sample before releasing the button: a chart that only jumps on mouseup fails.
-        const data = await js('qaRunning=false;({frames:qaFrames,events:qaEvents,long:qaLong,paints:qaPaints,ticks:fixtureTicks-qaStartTicks})');
+        const data = await js('qaRecordLong(qaObserver.takeRecords());qaRunning=false;({start:qaStartTime,frames:qaFrames,events:qaEvents,long:qaLong,paints:qaPaints,ticks:fixtureTicks-qaStartTicks})');
         if (process.argv.includes('--profile')) fs.writeFileSync(path.join(output, 'cpu.json'), JSON.stringify(await debug.sendCommand('Profiler.stop')));
         if (action !== 'wheel') win.webContents.sendInputEvent({ type: 'mouseUp', ...p, button: 'left', clickCount: 1 });
         const gaps = data.frames.slice(1).map((f, i) => f.t - data.frames[i].t).sort((a, b) => a - b);
@@ -114,8 +118,9 @@ function installMarketFixture() {
         const errors = moves.map(f => Math.abs(f.x - f.pointerX - median)).sort((a, b) => a - b);
         const yOffsets = moves.map(f => f.y - f.pointerY).sort((a, b) => a - b), yMedian = yOffsets[Math.floor(yOffsets.length / 2)];
         const yErrors = moves.map(f => Math.abs(f.y - f.pointerY - yMedian)).sort((a, b) => a - b);
-        const result = { theme, subject, action, candles: await js('qaNav.options.getCandles().length'), frames: data.frames.length, paints: data.paints.length, changes: changes.length, ticks: data.ticks, p95: gaps[Math.floor(gaps.length * .95)], maxGap: gaps.at(-1), trackingErrorP95: errors[Math.floor(errors.length * .95)], verticalErrorP95: yErrors[Math.floor(yErrors.length * .95)], longTasks: data.long };
+        const result = { theme, subject, action, start: data.start, candles: await js('qaNav.options.getCandles().length'), frames: data.frames.length, paints: data.paints.length, changes: changes.length, ticks: data.ticks, p95: gaps[Math.floor(gaps.length * .95)], maxGap: gaps.at(-1), trackingErrorP95: errors[Math.floor(errors.length * .95)], verticalErrorP95: yErrors[Math.floor(yErrors.length * .95)], longTasks: data.long };
         console.log(JSON.stringify(result)); report.cases.push(result);
+        fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2));
         assert.ok(result.changes > 25 && result.paints > 25, 'canvas must repaint continuously while the button is held');
         assert.ok(result.p95 < 50 && result.maxGap < 180, 'sustained input must not stall');
         if (action !== 'wheel') assert.ok(result.trackingErrorP95 < 9, 'candles must follow mouse displacement within one input step');

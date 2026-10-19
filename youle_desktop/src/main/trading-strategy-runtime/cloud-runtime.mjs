@@ -3,6 +3,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import {isDeepStrictEqual} from 'node:util';
 import {validateCloudEntryResult} from './cloud-entry-result.mjs';
 import {validateCloudRightResult} from './cloud-right-result.mjs';
+import {cloudStrategyMinimumHistory} from '../../shared/cloud-strategy-history.mjs';
 
 const intervals = {'1':'1m','3':'3m','5':'5m','15':'15m','30':'30m','60':'1h','120':'2h','240':'4h','360':'6h','480':'8h','720':'12h','1D':'1d','1W':'1w'};
 const fail = (code, detail={}) => Object.assign(new Error(code), {code,...detail});
@@ -92,7 +93,10 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
         if (terminal.has(run.state)) {
           record.state = run.state;
           await journal.put(captured.ownerId,record.key,record);
-          throw fail(run.state === 'cancelled' ? 'TRADING_ANALYSIS_CANCELLED' : 'CLOUD_ANALYSIS_FAILED', {detail:{code:run.error?.code}});
+          const errorCode = typeof run.error === 'string' ? run.error : run.error?.code;
+          const code = typeof errorCode === 'string' && /^[A-Z][A-Z0-9_]{2,99}$/.test(errorCode)
+            ? errorCode : 'CLOUD_ANALYSIS_FAILED';
+          throw fail(run.state === 'cancelled' ? 'TRADING_ANALYSIS_CANCELLED' : code, {runId:record.runId});
         }
         const progress = run.progress?.at(-1);
         if (progress && fingerprint(progress) !== lastProgress) {
@@ -168,7 +172,12 @@ export function createCloudStrategyRuntime({owner, api, journal, connection, wai
           if (!capabilities.entryV2WorkerReady) throw fail('ENTRY_WORKER_UNAVAILABLE');
           if (!capabilities.strategies?.some(s => s.id === strategyId && s.entryModes?.includes(input.requestedEntryMode))) throw fail('ENTRY_POLICY_UNAVAILABLE');
         }
-        const snapshot = await request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(requestedCount?{windowCount:requestedCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:options.signal});
+        // A renderer count is a viewport hint, not permission to underfill the
+        // server's history requirement. Normalize only new snapshots: journaled
+        // admissions keep their frozen body/key, and explicit time ranges remain exact.
+        const minimumHistory = cloudStrategyMinimumHistory(strategyId,capabilities.strategies.find(s=>s.id===strategyId)?.history);
+        const windowCount = requestedCount === null ? null : Math.max(requestedCount,minimumHistory);
+        const snapshot = await request(captured,'marketSnapshot',{market:target.marketKey,interval:target.interval,limit:600,...(visibleRange||{...(windowCount?{windowCount}:{}),...(lookbackMs?{lookbackMs}:{})})},{signal:options.signal});
         if (snapshot.marketKey !== target.marketKey || snapshot.interval !== target.interval || !snapshot.snapshotId) throw fail('CLOUD_MARKET_CONTEXT_INVALID');
         const account = await connection?.(captured,target);
         await assertOwner(captured);

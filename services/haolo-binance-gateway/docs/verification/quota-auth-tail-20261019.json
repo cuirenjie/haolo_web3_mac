@@ -1,0 +1,490 @@
+{
+  "recordedAt": "2026-10-18T17:37:00.889Z",
+  "gatewaySource": "738ae820c3b697050211bcb26e1a9ab41ffa4bd5",
+  "backendSource": "35540756e56ab40b01ae17ff23104cda2dd95f1d",
+  "clientPackaged": false,
+  "checks": {
+    "production": {
+      "authRuntime": {
+        "authRequestTimeoutMs": 10000,
+        "authCacheTtlMs": 15000
+      },
+      "phase": "accepted_retirement_pending",
+      "image": "sha256:899c584114eb2a5aa8e58d0385f8786d069fc4c432d4c6536d350f9f11db3d93",
+      "restarts": 0,
+      "source": {
+        "files": 18,
+        "mismatches": [],
+        "manifestSha256": "2cd34c7aea15f053ab98e02630cb7d3ae7a346bbe44f50417a8ab2aedcfca8ca"
+      },
+      "activePointerAndHaproxyExact": true,
+      "bothReady": true
+    },
+    "policy": {
+      "passed": true,
+      "redisIdentityUnchanged": true,
+      "environmentUnchanged": true,
+      "policy": {
+        "user": 300,
+        "futures": 1440,
+        "spot": 3600,
+        "authTtlMs": 15000,
+        "authTimeoutMs": 10000
+      }
+    },
+    "audit": {
+      "at": 1792344898.739184,
+      "candidate": "haolo-binance-gateway-quota-738ae82",
+      "switched_at": 1792344598.3603523,
+      "seconds": 300.37883162498474,
+      "statuses": {
+        "101": 11,
+        "200": 3257,
+        "201": 24,
+        "202": 1,
+        "404": 221
+      },
+      "new5xx": [],
+      "passed": true
+    },
+    "auth": {
+      "at": 1792344926.6207283,
+      "active": {
+        "PUBLIC_PORT": "51187",
+        "PRIVATE_PORT": "51188",
+        "CONTAINER": "haolo-binance-gateway-quota-738ae82",
+        "IMAGE_ID": "sha256:899c584114eb2a5aa8e58d0385f8786d069fc4c432d4c6536d350f9f11db3d93",
+        "COMMIT": "738ae820c3b697050211bcb26e1a9ab41ffa4bd5"
+      },
+      "authSamples": 829,
+      "authStatuses": {
+        "200": 829
+      },
+      "authLatency": {
+        "p50": 79,
+        "p95": 106,
+        "p99": 212,
+        "max": 557
+      },
+      "authMaxByMinuteUtc": {
+        "2026-10-18T17:29": 78,
+        "2026-10-18T17:30": 105,
+        "2026-10-18T17:31": 178,
+        "2026-10-18T17:32": 557,
+        "2026-10-18T17:33": 313,
+        "2026-10-18T17:34": 339
+      },
+      "tickerRequests": {
+        "/fapi/v1/ticker/24hr:single:200": 1935,
+        "/fapi/v1/ticker/24hr:subset:200": 34,
+        "/fapi/v1/ticker/24hr:all:200": 6,
+        "/api/v3/ticker/24hr:all:200": 3
+      },
+      "ticker429Shapes": {},
+      "subset429Sizes": {},
+      "recent429": []
+    },
+    "market": {
+      "at": "2026-10-18T17:30:13.153Z",
+      "checks": [
+        {
+          "check": "concurrent current candles",
+          "marketType": "futures",
+          "consumers": 12,
+          "gatewayReads": 1,
+          "attempts": 1,
+          "rows": 20,
+          "elapsedMs": 2934,
+          "diagnostics": {
+            "route": "public-gateway",
+            "egress": "haolo-public",
+            "origin": "none",
+            "limitScope": "unknown",
+            "cacheStatus": "MISS",
+            "upstreamStatus": null,
+            "usedWeight": 161,
+            "gatewayRemaining": 297
+          }
+        },
+        {
+          "check": "concurrent current candles",
+          "marketType": "spot",
+          "consumers": 12,
+          "gatewayReads": 1,
+          "attempts": 1,
+          "rows": 20,
+          "elapsedMs": 288,
+          "diagnostics": {
+            "route": "public-gateway",
+            "egress": "haolo-public",
+            "origin": "none",
+            "limitScope": "unknown",
+            "cacheStatus": "MISS",
+            "upstreamStatus": null,
+            "usedWeight": 6,
+            "gatewayRemaining": 294
+          }
+        },
+        {
+          "check": "finalized WebSocket candle equals REST OHLCV",
+          "events": 81,
+          "p95EventLagMs": 928,
+          "maxEventLagMs": 1471,
+          "closedOpenTime": 1792344600000
+        }
+      ],
+      "scope": "Public BTCUSDT candles and one public kline stream; no trading/account endpoints",
+      "stream": {
+        "events": 80,
+        "maxEventLagMs": 1471,
+        "closedOpenTime": 1792344600000
+      },
+      "freshnessRetries": [
+        {
+          "marketType": "futures",
+          "attempt": 1,
+          "stale": false,
+          "dataAgeMs": 825,
+          "diagnostics": {
+            "route": "public-gateway",
+            "egress": "haolo-public",
+            "origin": "none",
+            "limitScope": "unknown",
+            "cacheStatus": "MISS",
+            "upstreamStatus": null,
+            "usedWeight": 62,
+            "gatewayRemaining": 259
+          }
+        }
+      ],
+      "finalRest": {
+        "at": 1792344666658,
+        "tail": 1792344660000,
+        "diagnostics": {
+          "route": "public-gateway",
+          "egress": "haolo-public",
+          "origin": "none",
+          "limitScope": "unknown",
+          "cacheStatus": "MISS",
+          "upstreamStatus": null,
+          "usedWeight": 78,
+          "gatewayRemaining": 258
+        },
+        "stale": false
+      },
+      "passed": true
+    },
+    "analysis": {
+      "at": "2026-10-18T17:30:13.425Z",
+      "scope": "Real gateway data through current client service and analysis adapter in Node; not a desktop IPC/AI forecast test",
+      "checks": [
+        {
+          "symbol": "BTCUSDT",
+          "market": "perpetual",
+          "interval": "1m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 81143.09,
+          "rsi14": 48.769243089822496,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "BTCUSDT",
+          "market": "perpetual",
+          "interval": "5m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 81108.475,
+          "rsi14": 48.619714085911085,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "BTCUSDT",
+          "market": "perpetual",
+          "interval": "1h",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 81607.55,
+          "rsi14": 36.59669851086289,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "ETHUSDT",
+          "market": "perpetual",
+          "interval": "1m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 2373.5199999999995,
+          "rsi14": 46.309606715561735,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "BTCUSDT",
+          "market": "spot",
+          "interval": "1m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 81185.41150000002,
+          "rsi14": 49.62925616959158,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "BTCUSDT",
+          "market": "spot",
+          "interval": "5m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 81148.2445,
+          "rsi14": 48.998753402505706,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "BTCUSDT",
+          "market": "spot",
+          "interval": "1h",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 81642.5,
+          "rsi14": 36.64963073332379,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "ETHUSDT",
+          "market": "spot",
+          "interval": "1m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 2374.6620000000003,
+          "rsi14": 46.077259207691014,
+          "independentNumericCheck": true
+        }
+      ],
+      "gatewayReads": 8,
+      "passed": true
+    },
+    "transport": {
+      "at": "2026-10-18T17:31:37.403Z",
+      "checks": [
+        {
+          "check": "public HTTPS freshness",
+          "elapsed": 2984,
+          "now": 1792344700388,
+          "status": 200,
+          "cache": "MISS",
+          "fetchedAt": 1792344699562,
+          "date": "Sun, 18 Oct 2026 17:31:39 GMT",
+          "tail": 1792344660000
+        },
+        {
+          "check": "public HTTPS freshness",
+          "elapsed": 226,
+          "now": 1792344700614,
+          "status": 200,
+          "cache": "HIT",
+          "fetchedAt": 1792344699561,
+          "date": "Sun, 18 Oct 2026 17:31:39 GMT",
+          "tail": 1792344660000
+        },
+        {
+          "check": "public HTTPS freshness",
+          "elapsed": 226,
+          "now": 1792344700840,
+          "status": 200,
+          "cache": "HIT",
+          "fetchedAt": 1792344699561,
+          "date": "Sun, 18 Oct 2026 17:31:40 GMT",
+          "tail": 1792344660000
+        },
+        {
+          "check": "external authorized HTTPS CONNECT with verified Binance TLS",
+          "status": 200,
+          "serverTime": 1792344705857
+        }
+      ],
+      "passed": true
+    },
+    "dev": {
+      "at": "2026-10-18T17:30:13.171Z",
+      "checks": [
+        {
+          "check": "actual renderer/main IPC history",
+          "marketType": "futures",
+          "consumers": 12,
+          "rows": 20,
+          "tail": 1792344600000,
+          "ageMs": 922,
+          "diagnostics": {
+            "route": "public-gateway",
+            "egress": "haolo-public",
+            "origin": "none",
+            "limitScope": "unknown",
+            "cacheStatus": "MISS",
+            "upstreamStatus": null,
+            "usedWeight": 154,
+            "gatewayRemaining": 299
+          }
+        },
+        {
+          "check": "actual renderer/main IPC history",
+          "marketType": "spot",
+          "consumers": 12,
+          "rows": 20,
+          "tail": 1792344600000,
+          "ageMs": 824,
+          "diagnostics": {
+            "route": "public-gateway",
+            "egress": "haolo-public",
+            "origin": "none",
+            "limitScope": "unknown",
+            "cacheStatus": "MISS",
+            "upstreamStatus": null,
+            "usedWeight": 2,
+            "gatewayRemaining": 298
+          }
+        },
+        {
+          "check": "actual analysis candle adapter equals closed REST OHLCV",
+          "marketType": "perpetual",
+          "compared": 19,
+          "continuous": true,
+          "currentTail": true
+        },
+        {
+          "check": "actual analysis candle adapter equals closed REST OHLCV",
+          "marketType": "spot",
+          "compared": 19,
+          "continuous": true,
+          "currentTail": true
+        },
+        {
+          "check": "actual renderer shared WebSocket subscription",
+          "events": 5,
+          "latestEventLagMs": 850,
+          "symbol": "BTCUSDT"
+        }
+      ],
+      "url": "http://127.0.0.1:5177",
+      "passed": true
+    },
+    "subset": {
+      "at": "2026-10-18T17:33:42.608Z",
+      "checks": [
+        {
+          "check": "real Futures ten-symbol response exactly projects shared Binance catalogue",
+          "symbols": 10,
+          "catalogueRows": 793,
+          "sourceFetchedAt": "1792344823363",
+          "subsetCache": "MISS",
+          "catalogueCache": "HIT",
+          "exactNumericStrings": true
+        }
+      ],
+      "passed": true
+    },
+    "retirement": {
+      "at": 1792344893.4681556,
+      "rows": [
+        {
+          "release": "market-m2-027-8935f3a",
+          "phase": "accepted_retirement_pending",
+          "container": "haolo-binance-gateway-53badfa",
+          "status": "running",
+          "exitCode": 0,
+          "restarts": 0,
+          "identityMatches": true,
+          "established": 114,
+          "retirement": {
+            "phase": "waiting_for_natural_zero",
+            "container": "haolo-binance-gateway-53badfa",
+            "snapshots": [
+              {
+                "at": 1792344873.6794128,
+                "established": 114,
+                "websocketClients": 114
+              }
+            ]
+          }
+        },
+        {
+          "release": "market-auth-916b92c",
+          "phase": "accepted_retirement_pending",
+          "container": "haolo-binance-gateway-m2-027-8935f3a",
+          "status": "running",
+          "exitCode": 0,
+          "restarts": 0,
+          "identityMatches": true,
+          "established": 30,
+          "retirement": {
+            "phase": "waiting_for_natural_zero",
+            "container": "haolo-binance-gateway-m2-027-8935f3a",
+            "snapshots": [
+              {
+                "at": 1792344865.5763028,
+                "established": 30,
+                "websocketClients": 30
+              }
+            ]
+          }
+        },
+        {
+          "release": "market-quota-738ae82",
+          "phase": "accepted_retirement_pending",
+          "container": "haolo-binance-gateway-auth-916b92c",
+          "status": "running",
+          "exitCode": 0,
+          "restarts": 0,
+          "identityMatches": true,
+          "established": 27,
+          "retirement": {
+            "phase": "waiting_for_natural_zero",
+            "container": "haolo-binance-gateway-auth-916b92c",
+            "snapshots": [
+              {
+                "at": 1792344881.7727392,
+                "established": 28,
+                "websocketClients": 28
+              }
+            ]
+          }
+        }
+      ],
+      "watchers": {
+        "haolo-market-m2-027-drain-watch.service": "active",
+        "haolo-market-auth-916b92c-drain-watch.service": "active",
+        "haolo-market-quota-738ae82-drain-watch.service": "active"
+      }
+    }
+  }
+}

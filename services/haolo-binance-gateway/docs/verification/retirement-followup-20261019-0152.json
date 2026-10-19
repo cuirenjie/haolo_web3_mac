@@ -1,0 +1,375 @@
+{
+  "recordedAt": "2026-10-18T17:54:21.963Z",
+  "status": "retirement-and-ws-recovery-pending",
+  "gatewaySource": "738ae820c3b697050211bcb26e1a9ab41ffa4bd5",
+  "productionMutated": false,
+  "clientPackaged": false,
+  "finalRealMarketRevalidationRun": false,
+  "finalRealMarketRevalidationCondition": "All three old gateway instances have actually retired; repeat live OHLCV/MA20/RSI14 consistency and rate-limit recovery checks afterward.",
+  "checks": {
+    "production": {
+      "authRuntime": {
+        "authRequestTimeoutMs": 10000,
+        "authCacheTtlMs": 15000
+      },
+      "phase": "accepted_retirement_pending",
+      "image": "sha256:899c584114eb2a5aa8e58d0385f8786d069fc4c432d4c6536d350f9f11db3d93",
+      "restarts": 0,
+      "source": {
+        "files": 18,
+        "mismatches": [],
+        "manifestSha256": "2cd34c7aea15f053ab98e02630cb7d3ae7a346bbe44f50417a8ab2aedcfca8ca"
+      },
+      "activePointerAndHaproxyExact": true,
+      "bothReady": true
+    },
+    "retirement": {
+      "at": 1792345896.5195854,
+      "rows": [
+        {
+          "release": "market-m2-027-8935f3a",
+          "phase": "accepted_retirement_pending",
+          "container": "haolo-binance-gateway-53badfa",
+          "status": "running",
+          "exitCode": 0,
+          "restarts": 0,
+          "identityMatches": true,
+          "established": 106,
+          "retirement": {
+            "phase": "waiting_for_natural_zero",
+            "container": "haolo-binance-gateway-53badfa",
+            "snapshots": [
+              {
+                "at": 1792345869.183638,
+                "established": 106,
+                "websocketClients": 106
+              }
+            ]
+          }
+        },
+        {
+          "release": "market-auth-916b92c",
+          "phase": "accepted_retirement_pending",
+          "container": "haolo-binance-gateway-m2-027-8935f3a",
+          "status": "running",
+          "exitCode": 0,
+          "restarts": 0,
+          "identityMatches": true,
+          "established": 22,
+          "retirement": {
+            "phase": "waiting_for_natural_zero",
+            "container": "haolo-binance-gateway-m2-027-8935f3a",
+            "snapshots": [
+              {
+                "at": 1792345891.208838,
+                "established": 22,
+                "websocketClients": 22
+              }
+            ]
+          }
+        },
+        {
+          "release": "market-quota-738ae82",
+          "phase": "accepted_retirement_pending",
+          "container": "haolo-binance-gateway-auth-916b92c",
+          "status": "running",
+          "exitCode": 0,
+          "restarts": 0,
+          "identityMatches": true,
+          "established": 17,
+          "retirement": {
+            "phase": "waiting_for_natural_zero",
+            "container": "haolo-binance-gateway-auth-916b92c",
+            "snapshots": [
+              {
+                "at": 1792345877.3062809,
+                "established": 17,
+                "websocketClients": 17
+              }
+            ]
+          }
+        }
+      ],
+      "watchers": {
+        "haolo-market-m2-027-drain-watch.service": "active",
+        "haolo-market-auth-916b92c-drain-watch.service": "active",
+        "haolo-market-quota-738ae82-drain-watch.service": "active"
+      }
+    },
+    "auth": {
+      "at": 1792345899.56675,
+      "active": {
+        "PUBLIC_PORT": "51187",
+        "PRIVATE_PORT": "51188",
+        "CONTAINER": "haolo-binance-gateway-quota-738ae82",
+        "IMAGE_ID": "sha256:899c584114eb2a5aa8e58d0385f8786d069fc4c432d4c6536d350f9f11db3d93",
+        "COMMIT": "738ae820c3b697050211bcb26e1a9ab41ffa4bd5"
+      },
+      "authSamples": 3437,
+      "authStatuses": {
+        "200": 3437
+      },
+      "authLatency": {
+        "p50": 79,
+        "p95": 112,
+        "p99": 194,
+        "max": 677
+      },
+      "authMaxByMinuteUtc": {
+        "2026-10-18T17:29": 78,
+        "2026-10-18T17:30": 105,
+        "2026-10-18T17:31": 178,
+        "2026-10-18T17:32": 557,
+        "2026-10-18T17:33": 313,
+        "2026-10-18T17:34": 339,
+        "2026-10-18T17:35": 516,
+        "2026-10-18T17:36": 300,
+        "2026-10-18T17:37": 555,
+        "2026-10-18T17:38": 102,
+        "2026-10-18T17:39": 334,
+        "2026-10-18T17:40": 139,
+        "2026-10-18T17:41": 152,
+        "2026-10-18T17:42": 240,
+        "2026-10-18T17:43": 229,
+        "2026-10-18T17:44": 284,
+        "2026-10-18T17:45": 200,
+        "2026-10-18T17:46": 142,
+        "2026-10-18T17:47": 677,
+        "2026-10-18T17:48": 401,
+        "2026-10-18T17:49": 327,
+        "2026-10-18T17:50": 114,
+        "2026-10-18T17:51": 85
+      },
+      "tickerRequests": {
+        "/fapi/v1/ticker/24hr:single:200": 7935,
+        "/fapi/v1/ticker/24hr:subset:200": 129,
+        "/fapi/v1/ticker/24hr:all:200": 8,
+        "/api/v3/ticker/24hr:all:200": 6,
+        "/api/v3/ticker/24hr:single:200": 14
+      },
+      "ticker429Shapes": {},
+      "subset429Sizes": {},
+      "recent429": []
+    },
+    "ws": {
+      "observedAtUtc": "2026-10-18T17:52:01.609240+00:00",
+      "containerStartedAt": "2026-10-18T17:20:32.770577861Z",
+      "runtime": {
+        "policy": {
+          "downstreamRequestsPerMinute": 300,
+          "maxWebsocketClientsPerUser": 8,
+          "maxWebsocketClientsTotal": 10000
+        },
+        "metrics": {
+          "websocketClients": 33,
+          "websocketRejected": 18,
+          "restCacheStale": 0,
+          "upstreamRateLimited": 0,
+          "downstreamRateLimited": 0,
+          "userWeightRateLimited": 0,
+          "egressWeightRateLimited": 0,
+          "authenticationUnavailable": 0,
+          "authenticationTimeouts": 0
+        }
+      },
+      "httpStatusesNewRequestsSinceSwitch": {
+        "public_gateway_rest:200": 14104,
+        "public_gateway_rest:404": 863,
+        "public_gateway:201": 142,
+        "public_gateway:200": 56,
+        "public_gateway:101": 88,
+        "private_gateway:200": 5,
+        "public_gateway:202": 1,
+        "public_gateway:429": 18
+      },
+      "httpStatusesLast5Minutes": {
+        "public_gateway_rest:200": 3155,
+        "public_gateway_rest:404": 201,
+        "public_gateway:201": 37,
+        "public_gateway:200": 7,
+        "public_gateway:429": 8,
+        "public_gateway:101": 19
+      },
+      "completedWsLogsSinceContainerStartIncludingPreviouslyAcceptedConnections": {
+        "101": 177,
+        "429": 18
+      },
+      "maxCompletedWsRequestStartsPerUtcMinute": 10,
+      "ws429": [
+        {
+          "atUtc": "2026-10-18T17:44:11.477000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:44:12.585000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:44:14.701000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:44:18.845000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:44:27.072000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:44:43.351000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:45:13.572000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:45:43.846000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:46:14.063000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:46:44.277000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 2,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:47:14.500000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:47:44.797000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:48:15.034000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 2,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:48:45.271000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 2,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:49:15.496000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:49:45.710000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:50:15.939000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        },
+        {
+          "atUtc": "2026-10-18T17:50:46.179000+00:00",
+          "path": "/stream/futures",
+          "elapsedMs": 1,
+          "clientGroup": 1,
+          "streamCount": 0,
+          "hasTicket": true
+        }
+      ],
+      "limitations": [
+        "WebSocket access logs are emitted on close; open successful connections are excluded from completed logs.",
+        "Existing runtime records a combined websocketRejected counter without per-reason diagnostics. Client groups indicate source address, not authenticated user identity."
+      ]
+    },
+    "recovery": {
+      "observedAtUtc": "2026-10-18T17:52:57.250070+00:00",
+      "ws429Total": 18,
+      "last429Utc": "2026-10-18T17:50:46.179000+00:00",
+      "secondsSinceLast429": 131,
+      "completedSuccessfulWsFromSameSourceAddressAfterLast429": [],
+      "note": "Source address is not authenticated user identity; successful completed WS alone does not prove the failed logical subscription recovered."
+    }
+  },
+  "wsAttribution": {
+    "confirmedLayer": "WebSocket upgrade admission",
+    "likelyReason": "per-user concurrent connection cap",
+    "confirmedReason": false,
+    "observedRuntimePublicServerSha256": "0414f612ef832eb2c4a2d7000346920e39eda3c541161af025aea502bf002a0d",
+    "possible429Branches": [
+      "300 connection attempts per 60 seconds per user/address",
+      "8 concurrent WebSocket connections per user in this process"
+    ],
+    "evidence": "Same source address, valid-ticket path, 1–2 ms rejection, exponential retries then about 30 seconds; observed completed WS request starts peak at 10 per minute. The runtime only exposes a combined rejection counter, without reason/user correlation.",
+    "limitations": [
+      "Source address does not identify an authenticated user.",
+      "Open accepted WS connections are not in completed access logs.",
+      "Old instance WebSocket connections are not counted in the new process per-user map.",
+      "131 seconds without a new 429 does not prove the failed logical subscription recovered."
+    ]
+  }
+}

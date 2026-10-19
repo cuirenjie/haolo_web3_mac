@@ -15,8 +15,10 @@ export const fixtures = [
 ];
 
 test("immutable wire protocol matches the shipped desktop decoder", () => {
-  assert.equal(fs.readFileSync(new URL("../src/market-wire-codec.mjs", import.meta.url), "utf8"),
-    fs.readFileSync(new URL("../../../youle_desktop/src/main/market-wire-codec.mjs", import.meta.url), "utf8"));
+  // Git/archive materialization may use CRLF or LF. Protocol source must be
+  // identical apart from line endings; wire precision remains exact below.
+  assert.equal(fs.readFileSync(new URL("../src/market-wire-codec.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n"),
+    fs.readFileSync(new URL("../../../youle_desktop/src/main/market-wire-codec.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n"));
 });
 
 test("every supported event round trips exact decimal strings, presence and values", () => {

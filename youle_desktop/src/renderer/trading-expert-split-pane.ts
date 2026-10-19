@@ -13,6 +13,10 @@ import {
   createSeriesMarkers,
 } from "lightweight-charts";
 import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
+import { TradingChartFrameUpdate } from "./trading-chart-frame-update.ts";
+import { TradingChartCalculationCache } from "./trading-chart-calculation-cache.ts";
+import { setTradingChartSeriesData, setTradingChartSeriesValues, withTradingChartSeriesBatch } from "./trading-chart-series-data.ts";
+import { tradingChartCandleIndex, updateTradingChartLegendRows, type TradingChartLegendRow } from "./trading-chart-legend.ts";
 import { TradingPriceFlash } from "./trading-price-flash.ts";
 import { TradingChartNavigation, TRADING_CHART_NAVIGATION_OPTIONS, captureManualTradingPriceRanges, restoreManualTradingPriceRanges } from "./trading-chart-navigation.ts";
 import {
@@ -381,6 +385,7 @@ export class TradingExpertSplitPane {
   private hoveredOhlcSourceTime: number | null = null;
   private indicatorLegendLayer: HTMLElement;
   private mainIndicatorLegendElement: HTMLElement;
+  private readonly crosshairFrame = new TradingChartFrameUpdate<any>((parameter) => this.paintCrosshair(parameter));
   private volumeProfileLayer: SVGSVGElement;
   private loadingElement: HTMLElement;
   private errorElement: HTMLButtonElement;
@@ -397,6 +402,8 @@ export class TradingExpertSplitPane {
   private tdMarkers: any = null;
   private mainIndicatorSeries = new Map<TradingSplitPaneMainIndicatorId, any[]>();
   private mainIndicatorValues = new Map<TradingSplitPaneMainIndicatorId, number[][]>();
+  private readonly mainCalculationCache = new TradingChartCalculationCache();
+  private readonly volumeCalculationCache = new TradingChartCalculationCache();
   private tdIndicatorDirections: Array<SplitPaneTdSignal["direction"] | null> = [];
   private drawingStorageSessionId: string;
   private indicatorPanes = new Map<TradingIndicatorId, SplitPaneIndicatorRuntime>();
@@ -775,6 +782,7 @@ export class TradingExpertSplitPane {
   };
 
   private readonly handleViewportLeave = () => {
+    this.crosshairFrame.cancel();
     this.hoveredOhlcSourceTime = null;
     this.renderLatestOhlc();
   };
@@ -992,18 +1000,7 @@ export class TradingExpertSplitPane {
     });
     this.createMainIndicatorSeries();
     this.rebuildIndicatorPanes();
-    this.chart.subscribeCrosshairMove((parameter: any) => {
-      if (typeof parameter?.time === "number" && Number.isFinite(parameter.time)) {
-        const rawTime = parameter.time - CHINA_TIME_OFFSET_SECONDS;
-        const candle = this.candles.find((candidate) => candidate.time === rawTime);
-        if (candle) {
-          this.hoveredOhlcSourceTime = rawTime;
-          this.renderOhlc(candle, parameter.time);
-        }
-      }
-      this.updateMainIndicatorLegends(parameter?.time);
-      this.updateIndicatorLegends(parameter?.seriesData);
-    });
+    this.chart.subscribeCrosshairMove(this.crosshairFrame.schedule);
     this.chartNavigation = new TradingChartNavigation(
       this.chartElement, () => this.chart, () => {
         if (this.rebuildingIndicatorPanes) return;
@@ -1189,20 +1186,17 @@ export class TradingExpertSplitPane {
     this.mainIndicatorSeries.get(id)?.forEach((series, seriesIndex) => {
       const key = keys[id]?.[seriesIndex];
       if (!this.activeMainIndicators.includes(id) || (key && setting?.series[key]?.visible === false)) {
-        series.setData([]);
+        setTradingChartSeriesData(series, []);
         return;
       }
-      series.setData((values[seriesIndex] ?? []).flatMap((value, index) => {
-        const candle = this.candles[index];
-        return Number.isFinite(value) && candle
-          ? [{ time: (candle.time + CHINA_TIME_OFFSET_SECONDS) as any, value }]
-          : [];
-      }));
+      setTradingChartSeriesValues(series, this.candles, values[seriesIndex] ?? [], CHINA_TIME_OFFSET_SECONDS);
     });
   }
 
   private updateMainIndicatorData(refreshVolumeProfile = false) {
     const closes = this.candles.map((candle) => candle.close);
+    const cache = this.mainCalculationCache;
+    cache.update(closes, this.candles);
     const setting = (id: TradingSplitPaneMainIndicatorId) =>
       this.indicatorSettings[indicatorSettingKey("main", id)];
     const updateLines = (id: TradingSplitPaneMainIndicatorId, values: number[][]) => {
@@ -1211,20 +1205,20 @@ export class TradingExpertSplitPane {
     };
     const maSetting = setting("ma");
     updateLines("ma", this.activeMainIndicators.includes("ma")
-      ? maSetting.parameters.map((period) => indicatorSma(closes, period))
+      ? maSetting.parameters.map((period) => cache.sma(period, true))
       : []);
     const emaSetting = setting("ema");
     updateLines("ema", this.activeMainIndicators.includes("ema")
-      ? emaSetting.parameters.map((period) => indicatorEma(closes, period))
+      ? emaSetting.parameters.map((period) => cache.ema(period, true))
       : []);
     const bollSetting = setting("boll");
     const boll = this.activeMainIndicators.includes("boll")
-      ? computeBollingerBands(closes, bollSetting.parameters[0], bollSetting.parameters[1])
+      ? cache.boll(bollSetting.parameters[0], bollSetting.parameters[1], true)
       : null;
     updateLines("boll", boll ? [boll.upper, boll.middle, boll.lower] : []);
     const bbiSetting = setting("bbi");
     updateLines("bbi", this.activeMainIndicators.includes("bbi")
-      ? [computeBbi(closes, bbiSetting.parameters)]
+      ? [cache.bbi(bbiSetting.parameters, true)]
       : []);
 
     const tdSetting = setting("td");
@@ -1262,14 +1256,29 @@ export class TradingExpertSplitPane {
     this.renderVolumeProfile(refreshVolumeProfile);
   }
 
+  private paintCrosshair(parameter: any) {
+    if (this.destroyed) return;
+    if (typeof parameter?.time === "number" && Number.isFinite(parameter.time)) {
+      const rawTime = parameter.time - CHINA_TIME_OFFSET_SECONDS;
+      const candle = this.candles[tradingChartCandleIndex(this.candles, rawTime)];
+      if (candle) {
+        this.hoveredOhlcSourceTime = rawTime;
+        this.renderOhlc(candle, parameter.time);
+      }
+    }
+    this.updateMainIndicatorLegends(parameter?.time);
+    this.updateIndicatorLegends(parameter?.seriesData);
+  }
+
   private updateMainIndicatorLegends(timeValue?: number) {
-    this.mainIndicatorLegendElement.replaceChildren();
-    if (!this.activeMainIndicators.length || !this.candles.length) return;
+    const rows: TradingChartLegendRow[] = [];
+    if (!this.activeMainIndicators.length || !this.candles.length) {
+      updateTradingChartLegendRows(this.mainIndicatorLegendElement, "data-split-main-indicator-legend", rows);
+      return;
+    }
     let candleIndex = this.candles.length - 1;
     if (typeof timeValue === "number" && Number.isFinite(timeValue)) {
-      const hoveredIndex = this.candles.findIndex(
-        (candle) => candle.time + CHINA_TIME_OFFSET_SECONDS === timeValue,
-      );
+      const hoveredIndex = tradingChartCandleIndex(this.candles, timeValue - CHINA_TIME_OFFSET_SECONDS);
       if (hoveredIndex >= 0) candleIndex = hoveredIndex;
     }
     const valueAt = (id: TradingSplitPaneMainIndicatorId, index: number) =>
@@ -1280,19 +1289,9 @@ export class TradingExpertSplitPane {
       items: Array<{ label: string; value: number; color: string }>,
     ) => {
       if (!items.length) return;
-      const row = document.createElement("div");
-      row.className = "trading-market-main-indicator-legend";
-      row.dataset.splitMainIndicatorLegend = id;
-      const heading = document.createElement("strong");
-      heading.textContent = title;
-      row.append(heading);
-      items.forEach((item) => {
-        const value = document.createElement("span");
-        value.style.setProperty("--main-indicator-series-color", item.color);
-        value.textContent = `${item.label}:${Number.isFinite(item.value) ? formatPrice(item.value) : "--"}`;
-        row.append(value);
-      });
-      this.mainIndicatorLegendElement.append(row);
+      rows.push({ id, title, items: items.map(item => ({
+        text: `${item.label}:${Number.isFinite(item.value) ? formatPrice(item.value) : "--"}`, color: item.color,
+      })) });
     };
     this.activeMainIndicators.forEach((id) => {
       const current = this.indicatorSettings[indicatorSettingKey("main", id)];
@@ -1332,6 +1331,7 @@ export class TradingExpertSplitPane {
         }]);
       }
     });
+    updateTradingChartLegendRows(this.mainIndicatorLegendElement, "data-split-main-indicator-legend", rows);
   }
 
   private rebuildIndicatorPanes() {
@@ -1460,19 +1460,11 @@ export class TradingExpertSplitPane {
       const runtime = this.indicatorPanes.get(id);
       const current = this.indicatorSettings[indicatorSettingKey("sub", id)];
       if (!runtime || !current) return;
-      const result = calculateTradingIndicator(id, this.candles, current.parameters);
+      const result = calculateTradingIndicator(id, this.candles, current.parameters, this.volumeCalculationCache);
       result.series.forEach((descriptor) => {
         const seriesRuntime = runtime.series.find((series) => series.key === descriptor.key);
         if (!seriesRuntime) return;
-        seriesRuntime.api.setData(descriptor.values.flatMap((value, index) => {
-          const candle = this.candles[index];
-          if (!Number.isFinite(value) || !candle) return [];
-          return [{
-            time: (candle.time + CHINA_TIME_OFFSET_SECONDS) as any,
-            value,
-            ...(descriptor.colors?.[index] ? { color: descriptor.colors[index] } : {}),
-          }];
-        }));
+        setTradingChartSeriesValues(seriesRuntime.api, this.candles, descriptor.values, CHINA_TIME_OFFSET_SECONDS, descriptor.colors);
         seriesRuntime.latestValue = Number.NaN;
         for (let index = descriptor.values.length - 1; index >= 0; index -= 1) {
           if (Number.isFinite(descriptor.values[index])) {
@@ -1488,10 +1480,11 @@ export class TradingExpertSplitPane {
 
   private updateIndicatorLegends(seriesData?: Map<any, any>) {
     this.indicatorPanes.forEach((runtime) => {
+      const targets = runtime.legend?.querySelectorAll<HTMLElement>("span");
       runtime.series.forEach((seriesRuntime, index) => {
         const current = seriesData?.get(seriesRuntime.api);
         const value = Number(current?.value ?? current?.high ?? seriesRuntime.latestValue);
-        const target = runtime.legend?.querySelectorAll<HTMLElement>("span")[index];
+        const target = targets?.[index];
         const text = `${seriesRuntime.label}: ${formatIndicatorValue(value, runtime.id)}`;
         if (target && target.textContent !== text) target.textContent = text;
       });
@@ -1869,6 +1862,7 @@ export class TradingExpertSplitPane {
     const canUpdateTail = previousData.length > 0
       && unchangedPrefix >= previousData.length - 1
       && nextData.length >= previousData.length;
+    withTradingChartSeriesBatch(this.chart, () => {
     if (canUpdateTail) {
       nextData.slice(unchangedPrefix).forEach((datum) => this.series?.update(datum));
     } else {
@@ -1876,6 +1870,7 @@ export class TradingExpertSplitPane {
     }
     this.updateMainIndicatorData();
     this.updateIndicatorData();
+    });
     this.extremaOverlay?.schedule();
   }
 
@@ -1925,6 +1920,7 @@ export class TradingExpertSplitPane {
     if (this.destroyed) return;
     this.symbolPriceFlash.clear();
     this.destroyed = true;
+    this.crosshairFrame.cancel();
     this.loadGeneration += 1;
     if (this.refreshTimer !== null) window.clearTimeout(this.refreshTimer);
     this.resizeObserver?.disconnect();

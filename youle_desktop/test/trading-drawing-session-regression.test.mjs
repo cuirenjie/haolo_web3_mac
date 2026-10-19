@@ -22,7 +22,7 @@ function setup(t, records = []) {
     const instance = Object.assign(Object.create(TradingDrawingController.prototype), {
       storageSessionId: sessionId, drawingScope: scope, pendingTextDrawingId: null,
       aiDrawings: [], redoStack: [], selectedDrawingId: null,
-      aiPlayback: { cancel: noop }, overlay: { classList: { remove: noop } },
+      horizontalLineSettings: { close: noop }, aiPlayback: { cancel: noop }, overlay: { classList: { remove: noop } },
       redraw: noop, updateToolbarState: noop, releasePointer: noop,
       finishSelectionToolbarDrag: noop, cancelDragRedraw: noop,
       closeSelectionMenus: noop, hideAiTextSizeToolbar: noop,

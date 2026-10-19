@@ -1,0 +1,360 @@
+{
+  "task": "M2-027",
+  "at": 1792352880.5394719,
+  "recordedAt": "2026-10-18T19:51:18.864Z",
+  "readOnlyProduction": true,
+  "sourceVerification": {
+    "authRuntime": {
+      "authRequestTimeoutMs": 10000,
+      "authCacheTtlMs": 15000
+    },
+    "phase": "accepted_retirement_pending",
+    "image": "sha256:edcf22b68e2a207e54c41965b85015aa30074e9b97161085bec2d408e65ca80b",
+    "restarts": 0,
+    "source": {
+      "files": 18,
+      "mismatches": [],
+      "manifestSha256": "89aa65c0373a808c2a4530f1463167537a74a9d7f9d02bf4e434065743fb5c80"
+    },
+    "activePointerAndHaproxyExact": true,
+    "bothReady": true
+  },
+  "activeIdentityUnchanged": true,
+  "activePointerAndHaproxyExact": true,
+  "redisIdentityUnchanged": true,
+  "environmentUnchanged": true,
+  "policy": {
+    "publicUserWeightPerMinute": 300,
+    "publicFuturesUpstreamWeightPerMinute": 1440,
+    "publicSpotUpstreamWeightPerMinute": 3600,
+    "authCacheTtlMs": 15000,
+    "authRequestTimeoutMs": 10000,
+    "downstreamRequestsPerMinute": 300,
+    "maxWebsocketClientsPerUser": 8,
+    "maxWebsocketClientsTotal": 10000
+  },
+  "retirement": [
+    {
+      "release": "market-m2-027-8935f3a",
+      "phase": "accepted_retirement_pending",
+      "container": "haolo-binance-gateway-53badfa",
+      "status": "running",
+      "exitCode": 0,
+      "restarts": 0,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-m2-027-drain-watch.service",
+      "watcherStatus": "active",
+      "established": 69,
+      "websocketClients": 69,
+      "receipt": {
+        "phase": "waiting_for_natural_zero",
+        "container": "haolo-binance-gateway-53badfa",
+        "snapshots": [
+          {
+            "at": 1792352831.6977565,
+            "established": 69,
+            "websocketClients": 69
+          }
+        ]
+      }
+    },
+    {
+      "release": "market-auth-916b92c",
+      "phase": "accepted_retirement_pending",
+      "container": "haolo-binance-gateway-m2-027-8935f3a",
+      "status": "running",
+      "exitCode": 0,
+      "restarts": 0,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-auth-916b92c-drain-watch.service",
+      "watcherStatus": "active",
+      "established": 14,
+      "websocketClients": 14,
+      "receipt": {
+        "phase": "waiting_for_natural_zero",
+        "container": "haolo-binance-gateway-m2-027-8935f3a",
+        "snapshots": [
+          {
+            "at": 1792352859.9413366,
+            "established": 14,
+            "websocketClients": 14
+          }
+        ]
+      }
+    },
+    {
+      "release": "market-quota-738ae82",
+      "phase": "accepted_retirement_pending",
+      "container": "haolo-binance-gateway-auth-916b92c",
+      "status": "running",
+      "exitCode": 0,
+      "restarts": 0,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-quota-738ae82-drain-watch.service",
+      "watcherStatus": "active",
+      "established": 6,
+      "websocketClients": 6,
+      "receipt": {
+        "phase": "waiting_for_natural_zero",
+        "container": "haolo-binance-gateway-auth-916b92c",
+        "snapshots": [
+          {
+            "at": 1792352861.7807527,
+            "established": 6,
+            "websocketClients": 6
+          }
+        ]
+      }
+    },
+    {
+      "release": "market-ws-9c67921",
+      "phase": "accepted_retirement_pending",
+      "container": "haolo-binance-gateway-quota-738ae82",
+      "status": "running",
+      "exitCode": 0,
+      "restarts": 0,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-ws-9c67921-drain-watch.service",
+      "watcherStatus": "active",
+      "established": 6,
+      "websocketClients": 6,
+      "receipt": {
+        "phase": "waiting_for_natural_zero",
+        "container": "haolo-binance-gateway-quota-738ae82",
+        "snapshots": [
+          {
+            "at": 1792352868.200162,
+            "established": 6,
+            "websocketClients": 6
+          }
+        ]
+      }
+    }
+  ],
+  "access": {
+    "seconds": 5647.182307481766,
+    "statuses": {
+      "public_gateway_rest:200": 49591,
+      "public_gateway_rest:404": 2867,
+      "public_gateway:201": 494,
+      "public_gateway:200": 151,
+      "public_gateway:101": 430,
+      "public_gateway:202": 2,
+      "private_gateway:200": 2,
+      "public_gateway_rest:429": 6,
+      "public_gateway:401": 2
+    },
+    "totalCompletedNewRequests": 53545,
+    "new429Or5xx": [
+      {
+        "at": 1792347777.653,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 3
+      },
+      {
+        "at": 1792347777.671,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 4
+      },
+      {
+        "at": 1792347777.696,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 80
+      },
+      {
+        "at": 1792347777.918,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 84
+      },
+      {
+        "at": 1792347777.93,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 72
+      },
+      {
+        "at": 1792347779.34,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 1
+      }
+    ],
+    "tickerSubsetStatusCounts": {
+      "200": 554
+    },
+    "successfulOpenWebSocketsNotIncludedUntilClose": true
+  },
+  "auth": {
+    "samples": 12489,
+    "completionMarginSeconds": 30,
+    "statuses": {
+      "200": 12489
+    },
+    "p50Ms": 78,
+    "p95Ms": 88,
+    "p99Ms": 122,
+    "maxMs": 1241
+  },
+  "recentAuth": {
+    "since": 1792351978.7865987,
+    "samples": 1889,
+    "non200": 0,
+    "p95Ms": 88,
+    "p99Ms": 133,
+    "maxMs": 391,
+    "over500ms": [],
+    "over5s": 0
+  },
+  "websocketDiagnostics": {
+    "events": {
+      "market_ws_connected": 481,
+      "market_ws_closed": 446,
+      "market_ws_rejected": 1
+    },
+    "reasonsAndCodes": {
+      "peer_closed": 327,
+      "heartbeat_timeout": 119,
+      "AUTHENTICATION_REQUIRED": 1
+    },
+    "maxObservedUserConnections": 5
+  },
+  "deltaSince": 1792351978.7865987,
+  "metricDelta": {
+    "websocketRejected": 1,
+    "websocketHeartbeatTimeouts": 23,
+    "websocketCommandRejected": 0,
+    "userWeightRateLimited": 0,
+    "egressWeightRateLimited": 0,
+    "ingressRateLimited": 0,
+    "upstreamRateLimited": 0,
+    "authenticationUnavailable": 0,
+    "authenticationTimeouts": 0,
+    "restCacheStale": 0
+  },
+  "new429Or5xxSincePrevious": [],
+  "authRejectionInvestigation": {
+    "triage": {
+      "at": 1792352942.7448301,
+      "since": 1792351978.7865987,
+      "rejections": [
+        {
+          "at": "2026-10-18T19:45:18.530266268Z",
+          "event": "market_ws_rejected",
+          "status": 401,
+          "code": "AUTHENTICATION_REQUIRED",
+          "market": "futures",
+          "userConnections": 0,
+          "connections": 36
+        }
+      ],
+      "http401": [
+        {
+          "request": {
+            "at": 1792352399.502,
+            "method": "GET",
+            "path": "/",
+            "queryKeys": [],
+            "status": 401,
+            "elapsedMs": 1
+          },
+          "nearbySameSourceRequests": [
+            {
+              "at": 1792352399.502,
+              "method": "GET",
+              "path": "/",
+              "queryKeys": [],
+              "status": 401,
+              "elapsedMs": 1
+            }
+          ]
+        },
+        {
+          "request": {
+            "at": 1792352718.527,
+            "method": "GET",
+            "path": "/stream/futures",
+            "queryKeys": [
+              "ticket"
+            ],
+            "status": 401,
+            "elapsedMs": 2
+          },
+          "nearbySameSourceRequests": [
+            {
+              "at": 1792352718.527,
+              "method": "GET",
+              "path": "/stream/futures",
+              "queryKeys": [
+                "ticket"
+              ],
+              "status": 401,
+              "elapsedMs": 2
+            }
+          ]
+        }
+      ],
+      "limitations": "Same source address is not user identity; successful open WS log appears on close. Query values, tokens and source addresses omitted."
+    },
+    "shape": {
+      "at": 1792352967.9490783,
+      "requests": [
+        {
+          "at": 1792352718.527,
+          "ticketLength": 43,
+          "base64url43Characters": true,
+          "ticketValueOmitted": true
+        }
+      ]
+    },
+    "correlation": {
+      "at": 1792353004.3018057,
+      "target": {
+        "at": 1792352718.527,
+        "method": "GET",
+        "path": "/stream/futures",
+        "status": 401,
+        "elapsedMs": 2
+      },
+      "sameSourceRelatedRequests": [
+        {
+          "at": 1792352718.527,
+          "method": "GET",
+          "path": "/stream/futures",
+          "status": 401,
+          "elapsedMs": 2
+        }
+      ],
+      "sameTicketCompletedHandshakes": [
+        {
+          "at": 1792352718.527,
+          "method": "GET",
+          "path": "/stream/futures",
+          "status": 401,
+          "elapsedMs": 2
+        }
+      ],
+      "crossSourceSameTicketObserved": false,
+      "limitations": "No token values or source addresses retained; issuance responses and currently open WS are not present in these access logs."
+    },
+    "classification": "One WS401 on nonempty ticket whose lookup had no usable identity; independent root-path HTTP401. Not connection-limit429 or upstream-auth503.",
+    "unknowns": [
+      "Whether the ticket was expired, already consumed, or never issued is not established.",
+      "No authenticated userRef or same-source issuance/recovery was observed in the bounded window; same source is not user identity.",
+      "An unclosed successful WS is absent from completed access logs."
+    ],
+    "credentialValuesRetained": false,
+    "productionAuthenticationChanged": false
+  },
+  "allRetired": false,
+  "finalPostRetirementVerification": "pending",
+  "automation": "ACTIVE; unchanged; every 15 minutes",
+  "clientBuiltOrRestarted": false
+}

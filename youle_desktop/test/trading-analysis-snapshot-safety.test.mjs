@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import ts from "typescript";
+import { binanceCandleHistoryComplete } from "../src/shared/binance-candle-request.mjs";
 import * as market from "../src/renderer/trading-expert-market.ts";
 import { selectTradingAnalysisMarket, selectTradingAnalysisInterval } from "../src/renderer/trading-analysis-target.mjs";
 import { applyTradingLivePriceToBatch, tradingCandleCloseTimeMs } from "../src/renderer/trading-market-candle-cache.mjs";
@@ -23,7 +24,7 @@ function runtime(name, dependencies) {
       compilerOptions: { target: ts.ScriptTarget.ES2022 },
     }).outputText);
   }
-  return runInNewContext(`${compiledMethods.get(name)}\nHarness`, { ...market, tradingCandleCloseTimeMs, tradingAnalysisSnapshotUnavailable, Date, ...dependencies });
+  return runInNewContext(`${compiledMethods.get(name)}\nHarness`, { ...market, binanceCandleHistoryComplete, tradingCandleCloseTimeMs, tradingAnalysisSnapshotUnavailable, Date, ...dependencies });
 }
 
 const NOW = Date.parse("2026-09-04T15:30:01Z");
@@ -143,23 +144,23 @@ test("analysis commits skip a second quote merge while ordinary chart loads reta
 test("WebSocket reconciliation retains its event time across a candle boundary", async (t) => {
   const lastOpen = Math.floor(NOW / MINUTE) * MINUTE - MINUTE;
   const h = refreshHarness(t, {
-    interval: "1", fetchCandles: async () => batch(lastOpen, "1"),
+    interval: "1", fetchCandles: async () => batch(lastOpen + MINUTE, "1"),
     quote: { price: 101, eventTimeMs: NOW - 2_000, receivedAt: NOW },
   });
   const result = await h.refresh();
-  assert.equal(result.candles.at(-1).time, lastOpen / 1_000);
+  assert.equal(result.candles.at(-1).time, (lastOpen + MINUTE) / 1_000);
+  assert.equal(result.candles.at(-1).close, 100, "a previous-bucket event cannot overwrite the current REST bar");
   assert.equal(result.candles.length, 100, "must not stamp a previous-bucket event into the new bucket");
 });
 
-test("a current quote can advance one adjacent candle but cannot synthesize a history gap", async (t) => {
+test("a current quote cannot substitute for the missing current REST candle", async (t) => {
   const h = refreshHarness(t, {
     interval: "1", fetchCandles: async () => batch(Math.floor(NOW / MINUTE) * MINUTE - MINUTE, "1"),
     fetchStats: async () => market.tradingMarketStatsFromCandles(BTC.symbol, [{ close: 110 }]),
   });
-  const result = await h.refresh();
-  assert.equal(result.candles.at(-1).time, Math.floor(NOW / MINUTE) * 60);
-  assert.equal(result.candles.at(-1).close, 110);
-  assert.equal(result.candles.length, 101);
+  await assert.rejects(h.refresh(), /已阻止使用旧 K 线分析/);
+  assert.equal(h.calls.stats, 0);
+  assert.equal(h.writes.length, 0);
 });
 
 test("a quote cannot bridge even a short gap accepted by the cadence tolerance", async (t) => {

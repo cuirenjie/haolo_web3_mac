@@ -28,13 +28,16 @@ test('drawing bounds follow their own pane through resize, maximization and indi
 test('every SVG drawing layer uses pane bounds, including hidden drawings and order lines', () => {
   for (const drawingScope of ['main', 'indicator:volume']) {
     const attributes = new Map();
+    let clearedManualLayer = false;
     const layer = () => ({ innerHTML: '' });
     const controller = Object.assign(Object.create(TradingDrawingController.prototype), {
       destroyed: false, drawingScope, paneIndex: drawingScope === 'main' ? 0 : 1,
+      dragRedrawFrame: null, pendingPointerMoves: [],
       getChart: () => ({ panes: () => [{ getHeight: () => 480 }, { getHeight: () => 160 }],
         options: () => ({ height: 670 }), timeScale: () => ({ width: () => 900 }) }),
       getCandleSeries: () => null, orderLines: [], drawingsHidden: true,
-      overlay: { setAttribute: (key, value) => attributes.set(key, value) },
+      overlay: { getAttribute: key => attributes.get(key), setAttribute: (key, value) => attributes.set(key, value) },
+      manualLayer: { render(entries) { assert.deepEqual(entries, []); clearedManualLayer = true; } },
       content: layer(), aiContent: layer(), aiTextHitContent: layer(), aiCursorContent: layer(),
       orderLineContent: Object.assign(layer(), { querySelectorAll: () => [] }),
       orderPositionCardLayer: Object.assign(layer(), { querySelectorAll: () => [] }),
@@ -46,5 +49,6 @@ test('every SVG drawing layer uses pane bounds, including hidden drawings and or
     assert.equal(attributes.get('height'), height);
     assert.equal(attributes.get('width'), '900');
     assert.equal(attributes.get('viewBox'), `0 0 900 ${height}`);
+    assert.equal(clearedManualLayer, true);
   }
 });

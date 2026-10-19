@@ -2,6 +2,7 @@ import type { AutoscaleInfoProvider, IChartApi, IPaneApi, IPriceScaleApi, Time }
 import { translateAppText } from "./app-language.mjs";
 import { beginTradingChartInteraction, endTradingChartInteraction } from "./trading-chart-interaction.ts";
 import { TradingChartToolbarVisibility, clampTradingChartToolbarPosition } from "./trading-chart-toolbar-visibility.ts";
+import { withTradingChartSeriesBatch } from './trading-chart-series-data.ts';
 
 /** Native gestures own axes, drag and pinch; wheel zoom uses the same bounds as buttons. */
 export const TRADING_CHART_NAVIGATION_OPTIONS = {
@@ -106,12 +107,16 @@ export class TradingChartNavigation {
   private readonly root: HTMLElement;
   private readonly controls: HTMLDivElement;
   private controlsPosition: Point | null = null;
+  private controlsSize: { width: number; height: number } | null = null;
   private readonly controlsVisibility: TradingChartToolbarVisibility;
   private controlsDrag: { pointerId: number; start: Point; origin: Point; moved: boolean } | null = null;
   private suppressControlClick = false;
   private verticalLocked = true;
   private freezeAutoNextFrame = false;
   private pendingWheelZoom: { logFactor: number; anchor: number } | null = null;
+  private priceAxisBaseWidth: number | null = null;
+  private priceAxisResizeFrame: number | null = null;
+  private priceAxisResizeRange: { from: number; to: number } | null = null;
   private tool: Tool = null;
   private drag: { pointerId: number; x: number; y: number; scale: IPriceScaleApi | null; moved: boolean;
     axis?: { scale: IPriceScaleApi; range: { from: number; to: number }; height: number; y: number };
@@ -206,8 +211,17 @@ export class TradingChartNavigation {
     this.timeScale = getChart()?.timeScale();
     this.timeScale?.subscribeVisibleLogicalRangeChange(this.viewportChanged);
     this.timeScale?.subscribeSizeChange(this.viewportChanged);
-    this.resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(this.viewportChanged);
+    this.resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const size = entry.borderBoxSize?.[0];
+        if (entry.target === this.controls && size?.inlineSize && size.blockSize) {
+          this.controlsSize = { width: size.inlineSize, height: size.blockSize };
+        }
+      }
+      this.viewportChanged();
+    });
     this.resizeObserver?.observe(element);
+    this.resizeObserver?.observe(this.controls);
     this.applyVerticalLock();
   }
 
@@ -217,14 +231,14 @@ export class TradingChartNavigation {
     const chart = this.getChart();
     if (this.controls.hidden || !chart?.panes().length) return null;
     const left = chart.priceScale("left", 0).width();
-    const bottom = this.element.clientHeight - chart.timeScale().height();
+    const bottom = (chart.options?.().height ?? this.element.clientHeight) - chart.timeScale().height();
     const requested = this.controlsPosition ?? { x: left + 8, y: 36 };
     // Leave room for the close button, including after a split-pane resize.
     const position = clampTradingChartToolbarPosition(requested,
       { left, width: chart.timeScale().width(), height: bottom },
-      { width: this.controls.offsetWidth, height: this.controls.offsetHeight });
-    this.controls.style.left = `${position.x}px`;
-    this.controls.style.top = `${position.y}px`;
+      this.controlsSize ??= { width: this.controls.offsetWidth, height: this.controls.offsetHeight });
+    if (this.controls.style.left !== `${position.x}px`) this.controls.style.left = `${position.x}px`;
+    if (this.controls.style.top !== `${position.y}px`) this.controls.style.top = `${position.y}px`;
     if (this.controlsPosition) this.controlsPosition = position;
     return position;
   }
@@ -338,6 +352,7 @@ export class TradingChartNavigation {
   private readonly pointerDown = (event: PointerEvent) => {
     if (!event.isPrimary) { this.cancelGesture(); return; }
     if (event.button !== 0 || this.drag || this.isControl(event.target)) return;
+    this.finishPriceAxisResize();
     this.flushWheelZoom();
     if (!this.tool && event.target instanceof Element && event.target.closest(".drawing-active, [data-drawing-id], [data-drawing-handle-index]")) return;
     const pane = this.paneAt(event, false);
@@ -586,6 +601,7 @@ export class TradingChartNavigation {
   };
 
   readonly cancelGesture = () => {
+    this.finishPriceAxisResize();
     this.pendingWheelZoom = null;
     this.finishControlsDrag();
     this.finishSelection(); this.drag = null; this.clearMeasurement(); this.closeMenu(); this.schedule();
@@ -604,6 +620,20 @@ export class TradingChartNavigation {
     if (event.target instanceof Node && this.controls.contains(event.target)) { this.consume(event); return; }
     if (this.isControl(event.target) || !Number.isFinite(event.deltaX) || !Number.isFinite(event.deltaY)) return;
     const chart = this.getChart(); if (!chart) return;
+    const pane = this.paneAt(event, false);
+    const plot = this.paneAt(event);
+    const factor = event.deltaMode === 1 ? 32 : event.deltaMode === 2 ? this.element.clientHeight : 1;
+    const paneBounds = pane?.getHTMLElement()?.getBoundingClientRect();
+    const onRightPriceAxis = pane && paneBounds
+      && event.clientX >= paneBounds.right - chart.priceScale("right", pane.paneIndex()).width();
+    if (onRightPriceAxis) {
+      // This region owns typography only. Do not pass its wheel to native
+      // horizontal zoom, price-range scaling, or the surrounding shell.
+      this.consume(event);
+      if (event.deltaY) this.resizePriceAxis(event.deltaY * factor);
+      return;
+    }
+    this.finishPriceAxisResize();
     // Retain ownership across a burst. Releasing it on every wheel event lets
     // a deferred shell render detach the chart halfway through scrolling.
     if (this.interactionTimer === null) this.setTool(null);
@@ -614,9 +644,6 @@ export class TradingChartNavigation {
       this.interactionTimer = null;
       if (!this.drag) endTradingChartInteraction(this);
     }, 120);
-    const pane = this.paneAt(event, false);
-    const plot = this.paneAt(event);
-    const factor = event.deltaMode === 1 ? 32 : event.deltaMode === 2 ? this.element.clientHeight : 1;
     if (pane && !plot && event.deltaY) {
       this.flushWheelZoom();
       const scale = chart.priceScale("right", pane.paneIndex());
@@ -661,7 +688,41 @@ export class TradingChartNavigation {
     this.schedule();
   };
 
+  private resizePriceAxis(delta: number) {
+    const chart = this.getChart();
+    if (!chart) return;
+    this.flushWheelZoom();
+    const previousSize = chart.options().layout.fontSize;
+    const fontSize = Math.max(8, Math.min(24, previousSize * Math.exp(-Math.max(-100, Math.min(100, delta)) / 500)));
+    if (Math.abs(fontSize - previousSize) < 0.001) return;
+    this.priceAxisBaseWidth ??= chart.priceScale("right", 0).width() / (previousSize / 11);
+    this.priceAxisResizeRange ??= chart.timeScale().getVisibleLogicalRange();
+    chart.applyOptions({
+      layout: { fontSize },
+      rightPriceScale: { minimumWidth: Math.ceil(this.priceAxisBaseWidth * fontSize / 11) },
+    });
+    this.root.style.setProperty("--trading-market-axis-font-size", `${fontSize}px`);
+    this.root.style.setProperty("--trading-market-price-label-height", `${24 * fontSize / 11}px`);
+    // Native layout computes the new axis width on its next frame. Preserve
+    // the candle window after that layout, including during a wheel burst.
+    if (this.priceAxisResizeFrame !== null) window.cancelAnimationFrame(this.priceAxisResizeFrame);
+    this.priceAxisResizeFrame = window.requestAnimationFrame(() => {
+      this.priceAxisResizeFrame = null;
+      if (this.destroyed) return;
+      this.finishPriceAxisResize();
+      this.schedule();
+    });
+  }
+
+  private finishPriceAxisResize() {
+    if (this.priceAxisResizeFrame !== null) window.cancelAnimationFrame(this.priceAxisResizeFrame);
+    this.priceAxisResizeFrame = null;
+    if (!this.destroyed && this.priceAxisResizeRange) this.getChart()?.timeScale().setVisibleLogicalRange(this.priceAxisResizeRange);
+    this.priceAxisResizeRange = null;
+  }
+
   private pan(bars: number) {
+    this.finishPriceAxisResize();
     this.flushWheelZoom();
     this.clearMeasurement();
     const ts = this.getChart()?.timeScale(); const range = ts?.getVisibleLogicalRange();
@@ -704,6 +765,7 @@ export class TradingChartNavigation {
   }
 
   private setMode(mode: 0 | 1 | 2) {
+    this.finishPriceAxisResize();
     this.clearMeasurement();
     const chart = this.getChart(); if (!chart) return;
     if (this.options.onPriceModeChange) {
@@ -738,6 +800,10 @@ export class TradingChartNavigation {
   private readonly doubleClick = (event: MouseEvent) => {
     // Active drawing tools own double-click completion; do not maximize their pane.
     if (event.target instanceof Element && event.target.closest('.trading-drawing-layer.drawing-active')) return;
+    // Pointer capture makes a completed drawing's double click target its SVG
+    // root. Let the drawing editor handle the actual shape under that pointer.
+    if (event.target instanceof Element && event.target.closest('.trading-drawing-layer')
+      && document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-drawing-id]')) return;
     const pane = this.paneAt(event);
     const axisPane = !pane && this.paneAt(event, false);
     if (axisPane && !this.isControl(event.target)) {
@@ -878,9 +944,11 @@ export class TradingChartNavigation {
       if (this.destroyed) return;
       // Keep the frame reserved during painting: native lazy layout may emit
       // another viewport change while an overlay reads its coordinates.
-      this.flushWheelZoom();
-      this.flushLockedScroll();
-      this.syncAutoScale();
+      withTradingChartSeriesBatch(this.getChart(), () => {
+        this.flushWheelZoom();
+        this.flushLockedScroll();
+        this.syncAutoScale();
+      });
       this.redraw();
       if (this.measurement) {
         const current = this.measurementViewport(), previous = this.measurementGeometry;
@@ -892,7 +960,10 @@ export class TradingChartNavigation {
         this.activePane = Math.min(this.activePane, chart.panes().length - 1);
         this.positionControls();
         const empty = !this.priceSeries(chart.panes()[0]);
-        this.controls.querySelectorAll("button").forEach(button => { button.disabled = empty && button.dataset.navigationAction !== "hide"; });
+        this.controls.querySelectorAll("button").forEach(button => {
+          const disabled = empty && button.dataset.navigationAction !== "hide";
+          if (button.disabled !== disabled) button.disabled = disabled;
+        });
         const button = this.controls.querySelector('[data-navigation-action="lock-vertical"]');
         if (button) {
           const state = String(this.verticalLocked);
@@ -912,6 +983,7 @@ export class TradingChartNavigation {
   };
 
   destroy() {
+    if (this.priceAxisResizeFrame !== null) window.cancelAnimationFrame(this.priceAxisResizeFrame);
     this.destroyed = true; this.cancelGesture(); this.restoreLayout();
     this.timeScale?.unsubscribeVisibleLogicalRangeChange(this.viewportChanged);
     this.timeScale?.unsubscribeSizeChange(this.viewportChanged);

@@ -61,8 +61,12 @@ if(entryMode==='right') {
 } else if(analysisKind!=='general') {
   const original=result.cloud.planRecords[0];
   const reference={planId:original.id,runId:original.runId,version:original.version,confirmationHash:original.confirmationHash,conditionHash:original.scenario.conditionHash};
-  const card=cloudPlanCard(reports[0]);assert.ok(card.html.includes(String(original.scenario.stop)));
-  const sticky=executionPlanStickyHtml({cloudReport:reports[0]});assert.ok(sticky.includes(card.html));
+  const card=cloudPlanCard(reports[0]);
+  assert.ok(card.content.includes(String(original.scenario.stop)), 'frozen stop remains exact in the full condition');
+  const displayedStop=card.html.match(/(?:止损价|止損價|Stop loss)<\/div><div class="execution-plan-price [^"]+">([\d,.]+)<\/div>/)?.[1];
+  if(displayedStop)assert.ok(Math.abs(Number(displayedStop.replaceAll(',',''))-original.scenario.stop)<=Math.max(1,Math.abs(original.scenario.stop))*1e-6,'compact stop price remains numerically faithful');
+  else assert.ok(card.html.includes(String(original.scenario.stop)), 'legacy card contains the exact stop');
+  const sticky=executionPlanStickyHtml({cloudReport:reports[0],language:language==='zh-Hant'?'zh-TW':language});assert.ok(sticky.includes(card.html));
   const record=await journal.get(account.ownerId,'http-chain-fixture');
   const runEnvelope={...record.body,id:record.runId,desktopResult:result};
   for(const tamper of [

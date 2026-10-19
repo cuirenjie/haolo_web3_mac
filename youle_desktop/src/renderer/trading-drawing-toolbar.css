@@ -4,6 +4,47 @@
   --trading-market-header-height: 36px;
 }
 
+.trading-drawing-selection-action[data-horizontal-line-settings][hidden] { display: none; }
+.trading-horizontal-line-dialog {
+  width: min(460px, calc(100vw - 32px)); max-height: calc(100vh - 32px);
+  box-sizing: border-box; padding: 0; border: 1px solid var(--trading-market-border, #e0e3eb);
+  border-radius: 12px; background: var(--trading-market-panel, #fff); color: var(--trading-market-text, #131722);
+  box-shadow: 0 12px 44px #0003; font: 14px Arial, 'Microsoft YaHei', sans-serif; overflow: auto;
+}
+.trading-horizontal-line-dialog::backdrop { background: #0002; }
+.trading-horizontal-line-dialog form { margin: 0; }
+.trading-horizontal-line-dialog header { display: flex; align-items: center; justify-content: space-between; padding: 24px 24px 16px; }
+.trading-horizontal-line-dialog h2 { margin: 0; font-size: 23px; font-weight: 600; }
+.trading-horizontal-line-dialog button, .trading-horizontal-line-dialog input, .trading-horizontal-line-dialog select, .trading-horizontal-line-dialog textarea {
+  box-sizing: border-box; color: inherit; font: inherit; border: 1px solid var(--trading-market-border, #d1d4dc);
+  border-radius: 7px; background: var(--trading-market-panel, #fff);
+}
+.trading-horizontal-line-dialog button { cursor: pointer; min-height: 38px; padding: 6px 12px; }
+.trading-horizontal-line-dialog button:hover { background: var(--trading-market-control, #f0f0f0); }
+.trading-horizontal-line-dialog :is(button, input, select, textarea):focus-visible { outline: 2px solid #2962ff; outline-offset: 2px; }
+.trading-horizontal-line-dialog header button { border: 0; font-size: 28px; padding: 0 6px; background: transparent; }
+.trading-line-settings-tabs { display: flex; gap: 24px; margin: 0 24px; border-bottom: 1px solid var(--trading-market-border, #e0e3eb); }
+.trading-line-settings-tabs button { position: relative; border: 0; border-radius: 0; padding: 10px 0; font-size: 17px; font-weight: 600; background: transparent; }
+.trading-line-settings-tabs button[aria-selected="true"]::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 3px; border-radius: 2px; background: currentColor; }
+.trading-horizontal-line-dialog section { min-height: 170px; padding: 26px 24px; }
+.trading-horizontal-line-dialog [hidden] { display: none; }
+.trading-line-settings-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 22px; }
+.trading-line-settings-row:last-child { margin-bottom: 0; }
+.trading-line-settings-row > span { min-width: 72px; }
+.trading-horizontal-line-dialog input[type="color"] { width: 38px; height: 38px; padding: 4px; cursor: pointer; }
+.trading-horizontal-line-dialog input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.trading-horizontal-line-dialog input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 3px; }
+.trading-horizontal-line-dialog input[type="checkbox"] { width: 19px; height: 19px; margin: 0; accent-color: #2962ff; }
+.trading-horizontal-line-dialog select { min-width: 76px; height: 38px; padding: 6px 10px; }
+.trading-horizontal-line-dialog input[type="number"] { width: 170px; height: 38px; padding: 8px 10px; }
+.trading-line-text-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; }
+.trading-line-text-controls button { width: 38px; font-size: 19px; }
+.trading-line-text-controls button[aria-pressed="true"] { color: #2962ff; border-color: #2962ff; background: #2962ff12; }
+.trading-horizontal-line-dialog textarea { display: block; width: 100%; min-height: 120px; resize: vertical; padding: 10px; margin-bottom: 20px; line-height: 1.4; }
+.trading-horizontal-line-dialog footer { display: flex; justify-content: flex-end; gap: 12px; padding: 18px 24px; border-top: 1px solid var(--trading-market-border, #e0e3eb); }
+.trading-horizontal-line-dialog footer button { min-width: 70px; }
+.trading-horizontal-line-dialog footer .primary { background: var(--trading-market-text, #131722); color: var(--trading-market-panel, #fff); border-color: transparent; }
+
 html[data-theme="dark"] {
   --trading-drawing-toolbar-background: #131722;
 }

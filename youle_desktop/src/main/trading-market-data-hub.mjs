@@ -35,6 +35,9 @@ export class TradingMarketDataHub {
     reconnectBaseMs = 500,
     heartbeatMs = 20_000,
     handshakeTimeoutMs = 8_000,
+    idleCloseMs = 500,
+    closeTimeoutMs = 2_000,
+    subscriptionAckTimeoutMs = 5_000,
   } = {}) {
     if (typeof endpointProvider !== "function") throw new TypeError("endpointProvider is required");
     if (endpointFailureReporter != null && typeof endpointFailureReporter !== "function") {
@@ -50,6 +53,9 @@ export class TradingMarketDataHub {
     this.reconnectBaseMs = Math.max(10, Number(reconnectBaseMs) || 500);
     this.heartbeatMs = Math.max(1_000, Number(heartbeatMs) || 20_000);
     this.handshakeTimeoutMs = Math.max(250, Number(handshakeTimeoutMs) || 8_000);
+    this.idleCloseMs = Math.max(0, Number(idleCloseMs) || 0);
+    this.closeTimeoutMs = Math.max(10, Number(closeTimeoutMs) || 2_000);
+    this.subscriptionAckTimeoutMs = Math.max(10, Number(subscriptionAckTimeoutMs) || 5_000);
     // Binance limits client-to-server commands to 10 messages/second. A
     // short debounce absorbs favorite/split-pane churn into one batched
     // SUBSCRIBE/UNSUBSCRIBE frame without delaying the market feed itself.
@@ -80,6 +86,14 @@ export class TradingMarketDataHub {
         commandTimer: null,
         alive: true,
         generation: 0,
+        idleTimer: null,
+        closing: null,
+        normalClose: false,
+        pendingAcks: new Map(),
+        acknowledgedStreams: new Set(),
+        ready: false,
+        retryAfterMs: 0,
+        failureReason: null,
       };
       this.channels.set(key, channel);
     }
@@ -92,9 +106,62 @@ export class TradingMarketDataHub {
 
   sendCommand(channel, method, streams) {
     if (!this.isOpen(channel.socket) || !streams.length) return;
+    const socket = channel.socket;
+    const id = this.nextRequestId++;
+    const timer = setTimeout(() => {
+      if (channel.socket === socket && channel.pendingAcks.has(id)) this.failSubscription(channel, "subscription_ack_timeout");
+    }, this.subscriptionAckTimeoutMs);
+    timer.unref?.();
+    channel.pendingAcks.set(id, { method, streams, timer });
     try {
-      channel.socket.send(JSON.stringify({ method, params: streams, id: this.nextRequestId++ }));
-    } catch {}
+      socket.send(JSON.stringify({ method, params: streams, id }));
+    } catch { this.failSubscription(channel, "subscription_send_failed"); }
+  }
+
+  clearAcknowledgements(channel) {
+    for (const request of channel.pendingAcks.values()) clearTimeout(request.timer);
+    channel.pendingAcks.clear();
+    channel.acknowledgedStreams.clear();
+    channel.ready = false;
+  }
+
+  failSubscription(channel, reason) {
+    channel.failureReason = reason;
+    channel.ready = false;
+    this.broadcastHealth(channel, { status: "reconnecting", reason });
+    void this.closeSocket(channel, 1011, reason);
+  }
+
+  closeSocket(channel, code = 1000, reason = "unused") {
+    if (channel.closing) return channel.closing;
+    const socket = channel.socket;
+    if (!socket || socket.readyState === 3) return Promise.resolve();
+    let finish;
+    const closed = new Promise(resolve => { finish = resolve; });
+    channel.closing = closed;
+    const timer = setTimeout(() => { try { socket.terminate(); } catch {} }, this.closeTimeoutMs);
+    // Keep the bounded shutdown alive even if no other handles remain.
+    socket.once("close", () => { clearTimeout(timer); channel.closing = null; finish(); });
+    try {
+      if (socket.readyState === (this.WebSocketImpl.CONNECTING ?? 0)) socket.terminate();
+      else socket.close(code, reason);
+    } catch { try { socket.terminate(); } catch {} }
+    return closed;
+  }
+
+  retireIdleChannel(channel) {
+    if (channel.subscriptions.size) return;
+    channel.generation += 1;
+    clearTimeout(channel.reconnectTimer);
+    clearTimeout(channel.commandTimer);
+    channel.reconnectTimer = channel.commandTimer = null;
+    channel.pendingCommands = [];
+    this.clearAcknowledgements(channel);
+    channel.normalClose = true;
+    if (channel.socket) void this.closeSocket(channel);
+    else if (this.channels.get(channelKey(channel.marketType, channel.streamClass)) === channel) {
+      this.channels.delete(channelKey(channel.marketType, channel.streamClass));
+    }
   }
 
   queueCommand(channel, method, streams) {
@@ -129,7 +196,8 @@ export class TradingMarketDataHub {
   scheduleReconnect(channel, reason = "websocket_closed") {
     if (this.closed || !channel.subscriptions.size || channel.reconnectTimer) return;
     this.broadcastHealth(channel, { status: "reconnecting", reason });
-    const delay = Math.min(30_000, this.reconnectBaseMs * 2 ** Math.min(channel.reconnectAttempt++, 6));
+    const delay = Math.max(channel.retryAfterMs, Math.min(30_000, this.reconnectBaseMs * 2 ** Math.min(channel.reconnectAttempt++, 6)));
+    channel.retryAfterMs = 0;
     channel.reconnectTimer = setTimeout(() => {
       channel.reconnectTimer = null;
       void this.connect(channel);
@@ -153,7 +221,7 @@ export class TradingMarketDataHub {
   }
 
   async connect(channel) {
-    if (this.closed || channel.connecting || channel.socket || !channel.subscriptions.size) return;
+    if (this.closed || channel.connecting || channel.socket || channel.closing || channel.reconnectTimer || !channel.subscriptions.size) return;
     channel.connecting = true;
     const generation = ++channel.generation;
     let endpoint;
@@ -169,9 +237,13 @@ export class TradingMarketDataHub {
         : { ...resolved, marketType: resolved?.marketType || channel.marketType };
       endpoint = String(endpointContext?.url || "");
       if (!endpoint) throw new Error("market endpoint is empty");
+      if (endpointContext.route === "gateway" && Number.isFinite(endpointContext.ticketExpiresAt)
+          && endpointContext.ticketExpiresAt <= Date.now() + 1_000) {
+        throw Object.assign(new Error("Market WebSocket ticket expired before connect"), { code: "WS_TICKET_EXPIRED" });
+      }
     } catch (error) {
       channel.connecting = false;
-      this.scheduleReconnect(channel, String(error?.message || "endpoint_failed").slice(0, 240));
+      this.scheduleReconnect(channel, error?.code === "WS_TICKET_EXPIRED" ? error.code : String(error?.message || "endpoint_failed").slice(0, 240));
       return;
     }
     if (this.closed || generation !== channel.generation || channel.socket || !channel.subscriptions.size) {
@@ -186,16 +258,20 @@ export class TradingMarketDataHub {
         perMessageDeflate: false,
         maxPayload: 1024 * 1024,
         handshakeTimeout: this.handshakeTimeoutMs,
+        ...(endpointContext.route === "gateway" && Number.isFinite(endpointContext.ticketExpiresAt)
+          ? { haoloMarketTicketExpiresAt: endpointContext.ticketExpiresAt } : {}),
         ...(typeof lookup === "function" ? { family: 4, lookup } : {}),
       });
     } catch (error) {
       channel.connecting = false;
-      if (endpointContext?.route === "gateway") lookup?.invalidate?.(new URL(endpoint).hostname);
+      if (error?.code !== "WS_TICKET_EXPIRED" && endpointContext?.route === "gateway") lookup?.invalidate?.(new URL(endpoint).hostname);
       this.reportEndpointOutcome({ ...endpointContext, outcome: "failed", connectedDurationMs: 0 });
       this.scheduleReconnect(channel, String(error?.message || "connect_failed").slice(0, 240));
       return;
     }
     channel.socket = socket;
+    channel.normalClose = false;
+    channel.failureReason = null;
     channel.connecting = false;
     // Bound DNS/TCP/TLS/upgrade together; an HTTP socket timeout alone may not
     // cover a stalled connect on every Node/Electron platform.
@@ -204,15 +280,27 @@ export class TradingMarketDataHub {
       try { socket.terminate(); } catch { try { socket.close(); } catch {} }
     }, this.handshakeTimeoutMs);
     channel.handshakeTimer.unref?.();
-    let openedAt = 0, routeChanged = false;
+    let openedAt = 0, routeChanged = false, handshakeStatus = 0;
+    socket.on("unexpected-response", (_request, response) => {
+      if (channel.socket !== socket) { response.destroy(); return; }
+      handshakeStatus = Number(response.statusCode) || 0;
+      const knownCodes = new Set(["WS_USER_CONNECTION_LIMIT", "WS_CONNECTION_RATE_LIMIT", "WS_TOTAL_CONNECTION_LIMIT",
+        "WS_TICKET_EXPIRED", "WS_TICKET_CONSUMED", "WS_TICKET_UNKNOWN", "WS_TICKET_INVALID", "WS_TICKET_UNAVAILABLE"]);
+      const code = response.headers?.["x-haolo-error-code"];
+      channel.failureReason = knownCodes.has(code) ? code : `websocket_http_${handshakeStatus}`;
+      const retrySeconds = Number(response.headers?.["retry-after"]);
+      channel.retryAfterMs = Number.isFinite(retrySeconds) ? Math.min(60_000, Math.max(0, retrySeconds * 1_000)) : 0;
+      response.destroy();
+      socket.terminate();
+    });
     socket.on("haolo-route-change", () => { routeChanged = true; });
     socket.on("open", () => {
       if (channel.socket !== socket || this.closed || routeChanged) return;
       clearTimeout(channel.handshakeTimer);
       channel.handshakeTimer = null;
       openedAt = Date.now();
-      channel.reconnectAttempt = 0;
       channel.alive = true;
+      this.clearAcknowledgements(channel);
       // The open handshake sends the authoritative current stream set. Drop
       // commands queued while CONNECTING so they cannot replay a duplicate
       // SUBSCRIBE after the socket has already been initialized.
@@ -221,7 +309,6 @@ export class TradingMarketDataHub {
       channel.pendingCommands = [];
       this.sendCommand(channel, "SUBSCRIBE", [...channel.streamSubscriptions.keys()]);
       this.armHeartbeat(channel, socket);
-      this.broadcastHealth(channel, { status: "connected" });
       this.reportEndpointOutcome({ ...endpointContext, outcome: "connected", connectedDurationMs: 0 });
     });
     socket.on("pong", () => {
@@ -234,6 +321,25 @@ export class TradingMarketDataHub {
       try { message = decodeMarketPayload(JSON.parse(String(payload))); } catch {
         // A malformed negotiated frame must cause recovery, not silent data loss.
         try { socket.close(1002, "invalid_market_frame"); } catch {}
+        return;
+      }
+      const acknowledgement = channel.pendingAcks.get(message?.id);
+      if (acknowledgement) {
+        clearTimeout(acknowledgement.timer);
+        channel.pendingAcks.delete(message.id);
+        if (message.code != null || message.error != null || message.result !== null) {
+          this.failSubscription(channel, "subscription_rejected");
+          return;
+        }
+        for (const stream of acknowledgement.streams) {
+          if (acknowledgement.method === "SUBSCRIBE") channel.acknowledgedStreams.add(stream);
+          else channel.acknowledgedStreams.delete(stream);
+        }
+        if ([...channel.streamSubscriptions.keys()].every(stream => channel.acknowledgedStreams.has(stream)) && channel.subscriptions.size) {
+          channel.ready = true;
+          channel.reconnectAttempt = 0;
+          this.broadcastHealth(channel, { status: "connected" });
+        }
         return;
       }
       const stream = String(message?.stream || "");
@@ -249,12 +355,14 @@ export class TradingMarketDataHub {
         try { subscription?.onEvent(event); } catch {}
       }
     });
-    socket.on("error", () => {
+    socket.on("error", error => {
+      if (error?.code === "WS_TICKET_EXPIRED") channel.failureReason = error.code;
       try { socket.close(); } catch {}
     });
     socket.on("close", () => {
       if (channel.socket !== socket) return;
       channel.socket = null;
+      this.clearAcknowledgements(channel);
       clearTimeout(channel.handshakeTimer);
       channel.handshakeTimer = null;
       clearInterval(channel.heartbeatTimer);
@@ -262,10 +370,10 @@ export class TradingMarketDataHub {
       // A reconnect must re-evaluate the edge route and obtain a new one-use
       // ticket. Disposing a subscription clears channel.socket before close,
       // so normal teardown cannot invalidate another subscriber's route.
-      if (!routeChanged && endpointContext?.route === "gateway") {
+      if (!routeChanged && !channel.normalClose && !handshakeStatus && !channel.failureReason && endpointContext?.route === "gateway") {
         lookup?.invalidate?.(new URL(endpoint).hostname, socket._socket?.remoteAddress);
       }
-      if (!routeChanged) {
+      if (!routeChanged && !channel.normalClose && !channel.failureReason) {
         this.reportEndpointOutcome({
           ...endpointContext,
           outcome: "failed",
@@ -273,7 +381,12 @@ export class TradingMarketDataHub {
         });
       }
       if (!this.closed && channel.subscriptions.size) {
-        this.scheduleReconnect(channel, routeChanged ? "network_route_changed" : "websocket_closed");
+        if (channel.normalClose) {
+          // The close listener resolving channel.closing runs after this one.
+          queueMicrotask(() => { void this.connect(channel); });
+        } else this.scheduleReconnect(channel, routeChanged ? "network_route_changed" : channel.failureReason || "websocket_closed");
+      } else if (this.channels.get(channelKey(channel.marketType, channel.streamClass)) === channel) {
+        this.channels.delete(channelKey(channel.marketType, channel.streamClass));
       }
     });
   }
@@ -300,6 +413,8 @@ export class TradingMarketDataHub {
       channels.set(streamClass, entry);
     }
     for (const { channel, streams: groupedStreams } of channels.values()) {
+      clearTimeout(channel.idleTimer);
+      channel.idleTimer = null;
       const addedStreams = [];
       const subscription = { id: subscriptionId, streams: groupedStreams, onEvent, onHealth };
       channel.subscriptions.set(subscriptionId, subscription);
@@ -313,7 +428,7 @@ export class TradingMarketDataHub {
         ids.add(subscriptionId);
       }
       this.queueCommand(channel, "SUBSCRIBE", addedStreams);
-      if (this.isOpen(channel.socket)) onHealth(Object.freeze({ type: "health", status: "connected", at: Date.now() }));
+      if (this.isOpen(channel.socket) && channel.ready && groupedStreams.every(stream => channel.acknowledgedStreams.has(stream))) onHealth(Object.freeze({ type: "health", status: "connected", at: Date.now() }));
       else void this.connect(channel);
     }
     let disposed = false;
@@ -333,21 +448,8 @@ export class TradingMarketDataHub {
         }
         this.queueCommand(channel, "UNSUBSCRIBE", removedStreams);
         if (channel.subscriptions.size) continue;
-        channel.generation += 1;
-        clearTimeout(channel.reconnectTimer);
-        clearTimeout(channel.handshakeTimer);
-        clearInterval(channel.heartbeatTimer);
-        clearTimeout(channel.commandTimer);
-        channel.commandTimer = null;
-        channel.pendingCommands = [];
-        channel.reconnectTimer = null;
-        channel.heartbeatTimer = null;
-        const socket = channel.socket;
-        channel.socket = null;
-        this.channels.delete(channelKey(channel.marketType, channel.streamClass));
-        if (socket) {
-          try { socket.close(1000, "unused"); } catch {}
-        }
+        channel.idleTimer = setTimeout(() => { channel.idleTimer = null; this.retireIdleChannel(channel); }, this.idleCloseMs);
+        channel.idleTimer.unref?.();
       }
     };
     return Object.freeze({ subscriptionId, dispose });
@@ -366,23 +468,24 @@ export class TradingMarketDataHub {
   }
 
   async close() {
-    if (this.closed) return;
+    if (this.closed) return this.closing;
     this.closed = true;
+    const closing = [];
     for (const channel of this.channels.values()) {
       channel.generation += 1;
+      clearTimeout(channel.idleTimer);
       clearTimeout(channel.reconnectTimer);
       clearTimeout(channel.handshakeTimer);
       clearInterval(channel.heartbeatTimer);
       clearTimeout(channel.commandTimer);
       channel.commandTimer = null;
       channel.pendingCommands = [];
-      const socket = channel.socket;
-      channel.socket = null;
-      if (socket) {
-        try { socket.close(1001, "hub_shutdown"); } catch {}
-      }
+      this.clearAcknowledgements(channel);
+      channel.normalClose = true;
+      closing.push(this.closeSocket(channel, 1001, "hub_shutdown"));
     }
-    this.channels.clear();
+    this.closing = Promise.all(closing).then(() => { this.channels.clear(); });
+    await this.closing;
   }
 }
 

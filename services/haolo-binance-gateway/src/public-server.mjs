@@ -2,7 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { WebSocketServer } from "ws";
 import { GatewayAuthError, requireHttpIdentity, verifyHaoloAccessJwt, bearerToken, metricsAuthorized } from "./auth.mjs";
-import { MarketGatewayError } from "./binance-rest.mjs";
+import { MarketGatewayError, PUBLIC_FUTURES_PATHS, PUBLIC_SPOT_PATHS } from "./binance-rest.mjs";
 import { FixedWindowRateLimiter } from "./rate-limit.mjs";
 import { validateStreamName } from "./stream-pool.mjs";
 import { DrainState, closeHttp } from "./drain.mjs";
@@ -11,6 +11,7 @@ import { compressionCohort, compressionOptions } from "./ws-compression.mjs";
 import { marketTier, requireMarketRoute } from "./market-routing.mjs";
 import { TrafficMetrics, streamFamily } from "./traffic-metrics.mjs";
 import { MARKET_WIRE_CODEC } from "./market-wire-codec.mjs";
+import { MarketTicketStore } from "./market-tickets.mjs";
 
 // A browser that cannot consume the feed must not turn the gateway into an
 // unbounded memory queue. Quote-like streams are latest-value state, so under
@@ -113,13 +114,17 @@ function clientAddress(request, config) {
   return String(request.socket.remoteAddress || "unknown").slice(0, 128);
 }
 
-async function websocketIdentity(request, config, cache, accessTokenVerifier = null) {
+async function websocketIdentity(request, config, tickets, accessTokenVerifier = null) {
   const url = new URL(request.url, "http://gateway.local");
   const ticket = String(url.searchParams.get("ticket") || "").trim();
   if (ticket) {
-    const value = await cache.take(`ticket:${ticket}`);
-    if (!value?.userId) throw new GatewayAuthError("invalid or expired market ticket");
-    return value;
+    const result = await tickets.consume(ticket);
+    if (result.status !== "ok") {
+      throw Object.assign(new GatewayAuthError("market ticket unavailable; obtain a new ticket"), {
+        code: `WS_TICKET_${result.status.toUpperCase()}`, ticketAudit: result.audit,
+      });
+    }
+    return { ...result.identity, ticketAudit: result.audit };
   }
   const token = bearerToken(request.headers);
   if (!token && config.allowAnonymousPublic) return { userId: `anonymous:${clientAddress(request, config)}` };
@@ -150,7 +155,17 @@ async function readJsonBody(request, maxBytes = 4 * 1024) {
   }
 }
 
-export function createPublicGatewayServer({ config, restGateway, streamPool, privateEgressCoordinator = null, accessTokenVerifier = null } = {}) {
+export function createPublicGatewayServer({ config, restGateway, streamPool, privateEgressCoordinator = null, accessTokenVerifier = null,
+  onDiagnostic = entry => console.warn(JSON.stringify(entry)), websocketHeartbeatMs = 30_000 } = {}) {
+  const diagnosticSalt = crypto.randomBytes(32);
+  const userReference = identity => identity?.userId
+    ? crypto.createHmac("sha256", diagnosticSalt).update(identity.userId).digest("hex").slice(0, 16) : undefined;
+  const diagnostic = entry => { try { onDiagnostic(entry); } catch {} };
+  const tickets = new MarketTicketStore(restGateway.cache);
+  const ticketDiagnostic = audit => audit ? {
+    ticketRef: audit.ticketRef, clientProtocol: audit.clientProtocol,
+    ...(audit.issuedAt ? { ticketAgeMs: Math.max(0, Date.now() - audit.issuedAt) } : {}),
+  } : {};
   const controlLimiter = new FixedWindowRateLimiter({ limit: config.downstreamRequestsPerMinute });
   const requestBurstLimiter = new FixedWindowRateLimiter({
     limit: config.downstreamBurstRequestsPerMinute || Math.max(1_200, config.downstreamRequestsPerMinute * 4),
@@ -167,6 +182,17 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     websocketMarketFrames: 0,
     websocketMarketPayloadBytes: 0,
     websocketRejected: 0,
+    websocketTicketExpired: 0,
+    websocketTicketConsumed: 0,
+    websocketTicketUnknown: 0,
+    websocketTicketInvalid: 0,
+    websocketTicketUnavailable: 0,
+    ticketStoreUnavailable: 0,
+    websocketUserConnectionLimited: 0,
+    websocketConnectionRateLimited: 0,
+    websocketTotalConnectionLimited: 0,
+    websocketHeartbeatTimeouts: 0,
+    websocketCommandRejected: 0,
     websocketBackpressureDisconnects: 0,
     websocketCoalescedFrames: 0,
     restCacheHits: 0,
@@ -178,6 +204,12 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     upstreamRateLimited: 0,
     upstreamCooldownHits: 0,
     downstreamRateLimited: 0,
+    ingressRateLimited: 0,
+    userWeightRateLimited: 0,
+    egressWeightRateLimited: 0,
+    authenticationUnavailable: 0,
+    authenticationTimeouts: 0,
+    marketCoordinationUnavailable: 0,
   };
   const websocketClientsByUser = new Map();
   const drain = new DrainState();
@@ -206,6 +238,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       return;
     }
     metrics.httpRequests += 1;
+    const requestStartedAt = Date.now();
     try {
       if (request.method === "POST" && request.url === "/api/private/v1/permits") {
         if (!privateEgressCoordinator) throw new MarketGatewayError("private egress control plane is disabled", { statusCode: 503, code: "PRIVATE_EGRESS_DISABLED" });
@@ -232,14 +265,13 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         if (!rate.allowed) {
           throw new MarketGatewayError("ticket rate limit exceeded", { statusCode: 429, code: "RATE_LIMITED", retryAfterMs: rate.resetAt - Date.now() });
         }
-        const ticket = crypto.randomBytes(32).toString("base64url");
-        const expiresInMs = 30_000;
         const body = await readJsonBody(request);
         const codec = config.marketCompactEnabled && Array.isArray(body?.codecs) && body.codecs.includes(MARKET_WIRE_CODEC) ? MARKET_WIRE_CODEC : "json";
-        await restGateway.cache.set(`ticket:${ticket}`, {
+        const { ticket, expiresInMs, audit } = await tickets.issue({
           userId: identity.userId, marketTier: marketTier(identity), membershipExpiresAt: identity.membershipExpiresAt || null,
           marketRouting: identity.marketRouting || request.headers["x-haolo-market-routing"] === "1", codec,
-        }, expiresInMs, expiresInMs);
+        }, { clientProtocol: body?.ticketProtocol === 2 ? "2" : "legacy" });
+        diagnostic({ event: "market_ticket_issued", ...ticketDiagnostic(audit), userRef: userReference(identity), expiresInMs });
         sendJson(response, 201, { ticket, expiresInMs, codec });
         return;
       }
@@ -251,7 +283,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const burstRate = requestBurstLimiter.consume(requestKey);
       if (!burstRate.allowed) {
         metrics.downstreamRateLimited += 1;
-        throw new MarketGatewayError("request rate limit exceeded", { statusCode: 429, code: "RATE_LIMITED", retryAfterMs: burstRate.resetAt - Date.now() });
+        metrics.ingressRateLimited += 1;
+        throw new MarketGatewayError("request rate limit exceeded", { statusCode: 429, code: "RATE_LIMITED", limitScope: "ingress", retryAfterMs: burstRate.resetAt - Date.now() });
       }
       let upstreamBudget = upstreamBudgetStates.get(requestKey) || null;
       if (upstreamBudget?.resetAt <= Date.now()) {
@@ -259,6 +292,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         upstreamBudget = null;
       }
       const result = await restGateway.get(request.url, {
+        freshness: request.headers["x-haolo-market-freshness"] === "live" ? "live" : "default",
         async beforeUpstream(route) {
           const now = Date.now();
           const totalLimit = route.marketType === "futures"
@@ -273,12 +307,12 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
             backgroundLimit: totalLimit,
             background: false,
             userKey: crypto.createHash("sha256").update(requestKey).digest("hex").slice(0, 32),
-            userLimit: config.downstreamRequestsPerMinute,
+            userLimit: config.publicUserWeightPerMinute || config.downstreamRequestsPerMinute,
             ttlMs: 60_000 - (now % 60_000) + 5_000,
           });
           upstreamBudget = Object.freeze({
             marketType: route.marketType,
-            remaining: Math.max(0, config.downstreamRequestsPerMinute - budget.usedByUser),
+            remaining: Math.max(0, (config.publicUserWeightPerMinute || config.downstreamRequestsPerMinute) - budget.usedByUser),
             resetAt: now + budget.retryAfterMs,
           });
           upstreamBudgetStates.delete(requestKey);
@@ -288,6 +322,8 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
           }
           if (!budget.allowed) {
             metrics.downstreamRateLimited += 1;
+            if (budget.rejectedBy === "user") metrics.userWeightRateLimited += 1;
+            else metrics.egressWeightRateLimited += 1;
             throw new MarketGatewayError(
               budget.rejectedBy === "user"
                 ? "upstream request-weight budget exceeded"
@@ -295,6 +331,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
               {
                 statusCode: 429,
                 code: "RATE_LIMITED",
+                limitScope: budget.rejectedBy === "user" ? "user-weight" : "egress-weight",
                 retryAfterMs: budget.retryAfterMs,
               },
             );
@@ -339,6 +376,32 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const statusCode = Number(error?.statusCode || 500);
       const retryAfterSeconds = Math.ceil(Number(error?.retryAfterMs || 0) / 1_000);
       const errorCode = String(error?.code || "INTERNAL_ERROR");
+      const requestId = statusCode >= 500 ? crypto.randomUUID() : "";
+      const authUnavailable = errorCode === "AUTHENTICATION_UNAVAILABLE";
+      if (errorCode === "WS_TICKET_STORE_UNAVAILABLE") metrics.ticketStoreUnavailable += 1;
+      if (authUnavailable) {
+        metrics.authenticationUnavailable += 1;
+        if (error.failureKind === "timeout") metrics.authenticationTimeouts += 1;
+      }
+      if (["MARKET_COORDINATION_UNAVAILABLE", "MARKET_REFRESH_PENDING"].includes(errorCode)) metrics.marketCoordinationUnavailable += 1;
+      if (requestId) {
+        // Only known route names and fixed error categories are recorded. Never
+        // log queries, bearer tokens, tickets, user IDs, or dependency bodies.
+        let route = "other";
+        try {
+          const candidate = publicRestPath(request.url);
+          if (PUBLIC_FUTURES_PATHS.has(candidate) || PUBLIC_SPOT_PATHS.has(candidate)
+            || ["/api/private/v1/permits", "/api/private/v1/usage", "/api/market/v1/tickets"].includes(candidate)) route = candidate;
+        } catch {}
+        const knownCodes = ["AUTHENTICATION_UNAVAILABLE", "MARKET_COORDINATION_UNAVAILABLE", "MARKET_REFRESH_PENDING",
+          "UPSTREAM_UNAVAILABLE", "UPSTREAM_INVALID_RESPONSE", "UPSTREAM_REJECTED", "UPSTREAM_RATE_LIMITED", "UPSTREAM_COOLDOWN", "PRIVATE_EGRESS_DISABLED"];
+        const failureKind = ["timeout", "network", "upstream-status", "invalid-response", "invalid-profile"].includes(error.failureKind) ? error.failureKind : "unknown";
+        try { onDiagnostic({ event: "market_gateway_error", requestId, route, status: statusCode,
+          code: knownCodes.includes(errorCode) ? errorCode : "INTERNAL_ERROR", elapsedMs: Date.now() - requestStartedAt,
+          ...(authUnavailable ? { dependency: "haolo-auth", failureKind, dependencyStatus: Number(error.dependencyStatus) || 0,
+            dependencyElapsedMs: Number(error.dependencyElapsedMs) || 0 } : {}),
+        }); } catch {}
+      }
       const rateLimitSource = ["UPSTREAM_RATE_LIMITED", "UPSTREAM_COOLDOWN"].includes(errorCode)
         ? "gateway-upstream"
         : errorCode === "RATE_LIMITED"
@@ -353,8 +416,11 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         message: statusCode >= 500 ? "market gateway unavailable" : String(error?.message || "request rejected"),
         retryAfterMs: Number(error?.retryAfterMs || 0),
       }, {
+        ...(requestId ? { "x-haolo-request-id": requestId } : {}),
+        ...(authUnavailable ? { "x-haolo-error-source": "haolo-auth" } : {}),
         ...(retryAfterSeconds > 0 ? { "retry-after": String(retryAfterSeconds) } : {}),
         ...(rateLimitSource ? { "x-haolo-rate-limit-source": rateLimitSource } : {}),
+        ...(error?.limitScope ? { "x-haolo-rate-limit-scope": error.limitScope } : {}),
         ...(Number(error?.upstreamStatus) > 0 ? { "x-haolo-upstream-status": String(Number(error.upstreamStatus)) } : {}),
       });
     }
@@ -367,16 +433,25 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       socket.destroy();
       return;
     }
+    let identity;
     try {
-      const identity = await websocketIdentity(request, config, restGateway.cache, accessTokenVerifier);
+      identity = await websocketIdentity(request, config, tickets, accessTokenVerifier);
       requireMarketRoute(identity, request, config);
       const rate = controlLimiter.consume(`ws:${identity.userId}:${clientAddress(request, config)}`);
-      if (!rate.allowed) throw new GatewayAuthError("connection rate limit exceeded", 429);
+      if (!rate.allowed) {
+        metrics.websocketConnectionRateLimited += 1;
+        throw Object.assign(new GatewayAuthError("connection rate limit exceeded", 429), {
+          code: "WS_CONNECTION_RATE_LIMIT", retryAfterMs: rate.resetAt - Date.now(), limit: config.downstreamRequestsPerMinute });
+      }
       if (metrics.websocketClients >= config.maxWebsocketClientsTotal) {
-        throw new GatewayAuthError("gateway connection capacity exceeded", 503);
+        metrics.websocketTotalConnectionLimited += 1;
+        throw Object.assign(new GatewayAuthError("gateway connection capacity exceeded", 503), {
+          code: "WS_TOTAL_CONNECTION_LIMIT", retryAfterMs: 2_000, limit: config.maxWebsocketClientsTotal });
       }
       if (Number(websocketClientsByUser.get(identity.userId) || 0) >= config.maxWebsocketClientsPerUser) {
-        throw new GatewayAuthError("user connection limit exceeded", 429);
+        metrics.websocketUserConnectionLimited += 1;
+        throw Object.assign(new GatewayAuthError("user connection limit exceeded", 429), {
+          code: "WS_USER_CONNECTION_LIMIT", retryAfterMs: 2_000, limit: config.maxWebsocketClientsPerUser });
       }
       // Opt-in cohorts are chosen after authentication. Existing clients which
       // do not offer compression continue to negotiate the original protocol.
@@ -390,8 +465,24 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     } catch (error) {
       metrics.websocketRejected += 1;
       const statusCode = Number(error?.statusCode || 401);
-      socket.write(`HTTP/1.1 ${statusCode} Rejected\r\nConnection: close\r\n\r\n`);
-      socket.destroy();
+      const admissionCodes = new Set(["WS_CONNECTION_RATE_LIMIT", "WS_USER_CONNECTION_LIMIT", "WS_TOTAL_CONNECTION_LIMIT"]);
+      const ticketCodes = { WS_TICKET_EXPIRED: "websocketTicketExpired", WS_TICKET_CONSUMED: "websocketTicketConsumed",
+        WS_TICKET_UNKNOWN: "websocketTicketUnknown", WS_TICKET_INVALID: "websocketTicketInvalid",
+        WS_TICKET_UNAVAILABLE: "websocketTicketUnavailable", WS_TICKET_STORE_UNAVAILABLE: "ticketStoreUnavailable" };
+      const knownCodes = new Set([...admissionCodes, ...Object.keys(ticketCodes), "AUTHENTICATION_UNAVAILABLE", "AUTHENTICATION_REQUIRED", "MARKET_ROUTE_REQUIRED", "MARKET_ENTITLEMENT_UNAVAILABLE"]);
+      const code = knownCodes.has(error?.code) ? error.code : "WS_AUTHENTICATION_REJECTED";
+      if (ticketCodes[code]) metrics[ticketCodes[code]] += 1;
+      if (code === "AUTHENTICATION_UNAVAILABLE") {
+        metrics.authenticationUnavailable += 1;
+        if (error.failureKind === "timeout") metrics.authenticationTimeouts += 1;
+      }
+      const retryAfter = Math.max(1, Math.ceil(Number(error?.retryAfterMs || 1_000) / 1_000));
+      diagnostic({ event: "market_ws_rejected", status: statusCode, code, market: route.marketType,
+        ...ticketDiagnostic(error?.ticketAudit || identity?.ticketAudit),
+        userRef: userReference(identity), userConnections: websocketClientsByUser.get(identity?.userId) || 0,
+        connections: metrics.websocketClients, ...(admissionCodes.has(code) ? { limit: error.limit } : {}) });
+      // end() flushes the bounded response before closing; never log the URL/ticket.
+      socket.end(`HTTP/1.1 ${statusCode} Rejected\r\nConnection: close\r\nContent-Length: 0\r\nX-Haolo-Error-Code: ${code}\r\nRetry-After: ${retryAfter}\r\n\r\n`);
     }
   }));
 
@@ -401,7 +492,31 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     if (compressed) metrics.websocketCompressedClients += 1;
     const disposers = new Map();
     const { route } = context;
+    const sessionId = crypto.randomUUID();
+    const userRef = userReference(context.identity);
+    const connectedAt = Date.now();
+    diagnostic({ event: "market_ws_connected", sessionId, userRef, market: route.marketType,
+      ...ticketDiagnostic(context.identity.ticketAudit),
+      userConnections: websocketClientsByUser.get(context.identity.userId), connections: metrics.websocketClients });
     let released = false;
+    let sessionExpired = false;
+    let alive = true;
+    let closeReason = "peer_closed";
+    // A lost TCP path can otherwise retain a user's slot indefinitely. Keep
+    // healthy streams alive, including during deployment drain.
+    const heartbeatTimer = setInterval(() => {
+      if (websocket.readyState !== 1) return;
+      if (!alive) {
+        closeReason = "heartbeat_timeout";
+        metrics.websocketHeartbeatTimeouts += 1;
+        websocket.terminate();
+        return;
+      }
+      alive = false;
+      try { websocket.ping(); } catch { websocket.terminate(); }
+    }, Math.max(10, Number(websocketHeartbeatMs) || 30_000));
+    heartbeatTimer.unref?.();
+    websocket.on("pong", () => { alive = true; });
     // Reconnect obtains a fresh authoritative entitlement and one-use ticket.
     // Enforce the exact paid/trial expiry, with a bounded recheck lease for
     // cancellations or upgrades while a socket is open. Legacy off mode keeps
@@ -412,7 +527,11 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       const remaining = context.identity.membershipExpiresAt
         ? context.identity.membershipExpiresAt - Date.now() : Infinity;
       leaseTimer = setTimeout(() => {
-        release();
+        closeReason = "market_route_refresh";
+        sessionExpired = true;
+        clearBackpressure();
+        for (const dispose of disposers.values()) dispose();
+        disposers.clear();
         websocket.close(1000, "market_route_refresh");
       }, Math.max(1, Math.min(config.marketSessionMaxMs || 900_000, remaining)));
       leaseTimer.unref?.();
@@ -492,6 +611,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
     const release = () => {
       if (released) return;
       released = true;
+      clearInterval(heartbeatTimer);
       clearTimeout(leaseTimer);
       clearBackpressure();
       metrics.websocketClients = Math.max(0, metrics.websocketClients - 1);
@@ -501,15 +621,17 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       else websocketClientsByUser.delete(context.identity.userId);
       for (const dispose of disposers.values()) dispose();
       disposers.clear();
+      diagnostic({ event: "market_ws_closed", sessionId, userRef, market: route.marketType, reason: closeReason,
+        durationMs: Date.now() - connectedAt, userConnections: remaining, connections: metrics.websocketClients });
     };
     const subscribe = (streamValue) => {
-      if (released) throw new TypeError("market session expired");
+      if (released || sessionExpired) throw new TypeError("market session expired");
       const stream = validateStreamName(streamValue);
       if (disposers.has(stream)) return;
       if (disposers.size >= config.maxSubscriptionsPerClient) throw new TypeError("subscription limit exceeded");
       const dispose = streamPool.subscribe(route.marketType, stream, (event) => {
         if (websocket.readyState !== 1) return;
-        if (released) return;
+        if (released || sessionExpired) return;
         sendMarketEvent(event.stream, encodeMarketFrame(event, route.mode === "stream", context.identity.codec));
       });
       disposers.set(stream, dispose);
@@ -528,7 +650,7 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
       return;
     }
     websocket.on("message", (payload) => {
-      if (released) return;
+      if (released || sessionExpired) return;
       let command;
       try { command = JSON.parse(String(payload)); } catch {
         websocket.send(JSON.stringify({ code: 3, msg: "Invalid JSON" }));
@@ -545,6 +667,9 @@ export function createPublicGatewayServer({ config, restGateway, streamPool, pri
         } else throw new TypeError("unsupported command");
         websocket.send(JSON.stringify({ result: null, id: command?.id ?? null }));
       } catch (error) {
+        metrics.websocketCommandRejected += 1;
+        diagnostic({ event: "market_ws_command_rejected", sessionId, userRef, market: route.marketType,
+          subscriptions: disposers.size, limit: config.maxSubscriptionsPerClient });
         websocket.send(JSON.stringify({ code: 2, msg: String(error?.message || "invalid command"), id: command?.id ?? null }));
       }
     });

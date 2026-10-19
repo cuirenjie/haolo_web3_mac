@@ -1,4 +1,8 @@
+import { IFIND_BUSINESS_ENABLED, tradingMarketAvailable, tradingMarketUnavailableMessage } from "../shared/trading-market-availability.mjs";
+import { binanceCandleBackfillLimit, binanceCandleHistoryComplete } from "../shared/binance-candle-request.mjs";
 import {chartTickLabel} from "./trading-chart-time.ts";
+import { accountSettingsSync, flattenSettings, applySettingValues, type SettingValues } from './account-settings-sync.ts';
+import { sharedDefaultIndicatorColor } from './shared-indicator-defaults.ts';
 import {cloudAnalysisText} from './cloud-analysis-text.ts';
 import {normalizeTradingIndicatorAiDrawingPatch,storeCloudIndicatorPatch,loadCloudIndicatorPatch,migrateCloudIndicatorPatches,clearIndicatorAnalysisRuntime,renderIndicatorAnalysisPatch} from './cloud-indicator-drawings.ts';
 export {normalizeTradingIndicatorAiDrawingPatch,strictlyAscendingTradingIndicatorPathPoints} from './cloud-indicator-drawings.ts';
@@ -22,6 +26,10 @@ import { appLanguageLocale, getCurrentAppLanguage, translateAppText, translateTr
 import type { TradingAnalysisContext } from "./trading-expert-general-request";
 import { renderTradingChartBrand } from "./trading-chart-brand.ts";
 import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
+import { TradingChartFrameUpdate } from "./trading-chart-frame-update.ts";
+import { TradingChartCalculationCache } from "./trading-chart-calculation-cache.ts";
+import { setTradingChartSeriesData, setTradingChartSeriesValues, setTradingChartPriceData, setTradingChartWhitespaceData, updateTradingChartSeriesTail, withTradingChartSeriesBatch } from "./trading-chart-series-data.ts";
+import { tradingChartCandleIndex, updateTradingChartLegendRows, type TradingChartLegendRow } from "./trading-chart-legend.ts";
 import { TradingChartNavigation, TRADING_CHART_NAVIGATION_OPTIONS, captureManualTradingPriceRanges, restoreManualTradingPriceRanges } from "./trading-chart-navigation.ts";
 import {
   TRADING_FALLING_BAR_COLOR,
@@ -188,7 +196,6 @@ export const TRADING_EXPERT_TREND_BAND_MENTION = "@指标:趋势带";
 const LEGACY_TRADING_EXPERT_TREND_BAND_MENTION = "@自定义指标:趋势带";
 const ENGLISH_TRADING_EXPERT_TREND_BAND_MENTION = "@Indicator:Trend band";
 const TRADITIONAL_TRADING_EXPERT_TREND_BAND_MENTION = "@指標:趨勢帶";
-const MAX_TRADING_PERIODS = 10;
 const MAX_TRADING_FAVORITES = 500;
 // Keep the titlebar readable while allowing a larger watchlist. The ticker
 // rail compresses each card when this many items are visible, so the cap is a
@@ -262,8 +269,11 @@ export function recordBinanceMarketRateLimit(value: unknown, marketType: "future
   return retryAfterMs;
 }
 
-function binanceMarketRateLimitMessage(retryAfterMs: number) {
-  return `Binance 行情请求频率受限，约 ${Math.max(1, Math.ceil(retryAfterMs / 1_000))} 秒后自动重试`;
+export function binanceMarketRateLimitMessage(retryAfterMs: number, diagnostics?: { origin?: string; limitScope?: string }) {
+  const reason = diagnostics?.origin === "gateway_downstream"
+    ? diagnostics.limitScope === "egress-weight" ? "行情网关繁忙" : "行情网关请求频率受限"
+    : diagnostics?.origin === "local_budget" ? "客户端行情请求正在排队" : "Binance 行情请求频率受限";
+  return `${reason}，约 ${Math.max(1, Math.ceil(retryAfterMs / 1_000))} 秒后自动重试`;
 }
 
 export function binanceMarketRetryAfterMs(response: {
@@ -380,7 +390,6 @@ export const TRADING_MARKET_CATEGORY_OPTIONS: ReadonlyArray<{
   { id: "crypto", label: "加密货币" },
   { id: "commodity", label: "大宗商品" },
   { id: "stock", label: "美股" },
-  { id: "a-share", label: "A股" },
 ];
 
 const TRADING_STOCK_CATEGORY_ASSET_CLASSES: ReadonlySet<TradingAssetClass> = new Set([
@@ -1188,7 +1197,7 @@ export function normalizeTradingPeriods(value: unknown): TradingPeriod[] {
   const resolutions = new Set<string>();
   const periods: TradingPeriod[] = [];
   value.forEach((candidate) => {
-    if (!isTradingPeriod(candidate) || periods.length >= MAX_TRADING_PERIODS) return;
+    if (!isTradingPeriod(candidate)) return;
     const period = { amount: candidate.amount, unit: candidate.unit };
     const resolution = tradingViewResolution(period);
     if (resolutions.has(resolution)) return;
@@ -2433,6 +2442,7 @@ export function tradingMarketVisibleInPicker(
   favoriteSymbols: ReadonlySet<string>,
   favoritesOnly: boolean,
 ) {
+  if (!tradingMarketAvailable(market)) return false;
   const normalizedQuery = query.trim().toUpperCase();
   const normalizedSymbol = market.symbol.toUpperCase();
   if (normalizedQuery) {
@@ -3261,24 +3271,20 @@ async function fetchBinanceFutures<T>(
   path: string,
   parameters: Record<string, string | number | undefined> = {},
   signal?: AbortSignal,
+  freshness?: "live",
+  demand?: "prefetch",
 ): Promise<T> {
-  const cooldownRemaining = binanceMarketRestCooldownRemaining(Date.now(), "futures");
-  if (cooldownRemaining > 0) {
-    throw new Error(binanceMarketRateLimitMessage(cooldownRemaining));
-  }
-  return fetchBinancePublicMarketData<T>("futures", path, parameters, signal);
+  return fetchBinancePublicMarketData<T>("futures", path, parameters, signal, freshness, demand);
 }
 
 async function fetchBinanceSpot<T>(
   path: string,
   parameters: Record<string, string | number | undefined> = {},
   signal?: AbortSignal,
+  freshness?: "live",
+  demand?: "prefetch",
 ): Promise<T> {
-  const cooldownRemaining = binanceMarketRestCooldownRemaining(Date.now(), "spot");
-  if (cooldownRemaining > 0) {
-    throw new Error(binanceMarketRateLimitMessage(cooldownRemaining));
-  }
-  return fetchBinancePublicMarketData<T>("spot", path, parameters, signal);
+  return fetchBinancePublicMarketData<T>("spot", path, parameters, signal, freshness, demand);
 }
 
 async function fetchBinancePublicMarketData<T>(
@@ -3286,6 +3292,8 @@ async function fetchBinancePublicMarketData<T>(
   path: string,
   parameters: Record<string, string | number | undefined>,
   signal?: AbortSignal,
+  freshness?: "live",
+  demand?: "prefetch",
 ): Promise<T> {
   const request = window.codexDesktop?.getBinancePublicMarketData;
   if (typeof request !== "function") throw new Error("Binance market gateway is unavailable");
@@ -3299,7 +3307,7 @@ async function fetchBinancePublicMarketData<T>(
   const requestId = signal
     ? `renderer-market-rest-${Date.now().toString(36)}-${(++binancePublicMarketRequestSequence).toString(36)}`
     : undefined;
-  const pending = request({ marketType, path, parameters: normalizedParameters, requestId });
+  const pending = request({ marketType, path, parameters: normalizedParameters, requestId, freshness, demand });
   const response = signal
     ? await new Promise<Awaited<ReturnType<typeof request>>>((resolve, reject) => {
       const abort = () => {
@@ -3314,10 +3322,13 @@ async function fetchBinancePublicMarketData<T>(
     : await pending;
   if (!response?.ok) {
     if (response?.status === 418 || response?.status === 429 || response?.rateLimited === true) {
-      throw new Error(binanceMarketRateLimitMessage(recordBinanceMarketRateLimit(
+      const retryAfterMs = recordBinanceMarketRateLimit(
         binanceMarketRetryAfterMs(response),
         marketType,
-      )));
+      );
+      throw Object.assign(new Error(binanceMarketRateLimitMessage(retryAfterMs, response.diagnostics)), {
+        code: "BINANCE_MARKET_RATE_LIMITED", retryAfterMs, diagnostics: response.diagnostics,
+      });
     }
     if (
       BINANCE_MARKET_SYMBOL_ERROR_CODES.has(String(response?.errorCode || "").trim().toUpperCase())
@@ -3334,6 +3345,11 @@ async function fetchBinancePublicMarketData<T>(
   if (response.rateLimited && response.stale !== true) {
     recordBinanceMarketRateLimit(binanceMarketRetryAfterMs(response), marketType);
   }
+  if (freshness === "live" && response.stale === true) {
+    throw Object.assign(new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析"), {
+      code: "MARKET_SNAPSHOT_STALE", retryAfterMs: response.retryAfterMs || 1_000,
+    });
+  }
   return response.data as T;
 }
 
@@ -3345,10 +3361,12 @@ function fetchBinanceMarket<T>(
   spotPath: string,
   parameters: Record<string, string | number | undefined> = {},
   signal?: AbortSignal,
+  freshness?: "live",
+  demand?: "prefetch",
 ) {
   return marketType === "spot"
-    ? fetchBinanceSpot<T>(spotPath, parameters, signal)
-    : fetchBinanceFutures<T>(futuresPath, parameters, signal);
+    ? fetchBinanceSpot<T>(spotPath, parameters, signal, freshness, demand)
+    : fetchBinanceFutures<T>(futuresPath, parameters, signal, freshness, demand);
 }
 
 export interface TradingAlertAnnotationRect {
@@ -3683,9 +3701,10 @@ export async function fetchTradingMarkets(options: { fast?: boolean; onFuturesCa
 async function fetchTradingMarketStats(
   symbol: string,
   marketType: Extract<TradingMarketType, "perpetual" | "spot"> = "perpetual",
+  freshness?: "live",
 ): Promise<TradingMarketStats> {
   if (marketType === "spot") {
-    const ticker = await fetchBinanceSpot<BinanceTicker24h>("/api/v3/ticker/24hr", { symbol });
+    const ticker = await fetchBinanceSpot<BinanceTicker24h>("/api/v3/ticker/24hr", { symbol }, undefined, freshness);
     const markPrice = Number(ticker.lastPrice || 0);
     return {
       symbol,
@@ -3701,9 +3720,9 @@ async function fetchTradingMarketStats(
     };
   }
   const [premiumResult, openInterestResult, tickerResult] = await Promise.allSettled([
-    fetchBinanceFutures<BinancePremiumIndex>("/fapi/v1/premiumIndex", { symbol }),
-    fetchBinanceFutures<BinanceOpenInterest>("/fapi/v1/openInterest", { symbol }),
-    fetchBinanceFutures<BinanceTicker24h>("/fapi/v1/ticker/24hr", { symbol }),
+    fetchBinanceFutures<BinancePremiumIndex>("/fapi/v1/premiumIndex", { symbol }, undefined, freshness),
+    fetchBinanceFutures<BinanceOpenInterest>("/fapi/v1/openInterest", { symbol }, undefined, freshness),
+    fetchBinanceFutures<BinanceTicker24h>("/fapi/v1/ticker/24hr", { symbol }, undefined, freshness),
   ]);
   // The ticker is the required current-price source. Funding and OI are
   // supplementary fields; an isolated failure there must not make the whole
@@ -3734,12 +3753,17 @@ export async function fetchTradingCandles(
   endTime = Date.now(),
   marketType: Extract<TradingMarketType, "perpetual" | "spot"> = "perpetual",
   signal?: AbortSignal,
-  options: { forceFresh?: boolean } = {},
+  options: { forceFresh?: boolean; demand?: "prefetch" } = {},
 ): Promise<TradingCandleBatch> {
   const source = binanceResolutionSource(resolution);
   if (!source) throw new Error(`Unsupported TradingView resolution: ${resolution}`);
   if (!source.sourceInterval || !source.sourceMs) {
-    const trades = await fetchBinanceAggregateTrades(symbol, marketType, { endTime }, signal);
+    const latest = endTime >= Date.now() - 60_000 && endTime <= Date.now() + 5_000;
+    const trades = await fetchBinanceAggregateTrades(symbol, marketType, {
+      endTime: latest ? undefined : endTime,
+      freshness: latest && options.forceFresh ? "live" : undefined,
+      demand: options.demand,
+    }, signal);
     return {
       candles: aggregateBinanceTrades(trades, source.targetMs).slice(-count),
       sourceCandles: [],
@@ -3755,7 +3779,6 @@ export async function fetchTradingCandles(
     const limit = Math.min(remaining, marketType === "spot" ? 1_000 : 1_500);
     const currentMs = Date.now();
     const latestPage = page === 0
-      && options.forceFresh !== true
       && cursor >= currentMs - 60_000
       && cursor <= currentMs + 5_000;
     const items = await fetchBinanceMarket<unknown[][]>(marketType, "/fapi/v1/klines", "/api/v3/klines", {
@@ -3766,7 +3789,7 @@ export async function fetchTradingCandles(
       // forcing a unique domestic-gateway miss on every screen load.
       endTime: latestPage ? undefined : cursor,
       limit,
-    }, signal);
+    }, signal, latestPage && options.forceFresh ? "live" : undefined, options.demand);
     const batch = normalizeBinanceCandles(items);
     if (!batch.length) break;
     sourceCandles = mergeCandles(batch, sourceCandles);
@@ -3866,7 +3889,7 @@ export async function fetchTradingSmtComparisonMarkets(
 async function fetchBinanceAggregateTrades(
   symbol: string,
   marketType: Extract<TradingMarketType, "perpetual" | "spot">,
-  options: { endTime?: number; fromId?: number } = {},
+  options: { endTime?: number; fromId?: number; freshness?: "live"; demand?: "prefetch" } = {},
   signal?: AbortSignal,
 ) {
   return fetchBinanceMarket<BinanceAggregateTrade[]>(marketType, "/fapi/v1/aggTrades", "/api/v3/aggTrades", {
@@ -3874,7 +3897,7 @@ async function fetchBinanceAggregateTrades(
     endTime: options.endTime === undefined ? undefined : Math.floor(options.endTime),
     fromId: options.fromId,
     limit: 1_000,
-  }, signal);
+  }, signal, options.freshness, options.demand);
 }
 
 function binanceOpenInterestPeriod(resolution: string) {
@@ -4290,7 +4313,7 @@ export function initialMarketLogicalRange(candleCount: number, resolution: strin
   };
 }
 
-async function fetchLatestTradingCandles(
+export async function fetchLatestTradingCandles(
   symbol: string,
   resolution: string,
   sourceStartTime?: number,
@@ -4323,11 +4346,11 @@ async function fetchLatestTradingCandles(
       lastTradeId: Number(trades.at(-1)?.a || 0) || undefined,
     };
   }
-  const limit = sourceStartTime === undefined ? 2 : marketType === "spot" ? 1_000 : 1_500;
-  const maxPages = sourceStartTime === undefined ? 1 : 4;
+  const maxPages = sourceStartTime === undefined ? 1 : 13;
   let cursor = sourceStartTime;
   let sourceCandles: TradingCandle[] = [];
   for (let page = 0; page < maxPages; page += 1) {
+    const limit = binanceCandleBackfillLimit(cursor, source.sourceMs, marketType);
     const items = await fetchBinanceMarket<unknown[][]>(marketType, "/fapi/v1/klines", "/api/v3/klines", {
       symbol,
       interval: source.sourceInterval,
@@ -4863,6 +4886,18 @@ export function renderTradingExpertMarketWorkspace() {
             hidden
           >${renderTimeButtons()}</div>
           <div class="trading-market-times" data-market-times aria-label="K线周期">${renderTimeButtons()}</div>
+          <button type="button" class="trading-market-period-trigger trading-market-period-more"
+            data-market-action="toggle-more-periods" aria-haspopup="dialog" aria-expanded="false" hidden>
+            更多
+            <svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"/></svg>
+          </button>
+          <section class="trading-market-period-overflow" data-market-period-overflow role="dialog" aria-label="更多周期" hidden>
+            <div class="trading-market-period-editor-head">
+              <strong>更多周期</strong>
+              <button type="button" data-market-action="close-more-periods" aria-label="关闭">×</button>
+            </div>
+            <div class="trading-market-period-overflow-items" data-market-period-overflow-items></div>
+          </section>
           <button
             type="button"
             class="small-icon-button panel-toggle trading-market-split-panel-restore expanded"
@@ -4950,6 +4985,7 @@ class TradingExpertMarketWorkspace {
   private readonly ohlcTimeElement: HTMLTimeElement;
   private readonly ohlcValueElements: readonly HTMLElement[];
   private hoveredOhlcSourceTime: number | null = null;
+  private readonly crosshairFrame = new TradingChartFrameUpdate<any>((parameter) => this.paintCrosshair(parameter));
   private readonly crosshairTimeElement: HTMLTimeElement;
   private readonly crosshairPriceElement: HTMLElement;
   private readonly currentPriceElement: HTMLElement;
@@ -4964,6 +5000,13 @@ class TradingExpertMarketWorkspace {
   private readonly volumeProfileLayer: SVGSVGElement;
   private readonly periodControls: HTMLElement;
   private readonly periodTimes: HTMLElement;
+  private readonly periodMoreButton: HTMLButtonElement;
+  private readonly periodOverflow: HTMLElement;
+  private readonly periodOverflowItems: HTMLElement;
+  private periodOverflowObserver: ResizeObserver | null = null;
+  private periodLabelObserver: MutationObserver | null = null;
+  private periodOverflowFrame: number | null = null;
+  private overflowPeriods: TradingPeriod[] = [];
   private readonly primaryPeriodMenu: HTMLElement;
   private readonly periodEditor: HTMLElement;
   private readonly periodItems: HTMLElement;
@@ -5131,10 +5174,14 @@ class TradingExpertMarketWorkspace {
   private activeMainIndicators: TradingMainIndicatorId[] = [];
   private activeIndicators: TradingIndicatorId[] = [];
   private indicatorSettings = defaultTradingIndicatorSettings();
+  private sharedSettingsSnapshot: SettingValues = {};
+  private unregisterSettingsSync?: () => void;
   private draftIndicatorSettings = defaultTradingIndicatorSettings();
   private selectedIndicatorSettingKey = "main:ma";
   private mainIndicatorSeries = new Map<TradingMainIndicatorId, any[]>();
   private mainIndicatorValues = new Map<TradingMainIndicatorId, number[][]>();
+  private readonly mainCalculationCache = new TradingChartCalculationCache();
+  private readonly volumeCalculationCache = new TradingChartCalculationCache();
   private tdIndicatorDirections: Array<TdSequentialSignal["direction"] | null> = [];
   private tdMarkers: any = null;
   private indicatorPanes = new Map<TradingIndicatorId, IndicatorPaneRuntime>();
@@ -5211,6 +5258,9 @@ class TradingExpertMarketWorkspace {
     this.volumeProfileLayer = this.requireElement<SVGSVGElement>("[data-market-volume-profile-layer]");
     this.periodControls = this.requireElement("[data-market-period-controls]");
     this.periodTimes = this.requireElement("[data-market-times]");
+    this.periodMoreButton = this.requireElement<HTMLButtonElement>('[data-market-action="toggle-more-periods"]');
+    this.periodOverflow = this.requireElement("[data-market-period-overflow]");
+    this.periodOverflowItems = this.requireElement("[data-market-period-overflow-items]");
     this.primaryPeriodMenu = this.requireElement("[data-market-primary-period-menu]");
     this.periodEditor = this.requireElement("[data-market-period-editor]");
     this.periodItems = this.requireElement("[data-market-period-items]");
@@ -5233,6 +5283,7 @@ class TradingExpertMarketWorkspace {
     this.layoutPicker.before(this.layoutPickerHome);
     this.chartSettingsBackdrop = this.requireElement("[data-market-chart-settings]");
     this.chartSettings = loadTradingChartSettings(window.localStorage);
+    this.applyKlineAnnotationVisibility();
     this.splitLayoutId = loadTradingSplitLayoutId(window.localStorage);
     const lastDrawingWorkspace = loadTradingLastDrawingWorkspace(
       window.localStorage,
@@ -5273,6 +5324,12 @@ class TradingExpertMarketWorkspace {
     this.rebuildIndicatorPanes();
     this.applyDrawingToolsSetting();
     this.applySplitLayout();
+    this.sharedSettingsSnapshot = this.sharedChartSettings();
+    this.unregisterSettingsSync = accountSettingsSync().register('chart', {
+      snapshot: () => this.sharedChartSettings(),
+      defaults: () => ({ ...flattenSettings(defaultTradingIndicatorSettings(), 'indicator'), ...flattenSettings(DEFAULT_TRADING_CHART_SETTINGS, 'chart') }),
+      apply: values => this.applySharedChartSettings(values),
+    });
     this.updateCountdown();
     this.countdownTimer = window.setInterval(() => this.updateCountdown(), 1000);
     void this.loadFinnhubStatus();
@@ -5321,6 +5378,14 @@ class TradingExpertMarketWorkspace {
     // Chart gestures can stop propagation before document's bubble phase.
     document.addEventListener("pointerdown", this.handleOutsidePointerDown, true);
     document.addEventListener("keydown", this.handleKeyDown);
+    this.periodOverflowObserver = new ResizeObserver(this.schedulePeriodOverflow);
+    this.periodOverflowObserver.observe(this.periodControls);
+    this.periodOverflowObserver.observe(this.periodMoreButton);
+    const periodTrigger = this.host.querySelector('[data-market-action="toggle-period-editor"]');
+    if (periodTrigger) this.periodOverflowObserver.observe(periodTrigger);
+    this.periodLabelObserver = new MutationObserver(this.schedulePeriodOverflow);
+    this.periodLabelObserver.observe(this.periodTimes, { childList: true, subtree: true, characterData: true });
+    this.schedulePeriodOverflow();
     this.themeObserver = new MutationObserver(() => {
       this.refreshChartSettingsDialog();
       this.applyChartTheme();
@@ -5412,6 +5477,15 @@ class TradingExpertMarketWorkspace {
       this.syncMarketCategoryButtons();
       this.renderMarkets({ resetScroll: true });
       this.scheduleIfindSearch(true);
+      return;
+    }
+    if (action === "toggle-more-periods") {
+      this.setPeriodOverflowOpen(this.periodOverflow.hidden);
+      return;
+    }
+    if (action === "close-more-periods") {
+      this.setPeriodOverflowOpen(false);
+      this.periodMoreButton.focus();
       return;
     }
     if (action === "toggle-period-editor") {
@@ -5535,11 +5609,17 @@ class TradingExpertMarketWorkspace {
     }
     if (action === "interval") {
       const interval = target.dataset.marketInterval;
+      const fromOverflow = this.periodOverflow.contains(target);
+      this.setPeriodOverflowOpen(false);
       this.setPrimaryPeriodMenuOpen(false);
       if (!interval || interval === this.activeInterval) return;
       if (this.selectedProvider === "ifind" && !ifindSupportsTradingResolution(interval)) return;
       this.activeInterval = interval;
       this.updateIntervalPressedButtons(interval);
+      if (fromOverflow) {
+        const selected = this.periodTimes.querySelector<HTMLButtonElement>(`[data-market-interval="${CSS.escape(interval)}"]`);
+        (selected && !selected.hidden ? selected : this.periodMoreButton).focus();
+      }
       this.recordLastDrawingWorkspace();
       void this.restartMarketData({ preserveChart: true });
       return;
@@ -5705,6 +5785,7 @@ class TradingExpertMarketWorkspace {
       || key === "showPriceLine"
       || key === "showPriceLabel"
       || key === "showCountdown"
+      || key === "hideKlineAnnotations"
       || key === "autoScale"
     ) {
       this.chartSettings[key] = target.checked;
@@ -5794,6 +5875,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private persistAndApplyChartSettings(options: { rebuildSeries?: boolean } = {}) {
+    this.recordSharedSettingsEdit();
     try {
       saveTradingChartSettings(window.localStorage, this.chartSettings);
     } catch {
@@ -5802,9 +5884,14 @@ class TradingExpertMarketWorkspace {
     if (options.rebuildSeries) this.rebuildPrimarySeries();
     this.chartNavigation?.setAutoScale(this.chartSettings.autoScale);
     this.applyChartTheme();
+    this.applyKlineAnnotationVisibility();
     this.applyDrawingToolsSetting();
     this.applyOrderDisplaySettings();
     this.updateCountdown();
+  }
+
+  private applyKlineAnnotationVisibility() {
+    this.host.classList.toggle("kline-annotations-hidden", this.chartSettings.hideKlineAnnotations);
   }
 
   private applyDrawingToolsSetting() {
@@ -6053,7 +6140,7 @@ class TradingExpertMarketWorkspace {
     const unique = new Map<string, TradingSplitPaneMarket>();
     [...current, ...restoredSelections, ...favorites, ...common, ...catalog]
       .forEach((market) => unique.set(market.id, market));
-    return [...unique.values()];
+    return [...unique.values()].filter(tradingMarketAvailable);
   }
 
   private syncSplitPaneMarkets() {
@@ -6086,6 +6173,8 @@ class TradingExpertMarketWorkspace {
     const splitActive = layout.count > 1;
     if (splitActive) this.setPeriodEditorOpen(false);
     this.host.classList.toggle("split-layout-active", splitActive);
+    this.setPeriodOverflowOpen(false);
+    this.schedulePeriodOverflow();
     this.setPrimaryPeriodMenuOpen(false);
     this.syncPrimaryPaneOverview(splitActive);
     this.renderFavoriteTickerBar();
@@ -6107,7 +6196,7 @@ class TradingExpertMarketWorkspace {
         : periods[index % Math.max(periods.length, 1)]?.resolution || this.activeInterval;
       const savedSelection = this.splitPaneSelections.get(index);
       const market = markets.find((candidate) => candidate.id === savedSelection?.marketId)
-        ?? savedSelection?.market
+        ?? (tradingMarketAvailable(savedSelection?.market) ? savedSelection?.market : undefined)
         ?? markets[0]
         ?? this.splitPaneMarket(defaultBinancePerpetualMarket());
       const interval = savedSelection
@@ -6273,6 +6362,7 @@ class TradingExpertMarketWorkspace {
     image.closest<HTMLElement>("[data-market-logo-shell]")?.classList.add("fallback");
   };
   private readonly handleViewportLeave = () => {
+    this.crosshairFrame.cancel();
     this.hideCrosshairTimeLabel();
     this.hideCrosshairPriceLabel();
     this.hoveredOhlcSourceTime = null;
@@ -6281,6 +6371,10 @@ class TradingExpertMarketWorkspace {
     this.updateIndicatorLegends();
   };
   private readonly handleOutsidePointerDown = (event: Event) => {
+    if (this.periodOverflow && !this.periodOverflow.hidden && event.target instanceof Node
+      && !this.periodOverflow.contains(event.target) && !this.periodMoreButton.contains(event.target)) {
+      this.setPeriodOverflowOpen(false);
+    }
     if (
       !this.chartSettingsBackdrop.hidden
       && event.target === this.chartSettingsBackdrop
@@ -6335,6 +6429,12 @@ class TradingExpertMarketWorkspace {
     }
   };
   private readonly handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && this.periodOverflow && !this.periodOverflow.hidden) {
+      event.preventDefault();
+      this.setPeriodOverflowOpen(false);
+      this.periodMoreButton.focus();
+      return;
+    }
     if (event.key === "Escape" && !this.chartSettingsBackdrop.hidden) {
       const trigger = this.chartSettingsAnchor;
       this.setChartSettingsOpen(false);
@@ -6546,7 +6646,7 @@ class TradingExpertMarketWorkspace {
       const button = this.periodTimes.querySelector<HTMLElement>(
         `[data-market-interval="${CSS.escape(interval)}"]`,
       );
-      if (!button) return;
+      if (!button || button.hidden) return;
       const stripRect = this.periodTimes.getBoundingClientRect();
       const buttonRect = button.getBoundingClientRect();
       const edgeInset = 4;
@@ -6572,6 +6672,7 @@ class TradingExpertMarketWorkspace {
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
+    this.syncPeriodOverflow();
     this.revealPeriodButton(value);
   }
 
@@ -6621,6 +6722,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private persistIndicatorSettings() {
+    this.recordSharedSettingsEdit();
     try {
       window.localStorage.setItem(
         TRADING_INDICATOR_SETTINGS_STORAGE_KEY,
@@ -6629,6 +6731,61 @@ class TradingExpertMarketWorkspace {
     } catch {
       // Indicator changes still apply to the current workspace when storage is unavailable.
     }
+  }
+
+  private sharedChartSettings(): SettingValues {
+    return { ...flattenSettings(this.indicatorSettings, 'indicator'), ...flattenSettings(this.chartSettings, 'chart') };
+  }
+
+  private recordSharedSettingsEdit() {
+    const next = this.sharedChartSettings();
+    if (this.unregisterSettingsSync) accountSettingsSync().edit(this.sharedSettingsSnapshot, next);
+    this.sharedSettingsSnapshot = next;
+  }
+
+  private applySharedChartSettings(values: SettingValues) {
+    if (this.disposed) return;
+    values = Object.fromEntries(Object.entries(values).map(([key, value]) => [key,
+      value === null ? sharedDefaultIndicatorColor(key, isDarkTheme()) : value]));
+    const oldIndicators = this.indicatorSettings;
+    const nextIndicators = normalizeTradingIndicatorSettings(applySettingValues(defaultTradingIndicatorSettings(), values, 'indicator'));
+    const nextChart = normalizeTradingChartSettings(applySettingValues(cloneTradingChartSettings(DEFAULT_TRADING_CHART_SETTINGS), values, 'chart'));
+    const indicatorChanged = JSON.stringify(oldIndicators) !== JSON.stringify(nextIndicators);
+    const chartChanged = JSON.stringify(this.chartSettings) !== JSON.stringify(nextChart);
+    if (!indicatorChanged && !chartChanged) return;
+    // Merge remote fields into an open editor while preserving only its edits.
+    const baseline = flattenSettings(oldIndicators, 'indicator');
+    const draft = flattenSettings(this.draftIndicatorSettings, 'indicator');
+    const edited = Object.fromEntries(Object.entries(draft).filter(([key, value]) => value !== baseline[key]));
+    this.indicatorSettings = nextIndicators;
+    this.draftIndicatorSettings = normalizeTradingIndicatorSettings(applySettingValues(nextIndicators, edited, 'indicator'));
+    const styleChanged = this.chartSettings.chartStyle !== nextChart.chartStyle;
+    this.chartSettings = nextChart;
+    this.sharedSettingsSnapshot = this.sharedChartSettings();
+    try {
+      window.localStorage.setItem(TRADING_INDICATOR_SETTINGS_STORAGE_KEY, JSON.stringify(this.indicatorSettings));
+      saveTradingChartSettings(window.localStorage, this.chartSettings);
+    } catch { /* The account outbox retains the authoritative local copy. */ }
+    if (indicatorChanged) {
+      this.syncActiveIndicatorsFromSettings();
+      this.updateMainIndicatorButtons();
+      this.updateIndicatorButtons();
+      this.applyMainIndicatorSeriesOptions();
+      this.rebuildIndicatorPanes();
+      this.invalidateVolumeProfileSnapshot();
+      this.splitPanes.forEach(pane => pane.updateIndicatorSettings(this.indicatorSettings));
+    }
+    if (chartChanged) {
+      if (styleChanged) this.rebuildPrimarySeries();
+      this.chartNavigation?.setAutoScale(this.chartSettings.autoScale);
+      this.applyChartTheme();
+      this.applyKlineAnnotationVisibility();
+      this.applyDrawingToolsSetting();
+      this.applyOrderDisplaySettings();
+      this.refreshChartSettingsDialog();
+      this.updateCountdown();
+    }
+    this.updateChartData({ preserveViewport: true });
   }
 
   private loadFavoriteStorage(): TradingFavoritesStorageSnapshot {
@@ -6871,7 +7028,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private visibleWatchlistRecords() {
-    return this.watchlist.expanded ? this.watchlist.activeGroup.markets : [];
+    return this.watchlist.expanded ? this.watchlist.activeGroup.markets.filter(tradingMarketAvailable) : [];
   }
 
   private quoteMarketRecords() {
@@ -6910,6 +7067,7 @@ class TradingExpertMarketWorkspace {
   private favoriteTickerMarkets() {
     const liveMarkets = new Map(this.markets.map((market) => [market.id, market]));
     return [...this.favoriteMarketRecords.values()]
+      .filter(tradingMarketAvailable)
       .filter((record) => (record.assetClass === "crypto" || record.provider === "binance") && this.favoriteSymbols.has(record.id))
       .map((record) => liveMarkets.get(record.id)
         || this.finnhubFavoriteMarkets.get(record.id)
@@ -7310,6 +7468,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private selectMarket(market: TradingMarket) {
+    if (!tradingMarketAvailable(market)) return false;
     const selectedMarket = market.provider === "binance"
       ? normalizeBinanceTradingMarket(market)
       : market;
@@ -7359,6 +7518,82 @@ class TradingExpertMarketWorkspace {
     this.periodTimes.innerHTML = buttons;
     this.primaryPeriodMenu.innerHTML = buttons;
     this.syncIntervalAvailability();
+    this.schedulePeriodOverflow();
+  }
+
+  private readonly schedulePeriodOverflow = () => {
+    if (this.periodOverflowFrame !== null || this.disposed) return;
+    this.periodOverflowFrame = window.requestAnimationFrame(() => {
+      this.periodOverflowFrame = null;
+      if (!this.disposed) this.syncPeriodOverflow();
+    });
+  };
+
+  private syncPeriodOverflow() {
+    if (this.host.classList.contains("split-layout-active")) {
+      this.periodMoreButton.hidden = true;
+      this.setPeriodOverflowOpen(false);
+      return;
+    }
+    if (!this.periodControls.clientWidth) return;
+    const buttons = [...this.periodTimes.querySelectorAll<HTMLButtonElement>("[data-market-interval]")];
+    buttons.forEach(button => { button.hidden = false; });
+    this.periodMoreButton.hidden = true;
+    const gap = Number.parseFloat(getComputedStyle(this.periodTimes).columnGap) || 0;
+    const widths = buttons.map(button => button.getBoundingClientRect().width);
+    const totalWidth = widths.reduce((sum, width) => sum + width, 0) + Math.max(0, widths.length - 1) * gap;
+    const visible = new Set<number>();
+    if (totalWidth <= this.periodTimes.clientWidth + 0.5) {
+      buttons.forEach((_, index) => visible.add(index));
+    } else {
+      this.periodMoreButton.hidden = false;
+      const available = this.periodTimes.clientWidth;
+      let used = 0;
+      for (let index = 0; index < buttons.length; index += 1) {
+        const next = used + (visible.size ? gap : 0) + widths[index];
+        if (next > available) break;
+        visible.add(index);
+        used = next;
+      }
+      // Keep the chosen period visible, without changing the user's saved order.
+      const activeIndex = buttons.findIndex(button => button.dataset.marketInterval === this.activeInterval);
+      if (activeIndex >= 0 && !visible.has(activeIndex) && widths[activeIndex] <= available) {
+        while (visible.size && used + gap + widths[activeIndex] > available) {
+          const last = [...visible].at(-1)!;
+          visible.delete(last);
+          used -= widths[last] + (visible.size ? gap : 0);
+        }
+        visible.add(activeIndex);
+      }
+    }
+    buttons.forEach((button, index) => { button.hidden = !visible.has(index); });
+    this.periodTimes.scrollLeft = 0;
+    this.overflowPeriods = this.periods.filter((_, index) => !visible.has(index));
+    if (!this.overflowPeriods.length) this.setPeriodOverflowOpen(false);
+    if (!this.periodOverflow.hidden) this.renderPeriodOverflow();
+    this.periodMoreButton.classList.toggle("selected", this.overflowPeriods.some(period => tradingViewResolution(period) === this.activeInterval));
+  }
+
+  private renderPeriodOverflow() {
+    this.periodOverflowItems.innerHTML = renderTimeButtons(this.overflowPeriods, this.activeInterval);
+    this.syncIntervalAvailability();
+  }
+
+  private setPeriodOverflowOpen(open: boolean) {
+    if (open) {
+      this.syncPeriodOverflow();
+      if (!this.overflowPeriods.length) return;
+      this.setPrimaryPeriodMenuOpen(false);
+      this.setPeriodEditorOpen(false);
+      this.setPickerOpen(false);
+      this.setIndicatorEditorOpen(false);
+      this.setLayoutPickerOpen(false);
+      this.renderPeriodOverflow();
+    }
+    this.periodOverflow.hidden = !open;
+    this.periodMoreButton.setAttribute("aria-expanded", String(open));
+    this.periodMoreButton.classList.toggle("active", open);
+    if (open) this.periodOverflowItems.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }
 
   private renderPeriodEditor(resetStatus = true) {
@@ -7381,8 +7616,6 @@ class TradingExpertMarketWorkspace {
         </div>
       `;
     }).join("");
-    const addButton = this.host.querySelector<HTMLButtonElement>('[data-market-action="add-period"]');
-    if (addButton) addButton.disabled = this.draftPeriods.length >= MAX_TRADING_PERIODS;
     if (resetStatus) this.setPeriodStatus("");
   }
 
@@ -7393,10 +7626,6 @@ class TradingExpertMarketWorkspace {
   }
 
   private addDraftPeriod() {
-    if (this.draftPeriods.length >= MAX_TRADING_PERIODS) {
-      this.setPeriodStatus(`最多只能添加 ${MAX_TRADING_PERIODS} 个周期。`, "error");
-      return;
-    }
     const amount = Number(this.periodAmountInput.value);
     const unit = this.periodUnit;
     if (!Number.isInteger(amount) || amount < 1 || amount > 10_000) {
@@ -7641,6 +7870,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private async loadIfindStatus() {
+    if (!IFIND_BUSINESS_ENABLED) return;
     const api = window.codexDesktop.getIfindMarketDataStatus;
     if (!api) {
       this.ifindConfigured = false;
@@ -7662,6 +7892,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private scheduleIfindSearch(immediate = false) {
+    if (!IFIND_BUSINESS_ENABLED) return;
     this.ifindSearchGeneration += 1;
     const generation = this.ifindSearchGeneration;
     if (this.ifindSearchTimer !== null) {
@@ -7708,6 +7939,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private async refreshFavoriteIfindQuotes() {
+    if (!IFIND_BUSINESS_ENABLED) return;
     const quoteApi = window.codexDesktop.getIfindMarketQuotes;
     if (!this.ifindConfigured || !quoteApi) return;
     const records = this.quoteMarketRecords().filter((record) => record.provider === "ifind");
@@ -7734,6 +7966,7 @@ class TradingExpertMarketWorkspace {
 
   private setPickerOpen(open: boolean) {
     if (open) {
+      this.setPeriodOverflowOpen(false);
       this.setPrimaryPeriodMenuOpen(false);
       this.setPeriodEditorOpen(false);
       this.setIndicatorEditorOpen(false);
@@ -7786,6 +8019,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private setPeriodEditorOpen(open: boolean) {
+    if (open) this.setPeriodOverflowOpen(false);
     this.setPeriodUnitMenuOpen(false);
     this.periodEditor.hidden = !open;
     const trigger = this.host.querySelector<HTMLElement>('[data-market-action="toggle-period-editor"]');
@@ -7807,6 +8041,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private setPrimaryPeriodMenuOpen(open: boolean) {
+    this.setPeriodOverflowOpen(false);
     const splitActive = this.host.classList.contains("split-layout-active");
     const nextOpen = open && splitActive;
     if (nextOpen) {
@@ -7846,6 +8081,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private setIndicatorEditorOpen(open: boolean) {
+    if (open) this.setPeriodOverflowOpen(false);
     this.indicatorEditor.hidden = !open;
     this.openIndicatorWidthMenuKey = null;
     const splitTarget = this.indicatorEditorSplitPane;
@@ -8453,7 +8689,7 @@ class TradingExpertMarketWorkspace {
     );
     if (missingPeriod) {
       const period = tradingPeriodFromResolution(context.interval);
-      if (period && this.periods.length < MAX_TRADING_PERIODS) {
+      if (period) {
         this.periods = [...this.periods, period];
       }
     }
@@ -8465,11 +8701,11 @@ class TradingExpertMarketWorkspace {
 
   private restoreLastDrawingWorkspace(workspace: TradingLastDrawingWorkspace) {
     const primary = workspace.panes.find((pane) => pane.paneIndex === 0);
-    if (!primary) return false;
+    if (!primary || !tradingMarketAvailable(primary.market)) return false;
     const ensurePeriod = (interval: string) => {
       if (this.periods.some((period) => tradingViewResolution(period) === interval)) return;
       const period = tradingPeriodFromResolution(interval);
-      if (period && this.periods.length < MAX_TRADING_PERIODS) this.periods = [...this.periods, period];
+      if (period) this.periods = [...this.periods, period];
     };
     ensurePeriod(primary.interval);
     this.splitLayoutId = tradingSplitLayout(workspace.layoutId).id;
@@ -8477,7 +8713,7 @@ class TradingExpertMarketWorkspace {
     this.splitPaneIndicatorSelections.clear();
     workspace.panes.forEach((pane) => {
       ensurePeriod(pane.interval);
-      if (pane.paneIndex === 0) return;
+      if (pane.paneIndex === 0 || !tradingMarketAvailable(pane.market)) return;
       const market = this.splitPaneMarket(marketFromFavoriteRecord(pane.market));
       this.splitPaneSelections.set(pane.paneIndex, {
         marketId: market.id,
@@ -8895,6 +9131,7 @@ class TradingExpertMarketWorkspace {
       || this.favoriteMarketFromId(normalizedMarketId)
       || this.markets.find((market) => market.symbol.toUpperCase() === normalizedMarketId.replace(/^.*:/, ""));
     if (!targetMarket) throw new Error(`未找到可用的行情：${normalizedMarketId}`);
+    if (!tradingMarketAvailable(targetMarket)) throw new Error(tradingMarketUnavailableMessage(activeTradingAnalysisLanguage()));
     const targetInterval = tradingResolutionFromAlertInterval(interval || tradingAlertIntervalFromResolution(this.activeInterval));
     if (!tradingViewResolutionDurationMs(targetInterval)) throw new Error(`暂不支持 ${interval || targetInterval} K 线周期`);
     const shouldReload = targetMarket.id !== this.loadedMarketId
@@ -10239,13 +10476,13 @@ class TradingExpertMarketWorkspace {
             interval: state.interval,
             updatedAt: state.updatedAt,
           });
-    if (!market) return false;
+    if (!market || !tradingMarketAvailable(market)) return false;
     if (!this.periods.some((period) => tradingViewResolution(period) === state.interval)) {
       const period = tradingPeriodFromResolution(state.interval);
-      if (period && this.periods.length < MAX_TRADING_PERIODS) this.periods = [...this.periods, period];
+      if (period) this.periods = [...this.periods, period];
     }
+    if (!this.selectMarket(market)) return false;
     this.activeInterval = state.interval;
-    this.selectMarket(market);
     this.updateSymbolUi();
     return true;
   }
@@ -10385,6 +10622,7 @@ class TradingExpertMarketWorkspace {
           instruction: request.instruction,
         }) as TradingMarket | null;
     if (!targetMarket) throw new Error(`未找到可用的 ${normalizedSymbol} 行情`);
+    if (!tradingMarketAvailable(targetMarket)) throw new Error(tradingMarketUnavailableMessage(activeTradingAnalysisLanguage()));
     if (request.symbol && String(targetMarket.symbol).toUpperCase() !== normalizedSymbol) {
       throw new Error(`未找到指定的 ${normalizedSymbol} 行情`);
     }
@@ -10665,10 +10903,9 @@ class TradingExpertMarketWorkspace {
     let candleBatch: TradingCandleBatch | null = null;
     let candleRequestedAt = 0;
     let lastError: unknown = null;
-    // A gateway can briefly serve an old response after its route changes. Use
-    // a new endTime on every attempt so each request has a distinct upstream
-    // cache key. A quote can update a fresh series, but cannot recover missing
-    // OHLC history or turn an offline cache into a current analysis snapshot.
+    // Freshness is a data requirement, not a unique URL. All consumers share
+    // the same latest request; a delayed history cannot be made current by
+    // attaching a recent quote to its tail.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         const endTime = Date.now();
@@ -10677,7 +10914,7 @@ class TradingExpertMarketWorkspace {
             targetMarket.symbol,
             targetInterval,
             500,
-            endTime,
+            undefined,
             targetMarket.marketType === "spot" ? "spot" : "perpetual",
             undefined,
             { forceFresh: true },
@@ -10698,21 +10935,37 @@ class TradingExpertMarketWorkspace {
         if (
           candidate.candles.length
           && (targetMarket.provider !== "binance"
-            || !tradingAnalysisCandlesRequireCurrentRefresh(candidate.candles, targetInterval, Date.now()))
+            || (!tradingAnalysisCandlesRequireCurrentRefresh(candidate.candles, targetInterval, Date.now())
+              && binanceCandleHistoryComplete(
+                candidate.sourceCandles.length ? candidate.sourceCandles : candidate.candles,
+                candidate.sourceCandles.length ? candidate.source.sourceMs : candidate.source.targetMs,
+                Date.now(), candidate.sourceCandles.length ? candidate.source.sourceInterval : targetInterval === "1M" ? "1M" : null,
+              )))
         ) break;
       } catch (error) {
         lastError = error;
+        // A long server cooldown cannot recover inside this bounded refresh.
+        // Keep its retry deadline instead of issuing three immediate attempts.
+        if (Number((error as { retryAfterMs?: number })?.retryAfterMs) > 2_000) break;
       }
       if (attempt < 2) {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+        // Cross the one-second live cache TTL when waiting for a new minute's
+        // bar. Shorter sleeps repeatedly read the same not-yet-current tail.
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 1_100 * (attempt + 1)));
       }
     }
     if (
       targetMarket.provider === "binance"
       && (!candleBatch?.candles.length
         || tradingAnalysisCandlesRequireCurrentRefresh(candleBatch.candles, targetInterval))
-    ) throw tradingAnalysisSnapshotUnavailable("CANDLE_REFRESH_FAILED");
+    ) {
+      if (Number((lastError as { retryAfterMs?: number })?.retryAfterMs) > 2_000) throw lastError;
+      throw tradingAnalysisSnapshotUnavailable("CANDLE_REFRESH_FAILED");
+    }
     if (!candleBatch?.candles.length) {
+      if (targetMarket.provider === "binance") {
+        throw lastError instanceof Error ? lastError : new Error("当前行情快照刷新未完成，已阻止使用旧 K 线分析");
+      }
       const cached = getTradingMarketCandleCache(
         tradingMarketCandleCacheKey({
           provider: targetMarket.provider,
@@ -10742,12 +10995,22 @@ class TradingExpertMarketWorkspace {
     let liveStats: TradingMarketStats | null = null;
     if (targetMarket.provider === "binance") {
       let statsRequestedAt = 0;
+      const history = candleBatch.sourceCandles.length ? candleBatch.sourceCandles : candleBatch.candles;
+      const sourceMs = candleBatch.sourceCandles.length ? candleBatch.source.sourceMs : candleBatch.source.targetMs;
+      if (tradingAnalysisCandlesRequireCurrentRefresh(candleBatch.candles, targetInterval, Date.now())
+        || !binanceCandleHistoryComplete(history, sourceMs, Date.now(),
+          candleBatch.sourceCandles.length ? candleBatch.source.sourceInterval : targetInterval === "1M" ? "1M" : null)) {
+        throw tradingAnalysisSnapshotUnavailable("CANDLE_REFRESH_FAILED");
+      }
+      // A recent trade can refine the forming bar only after history passes
+      // freshness, closed-bar and gap checks. It cannot manufacture history.
       for (let statsAttempt = 0; statsAttempt < 2 && !liveStats; statsAttempt += 1) {
         try {
           statsRequestedAt = Date.now();
           liveStats = await fetchTradingMarketStats(
             targetMarket.symbol,
             targetMarket.marketType === "spot" ? "spot" : "perpetual",
+            "live",
           );
         } catch {
           if (statsAttempt < 1) {
@@ -11654,7 +11917,7 @@ class TradingExpertMarketWorkspace {
       : this.chartSettings.chartStyle === "hlc" ? this.chartCandles.slice(-2) : [latest];
     const display = this.primarySeriesData(liveWindow, trendBars).at(-1);
     if (!display) return;
-    this.candleSeries.update(display);
+    updateTradingChartSeriesTail(this.candleSeries, display);
     this.syncCurrentPriceLine(latest);
     this.renderLatestOhlc();
     this.clearMarketError();
@@ -11753,14 +12016,14 @@ class TradingExpertMarketWorkspace {
       const hours = Math.floor(remainingSeconds / 3_600);
       const minutes = Math.floor((remainingSeconds % 3_600) / 60);
       const seconds = remainingSeconds % 60;
-      this.candleCountdownElement.textContent = [hours, minutes, seconds]
+      const text = [hours, minutes, seconds]
         .map((value) => String(value).padStart(2, "0"))
         .join(":");
-      this.candleCountdownElement.dateTime = `PT${remainingSeconds}S`;
-      this.candleCountdownElement.setAttribute(
-        "aria-label",
-        `K线结束倒计时 ${hours}小时${minutes}分${seconds}秒`,
-      );
+      if (this.candleCountdownElement.textContent !== text) this.candleCountdownElement.textContent = text;
+      const dateTime = `PT${remainingSeconds}S`;
+      if (this.candleCountdownElement.dateTime !== dateTime) this.candleCountdownElement.dateTime = dateTime;
+      const label = `K线结束倒计时 ${hours}小时${minutes}分${seconds}秒`;
+      if (this.candleCountdownElement.getAttribute("aria-label") !== label) this.candleCountdownElement.setAttribute("aria-label", label);
     } else {
       this.hideCandleCountdown();
     }
@@ -11785,7 +12048,7 @@ class TradingExpertMarketWorkspace {
   private setStat(name: string, text: string, tone?: "positive" | "negative") {
     const element = this.host.querySelector<HTMLElement>(`[data-market-stat="${name}"]`);
     if (!element) return;
-    element.textContent = text;
+    if (element.textContent !== text) element.textContent = text;
     element.classList.toggle("positive", tone === "positive");
     element.classList.toggle("negative", tone === "negative");
   }
@@ -12004,20 +12267,7 @@ class TradingExpertMarketWorkspace {
       timeOffsetSeconds: CHINA_TIME_OFFSET_SECONDS,
     });
     this.createMainIndicatorSeries();
-    this.chart.subscribeCrosshairMove((parameter: any) => {
-      if (typeof parameter?.time === "number" && Number.isFinite(parameter.time)) {
-        const sourceTime = parameter.time - CHINA_TIME_OFFSET_SECONDS;
-        const candle = this.chartCandles.find((candidate) => candidate.time === sourceTime);
-        if (candle) {
-          this.hoveredOhlcSourceTime = sourceTime;
-          this.renderOhlc(candle, parameter.time);
-        }
-      }
-      this.updateCrosshairTimeLabel(parameter);
-      this.updateCrosshairPriceLabel(parameter);
-      this.updateMainIndicatorLegends(parameter?.time);
-      this.updateIndicatorLegends(parameter?.seriesData);
-    });
+    this.chart.subscribeCrosshairMove(this.crosshairFrame.schedule);
     this.chart.timeScale().subscribeVisibleLogicalRangeChange((range: any) => {
       if (
         this.resettingChartViewport
@@ -12045,12 +12295,14 @@ class TradingExpertMarketWorkspace {
         onAutoScaleChange: (enabled) => {
           if (this.chartSettings.autoScale === enabled) return;
           this.chartSettings.autoScale = enabled;
+          this.recordSharedSettingsEdit();
           saveTradingChartSettings(window.localStorage, this.chartSettings);
           this.syncChartSettingsControls("autoScale");
           this.splitPanes.forEach(pane => pane.updateSettings(this.chartSettings, isDarkTheme() ? "dark" : "light", false));
         },
         onPriceModeChange: (mode) => {
           this.chartSettings.priceScaleMode = mode;
+          this.recordSharedSettingsEdit();
           saveTradingChartSettings(window.localStorage, this.chartSettings);
           this.applyChartTheme(false);
           this.syncChartSettingsControls("priceScaleMode");
@@ -12219,22 +12471,18 @@ class TradingExpertMarketWorkspace {
     runtime.forEach((series, seriesIndex) => {
       const seriesKey = seriesKeys[id]?.[seriesIndex];
       if (seriesKey && setting?.series[seriesKey]?.visible === false) {
-        series.setData([]);
+        setTradingChartSeriesData(series, []);
         return;
       }
       const seriesValues = values[seriesIndex] ?? [];
-      series.setData(seriesValues.flatMap((value, index) => {
-        if (!Number.isFinite(value) || !candles[index]) return [];
-        return [{
-          time: (candles[index].time + CHINA_TIME_OFFSET_SECONDS) as any,
-          value,
-        }];
-      }));
+      setTradingChartSeriesValues(series, candles, seriesValues, CHINA_TIME_OFFSET_SECONDS);
     });
   }
 
   private updateMainIndicatorData(candles: TradingCandle[]) {
     const closes = candles.map((candle) => candle.close);
+    const cache = this.mainCalculationCache;
+    cache.update(closes, candles);
     const isActive = (id: TradingMainIndicatorId) => this.activeMainIndicators.includes(id);
     const setting = (id: TradingMainIndicatorId) =>
       this.indicatorSettings[tradingIndicatorSettingKey("main", id)];
@@ -12244,14 +12492,14 @@ class TradingExpertMarketWorkspace {
     };
     updateLineIndicator(
       "ma",
-      isActive("ma") ? setting("ma").parameters.map((period) => computeSma(closes, period)) : [],
+      isActive("ma") ? setting("ma").parameters.map((period) => cache.sma(period)) : [],
     );
     updateLineIndicator(
       "ema",
-      isActive("ema") ? setting("ema").parameters.map((period) => computeEma(closes, period)) : [],
+      isActive("ema") ? setting("ema").parameters.map((period) => cache.ema(period)) : [],
     );
     const bollinger = isActive("boll")
-      ? computeBollingerBands(closes, setting("boll").parameters[0], setting("boll").parameters[1])
+      ? cache.boll(setting("boll").parameters[0], setting("boll").parameters[1])
       : null;
     updateLineIndicator(
       "boll",
@@ -12259,7 +12507,7 @@ class TradingExpertMarketWorkspace {
     );
     updateLineIndicator(
       "bbi",
-      isActive("bbi") ? [computeBbi(closes, setting("bbi").parameters)] : [],
+      isActive("bbi") ? [cache.bbi(setting("bbi").parameters)] : [],
     );
 
     const tdSetting = setting("td");
@@ -12290,18 +12538,38 @@ class TradingExpertMarketWorkspace {
     this.updateMainIndicatorLegends();
   }
 
+  private paintCrosshair(parameter: any) {
+    if (this.disposed) return;
+    if (!parameter?.point) {
+      this.handleViewportLeave();
+      return;
+    }
+    if (typeof parameter?.time === "number" && Number.isFinite(parameter.time)) {
+      const sourceTime = parameter.time - CHINA_TIME_OFFSET_SECONDS;
+      const candle = this.chartCandles[tradingChartCandleIndex(this.chartCandles, sourceTime)];
+      if (candle) {
+        this.hoveredOhlcSourceTime = sourceTime;
+        this.renderOhlc(candle, parameter.time);
+      }
+    }
+    this.updateCrosshairTimeLabel(parameter);
+    if ((parameter.paneIndex ?? 0) === 0) this.updateCrosshairPriceLabel(parameter);
+    else this.hideCrosshairPriceLabel();
+    this.updateMainIndicatorLegends(parameter?.time);
+    this.updateIndicatorLegends(parameter?.seriesData);
+  }
+
   private updateMainIndicatorLegends(timeValue?: number) {
-    this.mainIndicatorLegendElement.replaceChildren();
+    const rows: TradingChartLegendRow[] = [];
     if (!this.activeMainIndicators.length) {
+      updateTradingChartLegendRows(this.mainIndicatorLegendElement, "data-market-main-indicator-legend", rows);
       this.renderAlertSimulationMainIndicatorLegends();
       return;
     }
 
     let candleIndex = this.chartCandles.length - 1;
     if (typeof timeValue === "number" && Number.isFinite(timeValue)) {
-      const hoveredIndex = this.chartCandles.findIndex(
-        (candle) => candle.time + CHINA_TIME_OFFSET_SECONDS === timeValue,
-      );
+      const hoveredIndex = tradingChartCandleIndex(this.chartCandles, timeValue - CHINA_TIME_OFFSET_SECONDS);
       if (hoveredIndex >= 0) candleIndex = hoveredIndex;
     }
     const formatValue = (value: number) => Number.isFinite(value) ? formatOhlcPrice(value) : "--";
@@ -12311,19 +12579,9 @@ class TradingExpertMarketWorkspace {
       items: Array<{ label: string; value: number; color: string }>,
     ) => {
       if (!items.length) return;
-      const row = document.createElement("div");
-      row.className = "trading-market-main-indicator-legend";
-      row.dataset.marketMainIndicatorLegend = id;
-      const title = document.createElement("strong");
-      title.textContent = titleText;
-      row.append(title);
-      items.forEach((item) => {
-        const value = document.createElement("span");
-        value.style.setProperty("--main-indicator-series-color", item.color);
-        value.textContent = `${item.label}:${formatValue(item.value)}`;
-        row.append(value);
-      });
-      this.mainIndicatorLegendElement.append(row);
+      rows.push({ id, title: titleText, items: items.map(item => ({
+        text: `${item.label}:${formatValue(item.value)}`, color: item.color,
+      })) });
     };
     const valueAt = (id: TradingMainIndicatorId, seriesIndex: number) =>
       this.mainIndicatorValues.get(id)?.[seriesIndex]?.[candleIndex] ?? Number.NaN;
@@ -12373,6 +12631,7 @@ class TradingExpertMarketWorkspace {
         },
       ] : []);
     });
+    updateTradingChartLegendRows(this.mainIndicatorLegendElement, "data-market-main-indicator-legend", rows);
     this.renderAlertSimulationMainIndicatorLegends();
   }
 
@@ -12627,20 +12886,11 @@ class TradingExpertMarketWorkspace {
       const runtime = this.indicatorPanes.get(id);
       if (!runtime) return;
       const setting = this.indicatorSettings[tradingIndicatorSettingKey("sub", id)];
-      const result = calculateTradingIndicator(id, candles, setting.parameters);
+      const result = calculateTradingIndicator(id, candles, setting.parameters, this.volumeCalculationCache);
       result.series.forEach((descriptor) => {
         const seriesRuntime = runtime.series.find((series) => series.key === descriptor.key);
         if (!seriesRuntime) return;
-        const data = descriptor.values.flatMap<Record<string, unknown>>((value, index) => {
-          if (!Number.isFinite(value) || !candles[index]) return [];
-          const time = (candles[index].time + CHINA_TIME_OFFSET_SECONDS) as any;
-          return [{
-            time,
-            value,
-            ...(descriptor.colors?.[index] ? { color: descriptor.colors[index] } : {}),
-          }];
-        });
-        seriesRuntime.api.setData(data);
+        setTradingChartSeriesValues(seriesRuntime.api, candles, descriptor.values, CHINA_TIME_OFFSET_SECONDS, descriptor.colors);
         seriesRuntime.latestValue = Number.NaN;
         for (let index = descriptor.values.length - 1; index >= 0; index -= 1) {
           if (Number.isFinite(descriptor.values[index])) {
@@ -12656,10 +12906,11 @@ class TradingExpertMarketWorkspace {
   private updateIndicatorLegends(seriesData?: Map<any, any>) {
     this.indicatorPanes.forEach((runtime) => {
       if (!runtime.legend) return;
+      const targets = runtime.legend.querySelectorAll<HTMLElement>("span");
       runtime.series.forEach((seriesRuntime, index) => {
         const current = seriesData?.get(seriesRuntime.api);
         const value = Number(current?.value ?? current?.high ?? seriesRuntime.latestValue);
-        const target = runtime.legend?.querySelectorAll<HTMLElement>("span")[index];
+        const target = targets[index];
         const text = `${seriesRuntime.label}: ${Number.isFinite(value)
           ? this.formatIndicatorValue(value, runtime.id)
           : "--"}`;
@@ -12796,18 +13047,18 @@ class TradingExpertMarketWorkspace {
     this.clearAlertEvidenceIndicatorTargets();
     this.alertEvidencePoint = null;
     if (this.alertEvidenceAnnotation) this.alertEvidenceAnnotation.hidden = true;
-    this.candleSeries?.setData([]);
-    this.bandUpperSeries?.setData([]);
-    this.bandLowerSeries?.setData([]);
+    setTradingChartSeriesData(this.candleSeries, []);
+    setTradingChartSeriesData(this.bandUpperSeries, []);
+    setTradingChartSeriesData(this.bandLowerSeries, []);
     this.mainIndicatorSeries.forEach((seriesList) => {
-      seriesList.forEach((series) => series.setData([]));
+      seriesList.forEach((series) => setTradingChartSeriesData(series, []));
     });
     this.mainIndicatorValues.clear();
     this.tdIndicatorDirections = [];
     this.tdMarkers?.setMarkers([]);
     this.indicatorPanes.forEach((runtime) => {
       runtime.series.forEach((series) => {
-        series.api.setData([]);
+        setTradingChartSeriesData(series.api, []);
         series.latestValue = Number.NaN;
       });
     });
@@ -12844,19 +13095,28 @@ class TradingExpertMarketWorkspace {
       this.invalidateVolumeProfileSnapshot();
       this.prepareChartViewportReset();
     }
-    const deduped = mergeCandles([], this.candles);
+    const ordered = this.candles.every((candle, i) => i === 0 || candle.time > this.candles[i - 1].time);
+    const deduped = ordered ? this.candles.slice() : mergeCandles([], this.candles);
     this.chartCandles = deduped;
     const trendBandEnabled = this.trendBandEnabled;
     const trendBars = trendBandEnabled ? atm1TrendCandles(deduped) : null;
-    const display = this.primarySeriesData(deduped, trendBars);
     this.updatingChartData = true;
     try {
-      this.candleSeries.setData(display);
-      const band = atm4MaBand(deduped);
-      this.bandUpperSeries?.setData(atm4BandSeriesData(band, "bandUpper", trendBandEnabled));
-      this.bandLowerSeries?.setData(atm4BandSeriesData(band, "bandLower", trendBandEnabled));
+      withTradingChartSeriesBatch(this.chart, () => {
+      if (!trendBars && this.chartSettings.chartStyle !== 'heikin-ashi' && this.chartSettings.chartStyle !== 'hlc') {
+        setTradingChartPriceData(this.candleSeries!, deduped, CHINA_TIME_OFFSET_SECONDS, this.chartSettings.chartStyle === 'close-line');
+      } else setTradingChartSeriesData(this.candleSeries, this.primarySeriesData(deduped, trendBars));
+      if (trendBandEnabled) {
+        const band = atm4MaBand(deduped);
+        setTradingChartSeriesData(this.bandUpperSeries, atm4BandSeriesData(band, "bandUpper", trendBandEnabled));
+        setTradingChartSeriesData(this.bandLowerSeries, atm4BandSeriesData(band, "bandLower", trendBandEnabled));
+      } else {
+        setTradingChartWhitespaceData(this.bandUpperSeries, deduped, CHINA_TIME_OFFSET_SECONDS);
+        setTradingChartWhitespaceData(this.bandLowerSeries, deduped, CHINA_TIME_OFFSET_SECONDS);
+      }
       this.updateMainIndicatorData(deduped);
       this.updateIndicatorData(deduped);
+      });
       this.renderIndicatorAnalysisPatches();
       const lastRaw = deduped[deduped.length - 1];
       this.applyMarketPriceFormat(lastRaw.close);
@@ -12877,7 +13137,9 @@ class TradingExpertMarketWorkspace {
       this.resettingChartViewport = false;
       this.queueVisiblePriceScaleUpdate();
     } else {
-      this.synchronizeVisibleChartGeometry();
+      // Native chart updates and pointer navigation already share a paint.
+      // Do not rebuild all overlays synchronously a second time inside it.
+      this.chartNavigation?.schedule();
     }
     // All successful candle commits (including fallback recovery) restore the
     // matching overlay. Focus last, after an initial viewport reset, so a
@@ -13028,7 +13290,8 @@ class TradingExpertMarketWorkspace {
       ? Number(this.candleSeries.coordinateToPrice(y))
       : Number.NaN;
     if (!Number.isFinite(price)) return;
-    this.crosshairPriceElement.textContent = formatFocusedPrice(price);
+    const text = formatFocusedPrice(price);
+    if (this.crosshairPriceElement.textContent !== text) this.crosshairPriceElement.textContent = text;
     this.positionFocusPriceLabel(this.crosshairPriceElement, y);
   }
 
@@ -13048,7 +13311,8 @@ class TradingExpertMarketWorkspace {
     this.currentPriceElement.style.setProperty("--trading-market-live-price-color", livePriceColor);
     this.candleCountdownElement.style.setProperty("--trading-market-live-price-color", livePriceColor);
     if (this.chartSettings.showPriceLabel) {
-      this.currentPriceElement.textContent = formatFocusedPrice(candle.close);
+      const text = formatFocusedPrice(candle.close);
+      if (this.currentPriceElement.textContent !== text) this.currentPriceElement.textContent = text;
       this.positionFocusPriceLabel(this.currentPriceElement, y);
     } else {
       this.currentPriceElement.hidden = true;
@@ -13066,8 +13330,8 @@ class TradingExpertMarketWorkspace {
       this.hideCandleCountdown();
       return;
     }
-    const priceScaleWidth = Math.max(this.chart.priceScale("right", 0).width(), 64);
-    const priceLabelHalfHeight = 12;
+    const priceScaleWidth = Math.max(this.chart.priceScale("right", 0).width(), 1);
+    const priceLabelHalfHeight = 12 * this.chart.options().layout.fontSize / 11;
     const countdownHeight = 19;
     const priceCenterY = Math.min(
       Math.max(y, priceLabelHalfHeight),
@@ -13108,10 +13372,10 @@ class TradingExpertMarketWorkspace {
 
   private positionFocusPriceLabel(element: HTMLElement, y: number) {
     if (!this.chart) return;
-    const priceScaleWidth = Math.max(this.chart.priceScale("right", 0).width(), 64);
+    const priceScaleWidth = Math.max(this.chart.priceScale("right", 0).width(), 1);
     const plotWidth = this.chart.timeScale().width();
     const plotHeight = this.chart.panes()[0]?.getHeight() ?? 0;
-    const labelHalfHeight = 12;
+    const labelHalfHeight = 12 * this.chart.options().layout.fontSize / 11;
     const top = Math.min(
       Math.max(y, labelHalfHeight),
       Math.max(labelHalfHeight, plotHeight - labelHalfHeight),
@@ -13156,6 +13420,7 @@ class TradingExpertMarketWorkspace {
   }
 
   private clearOhlc() {
+    this.crosshairFrame.cancel();
     this.ohlcElement.hidden = true;
     this.ohlcTimeElement.textContent = "";
     this.ohlcValueElements.forEach((element) => {
@@ -13302,12 +13567,14 @@ class TradingExpertMarketWorkspace {
   }
 
   destroy() {
+    this.unregisterSettingsSync?.();
     this.favoritePriceFlash.clear();
     this.pickerPriceFlash.clear();
     this.watchlistPanel.destroy();
     if (this.watchlistQuoteTimer !== null) window.clearInterval(this.watchlistQuoteTimer);
     if (this.disposed) return;
     this.disposed = true;
+    this.crosshairFrame.cancel();
     this.loadGeneration += 1;
     this.marketDataRequestAbortController?.abort();
     this.marketDataRequestAbortController = null;
@@ -13346,6 +13613,9 @@ class TradingExpertMarketWorkspace {
       this.favoriteTickerPaintFrame = null;
     }
     this.resizeObserver?.disconnect();
+    this.periodOverflowObserver?.disconnect();
+    this.periodLabelObserver?.disconnect();
+    if (this.periodOverflowFrame !== null) window.cancelAnimationFrame(this.periodOverflowFrame);
     this.themeObserver?.disconnect();
     this.activeDrawingController = null;
     this.splitPanes.forEach((pane) => pane.destroy());

@@ -1,4 +1,5 @@
 import {cloudAnalysisText} from '../../src/renderer/cloud-analysis-text.ts';
+import {tradingMarketAvailable,tradingMarketUnavailableMessage} from '../../src/shared/trading-market-availability.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import ts from 'typescript';
@@ -17,7 +18,7 @@ export function setup({apiFailure=false,beforeResponse}={}) {
   const calls=[],drawings=[],indicatorDrawings=[],finished=[],failed=[];
   const api=async body=>{calls.push(body);await beforeResponse?.(body);return apiFailure?{ok:false,error:{code:'ENTRY_WORKER_UNAVAILABLE',message:'offline'}}:
     {ok:true,snapshot:{candles:Array(84),orderFlow:{trades:Array(12)}},analysisPlan:{report:'Canonical server report',narrative:'Server conclusion',drawingPatch:{marketId:body.marketId,interval:body.interval,operations:[]},indicatorDrawingPatch:{marketId:body.marketId,interval:body.interval,indicatorId:'rsi',operations:[]}},model:{modelId:'server-model'}};};
-  const dependencies={cloudAnalysisText,window:{codexDesktop:{runTradingStrategyAnalysis:api,runTradingGeneralAnalysis:api}},cloudAnalysisWindow,
+  const dependencies={tradingMarketAvailable,tradingMarketUnavailableMessage,cloudAnalysisText,window:{codexDesktop:{runTradingStrategyAnalysis:api,runTradingGeneralAnalysis:api}},cloudAnalysisWindow,
     selectTradingAnalysisMarket,selectTradingAnalysisInterval,marketFromFavoriteRecord:x=>x,visibleCandlesInLogicalRange:x=>x,
     tradingViewResolutionDurationMs:()=>60000,tradingPeriodLabelForResolution:x=>x,activeTradingAnalysisLanguage:()=> 'en',tradingFavoriteRecord:x=>x,
     tradingAnalysisJobs:{start:x=>({...x,analysisId:x.analysisId||'test-job'}),isActive:()=>true,complete:id=>finished.push(id),fail:(id,e)=>failed.push(e.code)},

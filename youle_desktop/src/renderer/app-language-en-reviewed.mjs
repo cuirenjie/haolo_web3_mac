@@ -1,6 +1,7 @@
 // Reviewed product copy. Keep complete phrases ahead of the legacy word map;
 // trading terminology must not be assembled from single-character translations.
 export const REVIEWED_ENGLISH_UI_PHRASES = Object.freeze({
+  "更多周期": "More timeframes",
   "收起自选": "Hide watchlist",
   "展开自选": "Show watchlist",
   "自选": "Watchlist",

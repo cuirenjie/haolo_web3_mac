@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { tradingChartLibraryPlugin } from './scripts/trading-chart-library-patch.mjs';
 
 // Resolve the renderer root through the filesystem so Vite uses the canonical
 // Windows path even when the workspace is launched through a subst drive
@@ -12,10 +13,14 @@ import path from "node:path";
 const root = fs.realpathSync(fileURLToPath(new URL("src/renderer", import.meta.url)));
 const require = createRequire(import.meta.url);
 const packageJson = require("./package.json");
+const chartLibrary = path.join(path.dirname(require.resolve('lightweight-charts/package.json')), 'dist/lightweight-charts.development.mjs');
 const manualDevelopmentRestart =
   process.env.HAOLO_DESKTOP_MANUAL_RESTART === "1";
 
 export default defineConfig({
+  plugins: [tradingChartLibraryPlugin(chartLibrary)],
+  resolve: { alias: { 'lightweight-charts': chartLibrary } },
+  optimizeDeps: { exclude: ['lightweight-charts'] },
   root,
   base: "./",
   define: {

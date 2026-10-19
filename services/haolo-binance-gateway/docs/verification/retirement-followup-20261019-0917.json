@@ -1,0 +1,262 @@
+{
+  "task": "M2-027",
+  "at": 1792372673.067412,
+  "localTime": "2026-10-19 09:17:53",
+  "readOnlyProduction": true,
+  "sourceVerification": {
+    "authRuntime": {
+      "authRequestTimeoutMs": 10000,
+      "authCacheTtlMs": 15000
+    },
+    "phase": "accepted_retirement_pending",
+    "image": "sha256:edcf22b68e2a207e54c41965b85015aa30074e9b97161085bec2d408e65ca80b",
+    "restarts": 0,
+    "source": {
+      "files": 18,
+      "mismatches": [],
+      "manifestSha256": "89aa65c0373a808c2a4530f1463167537a74a9d7f9d02bf4e434065743fb5c80"
+    },
+    "activePointerAndHaproxyExact": true,
+    "bothReady": true
+  },
+  "auditLogRead": {
+    "mode": "bounded-event-time-windows",
+    "windowSeconds": 3600,
+    "windows": 8,
+    "untilExclusive": 1792372674,
+    "perReadTimeoutSeconds": 60
+  },
+  "activeIdentityUnchanged": true,
+  "activePointerAndHaproxyExact": true,
+  "redisIdentityUnchanged": true,
+  "environmentUnchanged": true,
+  "policy": {
+    "publicUserWeightPerMinute": 300,
+    "publicFuturesUpstreamWeightPerMinute": 1440,
+    "publicSpotUpstreamWeightPerMinute": 3600,
+    "authCacheTtlMs": 15000,
+    "authRequestTimeoutMs": 10000,
+    "downstreamRequestsPerMinute": 300,
+    "maxWebsocketClientsPerUser": 8,
+    "maxWebsocketClientsTotal": 10000
+  },
+  "retirement": [
+    {
+      "release": "market-m2-027-8935f3a",
+      "phase": "accepted_retirement_pending",
+      "container": "haolo-binance-gateway-53badfa",
+      "status": "running",
+      "exitCode": 0,
+      "restarts": 0,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-m2-027-drain-watch.service",
+      "watcherStatus": "active",
+      "established": 42,
+      "websocketClients": 42,
+      "receipt": {
+        "phase": "waiting_for_natural_zero",
+        "container": "haolo-binance-gateway-53badfa",
+        "snapshots": [
+          {
+            "at": 1792372664.3123567,
+            "established": 42,
+            "websocketClients": 42
+          }
+        ]
+      }
+    },
+    {
+      "release": "market-auth-916b92c",
+      "phase": "accepted_retirement_pending",
+      "container": "haolo-binance-gateway-m2-027-8935f3a",
+      "status": "running",
+      "exitCode": 0,
+      "restarts": 0,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-auth-916b92c-drain-watch.service",
+      "watcherStatus": "active",
+      "established": 7,
+      "websocketClients": 7,
+      "receipt": {
+        "phase": "waiting_for_natural_zero",
+        "container": "haolo-binance-gateway-m2-027-8935f3a",
+        "snapshots": [
+          {
+            "at": 1792372651.335511,
+            "established": 7,
+            "websocketClients": 7
+          }
+        ]
+      }
+    },
+    {
+      "release": "market-quota-738ae82",
+      "phase": "accepted_retirement_pending",
+      "container": "haolo-binance-gateway-auth-916b92c",
+      "status": "running",
+      "exitCode": 0,
+      "restarts": 0,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-quota-738ae82-drain-watch.service",
+      "watcherStatus": "active",
+      "established": 3,
+      "websocketClients": 3,
+      "receipt": {
+        "phase": "waiting_for_natural_zero",
+        "container": "haolo-binance-gateway-auth-916b92c",
+        "snapshots": [
+          {
+            "at": 1792372658.0797343,
+            "established": 3,
+            "websocketClients": 3
+          }
+        ]
+      }
+    },
+    {
+      "release": "market-ws-9c67921",
+      "phase": "accepted_retirement_pending",
+      "container": "haolo-binance-gateway-quota-738ae82",
+      "status": "running",
+      "exitCode": 0,
+      "restarts": 0,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-ws-9c67921-drain-watch.service",
+      "watcherStatus": "active",
+      "established": 4,
+      "websocketClients": 4,
+      "receipt": {
+        "phase": "waiting_for_natural_zero",
+        "container": "haolo-binance-gateway-quota-738ae82",
+        "snapshots": [
+          {
+            "at": 1792372634.2036693,
+            "established": 4,
+            "websocketClients": 4
+          }
+        ]
+      }
+    }
+  ],
+  "access": {
+    "seconds": 25439.710247516632,
+    "statuses": {
+      "public_gateway_rest:200": 209343,
+      "public_gateway_rest:404": 13702,
+      "public_gateway:201": 2474,
+      "public_gateway:200": 650,
+      "public_gateway:101": 2250,
+      "public_gateway:202": 40,
+      "private_gateway:200": 40,
+      "public_gateway_rest:429": 6,
+      "public_gateway:401": 7
+    },
+    "totalCompletedNewRequests": 228512,
+    "new429Or5xx": [
+      {
+        "at": 1792347777.653,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 3
+      },
+      {
+        "at": 1792347777.671,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 4
+      },
+      {
+        "at": 1792347777.696,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 80
+      },
+      {
+        "at": 1792347777.918,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 84
+      },
+      {
+        "at": 1792347777.93,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 72
+      },
+      {
+        "at": 1792347779.34,
+        "backend": "public_gateway_rest",
+        "status": 429,
+        "elapsedMs": 1
+      }
+    ],
+    "tickerSubsetStatusCounts": {
+      "200": 2485
+    },
+    "successfulOpenWebSocketsNotIncludedUntilClose": true
+  },
+  "auth": {
+    "samples": 55416,
+    "completionMarginSeconds": 30,
+    "statuses": {
+      "200": 55416
+    },
+    "p50Ms": 78,
+    "p95Ms": 87,
+    "p99Ms": 119,
+    "maxMs": 1241
+  },
+  "recentAuth": {
+    "since": 1792371790.4540534,
+    "samples": 2585,
+    "non200": 0,
+    "p95Ms": 90,
+    "p99Ms": 126,
+    "maxMs": 580,
+    "over500ms": [
+      {
+        "at": 1792372504.833,
+        "elapsedMs": 580,
+        "status": 200
+      }
+    ],
+    "over5s": 0
+  },
+  "websocketDiagnostics": {
+    "events": {
+      "market_ws_connected": 2407,
+      "market_ws_closed": 2287,
+      "market_ws_rejected": 4
+    },
+    "reasonsAndCodes": {
+      "peer_closed": 1752,
+      "heartbeat_timeout": 535,
+      "AUTHENTICATION_REQUIRED": 4
+    },
+    "maxObservedUserConnections": 6
+  },
+  "deltaSince": 1792371790.4540534,
+  "metricDelta": {
+    "websocketRejected": 0,
+    "websocketCommandRejected": 0,
+    "userWeightRateLimited": 0,
+    "egressWeightRateLimited": 0,
+    "ingressRateLimited": 0,
+    "upstreamRateLimited": 0,
+    "authenticationUnavailable": 0,
+    "authenticationTimeouts": 0,
+    "restCacheStale": 0,
+    "websocketHeartbeatTimeouts": 16
+  },
+  "new429Or5xxSincePrevious": [],
+  "previousRest429Total": 6,
+  "allRetired": false,
+  "finalPostRetirementVerification": "pending",
+  "automation": "ACTIVE; unchanged; every 15 minutes",
+  "clientBuiltOrRestarted": false,
+  "notifications": "No material change; quiet follow-up"
+}

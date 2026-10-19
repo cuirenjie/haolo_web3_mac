@@ -229,6 +229,7 @@ test("fresh REST cache hits do not consume the weighted upstream user budget", a
   assert.equal(limited.status, 429);
   assert.equal(limited.headers.get("x-haolo-rate-limit-source"), "gateway-downstream");
   assert.equal(upstreamCalls, 2);
+  assert.equal(limited.headers.get("x-haolo-rate-limit-scope"), "user-weight");
 });
 
 test("Binance's observed request weight raises the shared public egress floor", async (t) => {
@@ -264,6 +265,7 @@ test("Binance's observed request weight raises the shared public egress floor", 
   assert.equal(limited.status, 429);
   assert.equal(limited.headers.get("x-haolo-rate-limit-source"), "gateway-downstream");
   assert.equal(upstreamCalls, 1);
+  assert.equal(limited.headers.get("x-haolo-rate-limit-scope"), "egress-weight");
 });
 
 test("public gateway exchanges main-process JWT for a one-use WebSocket ticket", async (t) => {

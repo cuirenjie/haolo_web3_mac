@@ -3,6 +3,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import ts from "typescript";
+import * as chartSeries from "../src/renderer/trading-chart-series-data.ts";
 import { mergeTradingCandleBatches } from "../src/renderer/trading-market-candle-cache.mjs";
 import { developmentDirectNetwork } from "../src/main/development-network.mjs";
 import { initialMarketLogicalRange } from "../src/renderer/trading-expert-market.ts";
@@ -19,7 +20,7 @@ const javascript = ts.transpileModule(`class Harness { ${methods.join("\n")} }; 
 const bar = (i, closed = true) => ({ time: 1800000000 + i * 3600, open: 10, high: 12, low: 9, close: 11, volume: 5, closed });
 function fixture(fetchHistory) {
   const calls = [];
-  const context = vm.createContext({ Date, mergeTradingCandleBatches, fetchTradingCandles: fetchHistory,
+  const context = vm.createContext({ ...chartSeries, CHINA_TIME_OFFSET_SECONDS: 8 * 3600, Date, mergeTradingCandleBatches, fetchTradingCandles: fetchHistory,
     binanceMarketRestCooldownRemaining: () => 0,
     binanceResolutionSource: () => ({ sourceInterval: "1h", sourceMs: 3600000, targetMs: 3600000 }),
     tradingCandleSeriesMatchesResolution: () => true,
@@ -55,7 +56,8 @@ function renderedFixture({ attached = false, matching = true, empty = false } = 
     alertSimulationSeries: attached ? {} : null,
     chart: { timeScale: () => ({ getVisibleLogicalRange: () => ({ from: 20, to: 40 }),
       setVisibleLogicalRange: () => events.push("preserve") }) },
-    candleSeries: { setData: () => events.push("data") },
+    chartSettings: { chartStyle: "candle" },
+    candleSeries: { setData: () => events.push("data"), update: () => events.push("data") },
     primarySeriesData: candles => candles, updateMainIndicatorData() {}, updateIndicatorData() {},
     renderIndicatorAnalysisPatches() {}, applyMarketPriceFormat() {}, syncCurrentPriceLine() {}, renderLatestOhlc() {},
     clearMarketError() {}, updateCountdown() {}, synchronizeVisibleChartGeometry() {},
@@ -91,7 +93,7 @@ test("every candle commit focuses existing simulations after reset and restores 
   events.length = 0;
   harness.alertSimulationSeries = null;
   harness.updateChartData();
-  assert.deepEqual(events, ["data", "attach-focus"]);
+  assert.deepEqual(events, ["attach-focus"], "unchanged data skips native writes but still restores simulation");
 });
 
 test("recovery and ordinary updates never reattach another market or interval's simulation", async () => {
@@ -103,7 +105,7 @@ test("recovery and ordinary updates never reattach another market or interval's 
   harness.alertSimulationState.marketId = harness.selectedMarketId;
   harness.alertSimulationState.interval = "240";
   harness.updateChartData({ preserveViewport: true });
-  assert.deepEqual(events, ["data", "preserve", "detach"]);
+  assert.deepEqual(events, ["preserve", "detach"]);
   assert.equal(harness.alertSimulationSeries, null);
 });
 

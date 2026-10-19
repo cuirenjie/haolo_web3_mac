@@ -156,7 +156,7 @@ export function resolveBinanceGatewayConfig(env = process.env, deployment = {}) 
     ),
     gatewayControlTimeoutMs: durationValue(
       env.HAOLO_BINANCE_GATEWAY_CONTROL_TIMEOUT_MS || deployment.gatewayControlTimeoutMs,
-      8_000,
+      12_000,
       { min: 1_000, max: 15_000 },
     ),
   });

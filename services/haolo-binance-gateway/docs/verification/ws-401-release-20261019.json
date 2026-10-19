@@ -1,0 +1,583 @@
+{
+  "at": "2026-10-19T02:07:10.259Z",
+  "task": "M2-027",
+  "commit": "bdb7ad5a1dd7a24ad7f5a3477d429e2860f703ea",
+  "candidate": "haolo-binance-gateway-ticket-bdb7ad5",
+  "image": "sha256:19ab17265ad4c24ab520ecbd84c9ae63f51bfb4eded48a480919c4e1aed1db1c",
+  "phase": "accepted_retirement_pending",
+  "switchedAt": "2026-10-19T01:59:39.865Z",
+  "acceptedAt": "2026-10-19T02:02:58.384Z",
+  "source": {
+    "authRuntime": {
+      "authRequestTimeoutMs": 10000,
+      "authCacheTtlMs": 15000
+    },
+    "phase": "accepted_retirement_pending",
+    "image": "sha256:19ab17265ad4c24ab520ecbd84c9ae63f51bfb4eded48a480919c4e1aed1db1c",
+    "restarts": 0,
+    "source": {
+      "files": 19,
+      "mismatches": [],
+      "manifestSha256": "9d621ef72e58a97f3178ece84111ef90c39776817bad4edaece3b091d386b1b6"
+    },
+    "activePointerAndHaproxyExact": true,
+    "bothReady": true
+  },
+  "policy": {
+    "publicUserWeightPerMinute": 300,
+    "publicFuturesUpstreamWeightPerMinute": 1440,
+    "publicSpotUpstreamWeightPerMinute": 3600,
+    "authCacheTtlMs": 15000,
+    "authRequestTimeoutMs": 10000,
+    "downstreamRequestsPerMinute": 300,
+    "maxWebsocketClientsPerUser": 8,
+    "maxWebsocketClientsTotal": 10000
+  },
+  "environmentUnchanged": true,
+  "redisIdentityUnchanged": true,
+  "rollbackTimerStatus": "inactive",
+  "tests": {
+    "client": 69,
+    "gateway": 85,
+    "retirement": 6,
+    "realRedis": true,
+    "skipped": 0
+  },
+  "access": {
+    "seconds": 450.3931465148926,
+    "statuses": {
+      "public_gateway_rest:200": 6377,
+      "public_gateway_rest:404": 598,
+      "public_gateway:201": 101,
+      "public_gateway:200": 20,
+      "public_gateway:101": 63,
+      "public_gateway:401": 2,
+      "public_gateway:202": 1,
+      "private_gateway:200": 1
+    },
+    "totalCompletedNewRequests": 7163,
+    "new429Or5xx": [],
+    "tickerSubsetStatusCounts": {
+      "200": 44
+    },
+    "successfulOpenWebSocketsNotIncludedUntilClose": true
+  },
+  "authentication": {
+    "samples": 1533,
+    "completionMarginSeconds": 30,
+    "statuses": {
+      "200": 1533
+    },
+    "p50Ms": 78,
+    "p95Ms": 91,
+    "p99Ms": 136,
+    "maxMs": 547
+  },
+  "ticketDiagnostics": {
+    "issuedByProtocol": {
+      "2": 6,
+      "legacy": 95
+    },
+    "rejections": [
+      {
+        "status": 401,
+        "code": "WS_TICKET_CONSUMED",
+        "ticketRef": "16f0579552cb187973c9d62b",
+        "clientProtocol": "2",
+        "ticketAgeMs": 3024,
+        "connections": 4
+      },
+      {
+        "status": 401,
+        "code": "WS_TICKET_EXPIRED",
+        "ticketRef": "2fdc621a77e37586926c2075",
+        "clientProtocol": "2",
+        "ticketAgeMs": 32414,
+        "connections": 8
+      }
+    ]
+  },
+  "metrics": {
+    "httpRequests": 7075,
+    "httpErrors": 599,
+    "websocketClients": 25,
+    "websocketCompressedClients": 0,
+    "websocketMarketFrames": 81876,
+    "websocketMarketPayloadBytes": 20468766,
+    "websocketRejected": 2,
+    "websocketTicketExpired": 1,
+    "websocketTicketConsumed": 1,
+    "websocketTicketUnknown": 0,
+    "websocketTicketInvalid": 0,
+    "websocketTicketUnavailable": 0,
+    "ticketStoreUnavailable": 0,
+    "websocketUserConnectionLimited": 0,
+    "websocketConnectionRateLimited": 0,
+    "websocketTotalConnectionLimited": 0,
+    "websocketHeartbeatTimeouts": 8,
+    "websocketCommandRejected": 0,
+    "websocketBackpressureDisconnects": 0,
+    "websocketCoalescedFrames": 0,
+    "restCacheHits": 2966,
+    "restCacheMisses": 3405,
+    "restCacheStale": 0,
+    "restNotModified": 0,
+    "restPayloadBytes": 66042960,
+    "upstreamAdmissions": 3301,
+    "upstreamRateLimited": 0,
+    "upstreamCooldownHits": 0,
+    "downstreamRateLimited": 0,
+    "ingressRateLimited": 0,
+    "userWeightRateLimited": 0,
+    "egressWeightRateLimited": 0,
+    "authenticationUnavailable": 0,
+    "authenticationTimeouts": 0,
+    "marketCoordinationUnavailable": 0,
+    "stream_messages": 43751,
+    "stream_reconnects": 0,
+    "stream_upstreamSockets": 2,
+    "stream_subscriptions": 70,
+    "stream_markets": 2,
+    "private_egress_permitsIssued": 2,
+    "private_egress_permitsRejected": 0,
+    "private_egress_usageReports": 1,
+    "private_egress_upstreamCooldowns": 0
+  },
+  "checks": {
+    "market": {
+      "at": "2026-10-19T02:00:05.152Z",
+      "checks": [
+        {
+          "check": "12 consumers share one acknowledged real stream with heartbeat",
+          "sockets": 1,
+          "tickets": 1,
+          "frames": 840
+        },
+        {
+          "check": "fresh ticket and all consumers restored after probe disconnect",
+          "newFrames": 636,
+          "latestLagMs": 693
+        },
+        {
+          "check": "20 rapid replace/dispose cycles reuse the current socket and release it",
+          "additionalSockets": 0,
+          "stats": {
+            "channels": 0,
+            "subscriptions": 0,
+            "streams": 0,
+            "sockets": 0
+          }
+        }
+      ],
+      "passed": true
+    },
+    "analysis": {
+      "at": "2026-10-19T02:00:05.318Z",
+      "scope": "Real gateway data through current client service and analysis adapter in Node; not a desktop IPC/AI forecast test",
+      "checks": [
+        {
+          "symbol": "BTCUSDT",
+          "market": "perpetual",
+          "interval": "1m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 82457.4,
+          "rsi14": 45.316876873167395,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "BTCUSDT",
+          "market": "perpetual",
+          "interval": "5m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 82361.725,
+          "rsi14": 61.27695915315051,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "BTCUSDT",
+          "market": "perpetual",
+          "interval": "1h",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 81584.98500000002,
+          "rsi14": 66.36128841504694,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "ETHUSDT",
+          "market": "perpetual",
+          "interval": "1m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 2424.605,
+          "rsi14": 49.127047002812276,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "BTCUSDT",
+          "market": "spot",
+          "interval": "1m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 82489.19350000001,
+          "rsi14": 44.30569909368352,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "BTCUSDT",
+          "market": "spot",
+          "interval": "5m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 82394.94949999999,
+          "rsi14": 60.96451347380459,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "BTCUSDT",
+          "market": "spot",
+          "interval": "1h",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 81620.8365,
+          "rsi14": 66.2664895642531,
+          "independentNumericCheck": true
+        },
+        {
+          "symbol": "ETHUSDT",
+          "market": "spot",
+          "interval": "1m",
+          "rows": 120,
+          "closedCompared": 119,
+          "ohlcvExact": true,
+          "continuous": true,
+          "currentTail": true,
+          "attempts": 1,
+          "ma20": 2425.6340000000005,
+          "rsi14": 49.03335933690019,
+          "independentNumericCheck": true
+        }
+      ],
+      "gatewayReads": 8,
+      "passed": true
+    },
+    "transport": {
+      "at": "2026-10-19T02:00:10.868Z",
+      "checks": [
+        {
+          "check": "public HTTPS freshness",
+          "elapsed": 1499,
+          "now": 1792375212368,
+          "status": 200,
+          "cache": "MISS",
+          "fetchedAt": 1792375211700,
+          "date": "Mon, 19 Oct 2026 02:00:11 GMT",
+          "tail": 1792375200000
+        },
+        {
+          "check": "public HTTPS freshness",
+          "elapsed": 234,
+          "now": 1792375212602,
+          "status": 200,
+          "cache": "HIT",
+          "fetchedAt": 1792375211700,
+          "date": "Mon, 19 Oct 2026 02:00:11 GMT",
+          "tail": 1792375200000
+        },
+        {
+          "check": "public HTTPS freshness",
+          "elapsed": 235,
+          "now": 1792375212837,
+          "status": 200,
+          "cache": "HIT",
+          "fetchedAt": 1792375211700,
+          "date": "Mon, 19 Oct 2026 02:00:12 GMT",
+          "tail": 1792375200000
+        },
+        {
+          "check": "external authorized HTTPS CONNECT with verified Binance TLS",
+          "status": 200,
+          "serverTime": 1792375214487
+        }
+      ],
+      "passed": true
+    },
+    "ticketLifecycle": {
+      "at": "2026-10-19T02:00:05.152Z",
+      "scope": "Only verifier-owned tickets and sockets; two intentional 401 probes, no user quota reset",
+      "checks": [
+        {
+          "check": "real consumed-ticket 401 obtains fresh ticket and restores ACK/data",
+          "attempts": 2,
+          "frames": 3,
+          "latestLagMs": 717
+        },
+        {
+          "check": "server rejects owned ticket after unchanged 30s lifetime",
+          "status": 401,
+          "code": "WS_TICKET_EXPIRED"
+        }
+      ],
+      "expectedRejections": [
+        {
+          "ticketRef": "16f0579552cb187973c9d62b",
+          "code": "WS_TICKET_CONSUMED",
+          "count": 1
+        },
+        {
+          "ticketRef": "2fdc621a77e37586926c2075",
+          "code": "WS_TICKET_EXPIRED",
+          "count": 1
+        }
+      ],
+      "passed": true
+    },
+    "quotaRecovery": {
+      "at": "2026-10-19T02:06:30.785Z",
+      "scope": "Read-only exact public request parameters from six shared-egress 429s; no quota reset or production load generation",
+      "checks": [
+        {
+          "path": "/fapi/v1/klines",
+          "params": {
+            "symbol": "ETHUSDT",
+            "interval": "1h",
+            "endTime": "1790549999999",
+            "limit": "501"
+          },
+          "status": 200,
+          "elapsedMs": 5859,
+          "cache": "MISS",
+          "limitScope": null,
+          "rateLimitSource": null,
+          "rows": 501,
+          "exactRequestedRange": true
+        },
+        {
+          "path": "/fapi/v1/klines",
+          "params": {
+            "symbol": "ETHUSDT",
+            "interval": "1h",
+            "endTime": "1790549999999",
+            "limit": "301"
+          },
+          "status": 200,
+          "elapsedMs": 357,
+          "cache": "MISS",
+          "limitScope": null,
+          "rateLimitSource": null,
+          "rows": 301,
+          "exactRequestedRange": true
+        },
+        {
+          "path": "/fapi/v1/klines",
+          "params": {
+            "symbol": "ETHUSDT",
+            "interval": "15m",
+            "endTime": "1792347777060",
+            "limit": "501"
+          },
+          "status": 200,
+          "elapsedMs": 381,
+          "cache": "MISS",
+          "limitScope": null,
+          "rateLimitSource": null,
+          "rows": 501,
+          "exactRequestedRange": true
+        },
+        {
+          "path": "/fapi/v1/premiumIndex",
+          "params": {
+            "symbol": "MUUSDT"
+          },
+          "status": 200,
+          "elapsedMs": 275,
+          "cache": "MISS",
+          "limitScope": null,
+          "rateLimitSource": null,
+          "symbolMatches": true
+        },
+        {
+          "path": "/fapi/v1/openInterest",
+          "params": {
+            "symbol": "MUUSDT"
+          },
+          "status": 200,
+          "elapsedMs": 289,
+          "cache": "MISS",
+          "limitScope": null,
+          "rateLimitSource": null,
+          "symbolMatches": true
+        },
+        {
+          "path": "/fapi/v1/ticker/24hr",
+          "params": {
+            "symbol": "AINUSDT"
+          },
+          "status": 200,
+          "elapsedMs": 278,
+          "cache": "MISS",
+          "limitScope": null,
+          "rateLimitSource": null,
+          "symbolMatches": true
+        }
+      ],
+      "passed": true
+    },
+    "development": {
+      "at": "2026-10-19T02:02:06.432Z",
+      "checks": [
+        {
+          "check": "actual renderer/main IPC history",
+          "marketType": "futures",
+          "consumers": 12,
+          "rows": 20,
+          "tail": 1792375320000,
+          "ageMs": 690,
+          "diagnostics": {
+            "route": "public-gateway",
+            "egress": "haolo-public",
+            "origin": "none",
+            "limitScope": "unknown",
+            "cacheStatus": "MISS",
+            "upstreamStatus": null,
+            "usedWeight": 97,
+            "gatewayRemaining": 256
+          }
+        },
+        {
+          "check": "actual renderer/main IPC history",
+          "marketType": "spot",
+          "consumers": 12,
+          "rows": 20,
+          "tail": 1792375320000,
+          "ageMs": 706,
+          "diagnostics": {
+            "route": "public-gateway",
+            "egress": "haolo-public",
+            "origin": "none",
+            "limitScope": "unknown",
+            "cacheStatus": "MISS",
+            "upstreamStatus": null,
+            "usedWeight": 82,
+            "gatewayRemaining": 218
+          }
+        },
+        {
+          "check": "actual analysis candle adapter equals closed REST OHLCV",
+          "marketType": "perpetual",
+          "compared": 19,
+          "continuous": true,
+          "currentTail": true
+        },
+        {
+          "check": "actual analysis candle adapter equals closed REST OHLCV",
+          "marketType": "spot",
+          "compared": 19,
+          "continuous": true,
+          "currentTail": true
+        },
+        {
+          "check": "actual renderer shared WebSocket subscription",
+          "events": 5,
+          "latestEventLagMs": 700,
+          "symbol": "BTCUSDT"
+        }
+      ],
+      "url": "http://127.0.0.1:5177",
+      "passed": true
+    }
+  },
+  "retirement": [
+    {
+      "release": "market-m2-027-8935f3a",
+      "container": "haolo-binance-gateway-53badfa",
+      "status": "running",
+      "established": 39,
+      "websocketClients": 39,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-m2-027-drain-watch.service",
+      "watcherStatus": "active"
+    },
+    {
+      "release": "market-auth-916b92c",
+      "container": "haolo-binance-gateway-m2-027-8935f3a",
+      "status": "running",
+      "established": 7,
+      "websocketClients": 7,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-auth-916b92c-drain-watch.service",
+      "watcherStatus": "active"
+    },
+    {
+      "release": "market-quota-738ae82",
+      "container": "haolo-binance-gateway-auth-916b92c",
+      "status": "running",
+      "established": 3,
+      "websocketClients": 3,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-quota-738ae82-drain-watch.service",
+      "watcherStatus": "active"
+    },
+    {
+      "release": "market-ws-9c67921",
+      "container": "haolo-binance-gateway-quota-738ae82",
+      "status": "running",
+      "established": 3,
+      "websocketClients": 3,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-ws-9c67921-drain-watch.service",
+      "watcherStatus": "active"
+    },
+    {
+      "release": "market-ticket-bdb7ad5",
+      "container": "haolo-binance-gateway-ws-9c67921",
+      "status": "running",
+      "established": 117,
+      "websocketClients": 117,
+      "identityMatches": true,
+      "noOldPortRoute": true,
+      "watcher": "haolo-market-ticket-bdb7ad5-drain-watch.service",
+      "watcherStatus": "active"
+    }
+  ],
+  "allRetired": false,
+  "finalPostRetirementVerification": "pending",
+  "clientPackaged": false,
+  "clientPublished": false,
+  "developmentRestoredToAuto": true,
+  "developmentDiagnosticPortsClosed": true
+}

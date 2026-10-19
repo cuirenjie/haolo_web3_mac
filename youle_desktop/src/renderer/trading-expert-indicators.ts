@@ -1,3 +1,5 @@
+import type { TradingChartCalculationCache } from './trading-chart-calculation-cache.ts';
+
 export type TradingIndicatorId =
   | "volume"
   | "macd"
@@ -330,6 +332,7 @@ export function calculateTradingIndicator(
   id: TradingIndicatorId,
   candles: TradingIndicatorCandle[],
   parameters: readonly number[] = [],
+  volumeCache?: TradingChartCalculationCache,
 ): TradingIndicatorResult {
   const definition = definitionFor(id);
   const parameterAt = (
@@ -351,9 +354,9 @@ export function calculateTradingIndicator(
     values,
     priceFormat: "price",
   });
-  const priceCloses = closes(candles);
   if (id === "volume") {
     const values = volumes(candles);
+    volumeCache?.update(values, candles);
     const fastPeriod = parameterAt(0, 5);
     const slowPeriod = parameterAt(1, 10);
     return {
@@ -370,11 +373,12 @@ export function calculateTradingIndicator(
             : TRADING_FALLING_BAR_COLOR),
           priceFormat: "volume",
         },
-        line("ma5", `MA${fastPeriod}`, LINE_COLORS.cyan, indicatorSma(values, fastPeriod)),
-        line("ma10", `MA${slowPeriod}`, LINE_COLORS.amber, indicatorSma(values, slowPeriod)),
+        line("ma5", `MA${fastPeriod}`, LINE_COLORS.cyan, volumeCache?.sma(fastPeriod, true) ?? indicatorSma(values, fastPeriod)),
+        line("ma10", `MA${slowPeriod}`, LINE_COLORS.amber, volumeCache?.sma(slowPeriod, true) ?? indicatorSma(values, slowPeriod)),
       ],
     };
   }
+  const priceCloses = closes(candles);
   if (id === "macd") {
     const fastPeriod = parameterAt(0, 12);
     const slowPeriod = parameterAt(1, 26);

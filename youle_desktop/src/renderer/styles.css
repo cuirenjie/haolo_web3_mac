@@ -25005,6 +25005,13 @@ html[data-theme="dark"] .settings-trading-actions {
   margin-top: 36px;
 }
 
+[data-settings-sync-status] {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: calc(12px + var(--app-font-size-offset));
+  line-height: 1.5;
+}
+
 .external-model-settings-panel {
   display: grid;
   gap: 14px;
@@ -35612,11 +35619,17 @@ html[data-theme="dark"] .trading-market-asset-mark.asset-class-forex {
 }
 
 .trading-drawing-layer.drawing-active {
-  cursor: crosshair;
+  /* Dark/white strokes stay visible in both themes and Windows pointer schemes. */
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='25' height='25' viewBox='0 0 25 25'%3E%3Cpath d='M12 1V9M12 15V23M1 12H9M15 12H23' fill='none' stroke='white' stroke-width='3'/%3E%3Cpath d='M12 1V9M12 15V23M1 12H9M15 12H23' fill='none' stroke='%23131722' stroke-width='1'/%3E%3C/svg%3E") 12 12, crosshair;
   pointer-events: auto;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.trading-drawing-layer.drawing-active .trading-drawing-hit-target,
+.trading-drawing-layer.drawing-active .trading-drawing-handle {
+  cursor: inherit;
 }
 
 .trading-drawing-layer.dragging-drawing {
@@ -36791,6 +36804,9 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
 .trading-market-period-items {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-height: min(300px, calc(100vh - 260px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   gap: 8px;
 }
 
@@ -36987,8 +37003,9 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
 .trading-market-times {
   display: flex;
   min-width: 0;
-  flex: 0 1 auto;
+  flex: 1 1 0;
   align-items: center;
+  justify-content: flex-end;
   gap: 2px;
   margin-left: 0;
   overflow-x: auto;
@@ -37040,6 +37057,89 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
   font-weight: 650;
 }
 
+.trading-market-period-more {
+  white-space: nowrap;
+}
+
+.trading-market-period-more.selected {
+  color: var(--trading-market-accent);
+}
+
+.trading-market-period-more[hidden],
+.trading-market-times button[hidden],
+.trading-market-period-overflow[hidden] {
+  display: none !important;
+}
+
+.trading-market-period-overflow {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(336px, calc(100vw - 92px));
+  border: 1px solid var(--trading-market-border);
+  border-radius: 8px;
+  background: var(--trading-market-panel);
+  box-shadow: 0 18px 50px rgba(28, 45, 67, 0.18);
+  color: var(--trading-market-text);
+  padding: 14px;
+}
+
+.trading-market-period-overflow .trading-market-period-editor-head {
+  margin-bottom: 10px;
+}
+
+.trading-market-period-overflow button {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: var(--trading-market-control);
+  color: var(--trading-market-text);
+  padding: 6px 8px;
+  font: inherit;
+  font-size: calc(12px + var(--app-font-size-offset));
+  cursor: pointer;
+}
+
+.trading-market-period-overflow .trading-market-period-editor-head button {
+  min-height: 24px;
+  width: 24px;
+  background: transparent;
+  color: var(--trading-market-muted);
+  padding: 0;
+  font-size: calc(18px + var(--app-font-size-offset));
+}
+
+.trading-market-period-overflow-items {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-height: min(300px, calc(100vh - 180px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.trading-market-period-overflow button:hover:not(:disabled),
+.trading-market-period-overflow button.active {
+  background: var(--trading-market-accent-soft);
+  color: var(--trading-market-accent);
+}
+
+.trading-market-period-overflow button:focus-visible {
+  outline: 2px solid var(--trading-market-accent);
+  outline-offset: -2px;
+}
+
+.trading-market-period-overflow button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+html[data-theme="dark"] .trading-market-period-overflow {
+  box-shadow: 0 22px 62px rgba(0, 0, 0, 0.5);
+}
+
 .trading-market-times button:disabled,
 .trading-market-picker button:disabled {
   cursor: not-allowed;
@@ -37071,8 +37171,8 @@ html[data-theme="dark"] .trading-drawing-color-grid > button.transparent > span 
   cursor: crosshair !important;
 }
 
-.trading-chart-navigable:focus { outline: none; }
-.trading-chart-navigable:focus-visible { outline: 1px solid var(--trading-market-accent); outline-offset: -1px; }
+.trading-chart-navigable:focus,
+.trading-chart-navigable:focus-visible { outline: none; }
 
 .trading-chart-zoom-selection {
   position: absolute;
@@ -37460,18 +37560,18 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
   position: absolute;
   z-index: 6;
   display: flex;
-  height: 24px;
+  height: var(--trading-market-price-label-height, 24px);
   align-items: center;
   justify-content: center;
   border-radius: 1px;
   color: #ffffff;
   padding: 0 6px;
   font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
-  font-size: var(--trading-market-price-label-font-size);
+  font-size: var(--trading-market-axis-font-size, var(--trading-market-price-label-font-size));
   font-feature-settings: "zero" 0;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
-  line-height: 24px;
+  line-height: var(--trading-market-price-label-height, 24px);
   text-align: center;
   transform: translateY(-50%);
   pointer-events: none;
@@ -37594,6 +37694,11 @@ html[data-theme="dark"] .trading-alert-simulation-point > span {
 }
 
 .trading-market-main-indicator-legends:empty {
+  display: none;
+}
+
+.kline-annotations-hidden .trading-market-ohlc,
+.kline-annotations-hidden .trading-market-main-indicator-legends {
   display: none;
 }
 

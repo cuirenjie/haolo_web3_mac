@@ -699,6 +699,14 @@ export class BinanceNetworkRouter {
     }
   }
 
+  async gatewayStreamEndpoint({ marketType, combined, streamClass }) {
+    const params = { marketType, combined, streamClass };
+    const connection = this.gatewayClient.marketStreamConnection
+      ? await this.gatewayClient.marketStreamConnection(params)
+      : { url: await this.gatewayClient.marketStreamEndpoint(params) };
+    return Object.freeze({ ...connection, route: "gateway", marketType, streamClass });
+  }
+
   async marketStreamEndpoint({ marketType: value, combined = false, streamClass: streamClassValue = "market" } = {}) {
     const marketType = normalizedMarketType(value);
     const streamClass = normalizedStreamClass(streamClassValue);
@@ -709,8 +717,7 @@ export class BinanceNetworkRouter {
       return Object.freeze({ url: directEndpoint, route: "direct", marketType, streamClass });
     }
     if (mode === "gateway") {
-      const url = await this.gatewayClient.marketStreamEndpoint({ marketType, combined, streamClass });
-      return Object.freeze({ url, route: "gateway", marketType, streamClass });
+      return this.gatewayStreamEndpoint({ marketType, combined, streamClass });
     }
     const state = this.state(routeKey("public", marketType));
     const currentMs = this.currentTimeMs();
@@ -719,8 +726,7 @@ export class BinanceNetworkRouter {
       || state.cooldownUntil > currentMs
       || state.probing
     ) {
-      const url = await this.gatewayClient.marketStreamEndpoint({ marketType, combined, streamClass });
-      return Object.freeze({ url, route: "gateway", marketType, streamClass });
+      return this.gatewayStreamEndpoint({ marketType, combined, streamClass });
     }
     if (state.healthyUntil > currentMs) {
       return Object.freeze({ url: directEndpoint, route: "direct", marketType, streamClass });
@@ -743,8 +749,7 @@ export class BinanceNetworkRouter {
       return Object.freeze({ url: directEndpoint, route: "direct", marketType, streamClass });
     } catch {
       this.markDirectSlow("public", marketType);
-      const url = await this.gatewayClient.marketStreamEndpoint({ marketType, combined, streamClass });
-      return Object.freeze({ url, route: "gateway", marketType, streamClass });
+      return this.gatewayStreamEndpoint({ marketType, combined, streamClass });
     } finally {
       state.probing = false;
     }

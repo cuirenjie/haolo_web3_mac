@@ -22,6 +22,12 @@ export class AutomationStore {
   }
 
   async reload() {
+    // Readers replace this.data too. Serialize them with writes so an older
+    // disk snapshot cannot erase a mutation while its async commit is pending.
+    return await this.enqueue(() => this.reloadSnapshot());
+  }
+
+  async reloadSnapshot() {
     await mkdir(this.dataDir, { recursive: true });
     try {
       this.data = { ...emptyData(), ...JSON.parse(await readFile(this.filePath, "utf8")) };
@@ -392,7 +398,7 @@ export class AutomationStore {
     return await this.enqueue(async () => {
       await this.acquireStoreLock();
       try {
-        await this.reload();
+        await this.reloadSnapshot();
         const result = await mutator();
         await this.writeSnapshot();
         return result;

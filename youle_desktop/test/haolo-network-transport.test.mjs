@@ -75,6 +75,23 @@ async function waitUntil(predicate, message) {
   }
 }
 
+test("ticket expiry during TLS preparation cannot send an upgrade with the stale credential", async t => {
+  let clock = Date.now();
+  const f = await fixture(t, { transportOptions: { now: () => clock }, beforeSocket: async () => { clock += 31_000; } });
+  let upgrades = 0;
+  const wss = new WebSocketServer({ server: f.server }); t.after(() => wss.close());
+  wss.on("connection", socket => { upgrades++; socket.close(); });
+  const Routed = f.transport.webSocketClass(WebSocket);
+  const socket = new Routed("wss://market.youle.pro/stream/futures?ticket=test-only", { haoloMarketTicketExpiresAt: clock + 30_000 });
+  t.after(() => socket.terminate());
+  const outcome = await new Promise(resolve => {
+    socket.on("error", error => resolve(error.code));
+    socket.on("open", () => resolve("unexpected-open"));
+  });
+  assert.equal(outcome, "WS_TICKET_EXPIRED");
+  assert.equal(upgrades, 0);
+});
+
 test("live market hub follows proxy and interface changes without reconnecting for egress alone with fresh tickets and shared subscriptions", { timeout: 5_000 }, async (t) => {
   let network = "wifi-a";
   let egress = "CN", now = 0;

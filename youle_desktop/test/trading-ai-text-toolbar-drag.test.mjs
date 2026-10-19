@@ -5,6 +5,7 @@ import { deferTradingChartShellRender } from "../src/renderer/trading-chart-inte
 import { TradingChartToolbarVisibility } from "../src/renderer/trading-chart-toolbar-visibility.ts";
 
 class ElementStub extends EventTarget {
+  get ownerDocument() { return document; }
   style = { left: "108px", top: "107px" };
   dataset = {};
   classes = new Set();
@@ -38,8 +39,12 @@ class ElementStub extends EventTarget {
 // DOM geometry/rendering and storage. Native hit testing is checked in Electron QA.
 function fixture(t) {
   const documentStub = new EventTarget();
+  documentStub.createElementNS = () => new ElementStub();
   const windowStub = new EventTarget();
   windowStub.localStorage = { getItem: () => null };
+  const frames = new Map(); let frameId = 0;
+  windowStub.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
+  windowStub.cancelAnimationFrame = id => frames.delete(id);
   const restoreGlobals = [];
   for (const [name, value] of Object.entries({
     document: documentStub, window: windowStub, Element: ElementStub, Node: ElementStub,
@@ -90,7 +95,7 @@ function fixture(t) {
   const click = (values) => controller.handleAiTextSizeToolbarClick(event(values));
   const position = () => ({ x: toolbar.offsetLeft, y: toolbar.offsetTop });
   t.after(() => {
-    try { controller.destroy(); }
+    try { controller.destroy(); assert.equal(frames.size, 0, 'destroy must cancel pending chart frames'); }
     finally { restoreGlobals.forEach((restore) => restore()); }
   });
   return { controller, toolbar, host, increase, decrease, dismiss, event, down, move, up, click, position, windowStub };

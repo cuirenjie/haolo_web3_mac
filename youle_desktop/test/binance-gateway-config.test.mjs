@@ -11,6 +11,7 @@ test("Binance gateway config keeps direct defaults until a deployment origin is 
   assert.equal(config.routePreferenceTtlMs, 30 * 60_000);
   assert.equal(config.backgroundProbeIntervalMs, 45_000);
   assert.equal(config.gatewayRequestTimeoutMs, 8_000);
+  assert.equal(config.gatewayControlTimeoutMs, 12_000);
   assert.deepEqual(config.marketGatewayResolutionCandidates, []);
   assert.deepEqual(config.privateProxyResolutionCandidates, []);
   assert.equal(config.gatewayRouteSelection, false);

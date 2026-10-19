@@ -1,7 +1,38 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TradingDrawingController, updateTradingDrawingMarkup } from "../src/renderer/trading-expert-drawing.ts";
+import { TradingDrawingController, updateTradingDrawingMarkup, tradingDrawingCoordinateToLogical, tradingDrawingLogicalToCoordinate, tradingDrawingTimeAtLogicalIndex, tradingDrawingLogicalIndexAtTime } from "../src/renderer/trading-expert-drawing.ts";
 import { TradingChartExtremaOverlay } from "../src/renderer/trading-chart-extrema.ts";
+
+test('unsnapped drawing coordinates round-trip between candles instead of jumping by one bar', () => {
+  const candles = [{ time: 100 }, { time: 160 }, { time: 400 }, { time: 460 }];
+  for (const spacing of [0.5, 6, 40, 100]) for (const offset of [-1200.7, 0, 350.2]) {
+    const project = index => Number.isInteger(index) ? offset + index * spacing : 0;
+    const integerIndex = x => Math.ceil((x - offset) / spacing);
+    for (let x = -30; x < 90; x += 0.375) {
+      const logical = tradingDrawingCoordinateToLogical(x, integerIndex, project);
+      const time = tradingDrawingTimeAtLogicalIndex(candles, logical);
+      const restored = tradingDrawingLogicalToCoordinate(tradingDrawingLogicalIndexAtTime(candles, time), project);
+      assert.ok(Math.abs(restored - x) < 1e-8, `pixel ${x} at spacing ${spacing}: ${restored}`);
+    }
+  }
+  assert.equal(tradingDrawingCoordinateToLogical(NaN, () => 2, () => 1), null);
+  assert.equal(tradingDrawingCoordinateToLogical(2, () => null, () => 1), null);
+  assert.equal(tradingDrawingCoordinateToLogical(2, () => 3, () => null), 3);
+});
+
+test('magnet searches irregular history logarithmically and retains nearest OHLC snapping', () => {
+  let reads = 0;
+  const candles = Array.from({ length: 10000 }, (_, i) => ({ get time() { reads++; return i * i + 100; }, open: 100, high: 120, low: 80, close: 110 }));
+  const context = { getCandles: () => candles, getChart: () => ({ timeScale: () => ({ timeToCoordinate: time => time / 100000 }) }),
+    timeOffsetSeconds: 0, getCandleSeries: () => ({ priceToCoordinate: price => 200 - price }) };
+  for (const index of [0, 20, 9999]) {
+    const time = candles[index].time;
+    reads = 0;
+    const point = TradingDrawingController.prototype.snapPointToCandle.call(context, { time: time + 0.1, price: 109 }, { x: time / 100000, y: 89 });
+    assert.deepEqual(point, { time, price: 110 });
+    assert.ok(reads < 80, `magnet scanned history: ${reads}`);
+  }
+});
 
 test("unchanged SVG markup retains nodes; theme/content changes and clearing still replace them", () => {
   const writes = [];

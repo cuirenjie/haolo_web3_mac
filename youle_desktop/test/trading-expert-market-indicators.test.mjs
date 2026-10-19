@@ -21,10 +21,11 @@ test("trend-band indicator mention is recognized from composer text", async () =
   assert.equal(hasTradingExpertTrendBandMention("@策略:缠论"), false);
 });
 
-test("custom periods use TradingView resolution strings and keep at most ten unique items", async () => {
+test("custom periods use TradingView resolutions and retain all unique items", async () => {
   const {
     DEFAULT_TRADING_PERIODS,
     normalizeTradingPeriods,
+    loadTradingPeriodsFromStorage,
     reorderTradingPeriods,
     tradingAlertIntervalFromResolution,
     tradingPeriodLabel,
@@ -63,7 +64,9 @@ test("custom periods use TradingView resolution strings and keep at most ten uni
     { amount: 1, unit: "Y" },
     ...Array.from({ length: 12 }, (_, index) => ({ amount: index + 1, unit: "d" })),
   ]);
-  assert.equal(normalized.length, 10);
+  assert.equal(normalized.length, 15);
+  const manyPeriods = Array.from({ length: 2000 }, (_, index) => ({ amount: index + 1, unit: "m" }));
+  assert.deepEqual(loadTradingPeriodsFromStorage({ getItem: () => JSON.stringify(manyPeriods) }), manyPeriods);
   assert.equal(normalized.filter((period) => tradingViewResolution(period) === "60").length, 1);
   assert.deepEqual(normalized.filter((period) => period.unit === "M" || period.unit === "Y"), [
     { amount: 1, unit: "M" },
@@ -863,7 +866,8 @@ test("latest Binance candles share a stable gateway cache key while historical p
 
     const forceFreshEndTime = Date.now();
     await fetchTradingCandles("XRPUSDT", "60", 2, forceFreshEndTime, "perpetual", undefined, { forceFresh: true });
-    assert.equal(requests[2].parameters.endTime, forceFreshEndTime);
+    assert.equal(requests[2].parameters.endTime, undefined);
+    assert.equal(requests[2].freshness, "live");
   } finally {
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;
@@ -929,7 +933,7 @@ test("Binance TradFi perpetual contracts are catalogued with their underlying ca
   assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "etf"), true);
   assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "preipo"), true);
   assert.equal(tradingMarketCategoryIncludesAssetClass("stock", "index"), false);
-  assert.equal(tradingMarketCategoryLabel("a-share"), "A股");
+  assert.equal(tradingMarketCategoryLabel("a-share"), "其他");
   assert.equal(tradingMarketCategoryIncludesAssetClass("a-share", "a-share"), true);
   assert.equal(tradingMarketCategoryIncludesAssetClass("a-share", "stock"), false);
   assert.deepEqual(TRADING_MARKET_CATEGORY_OPTIONS, [
@@ -937,7 +941,6 @@ test("Binance TradFi perpetual contracts are catalogued with their underlying ca
     { id: "crypto", label: "加密货币" },
     { id: "commodity", label: "大宗商品" },
     { id: "stock", label: "美股" },
-    { id: "a-share", label: "A股" },
   ]);
   const originalWindow = globalThis.window;
   globalThis.window = {

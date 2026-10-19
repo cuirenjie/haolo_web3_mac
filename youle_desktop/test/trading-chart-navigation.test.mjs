@@ -6,7 +6,7 @@ import { deferTradingChartShellRender } from "../src/renderer/trading-chart-inte
 
 class ElementStub extends EventTarget {
   constructor(tag = "div") {
-    super(); this.tag = tag; this.style = {}; this.dataset = {}; this.children = []; this.attrs = {};
+    super(); this.tag = tag; this.style = { setProperty(k, v) { this[k] = v; } }; this.dataset = {}; this.children = []; this.attrs = {};
     const classes = new Set();
     this.classList = { add: (...xs) => xs.forEach(x => classes.add(x)), remove: (...xs) => xs.forEach(x => classes.delete(x)), toggle: (x, on) => on ? classes.add(x) : classes.delete(x) };
     this.clientHeight = 610; this.clientWidth = 600;
@@ -60,8 +60,14 @@ function fixture(t) {
     options: () => tsOptions, applyOptions: o => Object.assign(tsOptions, o), height: () => 28, width: () => 540,
     resetTimeScale: () => { range = { from: 200, to: 500 }; }, scrollPosition: () => 0, scrollToPosition: () => {} };
   const nativeScroll = [];
+  const layout = { fontSize: 11 };
   const chart = { panes: () => panes, priceScale: (side, i) => side === "left" ? { width: () => 0 } : scales[i], timeScale: () => ts,
-    applyOptions(options) { if (options.handleScroll) nativeScroll.push(options.handleScroll); } };
+    options: () => ({ layout }),
+    applyOptions(options) {
+      if (options.handleScroll) nativeScroll.push(options.handleScroll);
+      if (options.layout) Object.assign(layout, options.layout);
+      if (options.rightPriceScale) scales.forEach(scale => scale.applyOptions(options.rightPriceScale));
+    } };
   const element = new ElementStub(); let paints = 0; let focus = null;
   const options = { getScaleAnchor: () => "right", onFocus: i => { focus = i; }, getCandles: () => Array.from({ length: 301 }, (_, i) => ({ time: i * 3600, volume: 1 })) };
   const navigation = new TradingChartNavigation(element, () => chart, () => paints++, options);
@@ -281,10 +287,28 @@ test("Shift wheel pans once, preserves bar spacing and Auto, and normalizes line
   f.send("wheel", { deltaY: 1, deltaMode: 1, shiftKey: true }, true); assert.deepEqual(f.range(), { from: 16, to: 316 });
   assert.equal(f.scales[0].autoScale, true);
 });
-test("wheel on price axis changes only the price span", t => {
+test("wheel on right price axis scales typography and width without changing candle or price ranges", t => {
   const f = freeDragFixture(t); f.send("wheel", { clientX: 580, deltaY: -100 }, true);
+  f.paint();
   assert.deepEqual(f.range(), { from: 0, to: 300 });
-  assert.ok(f.scales[0].range.to - f.scales[0].range.from < 100); assert.equal(f.scales[0].autoScale, false);
+  assert.deepEqual(f.scales[0].range, { from: 100, to: 200 });
+  assert.equal(f.scales[0].autoScale, true);
+  assert.ok(f.chart.options().layout.fontSize > 11);
+  assert.equal(f.scales[0].minimumWidth, Math.ceil(60 * f.chart.options().layout.fontSize / 11));
+  f.send("wheel", { clientX: 580, deltaY: 100 }, true); f.paint();
+  assert.ok(Math.abs(f.chart.options().layout.fontSize - 11) < 1e-8);
+  for (let i = 0; i < 20; i++) f.send("wheel", { clientX: 580, deltaY: -100 }, true);
+  f.paint(); assert.equal(f.chart.options().layout.fontSize, 24);
+  for (let i = 0; i < 30; i++) f.send("wheel", { clientX: 580, deltaY: 100 }, true);
+  f.paint(); assert.equal(f.chart.options().layout.fontSize, 8);
+  f.send("wheel", { clientX: 250, deltaY: -100 }, true); f.paint();
+  assert.ok(f.range().to - f.range().from < 300);
+  assert.equal(f.chart.options().layout.fontSize, 8);
+  const span = f.range().to - f.range().from;
+  f.send("wheel", { clientX: 580, deltaY: -100 }, true);
+  f.send("wheel", { clientX: 250, deltaY: -100 }, true);
+  f.paint(); f.paint();
+  assert.ok(f.range().to - f.range().from < span, "moving off the axis cannot restore over a later chart zoom");
 });
 test("focused chart navigation keys pan, zoom, reset and toggle scales", t => {
   const f = freeDragFixture(t);

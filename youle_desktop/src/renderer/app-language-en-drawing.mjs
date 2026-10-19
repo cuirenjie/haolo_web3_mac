@@ -60,6 +60,11 @@ export const ENGLISH_DRAWING_SECTIONS = Object.freeze({
 });
 
 const PHRASES = Object.freeze({
+  "水平线设置": "Horizontal line settings", "样式": "Style", "坐标": "Coordinates",
+  "线条": "Line", "线条颜色": "Line color", "斜体": "Italic", "确认": "OK", "关闭": "Close",
+  "文字对齐": "Text alignment", "文字垂直对齐": "Vertical text alignment", "文字水平对齐": "Horizontal text alignment",
+  "顶部": "Top", "中间": "Middle", "底部": "Bottom", "居左": "Left", "居中": "Center", "居右": "Right",
+  "#1(价格)": "#1 (Price)", "已更新水平线": "Horizontal line updated",
   ...ENGLISH_DRAWING_TOOLS,
   // The shared Traditional Chinese normalizer maps 預設 back to 默认.
   "默认折线": "Preset polyline",

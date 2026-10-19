@@ -1,0 +1,596 @@
+{
+  "task": "M1-377",
+  "windows_source": "a909d9960b8de689ac956d3282b4569c6508c2ba",
+  "backend_source": "9d08b06429aec891bc76ce00fac79c1cac943200",
+  "root_cause": {
+    "code": "MARKET_HISTORY_INSUFFICIENT",
+    "ui_count": 100,
+    "required_count": 120,
+    "required_closed": 119,
+    "observed_at": "2026-10-18T18:11:51.788Z"
+  },
+  "tests": {
+    "client": 94,
+    "backend_unit": 37,
+    "backend_sdk_integration": 57,
+    "release_controllers": 21,
+    "typecheck": true,
+    "vite_build": true
+  },
+  "live_cases": [
+    {
+      "strategyId": "order-flow",
+      "language": "zh-CN",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:20:04.636Z",
+      "window": {
+        "analysisWindowCount": 120
+      },
+      "runId": "1fc1d7fd-730d-4483-a135-83dc4c2b45ea",
+      "drawings": 25,
+      "reportLength": 144,
+      "model": "gpt-5.6-sol",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:20:33.029Z"
+    },
+    {
+      "strategyId": "dow-theory",
+      "language": "en",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:20:33.029Z",
+      "window": {
+        "analysisWindowCount": 120
+      },
+      "runId": "ba0ea638-9da6-44ce-b044-bd483155a88f",
+      "drawings": 10,
+      "reportLength": 360,
+      "model": "dow-theory-trend-context-engine-v1",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:20:38.693Z"
+    },
+    {
+      "strategyId": "chan",
+      "language": "zh-Hant",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:20:38.694Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "70b0265f-29e1-4aac-bcdb-7646c7748fc6",
+      "drawings": 17,
+      "reportLength": 144,
+      "model": "gpt-5.6-sol",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:21:27.133Z"
+    },
+    {
+      "strategyId": "macd-analysis",
+      "language": "zh-CN",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:21:27.134Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "0468a7c3-879d-472f-93c1-aef092613db4",
+      "drawings": 6,
+      "reportLength": 140,
+      "model": "macd-analysis-pattern-divergence-engine-v1",
+      "outcome": {
+        "action": "wait",
+        "reason": "MODEL_WAIT",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:21:49.064Z"
+    },
+    {
+      "strategyId": "moving-average-analysis",
+      "language": "en",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:21:49.065Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "85024648-8639-438b-9a07-04acb8526f89",
+      "drawings": 6,
+      "reportLength": 356,
+      "model": "moving-average-structure-engine-v1",
+      "outcome": {
+        "action": "wait",
+        "reason": "MODEL_WAIT",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:22:11.046Z"
+    },
+    {
+      "strategyId": "bollinger-bands-analysis",
+      "language": "zh-Hant",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:22:11.047Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "0d04edd5-96d3-4a28-886d-38e7c7948f3d",
+      "drawings": 4,
+      "reportLength": 144,
+      "model": "bollinger-bands-structure-engine-v1",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:22:16.658Z"
+    },
+    {
+      "strategyId": "ict-smc",
+      "language": "zh-CN",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:22:16.658Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "239b3aeb-dff3-4b60-8a85-3aeb0832fca8",
+      "drawings": 14,
+      "reportLength": 144,
+      "model": "ict-smc-engine-v0.1.0",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:22:21.042Z"
+    },
+    {
+      "strategyId": "smt-divergence",
+      "language": "en",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:22:21.043Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "459ea69c-b61d-45b5-86f4-f6fe5f06392a",
+      "drawings": 2,
+      "reportLength": 360,
+      "model": "smt-divergence-engine-v1.0.0",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:22:26.652Z"
+    },
+    {
+      "strategyId": "rsi-analysis",
+      "language": "zh-Hant",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:22:26.653Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "50d3238c-d5c2-444f-9dd8-cdaead40afc9",
+      "drawings": 13,
+      "reportLength": 144,
+      "model": "rsi-analysis-pattern-divergence-engine-v1",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:22:32.900Z"
+    },
+    {
+      "strategyId": "wave",
+      "language": "zh-CN",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:22:32.901Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "c5b9d05b-e10c-4271-b453-d8fe1bea6d63",
+      "drawings": 25,
+      "reportLength": 144,
+      "model": "gpt-5.6-sol",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:23:07.632Z"
+    },
+    {
+      "strategyId": "kdj-analysis",
+      "language": "en",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:23:07.633Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "9d813ff5-82c7-46fe-a78b-8fd00cc9264b",
+      "drawings": 23,
+      "reportLength": 360,
+      "model": "kdj-analysis-pattern-divergence-engine-v1",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:23:13.734Z"
+    },
+    {
+      "strategyId": "vpvr-analysis",
+      "language": "zh-Hant",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:23:13.735Z",
+      "window": {
+        "analysisWindowCount": 100,
+        "visibleRange": {
+          "visibleFrom": 1791990000000,
+          "visibleTo": 1792346400000
+        }
+      },
+      "runId": "552f9c04-ce50-43ca-b4ed-fac2a6d2bd12",
+      "drawings": 5,
+      "reportLength": 140,
+      "model": "vpvr-visible-range-volume-profile-engine-v1",
+      "outcome": {
+        "action": "wait",
+        "reason": "MODEL_WAIT",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:23:26.619Z"
+    },
+    {
+      "strategyId": "wyckoff",
+      "language": "zh-CN",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:23:26.620Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "469259f8-fd0b-4b69-8e50-13f7a8479bce",
+      "drawings": 21,
+      "reportLength": 144,
+      "model": "gpt-5.6-sol",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:23:56.106Z"
+    },
+    {
+      "strategyId": "harmonic",
+      "language": "en",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:23:56.107Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "2a4c5a7d-4ab8-445e-a9fc-da32bbd44eb6",
+      "drawings": 13,
+      "reportLength": 360,
+      "model": "harmonic-rule-engine-v3",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:24:01.910Z"
+    },
+    {
+      "strategyId": "chart-patterns",
+      "language": "zh-Hant",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:24:01.911Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "a45d5edf-5f45-460c-8377-c014bf89e5b9",
+      "drawings": 1,
+      "reportLength": 144,
+      "model": "traditional-chart-pattern-engine-v2",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:24:07.535Z"
+    },
+    {
+      "strategyId": "price-action",
+      "language": "zh-CN",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:24:07.536Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "99a36b33-3ee6-443a-b0aa-c110f85b969f",
+      "drawings": 19,
+      "reportLength": 140,
+      "model": "price-action-ohlc-engine-v1",
+      "outcome": {
+        "action": "wait",
+        "reason": "MODEL_WAIT",
+        "capability": "supported",
+        "candidateStatus": "qualified",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:24:35.415Z"
+    },
+    {
+      "strategyId": "gann-theory",
+      "language": "en",
+      "state": "succeeded",
+      "startedAt": "2026-10-18T18:24:35.416Z",
+      "window": {
+        "analysisWindowCount": 100
+      },
+      "runId": "b7427d7c-eb41-4cdd-a09f-fcf577e01df1",
+      "drawings": 27,
+      "reportLength": 360,
+      "model": "gann-time-price-geometry-engine-v1",
+      "outcome": {
+        "action": "wait",
+        "reason": "NO_QUALIFIED_CANDIDATE",
+        "capability": "supported",
+        "candidateStatus": "none",
+        "evaluationStatus": "completed"
+      },
+      "plans": 0,
+      "resumeVerified": true,
+      "finishedAt": "2026-10-18T18:24:41.055Z"
+    }
+  ],
+  "post_deployment": {
+    "passed": true,
+    "verifiedAt": "2026-10-18T18:37:48.545Z",
+    "cases": [
+      {
+        "strategyId": "moving-average-analysis",
+        "history": {
+          "minimumCandles": 90,
+          "minimumClosedCandles": 90,
+          "windowCount": 91
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "macd-analysis",
+        "history": {
+          "minimumCandles": 80,
+          "minimumClosedCandles": 80,
+          "windowCount": 81
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "dow-theory",
+        "history": {
+          "minimumCandles": 120,
+          "minimumClosedCandles": 119,
+          "windowCount": 120
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "bollinger-bands-analysis",
+        "history": {
+          "minimumCandles": 80,
+          "minimumClosedCandles": 80,
+          "windowCount": 81
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "rsi-analysis",
+        "history": {
+          "minimumCandles": 80,
+          "minimumClosedCandles": 80,
+          "windowCount": 81
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "kdj-analysis",
+        "history": {
+          "minimumCandles": 80,
+          "minimumClosedCandles": 80,
+          "windowCount": 81
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "price-action",
+        "history": {
+          "minimumCandles": 80,
+          "minimumClosedCandles": 80,
+          "windowCount": 81
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "chart-patterns",
+        "history": {
+          "minimumCandles": 80,
+          "minimumClosedCandles": 80,
+          "windowCount": 81
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "chan",
+        "history": {
+          "minimumCandles": 30,
+          "minimumClosedCandles": 30,
+          "windowCount": 31
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "wave",
+        "history": {
+          "minimumCandles": 30,
+          "minimumClosedCandles": 30,
+          "windowCount": 31
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "wyckoff",
+        "history": {
+          "minimumCandles": 60,
+          "minimumClosedCandles": 60,
+          "windowCount": 61
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "harmonic",
+        "history": {
+          "minimumCandles": 80,
+          "minimumClosedCandles": 80,
+          "windowCount": 81
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "ict-smc",
+        "history": {
+          "minimumCandles": 80,
+          "minimumClosedCandles": 80,
+          "windowCount": 81
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "smt-divergence",
+        "history": {
+          "minimumCandles": 80,
+          "minimumClosedCandles": 80,
+          "windowCount": 81
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "order-flow",
+        "history": {
+          "minimumCandles": 120,
+          "minimumClosedCandles": 119,
+          "windowCount": 120
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "gann-theory",
+        "history": {
+          "minimumCandles": 80,
+          "minimumClosedCandles": 79,
+          "windowCount": 80
+        },
+        "resumeUnchanged": true
+      },
+      {
+        "strategyId": "vpvr-analysis",
+        "history": {
+          "minimumCandles": 20,
+          "minimumClosedCandles": 0,
+          "windowCount": 20
+        },
+        "resumeUnchanged": true
+      }
+    ],
+    "preferencesUnchanged": true,
+    "newRunsCreated": 0
+  },
+  "ui": {
+    "completed": true,
+    "market": "BINANCE:FUTURES:BTCUSDT",
+    "interval": "60",
+    "elapsed_seconds": 72,
+    "report_and_drawings_visible": true,
+    "conditional_plan_visible": true,
+    "plan_activation_requested": false,
+    "current_dev_process": 36436,
+    "started_local": "2026-10-19T02:24:31+08:00",
+    "evidence_sha256": {
+      "ui-final.jpg": "6833b67e296bd045a58301b1a965de90d448349203269ac5905485bcae6f93c1",
+      "ui-final.txt": "324558211548396cdb43c1f0107fbcd1d294e9e9791069ab1320d6ba6dd0055f"
+    }
+  },
+  "preferences_unchanged": true,
+  "orders_placed": 0,
+  "installer_released": false
+}

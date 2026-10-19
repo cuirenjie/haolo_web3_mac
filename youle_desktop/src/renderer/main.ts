@@ -1,4 +1,5 @@
 import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
+import { accountSettingsSync, type SettingValues } from './account-settings-sync.ts';
 import {createCloudReportRestorer} from './cloud-report-restore';
 import { openCloudRecoveryDialog, cloudTaskText, type CloudRecoveryApi } from "./cloud-task-recovery.ts";
 import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, bindLegacyCloudCandidate, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
@@ -1600,6 +1601,8 @@ type DesktopApi = {
     path: string;
     parameters?: Record<string, string | number | undefined>;
     requestId?: string;
+    freshness?: "live";
+    demand?: "prefetch";
   }): Promise<{
     ok: boolean;
     status: number;
@@ -1608,6 +1611,7 @@ type DesktopApi = {
     retryAfterMs?: number | null;
     stale?: boolean;
     staleAgeMs?: number;
+    fetchedAt?: number;
     sourceStatus?: number;
     rateLimited?: boolean;
     diagnostics?: {
@@ -1618,6 +1622,7 @@ type DesktopApi = {
       upstreamStatus?: number | null;
       usedWeight?: number | null;
       gatewayRemaining?: number | null;
+      limitScope?: string;
     };
     error?: string;
     errorCode?: string;
@@ -6325,6 +6330,7 @@ function applyAuthSession(session: any, fallbackBaseUrl = "") {
     state.auth.profile?.id,
     state.auth.profile?.email,
   );
+  activateAccountSettingsSync();
   if (!state.auth.authenticated || accountIdentity !== previousAccountIdentity || state.auth.baseUrl !== previousBaseUrl) {
     resetConsumptionData();
     resetTradingPreferenceProfileState();
@@ -27435,6 +27441,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
   submittingComposerThreadIds.add(originalThreadId);
   expandSystemDashboardForNewMessage();
   let pendingSend: PendingComposerSendState | null = null;
+  let tradingSendThinkingState: TradingExpertThinkingState | undefined;
   try {
     const snapshotAttachments = cloneLocalAttachments(state.attachments);
     const submissionSnapshotAttachments =
@@ -27470,6 +27477,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
           ? tradingStrategiesToRunAtSend[0].ui.classificationMessage
           : `正在按顺序准备 ${tradingStrategiesToRunAtSend.length} 个策略分析。`,
       );
+      tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
       for (const strategy of tradingStrategiesToRunAtSend) {
         tradingStrategyRequestAtSend = await classifyTradingStrategyForSend(
@@ -27484,7 +27492,14 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         tradingStrategyRequestsAtSend.push(tradingStrategyRequestAtSend);
       }
       tradingStrategyRequestAtSend = tradingStrategyRequestsAtSend[0] || null;
-      clearTradingExpertThinkingState(originalThreadId);
+      if (tradingStrategyRequestsAtSend.some((request) => request.mode === "chart-analysis")) {
+        // Keep immediate feedback visible while access, thread creation and
+        // transcript persistence finish. The analysis runner takes over next.
+        updateTradingExpertThinkingState(originalThreadId, "preparing", tradingStrategiesToRunAtSend[0].ui.preparingMessage);
+        tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
+      } else {
+        clearTradingExpertThinkingState(originalThreadId);
+      }
       refreshTradingExpertConversationSurface(originalThreadId);
     } else if (tradingGeneralCandidateAtSend) {
       updateTradingExpertThinkingState(
@@ -27492,6 +27507,7 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         "classifying",
         "正在由大模型识别问题意图；需要盘面时将进入行情分析与画线智能体。",
       );
+      tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
       refreshTradingExpertConversationSurface(originalThreadId);
       tradingGeneralRequestAtSend = await classifyTradingGeneralRequestForSend(
         text,
@@ -27500,7 +27516,12 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         selectedChatModelValue(threadId),
         threadModelSelection(threadId)?.userSelected === true,
       );
-      clearTradingExpertThinkingState(originalThreadId);
+      if (tradingGeneralRequestAtSend?.mode === "chart-analysis") {
+        updateTradingExpertThinkingState(originalThreadId, "preparing", "");
+        tradingSendThinkingState = tradingExpertThinkingStateByThreadId.get(originalThreadId);
+      } else {
+        clearTradingExpertThinkingState(originalThreadId);
+      }
       refreshTradingExpertConversationSurface(originalThreadId);
     }
     if (
@@ -28023,6 +28044,13 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
     releaseTradingExpertAnalysisTarget(tradingAnalysisTargetAtSend);
     submittingComposerThreadIds.delete(originalThreadId);
     submittingComposerThreadIds.delete(threadId);
+    // A failed preflight must not leave a spinner behind, including when a
+    // new/recovered thread inherited it. Never clear a later analysis status.
+    const thinkingThreadId = resolveTradingExpertAnalysisThreadId(threadId);
+    if (tradingSendThinkingState && tradingExpertThinkingStateByThreadId.get(thinkingThreadId) === tradingSendThinkingState) {
+      clearTradingExpertThinkingState(thinkingThreadId);
+      refreshTradingExpertConversationSurface(thinkingThreadId);
+    }
     syncComposerSendButton();
     if (
       isTradingExpertThreadId(state.currentThreadId)
@@ -36693,7 +36721,77 @@ function normalizeExternalModelProviderStatuses(value: unknown): ExternalModelPr
   });
 }
 
+const sharedFontScales = { small: 0.9, default: 1, medium: 1.1, large: 1.2 };
+let sharedThemePreference: string = INITIAL_APP_THEME;
+let sharedAppSettingsRegistered = false;
+function sharedAppSettings(): SettingValues {
+  return {
+    'app.theme': sharedThemePreference,
+    'app.language': state.settings.language === 'zh-TW' ? 'zh-Hant' : state.settings.language === 'en' ? 'en' : 'zh-CN',
+    'app.fontScale': sharedFontScales[state.settings.fontSize],
+    'app.completionNotices': state.settings.taskCompletionPopupEnabled,
+  };
+}
+
+function applySharedAppSettings(values: SettingValues) {
+  const before = JSON.stringify(sharedAppSettings());
+  sharedThemePreference = String(values['app.theme'] || 'light');
+  const theme = sharedThemePreference === 'system'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : sharedThemePreference === 'dark' ? 'dark' : 'light';
+  const language: AppLanguage = values['app.language'] === 'en' ? 'en' : values['app.language'] === 'zh-Hant' ? 'zh-TW' : 'zh-CN';
+  const fontSize = (Object.entries(sharedFontScales).find(([, scale]) => scale === values['app.fontScale'])?.[0] || 'default') as AppFontSize;
+  const completion = values['app.completionNotices'] !== false;
+  if (state.settings.theme !== theme) {
+    state.settings.theme = theme; applyAppTheme(theme, true); syncAppThemePreference(theme);
+  }
+  if (state.settings.language !== language) {
+    state.settings.language = language;
+    applyAppLanguage(language, { persist: true, root: document.body });
+    void api.setAppLanguage?.({ language }).catch(() => {});
+  }
+  if (state.settings.fontSize !== fontSize) { state.settings.fontSize = fontSize; applyAppFontSize(fontSize, true); }
+  if (state.settings.taskCompletionPopupEnabled !== completion) {
+    state.settings.taskCompletionPopupEnabled = completion;
+    void api.setTaskCompletionPopupEnabled?.({ enabled: completion }).catch(() => {});
+  }
+  if (before !== JSON.stringify(sharedAppSettings())) render();
+}
+
+function activateAccountSettingsSync() {
+  const sync = accountSettingsSync();
+  sync.onStatus = () => document.querySelectorAll('[data-settings-sync-status]').forEach(element => { element.textContent = settingsSyncStatusText(); });
+  if (!sharedAppSettingsRegistered) {
+    sharedAppSettingsRegistered = true;
+    sync.register('app', {
+      snapshot: sharedAppSettings,
+      defaults: () => ({ 'app.theme': 'light', 'app.language': 'zh-CN', 'app.fontScale': 1, 'app.completionNotices': true }),
+      apply: applySharedAppSettings,
+    });
+    window.addEventListener('online', () => { void sync.sync(true); });
+    window.addEventListener('focus', () => { void sync.sync(true); });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (sharedThemePreference === 'system') {
+        applySharedAppSettings(sharedAppSettings()); render();
+      }
+    });
+  }
+  sync.activate(state.auth.authenticated ? String(state.auth.profile?.id || '') : '', state.auth.baseUrl);
+}
+
+function settingsSyncStatusText() {
+  const status = accountSettingsSync().status;
+  const index = state.settings.language === 'en' ? 1 : state.settings.language === 'zh-TW' ? 2 : 0;
+  return (status === 'synced'
+    ? ['设置已同步', 'Settings synced', '設定已同步']
+    : status === 'pending'
+    ? ['设置已保存在本机，正在同步', 'Settings saved on this device; syncing', '設定已儲存在本機，正在同步']
+    : ['设置尚未同步，将自动重试', 'Settings not yet synced; retrying automatically', '設定尚未同步，將自動重試'])[index];
+}
+
 function selectAppTheme(theme: AppTheme) {
+  accountSettingsSync().edit({ 'app.theme': sharedThemePreference }, { 'app.theme': theme });
+  sharedThemePreference = theme;
   state.settings.theme = theme;
   applyAppTheme(theme, true);
   syncAppThemePreference(theme);
@@ -36723,6 +36821,7 @@ function reconcileStartupAppLanguage(
 }
 
 function selectAppLanguage(language: AppLanguage) {
+  accountSettingsSync().edit({ 'app.language': sharedAppSettings()['app.language'] }, { 'app.language': language === 'zh-TW' ? 'zh-Hant' : language === 'en' ? 'en' : 'zh-CN' });
   appLanguageSelectionRevision += 1;
   state.settings.language = language;
   applyAppLanguage(language, { persist: true, root: document.body });
@@ -36734,6 +36833,7 @@ function selectAppLanguage(language: AppLanguage) {
 }
 
 function selectAppFontSize(fontSize: AppFontSize) {
+  accountSettingsSync().edit({ 'app.fontScale': sharedAppSettings()['app.fontScale'] }, { 'app.fontScale': sharedFontScales[fontSize] });
   state.settings.fontSize = fontSize;
   applyAppFontSize(fontSize, true);
   render();
@@ -36843,6 +36943,7 @@ async function toggleTaskCompletionPopup() {
   try {
     const snapshot = await api.setTaskCompletionPopupEnabled({ enabled: next });
     applyTaskCompletionPopupPreference(snapshot);
+    accountSettingsSync().edit({ 'app.completionNotices': previous }, { 'app.completionNotices': state.settings.taskCompletionPopupEnabled });
   } catch (error) {
     state.settings.taskCompletionPopupEnabled = previous;
     showToast(`消息弹窗设置失败：${errorMessage(error)}`, 5000);
@@ -61143,6 +61244,7 @@ function renderSettingsDialog() {
               ? tradingPreferenceSettings.render()
               : `
                 <div class="settings-general-list">
+                  ${state.auth.authenticated ? `<p class="settings-row-description" data-settings-sync-status role="status">${escapeHtml(settingsSyncStatusText())}</p>` : ''}
                   ${renderSettingsLanguageRow()}
                   ${renderSettingsSwitchRow("固定在桌面任务栏", "taskbar")}
                   ${renderSettingsSwitchRow("固定在开始菜单", "startMenu")}

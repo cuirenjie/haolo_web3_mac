@@ -120,7 +120,7 @@ export function normalizeBinancePublicMarketRequest(value = {}, { baseUrls = res
     throw new BinancePublicMarketRequestError("Binance market parameter is not allowed");
   }
   const url = new URL(route, normalizeBaseUrl(baseUrls[marketType], DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS[marketType]));
-  for (const key of keys) {
+  for (const key of allowed) {
     const normalized = validateParameter(key, parameters[key]);
     if (normalized !== null) url.searchParams.set(key, normalized);
   }
@@ -129,27 +129,39 @@ export function normalizeBinancePublicMarketRequest(value = {}, { baseUrls = res
       throw new BinancePublicMarketRequestError("Invalid Binance ratio parameters");
     }
   }
-  return Object.freeze({ marketType, path: route, url: url.href });
+  const freshness = value.freshness === "live" ? "live" : "default";
+  return Object.freeze({ marketType, path: route, url: url.href, freshness,
+    demand: value.demand === "prefetch" ? "prefetch" : "interactive" });
 }
 
-function cacheTtlMs(request) {
+function historicalKlines(request, now) {
+  const url = new URL(request.url);
+  const match = /^(\d+)([smhdwM])$/.exec(url.searchParams.get("interval") || "");
+  const duration = match ? Number(match[1]) * ({s:1000,m:60_000,h:3_600_000,d:86_400_000,w:604_800_000,M:32*86_400_000}[match[2]]) : Infinity;
+  const end = Number(url.searchParams.get("endTime"));
+  return end > 0 && end + duration < now;
+}
+
+function cacheTtlMs(request, now) {
   if (request.path.endsWith("Ratio")) return 60_000;
   if (request.path.endsWith("/exchangeInfo")) return 6 * 60 * 60_000;
   if (request.path.endsWith("/openInterestHist")) return 60_000;
   if (request.path.endsWith("/ticker/24hr")) return new URL(request.url).searchParams.has("symbol") ? 2_000 : 30_000;
   if (request.path.endsWith("/premiumIndex") || request.path.endsWith("/openInterest")) return 2_000;
-  if (request.path.endsWith("/klines")) return new URL(request.url).searchParams.has("endTime") ? 60_000 : 1_000;
+  if (request.path.endsWith("/klines")) {
+    return historicalKlines(request, now) ? 60_000 : 1_000;
+  }
   return 1_000;
 }
 
-function cacheStaleTtlMs(request) {
+function cacheStaleTtlMs(request, now) {
   if (request.path.endsWith("Ratio")) return 5 * 60_000;
   if (request.path.endsWith("/exchangeInfo")) return 24 * 60 * 60_000;
   if (request.path.endsWith("/openInterestHist")) return 5 * 60_000;
   if (request.path.endsWith("/ticker/24hr")) return 60_000;
   if (request.path.endsWith("/premiumIndex") || request.path.endsWith("/openInterest")) return 2 * 60_000;
   if (request.path.endsWith("/klines")) {
-    return new URL(request.url).searchParams.has("endTime") ? 24 * 60 * 60_000 : 5 * 60_000;
+    return historicalKlines(request, now) ? 24 * 60 * 60_000 : 5 * 60_000;
   }
   // Depth and aggregate trades are order-flow evidence, so their emergency
   // fallback is deliberately tiny compared with candles and metadata.
@@ -196,6 +208,7 @@ function responseDiagnostics(response) {
     route,
     egress,
     origin,
+    limitScope: String(response?.headers?.get?.("x-haolo-rate-limit-scope") || "unknown").slice(0, 32),
     cacheStatus: String(response?.headers?.get?.("x-haolo-cache") || "none").slice(0, 16).toUpperCase(),
     upstreamStatus: headerStatus(response, "x-haolo-upstream-status"),
     usedWeight: headerNumber(response, "x-mbx-used-weight-1m")
@@ -230,6 +243,7 @@ export class BinancePublicMarketService {
       spot: normalizeBaseUrl(baseUrls?.spot, DEFAULT_BINANCE_PUBLIC_MARKET_BASE_URLS.spot),
     });
     this.cache = new Map();
+    this.deferred = new Map();
     this.lifecycleController = new AbortController();
     this.pendingRequests = new Set();
     this.closePromise = null;
@@ -240,9 +254,10 @@ export class BinancePublicMarketService {
     return value instanceof Date ? value.getTime() : Number(value) || Date.now();
   }
 
-  cached(url, currentMs) {
+  cached(url, currentMs, freshness = "default") {
     const entry = this.cache.get(url);
     if (!entry || entry.expiresAt <= currentMs) return null;
+    if (freshness === "live" && currentMs - entry.storedAt > 1_000) return null;
     this.cache.delete(url);
     this.cache.set(url, entry);
     return {
@@ -251,6 +266,7 @@ export class BinancePublicMarketService {
       data: cloneData(entry.data),
       cached: true,
       retryAfterMs: null,
+      fetchedAt: entry.storedAt,
       diagnostics: Object.freeze({ route: "memory-cache", egress: "client", origin: "none", cacheStatus: "HIT", upstreamStatus: null, usedWeight: null, gatewayRemaining: null }),
     };
   }
@@ -272,6 +288,7 @@ export class BinancePublicMarketService {
       cached: true,
       stale: true,
       staleAgeMs: Math.max(0, currentMs - entry.expiresAt),
+      fetchedAt: entry.storedAt,
       sourceStatus: Number(status || 0),
       retryAfterMs: retryAfter,
       rateLimited: [418, 429].includes(Number(status))
@@ -281,15 +298,20 @@ export class BinancePublicMarketService {
     };
   }
 
-  store(url, data, currentMs, request, { fresh = true } = {}) {
-    const freshMs = fresh ? cacheTtlMs(request) : 0;
-    const expiresAt = currentMs + freshMs;
+  store(url, data, currentMs, request, { fresh = true, fetchedAt = null } = {}) {
+    const prior = this.cache.get(url);
+    // Repeated stale responses must not restart the age/retention clock.
+    const storedAt = Number.isFinite(fetchedAt) && fetchedAt > 0
+      ? Math.min(currentMs, fetchedAt)
+      : !fresh && prior ? prior.storedAt : currentMs;
+    const freshMs = fresh ? cacheTtlMs(request, storedAt) : 0;
+    const expiresAt = storedAt + freshMs;
     this.cache.delete(url);
     this.cache.set(url, {
       data: cloneData(data),
-      storedAt: currentMs,
+      storedAt,
       expiresAt,
-      staleUntil: expiresAt + cacheStaleTtlMs(request),
+      staleUntil: expiresAt + cacheStaleTtlMs(request, storedAt),
     });
     while (this.cache.size > MAX_CACHE_ENTRIES) this.cache.delete(this.cache.keys().next().value);
   }
@@ -334,8 +356,17 @@ export class BinancePublicMarketService {
       throw callerSignal.reason || new DOMException("The operation was aborted", "AbortError");
     }
     const currentMs = this.currentTimeMs();
-    const cached = this.cached(request.url, currentMs);
+    const cached = this.cached(request.url, currentMs, request.freshness);
     if (cached) return cached;
+    const deferred = this.deferred.get(request.url);
+    if (deferred?.until > currentMs) {
+      const result = { ...deferred.result, retryAfterMs: deferred.until - currentMs };
+      const stale = this.stale(request.url, currentMs);
+      return stale ? this.staleResult(stale, currentMs, {
+        status: result.status, retryAfter: result.retryAfterMs, diagnostics: result.diagnostics,
+      }) : result;
+    }
+    this.deferred.delete(request.url);
     const controller = this.timeoutMs > 0 ? new AbortController() : null;
     const forwardAbort = controller && callerSignal
       ? () => controller.abort(callerSignal.reason || new DOMException("The operation was aborted", "AbortError"))
@@ -351,6 +382,10 @@ export class BinancePublicMarketService {
       response = await fetchBinanceResponse(this.fetch, request.url, {
         method: "GET",
         cache: "no-store",
+        headers: {
+          ...(request.freshness === "live" ? { "x-haolo-market-freshness": "live" } : {}),
+          ...(request.demand === "prefetch" ? { "x-haolo-market-demand": "prefetch" } : {}),
+        },
         signal,
       });
       const complete = await bufferBinanceResponse(response, { signal });
@@ -367,6 +402,14 @@ export class BinancePublicMarketService {
       const completedAt = this.currentTimeMs();
       const diagnostics = responseDiagnostics(response);
       const responseRetryAfterMs = retryAfterMs(response, completedAt);
+      if ([418, 429].includes(response.status) || isRateLimitedOrigin(diagnostics)) {
+        this.deferred.set(request.url, {
+          until: completedAt + Math.max(1_000, responseRetryAfterMs ?? 60_000),
+          result: { ok: false, status: response.ok ? 429 : response.status, data: null,
+            cached: false, rateLimited: true, diagnostics, error: "Market request is waiting for capacity" },
+        });
+        while (this.deferred.size > MAX_CACHE_ENTRIES) this.deferred.delete(this.deferred.keys().next().value);
+      }
       if (!response.ok) {
         const errorCode = Number(data?.code) === -1121
           ? "BINANCE_MARKET_SYMBOL_UNAVAILABLE"
@@ -387,16 +430,20 @@ export class BinancePublicMarketService {
         };
       }
       const gatewayStale = diagnostics.cacheStatus === "STALE";
-      this.store(request.url, data, completedAt, request, { fresh: !gatewayStale });
-      if (gatewayStale) {
+      const fetchedAt = headerNumber(response, "x-haolo-data-fetched-at");
+      const tooOldForLive = request.freshness === "live" && fetchedAt > 0 && completedAt - fetchedAt > 1_000;
+      this.store(request.url, data, completedAt, request, { fresh: !gatewayStale && !tooOldForLive, fetchedAt });
+      if (gatewayStale || tooOldForLive) {
         const entry = this.stale(request.url, completedAt);
+        if (!entry) return { ok: false, status: 503, data: null, cached: false,
+          error: "Market data exceeded its retention window", diagnostics };
         return this.staleResult(entry, completedAt, {
           status: Number(response.status || 200), retryAfter: responseRetryAfterMs, diagnostics,
         });
       }
       return {
         ok: true, status: Number(response.status || 200), data: cloneData(data),
-        cached: false, retryAfterMs: null, diagnostics,
+        cached: false, retryAfterMs: null, diagnostics, fetchedAt: this.cache.get(request.url)?.storedAt,
       };
     } catch (error) {
       if (callerSignal?.aborted) throw callerSignal.reason || error;
