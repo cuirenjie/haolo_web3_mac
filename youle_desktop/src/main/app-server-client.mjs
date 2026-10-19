@@ -13,6 +13,7 @@ import { ModelRequestRelay, modelRequestRelayEnabled } from "./model-request-rel
 import { haoloRoute } from "./haolo-network-policy.mjs";
 import { requestWithThreadHistoryRecovery } from "./thread-history-recovery.mjs";
 import { DEEPSEEK_FLASH_MODEL, LEGACY_DEEPSEEK_FLASH_MODEL, isDeepSeekFlashModel, migrateDeepSeekModelSelection } from "./deepseek-model-policy.mjs";
+import { providerModelInputCapabilities } from "./provider-input-capabilities.mjs";
 import { DEFAULT_EXECUTION_MODEL, assertAllowedModelRequest, isRetiredExecutionModel } from "./retired-model-policy.mjs";
 import { HAOLO_BUILTIN_PLUGIN_IDS, syncBuiltinPluginRegistration } from "./plugin-manager.mjs";
 import {
@@ -979,6 +980,10 @@ export function buildManagedLongContextModelCatalog(value, { platform = process.
   ) {
     throw new Error("Bundled DeepSeek Codex catalog does not match the required official Flash contract.");
   }
+  // Keep the vendored catalog and its integrity check intact. The verified
+  // Flash-1017 route adds image input at our shared capability boundary.
+  deepSeekModel.input_modalities = providerModelInputCapabilities("deepseek", DEEPSEEK_EXECUTION_MODEL)
+    .modalities.filter((modality) => modality !== "file");
   catalog.models = catalog.models.filter((model) => !isDeepSeekFlashModel(model?.slug));
   catalog.models.push(deepSeekModel);
   return catalog;

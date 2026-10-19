@@ -55,6 +55,9 @@ async function waitForGone(targetWindow, selector, timeoutMs = 15_000) {
 }
 
 async function nativeClick(targetWindow, selector) {
+  // Hidden windows on some Windows/DPI configurations reject synthetic pointer
+  // input. Geometry-only runs can explicitly use the DOM activation path.
+  if (process.env.HAOLO_I18N_QA_DOM_INPUT === "1") return click(targetWindow, selector);
   const target = await targetWindow.webContents.executeJavaScript(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
     if (!element) return null;
@@ -363,7 +366,8 @@ async function inspectLayout(targetWindow, scopeSelector) {
       ".consumption-metric", ".consumption-calendar-card", ".consumption-calendar-grid", ".consumption-day",
       ".consumption-records-card", ".consumption-table-wrap", ".consumption-detail-title",
       ".trading-alerts-page", ".trading-alert-card", ".trading-alert-card-head",
-      ".trading-alert-plan-condition"
+      ".trading-alert-plan-condition", ".trading-market-overview",
+      ".trading-market-period-controls", ".trading-watchlist-head"
     ].join(",");
     const containers = [...scope.querySelectorAll(containerSelector)].filter(shown);
     if (scope.matches(containerSelector)) containers.unshift(scope);
@@ -371,8 +375,12 @@ async function inspectLayout(targetWindow, scopeSelector) {
       const style = getComputedStyle(element);
       const handlesX = ["auto", "scroll", "hidden", "clip"].includes(style.overflowX);
       const handlesY = ["auto", "scroll", "hidden", "clip"].includes(style.overflowY);
-      const horizontal = !handlesX && element.scrollWidth > element.clientWidth + 1;
-      const vertical = !handlesY && element.scrollHeight > element.clientHeight + 1;
+      // This header owns absolute tooltips/popovers, including transparent
+      // ones. Their scroll extent is not flow overflow; direct child bounds
+      // below still verify every toolbar control fits the header.
+      const overlayHost = element.matches('.trading-market-overview');
+      const horizontal = !handlesX && !overlayHost && element.scrollWidth > element.clientWidth + 1;
+      const vertical = !handlesY && !overlayHost && element.scrollHeight > element.clientHeight + 1;
       return horizontal || vertical
         ? [{ ...compact(element), horizontal, vertical, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }]
         : [];
@@ -472,9 +480,10 @@ async function inspectLayout(targetWindow, scopeSelector) {
         const horizontalOverflow = button.scrollWidth > button.clientWidth + 1;
         const verticalOverflow = button.scrollHeight > button.clientHeight + 1;
         // Native language names skip the translation marker, but still need geometry checks.
-        const tagged = button.hasAttribute("data-i18n-single-line")
+        const allowsWrap = button.hasAttribute("data-i18n-wrap");
+        const tagged = allowsWrap || button.hasAttribute("data-i18n-single-line")
           || Boolean(labelNodes[0].parentElement?.closest('[data-i18n-skip][translate="no"]'));
-        if (!tagged || lines.length > 1 || escaped || horizontalOverflow || verticalOverflow) {
+        if (!tagged || (!allowsWrap && lines.length > 1) || escaped || horizontalOverflow || verticalOverflow) {
           englishButtonIssues.push({
             ...compact(button),
             tagged,
@@ -484,6 +493,11 @@ async function inspectLayout(targetWindow, scopeSelector) {
             verticalOverflow,
             width: bounds.width,
             height: bounds.height,
+            scrollWidth: button.scrollWidth,
+            clientWidth: button.clientWidth,
+            children: [...button.children].map(child => ({ html: child.outerHTML, width: child.getBoundingClientRect().width, minWidth: getComputedStyle(child).minWidth })),
+            before: { content: getComputedStyle(button, '::before').content, width: getComputedStyle(button, '::before').width },
+            after: { content: getComputedStyle(button, '::after').content, width: getComputedStyle(button, '::after').width },
           });
         }
       }
@@ -571,19 +585,27 @@ async function main() {
     typography = await targetWindow.webContents.executeJavaScript(`(${inspectClippedLabelStyles.toString()})(${inspectTextClipping.toString()})`, true);
     process.stdout.write(`Typography: ${typography.checks} samples, ${typography.issues.length} clipped\n`);
     if (typography.issues.length) failures.push({ name: "clipped-label-typography", issues: typography.issues.map((issue) => `glyph clipped: ${issue.selector} ${issue.fontSize} ${issue.text}`), result: { textClipping: typography.issues } });
-    for (const language of ["en", "zh-CN", "zh-TW"]) {
-      await verifyLanguageSurvivesReload(targetWindow, language);
+    if (process.env.HAOLO_I18N_QA_SKIP_LANGUAGE_TRANSITIONS !== "1") {
+      for (const language of ["en", "zh-CN", "zh-TW"]) {
+        await verifyLanguageSurvivesReload(targetWindow, language);
+      }
+      await verifyLanguageTransitionMatrix(targetWindow);
     }
-    await verifyLanguageTransitionMatrix(targetWindow);
     const languages = QUICK_ENGLISH_BUTTON_AUDIT ? ["en"] : ["en", "zh-CN", "zh-TW"];
     const zooms = QUICK_ENGLISH_BUTTON_AUDIT ? [1, 1.5] : [1, 1.25, 1.5];
     const fontSizes = QUICK_ENGLISH_BUTTON_AUDIT ? ["large"] : ["small", "default", "medium", "large"];
+    // Scheduled-task creation is not exposed by current builds. Do not attempt
+    // the retired phone-menu route when there is no entry point to activate.
+    const surfaces = ["home", "profile", "settings-profile", "settings", "consumption", "alerts"];
+    if (await targetWindow.webContents.executeJavaScript('Boolean(document.querySelector(\'[data-action="open-auto-task-dialog"]\'))')) {
+      surfaces.push("auto-task", "auto-task-frequency");
+    }
     for (const language of languages) {
       await returnHome(targetWindow);
       const transitionSource = language === "en" ? "zh-TW" : language === "zh-CN" ? "en" : "zh-CN";
       await switchLanguage(targetWindow, transitionSource);
       await switchLanguage(targetWindow, language);
-      for (const surface of ["home", "profile", "settings-profile", "settings", "auto-task", "auto-task-frequency", "consumption", "alerts"]) {
+      for (const surface of surfaces) {
         process.stdout.write(`Auditing ${language} ${surface}\n`);
         const scopeSelector = await openSurface(targetWindow, surface);
         for (const zoom of zooms) {
@@ -651,6 +673,8 @@ async function main() {
     if (failures.length) exitCode = 1;
   } catch (error) {
     const message = error instanceof Error ? error.stack || error.message : String(error);
+    await writeFile(path.join(OUTPUT, "fatal.png"), (await targetWindow.webContents.capturePage()).toPNG()).catch(() => {});
+    await writeFile(path.join(OUTPUT, "partial-report.json"), JSON.stringify({ records, failures }, null, 2)).catch(() => {});
     await writeFile(path.join(OUTPUT, "fatal-error.log"), `${message}\n`, "utf8").catch(() => {});
     console.error(message);
     exitCode = 1;

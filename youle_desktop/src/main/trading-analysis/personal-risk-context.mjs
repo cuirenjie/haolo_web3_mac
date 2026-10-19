@@ -69,7 +69,7 @@ function marketOnlyReport(value) {
     const heading = line.match(/^\s*(#{1,6})\s+(.+?)\s*$/u);
     if (heading) {
       if (skippedLevel && heading[1].length <= skippedLevel) skippedLevel = 0;
-      if (!skippedLevel && /^(?:新手执行清单|(?:标准|当前)执行方案|条件(?:式执行|交易计划)|(?:Standard |Current )?Execution (?:plan|checklist)|Conditional (?:execution|trading plan))$/iu.test(heading[2])) {
+      if (!skippedLevel && /^(?:新手执行清单|价格触达执行方案|Configured price-touch plan|(?:标准|当前)执行方案|条件(?:式执行|交易计划)|(?:Standard |Current )?Execution (?:plan|checklist)|Conditional (?:execution|trading plan))$/iu.test(heading[2])) {
         skippedLevel = heading[1].length;
       }
     }

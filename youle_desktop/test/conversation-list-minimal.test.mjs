@@ -355,8 +355,9 @@ test("sidebar actions follow Codex order, with settings and customer service at 
   assert.doesNotMatch(actions, /data-trading-expert-panel-tab|role="tab"|aria-selected/);
   assert.match(titlebarActions, /data-action="toggle-external-channel-menu"/);
   assert.doesNotMatch(titlebarActions, /自动化|open-auto-tasks/);
-  assert.match(titlebarActions, /class="titlebar-primary-action titlebar-channel-trigger[\s\S]*aria-label="连手机"[\s\S]*renderTitlebarPlugIcon\(\)[\s\S]*<span class="titlebar-channel-label">连手机<\/span>/);
-  assert.doesNotMatch(titlebarActions, /renderTitlebarMoreIcon|renderTitlebarAlarmIcon|open-auto-task-dialog/);
+  assert.match(titlebarActions, /titlebar-channel-trigger[^>]*toggle-external-channel-menu[^>]*aria-label="连手机"[\s\S]*renderTitlebarPlugIcon\(\)/);
+  assert.match(titlebarActions, /class="titlebar-channel-label">连手机<\/span>/);
+  assert.doesNotMatch(titlebarActions, /titlebar-more-menu|open-auto-task-dialog/);
   assert.doesNotMatch(titlebarActions, /title="连接"|data-action="open-settings"|>设置<|renderConversationListIcon/);
   assert.doesNotMatch(actions, /data-action="open-auto-task-dialog"|renderTitlebarAlarmIcon/);
   assert.match(footer, /class="conversation-list-footer"/);
@@ -365,7 +366,7 @@ test("sidebar actions follow Codex order, with settings and customer service at 
   assert.match(footer, /title="设置"[^]*aria-label="设置"[^]*aria-haspopup="dialog"/);
   assert.match(footer, /aria-expanded="\$\{state\.settingsOpen \? "true" : "false"\}"/);
   assert.match(footer, /renderConversationListIcon\("settings"\)/);
-  assert.match(footer, /class="conversation-list-support-button"/);
+  assert.match(footer, /class="conversation-list-support-button conversation-list-footer-button"/);
   assert.match(footer, /data-action="open-website-support"/);
   assert.match(footer, /title="联系客服"[^]*aria-label="联系客服"/);
   assert.match(footer, /renderConversationListIcon\("support"\)/);
@@ -393,20 +394,18 @@ test("the sidebar skills action opens the existing skills and plugins page", asy
   );
 });
 
-test("the bottom-left settings and customer-service icons blend into their sidebar and cover themed interaction states", async () => {
+test("the bottom-left actions share the same neutral button and interaction styles", async () => {
   const styles = await stylesSource;
 
   assert.match(styles, /\.conversation-list-footer\s*\{[^}]*flex:\s*0 0 auto;[^}]*background:\s*transparent;/s);
-  assert.match(styles, /\.conversation-list-settings-button\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-secondary\);/s);
-  assert.match(styles, /\.conversation-list-settings-button:is\(:hover, :focus-visible\),[\s\S]*?\.conversation-list-settings-button\.active\s*\{[^}]*background:\s*var\(--conversation-action-hover\);[^}]*color:\s*var\(--text-primary\);/);
-  assert.match(styles, /\.conversation-list-settings-button:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/s);
-  assert.match(styles, /\.conversation-list-settings-button:active:not\(:disabled\)\s*\{[^}]*background:\s*var\(--surface-active-translucent\);/s);
-  assert.match(styles, /\.conversation-list-settings-button:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
-  assert.match(styles, /\.conversation-list-support-button\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-secondary\);/s);
-  assert.match(styles, /\.conversation-list-support-button:is\(:hover, :focus-visible\),[\s\S]*?\.conversation-list-support-button\.active\s*\{[^}]*background:\s*var\(--conversation-action-hover\);[^}]*color:\s*var\(--text-primary\);/s);
-  assert.match(styles, /\.conversation-list-support-button:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/s);
-  assert.match(styles, /\.conversation-list-support-button:active:not\(:disabled\)\s*\{[^}]*background:\s*var\(--surface-active-translucent\);/s);
-  assert.match(styles, /\.conversation-list-support-button:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
+  const button = sourceBlock(styles, ".conversation-list-footer-button {", ".update-download-dock {");
+  assert.match(button, /background: var\(--footer-button-bg\)/);
+  assert.match(button, /color: var\(--text-secondary\)/);
+  assert.match(button, /:is\(:hover, :focus-visible\):not\(:disabled\)[^}]*var\(--footer-button-hover\)/);
+  assert.match(button, /:active:not\(:disabled\)[^}]*var\(--footer-button-active\)/);
+  assert.match(button, /:focus-visible[^}]*outline: 2px solid var\(--brand-blue\)/);
+  assert.match(button, /:disabled[^}]*var\(--surface-disabled\)[^}]*var\(--text-muted\)/);
+  assert.doesNotMatch(button, /linear-gradient|box-shadow|left:\s*-/);
 });
 
 test("sidebar membership, settings and customer service render as independent buttons", async () => {
@@ -415,18 +414,21 @@ test("sidebar membership, settings and customer service render as independent bu
   for (const activeView of ["chat", "recharge"]) {
     for (const settingsOpen of [false, true]) {
       const markup = runInNewContext(`${footerSource}\nrenderConversationListFooter()`, {
-        state: { activeView, settingsOpen },
+        state: { activeView, settingsOpen, settings: { language: "zh-CN" } },
         renderConversationListIcon: () => '<svg aria-hidden="true"></svg>',
       });
       const buttons = [...markup.matchAll(/<button\b[^]*?<\/button>/g)].map(([button]) => button);
       assert.equal(buttons.length, 3);
+      assert.ok(buttons.every((button) => button.includes("conversation-list-footer-button")));
       const [settings, support, recharge] = buttons;
       assert.equal((markup.match(/<button\b/g) || []).length, 3, "buttons cannot nest");
       assert.doesNotMatch(markup.match(/<footer[^>]*>/)[0], /data-action|role="button"/);
       assert.match(settings, /data-action="open-settings"/);
+      assert.match(settings, /<span>设置<\/span>/);
       assert.match(settings, new RegExp(`aria-expanded="${settingsOpen}"`));
       assert.doesNotMatch(settings, /profile-quota|会员充值|aria-current/);
       assert.match(support, /data-action="open-website-support"/);
+      assert.match(support, /<span>客服<\/span>/);
       assert.match(support, /title="联系客服"[^]*aria-label="联系客服"/);
       assert.doesNotMatch(support, /open-settings|profile-quota|aria-expanded|aria-current/);
       assert.match(recharge, /data-action="profile-quota"/);
@@ -446,8 +448,12 @@ test("the sidebar reuses recharge navigation and preserves the current chat with
   );
   const state = { activeView: "chat", profileMenuOpen: true, settingsOpen: false, error: "old error" };
   const calls = [];
-  runInNewContext(`${executableOpenPage}\nopenRechargePage()`, {
+  const runtime = ts.transpileModule(openPage, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
+  }).outputText;
+  runInNewContext(`${runtime}\nopenRechargePage()`, {
     state,
+    firstString: (...values) => values.find((value) => typeof value === "string" && value.trim()) || "",
     rememberCurrentChatThreadSelection: () => calls.push("remember-chat"),
     render: () => calls.push("render"),
     refreshProfileFromApi: () => calls.push("refresh-profile"),
@@ -460,45 +466,72 @@ test("the sidebar reuses recharge navigation and preserves the current chat with
   assert.match(source, /querySelectorAll<HTMLElement>\('\[data-action="profile-quota"\]'\)[^]*?openRechargePage\(\)/);
 });
 
-test("membership entry separates hit areas and supplies all theme and interaction colors", async () => {
+test("the footer divides its width equally and supplies neutral colors for both themes", async () => {
   const styles = await stylesSource;
-  const footer = sourceBlock(styles, ".conversation-list-footer {", ".conversation-list-settings-button {");
+  const footer = sourceBlock(styles, ".conversation-list-footer {", ".conversation-list-footer-button {");
   const [light, dark] = footer.split('html[data-theme="dark"]');
-  for (const token of ["bg", "hover", "active", "border", "text", "shadow"]) {
-    for (const theme of [light, dark]) assert.match(theme, new RegExp(`--recharge-entry-${token}:`));
+  for (const token of ["bg", "hover", "active"]) {
+    for (const theme of [light, dark]) assert.match(theme, new RegExp(`--footer-button-${token}:`));
   }
-  assert.match(light, /gap:\s*0/);
-  assert.match(styles, /\.conversation-list-settings-button\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
-  assert.match(styles, /\.conversation-list-support-button\s*\{[^}]*width:\s*24px;[^}]*flex:\s*0 0 24px;/s);
-  const button = sourceBlock(styles, ".conversation-list-recharge-button {", ".update-download-dock {");
-  assert.match(button, /background: var\(--recharge-entry-bg\)/);
-  assert.match(button, /color: var\(--recharge-entry-text\)/);
-  assert.match(button, /:hover:not\(:disabled\)[^}]*var\(--recharge-entry-hover\)/);
-  assert.match(button, /\.active,[^}]*:active:not\(:disabled\)[^}]*var\(--recharge-entry-active\)/);
-  assert.match(button, /:focus-visible[^}]*outline: 2px solid var\(--brand-blue\)/);
-  assert.match(button, /:disabled[^}]*var\(--surface-disabled\)[^}]*var\(--text-muted\)/);
-  assert.doesNotMatch(button, /#[\da-f]{3,8}\b|rgba?\(/i);
+  assert.match(light, /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(light, /gap:\s*4px/);
+  assert.doesNotMatch(styles, /--recharge-entry-/);
+  assert.equal(translateAppText("客服", "en"), "Support");
   assert.equal(translateAppText("会员充值", "en"), "Membership");
   assert.equal(translateAppText("会员充值", "zh-TW"), "會員充值");
 });
 
-test("the titlebar channel shortcut opens external channels and preserves its interaction states", async () => {
+test("the titlebar opens phone channels directly and plans retain the automatic-task dialog", async () => {
   const source = await rendererSource;
   const styles = await stylesSource;
   const titlebarActions = sourceBlock(source, "function renderTitlebarPrimaryActions", "function renderWindowControls");
+  const actions = sourceBlock(source, "function renderConversationListActions", "function renderConversationListFooter");
+  const plansPage = sourceBlock(source, "function renderAutoTasksPage", "function renderAutoTaskItem");
   const eventBindings = source.slice(source.indexOf("function bindEvents()"));
 
-  assert.match(titlebarActions, /class="titlebar-channel-action[\s\S]*class="titlebar-primary-action titlebar-channel-trigger[\s\S]*data-action="toggle-external-channel-menu"/);
-  assert.match(titlebarActions, /aria-haspopup="menu"[\s\S]*aria-controls="titlebarExternalChannelMenu"[\s\S]*aria-label="连手机"/);
-  assert.match(titlebarActions, /renderTitlebarPlugIcon\(\)[\s\S]*<span class="titlebar-channel-label">连手机<\/span>/);
-  assert.match(titlebarActions, /external-channel-menu titlebar-external-channel-menu/);
-  assert.doesNotMatch(titlebarActions, /renderTitlebarMoreIcon|renderTitlebarAlarmIcon|open-auto-task-dialog/);
-  assert.match(styles, /\.titlebar-primary-actions\s*\{[^}]*gap:\s*0;[^}]*margin-left:\s*-12px;/s);
+  assert.match(actions, /class="conversation-list-new-row"/);
+  assert.match(actions, /data-action="new-chat"[\s\S]*<span>新任务<\/span>/);
+  assert.doesNotMatch(actions, /data-action="open-auto-task-dialog"|renderTitlebarAlarmIcon/);
+  assert.match(titlebarActions, /toggle-external-channel-menu[^>]*aria-haspopup="menu"[^>]*aria-controls="titlebarExternalChannelMenu"/);
+  assert.doesNotMatch(titlebarActions, /titlebar-more-menu|open-auto-task-dialog/);
+  assert.match(plansPage, /data-action="open-auto-task-dialog"/);
+  for (const menuOpen of [false, true]) {
+    const html = runInNewContext(`${titlebarActions}\nrenderTitlebarPrimaryActions()`, {
+      state: { externalChannels: { menuOpen, error: "" } },
+      renderTitlebarPlugIcon: () => '<svg data-test-plug></svg>',
+      externalChannelMenuItems: () => ["phone", "telegram"],
+      renderExternalChannelRow: (channel) => `<button role="menuitem">${channel}</button>`,
+    });
+    assert.match(html, new RegExp(`aria-expanded="${menuOpen}"`));
+    assert.match(html, /data-test-plug/);
+    assert.match(html, /class="titlebar-channel-label">连手机<\/span>/);
+    assert.equal(html.includes('id="titlebarExternalChannelMenu" role="menu"'), menuOpen);
+    assert.equal(html.includes('role="menuitem">phone'), menuOpen);
+    assert.equal(html.includes('role="menuitem">telegram'), menuOpen);
+  }
+  assert.match(styles, /\.conversation-list-new-row\s*\{[^}]*display:\s*flex;[^}]*width:\s*100%;/s);
+  assert.match(styles, /\.conversation-list-new-action\s*\{[^}]*width:\s*auto;[^}]*flex:\s*1 1 auto;/s);
   assert.match(styles, /\.titlebar-channel-trigger\s*\{[^}]*height:\s*28px;[^}]*gap:\s*3px;/s);
-  assert.match(styles, /\.titlebar-channel-action > \.external-channel-menu\s*\{[^}]*left:\s*0;[^}]*z-index:\s*120;/s);
-  assert.match(eventBindings, /querySelector<HTMLButtonElement>\('\[data-action="toggle-external-channel-menu"\]'\)[\s\S]*addEventListener\("click"/);
-  assert.match(eventBindings, /querySelector<HTMLElement>\('\[data-action="toggle-external-channel-menu"\]'\)[\s\S]*addEventListener\("mouseenter"/);
-  assert.match(eventBindings, /primeExternalChannelMenu\(\)/);
+  assert.match(styles, /\.titlebar-action-icon\s*\{[^}]*width:\s*18px;[^}]*fill:\s*none;[^}]*stroke:\s*currentColor;/s);
+  assert.doesNotMatch(styles, /\.titlebar-(?:plug|alarm)-icon\s*\{[^}]*transform:/s);
+  assert.match(styles, /\.titlebar-primary-action:hover:not\(:disabled\),[\s\S]*?\.titlebar-more-action\.menu-open > \.titlebar-primary-action,[\s\S]*?\.titlebar-primary-action:is\(\.active, :active\):not\(:disabled\)\s*\{[^}]*background:\s*transparent;/s);
+  assert.doesNotMatch(styles, /\.titlebar-primary-action\s*\{[^}]*transition:[^;}]*background/s);
+  assert.match(styles, /\.titlebar-primary-action:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/s);
+  assert.match(styles, /\.titlebar-primary-action:disabled\s*\{[^}]*color:\s*var\(--text-muted\);/s);
+  assert.match(styles, /\.titlebar-channel-action > \.external-channel-menu\s*\{[^}]*top:\s*calc\(100% \+ 5px\);[^}]*left:\s*0;/s);
+  assert.match(styles, /html\[data-language="en"\] \.titlebar-channel-label\s*\{[^}]*white-space:\s*normal;/s);
+  assert.match(eventBindings, /toggle-external-channel-menu[\s\S]*state\.externalChannels\.menuOpen = !state\.externalChannels\.menuOpen/);
+  assert.doesNotMatch(styles, /\.conversation-list-auto-task-action|\.conversation-list-alarm-icon/);
+  assert.match(
+    eventBindings,
+    /\.querySelectorAll<HTMLElement>\(\s*'\[data-action="open-auto-task-dialog"\]',\s*\)/,
+  );
+  assert.doesNotMatch(eventBindings, /open-auto-tasks/);
+  assert.match(eventBindings, /state\.autoTaskDraft = createAutoTaskDraft\(state\.activeNewThreadGroupId\);/);
+  assert.match(eventBindings, /state\.autoTaskPicker = null;/);
+  assert.match(eventBindings, /state\.autoTaskCalendarMonth = state\.autoTaskDraft\.date;/);
+  assert.match(eventBindings, /state\.autoTaskDialogOpen = true;/);
+  assert.match(eventBindings, /state\.externalChannels\.menuOpen = false;/);
 });
 
 test("pinned conversations are global and projects use folders with a five-row preview", async () => {

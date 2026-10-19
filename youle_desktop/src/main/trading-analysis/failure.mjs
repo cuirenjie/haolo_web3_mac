@@ -1,6 +1,7 @@
 // Shared by the host and renderer. Only fixed descriptions cross into reports
 // or diagnostics; upstream messages can contain credentials or model output.
 import { modelFailureFacts } from "../model-failure-policy.mjs";
+import { isQuotaFailure } from "../error-signals.mjs";
 
 const LABELS = {
   cancelled: ["本次分析已停止", "This analysis was stopped"],
@@ -33,7 +34,7 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   else if (code === "SECURE_STORAGE_UNAVAILABLE") category = "secure_storage";
   else if (["MEMORY_DECRYPT_FAILED", "MEMORY_STORE_INVALID"].includes(code)) category = "personal_memory";
   else if (code === "TRADING_ENTITLEMENT_UNAVAILABLE" || /无法验证会员权益/u.test(message)) category = "entitlement";
-  else if (/TRIAL_REQUIRED|INSUFFICIENT_BALANCE/.test(code) || /未开通有效|没有可用积分|积分不足|余额不足/iu.test(message)) category = "membership";
+  else if (isQuotaFailure(error)) category = "membership";
   else if (/AUTH|ACCOUNT_ID_REQUIRED|INVALID_API_KEY/.test(code) || [401, 403].includes(status) || /unauthori[sz]ed|invalid api key|authentication failed|请先登录|未登录/iu.test(message)) category = "authentication";
   else if (facts.modelUnavailable) category = "model_unavailable";
   else if (/SIDE_EFFECT|PERMISSION|POLICY/.test(code)

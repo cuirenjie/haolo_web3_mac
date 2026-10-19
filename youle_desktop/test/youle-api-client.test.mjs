@@ -756,14 +756,14 @@ test("provider chat rejects unsupported media instead of silently dropping it", 
     client.sendProviderChat({
       provider: "deepseek",
       model: "deepseek-flash",
-      text: "Read the image",
+      text: "Read the video",
       attachments: [{
-        name: "proof.png",
-        mime: "image/png",
-        url: "https://files.example.test/proof.png",
+        name: "proof.mp4",
+        mime: "video/mp4",
+        url: "https://files.example.test/proof.mp4",
       }],
     }),
-    /不支持直接读取图片/,
+    /不支持直接读取视频/,
   );
 });
 

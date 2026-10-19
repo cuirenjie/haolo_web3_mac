@@ -35,7 +35,7 @@ Use short lowercase namespaces such as `communication`, `profile`, `projects`, `
 
 Map explicit trading rules to these canonical numeric keys under `trading.risk` so the deterministic strategy planner can enforce them:
 
-- `max_loss_per_trade_percent`: user-configured maximum planned loss as a percentage of account equity. Use 2 only as the onboarding recommendation when the user accepts the default. Preserve an explicit value above 3 (for example 10) exactly; do not apply a separate Haolo product ceiling.
+- `max_loss_per_trade_percent`: maximum planned loss as a percentage of account equity. The product default is 2 and applies immediately when unset, without onboarding or saving. Preserve an explicit value above 3 (for example 10) exactly; do not apply a separate Haolo product ceiling.
 - `max_position_percent`: maximum position notional as a percentage of total account equity.
 - `max_leverage`: maximum allowed leverage multiplier.
 - `minimum_risk_reward_ratio`: minimum acceptable reward-to-risk ratio. Preserve the user's explicit value, including values below `1:0.4`; use the product default `1:0.4` only when no value is set.
@@ -52,7 +52,11 @@ Never create `preferred_stop_loss_percent` or `risk_reward_preference`; those le
 
 Ignore the legacy `absolute_max_loss_per_trade_percent` key if an older memory record still contains it. `max_loss_per_trade_percent` is the only enforced per-trade percentage limit.
 
-Use `trading.exit.move_stop_to_break_even` and `trading.exit.break_even_trigger_r` for break-even behavior, `communication.trading_analysis_style` for concise/detailed delivery, `trading.analysis.required_analysis_sections` for required plan sections, and `trading.discipline` for stable user rules or prohibitions. For every trading Skill or strategy answer, apply all relevant saved trading scopes together; do not read only `trading.risk` and silently omit exit, analysis, or discipline preferences.
+Use `trading.exit.move_stop_to_break_even` and `trading.exit.break_even_trigger_r` for break-even behavior, `communication.trading_analysis_style` for concise/detailed or custom delivery, `trading.analysis.required_analysis_sections` for required plan sections, and `trading.discipline` for stable user rules or prohibitions. For every trading Skill or strategy answer, apply all relevant saved trading scopes together; do not read only `trading.risk` and silently omit exit, analysis, or discipline preferences.
+
+Settings custom answers are semantically compiled and validated before an atomic save. Use the canonical numeric values and normalized `trading.profile.user_preference_notes`, `trading.profile.additional_preferences` and `trading.discipline.user_custom_rules` together. `preferences.form.trading_choices` is original wording for the settings UI, never execution policy. Honor custom timing, frequency and pause conditions; if current market/account/history evidence cannot verify a condition, explain the missing evidence and do not claim it is satisfied. Never silently remove a condition or relax a numerical limit.
+
+`read_user_memory` also returns effective trading defaults for unset keys, marked `source: product_default`. These defaults are active immediately and are not stored user memories or evidence of user consent. Saved user values take priority. Do not ask the user to save defaults before using them, or write defaults into memory merely because they were read. Actual preference changes still require the user's explicit request or the settings Save action.
 
 Do not reinterpret “本金的 3%” as “仓位的 3%”: preserve the user's stated denominator. Ask whenever the denominator is ambiguous and would change the hard limit.
 

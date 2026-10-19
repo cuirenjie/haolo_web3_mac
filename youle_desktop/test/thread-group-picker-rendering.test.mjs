@@ -1180,7 +1180,7 @@ test("left panel collapse control stays on every conversation-sidebar page", asy
   assert.match(titlebarBlock, /<header class="app-titlebar\$\{isMacDesktop \? " mac-titlebar" : ""\}"[\s\S]*?<button class="titlebar-profile"/);
   assert.match(
     renderBlock,
-    /<div class="\$\{bodyClasses\}"\$\{bodyStyle\}>\s*\$\{workspaceHasConversationList \? renderLeftPanelToggle\(\) : ""\}/,
+    /<div class="\$\{bodyClasses\}"\$\{bodyStyle\}>\s*\$\{workspaceHasConversationList && !tradingExpertLayout \? renderLeftPanelToggle\(\) : ""\}/,
   );
   assert.doesNotMatch(renderBlock, /renderAppSidebar\(\)/);
   assert.match(renderBlock, /renderChatList\(\)/);

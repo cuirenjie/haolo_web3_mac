@@ -60,6 +60,7 @@ function harness(theme = "light", language = "zh-CN") {
     syncExecutionPlansForCurrentAccount() {}, render() {}, renderExecutionPlanActions: () => "",
     threadListDisplayName: (thread) => thread.name, showToast() {}, openExecutionPlansPage() {},
     bindAttachmentPreviewEvents() {}, bindLocalFileDragEvents() {},
+    tradingPreferenceSettings: { bind() {} },
     RECHARGE_TOKEN_ACTION_ID: "recharge", RECHARGE_TOKEN_ACTION_KIND: "recharge",
     errorMessage: (error) => { runtime.errors.push(String(error)); return String(error); },
     tradingAlertResponseData: (value) => value, document: { documentElement: { dataset: { theme } } },

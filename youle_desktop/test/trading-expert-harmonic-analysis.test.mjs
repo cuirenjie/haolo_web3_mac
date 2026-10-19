@@ -693,3 +693,13 @@ test("renderer discovers harmonic metadata and requests enough closed candles wi
   assert.match(renderer, /harmonic:/);
   assert.doesNotMatch(renderer, /strategy\.id === "harmonic"/);
 });
+for (const mode of ["developing", "no-candidate"]) {
+  test(`harmonic English ${mode} preserves the complete deterministic conclusion`, async () => {
+    const input = mode === "developing" ? snapshot("gartley", { throughIndex: 60, confirm: false }) : noPatternSnapshot();
+    const result = await runTradingHarmonicAnalysisPipeline({ ...input, language: "en" }, { modelRegistry: { async analyze() { assert.fail("No review required"); } } });
+    assert.doesNotMatch([result.analysisPlan.report, result.analysisPlan.narrative, ...result.analysisPlan.drawingPatch.operations.map(({ drawing }) => drawing.text || "")].join("\n"), /\p{Script=Han}/u);
+    assert.ok(result.analysisPlan.report.length > 300);
+    assert.equal(result.analysisPlan.actionPlan.longTrigger, undefined);
+    assert.equal(result.analysisPlan.actionPlan.shortTrigger, undefined);
+  });
+}

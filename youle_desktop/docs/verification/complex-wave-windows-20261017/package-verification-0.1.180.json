@@ -1,0 +1,18 @@
+{
+  "version": "0.1.180",
+  "verifiedAt": "2026-10-16T16:25:05.670Z",
+  "archiveFilesCompared": 424,
+  "extraResourceFilesCompared": 247,
+  "defaultAuthEmpty": true,
+  "appAsarSha256": "a31cd76a3767d8d4d4582b114995d8accd8e81bc7c6c34405d33ccea80d0e2e1",
+  "languageFiles": [
+    "\\src\\main\\trading-analysis\\model-output-language.mjs",
+    "\\src\\main\\trading-analysis\\report-language-en-patterns.mjs",
+    "\\src\\main\\trading-analysis\\report-language-en-reports.mjs",
+    "\\src\\main\\trading-analysis\\report-language-en-states.mjs",
+    "\\src\\main\\trading-analysis\\report-language-en-strategies.mjs",
+    "\\src\\main\\trading-analysis\\report-language-en-terms.mjs",
+    "\\src\\main\\trading-analysis\\report-language-en.mjs",
+    "\\src\\main\\trading-analysis\\report-language.mjs"
+  ]
+}

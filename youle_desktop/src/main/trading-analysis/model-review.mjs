@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { createTradingModelBudget } from "./model-budget.mjs";
+import { tradingModelLanguageInstruction, validateTradingModelLanguage } from "./model-output-language.mjs";
 
 const REVIEW_EFFORTS = Object.freeze(["medium", "high", "max"]);
 const DEFAULT_AMBIGUITY_SCORE_GAP = 0.06;
@@ -307,6 +308,14 @@ async function runValidatedTradingModelReviewInternal({
 }
 
 export async function runValidatedTradingModelReview(args = {}) {
+  const instruction = tradingModelLanguageInstruction(args.request?.language);
+  if (instruction && typeof args.validateResponse === "function") {
+    const validate = args.validateResponse;
+    args = { ...args,
+      request: { ...args.request, prompt: `${args.request.prompt}\n\n${instruction}` },
+      validateResponse: (text) => validateTradingModelLanguage(validate(text), args.request.language, args.request.allowedLanguageLiterals),
+    };
+  }
   const { modelRegistry, request, signal, validateResponse } = args;
   if (!modelRegistry || typeof modelRegistry.analyze !== "function") {
     throw new TypeError("modelRegistry is required");

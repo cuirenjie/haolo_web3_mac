@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 
 const mainSource = readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const marketSource = readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
 const drawingSource = readFile(new URL("../src/renderer/trading-expert-drawing.ts", import.meta.url), "utf8");
 const splitPaneSource = readFile(new URL("../src/renderer/trading-expert-split-pane.ts", import.meta.url), "utf8");
-const stylesSource = readFile(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
+const stylesSource = Promise.all(["styles.css", "trading-drawing-toolbar.css"].map(file => readFile(new URL(`../src/renderer/${file}`, import.meta.url), "utf8"))).then(parts => parts.join("\n"));
 
 test("AI annotations localize once on commit and remain unchanged across later language switches", async () => {
   const {
@@ -112,6 +113,7 @@ test("Trading Expert exposes a complete grouped TradingView-style drawing catalo
     "annotation",
     "pattern",
     "prediction",
+    "icons",
   ]);
   for (const id of [
     "trend-line",
@@ -635,7 +637,7 @@ test("single-click lines keep and render exactly one control point", async () =>
 
   assert.match(storedDrawingBlock, /tradingDrawingPlacementMode\(definition\) === "single-click"[\s\S]*?storedPoints\.slice\(0, 1\)/);
   assert.match(pointerDownBlock, /const placementMode = tradingDrawingPlacementMode\(definition\)/);
-  assert.match(pointerDownBlock, /const requiredPointCount = tradingDrawingRequiredPointCount\(definition\)/);
+  assert.match(pointerDownBlock, /const requiredPointCount = .*tradingDrawingRequiredPointCount\(definition\)/);
   assert.match(pointerDownBlock, /points: requiredPointCount > 1 \? \[drawingPoint, drawingPoint\] : \[drawingPoint\]/);
   assert.match(renderDrawingBlock, /tradingDrawingPlacementMode\(definition\) === "single-click"[\s\S]*?pointEntries\.slice\(0, 1\)/);
 });
@@ -840,33 +842,22 @@ test("drawing toolbar stays in the chart after removing the legacy vertical navi
   assert.match(drawing, /this\.snapPointToCandle\(point, screen\)/);
   assert.match(drawing, /this\.undo\(\)/);
   assert.match(drawing, /this\.redo\(\)/);
-  assert.match(styles, /\.trading-drawing-toolbar\s*\{[^}]*width: 41\.6px;[^}]*min-width: 41\.6px;[^}]*flex: 0 0 41\.6px;/s);
-  assert.match(styles, /\.trading-drawing-toolbar-scroll\s*\{[^}]*gap: 6px;/s);
-  assert.match(styles, /\.trading-drawing-group\s*\{[^}]*width: 35\.2px;[^}]*height: 30px;[^}]*min-height: 30px;[^}]*flex: 0 0 30px;/s);
-  assert.match(styles, /\.trading-drawing-primary\s*\{[^}]*width: 29\.6px;[^}]*height: 30px;/s);
-  assert.match(styles, /\.trading-drawing-action\s*\{[^}]*width: 35\.2px;[^}]*height: 30px;[^}]*min-height: 30px;[^}]*flex: 0 0 30px;/s);
+  assert.match(styles, /--trading-drawing-toolbar-width: 52px;/);
+  assert.match(styles, /\.trading-drawing-toolbar\s*\{[^}]*width: var\(--trading-drawing-toolbar-width\);[^}]*min-width: var\(--trading-drawing-toolbar-width\);[^}]*flex: 0 0 var\(--trading-drawing-toolbar-width\);/s);
+  assert.match(styles, /\.trading-drawing-toolbar-scroll\s*\{[^}]*gap: 0;/s);
+  assert.match(styles, /\.trading-drawing-group\s*\{[^}]*width: 51px;[^}]*height: 38px;[^}]*min-height: 38px;[^}]*flex: 0 0 38px;/s);
+  assert.match(styles, /\.trading-drawing-primary\s*\{[^}]*width: 34px;[^}]*height: 34px;/s);
+  assert.match(styles, /\.trading-drawing-action\s*\{[^}]*width: 34px;[^}]*height: 38px;[^}]*min-height: 38px;[^}]*flex: 0 0 38px;/s);
   assert.match(styles, /\.trading-drawing-layer\.drawing-active\s*\{[^}]*pointer-events: auto;[^}]*touch-action: none;/s);
 });
 
-test("drawing controls cover hover, active, focus, open, and disabled states in both themes", async () => {
+test("drawing controls retain keyboard focus, disclosure and dark-theme states", async () => {
   const styles = await stylesSource;
-  assert.match(styles, /\.trading-drawing-primary:hover,[\s\S]*?background: var\(--trading-market-control\)/);
-  assert.match(styles, /\.trading-drawing-primary\.active,[\s\S]*?background: var\(--trading-market-accent-soft\)/);
-  assert.doesNotMatch(styles, /\.trading-drawing-group\.active,[^{]*\{[^}]*background: var\(--trading-market-accent-soft\)/);
+  assert.ok(styles.includes('.trading-drawing-group:focus-within .trading-drawing-disclosure'));
+  assert.ok(styles.includes('.trading-drawing-disclosure[aria-expanded="true"]'));
   assert.match(styles, /\.trading-drawing-toolbar button:focus-visible,[\s\S]*?outline: 2px solid #2da6f7/);
-  assert.match(
-    styles,
-    /\.trading-drawing-disclosure\s*\{[^}]*top: 0;[^}]*right: -3\.2px;[^}]*width: 9\.6px;[^}]*height: 30px;[^}]*place-items: center;/s,
-  );
-  assert.match(
-    styles,
-    /\.trading-drawing-disclosure:hover,[\s\S]*?\.trading-drawing-disclosure\[aria-expanded="true"\]\s*\{[^}]*background: var\(--trading-market-control\);[^}]*color: var\(--trading-market-text\);/s,
-  );
-  assert.doesNotMatch(styles, /\.trading-drawing-disclosure\[aria-expanded="true"\][^{]*\{[^}]*transform:/);
-  assert.match(styles, /\.trading-drawing-action:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.32;/s);
-  assert.match(styles, /\.trading-drawing-tool-menu\[hidden\]\s*\{[^}]*display: none !important;/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-drawing-tool-menu\s*\{[^}]*box-shadow:/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-panel: #0f1014;[\s\S]*--trading-market-accent: #69a8ff;/s);
+  assert.ok(styles.includes('--drawing-ink: #d1d4dc'));
+  // Actual hover colors, clipping, row sizes and menu access are checked by trading-drawing-reference-qa.cjs.
 });
 
 test("drawing trash confirms before permanently clearing manual, AI, and persisted history", async () => {
@@ -979,7 +970,7 @@ test("text annotations use an in-chart editor and dedicated formatting toolbar",
   const wrappedLayout = tradingDrawingTextLayout("中枢上沿突破后等待回踩确认，跌回区间则视为假突破。", 12.8, 128);
   assert.ok(wrappedLayout.lines.length >= 3);
   assert.ok(wrappedLayout.lineWidths.every((width) => width <= 128));
-  assert.match(pointerDownBlock, /if \(definition\.kind === "text" && placementMode === "single-click"\) \{[\s\S]*?this\.beginTextDrawing\(definition\.id, drawingPoint, screenPoint\);/);
+  assert.match(pointerDownBlock, /if \(definition\.kind === "text" && placementMode === "single-click"\) \{[\s\S]*?this\.beginTextDrawing\(definition\.id, drawingPoint, screenPoint,/);
   assert.doesNotMatch(pointerDownBlock, /window\.prompt/);
   assert.match(selectionMarkup, /data-drawing-selection-mode="text"[\s\S]*?selectionAction\("edit-text"/);
   assert.match(selectionMarkup, /selectionAction\("reset-text"[\s\S]*?selectionAction\("edit-text"/);
@@ -1293,10 +1284,10 @@ test("anchored text, note, and price note complete creation, editing, and render
   assert.ok(noteBox.layout.lineWidths.every((width) => width <= noteBox.boxWidth - 20));
 
   assert.match(drawing, /viewportAnchor\?: ScreenPoint/);
-  assert.match(drawing, /tool === "anchored-text"[\s\S]*?tradingDrawingViewportAnchor\(screenPoint, this\.plotBounds\(\)\)/);
-  assert.match(drawing, /drawing\.tool === "anchored-text"[\s\S]*?tradingDrawingAnchoredScreenPoint\(drawing\.viewportAnchor, bounds\)/);
+  assert.match(drawing, /\["anchored-text", "anchored-note"\]\.includes\(tool\)[\s\S]*?tradingDrawingViewportAnchor\(screenPoint, this\.plotBounds\(\)\)/);
+  assert.match(drawing, /\["anchored-text", "anchored-note"\]\.includes\(drawing\.tool\)[\s\S]*?tradingDrawingAnchoredScreenPoint\(drawing\.viewportAnchor, bounds\)/);
   assert.match(drawing, /originalViewportAnchor:[\s\S]*?drawing\.viewportAnchor/);
-  assert.match(pointerDownBlock, /text: definition\.id === "price-note" \? formatTradingDrawingAxisPrice\(drawingPoint\.price\) : undefined/);
+  assert.match(pointerDownBlock, /text: definition\.id === "price-note" \? formatTradingDrawingAxisPrice\(drawingPoint\.price\)/);
   assert.match(commitBlock, /const pendingText = definition\?\.kind === "text"[\s\S]*?this\.pendingTextDrawingId = completed\.id[\s\S]*?this\.openPendingTextEditor\(completed\)/);
   assert.match(drawing, /const textMode = definition\?\.kind === "text"/);
   assert.match(drawing, /data-drawing-text-input-title/);
@@ -1413,13 +1404,13 @@ test("Fibonacci retracement matches the full-width colored reference in both the
   assert.match(drawing, /TRADING_FIBONACCI_LEVELS = \[[\s\S]*ratio: 1, label: "100\.0%"[\s\S]*ratio: 0, label: "0\.0%"/);
   assert.match(drawing, /second\.y \+ \(first\.y - second\.y\) \* level\.ratio/);
   assert.match(drawing, /class="trading-fibonacci-level-line" x1="0"[\s\S]*x2="\$\{bounds\.width\}"/);
-  assert.match(drawing, /class="trading-fibonacci-connector"[\s\S]*svgStrokeAttributes\(\{ \.\.\.appearance, dashed: true \}, 1\.5\)/);
+  assert.match(drawing, /class="trading-fibonacci-connector"[\s\S]*svgStrokeAttributes\(\{ \.\.\.appearance, style: appearance\.manualDefaults && !appearance\.customStyle \? 'dashed' : appearance\.style, dashed: true \}, 1\.5\)/);
   assert.match(drawing, /class="trading-drawing-handle fibonacci"[\s\S]*data-fibonacci-endpoint="\$\{index === 0 \? "100" : "0"\}"/);
   assert.match(drawing, /definition\?\.kind === "fib"[\s\S]*100%[\s\S]*0%/);
   assert.match(styles, /--trading-fibonacci-level-pink: #c61ca4;[\s\S]*--trading-fibonacci-level-blue: #246dcc;/);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-fibonacci-level-pink: #ff72d5;[\s\S]*--trading-fibonacci-level-blue: #78adff;/);
   assert.match(styles, /\.trading-fibonacci-label\s*\{[^}]*paint-order: stroke fill;[^}]*stroke: var\(--trading-fibonacci-label-outline\);[^}]*font-weight: 600;/s);
-  assert.match(styles, /\.trading-drawing-handle\.fibonacci\s*\{[^}]*--trading-fibonacci-handle-stroke/s);
+  assert.match(styles, /\.trading-drawing-handle\.fibonacci\s*\{[^}]*filter: none;/s);
 });
 
 test("selection color, line style, and width apply to Fibonacci and every stroked drawing family", async () => {
@@ -1440,9 +1431,9 @@ test("selection color, line style, and width apply to Fibonacci and every stroke
   assert.match(selectionHandler, /drawing\.color = color[\s\S]*?persistDrawingEdit\("已更新颜色"\)/);
   assert.match(selectionHandler, /drawing\.lineStyle = style[\s\S]*?persistDrawingEdit\("已更新线条样式"\)/);
   assert.match(selectionHandler, /drawing\.lineWidth = width[\s\S]*?persistDrawingEdit\("已更新线宽"\)/);
-  assert.match(renderDrawing, /const lineAppearance: TradingDrawingStrokeAppearance = \{[\s\S]*?width: drawing\.lineWidth,[\s\S]*?style: drawing\.lineStyle/);
+  assert.match(renderDrawing, /const lineAppearance: TradingDrawingStrokeAppearance = \{[\s\S]*?width: drawing\.lineWidth \?\? defaults\?\.lineWidth,[\s\S]*?style: drawing\.lineStyle \?\? defaults\?\.lineStyle/);
   assert.match(renderDrawing, /this\.renderFib\([\s\S]*?color,[\s\S]*?Boolean\(drawing\.color\),[\s\S]*?lineAppearance/);
-  assert.match(specializedRenderers, /const levelColor = customColor \? color : level\.color/);
+  assert.match(specializedRenderers, /const levelColor = customColor \? color : appearance\.manualDefaults \? manualFibLevelColor\(level\.ratio\) : level\.color/);
   assert.match(specializedRenderers, /trading-fibonacci-level-line[\s\S]*?svgStrokeAttributes\(appearance, 1\.25\)/);
   for (const renderer of [
     "renderChannel", "renderPitchfork", "renderGann", "renderTimeZones", "renderFibCircles",
@@ -1469,19 +1460,20 @@ test("new manual drawings reuse the previous style for each drawing tool", async
   assert.match(drawing, /this\.rememberDrawingStyle\(this\.selectedDrawing\(\)\)/);
 });
 
-test("drawing defaults and toolbar icon weight match the neutral compact treatment", async () => {
+test("manual drawing defaults are tool-specific while toolbar icon weight stays compact", async () => {
   const [drawing, styles] = await Promise.all([drawingSource, stylesSource]);
 
-  assert.match(drawing, /DEFAULT_DRAWING_COLOR_LIGHT = "#787b86"/);
-  assert.match(drawing, /DEFAULT_DRAWING_COLOR_DARK = "#b2b5be"/);
-  assert.match(drawing, /DEFAULT_DRAWING_LINE_WIDTH = 1/);
+  assert.match(drawing, /drawing\.source === 'ai' \? undefined : manualDrawingDefaults\(drawing\.tool\)/);
+  assert.match(drawing, /drawing\.color \?\? defaults\?\.color/);
+  assert.match(drawing, /data-drawing-width-value/);
+  assert.match(drawing, /--drawing-current-color/);
   assert.match(styles, /\.trading-drawing-width-preview\s*\{[^}]*border-top: var\(--drawing-width, 1px\) solid currentcolor;/s);
   assert.doesNotMatch(drawing, /trading-drawing-color-preview|data-drawing-color-preview/);
   assert.doesNotMatch(drawing, /trading-drawing-selection-caret/);
   assert.doesNotMatch(styles, /\.trading-drawing-color-preview|\.trading-drawing-selection-caret/);
   assert.match(
     styles,
-    /\.trading-drawing-primary > svg,[\s\S]*?\.trading-drawing-tool-menu button > svg\s*\{[^}]*stroke-width: 1\.25;/s,
+    /\.trading-drawing-primary > svg,[\s\S]*?\.trading-drawing-favorites-bar svg\s*\{[^}]*stroke-width: 1;/s,
   );
   assert.match(styles, /\.trading-drawing-disclosure > svg\s*\{[^}]*stroke-width: 1\.1;/s);
   assert.match(styles, /\.trading-drawing-selection-action > svg\s*\{[^}]*stroke-width: 1\.25;/s);
@@ -1517,11 +1509,12 @@ test("drawing group affordances match the compact TradingView-style toolbar", as
 
   assert.match(drawing, /<path d="m3 2 2 2-2 2"\/>/);
   assert.doesNotMatch(drawing, /<path d="m2 3 2 2 2-2"\/>/);
-  assert.match(drawing, /reset: '<path d="M4 4v6h6M5\.7 16\.4A8 8 0 1 0 4\.3 9\.2"\/>',/);
-  assert.match(drawing, /trash: '<path d="M5 7h14M9 7V4h6v3M7 9v11h10V9M10\.5 11v6M13\.5 11v6"\/>',/);
+  const { renderDrawingIcon } = await import('../src/renderer/trading-drawing-catalog.ts');
+  assert.match(renderDrawingIcon('reset'), /data-drawing-icon="reset"/);
+  assert.match(renderDrawingIcon('trash'), /data-drawing-icon="trash"/);
 });
 
-test("drawing toolbar header removes the exit divider and aligns the symbol to its old edge", async () => {
+test("drawing toolbar starts beside the market header without a spacer", async () => {
   const [main, drawing, styles] = await Promise.all([
     mainSource,
     drawingSource,
@@ -1531,19 +1524,19 @@ test("drawing toolbar header removes the exit divider and aligns the symbol to i
   assert.doesNotMatch(drawing, /TEAM_AVATAR_URL/);
   assert.match(
     drawing,
-    /class="trading-drawing-toolbar-head" aria-hidden="true"><\/div>[\s\S]*class="trading-drawing-toolbar-scroll"/,
+    /class="trading-drawing-toolbar"[^>]*>\s*<div class="trading-drawing-toolbar-scroll"/,
   );
   assert.doesNotMatch(drawing, /trading-drawing-exit|exit-trading-expert|<span>退出<\/span>/);
   assert.match(
     styles,
-    /\.trading-drawing-toolbar-head\s*\{[^}]*height: 36\.4px;[^}]*flex: 0 0 36\.4px;[^}]*border-bottom: 0;/s,
+    /\.trading-drawing-group:first-child\s*\{[^}]*height: var\(--trading-market-header-height\);/s,
   );
   assert.match(
     styles,
-    /\.trading-drawing-toolbar\s*\{[^}]*z-index: auto;[^}]*width: 41\.6px;[^}]*border-right: 0;/s,
+    /\.trading-drawing-toolbar\s*\{[^}]*width: var\(--trading-drawing-toolbar-width\);[^}]*border-right: 1px solid/s,
   );
   assert.match(styles, /\.trading-drawing-toolbar-scroll\s*\{[^}]*position: relative;[^}]*z-index: 40;/s);
-  assert.match(styles, /\.trading-drawing-tool-menu\s*\{[^}]*position: absolute;[^}]*z-index: 110;/s);
+  assert.match(styles, /\.trading-drawing-tool-menu\s*\{[^}]*position: fixed;[^}]*z-index: 110;/s);
   assert.match(
     styles,
     /\.desktop-body\.trading-expert-layout \.trading-market-content > \.trading-market-overview\s*\{[^}]*padding-right: 64px;/s,
@@ -1551,10 +1544,6 @@ test("drawing toolbar header removes the exit divider and aligns the symbol to i
   assert.match(
     styles,
     /\.desktop-body\.trading-expert-layout \.trading-market-content > \.trading-market-overview\s*\{[^}]*padding-right: 64px;[^}]*padding-left: 0;/s,
-  );
-  assert.match(
-    styles,
-    /\.desktop-body\.trading-expert-layout\.left-panel-collapsed:not\(\.trading-expert-chart-collapsed\)[\s\S]*?\.trading-market-content > \.trading-market-overview\s*\{[^}]*width: calc\(100% \+ 41\.6px\);[^}]*margin-left: -41\.6px;[^}]*padding-left: 36px;/s,
   );
   assert.doesNotMatch(styles, /trading-drawing-exit/);
   assert.doesNotMatch(main, /exitTradingExpertWorkspace|exit-trading-expert/);
@@ -1619,12 +1608,38 @@ test("every visible split pane runs the requested analysis and plays its own dra
   assert.match(market, /const snapshot = snapshots\[cursor\]/);
   assert.match(market, /const response = await options\.analyze\(snapshot\)/);
   assert.match(market, /await commitTradingAnalysisDrawingPatch\([\s\S]*?snapshot\.paneIndex/);
+  assert.match(market, /failures\.push\(\{\s*paneIndex: snapshot\.paneIndex,[\s\S]*?message: String\(\(error as Error\)\?\.message/);
   assert.match(market, /主图分析继续有效；已纳入 \$\{completed\} 个辅助分屏，另有 \$\{failed\} 个辅助分屏暂未参与结论/);
+  assert.match(market, /splitResult\.failures\.length[\s\S]*?This auxiliary chart was not included; the primary analysis and answer remain available/);
   assert.match(market, /analysisProgressPhase: string;[\s\S]*?drawingProgressPhase: string;/);
   assert.match(market, /分析完成，正在逐笔落图/);
-  assert.equal((market.match(/await this\.runSplitPaneAnalyses\(\{/g) || []).length, 5);
-  assert.equal((market.match(/report: combineTradingAnalysisReports\(/g) || []).length, 6);
-  assert.equal((market.match(/narrative: combineTradingAnalysisNarratives\(/g) || []).length, 5);
+  // Check each analysis entry independently. A separate local-recovery report
+  // must neither inflate this count nor conceal a missing split-pane entry.
+  const parsed = ts.createSourceFile("market.ts", market, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const entries = new Set([
+    "runGeneralConversation", "runChanConversation", "runWaveConversation",
+    "runWyckoffConversation", "runOrderFlowConversation",
+  ]);
+  const visit = (node) => {
+    if (ts.isMethodDeclaration(node) && entries.has(node.name.getText(parsed))) {
+      const name = node.name.getText(parsed);
+      entries.delete(name);
+      const calls = [];
+      const collect = (child) => {
+        if (ts.isCallExpression(child)) calls.push(child);
+        ts.forEachChild(child, collect);
+      };
+      collect(node);
+      assert.equal(calls.filter((call) => call.expression.getText(parsed) === "this.runSplitPaneAnalyses").length, 1, name);
+      for (const combine of ["combineTradingAnalysisReports", "combineTradingAnalysisNarratives"]) {
+        assert.equal(calls.filter((call) => call.expression.getText(parsed) === combine
+          && call.arguments.some((argument) => argument.getText(parsed) === "splitResult")).length, 1, `${name}: ${combine}`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  assert.deepEqual([...entries], [], "all five analysis entry points must exist");
   assert.match(market, /const api:[\s\S]{0,160}= strategyId[\s\S]{0,240}runTradingStrategyAnalysis/);
   assert.match(market, /runTradingStrategyAnalysis![\s\S]{0,220}strategyId,[\s\S]{0,160}: window\.codexDesktop\.runTradingGeneralAnalysis/);
   assert.doesNotMatch(market, /strategyId === "price-action"[\s\S]{0,160}runTradingGeneralAnalysis/);

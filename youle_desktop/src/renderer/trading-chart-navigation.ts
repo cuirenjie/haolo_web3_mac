@@ -109,7 +109,7 @@ export class TradingChartNavigation {
   private readonly controlsVisibility: TradingChartToolbarVisibility;
   private controlsDrag: { pointerId: number; start: Point; origin: Point; moved: boolean } | null = null;
   private suppressControlClick = false;
-  private verticalLocked = false;
+  private verticalLocked = true;
   private freezeAutoNextFrame = false;
   private pendingWheelZoom: { logFactor: number; anchor: number } | null = null;
   private tool: Tool = null;
@@ -173,7 +173,7 @@ export class TradingChartNavigation {
       button.setAttribute("aria-label", button.title);
       if (action === "lock-vertical") {
         button.innerHTML = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="9" width="12" height="9" rx="2"/><path data-lock-shackle d="M7 9V6a3 3 0 0 1 6 0v3"/><path d="M10 12v3"/></svg>';
-        button.setAttribute("aria-pressed", "false");
+        button.setAttribute("aria-pressed", String(this.verticalLocked));
       }
       this.controls.append(button);
     }
@@ -208,7 +208,7 @@ export class TradingChartNavigation {
     this.timeScale?.subscribeSizeChange(this.viewportChanged);
     this.resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(this.viewportChanged);
     this.resizeObserver?.observe(element);
-    this.schedule();
+    this.applyVerticalLock();
   }
 
   getTool() { return this.tool; }
@@ -299,6 +299,10 @@ export class TradingChartNavigation {
   private toggleVerticalLock() {
     this.cancelGesture();
     this.verticalLocked = !this.verticalLocked;
+    this.applyVerticalLock();
+  }
+
+  private applyVerticalLock() {
     // Horizontal movement remains coalesced once per frame; that same frame
     // fits the new visible high/low instead of preserving a stale price range.
     const chart = this.getChart();
@@ -732,6 +736,8 @@ export class TradingChartNavigation {
   };
 
   private readonly doubleClick = (event: MouseEvent) => {
+    // Active drawing tools own double-click completion; do not maximize their pane.
+    if (event.target instanceof Element && event.target.closest('.trading-drawing-layer.drawing-active')) return;
     const pane = this.paneAt(event);
     const axisPane = !pane && this.paneAt(event, false);
     if (axisPane && !this.isControl(event.target)) {

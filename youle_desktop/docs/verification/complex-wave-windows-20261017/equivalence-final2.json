@@ -1,0 +1,12 @@
+{
+  "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+  "candleCount": 100,
+  "oldPromptBytes": 47706,
+  "newPromptBytes": 34131,
+  "candidateCount": 7,
+  "allCandidateActionPlansIdenticalExceptThreeDisplayStrings": true,
+  "allCandidateDrawingGeometryIdentical": true,
+  "decodedEvidenceIdentical": true,
+  "rawOhlcvIdentical": true,
+  "promptReductionPercent": 28.455540183624706
+}

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { errorSignals } from "../error-signals.mjs";
 import fs from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -314,7 +315,8 @@ function isNoFindingsFinal(value) {
 }
 
 function isAuthExpired(text) {
-  return /\b(401|403|unauthori[sz]ed|auth(?:entication)?\s+(?:expired|required|failed)|not\s+logged\s+in|login\s+again)\b/i.test(text || "");
+  return errorSignals(text).statuses.some((status) => [401, 403].includes(status))
+    || /\b(unauthori[sz]ed|auth(?:entication)?\s+(?:expired|required|failed)|not\s+logged\s+in|login\s+again)\b/i.test(text || "");
 }
 
 function isMissingCli(text, exitCode) {

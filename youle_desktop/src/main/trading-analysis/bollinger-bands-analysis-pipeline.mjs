@@ -1,3 +1,4 @@
+import { localizeTradingAnalysisResult, tradingReportTime, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { runBollingerBandsAnalysisEngine } from "./bollinger-bands-analysis-engine.mjs";
 import { TRADING_ANALYSIS_SCHEMA_VERSION, normalizeTradingMarketSnapshot, validateStrategyDrawingPatch } from "./protocol.mjs";
@@ -23,38 +24,38 @@ const REGIME_LABELS = Object.freeze({ squeeze: "缩口", expanding: "扩张", no
 
 export function buildBollingerBandsAnalysisReport(snapshot, result) {
   const patterns = result.patterns.length
-    ? result.patterns.map((item) => `- **${item.name}**：${item.detail}；由 ${new Date(snapshot.candles[item.startIndex].time * 1_000).toLocaleString("zh-CN", { hour12: false })} 至 ${new Date(snapshot.candles[item.endIndex].time * 1_000).toLocaleString("zh-CN", { hour12: false })}。`).join("\n")
-    : "- 最近窗口没有通过顺序、带宽、外轨和收盘确认的 M 顶、W 底、缩口突破或假突破；不强行命名。";
+    ? result.patterns.map((item) => tradingReportText("- **{0}**：{1}；由 {2} 至 {3}。", item.name, item.detail, tradingReportTime(snapshot.candles[item.startIndex].time * 1_000), tradingReportTime(snapshot.candles[item.endIndex].time * 1_000))).join("\n")
+    : tradingReportText("- 最近窗口没有通过顺序、带宽、外轨和收盘确认的 M 顶、W 底、缩口突破或假突破；不强行命名。");
   const action = result.actionPlan;
   const trigger = action.longTrigger || action.shortTrigger;
   const stop = action.longInvalidation || action.shortInvalidation;
   const targets = action.longTargets || action.shortTargets || [];
-  const walk = result.bandWalk ? `检测到 **${result.bandWalk.name}**：${result.bandWalk.detail}。沿带运行表示趋势证据，不等于追价信号。` : "当前没有满足重复触轨、外半带收盘比例和中轨斜率的沿带运行。";
+  const walk = result.bandWalk ? tradingReportText("检测到 **{0}**：{1}。沿带运行表示趋势证据，不等于追价信号。", result.bandWalk.name, result.bandWalk.detail) : tradingReportText("当前没有满足重复触轨、外半带收盘比例和中轨斜率的沿带运行。");
   return [
-    "## 布林带指标结论",
+    tradingReportText("## 布林带指标结论"),
     "",
-    `BOLL(20,2) 当前价格位于 **${LOCATION_LABELS[result.currentState.location]}**，带宽状态为 **${REGIME_LABELS[result.currentState.volatilityRegime]}**，中轨${result.currentState.middleSlope > 0.001 ? "上行" : result.currentState.middleSlope < -0.001 ? "下行" : "近似走平"}。`,
-    `上轨 ${price(result.currentState.upper)}；中轨 ${price(result.currentState.middle)}；下轨 ${price(result.currentState.lower)}；%B ${price(result.currentState.percentB)}；BandWidth ${percent(result.currentState.bandwidth)}；历史百分位 ${percent(result.currentState.bandwidthPercentile)}。`,
+    tradingReportText("BOLL(20,2) 当前价格位于 **{0}**，带宽状态为 **{1}**，中轨{2}。", LOCATION_LABELS[result.currentState.location], REGIME_LABELS[result.currentState.volatilityRegime], result.currentState.middleSlope > 0.001 ? tradingReportText("上行") : result.currentState.middleSlope < -0.001 ? tradingReportText("下行") : tradingReportText("近似走平")),
+    tradingReportText("上轨 {0}；中轨 {1}；下轨 {2}；%B {3}；BandWidth {4}；历史百分位 {5}。", price(result.currentState.upper), price(result.currentState.middle), price(result.currentState.lower), price(result.currentState.percentB), percent(result.currentState.bandwidth), percent(result.currentState.bandwidthPercentile)),
     "",
-    "### 结构与波动",
+    tradingReportText("### 结构与波动"),
     walk,
-    result.recentSqueeze ? `最近一次低带宽出现在 ${new Date(result.recentSqueeze.time * 1_000).toLocaleString("zh-CN", { hour12: false })}，BandWidth ${percent(result.recentSqueeze.bandwidth)}、百分位 ${percent(result.recentSqueeze.percentile)}；缩口本身不提供方向。` : "最近 12 根已收盘 K 线没有进入自身带宽历史的低 20% 区域。",
+    result.recentSqueeze ? tradingReportText("最近一次低带宽出现在 {0}，BandWidth {1}、百分位 {2}；缩口本身不提供方向。", tradingReportTime(result.recentSqueeze.time * 1_000), percent(result.recentSqueeze.bandwidth), percent(result.recentSqueeze.percentile)) : tradingReportText("最近 12 根已收盘 K 线没有进入自身带宽历史的低 20% 区域。"),
     "",
-    "### 经典形态",
+    tradingReportText("### 经典形态"),
     patterns,
     "",
-    "### 当前执行方案",
-    `- 当前动作：**等待条件触发**；方向为${action.primaryBias === "bullish" ? "偏多" : action.primaryBias === "bearish" ? "偏空" : "中性"}。单次触轨不能触发下单。`,
-    trigger ? `- 收盘再确认：${action.primaryBias === "bullish" ? "站上" : "跌破"} ${price(trigger)}；结构失效/止损参考 ${price(stop)}。` : "- 尚无完整的方向、触发与失效组合，不生成虚假入场价。",
-    targets.length ? `- 分批目标：T1 ${price(targets[0])}；T2 ${price(targets[1])}；只在触发后按真实成交价重新核对风险收益。` : "- 方向未确认前不生成虚假止盈价。",
-    `- 确认：${action.confirmation}`,
-    `- 继续观察：${action.observeTrigger}`,
-    "- 仓位：单笔预设最大风险约账户权益 1%；缺少权益、合约乘数和最小数量时不生成仓位数量。",
-    "- 有效期与取消：最多四个当前周期；收回结构内部、相反方向越轨确认、失效位触发、数据过期或目标/止损到达即取消。",
+    tradingReportText("### 当前执行方案"),
+    tradingReportText("- 当前动作：**等待条件触发**；方向为{0}。单次触轨不能触发下单。", action.primaryBias === "bullish" ? tradingReportText("偏多") : action.primaryBias === "bearish" ? tradingReportText("偏空") : tradingReportText("中性")),
+    trigger ? tradingReportText("- 收盘再确认：{0} {1}；结构失效/止损参考 {2}。", action.primaryBias === "bullish" ? tradingReportText("站上") : tradingReportText("跌破"), price(trigger), price(stop)) : tradingReportText("- 尚无完整的方向、触发与失效组合，不生成虚假入场价。"),
+    targets.length ? tradingReportText("- 分批目标：T1 {0}；T2 {1}；只在触发后按真实成交价重新核对风险收益。", price(targets[0]), price(targets[1])) : tradingReportText("- 方向未确认前不生成虚假止盈价。"),
+    tradingReportText("- 确认：{0}", action.confirmation),
+    tradingReportText("- 继续观察：{0}", action.observeTrigger),
+    tradingReportText("- 仓位：单笔预设最大风险约账户权益 1%；缺少权益、合约乘数和最小数量时不生成仓位数量。"),
+    tradingReportText("- 有效期与取消：最多四个当前周期；收回结构内部、相反方向越轨确认、失效位触发、数据过期或目标/止损到达即取消。"),
     "",
-    "### 数据与限制",
-    `本次使用 ${result.closedCandleCount} 根 ${snapshot.interval} 已收盘 K 线，排除 ${result.excludedLiveCandles} 根未收盘 K 线。原生主图 BOLL 与分析引擎共同使用 SMA(20) 和 2 倍总体标准差。`,
-    "布林带描述相对高低与波动状态，不证明超买超卖，不保证缩口后的方向，也不构成收益承诺或自动订单。",
+    tradingReportText("### 数据与限制"),
+    tradingReportText("本次使用 {0} 根 {1} 已收盘 K 线，排除 {2} 根未收盘 K 线。原生主图 BOLL 与分析引擎共同使用 SMA(20) 和 2 倍总体标准差。", result.closedCandleCount, snapshot.interval, result.excludedLiveCandles),
+    tradingReportText("布林带描述相对高低与波动状态，不证明超买超卖，不保证缩口后的方向，也不构成收益承诺或自动订单。"),
   ].join("\n");
 }
 
@@ -102,14 +103,14 @@ export function buildBollingerBandsAnalysisDrawingPatch(snapshot, result) {
     const marker = snapshot.candles[item.confirmationIndex];
     const width = result.series.upper[item.confirmationIndex] - result.series.lower[item.confirmationIndex];
     const labelPrice = item.bias === "bullish" ? marker.low - width * 0.15 : marker.high + width * 0.15;
-    operations.push(operation(analysisId, `${item.id}-label`, "note", "note", [{ time: marker.time, price: Math.max(labelPrice, Number.EPSILON) }], `${item.name} · 收盘确认`, [item.id]));
+    operations.push(operation(analysisId, `${item.id}-label`, "note", "note", [{ time: marker.time, price: Math.max(labelPrice, Number.EPSILON) }], tradingReportText("{0} · 收盘确认", item.name), [item.id]));
   }
   if (result.recentSqueeze && !result.patterns.some((item) => item.startIndex === result.recentSqueeze.index)) {
     const startIndex = result.recentSqueeze.index;
     const endIndex = Math.min(result.closedCandleCount - 1, startIndex + 6);
     const upper = Math.max(...result.series.upper.slice(startIndex, endIndex + 1).filter(Number.isFinite));
     const lower = Math.min(...result.series.lower.slice(startIndex, endIndex + 1).filter(Number.isFinite));
-    operations.push(operation(analysisId, "recent-squeeze", "primary", "rectangle", [{ time: snapshot.candles[startIndex].time, price: upper }, { time: snapshot.candles[endIndex].time, price: lower }], "缩口观察区 · 等待方向", [result.recentSqueeze.id], { lineWidth: 1 }));
+    operations.push(operation(analysisId, "recent-squeeze", "primary", "rectangle", [{ time: snapshot.candles[startIndex].time, price: upper }, { time: snapshot.candles[endIndex].time, price: lower }], tradingReportText("缩口观察区 · 等待方向"), [result.recentSqueeze.id], { lineWidth: 1 }));
   }
   if (result.bandWalk) {
     const seriesKey = result.bandWalk.bias === "bullish" ? "upper" : "lower";
@@ -120,15 +121,15 @@ export function buildBollingerBandsAnalysisDrawingPatch(snapshot, result) {
   const start = snapshot.candles[Math.max(0, result.closedCandleCount - 36)];
   const end = snapshot.candles[result.closedCandleCount - 1];
   const level = (suffix, role, value, label) => Number.isFinite(value) && value > 0 && operations.push(operation(analysisId, suffix, role, "path", [{ time: start.time, price: value }, { time: end.time, price: value }], `${label} ${price(value)}`, evidenceIds));
-  level("long-trigger", "entry", action.longTrigger, "多头收盘触发");
-  level("short-trigger", "entry", action.shortTrigger, "空头收盘触发");
-  level("long-stop", "stop", action.longInvalidation, "多头失效");
-  level("short-stop", "stop", action.shortInvalidation, "空头失效");
+  level("long-trigger", "entry", action.longTrigger, tradingReportText("多头收盘触发"));
+  level("short-trigger", "entry", action.shortTrigger, tradingReportText("空头收盘触发"));
+  level("long-stop", "stop", action.longInvalidation, tradingReportText("多头失效"));
+  level("short-stop", "stop", action.shortInvalidation, tradingReportText("空头失效"));
   (action.longTargets || action.shortTargets || []).forEach((value, index) => level(`target-${index}`, "target", value, `T${index + 1}`));
   if (!operations.length) {
     const latest = snapshot.candles[result.closedCandleCount - 1];
     const width = result.currentState.upper - result.currentState.lower;
-    operations.push(operation(analysisId, "summary", "note", "note", [{ time: latest.time, price: latest.high + width * 0.12 }], "布林带：暂无可执行形态，继续等待", evidenceIds, { status: "tentative" }));
+    operations.push(operation(analysisId, "summary", "note", "note", [{ time: latest.time, price: latest.high + width * 0.12 }], tradingReportText("布林带：暂无可执行形态，继续等待"), evidenceIds, { status: "tentative" }));
   }
   return validateStrategyDrawingPatch({
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
@@ -140,7 +141,7 @@ export function buildBollingerBandsAnalysisDrawingPatch(snapshot, result) {
   }, snapshot, STRATEGY_ID);
 }
 
-export async function runBollingerBandsAnalysisPipeline(params) {
+async function runBollingerBandsAnalysisPipelineInternal(params) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runBollingerBandsAnalysisEngine(snapshot);
   const drawingPatch = buildBollingerBandsAnalysisDrawingPatch(snapshot, theoryResult);
@@ -177,4 +178,8 @@ export async function runBollingerBandsAnalysisPipeline(params) {
       finishReason: "deterministic-succeeded",
     },
   };
+}
+
+export async function runBollingerBandsAnalysisPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runBollingerBandsAnalysisPipelineInternal(params, options), params?.language));
 }

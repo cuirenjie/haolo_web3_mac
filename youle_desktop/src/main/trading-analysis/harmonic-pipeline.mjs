@@ -1,3 +1,5 @@
+import { completeTradingModelProse } from "./model-output-language.mjs";
+import { localizeTradingAnalysisResult, tradingReportTime, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { HARMONIC_ENGINE_ID, runHarmonicPatternEngine } from "./harmonic-engine.mjs";
 import { runValidatedTradingModelReview } from "./model-review.mjs";
@@ -29,11 +31,11 @@ function formatRatio(value) {
 }
 
 function formatTime(seconds) {
-  return new Date(Number(seconds) * 1_000).toLocaleString("zh-CN", { hour12: false });
+  return tradingReportTime(Number(seconds) * 1_000);
 }
 
 function modelNarrative(value, field, max) {
-  const result = String(value || "").replace(/\u0000/g, "").trim().slice(0, max);
+  const result = completeTradingModelProse(value, field, Math.max(max, 2_000));
   if (/[0-9０-９]/u.test(result)) {
     throw new TypeError(`Model response ${field} must not contain numeric claims`);
   }
@@ -45,15 +47,15 @@ function candidateById(theoryResult, candidateId) {
 }
 
 function directionLabel(direction) {
-  return direction === "bullish" ? "看涨反转" : "看跌反转";
+  return direction === "bullish" ? tradingReportText("看涨反转") : tradingReportText("看跌反转");
 }
 
 function statusLabel(candidate) {
-  const terminalLabel = candidate.terminalLabel || candidate.points.at(-1)?.label || "终点";
-  if (candidate.tradeState === "completed") return "第二目标已到达，原方案结束";
-  if (candidate.tradeState === "partial-target-reached") return "第一目标已到达，不追价";
-  if (candidate.status === "confirmed") return `${terminalLabel} 点后的已收盘 K 线已确认反转`;
-  return `${terminalLabel} 点已进入 PRZ，仍等待 Terminal Bar 后确认`;
+  const terminalLabel = candidate.terminalLabel || candidate.points.at(-1)?.label || tradingReportText("终点");
+  if (candidate.tradeState === "completed") return tradingReportText("第二目标已到达，原方案结束");
+  if (candidate.tradeState === "partial-target-reached") return tradingReportText("第一目标已到达，不追价");
+  if (candidate.status === "confirmed") return tradingReportText("{0} 点后的已收盘 K 线已确认反转", terminalLabel);
+  return tradingReportText("{0} 点已进入 PRZ，仍等待 Terminal Bar 后确认", terminalLabel);
 }
 
 function measurementText(candidate) {
@@ -66,9 +68,9 @@ function measurementText(candidate) {
 }
 
 function targetBasisText(candidate) {
-  if (candidate.patternId === "shark") return "C→B 的 50% / 61.8% 主动管理回撤目标";
-  if (candidate.patternId === "cypher") return "D→C 的 38.2% / 61.8% 回撤目标";
-  return "D→A 的 38.2% / 61.8% 回撤目标";
+  if (candidate.patternId === "shark") return tradingReportText("C→B 的 50% / 61.8% 主动管理回撤目标");
+  if (candidate.patternId === "cypher") return tradingReportText("D→C 的 38.2% / 61.8% 回撤目标");
+  return tradingReportText("D→A 的 38.2% / 61.8% 回撤目标");
 }
 
 function harmonicAnalysisId(snapshot, purpose, ...parts) {
@@ -220,9 +222,9 @@ export function normalizeHarmonicModelReview(text, theoryResult) {
 export function buildHarmonicAnalysisReport(snapshot, theoryResult, review, context = {}) {
   const candidate = candidateById(theoryResult, review.primaryCandidateId)
     || theoryResult.structures.primaryCandidate;
-  if (!candidate) return "当前没有通过规则验证的谐波形态。";
+  if (!candidate) return tradingReportText("当前没有通过规则验证的谐波形态。");
   if (context.responseMode === "direct" && review.report) {
-    return [review.report, "", `确定性状态：${candidate.patternName} ${directionLabel(candidate.direction)}，${statusLabel(candidate)}。`].join("\n");
+    return [review.report, "", tradingReportText("确定性状态：{0} {1}，{2}。", candidate.patternName, directionLabel(candidate.direction), statusLabel(candidate))].join("\n");
   }
   const pointText = candidate.points
     .map((point) => `${point.label}=${formatPrice(point.price)}（${formatTime(point.time)}）`)
@@ -230,55 +232,55 @@ export function buildHarmonicAnalysisReport(snapshot, theoryResult, review, cont
   const [target1, target2] = candidate.actionLevels.targets;
   const bullish = candidate.direction === "bullish";
   const topologyLabels = candidate.points.map((point) => point.label).join("-");
-  const przComponents = candidate.prz.components?.join("、") || "所属形态的确定性投影";
+  const przComponents = candidate.prz.components?.join("、") || tradingReportText("所属形态的确定性投影");
   return [
-    "## 谐波形态结论",
+    tradingReportText("## 谐波形态结论"),
     "",
-    `识别到 **${candidate.patternName} ${directionLabel(candidate.direction)}**；${statusLabel(candidate)}。${review.summary}`,
+    tradingReportText("识别到 **{0} {1}**；{2}。{3}", candidate.patternName, directionLabel(candidate.direction), statusLabel(candidate), review.summary),
     "",
-    "### 形态与 PRZ",
+    tradingReportText("### 形态与 PRZ"),
     `- ${topologyLabels}：${pointText}`,
-    `- 比例：${measurementText(candidate)}。`,
-    `- 潜在反转区 PRZ：${formatPrice(candidate.prz.low)}–${formatPrice(candidate.prz.high)}；${przComponents}在此收敛。`,
+    tradingReportText("- 比例：{0}。", measurementText(candidate)),
+    tradingReportText("- 潜在反转区 PRZ：{0}–{1}；{2}在此收敛。", formatPrice(candidate.prz.low), formatPrice(candidate.prz.high), przComponents),
     "",
-    "### 条件式执行",
-    `- 当前条件：${candidate.status === "confirmed" ? "Terminal Bar 后确认已出现，但仍需避免远离 PRZ 后追价。" : "只到达 PRZ 还不能入场，继续等待 Terminal Bar 后的已收盘反转确认。"}`,
-    `- 方向与触发：${bullish ? "偏多" : "偏空"}；已收盘 K 线${bullish ? "向上" : "向下"}突破 ${formatPrice(candidate.actionLevels.trigger)}，回踩/反抽不重新失守后才执行。`,
-    `- 止损/失效参考：${formatPrice(candidate.actionLevels.stop)}；这是 PRZ 外侧的确定性风险缓冲，不是收益保证。`,
-    `- 分批目标：T1 ${formatPrice(target1)}；T2 ${formatPrice(target2)}；依据为${targetBasisText(candidate)}。`,
-    `- 模型复核：${review.rationale || "主候选保持确定性排序；模型未增加任何点位或价格。"}`,
+    tradingReportText("### 条件式执行"),
+    tradingReportText("- 当前条件：{0}", candidate.status === "confirmed" ? tradingReportText("Terminal Bar 后确认已出现，但仍需避免远离 PRZ 后追价。") : tradingReportText("只到达 PRZ 还不能入场，继续等待 Terminal Bar 后的已收盘反转确认。")),
+    tradingReportText("- 方向与触发：{0}；已收盘 K 线{1}突破 {2}，回踩/反抽不重新失守后才执行。", bullish ? tradingReportText("偏多") : tradingReportText("偏空"), bullish ? tradingReportText("向上") : tradingReportText("向下"), formatPrice(candidate.actionLevels.trigger)),
+    tradingReportText("- 止损/失效参考：{0}；这是 PRZ 外侧的确定性风险缓冲，不是收益保证。", formatPrice(candidate.actionLevels.stop)),
+    tradingReportText("- 分批目标：T1 {0}；T2 {1}；依据为{2}。", formatPrice(target1), formatPrice(target2), targetBasisText(candidate)),
+    tradingReportText("- 模型复核：{0}", review.rationale || tradingReportText("主候选保持确定性排序；模型未增加任何点位或价格。")),
     "",
-    "### 数据与限制",
-    `本次使用 ${snapshot.candles.length} 根 ${snapshot.interval} 已收盘 K 线。摆动点、比例、PRZ 和价格均可由相同输入复算；模型只负责候选排序和文字解释。`,
-    "形态识别不等于胜率，PRZ 也不是必然反转点。方案过期、止损位被收盘穿越、数据变化或目标已到达后必须重新分析。",
+    tradingReportText("### 数据与限制"),
+    tradingReportText("本次使用 {0} 根 {1} 已收盘 K 线。摆动点、比例、PRZ 和价格均可由相同输入复算；模型只负责候选排序和文字解释。", snapshot.candles.length, snapshot.interval),
+    tradingReportText("形态识别不等于胜率，PRZ 也不是必然反转点。方案过期、止损位被收盘穿越、数据变化或目标已到达后必须重新分析。"),
   ].join("\n");
 }
 
 export function buildHarmonicNoCandidateReport(snapshot, theoryResult) {
   const swings = theoryResult.pivots.swings.slice(-5);
   const swingText = swings.length
-    ? swings.map((point) => `${point.type === "high" ? "高" : "低"}点 ${formatPrice(point.price)}（${formatTime(point.time)}）`).join("，")
-    : "当前窗口没有形成可确认的交替摆动点";
+    ? swings.map((point) => tradingReportText("{0}点 {1}（{2}）", point.type === "high" ? tradingReportText("高") : tradingReportText("低"), formatPrice(point.price), formatTime(point.time))).join("，")
+    : tradingReportText("当前窗口没有形成可确认的交替摆动点");
   return [
-    "## 谐波扫描结论",
+    tradingReportText("## 谐波扫描结论"),
     "",
-    "本次扫描已经正常完成；结果是**当前没有合格谐波候选**，不是系统分析失败。",
+    tradingReportText("本次扫描已经正常完成；结果是**当前没有合格谐波候选**，不是系统分析失败。"),
     "",
-    "### 扫描结果",
-    `- 数据范围：${snapshot.candles.length} 根 ${snapshot.interval} 已收盘 K 线。`,
-    `- 摆动点：${theoryResult.pivots.scanProfiles?.length || 1} 个尺度累计原始 ${theoryResult.pivots.rawCount} 个，压缩后 ${theoryResult.pivots.compactCount} 个。`,
-    "- 已逐一检查：Gartley、Bat、Butterfly、Crab、Deep Crab、Shark、Cypher 的多空结构。",
-    "- 淘汰结论：当前没有五点序列能够同时通过所属拓扑、全部硬比例、PRZ 收敛与未失效检查，因此不会强行命名形态或编造 PRZ。",
-    `- 最近观察摆动：${swingText}。`,
+    tradingReportText("### 扫描结果"),
+    tradingReportText("- 数据范围：{0} 根 {1} 已收盘 K 线。", snapshot.candles.length, snapshot.interval),
+    tradingReportText("- 摆动点：{0} 个尺度累计原始 {1} 个，压缩后 {2} 个。", theoryResult.pivots.scanProfiles?.length || 1, theoryResult.pivots.rawCount, theoryResult.pivots.compactCount),
+    tradingReportText("- 已逐一检查：Gartley、Bat、Butterfly、Crab、Deep Crab、Shark、Cypher 的多空结构。"),
+    tradingReportText("- 淘汰结论：当前没有五点序列能够同时通过所属拓扑、全部硬比例、PRZ 收敛与未失效检查，因此不会强行命名形态或编造 PRZ。"),
+    tradingReportText("- 最近观察摆动：{0}。", swingText),
     "",
-    "### 当前执行方案",
-    "- 当前动作：不交易，等待新的已确认摆动点或新的已收盘 K 线后重扫。",
-    "- 入场、止损和目标：当前均不生成；缺少合格候选时给出具体价位会制造虚假精度。",
-    "- 重新分析条件：出现新的局部高低点、价格完成新的回撤/延伸腿，或切换到用户明确指定的更长观察范围。",
-    "- 取消条件：在没有完整候选与 Terminal Bar 后确认前，任何主观猜测都不进入执行阶段。",
+    tradingReportText("### 当前执行方案"),
+    tradingReportText("- 当前动作：不交易，等待新的已确认摆动点或新的已收盘 K 线后重扫。"),
+    tradingReportText("- 入场、止损和目标：当前均不生成；缺少合格候选时给出具体价位会制造虚假精度。"),
+    tradingReportText("- 重新分析条件：出现新的局部高低点、价格完成新的回撤/延伸腿，或切换到用户明确指定的更长观察范围。"),
+    tradingReportText("- 取消条件：在没有完整候选与 Terminal Bar 后确认前，任何主观猜测都不进入执行阶段。"),
     "",
-    "### 图上标记说明",
-    "紫色观察线仅连接最近的确定性摆动点，并明确标记为“未通过七形态全部硬规则”；它不是谐波形态、PRZ 或入场信号。",
+    tradingReportText("### 图上标记说明"),
+    tradingReportText("紫色观察线仅连接最近的确定性摆动点，并明确标记为“未通过七形态全部硬规则”；它不是谐波形态、PRZ 或入场信号。"),
   ].join("\n");
 }
 
@@ -294,26 +296,26 @@ export function buildHarmonicDevelopingReport(snapshot, theoryResult) {
   const topologyLabels = candidate.points.map((point) => point.label).join("-");
   const progressPercent = Math.max(0, Math.min(120, Math.round(candidate.progress.ratio * 100)));
   return [
-    "## 谐波形态结论",
+    tradingReportText("## 谐波形态结论"),
     "",
-    `识别到 **${candidate.patternName} ${directionLabel(candidate.direction)}的发展中结构**；前置拓扑和比例已通过，但 ${candidate.terminalLabel} 点尚未完成，因此这不是已完成形态或入场信号。`,
+    tradingReportText("识别到 **{0} {1}的发展中结构**；前置拓扑和比例已通过，但 {2} 点尚未完成，因此这不是已完成形态或入场信号。", candidate.patternName, directionLabel(candidate.direction), candidate.terminalLabel),
     "",
-    "### 已确认结构与预测 PRZ",
-    `- 已确认 ${topologyLabels}：${pointText}。`,
-    `- 已通过的前置比例：${measurementText(candidate)}。`,
-    `- 预测 ${candidate.terminalLabel} 点潜在反转区：${formatPrice(candidate.prz.low)}–${formatPrice(candidate.prz.high)}；投影组件为 ${candidate.prz.components.join("、")}。`,
-    `- 当前完成进度：价格从 ${candidate.points.at(-1).label} 腿向预测区推进约 ${progressPercent}%；该数值只描述路径进度，不代表成功概率。`,
-    ...(alternateNames.length ? [`- 分支歧义：同一前置结构也满足 ${alternateNames.join("、")} 的早期条件；必须由终点位置和最终比例决定名称，当前不提前定型。`] : []),
-    `- 扫描来源：${candidate.scan.profileId} 尺度，${candidate.scan.selectionMode === "consecutive" ? "连续结构摆动" : "已过滤次级噪声摆动"}。`,
+    tradingReportText("### 已确认结构与预测 PRZ"),
+    tradingReportText("- 已确认 {0}：{1}。", topologyLabels, pointText),
+    tradingReportText("- 已通过的前置比例：{0}。", measurementText(candidate)),
+    tradingReportText("- 预测 {0} 点潜在反转区：{1}–{2}；投影组件为 {3}。", candidate.terminalLabel, formatPrice(candidate.prz.low), formatPrice(candidate.prz.high), candidate.prz.components.join("、")),
+    tradingReportText("- 当前完成进度：价格从 {0} 腿向预测区推进约 {1}%；该数值只描述路径进度，不代表成功概率。", candidate.points.at(-1).label, progressPercent),
+    ...(alternateNames.length ? [tradingReportText("- 分支歧义：同一前置结构也满足 {0} 的早期条件；必须由终点位置和最终比例决定名称，当前不提前定型。", alternateNames.join("、"))] : []),
+    tradingReportText("- 扫描来源：{0} 尺度，{1}。", candidate.scan.profileId, candidate.scan.selectionMode === "consecutive" ? tradingReportText("连续结构摆动") : tradingReportText("已过滤次级噪声摆动")),
     "",
-    "### 当前执行方案",
-    "- 当前动作：等待，不交易。发展中结构不生成入场、止损、目标或仓位。",
-    `- 第一层条件：价格在预测 PRZ 附近形成可确认的 ${candidate.terminalLabel} 终点摆动，且结构没有明显越过预测区失效。`,
-    `- 第二层条件：${candidate.terminalLabel} 点 Terminal Bar 之后，出现方向相符的已收盘反转确认；届时必须用最新 K 线重算完整比例、PRZ、失效位与目标。`,
-    "- 取消条件：价格在终点形成前大幅越过预测 PRZ、前置摆动被新高/新低改写，或方案超过三个当前周期仍未完成。",
+    tradingReportText("### 当前执行方案"),
+    tradingReportText("- 当前动作：等待，不交易。发展中结构不生成入场、止损、目标或仓位。"),
+    tradingReportText("- 第一层条件：价格在预测 PRZ 附近形成可确认的 {0} 终点摆动，且结构没有明显越过预测区失效。", candidate.terminalLabel),
+    tradingReportText("- 第二层条件：{0} 点 Terminal Bar 之后，出现方向相符的已收盘反转确认；届时必须用最新 K 线重算完整比例、PRZ、失效位与目标。", candidate.terminalLabel),
+    tradingReportText("- 取消条件：价格在终点形成前大幅越过预测 PRZ、前置摆动被新高/新低改写，或方案超过三个当前周期仍未完成。"),
     "",
-    "### 数据与限制",
-    `本次使用 ${snapshot.candles.length} 根 ${snapshot.interval} 已收盘 K 线，并行扫描 ${theoryResult.pivots.scanProfiles?.length || 1} 个摆动尺度。预测 PRZ 是确定性投影，不是保证反转的价格。`,
+    tradingReportText("### 数据与限制"),
+    tradingReportText("本次使用 {0} 根 {1} 已收盘 K 线，并行扫描 {2} 个摆动尺度。预测 PRZ 是确定性投影，不是保证反转的价格。", snapshot.candles.length, snapshot.interval, theoryResult.pivots.scanProfiles?.length || 1),
   ].join("\n");
 }
 
@@ -490,8 +492,8 @@ export function buildHarmonicDrawingPatch(snapshot, theoryResult, review) {
   const lineStart = terminal.time < latest.time ? terminal.time : candidate.points[3].time;
   const lineEnd = Math.max(latest.time, terminal.time);
   const levels = [
-    ["entry", candidate.actionLevels.trigger, `确认 ${formatPrice(candidate.actionLevels.trigger)}`],
-    ["stop", candidate.actionLevels.stop, `失效 ${formatPrice(candidate.actionLevels.stop)}`],
+    ["entry", candidate.actionLevels.trigger, tradingReportText("确认 {0}", formatPrice(candidate.actionLevels.trigger))],
+    ["stop", candidate.actionLevels.stop, tradingReportText("失效 {0}", formatPrice(candidate.actionLevels.stop))],
     ["target", candidate.actionLevels.targets[0], `T1 ${formatPrice(candidate.actionLevels.targets[0])}`],
     ["target", candidate.actionLevels.targets[1], `T2 ${formatPrice(candidate.actionLevels.targets[1])}`],
   ];
@@ -522,7 +524,7 @@ export function buildHarmonicDrawingPatch(snapshot, theoryResult, review) {
     "note",
     "note",
     [candidate.points[0]],
-    `${candidate.patternName} ${directionLabel(candidate.direction)} · ${candidate.status === "confirmed" ? "已确认" : "待确认"}`,
+    `${candidate.patternName} ${directionLabel(candidate.direction)} · ${candidate.status === "confirmed" ? tradingReportText("已确认") : tradingReportText("待确认")}`,
   ));
   return validateStrategyDrawingPatch({
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
@@ -566,7 +568,7 @@ export function buildHarmonicNoCandidateDrawingPatch(snapshot, theoryResult) {
       layer: `ai/strategy/${STRATEGY_ID}`,
       tool: "note",
       points: [{ time: anchor.time, price: anchor.price }],
-      text: "观察摆动：未通过七形态全部硬规则",
+      text: tradingReportText("观察摆动：未通过七形态全部硬规则"),
       colorToken: "strategy-note",
       status: "tentative",
       evidenceIds,
@@ -622,7 +624,7 @@ export function buildHarmonicDevelopingDrawingPatch(snapshot, theoryResult) {
     candidate.direction === "bullish" ? "support" : "resistance",
     "rectangle",
     [{ time: lastPoint.time, price: candidate.prz.high }, { time: latest.time, price: candidate.prz.low }],
-    `预测 ${candidate.terminalLabel} PRZ ${formatPrice(candidate.prz.low)}–${formatPrice(candidate.prz.high)}（未完成）`,
+    tradingReportText("预测 {0} PRZ {1}–{2}（未完成）", candidate.terminalLabel, formatPrice(candidate.prz.low), formatPrice(candidate.prz.high)),
     candidate.evidenceIds,
     { status: "tentative", lineStyle: "dashed", lineWidth: 1.5 },
   ));
@@ -633,7 +635,7 @@ export function buildHarmonicDevelopingDrawingPatch(snapshot, theoryResult) {
     "note",
     "text",
     [projectedTerminal],
-    `${candidate.terminalLabel}? 预测`,
+    tradingReportText("{0}? 预测", candidate.terminalLabel),
     candidate.evidenceIds,
     { status: "tentative", fontSize: 11, bold: true },
   ));
@@ -644,7 +646,7 @@ export function buildHarmonicDevelopingDrawingPatch(snapshot, theoryResult) {
     "note",
     "note",
     [candidate.points[0]],
-    `${candidate.patternName} ${directionLabel(candidate.direction)} · 发展中`,
+    tradingReportText("{0} {1} · 发展中", candidate.patternName, directionLabel(candidate.direction)),
   ));
   return validateStrategyDrawingPatch({
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
@@ -656,7 +658,7 @@ export function buildHarmonicDevelopingDrawingPatch(snapshot, theoryResult) {
   }, snapshot, STRATEGY_ID);
 }
 
-export async function runTradingHarmonicAnalysisPipeline(params, options = {}) {
+async function runTradingHarmonicAnalysisPipelineInternal(params, options = {}) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runHarmonicPatternEngine(snapshot);
   options.onTheoryReady?.({ stage: "deterministic_theory", strategyId: "harmonic", snapshotId: snapshot.snapshotId, candleCount: snapshot.candles.length, evidenceCount: Array.isArray(theoryResult.evidence) ? theoryResult.evidence.length : 0 });
@@ -729,6 +731,8 @@ export async function runTradingHarmonicAnalysisPipeline(params, options = {}) {
   const providerId = String(options.providerId || "").trim();
   const requestId = `harmonic-request-${crypto.randomUUID()}`;
   const modelRequest = {
+    language: params?.language,
+    allowedLanguageLiterals: [snapshot.marketId, snapshot.marketId.split(":").at(-1), snapshot.marketId.split(":").at(-1)?.replace(/USDT$/, "")],
     schemaVersion: TRADING_ANALYSIS_SCHEMA_VERSION,
     requestId,
     task: "harmonic-pattern-review-and-drawing-plan",
@@ -785,4 +789,8 @@ export async function runTradingHarmonicAnalysisPipeline(params, options = {}) {
       escalationReason: reviewed.escalationReason,
     },
   };
+}
+
+export async function runTradingHarmonicAnalysisPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingHarmonicAnalysisPipelineInternal(params, options), params?.language));
 }

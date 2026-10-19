@@ -1,3 +1,4 @@
+import { localizeTradingAnalysisResult, tradingReportTime, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { runChartPatternEngine } from "./chart-pattern-engine.mjs";
 import {
@@ -23,29 +24,29 @@ function formatPrice(value) {
 }
 
 function formatTime(seconds) {
-  return new Date(Number(seconds) * 1_000).toLocaleString("zh-CN", { hour12: false });
+  return tradingReportTime(Number(seconds) * 1_000);
 }
 
 function categoryLabel(category) {
-  if (category === "reversal") return "反转形态";
-  if (category === "continuation") return "延续形态";
-  return "双向形态";
+  if (category === "reversal") return tradingReportText("反转形态");
+  if (category === "continuation") return tradingReportText("延续形态");
+  return tradingReportText("双向形态");
 }
 
 function directionLabel(direction) {
-  if (direction === "bullish") return "看涨";
-  if (direction === "bearish") return "看跌";
-  return "中性待突破";
+  if (direction === "bullish") return tradingReportText("看涨");
+  if (direction === "bearish") return tradingReportText("看跌");
+  return tradingReportText("中性待突破");
 }
 
 function lifecycleLabel(lifecycle) {
-  if (lifecycle === "confirmed") return "已由收盘突破确认";
-  if (lifecycle === "failed") return "已判定为假突破/失效";
-  if (lifecycle === "invalidated") return "已失效";
-  if (lifecycle === "completed") return "目标已完成，原方案结束";
-  if (lifecycle === "partial-target-reached") return "第一目标已到达，不再追价";
-  if (lifecycle === "expired") return "已过期";
-  return "结构成立，等待收盘突破";
+  if (lifecycle === "confirmed") return tradingReportText("已由收盘突破确认");
+  if (lifecycle === "failed") return tradingReportText("已判定为假突破/失效");
+  if (lifecycle === "invalidated") return tradingReportText("已失效");
+  if (lifecycle === "completed") return tradingReportText("目标已完成，原方案结束");
+  if (lifecycle === "partial-target-reached") return tradingReportText("第一目标已到达，不再追价");
+  if (lifecycle === "expired") return tradingReportText("已过期");
+  return tradingReportText("结构成立，等待收盘突破");
 }
 
 function isCurrentCandidate(candidate) {
@@ -125,47 +126,47 @@ export function buildChartPatternReport(snapshot, theoryResult) {
   if (!candidate) return buildChartPatternNoCandidateReport(snapshot, theoryResult);
   if (candidate.lifecycle === "failed") {
     return [
-      "## 图表形态扫描结论",
+      tradingReportText("## 图表形态扫描结论"),
       "",
-      `识别到 **${candidate.patternName}** 的历史结构，但突破后重新收回边界，当前按**假突破/失效**处理。分析已完成，不生成追单方案。`,
+      tradingReportText("识别到 **{0}** 的历史结构，但突破后重新收回边界，当前按**假突破/失效**处理。分析已完成，不生成追单方案。", candidate.patternName),
       "",
-      "### 失效证据",
-      `- 结构点：${pointSummary(candidate)}。`,
-      `- 首次突破：${formatTime(candidate.breakout.time)} 收于 ${formatPrice(candidate.breakout.close)}。`,
-      `- 重新收回：第 ${candidate.breakout.failedAtIndex + 1} 根输入 K 线重新进入结构边界。`,
+      tradingReportText("### 失效证据"),
+      tradingReportText("- 结构点：{0}。", pointSummary(candidate)),
+      tradingReportText("- 首次突破：{0} 收于 {1}。", formatTime(candidate.breakout.time), formatPrice(candidate.breakout.close)),
+      tradingReportText("- 重新收回：第 {0} 根输入 K 线重新进入结构边界。", candidate.breakout.failedAtIndex + 1),
       "",
-      "### 当前执行方案",
-      "- 当前动作：取消原触发，不交易。",
-      "- 重新分析：等待新的边界、触点和已收盘突破形成后再计算止损与目标。",
+      tradingReportText("### 当前执行方案"),
+      tradingReportText("- 当前动作：取消原触发，不交易。"),
+      tradingReportText("- 重新分析：等待新的边界、触点和已收盘突破形成后再计算止损与目标。"),
     ].join("\n");
   }
   const bilateralDeveloping = candidate.category === "bilateral" && candidate.direction === "neutral";
   const levels = candidate.actionLevels;
   return [
-    "## 图表形态结论",
+    tradingReportText("## 图表形态结论"),
     "",
-    `识别到 **${candidate.patternName}**（${categoryLabel(candidate.category)}，${directionLabel(candidate.direction)}）；${lifecycleLabel(candidate.lifecycle)}。`,
+    tradingReportText("识别到 **{0}**（{1}，{2}）；{3}。", candidate.patternName, categoryLabel(candidate.category), directionLabel(candidate.direction), lifecycleLabel(candidate.lifecycle)),
     "",
-    "### 结构与确认",
-    `- 结构点：${pointSummary(candidate)}。`,
-    `- 几何状态：${candidate.points.length} 个已确认触点，形态高度 ${formatPrice(candidate.height)}，规则得分 ${(candidate.score * 100).toFixed(1)}%。`,
-    `- 突破状态：${candidate.lifecycle === "confirmed" ? `${formatTime(candidate.breakout.time)} 的已收盘 K 线向${candidate.breakout.direction === "up" ? "上" : "下"}突破 ${formatPrice(candidate.breakout.boundary)}` : "尚未出现越过波动缓冲的有效收盘突破，盘中影线不计确认"}。`,
+    tradingReportText("### 结构与确认"),
+    tradingReportText("- 结构点：{0}。", pointSummary(candidate)),
+    tradingReportText("- 几何状态：{0} 个已确认触点，形态高度 {1}，规则得分 {2}%。", candidate.points.length, formatPrice(candidate.height), (candidate.score * 100).toFixed(1)),
+    tradingReportText("- 突破状态：{0}。", candidate.lifecycle === "confirmed" ? tradingReportText("{0} 的已收盘 K 线向{1}突破 {2}", formatTime(candidate.breakout.time), candidate.breakout.direction === "up" ? tradingReportText("上") : tradingReportText("下"), formatPrice(candidate.breakout.boundary)) : tradingReportText("尚未出现越过波动缓冲的有效收盘突破，盘中影线不计确认")),
     "",
-    "### 条件式执行",
+    tradingReportText("### 条件式执行"),
     ...(bilateralDeveloping ? [
-      `- 当前方向：中性；向上收盘突破 ${formatPrice(candidate.longLevels.trigger)} 才启用多头场景，向下收盘突破 ${formatPrice(candidate.shortLevels.trigger)} 才启用空头场景。`,
-      `- 多头失效/目标：止损参考 ${formatPrice(candidate.longLevels.stop)}；T1 ${formatPrice(candidate.longLevels.targets[0])}；T2 ${formatPrice(candidate.longLevels.targets[1])}。`,
-      `- 空头失效/目标：止损参考 ${formatPrice(candidate.shortLevels.stop)}；T1 ${formatPrice(candidate.shortLevels.targets[0])}；T2 ${formatPrice(candidate.shortLevels.targets[1])}。`,
+      tradingReportText("- 当前方向：中性；向上收盘突破 {0} 才启用多头场景，向下收盘突破 {1} 才启用空头场景。", formatPrice(candidate.longLevels.trigger), formatPrice(candidate.shortLevels.trigger)),
+      tradingReportText("- 多头失效/目标：止损参考 {0}；T1 {1}；T2 {2}。", formatPrice(candidate.longLevels.stop), formatPrice(candidate.longLevels.targets[0]), formatPrice(candidate.longLevels.targets[1])),
+      tradingReportText("- 空头失效/目标：止损参考 {0}；T1 {1}；T2 {2}。", formatPrice(candidate.shortLevels.stop), formatPrice(candidate.shortLevels.targets[0]), formatPrice(candidate.shortLevels.targets[1])),
     ] : [
-      `- 方向与触发：${directionLabel(candidate.direction)}；${candidate.lifecycle === "confirmed" ? "突破已出现，仍需观察回踩/反抽是否守住" : "等待收盘确认"} ${formatPrice(levels.trigger)}。`,
-      `- 止损/失效：${formatPrice(levels.stop)}；收盘重新进入形态或触及结构失效位即取消。`,
-      `- 分批目标：T1 ${formatPrice(levels.targets[0])}；T2 ${formatPrice(levels.targets[1])}；按${candidate.patternId.includes("flag") || candidate.patternId.includes("pennant") ? "旗杆长度" : "形态高度"}的 61.8% / 100% 投射。`,
+      tradingReportText("- 方向与触发：{0}；{1} {2}。", directionLabel(candidate.direction), candidate.lifecycle === "confirmed" ? tradingReportText(candidate.direction === "bullish" ? "突破已出现，回踩后价格须继续高于" : "突破已出现，反抽后价格须继续低于") : tradingReportText("等待收盘确认"), formatPrice(levels.trigger)),
+      tradingReportText("- 止损/失效：{0}；收盘重新进入形态或触及结构失效位即取消。", formatPrice(levels.stop)),
+      tradingReportText("- 分批目标：T1 {0}；T2 {1}；按{2}的 61.8% / 100% 投射。", formatPrice(levels.targets[0]), formatPrice(levels.targets[1]), candidate.patternId.includes("flag") || candidate.patternId.includes("pennant") ? tradingReportText("旗杆长度") : tradingReportText("形态高度")),
     ]),
-    "- 方案有效期：三个当前周期；未触发、发生假突破或输入数据变化后必须重算。",
+    tradingReportText("- 方案有效期：三个当前周期；未触发、发生假突破或输入数据变化后必须重算。"),
     "",
-    "### 数据与限制",
-    `本次使用 ${snapshot.candles.length} 根 ${snapshot.interval} 已收盘 K 线，并行扫描 ${theoryResult.pivots.profiles.length} 个摆动尺度和 ${theoryResult.engine.subengines.length} 个独立类别子引擎。`,
-    "图表形态提供条件和风险边界，不保证趋势、目标或收益；执行前仍需核对交易所规格、滑点和账户风险。",
+    tradingReportText("### 数据与限制"),
+    tradingReportText("本次使用 {0} 根 {1} 已收盘 K 线，并行扫描 {2} 个摆动尺度和 {3} 个独立类别子引擎。", snapshot.candles.length, snapshot.interval, theoryResult.pivots.profiles.length, theoryResult.engine.subengines.length),
+    tradingReportText("图表形态提供条件和风险边界，不保证趋势、目标或收益；执行前仍需核对交易所规格、滑点和账户风险。"),
   ].join("\n");
 }
 
@@ -174,25 +175,25 @@ export function buildChartPatternNoCandidateReport(snapshot, theoryResult) {
   const historicalCandidates = theoryResult.structures?.historicalCandidates || [];
   const latestHistorical = historicalCandidates[0] || null;
   const swingText = swings.length
-    ? swings.map((point) => `${point.type === "high" ? "高" : "低"}点 ${formatPrice(point.price)}`).join("，")
-    : "当前窗口没有足够的交替摆动点";
+    ? swings.map((point) => tradingReportText("{0}点 {1}", point.type === "high" ? tradingReportText("高") : tradingReportText("低"), formatPrice(point.price))).join("，")
+    : tradingReportText("当前窗口没有足够的交替摆动点");
   return [
-    "## 图表形态扫描结论",
+    tradingReportText("## 图表形态扫描结论"),
     "",
-    "扫描已经正常完成；当前没有同时通过先前趋势、几何触点、ATR 深度和边界规则的合格形态。这不是分析失败。",
+    tradingReportText("扫描已经正常完成；当前没有同时通过先前趋势、几何触点、ATR 深度和边界规则的合格形态。这不是分析失败。"),
     "",
-    "### 扫描范围",
-    `- 数据：${snapshot.candles.length} 根 ${snapshot.interval} 已收盘 K 线。`,
-    `- 子引擎：反转、延续、双向三类，共核验 ${theoryResult.engine.subengines.reduce((sum, item) => sum + item.supportedPatternIds.length, 0)} 个核心形态定义。`,
-    `- 最近观察摆动：${swingText}。`,
+    tradingReportText("### 扫描范围"),
+    tradingReportText("- 数据：{0} 根 {1} 已收盘 K 线。", snapshot.candles.length, snapshot.interval),
+    tradingReportText("- 子引擎：反转、延续、双向三类，共核验 {0} 个核心形态定义。", theoryResult.engine.subengines.reduce((sum, item) => sum + item.supportedPatternIds.length, 0)),
+    tradingReportText("- 最近观察摆动：{0}。", swingText),
     ...(latestHistorical ? [
-      `- 历史排除：发现 ${historicalCandidates.length} 个曾成立的历史结构；最近的 ${latestHistorical.patternName} 已${lifecycleLabel(latestHistorical.lifecycle)}，不会绘制为当前形态，也不会生成入场价。`,
+      tradingReportText("- 历史排除：发现 {0} 个曾成立的历史结构；最近的 {1} 已{2}，不会绘制为当前形态，也不会生成入场价。", historicalCandidates.length, latestHistorical.patternName, lifecycleLabel(latestHistorical.lifecycle)),
     ] : []),
     "",
-    "### 当前执行方案",
-    "- 当前动作：不交易，等待新的已确认摆动和收盘突破。",
-    "- 入场、止损、目标：不生成；缺少合格结构时给出具体价格属于虚假精度。",
-    "- 重新分析条件：出现新的局部高低点、形成第四/第五个有效触点，或切换到用户明确指定的观察周期。",
+    tradingReportText("### 当前执行方案"),
+    tradingReportText("- 当前动作：不交易，等待新的已确认摆动和收盘突破。"),
+    tradingReportText("- 入场、止损、目标：不生成；缺少合格结构时给出具体价格属于虚假精度。"),
+    tradingReportText("- 重新分析条件：出现新的局部高低点、形成第四/第五个有效触点，或切换到用户明确指定的观察周期。"),
   ].join("\n");
 }
 
@@ -309,15 +310,15 @@ export function buildChartPatternDrawingPatch(snapshot, theoryResult) {
         { time: snapshot.candles[breakout.startIndex].time, price: breakout.price },
         { time: snapshot.candles[Math.min(snapshot.candles.length - 1, breakout.endIndex)].time, price: breakout.price },
       ],
-      `杯口 ${formatPrice(breakout.price)}`,
+      tradingReportText("杯口 {0}", formatPrice(breakout.price)),
       { lineStyle: "dashed", lineWidth: 1.5, status: "confirmed" },
       candidate.evidenceIds,
     ));
   }
   if (candidate.lifecycle !== "failed") {
     if (candidate.category === "bilateral" && candidate.direction === "neutral") {
-      appendLevels(operations, analysis, candidate, candidate.longLevels, "多", snapshot);
-      appendLevels(operations, analysis, candidate, candidate.shortLevels, "空", snapshot);
+      appendLevels(operations, analysis, candidate, candidate.longLevels, tradingReportText("多"), snapshot);
+      appendLevels(operations, analysis, candidate, candidate.shortLevels, tradingReportText("空"), snapshot);
     } else {
       appendLevels(operations, analysis, candidate, candidate.actionLevels, "", snapshot);
     }
@@ -330,7 +331,7 @@ export function buildChartPatternDrawingPatch(snapshot, theoryResult) {
       candidate.breakout.direction === "up" ? "support" : "resistance",
       candidate.breakout.direction === "up" ? "arrow-up" : "arrow-down",
       [{ time: candle.time, price: candidate.breakout.close }],
-      "收盘突破确认",
+      tradingReportText("收盘突破确认"),
       { status: "confirmed" },
       candidate.evidenceIds,
     ));
@@ -384,8 +385,8 @@ export function buildChartPatternNoCandidateDrawingPatch(snapshot, theoryResult)
     "note",
     [anchor],
     hasHistorical
-      ? "当前无有效形态：历史结构已失效、完成或过期"
-      : "观察摆动：未通过核心图表形态硬规则",
+      ? tradingReportText("当前无有效形态：历史结构已失效、完成或过期")
+      : tradingReportText("观察摆动：未通过核心图表形态硬规则"),
     { status: "tentative" },
     evidenceIds,
   ));
@@ -399,7 +400,7 @@ export function buildChartPatternNoCandidateDrawingPatch(snapshot, theoryResult)
   }, snapshot, STRATEGY_ID);
 }
 
-export async function runTradingChartPatternAnalysisPipeline(params) {
+async function runTradingChartPatternAnalysisPipelineInternal(params) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runChartPatternEngine(snapshot);
   const drawingPatch = buildChartPatternDrawingPatch(snapshot, theoryResult);
@@ -436,4 +437,8 @@ export async function runTradingChartPatternAnalysisPipeline(params) {
       finishReason: `deterministic-${theoryResult.status}`,
     },
   };
+}
+
+export async function runTradingChartPatternAnalysisPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingChartPatternAnalysisPipelineInternal(params, options), params?.language));
 }

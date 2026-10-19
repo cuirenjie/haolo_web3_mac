@@ -3,6 +3,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import test from "node:test";
 import ts from "typescript";
+import { errorSignals } from "../src/main/error-signals.mjs";
 import * as lifecycle from "../src/renderer/context-compaction-lifecycle.ts";
 import { GENERATED_ENGLISH_UI_PHRASES } from "../src/renderer/app-language-en-generated.mjs";
 import { GENERATED_TRADITIONAL_UI_PHRASES } from "../src/renderer/app-language-zh-tw-generated.mjs";
@@ -43,7 +44,7 @@ function harness() {
   const context = Object.fromEntries([...externalCalls].filter((name) => !names.has(name) && !["String", "Boolean", "Number"].includes(name))
     .map((name) => [name, (...args) => { calls.push({ name, args }); return false; }]));
   Object.assign(context, lifecycle, {
-    state, calls, api: {}, HANDLED_STATUS_LABEL: "已处理",
+    state, calls, errorSignals, api: {}, HANDLED_STATUS_LABEL: "已处理",
     contextCompactionPromises: new Map(), contextCompactionStartedAtMs: new Map(),
     contextCompactionTerminalTurns: new Map(), activeCodexThreadIds: new Set(), pendingCodexTurns: new Map(),
     threadsAwaitingAgentReply: new Set(), contextWindowRecoveryReplays: new Map(), internalSubagentThreadIds: new Set(),

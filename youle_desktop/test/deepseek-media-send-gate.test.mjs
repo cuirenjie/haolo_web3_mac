@@ -1,105 +1,72 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { createProviderSendHost } from "./helpers/provider-send-host.mjs";
+import { providerModelInputCapabilities } from "../src/main/provider-input-capabilities.mjs";
 
-const rendererSource = readFile(
-  new URL("../src/renderer/main.ts", import.meta.url),
-  "utf8",
-);
-const stylesSource = readFile(
-  new URL("../src/renderer/styles.css", import.meta.url),
-  "utf8",
-);
+const source = readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
+const block = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 
-function sourceBlock(source, startMarker, endMarker) {
-  const start = source.indexOf(startMarker);
-  assert.notEqual(start, -1, `missing start marker: ${startMarker}`);
-  const end = source.indexOf(endMarker, start + startMarker.length);
-  assert.notEqual(end, -1, `missing end marker: ${endMarker}`);
-  return source.slice(start, end);
-}
-
-test("DeepSeek blocks queued images and videos before any composer send side effect", async () => {
-  const source = await rendererSource;
-  const validation = sourceBlock(
-    source,
-    "const DEEPSEEK_MEDIA_SEND_BLOCKED_MESSAGE",
-    "async function sendCurrentMessage",
+test("Flash 1017 accepts native images and image history while unsupported video stays blocked", () => {
+  const definition = block("function deepSeekMediaComposerValidationError", "function personalStrategyCreationDescription")
+    .replace("threadId: string", "threadId");
+  const makeGate = (attachments) => new Function("channelIdFromThreadId", "isMediaCreationMode", "newThreadModeForThread", "selectedChatModelRequestOptions", "DEEPSEEK_EXECUTION_PROVIDER_ID", "composerAttachmentsForThread", "isVideoAttachment", "DEEPSEEK_MEDIA_SEND_BLOCKED_MESSAGE", definition + "\nreturn deepSeekMediaComposerValidationError;")(
+    () => null, () => false, () => "execution", () => ({ modelProvider: "deepseek" }), "deepseek", () => attachments,
+    (file) => file.mime?.startsWith("video/"), "unsupported video",
   );
-  const send = sourceBlock(
-    source,
-    "async function sendCurrentMessage",
-    "async function sendCurrentProviderMessage",
-  );
-
-  assert.match(
-    validation,
-    /GPT-6 Astra仅支持文本，请移除图片、视频或切换GPT模型。/,
-  );
-  assert.match(
-    validation,
-    /isImageAttachment\(attachment\) \|\| isVideoAttachment\(attachment\)/,
-  );
-  assert.match(validation, /channelIdFromThreadId\(threadId\)/);
-  assert.match(
-    validation,
-    /isMediaCreationMode\(newThreadModeForThread\(threadId\)\)/,
-  );
-  assert.match(
-    validation,
-    /selectedChatModelRequestOptions\(threadId\)[\s\S]*executionSettings\.modelProvider !== DEEPSEEK_EXECUTION_PROVIDER_ID/,
-  );
-  assert.match(
-    validation,
-    /composerAttachmentsForThread\(threadId\)\.some\(isImageOrVideoAttachment\)/,
-  );
-
-  const gateIndex = send.indexOf(
-    "const deepSeekMediaError = deepSeekMediaComposerValidationError(threadId)",
-  );
-  assert.ok(gateIndex >= 0, "missing DeepSeek media send gate");
-  assert.match(
-    send.slice(gateIndex),
-    /if \(deepSeekMediaError\) \{\s*showToast\(deepSeekMediaError, 4600\);\s*return;/,
-  );
-  for (const sideEffect of [
-    "recoverStaleCodexWorkForComposer(threadId)",
-    "sendConversationSupplementFromComposer(threadId, input, text)",
-    "submittingComposerThreadIds.add(originalThreadId)",
-    "beginPendingComposerSend",
-  ]) {
-    const sideEffectIndex = send.indexOf(sideEffect);
-    assert.ok(
-      sideEffectIndex > gateIndex,
-      `${sideEffect} must happen after the DeepSeek media gate`,
-    );
+  assert.equal(makeGate([{ mime: "image/png" }])("task"), null);
+  assert.equal(makeGate([{ mime: "video/mp4" }])("task"), "unsupported video");
+  const history = block("function threadHasNativeVideoHistory", "function selectChatModelForThread");
+  assert.match(history, /itemAttachments\(item\)\.some\(isVideoAttachment\)/);
+  assert.doesNotMatch(history, /isImageOrVideoAttachment|isImageAttachment/);
+  for (const model of ["deepseek-flash", "deepseek-v4-flash"]) {
+    assert.equal(providerModelInputCapabilities("deepseek", model).image, true);
+    assert.equal(providerModelInputCapabilities("deepseek", model).video, false);
   }
-  assert.doesNotMatch(send, /readyAttachments\.some\(isImageAttachment\)/);
+  assert.equal(providerModelInputCapabilities("deepseek", "deepseek-pro").image, false);
 });
 
-test("DeepSeek model selection uses the same image and video warning", async () => {
-  const source = await rendererSource;
-  const selection = sourceBlock(
-    source,
-    "function threadHasNativeMediaHistory",
-    "function selectChatModelForThread",
-  );
-
-  assert.match(
-    selection,
-    /composerAttachmentsForThread\(threadId\)\.some\(isImageOrVideoAttachment\)/,
-  );
-  assert.match(
-    selection,
-    /showToast\(DEEPSEEK_MEDIA_SEND_BLOCKED_MESSAGE, 4200\)/,
-  );
-  assert.match(selection, /threadHasNativeMediaHistory\(threadId\)/);
+test("production send preserves current images and image history when changing provider", async () => {
+  const calls = [];
+  const image = { type: "image", url: "data:image/png;base64,synthetic" };
+  const host = createProviderSendHost({ mediaInputs: [image], request: async (method, params) => {
+    calls.push({ method, params });
+    if (method === "thread/read") return { thread: { id: "image-task", turns: [{ input: [image] }] } };
+    if (method === "thread/resume") return { modelProvider: "deepseek", thread: { id: "image-task" } };
+    if (method === "turn/start") return { turn: { id: "same-task-recovery" } };
+    throw Error(method);
+  } });
+  const result = await host.send({ threadId: "image-task", model: "deepseek-flash", text: "Describe the original image" });
+  assert.equal(result.turn.id, "same-task-recovery");
+  const sends = calls.filter(c => c.method === "turn/start");
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].params.threadId, "image-task");
+  assert.deepEqual(sends[0].params.input.at(-1), image);
+  assert.equal(sends[0].params.model, "deepseek-flash");
 });
 
-test("the shared toast remains high contrast in light and dark themes", async () => {
-  const styles = await stylesSource;
-  const toast = sourceBlock(styles, ".toast {", ".contact-request-sent-toast");
+test("host rejects unsupported video history and native video before starting a turn", async () => {
+  for (const video of [{ type: "input_video", video_url: "https://fixture.invalid/v.mp4" }, { mimeType: "video/mp4" }, "data:video/mp4;base64,fixture"]) {
+    const host = createProviderSendHost({ request: async (method) => {
+      assert.equal(method, "thread/read");
+      return { thread: { turns: [{ input: [video] }] } };
+    } });
+    await assert.rejects(host.resumeThreadForRequestedProvider({ serverClient: host.client, threadId: "video-task", targetSettings: { modelProvider: "deepseek" } }), /history contains video/);
+  }
+  const host = createProviderSendHost({ mediaInputs: [{ type: "input_video" }], request: async (method) => {
+    assert.equal(method, "thread/read"); return { thread: { turns: [] } };
+  } });
+  await assert.rejects(host.send({ threadId: "new-video", model: "deepseek-flash", text: "Read video" }), /does not accept video input/);
+});
 
+test("video warnings have all three locales and shared toast contrast in both themes", () => {
+  for (const locale of ["en", "zh-tw"]) {
+    const translations = readFileSync(new URL(`../src/renderer/app-language-${locale}-generated.mjs`, import.meta.url), "utf8");
+    assert.ok(translations.includes('"此模型暂不支持视频，请移除视频或切换模型。":'));
+    assert.ok(translations.includes('"当前任务包含视频历史，无法无损切换到 DeepSeek；请新建任务后使用":'));
+  }
+  const styles = readFileSync(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
+  const toast = styles.slice(styles.indexOf(".toast {"), styles.indexOf(".contact-request-sent-toast", styles.indexOf(".toast {")));
   assert.match(toast, /background:\s*rgba\(17, 24, 39, 0\.92\)/);
   assert.match(toast, /color:\s*#fff/);
 });

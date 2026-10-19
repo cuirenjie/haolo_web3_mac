@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { boundedTradingAnnotation } from "./model-output-language.mjs";
 
 export const TRADING_ANALYSIS_SCHEMA_VERSION = 1;
 const MAX_CANDLES = 600;
@@ -350,7 +351,7 @@ export function validateTradingDrawingPatch(value, snapshot) {
         layer: style.layer,
         tool,
         points,
-        text: typeof drawing.text === "string" ? drawing.text.slice(0, 120) : undefined,
+        text: typeof drawing.text === "string" ? boundedTradingAnnotation(drawing.text) : undefined,
         colorToken,
         ...appearance,
         locked: true,
@@ -421,7 +422,7 @@ export function validateStrategyDrawingPatch(value, snapshot, strategyId) {
         layer: `ai/strategy/${normalizedStrategyId}`,
         tool,
         points,
-        text: typeof drawing.text === "string" ? drawing.text.slice(0, 120) : undefined,
+        text: typeof drawing.text === "string" ? boundedTradingAnnotation(drawing.text) : undefined,
         colorToken,
         ...appearance,
         locked: true,
@@ -492,7 +493,7 @@ export function validateStrategyIndicatorDrawingPatch(value, snapshot, strategyI
         layer: `ai/strategy/${normalizedStrategyId}`,
         tool,
         points,
-        text: typeof drawing.text === "string" ? drawing.text.slice(0, 120) : undefined,
+        text: typeof drawing.text === "string" ? boundedTradingAnnotation(drawing.text) : undefined,
         colorToken,
         ...appearance,
         locked: true,

@@ -3,7 +3,10 @@ import {
   TRADITIONAL_UI_CHARACTERS,
 } from "./app-language-traditional-map.mjs";
 import { GENERATED_ENGLISH_UI_PHRASES } from "./app-language-en-generated.mjs";
+import { REVIEWED_ENGLISH_UI_PHRASES } from "./app-language-en-reviewed.mjs";
+import { PRODUCT_ENGLISH_UI_PHRASES } from "./app-language-en-product.mjs";
 import { GENERATED_TRADITIONAL_UI_PHRASES } from "./app-language-zh-tw-generated.mjs";
+import { englishDrawingText } from "./app-language-en-drawing.mjs";
 
 export const APP_LANGUAGE_STORAGE_KEY = "haolo.appearance.language";
 
@@ -93,6 +96,101 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "画布提交暂时不可用，分析结果已保留；图表恢复后可按同一目标重新绘制。": "Canvas submission is temporarily unavailable. The analysis result was preserved and can be redrawn for the same target after the chart recovers.",
   "绘图目标与任务快照不一致：": "The drawing target does not match the task snapshot: ",
   "Drawing Patch 未能应用到目标会话": "The drawing patch could not be applied to the target conversation",
+  "交易偏好": "Trading preferences",
+  "天才交易员，你好！我是 Haolo，你的全能交易助理。默认交易偏好已生效。点击“开始”可前往设置查看和修改交易偏好。": "Hello, trader! I'm Haolo, your all-in-one trading assistant. Default trading preferences are already active. Select Start to view or change them in Settings.",
+  "1. 单笔风险控制": "1. Risk per trade",
+  "2. 浮盈保护和盈亏比": "2. Profit protection and risk/reward",
+  "3. 分析方式和交易纪律": "3. Analysis and trading discipline",
+  "单笔风险控制": "Risk per trade",
+  "浮盈保护和盈亏比": "Profit protection and risk/reward",
+  "分析方式和交易纪律": "Analysis and trading discipline",
+  "按止损后的实际亏损计算，包含手续费和预估滑点，不是保证金比例。": "Based on actual loss at the stop, including fees and estimated slippage, rather than margin size.",
+  "1R 代表最初承担的风险。保本位置包含交易成本，净盈亏比 1:0.4 表示盈利空间至少是止损风险的 0.4 倍。": "1R is the initial risk. Break-even includes trading costs. A net risk/reward ratio of 1:0.4 requires potential profit of at least 0.4 times the stop-loss risk.",
+  "已选中你保存的答案，修改后点击下方保存。": "Your saved answers are selected. Save below after making changes.",
+  "未设置的项目已按默认交易偏好生效，修改后点击保存。": "Default trading preferences already apply to unset options. Save only after making changes.",
+  "正在读取交易偏好…": "Loading trading preferences…",
+    "正在校验并保存…": "Validating and saving…",
+    "保存失败": "Save failed",
+    "自定义内容会先由 AI 理解并校验，全部通过后才会保存生效；无法理解或与题目无关时将提示保存失败。": "AI checks custom answers before saving. All answers must be clear and relevant to their questions; otherwise, saving fails and your existing preferences stay in effect.",
+    "内容为空或过长，请简化后重试。": "The content is empty or too long. Please revise it and retry.",
+    "交易偏好表单已失效，请重新打开设置。": "The preference form is no longer valid. Please reopen settings.",
+    "自定义内容与此题无关，请按题目重新填写。": "This custom answer does not match the question. Please revise it.",
+    "无法明确理解自定义要求，请补充清晰的数值、口径或条件。": "The custom requirements are unclear. Please specify the values, basis or conditions.",
+    "自定义要求与其他设置或基础交易规则冲突，请修改。": "These requirements conflict with other preferences or basic trading rules. Please revise them.",
+    "该自定义要求无法落实为交易偏好，请修改。": "These requirements cannot be applied as trading preferences. Please revise them.",
+    "大模型未能返回有效的理解结果，请重试。": "AI did not return a valid interpretation. Please retry.",
+    "大模型理解结果不完整，请重试。": "The AI interpretation is incomplete. Please retry.",
+    "大模型理解结果无效，请重试。": "The AI interpretation is invalid. Please retry.",
+    "大模型返回了不一致的理解结果，请重试。": "The AI interpretation is inconsistent. Please retry.",
+    "大模型暂不可用，请稍后重试。": "AI is temporarily unavailable. Please retry later.",
+    "大模型理解服务暂不可用或请求超时，请稍后重试。": "AI is unavailable or the request timed out. Please retry later.",
+    "交易偏好正在保存，请稍候。": "Trading preferences are being saved. Please wait.",
+    "登录账号已变化，请重新打开交易偏好。": "The signed-in account changed. Please reopen trading preferences.",
+    "交易偏好保存失败，请重试。": "Trading preferences could not be saved. Please retry.",
+    "单笔最大亏损须为账户净值的 0.01%–100%。": "Maximum loss per trade must be 0.01%–100% of account equity.",
+    "净收益风险倍数须大于 0 且不超过 100。": "The net reward-to-risk multiple must be greater than 0 and at most 100.",
+    "请明确保本触发的 R 倍数，或说明不自动移动保本。": "Specify the R multiple that triggers break-even, or disable automatic break-even.",
+    "自定义内容过长，请简化后重试。": "The custom answers are too long. Please shorten them and retry.",
+    "浏览器预览无法使用大模型，请在桌面客户端保存自定义偏好。": "AI is unavailable in browser preview. Save custom preferences in the desktop client.",
+  "交易偏好读取失败，请重试。": "Could not load trading preferences. Please retry.",
+  "交易偏好保存失败，已保留你的修改，请重试。": "Could not save trading preferences. Your changes are retained. Please retry.",
+  "自定义说明合计请控制在 2000 字以内。": "Keep all custom notes within 2,000 characters.",
+  "补充偏好说明": "Additional preference notes",
+  "交易偏好已保存": "Trading preferences saved",
+  "有未保存的修改": "Unsaved changes",
+  "单笔最大亏损占账户净值的比例": "Maximum loss per trade as a percentage of account equity",
+  "2%（推荐）": "2% (recommended)",
+  "例如：1.5%，仅在信号充分时交易": "Example: 1.5%, only trade with sufficient signals",
+  "何时将止损移动到保本位置？": "When should the stop move to break even?",
+  "浮盈达到 0.5R": "At 0.5R unrealized profit",
+  "浮盈达到 1R（推荐）": "At 1R unrealized profit (recommended)",
+  "浮盈达到 1.5R": "At 1.5R unrealized profit",
+  "浮盈达到 2R": "At 2R unrealized profit",
+  "不自动移动保本": "Do not automatically move the stop to break even",
+  "例如：1.2R，保本时覆盖手续费和滑点；或填写“不移动保本”及说明": "Example: 1.2R, include fees and slippage; or choose the option above to disable break-even stops",
+  "最低可接受的净盈亏比": "Minimum net risk/reward ratio",
+  "1:0.4（推荐）": "1:0.4 (recommended)",
+  "例如：1:1.8，仅考虑扣除交易成本后的盈利空间": "Example: 1:1.8, use profit after trading costs",
+  "默认分析方式": "Default analysis style",
+  "简洁，遇到高风险时详细说明（推荐）": "Concise, with detail for high risk (recommended)",
+  "详细，展开分析依据和过程": "Detailed, including reasoning and process",
+  "例如：先给结论，再用三条要点解释原因": "Example: give the conclusion first, then explain it in three points",
+  "持仓分析和交易计划的内容": "Position analysis and trading plan content",
+  "固定包含完整分析栏目（推荐）": "Always include all analysis sections (recommended)",
+  "根据当前问题按需选择栏目": "Choose sections to suit the current question",
+  "例如：固定包含关键价位、止损、止盈和失效条件": "Example: always include key levels, stop loss, take profit and invalidation",
+  "需要补充的交易纪律": "Additional trading rules",
+  "不允许亏损加仓": "Do not add to losing positions",
+  "不做逆势交易": "Do not trade against the trend",
+  "不在重大数据公布前开仓": "Do not open positions before major data releases",
+  "不追涨杀跌": "Do not chase rallies or sell into sharp declines",
+  "暂无补充，沿用基础交易纪律": "No additional rules; keep the basic trading discipline",
+  "填写其他纪律或具体说明，可与上面的选项一起勾选": "Add other rules or details; you can also select the options above",
+  "请选择一个选项后继续。": "Select an option to continue.",
+  "请填写自定义内容，或选择其他选项。": "Enter your custom answer or choose another option.",
+  "自定义内容请控制在 280 字以内。": "Keep custom answers within 280 characters.",
+  "请选择有效选项。": "Select a valid option.",
+  "暂无补充不能与其他纪律同时选择。": "No additional rules cannot be selected with other rules.",
+  "请以 0.01%–100% 的比例开头，说明写在逗号后，例如：1.5%，仅在信号充分时交易。": "Start with a percentage from 0.01% to 100%, then add details after a comma. Example: 1.5%, only trade with sufficient signals.",
+  "请以 0.01R–100R 开头，例如：1.2R，说明写在逗号后；也可以填写“不移动保本”。": "Start with a value from 0.01R to 100R, such as 1.2R, then add details after a comma. You can also choose the option to disable break-even stops.",
+  "请以 1:正数 开头，收益倍数不超过 100，例如：1:1.8，说明写在逗号后。": "Start with 1: followed by a positive number no greater than 100, such as 1:1.8. Add details after a comma.",
+  "选择后确认，可随时修改自定义内容": "Confirm your selections; custom answers are editable",
+  "可多选": "Select multiple",
+  "单选": "Select one",
+  "正在保存…": "Saving…",
+  "重试保存": "Retry saving",
+  "请点击“重试保存”，我会保留你刚才的答案并再次保存。": "Click Retry saving. Your answers will be kept and saved again.",
+  "单笔亏损比例需要在账户净值的 0.01%–100% 之间，例如“2%”或“10%”。": "The loss per trade must be between 0.01% and 100% of account equity, for example 2% or 10%.",
+  "确认并保存": "Confirm and save",
+  "确认并继续": "Confirm and continue",
+  "按包含手续费和预估滑点后的实际亏损计算，不是保证金比例。账户净值为 10,000 USDT 时，2% 代表最多亏损约 200 USDT。": "Use the actual loss including fees and estimated slippage, rather than margin. With 10,000 USDT in equity, 2% means a maximum loss of about 200 USDT.",
+  "请选择下方的风险比例，或勾选“自定义”填写比例和说明。确认后继续下一组。": "Choose a risk percentage below or select Custom to enter a percentage and details. Confirm to continue.",
+  "1R 代表最初承担的风险。保本位置包含手续费和预估滑点；净盈亏比 1:0.4 表示盈利空间至少是止损风险的 0.4 倍。": "1R is the initial risk. Break-even levels include fees and estimated slippage. A net risk/reward ratio of 1:0.4 means potential profit is at least 0.4 times the stop-loss risk.",
+  "请分别选择保本条件和最低净盈亏比。每项都可以勾选“自定义”填写数值和说明。": "Choose the break-even condition and minimum net risk/reward ratio separately. Each supports a custom value and details.",
+  "完整分析栏目包括：仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件。": "The full analysis includes position health, risk checks, key levels, entry conditions, stop loss, take profit, position size and invalidation.",
+  "请选择分析方式和内容，交易纪律可多选，也可以勾选“自定义”补充要求。确认后保存。": "Choose the analysis style and content. Select multiple trading rules or add custom requirements, then confirm to save.",
+  "你的自定义说明：": "Your custom details: ",
+  "包含近期会话内容，请仅发送给官方客服。": "Includes recent conversation content. Share only with official support.",
   "确定性结构已完成": "Deterministic structure is ready",
   "正在进行模型复核": "Reviewing with the model",
   "账户只读快照已准备完成": "Read-only account snapshot is ready",
@@ -293,6 +391,7 @@ const ENGLISH_UI_PHRASES = Object.freeze({
   "客服微信": "WeChat support",
   "联系Telegram": "Contact Telegram",
   "联系客服": "Contact support",
+  "客服": "Support",
   "暂时无法打开网页版客服，请稍后重试。": "Unable to open web support right now. Please try again later.",
   "当前版本": "Current version",
   "暂无更新说明。": "No release notes available.",
@@ -863,6 +962,13 @@ const ENGLISH_UI_PHRASES = Object.freeze({
 // watchlist renderer. Keep them in exact-match translations only: replacing
 // them inside arbitrary prose would turn e.g. “按照当前…” into “Sort by照…”.
 const ENGLISH_UI_EXACT_ONLY = Object.freeze({
+  '：自定义" maxlength="280" rows="3" placeholder="': ': Custom" maxlength="280" rows="3" placeholder="',
+  "颜色 2": "Color 2",
+  "文本颜色 2": "Text color 2",
+  "背景颜色 2": "Background color 2",
+  "2输入": "Input 2",
+  "无自定义补充说明": "No additional custom notes",
+  "完整分析栏目包括：": "The complete analysis includes: ",
   "API Secret 会通过 HTTPS 传输，并由 HaoLo 服务器加密保存；客户端不会把密钥放进聊天、日志或数据导出。": "The API Secret is sent over HTTPS and encrypted by the HaoLo server; the client never puts the key in chats, logs, or exports.",
   "账户已绑定": "Account connected",
   "当前绑定设备不在 Windows，本机没有保存账户密钥。请在绑定设备刷新账户数据。": "The bound device is not Windows; this device does not store the account key. Refresh account data on the bound device.",
@@ -890,11 +996,11 @@ const ENGLISH_UI_EXACT_ONLY = Object.freeze({
   "个)": ")",
   "恐惧与贪婪指数": "Fear & Greed Index",
   "BTC 多空人数比": "BTC long/short account ratio",
-  "BTC 大户多空人数比": "BTC top-trader long/short account ratio",
-  "BTC 大户多空持仓比": "BTC top-trader long/short position ratio",
+  "BTC 大户多空人数比": "BTC Top Trader Long/Short Account Ratio",
+  "BTC 大户多空持仓比": "BTC Top Trader Long/Short Position Ratio",
   "ETH 多空人数比": "ETH long/short account ratio",
-  "ETH 大户多空人数比": "ETH top-trader long/short account ratio",
-  "ETH 大户多空持仓比": "ETH top-trader long/short position ratio",
+  "ETH 大户多空人数比": "ETH Top Trader Long/Short Account Ratio",
+  "ETH 大户多空持仓比": "ETH Top Trader Long/Short Position Ratio",
   "0–100，数值越高表示市场情绪越贪婪；每日更新。": "0–100; higher values indicate greedier market sentiment; updated daily.",
   "持有净多仓的账户数 ÷ 持有净空仓的账户数。按小时采样；24H 涨幅为比值自身相对 24 小时前的变化。": "Net-long account count ÷ net-short account count. Sampled hourly; 24H change is the ratio's change versus 24 hours earlier.",
   "保证金余额前 20% 用户中，净多仓账户数 ÷ 净空仓账户数。按小时采样；24H 涨幅为比值自身相对 24 小时前的变化。": "Among users in the top 20% by margin balance, net-long account count ÷ net-short account count. Sampled hourly; 24H change is the ratio's change versus 24 hours earlier.",
@@ -954,6 +1060,7 @@ const TRADITIONAL_UI_PHRASES = Object.freeze({
   "媒体任务自动恢复仍未完成。任务记录已保留，请稍后重试。": "媒體任務自動恢復仍未完成。任務記錄已保留，請稍後重試。",
   "媒体任务模型暂时不可用，稍后将使用原 GPT 模型继续当前任务。": "媒體任務模型暫時不可用，稍後將使用原 GPT 模型繼續目前任務。",
   "媒体任务执行异常，正在使用原 GPT 模型继续处理。": "媒體任務執行異常，正在使用原 GPT 模型繼續處理。",
+  "包含近期会话内容，请仅发送给官方客服。": "包含近期對話內容，請僅傳送給官方客服。",
   "连手机": "連接手機",
   "周期已自动应用。": "週期已自動套用。",
   "此版本必须更新后才能继续使用。": "此版本必須更新後才能繼續使用。",
@@ -1083,6 +1190,7 @@ const SKIP_LOCALIZATION_SELECTOR = [
 let currentAppLanguage = "zh-CN";
 let traditionalCharacterMap = null;
 let simplifiedCharacterMap = null;
+let traditionalEnglishPhrases = null;
 let languageObserver = null;
 const translationCache = new Map();
 const textLocalizationSources = new WeakMap();
@@ -1092,15 +1200,18 @@ function entriesByLength(record) {
   return Object.entries(record).sort(([left], [right]) => right.length - left.length);
 }
 
-// Generated entries are complete renderer literals and must stay exact-only.
-// Applying them as substring replacements lets generic entries such as “小时”
-// or “更多” rewrite unrelated dynamic text. Curated entries below intentionally
-// contain the small set of fragments used to assemble dynamic UI messages.
-const ENGLISH_UI_ENTRIES = entriesByLength(ENGLISH_UI_PHRASES);
+// Generated literals remain exact-only to avoid corrupting dynamic UI fragments.
+const ENGLISH_UI_ENTRIES = entriesByLength({
+  ...ENGLISH_UI_PHRASES,
+  ...REVIEWED_ENGLISH_UI_PHRASES,
+  ...PRODUCT_ENGLISH_UI_PHRASES,
+}).filter(([source]) => !/\b(?:aria-[\w-]+|data-[\w-]+|class|role|title|style)=|<\/?[a-z][^>]*>/iu.test(source));
 const ENGLISH_UI_EXACT = Object.freeze({
   ...GENERATED_ENGLISH_UI_PHRASES,
   ...ENGLISH_UI_PHRASES,
   ...ENGLISH_UI_EXACT_ONLY,
+  ...REVIEWED_ENGLISH_UI_PHRASES,
+  ...PRODUCT_ENGLISH_UI_PHRASES,
 });
 const TRADITIONAL_UI_ENTRIES = entriesByLength({
   ...GENERATED_TRADITIONAL_UI_PHRASES,
@@ -1223,9 +1334,25 @@ export function configureTraditionalCharacterMap(simplified, traditional) {
   }
   traditionalCharacterMap = map;
   simplifiedCharacterMap = reverseMap;
+  traditionalEnglishPhrases = null;
+  translationCache.clear();
 }
 
 configureTraditionalCharacterMap(SIMPLIFIED_UI_CHARACTERS, TRADITIONAL_UI_CHARACTERS);
+
+function reviewedTraditionalEnglish() {
+  if (traditionalEnglishPhrases) return traditionalEnglishPhrases;
+  const phrases = Object.create(null);
+  for (const catalog of [ENGLISH_UI_PHRASES, REVIEWED_ENGLISH_UI_PHRASES, PRODUCT_ENGLISH_UI_PHRASES]) {
+    for (const [source, english] of Object.entries(catalog)) {
+      const traditional = exactTranslation(source, TRADITIONAL_UI_EXACT)
+        ?? simplifiedToTraditionalCharacters(replacePhrases(source, TRADITIONAL_UI_ENTRIES));
+      phrases[traditional] = english;
+    }
+  }
+  traditionalEnglishPhrases = phrases;
+  return phrases;
+}
 
 export function translateAppText(value, language = currentAppLanguage) {
   const source = String(value ?? "").replace(/\bDeepSeek\s+V4\.1\s+Flash\b/gi, "GPT-6 Astra");
@@ -1238,6 +1365,7 @@ export function translateAppText(value, language = currentAppLanguage) {
   if (cached !== undefined) return cached;
   const translationRecord = normalized === "zh-TW" ? TRADITIONAL_UI_EXACT : ENGLISH_UI_EXACT;
   const exact = exactTranslation(source, translationRecord)
+    ?? (normalized === "en" ? exactTranslation(source, reviewedTraditionalEnglish()) : null)
     ?? exactTranslation(canonicalSource, translationRecord);
   const translated = exact ?? (normalized === "zh-TW"
     ? simplifiedToTraditionalCharacters(replacePhrases(canonicalSource, TRADITIONAL_UI_ENTRIES))
@@ -1245,6 +1373,13 @@ export function translateAppText(value, language = currentAppLanguage) {
   if (translationCache.size >= 6_000) translationCache.clear();
   translationCache.set(cacheKey, translated);
   return translated;
+}
+
+export function translateDrawingText(value, language = currentAppLanguage, section = false) {
+  const source = String(value ?? "");
+  if (!HAN_TEXT_PATTERN.test(source)) return source;
+  if (normalizeAppLanguage(language) !== "en") return translateAppText(source, language);
+  return englishDrawingText(traditionalToSimplifiedCharacters(source), section) ?? translateAppText(source, language);
 }
 
 export function translateTradingPeriodLabel(value, language = currentAppLanguage) {
@@ -1391,6 +1526,7 @@ function syncEnglishButtonLayout(node, language) {
   if (!button) return;
   const labels = simpleButtonLabelNodes(button);
   const isSingleEnglishLabel = language === "en"
+    && !button.hasAttribute("data-i18n-wrap")
     && labels.length === 1
     && LATIN_BUTTON_TEXT_PATTERN.test(String(labels[0].nodeValue ?? ""));
   button.toggleAttribute("data-i18n-single-line", isSingleEnglishLabel);
@@ -1401,7 +1537,9 @@ function localizeTextNode(node, language) {
   const current = String(node.nodeValue ?? "");
   const previous = textLocalizationSources.get(node);
   const source = !previous || current !== previous.rendered ? current : previous.source;
-  const translated = node.parentElement?.closest?.("[data-i18n-trading-period-label]")
+  const translated = node.parentElement?.closest?.("[data-i18n-drawing]")
+    ? translateDrawingText(source, language, Boolean(node.parentElement.closest("[data-i18n-drawing-section]")))
+    : node.parentElement?.closest?.("[data-i18n-trading-period-label]")
     ? translateTradingPeriodLabel(source, language)
     : translateAppText(source, language);
   textLocalizationSources.set(node, { source, rendered: translated });
@@ -1421,7 +1559,9 @@ function localizeElementAttributes(element, language) {
     if (!value) continue;
     const previous = sources.get(name);
     const source = !previous || value !== previous.rendered ? value : previous.source;
-    const translated = translateAppText(source, language);
+    const translated = element.closest?.("[data-i18n-drawing]")
+      ? translateDrawingText(source, language)
+      : translateAppText(source, language);
     sources.set(name, { source, rendered: translated });
     if (translated !== value) element.setAttribute(name, translated);
   }

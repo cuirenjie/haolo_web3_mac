@@ -5,12 +5,33 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
-import { translateAppText } from "../src/renderer/app-language.mjs";
+import { translateAppText, translateDrawingText } from "../src/renderer/app-language.mjs";
+import { DRAWING_MENU_SECTIONS } from "../src/renderer/trading-drawing-catalog.ts";
 
 const HAN_TEXT_PATTERN = /\p{Script=Han}/u;
 const RENDERER_ROOT = fileURLToPath(new URL("../src/renderer", import.meta.url));
 const TRADING_STRATEGY_ROOT = fileURLToPath(new URL("../resources/trading-strategies/builtins", import.meta.url));
 const SOURCE_EXTENSION_PATTERN = /\.(?:html|js|mjs|ts)$/u;
+// These modules render inside data-i18n-drawing; do not bypass their scoped
+// translator or omit them from the corpus audit. Tool/section semantics and
+// complete dynamic messages are also exercised by trading-drawing-language.
+const DRAWING_SOURCE_FILES = new Set([
+  "trading-drawing-catalog.ts", "trading-drawing-extra-tools.ts", "trading-expert-drawing.ts",
+]);
+const DRAWING_SECTION_LABELS = new Set([
+  ...DRAWING_MENU_SECTIONS.flatMap((group) => group.sections.map((section) => section.label)),
+  "视图与历史",
+]);
+
+function auditTranslation(text, file) {
+  if (!DRAWING_SOURCE_FILES.has(path.basename(file))) return translateAppText(text, "en");
+  const whole = translateDrawingText(text, "en", DRAWING_SECTION_LABELS.has(text));
+  if (!HAN_TEXT_PATTERN.test(whole)) return whole;
+  // Tables localize each default cell; status messages are delimited by middots.
+  return text.split(/\s*\|\s*|(?:^|\s+)·\s*/u).map((part) =>
+    translateDrawingText(part, "en", DRAWING_SECTION_LABELS.has(part)),
+  ).join(" | ");
+}
 
 function rendererSourceFiles(directory = RENDERER_ROOT) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -24,6 +45,7 @@ function rendererSourceFiles(directory = RENDERER_ROOT) {
 
 function chineseLiteralFragments(source, file) {
   const fragments = [];
+  const separator = DRAWING_SOURCE_FILES.has(path.basename(file)) ? "\n" : " ";
   const append = (literal) => {
     literal = literal.replace(/&#(x[\da-f]+|\d+);/giu, (entity, code) => {
       const point = code[0].toLowerCase() === "x" ? Number.parseInt(code.slice(1), 16) : Number(code);
@@ -33,9 +55,9 @@ function chineseLiteralFragments(source, file) {
       append(match[1]);
     }
     const visibleText = literal
-      .replace(/<[^>]+>/gsu, " ")
-      .replace(/<[^>]*$/gsu, " ")
-      .replace(/^[^<]*>/gsu, " ");
+      .replace(/<[^>]+>/gsu, separator)
+      .replace(/<[^>]*$/gsu, separator)
+      .replace(/^[^<]*>/gsu, separator);
     for (const part of visibleText.split(/\r?\n/u)) {
       const text = part.trim();
       if (HAN_TEXT_PATTERN.test(text)) fragments.push(text);
@@ -56,8 +78,18 @@ function chineseLiteralFragments(source, file) {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       append(node.text);
     } else if (ts.isTemplateExpression(node)) {
-      append(node.head.text);
-      for (const span of node.templateSpans) append(span.literal.text);
+      if (DRAWING_SOURCE_FILES.has(path.basename(file))) {
+        // The drawing translator intentionally matches whole templates, not
+        // fragments such as "个端点". Keep them whole with a numeric sample.
+        // Literal conditional branches are visited below as well.
+        const sample = (expression) => ts.isStringLiteral(expression)
+          ? expression.text
+          : ts.isConditionalExpression(expression) ? sample(expression.whenTrue) : "2";
+        append(node.head.text + node.templateSpans.map((span) => sample(span.expression) + span.literal.text).join(""));
+      } else {
+        append(node.head.text);
+        for (const span of node.templateSpans) append(span.literal.text);
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -70,7 +102,7 @@ test("every renderer-owned Chinese literal has a Han-free English presentation",
   for (const file of rendererSourceFiles()) {
     const source = fs.readFileSync(file, "utf8");
     for (const text of chineseLiteralFragments(source, file)) {
-      const translated = translateAppText(text, "en");
+      const translated = auditTranslation(text, file);
       if (!HAN_TEXT_PATTERN.test(translated)) continue;
       failures.push({
         file: path.relative(RENDERER_ROOT, file),
@@ -80,6 +112,26 @@ test("every renderer-owned Chinese literal has a Han-free English presentation",
     }
   }
   assert.deepEqual(failures, []);
+});
+
+test("the corpus audit covers scoped drawing templates and still rejects unknown copy", () => {
+  const file = "trading-expert-drawing.ts";
+  const snippets = [
+    'const hint = `依次点击图表设置 ${pointCount} 个端点；完成后可拖动端点调整`;',
+    'const heading = `<h3 data-i18n-drawing-section>视图与历史</h3>${items}`;',
+    'const hint = "每行一行表格，用 | 分隔列";',
+    'const rows = "项目 | 数值\\n价格 | 0";',
+  ];
+  for (const snippet of snippets) {
+    const fragments = chineseLiteralFragments(snippet, file);
+    assert.ok(fragments.length > 0, snippet);
+    for (const text of fragments) assert.doesNotMatch(auditTranslation(text, file), HAN_TEXT_PATTERN, text);
+  }
+  const unknown = chineseLiteralFragments('const text = "未收录龘龘提示";', file);
+  assert.equal(unknown.length, 1);
+  assert.match(auditTranslation(unknown[0], file), HAN_TEXT_PATTERN);
+  assert.equal(auditTranslation("置顶", "main.ts"), "Top");
+  assert.equal(auditTranslation("置顶", file), "Pin");
 });
 
 test("every bundled strategy and indicator card has curated Han-free English metadata", () => {

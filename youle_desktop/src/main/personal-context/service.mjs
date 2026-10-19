@@ -35,7 +35,7 @@ export class PersonalContextService {
       case "list_user_context_sources":
         return this.listSources(owner.ownerId);
       case "read_user_memory":
-        return this.memoryStore.list(owner.ownerId, args);
+        return this.memoryStore.list(owner.ownerId, args, { includeTradingDefaults: true });
       case "remember_user_memory":
         assertExplicitUserInstruction(args);
         assertTradingMemoryWriteIsUnambiguous(args);
@@ -63,7 +63,7 @@ export class PersonalContextService {
           id: "user.memory",
           available: memory.available,
           freshness: "persistent",
-          description: "用户明确要求长期记住的偏好、约束、事实和目标。",
+          description: "用户已保存的偏好、约束、事实和目标；未设置的交易偏好直接使用产品默认值（source=product_default），无需保存。",
           entryCount: memory.entryCount,
           updatedAt: memory.updatedAt,
         },

@@ -65,7 +65,7 @@ const MAX_PLAN_CONTENT_LENGTH = 20_000;
 const EXECUTION_PLAN_STATUSES = new Set<ExecutionPlanStatus>(["pending", "executing", "ended"]);
 const EXECUTION_PLAN_END_REASONS = new Set<ExecutionPlanEndReason>(["take_profit", "stop_loss", "cancelled", "expired"]);
 
-const CORE_PLAN_LABEL = /(?:当前动作|方向判断|(?:多头|空头|首选方向)?触发|止损(?:与失效)?|分批止盈|风险收益比|候选(?:测算|止损|止盈)|current action|direction|(?:long|short|entry) trigger|stop-loss(?: and invalidation)?|take-profit targets?|risk\/reward)/i;
+const CORE_PLAN_LABEL = /^(?:当前动作|方向判断|(?:多头|空头|首选方向)?触发|止损(?:与失效)?|分批止盈|风险收益比|候选(?:测算|止损|止盈)|current action|direction|(?:long|short|entry) trigger|stop-loss(?: and invalidation)?|take-profit targets?|risk\/reward)\s*[:：]/i;
 const PLAN_HEADING = /^(?:(?:标准|推荐|首选|备选|候选|可选)\s*)?(?:(?:执行|行动|实施|操作|落地)\s*)?(?:方案|计划)(?:\s*[A-C一二三123])?(?:\s*[:：-].*)?$|^(?:(?:standard|recommended|preferred|alternative|candidate)\s+)?(?:execution\s+)?plan(?:\s*[A-C123])?(?:\s*[:\-].*)?$/i;
 // Market adapters normally return ASCII symbols, but custom/local market
 // names can contain CJK characters. Keep those headings recognizable so the

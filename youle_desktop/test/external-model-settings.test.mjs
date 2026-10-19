@@ -76,5 +76,5 @@ test("first-stage model configuration does not replace the existing provider cha
   assert.match(renderer, /modelPool:\s*"question_answer"[\s\S]*modelCapability:\s*"question_answer"/);
   assert.match(renderer, /<span>模型服务<\/span>/);
   assert.match(renderer, /renderExternalModelSettingsPanel\(state\.settings\.externalModels\)/);
-  assert.match(renderer, /if \(state\.settings\.tab === "models"\) return;/);
+  assert.match(renderer, /if \(state\.settings\.tab === "models" \|\| state\.settings\.tab === "trading"\) return;/);
 });

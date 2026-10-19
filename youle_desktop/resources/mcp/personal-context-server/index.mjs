@@ -43,7 +43,7 @@ const tools = [
   ),
   tool(
     "read_user_memory",
-    "Read only the explicit long-term preferences, constraints, facts, or goals needed for the current answer. This never infers or creates memories.",
+    "Read the saved preferences, constraints, facts, or goals needed for the current answer. Unset trading preferences include immediately active product defaults marked source=product_default; these are not explicit user choices and require no save. Saved user values take priority. This never infers or creates memories.",
     memoryFilterProperties,
     [],
   ),

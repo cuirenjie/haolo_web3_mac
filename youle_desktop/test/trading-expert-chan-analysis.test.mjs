@@ -100,7 +100,7 @@ test("English Chan annotations are generated in English even when a model return
   const nativeEnglish = buildChanDrawingPatch(snapshot, theoryResult, { ...review, summary: "The latest stroke is up; wait for confirmation." }, { language: "en" });
   assert.equal(nativeEnglish.operations.find(({ drawing }) => drawing.id.endsWith("note-summary")).drawing.text, "Summary: The latest stroke is up; wait for confirmation.");
   const prompt = buildChanModelPrompt(snapshot, theoryResult, { language: "en" });
-  assert.match(prompt, /English-only chart summary/);
+  assert.match(prompt, /complete English chart summary/);
   assert.match(prompt, /Do not emit Chinese characters in summary, report or strategyRationale/);
   assert.doesNotMatch(prompt, /完整中文缠论分析|不超过80个中文字符/);
 });
@@ -200,8 +200,8 @@ test("model provider registry keeps the Chan pipeline independent from a concret
         text: JSON.stringify({
           schemaVersion: 1,
           verdict: "approve",
-          summary: "笔结构交替延伸，当前按已确认分型绘制。",
-          report: "模型复核认为末端笔仍在延伸，应等待中枢离开确认。",
+          summary: /professional financial English/.test(request.request.prompt) ? "Alternating strokes extend from confirmed fractals." : "笔结构交替延伸，当前按已确认分型绘制。",
+          report: /professional financial English/.test(request.request.prompt) ? "The latest stroke is still developing; await a confirmed exit from the central zone." : "模型复核认为末端笔仍在延伸，应等待中枢离开确认。",
           selectedPenPointIds: [],
           selectedCenterIds: [],
           showFractals: true,
@@ -261,7 +261,7 @@ test("model provider registry keeps the Chan pipeline independent from a concret
     marketId: "BINANCE:FUTURES:BTCUSDT", interval: "60", snapshotTime: 1_720_400_000_000,
     candles: fixtureCandles(), language: "en",
   }, { modelRegistry: registry, providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID });
-  assert.match(calls[1].request.prompt, /English-only chart summary/);
+  assert.match(calls[1].request.prompt, /complete English chart summary/);
   assert.ok(englishResult.analysisPlan.drawingPatch.operations.every(({ drawing }) => !/\p{Script=Han}/u.test(drawing.text || "")));
   assert.match(englishResult.analysisPlan.report, /^## BINANCE:FUTURES:BTCUSDT · 1H Chan analysis/m);
   assert.match(englishResult.analysisPlan.report, /### Chan structure/);
@@ -346,7 +346,7 @@ test("English Chan coordination returns plan cards plus a complete parseable ana
   assert.match(coordinated.analysisPlan.report, /Current action:/);
   assert.match(coordinated.analysisPlan.report, /---[\s\S]*## BINANCE:FUTURES:BTCUSDT · 1H Chan analysis/);
   assert.match(coordinated.analysisPlan.report, /### Overall assessment/);
-  assert.match(coordinated.analysisPlan.report, /^Strategy: 缠论$/m);
+  assert.match(coordinated.analysisPlan.report, /^Strategy: Chan Theory$/m);
   assert.doesNotMatch(coordinated.analysisPlan.report.replace(/^Strategy: .*\n/m, ""), /\p{Script=Han}/u);
 
   const partitions = executionPlanTextPartitions(coordinated.analysisPlan.report);

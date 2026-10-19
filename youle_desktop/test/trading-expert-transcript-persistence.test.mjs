@@ -505,7 +505,7 @@ test("thread listing merges indexed top-level trading transcripts", () => {
     'ipcMain.handle("codex:listThreads"',
     'ipcMain.handle("codex:modelList"',
   );
-  assert.match(handler, /indexedTradingTranscriptThreads\(workspaceCodexHome\(cwd\), cwd\)/);
+  assert.match(handler, /indexedTradingTranscriptThreads\(workspaceCodexHome\(cwd\), cwd(?:,|\))/);
   assert.match(handler, /mergeIndexedTradingTranscriptThreads/);
   assert.match(handler, /return mergedResult/);
 });

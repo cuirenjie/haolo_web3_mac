@@ -205,7 +205,7 @@ const { TradingFavoriteTickerSortController } = await import(
   "../src/renderer/trading-expert-favorite-ticker-sort.ts"
 );
 
-function fixture() {
+function fixture(axis = "x") {
   const host = new FakeElement();
   host.clientWidth = 200;
   host.scrollWidth = 200;
@@ -219,10 +219,38 @@ function fixture() {
   const commits = [];
   const controller = new TradingFavoriteTickerSortController({
     host,
+    axis,
     onCommit: (ids) => commits.push(ids),
   });
   return { host, btc, eth, commits, controller };
 }
+
+test("favorite sorting honors each axis, Alt, boundaries and disabled entries", () => {
+  for (const [axis, previousKey, nextKey, wrongKey] of [
+    ["x", "ArrowLeft", "ArrowRight", "ArrowDown"],
+    ["y", "ArrowUp", "ArrowDown", "ArrowRight"],
+  ]) {
+    const { host, btc, eth, commits, controller } = fixture(axis);
+    try {
+      assert.equal(host.dispatch("keydown", { target: btc, key: nextKey }).defaultPrevented, false);
+      assert.equal(host.dispatch("keydown", { target: btc, key: wrongKey, altKey: true }).defaultPrevented, false);
+      assert.equal(host.dispatch("keydown", { target: btc, key: previousKey, altKey: true }).defaultPrevented, false);
+      btc.disabled = true;
+      host.dispatch("keydown", { target: btc, key: nextKey, altKey: true });
+      assert.deepEqual(commits, []);
+      btc.disabled = false;
+      assert.equal(host.dispatch("keydown", { target: btc, key: nextKey, altKey: true }).defaultPrevented, true);
+      assert.deepEqual(commits, [[eth.dataset.marketId, btc.dataset.marketId]]);
+      assert.equal(btc.attributes.get("aria-posinset"), "2");
+      assert.equal(host.dispatch("keydown", { target: btc, key: nextKey, altKey: true }).defaultPrevented, false);
+      assert.equal(commits.length, 1);
+      host.dispatch("keydown", { target: btc, key: previousKey, altKey: true });
+      assert.deepEqual(commits[1], [btc.dataset.marketId, eth.dataset.marketId]);
+    } finally {
+      controller.destroy();
+    }
+  }
+});
 
 test("favorite ticker plain click remains targeted at the market button", () => {
   const { host, eth, commits, controller } = fixture();

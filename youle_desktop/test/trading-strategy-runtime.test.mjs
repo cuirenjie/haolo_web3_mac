@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { tradingRiskProfileFromEntries } from "../src/main/personal-context/memory-store.mjs";
+import { compileTradingPreferences } from "../src/main/personal-context/trading-preference-compiler.mjs";
+import { TRADING_PREFERENCE_CHOICE_FIELDS } from "../src/shared/trading-preference-fields.mjs";
 import { BUILTIN_TRADING_STRATEGY_ADAPTERS } from "../src/main/trading-strategy-runtime/builtins/index.mjs";
 import {
   validateExecutionPlan,
@@ -1004,7 +1006,28 @@ test("coordinator refreshes private Binance context after analysis before buildi
   assert.match(englishResult.analysisPlan.report, /open a .* USDT long position with \d+x leverage/);
   // User-named strategies retain their proper name; generated prose is English.
   assert.match(englishResult.analysisPlan.report, /^Strategy: 示例策略$/m);
-  assert.doesNotMatch(englishResult.analysisPlan.report.replace(/^Strategy: .*\n/m, ""), /原策略报告|[\u3400-\u9fff]/u);
+  assert.match(englishResult.analysisPlan.report, /原策略报告/, "Language selection must not discard the underlying analysis");
+  assert.doesNotMatch(englishResult.analysisPlan.report, /标准执行方案|^[•*-]\s+/m);
+});
+
+test("compiled preferences reach strategy model calls and deterministic plan preconditions without raw form text", async () => {
+  const choices = Object.fromEntries(Object.values(TRADING_PREFERENCE_CHOICE_FIELDS).flat().map(f => [f.id, { selected: [f.defaultValue], custom: "" }]));
+  choices.risk = { selected: ["custom"], custom: "风险最多一点五，等待趋势确认" };
+  const compiled = await compileTradingPreferences({ choices }, { analyze: async () => ({ text: JSON.stringify({ schemaVersion: 1, fields: [{ id: "risk", status: "accepted", value: 1.5, requirements: "单笔实际损失上限为账户净值1.5%；趋势确认后才允许开仓" }] }) }) });
+  const profile = tradingRiskProfileFromEntries(compiled.entries);
+  let prompt;
+  const adapter = { id: "sample-strategy", errors: {}, routing: {}, async run(params, options) {
+    assert.equal(params.userRiskProfile.maxLossPerTradePercent, 1.5);
+    await options.modelRegistry.analyze("stub", { prompt: "Analyze", task: "review" });
+    return sampleLegacyResult();
+  } };
+  const registry = new TradingStrategyRegistry({ adapters: [adapter], manifestRecords: [{ manifest: sampleManifest }] });
+  const coordinator = new TradingStrategyCoordinator({ registry, providerId: "stub", modelRegistry: { analyze: async (_id, request) => { prompt = request.prompt; return { text: "{}" }; } } });
+  const result = await coordinator.run("sample-strategy", { userRiskProfile: profile });
+  assert.match(prompt, /趋势确认后才允许开仓/);
+  assert.doesNotMatch(prompt, /风险最多一点五/);
+  assert.equal(result.executionPlan.positionSizing.maxAccountRiskPercent, 1.5);
+  assert.match(result.executionPlan.preconditions.map(c => c.text).join("；"), /趋势确认后才允许开仓/);
 });
 
 test("every strategy request uses model-first intent routing with deterministic recovery and literal targets", async () => {

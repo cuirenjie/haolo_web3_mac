@@ -1,3 +1,4 @@
+import { localizeTradingAnalysisResult, tradingReportTime, tradingReportText, withTradingReportLanguage } from "./report-language.mjs";
 import crypto from "node:crypto";
 import { runPriceActionStrategyEngine } from "./price-action-strategy-engine.mjs";
 import {
@@ -20,29 +21,29 @@ function formatPrice(value) {
 }
 
 function formatTime(seconds) {
-  return new Date(Number(seconds) * 1_000).toLocaleString("zh-CN", { hour12: false });
+  return tradingReportTime(Number(seconds) * 1_000);
 }
 
 function regimeLabel(regime) {
-  if (regime === "uptrend") return "HH/HL 上升结构";
-  if (regime === "downtrend") return "LH/LL 下降结构";
-  if (regime === "transition") return "结构转换/分歧";
-  return "横向区间";
+  if (regime === "uptrend") return tradingReportText("HH/HL 上升结构");
+  if (regime === "downtrend") return tradingReportText("LH/LL 下降结构");
+  if (regime === "transition") return tradingReportText("结构转换/分歧");
+  return tradingReportText("横向区间");
 }
 
 function lifecycleLabel(lifecycle) {
-  if (lifecycle === "confirmed") return "触发已由收盘确认";
-  if (lifecycle === "invalidated") return "已失效";
-  if (lifecycle === "partial-target-reached") return "第一目标已到达，停止追价";
-  if (lifecycle === "completed") return "第二目标已完成，原方案结束";
-  if (lifecycle === "expired") return "已过期";
-  return "结构已形成，等待条件触发";
+  if (lifecycle === "confirmed") return tradingReportText("触发已由收盘确认");
+  if (lifecycle === "invalidated") return tradingReportText("已失效");
+  if (lifecycle === "partial-target-reached") return tradingReportText("第一目标已到达，停止追价");
+  if (lifecycle === "completed") return tradingReportText("第二目标已完成，原方案结束");
+  if (lifecycle === "expired") return tradingReportText("已过期");
+  return tradingReportText("结构已形成，等待条件触发");
 }
 
 function directionLabel(direction) {
-  if (direction === "bullish") return "偏多";
-  if (direction === "bearish") return "偏空";
-  return "双向等待";
+  if (direction === "bullish") return tradingReportText("偏多");
+  if (direction === "bearish") return tradingReportText("偏空");
+  return tradingReportText("双向等待");
 }
 
 function formatPriceEnglish(value) {
@@ -160,16 +161,16 @@ function englishPatternName(pattern) {
 
 function factLabel(fact) {
   return ({
-    "doji": "十字/犹豫K",
-    "bullish-rejection": "下影拒绝",
-    "bearish-rejection": "上影拒绝",
-    "strong-bull": "强势多头收盘K",
-    "strong-bear": "强势空头收盘K",
-    "bullish-engulfing": "看涨实体吞没",
-    "bearish-engulfing": "看跌实体吞没",
+    "doji": tradingReportText("十字/犹豫K"),
+    "bullish-rejection": tradingReportText("下影拒绝"),
+    "bearish-rejection": tradingReportText("上影拒绝"),
+    "strong-bull": tradingReportText("强势多头收盘K"),
+    "strong-bear": tradingReportText("强势空头收盘K"),
+    "bullish-engulfing": tradingReportText("看涨实体吞没"),
+    "bearish-engulfing": tradingReportText("看跌实体吞没"),
     "inside-bar": "Inside Bar",
-    "bullish-outside": "看涨 Outside Bar",
-    "bearish-outside": "看跌 Outside Bar",
+    "bullish-outside": tradingReportText("看涨 Outside Bar"),
+    "bearish-outside": tradingReportText("看跌 Outside Bar"),
     "outside-bar": "Outside Bar",
   })[fact] || fact;
 }
@@ -240,22 +241,22 @@ function candidateActionPlan(snapshot, candidate) {
 }
 
 function zoneLine(zone) {
-  return `${zone.role === "support" ? "支撑" : zone.role === "resistance" ? "阻力" : "决策"}区 ${formatPrice(zone.lower)}–${formatPrice(zone.upper)}（${zone.touches} 个触点）`;
+  return tradingReportText("{0}区 {1}–{2}（{3} 个触点）", zone.role === "support" ? tradingReportText("支撑") : zone.role === "resistance" ? tradingReportText("阻力") : tradingReportText("决策"), formatPrice(zone.lower), formatPrice(zone.upper), zone.touches);
 }
 
 function setupLines(candidate) {
   if (!candidate) return [];
   if (candidate.direction === "neutral") return [
-    `- 场景：**${candidate.setupName}**；${lifecycleLabel(candidate.lifecycle)}。`,
-    `- 多头条件：收盘站上 ${formatPrice(candidate.longLevels.trigger)}；失效 ${formatPrice(candidate.longLevels.stop)}；T1/T2 ${formatPrice(candidate.longLevels.targets[0])} / ${formatPrice(candidate.longLevels.targets[1])}。`,
-    `- 空头条件：收盘跌破 ${formatPrice(candidate.shortLevels.trigger)}；失效 ${formatPrice(candidate.shortLevels.stop)}；T1/T2 ${formatPrice(candidate.shortLevels.targets[0])} / ${formatPrice(candidate.shortLevels.targets[1])}。`,
+    tradingReportText("- 场景：**{0}**；{1}。", candidate.setupName, lifecycleLabel(candidate.lifecycle)),
+    tradingReportText("- 多头条件：收盘站上 {0}；失效 {1}；T1/T2 {2} / {3}。", formatPrice(candidate.longLevels.trigger), formatPrice(candidate.longLevels.stop), formatPrice(candidate.longLevels.targets[0]), formatPrice(candidate.longLevels.targets[1])),
+    tradingReportText("- 空头条件：收盘跌破 {0}；失效 {1}；T1/T2 {2} / {3}。", formatPrice(candidate.shortLevels.trigger), formatPrice(candidate.shortLevels.stop), formatPrice(candidate.shortLevels.targets[0]), formatPrice(candidate.shortLevels.targets[1])),
   ];
   const levels = candidate.actionLevels;
   return [
-    `- 场景：**${candidate.setupName}**（${directionLabel(candidate.direction)}）；${lifecycleLabel(candidate.lifecycle)}。`,
-    `- 上下文：${candidate.context}。`,
-    `- 条件触发：${formatPrice(levels.trigger)}；结构止损/失效：${formatPrice(levels.stop)}。`,
-    `- 分批目标：T1 ${formatPrice(levels.targets[0])}；T2 ${formatPrice(levels.targets[1])}。`,
+    tradingReportText("- 场景：**{0}**（{1}）；{2}。", candidate.setupName, directionLabel(candidate.direction), lifecycleLabel(candidate.lifecycle)),
+    tradingReportText("- 上下文：{0}。", candidate.context),
+    tradingReportText("- 条件触发：{0}；结构止损/失效：{1}。", formatPrice(levels.trigger), formatPrice(levels.stop)),
+    tradingReportText("- 分批目标：T1 {0}；T2 {1}。", formatPrice(levels.targets[0]), formatPrice(levels.targets[1])),
   ];
 }
 
@@ -264,12 +265,13 @@ function candlestickPatternLine(pattern) {
   const formationConfirmed = pattern.formationStatus
     ? pattern.formationStatus === "confirmed"
     : pattern.complete !== false;
-  const formation = formationConfirmed ? "形态所含 K 线均已收盘" : "形态包含未收盘 K 线，只作预览";
-  const confirmation = pattern.confirmation === "confirmed" ? "方向跟随已确认" : pattern.confirmation === "not-required" ? "无需方向确认" : "方向跟随待确认";
+  const formation = formationConfirmed ? tradingReportText("形态所含 K 线均已收盘") : tradingReportText("形态包含未收盘 K 线，只作预览");
+  const confirmation = pattern.confirmation === "confirmed" ? tradingReportText("方向跟随已确认") : pattern.confirmation === "not-required" ? tradingReportText("无需方向确认") : tradingReportText("方向跟随待确认");
   const location = pattern.zone
-    ? `位于${pattern.zone.role === "support" ? "支撑" : pattern.zone.role === "resistance" ? "阻力" : "决策"}区`
-    : "未绑定重复触点关键区";
-  return `- **${pattern.name}**（${direction}，${pattern.candleCount} 根）：${pattern.explanation}；${location}；${formation}；${confirmation}${pattern.actionable ? "；已满足形态级位置与确认门槛" : "；不单独构成交易"}。`;
+    ? tradingReportText("位于{0}区", pattern.zone.role === "support" ? tradingReportText("支撑") : pattern.zone.role === "resistance" ? tradingReportText("阻力") : tradingReportText("决策"))
+    : tradingReportText("未绑定重复触点关键区");
+  const occurrence = Number.isFinite(pattern.endTime) ? ` [${formatTime(pattern.endTime)}]` : "";
+  return tradingReportText("- **{0}**（{1}，{2} 根）：{3}；{4}；{5}；{6}{7}。", pattern.name, direction, pattern.candleCount, pattern.explanation, location, formation, confirmation, pattern.actionable ? tradingReportText("；已满足形态级位置与确认门槛") : tradingReportText("；不单独构成交易")) + occurrence;
 }
 
 export function buildPriceActionStrategyReport(snapshot, result) {
@@ -281,42 +283,42 @@ export function buildPriceActionStrategyReport(snapshot, result) {
   const historical = result.setups.historicalCandidates[0] || null;
   const recentCandlestickPatterns = result.candlestickPatterns.recentPatterns.slice(0, 6);
   return [
-    "## 裸K / Price Action 分析结论",
+    tradingReportText("## 裸K / Price Action 分析结论"),
     "",
     candidate
-      ? `当前识别到 **${candidate.setupName}**，方向为**${directionLabel(candidate.direction)}**；${lifecycleLabel(candidate.lifecycle)}。`
-      : "扫描已经正常完成；当前没有合格且仍在有效期内的裸K交易场景。这不是分析失败，当前动作是不交易。",
+      ? tradingReportText("当前识别到 **{0}**，方向为**{1}**；{2}。", candidate.setupName, directionLabel(candidate.direction), lifecycleLabel(candidate.lifecycle))
+      : tradingReportText("扫描已经正常完成；当前没有合格且仍在有效期内的裸K交易场景。这不是分析失败，当前动作是不交易。"),
     "",
-    "### 市场结构",
-    `- 当前结构：**${regimeLabel(result.marketStructure.regime)}**；结构事件：${result.marketStructure.event === "bullish-structure-break" ? "向上收盘突破最近确认高点" : result.marketStructure.event === "bearish-structure-break" ? "向下收盘跌破最近确认低点" : "没有新的收盘结构突破"}。`,
-    `- 最近摆动：${result.pivots.swings.slice(-6).map((swing) => `${swing.label} ${formatPrice(swing.price)}`).join("；") || "确认摆动不足"}。`,
-    `- 关键区域：${zones.map(zoneLine).join("；") || "当前窗口没有形成至少两个触点的稳定区域"}。`,
+    tradingReportText("### 市场结构"),
+    tradingReportText("- 当前结构：**{0}**；结构事件：{1}。", regimeLabel(result.marketStructure.regime), result.marketStructure.event === "bullish-structure-break" ? tradingReportText("向上收盘突破最近确认高点") : result.marketStructure.event === "bearish-structure-break" ? tradingReportText("向下收盘跌破最近确认低点") : tradingReportText("没有新的收盘结构突破")),
+    tradingReportText("- 最近摆动：{0}。", result.pivots.swings.slice(-6).map((swing) => `${swing.label} ${formatPrice(swing.price)}`).join("；") || tradingReportText("确认摆动不足")),
+    tradingReportText("- 关键区域：{0}。", zones.map(zoneLine).join("；") || tradingReportText("当前窗口没有形成至少两个触点的稳定区域")),
     "",
-    "### K线压力（仅 OHLC 推断）",
-    `- 最新收盘 ${formatPrice(latest.close)}；实体占整根 ${(latest.bodyRatio * 100).toFixed(1)}%，收盘位于高低区间的 ${(latest.closeLocation * 100).toFixed(1)}% 位置。`,
-    `- 可复算事实：${latest.facts.length ? latest.facts.map(factLabel).join("、") : "普通K线，没有满足冻结阈值的拒绝、吞没、强收盘或压缩事实"}。`,
-    "- 这些事实只表示该周期的价格压力；没有成交量、盘口和逐笔数据时，不能声称识别到真实资金流或机构买卖。",
+    tradingReportText("### K线压力（仅 OHLC 推断）"),
+    tradingReportText("- 最新收盘 {0}；实体占整根 {1}%，收盘位于高低区间的 {2}% 位置。", formatPrice(latest.close), (latest.bodyRatio * 100).toFixed(1), (latest.closeLocation * 100).toFixed(1)),
+    tradingReportText("- 可复算事实：{0}。", latest.facts.length ? latest.facts.map(factLabel).join("、") : tradingReportText("普通K线，没有满足冻结阈值的拒绝、吞没、强收盘或压缩事实")),
+    tradingReportText("- 这些事实只表示该周期的价格压力；没有成交量、盘口和逐笔数据时，不能声称识别到真实资金流或机构买卖。"),
     "",
-    "### 明确K线形态",
+    tradingReportText("### 明确K线形态"),
     ...(recentCandlestickPatterns.length
       ? recentCandlestickPatterns.map(candlestickPatternLine)
-      : ["- 最近 24 根输入 K 线没有满足几何与前置趋势门槛的命名形态；不会为增加命中数量而放宽定义。"]),
-    "- 图中只圈选最近、去重后的最多四个组合形态；包含未收盘 K 线的形态只作预览，圆圈也不代表方向必然兑现。",
+      : [tradingReportText("- 最近 24 根输入 K 线没有满足几何与前置趋势门槛的命名形态；不会为增加命中数量而放宽定义。")]),
+    tradingReportText("- 图中只圈选最近、去重后的最多四个组合形态；包含未收盘 K 线的形态只作预览，圆圈也不代表方向必然兑现。"),
     "",
-    "### 条件式执行",
+    tradingReportText("### 条件式执行"),
     ...setupLines(candidate),
     ...(!candidate ? [
-      "- 当前动作：等待，不交易；不生成入场、止损和目标价，避免虚假精度。",
-      "- 重新分析：出现新的确认摆动、价格回到高质量关键区、形成带上下文的拒绝/吞没/Inside Bar，或发生收盘突破—回踩后再运行。",
-      ...(historical ? [`- 历史排除：最近的 ${historical.setupName} 已${lifecycleLabel(historical.lifecycle)}，不会绘制成当前机会。`] : []),
+      tradingReportText("- 当前动作：等待，不交易；不生成入场、止损和目标价，避免虚假精度。"),
+      tradingReportText("- 重新分析：出现新的确认摆动、价格回到高质量关键区、形成带上下文的拒绝/吞没/Inside Bar，或发生收盘突破—回踩后再运行。"),
+      ...(historical ? [tradingReportText("- 历史排除：最近的 {0} 已{1}，不会绘制成当前机会。", historical.setupName, lifecycleLabel(historical.lifecycle))] : []),
     ] : [
-      "- 执行前提：只按已收盘 K 线触发；盘中影线越价不算确认。",
-      "- 方案有效期：触发前最多四个当前周期；触发后最多四个当前周期，达到目标、触及失效位或过期均结束原方案。",
+      tradingReportText("- 执行前提：只按已收盘 K 线触发；盘中影线越价不算确认。"),
+      tradingReportText("- 方案有效期：触发前最多四个当前周期；触发后最多四个当前周期，达到目标、触及失效位或过期均结束原方案。"),
     ]),
     "",
-    "### 数据与风险",
-    `本次只读取 ${snapshot.candles.length} 根 ${snapshot.interval} K 线的 time/open/high/low/close，范围 ${formatTime(snapshot.candles[0].time)} 至 ${formatTime(snapshot.candles.at(-1).time)}；未把成交量或技术指标作为信号。`,
-    "裸K分析是条件式风险框架，不是收益承诺或自动订单；跳空、滑点、资金费率、新闻和新 K 线都可能使结论失效。",
+    tradingReportText("### 数据与风险"),
+    tradingReportText("本次只读取 {0} 根 {1} K 线的 time/open/high/low/close，范围 {2} 至 {3}；未把成交量或技术指标作为信号。", snapshot.candles.length, snapshot.interval, formatTime(snapshot.candles[0].time), formatTime(snapshot.candles.at(-1).time)),
+    tradingReportText("裸K分析是条件式风险框架，不是收益承诺或自动订单；跳空、滑点、资金费率、新闻和新 K 线都可能使结论失效。"),
   ].join("\n");
 }
 
@@ -356,57 +358,7 @@ function englishCandlestickPatternLine(pattern) {
 }
 
 export function buildPriceActionStrategyEnglishReport(snapshot, result) {
-  const candidate = result.setups.primaryActiveCandidate;
-  const latest = result.candlePressure.latest;
-  const latestClose = snapshot.candles.at(-1).close;
-  const zones = result.zones
-    .filter((zone) => zone.role !== "decision" || latestClose >= zone.lower && latestClose <= zone.upper)
-    .slice(0, 4);
-  const historical = result.setups.historicalCandidates[0] || null;
-  const recentPatterns = result.candlestickPatterns.recentPatterns.slice(0, 6);
-  const structureEvent = result.marketStructure.event === "bullish-structure-break"
-    ? "a closed-candle break above the latest confirmed high"
-    : result.marketStructure.event === "bearish-structure-break"
-      ? "a closed-candle break below the latest confirmed low"
-      : "no new closed-candle structure break";
-  return [
-    "## Price Action Analysis",
-    "",
-    candidate
-      ? `Identified **${englishSetupName(candidate)}**, with a **${englishDirectionLabel(candidate.direction)}** bias; ${englishLifecycleLabel(candidate.lifecycle)}.`
-      : "The scan completed normally. No qualified, still-valid price-action setup is active; the current action is no trade.",
-    "",
-    "### Market structure",
-    `- Current structure: **${englishRegimeLabel(result.marketStructure.regime)}**; structure event: ${structureEvent}.`,
-    `- Recent swings: ${result.pivots.swings.slice(-6).map((swing) => `${swing.label} ${formatPriceEnglish(swing.price)}`).join("; ") || "not enough confirmed swings"}.`,
-    `- Key zones: ${zones.map(englishZoneLine).join("; ") || "no stable repeated-touch zone formed in the current window"}.`,
-    "",
-    "### Candle pressure (OHLC only)",
-    `- Latest close ${formatPriceEnglish(latest.close)}; body is ${(latest.bodyRatio * 100).toFixed(1)}% of the range, and the close is at ${(latest.closeLocation * 100).toFixed(1)}% of the high-low range.`,
-    `- Reproducible facts: ${latest.facts.length ? latest.facts.map(englishFactLabel).join(", ") : "ordinary candle; no frozen-threshold rejection, engulfing, strong-close, or compression fact"}.`,
-    "- These facts describe price pressure for this interval only. Without volume, order-book, or trade data, they do not prove real money flow or institutional buying/selling.",
-    "",
-    "### Named candlestick patterns",
-    ...(recentPatterns.length
-      ? recentPatterns.map(englishCandlestickPatternLine)
-      : ["- No named pattern met the geometric and prior-trend thresholds in the latest 24 candles; definitions are not relaxed to increase the hit count."]),
-    "- The chart highlights only the latest deduplicated patterns (up to four). Patterns containing an unclosed candle are previews and do not guarantee direction.",
-    "",
-    "### Conditional execution",
-    ...englishSetupLines(candidate),
-    ...(!candidate ? [
-      "- Current action: wait; do not trade. No entry, stop, or target is generated to avoid false precision.",
-      "- Re-run after a new confirmed swing, a return to a high-quality key zone, a contextual rejection/engulfing/inside bar, or a closed-candle breakout and retest.",
-      ...(historical ? [`- Historical exclusion: the latest ${englishSetupName(historical)} is ${englishLifecycleLabel(historical.lifecycle)} and is not drawn as a current opportunity.`] : []),
-    ] : [
-      "- Execution prerequisite: use closed-candle triggers only; an intrabar wick through the level is not confirmation.",
-      "- Setup validity: at most four current candles before the trigger and four after it; the original setup ends at a target, invalidation, or expiry.",
-    ]),
-    "",
-    "### Data and risk",
-    `This analysis reads only ${snapshot.candles.length} ${snapshot.interval} candles with time/open/high/low/close, from ${formatTimeEnglish(snapshot.candles[0].time)} to ${formatTimeEnglish(snapshot.candles.at(-1).time)}; volume and indicators are not used as signals.`,
-    "Price-action analysis is a conditional risk framework, not a return promise or an automatic order. Gaps, slippage, funding, news, and new candles can invalidate the conclusion.",
-  ].join("\n");
+  return withTradingReportLanguage("en", () => buildPriceActionStrategyReport(snapshot, result));
 }
 
 function analysisId(snapshot, ...parts) {
@@ -610,7 +562,7 @@ export function buildPriceActionStrategyDrawingPatch(snapshot, result, options =
   }, snapshot, STRATEGY_ID);
 }
 
-export async function runTradingPriceActionStrategyPipeline(params) {
+async function runTradingPriceActionStrategyPipelineInternal(params) {
   const snapshot = normalizeTradingMarketSnapshot(params);
   const theoryResult = runPriceActionStrategyEngine(snapshot);
   const language = params?.language === "en" ? "en" : "zh-CN";
@@ -652,4 +604,8 @@ export async function runTradingPriceActionStrategyPipeline(params) {
       finishReason: "deterministic-succeeded",
     },
   };
+}
+
+export async function runTradingPriceActionStrategyPipeline(params, options = {}) {
+  return withTradingReportLanguage(params?.language, async () => localizeTradingAnalysisResult(await runTradingPriceActionStrategyPipelineInternal(params, options), params?.language));
 }

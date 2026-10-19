@@ -129,10 +129,11 @@ html[data-theme="dark"]
 }
 .trading-watchlist-tabs {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 3px;
   min-height: 38px;
-  padding: 0 8px;
+  padding: 4px 8px;
   flex: 0 0 auto;
   background: inherit;
 }
@@ -150,6 +151,7 @@ html[data-theme="dark"]
   display: flex;
   align-items: stretch;
   min-width: 0;
+  max-width: 100%;
   border-radius: 3px;
 }
 .trading-watchlist-groups:is(:hover, :has(> [aria-expanded="true"])) {
@@ -218,8 +220,8 @@ html[data-theme="dark"]
 .trading-watchlist-head,
 .trading-watchlist-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.85fr);
-  column-gap: 5px;
+  grid-template-columns: minmax(0, 1fr) minmax(5.5em, 0.85fr) minmax(5.5em, 0.75fr);
+  column-gap: 8px;
   align-items: center;
   padding: 0 12px 0 17px;
 }
@@ -233,16 +235,29 @@ html[data-theme="dark"]
   line-height: 18px;
 }
 .trading-watchlist .trading-watchlist-head button {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14px;
   align-items: center;
   justify-content: flex-end;
   gap: 4px;
   min-width: 0;
   padding: 4px 0;
+  min-inline-size: 0;
   color: inherit;
   font: inherit;
   text-align: right;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* Sort labels may wrap at large text sizes. The shared English button rule
+   must not force either header wider than its grid track. */
+html[data-language="en"] .trading-watchlist .trading-watchlist-head button[data-i18n-single-line] {
+  min-inline-size: 0;
+  white-space: normal;
+}
+.trading-watchlist-head > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .trading-watchlist .trading-watchlist-head button:is(:hover, :active, :focus-visible) {
   background: transparent;
@@ -253,8 +268,8 @@ html[data-theme="dark"]
 .trading-watchlist-head button span {
   display: inline-flex;
   justify-content: center;
-  width: 8px;
-  flex: 0 0 8px;
+  width: 14px;
+  flex: 0 0 14px;
   font-size: 11px;
   line-height: 1;
 }

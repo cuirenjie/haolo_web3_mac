@@ -91,9 +91,16 @@ function normalizeUserRiskProfile(value) {
     .slice(0, 24)
     .map((entry) => Object.freeze({
       key: String(entry.key || "").trim().slice(0, 96),
-      value: String(entry.value ?? "").trim().slice(0, 300),
+      value: String(entry.value ?? "").trim().slice(0, 500),
     }))
     .filter((entry) => entry.key && entry.value);
+  // Compiled qualifiers must survive deterministic strategies too. Carry the
+  // complete requirements as plan preconditions, within each condition's bound.
+  const customRequirements = (Array.isArray(source.entries) ? source.entries : [])
+    .filter(entry => entry.scope === "trading.profile" && ["user_preference_notes", "additional_preferences"].includes(entry.key))
+    .map(entry => String(entry.value || "").trim())
+    .filter(value => value && value !== "无自定义补充说明")
+    .flatMap(value => value.match(/[\s\S]{1,500}/gu) || []);
   const configuredMinimumRiskRewardRatio = boundedRiskValue(source.minimumRiskRewardRatio, Number.MIN_VALUE, 100);
   return Object.freeze({
     maxLossPerTradePercent: boundedRiskValue(source.maxLossPerTradePercent, 0.01, 100, 2),
@@ -114,6 +121,7 @@ function normalizeUserRiskProfile(value) {
       ? source.riskPreference.trim().slice(0, 120) || null
       : null,
     customHardConstraints: Object.freeze(customHardConstraints),
+    customRequirements: Object.freeze(customRequirements),
   });
 }
 
@@ -1215,6 +1223,11 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       `用户硬性交易约束 ${entry.key}：${entry.value}`,
       evidenceIds,
     )),
+    ...riskPolicy.customRequirements.map((text, index) => condition(
+      `user-custom-requirement-${index + 1}`,
+      `用户交易要求（无法核实时不得视为满足）：${text}`,
+      evidenceIds,
+    )),
   ];
   const waitZone = actionPlan?.waitZone;
   const entryZone = waitZone && finite(waitZone.lower) && finite(waitZone.upper)
@@ -1361,7 +1374,9 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
     preconditions: [
       condition(
         "closed-candle-levels",
-        actionPlan.executionInterval
+        manifest.id === "wave" && actionPlan.executionBasis === "structural_fallback"
+          ? `采用结构与 ATR 兜底条件价；触发依据来自 ${displayExecutionPlanInterval(actionPlan.triggerSourceInterval || actionPlan.analysisInterval)}，止损依据来自 ${displayExecutionPlanInterval(actionPlan.stopBasis?.sourceInterval || actionPlan.analysisInterval)}；低周期浪型尚未全部确认，价格触达带缓冲触发价才操作`
+          : actionPlan.executionInterval
           ? `触发、结构支撑/阻力区止损和近端目标来自 ${displayExecutionPlanInterval(actionPlan.executionInterval)} 已收盘 K 线结构；缓冲后的触发价被价格触达时才操作`
           : "触发、止损和目标只从当前周期已收盘 K 线结构产生；执行时价格触达即操作",
         evidenceIds,
@@ -1505,7 +1520,7 @@ function waveBasisLabelEnglish(value) {
   if (fib) return fib[0].trim();
   if (source.includes("候选结构投影")) return "candidate structure projection";
   const riskMultiple = source.match(/结构风险倍数兜底目标\s*R([\d.]+)/);
-  return riskMultiple ? `structural risk-multiple fallback target R${riskMultiple[1]}` : "";
+  return riskMultiple ? `fallback target at ${riskMultiple[1]}R` : "";
 }
 
 function displayTargets(scenario) {
@@ -1573,6 +1588,28 @@ function executionPlanDisplayTitle(plan) {
 }
 
 function formatExecutionPlanMarkdownEnglish(validated) {
+  // Manifest names are stored in Chinese. Resolve built-ins by stable ID;
+  // user-defined strategy names and exchange symbols must remain lossless.
+  const strategyNames = {
+    chan: "Chan Theory",
+    "order-flow": "Order Flow",
+    "ict-smc": "ICT / SMC",
+    "smt-divergence": "SMT Divergence",
+    wave: "Elliott Wave",
+    wyckoff: "Wyckoff",
+    harmonic: "Harmonic Patterns",
+    "chart-patterns": "Chart Patterns",
+    "price-action": "Price Action",
+    "dow-theory": "Dow Theory",
+    "gann-theory": "Gann Theory",
+    "moving-average-analysis": "Moving Average",
+    "macd-analysis": "MACD",
+    "bollinger-bands-analysis": "Bollinger Bands",
+    "rsi-analysis": "RSI",
+    "kdj-analysis": "KDJ",
+    "vpvr-analysis": "VPVR",
+  };
+  const strategyName = strategyNames[validated.strategy.id] || validated.strategy.name || validated.strategy.id;
   const price = (level) => level ? String(level.price) : "Not available";
   const quantity = (value) => {
     const normalized = nonNegative(value);
@@ -1592,7 +1629,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
   const targetText = (scenario) => scenario?.targets?.length
     ? scenario.targets.map((target, index) => {
       const basis = waveBasisLabelEnglish(target);
-      return `Target ${index + 1}: ${price(target)}${basis ? ` (basis ${basis})` : ""}`;
+      return `Target ${index + 1}: ${price(target)}${basis ? ` (basis: ${basis})` : ""}`;
     }).join("; ")
     : "Not available";
   const scenarioRiskReward = (scenario) => {
@@ -1620,7 +1657,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
     const directionText = selectedSide === "long" ? "Bullish" : selectedSide === "short" ? "Bearish" : "Neutral";
     const directionOrder = selectedSide === "long" ? "long position" : "short position";
     let actionText = validated.action === "wait"
-      ? "Wait for the trigger"
+      ? selectedScenario ? selectedScenario ? "Wait for the trigger" : "Wait for a qualifying setup" : "Wait for a qualifying setup"
       : validated.action === "insufficient_data"
         ? "Insufficient data or price levels; do not trade"
         : validated.action === "long"
@@ -1630,7 +1667,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
             : candidateOnly
               ? "Do not trade"
               : "No directional action";
-    let triggerText = selectedScenario ? price(selectedScenario.trigger) : "No clear one-sided setup";
+    let triggerText = selectedScenario ? price(selectedScenario.trigger) : "No qualifying directional setup";
     if (sizing?.executionBlocked) actionText = "Do not trade";
     if (accountPlan?.mode === "new_position") {
       triggerText += candidateOnly
@@ -1662,7 +1699,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
         .filter((target) => target.notional > 0)
         .map((target) => {
           const basis = waveBasisLabelEnglish(validated.takeProfits?.[target.targetIndex]?.condition);
-          const basisText = basis ? ` (basis ${basis})` : "";
+          const basisText = basis ? ` (basis: ${basis})` : "";
           return candidateOnly
             ? `Take profit at ${target.price}${basisText}; non-executable candidate allocation ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`
             : `Conditional market take profit at ${target.price}${basisText} for ${displayMoney(target.notional)} USDT; estimated profit +${displayMoney(target.estimatedNetProfit)} USDT`;
@@ -1716,7 +1753,7 @@ function formatExecutionPlanMarkdownEnglish(validated) {
       "",
       `Current action: ${actionText}`,
       `Direction: ${directionText}`,
-      `Strategy: ${(validated.strategy.name || validated.strategy.id).replace(/\s+/g, " ")}`,
+      `Strategy: ${strategyName.replace(/\s+/g, " ")}`,
       `${triggerLabel}: ${triggerText}`,
       `Stop-loss and invalidation: ${stopText}`,
       `Take-profit targets: ${takeProfitText}`,
@@ -1758,7 +1795,7 @@ export function formatExecutionPlanMarkdown(plan, options = {}) {
     const directionText = selectedSide === "long" ? "偏多" : selectedSide === "short" ? "偏空" : "中性";
     const directionOrder = selectedSide === "long" ? "多单" : "空单";
     let actionText = validated.action === "wait"
-      ? "等待条件触发"
+      ? selectedScenario ? "等待条件触发" : "等待形成合格方案"
       : validated.action === "insufficient_data"
         ? "数据/价位不足，不交易"
         : validated.action === "long"

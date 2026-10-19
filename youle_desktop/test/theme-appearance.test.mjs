@@ -48,7 +48,7 @@ test("the composer resource hint uses adaptive gray without inheriting a faded p
   const hint = styles.match(/\.trading-expert-panel \.composer #composerInput::placeholder\s*\{([^}]*)\}/)?.[1] || "";
   assert.match(hint, /color: var\(--text-placeholder\);/);
   assert.match(hint, /opacity: 1;/);
-  const light = styles.match(/^:root\s*\{([^}]*)\}/)?.[1] || "";
+  const light = styles.match(/^:root\s*\{([^}]*)\}/m)?.[1] || "";
   const dark = styles.match(/html\[data-theme="dark"\]\s*\{([^}]*)\}/)?.[1] || "";
   const gray = (tokens) => tokens.match(/--text-placeholder:\s*(#[0-9a-f]{6});/i)?.[1];
   assert.ok(gray(light));

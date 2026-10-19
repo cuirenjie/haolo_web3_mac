@@ -235,7 +235,7 @@ test("English Price Action keeps the full analysis report alongside the executio
   });
   assert.match(coordinated.analysisPlan.report, /Current action:/);
   assert.match(coordinated.analysisPlan.report, /---[\s\S]*## Price Action Analysis/);
-  assert.match(coordinated.analysisPlan.report, /^Strategy: 裸K分析$/m);
+  assert.match(coordinated.analysisPlan.report, /^Strategy: Price Action$/m);
   assert.doesNotMatch(coordinated.analysisPlan.report.replace(/^Strategy: .*\n/m, ""), /[\u3400-\u9fff]/u);
 });
 

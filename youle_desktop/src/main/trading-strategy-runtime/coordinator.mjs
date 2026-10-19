@@ -1,6 +1,6 @@
 import { createStrategyResultEnvelope } from "./contracts.mjs";
+import { withTradingPreferenceContext } from "../personal-context/trading-preference-context.mjs";
 import { buildExecutionPlanV1, formatExecutionPlanMarkdown } from "./execution-plan-builder.mjs";
-import { containsHanCharacters } from "../assistant-output-language.mjs";
 import { personalRiskModelRegistry, personalRiskUnavailable, withPersonalRiskNotice } from "../trading-analysis/personal-risk-context.mjs";
 import {
   deterministicStrategyRequestRouting,
@@ -34,19 +34,26 @@ function stripInstalledStrategyMentions(value, registry) {
   return normalizeTradingRoutingText(source);
 }
 
-function stripLegacyExecutionPlanSection(value) {
+function stripLegacyExecutionPlanSection(value, language) {
   const lines = String(value || "").replace(/\r\n?/g, "\n").split("\n");
   const output = [];
   let skipping = false;
   for (const line of lines) {
-    if (/^\s*#{1,6}\s+标准执行方案\s*$/u.test(line)) {
+    if (/^\s*#{1,6}\s+(?:标准执行方案|標準執行方案|Standard execution plan)\s*$/u.test(line)) {
       skipping = true;
       continue;
     }
     if (skipping && /^\s*#{1,6}\s+\S/u.test(line)) skipping = false;
-    if (!skipping) output.push(line);
+    if (!skipping) output.push(line.replace(/^(\s*#{1,6}\s+)(?:当前执行方案|當前執行方案|Current execution plan|条件式执行|條件式執行|Conditional execution)\s*$/u,
+      (_, prefix) => prefix + (language === "en" ? "Structural scenario" : language === "zh-TW" || language === "zh-Hant" ? "結構場景" : "结构场景")));
   }
   return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function structuralReferenceNotice(language) {
+  if (language === "en") return "### Structural reference\n\nThe analysis and chart annotations below describe the original market structure and its conditional scenarios. Their trigger and projection levels are structural references. The execution plan above applies the configured entry-distance limit, staged targets and risk rules, so its planned prices may differ. Use that plan for execution levels; its risk/reward ratios include estimated fees and slippage. The plan uses price-touch entry: a market-entry action means its price condition is already met, and the displayed trigger is then an entry reference. The candle-close confirmation and retest criteria below describe the original structural scenario. No order has been submitted.";
+  if (language === "zh-TW" || language === "zh-Hant") return "### 結構參考\n\n下方分析與圖表標註描述原始市場結構及其條件場景，觸發價和投射目標屬於結構參考。上方執行方案已套用設定的入場距離限制、分批目標及風險規則，因此計畫價格可能不同；執行價位以上方方案為準，盈虧比已計入預估手續費與滑點。執行方案採用價格觸達入場；市價入場動作表示計畫價格條件已滿足，此時顯示的觸發價為入場參考。下方收盤突破與回踩條件描述原始結構場景。尚未提交任何訂單。";
+  return "### 结构参考\n\n下方分析与图表标注描述原始市场结构及其条件场景，触发价和投射目标属于结构参考。上方执行方案已应用设置的入场距离限制、分批目标及风险规则，因此计划价格可能不同；执行价位以上方方案为准，盈亏比已计入预估手续费与滑点。执行方案采用价格触达入场；市价入场动作表示计划价格条件已满足，此时显示的触发价为入场参考。下方收盘突破与回踩条件描述原始结构场景。尚未提交任何订单。";
 }
 
 export class TradingStrategyCoordinator {
@@ -249,7 +256,9 @@ export class TradingStrategyCoordinator {
     let analysisStatus = "completed";
     try {
       legacyResult = await adapter.run(analysisParams, {
-        modelRegistry: modelRegistry || personalRiskModelRegistry(this.#modelRegistry, analysisParams),
+        modelRegistry: personalRiskUnavailable(analysisParams)
+          ? personalRiskModelRegistry(modelRegistry || this.#modelRegistry, analysisParams)
+          : withTradingPreferenceContext(modelRegistry || this.#modelRegistry, analysisParams.userRiskProfile),
         executionPlanManaged: true,
         providerId: providerId || this.#providerId,
         signal,
@@ -268,30 +277,28 @@ export class TradingStrategyCoordinator {
       ...analysisParams,
       binanceAccountContext,
     });
-    const legacyReportWithoutExecutionPlan = stripLegacyExecutionPlanSection(legacyAnalysisPlan.report);
-    const defaultReport = params?.responseMode === "direct" || !exposesExecutionPlan
+    const legacyReportWithoutExecutionPlan = stripLegacyExecutionPlanSection(legacyAnalysisPlan.report, params?.language);
+    const combined = params?.responseMode !== "direct" && exposesExecutionPlan && !personalRiskUnavailable(params);
+    const english = params?.language === "en";
+    const traditional = params?.language === "zh-TW" || params?.language === "zh-Hant";
+    const planHeading = english ? "### Configured price-touch plan" : traditional ? "### 價格觸達執行方案" : "### 价格触达执行方案";
+    const structuralSummary = english
+      ? "Original structural assessment (confirmation levels below are separate from the configured plan's entry prices): "
+      : traditional ? "原始結構判斷（下列確認價位與執行方案的入場價分開）：" : "原始结构判断（下列确认价位与执行方案的入场价分开）：";
+    // Localization belongs to the formatter/pipeline. Never discard analysis
+    // evidence because a proper name or a model response contains another script.
+    const report = !combined
       ? legacyAnalysisPlan.report
-      : `${formatExecutionPlanMarkdown(executionPlan)}\n\n---\n\n${legacyReportWithoutExecutionPlan}`.trim();
-    const englishLegacyReport = String(legacyReportWithoutExecutionPlan || "").trim();
-    const englishReport = params?.responseMode === "direct" || !exposesExecutionPlan
-      ? containsHanCharacters(defaultReport)
-        ? "The market analysis is complete. Review the chart annotations for the detected structure and risk levels."
-        : defaultReport
-      : [
-          formatExecutionPlanMarkdown(executionPlan, { language: "en" }),
-          ...(!containsHanCharacters(englishLegacyReport) ? ["---", englishLegacyReport] : []),
-        ].filter(Boolean).join("\n\n");
-    const englishNarrative = containsHanCharacters(legacyAnalysisPlan.narrative)
-      ? "The analysis is complete. Review the chart annotations and conditional levels for the detected structure."
-      : legacyAnalysisPlan.narrative;
+      : [planHeading + "\n\n" + formatExecutionPlanMarkdown(executionPlan, { language: params?.language }), structuralReferenceNotice(params?.language), legacyReportWithoutExecutionPlan]
+        .filter(Boolean).join("\n\n---\n\n").trim();
     const decoratedResult = {
       ...legacyResult,
       strategy: Object.freeze({ id: strategy.manifest.id, version: strategy.manifest.version }),
       analysisPlan: {
         ...legacyAnalysisPlan,
         executionPlan,
-        report: params?.language === "en" ? englishReport : defaultReport,
-        narrative: params?.language === "en" ? englishNarrative : legacyAnalysisPlan.narrative,
+        report,
+        narrative: combined && legacyAnalysisPlan.narrative ? structuralSummary + legacyAnalysisPlan.narrative : legacyAnalysisPlan.narrative,
       },
     };
     return withPersonalRiskNotice(createStrategyResultEnvelope(strategy.manifest, decoratedResult, executionPlan), params);

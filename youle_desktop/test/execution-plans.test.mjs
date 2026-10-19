@@ -406,8 +406,7 @@ BTC/USDT 币安永续 4H
   `;
   const candidate = executionPlanCandidateFromText(text);
 
-  assert.ok(candidate);
-  assert.equal(candidate.title, "BTC/USDT 币安永续 4H");
+  assert.equal(candidate, null);
   assert.equal(executionPlanHasConcreteTradingPlan(candidate), false);
 });
 
@@ -816,4 +815,15 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(styles, /\.mac-titlebar \.titlebar-market-favorites-host\s*\{[^}]*position:\s*relative;[^}]*inset:\s*auto;[^}]*flex:\s*1 1 auto;/s);
   assert.doesNotMatch(styles, /\.execution-plan-card-mark/);
   assert.match(styles, /\.execution-plan-empty p\s*\{[^}]*font-size:\s*calc\(12px \+ var\(--app-font-size-offset\)\)/s);
+});
+
+test("directional evidence inside English prose is not a structured execution plan", () => {
+  const report = [
+    "## Price Action Analysis",
+    "### Recent candlestick occurrences",
+    "- Spinning top: directional confirmation is pending.",
+    "- Bottom fractal: directional follow-through is confirmed.",
+    "- Hammer: direction is inferred from the surrounding candles, not a trade instruction.",
+  ].join("\n");
+  assert.equal(executionPlanCandidateFromText(report), null);
 });

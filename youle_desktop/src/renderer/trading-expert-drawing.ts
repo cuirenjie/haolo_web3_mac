@@ -17,6 +17,9 @@ import {
   type TradingOrderLine,
 } from "./trading-expert-order-lines.ts";
 import { translateAppText, translateTradingAnnotationText, type AppLanguage } from "./app-language.mjs";
+import { DRAWING_MENU_SECTIONS, DRAWING_SHORTCUTS, DRAWING_SYMBOLS, renderDrawingIcon as drawingIcon, drawingMenuGroup } from './trading-drawing-catalog.ts';
+import { renderExtraDrawingGeometry, renderExtraAnnotation, storeDrawingImage, type DrawingCandle } from './trading-drawing-extra-tools.ts';
+import { manualDrawingDefaults, manualFibLevelColor, DRAWING_SELECTION_COLOR, type ManualDrawingDefaults } from './trading-drawing-defaults.ts';
 
 const LEGACY_TRADING_DRAWINGS_STORAGE_KEY = "haolo.trading-market.drawings.v1";
 const LEGACY_TRADING_AI_DRAWINGS_STORAGE_KEY = "haolo.trading-market.ai-drawings.v1";
@@ -110,9 +113,19 @@ const TRADING_DRAWING_COLORS = [
   "#000000", "#4b5563", "#787b86", "#b2b5be", "#ffffff",
   "#ef5350", "#ff9800", "#f6bf26", "#8bc34a", "#22ab94", "#26c6da", "#2962ff", "#7b61ff", "#ab47bc", "#ec407a",
   "#b71c1c", "#e65100", "#9e6c00", "#33691e", "#00695c", "#00838f", "#0d47a1", "#4527a0", "#6a1b9a", "#ad1457",
+  "#808080", "#f23645", "#089981", "#00bcd4", "#9c27b0",
+  "#4caf50", "#e91e63", "#673ab7", "#3d85c6", "#6aa84f",
+  "#159980", "#1e88e5", "#1e53e5", "#cc2f3c", "#153899",
 ] as const;
 
 export type TradingDrawingToolId =
+  | "magic" | "multi-point-path" | "multi-point-polyline"
+  | "dot" | "demonstration"
+  | "fib-trend-time" | "fib-speed-arcs" | "gann-square-fixed"
+  | "elliott-double-combo" | "elliott-triple-combo" | "time-cycles" | "sine-line"
+  | "anchored-vwap" | "anchored-volume-profile" | "sector"
+  | "anchored-note" | "pin-note" | "table" | "price-label" | "image" | "tweet" | "idea"
+  | "arrow-left" | "arrow-right" | "emoji" | "sticker" | "icon"
   | "cursor"
   | "crosshair"
   | "eraser"
@@ -236,6 +249,8 @@ export interface TradingDrawingToolDefinition {
 export type TradingDrawingPlacementMode = "single-click" | "two-click" | "three-click" | "multi-click" | "drag";
 
 const TRADING_PATTERN_POINT_COUNTS: Readonly<Partial<Record<TradingDrawingToolId, number>>> = {
+  "elliott-double-combo": 4,
+  "elliott-triple-combo": 6,
   xabcd: 5,
   cypher: 5,
   "head-shoulders": 7,
@@ -250,7 +265,9 @@ const TRADING_PATTERN_POINT_COUNTS: Readonly<Partial<Record<TradingDrawingToolId
 export function tradingDrawingRequiredPointCount(
   definition: TradingDrawingToolDefinition,
 ) {
-  if (definition.freehand) return 0;
+  if (definition.freehand || tradingDrawingIsMultiPoint(definition.id)) return 0;
+  if (definition.id === "fib-trend-time" || definition.id === "sector") return 3;
+  if (["anchored-vwap", "anchored-volume-profile", "price-label"].includes(definition.id)) return 1;
   const patternPointCount = TRADING_PATTERN_POINT_COUNTS[definition.id];
   if (patternPointCount) return patternPointCount;
   if (definition.id === "price-note") return 2;
@@ -270,6 +287,7 @@ export function tradingDrawingPlacementMode(
   definition: TradingDrawingToolDefinition,
 ): TradingDrawingPlacementMode {
   if (definition.freehand) return "drag";
+  if (tradingDrawingIsMultiPoint(definition.id)) return "multi-click";
   const requiredPointCount = tradingDrawingRequiredPointCount(definition);
   if (requiredPointCount === 1) return "single-click";
   if (requiredPointCount === 2) return "two-click";
@@ -277,7 +295,18 @@ export function tradingDrawingPlacementMode(
   return "multi-click";
 }
 
+export function tradingDrawingIsMultiPoint(id: string) {
+  return id === 'multi-point-path' || id === 'multi-point-polyline';
+}
+
+export function tradingDrawingIsClosedPolyline(drawing: Pick<TradingDrawingModel, 'tool' | 'points'>) {
+  const first = drawing.points[0], last = drawing.points.at(-1);
+  return drawing.tool === 'multi-point-polyline' && drawing.points.length > 3
+    && first.time === last?.time && first.price === last?.price;
+}
+
 export type TradingDrawingGroupId =
+  | "icons"
   | "cursor"
   | "trend"
   | "channel"
@@ -305,104 +334,121 @@ const tool = (
 ): TradingDrawingToolDefinition => ({ id, label, group, kind, icon, freehand });
 
 export const TRADING_DRAWING_TOOLS: ReadonlyArray<TradingDrawingToolDefinition> = [
-  tool("cursor", "光标", "cursor", "cursor", "cursor"),
-  tool("crosshair", "十字光标", "cursor", "cursor", "crosshair"),
-  tool("eraser", "删除单个绘图", "cursor", "eraser", "eraser"),
+  tool("cursor", "箭头", "cursor", "cursor", "cursor"),
+  tool("crosshair", "十字线", "cursor", "cursor", "crosshair"),
+  tool("eraser", "橡皮擦", "cursor", "eraser", "eraser"),
 
   tool("trend-line", "趋势线", "trend", "line", "trend"),
   tool("ray", "射线", "trend", "ray", "ray"),
   tool("extended-line", "延长线", "trend", "extended", "extended"),
-  tool("info-line", "信息线", "trend", "measure", "measure"),
+  tool("info-line", "信息线", "trend", "measure", "info-line"),
   tool("trend-angle", "趋势角度", "trend", "measure", "angle"),
   tool("horizontal-line", "水平线", "trend", "horizontal", "horizontal"),
-  tool("horizontal-ray", "水平射线", "trend", "horizontal-ray", "ray"),
+  tool("horizontal-ray", "水平射线", "trend", "horizontal-ray", "horizontal-ray"),
   tool("vertical-line", "垂直线", "trend", "vertical", "vertical"),
-  tool("cross-line", "十字线", "trend", "cross", "crosshair"),
+  tool("cross-line", "横线", "trend", "cross", "cross-line"),
   tool("arrow", "箭头", "trend", "arrow", "arrow"),
 
   tool("parallel-channel", "平行通道", "channel", "channel", "channel"),
   tool("regression-trend", "回归趋势", "channel", "channel", "regression"),
-  tool("flat-top-bottom", "平顶/底", "channel", "channel", "flat-channel"),
-  tool("disjoint-channel", "不连续通道", "channel", "channel", "channel"),
-  tool("pitchfork", "安德鲁音叉", "channel", "pitchfork", "pitchfork"),
-  tool("schiff-pitchfork", "希夫音叉", "channel", "pitchfork", "pitchfork"),
-  tool("modified-schiff-pitchfork", "修正希夫音叉", "channel", "pitchfork", "pitchfork"),
-  tool("inside-pitchfork", "内部音叉", "channel", "pitchfork", "pitchfork"),
+  tool("flat-top-bottom", "平顶/平底", "channel", "channel", "flat-channel"),
+  tool("disjoint-channel", "不相交通道", "channel", "channel", "disjoint-channel"),
+  tool("pitchfork", "分叉线", "channel", "pitchfork", "pitchfork"),
+  tool("schiff-pitchfork", "希夫干草叉", "channel", "pitchfork", "schiff"),
+  tool("modified-schiff-pitchfork", "改良希夫干草叉", "channel", "pitchfork", "modified-schiff"),
+  tool("inside-pitchfork", "内部分叉线", "channel", "pitchfork", "inside-pitchfork"),
 
   tool("gann-box", "江恩箱", "gann-fib", "gann", "gann"),
-  tool("gann-square", "江恩正方形", "gann-fib", "gann", "gann"),
-  tool("gann-fan", "江恩扇形", "gann-fib", "gann", "fan"),
+  tool("gann-square", "江恩正方", "gann-fib", "gann", "gann-square"),
+  tool("gann-fan", "江恩扇", "gann-fib", "gann", "gann-fan"),
   tool("fib-retracement", "斐波那契回撤", "gann-fib", "fib", "fib"),
-  tool("fib-trend-extension", "趋势斐波那契扩展", "gann-fib", "fib", "fib"),
+  tool("fib-trend-extension", "斐波那契趋势扩展", "gann-fib", "fib", "fib-extension"),
   tool("fib-speed-fan", "斐波那契速度阻力扇", "gann-fib", "gann", "fan"),
-  tool("fib-time-zone", "斐波那契时间周期", "gann-fib", "fib-time", "time-zone"),
-  tool("fib-circles", "斐波那契圆", "gann-fib", "fib-circle", "circle"),
+  tool("fib-time-zone", "斐波那契时区", "gann-fib", "fib-time", "time-zone"),
+  tool("fib-circles", "斐波那契圈", "gann-fib", "fib-circle", "fib-circles"),
   tool("fib-spiral", "斐波那契螺旋", "gann-fib", "fib-circle", "spiral"),
-  tool("fib-channel", "斐波那契通道", "gann-fib", "fib", "channel"),
+  tool("fib-channel", "斐波那契通道", "gann-fib", "fib", "fib-channel"),
   tool("fib-wedge", "斐波那契楔形", "gann-fib", "gann", "wedge"),
-  tool("pitchfan", "音叉扇形", "gann-fib", "gann", "fan"),
+  tool("pitchfan", "倾斜扇形", "gann-fib", "gann", "pitchfan"),
 
-  tool("brush", "画笔", "brush", "freehand", "brush", true),
+  tool("brush", "笔刷", "brush", "freehand", "brush", true),
   tool("highlighter", "荧光笔", "brush", "freehand", "highlighter", true),
-  tool("path", "路径", "brush", "freehand", "path", true),
+  tool("path", "自由路径", "brush", "freehand", "path", true),
 
   tool("rectangle", "矩形", "geometry", "rectangle", "rectangle"),
   tool("rotated-rectangle", "旋转矩形", "geometry", "rotated-rectangle", "rotated-rectangle"),
-  tool("circle", "圆形", "geometry", "ellipse", "circle"),
+  tool("circle", "圆", "geometry", "ellipse", "circle"),
   tool("ellipse", "椭圆", "geometry", "ellipse", "ellipse"),
   tool("triangle", "三角形", "geometry", "triangle", "triangle"),
-  tool("arc", "圆弧", "geometry", "arc", "arc"),
+  tool("arc", "弧形", "geometry", "arc", "arc"),
   tool("curve", "曲线", "geometry", "curve", "curve"),
   tool("double-curve", "双曲线", "geometry", "curve", "double-curve"),
-  tool("polyline", "折线", "geometry", "polyline", "polyline"),
+  tool("polyline", "预设折线", "geometry", "polyline", "polyline"),
 
-  tool("text", "文本", "annotation", "text", "text"),
+  tool("text", "文字", "annotation", "text", "text"),
   tool("anchored-text", "锚定文本", "annotation", "text", "anchored-text"),
-  tool("note", "注释", "annotation", "text", "note"),
-  tool("price-note", "价格注释", "annotation", "text", "price-note"),
-  tool("signpost", "路标", "annotation", "marker", "signpost"),
-  tool("callout", "标注框", "annotation", "text", "callout"),
+  tool("note", "笔记", "annotation", "text", "note"),
+  tool("price-note", "价格笔记", "annotation", "text", "price-note"),
+  tool("signpost", "指示牌", "annotation", "marker", "signpost"),
+  tool("callout", "标注", "annotation", "text", "callout"),
   tool("comment", "评论", "annotation", "marker", "comment"),
   tool("arrow-marker", "箭头标记", "annotation", "marker", "arrow-marker"),
   tool("arrow-up", "向上箭头", "annotation", "marker", "arrow-up"),
   tool("arrow-down", "向下箭头", "annotation", "marker", "arrow-down"),
-  tool("flag", "旗帜", "annotation", "marker", "flag"),
+  tool("flag", "旗标", "annotation", "marker", "flag"),
 
   tool("xabcd", "XABCD 形态", "pattern", "pattern", "xabcd"),
-  tool("cypher", "Cypher 形态", "pattern", "pattern", "cypher"),
+  tool("cypher", "赛福形态", "pattern", "pattern", "cypher"),
   tool("head-shoulders", "头肩形态", "pattern", "pattern", "head-shoulders"),
   tool("abcd", "ABCD 形态", "pattern", "pattern", "abcd"),
-  tool("triangle-pattern", "三角形态", "pattern", "pattern", "triangle"),
+  tool("triangle-pattern", "三角形态", "pattern", "pattern", "triangle-pattern"),
   tool("three-drives", "三驱形态", "pattern", "pattern", "three-drives"),
-  tool("elliott-impulse", "艾略特推动浪", "pattern", "pattern", "elliott"),
-  tool("elliott-correction", "艾略特调整浪", "pattern", "pattern", "elliott"),
-  tool("elliott-triangle", "艾略特三角浪", "pattern", "pattern", "elliott"),
-  tool("cyclic-lines", "周期线", "pattern", "fib-time", "time-zone"),
+  tool("elliott-impulse", "艾略特脉冲波（1·2·3·4·5）", "pattern", "pattern", "elliott-impulse"),
+  tool("elliott-correction", "艾略特修正浪（A·B·C）", "pattern", "pattern", "elliott-correction"),
+  tool("elliott-triangle", "艾略特三角波（A·B·C·D·E）", "pattern", "pattern", "elliott-triangle"),
+  tool("cyclic-lines", "循环线", "pattern", "fib-time", "cyclic-lines"),
 
   tool("long-position", "多头仓位", "prediction", "position", "long-position"),
   tool("short-position", "空头仓位", "prediction", "position", "short-position"),
-  tool("forecast", "预测", "prediction", "projection", "forecast"),
+  tool("forecast", "仓位预测", "prediction", "projection", "forecast"),
   tool("date-range", "日期范围", "prediction", "range", "date-range"),
   tool("price-range", "价格范围", "prediction", "range", "price-range"),
-  tool("date-price-range", "日期和价格范围", "prediction", "measure", "measure"),
+  tool("date-price-range", "日期和价格范围", "prediction", "measure", "date-price-range"),
   tool("bars-pattern", "K线形态", "prediction", "projection", "bars"),
-  tool("ghost-feed", "幽灵走势", "prediction", "projection", "ghost"),
+  tool("ghost-feed", "模拟K线", "prediction", "projection", "ghost"),
   tool("projection", "价格投影", "prediction", "projection", "projection"),
-  tool("fixed-range-volume", "固定范围成交量", "prediction", "range", "volume"),
+  tool("fixed-range-volume", "固定范围成交量分布图", "prediction", "range", "volume-profile"),
   tool("measure", "测量", "prediction", "measure", "ruler"),
+  tool("multi-point-path", "路径", "geometry", "polyline", "multi-point-path"),
+  tool("multi-point-polyline", "折线", "geometry", "polyline", "multi-point-polyline"),
+  tool("magic", "魔法", "cursor", "cursor", "magic"),
+  tool("dot", "圆点", "cursor", "cursor", "dot"),
+  tool("demonstration", "荧光笔光标", "cursor", "cursor", "demonstration"),
+  tool("fib-trend-time", "斐波那契趋势时间", "gann-fib", "fib-time", "fib-trend-time"),
+  tool("fib-speed-arcs", "斐波那契速度阻力弧", "gann-fib", "fib-circle", "fib-speed-arcs"),
+  tool("gann-square-fixed", "固定江恩正方", "gann-fib", "gann", "gann-fixed"),
+  tool("elliott-double-combo", "艾略特双重组合浪（W·X·Y）", "pattern", "pattern", "elliott-double-combo"),
+  tool("elliott-triple-combo", "艾略特三重组合浪（W·X·Y·X·Z）", "pattern", "pattern", "elliott-triple-combo"),
+  tool("time-cycles", "时间循环", "pattern", "fib-time", "time-cycles"),
+  tool("sine-line", "正弦线", "pattern", "curve", "sine-line"),
+  tool("anchored-vwap", "锚定VWAP", "prediction", "line", "anchored-vwap"),
+  tool("anchored-volume-profile", "锚定成交量分布图", "prediction", "range", "anchored-volume-profile"),
+  tool("sector", "扇形", "prediction", "arc", "sector"),
+  tool("anchored-note", "锚定笔记", "annotation", "text", "anchored-note"),
+  tool("pin-note", "置顶", "annotation", "text", "pin-note"),
+  tool("table", "表格", "annotation", "text", "table"),
+  tool("price-label", "价格标签", "annotation", "marker", "price-label"),
+  tool("image", "图片", "annotation", "text", "image"),
+  tool("tweet", "帖子", "annotation", "text", "tweet"),
+  tool("idea", "观点", "annotation", "text", "idea"),
+  tool("arrow-left", "向左箭头", "annotation", "marker", "arrow-left"),
+  tool("arrow-right", "向右箭头", "annotation", "marker", "arrow-right"),
+  tool("emoji", "表情符号", "icons", "marker", "emoji"),
+  tool("sticker", "贴纸", "icons", "marker", "emoji"),
+  tool("icon", "图标", "icons", "marker", "emoji"),
 ] as const;
 
-const TRADING_DRAWING_GROUPS: ReadonlyArray<TradingDrawingGroupDefinition> = [
-  { id: "cursor", label: "光标与删除", icon: "cursor", defaultTool: "cursor" },
-  { id: "trend", label: "趋势线工具", icon: "trend", defaultTool: "trend-line" },
-  { id: "channel", label: "通道与音叉", icon: "channel", defaultTool: "parallel-channel" },
-  { id: "gann-fib", label: "江恩与斐波那契", icon: "fib", defaultTool: "fib-retracement" },
-  { id: "brush", label: "画笔", icon: "brush", defaultTool: "brush" },
-  { id: "geometry", label: "几何图形", icon: "geometry", defaultTool: "rectangle" },
-  { id: "annotation", label: "文本与标注", icon: "text", defaultTool: "text" },
-  { id: "pattern", label: "技术形态", icon: "pattern", defaultTool: "xabcd" },
-  { id: "prediction", label: "预测与测量", icon: "measure", defaultTool: "long-position" },
-] as const;
+const TRADING_DRAWING_GROUPS: ReadonlyArray<TradingDrawingGroupDefinition> = DRAWING_MENU_SECTIONS;
 
 export function tradingDrawingToolDefinition(id: string | null | undefined) {
   return TRADING_DRAWING_TOOLS.find((candidate) => candidate.id === id) ?? null;
@@ -755,8 +801,8 @@ export function clampTradingDrawingToolbarPosition(
   position: ScreenPoint,
   bounds: { width: number; height: number },
   toolbarSize: { width: number; height: number },
+  inset = 8,
 ): ScreenPoint {
-  const inset = 8;
   return {
     x: Math.min(Math.max(position.x, inset), Math.max(inset, bounds.width - toolbarSize.width - inset)),
     y: Math.min(Math.max(position.y, inset), Math.max(inset, bounds.height - toolbarSize.height - inset)),
@@ -795,102 +841,37 @@ export function tradingAiTextNextFontSize(
     ?? TRADING_AI_TEXT_FONT_SIZES[0];
 }
 
-function drawingIcon(name: string) {
-  const paths: Record<string, string> = {
-    cursor: '<path d="M5 3.5 18 12l-6.1 1.4L9.5 20z"/>',
-    crosshair: '<path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="3"/>',
-    eraser: '<path d="m5 15 7.8-9a2 2 0 0 1 3 0l2.2 2.2a2 2 0 0 1 0 2.8l-7.8 9H6l-2-2zM11 19h9"/>',
-    trend: '<path d="M4 18 20 6"/><circle cx="4" cy="18" r="1.6"/><circle cx="20" cy="6" r="1.6"/>',
-    ray: '<path d="M4 18 21 5"/><circle cx="4" cy="18" r="1.7"/>',
-    extended: '<path d="M2 20 22 4"/><circle cx="8" cy="15.2" r="1.4"/><circle cx="16" cy="8.8" r="1.4"/>',
-    measure: '<path d="M4 18 20 6M6 15l3 3m6-12 3 3"/>',
-    ruler: '<path d="m5 18 13-13 2 2L7 20zM10 13l2 2m1-5 2 2m1-5 2 2"/>',
-    angle: '<path d="M4 19h16M4 19 17 6M9 19a5 5 0 0 0-1.5-3.5"/>',
-    horizontal: '<path d="M3 12h18"/><circle cx="12" cy="12" r="1.7"/>',
-    vertical: '<path d="M12 3v18"/><circle cx="12" cy="12" r="1.7"/>',
-    arrow: '<path d="M4 18 20 6m-7 1 7-1-1 7"/>',
-    channel: '<path d="M3 16 19 6M5 20 21 10"/>',
-    regression: '<path d="M3 17 21 7M4 13 20 4M4 21l16-9"/>',
-    "flat-channel": '<path d="M3 7h18M3 17h18"/>',
-    pitchfork: '<path d="M4 20 18 5M8 20 22 5M6 17 4 9m0 0 6 2"/>',
-    gann: '<rect x="4" y="4" width="16" height="16"/><path d="M4 20 20 4M4 12h16M12 4v16"/>',
-    fan: '<path d="M4 20 20 4M4 20 21 11M4 20l9-17M4 20h17"/>',
-    fib: '<path d="M4 5h16M4 9h16M4 14h16M4 19h16"/><path d="M7 3v18"/>',
-    "time-zone": '<path d="M5 3v18M9 3v18M15 3v18M20 3v18"/>',
-    circle: '<circle cx="12" cy="12" r="8"/>',
-    ellipse: '<ellipse cx="12" cy="12" rx="9" ry="6"/>',
-    spiral: '<path d="M13 12c0-2-3-2-3 0 0 3 5 3 5-1 0-5-8-5-8 1 0 7 11 8 13 1"/>',
-    wedge: '<path d="M4 20 19 5M4 20l18-7M4 20h18"/>',
-    brush: '<path d="M4 18c4-9 6 1 9-7s4-5 7-6"/>',
-    highlighter: '<path d="m5 18 3 2L20 8l-4-4zM3 21h9"/>',
-    path: '<path d="M3 18c4-12 8 8 12-4 2-6 4-7 6-8"/>',
-    geometry: '<rect x="5" y="5" width="14" height="14"/>',
-    templates: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>',
-    rectangle: '<rect x="4" y="6" width="16" height="12"/>',
-    "rotated-rectangle": '<path d="m7 3 14 8-6 10L1 13z"/>',
-    triangle: '<path d="m12 4 9 16H3z"/>',
-    arc: '<path d="M4 18A10 10 0 0 1 20 6"/>',
-    curve: '<path d="M3 18Q12 2 21 17"/>',
-    "double-curve": '<path d="M3 8q9 12 18 0M3 16Q12 4 21 16"/>',
-    polyline: '<path d="m3 17 5-8 5 5 8-10"/>',
-    text: '<path d="M4 5h16M12 5v15M8 20h8"/>',
-    "anchored-text": '<path d="M4 5h12M10 5v11M7 16h6M18 18v3m-2-1 2 1 2-1"/>',
-    note: '<path d="M5 4h14v12l-5 4H5zM8 8h8M8 12h6"/>',
-    "price-note": '<path d="M4 6h12l4 6-4 6H4zM8 10h6M8 14h4"/>',
-    signpost: '<path d="M7 5h10l3 4-3 4H7zM12 13v8"/>',
-    callout: '<path d="M4 5h16v11H9l-4 4 1-4H4z"/>',
-    comment: '<path d="M4 5h16v12H9l-4 3 1-3H4zM8 9h8M8 13h5"/>',
-    "arrow-marker": '<path d="M12 21V5m-5 6 5-6 5 6"/>',
-    "arrow-up": '<path d="m5 14 7-8 7 8h-4v6H9v-6z"/>',
-    "arrow-down": '<path d="m5 10 7 8 7-8h-4V4H9v6z"/>',
-    flag: '<path d="M6 21V4m0 1h12l-3 4 3 4H6"/>',
-    pattern: '<path d="m3 17 4-8 5 6 4-11 5 13"/>',
-    xabcd: '<path d="m2 16 4-9 5 8 5-11 6 13"/><path d="M2 20h20"/>',
-    cypher: '<path d="m3 17 5-10 4 8 4-12 5 15"/>',
-    "head-shoulders": '<path d="M3 18 7 9l4 4 3-10 3 10 4-4"/>',
-    abcd: '<path d="m3 17 5-10 5 8 8-12"/>',
-    "three-drives": '<path d="m3 19 3-8 3 5 3-11 3 8 3-10 3 16"/>',
-    elliott: '<path d="m3 18 4-10 4 6 4-11 3 8 3-5"/>',
-    "long-position": '<rect x="5" y="4" width="14" height="8"/><rect x="5" y="12" width="14" height="8"/><path d="M5 12h14"/>',
-    "short-position": '<rect x="5" y="4" width="14" height="8"/><rect x="5" y="12" width="14" height="8"/><path d="M5 12h14"/>',
-    forecast: '<path d="M3 18 10 11l4 3 7-9m-5 0h5v5"/>',
-    "date-range": '<path d="M5 4v16M19 4v16M5 12h14m-3-3 3 3-3 3M8 9l-3 3 3 3"/>',
-    "price-range": '<path d="M4 5h16M4 19h16M12 5v14m-3-3 3 3 3-3M9 8l3-3 3 3"/>',
-    bars: '<path d="M4 17v-7m4 10V5m4 12V8m4 11V4m4 13V9"/>',
-    ghost: '<path d="M4 18c4-10 7 3 11-7 2-4 4-4 6-6" stroke-dasharray="2 2"/>',
-    projection: '<path d="M3 18 10 10l4 4 7-9" stroke-dasharray="3 2"/>',
-    volume: '<path d="M4 20v-6h3v6m2 0V8h3v12m2 0V4h3v16m2 0v-9h2v9"/>',
-    undo: '<path d="M9 7 4 12l5 5M5 12h8a6 6 0 0 1 6 6"/>',
-    redo: '<path d="m15 7 5 5-5 5m4-5h-8a6 6 0 0 0-6 6"/>',
-    magnet: '<path d="M6 4v9a6 6 0 0 0 12 0V4h-4v9a2 2 0 0 1-4 0V4z"/>',
-    lock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
-    unlock: '<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M16 10V7a4 4 0 0 0-7-2"/>',
-    eye: '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="3"/>',
-    "eye-off": '<path d="M3 3l18 18M9.5 6.4A10 10 0 0 1 12 6c6 0 9.5 6 9.5 6a16 16 0 0 1-2.1 2.8M6.2 7.3C3.8 9.1 2.5 12 2.5 12s3.5 6 9.5 6a9 9 0 0 0 3-.5"/>',
-    pin: '<path d="m9 3 6 2-1 5 4 4-5 1-4 6v-7l-4-4 5-1z"/>',
-    zoom: '<circle cx="10" cy="10" r="6"/><path d="m15 15 5 5M7 10h6M10 7v6"/>',
-    "zoom-out": '<circle cx="10" cy="10" r="6"/><path d="m15 15 5 5M7 10h6"/>',
-    reset: '<path d="M4 4v6h6M5.7 16.4A8 8 0 1 0 4.3 9.2"/>',
-    color: '<path d="m5 18 2.2-5.5L16.7 3a2 2 0 0 1 2.8 2.8L10 15.3zM4 21h16"/>',
-    trash: '<path d="M5 7h14M9 7V4h6v3M7 9v11h10V9M10.5 11v6M13.5 11v6"/>',
-  };
-  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] ?? paths.trend}</svg>`;
-}
-
 function renderDrawingToolMenu(group: TradingDrawingGroupDefinition) {
-  const tools = TRADING_DRAWING_TOOLS.filter((candidate) => candidate.group === group.id);
+  const sections = DRAWING_MENU_SECTIONS.find(candidate => candidate.id === group.id)?.sections ?? [];
+  if (group.id === 'icons') return `<section class="trading-drawing-tool-menu trading-drawing-symbol-menu" data-drawing-tool-menu="icons" role="menu" aria-label="图标" hidden>
+    <div class="trading-drawing-symbol-categories" aria-label="表情分类">${['😀','🐻','🍎','⚽','🚀','💡','❤️','🚩'].map((glyph,i) => `<button type="button" data-drawing-action="symbol-category" data-symbol-category="${i}" aria-label="${['笑脸和人物','动物和自然','食物和饮料','活动','旅行','物品','符号','旗帜'][i]}">${glyph}</button>`).join('')}</div>
+    <div class="trading-drawing-symbol-grid" data-drawing-symbol-grid>${renderDrawingSymbolGrid('emoji')}</div>
+    <footer role="tablist">${(['emoji','sticker','icon'] as const).map((id,i)=>`<button type="button" role="tab" aria-selected="${i===0}" data-drawing-action="symbol-tab" data-symbol-tab="${id}">${['表情符号','贴纸','图标'][i]}</button>`).join('')}</footer>
+  </section>`;
   return `
     <section class="trading-drawing-tool-menu" data-drawing-tool-menu="${group.id}" role="menu" aria-label="${group.label}" hidden>
-      <header><strong>${group.label}</strong><span>${tools.length} 项</span></header>
-      <div>
-        ${tools.map((candidate) => `
-          <button type="button" role="menuitemradio" aria-checked="false" data-drawing-action="select-tool" data-drawing-tool="${candidate.id}" title="${candidate.label}">
-            ${drawingIcon(candidate.icon)}<span>${candidate.label}</span><i aria-hidden="true"></i>
-          </button>
-        `).join("")}
+      <div class="trading-drawing-menu-scroll">
+        ${sections.map(section => `<div class="trading-drawing-menu-section">${section.label ? `<h3 data-i18n-drawing-section>${section.label}</h3>` : ''}${section.tools.map(id => {
+          const candidate = tradingDrawingToolDefinition(id)!;
+          const shortcut = DRAWING_SHORTCUTS[id];
+          const help = tradingDrawingIsMultiPoint(id) ? '连续点击设置端点；双击、右键、Enter 或 Esc 完成；折线点击起点闭合' : candidate.freehand ? '按住鼠标拖动绘制' : `依次点击图表设置 ${tradingDrawingRequiredPointCount(candidate)} 个端点；完成后可拖动端点调整`;
+          return `<div class="trading-drawing-menu-row">
+            <button type="button" role="menuitemradio" aria-checked="false" data-drawing-action="select-tool" data-drawing-tool="${id}" title="${candidate.label}">
+              ${drawingIcon(candidate.icon)}<span>${candidate.label}${shortcut ? `<i class="trading-drawing-tool-help" title="${help}" aria-label="${help}">?</i>` : ''}</span><kbd>${shortcut ?? ''}</kbd>
+            </button>
+            ${group.id !== 'cursor' ? `<button type="button" class="trading-drawing-favorite" data-drawing-action="toggle-favorite" data-favorite-tool="${id}" aria-pressed="false" aria-label="收藏${candidate.label}" title="添加到收藏">${drawingIcon('star')}</button>` : ''}
+          </div>`;
+        }).join('')}</div>`).join('')}
+        ${group.id === 'prediction' ? `<div class="trading-drawing-menu-section"><h3 data-i18n-drawing-section>视图与历史</h3>${[
+          ['zoom-out', '缩小', 'zoom-out'], ['undo', '撤销绘图', 'undo'], ['redo', '重做绘图', 'redo'],
+        ].map(([action,label,icon]) => `<button type="button" class="trading-drawing-menu-action" role="menuitem" data-drawing-action="${action}">${drawingIcon(icon)}<span>${label}</span><kbd>${action === 'undo' ? 'Ctrl + Z' : action === 'redo' ? 'Ctrl + Y' : ''}</kbd></button>`).join('')}</div>` : ''}
       </div>
     </section>
   `;
+}
+
+function renderDrawingSymbolGrid(tab: keyof typeof DRAWING_SYMBOLS) {
+  return DRAWING_SYMBOLS[tab].map(glyph => `<button type="button" role="menuitem" data-drawing-action="select-symbol" data-symbol-tool="${tab}" data-symbol-glyph="${glyph}" aria-label="${glyph}">${glyph}</button>`).join('');
 }
 
 function toolbarAction(
@@ -908,8 +889,7 @@ function toolbarAction(
 
 export function renderTradingDrawingToolbar() {
   return `
-    <aside class="trading-drawing-toolbar" data-drawing-toolbar aria-label="K线绘图工具">
-      <div class="trading-drawing-toolbar-head" aria-hidden="true"></div>
+    <aside class="trading-drawing-toolbar" data-drawing-toolbar data-i18n-drawing aria-label="K线绘图工具">
       <div class="trading-drawing-toolbar-scroll">
         ${TRADING_DRAWING_GROUPS.map((group) => `
           <div class="trading-drawing-group" data-drawing-group="${group.id}">
@@ -924,23 +904,22 @@ export function renderTradingDrawingToolbar() {
         <div class="trading-drawing-divider" aria-hidden="true"></div>
         ${toolbarAction("measure", "快速测量（Shift + 点击或拖动）", "ruler")}
         ${toolbarAction("zoom-in", "框选放大（点击起点和终点，或拖动框选）", "zoom")}
-        ${toolbarAction("zoom-out", "缩小", "zoom-out")}
         <div class="trading-drawing-divider" aria-hidden="true"></div>
         ${toolbarAction("toggle-magnet", "磁吸到K线价格", "magnet", 'aria-pressed="false"')}
         ${toolbarAction("toggle-stay", "保持绘图模式", "pin", 'aria-pressed="false"')}
-        ${toolbarAction("toggle-lock", "锁定全部绘图", "lock", 'aria-pressed="false"')}
-        ${toolbarAction("toggle-visibility", "隐藏全部绘图", "eye", 'aria-pressed="false"')}
+        ${toolbarAction("toggle-lock", "锁定全部绘图", "unlock", 'aria-pressed="false"')}
+        ${toolbarAction("toggle-visibility", "隐藏全部绘图", "drawings-visible", 'aria-pressed="false"')}
         <div class="trading-drawing-divider" aria-hidden="true"></div>
-        ${toolbarAction("undo", "撤销绘图", "undo", "disabled")}
-        ${toolbarAction("redo", "重做绘图", "redo", "disabled")}
         ${toolbarAction("clear", "清空本会话所有绘图", "trash")}
       </div>
       ${TRADING_DRAWING_GROUPS.map(renderDrawingToolMenu).join("")}
+      <div class="trading-drawing-favorites-bar" data-drawing-favorites-bar aria-label="收藏的绘图工具" hidden></div>
       <p class="trading-drawing-status" data-drawing-status aria-live="polite">光标</p>
     </aside>
     <dialog
       class="trading-drawing-clear-dialog"
       data-drawing-clear-dialog
+      data-i18n-drawing
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="trading-drawing-clear-title"
@@ -968,12 +947,13 @@ function selectionAction(action: string, label: string, content: string, extra =
 
 function renderTradingDrawingSelectionToolbar() {
   return `
-    <div class="trading-drawing-selection" data-drawing-selection role="toolbar" aria-label="绘图选项" hidden>
+    <div class="trading-drawing-selection" data-drawing-selection data-i18n-drawing role="toolbar" aria-label="绘图选项" hidden>
+      <button type="button" class="trading-chart-toolbar-close" data-drawing-selection-action="hide-toolbar" aria-label="隐藏绘图工具栏（重新选中图形可恢复）" title="隐藏绘图工具栏（重新选中图形可恢复）"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 6 8 8m0-8-8 8"/></svg></button>
       <span class="trading-drawing-selection-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <div class="trading-drawing-selection-mode" data-drawing-selection-mode="drawing">
         ${selectionAction("reset", "恢复默认", drawingIcon("reset"))}
         <div class="trading-drawing-selection-menu-wrap">
-          ${selectionAction("toggle-color", "选择颜色", drawingIcon("color"), 'aria-haspopup="menu" aria-expanded="false"')}
+          ${selectionAction("toggle-color", "选择颜色", drawingIcon("color") + '<span class="trading-drawing-color-indicator" data-drawing-current-color></span>', 'aria-haspopup="menu" aria-expanded="false"')}
           <div class="trading-drawing-selection-popover color" data-drawing-selection-popover="color" role="menu" aria-label="选择颜色" hidden>
             <strong>选择颜色</strong>
             <div class="trading-drawing-color-grid">
@@ -988,7 +968,7 @@ function renderTradingDrawingSelectionToolbar() {
           </div>
         </div>
         <div class="trading-drawing-selection-menu-wrap">
-          ${selectionAction("toggle-width", "选择线宽", '<span class="trading-drawing-width-preview" data-drawing-width-preview></span>', 'aria-haspopup="menu" aria-expanded="false"')}
+          ${selectionAction("toggle-width", "选择线宽", '<span class="trading-drawing-width-preview" data-drawing-width-preview></span><span class="trading-drawing-width-value" data-drawing-width-value>2px</span>', 'aria-haspopup="menu" aria-expanded="false"')}
           <div class="trading-drawing-selection-popover compact" data-drawing-selection-popover="width" role="menu" aria-label="选择线宽" hidden>
             ${[1, 2, 3, 4].map((width) => `<button type="button" data-drawing-selection-action="set-width" data-drawing-width="${width}" role="menuitemradio" aria-checked="false" aria-label="${width} 像素"><span class="trading-drawing-width-preview" style="--drawing-width:${width}px"></span></button>`).join("")}
           </div>
@@ -1044,7 +1024,7 @@ function renderTradingDrawingSelectionToolbar() {
 
 export function renderTradingDrawingLayer() {
   return `
-    <svg class="trading-drawing-layer" data-drawing-layer aria-label="K线绘图画布" role="img">
+    <svg class="trading-drawing-layer" data-drawing-layer data-i18n-drawing aria-label="K线绘图画布" role="img">
       <defs>
         <marker id="trading-drawing-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" stroke="none" />
@@ -1235,7 +1215,7 @@ function drawingLineStyle(value: unknown): TradingDrawingLineStyle | undefined {
 
 function drawingLineWidth(value: unknown) {
   const width = Number(value);
-  return Number.isFinite(width) && width >= 0.5 && width <= 4 ? width : undefined;
+  return Number.isFinite(width) && width >= 0.5 && width <= 40 ? width : undefined;
 }
 
 function drawingTextFontSize(value: unknown) {
@@ -1305,7 +1285,7 @@ function loadStoredDrawings(storageSessionId: string): TradingDrawingModel[] {
         bold: candidate.bold === true,
         lineStyle: drawingLineStyle(candidate.lineStyle),
         lineWidth: drawingLineWidth(candidate.lineWidth),
-        viewportAnchor: definition.id === "anchored-text"
+        viewportAnchor: ["anchored-text", "anchored-note"].includes(definition.id)
           ? drawingViewportAnchor(candidate.viewportAnchor)
           : undefined,
       }];
@@ -1379,6 +1359,10 @@ interface TradingDrawingStrokeAppearance {
   style?: TradingDrawingLineStyle;
   dashed?: boolean;
   arrow?: boolean;
+  manualDefaults?: Readonly<ManualDrawingDefaults>;
+  customColor?: boolean;
+  customWidth?: boolean;
+  customStyle?: boolean;
 }
 
 export function tradingDrawingStrokeDashArray(
@@ -2049,6 +2033,8 @@ export interface TradingDrawingSharedToolState {
   stayInDrawingMode: boolean;
   magnetEnabled: boolean;
   drawingStyles?: Partial<Record<TradingDrawingToolId, TradingDrawingStyle>>;
+  symbolGlyph?: string;
+  favoriteTools?: TradingDrawingToolId[];
 }
 
 export function tradingDrawingForwardedWheelEventInit(event: Pick<
@@ -2261,7 +2247,7 @@ interface TradingDrawingControllerOptions {
   getCandleSeries: () => any;
   getSymbol: () => string;
   getInterval: () => string;
-  getCandles: () => Array<{ time: number; open: number; high: number; low: number; close: number }>;
+  getCandles: () => DrawingCandle[];
   timeOffsetSeconds: number;
   storageSessionId: string;
   isNewTask?: () => boolean;
@@ -2338,7 +2324,7 @@ export class TradingDrawingController {
   private readonly aiPlayback: TradingAiDrawingPlaybackController;
   private redoStack: TradingDrawingModel[] = [];
   private readonly getNavigation?: () => TradingChartNavigation | null;
-  private activeTool: TradingDrawingToolId = "cursor";
+  private activeTool: TradingDrawingToolId = "crosshair";
   private activeMenu: TradingDrawingGroupId | null = null;
   private activeSelectionMenu: TradingDrawingSelectionMenu | null = null;
   private draft: TradingDrawingModel | null = null;
@@ -2346,6 +2332,7 @@ export class TradingDrawingController {
   private draftRequiredPointCount = 0;
   private pendingTextDrawingId: string | null = null;
   private selectedDrawingId: string | null = null;
+  private dismissedSelectionToolbarDrawingId: string | null = null;
   private dragState: DrawingDragState | null = null;
   private selectionToolbarPosition: ScreenPoint | null = null;
   private selectionToolbarDrag: SelectionToolbarDragState | null = null;
@@ -2365,8 +2352,17 @@ export class TradingDrawingController {
   // Keep manual preferences per tool so selecting a tool again starts with its
   // most recently used appearance instead of rebuilding the default style.
   private readonly drawingStyles = new Map<TradingDrawingToolId, TradingDrawingStyle>();
+  private symbolGlyph = '🙂';
+  private pendingImageReference = '';
+  private favoriteTools = new Set<TradingDrawingToolId>();
+  private magicTrail: HTMLDivElement | null = null;
+  private magicTrailTime = 0;
 
   constructor(options: TradingDrawingControllerOptions) {
+    try {
+      const saved: unknown = JSON.parse(window.localStorage.getItem('haolo.drawing-favorites.v1') ?? '[]');
+      if (Array.isArray(saved)) this.favoriteTools = new Set(saved.filter(id => tradingDrawingToolDefinition(id)));
+    } catch { /* Ignore malformed preferences. */ }
     this.getNavigation = options.getNavigation;
     this.host = options.host;
     this.chartElement = options.chartElement;
@@ -2484,6 +2480,8 @@ export class TradingDrawingController {
       stayInDrawingMode: this.stayInDrawingMode,
       magnetEnabled: this.magnetEnabled,
       drawingStyles,
+      symbolGlyph: this.symbolGlyph,
+      favoriteTools: [...this.favoriteTools],
     };
   }
 
@@ -2525,7 +2523,10 @@ export class TradingDrawingController {
     }
     if (this.activeTool !== definition.id || definition.kind !== "cursor") this.getNavigation?.()?.setTool(null);
     this.activeTool = definition.id;
-    this.lastToolByGroup.set(definition.group, definition.id);
+    this.lastToolByGroup.set(drawingMenuGroup(definition.id), definition.id);
+    this.host.dataset.drawingCursor = definition.id;
+    if (state.symbolGlyph) this.symbolGlyph = state.symbolGlyph;
+    if (state.favoriteTools) this.favoriteTools = new Set(state.favoriteTools);
     if (state.drawingStyles && typeof state.drawingStyles === "object") {
       this.drawingStyles.clear();
       for (const candidate of TRADING_DRAWING_TOOLS) {
@@ -2585,7 +2586,7 @@ export class TradingDrawingController {
     this.cancelSelectionDrag();
     this.releasePointer();
     this.selectDrawing(null);
-    this.selectTool("cursor");
+    this.selectTool(this.lastToolByGroup.get("cursor") ?? "crosshair");
   }
 
   setOrderLines(lines: readonly TradingOrderLine[]) {
@@ -2701,6 +2702,7 @@ export class TradingDrawingController {
     this.orderLineContent.addEventListener("focusout", this.handleOrderPositionFocusOut);
     this.overlay.addEventListener("pointerdown", this.handlePointerDown);
     this.overlay.addEventListener("contextmenu", this.handleContextMenu);
+    this.overlay.addEventListener("dblclick", this.handleDrawingDoubleClick);
     this.overlay.addEventListener("wheel", this.handleWheel, { passive: false });
     document.addEventListener("pointermove", this.handlePointerMove);
     document.addEventListener("pointerup", this.handlePointerUp);
@@ -3045,14 +3047,46 @@ export class TradingDrawingController {
     const action = target?.dataset.drawingAction;
     if (!target || !action) return;
     event.stopPropagation();
+    if (action === 'toggle-favorite') {
+      const id = target.dataset.favoriteTool as TradingDrawingToolId;
+      if (this.favoriteTools.has(id)) this.favoriteTools.delete(id); else this.favoriteTools.add(id);
+      try { window.localStorage.setItem('haolo.drawing-favorites.v1', JSON.stringify([...this.favoriteTools])); } catch { /* Preferences may be unavailable. */ }
+      this.updateToolbarState();
+      this.emitSharedToolState();
+      return;
+    }
+    if (action === 'symbol-tab') {
+      const tab = target.dataset.symbolTab as keyof typeof DRAWING_SYMBOLS;
+      const grid = this.toolbar.querySelector<HTMLElement>('[data-drawing-symbol-grid]');
+      if (grid && DRAWING_SYMBOLS[tab]) { grid.innerHTML = renderDrawingSymbolGrid(tab); grid.scrollTop = 0; }
+      this.toolbar.querySelectorAll('[data-symbol-tab]').forEach(button => button.setAttribute('aria-selected', String((button as HTMLElement).dataset.symbolTab === tab)));
+      return;
+    }
+    if (action === 'symbol-category') {
+      const grid = this.toolbar.querySelector<HTMLElement>('[data-drawing-symbol-grid]');
+      if (grid) {
+        grid.innerHTML = renderDrawingSymbolGrid('emoji');
+        const index = [0, 40, 48, 52, 56, 60, 64, 68][Number(target.dataset.symbolCategory)] ?? 0;
+        (grid.children[index] as HTMLElement)?.scrollIntoView({ block: 'nearest' });
+      }
+      return;
+    }
+    if (action === 'select-symbol') {
+      this.symbolGlyph = target.dataset.symbolGlyph ?? '🙂';
+      this.selectTool(target.dataset.symbolTool as TradingDrawingToolId);
+      this.closeToolMenus();
+      return;
+    }
     if (action === "select-tool") {
+      if (target.dataset.drawingTool === 'image') { this.closeToolMenus(); this.pickDrawingImage(); return; }
       this.selectTool(target.dataset.drawingTool as TradingDrawingToolId);
       this.closeToolMenus();
       return;
     }
     if (action === "select-group-tool") {
       const group = target.dataset.drawingGroupId as TradingDrawingGroupId;
-      this.selectTool(this.lastToolByGroup.get(group) ?? target.dataset.drawingTool as TradingDrawingToolId);
+      if (group === 'icons') { this.toggleToolMenu(group, target); return; }
+      this.selectTool(target.dataset.drawingTool as TradingDrawingToolId);
       return;
     }
     if (action === "toggle-tool-menu") {
@@ -3060,7 +3094,7 @@ export class TradingDrawingController {
       return;
     }
     if (action === "measure" || action === "zoom-in") {
-      this.selectTool("cursor");
+      this.selectTool(this.lastToolByGroup.get("cursor") ?? "crosshair");
       this.getNavigation?.()?.setTool(action === "measure" ? "measure" : "zoom");
       this.updateToolbarState();
       return;
@@ -3199,7 +3233,7 @@ export class TradingDrawingController {
     }, bounds, {
       width: this.selectionToolbar.offsetWidth,
       height: this.selectionToolbar.offsetHeight,
-    });
+    }, 12);
     this.selectionToolbarPosition = position;
     this.selectionToolbar.style.left = `${position.x}px`;
     this.selectionToolbar.style.top = `${position.y}px`;
@@ -3237,6 +3271,13 @@ export class TradingDrawingController {
     if (!target || !action || !drawing) return;
     event.preventDefault();
     event.stopPropagation();
+    if (action === "hide-toolbar") {
+      this.finishSelectionToolbarDrag();
+      this.closeSelectionMenus();
+      this.dismissedSelectionToolbarDrawingId = drawing.id;
+      this.selectionToolbar.hidden = true;
+      return;
+    }
     const menuByAction: Partial<Record<string, TradingDrawingSelectionMenu>> = {
       "toggle-color": "color",
       "toggle-style": "style",
@@ -3350,14 +3391,30 @@ export class TradingDrawingController {
     if (!this.controlActive || !this.userDrawingEnabled || event.defaultPrevented) return;
     if (event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
     if (this.clearDialog.open) return;
+    if (this.activeMenu && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      const menu = this.toolbar.querySelector<HTMLElement>(`[data-drawing-tool-menu="${this.activeMenu}"]`);
+      const items = Array.from(menu?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"], [role="menuitem"]') ?? []);
+      if (items.length) {
+        const current = items.indexOf(document.activeElement as HTMLButtonElement);
+        const index = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+          : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        event.preventDefault(); items[index].focus(); items[index].scrollIntoView({ block: 'nearest' }); return;
+      }
+    }
     if (event.key === "Escape") {
       if (this.activeMenu) this.closeToolMenus();
       else if (this.activeSelectionMenu === "text-input") this.closeTextInput();
       else if (this.activeSelectionMenu) this.closeSelectionMenus();
       else if (this.dragState) this.cancelSelectionDrag();
+      else if (this.draft && tradingDrawingIsMultiPoint(this.draft.tool)) this.finishMultiPointDrawing();
       else if (this.draft) this.cancelDraft();
       else if (this.selectedDrawingId) this.selectDrawing(null);
-      else this.selectTool("cursor");
+      else this.selectTool(this.lastToolByGroup.get("cursor") ?? "crosshair");
+      return;
+    }
+    if (event.key === 'Enter' && this.draft && tradingDrawingIsMultiPoint(this.draft.tool)) {
+      event.preventDefault();
+      this.finishMultiPointDrawing();
       return;
     }
     if ((event.key === "Delete" || event.key === "Backspace") && this.selectedDrawingId
@@ -3367,9 +3424,11 @@ export class TradingDrawingController {
       return;
     }
     if (event.altKey && !event.ctrlKey && !event.metaKey) {
-      const shortcutTool = ({ t: "trend-line", f: "fib-retracement", h: "horizontal-line", v: "vertical-line" } as const)[event.key.toLowerCase()];
-      if (shortcutTool && event.target instanceof Element && event.target.closest(".trading-chart-navigable")) {
-        event.preventDefault(); this.selectTool(shortcutTool); return;
+      const shortcutTool = event.shiftKey
+        ? event.key.toLowerCase() === 'r' ? 'rectangle' : undefined
+        : ({ t: "trend-line", f: "fib-retracement", h: "horizontal-line", j: "horizontal-ray", v: "vertical-line", c: "cross-line", x: "text" } as const)[event.key.toLowerCase()];
+      if (shortcutTool && event.target instanceof Element && (event.target.closest(".trading-chart-navigable") || event.target.closest('[data-drawing-toolbar]'))) {
+        event.preventDefault(); this.closeToolMenus(); this.selectTool(shortcutTool); return;
       }
     }
     if ((event.ctrlKey || event.metaKey) && ["z", "y"].includes(event.key.toLowerCase())) {
@@ -3451,6 +3510,13 @@ export class TradingDrawingController {
       if (!drawingPoint) return;
       event.preventDefault();
       event.stopPropagation();
+      if (this.draft.tool === 'multi-point-polyline' && this.draftConfirmedPointCount >= 3) {
+        const first = this.pointToScreen(this.draft.points[0]);
+        if (first && Math.hypot(screenPoint.x - first.x, screenPoint.y - first.y) <= 6) {
+          this.finishMultiPointDrawing(true);
+          return;
+        }
+      }
       const referenceIndex = Math.max(this.draftConfirmedPointCount - 1, 0);
       const previewIndex = this.draftConfirmedPointCount;
       const referenceScreen = this.pointToScreen(this.draft.points[referenceIndex]);
@@ -3487,12 +3553,13 @@ export class TradingDrawingController {
     this.selectDrawing(null);
     const placementMode = tradingDrawingPlacementMode(definition);
     if (definition.kind === "text" && placementMode === "single-click") {
-      this.beginTextDrawing(definition.id, drawingPoint, screenPoint);
+      this.beginTextDrawing(definition.id, drawingPoint, screenPoint, definition.id === 'image' ? this.pendingImageReference : '');
+      if (!this.stayInDrawingMode) this.pendingImageReference = '';
       return;
     }
     this.pointerId = event.pointerId;
     this.pointerStart = screenPoint;
-    const requiredPointCount = tradingDrawingRequiredPointCount(definition);
+    const requiredPointCount = tradingDrawingIsMultiPoint(definition.id) ? 4000 : tradingDrawingRequiredPointCount(definition);
     this.draft = {
       id: crypto.randomUUID(),
       symbol: this.getSymbol(),
@@ -3500,7 +3567,8 @@ export class TradingDrawingController {
       drawingScope: this.drawingScope,
       tool: definition.id,
       points: requiredPointCount > 1 ? [drawingPoint, drawingPoint] : [drawingPoint],
-      text: definition.id === "price-note" ? formatTradingDrawingAxisPrice(drawingPoint.price) : undefined,
+      text: definition.id === "price-note" ? formatTradingDrawingAxisPrice(drawingPoint.price)
+        : definition.group === 'icons' ? this.symbolGlyph : undefined,
       ...this.drawingStyleForTool(definition.id),
     };
     this.draftConfirmedPointCount = 1;
@@ -3515,6 +3583,10 @@ export class TradingDrawingController {
     event.preventDefault();
     event.stopPropagation();
     this.onSurfaceFocus?.(this);
+    if (tradingDrawingIsMultiPoint(this.draft.tool)) {
+      this.finishMultiPointDrawing();
+      return;
+    }
     const definition = tradingDrawingToolDefinition(this.draft.tool);
     const cancelledPointNumber = this.draftConfirmedPointCount;
     if (cancelledPointNumber <= 1) {
@@ -3540,6 +3612,7 @@ export class TradingDrawingController {
   };
 
   private readonly handlePointerMove = (event: PointerEvent) => {
+    this.updateMagicCursor(event);
     const followingMultiClickDraft = Boolean(
       this.draft
       && this.hasPendingDraftPoint()
@@ -3554,7 +3627,7 @@ export class TradingDrawingController {
     if (this.dragState) {
       const drawing = this.drawings.find((candidate) => candidate.id === this.dragState?.drawingId);
       if (!drawing || drawing.locked) return;
-      if (drawing.tool === "anchored-text" && this.dragState.originalViewportAnchor && this.pointerStart) {
+      if (["anchored-text", "anchored-note"].includes(drawing.tool) && this.dragState.originalViewportAnchor && this.pointerStart) {
         const bounds = this.plotBounds();
         const originalScreen = tradingDrawingAnchoredScreenPoint(this.dragState.originalViewportAnchor, bounds);
         const targetScreen = this.dragState.mode === "handle"
@@ -3578,7 +3651,9 @@ export class TradingDrawingController {
           y: screenPoint.y + this.dragState.handleGrabOffset.y,
         });
         if (point && this.dragState.handleIndex >= 0 && this.dragState.handleIndex < drawing.points.length) {
+          const closed = tradingDrawingIsClosedPolyline(drawing);
           drawing.points[this.dragState.handleIndex] = point;
+          if (closed && this.dragState.handleIndex === 0) drawing.points[drawing.points.length - 1] = { ...point };
         }
       } else {
         const currentPoint = this.screenToDrawingPoint(screenPoint, false);
@@ -3650,6 +3725,52 @@ export class TradingDrawingController {
     else this.cancelDraft();
   };
 
+  private readonly handleDrawingDoubleClick = (event: MouseEvent) => {
+    if (!this.userDrawingEnabled || !this.draft || !tradingDrawingIsMultiPoint(this.draft.tool)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.finishMultiPointDrawing();
+  };
+
+  private finishMultiPointDrawing(close = false) {
+    if (!this.draft || !tradingDrawingIsMultiPoint(this.draft.tool)) return;
+    const minimum = close ? 3 : 2;
+    if (this.draftConfirmedPointCount < minimum) { this.cancelDraft(); return; }
+    // The following preview is never a confirmed vertex (including Escape/Enter).
+    this.draft.points = this.draft.points.slice(0, this.draftConfirmedPointCount);
+    // Store the closing vertex explicitly so older sync/storage transports keep it intact.
+    if (close) this.draft.points.push({ ...this.draft.points[0] });
+    this.commitDraft();
+  }
+
+  private updateMagicCursor(event: PointerEvent) {
+    if (this.activeTool !== 'magic' || !this.controlActive || !this.userDrawingEnabled
+      || !(event.target instanceof Node) || !this.chartElement.contains(event.target)
+      || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const now = performance.now();
+    if (now - this.magicTrailTime < 35) return;
+    this.magicTrailTime = now;
+    if (!this.magicTrail) {
+      this.magicTrail = document.createElement('div');
+      this.magicTrail.className = 'trading-drawing-magic-trail';
+      this.magicTrail.setAttribute('aria-hidden', 'true');
+      this.chartElement.append(this.magicTrail);
+    }
+    const point = this.eventScreenPoint(event), bounds = this.plotBounds();
+    this.magicTrail.style.width = `${bounds.width}px`;
+    this.magicTrail.style.height = `${bounds.height}px`;
+    const spark = document.createElement('span');
+    spark.textContent = '✦';
+    spark.style.left = `${point.x}px`; spark.style.top = `${point.y}px`;
+    this.magicTrail.append(spark);
+    while (this.magicTrail.children.length > 18) this.magicTrail.firstElementChild?.remove();
+    const animation = spark.animate([
+      { opacity: .9, transform: 'translate(-50%, -50%) scale(1)' },
+      { opacity: 0, transform: 'translate(-50%, 12px) scale(.2)' },
+    ], { duration: 600, easing: 'ease-out' });
+    animation.onfinish = () => spark.remove();
+  }
+
   private selectTool(id: TradingDrawingToolId) {
     const definition = tradingDrawingToolDefinition(id);
     if (!definition) return;
@@ -3658,7 +3779,8 @@ export class TradingDrawingController {
     else this.cancelDraft();
     this.getNavigation?.()?.setTool(null);
     this.activeTool = definition.id;
-    this.lastToolByGroup.set(definition.group, definition.id);
+    this.lastToolByGroup.set(drawingMenuGroup(definition.id), definition.id);
+    this.host.dataset.drawingCursor = definition.id;
     this.overlay.classList.toggle("drawing-active", definition.kind !== "cursor");
     this.overlay.dataset.drawingTool = definition.id;
     if (definition.id === "price-note") this.setStatus("价格注释 · 请点击图表确定价格锚点");
@@ -3681,6 +3803,28 @@ export class TradingDrawingController {
     return style ? { ...style } : {};
   }
 
+  private pickDrawingImage() {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/png,image/jpeg,image/webp,image/gif';
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        if (file.size > 20_000_000) throw new Error('请选择小于 20 MB 的图片');
+        const bitmap = await createImageBitmap(file);
+        const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+        canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+        canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+        bitmap.close();
+        this.pendingImageReference = storeDrawingImage(canvas.toDataURL('image/webp', .85));
+        this.selectTool('image'); this.setStatus('图片已载入 · 点击图表放置');
+      } catch (error) { this.setStatus(error instanceof Error ? error.message : '无法载入图片'); }
+    }, { once: true });
+    input.click();
+  }
+
   private rememberDrawingStyle(drawing: TradingDrawingModel | null) {
     if (!drawing || drawing.source === "ai") return;
     this.drawingStyles.set(drawing.tool, tradingDrawingStyleFromModel(drawing));
@@ -3701,7 +3845,7 @@ export class TradingDrawingController {
       points: [point],
       text: initialText,
       ...this.drawingStyleForTool(tool),
-      viewportAnchor: tool === "anchored-text"
+      viewportAnchor: ["anchored-text", "anchored-note"].includes(tool)
         ? tradingDrawingViewportAnchor(screenPoint, this.plotBounds())
         : undefined,
     };
@@ -3709,7 +3853,10 @@ export class TradingDrawingController {
     this.redoStack = [];
     this.selectedDrawingId = drawing.id;
     this.selectionToolbarPosition = null;
-    if (!this.stayInDrawingMode) this.selectTool("cursor");
+    if (!this.stayInDrawingMode) this.selectTool(this.lastToolByGroup.get("cursor") ?? "crosshair");
+    if (tool === 'image' && initialText.startsWith('haolo-image:')) {
+      this.persistDrawings(); this.redraw(); this.setStatus('图片已放置'); return;
+    }
     this.pendingTextDrawingId = drawing.id;
     this.redraw();
     this.setStatus("请输入文本内容");
@@ -3734,6 +3881,9 @@ export class TradingDrawingController {
 
   private draftPlacementStatus() {
     const definition = tradingDrawingToolDefinition(this.draft?.tool);
+    if (definition && tradingDrawingIsMultiPoint(definition.id)) {
+      return `已设置 ${this.draftConfirmedPointCount} 个端点 · 点击继续，双击、右键、Enter 或 Esc 完成${definition.id === 'multi-point-polyline' ? ' · 点击起点闭合' : ''}`;
+    }
     if (definition?.kind === "triangle") {
       return this.draftConfirmedPointCount >= 2
         ? "第二个端点已设置 · 移动鼠标选择第三个端点，再次点击完成 · 右键撤销上一端点"
@@ -3749,6 +3899,7 @@ export class TradingDrawingController {
       const nextPoint = Math.min(this.draftConfirmedPointCount + 1, this.draftRequiredPointCount);
       return `${definition.label} · 第 ${this.draftConfirmedPointCount} 个端点已设置（共 ${this.draftRequiredPointCount} 个） · 移动鼠标选择第 ${nextPoint} 个端点，再次点击继续 · 右键撤销上一端点`;
     }
+    if (this.draftRequiredPointCount > 2) return `${definition?.label} · 已设置 ${this.draftConfirmedPointCount}/${this.draftRequiredPointCount} 个端点 · 再次点击继续 · 右键撤销上一端点`;
     return "移动鼠标选择终点，再次点击完成 · 右键撤销上一端点";
   }
 
@@ -3768,9 +3919,11 @@ export class TradingDrawingController {
     const toolbarRect = this.toolbar.getBoundingClientRect();
     const triggerRect = trigger.closest<HTMLElement>("[data-drawing-group]")?.getBoundingClientRect()
       ?? trigger.getBoundingClientRect();
-    const maxTop = Math.max(4, toolbarRect.height - Math.min(menu.scrollHeight || 420, 520) - 4);
-    menu.style.top = `${Math.min(Math.max(triggerRect.top - toolbarRect.top, 4), maxTop)}px`;
-    trigger.setAttribute("aria-expanded", "true");
+    menu.style.maxHeight = `${Math.max(120, window.innerHeight - toolbarRect.top - 8)}px`;
+    const maxTop = Math.max(toolbarRect.top + 4, window.innerHeight - menu.getBoundingClientRect().height - 8);
+    menu.style.top = `${Math.min(Math.max(triggerRect.top, toolbarRect.top + 4), maxTop)}px`;
+    menu.style.left = `${Math.max(4, Math.min(toolbarRect.right, window.innerWidth - menu.getBoundingClientRect().width - 8))}px`;
+    this.toolbar.querySelector(`[data-drawing-action="toggle-tool-menu"][data-drawing-group-id="${group}"]`)?.setAttribute("aria-expanded", "true");
   }
 
   private closeToolMenus() {
@@ -3805,6 +3958,8 @@ export class TradingDrawingController {
     const input = this.textInputElement();
     if (!input) return;
     input.value = drawing.text ?? "";
+    input.placeholder = drawing.tool === 'table' ? '每行一行表格，用 | 分隔列'
+      : drawing.tool === 'image' ? '粘贴 https:// 图片链接' : '请输入内容…';
     window.requestAnimationFrame(() => {
       input.focus();
       input.setSelectionRange(input.value.length, input.value.length);
@@ -3842,6 +3997,7 @@ export class TradingDrawingController {
   }
 
   private selectDrawing(id: string | null) {
+    this.dismissedSelectionToolbarDrawingId = null;
     if (this.pendingTextDrawingId && id !== this.pendingTextDrawingId) {
       this.discardPendingTextDrawing();
     }
@@ -3991,14 +4147,14 @@ export class TradingDrawingController {
     pointIndex: number,
     bounds: { width: number; height: number },
   ): ScreenPoint | null {
-    if (drawing.tool === "anchored-text" && pointIndex === 0 && drawing.viewportAnchor) {
+    if (["anchored-text", "anchored-note"].includes(drawing.tool) && pointIndex === 0 && drawing.viewportAnchor) {
       return tradingDrawingAnchoredScreenPoint(drawing.viewportAnchor, bounds);
     }
     return this.pointToScreen(drawing.points[pointIndex]);
   }
 
   private ensureAnchoredViewportAnchor(drawing: TradingDrawingModel) {
-    if (drawing.tool !== "anchored-text" || drawing.viewportAnchor || !drawing.points[0]) return;
+    if (!["anchored-text", "anchored-note"].includes(drawing.tool) || drawing.viewportAnchor || !drawing.points[0]) return;
     const screenPoint = this.pointToScreen(drawing.points[0]);
     if (screenPoint) drawing.viewportAnchor = tradingDrawingViewportAnchor(screenPoint, this.plotBounds());
   }
@@ -4035,7 +4191,7 @@ export class TradingDrawingController {
     this.draft = null;
     this.selectedDrawingId = completed.id;
     this.selectionToolbarPosition = null;
-    if (!this.stayInDrawingMode) this.selectTool("cursor");
+    if (!this.stayInDrawingMode) this.selectTool(this.lastToolByGroup.get("cursor") ?? "crosshair");
     if (pendingText) {
       this.pendingTextDrawingId = completed.id;
       this.redraw();
@@ -4309,30 +4465,43 @@ export class TradingDrawingController {
       if (button.hasAttribute("aria-checked") && button.getAttribute("aria-checked") !== String(selected)) button.setAttribute("aria-checked", String(selected));
     });
     this.toolbar.querySelectorAll<HTMLElement>("[data-drawing-group]").forEach((group) => {
-      group.classList.toggle("active", group.dataset.drawingGroup === definition?.group);
+      group.classList.toggle("active", !!definition && group.dataset.drawingGroup === drawingMenuGroup(definition.id));
       const primary = group.querySelector<HTMLElement>("[data-drawing-action=\"select-group-tool\"]");
-      const current = this.lastToolByGroup.get(group.dataset.drawingGroup as TradingDrawingGroupId);
+      const menuGroup = DRAWING_MENU_SECTIONS.find(item => item.id === group.dataset.drawingGroup);
+      // Stable category affordances: a rectangle/callout must never replace the brush/T entry.
+      const current = menuGroup?.id === 'cursor' ? this.lastToolByGroup.get('cursor') : menuGroup?.defaultTool;
       const currentDefinition = tradingDrawingToolDefinition(current);
       if (primary && currentDefinition) {
         if (primary.dataset.drawingTool !== currentDefinition.id) primary.dataset.drawingTool = currentDefinition.id;
         updateTradingDrawingMarkup(primary, drawingIcon(currentDefinition.icon));
-        const label = translateAppText(currentDefinition.label);
-        if (primary.title !== label) primary.title = label;
-        if (primary.getAttribute("aria-label") !== label) primary.setAttribute("aria-label", label);
+        // Retain the source for live language switching. Passing pretranslated
+        // text here would lose the Chinese source in the DOM localizer.
+        const label = currentDefinition.label;
+        if (primary.dataset.drawingLabel !== label) {
+          primary.dataset.drawingLabel = label;
+          primary.title = label;
+          primary.setAttribute("aria-label", label);
+        }
+        primary.classList.toggle('active', !!definition && drawingMenuGroup(definition.id) === menuGroup?.id);
       }
     });
-    const setPressed = (action: string, pressed: boolean, icon?: string) => {
+    const setPressed = (action: string, pressed: boolean, icon?: string, label?: string) => {
       const button = this.toolbar.querySelector<HTMLButtonElement>(`[data-drawing-action="${action}"]`);
       if (button && button.getAttribute("aria-pressed") !== String(pressed)) button.setAttribute("aria-pressed", String(pressed));
       button?.classList.toggle("active", pressed);
       if (button && icon) updateTradingDrawingMarkup(button, drawingIcon(icon));
+      if (button && label && button.dataset.drawingActionLabel !== label) {
+        button.dataset.drawingActionLabel = label;
+        button.title = label;
+        button.setAttribute("aria-label", label);
+      }
     };
     setPressed("zoom-in", this.getNavigation?.()?.getTool() === "zoom");
     setPressed("measure", this.getNavigation?.()?.getTool() === "measure");
     setPressed("toggle-magnet", this.magnetEnabled);
-    setPressed("toggle-stay", this.stayInDrawingMode);
-    setPressed("toggle-lock", this.drawingsLocked, this.drawingsLocked ? "unlock" : "lock");
-    setPressed("toggle-visibility", this.drawingsHidden, this.drawingsHidden ? "eye-off" : "eye");
+    setPressed("toggle-stay", this.stayInDrawingMode, this.stayInDrawingMode ? "pin-locked" : "pin");
+    setPressed("toggle-lock", this.drawingsLocked, this.drawingsLocked ? "lock" : "unlock", this.drawingsLocked ? "解锁全部绘图" : "锁定全部绘图");
+    setPressed("toggle-visibility", this.drawingsHidden, this.drawingsHidden ? "drawings-hidden" : "drawings-visible", this.drawingsHidden ? "显示全部绘图" : "隐藏全部绘图");
     const symbol = this.getSymbol();
     const undo = this.toolbar.querySelector<HTMLButtonElement>('[data-drawing-action="undo"]');
     const redo = this.toolbar.querySelector<HTMLButtonElement>('[data-drawing-action="redo"]');
@@ -4342,11 +4511,30 @@ export class TradingDrawingController {
     if (redo) redo.disabled = !this.redoStack.some((drawing) => (
       tradingManualDrawingMatchesContext(drawing, symbol, this.getInterval(), this.drawingScope)
     ));
+    this.toolbar.querySelectorAll<HTMLElement>('[data-favorite-tool]').forEach(button => {
+      const id = button.dataset.favoriteTool as TradingDrawingToolId;
+      const pressed = String(this.favoriteTools.has(id));
+      if (button.dataset.favoriteState !== pressed) {
+        button.dataset.favoriteState = pressed;
+        button.setAttribute('aria-pressed', pressed);
+        button.title = pressed === 'true' ? '从收藏移除' : '添加到收藏';
+        button.setAttribute('aria-label', `${pressed === 'true' ? '取消收藏' : '收藏'}${tradingDrawingToolDefinition(id)?.label ?? ''}`);
+      }
+    });
+    const favorites = this.toolbar.querySelector<HTMLElement>('[data-drawing-favorites-bar]');
+    if (favorites) {
+      favorites.hidden = !this.favoriteTools.size;
+      updateTradingDrawingMarkup(favorites, [...this.favoriteTools].map(id => {
+        const tool = tradingDrawingToolDefinition(id)!;
+        return `<button type="button" data-drawing-action="select-tool" data-drawing-tool="${id}" title="${tool.label}" aria-label="${tool.label}">${drawingIcon(tool.icon)}</button>`;
+      }).join(''));
+    }
   }
 
   private updateSelectionToolbar(bounds: { width: number; height: number }) {
     const drawing = this.selectedDrawing();
-    if (!drawing || this.drawingsHidden) {
+    if (!drawing) this.dismissedSelectionToolbarDrawingId = null;
+    if (!drawing || this.drawingsHidden || this.dismissedSelectionToolbarDrawingId === drawing.id) {
       this.selectionToolbar.hidden = true;
       return;
     }
@@ -4364,15 +4552,22 @@ export class TradingDrawingController {
       this.selectionToolbar.hidden = true;
       return;
     }
-    const color = drawing.color ?? (textMode
+    const defaults = drawing.source === 'ai' ? undefined : manualDrawingDefaults(drawing.tool);
+    const color = drawing.color ?? defaults?.color ?? (textMode
       ? isDarkTheme() ? DEFAULT_TEXT_COLOR_DARK : DEFAULT_TEXT_COLOR_LIGHT
       : isDarkTheme() ? DEFAULT_DRAWING_COLOR_DARK : DEFAULT_DRAWING_COLOR_LIGHT);
-    const style = drawing.lineStyle ?? "solid";
-    const width = drawing.lineWidth ?? DEFAULT_DRAWING_LINE_WIDTH;
+    const style = drawing.lineStyle ?? defaults?.lineStyle ?? "solid";
+    const width = drawing.lineWidth ?? defaults?.lineWidth ?? DEFAULT_DRAWING_LINE_WIDTH;
+    this.selectionToolbar.style.setProperty('--drawing-current-color', color);
     const stylePreview = this.selectionToolbar.querySelector<HTMLElement>("[data-drawing-style-preview]");
     if (stylePreview) stylePreview.className = `trading-drawing-line-preview ${style}`;
     const widthPreview = this.selectionToolbar.querySelector<HTMLElement>("[data-drawing-width-preview]");
     widthPreview?.style.setProperty("--drawing-width", `${width}px`);
+    const widthLabel = this.selectionToolbar.querySelector<HTMLElement>('[data-drawing-width-value]');
+    if (widthLabel) widthLabel.textContent = `${width}px`;
+    const widthMenu = this.selectionToolbar.querySelector<HTMLElement>('[data-drawing-selection-popover="width"]');
+    if (widthMenu) updateTradingDrawingMarkup(widthMenu, (drawing.tool === 'highlighter' ? [10, 20, 30, 40] : [1, 2, 3, 4]).map(value =>
+      `<button type="button" data-drawing-selection-action="set-width" data-drawing-width="${value}" role="menuitemradio" aria-checked="false" aria-label="${value} 像素"><span class="trading-drawing-width-preview" style="--drawing-width:${value}px"></span><span>${value}px</span></button>`).join(''));
     this.selectionToolbar.querySelectorAll<HTMLElement>("[data-drawing-color]").forEach((button) => {
       const selected = button.dataset.drawingColor?.toLowerCase() === color.toLowerCase();
       button.classList.toggle("active", selected);
@@ -4434,7 +4629,7 @@ export class TradingDrawingController {
     const position = clampTradingDrawingToolbarPosition(this.selectionToolbarPosition, bounds, {
       width: panelWidth,
       height: panelHeight,
-    });
+    }, 12);
     this.selectionToolbarPosition = position;
     this.selectionToolbar.style.left = `${position.x}px`;
     this.selectionToolbar.style.top = `${position.y}px`;
@@ -4464,10 +4659,12 @@ export class TradingDrawingController {
       const markerPoints = definition.kind === "horizontal"
         ? tradingDrawingAlwaysVisibleAxisMarkerPoints(definition, drawing.points)
         : tradingDrawingAxisMarkerPoints(definition, drawing.points);
-      return markerPoints.map((marker) => ({ ...marker, drawingId: drawing.id }));
+      const active = drawing.id === selectedDrawing?.id;
+      const markerColor = active ? DRAWING_SELECTION_COLOR : drawing.color ?? manualDrawingDefaults(drawing.tool).color;
+      return markerPoints.map((marker) => ({ ...marker, drawingId: drawing.id, markerColor }));
     })
       .map((marker) => ({ ...marker, screen: this.pointToScreen(marker.point) }))
-      .filter((marker): marker is TradingDrawingAxisMarkerPoint & { drawingId: string; screen: ScreenPoint } => Boolean(marker.screen));
+      .filter((marker): marker is TradingDrawingAxisMarkerPoint & { drawingId: string; markerColor: string; screen: ScreenPoint } => Boolean(marker.screen));
     const priceScaleWidth = this.drawingScope === "main"
       ? Math.max(this.getChart()?.priceScale("right", this.paneIndex).width() || 0, 64)
       : 0;
@@ -4493,14 +4690,14 @@ export class TradingDrawingController {
     ));
     const priceHtml = priceScaleWidth > 0 ? priceMarkers.map((marker) => {
       const top = Math.min(Math.max(marker.screen.y, 12), Math.max(12, bounds.height - 12));
-      return `<div class="trading-drawing-axis-marker price" data-drawing-axis-price style="left:${bounds.width}px;top:${top}px;width:${priceScaleWidth}px">${escapeHtml(formatTradingDrawingAxisPrice(marker.point.price))}</div>`;
+      return `<div class="trading-drawing-axis-marker price" data-drawing-axis-price style="--trading-drawing-axis-marker:${marker.markerColor};--trading-drawing-axis-marker-text:#fff;left:${bounds.width}px;top:${top}px;width:${priceScaleWidth}px">${escapeHtml(formatTradingDrawingAxisPrice(marker.point.price))}</div>`;
     }).join("") : "";
     const timeHalfWidth = 70;
     const minimumTimeX = Math.min(timeHalfWidth + 4, bounds.width / 2);
     const maximumTimeX = Math.max(minimumTimeX, bounds.width - timeHalfWidth - 4);
     const timeHtml = timeMarkers.map((marker) => {
       const left = Math.min(Math.max(marker.screen.x, minimumTimeX), maximumTimeX);
-      return `<time class="trading-drawing-axis-marker time" data-drawing-axis-time style="left:${left}px">${escapeHtml(formatTradingDrawingAxisTime(marker.point.time, this.timeOffsetSeconds))}</time>`;
+      return `<time class="trading-drawing-axis-marker time" data-drawing-axis-time style="--trading-drawing-axis-marker:${marker.markerColor};--trading-drawing-axis-marker-text:#fff;left:${left}px">${escapeHtml(formatTradingDrawingAxisTime(marker.point.time, this.timeOffsetSeconds))}</time>`;
     }).join("");
     updateTradingDrawingMarkup(this.axisMarkerLayer, priceHtml + timeHtml);
   }
@@ -4938,17 +5135,22 @@ export class TradingDrawingController {
     if (!points.length) return "";
     const first = points[0];
     const second = points[points.length - 1] ?? first;
-    const color = drawing.color ?? tradingAiDrawingColor(drawing.colorToken) ?? (definition.kind === "text"
+    const defaults = drawing.source === 'ai' ? undefined : manualDrawingDefaults(drawing.tool);
+    const color = drawing.color ?? tradingAiDrawingColor(drawing.colorToken) ?? defaults?.color ?? (definition.kind === "text"
       ? isDarkTheme() ? DEFAULT_TEXT_COLOR_DARK : DEFAULT_TEXT_COLOR_LIGHT
       : isDarkTheme() ? DEFAULT_DRAWING_COLOR_DARK : DEFAULT_DRAWING_COLOR_LIGHT);
-    const opacity = draft ? 0.72 : 1;
+    const opacity = (draft ? 0.72 : 1) * (defaults?.opacity ?? 1);
     const dx = second.x - first.x;
     const dy = second.y - first.y;
     const selected = interactive && drawing.id === this.selectedDrawingId;
     const lineAppearance: TradingDrawingStrokeAppearance = {
       opacity,
-      width: drawing.lineWidth,
-      style: drawing.lineStyle,
+      width: drawing.lineWidth ?? defaults?.lineWidth,
+      style: drawing.lineStyle ?? defaults?.lineStyle,
+      manualDefaults: defaults,
+      customColor: Boolean(drawing.color),
+      customWidth: drawing.lineWidth !== undefined,
+      customStyle: drawing.lineStyle !== undefined,
     };
     const segmentLine = clipTradingDrawingLine(first, second, bounds, "segment") ?? [first, second];
     const rayLine = clipTradingDrawingLine(first, second, bounds, "ray") ?? [first, second];
@@ -4959,15 +5161,21 @@ export class TradingDrawingController {
       )))
       : tradingDrawingPlacementMode(definition) === "single-click"
         ? pointEntries.slice(0, 1)
-        : pointEntries.slice(0, 12);
+        : tradingDrawingIsMultiPoint(drawing.tool)
+          ? tradingDrawingIsClosedPolyline(drawing) ? pointEntries.slice(0, -1) : pointEntries
+          : pointEntries.slice(0, 12);
     const handles = interactive && (draft || selected)
       ? definition.kind === "fib"
-        ? handleEntries.map(({ point, index }) => `<circle class="trading-drawing-handle fibonacci" data-drawing-handle-index="${index}" data-fibonacci-endpoint="${index === 0 ? "100" : "0"}" cx="${point.x}" cy="${point.y}" r="${FIBONACCI_HANDLE_RADIUS}" fill="var(--trading-market-panel)" stroke="${drawing.color ?? "var(--trading-fibonacci-handle-stroke)"}" stroke-width="2" vector-effect="non-scaling-stroke" />`).join("")
-        : handleEntries.map(({ point, index }) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" cx="${point.x}" cy="${point.y}" r="${DRAWING_HANDLE_RADIUS}" fill="var(--trading-market-panel)" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" />`).join("")
+        ? handleEntries.map(({ point, index }) => `<circle class="trading-drawing-handle fibonacci" data-drawing-handle-index="${index}" data-fibonacci-endpoint="${index === 0 ? "100" : "0"}" cx="${point.x}" cy="${point.y}" r="${defaults ? DRAWING_HANDLE_RADIUS : FIBONACCI_HANDLE_RADIUS}" fill="var(--trading-market-panel)" stroke="${defaults ? DRAWING_SELECTION_COLOR : drawing.color ?? "var(--trading-fibonacci-handle-stroke)"}" stroke-width="${defaults ? 1.5 : 2}" vector-effect="non-scaling-stroke" />`).join("")
+        : handleEntries.map(({ point, index }) => `<circle class="trading-drawing-handle" data-drawing-handle-index="${index}" cx="${point.x}" cy="${point.y}" r="${DRAWING_HANDLE_RADIUS}" fill="var(--trading-market-panel)" stroke="${defaults ? DRAWING_SELECTION_COLOR : color}" stroke-width="${defaults ? 1.5 : 2}" vector-effect="non-scaling-stroke" />`).join("")
       : "";
     let body = "";
+    const extra = renderExtraDrawingGeometry({ drawing, points, bounds, color, candles: this.getCandles(), project: point => this.pointToScreen(point) });
+    const extraAnnotation = renderExtraAnnotation(drawing, first, color);
 
-    if (definition.kind === "line") body = svgLine(segmentLine[0], segmentLine[1], color, lineAppearance);
+    if (extra) body = `<g opacity="${opacity}">${extra.body}</g>`;
+    else if (extraAnnotation !== null) body = extraAnnotation;
+    else if (definition.kind === "line") body = svgLine(segmentLine[0], segmentLine[1], color, lineAppearance);
     else if (definition.kind === "ray") body = svgLine(rayLine[0], rayLine[1], color, lineAppearance);
     else if (definition.kind === "extended") body = svgLine(extendedLine[0], extendedLine[1], color, lineAppearance);
     else if (definition.kind === "horizontal") body = svgLine({ x: 0, y: first.y }, { x: bounds.width, y: first.y }, color, lineAppearance);
@@ -4976,7 +5184,7 @@ export class TradingDrawingController {
     else if (definition.kind === "cross") {
       body = svgLine({ x: 0, y: first.y }, { x: bounds.width, y: first.y }, color, { ...lineAppearance, dashed: true })
         + svgLine({ x: first.x, y: 0 }, { x: first.x, y: bounds.height }, color, { ...lineAppearance, dashed: true });
-    } else if (definition.kind === "arrow") body = svgLine(segmentLine[0], segmentLine[1], color, { ...lineAppearance, arrow: true, width: drawing.lineWidth ?? DEFAULT_DRAWING_LINE_WIDTH });
+    } else if (definition.kind === "arrow") body = svgLine(segmentLine[0], segmentLine[1], color, { ...lineAppearance, arrow: true });
     else if (definition.kind === "channel") body = this.renderChannel(first, second, color, lineAppearance);
     else if (definition.kind === "pitchfork") body = this.renderPitchfork(first, second, color, lineAppearance);
     else if (definition.kind === "gann") body = this.renderGann(first, second, color, lineAppearance, drawing.tool);
@@ -4993,9 +5201,9 @@ export class TradingDrawingController {
     else if (definition.kind === "fib-time") body = this.renderTimeZones(first, second, color, bounds.height, lineAppearance);
     else if (definition.kind === "fib-circle") body = this.renderFibCircles(first, second, color, lineAppearance, drawing.tool === "fib-spiral");
     else if (definition.kind === "freehand") {
-      body = `<polyline points="${pointsAttribute(points)}" fill="none" stroke="${color}" ${svgStrokeAttributes(lineAppearance, drawing.tool === "highlighter" ? 9 : 2.2)} stroke-linecap="round" stroke-linejoin="round" opacity="${drawing.tool === "highlighter" ? 0.3 : opacity}" />`;
+      body = `<polyline points="${pointsAttribute(points)}" fill="none" stroke="${color}" ${svgStrokeAttributes(lineAppearance, drawing.tool === "highlighter" ? 9 : 2.2)} stroke-linecap="round" stroke-linejoin="round" opacity="${defaults ? opacity : drawing.tool === "highlighter" ? 0.3 : opacity}" />`;
     } else if (definition.kind === "rectangle") {
-      body = `<rect x="${Math.min(first.x, second.x)}" y="${Math.min(first.y, second.y)}" width="${Math.abs(dx)}" height="${Math.abs(dy)}" fill="${color}" fill-opacity="0.08" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`
+      body = `<rect x="${Math.min(first.x, second.x)}" y="${Math.min(first.y, second.y)}" width="${Math.abs(dx)}" height="${Math.abs(dy)}" fill="${color}" fill-opacity="${defaults?.fillOpacity ?? 0.08}" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`
         + (drawing.text
           ? renderTradingDrawingRegionLabel(first, second, drawing.text, color, bounds, drawing.fontSize ?? AI_NOTE_FONT_SIZE)
           : "");
@@ -5003,22 +5211,26 @@ export class TradingDrawingController {
     else if (definition.kind === "ellipse") {
       if (definition.id === "circle") {
         const circle = tradingDrawingCircleGeometry(first, second);
-        body = `<circle cx="${circle.cx}" cy="${circle.cy}" r="${circle.radius}" fill="${color}" fill-opacity="0.06" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`;
+        body = `<circle cx="${circle.cx}" cy="${circle.cy}" r="${circle.radius}" fill="${color}" fill-opacity="${defaults?.fillOpacity ?? 0.06}" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`;
       } else {
         const ellipse = tradingDrawingEllipseGeometry(first, second);
         const candlestickPatternClass = tradingDrawingIsPriceActionCandlestickPatternEllipse(drawing)
           ? ' class="trading-price-action-candlestick-pattern-ellipse"'
           : "";
-        body = `<ellipse${candlestickPatternClass} cx="${ellipse.cx}" cy="${ellipse.cy}" rx="${ellipse.rx}" ry="${ellipse.ry}" fill="${color}" fill-opacity="0.06" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`;
+        body = `<ellipse${candlestickPatternClass} cx="${ellipse.cx}" cy="${ellipse.cy}" rx="${ellipse.rx}" ry="${ellipse.ry}" fill="${color}" fill-opacity="${defaults?.fillOpacity ?? 0.06}" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`;
       }
     } else if (definition.kind === "triangle") {
       const triangle = tradingDrawingTrianglePoints(first, points[1] ?? second, points[2]);
-      body = `<polygon points="${pointsAttribute(triangle)}" fill="${color}" fill-opacity="0.06" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`;
+      body = `<polygon points="${pointsAttribute(triangle)}" fill="${color}" fill-opacity="${defaults?.fillOpacity ?? 0.06}" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.6)} opacity="${opacity}" />`;
     } else if (definition.kind === "arc") {
-      body = `<path d="M ${first.x} ${first.y} Q ${(first.x + second.x) / 2} ${Math.min(first.y, second.y) - Math.abs(dx) / 3} ${second.x} ${second.y}" fill="none" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.8)} opacity="${opacity}" />`;
+      body = `<path d="M ${first.x} ${first.y} Q ${(first.x + second.x) / 2} ${Math.min(first.y, second.y) - Math.abs(dx) / 3} ${second.x} ${second.y}" fill="${defaults ? color : 'none'}" fill-opacity="${defaults?.fillOpacity ?? 0}" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.8)} opacity="${opacity}" />`;
     } else if (definition.kind === "curve") body = this.renderCurve(first, second, color, lineAppearance, drawing.tool === "double-curve");
     else if (definition.kind === "polyline") {
-      body = `<polyline points="${pointsAttribute(patternPoints(first, second, 5))}" fill="none" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.8)} stroke-linejoin="round" opacity="${opacity}" />`;
+      if (tradingDrawingIsMultiPoint(drawing.tool)) {
+        const closed = tradingDrawingIsClosedPolyline(drawing);
+        const tag = closed ? 'polygon' : 'polyline';
+        body = `<${tag} points="${pointsAttribute(points)}" fill="${closed ? color : 'none'}" fill-opacity="${defaults?.fillOpacity ?? 0.06}" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.8)} stroke-linejoin="round" opacity="${opacity}"${drawing.tool === 'multi-point-path' ? ' marker-end="url(#trading-drawing-arrow)"' : ''} />`;
+      } else body = `<polyline points="${pointsAttribute(patternPoints(first, second, 5))}" fill="none" stroke="${color}" ${svgStrokeAttributes(lineAppearance, 1.8)} stroke-linejoin="round" opacity="${opacity}" />`;
     } else if (definition.kind === "text") body = this.renderText(
       first,
       drawing.text ?? "",
@@ -5038,10 +5250,12 @@ export class TradingDrawingController {
 
     const hitTargets = !interactive || draft
       ? ""
+      : extra ? extra.hit
       : definition.kind === "text"
         ? this.renderTextHitTargets(points, drawing, bounds)
         : this.renderDrawingHitTargets(definition, points, bounds);
-    return `<g data-drawing-id="${escapeHtml(drawing.id)}" data-drawing-source="${drawing.source ?? "manual"}" data-selected="${selected}" data-locked="${Boolean(drawing.locked)}">${body}${hitTargets}${handles}</g>`;
+    const authoredText = drawing.text && drawing.tool !== "image" ? " data-i18n-skip" : "";
+    return `<g data-drawing-id="${escapeHtml(drawing.id)}" data-drawing-source="${drawing.source ?? "manual"}" data-selected="${selected}" data-locked="${Boolean(drawing.locked)}"${authoredText}>${body}${hitTargets}${handles}</g>`;
   }
 
   private renderDrawingHitTargets(
@@ -5085,6 +5299,11 @@ export class TradingDrawingController {
           return [{ x: 0, y }, { x: bounds.width, y }];
         }),
       ];
+    } else if (tradingDrawingIsMultiPoint(definition.id) && points.length > 1) {
+      if (definition.id === 'multi-point-polyline' && points.length > 3 && first.x === last.x && first.y === last.y) {
+        return `<polygon class="trading-drawing-hit-target area" points="${pointsAttribute(points)}" />`;
+      }
+      segments = points.slice(1).map((point, index) => [points[index], point]);
     } else if (definition.freehand && points.length > 1) {
       segments = points.slice(1).map((point, index) => [points[index], point]);
     } else if (definition.kind === "pattern" && points.length > 1) {
@@ -5102,10 +5321,14 @@ export class TradingDrawingController {
     const offset = perpendicularOffset(first, second, Math.max(20, Math.min(Math.hypot(second.x - first.x, second.y - first.y) * 0.2, 72)));
     const third = { x: first.x + offset.x, y: first.y + offset.y };
     const fourth = { x: second.x + offset.x, y: second.y + offset.y };
-    return `<polygon points="${pointsAttribute([first, second, fourth, third])}" fill="${color}" fill-opacity="0.055" />`
+    return `<polygon points="${pointsAttribute([first, second, fourth, third])}" fill="${color}" fill-opacity="${appearance.manualDefaults?.fillOpacity ?? 0.055}" />`
       + svgLine(first, second, color, appearance)
       + svgLine(third, fourth, color, appearance)
-      + svgLine({ x: (first.x + third.x) / 2, y: (first.y + third.y) / 2 }, { x: (second.x + fourth.x) / 2, y: (second.y + fourth.y) / 2 }, color, { ...appearance, opacity: appearance.opacity * 0.62, dashed: true });
+      + svgLine({ x: (first.x + third.x) / 2, y: (first.y + third.y) / 2 }, { x: (second.x + fourth.x) / 2, y: (second.y + fourth.y) / 2 }, color, {
+        ...appearance, opacity: appearance.manualDefaults ? appearance.opacity : appearance.opacity * 0.62,
+        width: appearance.manualDefaults && !appearance.customWidth ? 1 : appearance.width,
+        style: appearance.manualDefaults && !appearance.customStyle ? 'dashed' : appearance.style, dashed: true,
+      });
   }
 
   private renderPitchfork(first: ScreenPoint, second: ScreenPoint, color: string, appearance: TradingDrawingStrokeAppearance) {
@@ -5113,8 +5336,8 @@ export class TradingDrawingController {
     return [-1, 0, 1].map((multiple) => svgLine(
       { x: first.x + offset.x * multiple, y: first.y + offset.y * multiple },
       { x: second.x + offset.x * multiple, y: second.y + offset.y * multiple },
-      color,
-      { ...appearance, opacity: multiple === 0 ? appearance.opacity : appearance.opacity * 0.72, dashed: multiple !== 0 },
+      appearance.manualDefaults && !appearance.customColor && multiple !== 0 ? '#2962ff' : color,
+      { ...appearance, opacity: appearance.manualDefaults || multiple === 0 ? appearance.opacity : appearance.opacity * 0.72, dashed: multiple !== 0 },
     )).join("") + svgLine(
       { x: first.x - offset.x, y: first.y - offset.y },
       { x: first.x + offset.x, y: first.y + offset.y },
@@ -5158,15 +5381,15 @@ export class TradingDrawingController {
       >= FIBONACCI_EXPANSION_THRESHOLD;
     const levels = tradingFibonacciLevelPrices(firstPrice, secondPrice);
     const visibleLevels = expanded ? levels : levels.slice(0, 1);
-    const connectorColor = customColor ? color : "var(--trading-fibonacci-connector)";
+    const connectorColor = customColor ? color : appearance.manualDefaults ? '#808080' : "var(--trading-fibonacci-connector)";
     const connector = expanded
-      ? `<line class="trading-fibonacci-connector" x1="${first.x}" y1="${first.y}" x2="${second.x}" y2="${second.y}" stroke="${connectorColor}" ${svgStrokeAttributes({ ...appearance, dashed: true }, 1.5)} opacity="${appearance.opacity}" />`
+      ? `<line class="trading-fibonacci-connector" x1="${first.x}" y1="${first.y}" x2="${second.x}" y2="${second.y}" stroke="${connectorColor}" ${svgStrokeAttributes({ ...appearance, style: appearance.manualDefaults && !appearance.customStyle ? 'dashed' : appearance.style, dashed: true }, 1.5)} opacity="${appearance.opacity}" />`
       : "";
     return connector + visibleLevels.map((level) => {
       const y = second.y + (first.y - second.y) * level.ratio;
       const labelY = y < 16 ? y + 14 : y - 6;
       const label = `${level.label}(${formatTradingFibonacciPrice(level.price)})`;
-      const levelColor = customColor ? color : level.color;
+      const levelColor = customColor ? color : appearance.manualDefaults ? manualFibLevelColor(level.ratio) : level.color;
       return `<g class="trading-fibonacci-level" data-fibonacci-level="${level.label}">`
         + `<line class="trading-fibonacci-level-line" x1="0" y1="${y}" x2="${bounds.width}" y2="${y}" stroke="${levelColor}" ${svgStrokeAttributes(appearance, 1.25)} opacity="${appearance.opacity}" />`
         + `<text class="trading-fibonacci-label" x="6" y="${labelY}" fill="${levelColor}" opacity="${appearance.opacity}">${label}</text>`
@@ -5179,7 +5402,7 @@ export class TradingDrawingController {
     const fib = [0, 1, 2, 3, 5, 8, 13, 21];
     return fib.map((factor) => {
       const x = first.x + Math.sign(second.x - first.x || 1) * step * factor;
-      return svgLine({ x, y: 0 }, { x, y: height }, color, { ...appearance, opacity: factor <= 1 ? appearance.opacity : appearance.opacity * 0.45, dashed: factor > 1 });
+      return svgLine({ x, y: 0 }, { x, y: height }, appearance.manualDefaults && !appearance.customColor ? (factor === 0 ? '#808080' : '#2962ff') : color, { ...appearance, opacity: appearance.manualDefaults || factor <= 1 ? appearance.opacity : appearance.opacity * 0.45, dashed: factor > 1 });
     }).join("");
   }
 
@@ -5193,7 +5416,7 @@ export class TradingDrawingController {
       });
       return `<polyline points="${pointsAttribute(points)}" fill="none" stroke="${color}" ${svgStrokeAttributes(appearance, 1.5)} opacity="${appearance.opacity}" />`;
     }
-    return [0.236, 0.382, 0.5, 0.618, 1].map((ratio) => `<circle cx="${first.x}" cy="${first.y}" r="${radius * ratio}" fill="none" stroke="${color}" ${svgStrokeAttributes(appearance, 1.2)} opacity="${appearance.opacity * (0.45 + ratio * 0.45)}" />`).join("");
+    return [0.236, 0.382, 0.5, 0.618, 1].map((ratio) => `<circle cx="${first.x}" cy="${first.y}" r="${radius * ratio}" fill="none" stroke="${appearance.manualDefaults && !appearance.customColor ? manualFibLevelColor(ratio) : color}" ${svgStrokeAttributes(appearance, 1.2)} opacity="${appearance.manualDefaults ? appearance.opacity : appearance.opacity * (0.45 + ratio * 0.45)}" />`).join("");
   }
 
   private renderRotatedRectangle(first: ScreenPoint, second: ScreenPoint, color: string, appearance: TradingDrawingStrokeAppearance) {
@@ -5204,14 +5427,14 @@ export class TradingDrawingController {
       { x: second.x + offset.x, y: second.y + offset.y },
       { x: first.x + offset.x, y: first.y + offset.y },
     ];
-    return `<polygon points="${pointsAttribute(points)}" fill="${color}" fill-opacity="0.06" stroke="${color}" ${svgStrokeAttributes(appearance, 1.6)} opacity="${appearance.opacity}" />`;
+    return `<polygon points="${pointsAttribute(points)}" fill="${color}" fill-opacity="${appearance.manualDefaults?.fillOpacity ?? 0.06}" stroke="${color}" ${svgStrokeAttributes(appearance, 1.6)} opacity="${appearance.opacity}" />`;
   }
 
   private renderCurve(first: ScreenPoint, second: ScreenPoint, color: string, appearance: TradingDrawingStrokeAppearance, double: boolean) {
     const controlY = Math.min(first.y, second.y) - Math.max(Math.abs(second.x - first.x) * 0.28, 18);
     const path = `<path d="M ${first.x} ${first.y} Q ${(first.x + second.x) / 2} ${controlY} ${second.x} ${second.y}" fill="none" stroke="${color}" ${svgStrokeAttributes(appearance, 1.8)} opacity="${appearance.opacity}" />`;
     return double
-      ? path + `<path d="M ${first.x} ${first.y} Q ${(first.x + second.x) / 2} ${Math.max(first.y, second.y) + Math.abs(second.x - first.x) * 0.28} ${second.x} ${second.y}" fill="none" stroke="${color}" ${svgStrokeAttributes(appearance, 1.4)} opacity="${appearance.opacity * 0.65}" />`
+      ? path + `<path d="M ${first.x} ${first.y} Q ${(first.x + second.x) / 2} ${Math.max(first.y, second.y) + Math.abs(second.x - first.x) * 0.28} ${second.x} ${second.y}" fill="none" stroke="${color}" ${svgStrokeAttributes(appearance, 1.4)} opacity="${appearance.manualDefaults ? appearance.opacity : appearance.opacity * 0.65}" />`
       : path;
   }
 
@@ -5292,6 +5515,12 @@ export class TradingDrawingController {
     if (!point) return "";
     const fontSize = drawing.fontSize ?? DEFAULT_TEXT_FONT_SIZE;
     const text = drawing.text ?? "";
+    if (drawing.tool === 'image') return `<rect class="trading-drawing-hit-target area" x="${point.x}" y="${point.y}" width="240" height="160"/>`;
+    if (drawing.tool === 'table') {
+      const rows = (text || '项目 | 数值\n价格 | 0').split('\n').slice(0, 12);
+      const columns = Math.min(6, Math.max(...rows.map(row => row.split(/[|\t]/).length)));
+      return `<rect class="trading-drawing-hit-target area" x="${point.x}" y="${point.y}" width="${columns * Math.max(72, fontSize * 6)}" height="${rows.length * (fontSize + 16)}"/>`;
+    }
     if (drawing.tool === "price-note") {
       const labelPoint = points[points.length - 1] ?? point;
       const geometry = tradingDrawingPriceNoteBoxGeometry(labelPoint, text, fontSize, bounds);
@@ -5435,6 +5664,8 @@ export class TradingDrawingController {
       "elliott-impulse": ["0", "1", "2", "3", "4", "5"],
       "elliott-correction": ["0", "A", "B", "C"],
       "elliott-triangle": ["0", "A", "B", "C", "D", "E"],
+      "elliott-double-combo": ["0", "W", "X", "Y"],
+      "elliott-triple-combo": ["0", "W", "X", "Y", "X", "Z"],
     };
     const pointLabels = labels[definition.id]
       ?? Array.from({ length: points.length }, (_, index) => String(index + 1));
@@ -5458,14 +5689,14 @@ export class TradingDrawingController {
     const middle = first.y;
     const top = Math.min(first.y, second.y);
     const bottom = Math.max(first.y, second.y);
-    const profitColor = "#22ab94";
+    const profitColor = appearance.manualDefaults ? "#089981" : "#22ab94";
     const lossColor = "#f23645";
     const upperColor = long ? profitColor : lossColor;
     const lowerColor = long ? lossColor : profitColor;
     const upperStroke = customColor ? color : upperColor;
     const lowerStroke = customColor ? color : lowerColor;
-    return `<rect x="${left}" y="${top}" width="${width}" height="${Math.max(middle - top, 1)}" fill="${upperColor}" fill-opacity="0.18" stroke="${upperStroke}" ${svgStrokeAttributes(appearance)} opacity="${appearance.opacity}" />`
-      + `<rect x="${left}" y="${middle}" width="${width}" height="${Math.max(bottom - middle, 1)}" fill="${lowerColor}" fill-opacity="0.18" stroke="${lowerStroke}" ${svgStrokeAttributes(appearance)} opacity="${appearance.opacity}" />`
+    return `<rect x="${left}" y="${top}" width="${width}" height="${Math.max(middle - top, 1)}" fill="${upperColor}" fill-opacity="${appearance.manualDefaults?.fillOpacity ?? 0.18}" stroke="${upperStroke}" ${svgStrokeAttributes(appearance)} opacity="${appearance.opacity}" />`
+      + `<rect x="${left}" y="${middle}" width="${width}" height="${Math.max(bottom - middle, 1)}" fill="${lowerColor}" fill-opacity="${appearance.manualDefaults?.fillOpacity ?? 0.18}" stroke="${lowerStroke}" ${svgStrokeAttributes(appearance)} opacity="${appearance.opacity}" />`
       + `<text x="${left + 5}" y="${top + 14}" fill="${upperStroke}" font-size="10" font-weight="600">${long ? "目标" : "止损"}</text>`
       + `<text x="${left + 5}" y="${bottom - 5}" fill="${lowerStroke}" font-size="10" font-weight="600">${long ? "止损" : "目标"}</text>`;
   }
@@ -5480,7 +5711,7 @@ export class TradingDrawingController {
       return `<rect x="${left}" y="${top}" width="${width}" height="${height}" fill="${color}" fill-opacity="0.025" stroke="${color}" ${svgStrokeAttributes({ ...appearance, dashed: true }, 1.4)} opacity="${appearance.opacity}"/>`
         + bars.map((value, index) => `<rect x="${left}" y="${top + (height * index) / bars.length}" width="${width * value}" height="${Math.max(height / bars.length - 1, 1)}" fill="${color}" fill-opacity="0.22" />`).join("");
     }
-    return `<rect x="${left}" y="${top}" width="${width}" height="${height}" fill="${color}" fill-opacity="0.06" stroke="${color}" ${svgStrokeAttributes({ ...appearance, dashed: true }, 1.4)} opacity="${appearance.opacity}" />`;
+    return `<rect x="${left}" y="${top}" width="${width}" height="${height}" fill="${color}" fill-opacity="${appearance.manualDefaults?.fillOpacity ?? 0.06}" stroke="${color}" ${svgStrokeAttributes({ ...appearance, dashed: true }, 1.4)} opacity="${appearance.opacity}" />`;
   }
 
   private renderProjection(first: ScreenPoint, second: ScreenPoint, definition: TradingDrawingToolDefinition, color: string, appearance: TradingDrawingStrokeAppearance) {
@@ -5546,6 +5777,9 @@ export class TradingDrawingController {
     this.orderLineContent.removeEventListener("focusout", this.handleOrderPositionFocusOut);
     this.overlay.removeEventListener("pointerdown", this.handlePointerDown);
     this.overlay.removeEventListener("contextmenu", this.handleContextMenu);
+    this.overlay.removeEventListener("dblclick", this.handleDrawingDoubleClick);
+    this.magicTrail?.remove();
+    this.magicTrail = null;
     this.overlay.removeEventListener("wheel", this.handleWheel);
     document.removeEventListener("pointermove", this.handlePointerMove);
     document.removeEventListener("pointerup", this.handlePointerUp);

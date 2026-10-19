@@ -692,7 +692,8 @@ test("wave pipeline stays vendor-neutral and emits a guarded AI wave layer", asy
   assert.equal(calls[0].request.theoryId, "elliott_wave");
   assert.equal(calls[0].request.task, "wave-theory-review-and-drawing-plan");
   assert.match(calls[0].request.prompt, /确定性 TheoryResult/);
-  assert.match(calls[0].request.prompt, /确定性 actionLevels/);
+  assert.match(calls[0].request.prompt, /宿主会在选定主候选后重新计算/);
+  assert.doesNotMatch(calls[0].request.prompt, /"longTrigger"|"shortTrigger"/);
   assert.match(calls[0].request.prompt, /波4重叠绝不会自动改名为倾斜/);
   assert.equal(result.model.providerId, "fixture-provider");
   assert.equal(result.model.reasoningEffort, "high");
@@ -731,6 +732,10 @@ test("wave pipeline stays vendor-neutral and emits a guarded AI wave layer", asy
   assert.ok(Number.isFinite(result.analysisPlan.actionPlan.longInvalidation));
   assert.ok(result.analysisPlan.actionPlan.longInvalidation < result.analysisPlan.actionPlan.longTrigger);
   assert.equal(result.analysisPlan.actionPlan.stopBasis.fallback, true);
+  assert.equal(result.analysisPlan.actionPlan.stopBasis.sourceInterval, "60", "A primary-chart pivot must not be labelled as unavailable 5-minute evidence");
+  assert.match(result.analysisPlan.actionPlan.stopBasis.label, /confirmed_structural_pivot/);
+  assert.ok(result.analysisPlan.actionPlan.stopBasis.evidenceIds.length > 0);
+  assert.match(result.analysisPlan.report, /等待区：.+最低净盈亏比/);
   assert.ok(result.analysisPlan.actionPlan.longTargets.length >= 1);
   assert.match(result.analysisPlan.report, /可执行条件单已生成/);
   assert.match(result.analysisPlan.report, /兜底|低周期证据/);

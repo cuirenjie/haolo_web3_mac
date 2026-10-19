@@ -1,4 +1,13 @@
 import "./styles.css";
+import {
+  TRADING_PREFERENCE_CHOICE_FIELDS,
+  buildTradingPreferenceChoiceAnswer,
+  createTradingPreferenceChoiceDraft,
+  updateTradingPreferenceChoice,
+  type TradingPreferenceAnswers,
+  type TradingPreferenceChoiceDraft,
+} from "./trading-preference-choices";
+import { createTradingPreferenceSettings } from "./trading-preference-settings.ts";
 import "../main/execution-plan-card.css";
 import { executionPlanCardHeading, executionPlanCardBody } from "../main/execution-plan-card-view.mjs";
 import "./trading-watchlist.css";
@@ -6,6 +15,7 @@ import { renderTradingWatchlistHost, renderTradingWatchlistToggle } from "./trad
 import { deferTradingChartShellRender } from "./trading-chart-interaction.ts";
 import QRCode from "qrcode";
 import { buildTradingStrategyFailureReport, describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
+import { errorSignals, isQuotaFailure } from "../main/error-signals.mjs";
 import { analysisModelPolicySelection, normalizeAnalysisModelRecoveryState, withAnalysisModelRecoveryPolicy, type AnalysisModelRecoveryState } from "../main/analysis-model-policy.mjs";
 import { canonicalDeepSeekModel } from "../main/deepseek-model-policy.mjs";
 import { isRetiredExecutionModel } from "../main/retired-model-policy.mjs";
@@ -1522,7 +1532,11 @@ type DesktopApi = {
   createThreadGroupFolder?(params: { name: string;
   }): Promise<{ ok?: boolean; path?: string; name?: string }>;
   // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable desktop API type
-  exportDiagnostics?(): Promise<{ ok?: boolean; canceled?: boolean; path?: string; eventCount?: number }>;
+  exportDiagnostics?(params?: { threadId?: string | null }): Promise<{ ok?: boolean; canceled?: boolean; path?: string; eventCount?: number }>;
+  recordTradingTranscriptDiagnostic?(params: {
+    stage: string; threadId: string; itemCount?: number; finalCount?: number; textChars?: number;
+    attempt?: number; detail?: string; code?: string;
+  }): Promise<unknown>;
   // HAOLO-TURN-DIAGNOSTICS-END: removable desktop API type
   exportUserData?(params: { groups: ThreadGroupWorkspaceRequest[];
   }): Promise<UserDataTransferResult>;
@@ -2181,7 +2195,7 @@ type DesktopApi = {
   }): Promise<{ cancelled?: boolean }>;
   listThreads(params?: any): Promise<any>;
   getTradingPreferenceProfile?(): Promise<any>;
-  saveTradingPreferenceProfile?(params: {
+  saveTradingPreferenceProfile?(params: { choices: TradingPreferenceChoiceDraft; extraNotes: string } | {
     userStatement: string;
     entries: Array<{
       scope: string;
@@ -2851,7 +2865,7 @@ type SettingsState = {
   modelProvider: string;
   approvalPolicy: string;
   sandbox: string;
-  tab: "profile" | "models" | "github" | "general" | "about";
+  tab: "profile" | "models" | "github" | "general" | "trading" | "about";
   theme: AppTheme;
   language: AppLanguage;
   fontSize: AppFontSize;
@@ -3149,7 +3163,6 @@ type ViewId =
   | "skillsPlaza"
   | "recharge"
   | "consumption";
-type TradingExpertWorkspaceView = "chart" | "news" | "browser";
 type SkillCategoryId = string;
 type SkillsSubView = "market" | "mine";
 type SkillsPlazaTab = "plugins" | "skills" | "mySkills" | "indicators" | "quant";
@@ -4256,7 +4269,6 @@ type UiState = {
   approvalRequest: JsonRpcMessage | null;
   leftCollapsed: boolean;
   rightCollapsed: boolean;
-  tradingExpertWorkspaceView: TradingExpertWorkspaceView;
   tradingExpertChartCollapsed: boolean;
   tradingExpertChartFocusMode: boolean;
   windowMaximized: boolean;
@@ -5640,7 +5652,6 @@ const state: UiState = {
   approvalRequest: null,
   leftCollapsed: false,
   rightCollapsed: true,
-  tradingExpertWorkspaceView: "chart",
   tradingExpertChartCollapsed: false,
   tradingExpertChartFocusMode: false,
   windowMaximized: false,
@@ -7140,7 +7151,7 @@ function wirePointerTracking() {
       }
       if (
         event.target.closest(
-          '.trading-expert-layout [data-action="toggle-left-panel"], .trading-expert-layout [data-action="toggle-trading-expert-workspace-switch"], .trading-expert-layout [data-action="switch-trading-expert-workspace"], .trading-expert-layout [data-action="toggle-right-panel"], .trading-expert-layout [data-action="toggle-trading-expert-chart"], .trading-expert-layout [data-action="toggle-trading-expert-chart-focus"]',
+          '.trading-expert-shell [data-action="toggle-left-panel"], .trading-expert-layout [data-action="toggle-right-panel"], .trading-expert-layout [data-action="toggle-trading-expert-chart"], .trading-expert-layout [data-action="toggle-trading-expert-chart-focus"]',
         )
       ) {
         if (tradingExpertLayoutControlPointerReleaseTimer !== null) {
@@ -23062,7 +23073,8 @@ function formatTurnFailureMessage(
     return "当前会话的上下文已满，自动整理与恢复未能完成。请重试；若仍失败，请拆分消息或新建任务。";
   }
   const detail = String(reason || "").trim();
-  if (/(?:\b10061\b|ECONNREFUSED|connection refused|actively refused|failed to connect to (?:websocket|server))/i.test(detail)) {
+  const { statuses } = errorSignals(reason);
+  if (/(?:os error 10061(?![\w]|[.,]\d)|ECONNREFUSED|connection refused|actively refused|failed to connect to (?:websocket|server))/i.test(detail)) {
     return "网络连接被拒绝。请检查代理或网络后重试。";
   }
   if (/(?:proxy|代理)/i.test(detail)) {
@@ -23071,10 +23083,10 @@ function formatTurnFailureMessage(
   if (/(?:concurrency limit|too many concurrent|maximum concurrent|并发(?:限制|上限))/i.test(detail)) {
     return "模型服务当前并发已满，请稍后重试。";
   }
-  if (/(?:\b429\b|rate limit|too many requests|at capacity|overloaded|slow_down|限流|频率限制|上游过载)/i.test(detail)) {
+  if (statuses.includes(429) || /(?:rate limit|too many requests|at capacity|overloaded|slow_down|限流|频率限制|上游过载)/i.test(detail)) {
     return "模型服务请求过于频繁，请稍后重试。";
   }
-  if (/(?:\b401\b|\b403\b|unauthori[sz]ed|forbidden|authentication|auth(?:entication)? expired)/i.test(detail)) {
+  if (statuses.some((status) => [401, 403].includes(status)) || /(?:unauthori[sz]ed|forbidden|authentication|auth(?:entication)? expired)/i.test(detail)) {
     return "模型服务身份验证失败，请重新登录后重试。";
   }
   if (/(?:responseStreamDisconnected|stream disconnected|stream closed|connection reset|broken pipe|unexpected eof|websocket.{0,20}(?:closed|disconnect))/i.test(detail)) {
@@ -23083,7 +23095,7 @@ function formatTurnFailureMessage(
   if (/(?:timed?\s*out|timeout|超时)/i.test(detail)) {
     return "等待模型响应超时，本轮已停止。请重试。";
   }
-  if (/(?:\b500\b|\b502\b|\b503\b|\b504\b|\b529\b|internal server error|bad gateway|service unavailable|gateway timeout)/i.test(detail)) {
+  if (statuses.some((status) => status >= 500) || /(?:internal server error|bad gateway|service unavailable|gateway timeout)/i.test(detail)) {
     return "模型服务暂时不可用，请稍后重试。";
   }
   return "本轮执行失败，请重试。";
@@ -24603,14 +24615,12 @@ async function refreshLowBalanceProfile(reason: string) {
 }
 
 function isInsufficientQuotaError(value: unknown) {
-  const text = insufficientQuotaSignalText(value);
-  if (!text) return false;
-  if (/(?:积分不足|積分不足|当前套餐或积分不可用|未开通有效.*(?:体验版|套餐)|会员(?:等级|权益)?不足|会员(?:已)?(?:到期|过期)|會員(?:已)?(?:到期|過期))/iu.test(text)) return true;
-  return /(?:TRIAL_REQUIRED|MEMBERSHIP_EXPIRED|请先开通体验版|开通体验版或其他套餐|会员到期|当前没有可用积分|您的额度不足|额度不足|余额不足|没有余额|无可用额度|可用额度为\s*0|Token\s*余额不足|token余额不足|充值\s*Token|insufficient[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|not enough[_\s-]*(?:quota|balance|credit|credits|funds?|tokens?)|out of[_\s-]*(?:quota|credit|credits|funds?|tokens?)|no[_\s-]*(?:quota|credit|credits|funds?|tokens?)|payment required|\b402\b|quota[_\s-]*exceeded|billing[_\s-]*(?:required|quota|limit))/i.test(text);
+  return isQuotaFailure(value);
 }
 
 function isInsufficientQuotaTurnSignal(message: JsonRpcMessage) {
   if (!message || (message.method !== "turn/completed" && message.method !== "turn/failed")) return false;
+  if (message.method === "turn/failed" && isInsufficientQuotaError(message.params)) return true;
   return (
     isInsufficientQuotaSignalFields(message.params) || isInsufficientQuotaSignalFields(message.params?.turn)
   );
@@ -24628,72 +24638,24 @@ function threadHasInsufficientQuotaTurnSignal(thread: any, turnId?: string | nul
 }
 
 function isInsufficientQuotaSignalFields(value: unknown) {
-  if (!value || typeof value !== "object") return isInsufficientQuotaError(value);
+  if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
-  return [
-    record.error,
-    record.message,
-    record.reason,
-    record.detail,
-    record.details,
-    record.summary,
-    record.code,
-    record.errorCode,
-    record.error_code,
-    record.type,
-    record.status,
-    record.statusCode,
-    record.status_code,
-    record.statusText,
-    record.status_text,
-    record.lastError,
-    record.last_error,
-    record.errorMessage,
-    record.error_message,
-  ].some((part) => isInsufficientQuotaError(part));
+  // Turn envelopes can also contain successful summaries or generated text.
+  // Only explicit error fields, or a failed envelope, belong to this boundary.
+  if (["failed", "error", "errored"].includes(String(record.status || record.type || "").toLowerCase())) {
+    return isInsufficientQuotaError(record);
+  }
+  return isInsufficientQuotaError({
+    error: record.error, lastError: record.lastError ?? record.last_error,
+    errorMessage: record.errorMessage ?? record.error_message,
+    code: record.code ?? record.errorCode ?? record.error_code,
+    status: record.status, statusCode: record.statusCode ?? record.status_code,
+    httpStatus: record.httpStatus ?? record.httpStatusCode ?? record.http_status_code,
+  });
 }
 
 function insufficientQuotaSignalText(value: unknown) {
-  const parts = new Set<string>();
-  const add = (part: unknown) => {
-    if (typeof part === "string" && part.trim()) parts.add(part.trim());
-    if (typeof part === "number" && Number.isFinite(part)) parts.add(String(part));
-  };
-  add(value);
-  if (value instanceof Error) {
-    add(value.name);
-    add(value.message);
-    add(value.stack);
-  } else if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    add(record.message);
-    add(record.reason);
-    add(record.detail);
-    add(record.code);
-    add(record.type);
-    add(record.status);
-    add(record.statusCode);
-    const nestedError = record.error;
-    if (nestedError && typeof nestedError === "object") {
-      const errorRecord = nestedError as Record<string, unknown>;
-      add(errorRecord.message);
-      add(errorRecord.reason);
-      add(errorRecord.detail);
-      add(errorRecord.code);
-      add(errorRecord.type);
-      add(errorRecord.status);
-      add(errorRecord.statusCode);
-    } else {
-      add(nestedError);
-    }
-    try {
-      add(JSON.stringify(value));
-    } catch {
-      // Some thrown payloads can be cyclic; the explicit fields above are enough.
-    }
-  }
-  add(errorMessage(value));
-  return [...parts].join(" ");
+  return errorSignals(value).detail;
 }
 
 function patchThreadPreviewFromItem(threadId: string, item: CodexItem, options: { forceTitle?: boolean } = {}) {
@@ -26998,7 +26960,7 @@ async function sendCurrentLocalGroupChatMessage(
 }
 
 const DEEPSEEK_MEDIA_SEND_BLOCKED_MESSAGE =
-  "GPT-6 Astra仅支持文本，请移除图片、视频或切换GPT模型。";
+  "此模型暂不支持视频，请移除视频或切换模型。";
 
 function isImageOrVideoAttachment(attachment: MessageAttachment) {
   return isImageAttachment(attachment) || isVideoAttachment(attachment);
@@ -27014,7 +26976,7 @@ function deepSeekMediaComposerValidationError(threadId: string) {
   const executionSettings = selectedChatModelRequestOptions(threadId);
   if (
     executionSettings.modelProvider !== DEEPSEEK_EXECUTION_PROVIDER_ID ||
-    !composerAttachmentsForThread(threadId).some(isImageOrVideoAttachment)
+    !composerAttachmentsForThread(threadId).some(isVideoAttachment)
   ) {
     return null;
   }
@@ -27842,6 +27804,9 @@ async function sendCurrentMessage(threadIdOverride?: string | null) {
         // the optimistic message and run the chart request; the retry queue will
         // reconcile the transcript after the store becomes available again.
         console.warn("[trading-transcript] initial persistence deferred", error);
+        // HAOLO-TURN-DIAGNOSTICS-BEGIN: initial transcript persistence failure
+        recordRendererTranscriptDiagnostic("renderer.initial_deferred", threadId, error, { itemCount: 1 });
+        // HAOLO-TURN-DIAGNOSTICS-END: initial transcript persistence failure
       }
     }
     if (tradingStrategyAtSend && tradingStrategyRequestAtSend?.mode === "chart-analysis") {
@@ -30712,9 +30677,6 @@ function appendTradingExpertReport(
 ) {
   localHistoryAheadThreadIds.add(threadId);
   const visibleText = String(text || "");
-  if (isTradingAnalysisQuotaFailure({ message: visibleText })) {
-    return appendInsufficientQuotaAgentMessage(threadId);
-  }
   const item: CodexItem = {
     id: itemId || `trading-expert-report-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     type: "agentMessage",
@@ -30728,6 +30690,9 @@ function appendTradingExpertReport(
   setMessageStreamFollow(threadId, true);
   patchConversationRow(threadId);
   refreshTradingExpertConversationSurface(threadId);
+  // HAOLO-TURN-DIAGNOSTICS-BEGIN: final transcript report creation
+  recordRendererTranscriptDiagnostic("renderer.report_created", threadId, null, { itemCount: 1, finalCount: 1, textChars: visibleText.length });
+  // HAOLO-TURN-DIAGNOSTICS-END: final transcript report creation
   return item;
 }
 
@@ -31913,6 +31878,9 @@ async function persistCompletedTradingExpertTranscript(
   } catch (error) {
     queueTradingExpertTranscriptPersistenceRetry(threadId, items, options);
     console.warn("[trading-transcript] deferred persistence", error);
+    // HAOLO-TURN-DIAGNOSTICS-BEGIN: completed transcript persistence failure
+    recordRendererTranscriptDiagnostic("renderer.completed_deferred", threadId, error, { itemCount: items.length });
+    // HAOLO-TURN-DIAGNOSTICS-END: completed transcript persistence failure
     return false;
   }
 }
@@ -31923,6 +31891,12 @@ function queueTradingExpertTranscriptPersistenceRetry(
   options: { title?: string } = {},
   attempt = 0,
 ) {
+  // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript retry scheduling
+  if (items.length) recordRendererTranscriptDiagnostic(
+    attempt >= 4 ? "renderer.retry_exhausted" : "renderer.retry_scheduled",
+    threadId, null, { attempt, itemCount: items.length },
+  );
+  // HAOLO-TURN-DIAGNOSTICS-END: transcript retry scheduling
   if (!items.length || attempt >= 4) return;
   const retryItems = [...items];
   const delays = [1_000, 3_000, 10_000, 30_000];
@@ -31939,6 +31913,9 @@ function queueTradingExpertTranscriptPersistenceRetry(
       scheduleThreadListRefresh(0);
     } catch (error) {
       console.warn(`[trading-transcript] retry ${attempt + 1} deferred`, error);
+      // HAOLO-TURN-DIAGNOSTICS-BEGIN: transcript retry failure
+      recordRendererTranscriptDiagnostic("renderer.retry_failed", threadId, error, { attempt: attempt + 1, itemCount: retryItems.length });
+      // HAOLO-TURN-DIAGNOSTICS-END: transcript retry failure
       queueTradingExpertTranscriptPersistenceRetry(threadId, retryItems, options, attempt + 1);
     }
   }, delays[Math.min(attempt, delays.length - 1)]);
@@ -31979,9 +31956,7 @@ function buildTradingAnalysisAvailabilityReport(_instruction: string, error: unk
 }
 
 function isTradingAnalysisQuotaFailure(error: unknown) {
-  if (describeTradingAnalysisFailure(error).category === "membership") return true;
-  const message = String((error as { message?: unknown } | null)?.message || error || "");
-  return /积分不足|没有可用积分|未开通有效.*(?:体验版|套餐)|会员到期|会员权益不可用|当前套餐或积分不可用/iu.test(message);
+  return isQuotaFailure(error);
 }
 
 async function runTradingGeneralChartRequest(
@@ -35810,16 +35785,6 @@ function restorePreservedTradingExpertMarketWorkspace(
     if (!preserved) syncTradingExpertMarketWorkspace(null);
     return;
   }
-  // News and browser are intentionally empty surfaces for now. Keep the live
-  // chart host parked while those views are active so switching back to K线
-  // restores candles, drawings and the existing market connection.
-  if (
-    isTradingExpertSurfaceThreadId(targetThreadId)
-    && state.tradingExpertWorkspaceView !== "chart"
-  ) {
-    parkedTradingExpertMarketWorkspace = preserved || parkedTradingExpertMarketWorkspace;
-    return;
-  }
   const targetStorageSessionId = targetThreadId || preserved?.threadId || "";
   const pendingStorageMigrationSource = tradingExpertWorkspaceSessionMigrationSource(
     targetStorageSessionId,
@@ -36105,12 +36070,12 @@ function render() {
       activeMessageScrollerBeforeRender,
     );
   }
+  const restoreTradingPreferenceSettingsView = tradingPreferenceSettings.captureView(root);
   root.innerHTML = `
     <div class="${shellClasses}">
       ${renderWindowControls()}
       <div class="${bodyClasses}"${bodyStyle}>
-        ${workspaceHasConversationList ? renderLeftPanelToggle() : ""}
-        ${tradingExpertLayout ? renderTradingExpertWorkspaceSwitch() : ""}
+        ${workspaceHasConversationList && !tradingExpertLayout ? renderLeftPanelToggle() : ""}
         ${tradingExpertLayout ? renderTradingExpertCollapseControls() : ""}
         ${tradingExpertLayout ? renderTradingExpertPanelResizeHandles() : ""}
         ${mainContent}
@@ -36157,6 +36122,7 @@ function render() {
     ${state.error ? `<div class="toast">${escapeHtml(state.error)}</div>` : ""}
   `;
   localizeAppTree(root, state.settings.language);
+  restoreTradingPreferenceSettingsView(root);
   bindTradingExpertPanelResize(root);
   restorePreservedTradingExpertMarketWorkspace(
     preservedTradingExpertMarketWorkspace,
@@ -36430,10 +36396,12 @@ function openSettingsDialog(tab: SettingsState["tab"] = "general") {
   if (tab === "models" && !ENABLE_LOCAL_EXTERNAL_MODEL_SETTINGS) tab = "general";
   if (tab === "github" && !ENABLE_GITHUB_SETTINGS_UI) tab = "general";
   if (tab === "profile") prepareProfileEditDraft();
+  if (!state.settingsOpen) tradingPreferenceSettings.beginSession();
   state.settingsOpen = true;
   state.settings.tab = tab;
   state.profileMenuOpen = false;
   render();
+  if (tab === "trading") void tradingPreferenceSettings.load();
   void prefetchConsumptionData();
   void refreshSystemIntegrationState();
   if (tab === "models") {
@@ -36875,6 +36843,18 @@ async function showLastUserDataTransferStatus() {
 }
 
 // HAOLO-TURN-DIAGNOSTICS-BEGIN: removable report export action
+function recordRendererTranscriptDiagnostic(
+  stage: string, threadId: string, error: unknown,
+  counts: { itemCount?: number; finalCount?: number; textChars?: number; attempt?: number } = {},
+) {
+  try {
+    const detail = error ? String((error as any)?.message || error) : undefined;
+    void api.recordTradingTranscriptDiagnostic?.({
+      stage, threadId, ...counts, detail, code: typeof (error as any)?.code === "string" ? (error as any).code : undefined,
+    }).catch(() => {});
+  } catch { /* Diagnostics do not interrupt the user's conversation. */ }
+}
+
 async function exportDiagnostics() {
   if (!api.exportDiagnostics) {
     showToast("当前版本暂不支持导出故障诊断报告", 4000);
@@ -36884,7 +36864,7 @@ async function exportDiagnostics() {
   state.settings.diagnosticsExporting = true;
   render();
   try {
-    const result = await api.exportDiagnostics();
+    const result = await api.exportDiagnostics({ threadId: state.currentThreadId });
     if (result?.canceled) return;
     if (!result?.ok) throw new Error("诊断报告未导出");
     showToast(`诊断报告已导出：${result.path || "已完成"}`, 8000);
@@ -37223,15 +37203,17 @@ function renderWindowControls() {
   return `
     <header class="app-titlebar${isMacDesktop ? " mac-titlebar" : ""}" aria-label="应用标题栏">
       ${isMacDesktop ? '<div class="mac-traffic-light-spacer" aria-hidden="true"></div>' : ""}
-      ${showTradingExpertLeftPanelToggle ? renderLeftPanelToggle("titlebar") : ""}
-      <button class="titlebar-profile" data-action="toggle-profile" title="${escapeAttr(profileName)}" aria-label="打开个人资料：${escapeAttr(profileName)}">
-        <span class="titlebar-profile-avatar">
-          <img${builtInAvatarEdgeCropClassAttribute(avatarUrl)} src="${escapeAttr(avatarUrl)}" alt="" />
-          <i class="titlebar-profile-online-dot" aria-hidden="true"></i>
-        </span>
-        <span class="titlebar-profile-name">${escapeHtml(titlebarProfileDisplayName(profileName))}</span>
-      </button>
-      ${renderTitlebarPrimaryActions()}
+      <div class="titlebar-sidebar-controls">
+        <button class="titlebar-profile" data-action="toggle-profile" title="${escapeAttr(profileName)}" aria-label="打开个人资料：${escapeAttr(profileName)}">
+          <span class="titlebar-profile-avatar">
+            <img${builtInAvatarEdgeCropClassAttribute(avatarUrl)} src="${escapeAttr(avatarUrl)}" alt="" />
+            <i class="titlebar-profile-online-dot" aria-hidden="true"></i>
+          </span>
+          <span class="titlebar-profile-name">${escapeHtml(titlebarProfileDisplayName(profileName))}</span>
+        </button>
+        ${renderTitlebarPrimaryActions()}
+      </div>
+      ${showTradingExpertLeftPanelToggle ? `<div class="titlebar-drawing-controls">${renderLeftPanelToggle("titlebar")}</div>` : ""}
       <div class="titlebar-drag-region">
         <div class="titlebar-market-favorites-host" data-titlebar-market-favorites-host${showTradingExpertFavoriteTickers ? "" : " hidden"}></div>
       </div>
@@ -37264,68 +37246,6 @@ function renderLeftPanelToggle(placement: "body" | "titlebar" = "body") {
     >
       ${renderPanelLayoutIcon("left")}
     </button>
-  `;
-}
-
-function tradingExpertWorkspaceViewLabel(view: TradingExpertWorkspaceView) {
-  return view === "chart" ? "K线" : view === "news" ? "快讯" : "浏览器";
-}
-
-function renderTradingExpertWorkspaceSwitchIcon() {
-  return `
-    <svg class="trading-expert-workspace-switch-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3.5" y="4" width="17" height="16" rx="2"></rect>
-      <path d="M9 4v16M12 8h5M12 12h3M12 16h5"></path>
-    </svg>
-  `;
-}
-
-function renderTradingExpertWorkspaceSwitch() {
-  const activeView = state.tradingExpertWorkspaceView;
-  const activeLabel = tradingExpertWorkspaceViewLabel(activeView);
-  const options: TradingExpertWorkspaceView[] = ["chart", "news", "browser"];
-  return `
-    <div class="trading-expert-workspace-switch" data-trading-expert-workspace-switch>
-      <button
-        type="button"
-        class="small-icon-button panel-toggle trading-expert-workspace-switch-trigger"
-        data-action="toggle-trading-expert-workspace-switch"
-        title="切换工作区（当前：${activeLabel}）"
-        aria-label="切换工作区（当前：${activeLabel}）"
-        aria-haspopup="menu"
-        aria-expanded="false"
-      >
-        ${renderTradingExpertWorkspaceSwitchIcon()}
-      </button>
-      <div class="trading-expert-workspace-switch-menu" role="menu" aria-label="切换工作区">
-        ${options.map((view) => `
-          <button
-            type="button"
-            class="trading-expert-workspace-switch-option${view === activeView ? " active" : ""}"
-            data-action="switch-trading-expert-workspace"
-            data-trading-expert-workspace-view="${view}"
-            role="menuitemradio"
-            aria-checked="${view === activeView ? "true" : "false"}"
-          >
-            <span>${tradingExpertWorkspaceViewLabel(view)}</span>
-            ${view === activeView ? '<span class="trading-expert-workspace-switch-check" aria-hidden="true">✓</span>' : ""}
-          </button>
-        `).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function renderTradingExpertWorkspacePlaceholder(view: Exclude<TradingExpertWorkspaceView, "chart">) {
-  const label = tradingExpertWorkspaceViewLabel(view);
-  return `
-    <section class="trading-expert-workspace-placeholder" data-trading-expert-workspace-placeholder aria-label="${label}占位页面">
-      <div class="trading-expert-workspace-placeholder-content">
-        <span class="trading-expert-workspace-placeholder-icon" aria-hidden="true">${view === "news" ? "◌" : "⌁"}</span>
-        <strong>${label}</strong>
-        <span>功能开发中，敬请期待</span>
-      </div>
-    </section>
   `;
 }
 
@@ -43383,7 +43303,7 @@ function renderConversationListFooter() {
     <footer class="conversation-list-footer">
       <button
         type="button"
-        class="conversation-list-settings-button ${state.settingsOpen ? "active" : ""}"
+        class="conversation-list-settings-button conversation-list-footer-button ${state.settingsOpen ? "active" : ""}"
         data-action="open-settings"
         title="设置"
         aria-label="设置"
@@ -43391,28 +43311,31 @@ function renderConversationListFooter() {
         aria-expanded="${state.settingsOpen ? "true" : "false"}"
       >
         ${renderConversationListIcon("settings")}
+        <span>设置</span>
       </button>
       <button
         type="button"
-        class="conversation-list-support-button"
+        class="conversation-list-support-button conversation-list-footer-button"
         data-action="open-website-support"
         title="联系客服"
         aria-label="联系客服"
       >
         ${renderConversationListIcon("support")}
+        <span>客服</span>
       </button>
       <button
         type="button"
-        class="conversation-list-recharge-button ${rechargeActive ? "active" : ""}"
+        class="conversation-list-recharge-button conversation-list-footer-button ${rechargeActive ? "active" : ""}"
         data-action="profile-quota"
         title="会员充值"
+        aria-label="会员充值"
         ${rechargeActive ? 'aria-current="page"' : ""}
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <svg class="conversation-list-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="m3 6 4.5 4L12 4l4.5 6L21 6l-2 12H5L3 6Z" />
           <path d="M6 21h12" />
         </svg>
-        <span>会员充值</span>
+        <span>${state.settings.language === "en" ? "Top up" : "会员充值"}</span>
       </button>
     </footer>
   `;
@@ -46903,13 +46826,6 @@ function renderChatPanel(thread: ConversationSummary | null) {
   const localGroupChat = localGroupChatRecord(thread.id);
   if (localGroupChat) return renderLocalGroupChatPanel(thread, localGroupChat);
   if (isTradingExpertThreadId(thread.id)) {
-    if (state.tradingExpertWorkspaceView !== "chart") {
-      return `
-        <main class="chat-panel trading-expert-chat-panel" aria-label="交易专家行情工作区">
-          ${renderTradingExpertWorkspacePlaceholder(state.tradingExpertWorkspaceView)}
-        </main>
-      `;
-    }
     return `
       <main class="chat-panel trading-expert-chat-panel" aria-label="交易专家行情工作区">
         ${renderTradingExpertMarketWorkspace()}
@@ -46917,13 +46833,6 @@ function renderChatPanel(thread: ConversationSummary | null) {
     `;
   }
   if (isExternalTradingWorkspaceThreadId(thread.id)) {
-    if (state.tradingExpertWorkspaceView !== "chart") {
-      return `
-        <main class="chat-panel trading-expert-chat-panel" aria-label="交易专家行情工作区">
-          ${renderTradingExpertWorkspacePlaceholder(state.tradingExpertWorkspaceView)}
-        </main>
-      `;
-    }
     return `
       <main class="chat-panel trading-expert-chat-panel" aria-label="交易专家行情工作区">
         ${renderTradingExpertMarketWorkspace()}
@@ -47187,7 +47096,7 @@ function renderTradingExpertConversation(thread: ConversationSummary) {
 }
 
 const TRADING_PREFERENCE_ONBOARDING_GREETING =
-  "天才交易员，你好！我是 Haolo，你的全能交易助理。接下来我们会通过几段简短对话了解你的交易偏好。现在可以开始吗？";
+  "天才交易员，你好！我是 Haolo，你的全能交易助理。默认交易偏好已生效。点击“开始”可前往设置查看和修改交易偏好。";
 const TRADING_PREFERENCE_THREAD_TITLE = "配置交易偏好";
 
 const TRADING_PREFERENCE_QUESTION_ONE = [
@@ -47195,39 +47104,25 @@ const TRADING_PREFERENCE_QUESTION_ONE = [
   "",
   "每笔交易触发止损后，你最多允许亏损当前账户净值的百分之多少？",
   "",
-  "这里计算的是包含手续费和预估滑点后的实际亏损，不是保证金比例。例如账户净值为 10,000 USDT，单笔风险设置为 2%，代表这笔交易最多亏损约 200 USDT。",
+  "按包含手续费和预估滑点后的实际亏损计算，不是保证金比例。账户净值为 10,000 USDT 时，2% 代表最多亏损约 200 USDT。",
   "",
-  "**Haolo 推荐：单笔风险为2%。你也可以根据自己的风险承受能力设置更高或更低的比例，系统会以你明确填写的数值作为单笔风险上限。**",
-  "",
-  "你可以回复一个自定义比例，或回复“同意”采用推荐值并继续下一题。",
+  "请选择下方的风险比例，或勾选“自定义”填写比例和说明。确认后继续下一组。",
 ].join("\n");
 
 const TRADING_PREFERENCE_QUESTION_TWO = [
   "**第二组：浮盈保护和盈亏比**",
   "",
-  "交易出现浮盈后，你是否需要将止损移动到保本位置？如果需要，希望浮盈达到多少时执行？",
+  "1R 代表最初承担的风险。保本位置包含手续费和预估滑点；净盈亏比 1:0.4 表示盈利空间至少是止损风险的 0.4 倍。",
   "",
-  "这里的 1R 代表这笔交易最初承担的风险。例如计划最多亏损 200 USDT，那么浮盈达到 200 USDT 就是达到 1R。保本位置会覆盖手续费和预估滑点，避免名义保本但实际仍然亏损。",
-  "",
-  "同时，你能接受的最低盈亏比是多少？例如盈亏比 1:0.4，表示计划盈利空间至少是止损风险的0.4倍。",
-  "",
-  "**Haolo 推荐：浮盈达到1R后移动保本，最低净盈亏比为1:0.4。**",
-  "",
-  "你可以回复“同意”，也可以自定义，例如“1.5R后保本，最低盈亏比1:1.5”或“不移动保本”。",
+  "请分别选择保本条件和最低净盈亏比。每项都可以勾选“自定义”填写数值和说明。",
 ].join("\n");
 
 const TRADING_PREFERENCE_QUESTION_THREE = [
   "**最后一组：分析方式和交易纪律**",
   "",
-  "你希望 Haolo 的分析默认偏简洁还是详细？",
+  "完整分析栏目包括：仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件。",
   "",
-  "对于持仓分析和交易计划，是否固定包含以下内容：仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件？",
-  "",
-  "如果你还有必须遵守的交易纪律或绝对不能触碰的禁忌，也可以一起告诉我。例如“不允许亏损加仓”“不做逆势交易”或“不在重大数据公布前开仓”。",
-  "",
-  "**Haolo 推荐：普通回答保持简洁；持仓分析和交易计划保持结构完整；遇到高风险或规则冲突时自动提供详细说明。**",
-  "",
-  "你可以回复“同意”，也可以直接说出自己的要求。",
+  "请选择分析方式和内容，交易纪律可多选，也可以勾选“自定义”补充要求。确认后保存。",
 ].join("\n");
 
 const TRADING_PREFERENCE_BINANCE_INVITATION = [
@@ -47245,29 +47140,41 @@ const TRADING_PREFERENCE_BINANCE_CONNECTED = [
 const TRADING_PREFERENCE_REQUIRED_SECTIONS =
   "仓位健康度、风险校验、关键价位、入场条件、止损、止盈、仓位大小和失效条件";
 
-type TradingPreferenceAnswers = {
-  maxLossPerTradePercent?: number;
-  moveStopToBreakEven?: boolean;
-  breakEvenTriggerR?: number;
-  minimumRiskRewardRatio?: number;
-  analysisStyle?: "concise" | "detailed";
-  requiredSections?: "fixed" | "adaptive";
-  customRules?: string;
-};
-
 type TradingPreferenceOnboardingFlow = {
   stage: 1 | 2 | 3 | "saving" | "save-error";
   answers: TradingPreferenceAnswers;
   itemIds: string[];
   userStatements: string[];
+  questionItemId: string;
+  choiceDraft: TradingPreferenceChoiceDraft;
 };
 
 let tradingPreferenceProfileLoadStatus: "idle" | "loading" | "loaded" | "error" = "idle";
 let tradingPreferenceProfileCompleted = false;
 let tradingPreferenceProfileLoadGeneration = 0;
 const tradingPreferenceOnboardingByThreadId = new Map<string, TradingPreferenceOnboardingFlow>();
+const tradingPreferenceSettings = createTradingPreferenceSettings({
+  load: async () => {
+    if (!state.auth.authenticated || !api.getTradingPreferenceProfile) throw new Error("Trading preferences unavailable");
+    return api.getTradingPreferenceProfile();
+  },
+  save: async (payload) => {
+    if (!state.auth.authenticated || !api.saveTradingPreferenceProfile) throw new Error("Trading preferences unavailable");
+    return api.saveTradingPreferenceProfile(payload);
+  },
+  localize: (panel) => localizeAppTree(panel, state.settings.language),
+  render: () => { if (state.settingsOpen && state.settings.tab === "trading") render(); },
+  onSaved: () => {
+    // Ignore a profile read started before this explicit settings save.
+    tradingPreferenceProfileLoadGeneration += 1;
+    tradingPreferenceProfileCompleted = true;
+    tradingPreferenceProfileLoadStatus = "loaded";
+    tradingPreferenceOnboardingByThreadId.clear();
+  },
+});
 
 function resetTradingPreferenceProfileState() {
+  tradingPreferenceSettings.reset();
   tradingPreferenceProfileLoadGeneration += 1;
   tradingPreferenceProfileLoadStatus = "idle";
   tradingPreferenceProfileCompleted = false;
@@ -47351,52 +47258,117 @@ function renderTradingPreferenceOnboardingEntry(thread: ConversationSummary) {
 }
 
 function startTradingPreferenceOnboarding() {
-  const threadId = state.currentThreadId;
-  const thread = threadById(threadId);
-  if (
-    !threadId
-    || !thread
-    || !isTradingExpertThreadId(threadId)
-    || tradingPreferenceProfileCompleted
-    || messagesForThread(threadId).length
-    || isThreadBusy(threadId)
-  ) {
-    return;
-  }
-  const greetingItemId = `trading-preference-onboarding-greeting-${Date.now()}`;
-  const questionItemId = `trading-preference-onboarding-question-1-${Date.now()}`;
-  const greetingItem: CodexItem = {
-    id: greetingItemId,
-    type: "agentMessage",
-    text: TRADING_PREFERENCE_ONBOARDING_GREETING,
-    sender_label: "Haolo",
-    createdAt: new Date().toISOString(),
-    __youleLocalStatus: true,
-  };
-  const questionItem: CodexItem = {
-    id: questionItemId,
-    type: "agentMessage",
-    text: TRADING_PREFERENCE_QUESTION_ONE,
-    sender_label: "Haolo",
-    createdAt: new Date().toISOString(),
-    __youleLocalStatus: true,
-  };
-  upsertItem(threadId, greetingItem);
-  upsertItem(threadId, questionItem);
-  threadNameOverrides[threadId] = TRADING_PREFERENCE_THREAD_TITLE;
-  state.threads = sortThreadsForList(state.threads.map((candidate) => (
-    candidate.id === threadId
-      ? { ...candidate, name: TRADING_PREFERENCE_THREAD_TITLE }
-      : candidate
-  )));
-  tradingPreferenceOnboardingByThreadId.set(threadId, {
-    stage: 1,
-    answers: {},
-    itemIds: [greetingItemId, questionItemId],
-    userStatements: [],
+  openSettingsDialog("trading");
+}
+
+function scrollTradingPreferenceQuestionIntoView(threadId: string) {
+  if (!tradingPreferenceOnboardingByThreadId.has(threadId)) return;
+  // A group can be taller than the right pane: show its first question rather
+  // than jumping past the choices to the submit button.
+  setMessageStreamFollow(threadId, false);
+  window.requestAnimationFrame(() => {
+    if (state.currentThreadId !== threadId) return;
+    const scroller = root.querySelector<HTMLDivElement>("#messageScroller");
+    const form = scroller?.querySelector<HTMLElement>("[data-trading-preference-form]");
+    const row = form?.closest<HTMLElement>("[data-message-id]");
+    if (!scroller || !row) return;
+    suppressScrollDetection();
+    scroller.scrollTop += row.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 12;
+    updateMessageScrollBottomButton(scroller);
   });
-  render();
-  scheduleScrollMessagesToBottom();
+}
+
+function renderTradingPreferenceChoices(message: Message) {
+  const flow = tradingPreferenceOnboardingByThreadId.get(message.conversation_id);
+  if (!flow || flow.questionItemId !== message.id) return "";
+  const disabled = flow.stage === "saving";
+  const stage = typeof flow.stage === "number" ? flow.stage : 3;
+  const fields = TRADING_PREFERENCE_CHOICE_FIELDS[stage];
+  return `<form class="trading-preference-choices" data-trading-preference-form data-thread-id="${escapeAttr(message.conversation_id)}" data-question-id="${escapeAttr(message.id)}" data-stage="${flow.stage}">
+    <div class="trading-preference-choice-progress">${stage} / 3 <span>选择后确认，可随时修改自定义内容</span></div>
+    ${flow.stage === "save-error" ? "" : fields.map((field) => {
+      const draft = flow.choiceDraft[field.id] || { selected: [], custom: "" };
+      const options = [...field.options, { value: "custom", label: "自定义" }];
+      const customSelected = draft.selected.includes("custom");
+      return `<fieldset data-preference-field="${field.id}" ${disabled ? "disabled" : ""}>
+        <legend>${escapeHtml(field.title)} <span>${field.multiple ? "可多选" : "单选"}</span></legend>
+        <div class="trading-preference-choice-options">${options.map((option) => `<label class="trading-preference-choice-option">
+          <input type="${field.multiple ? "checkbox" : "radio"}" name="${escapeAttr(message.id)}-${field.id}" value="${escapeAttr(option.value)}" ${draft.selected.includes(option.value) ? "checked" : ""}>
+          <span>${escapeHtml(option.label)}</span>
+        </label>`).join("")}</div>
+        <textarea class="trading-preference-choice-custom" data-preference-custom="${field.id}" aria-label="${escapeAttr(field.title)}：自定义" maxlength="280" rows="3" placeholder="${escapeAttr(field.placeholder)}" ${customSelected ? "" : "hidden disabled"}>${escapeHtml(draft.custom)}</textarea>
+      </fieldset>`;
+    }).join("")}
+    <div class="trading-preference-choice-error" role="alert" hidden></div>
+    <button type="submit" class="trading-preference-onboarding-start trading-preference-choice-submit" ${disabled ? "disabled" : ""}>${disabled ? "正在保存…" : flow.stage === "save-error" ? "重试保存" : stage === 3 ? "确认并保存" : "确认并继续"}</button>
+  </form>`;
+}
+
+function bindTradingPreferenceChoiceForm(form: HTMLFormElement) {
+  if (form.dataset.preferenceBound === "true") return;
+  form.dataset.preferenceBound = "true";
+  const threadId = form.dataset.threadId || "";
+  const currentFlow = () => {
+    const flow = tradingPreferenceOnboardingByThreadId.get(threadId);
+    return flow && flow.questionItemId === form.dataset.questionId && String(flow.stage) === form.dataset.stage ? flow : null;
+  };
+  const clearError = () => {
+    const error = form.querySelector<HTMLElement>(".trading-preference-choice-error");
+    if (error) { error.hidden = true; error.textContent = ""; }
+    form.querySelectorAll('[aria-invalid="true"]').forEach((input) => input.removeAttribute("aria-invalid"));
+  };
+  form.addEventListener("change", (event) => {
+    const input = event.target;
+    const flow = currentFlow();
+    if (!(input instanceof HTMLInputElement) || !flow || typeof flow.stage !== "number") return;
+    const fieldset = input.closest<HTMLFieldSetElement>("[data-preference-field]");
+    const field = TRADING_PREFERENCE_CHOICE_FIELDS[flow.stage].find((field) => field.id === fieldset?.dataset.preferenceField);
+    if (!field || !fieldset) return;
+    updateTradingPreferenceChoice(flow.choiceDraft, field, input.value, input.checked);
+    fieldset.querySelectorAll<HTMLInputElement>("input").forEach((control) => { control.checked = flow.choiceDraft[field.id].selected.includes(control.value); });
+    const custom = fieldset.querySelector<HTMLTextAreaElement>("textarea");
+    if (custom) {
+      custom.hidden = custom.disabled = !flow.choiceDraft[field.id].selected.includes("custom");
+      if (!custom.hidden && input.value === "custom") custom.focus();
+    }
+    clearError();
+  });
+  form.addEventListener("input", (event) => {
+    const input = event.target;
+    const flow = currentFlow();
+    if (!(input instanceof HTMLTextAreaElement) || !flow || typeof flow.stage !== "number") return;
+    const fieldId = input.dataset.preferenceCustom || "";
+    if (flow.choiceDraft[fieldId]) flow.choiceDraft[fieldId].custom = input.value;
+    clearError();
+  });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const flow = currentFlow();
+    if (!flow || flow.stage === "saving" || threadId !== state.currentThreadId) return;
+    if (flow.stage === "save-error") { void saveTradingPreferenceOnboarding(threadId, flow); return; }
+    const result = buildTradingPreferenceChoiceAnswer(flow.stage, flow.choiceDraft);
+    if (!result.ok) {
+      const error = form.querySelector<HTMLElement>(".trading-preference-choice-error");
+      if (error) { error.textContent = result.error; error.hidden = false; }
+      const field = form.querySelector<HTMLElement>(`[data-preference-field="${result.fieldId}"]`);
+      const input = field?.querySelector<HTMLElement>("textarea:not([hidden])")
+        || field?.querySelector<HTMLElement>("input:checked")
+        || field?.querySelector<HTMLElement>("input");
+      input?.setAttribute("aria-invalid", "true");
+      input?.focus();
+      return;
+    }
+    appendTradingPreferenceMessage(threadId, "user", result.text, flow);
+    flow.userStatements.push(result.text);
+    const notes = [flow.answers.customPreferences, result.answers.customPreferences].filter(Boolean).join("\n");
+    Object.assign(flow.answers, result.answers, notes ? { customPreferences: notes } : {});
+    if (flow.stage === 3) { void saveTradingPreferenceOnboarding(threadId, flow); return; }
+    flow.stage = flow.stage === 1 ? 2 : 3;
+    flow.choiceDraft = createTradingPreferenceChoiceDraft(flow.stage);
+    appendTradingPreferenceMessage(threadId, "assistant", flow.stage === 2 ? TRADING_PREFERENCE_QUESTION_TWO : TRADING_PREFERENCE_QUESTION_THREE, flow);
+    render();
+    scrollTradingPreferenceQuestionIntoView(threadId);
+  });
 }
 
 function tradingPreferenceReplyUsesCurrentRecommendation(text: string) {
@@ -47482,6 +47454,7 @@ function appendTradingPreferenceMessage(
       };
   upsertItem(threadId, item);
   flow.itemIds.push(id);
+  if (role === "assistant" && (typeof flow.stage === "number" || flow.stage === "save-error")) flow.questionItemId = id;
   return item;
 }
 
@@ -47500,10 +47473,13 @@ function tradingPreferenceMemoryEntries(answers: TradingPreferenceAnswers) {
     { scope: "trading.exit", kind: "preference", key: "move_stop_to_break_even", value: answers.moveStopToBreakEven !== false, strength: "normal" },
     { scope: "trading.exit", kind: "preference", key: "break_even_trigger_r", value: answers.breakEvenTriggerR ?? 1, strength: "normal" },
     { scope: "communication", kind: "preference", key: "trading_analysis_style", value: answers.analysisStyle ?? "concise", strength: "normal" },
-    { scope: "trading.analysis", kind: "preference", key: "required_analysis_sections", value: answers.requiredSections === "adaptive" ? "根据问题按需选择栏目" : TRADING_PREFERENCE_REQUIRED_SECTIONS, strength: "normal" },
+    { scope: "trading.analysis", kind: "preference", key: "required_analysis_sections", value: answers.requiredSections === "adaptive" ? "根据问题按需选择栏目" : answers.requiredSections && answers.requiredSections !== "fixed" ? answers.requiredSections : TRADING_PREFERENCE_REQUIRED_SECTIONS, strength: "normal" },
     { scope: "trading.discipline", kind: "constraint", key: "default_execution_discipline", value: "先确定止损和失效条件再计算仓位；不得通过随意缩小止损距离放大仓位；不默认使用马丁格尔或亏损加仓；亏损后可以继续寻找新机会，但不得为了回本提高风险或降低交易标准", strength: "hard" },
     { scope: "trading.behavior", kind: "preference", key: "risk_conflict_handling", value: "明确提示规则冲突和风险，并提供符合已保存风险规则的备选方案", strength: "normal" },
   ];
+  if (answers.customPreferences) {
+    entries.push({ scope: "trading.profile", kind: "preference", key: "user_preference_notes", value: answers.customPreferences, strength: "normal" });
+  }
   if (answers.customRules) {
     entries.push({
       scope: "trading.discipline",
@@ -47520,10 +47496,10 @@ function tradingPreferenceCompletionText(answers: TradingPreferenceAnswers) {
   const breakEven = answers.moveStopToBreakEven === false
     ? "不自动移动保本"
     : `浮盈达到 ${answers.breakEvenTriggerR ?? 1}R 后移动至覆盖交易成本的保本位置`;
-  const style = answers.analysisStyle === "detailed" ? "详细" : "简洁";
+  const style = answers.analysisStyle === "detailed" ? "详细" : !answers.analysisStyle || answers.analysisStyle === "concise" ? "简洁" : answers.analysisStyle;
   const sections = answers.requiredSections === "adaptive"
     ? "持仓分析和交易计划按问题选择必要栏目"
-    : `持仓分析和交易计划固定包含${TRADING_PREFERENCE_REQUIRED_SECTIONS}`;
+    : answers.requiredSections && answers.requiredSections !== "fixed" ? answers.requiredSections : `持仓分析和交易计划固定包含${TRADING_PREFERENCE_REQUIRED_SECTIONS}`;
   const lines = [
     "配置完成，我已经将你的交易偏好安全保存到长期记忆：",
     "",
@@ -47533,6 +47509,7 @@ function tradingPreferenceCompletionText(answers: TradingPreferenceAnswers) {
     `- 回答风格：默认${style}；`,
     `- 分析结构：${sections}；`,
     ...(answers.customRules ? [`- 你的补充纪律：${answers.customRules}；`] : []),
+    ...(answers.customPreferences ? [`- 你的自定义说明：${answers.customPreferences}；`] : []),
     "- 规则冲突时：提示具体风险并提供符合规则的备选方案。",
     "",
     "以后无论使用普通分析、技能还是交易策略，我都会参考这份配置。你也可以随时告诉我修改交易偏好。",
@@ -47601,7 +47578,7 @@ async function saveTradingPreferenceOnboarding(
     appendTradingPreferenceMessage(
       threadId,
       "assistant",
-      `偏好暂时没有保存成功：${errorMessage(error)}\n\n请回复“重试保存”，我会保留你刚才的答案并再次保存。`,
+      `偏好暂时没有保存成功：${errorMessage(error)}\n\n请点击“重试保存”，我会保留你刚才的答案并再次保存。`,
       flow,
     );
     render();
@@ -47644,16 +47621,17 @@ async function handleTradingPreferenceOnboardingReply(
         "我还没有识别到单笔风险比例。你可以回复“2%”“1.5%”“10%”或“同意”。完成本题后我们会继续下一题。",
         flow,
       );
-    } else if (percent > 100) {
+    } else if (percent < 0.01 || percent > 100) {
       appendTradingPreferenceMessage(
         threadId,
         "assistant",
-        `单笔亏损比例不能超过账户净值的 100%。请填写 0.01%–100% 之间的比例，例如“2%”或“10%”。`,
+        `单笔亏损比例需要在账户净值的 0.01%–100% 之间，例如“2%”或“10%”。`,
         flow,
       );
     } else {
       flow.answers.maxLossPerTradePercent = percent;
       flow.stage = 2;
+      flow.choiceDraft = createTradingPreferenceChoiceDraft(2);
       appendTradingPreferenceMessage(threadId, "assistant", TRADING_PREFERENCE_QUESTION_TWO, flow);
     }
   } else if (flow.stage === 2) {
@@ -47670,6 +47648,7 @@ async function handleTradingPreferenceOnboardingReply(
     } else {
       Object.assign(flow.answers, answer);
       flow.stage = 3;
+      flow.choiceDraft = createTradingPreferenceChoiceDraft(3);
       appendTradingPreferenceMessage(threadId, "assistant", TRADING_PREFERENCE_QUESTION_THREE, flow);
     }
   } else if (flow.stage === 3 || flow.stage === "save-error") {
@@ -47680,9 +47659,8 @@ async function handleTradingPreferenceOnboardingReply(
     await saveTradingPreferenceOnboarding(threadId, flow);
     return true;
   }
-  setMessageStreamFollow(threadId, true);
   render();
-  scheduleScrollMessagesToBottom();
+  scrollTradingPreferenceQuestionIntoView(threadId);
   return true;
 }
 
@@ -52029,11 +52007,6 @@ function renderMessage(message: Message, conversationMessages: Message[] = [mess
     (message as MessageUiMeta).localGroupThinkingMemberId,
   );
   const fromUser = message.role === "user" || message.kind === "user_text";
-  if (
-    !fromUser
-    && isInsufficientQuotaError(message.text)
-    && !message.actions?.some((action) => isRechargeTokenAction(action))
-  ) return "";
   const alignRight = fromUser || message.align_right === true;
   // Trading surfaces use the chart as the primary visual context while the
   // conversation is split to the right. Keep that compact presentation free
@@ -52068,6 +52041,7 @@ function renderMessage(message: Message, conversationMessages: Message[] = [mess
     activeThreadHistoryJumpHighlight.messageId === message.id &&
     activeThreadHistoryJumpHighlight.expiresAt > Date.now();
   const signature = messageRenderSignature(message, { streaming, searchHighlightKeyword });
+  const preferenceChoices = renderTradingPreferenceChoices(message);
   const thinkingStage = localizedThinkingStage(thinkingStagePresentationFromMessage(message));
   const thinkingAriaLabel = thinking
     ? `${displayName} ${thinkingStage?.label || (state.settings.language === "en" ? "Thinking" : "正在思考")}`
@@ -52075,7 +52049,7 @@ function renderMessage(message: Message, conversationMessages: Message[] = [mess
   return `
     <article class="message-row ${alignRight ? "from-user" : "from-agent"} ${thinking ? "thinking-row" : ""} ${localGroupThinkingMemberId ? "local-group-thinking-row" : ""} ${subagents.length ? "subagent-status-row" : ""} ${contextCompaction ? "context-compaction-row" : ""} ${workflowRelay ? "workflow-relay-row" : ""} ${streaming ? "streaming-row" : ""} ${threadHistoryJumpTarget ? "thread-history-jump-target" : ""}" data-message-id="${escapeAttr(message.id)}" data-message-signature="${escapeAttr(signature)}"${thinking ? ` aria-live="polite" aria-label="${escapeAttr(thinkingAriaLabel)}"` : ""}>
       ${alignRight || !showAvatar ? "" : renderMessageAvatar(message, role)}
-      <div class="message-stack">
+      <div class="message-stack${preferenceChoices ? " trading-preference-choice-stack" : ""}">
         <div class="message-meta">${escapeHtml(displayName)}</div>
         ${
           workflowRelay
@@ -52112,6 +52086,7 @@ function renderMessage(message: Message, conversationMessages: Message[] = [mess
                       hasConclusiveAgentMessagePhase(state.items[message.conversation_id]?.[message.id]),
                   })
         }
+        ${preferenceChoices}
       </div>
       ${alignRight && showAvatar ? renderMessageAvatar(message, role) : ""}
     </article>
@@ -52181,6 +52156,8 @@ function messageRenderSignature(message: Message, options: { streaming?: boolean
       attachments,
       images,
       actions,
+      tradingPreferenceOnboardingByThreadId.get(message.conversation_id)?.questionItemId === message.id
+        ? String(tradingPreferenceOnboardingByThreadId.get(message.conversation_id)?.stage) : "",
       turnResult,
       supplement,
       generationType,
@@ -52996,7 +52973,7 @@ function renderTextBubble(
   const copyPayload = copyTextPayload || imageCopyPayload(content.attachments);
   const favoriteText = fromUser ? String(content.text || "").trim() : "";
   const quotePayload = isBlankThreadWelcomeMessage(message) || isThinkingMessage(message) ? null : content.text.trim() || content.attachments.length;
-  const hoverBar = options.hideHoverBar ? false : message.time ||
+  const hoverBar = options.hideHoverBar || message.id.startsWith("trading-preference-") ? false : message.time ||
       favoriteText ||
       copyPayload || quotePayload || editPayload;
   const turnResultHeader = renderTurnResultHeader(message);
@@ -55075,13 +55052,9 @@ function tradingExpertSelectedModelRequestOptions(
     : () => "";
   const runtimeSelection = migrateGpt6SolSelectionSafe({ model: requestedModel });
   const runtimeRequestedModel = firstString(runtimeSelection.model) || requestedModel;
-  let model = analysisModelPolicySelection(analysisModelRecoveryState, firstString(
-    selectedSettings?.model,
-    knownSettings?.model,
-    selected.value,
-    TRADING_EXPERT_DEFAULT_MODEL_VALUE,
-  )).modelId;
-  if (explicitModelSelection) model = runtimeRequestedModel;
+  const model = explicitModelSelection
+    ? runtimeRequestedModel
+    : analysisModelPolicySelection(analysisModelRecoveryState, runtimeRequestedModel).modelId;
   const selectedModelProvider = executionModelProviderId(
     selectedSettings?.modelProvider,
     knownSettings?.modelProvider,
@@ -55289,11 +55262,11 @@ function persistSelectedChatModel() {
   }
 }
 
-function threadHasNativeMediaHistory(threadId: string) {
+function threadHasNativeVideoHistory(threadId: string) {
   return (state.itemOrder[threadId] || []).some((itemId) => {
     const item = state.items[threadId]?.[itemId];
     return Boolean(
-      item && itemAttachments(item).some(isImageOrVideoAttachment),
+      item && itemAttachments(item).some(isVideoAttachment),
     );
   });
 }
@@ -55303,16 +55276,16 @@ function canSelectExecutionModelForThread(
   selected: ChatModelOption,
 ) {
   if (selected.providerId !== DEEPSEEK_EXECUTION_PROVIDER_ID) return true;
-  if (composerAttachmentsForThread(threadId).some(isImageOrVideoAttachment)) {
+  if (composerAttachmentsForThread(threadId).some(isVideoAttachment)) {
     showToast(DEEPSEEK_MEDIA_SEND_BLOCKED_MESSAGE, 4200);
     return false;
   }
   if (
     !isBlankNewThread(threadId) &&
     !isLocalBlankThreadId(threadId) &&
-    threadHasNativeMediaHistory(threadId)
+    threadHasNativeVideoHistory(threadId)
   ) {
-    showToast("当前任务包含图片或视频历史，无法无损切换到 DeepSeek；请新建任务后使用", 5200);
+    showToast("当前任务包含视频历史，无法无损切换到 DeepSeek；请新建任务后使用", 5200);
     return false;
   }
   return true;
@@ -60963,6 +60936,10 @@ function renderSettingsDialog() {
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_GENERAL_ICON_URL)}" alt="" />
               <span>通用设置</span>
             </button>
+            <button type="button" class="settings-nav-item ${activeTab === "trading" ? "active" : ""}" data-settings-tab="trading">
+              <svg class="settings-nav-icon settings-trading-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h7m4 0h5M4 17h3m4 0h9M11 4v6M7 14v6" /></svg>
+              <span>交易偏好</span>
+            </button>
             <button type="button" class="settings-nav-item ${activeTab === "about" ? "active" : ""}" data-settings-tab="about">
               <img class="settings-nav-icon" src="${escapeAttr(SETTINGS_ABOUT_ICON_URL)}" alt="" />
               <span>关于&反馈</span>
@@ -60986,7 +60963,7 @@ function renderSettingsDialog() {
           <button type="button" class="settings-close-button" data-action="close-settings" aria-label="关闭">
             <img src="${escapeAttr(SETTINGS_CLOSE_ICON_URL)}" alt="" />
           </button>
-          <h3>${activeTab === "profile" ? "个人资料" : activeTab === "models" ? "模型服务" : activeTab === "github" && ENABLE_GITHUB_SETTINGS_UI ? "GitHub" : activeTab === "about" ? "关于&反馈" : "通用设置"}</h3>
+          <h3>${activeTab === "profile" ? "个人资料" : activeTab === "models" ? "模型服务" : activeTab === "github" && ENABLE_GITHUB_SETTINGS_UI ? "GitHub" : activeTab === "about" ? "关于&反馈" : activeTab === "trading" ? "交易偏好" : "通用设置"}</h3>
           ${
             activeTab === "profile"
               ? renderSettingsProfilePanel()
@@ -60996,6 +60973,8 @@ function renderSettingsDialog() {
               ? renderGitHubSettingsPanel()
               : activeTab === "about"
               ? renderSettingsAboutPanel()
+              : activeTab === "trading"
+              ? tradingPreferenceSettings.render()
               : `
                 <div class="settings-general-list">
                   ${renderSettingsLanguageRow()}
@@ -61093,12 +61072,16 @@ function renderGitHubSettingsPanel() {
 function renderSettingsDiagnosticsButton() {
   const exporting = state.settings.diagnosticsExporting;
   return `
+    <div class="settings-diagnostics-action">
     <button
       type="button"
       class="settings-data-button settings-diagnostics-button"
       data-action="export-diagnostics"
+      aria-describedby="settings-diagnostics-content-note"
       ${exporting ? "disabled" : ""}
     >${exporting ? "导出中…" : "导出诊断报告"}</button>
+    <small id="settings-diagnostics-content-note">包含近期会话内容，请仅发送给官方客服。</small>
+    </div>
   `;
 }
 // HAOLO-TURN-DIAGNOSTICS-END: removable settings action
@@ -62645,59 +62628,6 @@ function bindEvents() {
     finishTradingExpertLayoutControlPointerInteraction(false);
     toggleLeftPanelCollapsed();
   });
-  root.querySelectorAll<HTMLButtonElement>('[data-action="switch-trading-expert-workspace"]').forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!isTradingExpertSurfaceThreadId(state.currentThreadId)) return;
-      const view = button.dataset.tradingExpertWorkspaceView;
-      if (view !== "chart" && view !== "news" && view !== "browser") return;
-      if (state.tradingExpertWorkspaceView === view) return;
-      finishTradingExpertLayoutControlPointerInteraction(false);
-      state.tradingExpertWorkspaceView = view;
-      state.profileMenuOpen = false;
-      state.externalChannels.menuOpen = false;
-      render();
-    });
-  });
-  root.querySelectorAll<HTMLElement>("[data-trading-expert-workspace-switch]").forEach((host) => {
-    const trigger = host.querySelector<HTMLButtonElement>('[data-action="toggle-trading-expert-workspace-switch"]');
-    if (!trigger) return;
-    const drawingToolbar = root.querySelector<HTMLElement>("[data-drawing-toolbar]");
-    const setExpanded = (expanded: boolean) => {
-      trigger.setAttribute("aria-expanded", expanded ? "true" : "false");
-      host.classList.toggle("menu-open", expanded);
-    };
-    const isWithinWorkspaceSwitchSafeArea = (target: EventTarget | null) => (
-      target instanceof Node
-      && (host.contains(target) || drawingToolbar?.contains(target) === true)
-    );
-    host.addEventListener("mouseenter", () => setExpanded(true));
-    host.addEventListener("mouseleave", (event) => {
-      if (isWithinWorkspaceSwitchSafeArea(event.relatedTarget)) return;
-      setExpanded(false);
-    });
-    drawingToolbar?.addEventListener("mouseleave", (event) => {
-      if (isWithinWorkspaceSwitchSafeArea(event.relatedTarget)) return;
-      setExpanded(false);
-    });
-    host.addEventListener("focusin", () => setExpanded(true));
-    host.addEventListener("focusout", () => {
-      window.setTimeout(() => {
-        if (
-          !host.matches(":hover")
-          && !drawingToolbar?.matches(":hover")
-          && !host.contains(document.activeElement)
-        ) setExpanded(false);
-      }, 0);
-    });
-    host.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setExpanded(false);
-      trigger.focus({ preventScroll: true });
-    });
-  });
   root.querySelector<HTMLElement>(".skills-plaza-page")?.addEventListener("scroll", handleSkillsPlazaScroll, { passive: true });
   root.querySelector<HTMLButtonElement>('[data-action="scroll-messages-bottom"]')?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -63103,11 +63033,14 @@ function bindEvents() {
                 ? "github"
               : button.dataset.settingsTab === "about"
                 ? "about"
+                : button.dataset.settingsTab === "trading"
+                  ? "trading"
                 : "general";
         if (tab === "profile" && !state.profileEdit.nickname)
           prepareProfileEditDraft();
         state.settings.tab = tab;
         render();
+        if (tab === "trading") void tradingPreferenceSettings.load();
         if (tab === "models" && !state.settings.externalModels.loaded) {
           void refreshExternalModelProviders();
         }
@@ -65778,7 +65711,7 @@ function bindEvents() {
     .querySelector<HTMLFormElement>("#settingsForm")
     ?.addEventListener("submit", (event) => {
       event.preventDefault();
-      if (state.settings.tab === "models") return;
+      if (state.settings.tab === "models" || state.settings.tab === "trading") return;
       state.settings.cwd = valueOfInput("#cwdInput");
       state.settings.model = normalizeFixedChatModel(
         valueOfInput("#modelInput"),
@@ -66206,7 +66139,7 @@ function loginActivationErrorMessage(error: unknown) {
   if (/NICKNAME_REQUIRED/i.test(message)) return "请输入昵称";
   if (/NICKNAME_TOO_LONG/i.test(message)) return "昵称不能超过 50 字";
   if (/INVALID_INVITE|INVITE_INVALID|invite code invalid/i.test(message)) return "邀请码不存在";
-  if (/CODE_MISMATCH|HTTP\s*401/i.test(message)) return "验证码不正确";
+  if (errorSignals(error).statuses.includes(401) || /CODE_MISMATCH/i.test(message)) return "验证码不正确";
   if (/verification code invalid or expired|CHALLENGE_NOT_FOUND|CHALLENGE_EXPIRED|OTP_EXPIRED/i.test(message)) return "验证码已失效，请重新发送";
   if (/AVATAR_ONLY_FOR_REGISTRATION/i.test(message)) return "头像只能在注册时上传";
   return loginAuthErrorMessage(error);
@@ -66214,7 +66147,7 @@ function loginActivationErrorMessage(error: unknown) {
 
 function loginOtpErrorMessage(error: unknown) {
   const message = errorMessage(error);
-  if (/CODE_MISMATCH|OTP_MISMATCH|INVALID_CODE|CODE_INVALID|HTTP\s*401/i.test(message)) return "验证码不正确";
+  if (errorSignals(error).statuses.includes(401) || /CODE_MISMATCH|OTP_MISMATCH|INVALID_CODE|CODE_INVALID/i.test(message)) return "验证码不正确";
   if (/CHALLENGE_NOT_FOUND|CHALLENGE_EXPIRED|OTP_EXPIRED/i.test(message)) return "验证码已失效，请重新发送";
   return message;
 }
@@ -67135,6 +67068,8 @@ async function createExecutionPlanStickyFromMessageAction(card: HTMLElement) {
 }
 
 function bindMessageContentEvents(container: ParentNode = root) {
+  tradingPreferenceSettings.bind(container);
+  container.querySelectorAll<HTMLFormElement>("[data-trading-preference-form]").forEach((form) => bindTradingPreferenceChoiceForm(form));
   container.querySelectorAll<HTMLElement>("[data-open-subagent-thread]").forEach((card) => {
     const openSubagent = () => {
       const agentThreadId = card.dataset.openSubagentThread;
@@ -70452,10 +70387,7 @@ function isPointerOverStreamSensitiveUi() {
         ".bubble-hover-bar",
         ".library-preview-panel",
         ".chat-preview-panel",
-        ".trading-expert-workspace-switch",
         '.trading-expert-layout [data-action="toggle-right-panel"]',
-        '.trading-expert-layout [data-action="toggle-trading-expert-workspace-switch"]',
-        '.trading-expert-layout [data-action="switch-trading-expert-workspace"]',
         '.trading-expert-layout [data-action="toggle-trading-expert-chart"]',
         '.trading-expert-layout [data-action="toggle-trading-expert-chart-focus"]',
       ].join(","),
@@ -75809,11 +75741,6 @@ function shouldHideChatItem(item: CodexItem | undefined) {
   if (isInternalProcessItem(item)) return true;
   if (item.type === "system" && !itemHasDisplayAttachments(item)) return true;
   const text = itemText(item);
-  if (
-    !isUserSideThreadItem(item)
-    && isInsufficientQuotaError(text)
-    && !messageActionsFromItem(item)?.some((action) => isRechargeTokenAction(action))
-  ) return true;
   if (text.includes(AUTOMATIC_TURN_RECOVERY_MARKER)) return true;
   return isNoisyReconnectError(text) || isMissingRolloutError(text);
 }
@@ -80078,7 +80005,7 @@ function cleanIpcError(message: string) {
     .replace(/^Error:\s*/i, "")
     .replace(/^BinanceAccountError:\s*/i, "")
     .replace(/^YouleHttpError:\s*/i, "");
-  if (/^(?:Upstream rate limit exceeded|HTTP 429)/i.test(cleaned)) {
+  if (/^Upstream rate limit exceeded/i.test(cleaned) || errorSignals(cleaned).statuses.includes(429)) {
     return "模型上游当前限流，请稍后重试";
   }
   return cleaned;

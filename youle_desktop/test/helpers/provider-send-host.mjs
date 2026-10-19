@@ -18,7 +18,7 @@ const definition = (name) => {
 };
 const noop = () => {};
 
-export function createProviderSendHost({ request, client = {}, cwd = "workspace", state = null, now = Date.now(), stop = noop, start = noop } = {}) {
+export function createProviderSendHost({ request, client = {}, cwd = "workspace", state = null, now = Date.now(), stop = noop, start = noop, mediaInputs = [] } = {}) {
   const pending = new Set(), active = new Map(), clients = new Map();
   client.__youleWorkspaceKey = "test-runtime";
   let handler;
@@ -33,7 +33,7 @@ export function createProviderSendHost({ request, client = {}, cwd = "workspace"
     stopAppServerClient: stop, startAppServerClient: start,
     appShuttingDown: false, appCleanupStarted: false, appServerClientByThreadId: clients,
     activeCodexTurnsByThread: active, pendingCodexTurnThreadIds: pending,
-    verifiedDeepSeekTextOnlyThreadIds: new Set(),
+    verifiedDeepSeekMediaThreadIds: new Set(),
     performanceTimingStart: () => null, loadContinuationTransactions: noop,
     bufferedContinuationStartThreadIds: new Set(), initializingContinuationThreadIds: new Set(), discardedContinuationThreadIds: new Set(),
     preparedGroupChatContextForRequest: () => null, persistExplicitMarketAliasMemory: noop,
@@ -47,7 +47,7 @@ export function createProviderSendHost({ request, client = {}, cwd = "workspace"
     rememberPendingCodexTurnThread: (id) => pending.add(id), forgetPendingCodexTurnThread: (id) => pending.delete(id),
     getClientForCwd: () => client, rememberThreadClient: (id) => clients.set(id, client.__youleWorkspaceKey),
     ensureThreadGroupWorkspaceDirectory: noop, refreshSkillsDeveloperInstructions: async () => "preserved host instructions",
-    buildConversationModeTurnOverrides: () => ({}), resolvedThreadReferenceContext: async () => ({}),
+    buildConversationModeTurnOverrides: () => ({}), resolvedThreadReferenceContext: async () => ({ mediaInputs }),
     crypto: { randomUUID: () => "synthetic" }, rootRecoveryModelsByThread: new Map(),
     buildTurnInputWithGroupMemory: (text) => text, HAOLO_REASONING_FIXED_EFFORT_FIELD: "__haoloFixedReasoningEffort",
     HAOLO_REASONING_SUPPORT_FIELD: "__haoloSupportedReasoningEfforts", normalizeSandboxPolicy: (value) => value,
@@ -60,8 +60,8 @@ export function createProviderSendHost({ request, client = {}, cwd = "workspace"
     ipcMain: { handle: (_method, callback) => { handler = callback; } },
   };
   const names = ["requestedReasoningEffort", "executionProviderSelection", "requestedThreadModelSettings", "threadConfigurationParams",
-    "threadModelProviderFromResumeResult", "isMissingRolloutErrorMessage", "threadHistoryContainsImageContent",
-    "ensureDeepSeekThreadHistoryIsTextOnly", "resumeThreadForRequestedProvider", "resumeAutomationThread"];
+    "threadModelProviderFromResumeResult", "isMissingRolloutErrorMessage", "threadHistoryContainsVideoContent",
+    "ensureDeepSeekThreadHistoryHasSupportedMedia", "resumeThreadForRequestedProvider", "resumeAutomationThread"];
   const from = source.indexOf('ipcMain.handle("codex:sendMessage"');
   const to = source.indexOf('ipcMain.handle("codex:interruptTurn"', from);
   const helpers = new Function(...Object.keys(deps), `${names.map(definition).join("\n")}\n${source.slice(from, to)}\nreturn { resumeThreadForRequestedProvider, resumeAutomationThread, executionProviderSelection, threadModelProviderFromResumeResult };`)(...Object.values(deps));

@@ -339,10 +339,10 @@ test("generated catalog entries cannot corrupt dynamic watchlist and index copy"
     ["每日收盘价", "Daily close price"],
     ["指数价格", "Index price"],
     ["请按从左到右顺序查看", "Please view from left to right"],
-    ["按最新价排序", "Sort by latest price"],
-    ["按最新指数排序", "Sort by latest index"],
-    ["1小时", "1 hour"],
-    ["传统金融合约加载失败", "TradFi contracts failed to load"],
+    ["按最新价排序", "Sort by last price"],
+    ["按最新指数排序", "Sort by index value"],
+    ["1小时", "1h"],
+    ["传统金融合约加载失败", "Unable to load TradFi contracts"],
   ]) assert.equal(translateAppText(source, "en"), expected, source);
 });
 
@@ -569,7 +569,7 @@ test("client-owned chat notices are localized while user and model content remai
   assert.match(bubbleBlock, /data-i18n-owned/);
   assert.match(reportBlock, /const visibleText = String\(text \|\| ""\)/);
   assert.doesNotMatch(reportBlock, /englishSafeAssistantText/);
-  assert.match(planCardBlock, /executionPlanDisplayLines\(content\)/);
+  assert.match(planCardBlock, /executionPlanCardBody\(executionPlanDisplayLines\(content\), state\.settings\.language\)/);
   assert.doesNotMatch(planCardBlock, /englishSafeAssistantText/);
   assert.match(skipBlock, /closest\?\.\(APP_OWNED_LOCALIZATION_SELECTOR\).*return false/s);
   assert.match(language, /\.message-text/);

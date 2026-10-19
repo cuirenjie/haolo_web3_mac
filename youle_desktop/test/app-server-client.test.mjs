@@ -326,7 +326,7 @@ test("default resource sync gives a new Codex home per-model context policies", 
     assert.ok(deepSeek);
     assert.equal(deepSeek.prefer_websockets, false);
     assert.equal(deepSeek.minimal_client_version, "0.144.0");
-    assert.deepEqual(deepSeek.input_modalities, ["text"]);
+    assert.deepEqual(deepSeek.input_modalities, ["text", "image"]);
     assert.equal(deepSeek.shell_type, "shell_command");
     assert.equal(deepSeek.apply_patch_tool_type, "freeform");
     assert.ok(deepSeek.supported_reasoning_levels.some((level) => level.effort === "max"));

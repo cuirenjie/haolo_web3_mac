@@ -216,7 +216,7 @@ test("incident reproduction: actual general, Wyckoff and price-action host route
     assert.ok(result.analysisPlan.drawingPatch.operations.length > 0);
     assert.match(result.analysisPlan.report, language === "en" ? /Saved trading preferences could not be read/ : /暂时无法读取已保存的交易偏好/);
     assert.doesNotMatch(result.analysisPlan.report, /新手执行清单|单笔预设亏损|账户约 0.5%/);
-    assert.equal(executionPlanCandidatesFromText(result.analysisPlan.report).length, 0, `${strategyId} ${mode} ${language}`);
+    assert.equal(executionPlanCandidatesFromText(result.analysisPlan.report).length, 0, `${strategyId} ${mode} ${language}\n${result.analysisPlan.report}`);
   }
   // The bare price-action strategy is deterministic; general and Wyckoff
   // retain their model review paths in both runtime modes.

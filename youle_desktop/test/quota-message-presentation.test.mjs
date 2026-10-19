@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import ts from "typescript";
+import { errorSignals, isQuotaFailure } from "../src/main/error-signals.mjs";
 
 const source = readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -38,7 +39,7 @@ function harness() {
     activeView: "chat", profileMenuOpen: true, error: null,
   };
   const context = {
-    state, Date, Math, Error,
+    state, Date, Math, Error, errorSignals, isQuotaFailure,
     firstString: (...parts) => parts.find((part) => typeof part === "string" && part.trim()) || null,
     errorMessage: (value) => typeof value === "string" ? value : value?.message || "",
     threadsAwaitingAgentReply: new Set(), localHistoryAheadThreadIds: new Set(),
@@ -78,6 +79,9 @@ const errors = [
   "会员到期", "会员已过期", "积分不足", "会员等级不足",
   "TRIAL_REQUIRED", "MEMBERSHIP_EXPIRED", "INSUFFICIENT_BALANCE",
   "insufficient_quota", "Payment required (402)",
+  "HTTP 402", "unexpected status code: 402",
+  JSON.stringify({ error: { statusCode: 402 } }),
+  "ANALYSIS_CREDITS_REQUIRED",
 ];
 
 test("all quota or membership failures settle the user send and create a separate recharge bubble", () => {

@@ -1,0 +1,1310 @@
+{
+  "task": "M1-350",
+  "scope": "Windows complex-wave synchronization and local signed package",
+  "fixture": "test/fixtures/complex-wave-timeout.json",
+  "originalInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+  "model": "gpt-5.6-sol",
+  "modelBudgets": {
+    "primaryMs": 120000,
+    "backupMs": 45000,
+    "unchanged": true
+  },
+  "attempts": [
+    {
+      "folder": "native",
+      "strategy": "wave",
+      "attempt": 1,
+      "startedAt": "2026-10-16T16:05:20.808Z",
+      "latencyMs": 75621,
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-09296305-f385-4755-834a-f315194a5c11",
+        "latencyMs": 75554,
+        "usage": {
+          "total": {
+            "totalTokens": 27094,
+            "inputTokens": 25234,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 1860,
+            "reasoningOutputTokens": 1672
+          },
+          "last": {
+            "totalTokens": 27094,
+            "inputTokens": 25234,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 1860,
+            "reasoningOutputTokens": 1672
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6605,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "completed-awaiting-quality-review",
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a14575-f555-7492-b43f-f72cba704a67",
+          "turnId": "01a14575-f56e-72e3-908e-06db24c8705d",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 27094,
+              "inputTokens": 25234,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1860,
+              "reasoningOutputTokens": 1672
+            },
+            "last": {
+              "totalTokens": 27094,
+              "inputTokens": 25234,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1860,
+              "reasoningOutputTokens": 1672
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 75552,
+          "reasoningEffort": "high",
+          "promptBytes": 35102,
+          "text": "{\"schemaVersion\":1,\"verdict\":\"revise\",\"summary\":\"Primary count is a bearish local-degree 1–5 impulse ending at the latest swing; it remains tentative pending lower-degree structure. Confirmed zigzag counts remain alternatives, and wave direction is not a trading-direction conclusion.\",\"report\":\"\",\"marketBias\":\"bearish\",\"strategyRationale\":\"Price rules support the latest bearish impulse, but its 5-3-5-3-5 internal structure is unverified, so the 1–5 count is tentative. A confirmed bearish zigzag and an older bullish zigzag remain alternatives.\",\"primaryCandidateId\":\"wave-count-7fff60fe6c691150\",\"alternateCandidateIds\":[\"wave-count-bbe272f54093a4a0\",\"wave-count-6d58d54db4bc7e9a\"],\"showProjectionZone\":true,\"confidence\":0.721}",
+          "promptSha256": "02dfb45c18c38f1b42ab303b388358701260bebea473c259103d5116be217a9d"
+        }
+      ],
+      "completedAt": "2026-10-16T16:06:36.433Z"
+    },
+    {
+      "folder": "native",
+      "strategy": "wave",
+      "attempt": 2,
+      "startedAt": "2026-10-16T16:06:36.433Z",
+      "latencyMs": 18877,
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-9c5b6695-12e0-4a32-b8ff-0b888886f223",
+        "latencyMs": 18848,
+        "usage": {
+          "total": {
+            "totalTokens": 25834,
+            "inputTokens": 25234,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 600,
+            "reasoningOutputTokens": 405
+          },
+          "last": {
+            "totalTokens": 25834,
+            "inputTokens": 25234,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 600,
+            "reasoningOutputTokens": 405
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6605,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "completed-awaiting-quality-review",
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a14577-1ca9-7de0-a68b-dbbab216c858",
+          "turnId": "01a14577-1cb0-7823-817c-eae7691b85cd",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 25834,
+              "inputTokens": 25234,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 600,
+              "reasoningOutputTokens": 405
+            },
+            "last": {
+              "totalTokens": 25834,
+              "inputTokens": 25234,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 600,
+              "reasoningOutputTokens": 405
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 18847,
+          "reasoningEffort": "high",
+          "promptBytes": 35102,
+          "text": "{\"schemaVersion\":1,\"verdict\":\"revise\",\"summary\":\"The primary count is a recent local bearish five-wave impulse, retained as tentative pending lower-degree structural confirmation. Count direction does not imply the next trading direction.\",\"report\":\"\",\"marketBias\":\"bearish\",\"strategyRationale\":\"The impulse passes all hard price rules and ends more recently than the competing earlier corrections, but its 5-3-5-3-5 subdivisions remain unverified. The bearish and bullish zigzag alternatives have fully verified internal structures; their close scores preserve count uncertainty, with the bearish zigzag slightly stronger and more recent.\",\"primaryCandidateId\":\"wave-count-7fff60fe6c691150\",\"alternateCandidateIds\":[\"wave-count-bbe272f54093a4a0\",\"wave-count-6d58d54db4bc7e9a\"],\"showProjectionZone\":true,\"confidence\":0.7210016356719152}",
+          "promptSha256": "02dfb45c18c38f1b42ab303b388358701260bebea473c259103d5116be217a9d"
+        }
+      ],
+      "completedAt": "2026-10-16T16:06:55.312Z"
+    },
+    {
+      "folder": "native-final",
+      "strategy": "wave",
+      "attempt": 1,
+      "startedAt": "2026-10-16T16:09:24.727Z",
+      "latencyMs": 18452,
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-47c78efc-fed8-4169-9f36-8ed5f1c9ffb8",
+        "latencyMs": 18389,
+        "usage": {
+          "total": {
+            "totalTokens": 25748,
+            "inputTokens": 25235,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 513,
+            "reasoningOutputTokens": 336
+          },
+          "last": {
+            "totalTokens": 25748,
+            "inputTokens": 25235,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 513,
+            "reasoningOutputTokens": 336
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6684,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "quality-review-required",
+      "nativeCalls": 1,
+      "audit": {
+        "professionalEnglish": false,
+        "faithfulToFacts": false,
+        "issues": [
+          {
+            "severity": "error",
+            "quote": "insufficient structural zones",
+            "reason": "This contradicts the documented confirmed 1h fallback support zone and pivot evidence. Missing 15m/5m subwave evidence should not be described as absence of structural zones."
+          },
+          {
+            "severity": "error",
+            "quote": "2. Alternative 2: zigzag A-B-C correction, endpoint approximately 145.24.",
+            "reason": "This candidate and price level are not supported by the supplied historical count or action-plan facts."
+          },
+          {
+            "severity": "style",
+            "quote": "provisional five-wave impulse passing hard price rules, Local degree on the current chart, provisional candidate.",
+            "reason": "This is an awkward comma splice with inconsistent capitalization and reads as an unpolished fragment rather than professional English."
+          }
+        ],
+        "summary": "The main bearish count and conditional bullish price-touch plan are generally distinguished correctly, including the unconfirmed lower-timeframe waves and confirmed fallback pivot. However, the report introduces an unsupported alternative level, misstates the availability of structural zones, and contains one conspicuously unpolished sentence."
+      },
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a14579-ae22-72a3-92a9-b07cf2fa2730",
+          "turnId": "01a14579-ae37-7053-a5bb-9390c14690b0",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 25748,
+              "inputTokens": 25235,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 513,
+              "reasoningOutputTokens": 336
+            },
+            "last": {
+              "totalTokens": 25748,
+              "inputTokens": 25235,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 513,
+              "reasoningOutputTokens": 336
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 18387,
+          "reasoningEffort": "high",
+          "promptBytes": 35102,
+          "text": "{\"schemaVersion\":1,\"verdict\":\"revise\",\"summary\":\"The primary count is a recent bearish 1–5 impulse, retained as tentative because its lower-degree structure is not yet verified.\",\"report\":\"\",\"marketBias\":\"bearish\",\"strategyRationale\":\"The bearish impulse satisfies all hard price rules and ends at the latest confirmed swing, but each required 5-3-5-3-5 subdivision remains unresolved. The more recent confirmed bearish zigzag is the strongest alternate; the earlier bullish zigzag remains secondary amid close deterministic scores.\",\"primaryCandidateId\":\"wave-count-7fff60fe6c691150\",\"alternateCandidateIds\":[\"wave-count-bbe272f54093a4a0\",\"wave-count-6d58d54db4bc7e9a\"],\"showProjectionZone\":true,\"confidence\":0.68}",
+          "promptSha256": "02dfb45c18c38f1b42ab303b388358701260bebea473c259103d5116be217a9d"
+        },
+        {
+          "ok": true,
+          "threadId": "01a14579-f613-7a20-b1c7-753ddf8b3f57",
+          "turnId": "01a14579-f61a-77d3-ac6e-44a26b832279",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 25219,
+              "inputTokens": 23436,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1783,
+              "reasoningOutputTokens": 1552
+            },
+            "last": {
+              "totalTokens": 25219,
+              "inputTokens": 23436,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1783,
+              "reasoningOutputTokens": 1552
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 47312,
+          "reasoningEffort": "medium",
+          "promptBytes": 31423,
+          "text": "{\"professionalEnglish\":false,\"faithfulToFacts\":false,\"issues\":[{\"severity\":\"error\",\"quote\":\"insufficient structural zones\",\"reason\":\"This contradicts the documented confirmed 1h fallback support zone and pivot evidence. Missing 15m/5m subwave evidence should not be described as absence of structural zones.\"},{\"severity\":\"error\",\"quote\":\"2. Alternative 2: zigzag A-B-C correction, endpoint approximately 145.24.\",\"reason\":\"This candidate and price level are not supported by the supplied historical count or action-plan facts.\"},{\"severity\":\"style\",\"quote\":\"provisional five-wave impulse passing hard price rules, Local degree on the current chart, provisional candidate.\",\"reason\":\"This is an awkward comma splice with inconsistent capitalization and reads as an unpolished fragment rather than professional English.\"}],\"summary\":\"The main bearish count and conditional bullish price-touch plan are generally distinguished correctly, including the unconfirmed lower-timeframe waves and confirmed fallback pivot. However, the report introduces an unsupported alternative level, misstates the availability of structural zones, and contains one conspicuously unpolished sentence.\"}",
+          "promptSha256": "11dbd04673a8a3bfe17b4ec964b552ea477d21ae3a7f2d0e67a6912da225614d",
+          "stage": "independent-English-and-facts-audit"
+        }
+      ],
+      "completedAt": "2026-10-16T16:10:30.495Z"
+    },
+    {
+      "folder": "native-final",
+      "strategy": "wave",
+      "attempt": 2,
+      "startedAt": "2026-10-16T16:10:30.496Z",
+      "latencyMs": 29167,
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-74e4b890-67ad-4b2e-9bbd-7eb32ce69e51",
+        "latencyMs": 29140,
+        "usage": {
+          "total": {
+            "totalTokens": 26460,
+            "inputTokens": 25235,
+            "cachedInputTokens": 11904,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 1225,
+            "reasoningOutputTokens": 1034
+          },
+          "last": {
+            "totalTokens": 26460,
+            "inputTokens": 25235,
+            "cachedInputTokens": 11904,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 1225,
+            "reasoningOutputTokens": 1034
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6684,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "quality-review-required",
+      "nativeCalls": 1,
+      "audit": {
+        "professionalEnglish": false,
+        "faithfulToFacts": false,
+        "issues": [
+          {
+            "severity": "error",
+            "quote": "internal 5-3-5-3-5: failed.",
+            "reason": "The supplied facts establish missing lower-degree subdivision evidence, not a confirmed failure of the internal pattern. It should be described as unconfirmed or not established."
+          },
+          {
+            "severity": "error",
+            "quote": "The primary count is a tentative bearish 1–5 ending at the most recent confirmed low.",
+            "reason": "Calling the endpoint a confirmed low overstates the evidence: the historical count and its endpoint remain tentative/provisional."
+          },
+          {
+            "severity": "error",
+            "quote": "insufficient structural zones",
+            "reason": "This is not among the supplied gate reasons, and the facts provide a structural support zone with one confirmed touch."
+          },
+          {
+            "severity": "error",
+            "quote": "Alternative 1: zigzag A-B-C correction, endpoint approximately 119.76.",
+            "reason": "The supplied facts do not establish an alternative zigzag candidate. Reusing a supplied price does not support the added candidate classification."
+          },
+          {
+            "severity": "error",
+            "quote": "Alternative 2: zigzag A-B-C correction, endpoint approximately 145.24.",
+            "reason": "Neither this candidate nor its endpoint appears in the supplied facts; it is an invented level and scenario."
+          },
+          {
+            "severity": "style",
+            "quote": "provisional five-wave impulse passing hard price rules, Local degree on the current chart, provisional candidate.",
+            "reason": "This is an ungrammatical sequence of fragments with inconsistent capitalization and is not professional prose."
+          }
+        ],
+        "summary": "The configured bullish price-touch plan is generally distinguished correctly from the tentative bearish historical count and raw structural reference. However, the report invents unsupported alternative candidates, overstates provisional evidence as confirmed or failed, adds an unsupported gate reason, and contains one conspicuously unpolished sentence."
+      },
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a1457a-aef8-7ca1-901d-c26952839c6e",
+          "turnId": "01a1457a-aefe-7471-9369-db7510590be0",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 26460,
+              "inputTokens": 25235,
+              "cachedInputTokens": 11904,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1225,
+              "reasoningOutputTokens": 1034
+            },
+            "last": {
+              "totalTokens": 26460,
+              "inputTokens": 25235,
+              "cachedInputTokens": 11904,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1225,
+              "reasoningOutputTokens": 1034
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 29139,
+          "reasoningEffort": "high",
+          "promptBytes": 35102,
+          "text": "{\"schemaVersion\":1,\"verdict\":\"revise\",\"summary\":\"The primary count is a tentative bearish 1–5 ending at the most recent confirmed low. Its direction describes the historical count, not the next trade direction.\",\"report\":\"\",\"marketBias\":\"bullish\",\"strategyRationale\":\"All impulse price rules pass, including alternation, origin protection, wave 3 length, non-overlap, and wave 5 progress. The lower-degree 5-3-5-3-5 structure is not verified, so this count remains tentative; the fully verified bearish and earlier bullish zigzags remain alternatives.\",\"primaryCandidateId\":\"wave-count-7fff60fe6c691150\",\"alternateCandidateIds\":[\"wave-count-bbe272f54093a4a0\",\"wave-count-6d58d54db4bc7e9a\"],\"showProjectionZone\":true,\"confidence\":0.62}",
+          "promptSha256": "02dfb45c18c38f1b42ab303b388358701260bebea473c259103d5116be217a9d"
+        },
+        {
+          "ok": true,
+          "threadId": "01a1457b-20d7-7fb3-afa4-be52f53d6cff",
+          "turnId": "01a1457b-20dd-7233-9c0e-e9392f7d8a5e",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 25880,
+              "inputTokens": 23441,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 2439,
+              "reasoningOutputTokens": 2070
+            },
+            "last": {
+              "totalTokens": 25880,
+              "inputTokens": 23441,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 2439,
+              "reasoningOutputTokens": 2070
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 48726,
+          "reasoningEffort": "medium",
+          "promptBytes": 31456,
+          "text": "{\"professionalEnglish\":false,\"faithfulToFacts\":false,\"issues\":[{\"severity\":\"error\",\"quote\":\"internal 5-3-5-3-5: failed.\",\"reason\":\"The supplied facts establish missing lower-degree subdivision evidence, not a confirmed failure of the internal pattern. It should be described as unconfirmed or not established.\"},{\"severity\":\"error\",\"quote\":\"The primary count is a tentative bearish 1–5 ending at the most recent confirmed low.\",\"reason\":\"Calling the endpoint a confirmed low overstates the evidence: the historical count and its endpoint remain tentative/provisional.\"},{\"severity\":\"error\",\"quote\":\"insufficient structural zones\",\"reason\":\"This is not among the supplied gate reasons, and the facts provide a structural support zone with one confirmed touch.\"},{\"severity\":\"error\",\"quote\":\"Alternative 1: zigzag A-B-C correction, endpoint approximately 119.76.\",\"reason\":\"The supplied facts do not establish an alternative zigzag candidate. Reusing a supplied price does not support the added candidate classification.\"},{\"severity\":\"error\",\"quote\":\"Alternative 2: zigzag A-B-C correction, endpoint approximately 145.24.\",\"reason\":\"Neither this candidate nor its endpoint appears in the supplied facts; it is an invented level and scenario.\"},{\"severity\":\"style\",\"quote\":\"provisional five-wave impulse passing hard price rules, Local degree on the current chart, provisional candidate.\",\"reason\":\"This is an ungrammatical sequence of fragments with inconsistent capitalization and is not professional prose.\"}],\"summary\":\"The configured bullish price-touch plan is generally distinguished correctly from the tentative bearish historical count and raw structural reference. However, the report invents unsupported alternative candidates, overstates provisional evidence as confirmed or failed, adds an unsupported gate reason, and contains one conspicuously unpolished sentence.\"}",
+          "promptSha256": "bae60acb71f17f578dc6df30b70225b978aac20ef98b577c72bd04f5ba9da88b",
+          "stage": "independent-English-and-facts-audit"
+        }
+      ],
+      "completedAt": "2026-10-16T16:11:48.392Z"
+    },
+    {
+      "folder": "native-release",
+      "strategy": "wave",
+      "attempt": 1,
+      "startedAt": "2026-10-16T16:12:10.602Z",
+      "latencyMs": 19546,
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-db9a275e-ac29-4940-ac95-428b3e181686",
+        "latencyMs": 19476,
+        "usage": {
+          "total": {
+            "totalTokens": 26022,
+            "inputTokens": 25235,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 787,
+            "reasoningOutputTokens": 585
+          },
+          "last": {
+            "totalTokens": 26022,
+            "inputTokens": 25235,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 787,
+            "reasoningOutputTokens": 585
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6730,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "quality-review-required",
+      "nativeCalls": 1,
+      "audit": {
+        "professionalEnglish": false,
+        "faithfulToFacts": false,
+        "issues": [
+          {
+            "severity": "error",
+            "quote": "触发、结构支撑/阻力区止损和近端目标来自 5M 已收盘 K 线结构；缓冲后的触发价被价格触达时才操作",
+            "reason": "This incorrectly attributes the execution levels to closed 5-minute structure. The supplied facts say structure and execution candles are unavailable and identify the fallback trigger and stop source as the 60-minute analysis structure."
+          },
+          {
+            "severity": "error",
+            "quote": "internal 5-3-5-3-5: failed.",
+            "reason": "The facts establish missing or unconfirmed lower-degree subdivision evidence, not a confirmed structural failure. This should be described as unconfirmed, unavailable, or pending verification."
+          },
+          {
+            "severity": "error",
+            "quote": "The primary count is a bearish 1–5 ending at the most recent confirmed swing low, but it remains tentative.",
+            "reason": "The bearish impulse candidate and its endpoint are tentative. The supplied facts do not establish that 119.76 is the most recent confirmed swing low, so 'confirmed' is unsupported."
+          },
+          {
+            "severity": "error",
+            "quote": "The primary timeframe uses 100 candles on the 60-minute timeframe, from 2024-07-04 05:46:40 UTC to 2024-07-08 08:46:40 UTC, identifying 9 alternating extremes and 7 rule-constrained candidates.",
+            "reason": "Seven supported candidates are supplied, but the exact 100-candle count, window start, and nine-extreme count are not established by the supplied facts."
+          },
+          {
+            "severity": "style",
+            "quote": "当前结构偏多，价格触达多头触发价即按计划执行。 最终目标未落在优先净盈亏比 1:1.3–1:1.5 区间，已保留当前策略可用比例。",
+            "reason": "This is user-facing analysis in Chinese rather than professional English. The prompt permits only the original user question to remain quoted verbatim in Chinese; numerous other execution-plan fields have the same language issue."
+          }
+        ],
+        "summary": "The output mostly preserves the distinction between the tentative bearish historical count and the bullish conditional execution plan, and its rounded executable levels are consistent. It is not fully faithful or professionally English because it misattributes levels to unavailable 5-minute structure, treats missing subdivision evidence as a failed rule, adds unsupported confirmation and candle-window claims, and leaves substantial user-facing analysis in Chinese."
+      },
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a1457c-3615-7510-a7fd-ba137d1a61f0",
+          "turnId": "01a1457c-3629-70e0-9762-f526c8759a55",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 26022,
+              "inputTokens": 25235,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 787,
+              "reasoningOutputTokens": 585
+            },
+            "last": {
+              "totalTokens": 26022,
+              "inputTokens": 25235,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 787,
+              "reasoningOutputTokens": 585
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 19475,
+          "reasoningEffort": "high",
+          "promptBytes": 35102,
+          "text": "{\"schemaVersion\":1,\"verdict\":\"revise\",\"summary\":\"The primary count is a bearish 1–5 ending at the most recent confirmed swing low, but it remains tentative. Confirmed bearish and bullish zigzags are retained as alternatives.\",\"report\":\"\",\"marketBias\":\"bearish\",\"strategyRationale\":\"The bearish impulse passes all hard price rules, including no wave 1–4 overlap, a non-shortest wave 3, and wave 5 progress. Its lower-degree 5-3-5-3-5 structure is unverified, so the count is provisional; both fully verified 5-3-5 zigzags remain credible.\",\"primaryCandidateId\":\"wave-count-7fff60fe6c691150\",\"alternateCandidateIds\":[\"wave-count-bbe272f54093a4a0\",\"wave-count-6d58d54db4bc7e9a\"],\"showProjectionZone\":true,\"confidence\":0.64}",
+          "promptSha256": "02dfb45c18c38f1b42ab303b388358701260bebea473c259103d5116be217a9d"
+        },
+        {
+          "ok": true,
+          "threadId": "01a1457c-824d-7cb1-b511-cf1110e643c6",
+          "turnId": "01a1457c-8254-7352-a21c-960b8394ad90",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 26456,
+              "inputTokens": 24389,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 2067,
+              "reasoningOutputTokens": 1552
+            },
+            "last": {
+              "totalTokens": 26456,
+              "inputTokens": 24389,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 2067,
+              "reasoningOutputTokens": 1552
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 48227,
+          "reasoningEffort": "medium",
+          "promptBytes": 34265,
+          "text": "{\"professionalEnglish\":false,\"faithfulToFacts\":false,\"issues\":[{\"severity\":\"error\",\"quote\":\"触发、结构支撑/阻力区止损和近端目标来自 5M 已收盘 K 线结构；缓冲后的触发价被价格触达时才操作\",\"reason\":\"This incorrectly attributes the execution levels to closed 5-minute structure. The supplied facts say structure and execution candles are unavailable and identify the fallback trigger and stop source as the 60-minute analysis structure.\"},{\"severity\":\"error\",\"quote\":\"internal 5-3-5-3-5: failed.\",\"reason\":\"The facts establish missing or unconfirmed lower-degree subdivision evidence, not a confirmed structural failure. This should be described as unconfirmed, unavailable, or pending verification.\"},{\"severity\":\"error\",\"quote\":\"The primary count is a bearish 1–5 ending at the most recent confirmed swing low, but it remains tentative.\",\"reason\":\"The bearish impulse candidate and its endpoint are tentative. The supplied facts do not establish that 119.76 is the most recent confirmed swing low, so 'confirmed' is unsupported.\"},{\"severity\":\"error\",\"quote\":\"The primary timeframe uses 100 candles on the 60-minute timeframe, from 2024-07-04 05:46:40 UTC to 2024-07-08 08:46:40 UTC, identifying 9 alternating extremes and 7 rule-constrained candidates.\",\"reason\":\"Seven supported candidates are supplied, but the exact 100-candle count, window start, and nine-extreme count are not established by the supplied facts.\"},{\"severity\":\"style\",\"quote\":\"当前结构偏多，价格触达多头触发价即按计划执行。 最终目标未落在优先净盈亏比 1:1.3–1:1.5 区间，已保留当前策略可用比例。\",\"reason\":\"This is user-facing analysis in Chinese rather than professional English. The prompt permits only the original user question to remain quoted verbatim in Chinese; numerous other execution-plan fields have the same language issue.\"}],\"summary\":\"The output mostly preserves the distinction between the tentative bearish historical count and the bullish conditional execution plan, and its rounded executable levels are consistent. It is not fully faithful or professionally English because it misattributes levels to unavailable 5-minute structure, treats missing subdivision evidence as a failed rule, adds unsupported confirmation and candle-window claims, and leaves substantial user-facing analysis in Chinese.\"}",
+          "promptSha256": "0d9c102af05a8caa5b5754a880a1b5f185439d032da8e9ad1339d254c29fad94",
+          "stage": "independent-English-and-facts-audit"
+        }
+      ],
+      "completedAt": "2026-10-16T16:13:18.379Z"
+    },
+    {
+      "folder": "native-accepted",
+      "strategy": "wave",
+      "attempt": 1,
+      "startedAt": "2026-10-16T16:13:41.312Z",
+      "latencyMs": 13508,
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-43e65592-a7e3-4184-838f-f4a14c1530c5",
+        "latencyMs": 13444,
+        "usage": {
+          "total": {
+            "totalTokens": 25661,
+            "inputTokens": 25236,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 425,
+            "reasoningOutputTokens": 239
+          },
+          "last": {
+            "totalTokens": 25661,
+            "inputTokens": 25236,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 425,
+            "reasoningOutputTokens": 239
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6735,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "quality-review-required",
+      "nativeCalls": 1,
+      "audit": {
+        "professionalEnglish": false,
+        "faithfulToFacts": false,
+        "issues": [
+          {
+            "severity": "error",
+            "quote": "The primary count is a terminal bearish 1–5 on the 60-minute analysis interval",
+            "reason": "The supplied facts identify a tentative bearish impulse, but do not confirm it as terminal. Diagonal position and internal structure remain unverified, so “terminal” overstates the classification."
+          },
+          {
+            "severity": "style",
+            "quote": "The candidate covers one provisional impulse segment that passes hard price rules but still requires internal-structure verification",
+            "reason": "This is grammatically awkward and unclear; it would be more professional to state directly that the tentative impulse satisfies the hard price rules but lacks verified internal structure."
+          }
+        ],
+        "summary": "The output generally preserves the supplied distinctions between tentative counts, confirmed pivots, structural fallback levels, and the executable price-touch plan. However, it incorrectly labels the bearish count as terminal and contains one awkward explanatory sentence."
+      },
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a1457d-9872-7683-a0e1-f90d945696c3",
+          "turnId": "01a1457d-9886-7e73-94f7-da2c1a9c70ba",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 25661,
+              "inputTokens": 25236,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 425,
+              "reasoningOutputTokens": 239
+            },
+            "last": {
+              "totalTokens": 25661,
+              "inputTokens": 25236,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 425,
+              "reasoningOutputTokens": 239
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 13443,
+          "reasoningEffort": "high",
+          "promptBytes": 35102,
+          "text": "{\"schemaVersion\":1,\"verdict\":\"revise\",\"summary\":\"The primary count is a terminal bearish 1–5 on the 60-minute analysis interval, but it remains tentative because lower-degree structure is unresolved.\",\"report\":\"\",\"marketBias\":\"bearish\",\"strategyRationale\":\"The terminal impulse takes precedence because it reaches the latest confirmed swing and passes all hard price rules. Its five subdivisions remain structurally unverified, so it cannot form a confirmed cycle. The two close-scoring alternatives are confirmed 5-3-5 zigzags in opposite directions, preserving material count ambiguity.\",\"primaryCandidateId\":\"wave-count-7fff60fe6c691150\",\"alternateCandidateIds\":[\"wave-count-bbe272f54093a4a0\",\"wave-count-6d58d54db4bc7e9a\"],\"showProjectionZone\":true,\"confidence\":0.64}",
+          "promptSha256": "02dfb45c18c38f1b42ab303b388358701260bebea473c259103d5116be217a9d"
+        },
+        {
+          "ok": true,
+          "threadId": "01a1457d-cd1e-7af2-b0be-bb65000581f6",
+          "turnId": "01a1457d-cd26-74e2-b7be-effa16ae4c1f",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 28877,
+              "inputTokens": 27132,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1745,
+              "reasoningOutputTokens": 1552
+            },
+            "last": {
+              "totalTokens": 28877,
+              "inputTokens": 27132,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1745,
+              "reasoningOutputTokens": 1552
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 50265,
+          "reasoningEffort": "medium",
+          "promptBytes": 43060,
+          "text": "{\"professionalEnglish\":false,\"faithfulToFacts\":false,\"issues\":[{\"severity\":\"error\",\"quote\":\"The primary count is a terminal bearish 1–5 on the 60-minute analysis interval\",\"reason\":\"The supplied facts identify a tentative bearish impulse, but do not confirm it as terminal. Diagonal position and internal structure remain unverified, so “terminal” overstates the classification.\"},{\"severity\":\"style\",\"quote\":\"The candidate covers one provisional impulse segment that passes hard price rules but still requires internal-structure verification\",\"reason\":\"This is grammatically awkward and unclear; it would be more professional to state directly that the tentative impulse satisfies the hard price rules but lacks verified internal structure.\"}],\"summary\":\"The output generally preserves the supplied distinctions between tentative counts, confirmed pivots, structural fallback levels, and the executable price-touch plan. However, it incorrectly labels the bearish count as terminal and contains one awkward explanatory sentence.\"}",
+          "promptSha256": "44fb1a3d22c41ab2debb254cd5d5f617e8801a14b6b0b170c5cf294cd1edab0f",
+          "stage": "independent-English-and-facts-audit"
+        }
+      ],
+      "completedAt": "2026-10-16T16:14:45.097Z"
+    },
+    {
+      "folder": "native-final-verified",
+      "strategy": "wave",
+      "attempt": 1,
+      "startedAt": "2026-10-16T16:16:16.995Z",
+      "latencyMs": 13344,
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-9b460f07-f462-4ef2-9d49-efe05835ee79",
+        "latencyMs": 13278,
+        "usage": {
+          "total": {
+            "totalTokens": 25698,
+            "inputTokens": 25290,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 408,
+            "reasoningOutputTokens": 233
+          },
+          "last": {
+            "totalTokens": 25698,
+            "inputTokens": 25290,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 408,
+            "reasoningOutputTokens": 233
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6695,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "accepted",
+      "nativeCalls": 1,
+      "audit": {
+        "professionalEnglish": true,
+        "faithfulToFacts": true,
+        "issues": [],
+        "summary": "The user-visible output is clear, professional English and faithfully distinguishes the tentative bearish historical count, confirmed pivot points, missing lower-timeframe subwave evidence, the bullish conditional execution plan, and the fallback structural stop. No material terminology, confirmation-status, candidate-status, or price contradictions were found."
+      },
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a1457f-f88c-7571-857e-8fc4490d0417",
+          "turnId": "01a1457f-f8a4-7843-9d86-76540a71497c",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 25698,
+              "inputTokens": 25290,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 408,
+              "reasoningOutputTokens": 233
+            },
+            "last": {
+              "totalTokens": 25698,
+              "inputTokens": 25290,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 408,
+              "reasoningOutputTokens": 233
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 13276,
+          "reasoningEffort": "high",
+          "promptBytes": 35390,
+          "text": "{\"schemaVersion\":1,\"verdict\":\"revise\",\"summary\":\"The primary count is a recent bearish 1–5 impulse, retained as tentative pending lower-degree structural confirmation.\",\"report\":\"\",\"marketBias\":\"bearish\",\"strategyRationale\":\"The bearish impulse is the most recent price-rule-valid count, but its five internal segments do not yet verify the required 5-3-5-3-5 structure. The later bearish zigzag is the stronger confirmed alternative; the earlier bullish zigzag remains plausible given the narrow score gap.\",\"primaryCandidateId\":\"wave-count-7fff60fe6c691150\",\"alternateCandidateIds\":[\"wave-count-bbe272f54093a4a0\",\"wave-count-6d58d54db4bc7e9a\"],\"showProjectionZone\":true,\"confidence\":0.69}",
+          "promptSha256": "f07aaced64f42d62a2ba074c411cdc27bda6e52f20dd9978430704aa83d800c2"
+        },
+        {
+          "ok": true,
+          "threadId": "01a14580-2c8c-7e23-9dad-fd58d690a1b4",
+          "turnId": "01a14580-2c94-7971-89b2-ebc735b8946c",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 27933,
+              "inputTokens": 27283,
+              "cachedInputTokens": 11904,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 650,
+              "reasoningOutputTokens": 567
+            },
+            "last": {
+              "totalTokens": 27933,
+              "inputTokens": 27283,
+              "cachedInputTokens": 11904,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 650,
+              "reasoningOutputTokens": 567
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 18383,
+          "reasoningEffort": "medium",
+          "promptBytes": 43631,
+          "text": "{\"professionalEnglish\":true,\"faithfulToFacts\":true,\"issues\":[],\"summary\":\"The user-visible output is clear, professional English and faithfully distinguishes the tentative bearish historical count, confirmed pivot points, missing lower-timeframe subwave evidence, the bullish conditional execution plan, and the fallback structural stop. No material terminology, confirmation-status, candidate-status, or price contradictions were found.\"}",
+          "promptSha256": "24acbf20f5abb2d4f99133b1642b41ca21b366c16a9373a47d994a377ffd5cfd",
+          "stage": "independent-English-and-facts-audit"
+        }
+      ],
+      "completedAt": "2026-10-16T16:16:48.727Z"
+    },
+    {
+      "folder": "native-packaged",
+      "strategy": "wave",
+      "attempt": 1,
+      "startedAt": "2026-10-16T16:19:28.498Z",
+      "latencyMs": 11043,
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-8983b603-9f43-44af-9479-505ff0c75925",
+        "latencyMs": 10938,
+        "usage": {
+          "total": {
+            "totalTokens": 25710,
+            "inputTokens": 25289,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 421,
+            "reasoningOutputTokens": 240
+          },
+          "last": {
+            "totalTokens": 25710,
+            "inputTokens": 25289,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 421,
+            "reasoningOutputTokens": 240
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6695,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "quality-review-required",
+      "nativeCalls": 1,
+      "audit": {
+        "professionalEnglish": true,
+        "faithfulToFacts": false,
+        "issues": [
+          {
+            "severity": "error",
+            "quote": "Alternative 2: zigzag A-B-C correction, endpoint approximately 145.24. This may overlap the primary count at a different scope.",
+            "reason": "This candidate ends before the provisional primary impulse begins, so it is a historical count and does not overlap that primary count or function as a forward alternative if the primary count fails."
+          }
+        ],
+        "summary": "The English is professional and the execution plan is generally presented accurately, but one historical correction is incorrectly framed as an overlapping alternative to the current primary count."
+      },
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a14582-e49e-7613-aac8-52a2febafef5",
+          "turnId": "01a14582-e4b5-73f2-854d-e37282e216ed",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 25710,
+              "inputTokens": 25289,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 421,
+              "reasoningOutputTokens": 240
+            },
+            "last": {
+              "totalTokens": 25710,
+              "inputTokens": 25289,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 421,
+              "reasoningOutputTokens": 240
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 10937,
+          "reasoningEffort": "high",
+          "promptBytes": 35390,
+          "text": "{\"schemaVersion\":1,\"verdict\":\"revise\",\"summary\":\"The primary count is a recent bearish 1–5 impulse, retained as provisional rather than a confirmed completed cycle.\",\"report\":\"\",\"marketBias\":\"bearish\",\"strategyRationale\":\"The bearish impulse passes all price rules but lacks validated lower-degree 5-3-5-3-5 subdivisions; confirmed swing points alone do not confirm the count. The competing bullish and bearish zigzags have verified 5-3-5 internals and remain supported alternatives, with their close scores preserving ambiguity.\",\"primaryCandidateId\":\"wave-count-7fff60fe6c691150\",\"alternateCandidateIds\":[\"wave-count-bbe272f54093a4a0\",\"wave-count-6d58d54db4bc7e9a\"],\"showProjectionZone\":true,\"confidence\":0.68}",
+          "promptSha256": "f07aaced64f42d62a2ba074c411cdc27bda6e52f20dd9978430704aa83d800c2"
+        },
+        {
+          "ok": true,
+          "threadId": "01a14583-0f9f-79e1-ad9f-b86549dcf18d",
+          "turnId": "01a14583-0fa8-7902-83cd-73e469a1a549",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 29319,
+              "inputTokens": 27283,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 2036,
+              "reasoningOutputTokens": 1907
+            },
+            "last": {
+              "totalTokens": 29319,
+              "inputTokens": 27283,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 2036,
+              "reasoningOutputTokens": 1907
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 27256,
+          "reasoningEffort": "medium",
+          "promptBytes": 43628,
+          "text": "{\"professionalEnglish\":true,\"faithfulToFacts\":false,\"issues\":[{\"severity\":\"error\",\"quote\":\"Alternative 2: zigzag A-B-C correction, endpoint approximately 145.24. This may overlap the primary count at a different scope.\",\"reason\":\"This candidate ends before the provisional primary impulse begins, so it is a historical count and does not overlap that primary count or function as a forward alternative if the primary count fails.\"}],\"summary\":\"The English is professional and the execution plan is generally presented accurately, but one historical correction is incorrectly framed as an overlapping alternative to the current primary count.\"}",
+          "promptSha256": "8973b2d3795c386f0720defc38b0652f87500661d58cdb879066606ff5eaec9b",
+          "stage": "independent-English-and-facts-audit"
+        }
+      ],
+      "completedAt": "2026-10-16T16:20:06.803Z"
+    },
+    {
+      "folder": "native-final2",
+      "strategy": "wave",
+      "attempt": 1,
+      "startedAt": "2026-10-16T16:21:48.337Z",
+      "latencyMs": 12415,
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-9040e65a-54dd-400c-8c28-c8c2397620dc",
+        "latencyMs": 12342,
+        "usage": {
+          "total": {
+            "totalTokens": 25713,
+            "inputTokens": 25289,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 424,
+            "reasoningOutputTokens": 242
+          },
+          "last": {
+            "totalTokens": 25713,
+            "inputTokens": 25289,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 424,
+            "reasoningOutputTokens": 242
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6782,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "quality-review-required",
+      "nativeCalls": 1,
+      "audit": {
+        "professionalEnglish": true,
+        "faithfulToFacts": false,
+        "issues": [
+          {
+            "severity": "error",
+            "quote": "Macro confirmation: 128.4. This confirms primary structure and is not moved closer merely because it is distant.",
+            "reason": "128.4 is recorded as a macro confirmation level and a confirmed pivot, but the primary impulse candidate remains tentative because its internal lower-degree structure is unverified. The sentence incorrectly implies confirmation of the full primary structure."
+          }
+        ],
+        "summary": "The display is otherwise clear, professional, and consistent with the configured bullish rebound plan, provisional bearish historical count, fallback stop distinction, and supplied execution levels."
+      },
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a14585-06df-7c11-a142-97240a6a89ad",
+          "turnId": "01a14585-06f6-7481-8e1a-a565324b6e96",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 25713,
+              "inputTokens": 25289,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 424,
+              "reasoningOutputTokens": 242
+            },
+            "last": {
+              "totalTokens": 25713,
+              "inputTokens": 25289,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 424,
+              "reasoningOutputTokens": 242
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 12339,
+          "reasoningEffort": "high",
+          "promptBytes": 35390,
+          "text": "{\"schemaVersion\":1,\"verdict\":\"revise\",\"summary\":\"The primary count is a recent bearish 1–5 impulse, retained provisionally. Its direction describes the historical count, not the subsequent trading direction.\",\"report\":\"\",\"marketBias\":\"bearish\",\"strategyRationale\":\"The bearish 1–5 passes all price rules but lacks verified lower-degree 5-3-5-3-5 subdivisions, so it remains tentative. The structurally verified bearish zigzag is the stronger recent alternate; the close-scoring bullish zigzag is older and remains secondary.\",\"primaryCandidateId\":\"wave-count-7fff60fe6c691150\",\"alternateCandidateIds\":[\"wave-count-bbe272f54093a4a0\",\"wave-count-6d58d54db4bc7e9a\"],\"showProjectionZone\":true,\"confidence\":0.72}",
+          "promptSha256": "f07aaced64f42d62a2ba074c411cdc27bda6e52f20dd9978430704aa83d800c2"
+        },
+        {
+          "ok": true,
+          "threadId": "01a14585-373b-79e3-b158-f59d3757fa9a",
+          "turnId": "01a14585-3742-71b2-a495-ec960cd205e6",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 28464,
+              "inputTokens": 27298,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1166,
+              "reasoningOutputTokens": 1034
+            },
+            "last": {
+              "totalTokens": 28464,
+              "inputTokens": 27298,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1166,
+              "reasoningOutputTokens": 1034
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 27799,
+          "reasoningEffort": "medium",
+          "promptBytes": 43758,
+          "text": "{\"professionalEnglish\":true,\"faithfulToFacts\":false,\"issues\":[{\"severity\":\"error\",\"quote\":\"Macro confirmation: 128.4. This confirms primary structure and is not moved closer merely because it is distant.\",\"reason\":\"128.4 is recorded as a macro confirmation level and a confirmed pivot, but the primary impulse candidate remains tentative because its internal lower-degree structure is unverified. The sentence incorrectly implies confirmation of the full primary structure.\"}],\"summary\":\"The display is otherwise clear, professional, and consistent with the configured bullish rebound plan, provisional bearish historical count, fallback stop distinction, and supplied execution levels.\"}",
+          "promptSha256": "fb1e76e8bf154ecb233e48f8d550075cd1ef522e9f77590da7f15749fb7e9ad7",
+          "stage": "independent-English-and-facts-audit"
+        }
+      ],
+      "completedAt": "2026-10-16T16:22:28.557Z"
+    },
+    {
+      "folder": "final-display-audit",
+      "strategy": "wave",
+      "attempt": 1,
+      "startedAt": "2026-10-16T16:23:33.254Z",
+      "latencyMs": null,
+      "existingResult": "C:\\Users\\潘艳芳\\Documents\\ChatGPT\\haolo_windows_web3\\youle_desktop\\output\\complex-wave-windows-20261017\\final-rendered-result.json",
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-cc9aec99-2741-41c5-b171-b81b32cc0b17",
+        "latencyMs": 1,
+        "usage": {
+          "total": {
+            "totalTokens": 25713,
+            "inputTokens": 25289,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 424,
+            "reasoningOutputTokens": 242
+          },
+          "last": {
+            "totalTokens": 25713,
+            "inputTokens": 25289,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 424,
+            "reasoningOutputTokens": 242
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6871,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "accepted",
+      "nativeCalls": 0,
+      "audit": {
+        "professionalEnglish": true,
+        "faithfulToFacts": true,
+        "issues": [],
+        "summary": "The DISPLAY is professionally written and consistent with the supplied facts. It correctly distinguishes tentative counts from confirmed pivots, historical structure from forward scenarios, fallback levels from standard structural zones, and configured execution prices from structural references. The quoted Chinese user request is permitted and is not rendered analysis text."
+      },
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a14586-a0a8-7a03-b97b-143892bc454f",
+          "turnId": "01a14586-a0bc-7f70-b8f4-6679d47b3727",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 28597,
+              "inputTokens": 27314,
+              "cachedInputTokens": 11904,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1283,
+              "reasoningOutputTokens": 1201
+            },
+            "last": {
+              "totalTokens": 28597,
+              "inputTokens": 27314,
+              "cachedInputTokens": 11904,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 1283,
+              "reasoningOutputTokens": 1201
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 25104,
+          "reasoningEffort": "medium",
+          "promptBytes": 43847,
+          "text": "{\"professionalEnglish\":true,\"faithfulToFacts\":true,\"issues\":[],\"summary\":\"The DISPLAY is professionally written and consistent with the supplied facts. It correctly distinguishes tentative counts from confirmed pivots, historical structure from forward scenarios, fallback levels from standard structural zones, and configured execution prices from structural references. The quoted Chinese user request is permitted and is not rendered analysis text.\"}",
+          "promptSha256": "13c7dea0efdd0278cb7e734c33e60d80cfa216e34f3ab6ae70f78993feaf5cdc",
+          "stage": "independent-English-and-facts-audit"
+        }
+      ],
+      "completedAt": "2026-10-16T16:23:58.386Z"
+    },
+    {
+      "folder": "native-final-packaged",
+      "strategy": "wave",
+      "attempt": 1,
+      "startedAt": "2026-10-16T16:28:45.181Z",
+      "latencyMs": 12553,
+      "attemptCounts": [
+        100
+      ],
+      "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+      "model": {
+        "providerId": "openai-codex",
+        "modelId": "gpt-5.6-sol",
+        "requestId": "wave-request-4fec7c24-75ea-4be5-91fe-6804566fde68",
+        "latencyMs": 12484,
+        "usage": {
+          "total": {
+            "totalTokens": 25786,
+            "inputTokens": 25290,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 496,
+            "reasoningOutputTokens": 317
+          },
+          "last": {
+            "totalTokens": 25786,
+            "inputTokens": 25290,
+            "cachedInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 496,
+            "reasoningOutputTokens": 317
+          },
+          "modelContextWindow": 258400
+        },
+        "finishReason": "completed",
+        "reasoningEffort": "high",
+        "reviewAttempts": 1,
+        "escalationReason": "deterministic_candidates_close;primary=wave-count-bbe272f54093a4a0:0.7483;competitor=wave-count-6d58d54db4bc7e9a:0.7307;gap=0.0177"
+      },
+      "untranslated": [],
+      "reportCharacters": 6871,
+      "selectedCandidate": "wave-count-7fff60fe6c691150",
+      "historicalDirection": "bearish",
+      "forwardScenario": "bullish",
+      "status": "completed-awaiting-quality-review",
+      "nativeCalls": 1,
+      "calls": [
+        {
+          "ok": true,
+          "threadId": "01a1458b-6327-7d03-98a1-8012e5e5165b",
+          "turnId": "01a1458b-633e-7921-b86e-f0af343d7e65",
+          "model": "gpt-5.6-sol",
+          "usage": {
+            "total": {
+              "totalTokens": 25786,
+              "inputTokens": 25290,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 496,
+              "reasoningOutputTokens": 317
+            },
+            "last": {
+              "totalTokens": 25786,
+              "inputTokens": 25290,
+              "cachedInputTokens": 0,
+              "cacheWriteInputTokens": 0,
+              "outputTokens": 496,
+              "reasoningOutputTokens": 317
+            },
+            "modelContextWindow": 258400
+          },
+          "latencyMs": 12482,
+          "reasoningEffort": "high",
+          "promptBytes": 35390,
+          "promptSha256": "f07aaced64f42d62a2ba074c411cdc27bda6e52f20dd9978430704aa83d800c2",
+          "responseSha256": "236a33900f656fd336fb474943c6709b0fd29ce044df6c2d67b4c115e4b05ce4"
+        }
+      ],
+      "completedAt": "2026-10-16T16:28:57.737Z"
+    }
+  ],
+  "auditAdjudication": [
+    "Earlier audit fixtures omitted alternative candidates, individual pivot status and candle-window statistics; absence in those audit packets was not absence in the deterministic engine. The final packet includes that evidence.",
+    "Chinese internal execution-plan labels are machine facts, not the rendered English report. Only the verbatim Chinese user request is allowed in DISPLAY; final visible text is checked without blanket exclusion of Request lines.",
+    "Corrected real display ambiguities: historical bearish count versus bullish rebound, structural fallback versus confirmed micro waves, actual trigger source interval, provisional internal subdivisions versus a failed rule, unsupported terminal terminology, older non-overlapping ABC as historical reference, and macro boundary versus proof of internal confirmation.",
+    "All negative audits and superseded paid responses are retained. Final-display-audit is a new paid audit of a strict prompt-hash replay of native-final2; that rendering is not counted as a new paid native analysis."
+  ],
+  "equivalence": {
+    "fixtureInputSha256": "dc586a4671510eda2a9c5bda07031ce80a58aba568d5e2cb441772d27859c58b",
+    "candleCount": 100,
+    "oldPromptBytes": 47706,
+    "newPromptBytes": 34131,
+    "candidateCount": 7,
+    "allCandidateActionPlansIdenticalExceptThreeDisplayStrings": true,
+    "allCandidateDrawingGeometryIdentical": true,
+    "decodedEvidenceIdentical": true,
+    "rawOhlcvIdentical": true,
+    "promptReductionPercent": 28.455540183624706
+  },
+  "finalPackagedAcceptance": {
+    "status": "accepted",
+    "reviewedAt": "2026-10-16T16:30:16.445Z",
+    "nativeLatencyMs": 12553,
+    "nativeCalls": 1,
+    "model": "gpt-5.6-sol",
+    "source": "final installer app.asar analysis modules and bundled signed App Server",
+    "professionalEnglish": true,
+    "faithfulToFacts": true,
+    "reportAndLabelsExactlyMatchIndependentPaidAudit": true,
+    "independentAudit": {
+      "professionalEnglish": true,
+      "faithfulToFacts": true,
+      "issues": [],
+      "summary": "The DISPLAY is professionally written and consistent with the supplied facts. It correctly distinguishes tentative counts from confirmed pivots, historical structure from forward scenarios, fallback levels from standard structural zones, and configured execution prices from structural references. The quoted Chinese user request is permitted and is not rendered analysis text."
+    },
+    "narrativeReview": {
+      "method": "agent review against deterministic facts",
+      "text": "Original structural assessment (confirmation levels below are separate from the configured plan's entry prices): The primary count is the recent bearish 1–5 impulse, retained as tentative because its lower-degree structure is unverified.",
+      "passed": true,
+      "reason": "Correctly identifies the recent historical bearish impulse as tentative because internal subdivisions are unverified; does not confuse it with the conditional bullish rebound plan."
+    },
+    "chineseAnalysisLines": [],
+    "originalChineseRequestPreservedAsQuote": true
+  },
+  "release": {
+    "version": "0.1.180",
+    "path": "C:\\Users\\潘艳芳\\Desktop\\好咯最新安装包\\haolo_windows_web3\\haolo_desktop-0.1.180-Setup.exe",
+    "bytes": 209751464,
+    "sha256": "3bc0ed6bdd1882c7a6962a6673f307afb6c63de84487ef4dad2e9b8a925fcd69",
+    "appAsarSha256": "a31cd76a3767d8d4d4582b114995d8accd8e81bc7c6c34405d33ccea80d0e2e1",
+    "evArtifacts": 4,
+    "signaturesValid": true,
+    "installerPayloadVerifiedFiles": 4,
+    "published": false,
+    "installed": false
+  }
+}

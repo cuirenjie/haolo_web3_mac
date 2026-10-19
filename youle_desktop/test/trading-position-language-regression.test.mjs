@@ -8,7 +8,7 @@ import { runTradingPriceActionAnalysisPipeline } from "../src/main/trading-analy
 const source = readFileSync(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("market.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 const node = ast.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === "combineTradingAnalysisReports");
-const js = ts.transpileModule(node.getText(ast), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const js = ts.transpileModule(node.getText(ast).replace(/^export /, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const combine = runInNewContext(`${js}\ncombineTradingAnalysisReports`, { activeTradingAnalysisLanguage: () => "en", HAN_TEXT_PATTERN: /\p{Script=Han}/u });
 const answer = "Manage the existing short around resistance; the current structure is bullish.";
 function candles() {
