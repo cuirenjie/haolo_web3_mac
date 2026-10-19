@@ -39506,8 +39506,7 @@ function renderMessageExecutionPlan(
       data-execution-plan-index="${candidateIndex}"
       style="--message-execution-plan-font-size: ${fontSize}px"
     >
-      ${cloudCard ? '' : executionPlanCardHeading(title, executionPlanDisplayLines(candidate.content), state.settings.language)}
-      <div class="execution-plan-card-content">${cloudCard?.html || renderExecutionPlanCardContent(candidate.content)}</div>
+      <div class="execution-plan-card-content">${cloudCard?.html || executionPlanCardHeading(title, executionPlanDisplayLines(candidate.content), state.settings.language) + renderExecutionPlanCardContent(candidate.content)}</div>
       <footer class="message-execution-plan-controls" aria-label="执行卡片文字与便利贴操作">
         <button type="button" data-message-execution-plan-action="increase"${fontSize >= MESSAGE_EXECUTION_PLAN_FONT_SIZES[MESSAGE_EXECUTION_PLAN_FONT_SIZES.length - 1] ? ' disabled aria-disabled="true"' : ""}>放大</button>
         <button type="button" data-message-execution-plan-action="decrease"${fontSize <= MESSAGE_EXECUTION_PLAN_FONT_SIZES[0] ? ' disabled aria-disabled="true"' : ""}>缩小</button>

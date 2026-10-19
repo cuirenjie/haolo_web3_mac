@@ -22,7 +22,7 @@ test("chat, saved and sticky card prices use seven digits without changing sourc
     assert.ok(body.includes(`<strong>${price}</strong></span><span class="execution-plan-ratio">盈亏比 ${ratio}</span>`));
   }
   assert.ok(executionPlanStickyHtml({ lines }).includes(body));
-  assert.match(body, /当前动作：<\/span><span class="execution-plan-card-value">等待条件触发/);
+  assert.doesNotMatch(body, /当前动作|等待条件触发/);
   assert.equal(JSON.stringify(lines), before);
 });
 
@@ -150,6 +150,6 @@ test("current actions and risk restrictions stay visible, with no invented accou
     assert.ok(body.includes(action));
     assert.doesNotMatch(body, /建议开仓|止盈仓位|预计盈利/);
   }
-  assert.match(executionPlanCardBody([{ label: "Current action:", text: "Wait for the trigger" }]), /Wait for the trigger/);
-  assert.match(executionPlanCardBody([{ label: "當前動作：", text: "等待條件觸發" }]), /等待條件觸發/);
+  assert.equal(executionPlanCardBody([{ label: "Current action:", text: "Wait for the trigger" }]), '');
+  assert.equal(executionPlanCardBody([{ label: "當前動作：", text: "等待條件觸發" }]), '');
 });

@@ -3,6 +3,7 @@ export function executionPlanCardHeading(title: string, lines?: ExecutionPlanCar
 export function executionPlanCardBody(lines?: ExecutionPlanCardLine[], language?: string, options?: {expiresAt?:number}): string;
 export function executionPlanStructuredCardBody(input: {
   entry: { lower: number; upper?: number };
+  entryMode?: 'left' | 'right';
   stop: number;
   targets: number[];
   direction: 'long' | 'short';

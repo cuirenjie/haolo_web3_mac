@@ -51,9 +51,21 @@ html .execution-plan-surface:is(.message-execution-plan, .execution-plan-card):h
   padding: 16px;
   color: var(--plan-text);
 }
-html .execution-plan-surface.message-execution-plan {
-  gap: 14px;
+html .execution-plan-surface.message-execution-plan,
+html .execution-plan-surface.message-execution-plan:hover {
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  background: transparent;
   --plan-font-size: calc(var(--message-execution-plan-font-size, 12px) + var(--app-font-size-offset, 0px));
+}
+/* Keep the toolbar outside the border, in normal flow below each chat card. */
+html .execution-plan-surface.message-execution-plan > .execution-plan-card-content {
+  box-sizing: border-box;
+  border: 1px solid var(--plan-line);
+  border-radius: 16px;
+  padding: 16px;
+  background: var(--plan-bg);
 }
 .execution-plan-surface.execution-plan-card {
   --plan-font-size: calc(12px + var(--app-font-size-offset, 0px));
@@ -120,10 +132,6 @@ html .execution-plan-surface.message-execution-plan {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-/* Reduce only the heading-to-deadline gap from 14px to one third. */
-.execution-plan-surface .execution-plan-card-content > .execution-plan-heading:has(+ .execution-plan-metrics > .execution-plan-expiry) {
-  margin-bottom: calc(-14px * 2 / 3);
-}
 .execution-plan-surface .execution-plan-metrics {
   display: grid;
   grid-template-columns: subgrid;
@@ -141,46 +149,29 @@ html .execution-plan-surface.message-execution-plan {
 .execution-plan-surface .execution-plan-card-content:has(> [data-conditional-plan]) .execution-plan-ratio {
   white-space: normal;
 }
-/* The deadline sits below the card heading, before both price labels.
-   Metric columns share the remaining rows, keeping the prices aligned. */
-.execution-plan-surface .execution-plan-metrics[data-conditional-plan]:not(:has(.execution-plan-expiry)) {
+/* Both price columns share rows; the deadline follows the targets separately. */
+.execution-plan-surface .execution-plan-metrics {
   grid-template-rows: auto auto auto;
   row-gap: 0;
 }
-.execution-plan-surface .execution-plan-metrics[data-conditional-plan]:not(:has(.execution-plan-expiry)) > .execution-plan-metric {
+.execution-plan-surface .execution-plan-metrics > .execution-plan-metric {
   display: grid;
   grid-template-rows: subgrid;
   grid-row: 1 / span 3;
   grid-column: 1;
   align-items: baseline;
 }
-.execution-plan-surface .execution-plan-metrics[data-conditional-plan]:not(:has(.execution-plan-expiry)) > .execution-plan-metric:last-child {
+.execution-plan-surface .execution-plan-metrics > .execution-plan-metric:last-child {
   grid-column: 2;
 }
-.execution-plan-surface .execution-plan-metrics:has(.execution-plan-expiry) {
-  grid-template-rows: auto auto auto auto;
-  row-gap: 0;
-}
-.execution-plan-surface .execution-plan-metrics:has(.execution-plan-expiry) > .execution-plan-metric {
-  display: grid;
-  grid-template-rows: subgrid;
-  grid-row: 2 / span 3;
-  grid-column: 1;
-  align-items: baseline;
-}
-.execution-plan-surface .execution-plan-metrics:has(.execution-plan-expiry) > .execution-plan-metric:last-child {
-  grid-column: 2;
-}
-.execution-plan-surface .execution-plan-metrics:has(.execution-plan-expiry) > .execution-plan-metric > :nth-child(2) {
+.execution-plan-surface .execution-plan-metrics > .execution-plan-metric > :nth-child(2) {
   grid-row: 2;
 }
-.execution-plan-surface .execution-plan-metrics:has(.execution-plan-expiry) > .execution-plan-metric > :nth-child(3) {
+.execution-plan-surface .execution-plan-metrics > .execution-plan-metric > :nth-child(3) {
   grid-row: 3;
 }
 .execution-plan-surface .execution-plan-expiry {
   grid-column: 1 / -1;
-  grid-row: 1;
-  margin-bottom: 12px;
   min-width: 0;
   color: var(--plan-muted);
   font-size: min(calc(var(--plan-font-size) - 1px), 4.5cqi);
@@ -239,8 +230,8 @@ html .execution-plan-surface .message-execution-plan-controls {
   flex-wrap: wrap;
   max-width: 100%;
   min-height: 24px;
-  margin: -9px -4px -6px 0;
-  background: var(--plan-bg);
+  margin: 0 12px 0 0;
+  background: transparent;
 }
 html .execution-plan-surface .message-execution-plan-controls button { color: var(--plan-muted); }
 .execution-plan-surface.execution-plan-card > header { padding-right: 64px; margin-bottom: 14px; }

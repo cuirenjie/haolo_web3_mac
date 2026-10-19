@@ -153,9 +153,9 @@ export function cloudPlanCard(report, { hideExpiry = false, language: displayLan
   });
   const account=cloudPlanAccountView(plan,report.marketId,report.planRecords?.[0]);
   const entry=condition.confirmation==='breakout_retest'?condition.retest:condition.trigger;
-  const body=executionPlanStructuredCardBody({entry,stop:scenario.stop,targets:scenario.targets,direction:condition.direction,
+  const body=executionPlanStructuredCardBody({entry,entryMode:plan.selectedMode,stop:scenario.stop,targets:scenario.targets,direction:condition.direction,
     expiresAt:hideExpiry?undefined:condition.expiresAt,riskReward,account,
     action:plan.executionBlocked===true||(scenario.positionSizing||plan.positionSizing)?.executionBlocked===true||scenario.eligible===false?'blocked':route?.action||'wait'},language);
   return {title,content:[title,...fields.map(([label,value])=>`${label}: ${value}`),t('notice'),...(route?[route.content]:[]),...(watch?[watch.content]:[])].join('\n'),
-    html:heading+body+(route?.html||'')+(watch?.html||'')};
+    html:heading+body};
 }

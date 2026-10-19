@@ -50,7 +50,8 @@ for(const strategy of OFFICIAL_TRADING_CATALOG)test(`${strategy.id}: server acco
     const saved=mergeCloudExecutionPlans([report],[])[0];
     for(const html of [renderCurrentReports([report]).rendered.cards,
       renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})]){
-      for(const value of [...words[locale],'146.61','73.30','73.31','-1.38','+0.66','+1.60'])assert.ok(html.includes(value),value);
+      for(const value of [...words[locale].slice(0,4),'146.61','73.30','73.31','-1.38','+0.66','+1.60'])assert.ok(html.includes(value),value);
+      assert.ok(!html.includes(words[locale][5]));
       assert.equal((html.match(/class="execution-plan-account-detail execution-plan-target-profit execution-plan-estimate"/g)||[]).length,2);
       assert.equal((html.match(/class="execution-plan-account-detail execution-plan-target-amount"/g)||[]).length,2);
       assert.doesNotMatch(html,/\+1\.34|\+1\.88|NaN|Infinity/);
@@ -173,19 +174,19 @@ test('explicit exits are authoritative, including missing or malformed arrays',(
   }
 });
 
-test('conditional action remains waiting in each language and blocked plans never invite entry',()=>{
+test('waiting copy is omitted in each language while blocked plans retain their restriction',()=>{
   for(const locale of Object.keys(words)){
     const report=cloudAccountPlanCardFixture(locale);
     const html=cloudPlanCard(report).html;
-    assert.ok(html.includes(words[locale][4]));assert.ok(html.includes(words[locale][5]));
+    assert.ok(!html.includes(words[locale][4]));assert.ok(!html.includes(words[locale][5]));
     assert.doesNotMatch(html,/现价做多|现价做空|at market/);
-    assert.ok(html.lastIndexOf('execution-plan-details')>html.lastIndexOf('execution-plan-target-profit'));
+    assert.ok(html.lastIndexOf('execution-plan-expiry')>html.lastIndexOf('execution-plan-target-profit'));
     report.executionPlan.executionBlocked=true;
     assert.ok(cloudPlanCard(report).html.includes(locale==='en'?'Do not trade':locale==='zh-Hant'?'暫不交易':'暂不交易'));
   }
   const report=cloudAccountPlanCardFixture();
   report.executionPlan.positionSizing.executionBlocked=true;
-  assert.match(cloudPlanCard(report).html,/等待条件触发/,'unrelated global sizing does not override this scenario');
+  assert.doesNotMatch(cloudPlanCard(report).html,/暂不交易/,'unrelated global sizing does not override this scenario');
   delete report.executionPlan.scenarios[0].positionSizing;
   assert.match(cloudPlanCard(report).html,/暂不交易/,'a legacy global sizing restriction remains visible');
 });

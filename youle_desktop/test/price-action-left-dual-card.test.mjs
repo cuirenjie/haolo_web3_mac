@@ -14,7 +14,8 @@ for(const route of ['protect','touch'])for(const locale of ['zh-CN','zh-Hant','e
   const result=fixtures[`${route}-${locale}`],report=cloudReportFromResponse(result)[0],before=structuredClone(report);
   const card=cloudPlanCard(report),language=locale==='zh-Hant'?'zh-TW':locale;
   assert.ok(card&&!card.readOnly);
-  assert.ok(card.html.includes(route==='protect'?(locale==='en'?'4h reclaim':'4小'):(locale==='en'?'1h zone-touch':'1小')));
+  assert.ok(card.content.includes(route==='protect'?(locale==='en'?'4h reclaim':'4小'):(locale==='en'?'1h zone-touch':'1小')));
+  assert.doesNotMatch(card.html,/Setup source|方案来源|方案來源|Maximum holding hours|最长持有|最長持有/);
   const parsed=normalizeTradingAiDrawingPatch(report.drawingPatch);
   const watchIds=report.drawingPatch.operations.filter(o=>o.drawing.id.includes('-left-watch-')).map(o=>o.drawing.id);
   assert.ok(watchIds.length);

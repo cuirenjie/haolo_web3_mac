@@ -45,8 +45,7 @@ for(const locale of ['zh-CN','zh-Hant','en'])for(const theme of ['light','dark']
   const report=cloudAccountPlanCardFixture(locale,direction),language=locale==='zh-Hant'?'zh-TW':locale;
   const saved=mergeCloudExecutionPlans([report],[])[0];saved.status=status;
   fixtures.push({id:`account-v2-${locale}-${direction}-${status}-${theme}-${width}`,width,fontSize,theme,status,
-    expected:['146.61','73.30','73.31','-1.38','+0.66','+1.60',locale==='en'?'Target position':locale==='zh-Hant'?'止盈倉位':'止盈仓位',
-      locale==='en'?'Wait for the trigger':locale==='zh-Hant'?'等待條件觸發':'等待条件触发'],
+    expected:['146.61','73.30','73.31','-1.38','+0.66','+1.60',locale==='en'?'Target position':locale==='zh-Hant'?'止盈倉位':'止盈仓位'],
     chat:renderCurrentReports([report]).rendered.cards,saved:renderCurrentSavedPlan(saved,language),
     sticky:executionPlanStickyHtml({cloudReport:report,language,theme,fontSize})});
 }
@@ -66,7 +65,7 @@ for(const theme of ['light','dark']){
   report.planRecords[0].scenario=structuredClone(scenario);
   const saved=mergeCloudExecutionPlans([report],[])[0];
   fixtures.push({id:`account-screenshot-original-copy-${theme}`,width:266,fontSize:12,theme,
-    expected:['建议开仓 65.66','止盈仓位 32.83','预计止损 -1.38','盈亏比 1:0.78','预计盈利 +0.53','盈亏比 1:1.66','预计盈利 +1.67','当前动作：等待条件触发'],
+    expected:['建议开仓 65.66','止盈仓位 32.83','预计止损 -1.38','盈亏比 1:0.78','预计盈利 +0.53','盈亏比 1:1.66','预计盈利 +1.67'],
     chat:renderCurrentReports([report]).rendered.cards,saved:renderCurrentSavedPlan(saved),
     sticky:executionPlanStickyHtml({cloudReport:report,language:'zh-CN',theme,fontSize:12})});
 }
@@ -106,6 +105,8 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
     const metrics=[...root.querySelectorAll('.execution-plan-metric')].map(e=>e.getBoundingClientRect());
     const heading=root.querySelector('.execution-plan-heading').getBoundingClientRect();
     const expiry=root.querySelector('.execution-plan-expiry');
+    const targetBounds=root.querySelector('.execution-plan-targets').getBoundingClientRect();
+    const toolbar=root.querySelector('.message-execution-plan-controls')?.getBoundingClientRect(),panel=content.getBoundingClientRect();
     const expiryStyle=expiry?root.ownerDocument.defaultView.getComputedStyle(expiry):null;
     const expirySingleLine=!expiry||(expiry.getBoundingClientRect().height<=parseFloat(expiryStyle.lineHeight)+1&&expiry.scrollWidth<=expiry.clientWidth+1);
     const bounds=card.getBoundingClientRect();
@@ -125,6 +126,9 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
      const r=e.getBoundingClientRect();return r.right>bounds.right+1||r.left<bounds.left-1;
     }).map(e=>({class:e.className,text:e.textContent}));
     return {name,width:bounds.width,scrollWidth:content.scrollWidth,clientWidth:content.clientWidth,overflow,expirySingleLine,expiryZone:!expiry||/\(UTC[+-]\d+(?::\d{2})?\)$/.test(expiry.textContent),expiryWithoutYear:!expiry||!/>?\b\d{4}-/.test(expiry.textContent),rightColumnAligned,leftInset,rightInset,
+     expiryBelowTargets:!expiry||expiry.getBoundingClientRect().top>=targetBounds.bottom,
+     controlsOutsideRight:!toolbar||(toolbar.top>=panel.bottom+7&&toolbar.right<=panel.right&&panel.right-toolbar.right<=17),
+     waitingCopyOmitted:!/等待条件触发|等待條件觸發|Wait for the trigger/.test(content.textContent),
      accountVisible:expected.every(value=>content.textContent.includes(value)),
      originalAccountCopy:[...content.querySelectorAll('.execution-plan-account-detail')].every(e=>!/(?:USDT|USDC|BUSD|BTC|×|计划仓位|計畫倉位|Planned size|全仓净盈亏|全倉淨盈虧|Net P&L)/.test(e.textContent)),
      metricsBelowHeading:metrics.every(r=>r.top>=heading.bottom-1),prices:root.querySelectorAll('.execution-plan-price').length,targets:root.querySelectorAll('.execution-plan-target').length,details:root.querySelectorAll('.execution-plan-details').length,expiry:root.querySelectorAll('.execution-plan-expiry').length,ratios:root.querySelectorAll('.execution-plan-ratio').length,pricesAligned:Math.abs(root.querySelectorAll('.execution-plan-price')[0].getBoundingClientRect().top-root.querySelectorAll('.execution-plan-price')[1].getBoundingClientRect().top)<1,
@@ -132,7 +136,7 @@ app.commandLine.appendSwitch('disable-background-timer-throttling');
      overflowingElements:[...content.querySelectorAll('*')].filter(e=>e.getBoundingClientRect().right>content.getBoundingClientRect().right+1).map(e=>({class:e.className,width:e.clientWidth,scroll:e.scrollWidth,text:e.textContent.slice(0,60)}))};
    });
   }).toString()+')('+JSON.stringify(f.expected||[])+')');
-  const bad=result.filter(r=>r.scrollWidth>r.clientWidth+1||r.overflow.length||!r.metricsBelowHeading||r.prices!==2||r.targets!==2||r.expiry!==(f.status==='executing'&&r.name==='saved'?0:1)||!r.expirySingleLine||!r.expiryZone||!r.expiryWithoutYear||!r.rightColumnAligned||(f.width===410&&Math.abs(r.leftInset-r.rightInset)>1)||r.ratios!==2||!r.pricesAligned||!r.accountVisible||!r.originalAccountCopy||((f.id.includes('-entry-v2-')||f.id.startsWith('account-v2-')||f.id.startsWith('account-screenshot-'))&&r.details!==1));
+  const bad=result.filter(r=>r.scrollWidth>r.clientWidth+1||r.overflow.length||!r.metricsBelowHeading||r.prices!==2||r.targets!==2||r.expiry!==(f.status==='executing'&&r.name==='saved'?0:1)||!r.expirySingleLine||!r.expiryZone||!r.expiryWithoutYear||!r.expiryBelowTargets||!r.controlsOutsideRight||!r.waitingCopyOmitted||!r.rightColumnAligned||(f.width===410&&Math.abs(r.leftInset-r.rightInset)>1)||r.ratios!==2||!r.pricesAligned||!r.accountVisible||!r.originalAccountCopy||((f.id.includes('-entry-v2-')||f.id.startsWith('account-v2-')||f.id.startsWith('account-screenshot-'))&&r.details!==0));
   results.push({id:f.id,result,passed:!bad.length});
   if(f.id.startsWith('price-action-')||f.id.startsWith('account-')||bad.length){
    await new Promise(resolve=>setTimeout(resolve,150));

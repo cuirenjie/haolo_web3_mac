@@ -39,7 +39,7 @@ for(const locale of ['zh-CN','zh-Hant','en'])test(`restored ${locale} cards shar
   for(const html of [rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language,title:card.title})]){
     assert.ok(html.includes(card.html));
     assert.equal((html.match(/<h2 /g)||[]).length,1);
-    assert.match(html,/class="execution-plan-details/);
+    assert.doesNotMatch(html,/等待条件触发|等待條件觸發|Wait for the trigger/);
   }
   assert.match(actions,/data-execution-plan-index="0"/);
   assert.equal(bindings[0][1].cloudReport.planRecords[0].id,original.executionPlan.planId);
@@ -60,9 +60,10 @@ test('all predicates, sides and modes preserve exact conditional prices and boun
     const card=cloudPlanCard(normalizeCloudReports([report])[0]);
     assert.ok(card.content.includes('0.04565741'));
     assert.ok(card.content.includes('0.04152439'));
-    assert.ok(card.html.includes(`execution-plan-price ${direction==='long'?'bullish':'bearish'}">0.045657`));
+    const leftZone=mode==='left'&&operator==='in_zone';
+    assert.ok(card.html.includes(`execution-plan-price ${direction==='long'?'bullish':'bearish'}">${leftZone&&direction==='short'?'0.047509':'0.045657'}`));
     if(operator==='in_zone'){
-      assert.ok(card.html.includes('0.045657 – 0.047509'));
+      assert.equal(card.html.includes('0.045657 – 0.047509'),!leftZone);
       assert.ok(card.content.includes('[0.04565741, 0.04750929]'));
     }
     assert.doesNotMatch(card.html,/建议开仓|预计盈利/);
@@ -78,7 +79,7 @@ test('breakout-retest keeps confirmation, zone, snapshot and live-evidence requi
     const entry=card.content.split('\n').find(line=>/^(入场条件|入場條件|Entry condition):/.test(line));
     assert.ok(entry);
     assert.ok(entry.includes(locale==='en'?'Fresh trades':locale==='zh-Hant'?'重新核驗':'重新核验'));
-    assert.match(card.html,/class="execution-plan-details/);
+    assert.doesNotMatch(card.html,/等待条件触发|等待條件觸發|Wait for the trigger/);
   }
 });
 
@@ -132,7 +133,7 @@ test('expiry uses device local time with an offset; executing list alone hides i
     const html=cloudPlanCard(report).html;
     assert.ok(html.includes(`>${local} (UTC`));
     assert.doesNotMatch(html.match(/<time[^>]*>([^<]+)<\/time>/)[1],/\d{4}-/);
-    assert.ok(html.indexOf('execution-plan-expiry')<html.indexOf('execution-plan-price'));
+    assert.ok(html.indexOf('execution-plan-expiry')>html.lastIndexOf('execution-plan-target'));
     const saved=mergeCloudExecutionPlans([report],[])[0];
     for(const status of ['pending','ended','executing']){
       const markup=renderCurrentSavedPlan({...saved,status});
