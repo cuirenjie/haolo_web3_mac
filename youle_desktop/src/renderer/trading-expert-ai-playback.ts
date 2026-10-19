@@ -49,6 +49,7 @@ export type TradingAiDrawingColorToken =
   | "strategy-note";
 
 export interface TradingAiDrawing {
+  entryConditionRef?: {conditionId:string;revision:number;conditionHash:string};
   id: string;
   strategyId?: string;
   symbol: string;
@@ -68,6 +69,8 @@ export interface TradingAiDrawing {
   evidenceIds: string[];
 }
 export interface TradingAiDrawingPatch {
+  resultPolicy?: 'entry-v2';
+  entryConditionRef?: {conditionId:string;revision:number;conditionHash:string};
   schemaVersion: 1;
   analysisId: string;
   baseRevision: number;
@@ -107,6 +110,7 @@ export interface TradingIndicatorAiDrawingPatch {
   marketId: string;
   interval: string;
   indicatorId: string;
+  entryConditionRef?: {conditionId:string;revision:number;conditionHash:string};
   operations: Array<{ op: "upsert"; drawing: TradingIndicatorAiDrawing }>;
 }
 

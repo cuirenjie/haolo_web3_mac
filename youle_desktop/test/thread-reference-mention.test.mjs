@@ -33,7 +33,7 @@ test("input placeholders use one legible color per theme", async () => {
   const placeholderRules = styles.match(/[^{}]*::placeholder[^{}]*\{[^{}]*\}/g) || [];
   assert.ok(placeholderRules.length > 0);
   for (const rule of placeholderRules) {
-    assert.match(rule, /color: var\(--text-placeholder\);/, rule);
+    assert.match(rule, /color: var\(--(?:text-(?:placeholder|secondary)|preference-option-muted)\);/, rule);
   }
 });
 

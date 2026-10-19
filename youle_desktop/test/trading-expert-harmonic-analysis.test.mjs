@@ -681,12 +681,12 @@ test("renderer discovers harmonic metadata and requests enough closed candles wi
   const catalog = fs.readFileSync(path.join(root, "src", "renderer", "trading-strategy-runtime", "catalog.ts"), "utf8");
   const market = fs.readFileSync(path.join(root, "src", "renderer", "trading-expert-market.ts"), "utf8");
   const renderer = fs.readFileSync(path.join(root, "src", "renderer", "main.ts"), "utf8");
-  assert.match(catalog, /builtins\/\*\/strategy\.json/);
+  assert.match(catalog, /OFFICIAL_TRADING_CATALOG/);
   assert.match(catalog, /buildTradingHarmonicExpertPrompt/);
   assert.match(catalog, /dataRequirements\?: Record<string/);
   assert.match(market, /minimumCandles/);
   assert.match(market, /preferredCandles/);
-  assert.match(market, /analysisWindowCount/);
+  assert.match(market, /cloudAnalysisWindow/);
   assert.match(market, /captureSplitPaneAnalysisSnapshots\(\s*requestedLookbackMs,\s*preferredCandles,/);
   assert.match(renderer, /minimumCandles:\s*strategy\.dataRequirements/);
   assert.match(renderer, /preferredCandles:\s*strategy\.dataRequirements/);

@@ -252,70 +252,16 @@ test("group add entries use a cascading create-or-existing folder menu", async (
   );
 });
 
-test("titlebar more menu cascades from channels into WeChat, Feishu, and Telegram", async () => {
-  const source = await mainSource;
-  const actionBlock = sourceBlock(
-    source,
-    "function renderTitlebarPrimaryActions",
-    "function renderWindowControls",
-  );
-
-  assert.match(actionBlock, /data-action="toggle-external-channel-menu"/);
-  assert.match(actionBlock, /aria-haspopup="menu"/);
-  assert.match(actionBlock, /class="titlebar-primary-action titlebar-channel-trigger[\s\S]*data-action="toggle-external-channel-menu"[\s\S]*renderTitlebarPlugIcon\(\)[\s\S]*<span class="titlebar-channel-label">连手机<\/span>/);
-  assert.doesNotMatch(actionBlock, /titlebar-more-menu|open-auto-task-dialog|renderTitlebarAlarmIcon/);
-  assert.doesNotMatch(actionBlock, /renderConversationListIcon|<svg/);
-
-  const menuBlock = sourceBlock(
-    source,
-    "function renderExternalChannelMenu",
-    "function renderExternalChannelRow",
-  );
-  assert.match(menuBlock, /class="external-channel-menu" role="menu"/);
-  assert.doesNotMatch(menuBlock, /external-channel-menu-title/);
-  assert.doesNotMatch(menuBlock, />连接渠道</);
-
-  const menuItemsBlock = sourceBlock(
-    source,
-    "function externalChannelMenuItems",
-    "function externalChannelSubtitle",
-  );
-  assert.match(menuItemsBlock, /\["wechat", "feishu", "telegram"\]/);
-
-  const eventBindings = source.slice(source.indexOf("function bindEvents"));
-  const bindBlock = sourceBlock(
-    eventBindings,
-    "'[data-action=\"toggle-external-channel-menu\"]'",
-    '"[data-external-channel-id]"',
-  );
-  assert.match(bindBlock, /\[data-action="toggle-external-channel-menu"\]/);
-  assert.match(bindBlock, /mouseenter/);
-  assert.match(bindBlock, /focus/);
-  assert.match(bindBlock, /primeExternalChannelMenu\(\)/);
-
-  const cascadeBindings = sourceBlock(source, "function bindCascadeMenuHoverEvents", "function bindEvents");
-  assert.match(cascadeBindings, /\.titlebar-more-channel-item/);
-  assert.match(cascadeBindings, /item\.classList\.add\("submenu-open"\)/);
-  assert.match(cascadeBindings, /trigger\.setAttribute\("aria-expanded", "true"\)/);
-
-  const styles = await stylesSource;
-  assert.match(
-    styles,
-    /\.titlebar-more-menu-overlay\s*\{[\s\S]*position:\s*absolute;[\s\S]*top:\s*100%;[\s\S]*z-index:\s*90;[\s\S]*display:\s*none;[\s\S]*width:\s*164px;[\s\S]*padding-top:\s*5px;/,
-  );
-  assert.match(
-    styles,
-    /\.titlebar-more-action\.menu-open > \.titlebar-more-menu-overlay\s*\{[^}]*display:\s*block;/,
-  );
-  assert.match(styles, /\.titlebar-more-channel-item > \.external-channel-menu\s*\{[^}]*left:\s*calc\(100% \+ var\(--titlebar-channel-submenu-offset\)\);[^}]*display:\s*none;/s);
-  assert.match(styles, /\.titlebar-more-channel-item > \.external-channel-menu::before\s*\{[^}]*top:\s*-8px;[^}]*height:\s*calc\(100% \+ 16px\);[^}]*pointer-events:\s*auto;/s);
-  assert.match(styles, /\.titlebar-more-channel-item:hover > \.external-channel-menu,[\s\S]*?\.titlebar-more-channel-item\.submenu-open > \.external-channel-menu\s*\{[^}]*display:\s*block;/s);
-  assert.match(styles, /\.external-channel-row:is\(:hover, :focus-visible\)\s*\{[^}]*background:\s*var\(--surface-hover\);/);
-  assert.match(styles, /\.external-channel-row:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--conversation-action-focus\);/);
-  assert.match(styles, /\.external-channel-row:active\s*\{[^}]*background:\s*var\(--surface-interactive-hover\);/);
-  assert.match(styles, /html\[data-theme="dark"\] \.external-channel-menu[\s\S]*background:\s*#1b1e23;/);
-  assert.match(styles, /html\[data-theme="dark"\] \.titlebar-more-menu,/);
-  assert.doesNotMatch(styles, /chat-new-menu/);
+test("titlebar more menu cascades from channels into WeChat, Feishu, and Telegram", async()=>{
+  const source=await mainSource;
+  const block=sourceBlock(source,'function renderTitlebarPrimaryActions','function renderWindowControls');
+  assert.match(block,/data-action="toggle-external-channel-menu"/);
+  assert.match(block,/aria-haspopup="menu" aria-controls="titlebarExternalChannelMenu"/);
+  assert.match(block,/aria-expanded="\$\{channelMenuOpen/);
+  assert.match(block,/renderTitlebarPlugIcon\(\)/);
+  assert.match(block,/externalChannelMenuItems\(\)\.map\(renderExternalChannelRow\)/);
+  const items=sourceBlock(source,'function externalChannelMenuItems','function externalChannelSubtitle');
+  assert.match(items,/\["wechat", "feishu", "telegram"\]/);
 });
 
 test("new group folder dialog creates a real folder before importing it", async () => {

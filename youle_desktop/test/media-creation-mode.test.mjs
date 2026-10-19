@@ -1,3 +1,4 @@
+import {displayModelAliasForSelection,isGpt6SolDisplayModel,migrateGpt6SolSelection} from "../src/main/gpt6-sol-alias-policy.mjs";
 import { withAnalysisModelRecoveryPolicy } from "../src/main/analysis-model-policy.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -50,7 +51,7 @@ function expandedComposerHarness({ recoveryState = null } = {}) {
     tradingIds: new Set(["trading-existing"]),
   };
   const context = {
-    state: fixture.state, newThreadModeByThreadId: fixture.modes, tradingExpertThreadIds: fixture.tradingIds,
+    explicitModelSelectionForThread:()=>false, displayModelAliasForSelection,isGpt6SolDisplayModel,migrateGpt6SolSelection, modelMembershipAccess:()=>({allowed:true}), state: fixture.state, newThreadModeByThreadId: fixture.modes, tradingExpertThreadIds: fixture.tradingIds,
     providerDraftThreadIds: new Set(), chatModelOptions: [gpt, deepSeek],
     isTradingExpertThreadId: (id) => fixture.tradingIds.has(id),
     providerFromThreadId: (id) => id === "provider-thread" ? "codex" : null,
@@ -130,8 +131,9 @@ test("expanded trading conversations expose media models without enabling other 
 
 test("an established trading conversation switches image/video/execution in place and keeps its draft and GPT media routing", async () => {
   const fixture = expandedComposerHarness();
+  fixture.modes.set("trading-existing","image-generation");
   const draft = structuredClone(fixture.state);
-  for (const [kind, model, mode] of [["image", "gpt-image-1", "image-generation"], ["video", "grok-imagine-video-1.5", "video-generation"]]) {
+  for (const [kind, model, mode] of [["video", "grok-imagine-video-1.5", "video-generation"], ["image", "gpt-image-1", "image-generation"]]) {
     assert.equal(await fixture.selectComposerModelForThread("trading-existing", { value: model }, kind), true);
     assert.equal(fixture.newThreadModeForThread("trading-existing"), mode);
     assert.equal(fixture.currentId, "trading-existing");

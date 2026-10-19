@@ -71,7 +71,7 @@ test("chart navigation is detached from analysis cancellation and IPC cancellati
 
   assert.doesNotMatch(restartBlock, /cancelTradingAnalysis|cancelChanAnalysis/);
   assert.doesNotMatch(destroyBlock, /cancelTradingAnalysis|cancelChanAnalysis/);
-  assert.equal((market.match(/const job = tradingAnalysisJobs\.start\(\{/g) || []).length, 5);
+  assert.equal((market.match(/const job = tradingAnalysisJobs\.start\(\{/g) || []).length, 1);
   const activeRunnerSection = renderer.slice(
     renderer.indexOf("async function runTradingGeneralChartRequest"),
     renderer.indexOf("function hasUploadingAttachments"),

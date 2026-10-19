@@ -62,14 +62,14 @@ test("price-action execution consumes the send snapshot and persists drawings to
   );
 
   assert.match(generalRun, /const capturedTarget = request\.analysisTarget \|\| null/);
-  assert.match(generalRun, /capturedTarget!\.candles\.map/);
-  assert.match(generalRun, /capturedTarget!\.visibleCandles\.map/);
+  assert.doesNotMatch(generalRun, /candles: .*\.map/);
+  assert.match(generalRun, /\.\.\.capturedTarget!\.visibleCandles/);
   assert.match(generalRun, /storageSessionId: capturedTarget\?\.storageSessionId \|\| this\.drawingStorageSessionId/);
   assert.match(generalRun, /marketId: targetMarket\.id/);
   assert.match(generalRun, /interval: targetInterval/);
-  assert.match(generalRun, /const analysisSnapshotTime = currentSnapshotRefreshed \? Date\.now\(\) : \(capturedTarget\?\.capturedAt \|\| Date\.now\(\)\)/);
+  assert.match(generalRun, /const analysisSnapshotTime = Date\.now\(\)/);
   assert.match(generalRun, /snapshotTime: analysisSnapshotTime/);
-  assert.match(generalRun, /useCapturedTarget[\s\S]*?snapshots: \[\] as TradingSplitPaneAnalysisSnapshot\[\]/);
+  assert.match(generalRun, /useCapturedTarget[\s\S]*?snapshots:\s*\[\] as TradingSplitPaneAnalysisSnapshot\[\]/);
 
   assert.match(drawingCommit, /patch\.marketId !== currentJob\.marketId \|\| patch\.interval !== currentJob\.interval/);
   assert.match(drawingCommit, /activeWorkspace\?\.drawingStorageSessionMatches\(currentJob\.storageSessionId\)/);

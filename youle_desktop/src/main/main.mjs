@@ -42,7 +42,13 @@ import { GitHubMcpBridge } from "./github-mcp-bridge.mjs";
 import { PersonalContextMcpBridge } from "./personal-context/mcp-bridge.mjs";
 import { PersonalContextService } from "./personal-context/service.mjs";
 import { PersonalMemoryStore } from "./personal-context/memory-store.mjs";
-import { createTradingPreferenceSaver } from "./personal-context/trading-preference-compiler.mjs";
+import { createCloudTradingPreferences } from "./personal-context/cloud-trading-preferences.mjs";
+import { createCloudStrategyRuntime } from "./trading-strategy-runtime/cloud-runtime.mjs";
+import {createCloudPlans} from './trading-strategy-runtime/cloud-plans.mjs';
+import {createCloudAlertFeed} from './trading-strategy-runtime/cloud-alert-feed.mjs';
+import {cloudAlertNotification} from './cloud-alert-view.mjs';
+import { CloudRunJournal } from "./trading-strategy-runtime/cloud-run-journal.mjs";
+import { cloudStrategyFailure } from "./trading-strategy-runtime/cloud-error.mjs";
 import { parseExplicitMarketAliasMemory } from "./personal-context/alias-memory.mjs";
 import {
   PersonalStrategyError,
@@ -248,14 +254,7 @@ import {
   updateTradingTranscriptIndex,
   withTradingTranscriptHistory,
 } from "./trading-expert-transcript.mjs";
-import { BUILTIN_TRADING_STRATEGY_ADAPTERS } from "./trading-strategy-runtime/builtins/index.mjs";
-import { TradingStrategyCoordinator } from "./trading-strategy-runtime/coordinator.mjs";
-import {
-  tradingStrategyRuntimeEnabled,
-  tradingStrategyShadowMode,
-} from "./trading-strategy-runtime/feature-flags.mjs";
-import { createTradingStrategyRegistry } from "./trading-strategy-runtime/registry.mjs";
-import { runTradingPriceActionAnalysisPipeline } from "./trading-analysis/price-action-pipeline.mjs";
+import { CloudTradingCatalog } from './trading-strategy-runtime/cloud-catalog.mjs';
 import {
   buildGeneralRequestRoutingPrompt,
   deterministicGeneralRequestRouting,
@@ -291,7 +290,6 @@ import { tradingAnalysisFailureDiagnostic } from "./trading-analysis/diagnostics
 // HAOLO-TURN-DIAGNOSTICS-BEGIN: optional model diagnostic import
 import { tradingAnalysisModelDiagnostic } from "./trading-analysis/diagnostics.mjs";
 // HAOLO-TURN-DIAGNOSTICS-END: optional model diagnostic import
-import { withPersonalTradingRisk } from "./trading-analysis/personal-risk-context.mjs";
 import { TradingAlertService } from "./trading-alerts/service.mjs";
 import { createBinanceMarketAdapter } from "./trading-alerts/binance-market-adapter.mjs";
 import { tradingAlertsEnabled, tradingAlertsShadowMode } from "./trading-alerts/feature-flag.mjs";
@@ -4833,10 +4831,10 @@ async function buildPersonalTradingPreferenceDeveloperInstructions() {
   }
   let profile;
   try {
-    profile = await getPersonalMemoryStore().tradingRiskProfile(owner.ownerId);
+    profile = (await cloudTradingPreferences.effective()).profile;
   } catch (error) {
-    console.warn("[personal-context] failed to load trading preferences", safeLogToken(error?.message || error));
-    return "";
+    console.warn("[personal-context] cloud trading preferences unavailable", String(error?.code || "PREFERENCE_UNAVAILABLE"));
+    return "The account's authoritative trading preferences are unavailable or have an unresolved migration conflict. You may answer unrelated questions, but must not propose an executable trade, position size or claim compliance with saved risk limits until the configuration is resolved in trading settings.";
   }
   if (!profile?.entries?.length) return "";
   const summarizedPreferenceKeys = new Set([
@@ -10990,7 +10988,7 @@ function compactTradingAutomationAnalysis(route, result, artifactPath) {
 
 async function executeTradingAutomationAnalysis({ job, run, prompt, abortController, eventWrites }) {
   if (!isTradingAutomationJob(job)) return null;
-  const coordinator = getTradingStrategyCoordinator();
+  const coordinator = getCloudTradingCatalog();
   const strategies = coordinator.listStrategies().strategies;
   const route = resolveTradingAutomationRoute({
     prompt,
@@ -11008,41 +11006,15 @@ async function executeTradingAutomationAnalysis({ job, run, prompt, abortControl
     error.code = "TRADING_AUTOMATION_PROVIDER_UNSUPPORTED";
     throw error;
   }
-  const candles = await tradingAutomationFetchCandles(route, route.interval, 600, abortController.signal);
-  if (candles.length < 30) {
-    const error = new Error(`自动任务交易链路只取得 ${candles.length} 根有效 K 线，无法完成分析`);
-    error.code = "TRADING_AUTOMATION_CANDLES_INSUFFICIENT";
-    throw error;
-  }
+  const strategyId = route.strategyId || 'price-action';
   const baseParams = {
-    schemaVersion: 1,
-    marketId: route.marketId,
-    symbol: route.symbol,
-    interval: route.interval,
-    snapshotTime: Date.now(),
-    candles,
-    instruction: String(prompt || "").trim(),
-    drawingRequested: true,
-    executionPlanRequested: true,
-    language: appLanguage(),
+    marketId:route.marketId,symbol:route.symbol,interval:route.interval,
+    analysisWindowCount:600,instruction:String(prompt||'').trim(),
+    drawingRequested:true,executionPlanRequested:true,language:appLanguage(),
   };
-  const strategyId = route.strategyId || "price-action";
-  const strategy = strategies.find((candidate) => candidate.id === strategyId);
-  if (strategy?.dataRequirements?.["context-candles"]) {
-    baseParams.contextCandles = strategyId === "wave"
-      ? await tradingAutomationWaveContextCandles(route, abortController.signal)
-      : await tradingAutomationContextCandles(route, abortController.signal);
-  }
-  if (strategy?.dataRequirements?.["comparison-candles"]) {
-    baseParams.comparisonMarkets = await tradingAutomationComparisonMarkets(route, abortController.signal);
-  }
-  if (route.strategyId === "order-flow") {
-    baseParams.orderFlow = await tradingAutomationOrderFlow(route, candles, abortController.signal);
-  }
   const personalizedParams = await tradingStrategyParamsWithPersonalRisk(baseParams);
-  const result = await coordinator.run(
-    strategyId,
-    tradingStrategyParamsWithReadOnlyBinanceAccount(personalizedParams),
+  const result = await getCloudStrategyRuntime().run(
+    strategyId, {...personalizedParams, analysisJobId:`automation:${run.id}`},
     { signal: abortController.signal },
   );
   const report = String(
@@ -11068,7 +11040,7 @@ async function executeTradingAutomationAnalysis({ job, run, prompt, abortControl
       strategyId: tradingAnalysis.route.strategyId,
       marketId: route.marketId,
       interval: route.interval,
-      candleCount: candles.length,
+      candleCount: result.snapshot?.candles?.length || 0,
       analysisId: tradingAnalysis.analysisId,
       hasExecutionPlan: Boolean(tradingAnalysis.executionPlan),
       hasDrawingPatch: tradingAnalysis.drawingArtifact.available,
@@ -14596,8 +14568,7 @@ const activeTradingAnalysisControllers = new Map();
 const activeTradingRoutingControllers = new Map();
 const activeTradingAlertIntentControllers = new Map();
 let tradingAnalysisModelRegistry = null;
-let tradingStrategyRegistry = null;
-let tradingStrategyCoordinator = null;
+let cloudTradingCatalog = null;
 
 function cancelTradingAnalysisRequestsForWebContents(ownerId) {
   const prefix = `${ownerId}\u0000`;
@@ -15416,22 +15387,24 @@ async function runPersonalStrategyRequest(strategyId, params = {}) {
   };
 }
 
-function getTradingStrategyRegistry() {
-  if (tradingStrategyRegistry) return tradingStrategyRegistry;
-  tradingStrategyRegistry = createTradingStrategyRegistry({
-    adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS,
+let cloudStrategyRuntime;
+function getCloudStrategyRuntime() {
+  if (cloudStrategyRuntime) return cloudStrategyRuntime;
+  cloudStrategyRuntime = createCloudStrategyRuntime({
+    owner: requireHaoloAccountOwner, api: getYouleApiClient,
+    journal: new CloudRunJournal({storagePath:path.join(app.getPath("userData"), "cloud-strategy-runs.bin"), safeStorage}),
+    connection: async (_owner, target) => {
+      if (!target.marketKey.startsWith("binance:usdm:") || !target.marketKey.endsWith("USDT")) return null;
+      const connections = await readSharedBinanceAccountConnections();
+      const authorized = connections.find(item => item.analysisConsent === true && item.credentialsBound === true);
+      return {id:authorized?.id || null, unavailable:connections.length > 0 && !authorized};
+    },
   });
-  return tradingStrategyRegistry;
+  return cloudStrategyRuntime;
 }
 
-function getTradingStrategyCoordinator() {
-  if (tradingStrategyCoordinator) return tradingStrategyCoordinator;
-  tradingStrategyCoordinator = new TradingStrategyCoordinator({
-    registry: getTradingStrategyRegistry(),
-    modelRegistry: getTradingAnalysisModelRegistry(),
-    providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-  });
-  return tradingStrategyCoordinator;
+function getCloudTradingCatalog() {
+  return cloudTradingCatalog ||= new CloudTradingCatalog({modelRegistry:getTradingAnalysisModelRegistry(),providerId:DEFAULT_TRADING_ANALYSIS_PROVIDER_ID});
 }
 
 async function classifyTradingStrategyRequest(event, strategyId, params = {}) {
@@ -15443,7 +15416,7 @@ async function classifyTradingStrategyRequest(event, strategyId, params = {}) {
       return personalStrategyErrorEnvelope(error, "TRADING_STRATEGY_ROUTING_FAILED");
     }
   }
-  const coordinator = getTradingStrategyCoordinator();
+  const coordinator = getCloudTradingCatalog();
   const errors = coordinator.strategyErrors(strategyId);
   const ownerId = event.sender.id;
   activeTradingRoutingControllers.get(ownerId)?.abort(
@@ -15490,7 +15463,7 @@ async function classifyExternalTradingRequest(event, params = {}) {
   );
   const controller = new AbortController();
   activeTradingRoutingControllers.set(ownerId, controller);
-  const coordinator = getTradingStrategyCoordinator();
+  const coordinator = getCloudTradingCatalog();
   const strategies = coordinator.listStrategies().strategies.filter((strategy) => strategy.enabled !== false);
   const requestId = `external-trading-route-${crypto.randomUUID()}`;
   const text = String(params?.text || "").replace(/\u0000/g, "").slice(0, 12_000);
@@ -15642,16 +15615,9 @@ async function tradingStrategyParamsWithPersonalRisk(params = {}) {
     }
     throw error;
   }
-  return withPersonalTradingRisk(params, {
-    ownerId: owner.ownerId,
-    memoryStore: getPersonalMemoryStore(),
-    // HAOLO-TURN-DIAGNOSTICS-BEGIN: optional personal risk recovery event
-    onUnavailable: (error) => recordTurnDiagnostic("trading.analysis.personal_risk_unavailable", {
-      ...tradingAnalysisFailureDiagnostic(error, { ...params, stage: "preparation" }),
-      recovery: "market_analysis_only",
-    }),
-    // HAOLO-TURN-DIAGNOSTICS-END: optional personal risk recovery event
-  });
+  const preferences = await cloudTradingPreferences.effective();
+  return { ...params, userRiskProfile: preferences.profile, preferencesRevision: preferences.revision,
+    preferencesHash: preferences.configHash, entryMode:preferences.profile.entryMode };
 }
 
 async function loadTradingStrategyReadOnlyBinanceAccountContext() {
@@ -15807,93 +15773,26 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
       return personalStrategyErrorEnvelope(error, "TRADING_STRATEGY_ANALYSIS_FAILED");
     }
   }
-  const coordinator = getTradingStrategyCoordinator();
-  const registry = getTradingStrategyRegistry();
-  const selectedAnalysisModel = firstString(params.model, params.modelId, params.model_id);
-  const selectedModelRegistry = getTradingAnalysisModelRegistry(selectedAnalysisModel, {
-    explicitModelSelection: params.explicitModelSelection === true,
-  });
-  const analysisJobId = String(params?.analysisJobId || "").trim().slice(0, 200);
-  const errors = coordinator.strategyErrors(strategyId);
-  const { controller, controllerKey } = beginTradingAnalysisRequest(
-    event,
-    params,
-    errors.replacementMessage,
-  );
+  const errors = {analysisCode: "CLOUD_ANALYSIS_FAILED", analysisFailureMessage: "云端策略分析暂不可用，请稍后重试。",
+    analysisCancelledMessage: "策略分析已取消", replacementMessage: "A newer strategy analysis replaced this request"};
+  const { controller, controllerKey } = beginTradingAnalysisRequest(event, params, errors.replacementMessage);
   try {
     const personalizedParams = await tradingStrategyParamsWithPersonalRisk({
-      ...params,
-      language: normalizeAppLanguage(params.language || appLanguage()),
+      ...params, language: normalizeAppLanguage(params.language || appLanguage()),
     });
-    if (!tradingStrategyRuntimeEnabled(strategyId)) {
-      const adapter = registry.adapter(strategyId);
-      if (!adapter) {
-        const error = new Error("Trading strategy implementation is unavailable");
-        error.code = "TRADING_STRATEGY_IMPLEMENTATION_UNAVAILABLE";
-        throw error;
-      }
-      return await adapter.run(personalizedParams, {
-        modelRegistry: selectedModelRegistry,
-        providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-        signal: controller.signal,
-      });
-    }
-    const executionParams = tradingStrategyParamsWithReadOnlyBinanceAccount(personalizedParams);
-    const result = await coordinator.run(strategyId, executionParams, {
+    return await getCloudStrategyRuntime().run(strategyId, personalizedParams, {
       signal: controller.signal,
-      modelRegistry: selectedModelRegistry,
-      onStageTiming: (stage) => {
-        console.info("[trading-analysis] stage completed", {
-          strategyId,
-          analysisJobId,
-          ...stage,
-        });
+      onProgress: stage => {
         sendToEventSender(event.sender, "tradingStrategy:progress", {
-          analysisJobId,
-          strategyId,
-          ...stage,
-        });
-      },
-      onTheoryReady: (stage) => {
-        console.info("[trading-analysis] deterministic theory ready", {
-          strategyId,
-          analysisJobId,
-          ...stage,
-        });
-        sendToEventSender(event.sender, "tradingStrategy:progress", {
-          analysisJobId,
-          strategyId,
-          ...stage,
+          analysisJobId: normalizeTradingAnalysisJobId(params), strategyId, ...stage,
         });
       },
     });
-    if (result?.ok === false) recordTradingAnalysisFailure(result.error, { ...params, strategyId });
-    if (tradingStrategyShadowMode(strategyId)) {
-      if (!result?.ok || !result?.strategyResult || !result?.executionPlan) {
-        const error = new Error("Strategy shadow validation did not produce the required contracts");
-        error.code = "TRADING_STRATEGY_SHADOW_MISMATCH";
-        throw error;
-      }
-    }
-    return result;
   } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
     const diagnosticId = recordTradingAnalysisFailure(error, { ...params, strategyId });
-    return {
-      ok: false,
-      error: {
-        diagnosticId,
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || errors.analysisCode),
-        message: cancelled
-          ? errors.analysisCancelledMessage
-          : String(error?.message || errors.analysisFailureMessage).slice(0, 300),
-        retryable: error?.retryable === true,
-        status: error?.status,
-        category: error?.category,
-      },
-    };
+    return {ok:false,error:{diagnosticId,...cloudStrategyFailure(error, {
+      language:normalizeAppLanguage(params.language || appLanguage()), aborted:controller.signal.aborted,
+    })}};
   } finally {
     finishTradingAnalysisRequest(controllerKey, controller);
   }
@@ -15901,7 +15800,7 @@ async function runTradingStrategyRequest(event, strategyId, params = {}) {
 
 ipcMain.handle("tradingStrategy:list", async (event) => {
   assertExternalModelsIpcSender(event);
-  const base = getTradingStrategyCoordinator().listStrategies();
+  const base = getCloudTradingCatalog().listStrategies();
   try {
     const ownerId = await personalStrategyOwner();
     const personal = await getPersonalStrategyService().list(ownerId, { includeDrafts: false });
@@ -16012,23 +15911,38 @@ ipcMain.handle("personalStrategy:feedback", async (event, params = {}) => {
 
 ipcMain.handle("personalContext:getTradingPreferences", async (event) => {
   assertExternalModelsIpcSender(event);
-  const owner = await requireHaoloAccountOwner();
-  const profile = await getPersonalMemoryStore().tradingRiskProfile(owner.ownerId);
-  return {
-    ok: true,
-    completed: profile.onboardingCompleted === true,
-    profile,
-  };
+  return cloudTradingPreferences.load();
 });
 
-const saveTradingPreferenceSettings = createTradingPreferenceSaver({
+const cloudTradingPreferences = createCloudTradingPreferences({
   owner: requireHaoloAccountOwner,
+  api: getYouleApiClient,
   store: getPersonalMemoryStore,
-  analyze: (request, options) => getTradingAnalysisModelRegistry().analyze(DEFAULT_TRADING_ANALYSIS_PROVIDER_ID, request, options),
 });
+function cloudTradingPreferenceFailure(error) {
+  const detail = error?.payload?.detail || error?.detail || {};
+  const code = String(detail.code || error?.code || "TRADING_PREFERENCE_SAVE_FAILED");
+  const messages = {
+    PREFERENCE_VERSION_CONFLICT: "其他设备已修改交易偏好，请重新加载后核对；本次修改尚未保存。",
+    PREFERENCE_IMPORT_RESOLUTION_REQUIRED: "请先核对本地与云端的交易偏好。",
+    PREFERENCE_SAVE_PENDING: "交易偏好正在保存，请稍候。",
+    TRADING_PREFERENCE_SAVE_PENDING: "交易偏好正在保存，请稍候。",
+    TRADING_PREFERENCE_OWNER_CHANGED: "登录账号已变化，请重新打开交易偏好。",
+    TRADING_PREFERENCE_NOT_UNDERSTOOD: "自定义内容无法明确理解或与其他设置冲突，请修改。",
+    TRADING_PREFERENCE_MODEL_UNAVAILABLE: "大模型理解服务暂不可用或请求超时，请稍后重试。",
+  };
+  return { ok: false, error: { code, fieldId: String(detail.fieldId || ""),
+    message: messages[code] || "交易偏好保存失败，已保留你的修改，请重试。" } };
+}
 ipcMain.handle("personalContext:saveTradingPreferences", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
-  return saveTradingPreferenceSettings(params);
+  try { return await cloudTradingPreferences.save(params); }
+  catch (error) { return cloudTradingPreferenceFailure(error); }
+});
+ipcMain.handle("personalContext:resolveTradingPreferenceImport", async (event, resolutions = {}) => {
+  assertExternalModelsIpcSender(event);
+  try { return await cloudTradingPreferences.resolveImport(resolutions); }
+  catch (error) { return cloudTradingPreferenceFailure(error); }
 });
 
 ipcMain.handle("tradingStrategy:classify", async (event, params = {}) => (
@@ -16199,6 +16113,40 @@ ipcMain.handle("tradingAnalysis:runWyckoff", async (event, params = {}) => {
   return runTradingStrategyRequest(event, "wyckoff", params);
 });
 
+ipcMain.handle("tradingCloud:recovery", async (event, params = {}) => {
+  assertExternalModelsIpcSender(event);
+  try {
+    const runtime = getCloudStrategyRuntime();
+    const key = String(params.key || "");
+    if (params.action === "list") return {ok:true,items:await runtime.pending()};
+    if (!key || key.length > 250) throw new Error("INVALID_RECOVERY_KEY");
+    if (params.action === "resume") return {ok:true,result:await runtime.resume(key,{timeoutMs:1500})};
+    if (params.action === "cancel") return {ok:true,...await runtime.cancel(key)};
+    if (params.action === "acknowledge") {await runtime.acknowledge(key);return {ok:true};}
+    if (params.action === "acknowledgeGroup") {await runtime.acknowledgeGroup(key);return {ok:true};}
+    throw new Error("INVALID_RECOVERY_ACTION");
+  } catch(error) {return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})};}
+});
+
+const cloudPlans = createCloudPlans({owner:requireHaoloAccountOwner,api:getYouleApiClient});
+let cloudAlertFeed;
+function getCloudAlertFeed() {
+  return cloudAlertFeed ||= createCloudAlertFeed({owner:requireHaoloAccountOwner,api:getYouleApiClient,
+    journal:new CloudRunJournal({storagePath:path.join(app.getPath('userData'),'cloud-alert-events.bin'),safeStorage}),
+    notify:async event=>{await showTaskCompletedSystemNotification({...cloudAlertNotification(event,appLanguage())});},
+    changed:feed=>sendToRenderer('tradingCloud:alertFeed',feed)});
+}
+ipcMain.handle('tradingCloud:alertFeed',async event=>{
+  assertExternalModelsIpcSender(event);
+  try {await getCloudAlertFeed().refresh();return {ok:true,...await getCloudAlertFeed().snapshot()};}
+  catch(error){return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})};}
+});
+ipcMain.handle('tradingCloud:plans', async (event, params={})=>{
+  assertExternalModelsIpcSender(event);
+  try {return {ok:true,...await cloudPlans.perform(params.action,params.input)};}
+  catch(error) {return {ok:false,error:cloudStrategyFailure(error,{language:appLanguage()})};}
+});
+
 ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
   assertExternalModelsIpcSender(event);
   const { controller, controllerKey } = beginTradingAnalysisRequest(
@@ -16216,34 +16164,12 @@ ipcMain.handle("tradingAnalysis:runGeneral", async (event, params = {}) => {
       language: normalizeAppLanguage(params.language || appLanguage()),
     });
     stage = "analysis";
-    return await runTradingPriceActionAnalysisPipeline(
-      tradingStrategyParamsWithReadOnlyBinanceAccount(personalizedParams),
-      {
-        modelRegistry: getTradingAnalysisModelRegistry(firstString(params.model, params.modelId, params.model_id), {
-          explicitModelSelection: params.explicitModelSelection === true,
-        }),
-        providerId: DEFAULT_TRADING_ANALYSIS_PROVIDER_ID,
-        signal: controller.signal,
-      },
-    );
+    return await getCloudStrategyRuntime().run("price-action", {...personalizedParams,analysisKind:"general"}, {signal:controller.signal});
   } catch (error) {
-    const cancelled = controller.signal.aborted || String(error?.name || "") === "AbortError";
     const diagnosticId = recordTradingAnalysisFailure(error, { ...params, strategyId: "general", stage });
-    return {
-      ok: false,
-      error: {
-        diagnosticId,
-        code: cancelled
-          ? "TRADING_ANALYSIS_CANCELLED"
-          : String(error?.code || "TRADING_GENERAL_ANALYSIS_FAILED"),
-        message: cancelled
-          ? "盘面分析已取消"
-          : String(error?.message || "盘面分析失败").slice(0, 300),
-        retryable: error?.retryable === true,
-        status: error?.status,
-        category: error?.category,
-      },
-    };
+    return {ok:false,error:{diagnosticId,...cloudStrategyFailure(error, {
+      language:normalizeAppLanguage(params.language || appLanguage()), aborted:controller.signal.aborted,
+    })}};
   } finally {
     finishTradingAnalysisRequest(controllerKey, controller);
   }
@@ -23121,6 +23047,7 @@ app.whenReady().then(async () => {
   void getTradingAlertService().catch((error) => {
     console.warn("[trading-alerts] failed to start", error?.message || error);
   });
+  getCloudAlertFeed().start();
   void refreshWindowIcon();
   app.on("activate", () => {
     if (IS_MAC) {
@@ -23154,6 +23081,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  cloudAlertFeed?.stop();
   if (appCleanupStarted) {
     event.preventDefault();
     return;

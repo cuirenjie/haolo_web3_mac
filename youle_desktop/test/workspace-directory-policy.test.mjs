@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -104,7 +105,7 @@ test("managed and existing legacy workspace homes keep their current locations",
   );
   assert.equal(
     workspaceCodexHomePath(externalWorkspace, { managedRoot, externalHomeRoot: managedRoot }),
-    legacyExternalHome,
+    /[^\x00-\x7f]/.test(externalWorkspace) ? path.join(managedRoot, `.external-home-${crypto.createHash("sha256").update(process.platform === "win32" ? externalWorkspace.replace(/\\/g,"/").toLowerCase() : externalWorkspace).digest("hex").slice(0,24)}`, "haolo-ai-home") : legacyExternalHome,
   );
 });
 

@@ -630,6 +630,13 @@ function validatePackageManifest(payload, { id, version, platform, arch }) {
   const seenFiles = new Set();
   const files = payload.files.map((entry) => {
     const relativePath = safeRelativePath(entry?.path);
+    // Generic tools may be downloaded; official strategy implementations may
+    // never be reintroduced through a runtime package or its cached manifest.
+    if (/(^|\/)trading-strategies\//i.test(relativePath || "")
+      || /(^|\/)trading-analysis\/.*(?:engine|pipeline|model-review)\.[cm]?js$/i.test(relativePath || "")
+      || /(^|\/)trading-strategy-runtime\/(?:builtins\/|coordinator\.)/i.test(relativePath || "")) {
+      throw runtimeManagerError("此运行时包不符合云端策略边界，未启用。", "HAOLO_TOOL_RUNTIME_STRATEGY_ASSET_REJECTED");
+    }
     const sha256 = normalizedSha256(entry?.sha256);
     if (!relativePath || !sha256 || !Number.isSafeInteger(Number(entry?.size)) || Number(entry.size) < 0) {
       throw runtimeManagerError("运行时包文件清单无效。", "HAOLO_TOOL_RUNTIME_PACKAGE_INVALID");

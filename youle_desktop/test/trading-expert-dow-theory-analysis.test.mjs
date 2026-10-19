@@ -202,11 +202,9 @@ test("Dow request router is strict, confidence-gated, and resistant to prompt in
 });
 
 test("renderer requests higher-timeframe candles only for strategies declaring the context capability", async () => {
-  const [marketSource, mainSource] = await Promise.all([
-    readFile(new URL("../src/renderer/trading-expert-market.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/renderer/main.ts", import.meta.url), "utf8"),
-  ]);
-  assert.match(mainSource, /contextCandlesRequested:\s*Boolean\(strategy\.dataRequirements\?\.\["context-candles"\]\)/);
-  assert.match(marketSource, /request\.contextCandlesRequested === true[\s\S]*?fetchTradingMarketStructureContexts\(targetMarket\.symbol, targetInterval\)/);
-  assert.match(marketSource, /\.\.\.\(request\.contextCandlesRequested === true \? \{ contextCandles: await contextCandlesPromise \} : \{\}\)/);
+  const {setup}=await import('./helpers/cloud-renderer-harness.mjs');
+  const s=setup();await s.workspace.runGeneralConversation({instruction:'Analyze this market',sourceThreadId:'origin'},"dow-theory");
+  assert.equal(s.calls.length,2);
+  for(const request of s.calls){assert.equal(request.strategyId,"dow-theory");assert.equal(request.sourceThreadId,'origin');for(const key of ['candles','contextCandles','comparisonMarkets','orderFlow'])assert.equal(request[key],undefined);}
+  assert.deepEqual(s.drawings.map(x=>x.pane),[0,1]);
 });

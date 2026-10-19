@@ -28,7 +28,7 @@ test("explicit GPT plan mode applies default execution planning guidance", () =>
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
-    "gpt-5.5",
+    "gpt-6-astra",
     "gpt-7-future",
   ]) {
     assert.equal(

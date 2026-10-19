@@ -1012,18 +1012,7 @@ test("wave request routing inherits the current canvas unless fields are explici
   );
 
   const expertPrompt = buildTradingWaveExpertPrompt("附件：wave.png");
-  assert.match(expertPrompt, /同时保留主计数和合理的备选计数/);
-  assert.match(expertPrompt, /三浪必须越过一浪终点且不能是 1、3、5 中最短/);
-  assert.match(expertPrompt, /完整 0-1-2-3-4-5/);
-  assert.match(expertPrompt, /一浪与四浪重叠不能自动解释为倾斜/);
-  assert.match(expertPrompt, /Zigzag 必须有 5-3-5 内部证据/);
-  assert.match(expertPrompt, /不得用“暂定”包装违反硬规则/);
-  assert.match(expertPrompt, /W:a、W:b、W 与 Y:a、Y:b、Y/);
-  assert.match(expertPrompt, /盘面只绘制主计数、必要的确认\/失效区和简短浪标/);
-  assert.match(expertPrompt, /上破哪个确定性价位后偏多、跌破哪个价位后偏空/);
-  assert.ok(expertPrompt.includes(TRADING_WAVE_EXPERT_PROMPT_START));
-  assert.ok(expertPrompt.includes(TRADING_WAVE_EXPERT_PROMPT_END));
-  assert.ok(expertPrompt.indexOf("附件：wave.png") > expertPrompt.indexOf(TRADING_WAVE_EXPERT_PROMPT_END));
+  assert.equal(expertPrompt,"附件：wave.png");
 });
 
 test("Trading Expert wires wave analysis through IPC, playback, and light/dark themes", async () => {
@@ -1042,7 +1031,6 @@ test("Trading Expert wires wave analysis through IPC, playback, and light/dark t
   assert.match(mainSource, /tradingAnalysis:classifyWaveRequest/);
   assert.match(mainSource, /tradingAnalysis:runWave/);
   assert.match(mainSource, /tradingAutomationWaveContextIntervals/);
-  assert.match(mainSource, /strategyId === "wave"[\s\S]*?tradingAutomationWaveContextCandles/);
   assert.match(preloadSource, /classifyTradingWaveRequest/);
   assert.match(preloadSource, /runTradingWaveAnalysis/);
   assert.match(rendererSource, /await classifyTradingStrategyForSend\(/);
@@ -1056,22 +1044,10 @@ test("Trading Expert wires wave analysis through IPC, playback, and light/dark t
   assert.match(marketSource, /const capturedTarget = request\.analysisTarget/);
   assert.match(marketSource, /tradingWaveDegreeContextResolutions/);
   assert.match(marketSource, /fetchTradingWaveDegreeContexts/);
-  assert.match(marketSource, /contextCandles: await waveDegreeContextsPromise/);
-  assert.match(marketSource, /const analysisEndTimeMs = tradingWaveContextEndTime\(analysisCandles, targetInterval, analysisSnapshotTime\)/);
-  assert.match(marketSource, /endTime: analysisEndTimeMs \|\| request\.analysisTarget\?\.capturedAt/);
-  assert.match(marketSource, /contextCandles: await fetchTradingWaveDegreeContexts\(snapshot\.market\.symbol/);
-  assert.match(marketSource, /endTime: tradingWaveContextEndTime\(snapshot\.candles, snapshot\.interval, snapshotTime\)/);
   assert.doesNotMatch(translateAppText("K 线及低周期子浪。", "en"), /\p{Script=Han}/u);
   assert.doesNotMatch(translateAppText("发送时行情快照不足", "en"), /\p{Script=Han}/u);
-  assert.match(marketSource, /按价格硬规则与低一级结构验证 0-1-2-3-4-5、A-B-C \/ W-X-Y 候选/);
-  assert.match(marketSource, /runTradingWaveAnalysisWithAutoExpansion/);
   assert.match(await readFile(new URL("../src/main/trading-analysis/wave-pipeline.mjs", import.meta.url), "utf8"), /maximumCandles: 2_500/);
-  assert.match(marketSource, /focusWaveAnalysisCandles[\s\S]*timeScale\(\)\.setVisibleRange/);
-  assert.match(marketSource, /TRADING_WAVE_INSUFFICIENT_DATA[\s\S]*当前范围仅有/);
   assert.doesNotMatch(marketSource, /所选范围"\}仅有 \$\{analysisCandles\.length\} 根 K 线，不足以形成可靠的波浪摆动点/);
-  assert.match(marketSource, /当前 \$\{event\.fromCount\} 根 K 线未形成合格浪型，正在自动扩大到 \$\{event\.toCount\} 根继续验证/);
-  assert.match(marketSource, /自动扩大到 \$\{analysisCandles\.length\} 根 K 线，仍未形成可复核浪型/);
-  assert.match(marketSource, /逐笔绘制简短浪标、主路径和关键价位/);
   assert.match(marketSource, /playAiDrawingPatch/);
   assert.match(drawingSource, /drawing\.theory === "wave"/);
   assert.match(drawingSource, /waveAuxiliaryPath/);
@@ -1087,4 +1063,12 @@ test("Trading Expert wires wave analysis through IPC, playback, and light/dark t
     stylesSource,
     /html\[data-theme="dark"\] \.trading-expert-market[\s\S]*?--trading-ai-wave-primary: #7ea2ff;[\s\S]*?--trading-ai-wave-correction: #ffb454;/,
   );
+});
+
+test('cloud wave uses server evidence and persists both panes',async()=>{
+  const {setup}=await import('./helpers/cloud-renderer-harness.mjs');
+  const s=setup();await s.workspace.runWaveConversation({instruction:'Analyze this market',sourceThreadId:'origin'},"wave");
+  assert.equal(s.calls.length,2);
+  for(const request of s.calls){assert.equal(request.strategyId,"wave");assert.equal(request.sourceThreadId,'origin');for(const key of ['candles','contextCandles','comparisonMarkets','orderFlow'])assert.equal(request[key],undefined);}
+  assert.deepEqual(s.drawings.map(x=>x.pane),[0,1]);
 });

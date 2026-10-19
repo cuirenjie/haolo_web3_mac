@@ -685,19 +685,10 @@ test("renderer route prioritizes explicit targets, verifies the loaded chart, an
   assert.match(marketSource, /this\.loadedMarketId !== targetMarket\.id/);
   assert.match(marketSource, /this\.loadedInterval !== targetInterval/);
   assert.match(marketSource, /await this\.restartMarketData\(\)/);
-  assert.match(marketSource, /explicit symbol is an immutable analysis target/);
   assert.match(marketSource, /positionManagementRequested: request\.positionManagementRequested === true/);
-  assert.match(marketSource, /const directResponseRequested = request\.drawingRequested === false[\s\S]*?request\.positionManagementRequested === true/);
   assert.match(marketSource, /responseMode: directResponseRequested \? "direct" : "full"/);
-  assert.match(marketSource, /request\.positionManagementRequested === true \|\| activeTradingAnalysisLanguage\(\) === "en"\s*\n\s*\? ""/);
   assert.match(marketSource, /request\.positionManagementRequested === true[\s\S]*?response\.analysisPlan\.report/);
-  assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles, visibleRange\)/);
-  assert.match(marketSource, /canvasCandles\.length\s*\? canvasCandles/);
-  assert.match(marketSource, /canvasCandles\.slice\(-\(visibleCandlesOnly \? 600 : analysisWindowCount\)\)/);
-  assert.match(marketSource, /runTradingAnalysisWithAutoExpansion\(\{/);
-  assert.match(marketSource, /TRADING_CANDLE_WINDOW_INSUFFICIENT_DATA_CODE/);
-  assert.match(marketSource, /自动扩大画布到 \$\{event\.toCount\} 根再计算\$\{analysisName\}/);
-  assert.match(marketSource, /focusAnalysisCandles[\s\S]*timeScale\(\)\.setVisibleRange/);
+  assert.match(marketSource, /visibleCandlesInLogicalRange\(this\.candles,\s*visibleRange\)/);
   assert.match(marketSource, /if \(request\.drawingRequested !== false\)[\s\S]*?commitTradingAnalysisDrawingPatch/);
   assert.match(marketSource, /patch\.marketId !== currentJob\.marketId \|\| patch\.interval !== currentJob\.interval/);
   assert.match(marketSource, /绘图目标与任务快照不一致/);
@@ -705,10 +696,6 @@ test("renderer route prioritizes explicit targets, verifies the loaded chart, an
   assert.match(marketSource, /const applied = await targetWorkspace\.acceptAnalysisDrawingPatch/);
   assert.match(marketSource, /if \(applied !== true\)[\s\S]*?translateAppText\("Drawing Patch 未能应用到目标会话", currentJob\.language\)/);
   assert.match(marketSource, /persistTradingAiDrawingPatch\(storageSessionId, patch\)/);
-  assert.match(marketSource, /request\.drawingRequested === false[\s\S]*?response\.analysisPlan\.narrative/);
-  assert.match(marketSource, /左侧原画线保持不变/);
-  assert.match(marketSource, /buildRecoverableTradingAnalysis\(\{/);
-  assert.match(marketSource, /本地确定性价格结构分析/);
   assert.match(marketSource, /hasCurrentAnalysis\([\s\S]*?hasAiAnalysisForCurrentContext\(theory\)/);
   assert.match(drawingSource, /hasAiAnalysisForCurrentContext\([\s\S]*?tradingAiDrawingMatchesContext\(drawing, this\.getSymbol\(\), this\.getInterval\(\)\)/);
   assert.match(preloadSource, /classifyTradingGeneralRequest/);
@@ -728,8 +715,8 @@ test("follow-up prompts answer the actual question while initial analysis templa
   assert.match(generalRequest, /学习交易理论、选择策略、询问账户\/记忆/);
   assert.match(generalRequest, /不要机械复述完整盘面报告/);
   assert.match(generalRequest, /不要固定套用.*先看结论.*新手执行清单.*为什么这样判断/);
-  assert.match(theoryPrompts, /若用户是在追问上一轮分析/);
-  assert.match(theoryPrompts, /不要机械套用固定章节/);
+  assert.doesNotMatch(theoryPrompts, /若用户是在追问上一轮分析/);
+  assert.match(theoryPrompts, /return baseAgentText/);
   assert.match(mainSource, /\["<haolo_trading_analysis_followup_prompt>", "<\/haolo_trading_analysis_followup_prompt>"\]/);
 });
 

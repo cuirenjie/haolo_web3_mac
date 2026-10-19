@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { executionPlanCardHeading, executionPlanCardBody } from "./execution-plan-card-view.mjs";
+import {normalizeCloudReports, cloudPlanCard} from './cloud-plan-contract.mjs';
 
 const cardStyles = readFileSync(new URL("./execution-plan-card.css", import.meta.url), "utf8");
 // Measure intrinsic content width offscreen, including the header and controls.
@@ -62,6 +63,7 @@ function nearestFontSize(value) {
 }
 
 export function normalizeExecutionPlanStickyPayload(input = {}) {
+  const cloudReport=input.cloudReport?normalizeCloudReports([input.cloudReport])[0]:null;
   const language = input.language === "en" || input.language === "zh-TW" ? input.language : "zh-CN";
   const lines = Array.isArray(input.lines)
     ? input.lines.slice(0, MAX_LINES).map((line = {}) => {
@@ -80,6 +82,7 @@ export function normalizeExecutionPlanStickyPayload(input = {}) {
       }).filter((line) => line.label || line.text)
     : [];
   return {
+    ...(cloudReport?{cloudReport}:{}),
     groupId: text(input.groupId, 320),
     title: text(input.title, MAX_TITLE_LENGTH) || STICKY_UI_COPY[language].defaultTitle,
     theme: input.theme === "light" ? "light" : "dark",
@@ -189,10 +192,11 @@ function actionLink(action, label, disabled) {
 
 export function executionPlanStickyHtml(input = {}) {
   const payload = normalizeExecutionPlanStickyPayload(input);
+  const cloudCard=payload.cloudReport?.executionPolicy!=='right-legacy-v1'&&payload.cloudReport?cloudPlanCard(payload.cloudReport):null;
   const copy = STICKY_UI_COPY[payload.language];
   const minFont = EXECUTION_PLAN_STICKY_FONT_SIZES[0];
   const maxFont = EXECUTION_PLAN_STICKY_FONT_SIZES.at(-1);
-  const lines = executionPlanCardBody(payload.lines, payload.language);
+  const lines = cloudCard?.html||executionPlanCardBody(payload.lines, payload.language);
   return `<!doctype html>
 <html lang="${copy.lang}" data-theme="${payload.theme}" data-execution-plan-sticky>
 <head>
@@ -230,7 +234,7 @@ export function executionPlanStickyHtml(input = {}) {
 <body>
   <article class="card execution-plan-surface" aria-label="${escapeHtml(payload.title)}">
     <div class="content">
-      ${executionPlanCardHeading(payload.title, payload.lines, payload.language)}
+      ${cloudCard?'':executionPlanCardHeading(payload.title, payload.lines, payload.language)}
       <div class="execution-plan-card-content">${lines}</div>
     </div>
     <nav class="controls" aria-label="${copy.controls}">

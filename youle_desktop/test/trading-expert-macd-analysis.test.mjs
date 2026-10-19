@@ -198,7 +198,7 @@ test("MACD Skill card, mention catalog, auto pane, and both icon themes are wire
   assert.match(market, /ensureChartIndicatorVisible/);
   assert.match(market, /normalizeTradingIndicatorAiDrawingPatch/);
   assert.match(market, /runtime\.pane\.addSeries\(LineSeries/);
-  assert.match(market, /createSeriesMarkers\(runtime\.series\[0\]\.api/);
+  assert.match(await readFile(new URL("../src/renderer/cloud-indicator-drawings.ts",import.meta.url),"utf8"), /createSeriesMarkers\(runtime\.series\[0\]\.api/);
   assert.match(market, /commitTradingIndicatorAnalysisDrawingPatch/);
   assert.match(css, /\.trading-indicator-icon-macd/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-indicator-icon-macd/);

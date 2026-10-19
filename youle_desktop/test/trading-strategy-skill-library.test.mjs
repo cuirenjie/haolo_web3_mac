@@ -58,15 +58,6 @@ test("strategy routing is model-first, shares literal target parsing, and has a 
     strategyClientSource,
     rendererSource,
   ]);
-  assert.match(catalog, /manifest\.display\.name/);
-  assert.match(catalog, /resolveExplicitTradingStrategyId\(text, analysisCatalog\)/);
-  assert.match(catalog, /deterministicStrategyRequestRouting/);
-  assert.match(catalog, /extractExplicitTradingParameters/);
-  assert.match(catalog, /isTradingConceptOnlyRequest/);
-  assert.match(catalog, /fallback\.mode === "chart-analysis" \|\| candidateMode === "chart-analysis"/);
-  assert.match(catalog, /const literal = extractExplicitTradingParameters\(fallback\.instruction\)/);
-  assert.match(catalog, /symbol: chartAnalysis \? literal\.symbol : null/);
-  assert.match(catalog, /interval: chartAnalysis \? literal\.interval : null/);
   assert.doesNotMatch(catalog, /ROUTING_HAN_NON_ASSET_FRAGMENT/);
   assert.match(client, /catch \{\s*return normalizeTradingStrategyRequest\(strategy, text, null\)/s);
   assert.match(renderer, /if \(tradingStrategyAtSend && tradingStrategyRequestAtSend\?\.mode === "chart-analysis"\)/);
@@ -75,12 +66,9 @@ test("strategy routing is model-first, shares literal target parsing, and has a 
 
 test("My Skills derives installed cards from the trading strategy catalog", async () => {
   const [renderer, catalog] = await Promise.all([rendererSource, catalogSource]);
+  assert.match(catalog, /OFFICIAL_TRADING_CATALOG/);
+  assert.doesNotMatch(catalog, /import\.meta\.glob|\?raw/);
   const cards = sourceBlock(renderer, "function mySkillsPlazaCards", "function renderMySkillsPage");
-
-  assert.match(catalog, /builtins\/\*\/agents\/openai\.yaml/);
-  assert.match(catalog, /query:\s*"\?raw"/);
-  assert.match(catalog, /displayName:\s*yamlString\(source, "display_name"\)/);
-  assert.match(catalog, /shortDescription:\s*yamlString\(source, "short_description"\)/);
   assert.match(cards, /tradingStrategyCatalog\(\)/);
   assert.match(cards, /strategy\.enabled !== false/);
   assert.match(cards, /id:\s*`\$\{TRADING_STRATEGY_SKILL_CARD_PREFIX\}\$\{strategy\.id\}`/);

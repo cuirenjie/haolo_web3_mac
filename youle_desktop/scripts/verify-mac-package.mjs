@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = path.resolve(path.dirname(scriptPath), "..");
 const require = createRequire(import.meta.url);
+const { forbiddenPath } = require('./cloud-strategy-package-policy.cjs');
 const splitPackageTargets = [
   { arch: "x64", architectures: ["x64"], directoryNames: ["mac", "mac-x64"] },
   { arch: "arm64", architectures: ["arm64"], directoryNames: ["mac-arm64"] },
@@ -215,6 +216,10 @@ export function verifyPackagedAppAsar(appPath, options = {}) {
   const asarApi = options.asarApi || loadAsarApi();
   asarApi.uncache?.(appAsarPath);
   const entries = asarApi.listPackage(appAsarPath).map(normalizeAsarEntry).filter(Boolean);
+  const privateEntries = entries.filter(forbiddenPath);
+  if (privateEntries.length) {
+    throw new Error(`Private strategy assets leaked into macOS package: ${privateEntries.join(', ')}`);
+  }
   const entrySet = new Set(entries);
   const requiredEntries = [
     "package.json",
@@ -251,15 +256,16 @@ export function verifyPackagedAppAsar(appPath, options = {}) {
     );
   }
 
-  const sourceFiles = ["src/main", "dist/renderer"].flatMap((relativeDirectory) => {
+  const sourceFiles = ["src/main", "src/shared", "dist/renderer"].flatMap((relativeDirectory) => {
     const directoryPath = path.join(sourceRoot, relativeDirectory);
     assertDirectory(directoryPath, `packaging source ${relativeDirectory}`);
     return listFiles(directoryPath)
-      .filter((filePath) => !filePath.endsWith(".d.ts"))
+      .filter((filePath) => !/\.d\.(?:ts|mts)$/.test(filePath))
       .map((filePath) => ({
         archivePath: toArchivePath(path.relative(sourceRoot, filePath)),
         filePath,
-      }));
+      }))
+      .filter(({ archivePath }) => !forbiddenPath(archivePath));
   });
   const missingSourceFiles = [];
   const mismatchedSourceFiles = [];

@@ -23,7 +23,7 @@ test("legacy strategy catalog keeps stable ids, order, mentions, and prompt asse
   assert.deepEqual(contract.catalog.map((strategy) => strategy.displayName), ["缠论", "订单流", "波浪理论", "威科夫"]);
   for (const strategy of contract.catalog) {
     const source = readSource(requestSourceByStrategy[strategy.id]);
-    assert.equal(sha256(source), strategy.requestSourceSha256, `${strategy.id} prompt source changed`);
+    assert.match(source, /return baseAgentText;/, `${strategy.id} preserves user text without a private strategy prompt`);
     assert.match(source, new RegExp(strategy.mention.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 });

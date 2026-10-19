@@ -460,6 +460,7 @@ export interface TradingDrawingPoint {
 }
 
 export interface TradingDrawingModel extends TradingDrawingStyle {
+  entryConditionRef?: {conditionId:string;revision:number;conditionHash:string};
   id: string;
   strategyId?: string;
   symbol: string;
@@ -1213,6 +1214,14 @@ function drawingLineStyle(value: unknown): TradingDrawingLineStyle | undefined {
   return value === "solid" || value === "dashed" || value === "dotted" ? value : undefined;
 }
 
+function conditionReference(value: unknown): TradingDrawingModel['entryConditionRef'] {
+  if(value==null)return undefined;
+  const ref=value as NonNullable<TradingDrawingModel['entryConditionRef']>;
+  if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(ref.conditionId)||!Number.isSafeInteger(ref.revision)||ref.revision<1
+    ||!/^[a-f0-9]{64}$/.test(ref.conditionHash))throw new TypeError('AI condition reference is invalid');
+  return {conditionId:ref.conditionId,revision:ref.revision,conditionHash:ref.conditionHash};
+}
+
 function drawingLineWidth(value: unknown) {
   const width = Number(value);
   return Number.isFinite(width) && width >= 0.5 && width <= 40 ? width : undefined;
@@ -1333,6 +1342,7 @@ function loadStoredAiDrawings(storageSessionId: string): TradingDrawingModel[] {
         text: typeof candidate.text === "string" ? candidate.text.slice(0, 120) : undefined,
         locked: true,
         source: "ai",
+        entryConditionRef:conditionReference(candidate.entryConditionRef),
         colorToken: colorToken as TradingAiDrawingColorToken,
         lineStyle: drawingLineStyle(candidate.lineStyle),
         lineWidth: drawingLineWidth(candidate.lineWidth),
@@ -2084,8 +2094,8 @@ export function normalizeTradingAiDrawingPatch(
     || (expectedContext && String(patch.marketId) !== expectedContext.marketId)
     || (expectedContext && String(patch.interval) !== expectedContext.interval)
     || !Array.isArray(patch?.operations)
-    || !patch.operations.length
-    || patch.operations.length > 64
+    || (!patch.operations.length && patch.resultPolicy!=='entry-v2')
+    || patch.operations.length > (patch.resultPolicy==='entry-v2'?128:64)
   ) {
     throw new TypeError("AI drawing patch is invalid for the target market");
   }
@@ -2139,6 +2149,7 @@ export function normalizeTradingAiDrawingPatch(
     }
     return {
       id: String(drawing.id || `ai-${index}`).slice(0, 160),
+      entryConditionRef:conditionReference(patch.entryConditionRef),
       strategyId: drawing.theory === "strategy" ? String(drawing.strategyId) : undefined,
       symbol: patch.marketId,
       interval: patch.interval,
@@ -2171,6 +2182,7 @@ function tradingAiDrawingModel(drawing: TradingAiDrawing): TradingDrawingModel {
     );
   return {
     id: drawing.id,
+    entryConditionRef:conditionReference(drawing.entryConditionRef),
     strategyId: drawing.strategyId,
     symbol: drawing.symbol,
     interval: drawing.interval,

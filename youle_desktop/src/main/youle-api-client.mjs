@@ -3325,6 +3325,88 @@ export class YouleApiClient {
     });
   }
 
+  async tradingCloudRequest(operation, payload = {}, options = {}) {
+    const routes = {
+      preferences: ["GET", "/trading-preferences"],
+      savePreferences: ["PATCH", "/trading-preferences"],
+      importPreferences: ["POST", "/trading-preferences/import"],
+      capabilities: ["GET", "/trading-capabilities"],
+      createRun: ["POST", "/agent-runs"],
+      plans: ["GET", "/trading-plans"],
+    };
+    if (["plan", "activatePlan", "planLifecycle", "deletePlan"].includes(operation)) {
+      const {planId, ...body} = payload;
+      if (typeof planId !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(planId)) throw new TypeError('Invalid cloud plan id');
+      const action={plan:['GET',''],activatePlan:['POST','/activate'],planLifecycle:['PATCH','/lifecycle'],deletePlan:['DELETE','']}[operation];
+      routes[operation]=[action[0],`/plans/${planId}${action[1]}`];
+      payload=body;
+    }
+    if (["run", "runEvents", "cancelRun"].includes(operation)) {
+      const id = String(payload.runId || "");
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+        throw new TypeError("Invalid cloud run id");
+      }
+      const after = payload.after ?? 0;
+      if (!Number.isSafeInteger(after) || after < 0) throw new TypeError("Invalid event cursor");
+      routes[operation] = operation === "cancelRun"
+        ? ["POST", `/agent-runs/${id}/cancel?clientContract=windows-v1`]
+        : ["GET", `/agent-runs/${id}${operation === "runEvents" ? `/events?after=${after}` : ""}`];
+      payload = {};
+    }
+    if (operation === "marketSnapshot") {
+      const allowed = new Set(["market", "interval", "limit", "visibleFrom", "visibleTo", "windowCount", "lookbackMs"]);
+      if (Object.keys(payload).some(key => !allowed.has(key))) throw new TypeError("Invalid snapshot query");
+      const query = new URLSearchParams(Object.entries(payload).map(([key, value]) => [key, String(value)]));
+      routes.marketSnapshot = ["GET", `/market-snapshots?${query}`];
+    }
+    if(operation==='alertFeed') {
+      if(payload.after!=null&&(!Number.isSafeInteger(payload.after)||payload.after<0))throw new TypeError('Invalid alert event cursor');
+      routes.alertFeed=['GET',`/trading-alert-feed${payload.after==null?'':`?after=${payload.after}`}`];
+    }
+    if(operation==='plans'&&payload.after) {
+      if(typeof payload.after!=='string'||!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(payload.after))throw new TypeError('Invalid plan cursor');
+      routes.plans=['GET',`/trading-plans?after=${payload.after}`];
+    }
+    const route = routes[operation];
+    if (!route) throw new TypeError("Unsupported trading cloud operation");
+    const [method, suffix] = route;
+    if (method !== "GET" && (!options.idempotencyKey || options.idempotencyKey.length > 160)) {
+      throw new TypeError("A stable idempotency key is required");
+    }
+    await this.load();
+    this.requireAuth();
+    const assertOwner = () => {
+      if ((options.expectedAccountId && String(this.profile?.id || '') !== options.expectedAccountId)
+        || (options.expectedBaseUrl && this.baseUrl !== options.expectedBaseUrl)) {
+        const error = new Error('The account changed during the trading request');
+        error.code = 'TRADING_PREFERENCE_OWNER_CHANGED';
+        throw error;
+      }
+    };
+    assertOwner();
+    const headers = this.clientHeaders({ auth: true, json: method !== "GET" });
+    const refresh = headers[YOULE_AUTH_RETRY];
+    headers[YOULE_AUTH_RETRY] = async refreshOptions => {
+      assertOwner();
+      const token = typeof refresh === 'function' ? await refresh(refreshOptions) : this.token;
+      assertOwner();
+      return token;
+    };
+    const response = await this.requestJson(joinUrl(this.baseUrl, `/api/mobile/v1${suffix}`), {
+      method,
+      headers: {
+        ...headers,
+        ...(method !== "GET" ? { "Idempotency-Key": options.idempotencyKey } : {}),
+        "X-Haolo-Text-Reset": "1",
+      },
+      ...(method !== "GET" ? { body: JSON.stringify(payload) } : {}),
+      signal: options.signal,
+      timeoutMs: operation === "savePreferences" || operation === "importPreferences" ? 110_000 : 20_000,
+    });
+    assertOwner();
+    return response;
+  }
+
   async getFinnhubMarketDataStatus() {
     await this.load();
     this.requireAuth();
@@ -5297,6 +5379,9 @@ function logRequestPayload(method, url, fetchInit) {
   if (!YOULE_API_DEBUG) return;
   if (method === "GET" || method === "HEAD") return;
   if (isGitHubRelayUrl(url)) return;
+  // Preferences, account snapshots and analysis text are private even when
+  // transport debugging is enabled. Log status/timing, never their bodies.
+  if (new URL(url).pathname.startsWith("/api/mobile/v1/")) return;
   const payload = formatRequestPayload(fetchInit.body);
   if (!payload) return;
   logApiDebug("[youle-api:request]", method, url, payload);

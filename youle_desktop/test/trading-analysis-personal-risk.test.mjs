@@ -1,3 +1,4 @@
+import {cloudStrategyFailure} from '../src/main/trading-strategy-runtime/cloud-error.mjs';
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -173,63 +174,43 @@ const hostFunctions = ["tradingStrategyParamsWithPersonalRisk", "runTradingStrat
 const generalHandler = ast.statements.find(n => ts.isExpressionStatement(n) && ts.isCallExpression(n.expression)
   && n.expression.expression.getText(ast) === "ipcMain.handle" && n.expression.arguments[0]?.text === "tradingAnalysis:runGeneral");
 
-test("incident reproduction: actual general, Wyckoff and price-action host routes succeed with the same storage fault", async t => {
+test("cloud host routes block unreadable local preference migration before submitting analysis", async t => {
   const { state, store } = memoryFixture(t);
   await store.upsert("owner", [rule]); state.available = false;
-  const { registry: modelRegistry, calls } = modelFixture();
-  const registry = createTradingStrategyRegistry({ adapters: BUILTIN_TRADING_STRATEGY_ADAPTERS });
-  const coordinator = new TradingStrategyCoordinator({ registry, modelRegistry, providerId: "fixture" });
-  const events = [];
-  const handlers = {};
-  let legacy = false;
-  let accessError = null;
-  const sandbox = {
-    withPersonalTradingRisk, tradingAnalysisFailureDiagnostic,
-    requireHaoloAccountOwner: async () => ({ ownerId: "owner" }), getPersonalMemoryStore: () => store,
-    recordTurnDiagnostic: (event, data) => events.push({ event, data }),
-    ipcMain: { handle: (name, handler) => { handlers[name] = handler; } },
-    assertExternalModelsIpcSender() {},
-    assertExecutionModelMembership: async () => {},
-    firstString: (...values) => values.find(value => typeof value === "string" && value.trim()) || "",
-    beginTradingAnalysisRequest: () => ({ controller: new AbortController(), controllerKey: "fixture" }),
-    finishTradingAnalysisRequest() {},
-    requireFreshTradingPremiumAccess: async () => { if (accessError) throw accessError; },
-    normalizeAppLanguage: value => value, appLanguage: () => "zh-CN",
-    recordTradingAnalysisFailure: (error, context) => { events.push({ event: "failed", data: tradingAnalysisFailureDiagnostic(error, context) }); return "fixture"; },
-    tradingStrategyParamsWithReadOnlyBinanceAccount: params => ({ ...params, loadBinanceAccountContext: async () => ({ bound: false }) }),
-    getTradingAnalysisModelRegistry: () => modelRegistry,
-    sendToEventSender: () => true,
-    DEFAULT_TRADING_ANALYSIS_PROVIDER_ID: "fixture",
-    runTradingPriceActionAnalysisPipeline,
-    isPersonalStrategyId: () => false,
-    getTradingStrategyCoordinator: () => coordinator, getTradingStrategyRegistry: () => registry,
-    tradingStrategyRuntimeEnabled: () => !legacy, tradingStrategyShadowMode: () => !legacy,
+  const original=fs.readFileSync(store.storagePath);
+  const calls=[],handlers={};
+  let accessError=null;
+  const sandbox={
+    requireHaoloAccountOwner:async()=>({ownerId:'owner'}),
+    cloudTradingPreferences:{effective:async()=>({profile:await store.tradingRiskProfile('owner'),revision:3,configHash:'a'.repeat(64)})},
+    getCloudStrategyRuntime:()=>({run:async(id,params)=>{calls.push({id,params});return {ok:true};}}),
+    cloudStrategyFailure,
+    ipcMain:{handle:(name,handler)=>{handlers[name]=handler;}},
+    assertExternalModelsIpcSender(){},assertExecutionModelMembership:async()=>{},
+    firstString:(...values)=>values.find(value=>typeof value==='string'&&value.trim())||'',
+    beginTradingAnalysisRequest:()=>({controller:new AbortController(),controllerKey:'fixture'}),
+    finishTradingAnalysisRequest(){},requireFreshTradingPremiumAccess:async()=>{if(accessError)throw accessError;},
+    normalizeAppLanguage:value=>value,appLanguage:()=> 'zh-CN',recordTradingAnalysisFailure:()=> 'fixture',
+    isPersonalStrategyId:()=>false,
   };
-  vm.runInNewContext([...hostFunctions, generalHandler.getText(ast), "globalThis.strategy = runTradingStrategyRequest;"].join("\n"), sandbox);
-  const general = await handlers["tradingAnalysis:runGeneral"]({}, paramsFixture());
-  assert.equal(general.ok, true); assertBlocked(general.executionPlan);
-  for (const strategyId of ["wyckoff", "price-action"]) for (const mode of [false, true]) for (const language of ["zh-CN", "en"]) {
-    legacy = mode;
-    const result = await sandbox.strategy({}, strategyId, { ...paramsFixture(), language });
-    assert.equal(result.ok, true, JSON.stringify(result.error));
-    assertBlocked(result.executionPlan);
-    assert.ok(result.analysisPlan.drawingPatch.operations.length > 0);
-    assert.match(result.analysisPlan.report, language === "en" ? /Saved trading preferences could not be read/ : /暂时无法读取已保存的交易偏好/);
-    assert.doesNotMatch(result.analysisPlan.report, /新手执行清单|单笔预设亏损|账户约 0.5%/);
-    assert.equal(executionPlanCandidatesFromText(result.analysisPlan.report).length, 0, `${strategyId} ${mode} ${language}\n${result.analysisPlan.report}`);
+  vm.runInNewContext([...hostFunctions,generalHandler.getText(ast),'globalThis.strategy=runTradingStrategyRequest;'].join('\n'),sandbox);
+  for(const language of ['zh-CN','en']) {
+    const general=await handlers['tradingAnalysis:runGeneral']({}, {...paramsFixture(),language});
+    assert.equal(general.ok,false);assert.equal(general.error.code,'SECURE_STORAGE_UNAVAILABLE');
+    for(const id of ['wyckoff','price-action']) {
+      const result=await sandbox.strategy({},id,{...paramsFixture(),language});
+      assert.equal(result.ok,false);assert.equal(result.error.code,'SECURE_STORAGE_UNAVAILABLE');
+    }
   }
-  // The bare price-action strategy is deterministic; general and Wyckoff
-  // retain their model review paths in both runtime modes.
-  assert.ok(calls.some(({ request }) => request.theoryId === "price_action"));
-  assert.ok(calls.filter(({ request }) => request.theoryId === "wyckoff").length >= 2);
-  assert.equal(events.filter(e => e.event === "failed").length, 0);
-  assert.equal(events.filter(e => e.event === "trading.analysis.personal_risk_unavailable").length, 9);
-  assert.ok(calls.every(({ request }) => (request.prompt.match(/HOST PERSONAL-RISK AVAILABILITY:/g) || []).length === 1));
-  const before = calls.length;
-  accessError = Object.assign(new Error("membership unavailable"), { code: "TRADING_ENTITLEMENT_UNAVAILABLE" });
-  assert.equal((await handlers["tradingAnalysis:runGeneral"]({}, paramsFixture())).error.code, accessError.code);
-  assert.equal((await sandbox.strategy({}, "wyckoff", paramsFixture())).error.code, accessError.code);
-  assert.equal(calls.length, before, "entitlement failures still block model calls");
+  assert.equal(calls.length,0,'unreadable preferences must not cause defaults or a charged submission');
+  assert.deepEqual(fs.readFileSync(store.storagePath),original);
+  state.available=true;
+  assert.equal((await handlers['tradingAnalysis:runGeneral']({},paramsFixture())).ok,true);
+  assert.equal(calls[0].params.userRiskProfile.maxLossPerTradePercent,0.5);
+  assert.equal(calls[0].params.preferencesRevision,3);
+  accessError=Object.assign(new Error('membership unavailable'),{code:'TRADING_ENTITLEMENT_UNAVAILABLE'});
+  assert.equal((await sandbox.strategy({},'wyckoff',paramsFixture())).error.code,accessError.code);
+  assert.equal(calls.length,1);
 });
 
 test("unavailable risk blocks a reached signal and supplied live account; known profile keeps normal sizing policy", () => {
@@ -298,6 +279,6 @@ test("renderer does not prepend an actionable question lead ahead of the unavail
   assert.equal(vm.runInNewContext(initializer, context), "");
   assert.equal(leadCalls, 0);
   delete context.response.personalRiskStatus;
-  assert.equal(vm.runInNewContext(initializer, context), "actionable lead");
-  assert.equal(leadCalls, 1);
+  assert.equal(vm.runInNewContext(initializer, context), "");
+  assert.equal(leadCalls, 0, "cloud reports own all conclusions, even with available preferences");
 });

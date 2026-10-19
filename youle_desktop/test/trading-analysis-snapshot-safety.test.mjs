@@ -1,3 +1,4 @@
+import {setup as cloudRendererSetup} from './helpers/cloud-renderer-harness.mjs';
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
@@ -182,40 +183,27 @@ test("a market switch while fetching a valid snapshot does not commit to the cha
   assert.equal(h.writes.length, 1, "the completed BTC response can still be cached under BTC");
 });
 
-for (const runner of ["runChanConversation", "runWyckoffConversation", "runOrderFlowConversation"]) {
+for (const runner of ["runChanConversation", "runWaveConversation", "runWyckoffConversation", "runOrderFlowConversation"]) {
   for (const change of ["market", "interval", "generation", "disposed", "unchanged"]) {
-    test(`${runner} checks ${change} after the snapshot await`, async () => {
+    test(`${runner} retains the submitted target across ${change} while cloud analysis awaits`, async () => {
       let finish;
-      const pending = new Promise((resolve) => { finish = resolve; });
-      const jobs = [];
-      const reachedJob = new Error("test intercepted analysis job");
-      const Harness = runtime(runner, {
-        selectTradingAnalysisMarket, selectTradingAnalysisInterval,
-        window: { codexDesktop: { runTradingChanTest() {}, runTradingWyckoffAnalysis() {}, runTradingOrderFlowAnalysis() {} } },
-        visibleCandlesInLogicalRange: () => [], activeTradingAnalysisLanguage: () => "zh-CN",
-        tradingFavoriteRecord: (value) => ({ ...value }),
-        tradingAnalysisJobs: { start(value) { jobs.push(value); throw reachedJob; } },
-      });
-      const workspace = Object.assign(new Harness(), {
-        markets: [BTC, ETH], selectedMarketId: BTC.id, selectedSymbol: BTC.symbol, selectedMarketMeta: BTC,
-        loadedMarketId: BTC.id, loadedInterval: "60", activeInterval: "60", candles: batch().candles,
-        loadGeneration: 1, marketLoading: false, disposed: false, chart: null, drawingStorageSessionId: "test",
-        refreshCurrentMarketSnapshotForAnalysis: () => pending,
-      });
-      const running = workspace[runner]({ symbol: "BTCUSDT", interval: "60" });
-      if (change === "market") Object.assign(workspace, { selectedMarketId: ETH.id, selectedSymbol: ETH.symbol, loadedMarketId: ETH.id, candles: batch().candles });
-      if (change === "interval") workspace.activeInterval = "15";
-      if (change === "generation") workspace.loadGeneration++;
-      if (change === "disposed") workspace.disposed = true;
-      finish(batch());
-      if (change === "unchanged") {
-        await assert.rejects(running, (error) => error === reachedJob);
-        assert.equal(jobs[0].symbol, BTC.symbol);
-        assert.equal(jobs[0].market.symbol, BTC.symbol);
-      } else {
-        await assert.rejects(running, /行情已切换/);
-        assert.equal(jobs.length, 0);
-      }
+      const pending = new Promise(resolve => { finish = resolve; });
+      const s = cloudRendererSetup({beforeResponse: body => body.analysisJobId.includes(':pane:') ? undefined : pending});
+      const running = s.workspace[runner]({sourceThreadId:'submitted-chat',symbol:'BTCUSDT',interval:'60'});
+      if (change === 'market') Object.assign(s.workspace,{selectedMarketId:ETH.id,selectedSymbol:ETH.symbol,loadedMarketId:ETH.id});
+      if (change === 'interval') s.workspace.activeInterval='15';
+      if (change === 'generation') s.workspace.loadGeneration=999;
+      if (change === 'disposed') s.workspace.disposed=true;
+      finish();
+      const result=await running;
+      assert.equal(result.report,'Canonical server report');
+      assert.equal(s.calls[0].marketId,BTC.id);
+      assert.equal(s.calls[0].interval,'60');
+      assert.equal(s.calls[0].sourceThreadId,'submitted-chat');
+      assert.equal(s.calls[0].storageSessionId,'original-thread');
+      assert.equal(s.drawings[0].job.marketId,BTC.id);
+      assert.equal(s.drawings[0].job.interval,'60');
+      assert.equal(s.drawings[0].job.storageSessionId,'original-thread');
     });
   }
 }

@@ -118,5 +118,5 @@ test("native wrapped 403 and route denials cannot become a successful local anal
     assert.equal(isRecoverableAnalysisModelFailure(error), false);
     assert.ok(["policy", "authentication"].includes(failure.category));
   }
-  assert.equal(describeTradingAnalysisFailure(new Error("HTTP 503 service unavailable")).allowLocalRecovery, true);
+  assert.equal(describeTradingAnalysisFailure(new Error("HTTP 503 service unavailable")).allowLocalRecovery, false);
 });

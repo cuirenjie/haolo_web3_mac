@@ -195,16 +195,17 @@ test("RSI card, mention catalog, auto pane, centerline and both icon themes are 
     readFile(new URL("../resources/trading-strategies/builtins/rsi-analysis/SKILL.md", import.meta.url), "utf8"),
     readFile(new URL("../resources/trading-strategies/builtins/rsi-analysis/references/rules.md", import.meta.url), "utf8"),
   ]);
+  const indicatorRenderer=await readFile(new URL("../src/renderer/cloud-indicator-drawings.ts",import.meta.url),"utf8");
   assert.match(renderer, /trading-indicator-icon-rsi/);
   assert.match(renderer, /data-trading-indicator-icon="rsi-analysis"/);
   assert.match(renderer, /ensureTradingExpertChartIndicatorVisible\(strategy\.chartIndicator\)/);
   assert.match(indicators, /value: 50, color: "rgba\(123, 135, 151, 0\.45\)"/);
   assert.match(market, /commitTradingIndicatorAnalysisDrawingPatch/);
-  assert.match(market, /drawing\.markerSize/);
-  assert.match(market, /drawing\.markerSize === 0/);
-  assert.match(market, /id === "rsi" \|\| id === "kdj" \? -16 : -8/);
-  assert.match(market, /strictlyAscendingTradingIndicatorPathPoints\(drawing\.points\)/);
-  assert.match(market, /"atPriceMiddle"/);
+  assert.match(indicatorRenderer, /drawing\.markerSize/);
+  assert.match(indicatorRenderer, /drawing\.markerSize === 0/);
+  assert.match(indicatorRenderer, /id === "rsi" \|\| id === "kdj" \? -16 : -8/);
+  assert.match(indicatorRenderer, /strictlyAscendingTradingIndicatorPathPoints\(drawing\.points\)/);
+  assert.match(indicatorRenderer, /"atPriceMiddle"/);
   assert.match(css, /\.trading-indicator-icon-rsi/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-indicator-icon-rsi/);
   assert.match(`${skill}\n${rules}`, /失败摆动/);

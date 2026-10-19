@@ -53,7 +53,7 @@ function harness(theme = "light", language = "zh-CN") {
   const state = { threads: [{ id: "thread", name: "ETH1H 分析" }], settings: { language }, executionPlans: [], executionPlansScope: "qa" };
   const candidates = new Map();
   const deps = {
-    ...plans, ...planView, state, executionPlanCandidatesBySource: candidates,
+    ...plans, ...planView, tradingPreferenceSettings:{bind(){}}, state, executionPlanCandidatesBySource: candidates,
     executionPlanDeleteBusyIds: new Set(), executionPlanAlertSyncBusyIds: new Set(),
     escapeHtml, escapeAttr: escapeHtml, formatMessageText: escapeHtml,
     tradingLastAnalysisLabelForThread: () => runtime.latest,

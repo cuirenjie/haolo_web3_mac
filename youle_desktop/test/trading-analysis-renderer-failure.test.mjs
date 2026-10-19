@@ -1,3 +1,5 @@
+import {cloudAnalysisWindow} from "../src/renderer/cloud-analysis-window.ts";
+import {cloudAnalysisText} from "../src/renderer/cloud-analysis-text.ts";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,19 +13,19 @@ import * as expansion from "../src/renderer/trading-expert-wave-expansion.ts";
 // catches regressions where its outer catch discards a successful model report.
 function harness({ language = "zh-CN", modelId = "validated-model", strategyId, wyckoff = false, apiError, drawingError, cancelOnDrawing = false } = {}) {
   const source = fs.readFileSync(path.resolve(import.meta.dirname, "../src/renderer/trading-expert-market.ts"), "utf8");
-  const method = wyckoff
-    ? source.slice(source.indexOf("  async runWyckoffConversation("), source.indexOf("  async runOrderFlowConversation("))
-    : source.slice(source.indexOf("  async runGeneralConversation("), source.indexOf("  async runChanConversation("));
+  const ast=ts.createSourceFile("market.ts",source,ts.ScriptTarget.Latest,true);const picked=[];
+  const visit=node=>{if(ts.isMethodDeclaration(node)&&["runGeneralConversation","runChanConversation","runWaveConversation","runWyckoffConversation","runOrderFlowConversation"].includes(node.name.getText(ast)))picked.push(node.getText(ast));ts.forEachChild(node,visit);};visit(ast);
+  const method=picked.join("\n");
   const javascript = ts.transpileModule(`class Harness { ${method} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
   const market = { id: "BINANCE:FUTURES:SNDKUSDT", provider: "binance", symbol: "SNDKUSDT", baseAsset: "SNDK", quoteAsset: "USDT" };
   const candles = Array.from({ length: 600 }, (_, i) => ({ time: 1_800_000_000 + i * 3600, open: 100, high: 102, low: 99, close: 101, volume: 100 }));
   const state = { active: true, completed: false, apiCalls: 0, drawingCalls: 0, recoveryCalls: 0, failures: [], progress: [] };
   const deps = {
-    ...expansion,
+    ...expansion, cloudAnalysisWindow, cloudAnalysisText, cloudReportFromResponse:()=>[],
     window: { codexDesktop: { runTradingGeneralAnalysis: async () => {
       state.apiCalls++;
       if (apiError) return { ok: false, error: apiError };
-      return { ok: true, model: { modelId }, analysisPlan: { report: "VALIDATED ORIGINAL REPORT", narrative: "VALIDATED ANSWER", drawingPatch: { marketId: market.id, interval: "60" } } };
+      return { ok: true, snapshot:{candles}, model: { modelId }, analysisPlan: { report: "VALIDATED ORIGINAL REPORT", narrative: "VALIDATED ANSWER", drawingPatch: { marketId: market.id, interval: "60" } } };
     } } },
     marketFromFavoriteRecord: (value) => value,
     selectTradingAnalysisMarket: () => market,
@@ -77,10 +79,10 @@ function harness({ language = "zh-CN", modelId = "validated-model", strategyId, 
   return { state, run: () => wyckoff ? workspace.runWyckoffConversation(request) : workspace.runGeneralConversation(request, strategyId) };
 }
 
-test("Wyckoff renderer preserves checked candle count after exhausting same-strategy expansion", async () => {
-  const { state, run } = harness({ wyckoff: true, apiError: { code: expansion.TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE, message: "No valid range" } });
+test("Wyckoff renderer preserves server insufficiency evidence without local expansion", async () => {
+  const { state, run } = harness({ wyckoff: true, apiError: { code: expansion.TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE, message: "No valid range", candleCount:600 } });
   await assert.rejects(run(), (error) => error.code === expansion.TRADING_WYCKOFF_INSUFFICIENT_DATA_CODE && error.candleCount === 600);
-  assert.equal(state.apiCalls, 4); // 120, 240, 480, 600 from the available pool
+  assert.equal(state.apiCalls, 1); // Expansion is owned by the server.
   assert.equal(state.drawingCalls, 0);
   assert.equal(state.recoveryCalls, 0);
   assert.equal(state.completed, false);
