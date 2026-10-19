@@ -817,9 +817,22 @@
   "plansActivated": false,
   "windows": {
     "developmentBuildUpdated": true,
-    "currentWindowRestartVerified": false,
+    "currentWindowRestartVerified": true,
     "computerUseStoppedByUser": true,
-    "installerReleased": false
+    "installerReleased": false,
+    "liveWindowInteractionVerified": false,
+    "developmentProcess": {
+      "pid": 37576,
+      "parentPid": 14612,
+      "startedAt": "2026-10-19T10:30:16+08:00",
+      "canonicalExecutable": true
+    },
+    "developmentServer": {
+      "status": 200,
+      "capturedPanes": true,
+      "paneCapture": true,
+      "drawingRetained": true
+    }
   },
   "evidenceHashes": {
     "final-tests.log": "507d16e65b6565a988517bf7e2f841d84e14853d43bab98281b940d6d28b9161",
