@@ -8,12 +8,23 @@ import {executionPlanStickyHtml} from '../src/main/execution-plan-sticky-view.mj
 import {mergeCloudExecutionPlans} from '../src/renderer/cloud-plan-sync.ts';
 import {renderCurrentReports,renderCurrentSavedPlan} from '../test/support/right-renderer-parity.mjs';
 const protectOnly=process.argv.includes('--protect-only');
-const root=fileURLToPath(new URL('..',import.meta.url)),output=path.join(root,protectOnly?'.cache/price-action-left-protect-card-qa':'.cache/price-action-left-card-qa');
+const conditional=process.argv.includes('--conditional');
+const root=fileURLToPath(new URL('..',import.meta.url)),output=path.join(root,conditional?'.cache/left-conditional-card-qa':protectOnly?'.cache/price-action-left-protect-card-qa':'.cache/price-action-left-card-qa');
 fs.mkdirSync(output,{recursive:true});
-const source=JSON.parse(fs.readFileSync(path.join(root,protectOnly?'test/fixtures/price-action-left-protect-receipts.json':'test/fixtures/price-action-left-dual-receipts.json'),'utf8'));
+const source=JSON.parse(fs.readFileSync(path.join(root,conditional?'test/fixtures/left-conditional-receipts.json':protectOnly?'test/fixtures/price-action-left-protect-receipts.json':'test/fixtures/price-action-left-dual-receipts.json'),'utf8'));
 const receipts=protectOnly?Object.fromEntries(Object.entries(source).map(([key,value])=>[`protect-${key}`,value])):source;
 const fixtures=[];
-for(const route of protectOnly?['protect']:['protect','touch'])for(const locale of ['zh-CN','zh-Hant','en'])for(const theme of ['light','dark'])for(const [width,font] of [[410,13],[300,20]])for(const state of ['ready','wait','watch']){
+if(conditional)for(const [key,receipt] of Object.entries(source))for(const theme of ['light','dark'])for(const [width,font] of [[410,13],[300,20]])for(const state of ['wait','expired']){
+ const report=cloudReportFromResponse(receipt)[0],language=report.locale==='zh-Hant'?'zh-TW':report.locale,oldClock=Date.now;
+ Date.now=()=>state==='expired'?report.executionPlan.expiresAt:report.executionPlan.createdAt+1;
+ try{
+  const pending=structuredClone(report);pending.planRecords[0].status='pending';
+  fixtures.push({id:`conditional-${key}-${theme}-${width}-${state}`,width,font,theme,state,
+   chat:renderCurrentReports([report]).rendered.cards,saved:renderCurrentSavedPlan(mergeCloudExecutionPlans([pending],[])[0],language),
+   sticky:executionPlanStickyHtml({cloudReport:report,language,theme,fontSize:font})});
+ }finally{Date.now=oldClock;}
+}
+for(const route of conditional?[]:protectOnly?['protect']:['protect','touch'])for(const locale of ['zh-CN','zh-Hant','en'])for(const theme of ['light','dark'])for(const [width,font] of [[410,13],[300,20]])for(const state of ['ready','wait','watch']){
   const report=cloudReportFromResponse(receipts[`${route}-${state==='watch'?'watch':locale}`])[0];
   report.locale=locale;
   const language=locale==='zh-Hant'?'zh-TW':locale,oldClock=Date.now;
@@ -59,7 +70,7 @@ app.setPath('userData',path.join(output,'profile'));app.disableHardwareAccelerat
   }).toString()+')()');
   const passed=result.length===(f.state==='watch'?1:3)&&result.every(r=>!r.overflow.length&&r.scroll<=r.client+1&&r.height>0);
   results.push({id:f.id,passed,result});
-  if((f.id.includes('protect-zh-CN-')&&f.width===410)||(f.id.includes('touch-en-dark-')&&f.width===300)||!passed){
+  if((f.id.includes('protect-zh-CN-')&&f.width===410)||(f.id.includes('touch-en-dark-')&&f.width===300)||(f.id.includes('conditional-price-action-zh-CN-')&&f.state==='wait')||!passed){
     await new Promise(resolve=>setTimeout(resolve,150));
     fs.writeFileSync(path.join(output,f.id+'.png'),(await win.webContents.capturePage()).toPNG());
   }

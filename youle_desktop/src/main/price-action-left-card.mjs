@@ -1,6 +1,9 @@
 // Public presentation only. Prices and permissions come from the frozen server receipt.
 const version='price-action-left-dual-v1';
 const words={
+  conditional:['左侧条件交易计划 · 待条件触发','Left-side conditional trading plan · Awaiting conditions','左側條件交易計畫 · 待條件觸發'],
+  conditionalSteps:['激活后等待触区收回、后续收盘跟进，再次进入入场区域；触发前重新核验费用与风险。','After activation, wait for a zone reclaim, later closed follow-through and an entry-zone retest; costs and risk are rechecked before a reminder.','啟用後等待觸區收回、後續收盤跟進，再次進入入場區域；觸發前重新核驗費用與風險。'],
+  conditionalSource:['依据真实结构区域或已收盘区间生成；所选策略原生信号尚未确认。','Based on structural zones or a closed-candle range; the selected strategy’s native signal is not confirmed.','依據真實結構區域或已收盤區間產生；所選策略原生訊號尚未確認。'],
   protectWatch:['4小时左侧条件预案 · 待到价／待确认','4h left-side watch plan · Awaiting price/confirmation','4小時左側條件預案 · 待到價／待確認'],
   retained:['保留已通过结构与风控校验的4小时条件单；到价后重验收回和收盘跟进。','A validated 4h condition is retained; reclaim and closed follow-through are rechecked at entry.','保留已通過結構與風控校驗的4小時條件單；到價後重驗收回和收盤跟進。'],
   watch:['左侧观察预案 · 待触发／待确认','Left-side watch · Awaiting price/confirmation','左側觀察預案 · 待觸發／待確認'],
@@ -61,6 +64,12 @@ export function leftWatchView(report,language,now=Date.now()){
 
 export function leftRouteView(plan,language,now=Date.now()){
   const p=plan.positionSizing?.leftPolicy;
+  if(plan.selectedMode==='left'&&p?.version==='left-conditional-fallback-v1'){
+    const t=translator(language),expired=now>=plan.entryCondition.expiresAt;
+    const lines=[t('conditional'),t(expired?'expired':'conditionalSteps'),t('conditionalSource')];
+    if(positive(p.referencePrice)&&stamp(p.referenceAt))lines.push(`${t('quote')}: ${p.referencePrice} · ${new Date(p.referenceAt).toISOString()}`);
+    return {action:expired?'blocked':'wait',content:lines.join('\n'),html:linesHtml(lines)};
+  }
   if(plan.selectedMode!=='left'||p?.version!==version||!['protect','touch'].includes(p.routeId))return null;
   const t=translator(language),expired=now>=plan.entryCondition.expiresAt;
   const ready=!expired&&p.entryState==='ready'&&stamp(p.quoteAt)&&now>=p.quoteAt&&now-p.quoteAt<=30000;
