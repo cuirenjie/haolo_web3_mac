@@ -2,10 +2,10 @@
 
 > 文档状态：已冻结的实施基线
 > 创建日期：2026-08-08
-> 最近更新：2026-10-12
+> 最近更新：2026-10-20
 > 当前里程碑：M2 统一 Data Hub 与增量特征层
 > 总体状态：M2 进行中（M2-013 生产基础设施验收受阻）
-> 当前工作焦点：M2-025 后续 Windows 增量融合复审（已完成）
+> 当前工作焦点：M6-MAC-20261020 Windows 大规模增量融合（进行中）
 > 适用仓库：`D:\youle_desktop\youle_desktop`（桌面端）、`D:\youle_agent_ms`（业务后端）、`D:\zhongzhuan`（统一模型中转）
 
 ## 1. 文档用途与持续更新规则
@@ -1066,6 +1066,8 @@ M6 退出条件：功能开关、降级、回滚路径、更新说明和支持�
 以 1 名桌面工程师、1 名量化/数据工程师和兼职 AI/后端支持估算：M1 可演示纵向切片约 1–2 周；包含四引擎、GPT 和真实订单流的内部 MVP 约 6–8 周；完成概率校准、稳定性和发布灰度约 8–12 周。实际日期以数据授权、专家标注和测试结果为准，不以工期压力绕过验收。
 
 ## 20. 当前工作焦点
+
+2026-10-20：M6-MAC-20261020 进行中。按 [分阶段融合计划](windows-sync-20261020.zh-CN.md) 审查和移植 Windows `e7a8ef0..08cc4fd`，每阶段测试、review、修复后推进，最终交付 Mac 测试包。
 
 2026-10-12 当前专项：M1-343 进行中。已完成远端源码审查、修复、推送和 macOS 0.1.175 Universal DMG 构建；正式官网发布需 Developer ID 签名/公证与 `APP_UPDATE_ADMIN_KEY`，当前环境均未配置。
 
@@ -2948,3 +2950,8 @@ Windows 上游历史记录（原平台验收）：
 - 产物：`release/好咯-0.1.175-universal.dmg`，488935152 bytes，SHA-256 `814a9ffb029ea2277916b14f6724b18a2843f7d2817f575956f4c9316615454e`。包内 Universal App、ASAR、主进程/Renderer 源文件、双架构运行时和资源校验通过；`hdiutil verify` 通过。
 - 构建使用 `HAOLO_ALLOW_UNTRUSTED_MAC_DMG=1`，本机 `security find-identity -v -p codesigning` 为 0 个有效身份；产物为 ad-hoc 签名，不能通过 `scripts/mac-release-trust.mjs` 的 Developer ID/公证发布门禁。未上传、未写官网发布记录。
 - 官网可用发布入口为 `POST https://haolo.com/api/app-updates/admin/mac/release`，需要 `X-App-Update-Admin-Key`。当前执行环境没有 `APP_UPDATE_ADMIN_KEY`，因此未提交外部发布请求；待签名公证环境和管理员密钥准备好后，以 `arch=universal`、版本 `0.1.175` 重新验收并发布。
+
+### 2026-10-20：M6-MAC-20261020 分阶段融合启动
+
+- Mac 基线 6a2da46，Windows 目标 08cc4fd；保护分支与五阶段移植计划已建立，详见 windows-sync-20261020.zh-CN.md。
+- 基线桌面 3431 通过、0 失败、6 Windows 条件跳过。上游云端包审计存在 Windows 路径硬编码，列入 S2 必修项。
