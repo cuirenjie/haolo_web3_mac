@@ -4,6 +4,10 @@
 
 - 用户于 2026-09-24 明确要求：Haolo Web3 客户端的代码修改、开发版启动、构建、测试和 Git 提交统一在 `C:\Users\潘艳芳\Documents\ChatGPT\haolo_windows_web3\` 目录执行。`youle_desktop` 是其中的客户端子目录，不作为独立固定工作目录。不得切换到恢复包、其他副本或其他项目目录。
 
+## 多会话提交与发布
+
+多会话提交和发布还必须遵守[仓库级协作规范](../AGENTS.md)及其链接的统一流程：提交前核对本任务差异范围，部署前协调、刷新实时基线并串行执行；涉及云端策略时分别验收 API 与独立策略 Worker，避免漏发或覆盖已上线改动。
+
 ## Windows 客户端默认 EV 签名
 
 - 用户于 2026-09-19 明确要求：以后 Windows 客户端打包必须主动完成 EV 签名，不再交付未签名的发布包。使用 `haolo-desktop-release` 技能及 `docs/windows-ev-signing.zh-CN.md`。
