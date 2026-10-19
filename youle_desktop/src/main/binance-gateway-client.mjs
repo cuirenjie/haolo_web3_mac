@@ -98,32 +98,40 @@ export function createBinanceGatewayClient({ config, apiClient, fetchImpl = glob
       return { response, payload, origin: responseOrigins.get(response) };
     } finally { clearTimeout(timer); }
   };
+  const marketStreamConnection = async ({ marketType, combined = false, streamClass = "market" } = {}) => {
+    const normalizedMarket = String(marketType || "").toLowerCase();
+    if (!["spot", "futures"].includes(normalizedMarket)) throw new TypeError("invalid marketType");
+    const normalizedClass = String(streamClass || "market").toLowerCase();
+    if (!["market", "public"].includes(normalizedClass)) throw new TypeError("invalid streamClass");
+    const classSuffix = normalizedClass === "public" && normalizedMarket === "futures" ? "Public" : "";
+    const key = combined ? `${normalizedMarket}${classSuffix}Combined` : `${normalizedMarket}${classSuffix}`;
+    const endpoint = config.gatewayPublicWebSocket[key] || config.gatewayPublicWebSocket[combined ? `${normalizedMarket}Combined` : normalizedMarket];
+    if (!endpoint || !config.ticketUrl) throw new Error("Haolo market gateway is not configured");
+    // Count from before the request, not after its body arrives. A suspended
+    // event loop can resume with a 201 whose one-use ticket has already expired.
+    const requestedAt = Date.now();
+    const { response, payload, origin } = await controlJson(config.ticketUrl, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ codecs: [MARKET_WIRE_CODEC], ticketProtocol: 2 }), cache: "no-store",
+    }, true);
+    if (!response.ok || !payload?.ticket) throw new Error(`Haolo market ticket failed: HTTP ${response.status}`);
+    const advertisedTtl = Number(payload.expiresInMs ?? 30_000);
+    const ttlMs = Number.isFinite(advertisedTtl) ? Math.min(30_000, Math.max(0, advertisedTtl)) : 0;
+    const ticketExpiresAt = requestedAt + ttlMs;
+    if (ticketExpiresAt <= Date.now() + 1_000) {
+      throw Object.assign(new Error("Market WebSocket ticket expired before connect"), { code: "WS_TICKET_EXPIRED" });
+    }
+    const routedEndpoint = new URL(endpoint);
+    routedEndpoint.host = new URL(origin || config.marketOrigin).host;
+    return Object.freeze({ url: withMarketTicket(routedEndpoint.href, payload.ticket), ticketExpiresAt });
+  };
   return Object.freeze({
     async fetch(url, init = {}) {
       if (!config.marketGatewayEnabled) throw new Error("Haolo market gateway is not configured");
       return marketFetch(url, init);
     },
-    async marketStreamEndpoint({ marketType, combined = false, streamClass = "market" } = {}) {
-      const normalizedMarket = String(marketType || "").toLowerCase();
-      if (!["spot", "futures"].includes(normalizedMarket)) throw new TypeError("invalid marketType");
-      const normalizedClass = String(streamClass || "market").toLowerCase();
-      if (!["market", "public"].includes(normalizedClass)) throw new TypeError("invalid streamClass");
-      const classSuffix = normalizedClass === "public" && normalizedMarket === "futures" ? "Public" : "";
-      const key = combined ? `${normalizedMarket}${classSuffix}Combined` : `${normalizedMarket}${classSuffix}`;
-      const endpoint = config.gatewayPublicWebSocket[key] || config.gatewayPublicWebSocket[combined ? `${normalizedMarket}Combined` : normalizedMarket];
-      if (!endpoint || !config.ticketUrl) throw new Error("Haolo market gateway is not configured");
-      const { response, payload, origin } = await controlJson(config.ticketUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ codecs: [MARKET_WIRE_CODEC] }),
-        cache: "no-store",
-      }, true);
-      if (!response.ok || !payload?.ticket) throw new Error(`Haolo market ticket failed: HTTP ${response.status}`);
-      const routedEndpoint = new URL(endpoint);
-      const targetOrigin = new URL(origin || config.marketOrigin);
-      routedEndpoint.host = targetOrigin.host;
-      return withMarketTicket(routedEndpoint.href, payload.ticket);
-    },
+    marketStreamConnection,
+    async marketStreamEndpoint(params) { return (await marketStreamConnection(params)).url; },
     async privateRequestPermit(targetUrl, { signal } = {}) {
       if (!config.privateProxyEnabled || !config.privatePermitUrl) throw new Error("Haolo private egress is not configured");
       const { response, payload } = await controlJson(config.privatePermitUrl, {

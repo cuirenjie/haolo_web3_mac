@@ -31,6 +31,41 @@ function setup(t, options = {}) {
 const subscribe = (hub, onHealth = () => {}, stream = "btcusdt@ticker", onEvent = () => {}) =>
   hub.subscribe({ marketType: "futures", streams: [stream] }, onEvent, onHealth);
 
+test("an expired endpoint is replaced before a physical socket can consume it", async t => {
+  let tickets = 0;
+  const hub = setup(t, { reconnectBaseMs: 10, endpointProvider: async () => ({
+    url: `wss://market.example/stream/futures?ticket=${++tickets}`, route: "gateway",
+    ticketExpiresAt: Date.now() + (tickets === 1 ? -1 : 30_000),
+  }) });
+  subscribe(hub);
+  await next();
+  assert.equal(Socket.instances.length, 0, "expired ticket must not reach the socket constructor");
+  await delay(20);
+  assert.equal(tickets, 2);
+  assert.equal(Socket.instances.length, 1);
+});
+
+test("a ticket 401 obtains a fresh lease and restores only current streams after ACK", async t => {
+  let tickets = 0; const invalidations = [], health = [];
+  const lookup = () => {}; lookup.invalidate = () => invalidations.push(true);
+  const hub = setup(t, { reconnectBaseMs: 10, lookupProvider: () => lookup,
+    endpointProvider: async () => ({ url: `wss://market.example/stream?ticket=${++tickets}`, route: "gateway", ticketExpiresAt: Date.now() + 30_000 }) });
+  const first = subscribe(hub, e => health.push(e));
+  await next();
+  Socket.instances[0].emit("unexpected-response", {}, { statusCode: 401,
+    headers: { "x-haolo-error-code": "WS_TICKET_CONSUMED", "retry-after": "0.01" }, destroy() {} });
+  await first.dispose();
+  subscribe(hub, e => health.push(e), "ethusdt@ticker");
+  await delay(20);
+  assert.equal(tickets, 2); assert.equal(Socket.instances.length, 2);
+  const replacement = Socket.instances[1]; replacement.open();
+  assert.deepEqual(replacement.sent[0].params, ["ethusdt@ticker"]);
+  assert.equal(health.some(e => e.status === "connected"), false);
+  replacement.ack(); assert.ok(health.some(e => e.status === "connected"));
+  assert.ok(health.some(e => e.reason === "WS_TICKET_CONSUMED"));
+  assert.deepEqual(invalidations, []);
+});
+
 test("chart replacement reuses a socket while removed listeners stop immediately", async t => {
   const hub = setup(t); let stale = 0, current = 0;
   const first = subscribe(hub, undefined, "btcusdt@ticker", () => stale++);

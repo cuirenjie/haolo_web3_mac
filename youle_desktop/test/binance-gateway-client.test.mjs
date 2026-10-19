@@ -4,6 +4,20 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createBinanceGatewayClient } from "../src/main/binance-gateway-client.mjs";
 import { resolveBinanceGatewayConfig } from "../src/main/binance-gateway-config.mjs";
 
+test("a successful ticket response delayed across sleep cannot return an expired endpoint", async t => {
+  let clock = 100_000;
+  t.mock.method(Date, "now", () => clock);
+  const client = createBinanceGatewayClient({
+    config: resolveBinanceGatewayConfig({ HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://market.example" }),
+    apiClient: { getTrustedAccessToken: async () => "test-token" },
+    fetchImpl: async () => {
+      clock += 31_000;
+      return Response.json({ ticket: "one-use", expiresInMs: 30_000 });
+    },
+  });
+  await assert.rejects(client.marketStreamEndpoint({ marketType: "futures" }), { code: "WS_TICKET_EXPIRED" });
+});
+
 test("ticket deadline allows the measured 8.851s auth tail within the gateway 10s budget", async () => {
   const config = resolveBinanceGatewayConfig({ HAOLO_BINANCE_MARKET_GATEWAY_URL: "https://market.example" });
   let calls = 0;

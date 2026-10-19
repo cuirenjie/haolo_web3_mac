@@ -236,9 +236,13 @@ export class TradingMarketDataHub {
         : { ...resolved, marketType: resolved?.marketType || channel.marketType };
       endpoint = String(endpointContext?.url || "");
       if (!endpoint) throw new Error("market endpoint is empty");
+      if (endpointContext.route === "gateway" && Number.isFinite(endpointContext.ticketExpiresAt)
+          && endpointContext.ticketExpiresAt <= Date.now() + 1_000) {
+        throw Object.assign(new Error("Market WebSocket ticket expired before connect"), { code: "WS_TICKET_EXPIRED" });
+      }
     } catch (error) {
       channel.connecting = false;
-      this.scheduleReconnect(channel, String(error?.message || "endpoint_failed").slice(0, 240));
+      this.scheduleReconnect(channel, error?.code === "WS_TICKET_EXPIRED" ? error.code : String(error?.message || "endpoint_failed").slice(0, 240));
       return;
     }
     if (this.closed || generation !== channel.generation || channel.socket || !channel.subscriptions.size) {
@@ -253,11 +257,13 @@ export class TradingMarketDataHub {
         perMessageDeflate: false,
         maxPayload: 1024 * 1024,
         handshakeTimeout: this.handshakeTimeoutMs,
+        ...(endpointContext.route === "gateway" && Number.isFinite(endpointContext.ticketExpiresAt)
+          ? { haoloMarketTicketExpiresAt: endpointContext.ticketExpiresAt } : {}),
         ...(typeof lookup === "function" ? { family: 4, lookup } : {}),
       });
     } catch (error) {
       channel.connecting = false;
-      if (endpointContext?.route === "gateway") lookup?.invalidate?.(new URL(endpoint).hostname);
+      if (error?.code !== "WS_TICKET_EXPIRED" && endpointContext?.route === "gateway") lookup?.invalidate?.(new URL(endpoint).hostname);
       this.reportEndpointOutcome({ ...endpointContext, outcome: "failed", connectedDurationMs: 0 });
       this.scheduleReconnect(channel, String(error?.message || "connect_failed").slice(0, 240));
       return;
@@ -277,7 +283,8 @@ export class TradingMarketDataHub {
     socket.on("unexpected-response", (_request, response) => {
       if (channel.socket !== socket) { response.destroy(); return; }
       handshakeStatus = Number(response.statusCode) || 0;
-      const knownCodes = new Set(["WS_USER_CONNECTION_LIMIT", "WS_CONNECTION_RATE_LIMIT", "WS_TOTAL_CONNECTION_LIMIT"]);
+      const knownCodes = new Set(["WS_USER_CONNECTION_LIMIT", "WS_CONNECTION_RATE_LIMIT", "WS_TOTAL_CONNECTION_LIMIT",
+        "WS_TICKET_EXPIRED", "WS_TICKET_CONSUMED", "WS_TICKET_UNKNOWN", "WS_TICKET_INVALID", "WS_TICKET_UNAVAILABLE"]);
       const code = response.headers?.["x-haolo-error-code"];
       channel.failureReason = knownCodes.has(code) ? code : `websocket_http_${handshakeStatus}`;
       const retrySeconds = Number(response.headers?.["retry-after"]);
@@ -347,7 +354,8 @@ export class TradingMarketDataHub {
         try { subscription?.onEvent(event); } catch {}
       }
     });
-    socket.on("error", () => {
+    socket.on("error", error => {
+      if (error?.code === "WS_TICKET_EXPIRED") channel.failureReason = error.code;
       try { socket.close(); } catch {}
     });
     socket.on("close", () => {

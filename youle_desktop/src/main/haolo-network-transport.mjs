@@ -102,7 +102,7 @@ export function createElectronProxyResolver({ getSession, refreshMs = 5_000, tim
   };
 }
 
-export function createHaoloNetworkTransport({ resolveProxy, fallbackFetch = globalThis.fetch, onDiagnostic, policyOptions = {}, socketOptions = {}, fetchImpl = transportFetch, openSocket = openHaoloSocket, marketRoutePollMs = 5_000 } = {}) {
+export function createHaoloNetworkTransport({ resolveProxy, fallbackFetch = globalThis.fetch, onDiagnostic, policyOptions = {}, socketOptions = {}, fetchImpl = transportFetch, openSocket = openHaoloSocket, marketRoutePollMs = 5_000, now = Date.now } = {}) {
   const dispatchers = new Map();
   const marketRouteWatchers = new Set();
   const fingerprint = policyOptions.fingerprint || networkFingerprint;
@@ -227,13 +227,27 @@ export function createHaoloNetworkTransport({ resolveProxy, fallbackFetch = glob
         const agent = new https.Agent({ keepAlive: false });
         const controller = new AbortController();
         const watchRoute = new URL(String(url)).hostname === "market.youle.pro";
+        const ticketExpiresAt = options.haoloMarketTicketExpiresAt;
+        const checkTicket = () => {
+          if (Number.isFinite(ticketExpiresAt) && ticketExpiresAt <= now() + 1_000) {
+            throw Object.assign(new Error("Market WebSocket ticket expired before upgrade"), { code: "WS_TICKET_EXPIRED" });
+          }
+        };
         let initialRoute, stopWatching;
         agent.createConnection = (_opts, callback) => {
-          const pending = watchRoute ? marketSocketRoute(url, controller.signal).then((route) => {
-            initialRoute = route;
-            return openSocket(url, route.decision, { ...socketOptions, signal: controller.signal });
-          }) : connect(url, { signal: controller.signal });
-          pending.then((socket) => callback(null, socket), callback);
+          const pending = Promise.resolve().then(() => {
+            checkTicket();
+            return watchRoute ? marketSocketRoute(url, controller.signal).then((route) => {
+              initialRoute = route;
+              checkTicket();
+              return openSocket(url, route.decision, { ...socketOptions, signal: controller.signal });
+            }) : connect(url, { signal: controller.signal });
+          });
+          pending.then(socket => {
+            try { controller.signal.throwIfAborted(); checkTicket(); }
+            catch (error) { socket.destroy(); callback(error); return; }
+            callback(null, socket);
+          }, callback);
         };
         // The market server controls the rollout cohort. Offering the extension
         // does not enable it when the server keeps its default percentage at 0.
