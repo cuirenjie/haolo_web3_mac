@@ -60,6 +60,8 @@ import {
   executionPlanDisplayLines,
   executionPlanHasConcreteTradingPlan,
   executionPlanHasStructuredTradingFields,
+  executionPlanNeedsActivation,
+  executionPlanActivationText,
   executionPlanSignedNumberSegments,
   executionPlanCandidatesFromText,
   executionPlanCandidateWithSourceText,
@@ -2047,7 +2049,7 @@ type DesktopApi = {
     }>;
   }): Promise<any>;
   tradingCloudRecovery?: CloudRecoveryApi;
-  tradingCloudPlans?: (action:'list'|'read'|'activate'|'lifecycle'|'delete',input?:Record<string,unknown>)=>Promise<any>;
+  tradingCloudPlans?: (action:'list'|'read'|'save'|'activate'|'lifecycle'|'delete',input?:Record<string,unknown>)=>Promise<any>;
   getCloudAlertFeed?:()=>Promise<any>;
   onCloudAlertFeed?:(callback:(value:any)=>void)=>()=>void;
   cancelTradingAnalysis?(params?: { analysisJobId?: string }): Promise<{ cancelled?: boolean }>;
@@ -39141,7 +39143,7 @@ function syncExecutionPlansForCurrentAccount() {
 
 function executionPlanBinanceMonitoringNeeded() {
   return state.auth.authenticated && state.executionPlans.some((plan) => {
-    if(plan.cloudReport)return false;
+    if(plan.cloudReport||executionPlanNeedsActivation(plan))return false;
     if (plan.status !== "pending" && plan.status !== "executing") return false;
     const identity = executionPlanBinanceIdentity(plan);
     return Boolean(identity.symbol && identity.direction);
@@ -39276,6 +39278,7 @@ async function reconcileExecutionPlansWithBinanceSnapshot(
     if (
       !plan
       || Boolean(plan.cloudReport)
+      || executionPlanNeedsActivation(plan)
       || plan.status === "ended"
       || executionPlanAlertSyncBusyIds.has(plan.id)
       || executionPlanDeleteBusyIds.has(plan.id)
@@ -39345,21 +39348,22 @@ async function reconcileExecutionPlansWithBinanceSnapshot(
   }
 }
 
-async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan) {
+async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan, action: 'save'|'activate'|'lifecycle' = 'lifecycle') {
   if(plan.cloudReport) {
     if(!api.tradingCloudPlans)throw new Error('云端计划服务不可用');
     const remote=plan.cloudReport.planRecords[0];
-    const response=await api.tradingCloudPlans(remote.saved?'lifecycle':'activate',{
+    const response=await api.tradingCloudPlans(action,{
       planId:remote.id,runId:remote.runId,version:remote.version,confirmationHash:remote.confirmationHash,
       conditionHash:remote.scenario.conditionHash,status:plan.status,endReason:plan.endReason,
     });
-    if(!response?.ok||!response.plan?.linkedAlertId)throw new Error(response?.error?.message||'云端计划未确认保存');
+    if(!response?.ok||!response.plan?.saved||(action==='activate'&&!response.plan.linkedAlertId))throw new Error(response?.error?.message||'云端计划未确认保存');
     const saved=response.plan;
     const cloudReport=normalizeCloudReports([{...plan.cloudReport,planRecords:[saved]}])[0];
     const cloudPlan:SavedExecutionPlan={...plan,cloudReport,linkedAlertId:saved.linkedAlertId,status:saved.status,
       endReason:saved.endReason||null,statusUpdatedAt:new Date(saved.statusUpdatedAt||saved.activatedAt||Date.now()).toISOString()};
-    return {alertId:saved.linkedAlertId as string,warning:'',created:!remote.saved,cloudPlan};
+    return {alertId:(saved.linkedAlertId||null) as string|null,warning:'',created:action==='activate'&&!remote.linkedAlertId,cloudPlan};
   }
+  if(action==='save'||action==='lifecycle'&&executionPlanNeedsActivation(plan))return {alertId:null,warning:'',created:false,cloudPlan:undefined as SavedExecutionPlan|undefined};
   if (!api.tradingAlertsSyncExecutionPlan) throw new Error("当前版本不支持计划预警联动");
   const result = tradingAlertResponseData(await api.tradingAlertsSyncExecutionPlan({
     planId: plan.id,
@@ -39382,7 +39386,7 @@ async function syncExecutionPlanLinkedAlert(plan: SavedExecutionPlan) {
 async function reconcileMissingExecutionPlanAlerts(scope: string) {
   if (executionPlanAlertReconciledScopes.has(scope)) return;
   executionPlanAlertReconciledScopes.add(scope);
-  const missing = state.executionPlans.filter((plan) => !plan.cloudReport && !plan.linkedAlertId && !executionPlanDeleteBusyIds.has(plan.id));
+  const missing = state.executionPlans.filter((plan) => !plan.cloudReport && !plan.linkedAlertId && plan.reminderActivation!=='manual' && !executionPlanDeleteBusyIds.has(plan.id));
   if (!missing.length) return;
   const linked = new Map<string, string>();
   const createdAlertIds: string[] = [];
@@ -39390,6 +39394,7 @@ async function reconcileMissingExecutionPlanAlerts(scope: string) {
   for (const plan of missing) {
     try {
       const result = await syncExecutionPlanLinkedAlert(plan);
+      if(!result.alertId)throw new Error(executionPlanActivationText('unconfirmed',state.settings.language));
       linked.set(plan.id, result.alertId);
       if (result.created) createdAlertIds.push(result.alertId);
     } catch (error) {
@@ -39531,7 +39536,7 @@ function executionPlanStatusMeta(plan: SavedExecutionPlan) {
     if (plan.endReason === "expired") return { label: "已过期", tone: "expired" };
     return { label: "已取消", tone: "cancelled" };
   }
-  return { label: "待执行", tone: "pending" };
+  return { label: executionPlanNeedsActivation(plan) ? executionPlanActivationText('inactive',state.settings.language) : "待执行", tone: "pending" };
 }
 
 function renderExecutionPlanEndMenu(plan: SavedExecutionPlan) {
@@ -39558,7 +39563,9 @@ function renderExecutionPlanActions(plan: SavedExecutionPlan) {
   const actions = plan.status === "ended"
     ? `<button type="button" data-execution-plan-action="reopen" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${busy ? busyLabel : "重新打开"}</button>`
     : `<button type="button" data-execution-plan-action="open-end-menu" data-execution-plan-id="${escapeAttr(plan.id)}" aria-haspopup="menu" aria-expanded="${menuOpen}"${disabled}>${busy ? busyLabel : "结束"}</button>`;
-  return `<div class="execution-plan-card-actions ${menuOpen ? "open" : ""}">${actions}
+  const activate=plan.status==='pending'&&executionPlanNeedsActivation(plan)
+    ? `<button type="button" data-execution-plan-action="activate" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${escapeHtml(executionPlanActivationText(syncing?'activating':'activate',state.settings.language))}</button>` : '';
+  return `<div class="execution-plan-card-actions ${menuOpen ? "open" : ""}">${activate}${actions}
     <button type="button" class="danger" data-execution-plan-action="delete" data-execution-plan-id="${escapeAttr(plan.id)}"${disabled}>${deleting ? "删除中…" : "删除"}</button>
   </div>${renderExecutionPlanEndMenu(plan)}`;
 }
@@ -39618,6 +39625,28 @@ function renderExecutionPlansPage() {
   `;
 }
 
+async function activateExecutionPlanReminder(planId: string) {
+  const plan=state.executionPlans.find(item=>item.id===planId);
+  if(!plan||plan.status!=='pending'||!executionPlanNeedsActivation(plan)||executionPlanAlertSyncBusyIds.has(planId)||executionPlanDeleteBusyIds.has(planId))return;
+  const scope=state.executionPlansScope;
+  executionPlanAlertSyncBusyIds.add(planId);render();
+  let activated=false;
+  try {
+    const response=await syncExecutionPlanLinkedAlert(plan,'activate');
+    if(scope!==state.executionPlansScope)return;
+    activated=true;
+    const updated=response.cloudPlan||{...plan,linkedAlertId:response.alertId};
+    const next=state.executionPlans.map(item=>item.id===planId?updated:item);
+    state.executionPlans=next;
+    if(!saveExecutionPlans(state.executionPlansScope,next))throw new Error(executionPlanActivationText('activationCacheFailed',state.settings.language));
+    showToast(executionPlanActivationText('activated',state.settings.language),5000);
+  } catch(error) {
+    if(scope!==state.executionPlansScope)return;
+    showToast(activated?errorMessage(error):`${executionPlanActivationText('failed',state.settings.language)}：${errorMessage(error)}`,5000);
+    if(plan.cloudReport)void refreshCloudExecutionPlans();
+  } finally {executionPlanAlertSyncBusyIds.delete(planId);render();}
+}
+
 async function updateExecutionPlanLifecycle(
   planId: string,
   status: ExecutionPlanStatus,
@@ -39655,7 +39684,9 @@ async function updateExecutionPlanLifecycle(
     }
     state.executionPlans = nextPlans;
     state.executionPlanFilter = status;
-    const statusText = options.automaticMessage || (status === "executing"
+    const statusText = options.automaticMessage || (executionPlanNeedsActivation(updated)
+      ? executionPlanActivationText(status==='ended'?'ended':'inactive',state.settings.language)
+      : status === "executing"
       ? "计划已执行，预警已切换为止损与止盈监控"
       : status === "pending"
         ? "计划已恢复待执行，预警已切换为入场监控"
@@ -53196,11 +53227,10 @@ function renderAddToPlanAction(message: Message, text: string, candidateOffset =
       if(!card||!remote)return '';
       executionPlanCandidatesBySource.set(executionPlanCandidateKey(message.conversation_id,message.id,index),{title:card.title,content:card.content,cloudReport:report});
       const added=state.executionPlans.some(plan=>plan.cloudReport?.planRecords[0]?.id===remote.id);
-      const expired=report.executionPlan.expiresAt<=Date.now();
       return `<button type="button" class="message-action-button message-add-to-plan" data-message-action="add-to-plan"
         data-message-action-kind="add-to-plan" data-message-action-destination="execution-plans"
         data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}" data-execution-plan-message-id="${escapeAttr(message.id)}"
-        data-execution-plan-index="${index}" ${added||expired?'disabled aria-disabled="true"':''}>${added?'已添加到计划':expired?'计划已过期':'添加到计划'}</button>`;
+        data-execution-plan-index="${index}" ${added?'disabled aria-disabled="true"':''}>${added?'已添加到计划':'添加到计划'}</button>`;
     }).join('');
     return buttons?`<div class="message-actions message-actions-below-bubble execution-plan-message-actions">${buttons}</div>`:'';
   }
@@ -62153,7 +62183,8 @@ function bindExecutionPlanEvents() {
       const action = actionButton.dataset.executionPlanAction;
       const planId = actionButton.dataset.executionPlanId || "";
       if (!planId) return;
-      if (action === "reopen") void updateExecutionPlanLifecycle(planId, "pending");
+      if (action === "activate") void activateExecutionPlanReminder(planId);
+      else if (action === "reopen") void updateExecutionPlanLifecycle(planId, "pending");
       else if (action === "open-end-menu") {
         state.executionPlanEndMenuId = state.executionPlanEndMenuId === planId ? null : planId;
         render();
@@ -67075,18 +67106,17 @@ async function addExecutionPlanFromMessageAction(button: HTMLButtonElement) {
   });
   button.disabled = true;
   button.setAttribute("aria-disabled", "true");
-  button.textContent = "正在创建计划与预警…";
+  button.textContent = executionPlanActivationText('saving',state.settings.language);
   try {
-    const alertResult = await syncExecutionPlanLinkedAlert(plan);
+    const alertResult = await syncExecutionPlanLinkedAlert(plan,'save');
     plan = alertResult.cloudPlan || { ...plan, linkedAlertId: alertResult.alertId };
     const nextPlans = [plan, ...state.executionPlans];
     if (!saveExecutionPlans(state.executionPlansScope, nextPlans)) {
       if(plan.cloudReport){state.executionPlans=nextPlans;throw new Error('云端计划已创建，本机缓存写入失败，请刷新计划列表核对');}
-      void api.tradingAlertsDelete?.({ alertId: alertResult.alertId })?.catch(() => {});
-      throw new Error("计划保存失败，已撤销对应预警");
+      throw new Error(executionPlanActivationText('saveFailed',state.settings.language));
     }
     state.executionPlans = nextPlans;
-    state.executionPlanFilter = "pending";
+    state.executionPlanFilter = plan.status;
     state.executionPlanEndMenuId = null;
     button.textContent = `已添加到计划${candidate.content.includes("偏多") ? "（多头）" : candidate.content.includes("偏空") ? "（空头）" : ""}`;
     openExecutionPlansPage();

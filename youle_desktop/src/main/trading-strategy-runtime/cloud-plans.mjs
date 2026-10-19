@@ -35,7 +35,7 @@ export function createCloudPlans({owner,api}) {
       }while(after);
       return {items,reports};
     }
-    if(!['read','activate','lifecycle','delete'].includes(action))fail('CLOUD_PLAN_ACTION_INVALID');
+    if(!['read','save','activate','lifecycle','delete'].includes(action))fail('CLOUD_PLAN_ACTION_INVALID');
     const planId=String(input.planId||'');
     const lock=`${captured.ownerId}:${planId}`;
     if(active.has(lock))fail('CLOUD_PLAN_BUSY');
@@ -53,7 +53,13 @@ export function createCloudPlans({owner,api}) {
       if(action==='read')return {plan};
       if(plan.confirmationHash!==input.confirmationHash||plan.scenario?.conditionHash!==input.conditionHash||plan.runId!==input.runId)fail('CLOUD_RESULT_CONTEXT_INVALID');
       let result;
-      if(action==='activate') {
+      if(action==='save') {
+        if(plan.saved)return {plan,alreadySaved:true};
+        if(!Number.isSafeInteger(input.version)||input.version<1)fail('PLAN_VERSION_CONFLICT');
+        const capability=await request(captured,'capabilities');
+        if(capability.planSaveActivation!=='separate-v1')fail('PLAN_SAVE_UNAVAILABLE');
+        result=await request(captured,'savePlan',{planId,version:input.version,confirmationHash:plan.confirmationHash,monitoringPolicy:plan.monitoringPolicy},`save:${planId}:${plan.confirmationHash}`);
+      } else if(action==='activate') {
         if(plan.saved && plan.linkedAlertId)return {plan,alreadyActive:true};
         if(!Number.isSafeInteger(input.version)||input.version<1)fail('PLAN_VERSION_CONFLICT');
         result=await request(captured,'activatePlan',{planId,version:input.version,confirmationHash:plan.confirmationHash,monitoringPolicy:plan.monitoringPolicy},`activate:${planId}:${plan.confirmationHash}`);
@@ -70,12 +76,14 @@ export function createCloudPlans({owner,api}) {
           `${action}:${planId}:${input.version}:${input.status||''}:${input.endReason||''}`);
         if(action==='delete')return result;
       }
-      if(result.plan?.id!==planId||!equal(result.plan.executionPlan,plan.executionPlan)||result.plan.confirmationHash!==plan.confirmationHash
-        ||result.alert?.planId!==planId||result.alert?.rule?.monitoringPolicy!==plan.monitoringPolicy
+      if(result.plan?.id!==planId||!equal(result.plan.executionPlan,plan.executionPlan)||result.plan.confirmationHash!==plan.confirmationHash)fail('CLOUD_RESULT_CONTEXT_INVALID');
+      if(action==='save'||action==='lifecycle'&&!plan.linkedAlertId) {
+        if(!result.plan.saved||result.plan.linkedAlertId||result.alert)fail('CLOUD_RESULT_CONTEXT_INVALID');
+      } else if(result.alert?.planId!==planId||result.alert?.rule?.monitoringPolicy!==plan.monitoringPolicy
         ||(!right(plan)&&(!equal(result.alert.rule.entryCondition,plan.scenario.entryCondition)||result.alert.rule.conditionHash!==input.conditionHash))
         ||(right(plan)&&['side','entry','stop','targets','confirmation','exitConfirmation','marketKey','interval'].some(key=>!equal(result.alert.rule[key],plan.alertPreview[key]))))fail('CLOUD_RESULT_CONTEXT_INVALID');
       const latest=await request(captured,'plan',{planId});
-      if(latest.id!==planId||latest.confirmationHash!==plan.confirmationHash||!equal(latest.executionPlan,plan.executionPlan))fail('CLOUD_RESULT_CONTEXT_INVALID');
+      if(latest.id!==planId||!latest.saved||latest.confirmationHash!==plan.confirmationHash||!equal(latest.executionPlan,plan.executionPlan))fail('CLOUD_RESULT_CONTEXT_INVALID');
       return {...result,plan:latest};
     } finally {active.delete(lock);}
   }};

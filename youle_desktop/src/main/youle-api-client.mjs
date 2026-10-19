@@ -3272,10 +3272,10 @@ export class YouleApiClient {
       createRun: ["POST", "/agent-runs"],
       plans: ["GET", "/trading-plans"],
     };
-    if (["plan", "activatePlan", "planLifecycle", "deletePlan"].includes(operation)) {
+    if (["plan", "savePlan", "activatePlan", "planLifecycle", "deletePlan"].includes(operation)) {
       const {planId, ...body} = payload;
       if (typeof planId !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(planId)) throw new TypeError('Invalid cloud plan id');
-      const action={plan:['GET',''],activatePlan:['POST','/activate'],planLifecycle:['PATCH','/lifecycle'],deletePlan:['DELETE','']}[operation];
+      const action={plan:['GET',''],savePlan:['POST','/save'],activatePlan:['POST','/activate'],planLifecycle:['PATCH','/lifecycle'],deletePlan:['DELETE','']}[operation];
       routes[operation]=[action[0],`/plans/${planId}${action[1]}`];
       payload=body;
     }

@@ -80,7 +80,13 @@ if(entryMode==='right') {
     const changed=structuredClone(result);tamper(changed);
     assert.throws(()=>validateCloudResult({...runEnvelope,desktopResult:changed},record),e=>e.code==='CLOUD_RESULT_CONTEXT_INVALID');
   }
-  const activated=await plans.perform('activate',reference);
+  const saved=await plans.perform('save',reference);
+  assert.equal(saved.plan.saved,true);assert.equal(saved.plan.linkedAlertId,null);assert.equal(saved.alert,undefined);
+  assert.equal((await plans.perform('save',reference)).plan.version,saved.plan.version);
+  const savedList=await plans.perform('list');
+  assert.equal(savedList.reports[0].planRecords[0].id,original.id);
+  assert.ok(cloudPlanCard(savedList.reports[0]));
+  const activated=await plans.perform('activate',{...reference,version:saved.plan.version});
   assert.equal(activated.plan.status,'pending');assert.equal(activated.alert.rule.conditionHash,reference.conditionHash);
   const repeated=await plans.perform('activate',reference);
   assert.equal(repeated.plan.linkedAlertId,activated.plan.linkedAlertId);assert.equal(repeated.plan.version,activated.plan.version);

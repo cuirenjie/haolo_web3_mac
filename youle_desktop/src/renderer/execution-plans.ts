@@ -55,6 +55,7 @@ export type SavedExecutionPlan = ExecutionPlanCandidate & {
   endReason: ExecutionPlanEndReason | null;
   statusUpdatedAt: string;
   linkedAlertId: string | null;
+  reminderActivation?: 'manual';
   binanceTracking: ExecutionPlanBinanceTracking;
 };
 
@@ -671,6 +672,7 @@ function savedExecutionPlanFromUnknown(value: unknown): SavedExecutionPlan | nul
     endReason,
     statusUpdatedAt,
     linkedAlertId,
+    ...(record.reminderActivation==='manual'?{reminderActivation:'manual' as const}:{}),
     binanceTracking: normalizedBinanceTracking(record.binanceTracking),
   };
 }
@@ -736,8 +738,29 @@ export function createSavedExecutionPlan(input: {
     endReason: null,
     statusUpdatedAt: createdAt,
     linkedAlertId: null,
+    reminderActivation: 'manual',
     binanceTracking: defaultBinanceTracking(),
   };
+}
+
+export function executionPlanNeedsActivation(plan: SavedExecutionPlan) {
+  return !plan.linkedAlertId && (plan.reminderActivation==='manual' || plan.cloudReport?.planRecords[0]?.saved===true);
+}
+
+export function executionPlanActivationText(key: 'inactive'|'activate'|'activating'|'activated'|'failed'|'saving'|'saveFailed'|'activationCacheFailed'|'unconfirmed'|'ended', language: unknown) {
+  const index=language==='en'?1:['zh-TW','zh-Hant'].includes(String(language))?2:0;
+  return {
+    inactive:['已保存 · 未激活提醒','Saved · Reminder inactive','已儲存 · 未啟用提醒'],
+    activate:['激活提醒','Activate reminder','啟用提醒'],
+    activating:['正在激活提醒…','Activating reminder…','正在啟用提醒…'],
+    activated:['提醒已激活','Reminder activated','提醒已啟用'],
+    failed:['激活未确认，计划仍已保存','Activation not confirmed; plan remains saved','啟用未確認，計畫仍已儲存'],
+    saving:['正在保存计划…','Saving plan…','正在儲存計畫…'],
+    saveFailed:['计划保存失败','Plan could not be saved','計畫儲存失敗'],
+    activationCacheFailed:['提醒已激活，本机缓存写入失败，请刷新计划列表核对','Reminder activated, but the local cache could not be saved. Refresh the plan list to check.','提醒已啟用，本機快取寫入失敗，請重新整理計畫清單核對'],
+    unconfirmed:['预警未确认激活','Reminder activation is not confirmed','提醒未確認啟用'],
+    ended:['计划已结束','Plan ended','計畫已結束'],
+  }[key][index];
 }
 
 export function transitionExecutionPlan(

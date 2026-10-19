@@ -17,7 +17,7 @@ const functionNames = [
   "executionPlanCandidateKey", "createExecutionPlanStickyFromMessageCard", "messageExecutionPlanCardKey",
   "renderExecutionPlanCard", "executionPlanStatusMeta", "executionPlanCreatedLabel",
   "syncExecutionPlanLinkedAlert", "executionPlanBinanceIdentity", "addExecutionPlanFromMessageAction",
-  "updateExecutionPlanLifecycle",
+  "updateExecutionPlanLifecycle", "activateExecutionPlanReminder",
   "applyMessageExecutionPlanFontSize", "adjustMessageExecutionPlanFontSize",
   "createExecutionPlanStickyFromMessageAction", "bindMessageContentEvents",
 ];
@@ -239,6 +239,9 @@ for (const theme of ["light", "dark"]) {
       const [saved] = h.state.executionPlans;
       assert.ok(saved);
       assert.match(saved.title, /ETH\/USDT .*1H/);
+      assert.deepEqual(h.runtime.alerts, []);
+      assert.equal(saved.linkedAlertId, null);
+      await h.activateExecutionPlanReminder(saved.id);
       assert.match(h.runtime.alerts[0].title, /ETH\/USDT .*1H/);
       assert.equal(h.executionPlanBinanceIdentity(saved).symbol, "ETHUSDT");
       assert.match(h.renderExecutionPlanCard(saved), /ETH\/USDT .*1H/);
@@ -312,6 +315,8 @@ test("generic legacy cards derive stable context from their own report for every
   await h.createExecutionPlanStickyFromMessageCard(h.card("legacy"));
   await h.addExecutionPlanFromMessageAction(h.button("legacy"));
   assert.match(h.runtime.sticky[0].title, /ETH\/USDT 币安永续 1H/);
+  assert.deepEqual(h.runtime.alerts, []);
+  await h.activateExecutionPlanReminder(h.state.executionPlans[0].id);
   assert.match(h.runtime.alerts[0].title, /ETH\/USDT 币安永续 1H/);
 });
 
