@@ -7,12 +7,13 @@ import * as view from '../../src/main/execution-plan-card-view.mjs';
 import * as cloud from '../../src/main/cloud-plan-contract.mjs';
 
 const names=['renderMessageExecutionPlan','renderExecutionPlanCardContent','renderAddToPlanAction','executionPlanCandidateKey'];
-function compile(file) {
+function compile(file,functionNames=names) {
   const source=fs.readFileSync(file,'utf8'),ast=ts.createSourceFile('main.ts',source,ts.ScriptTarget.Latest,true);
-  const functions=names.map(name=>{const node=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name);assert.ok(node,name);return node.getText(ast);});
+  const functions=functionNames.map(name=>{const node=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name);assert.ok(node,name);return node.getText(ast);});
   return ts.transpileModule(functions.join('\n'),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 }
 const current=compile(new URL('../../src/renderer/main.ts',import.meta.url));
+const savedRenderer=compile(new URL('../../src/renderer/main.ts',import.meta.url),['renderExecutionPlanCard','renderExecutionPlanCardContent','executionPlanStatusMeta','executionPlanCreatedLabel']);
 const original=process.env.HAOLO_RIGHT_BASELINE_ROOT?compile(path.join(process.env.HAOLO_RIGHT_BASELINE_ROOT,'youle_desktop/src/renderer/main.ts')):null;
 function harness(source,language) {
   const candidates=new Map(),escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -26,6 +27,11 @@ export function renderCurrentReports(reports) {
   const message={id:'mixed-message',conversation_id:'mixed-thread',cloudReports:reports,executionPlanPresentation:'execution-plan'};
   const text=reports.map(report=>report.report).join('\n\n---\n\n');
   return {rendered:runtime.renderMessageExecutionPlan(message,text),actions:runtime.renderAddToPlanAction(message,text),bindings:[...runtime.candidates]};
+}
+export function renderCurrentSavedPlan(plan,language='zh-CN') {
+  const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const deps={...plans,...view,...cloud,state:{settings:{language}},escapeHtml:escape,escapeAttr:escape,renderExecutionPlanActions:()=>''};
+  return Function(...Object.keys(deps),savedRenderer+';return renderExecutionPlanCard;')(...Object.values(deps))(plan);
 }
 export function verifyRendererParity(report) {
   if(!original)return;

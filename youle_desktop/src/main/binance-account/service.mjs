@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { BinanceCredentialError } from "./credential-store.mjs";
+import { BINANCE_REBIND_MESSAGE } from "../../shared/binance-account-errors.mjs";
 
 const DEFAULT_SPOT_BASE_URL = "https://api.binance.com";
 const DEFAULT_FUTURES_BASE_URL = "https://fapi.binance.com";
@@ -1481,6 +1482,9 @@ async function requestJson(networkFetch, url, init = {}, timeoutMs = REQUEST_TIM
 
 function binanceHttpError(status, payload, { retryAfterMs = null } = {}) {
   const code = Number(payload?.code);
+  if (code === -2008) {
+    return new BinanceAccountError("BINANCE_CREDENTIALS_INVALID", BINANCE_REBIND_MESSAGE);
+  }
   if (code === -2015 || status === 401) {
     return new BinanceAccountError(
       "BINANCE_AUTH_FAILED",

@@ -19,6 +19,26 @@ test('Market, interval, pane and UTC coordinates roundtrip',()=>{
   assert.equal(wire.drawingScope,'indicator:MACD');assert.equal(wire.interval,'1h');assert.equal(wire.points[0].time,1700000000000);
   const restored=drawingFromWire(wire,native.symbol);assert.deepEqual(restored.points,native.points);assert.equal(restored.drawingScope,native.drawingScope);assert.equal(restored.locked,true);
 });
+
+test('Two-anchor annotations and image opacity survive local restart without blocking compatible drawing uploads', () => {
+  const annotations = ['note', 'callout', 'table', 'image'].map(tool => drawingToWire({
+    ...shape(), tool, text: tool === 'table' ? '第一格|第二格|\n||\n||' : '内容',
+    ...(tool === 'image' ? { imageOpacity: .55 } : {}),
+  }));
+  const line = drawingToWire(shape()), replica = new DrawingReplica();
+  replica.merge(receipt()); replica.edit([], [...annotations, line]);
+  const upload = replica.begin(market, '1h');
+  assert.deepEqual(upload.operations.map(op => op.id), [line.id]);
+  replica.acknowledge();
+  const restored = new DrawingReplica(replica.serialize());
+  restored.merge(receipt([{ id: line.id, changeId: 'server-line', changedAt: Date.now(), drawing: line }]));
+  for (const annotation of annotations) {
+    const saved = restored.drawings().find(d => d.id === annotation.id);
+    assert.deepEqual(saved, annotation);
+    assert.equal(drawingFromWire(saved, market).imageOpacity, annotation.imageOpacity);
+  }
+  assert.equal(restored.dirty, false);
+});
 test('Per-object newer edit wins, independent additions merge and deletion beats a delayed old request',()=>{
   const a=new DrawingReplica(),b=new DrawingReplica();a.merge(receipt());b.merge(receipt());
   const d=shape();a.edit([],[d]);const old=structuredClone(a.entries[d.id]);

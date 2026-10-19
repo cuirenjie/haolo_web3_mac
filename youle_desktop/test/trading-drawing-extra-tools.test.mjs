@@ -34,7 +34,7 @@ test('all 77 original Haolo tools retain their ids, drawing families and freehan
   for(const old of baseline.tools) {
     const tool=TRADING_DRAWING_TOOLS.find(t=>t.id===old.id);
     assert.ok(tool,`Original Haolo tool must be retained: ${old.id}`);
-    assert.equal(tool.kind,old.kind,old.id); assert.equal(!!tool.freehand,old.freehand,old.id);
+    assert.equal(tool.kind,['comment','signpost'].includes(old.id)?'text':old.kind,old.id); assert.equal(!!tool.freehand,old.freehand,old.id);
   }
 });
 
@@ -88,7 +88,9 @@ test('new geometry remains finite with coincident, reversed and offscreen anchor
     const drawing={id,tool:id,symbol:'BTC',points:[{time:0,price:10},{time:10,price:20},{time:20,price:15}]};
     const output=renderExtraDrawingGeometry({drawing,points,bounds:{width:800,height:500},color:'#123456',candles,project:p=>({x:p.time,y:500-p.price*10})});
     assert.ok(output); assert.doesNotMatch(output.body+output.hit,/NaN|Infinity|undefined/);
-    if(id!=='fib-speed-arcs') assert.ok(output.hit.includes('trading-drawing-hit-target'),id);
+    const zeroCycle = ['time-cycles', 'sine-line'].includes(id) && points[0].x === points[1].x;
+    if (zeroCycle) assert.equal(output.body + output.hit, '', 'a zero period has no phantom wave or hit target');
+    else if(id!=='fib-speed-arcs') assert.ok(output.hit.includes('trading-drawing-hit-target'),id);
   }
 });
 

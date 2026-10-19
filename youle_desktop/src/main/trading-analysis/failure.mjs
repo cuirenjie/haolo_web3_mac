@@ -4,11 +4,12 @@ import { modelFailureFacts } from "../model-failure-policy.mjs";
 import { isQuotaFailure } from "../error-signals.mjs";
 
 const LABELS = {
+  model_unknown: ["模型响应结果尚未确认，原任务已保留，未自动重复请求", "The model response outcome is unconfirmed. The original task was retained without an automatic repeat request", "模型回應結果尚未確認，原任務已保留，未自動重複請求"],
   preferences_review: ["交易偏好尚未完成迁移，请到“设置 → 交易偏好”核对原设置", "Trading preferences need migration review. Open Settings → Trading preferences to review your saved settings", "交易偏好尚未完成遷移，請到「設定 → 交易偏好」核對原設定"],
   preferences_changed: ["交易偏好已在其他设备更新，请重新加载后再分析", "Trading preferences changed on another device. Reload them before running the analysis", "交易偏好已在其他裝置更新，請重新載入後再分析"],
   preferences_pending: ["交易偏好正在保存，请等待保存完成后再分析", "Trading preferences are being saved. Wait for the save to finish before running the analysis", "交易偏好正在儲存，請等待儲存完成後再分析"],
   cancellation_pending: ["云端取消尚未确认，任务记录已保留", "Cloud cancellation is not yet confirmed; the task record was retained"],
-  pending: ["云端任务仍在处理中，可继续查看原任务", "The cloud task is still running; resume the original task to check it"],
+  pending: ["分析结果尚未确认，原任务记录已保留", "The analysis result has not been confirmed; the original task record has been retained", "分析結果尚未確認，原任務記錄已保留"],
   cloud_unavailable: ["云端策略服务暂不可用", "The cloud strategy service is unavailable"],
   cloud_unsupported: ["此策略或市场的云端版本尚未启用", "The cloud version of this strategy or market is not enabled yet"],
   cloud_history_contract: ["云端行情要求与当前客户端不兼容，请更新客户端或稍后重试", "Cloud history requirements are incompatible with this client. Update the client or try again later", "雲端行情要求與目前客戶端不相容，請更新客戶端或稍後重試"],
@@ -46,6 +47,7 @@ export function describeTradingAnalysisFailure(error, { stage = "analysis", lang
   else if (["PREFERENCE_SAVE_PENDING", "TRADING_PREFERENCE_SAVE_PENDING"].includes(code)) category = "preferences_pending";
   else if (code === "CLOUD_CANCEL_PENDING") category = "cancellation_pending";
   else if (code === "CLOUD_RUN_PENDING") category = "pending";
+  else if (code === "MODEL_OUTCOME_UNKNOWN") category = "model_unknown";
   else if (code === "MARKET_HISTORY_INSUFFICIENT") category = "history";
   else if (code === "ORDER_FLOW_DATA_UNAVAILABLE") category = "order_flow_data";
   else if (code === "ORDER_FLOW_MARKET_UNSUPPORTED") category = "order_flow_market";

@@ -17,7 +17,7 @@ export interface CloudTradingReport {
 }
 export function normalizeCloudReports(value: unknown): CloudTradingReport[];
 export function cloudReportFromResponse(value: unknown): CloudTradingReport[];
-export function cloudPlanCard(report: CloudTradingReport): {title:string;content:string;html:string} | null;
+export function cloudPlanCard(report: CloudTradingReport, options?: {hideExpiry?:boolean;language?:string}): {title:string;content:string;html:string;readOnly?:boolean} | null;
 export function selectCloudPlan(report: CloudTradingReport,remote:Record<string,any>): CloudTradingReport;
 export function legacyReportCandidates(report:string): Array<{title:string;content:string}>;
 export function bindLegacyCloudCandidate<T extends {title:string;content:string}>(reports: CloudTradingReport[],candidate:T,usedPlanIds?:Set<string>): T & {cloudReport:CloudTradingReport};

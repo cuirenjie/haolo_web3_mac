@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import fs from 'node:fs';
+import {cloudReportFromResponse,cloudPlanCard,normalizeCloudReports} from '../src/main/cloud-plan-contract.mjs';
+import {leftRouteView,leftWatchView} from '../src/main/price-action-left-card.mjs';
+import {normalizeTradingAiDrawingPatch,persistTradingAiDrawingPatch,tradingDrawingSessionStorageKey} from '../src/renderer/trading-expert-drawing.ts';
+import {mergeCloudExecutionPlans} from '../src/renderer/cloud-plan-sync.ts';
+import {tradingTranscriptInjectionItems,parseTradingTranscriptMarkerText} from '../src/main/trading-expert-transcript.mjs';
+import {executionPlanStickyHtml} from '../src/main/execution-plan-sticky-view.mjs';
+import {renderCurrentReports,renderCurrentSavedPlan} from './support/right-renderer-parity.mjs';
+const fixtures=JSON.parse(fs.readFileSync(new URL('./fixtures/price-action-left-dual-receipts.json',import.meta.url)));
+
+for(const route of ['protect','touch'])for(const locale of ['zh-CN','zh-Hant','en'])test(`${route}/${locale}: real backend receipt, drawings, card, saved and durable history`,()=>{
+  const result=fixtures[`${route}-${locale}`],report=cloudReportFromResponse(result)[0],before=structuredClone(report);
+  const card=cloudPlanCard(report),language=locale==='zh-Hant'?'zh-TW':locale;
+  assert.ok(card&&!card.readOnly);
+  assert.ok(card.html.includes(route==='protect'?(locale==='en'?'4h reclaim':'4小'):(locale==='en'?'1h zone-touch':'1小')));
+  const parsed=normalizeTradingAiDrawingPatch(report.drawingPatch);
+  const watchIds=report.drawingPatch.operations.filter(o=>o.drawing.id.includes('-left-watch-')).map(o=>o.drawing.id);
+  assert.ok(watchIds.length);
+  assert.ok(watchIds.every(id=>parsed.some(d=>d.id===id&&d.status==='tentative')));
+  const storage=new Map();globalThis.window={localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)}};
+  persistTradingAiDrawingPatch('dual-fixture',report.drawingPatch);
+  assert.ok(storage.has(tradingDrawingSessionStorageKey('ai','dual-fixture')));
+  const items=tradingTranscriptInjectionItems([{id:'dual',role:'assistant',text:report.report,createdAt:new Date().toISOString(),cloudReports:[report]}]);
+  const restored=parseTradingTranscriptMarkerText(items[0].content[0].text).cloudReports[0];
+  assert.deepEqual(restored,report);
+  const savedReport=structuredClone(report);savedReport.planRecords[0].status='pending';
+  const saved=mergeCloudExecutionPlans([savedReport],[])[0];
+  for(const html of [renderCurrentReports([restored]).rendered.cards,renderCurrentSavedPlan(saved,language),executionPlanStickyHtml({cloudReport:report,language})])assert.ok(html.includes(card.html));
+  assert.match(renderCurrentReports([report]).actions,/add-to-plan/);
+  assert.deepEqual(report,before);
+});
+
+for(const route of ['protect','touch'])test(`${route}: observation-only cards cannot become executable plans or sticky actions`,()=>{
+  const report=cloudReportFromResponse(fixtures[`${route}-watch`])[0];
+  const rendered=renderCurrentReports([report]),card=cloudPlanCard(report);
+  assert.equal(card.readOnly,true);
+  assert.ok(rendered.rendered.cards.includes(card.html));
+  assert.equal(rendered.actions,'');assert.equal(rendered.bindings.length,0);
+  assert.doesNotMatch(rendered.rendered.cards,/data-message-execution-plan-action="sticky"|add-to-plan/);
+  assert.throws(()=>mergeCloudExecutionPlans([report],[]),/CLOUD_PLAN_LIST_INVALID/);
+  assert.match(card.html,/低位支撑区观察做多/);assert.match(card.html,/高位阻力区观察做空/);
+  const watch=leftWatchView(report,'en',report.executionPlan.leftObservation.expiresAt);
+  assert.match(watch.html,/Expired; reanalyse/);
+  assert.doesNotMatch(watch.html,/[\u4e00-\u9fff]/);
+  for(const mutate of [p=>p.canCreateAlert=true,p=>p.plans[0].zone.lower=-1,p=>p.plans[0].actionable=true,p=>p.version='unknown']){
+    const tampered=structuredClone(report);mutate(tampered.executionPlan.leftObservation);
+    assert.throws(()=>normalizeCloudReports([tampered]),/CLOUD_REPORT_INVALID/);
+  }
+});
+
+test('current-price label has a bounded lifetime and does not rewrite frozen directions/prices',()=>{
+  const report=cloudReportFromResponse(fixtures['touch-en'])[0],plan=report.executionPlan,p=plan.positionSizing.leftPolicy;
+  p.entryState='ready';p.quoteAt=plan.createdAt;
+  const before=structuredClone(plan);
+  assert.equal(leftRouteView(plan,'en',p.quoteAt+1).action,plan.entryCondition.direction);
+  assert.equal(leftRouteView(plan,'en',p.quoteAt+30001).action,'wait');
+  assert.equal(leftRouteView(plan,'en',p.quoteAt-1).action,'wait');
+  assert.equal(leftRouteView(plan,'en',plan.entryCondition.expiresAt).action,'blocked');
+  assert.deepEqual(plan,before);
+});

@@ -82,6 +82,118 @@ function threeWhiteSoldiersFixture() {
   ];
 }
 
+function clusteredTopFixture() {
+  return [
+    ...trend("bullish", 80),
+    candle(130, 132, 129, 131),
+    candle(132, 135, 131, 133),
+    candle(132, 134, 130, 131),
+    candle(133, 136, 132, 134),
+    candle(132, 134, 130, 131),
+  ];
+}
+
+for (const bottom of [false, true]) {
+  test(`clustered ${bottom ? "bottom" : "top"} only draws its matching fractal and one covering ellipse`, () => {
+    const candles = bottom ? mirror(clusteredTopFixture(), 300) : clusteredTopFixture();
+    const expected = bottom ? "bottom-fractal" : "top-fractal";
+    const unwanted = bottom ? "top-fractal" : "bottom-fractal";
+    const snapshot = snapshotFrom(candles);
+    const result = runPriceActionStrategyEngine(snapshot);
+    const patterns = result.candlestickPatterns;
+    assert.ok(patterns.recentPatterns.some((item) => item.patternId === unwanted), "raw three-candle recognition must remain available to analysis");
+    assert.ok(patterns.recentPatterns.some((item) => item.patternId === unwanted && item.quality >= 0.82), "fixture must reproduce the old high-quality overlap bypass");
+    const fractals = patterns.drawablePatterns.filter((item) => item.patternId.endsWith("-fractal"));
+    assert.equal(fractals.length, 1);
+    assert.equal(fractals[0].patternId, expected);
+    const patch = buildPriceActionStrategyDrawingPatch(snapshot, result);
+    assert.doesNotThrow(() => validateStrategyDrawingPatch(patch, snapshot, "price-action"));
+    const drawings = normalizeTradingAiDrawingPatch(patch, { marketId: snapshot.marketId, interval: snapshot.interval });
+    const expectedName = bottom ? "底分型" : "顶分型";
+    const unwantedName = bottom ? "顶分型" : "底分型";
+    assert.equal(drawings.filter((item) => item.tool === "text" && item.text === expectedName).length, 1);
+    assert.equal(drawings.filter((item) => item.tool === "ellipse" && item.text === expectedName).length, 1);
+    assert.ok(!drawings.some((item) => item.text === unwantedName));
+  });
+}
+
+test("separate clear top and bottom can both be drawn on the same chart", () => {
+  const candles = [
+    ...clusteredTopFixture().slice(0, -2),
+    ...trend("bearish", 7, 130),
+    candle(126, 127, 123, 124),
+    candle(123, 125, 120, 122),
+    candle(124, 127, 123, 126),
+  ];
+  const result = scan(candles);
+  const fractals = result.drawablePatterns.filter((item) => item.patternId.endsWith("-fractal"));
+  assert.deepEqual(new Set(fractals.map((item) => item.patternId)), new Set(["top-fractal", "bottom-fractal"]));
+  for (const first of fractals) for (const second of fractals) {
+    if (first === second) continue;
+    assert.ok(first.endIndex < second.startIndex || second.endIndex < first.startIndex);
+  }
+});
+
+test("ambiguous middle-of-range fractals are not labelled as clear extremes", () => {
+  const candles = [
+    ...Array.from({ length: 30 }, () => candle(105, 122, 88, 105.5)),
+    candle(104, 107, 102, 105),
+    candle(105, 108, 103, 106),
+    candle(104, 107, 102, 105),
+  ];
+  for (const sample of [candles, mirror(candles)]) {
+    const result = scan(sample);
+    assert.ok(result.patterns.some((item) => item.patternId.endsWith("-fractal")));
+    assert.ok(!result.drawablePatterns.some((item) => item.patternId.endsWith("-fractal")));
+  }
+});
+
+test("unclosed opposite fractal does not displace the confirmed high-area top", () => {
+  const candles = clusteredTopFixture().slice(0, -1);
+  const snapshot = snapshotFrom(candles, { snapshotTime: START + (candles.length - 0.5) * 3_600 });
+  const result = runPriceActionCandlestickPatternEngine(snapshot, { rangeUnit: 1, zones: [] });
+  assert.ok(result.recentPatterns.some((item) => item.patternId === "bottom-fractal" && !item.complete));
+  const fractals = result.drawablePatterns.filter((item) => item.patternId.endsWith("-fractal"));
+  assert.equal(fractals.length, 1);
+  assert.equal(fractals[0].patternId, "top-fractal");
+  assert.equal(fractals[0].complete, true);
+});
+
+test("qualified top and bottom previews remain visible with pending-close status on 4H", () => {
+  for (const bottom of [false, true]) {
+    const top = clusteredTopFixture().slice(0, -2);
+    const candles = bottom ? mirror(top, 300) : top;
+    const snapshot = snapshotFrom(candles, {
+      interval: "240", candleSeconds: 14_400,
+      snapshotTime: START + (candles.length - 0.5) * 14_400,
+    });
+    const result = runPriceActionStrategyEngine(snapshot);
+    const fractals = result.candlestickPatterns.drawablePatterns.filter((item) => item.patternId.endsWith("-fractal"));
+    assert.equal(fractals.length, 1);
+    assert.equal(fractals[0].patternId, bottom ? "bottom-fractal" : "top-fractal");
+    assert.equal(fractals[0].complete, false);
+    const patch = buildPriceActionStrategyDrawingPatch(snapshot, result);
+    const label = patch.operations.find((item) => item.drawing.tool === "text" && item.drawing.evidenceIds.includes(fractals[0].id))?.drawing;
+    assert.equal(label.text, `${bottom ? "底分型" : "顶分型"} · 待收盘`);
+    assert.equal(label.status, "tentative");
+  }
+});
+
+test("a clear long-wick extreme is located by its fractal pivot, not its candle midpoint", () => {
+  const top = [
+    ...Array.from({ length: 30 }, () => candle(100, 101, 99, 100.5)),
+    candle(101, 102, 100, 101.5),
+    candle(102, 130, 101, 103),
+    candle(101, 102, 100, 101.5),
+  ];
+  for (const bottom of [false, true]) {
+    const result = scan(bottom ? mirror(top, 300) : top);
+    const fractals = result.drawablePatterns.filter((item) => item.patternId.endsWith("-fractal"));
+    assert.equal(fractals.length, 1);
+    assert.equal(fractals[0].patternId, bottom ? "bottom-fractal" : "top-fractal");
+  }
+});
+
 test("candlestick catalog freezes the requested broad named-pattern coverage", () => {
   const ids = new Set(PRICE_ACTION_CANDLESTICK_PATTERN_CATALOG.map((item) => item.id));
   assert.equal(PRICE_ACTION_CANDLESTICK_PATTERN_CATALOG.length, 54);

@@ -806,7 +806,7 @@ test("Trading Expert layout keeps the conversation independent and covers light 
   assert.match(styles, /\.composer-model-menu button:disabled\s*\{[^}]*cursor: default;[^}]*opacity: 0\.55;/s);
   assert.match(styles, /\.composer-model-menu button\.active,[\s\S]*?button\.active:hover\s*\{[^}]*background: var\(--selection-strong\);/s);
   assert.match(styles, /html\[data-theme="dark"\] \.composer-model-group-title\s*\{[^}]*color: var\(--text-secondary\);/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.composer-model-menu button:focus-visible\s*\{[^}]*outline-color: rgba\(113, 190, 255, 0\.72\);/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.composer-model-menu button:focus-visible\s*\{[^}]*outline-color: rgba\(var\(--interaction-rgb\), 0\.72\);/s);
   assert.match(styles, /\.trading-expert-dashboard\s*\{[^}]*display: flex;[^}]*padding-bottom: 0;/s);
   assert.match(styles, /\.trading-expert-dashboard\.chat\s*\{[^}]*padding-bottom: 184px;/s);
   assert.match(styles, /\.trading-expert-conversation\s*\{[^}]*min-height: 0;[^}]*flex: 1 1 auto;/s);
@@ -901,7 +901,7 @@ test("Trading Expert splitters expose mouse, keyboard, persistence, and both the
   assert.match(styles, /> \.trading-expert-resize-handle:hover::before,[\s\S]*?> \.trading-expert-resize-handle\.active::after\s*\{[^}]*opacity: 1;/s);
   assert.match(styles, /\.trading-expert-panel-resizing,[\s\S]*?cursor: ew-resize !important;[\s\S]*?user-select: none !important;/s);
   assert.match(styles, /--trading-expert-resize-grip: #737d8c;/);
-  assert.match(styles, /html\[data-theme="dark"\] \.desktop-body\.trading-expert-layout\s*\{[^}]*--trading-expert-resize-grip: #9ca7b8;[^}]*--trading-expert-resize-grip-active: #82b6ff;[^}]*--trading-expert-resize-hover: rgba\(105, 168, 255, 0\.13\);/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.desktop-body\.trading-expert-layout\s*\{[^}]*--trading-expert-resize-grip: #9ca7b8;[^}]*--trading-expert-resize-grip-active: var\(--interaction-accent\);[^}]*--trading-expert-resize-hover: var\(--selection-soft\);/s);
   assert.match(styles, /\.left-panel-collapsed[\s\S]*?> \.trading-expert-resize-handle\.left,[\s\S]*?\.right-panel-collapsed[\s\S]*?> \.trading-expert-resize-handle\.right,[\s\S]*?\.trading-expert-chart-collapsed[\s\S]*?> \.trading-expert-resize-handle\.right\s*\{\s*display: none;/s);
 });
 
@@ -952,7 +952,7 @@ test("Trading Expert shows its mention catalog with left-opening submenus", asyn
   assert.match(cascadeHoverBlock, /\.trading-expert-mention-group/);
   assert.match(cascadeHoverBlock, /item\.addEventListener\("pointerleave", scheduleClose\)/);
   assert.match(cascadeHoverBlock, /CASCADE_MENU_CLOSE_DELAY_MS/);
-  assert.match(styles, /\.trading-expert-mention-popover[\s\S]*?button:focus-visible\s*\{[^}]*outline: 2px solid var\(--brand-blue\);[^}]*background: var\(--selection-soft\);/s);
+  assert.match(styles, /\.trading-expert-mention-popover[\s\S]*?button:focus-visible\s*\{[^}]*outline: 2px solid var\(--interaction-accent\);[^}]*background: var\(--selection-soft\);/s);
   assert.match(styles, /html\[data-theme="dark"\] \.composer-skill-popover,[\s\S]*?html\[data-theme="dark"\] \.composer-mention-submenu,[\s\S]*?background: #1b1e23;/s);
   assert.match(styles, /\.trading-expert-attachment-item[\s\S]*?justify-content: flex-start;/);
   assert.match(styles, /html\[data-theme="dark"\][\s\S]*?\.trading-expert-attachment-item:hover:not\(:disabled\),[\s\S]*?background: var\(--selection-soft\);/);
@@ -1138,7 +1138,7 @@ test("Trading Expert market uses the governed Binance gateway and realtime data"
   assert.match(styles, /\.trading-expert-market\s*\{[\s\S]*?--trading-market-panel: #ffffff;/);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-panel: #0f1014;/);
   assert.match(styles, /\.trading-market-symbol:hover,[\s\S]*?\.trading-market-symbol\[aria-expanded="true"\]/);
-  assert.match(styles, /\.trading-market-symbol:focus-visible,[\s\S]*?outline: 2px solid #2da6f7;/);
+  assert.match(styles, /\.trading-market-symbol:focus-visible,[\s\S]*?outline: 2px solid var\(--interaction-accent\);/);
   assert.match(styles, /\.trading-market-loading\[hidden\],[\s\S]*?display: none !important;/);
   assert.doesNotMatch(styles, /trading-market-modes/);
 });
@@ -1259,7 +1259,7 @@ test("Trading Expert gives every split pane its native date axis and primary ind
   assert.match(styles, /\.trading-expert-market\.split-layout-active \.trading-market-primary-pane \.trading-market-indicator-bar,\s*\.trading-expert-market\.split-layout-active \.trading-market-split-pane \.trading-market-indicator-bar\s*\{[^}]*z-index: 20;[^}]*height: 32px;[^}]*flex-basis: 32px;/s);
   assert.match(styles, /\.trading-expert-market\.split-layout-active \.trading-market-split-pane \.trading-market-main-indicators button,[\s\S]*?\.trading-market-split-pane \.trading-market-indicators button/);
   assert.match(styles, /\.trading-market-indicator-heading:focus-visible\s*\{[^}]*background: var\(--trading-market-accent-soft\);[^}]*color: var\(--trading-market-accent\);[^}]*box-shadow: inset 0 0 0 2px var\(--trading-market-accent\);/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-accent-soft: #172337;[\s\S]*?--trading-market-indicator-selected: #82b6ff;/);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-accent-soft: var\(--selection-soft\);[\s\S]*?--trading-market-indicator-selected: var\(--interaction-accent\);/);
 });
 
 test("VPVR keeps one volume snapshot through wheel movement in primary and split charts", async () => {
@@ -1408,14 +1408,14 @@ test("Trading Expert market uses the compact pair title and customizable period 
     indicatorBar.indexOf("data-market-main-indicators")
       < indicatorBar.indexOf("data-market-indicators"),
   );
-  assert.match(indicatorBar, /class="trading-market-indicator-heading"[\s\S]*?data-market-action="toggle-indicator-editor"[\s\S]*?aria-haspopup="dialog"[\s\S]*?>\s*自定义指标\s*<svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"\/><\/svg>/);
+  assert.match(indicatorBar, /class="trading-market-indicator-heading"[\s\S]*?data-market-action="toggle-indicator-editor"[\s\S]*?aria-haspopup="dialog"[\s\S]*?>\s*指标设置\s*<svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"\/><\/svg>/);
   assert.doesNotMatch(indicatorBar, /trading-market-indicator-count|data-market-indicator-count|未选择/);
   assert.doesNotMatch(indicatorBar, />\s*指标\s*<\/span>/);
   assert.match(styles, /\.trading-market-indicator-heading\s*\{[^}]*height: 32px;[^}]*gap: 5px;[^}]*padding: 0 8px;[^}]*font-size: calc\(12px \+ var\(--app-font-size-offset\)\);[^}]*font-weight: 400;/s);
   assert.doesNotMatch(styles, /\.trading-market-indicator-heading\s*\{[^}]*border-right:/s);
   assert.match(styles, /\.trading-market-indicator-heading svg\s*\{[^}]*width: 8px;[^}]*height: 5px;[^}]*stroke: currentColor;[^}]*stroke-width: 1\.5;/s);
   assert.match(styles, /\.trading-market-period-controls\s*\{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*flex: 1 1 210px;[^}]*margin-left: auto;/s);
-  assert.match(styles, /\.trading-market-times\s*\{[^}]*flex: 1 1 0;[^}]*margin-left: 0;/s);
+  assert.match(styles, /\.trading-market-times\s*\{[^}]*flex: 0 1 auto;[^}]*margin-left: 0;/s);
   assert.match(styles, /\.trading-market-times\s*\{[^}]*overflow-x: auto;[^}]*overflow-y: hidden;[^}]*overscroll-behavior-x: contain;[^}]*scroll-padding-inline: 4px;[^}]*touch-action: pan-x;/s);
   assert.match(styles, /\.trading-market-times\.dragging\s*\{[^}]*cursor: grabbing;[^}]*user-select: none;/s);
   assert.match(styles, /\.trading-market-times button\s*\{[^}]*border: 0;[^}]*background: transparent;/s);
@@ -1428,7 +1428,7 @@ test("Trading Expert market uses the compact pair title and customizable period 
   assert.doesNotMatch(styles, /\.trading-market-symbol > svg\s*\{[^}]*margin-left: auto;/s);
   assert.match(styles, /--trading-market-header-height: 36px;/);
   assert.match(styles, /\.trading-market-overview\s*\{[^}]*height: auto;[^}]*min-height: var\(--trading-market-header-height\);[^}]*flex: 0 0 auto;[^}]*flex-wrap: wrap;/s);
-  assert.match(styles, /--trading-market-accent: #2f80ed;[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-accent: #69a8ff;/);
+  assert.match(styles, /--trading-market-accent: var\(--interaction-accent\);[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-accent: var\(--interaction-accent\);/);
   assert.doesNotMatch(indicatorBar, /普通|升级|trading-market-modes|data-market-mode/);
   assert.doesNotMatch(styles, /trading-market-modes/);
 });
@@ -1460,7 +1460,7 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
   assert.match(source, /period\.unit === "h"\) return String\(amount \* 60\)/);
   assert.match(source, /period\.unit === "d"\) return `\$\{amount\}D`/);
   assert.match(source, /return `\$\{amount\}W`/);
-  assert.match(source, />\s*自定义周期\s*/);
+  assert.match(source, />\s*周期设置\s*/);
   assert.match(editor, />已添加项</);
   assert.match(editor, />拖动可排序</);
   assert.match(editor, />新增周期</);
@@ -1492,7 +1492,7 @@ test("Trading Expert custom periods support official resolutions, ordering, pers
   assert.match(source, /private readonly handlePeriodScrollPointerMove = \(event: PointerEvent\) => \{[\s\S]*?this\.periodTimes\.scrollLeft = this\.periodScrollStartLeft - distance;/);
   assert.match(source, /if \(action === "interval" && this\.periodScrollSuppressClick\)[\s\S]*?event\.preventDefault\(\);/);
   assert.match(source, /private revealPeriodButton\(interval: string,[\s\S]*?buttonRect\.right > stripRect\.right - edgeInset[\s\S]*?this\.periodTimes\.scrollTo\(\{/);
-  assert.match(source, /const addedResolution = this\.periods\.reduce<string \| null>[\s\S]*?this\.revealPeriodButton\(addedResolution \|\| this\.activeInterval\)/);
+  assert.match(source, /const addedResolution = nextPeriods\.reduce<string \| null>[\s\S]*?this\.revealPeriodButton\(addedResolution \|\| this\.activeInterval\)/);
   assert.doesNotMatch(source, /draggable="true"/);
   assert.match(source, /addEventListener\("pointerdown", this\.handlePeriodPointerDown\)/);
   assert.match(source, /addEventListener\("pointermove", this\.handlePeriodPointerMove\)/);
@@ -1675,7 +1675,7 @@ test("Trading Expert custom indicator dialog configures every existing study and
   assert.match(styles, /\.trading-market-indicator-width-trigger\.video-expert-select-button:focus-visible\s*\{[^}]*outline: 0;[^}]*box-shadow: none;/s);
   assert.match(styles, /\.trading-market-indicator-parameter-row input\[type="number"\]::-webkit-inner-spin-button,[\s\S]*?-webkit-appearance: none;/s);
   assert.match(styles, /\.trading-market-indicator-parameter-stepper > button\s*\{[^}]*background: transparent;/s);
-  assert.match(styles, /\.trading-market-indicator-editor-footer button\.primary\s*\{[^}]*background: var\(--trading-market-accent\);[^}]*color: #ffffff;/s);
+  assert.match(styles, /\.trading-market-indicator-editor-footer button\.primary\s*\{[^}]*background: var\(--trading-market-accent\);[^}]*color: var\(--interaction-on-accent\);/s);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-market-indicator-editor\s*\{[^}]*box-shadow:/s);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-market-indicator-editor input\s*\{[^}]*color-scheme: dark;/s);
   assert.match(styles, /@media \(max-width: 880px\)[\s\S]*?\.trading-market-indicator-editor\s*\{[^}]*width: min\(800px, 100%\);/s);
@@ -1724,7 +1724,7 @@ test("Trading Expert market picker is compact, neutral-search, left-aligned, and
   assert.match(styles, /\.trading-market-picker-search:hover,[\s\S]*?\.trading-market-picker-search:focus-within\s*\{[^}]*background: var\(--trading-market-control-hover\);[^}]*box-shadow: none;/s);
   assert.match(styles, /\.trading-market-picker input:focus-visible\s*\{[^}]*outline: 0;/s);
   assert.doesNotMatch(styles, /\.trading-market-picker-search:focus-within\s*\{[^}]*(?:border-color|trading-market-accent)/s);
-  assert.match(styles, /--trading-market-control: #f0f3f7;[\s\S]*--trading-market-control-hover: #e6ebf2;[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-control: #212224;[\s\S]*--trading-market-control-hover: #172337;/s);
+  assert.match(styles, /--trading-market-control: #f0f3f7;[\s\S]*--trading-market-control-hover: var\(--selection-strong\);[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-control: #212224;[\s\S]*--trading-market-control-hover: var\(--selection-strong\);/s);
   assert.match(styles, /\.trading-market-picker-head,[\s\S]*?\.trading-market-row\s*\{[^}]*grid-template-columns: minmax\(0, 1\.65fr\) minmax\(0, 1fr\) minmax\(0, 1fr\) minmax\(0, 0\.8fr\) 32px;/s);
   assert.match(styles, /\.trading-market-picker-search\s*\{[^}]*margin: 10px 12px 6px;/s);
   assert.match(styles, /\.trading-market-picker-head\s*\{[^}]*padding: 0 20px 0 12px;/s);
@@ -1793,7 +1793,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(marketRender, /const favoritesOnly = !query && this\.showFavoritesOnly && this\.favoriteSymbols\.size > 0/);
   assert.match(marketRender, /tradingMarketVisibleInPicker\([\s\S]*?market,[\s\S]*?query,[\s\S]*?this\.favoriteSymbols,[\s\S]*?favoritesOnly/);
   assert.match(marketRender, /const orderedMarkets = orderTradingMarketPickerResults\(matchingMarkets, this\.favoriteSymbols\)/);
-  assert.match(marketRender, /const markets = orderedMarkets/);
+  assert.match(marketRender, /const markets: \(TradingMarket \| PublicMarketIndex\)\[\] = \[\.\.\.orderedMarkets, \.\.\.indices\]/);
   assert.match(marketRender, /if \(this\.picker\.hidden\) return/);
   assert.match(marketRender, /const chunkSize = 48/);
   assert.match(marketRender, /setTimeout\(\(\) => appendChunk\(0\), 0\)/);
@@ -1810,7 +1810,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(tickerRender, /record\.assetClass === "crypto"[\s\S]*?this\.favoriteSymbols\.has\(record\.id\)[\s\S]*?slice\(0, MAX_TRADING_FAVORITE_TICKERS\)/);
   assert.match(tickerRender, /data-market-action="favorite-symbol"/);
   assert.match(tickerRender, /data-market-favorite-sort-item/);
-  assert.match(tickerRender, /aria-posinset="\$\{tickerIndex \+ 1\}"[\s\S]*?aria-setsize="\$\{markets\.length\}"/);
+  assert.match(tickerRender, /aria-posinset="\$\{tickerIndex \+ 1\}"[\s\S]*?aria-setsize="\$\{tickers\.length\}"/);
   assert.match(tickerRender, /class="trading-market-favorite-sort-status" data-market-favorite-sort-status aria-live="polite"/);
   assert.match(tickerRender, /data-quote-state="\$\{market\.quoteAvailable \? "live" : "loading"\}"[\s\S]*?aria-busy="\$\{!market\.quoteAvailable\}"/);
   assert.match(tickerRender, /data-market-favorite-price[\s\S]*?data-market-favorite-change/);
@@ -1880,7 +1880,7 @@ test("Trading Expert favorites persist, lead the next open, and remain available
   assert.match(styles, /\.trading-market-favorite-add:hover\s*\{[^}]*background: var\(--trading-market-control\);[^}]*color: var\(--trading-market-accent\);/s);
   assert.match(styles, /\.trading-market-favorite-add:focus-visible\s*\{[^}]*border-color: var\(--trading-market-accent\);[^}]*box-shadow: inset 0 0 0 1px var\(--conversation-action-focus\);/s);
   assert.match(styles, /\.trading-market-favorite-add:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.45;/s);
-  assert.match(styles, /--trading-market-favorite-fill: var\(--brand-blue\);[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-favorite-fill: var\(--brand-blue\);/s);
+  assert.match(styles, /--trading-market-favorite-fill: var\(--interaction-accent\);[\s\S]*html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-market-favorite-fill: var\(--interaction-accent\);/s);
   assert.doesNotMatch(styles, /--trading-market-favorite-(?:fill|soft): #[fF](?:5b800|fd24a|ff5cc)/);
   assert.match(source, /syncTitlebarFavoriteTickerHost\(\)[\s\S]*?\[data-titlebar-market-favorites-host\][\s\S]*?titlebarHost\.append\(this\.favoriteTickerBar\)/);
   assert.match(source, /private revealSelectedFavoriteTicker\(\)[\s\S]*?favoriteTickerBar\.scrollLeft[\s\S]*?private renderFavoriteTickerBar\(\)[\s\S]*?this\.revealSelectedFavoriteTicker\(\)/);
@@ -2103,7 +2103,7 @@ test("Trading Expert keeps every price scale bright when switching to dark mode"
   assert.match(createPane, /priceScale\(\)\?\.applyOptions\(\{[\s\S]*?textColor: theme\.text/s);
   assert.match(applyTheme, /rightPriceScale: \{[\s\S]*?textColor: theme\.text/s);
   assert.match(applyTheme, /this\.indicatorPanes\.forEach[\s\S]*?priceScale\(\)\?\.applyOptions\(\{[\s\S]*?textColor: theme\.text/s);
-  assert.match(source, /attributeFilter: \["data-theme"\]/);
+  assert.match(source, /attributeFilter: \["data-theme", "lang"\]/);
 });
 
 test("Trading Expert subchart indicators cover pane behavior and both themes", async () => {
@@ -2131,7 +2131,7 @@ test("Trading Expert subchart indicators cover pane behavior and both themes", a
   assert.match(source, /TRADING_INDICATORS[\s\S]*?\.filter\(\(indicator\) => !HIDDEN_TRADING_INDICATORS\.has\(indicator\.id\)\)/);
   assert.match(source, /TRADING_INDICATORS[\s\S]*?\.map\(\(indicator\) =>/);
   assert.match(source, /calculateTradingIndicator\(id, this\.candles, setting\.parameters\)/);
-  assert.match(source, /this\.chart\.addPane\(false\)/);
+  assert.match(createPane, /const chart = this\.chart;[\s\S]*?if \(!chart\) return;[\s\S]*?chart\.addPane\(false\)/);
   assert.match(source, /this\.chart\.removePane\(index\)/);
   assert.match(source, /pane\.setStretchFactor\(1\)/);
   assert.match(source, /updateIndicatorLegends\(parameter\?\.seriesData\)/);
@@ -2157,9 +2157,9 @@ test("Trading Expert subchart indicators cover pane behavior and both themes", a
   assert.match(styles, /\.trading-market-indicators button:hover\s*\{[^}]*background: var\(--trading-market-control\)/s);
   assert.match(styles, /\.trading-market-indicators button:active\s*\{[^}]*transform: translateY\(1px\)/s);
   assert.match(styles, /\.trading-market-indicators button\.active,[\s\S]*?button\[aria-pressed="true"\][\s\S]*?border-color: transparent;[\s\S]*?background: transparent;[\s\S]*?color: var\(--trading-market-indicator-selected\)/);
-  assert.match(styles, /\.trading-market-indicators button:focus-visible,[\s\S]*?outline: 2px solid #2da6f7/);
+  assert.match(styles, /\.trading-market-indicators button:focus-visible,[\s\S]*?outline: 2px solid var\(--interaction-accent\)/);
   assert.match(styles, /\.trading-market-indicators button:disabled\s*\{[^}]*opacity: 0\.45/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-control: #212224;[\s\S]*?--trading-market-control-hover: #172337;/);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-control: #212224;[\s\S]*?--trading-market-control-hover: var\(--selection-strong\);/);
 });
 
 test("Trading Expert adds functional main-chart studies on the left and moves subcharts right", async () => {
@@ -2200,8 +2200,8 @@ test("Trading Expert adds functional main-chart studies on the left and moves su
   assert.match(styles, /\.trading-market-indicators\s*\{[^}]*justify-content: flex-end;[^}]*margin-left: auto;/s);
   assert.match(styles, /\.trading-market-main-indicators button\.active,[\s\S]*?border-color: transparent;[\s\S]*?background: transparent;[\s\S]*?color: var\(--trading-market-indicator-selected\);/);
   assert.doesNotMatch(styles, /\.trading-market-main-indicators button\.active::after|\.trading-market-indicators button\.active::after/);
-  assert.match(styles, /--trading-market-indicator-selected: #5b95e5;/);
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-indicator-selected: #82b6ff;/);
+  assert.match(styles, /--trading-market-indicator-selected: var\(--interaction-accent\);/);
+  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-indicator-selected: var\(--interaction-accent\);/);
   assert.match(source, /TRADING_MAIN_INDICATOR_LINE_COLORS = \["#d1ab2e", "#2dccac", "#c935cc", "#5b95e5", "#f59e0b"\]/);
   assert.match(source, /ma: \[\.\.\.TRADING_MAIN_INDICATOR_LINE_COLORS\],[\s\S]*ema: \[\.\.\.TRADING_MAIN_INDICATOR_LINE_COLORS\],[\s\S]*boll: \[\.\.\.TRADING_BOLL_LINE_COLORS\],/);
   assert.match(source, /const addReferenceWidthLines = \(colors: string\[\]\) =>[\s\S]*index === 1 \? 2 : 1/);
@@ -2238,7 +2238,7 @@ test("Trading Expert exposes multi-select TradingView-style indicator panes", as
   const styles = await stylesSource;
 
   assert.match(source, /data-market-action="indicator"/);
-  assert.match(source, /this\.chart\.addPane\(false\)/);
+  assert.match(source, /private createIndicatorPane[\s\S]*?const chart = this\.chart;[\s\S]*?if \(!chart\) return;[\s\S]*?chart\.addPane\(false\)/);
   assert.match(source, /this\.chart\.removePane\(index\)/);
   assert.match(source, /tradingIndicatorSettingKey\("sub", indicator\)[\s\S]*setting\.enabled = !setting\.enabled;[\s\S]*this\.syncActiveIndicatorsFromSettings\(\)/);
   assert.match(source, /class="trading-market-indicator-bar"/);

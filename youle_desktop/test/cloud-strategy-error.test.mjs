@@ -5,6 +5,14 @@ import {describeTradingAnalysisFailure} from '../src/main/trading-analysis/failu
 import {buildTradingStrategyFailureReport} from '../src/main/trading-analysis/failure.mjs';
 import {tradingAnalysisFailureDiagnostic} from '../src/main/trading-analysis/diagnostics.mjs';
 
+test('dual-left rollout and budget failures retain specific three-language explanations',()=>{
+  for(const code of ['LEFT_DUAL_NOT_ENABLED','LEFT_DUPLICATE_MARKET_PLAN','LEFT_ZONE_ATTEMPT_LIMIT','LEFT_OPEN_RISK_BUDGET','LEFT_DAILY_RISK_BUDGET','LEFT_PLAN_ALREADY_USED'])for(const language of ['zh-CN','en','zh-TW']){
+    const error=cloudStrategyFailure({code},{language});
+    assert.equal(error.code,code);assert.doesNotMatch(error.message,/Cloud analysis did not complete|云端分析未完成|雲端分析未完成/);
+    if(language==='en')assert.doesNotMatch(error.message,/\p{Script=Han}/u);
+  }
+});
+
 test('an unconfirmed cancellation never becomes confirmed merely because the local signal aborted',()=>{
   for(const language of ['en','zh-CN','zh-TW']) {
     const error=cloudStrategyFailure({code:'CLOUD_CANCEL_PENDING',message:'private upstream content'},{aborted:true,language});
@@ -36,5 +44,15 @@ test('cloud error envelopes use bounded fixed messages and no local strategy rec
     assert.equal(error.code,code);
     assert.doesNotMatch(error.message,/secret|\p{Script=Han}/u);
     assert.equal(describeTradingAnalysisFailure(error).allowLocalRecovery,false);
+  }
+});
+
+test('an ambiguous model completion retains a specific safe explanation in three languages',()=>{
+  for(const language of ['zh-CN','en','zh-Hant']) {
+    const error=cloudStrategyFailure({code:'MODEL_OUTCOME_UNKNOWN',message:'private upstream response'},{language});
+    assert.equal(describeTradingAnalysisFailure(error,{language}).category,'model_unknown');
+    const report=buildTradingStrategyFailureReport({id:'wave',display:{name:'Wave'}},error,{language});
+    assert.doesNotMatch(report,/private|分析流程未能完成|The analysis could not complete/);
+    assert.match(report,language==='en'?/without an automatic repeat/:language==='zh-Hant'?/未自動重複請求/:/未自动重复请求/);
   }
 });

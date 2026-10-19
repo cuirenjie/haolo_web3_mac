@@ -550,7 +550,8 @@ test("drawing tools expose single, two, three, multi-click, and drag placement m
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("horizontal-line")), "single-click");
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("text")), "single-click");
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("anchored-text")), "single-click");
-  assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("note")), "single-click");
+  assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("note")), "two-click");
+  assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("callout")), "two-click");
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("price-note")), "two-click");
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("brush")), "drag");
   assert.equal(tradingDrawingPlacementMode(tradingDrawingToolDefinition("xabcd")), "multi-click");
@@ -685,16 +686,17 @@ test("Fibonacci retracement anchors the first click at 100 percent and the secon
   } = await import("../src/renderer/trading-expert-drawing.ts");
   const levels = tradingFibonacciLevelPrices(24.47, 2.584);
 
-  assert.equal(levels[0].ratio, 1);
-  assert.equal(levels[0].label, "100.0%");
-  assert.equal(levels[0].price, 24.47);
-  assert.equal(levels[3].ratio, 0.5);
-  assert.equal(levels[3].price, 13.527);
+  assert.equal(levels.find(level => level.ratio === 1).label, "1");
+  assert.equal(levels.find(level => level.ratio === 1).price, 24.47);
+  assert.equal(levels.find(level => level.ratio === 0.5).price, 13.527);
   assert.equal(levels.at(-1).ratio, 0);
-  assert.equal(levels.at(-1).label, "0.0%");
+  assert.equal(levels.at(-1).label, "0");
   assert.equal(levels.at(-1).price, 2.584);
-  assert.equal(formatTradingFibonacciPrice(levels[0].price), "24.470");
+  assert.equal(formatTradingFibonacciPrice(24.47), "24.470");
   assert.equal(formatTradingFibonacciPrice(64_810.3), "64810.30");
+  assert.equal(formatTradingFibonacciPrice(64_810.3, true), "64,810.30");
+  assert.equal(formatTradingFibonacciPrice(0.00123, true), "0.001230");
+  assert.equal(levels.find(level => level.ratio === 1.618).price, 2.584 + (24.47 - 2.584) * 1.618);
 });
 
 test("drawing time coordinates extrapolate across the complete visible K-line canvas", async () => {
@@ -855,7 +857,7 @@ test("drawing controls retain keyboard focus, disclosure and dark-theme states",
   const styles = await stylesSource;
   assert.ok(styles.includes('.trading-drawing-group:focus-within .trading-drawing-disclosure'));
   assert.ok(styles.includes('.trading-drawing-disclosure[aria-expanded="true"]'));
-  assert.match(styles, /\.trading-drawing-toolbar button:focus-visible,[\s\S]*?outline: 2px solid #2da6f7/);
+  assert.match(styles, /\.trading-drawing-toolbar button:focus-visible,[\s\S]*?outline: 2px solid var\(--interaction-accent\)/);
   assert.ok(styles.includes('--drawing-ink: #d1d4dc'));
   // Actual hover colors, clipping, row sizes and menu access are checked by trading-drawing-reference-qa.cjs.
 });
@@ -874,7 +876,7 @@ test("drawing trash confirms before permanently clearing manual, AI, and persist
   assert.doesNotMatch(drawing, /private clearCurrentSymbol\(/);
   assert.match(styles, /\.trading-drawing-clear-dialog\s*\{[^}]*background: var\(--trading-market-panel\);[^}]*color: var\(--trading-market-text\);/s);
   assert.match(styles, /\.trading-drawing-clear-dialog button:hover:not\(:disabled\)[\s\S]*background: var\(--trading-market-control-hover\);/s);
-  assert.match(styles, /\.trading-drawing-clear-dialog button:focus-visible\s*\{[^}]*outline: 2px solid #2da6f7;/s);
+  assert.match(styles, /\.trading-drawing-clear-dialog button:focus-visible\s*\{[^}]*outline: 2px solid var\(--interaction-accent\);/s);
   assert.match(styles, /\.trading-drawing-clear-dialog button:disabled\s*\{[^}]*cursor: not-allowed;[^}]*opacity: 0\.46;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-drawing-clear-backdrop: rgba\(0, 0, 0, 0\.66\);[\s\S]*--trading-drawing-clear-danger: #f0526c;/s);
 });
@@ -897,8 +899,8 @@ test("selected drawings expose endpoints, whole-line dragging, and the requested
   for (const action of ["reset", "toggle-color", "toggle-style", "toggle-width", "toggle-lock", "delete"]) {
     assert.match(drawing, new RegExp(`selectionAction\\("${action}"`));
   }
-  assert.match(drawing, /selectionAction\("settings", "水平线设置"/);
-  assert.match(drawing, /settings\.hidden = drawing\.tool !== 'horizontal-line'/);
+  assert.match(drawing, /selectionAction\("settings", "绘图设置"/);
+  assert.match(drawing, /settings\.hidden = !tradingDrawingSupportsSettings\(drawing\.tool\)/);
   assert.match(drawing, /color\?: string/);
   assert.match(drawing, /lineStyle\?: TradingDrawingLineStyle/);
   assert.match(drawing, /lineWidth\?: number/);
@@ -1369,7 +1371,7 @@ test("AI text annotations initially place resize controls beside the topmost lab
   );
 
   assert.match(drawing, /data-ai-text-hit-content aria-label="AI 文字标注字号调节"/);
-  assert.match(drawing, /data-ai-text-size-toolbar role="toolbar" aria-label="当前图表全部 AI 标注字号" hidden/);
+  assert.match(drawing, /data-ai-text-size-toolbar role="toolbar" aria-label="AI 画线显示与字号" hidden/);
   assert.match(drawing, /data-ai-text-size-action="decrease"[\s\S]*?data-ai-text-size-action="increase"/);
   assert.match(drawing, /class="trading-ai-text-size-toolbar-dismiss trading-chart-toolbar-close" data-ai-text-size-action="dismiss"[\s\S]*?<svg viewBox="0 0 20 20"[\s\S]*?<path d="m6 6 8 8m0-8-8 8"/);
   assert.match(drawing, /renderAiTextSizeHitTarget\([\s\S]*?data-ai-text-size-trigger/);
@@ -1399,19 +1401,48 @@ test("AI text annotations initially place resize controls beside the topmost lab
   assert.doesNotMatch(styles, /html\[data-theme="dark"\] \.trading-ai-text-size-toolbar\s*\{/);
 });
 
-test("Fibonacci retracement matches the full-width colored reference in both themes", async () => {
-  const [drawing, styles] = await Promise.all([drawingSource, stylesSource]);
-
-  assert.match(drawing, /TRADING_FIBONACCI_LEVELS = \[[\s\S]*ratio: 1, label: "100\.0%"[\s\S]*ratio: 0, label: "0\.0%"/);
-  assert.match(drawing, /second\.y \+ \(first\.y - second\.y\) \* level\.ratio/);
-  assert.match(drawing, /class="trading-fibonacci-level-line" x1="0"[\s\S]*x2="\$\{bounds\.width\}"/);
-  assert.match(drawing, /class="trading-fibonacci-connector"[\s\S]*svgStrokeAttributes\(\{ \.\.\.appearance, style: appearance\.manualDefaults && !appearance\.customStyle \? 'dashed' : appearance\.style, dashed: true \}, 1\.5\)/);
-  assert.match(drawing, /class="trading-drawing-handle fibonacci"[\s\S]*data-fibonacci-endpoint="\$\{index === 0 \? "100" : "0"\}"/);
-  assert.match(drawing, /definition\?\.kind === "fib"[\s\S]*100%[\s\S]*0%/);
-  assert.match(styles, /--trading-fibonacci-level-pink: #c61ca4;[\s\S]*--trading-fibonacci-level-blue: #246dcc;/);
-  assert.match(styles, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*--trading-fibonacci-level-pink: #ff72d5;[\s\S]*--trading-fibonacci-level-blue: #78adff;/);
-  assert.match(styles, /\.trading-fibonacci-label\s*\{[^}]*paint-order: stroke fill;[^}]*stroke: var\(--trading-fibonacci-label-outline\);[^}]*font-weight: 600;/s);
-  assert.match(styles, /\.trading-drawing-handle\.fibonacci\s*\{[^}]*filter: none;/s);
+test("Fibonacci bands, labels and hit targets follow the anchor span in either direction", async () => {
+  const { TradingDrawingController, tradingDrawingToolDefinition } = await import("../src/renderer/trading-expert-drawing.ts");
+  const { manualDrawingDefaults } = await import("../src/renderer/trading-drawing-defaults.ts");
+  const appearance = { opacity: 1, width: 2, style: 'solid', manualDefaults: manualDrawingDefaults('fib-retracement') };
+  const bounds = { width: 800, height: 600 };
+  const render = (first, second, customColor = false) => TradingDrawingController.prototype.renderFib(
+    first, second, 2876.79, 1517.99, bounds, '#ff9800', customColor, appearance,
+  );
+  for (const [first, second] of [
+    [{ x: 200, y: 250 }, { x: 650, y: 550 }],
+    [{ x: 650, y: 250 }, { x: 200, y: 550 }],
+    [{ x: 200, y: 550 }, { x: 650, y: 250 }],
+  ]) {
+    const markup = render(first, second);
+    const lines = [...markup.matchAll(/class="trading-fibonacci-level-line" x1="([^"]+)"[^>]*x2="([^"]+)"/g)];
+    assert.equal(lines.length, 11);
+    lines.forEach(([, x1, x2]) => assert.deepEqual([Number(x1), Number(x2)], [200, 650]));
+    assert.match(markup, /data-fibonacci-band="1\.618"[^>]*fill="#2962ff" fill-opacity="0\.2"/);
+    assert.match(markup, /data-fibonacci-band="0\.236"[^>]*fill="#f23645" fill-opacity="0\.2"/);
+    assert.match(markup, /class="trading-fibonacci-label" x="192"[^>]*text-anchor="end"[^>]*>1 \(2,876\.79\)/);
+    assert.match(markup, />0\.618 \(2,357\.73\)<\/text>/);
+    assert.match(markup, /class="trading-fibonacci-connector"[^>]*stroke="#808080"[^>]*stroke-dasharray="7 5"/);
+    const hits = TradingDrawingController.prototype.renderDrawingHitTargets(tradingDrawingToolDefinition('fib-retracement'), [first, second], bounds);
+    assert.equal([...hits.matchAll(/<line /g)].length, 12);
+    for (const [, x1, x2] of hits.matchAll(/x1="([^"]+)"[^>]*x2="([^"]+)"/g)) {
+      assert.deepEqual([Number(x1), Number(x2)], [first.x, second.x]);
+    }
+  }
+  const clipped = render({ x: -100, y: -50 }, { x: 900, y: 650 });
+  for (const [, x, y, width, height] of clipped.matchAll(/class="trading-fibonacci-band"[^>]*x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"/g)) {
+    assert.equal(Number(x), 0); assert.equal(Number(width), 800);
+    assert.ok(Number(y) >= 0 && Number(y) + Number(height) <= 600);
+  }
+  const collapsed = render({ x: 300, y: 200 }, { x: 300, y: 200 });
+  assert.doesNotMatch(collapsed, /trading-fibonacci-band|trading-fibonacci-connector/);
+  assert.equal([...collapsed.matchAll(/class="trading-fibonacci-level"/g)].length, 1);
+  assert.match(collapsed, /data-fibonacci-level="1"/);
+  const custom = render({ x: 200, y: 250 }, { x: 650, y: 550 }, true);
+  assert.doesNotMatch(custom, /(?:fill|stroke)="#(?!ff9800)/);
+  const styles = await stylesSource;
+  assert.match(styles, /\.trading-fibonacci-label\s*\{[^}]*stroke: none;[^}]*font-weight: 400;/s);
+  assert.match(styles, /\.trading-fibonacci-band,[\s\S]*?pointer-events: none;/);
 });
 
 test("selection color, line style, and width apply to Fibonacci and every stroked drawing family", async () => {
@@ -1602,14 +1633,14 @@ test("every visible split pane runs the requested analysis and plays its own dra
   assert.match(splitPane, /paneIndex: this\.paneIndex,[\s\S]*?market: \{ \.\.\.this\.market \},[\s\S]*?interval: this\.interval/);
   assert.match(splitPane, /playAiDrawingPatch\([\s\S]*?this\.drawingController\?\.playAiDrawingPatch\(patch, \{[\s\S]*?\.\.\.options,[\s\S]*?beforePlayback:/);
   assert.match(market, /private captureSplitPaneAnalysisSnapshots\([\s\S]*?pane\.cloudAnalysisSnapshot\(visibleOnly\)/);
-  assert.match(market, /snapshotFailures\.push\([\s\S]*?行情快照读取失败/);
+  assert.match(market, /snapshotFailures\.push\([\s\S]*?message: cloudAnalysisText\('snapshotUnavailable', activeTradingAnalysisLanguage\(\)\)/);
   assert.match(market, /private async runSplitPaneAnalyses\([\s\S]*?const snapshots = \[\.\.\.options\.snapshots\]/);
   assert.match(market, /const failures: TradingSplitPaneAnalysisFailure\[\] = \[\.\.\.options\.snapshotFailures\]/);
   assert.match(market, /Array\.from\(\{ length: Math\.min\(2, snapshots\.length\) \}, \(\) => worker\(\)\)/);
   assert.match(market, /const snapshot = snapshots\[cursor\]/);
   assert.match(market, /const response = await options\.analyze\(snapshot\)/);
   assert.match(market, /await commitTradingAnalysisDrawingPatch\([\s\S]*?snapshot\.paneIndex/);
-  assert.match(market, /failures\.push\(\{\s*paneIndex: snapshot\.paneIndex,[\s\S]*?message: String\(\(error as Error\)\?\.message/);
+  assert.match(market, /failures\.push\(\{\s*paneIndex: snapshot\.paneIndex,[\s\S]*?message: describeTradingAnalysisFailure\(error, \{language: options\.job\.language\}\)\.summary/);
   assert.match(market, /cloudAnalysisText\('splitPartial',options\.job\.language,\{count:completed,failed\}\)/);
   assert.match(market, /splitResult\.failures\.length[\s\S]*?This auxiliary chart was not included; the primary analysis and answer remain available/);
   assert.match(market, /analysisProgressPhase: string;[\s\S]*?drawingProgressPhase: string;/);

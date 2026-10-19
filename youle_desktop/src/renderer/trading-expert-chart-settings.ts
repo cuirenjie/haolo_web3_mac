@@ -1,3 +1,6 @@
+import { colorPickerInput } from './color-picker.ts';
+import type { TradingDrawingLayerVisibility } from './trading-drawing-visibility.ts';
+
 export type TradingChartStyle =
   | "candlestick"
   | "hlc"
@@ -65,6 +68,7 @@ export type TradingChartSettingsTab =
   | "coordinate"
   | "live-price"
   | "drawing-tools"
+  | "drawing-visibility"
   | "order-display";
 
 export interface TradingSplitLayoutCell {
@@ -263,7 +267,7 @@ const chartStyles = new Set<TradingChartStyle>([
 const adjustments = new Set<TradingPriceAdjustment>(["none", "forward", "backward"]);
 const scaleAnchors = new Set<TradingScaleAnchor>(["cursor", "right"]);
 const priceScaleModes = new Set<TradingPriceScaleMode>(["linear", "logarithmic", "percentage"]);
-const hexColorPattern = /^#[0-9a-f]{6}$/i;
+const hexColorPattern = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i;
 
 function cloneTheme(theme: TradingChartThemeSettings): TradingChartThemeSettings {
   return { ...theme };
@@ -593,12 +597,14 @@ const orderDisplaySwitch = (
 `;
 
 const colorInput = (key: string, label: string, value: string) => `
-  <label class="trading-chart-settings-color"><input type="color" data-chart-setting="${key}" value="${value}"/><span>${label}</span></label>
+  <label class="trading-chart-settings-color">${colorPickerInput(value, `data-chart-setting="${key}" aria-label="${label}"`)}<span>${label}</span></label>
 `;
 
 export function renderTradingChartSettingsDialog(
   settings: TradingChartSettings = cloneTradingChartSettings(),
   themeName: TradingChartThemeName = "dark",
+  drawingVisibility: TradingDrawingLayerVisibility = { aiHidden: false, manualHidden: false },
+  verticalLocked = true,
 ) {
   const theme = settings.themes[themeName];
   const tabs: Array<[TradingChartSettingsTab, string]> = [
@@ -609,6 +615,7 @@ export function renderTradingChartSettingsDialog(
     ["coordinate", "坐标选择"],
     ["live-price", "实时价格"],
     ["drawing-tools", "画线工具"],
+    ["drawing-visibility", "隐藏绘图"],
     ["order-display", "订单显示"],
   ];
   return `
@@ -663,6 +670,13 @@ export function renderTradingChartSettingsDialog(
                 ${option("scaleAnchor", "cursor", "以光标位置缩放 K 线（Ctrl + 滚轮始终聚焦光标）", settings.scaleAnchor === "cursor")}
                 ${option("scaleAnchor", "right", "以最右侧位置缩放 K 线（Ctrl + 滚轮聚焦光标）", settings.scaleAnchor === "right")}
               </div></div>
+              <div class="trading-chart-settings-row"><span>锁定 K 线</span><label class="trading-chart-settings-switch">
+                <input type="checkbox" role="switch" data-chart-setting="verticalLocked" ${verticalLocked ? "checked" : ""} aria-label="锁定 K 线"/>
+                <span aria-hidden="true"></span>
+              </label><small>开启后，价格随可见 K 线自动适配；关闭后可自由上下拖动。</small></div>
+              <div class="trading-chart-settings-row"><span>重置图表</span><div class="trading-chart-settings-options">
+                <button type="button" class="trading-chart-settings-action" data-market-action="reset-chart" title="重置图表（Alt + R）">重置图表</button>
+              </div><small>恢复默认缩放并回到最新 K 线。</small></div>
             </section>
             <section data-chart-settings-panel="rise-fall" hidden>
               <div class="trading-chart-settings-row"><span>涨跌颜色</span><div class="trading-chart-settings-options">
@@ -676,7 +690,7 @@ export function renderTradingChartSettingsDialog(
                 ${checkbox("logarithmicScale", "对数坐标", settings.priceScaleMode === "logarithmic")}
                 ${checkbox("percentageScale", "百分比坐标", settings.priceScaleMode === "percentage")}
               </div></div>
-              <p class="trading-chart-settings-theme-note">默认以鼠标位置缩放；滚轮或加减按钮缩放时，价格轴随可见 K 线自动适配，完整显示最高价和最低价。手动调轴后，下次缩放或双击价格轴会恢复自动适配，不影响成交量等副图。</p>
+              <p class="trading-chart-settings-theme-note">默认以鼠标位置缩放；滚轮或键盘加减键缩放时，价格轴随可见 K 线自动适配，完整显示最高价和最低价。手动调轴后，下次缩放或双击价格轴会恢复自动适配，不影响成交量等副图。</p>
             </section>
             <section data-chart-settings-panel="live-price" hidden>
               <div class="trading-chart-settings-row"><span>实时价格</span><div class="trading-chart-settings-options">
@@ -690,6 +704,21 @@ export function renderTradingChartSettingsDialog(
                 ${option("drawingToolsEnabled", "true", "打开", settings.drawingToolsEnabled)}
                 ${option("drawingToolsEnabled", "false", "关闭", !settings.drawingToolsEnabled)}
               </div></div>
+            </section>
+            <section data-chart-settings-panel="drawing-visibility" hidden>
+              <div class="trading-chart-order-display-list">
+                ${(['aiHidden', 'manualHidden'] as const).map(key => {
+                  const label = key === 'aiHidden' ? '隐藏AI画线' : '隐藏手动画线';
+                  return `<div class="trading-chart-order-display-row">
+                    <span class="trading-chart-order-display-copy"><strong>${label}</strong></span>
+                    <label class="trading-chart-settings-switch">
+                      <input type="checkbox" role="switch" data-chart-setting="drawingVisibility.${key}" ${drawingVisibility[key] ? 'checked' : ''} aria-label="${label}"/>
+                      <span aria-hidden="true"></span>
+                    </label>
+                  </div>`;
+                }).join('')}
+              </div>
+              <p class="trading-chart-settings-theme-note">仅影响当前会话，隐藏不会删除画线。</p>
             </section>
             <section data-chart-settings-panel="order-display" hidden>
               <div class="trading-chart-order-display-list">

@@ -50,6 +50,11 @@ export class TradingChartToolbarVisibility {
     this.toolbar.hidden = true;
   }
 
+  restore() {
+    this.dismissed = false;
+    this.reentryPending = false;
+  }
+
   private readonly pointerEnter = () => {
     if (!this.reentryPending) return;
     this.reentryPending = false;

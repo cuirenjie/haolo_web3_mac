@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { EXECUTION_PLAN_SCHEMA_VERSION, validateExecutionPlan } from "./contracts.mjs";
 import { personalRiskUnavailable, personalRiskUnavailableNotice } from "../trading-analysis/personal-risk-context.mjs";
+import { defaultTakeProfitPercent } from "../take-profit-allocation.mjs";
 
 const DEFAULT_EXECUTION_LEVERAGE = 10;
 // Product default for the first executable take-profit target when the user
@@ -1257,9 +1258,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
   const takeProfits = preferredTargetRiskRewards.length
     ? preferredTargetRiskRewards.map((item, index, targets) => ({
       price: item.target,
-      allocationPercent: index === targets.length - 1
-        ? 100 - Math.floor(100 / targets.length) * (targets.length - 1)
-        : Math.floor(100 / targets.length),
+      allocationPercent: defaultTakeProfitPercent(index, targets.length),
       condition: index === 0
         ? riskPolicy.moveStopToBreakEven
           ? `到达第一目标后按计划分批退出；浮盈达到 ${riskPolicy.breakEvenTriggerR}R 后把剩余仓位止损移动至覆盖交易成本的保本位置`
@@ -1312,7 +1311,7 @@ export function buildExecutionPlanV1(manifest, legacyResult, params = {}) {
       sizingBlockedReason: reason,
       takeProfits: scenario.targets.map((price, index, targets) => ({
         price,
-        allocationPercent: index === targets.length - 1 ? 100 - Math.floor(100 / targets.length) * (targets.length - 1) : Math.floor(100 / targets.length),
+        allocationPercent: defaultTakeProfitPercent(index, targets.length),
       })),
     });
     return { ...scenario, positionSizing: {

@@ -60,10 +60,57 @@ export const ENGLISH_DRAWING_SECTIONS = Object.freeze({
 });
 
 const PHRASES = Object.freeze({
+  "目标": "Target", "止损": "Stop", "金额": "Amount", "数量": "Qty", "已平仓": "Closed", "开仓": "Open", "风险/回报比": "Risk/Reward Ratio",
+  "成功": "Success", "失败": "Failure", "在": "in", "天": "days", "小时": "hours", "分钟": "minutes",
+  "账户资金": "Account size", "风险": "Risk", "风险单位": "Risk unit", "杠杆（0 表示不限制）": "Leverage (0 = no cap)", "每手数量": "Lot size", "点值": "Point value",
+  "最小变动价位": "Tick size", "数量精度": "Quantity precision", "目标颜色": "Target color", "止损颜色": "Stop color", "始终显示统计": "Always show stats",
+  "入场价格": "Entry price", "目标价格": "Target price", "止损价格": "Stop price", "请选择至少两根 K 线": "Select at least two bars",
+  "选择结束 K 线，点击生成 K 线形态 · Esc 取消": "Choose the last bar and click to create a bars pattern · Esc to cancel",
+  "同根 K 线同时触及止盈止损，按止损计算": "Both levels touched in the same bar; stop is assumed first",
+  "点击添加下一段": "Click to add the next segment", "Enter 或双击完成": "Enter or double-click to finish", "右键撤销上一端点": "Right-click to undo the last point",
+  "左肩": "Left Shoulder", "头部": "Head", "右肩": "Right Shoulder",
+  "截图并保存到桌面": "Take a screenshot and save to Desktop",
+  "截图已经保存在桌面": "Screenshot saved to Desktop",
+  "截图已经保存在桌面，但复制到剪贴板失败，请重试": "Screenshot saved to Desktop, but copying to clipboard failed. Please try again.",
+  "图表截图失败，请重试": "Chart screenshot failed. Please try again.",
+  "绘图设置": "Drawing settings", "已更新绘图": "Drawing updated", "端点": "Point", "时间 (UTC+8)": "Time (UTC+8)",
+  "隐藏此画线": "Hide drawing", "显示此画线": "Show drawing",
+  "隐藏当前会话 AI 画线": "Hide AI drawings in this conversation",
+  "显示当前会话 AI 画线": "Show AI drawings in this conversation",
+  "当前会话 AI 画线已隐藏": "AI drawings hidden in this conversation",
+  "当前会话 AI 画线已显示": "AI drawings shown in this conversation",
+  "画线已隐藏，点击画布可恢复": "Drawing hidden. Click the chart to restore it.",
+  "画线已显示": "Drawing shown", "AI 画线显示与字号": "AI drawing visibility and text size",
+  "添加文字": "Add text", "＋ 添加文字": "+ Add text",
   "水平线设置": "Horizontal line settings", "样式": "Style", "坐标": "Coordinates",
+  "参数": "Inputs", "上方偏差": "Upper deviation", "下方偏差": "Lower deviation",
+  "偏差带计算方式": "Bands calculation mode", "标准差": "Standard deviation", "百分比": "Percentage",
+  "偏差带倍数": "Bands multiplier", "显示上下轨": "Show bands", "上下轨颜色": "Band color",
+  "价格档数": "Number of rows", "价值区域成交量 (%)": "Value area volume (%)", "柱状图宽度 (%)": "Profile width (%)",
+  "行布局": "Rows layout", "行数": "Number of rows", "每行跳动数": "Ticks per row",
+  "完整": "Complete", "缺失部分使用图表周期": "Missing bars use chart timeframe", "使用图表周期": "Using chart timeframe", "加载中": "Loading",
+  "上涨成交量颜色": "Up volume color", "下跌成交量颜色": "Down volume color", "显示 POC": "Show POC",
+  "时间吸附到已有 K 线，价格由行情数据计算。": "Time snaps to an available bar. Prices are calculated from market data.",
+  "使用上方偏差": "Use upper deviation", "使用下方偏差": "Use lower deviation",
+  "来源": "Source", "收盘价": "Close", "开盘价": "Open", "最高价": "High", "最低价": "Low",
+  "基准线": "Base", "上轨": "Upper", "下轨": "Lower",
+  "基准线颜色": "Base color", "上轨颜色": "Upper color", "下轨颜色": "Lower color",
+  "线宽": "Line width", "线型": "Line style", "填充不透明度": "Fill opacity", "向右延长": "Extend right",
+  "起点时间 (UTC+8)": "Start time (UTC+8)", "终点时间 (UTC+8)": "End time (UTC+8)",
+  "两个端点只选择 K 线区间，价格由回归计算。": "The points select the bar range. Prices are calculated by regression.",
+  "回归趋势至少需要两根有效 K 线": "Regression trend requires at least two valid bars",
+  "选择结束 K 线，点击后自动计算回归通道": "Choose the last bar, then click to calculate the regression channel",
+  "前两点已确定": "First two points set",
+  "移动鼠标选择第三点，调整叉口与方向，点击完成": "Move to the third point to adjust the fork width and direction, then click to finish",
+  "移动鼠标选择第二点，点击确定第一段": "Move to the second point and click to set the first leg",
   "线条": "Line", "线条颜色": "Line color", "斜体": "Italic", "确认": "OK", "关闭": "Close",
+  "起点已确定": "Start point set", "Esc 取消": "Esc to cancel",
+  "横向移动鼠标设置循环间隔，点击完成": "Move horizontally to set the cycle interval, then click to finish",
+  "移动鼠标设置半周期和振幅，点击完成": "Move to set the half-period and amplitude, then click to finish",
+  "两个端点必须选择不同时间": "The two anchors must have different times",
   "文字对齐": "Text alignment", "文字垂直对齐": "Vertical text alignment", "文字水平对齐": "Horizontal text alignment",
   "顶部": "Top", "中间": "Middle", "底部": "Bottom", "居左": "Left", "居中": "Center", "居右": "Right",
+  "左": "Left", "中心": "Center", "右": "Right",
   "#1(价格)": "#1 (Price)", "已更新水平线": "Horizontal line updated",
   ...ENGLISH_DRAWING_TOOLS,
   // The shared Traditional Chinese normalizer maps 預設 back to 默认.
@@ -77,7 +124,7 @@ const PHRASES = Object.freeze({
   "物品": "Objects", "符号": "Symbols", "旗帜": "Flags",
   "添加到收藏": "Add to favorites", "从收藏移除": "Remove from favorites", "收藏的绘图工具": "Favorite drawing tools",
   "按住鼠标拖动绘制": "Click and drag to draw",
-  "连续点击设置端点；双击、右键、Enter 或 Esc 完成；折线点击起点闭合": "Click to add points; double-click, right-click, or press Enter or Esc to finish. For a polyline, click the first point to close it.",
+  "连续点击设置端点；右键撤销上一端点；双击、Enter 或 Esc 完成；折线点击起点闭合": "Click to add points; right-click to undo the last point; double-click or press Enter or Esc to finish. For a polyline, click the first point to close it.",
   "快速测量（Shift + 点击或拖动）": "Measure (Shift + click or drag)",
   "框选放大（点击起点和终点，或拖动框选）": "Zoom in (click two points or drag to select an area)",
   "磁吸到K线价格": "Magnet mode: snap to OHLC prices", "保持绘图模式": "Stay in drawing mode",
@@ -91,12 +138,35 @@ const PHRASES = Object.freeze({
   "隐藏绘图工具栏（重新选中图形可恢复）": "Hide drawing toolbar (select the drawing again to restore)",
   "选择样式": "Line style", "实线": "Solid line", "点线": "Dotted line", "虚线": "Dashed line",
   "选择线宽": "Line width", "锁定": "Lock", "解锁": "Unlock", "删除": "Remove",
+  "可见范围": "Visibility", "趋势线样式": "Trend line style", "延伸": "Extend",
+  "左侧延长线": "Extend left", "向右延长线": "Extend right", "左侧延长线, ...": "Extend left, ...", "不延伸": "None",
+  "短虚线": "Dashed line", "点虚线": "Dotted line", "厚度": "Thickness", "线条样式": "Line style",
+  "档位线": "Level lines",
+  "逆时针": "Counterclockwise", "完整圆": "Full circles",
+  "扇线": "Fan lines", "弧线": "Arcs", "范围和比率": "Range and ratio",
+  "网格": "Grid", "半径线": "Radius line", "边界线": "Boundary lines", "连接线": "Connector", "边框": "Border",
+  "趋势幅度已确定": "Trend range set", "基准线已确定": "Baseline set",
+  "起始时间已确定": "Starting time set", "趋势时间已确定": "Trend duration set", "扇形起点已确定": "Fan origin set",
+  "移动鼠标选择第三点作为 0 位，点击完成": "Move to the third point for level 0, then click to finish",
+  "移动鼠标选择趋势终点，点击确定第一段": "Move to the trend end and click to set the first segment",
+  "移动鼠标选择 1 倍通道起点，点击完成": "Move to the level 1 channel origin and click to finish",
+  "移动鼠标选择第二点，点击确定通道方向": "Move to the second point and click to set the channel direction",
+  "横向移动鼠标设置时间间隔，点击完成": "Move horizontally to set the time interval and click to finish",
+  "移动鼠标选择时间投射起点，点击完成": "Move to the time projection origin and click to finish",
+  "移动鼠标选择第二点，点击确定趋势时间": "Move to the second point and click to set the trend duration",
+  "移动鼠标设置价格和时间范围，点击完成": "Move to set the price and time range and click to finish",
+  "背景填充": "Background", "背景不透明度": "Background opacity", "显示档位": "Levels", "显示价格": "Prices",
+  "模板": "Template", "模板名称": "Template name", "保存为模板": "Save as template", "模板保存失败": "Could not save template",
+  "重命名": "Rename", "绘图名称": "Drawing name", "在以下时间周期显示": "Show on the following intervals",
+  "最大周期不能小于最小周期": "Maximum interval must be at least the minimum",
+  "秒": "Seconds", "分钟": "Minutes", "小时": "Hours", "天": "Days", "周": "Weeks", "月": "Months",
   "恢复默认文本样式": "Restore default text style", "文本输入": "Edit text", "关闭文本输入": "Close text editor",
   "请输入内容…": "Enter text…", "每行一行表格，用 | 分隔列": "Enter one row per line; separate columns with |",
   "粘贴 https:// 图片链接": "Paste an HTTPS image URL", "文本颜色": "Text color", "背景颜色": "Background color",
   "透明背景": "Transparent background", "字体大小": "Font size", "加粗": "Bold",
   "缩小": "Zoom out", "撤销绘图": "Undo drawing", "重做绘图": "Redo drawing",
   "磁吸已开启": "Magnet mode on", "磁吸已关闭": "Magnet mode off",
+  "弱磁铁": "Weak magnet", "强磁铁": "Strong magnet", "吸附到指标": "Snap to indicators", "磁铁模式": "Magnet mode",
   "全部绘图已锁定": "All drawings locked", "全部绘图已解锁": "All drawings unlocked",
   "绘图已隐藏": "Drawings hidden", "绘图已显示": "Drawings visible", "已移动选项栏": "Toolbar moved",
   "已恢复默认样式": "Default style restored", "已恢复默认文本样式": "Default text style restored",
@@ -111,9 +181,17 @@ const PHRASES = Object.freeze({
   "图片已载入": "Image loaded", "点击图表放置": "Click the chart to place it",
   "无法载入图片": "Unable to load image", "图片已放置": "Image placed", "请输入文本内容": "Enter text",
   "图片过大或格式不支持": "The image is too large or its format is not supported",
-  "点击继续，双击、右键、Enter 或 Esc 完成": "Click to add points; double-click, right-click, or press Enter or Esc to finish",
+  "点击继续，双击、Enter 或 Esc 完成": "Click to add points; double-click or press Enter or Esc to finish",
   "点击起点闭合": "Click the first point to close the shape",
   "第二个端点已设置": "Second point set",
+  "线段已确定": "Baseline set",
+  "中轴线已确定": "Centerline set",
+  "移动鼠标调整矩形宽度，点击完成": "Move the pointer to adjust the rectangle width, then click to finish",
+  "移动鼠标选择终点，点击确定中轴线": "Move to the end point and click to set the centerline",
+  "上下移动鼠标放置水平边界，点击完成": "Move up or down to place the horizontal boundary, then click to finish",
+  "上下移动鼠标放置反向边界，点击完成": "Move up or down to place the opposite-slope boundary, then click to finish",
+  "上下移动鼠标调整通道宽度，点击完成": "Move the pointer up or down to adjust the channel width, then click to finish",
+  "移动鼠标选择终点，点击确定线段": "Move to the end point and click to set the baseline",
   "移动鼠标选择第三个端点，再次点击完成": "Move to the third point and click to finish",
   "移动鼠标选择第二个端点，再次点击确定一边": "Move to the second point and click to set the first side",
   "右键撤销上一端点": "Right-click to undo the last point",
@@ -139,6 +217,11 @@ function translatePart(source) {
   if (!/\p{Script=Han}/u.test(source)) return source;
   if (Object.hasOwn(PHRASES, source)) return PHRASES[source];
   let match;
+  if ((match = /^计算周期 (\w+)$/.exec(source))) return `Calculation timeframe ${match[1]}`;
+  if ((match = /^低周期覆盖 (\d+)\/(\d+)$/.exec(source))) return `Lower-timeframe coverage ${match[1]}/${match[2]}`;
+  if ((match = /^已确定 (\d+) \/ 5 段$/.exec(source))) return `${match[1]} of 5 segments set`;
+  if ((match = /^(启用档位|档位颜色|档位|最小周期|最大周期) (\d+)$/.exec(source))) return `${({ 启用档位: 'Enable level', 档位颜色: 'Level color', 档位: 'Level', 最小周期: 'Minimum interval', 最大周期: 'Maximum interval' })[match[1]]} ${match[2]}`;
+  if ((match = /^(价格|时间) #(\d+)$/.exec(source))) return `${match[1] === '价格' ? 'Price' : 'Time'} #${match[2]}`;
   if ((match = /^(收藏|取消收藏|展开)(.+)$/.exec(source))) {
     const term = PHRASES[match[2]];
     if (term) return match[1] === "展开" ? `Open ${term}` : `${match[1] === "收藏" ? "Add" : "Remove"} ${term} ${match[1] === "收藏" ? "to" : "from"} favorites`;
@@ -154,6 +237,7 @@ function translatePart(source) {
   if ((match = /^清空(.+)的所有绘图？$/.exec(source))) return `Remove all drawings from ${translateScope(match[1])}?`;
   if ((match = /^(.+)的手动绘图、AI 绘图及历史记录都将被永久删除，其他分屏不受影响。此操作无法撤销。$/.exec(source))) return `All manual drawings, AI drawings, and drawing history in ${translateScope(match[1])} will be permanently deleted. Other chart panes will not be affected. This cannot be undone.`;
   if ((match = /^([\d.]+)(天|小时|分钟|秒)$/.exec(source))) return `${match[1]}${({ 天: "d", 小时: "h", 分钟: "m", 秒: "s" })[match[2]]}`;
+  if ((match = /^([\d,—]+)根K线 \((.+)\), 距离: ([\d,]+) px$/.exec(source))) return `${match[1]} bars (${match[2]}), Distance: ${match[3]} px`;
   return null;
 }
 

@@ -592,9 +592,9 @@ test("calendar colors and record rendering preserve the billing contract", async
     'html[data-theme="dark"] .consumption-table th {',
   );
   assert.doesNotMatch(darkCalendar, /background:\s*#(?:fff|eff5ff|d8e8ff|a9caff)\b/i);
-  assert.match(darkCalendar, /\.consumption-day\.selected\s*\{[^}]*border-color:\s*#a9c9ff;[^}]*0 0 0 2px rgba\(78, 139, 244, \.2\)/s);
+  assert.match(darkCalendar, /\.consumption-day\.selected\s*\{[^}]*border-color:\s*var\(--interaction-accent\);[^}]*0 0 0 2px rgba\(var\(--interaction-rgb\), 0\.2\)/s);
   assert.match(styles, /html\[data-theme="dark"\] \.consumption-range-toggle\s*\{[^}]*border-color:\s*rgba\(126, 148, 181, \.3\);[^}]*background:\s*#151e2b;/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.consumption-unit-toggle button\.active,\s*html\[data-theme="dark"\] \.consumption-range-toggle button\.active\s*\{[^}]*background:\s*linear-gradient\(180deg, #2b4264 0%, #243a59 100%\);[^}]*color:\s*#dbe9ff;/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.consumption-unit-toggle button\.active,\s*html\[data-theme="dark"\] \.consumption-range-toggle button\.active\s*\{[^}]*background:\s*linear-gradient\(180deg, var\(--selection-strong\) 0%, var\(--selection-strong\) 100%\);[^}]*color:\s*var\(--interaction-accent\);/s);
   assert.match(styles, /html\[data-theme="dark"\] \.consumption-profile-card,\s*html\[data-theme="dark"\] \.consumption-calendar-card,\s*html\[data-theme="dark"\] \.consumption-records-card\s*\{[^}]*background:\s*#192331;[^}]*border-color:\s*#2b394c;[^}]*box-shadow:/s);
   assert.match(styles, /html\[data-theme="dark"\] \.consumption-table th\s*\{[^}]*color:\s*#95a7c0;/s);
   assert.match(styles, /html\[data-theme="dark"\] \.consumption-table td\s*\{[^}]*border-color:\s*#2a3748;[^}]*color:\s*#d7e1ef;/s);
@@ -690,7 +690,7 @@ test("calendar dates select one day and clear the preset range highlight", async
   assert.match(renderer, /state\.consumption\.selectedDate = selectedDate/);
   assert.match(renderer, /state\.consumption\.selectedDate = null/);
   assert.match(loader, /date:\s*state\.consumption\.selectedDate/);
-  assert.match(styles, /\.consumption-day\.selected\s*\{[^}]*border-color:\s*var\(--brand-blue\)/s);
+  assert.match(styles, /\.consumption-day\.selected\s*\{[^}]*border-color:\s*var\(--interaction-accent\)/s);
   assert.match(styles, /\.consumption-records-heading small\s*\{[^}]*color:\s*#8a96a9/s);
 });
 
@@ -770,9 +770,9 @@ test("consumption records fit the card without a draggable horizontal scrollbar"
   assert.match(calendarToolbarButton, /border-radius:\s*5px/);
   assert.match(styles, /\.consumption-calendar-toolbar button:first-child\s*\{[^}]*margin-right:\s*5px;/s);
   assert.match(styles, /\.consumption-calendar-toolbar button:last-child\s*\{[^}]*margin-left:\s*5px;/s);
-  assert.match(styles, /\.consumption-calendar-toolbar button:hover:not\(:disabled\),\s*\.consumption-pagination button:hover:not\(:disabled\)\s*\{[^}]*background:\s*#eef4ff;[^}]*color:\s*#075dff;/s);
+  assert.match(styles, /\.consumption-calendar-toolbar button:hover:not\(:disabled\),\s*\.consumption-pagination button:hover:not\(:disabled\)\s*\{[^}]*background:\s*var\(--selection-strong\);[^}]*color:\s*var\(--interaction-accent\);/s);
   assert.match(styles, /html\[data-theme="dark"\] \.consumption-calendar-toolbar button,\s*html\[data-theme="dark"\] \.consumption-pagination button\s*\{[^}]*width:\s*22px;[^}]*height:\s*22px;[^}]*border:\s*1px solid rgba\(126, 148, 181, \.28\);[^}]*border-radius:\s*5px;[^}]*background:\s*transparent;/s);
-  assert.match(styles, /html\[data-theme="dark"\] \.consumption-calendar-toolbar button:hover:not\(:disabled\),\s*html\[data-theme="dark"\] \.consumption-pagination button:hover:not\(:disabled\)\s*\{[^}]*background:\s*#223047;[^}]*color:\s*#8eb8ff;/s);
+  assert.match(styles, /html\[data-theme="dark"\] \.consumption-calendar-toolbar button:hover:not\(:disabled\),\s*html\[data-theme="dark"\] \.consumption-pagination button:hover:not\(:disabled\)\s*\{[^}]*background:\s*var\(--selection-strong\);[^}]*color:\s*var\(--interaction-accent\);/s);
   assert.match(styles, /\.consumption-calendar-toolbar button > span,\s*\.consumption-pagination button > span\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*place-items:\s*center;[^}]*transform:\s*translateY\(-4px\);/s);
   assert.match(renderer, /aria-label="上一页"[^>]*><span aria-hidden="true">‹<\/span>/);
   assert.match(renderer, /aria-label="下一页"[^\r\n]*<span aria-hidden="true">›<\/span>/);

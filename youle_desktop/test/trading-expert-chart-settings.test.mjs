@@ -308,7 +308,7 @@ test("floating split-layout placement clamps horizontally and flips around every
   }
 });
 
-test("settings dialog contains the eight requested categories with order display last", () => {
+test("settings dialog contains nine categories with order display last", () => {
   const html = renderTradingChartSettingsDialog(cloneTradingChartSettings(), "light");
   const tabIds = [...html.matchAll(/data-market-settings-tab="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(tabIds, [
@@ -319,6 +319,7 @@ test("settings dialog contains the eight requested categories with order display
     "coordinate",
     "live-price",
     "drawing-tools",
+    "drawing-visibility",
     "order-display",
   ]);
   assert.match(html, /主图样式/);
@@ -328,6 +329,7 @@ test("settings dialog contains the eight requested categories with order display
   assert.match(html, /坐标选择/);
   assert.match(html, /实时价格/);
   assert.match(html, /画线工具/);
+  assert.match(html, /隐藏绘图/);
   assert.match(html, /订单显示/);
   assert.match(html, /当前委托/);
   assert.match(html, /当前持仓/);
@@ -346,6 +348,22 @@ test("settings dialog contains the eight requested categories with order display
   assert.doesNotMatch(html, /下单相关|K线大事件|开盘时间|主题选择|品牌水印|快捷键/);
   assert.match(html, /当前正在编辑亮色主题/);
   assert.match(renderTradingChartSettingsDialog(cloneTradingChartSettings(), "dark"), /当前正在编辑暗色主题/);
+});
+
+test("drawing visibility switches render independent conversation state without changing chart preferences", () => {
+  const settings = cloneTradingChartSettings();
+  const before = JSON.stringify(settings);
+  for (const aiHidden of [false, true]) for (const manualHidden of [false, true]) {
+    const html = renderTradingChartSettingsDialog(settings, "light", { aiHidden, manualHidden });
+    for (const [key, checked] of Object.entries({ aiHidden, manualHidden })) {
+      const input = html.match(new RegExp(`<input[^>]+data-chart-setting="drawingVisibility\\.${key}"[^>]*>`))?.[0];
+      assert.ok(input);
+      assert.equal(/\bchecked\b/.test(input), checked);
+      assert.match(input, /role="switch"/);
+    }
+  }
+  assert.equal(JSON.stringify(settings), before);
+  assert.equal('drawingVisibility' in settings, false);
 });
 
 test("order display settings independently filter every canvas order-line category", () => {
@@ -453,9 +471,9 @@ test("new controls cover light and dark themes plus interaction and async states
   assert.match(css, /\.trading-chart-settings-switch:has\(input:disabled\)/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-chart-settings-dialog/);
   assert.match(css, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-market-control:\s*#212224/);
-  assert.match(css, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-chart-switch-off:\s*#3a3f47[\s\S]*?--trading-chart-switch-on:\s*#69a8ff/);
+  assert.match(css, /html\[data-theme="dark"\] \.trading-expert-market\s*\{[\s\S]*?--trading-chart-switch-off:\s*#3a3f47[\s\S]*?--trading-chart-switch-on:\s*var\(--interaction-accent\)/);
   assert.match(css, /\.trading-expert-market\s*\{[\s\S]*?--trading-market-control:\s*#f0f3f7/);
-  assert.match(css, /\.trading-expert-market\s*\{[\s\S]*?--trading-chart-switch-off:\s*#d7d8da[\s\S]*?--trading-chart-switch-on:\s*#2f80ed/);
+  assert.match(css, /\.trading-expert-market\s*\{[\s\S]*?--trading-chart-switch-off:\s*#d7d8da[\s\S]*?--trading-chart-switch-on:\s*var\(--interaction-accent\)/);
   assert.match(css, /html\[data-theme="light"\] \.trading-chart-settings-dialog/);
   assert.match(css, /color-scheme: dark/);
   assert.match(css, /color-scheme: light/);
@@ -626,16 +644,16 @@ test("the primary toolbar belongs to its own grid cell while split layouts are a
 test("the primary pane reuses the compact split-period menu only while split mode is active", async () => {
   const [market, css] = await Promise.all([marketSource, stylesSource]);
   assert.match(market, /trading-market-split-period-menu trading-market-primary-period-menu/);
-  assert.match(market, /data-market-primary-period-menu[\s\S]*?role="listbox"[\s\S]*?图表 1 自定义周期/);
+  assert.match(market, /data-market-primary-period-menu[\s\S]*?role="listbox"[\s\S]*?图表 1 周期设置/);
   assert.match(
     market,
-    /if \(this\.host\.classList\.contains\("split-layout-active"\)\) \{[\s\S]*?this\.setPrimaryPeriodMenuOpen\(this\.primaryPeriodMenu\.hidden\)[\s\S]*?\} else \{[\s\S]*?this\.setPeriodEditorOpen\(this\.periodEditor\.hidden\)/,
+    /if \(!this\.selectedIndex && this\.host\.classList\.contains\("split-layout-active"\)\) \{[\s\S]*?this\.setPrimaryPeriodMenuOpen\(this\.primaryPeriodMenu\.hidden\)[\s\S]*?\} else \{[\s\S]*?this\.setPeriodEditorOpen\(this\.periodEditor\.hidden\)/,
   );
   assert.match(
     market,
     /private renderPeriodButtons\(\)[\s\S]*?this\.periodTimes\.innerHTML = buttons;[\s\S]*?this\.primaryPeriodMenu\.innerHTML = buttons/,
   );
-  assert.match(market, /private setPrimaryPeriodMenuOpen\(open: boolean\)[\s\S]*?aria-haspopup[\s\S]*?splitActive \? "listbox" : "dialog"/);
+  assert.match(market, /private setPrimaryPeriodMenuOpen\(open: boolean\)[\s\S]*?aria-haspopup[\s\S]*?usesMenu \? "listbox" : "dialog"/);
   assert.match(css, /\.trading-market-split-period-menu\s*\{[^}]*width:\s*min\(232px, 100cqw\);[^}]*flex-wrap:\s*wrap;[^}]*overflow-y:\s*auto;/s);
   assert.match(css, /\.trading-market-split-period-menu button:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--trading-market-accent\)/s);
   assert.match(css, /\.trading-market-split-period-menu button:disabled\s*\{[^}]*cursor:\s*not-allowed;[^}]*opacity:\s*0\.45;/s);

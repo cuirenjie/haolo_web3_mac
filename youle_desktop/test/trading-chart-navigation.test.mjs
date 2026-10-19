@@ -87,16 +87,48 @@ function fixture(t) {
 function freeDragFixture(t) {
   const f = fixture(t);
   f.options.getAutoScale = () => true;
-  f.navigation.runAction('lock-vertical');
+  f.navigation.setVerticalLocked(!f.navigation.isVerticalLocked());
   delete f.options.getAutoScale;
   f.scales[0].changes.length = 0;
   return f;
 }
 
+test('shared navigation buttons preserve the armed tool until click; unrelated controls still cancel', t => {
+  const f = fixture(t);
+  const workspace = new ElementStub('[data-trading-market-workspace]');
+  const toolbar = new ElementStub('[data-drawing-toolbar]');
+  workspace.append(f.element, toolbar);
+  const control = new ElementStub('[data-drawing-action]'); toolbar.append(control);
+  for (const tool of ['measure', 'zoom']) {
+    f.navigation.setTool(tool);
+    f.send('pointerdown', {}, true); f.send('pointerup');
+    const selection = f.navigation.selection;
+    assert.ok(selection);
+    for (const action of ['measure', 'zoom-in']) {
+      control.dataset.drawingAction = action;
+      f.navigation.outsidePointerDown({target: control});
+      assert.equal(f.navigation.getTool(), tool);
+      assert.equal(f.navigation.selection, selection);
+    }
+    control.dataset.drawingAction = 'select-group-tool';
+    f.navigation.outsidePointerDown({target: control});
+    assert.equal(f.navigation.getTool(), null);
+    assert.equal(f.navigation.selection, null);
+    // A matching button in another workspace is still outside this chart.
+    const foreign = new ElementStub('[data-drawing-toolbar]'); foreign.append(control);
+    control.dataset.drawingAction = 'measure';
+    toolbar.children = [];
+    f.navigation.setTool(tool);
+    f.navigation.outsidePointerDown({target: control});
+    assert.equal(f.navigation.getTool(), null);
+    toolbar.append(control);
+  }
+});
+
 test('A/L controls are absent; price settings and shortcuts still target main after indicator focus', t => {
   const f = freeDragFixture(t);
   f.send('pointerdown', { clientY: 400 }); f.send('pointerup');
-  assert.deepEqual(f.navigation.controls.querySelectorAll('button').map(b => b.dataset.navigationAction), ['zoom-out', 'zoom-in', 'left', 'right', 'reset', 'lock-vertical', 'hide']);
+  assert.equal(f.element.children.length, 0);
   f.navigation.setAutoScale(false); f.paint();
   assert.deepEqual(f.scales.map(s => s.autoScale), [false, true]);
   f.navigation.setAutoScale(true); f.navigation.setMode(1); f.paint();
@@ -128,9 +160,7 @@ test('price lock starts enabled, fits during coalesced scrolling, and can be unl
   ts.scrollPosition = () => 8; ts.scrollToPosition = position => positions.push(position);
   assert.deepEqual(native, [{ pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false }]);
   f.paint();
-  const lock = f.navigation.controls.querySelector('[data-navigation-action="lock-vertical"]');
-  assert.equal(lock.getAttribute('aria-pressed'), 'true');
-  assert.match(lock.getAttribute('title'), /随可见 K 线自动适配价格/);
+  assert.equal(f.navigation.isVerticalLocked(), true);
   f.send('pointerdown', {}, true);
   f.send('pointermove', { clientX: 270, clientY: 180 }, true);
   f.send('pointermove', { clientX: 290, clientY: 200 }, true);
@@ -139,15 +169,15 @@ test('price lock starts enabled, fits during coalesced scrolling, and can be unl
   f.paint(); assert.equal(f.scales[0].autoScale, true);
   f.send('pointermove', { clientX: 310, clientY: 210 }, true); f.send('pointerup');
   assert.deepEqual(positions, [-12, -22]);
-  f.navigation.runAction('lock-vertical'); f.paint();
-  assert.equal(lock.getAttribute('aria-pressed'), 'false');
+  f.navigation.setVerticalLocked(!f.navigation.isVerticalLocked()); f.paint();
+  assert.equal(f.navigation.isVerticalLocked(), false);
   assert.deepEqual(native.map(o => o.pressedMouseMove), [false, true]);
   assert.equal(f.scales[0].autoScale, false);
   delete f.options.onAutoScaleChange;
   f.send('pointerdown'); f.send('pointermove', { clientY: 160 }); f.send('pointerup');
   assert.equal(f.scales[0].autoScale, false);
-  f.navigation.runAction('lock-vertical'); f.paint();
-  assert.equal(lock.getAttribute('aria-pressed'), 'true');
+  f.navigation.setVerticalLocked(!f.navigation.isVerticalLocked()); f.paint();
+  assert.equal(f.navigation.isVerticalLocked(), true);
   assert.equal(f.scales[0].autoScale, true);
 });
 
@@ -163,7 +193,7 @@ test('linear lock refits every visible range and data update, while unlocked pri
   revision = 20; f.navigation.schedule(); f.paint();
   assert.deepEqual(f.scales[0].range, { from: 160, to: 320 });
   assert.deepEqual(f.scales[1].changes, []);
-  f.navigation.runAction('lock-vertical');
+  f.navigation.setVerticalLocked(!f.navigation.isVerticalLocked());
   ts.setVisibleLogicalRange({ from: 100, to: 200 }); f.paint(); f.paint();
   assert.deepEqual(f.scales[0].range, { from: 160, to: 320 });
 });
@@ -179,7 +209,7 @@ test('locked log and percentage use native auto-fit without linear range writes 
   f.navigation.setMode(2); f.navigation.setAutoScale(false); f.paint(); f.paint();
   assert.equal(f.scales[0].autoScale, true); assert.equal(auto, false);
   f.navigation.setAutoScale(true);
-  f.navigation.runAction('lock-vertical'); f.paint();
+  f.navigation.setVerticalLocked(!f.navigation.isVerticalLocked()); f.paint();
   assert.equal(f.scales[0].autoScale, true); assert.equal(auto, true);
 });
 
@@ -243,8 +273,7 @@ test("Shift measures without changing the viewport, keeps its result, and next c
   f.send("pointermove", { clientX: 450, clientY: 200 }, true);
   f.send("pointerup", { clientX: 450, clientY: 200 }, true);
   assert.deepEqual(f.range(), before); assert.equal(f.scales[0].autoScale, true);
-  assert.match(f.navigation.measurement.children[0].textContent, /-20.00%/);
-  assert.match(f.navigation.measurement.children[0].textContent, /100.*4.2d/);
+  assert.equal(f.navigation.measurement.children[0].textContent, '−33.33 (−20.00%) −3,333\n100根K线, 4天 4小时\n成交量 101');
   f.send("pointerdown"); assert.equal(f.navigation.measurement, null);
 });
 test("zoom tool supports reversed drags, clamps endpoints, and returns to cursor", t => {
@@ -383,7 +412,7 @@ test("new controls, measurement and menus use theme tokens in default and intera
   const css = readFileSync(new URL("../src/renderer/styles.css", import.meta.url), "utf8");
   const section = css.split(".trading-chart-navigable {")[1].split(".trading-market-brand {")[0];
   assert.doesNotMatch(section, /#[\da-f]{3,8}\b/i);
-  for (const state of [":hover", ":focus-visible", ":active", ":disabled", '[aria-pressed="true"]']) assert.ok(section.includes(state));
+  for (const state of [":hover", ":focus-visible", ":active"]) assert.ok(section.includes(state));
   assert.match(section, /color: var\(--trading-market-text\)/); assert.match(section, /background: var\(--trading-market-panel\)/);
   assert.match(section, /stroke: currentColor/);
   assert.match(section, /\.trading-chart-floating-toolbar\[hidden\] \{ display: none; \}/);
@@ -429,104 +458,6 @@ test("log ranges delegate raw prices to the native autoscaler and restore every 
   const native = { priceRange: { minValue: 1, maxValue: 2 } };
   assert.equal(series[0].options().autoscaleInfoProvider(() => native), native);
   for (const range of [[NaN, 1], [1, Infinity], [2, 1], [1, 1]]) assert.equal(setTradingLogPriceRange(f.panes[0], scale, ...range), false);
-});
-
-function clickControl(f, action) {
-  const event = new Event('click', { cancelable: true });
-  Object.defineProperty(event, 'target', { value: f.navigation.controls.querySelector(`[data-navigation-action="${action}"]`) });
-  f.navigation.controlClick(event);
-  return event;
-}
-
-test('controls start below the top-left quote row; dragging moves only the controls and suppresses the release click', t => {
-  const f = freeDragFixture(t), controls = f.navigation.controls;
-  f.paint(); assert.equal(controls.style.left, '8px'); assert.equal(controls.style.top, '36px');
-  const range = { ...f.range() }, prices = f.scales.map(s => ({ ...s.range })); let renders = 0;
-  f.send('pointerdown', {}, false, controls);
-  assert.equal(deferTradingChartShellRender(() => renders++), true);
-  f.send('pointermove', { clientX: 252, clientY: 101 });
-  assert.equal(controls.dataset.dragging, undefined); assert.equal(controls.style.left, '8px');
-  f.send('pointermove', { clientX: 350, clientY: 170 }, true);
-  assert.equal(controls.style.left, '108px'); assert.equal(controls.style.top, '106px');
-  assert.equal(controls.hasPointerCapture(1), true);
-  f.send('pointerup', { clientX: 350, clientY: 170 }, true);
-  assert.equal(renders, 1); assert.equal(controls.hasPointerCapture(1), false);
-  assert.equal(clickControl(f, 'zoom-in').defaultPrevented, true);
-  assert.deepEqual(f.range(), range); assert.deepEqual(f.scales.map(s => s.range), prices);
-  f.navigation.schedule(); f.paint();
-  assert.equal(controls.style.left, '108px'); assert.equal(controls.style.top, '106px');
-  f.send('pointerleave', {}, false, f.element); f.send('pointerenter', {}, false, f.element);
-  assert.equal(controls.style.left, '108px', 'an undismissed toolbar retains its dragged position');
-  f.send('pointerdown', {}, false, controls); f.send('pointerup'); clickControl(f, 'zoom-in');
-  assert.ok(f.range().to - f.range().from < range.to - range.from, 'ordinary clicks still zoom');
-});
-
-test('dismissal survives all canvas movement and repaints; only leaving and re-entering restores the default location', t => {
-  const f = freeDragFixture(t), controls = f.navigation.controls;
-  f.navigation.controlsPosition = { x: 200, y: 200 }; f.paint();
-  clickControl(f, 'hide'); assert.equal(controls.hidden, true);
-  for (const point of [{ clientX: 60, clientY: 50 }, { clientX: 300, clientY: 400 }, { clientX: 590, clientY: 605 }]) {
-    f.send('pointermove', point); f.navigation.schedule(); f.paint(); assert.equal(controls.hidden, true);
-  }
-  f.send('pointerenter', {}, false, f.element); assert.equal(controls.hidden, true, 'no exit yet');
-  f.send('pointerleave', {}, false, f.element); f.paint(); assert.equal(controls.hidden, true);
-  f.send('pointerenter', {}, false, f.element);
-  assert.equal(controls.hidden, false); assert.equal(controls.style.left, '8px'); assert.equal(controls.style.top, '36px');
-  clickControl(f, 'hide'); f.send('pointerleave', {}, false, f.element);
-  f.navigation.destroy(); f.send('pointerenter', {}, false, f.element);
-  assert.equal(controls.hidden, true, 'destroy removes re-entry listeners');
-});
-
-test('toolbar dragging stays inside plot bounds, reclamps on resize and releases capture on cancellation', t => {
-  const f = freeDragFixture(t), controls = f.navigation.controls;
-  f.send('pointerdown', {}, false, controls);
-  f.send('pointermove', { clientX: 2000, clientY: 2000 }, true);
-  assert.equal(controls.style.left, '328px'); assert.equal(controls.style.top, '540px');
-  f.chart.timeScale().width = () => 400; f.element.clientHeight = 400;
-  f.navigation.schedule(); f.paint();
-  assert.equal(controls.style.left, '188px'); assert.equal(controls.style.top, '330px');
-  f.send('pointermove', { clientX: -200, clientY: -200 }, true);
-  assert.equal(controls.style.left, '8px'); assert.equal(controls.style.top, '12px');
-  f.send('pointercancel', {}, true);
-  assert.equal(controls.hasPointerCapture(1), false); assert.equal(controls.dataset.dragging, undefined);
-  for (const finish of [() => f.send('blur'), () => f.send('lostpointercapture', {}, false, controls), () => f.navigation.destroy()]) {
-    f.send('pointerdown', {}, false, controls); f.send('pointermove', { clientX: 350 }, true); finish();
-    assert.equal(f.navigation.controlsDrag, null); assert.equal(controls.hasPointerCapture(1), false);
-    f.send('pointermove', { clientX: 400 });
-  }
-});
-
-test('observed viewport exits restore dismissed controls even if native boundary events were retired', t => {
-  const f = freeDragFixture(t), controls = f.navigation.controls;
-  const move = (target, clientY = 100) => {
-    const event = new Event('pointermove');
-    Object.defineProperty(event, 'target', { value: target });
-    Object.assign(event, { clientX: 250, clientY }); f.navigation.controlsVisibility.pointerMove(event);
-  };
-  const overlay = new ElementStub();
-  clickControl(f, 'hide');
-  move(overlay); // A sibling overlay at an in-bounds coordinate.
-  assert.equal(f.navigation.controlsVisibility.reentryPending, false); assert.equal(controls.hidden, true);
-  move(overlay, -20);
-  assert.equal(f.navigation.controlsVisibility.reentryPending, true); assert.equal(controls.hidden, true);
-  move(f.element); // Restore from movement even without a native enter event.
-  assert.equal(controls.hidden, false); assert.equal(controls.style.left, '8px'); assert.equal(controls.style.top, '36px');
-});
-
-test('a cancelled toolbar drag does not swallow keyboard activation of the close button', t => {
-  const f = freeDragFixture(t), controls = f.navigation.controls;
-  f.send('pointerdown', {}, false, controls); f.send('pointermove', { clientX: 350 }, true); f.send('blur');
-  const event = new Event('click', { cancelable: true });
-  Object.defineProperty(event, 'target', { value: controls.querySelector('[data-navigation-action="hide"]') });
-  Object.assign(event, { detail: 0 }); f.navigation.controlClick(event);
-  assert.equal(controls.hidden, true); assert.equal(event.defaultPrevented, false);
-});
-
-test('the empty chart can still dismiss its toolbar while unavailable navigation stays disabled', t => {
-  const f = freeDragFixture(t), controls = f.navigation.controls;
-  f.panes[0].getSeries = () => []; f.paint();
-  assert.ok(controls.querySelectorAll('button').every(b => b.disabled === (b.dataset.navigationAction !== 'hide')));
-  clickControl(f, 'hide'); assert.equal(controls.hidden, true);
 });
 
 test("native layout notifications during a paint cannot enqueue a second paint in the same frame", t => {

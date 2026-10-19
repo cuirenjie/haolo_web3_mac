@@ -1,0 +1,87 @@
+{
+  "verified_at": "2026-10-19T11:41:49.265974+00:00",
+  "commit": "4c4c5b0756bff283778988b98b47321b29e4eb08",
+  "previous_commit": "0595cbf9433a2a9abf89793b25a963c07154017c",
+  "phase": "complete",
+  "active_slot": "green",
+  "journal": "/opt/haolo-backend/bluegreen-releases/20261019T112134Z-ac334db7/state.json",
+  "database_backup": {
+    "sha256": "e6b5e58d32b7b6666b5fd860a715397df597cd92a1dcc489473c97c31267802a",
+    "bytes": 524655213,
+    "path": "/opt/haolo-backend/bluegreen-releases/20261019T112134Z-ac334db7/postgres.dump"
+  },
+  "api_acceptance": {
+    "samples": 32,
+    "requests": 26702,
+    "proxy_5xx": 0,
+    "stream_errors": 0
+  },
+  "images": {
+    "backend": {
+      "image": "haolo-backend:4c4c5b07-charts-20261019",
+      "image_id": "sha256:cd8f6222635a9b3e58e344178d39efb20e5cbcb5d3f43083dba7c7a66369bb6e",
+      "commit": "4c4c5b0756bff283778988b98b47321b29e4eb08"
+    },
+    "ideas": {
+      "image": "haolo-ideas:4c4c5b07-charts-20261019",
+      "image_id": "sha256:a2ca6d7fdd8c0f29db27539b9500a374afa7a7149b3b6afc322a964bed765fe8",
+      "commit": "4c4c5b0756bff283778988b98b47321b29e4eb08"
+    }
+  },
+  "runtime": {
+    "api": {
+      "commit": "4c4c5b0756bff283778988b98b47321b29e4eb08",
+      "files": 973,
+      "protocol": "haolo-mobile-planning3:wyckoff1:chan1:orderflow1:wave1:ictsmc1:smt1:harmonic1:chartpatterns1:dow1:gann1:indicators1:assistant1:alerts1:preferences1:selectedmodel1:windows1:entryv2:1:windowsservice1:rightlegacy1:"
+    },
+    "mobile_worker": {
+      "commit": "202d48455774b20f0234720f1babf1de6af9bb08",
+      "files": 964,
+      "protocol": "haolo-mobile-planning3:wyckoff1:chan1:orderflow1:wave1:ictsmc1:smt1:harmonic1:chartpatterns1:dow1:gann1:indicators1:assistant1:alerts1:preferences1:selectedmodel1:windows1:entryv2:1:windowsservice1:rightlegacy1:"
+    },
+    "ideas": {
+      "commit": "4c4c5b0756bff283778988b98b47321b29e4eb08",
+      "files": 19
+    }
+  },
+  "preserved_services": {
+    "haolo-backend-worker": "unchanged",
+    "haolo-backend-mobile-worker": "unchanged",
+    "haolo-backend-ingress-v2": "unchanged",
+    "haolo-backend-redis-1": "unchanged",
+    "haolo-postgres-primary": "unchanged"
+  },
+  "credentials_api_only": true,
+  "catalog": {
+    "count": 450,
+    "valid_quotes": 209,
+    "priority_ready": 9,
+    "shared_redis": true,
+    "neutral_fields": true
+  },
+  "anonymous_by_locale": {
+    "zh-CN": 401,
+    "en": 401,
+    "zh-Hant": 401
+  },
+  "worker_available": true,
+  "analysis_available": true,
+  "ideas_total": 433,
+  "final_proxy_observation": {
+    "requests": 229886,
+    "proxy_5xx": 0,
+    "stream_errors": 0
+  },
+  "source_changes": [
+    "app/lab/services/index_history.py",
+    "app/lab/api/aicoin_indices.py",
+    "app/lab/services/aicoin_indices.py"
+  ],
+  "local_tests": {
+    "indices": 16,
+    "deployment_guards": 24
+  },
+  "limitations": [
+    "Client installers were not published. iOS native build and device UI require separate acceptance."
+  ]
+}

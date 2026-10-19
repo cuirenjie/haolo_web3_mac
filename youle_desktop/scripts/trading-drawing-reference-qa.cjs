@@ -40,12 +40,17 @@ let win;
   });
   await load();
   await js('d.drawings=[];d.favoriteTools.clear();d.persistDrawings();d.selectTool("crosshair")');
-  // Switching tools must never turn the brush/T category entries into a rectangle/callout.
-  for (const [tool,group,icon] of [['rectangle','brush','brush'],['callout','annotation','text'],['parallel-channel','trend','trend']]) {
-    await js(`d.selectTool('${tool}')`);
+  // Selecting a menu item updates its primary button and keeps it available for reuse.
+  for (const [tool,group,icon] of [['rectangle','brush','rectangle'],['callout','annotation','callout'],['parallel-channel','trend','channel']]) {
+    await js(`d.toolbar.querySelector('[data-drawing-action="toggle-tool-menu"][data-drawing-group-id="${group}"]').click();d.toolbar.querySelector('[data-drawing-tool-menu="${group}"] [data-drawing-action="select-tool"][data-drawing-tool="${tool}"]').click()`);
+    assert.equal(await js('d.activeTool'),tool);
+    assert.equal(await js('d.activeMenu'),null);
+    assert.equal(await js(`d.toolbar.querySelector('[data-drawing-group="${group}"] .trading-drawing-primary svg').dataset.drawingIcon`),icon);
+    assert.equal(await js(`d.toolbar.querySelector('[data-drawing-group="${group}"] .trading-drawing-primary').getAttribute('aria-label')`),await js(`catalog.tradingDrawingToolDefinition('${tool}').label`));
+    await js('d.selectTool("crosshair")');
     assert.equal(await js(`d.toolbar.querySelector('[data-drawing-group="${group}"] .trading-drawing-primary svg').dataset.drawingIcon`),icon);
     await js(`d.toolbar.querySelector('[data-drawing-group="${group}"] .trading-drawing-primary').click()`);
-    assert.equal(await js('d.activeTool'),group==='trend'?'trend-line':icon);
+    assert.equal(await js('d.activeTool'),tool);
   }
   const actionIcon = action => js(`d.toolbar.querySelector('[data-drawing-action="${action}"] svg').dataset.drawingIcon`);
   for (const [action,off,on] of [['toggle-lock','unlock','lock'],['toggle-stay','pin','pin-locked'],['toggle-visibility','drawings-visible','drawings-hidden']]) {
@@ -141,11 +146,17 @@ let win;
     win.webContents.sendInputEvent({type:'mouseUp',x:from.x+dx,y:from.y+dy,button:'left',clickCount:1}); await settle();
   };
   const before = await js('structuredClone(d.drawings[0].points)');
+  const viewportBefore = await js('workspace.chart.timeScale().getVisibleLogicalRange()');
   const handle = await js(`(()=>{const r=d.content.querySelector('[data-drawing-handle-index="2"]').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()`);
+  assert.equal(await js(`document.elementFromPoint(${handle.x},${handle.y})?.closest('[data-drawing-handle-index]')?.dataset.drawingHandleIndex`),'2','endpoint must receive input even when its text label overlaps');
   await drag(handle,45,20);
   const after = await js('structuredClone(d.drawings[0].points)');
   assert.deepEqual(after.slice(0,2),before.slice(0,2)); assert.notDeepEqual(after[2],before[2]);
-  // Free-length drawings: keyboard/right-click completion excludes the moving preview.
+  assert.equal(await js('d.horizontalLineTextEdit'),null,'dragging an endpoint must not open text editing');
+  assert.deepEqual(await js('workspace.chart.timeScale().getVisibleLogicalRange()'),viewportBefore,'endpoint drag must not pan the chart');
+  // Free-length drawings: keyboard completion excludes the moving preview;
+  // right-click rewinds one vertex at a time and exits after the last vertex.
+  const previousCursor=await js('d.activeTool');
   const plot=await js('(()=>{const r=d.overlay.getBoundingClientRect();return {x:r.x,y:r.y}})()');
   const anchors=[{x:plot.x+180,y:plot.y+180},{x:plot.x+320,y:plot.y+180},{x:plot.x+320,y:plot.y+300}].map(p=>({x:Math.round(p.x),y:Math.round(p.y)}));
   for(const id of ['multi-point-path','multi-point-polyline']) for(const finish of ['Escape','Enter','right']) {
@@ -154,8 +165,23 @@ let win;
     const confirmed=await js('structuredClone(d.draft.points.slice(0,d.draftConfirmedPointCount))');
     win.webContents.sendInputEvent({type:'mouseMove',x:anchors[2].x+40,y:anchors[2].y+40});await settle();
     if(finish==='right') {
-      win.webContents.sendInputEvent({type:'mouseDown',...anchors[2],button:'right',clickCount:1});
-      win.webContents.sendInputEvent({type:'mouseUp',...anchors[2],button:'right',clickCount:1});
+      for(let remaining=anchors.length-1;remaining>=0;remaining--) {
+        win.webContents.sendInputEvent({type:'mouseDown',...anchors[2],button:'right',clickCount:1});
+        win.webContents.sendInputEvent({type:'mouseUp',...anchors[2],button:'right',clickCount:1});
+        await settle();
+        assert.equal(await js('d.drawings.length'),0,`${id}: right-click must not commit`);
+        assert.equal(await js('d.draftConfirmedPointCount'),remaining);
+        if(remaining) {
+          assert.deepEqual(await js('d.draft.points.slice(0,d.draftConfirmedPointCount)'),confirmed.slice(0,remaining));
+          assert.equal(await js('d.activeTool'),id);
+        } else {
+          assert.equal(await js('d.draft'),null);
+          assert.equal(await js('d.activeTool'),previousCursor);
+          await click(anchors[0].x,anchors[0].y);
+          assert.equal(await js('d.draft'),null,`${id}: chart click must not restart drawing`);
+        }
+      }
+      continue;
     } else {
       win.webContents.sendInputEvent({type:'keyDown',keyCode:finish});
       win.webContents.sendInputEvent({type:'keyUp',keyCode:finish});
@@ -199,12 +225,13 @@ let win;
   await pause(700);assert.equal(await js('d.magicTrail.children.length'),0);
   assert.equal(await js('d.drawings.length'),1);
   await js(`d.selectTool('crosshair')`);
-  report.multiPointInteractions='PASS: open/closed, double-click, Escape, Enter, right-click, vertex/body dragging, 14 vertices, reload, transient magic cursor';
+  report.multiPointInteractions='PASS: open/closed, double-click, Escape, Enter, right-click undo until exit, vertex/body dragging, 14 vertices, reload, transient magic cursor';
   // Shared toolbar must retain the chosen symbol and remembered merged menu item across panes.
   await js(`d.selectTool('parallel-channel');d.symbolGlyph='🚀';d.selectTool('emoji');window.shared=d.sharedToolState();workspace.splitLayoutId='2-columns';workspace.applySplitLayout()`);
   for(let i=0;i<100 && !await js('Boolean(workspace.splitPanes[0]?.drawingController)');i++) await pause(50);
   await js(`window.sd=workspace.splitPanes[0].drawingController;sd.applySharedToolState(shared)`);
   assert.equal(await js('sd.symbolGlyph'),'🚀'); assert.equal(await js('sd.activeTool'),'emoji');
+  assert.equal(await js('sd.sharedToolState().lastToolByGroup.trend'),'parallel-channel');
   await js(`workspace.splitLayoutId='1-single';workspace.applySplitLayout();d=workspace.drawingController;void 0`); await settle();
   // Short viewport: long menus scroll and the last tool remains reachable.
   win.setSize(1000,600); await settle();

@@ -299,7 +299,7 @@ test("group menu destructive, hover, active, focus and disabled states use both 
   const states = sourceBlock(styles, ".thread-group-context-menu button.danger {", ".thread-menu-icon {");
   assert.match(states, /color-mix\(in srgb, var\(--danger\) 80%, var\(--text-primary\)\)/);
   assert.match(states, /:is\(:hover, :focus-visible\):not\(:disabled\)/);
-  assert.match(states, /:focus-visible\s*\{[^}]*outline: 2px solid var\(--brand-blue\)/s);
+  assert.match(states, /:focus-visible\s*\{[^}]*outline: 2px solid var\(--interaction-accent\)/s);
   assert.match(states, /:active:not\(:disabled\)\s*\{[^}]*var\(--surface-hover-strong\)/s);
   assert.match(states, /:disabled\s*\{[^}]*background: transparent;[^}]*color: var\(--text-muted\)/s);
   assert.doesNotMatch(states, /#[0-9a-f]{3,8}|rgba?\(/i);
@@ -403,7 +403,7 @@ test("the bottom-left actions share the same neutral button and interaction styl
   assert.match(button, /color: var\(--text-secondary\)/);
   assert.match(button, /:is\(:hover, :focus-visible\):not\(:disabled\)[^}]*var\(--footer-button-hover\)/);
   assert.match(button, /:active:not\(:disabled\)[^}]*var\(--footer-button-active\)/);
-  assert.match(button, /:focus-visible[^}]*outline: 2px solid var\(--brand-blue\)/);
+  assert.match(button, /:focus-visible[^}]*outline: 2px solid var\(--interaction-accent\)/);
   assert.match(button, /:disabled[^}]*var\(--surface-disabled\)[^}]*var\(--text-muted\)/);
   assert.doesNotMatch(button, /linear-gradient|box-shadow|left:\s*-/);
 });
@@ -719,11 +719,11 @@ test("minimal row hover, selected, focus, menu, and status states share light-da
 
   assert.match(lightTokens, /--surface-hover-translucent:/);
   assert.match(lightTokens, /--surface-active-translucent:/);
-  assert.match(lightTokens, /--conversation-row-selected:\s*rgba\(17, 24, 39, 0\.05\)/);
+  assert.match(lightTokens, /--conversation-row-selected:\s*var\(--selection-strong\)/);
   assert.match(lightTokens, /--border-translucent:/);
   assert.match(darkTokens, /--surface-hover-translucent:/);
   assert.match(darkTokens, /--surface-active-translucent:/);
-  assert.match(darkTokens, /--conversation-row-selected:\s*rgba\(130, 159, 194, 0\.11\)/);
+  assert.match(darkTokens, /--conversation-row-selected:\s*var\(--selection-strong\)/);
   assert.match(lightTokens, /--conversation-analysis-context:\s*#9a6700/);
   assert.match(darkTokens, /--conversation-analysis-context:\s*#ffd43b/);
   assert.match(darkTokens, /--border-translucent:/);

@@ -36,7 +36,7 @@ test("expanded conversation model picker covers focus, pressed, disabled, and ca
     assert.doesNotMatch(rule, /color:\s*#[0-9a-f]+/i);
   }
   assert.match(cssRuleStartingWith(styles, ".composer-model-picker .chat-title-group-button:active:not(:disabled) {"), /background: var\(--selection-soft\);/);
-  assert.match(cssRuleStartingWith(styles, ".composer-model-picker .chat-title-group-button:focus-visible {"), /outline: 2px solid var\(--brand-blue\);/);
+  assert.match(cssRuleStartingWith(styles, ".composer-model-picker .chat-title-group-button:focus-visible {"), /outline: 2px solid var\(--interaction-accent\);/);
   assert.match(cssRuleStartingWith(styles, ".composer-model-picker .chat-title-group-button:disabled {"), /color: var\(--text-muted\);[\s\S]*opacity: 0\.6;/);
   assert.match(cssRuleStartingWith(styles, 'html[data-theme="dark"] .composer-model-group-title {'), /color: var\(--text-secondary\);/);
   assert.match(cssRuleStartingWith(styles, 'html[data-theme="dark"] .composer-model-menu.grouped .composer-model-option-price {'), /color: var\(--text-secondary\);/);
@@ -111,9 +111,9 @@ test("dark media upload guide keeps its label legible on hover and focus", async
   assert.match(restingRule, /background: var\(--surface-subtle\);/);
   assert.match(restingRule, /color: var\(--text-tertiary\);/);
   assert.match(interactionRule, /\.media-upload-guide-slot:focus-visible:not\(:disabled\)/);
-  assert.match(interactionRule, /border-color: var\(--brand-blue\);/);
+  assert.match(interactionRule, /border-color: var\(--interaction-accent\);/);
   assert.match(interactionRule, /background: var\(--selection-soft\);/);
-  assert.match(interactionRule, /color: #8fbdff;/);
+  assert.match(interactionRule, /color: var\(--interaction-accent\);/);
 });
 
 test("dark auto-task cancel action remains subtly visible", async () => {
@@ -151,11 +151,11 @@ test("composer upload button covers light and dark interaction states", async ()
 
   assert.match(lightHoverRule, /background: var\(--surface-soft\);/);
   assert.match(lightActiveRule, /background: var\(--surface-hover\);/);
-  assert.match(lightFocusRule, /outline: 2px solid rgba\(7, 93, 255, 0\.42\);/);
+  assert.match(lightFocusRule, /outline: 2px solid rgba\(var\(--interaction-rgb\), 0\.42\);/);
   assert.match(lightDisabledRule, /opacity: 0\.45;/);
-  assert.match(darkHoverRule, /background: rgba\(129, 158, 193, 0\.09\);/);
+  assert.match(darkHoverRule, /background: rgba\(var\(--interaction-rgb\), 0\.09\);/);
   assert.match(darkActiveRule, /background: var\(--surface-interactive-hover\);/);
-  assert.match(darkFocusRule, /outline-color: rgba\(117, 169, 255, 0\.7\);/);
+  assert.match(darkFocusRule, /outline-color: rgba\(var\(--interaction-rgb\), 0\.7\);/);
   assert.match(darkDisabledRule, /opacity: 0\.62;/);
 });
 

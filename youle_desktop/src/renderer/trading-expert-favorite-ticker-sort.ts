@@ -19,9 +19,8 @@ function clamp(value: number, minimum: number, maximum: number) {
 }
 
 function itemMarketId(item: HTMLElement) {
-  return String(item.dataset.marketId || "")
-    .trim()
-    .toUpperCase();
+  const id = String(item.dataset.marketId || "").trim();
+  return /^index:/i.test(id) ? id.toLowerCase() : id.toUpperCase();
 }
 
 export class TradingFavoriteTickerSortController {

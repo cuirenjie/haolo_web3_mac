@@ -1,5 +1,8 @@
 import type { ScreenPoint, TradingDrawingModel } from './trading-expert-drawing.ts';
 import { manualDrawingDefaults, manualFibLevelColor } from './trading-drawing-defaults.ts';
+import { isCycleDrawing, renderCycleDrawing } from './trading-cycle-tools.ts';
+import { calculateAnchoredVwap, renderAnchoredVwap, renderFixedVolume } from './trading-volume-drawings.ts';
+import { priceLabelGeometry, PLAIN_TEXT_FONT_FAMILY } from './trading-plain-text.ts';
 
 export interface DrawingCandle { time: number; open: number; high: number; low: number; close: number; volume?: number }
 export const FIB_TIME_RATIOS = [0, 0.382, 0.618, 1, 1.382, 1.618, 2, 2.618, 3.618, 4.236] as const;
@@ -8,13 +11,7 @@ export function trendFibTimePositions(a: number, b: number, origin: number) {
 }
 
 export function anchoredVwap(candles: readonly DrawingCandle[], start: number) {
-  let volume = 0, weighted = 0;
-  return candles.filter(c => c.time >= start).flatMap(c => {
-    const v = Math.max(0, Number(c.volume) || 0);
-    volume += v;
-    weighted += ((c.high + c.low + c.close) / 3) * v;
-    return volume > 0 ? [{ time: c.time, price: weighted / volume }] : [];
-  });
+  return calculateAnchoredVwap(candles, start).map(({ time, price }) => ({ time, price }));
 }
 
 // OHLCV bars do not contain individual trade prices. Allocate each bar's volume
@@ -63,7 +60,7 @@ export function drawingImageUrl(value: string) {
   try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href : ''; } catch { return ''; }
 }
 export const EXTRA_GEOMETRY_TOOLS = new Set([
-  'fib-trend-time', 'fib-speed-arcs', 'gann-square-fixed', 'time-cycles', 'sine-line',
+  'fib-trend-time', 'fib-speed-arcs', 'gann-square-fixed', 'cyclic-lines', 'time-cycles', 'sine-line',
   'anchored-vwap', 'anchored-volume-profile', 'sector',
 ]);
 
@@ -72,6 +69,7 @@ export function renderExtraDrawingGeometry(options: {
   color: string; candles: readonly DrawingCandle[]; project: (p: { time: number; price: number }) => ScreenPoint | null;
 }): { body: string; hit: string } | null {
   const { drawing, points, bounds, color, candles, project } = options;
+  if (isCycleDrawing(drawing.tool)) return renderCycleDrawing(drawing, points, bounds);
   if (!EXTRA_GEOMETRY_TOOLS.has(drawing.tool) || !points.length) return null;
   const a = points[0], b = points[1] ?? a, c = points[2] ?? b;
   const defaults = drawing.source === 'ai' ? undefined : manualDrawingDefaults(drawing.tool);
@@ -111,21 +109,6 @@ export function renderExtraDrawingGeometry(options: {
     for (const r of [.125, .25, .5, 1]) { line(a, p(1, r)); if (r !== 1) line(a, p(r, 1)); }
     line(p(1, 0), p(0, 1));
     for (const r of [.25, .5, .75, 1]) path(`M${point(p(r, 0))} A${r * size},${r * size} 0 0 ${sx * sy > 0 ? 1 : 0} ${point(p(0, r))}`);
-  } else if (drawing.tool === 'time-cycles') {
-    const width = Math.max(Math.abs(b.x - a.x), 4);
-    const radius = width / 2;
-    const start = a.x - Math.ceil(a.x / width) * width;
-    for (let x = start, n = 0; x < bounds.width && n < 500; x += width, n++)
-      path(`M${x},${a.y} A${radius},${radius} 0 0 1 ${x + width},${a.y}`);
-  } else if (drawing.tool === 'sine-line') {
-    const halfPeriod = Math.max(Math.abs(b.x - a.x), 4);
-    const center = (a.y + b.y) / 2, amplitude = (a.y - b.y) / 2;
-    const samples = Math.min(2400, Math.ceil(bounds.width / 2));
-    const wave = Array.from({ length: samples + 1 }, (_, i) => {
-      const x = i * bounds.width / samples;
-      return { x, y: center + amplitude * Math.cos((x - a.x) * Math.PI / halfPeriod) };
-    });
-    path(`M${wave.map(point).join(' L')}`);
   } else if (drawing.tool === 'sector') {
     const radius = Math.hypot(b.x - a.x, b.y - a.y);
     const angle = Math.atan2(c.y - a.y, c.x - a.x);
@@ -134,32 +117,19 @@ export function renderExtraDrawingGeometry(options: {
     const turn = (angle - startAngle + Math.PI * 2) % (Math.PI * 2);
     path(`M${point(a)} L${point(b)} A${radius},${radius} 0 ${turn > Math.PI ? 1 : 0} 1 ${point(end)} Z`, true);
   } else if (drawing.tool === 'anchored-vwap') {
-    const values = anchoredVwap(candles, drawing.points[0].time);
-    const projected = values.map(project).filter((p): p is ScreenPoint => !!p);
-    if (projected.length > 1) path(`M${projected.map(point).join(' L')}`);
-    if (projected.length) label(projected.at(-1)!, 'VWAP');
-    else { line({ x: a.x, y: a.y - 10 }, { x: a.x, y: a.y + 10 }); label({ x: a.x + 8, y: a.y }, '暂无成交量数据'); }
+    return renderAnchoredVwap(drawing, candles, project, false, bounds);
   } else if (drawing.tool === 'anchored-volume-profile') {
-    const bins = drawingVolumeProfile(candles, drawing.points[0].time);
-    const maxVolume = Math.max(...bins.map(bin => bin.volume), 0);
-    if (maxVolume <= 0) { line({ x: a.x, y: a.y - 10 }, { x: a.x, y: a.y + 10 }); label({ x: a.x + 8, y: a.y }, '暂无成交量数据'); }
-    const width = Math.max(40, Math.min(180, bounds.width * .22));
-    for (const bin of bins) {
-      const low = project({ time: drawing.points[0].time, price: bin.low });
-      const high = project({ time: drawing.points[0].time, price: bin.high });
-      if (!low || !high || !maxVolume) continue;
-      const w = width * bin.volume / maxVolume, upWidth = width * bin.up / maxVolume;
-      const top = Math.min(low.y, high.y), height = Math.max(Math.abs(low.y - high.y) - .5, .5);
-      body += `<rect x="${a.x}" y="${top}" width="${upWidth}" height="${height}" fill="#26a69a" fill-opacity=".55"/><rect x="${a.x + upWidth}" y="${top}" width="${w - upWidth}" height="${height}" fill="#ef5350" fill-opacity=".55"/>`;
-      hit += `<rect class="trading-drawing-hit-target area" x="${a.x}" y="${top}" width="${Math.max(w, 8)}" height="${height}"/>`;
-      if (bin.volume === maxVolume) { line({ x: a.x, y: (top + height / 2) }, { x: bounds.width, y: top + height / 2 }); label({ x: a.x + width + 4, y: top }, 'POC'); }
-    }
+    return renderFixedVolume(drawing, candles, project, false, false, bounds);
   }
   return { body, hit };
 }
 
 export function renderExtraAnnotation(drawing: TradingDrawingModel, anchor: ScreenPoint, color: string): string | null {
   const { x, y } = anchor, size = drawing.fontSize ?? 16, text = drawing.text ?? '';
+  if (drawing.tool === 'flag' && drawing.source !== 'ai') {
+    return `<line x1="${x}" y1="${y}" x2="${x}" y2="${y - 30}" stroke="#787878" stroke-width="1"/>`
+      + `<path d="M${x + 2},${y - 30} H${x + 27} L${x + 22},${y - 22.5} L${x + 27},${y - 15} H${x + 2} Z" fill="${drawing.color ?? '#2962ff'}"/>`;
+  }
   if (['emoji', 'sticker', 'icon'].includes(drawing.tool)) {
     const glyphSize = drawing.fontSize ?? (drawing.tool === 'sticker' ? 64 : 32);
     return `<text x="${x}" y="${y}" fill="${color}" font-size="${glyphSize}" text-anchor="middle" dominant-baseline="central">${escape(text || '🙂')}</text>`;
@@ -177,6 +147,12 @@ export function renderExtraAnnotation(drawing: TradingDrawingModel, anchor: Scre
       : `<rect x="${x}" y="${y}" width="240" height="160" fill="none" stroke="${color}"/><text x="${x + 12}" y="${y + 28}" fill="${color}">请输入图片链接</text>`;
   }
   if (drawing.tool === 'price-label') {
+    if (drawing.source !== 'ai') {
+      const box = priceLabelGeometry(drawing, anchor), bottom = box.y + box.height;
+      return `<path d="M${box.x + 5},${box.y} H${box.x + box.width - 5} Q${box.x + box.width},${box.y} ${box.x + box.width},${box.y + 5} V${bottom - 5} Q${box.x + box.width},${bottom} ${box.x + box.width - 5},${bottom} H${box.x + 22} L${x},${y} L${box.x + 6},${bottom} H${box.x + 5} Q${box.x},${bottom} ${box.x},${bottom - 5} V${box.y + 5} Q${box.x},${box.y} ${box.x + 5},${box.y} Z" fill="${drawing.textBackgroundColor ?? color}"/>`
+        + `<circle cx="${x}" cy="${y}" r="2.5" fill="${color}"/>`
+        + `<text x="${box.x + box.padding}" y="${box.y + box.baseline}" style="font-family:${escape(PLAIN_TEXT_FONT_FAMILY)}" fill="${drawing.textColor ?? '#ffffff'}" font-size="${box.fontSize}" font-weight="${drawing.bold === false ? 400 : 700}">${escape(box.text)}</text>`;
+    }
     const value = drawing.points[0]?.price.toLocaleString('en-US', { maximumFractionDigits: 6 }) ?? '';
     const width = value.length * size * .62 + 18;
     return `<path d="M${x},${y} l8,-${size + 10} h${width} v${size + 18} h-${width} Z" fill="var(--trading-market-panel)" stroke="${color}"/><text x="${x + 14}" y="${y - 6}" fill="${color}" font-size="${size}">${value}</text>`;

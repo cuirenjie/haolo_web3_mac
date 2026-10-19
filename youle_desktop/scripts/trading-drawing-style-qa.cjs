@@ -31,14 +31,17 @@ const report={themes:[],tools:[],errors:[]};let win;
     const paths=await stroke();assert.equal(paths[0].color,'#2962ff');assert.equal(paths[0].width,'2');assert.ok(!paths[0].dash);
     assert.deepEqual(await toolbar(),{color:'#2962ff',width:'2px',checked:'2'});
     const handles=await js(`[...d.content.querySelectorAll('.trading-drawing-handle')].map(e=>({color:e.getAttribute('stroke'),width:e.getAttribute('stroke-width'),filter:getComputedStyle(e).filter}))`);
-    handles.forEach(h=>assert.deepEqual(h,{color:'#2962ff',width:'1.5',filter:'none'}));
+    const selectionColor = await js('defaults.DRAWING_SELECTION_COLOR');
+    handles.forEach(h=>assert.deepEqual(h,{color:selectionColor,width:'1.5',filter:'none'}));
     const axes=await js(`[...d.axisMarkerLayer.children].map(e=>({bg:getComputedStyle(e).backgroundColor,color:getComputedStyle(e).color}))`);
-    assert.ok(axes.length>=2);axes.forEach(a=>assert.deepEqual(a,{bg:'rgb(41, 98, 255)',color:'rgb(255, 255, 255)'}));
+    const selectionBackground=await js(`(()=>{const e=document.createElement('span');e.style.color=defaults.DRAWING_SELECTION_COLOR;d.selectionToolbar.append(e);const color=getComputedStyle(e).color;e.remove();return color})()`);
+    const selectionForeground=await js("(()=>{const e=document.createElement('span');e.style.color='var(--interaction-on-accent)';d.selectionToolbar.append(e);const color=getComputedStyle(e).color;e.remove();return color})()");
+    assert.ok(axes.length>=2);axes.forEach(a=>assert.deepEqual(a,{bg:selectionBackground,color:selectionForeground}));
     report.themes.push({theme,paths,handles,axes});
     const close=await js(`(()=>{const b=d.selectionToolbar.querySelector('[data-drawing-selection-action="hide-toolbar"]').getBoundingClientRect();return {x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)}})()`);
     win.webContents.sendInputEvent({type:'mouseMove',x:close.x-20,y:close.y+20});await settle();
-    const sameCloseStyle=await js(`(()=>{const drawing=d.selectionToolbar.querySelector('.trading-chart-toolbar-close'),navigation=document.querySelector('.trading-chart-navigation-close');return ['width','height','borderRadius','backgroundColor','color'].every(k=>getComputedStyle(drawing)[k]===getComputedStyle(navigation)[k])})()`);
-    assert.equal(sameCloseStyle,true,theme+': shared chart close button style');
+    const sameCloseStyle=await js(`(()=>{const drawing=d.selectionToolbar.querySelector('.trading-chart-toolbar-close');const style=getComputedStyle(drawing);return drawing.getBoundingClientRect().width>=20 && drawing.getBoundingClientRect().height>=20 && style.pointerEvents!=='none'})()`);
+    assert.equal(sameCloseStyle,true,theme+': accessible drawing close button');
     // The lower-left part overlaps the delete action. It must remain visible
     // and receive the click even while the underlying action is hovered.
     assert.equal(await js(`d.selectionToolbar.querySelector('[data-drawing-selection-action="hide-toolbar"]').contains(document.elementFromPoint(${close.x-4},${close.y+4}))`),true,theme+': close button stays above toolbar actions');
@@ -57,14 +60,14 @@ const report={themes:[],tools:[],errors:[]};let win;
     const expected=await js(`defaults.manualDrawingDefaults('${id}')`),paths=await stroke(),bar=await toolbar();
     assert.ok(paths.length>0,id);assert.equal(paths[0].color,expected.color,id);assert.equal(Number(paths[0].width),expected.lineWidth,id);
     assert.equal(bar.color,expected.color,id);assert.equal(bar.width,expected.lineWidth+'px',id);
-    assert.equal(await js(`d.selectionToolbar.querySelector('[data-drawing-color][aria-checked="true"]')?.dataset.drawingColor`),expected.color,`${id}: default color swatch`);
     report.tools.push({id,paths,bar});
     if(['rectangle','brush','highlighter','elliott-triangle'].includes(id))await capture(id);
   }
   // Update from the actual style buttons; restore defaults and remember the
   // chosen style for the next tool of the same type.
   await js(`d.drawings=[{id:'custom',tool:'trend-line',symbol:d.getSymbol(),interval:d.getInterval(),drawingScope:'main',points:workspace.candles.slice(-60,-58).map(c=>({time:c.time,price:c.close}))}];d.selectedDrawingId='custom';d.redraw()`);await settle();
-  for(const selector of ['[data-drawing-color="#ff9800"]','[data-drawing-width="4"]','[data-drawing-style="dashed"]']) {await js(`d.selectionToolbar.querySelector('${selector}').click()`);await settle()}
+  await js(`d.selectionToolbar.querySelector('[data-drawing-selection-action="toggle-color"]').click()`);
+  for(const selector of ['[data-color-swatch="#ff9800"]','[data-drawing-width="4"]','[data-drawing-style="dashed"]']) {await js(`document.querySelector('${selector}').click()`);await settle()}
   assert.equal((await stroke())[0].color,'#ff9800');assert.equal((await stroke())[0].width,'4');assert.equal((await stroke())[0].dash,'7 5');
   assert.equal(await js('d.drawingStyleForTool("trend-line").color'),'#ff9800');
   await js('d.persistDrawings()');await load();await js('d.selectedDrawingId="custom";d.redraw()');await settle();
@@ -80,8 +83,8 @@ const report={themes:[],tools:[],errors:[]};let win;
   await js(`d.selectionToolbar.querySelector('[data-drawing-selection-action="reset"]').click()`);await settle();assert.equal((await stroke())[0].width,'20');
   // Colors selected explicitly continue to override multicolor Fibonacci levels.
   await js(`d.drawings[0].tool='fib-retracement';d.redraw()`);await settle();
-  assert.deepEqual(await js(`[...d.content.querySelectorAll('.trading-fibonacci-level-line')].map(e=>e.getAttribute('stroke'))`),['#808080','#00bcd4','#089981','#4caf50','#ff9800','#f23645','#808080']);
-  await js(`d.selectionToolbar.querySelector('[data-drawing-color="#ff9800"]').click()`);await settle();
+  assert.deepEqual(await js(`[...d.content.querySelectorAll('.trading-fibonacci-level-line')].map(e=>e.getAttribute('stroke'))`),['#e91e63','#9c27b0','#f23645','#2962ff','#808080','#00bcd4','#089981','#4caf50','#ff9800','#f23645','#808080']);
+  await js(`d.selectionToolbar.querySelector('[data-drawing-selection-action="toggle-color"]').click();document.querySelector('[data-color-swatch="#ff9800"]').click()`);await settle();
   assert.ok((await js(`[...d.content.querySelectorAll('.trading-fibonacci-level-line')].map(e=>e.getAttribute('stroke'))`)).every(c=>c==='#ff9800'));
   await capture('custom-fibonacci');
   // Every selectable drawing, including text, shares dismissal without deleting

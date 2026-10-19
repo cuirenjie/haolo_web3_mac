@@ -100,7 +100,7 @@ export function renderTradingMarketAssetLogo(
     ? inferredTradFiAssetClass(normalizedAsset, assetClass)
     : null;
   return `
-    <span class="trading-market-asset-logo provider-${provider}${isAShare ? " asset-class-a-share" : ""}${current ? " current" : ""}" data-market-logo-shell aria-hidden="true">
+    <span class="trading-market-asset-logo provider-${provider}${isAShare ? " asset-class-a-share" : ""}${normalizedAssetClass === "index" ? " asset-class-index" : ""}${current ? " current" : ""}" data-market-logo-shell aria-hidden="true">
       ${isAShare
         ? renderAShareAssetMark(normalizedAsset, displayName)
         : tradFiAssetClass

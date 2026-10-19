@@ -1,0 +1,120 @@
+dialog.trading-fib-dialog {
+  --fib-ink: #2d2d2d; --fib-bg: #fff; --fib-muted: #777; --fib-border: #d9d9d9; --fib-hover: #f2f2f2;
+  --interaction-accent: #2962ff;
+  width: min(440px, calc(100vw - 24px)); height: min(740px, calc(100dvh - 48px));
+  max-height: calc(100dvh - 24px); overflow: hidden; border: 0; border-radius: 9px;
+  background: var(--fib-bg); color: var(--fib-ink); box-shadow: 0 2px 10px #0004;
+  font: 400 14px/1.5 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}
+dialog.trading-fib-dialog::backdrop { background: transparent; }
+dialog.trading-fib-dialog [hidden] { display: none !important; }
+html[data-theme="dark"] dialog.trading-fib-dialog {
+  --fib-ink: #e0e3eb; --fib-bg: #1e222d; --fib-muted: #a3a6af; --fib-border: #434651; --fib-hover: #2a2e39;
+  --dialog-primary: var(--fib-ink); --dialog-primary-hover: #c3c6ce;
+}
+html[data-theme="dark"] dialog.trading-fib-dialog[open] .trading-line-settings-tabs button[aria-selected="true"] { color: var(--fib-ink); }
+html[data-theme="dark"] dialog.trading-fib-dialog[open] form > footer button.primary[type="submit"]:not(:disabled) { color: var(--fib-bg); }
+dialog.trading-fib-dialog > form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+dialog.trading-fib-dialog header { flex: none; padding: 16px 20px 10px; cursor: move; touch-action: none; }
+dialog.trading-fib-dialog .fib-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+dialog.trading-fib-dialog h2 { font-size: 18px; font-weight: 600; line-height: 26px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+dialog.trading-fib-dialog header button { color: var(--fib-ink); width: 26px; min-height: 26px; flex-basis: 26px; }
+dialog.trading-fib-dialog header svg { width: 20px; height: 20px; }
+dialog.trading-fib-dialog [name="drawingName"] { min-width: 0; width: 240px; height: 28px; padding: 2px 8px; }
+dialog.trading-fib-dialog :is(button,input,select) { color: inherit; background-color: var(--fib-bg); border-color: var(--fib-border); }
+dialog.trading-fib-dialog :is(button,input):focus-visible { outline: 2px solid #2962ff; outline-offset: 0; }
+dialog.trading-fib-dialog .trading-line-settings-tabs { flex: none; gap: 24px; margin: 0 20px; padding: 0; border-bottom: 2px solid var(--fib-hover); }
+dialog.trading-fib-dialog .trading-line-settings-tabs button { font-size: 14px; font-weight: 500; padding: 6px 0 9px; min-height: 36px; color: var(--fib-ink); background: transparent; }
+dialog.trading-fib-dialog .trading-line-settings-tabs button[aria-selected="true"]::after { height: 2px; bottom: -2px; }
+dialog.trading-fib-dialog .fib-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--fib-border) transparent; }
+dialog.trading-fib-dialog section { padding: 18px 20px; min-height: 0; }
+dialog.trading-fib-dialog .fib-setting-row { display: grid; grid-template-columns: 100px minmax(0,1fr); gap: 12px; align-items: center; margin-bottom: 12px; min-height: 32px; }
+dialog.trading-fib-dialog .fib-controls { display: flex; gap: 8px; align-items: center; }
+.fib-check { display: flex; gap: 8px; align-items: center; cursor: pointer; white-space: nowrap; }
+dialog.trading-fib-dialog input[type="checkbox"] { appearance: none; position: relative; flex: none; width: 16px; height: 16px; min-width: 16px; padding: 0; margin: 0; border: 1px solid var(--fib-ink); border-radius: 3px; cursor: pointer; }
+dialog.trading-fib-dialog input[type="checkbox"]:checked { background: var(--fib-ink); }
+dialog.trading-fib-dialog input[type="checkbox"]:checked::after, .fib-menu-check::after { content: ''; position: absolute; width: 7px; height: 4px; border-left: 2px solid var(--fib-bg); border-bottom: 2px solid var(--fib-bg); transform: rotate(-45deg); top: 3px; left: 3px; }
+dialog.trading-fib-dialog button:hover { background: var(--fib-hover); }
+dialog.trading-fib-dialog .fib-control { display: flex; align-items: center; justify-content: center; height: 32px; min-height: 32px; padding: 4px 8px; border-radius: 6px; }
+dialog.trading-fib-dialog .fib-control[aria-expanded="true"], dialog.trading-fib-dialog [data-color-picker-input][aria-expanded="true"] { outline: 2px solid #2962ff; outline-offset: 0; }
+.fib-line-sample { display: block; flex: none; width: 34px; height: 0; border-top: 1px solid currentColor; }
+dialog.trading-fib-dialog .fib-trend-control { width: 76px; gap: 8px; }
+dialog.trading-fib-dialog .fib-trend-control b { width: 22px; height: 22px; border-radius: 3px; flex: none; }
+dialog.trading-fib-dialog .fib-trend-control i { width: 28px; }
+dialog.trading-fib-dialog .fib-width-control { width: 76px; }
+dialog.trading-fib-dialog .fib-width-control i { width: 48px; }
+dialog.trading-fib-dialog .fib-style-control { width: 32px; }
+dialog.trading-fib-dialog .fib-style-control i { width: 20px; }
+dialog.trading-fib-dialog .fib-extension-control { width: 184px; max-width: 100%; justify-content: space-between; text-align: left; }
+dialog.trading-fib-dialog .fib-extension-control span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+dialog.trading-fib-dialog .fib-control svg { width: 16px; height: 16px; flex: none; }
+dialog.trading-fib-dialog .fib-control[aria-expanded="true"] > svg { transform: rotate(180deg); }
+dialog.trading-fib-dialog .fib-levels { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 32px; padding-right: 8px; }
+dialog.trading-fib-dialog .fib-level { display: grid; grid-template-columns: 16px minmax(0,1fr) 30px; gap: 8px; align-items: center; }
+dialog.trading-fib-dialog .fib-level input[type="number"] { height: 30px; width: 100%; min-width: 0; max-width: none; padding: 4px 8px; border-radius: 6px; font-size: 14px; }
+dialog.trading-fib-dialog .fib-level input::-webkit-inner-spin-button { appearance: none; }
+dialog.trading-fib-dialog .fib-level [data-color-picker-input] { width: 30px; min-width: 30px; height: 30px; padding: 4px; border-radius: 5px; background: linear-gradient(var(--color-value),var(--color-value)) content-box, repeating-conic-gradient(#ddd 0% 25%,#fff 0% 50%) 0 / 8px 8px content-box, var(--fib-bg); }
+dialog.trading-fib-dialog :disabled { cursor: default; }
+dialog.trading-fib-dialog .fib-level[data-disabled="true"] input[type="number"] { background: var(--fib-hover); color: var(--fib-muted); }
+dialog.trading-fib-dialog .fib-level[data-disabled="true"] [data-color-picker-input], dialog.trading-fib-dialog .fib-trend-control:disabled { opacity: .45; }
+dialog.trading-fib-dialog .fib-extra { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--fib-hover); }
+dialog.trading-fib-dialog .fib-extra .fib-controls { gap: 24px; }
+dialog.trading-fib-dialog .fib-fill-opacity { display: flex; gap: 10px; align-items: center; }
+dialog.trading-fib-dialog input[type="range"] { min-width: 0; width: 128px; accent-color: var(--fib-ink); }
+dialog.trading-fib-dialog output { font-size: 12px; color: var(--fib-muted); }
+dialog.trading-fib-dialog footer { flex: none; border-top: 1px solid var(--fib-hover); padding: 12px 20px; gap: 10px; background: var(--fib-bg); }
+dialog.trading-fib-dialog footer button { min-width: 60px; height: 32px; min-height: 32px; font-size: 14px; border-radius: 7px; }
+html[data-theme="dark"] dialog.trading-fib-dialog[open] form > footer button { min-height: 32px; }
+dialog.trading-fib-dialog footer .primary { color: var(--fib-bg); background: var(--fib-ink); }
+dialog.trading-fib-dialog footer [data-line-cancel] { border-color: var(--fib-ink); }
+dialog.trading-fib-dialog footer .fib-template-control { margin-right: auto; width: 100px; justify-content: space-between; font-size: 14px; }
+dialog.trading-fib-dialog fieldset { border: 0; margin: 0 0 20px; padding: 0; }
+dialog.trading-fib-dialog legend { font-weight: 600; margin-bottom: 12px; }
+dialog.trading-fib-dialog .fib-coordinate { display: grid; grid-template-columns: 112px minmax(0,1fr); gap: 12px; align-items: center; margin-bottom: 12px; }
+dialog.trading-fib-dialog .fib-coordinate input { max-width: none; height: 32px; }
+dialog.trading-fib-dialog .fib-visibility-row { display: grid; grid-template-columns: minmax(80px,1fr) 76px 14px 76px; align-items: center; gap: 8px; margin-bottom: 14px; }
+dialog.trading-fib-dialog .fib-visibility-row input[type="number"] { height: 32px; }
+dialog.trading-fib-dialog .fib-visibility-row input:disabled { opacity: .45; }
+dialog.trading-fib-dialog .fib-help { color: var(--fib-muted); margin: 0 0 20px; }
+dialog.trading-fib-dialog .fib-popup { position: fixed; inset: auto; margin: 0; width: max-content; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow: auto; padding: 6px; border: 0; border-radius: 8px; box-shadow: 0 2px 8px #0003; background: var(--fib-bg); color: var(--fib-ink); font: inherit; }
+dialog.trading-fib-dialog .fib-popup > button { display: flex; gap: 10px; align-items: center; width: 100%; min-height: 32px; border: 0; border-radius: 5px; padding: 6px 8px; background: transparent; text-align: left; }
+dialog.trading-fib-dialog .fib-popup > button:hover { background: var(--fib-hover); }
+dialog.trading-fib-dialog .fib-popup > button[aria-checked="true"][role="menuitemradio"] { color: var(--fib-bg); background: var(--fib-ink); }
+dialog.trading-fib-dialog .fib-popup-width > button { width: 76px; }
+dialog.trading-fib-dialog .fib-popup-width i { width: 48px; }
+dialog.trading-fib-dialog .fib-popup-style i { width: 22px; }
+dialog.trading-fib-dialog .fib-popup-extension { min-width: 184px; }
+.fib-menu-check { position: relative; display: block; box-sizing: border-box; width: 16px; height: 16px; border: 1px solid var(--fib-ink); border-radius: 3px; }
+[aria-checked="true"] > .fib-menu-check { background: var(--fib-ink); }
+[aria-checked="false"] > .fib-menu-check::after { display: none; }
+.fib-template-save { display: flex; flex-wrap: wrap; max-width: 300px; gap: 8px; padding: 8px 4px 4px; border-top: 1px solid var(--fib-border); }
+dialog.trading-fib-dialog .fib-template-save input { width: 150px; min-width: 0; padding: 6px 8px; }
+dialog.trading-fib-dialog .fib-template-save button { font-size: 14px; }
+dialog.trading-fib-dialog .haolo-color-picker { width: 264px; padding: 12px; font-size: 13px; }
+dialog.trading-fib-dialog .haolo-color-grid { gap: 6px; }
+dialog.trading-fib-dialog .haolo-color-grid button { background: var(--swatch); }
+dialog.trading-fib-dialog .haolo-color-opacity-label { font-size: 13px; }
+dialog.trading-fib-dialog .haolo-color-opacity > label { height: 30px; font-size: 13px; }
+dialog.trading-fib-dialog .haolo-color-picker [data-color-percent] { width: 28px; height: 26px; padding: 0; }
+dialog.trading-fib-dialog .haolo-color-opacity input[type="range"] { width: auto; accent-color: auto; }
+dialog.trading-fib-dialog .haolo-color-custom { margin: 16px 0 12px; padding-top: 12px; }
+dialog.trading-fib-dialog .haolo-color-line-controls > span { margin-top: 10px; }
+dialog.trading-fib-dialog .haolo-color-line-controls button { height: 30px; min-height: 30px; padding: 6px; }
+dialog.trading-fib-dialog .haolo-color-line-controls i { width: 30px; }
+dialog.trading-fib-dialog .haolo-color-custom-header { gap: 8px; margin-bottom: 12px; }
+dialog.trading-fib-dialog .haolo-color-picker [data-color-hex] { width: 90px; height: 32px; font-size: 14px; }
+dialog.trading-fib-dialog .haolo-color-custom-header [data-color-preview] { width: 28px; height: 28px; flex: none; }
+dialog.trading-fib-dialog .haolo-color-picker [data-color-save] { min-height: 32px; font-size: 14px; padding: 4px 8px; border-radius: 6px; }
+dialog.trading-fib-dialog .haolo-color-editor { height: 216px; }
+@media (max-width: 520px) {
+  dialog.trading-fib-dialog .fib-levels { column-gap: 20px; padding-right: 0; }
+  dialog.trading-fib-dialog .fib-setting-row { grid-template-columns: 100px minmax(0,1fr); }
+  dialog.trading-fib-dialog :is(header, section, footer) { padding-left: 18px; padding-right: 18px; }
+  dialog.trading-fib-dialog .trading-line-settings-tabs { margin: 0 18px; }
+}
+@media (max-width: 390px) {
+  dialog.trading-fib-dialog .fib-levels { column-gap: 12px; }
+  dialog.trading-fib-dialog .fib-level { grid-template-columns: 16px minmax(0,1fr) 30px; gap: 6px; }
+  dialog.trading-fib-dialog .fib-visibility-row { grid-template-columns: minmax(60px,1fr) 66px 10px 66px; gap: 6px; }
+  dialog.trading-fib-dialog .fib-coordinate { grid-template-columns: 1fr; gap: 6px; }
+}

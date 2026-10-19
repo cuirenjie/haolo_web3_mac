@@ -1,4 +1,5 @@
 import {chartTickLabel} from "./trading-chart-time.ts";
+import type { VolumeHistoryRequest, VolumeHistoryResult } from './trading-volume-history.ts';
 import {normalizeTradingIndicatorAiDrawingPatch,storeCloudIndicatorPatch,loadCloudIndicatorPatch,migrateCloudIndicatorPatches,clearIndicatorAnalysisRuntime,renderIndicatorAnalysisPatch,type IndicatorAnalysisRuntime} from './cloud-indicator-drawings.ts';
 import {
   BarSeries,
@@ -15,6 +16,7 @@ import {
 import { TradingChartExtremaOverlay } from "./trading-chart-extrema.ts";
 import { TradingChartFrameUpdate } from "./trading-chart-frame-update.ts";
 import { TradingChartCalculationCache } from "./trading-chart-calculation-cache.ts";
+import { TradingHollowHistogram, type TradingHistogramStyle } from './trading-hollow-histogram.ts';
 import { setTradingChartSeriesData, setTradingChartSeriesValues, withTradingChartSeriesBatch } from "./trading-chart-series-data.ts";
 import { tradingChartCandleIndex, updateTradingChartLegendRows, type TradingChartLegendRow } from "./trading-chart-legend.ts";
 import { TradingPriceFlash } from "./trading-price-flash.ts";
@@ -103,6 +105,7 @@ export interface TradingSplitPaneOptions {
   settings: TradingChartSettings;
   themeName: TradingChartThemeName;
   loadCandles: (market: TradingSplitPaneMarket, interval: string) => Promise<TradingChartCandle[]>;
+  loadVolumeHistory?: (market: TradingSplitPaneMarket, request: VolumeHistoryRequest, signal: AbortSignal) => Promise<VolumeHistoryResult>;
   drawing: {
     controlsHost: HTMLElement;
     storageSessionId: string;
@@ -135,6 +138,7 @@ export interface TradingSplitPaneIndicatorSeriesSetting {
   visible: boolean;
   color: string;
   lineWidth: 1 | 2 | 3;
+  histogramStyle?: TradingHistogramStyle;
 }
 
 export interface TradingSplitPaneIndicatorSetting {
@@ -485,9 +489,12 @@ export class TradingExpertSplitPane {
       getNavigation: () => this.chartNavigation,
       getChart: () => this.chart,
       getCandleSeries: () => this.series,
+      getMagnetIndicatorSeries: () => this.activeMainIndicators.flatMap(id => this.mainIndicatorSeries.get(id) ?? []),
       getSymbol: () => this.market.id,
       getInterval: () => this.interval,
       getCandles: () => this.candles,
+      volumeFutures: () => this.market.marketType === 'perpetual' || this.market.assetClass === 'commodity',
+      loadVolumeHistory: options.loadVolumeHistory ? (request, signal) => options.loadVolumeHistory!(this.market, request, signal) : undefined,
       timeOffsetSeconds: CHINA_TIME_OFFSET_SECONDS,
       storageSessionId: options.drawing.storageSessionId,
       isNewTask: options.drawing.isNewTask,
@@ -625,10 +632,10 @@ export class TradingExpertSplitPane {
               aria-haspopup="listbox"
               aria-expanded="false"
             >
-              自定义周期
+              周期设置
               <svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"/></svg>
             </button>
-            <div class="trading-market-split-period-menu" data-split-period-menu role="listbox" aria-label="图表 ${this.paneIndex + 1} 自定义周期" hidden>${periodButtons}</div>
+            <div class="trading-market-split-period-menu" data-split-period-menu role="listbox" aria-label="图表 ${this.paneIndex + 1} 周期设置" hidden>${periodButtons}</div>
             <div class="trading-market-times trading-market-split-times" aria-label="图表 ${this.paneIndex + 1} K线周期">${periodButtons}</div>
           </div>
         </header>
@@ -669,7 +676,7 @@ export class TradingExpertSplitPane {
             aria-haspopup="dialog"
             aria-expanded="false"
           >
-            自定义指标
+            指标设置
             <svg viewBox="0 0 12 8" aria-hidden="true"><path d="m1 1 5 5 5-5"/></svg>
           </button>
           <div class="trading-market-main-indicators" aria-label="分屏 ${this.paneIndex + 1} 主图指标">
@@ -1365,13 +1372,14 @@ export class TradingExpertSplitPane {
   }
 
   private createIndicatorPane(id: TradingIndicatorId) {
-    if (!this.chart) return;
+    const chart = this.chart;
+    if (!chart) return;
     const current = this.indicatorSettings[indicatorSettingKey("sub", id)];
     if (!current) return;
     const result = calculateTradingIndicator(id, this.candles, current.parameters);
     const visibleSeries = result.series.filter((descriptor) => current.series[descriptor.key]?.visible !== false);
     if (!visibleSeries.length) return;
-    const pane = this.chart.addPane(false);
+    const pane = chart.addPane(false);
     pane.setStretchFactor(1);
     const runtime: SplitPaneIndicatorRuntime = { id, pane, legend: null, series: [], analysisSeries:[], analysisMarkers:null, analysisSignature:"" };
     visibleSeries.forEach((descriptor) => {
@@ -1385,7 +1393,13 @@ export class TradingExpertSplitPane {
           : { type: "price" as const, precision: 2, minMove: 0.01 },
       };
       const api = descriptor.type === "histogram"
-        ? pane.addSeries(HistogramSeries, {
+        ? style?.histogramStyle === 'hollow'
+          // v5.1 PaneApi.addCustomSeries defaults to pane 0; supply the actual pane explicitly.
+          ? chart.addCustomSeries(new TradingHollowHistogram(), {
+              ...common,
+              color: style?.color ?? descriptor.color,
+            }, pane.paneIndex())
+          : pane.addSeries(HistogramSeries, {
             ...common,
             color: style?.color ?? descriptor.color,
             base: descriptor.baseValue ?? 0,
@@ -1622,6 +1636,10 @@ export class TradingExpertSplitPane {
     restoreManualTradingPriceRanges(manualRanges);
     this.chartNavigation?.schedule();
     this.drawingController?.redraw();
+  }
+
+  getChartNavigation() {
+    return this.chartNavigation;
   }
 
   getDrawingController() {

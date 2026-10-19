@@ -4,7 +4,7 @@ import type { TradingDrawingToolId, TradingDrawingLineStyle } from './trading-ex
 // desktop screenshot also confirms Trendline #2962FF / solid / 2 CSS px.
 // https://www.tradingview.com/charting-library-docs/latest/customization/overrides/Drawings-Overrides/
 // Tool-specific interfaces are linked in docs/drawing-toolbar-reference-20261017.zh-CN.md.
-export const DRAWING_SELECTION_COLOR = '#2962ff';
+export const DRAWING_SELECTION_COLOR = 'var(--interaction-accent)';
 export interface ManualDrawingDefaults {
   color: string;
   lineWidth: number;
@@ -16,7 +16,11 @@ const line: Readonly<ManualDrawingDefaults> = Object.freeze({
   color: '#2962ff', lineWidth: 2, lineStyle: 'solid', opacity: 1, fillOpacity: 0,
 });
 const profiles: Partial<Record<TradingDrawingToolId, Partial<ManualDrawingDefaults>>> = {
-  'regression-trend': { color: '#2962ff', lineWidth: 1, opacity: .3 },
+  'note': { color: '#787878', lineWidth: 1 },
+  'price-note': { color: '#2962ff', lineWidth: 1.5 },
+  'callout': { color: '#0097a7', lineWidth: 2 },
+  'signpost': { color: '#787878', lineWidth: 1 },
+  'regression-trend': { color: '#2962ff', lineWidth: 2, fillOpacity: .3 },
   'parallel-channel': { fillOpacity: .2 },
   'flat-top-bottom': { color: '#ff9800', fillOpacity: .2 },
   'disjoint-channel': { color: '#089981', fillOpacity: .2 },
@@ -35,6 +39,7 @@ const profiles: Partial<Record<TradingDrawingToolId, Partial<ManualDrawingDefaul
   'fib-time-zone': { color: '#808080' },
   'fib-trend-time': { color: '#808080', fillOpacity: .2 },
   'fib-speed-fan': { color: '#808080', fillOpacity: .2 },
+  'fib-spiral': { color: '#00bcd4' },
   'fib-circles': { color: '#808080', fillOpacity: .2 },
   'fib-speed-arcs': { color: '#808080', fillOpacity: .2 },
   'fib-wedge': { color: '#808080', fillOpacity: .2 },
@@ -63,10 +68,14 @@ const profiles: Partial<Record<TradingDrawingToolId, Partial<ManualDrawingDefaul
   'elliott-triangle': { color: '#ff9800' },
   'elliott-double-combo': { color: '#6aa84f' },
   'elliott-triple-combo': { color: '#6aa84f' },
+  'cyclic-lines': { color: '#80ccdb' },
   'time-cycles': { color: '#159980', fillOpacity: .5 },
   'sine-line': { color: '#159980' },
   'long-position': { color: '#808080', lineWidth: 1, fillOpacity: .2 },
   'short-position': { color: '#808080', lineWidth: 1, fillOpacity: .2 },
+  'forecast': { color: '#2962ff', lineWidth: 2 },
+  'bars-pattern': { color: '#2962ff', lineWidth: 2 },
+  'sector': { color: '#999999', lineWidth: 2, fillOpacity: .2 },
   'date-range': { fillOpacity: .4 },
   'price-range': { fillOpacity: .4 },
   'date-price-range': { fillOpacity: .4 },

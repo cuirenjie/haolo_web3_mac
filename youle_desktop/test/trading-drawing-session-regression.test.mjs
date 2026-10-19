@@ -22,7 +22,8 @@ function setup(t, records = []) {
     const instance = Object.assign(Object.create(TradingDrawingController.prototype), {
       storageSessionId: sessionId, drawingScope: scope, pendingTextDrawingId: null,
       aiDrawings: [], redoStack: [], selectedDrawingId: null,
-      horizontalLineSettings: { close: noop }, aiPlayback: { cancel: noop }, overlay: { classList: { remove: noop } },
+      imageDialog: { close: noop }, xPostDialog: { close: noop }, finishHorizontalLineTextEdit: noop,
+      drawingVisibility: { setLayers: noop, switchSession: noop }, horizontalLineSettings: { close: noop }, aiPlayback: { cancel: noop }, overlay: { classList: { remove: noop } },
       redraw: noop, updateToolbarState: noop, releasePointer: noop,
       finishSelectionToolbarDrag: noop, cancelDragRedraw: noop,
       closeSelectionMenus: noop, hideAiTextSizeToolbar: noop,

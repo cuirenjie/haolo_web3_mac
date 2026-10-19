@@ -347,8 +347,8 @@ test("dark mention submenus distinguish panels, selections, and disabled actions
   const activeReferenceRule = styles.slice(activeReferenceRuleStart, styles.indexOf("}", activeReferenceRuleStart) + 1);
   assert.match(styles, /html\[data-theme="dark"\] \.composer-mention-submenu\s*\{[\s\S]*?border-color: #383b42/);
   assert.match(styles, /html\[data-theme="dark"\] \.composer-thread-detail-submenu\s*\{[\s\S]*?border-color: #41454d/);
-  assert.match(styles, /\.composer-thread-detail-option\.selected \.composer-thread-detail-checkbox\s*\{[\s\S]*?background: #3478cf/);
-  assert.match(activeReferenceRule, /border-color: rgba\(91, 157, 255, 0\.24\)/);
+  assert.match(styles, /\.composer-thread-detail-option\.selected \.composer-thread-detail-checkbox\s*\{[\s\S]*?background: var\(--interaction-accent\)/);
+  assert.match(activeReferenceRule, /border-color: rgba\(var\(--interaction-rgb\), 0\.24\)/);
   assert.doesNotMatch(activeReferenceRule, /box-shadow/);
   assert.match(styles, /\.composer-thread-detail-footer button:disabled:hover\s*\{[\s\S]*?background: #25282d/);
 });

@@ -75,6 +75,9 @@ function chineseLiteralFragments(source, file) {
     file.endsWith(".ts") ? ts.ScriptKind.TS : ts.ScriptKind.JS,
   );
   const visit = (node) => {
+    // Font probes measure CJK glyphs; their contents are never displayed.
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === "measureText") return;
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       append(node.text);
     } else if (ts.isTemplateExpression(node)) {

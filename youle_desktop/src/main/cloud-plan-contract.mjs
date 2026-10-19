@@ -3,7 +3,9 @@
 // activation always re-reads the account-owned plan on the server.
 import {executionPlanCandidatesFromText,executionPlanCandidateWithSourceText,executionPlanDisplayLines,
   executionPlanHasStructuredTradingFields,executionPlanHasConcreteTradingPlan} from './legacy-execution-plan-presentation.mjs';
-import {executionPlanCardHeading,executionPlanCardBody} from './execution-plan-card-view.mjs';
+import {executionPlanCardHeading,executionPlanCardBody,executionPlanStructuredCardBody} from './execution-plan-card-view.mjs';
+import {cloudPlanAccountView} from './cloud-plan-account-view.mjs';
+import {validLeftObservation,leftWatchView,leftRouteView} from './price-action-left-card.mjs';
 const uuid = value => typeof value==='string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
 const hash = value => typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
 const positive=value=>typeof value==='number'&&Number.isFinite(value)&&value>0;
@@ -45,6 +47,8 @@ export function normalizeCloudReports(value) {
     if(row.executionPlan?.schemaVersion!==2||!Array.isArray(row.executionPlan.scenarios)||row.executionPlan.scenarios.length>1
       ||row.planRecords.length!==row.executionPlan.scenarios.length)fail();
     const plan=row.executionPlan;
+    if(plan.leftObservation!==undefined&&(!validLeftObservation(plan.leftObservation)||row.strategyId!=='price-action'
+      ||!['left',null].includes(plan.selectedMode)))fail();
     if(plan.scenarios.length) {
       const condition=plan.entryCondition,scenario=plan.scenarios[0];
       if(plan.outcome?.action!=='plan'||!uuid(condition?.conditionId)||condition.revision!==1||!hash(plan.conditionHash)
@@ -111,18 +115,20 @@ const words={
   cross_up:['价格从下方向上穿越','Price crosses upward through','價格從下方向上穿越'],cross_down:['价格从上方向下穿越','Price crosses downward through','價格從上方向下穿越'],in_zone:['价格进入闭区间','Price enters the inclusive zone','價格進入閉區間'],
   invalidation:['条件失效','Condition invalidation','條件失效'],notice:['条件满足仅提醒，不表示成交，不会自动下单。','A satisfied condition only sends a reminder; it is not a fill and does not place an order.','條件滿足僅提醒，不表示成交，不會自動下單。'],
 };
-const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export function cloudPlanCard(report) {
+export function cloudPlanCard(report, { hideExpiry = false, language: displayLanguage } = {}) {
   if(report.executionPolicy==='right-legacy-v1') {
     const remote=report.planRecords.find(plan=>plan.cardIndex===(report.selectedCardIndex??0));
     if(!remote)return null;
     const {title,content}=remote.card,lines=executionPlanDisplayLines(content);
-    const language=report.locale==='zh-Hant'?'zh-TW':report.locale;
-    return {title,content,html:executionPlanCardHeading(title,lines,language)+executionPlanCardBody(lines,language)};
+    const language=displayLanguage||(report.locale==='zh-Hant'?'zh-TW':report.locale);
+    const expiresAt=hideExpiry?undefined:(remote.expiresAt??report.executionPlan.expiresAt);
+    return {title,content,html:executionPlanCardHeading(title,lines,language)+executionPlanCardBody(lines,language,{expiresAt})};
   }
   const index=report.locale==='en'?1:report.locale==='zh-Hant'?2:0,t=key=>words[key]?.[index]||key;
   const plan=report.executionPlan,condition=plan.entryCondition,scenario=plan.scenarios[0];
-  if(plan.outcome?.action!=='plan'||!condition||!scenario) return null;
+  const language=displayLanguage||(report.locale==='zh-Hant'?'zh-TW':report.locale);
+  const watch=leftWatchView(report,language),route=leftRouteView(plan,language);
+  if(plan.outcome?.action!=='plan'||!condition||!scenario) return watch;
   const predicate=p=>p ? `${t(p.operator)} ${p.operator==='in_zone'?`[${p.lower}, ${p.upper}]`:p.lower}` : '';
   const details=[t(condition.confirmation),predicate(condition.trigger)];
   if(condition.confirmation==='breakout_retest') details.push(condition.breakoutConfirmation==='bar_close'?t('bar_close'):t('touch'),predicate(condition.retest));
@@ -137,6 +143,19 @@ export function cloudPlanCard(report) {
     [t('expiry'),new Date(condition.expiresAt).toISOString()],
   ];
   const title=`${report.marketId} · ${condition.interval} · ${t('title')}`;
-  return {title,content:[title,...fields.map(([label,value])=>`${label}: ${value}`),t('notice')].join('\n'),
-    html:`<div class="execution-plan-heading"><h2>${escape(title)}</h2></div>${fields.map(([label,value])=>`<p class="execution-plan-card-line"><span class="execution-plan-card-label">${escape(label)}: </span><span class="execution-plan-card-value">${escape(value)}</span></p>`).join('')}<p>${escape(t('notice'))}</p>`};
+  const heading=executionPlanCardHeading(title,[{label:'Direction',text:condition.direction},{label:'Strategy',text:report.strategyId}],language);
+  // Mobile's engine-first ratio rule: never derive ratios or account amounts
+  // from displayed prices, or borrow the other scenario's account sizing.
+  const riskReward=scenario.targets.map((_,index)=>{
+    const engine=plan.preferredSide===condition.direction&&Array.isArray(plan.riskReward)
+      ? plan.riskReward.find(item=>item?.targetIndex===index&&Number.isFinite(item.ratio))?.ratio:undefined;
+    return engine??(Array.isArray(scenario.riskReward)&&Number.isFinite(scenario.riskReward[index])?scenario.riskReward[index]:null);
+  });
+  const account=cloudPlanAccountView(plan,report.marketId,report.planRecords?.[0]);
+  const entry=condition.confirmation==='breakout_retest'?condition.retest:condition.trigger;
+  const body=executionPlanStructuredCardBody({entry,stop:scenario.stop,targets:scenario.targets,direction:condition.direction,
+    expiresAt:hideExpiry?undefined:condition.expiresAt,riskReward,account,
+    action:plan.executionBlocked===true||(scenario.positionSizing||plan.positionSizing)?.executionBlocked===true||scenario.eligible===false?'blocked':route?.action||'wait'},language);
+  return {title,content:[title,...fields.map(([label,value])=>`${label}: ${value}`),t('notice'),...(route?[route.content]:[]),...(watch?[watch.content]:[])].join('\n'),
+    html:heading+body+(route?.html||'')+(watch?.html||'')};
 }

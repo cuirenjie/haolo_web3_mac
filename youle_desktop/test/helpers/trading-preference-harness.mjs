@@ -3,7 +3,7 @@ import ts from "typescript";
 import { TRADING_PREFERENCE_CHOICE_FIELDS } from "../../src/shared/trading-preference-fields.mjs";
 
 const renderer = fs.readFileSync(new URL("../../src/renderer/main.ts", import.meta.url), "utf8");
-const block = renderer.slice(renderer.indexOf("const TRADING_PREFERENCE_ONBOARDING_GREETING ="), renderer.indexOf("function workflowRevisionNodePayload")).replace(/let closeCloudRecoveryDialog:[\s\S]*?(?=let tradingPreferenceProfileCompleted)/, "");
+const block = renderer.slice(renderer.indexOf("const TRADING_PREFERENCE_ONBOARDING_GREETING ="), renderer.indexOf("function workflowRevisionNodePayload"));
 const choices = fs.readFileSync(new URL("../../src/renderer/trading-preference-choices.ts", import.meta.url), "utf8");
 const javascript = ts.transpileModule(block, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText;
 const choiceJavascript = ts.transpileModule(choices, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;

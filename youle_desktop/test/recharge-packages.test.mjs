@@ -140,8 +140,8 @@ test("recharge page shows monthly and annual subscriptions, points packs, and cr
   assert.match(cycleTabStyles, /\.recharge-cycle-tabs button:hover/);
   assert.match(cycleTabStyles, /\.recharge-cycle-tabs button:focus-visible/);
   assert.match(styles, /@media \(max-width: 860px\)[\s\S]*?\.recharge-cycle-tabs\s*\{\s*width: 100%;/);
-  assert.match(styles, /:root\s*\{[\s\S]*?--selection-soft: rgba\(235, 246, 255, 0\.68\)/);
-  assert.match(styles, /html\[data-theme="dark"\]\s*\{[\s\S]*?--selection-soft: rgba\(91, 157, 255, 0\.2\)/);
+  assert.match(styles, /:root\s*\{[\s\S]*?--selection-soft: #f2f2f2/);
+  assert.match(styles, /html\[data-theme="dark"\]\s*\{[\s\S]*?--selection-soft: #292929/);
   assert.match(styles, /\.recharge-product-savings\s*\{[\s\S]*?background: linear-gradient\(180deg, #f1fbf4 0%, #ebf8ef 100%\)/);
   assert.match(styles, /html\[data-theme="dark"\] \.recharge-product-savings\s*\{[\s\S]*?color: #7fe0a0/);
   assert.match(pageScrollStyles, /scrollbar-gutter: stable/);

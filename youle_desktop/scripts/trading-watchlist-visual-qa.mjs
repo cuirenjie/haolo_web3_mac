@@ -875,7 +875,7 @@ async function main() {
       await wait("document.querySelectorAll('[data-watchlist-index]').length === 7");
       assert.equal(await js("document.querySelectorAll('[data-watchlist-row]').length"),0);
       assert.equal(await js("document.querySelector('.trading-watchlist-head [data-watchlist-action=sort-price]').textContent"),'最新指数↕');
-      assert.equal(await js("document.querySelector('[data-watchlist-index=\"alternative:fng\"] [data-index-source]').textContent"),'Alternative.me');
+      assert.equal(await js("document.querySelectorAll('[data-index-source]').length"),0);
       assert.match(await js("document.querySelector('[data-watchlist-index=\"alternative:fng\"] .trading-watchlist-price').textContent"),/71/);
       await click('[data-index-id="alternative:fng"]');
       await wait("!!document.querySelector('.trading-index-dialog[open]')");
@@ -884,8 +884,7 @@ async function main() {
       const indexDialog = await style('.trading-index-dialog');
       assert.ok(contrast(indexDialog.color,indexDialog.backgroundColor) >= 4.5, `${theme} index dialog contrast`);
       await capture(`index-history-${theme}`);
-      await click('.trading-index-dialog [data-index-source]');
-      assert.equal(await js("qaSourceLinks.at(-1)"),'https://alternative.me/crypto/fear-and-greed-index/');
+      assert.equal(await js("document.querySelectorAll('.trading-index-dialog a,[data-index-source]').length"),0);
       await click('[data-index-close]');
       await js("qaIndicesFail=true;workspace.watchlistPanel.indices.refresh()");
       await wait("workspace.watchlistPanel.indices.loading === false");
@@ -899,7 +898,7 @@ async function main() {
       await click('[data-group-id="watchlist"]');
       await click('[data-watchlist-action="select"][data-market-id="BINANCE:FUTURES:ETHUSDT"]');
     }
-    check("Both themes use plain rows and neutral selection; fixed TradFi catalog auto-populates, selects its chart, has no editing controls; public indices load, retain attributed stale data during failures and show history in both themes");
+    check("Both themes use plain rows and neutral selection; fixed TradFi catalog auto-populates, selects its chart, has no editing controls; public indices load, retain stale data during failures and show history without source links in both themes");
     const groupPickerMarkup = await js("document.querySelector('.composer-context-group-picker').outerHTML");
     for (const theme of ["light", "dark"]) {
       for (const [width, height, count, fontOffset, groupPicker = true] of [

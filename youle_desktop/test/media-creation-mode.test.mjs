@@ -612,6 +612,6 @@ test("the unified model menu covers light and dark interaction states", () => {
   );
   assert.match(
     styles,
-    /html\[data-theme="dark"\] \.composer-model-menu button:focus-visible\s*\{[^}]*outline-color:\s*rgba\(113, 190, 255, 0\.72\);/s,
+    /html\[data-theme="dark"\] \.composer-model-menu button:focus-visible\s*\{[^}]*outline-color:\s*rgba\(var\(--interaction-rgb\), 0\.72\);/s,
   );
 });

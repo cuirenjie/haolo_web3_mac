@@ -55,6 +55,8 @@ test("renderer cooldown cannot hide a usable main-process cache for another symb
 
 test("strict current analysis rejects a gateway stale response", async () => {
   await withRenderer(async () => ({ok:true,status:200,stale:true,data:bars()}), async () => {
+    const browsing = await fetchTradingCandles("ETHUSDT", "1", 5);
+    assert.equal(browsing.candles.length,5,"browsing can show same-pair cached candles during recovery");
     await assert.rejects(fetchTradingCandles("ETHUSDT", "1", 5, Date.now(), "perpetual", undefined, {forceFresh:true}), /旧 K 线/);
     await assert.rejects(fetchTradingCandles("ETHUSDT", "1S", 5, Date.now(), "perpetual", undefined, {forceFresh:true}), /旧 K 线/);
   });

@@ -1,10 +1,7 @@
 import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
 import { accountSettingsSync, type SettingValues } from './account-settings-sync.ts';
-import {createCloudReportRestorer} from './cloud-report-restore';
-import { openCloudRecoveryDialog, cloudTaskText, type CloudRecoveryApi } from "./cloud-task-recovery.ts";
+import type { CloudRecoveryApi } from "./cloud-task-recovery.ts";
 import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, bindLegacyCloudCandidate, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
-import {restoreRecoveredTradingDrawings} from './trading-expert-market.ts';
-import {createCloudAlertPanelController} from './cloud-alert-panel.ts';
 import "./styles.css";
 import {
   TRADING_PREFERENCE_CHOICE_FIELDS,
@@ -20,6 +17,7 @@ import { executionPlanCardHeading, executionPlanCardBody } from "../main/executi
 import "./trading-watchlist.css";
 import { renderTradingWatchlistHost, renderTradingWatchlistToggle } from "./trading-watchlist-ui.ts";
 import { deferTradingChartShellRender } from "./trading-chart-interaction.ts";
+import { captureTradingWorkspaceDialogs, restoreTradingWorkspaceDialogs } from "./trading-workspace-dialogs.ts";
 import QRCode from "qrcode";
 import { buildTradingStrategyFailureReport, describeTradingAnalysisFailure } from "../main/trading-analysis/failure.mjs";
 import { errorSignals, isQuotaFailure } from "../main/error-signals.mjs";
@@ -91,6 +89,7 @@ import {
   type BinanceAccountStatus,
   type BinanceAccountUiState,
 } from "./binance-account-ui";
+import { BINANCE_REBIND_MESSAGE, isBinanceCredentialError } from "../shared/binance-account-errors.mjs";
 import { ensureBrowserDesktopApi } from "./browser_mock";
 import {
   applyTradingExpertCustomIndicatorMentions,
@@ -1511,8 +1510,11 @@ type DesktopApi = {
   }): Promise<{ ok?: boolean; shown?: boolean }>;
   captureTradingChart?(params: {
     rect: { x: number; y: number; width: number; height: number };
+    destination?: 'desktop';
   }): Promise<{
     ok?: boolean;
+    copied?: boolean;
+    message?: string;
     path?: string;
     name?: string;
     mime?: string;
@@ -1596,6 +1598,7 @@ type DesktopApi = {
   lookupIdentity(params: any): Promise<any>;
   sendOtp(params: any): Promise<any>;
   verifyOtp(params: any): Promise<any>;
+  getTradingXPost?(url: string): Promise<{ url: string; authorName: string; handle: string; body?: string; html?: string; createdAt: string; avatarUrl: string }>;
   getBinancePublicMarketData?(params: {
     marketType: "futures" | "spot";
     path: string;
@@ -2058,6 +2061,7 @@ type DesktopApi = {
   searchFinnhubMarkets?(params: { query: string; limit?: number }): Promise<any>;
   getFinnhubMarketQuotes?(params: { symbols: string[] }): Promise<any>;
   getPublicMarketIndices?(): Promise<import("./trading-public-indices.ts").PublicIndicesSnapshot>;
+  getIndexChart?(params: {indexId: string; period?: string; before?: number}): Promise<import("./trading-index-chart.ts").IndexChartResponse>;
   getFinnhubMarketSnapshot?(params: {
     symbol: string;
     assetClass?: string;
@@ -2487,6 +2491,7 @@ type PreservedTradingExpertMarketWorkspace = {
   host: HTMLElement;
   threadId: string;
   storageSessionId: string;
+  dialogs: ReturnType<typeof captureTradingWorkspaceDialogs>;
 };
 
 type TradingExpertThinkingState = {
@@ -7097,7 +7102,7 @@ function wireDesktopEvents() {
   api.onTradingAlertTriggered?.((payload) => {
     void handleTradingAlertTriggered(payload);
   });
-  api.onCloudAlertFeed?.(value=>{cloudAlertsUi.apply(value);if(state.activeView==='plans')void refreshCloudExecutionPlans();});
+  api.onCloudAlertFeed?.(()=>{if(state.activeView==='plans')void refreshCloudExecutionPlans();});
   api.onTradingAlertOpen?.((payload) => {
     void openTradingAlertSourceConversation(payload?.alertId || null, payload?.evidenceId || null);
   });
@@ -35806,8 +35811,9 @@ function preserveTradingExpertMarketWorkspace(): PreservedTradingExpertMarketWor
     return parkedTradingExpertMarketWorkspace;
   }
   const storageSessionId = tradingExpertMarketWorkspaceStorageSessionId() || threadId;
+  const dialogs = captureTradingWorkspaceDialogs(host);
   host.remove();
-  const preserved = { host, threadId, storageSessionId };
+  const preserved = { host, threadId, storageSessionId, dialogs };
   parkedTradingExpertMarketWorkspace = preserved;
   return preserved;
 }
@@ -35892,6 +35898,7 @@ function restorePreservedTradingExpertMarketWorkspace(
       forgetTradingExpertWorkspaceSessionAlias(sourceStorageSessionId);
     }
     applyTradingExpertCustomIndicatorMentions(state.composerText);
+    restoreTradingWorkspaceDialogs(preserved.dialogs);
     return;
   }
   parkedTradingExpertMarketWorkspace = null;
@@ -36081,7 +36088,7 @@ function render() {
             : state.activeView === "alerts"
               ? `
                 ${renderChatList()}
-                ${renderTradingAlertsPage(state.tradingAlerts,cloudAlertsUi.render())}
+                ${renderTradingAlertsPage(state.tradingAlerts)}
               `
             : state.activeView === "skillsPlaza"
               ? `
@@ -39531,10 +39538,10 @@ function renderMessageExecutionPlan(
     try {reports=normalizeCloudReports((message as MessageUiMeta).cloudReports);} catch {return null;}
     const cards=reports.map((report,index)=>{
       index += candidateOffset;
-      const card=cloudPlanCard(report);
+      const card=cloudPlanCard(report,{language:state.settings.language});
       if(!card) return '';
       const key=executionPlanCandidateKey(message.conversation_id,message.id,index);
-      executionPlanCandidatesBySource.set(key,{title:card.title,content:card.content,cloudReport:report});
+      if(!card.readOnly)executionPlanCandidatesBySource.set(key,{title:card.title,content:card.content,cloudReport:report});
       const fontSize=loadMessageExecutionPlanFontSize(key);
       return `<section class="message-execution-plan execution-plan-surface" aria-label="${escapeAttr(card.title)}"
         data-execution-plan-thread-id="${escapeAttr(message.conversation_id)}" data-execution-plan-message-id="${escapeAttr(message.id)}"
@@ -39543,7 +39550,7 @@ function renderMessageExecutionPlan(
         <footer class="message-execution-plan-controls" aria-label="执行卡片文字与便利贴操作">
           <button type="button" data-message-execution-plan-action="increase"${fontSize>=MESSAGE_EXECUTION_PLAN_FONT_SIZES.at(-1)!?' disabled':''}>放大</button>
           <button type="button" data-message-execution-plan-action="decrease"${fontSize<=MESSAGE_EXECUTION_PLAN_FONT_SIZES[0]?' disabled':''}>缩小</button>
-          <button type="button" data-message-execution-plan-action="sticky">便利贴</button>
+          ${card.readOnly?'':'<button type="button" data-message-execution-plan-action="sticky">便利贴</button>'}
         </footer></section>`;
     }).join('');
     return {bubbleContent:formatMessageText(text,options),cards:cards?`<div class="message-execution-plan-list">${cards}</div>`:''};
@@ -39568,6 +39575,7 @@ function renderMessageExecutionPlan(
     candidateIndex += candidateOffset;
     const parsed = executionPlanCandidateWithSourceText(rawCandidate, text);
     const candidate = legacyReports.length ? bindLegacyCloudCandidate(legacyReports,parsed,legacyCardIds) : parsed;
+    const cloudCard = candidate.cloudReport ? cloudPlanCard(candidate.cloudReport, {language:state.settings.language}) : null;
     const key = executionPlanCandidateKey(message.conversation_id, message.id, candidateIndex);
     executionPlanCandidatesBySource.set(key, candidate);
     const fontSize = loadMessageExecutionPlanFontSize(key);
@@ -39580,8 +39588,8 @@ function renderMessageExecutionPlan(
       data-execution-plan-index="${candidateIndex}"
       style="--message-execution-plan-font-size: ${fontSize}px"
     >
-      ${executionPlanCardHeading(title, executionPlanDisplayLines(candidate.content), state.settings.language)}
-      <div class="execution-plan-card-content">${renderExecutionPlanCardContent(candidate.content)}</div>
+      ${cloudCard ? '' : executionPlanCardHeading(title, executionPlanDisplayLines(candidate.content), state.settings.language)}
+      <div class="execution-plan-card-content">${cloudCard?.html || renderExecutionPlanCardContent(candidate.content)}</div>
       <footer class="message-execution-plan-controls" aria-label="执行卡片文字与便利贴操作">
         <button type="button" data-message-execution-plan-action="increase"${fontSize >= MESSAGE_EXECUTION_PLAN_FONT_SIZES[MESSAGE_EXECUTION_PLAN_FONT_SIZES.length - 1] ? ' disabled aria-disabled="true"' : ""}>放大</button>
         <button type="button" data-message-execution-plan-action="decrease"${fontSize <= MESSAGE_EXECUTION_PLAN_FONT_SIZES[0] ? ' disabled aria-disabled="true"' : ""}>缩小</button>
@@ -39650,7 +39658,7 @@ function renderExecutionPlanActions(plan: SavedExecutionPlan) {
 }
 
 function renderExecutionPlanCard(plan: SavedExecutionPlan) {
-  const cloudCard=plan.cloudReport?.executionPolicy!=='right-legacy-v1'&&plan.cloudReport?cloudPlanCard(plan.cloudReport):null;
+  const cloudCard=plan.cloudReport?cloudPlanCard(plan.cloudReport,{hideExpiry:plan.status==='executing',language:state.settings.language}):null;
   const createdLabel = executionPlanCreatedLabel(plan.createdAt);
   const status = executionPlanStatusMeta(plan);
   const title = executionPlanCardTitle({
@@ -39694,7 +39702,6 @@ function renderExecutionPlansPage() {
   return `
     <main class="execution-plans-page">
       ${renderPlanningNavigation("plans")}
-      <button type="button" class="trading-preference-onboarding-start" data-action="open-cloud-tasks">${escapeHtml(cloudTaskText("title",state.settings.language))}</button>
       ${executionPlanSubfilters}
       ${
         plans.length
@@ -47357,26 +47364,6 @@ type TradingPreferenceOnboardingFlow = {
   choiceDraft: TradingPreferenceChoiceDraft;
 };
 
-let closeCloudRecoveryDialog: (()=>void) | null = null;
-const cloudAlertsUi=createCloudAlertPanelController({
-  owner:()=>state.auth.authenticated&&state.auth.profile?.id?{accountId:String(state.auth.profile.id),baseUrl:state.auth.baseUrl||state.login.baseUrl}:null,
-  language:()=>state.settings.language,load:async()=>api.getCloudAlertFeed?.(),
-  changed:()=>{if(state.activeView==='alerts')render();},
-});
-const restoreCloudReportToOriginalThread=createCloudReportRestorer({
-  scope:currentExecutionPlanStorageScope,resolve:resolvedTradingAlertThreadId,
-  read:async threadId=>{
-    const history=await api.readThreadForBackgroundHydration({threadId,cwd:threadWorkspaceCwd(threadId),displayCache:false});
-    return (history?.thread?.turns||history?.turns||[]).flatMap((turn:any)=>turn.items||[]);
-  },
-  upsert:(threadId,item)=>upsertItem(threadId,item as CodexItem),
-  persist:async(threadId,report)=>{
-    const item=appendTradingExpertReport(threadId,report.report,`trading-cloud-report-${report.runId}`,undefined,
-      report.executionPlan.kind==='position_assessment'?'plain':'execution-plan',[report]);
-    item.createdAt=new Date(report.executionPlan.createdAt).toISOString();
-    return (await persistTradingExpertTranscriptItems(threadId,[item])).threadId;
-  },restoreDrawings:restoreRecoveredTradingDrawings,refresh:refreshTradingExpertConversationSurface,
-});
 let tradingPreferenceProfileLoadStatus: "idle" | "loading" | "loaded" | "error" = "idle";
 let tradingPreferenceProfileCompleted = false;
 let tradingPreferenceProfileLoadGeneration = 0;
@@ -47406,8 +47393,6 @@ const tradingPreferenceSettings = createTradingPreferenceSettings({
 });
 
 function resetTradingPreferenceProfileState() {
-  closeCloudRecoveryDialog?.();closeCloudRecoveryDialog=null;
-  cloudAlertsUi.reset();
   tradingPreferenceSettings.reset();
   tradingPreferenceProfileLoadGeneration += 1;
   tradingPreferenceProfileLoadStatus = "idle";
@@ -62203,6 +62188,7 @@ function bindBinanceAccountEvents(scope: ParentNode) {
       event.preventDefault();
       const action = element.dataset.binanceAccountAction;
       if (action === "open-dialog") openBinanceAccountDialog();
+      else if (action === "rebind") openBinanceAccountDialog(true);
       else if (action === "close-dialog") closeBinanceAccountDialog();
       else if (action === "send-otp") void sendBinanceAccountOtp();
       else if (action === "refresh" || action === "retry-load") void (action === "refresh" ? refreshBinanceAccountSnapshot() : loadBinanceAccountPage());
@@ -63113,10 +63099,6 @@ function bindEvents() {
   });
   root.querySelector<HTMLElement>('[data-action="save-profile-edit"]')?.addEventListener("click", () => {
     void saveProfileEdit();
-  });
-  root.querySelector('[data-action="open-cloud-tasks"]')?.addEventListener('click',()=>{
-    closeCloudRecoveryDialog?.();
-    if(api.tradingCloudRecovery)closeCloudRecoveryDialog=openCloudRecoveryDialog(api.tradingCloudRecovery,state.settings.language,restoreCloudReportToOriginalThread);
   });
   root.querySelectorAll<HTMLElement>('[data-action="open-settings"]').forEach((element) => {
     element.addEventListener("click", () => {
@@ -72858,6 +72840,7 @@ function navigateBinanceAccountProfitCalendar(offset: -1 | 1) {
 
 async function loadBinanceAccountProfitCalendar({ force = false } = {}) {
   const accountState = state.binanceAccount;
+  if (accountState.rebindRequired) return;
   const getProfitCalendar = api.getBinanceAccountProfitCalendar;
   if (!accountState.status?.bound || accountState.status.remoteOnly || accountState.profitCalendarLoading) return;
   if (accountState.profitCalendar?.month === accountState.profitCalendarMonth && !force) return;
@@ -72885,6 +72868,7 @@ async function loadBinanceAccountProfitCalendar({ force = false } = {}) {
       || state.binanceAccount !== accountState
       || accountState.profitCalendarMonth !== month
     ) return;
+    if (handleBinanceCredentialFailure(error, accountState)) return;
     accountState.profitCalendarError = errorMessage(error);
   } finally {
     if (
@@ -72899,6 +72883,7 @@ async function loadBinanceAccountProfitCalendar({ force = false } = {}) {
 
 async function loadBinanceAccountPage() {
   const accountState = state.binanceAccount;
+  if (accountState.rebindRequired) return;
   const getAccountStatus = api.getBinanceAccountStatus;
   const getAccountSnapshot = api.getBinanceAccountSnapshot;
   const hasCachedView = Boolean(
@@ -72957,6 +72942,7 @@ async function loadBinanceAccountPage() {
       }
     } catch (error) {
       if (loadSequence !== binanceAccountLoadSequence) return;
+      if (handleBinanceCredentialFailure(error, accountState)) return;
       binanceAccountLiveRefreshFailures += 1;
       const retryDelay = binanceAccountRetryDelay(error, binanceAccountLiveRefreshFailures);
       if (hasCachedView) {
@@ -72984,6 +72970,7 @@ async function loadBinanceAccountPage() {
 }
 
 async function refreshBinanceAccountSnapshot() {
+  if (state.binanceAccount.rebindRequired) return;
   if (
     !api.getBinanceAccountSnapshot
     || state.binanceAccount.refreshing
@@ -73057,6 +73044,7 @@ async function refreshBinanceAccountSnapshot() {
       || snapshotApplySequence !== binanceAccountSnapshotApplySequence
       || state.binanceAccount !== accountState
     ) return;
+    if (handleBinanceCredentialFailure(error, accountState)) return;
     accountState.error = errorMessage(error);
     binanceAccountLiveRefreshFailures += 1;
     const retryDelay = binanceAccountRetryDelay(error, binanceAccountLiveRefreshFailures);
@@ -73117,6 +73105,7 @@ async function progressivelyRefreshBinanceAccountSnapshot(
       await reconcileExecutionPlansWithBinanceSnapshot(fullSnapshot);
     } catch (error) {
       if (!isCurrentAccount()) return;
+      if (handleBinanceCredentialFailure(error, accountState)) return;
       binanceAccountLiveRefreshFailures += 1;
       binanceAccountLiveRetryAfter = Date.now()
         + binanceAccountRetryDelay(error, binanceAccountLiveRefreshFailures);
@@ -73139,6 +73128,28 @@ function stopBinanceAccountLiveRefresh() {
   if (binanceAccountLiveRefreshTimer === null) return;
   window.clearTimeout(binanceAccountLiveRefreshTimer);
   binanceAccountLiveRefreshTimer = null;
+}
+
+function handleBinanceCredentialFailure(error: unknown, accountState: BinanceAccountUiState) {
+  if (state.binanceAccount !== accountState || !isBinanceCredentialError(error)) return false;
+  // Invalidate outstanding reads so a late response cannot restore the old
+  // account view after the user starts replacing its credentials.
+  binanceAccountLoadSequence += 1;
+  binanceAccountSnapshotApplySequence += 1;
+  binanceAccountProfitCalendarLoadSequence += 1;
+  accountState.rebindRequired = true;
+  accountState.error = BINANCE_REBIND_MESSAGE;
+  accountState.loaded = false;
+  accountState.loading = false;
+  accountState.refreshing = false;
+  accountState.snapshot = null;
+  accountState.profitCalendar = null;
+  accountState.profitCalendarLoading = false;
+  accountState.profitCalendarError = null;
+  stopBinanceAccountLiveRefresh();
+  syncTradingExpertOrderLineSnapshot(null);
+  if (state.activeView === "account") render();
+  return true;
 }
 
 function binanceAccountReadOnlyDataVisible() {
@@ -73172,6 +73183,7 @@ function binanceAccountRetryDelay(error: unknown, failureCount: number) {
 
 function scheduleBinanceAccountLiveRefresh(delayMs = binanceAccountLiveRefreshInterval()) {
   stopBinanceAccountLiveRefresh();
+  if (state.binanceAccount.rebindRequired) return;
   if (
     !binanceAccountReadOnlyDataVisible()
     || (document.hidden && !executionPlanBinanceMonitoringNeeded())
@@ -73194,6 +73206,7 @@ function scheduleBinanceAccountLiveRefresh(delayMs = binanceAccountLiveRefreshIn
 }
 
 function resumeBinanceAccountLiveRefresh() {
+  if (state.binanceAccount.rebindRequired) return;
   if (
     !binanceAccountReadOnlyDataVisible()
     || (document.hidden && !executionPlanBinanceMonitoringNeeded())
@@ -73208,6 +73221,7 @@ function resumeBinanceAccountLiveRefresh() {
 }
 
 function ensureBinanceAccountLiveRefresh() {
+  if (state.binanceAccount.rebindRequired) return;
   if (
     !binanceAccountReadOnlyDataVisible()
     || (document.hidden && !executionPlanBinanceMonitoringNeeded())
@@ -73230,6 +73244,7 @@ function ensureBinanceAccountLiveRefresh() {
 }
 
 async function silentlyRefreshBinanceAccountSnapshot() {
+  if (state.binanceAccount.rebindRequired) return;
   if (
     !binanceAccountReadOnlyDataVisible()
     || (document.hidden && !executionPlanBinanceMonitoringNeeded())
@@ -73298,6 +73313,7 @@ async function silentlyRefreshBinanceAccountSnapshot() {
       binanceAccountLiveRefreshFailures += 1;
       binanceAccountLiveRetryAfter = Date.now()
         + binanceAccountRetryDelay(error, binanceAccountLiveRefreshFailures);
+      if (handleBinanceCredentialFailure(error, accountState)) return;
       accountState.error = `账户数据暂时未更新，仍显示上次成功数据：${errorMessage(error)}`;
       renderBinanceAccountLiveUpdate();
     }
@@ -73370,13 +73386,13 @@ function syncBinanceAccountDialogControls() {
   const resend = root.querySelector<HTMLButtonElement>("[data-binance-account-resend]");
   if (resend) {
     resend.disabled = Boolean(dialog.busy) || countdown > 0;
-    resend.textContent = countdown > 0 ? `${countdown}s 后重试` : "重新发送";
+    resend.textContent = countdown > 0 ? translateAppText("{seconds}s 后重试").replace("{seconds}", String(countdown)) : translateAppText("重新发送");
   }
   const submit = root.querySelector<HTMLButtonElement>("[data-binance-account-dialog-form] button[type=submit]");
   if (submit) {
     submit.disabled = Boolean(dialog.busy)
       || !dialog.challengeId
-      || (dialog.mode === "bind" && (!dialog.apiKey.trim() || !dialog.apiSecret.trim()))
+      || (dialog.mode !== "remove" && (!dialog.apiKey.trim() || !dialog.apiSecret.trim()))
       || !/^\d{6}$/.test(dialog.code.trim());
   }
   if (countdown <= 0) stopBinanceAccountOtpCountdown();
@@ -73422,8 +73438,9 @@ async function sendBinanceAccountOtp() {
   }
 }
 
-function openBinanceAccountDialog() {
-  resetBinanceAccountDialog(state.binanceAccount, "bind");
+function openBinanceAccountDialog(rebind = false) {
+  if (state.binanceAccount.dialog.open) return;
+  resetBinanceAccountDialog(state.binanceAccount, rebind ? "rebind" : "bind");
   state.binanceAccount.dialog.open = true;
   state.binanceAccount.dialog.emailMasked = state.binanceAccount.status?.emailMasked || "";
   render();
@@ -73455,6 +73472,11 @@ async function submitBinanceAccountBinding() {
     });
     binanceAccountLoadSequence += 1;
     binanceAccountSnapshotApplySequence += 1;
+    binanceAccountProfitCalendarLoadSequence += 1;
+    state.binanceAccount.rebindRequired = false;
+    state.binanceAccount.profitCalendar = null;
+    state.binanceAccount.profitCalendarError = null;
+    state.binanceAccount.profitCalendarLoading = false;
     state.binanceAccount.status = {
       ...result.status,
       emailMasked: state.binanceAccount.status?.emailMasked || dialog.emailMasked,
@@ -73468,6 +73490,7 @@ async function submitBinanceAccountBinding() {
     state.binanceAccount.autoRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
     binanceAccountFullRefreshAfter = Date.now() + BINANCE_ACCOUNT_AUTO_REFRESH_INTERVAL_MS;
     binanceAccountLiveRefreshFailures = 0;
+    binanceAccountLiveRetryAfter = 0;
     stopBinanceAccountOtpCountdown();
     resetBinanceAccountDialog(state.binanceAccount);
     render();
@@ -73524,6 +73547,7 @@ async function removeBinanceAccountBinding() {
       challengeId: dialog.challengeId,
       code: dialog.code.trim(),
     });
+    state.binanceAccount.rebindRequired = false;
     state.binanceAccount.snapshot = null;
     binanceAccountProfitCalendarLoadSequence += 1;
     state.binanceAccount.profitCalendar = null;
@@ -73550,7 +73574,6 @@ async function removeBinanceAccountBinding() {
 }
 
 async function refreshTradingAlerts() {
-  void cloudAlertsUi.refresh();
   if (!api.tradingAlertsSnapshot) return;
   state.tradingAlerts.loading = true;
   state.tradingAlerts.error = null;

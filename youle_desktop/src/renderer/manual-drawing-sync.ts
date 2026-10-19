@@ -16,6 +16,16 @@ type Receipt = {
     entries: Operation[];
 };
 type Api = (params: Record<string, unknown>) => Promise<any>;
+// The deployed drawing API still accepts two anchors for positions/ghost feed
+// and has no snapshot/options fields or anchored volume tools. Keep richer records in the durable local
+// replica until that contract is upgraded; never let one reject other drawings.
+export const drawingOperationCanUpload = (op: Operation) => !op.drawing || !(
+    op.drawing.position || op.drawing.barsPattern || op.drawing.tool === 'sector'
+    || op.drawing.imageOpacity !== undefined
+    || ['note', 'callout', 'table', 'image'].includes(op.drawing.tool) && op.drawing.points.length > 1
+    || op.drawing.vwap || op.drawing.volumeProfile || ['anchored-vwap', 'anchored-volume-profile'].includes(op.drawing.tool)
+    || ['long-position', 'short-position', 'ghost-feed'].includes(op.drawing.tool) && op.drawing.points.length > 2
+);
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const fingerprint = (value: unknown): string => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).filter(([, v]) => v !== undefined && v !== null).sort(([a], [b]) => a.localeCompare(b))) : item);
 export const newerDrawingEdit = (a: Operation, b: Operation) => a.changedAt > b.changedAt || (a.changedAt === b.changedAt && a.changeId > b.changeId);
@@ -34,7 +44,9 @@ export const canonicalDrawingScope = (value: string) => value === 'main' ? value
 export function canonicalDrawingInterval(value: string) { const map: Record<string, string> = { '1': '1m', '3': '3m', '5': '5m', '15': '15m', '30': '30m', '60': '1h', '120': '2h', '240': '4h', '360': '6h', '480': '8h', '720': '12h', '1D': '1d', '1W': '1w', '1Y': '1y' }; return map[value] || value; }
 export function drawingToWire(d: TradingDrawingModel): WireDrawing {
     const result: WireDrawing = { id: d.id, tool: d.tool, symbol: canonicalDrawingMarket(d.symbol), drawingScope: canonicalDrawingScope(d.drawingScope || 'main'), points: d.points.map(p => ({ time: Math.round(p.time * 1000), price: p.price })), source: 'manual' };
-    for (const key of ['interval', 'text', 'locked', 'color', 'lineWidth', 'lineStyle', 'fontSize', 'bold', 'textBackgroundColor', 'viewportAnchor', 'textColor', 'italic', 'textAlign', 'textVerticalAlign', 'showPriceLabel'] as const)
+    if (d.barsPattern) result.barsPattern = d.barsPattern;
+    if (d.imageOpacity !== undefined) result.imageOpacity = d.imageOpacity;
+    for (const key of ['interval', 'text', 'locked', 'color', 'lineWidth', 'lineStyle', 'fontSize', 'bold', 'textBackgroundColor', 'viewportAnchor', 'textColor', 'italic', 'textAlign', 'textVerticalAlign', 'showPriceLabel', 'regression', 'fibonacci', 'position', 'vwap', 'volumeProfile'] as const)
         if (d[key] !== undefined)
             Object.assign(result, { [key]: key === 'interval' ? canonicalDrawingInterval(d.interval!) : d[key] });
     return result;
@@ -56,7 +68,7 @@ export class DrawingReplica {
             Object.assign(this, JSON.parse(saved));
     }
     serialize() { return JSON.stringify({ entries: this.entries, pending: this.pending, upload: this.upload, offset: this.offset, clockKnown: this.clockKnown, lastStamp: this.lastStamp, version: this.version, interval: this.interval }); }
-    get dirty() { return !!this.upload || Object.keys(this.pending).length > 0; }
+    get dirty() { return !!this.upload || Object.values(this.pending).some(drawingOperationCanUpload); }
     edit(before: WireDrawing[], after: WireDrawing[], legacy = false) {
         const a = new Map(before.map(d => [d.id, d])), b = new Map(after.map(d => [d.id, d]));
         for (const id of new Set([...a.keys(), ...b.keys()])) {
@@ -91,7 +103,7 @@ export class DrawingReplica {
         this.entries = merged;
         this.lastStamp = Math.max(receipt.serverTime, ...Object.values(merged).map(op => op.changedAt));
     }
-    begin(market: string, interval: string) { return this.upload ??= copy({ schemaVersion: 4, mutationId: crypto.randomUUID(), marketKey: market, interval, operations: Object.values(this.pending).slice(0, 600) }); }
+    begin(market: string, interval: string) { return this.upload ??= copy({ schemaVersion: 4, mutationId: crypto.randomUUID(), marketKey: market, interval, operations: Object.values(this.pending).filter(drawingOperationCanUpload).slice(0, 600) }); }
     acknowledge() {
         for (const op of this.upload?.operations as Operation[] ?? [])
             if (this.pending[op.id]?.changeId === op.changeId)

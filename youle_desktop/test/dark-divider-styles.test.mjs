@@ -36,6 +36,6 @@ test("dividers and focused settings links use theme-aware neutral colors", async
   );
   assert.match(
     styles,
-    /\.settings-link-row:focus-visible\s*\{[^}]*outline: 2px solid var\(--brand-blue\);[^}]*outline-offset: 1px;/s,
+    /\.settings-link-row:focus-visible\s*\{[^}]*outline: 2px solid var\(--interaction-accent\);[^}]*outline-offset: 1px;/s,
   );
 });

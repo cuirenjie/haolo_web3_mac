@@ -119,7 +119,7 @@ test("general settings renders the day and night selector in the requested posit
     styles,
     /data-settings-theme="light"\]\.active \.settings-theme-icon[\s\S]*color: #646d79;[\s\S]*opacity: 0\.64/,
   );
-  assert.match(styles, /data-settings-theme="dark"\]\.active \.settings-theme-icon[\s\S]*color: #a8b8ff/);
+  assert.match(styles, /data-settings-theme="dark"\]\.active \.settings-theme-icon[\s\S]*color: var\(--interaction-accent\)/);
   assert.match(eventBlock, /theme === "light" \|\| theme === "dark"/);
   assert.match(eventBlock, /selectAppTheme\(theme\)/);
 });
@@ -239,17 +239,17 @@ test("night mode normalizes pale interaction states to the reference graphite gr
   );
 });
 
-test("night mode separates option hover and selected blue highlights", async () => {
+test("night mode separates neutral option hover and selection", async () => {
   const styles = await stylesSource;
   const darkTokens = sourceBlock(styles, 'html[data-theme="dark"] {', "* {");
   const highlightStart = styles.indexOf(
-    "/* Use a light-blue hover and a stronger blue selection across dark option surfaces. */",
+    "/* Use distinct neutral hover and selection surfaces in dark mode. */",
   );
   const highlightRules = styles.slice(highlightStart);
 
   assert.notEqual(highlightStart, -1);
-  assert.match(darkTokens, /--selection-soft: rgba\(91, 157, 255, 0\.2\)/);
-  assert.match(darkTokens, /--selection-strong: rgba\(91, 157, 255, 0\.32\)/);
+  assert.match(darkTokens, /--selection-soft: #292929/);
+  assert.match(darkTokens, /--selection-strong: #3a3a3a/);
   assert.match(highlightRules, /\[role="menu"\]:not\(\.plugin-marketplace-action-menu\)/);
   assert.match(highlightRules, /\[role="menuitemradio"\]/);
   assert.match(highlightRules, /\[role="listbox"\]/);
