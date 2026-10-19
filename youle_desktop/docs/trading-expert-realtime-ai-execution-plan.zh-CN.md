@@ -3663,3 +3663,8 @@ Windows 59a7109 / 4a75377 和后端 5ecac8b 已推送。原版 b79ec878 的 637 
 - 模型网关会话确认稳定入口并暂缓下一轮切换后，真实裸K简体、MACD英文、波浪繁体各运行一次，均生成正式左侧计划并可保存回读，恢复结果相同。裸K／波浪走新条件兜底，MACD经过模型保留合格左侧方案；9处卡片渲染通过。首次繁体比对因脚本误用API的zh-Hant代替UI的zh-TW失败，纠正参数后只读复验，没有改应用代码或重跑模型。
 - 开发版23:21:37已重启为PID42504，源码b357434仅在857648c之上增加规范文档，卡片文件哈希一致、Vite200。按Esc停止电脑操作后，用户明确只允许重启；发现已重启，未重复结束进程或继续操作实窗。账号偏好不变，未激活提醒、下单或发布安装包。
 - 证据：规范后端docs/backend-left-conditional-release-20261019.md及youle_mas-dev/backend/docs/verification/left-conditional-release-20261019.json；Windows原始回执与9处渲染在youle_desktop/output/left-conditional-release-20261019。旧观察回执不回写，重新分析使用新规则，数据与风险约束继续保留。
+
+
+### 2026-10-19：M1-386 后续行情版本包含性复核
+
+- 本轮57acb362验收完成后，行情会话继续发布3c83cb13。2026-10-19T15:45:12.220889+00:00复核API／独立Worker均为3c83cb13且均complete，两端各1002运行文件匹配，本任务10个左侧模块与57acb362逐文件SHA-256相同，两端各51个正式计划投影再次通过。没有重发旧版本覆盖行情修复，历史三次真实SDK回执保持；最终运行版本与后续终态回执见规范后端docs/verification/left-conditional-release-20261019.json的successor_verification。
