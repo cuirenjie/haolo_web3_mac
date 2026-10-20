@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { businessPresentationItems, businessPresentationResult } from "../shared/codex-business-presentation.mjs";
 
 const BACKGROUND_HYDRATION_ITEM_TYPES = new Set(["userMessage", "agentMessage"]);
 const ACTIVE_CONVERSATION_ITEM_TYPES = new Set(["userMessage", "agentMessage", "channelMessage"]);
@@ -115,14 +116,33 @@ export function compactActiveThreadNotification(message) {
 export function compactActiveThreadItemForRenderer(item) {
   if (!item || typeof item !== "object" || Array.isArray(item)) return item;
   if (ACTIVE_CONVERSATION_ITEM_TYPES.has(String(item.type || ""))) return item;
-  return compactActiveProcessValue(item);
+  const compacted = compactActiveProcessValue(item);
+  if (!businessPresentationResult(item)) return compacted;
+  // Tool text is a JSON envelope, not a log. Compact its diagnostic fields
+  // structurally, keeping native deliverables and their completion flags exact.
+  const compactContent = (content) => content.map((entry, index) => {
+    try {
+      const value = JSON.parse(entry.text);
+      if (Array.isArray(value?.presentationItems)) {
+        return { ...entry, text: JSON.stringify({
+          ...compactActiveProcessValue(value), presentationItems: value.presentationItems,
+        }) };
+      }
+    } catch { /* Ordinary tool content keeps the normal process limit. */ }
+    return compactActiveProcessValue(content[index]);
+  });
+  if (item.contentItems) return { ...compacted, contentItems: compactContent(item.contentItems) };
+  if (item.content_items) return { ...compacted, content_items: compactContent(item.content_items) };
+  return { ...compacted, result: { ...compacted.result, content: compactContent(item.result.content) } };
 }
 
 function compactBackgroundHydrationTurn(turn) {
   if (!turn || typeof turn !== "object" || Array.isArray(turn) || !Array.isArray(turn.items)) return turn;
   return {
     ...turn,
-    items: turn.items.filter((item) => BACKGROUND_HYDRATION_ITEM_TYPES.has(String(item?.type || ""))),
+    items: turn.items.flatMap((item) => BACKGROUND_HYDRATION_ITEM_TYPES.has(String(item?.type || ""))
+      ? [item]
+      : businessPresentationItems({ ...item, turnId: turn.id || turn.turnId || turn.turn_id })),
   };
 }
 

@@ -41,7 +41,21 @@ independent trading Skills needed for this user's goal; trading-expert is a comp
 entry only, never a mandatory second router. Non-trading work uses ordinary Codex capabilities.
 Combine skills in this same turn for mixed tasks. Use haolo_market for the captured chart,
 pending workflows and exact catalog IDs. Preserve an explicit @strategy or @indicator.
-For live trading decisions prioritize strategy analysis, native chart drawings and plan cards:
+For live chart analysis load trading-chart-open. Resolve the requested pair and candle
+interval (default 1h, not the forecast horizon), then call haolo_chart_open before analysis
+when a desktop chart is available. Wait for ready=true; use its returned chart throughout
+analysis, drawing and plan presentation. A different pair OR interval requires switching.
+If opening fails, do not analyze or draw on the old chart. Headless scheduled/channel work
+without a chart keeps its existing explicit-market analysis path.
+First distinguish the requested deliverable. Ordinary market questions such as "why did
+BTC suddenly rise", "can it keep rising" or "analyze the current market" need a direct
+written explanation, not an entry plan. Load trading-market-data; read current evidence.
+If cloud analysis is needed, call haolo_analysis with analysisKind=general and omit
+strategyId. Drawing is opt-in for general analysis; do not call haolo_plan_present.
+Explain observed facts, possible causes and continuation/invalidation conditions. Do not
+claim a news catalyst, liquidations or positioning unless the corresponding data was read.
+For explicitly requested strategy/indicator analysis, trading plans or position management,
+use analysisKind=strategy and prioritize strategy analysis, native chart drawings and plan cards:
 haolo_account_read -> haolo_analysis -> haolo_chart_draw -> haolo_plan_present.
 Load the matching trading-analysis-* Skill. Position management defaults to price-action
 unless a different strategy is requested. Account unavailable is not an empty position:
@@ -91,8 +105,11 @@ export class CodexBusinessTools {
     const context = [...this.contexts.values()].find(entry => entry.token === args?.context_id);
     if (!context || context.suspended || context.owner !== this.owner()) throw new Error("This business context has expired. Use the current turn's Host context only.");
     const { context_id, ...argumentsWithoutContext } = args;
-    const readOnly = ["haolo_market", "haolo_account_read"].includes(tool) || tool === "haolo_trading" && ["context", "catalog"].includes(argumentsWithoutContext.action);
-    const id = String(callId || `${context.inputRevision || 0}:${tool}:${readOnly ? crypto.randomUUID() : JSON.stringify(argumentsWithoutContext)}`);
+    // Opening must recheck readiness: ETH -> BTC -> ETH in one turn must
+    // actually return to ETH, not replay the first navigation receipt.
+    const repeatable = ["haolo_market", "haolo_account_read", "haolo_chart_open"].includes(tool) || tool === "haolo_trading" && ["context", "catalog"].includes(argumentsWithoutContext.action);
+    const chartScope = tool === "haolo_analysis" ? context.openedChartScope || "" : "";
+    const id = String(callId || `${context.inputRevision || 0}:${tool}:${chartScope}:${repeatable ? crypto.randomUUID() : JSON.stringify(argumentsWithoutContext)}`);
     return this.invoke({
       threadId: context.threadId, turnId: context.turnId || context.token,
       tool, arguments: argumentsWithoutContext, callId: id,
@@ -180,6 +197,15 @@ export class CodexBusinessTools {
         context.accountReadAt = Date.now();
         return result;
       }
+      if (args.action === "chart_open") {
+        if (context.executeTrading) throw new Error("No desktop chart is available in this execution context. Continue explicit-market analysis without claiming a chart was opened.");
+        const result = await execute(args);
+        assertActive();
+        if (result?.ready === true && result.chart?.marketId && result.chart?.interval) {
+          context.openedChartScope = `${result.chart.marketId}:${result.chart.interval}`;
+        }
+        return result;
+      }
       if (args.action === "market_data") {
         const result = await execute({ action: args.operation === "catalog" ? "catalog" : args.operation === "context" ? "context" : "market_data" });
         if (args.operation !== "context") return result;
@@ -197,6 +223,7 @@ export class CodexBusinessTools {
         if (analysisRef) {
           const record = await this.artifacts.get(context.owner, visibleThread, analysisRef);
           latestAnalysis = { analysisRef, createdAt: record.createdAt, strategyId: record.metadata.strategyId,
+            analysisKind: record.metadata.analysisKind,
             symbol: record.result.result?.symbol, interval: record.result.result?.interval,
             marketId: record.result.result?.marketId, summary: record.result.result?.report?.slice(0, 1200) };
         }
@@ -211,24 +238,31 @@ export class CodexBusinessTools {
         if (!explicit.length && single) explicit.push(single);
         if (explicit.length && args.strategyId && !explicit.includes(args.strategyId)) throw new Error("Preserve the user's explicitly selected strategy/indicator.");
         if (explicit.length > 1 && !args.strategyId) throw new Error("Run each explicitly selected strategy/indicator with its exact ID.");
-        if (!args.strategyId) args.strategyId = explicit[0] || (args.positionManagementRequested ? "price-action" : undefined);
+        const analysisKind = args.analysisKind || (args.strategyId || explicit.length || args.positionManagementRequested ? "strategy" : "general");
+        if (analysisKind === "general" && (args.strategyId || explicit.length || args.positionManagementRequested)) {
+          throw new Error("General market analysis must omit strategyId and position management. Use strategy analysis for an explicitly requested strategy or position plan.");
+        }
+        args.analysisKind = analysisKind;
+        if (!args.strategyId) args.strategyId = explicit[0] || (analysisKind === "strategy" ? "price-action" : undefined);
         if (explicitNoDrawingRequested(context.userText)) args.drawingRequested = false;
-        const result = await execute({ ...args, drawingRequested: args.drawingRequested !== false });
+        const drawingRequested = args.drawingRequested ?? (analysisKind === "strategy");
+        const result = await execute({ ...args, drawingRequested });
         assertActive();
         if (typeof result?.result?.report !== "string" || !result.result.report.trim()) {
           return { ...result, status: "analysis-unavailable" };
         }
         const analysisRef = await this.artifacts.put(context.owner, visibleThread, result, {
-          drawingRequested: args.drawingRequested !== false, positionManagementRequested: args.positionManagementRequested === true,
-          strategyId: args.strategyId,
+          drawingRequested, positionManagementRequested: args.positionManagementRequested === true,
+          strategyId: args.strategyId, analysisKind,
         });
         assertActive();
         await this.artifacts.currentDraft(context.owner, visibleThread, "analysis", analysisRef);
         assertActive();
-        return { analysisRef, result: result.result ? {
+        return { analysisRef, analysisKind, result: result.result ? {
           report: result.result.report, marketId: result.result.marketId, symbol: result.result.symbol,
           interval: result.result.interval, analysisJobId: result.result.analysisJobId,
-        } : result, next: args.drawingRequested === false ? ["haolo_plan_present"] : ["haolo_chart_draw", "haolo_plan_present"] };
+        } : result, next: [...(drawingRequested ? ["haolo_chart_draw"] : []), ...(analysisKind === "strategy" ? ["haolo_plan_present"] : [])],
+          ...(analysisKind === "general" ? { delivery: "Answer the user's market question in your final text using this evidence. Do not turn it into an entry plan." } : {}) };
       }
       if (["alert_step", "personal_step", "simulate", "plan_manage"].includes(args.action) || args.action === "draw" && args.draftRef) {
         return executeTradingWorkflow({ args, context, thread: visibleThread, artifacts: this.artifacts, execute, assertActive });
@@ -236,6 +270,9 @@ export class CodexBusinessTools {
       if (["draw", "present"].includes(args.action)) {
         const record = await this.artifacts.get(context.owner, visibleThread, args.analysisRef);
         assertActive();
+        if (args.action === "present" && record.metadata.analysisKind === "general") {
+          throw new Error("This is general market analysis, not an entry plan. Answer the user's question in your final text using the analysis report.");
+        }
         if (args.action === "draw" && record.metadata.drawingRequested === false) throw new Error("This analysis explicitly disabled drawing.");
         // Delivery belongs to this request, not to the cached analysis. A
         // display-only follow-up may have different remaining work.

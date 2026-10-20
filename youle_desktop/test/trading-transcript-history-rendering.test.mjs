@@ -5,6 +5,7 @@ import ts from "typescript";
 import { withTradingTranscriptItems } from "../src/main/trading-expert-transcript.mjs";
 import { executionPlanCandidatesFromText } from "../src/renderer/execution-plans.ts";
 import { isCompletedTradingAnalysisReport } from "../src/renderer/trading-analysis-completion.ts";
+import { businessPresentationItems } from "../src/shared/codex-business-presentation.mjs";
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
@@ -43,7 +44,7 @@ function harness() {
   const state = { items: { thread: {} }, resultProcessExpanded: {} };
   const firstString = (...values) => values.find((value) => typeof value === "string" && value.trim())?.trim() || "";
   const deps = {
-    state, firstString, isCompletedTradingAnalysisReport, localHistoryAheadThreadIds: new Set(["thread"]),
+    state, firstString, isCompletedTradingAnalysisReport, businessPresentationItems, localHistoryAheadThreadIds: new Set(["thread"]),
     liveConversationSupplementIds: new Set(), interruptedCodexTurnIds: new Set(),
     agentMessagePhase: (item) => item?.phase || "",
     itemSortTime: (item) => Date.parse(item?.createdAt) || null,

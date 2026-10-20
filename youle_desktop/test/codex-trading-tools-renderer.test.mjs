@@ -4,6 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 import crypto from "node:crypto";
 import ts from "typescript";
+import { resolveCodexChartTarget } from "../src/renderer/codex-chart-target.mjs";
 
 const source = fs.readFileSync(new URL("../src/renderer/codex-trading-tools.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, {
@@ -15,7 +16,7 @@ function harness() {
   let live = { marketId: "BINANCE:FUTURES:BTCUSDT", symbol: "BTCUSDT", interval: "60" };
   let chart = { marketId: live.marketId, candles: [{ time: 1, close: 100 }] };
   const exports = {};
-  vm.runInNewContext(compiled, { exports, crypto, structuredClone, AbortController, require: () => ({
+  vm.runInNewContext(compiled, { exports, crypto, structuredClone, AbortController, require: name => name.includes("codex-chart-target") ? { resolveCodexChartTarget } : ({
     captureTradingExpertAnalysisTarget: () => live,
     tradingExpertAlertContextSnapshot: () => chart,
     releaseTradingExpertAnalysisTarget: target => released.push(target),
@@ -198,6 +199,122 @@ test("analysis-only returns artifacts without presenting cards; present consumes
   assert.equal(artifact.presentationItems.length,0);assert.equal(count,0);
   await h.tools.handle(call(id,"present",{artifact,metadata:{positionManagementRequested:true}}));
   assert.equal(count,1);assert.equal(h.resolved.at(-1).result.presentationItems[0].__youleExecutionPlanPresentation,"position-plan");
+});
+
+function enableChartOpening(h) {
+  h.deps.openChart = async (threadId, requested, target) => {
+    h.calls.push(["open", requested, target]);
+    return { ...target, ...requested, targetId: crypto.randomUUID(), storageSessionId: threadId,
+      capturedAt: Date.now(), candles: [{ close: 200 }, { close: 201 }], visibleCandles: [{ close: 201 }] };
+  };
+}
+
+test("BTC 1h -> ETH 4h waits for chart readiness, updates context, then analyzes/draws/presents that target", async () => {
+  const h = harness(), id = h.tools.capture();
+  enableChartOpening(h);
+  let finish;
+  const open = h.deps.openChart;
+  h.deps.openChart = async (...args) => { await new Promise(resolve => { finish = resolve; }); return open(...args); };
+  const opening = h.tools.handle(call(id, "chart_open", { symbol: "ETH", interval: "4h" }));
+  assert.equal(h.resolved.length, 0, "navigation receipt must wait for candle loading");
+  finish(); await opening;
+  assert.equal(h.resolved.at(-1).result.ready, true);
+  assert.equal(h.resolved.at(-1).result.chart.interval, "240");
+  h.deps.openChart = open;
+  await h.tools.handle(call(id, "context"));
+  assert.equal(h.resolved.at(-1).result.chart.symbol, "ETHUSDT");
+  await h.tools.handle(call(id, "market_data"));
+  assert.equal(h.resolved.at(-1).result.chart.candles[0].close, 201);
+  let analyzedTarget;
+  h.deps.analyze = async (_thread, args, target) => {
+    analyzedTarget = target;
+    assert.equal(args.marketId, "BINANCE:FUTURES:ETHUSDT");
+    assert.equal(args.interval, "240");
+    assert.equal(args.symbol, undefined, "use verified captured market instead of re-resolving its type");
+    return { report: "ETH plan", marketId: target.marketId, interval: target.interval, drawingArtifacts: [{ price: 201 }] };
+  };
+  await h.tools.handle(call(id, "analyze_only", { strategyId: "price-action" }));
+  const artifact = h.resolved.at(-1).result;
+  assert.equal(analyzedTarget.symbol, "ETHUSDT");
+  h.deps.draw = async (_thread, original) => {
+    assert.equal(original, artifact);
+    assert.equal(original.result.interval, "240");
+    h.calls.push(["draw"]);
+  };
+  h.deps.present = async (_thread, original) => {
+    assert.equal(original, artifact);
+    h.calls.push(["present"]);
+  };
+  await h.tools.handle(call(id, "draw", { artifact }));
+  await h.tools.handle(call(id, "present", { artifact, metadata: {} }));
+  assert.deepEqual(h.calls.slice(-2).map(c => c[0]), ["draw", "present"]);
+});
+
+test("analysis preflight opens ETH with default 1h even if the model skipped chart_open", async () => {
+  const h = harness(), id = h.tools.capture();
+  enableChartOpening(h);
+  await h.tools.handle(call(id, "analyze_only", { symbol: "ETHUSDT" }));
+  assert.equal(h.calls[0][0], "open");
+  assert.equal(h.calls[0][1].interval, "60");
+  assert.equal(h.calls[1][0], "analyze");
+  assert.equal(h.calls[1][3].marketId, "BINANCE:FUTURES:ETHUSDT");
+  await h.tools.handle(call(id, "chart_open", { interval: "4h" }));
+  await h.tools.handle(call(id, "chart_open", {}));
+  assert.equal(h.resolved.at(-1).result.chart.interval, "60", "a new open without an interval defaults to 1h");
+  await h.tools.handle(call(id, "analyze_only", { marketId: "BINANCE:SPOT:ETHUSDT", interval: "15m" }));
+  assert.equal(h.calls.at(-1)[3].marketId, "BINANCE:SPOT:ETHUSDT");
+  assert.equal(h.calls.at(-1)[3].interval, "15");
+});
+
+test("Chinese names use the same verified chart -> analysis path, including omitted periods", async () => {
+  for (const [name, symbol] of [["闪迪", "SNDKUSDT"], ["海力士", "SKHYNIXUSDT"], ["美光", "MUUSDT"],
+    ["黄金", "XAUUSDT"], ["原油", "CLUSDT"], ["布伦特原油", "BZUSDT"], ["谷歌", "GOOGLUSDT"]]) {
+    const h = harness(), id = h.tools.capture();
+    enableChartOpening(h);
+    await h.tools.handle(call(id, "chart_open", { symbol: name }));
+    assert.equal(h.resolved.at(-1).result.chart.symbol, symbol, name);
+    assert.equal(h.resolved.at(-1).result.chart.interval, "60", name);
+    await h.tools.handle(call(id, "analyze_only"));
+    assert.equal(h.calls.at(-1)[0], "analyze", name);
+    assert.equal(h.calls.at(-1)[3].symbol, symbol, name);
+    assert.equal(h.calls.at(-1)[3].interval, "60", name);
+  }
+});
+
+test("failed/mismatched/cancelled chart opening never starts analysis or replaces the frozen context", async () => {
+  for (const mode of ["failure", "mismatch", "empty", "cancel", "release"]) {
+    const h = harness(), id = h.tools.capture();
+    enableChartOpening(h);
+    const open = h.deps.openChart;
+    let finish;
+    h.deps.openChart = async (...args) => {
+      if (mode === "failure") throw new Error("Market loading failed");
+      if (["cancel", "release"].includes(mode)) await new Promise(resolve => { finish = resolve; });
+      const next = await open(...args);
+      if (mode === "mismatch") next.marketId = "BINANCE:FUTURES:BTCUSDT";
+      if (mode === "empty") next.candles = [];
+      return next;
+    };
+    const request = call(id, "analyze_only", { symbol: "ETHUSDT", interval: "4h" });
+    const pending = h.tools.handle(request);
+    if (mode === "cancel") await h.tools.handle({ cancel: true, requestId: request.requestId, threadId: "origin" });
+    if (mode === "release") h.tools.release(id);
+    finish?.();
+    await pending;
+    assert.ok(h.resolved.at(-1).error, mode);
+    assert.equal(h.calls.some(c => c[0] === "analyze"), false, mode);
+    await h.tools.handle(call(id, "context"));
+    assert.equal(h.resolved.at(-1).result.chart?.symbol || null, mode === "release" ? null : "BTCUSDT");
+    if (mode !== "release") {
+      enableChartOpening(h);
+      await h.tools.handle(call(id, "analyze_only"));
+      assert.match(h.resolved.at(-1).error, /Retry haolo_chart_open/, "cannot silently analyze BTC after ETH opening failed");
+      await h.tools.handle(call(id, "chart_open", { symbol: "ETH", interval: "4h" }));
+      await h.tools.handle(call(id, "analyze_only"));
+      assert.equal(h.calls.at(-1)[0], "analyze");
+      assert.equal(h.calls.at(-1)[3].symbol, "ETHUSDT");
+    }
+  }
 });
 
 test("personal strategy uses real captured candles or fetches the explicit market, never empty synthetic prices", async () => {

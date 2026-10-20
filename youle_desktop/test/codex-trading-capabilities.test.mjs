@@ -46,7 +46,7 @@ test("artifact references survive restart, preserve values, and reject foreign a
   t.after(() => fs.rm(directory, {recursive:true,force:true}));
   let h = harness(new CodexTradingArtifacts({directory}));
   await h.call("haolo_account_read");
-  const {analysisRef} = await h.call("haolo_analysis", {drawingRequested:false});
+  const {analysisRef} = await h.call("haolo_analysis", {analysisKind:"strategy",drawingRequested:false});
   h = harness(new CodexTradingArtifacts({directory}));
   await assert.rejects(h.call("haolo_chart_draw",{analysisRef}), /disabled drawing/);
   await h.call("haolo_plan_present",{analysisRef});
@@ -140,7 +140,7 @@ test("fresh Codex roots discover only the same visible conversation's last busin
 test("native delivery completion follows the current request even when the analysis presentation is cached", async () => {
   const h = harness();
   await h.call("haolo_account_read");
-  const { analysisRef } = await h.call("haolo_analysis");
+  const { analysisRef } = await h.call("haolo_analysis", { analysisKind: "strategy" });
   const mixed = await h.call("haolo_plan_present", { analysisRef, hasRemainingWork: true });
   assert.equal(h.calls.at(-1).arguments.metadata.hasRemainingWork, true);
   assert.equal(mixed.presentationItems[0].__youleNativeResponseComplete, false);
@@ -154,4 +154,65 @@ test("native delivery completion follows the current request even when the analy
   const external = await h.call("haolo_plan_present", { analysisRef });
   assert.equal(external.presentationItems[0].__youleNativeResponseComplete, false, "explicit external-model answer still needs delivery");
   assert.throws(() => tradingCapabilityArguments("haolo_plan_present", { analysisRef, hasRemainingWork: "true" }), /Invalid/);
+});
+
+test("ordinary market analysis defaults to an answer, not automatic drawings or a plan", async () => {
+  const h = harness();
+  h.bind().userText = "现在比特币怎么突然涨了，还能继续涨吗";
+  await h.call("haolo_account_read");
+  const analysis = await h.call("haolo_analysis");
+  const request = h.calls.at(-1).arguments;
+  assert.equal(request.analysisKind, "general");
+  assert.equal(request.strategyId, undefined);
+  assert.equal(request.drawingRequested, false);
+  assert.equal(analysis.result.report, "verified");
+  assert.deepEqual(analysis.next, []);
+  assert.match(analysis.delivery, /final text/);
+  await assert.rejects(h.call("haolo_plan_present", { analysisRef: analysis.analysisRef }), /general market analysis/);
+  await assert.rejects(h.call("haolo_chart_draw", { analysisRef: analysis.analysisRef }), /disabled drawing/);
+  assert.equal(h.calls.filter(c => c.arguments?.action === "present").length, 0);
+  const context = await h.call("haolo_market", { operation: "context" });
+  assert.equal(context.latestAnalysis.analysisKind, "general");
+});
+
+test("general explanation may request a drawing without becoming a plan, including after restart", async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "haolo-market-explanation-"));
+  t.after(() => fs.rm(directory, {recursive:true,force:true}));
+  let h = harness(new CodexTradingArtifacts({directory}));
+  h.bind().userText = "解释这次上涨，并标出关键位置";
+  await h.call("haolo_account_read");
+  const analysis = await h.call("haolo_analysis", { analysisKind: "general", drawingRequested: true });
+  assert.deepEqual(analysis.next, ["haolo_chart_draw"]);
+  await h.call("haolo_chart_draw", { analysisRef: analysis.analysisRef });
+  h = harness(new CodexTradingArtifacts({directory}));
+  await assert.rejects(h.call("haolo_plan_present", { analysisRef: analysis.analysisRef }), /general market analysis/);
+  assert.equal(h.calls.length, 0);
+});
+
+test("explicit plan and position requests retain strategy defaults and native presentation", async () => {
+  for (const args of [{ analysisKind: "strategy" }, { positionManagementRequested: true }]) {
+    const h = harness();
+    h.bind().userText = args.positionManagementRequested ? "分析我的仓位怎么调整" : "给我一个交易计划";
+    await h.call("haolo_account_read");
+    const analysis = await h.call("haolo_analysis", args);
+    assert.equal(analysis.analysisKind, "strategy");
+    assert.equal(h.calls.at(-1).arguments.strategyId, "price-action");
+    assert.deepEqual(analysis.next, ["haolo_chart_draw", "haolo_plan_present"]);
+    const result = await h.call("haolo_plan_present", { analysisRef: analysis.analysisRef });
+    assert.equal(result.presentationItems.length, 1);
+  }
+});
+
+test("general and strategy modes cannot silently override explicit strategies or positions", async () => {
+  const h = harness();
+  await h.call("haolo_account_read");
+  for (const args of [
+    { analysisKind: "general", strategyId: "price-action" },
+    { analysisKind: "general", positionManagementRequested: true },
+  ]) await assert.rejects(h.call("haolo_analysis", args), /General market analysis must omit/);
+  h.bind().userText = "@策略:缠论 分析BTC";
+  await h.call("haolo_account_read");
+  await assert.rejects(h.call("haolo_analysis", { analysisKind: "general" }), /explicitly requested strategy/);
+  assert.equal(h.calls.filter(c => c.arguments?.action === "analyze_only").length, 0);
+  assert.throws(() => tradingCapabilityArguments("haolo_analysis", { analysisKind: "guess" }), /Invalid/);
 });

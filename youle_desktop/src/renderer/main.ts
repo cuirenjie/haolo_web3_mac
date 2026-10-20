@@ -104,6 +104,7 @@ import { ensureBrowserDesktopApi } from "./browser_mock";
 import {
   applyTradingExpertCustomIndicatorMentions,
   captureTradingExpertAnalysisTarget,
+  openTradingExpertAnalysisChart,
   collapseTradingExpertWatchlist,
   ensureTradingExpertChartIndicatorVisible,
   TRADING_EXPERT_TREND_BAND_MENTION,
@@ -5891,9 +5892,9 @@ const codexTradingTools = new CodexTradingTools({
     personalStrategy: personalStrategyConversationStateForThread(threadId),
     preferences: tradingPreferenceOnboardingByThreadId.get(threadId)?.stage || null,
   }),
+  openChart: (threadId, requested, target, signal) => openTradingExpertAnalysisChart(target, requested, threadId, signal),
   analyze: async (threadId, args, target) => {
     const request = { ...args, mode: "chart-analysis" as const, instruction: String(args.instruction || ""), drawingRequested: args.drawingRequested === true };
-    if (args.marketId && args.marketId !== target?.marketId) target = null;
     if (args.strategyId) {
       const strategy = tradingStrategyById(args.strategyId);
       if (!strategy || strategy.enabled === false) throw new Error("Unknown or disabled strategy. Read the current catalog before selecting a strategy.");
@@ -16515,7 +16516,9 @@ function orderedThreadItems(thread: any, existingItems: CodexItem[] = [], option
     if (!isContextCompactionItem(row.item)) continue;
     row.item = mergeCompactionItem(existingItems.find((item) => itemStableId(item) === itemStableId(row.item)), row.item);
   }
-  const incomingItems = rows.map((row) => row.item);
+  // Native cards are nested in tool results. Treat them as incoming too, so a
+  // local copy cannot be appended at the end or overwrite replayed delivery flags.
+  const incomingItems = rows.flatMap(({ item }) => [item, ...businessPresentationItems(item)]);
   const incomingIds = new Set(incomingItems.map(itemStableId).filter((id): id is string => Boolean(id)));
   existingItems.forEach((item, itemIndex) => {
     if (!shouldPreserveExistingThreadItem(item, incomingIds, incomingItems, options)) return;
@@ -31550,8 +31553,7 @@ async function runTradingGeneralChartRequest(
       result.report,
       undefined,
       undefined,
-      request.positionManagementRequested === true ? "plain" : "execution-plan",
-      result.cloudReports,
+      "plain",
     );
     if(await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem])) {
       await api.tradingCloudRecovery?.("acknowledgeGroup",analysisId).catch(()=>{});
@@ -31576,7 +31578,7 @@ async function runTradingGeneralChartRequest(
         report,
         undefined,
         undefined,
-        request.positionManagementRequested === true ? "plain" : "execution-plan",
+        "plain",
       );
       await persistCompletedTradingExpertTranscript(targetThreadId(), [...transcriptItems, reportItem]);
     }
@@ -74546,7 +74548,10 @@ function withCollapsedTurnResults(threadId: string, messages: Message[]) {
     if (!isTurnResultGroupComplete(threadId, group.turnKey, groupIndex === groups.length - 1)) continue;
     const finalIndex = group.outputIndexes[group.outputIndexes.length - 1];
     const collapsedIndexes = turnResultProcessIndexes(messages, finalIndex)
-      .filter((index) => group.processStartIndex == null || index >= group.processStartIndex);
+      .filter((index) => group.processStartIndex == null || index >= group.processStartIndex)
+      // A later card or late process event does not make an earlier final
+      // answer process output, including historical snapshots with stale order.
+      .filter((index) => agentMessagePhase(state.items[threadId]?.[messages[index].id]) !== "final_answer");
     if (!collapsedIndexes.length) continue;
     const key = turnResultStateKey(threadId, group.turnKey);
     const expanded = state.resultProcessExpanded[key] === true;

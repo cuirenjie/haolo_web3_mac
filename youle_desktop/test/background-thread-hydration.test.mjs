@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { businessPresentationItems, businessPresentationResult } from "../src/shared/codex-business-presentation.mjs";
 
 import {
   compactActiveThreadNotification,
@@ -113,6 +114,24 @@ test("active hydration replaces oversized historical tool data images with a val
     text: `[historical tool image omitted from renderer: ${imageUrl.length} chars]`,
   });
   assert.equal(imageBlock.image_url, imageUrl, "the canonical historical image must stay untouched");
+});
+
+test("native MCP and dynamic tool envelopes remain parseable without unbounding process logs", () => {
+  const card = { id: "card", type: "agentMessage", text: "native answer", phase: "final_answer",
+    __youleNativeResponseComplete: false, __youleExecutionPlanPresentation: "execution-plan" };
+  for (const shape of ["mcp", "camel", "snake"]) {
+    const content = [{ type: shape === "mcp" ? "text" : "inputText",
+      text: JSON.stringify({ presentationItems: [card], result: { diagnostic: "x".repeat(500_000) } }) }];
+    const tool = { id: "tool", tool: "haolo_plan_present", type: shape === "mcp" ? "mcpToolCall" : "dynamicToolCall",
+      ...(shape === "mcp" ? { result: { content } } : shape === "camel" ? { contentItems: content } : { content_items: content }) };
+    const input = { thread: { turns: [{ id: "new-turn", items: [tool] }] } };
+    const compacted = compactActiveThreadReadResult(input).thread.turns[0].items[0];
+    assert.deepEqual(businessPresentationItems(compacted), [card]);
+    assert.ok(businessPresentationResult(compacted).result.diagnostic.length < 17_000);
+    assert.equal(content[0].text.length > 500_000, true, "stored tool output is immutable");
+    const background = compactBackgroundThreadReadResult(input).thread.turns[0].items;
+    assert.deepEqual(background, [{ ...card, turnId: "new-turn" }]);
+  }
 });
 
 test("thread started notifications use the same active snapshot compaction", () => {

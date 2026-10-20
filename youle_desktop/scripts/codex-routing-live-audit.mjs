@@ -117,12 +117,16 @@ function execute(row, args) {
   row.effects.push({ ...args, artifact: args.artifact ? "[Host-owned artifact]" : undefined, simulation: args.simulation ? "[Host-owned simulation]" : undefined });
   if (args.action === "context") return { chart: row.noChart ? null : { symbol: "BTCUSDT", interval: "1h", marketId: "BINANCE:FUTURES:BTCUSDT" }, pending: null };
   if (args.action === "catalog") return { strategies: OFFICIAL_TRADING_CATALOG };
-  if (args.action === "market_data") return { symbol: "BTCUSDT", interval: "1h", close: 81000, source: "synthetic audit data" };
+  if (args.action === "market_data") return row.marketQuestion
+    ? { symbol: "BTCUSDT", interval: "1h", close: 83187.3, changePercent: 1.31, volumeVsPreviousClosedHour: 3.2,
+      resistance: [83103, 83213], source: "synthetic audit candles", news: null, openInterest: null, liquidations: null }
+    : { symbol: "BTCUSDT", interval: "1h", close: 81000, source: "synthetic audit data" };
   if (args.action === "analyze_only") {
     if (row.cloudFailure) return { result: { error: "Cloud strategy temporarily unavailable; no analysis or plan exists" } };
     if (row.noChart && !args.symbol && !args.marketId) return { result: { question: "请指定交易品种和周期。" } };
     return { result: {
-      report: row.noCandidate ? "云端计算结果：当前无有效入场候选，建议观望，不生成可执行开仓计划。"
+      report: args.analysisKind === "general" ? "公开K线显示本小时涨幅1.31%，成交量为上一完整小时的3.2倍，价格回到83103至83213阻力区。放量突破后守住该区才支持延续，收盘跌回则突破失败。没有新闻、持仓量或爆仓数据，不能确认拉升的事件原因。"
+        : row.noCandidate ? "云端计算结果：当前无有效入场候选，建议观望，不生成可执行开仓计划。"
         : `云端 ${args.strategyId || "general"} 分析：趋势震荡，等待突破确认。计划：观察 82000 阻力与 79000 支撑，暂不下单。${row.unbound ? "账户未绑定，不提供按账户计算的仓位数量。" : ""}`,
       symbol: args.symbol || "BTCUSDT", interval: args.interval || "1h",
       marketId: args.marketId || "BINANCE:FUTURES:BTCUSDT", analysisJobId: `synthetic-${row.id}-${row.effects.length}`,
@@ -140,6 +144,16 @@ function execute(row, args) {
   throw new Error(`Unconfigured synthetic effect: ${args.action}`);
 }
 const successful = (row, tool) => row.calls.filter(c => c.tool === tool && c.ok);
+function marketQuestionChecks(row) {
+  assert.equal(row.calls.some(c => ["haolo_plan_present", "haolo_chart_draw", "haolo_trading"].includes(c.tool)), false, "Market explanations must not enter the plan pipeline");
+  assert.ok(row.effects.some(e => e.action === "market_data" || e.action === "analyze_only"), "Read market evidence before answering");
+  for (const analysis of row.effects.filter(e => e.action === "analyze_only")) {
+    assert.equal(analysis.analysisKind, "general");
+    assert.equal(analysis.strategyId, undefined);
+    assert.equal(analysis.drawingRequested, false);
+  }
+  assert.ok(row.answer.length > 60, "A substantive explanation must be delivered");
+}
 function analysisChecks(row, ids, { noDraw = false } = {}) {
   const account = row.calls.findIndex(c => c.tool === "haolo_account_read" && c.ok);
   assert.ok(account >= 0, "Account must be read");
@@ -237,6 +251,9 @@ async function runProductionRunner(spec) {
   }
 }
 const scenarios = [
+  { id: "market-rally-question", marketQuestion: true, noChart: true, prompt: "现在比特币怎么突然涨了，还能继续涨吗", check: marketQuestionChecks },
+  { id: "market-general-overview", marketQuestion: true, noChart: true, prompt: "帮我分析一下 BTCUSDT 币安永续 1小时现在的行情。", check: marketQuestionChecks },
+  { id: "market-explicit-plan", noChart: true, prompt: "为 BTCUSDT 币安永续 1小时制定一个交易计划，画出关键价位并展示计划卡片。", check: r => analysisChecks(r, ["price-action"]) },
   { id: "ordinary-writing", prompt: "帮我写一句祝同事生日快乐的话，简短自然。", check: r => assert.equal(r.calls.length, 0) },
   { id: "ordinary-code", prompt: "写一个 JavaScript 数组去重函数，解释一句即可。", check: r => { assert.equal(r.calls.length, 0); assert.match(r.answer, /Set|filter|reduce/); } },
   { id: "ordinary-file-read", prompt: "读取当前工作目录里的 expenses.json，计算 expenses 数组的合计，告诉我结果。", check: r => { assert.equal(r.calls.length, 0); assert.match(r.answer, /87/); assert.ok(r.commands?.some(c => c.exitCode === 0), "A real file command is required"); } },

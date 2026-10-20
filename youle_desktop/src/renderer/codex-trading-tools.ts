@@ -4,13 +4,15 @@ import {
   tradingExpertAlertContextSnapshot,
   type TradingAnalysisTaskTarget,
 } from "./trading-expert-market";
+import { resolveCodexChartTarget, type CodexChartTarget } from "./codex-chart-target.mjs";
 
-type Context = { target: TradingAnalysisTaskTarget | null; attachments: any[]; alertContext: any; held?: boolean; releaseRequested?: boolean };
+type Context = { target: TradingAnalysisTaskTarget | null; attachments: any[]; alertContext: any; chartOpened?: boolean; chartOpenFailed?: boolean; held?: boolean; releaseRequested?: boolean };
 type Dependencies = {
   api: any;
   responseId?: (threadId: string) => string | null;
   catalog: () => any[] | Promise<any[]>;
   pending: (threadId: string) => unknown;
+  openChart?: (threadId: string, requested: CodexChartTarget, target: TradingAnalysisTaskTarget | null, signal: AbortSignal) => Promise<TradingAnalysisTaskTarget>;
   analyze: (threadId: string, args: any, target: TradingAnalysisTaskTarget | null) => Promise<unknown>;
   draw?: (threadId: string, artifact: any) => Promise<unknown>;
   present?: (threadId: string, artifact: any, metadata: any) => Promise<unknown>;
@@ -106,7 +108,7 @@ export class CodexTradingTools {
     }
     const { requestId, threadId, arguments: args } = payload;
     const context = this.contexts.get(payload.contextId);
-    const target = rebindTradingExpertAnalysisTargetStorageSession(context?.target, threadId);
+    let target = rebindTradingExpertAnalysisTargetStorageSession(context?.target, threadId);
     let result: unknown;
     try {
       if (this.collectors.has(threadId)) throw new Error("Another trading tool is already running in this conversation.");
@@ -120,9 +122,9 @@ export class CodexTradingTools {
       } else if (args.action === "market_data") {
         result = { chart: target ? { marketId: target.marketId, symbol: target.symbol, interval: target.interval,
           capturedAt: target.capturedAt, candles: target.visibleCandles } : null,
-          source: "send-time-chart", authoritativeAnalysisSource: "cloud" };
+          source: context?.chartOpened ? "opened-chart" : "send-time-chart", authoritativeAnalysisSource: "cloud" };
       } else {
-        if (!context && ["alert", "personal_strategy", "preferences", "draft_prepare"].includes(args.action)) throw new Error("The original user input context is unavailable; resend the message.");
+        if (!context && ["chart_open", "alert", "personal_strategy", "preferences", "draft_prepare"].includes(args.action)) throw new Error("The original user input context is unavailable; resend the message.");
         if (["analyze", "analyze_only"].includes(args.action) && !target && !args.symbol && !args.marketId) {
           throw new Error("No chart was captured for this message. Ask the user for a symbol/market and interval.");
         }
@@ -137,10 +139,40 @@ export class CodexTradingTools {
         const controller = new AbortController();
         this.controllers.set(requestId, controller);
         try {
-          if (["analyze", "analyze_only"].includes(args.action)) result = await this.deps.analyze(threadId, {
-            ...args, instruction: args.instruction || payload.userText,
-            deferPresentation: args.action === "analyze_only",
-          }, target);
+          const openChart = async (reuseOpenedInterval = false) => {
+            if (!context || !this.deps.openChart) throw new Error("Chart opening capability is unavailable.");
+            context.chartOpenFailed = true;
+            const requested = resolveCodexChartTarget(args, target, { reuseOpenedInterval });
+            const next = await this.deps.openChart(threadId, requested, target, controller.signal);
+            if (controller.signal.aborted || this.contexts.get(payload.contextId) !== context) {
+              releaseTradingExpertAnalysisTarget(next);
+              throw new Error("Chart opening was cancelled or its context expired.");
+            }
+            if (next.marketId !== requested.marketId || next.interval !== requested.interval
+                || next.symbol !== requested.symbol || next.candles.length < 2) {
+              releaseTradingExpertAnalysisTarget(next);
+              throw new Error("The requested chart candles are not ready.");
+            }
+            releaseTradingExpertAnalysisTarget(context.target);
+            context.target = next;
+            context.chartOpened = true;
+            context.chartOpenFailed = false;
+            context.alertContext = structuredClone(tradingExpertAlertContextSnapshot());
+            target = rebindTradingExpertAnalysisTargetStorageSession(next, threadId);
+            return { ready: true, chart: { marketId: next.marketId, symbol: next.symbol, interval: next.interval, capturedAt: next.capturedAt } };
+          };
+          if (args.action === "chart_open") result = await openChart();
+          else if (["analyze", "analyze_only"].includes(args.action)) {
+            if (context?.chartOpenFailed) throw new Error("The requested chart did not open. Retry haolo_chart_open successfully before analysis.");
+            // Desktop analysis must not outrun a pair/interval change, even if
+            // the orchestrator omitted the explicit chart-open step.
+            if (target && this.deps.openChart) await openChart(context?.chartOpened === true);
+            result = await this.deps.analyze(threadId, {
+              ...args, instruction: args.instruction || payload.userText,
+              ...(context?.chartOpened && target ? { marketId: target.marketId, symbol: undefined, interval: target.interval } : {}),
+              deferPresentation: args.action === "analyze_only",
+            }, target);
+          }
           else if (args.action === "draw") {
             if (!this.deps.draw) throw new Error("Drawing capability is unavailable.");
             result = await this.deps.draw(threadId, args.artifact);
@@ -160,7 +192,7 @@ export class CodexTradingTools {
             }, controller.signal);
           }
           else throw new Error("Unsupported trading workflow.");
-          result = { result: result ?? null, presentationItems: items, pending: this.deps.pending(threadId) };
+          if (args.action !== "chart_open") result = { result: result ?? null, presentationItems: items, pending: this.deps.pending(threadId) };
         } finally {
           this.collectors.delete(threadId);
           this.presentationResponseIds.delete(threadId);

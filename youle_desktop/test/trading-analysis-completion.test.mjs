@@ -6,10 +6,14 @@ import ts from "typescript";
 import { businessPresentationItems, businessPresentationResult } from "../src/shared/codex-business-presentation.mjs";
 import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "../src/renderer/trading-analysis-completion.ts";
 import { activeThinkingResponseId, isFinalAnswerForThinkingResponse } from "../src/renderer/thinking-indicator.ts";
+import { compactActiveThreadReadResult, compactBackgroundThreadReadResult } from "../src/main/background-thread-hydration.mjs";
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
 const functions = [
+  "orderedThreadItems", "flattenThreadItemRows", "incomingTurnIndexById",
+  "preservedExistingThreadItemRow", "preservedSameTurnItemIndex", "compareThreadItemRows",
+  "shouldPreserveExistingThreadItem", "shouldPreserveLocalHistoryAheadItem", "latestSortTime", "itemStableId",
   "upsertItem", "appendTradingExpertReport", "isThreadBusy", "isProviderThreadBusy",
   "activeWorkflowRunForThread", "completedTradingAnalysisForTurn", "hasActiveCompletedTradingAnalysis",
   "isConversationThreadWorking", "isComposerThreadBusy", "isTradingExpertConversationCollapseLocked",
@@ -55,6 +59,19 @@ function harness() {
     submittingComposerThreadIds: new Set(),
     tradingExpertThinkingStateByThreadId: new Map(),
     localHistoryAheadThreadIds: new Set(),
+    liveConversationSupplementIds: new Set(),
+    itemSequence: () => null,
+    firstFiniteNumber: values => values.find(Number.isFinite) ?? null,
+    preserveLiveConversationSupplementOrder: noop,
+    isContextCompactionItem: () => false, isExternalChannelBridgeUserMessageId: () => false,
+    isExternalChannelAgentThreadId: () => false, isSubagentProcessItem: () => false,
+    isMatchingAgentMessage: (left, right) => left.id === right.id,
+    isPreservableLocalHistoryItem: item => item.type === "agentMessage",
+    matchingIncomingThreadItem: (item, incoming) => incoming.find(candidate => candidate.id === item.id),
+    localHistoryContentScore: item => item.text?.length || 0,
+    isInFlightSnapshotItem: () => false, activeTradingExpertAnalysisJobIds: () => [],
+    compareUnmatchedExternalChannelBridgeRowsByTime: () => 0,
+    conversationSupplementIdFromItem: () => null,
     internalSubagentThreadIds: new Set(),
     groupBlankThreadIds: new Set(),
     suppressCreatedAtStamp: false, codexItemLocalSequence: 0,
@@ -230,6 +247,56 @@ test("native delivery projection preserves attachments, errors, prior commentary
   assert.equal(result.find(item => item.id === "report"), card);
   assert.equal(items[2].text, "重复总结");
   assert.equal(items[3].__youleExecutionPlanPresentation, undefined, "projection never rewrites persisted items");
+});
+
+for (const hydration of [compactActiveThreadReadResult, compactBackgroundThreadReadResult]) {
+  for (const warm of [false, true]) {
+    test(`${hydration.name} ${warm ? "warm refresh" : "cold reopen"} retains long cards and the requested final explanation`, () => {
+      const h = harness(), c = h.context;
+      const card = { id: "plan", type: "agentMessage", phase: "final_answer", text: `conditional plan ${"x".repeat(30_000)}`,
+        turnId: "turn-1", __youleExecutionPlanPresentation: "execution-plan", __youleNativeResponseComplete: false,
+        __youleCloudReports: [{ entryPrice: 83157.9, stopLoss: 83775.7 }] };
+      const progress = { id: "progress", type: "agentMessage", phase: "commentary", text: "checking candles", turnId: "turn-1" };
+      const answer = { id: "answer", type: "agentMessage", phase: "final_answer", text: "The rally and continuation conditions explained.", turnId: "turn-1" };
+      const tool = { id: "tool", type: "mcpToolCall", tool: "haolo_plan_present", status: "completed", turnId: "turn-1",
+        result: { content: [{ type: "text", text: JSON.stringify({
+          result: { analysisJobId: "run-1", diagnostic: "z".repeat(200_000) }, presentationItems: [card],
+        }) }] } };
+      const snapshot = { thread: { turns: [{ id: "turn-1", status: "completed", items: [progress, tool, answer] }] } };
+      c.activeCodexThreadIds.clear(); h.setTurn(null);
+      if (warm) c.localHistoryAheadThreadIds.add("origin");
+      const existing = warm ? [progress, card, answer] : [];
+      const compacted = hydration(snapshot);
+      const ordered = c.orderedThreadItems(compacted.thread, existing, { threadId: "origin", preserveUnmatched: true });
+      for (const item of ordered) c.upsertItem("origin", item);
+      const visible = c.messagesForThread("origin");
+      assert.deepEqual(Array.from(visible, item => item.id), ["plan", "answer"]);
+      assert.equal(visible[0].text, card.text, "native text must survive even when it alone exceeds the process limit");
+      assert.equal(visible[1].executionPlanPresentation, "plain");
+      assert.deepEqual(c.state.items.origin.plan.__youleCloudReports, card.__youleCloudReports);
+      assert.equal(c.state.items.origin.plan.__youleNativeResponseComplete, false);
+      assert.equal(c.state.items.origin.plan.turnId, "turn-1");
+      assert.equal(tool.result.content[0].text.includes("process output truncated"), false);
+    });
+  }
+}
+
+test("a recovered card or late commentary cannot fold an earlier final answer", () => {
+  for (const late of [
+    { id: "late-card", __youleExecutionPlanPresentation: "execution-plan", __youleNativeResponseComplete: false, phase: "final_answer" },
+    { id: "late-progress", phase: "commentary" },
+  ]) {
+    const h = harness(), c = h.context;
+    c.activeCodexThreadIds.clear(); h.setTurn(null);
+    for (const item of [
+      { id: "progress", phase: "commentary", text: "checking" },
+      { id: "answer", phase: "final_answer", text: "requested explanation" },
+      { ...late, text: "late output" },
+    ]) c.upsertItem("origin", { ...item, type: "agentMessage", turnId: "turn-1" });
+    const visible = c.messagesForThread("origin");
+    assert.equal(visible.find(item => item.id === "answer")?.text, "requested explanation");
+    assert.equal(visible.some(item => item.id === "progress"), false);
+  }
 });
 
 test("tool replay restores completed grouping and frozen elapsed time despite pending consumption", () => {

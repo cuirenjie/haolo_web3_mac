@@ -9438,18 +9438,25 @@ class TradingExpertMarketWorkspace {
     }, 180);
   }
 
-  async prepareAlertContext(marketId?: string | null, interval?: string | null) {
+  async prepareAlertContext(
+    marketId?: string | null, interval?: string | null,
+    options: { strictMarketId?: boolean; assertActive?: () => void } = {},
+  ) {
+    options.assertActive?.();
     if (!this.markets.length) await this.loadMarkets();
+    options.assertActive?.();
     const normalizedMarketId = String(marketId || this.selectedMarketId).trim().toUpperCase();
     const targetMarket = this.markets.find((market) => market.id.toUpperCase() === normalizedMarketId)
       || this.favoriteMarketFromId(normalizedMarketId)
-      || this.markets.find((market) => market.symbol.toUpperCase() === normalizedMarketId.replace(/^.*:/, ""));
+      || (!options.strictMarketId && this.markets.find((market) => market.symbol.toUpperCase() === normalizedMarketId.replace(/^.*:/, "")));
     if (!targetMarket) throw new Error(`未找到可用的行情：${normalizedMarketId}`);
     if (!tradingMarketAvailable(targetMarket)) throw new Error(tradingMarketUnavailableMessage(activeTradingAnalysisLanguage()));
     const targetInterval = tradingResolutionFromAlertInterval(interval || tradingAlertIntervalFromResolution(this.activeInterval));
     if (!tradingViewResolutionDurationMs(targetInterval)) throw new Error(`暂不支持 ${interval || targetInterval} K 线周期`);
     const shouldReload = targetMarket.id !== this.loadedMarketId
       || targetInterval !== this.loadedInterval
+      || targetMarket.id !== this.selectedMarketId
+      || targetInterval !== this.activeInterval
       || this.candles.length < 2
       || this.marketLoading;
     if (shouldReload) {
@@ -9463,6 +9470,7 @@ class TradingExpertMarketWorkspace {
       this.setPickerOpen(false);
       await this.restartMarketData();
     }
+    options.assertActive?.();
     if (this.loadedMarketId !== targetMarket.id || this.loadedInterval !== targetInterval || this.candles.length < 2) {
       throw new Error(`${targetMarket.displaySymbol || targetMarket.symbol} ${targetInterval} 行情加载失败`);
     }
@@ -14308,6 +14316,32 @@ export function captureTradingExpertAnalysisTarget() {
     tradingAnalysisTargetWorkspaces.set(target.targetId, activeWorkspace);
   }
   return target;
+}
+
+export async function openTradingExpertAnalysisChart(
+  target: TradingAnalysisTaskTarget | null,
+  requested: { marketId: string; symbol: string; interval: string },
+  threadId: string,
+  signal: AbortSignal,
+) {
+  // Never fall back to the chart of a different conversation.
+  const workspace = target ? tradingAnalysisTargetWorkspaces.get(target.targetId) : activeWorkspace;
+  const assertActive = () => {
+    if (signal.aborted) throw new Error("Chart opening was cancelled.");
+    if (!workspace || workspace !== activeWorkspace || !workspace.drawingStorageSessionMatches(threadId)) {
+      throw new Error("Open the originating conversation before opening its analysis chart.");
+    }
+  };
+  assertActive();
+  await workspace!.prepareAlertContext(requested.marketId, requested.interval, { strictMarketId: true, assertActive });
+  assertActive();
+  const next = workspace!.captureAnalysisTaskTarget();
+  if (!next || next.marketId !== requested.marketId || next.symbol !== requested.symbol
+      || next.interval !== requested.interval || next.candles.length < 2) {
+    throw new Error("The requested chart candles are not ready. Retry chart opening before analysis.");
+  }
+  tradingAnalysisTargetWorkspaces.set(next.targetId, workspace!);
+  return next;
 }
 
 export function rebindTradingExpertAnalysisTargetStorageSession(
