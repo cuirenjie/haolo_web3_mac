@@ -28,6 +28,7 @@ export class CodexTradingTools {
   private contexts = new Map<string, Context>();
   private collectors = new Map<string, any[]>();
   private presentationResponseIds = new Map<string, string>();
+  private presentationCompletion = new Map<string, boolean>();
   private calls = new Map<string, string>();
   private controllers = new Map<string, AbortController>();
   constructor(private deps: Dependencies) {}
@@ -50,8 +51,14 @@ export class CodexTradingTools {
 
   bindPresentation(threadId: string, item: any) {
     const turnId = this.presentationResponseIds.get(threadId);
-    if (!turnId || item?.type !== "agentMessage" || item.turnId || item.turn_id) return item;
-    return { ...item, turnId };
+    if (item?.type !== "agentMessage") return item;
+    const completed = this.presentationCompletion.get(threadId);
+    return {
+      ...item,
+      ...(turnId && !item.turnId && !item.turn_id ? { turnId } : {}),
+      ...(completed !== undefined && ["execution-plan", "position-plan"].includes(item.__youleExecutionPlanPresentation)
+        ? { __youleNativeResponseComplete: completed } : {}),
+    };
   }
 
   updateAttachments(id: string, attachments: any[]) {
@@ -125,6 +132,7 @@ export class CodexTradingTools {
         // response must not attach a late report to whichever turn is active.
         const responseId = this.deps.responseId?.(threadId) || payload.turnId;
         if (responseId) this.presentationResponseIds.set(threadId, responseId);
+        if (args.action === "present") this.presentationCompletion.set(threadId, args.metadata?.hasRemainingWork !== true);
         this.calls.set(requestId, threadId);
         const controller = new AbortController();
         this.controllers.set(requestId, controller);
@@ -156,6 +164,7 @@ export class CodexTradingTools {
         } finally {
           this.collectors.delete(threadId);
           this.presentationResponseIds.delete(threadId);
+          this.presentationCompletion.delete(threadId);
           this.calls.delete(requestId);
           this.controllers.delete(requestId);
         }

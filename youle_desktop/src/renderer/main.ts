@@ -3,7 +3,7 @@ import { CodexTradingWorkflowSteps } from "./codex-trading-workflows";
 import { CodexTradingTools } from "./codex-trading-tools";
 import { ExternalChannelRecoveryTurns } from "./external-channel-recovery.mjs";
 import { businessPresentationItems, businessPresentationResult } from "../shared/codex-business-presentation.mjs";
-import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport } from "./trading-analysis-completion";
+import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "./trading-analysis-completion";
 import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
 import {createExecutionPlanAutoActivator} from './execution-plan-auto-activation';
 import { accountSettingsSync, type SettingValues } from './account-settings-sync.ts';
@@ -2334,6 +2334,7 @@ type CodexItem = {
   __youleTurnCompletedAt?: string | number | null;
   __youleTurnStatus?: string | null;
   __youleExecutionPlanPresentation?: "execution-plan" | "position-plan" | "plain" | null;
+  __youleNativeResponseComplete?: boolean;
   __youleCloudReports?: CloudTradingReport[];
   [key: string]: unknown;
 };
@@ -51768,6 +51769,7 @@ function stableUiHash(value: string) {
 
 function isStreamingAssistantMessage(message: Message, conversationMessages: Message[]) {
   if (!isThreadBusy(message.conversation_id)) return false;
+  if (isCompletedTradingAnalysisReport(state.items[message.conversation_id]?.[message.id])) return false;
   if ((message as MessageUiMeta).workflowRelay) return false;
   if (questionAnswerProgressFromMessage(message)) return false;
   if (isRenderedUserSideMessage(message) || isThinkingMessage(message) || isContextCompactionMessage(message) || isMediaGenerationMessage(message) || message.kind === "agent_card") return false;
@@ -74438,9 +74440,9 @@ async function cancelLoginRestore() {
 function messagesForThread(threadId: string) {
   ensureThreadState(threadId);
   ensureVisibleInsufficientQuotaAgentMessage(threadId);
-  const messages = state.itemOrder[threadId]
-    .filter((id) => !shouldHideChatItem(state.items[threadId][id]))
-    .map((id) => itemToMessage(threadId, id, state.items[threadId][id]))
+  const messages = tradingAnalysisDeliveryItems(state.itemOrder[threadId].map(id => ({ ...state.items[threadId][id], id })))
+    .filter((item) => !shouldHideChatItem(item))
+    .map((item) => itemToMessage(threadId, item.id, item))
     .filter(hasRenderableMessageContent);
   const visibleMessages = withPendingChannelAgentReply(threadId, dedupeRenderedOptimisticUserMessages(dedupeExternalChannelInternalPromptEchoes(threadId, messages)));
   const orderedMessages = preserveLiveConversationSupplementMessageOrder(threadId, visibleMessages);
@@ -74581,7 +74583,8 @@ function turnResultProcessIndexes(messages: Message[], finalIndex: number) {
   return messages
     .slice(firstProcessIndex, finalIndex)
     .map((_, offset) => firstProcessIndex + offset)
-    .filter((index) => !isRenderedUserSideMessage(messages[index]));
+    .filter((index) => !isRenderedUserSideMessage(messages[index])
+      && !["execution-plan", "position-plan"].includes((messages[index] as MessageUiMeta).executionPlanPresentation || ""));
 }
 
 function isTurnResultGroupComplete(threadId: string, turnKey: string, isLatestGroup: boolean) {
@@ -75314,6 +75317,7 @@ function hasActiveFinalAnswerMessage(threadId: string) {
 
 function isFinalAnswerAgentItem(item: CodexItem | undefined) {
   if (!item || item.type !== "agentMessage") return false;
+  if (item.__youleNativeResponseComplete === false) return false;
   return agentMessagePhase(item) === "final_answer";
 }
 

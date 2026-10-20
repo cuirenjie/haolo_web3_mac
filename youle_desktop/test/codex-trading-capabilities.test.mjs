@@ -136,3 +136,22 @@ test("fresh Codex roots discover only the same visible conversation's last busin
   assert.equal((await h.call("haolo_market", { operation: "context" })).latestAnalysis, null);
   await assert.rejects(h.call("haolo_plan_present", { analysisRef }), /unavailable/);
 });
+
+test("native delivery completion follows the current request even when the analysis presentation is cached", async () => {
+  const h = harness();
+  await h.call("haolo_account_read");
+  const { analysisRef } = await h.call("haolo_analysis");
+  const mixed = await h.call("haolo_plan_present", { analysisRef, hasRemainingWork: true });
+  assert.equal(h.calls.at(-1).arguments.metadata.hasRemainingWork, true);
+  assert.equal(mixed.presentationItems[0].__youleNativeResponseComplete, false);
+  h.broker.cancel("root"); h.bind();
+  const complete = await h.call("haolo_plan_present", { analysisRef });
+  assert.equal(complete.presentationItems[0].__youleNativeResponseComplete, true);
+  assert.equal(mixed.presentationItems[0].__youleNativeResponseComplete, false, "cached response adaptation must not mutate earlier delivery");
+  assert.equal(h.calls.filter(c => c.arguments?.action === "present").length, 1, "never repeat the cloud analysis or card effect");
+  h.broker.cancel("root");
+  h.bind().selectedModel = async () => ({ text: "external model answer" });
+  const external = await h.call("haolo_plan_present", { analysisRef });
+  assert.equal(external.presentationItems[0].__youleNativeResponseComplete, false, "explicit external-model answer still needs delivery");
+  assert.throws(() => tradingCapabilityArguments("haolo_plan_present", { analysisRef, hasRemainingWork: "true" }), /Invalid/);
+});

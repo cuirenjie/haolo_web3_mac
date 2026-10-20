@@ -1,7 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createHash} from 'node:crypto';
-import {createCloudStrategyRuntime,cloudMarketContext} from '../src/main/trading-strategy-runtime/cloud-runtime.mjs';
+import {createCloudStrategyRuntime,cloudMarketContext,cloudAccountConnection} from '../src/main/trading-strategy-runtime/cloud-runtime.mjs';
+
+test('account selection consumes server effective consent and excludes missing or revoked bindings', () => {
+  const target = {marketKey:'binance:usdm:BTCUSDT'};
+  const bound = {id:'legacy-or-new',analysisConsent:true,credentialsBound:true};
+  assert.deepEqual(cloudAccountConnection([bound],target),{id:bound.id,unavailable:false});
+  assert.deepEqual(cloudAccountConnection([{...bound,analysisConsent:false}],target),{id:null,unavailable:true});
+  assert.deepEqual(cloudAccountConnection([{...bound,credentialsBound:false}],target),{id:null,unavailable:true});
+  assert.deepEqual(cloudAccountConnection([{...bound,revoked:true}],target),{id:null,unavailable:false});
+  assert.deepEqual(cloudAccountConnection([],target),{id:null,unavailable:false});
+  assert.equal(cloudAccountConnection([bound],{marketKey:'binance:spot:BTCUSDT'}),null);
+  assert.equal(cloudAccountConnection([bound],{marketKey:'binance:usdm:BTCUSDC'}),null);
+  assert.deepEqual(cloudAccountConnection([{...bound,id:'disabled',analysisConsent:false},bound],target),
+    {id:bound.id,unavailable:false});
+});
 
 const configHash='a'.repeat(64);
 const account={ownerId:'account@service',accountId:'account',baseUrl:'https://haolo.example'};

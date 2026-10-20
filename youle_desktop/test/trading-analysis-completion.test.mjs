@@ -4,7 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
 import { businessPresentationItems, businessPresentationResult } from "../src/shared/codex-business-presentation.mjs";
-import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport } from "../src/renderer/trading-analysis-completion.ts";
+import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "../src/renderer/trading-analysis-completion.ts";
 import { activeThinkingResponseId, isFinalAnswerForThinkingResponse } from "../src/renderer/thinking-indicator.ts";
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
@@ -18,6 +18,9 @@ const functions = [
   "turnIdFromResultKey", "normalizedTurnResultStatus", "minFinite", "maxFinite",
   "isConversationSupplementWindowOpen", "hasThreadCodexWork",
   "renderComposerSubmitButton",
+  "messagesForThread", "withCollapsedTurnResults", "turnResultGroups", "turnResultProcessIndexes",
+  "turnResultStateKey", "isTurnResultOutputMessage", "isStreamingAssistantMessage",
+  "queueCodexStreamDelta", "codexStreamDeltaKey", "flushPendingCodexStreamDeltas", "appendDelta",
 ];
 const compiled = ts.transpileModule(
   ast.statements.filter(node => ts.isFunctionDeclaration(node) && functions.includes(node.name?.text))
@@ -38,11 +41,11 @@ function harness() {
   let turnId = "turn-1", finishPresentation;
   const resolved = [];
   const state = { currentThreadId: "origin", activeView: "chat", providerBusy: {}, items: { origin: {} },
-    itemOrder: { origin: [] }, artifacts: [], threadRoles: {}, voiceInput: { status: "idle" } };
+    itemOrder: { origin: [] }, artifacts: [], threadRoles: {}, voiceInput: { status: "idle" }, resultProcessExpanded: {} };
   const noop = () => {};
   const context = {
     state, businessPresentationItems, businessPresentationResult,
-    completedTradingAnalysisReport, isCompletedTradingAnalysisReport,
+    completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems,
     activeThinkingResponseId, isFinalAnswerForThinkingResponse,
     activeTurnIdForThread: () => turnId,
     activeCodexThreadIds: new Set(["origin"]),
@@ -106,6 +109,24 @@ function harness() {
     previousTurnResultUserStartMs: () => null,
     shouldOpenConversationSupplementWindow: () => true,
     conversationSupplementRoutingStateForThread: () => ({}),
+    ensureVisibleInsufficientQuotaAgentMessage: noop,
+    itemToMessage: (threadId, id, item) => ({ id, conversation_id: threadId,
+      kind: item.type === "userMessage" ? "user_text" : "agent_text", text: item.text,
+      attachments: item.attachments, executionPlanPresentation: item.__youleExecutionPlanPresentation }),
+    hasRenderableMessageContent: item => Boolean(item.text?.trim() || item.attachments?.length),
+    withPendingChannelAgentReply: (_, messages) => messages,
+    dedupeRenderedOptimisticUserMessages: messages => messages,
+    dedupeExternalChannelInternalPromptEchoes: (_, messages) => messages,
+    preserveLiveConversationSupplementMessageOrder: (_, messages) => messages,
+    withWorkflowRelayMessages: (_, messages) => messages,
+    isRenderedUserSideMessage: message => message.kind === "user_text",
+    isThinkingMessage: message => message.id?.startsWith("thinking-"),
+    isMediaGenerationMessage: () => false, isContextCompactionMessage: () => false,
+    isLocalStatusThreadItem: () => false, isExternalChannelStatusOutputMessage: () => false,
+    pendingCodexStreamDeltas: new Map(), scheduleCodexStreamUiPatch: noop,
+    isRenderableAgentMessageItem: item => Boolean(item?.text?.trim()),
+    assistantVisibleText: text => text, applySupplementResolutionBlocks: noop,
+    moveNewAgentMessageAfterLiveSupplements: noop, shouldUpdateThreadPreviewForStreamDelta: () => true,
   };
   vm.createContext(context);
   vm.runInContext(compiled, context);
@@ -121,8 +142,8 @@ function harness() {
   });
   context.codexTradingTools = tools;
   return { context, state, tools, resolved, setTurn: id => { turnId = id; }, finish: () => finishPresentation(),
-    present: () => tools.handle({ requestId: "present", threadId: "origin", turnId,
-      arguments: { action: "present", artifact: {}, metadata: {} } }) };
+    present: (metadata = {}) => tools.handle({ requestId: "present", threadId: "origin", turnId,
+      arguments: { action: "present", artifact: {}, metadata } }) };
 }
 
 test("visible native plan completes analysis immediately, before tool acknowledgement or root final text", async () => {
@@ -148,6 +169,67 @@ test("visible native plan completes analysis immediately, before tool acknowledg
   h.finish(); await pending;
   assert.equal(h.resolved[0].result.presentationItems[0].turnId, "turn-1", "durable MCP result retains the same identity");
   assert.equal(h.tools.bindPresentation("origin", { type: "agentMessage" }).turnId, undefined);
+});
+
+test("late closing deltas and terminal/history replay keep the same completed native report on screen", async () => {
+  const h = harness(), c = h.context;
+  const pending = h.present(); h.finish(); await pending;
+  const initial = c.messagesForThread("origin");
+  assert.deepEqual(Array.from(initial, item => item.id), ["report"]);
+  assert.equal(c.isStreamingAssistantMessage(initial[0], initial), false, "plan actions must be available while Codex acknowledges");
+  c.upsertItem("origin", { id: "closing", type: "agentMessage", phase: "final_answer", turnId: "turn-1", text: "" });
+  for (const delta of ["结论：BTC 1h ", "入场 80681.26，", "止损 80046.30，", "止盈 81687.40。"]) {
+    c.queueCodexStreamDelta("origin", "closing", delta, "agentMessage", "turn-1");
+    c.flushPendingCodexStreamDeltas("origin");
+    assert.deepEqual(Array.from(c.messagesForThread("origin"), item => item.id), ["report"]);
+  }
+  assert.match(h.state.items.origin.closing.text, /80681.26/, "keep original model text for transcript/audit");
+  const card = h.resolved[0].result.presentationItems[0];
+  c.upsertItem("origin", { id: "tool", type: "mcpToolCall", tool: "haolo_plan_present", turnId: "turn-1",
+    result: { content: [{ type: "text", text: JSON.stringify({ presentationItems: [card] }) }] } });
+  c.activeCodexThreadIds.clear();
+  h.setTurn(null);
+  assert.deepEqual(Array.from(c.messagesForThread("origin"), item => item.id), ["report"]);
+  h.setTurn("turn-2"); c.activeCodexThreadIds.add("origin");
+  c.upsertItem("origin", { id: "next", type: "agentMessage", phase: "final_answer", turnId: "turn-2", text: "新的回复" });
+  assert.ok(c.messagesForThread("origin").some(item => item.id === "next"), "the next response is never suppressed");
+});
+
+test("mixed tasks retain their requested answer without parsing a second plan or hiding earlier strategy cards", async () => {
+  const h = harness(), c = h.context;
+  const pending = h.present({ hasRemainingWork: true });
+  assert.equal(h.state.items.origin.report.__youleNativeResponseComplete, false);
+  assert.equal(c.hasActiveFinalAnswerMessage("origin"), false);
+  assert.equal(c.hasActiveCompletedTradingAnalysis("origin"), false);
+  h.finish(); await pending;
+  c.upsertItem("origin", { ...h.state.items.origin.report, id: "second-strategy" });
+  c.upsertItem("origin", { id: "comparison", type: "agentMessage", phase: "final_answer", turnId: "turn-1",
+    text: "两种策略比较：入场 80681.26，止损 80046.30，止盈 81687.40。另有用户要求的说明。" });
+  const live = c.messagesForThread("origin");
+  assert.equal(live.find(item => item.id === "comparison").executionPlanPresentation, "plain");
+  c.activeCodexThreadIds.clear(); h.setTurn(null);
+  const finished = c.messagesForThread("origin");
+  assert.deepEqual(Array.from(finished, item => item.id), ["report", "second-strategy", "comparison"]);
+  assert.equal(finished.filter(item => item.executionPlanPresentation === "execution-plan").length, 2);
+  assert.equal(h.resolved[0].result.presentationItems[0].__youleNativeResponseComplete, false);
+});
+
+test("native delivery projection preserves attachments, errors, prior commentary and unrelated turns", () => {
+  const card = { id: "report", type: "agentMessage", phase: "final_answer", text: "verified report",
+    turnId: "turn-1", __youleExecutionPlanPresentation: "execution-plan" };
+  const items = [
+    { id: "progress", type: "agentMessage", phase: "commentary", text: "正在读取", turnId: "turn-1" },
+    card,
+    { id: "closing", type: "agentMessage", text: "重复总结", turnId: "turn-1" },
+    { id: "file", type: "agentMessage", text: "requested file", turnId: "turn-1", attachments: [{ path: "report.pdf" }] },
+    { id: "error", type: "agentMessage", phase: "final_answer", text: "failed", turnId: "turn-1", __youleExecutionPlanPresentation: "plain" },
+    { id: "other", type: "agentMessage", text: "another answer", turn_id: "turn-2" },
+  ];
+  const result = tradingAnalysisDeliveryItems(items);
+  assert.deepEqual(result.map(item => item.id), ["progress", "report", "file", "error", "other"]);
+  assert.equal(result.find(item => item.id === "report"), card);
+  assert.equal(items[2].text, "重复总结");
+  assert.equal(items[3].__youleExecutionPlanPresentation, undefined, "projection never rewrites persisted items");
 });
 
 test("tool replay restores completed grouping and frozen elapsed time despite pending consumption", () => {

@@ -53,7 +53,7 @@ import { PersonalContextService } from "./personal-context/service.mjs";
 import { createSharedBinanceAccountReader } from "./binance-account/shared-reader.mjs";
 import { PersonalMemoryStore } from "./personal-context/memory-store.mjs";
 import { createCloudTradingPreferences, cloudTradingPreferenceFailure } from "./personal-context/cloud-trading-preferences.mjs";
-import { createCloudStrategyRuntime } from "./trading-strategy-runtime/cloud-runtime.mjs";
+import { createCloudStrategyRuntime, cloudAccountConnection } from "./trading-strategy-runtime/cloud-runtime.mjs";
 import {createCloudPlans} from './trading-strategy-runtime/cloud-plans.mjs';
 import {createCloudAlertFeed} from './trading-strategy-runtime/cloud-alert-feed.mjs';
 import {cloudAlertNotification} from './cloud-alert-view.mjs';
@@ -15340,8 +15340,7 @@ function getCloudStrategyRuntime() {
     connection: async (_owner, target) => {
       if (!target.marketKey.startsWith("binance:usdm:") || !target.marketKey.endsWith("USDT")) return null;
       const connections = await readSharedBinanceAccountConnections();
-      const authorized = connections.find(item => item.analysisConsent === true && item.credentialsBound === true);
-      return {id:authorized?.id || null, unavailable:connections.length > 0 && !authorized};
+      return cloudAccountConnection(connections, target);
     },
   });
   return cloudStrategyRuntime;
