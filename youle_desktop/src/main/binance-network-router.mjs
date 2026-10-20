@@ -242,7 +242,7 @@ export class BinanceNetworkRouter {
     const state = this.state(routeKey(kind, marketType));
     const currentMs = this.currentTimeMs();
     if (
-      (kind === "public" && this.directRateLimitRemaining(marketType) > 0)
+      this.directRateLimitRemaining(marketType) > 0
       ||
       state.gatewayPreferredUntil > currentMs
       || state.cooldownUntil > currentMs
@@ -580,6 +580,22 @@ export class BinanceNetworkRouter {
     }
   }
 
+  canUsePrivateGateway() {
+    return (this.config.routingMode || this.config.mode || "direct") !== "direct"
+      && this.fallbackAvailable("private");
+  }
+
+  async privateFallbackFetch(input, init = {}) {
+    init.signal?.throwIfAborted();
+    const url = new URL(String(input));
+    privateMarketType(url);
+    if (String(init.method || "GET").toUpperCase() !== "GET") {
+      throw new TypeError("private Binance router permits GET only");
+    }
+    if (!this.canUsePrivateGateway()) throw new TypeError("private Binance gateway is unavailable");
+    return decorateRouteResponse(await fetchBinanceResponse(this.privateProxyFetch, url.href, init), "private-gateway");
+  }
+
   async privateFetch(input, init = {}) {
     init.signal?.throwIfAborted();
     const url = new URL(String(input));
@@ -590,11 +606,16 @@ export class BinanceNetworkRouter {
     if (decision.route === "gateway") return decorateRouteResponse(await fetchBinanceResponse(this.privateProxyFetch, url.href, init), "private-gateway");
     try {
       const response = await this.directRequest("private", url.href, init);
-      if (!isRouteBlockingResponse(response)) {
+      if (!isRouteBlockingResponse(response) && ![418, 429].includes(Number(response.status))) {
         this.markDirectSuccess("private", marketType);
         return decorateRouteResponse(response, "direct");
       }
       if (!this.fallbackAvailable("private")) return decorateRouteResponse(response, "direct");
+      // The account service re-times/re-signs after this route error, so the
+      // governor will not see the consumed response. Persist its local ban.
+      if (init?.[BINANCE_REQUEST_GOVERNOR_MANAGED] === true) {
+        this.observeDirectRateLimit(marketType, response);
+      }
       discardBinanceResponse(response);
       this.markDirectFailure("private", marketType);
       throw new BinanceDirectRouteError("Direct Binance account route was blocked", { marketType });
