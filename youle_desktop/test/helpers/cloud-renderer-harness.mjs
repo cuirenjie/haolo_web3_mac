@@ -26,7 +26,7 @@ export function setup({apiFailure=false,runAnalysis,dependencyOverrides={}}={}) 
     tradingAnalysisJobs:{start:x=>({...x,analysisId:x.analysisId||'test-job'}),isActive:()=>true,complete:id=>finished.push(id),fail:(id,e)=>failed.push(e.code)},
     tradingAnalysisModelDisplayName:model=>model.modelId,settleTradingAnalysisDrawing,
     commitTradingAnalysisDrawingPatch:async(job,patch,pane)=>drawings.push({job,patch,pane}),commitTradingIndicatorAnalysisDrawingPatch:async(job,patch,pane=0)=>indicatorDrawings.push({job,patch,pane}),
-    cloudReportFromResponse:()=>[],rememberTradingAnalysisJobContext:()=>{},recordTradingRendererFailure:()=>{},
+    cloudAnalysisDrawingPlan,cloudReportFromResponse:()=>[],rememberTradingAnalysisJobContext:()=>{},recordTradingRendererFailure:()=>{},
     tradingAnalysisPaneHeading:(market,interval)=>`${market.id} ${interval}`,combineTradingAnalysisReports:(_heading,report)=>report,combineTradingAnalysisNarratives:(_heading,report)=>report};
   Object.assign(dependencies,dependencyOverrides);
   const Harness=Function(...Object.keys(dependencies),compiled+';return Harness;')(...Object.values(dependencies));
@@ -36,3 +36,4 @@ export function setup({apiFailure=false,runAnalysis,dependencyOverrides={}}={}) 
     loadMarkets:()=>{throw Error('must not fetch local market data');},refreshCurrentMarketSnapshotForAnalysis:()=>{throw Error('must not refresh local candles');}});
   return {workspace,calls,drawings,indicatorDrawings,finished,failed};
 }
+import {cloudAnalysisDrawingPlan} from '../../src/shared/execution-plan-drawings.mjs';

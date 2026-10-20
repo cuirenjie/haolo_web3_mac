@@ -14,6 +14,7 @@ export {normalizeTradingIndicatorAiDrawingPatch,strictlyAscendingTradingIndicato
 import {cloudAnalysisWindow} from './cloud-analysis-window.ts';
 import {captureCloudAnalysisPanes} from './cloud-analysis-panes.ts';
 import {cloudReportFromResponse, normalizeCloudReports, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
+import {cloudAnalysisDrawingPlan, cloudPlanDrawingPatch} from '../shared/execution-plan-drawings.mjs';
 import {
   AreaSeries,
   BarSeries,
@@ -366,7 +367,7 @@ export function restoreRecoveredTradingDrawings(value:CloudTradingReport,storage
   if(paneIndex<0||paneIndex>7)throw new Error('CLOUD_DRAWING_PANE_INVALID');
   const target=paneIndex?tradingSplitPaneDrawingStorageSessionId(storageSessionId,paneIndex):storageSessionId;
   if(report.drawingPatch) {
-    const patch=report.drawingPatch as TradingAiDrawingPatch;
+    const patch=cloudPlanDrawingPatch(report) as TradingAiDrawingPatch;
     if(patch.marketId!==report.marketId||patch.interval!==report.interval)throw new Error('CLOUD_DRAWING_CONTEXT_INVALID');
     persistTradingAiDrawingPatch(target,patch);
     if(activeWorkspace?.drawingStorageSessionMatches(storageSessionId))activeWorkspace.storeAnalysisDrawingPatch(patch,paneIndex);
@@ -9250,7 +9251,7 @@ class TradingExpertMarketWorkspace {
           ) {
             throw Object.assign(new Error(response?.error?.message || `${options.analysisLabel}没有返回绘图计划`), {code: response?.error?.code});
           }
-          const analysisPlan = response.analysisPlan;
+          const analysisPlan = cloudAnalysisDrawingPlan(response);
           options.deferredDrawings?.push({ job: options.job, paneIndex: snapshot.paneIndex,
             drawingPatch: analysisPlan.drawingPatch, indicatorDrawingPatch: analysisPlan.indicatorDrawingPatch });
           const {drawingDeferred} = await settleTradingAnalysisDrawing({
@@ -11023,7 +11024,7 @@ class TradingExpertMarketWorkspace {
         Object.assign(error, response?.error);
         throw error;
       }
-      const analysisPlan = response.analysisPlan;
+      const analysisPlan = cloudAnalysisDrawingPlan(response);
       const modelName = tradingAnalysisModelDisplayName(response.model, job.language);
       const drawingArtifacts: TradingDeferredDrawing[] = request.deferPresentation ? [{
         job, paneIndex: 0, drawingPatch: analysisPlan.drawingPatch, indicatorDrawingPatch: analysisPlan.indicatorDrawingPatch,
@@ -11107,11 +11108,9 @@ class TradingExpertMarketWorkspace {
         : request.executionPlanRequested === false
           ? cloudAnalysisText('complete',job.language)
           : cloudAnalysisText('complete',job.language)}`);
-      const responseReport = String((request.positionManagementRequested === true && !strategyId
-          ? response.analysisPlan.report
-          : directResponseRequested
-            ? response.analysisPlan.narrative
-            : response.analysisPlan.report) || response.analysisPlan.narrative || "盘面分析已完成");
+      // Full evidence must reach the root even for direct/position questions.
+      // narrative is a scan notification, not a substitute for the report.
+      const responseReport = String(response.analysisPlan.report || response.analysisPlan.narrative || "盘面分析已完成");
       // The server owns trading conclusions and levels for the frozen snapshot.
       const questionLead = "";
       const drawingNote = drawingDeferred
@@ -14505,7 +14504,7 @@ export async function runTradingExpertDetachedConversation(
       Object.assign(error, response.error);
       throw error;
     }
-    const plan = response.analysisPlan;
+    const plan = cloudAnalysisDrawingPlan(response);
     let drawingDeferred = false;
     if (request.drawingRequested && !request.deferPresentation) {
       ({ drawingDeferred } = await settleTradingAnalysisDrawing({

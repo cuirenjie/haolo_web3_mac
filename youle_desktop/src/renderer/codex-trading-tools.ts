@@ -134,7 +134,7 @@ export class CodexTradingTools {
         // response must not attach a late report to whichever turn is active.
         const responseId = this.deps.responseId?.(threadId) || payload.turnId;
         if (responseId) this.presentationResponseIds.set(threadId, responseId);
-        if (args.action === "present") this.presentationCompletion.set(threadId, args.metadata?.hasRemainingWork !== true);
+        if (args.action === "present") this.presentationCompletion.set(threadId, false);
         this.calls.set(requestId, threadId);
         const controller = new AbortController();
         this.controllers.set(requestId, controller);

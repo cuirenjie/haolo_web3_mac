@@ -56,11 +56,23 @@ const rows = [], pending = new Map(), turns = new Map(), threadRows = new Map();
 let child, nextId = 0, stderr = "";
 const broker = new CodexBusinessTools({
   owner: () => "isolated-routing-audit",
+  preferencesRead: async () => ({ maxLossPerTradePercent: als.getStore()?.positionContract ? 0.5 : 2, maxLeverage: 10 }),
   accountRead: async () => {
     const row = als.getStore();
+    if (row?.positionContract) return {
+      available: !row.unbound, fetchedAt: new Date(Date.now() - (row.stale ? 300_000 : 0)).toISOString(),
+      sources: { futures: "server", openOrders: "unavailable", positionHistory: "unavailable" },
+      summary: { marginBalance: 1000, availableBalance: 900 },
+      positions: [{ symbol: "SUIUSDT", direction: "SHORT", amount: 200, entryPrice: 1,
+        markPrice: 1.01, notionalValue: 202, leverage: 20, marginType: "cross", liquidationPrice: 0 },
+        ...(row.multiPosition ? [{ symbol: "BTCUSDT", direction: "LONG", amount: 0.02, entryPrice: 80000,
+          markPrice: 81000, notionalValue: 1620, leverage: 5, marginType: "isolated", liquidationPrice: 0 }] : [])],
+      openOrders: [], warnings: row.stale ? ["使用上次成功读取的数据"] : [],
+    };
     return row?.unbound ? { available: false, reason: "No Binance account is bound", positions: null, summary: null } : {
       available: true, fetchedAt: new Date().toISOString(),
-      summary: { estimatedTotalAssets: 10000, availableBalance: 8000 },
+      sources: { futures: "server", openOrders: "unavailable" },
+      summary: { estimatedTotalAssets: 10000, marginBalance: 10000, availableBalance: 8000 },
       positions: [{ symbol: "BTCUSDT", direction: "long", amount: 0.02, entryPrice: 80000, markPrice: 81000 }],
     };
   },
@@ -85,6 +97,8 @@ const bridge = new PersonalContextMcpBridge({
         call.ok = true;
         call.analysisRef = result?.analysisRef; call.draftRef = result?.draftRef;
         call.stage = result?.stage;
+        if (result?.positionReview) call.review = result.positionReview;
+        if (result?.answerRequired) call.answerRequired = true;
         return result;
       } catch (error) { call.ok = false; call.error = redact(error.message); throw error; }
     });
@@ -124,6 +138,24 @@ function execute(row, args) {
   if (args.action === "analyze_only") {
     if (row.cloudFailure) return { result: { error: "Cloud strategy temporarily unavailable; no analysis or plan exists" } };
     if (row.noChart && !args.symbol && !args.marketId) return { result: { question: "请指定交易品种和周期。" } };
+    if (row.positionContract) {
+      const symbol = args.symbol || args.marketId?.split(":").at(-1);
+      const marketId = args.marketId || `BINANCE:FUTURES:${symbol}`, interval = args.interval || "1h";
+      const sui = symbol === "SUIUSDT";
+      return { result: {
+        report: "扫描完成：等待条件触发。",
+        marketId, symbol, interval, analysisJobId: `synthetic-${row.id}`,
+        cloudReports: [{ marketId, interval, strategyId: "price-action", runId: `synthetic-${row.id}-${symbol}`,
+          report: sui ? "SUI一小时结构仍是高点和低点抬升，但上冲后跌回阻力下方。阻力1.02至1.04，支撑0.98。做空信号尚未确认，等待0.99以下收盘；不能把等待开仓等同于现有空仓安全。这里只是市场证据，没有读取实际保护单。"
+            : "BTC一小时趋势偏多，81000附近震荡，79000结构失效，83000目标；未读取资金流和新闻。",
+          executionPlan: { market: { marketId, interval }, planId: `reference-${symbol}`, action: "wait", expiresAt: Date.now() + 60_000,
+            positionSizing: { estimatedRoundTripCostRate: 0.002 },
+            scenarios: [{ id: "reference", side: sui ? "short" : "long", trigger: { price: sui ? 0.99 : 81000 },
+              stop: { price: sui ? 1.04 : 79000 }, targets: [{ price: sui ? 0.98 : 83000 }] }],
+          },
+        }],
+      }, presentationItems: [] };
+    }
     return { result: {
       report: args.analysisKind === "general" ? "公开K线显示本小时涨幅1.31%，成交量为上一完整小时的3.2倍，价格回到83103至83213阻力区。放量突破后守住该区才支持延续，收盘跌回则突破失败。没有新闻、持仓量或爆仓数据，不能确认拉升的事件原因。"
         : row.noCandidate ? "云端计算结果：当前无有效入场候选，建议观望，不生成可执行开仓计划。"
@@ -154,7 +186,7 @@ function marketQuestionChecks(row) {
   }
   assert.ok(row.answer.length > 60, "A substantive explanation must be delivered");
 }
-function analysisChecks(row, ids, { noDraw = false } = {}) {
+function analysisChecks(row, ids, { noDraw = false, position = false } = {}) {
   const account = row.calls.findIndex(c => c.tool === "haolo_account_read" && c.ok);
   assert.ok(account >= 0, "Account must be read");
   for (const id of ids) {
@@ -162,7 +194,8 @@ function analysisChecks(row, ids, { noDraw = false } = {}) {
     assert.ok(a?.analysisRef, `Missing successful analysis ${id}`);
     assert.ok(row.calls.indexOf(a) > account, "Account must precede analysis");
     if (!noDraw) assert.ok(successful(row, "haolo_chart_draw").some(c => c.args.analysisRef === a.analysisRef), "Missing same-ref drawing");
-    assert.ok(successful(row, "haolo_plan_present").some(c => c.args.analysisRef === a.analysisRef), "Missing same-ref plan");
+    if (!position) assert.ok(successful(row, "haolo_plan_present").some(c => c.args.analysisRef === a.analysisRef), "Missing same-ref plan");
+    else assert.equal(successful(row, "haolo_plan_present").length, 0, "Position evidence cannot become an advice card");
   }
   assert.equal(row.calls.some(c => c.tool === "haolo_trading" && c.args.action === "analyze"), false, "New work must use independent skills");
   if (noDraw) assert.equal(successful(row, "haolo_chart_draw").length, 0, "No-drawing request violated");
@@ -201,7 +234,7 @@ async function run(spec, threadId) {
     await rpc("turn/start", { threadId, model, effort: "low", input: [{ type: "text", text: broker.input(threadId, spec.prompt), textElements: [] }] });
     const turn = await terminal;
     assert.equal(turn.status, "completed", redact(JSON.stringify(turn.error || turn.status)));
-    row.answer = row.messages.findLast(m => m.phase === "final_answer")?.text || row.messages.at(-1)?.text || "";
+    row.answer = row.messages.findLast(m => m.phase === "final_answer")?.text || "";
     assert.ok(row.answer, "A final answer is required");
     spec.check(row);
     row.passed = true;
@@ -251,6 +284,30 @@ async function runProductionRunner(spec) {
   }
 }
 const scenarios = [
+  { id: "position-contract", positionContract: true, noChart: true, prompt: "帮我看下真实持仓健康吗，要不要加仓或者减仓？请给出明确判断、依据和风险测算，不用画图。",
+    check: r => {
+      analysisChecks(r, ["price-action"], { noDraw: true, position: true });
+      assert.ok(successful(r, "haolo_analysis").some(c => c.review?.positions?.[0]?.referenceRisk?.[0]?.exceedsRiskBudget));
+      assert.match(r.answer, /SUI/); assert.match(r.answer, /8\.4/); assert.match(r.answer, /减仓|減倉|降低仓位/);
+      assert.match(r.answer, /不.{0,6}加仓|不.{0,6}加倉|禁止加仓|暂停加仓/);
+      assert.match(r.answer, /无法|不能确认|不可用|未.*(?:验证|核实|提供)|缺失/);
+    } },
+  { id: "position-contract-multi", positionContract: true, multiPosition: true, noChart: true,
+    prompt: "帮我复核所有真实持仓健康度，逐笔告诉我加减仓建议和原因，不用画线。",
+    check: r => {
+      const symbols = r.effects.filter(e => e.action === "analyze_only").map(e => e.symbol || e.marketId?.split(":").at(-1));
+      assert.ok(symbols.includes("SUIUSDT") && symbols.includes("BTCUSDT"), "Every holding needs its own market evidence");
+      assert.match(r.answer, /SUI/); assert.match(r.answer, /BTC/);
+      assert.equal(successful(r, "haolo_plan_present").length, 0);
+    } },
+  { id: "position-contract-stale", positionContract: true, stale: true, noChart: true,
+    prompt: "看一下我的持仓健康吗，现在能加仓吗？不要画图。",
+    check: r => { assert.match(r.answer, /过期|陈旧|缓存|不是实时|非实时|无法.*(?:确认|判断)|不能.*(?:确认|判断)/);
+      assert.doesNotMatch(r.answer, /可以直接加仓|仓位很安全/); assert.equal(successful(r, "haolo_plan_present").length, 0); } },
+  { id: "ordinary-context-trap", prompt: "我刚才一直在看交易图。现在换个问题：帮我解释为什么天空是蓝色的，用两句话。",
+    check: r => { assert.equal(r.calls.length, 0); assert.match(r.answer, /散射/); assert.doesNotMatch(r.answer, /已绘制|计划卡/); } },
+  { id: "ordinary-missing-file", prompt: "请读取当前目录里的 does-not-exist.txt 并总结正文。",
+    check: r => { assert.equal(r.calls.length, 0); assert.match(r.answer, /不存在|未找到|没有找到|找不到|无法.*读取/); assert.doesNotMatch(r.answer, /总结如下|已完成总结/); } },
   { id: "market-rally-question", marketQuestion: true, noChart: true, prompt: "现在比特币怎么突然涨了，还能继续涨吗", check: marketQuestionChecks },
   { id: "market-general-overview", marketQuestion: true, noChart: true, prompt: "帮我分析一下 BTCUSDT 币安永续 1小时现在的行情。", check: marketQuestionChecks },
   { id: "market-explicit-plan", noChart: true, prompt: "为 BTCUSDT 币安永续 1小时制定一个交易计划，画出关键价位并展示计划卡片。", check: r => analysisChecks(r, ["price-action"]) },
@@ -262,7 +319,7 @@ const scenarios = [
   ...OFFICIAL_TRADING_CATALOG.filter(s => s.enabled).map(s => ({
     id: `strategy-${s.id}`, prompt: `@${s.mentions.canonical} 分析 BTCUSDT 币安永续 1 小时现在的交易机会，画在图上并给出计划卡片。`, check: r => analysisChecks(r, [s.id]),
   })),
-  { id: "position-default", prompt: "请实时看我的 BTC 仓位，现在应该怎么调整？帮我画出来，给出仓位调整方案。", check: r => { analysisChecks(r, ["price-action"]); assert.ok(r.effects.some(e => e.action === "analyze_only" && e.strategyId === "price-action" && e.positionManagementRequested)); } },
+  { id: "position-default", prompt: "请实时看我的 BTC 仓位，现在应该怎么调整？帮我画出来，给出仓位调整方案。", check: r => { analysisChecks(r, ["price-action"], { position: true }); assert.ok(r.effects.some(e => e.action === "analyze_only" && e.strategyId === "price-action" && e.positionManagementRequested)); assert.ok(r.answer.length > 80); } },
   { id: "no-drawing", prompt: "@裸K 分析 BTCUSDT 1 小时，给我计划，但这次不要画线或改动图表。", check: r => analysisChecks(r, ["price-action"], { noDraw: true }) },
   { id: "two-strategies", prompt: "@裸K @MACD 分别分析 BTCUSDT 永续 1 小时，分别画线和展示计划，再比较结论。", check: r => analysisChecks(r, ["price-action", "macd-analysis"]) },
   { id: "account-unavailable", unbound: true, prompt: "@裸K 分析 BTCUSDT 1 小时并给我计划，账户未绑定也请继续公共行情分析。", check: r => analysisChecks(r, ["price-action"]) },

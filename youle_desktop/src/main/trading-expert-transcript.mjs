@@ -130,6 +130,8 @@ function normalizeTradingTranscriptItem(value) {
     ...(completedAt ? { completedAt } : {}),
     ...(actions.length ? { actions } : {}),
     ...(executionPlanPresentation ? { executionPlanPresentation } : {}),
+    ...(role === "assistant" && typeof value.nativeResponseComplete === "boolean"
+      ? { nativeResponseComplete: value.nativeResponseComplete } : {}),
     ...(cloudReports.length ? {cloudReports} : {}),
   };
 }
@@ -333,6 +335,8 @@ function visibleThreadItem(item, transcriptItem, transcriptTurnStatus = "") {
     ...(transcriptItem.completedAt ? { __youleTurnCompletedAt: transcriptItem.completedAt } : {}),
     ...(transcriptItem.actions?.length ? { actions: transcriptItem.actions } : {}),
     ...(transcriptItem.cloudReports?.length ? {__youleCloudReports:transcriptItem.cloudReports} : {}),
+    ...(typeof transcriptItem.nativeResponseComplete === "boolean"
+      ? { __youleNativeResponseComplete: transcriptItem.nativeResponseComplete } : {}),
     ...(transcriptItem.executionPlanPresentation
       ? { __youleExecutionPlanPresentation: transcriptItem.executionPlanPresentation }
       : {}),

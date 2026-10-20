@@ -17,7 +17,8 @@ function planPriceRole(drawing: TradingDrawingModel): PlanPriceRole | null {
 function planPriceGroup(drawing: TradingDrawingModel) {
   const ref = drawing.entryConditionRef;
   return JSON.stringify([drawing.symbol, drawing.interval, drawing.strategyId,
-    ref ? [ref.conditionId, ref.revision, ref.conditionHash] : 'legacy']);
+    drawing.planLevel ? [drawing.planLevel.planId, drawing.planLevel.scenarioId]
+      : ref ? [ref.conditionId, ref.revision, ref.conditionHash] : 'legacy']);
 }
 
 function planPriceLabel(drawing: TradingDrawingModel, role: PlanPriceRole, targetIndex: number) {
@@ -62,10 +63,11 @@ export function buildTradingPlanPriceLines(drawings: readonly TradingDrawingMode
       drawing = entryDrawings.get(group)!;
     }
     const price = drawing.points[0].price;
-    const targetIndex = role === 'target' ? (targets.get(group) || 0) + 1 : 0;
+    const targetIndex = role === 'target' ? drawing.planLevel?.targetIndex ?? (targets.get(group) || 0) + 1 : 0;
     if (targetIndex) targets.set(group, targetIndex);
-    const label = role === 'entry' ? executionPlanPriceText(price)
-      : price.toLocaleString('en-US', { maximumSignificantDigits: 12 });
+    const cardPrice = executionPlanPriceText(price);
+    const label = Number(cardPrice.replaceAll(',', '')) > 0 ? cardPrice
+      : price.toLocaleString('en-US', { maximumSignificantDigits: 12, useGrouping: false });
     const shortLabel = planPriceLabel(drawing, role, targetIndex);
     lines.push({
       id: `plan:${drawing.id}`,

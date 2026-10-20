@@ -4,11 +4,14 @@ import { CodexTradingTools } from "./codex-trading-tools";
 import { ExternalChannelRecoveryTurns } from "./external-channel-recovery.mjs";
 import { businessPresentationItems, businessPresentationResult } from "../shared/codex-business-presentation.mjs";
 import { completedTradingAnalysisReport, isCompletedTradingAnalysisReport, tradingAnalysisDeliveryItems } from "./trading-analysis-completion";
+import { turnResultFoldTargets } from "./turn-result-fold";
+import { tradingAnalysisCompletionText } from "./cloud-analysis-text";
 import {createCloudPlanRefresher,cloudPlanSyncMessage} from './cloud-plan-sync';
 import {createExecutionPlanAutoActivator} from './execution-plan-auto-activation';
 import { accountSettingsSync, type SettingValues } from './account-settings-sync.ts';
 import type { CloudRecoveryApi } from "./cloud-task-recovery.ts";
 import {normalizeCloudReports, cloudReportFromResponse, cloudPlanCard, bindLegacyCloudCandidate, type CloudTradingReport} from '../main/cloud-plan-contract.mjs';
+import {rememberTradingPlanDrawingHistory} from './trading-plan-drawing-history.ts';
 import "./styles.css";
 import {
   TRADING_PREFERENCE_CHOICE_FIELDS,
@@ -23757,6 +23760,7 @@ function upsertItem(threadId: string, item: CodexItem, options: { updateThreadPr
     state.itemOrder[threadId].push(id);
   }
   const savedItem = state.items[threadId][id];
+  if (savedItem.__youleCloudReports?.length) rememberTradingPlanDrawingHistory(threadId, savedItem.__youleCloudReports);
   const assistantProvider = assistantProviderFromItem(threadId, savedItem);
   if (assistantProvider) {
     rememberThreadLastAssistantProvider(threadId, assistantProvider, { persist: !suppressCreatedAtStamp });
@@ -31302,6 +31306,8 @@ function tradingTranscriptPayloadFromItem(item: CodexItem) {
     ...(completedAt ? { completedAt } : {}),
     ...(role === "assistant" && actions?.length ? { actions } : {}),
     ...(role === 'assistant' && item.__youleCloudReports?.length ? {cloudReports:normalizeCloudReports(item.__youleCloudReports)} : {}),
+    ...(role === "assistant" && typeof item.__youleNativeResponseComplete === "boolean"
+      ? { nativeResponseComplete: item.__youleNativeResponseComplete } : {}),
     ...(role === "assistant" && (executionPlanPresentation === "execution-plan" || executionPlanPresentation === "position-plan" || executionPlanPresentation === "plain")
       ? { executionPlanPresentation }
       : {}),
@@ -31541,7 +31547,7 @@ async function runTradingGeneralChartRequest(
       "complete",
       result.drawingDeferred
         ? describeTradingAnalysisFailure(null, { stage: "drawing", language: appLanguageLocale() }).summary
-        : `${result.modelName} 已完成 ${result.symbol} ${result.candleCount} 根 K 线的通用盘面分析${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
+        : tradingAnalysisCompletionText(result.symbol, request, appLanguageLocale()),
     );
     clearTradingExpertThinkingState(targetThreadId());
     if (request.deferPresentation) {
@@ -31648,7 +31654,7 @@ async function runTradingStrategyChartRequest(
       strategy.ui.completionPhase,
       result.drawingDeferred
         ? describeTradingAnalysisFailure(null, { stage: "drawing", language: appLanguageLocale() }).summary
-        : `${result.modelName} 已完成 ${result.symbol} ${strategy.ui.completionMetric(result)}${request.drawingRequested ? "与绘图" : "，原画线保持不变"}。`,
+        : tradingAnalysisCompletionText(result.symbol, request, appLanguageLocale()),
     );
     clearTradingExpertThinkingState(targetThreadId());
     if (request.deferPresentation) {
@@ -74464,7 +74470,8 @@ function isFinalAgentTurnResultMessage(threadId: string, message: Message, messa
   const messageIndex = messages.findIndex((candidate) => candidate.id === message.id);
   if (messageIndex < 0) return false;
   const group = turnResultGroups(threadId, messages).find((candidate) => candidate.outputIndexes.includes(messageIndex));
-  return Boolean(group && group.outputIndexes.at(-1) === messageIndex);
+  return Boolean(group && turnResultFoldTargets(group.outputIndexes,
+    index => state.items[threadId]?.[messages[index].id]).finalIndex === messageIndex);
 }
 
 function isSearchableChannelAgentMessage(message: Message, item: CodexItem) {
@@ -74546,8 +74553,11 @@ function withCollapsedTurnResults(threadId: string, messages: Message[]) {
   const decorated = [...messages];
   for (const [groupIndex, group] of groups.entries()) {
     if (!isTurnResultGroupComplete(threadId, group.turnKey, groupIndex === groups.length - 1)) continue;
-    const finalIndex = group.outputIndexes[group.outputIndexes.length - 1];
+    const { finalIndex, lateProcessIndexes } = turnResultFoldTargets(
+      group.outputIndexes, index => state.items[threadId]?.[messages[index].id],
+    );
     const collapsedIndexes = turnResultProcessIndexes(messages, finalIndex)
+      .concat(lateProcessIndexes)
       .filter((index) => group.processStartIndex == null || index >= group.processStartIndex)
       // A later card or late process event does not make an earlier final
       // answer process output, including historical snapshots with stale order.

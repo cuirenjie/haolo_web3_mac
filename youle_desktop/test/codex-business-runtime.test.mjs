@@ -174,7 +174,10 @@ test("Codex 0.163 runs business MCP in new and restored conversations and retain
   assert.equal(executions[0].args.positionManagementRequested, true);
   assert.ok(JSON.stringify(modelInputs.at(-1).input).includes("fixture-cloud"));
   const mcpItem = events.find(e => e.method === "item/completed" && e.params.item?.type === "mcpToolCall")?.params.item;
-  assert.deepEqual(businessPresentationItems(mcpItem), [card]);
+  assert.deepEqual(businessPresentationItems(mcpItem), []);
+  assert.match(JSON.stringify(modelInputs.at(-1).input), /positionReview/);
+  assert.match(JSON.stringify(modelInputs.at(-1).input), /answerRequired/);
+  assert.ok(events.some(e => e.method === "item/completed" && e.params.item?.type === "agentMessage" && e.params.item.text === "done trade"));
   await stop(); await start();
   const restored = await rpc("thread/resume", { threadId: initial.thread.id, cwd, developerInstructions: CODEX_TRADING_INSTRUCTIONS });
   assert.equal(restored.thread.id, initial.thread.id);
@@ -187,7 +190,7 @@ test("Codex 0.163 runs business MCP in new and restored conversations and retain
   assert.equal(executions[3].args.analysisRef,executions[4].args.analysisRef);
   assert.equal(executions[3].args.artifact.result.analysisJobId,"fixture-cloud");
   const presented=events.filter(e=>e.method==="item/completed" && e.params.item?.type==="mcpToolCall" && /haolo_plan_present$/.test(e.params.item.tool)).at(-1)?.params.item;
-  assert.deepEqual(businessPresentationItems(presented),[{ ...card, __youleNativeResponseComplete: true }]);
+  assert.deepEqual(businessPresentationItems(presented),[{ ...card, __youleNativeResponseComplete: false }]);
   await run(initial.thread.id,"workflow","创建一个条件预警");
   assert.deepEqual(executions.slice(-3).map(x=>x.args.action),["draft_prepare","simulate","simulation_draw"]);
   await run(initial.thread.id,"workflow-confirm","确认");

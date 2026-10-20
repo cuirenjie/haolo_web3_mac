@@ -1,12 +1,12 @@
 ---
 name: trading-plan-present
-description: Show the verified native plan card or position-management plan from an existing Haolo analysis. Use after strategy analysis, for position-adjustment advice, or to redisplay a result.
+description: Show a verified native strategy or new-entry plan card from an existing Haolo analysis, or redisplay that result. Existing-position advice is delivered in the root's written answer.
 ---
 
-Call `haolo_plan_present` with the same analysisRef used for drawing. The original cloud report and account rules remain authoritative; never construct replacement prices, leverage, quantities or risk/reward values. Waiting, no-trade and missing-data outcomes are valid. Position management is presented separately from new-entry plans.
+Call `haolo_plan_present` with the same analysisRef used for drawing. The original cloud report and account rules remain authoritative; never construct replacement prices, leverage, quantities or risk/reward values. Waiting, no-trade and missing-data outcomes are valid.
 
-Only present results from requested strategy/indicator analysis, trading plans or position management. General market questions use `analysisKind: "general"` and a written final answer; their analysisRef cannot be turned into an entry-plan card.
+Only present results from requested strategy/indicator analysis or trading plans. General market questions and position-management evidence require a written final answer; their analysisRef cannot be turned into an entry-plan or position-advice card.
 
-The native report and card are already the user-visible answer. If they complete the request, end with a brief acknowledgement only; do not repeat the conclusion, prices, risk text or card. Set `hasRemainingWork: true` when another requested deliverable remains, including another strategy, a comparison, explanation or file, and then complete that work. Set it on every intermediate presentation; do not mark the last card complete if a requested comparison still follows.
+The card is a supporting artifact, not proof that the user's request is answered. Always give a substantive final conclusion or explanation, covering all requested work and any limitations. Refer to the displayed card without copying its entire price table. Never merely claim that advice or risk checks were displayed. `hasRemainingWork` is retained for compatibility and cannot suppress the root's final answer.
 
 Rendering a card does not save, activate, or execute it. Saving and reminders use the plan-management workflow and existing authorization.

@@ -427,6 +427,7 @@ const activeChannelCodexRequests = new Map();
 const codexBusinessTools = new CodexBusinessTools({
   artifacts: new CodexTradingArtifacts({ directory: () => path.join(app.getPath("userData"), "trading-skill-results") }),
   accountRead: args => getPersonalContextService().invoke({ tool: "read_binance_account_context", arguments: args }),
+  preferencesRead: async () => (await tradingStrategyParamsWithPersonalRisk()).userRiskProfile,
   owner: () => String(getYouleApiClient().sessionSummary()?.profile?.id || "anonymous"),
   dispatch: (sender, payload) => { if (sender && !sender.isDestroyed()) sender.send("codex:businessTool", payload); },
 });
@@ -4965,21 +4966,31 @@ async function readBinanceAccountStatusWithSharedBinding(owner) {
 }
 
 function normalizeSharedBinanceSnapshot(snapshot) {
+  const finite = (value) => value == null || value === "" || typeof value === "boolean"
+    || !Number.isFinite(Number(value)) ? null : Number(value);
   const fetchedAt = Number(snapshot?.fetchedAt);
   const equity = Number(snapshot?.equity) || 0;
   const available = Number(snapshot?.available) || 0;
   const margin = Number(snapshot?.margin) || 0;
   const unrealizedPnl = Number(snapshot?.unrealizedPnl) || 0;
+  const pnlAvailable = snapshot?.pnlStatus === "available";
+  const realizedPnlToday = pnlAvailable ? finite(snapshot?.realizedPnlToday) : null;
+  const todayPnl = realizedPnlToday == null ? null : finite(snapshot?.todayPnl);
+  const todayPnlPercent = todayPnl == null ? null : finite(snapshot?.todayPnlPercent);
   return {
     schemaVersion: 1,
     currency: "USDT",
     estimatedTotalAssets: equity,
-    todayPnl: null,
-    todayPnlPercent: null,
+    todayPnl,
+    todayPnlPercent,
     marginBalance: equity,
-    walletBalance: equity,
+    walletBalance: finite(snapshot?.walletBalance) ?? equity - unrealizedPnl,
     unrealizedPnl,
-    realizedPnlToday: null,
+    realizedPnlToday,
+    pnlDayStart: snapshot?.pnlDayStart ?? null,
+    pnlAsOf: snapshot?.pnlAsOf ?? null,
+    pnlTimeZone: snapshot?.pnlTimeZone ?? null,
+    pnlReason: snapshot?.pnlReason ?? null,
     initialMargin: margin,
     availableBalance: available,
     positions: (Array.isArray(snapshot?.positions) ? snapshot.positions : []).map((row) => sharedSnapshotPosition(row, fetchedAt)),
@@ -4989,7 +5000,7 @@ function normalizeSharedBinanceSnapshot(snapshot) {
     sources: {
       totalAssets: "server",
       futures: "server",
-      realizedPnl: "unavailable",
+      realizedPnl: realizedPnlToday == null ? "unavailable" : "USD_M_INCOME",
       positionHistory: "unavailable",
       openOrders: "unavailable",
     },
@@ -13385,7 +13396,7 @@ ipcMain.handle("binanceAccount:getSnapshot", async (event, params = {}) => {
     const status = await readBinanceAccountStatusWithSharedBinding(owner);
     const snapshot = status.serverCredentialsBound && status.serverConnectionId
       ? normalizeSharedBinanceSnapshot(
-          await getYouleApiClient().getAccountConnectionSnapshot(status.serverConnectionId),
+          await getYouleApiClient().getAccountConnectionSnapshot(status.serverConnectionId, { includeTodayPnl: true }),
         )
       : await getBinanceAccountService().snapshot(owner.ownerId, requestOptions);
     return { ok: true, snapshot };

@@ -11,4 +11,6 @@ For ordinary market questions (for example, "why did Bitcoin suddenly rise?" or 
 
 Use a matching trading-analysis-* Skill and `analysisKind: "strategy"` for a requested strategy/indicator, trading plan or position-management task. A question about future direction alone is not a request to open a position.
 
+For position management set `positionManagementRequested: true`, read real positions and open orders, and combine the complete report with returned `positionReview` in your final answer. It is not a completed position card. An open chart never makes unrelated writing, code, knowledge or file questions trading requests. Tools supply evidence; final text must address every requested question and disclose any unresolved evidence gaps.
+
 For live desktop analysis load trading-chart-open first. Open and verify the requested pair and candle interval (default one hour) before analysis. After successful opening, context/data reflects that verified chart for this turn; never continue using the old send-time pair or period.

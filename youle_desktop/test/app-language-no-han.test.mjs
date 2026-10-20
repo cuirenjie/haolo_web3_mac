@@ -40,7 +40,7 @@ function auditTranslation(text, file) {
 function rendererSourceFiles(directory = RENDERER_ROOT) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const entryPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) return rendererSourceFiles(entryPath);
+    if (entry.isDirectory()) return [".cache", "dist", "node_modules"].includes(entry.name) ? [] : rendererSourceFiles(entryPath);
     if (!SOURCE_EXTENSION_PATTERN.test(entry.name)) return [];
     if (entry.name.startsWith("app-language")) return [];
     return [entryPath];

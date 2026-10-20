@@ -137,7 +137,7 @@ test("fresh Codex roots discover only the same visible conversation's last busin
   await assert.rejects(h.call("haolo_plan_present", { analysisRef }), /unavailable/);
 });
 
-test("native delivery completion follows the current request even when the analysis presentation is cached", async () => {
+test("native delivery never suppresses the root answer, including cached and selected-model replies", async () => {
   const h = harness();
   await h.call("haolo_account_read");
   const { analysisRef } = await h.call("haolo_analysis", { analysisKind: "strategy" });
@@ -146,7 +146,8 @@ test("native delivery completion follows the current request even when the analy
   assert.equal(mixed.presentationItems[0].__youleNativeResponseComplete, false);
   h.broker.cancel("root"); h.bind();
   const complete = await h.call("haolo_plan_present", { analysisRef });
-  assert.equal(complete.presentationItems[0].__youleNativeResponseComplete, true);
+  assert.equal(complete.presentationItems[0].__youleNativeResponseComplete, false);
+  assert.equal(complete.answerRequired, true);
   assert.equal(mixed.presentationItems[0].__youleNativeResponseComplete, false, "cached response adaptation must not mutate earlier delivery");
   assert.equal(h.calls.filter(c => c.arguments?.action === "present").length, 1, "never repeat the cloud analysis or card effect");
   h.broker.cancel("root");
@@ -189,7 +190,7 @@ test("general explanation may request a drawing without becoming a plan, includi
   assert.equal(h.calls.length, 0);
 });
 
-test("explicit plan and position requests retain strategy defaults and native presentation", async () => {
+test("explicit plans retain native presentation while positions require a written assessment", async () => {
   for (const args of [{ analysisKind: "strategy" }, { positionManagementRequested: true }]) {
     const h = harness();
     h.bind().userText = args.positionManagementRequested ? "分析我的仓位怎么调整" : "给我一个交易计划";
@@ -197,9 +198,15 @@ test("explicit plan and position requests retain strategy defaults and native pr
     const analysis = await h.call("haolo_analysis", args);
     assert.equal(analysis.analysisKind, "strategy");
     assert.equal(h.calls.at(-1).arguments.strategyId, "price-action");
-    assert.deepEqual(analysis.next, ["haolo_chart_draw", "haolo_plan_present"]);
-    const result = await h.call("haolo_plan_present", { analysisRef: analysis.analysisRef });
-    assert.equal(result.presentationItems.length, 1);
+    assert.deepEqual(analysis.next, args.positionManagementRequested ? ["haolo_chart_draw"] : ["haolo_chart_draw", "haolo_plan_present"]);
+    if (args.positionManagementRequested) {
+      assert.equal(analysis.positionReview.accountStatus, "unavailable");
+      await assert.rejects(h.call("haolo_plan_present", { analysisRef: analysis.analysisRef }), /not a completed position plan/);
+    } else {
+      const result = await h.call("haolo_plan_present", { analysisRef: analysis.analysisRef });
+      assert.equal(result.presentationItems.length, 1);
+      assert.equal(result.presentationItems[0].__youleNativeResponseComplete, false);
+    }
   }
 });
 

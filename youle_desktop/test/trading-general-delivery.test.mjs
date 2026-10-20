@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { tradingAnalysisCompletionText } from "../src/renderer/cloud-analysis-text.ts";
 
 const source = fs.readFileSync(new URL("../src/renderer/main.ts", import.meta.url), "utf8");
 const ast = ts.createSourceFile("main.ts", source, ts.ScriptTarget.Latest, true);
@@ -12,6 +13,7 @@ function harness({ failure = false } = {}) {
   const reports = [], persisted = [], requests = [];
   const noop = () => {};
   const deps = {
+    tradingAnalysisCompletionText,
     beginTradingExpertAnalysisJob: () => "analysis-1",
     resolveTradingExpertAnalysisThreadId: id => id,
     clearTradingExpertThinkingState: () => false,
@@ -65,4 +67,6 @@ test("independent general analysis defers delivery to the root's written answer"
   assert.equal(result.analysisJobId, "analysis-1");
   assert.match(result.report, /confirmed close/);
   assert.equal(h.requests[0].deferPresentation, true);
+  assert.match(h.persisted[0].at(-1).text, /等待展示结果/);
+  assert.doesNotMatch(h.persisted[0].at(-1).text, /fixture|根 K 线|绘图已完成/);
 });

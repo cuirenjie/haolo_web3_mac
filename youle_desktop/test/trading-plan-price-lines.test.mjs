@@ -22,7 +22,7 @@ test('five plan levels reuse account-line labels with exact prices and no accoun
   assert.equal(drawingIds.size, 5);
   assert.deepEqual(lines.map(line => line.shortLabel), ['入场', '止损', '第1止盈', '第2止盈', '第3止盈']);
   assert.deepEqual(lines.map(line => line.kind), ['plan-entry', 'stop-loss', 'take-profit', 'take-profit', 'take-profit']);
-  assert.equal(lines.at(-1).label, '1,285.246');
+  assert.equal(lines.at(-1).label, '1285.246', 'same decimal formatting as the plan card');
   const bounds = { width: 1000, height: 600 }, project = price => (1500 - price) * 2;
   const svg = renderTradingOrderLineSvg(lines, market, bounds, project);
   assert.equal((svg.match(/data-trading-plan-price-line/g) || []).length, 5);

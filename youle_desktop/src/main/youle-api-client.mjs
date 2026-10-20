@@ -1640,12 +1640,14 @@ export class YouleApiClient {
     });
   }
 
-  async getAccountConnectionSnapshot(connectionId) {
+  async getAccountConnectionSnapshot(connectionId, { includeTodayPnl = false } = {}) {
     await this.load();
     this.requireAuth();
     const id = String(connectionId || "").trim();
     if (!id) throw new Error("connectionId is required");
-    return this.requestJson(joinUrl(this.baseUrl, `${this.accountConnectionsPath}/${encodeURIComponent(id)}/snapshot`), {
+    const path = `${this.accountConnectionsPath}/${encodeURIComponent(id)}/snapshot`;
+    const query = includeTodayPnl ? { pnlTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone } : {};
+    return this.requestJson(joinUrl(this.baseUrl, appendQuery(path, query)), {
       method: "GET",
       headers: this.authHeaders(),
     });

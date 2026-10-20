@@ -697,10 +697,10 @@ test("the final assistant bubble, plan empty state, and both themes are wired to
   assert.match(messagePlanBlock, /executionPlanHasStructuredTradingFields\(candidate\)/);
   assert.match(messagePlanBlock, /executionPlanHasConcreteTradingPlan\(candidate\)/);
   assert.match(renderer, /__youleExecutionPlanPresentation: "plain"/);
-  assert.equal(
-    (renderer.match(/result\.report,\s*undefined,\s*undefined,\s*request\.positionManagementRequested === true \? "plain" : "execution-plan"/g) || []).length,
-    2,
-  );
+  const generalDelivery = renderer.slice(renderer.indexOf("async function runTradingGeneralChartRequest"), renderer.indexOf("async function runTradingStrategyChartRequest"));
+  const strategyDelivery = renderer.slice(renderer.indexOf("async function runTradingStrategyChartRequest"));
+  assert.match(generalDelivery, /result\.report,\s*undefined,\s*undefined,\s*"plain"/);
+  assert.match(strategyDelivery, /result\.report,\s*undefined,\s*undefined,\s*request\.positionManagementRequested === true \? "plain" : "execution-plan"/);
   assert.match(messagePlanBlock, /executionPlanCandidateWithSourceText\(rawCandidate, text\)/);
   assert.doesNotMatch(messagePlanBlock, /tradingLastAnalysisLabelForThread|state\.threads/);
   assert.match(messagePlanBlock, /class="message-execution-plan execution-plan-surface"/);

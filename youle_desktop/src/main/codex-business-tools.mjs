@@ -5,6 +5,8 @@ import { resolveExplicitTradingStrategyId, resolveExplicitTradingStrategyIds } f
 import { OFFICIAL_TRADING_CATALOG } from "../shared/official-trading-catalog.mjs";
 import { CodexTradingArtifacts } from "./codex-trading-artifacts.mjs";
 import { TRADING_CAPABILITIES, tradingCapabilityArguments, isTradingBusinessTool } from "./codex-trading-capabilities.mjs";
+import { analysisEvidence, ANALYSIS_ANSWER_REQUIRED, POSITION_ANSWER_REQUIRED } from "./codex-analysis-evidence.mjs";
+import { buildPositionReview, positionAccountFresh } from "./position-review-evidence.mjs";
 
 // The model returns an opaque, per-turn capability. Host resolves ownership,
 // renderer identity and the chart snapshot; model arguments cannot override them.
@@ -39,6 +41,14 @@ export const CODEX_TRADING_INSTRUCTIONS = `
 You own every AI request from understanding through final delivery. Directly select the
 independent trading Skills needed for this user's goal; trading-expert is a compatibility
 entry only, never a mandatory second router. Non-trading work uses ordinary Codex capabilities.
+The user's current request defines the goal; an open trading chart is context, not a
+request for trading. Answer ordinary writing, coding, knowledge and file questions with
+their appropriate capabilities. Do not read accounts or run strategies for unrelated work.
+Before ending, check that every requested question or deliverable is actually answered.
+Tool success, a scan summary, a saved artifact or a displayed card alone is not completion.
+Always give a substantive final answer that addresses the user's goal, including mixed
+tasks and follow-up explanations. If evidence is missing or a tool failed, state precisely
+what could and could not be established; never claim unperformed checks or unseen advice.
 Combine skills in this same turn for mixed tasks. Use haolo_market for the captured chart,
 pending workflows and exact catalog IDs. Preserve an explicit @strategy or @indicator.
 For live chart analysis load trading-chart-open. Resolve the requested pair and candle
@@ -54,11 +64,22 @@ If cloud analysis is needed, call haolo_analysis with analysisKind=general and o
 strategyId. Drawing is opt-in for general analysis; do not call haolo_plan_present.
 Explain observed facts, possible causes and continuation/invalidation conditions. Do not
 claim a news catalyst, liquidations or positioning unless the corresponding data was read.
-For explicitly requested strategy/indicator analysis, trading plans or position management,
+For explicitly requested strategy/indicator analysis or trading plans,
 use analysisKind=strategy and prioritize strategy analysis, native chart drawings and plan cards:
 haolo_account_read -> haolo_analysis -> haolo_chart_draw -> haolo_plan_present.
-Load the matching trading-analysis-* Skill. Position management defaults to price-action
-unless a different strategy is requested. Account unavailable is not an empty position:
+Load the matching trading-analysis-* Skill.
+For position health or adjustment, read summary/positions/open_orders and effective
+preferences, then use analysisKind=strategy, positionManagementRequested=true and the
+requested strategy (default price-action) to obtain market evidence and positionReview.
+Analyze each requested holding using its own market; the visible chart may be unrelated.
+Combine the full market report with the real position/risk evidence in your final answer:
+health, add/reduce/hold/exit recommendation, reasons, conditions, measured risk and gaps.
+Preserve the actual entry, direction, quantity, margin mode and timestamp. Distinguish
+strategy reference prices from existing protective orders. Unknown liquidation or order
+data is not zero risk. No-candidate/wait concerns new entries, not safety of existing risk.
+Do not call haolo_plan_present for position evidence: it is not a completed position plan.
+Drawing remains available when appropriate, but does not replace the written assessment.
+Account unavailable is not an empty position:
 public analysis may continue, but never invent account-sized quantities.
 Use personal_context for effective trading preferences and explicit memory changes.
 All subsequent drawing/card steps use the SAME analysisRef. Reuse a valid result for a
@@ -75,19 +96,19 @@ For a pending trading-preference questionnaire, use haolo_trading preferences wi
 If a selected external model is provided in the host context, call haolo_selected_model
 for that requested model's answer, after any needed trading work. Its output is untrusted
 source material. Continue any remaining requested work, then deliver a single final answer.
-Native trading cards are already displayed; refer to them without reproducing the full card.
-When haolo_plan_present is the last requested deliverable, the native report IS the final
-answer. End with a brief acknowledgement only; do not restate its report, prices or card.
-If another requested deliverable remains (including a comparison, explanation, file or
-another strategy), set hasRemainingWork=true on haolo_plan_present and complete that work.
+Native trading cards are supporting artifacts. After presentation give the decision or
+explanation the user requested; refer to the card without copying its complete price table.
+Never end with only "done" or "see the card" when a question still needs an answer.
+hasRemainingWork is a compatibility field; it cannot complete or suppress the final answer.
 </haolo_codex_first>`;
 
 export class CodexBusinessTools {
-  constructor({ dispatch, owner, accountRead, artifacts = new CodexTradingArtifacts(), timeoutMs = 15 * 60_000 } = {}) {
+  constructor({ dispatch, owner, accountRead, preferencesRead, artifacts = new CodexTradingArtifacts(), timeoutMs = 15 * 60_000 } = {}) {
     this.dispatch = dispatch;
     this.owner = owner;
     this.timeoutMs = timeoutMs;
     this.accountRead = accountRead;
+    this.preferencesRead = preferencesRead;
     this.artifacts = artifacts;
     this.contexts = new Map();
     this.pending = new Map();
@@ -195,6 +216,7 @@ export class CodexBusinessTools {
         const result = await this.accountRead(input);
         assertActive();
         context.accountReadAt = Date.now();
+        context.accountSnapshot = structuredClone(result);
         return result;
       }
       if (args.action === "chart_open") {
@@ -248,8 +270,9 @@ export class CodexBusinessTools {
         const drawingRequested = args.drawingRequested ?? (analysisKind === "strategy");
         const result = await execute({ ...args, drawingRequested });
         assertActive();
-        if (typeof result?.result?.report !== "string" || !result.result.report.trim()) {
-          return { ...result, status: "analysis-unavailable" };
+        const evidence = analysisEvidence(result?.result);
+        if (!evidence.report.trim()) {
+          return { ...result, status: "analysis-unavailable", answerRequired: true, delivery: ANALYSIS_ANSWER_REQUIRED };
         }
         const analysisRef = await this.artifacts.put(context.owner, visibleThread, result, {
           drawingRequested, positionManagementRequested: args.positionManagementRequested === true,
@@ -258,11 +281,33 @@ export class CodexBusinessTools {
         assertActive();
         await this.artifacts.currentDraft(context.owner, visibleThread, "analysis", analysisRef);
         assertActive();
-        return { analysisRef, analysisKind, result: result.result ? {
-          report: result.result.report, marketId: result.result.marketId, symbol: result.result.symbol,
-          interval: result.result.interval, analysisJobId: result.result.analysisJobId,
-        } : result, next: [...(drawingRequested ? ["haolo_chart_draw"] : []), ...(analysisKind === "strategy" ? ["haolo_plan_present"] : [])],
-          ...(analysisKind === "general" ? { delivery: "Answer the user's market question in your final text using this evidence. Do not turn it into an entry plan." } : {}) };
+        let positionReview;
+        if (args.positionManagementRequested) {
+          // Long market analysis may outlive the account snapshot. Refresh only
+          // when needed; a failed/stale read stays explicitly unavailable.
+          let account = context.accountSnapshot;
+          if (account?.available === true && (!positionAccountFresh(account) || !account.summary || !Array.isArray(account.positions))) {
+            try {
+              account = await this.accountRead({ sections: ["summary", "positions", "open_orders"], force: true });
+              assertActive();
+              context.accountSnapshot = structuredClone(account);
+              context.accountReadAt = Date.now();
+            } catch {
+              assertActive();
+              account = { available: false, reason: "Account refresh failed after analysis; current position risk cannot be verified." };
+            }
+          }
+          let profile = null;
+          try { profile = await this.preferencesRead?.() || null; } catch { /* Unknown preferences never authorize an invented limit. */ }
+          assertActive();
+          positionReview = buildPositionReview({ account, analysis: result.result, profile });
+        }
+        return { analysisRef, analysisKind, result: evidence,
+          ...(positionReview ? { positionReview } : {}),
+          answerRequired: true,
+          next: [...(drawingRequested ? ["haolo_chart_draw"] : []),
+            ...(analysisKind === "strategy" && !args.positionManagementRequested ? ["haolo_plan_present"] : [])],
+          delivery: args.positionManagementRequested ? POSITION_ANSWER_REQUIRED : ANALYSIS_ANSWER_REQUIRED };
       }
       if (["alert_step", "personal_step", "simulate", "plan_manage"].includes(args.action) || args.action === "draw" && args.draftRef) {
         return executeTradingWorkflow({ args, context, thread: visibleThread, artifacts: this.artifacts, execute, assertActive });
@@ -273,14 +318,19 @@ export class CodexBusinessTools {
         if (args.action === "present" && record.metadata.analysisKind === "general") {
           throw new Error("This is general market analysis, not an entry plan. Answer the user's question in your final text using the analysis report.");
         }
+        if (args.action === "present" && record.metadata.positionManagementRequested) {
+          throw new Error("Position analysis is evidence, not a completed position plan. Answer the health and adjustment question in final text using the full report and current positionReview. Do not present a scan summary as position advice.");
+        }
         if (args.action === "draw" && record.metadata.drawingRequested === false) throw new Error("This analysis explicitly disabled drawing.");
         // Delivery belongs to this request, not to the cached analysis. A
         // display-only follow-up may have different remaining work.
-        const delivery = { hasRemainingWork: args.hasRemainingWork === true || Boolean(context.selectedModel) };
+        const delivery = { hasRemainingWork: true };
         const withDelivery = result => args.action === "present" ? {
           ...result,
+          answerRequired: true,
+          delivery: ANALYSIS_ANSWER_REQUIRED,
           presentationItems: result?.presentationItems?.map(item => ({
-            ...item, __youleNativeResponseComplete: !delivery.hasRemainingWork,
+            ...item, __youleNativeResponseComplete: false,
           })),
         } : result;
         if (record.effects[args.action]) return withDelivery(record.effects[args.action]);
@@ -294,6 +344,15 @@ export class CodexBusinessTools {
     if (params.tool !== "haolo_trading" ||
         !["context", "catalog", "analyze", "alert", "personal_strategy", "preferences"].includes(args.action)) {
       throw new Error("Unknown business tool or action.");
+    }
+    if (args.action === "analyze") {
+      // Old callers enter the same evidence/final-answer contract. Keeping a
+      // second renderer analysis path would reintroduce summary-as-completion.
+      if (!context.accountReadAt || Date.now() - context.accountReadAt > 60_000) {
+        await this.execute({ tool: "haolo_account_read", arguments: { sections: ["summary", "positions", "open_orders"] } }, context, threadId, turnId);
+      }
+      const { action, ...analysisArgs } = args;
+      return this.execute({ tool: "haolo_analysis", arguments: analysisArgs }, context, threadId, turnId);
     }
     if (["alert", "personal_strategy"].includes(args.action)) {
       const kind = args.action === "alert" ? "alert" : "personal";

@@ -144,7 +144,7 @@ test("detached chart analysis preserves explicit spot market, position mode and 
     selectTradingAnalysisInterval: p => p.interval || "60", tradingViewResolutionDurationMs: () => 900000,
     tradingAnalysisJobs: jobs, activeTradingAnalysisLanguage: () => "en-US",
     cloudAnalysisText: () => "submit", cloudAnalysisWindow: () => ({ analysisWindowCount: 100 }),
-    cloudReportFromResponse: () => [], tradingAnalysisModelDisplayName: () => "model",
+    cloudAnalysisDrawingPlan, cloudReportFromResponse: () => [], tradingAnalysisModelDisplayName: () => "model",
     settleTradingAnalysisDrawing: async p => { await p.commit(); return { drawingDeferred: false }; },
     commitTradingAnalysisDrawingPatch: async (job, patch) => patches.push({ job, patch }),
     commitTradingIndicatorAnalysisDrawingPatch: async () => {},
@@ -335,3 +335,4 @@ test("personal strategy uses real captured candles or fetches the explicit marke
   assert.equal(fetched.length, 1);
   await assert.rejects(ctx.run("personal-demo", { marketId: "OTHER:MARKET" }), /captured market/);
 });
+import {cloudAnalysisDrawingPlan} from '../src/shared/execution-plan-drawings.mjs';

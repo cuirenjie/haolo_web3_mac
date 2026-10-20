@@ -13,7 +13,7 @@ function fixture() {
   const events = [];
   const sender = { isDestroyed: () => false };
   const client = new EventEmitter();
-  const broker = new CodexBusinessTools({ owner: () => owner, dispatch: (s, p) => events.push({ sender: s, ...p }) });
+  const broker = new CodexBusinessTools({ owner: () => owner, accountRead: async () => ({ available: false }), dispatch: (s, p) => events.push({ sender: s, ...p }) });
   const context = broker.bind("thread-a", { sender, client, contextId: "frozen-chart", userText: "确认" });
   return { broker, sender, client, context, events, changeOwner: () => { owner = "account-b"; } };
 }
@@ -39,6 +39,7 @@ test("tool retransmission returns one run and cannot cross account/client/turn",
   const p = { threadId: "thread-a", turnId: "turn-a", callId: "call", tool: "haolo_trading", arguments: { action: "analyze", instruction: "ETH" } };
   const first = f.broker.invoke(p, f.client);
   const second = f.broker.invoke(p, f.client);
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.events.length, 1);
   await assert.rejects(f.broker.invoke({ ...p, turnId: "other" }, f.client), /owned/);
   await assert.rejects(f.broker.invoke(p, {}), /owned/);
@@ -53,6 +54,7 @@ test("cancellation fails pending work and ignores late or unrelated completions"
   const f = fixture();
   f.broker.start("thread-a", "turn-a", f.client);
   const promise = f.broker.invokeBound({ tool: "haolo_trading", arguments: { context_id: f.context.token, action: "analyze" } });
+  await new Promise(resolve => setImmediate(resolve));
   f.broker.cancel("thread-a", "unrelated", "turn-old");
   assert.equal(f.broker.contexts.size, 1);
   f.broker.cancel("thread-a", "cancelled", "turn-a");

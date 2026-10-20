@@ -23,6 +23,8 @@ import {
   type TradingOrderLine,
 } from "./trading-expert-order-lines.ts";
 import { buildTradingPlanPriceLines } from './trading-plan-price-lines.ts';
+import { normalizePlanLevel, type PlanLevel } from '../shared/execution-plan-drawings.mjs';
+import { PLAN_DRAWING_HISTORY_CHANGED, projectStoredTradingPlanDrawings } from './trading-plan-drawing-history.ts';
 import { tradingDrawingLabelObstacles } from './trading-drawing-label-obstacles.ts';
 import { translateAppText, translateDrawingText, translateTradingAnnotationText, type AppLanguage } from "./app-language.mjs";
 import { DRAWING_MENU_SECTIONS, DRAWING_SHORTCUTS, DRAWING_SYMBOLS, renderDrawingIcon as drawingIcon, drawingMenuGroup } from './trading-drawing-catalog.ts';
@@ -505,6 +507,7 @@ export interface TradingDrawingPoint {
 export interface TradingDrawingModel extends TradingDrawingStyle {
   barsPattern?: BarsPatternSnapshot;
   entryConditionRef?: {conditionId:string;revision:number;conditionHash:string};
+  planLevel?: PlanLevel;
   id: string;
   strategyId?: string;
   symbol: string;
@@ -1450,6 +1453,7 @@ function loadStoredAiDrawings(storageSessionId: string): TradingDrawingModel[] {
         locked: true,
         source: "ai",
         entryConditionRef:conditionReference(candidate.entryConditionRef),
+        planLevel:normalizePlanLevel(candidate.planLevel),
         colorToken: colorToken as TradingAiDrawingColorToken,
         lineStyle: drawingLineStyle(candidate.lineStyle),
         lineWidth: drawingLineWidth(candidate.lineWidth),
@@ -2477,6 +2481,7 @@ export function normalizeTradingAiDrawingPatch(
     return {
       id: String(drawing.id || `ai-${index}`).slice(0, 160),
       entryConditionRef:conditionReference(patch.entryConditionRef),
+      planLevel:normalizePlanLevel(drawing.planLevel),
       strategyId: drawing.theory === "strategy" ? String(drawing.strategyId) : undefined,
       symbol: patch.marketId,
       interval: patch.interval,
@@ -2510,6 +2515,7 @@ function tradingAiDrawingModel(drawing: TradingAiDrawing): TradingDrawingModel {
   return {
     id: drawing.id,
     entryConditionRef:conditionReference(drawing.entryConditionRef),
+    planLevel:normalizePlanLevel(drawing.planLevel),
     strategyId: drawing.strategyId,
     symbol: drawing.symbol,
     interval: drawing.interval,
@@ -3112,6 +3118,7 @@ export class TradingDrawingController {
     document.addEventListener('paste', this.handleDrawingImagePaste);
     this.overlay.addEventListener("lostpointercapture", this.handlePointerCancel);
     window.addEventListener("blur", this.cancelPointerInteraction);
+    window.addEventListener(PLAN_DRAWING_HISTORY_CHANGED, this.handlePlanDrawingHistoryChanged);
     document.addEventListener("pointerdown", this.handleChartBackgroundPointerDown, true);
     document.addEventListener("pointerdown", this.handleToolMenuOutsidePointerDown, true);
     document.addEventListener("pointerdown", this.handleOutsidePointerDown);
@@ -6664,7 +6671,7 @@ export class TradingDrawingController {
     const symbol = this.getSymbol();
     const interval = this.getInterval();
     const aiSourceDrawings = this.drawingScope === "main"
-      ? this.aiDrawings.filter((drawing) => tradingAiDrawingMatchesContext(drawing, symbol, interval))
+      ? projectStoredTradingPlanDrawings(this.aiDrawings, this.storageSessionId).filter((drawing) => tradingAiDrawingMatchesContext(drawing, symbol, interval))
       : [];
     if (this.drawingScope === "main"
       && this.aiDraft && tradingAiDrawingMatchesContext(this.aiDraft, symbol, interval)) {
@@ -7837,6 +7844,10 @@ export class TradingDrawingController {
       + `<text x="${x + 7}" y="${y - 5}" fill="#fff" font-size="10" font-weight="600">${escapeHtml(label)}</text>`;
   }
 
+  private handlePlanDrawingHistoryChanged = (event: Event) => {
+    if ((event as CustomEvent<string>).detail === this.storageSessionId) this.redraw();
+  };
+
   destroy() {
     for (const timer of this.volumeProfileTimers.values()) window.clearTimeout(timer);
     this.volumeHistory?.destroy();
@@ -7906,6 +7917,7 @@ export class TradingDrawingController {
     this.xPostDialog.close();
     this.overlay.removeEventListener("lostpointercapture", this.handlePointerCancel);
     window.removeEventListener("blur", this.cancelPointerInteraction);
+    window.removeEventListener(PLAN_DRAWING_HISTORY_CHANGED, this.handlePlanDrawingHistoryChanged);
     document.removeEventListener("pointerdown", this.handleOutsidePointerDown);
     document.removeEventListener("pointerdown", this.handleToolMenuOutsidePointerDown, true);
     document.removeEventListener("pointerdown", this.handleChartBackgroundPointerDown, true);

@@ -24,8 +24,8 @@ export function isCompletedTradingAnalysisReport(item: AnalysisItem | undefined)
   );
 }
 
-// A final native report is the analysis deliverable. Codex may still be
-// acknowledging the tool result or writing a short closing sentence.
+// Legacy reports may have completed the response. New supporting artifacts
+// carry complete=false and keep the root's substantive final answer visible.
 export function completedTradingAnalysisReport(
   items: Array<AnalysisItem | undefined>,
   responseId: string | null | undefined,
@@ -40,10 +40,9 @@ export function completedTradingAnalysisReport(
   return null;
 }
 
-// Project the transcript without deleting the underlying model messages. Once
-// the native response is delivered, its same-turn closing text must not replace
-// it with another streaming answer. Explicit remaining work and attachments
-// still surface, but cannot be parsed into a second plan from model prose.
+// Preserve legacy transcript projection without deleting underlying messages.
+// New cards explicitly keep the root's answer visible as plain text, so model
+// prose is not parsed into a second executable plan.
 export function tradingAnalysisDeliveryItems<T extends AnalysisItem>(items: T[]): T[] {
   const reports = new Map<string, { index: number; complete: boolean }>();
   items.forEach((item, index) => {
