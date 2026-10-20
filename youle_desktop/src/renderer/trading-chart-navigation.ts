@@ -105,7 +105,7 @@ export class TradingChartNavigation {
   private readonly redraw: () => void;
   private readonly options: NavigationOptions;
   private readonly root: HTMLElement;
-  private verticalLocked = true;
+  private verticalLocked = false;
   private freezeAutoNextFrame = false;
   private pendingWheelZoom: { logFactor: number; anchor: number } | null = null;
   private priceAxisBaseWidth: number | null = null;

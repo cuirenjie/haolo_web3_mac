@@ -82,13 +82,11 @@ function fixture(t) {
   return { win, chart, scales, panes, element, navigation, options, frames, rangeListeners, sizeListeners, nativeScroll, send, paint, paints: () => paints, range: () => range, focus: () => focus };
 }
 
-// Tests for manual gestures explicitly choose free dragging; fixture() keeps
-// the production default so the lock tests exercise constructor behavior.
+// Manual gesture tests retain the unlocked production default and start with
+// the same initial auto-fit used by the chart workspace.
 function freeDragFixture(t) {
   const f = fixture(t);
-  f.options.getAutoScale = () => true;
-  f.navigation.setVerticalLocked(!f.navigation.isVerticalLocked());
-  delete f.options.getAutoScale;
+  f.navigation.setAutoScale(true);
   f.scales[0].changes.length = 0;
   return f;
 }
@@ -152,13 +150,16 @@ test('indicator menu keeps local auto and inversion but cannot change indicator 
   assert.equal(f.scales[0].autoScale, true);
 });
 
-test('price lock starts enabled, fits during coalesced scrolling, and can be unlocked and relocked', t => {
+test('price lock starts disabled, fits after enabling, and can be unlocked and relocked', t => {
   const f = fixture(t), ts = f.chart.timeScale(), positions = [], native = f.nativeScroll;
   f.options.getAutoScale = () => false;
   f.options.onAutoScaleChange = () => assert.fail('lock must not change the saved A setting');
   f.scales[0].autoScale = false;
   ts.scrollPosition = () => 8; ts.scrollToPosition = position => positions.push(position);
-  assert.deepEqual(native, [{ pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false }]);
+  assert.equal(f.navigation.isVerticalLocked(), false);
+  assert.deepEqual(native, [{ pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true }]);
+  f.scales[0].changes.length = 0;
+  f.navigation.setVerticalLocked(true);
   f.paint();
   assert.equal(f.navigation.isVerticalLocked(), true);
   f.send('pointerdown', {}, true);
@@ -171,7 +172,7 @@ test('price lock starts enabled, fits during coalesced scrolling, and can be unl
   assert.deepEqual(positions, [-12, -22]);
   f.navigation.setVerticalLocked(!f.navigation.isVerticalLocked()); f.paint();
   assert.equal(f.navigation.isVerticalLocked(), false);
-  assert.deepEqual(native.map(o => o.pressedMouseMove), [false, true]);
+  assert.deepEqual(native.map(o => o.pressedMouseMove), [true, false, true]);
   assert.equal(f.scales[0].autoScale, false);
   delete f.options.onAutoScaleChange;
   f.send('pointerdown'); f.send('pointermove', { clientY: 160 }); f.send('pointerup');
@@ -185,6 +186,7 @@ test('linear lock refits every visible range and data update, while unlocked pri
   const f = fixture(t), ts = f.chart.timeScale(); let revision = 0;
   f.options.getAutoScale = () => false;
   f.options.getLockedPriceRange = range => range && ({ from: 100 + range.from + revision, to: 200 + range.to + revision });
+  f.navigation.setVerticalLocked(true);
   f.paint();
   assert.deepEqual(f.scales[0].range, { from: 100, to: 500 });
   ts.setVisibleLogicalRange({ from: 40, to: 100 });
@@ -204,6 +206,7 @@ test('locked log and percentage use native auto-fit without linear range writes 
   f.options.onAutoScaleChange = value => { auto = value; };
   f.options.getLockedPriceRange = () => assert.fail('linear prices cannot be written into transformed axes');
   f.scales[0].mode = 1;
+  f.navigation.setVerticalLocked(true);
   f.paint(); f.paint();
   assert.equal(f.scales[0].autoScale, true); assert.equal(auto, false);
   f.navigation.setMode(2); f.navigation.setAutoScale(false); f.paint(); f.paint();

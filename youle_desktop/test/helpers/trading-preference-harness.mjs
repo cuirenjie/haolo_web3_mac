@@ -56,6 +56,7 @@ function createHarness(overrides = {}) {
       render();
     }
     return { startTradingPreferenceOnboarding, startLegacyFixture, renderTradingPreferenceChoices, bindTradingPreferenceChoiceForm,
+      loadTradingPreferenceProfile, renderTradingPreferenceOnboardingEntry,
       handleTradingPreferenceOnboardingReply, saveTradingPreferenceOnboarding, tradingPreferenceMemoryEntries,
       tradingPreferenceCompletionText, tradingPreferenceSettings, flows: tradingPreferenceOnboardingByThreadId };
   `)})(...Object.values(deps));

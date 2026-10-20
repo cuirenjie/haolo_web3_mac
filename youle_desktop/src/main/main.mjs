@@ -15712,7 +15712,6 @@ ipcMain.handle("personalContext:getTradingPreferences", async (event) => {
 const cloudTradingPreferences = createCloudTradingPreferences({
   owner: requireHaoloAccountOwner,
   api: getYouleApiClient,
-  store: getPersonalMemoryStore,
 });
 function cloudTradingPreferenceFailure(error) {
   const detail = error?.payload?.detail || error?.detail || {};

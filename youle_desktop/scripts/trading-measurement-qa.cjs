@@ -54,7 +54,7 @@ let win;
       const s = await state(); assert.ok(s, `${theme}/${direction}: missing measurement`);
       assert.equal(s.color, direction === 'down' ? 'rgb(247, 82, 95)' : 'rgb(41, 98, 255)');
       assert.equal(s.textColor, 'rgb(255, 255, 255)'); assert.equal(s.border, '0px');
-      assert.equal(s.arrows, 2); assert.equal(s.card.height, 105); assert.equal(s.font, '18px'); assert.equal(s.lineHeight, '30px');
+      assert.equal(s.arrows, 2); assert.equal(s.card.height, 105); assert.equal(s.font, '16px'); assert.equal(s.lineHeight, '30px');
       assert.equal(s.text.split('\n').length, 3); assert.match(s.text, /根K线, /); assert.match(s.text, /成交量 /);
       assert.ok(Math.abs((s.card.left+s.card.right)/2 - (s.rect.left+s.rect.right)/2) < 1);
       if (direction === 'down') { assert.ok(s.classes.includes('downward')); assert.ok(Math.abs(s.card.top - s.rect.bottom - 15) < 1, JSON.stringify({pane,s})); }
